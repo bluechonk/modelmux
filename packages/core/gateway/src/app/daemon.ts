@@ -57,11 +57,16 @@ export { gatewayHealthy, foreignServiceOnPort, pidAlive, killTree, cliEntry } fr
 /**
  * start 等待网关就绪的默认时长（毫秒）。
  *
- * ⚠ 冷启动实测 ~5s（11 个渠道初始化 + 启动探测），紧接构建/安装后机器忙时会超过 8s
- * （实测踩过：8s 窗口超时误报「未就绪」，网关其实几百毫秒后就 ready 了）。
- * 留出余量到 12s；hook 场景仍走 `--wait` 自己调小。
+ * ⚠ 冷启动实测 ~5s（11 个渠道初始化 + 启动探测），但某个渠道的登录探测偶发
+ * 超过 12s 时，supervisor 会在启动窗口内判定「从未就绪」并放弃，网关直接不可用
+ * （2026-10-18 实测踩过）。默认放宽到 30s；`MODELMUX_START_WAIT_MS` 可覆盖，
+ * hook 场景仍可用 `--wait` 自行调小。
  */
-export const DEFAULT_WAIT_MS = 12_000;
+export const DEFAULT_WAIT_MS = (() => {
+  const raw = process.env["MODELMUX_START_WAIT_MS"];
+  const value = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(value) && value > 0 ? value : 30_000;
+})();
 
 /** 范围内的渠道清单（仓库级 = 全部已注册渠道）。 */
 function scopeChannels(scope: Scope): Channel[] {
