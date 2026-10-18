@@ -399,4 +399,4 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
   product=traework，配合账号绑定的 Cloud-IDE-JWT 与账号绑定快照）。
 - 切换到 chat_sessions 是会话管理器级改造（创建会话 / 事件流 / 消息 id / 账号绑定
   快照，见 reference `run_remote_session`），未在本轮实施；在此如实记录现状。
-- models / billing / 签到不受影响。
+- model / billing / 签到不受影响。

@@ -1,5 +1,5 @@
 /**
- * 渠道动词：`mx <动词> [<cid>]` 的分发与实现（login / status / models / billing / accounts / …）。
+ * 渠道动词：`mx <动词> [<cid>]` 的分发与实现（login / status / model / billing / accounts / …）。
  *
  * 从 `command-groups.ts` 拆出。共享的 `CommandContext`、目录工具与登录列表
  * 从 `./model-group.js` 取（单向依赖）。

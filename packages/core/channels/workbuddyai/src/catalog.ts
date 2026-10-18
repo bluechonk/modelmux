@@ -11,13 +11,13 @@
  * ## 三份目录的优先级
  *
  * 1. **远端**（`<cid>/cache/models.json`，由 `upstream.fetchModels()` 每次成功拉取后落盘）——
- *    权威来源，`/v1/models` 与 `mx models` 正常看到的就是它；
+ *    权威来源，`/v1/models` 与 `mx model` 正常看到的就是它；
  * 2. **随包快照**（渠道根 `models.json`）—— 未登录 / 上游拉不到时的兜底；
  * 3. **内置兜底表**（`LEGACY_ALIASES` 的值）—— 连快照都缺失时的最后一道。
  *
  * ⚠ 快照会**过期**：实测随包那份只有 1 条 flash，而上游真实目录远不止一条。
  * 故远端目录必须落盘（见共享层 `runtime/catalog-cache.ts`），否则换个新进程
- * （`mx models`、`mx model list`）就又只剩快照。
+ * （`mx model`、`mx model list`）就又只剩快照。
  */
 
 import { readFileSync, statSync } from "node:fs";
@@ -206,7 +206,7 @@ export function setRemoteModels(rows: readonly unknown[]): ModelEntry[] {
 }
 
 /**
- * 强制从上游重拉目录（`mx models <cid> --refresh`）。
+ * 强制从上游重拉目录（`mx model <cid> --refresh`）。
  *
  * 走 `/v3/config`（桌面端选择器的那份目录），解析与落盘由 `fetchCatalog()` 完成；
  * 失败**必须抛出去** —— 用户显式要求刷新时，看到一张旧表却以为刷成功了是最坏的结果。

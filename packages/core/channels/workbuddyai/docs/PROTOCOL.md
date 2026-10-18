@@ -90,7 +90,7 @@
 - 目录端点受 UA 门禁：只有三段式 CLI UA 能拿到完整目录，未知 UA 直接 `400 code=12403`
   （hub `remote_config_headers` 注释）；故用 `buildChatHeaders()` 那套桌面端身分。
 - 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddyai/cache/models.json`（共享层 `catalog-cache.ts`），
-  `mx models --refresh` 与登录后的 `fetchModels` 都会触发。
+  `mx model workbuddyai --refresh` 与登录后的 `fetchModels` 都会触发。
 
 ## 7. 测试对照
 

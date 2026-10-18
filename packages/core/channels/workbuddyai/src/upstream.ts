@@ -973,7 +973,7 @@ export function parseCatalogPayload(payload: unknown): CatalogRow[] {
 }
 
 /**
- * 拉取真实模型目录并落盘（`mx models <cid> --refresh` 与登录后自动调用）。
+ * 拉取真实模型目录并落盘（`mx model <cid> --refresh` 与登录后自动调用）。
  *
  * 失败**招错**：自动路径由 `fetchModels` 捕获后回落窄表，显式刷新时用户必须
  * 知道这次没成。

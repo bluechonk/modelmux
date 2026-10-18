@@ -62,7 +62,7 @@ ${verbLines.join("\n")}
   -f, --follow              logs：持续输出新增日志（等价 tail -f / docker logs -f）
   --realm <名>              login 的登录域（渠道自定义；单域渠道忽略）
   --wechat                  login：微信扫码登录（仅声明该方式的渠道，如 loomy）
-  --refresh                 models <cid> / model usage：强制重拉上游目录 / 重查账单
+  --refresh                 model <cid> / model usage：强制重拉上游目录 / 重查账单
                             （失败即报错退出）
   --all                     paths：统计工作区内全部渠道
   --workspace <dir>         paths：工作区根（默认从当前目录向上查找）

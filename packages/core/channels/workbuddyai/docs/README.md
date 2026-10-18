@@ -32,7 +32,7 @@ WorkBuddyAI 的本地 OpenAI Chat Completion 透明代理网关（**TypeScript**
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login workbuddyai                            # 仓库级 CLI：登录
-mx status workbuddyai（models / billing 同法）        # 状态 / 模型 / 账单
+mx status workbuddyai（model / billing 同法）        # 状态 / 模型 / 账单
 node channels/workbuddyai/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 
@@ -88,7 +88,7 @@ src/
 
 - **对外名 = 上游模型名**（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`）
 - 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddyai/cache/models.json`）
-  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx models --refresh` 强制重拉
+  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx model workbuddy --refresh` 强制重拉
 - 历史短名 `deepseek-flash` 仍能解析（老配置不断），但不出现在 `/v1/models` 里
 - 未识别的模型名原样透传
 
@@ -100,7 +100,7 @@ src/
   真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md §8`）。
 - **端到端**：由 **Agent 跑 `reasonix-mx-test` skill**，用 Reasonix CLI 直连
   `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
-- 端到端覆盖：登录入池 / `mx models --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- 端到端覆盖：登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 临时脚本示例：`.tmp/probe-xxx.mjs`（任务结束前清理）。
 

@@ -53,7 +53,7 @@
 ## 数据通道
 
 - `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点）。
-- `POST /web/api/commands`：动作分发（login / status / models / billing / accounts /
+- `POST /web/api/commands`：动作分发（login / status / model / billing / accounts /
   activateAccount / removeAccount / syncPool / pasteCallback）。
   - `billing` 支持 `args.refresh: true`（真实重查各渠道账单）与 `cid` 过滤（单渠道刷新）。
   - `pasteCallback`：手工兜底通道，把用户粘回的回调链接喂给等待中的登录流程。

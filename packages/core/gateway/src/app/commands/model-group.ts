@@ -24,7 +24,7 @@ export interface CommandContext {
   uiPort: number;
   realm: string;
   force: boolean;
-  /** `models <cid>` / `model usage` 的 `--refresh`：强制重拉上游目录。 */
+  /** `model <cid>` / `model usage` 的 `--refresh`：强制重拉上游目录。 */
   refresh: boolean;
   /** `login --wechat`：微信扫码登录（渠道声明 loginWechat 才支持）。 */
   wechat: boolean;
@@ -112,7 +112,7 @@ function originNote(origin: CatalogOrigin): string {
 }
 
 /**
- * `models <cid>`：该渠道能提供哪些模型（对外 id 形态 `<cid>/<模型>`）。
+ * `model <cid>`：该渠道能提供哪些模型（对外 id 形态 `<cid>/<模型>`）。
  *
  * 渠道目录里不能对外暴露的条目只报数量（可能几十条，全列是噪音）。
  */

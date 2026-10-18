@@ -28,7 +28,7 @@ WorkBuddy **国内版**（腾讯 CodeBuddy，`codebuddy.ai`）的本地 OpenAI C
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login workbuddy                            # 仓库级 CLI：登录
-mx status workbuddy（models / billing 同法）        # 状态 / 模型 / 账单
+mx status workbuddy（model / billing 同法）        # 状态 / 模型 / 账单
 node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 
@@ -55,7 +55,7 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
 
 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddy/cache/models.json`）
 → 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
-`mx models workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
+`mx model workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
 
 ## 上游约束（改代码前必读）
 
@@ -84,7 +84,7 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
   真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md §8`）。
 - **端到端**：由 **Agent 跑 `reasonix-mx-test` skill**，用 Reasonix CLI 直连
   `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
-- 端到端覆盖：登录入池 / `mx models --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- 端到端覆盖：登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 临时脚本示例：`.tmp/probe-xxx.mjs`（任务结束前清理）。
 

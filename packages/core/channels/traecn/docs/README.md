@@ -15,7 +15,7 @@ TRAE（字节跳动）的本地 OpenAI Chat Completion 透明代理网关（**Ty
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login traecn                            # 仓库级 CLI：登录
-mx status traecn（models / billing 同法）        # 状态 / 模型 / 账单
+mx status traecn（model / billing 同法）        # 状态 / 模型 / 账单
 node channels/traecn/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 
