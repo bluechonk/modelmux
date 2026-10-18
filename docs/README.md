@@ -84,7 +84,7 @@
 ## 5. 新增一个渠道要动哪些地方
 
 1. 建 `packages/core/channels/<cid>/`：7 个 `src/*.ts`（`channel`/`cli`/`index` + `cred`/`upstream`/`catalog`/`billing`）
-   + `tests/selftest.test.ts` + `package.json` + `tsconfig.json`
+   + `package.json` + `tsconfig.json`（**渠道不做测试**，无需 `tests/`；见 `AGENTS.md §7`）
 2. `packages/core/channels/<cid>/docs/`：`README.md`（渠道说明）+ `PROTOCOL.md`（协议规格，实测结论）
 3. `packages/cli/src/channels.ts` 加一行 `import "@modelmux/<cid>"`（包名 = `@modelmux/` + 目录名，装好后由工作区软链解析）
 4. 工作区根 `package.json` 的 `workspaces`（`packages/cli` 不必声明依赖：发布 bundle 自包含）

@@ -348,38 +348,21 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 
 ---
 
-## 7. 测试要求
+## 7. 渠道不做测试
 
-每个渠道要有 `tests/selftest.test.ts`，用 `node:test`，**照已有渠道写**：
+渠道包 `packages/core/channels/<cid>/` **不写任何测试**（无 `tests/` 目录、`package.json`
+的 `scripts.test` 也不存在）。
 
-1. **完全离线**：所有上游调用指向本机假服务（`node:http` 起）
-2. **红线：不碰用户真实凭证**（违反 = 拿用户真实账号去撞上游风控，先警告后封号）：
-   - 存储根**必须**用 `MODELMUX_HOME` 指向 `mkdtempSync()` 的临时目录。
-     `paths.ts` 对该变量**惰性解析**（每次调用时读取），所以测试里任何 `cred.load()` /
-     账本 / 目录缓存读到的都是沙箱，`~/.modelmux/` 永不被测试进程打开；
-   - `cred.save()` 只写**假凭据**；fixture 与断言里禁止出现真实 uid、label、token ——
-     一律用明显虚构的占位值（文档示例同理，见 `POOL-ARCHITECTURE.md` §3.4 的占位写法）；
-   - 测试代码**禁止**对真实上游发任何请求（对话、签到、账单、登录轮询都算）；
-   - CI（GitHub Actions / pre-push 的 WSL 全新 clone）上没有 `~/.modelmux`，
-     靠这套隔离保证 `npm test` 无凭据可跑、可重复。
-3. **import 顺序**：先 `await import("@modelmux/gateway")`，再
-  `await import("../dist/channel.js")`（触发注册），最后引渠道模块
-4. **覆盖**：
-  - `paths`：存储根覆盖（`MODELMUX_HOME`）、`<cid>` 分层
-  - `catalog`：别名映射、未知名透传、目录缓存与 `refresh()` 行为（共享层不做家族过滤）
-  - `cred`：未登录抛错、落盘读回、损坏容忍
-  - `upstream`：URL 组装、鉴权头、请求体改写的关键字段（对照 `packages/core/channels/<cid>/docs/PROTOCOL.md`）
-  - **`newTranslator(request?)`（`WIRE === "custom"` 时）**：事件映射、`finish()` 补帧；
-    可选入参是客户端原始请求（渠道可读取 `tools` / `tool_choice` 做调用名归一化），
-    且**必须测逐字节喂入**（切帧 bug 的高发区）
-  - **端到端网关**：假上游 + 真实网关，断言流式与非流式都能出正文，
-    并核对上游**真实收到**的头与体
-  - 错误路径：上游 5xx → 502 且**不回传上游原文**；请求校验 400 统一信封
-5. 断言用 `node:assert/strict`；失败即测试失败（不要静默 catch）
+渠道正确性只靠两件事保障：
 
-**未实现的渠道**（`cred`/`upstream`/`catalog`/`billing` 是桩）必须让每个函数
-**立即抛错且消息含「尚未实现 + 实现依据指引」**，而不是返回空值。
-测试要锁定这个语义（见 `@modelmux/qodercn/tests/selftest.test.ts`）。
+1. **代码审查 + 归一化前后 diff 人工核验**：上游约束（身分头族、错误码、归一化管线）
+   的正确性不靠运行时发请求去「验证修复」—— 发畸形请求本身就是一次风控事件，轻则
+   429/错误码，重则账号/IP 被封（详见 `AGENTS.md §9`）。
+2. **端到端测试**：由 Agent 跑 `packages/ui` 与 `packages/core/cli` 的测试套件，
+   它们用 `MODELMUX_HOME` 隔离 + 本机假服务，验证网关/控制台/CLI 行为；
+   真实账号、真实渠道行为不在此处测，留给「真机手动验收」与 Agent 跑 e2e skill。
+
+> 本节已不要求渠道 `tests/selftest.test.ts` 存在 —— 见下方 §10 清单对应项已移除。
 
 ---
 
@@ -471,7 +454,7 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 - [ ] `channel.ts` 用 `setChannel()` 注册了 `ChannelConfig` + 4 个模块
 - [ ] 登录是真实 URL 链路，未读取其它应用的本地文件
 - [ ] `npm install && npm run build` 无错误（`tsc -b`，严格模式；各包 `extends` 根 `tsconfig.base.json`）
-- [ ] `node --test tests/selftest.test.ts` 全绿
+- [ ] 渠道包无 `tests/` 目录、`package.json` 无 `scripts.test`（渠道不做测试，见 §7）
 - [ ] 全仓验证：`npm test` 退出码 0（自带 `build`；根 `tsconfig.json` 为 solution 文件，一次 `tsc -b` 编全仓）
 - [ ] README 更新为 TypeScript 安装/使用说明，并指向 `packages/core/channels/<cid>/docs/PROTOCOL.md`
 - [ ] `packages/core/channels/<cid>/docs/PROTOCOL.md` 保留（协议规格，实现的依据）

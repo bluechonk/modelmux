@@ -67,8 +67,6 @@ src/
   upstream.ts      上游端点、配置、鉴权头
   catalog.ts       模型映射与目录
   billing.ts       额度查询
-tests/
-  selftest.test.ts node:test 自检（离线，不出网）
 ```
 
 构建产物 `dist/` 与依赖 `node_modules/` 已在 `.gitignore` 中。
@@ -96,16 +94,10 @@ tests/
 
 ## 测试
 
-```bash
-npm test          # = node --test tests/selftest.test.ts
-```
-
-测试**完全离线**：所有上游调用指向本机假服务，数据目录用 `MODELMUX_HOME`
-指向临时目录，不需要真实凭据，也不会碰真实账号。
-
-覆盖：路径与目录迁移、模型别名映射、凭据落盘/损坏容忍、上游 URL 与鉴权头、
-SSE 规范化与聚合、端到端网关（system 注入 / 强制流式 / 指纹改写 / 参数归一化 /
-工具序列修复 / 思考链回填 / 非流式聚合 / 错误信封 / 上游错误不回传原文）。
+渠道不写单元/集成测试（`AGENTS.md §7`）。端到端验证由 **Agent 跑 `reasonix-mx-test` skill**
+完成：通过 Reasonix CLI 直连 `http://127.0.0.1:4412/v1`，用 `workbuddyai/<模型>` 池 id 发
+**正确的** OpenAI 兼容请求；只发真实账号、正确形态，禁止任何畸形载荷。覆盖：
+登录入池、`mx models --refresh`、最小对话、工具调用往返、流式 SSE。
 
 ## 上游约束（改代码前必读）
 
