@@ -16,8 +16,9 @@
 ```
 ~/.modelmux/                 ← 唯一存储根（MODELMUX_HOME 可覆盖）
 ├── prefs.json                   ← （可选）跨渠道共享偏好
-├── gateway.pid / gateway.log    ← 仓库级网关的 PID 与日志（不属于任何渠道）
-├── gateway-worker.pid           ← 仓库级网关 worker 的 PID（监督进程维护）
+├── gateway.pid                  ← 仓库级网关监督进程 PID（不属于任何渠道）
+├── gateway-worker.pid           ← 仓库级网关 worker PID（监督进程维护）
+├── logs/                        ← 运行日志（类型/日期/结果分层，见 LOGGING.md）
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
 ├── workbuddyai/                 ← cid 层
 │   ├── credentials.json
@@ -25,7 +26,7 @@
 │   ├── prefs.json
 │   ├── gateway.pid
 │   ├── gateway-worker.pid
-│   ├── gateway.log
+│   ├── gateway.log              ← 旧版单渠道日志（兼容保留，不再写入）
 │   ├── cache/                   ← 可安全删除（含 cache/models.json）
 │   ├── state/                   ← 跨重启保持
 │   └── debug/                   ← 抓包落盘（opt-in）
@@ -63,7 +64,7 @@
   | `prefs.json` | 渠道内偏好（`auto_start` 等） |
   | `gateway.pid` | 守护式网关 PID（记监督进程） |
   | `gateway-worker.pid` | 守护式网关 worker PID（监督进程维护） |
-  | `gateway.log` | 守护进程 stdout/stderr |
+  | `gateway.log` | 旧版守护进程 stdout/stderr（兼容保留；新日志见 `logs/`） |
 
 5. **渠道特有文件必须落在自己的 cid 层内**：
   - `cache/` 可安全删除、可重建（缓存，丢了只是变慢/回落兜底表）
@@ -90,6 +91,6 @@
 9. **（可选）根级共享偏好**：`<root>/prefs.json` 放跨渠道设置；渠道内 `prefs.json` 只放
    本渠道设置。本期可不实现，但预留位置，避免以后又想加一层。
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
-   `gateway.pid` / `gateway.log`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
-   账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）。走 `paths.rootFile()`，
-   文件名同样受本节第 7 条的校验。
+   `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
+   账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）。走 `paths.rootFile()`
+   或 `paths.logsDir()`，文件名同样受本节第 7 条的校验。

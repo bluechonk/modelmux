@@ -68,10 +68,17 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
         ...(cid !== undefined ? { cid } : {}),
         ...(ctx.workspace !== undefined ? { workspace: ctx.workspace } : {}),
       });
-    case "logs":
+    case "logs": {
+      if (ctx.logList) return daemon.listLogs(ctx.json);
+      const filter: daemon.LogFilter = {
+        ...(ctx.logKind !== undefined ? { kind: ctx.logKind } : {}),
+        ...(ctx.logOutcome !== undefined ? { outcome: ctx.logOutcome } : {}),
+        ...(ctx.logDate !== undefined ? { date: ctx.logDate } : {}),
+      };
       return ctx.follow
-        ? daemon.followLogs(ctx.lines, ctx.json, cid)
-        : daemon.logs(ctx.lines, ctx.json, cid);
+        ? daemon.followLogs(ctx.lines, ctx.json, cid, filter)
+        : daemon.logs(ctx.lines, ctx.json, cid, filter);
+    }
     case "accounts":
       return accountCli.runAccounts({
         json: ctx.json,

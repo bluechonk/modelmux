@@ -26,6 +26,14 @@ import { resolvePoolModel } from "../pool/model-pool.js";
 import { asPoolModel, parsePoolModel, poolCandidates, POOL_MODELS, POOL_MODEL_META, getPoolModelMeta } from "../pool/pool-targets.js";
 import { isCooling, maybeRefreshBilling, noteFailure, noteSuccess, scoreOf } from "../pool/pool-usage.js";
 import { logThrottled } from "../runtime/logger.js";
+import {
+  getRequestLog,
+  noteClientDisconnect,
+  noteFirstByte,
+  noteRequestError,
+  noteUpstreamReady,
+  noteUsage,
+} from "../runtime/log-store.js";
 import * as sseStream from "./sse-stream.js";
 import type { GatewayOptions } from "./gateway.js";
 
@@ -54,6 +62,64 @@ const STRIP_HEADERS = new Set([
 
 const READ_TIMEOUT_MS = 120_000;
 
+/** 空闲超时可用环境变量覆盖（测试/长任务部署按需调整）。 */
+function readTimeoutMs(): number {
+  const raw = process.env["MODELMUX_READ_TIMEOUT_MS"];
+  const value = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(value) && value > 0 ? value : READ_TIMEOUT_MS;
+}
+
+/**
+ * 把上游响应体包成「空闲超时」流：**每读到一块就重置计时**。
+ *
+ * 旧实现用 `AbortSignal.timeout()` 掐总时长，长任务（catpaw 的 agent 轮次、
+ * 长 tool 循环）只要总耗时超过阈值就被硬切断，日志只剩一句无上下文的
+ * TimeoutError。现在只在「连续 N 秒没有任何数据」时中止，持续出字的流不受影响。
+ */
+function idleGuardedBody(
+  body: ReadableStream<Uint8Array>,
+  controller: AbortController,
+  timeoutMs: number,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const clear = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  const arm = (): void => {
+    clear();
+    timer = setTimeout(() => {
+      controller.abort(new Error(`upstream idle timeout after ${timeoutMs}ms without data`));
+    }, timeoutMs);
+    timer.unref?.();
+  };
+  arm();
+  return new ReadableStream<Uint8Array>({
+    async pull(ctrl) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          clear();
+          ctrl.close();
+          return;
+        }
+        arm();
+        ctrl.enqueue(value);
+      } catch (err) {
+        clear();
+        ctrl.error(err);
+      }
+    },
+    async cancel(reason) {
+      clear();
+      await reader.cancel(reason).catch(() => {});
+    },
+  });
+}
+
 /** 排队重试：单帧退避上限（上游给的 retryAfterSeconds 超过它就按这个等）。 */
 
 const QUEUE_RETRY_MAX_DELAY_MS = 10_000;
@@ -81,6 +147,7 @@ function writeJson(res: ServerResponse, data: unknown, status = 200): void {
 /** 错误响应 JSON 结构：`{"error":{"type","code","message"}}`。 */
 
 function writeJsonError(res: ServerResponse, status: number, code: string, message: string): void {
+  noteRequestError(res, code, message);
   writeJson(res, { error: { type: "error", code, message } }, status);
 }
 
@@ -156,6 +223,8 @@ interface UpstreamCall {
   error?: Error;
   /** 连接阶段失败（请求未发出）—— 重试无副作用。 */
   connectFailed?: boolean;
+  /** 连接/首字节阶段超时（区别于普通上游错误）。 */
+  timeout?: boolean;
 }
 
 /**
@@ -173,14 +242,22 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
   }
 
   let resp: Response;
+  const controller = new AbortController();
+  const timeoutMs = readTimeoutMs();
+  const headerTimer = setTimeout(() => {
+    controller.abort(new Error(`upstream header timeout after ${timeoutMs}ms`));
+  }, timeoutMs);
+  headerTimer.unref?.();
   try {
     resp = await fetch(upstream.chatUrl(), {
       method: "POST",
       body: new Uint8Array(body),
       headers,
-      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+      signal: controller.signal,
     });
+    clearTimeout(headerTimer);
   } catch (err) {
+    clearTimeout(headerTimer);
     const cause = (err as { cause?: { code?: string } }).cause;
     const code = cause?.code ?? (err as { code?: string }).code;
     const connectFailed =
@@ -196,6 +273,7 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
       body: null,
       error: new Error(`upstream request failed: ${String(err)}`),
       connectFailed,
+      timeout: /timeout/i.test(String(err)) || (err as { name?: string }).name === "TimeoutError",
     };
   }
 
@@ -226,7 +304,12 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
       error: new Error(`upstream returned HTTP ${resp.status}: ${snippet.slice(0, 2048)}`),
     };
   }
-  return { ok: true, status: resp.status, headers: resp.headers, body: resp.body };
+  return {
+    ok: true,
+    status: resp.status,
+    headers: resp.headers,
+    body: resp.body ? idleGuardedBody(resp.body, controller, timeoutMs) : null,
+  };
 }
 
 // ── 流处理 ────────────────────────────────────────────────────────────────────
@@ -235,6 +318,23 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
 
 function asBuffer(frame: Buffer | string): Buffer {
   return Buffer.isBuffer(frame) ? frame : Buffer.from(frame, "utf8");
+}
+
+/** 从一帧 OpenAI SSE 里提取 usage（流式 usage 帧可能是独立 chunk）。 */
+function noteFrameUsage(res: ServerResponse, frame: Buffer | string): void {
+  const text = typeof frame === "string" ? frame : frame.toString("utf8");
+  if (!text.includes('"usage"')) return;
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      if (parsed["usage"]) noteUsage(res, parsed["usage"]);
+    } catch {
+      /* 非 JSON 帧不处理 */
+    }
+  }
 }
 
 /**
@@ -264,23 +364,43 @@ async function relayStream(
   //   旧实例缓冲里的**半行**丢掉，残行收尾时整帧解析失败被丢弃（实测：tool_call 参数损坏）。
   const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
+  let first = true;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       for (const frame of translator.feed(Buffer.from(value))) {
-        res.write(asBuffer(frame));
+        if (first) {
+          noteFirstByte(res);
+          first = false;
+        }
+        const buf = asBuffer(frame);
+        noteFrameUsage(res, buf);
+        res.write(buf);
       }
     }
     for (const frame of translator.finish()) {
-      res.write(asBuffer(frame));
+      const buf = asBuffer(frame);
+      noteFrameUsage(res, buf);
+      res.write(buf);
     }
   } catch (err) {
     const code = (err as { code?: string } | null)?.code;
+    const name = (err as { name?: string } | null)?.name;
     if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE") {
       // 客户端提前断开（如主动取消请求）属正常情况
+      noteClientDisconnect(res);
       logger("client disconnected, stopping relay");
+    } else if (name === "TimeoutError" || /timeout/i.test(String(err))) {
+      noteRequestError(res, "upstream_timeout", `upstream stream timed out: ${String(err)}`);
+      logger(`upstream stream timed out: ${String(err)}`);
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({ error: { code: "upstream_timeout", message: `upstream stream timed out: ${String(err)}` } })}\n\n`,
+        );
+      }
     } else {
+      noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
       logger(`upstream stream failed: ${String(err)}`);
       if (!res.writableEnded) {
         res.write(
@@ -579,6 +699,28 @@ export async function handleChat(
     writeJsonError(res, 400, "invalid_request", "model and messages are required");
     return;
   }
+  const reqLog = getRequestLog(res);
+  if (reqLog) {
+    reqLog.model = model;
+    reqLog.requestBytes = raw.length;
+    reqLog.messageCount = messages.length;
+    reqLog.systemChars = messages.reduce((sum, m) => {
+      if (!m || typeof m !== "object") return sum;
+      const rec = m as Record<string, unknown>;
+      if (rec["role"] !== "system" && rec["role"] !== "developer") return sum;
+      const content = rec["content"];
+      if (typeof content === "string") return sum + content.length;
+      if (Array.isArray(content)) {
+        return sum + content.reduce((n, part) => {
+          if (!part || typeof part !== "object") return n;
+          const text = (part as Record<string, unknown>)["text"];
+          return n + (typeof text === "string" ? text.length : 0);
+        }, 0);
+      }
+      return sum;
+    }, 0);
+    reqLog.toolCount = Array.isArray(payload["tools"]) ? payload["tools"].length : 0;
+  }
 
   // 公共模型池：对外 id 是 `<cid>/<模型>` 形态（渠道由请求方显式指定，见 pool-targets.ts）；
   // 渠道内部的账号池轮换与冷却账本照旧（pool-usage.ts）。
@@ -597,6 +739,7 @@ export async function handleChat(
   // 拆出渠道段与模型段：`asPoolModel` 已归一过，parsePoolModel 这里必成功，仅作类型收窄
   const targetParts = parsePoolModel(target);
   if (!targetParts) return;
+  if (reqLog) reqLog.cid = targetParts.cid;
   // 渠道段要有对应注册渠道（客户端写错渠道名是**请求问题**，400，与未登录的 503 分开）
   if (!hasChannel(targetParts.cid)) {
     writeJsonError(
@@ -645,6 +788,7 @@ export async function handleChat(
     );
   }
   const wantStream = Boolean(payload["stream"]);
+  if (reqLog) reqLog.stream = wantStream;
   const tried: string[] = [];
   let lastError: { status: number; code: string; message: string } | null = null;
 
@@ -715,6 +859,7 @@ export async function handleChat(
     // ⚠ 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入 relayUpstream，
     //    响应头已发给客户端，换渠道会变成两个响应。
     const outcome = await callUpstream(channel, sendBody, opts.logger);
+    if (outcome.kind === "ok") noteUpstreamReady(res);
     if (outcome.kind === "not_authenticated") {
       logThrottled(opts.logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
       noteFailure(cid, activeKeyOf(cid));
@@ -788,11 +933,16 @@ export async function handleChat(
           `upstream returned non-200 (channel ${cid}): ${String(call.error?.message ?? "")}`,
         );
       }
+      if (call.timeout) noteRequestError(res, "upstream_timeout", String(call.error));
       noteFailure(cid, activeKeyOf(cid));
       // 仅「上游不可用/网络」计账号连败；4xx 业务错（模型/参数/内容）属请求级，
       // 计进去会把健康账号误标 error（catpaw 的 tool 消息序列实测踩过）
       if (call.status <= 0 || call.status >= 500) noteAccountFailure(cid);
-      lastError = { status: 502, code: "upstream_error", message: "upstream request failed; see gateway logs" };
+      lastError = {
+        status: 502,
+        code: call.timeout ? "upstream_timeout" : "upstream_error",
+        message: "upstream request failed; see gateway logs",
+      };
       continue;
     }
 
@@ -868,6 +1018,7 @@ async function relayUpstream(
         return;
       }
       const aggregated = sseStream.aggregateChatSse(buf);
+      noteUsage(res, aggregated.usage);
       // 流内业务错误（上游 HTTP 200 + error 帧）且没有任何内容 → 报错误，别回空 completion
       if (isEmptyCompletion(aggregated)) {
         const sseError = sseStream.firstSseError(buf);
@@ -876,10 +1027,13 @@ async function relayUpstream(
           return;
         }
       }
+      noteFirstByte(res);
       writeJson(res, aggregated);
     } catch (err) {
       logger(`reading upstream response interrupted: ${String(err)}`);
-      writeJsonError(res, 502, "upstream_error", "upstream request failed; see gateway logs");
+      const timedOut = /timeout/i.test(String(err));
+      writeJsonError(res, 502, timedOut ? "upstream_timeout" : "upstream_error", "upstream request failed; see gateway logs");
+      noteRequestError(res, timedOut ? "upstream_timeout" : "upstream_read_failed", String(err));
     }
     return;
   }
