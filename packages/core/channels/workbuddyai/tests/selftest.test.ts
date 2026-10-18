@@ -229,6 +229,8 @@ describe("4. 上游配置", () => {
       upstream.modelsUrl(cfg),
       "https://www.workbuddy.ai/v2/enterprises/personal/models",
     );
+    // 真实目录不在窄表上，而在桌面端的 product-config
+    assert.equal(upstream.catalogUrl(cfg), "https://www.workbuddy.ai/v3/config");
   });
 
   it("applyAuth 设置鉴权头与官方端 UA（按归因域选 realm）", () => {
@@ -418,6 +420,34 @@ describe("6. 端到端网关", () => {
     assert.equal(sent["model"], "deepseek-v4.1-flash", "短名应映射为上游 slug");
   });
 
+  it("参数归一化：tool_choice / stop / max_completion_tokens / tools 形态", async () => {
+    fake.captured.length = 0;
+    await readSseFrames(`http://${gw.addr}/v1/chat/completions`, {
+      model: "workbuddyai/deepseek-v4.1-flash",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        {
+          type: "function",
+          name: "read_file",
+          description: "读文件",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      ],
+      tool_choice: { type: "function", function: { name: "read_file" } },
+      stop: "END",
+      max_completion_tokens: 64,
+      stream: true,
+    });
+    const sent = fake.captured.at(-1)!.body!;
+    // 上游按 Go 原生类型解码：对象形态 tool_choice 与字符串 stop 即 11101
+    assert.equal(sent["tool_choice"], "read_file", "tool_choice 对象应降为函数名");
+    assert.deepEqual(sent["stop"], ["END"], "字符串 stop 应包成数组");
+    assert.equal(sent["max_tokens"], 64, "max_completion_tokens 应翻译为 max_tokens");
+    assert.ok(!("max_completion_tokens" in sent), "旧字段不应残留");
+    const tools = sent["tools"] as Array<Record<string, unknown>>;
+    assert.ok(tools[0]!["function"], "顶层形态的 tools 应补成 {type,function}");
+  });
+
   it("上游约束：指纹改写为等价表述", async () => {
     fake.captured.length = 0;
     await readSseFrames(`http://${gw.addr}/v1/chat/completions`, {
@@ -432,10 +462,66 @@ describe("6. 端到端网关", () => {
     const messages = sent["messages"] as Array<{ content: string }>;
     const text = messages.map((m) => m.content).join("\n");
     assert.ok(
-      !text.includes("you will usually use this for PRs"),
+      !text.includes("Main branch ("),
       "命中指纹的样板文本必须被改写，否则整条会话被 11128 拒绝",
     );
-    assert.ok(text.includes("Main branch (used for PRs)"), "应改写为等价表述");
+    assert.ok(
+      text.includes("Default branch (you will usually use this for PRs)"),
+      "应改写为等价表述（指纹是 Main branch ( 这个片段）",
+    );
+  });
+
+  it("工具序列修复：并行 tool_calls 合并、孤立 tool 结果剔除（11148）", async () => {
+    fake.captured.length = 0;
+    await readSseFrames(`http://${gw.addr}/v1/chat/completions`, {
+      model: "workbuddyai/deepseek-v4.1-flash",
+      messages: [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: "a1", type: "function", function: { name: "f", arguments: "{}" } }],
+        },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: "a2", type: "function", function: { name: "g", arguments: "{}" } }],
+        },
+        { role: "tool", tool_call_id: "a1", content: "1" },
+        { role: "tool", tool_call_id: "a2", content: "2" },
+        { role: "tool", tool_call_id: "ghost", content: "orphan" },
+      ],
+      stream: true,
+    });
+    const sent = fake.captured.at(-1)!.body!;
+    const messages = sent["messages"] as Array<Record<string, unknown>>;
+    const assistants = messages.filter((m) => m["role"] === "assistant");
+    assert.equal(assistants.length, 1, "相邻的并行 tool_calls 应合并为一条 assistant");
+    assert.equal((assistants[0]!["tool_calls"] as unknown[]).length, 2, "合并后应带两个调用");
+    const toolIds = messages.filter((m) => m["role"] === "tool").map((m) => m["tool_call_id"]);
+    assert.deepEqual(toolIds, ["a1", "a2"], "孤立 tool 结果必须剔除，否则 11148");
+  });
+
+  it("DeepSeek 思考模式：assistant 缺 reasoning_content 时回填", async () => {
+    fake.captured.length = 0;
+    await readSseFrames(`http://${gw.addr}/v1/chat/completions`, {
+      model: "workbuddyai/deepseek-v4.1-flash",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "上一轮的答复" },
+        { role: "user", content: "继续" },
+      ],
+      reasoning_effort: "medium",
+      stream: true,
+    });
+    const sent = fake.captured.at(-1)!.body!;
+    const messages = sent["messages"] as Array<Record<string, unknown>>;
+    const assistant = messages.find((m) => m["role"] === "assistant")!;
+    assert.equal(typeof assistant["reasoning_content"], "string", "缺思考链会被上游拒收");
+    assert.ok(
+      typeof assistant["reasoning"] === "string" && assistant["reasoning"] !== "",
+      "reasoning 必须非空（上游按长度校验）",
+    );
   });
 
   it("非流式：本层聚合成 chat.completion", async () => {

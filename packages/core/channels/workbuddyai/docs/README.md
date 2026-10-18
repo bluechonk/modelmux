@@ -86,11 +86,13 @@ tests/
 `WORKBUDDY_DEBUG_DUMP`）两条渠道都不读：那个目录里是国际版旧凭证，而 `workbuddy`
 这个 cid 现在属于国内版 —— 混用会跨产品串号。迁完的旧数据在 `~/.modelmux/workbuddyai/`。
 
-## 模型短名映射
+## 模型目录
 
-- 网关对外暴露短名：**`deepseek-v4.1-flash`**（`/v1/models`、客户端配置均用短名）
-- 内部转发时映射回上游 slug：`deepseek-v4.1-flash → deepseek-v4.1-flash`
-- 映射关系由项目根目录 `models.json` 校验（缺失时用内置默认）；未识别的模型名原样透传
+- **对外名 = 上游模型名**（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`）
+- 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddyai/cache/models.json`）
+  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx models --refresh` 强制重拉
+- 历史短名 `deepseek-flash` 仍能解析（老配置不断），但不出现在 `/v1/models` 里
+- 未识别的模型名原样透传
 
 ## 测试
 
@@ -102,26 +104,31 @@ npm test          # = node --test tests/selftest.test.ts
 指向临时目录，不需要真实凭据，也不会碰真实账号。
 
 覆盖：路径与目录迁移、模型别名映射、凭据落盘/损坏容忍、上游 URL 与鉴权头、
-SSE 规范化与聚合、端到端网关（system 注入 / 强制流式 / 指纹改写 / 非流式聚合 /
-错误信封 / 上游错误不回传原文）。
+SSE 规范化与聚合、端到端网关（system 注入 / 强制流式 / 指纹改写 / 参数归一化 /
+工具序列修复 / 思考链回填 / 非流式聚合 / 错误信封 / 上游错误不回传原文）。
 
 ## 上游约束（改代码前必读）
 
-转发层要满足三条上游硬约束，它们都在 `gateway.ts` 里有对应实现与注释：
+转发层要满足六条上游硬约束，实现全在 `src/upstream.ts`（规格见 `docs/PROTOCOL.md` §5）：
 
 1. **首条消息必须是 system** —— 否则 400 `first message is not system prompt`
 2. **只支持流式** —— 否则 400 `Non-stream chat request is currently not supported`；
   客户端要非流式时也向上游要流式，由本层聚合成普通 JSON
-3. **系统提示词指纹拦截** —— 命中时整条会话被 400 `code=11128` 拒绝，
-  需把样板文本改写为等价表述（`FINGERPRINT_REWRITES`）
+3. **指纹拦截** —— 命中时整条会话被 400 `code=11128` 拒绝，需改写特征片段
+4. **`tool_choice` / `stop` 只认 Go 原生类型** —— 对象形态与字符串 `stop` 都是
+  `code=11101`，必须降成字符串 / 数组
+5. **工具调用序列必须成对且相邻** —— 违反即 `code=11148 tool_call_sequence_broken`
+6. **DeepSeek 思考模式下每条 assistant 必须带 `reasoning_content`**
 
-另外两条实测结论：
+另外三条实测结论：
 
 - **chat 路径不用 `prefixPath`**：模型载荷声明了 `/plugin` 前缀，
- 但 `POST /plugin/v2/chat/completions` 返回 404，`/v2/chat/completions` 才是 200
+  但 `POST /plugin/v2/chat/completions` 返回 404，`/v2/chat/completions` 才是 200
+- **真实目录在 `/v3/config`**，不在 `/v2/enterprises/personal/models` 的窄表上
+  （后者只有 18 条前端路由名，前者 27 条含 `deepseek-v4.1-flash`）
 - **SSE 里空的 `tool_calls: []` 必须剔除**：上游每个 delta 都带它，
- 而 ZCode 的解析器判定 `tool_calls != null` 就结束思考块 ——
- 不剔除会让每个 reasoning token 被切成独立的「思考」块
+  而 ZCode 的解析器判定 `tool_calls != null` 就结束思考块 ——
+  不剔除会让每个 reasoning token 被切成独立的「思考」块
 
 ## 参考实现（reference/）
 

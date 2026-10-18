@@ -28,7 +28,7 @@
 | X-Conversation-ID | 带连字符 UUID；上游不按它存历史，每轮新生成即可 |
 | X-Conversation-Request-ID = X-Root-Request-ID | **同一值**：一轮 user send 开始时生成、本轮所有请求复用（后台按它聚合） |
 | X-Conversation-Message-ID = X-Request-ID | 32 位无连字符 hex（UUIDv7） |
-| 链路族 | `traceparent: 00-<32hex>-<16hex>-01`、`b3: <trace>-<span>-1`、`X-B3-TraceId` / `X-B3-SpanId` / `X-B3-Sampled: 1`（`X-B3-ParentSpanId` 需要真实父子关系，不伪造） |
+| 链路族 | `traceparent: 00-<32hex>-<16hex>-01`、`b3: <trace>-<span>-1`、`X-B3-TraceId` / `X-B3-SpanId` / `X-B3-Sampled: 1`（`X-B3-ParentSpanId` 需要真实父子关系，不伪造）、`X-Trace-ID: <trace>`（官方客户端自家的 trace 头，取值同 trace id） |
 | Accept / X-Requested-With | `application/json, text/plain, */*` / `XMLHttpRequest` |
 | Origin / Referer | intl `https://www.workbuddy.ai`（+`/`）；cn `https://www.codebuddy.cn`（+`/`）—— **前台域名**，chat 上游仍按 §1 的 realm 表 |
 | X-CodeBuddy-Request | `1` |
@@ -53,7 +53,47 @@
 2. **请求体指纹串误杀** —— 内容审核对样板文本逐字精确匹配；需把命中文本改写为等价表述
  （实现见 `src/upstream.ts` 的 `rewriteFingerprint`）。
 
-## 5. 测试对照
+## 5. 请求体归一化管线（`src/upstream.ts::buildChatBody`）
 
-`tests/selftest.test.ts` 离线锁定：头族存在性、ID 形态、realm 端点推导、
-指纹改写行为；不发真实上游请求。
+顺序不可乱 —— 后一步依赖前一步的结果（与 hub 的 `build_upstream_body` 对齐）：
+
+| 步 | 动作 | 不做的后果 |
+| --- | --- | --- |
+| 1 | `developer` → `system` | `code=11128`（角色枚举不含 developer） |
+| 2 | 指纹改写（正文 / `reasoning_content` / 工具实参） | `code=11128` |
+| 3 | DeepSeek 思考链回填 | DeepSeek 多轮带思考时 400 |
+| 4 | 首条消息补 system | `400 first message is not system prompt` |
+| 5 | 相邻并行 `tool_calls` 合并 | `code=11148 tool_call_sequence_broken` |
+| 6 | `tool` 结果挪到对应 assistant 之后 | 同上 |
+| 7 | 孤立 `tool` 结果剔除 | 同上 |
+| 8 | `max_completion_tokens` → `max_tokens` | 上游不认新字段，输出长度失控 |
+| 9 | `tool_choice` 归一化 | 对象形态 → `code=11101`（Go 类型不匹配） |
+| 10 | `tools` 归一化（顶层形态补 `function` 包装） | 工具定义被忽略 / 解析失败 |
+| 11 | `stop` 归一化（字符串包成数组） | `code=11101` |
+| 12 | 强制 `stream:true` + `stream_options.include_usage` | `400 Non-stream chat request is currently not supported` |
+
+`tool_choice` 的细节（`wb_proxy.py::normalize_tool_choice`）：
+
+- 字符串 `"none"` / `"auto"` / `"required"` 原样保留，**且不清空 `tools`** ——
+  早期版本删 `tools` 会让 Agent 陷入「发 DSML 文本冒充工具调用」的死循环；
+- `{"type":"none"|"auto"|"required"}` → 对应字符串；
+- `{"type":"function","function":{"name":"x"}}` → `"x"`；
+- 其他对象一律删除该字段（宁可当自动，也不要 400）。
+
+## 6. 模型目录端点（`/v3/config`，不是窄表）
+
+| 端点 | 内容 | 实测 |
+| --- | --- | --- |
+| `/v2/enterprises/personal/models` | 连接配置（`endpoint` / `authentication`）+ 窄表 `data.models` | 18 条，以 `default-model` 这类前端路由别名开头 |
+| `/v3/config` | **桌面端选择器的真实目录**：`agents[].models` 裸 id 列表 + `models[]` 元数据 | 27 条，含 `deepseek-v4.1-flash` |
+
+- 目录端点受 UA 门禁：只有三段式 CLI UA 能拿到完整目录，未知 UA 直接 `400 code=12403`
+  （hub `remote_config_headers` 注释）；故用 `buildChatHeaders()` 那套桌面端身分。
+- 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddyai/cache/models.json`（共享层 `catalog-cache.ts`），
+  `mx models --refresh` 与登录后的 `fetchModels` 都会触发。
+
+## 7. 测试对照
+
+`tests/selftest.test.ts` 离线锁定：头族存在性、ID 形态、realm 端点推导、指纹改写行为、
+`tool_choice` / `stop` / `max_completion_tokens` 归一化、工具调用序列修复、
+DeepSeek 思考链回填、目录端点 URL；不发真实上游请求。
