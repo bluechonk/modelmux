@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="modelmux">
+  <title>modelmux</title>
+  <desc>多渠道路由网关：三条渠道汇聚到一个 OpenAI 兼容端点。</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8" />
+      <stop offset="1" stop-color="#0284c7" />
+    </linearGradient>
+  </defs>
+  <!-- 品牌底色：与侧栏 logo 同形的圆角方块（sky 渐变） -->
+  <rect width="24" height="24" rx="6" fill="url(#tile)" />
+  <!-- 三条渠道汇聚成一条总线，末端接上单一端点 -->
+  <g fill="none" stroke="#0b1220" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.2 7.2C8.2 7.2 8.8 12 11.8 12" />
+    <path d="M5.2 12h6.6" />
+    <path d="M5.2 16.8C8.2 16.8 8.8 12 11.8 12" />
+    <path d="M11.8 12h4.8" />
+  </g>
+  <circle cx="18" cy="12" r="1.7" fill="#0b1220" />
+</svg>

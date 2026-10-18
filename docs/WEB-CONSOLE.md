@@ -24,6 +24,20 @@
   `scripts/copy-ui.mjs` 把产物拷到 `packages/core/gateway/dist/ui` 与 `packages/cli/dist/ui`
   （**少拷一份，全局 `mx web` 就报「UI 未构建」**）。
 
+### 静态资源落点：必须走 `src/assets/`，不要放 `public/`
+
+页面图标在 `packages/ui/src/assets/favicon.svg`，由 `index.html` 以 `/src/assets/favicon.svg`
+引用。Vite 会把它打进 `assets/` 并加内容哈希（产物形如 `/web/assets/favicon-<hash>.svg`）。
+
+**为什么不能放 `public/`**：console handler 只托管两个静态位置 —— 前缀根 `/web/`（返回
+`index.html`）与 `/web/assets/*`；其余 GET 一律走 SPA 回退（`console.ts` 的
+`serveStatic(res, WEB_UI_INDEX)`）。放 `public/` 的 `/web/favicon.svg` 会被回退成 HTML
+而拿不到 SVG（**实测踩过**）。同理，图标不要声明成 `/web/favicon.svg` 这类前缀根路径。
+
+在 `index.html` 里显式声明 `<link rel="icon" type="image/svg+xml" href="/src/assets/favicon.svg">`
+还有第二个作用：浏览器不再去要默认的 `/favicon.ico` —— 那个路径在网关根下不存在，
+会以 `not_found` 写进 `access/<date>/failure.log`，属纯噪音。
+
 ## 数据通道
 
 - `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点）。
