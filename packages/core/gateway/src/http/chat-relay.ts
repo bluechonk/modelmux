@@ -13,7 +13,15 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { type Channel, type Credential, type StreamTranslator } from "../runtime/channel.js";
 import { hasChannel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
-import { activateAccount, markActiveHealth, pickAccount, readIndex } from "../runtime/account-pool.js";
+import {
+  activateAccount,
+  activeAccountIsError,
+  markActiveHealth,
+  noteAccountFailure,
+  noteAccountSuccess,
+  pickAccount,
+  readIndex,
+} from "../runtime/account-pool.js";
 import { resolvePoolModel } from "../pool/model-pool.js";
 import { asPoolModel, parsePoolModel, poolCandidates, POOL_MODELS, POOL_MODEL_META, getPoolModelMeta } from "../pool/pool-targets.js";
 import { isCooling, maybeRefreshBilling, noteFailure, noteSuccess, scoreOf } from "../pool/pool-usage.js";
@@ -456,6 +464,14 @@ async function callUpstream(
   const cid = channel.config.cid;
   const { cred, upstream } = channel;
 
+  // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）
+  if (activeAccountIsError(cid)) {
+    return {
+      kind: "not_authenticated",
+      error: `active account is marked error after repeated failures; switch account (mx accounts use) or re-login (mx login ${cid})`,
+    };
+  }
+
   let credential: Credential;
   try {
     credential = inChannel(channel, () => cred.load());
@@ -481,6 +497,7 @@ async function callUpstream(
       refreshed = await inChannel(channel, () => cred.refresh(credential));
     } catch (err) {
       noteFailure(cid, activeKeyOf(cid));
+      noteAccountFailure(cid);
       logger(`refresh failed: ${String(err)}`);
     }
     if (refreshed) {
@@ -638,6 +655,7 @@ export async function handleChat(
     } catch (err) {
       opts.logger(`model name unresolved (channel ${cid}): ${String(err)}`);
       noteFailure(cid, activeKeyOf(cid));
+      noteAccountFailure(cid);
       lastError = {
         status: 400,
         code: "unknown_model",
@@ -671,6 +689,7 @@ export async function handleChat(
       } catch (err) {
         opts.logger(`upstream prepare failed (channel ${cid}): ${String(err)}`);
         noteFailure(cid, activeKeyOf(cid));
+        noteAccountFailure(cid);
         lastError = {
           status: 502,
           code: "upstream_error",
@@ -691,11 +710,13 @@ export async function handleChat(
     if (outcome.kind === "not_authenticated") {
       opts.logger(`channel ${cid} not logged in: ${outcome.error}`);
       noteFailure(cid, activeKeyOf(cid));
+      noteAccountFailure(cid);
       lastError = { status: 503, code: "not_authenticated", message: `not logged in: ${outcome.error}` };
       continue;
     }
     if (outcome.kind === "auth_exhausted") {
       noteFailure(cid, activeKeyOf(cid));
+      noteAccountFailure(cid);
       lastError = { status: 502, code: "upstream_unauthenticated", message: outcome.error };
       continue;
     }
@@ -754,12 +775,14 @@ export async function handleChat(
       if (call.connectFailed) opts.logger(`upstream request failed (channel ${cid}): ${String(call.error)}`);
       else opts.logger(`upstream returned non-200 (channel ${cid}): ${String(call.error?.message ?? "")}`);
       noteFailure(cid, activeKeyOf(cid));
+      noteAccountFailure(cid);
       lastError = { status: 502, code: "upstream_error", message: "upstream request failed; see gateway logs" };
       continue;
     }
 
     // 上游收下了这次请求 → 该渠道可用（清冷却）→ 交给转发层，池路由到此为止。
     noteSuccess(cid, activeKeyOf(cid));
+    noteAccountSuccess(cid);
     markActiveHealth("ok", cid);
     await relayUpstream(res, channel, cid, call, wantStream, opts.logger, pendingFrames, queuedOut, probeTranslator);
     return;

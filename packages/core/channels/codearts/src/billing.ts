@@ -425,7 +425,13 @@ export async function fetchCredits(
     try {
       return await fetchAccountInfo(c);
     } catch (err) {
-      if (!(err instanceof cred.NotLoggedInError) || !refreshOn401) throw err;
+      if (!refreshOn401) throw err;
+      // securityToken 过期报的是 HTTP 400 + APIG.0602（不是 NotLoggedInError）——
+      // 鉴权类失败一律走 STS 轮换（refresh_token 一次性）后重试一次。
+      const authFailure =
+        err instanceof cred.NotLoggedInError ||
+        (err instanceof CreditsError && upstream.isAuthError(400, String(err.message)));
+      if (!authFailure) throw err;
       c = await cred.refresh(c);
       return fetchAccountInfo(c);
     }
