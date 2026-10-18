@@ -362,21 +362,20 @@ function noteFrameUsage(res: ServerResponse, frame: Buffer | string): void {
 
 /** 已收到客户端可执行工具调用后，上游静默超过该时长即主动收尾。 */
 const TOOL_CALL_IDLE_FLUSH_MS = 2_500;
+/** 还没收到任何内容时的首帧静默上限（慢上游容错）。 */
+const FIRST_TOKEN_IDLE_MS = 120_000;
 
 type IdleRead = { idle: true };
 
 /**
- * `reader.read()` 的竞速版本：有待下发工具调用且上游静默时返回 idle。
- * 上游等工具结果、网关等上游 `finished` 会互等至超时（catpaw 实测 200s+）。
+ * `reader.read()` 的竞速版本：静默 `idleMs` 后返回 idle。
+ * 上游等工具结果、上游发完正文不关流（catpaw 实测 170s）都会触发，
+ * 由调用方决定是下发工具调用还是收尾本轮。
  */
-async function readWithToolIdle(
+async function readWithIdle(
   reader: ReadableStreamDefaultReader<Uint8Array>,
-  translator: StreamTranslator,
   idleMs: number,
 ): Promise<{ done: boolean; value?: Uint8Array } | IdleRead> {
-  if (!translator.hasPendingToolCall?.()) {
-    return (await reader.read()) as { done: boolean; value?: Uint8Array };
-  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const idle = new Promise<IdleRead>((resolve) => {
     timer = setTimeout(() => resolve({ idle: true }), idleMs);
@@ -397,6 +396,7 @@ async function relayStream(
   cid?: string,
   resumeTranslator?: StreamTranslator,
   request?: Record<string, unknown>,
+  initialContent = false,
 ): Promise<void> {
   if (!isCustomWire(channel)) {
     await sseStream.relay(res, upstreamBody, contentType, cid);
@@ -408,12 +408,29 @@ async function relayStream(
   //   旧实例缓冲里的**半行**丢掉，残行收尾时整帧解析失败被丢弃（实测：tool_call 参数损坏）。
   const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
+  // 探测阶段可能已经写过帧：据此判断是否已收到内容
   let first = true;
+  let sawContent = initialContent;
   try {
     for (;;) {
-      const next = await readWithToolIdle(reader, translator, TOOL_CALL_IDLE_FLUSH_MS);
+      const pendingTool = translator.hasPendingToolCall?.() ?? false;
+      const idleMs = pendingTool
+        ? TOOL_CALL_IDLE_FLUSH_MS
+        : sawContent
+          ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
+          : FIRST_TOKEN_IDLE_MS;
+      const next = await readWithIdle(reader, idleMs);
       if ("idle" in next) {
-        logger("upstream idle after tool call; flushing tool_calls to client");
+        if (pendingTool) {
+          logger("upstream idle after tool call; flushing tool_calls to client");
+        } else {
+          logger("upstream silent after content; acking completion and finalizing");
+          try {
+            translator.ackConversation?.();
+          } catch {
+            /* 回报失败不影响收尾 */
+          }
+        }
         break;
       }
       const { done, value } = next;
@@ -422,6 +439,7 @@ async function relayStream(
         if (first) {
           noteFirstByte(res);
           first = false;
+          sawContent = true;
         }
         const buf = asBuffer(frame);
         noteFrameUsage(res, buf);
@@ -487,13 +505,32 @@ async function collectAsOpenAiSse(
   const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
   const out: Buffer[] = [];
+  let sawContent = false;
   try {
     for (;;) {
-      const next = await readWithToolIdle(reader, translator, TOOL_CALL_IDLE_FLUSH_MS);
-      if ("idle" in next) break;
+      const pendingTool = translator.hasPendingToolCall?.() ?? false;
+      const idleMs = pendingTool
+        ? TOOL_CALL_IDLE_FLUSH_MS
+        : sawContent
+          ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
+          : FIRST_TOKEN_IDLE_MS;
+      const next = await readWithIdle(reader, idleMs);
+      if ("idle" in next) {
+        if (!pendingTool) {
+          try {
+            translator.ackConversation?.();
+          } catch {
+            /* 回报失败不影响收尾 */
+          }
+        }
+        break;
+      }
       const { done, value } = next;
       if (done || !value) break;
-      for (const frame of translator.feed(Buffer.from(value))) out.push(asBuffer(frame));
+      for (const frame of translator.feed(Buffer.from(value))) {
+        out.push(asBuffer(frame));
+        sawContent = true;
+      }
       if (translator.isDone?.()) break;
     }
     for (const frame of translator.finish()) out.push(asBuffer(frame));
@@ -1149,7 +1186,17 @@ async function relayUpstream(
     return;
   }
   await inChannel(channel, () =>
-    relayStream(res, streamBody, call.headers.get("content-type") ?? "", logger, channel, cid, probeTranslator, request),
+        relayStream(
+          res,
+          streamBody,
+          call.headers.get("content-type") ?? "",
+          logger,
+          channel,
+          cid,
+          probeTranslator,
+          request,
+          pendingFrames.length > 0,
+        ),
   );
 }
 

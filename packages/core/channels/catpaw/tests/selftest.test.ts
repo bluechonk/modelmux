@@ -773,3 +773,74 @@ describe("tool call idle flush", () => {
     assert.ok(elapsed < 10_000, `应在空闲收尾窗口内结束，实际 ${elapsed}ms`);
   });
 });
+
+// ── 10. 收到内容后上游不关流（静默收尾兜底） ────────────────────────────────
+
+describe("content idle cutoff", () => {
+  let fake: Server;
+  let gw: Awaited<ReturnType<typeof gateway.start>> | undefined;
+  let prevBase: string | undefined;
+
+  before(async () => {
+    fake = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (d) => (raw += d));
+      req.on("end", () => {
+        void raw;
+        const path = req.url ?? "";
+        if (path.includes("/api/agent/conversation/turn")) {
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          res.write(
+            'data: {"conversationId":"conv-idle","message":{"content":[{"type":"text","text":"hello"}],"finished":false}}\n\n',
+          );
+          // 正文发完但不 end、不发 finished：模拟上游挂住连接
+          return;
+        }
+        if (path.includes("/api/agent/maas/model-types")) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            code: 0,
+            data: { models: [{ id: "glm-5.3-flash", modelType: 1, displayName: "GLM Flash" }] },
+          }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ code: 0, success: true, data: {} }));
+      });
+    });
+    await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));
+    const port = (fake.address() as { port: number }).port;
+    prevBase = process.env["CATPAW_BASE_URL"];
+    process.env["CATPAW_BASE_URL"] = `http://127.0.0.1:${port}`;
+    await saveFakeCredential("tok-idle-0123456789abcdef");
+    gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
+  });
+
+  after(async () => {
+    await gw?.close().catch(() => {});
+    if (prevBase === undefined) delete process.env["CATPAW_BASE_URL"];
+    else process.env["CATPAW_BASE_URL"] = prevBase;
+    await new Promise<void>((r) => fake.close(() => r()));
+  });
+
+  it("正文后上游静默 → 10 秒内收尾并回报 completed", async () => {
+    assert.ok(gw);
+    const started = Date.now();
+    const resp = await fetch(`http://${gw!.addr}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "catpaw/glm-5.3-flash",
+        messages: [{ role: "user", content: "hi" }],
+        stream: true,
+      }),
+    });
+    const text = await resp.text();
+    const elapsed = Date.now() - started;
+    assert.equal(resp.status, 200);
+    assert.match(text, /"content":"hello"/);
+    assert.match(text, /"finish_reason":"stop"/);
+    assert.match(text, /\[DONE\]/);
+    assert.ok(elapsed < 20_000, `静默兜底应在 10s 内收尾，实际 ${elapsed}ms`);
+  });
+});

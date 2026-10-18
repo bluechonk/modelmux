@@ -236,6 +236,10 @@ interface Channel {
 `tool_calls`，双方会互等到上游超时。翻译器应实现可选的 `hasPendingToolCall?(): boolean`；
 网关在上游静默 2.5 秒后主动收尾，把工具调用交给客户端执行。参考实现同上。
 
+上游发完正文却不关流时，翻译器应实现可选的 `idleCutoffAfterContentMs?(): number`
+（收到内容后的静默阈值）与 `ackConversation?(): void`（回报会话完成）；网关据此
+在静默后主动收尾，避免客户端一直等待。参考实现同上。
+
 **`buildChatBody(req, upstreamModel)`** 把下游 OpenAI 请求改写成上游能接受的形状：
 
 - 标准 OpenAI 渠道：通常 `{...req, model: upstreamModel}`，可能补 system、强制 `stream: true`
