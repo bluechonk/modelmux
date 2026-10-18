@@ -1,32 +1,23 @@
 /**
  * OrcaTerm 上游客户端 —— 把 OrcaTerm 内置 AI 助手暴露为 OpenAI 兼容 API。
  *
- * ## 上游协议（实测，参考 ZFXing-lite/orcaterm2api 与 hey7195/orcaterm_proxy）
+ * ## 上游协议（实测 + 参考 ZFXing-lite/orcaterm2api）
  *
  * 端点：POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfCode=&sseresume=true
  *
- * 鉴权（双凭证，任选其一）：
- *   - OAuth 桌面态：Authorization: Bearer <ot_session> + Cookie(ot_session/userId)
- *   - 浏览器控制台态：Cookie(uin/skey/userId)，无需 Authorization
+ * 鉴权：Authorization: Bearer <ot_session> + Cookie(ot_session/userId)
  *
  * 请求体：
- *   - conversationId: "cid-<uuid>-orcaterm" 格式
+ *   - conversationId: "cid-<uuid>-orcaterm"
  *   - input.input: ACP 信封 {"_format":"acp-prompt","version":1,"prompt":[...]}
- *   - input.emphasisPrompt: 注入到系统提示词后部（能压过 OrcaTerm 运维助手人设）
+ *   - input.emphasisPrompt: 注入到系统提示词后部
  *   - user.setting.model: 上游模型名 (如 "TokenHub/deepseek-v4-flash")
- *   - stream: true（SSE 分块传输，绕过 CDN 单体响应限制）
+ *   - stream: true
  *
- * 响应（SSE）：
- *   data: {"code":0,"data":{"action":"completion|ask|review",...}}
- *   - action="completion": data.taskCompletion 是正文
- *   - action="ask": data.question 是反问
- *   - action="review": data.tool 是工具调用 {"name","args":{...}}
- *   - 鉴权失效：code=10050000（数字或字符串两种形态）
- *
- * ## 模型
- *
- * 18 个已知模型 + 别名 orcaterm-assistant，详见 catalog.ts。
- * 默认模型 deepseek-v4-flash（最省钱测试首选）。
+ * 响应（SSE，实测每帧形态——来自 curl 真机探测 + Go 参考实现 orca.go TokenStream.Next()）：
+ *   data: {"id":"<uuid>","content":"<逐 token 增量文本>","reasoningContent":"","reasoning":false,"type":"ai","code":0}
+ *   - code=10050000 → 鉴权失效
+ *   - 累积全部 content 帧即为最终正文（纯文本，非 JSON）
  */
 
 import { randomUUID } from "node:crypto";
@@ -112,7 +103,7 @@ export function chatUrl(cfg?: Config): string {
   return `${base}${CHAT_PATH}?name=${PRODUCT}&mode=0&csrfCode=&sseresume=true`;
 }
 
-/** 用户信息端点（无模型列表端点）。 */
+/** 无模型列表端点。 */
 export function modelsUrl(_cfg?: Config): string {
   return "";
 }
@@ -146,15 +137,17 @@ export function buildHeaders(
     "Accept": "text/event-stream, application/json",
     "X-Product": PRODUCT,
     "X-Seq-Id": randomUUID(),
-    "Authorization": `Bearer ${token}`,
+    "X-Csrfcode": "",
+    "X-Referer": `${ORIGIN_TAURI}/`,
     "Origin": ORIGIN_TAURI,
     "User-Agent": UA_TAURI,
+    "Authorization": `Bearer ${token}`,
   };
 
   const cookies = [`ot_session=${token}`];
   if (credential.uid) cookies.push(`userId=${credential.uid}`);
   cookies.push("userAccountLoginMethod=oauth");
-  cookies.push("userAccountType=txcloud");
+  cookies.push("userAccountType=wechat");
   headers["Cookie"] = cookies.join("; ");
 
   return headers;
@@ -213,7 +206,7 @@ export function buildChatBody(
   const conversationId = `cid-${randomUUID()}-${PRODUCT}`;
   const seqId = randomUUID();
 
-  const body: Record<string, unknown> = {
+  return {
     conversationId,
     user: {
       id: "",
@@ -242,8 +235,6 @@ export function buildChatBody(
     },
     stream: true,
   };
-
-  return body;
 }
 
 // ── 工具结果回填 ─────────────────────────────────────────────────────────────
@@ -261,22 +252,17 @@ export function buildToolResultPrompt(toolName: string, output: string): string 
   return `${TOOL_META_OPEN}${TOOL_RESULT_LABEL}${TOOL_META_CLOSE}\n${output}`;
 }
 
-// ── SSE 响应解析 ─────────────────────────────────────────────────────────────
+// ── SSE 响应帧 ───────────────────────────────────────────────────────────
 
-interface UpstreamData {
-  action: string;
-  thinking?: string;
-  taskCompletion?: string;
-  question?: string;
-  tool?: { name: string; args: Record<string, unknown> };
-}
-
-/** 上游响应解析结果。 */
-interface ParsedOutcome {
-  action: string;
-  text: string;
-  thinking: string;
-  tool?: { name: string; args: Record<string, unknown> };
+/** 实测上游 SSE 帧结构（curl 真机探测 + Go orca.go 双源确认） */
+interface SseFrame {
+  id: string;
+  content: string;
+  reasoningContent?: string;
+  reasoning?: boolean;
+  type?: string;
+  code: number;
+  message?: string;
 }
 
 /** 去掉 markdown 围栏与前后空白。 */
@@ -295,76 +281,10 @@ function stripOutputShell(s: string): string {
   return s.trim();
 }
 
-/** 提取最外层花括号跨度。 */
-function outermostJSON(s: string): string {
-  const i = s.indexOf("{");
-  if (i < 0) return "";
-  const j = s.lastIndexOf("}");
-  if (j <= i) return "";
-  return s.slice(i, j + 1);
-}
-
 /** 控制台态票据失效特征。 */
 function isConsoleAuthExpired(msg: string): boolean {
+  if (!msg) return false;
   return msg.includes("NEED_UIN_AND_SKEY") || msg.includes("VERIFY_SKEY_UIN_FAILED");
-}
-
-/** 从聚合文本解析结果。兼容完整信封和内层协议 JSON。 */
-export function parseOutcomeText(full: string): ParsedOutcome {
-  const text = stripOutputShell(full);
-  if (!text.trim()) {
-    throw new OrcaProtocolError("upstream returned empty content");
-  }
-
-  // 形态一：完整信封
-  try {
-    const resp = JSON.parse(text) as { code: number; message: string; data?: UpstreamData };
-    if (resp.code === CODE_AUTH_EXPIRED) {
-      throw new UpstreamUnauthorized(`upstream auth expired (code=${resp.code})`);
-    }
-    if (isConsoleAuthExpired(resp.message)) {
-      throw new UpstreamUnauthorized(`console auth expired: ${resp.message}`);
-    }
-    if (resp.code !== 0 && resp.code !== 200) {
-      throw new OrcaProtocolError(resp.message || `upstream error code=${resp.code}`, resp.code);
-    }
-    if (resp.data) return parseData(resp.data);
-  } catch (e) {
-    if (e instanceof UpstreamUnauthorized) throw e;
-    if (e instanceof OrcaProtocolError) throw e;
-  }
-
-  // 形态二：内层协议 JSON
-  const body = outermostJSON(text) || text;
-  try {
-    const data = JSON.parse(body) as UpstreamData;
-    return parseData(data);
-  } catch {
-    try {
-      const wrapped = `{"code":0,"data":${body}}`;
-      const resp = JSON.parse(wrapped) as { data?: UpstreamData };
-      if (resp.data) return parseData(resp.data);
-    } catch {
-      // ignore
-    }
-  }
-
-  return { action: "completion", text: stripOutputShell(text), thinking: "" };
-}
-
-function parseData(d: UpstreamData): ParsedOutcome {
-  const thinking = d.thinking || "";
-  switch (d.action) {
-    case "completion":
-      return { action: "completion", text: d.taskCompletion || "", thinking };
-    case "ask":
-      return { action: "ask", text: d.question || "", thinking };
-    case "review":
-      if (!d.tool) throw new OrcaProtocolError("review action missing tool");
-      return { action: "review", text: d.taskCompletion || "", thinking, tool: { name: d.tool.name, args: d.tool.args || {} } };
-    default:
-      return { action: "completion", text: d.taskCompletion || "", thinking };
-  }
 }
 
 // ── SSE 翻译器 ───────────────────────────────────────────────────────────────
@@ -374,20 +294,20 @@ class SseLineReader {
   private tail = "";
   private decoder = new TextDecoder("utf-8");
 
-  push(chunk: Uint8Array): Array<Record<string, unknown>> {
+  push(chunk: Uint8Array): SseFrame[] {
     this.tail += this.decoder.decode(chunk, { stream: true });
-    const out: Array<Record<string, unknown>> = [];
+    const out: SseFrame[] = [];
     let idx = this.tail.indexOf("\n");
     while (idx >= 0) {
       const line = this.tail.slice(0, idx).trim();
       this.tail = this.tail.slice(idx + 1);
       if (line.startsWith("data:")) {
         const raw = line.slice(5).trim();
-        if (raw && raw !== "[DONE]") {
+        if (raw && raw !== "[DONE]" && !raw.startsWith("[ERROR]")) {
           try {
-            out.push(JSON.parse(raw));
+            out.push(JSON.parse(raw) as SseFrame);
           } catch {
-            // skip non-JSON
+            // 非 JSON 载荷行，跳过
           }
         }
       }
@@ -395,16 +315,6 @@ class SseLineReader {
     }
     return out;
   }
-}
-
-/** 归一化工具名。 */
-function normalizeToolName(name: string): string {
-  return name.toLowerCase().replace(/[_-]/g, "");
-}
-
-/** 无横线 hex。 */
-function hexId(): string {
-  return randomUUID().replace(/-/g, "");
 }
 
 /** 构造 OpenAI 格式的 SSE data 帧。 */
@@ -415,66 +325,33 @@ function sseFrame(payload: Record<string, unknown>): Buffer {
 /**
  * OrcaTerm SSE → OpenAI delta 流翻译器。
  *
- * 上游响应是逐 token 的 JSON 帧，每帧包含完整 action 字段。
- * 我们在收到完整流后聚合解析，转化为 OpenAI 格式一次性输出。
+ * 上游实测协议：每帧为 {id, content(逐 token 增量), reasoningContent, code}。
+ * 我们在 finish 时一次性输出累积的完整正文。
  */
-export function newTranslator(request?: Record<string, unknown>): StreamTranslator {
+export function newTranslator(_request?: Record<string, unknown>): StreamTranslator {
   const reader = new SseLineReader();
-  const nativeCalls = new Map<string, { name: string; args: string }>();
+  let aggregatedContent = "";
   let doneSent = false;
+  const idleCutoffMs = Number(process.env["ORCATERM_IDLE_CUTOFF_MS"] || 30_000);
 
-  // 客户端工具名表
-  const tools = request && Array.isArray(request["tools"]) ? (request["tools"] as unknown[]) : [];
-  const knownTools = new Map<string, string>();
-  for (const tool of tools) {
-    if (!tool || typeof tool !== "object") continue;
-    const t = tool as Record<string, unknown>;
-    const fn = t["function"] && typeof t["function"] === "object"
-      ? (t["function"] as Record<string, unknown>)
-      : t;
-    const name = typeof fn["name"] === "string" ? fn["name"] : "";
-    if (name) knownTools.set(normalizeToolName(name), name);
-  }
-
-  let aggregatedText = "";
-  let pendingTool: { name: string; args: Record<string, unknown> } | null = null;
-
-  const parseFrame = (frame: Record<string, unknown>): void => {
-    const code = frame["code"];
-    if (typeof code === "number" && code === CODE_AUTH_EXPIRED) {
-      throw new UpstreamUnauthorized(`upstream auth expired (code=${code})`);
+  const parseFrame = (frame: SseFrame): void => {
+    // 鉴权失效
+    if (frame.code === CODE_AUTH_EXPIRED) {
+      throw new UpstreamUnauthorized(`upstream auth expired (code=${frame.code})`);
     }
-    const message = typeof frame["message"] === "string" ? frame["message"] : "";
-    if (isConsoleAuthExpired(message)) {
-      throw new UpstreamUnauthorized(`console auth expired: ${message}`);
+    if (isConsoleAuthExpired(frame.message || "")) {
+      throw new UpstreamUnauthorized(`console auth expired: ${frame.message}`);
     }
-    if (typeof code === "number" && code !== 0 && code !== 200) {
-      throw new OrcaProtocolError(message || `upstream error code=${code}`, code);
+    // 限流
+    if (frame.code === 429) {
+      throw new OrcaProtocolError(frame.message || "rate limited", 429);
     }
-
-    const data = frame["data"];
-    if (!data || typeof data !== "object") return;
-    const d = data as Record<string, unknown>;
-    const action = typeof d["action"] === "string" ? d["action"] : "";
-
-    if (typeof d["taskCompletion"] === "string") {
-      aggregatedText += d["taskCompletion"];
-    } else if (typeof d["question"] === "string") {
-      aggregatedText += d["question"];
+    // 其他业务错误
+    if (frame.code !== 0 && frame.code !== 200) {
+      throw new OrcaProtocolError(frame.message || `upstream error code=${frame.code}`, frame.code);
     }
-
-    if (action === "review" && d["tool"] && typeof d["tool"] === "object") {
-      const tool = d["tool"] as Record<string, unknown>;
-      const name = typeof tool["name"] === "string" ? tool["name"] : "";
-      if (name) {
-        pendingTool = { name, args: (tool["args"] as Record<string, unknown>) || {} };
-        const args = JSON.stringify(pendingTool.args);
-        const canonical = knownTools.get(normalizeToolName(name));
-        if (canonical) {
-          nativeCalls.set(name, { name: canonical, args });
-        }
-      }
-    }
+    // 累积正文
+    if (frame.content) aggregatedContent += frame.content;
   };
 
   const finalize = (): Array<Buffer | string> => {
@@ -482,42 +359,14 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
     doneSent = true;
     const out: Buffer[] = [];
 
-    if (nativeCalls.size > 0) {
-      const calls = [...nativeCalls.values()];
-      const toolCallsPayload: Record<string, unknown> = {
-        choices: [{
-          index: 0,
-          delta: {
-            tool_calls: calls.map((call, idx) => ({
-              index: idx,
-              id: `call_${hexId().slice(0, 24)}`,
-              type: "function",
-              function: { name: call.name, arguments: call.args },
-            })),
-          },
-          finish_reason: null,
-        }],
-      };
-      out.push(sseFrame(toolCallsPayload));
-      out.push(sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }));
-    } else if (pendingTool) {
-      const fallback = `${aggregatedText}\n\n[模型请求执行工具 ${pendingTool.name}: ${JSON.stringify(pendingTool.args)}]`;
-      if (fallback.trim()) {
-        out.push(sseFrame({ choices: [{ index: 0, delta: { content: fallback } }] }));
-      }
-      out.push(sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
-    } else {
-      if (aggregatedText.trim()) {
-        out.push(sseFrame({ choices: [{ index: 0, delta: { content: aggregatedText } }] }));
-      }
-      out.push(sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+    const text = stripOutputShell(aggregatedContent);
+    if (text) {
+      out.push(sseFrame({ choices: [{ index: 0, delta: { content: text } }] }));
     }
-
+    out.push(sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
     out.push(Buffer.from("data: [DONE]\n\n"));
     return out;
   };
-
-  const idleCutoffMs = Number(process.env["ORCATERM_IDLE_CUTOFF_MS"] || 30_000);
 
   return {
     feed(chunk: Buffer): Array<Buffer | string> {
