@@ -487,6 +487,23 @@ describe("newTranslator", () => {
     assert.equal(t.isDone?.(), true);
   });
 
+  it("原生 tool_use 标记待下发工具调用（不立即收尾）", () => {
+    const request = {
+      tools: [{ type: "function", function: { name: "Read", parameters: { type: "object" } } }],
+    };
+    const t = upstream.newTranslator(request);
+    const out = t.feed(
+      Buffer.from(
+        'data: {"conversationId":"c1","message":{"content":[{"type":"tool_use","toolCallId":"call_1","toolName":"Read","toolParams":"{\\"path\\":\\"a.txt\\"}"}],"finished":false}}\n\n',
+        "utf8",
+      ),
+    );
+    const text = out.map((b) => (typeof b === "string" ? b : b.toString("utf8"))).join("");
+    assert.equal(t.hasPendingToolCall?.(), true);
+    assert.equal(t.isDone?.(), false);
+    assert.doesNotMatch(text, /finish_reason/, "等上游结束标记或网关空闲收尾，不提前结束");
+  });
+
   it("收尾后回报 conversation completed（否则上游会话卡在执行中）", async () => {
     await saveFakeCredential("tok-ack-0123456789abcdef");
     let captured: { url: string; body: string } | null = null;
@@ -673,5 +690,86 @@ describe("end-to-end gateway", () => {
     // 验证 body 有 conversationId 和 turnRequestId
     assert.ok(body["conversationId"]);
     assert.ok(body["turnRequestId"]);
+  });
+});
+
+// ── 9. 工具调用空闲收尾（上游等工具结果、不发 finished） ────────────────────
+
+describe("tool call idle flush", () => {
+  let fake: Server;
+  let gw: Awaited<ReturnType<typeof gateway.start>> | undefined;
+  let prevBase: string | undefined;
+
+  before(async () => {
+    fake = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (d) => (raw += d));
+      req.on("end", () => {
+        const path = req.url ?? "";
+        void raw;
+        if (path.includes("/api/agent/conversation/turn")) {
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          res.write(
+            'data: {"conversationId":"conv-tool","message":{"content":[{"type":"tool_use","toolCallId":"call_1","toolName":"Read","toolParams":"{\\"path\\":\\"a.txt\\"}"}],"finished":false}}\n\n',
+          );
+          // 不再写帧、不 end：模拟上游等待工具结果（真实场景会挂到服务端超时）
+          return;
+        }
+        if (path.includes("/api/agent/maas/model-types")) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            code: 0,
+            data: { models: [{ id: "deepseek-v4.1-flash", modelType: 1, displayName: "DeepSeek V4.1 Flash" }] },
+          }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ code: 0, success: true, data: {} }));
+      });
+    });
+    await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));
+    const port = (fake.address() as { port: number }).port;
+    prevBase = process.env["CATPAW_BASE_URL"];
+    process.env["CATPAW_BASE_URL"] = `http://127.0.0.1:${port}`;
+    await saveFakeCredential("tok-flush-0123456789abcdef");
+    gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
+  });
+
+  after(async () => {
+    await gw?.close().catch(() => {});
+    if (prevBase === undefined) delete process.env["CATPAW_BASE_URL"];
+    else process.env["CATPAW_BASE_URL"] = prevBase;
+    await new Promise<void>((r) => fake.close(() => r()));
+  });
+
+  it("工具调用后上游静默 → 主动下发 tool_calls 并收尾", async () => {
+    assert.ok(gw);
+    const started = Date.now();
+    const resp = await fetch(`http://${gw!.addr}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "catpaw/glm-5.3-flash",
+        messages: [{ role: "user", content: "read a.txt" }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "Read",
+              description: "read a file",
+              parameters: { type: "object", properties: { path: { type: "string" } } },
+            },
+          },
+        ],
+        stream: true,
+      }),
+    });
+    const text = await resp.text();
+    const elapsed = Date.now() - started;
+    assert.equal(resp.status, 200);
+    assert.match(text, /"tool_calls"/);
+    assert.match(text, /"finish_reason":"tool_calls"/);
+    assert.match(text, /\[DONE\]/);
+    assert.ok(elapsed < 10_000, `应在空闲收尾窗口内结束，实际 ${elapsed}ms`);
   });
 });

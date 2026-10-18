@@ -36,6 +36,12 @@ export interface StreamTranslator {
    * 事件流不随 turn 结束关闭，只等 close 会让请求挂到超时。
    */
   isDone?(): boolean;
+  /**
+   * 已收到**客户端可执行**的工具调用，但上游还在等后续（拿不到结束标记）。
+   * 网关据此在空闲一段时间后主动收尾，把 tool_calls 交给客户端 ——
+   * 否则上游等工具结果、网关等上游结束，互等至上游超时。
+   */
+  hasPendingToolCall?(): boolean;
 }
 
 /** 上游连接配置（渠道自定义字段由各渠道补）。 */

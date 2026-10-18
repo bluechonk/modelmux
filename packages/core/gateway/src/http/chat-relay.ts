@@ -360,6 +360,34 @@ function noteFrameUsage(res: ServerResponse, frame: Buffer | string): void {
  *   否则客户端只看到一个断掉的连接，拿不到任何原因。
  */
 
+/** 已收到客户端可执行工具调用后，上游静默超过该时长即主动收尾。 */
+const TOOL_CALL_IDLE_FLUSH_MS = 2_500;
+
+type IdleRead = { idle: true };
+
+/**
+ * `reader.read()` 的竞速版本：有待下发工具调用且上游静默时返回 idle。
+ * 上游等工具结果、网关等上游 `finished` 会互等至超时（catpaw 实测 200s+）。
+ */
+async function readWithToolIdle(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  translator: StreamTranslator,
+  idleMs: number,
+): Promise<{ done: boolean; value?: Uint8Array } | IdleRead> {
+  if (!translator.hasPendingToolCall?.()) {
+    return (await reader.read()) as { done: boolean; value?: Uint8Array };
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const idle = new Promise<IdleRead>((resolve) => {
+    timer = setTimeout(() => resolve({ idle: true }), idleMs);
+  });
+  try {
+    return await Promise.race([reader.read(), idle]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function relayStream(
   res: ServerResponse,
   upstreamBody: ReadableStream<Uint8Array>,
@@ -383,8 +411,13 @@ async function relayStream(
   let first = true;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const next = await readWithToolIdle(reader, translator, TOOL_CALL_IDLE_FLUSH_MS);
+      if ("idle" in next) {
+        logger("upstream idle after tool call; flushing tool_calls to client");
+        break;
+      }
+      const { done, value } = next;
+      if (done || !value) break;
       for (const frame of translator.feed(Buffer.from(value))) {
         if (first) {
           noteFirstByte(res);
@@ -456,8 +489,10 @@ async function collectAsOpenAiSse(
   const out: Buffer[] = [];
   try {
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const next = await readWithToolIdle(reader, translator, TOOL_CALL_IDLE_FLUSH_MS);
+      if ("idle" in next) break;
+      const { done, value } = next;
+      if (done || !value) break;
       for (const frame of translator.feed(Buffer.from(value))) out.push(asBuffer(frame));
       if (translator.isDone?.()) break;
     }

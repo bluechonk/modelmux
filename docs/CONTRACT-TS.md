@@ -232,6 +232,10 @@ interface Channel {
 并让 `isDone()` 返回 true。网关读到 true 即停止读上游并关闭连接 —— 否则请求会
 一直挂到 idle 超时。参考实现见 `packages/core/channels/catpaw/src/upstream.ts`。
 
+上游发出**客户端可执行**的工具调用后，如果还要等工具结果才结束、而客户端在等
+`tool_calls`，双方会互等到上游超时。翻译器应实现可选的 `hasPendingToolCall?(): boolean`；
+网关在上游静默 2.5 秒后主动收尾，把工具调用交给客户端执行。参考实现同上。
+
 **`buildChatBody(req, upstreamModel)`** 把下游 OpenAI 请求改写成上游能接受的形状：
 
 - 标准 OpenAI 渠道：通常 `{...req, model: upstreamModel}`，可能补 system、强制 `stream: true`

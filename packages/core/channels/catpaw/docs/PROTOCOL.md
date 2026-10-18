@@ -135,6 +135,12 @@ translator 的 `finalize()` 里 fire-and-forget 回报。
 诊断：`CATPAW_TRACE_STREAM=1` 时，每次收尾在 worker 日志打一行
 `stream end conv=… frames=… terminal=… finished=… lastType=… lastStatus=… elapsedMs=…`（不含正文）。
 
+**工具调用的收尾**：上游在发出 `tool_use` 后可能等待工具结果，不再发 `finished`；
+网关等上游结束、上游等工具结果，双方互等到上游超时（实测 200s+，且没有 usage 帧）。
+translator 用 `hasPendingToolCall()` 标记「已收到客户端可执行工具调用」；
+网关在上游静默 **2.5 秒**后主动 `finish()`，把 `tool_calls` 下发给客户端执行。
+纯文本流不受影响：只有出现 `tool_use` 且上游静默才触发。
+
 **实测（2026-10-18，重启后）**：
 - 简单请求 `catpaw/deepseek-v4.1-flash` 2.7s、`catpaw/longcat-2.0` 3.2s 返回；
 - 60 工具 + 9KB system + 10 轮历史的重请求：longcat 7.7s、deepseek 4.0s；

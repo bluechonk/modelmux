@@ -1155,6 +1155,7 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
   let lastType = "";
   let lastStatus = "";
   let longRunLogged = false;
+  let pendingClientTool = false;
   const startedAt = Date.now();
 
   /** 收尾：补工具调用、finish_reason 与 [DONE]；重复调用无副作用。 */
@@ -1249,6 +1250,12 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
             // 同一 id 的累积帧覆盖旧值；无 id 时按工具名去重（参数是累积全文）
             const key = block.id || block.name;
             nativeCalls.set(key, block);
+            const canonical = tools.known.get(normalizeToolName(block.name));
+            if (canonical) pendingClientTool = true;
+            traceStream(
+              `tool_use name=${block.name} id=${block.id || "-"} paramsLen=${block.arguments.length}` +
+                (canonical ? "" : " (not in client tool list)"),
+            );
           },
           () => {
             terminal = true;
@@ -1282,6 +1289,9 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
     },
     isDone(): boolean {
       return doneSent;
+    },
+    hasPendingToolCall(): boolean {
+      return pendingClientTool && !doneSent;
     },
   };
 }
