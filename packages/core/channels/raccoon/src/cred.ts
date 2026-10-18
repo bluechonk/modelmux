@@ -9,13 +9,13 @@
  *    `100003 params_encryted_error`。
  *    ⚠ 零依赖：用 `node:crypto` 的 `createCipheriv("aes-128-cfb", …)`（CFB128）；
  *    密钥是 16 字节，写成 `aes-256-cfb` 会因长度不足而抛错。
- * 2. **网页登录走 `/code/authorize` 授权码链路**（官方桌面端
- *    `electron/main/desktopLogin.js` 同款）：`login_source=desktop` +
- *    `appname=办公小浣熊客户端` → 登录成功回调 `office-raccoon://auth/callback?code=…`
- *    → `POST …/login_with_authorization_code` 换 token。回调由**用户把整条 URL
- *    粘贴回来**（本插件是宿主机里的普通 Node 进程，注册不了自定义协议）。
- *    ⚠ 别用 `/login/mp?code=…` 那条：它只给**官方手机 App 扫码**用，网页端没有该
- *    路由，浏览器打开是死链（真机踩过）。
+ * 2. **网页登录优先走本地回调**：授权页（`/code/authorize`）在非 desktop 模式
+ *    （不带 `login_source`、带 `redirect=http://127.0.0.1:<port>/callback`）下会把
+ *    `authorization_code` 拼到 redirect 上；CLI 起本地 HTTP 服务接住授权码，
+ *    再 `POST …/login_with_authorization_code` 换 token。
+ *    官方桌面端的 `login_source=desktop` + `office-raccoon://` 自定义协议作为兼容
+ *    路径保留（本进程注册不了协议，浏览器没有桌面客户端时不会跳转）。
+ *    ⚠ 别用 `/login/mp?code=…`：它只给官方手机 App 扫码用，网页端是死链。
  * 3. **过期时间取值优先级**：`expires_at`（显式）→ **JWT 的 `exp`**（本地 base64url
  *    解码 payload，**只解码不验签**）。回退到 JWT 是**必需的**：老凭据/手工导入的
  *    凭据可能没有 `expires_at`，只读它会让过期判定**恒为 false** → `refreshAll`
@@ -30,6 +30,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { chmod, rename, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
 
 import { credentialsPath, ensureDir, login as sharedLogin } from "@modelmux/gateway";
@@ -63,7 +64,7 @@ export const PHONE_CIPHER_SECRET = Buffer.from("senseraccoon2023", "utf8");
 /** access_token 寿命约 3 小时（实测 `exp - nbf = 10805s`），提前 300s 视为需要续期。 */
 export const TOKEN_REFRESH_WINDOW_SECONDS = 300;
 
-/** 等待用户完成网页登录（粘贴回调）的时限。 */
+/** 等待用户完成网页登录的时限。 */
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ── 网页登录（授权码）常量 ────────────────────────────────────────────────────
@@ -74,10 +75,12 @@ export const AUTHORIZE_PATH = "/code/authorize";
 export const AUTHORIZE_LOGIN_SOURCE = "desktop";
 /** 官方桌面端上报的客户端名（**不是** 网站自己的「小浣熊官网」）。 */
 export const AUTHORIZE_APPNAME = "办公小浣熊客户端";
-/** 回调深链（官方客户端注册的自定义协议；我们靠用户粘贴回收）。 */
+/** 回调深链（官方客户端注册的自定义协议；作为兼容路径保留）。 */
 export const CALLBACK_SCHEME = "office-raccoon";
 export const CALLBACK_HOST = "auth";
 export const CALLBACK_PATH = "/callback";
+/** 本地 HTTP 回调路径（非 desktop 授权页把 authorization_code 拼到这里）。 */
+export const LOCAL_CALLBACK_PATH = "/callback";
 
 const HTTP_TIMEOUT_MS = 60_000;
 const NOT_LOGGED_IN_MSG = "No usable credential found, run `raccoon login` first";
@@ -289,17 +292,16 @@ export interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
   /**
-   * 回调 URL 的来源。优先级：本字段 → 环境变量 `RACCOON_LOGIN_CALLBACK` →
-   * `pasteCode`（Web 控制台粘贴通道）∥ stdin（终端粘贴）双通道竞争。
-   * 正式 CLI 不传 callback（提示用户粘贴）；测试与脚本用它注入。
+   * 显式注入回调 URL（测试 / 脚本）。正常 CLI 不传：login 会自动起本地 HTTP
+   * 回调服务器。环境变量 `RACCOON_LOGIN_CALLBACK` 等价。
    */
   callback?: string | (() => Promise<string>);
   /**
-   * 取走用户粘回的回调链接（共享层 Web 控制台的粘贴通道；resolveCallback 里
-   * 每 400ms 轮询一次）。网关进程 stdin 非交互，缺这条通道 Web 授权流程走不完。
+   * 兼容旧 Web 控制台粘贴通道。正常登录由浏览器自动跳回本地回调，不再需要；
+   * 仅在显式注入 callback / 环境变量模式下的 `resolveCallback` 里使用。
    */
   pasteCode?: () => string | undefined;
-  /** 等待回调的时限（默认 5 分钟）。 */
+  /** 等待登录回调的时限（默认 5 分钟）。 */
   timeoutMs?: number;
 }
 
@@ -309,17 +311,26 @@ export function newLoginState(): string {
 }
 
 /**
- * 授权页 URL（官方桌面端「网页登录」入口，实测自 `electron/main/desktopLogin.js`）。
+ * 授权页 URL。
+ *
+ * - 不传 `redirectUri`：官方 desktop 模式，回调 `office-raccoon://auth/callback`
+ *   （需要桌面客户端注册协议；仅作兼容）。
+ * - 传 `redirectUri`：**非 desktop 模式**，页面把 `authorization_code` 拼到该
+ *   redirect 上。页面校验器只允许 `http://127.0.0.1|localhost|[::1]:<port>`，
+ *   因此 CLI 用本地 HTTP 回调服务器即可自动收码。
  *
  * ⚠ 不要用 `/login/mp?code=…`：那条只给**官方手机 App 扫码**用，网页端没有该路由，
  * 浏览器打开是死链（真机踩过，见 channels/raccoon/docs/PROTOCOL.md §2.4）。
- * 我们额外带 `state`（官方不带）；参考实现（agent2api / xiaohuanxiong2api）同样带。
  */
-export function authorizeUrl(state: string, baseOverride?: string): string {
+export function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
   const url = new URL(AUTHORIZE_PATH, baseUrl(baseOverride));
-  url.searchParams.set("login_source", AUTHORIZE_LOGIN_SOURCE);
   url.searchParams.set("appname", AUTHORIZE_APPNAME);
   url.searchParams.set("state", state);
+  if (redirectUri) {
+    url.searchParams.set("redirect", redirectUri);
+  } else {
+    url.searchParams.set("login_source", AUTHORIZE_LOGIN_SOURCE);
+  }
   return url.toString();
 }
 
@@ -335,12 +346,13 @@ export interface LoginCallback {
 }
 
 /**
- * 解析回调 URL：`office-raccoon://auth/callback?code=…&state=…`。
+ * 解析回调 URL，支持两种形态：
  *
- * 逐项比对 scheme/host/path —— 不能前缀匹配（`office-raccoon://auth/callback@evil`
- * 会被前缀放行）。state 的处置：带且不等 → 拒绝（这条回调不属于本次登录）；
- * 没带 → 放行但标记未校验（官方页面的回调形态可能不带 state）。
- * 兜底：整段文本不是 URL 但像授权码时按裸 code 处理（stateVerified=false）。
+ * - `http://127.0.0.1:<port>/callback?authorization_code=…&state=…`（本地回调，主路径）
+ * - `office-raccoon://auth/callback?code=…&state=…`（桌面客户端兼容路径）
+ *
+ * state 的处置：带且不等 → 拒绝；没带 → 放行但标记未校验。兜底：整段文本不是 URL
+ * 但像授权码时按裸 code 处理（stateVerified=false）。
  */
 export function parseLoginCallback(raw: string, expectedState = ""): LoginCallback {
   const text = (raw ?? "").trim();
@@ -352,6 +364,24 @@ export function parseLoginCallback(raw: string, expectedState = ""): LoginCallba
     if (/^[A-Za-z0-9._~-]{6,}$/.test(text)) return { code: text, stateVerified: false };
     throw new LoginCallbackError(`not a callback url: ${text.slice(0, 120)}`);
   }
+
+  if (url.protocol === "http:") {
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (!["127.0.0.1", "localhost", "::1"].includes(host) || !url.port) {
+      throw new LoginCallbackError(`unexpected callback origin: ${url.origin}`);
+    }
+    if (url.pathname !== LOCAL_CALLBACK_PATH) {
+      throw new LoginCallbackError(`unexpected callback path: ${url.pathname}`);
+    }
+    const code = (url.searchParams.get("authorization_code") ?? url.searchParams.get("code") ?? "").trim();
+    if (!code) throw new LoginCallbackError("callback has no authorization_code");
+    const state = (url.searchParams.get("state") ?? "").trim();
+    if (expectedState && state && state !== expectedState) {
+      throw new LoginCallbackError("state mismatch: the callback belongs to another login attempt");
+    }
+    return { code, stateVerified: Boolean(expectedState && state === expectedState) };
+  }
+
   if (url.protocol !== `${CALLBACK_SCHEME}:`) {
     throw new LoginCallbackError(`unexpected scheme: ${url.protocol}`);
   }
@@ -368,6 +398,82 @@ export function parseLoginCallback(raw: string, expectedState = ""): LoginCallba
     throw new LoginCallbackError("state mismatch: the callback belongs to another login attempt");
   }
   return { code, stateVerified: Boolean(expectedState && state === expectedState) };
+}
+
+/** 本地回调服务器：登录完成后浏览器跳回这里，CLI 自动收授权码。 */
+export interface LoginCallbackServer {
+  port: number;
+  result: Promise<LoginCallback>;
+  close: () => Promise<void>;
+}
+
+/**
+ * 起本地 HTTP 回调服务器（127.0.0.1 随机端口）。
+ *
+ * 只接受 `/callback?authorization_code=…&state=…`；state 必须逐字匹配。
+ * 成功页直接返回「登录成功」，浏览器可关闭；授权码不打印到 stdout。
+ */
+export function startLoginCallbackServer(
+  state: string,
+  timeoutMs = LOGIN_TIMEOUT_MS,
+): Promise<LoginCallbackServer> {
+  return new Promise<LoginCallbackServer>((resolveReady, rejectReady) => {
+    let settle: (value: LoginCallback) => void = () => {};
+    let fail: (err: Error) => void = () => {};
+    const result = new Promise<LoginCallback>((resolve, reject) => {
+      settle = resolve;
+      fail = reject;
+    });
+    let server: Server;
+    const timer = setTimeout(() => {
+      fail(new Error(`waiting for raccoon login callback timed out after ${Math.round(timeoutMs / 1000)}s`));
+      server?.close();
+    }, timeoutMs);
+    timer.unref?.();
+
+    server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (url.pathname !== LOCAL_CALLBACK_PATH) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("not found");
+        return;
+      }
+      const code = (url.searchParams.get("authorization_code") ?? url.searchParams.get("code") ?? "").trim();
+      const gotState = (url.searchParams.get("state") ?? "").trim();
+      if (!code) {
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+        res.end("<h1>授权失败：回调缺少 authorization_code。</h1>");
+        return;
+      }
+      if (gotState !== state) {
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+        res.end("<h1>授权失败：state 校验不通过，请重新登录。</h1>");
+        return;
+      }
+      clearTimeout(timer);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end("<h1>登录成功，可以关闭此窗口了</h1>");
+      settle({ code, stateVerified: true });
+    });
+
+    server.on("error", (err) => {
+      clearTimeout(timer);
+      rejectReady(err);
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const port = (server.address() as { port: number } | null)?.port ?? 0;
+      resolveReady({
+        port,
+        result,
+        close: () =>
+          new Promise<void>((done) => {
+            clearTimeout(timer);
+            server.close(() => done());
+            server.closeAllConnections?.();
+          }),
+      });
+    });
+  });
 }
 
 /** 从 stdin 读一行（提示写 stderr —— `--json` 时 stdout 要保持干净的 JSON 流）。 */
@@ -486,27 +592,52 @@ function sleep(ms: number): Promise<void> {
  * 渠道特有登录指引（单行，分号分隔；CLI 与 Web 提示条共用同一句）。
  */
 const RACCOON_LOGIN_GUIDE =
-  "Raccoon does NOT continue automatically: 1) open the authorization URL in your browser and log in with WeChat / SMS / password; 2) after login the browser jumps to an `office-raccoon://auth/callback?code=…` URL (or an error page — that is expected, the protocol is not registered); 3) copy that ENTIRE url and paste it back (terminal prompt or the web console callback box).";
+  "Raccoon continues automatically: 1) open the authorization URL in your browser and log in with WeChat / SMS / password; 2) the page redirects to http://127.0.0.1:<port>/callback and the CLI completes the exchange; 3) if the browser cannot reach localhost, rerun `mx login raccoon` (or use the web console).";
 
 /**
- * 网页登录：授权页 → 用户登录 → 回收回调 URL → 授权码换凭证。
+ * 网页登录：本地回调服务器 → 授权页 → 用户登录 → 自动收授权码换凭证。
  *
- * 回调回收方式见 `resolveCallback`（本插件注册不了 `office-raccoon://` 自定义协议，
- * 由用户把地址栏里的整条 URL 粘贴回来 —— 终端提示或 Web 控制台的「回调链接」框）。
+ * 正常路径**不需要粘贴**：授权页在非 desktop 模式下会跳回 127.0.0.1 的本地回调，
+ * 浏览器没有注册 `office-raccoon://` 自定义协议也不影响。测试 / 脚本仍可通过
+ * `options.callback` 或 `RACCOON_LOGIN_CALLBACK` 注入回调 URL。
  */
 export async function login(baseUrlOverride?: string, options: LoginOptions = {}): Promise<Credentials> {
   const { onUrl, onStatus } = options;
   const timeoutMs = options.timeoutMs ?? LOGIN_TIMEOUT_MS;
-
   const state = newLoginState();
-  const url = authorizeUrl(state, baseUrlOverride);
-  // ⚠ onUrl 只发**纯 URL**：Web 快照把 auth_url 渲染成可点链接，混入指引文本会让链接
-  // 打不开；渠道特有指引走 onStatus 的 message（CLI 与 Web 共用 RACCOON_LOGIN_GUIDE）。
-  onUrl?.(url);
-  onStatus?.(RACCOON_LOGIN_GUIDE);
 
-  const raw = await resolveCallback(options, timeoutMs);
-  const parsed = parseLoginCallback(raw, state);
+  const injected =
+    options.callback !== undefined || (process.env["RACCOON_LOGIN_CALLBACK"] ?? "").trim() !== "";
+  if (injected) {
+    // 注入模式（测试/脚本）仍给出来源 URL，便于调用方展示；实际回调由调用方提供。
+    onUrl?.(authorizeUrl(state, baseUrlOverride));
+    onStatus?.(RACCOON_LOGIN_GUIDE);
+    const raw = await resolveCallback(options, timeoutMs);
+    const parsed = parseLoginCallback(raw, state);
+    return exchangeLogin(parsed, baseUrlOverride, onStatus);
+  }
+
+  const callback = await startLoginCallbackServer(state, timeoutMs);
+  try {
+    const redirect = `http://127.0.0.1:${callback.port}${LOCAL_CALLBACK_PATH}`;
+    const url = authorizeUrl(state, baseUrlOverride, redirect);
+    // ⚠ onUrl 只发**纯 URL**：Web 快照把 auth_url 渲染成可点链接，混入指引文本会让链接
+    // 打不开；渠道特有指引走 onStatus 的 message（CLI 与 Web 共用 RACCOON_LOGIN_GUIDE）。
+    onUrl?.(url);
+    onStatus?.(RACCOON_LOGIN_GUIDE);
+    const parsed = await callback.result;
+    return await exchangeLogin(parsed, baseUrlOverride, onStatus);
+  } finally {
+    await callback.close();
+  }
+}
+
+/** 用授权码换凭证并落盘（正常回调与注入回调共用的收尾）。 */
+async function exchangeLogin(
+  parsed: LoginCallback,
+  baseUrlOverride: string | undefined,
+  onStatus?: (message: string) => void,
+): Promise<Credentials> {
   if (!parsed.stateVerified) {
     onStatus?.("callback state not verified (missing state in callback); proceeding");
   }
