@@ -115,6 +115,12 @@ docs/                         契约与规范（唯一的仓库级文档层）
      上游一律用本机假服务；真实上游验证只能走「真机手动验证」（见下文）；
    - 真实 uid / label / token 等身份信息**不得**出现在测试、fixture、示例或文档中，
      一律用明显虚构的占位值。
+9. **测试模型必须低费或免费**（真机手动验证、Agent 端到端测试同样适用）：
+   - **测试模型一律使用 DeepSeek flash 系列**：`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-flash` 等 DeepSeek 渠道的 flash 档位，这是测试的首选默认模型；
+   - **禁止**用旗舰模型跑测试，包括 `longcat-*` / `*-pro` / `*-max` / `kimi-k3` / 不带 flash 的 `glm-5.3`；
+   - 端到端跑一轮 Agent 会话动辄数万 token，用贵模型等于烧钱，测试结论也不因模型更强而更可信；
+   - 拿不准某模型是否属于 DeepSeek flash 系列时，先跑 `mx model usage` 查账本额度、`mx model list` 看候选渠道，再挑最便宜的一档；
+   - 确需验证非 DeepSeek flash 模型时，只发**单轮最小对话**（一句短问 + 限制输出），并先说明理由。
 
 ## 命令
 
