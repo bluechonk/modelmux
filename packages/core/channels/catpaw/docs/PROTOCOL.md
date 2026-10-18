@@ -82,6 +82,9 @@
   `upstream prepare request failed: upstream HTTP 413` —— 长上下文任务请改用
   其他渠道（lobsterai / qodercn / codearts 等），catpaw 适合中等上下文。
 - 这两类都是**请求级**错误，不参与账号连败计数（凭据是健康的）。
+- **输出帧规范**：usage-only 的 SSE chunk 必须带空的 `choices: []`（OpenAI 规范里
+  `choices` 恒为数组）；缺字段会被严格校验的客户端整块拒收（ZCode 实测
+  `Type validation failed ... choices expected array`）。2026-10-18 已修复。
 
 ## 边界与伦理
 
