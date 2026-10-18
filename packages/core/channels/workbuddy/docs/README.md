@@ -78,12 +78,10 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
 
 ## 测试
 
-```bash
-npm test                                  # 本渠道（离线，不出网）
-node --test channels/workbuddy/tests/*.test.ts
-```
-
-数据目录用 `MODELMUX_HOME` 指向临时目录，不碰真实凭据。
+渠道不写单元/集成测试（`AGENTS.md §7`）。端到端验证由 **Agent 跑 `reasonix-mx-test` skill**
+完成：通过 Reasonix CLI 直连 `http://127.0.0.1:4412/v1`，用 `workbuddy/<模型>` 池 id 发
+**正确的** OpenAI 兼容请求；只发真实账号、正确形态，禁止任何畸形载荷。覆盖：
+登录入池、`mx models --refresh`、最小对话、工具调用往返、流式 SSE。
 
 ## 参考实现（reference/）
 
