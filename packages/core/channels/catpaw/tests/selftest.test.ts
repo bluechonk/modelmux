@@ -444,6 +444,48 @@ describe("newTranslator", () => {
     const text = Buffer.concat(out.map((b) => (typeof b === "string" ? Buffer.from(b) : b))).toString("utf8");
     assert.match(text, /boom/);
   });
+
+  it("生命周期帧（statusUpdate=completed）即收尾，不等 TCP 关闭", () => {
+    // 回归：上游 turn 结束只发 statusUpdate，连接仍挂着；旧实现只等 close，
+    // 请求会一直挂到网关 idle 超时（实测长任务「卡住不返回」）。
+    const t = upstream.newTranslator();
+    const out = t.feed(Buffer.from('data: {"statusUpdate":"completed"}\n\n', "utf8"));
+    const text = out.map((b) => (typeof b === "string" ? b : b.toString("utf8"))).join("");
+    assert.match(text, /finish_reason":"stop"/);
+    assert.match(text, /\[DONE\]/);
+    assert.equal(t.isDone?.(), true);
+  });
+
+  it("headlessRemoteAgentResp.message.finished=true 触发收尾", () => {
+    const t = upstream.newTranslator();
+    const out = t.feed(
+      Buffer.from(
+        'data: {"headlessRemoteAgentResp":{"message":{"content":[{"type":"text","text":"hi"}],"finished":true}}}\n\n',
+        "utf8",
+      ),
+    );
+    const text = out.map((b) => (typeof b === "string" ? b : b.toString("utf8"))).join("");
+    assert.match(text, /"content":"hi"/);
+    assert.match(text, /finish_reason":"stop"/);
+    assert.equal(t.isDone?.(), true);
+  });
+
+  it("agent_end 收尾后不再产出帧，finish() 幂等", () => {
+    const t = upstream.newTranslator();
+    const out = t.feed(Buffer.from('data: {"type":"agent_end","reason":"completed"}\n\n', "utf8"));
+    assert.ok(out.length > 0, "收尾帧应带 finish_reason/[DONE]");
+    const late = t.feed(Buffer.from('data: {"message":{"content":[{"type":"text","text":"late"}]}}\n\n', "utf8"));
+    assert.equal(late.length, 0, "收尾后不再产出内容帧");
+    assert.equal(t.finish().length, 0, "finish() 幂等（不重复 [DONE]）");
+  });
+
+  it("agent_error 翻成错误帧并收尾", () => {
+    const t = upstream.newTranslator();
+    const out = t.feed(Buffer.from('data: {"type":"agent_error","error":"upstream blew up"}\n\n', "utf8"));
+    const text = out.map((b) => (typeof b === "string" ? b : b.toString("utf8"))).join("");
+    assert.match(text, /upstream blew up/);
+    assert.equal(t.isDone?.(), true);
+  });
 });
 
 // ── 6. 模型目录 ──────────────────────────────────────────────────────────────
