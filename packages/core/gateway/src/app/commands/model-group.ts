@@ -9,7 +9,7 @@
 import { channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
-import { canonicalModelId, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
+import { canonicalModelId, getPoolModelMeta, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
 import * as accountCli from "../account-cli.js";
@@ -142,6 +142,13 @@ export async function listLocalModels(
     ...new Map(catalogIds.map((id) => [canonicalModelId(id), id])).values(),
   ].map((id) => ({ model: poolModelId(cid, id), exposed_id: id }));
 
+  // 为每条模型附上倍率（price_factor）；无倍率时为 "-"
+  const rows = contributed.map((row) => {
+    const meta = getPoolModelMeta(row.model);
+    const rate = meta.multiplier;
+    return { ...row, rate: rate === null ? "-" : String(rate) };
+  });
+
   if (json) {
     console.log(
       JSON.stringify(
@@ -153,7 +160,7 @@ export async function listLocalModels(
             ? { fetched_at: origin.fetchedAt }
             : {}),
           ...(origin.kind === "failed" ? { reason: origin.reason } : {}),
-          pool_models: contributed,
+          pool_models: rows,
           out_of_pool_count: 0,
         },
         null,
@@ -165,12 +172,12 @@ export async function listLocalModels(
   // 数据走 stdout（便于管道），**来源说明走 stderr**：缓存命中是常态，不必打扰；
   // 其余情形（刚拉取 / 拉取失败 / 内置表）用户需要知道自己在看哪份数据。
   if (origin.kind !== "cache") console.error(`${cid}: ${originNote(origin)}`);
-  if (contributed.length === 0) {
+  if (rows.length === 0) {
     console.log(`${cid}: 该渠道没有可对外暴露的模型`);
   } else {
     console.log(`${cid} 对外的模型：「渠道/模型」形态，客户端用它指定渠道：`);
-    for (const row of contributed) {
-      console.log(`  ${row.model.padEnd(30)} ← ${row.exposed_id}`);
+    for (const row of rows) {
+      console.log(`  ${row.model.padEnd(22)} ${row.rate.padStart(6)} ← ${row.exposed_id}`);
     }
   }
   return 0;

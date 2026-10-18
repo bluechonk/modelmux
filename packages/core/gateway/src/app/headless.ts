@@ -18,6 +18,7 @@ import * as gateway from "../http/gateway.js";
 import { REPO_UI_PREFIX } from "../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway } from "../runtime/log-store.js";
 import { credentialsPath } from "../runtime/paths.js";
+import { getPoolModelMeta } from "../pool/pool-targets.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
 function emit(event: Record<string, unknown>): void {
@@ -137,6 +138,7 @@ class ServiceState {
       base_url: this.baseUrl,
       chat_url: this.chatUrl,
       models: [...this.modelsShown],
+      model_info: Object.fromEntries(this.modelsShown.map((id) => [id, getPoolModelMeta(id)])),
       gateway_error: this.gatewayError,
     };
   }

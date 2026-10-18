@@ -175,7 +175,7 @@
 | 命令 | 看什么 |
 |---|---|
 | `mx model list` | **池视图**：对外模型（`<cid>/<模型>`）+ 各渠道账本状态（健康度观察，不再表示路由顺序） |
-| `mx models <cid>` | **渠道视角**：该渠道对外暴露哪些模型（`--refresh` 重拉上游目录） |
+| `mx model <cid>` | **渠道视角**：该渠道对外暴露哪些模型（`--refresh` 重拉上游目录） |
 | `mx model usage [--refresh]` | 看账本；`--refresh` 立刻重查各渠道账单额度 |
 
 > 单渠道独立运行（`packages/core/channels/<cid>/dist/cli.js start`）**也走池**：
@@ -362,7 +362,7 @@ hasChannel(cid?: string): boolean;
 - **服务身份**：单渠道 = `cid`；多渠道路由 = `modelmux`。守护进程探测时接受
  「本进程认得的全部身份」，所以单渠道的 `status` 也认得多渠道路由的网关。
 - **`model list` / `model usage` 子命令**：池视图（对外模型 `<cid>/<模型>`、各渠道账本
- 用量与冷却/暂不可用）与池账本；渠道视角并入 `models <cid>`。
+ 用量与冷却/暂不可用）与池账本；渠道视角并入 `model <cid>`。
 - **仓库级 CLI 已可用**：`packages/cli`（bin `modelmux` / `mx`）。
 - **插件层已整体移除（2026-10-13）**：`plugins/` 与 `marketplace.json` 删除，项目更名
  `modelmux`，定位 = 纯 npx/npm -g 可装的 CLI；集成方式就是「任何 OpenAI 兼容客户端

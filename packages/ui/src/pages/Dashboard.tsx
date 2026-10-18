@@ -4,6 +4,11 @@ import { CopyChip } from "../components/CopyChip";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
 
+/** 倍率格式化：最多 4 位小数并去掉尾随 0。 */
+function formatMultiplier(value: number): string {
+  return String(Number(value.toFixed(4)));
+}
+
 /** 仪表盘页：全局状态快照（统计卡 + 端点 + 按渠道分组的模型墙）。 */
 export function Dashboard(): ReactElement {
   const { data: state, isLoading, error } = useQuery({
@@ -110,9 +115,29 @@ export function Dashboard(): ReactElement {
                   <span className="text-xs text-gray-500">{ids.length} 个模型</span>
                 </div>
                 <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                  {ids.map((id) => (
-                    <CopyChip key={id} value={`${cid}/${id}`} display={id} />
-                  ))}
+                  {ids.map((id) => {
+                    const info = state.model_info?.[`${cid}/${id}`];
+                    const m = info?.multiplier;
+                    const badge =
+                      m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : null;
+                    return (
+                      <div key={id} className="flex items-center gap-1">
+                        <CopyChip value={`${cid}/${id}`} display={id} />
+                        {badge && (
+                          <span
+                            title={m === 0 ? "零消耗" : `消耗倍率 ×${formatMultiplier(m)}`}
+                            className={`shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
+                              m === 0
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "bg-amber-500/10 text-amber-300"
+                            }`}
+                          >
+                            {badge}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}

@@ -124,7 +124,7 @@ docs/                         契约与规范（唯一的仓库级文档层）
    - 每修复一个渠道或改动上游协议，**同步更新该渠道 `docs/PROTOCOL.md`**，记录实测结论
      （端点、方法、请求头约束、实测状态码）；**同步更新 `docs/README.md`**（索引入口）与
      `AGENTS.md` 测试规则。
-   - 端到端测试覆盖（登录入池 / `mx models --refresh` / 最小对话 / 工具往返 / 流式 SSE）
+   - 端到端测试覆盖（登录入池 / `mx model <cid> --refresh` / 最小对话 / 工具往返 / 流式 SSE）
      应在渠道 README「测试」小节列明，供后续 Agent 按 `reasonix-mx-test` skill 复现。
 10. **端到端测试要发正确形态的请求，严禁向上游发任何故意畸形/会触发风控的载荷**：
     - Agent 跑 `reasonix-mx-test` skill、真机手动验收、扫码入池后验证、`.tmp/` 临时脚本，
@@ -163,7 +163,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 1. **命令形态（动词优先）**：`mx` 的**动词永远在第一个位置**，渠道 id 是**第二个位置的操作对象**：
 
    ```
-   mx <动词> [<cid>] [参数...]     # 如 mx login traecn / mx status traecn / mx models traecn
+   mx <动词> [<cid>] [参数...]     # 如 mx login traecn / mx status traecn / mx model traecn
    ```
 
 2. 对齐 `git` / `docker` / `gh` / `kubectl` / `npm` 的心智（`<动词> [<对象>]`），也让 `mx login <TAB>`
@@ -172,7 +172,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 4. **仓库级动词**（`start` / `stop` / `restart` / `status` / `logs`）**不接受**渠道 id；
    `mx status <cid>` 才是「某渠道的状态」。
 5. **反面写法 `mx <cid> <动词>` 一律不采用**：渠道名与动词共享位置 1 的命名空间会让两者二义
-   （一旦某个渠道叫 `models`，`mx models` 就无法区分），且与主流 CLI 心智相悖。
+   （一旦某个渠道叫 `model` 会引起二义），且与主流 CLI 心智相悖。
 6. **单端口语义**：仓库级网关只监听**一个**端口（`REPO_DEFAULT_ADDR = 127.0.0.1:4412`），
    Web 控制台与网关**共用该端口**，挂在 `REPO_UI_PREFIX = /web` 下（控制台 API 位于 `/web/api/*`）。
    `ChannelConfig.defaultAddr` / `uiPort` 只在**单渠道独立运行**时生效。`--addr` 可覆盖。
@@ -271,6 +271,8 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（P
 2. 严禁提交 apikey / accesskey / secret / token / 密码 / 私钥 / 证书 / 含真实凭据的 `.env`。
    敏感内容进 `.gitignore`，改用环境变量；提交前自查 `git status` 与 `git diff`。
 3. 注释一律**中文**、简洁、不复述代码；随代码同步更新，**禁止留过时或误导性注释**。
+   注释写作遵守 [`docs/MODULE-COMMENTS.md`](../docs/MODULE-COMMENTS.md) 的三层分工：协议事实进
+   `docs/PROTOCOL.md`、why 跟被治理的函数 docstring、文件头只留导航 + 行为约束 + 铁律（≤12 行）。
 4. 运行时日志一律**英文**（避免 Git Bash / PowerShell 下的编码问题）；
    CLI 报表属**产品界面**，保持中文。
 5. 文档全部**中文**、**不使用 emoji**；根 `README.md` 是仓库门面，必须全中文。

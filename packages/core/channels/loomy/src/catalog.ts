@@ -67,20 +67,22 @@ export interface FallbackModel {
 }
 
 /**
- * 兜底静态模型表（8 条，源：2026-09-26 实测 `GET /api/v1/models` 的 `type === 'chat'`）。
+ * 兜底静态模型表（9 条，源：2026-10-19 实测 `GET /api/v1/models` 的 `type === 'chat'`，
+ * 新增 `DeepSeek-V4.1-Flash`；`spark-x` 倍率从 x0.1 改为 x0.0 免费）。
  *
  * ⚠ `spark-x` 是**已知分歧**：远端声明 1048576，而 Loomy 客户端用本地表
  * `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144。
  * 本表**先采信远端**；若实测长上下文被拒，改为 262144。
  */
 export const FALLBACK_MODELS: FallbackModel[] = [
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash · x2.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731 · x3.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "MiniMax-M3", name: "MiniMax M3 · x4.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "Kimi-k2.6", name: "Kimi k2.6 · x6.5", contextWindow: 262_144, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "qwen-3.8-max", name: "Qwen 3.8 Max · x12.0", contextWindow: 1_000_000, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash · x0.8", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "qwen3.8-flash", name: "qwen 3.8 flash · x0.8", contextWindow: 1_000_000, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "spark-x", name: "Spark X2.5 · x0.1", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
+  { id: "spark-x", name: "Spark-X2.5 · x0.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "mimo-v2.5", name: "MiMo V2.5 · x3.3", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
 ];
 
@@ -90,6 +92,8 @@ export interface CatalogEntry {
   id: string;
   name: string;
   rate: string;
+  /** 消耗倍率数值（由 `rate` 字符串解析，失败为 undefined）。供 `model_info.multiplier` 使用。 */
+  multiplier?: number;
   contextWindow: number;
   reasoning: boolean;
   vision: boolean;
@@ -189,14 +193,16 @@ export function pickDefaultEffort(efforts: string[]): string {
 }
 
 /**
- * 解析 `GET /models` 的 `data`：**只保留 `type === 'chat'`**，过滤脏数据。
+ * 解析模型数组：**只保留 `type === 'chat'`**，过滤脏数据。
  *
  * ⚠ 图片能力来自 `capabilities.input_modalities` 含 `image`；`capabilities.reasoning`
  * 必须**严格 `=== true`**（字符串 `'yes'` 不算）；兜底表不声明图片能力（宁可少报）。
+ *
+ * 上游新旧格式由 `parseModelsResponse()` 统一收敛：旧格式读 `data.models`（包在信封里），
+ * 新格式读顶层 `data` 数组。本函数只见模型数组，不感知信封。
  */
-export function parseRemoteModels(data: unknown): CatalogEntry[] {
+export function parseRemoteModels(models: unknown[]): CatalogEntry[] {
   const entries: CatalogEntry[] = [];
-  const models = isRecord(data) ? data["models"] : null;
   if (!Array.isArray(models)) return entries;
 
   for (const item of models) {
@@ -215,10 +221,12 @@ export function parseRemoteModels(data: unknown): CatalogEntry[] {
     const efforts = remoteEfforts.length > 0 ? remoteEfforts : (fallback?.efforts ?? []);
     const rawName = str(item["name"]) || id;
     const [, rate] = splitRate(rawName);
+    const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
     entries.push({
       id,
       name: displayName(rawName),
       rate,
+      ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
       contextWindow: num(item["context_length"]) || fallback?.contextWindow || 0,
       reasoning: capabilities["reasoning"] === true,
       vision,
@@ -233,18 +241,23 @@ export function parseRemoteModels(data: unknown): CatalogEntry[] {
 
 /** 兜底条目（每次现算，永不被当成「已加载的远端目录」）。 */
 export function fallbackEntries(): CatalogEntry[] {
-  return FALLBACK_MODELS.map((m) => ({
-    id: m.id,
-    name: m.name,
-    rate: splitRate(m.name)[1],
-    contextWindow: m.contextWindow,
-    reasoning: true,
-    vision: false, // 兜底表不声明图片能力（宁可少报）
-    efforts: [...m.efforts],
-    defaultEffort: m.defaultEffort,
-    remoteDefaultEffort: "",
-    source: "fallback" as const,
-  }));
+  return FALLBACK_MODELS.map((m) => {
+    const rate = splitRate(m.name)[1];
+    const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
+    return {
+      id: m.id,
+      name: m.name,
+      rate,
+      ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
+      contextWindow: m.contextWindow,
+      reasoning: true,
+      vision: false, // 兜底表不声明图片能力（宁可少报）
+      efforts: [...m.efforts],
+      defaultEffort: m.defaultEffort,
+      remoteDefaultEffort: "",
+      source: "fallback" as const,
+    };
+  });
 }
 
 /** 把档位登记进 upstream（避免 upstream ↔ catalog 循环依赖）。 */
@@ -268,9 +281,9 @@ export async function refreshCatalog(): Promise<void> {
     try {
       const c = cred.load();
       const payload = await upstream.fetchModels(c, cfg);
-      const env = upstream.parseEnvelope(payload);
-      entries = parseRemoteModels(env.data);
-      version = str(env.data["reasoning_catalog_version"]);
+      const { items, version: v } = upstream.parseModelsResponse(payload);
+      entries = parseRemoteModels(items);
+      version = v;
     } catch {
       // 远端不可用（未登录 / 网络 / 业务码）→ 整表保底，绝不抛到调用方
       entries = [];
@@ -349,10 +362,9 @@ export async function refresh(): Promise<void> {
   const cfg = upstream.loadConfig()[0];
   const c = cred.load();
   const payload = await upstream.fetchModels(c, cfg);
-  const env = upstream.parseEnvelope(payload);
-  const entries = parseRemoteModels(env.data);
+  const { items, version } = upstream.parseModelsResponse(payload);
+  const entries = parseRemoteModels(items);
   if (entries.length === 0) throw new Error("upstream returned an empty model catalog");
-  const version = str(env.data["reasoning_catalog_version"]);
   remoteCache = { entries, version, at: Date.now() };
   writeCatalogCache(entries);
   snapshot = { entries, catalogVersion: version };
@@ -460,6 +472,16 @@ export function resolveModel(name: string): string {
     if (short === name) return slug;
   }
   return name;
+}
+
+/** 模型的倍率展示文案（如 `"x2.0"`），未知模型或无倍率返回空串。 */
+export function rateTag(modelId: string): string {
+  // 对外 id 可能是别名短名，先解析为内部 slug
+  const slug = resolveModel(modelId);
+  for (const entry of currentEntries()) {
+    if (entry.id === slug) return entry.rate;
+  }
+  return "";
 }
 
 /** 目录详情（供状态页）。 */

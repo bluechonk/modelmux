@@ -90,6 +90,12 @@ export interface UiSnapshot {
   chat_url: string;
   endpoints: string[];
   models: string[];
+  /**
+   * 每模型附加信息（键 = 池模型 id）：消耗倍率与营销角标。
+   *
+   * 倍率为 null 表示该渠道目录没有提供；前端据此不渲染倍率标签。
+   */
+  model_info: Record<string, import("../pool/pool-targets.js").PoolModelMeta>;
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;
@@ -105,6 +111,7 @@ export function emptySnapshot(): UiSnapshot {
     chat_url: "",
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: [],
+    model_info: {},
     theme_mode: "system",
     resolved_theme: "dark",
     gateway_error: "",
