@@ -40,7 +40,7 @@ export function usage(): string {
   web                       打开 Web 控制台（http://127.0.0.1:4412/web/）
 
 模型池（全模型池：动态返回全部渠道能提供的模型，请求落到哪家渠道由网关按账单已用量决定）:
-  model list                池视图：2 个模型 → 候选渠道 + 已用量 + 冷却/暂不可用
+  model list                池视图：全池模型 → 候选渠道 + 已用量 + 冷却/暂不可用
   model usage [--refresh]   池账本；--refresh 立刻重查各渠道账单额度
 
 按渠道操作（<cid> 是动词后的第一个位置参数，必须是已注册渠道名）:
@@ -53,7 +53,7 @@ ${verbLines.join("\n")}
 选项:
   --addr <host:port>        网关监听地址（默认 ${defaultAddr()}）
   --ui-port <port>          控制台 API 端口（默认 ${defaultUiPort()}）
-  --wait <seconds>          启动健康等待秒数（默认 12）
+  --wait <seconds>          启动健康等待秒数（默认 30）
   --lines <n>               logs 显示行数（默认 40）
   --kind <名>               logs：access / error / system / lifecycle / worker / channel
   --outcome <名>            logs：success / failure / other（仅 --kind access）
@@ -80,7 +80,7 @@ ${verbLines.join("\n")}
 
 示例:
   ${bin} start                          # 起网关（守护式，幂等）
-  ${bin} model list                     # 池视图：2 个模型分别会先落到哪家
+  ${bin} model list                     # 池视图：全池模型分别会先落到哪家
   ${bin} model usage --refresh          # 立刻重查各渠道账单额度并写进账本
   ${bin} models ${cid} --refresh        # 强制重拉 ${cid} 的模型目录
   ${bin} login ${cid}                   # 登录 ${cid}（把授权 URL 输出到终端，自行打开）
