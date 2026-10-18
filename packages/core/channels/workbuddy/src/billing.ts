@@ -140,9 +140,9 @@ async function fetchAccounts(c: cred.Credentials, baseUrl: string): Promise<Reco
  *
  * 401/403 时（默认）刷新一次令牌再试；仍失败抛 CreditsError / NotLoggedInError。
  */
-export async function fetchCredits(options: { refreshOn401?: boolean } = {}): Promise<CreditsResult> {
+export async function fetchCredits(options: { refreshOn401?: boolean; credential?: cred.Credentials } = {}): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
-  let c = cred.load();
+  let c = options.credential ?? cred.load();
 
   let cfg: upstream.Config;
   try {

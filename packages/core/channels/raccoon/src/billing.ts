@@ -121,10 +121,10 @@ async function getJson(
  * 各池**分开作 package**：奖励积分 / 每日积分 / 会员积分（**仅 > 0 时才加**）/ 充值积分。
  */
 export async function fetchCredits(
-  options: { refreshOn401?: boolean } = {},
+  options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
-  let c = cred.load(); // 未登录 → NotLoggedInError
+  let c = options.credential ?? cred.load(); // 未登录 → NotLoggedInError
   const cfg = upstream.loadConfig()[0];
 
   let result: Awaited<ReturnType<typeof getJson>>;

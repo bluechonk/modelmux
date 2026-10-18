@@ -1,7 +1,6 @@
-import { Database, Plus, RefreshCw, Trash2, UserCheck } from "lucide-react";
+import { Plus, RefreshCw, Trash2, UserCheck } from "lucide-react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
-import { StatusBadge } from "./StatusBadge";
 
 /** 账号池卡片的数据形状（直接吃 /api/commands 的宽松 JSON）。 */
 export interface AccountPool {
@@ -13,6 +12,25 @@ export interface AccountPool {
   };
 }
 
+/** 单账号的额度快照（按账号查询）。 */
+export interface AccountCredits {
+  remain: number;
+  size: number;
+  used: number;
+  unit: string;
+  remain_percent: number;
+}
+
+/** 渠道账本里的账号条目。 */
+export interface AccountBilling {
+  key: string;
+  ok: number;
+  fail: number;
+  credits?: AccountCredits | null;
+  billing_at?: string | null;
+  billing_ok?: boolean;
+}
+
 /** 渠道级账本条（billing action 聚合后的形状）。 */
 export interface ChannelBilling {
   used: number;
@@ -21,9 +39,9 @@ export interface ChannelBilling {
   ok: number;
   fail: number;
   models: number;
-  /** 按生效账号拆分的请求计数（key = 账号池 key）。 */
-  accounts?: Array<{ key: string; ok: number; fail: number }>;
-  billing_at?: null;
+  /** 按账号拆分的请求计数与额度。 */
+  accounts?: AccountBilling[];
+  billing_at?: string | null;
 }
 
 function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
@@ -33,20 +51,65 @@ function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
     uid: String(row.uid ?? ""),
     label: String(row.label ?? ""),
     health: String(row.health ?? "unknown"),
+    fail_streak: Number(row.fail_streak ?? 0),
   };
 }
 
-/** 健康度圆点颜色：ok 绿 / unauthorized 红 / 其他灰。 */
+/** 健康度圆点颜色：ok 绿 / unauthorized、error 红 / 其他灰。 */
 function healthDot(health: string): string {
   if (health === "ok") return "bg-green-400";
-  if (health === "unauthorized") return "bg-red-500";
+  if (health === "unauthorized" || health === "error") return "bg-red-500";
   return "bg-gray-600";
 }
 
+function healthText(health: string): string {
+  if (health === "error") return "不可用";
+  if (health === "unauthorized") return "需登录";
+  if (health === "unknown") return "未知";
+  return "";
+}
+
+/** 手机号只露头尾；纯数字 id 标成 UID；其余展示名原样。 */
+function displayName(account: PoolAccount): string {
+  const label = account.label?.trim() ?? "";
+  const raw = label || account.uid?.trim() || "";
+  if (/^\d{11}$/.test(raw)) return `${raw.slice(0, 3)}****${raw.slice(-4)}`;
+  if (/^\d{7,}$/.test(raw)) return `UID ${raw}`;
+  if (raw && raw !== account.key) return raw;
+  return `账号 ${account.key.slice(0, 6)}`;
+}
+
+function expiryText(expiresAt: number | null): string {
+  if (!expiresAt) return "";
+  const ms = expiresAt > 10_000_000_000 ? expiresAt : expiresAt * 1000;
+  const date = new Date(ms);
+  if (!Number.isFinite(date.getTime())) return "";
+  if (date.getTime() < Date.now()) return "已过期";
+  return `到期 ${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function quotaText(accountBilling: AccountBilling | undefined): string {
+  if (accountBilling?.credits) {
+    const { remain, unit } = accountBilling.credits;
+    return `${remain} ${unit || ""}`.trim();
+  }
+  if (accountBilling?.billing_ok === false) return "额度查询失败";
+  return "额度未知";
+}
+
+function quotaClass(accountBilling: AccountBilling | undefined): string {
+  const credits = accountBilling?.credits;
+  if (!credits) return "text-gray-500";
+  if (credits.remain <= 0) return "text-red-400";
+  if (credits.remain_percent > 0 && credits.remain_percent < 10) return "text-amber-300";
+  return "text-emerald-300";
+}
+
 /**
- * 单渠道账号池卡片：登录状态 + 账号列表（激活/删除）+ 渠道账本条 + 添加账号入口。
+ * 单渠道账号池卡片。
  *
- * 账本是**渠道级**的（记在当前生效账号头上），所以账单条标注「当前生效账号」。
+ * 信息层级按「用户一眼要看什么」排：渠道只显示小写 cid；账号行以可读昵称/用户名为主，
+ * 右侧是**该账号**的剩余额度；key 哈希、凭证字段、渠道展示名一律不展示。
  */
 export function AccountCard({
   pool,
@@ -65,141 +128,120 @@ export function AccountCard({
   onActivate: (cid: string, key: string) => void;
   onRemove: (cid: string, key: string) => void;
   onAdd: (cid: string) => void;
-  /** 只刷新本渠道的账单 / 剩余额度。 */
   onRefreshBilling: (cid: string) => void;
   refreshing: boolean;
   busyKey: string | null;
 }): ReactElement {
+  const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
+  const accounts = [...pool.index.accounts]
+    .map(rowOf)
+    .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
+  const activeAccount = accounts.find((a) => a.key === pool.index.active);
+  const channelDown = present && activeAccount !== undefined && activeAccount.health !== "ok";
+  const dotClass = !present ? "bg-gray-600" : channelDown ? "bg-red-500" : "bg-green-400";
+  const dotTitle = !present ? "未登录" : channelDown ? "当前账号不可用" : "已登录";
+
   return (
-    <div className="flex flex-col rounded-xl border border-gray-800 bg-gray-900 p-4 transition-colors hover:border-gray-700">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
-          <Database className="h-3.5 w-3.5" />
-        </span>
-        <span className="font-mono text-sm font-medium">{pool.cid}</span>
-        {pool.display && <span className="truncate text-xs text-gray-500">{pool.display}</span>}
-        <span className="ml-auto flex items-center gap-1.5">
-          <StatusBadge state={present ? "ok" : "warning"} />
-          {/* 添加账号入口：每个渠道卡片右上角（需求 2026-10-18） */}
-          <button
-            type="button"
-            aria-label={`为 ${pool.cid} 添加账号`}
-            title="添加账号（走授权流程，成功后自动入池）"
-            className="flex h-6 w-6 items-center justify-center rounded-md border border-gray-700 text-gray-400 transition-colors hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
-            disabled={busyKey !== null}
-            onClick={() => onAdd(pool.cid)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </span>
+    <div className="flex flex-col rounded-xl border border-gray-800 bg-gray-900 p-3 transition-colors hover:border-gray-700">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="font-mono text-sm font-medium text-gray-200">{pool.cid}</span>
+        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} title={dotTitle} />
+        <button
+          type="button"
+          aria-label={`为 ${pool.cid} 添加账号`}
+          title="添加账号（走授权流程，成功后自动入池）"
+          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-gray-700 text-gray-400 transition-colors hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
+          disabled={busyKey !== null}
+          onClick={() => onAdd(pool.cid)}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="mb-2 text-xs text-gray-500">
-        当前生效：
-        <span className="ml-1 font-mono text-gray-300">{pool.index.active ?? "（无）"}</span>
-      </div>
-
-      {pool.index.accounts.length === 0 ? (
-        <div className="mb-2 text-xs text-gray-600">（空池：添加账号后会自动入池）</div>
+      {accounts.length === 0 ? (
+        <div className="py-3 text-xs text-gray-600">空池，点右上角 + 添加账号</div>
       ) : (
-        <ul className="mb-2 space-y-1.5">
-          {[...pool.index.accounts]
-            .map(rowOf)
-            // 当前生效的账号恒排第一行，其余保持原顺序
-            .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active))
-            .map((account) => {
-            const key = account.key;
-            const active = key === pool.index.active;
+        <ul className="space-y-1.5">
+          {accounts.map((account) => {
+            const active = account.key === pool.index.active;
+            const bill = billingByKey.get(account.key);
+            const health = healthText(account.health);
+            const expiry = expiryText(account.expires_at);
             return (
               <li
-                key={key}
-                className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs ${
-                  active ? "bg-sky-500/10" : "bg-gray-950/60"
+                key={account.key}
+                className={`rounded-lg px-2.5 py-2 ${
+                  active ? "bg-sky-500/10 ring-1 ring-sky-500/20" : "bg-gray-950/50"
                 }`}
               >
-                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className={`font-mono ${active ? "font-semibold text-sky-300" : "text-gray-300"}`}>{key}</span>
-                  {account.label && <span className="text-gray-500">{account.label}</span>}
-                  <span className="flex items-center gap-1 text-gray-500">
-                    <span className={`h-1.5 w-1.5 rounded-full ${healthDot(account.health)}`} />
-                    {account.health}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
+                    title={health || "正常"}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-100">
+                    {displayName(account)}
                   </span>
-                </span>
-                <span className="flex shrink-0 gap-1">
-                  {!active && (
-                    <button
-                      className="flex items-center gap-1 rounded-md bg-gray-800 px-2 py-0.5 text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50"
-                      disabled={busyKey !== null}
-                      onClick={() => onActivate(pool.cid, key)}
-                      title="切换为生效账号"
-                    >
-                      <UserCheck className="h-3 w-3" />
-                      {busyKey === `activate:${key}` ? "切换中…" : "切换"}
-                    </button>
+                  {active && (
+                    <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
+                      当前
+                    </span>
                   )}
-                  <button
-                    className="flex items-center gap-1 rounded-md bg-red-950 px-2 py-0.5 text-red-300 transition-colors hover:bg-red-900 disabled:opacity-50"
-                    disabled={busyKey !== null}
-                    onClick={() => onRemove(pool.cid, key)}
-                    title={active ? "删除生效账号 = 同时登出" : "从池中删除"}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    {busyKey === `remove:${key}` ? "删除中…" : "删除"}
-                  </button>
-                </span>
+                  {health && (
+                    <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
+                      {health}
+                    </span>
+                  )}
+                  <span className={`shrink-0 text-sm font-semibold ${quotaClass(bill)}`}>
+                    {quotaText(bill)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-2 pl-3.5 text-[11px] text-gray-500">
+                  <span className="min-w-0 truncate">
+                    {account.uid && account.uid !== displayName(account) ? `uid ${account.uid}` : ""}
+                    {expiry && (account.uid ? ` · ${expiry}` : expiry)}
+                  </span>
+                  <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                    {!active && (
+                      <button
+                        className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-sky-300 disabled:opacity-40"
+                        disabled={busyKey !== null}
+                        onClick={() => onActivate(pool.cid, account.key)}
+                        title="切换为生效账号"
+                        aria-label="切换为生效账号"
+                      >
+                        <UserCheck className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      className="rounded p-1 text-gray-500 transition-colors hover:bg-red-950/60 hover:text-red-300 disabled:opacity-40"
+                      disabled={busyKey !== null}
+                      onClick={() => onRemove(pool.cid, account.key)}
+                      title={active ? "删除生效账号 = 同时登出" : "从池中删除"}
+                      aria-label="删除账号"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                </div>
               </li>
             );
           })}
         </ul>
       )}
 
-      {billing && (
-        <div className="mt-auto rounded-lg border border-gray-800 bg-gray-950/60 px-3 py-2 text-xs text-gray-400">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${billing.cooling ? "bg-yellow-400" : "bg-green-400"}`} />
-              账单
-              <span className="font-medium text-gray-200">
-                {billing.used}
-                {billing.unit ? ` ${billing.unit}` : ""}
-              </span>
-            </span>
-            <span>
-              ok=<span className="text-green-400">{billing.ok}</span>
-              <span className="text-gray-600"> / </span>
-              fail=<span className={billing.fail > 0 ? "text-red-400" : "text-gray-500"}>{billing.fail}</span>
-            </span>
-            <span className="text-gray-600">供给 {billing.models} 个池模型</span>
-            {billing.cooling && <span className="text-yellow-400">冷却中</span>}
-            <button
-              className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50"
-              disabled={refreshing || busyKey !== null}
-              onClick={() => onRefreshBilling(pool.cid)}
-              title="重新请求本渠道的账单 / 剩余额度"
-            >
-              <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "刷新中…" : "刷新"}
-            </button>
-          </div>
-          {billing.accounts && billing.accounts.length > 0 && (
-            <div className="mt-2 border-t border-gray-800 pt-2">
-              <div className="mb-1 text-gray-600">按账号拆分（渠道 × 账号）：</div>
-              <ul className="space-y-0.5">
-                {billing.accounts.map((a) => (
-                  <li key={a.key} className="flex items-center gap-2 font-mono">
-                    <span className="truncate text-gray-300">{a.key}</span>
-                    <span className="text-gray-500">
-                      ok=<span className="text-green-400">{a.ok}</span> fail=
-                      <span className={a.fail > 0 ? "text-red-400" : "text-gray-500"}>{a.fail}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
+      <div className="mt-auto flex items-center gap-2 pt-2 text-[11px] text-gray-600">
+        {billing ? <span>供给 {billing.models} 个池模型</span> : <span>暂无账本</span>}
+        <button
+          className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-50"
+          disabled={refreshing || busyKey !== null}
+          onClick={() => onRefreshBilling(pool.cid)}
+          title="重新查询本渠道每个账号的额度"
+        >
+          <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "刷新中" : "刷新额度"}
+        </button>
+      </div>
     </div>
   );
 }

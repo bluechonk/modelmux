@@ -24,6 +24,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { channels, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
+import { listAccounts, readAccountCredential } from "../runtime/account-pool.js";
+import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { poolUsagePath } from "../runtime/paths.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 
@@ -60,10 +62,22 @@ export interface ChannelLedger {
   accounts: Record<string, AccountCount>;
 }
 
-/** 单账号的请求计数。 */
+/** 单账号的请求计数与额度快照。 */
 export interface AccountCount {
   ok: number;
   fail: number;
+  /** 该账号的额度（按账号查询成功后写入；查不到则缺省）。 */
+  credits?: {
+    remain: number;
+    size: number;
+    used: number;
+    unit: string;
+    remain_percent: number;
+  };
+  /** 该账号额度查询时间（ISO）。 */
+  billing_at?: string | null;
+  /** 该账号额度查询是否成功。 */
+  billing_ok?: boolean;
 }
 
 export interface PoolLedger {
@@ -107,7 +121,26 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const rec = value as Record<string, unknown>;
-    out[key] = { ok: num(rec.ok), fail: num(rec.fail) };
+    const creditsRaw = rec.credits;
+    const credits = creditsRaw && typeof creditsRaw === "object" && !Array.isArray(creditsRaw)
+      ? (() => {
+          const c = creditsRaw as Record<string, unknown>;
+          return {
+            remain: num(c.remain),
+            size: num(c.size),
+            used: num(c.used),
+            unit: str(c.unit),
+            remain_percent: num(c.remain_percent),
+          };
+        })()
+      : undefined;
+    out[key] = {
+      ok: num(rec.ok),
+      fail: num(rec.fail),
+      ...(credits ? { credits } : {}),
+      billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
+      billing_ok: rec.billing_ok === true,
+    };
   }
   return out;
 }
@@ -257,6 +290,59 @@ function noteBillingAttempt(cid: string, ok: boolean): void {
   scheduleSave();
 }
 
+/** 写某账号的额度快照（按账号查询成功时）。 */
+export function writeAccountBilling(cid: string, key: string, credits: unknown): void {
+  const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
+  const entry = accountEntry(entryOf(load(), cid), key);
+  entry.credits = {
+    remain: num(total["remain"]),
+    size: num(total["size"]),
+    used: num(total["used"]),
+    unit: str(total["unit"]),
+    remain_percent: num(total["remain_percent"]),
+  };
+  entry.billing_at = new Date().toISOString();
+  entry.billing_ok = true;
+  scheduleSave();
+}
+
+/** 标记某账号额度查询失败（保留上一次的数字）。 */
+function noteAccountBillingAttempt(cid: string, key: string, ok: boolean): void {
+  const entry = accountEntry(entryOf(load(), cid), key);
+  entry.billing_at = new Date().toISOString();
+  entry.billing_ok = ok;
+  scheduleSave();
+}
+
+/**
+ * 查一个渠道**所有账号**的额度。
+ *
+ * 账号池里的每个账号都有自己的凭据；用「原始凭证 → 形状归一化」传给
+ * `billing.fetchCredits({ credential })`，不切换生效账号、不写回凭证文件。
+ * 查询失败只标记该账号的 `billing_ok=false`，不影响渠道整体刷新。
+ */
+async function refreshAccountCredits(
+  channel: Channel,
+  cid: string,
+  logger: (m: string) => void,
+): Promise<void> {
+  const index = runInChannel(cid, () => listAccounts(cid));
+  for (const account of index.accounts) {
+    const raw = runInChannel(cid, () => readAccountCredential(account.key, cid));
+    const credential = normalizeCredentialShape(raw);
+    if (Object.keys(credential).length === 0) continue;
+    try {
+      const credits = await runInChannel(cid, () =>
+        channel.billing.fetchCredits({ refreshOn401: false, credential }),
+      );
+      writeAccountBilling(cid, account.key, credits);
+    } catch (err) {
+      noteAccountBillingAttempt(cid, account.key, false);
+      logger(`account billing query failed (${cid}/${account.key.slice(0, 8)}…): ${String(err)}`);
+    }
+  }
+}
+
 /** 只读快照（CLI / 诊断用）。 */
 export function ledgerSnapshot(): PoolLedger {
   return load();
@@ -292,9 +378,17 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
   const settled = await Promise.allSettled(
     list.map(async (channel: Channel) => {
       const cid = channel.config.cid;
-      const credits = await runInChannel(cid, () =>
-        channel.billing.fetchCredits({ refreshOn401: true }),
-      );
+      let credits: unknown;
+      try {
+        credits = await runInChannel(cid, () =>
+          channel.billing.fetchCredits({ refreshOn401: true }),
+        );
+      } finally {
+        // 渠道级查询失败也要尝试按账号查：失败的可能只是生效账号。
+        await refreshAccountCredits(channel, cid, logger).catch((err: unknown) => {
+          logger(`account billing refresh failed (${cid}): ${String(err)}`);
+        });
+      }
       return { cid, credits };
     }),
   );

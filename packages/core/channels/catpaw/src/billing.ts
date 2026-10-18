@@ -74,9 +74,9 @@ export interface CreditsResult {
  * 是**如实映射**而不是伪造（从余额无法推出已用量）。
  */
 export async function fetchCredits(
-  _options: { refreshOn401?: boolean } = {},
+  options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
-  const c = cred.load(); // 未登录 → NotLoggedInError
+  const c = options.credential ?? cred.load(); // 未登录 → NotLoggedInError
 
   let payload: unknown;
   try {

@@ -118,16 +118,16 @@ export function LoginModal({
                 },
                 { title: "在官方页面完成登录 / 授权", body: null },
                 {
-                  title: "复制回调链接",
+                  title: "自动回调（无需手动）",
                   body: (
                     <span className="text-xs text-gray-500">
-                      授权后浏览器会跳到一个<strong className="text-gray-300">打不开的回调页</strong>
-                      （自定义协议），这是正常的 —— 复制地址栏里的整条链接。
+                      授权成功后页面会<strong className="text-gray-300">自动跳回本地回调</strong>
+                      并完成登录。若浏览器拦截跳转，再复制地址栏链接到下一步。
                     </span>
                   ),
                 },
                 {
-                  title: "粘贴并提交",
+                  title: "手动粘贴回调链接（仅自动跳转失败时）",
                   body: (
                     <CallbackForm
                       onSubmit={onSubmitCallback}
@@ -153,7 +153,7 @@ export function LoginModal({
             </div>
             <ul className="list-disc space-y-1 pl-4">
               <li>如果浏览器拦截了新窗口，回到步骤 1 再点一次「打开授权页」即可。</li>
-              <li>回调页打不开是正常现象（自定义协议），链接照样能复制。</li>
+              <li>授权成功后会自动跳回本地回调完成登录；若跳转被拦截，复制地址栏链接粘贴。</li>
               <li>登录成功后账号自动入池并设为生效；失败时本弹窗会显示原因。</li>
             </ul>
           </div>

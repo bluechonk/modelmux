@@ -68,7 +68,18 @@ export interface PoolIndex {
 const INDEX_NAME = "accounts.json";
 const ACCOUNT_DIR = "accounts";
 /** 索引里保留的展示字段别名（尽力而为，取不到就空）。 */
-const LABEL_FIELDS = ["nickname", "email", "phone", "name"] as const;
+const LABEL_FIELDS = [
+  "nickname",
+  "name",
+  "displayName",
+  "username",
+  "userName",
+  "user_name",
+  "email",
+  "phone",
+  "account",
+  "login",
+] as const;
 const EXPIRY_FIELDS = ["expiresAt", "expireTime", "expiry", "expires_at", "refreshExpiresAt"] as const;
 
 function accountDir(cid?: string): string {
@@ -188,7 +199,30 @@ function writeIndex(index: PoolIndex, cid?: string): void {
 /** 池子摘要（供 CLI / 网关）：先与"现实"同步，再读索引。 */
 export function listAccounts(cid?: string): PoolIndex {
   syncPool(cid);
-  return readIndex(cid);
+  const index = readIndex(cid);
+  refreshLabels(index, cid);
+  return index;
+}
+
+/**
+ * 老账号的 label 可能是 uid / key（早期只收集 nickname/email/phone/name）。
+ * CLI / Web 读取池子时尽量从账号凭证里补一次可读用户名；只替换「空 / key / uid」
+ * 这类泛化值，不覆盖已有的昵称/手机号。
+ */
+function refreshLabels(index: PoolIndex, cid?: string): void {
+  let changed = false;
+  for (const account of index.accounts) {
+    const raw = readAccountCredential(account.key, cid);
+    const candidate = hint(raw, LABEL_FIELDS);
+    if (!candidate || candidate === account.key) continue;
+    const current = account.label.trim();
+    if (current && current !== account.key && current !== account.uid) continue;
+    if (candidate !== current) {
+      account.label = candidate;
+      changed = true;
+    }
+  }
+  if (changed) writeIndex(index, cid);
 }
 
 /**

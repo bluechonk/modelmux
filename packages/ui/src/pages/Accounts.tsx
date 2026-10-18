@@ -21,7 +21,20 @@ interface BillingRow {
     cooling?: boolean;
     ok?: number;
     fail?: number;
-    accounts?: Array<{ key: string; ok: number; fail: number }>;
+    accounts?: Array<{
+      key: string;
+      ok: number;
+      fail: number;
+      credits?: {
+        remain: number;
+        size: number;
+        used: number;
+        unit: string;
+        remain_percent: number;
+      } | null;
+      billing_at?: string | null;
+      billing_ok?: boolean;
+    }>;
   }>;
 }
 
@@ -79,7 +92,8 @@ export function Accounts(): ReactElement {
   };
 
   const startLogin = useMutation({
-    mutationFn: async (cid: string) => await api.commands.login(cid, false),
+    // 添加账号 = 强制新授权（已有凭据/被标记 error 时也要拿到新的授权链接）
+    mutationFn: async (cid: string) => await api.commands.login(cid, true),
     onError: (err) => setError(String(err)),
   });
   const activate = useMutation({
@@ -174,7 +188,7 @@ export function Accounts(): ReactElement {
             title="重新请求全部渠道的账单 / 剩余额度"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshBilling.isPending ? "animate-spin" : ""}`} />
-            刷新全部账单
+            刷新全部额度
           </button>
         </div>
       </div>

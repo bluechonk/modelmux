@@ -305,6 +305,11 @@ interface Channel {
 没有额度端点的渠道，抛 `CreditsError("该渠道没有公开的额度查询端点")` 并在 docstring
 说明原因 —— 不要伪造数字。
 
+**按账号查询**：`fetchCredits(options?: { refreshOn401?: boolean; credential?: unknown })`。
+不传 `credential` = 当前生效账号；传入时用它代替 `cred.load()`，并配合
+`refreshOn401: false`（避免刷新 / 回写生效账号的凭证文件）。账号池刷新账单时按账号调用，
+结果写入账本 `accounts[key].credits`（见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.4）。
+
 ---
 
 ## 6. 登录：真实 URL 链路（禁止读本地文件）

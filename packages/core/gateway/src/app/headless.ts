@@ -10,7 +10,7 @@
 
 import * as authFlow from "../auth/auth-flow.js";
 import { startAutoSignin } from "../auth/auto-signin.js";
-import { syncPool } from "../runtime/account-pool.js";
+import { captureActive, syncPool } from "../runtime/account-pool.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { channels, getChannel, hasChannel, type Channel } from "../runtime/channel.js";
 import * as console_ from "../http/console.js";
@@ -95,6 +95,8 @@ class ServiceState {
     this.uiState = state;
     this.stateMessage = message;
     if (url) this.authUrl = url; // 后续状态不带 url 时沿用上一条授权链接
+    else if (state !== "login") this.authUrl = ""; // 登录结束/失败后清掉旧授权链接
+    if (state !== "login") this.clearQr();
     if (state === "running") this.gatewayError = "";
   }
 
@@ -197,7 +199,14 @@ export async function runLogin(options: {
     } catch (err) {
       ui.setState("error", `wechat login failed: ${String(err)}`);
     }
-    if (ok && target) runInChannel(target.config.cid, () => syncPool(target.config.cid));
+    if (ok && target) {
+      runInChannel(target.config.cid, () => {
+        // 重新授权成功后恢复健康度（同一账号重登也要把 error 清掉）
+        captureActive(target.config.cid);
+        syncPool(target.config.cid);
+      });
+      ui.setState("done", "登录成功，账号已入池。", "", "");
+    }
     if (json) {
       const done: Record<string, unknown> = { event: "done", ok };
       if (ui.authUrl) done["auth_url"] = ui.authUrl;
@@ -257,7 +266,16 @@ export async function runLogin(options: {
   // ⚠ 必须包 `runInChannel`：`syncPool` 内部走 `cred.load()` → `paths.*`，
   // 而这些在多渠道模式下靠 ALS 上下文才知道为谁解析。裸调用会静默收不到
   // （`loadLive` 的 catch 吞掉「无上下文」），表现为「登录了但池子是空的」。
-  if (ok && target) runInChannel(target.config.cid, () => syncPool(target.config.cid));
+  if (ok && target) {
+    runInChannel(target.config.cid, () => {
+      // 登录成功即入池并恢复健康度（重新授权同一账号也要把 error 清掉）
+      captureActive(target.config.cid);
+      syncPool(target.config.cid);
+    });
+    ui.setState("done", "登录成功，账号已入池。", "", "");
+  } else {
+    ui.setState("error", "登录失败，请重试。", "", "");
+  }
 
   if (json) {
     const done: Record<string, unknown> = { event: "done", ok };
