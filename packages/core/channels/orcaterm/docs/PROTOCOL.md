@@ -418,4 +418,44 @@ POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfC
 | **C 推断** | 由 A/B 推论，尚未直接验证（如请求体形状、"含义"列） |
 
 本文中：1.2–1.6、`.cookies` 内容为 **A**；URL 清单、`/cgi/*` 路径、供应商预置、
-对话路径 `/messages*` 为 **B**；3.1 的「含义」列与 3.2、3.4 的缺口为 **C**。
+对话路径 `/messages*` 为 **B**；3.1 的「含义」列与 3.2、3.4 的缺口为 **C**；5.1 的额度端点为 **A**（实测）。
+
+## 5. 额度 / 签到
+
+### 5.1 额度（未实现）
+
+OrcaTerm 上游有额度查询端点（实测返回 `MissSignatureParams`）：
+
+| 端点 | 方法 | 响应 |
+| --- | --- | --- |
+| `orcaterm.com/api/user/package` | GET | `{"Response":{"Error":{"Code":"MissSignatureParams"}}}` |
+| `orcaterm.com/api/user/quota` | GET | 同上 |
+| `orcaterm.com/api/package` | GET | 同上 |
+| `orcaterm.com/api/v1/user/package` | GET | 同上 |
+| `orcaterm.com/api/v1/user/quota` | GET | 同上 |
+
+需要**请求签名**（非 token 透传），签名方案疑似 TC3-HMAC-SHA256，由客户端持有密钥派生。
+Go（ZFXing-lite/orcaterm2api）与 Python（hey7195/orcaterm_proxy）参考实现**均未实现额度查询**。
+
+渠道包 `billing.ts` 的 `fetchCredits()` 抛 `CreditsError`，网关展示为：
+```
+[orcaterm] CreditsError: OrcaTerm 额度查询需要请求签名（MissSignatureParams），当前未实现
+```
+
+### 5.2 签到（无此功能）
+
+CAPI 框架（`POST orcaterm.com/cgi/api`）内无签到/领取动作——
+`DailyCheckin` / `Checkin` / `DailySignin` / `ClaimDaily` 等常见命名全部返回 `ACTION_INVALID`。
+
+OrcaTerm 的运维套餐为**订阅制**（非积分制），无每日积分概念。
+渠道包 `billing.ts` 的 `signin.status()` 返回 `claimable: false` + 人读说明。
+
+### 5.3 凭证体检（已实现）
+
+```
+GET https://lightai.cloud.tencent.com/assistant/conversation/list?offset=0&limit=1
+Authorization: Bearer <ot_session>
+```
+
+- `{"code":0,"data":[],...}` → 凭证有效
+- `{"code":10050000,...}` → 凭证失效
