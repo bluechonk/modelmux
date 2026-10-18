@@ -60,15 +60,16 @@ function handleModels(res: ServerResponse): void {
   writeJson(res, {
     object: "list",
     // 字段结构对齐 DeepSeek 官方 `GET /models`（见 pool-targets.ts 的 PoolModelMeta）：
-    // **没有 `created`**，`name` 是展示名，并带上上下文 / 最大输出 / 模态 / 档位。
-    // id 为 `<cid>/<模型>` 池形态；`owned_by` 即 id 前缀里的渠道（请求方照它选池子）。
+    // **没有 `created`**，`name` 与 `id` 一致（同为 `<cid>/<模型>` 池形态），
+    // 并带上上下文 / 最大输出 / 模态 / 档位。
+    // `owned_by` 即 id 前缀里的渠道（请求方照它选池子）。
     data: POOL_MODELS.map((id) => {
       const meta = getPoolModelMeta(id);
       return {
         id,
         object: "model",
         owned_by: id.split("/")[0] ?? "modelmux",
-        name: meta.name,
+        name: id,
         context_window: meta.contextWindow,
         max_output_tokens: meta.maxOutputTokens,
         input_modalities: meta.inputModalities,
