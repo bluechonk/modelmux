@@ -327,23 +327,33 @@ POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfC
 - `stream: true` 走 SSE 分块传输（绕过 CDN 单体响应限制）
 - `setting.model` 是上游模型名，走 `TokenHub/<名称>` 或 `Hunyuan3/<名称>` 前缀
 
-#### 3.4.3 响应格式（SSE）
+#### 3.4.3 响应格式（SSE，curl 真机探测 + Go 参考实现双源确认）
 
-每帧 JSON 形态：
+流式响应每帧为**逐 token 增量**形态（非全量JSON信封）：
 
 ```jsonc
-// 正常帧
-{"code":0,"data":{"action":"completion","taskCompletion":"<正文>"}}
-{"code":0,"data":{"action":"ask","question":"<反问>"}}
-{"code":0,"data":{"action":"review","taskCompletion":"<说明文本>","tool":{"name":"execute_command","args":{"command":"ls"}}}}
+// 正文帧（每帧只有当前 token 的增量文本）
+{"id":"7dca47643e234ebf8b8413fe60ae76ad1","content":"你","reasoningContent":"","reasoning":false,"type":"ai","code":0}
+{"id":"7dca47643e234ebf8b8413fe60ae76ad1","content":"好","reasoningContent":"","reasoning":false,"type":"ai","code":0}
 
-// 鉴权失效
-{"code":10050000,"message":"..."}
+// 鉴权失效帧
+{"id":"...","content":"","code":10050000,"message":"..."}
 
-// 控制台态票据失效
-{"code":500,"message":"VERIFY_SKEY_UIN_FAILED: ..."}
-{"code":500,"message":"NEED_UIN_AND_SKEY: ..."}
+// 控制台态票据失效帧
+{"id":"...","content":"","code":500,"message":"VERIFY_SKEY_UIN_FAILED: ..."}
+{"id":"...","content":"","code":500,"message":"NEED_UIN_AND_SKEY: ..."}
 ```
+
+字段说明：
+- `id`：本轮会话 uuid，全程不变
+- `content`：当前 token 的增量文本（非完整正文）
+- `reasoningContent`：思考链内容（`reasoning:true` 时有值）
+- `type`：`"ai"` 表示模型生成
+- `code`：`0` 正常，`10050000` 鉴权失效，`429` 限流
+
+累积全部 `content` 帧即为最终正文（**纯文本，不是 JSON**）。网关在流结束后一次性输出。
+
+> 早期臆测上游返回 `{"code":0,"data":{"action":"completion","taskCompletion":"..."}}` 形态，被 curl 真机探测推翻。该结构来自 ZFXing-lite/orcaterm2api Go 参考实现对**非流式**模式的注释，实际流式走的是逐 token 增量。
 
 #### 3.4.4 上游模型目录（参考实现内置）
 
