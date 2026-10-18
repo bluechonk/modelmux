@@ -68,20 +68,30 @@ git checkout main && git pull origin main
 git checkout -b fix/<模块>
 git add <files> && git commit -m "fix(<scope>): 中文描述"
 
-# 2) 推送（pre-push 会在 WSL clone + npm ci + npm test，全绿才放行）
+# 2) 【推送前必须】本地 WSL 门禁：与 CI 等价，全绿才推
+npm run gate
+
+# 3) 推送（.githooks/pre-push 会自动再跑一次同一门禁）
 git push -u origin fix/<模块>
 
-# 3) 建 PR（用文件传 JSON，内联中文会被 shell 破坏）
+# 4) 建 PR（用文件传 JSON，内联中文会被 shell 破坏）
 #    ⚠ PR 标题即合并提交标题，必须是 type(scope): 中文描述
 curl -s -X POST "https://api.github.com/repos/bluechonk/modelmux/pulls" \
   -H "Authorization: Bearer $GITHUB_TOKEN" \
   -H "Accept: application/vnd.github+json" --data-binary @.tmp/pr.json
 
-# 4) 等 CI 双绿（node 22 / node 24）再合并
+# 5) 等 CI 双绿（node 22 / node 24）再合并
 curl -s "https://api.github.com/repos/bluechonk/modelmux/commits/<sha>/check-runs" \
   -H "Authorization: Bearer $GITHUB_TOKEN"
 ```
 
+- **推送前必须先 `npm run gate`**（WSL 里 clone + `npm ci` + `npm test`）：本机 Windows +
+  Git Bash 与 ubuntu-latest 有真实差异（git 历史深度、平台原生依赖、DrvFs 符号链接），
+  Windows 侧跑绿不代表 CI 会绿。`pre-push` 会自动再跑一次，但那是**兜底拦截**，
+  不是「提前发现」—— 不要依赖它代替手动跑。
+- **改了 `.github/workflows/**` 必须本地先跑通再推**：workflow 的失败模式通常只有真跑产物
+  才暴露（如 Pages 的 base 前缀不对 → 整页空白）。Pages 相关改动跑 `npm run verify:pages`，
+  `gate` 也会按文件范围自动带上。
 - 合并统一用 **`merge_method: rebase`**（单提交/多提交都适用，保持线性历史）；
   仓库设置 `merge_commit_title=PR_TITLE`，所以 PR 标题必须合规。
 - **禁止** `--no-verify` 绕过 pre-push；CI 红着时禁止继续推送新提交。
