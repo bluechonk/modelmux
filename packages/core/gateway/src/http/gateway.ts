@@ -78,6 +78,7 @@ function handleModels(res: ServerResponse): void {
           supported_levels: meta.effort.supportedLevels,
           default_level: meta.effort.defaultLevel,
         },
+        multiplier: meta.multiplier,
       };
     }),
   });

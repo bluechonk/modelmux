@@ -160,6 +160,8 @@ export interface PoolModelMeta {
   inputModalities: string[];
   outputModalities: string[];
   effort: { supportedLevels: string[]; defaultLevel: string };
+  /** 消耗倍率；null 表示渠道目录未提供。 */
+  multiplier: number | null;
 }
 
 /** 默认元数据（从渠道 catalog 中提取不到时的兜底）。 */
@@ -170,7 +172,29 @@ const DEFAULT_META: PoolModelMeta = {
   inputModalities: ["text"],
   outputModalities: ["text"],
   effort: { supportedLevels: ["low", "high"], defaultLevel: "high" },
+  multiplier: null,
 };
+
+/** 各渠道缓存条目里可能出现的倍率字段名 —— 渠道自己决定字段名，汇聚层逐个尝试。 */
+const MULTIPLIER_KEYS = [
+  "price_factor", // Qoder 上游字段（qoder_catalog.py:20 实测）
+  "multiplier",
+  "effective_multiplier",
+  "effectiveMultiplier",
+  "cost_multiplier",
+];
+
+function firstNumber(entry: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = entry[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number.parseFloat(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
 
 /** 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。 */
 export function getPoolModelMeta(model: string): PoolModelMeta {
@@ -185,7 +209,13 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
       return [];
     }
   });
-  const entry = cache.find((d: any) => canonicalModelId(d.id) === parsed.model) as any;
+  // 先用对外 id 匹配；若失败，用 resolveModel 解析出上游 key 后按 key 匹配
+  // （Qoder 缓存 id 是上游 key `qfmodel`，对外名是 `glm-5.3-flash`，两者不同）
+  const upstreamKey = runInChannel(channel.config.cid, () => channel.catalog.resolveModel(parsed.model));
+  const entry = cache.find((d: any) => {
+    const canonical = canonicalModelId(d.id);
+    return canonical === parsed.model || canonical === upstreamKey || d.key === upstreamKey;
+  }) as any;
   if (entry) {
     // 目录里 contextWindow = 0 表示「上游未声明」——不能当有效值透给客户端
     // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
@@ -197,6 +227,7 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
       inputModalities: entry.inputModalities ?? entry.input_modalities ?? DEFAULT_META.inputModalities,
       outputModalities: entry.outputModalities ?? entry.output_modalities ?? DEFAULT_META.outputModalities,
       effort: entry.effort ?? DEFAULT_META.effort,
+      multiplier: firstNumber(entry, MULTIPLIER_KEYS),
     };
   }
   return DEFAULT_META;
