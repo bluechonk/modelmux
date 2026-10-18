@@ -389,3 +389,14 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
  `glm-5.1` 属「可调用但被官方隐藏」
 - **模型昵称**：`ScreenName` 是按 uid 自动生成的默认名（`用户00000000000`），
  必须用 `NonPlainTextMobile`（脱敏手机号）优先、邮箱兜底
+
+## Chat 传输现状（2026-10-18 实测）
+
+- 当前实现的 `POST /api/agent/v3/llm_utils_chat`（solo/IDE 传输）对**个人账号**恒返回
+  `2001 failed to get app config: record not found` —— 上游已按账号类型收紧。
+- 参考实现 `autumnsentiment_Trae2api-cn`（src/main.py L1810-1830 注释）因此**移除了
+  IDE Raw preset**，公共预设只剩 **`/api/remote/v1/chat_sessions`**（work 传输，
+  product=traework，配合账号绑定的 Cloud-IDE-JWT 与账号绑定快照）。
+- 切换到 chat_sessions 是会话管理器级改造（创建会话 / 事件流 / 消息 id / 账号绑定
+  快照，见 reference `run_remote_session`），未在本轮实施；在此如实记录现状。
+- models / billing / 签到不受影响。

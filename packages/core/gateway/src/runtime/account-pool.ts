@@ -36,7 +36,10 @@ import { channelDir, credentialsPath, ensureDir } from "./paths.js";
 import { writeJsonSecret } from "./secret-file.js";
 
 /** 账号健康状态。`unauthorized` 由网关在刷新失败时写入。 */
-export type AccountHealth = "ok" | "unauthorized" | "unknown";
+export type AccountHealth = "ok" | "unauthorized" | "unknown" | "error";
+
+/** 连续请求失败达到该次数 → 凭据标记为 error，路由跳过（2026-10-18 决策）。 */
+export const FAIL_STREAK_LIMIT = 3;
 
 export interface PoolAccount {
   /** 稳定账号标识（文件名：`accounts/<key>.json`）。 */
@@ -51,6 +54,8 @@ export interface PoolAccount {
   expires_at: number | null;
   health: AccountHealth;
   health_at: string;
+  /** 连续请求失败次数（成功清零；达到 FAIL_STREAK_LIMIT 时 health 标 error）。 */
+  fail_streak: number;
 }
 
 export interface PoolIndex {
@@ -154,8 +159,13 @@ export function readIndex(cid?: string): PoolIndex {
         added_at: String(a["added_at"] ?? ""),
         last_used_at: String(a["last_used_at"] ?? ""),
         expires_at: typeof a["expires_at"] === "number" ? a["expires_at"] : null,
-        health: (a["health"] === "unauthorized" || a["health"] === "ok" ? a["health"] : "unknown") as AccountHealth,
+        health: (a["health"] === "unauthorized" || a["health"] === "ok" || a["health"] === "error"
+          ? a["health"]
+          : "unknown") as AccountHealth,
         health_at: String(a["health_at"] ?? ""),
+        fail_streak: typeof a["fail_streak"] === "number" && Number.isFinite(a["fail_streak"]) && a["fail_streak"] > 0
+          ? Math.trunc(a["fail_streak"])
+          : 0,
       });
     }
     const active = typeof rec["active"] === "string" ? rec["active"] : null;
@@ -217,6 +227,7 @@ export function captureActive(
     expires_at: parseExpiry(raw),
     health: "ok",
     health_at: stamp,
+    fail_streak: 0,
   };
 
   mkdirSync(accountDir(cid), { recursive: true });
@@ -250,6 +261,7 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
     /* 忽略 */
   }
   account.last_used_at = nowIso();
+  account.fail_streak = 0; // 手动切号 = 给这份凭据第二次机会
   writeIndex({ version: 1, active: key, accounts: index.accounts }, cid);
   return account;
 }
@@ -418,9 +430,62 @@ function loadLive(cid?: string): Record<string, unknown> | null {
 export function pickAccount(cid?: string, exclude: readonly string[] = []): PoolAccount | null {
   const index = readIndex(cid);
   const usable = index.accounts
-    .filter((a) => a.health !== "unauthorized" && !exclude.includes(a.key))
+    .filter(
+      (a) =>
+        a.health !== "unauthorized" &&
+        a.health !== "error" && // 连续失败被标记的凭据不再发起请求
+        !exclude.includes(a.key),
+    )
     .sort((a, b) => (a.last_used_at < b.last_used_at ? -1 : a.last_used_at > b.last_used_at ? 1 : 0));
   return usable[0] ?? null;
+}
+
+/**
+ * 一次请求失败：生效账号连续失败 +1；达到 FAIL_STREAK_LIMIT 即把 health 标为
+ * `error`（路由与 pickAccount 都会跳过，**凭证保留**，恢复靠用户切号/重登）。
+ *
+ * 与 markActiveHealth 的区别：那个按「最后一次结果」覆盖 health；这个是
+ * **累计口径**，只升不降（成功由 noteAccountSuccess 清零连败）。
+ */
+export function noteAccountFailure(cid?: string): void {
+  let scope: string;
+  try {
+    scope = channelDir(cid);
+  } catch {
+    return;
+  }
+  const index = readIndex(cid);
+  if (!index.active) return;
+  const hit = index.accounts.find((a) => a.key === index.active);
+  if (!hit) return;
+  hit.fail_streak = (hit.fail_streak ?? 0) + 1;
+  if (hit.fail_streak >= FAIL_STREAK_LIMIT && hit.health !== "error") {
+    hit.health = "error";
+    hit.health_at = nowIso();
+    healthCache.set(scope, "error");
+  }
+  writeIndex(index, cid);
+}
+
+/** 一次请求成功：清零生效账号的连续失败计数。 */
+export function noteAccountSuccess(cid?: string): void {
+  const index = readIndex(cid);
+  if (!index.active) return;
+  const hit = index.accounts.find((a) => a.key === index.active);
+  if (!hit || (hit.fail_streak ?? 0) === 0) return;
+  hit.fail_streak = 0;
+  writeIndex(index, cid);
+}
+
+/** 生效账号是否已被标记 error（callUpstream 入口直接短路，不再发上游请求）。 */
+export function activeAccountIsError(cid?: string): boolean {
+  try {
+    const index = readIndex(cid);
+    if (!index.active) return false;
+    return index.accounts.find((a) => a.key === index.active)?.health === "error";
+  } catch {
+    return false;
+  }
 }
 
 /**
