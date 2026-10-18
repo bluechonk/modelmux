@@ -141,6 +141,15 @@ translator 用 `hasPendingToolCall()` 标记「已收到客户端可执行工具
 网关在上游静默 **2.5 秒**后主动 `finish()`，把 `tool_calls` 下发给客户端执行。
 纯文本流不受影响：只有出现 `tool_use` 且上游静默才触发。
 
+**正文后静默收尾**：上游发完正文却不关流（catpaw 实测沉默 170 秒才吐终止帧）。
+translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可用
+`CATPAW_IDLE_CUTOFF_MS` 覆盖）；网关收到内容后静默超过该值即 `ackConversation()`
+回报 completed 并收尾，客户端不再一直转圈。
+
+诊断开关：
+- `CATPAW_TRACE_STREAM=1`：帧级生命周期 + 收尾摘要（不含正文）
+- `CATPAW_TRACE_RAW=1`：原始 `data:` 行（截断 300 字符、最多 80 帧）
+
 **实测（2026-10-18，重启后）**：
 - 简单请求 `catpaw/deepseek-v4.1-flash` 2.7s、`catpaw/longcat-2.0` 3.2s 返回；
 - 60 工具 + 9KB system + 10 轮历史的重请求：longcat 7.7s、deepseek 4.0s；

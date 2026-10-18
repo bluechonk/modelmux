@@ -616,6 +616,7 @@ class SuffixDiff {
 /** SSE 逐行读取器（TCP 可能把一行切成两半）。 */
 class SseLineReader {
   private tail = "";
+  private rawLogged = 0;
   private decoder = new TextDecoder("utf-8");
 
   push(chunk: Uint8Array): Array<Record<string, unknown> | { __error: CatPawProtocolError }> {
@@ -625,6 +626,11 @@ class SseLineReader {
     while (idx >= 0) {
       const line = this.tail.slice(0, idx);
       this.tail = this.tail.slice(idx + 1);
+      if (RAW_TRACE && this.rawLogged < 80) {
+        this.rawLogged += 1;
+        const text = line.trim();
+        if (text) traceStream(`raw#${this.rawLogged} ${text.slice(0, 300)}`);
+      }
       const frame = parseSseLine(line);
       if (frame !== null) out.push(frame);
       idx = this.tail.indexOf("\n");
@@ -1156,14 +1162,22 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
   let lastStatus = "";
   let longRunLogged = false;
   let pendingClientTool = false;
+  let acked = false;
   const startedAt = Date.now();
+
+  /** 幂等回报 completed（finish 与空闲兜底都会调用）。 */
+  const ackNow = (): void => {
+    if (acked || !conversationId) return;
+    acked = true;
+    ackConversationCompleted(conversationId);
+  };
 
   /** 收尾：补工具调用、finish_reason 与 [DONE]；重复调用无副作用。 */
   const finalize = (): Array<Buffer | string> => {
     if (doneSent) return [];
     doneSent = true;
     // 会话必须回报 completed，否则上游一直停在「执行中」并保持 SSE 连接
-    ackConversationCompleted(conversationId);
+    ackNow();
     traceStream(
       `stream end conv=${conversationId || "-"} frames=${frames} terminal=${terminalSeen} ` +
         `finished=${sawFinished} lastType=${lastType || "-"} lastStatus=${lastStatus || "-"} ` +
@@ -1293,6 +1307,12 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
     hasPendingToolCall(): boolean {
       return pendingClientTool && !doneSent;
     },
+    ackConversation(): void {
+      ackNow();
+    },
+    idleCutoffAfterContentMs(): number {
+      return CONTENT_IDLE_CUTOFF_MS;
+    },
   };
 }
 
@@ -1368,6 +1388,10 @@ function ackConversationCompleted(conversationId: string): void {
 
 /** 流诊断开关（只打生命周期信息，不打正文）：CATPAW_TRACE_STREAM=1。 */
 const TRACE_STREAM = process.env["CATPAW_TRACE_STREAM"] === "1";
+/** 原始帧诊断（截断 300 字符，最多 80 帧）：CATPAW_TRACE_RAW=1。 */
+const RAW_TRACE = process.env["CATPAW_TRACE_RAW"] === "1";
+/** 收到内容后上游静默超过该时长即视为本轮结束（上游不关流的兜底）。 */
+const CONTENT_IDLE_CUTOFF_MS = Number(process.env["CATPAW_IDLE_CUTOFF_MS"] || 10_000);
 
 function traceStream(message: string): void {
   if (TRACE_STREAM) console.error(`[catpaw] ${message}`);

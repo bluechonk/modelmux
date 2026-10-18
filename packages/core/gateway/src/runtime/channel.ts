@@ -42,6 +42,13 @@ export interface StreamTranslator {
    * 否则上游等工具结果、网关等上游结束，互等至上游超时。
    */
   hasPendingToolCall?(): boolean;
+  /**
+   * 收到内容后上游静默超过该毫秒数即视为本轮结束（毫秒）。
+   * 用于上游发完正文却不关流的场景（catpaw 实测沉默 170s）。
+   */
+  idleCutoffAfterContentMs?(): number;
+  /** 主动回报会话完成（上游保持连接时用它解卡）。 */
+  ackConversation?(): void;
 }
 
 /** 上游连接配置（渠道自定义字段由各渠道补）。 */
