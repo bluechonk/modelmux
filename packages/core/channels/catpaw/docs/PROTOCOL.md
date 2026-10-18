@@ -70,6 +70,16 @@
 - 上游没有「每日签到」端点；`mx checkin catpaw` 的领取对应注册奖励（幂等）。
 - 早期「网关不暴露额度端点」的结论**有误**，已在 `src/billing.ts` 修正。
 
+## 对话请求的两条实测限制（2026-10-18）
+
+- **消息序列**：`assistant` 消息之后必须跟 `user`，**不接受直接跟 `role: tool`**
+  （`CatPawProtocolError: assistant 消息不带 toolCall，后面必须是 user 消息`）。
+  客户端的 tool 结果要以 `role: user` 的形式带回；否则 prepare 阶段直接拒绝。
+- **请求体体积**：round 的请求体超过上游限制会回 `HTTP 413`。表现为
+  `upstream prepare request failed: upstream HTTP 413` —— 长上下文任务请改用
+  其他渠道（lobsterai / qodercn / codearts 等），catpaw 适合中等上下文。
+- 这两类都是**请求级**错误，不参与账号连败计数（凭据是健康的）。
+
 ## 边界与伦理
 
 - 分析对象是**本机、本人账号**的登录态文件；仓库不包含、也不生成任何可用凭据。

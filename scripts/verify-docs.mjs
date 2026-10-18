@@ -27,6 +27,8 @@ const ALLOWED = [
   /^README\.md$/, // 仓库门面：GitHub 只渲染根 README，必须留在原处
   /^packages\/core\/channels\/[a-z0-9-]+\/docs\//, // 渠道自己的文档（随包走）
   /^packages\/core\/channels\/[a-z0-9-]+\/AGENTS\.md$/, // 目录级工具指令
+  /^\.agents\/skills\/[a-z0-9-]+\/SKILL\.md$/, // 项目级技能（ZCode 标准发现路径）
+  /^\.zcode\/skills\/[a-z0-9-]+\/SKILL\.md$/, // 项目级技能（高优先级覆盖位）
 ];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".tmp", ".box-agent", ".box-agent-scratch", ".planning"]);

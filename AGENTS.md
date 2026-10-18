@@ -67,6 +67,7 @@ docs/                         契约与规范（唯一的仓库级文档层）
    - `README.md`（**仓库根**）—— 仓库门面，GitHub 只渲染根 README
    - `packages/core/channels/<cid>/docs/` —— 该渠道自己的文档（说明 + 协议规格 + 逆向结论层）
    - `packages/core/channels/<cid>/AGENTS.md` —— 目录级工具指令（工具从目录读，不能搬）
+   - `.agents/skills/<name>/SKILL.md`（及 `.zcode/skills/` 覆盖位）—— 项目级技能（ZCode 标准发现路径）
 4. 新增或修改文档时：
    - 渠道协议 → `<cid>/docs/PROTOCOL.md`；渠道说明 → `<cid>/docs/README.md`；
      **渠道文档不要写进仓库级 `docs/`**（包要能单独打包发布）。
@@ -98,7 +99,7 @@ docs/                         契约与规范（唯一的仓库级文档层）
 6. **共享层内部单向分层**（`scripts/verify-layering.mjs` 在 `npm test` 里强制）：
    `runtime(0) < pool(1) / auth(1) < http(2) < app(3)` —— **只能 import 层级 ≤ 自己的目录**，
    向上依赖一律失败。`index.ts` 是桶导出，不受限。
-   - `runtime/` = 渠道 SDK（channel / paths / account-pool / secret-file / catalog-cache / cli-consts）
+   - `runtime/` = 渠道 SDK（channel / paths / account-pool / secret-file / catalog-cache / cli-consts / logger（日志节流））
    - `pool/` = 模型池与账本；`auth/` = 登录链路
    - `http/` = 网关与转发；`app/` = 进程编排（cli / daemon / headless / supervisor…）
    - 需要跨层动作时**下沉或经回调注入**，不要直接向上 import。
