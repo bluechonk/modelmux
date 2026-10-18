@@ -268,28 +268,133 @@ OrcaTerm Agent 可挂多家供应商（用户自填 key）。Code Cache 中提�
 > 这条与「网关把上游翻译成 OpenAI 兼容」的既有渠道一致：若做 orcaterm 渠道，
 > **真正要对接的是自有 Agent 通道（`/messages*`）**，第三方预置只是 Agent 的可选项。
 
-### 3.4 对话端点与鉴权（真机实测）
+### 3.4 对话端点与鉴权（真机实测 + 参考实现验证）
 
-对话端点由 App 自身报错泄露（发消息失败时弹的提示）：
+对话端点由 App 自身报错泄露（发消息失败时弹的提示），参考实现
+[ZFXing-lite/orcaterm2api](reference/ZFXing-lite_orcaterm2api) 与
+[hey7195_orcaterm_proxy](reference/hey7195_orcaterm_proxy) 均验证可用：
 
 ```
 POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfCode=&sseresume=true
 ```
 
-- **鉴权是 cookie `uin` + `skey`**（不是 `ot_session`）：只给 `skey` 报
-  `NEED_UIN_AND_SKEY`；两个都给但 uin 不对报 `VERIFY_SKEY_UIN_FAILED`。
-- `uin` 形如 **`o<数字>`**（实测 `o100043052332`，带 `o` 前缀；少了前缀即校验失败）。
-- 该请求由 **Rust 侧（reqwest）** 发出：用 mitmproxy 抓包时它拒绝中间人证书
-  （自带根证书库、不读 Windows 受信任根），故**报文未取到**。
-- 界面当前模型：`Kimi-K3`（模型由 App 侧选择，属用户配置的供应商）。
+#### 3.4.1 两种鉴权形态（参考实现已全部跑通）
 
-**唯一未拿到的是 `skey` 的值**。已排除的出处：`data.bin`、
-WebView2 的 cookies（仅 1 条）与 Local Storage（只有 cookie 镜像，含 `uin`）、
-App 日志。系统浏览器(Chrome)里确实有 `.dnspod.cn` 的 `skey`/`uin`，
-但 Chrome 已是 **v20 应用绑定加密**（密文前缀 `v20`），DPAPI 解不开。
+| 形态 | 鉴权 | 获取方式 |
+| --- | --- | --- |
+| **OAuth 桌面态** | `Authorization: Bearer <ot_session>` + Cookie (`ot_session`/`userId`) | `mx login orcaterm` 全流程（见 §1） |
+| 浏览器控制台态 | Cookie (`uin`/`skey`/`userId`)，无 Authorization | 登录 OrcaTerm Web 版后 F12 执行 `copy(document.cookie)` |
 
-> 结论：**OrcaTerm 渠道可完成登录，但无法自行发起模型请求** —— 缺 `skey`
-> 这一腾讯云会话凭据，它由 App 在云登录环节持有、不落在可读位置。
+两种形态可混在一个账号池里跑，由网关按凭证类型自动选择（参考 `reference/ZFXing-lite_orcaterm2api/internal/orca/orca.go` 的 `setHeaders`）。
+
+#### 3.4.2 请求体（参考实现验证）
+
+```jsonc
+{
+  "conversationId": "cid-<uuid>-orcaterm",
+  "user": {
+    "id": "<userId>",
+    "setting": {
+      "mcpServers": [],
+      "uiServers": [],
+      "tools": [],
+      "approvedTools": [],
+      "approvedMCPTools": [],
+      "enableAutoSubtaskExecution": false,
+      "env": [],
+      "model": "TokenHub/deepseek-v4-flash",
+      "modelDesc": {},
+      "hideToolMessage": false,
+      "isNormalToolMessageIgnored": false,
+      "shouldHideDirectOutputToolReview": false,
+      "extra": {}
+    }
+  },
+  "input": {
+    "type": "start",
+    "input": "{\"_format\":\"acp-prompt\",\"version\":1,\"prompt\":[{\"type\":\"text\",\"text\":\"<用户输入>\"}]}",
+    "id": "<uuid>",
+    "emphasisPrompt": "<系统提示词，能压过 OrcaTerm 默认运维助手人设>",
+    "files": []
+  },
+  "stream": true
+}
+```
+
+- `conversationId` 格式固定为 `cid-<uuid>-orcaterm`
+- `input.input` 是 ACP 信封（JSON 字符串），包含用户输入
+- `input.emphasisPrompt` 在服务端拼到系统提示词后部，能覆盖 OrcaTerm 默认人设
+- `stream: true` 走 SSE 分块传输（绕过 CDN 单体响应限制）
+- `setting.model` 是上游模型名，走 `TokenHub/<名称>` 或 `Hunyuan3/<名称>` 前缀
+
+#### 3.4.3 响应格式（SSE）
+
+每帧 JSON 形态：
+
+```jsonc
+// 正常帧
+{"code":0,"data":{"action":"completion","taskCompletion":"<正文>"}}
+{"code":0,"data":{"action":"ask","question":"<反问>"}}
+{"code":0,"data":{"action":"review","taskCompletion":"<说明文本>","tool":{"name":"execute_command","args":{"command":"ls"}}}}
+
+// 鉴权失效
+{"code":10050000,"message":"..."}
+
+// 控制台态票据失效
+{"code":500,"message":"VERIFY_SKEY_UIN_FAILED: ..."}
+{"code":500,"message":"NEED_UIN_AND_SKEY: ..."}
+```
+
+#### 3.4.4 上游模型目录（参考实现内置）
+
+18 个已知模型（快照，来自 OrcaTerm 客户端内置目录）：
+
+| 网关 id | 上游 model | 备注 |
+| --- | --- | --- |
+| `deepseek-v4-pro` | `TokenHub/deepseek-v4-pro` | |
+| `deepseek-v4-flash` | `TokenHub/deepseek-v4-flash` | 默认模型（最省钱测试首选）|
+| `hy3` | `Hunyuan3/hy3` | |
+| `hy4-preview` | `Hunyuan3/hy4-preview` | |
+| `kimi-k3` | `TokenHub/kimi-k3` | |
+| `glm-5.2` | `TokenHub/glm-5.2` | |
+| `glm-5.3` | `TokenHub/glm-5.3` | |
+| `glm-5.3-flash` | `TokenHub/glm-5.3-flash` | |
+| `deepseek-chat-latest` | `TokenHub/deepseek-chat-latest` | legacy |
+| `glm-4.7` | `TokenHub/glm-4.7` | legacy |
+| `kimi-k2` | `TokenHub/kimi-k2` | legacy |
+| `kimi-k2.5` | `TokenHub/kimi-k2.5` | legacy |
+| `kimi-k2-thinking` | `TokenHub/kimi-k2-thinking` | legacy |
+| `kimi-k2.5-thinking` | `TokenHub/kimi-k2.5-thinking` | legacy |
+| `hunyuan-t1` | `Hunyuan3/hunyuan-t1` | legacy |
+| `hunyuan-turbos` | `Hunyuan3/hunyuan-turbos` | legacy |
+| `qwen3` | `TokenHub/qwen3` | legacy |
+| `orcaterm-assistant` | → 默认模型 | 兼容别名 |
+
+> 上游对未开通/不存在的模型名返回空流（不报错），故测试时务必使用已验证的低费模型。
+
+#### 3.4.5 工具调用与回填
+
+上游 `action=review` 表示工具调用。工具结果需按真机格式回填：
+
+```
+<TOOL_META>返回结果</TOOL_META>
+<输出>
+```
+
+已知原生工具（部分）：`fetch`、`execute_terminal_command`、`run_commands`、`list_terminals`、
+`submit_agent_tasks`、`read_cloud_space_file` 等（完整列表见 `upstream.ts` 的 `NATIVE_TOOLS`）。
+
+> ⚠ 上游只接受原生工具名，不支持随意注册自定义 function。
+
+#### 3.4.6 控制台态（uin/skey）补充说明
+
+- `uin` 形如 **`o<数字>`**（实测 `o100043052332`，**必须带 `o` 前缀**）
+- 由 **Rust 侧（reqwest）** 发出：用 mitmproxy 抓包时它拒绝中间人证书
+  （自带根证书库、不读 Windows 受信任根）
+- `skey` 由 App 在云登录环节持有、不落在可读位置
+
+**实现状态**：OAuth 桌面态（`ot_session`）由 `mx login orcaterm` 全流程覆盖（见 §1）。
+控制台态需要用户从浏览器手动获取 cookie（参考 ZFXing-lite/orcaterm2api 的书签收号流程）。
 
 
 ---
