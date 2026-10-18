@@ -55,6 +55,10 @@ ${verbLines.join("\n")}
   --ui-port <port>          控制台 API 端口（默认 ${defaultUiPort()}）
   --wait <seconds>          启动健康等待秒数（默认 12）
   --lines <n>               logs 显示行数（默认 40）
+  --kind <名>               logs：access / error / system / lifecycle / worker / channel
+  --outcome <名>            logs：success / failure / other（仅 --kind access）
+  --date <YYYY-MM-DD>       logs：指定日期（默认今天，缺失则取最新）
+  --list                    logs：列出日志文件（大小 + 时间）
   -f, --follow              logs：持续输出新增日志（等价 tail -f / docker logs -f）
   --realm <名>              login 的登录域（渠道自定义；单域渠道忽略）
   --wechat                  login：微信扫码登录（仅声明该方式的渠道，如 loomy）
@@ -138,6 +142,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         "ui-port": { type: "string" },
         wait: { type: "string" },
         lines: { type: "string" },
+        kind: { type: "string" },
+        outcome: { type: "string" },
+        date: { type: "string" },
+        list: { type: "boolean" },
         realm: { type: "string" },
         workspace: { type: "string" },
         json: { type: "boolean" },
@@ -186,6 +194,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const addr = strOpt(o, "addr") ?? defaultAddr();
   const uiPort = numOpt(o, "ui-port") ?? defaultUiPort();
 
+  const logOutcomeRaw = strOpt(o, "outcome");
+  const logOutcome =
+    logOutcomeRaw === "success" || logOutcomeRaw === "failure" || logOutcomeRaw === "other"
+      ? logOutcomeRaw
+      : undefined;
+  const logKind = strOpt(o, "kind");
+  const logDate = strOpt(o, "date");
   const ctx: groups.CommandContext = {
     json: boolOpt(o, "json"),
     quiet: boolOpt(o, "quiet"),
@@ -198,6 +213,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     lines: numOpt(o, "lines") ?? 40,
     all: boolOpt(o, "all"),
     follow: boolOpt(o, "follow"),
+    ...(logKind !== undefined ? { logKind } : {}),
+    ...(logOutcome !== undefined ? { logOutcome } : {}),
+    ...(logDate !== undefined ? { logDate } : {}),
+    logList: boolOpt(o, "list"),
     ...(strOpt(o, "workspace") !== undefined ? { workspace: strOpt(o, "workspace")! } : {}),
   };
 

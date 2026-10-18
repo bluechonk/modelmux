@@ -10,7 +10,7 @@
 ```
 mx start（短命命令，spawn 后退出，落 PID 文件）
   └─ supervise  监督进程（detached + unref + windowsHide，常驻）
-       └─ serve  网关 worker（stdio: [ignore, logFd, logFd, ipc]，stdout/stderr 进 gateway.log）
+       └─ serve  网关 worker（stdio: [ignore, logFd, logFd, ipc]，stdout/stderr 进 worker.log）
                  ↕ IPC：父进程断开 → worker 优雅自退
 ```
 
@@ -90,13 +90,16 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 | `packages/core/gateway/src/runtime/paths.ts` | `workerPidPath` / `FILES.workerPid` |
 | `packages/core/gateway/src/app/cli.ts` | 隐藏内部命令 `supervise`（同 `serve` 待遇） |
 
-## 日志轮转与实例隔离
+## 日志布局与实例隔离
 
-- worker 的 stderr 全部重定向到 `~/.modelmux/gateway.log`（监督进程启动前执行轮转：
-  **超过 8MB 改名 `gateway.log.1`**，保留一代 —— 防止无限膨胀）。
+- 运行日志统一落在 `~/.modelmux/logs/`，按「类型 / 日期 / 结果」分文件：
+  `access/<date>/{success,failure,other,slow}.log`、`error/<date>/error.log`、
+  `system/<date>/{lifecycle,gateway,worker}.log`、`channels/<cid>/<date>.log`。
+  完整字段与轮转规则见 [LOGGING.md](./LOGGING.md)。
+- 每类文件默认 10MB 轮转（保留 `.1`~`.3`），日期目录默认保留 14 天；
+  由 `MODELMUX_LOG_MAX_BYTES` / `MODELMUX_LOG_RETENTION_DAYS` 覆盖。
 - 高频错误不重复刷屏：共享层 `runtime/logger.ts` 提供状态节流（同类错误首条 +
   10 分钟摘要「still failing ×N」+ 恢复一条「recovered ×N」），带 ISO 时间戳。
-  实测 `gateway.log` 里单渠道桩告警从 6.4 万条降到 2 条量级。
-- **多实例隔离**：调试用的第二实例（如 `serve --addr 127.0.0.1:4413`）必须把
-  stdout/stderr 重定向到**独立日志文件**（如 `gateway-4413.log`），不要与主实例
-  共用 gateway.log —— 否则两实例日志互相穿插，排查时无法区分来源。
+- **多实例隔离**：调试用的第二实例（如 `serve --addr 127.0.0.1:4413`）使用自己的
+  `system/<date>/worker.log`；不要与主实例共用同一文件，否则日志互相穿插。
+- 旧版 `<root>/gateway.log` 不再写入，保留供历史排查；`mx logs` 找不到新日志时会回落到它。

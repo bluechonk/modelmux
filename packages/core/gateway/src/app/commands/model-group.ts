@@ -33,6 +33,14 @@ export interface CommandContext {
   all: boolean;
   /** `logs`：持续输出新增日志。 */
   follow: boolean;
+  /** `logs --kind`：access / error / system / lifecycle / worker / channel。 */
+  logKind?: string;
+  /** `logs --outcome`：success / failure / other（仅 access）。 */
+  logOutcome?: "success" | "failure" | "other";
+  /** `logs --date YYYY-MM-DD`。 */
+  logDate?: string;
+  /** `logs --list`：列出日志文件。 */
+  logList: boolean;
   workspace?: string;
 }
 

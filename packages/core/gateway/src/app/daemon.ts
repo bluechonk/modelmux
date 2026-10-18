@@ -12,6 +12,7 @@
 
 import { spawn } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   channelCount,
@@ -29,6 +30,14 @@ import * as gateway from "../http/gateway.js";
 import * as paths from "../runtime/paths.js";
 import { baseUrlOf, displayBase } from "../http/portfree.js";
 import { detectStaleBuild, staleBuildHint } from "./stale-build.js";
+import {
+  appendSystem,
+  listLogFiles,
+  localDate,
+  logsRoot,
+  resolveLogPath,
+  rotateIfNeeded,
+} from "../runtime/log-store.js";
 import {
   HEALTH_TIMEOUT_MS,
   Scope,
@@ -151,6 +160,10 @@ export async function start(options: StartOptions = {}): Promise<number> {
   // 落点（worker pid/日志/cwd）以显式路径下发 —— scope 推导是 daemon 的职责，
   // 监督者不重复推导（多渠道路由下 paths 渠道级函数需要 explicit cid）。
   const workerDir = ensureScopeDir(scope);
+  // worker stderr 落到按日的系统日志；生命周期事件另写 lifecycle.log。
+  const workerLog = join(logsRoot(), "system", localDate(), "worker.log");
+  mkdirSync(join(logsRoot(), "system", localDate()), { recursive: true });
+  rotateIfNeeded(workerLog);
   const superviseArgs = [
     cliEntry(),
     "supervise",
@@ -162,13 +175,13 @@ export async function start(options: StartOptions = {}): Promise<number> {
     "--worker-pid",
     scope.workerPidPath(),
     "--log",
-    scope.logPath(),
+    workerLog,
     "--cwd",
     workerDir,
   ];
   // ⚠ stdio 全部重定向到日志文件：监督进程没有控制台可继承，
   //   继承父进程的 stdout 会在父进程退出后写入失败（EPIPE 刷屏）
-  const logFd = openSync(scope.logPath(), "a");
+  const logFd = openSync(workerLog, "a");
   const child = spawn(process.execPath, superviseArgs, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
@@ -178,11 +191,13 @@ export async function start(options: StartOptions = {}): Promise<number> {
   closeSync(logFd);
   child.unref();
   if (child.pid) writeFileSync(scope.pidPath(), `${child.pid}\n`, "utf8");
+  appendSystem("start", { addr, pid: child.pid ?? null });
 
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) break; // 守护进程启动即退（如端口被占）
     if (await gatewayHealthy(addr)) {
+      appendSystem("ready", { addr, pid: child.pid ?? null });
       log(`网关已启动: ${baseUrlOf(addr)} (PID ${child.pid})`);
       return 0;
     }
@@ -191,9 +206,11 @@ export async function start(options: StartOptions = {}): Promise<number> {
 
   // 边界保险：窗口内最后一次探测与截止时刻之间可能刚好错过 → 报告前再探一次
   if (child.exitCode === null && (await gatewayHealthy(addr))) {
+    appendSystem("ready", { addr, pid: child.pid ?? null });
     log(`网关已启动: ${baseUrlOf(addr)} (PID ${child.pid})`);
     return 0;
   }
+  appendSystem("start_timeout", { addr, pid: child.pid ?? null, wait_ms: waitMs });
   log(
     `启动等待 ${waitMs / 1000}s 超时（PID ${child.pid}，日志 ${scope.logPath()}）；` +
       `可能仍在启动中 —— 用 ${name} status 确认`,
@@ -209,11 +226,8 @@ export async function start(options: StartOptions = {}): Promise<number> {
  * 手动停与崩溃在同一条日志里分不出来。必须等进程死透再写（避免与临终输出交错）。
  */
 function recordStop(scope: Scope, pid: number): void {
-  try {
-    appendFileSync(scope.logPath(), `${JSON.stringify({ event: "stop", pid })}\n`, "utf8");
-  } catch {
-    /* 日志不可写不影响停止本身 */
-  }
+  void scope;
+  appendSystem("stop", { pid });
 }
 
 /**
@@ -390,7 +404,8 @@ export async function status(
         ? { present: credentialsPresent }
         : { present: credentialsPresent, channels: perChannel },
     auto_start: autoStartEnabled(options.cid),
-    log: scope.logPath(),
+    log: resolveLogPath({ kind: "system" }) ?? scope.logPath(),
+    log_dir: logsRoot(),
     stale_build: stale.stale,
   };
 
@@ -538,14 +553,49 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
 }
 
 /** 查看网关日志尾部（守护进程的 stdout/stderr 都落在这里）。 */
-export function logs(lines = 40, json = false, cid?: string): number {
+/** 日志筛选条件（CLI `mx logs` 用）。 */
+export interface LogFilter {
+  kind?: string;
+  outcome?: "success" | "failure" | "other";
+  date?: string;
+}
+
+/** 解析 CLI 要看的日志文件；没有新日志时回落到旧 gateway.log。 */
+function resolveCliLog(cid: string | undefined, filter: LogFilter): string | null {
+  const file = resolveLogPath({
+    kind: filter.kind,
+    outcome: filter.outcome,
+    date: filter.date,
+    cid,
+  });
+  if (file) return file;
+  if (!filter.kind && !filter.date && !filter.outcome) {
+    const legacy = scopeOf(cid).logPath();
+    if (existsSync(legacy)) return legacy;
+  }
+  return null;
+}
+
+/** 查看日志尾部；默认看当天的系统日志，可按类型/结果/日期筛选。 */
+export function logs(lines = 40, json = false, cid?: string, filter: LogFilter = {}): number {
   const scope = scopeOf(cid);
   const name = scope.name;
+  const file = resolveCliLog(cid, filter);
+  if (!file) {
+    const payload = {
+      ok: false,
+      error: `日志不存在（目录: ${logsRoot()}）`,
+      log_dir: logsRoot(),
+    };
+    if (json) console.log(JSON.stringify(payload));
+    else console.log(`[${name}] ${payload.error}`);
+    return 1;
+  }
   let text: string;
   try {
-    text = readFileSync(scope.logPath(), "utf8");
+    text = readFileSync(file, "utf8");
   } catch {
-    const payload = { ok: false, error: `日志不存在: ${scope.logPath()}` };
+    const payload = { ok: false, error: `日志不存在: ${file}`, log_dir: logsRoot() };
     if (json) console.log(JSON.stringify(payload));
     else console.log(`[${name}] ${payload.error}`);
     return 1;
@@ -555,10 +605,44 @@ export function logs(lines = 40, json = false, cid?: string): number {
   const body = text.endsWith("\n") ? text.slice(0, -1) : text;
   const tail = lines > 0 && body !== "" ? body.split("\n").slice(-lines) : [];
   if (json) {
-    console.log(JSON.stringify({ ok: true, log: scope.logPath(), lines: tail }));
+    console.log(JSON.stringify({
+      ok: true,
+      log: file,
+      log_dir: logsRoot(),
+      kind: filter.kind ?? "system",
+      outcome: filter.outcome ?? null,
+      date: filter.date ?? null,
+      lines: tail,
+    }));
   } else {
-    console.log(`--- ${scope.logPath()} 最后 ${tail.length} 行 ---`);
+    console.log(`--- ${file} 最后 ${tail.length} 行 ---`);
     console.log(tail.join("\n"));
+    console.log(`日志目录: ${logsRoot()}`);
+  }
+  return 0;
+}
+
+function formatBytes(size: number): string {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)}MB`;
+  if (size >= 1024) return `${(size / 1024).toFixed(1)}KB`;
+  return `${size}B`;
+}
+
+/** 列出日志文件（`mx logs --list`）：按修改时间倒序，带大小与时间。 */
+export function listLogs(json = false): number {
+  const files = listLogFiles();
+  if (json) {
+    console.log(JSON.stringify({ ok: true, log_dir: logsRoot(), files }, null, 2));
+    return 0;
+  }
+  console.log(`日志目录: ${logsRoot()}`);
+  if (files.length === 0) {
+    console.log("（空）");
+    return 0;
+  }
+  for (const file of files) {
+    const rel = file.path.slice(logsRoot().length + 1);
+    console.log(`${formatBytes(file.size).padStart(9)}  ${new Date(file.mtime).toISOString()}  ${rel}`);
   }
   return 0;
 }
@@ -603,9 +687,17 @@ const FOLLOW_INTERVAL_MS = 250;
  * `logs --follow`：先打尾部 N 行，再持续输出新增内容，Ctrl+C 退出。
  * 语义对齐 `tail -f` / `docker logs -f`；只读文件，不碰网关进程。
  */
-export async function followLogs(lines = 40, json = false, cid?: string): Promise<number> {
-  const path = scopeOf(cid).logPath();
-  const code = logs(lines, json, cid);
+export async function followLogs(
+  lines = 40,
+  json = false,
+  cid?: string,
+  filter: LogFilter = {},
+): Promise<number> {
+  const path = resolveCliLog(cid, filter);
+  if (!path) {
+    return logs(lines, json, cid, filter); // 复用统一的报错文案
+  }
+  const code = logs(lines, json, cid, filter);
   if (code !== 0) return code; // 日志不存在：直接给快照的报错语义
   let offset = statSync(path).size;
   return await new Promise<number>((resolve) => {
@@ -621,19 +713,4 @@ export async function followLogs(lines = 40, json = false, cid?: string): Promis
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });
-}
-
-/** 日志轮转阈值：8MB。超过则改名 `.1`（保留一代，重启时执行）。 */
-const LOG_ROTATE_BYTES = 8 * 1024 * 1024;
-
-/** 启动前轮转日志：超过阈值把日志文件改名为 `<log>.1`（覆盖旧 `.1`）。 */
-function rotateLogIfNeeded(logPath: string): void {
-  try {
-    if (!existsSync(logPath) || statSync(logPath).size < LOG_ROTATE_BYTES) return;
-    const rotated = `${logPath}.1`;
-    if (existsSync(rotated)) unlinkSync(rotated);
-    renameSync(logPath, rotated);
-  } catch {
-    /* 轮转失败不阻塞启动（顶多继续追加） */
-  }
 }

@@ -18,6 +18,7 @@ import { POOL_MODELS, getPoolModelMeta, poolCandidates } from "../pool/pool-targ
 import { inChannel } from "./chat-relay.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat, writeJson, writeJsonError } from "./chat-relay.js";
+import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
 
 export function serviceName(cid?: string): string {
   if (cid !== undefined) return channelFor(cid).config.cid;
@@ -152,6 +153,10 @@ export function createHandler(opts: GatewayOptions = {}) {
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    // 控制台静态资源不记访问日志（噪音大）；API / 健康检查 / 根路径都记
+    const consolePath = opts.console !== undefined &&
+      (path === options.consolePrefix || path.startsWith(`${options.consolePrefix}/`));
+    if (!consolePath) attachRequestLog(req.method ?? "GET", path, res);
     try {
       // —— 控制台 Web UI（可选挂载；未注入时下面的 live 检查会直接跳过）——
       if (opts.console) {
@@ -185,6 +190,7 @@ export function createHandler(opts: GatewayOptions = {}) {
       }
       handleRoot(res, path);
     } catch (err) {
+      noteRequestError(res, "internal_error", String(err));
       options.logger(`request handler error: ${String(err)}`);
       if (!res.headersSent) {
         writeJsonError(res, 500, "internal_error", "gateway internal error; see logs");

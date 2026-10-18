@@ -10,7 +10,7 @@
  *           upstream.json        上游端点与鉴权头名称
  *           prefs.json           渠道内偏好（auto_start 等）
  *           gateway.pid          守护式网关 PID
- *           gateway.log          守护进程 stdout/stderr
+ *           logs/                运行日志（类型/日期/结果分层，见 docs/LOGGING.md）
  *           cache/  state/  debug/
  *
  * 根目录名与分层规则是共享常量，渠道**不得**自行决定（也不得自行拼绝对路径）——
@@ -159,6 +159,16 @@ export function logPath(cid?: string): string {
   return channelFile(FILES.log, cid);
 }
 
+/**
+ * 运行时日志根目录（`<root>/logs`）。
+ *
+ * 日志属于整个运行时、不属于单个渠道；内部按「类型 / 日期 / 结果」分层，
+ * 见 docs/LOGGING.md。渠道维度的消息落在 `logs/channels/<cid>/`。
+ */
+export function logsDir(): string {
+  return join(rootDir(), "logs");
+}
+
 /** 凭证文件路径。 */
 export function credentialsPath(cid?: string): string {
   return channelFile(FILES.credentials, cid);
@@ -183,7 +193,7 @@ export function rootPrefsPath(cid?: string): string {
  * 根级运行时文件的路径（**仓库级网关**用）。
  *
  * 一个网关进程服务多个渠道时，它的 PID/日志不属于任何单个渠道，故落在根上：
- * `<root>/gateway.pid`、`<root>/gateway.log`。
+ * `<root>/gateway.pid`、`<root>/logs/`。
  */
 export function rootFile(name: string): string {
   if (!/^[a-z0-9][a-z0-9.-]*$/.test(name)) {
