@@ -21,14 +21,15 @@
 ├── logs/                        ← 运行日志（类型/日期/结果分层，见 LOGGING.md）
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
 ├── workbuddyai/                 ← cid 层
-│   ├── credentials.json
+│   ├── credentials.json         当前生效账号（兼容镜像）
+│   ├── accounts.json            账号池索引（active + 元信息）
+│   ├── accounts/<key>.json      单账号凭证
 │   ├── upstream.json
 │   ├── prefs.json
 │   ├── gateway.pid
 │   ├── gateway-worker.pid
-│   ├── gateway.log              ← 旧版单渠道日志（兼容保留，不再写入）
 │   ├── cache/                   ← 可安全删除（含 cache/models.json）
-│   ├── state/                   ← 跨重启保持
+│   ├── state/                   ← 跨重启保持（签到台账等）
 │   └── debug/                   ← 抓包落盘（opt-in）
 ├── catpaw/
 ├── traecn/
@@ -59,12 +60,16 @@
 
   | 文件 | 用途 |
   |---|---|
-  | `credentials.json` | 登录凭证 |
+  | `credentials.json` | 登录凭证（当前生效账号的兼容镜像） |
+  | `accounts.json` | 账号池索引：账号列表 + 当前选中 + 元信息 |
+  | `accounts/<key>.json` | 单账号凭证（与 `credentials.json` 同构） |
   | `upstream.json` | 上游端点与鉴权头名称 |
   | `prefs.json` | 渠道内偏好（`auto_start` 等） |
   | `gateway.pid` | 守护式网关 PID（记监督进程） |
   | `gateway-worker.pid` | 守护式网关 worker PID（监督进程维护） |
-  | `gateway.log` | 旧版守护进程 stdout/stderr（兼容保留；新日志见 `logs/`） |
+
+  旧版 `gateway.log` 已于 2026-10-18 全部删除；运行日志统一在 `<root>/logs/`（见
+  [`LOGGING.md`](./LOGGING.md)）。
 
 5. **渠道特有文件必须落在自己的 cid 层内**：
   - `cache/` 可安全删除、可重建（缓存，丢了只是变慢/回落兜底表）
@@ -88,8 +93,8 @@
 7. **命名细则**：全小写；单词用 `-` 连接；扩展名固定 `.json` / `.log` / `.pid`；
   临时文件同目录加 `.tmp`；**不用**大写、下划线、渠道名前缀。
 8. **端口**：每渠道独占一组（见 §2），不与他渠道重复。
-9. **（可选）根级共享偏好**：`<root>/prefs.json` 放跨渠道设置；渠道内 `prefs.json` 只放
-   本渠道设置。本期可不实现，但预留位置，避免以后又想加一层。
+9. **偏好文件**：渠道内 `prefs.json` 放本渠道设置（已实现）；根级 `<root>/prefs.json`
+   预留跨渠道设置，当前未使用。
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
    `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
    账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）。走 `paths.rootFile()`

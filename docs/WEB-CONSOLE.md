@@ -44,7 +44,8 @@
 - `POST /web/api/commands`：动作分发（login / status / models / billing / accounts /
   activateAccount / removeAccount / syncPool / pasteCallback）。
   - `billing` 支持 `args.refresh: true`（真实重查各渠道账单）与 `cid` 过滤（单渠道刷新）。
-  - `pasteCallback`：把用户粘回的回调链接喂给等待中的登录流程（raccoon 等授权码渠道）。
+  - `pasteCallback`：手工兜底通道，把用户粘回的回调链接喂给等待中的登录流程。
+    raccoon 等授权码渠道现在优先走**本地 HTTP 回调自动完成**，不再需要粘贴。
 - `/api/commands` 返回值由前端 `lib/api.ts` 统一**解包 `data`** —— 页面不要再取一层
   `.data`（双重解包曾导致 tab 崩溃，实测踩过）。
 
@@ -81,7 +82,7 @@ Pages 是纯静态托管，没有后端；而控制台每个页面都要 `fetch(
 构建：`DEMO=1 npm run build --workspace=packages/ui`。
 
 演示的是**交互流程**而非假死截图：添加账号真的会把渠道置为已登录、账号入池并设为生效，
-模型墙与统计卡随之更新（登录 orcaterm 后从 42 模型/8 渠道变为 45 模型/9 渠道）。
+模型墙与统计卡随之更新（登录/登出一个渠道会同时改变模型数与渠道数）。
 
 ### 数据纪律
 

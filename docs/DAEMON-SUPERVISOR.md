@@ -102,4 +102,8 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
   10 分钟摘要「still failing ×N」+ 恢复一条「recovered ×N」），带 ISO 时间戳。
 - **多实例隔离**：调试用的第二实例（如 `serve --addr 127.0.0.1:4413`）使用自己的
   `system/<date>/worker.log`；不要与主实例共用同一文件，否则日志互相穿插。
-- 旧版 `<root>/gateway.log` 不再写入，保留供历史排查；`mx logs` 找不到新日志时会回落到它。
+- 旧版 `<root>/gateway.log` 已于 2026-10-18 全部删除；`mx logs` 只读 `logs/`
+  （代码保留兼容回落分支，但当前没有旧文件）。
+- **启动窗口**：worker 必须在 `DEFAULT_WAIT_MS`（默认 30s，`MODELMUX_START_WAIT_MS` 可覆盖）
+  内通过健康探测。某个渠道的启动登录探测偶发超过窗口时，supervisor 会判定「从未就绪」并
+  放弃启动（2026-10-18 实测踩过）；窗口因此从 12s 放宽到 30s。
