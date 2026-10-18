@@ -204,19 +204,21 @@ export function makePkce(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
-/** 构造授权页 URL（双区参数差异全在这里）。 */
+/** 构造授权页 URL（双区参数差异全在这里）。
+ *
+ * 对齐 Zhengyuuuui/qoder2api 实测结论：国际版与国内版登录 URL 均只带四个参数
+ * (`challenge` / `challenge_method` / `nonce` / `client_id`)，CN 额外带
+ * `redirect_uri` —— **不带 `machine_id`**。
+ * `machine_id` 只用于 cosy 推理头，由 `machineIdOf(uid)` 稳定派生，不参与登录链路。
+ */
 export function buildAuthUrl(
   product: ProductConfig,
   challenge: string,
   nonce: string,
-  machineId: string,
 ): string {
   const query = new URLSearchParams({ challenge, challenge_method: "S256", nonce });
   if (product.sendRedirectUri) query.set("redirect_uri", product.redirectUri);
-  if (product.sendClientId) {
-    query.set("client_id", product.clientId);
-    query.set("machine_id", machineId);
-  }
+  if (product.sendClientId) query.set("client_id", product.clientId);
   return `${product.website}/device/selectAccounts?${query.toString()}`;
 }
 
@@ -383,13 +385,12 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   // 区域由渠道决定，不看 `--realm` / baseUrl（见 CHANNEL_REALM）
   const product = productOf();
   const { verifier, challenge } = makePkce();
-  const machineId = randomUUID();
   const nonce = product.nonceDashed ? randomUUID() : shared.randomHex(16);
 
-  const authUrl = buildAuthUrl(product, challenge, nonce, machineId);
+  const authUrl = buildAuthUrl(product, challenge, nonce);
   options.onUrl?.(authUrl);
   options.onStatus?.(
-    `${product.label}: open the URL above in your browser to authorize (machine_id ${machineId.slice(0, 8)}…)`,
+    `${product.label}: open the URL above in your browser to authorize`,
   );
 
   const pollQuery = new URLSearchParams({ nonce, verifier, challenge_method: "S256" });
@@ -434,6 +435,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   if (!token.accessToken) throw new Error("Device authorization succeeded but no access token was returned");
 
   const nickname = await fetchNickname(product, token.accessToken);
+  const machineId = machineIdOf(token.uid);
   rememberIdentity(product.realm, DEFAULT_USER_TYPE);
   const credential: Credentials = {
     accessToken: token.accessToken,
