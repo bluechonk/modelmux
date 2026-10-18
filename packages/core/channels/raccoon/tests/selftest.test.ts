@@ -5,8 +5,8 @@
  *  1. 手机号 **AES-128-CFB** 加密（密钥 16 字节 ⇒ aes-128-cfb；输出 base64(iv‖密文)）
  *  2. 凭据：**JWT `exp` 回退**（只读 `expires_at` 会让过期判定恒为 false）、
  *     `expires_at` 优先、老凭据补 `device_id` 并写回、损坏容忍
- *  3. 网页登录（授权码链路）：授权 URL 参数（官方同款）、回调 URL 校验（伪造 host /
- *     state 不匹配拒绝）、换码落盘；`/login/mp` 死链不再使用（回归）
+ *  3. 网页登录（授权码链路）：本地 HTTP 回调（主）+ office-raccoon 兼容；授权 URL 参数、
+ *     回调 URL 校验、换码落盘；`/login/mp` 死链不再使用（回归）
  *  4. 续期：只回 access_token 时**保留旧 refresh_token**；200003 / 401 是终态
  *  5. 请求体：`extra_body.thinking` 是**唯一**思考通道（`reasoning_effort` 被接受但无效）、
  *     `max_tokens` 安全整数、`tools` 在顶层
@@ -464,13 +464,20 @@ describe("3. 凭据：过期判定与落盘", () => {
 // ── 4. 网页登录（授权码） ──────────────────────────────────────────────────────
 
 describe("4. 网页登录（授权 URL / 回调校验 / 换码）", () => {
-  it("authorizeUrl：官方同款参数（login_source=desktop + appname=办公小浣熊客户端 + state）", () => {
+  it("authorizeUrl：desktop 兼容参数 + 本地 redirect 模式", () => {
     const state = "a".repeat(32);
     const u = new URL(cred.authorizeUrl(state, fakeBase()));
     assert.equal(u.pathname, "/code/authorize");
     assert.equal(u.searchParams.get("login_source"), "desktop");
     assert.equal(u.searchParams.get("appname"), "办公小浣熊客户端");
     assert.equal(u.searchParams.get("state"), state);
+    // 新主路径：不带 login_source，页面按非 desktop 分支回调本地 HTTP
+    const redirect = "http://127.0.0.1:45678/callback";
+    const local = new URL(cred.authorizeUrl(state, fakeBase(), redirect));
+    assert.equal(local.searchParams.get("login_source"), null);
+    assert.equal(local.searchParams.get("redirect"), redirect);
+    assert.equal(local.searchParams.get("appname"), "办公小浣熊客户端");
+    assert.equal(local.searchParams.get("state"), state);
     // ⚠ 回归：不能再用 /login/mp?code=… —— 那条只给官方手机 App 扫码用，网页端是死链
     assert.ok(!cred.authorizeUrl(state, fakeBase()).includes("/login/mp"));
   });
@@ -508,8 +515,32 @@ describe("4. 网页登录（授权 URL / 回调校验 / 换码）", () => {
       code: "c2",
       stateVerified: false,
     });
+    // 新主路径：本地 HTTP 回调带 authorization_code
+    assert.deepEqual(
+      cred.parseLoginCallback(`http://127.0.0.1:45678/callback?authorization_code=c3&state=${state}`, state),
+      { code: "c3", stateVerified: true },
+    );
+    assert.throws(
+      () => cred.parseLoginCallback(`http://evil.com:45678/callback?authorization_code=c3&state=${state}`, state),
+      /unexpected callback origin/,
+    );
     // 裸授权码兜底
     assert.deepEqual(cred.parseLoginCallback("deadbeefcafe", state), { code: "deadbeefcafe", stateVerified: false });
+  });
+
+  it("本地回调服务器：拒绝错误 state，收到 authorization_code 后完成", async () => {
+    const state = cred.newLoginState();
+    const srv = await cred.startLoginCallbackServer(state, 5000);
+    try {
+      const bad = await fetch(`http://127.0.0.1:${srv.port}/callback?authorization_code=c1&state=wrong`);
+      assert.equal(bad.status, 400);
+      const good = await fetch(`http://127.0.0.1:${srv.port}/callback?authorization_code=c2&state=${state}`);
+      assert.equal(good.status, 200);
+      assert.match(await good.text(), /登录成功/);
+      assert.deepEqual(await srv.result, { code: "c2", stateVerified: true });
+    } finally {
+      await srv.close();
+    }
   });
 
   it("login：回调换码成功 → 落盘 uid/office_identity/expires_at", async () => {

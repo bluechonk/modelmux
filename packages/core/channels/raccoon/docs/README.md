@@ -13,7 +13,7 @@ Raccoon（商汤）的本地 OpenAI Chat Completion 透明代理网关（**TypeS
 ## 快速开始
 
 ```bash
-node channels/raccoon/dist/cli.js login    # 无窗口登录：打印授权链接，粘贴回调 URL 完成
+node channels/raccoon/dist/cli.js login    # 无窗口登录：打印授权链接，本地回调自动完成
 mx login raccoon                           # 仓库级入口等价写法
 node channels/raccoon/dist/cli.js serve    # 前台无窗口运行（单渠道）
 mx start                                   # 守护式启动（幂等，仓库级网关）
@@ -21,9 +21,9 @@ mx status / mx model list / mx billing raccoon
 ```
 
 > **登录两步**：打开打印出的 `/code/authorize` 授权页用微信/验证码/密码登录 →
-> 把浏览器地址栏里的整条 `office-raccoon://auth/callback?…` URL 粘贴回终端；
-Web 控制台的登录弹窗里也有「回调链接」框（两条通道任一先到先用，2026-10-18 起）。
-> 细节见 [PROTOCOL.md §2.4](./PROTOCOL.md)。
+> 页面自动跳回 `http://127.0.0.1:<port>/callback`，CLI 收到授权码并落盘，**无需粘贴**。
+> 若浏览器无法访问 localhost（远程环境），重新执行 `mx login raccoon`；
+> 也可用 `RACCOON_LOGIN_CALLBACK` 注入回调 URL。细节见 [PROTOCOL.md §2.4](./PROTOCOL.md)。
 
 ## 状态 API
 

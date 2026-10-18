@@ -32,10 +32,12 @@ RACCOON_DESKTOP_PREFIX = '/api/web/desktop/v1'
 
 **关键常量**：
 - `RACCOON_REQUEST_TIMEOUT_MS = 60_000`
-- `RACCOON_LOGIN_TIMEOUT_MS = 5 * 60 * 1000`（等待用户完成网页登录并粘贴回调）
+- `RACCOON_LOGIN_TIMEOUT_MS = 5 * 60 * 1000`（等待用户完成网页登录）
 - `RACCOON_TOKEN_REFRESH_WINDOW_SECONDS = 300`（access_token 寿命约 3 小时，实测 `exp - nbf = 10805s`）
-- 授权页参数：`login_source = 'desktop'`、`appname = '办公小浣熊客户端'`
-- 回调深链：`office-raccoon://auth/callback?code=…&state=…`；换码失败业务码 `200035`
+- 授权页参数：本地回调模式 `appname='办公小浣熊客户端' + redirect=http://127.0.0.1:<port>/callback`
+  （不带 `login_source`）；兼容 desktop 模式 `login_source='desktop'`
+- 回调：本地 `http://127.0.0.1:<port>/callback?authorization_code=…&state=…`（主路径）；
+  `office-raccoon://auth/callback?code=…&state=…`（桌面客户端兼容）；换码失败业务码 `200035`
 - `clientPlatform = 'desktop-windows'`、`clientVersion = 'v1.0.35'`、
  `userAgent = 'Raccoon Work/1.0.35 (Windows)'`
 
@@ -112,36 +114,35 @@ mode  = CFB, padding = NoPadding
 
 **不加密的后果**：`send_sms` 回 `100003 params_encryted_error`。
 
-### 2.4 登录流程 A：网页登录（授权码，官方桌面端同款）
+### 2.4 登录流程 A：网页登录（授权码，本地回调）
 
-官方桌面端 `electron/main/desktopLogin.js` 的链路（本插件照搬；另两个开源实现
-agent2api / xiaohuanxiong2api 同构）：
+2026-10-18 起优先走**本地 HTTP 回调**，不再依赖 `office-raccoon://` 自定义协议：
 
 ```
-① 浏览器打开授权页（官方参数：login_source=desktop + appname=办公小浣熊客户端）：
-   https://xiaohuanxiong.com/code/authorize?login_source=desktop&appname=办公小浣熊客户端&state=<32位hex>
-   （官方不带 state；我们带，并在回调时逐字比对）
+① CLI 在 127.0.0.1 随机端口起 /callback，打印授权页：
+   https://xiaohuanxiong.com/code/authorize?appname=办公小浣熊客户端&state=<32位hex>&redirect=http://127.0.0.1:<port>/callback
+   （不带 login_source：页面走非 desktop 分支；页面校验器只允许
+     127.0.0.1 / localhost / [::1] 且必须带端口）
 ② 用户在页面上用微信 / 验证码 / 密码登录成功
-   → 页面跳转自定义协议回调：office-raccoon://auth/callback?code=…&state=…
+   → 页面自动跳转 redirect：
+     http://127.0.0.1:<port>/callback?authorization_code=…&state=…
+   → 本地服务逐字校验 state，页面显示「登录成功，可以关闭此窗口了」
 ③ 换凭证：
 POST https://xiaohuanxiong.com/api/web/auth/v1/login_with_authorization_code
 Content-Type: application/json
-body: { "authorization_code": "<回调里的 code>" }
+body: { "authorization_code": "<回调里的 authorization_code>" }
 → { code: 0, data: { access_token, refresh_token, office_identity, office_org_name, office_org_role } }
    失败：HTTP 400 + { "code": 200035, "message": "authorization_code_not_found_error" }（终态：码已失效/已消费）
 ```
 
-**回调怎么回收**：本插件是宿主机里的普通 Node 进程，注册不了
-`office-raccoon://` 自定义协议 → **用户把地址栏里的整条回调 URL 粘贴回来**，
-两条通道**竞争**任一先到先用（2026-10-18 起）：
+**兼容路径**：官方桌面端用 `login_source=desktop`，登录后跳
+`office-raccoon://auth/callback?code=…`。本插件是宿主侧 Node 进程，注册不了自定义协议，
+浏览器没有桌面客户端时不会跳转；`parseLoginCallback` 仍接受这种 URL，供手工/脚本注入。
 
-- **Web 控制台**：登录弹窗的「回调链接」框 → `pasteCallback` 命令 →
-  共享层 `pasteCode()` 轮询（400ms）喂回 `resolveCallback`；
-- **终端**：交互式 stdin 逐行读取（空输入重问，EOF 静默退场）。
+**测试 / 脚本注入**：`RACCOON_LOGIN_CALLBACK` 或 login options 的 `callback`；
+本地 HTTP 回调和 `office-raccoon://` 两种 URL 都能解析。
 
-⚠ daemon 进程的 stdin 会**立即 EOF**：EOF 分支必须在竞争中静默挂起而不是抛错，
-否则会把还活着的 Web 粘贴通道一起拖死（真机踩过）。
-（与 agent2api 的 Docker 形态一致；也可用环境变量 `RACCOON_LOGIN_CALLBACK` 注入）。
+⚠ 旧的「从地址栏复制整条回调 URL 再粘贴」不再是主流程；本地回调自动完成。
 
 **为什么不用 `/login/mp?code=…`**：那条是**官方手机 App 扫码**专用（官方桌面端的
 二维码、网站自己的微信登录二维码都用它），但网页端**没有该路由** —— 真实浏览器
@@ -210,9 +211,11 @@ GET https://xiaohuanxiong.com/api/web/auth/v1/user_info
 
 ### 2.9 本插件的登录交互（非上游协议，供实现对照）
 
-**没有本地登录页**：`mx login raccoon` 直接打印授权页 URL（见 §2.4），用户在浏览器里
-完成登录后，把地址栏里的整条回调 URL 粘贴回终端；非交互场景可用环境变量
-`RACCOON_LOGIN_CALLBACK` 注入回调 URL。
+**没有本地登录页**：`mx login raccoon` 在 127.0.0.1 随机端口起本地回调服务器，
+打印授权页 URL；用户在浏览器里完成登录后，页面自动跳回本地回调，CLI 收到
+`authorization_code` 后换凭证并落盘，**无需粘贴**。
+非交互场景可用环境变量 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或
+`office-raccoon://` 均可）。
 
 手机号本地校验：`/^1[3-9]\d{9}$/`；短信登录是备用链路（`send_sms` + `login_with_sms`）。
 
@@ -536,10 +539,11 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 ## 7. 特殊机制
 
-- **登录走官方授权码链路，但回调靠用户粘贴**：官方桌面端靠
- `office-raccoon://auth/callback` 自定义协议回调，本插件是宿主侧 Node 进程、注册不了
- 该协议 → **提示用户把地址栏里的整条回调 URL 粘贴回来**（与 agent2api 的 Docker 形态
- 一致）。浏览器登录页本身用官方同款 `/code/authorize`（见 §2.4）
+- **登录走官方授权码链路，回调优先用本地 HTTP**：授权页在非 desktop 模式
+ （`redirect=http://127.0.0.1:<port>/callback`）下把 `authorization_code` 拼到 redirect；
+ 本插件起本地回调服务器自动收码，不再依赖 `office-raccoon://` 自定义协议。
+ 桌面端的自定义协议回调仍作为兼容 URL 被 `parseLoginCallback` 接受（手工/脚本注入）。
+ 浏览器登录页本身用官方同款 `/code/authorize`（见 §2.4）
 - **凭据不读客户端任何文件**：凭据存插件自有的 `ctx.credentials`
 - **账号昵称修复（cred.ts 的 syncProfile）**：启动时主动补一次：
  读凭据 → 缺 `phone` 就拉一次 `user_info` 补上 → 重算昵称并写回账号池。
