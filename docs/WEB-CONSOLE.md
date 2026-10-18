@@ -53,3 +53,43 @@
 账本主维度是**渠道**（used / 冷却 / billing_at），另按**生效账号**拆分 ok / fail 计数
 （`ChannelLedger.accounts[key]`），控制台账号池卡片按「渠道 × 账号」展示；
 账本数字记在请求发生时的当前生效账号头上。
+
+## 演示模式（GitHub Pages 静态站）
+
+`.github/workflows/pages.yml`（手动 `workflow_dispatch` 触发）把控制台的**演示构建**
+发布到 GitHub Pages：`https://<owner>.github.io/modelmux/`。
+
+### 为什么必须是「演示构建」
+
+Pages 是纯静态托管，没有后端；而控制台每个页面都要 `fetch('/web/api/*')` 读本机网关。
+指向本机网关这条路走不通，有三重**有意设计**的限制（不应为演示削弱）：
+
+1. 网关不发 CORS 头 → 浏览器拦下跨源响应；
+2. `console.ts` 的 `isSameOrigin` 拒绝跨源写命令（403「跨源请求已拒绝」）；
+3. Chrome 的 Private Network Access 拦「公网页 → 127.0.0.1」。
+
+### 实现
+
+| 位置 | 作用 |
+| --- | --- |
+| `src/lib/demo.ts` | 虚构数据源 + 内存状态机（渠道/模型/账号池/账本 + 登录流程） |
+| `src/lib/api.ts` | `IS_DEMO` 为真时用内存实现替换所有 fetch |
+| `vite.config.ts` | `DEMO=1` 时 `base=/modelmux/` 并注入 `__DEMO_MODE__` |
+| `src/App.tsx` | `basename` 跟随同一个标志（`/modelmux` 或 `/web`） |
+| `src/env.d.ts` | `__DEMO_MODE__` 的类型声明 |
+
+构建：`DEMO=1 npm run build --workspace=packages/ui`。
+
+演示的是**交互流程**而非假死截图：添加账号真的会把渠道置为已登录、账号入池并设为生效，
+模型墙与统计卡随之更新（登录 orcaterm 后从 42 模型/8 渠道变为 45 模型/9 渠道）。
+
+### 数据纪律
+
+页面是**公开**的，所以 `demo.ts` 里所有 uid / 手机号 / 域名一律用明显虚构的占位值
+（`demo000000000000a1`、`138****0001`、`example.com`），**不读取也不复制
+`~/.modelmux/` 下的任何真实数据**。侧栏常驻「演示模式：数据均为虚构，未连接任何真实网关」提示。
+
+### SPA 深链接
+
+演示站是客户端路由（`/modelmux/` 与 `/modelmux/accounts`）。Pages 直接访问深链接会找
+同名文件而 404 —— 工作流因此额外生成 `404.html`（内容同 `index.html`）交给 React Router。

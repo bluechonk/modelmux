@@ -5,13 +5,54 @@ import type {
   PoolRow,
   UiSnapshot,
 } from "./types";
+import {
+  createDemoState,
+  demoAccountPools,
+  demoActivate,
+  demoBilling,
+  demoCompleteLogin,
+  demoLogin,
+  demoModels,
+  demoRemove,
+  demoSettings,
+  demoStatus,
+  type DemoState,
+} from "./demo";
 
 /**
  * 后端基地址：单端口模式下 UI 挂在网关的 `/web` 前缀下，
  * 控制台 API 相应地位于 `/web/api/*`（见 `core/gateway/src/http/console.ts`）。
+ *
+ * 演示模式（GitHub Pages 静态部署）下不走这里 —— 见 `IS_DEMO`。
  */
 const BASE = typeof window === "undefined" ? "" : window.location.origin;
 const API_BASE = `${BASE}/web`;
+
+/**
+ * 是否运行在演示模式。
+ *
+ * 由构建期注入（`vite.config.ts` 的 `define` 把 `__DEMO_MODE__` 换成字面量），
+ * 所以真实构建里这段分支会被静态消除，不产生任何运行时开销。
+ *
+ * Pages 是纯静态托管，没有 `/web/api/*`，且网关不发 CORS、写命令有同源校验、
+ * Chrome 还拦「公网页 → 127.0.0.1」—— 演示模式因此用内存数据替换 fetch。
+ */
+declare const __DEMO_MODE__: boolean;
+const IS_DEMO = typeof __DEMO_MODE__ !== "undefined" && __DEMO_MODE__;
+
+/** 演示态（懒创建；生产构建里这段是死代码）。 */
+let demoState: DemoState | null = null;
+function demo(): DemoState {
+  demoState ??= createDemoState();
+  return demoState;
+}
+
+/** 小延迟：让界面上的 loading 态真实可见，而不是瞬间完成。 */
+const DEMO_DELAY_MS = 180;
+function demoLater<T>(value: T): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value), DEMO_DELAY_MS));
+}
+
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
@@ -36,6 +77,15 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
     throw new Error(msg);
   }
   return await res.json() as T;
+}
+
+/**
+ * 演示模式下的状态快照。
+ *
+ * 模型列表每次现算 —— 「添加账号」把渠道标记为已登录后，模型墙会立刻多出该渠道。
+ */
+function demoGetState(): UiSnapshot {
+  return demoSettings(demo());
 }
 
 export interface WebApi {
@@ -87,6 +137,7 @@ async function command(
   cid: string | undefined,
   args: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
+  if (IS_DEMO) return await demoCommand(action, cid, args);
   const body: Record<string, unknown> = { action, args };
   if (cid !== undefined) body["cid"] = cid;
   const envelope = (await post("/api/commands", body)) as {
@@ -104,10 +155,70 @@ async function command(
   return { ...merged, ok: envelope.ok, ...(envelope.message ? { message: envelope.message } : {}), ...(envelope.error ? { error: envelope.error } : {}) };
 }
 
+/**
+ * 演示模式的动作分发：与真实 `/web/api/commands` 同形（解包后的扁平对象）。
+ *
+ * 每个动作只改内存状态，因此界面上的「添加账号 / 切换 / 删除 / 刷新账单」都能
+ * 真实反映出来 —— 演示的是**交互流程**，不是假死截图。
+ */
+async function demoCommand(
+  action: string,
+  cid: string | undefined,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const st = demo();
+  switch (action) {
+    case "status":
+      return { ...demoStatus(st), ok: true };
+    case "models": {
+      const channels = st.channels.map((ch) => {
+        const ids = demoModels(st)
+          .filter((m) => m.startsWith(`${ch.cid}/`))
+          .map((m) => m.slice(ch.cid.length + 1));
+        return { cid: ch.cid, display: ch.display, catalog: ids, pool: ids, out_of_pool: 0 };
+      });
+      return { channels, ok: true };
+    }
+    case "accounts":
+      return { ...demoAccountPools(st), ok: true };
+    case "billing":
+      return { ...demoBilling(st), ok: true };
+    case "login": {
+      const target = cid ?? "";
+      const res = demoLogin(st, target);
+      return { ...res, ok: res.started, ...(res.started ? {} : { error: res.message }) };
+    }
+    case "activateAccount": {
+      const key = typeof args["key"] === "string" ? args["key"] : "";
+      const ok = demoActivate(st, cid ?? "", key);
+      return ok ? { active: key, ok: true } : { ok: false, error: `账号 ${key} 不在池中` };
+    }
+    case "removeAccount": {
+      const key = typeof args["key"] === "string" ? args["key"] : "";
+      const ok = demoRemove(st, cid ?? "", key);
+      return ok ? { removed: key, ok: true } : { ok: false, error: `账号 ${key} 不在池中` };
+    }
+    case "syncPool":
+      return { ok: true };
+    case "pasteCallback": {
+      // 演示模式：视为授权完成 —— 把流程真的走完（渠道转已登录 + 账号入池）
+      const res = demoCompleteLogin(st);
+      return { submitted: true, message: res.message, ok: true };
+    }
+    default:
+      return { ok: false, error: `演示模式不支持动作 ${action}` };
+  }
+}
+
+/** 演示模式下 `setTheme` / `retryLogin` 的桩。 */
+async function demoNoop(): Promise<{ ok: boolean }> {
+  return demoLater({ ok: true });
+}
+
 export const api: WebApi = {
-  getState: () => get("/api/state"),
-  setTheme: (mode) => post("/api/theme", { mode }),
-  retryLogin: () => post("/api/retry-login"),
+  getState: () => (IS_DEMO ? demoLater(demoGetState()) : get("/api/state")),
+  setTheme: (mode) => (IS_DEMO ? demoNoop() : post("/api/theme", { mode })),
+  retryLogin: () => (IS_DEMO ? demoNoop() : post("/api/retry-login")),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),

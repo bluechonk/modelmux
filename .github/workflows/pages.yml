@@ -1,0 +1,69 @@
+# 把控制台的**演示构建**发布到 GitHub Pages。
+#
+# 为什么是「演示构建」而不是真控制台：Pages 是纯静态托管，没有后端 —— 而控制台
+# 每个页面都要 fetch /web/api/* 读本机网关。指向本机网关有三重硬限制（都属有意设计）：
+#   1. 网关不发 CORS 头 → 浏览器拦下跨源响应；
+#   2. console.ts 的 isSameOrigin 拒绝跨源写命令（403）；
+#   3. Chrome Private Network Access 拦「公网页 → 127.0.0.1」。
+# 所以 DEMO=1 构建用内存数据替换 fetch（见 packages/ui/src/lib/demo.ts），
+# 界面与交互完整可见，但不连任何真实网关、数据全部虚构。
+#
+# 只由 workflow_dispatch 手动触发：演示站不需要跟着每次 push 重建。
+name: Pages（演示站）
+
+on:
+  workflow_dispatch:
+
+# Pages 部署所需权限（GITHUB_TOKEN 默认无这些 scope）
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个部署；排队中的旧任务取消，正在跑的不打断
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建演示产物
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建 UI 演示产物（base=/modelmux/，api 走内存数据）
+        run: DEMO=1 npm run build --workspace=packages/ui
+
+      # SPA 是客户端路由（/modelmux/ 与 /modelmux/accounts）：
+      # 直接访问 /modelmux/accounts 时 Pages 会找同名文件而 404，
+      # 用 404.html 回退到 index.html 交给 React Router 处理。
+      - name: 补 SPA 回退（404.html）
+        run: cp packages/ui/dist/index.html packages/ui/dist/404.html
+
+      - name: 禁用 Jekyll
+        run: touch packages/ui/dist/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/ui/dist
+
+  deploy:
+    name: 部署到 Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
