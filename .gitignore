@@ -26,3 +26,38 @@ __pycache__/
 
 # ZCode 会话产物（计划/exec 缓存等），不入库
 .zcode/
+
+# 浏览器自动化产物（playwright MCP：截图 / 快照 / console 日志）
+.playwright-mcp/
+
+# 编辑器与 IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 操作系统产物
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地环境变量（禁止入库；需要时用 .env.example 提供模板）
+.env
+.env.*
+!.env.example
+
+# 测试与工具缓存
+coverage/
+.nyc_output/
+.cache/
+.eslintcache
+.pnpm-store/
+
+# 打包与备份残留
+*.tgz
+*.orig
+*.rej
+*.bak
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
