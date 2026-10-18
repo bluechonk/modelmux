@@ -223,6 +223,13 @@ export interface CatalogModule {
    *   必须知道到底成没成，而不是看到一张旧表还以为刷成功了。
    */
   refresh?(): Promise<void>;
+  /**
+   * 返回模型倍率展示文案（如 `"x2.0"`、`"免费"`），无倍率概念的渠道省略本方法。
+   *
+   * `modelId` 是对外暴露的 id（与 `exposedIds()` 返回值同形）。渠道内部负责把对外 id
+   * 映射到自己的条目并取出倍率——如需要先经 `resolveModel()` 映射到上游 slug 再查。
+   */
+  rateTag?(modelId: string): string;
 }
 
 /** 签到 / 领取的**只读**状态。 */

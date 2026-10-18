@@ -231,8 +231,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 
   // ① 分组：`model list` / `model usage`
+  // `model <cid>` 也是渠道动词（查看某渠道的模型列表）—— positionals[0] 是 command "model" 自身，
+  // 所以要看 positionals[1] 是否为已注册渠道名
   if (command === "model") {
-    return groups.runModelGroup(positionals.slice(1), ctx);
+    const first = positionals[1];
+    if (first === undefined || !hasChannel(first)) {
+      return groups.runModelGroup(positionals.slice(1), ctx);
+    }
+    return groups.runVerb("model", positionals.slice(1), ctx);
   }
   // ② 渠道动词：`mx <动词> [<cid>] [参数]`（cid 在动词之后）
   if (isChannelVerb(command)) {

@@ -15,13 +15,13 @@ import * as accountCli from "../account-cli.js";
 import * as daemon from "../daemon.js";
 import * as headless from "../headless.js";
 import * as report from "../report.js";
-import { CommandContext, listLocalModels, listLogins } from "./model-group.js";
+import { CommandContext, listLocalModels, listLogins, runModelGroup } from "./model-group.js";
 
 export const CHANNEL_VERBS: ReadonlyArray<readonly [string, string]> = [
   ["status", "状态：带 <cid> = 该渠道；不带 = 仓库级聚合（全部渠道）"],
   ["login", "登录渠道：`login <cid>`；`login list` 列出可登录渠道与状态"],
   ["relogin", "重新授权：清掉现有凭据后重走登录流程（`relogin <cid>`）"],
-  ["models", "模型：带 <cid> = 该渠道池内模型（读本地缓存）；不带 = 网关注册的模型"],
+  ["model", "模型：`model <cid>` 查看该渠道目录；`model list` 查看池视图"],
   ["billing", "额度 / 账单：带 <cid> = 该渠道；不带 = 全部渠道（只读，不经网关）"],
   ["accounts", "账号池：`accounts [<cid>] list|use <key>|add|remove <key>`"],
   ["paths", "存储落点与文件：`paths [<cid>]`（只读）"],
@@ -39,7 +39,7 @@ export function isChannelVerb(verb: string): boolean {
  *
  * cid 是动词后**第一个位置参数**（且必须是已注册渠道名）：给了就是「对某渠道」，
  * 不给则各动词回落到仓库级语义（status→聚合、billing→全部、paths→全部、
- * logs→网关日志、models→网关注册的模型）。`login` / `relogin` 不给 cid 只对
+ * logs→网关日志）。`login` / `relogin` 不给 cid 只对
  * 单渠道入口有意义（多渠道路由下报错指路）。
  */
 
@@ -55,10 +55,6 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
         addr: ctx.addr,
         ...(cid !== undefined ? { cid } : {}),
       });
-    case "models":
-      return cid === undefined
-        ? daemon.models({ json: ctx.json, addr: ctx.addr })
-        : listLocalModels(getChannel(cid), ctx.json, ctx.refresh);
     case "billing":
       return daemon.credits({ json: ctx.json, ...(cid !== undefined ? { cid } : {}) });
     case "paths":
@@ -94,6 +90,10 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
       return runLoginVerb(cid, ctx, false);
     case "relogin":
       return runLoginVerb(cid, ctx, true);
+    case "model":
+      return cid === undefined
+        ? runModelGroup(rest, ctx)
+        : listLocalModels(getChannel(cid), ctx.json, ctx.refresh);
     default:
       console.error(
         `未知动词: ${verb}\n` +

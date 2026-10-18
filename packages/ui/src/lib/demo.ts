@@ -177,6 +177,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: demoModels(state),
+    model_info: {},
     theme_mode: "dark",
     resolved_theme: "dark",
     gateway_error: "",

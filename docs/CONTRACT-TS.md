@@ -271,7 +271,7 @@ interface Channel {
 3. **随包快照**（渠道内的 `models.json` / 内置兜底表）—— 拉不到时的最后兜底。
 
 一句话：**第一次 `model list` 把真实目录记到本地，之后一直用那个文件**；
-要更新就 `models <cid> --refresh`。
+要更新就 `model <cid> --refresh`。
 
 规则：
 
@@ -286,7 +286,7 @@ interface Channel {
 
 #### `refresh()`：显式刷新的契约
 
-有远端目录层的渠道**必须**实现 `refresh()`（CLI 的 `models <cid> --refresh` 与网关每日目录保鲜调它）：
+有远端目录层的渠道**必须**实现 `refresh()`（CLI 的 `model <cid> --refresh` 与网关每日目录保鲜调它）：
 
 - **绕过 TTL / 冷却**：用户显式要求刷新，不能拿缓存糊弄；
 - **成功写缓存**：下次新进程直接读到新目录；
@@ -437,9 +437,8 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
  不必先猜位置 1 是动词还是渠道名。
 - **生命周期动词不接受 cid**：`start` / `stop` / `restart` 操作的是服务全部渠道的那个网关；
  `status` / `logs` 则**可选** cid（不给 = 仓库级聚合，给 = 该渠道）——两条语义靠**是否带 operand** 区分。
-- **不采用 `mx <cid> <动词>`**：渠道名与动词共享位置 1 会二义（渠道动词 `model`
-既用于仓库级 `model list`/`model usage`，也用于 `mx model <cid>` 列某渠道模型），
-且与主流 CLI 心智相悖。
+- **不采用 `mx <cid> <动词>`**：渠道名与动词共享位置 1 会二义（某渠道一旦叫 `models`，
+ `mx model` 就分不清是「列渠道模型」还是「仓库级模型列表」），且与主流 CLI 心智相悖。
 - **生命周期与日志参数**：`mx start` 默认健康等待 30s（`--wait` 或 `MODELMUX_START_WAIT_MS`
  可调）；`mx logs` 支持 `--kind access|error|system|lifecycle|worker|channel`、
  `--outcome success|failure|other`、`--date <YYYY-MM-DD>`、`--list`、`-f`（见

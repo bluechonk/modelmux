@@ -232,15 +232,86 @@ async function businessCall(
   return isRecord(payload) ? (payload as Record<string, unknown>) : {};
 }
 
-/** 拉模型目录（**必须用 `token` 头**，带错会得到 100002）。 */
+// ── 模型目录响应解析（兼容新旧两种上游格式）──────────────────────────────────
+
+/**
+ * 从 `/models` 响应中提取模型数组与 catalog 版本。
+ *
+ * ## 新旧格式兼容
+ *
+ * 旧格式（已弃用）：`{code:"000000", data:{models:[...], reasoning_catalog_version}}`
+ * 新格式（当前上游）：`{object:"list", data:[...], reasoning_catalog_version, reasoning_enabled}`
+ *
+ * 判据：**新格式顶层无 `code`、`data` 字段是数组**。新格式下 HTTP 200 即表示数据有效
+ * （无业务信封），旧格式仍需判 code。这就是 `fetchModels` 不能继续走 `businessCall` 的原因。
+ */
+export function parseModelsResponse(payload: unknown): {
+  items: Record<string, unknown>[];
+  version: string;
+} {
+  if (!isRecord(payload)) return { items: [], version: "" };
+
+  // 新格式：{object:"list", data:[...]}
+  if (Array.isArray(payload["data"]) && payload["code"] === undefined) {
+    return {
+      items: payload["data"] as Record<string, unknown>[],
+      version: str(payload["reasoning_catalog_version"]),
+    };
+  }
+
+  // 旧格式：{code:"000000", data:{models:[...], reasoning_catalog_version}}
+  if (isRecord(payload["data"]) && Array.isArray(payload["data"]["models"])) {
+    const data = payload["data"] as Record<string, unknown>;
+    return {
+      items: data["models"] as Record<string, unknown>[],
+      version: str(data["reasoning_catalog_version"]),
+    };
+  }
+
+  return { items: [], version: "" };
+}
+
+/**
+ * 拉模型目录（**必须用 `token` 头**，带错会得到 100002）。
+ *
+ * ⚠ **不走 `businessCall`**：新格式 `/models` 返回 OpenAI 兼容的
+ * `{object:"list", data:[...]}`，顶层无 `code`。`businessCall` 判
+ * `code !== OK_CODE` 会把新格式的合法响应误抛为「business failure: code=」，
+ * 表现为「永远停在兜底表」。本函数只负责 HTTP 层 + JSON 解析，格式判断交给
+ * `parseModelsResponse()`。
+ */
 export async function fetchModels(
   credential: AuthLike,
   cfgOverride?: Config,
 ): Promise<Record<string, unknown>> {
-  return businessCall(modelsUrl(cfgOverride), credential, {
-    method: "GET",
-    timeoutMs: MODELS_TIMEOUT_MS,
-  });
+  const url = modelsUrl(cfgOverride);
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    token: credential.accessToken,
+  };
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new Error(`models request failed: ${String(err)}`);
+  }
+  if (resp.status === 401 || resp.status === 403) {
+    throw new UpstreamUnauthorized(`Loomy rejected the access token (HTTP ${resp.status})`);
+  }
+  if (resp.status !== 200) {
+    throw new Error(`models request returned HTTP ${resp.status}`);
+  }
+  let payload: unknown;
+  try {
+    payload = await resp.json();
+  } catch (err) {
+    throw new Error(`models response is not valid JSON: ${String(err)}`);
+  }
+  return isRecord(payload) ? payload : {};
 }
 
 /** 积分明细（**只读**）：既是最便宜的探测端点，也是额度查询的数据源。 */

@@ -209,13 +209,25 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
       return [];
     }
   });
-  // 先用对外 id 匹配；若失败，用 resolveModel 解析出上游 key 后按 key 匹配
-  // （Qoder 缓存 id 是上游 key `qfmodel`，对外名是 `glm-5.3-flash`，两者不同）
-  const upstreamKey = runInChannel(channel.config.cid, () => channel.catalog.resolveModel(parsed.model));
-  const entry = cache.find((d: any) => {
-    const canonical = canonicalModelId(d.id);
-    return canonical === parsed.model || canonical === upstreamKey || d.key === upstreamKey;
-  }) as any;
+  const entry = cache.find((d: any) => canonicalModelId(d.id) === parsed.model) as any;
+  // 缓存 id 可能是上游 key（如 `qfmodel`），与对外名（如 `glm-5.3-flash`）不同 ——
+  // 用 resolveModel 将对外名解析为上游 key，再按 key 匹配
+  if (!entry) {
+    const upstreamKey = runInChannel(channel.config.cid, () => channel.catalog.resolveModel(parsed.model));
+    const found = cache.find((d: any) => d.key === upstreamKey || canonicalModelId(d.id) === upstreamKey) as any;
+    if (found) {
+      const win2 = Number(found.contextWindow ?? found.context_window ?? 0);
+      return {
+        name: found.name ?? model,
+        contextWindow: Number.isFinite(win2) && win2 > 0 ? win2 : DEFAULT_META.contextWindow,
+        maxOutputTokens: found.maxOutputTokens ?? found.max_output_tokens ?? DEFAULT_META.maxOutputTokens,
+        inputModalities: found.inputModalities ?? found.input_modalities ?? DEFAULT_META.inputModalities,
+        outputModalities: found.outputModalities ?? found.output_modalities ?? DEFAULT_META.outputModalities,
+        effort: found.effort ?? DEFAULT_META.effort,
+        multiplier: firstNumber(found, MULTIPLIER_KEYS),
+      };
+    }
+  }
   if (entry) {
     // 目录里 contextWindow = 0 表示「上游未声明」——不能当有效值透给客户端
     // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）

@@ -277,14 +277,18 @@ describe("2. 模型池（model 分组）", () => {
       model: string;
       candidates: Array<{ cid: string; exposed_id: string }>;
     }>;
-    // 全模型池：alpha 提供 2 个 + beta 提供 1 个，去重后 2 个（deepseek-v4.1-flash / glm-5.3-flash）
-    assert.equal(parsed.length, 2, `应 2 个模型，实际 ${parsed.length}`);
-    const four1 = parsed.find((x) => x.model === "deepseek-v4.1-flash");
-    const glm = parsed.find((x) => x.model === "glm-5.3-flash");
-    assert.ok(four1, "应包含 deepseek-v4.1-flash");
-    assert.ok(glm, "应包含 glm-5.3-flash");
-    assert.deepEqual(four1!.candidates.map((c) => c.cid), ["alpha", "beta"]);
-    assert.deepEqual(glm!.candidates.map((c) => c.cid), ["alpha"]);
+    // alpha 提供 2 个 (deepseek-v4.1-flash / glm-5.3-flash) +
+    // beta 提供 1 个 (deepseek-v4.1-flash) = 3 个池条目（不跨渠道去重）
+    assert.equal(parsed.length, 3, `应 3 个池条目，实际 ${parsed.length}`);
+    const alpha_ds = parsed.find((x) => x.model === "alpha/deepseek-v4.1-flash");
+    const alpha_glm = parsed.find((x) => x.model === "alpha/glm-5.3-flash");
+    const beta_ds = parsed.find((x) => x.model === "beta/deepseek-v4.1-flash");
+    assert.ok(alpha_ds, "应包含 alpha/deepseek-v4.1-flash");
+    assert.ok(alpha_glm, "应包含 alpha/glm-5.3-flash");
+    assert.ok(beta_ds, "应包含 beta/deepseek-v4.1-flash");
+    assert.deepEqual(alpha_ds!.candidates.map((c) => c.cid), ["alpha"]);
+    assert.deepEqual(alpha_glm!.candidates.map((c) => c.cid), ["alpha"]);
+    assert.deepEqual(beta_ds!.candidates.map((c) => c.cid), ["beta"]);
   });
 
   it("未知 model 子命令 → 2", async () => {
@@ -315,13 +319,13 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     withFreshRoot();
     useRemoteOnly();
 
-    const first = await run(["models", "remote"]);
+    const first = await run(["model", "remote"]);
     assert.equal(first.code, 0);
     assert.equal(refreshState.calls, 1, "首次没有缓存，应该拉一次");
     assert.match(first.out, /glm-5.3-flash-0731/);
     assert.ok(first.err.includes("刚从上游拉取"), "要告诉用户这次是现拉的");
 
-    const second = await run(["models", "remote"]);
+    const second = await run(["model", "remote"]);
     assert.equal(second.code, 0);
     assert.equal(refreshState.calls, 1, "第二次应命中缓存，不再拉");
     assert.ok(!second.err.includes("刚从上游拉取"), "命中缓存不必打扰用户");
@@ -334,15 +338,15 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     withFreshRoot();
     useRemoteOnly();
 
-    await run(["models", "remote"]); // 写入缓存（glm-5.3-flash-0731）
+    await run(["model", "remote"]); // 写入缓存（glm-5.3-flash-0731）
     refreshState.upstream = ["GLM-5.3-Flash-Official"]; // 上游变了
 
-    const cached = await run(["models", "remote"]);
+    const cached = await run(["model", "remote"]);
     assert.equal(refreshState.calls, 1, "仍不该打网络");
     assert.match(cached.out, /glm-5.3-flash-0731/, "用的是本地记录的那份");
     assert.ok(!cached.out.includes("Official"));
 
-    const forced = await run(["models", "remote", "--refresh"]);
+    const forced = await run(["model", "remote", "--refresh"]);
     assert.equal(forced.code, 0);
     assert.equal(refreshState.calls, 2, "--refresh 必须真的重拉");
     assert.match(forced.out, /GLM-5.3-Flash-Official/, "重拉后是新内容");
@@ -354,16 +358,16 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
   it("--refresh 失败必须非零退出（不能拿旧表冒充刷新成功）", async () => {
     withFreshRoot();
     useRemoteOnly();
-    await run(["models", "remote"]); // 先有缓存
+    await run(["model", "remote"]); // 先有缓存
     refreshState.failWith = "上游拒绝：token 失效";
 
-    const r = await run(["models", "remote", "--refresh"]);
+    const r = await run(["model", "remote", "--refresh"]);
     assert.equal(r.code, 1, "显式刷新失败要非零");
     assert.ok(r.err.includes("刷新模型目录失败"), r.err);
     assert.ok(r.err.includes("token 失效"), "要带上真实原因");
 
     // 自动路径（不加 --refresh）仍然静默回落，不打扰、不报错
-    const auto = await run(["models", "remote"]);
+    const auto = await run(["model", "remote"]);
     assert.equal(auto.code, 0);
 
     resetChannels();
@@ -374,7 +378,7 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     useRemoteOnly();
     refreshState.failWith = "NotLoggedInError: 未登录";
 
-    const r = await run(["models", "remote"]);
+    const r = await run(["model", "remote"]);
     assert.equal(r.code, 0, "列表本身要能打出来，不算命令失败");
     assert.ok(r.err.includes("未能从上游拉取"), r.err);
     assert.ok(r.err.includes("未登录"), "要说明为什么没拉到");
@@ -387,11 +391,11 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     clearChannels();
     setChannel(makeBuiltinChannel("builtin"));
 
-    const r = await run(["models", "builtin"]);
+    const r = await run(["model", "builtin"]);
     assert.equal(r.code, 0);
     assert.ok(r.err.includes("内置"), r.err);
 
-    const forced = await run(["models", "builtin", "--refresh"]);
+    const forced = await run(["model", "builtin", "--refresh"]);
     assert.equal(forced.code, 0, "没有远端可刷不是错误");
     assert.ok(forced.err.includes("内置"), forced.err);
 
@@ -402,11 +406,11 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     withFreshRoot();
     useRemoteOnly();
 
-    const fetched = await run(["models", "remote", "--json"]);
+    const fetched = await run(["model", "remote", "--json"]);
     const a = JSON.parse(fetched.out) as { source: string };
     assert.equal(a.source, "fetched");
 
-    const cached = await run(["models", "remote", "--json"]);
+    const cached = await run(["model", "remote", "--json"]);
     const b = JSON.parse(cached.out) as { source: string; fetched_at?: string };
     assert.equal(b.source, "cache");
     assert.ok(b.fetched_at, "缓存命中要给出拉取时刻");
@@ -416,8 +420,8 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
 });
 
 describe("3. <动词> [<cid>] 路由", () => {
-  it("models <cid> 只列该渠道贡献的池模型（不需要网关）", async () => {
-    const r = await run(["models", "alpha"]);
+  it("model <cid> 只列该渠道贡献的池模型（不需要网关）", async () => {
+    const r = await run(["model", "alpha"]);
     assert.equal(r.code, 0);
     assert.ok(r.out.includes("deepseek-v4.1-flash"), r.out);
     assert.ok(r.out.includes("glm-5.3-flash"), r.out);
