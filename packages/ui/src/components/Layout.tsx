@@ -10,6 +10,10 @@ const NAV = [
   { to: "/accounts", label: "账号池", icon: Users },
 ];
 
+/** 是否演示构建（由 `vite.config.ts` 的 define 注入；见 `lib/demo.ts`）。 */
+declare const __DEMO_MODE__: boolean;
+const IS_DEMO = typeof __DEMO_MODE__ !== "undefined" && __DEMO_MODE__;
+
 /**
  * 左侧栏导航 + 主内容区布局（深色主题）。
  *
@@ -54,10 +58,20 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "bg-green-400" : state.isError ? "bg-red-500" : "bg-gray-600"}`} />
-          <span className="text-gray-400">网关 {running ? "运行中" : state.isError ? "离线" : "…"}</span>
-          <span className="ml-auto font-mono text-gray-600">4412</span>
+        <div className="mt-auto space-y-2">
+          {IS_DEMO && (
+            <div className="rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300/90">
+              <div className="font-medium">演示模式</div>
+              <div className="mt-0.5 text-amber-300/70">
+                数据均为虚构，未连接任何真实网关
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "bg-green-400" : state.isError ? "bg-red-500" : "bg-gray-600"}`} />
+            <span className="text-gray-400">网关 {running ? "运行中" : state.isError ? "离线" : "…"}</span>
+            <span className="ml-auto font-mono text-gray-600">4412</span>
+          </div>
         </div>
       </aside>
       <main className="flex-1 overflow-auto p-8">
