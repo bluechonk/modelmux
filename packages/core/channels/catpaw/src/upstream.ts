@@ -677,7 +677,11 @@ function eventToSseFrame(event: RawEvent): Buffer | string {
         }],
       });
     case "usage":
+      // ⚠ OpenAI 的 SSE chunk 里 `choices` 恒为数组；usage-only 帧也必须带空的
+      // `choices: []` —— 缺了这个字段，严格校验的客户端（ZCode 等）会整块拒收
+      // （实测 `Type validation failed ... choices expected array`）
       return frame({
+        choices: [],
         usage: {
           prompt_tokens: event.promptTokens,
           completion_tokens: event.completionTokens,
