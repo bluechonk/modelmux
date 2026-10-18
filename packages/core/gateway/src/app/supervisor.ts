@@ -132,7 +132,7 @@ const PING_INTERVAL_MS = 2_000;
     }, PING_INTERVAL_MS);
 
     // 启动窗口：worker 退出或超时未 healthy 都算「从未就绪」→ 不重生，退出监督者。
-    // 与 daemon.start 的等待窗口同值（12s），两端超时口径一致。
+    // 与 daemon.start 的等待窗口同值（默认 30s），两端超时口径一致。
     const healthy = await (async (): Promise<boolean> => {
       const deadline = Date.now() + DEFAULT_WAIT_MS;
       while (Date.now() < deadline) {
