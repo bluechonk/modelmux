@@ -18,6 +18,7 @@ import {
   activeAccountIsError,
   markActiveHealth,
   noteAccountFailure,
+  noteAccountQuotaExhausted,
   noteAccountSuccess,
   pickAccount,
   readIndex,
@@ -151,6 +152,17 @@ function writeJsonError(res: ServerResponse, status: number, code: string, messa
   writeJson(res, { error: { type: "error", code, message } }, status);
 }
 
+/**
+ * 上游响应体是否表示**额度耗尽**（不是请求参数/内容错误）。
+ *
+ * 额度类错误必须与普通 4xx 区分：后者（模型参数、tool 消息序列等）是请求级问题，
+ * 换账号也会失败；前者继续打同一个账号只会重复失败，应直接把账号标不可用。
+ */
+function isQuotaExhausted(body: string): boolean {
+  if (!body) return false;
+  return /insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额/i.test(body);
+}
+
 
 async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -225,6 +237,8 @@ interface UpstreamCall {
   connectFailed?: boolean;
   /** 连接/首字节阶段超时（区别于普通上游错误）。 */
   timeout?: boolean;
+  /** 非 200 时的上游响应体片段（判断额度类错误用；不回传客户端）。 */
+  bodySnippet?: string;
 }
 
 /**
@@ -287,6 +301,7 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
       headers: resp.headers,
       body: null,
       error: new Error(`upstream returned HTTP ${resp.status}: ${snippet.slice(0, 2048)}`),
+      bodySnippet: snippet,
     };
   }
   if (resp.status !== 200) {
@@ -302,6 +317,7 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
       headers: resp.headers,
       body: null,
       error: new Error(`upstream returned HTTP ${resp.status}: ${snippet.slice(0, 2048)}`),
+      bodySnippet: snippet,
     };
   }
   return {
@@ -934,6 +950,26 @@ export async function handleChat(
         );
       }
       if (call.timeout) noteRequestError(res, "upstream_timeout", String(call.error));
+
+      // 额度耗尽：不是瞬时故障，继续打同一个账号只会重复失败。
+      // 立即标 error（不等 3 次连败），后续请求在 callUpstream 入口短路。
+      const quotaOut = isQuotaExhausted(call.bodySnippet ?? "");
+      if (quotaOut) {
+        noteAccountQuotaExhausted(cid);
+        noteFailure(cid, activeKeyOf(cid));
+        logThrottled(
+          opts.logger,
+          `chat:quota:${cid}`,
+          `account quota exhausted (channel ${cid}); account marked error and will be skipped`,
+        );
+        lastError = {
+          status: 503,
+          code: "quota_exhausted",
+          message: `account quota exhausted (${cid}); recharge or switch account`,
+        };
+        continue;
+      }
+
       noteFailure(cid, activeKeyOf(cid));
       // 仅「上游不可用/网络」计账号连败；4xx 业务错（模型/参数/内容）属请求级，
       // 计进去会把健康账号误标 error（catpaw 的 tool 消息序列实测踩过）

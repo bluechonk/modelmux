@@ -275,6 +275,10 @@ interface CredModule {
  上游 5xx」计入连败 —— 模型目录问题、请求体协议错（如 catpaw 的 tool 消息序列）、
  上游 4xx 业务错是请求级问题，不计入（否则健康账号会被误标，实测踩过）。
  成功一次清零连败；手动切号同时清零连败并恢复 `error`。
+- **额度耗尽 = 立即不可用**：上游返回 `insufficient_points` / 余额不足 / 配额不足时，
+ 生效账号**立即**标 `error`（`fail_streak` 置为上限），后续请求在 `callUpstream`
+ 入口短路，不再发上游；充值后 `mx accounts <cid> use <key>`（或重新登录）恢复。
+  这与普通 4xx 请求级错误不同 —— 后者不标账号，避免误伤健康凭据。
 - **共享层不解析渠道磁盘格式**：只做「复制文件 + 记下 `cred.load()` 的契约字段 uid/domain」，
  所以全部渠道**零改动**就支持账号池。
 - **同步按身份，不按时间**：`credentials.json` 变新时先比 `accountKey` —— 同一账号 → 回灌池内

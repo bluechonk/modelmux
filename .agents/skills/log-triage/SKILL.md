@@ -78,6 +78,7 @@ mx logs --kind worker --lines 100
 | `upstream_error` / `upstream_stream_failed` | 用 `id` 查 `error.log` + `worker.log`；再看渠道 reference / PROTOCOL |
 | `upstream_timeout` | §2 第 4 条；确认上游是否空闲 |
 | `upstream_queued` | 上游排队；声明 `isQueueError` 的渠道会自动重试，等或换模型 |
+| `quota_exhausted` | 账号额度耗尽，已被标记 `error` 并跳过；充值后 `mx accounts <cid> use <key>` 或重新登录恢复 |
 | `invalid_request` | 请求体 / 上下文问题；看渠道 `buildChatBody` 的报错 |
 | `internal_error` | 网关 bug；看 `worker.log` 堆栈，记录复现请求 |
 

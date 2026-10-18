@@ -363,6 +363,31 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
 }
 
 /**
+ * 额度耗尽：**立即**把生效账号标 `error`（不等 3 次连败）。
+ *
+ * 额度不足不是瞬时故障，继续请求只会一遍遍打上游、每次都失败；标记后
+ * `pickAccount` / `callUpstream` 都会跳过它。充值 / 切号后由
+ * `mx accounts use <key>`（`activateAccount` 会清零连败并恢复 `ok`）解除。
+ */
+export function noteAccountQuotaExhausted(cid?: string): void {
+  let scope: string;
+  try {
+    scope = channelDir(cid);
+  } catch {
+    return;
+  }
+  const index = readIndex(cid);
+  if (!index.active) return;
+  const hit = index.accounts.find((a) => a.key === index.active);
+  if (!hit) return;
+  hit.health = "error";
+  hit.health_at = nowIso();
+  hit.fail_streak = FAIL_STREAK_LIMIT;
+  healthCache.set(scope, "error");
+  writeIndex(index, cid);
+}
+
+/**
  * 与渠道自己的写盘对账：渠道 `cred.refresh()` 只写 `credentials.json`。
  *
  * 公开入口会在**确认账号身份一致**后调用它（见 `reconcile`）。
