@@ -279,6 +279,69 @@ function toUpstreamMessages(messages: Array<Record<string, unknown>>): UpstreamM
   return out;
 }
 
+/**
+ * round 请求体的**字节预算**：上游对 round 的请求体有体积上限（实测超限回
+ * HTTP 413，长任务/长 tool 循环必踩）。这里按序列化字节裁剪历史：
+ * 保留**首条 user**（任务上下文锚点）与**最新若干条**，中段折叠成一条占位消息。
+ */
+const ROUND_BODY_BUDGET_BYTES = 512 * 1024;
+
+/** 单条消息占位（裁剪提示，保持 user/assistant 交替语义）。 */
+const OMITTED_NOTE = "[earlier messages omitted because the request exceeded the upstream size limit]";
+
+function bodySize(messages: UpstreamMessage[]): number {
+  return Buffer.byteLength(JSON.stringify(messages), "utf8");
+}
+
+/**
+ * 按字节预算裁剪 round 消息：从**中间**开始丢，保留首尾；丢弃段折叠成一条
+ * assistant 文本占位。裁剪后仍保证「最后一条是 user」（上游硬要求）。
+ *
+ * 若单条消息就超预算（比如一个巨型 tool 结果），从尾部往回保留能放下的部分
+ * 并给出明确错误由调用方抛 —— 先在函数内直接抛带尺寸的错误，便于排查。
+ */
+function trimToBudget(messages: UpstreamMessage[]): UpstreamMessage[] {
+  if (bodySize(messages) <= ROUND_BODY_BUDGET_BYTES) return messages;
+  if (messages.length <= 2) {
+    throw new Error(
+      `round request body is ${bodySize(messages)} bytes, exceeding the upstream limit ` +
+        `(~${ROUND_BODY_BUDGET_BYTES} bytes) even without history; reduce the message size`,
+    );
+  }
+
+  const head = messages[0]!;
+  const tail = messages.slice(1);
+  // 从最新往回收，直到放得下（至少留最后一条）
+  let keepFrom = tail.length - 1;
+  while (keepFrom > 0) {
+    const candidate = [head, { note: true }, ...tail.slice(keepFrom)];
+    // 占位消息本身很小，先按原始块估算
+    if (bodySize(candidate as UpstreamMessage[]) <= ROUND_BODY_BUDGET_BYTES) break;
+    keepFrom -= 1;
+  }
+  const omitted = keepFrom;
+  const keptTail = tail.slice(keepFrom);
+  const placeholderRole: "user" | "assistant" = keptTail[0]?.role === "assistant" ? "user" : "assistant";
+  const trimmed: UpstreamMessage[] = [
+    head,
+    {
+      type: placeholderRole,
+      role: placeholderRole,
+      messageId: randomUUID(),
+      content: [{ type: "text", text: `${OMITTED_NOTE} (${omitted} messages)` }],
+    },
+    ...keptTail,
+  ];
+  const size = bodySize(trimmed);
+  if (size > ROUND_BODY_BUDGET_BYTES) {
+    throw new Error(
+      `round request body is ${size} bytes after trimming, exceeding the upstream limit ` +
+        `(~${ROUND_BODY_BUDGET_BYTES} bytes); the latest message itself is too large`,
+    );
+  }
+  return trimmed;
+}
+
 /** 取 system 消息（可能不存在）。 */
 function extractSystem(messages: Array<Record<string, unknown>>): string {
   for (const msg of messages) {
@@ -348,12 +411,15 @@ export function buildChatBody(
     );
   }
 
-  const upstreamMessages = toUpstreamMessages(messages);
+  const upstreamMessages = trimToBudget(toUpstreamMessages(messages));
   const last = upstreamMessages[upstreamMessages.length - 1]!;
 
   const tools = extractTools(req);
   const effort = extractEffort(req);
-  const context = 1024000;
+  // 上下文档位走 declarativeParams.context（body 字段）：目录带真实档位就用它，
+  // 否则按上游默认档位 1M 请求（reference: 204800 / 512000 / 1024000，默认 1M）
+  const catalogWindow = catalog.contextWindowOf(upstreamModel);
+  const context = catalogWindow > 0 ? catalogWindow : 1024000;
 
   const conversationId = randomUUID();
   const requestContext = {

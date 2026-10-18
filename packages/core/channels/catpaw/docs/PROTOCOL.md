@@ -86,7 +86,21 @@
   `choices` 恒为数组）；缺字段会被严格校验的客户端整块拒收（ZCode 实测
   `Type validation failed ... choices expected array`）。2026-10-18 已修复。
 
-## 边界与伦理
+## 上下文档位（`[参考]` + 本机验证）
+
+- 上下文档位不是 URL query，而是 **body 字段**
+  `requestContext.modelParams.declarativeParams.context`（字符串档位）。
+- 可选档位：`204800` / `512000` / **`1024000`**（默认 1M）。来源：
+  `reference/icebears111_catpaw2api/internal/upstream/const.go`（DefaultContextWindow）。
+- 上游目录对部分模型（如 `LongCat-2.0`，modelType 77，限时免费）**不返回
+  contextWindow**（值为 0）。渠道层按已知档位补全（longcat → 1024000），
+  并在 `/v1/models` 输出真实 `context_window` —— 否则客户端会按默认 256k 猜，
+  长任务被客户端自己截断。
+- 请求侧 `buildChatBody` 按模型目录档位发 `context`（未知则 1M）；`round` 请求体
+  另做 **512KB 字节预算裁剪**（保留首条 user + 最新消息，中段折叠占位），
+  超预算时给出明确错误而不是上游 413。
+
+## 边界与伦理## 边界与伦理
 
 - 分析对象是**本机、本人账号**的登录态文件；仓库不包含、也不生成任何可用凭据。
 - 结论中的协议知识仅用于理解客户端行为；请不要用它做绕开授权或对外提供服务的事。

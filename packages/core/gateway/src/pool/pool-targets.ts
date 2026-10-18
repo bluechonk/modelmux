@@ -187,9 +187,12 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
   });
   const entry = cache.find((d: any) => canonicalModelId(d.id) === parsed.model) as any;
   if (entry) {
+    // 目录里 contextWindow = 0 表示「上游未声明」——不能当有效值透给客户端
+    // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
+    const win = Number(entry.contextWindow ?? entry.context_window ?? 0);
     return {
       name: entry.name ?? model,
-      contextWindow: entry.contextWindow ?? entry.context_window ?? DEFAULT_META.contextWindow,
+      contextWindow: Number.isFinite(win) && win > 0 ? win : DEFAULT_META.contextWindow,
       maxOutputTokens: entry.maxOutputTokens ?? entry.max_output_tokens ?? DEFAULT_META.maxOutputTokens,
       inputModalities: entry.inputModalities ?? entry.input_modalities ?? DEFAULT_META.inputModalities,
       outputModalities: entry.outputModalities ?? entry.output_modalities ?? DEFAULT_META.outputModalities,
