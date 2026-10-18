@@ -314,6 +314,48 @@ describe("upstream headers", () => {
 // ── 4. 请求体改写 ────────────────────────────────────────────────────────────
 
 describe("buildChatBody", () => {
+  it("tool 消息序列归一化：assistant 后的 tool 一律以 user 带回（上游硬校验）", () => {
+    const body = upstream.buildChatBody(
+      {
+        model: "glm-5.3-flash",
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "跑个命令" },
+          {
+            role: "assistant",
+            content: "我来调用工具",
+            tool_calls: [
+              { id: "call-1", type: "function", function: { name: "bash", arguments: '{"cmd":"ls"}' } },
+            ],
+          },
+          { role: "tool", tool_call_id: "call-1", content: "file-a\nfile-b" },
+          { role: "user", content: "继续" },
+        ],
+      },
+      "glm-5.3-flash",
+    );
+    const roundBody = JSON.parse(String(body["__roundBody"])) as {
+      messages: Array<{ role: string; content: Array<{ text?: string }> }>;
+    };
+    const messages = roundBody.messages;
+    // 序列里不允许出现 role=tool；assistant 之后必须跟 user
+    assert.ok(messages.every((m) => m.role === "user" || m.role === "assistant"));
+    for (let i = 0; i < messages.length - 1; i += 1) {
+      assert.ok(!(messages[i]!.role === "assistant" && messages[i + 1]!.role === "assistant"));
+    }
+    assert.equal(messages[messages.length - 1]!.role, "user");
+    // assistant 的 tool_calls 折叠为文本
+    const assistantText = (messages.find((m) => m.role === "assistant")!.content)
+      .map((c) => c.text ?? "")
+      .join("\n");
+    assert.ok(assistantText.includes("[tool call] bash("));
+    // tool 结果以 user 带回并带 call id
+    const toolAsUser = messages
+      .flatMap((m) => m.content.map((c) => c.text ?? ""))
+      .find((t) => t.includes("[tool result call-1]"));
+    assert.ok(toolAsUser && toolAsUser.includes("file-a"));
+  });
+
   it("把 OpenAI messages 转成 upstream 需要的形态", () => {
     const body = upstream.buildChatBody(
       {

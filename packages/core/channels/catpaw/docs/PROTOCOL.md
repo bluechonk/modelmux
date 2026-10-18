@@ -72,9 +72,12 @@
 
 ## 对话请求的两条实测限制（2026-10-18）
 
-- **消息序列**：`assistant` 消息之后必须跟 `user`，**不接受直接跟 `role: tool`**
+- **消息序列**：上游要求 `assistant` 消息之后必须跟 `user`，**不接受直接跟 `role: tool`**
   （`CatPawProtocolError: assistant 消息不带 toolCall，后面必须是 user 消息`）。
-  客户端的 tool 结果要以 `role: user` 的形式带回；否则 prepare 阶段直接拒绝。
+  **渠道层已做兼容（2026-10-18，`toUpstreamMessages`）**：`role: tool` 自动转成
+  user 消息（内容带 `[tool result <id>]` 前缀）、`assistant.tool_calls` 折叠成
+  assistant 文本（`[tool call] name(args)`）、相邻同角色消息合并 —— 客户端按
+  OpenAI 标准发 tool 循环即可，无需自行改写。
 - **请求体体积**：round 的请求体超过上游限制会回 `HTTP 413`。表现为
   `upstream prepare request failed: upstream HTTP 413` —— 长上下文任务请改用
   其他渠道（lobsterai / qodercn / codearts 等），catpaw 适合中等上下文。
