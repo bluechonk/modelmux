@@ -5,6 +5,11 @@
 # 在 WSL 内 clone 而非直接在 /mnt/c 工作树上跑：verify:commits 需要完整 git 历史
 # （与 CI fetch-depth: 0 对齐），且 ext4 上无 DrvFs 符号链接/性能问题，
 # npm ci 还能装上 Linux 平台的 esbuild 等原生依赖。
+#
+# 额外：**动了 Pages 相关文件时**，顺带复现 pages.yml 的 build 阶段并校验产物
+# （等价 `npm run verify:pages`，但复用上面已 clone + npm ci 的目录，不重复装依赖）。
+# 为什么放门禁里：pages.yml 的失败模式（base 前缀不对 → 整页空白、缺 404.html →
+# 深链接 404）只有看到真实产物才发现，推到云上再改成本高。
 # 紧急绕过：git push --no-verify（按 AGENTS.md 门禁规则，须先经主人同意）。
 set -euo pipefail
 
@@ -21,4 +26,31 @@ if ! wsl.exe -e bash -lc "
   echo "[pre-push] WSL 测试未全绿，推送已拦截（如确需绕过：git push --no-verify）" >&2
   exit 1
 fi
+
+# —— Pages 产物校验（仅当本次推送动了相关文件）——
+# 范围取「远端 main 到 HEAD」，与 CI 实际会构建的内容对齐。
+base=$(git rev-parse --verify -q origin/main 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "")
+changed=""
+if [ -n "$base" ]; then
+  changed=$(git diff --name-only "$base" HEAD 2>/dev/null || true)
+else
+  changed=$(git ls-files)
+fi
+
+if printf '%s\n' "$changed" | grep -qE '^(packages/ui/|\.github/workflows/pages\.yml|scripts/verify-pages)'; then
+  echo "[pre-push] 检测到 Pages 相关改动，复现 pages.yml 构建并校验产物"
+  if ! wsl.exe -e bash -lc "
+    set -e
+    cd '$GATE'
+    DEMO=1 npm run build --workspace=packages/ui >/dev/null 2>&1
+    cp packages/ui/dist/index.html packages/ui/dist/404.html
+    touch packages/ui/dist/.nojekyll
+    node scripts/verify-pages-artifact.mjs packages/ui/dist
+  "; then
+    echo "[pre-push] Pages 产物校验未通过，推送已拦截（本地先跑：npm run verify:pages）" >&2
+    exit 1
+  fi
+  echo "[pre-push] Pages 产物校验通过"
+fi
+
 echo "[pre-push] WSL 测试全绿，放行推送"
