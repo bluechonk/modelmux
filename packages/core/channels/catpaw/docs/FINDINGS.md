@@ -162,12 +162,12 @@ function re(encoded) {
 | 模型目录 | `POST /api/agent/maas/model-types` | `[代码]` |
 | 必需头 | `M-TRACEID`（32 位无横线 uuid）、`M-APPKEY=fe_com.sankuai.catpaw.external.front`、`gray-set=new-agent-sdk`、`X-Agent-Version=1.0.1`、`Cookie: X-Passport-Token=<token>`、`user-uid` | `[代码]` |
 | turn body | `source=CatX`、`action=turn`、`mode=CATX_APP`、`permissionMode=unsafeBypassPermissions`、`toolVersion=2.0.2` | `[代码]` |
-| system prompt | 走 `systemPromptContext.systemPromptOverride`，一次 turn 只带一条 user 消息 | `[代码]` |
-| system prompt 上限 | **65508 字符**，口径为 JSON 转义后长度（等价 `JSON.stringify(s).length`）；超限回 `HTTP 200` + `success:false` | `[实测]`（2026-10-08，二分 65508 过 / 65509 挂） |
-| round 消息序列 | 连续 `user` 允许；**连续 `assistant` 被拒**（「assistant 消息不带 toolCall，后面必须是 user」）；末条必须是 `user` | `[实测]`（2026-10-08） |
+| system prompt | 上游支持 `systemPromptContext.systemPromptOverride`；**本仓库实现不使用**：system / developer / 历史 / 工具说明折叠成一条 user 文本（见 PROTOCOL.md） | `[代码]` |
+| system prompt 上限 | **65508 字符**，口径为 JSON 转义后长度（等价 `JSON.stringify(s).length`）；超限回 `HTTP 200` + `success:false`。折叠实现不受此限 | `[实测]`（2026-10-08，二分 65508 过 / 65509 挂） |
+| round 消息序列 | 连续 `user` 允许；**连续 `assistant` 被拒**（「assistant 消息不带 toolCall，后面必须是 user」）；末条必须是 `user`。折叠实现恒为单条 user | `[实测]`（2026-10-08） |
 | SSE | 每帧是**累积全文**，需 suffix-diff 转增量；turn 以 **TCP 关闭**结束（`finished` 字段不可依赖） | `[代码]` |
 | usage | `prompt = max(upstream_prompt, total − completion)` | `[代码]` |
-| 工具通道 | 上游**无原生用户工具通道**，网关以提示词注入模拟；模型手写的工具名大小写会被改写（声明 `Bash` → 输出 `bash`） | `[实测]`（2026-10-08） |
+| 工具通道 | 上游**无原生用户工具通道**：按参考实现注入工具说明 + 解析 ```tool_call fence / 原生 `tool_use` 块；工具名归一到客户端工具表，匹配不上的丢弃；末尾统一下发并置 `finish_reason=tool_calls` | `[参考]` + `[实测]`（2026-10-18，longcat-2.0 / glm-5.3-flash） |
 
 ~~当前版本本机未做真实上游调用~~ → **已做真实调用（2026-10-08）**：网关接入 ZCode 后全程跑通三段式协议，
 上表带 `[实测]` 的行即来自该轮验证；`catpaw-list-models`（`src/catpaw_bridge/scripts/list_models.py`）

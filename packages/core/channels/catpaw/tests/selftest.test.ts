@@ -5,10 +5,10 @@
  *  1. 路径（CATPAW_HOME 隔离）
  *  2. 凭据：真实 URL 登录流程（auth_url 构建、sid 解析、save/load 落盘）
  *  3. 请求头：X-Passport-Token / M-APPKEY / gray-set 等必需头
- *  4. 请求体改写：systemPromptContext / messages / modelType / toolConfigs
+ *  4. 请求体改写：折叠 prompt / modelType / 工具说明注入
  *  5. SSE 累积帧 → OpenAI delta 增量翻译（含逐字节喂入、suffix-diff、finish 补帧）
  *  6. 模型目录：flash-only 池 + 未知名抛错
- *  7. 额度：catpaw 无额度端点 → 抛 CreditsError
+ *  7. 额度：积分中心 balance / register（mock fetch）
  *  8. 端到端网关（假上游 + 真实网关）：流式/非流式正文、错误路径
  *
  * 数据目录用 CATPAW_HOME 指向 mkdtemp，绝不碰真实凭据。
@@ -314,7 +314,7 @@ describe("upstream headers", () => {
 // ── 4. 请求体改写 ────────────────────────────────────────────────────────────
 
 describe("buildChatBody", () => {
-  it("tool 消息序列归一化：assistant 后的 tool 一律以 user 带回（上游硬校验）", () => {
+  it("tool 循环折叠进单条 prompt（对齐参考实现）", () => {
     const body = upstream.buildChatBody(
       {
         model: "glm-5.3-flash",
@@ -335,28 +335,21 @@ describe("buildChatBody", () => {
       "glm-5.3-flash",
     );
     const roundBody = JSON.parse(String(body["__roundBody"])) as {
-      messages: Array<{ role: string; content: Array<{ text?: string }> }>;
+      messages: Array<{ type: string; role: string; content: Array<{ text?: string }> }>;
     };
-    const messages = roundBody.messages;
-    // 序列里不允许出现 role=tool；assistant 之后必须跟 user
-    assert.ok(messages.every((m) => m.role === "user" || m.role === "assistant"));
-    for (let i = 0; i < messages.length - 1; i += 1) {
-      assert.ok(!(messages[i]!.role === "assistant" && messages[i + 1]!.role === "assistant"));
-    }
-    assert.equal(messages[messages.length - 1]!.role, "user");
-    // assistant 的 tool_calls 折叠为文本
-    const assistantText = (messages.find((m) => m.role === "assistant")!.content)
-      .map((c) => c.text ?? "")
-      .join("\n");
-    assert.ok(assistantText.includes("[tool call] bash("));
-    // tool 结果以 user 带回并带 call id
-    const toolAsUser = messages
-      .flatMap((m) => m.content.map((c) => c.text ?? ""))
-      .find((t) => t.includes("[tool result call-1]"));
-    assert.ok(toolAsUser && toolAsUser.includes("file-a"));
+    // 上游只收到一条 user 消息；历史/工具/system 全部折叠进 prompt
+    assert.equal(roundBody.messages.length, 1);
+    assert.equal(roundBody.messages[0]!.type, "user");
+    assert.equal(roundBody.messages[0]!.role, "user");
+    const prompt = roundBody.messages[0]!.content.map((c) => c.text ?? "").join("\n");
+    assert.ok(prompt.includes("[系统指令]\nsys"));
+    assert.ok(prompt.includes('[助手调用工具 bash 参数 {"cmd":"ls"}]'));
+    assert.ok(prompt.includes("[工具 call-1 返回结果]"));
+    assert.ok(prompt.includes("file-a"));
+    assert.ok(prompt.includes("[当前消息]\n继续"));
   });
 
-  it("把 OpenAI messages 转成 upstream 需要的形态", () => {
+  it("system / 历史折叠进 message，不再发 systemPromptContext", () => {
     const body = upstream.buildChatBody(
       {
         model: "glm-5.3-flash",
@@ -371,36 +364,37 @@ describe("buildChatBody", () => {
     assert.equal(body["action"], "turn");
     assert.equal(body["modelType"], 1);
     assert.equal(body["permissionMode"], "default");
-    assert.ok(body["systemPromptContext"]);
-    const msg = body["message"] as Record<string, unknown>;
+    assert.ok(!("systemPromptContext" in body));
+    const msg = body["message"] as { type: string; messageId: string; content: Array<{ text?: string }> };
     assert.equal(msg["type"], "user");
     assert.ok(msg["messageId"]);
+    const prompt = msg.content.map((c) => c.text ?? "").join("");
+    assert.ok(prompt.includes("[系统指令]\n你是一个助手"));
+    assert.ok(prompt.includes("你好"));
   });
 
-  it("system 超限抛错", () => {
+  it("大 system 折叠进 prompt，不触发上游 65508 限制", () => {
     const long = "x".repeat(70_000);
-    assert.throws(
-      () =>
-        upstream.buildChatBody(
-          { model: "glm-5.3-flash", messages: [{ role: "system", content: long }, { role: "user", content: "hi" }] },
-          "glm-5.3-flash",
-        ),
-      /exceeding the upstream limit/,
+    const body = upstream.buildChatBody(
+      { model: "glm-5.3-flash", messages: [{ role: "system", content: long }, { role: "user", content: "hi" }] },
+      "glm-5.3-flash",
     );
+    const msg = body["message"] as { content: Array<{ text?: string }> };
+    const prompt = msg.content.map((c) => c.text ?? "").join("");
+    assert.ok(prompt.includes(long));
+    assert.ok(prompt.length > 70_000);
   });
 
-  it("最后一条不是 user 抛错", () => {
-    assert.throws(
-      () =>
-        upstream.buildChatBody(
-          { model: "glm-5.3-flash", messages: [{ role: "assistant", content: "ok" }] },
-          "glm-5.3-flash",
-        ),
-      /last message to have role "user"/,
+  it("assistant 结尾也可折叠（不再依赖最后一条是 user）", () => {
+    const body = upstream.buildChatBody(
+      { model: "glm-5.3-flash", messages: [{ role: "assistant", content: "ok" }] },
+      "glm-5.3-flash",
     );
+    const msg = body["message"] as { content: Array<{ text?: string }> };
+    assert.ok(msg.content.map((c) => c.text ?? "").join("").includes("[助手]"));
   });
 
-  it("包含 toolConfigs", () => {
+  it("工具说明注入 prompt（不再发 toolConfigs）", () => {
     const body = upstream.buildChatBody(
       {
         model: "glm-5.3-flash",
@@ -409,9 +403,11 @@ describe("buildChatBody", () => {
       },
       "glm-5.3-flash",
     );
-    const tools = body["toolConfigs"] as Array<Record<string, unknown>>;
-    assert.ok(Array.isArray(tools));
-    assert.equal(tools[0]!["name"], "f1");
+    assert.ok(!("toolConfigs" in body));
+    const msg = body["message"] as { content: Array<{ text?: string }> };
+    const prompt = msg.content.map((c) => c.text ?? "").join("");
+    assert.ok(prompt.includes("# 工具调用（重要）"));
+    assert.ok(prompt.includes("1. f1"));
   });
 });
 

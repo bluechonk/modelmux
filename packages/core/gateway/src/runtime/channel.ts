@@ -165,8 +165,13 @@ export interface UpstreamModule {
   prepareChat?(body: Record<string, unknown>): Promise<void>;
   fetchModels(credential: any): Promise<Record<string, unknown>>;
   resolveConfig(data: Record<string, unknown>, fallback?: any): any;
-  /** 仅 `WIRE === "custom"` 时需要。 */
-  newTranslator(): StreamTranslator;
+  /**
+   * 仅 `WIRE === "custom"` 时需要。
+   *
+   * 传入客户端原始请求（可选）：渠道可据此读取 `tools` / `tool_choice`，
+   * 把上游调用名归一化到客户端工具（如 catpaw 的提示词工具模拟）。
+   */
+  newTranslator(request?: Record<string, unknown>): StreamTranslator;
   /**
    * 可选：判定**流内错误帧**是否为「排队」语义（上游还在处理，稍后可重发）。
    *
