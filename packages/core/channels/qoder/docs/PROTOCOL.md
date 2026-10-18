@@ -47,7 +47,7 @@
 
 | 用途 | 方法 | 完整 URL | 来源 |
 |---|---|---|---|
-| 授权页（登录） | GET（浏览器） | `{authBase}/device/selectAccounts?challenge&challenge_method=S256&nonce&machine_id&client_id` | qoder.ts:23, 109-118 |
+| 授权页（登录） | GET（浏览器） | `{authBase}/device/selectAccounts?challenge&challenge_method=S256&nonce&client_id`（CN 额外带 `redirect_uri`） | Zhengyuuuui/qoder2api `oauth.go`:- |
 | 轮询取 token | GET | `{openApiBase}/api/v1/deviceToken/poll?nonce&verifier&challenge_method=S256` | qoder.ts:25, 127-134 |
 | 续期 | POST | `{openApiBase}/api/v1/deviceToken/refresh` | qoder.ts:27 |
 | 用户信息 | GET | `{openApiBase}/api/v1/userinfo` | qoder.ts:29 |
@@ -64,15 +64,17 @@
 
 ### 2.1 登录：PKCE 设备码轮询（不起本地回调服务器）
 
-授权 URL 查询参数逐字为：`challenge`、`challenge_method=S256`、`nonce`、`machine_id`、`client_id`（qoder.ts:110-116）。
+授权 URL 查询参数逐字为：`challenge`、`challenge_method=S256`、`nonce`、`client_id`（CN 额外带 `redirect_uri`）。
+对齐 Zhengyuuuui/qoder2api 实测结论：登录 URL **不带 `machine_id`**；`
+`machine_id` 仅用于 cosy 推理头与续期请求体，登录后由 `machineIdOf(uid)` 稳定派生。
 
-**PKCE 细节**（qoder.ts:39, 56-69）：
+**PKCE 细节**：
 - verifier 长度 `43 + floor(86*random)`（43..128）
 - 字符集 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~`（66 个）
 - challenge = `base64url(sha256(verifier))` 且**去 padding**（带 `=` 服务端校验失败）
 
-**machine_id**（qoder.ts:71-95）：客户端自生成随机 UUID 并**持久化**。
-不是硬件指纹 —— 官方是 SMBIOS UUID + salt 的 sha256，本实现**刻意不复刻**。
+**machine_id**：登录后由 `md5("machine:{uid}")` 稳定派生（参考实现 `qoder_fingerprint.py` derive_id 与 `fingerprint.go` DeriveMachineID 同构），
+同一账号永远相同，多账号天然隔离。不参与登录链路 —— 登录 URL 不含此参数。
 
 **轮询规则**（qoder-oauth.ts:119-164）：
 - 间隔 `1000ms`、总超时 `300000ms`、连续网络失败上限 5
