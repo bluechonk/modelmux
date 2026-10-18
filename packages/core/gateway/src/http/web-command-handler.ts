@@ -121,11 +121,14 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
               billing_ok: entry?.billing_ok ?? false,
               ok: entry?.ok ?? 0,
               fail: entry?.fail ?? 0,
-              // 渠道 × 账号拆分：每个生效过的账号各自的 ok / fail 计数
+              // 渠道 × 账号拆分：每个账号的 ok / fail 计数与额度快照
               accounts: Object.entries(entry?.accounts ?? {}).map(([key, count]) => ({
                 key,
                 ok: count.ok,
                 fail: count.fail,
+                credits: count.credits ?? null,
+                billing_at: count.billing_at ?? null,
+                billing_ok: count.billing_ok ?? false,
               })),
             };
           }),

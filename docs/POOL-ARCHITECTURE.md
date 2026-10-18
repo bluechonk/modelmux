@@ -104,7 +104,10 @@
    "codearts": { "used": 17, "size": 100, "remain": 83, "unit": "credits",
                  "billing_at": "2026-10-08T…", "billing_ok": true,
                  "ok": 12, "fail": 0, "cooldown_until": 0,
-                 "accounts": { "<account-key>": { "ok": 10, "fail": 1 } } } } }
+                 "accounts": { "<account-key>": { "ok": 10, "fail": 1,
+                     "credits": { "remain": 128, "size": 128, "used": 0,
+                                  "unit": "credits", "remain_percent": 100 },
+                     "billing_ok": true, "billing_at": "2026-10-18T…" } } } } }
 ```
 
 - 账单**一天刷两三次**（TTL 8 小时）：网关启动时、以及 TTL 到期后的下一次请求，

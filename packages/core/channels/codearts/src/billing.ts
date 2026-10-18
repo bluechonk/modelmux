@@ -416,10 +416,10 @@ export async function claimDailyLogin(c: upstream.AuthLike): Promise<ClaimOutcom
  * 无任何 credit metric（Token 计费账户）与「余额为 0」是两件事。
  */
 export async function fetchCredits(
-  options: { refreshOn401?: boolean } = {},
+  options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
-  let c = cred.load();
+  let c = options.credential ?? cred.load();
 
   const load = async (): Promise<AccountInfo> => {
     try {

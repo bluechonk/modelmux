@@ -20,7 +20,7 @@ export interface WebChannelStatus {
 }
 
 /** 把 `PoolIndex` 转换成 Web 展示形态（独立于 account-cli.ts 的 render）。 */
-export function renderChannelPool(cid: string, display: string, index: { version: 1; active: string | null; accounts: Array<{ key: string; label: string; uid: string; health: string; expires_at: number | null }> }): Record<string, unknown> {
+export function renderChannelPool(cid: string, display: string, index: { version: 1; active: string | null; accounts: Array<{ key: string; label: string; uid: string; health: string; expires_at: number | null; fail_streak?: number }> }): Record<string, unknown> {
   return {
     cid,
     display,
@@ -33,6 +33,7 @@ export function renderChannelPool(cid: string, display: string, index: { version
         uid: a.uid,
         health: a.health,
         expires_at: a.expires_at,
+        fail_streak: a.fail_streak ?? 0,
       })),
     },
   };

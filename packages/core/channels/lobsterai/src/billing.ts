@@ -288,10 +288,10 @@ export function summarize(
  * 「查不到」抛 `CreditsError` —— **绝不返回 0**。
  */
 export async function fetchCredits(
-  options: { refreshOn401?: boolean } = {},
+  options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
-  let c = cred.load();
+  let c = options.credential ?? cred.load();
 
   const load = async (): Promise<Record<string, unknown>> => {
     try {

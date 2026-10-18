@@ -240,10 +240,10 @@ function daysLeft(expireSeconds: number | null): number | null {
  * @param options.refreshOn401 401 时先走一次续期（ExchangeToken）再重试。
  */
 export async function fetchCredits(
-  options: { refreshOn401?: boolean } = {},
+  options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
-  let c = cred.load();
+  let c = options.credential ?? cred.load();
 
   const fetchUsage = async (current: cred.Credentials): Promise<Record<string, unknown>> =>
     postJson(USAGE_PATH, { require_usage: true, req_source: 2 }, buildCheckinHeaders(current));

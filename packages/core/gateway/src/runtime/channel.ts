@@ -261,7 +261,14 @@ export interface SigninModule {
 /** 渠道 `billing.ts` 需要提供的接口。 */
 export interface BillingModule {
   CreditsError: new (message?: string) => Error;
-  fetchCredits(options?: { refreshOn401?: boolean }): Promise<any>;
+  /**
+   * 查额度。
+   *
+   * `credential` 用于**按账号**查询：不传 = 当前生效账号（`cred.load()`）；
+   * 传入时用它代替 `cred.load()`，并应配合 `refreshOn401: false`（避免刷新/回写
+   * 当前生效账号的凭证文件）。形状见 `credential-shape.ts` 的归一化结果。
+   */
+  fetchCredits(options?: { refreshOn401?: boolean; credential?: unknown }): Promise<any>;
   /** 签到 / 领取能力（见 `SigninModule`；**每个渠道都必须提供**）。 */
   signin: SigninModule;
 }

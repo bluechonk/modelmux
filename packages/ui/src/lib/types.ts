@@ -26,6 +26,8 @@ export interface PoolAccount {
   expires_at: number | null;
   health: string;
   health_at: string;
+  /** 连续失败次数（达到上限后 health=error）。 */
+  fail_streak?: number;
 }
 
 export interface ChannelPool {

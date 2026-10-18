@@ -113,9 +113,9 @@ async function claimableTasks(c: cred.Credentials): Promise<Array<Record<string,
  * `balance` 是核心字段：没有它就说明响应形状不对 —— **不编造数字，返回报错**。
  */
 export async function fetchCredits(
-  _options: { refreshOn401?: boolean } = {},
+  options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
-  const c = cred.load(); // 未登录 → NotLoggedInError
+  const c = options.credential ?? cred.load(); // 未登录 → NotLoggedInError
 
   let data: Record<string, unknown>;
   try {

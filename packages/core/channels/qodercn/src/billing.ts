@@ -185,10 +185,10 @@ function summarize(usage: Record<string, unknown>): { total: CreditsResult["tota
 }
 
 /** 查余额 + 可领活动。 */
-export async function fetchCredits(options: { refreshOn401?: boolean } = {}): Promise<CreditsResult> {
+export async function fetchCredits(options: { refreshOn401?: boolean; credential?: cred.Credentials } = {}): Promise<CreditsResult> {
   let credential: cred.Credentials;
   try {
-    credential = cred.load();
+    credential = options.credential ?? cred.load();
   } catch (err) {
     throw new CreditsError(String(err));
   }
