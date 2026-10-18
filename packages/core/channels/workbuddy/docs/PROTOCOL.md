@@ -13,9 +13,26 @@
 | X-Domain | `copilot.tencent.com` |
 | User-Agent | `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1` |
 | X-IDE-Version | `5.5.6` |
+| Origin / Referer | `https://www.codebuddy.cn`（+`/`） |
+| Accept-Language | `zh-CN` |
 
 身分头族、会话头族、链路族与设备指纹口径同 `workbuddyai`（见其 PROTOCOL.md §2-§3），
-仅端点 / 域 / 版本三元组按上表替换。
+仅端点 / 域 / 版本三元组按上表替换。请求体归一化管线也完全一致（其 §5），
+本包 `src/upstream.ts::buildChatBody` 是同一份实现的两个副本（两渠道共用一套协议）。
+
+## 1.1 模型目录端点
+
+| 端点 | 用途 | 实测 |
+| --- | --- | --- |
+| `/v3/config` | **真实目录**（桌面端选择器）：`agents[].models` 裸 id + `models[]` 元数据 | 未带凭证：200（UA 门禁通过，但无模型列表） |
+| `/v2/enterprises/personal/models` | 连接配置 + 窄表 | 未带凭证：401 `WWW-Authenticate: Bearer realm="copilot"` → 这是 API 路径 |
+| `/console/enterprises/personal/models` | 浏览器控制台路由 | 未带凭证：302 跳 keycloak 登录页 → 不能作 API 端点 |
+
+- 参考实现 `HanawaBanana` 给 CN 用的是 `/console/...`，但它实际是浏览器路由；
+  mx 因此把 `/v2` 放首位、`/console` 降为兜底（详见 `src/upstream.ts` 的 `MODELS_PATHS`）。
+- 目录端点受 UA 门禁：仅三段式 CLI UA 能拿完整目录（hub `remote_config_headers` 注释），
+  故一律用 `buildChatHeaders()`。
+- 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddy/cache/models.json`。
 
 ## 2. 参考实现补充的两个行为细节（HanawaBanana，Go）
 

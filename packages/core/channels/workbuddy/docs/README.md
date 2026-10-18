@@ -49,19 +49,29 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
 
 ## 模型 id
 
-对外名 = 上游 slug（如 `deepseek-v4.1-flash`），不做短名映射。多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道
-（`workbuddy/<模型>` 形态一律 400）。历史短名 `deepseek-flash` 仍能解析（老配置不断），
-但不出现在 `/v1/models` 里。目录来自渠道根 `models.json`（可用 `WB_MODELS_FILE` 覆盖），
-缺失时用内置兜底、不阻塞启动。
+对外名 = 上游模型名（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`），不做短名映射。
+多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道，
+裸模型名一律 400。
+
+目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddy/cache/models.json`）
+→ 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
+`mx models workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
 
 ## 上游约束（改代码前必读）
 
-与国际版同源，三条硬约束都在 `upstream.ts` 的 `buildChatBody()` 里：
+与国际版同源，六条硬约束都在 `upstream.ts` 的 `buildChatBody()` 里（管线顺序见
+[`workbuddyai/docs/PROTOCOL.md`](../../workbuddyai/docs/PROTOCOL.md) §5）：
 
 1. **首条消息必须是 system** —— 否则 400 `first message is not system prompt`
 2. **只支持流式** —— 否则 400 `Non-stream chat request is currently not supported`；
-  客户端要非流式时也向上游要流式，由网关层聚合成普通 JSON
+   客户端要非流式时也向上游要流式，由网关层聚合成普通 JSON
 3. **系统提示词指纹拦截** —— 命中时整条会话被 400 `code=11128` 拒绝，需改写样板文本
+4. **`tool_choice` / `stop` 只收字符串** —— 上游是 Go，收到 object / 数组回 `11101`
+   类型不匹配；`max_completion_tokens` 要翻成 `max_tokens`
+5. **工具调用序列必须自洽** —— 并行 tool_calls 要合并进同一条 assistant、
+   悬空 `tool` 结果要剔除，否则 `11148 tool_call_sequence_broken`
+6. **DeepSeek 思考模式** —— 带 tool_calls 的 assistant 消息缺 `reasoning_content`
+   会被拒，需回填空串
 
 另：chat 路径**不用** `prefixPath`（`/v2/chat/completions` 才是 200）；SSE 里空的
 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎。
