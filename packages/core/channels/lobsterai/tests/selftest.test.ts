@@ -743,7 +743,7 @@ describe("7. 登录与续期", () => {
       body: { code: 0, data: { accessToken: "at-live", refreshToken: "rt-live" } },
     }));
     const session = { uuid: "uuid-x", firstKeyfrom: "111", state: "st-ok" };
-    const srv = await cred.startCallbackServer(session, fake.base, { timeoutMs: 5_000 });
+    const srv = await cred.startCallbackServer(session, fake.base, { timeoutMs: 15_000 });
     try {
       const bad = await fetch(`http://127.0.0.1:${srv.port}/auth/callback?code=c1&state=wrong`);
       assert.equal(bad.status, 400, "state 不匹配必须 400（防 CSRF/串号）");

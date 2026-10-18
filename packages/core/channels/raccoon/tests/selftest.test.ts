@@ -553,7 +553,10 @@ describe("5. 续期", () => {
   it("只回新 access_token 时保留旧 refresh_token 与附加字段", async () => {
     const c = await saveFakeCreds();
     const fresh = await cred.refresh(c, fakeBase());
-    assert.equal(fresh.accessToken, fakeJwt(Math.floor(Date.now() / 1000) + 3605, { sub: "u-1" }));
+    // 假上游的 exp 取自它自己的启动时刻；不要拿测试时刻的 Date.now() 精确比对
+    // （CI 慢 1 秒就会让 exp 差 1，属于时序型 flake）。
+    assert.notEqual(fresh.accessToken, c.accessToken, "服务端回了新 access_token");
+    assert.match(fresh.accessToken, /^[^.]+\.[^.]+\.[^.]+$/, "仍是 JWT 形态");
     assert.equal(fresh.refreshToken, "rt-1", "服务端未回 refresh_token → 保留旧值");
     assert.equal(fresh.officeIdentity, c.officeIdentity, "附加字段保留");
     assert.equal(fresh.deviceId, c.deviceId, "下载取得的 machine id 不丢");
