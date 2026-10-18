@@ -226,6 +226,10 @@ export function finishRequestLog(log: RequestLog, status: number): void {
   if (!log.outcome) {
     log.outcome = status >= 400 ? "failure" : status >= 200 ? "success" : "other";
   }
+  // 成功的健康检查 / 模型轮询不记访问日志：Web 控制台每 5 秒拉一次 /v1/models，
+  // 记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
+  const routine = log.path === "/health" || log.path === "/v1/models";
+  if (routine && log.outcome === "success" && (log.durationMs ?? 0) < slowMs()) return;
   appendAccessFile(log.outcome, log);
 }
 
