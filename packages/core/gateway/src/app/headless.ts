@@ -12,10 +12,11 @@ import * as authFlow from "../auth/auth-flow.js";
 import { startAutoSignin } from "../auth/auto-signin.js";
 import { syncPool } from "../runtime/account-pool.js";
 import { runInChannel } from "../runtime/channel-context.js";
-import { channels, getChannel, type Channel } from "../runtime/channel.js";
+import { channels, getChannel, hasChannel, type Channel } from "../runtime/channel.js";
 import * as console_ from "../http/console.js";
 import * as gateway from "../http/gateway.js";
 import { REPO_UI_PREFIX } from "../runtime/cli-consts.js";
+import { appendChannel, appendError, appendGateway } from "../runtime/log-store.js";
 import { credentialsPath } from "../runtime/paths.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
@@ -317,6 +318,24 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const targets: Channel[] = cid !== undefined ? [getChannel(cid)] : channels();
   const multi = targets.length > 1;
   const prefix = `[${gateway.serviceName(cid)}]`;
+  const logCid = cid ?? (targets.length === 1 ? targets[0]!.config.cid : undefined);
+
+  /** 运行日志同时落「按日 gateway.log / 渠道日志 / 错误日志」；控制台保留。 */
+  const logLine = (message: string): void => {
+    const line = `${prefix} ${message}`;
+    appendGateway(line);
+    if (logCid) {
+      appendChannel(logCid, line);
+    } else {
+      // 多渠道路由：消息自带 `[cid]` 前缀时落到该渠道的日志目录
+      const match = /^\[([a-z0-9][a-z0-9.-]*)\]/.exec(message);
+      if (match && hasChannel(match[1])) appendChannel(match[1]!, line);
+    }
+    if (/(error|failed|timeout|reject|aborted|exception|unauthor)/i.test(line)) {
+      appendError(line);
+    }
+    if (!json) console.error(line);
+  };
 
   const state = new ServiceState(addr);
   if (json) emit({ event: "start", mode: "serve", addr, ui_prefix: REPO_UI_PREFIX, ...(cid ? { cid } : {}) });
@@ -424,7 +443,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
     try {
       running = await gateway.start(addr, {
         verbose,
-        logger: (m) => console.error(`${prefix} ${m}`),
+        logger: logLine,
         ...(consoleHandler ? { console: consoleHandler, consolePrefix: REPO_UI_PREFIX } : {}),
       });
     } catch (err) {
@@ -442,7 +461,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
       });
     }
     // 网关 ready 即挂自动签到：逐渠道（未登录跳过 / 台账已签跳过 / 连败 3 次当日熔断）
-    startAutoSignin((m) => console.error(`${prefix} ${m}`));
+    startAutoSignin(logLine);
 
     // 目录保鲜：每天后台重拉一次各渠道模型目录（实现了 catalog.refresh 的渠道才拉），
     // 渠道上游加了新模型时无需手动 `--refresh`。失败静默保留旧表（下次再试）。

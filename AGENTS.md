@@ -99,7 +99,7 @@ docs/                         契约与规范（唯一的仓库级文档层）
 6. **共享层内部单向分层**（`scripts/verify-layering.mjs` 在 `npm test` 里强制）：
    `runtime(0) < pool(1) / auth(1) < http(2) < app(3)` —— **只能 import 层级 ≤ 自己的目录**，
    向上依赖一律失败。`index.ts` 是桶导出，不受限。
-   - `runtime/` = 渠道 SDK（channel / paths / account-pool / secret-file / catalog-cache / cli-consts / logger（日志节流））
+   - `runtime/` = 渠道 SDK（channel / paths / account-pool / secret-file / catalog-cache / cli-consts / logger（日志节流）/ log-store（分层落盘））
    - `pool/` = 模型池与账本；`auth/` = 登录链路
    - `http/` = 网关与转发；`app/` = 进程编排（cli / daemon / headless / supervisor…）
    - 需要跨层动作时**下沉或经回调注入**，不要直接向上 import。

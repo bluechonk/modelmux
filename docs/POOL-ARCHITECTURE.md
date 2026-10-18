@@ -341,8 +341,9 @@ hasChannel(cid?: string): boolean;
 - **动词优先**：`mx <动词> [<cid>]`（见 [`CONTRACT-TS.md` §9](./CONTRACT-TS.md)）；
  不带渠道名时按「单渠道模式 / 仓库级」解析。
 - **守护进程的「范围」**：渠道级（显式 `cid` 或只注册 1 个渠道）用渠道层文件
- `<root>/<cid>/gateway.pid|gateway.log|prefs.json`；**仓库级**（多渠道路由、未指定 cid）
- 用根级 `<root>/gateway.pid|gateway.log|prefs.json` —— 一个服务多池的进程不属于任何单个渠道。
+ `<root>/<cid>/gateway.pid|prefs.json`；**仓库级**（多渠道路由、未指定 cid）
+ 用根级 `<root>/gateway.pid|prefs.json` —— 一个服务多池的进程不属于任何单个渠道。
+ 日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 - **仓库级默认端口**：多渠道路由时用 `REPO_DEFAULT_ADDR = 127.0.0.1:4412` /
  控制台挂在 `REPO_UI_PREFIX = /web`，而不是取某个渠道的端口。
 - **修掉一个潜伏 bug**：`daemon.start` 原本 spawn **共享包的 `cli.js`**，而那个文件只是一组
@@ -364,7 +365,7 @@ hasChannel(cid?: string): boolean;
 ```
 mx start（短命命令，写 PID 文件后退出）
   └─ mx supervise  监督进程（detached 常驻；只管 spawn / 重生 / 心跳）
-       └─ mx serve  网关 worker（stderr → gateway.log；IPC + supervisor-ping 双通道感知父死）
+       └─ mx serve  网关 worker（stderr → worker.log；IPC + supervisor-ping 双通道感知父死）
 ```
 
 - **谁管谁**：`start` 拉起的是监督者，PID 文件（`gateway.pid`）记监督者 pid；

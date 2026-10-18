@@ -20,6 +20,7 @@ import type { ChildProcess } from "node:child_process";
 import { closeSync, openSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { cliEntry, DEFAULT_WAIT_MS, gatewayHealthy } from "./daemon.js";
+import { appendError, appendSystem, rotateIfNeeded } from "../runtime/log-store.js";
 
 /** worker 稳定运行该时长后重置退避计数（CCR：稳定 60s 清零，首杀只等 1s）。 */
 const STABLE_MS = 60_000;
@@ -46,13 +47,14 @@ export interface SuperviseOptions {
 }
 
 export function superviseLog(event: string, extra: Record<string, unknown> = {}): void {
-  console.log(JSON.stringify({ event, ...extra }));
+  appendSystem(event, extra);
 }
 
 function waitExit(child: ChildProcess): Promise<{ code: number | null; signal: string | null }> {
   return new Promise((resolve) => {
     child.once("exit", (code, signal) => resolve({ code, signal: signal ?? null }));
     child.once("error", (err) => {
+      appendError(`[supervisor] worker spawn failed: ${String(err)}`);
       console.error(`[supervisor] worker spawn failed: ${String(err)}`);
       resolve({ code: null, signal: "spawn-error" });
     });
@@ -82,8 +84,8 @@ function clearWorkerPid(pidPath: string): void {
 /**
  * 监督进程主循环（`mx supervise` 的落点；由 `mx start` spawn，不是用户命令）。
  *
- * 事件行打到 stdout/stderr → 被 `mx start` 的 stdio 重定向聚进 gateway.log，
- * 与 worker 的 emit 行同一条时间线。
+ * 生命周期事件写入 `logs/system/<date>/lifecycle.log`（appendSystem）；
+ * worker 的 stdout/stderr 另落 `worker.log`，两类日志分开。
  */
 export async function runSupervise(options: SuperviseOptions): Promise<number> {
   const { addr, uiPort, workerPid: workerPidFile, log: logPath, cwd } = options;
@@ -105,8 +107,9 @@ export async function runSupervise(options: SuperviseOptions): Promise<number> {
 /** 心跳间隔：监督者持续向 worker 发 ping；worker 侧超时判定见 headless.ts。 */
 const PING_INTERVAL_MS = 2_000;
 
-let attempts = 0;
-for (;;) {
+  let attempts = 0;
+  for (;;) {
+    rotateIfNeeded(logPath);
     const logFd = openSync(logPath, "a");
     const child = spawn(process.execPath, workerArgs, {
       // 不 detached：worker 归监督者的进程树管，taskkill /T 杀监督者可整树清
@@ -150,10 +153,11 @@ for (;;) {
           /* 已退出 */
         }
       }
-      console.error(
+      const message =
         `[supervisor] worker did not become healthy within ${DEFAULT_WAIT_MS / 1000}s ` +
-          `exit=${code ?? "running"}; giving up (no respawn for a worker that never served)`,
-      );
+        `exit=${code ?? "running"}; giving up (no respawn for a worker that never served)`;
+      appendError(message, { event: "worker_unhealthy", exit: code });
+      console.error(message);
       clearWorkerPid(workerPidFile);
       return 1;
     }
@@ -164,10 +168,11 @@ for (;;) {
     // CCR 判定：稳定运行 ≥60s 清零退避计数（长期健康 worker 首次被杀只等 1s）
     if (Date.now() - healthyAt >= STABLE_MS) attempts = 0;
     const delay = backoffMs(attempts++);
-    console.warn(
+    const message =
       `[supervisor] gateway worker exited unexpectedly ` +
-        `(code=${exited.code ?? "signal:" + String(exited.signal)}); restarting in ${delay}ms`,
-    );
+      `(code=${exited.code ?? "signal:" + String(exited.signal)}); restarting in ${delay}ms`;
+    appendError(message, { event: "worker_exited", code: exited.code, signal: exited.signal, delay_ms: delay });
+    console.warn(message);
     superviseLog("worker_exited", { code: exited.code, signal: exited.signal, delay_ms: delay });
     await sleep(delay);
   }
