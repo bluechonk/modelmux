@@ -190,37 +190,88 @@ interface UpstreamMessage {
   content: Array<{ type: string; text?: string; tool_call_id?: string; name?: string; arguments?: string }>;
 }
 
-/** 从 OpenAI messages 构造上游 round.messages。 */
+/** OpenAI 消息的文本化（tool 结果/多段 content 统一成纯文本）。 */
+function textOfContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const bits: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = part as Record<string, unknown>;
+    if (typeof p["text"] === "string") bits.push(p["text"]);
+    else if (p["type"] === "tool_result" || p["type"] === "tool_call") {
+      bits.push(JSON.stringify(p, null, 2));
+    }
+  }
+  return bits.join("\n");
+}
+
+/**
+ * 从 OpenAI messages 构造上游 round.messages。
+ *
+ * ## 兼容层（2026-10-18）
+ *
+ * 上游对消息序列的硬校验：「assistant 消息后面必须是 user」—— 客户端（ZCode 等）
+ * 的 OpenAI tool 循环会发 `assistant(tool_calls) → role:tool → …` 序列，直传会被
+ * 上游 400 拒绝（`CatPawProtocolError: assistant 消息不带 toolCall，后面必须是 user
+ * 消息，实际是: tool`）。这里做归一化：
+ *
+ * 1. `role: tool` → **user** 消息，内容带 `[tool result <tool_call_id>]` 前缀；
+ * 2. `assistant.tool_calls` → 折叠成 assistant 文本（`[tool calls] name(args)`），
+ *    避免上游对 assistant 结构挑剔；
+ * 3. 相邻同角色消息合并（user/assistant），保证序列交替；
+ * 4. 最后一条必须是 user（上游硬要求）。
+ */
 function toUpstreamMessages(messages: Array<Record<string, unknown>>): UpstreamMessage[] {
   const out: UpstreamMessage[] = [];
+
+  const pushText = (role: "user" | "assistant", text: string): void => {
+    if (!text.trim()) return;
+    const last = out[out.length - 1];
+    if (last && last.role === role) {
+      // 相邻同角色合并（上游期望 user/assistant 交替）
+      last.content.push({ type: "text", text });
+      return;
+    }
+    out.push({ type: role, role, messageId: randomUUID(), content: [{ type: "text", text }] });
+  };
+
   for (const msg of messages) {
     const role = typeof msg["role"] === "string" ? msg["role"] : "";
     if (role === "system") continue; // system 走 systemPromptContext
-    const content = msg["content"];
-    if (typeof content === "string") {
-      out.push({
-        type: role,
-        role,
-        messageId: randomUUID(),
-        content: [{ type: "text", text: content }],
-      });
-    } else if (Array.isArray(content)) {
-      const parts: UpstreamMessage["content"] = [];
-      for (const part of content) {
-        if (!part || typeof part !== "object") continue;
-        const p = part as Record<string, unknown>;
-        if (p["type"] === "text" && typeof p["text"] === "string") {
-          parts.push({ type: "text", text: p["text"] });
-        } else if (p["type"] === "tool_result" || p["type"] === "tool_call") {
-          // 工具结果/调用折叠成文本，保持角色语义
-          parts.push({ type: "text", text: JSON.stringify(p, null, 2) });
-        }
+
+    if (role === "tool") {
+      // tool 结果一律以 user 身份带回（上游序列要求 assistant 后必须是 user）
+      const callId = typeof msg["tool_call_id"] === "string" ? msg["tool_call_id"] : "";
+      const body = textOfContent(msg["content"]);
+      pushText("user", `[tool result${callId ? ` ${callId}` : ""}]\n${body}`);
+      continue;
+    }
+
+    if (role === "assistant") {
+      const text = textOfContent(msg["content"]);
+      const calls = Array.isArray(msg["tool_calls"]) ? (msg["tool_calls"] as unknown[]) : [];
+      const callLines: string[] = [];
+      for (const call of calls) {
+        if (!call || typeof call !== "object") continue;
+        const c = call as Record<string, unknown>;
+        const fn = c["function"] && typeof c["function"] === "object"
+          ? (c["function"] as Record<string, unknown>)
+          : {};
+        const name = typeof fn["name"] === "string" ? fn["name"] : "tool";
+        const args = typeof fn["arguments"] === "string" ? fn["arguments"] : JSON.stringify(fn["arguments"] ?? {});
+        callLines.push(`[tool call] ${name}(${args})`);
       }
-      if (parts.length > 0) {
-        out.push({ type: role, role, messageId: randomUUID(), content: parts });
-      }
+      pushText("assistant", [text, ...callLines].filter(Boolean).join("\n"));
+      continue;
+    }
+
+    if (role === "user") {
+      pushText("user", textOfContent(msg["content"]));
+      continue;
     }
   }
+
   // 确保最后一条是 user（上游硬要求）
   if (out.length === 0 || out[out.length - 1]!.type !== "user") {
     throw new Error('upstream requires the last message to have role "user"');
