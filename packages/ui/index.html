@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      图标经 Vite 资源管线处理（`src/assets/` → 构建后落在 `/web/assets/*`）。
+      ⚠ 不能放 `public/`：console 只托管 `/web/` 与 `/web/assets/*`，
+        `/web/favicon.svg` 这类路径会命中 SPA 回退而返回 HTML（实测踩过）。
+      显式声明也让浏览器不再去根路径要默认的 `/favicon.ico`。
+    -->
+    <link rel="icon" type="image/svg+xml" href="/src/assets/favicon.svg" />
     <title>modelmux 控制台</title>
   </head>
   <body>
