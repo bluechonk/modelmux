@@ -70,6 +70,24 @@ const FALLBACK_MODELS: CatalogEntry[] = [
   },
 ];
 
+/**
+ * 已知上下文档位（上游目录不带 contextWindow 时按真实档位补）。
+ *
+ * 来源：`reference/icebears111_catpaw2api/internal/upstream/const.go` —— 上下文档位
+ * 走 body 的 `requestContext.modelParams.declarativeParams.context`，可选
+ * 204800 / 512000 / **1024000**（默认 1M）。LongCat-2.0 是限时免费模型，
+ * 向上游按 1M 请求即可（此前目录报 0，客户端只能按默认 256k 猜）。
+ */
+const KNOWN_CONTEXT_WINDOWS: Record<string, number> = {
+  "longcat-2.0": 1_024_000,
+};
+
+/** 补全 contextWindow：目录值 > 0 用之；否则查已知档位表（0 = 仍未知）。 */
+function contextWindowOfId(id: string, parsed: number): number {
+  if (parsed > 0) return parsed;
+  return KNOWN_CONTEXT_WINDOWS[id.toLowerCase()] ?? 0;
+}
+
 /** 上游目录缓存（由 upstream.fetchModels() 成功时回填）。 */
 let _remote: CatalogEntry[] | null = null;
 let cacheLoaded = false;
@@ -153,7 +171,7 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
       row["reasoning"] === true ||
       Array.isArray(row["parameterDefinitions"]) ||
       row["supportsReasoning"] === true,
-    contextWindow: num("contextWindow", "maxContextLength"),
+    contextWindow: contextWindowOfId(id, num("contextWindow", "maxContextLength")),
     description: pick("description"),
     supportsImages: row["supportsImages"] === true,
   };
@@ -186,6 +204,15 @@ export function resolveModel(name: string): string {
 }
 
 /** 从模型 id 解析上游 modelType 数值（供 buildChatBody 使用）。 */
+/** 某模型的上下文档位（未知返回 0；LongCat-2.0 为 1M）。 */
+export function contextWindowOf(id: string): number {
+  const wanted = id.toLowerCase();
+  for (const entry of loadCatalog()) {
+    if (entry.id.toLowerCase() === wanted) return contextWindowOfId(entry.id, entry.contextWindow);
+  }
+  return KNOWN_CONTEXT_WINDOWS[wanted] ?? 0;
+}
+
 export function modelTypeOf(id: string): number {
   for (const entry of loadCatalog()) {
     if (entry.id === id) return entry.modelType;

@@ -179,28 +179,7 @@ export function Accounts(): ReactElement {
         </div>
       </div>
 
-      {/* 添加账号入口：点击渠道名打开登录弹窗 */}
-      <section className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">添加账号（登录新账号）</h2>
-        <div className="flex flex-wrap gap-2">
-          {loginChannels.map((c) => (
-            <button
-              key={c.cid}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-950 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:border-sky-600 hover:text-sky-300"
-              onClick={() => setLoginChannel(c.cid)}
-              title={`为 ${c.cid} 走一次授权流程，成功后自动入池`}
-            >
-              + {c.display || c.cid}
-            </button>
-          ))}
-          {loginChannels.length === 0 && (
-            <span className="text-xs text-gray-500">{logins.isLoading ? "加载中…" : "（没有已注册渠道）"}</span>
-          )}
-        </div>
-        <p className="mt-3 text-xs text-gray-600">
-          点击渠道名会打开登录引导弹窗，按步骤完成授权后账号自动入池并设为生效。
-        </p>
-      </section>
+      {/* 添加账号入口已移到每个渠道卡片的右上角（+ 按钮） */}
 
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && <Alert tone="info">{notice}</Alert>}

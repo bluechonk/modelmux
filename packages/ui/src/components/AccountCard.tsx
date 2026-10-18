@@ -78,8 +78,19 @@ export function AccountCard({
         </span>
         <span className="font-mono text-sm font-medium">{pool.cid}</span>
         {pool.display && <span className="truncate text-xs text-gray-500">{pool.display}</span>}
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-1.5">
           <StatusBadge state={present ? "ok" : "warning"} />
+          {/* 添加账号入口：每个渠道卡片右上角（需求 2026-10-18） */}
+          <button
+            type="button"
+            aria-label={`为 ${pool.cid} 添加账号`}
+            title="添加账号（走授权流程，成功后自动入池）"
+            className="flex h-6 w-6 items-center justify-center rounded-md border border-gray-700 text-gray-400 transition-colors hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
+            disabled={busyKey !== null}
+            onClick={() => onAdd(pool.cid)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
         </span>
       </div>
 
@@ -189,14 +200,6 @@ export function AccountCard({
         </div>
       )}
 
-      <button
-        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-700 px-3 py-2 text-xs text-gray-400 transition-colors hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
-        disabled={busyKey !== null}
-        onClick={() => onAdd(pool.cid)}
-      >
-        <Plus className="h-3.5 w-3.5" />
-        添加账号（走授权流程，成功后自动入池）
-      </button>
     </div>
   );
 }
