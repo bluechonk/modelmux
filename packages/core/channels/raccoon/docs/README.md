@@ -21,7 +21,8 @@ mx status / mx model list / mx billing raccoon
 ```
 
 > **登录两步**：打开打印出的 `/code/authorize` 授权页用微信/验证码/密码登录 →
-> 把浏览器地址栏里的整条 `office-raccoon://auth/callback?…` URL 粘贴回终端。
+> 把浏览器地址栏里的整条 `office-raccoon://auth/callback?…` URL 粘贴回终端；
+Web 控制台的登录弹窗里也有「回调链接」框（两条通道任一先到先用，2026-10-18 起）。
 > 细节见 [PROTOCOL.md §2.4](./PROTOCOL.md)。
 
 ## 状态 API
@@ -39,7 +40,7 @@ mx status / mx model list / mx billing raccoon
 ## 接入
 
 **接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:8787/v1`（仓库级网关）、
-API key 任意非空、模型 `deepseek-v4.1-flash` / `glm-5.3-flash`（不带渠道前缀）。
+API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `raccoon/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
 ## 参考实现（reference/）
 

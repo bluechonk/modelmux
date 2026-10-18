@@ -25,6 +25,22 @@
 - **11128 的内容侧缓解**（`internal/prompt/prompt.go`）：上游内容审核按逐字精确匹配误杀
  system 里的指纹样板文本 → 改写为最小中性表述后重试一次；与头族修复互补，不可互替。
 
+## 2.1 网页登录（设备授权流程，CN realm）
+
+> 来源：`reference/HanawaBanana_workbuddy2api/cmd/login/main.go`（realmConfig 与
+> commonHeaders）。**base 与 Origin 曾错配**：base 写成 `www.codebuddy.ai`
+> （DNS 沉洞，实测连接直接终止）导致授权页打不开 —— 已修正。
+
+| 项 | 值 |
+| --- | --- |
+| state 端点 | `POST https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy`（body `{}`） |
+| 轮询端点 | `GET https://copilot.tencent.com/v2/plugin/auth/token?state=<state>`（pending 时业务码非 0，完成时 code=0 + token bundle） |
+| 请求头 | 除渠道通用头外必须带 `Origin: https://codebuddy.cn`、`Referer: https://codebuddy.cn/`（reference commonHeaders 同口径） |
+| 授权页 URL | **由 state 端点返回**（`data.authUrl`）；本地不再兜底拼接 `base/login?...`（旧兜底拼出的是沉洞域名） |
+
+- 拿到的 token bundle 含 access / refresh / tokenType / scope / sessionState / domain。
+- 令牌续期见 §3.1。
+
 ## 3. 每日签到（`[参考]`，CN 与 global 同形）
 
 > 来源：`reference/HanawaBanana_workbuddy2api` 的 `internal/upstream/checkin_activity.go`

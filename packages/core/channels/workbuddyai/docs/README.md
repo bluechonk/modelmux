@@ -42,7 +42,7 @@ node channels/workbuddyai/dist/cli.js --help    # 单渠道 CLI（调试 / 回�
 
 ## 状态 API
 
-`serve` 会启动控制台 API（默认 `http://127.0.0.1:8788`，无页面托管）：
+单渠道 `serve` 只暴露 API（页面托管归仓库级 `mx web`，单端口 `http://127.0.0.1:4412/web/`）：
 
 | 端点 | 说明 |
 | --- | --- |
@@ -54,7 +54,7 @@ node channels/workbuddyai/dist/cli.js --help    # 单渠道 CLI（调试 / 回�
 
 **接入**：任意 OpenAI 兼容客户端，类型 `openai-chat-completions`、
 baseUrl `http://127.0.0.1:8787/v1`、API key 任意非空、模型 `deepseek-v4.1-flash` /
-`glm-5.3-flash`（不带渠道前缀）。
+API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `workbuddyai/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
 ## 源码结构
 

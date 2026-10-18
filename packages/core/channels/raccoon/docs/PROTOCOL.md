@@ -132,7 +132,15 @@ body: { "authorization_code": "<回调里的 code>" }
 ```
 
 **回调怎么回收**：本插件是宿主机里的普通 Node 进程，注册不了
-`office-raccoon://` 自定义协议 → **提示用户把地址栏里的整条回调 URL 粘贴回来**
+`office-raccoon://` 自定义协议 → **用户把地址栏里的整条回调 URL 粘贴回来**，
+两条通道**竞争**任一先到先用（2026-10-18 起）：
+
+- **Web 控制台**：登录弹窗的「回调链接」框 → `pasteCallback` 命令 →
+  共享层 `pasteCode()` 轮询（400ms）喂回 `resolveCallback`；
+- **终端**：交互式 stdin 逐行读取（空输入重问，EOF 静默退场）。
+
+⚠ daemon 进程的 stdin 会**立即 EOF**：EOF 分支必须在竞争中静默挂起而不是抛错，
+否则会把还活着的 Web 粘贴通道一起拖死（真机踩过）。
 （与 agent2api 的 Docker 形态一致；也可用环境变量 `RACCOON_LOGIN_CALLBACK` 注入）。
 
 **为什么不用 `/login/mp?code=…`**：那条是**官方手机 App 扫码**专用（官方桌面端的

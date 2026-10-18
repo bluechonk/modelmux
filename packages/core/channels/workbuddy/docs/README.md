@@ -49,7 +49,7 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
 
 ## 模型 id
 
-对外名 = 上游 slug（如 `deepseek-v4.1-flash`），不做短名映射。多渠道路由下客户端只用池内两个公共 id，**不带渠道前缀**
+对外名 = 上游 slug（如 `deepseek-v4.1-flash`），不做短名映射。多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道
 （`workbuddy/<模型>` 形态一律 400）。历史短名 `deepseek-flash` 仍能解析（老配置不断），
 但不出现在 `/v1/models` 里。目录来自渠道根 `models.json`（可用 `WB_MODELS_FILE` 覆盖），
 缺失时用内置兜底、不阻塞启动。

@@ -61,7 +61,7 @@ CodeArts 的 APIG 网关对**过期 token** 回 `HTTP 400 + {"error_code":"APIG.
 ## 接入
 
 **接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:8787/v1`（仓库级网关）、
-API key 任意非空、模型 `deepseek-v4.1-flash` / `glm-5.3-flash`（不带渠道前缀）。
+API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `codearts/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
 ## 参考实现（reference/）
 

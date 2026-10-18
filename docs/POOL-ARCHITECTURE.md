@@ -103,7 +103,8 @@
 { "version": 1, "channels": {
    "codearts": { "used": 17, "size": 100, "remain": 83, "unit": "credits",
                  "billing_at": "2026-10-08T…", "billing_ok": true,
-                 "ok": 12, "fail": 0, "cooldown_until": 0 } } }
+                 "ok": 12, "fail": 0, "cooldown_until": 0,
+                 "accounts": { "<account-key>": { "ok": 10, "fail": 1 } } } } }
 ```
 
 - 账单**一天刷两三次**（TTL 8 小时）：网关启动时、以及 TTL 到期后的下一次请求，
@@ -343,8 +344,8 @@ hasChannel(cid?: string): boolean;
  **当前进程的入口**（`process.argv[1]`），任何入口（单渠道 bin / 仓库级 bin）都自洽。
 - **服务身份**：单渠道 = `cid`；多渠道路由 = `modelmux`。守护进程探测时接受
  「本进程认得的全部身份」，所以单渠道的 `status` 也认得多渠道路由的网关。
-- **`model list` / `model usage` 子命令**：池视图（两个模型各自会落到哪家、账本用量与
- 冷却/暂不可用）与池账本；渠道视角并入 `models <cid>`。
+- **`model list` / `model usage` 子命令**：池视图（对外模型 `<cid>/<模型>`、各渠道账本
+ 用量与冷却/暂不可用）与池账本；渠道视角并入 `models <cid>`。
 - **仓库级 CLI 已可用**：`packages/cli`（bin `modelmux` / `mx`）。
 - **插件层已整体移除（2026-10-13）**：`plugins/` 与 `marketplace.json` 删除，项目更名
  `modelmux`，定位 = 纯 npx/npm -g 可装的 CLI；集成方式就是「任何 OpenAI 兼容客户端

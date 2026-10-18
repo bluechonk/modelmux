@@ -26,7 +26,7 @@
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：公共模型池（`<cid>/<模型>` 池 id + 账本健康度，§2）+ 账号池 |
 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退，学 CCR 骨架） |
-| [UI-WEB-PROGRESS.md](./UI-WEB-PROGRESS.md) | **UI Web 进度**：mx web React 管理看板当前实施与遗留问题 |
+| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 双页深色看板（仪表盘 + 账号池）的架构、构建与 API 面貌 |
 
 ## 2. 渠道文档 `packages/core/channels/<cid>/docs/`
 
@@ -69,10 +69,9 @@
 ## 4. 其它客户端怎么接（Hermes / 任意 OpenAI 客户端）
 
 网关是一个**普通 HTTP 端点**，不依赖 ZCode：任何能配 OpenAI 兼容 base url 的客户端直接指向
-`http://127.0.0.1:4412/v1` 就能用，模型 id 是全部渠道目录的归一化并集（`/v1/models` 实时汇总）——
-请求落到哪家渠道由网关按账单已用量自己决定，
-客户端不关心、也不能指定（旧的 `<cid>/<模型>` 形态已移除，见
-[POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2）。
+`http://127.0.0.1:4412/v1` 就能用。模型 id 是 **`<cid>/<模型>` 池 id 形态**（如 `loomy/kimi-k2.6`，
+`/v1/models` 实时汇总全部渠道目录）—— 渠道由请求方通过前缀显式指定；同名模型在不同渠道是独立 id，
+裸模型名与未知渠道一律 400（见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2）。
 
 **不需要**为任何客户端做适配层：网关就是标准 OpenAI 兼容端点，任何客户端把 base url
 指到 `http://127.0.0.1:4412/v1` 即可（凭据与账号池都由网关统一管理）。
