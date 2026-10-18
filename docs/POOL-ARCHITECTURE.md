@@ -265,8 +265,14 @@ interface CredModule {
  过得了 `paths.channelFile` 的校验）。uid 为空的渠道退化为按 token 派生（那类渠道重登会得到新
  key，属已知限制）。
 - `label` / `expires_at` 是**尽力而为的展示字段**（取不到就空 / `null`），不参与任何判据。
-- `health`：`ok` | `unauthorized` | `unknown`。由**网关**在刷新失败时写 `unauthorized`、
- 请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
+- `health`：`ok` | `unauthorized` | `unknown` | `error`。由**网关**在刷新失败时写
+ `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
+- **`error` = 连续失败标记（2026-10-18）**：生效账号连续请求失败达
+ `FAIL_STREAK_LIMIT = 3` 次 → `health` 标 `error`，路由与 `pickAccount` 都跳过它，
+ `callUpstream` 入口直接短路不再发上游请求；**凭据一律保留**。只有「凭据/网络/
+ 上游 5xx」计入连败 —— 模型目录问题、请求体协议错（如 catpaw 的 tool 消息序列）、
+ 上游 4xx 业务错是请求级问题，不计入（否则健康账号会被误标，实测踩过）。
+ 成功一次清零连败；手动切号同时清零连败并恢复 `error`。
 - **共享层不解析渠道磁盘格式**：只做「复制文件 + 记下 `cred.load()` 的契约字段 uid/domain」，
  所以全部渠道**零改动**就支持账号池。
 - **同步按身份，不按时间**：`credentials.json` 变新时先比 `accountKey` —— 同一账号 → 回灌池内

@@ -261,7 +261,12 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
     /* 忽略 */
   }
   account.last_used_at = nowIso();
-  account.fail_streak = 0; // 手动切号 = 给这份凭据第二次机会
+  // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error 标记一并恢复
+  account.fail_streak = 0;
+  if (account.health === "error") {
+    account.health = "ok";
+    account.health_at = nowIso();
+  }
   writeIndex({ version: 1, active: key, accounts: index.accounts }, cid);
   return account;
 }

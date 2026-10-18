@@ -657,7 +657,7 @@ export async function handleChat(
     } catch (err) {
       opts.logger(`model name unresolved (channel ${cid}): ${String(err)}`);
       noteFailure(cid, activeKeyOf(cid));
-      noteAccountFailure(cid);
+      // 模型目录问题与凭据无关，不计入账号连败
       lastError = {
         status: 400,
         code: "unknown_model",
@@ -691,11 +691,13 @@ export async function handleChat(
       } catch (err) {
         opts.logger(`upstream prepare failed (channel ${cid}): ${String(err)}`);
         noteFailure(cid, activeKeyOf(cid));
-        noteAccountFailure(cid);
+        // 请求体协议错是客户端问题（如 catpaw 的 tool 消息序列），不计凭据连败
         lastError = {
           status: 502,
           code: "upstream_error",
-          message: "upstream prepare request failed; see gateway logs",
+          // 渠道层的 prepare 错误文案本身不含敏感信息（如上游对请求体回 413），
+          // 透出真实原因比「see gateway logs」更利于客户端自行调整（上下文过大等）
+          message: `upstream prepare request failed: ${String(err)}`,
         };
         continue;
       }
@@ -783,7 +785,9 @@ export async function handleChat(
         );
       }
       noteFailure(cid, activeKeyOf(cid));
-      noteAccountFailure(cid);
+      // 仅「上游不可用/网络」计账号连败；4xx 业务错（模型/参数/内容）属请求级，
+      // 计进去会把健康账号误标 error（catpaw 的 tool 消息序列实测踩过）
+      if (call.status <= 0 || call.status >= 500) noteAccountFailure(cid);
       lastError = { status: 502, code: "upstream_error", message: "upstream request failed; see gateway logs" };
       continue;
     }
