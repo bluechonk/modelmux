@@ -427,6 +427,12 @@ async function relayStream(
       }
     }
   } finally {
+    // 客户端断开或上游异常时也要触发翻译器收尾（渠道可在 finish 里回报会话完成）
+    try {
+      translator.finish();
+    } catch {
+      /* 收尾失败不影响响应 */
+    }
     await reader.cancel().catch(() => {});
     if (!res.writableEnded) res.end();
   }
@@ -457,6 +463,12 @@ async function collectAsOpenAiSse(
     }
     for (const frame of translator.finish()) out.push(asBuffer(frame));
   } finally {
+    // 读取中断（异常/取消）时补一次收尾，触发渠道的会话完成回报
+    try {
+      translator.finish();
+    } catch {
+      /* 收尾失败不影响已聚合内容 */
+    }
     await reader.cancel().catch(() => {});
   }
   return Buffer.concat(out);

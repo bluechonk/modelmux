@@ -486,6 +486,43 @@ describe("newTranslator", () => {
     assert.match(text, /upstream blew up/);
     assert.equal(t.isDone?.(), true);
   });
+
+  it("收尾后回报 conversation completed（否则上游会话卡在执行中）", async () => {
+    await saveFakeCredential("tok-ack-0123456789abcdef");
+    let captured: { url: string; body: string } | null = null;
+    const realFetch = globalThis.fetch;
+    const prevBase = process.env["CATPAW_BASE_URL"];
+    process.env["CATPAW_BASE_URL"] = "http://127.0.0.1:9";
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      captured = { url: String(input), body: String(init?.body ?? "") };
+      return new Response(JSON.stringify({ code: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const t = upstream.newTranslator();
+      t.feed(
+        Buffer.from(
+          'data: {"conversationId":"conv-test-1","message":{"content":[{"type":"text","text":"hi"}],"finished":true}}\n\n',
+          "utf8",
+        ),
+      );
+      // ack 是 fire-and-forget，等一个宏任务
+      await new Promise((r) => setTimeout(r, 20));
+      assert.ok(captured, "应向上游回报 completed");
+      assert.match(captured!.url, /\/api\/agent\/conversation\/event$/);
+      assert.deepEqual(JSON.parse(captured!.body), {
+        conversationId: "conv-test-1",
+        eventType: "conversation",
+        data: { status: "completed" },
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+      if (prevBase === undefined) delete process.env["CATPAW_BASE_URL"];
+      else process.env["CATPAW_BASE_URL"] = prevBase;
+    }
+  });
 });
 
 // ── 6. 模型目录 ──────────────────────────────────────────────────────────────
