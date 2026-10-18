@@ -93,6 +93,7 @@ curl -s "https://api.github.com/repos/bluechonk/modelmux/commits/<sha>/check-run
 ```bash
 npm run build                  # 全仓编译（含 ui + bundle + copy-ui）
 npm test                       # build + 校验器 + 全部包测试，必须全绿
+npm run verify:pages           # 【仅当动了 packages/ui/ 或 pages 相关】本地复现 Pages 构建并校验产物
 node packages/cli/dist/cli.js restart   # 改了 gateway/cli/ui 必须重启
 node packages/cli/dist/cli.js status    # 必须不含「网关在跑旧代码」
 # 真机验证：mx models <cid> / mx billing <cid> / 一次真实 chat
@@ -101,6 +102,10 @@ git branch -a                  # 本地/远端只剩 main
 ls .tmp                        # 清理临时文件；截图与诊断产物不留仓库
 ```
 
+- **workflow 改动一律本地先跑通再推**：`.github/workflows/*.yml` 的失败模式通常只有
+  真跑产物才发现（如 Pages 的 base 前缀不对 → 整页空白）。本地用 WSL 复现（本机无
+  docker CLI 与 act，且 `pre-push` 本就是 WSL 形态）：`npm run verify:pages`。
+  `.githooks/pre-push` 已按文件范围自动接入该检查。
 - 涉及登录/凭据/上游的改动：必须 `mx login <cid>` → `mx status <cid>` → 真实对话。
 - 双实例（如 4413 调试实例）：重启后确认 `health=200`，日志写独立文件
   （如 `gateway-4413.log`），不要混写主 `gateway.log`。

@@ -93,3 +93,30 @@ Pages 是纯静态托管，没有后端；而控制台每个页面都要 `fetch(
 
 演示站是客户端路由（`/modelmux/` 与 `/modelmux/accounts`）。Pages 直接访问深链接会找
 同名文件而 404 —— 工作流因此额外生成 `404.html`（内容同 `index.html`）交给 React Router。
+
+### 本地先跑（推送前必须）
+
+`pages.yml` 的失败模式（base 前缀不对 → 整页空白；缺 `404.html` → 深链接 404）只有看到
+真实产物才暴露，推到云上再改成本高。所以本地先复现：
+
+```bash
+npm run verify:pages            # 完整复现：clone → npm ci → DEMO 构建 → 校验
+bash scripts/verify-pages.sh --serve   # 额外起静态服务，浏览器打开核对
+```
+
+用 **WSL 而不是 Docker**：本机有 WSL（Ubuntu）、没有 docker CLI，且 `pre-push` 门禁本就是
+「clone 到 WSL ext4 跑真 Linux 命令」的形态，沿用同一套不引入新依赖。
+
+两个文件的职责分工：
+
+| 文件 | 作用 |
+| --- | --- |
+| `scripts/verify-pages-artifact.mjs` | **纯校验**产物：必需文件、资源前缀、资源存在性、演示数据是否打入、与 workflow 的漂移 |
+| `scripts/verify-pages.sh` | **编排**：在 WSL 里复现 workflow 的 build 阶段，然后调上面的校验器 |
+
+校验器用 Node 而非 bash 写 —— bash 版的中文输出经 Git Bash ↔ WSL 管道会被判成二进制，
+实测看不全结果。
+
+`.githooks/pre-push` 已接入：动了 `packages/ui/` 或 pages 相关文件时，复用门禁里已
+clone + `npm ci` 的目录补跑一次 DEMO 构建与校验，不重复装依赖。`verify:pages` **不进
+`npm test`** —— 它含 `npm ci` + 全量构建，比现有校验器重得多，且只在 Pages 相关改动时才有意义。
