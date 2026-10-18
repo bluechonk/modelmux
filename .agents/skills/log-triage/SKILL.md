@@ -1,6 +1,6 @@
 ---
 name: log-triage
-description: modelmux 的日志排查与故障分诊流程。只要用户问“为什么这么慢 / 为什么失败 / 超时 / 卡住 / 网关挂了 / 日志在哪 / 怎么排查 / 看下日志”，或提到 request id、慢请求、502/503、stale build、upstream_timeout、tool loop 卡住、日志文件，就立即使用本技能。先看分层日志和耗时字段，不要先翻旧的 gateway.log。
+description: modelmux 的日志排查与故障分诊流程。只要用户问“为什么这么慢 / 为什么失败 / 超时 / 卡住 / 网关挂了 / 日志在哪 / 怎么排查 / 看下日志”，或提到 request id、慢请求、502/503、stale build、upstream_timeout、tool loop 卡住、日志文件，就立即使用本技能。日志只在 ~/.modelmux/logs/ 分层目录；旧版 gateway.log 已于 2026-10-18 全部删除，不要去找它。
 ---
 
 # modelmux 日志分诊
@@ -98,8 +98,12 @@ mx status --json   # stale_build 必须为 false
 
 ## 6. 陷阱
 
-- 旧版 `<root>/gateway.log` 可能 13MB 以上，是历史文件；优先看 `logs/`，不要一上来 grep 全文件。
+- 旧版根级/渠道级 `gateway.log` 与 `gateway-4413.log` **已于 2026-10-18 全部删除**；
+  日志只在 `~/.modelmux/logs/`，不要再去仓库或 `~/.modelmux/*/gateway.log` 找。
 - `mx logs` 默认是 system 日志；查请求必须加 `--kind access`。
+- 成功的 `/health` 与 `/v1/models` 不写 `success.log`；看到它们只可能是旧进程或失败/慢请求。
+- `logs/channels/<cid>/` 只在单渠道运行、或消息自带 `[cid]` 前缀时才有文件；仓库级运行主要看
+  `access` 与 `system`。
 - 日志不记录 token / Cookie / Authorization；不要把请求头原文贴进报告。
 - 有活跃流时不要随意 `mx restart`，会切断客户端请求；先确认网关是否真的挂了。
 - 不要用 `--no-verify` 绕过推送门禁；CI 红先修。

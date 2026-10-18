@@ -92,11 +92,12 @@ mx logs --kind access --outcome failure -f   # 持续跟随
 
 `logs` 不带 `--date` 时优先当天；当天没有则回落到最新有该文件的一天。
 
-## 5. 旧版 `gateway.log`
+## 5. 旧版 `gateway.log`（已删除）
 
 历史版本把所有内容写进 `<root>/gateway.log`（或渠道层的 `gateway.log`）。
-新版本**不再写这个文件**，但保留原文件供排查旧问题；`mx logs` 在找不到新日志时
-仍会回落到它。确认无历史问题后可手动删除。
+2026-10-18 起旧版根级 / 渠道级 `gateway.log` 与调试实例的 `gateway-4413.log`
+**已全部删除**，新日志只在 `~/.modelmux/logs/`。
+`mx logs` 代码里仍保留兼容回落分支，但当前没有任何旧文件可回落。
 
 ## 6. 安全约束
 

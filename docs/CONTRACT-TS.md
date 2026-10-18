@@ -18,19 +18,17 @@
 modelmux/                     ← 仓库根 = 工作区根
 ├── packages/core/gateway/             ← **共享包** `@modelmux/gateway`
 │   └── src/
-│       ├── channel.ts            ← 渠道注册表（共享层与渠道层的**唯一边界**）
-│       ├── gateway.ts            ← HTTP 网关：/v1/chat/completions、/v1/models、/health
-│       ├── daemon.ts             ← start/stop/restart/status/models/credits/logs
-│       ├── headless.ts           ← serve / login 的无窗口运行
-│       ├── auth-flow.ts          ← 登录与凭证生命周期（与界面解耦）
-│       ├── cli.ts                ← 命令行入口与参数解析
-│       ├── cli-consts.ts         ← version / defaultAddr / defaultUiPort（取自注册的渠道）
-│       ├── console.ts            ← 控制台 API（/web/api/state 等）
-│       ├── paths.ts              ← 本地文件路径（凭证/配置/日志/PID）
-│       ├── portfree.ts           ← 端口占用检测与释放、地址工具
-│       ├── sse-stream.ts         ← SSE 规范化、聚合、中继
-│       ├── model-family.ts       ← 模型池白名单（见 §4）
-│       └── index.ts              ← 对外的统一出口
+│       ├── runtime/   渠道 SDK：channel / channel-context / paths / permissions /
+│       │              account-pool / secret-file / catalog-cache / cli-consts /
+│       │              logger（日志节流）/ log-store（分层落盘）
+│       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
+│       │              model-pool（渠道内解析）/ model-family（历史白名单，池路径不再调用）
+│       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
+│       ├── http/      网关与转发：gateway / chat-relay / sse-stream / console /
+│       │              web-command-handler / portfree
+│       ├── app/       进程编排：cli / daemon / headless / supervisor / process-utils /
+│       │              stale-build / web / report / account-cli
+│       └── index.ts   对外的统一出口
 ├── packages/core/channels/                     ← 渠道（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
 │   └── <cid>/                    ← 结构见下
 ├── packages/cli/                 ← **CLI 入口**（bin `modelmux` / `mx`）
@@ -173,49 +171,12 @@ interface Channel {
 >  请求名按**第一个 `/`** 切出渠道段，模型段走归一化路径（剥厂商路径段）——
 > 渠道归属已由前缀声明，模型段再剥不会串渠道。
 
-### 4.2 白名单：`(deepseek|glm) && flash`（`model-family.ts`）
+### 4.2 家族白名单（历史，已移除）
 
->  **历史模块**：池路径已不再调用它（现为全模型池，见 §4.1 与
->  [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2）；导出保留，供未来需要
->  网关级过滤策略时复用。以下为当时的判据设计，留作参考。
-
-**目录（数据层）与池子（呈现层）是两件事**：
-
-- **目录**：各渠道的 `catalog.ts` 维护的完整模型表（兜底表 + `models.json` + 远端目录）。
-- **池子**：`/v1/models` 与选择器实际暴露的 id —— 由共享层白名单过滤 `exposedIds()` 得到。
-
-白名单是**网关级策略**，放在共享层，一次改动覆盖全部渠道。
-判据是**两道闸门同时成立**：家族 + 型号。
-
-```ts
-export const FAMILY_ALLOWLIST: RegExp[] = [/\bdeepseek/i, /\bglm/i];  // 家族（并集）
-export const REQUIRED_ALLOWLIST: RegExp[] = [/\bflash/i];             // 型号（必须全中）
-```
-
-- **只放行 `(deepseek | glm)` 的 flash 模型**。因此：
- - 同家族的非 flash（`deepseek-v4-pro`、`glm-5.2`）**挡下**；
- - **别家的 flash 也挡下**（`qwen3.8-flash`、`gemini-3.8-flash`、`mimo-v2.6-flash`）。
-- **两条判据都用前置词边界** `\b`：
- - 上游写法里家族名/型号名前面总是 `-` / `/` / `~` / 串首，都有词边界 —— `\b` 覆盖
-   全部真实变体（`deepseek-v4.1-flash`、`sn-glm-5-3-flash`、`z-ai/glm-5.3-flashx`、
-   `~deepseek/deepseek-flash-latest`、`DeepSeek-V4-Flash-Official`）；
- - 而裸子串会误命中 `alglmx-flash`、`glimmer-flash`、`flashlight` 这类名字 ——
-   误放行 = 把别家模型塞进用户的选择器。
- - `REQUIRED_ALLOWLIST` **只加前置边界**（`\bflash`）：同系变体靠后缀识别
-   （`glm-5.3-flashx` 的 FlashX、`glm-flash-latest` 的跟随最新），加后置 `\b` 会全丢。
-- 判据同时看 **id 与展示名**（`isAllowedFamily(id, name, slug)`）：某些渠道的家族信息
- 只在展示名里（如 Qoder 的 `dfmodel`）。
-- **过滤只发生在呈现层**：被挡在池外的模型**仍保留在目录里**（`catalog.details()` 可见），
- 数据不丢。各渠道的 `resolveModel()` 对这些 id 仍能正常解析。
-- 想放行全部模型：把 `FAMILY_ALLOWLIST` 置为 `[]`。
-- 想放宽型号要求：把 `REQUIRED_ALLOWLIST` 置为 `[]`（不再强制 flash）。
-- 临时排查：设 `MODELMUX_ALLOW_ALL_MODELS=1` 绕过白名单（不改代码）。
-
->  策略收窄有**渠道级后果**：没有 deepseek/glm 产品的渠道池子会恒空。
->  若未来再删渠道，记得同步登记表与 `docs/README.md`。
-
->  各渠道 **不要**在自己的 `catalog.ts` 里再实现一遍家族过滤。`exposedIds()`
-> 只需调用共享的 `isAllowedFamily()`，被判据覆盖的完整条目仍从 `details()` 给出。
+`pool/model-family.ts` 仍保留导出（`FAMILY_ALLOWLIST` / `isAllowedFamily` /
+`MODELMUX_ALLOW_ALL_MODELS`），但**池路径不再调用它**：当前策略是「渠道目录里有什么就
+暴露什么」（全模型池）。保留模块只为了未来需要网关级过滤时有现成实现；改池行为请改
+`pool/pool-targets.ts`，不要复活白名单。
 
 ---
 
@@ -281,7 +242,8 @@ export const REQUIRED_ALLOWLIST: RegExp[] = [/\bflash/i];             // 型号�
 
 **兜底表是必需的**：未登录或上游目录失败时用户仍应看到模型（否则渠道在选择器里
 凭空消失，用户以为插件坏了）。
-调用共享的 `isAllowedFamily()` 做池过滤，**不要自行实现家族判据**（见 §4）。
+`catalog.exposedIds()` 只需给出该渠道**真实可用**的归一化 id；共享层不做家族过滤
+（全模型池，见 §4.2）。
 但**不要列出实测用不了的模型** —— 用户选中后拿到空回答，而错误指向「模型」
 而非真实原因，比不列更糟（ZCode 的 `GLM-5-Turbo` 就是这种情况，已从目录移除）。
 
@@ -386,7 +348,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
   `await import("../dist/channel.js")`（触发注册），最后引渠道模块
 4. **覆盖**：
   - `paths`：存储根覆盖（`MODELMUX_HOME`）、`<cid>` 分层
-  - `catalog`：别名映射、未知名透传、**白名单过滤只作用于呈现层**（`details()` 仍全量）
+  - `catalog`：别名映射、未知名透传、目录缓存与 `refresh()` 行为（共享层不做家族过滤）
   - `cred`：未登录抛错、落盘读回、损坏容忍
   - `upstream`：URL 组装、鉴权头、请求体改写的关键字段（对照 `packages/core/channels/<cid>/docs/PROTOCOL.md`）
   - **`newTranslator(request?)`（`WIRE === "custom"` 时）**：事件映射、`finish()` 补帧；
@@ -474,6 +436,10 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
  `status` / `logs` 则**可选** cid（不给 = 仓库级聚合，给 = 该渠道）——两条语义靠**是否带 operand** 区分。
 - **不采用 `mx <cid> <动词>`**：渠道名与动词共享位置 1 会二义（某渠道一旦叫 `models`，
  `mx models` 就分不清是「列渠道模型」还是「仓库级模型列表」），且与主流 CLI 心智相悖。
+- **生命周期与日志参数**：`mx start` 默认健康等待 30s（`--wait` 或 `MODELMUX_START_WAIT_MS`
+ 可调）；`mx logs` 支持 `--kind access|error|system|lifecycle|worker|channel`、
+ `--outcome success|failure|other`、`--date <YYYY-MM-DD>`、`--list`、`-f`（见
+ [`LOGGING.md`](./LOGGING.md)）。
 
 实现落点：`packages/core/gateway/src/app/cli.ts` 的分发（动词表在前、cid 作 operand）、
 `command-groups.ts` 的 `CHANNEL_VERBS`（动词 → 说明表）与 `runVerb`（动词 + 可选 cid）。
@@ -485,7 +451,6 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 - [ ] `src/` 只有 7 个文件；无共享模块副本残留
 - [ ] `package.json` 的 `dependencies` 只含 `@modelmux/gateway`
 - [ ] `channel.ts` 用 `setChannel()` 注册了 `ChannelConfig` + 4 个模块
-- [ ] `catalog.ts` 调用共享 `isAllowedFamily()`，未自行实现家族判据
 - [ ] 登录是真实 URL 链路，未读取其它应用的本地文件
 - [ ] `npm install && npm run build` 无错误（`tsc -b`，严格模式；各包 `extends` 根 `tsconfig.base.json`）
 - [ ] `node --test tests/selftest.test.ts` 全绿
