@@ -252,6 +252,7 @@ async function relayStream(
   channel: Channel,
   cid?: string,
   resumeTranslator?: StreamTranslator,
+  request?: Record<string, unknown>,
 ): Promise<void> {
   if (!isCustomWire(channel)) {
     await sseStream.relay(res, upstreamBody, contentType, cid);
@@ -261,7 +262,7 @@ async function relayStream(
   const { upstream } = channel;
   // ⚠ 排队探测可能已用同一实例读了一段：必须接着用同一个。换新实例会把
   //   旧实例缓冲里的**半行**丢掉，残行收尾时整帧解析失败被丢弃（实测：tool_call 参数损坏）。
-  const translator = resumeTranslator ?? upstream.newTranslator();
+  const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
   try {
     for (;;) {
@@ -300,12 +301,13 @@ async function collectAsOpenAiSse(
   channel: Channel,
   cid?: string,
   resumeTranslator?: StreamTranslator,
+  request?: Record<string, unknown>,
 ): Promise<Buffer> {
   if (!isCustomWire(channel)) return sseStream.readAll(upstreamBody, cid);
 
   const { upstream } = channel;
   // ⚠ 与 relayStream 同理：探测用过的实例必须接着用，半行缓冲不能丢。
-  const translator = resumeTranslator ?? upstream.newTranslator();
+  const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
   const out: Buffer[] = [];
   try {
@@ -373,10 +375,12 @@ async function consumeQueueProbe(
   upstreamBody: ReadableStream<Uint8Array>,
   channel: Channel,
   cid?: string,
-  translator: StreamTranslator = channel.upstream.newTranslator(),
+  translator?: StreamTranslator,
+  request?: Record<string, unknown>,
 ): Promise<QueueProbe> {
+  const activeTranslator = translator ?? channel.upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
-  const probe: QueueProbe = { queued: false, frames: [], hasContent: false, translator };
+  const probe: QueueProbe = { queued: false, frames: [], hasContent: false, translator: activeTranslator };
   /** 已决定停止探测：同块剩余帧只收不判（丢了就是流中缺段）。 */
   let stopped = false;
   const take = (frame: Buffer | string): void => {
@@ -421,10 +425,10 @@ async function consumeQueueProbe(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      for (const frame of translator.feed(Buffer.from(value))) take(frame);
+      for (const frame of activeTranslator.feed(Buffer.from(value))) take(frame);
       if (stopped) return probe;
     }
-    for (const frame of translator.finish()) take(frame);
+    for (const frame of activeTranslator.finish()) take(frame);
   } finally {
     // ⚠ 必须 releaseLock（不是 cancel）：流可能还没读完就提前返回（发现内容/普通错误），
     // 此时 cancel 会抛「ReadableStream is locked」；releaseLock 后调用方才能安全地
@@ -738,8 +742,8 @@ export async function handleChat(
       const startedAt = Date.now();
       for (;;) {
         // 每次探测用新翻译器（换流后旧缓冲作废）；成功那次的实例要传给转发层
-        const translator = channel.upstream.newTranslator();
-        const probe = await inChannel(channel, () => consumeQueueProbe(call.body!, channel, cid, translator));
+        const translator = channel.upstream.newTranslator(payload);
+        const probe = await inChannel(channel, () => consumeQueueProbe(call.body!, channel, cid, translator, payload));
         if (!probe.queued || probe.hasContent) {
           // 探测消费掉的帧一个都不能丢：按原序交回转发
           pendingFrames.push(...probe.frames);
@@ -796,7 +800,7 @@ export async function handleChat(
     noteSuccess(cid, activeKeyOf(cid));
     noteAccountSuccess(cid);
     markActiveHealth("ok", cid);
-    await relayUpstream(res, channel, cid, call, wantStream, opts.logger, pendingFrames, queuedOut, probeTranslator);
+    await relayUpstream(res, channel, cid, call, wantStream, opts.logger, pendingFrames, queuedOut, probeTranslator, payload);
     return;
   }
 
@@ -816,6 +820,7 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
   if (!choice) return true;
   if (choice.message.content) return false;
   if (choice.message.reasoning_content) return false;
+  if (choice.message.tool_calls && choice.message.tool_calls.length > 0) return false;
   const total = (completion.usage as { total_tokens?: unknown }).total_tokens;
   return !(typeof total === "number" && total > 0);
 }
@@ -837,6 +842,7 @@ async function relayUpstream(
   pendingFrames: Buffer[] = [],
   queuedOut = false,
   probeTranslator?: StreamTranslator,
+  request?: Record<string, unknown>,
 ): Promise<void> {
   const streamBody = call.body;
   if (!streamBody) {
@@ -854,7 +860,7 @@ async function relayUpstream(
       // 错误帧）与流剩余部分拼起来聚合。
       const buf = Buffer.concat([
         ...pendingFrames,
-        await inChannel(channel, () => collectAsOpenAiSse(streamBody, channel, cid, probeTranslator)),
+        await inChannel(channel, () => collectAsOpenAiSse(streamBody, channel, cid, probeTranslator, request)),
       ]);
       // 排队耗尽且零内容：给客户端一个明确的错误，而不是空 completion
       if (queuedOut && buf.length === 0) {
@@ -901,7 +907,7 @@ async function relayUpstream(
     return;
   }
   await inChannel(channel, () =>
-    relayStream(res, streamBody, call.headers.get("content-type") ?? "", logger, channel, cid, probeTranslator),
+    relayStream(res, streamBody, call.headers.get("content-type") ?? "", logger, channel, cid, probeTranslator, request),
   );
 }
 

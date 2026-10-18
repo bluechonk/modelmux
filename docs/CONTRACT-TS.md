@@ -389,7 +389,8 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
   - `catalog`：别名映射、未知名透传、**白名单过滤只作用于呈现层**（`details()` 仍全量）
   - `cred`：未登录抛错、落盘读回、损坏容忍
   - `upstream`：URL 组装、鉴权头、请求体改写的关键字段（对照 `packages/core/channels/<cid>/docs/PROTOCOL.md`）
-  - **`newTranslator()`（`WIRE === "custom"` 时）**：事件映射、`finish()` 补帧，
+  - **`newTranslator(request?)`（`WIRE === "custom"` 时）**：事件映射、`finish()` 补帧；
+    可选入参是客户端原始请求（渠道可读取 `tools` / `tool_choice` 做调用名归一化），
     且**必须测逐字节喂入**（切帧 bug 的高发区）
   - **端到端网关**：假上游 + 真实网关，断言流式与非流式都能出正文，
     并核对上游**真实收到**的头与体

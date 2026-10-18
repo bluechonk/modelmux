@@ -63,9 +63,20 @@ function captureEnabled(cid?: string): boolean {
   return debugDumpDir(cid) !== null;
 }
 
+export interface AggregatedToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
 export interface AggregatedChoice {
   index: number;
-  message: { role: string; content: string; reasoning_content?: string };
+  message: {
+    role: string;
+    content: string | null;
+    reasoning_content?: string;
+    tool_calls?: AggregatedToolCall[];
+  };
   finish_reason: string;
 }
 
@@ -82,6 +93,8 @@ export interface AggregatedCompletion {
 export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
   const contentParts: string[] = [];
   const reasoningParts: string[] = [];
+  // 流式 tool_calls 按 index 累积：同一调用的参数可能分多帧到达
+  const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
   let finish = "";
   let id = "";
   let model = "";
@@ -116,6 +129,27 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
           if (typeof d["content"] === "string" && d["content"]) contentParts.push(d["content"]);
           const r = d["reasoning_content"] ?? d["reasoning"];
           if (typeof r === "string" && r) reasoningParts.push(r);
+          const rawCalls = d["tool_calls"];
+          if (Array.isArray(rawCalls)) {
+            for (const raw of rawCalls) {
+              if (!raw || typeof raw !== "object") continue;
+              const tc = raw as Record<string, unknown>;
+              const index = typeof tc["index"] === "number" && Number.isFinite(tc["index"])
+                ? (tc["index"] as number)
+                : toolCalls.size;
+              let acc = toolCalls.get(index);
+              if (!acc) {
+                acc = { id: "", name: "", arguments: "" };
+                toolCalls.set(index, acc);
+              }
+              if (typeof tc["id"] === "string" && tc["id"]) acc.id = tc["id"];
+              const fn = tc["function"] && typeof tc["function"] === "object"
+                ? (tc["function"] as Record<string, unknown>)
+                : {};
+              if (typeof fn["name"] === "string" && fn["name"]) acc.name = fn["name"];
+              if (typeof fn["arguments"] === "string") acc.arguments += fn["arguments"];
+            }
+          }
         }
         if (typeof c["finish_reason"] === "string" && c["finish_reason"]) {
           finish = c["finish_reason"];
@@ -124,18 +158,35 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
     }
   }
 
+  const calls = [...toolCalls.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, call]) => call)
+    .filter((call) => call.name);
+
   const message: AggregatedChoice["message"] = {
     role: "assistant",
-    content: contentParts.join(""),
+    // 纯工具调用消息按 OpenAI 规范 content 为 null（不是空字符串）
+    content: contentParts.length > 0 ? contentParts.join("") : calls.length > 0 ? null : "",
   };
   if (reasoningParts.length > 0) message.reasoning_content = reasoningParts.join("");
+  if (calls.length > 0) {
+    message.tool_calls = calls.map((call) => ({
+      id: call.id,
+      type: "function",
+      function: { name: call.name, arguments: call.arguments || "{}" },
+    }));
+  }
 
   return {
     id: id || "chatcmpl-gateway",
     object: "chat.completion",
     created,
     model,
-    choices: [{ index: 0, message, finish_reason: finish || "stop" }],
+    choices: [{
+      index: 0,
+      message,
+      finish_reason: finish || (calls.length > 0 ? "tool_calls" : "stop"),
+    }],
     usage:
       usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   };

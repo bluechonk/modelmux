@@ -11,9 +11,21 @@
  * 关键实测事实：
  *   - 直接调 turn（不先 round）一律 500 空响应
  *   - round.messages 用 `type` 标角色，必须带 messageId，最后一条必须是 user
+ *   - `systemPromptContext.systemPromptOverride` 有 65508 硬上限；`toolConfigs`
+ *     完全不被识别 —— 工具必须走「提示词注入 + 输出解析」（见下文折叠方案）
  *   - permissionMode 用 `default`：上游只生成文本（工具调用以 tool_use 分块出现在文本里）
  *   - SSE 帧是累积式（每帧给全文），要按「当前串是否以已发送串为前缀」做 suffix-diff
  *   - 没有结束标志：turn 以 TCP 关闭结束
+ *
+ * ## 消息折叠（对齐参考实现）
+ *
+ * HITZY2002 / icebears111 两家参考实现都不使用结构化消息字段，而是把
+ * system / developer / 历史 / 工具说明折叠成**一条 user 文本**：
+ *
+ *   [系统指令] … [对话历史] … [当前消息] … <工具说明块>
+ *
+ * 这样同时绕开 systemPromptContext 的 65508 上限与上游对消息序列的硬校验
+ * （assistant 后必须是 user）。本模块按同一方案实现（`renderFullPrompt`）。
  *
  * ## 铁律
  *
@@ -50,12 +62,9 @@ const CATPAW_SOURCE = "CatX";
 const TOOL_VERSION = "2.0.2";
 const PERMISSION_MODE = "default";
 
-/** 超时。 */
+/** turn 超时。 */
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 30_000;
-
-/** systemPromptOverride 硬上限（JS JSON.stringify(text).length 口径）。 */
-export const SYSTEM_PROMPT_MAX_LEN = 65508;
 
 /** 未登录 / 上游 401。 */
 export class UpstreamUnauthorized extends Error {
@@ -182,12 +191,41 @@ export function buildHeaders(
 
 // ── 请求体构造 ───────────────────────────────────────────────────────────────
 
-/** 上游消息（round.messages 与 turn.message 共用）。 */
+/** 上游消息：折叠后只剩一条 user 文本（round.messages 与 turn.message 共用）。 */
 interface UpstreamMessage {
-  type: string; // "user" | "assistant"
-  role: string;
+  type: "user";
+  role: "user";
   messageId: string;
-  content: Array<{ type: string; text?: string; tool_call_id?: string; name?: string; arguments?: string }>;
+  content: Array<{ type: "text"; text: string }>;
+}
+
+/** OpenAI 消息的归一化形态（只保留折叠 prompt 需要的字段）。 */
+interface OpenAiMessage {
+  role: string;
+  text: string;
+  toolCalls: Array<{ id: string; name: string; arguments: string }>;
+  toolCallId: string;
+  name: string;
+}
+
+/** 客户端工具定义（归一化后的 OpenAI function 形状）。 */
+interface ToolSpec {
+  name: string;
+  description: string;
+  parameters: unknown;
+}
+
+/** tool_choice 归一化结果。 */
+interface ToolChoice {
+  mode: "auto" | "none" | "required" | "function";
+  name?: string;
+}
+
+/** prompt 字节预算：参考实现实测 >1MB 触发 413，取 900KB 留出信封余量。 */
+const MAX_PROMPT_BYTES = 900 * 1024;
+
+function byteLength(text: string): number {
+  return Buffer.byteLength(text, "utf8");
 }
 
 /** OpenAI 消息的文本化（tool 结果/多段 content 统一成纯文本）。 */
@@ -206,157 +244,149 @@ function textOfContent(content: unknown): string {
   return bits.join("\n");
 }
 
-/**
- * 从 OpenAI messages 构造上游 round.messages。
- *
- * ## 兼容层（2026-10-18）
- *
- * 上游对消息序列的硬校验：「assistant 消息后面必须是 user」—— 客户端（ZCode 等）
- * 的 OpenAI tool 循环会发 `assistant(tool_calls) → role:tool → …` 序列，直传会被
- * 上游 400 拒绝（`CatPawProtocolError: assistant 消息不带 toolCall，后面必须是 user
- * 消息，实际是: tool`）。这里做归一化：
- *
- * 1. `role: tool` → **user** 消息，内容带 `[tool result <tool_call_id>]` 前缀；
- * 2. `assistant.tool_calls` → 折叠成 assistant 文本（`[tool calls] name(args)`），
- *    避免上游对 assistant 结构挑剔；
- * 3. 相邻同角色消息合并（user/assistant），保证序列交替；
- * 4. 最后一条必须是 user（上游硬要求）。
- */
-function toUpstreamMessages(messages: Array<Record<string, unknown>>): UpstreamMessage[] {
-  const out: UpstreamMessage[] = [];
-
-  const pushText = (role: "user" | "assistant", text: string): void => {
-    if (!text.trim()) return;
-    const last = out[out.length - 1];
-    if (last && last.role === role) {
-      // 相邻同角色合并（上游期望 user/assistant 交替）
-      last.content.push({ type: "text", text });
-      return;
+/** tool_calls 的 arguments 统一成 JSON 字符串（兼容字符串/对象两种线格式）。 */
+function rawJsonString(raw: unknown): string {
+  if (typeof raw === "string") {
+    try {
+      return JSON.stringify(JSON.parse(raw));
+    } catch {
+      return raw; // 非 JSON 原样保留；下发前还会再校验
     }
-    out.push({ type: role, role, messageId: randomUUID(), content: [{ type: "text", text }] });
+  }
+  if (raw === undefined || raw === null) return "{}";
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return "{}";
+  }
+}
+
+/** OpenAI messages → 折叠用消息。 */
+function parseMessages(messages: Array<Record<string, unknown>>): OpenAiMessage[] {
+  return messages.map((msg) => {
+    const role = typeof msg["role"] === "string" ? msg["role"].toLowerCase().trim() : "";
+    const calls: OpenAiMessage["toolCalls"] = [];
+    const rawCalls = Array.isArray(msg["tool_calls"]) ? (msg["tool_calls"] as unknown[]) : [];
+    for (const call of rawCalls) {
+      if (!call || typeof call !== "object") continue;
+      const c = call as Record<string, unknown>;
+      const fn = c["function"] && typeof c["function"] === "object"
+        ? (c["function"] as Record<string, unknown>)
+        : {};
+      const name = typeof fn["name"] === "string" ? fn["name"] : "";
+      if (!name) continue;
+      calls.push({
+        id: typeof c["id"] === "string" ? c["id"] : "",
+        name,
+        arguments: rawJsonString(fn["arguments"]),
+      });
+    }
+    return {
+      role,
+      text: textOfContent(msg["content"]),
+      toolCalls: calls,
+      toolCallId: typeof msg["tool_call_id"] === "string" ? msg["tool_call_id"] : "",
+      name: typeof msg["name"] === "string" ? msg["name"] : "",
+    };
+  });
+}
+
+/**
+ * 单条消息转录文本（对齐参考实现 `formatMessage`）。
+ *
+ * 工具调用/结果都转成带标记的纯文本，后续轮次模型能看懂。
+ */
+function formatMessage(msg: OpenAiMessage): string {
+  switch (msg.role) {
+    case "user":
+      return msg.text;
+    case "system":
+    case "developer":
+      return msg.text.trim() ? `[系统指令]\n${msg.text}` : "";
+    case "assistant": {
+      const lines: string[] = ["[助手]"];
+      if (msg.text.trim()) lines.push(msg.text);
+      for (const call of msg.toolCalls) {
+        lines.push(`[助手调用工具 ${call.name} 参数 ${call.arguments}]`);
+      }
+      return lines.length === 1 ? "" : lines.join("\n");
+    }
+    case "tool": {
+      const name = msg.name || msg.toolCallId || "unknown";
+      return `[工具 ${name} 返回结果]\n${msg.text}`;
+    }
+    default:
+      return msg.text ? `[${msg.role}]\n${msg.text}` : "";
+  }
+}
+
+/**
+ * 全量折叠 prompt（对齐参考实现 `renderFullPrompt`）。
+ *
+ * 结构：`[系统指令]` → `[对话历史]` → `[当前消息]` → 工具说明块。
+ * 超预算时先丢最早的历史（保留最后 8 条），仍超限则头尾保留、中间省略。
+ */
+function renderFullPrompt(messages: OpenAiMessage[], toolsBlock: string): string {
+  const system: string[] = [];
+  const dialogue: string[] = [];
+  for (const msg of messages) {
+    if (msg.role === "system" || msg.role === "developer") {
+      if (msg.text.trim()) system.push(msg.text);
+      continue;
+    }
+    const text = formatMessage(msg);
+    if (text) dialogue.push(text);
+  }
+
+  const compose = (keep: number): string => {
+    const parts: string[] = [];
+    if (system.length > 0) parts.push(`[系统指令]\n${system.join("\n\n")}`);
+    const kept = keep >= dialogue.length ? dialogue : dialogue.slice(dialogue.length - keep);
+    if (dialogue.length > 1) {
+      if (kept.length > 1) {
+        const omitted = kept.length < dialogue.length ? "（较早部分已因超长省略）" : "";
+        parts.push(`[对话历史${omitted}]\n${kept.slice(0, -1).join("\n\n")}`);
+      }
+      parts.push(`[当前消息]\n${dialogue[dialogue.length - 1]}`);
+    } else if (dialogue.length === 1) {
+      parts.push(dialogue[0]!);
+    }
+    parts.push(toolsBlock);
+    return parts.filter((p) => p).join("\n\n");
   };
 
-  for (const msg of messages) {
-    const role = typeof msg["role"] === "string" ? msg["role"] : "";
-    if (role === "system") continue; // system 走 systemPromptContext
+  let prompt = compose(dialogue.length);
+  if (byteLength(prompt) <= MAX_PROMPT_BYTES) return prompt;
 
-    if (role === "tool") {
-      // tool 结果一律以 user 身份带回（上游序列要求 assistant 后必须是 user）
-      const callId = typeof msg["tool_call_id"] === "string" ? msg["tool_call_id"] : "";
-      const body = textOfContent(msg["content"]);
-      pushText("user", `[tool result${callId ? ` ${callId}` : ""}]\n${body}`);
-      continue;
-    }
-
-    if (role === "assistant") {
-      const text = textOfContent(msg["content"]);
-      const calls = Array.isArray(msg["tool_calls"]) ? (msg["tool_calls"] as unknown[]) : [];
-      const callLines: string[] = [];
-      for (const call of calls) {
-        if (!call || typeof call !== "object") continue;
-        const c = call as Record<string, unknown>;
-        const fn = c["function"] && typeof c["function"] === "object"
-          ? (c["function"] as Record<string, unknown>)
-          : {};
-        const name = typeof fn["name"] === "string" ? fn["name"] : "tool";
-        const args = typeof fn["arguments"] === "string" ? fn["arguments"] : JSON.stringify(fn["arguments"] ?? {});
-        callLines.push(`[tool call] ${name}(${args})`);
-      }
-      pushText("assistant", [text, ...callLines].filter(Boolean).join("\n"));
-      continue;
-    }
-
-    if (role === "user") {
-      pushText("user", textOfContent(msg["content"]));
-      continue;
-    }
+  let keep = Math.max(1, dialogue.length);
+  while (keep > 8 && byteLength(prompt) > MAX_PROMPT_BYTES) {
+    keep = Math.max(8, keep - 4);
+    prompt = compose(keep);
   }
-
-  // 确保最后一条是 user（上游硬要求）
-  if (out.length === 0 || out[out.length - 1]!.type !== "user") {
-    throw new Error('upstream requires the last message to have role "user"');
+  if (byteLength(prompt) > MAX_PROMPT_BYTES) {
+    prompt = truncateMiddleBytes(prompt, MAX_PROMPT_BYTES);
   }
-  return out;
+  return prompt;
 }
 
-/**
- * round 请求体的**字节预算**：上游对 round 的请求体有体积上限（实测超限回
- * HTTP 413，长任务/长 tool 循环必踩）。这里按序列化字节裁剪历史：
- * 保留**首条 user**（任务上下文锚点）与**最新若干条**，中段折叠成一条占位消息。
- */
-const ROUND_BODY_BUDGET_BYTES = 512 * 1024;
-
-/** 单条消息占位（裁剪提示，保持 user/assistant 交替语义）。 */
-const OMITTED_NOTE = "[earlier messages omitted because the request exceeded the upstream size limit]";
-
-function bodySize(messages: UpstreamMessage[]): number {
-  return Buffer.byteLength(JSON.stringify(messages), "utf8");
+/** 头尾保留、中间省略（按 UTF-8 字节切，避免切裂多字节字符）。 */
+function truncateMiddleBytes(text: string, maxBytes: number): string {
+  if (maxBytes < 256 || byteLength(text) <= maxBytes) return text;
+  const marker = "\n\n[……中间部分因超长省略……]\n\n";
+  const half = Math.floor((maxBytes - byteLength(marker)) / 2);
+  const buf = Buffer.from(text, "utf8");
+  let headEnd = Math.min(half, buf.length);
+  while (headEnd > 0 && (buf[headEnd]! & 0xc0) === 0x80) headEnd -= 1;
+  let tailStart = Math.max(0, buf.length - half);
+  while (tailStart < buf.length && (buf[tailStart]! & 0xc0) === 0x80) tailStart += 1;
+  return buf.subarray(0, headEnd).toString("utf8") + marker + buf.subarray(tailStart).toString("utf8");
 }
 
-/**
- * 按字节预算裁剪 round 消息：从**中间**开始丢，保留首尾；丢弃段折叠成一条
- * assistant 文本占位。裁剪后仍保证「最后一条是 user」（上游硬要求）。
- *
- * 若单条消息就超预算（比如一个巨型 tool 结果），从尾部往回保留能放下的部分
- * 并给出明确错误由调用方抛 —— 先在函数内直接抛带尺寸的错误，便于排查。
- */
-function trimToBudget(messages: UpstreamMessage[]): UpstreamMessage[] {
-  if (bodySize(messages) <= ROUND_BODY_BUDGET_BYTES) return messages;
-  if (messages.length <= 2) {
-    throw new Error(
-      `round request body is ${bodySize(messages)} bytes, exceeding the upstream limit ` +
-        `(~${ROUND_BODY_BUDGET_BYTES} bytes) even without history; reduce the message size`,
-    );
-  }
-
-  const head = messages[0]!;
-  const tail = messages.slice(1);
-  // 从最新往回收，直到放得下（至少留最后一条）
-  let keepFrom = tail.length - 1;
-  while (keepFrom > 0) {
-    const candidate = [head, { note: true }, ...tail.slice(keepFrom)];
-    // 占位消息本身很小，先按原始块估算
-    if (bodySize(candidate as UpstreamMessage[]) <= ROUND_BODY_BUDGET_BYTES) break;
-    keepFrom -= 1;
-  }
-  const omitted = keepFrom;
-  const keptTail = tail.slice(keepFrom);
-  const placeholderRole: "user" | "assistant" = keptTail[0]?.role === "assistant" ? "user" : "assistant";
-  const trimmed: UpstreamMessage[] = [
-    head,
-    {
-      type: placeholderRole,
-      role: placeholderRole,
-      messageId: randomUUID(),
-      content: [{ type: "text", text: `${OMITTED_NOTE} (${omitted} messages)` }],
-    },
-    ...keptTail,
-  ];
-  const size = bodySize(trimmed);
-  if (size > ROUND_BODY_BUDGET_BYTES) {
-    throw new Error(
-      `round request body is ${size} bytes after trimming, exceeding the upstream limit ` +
-        `(~${ROUND_BODY_BUDGET_BYTES} bytes); the latest message itself is too large`,
-    );
-  }
-  return trimmed;
-}
-
-/** 取 system 消息（可能不存在）。 */
-function extractSystem(messages: Array<Record<string, unknown>>): string {
-  for (const msg of messages) {
-    if (msg["role"] === "system" && typeof msg["content"] === "string") {
-      return msg["content"];
-    }
-  }
-  return "";
-}
-
-/** 取工具声明（OpenAI 形状 → 上游 toolConfigs）。 */
-function extractTools(payload: Record<string, unknown>): Array<Record<string, unknown>> {
+/** 取客户端工具声明（OpenAI 形状 → 归一化 function）。 */
+function extractTools(payload: Record<string, unknown>): ToolSpec[] {
   const tools = payload["tools"];
   if (!Array.isArray(tools)) return [];
-  const out: Array<Record<string, unknown>> = [];
+  const out: ToolSpec[] = [];
   for (const tool of tools) {
     if (!tool || typeof tool !== "object") continue;
     const t = tool as Record<string, unknown>;
@@ -368,10 +398,55 @@ function extractTools(payload: Record<string, unknown>): Array<Record<string, un
     out.push({
       name,
       description: typeof fn["description"] === "string" ? fn["description"] : "",
-      inputSchema: fn["parameters"] ?? {},
+      parameters: fn["parameters"] ?? { type: "object", properties: {} },
     });
   }
   return out;
+}
+
+/** tool_choice 归一化（字符串或 {"type":"function","function":{"name"}}）。 */
+function parseToolChoice(payload: Record<string, unknown>): ToolChoice {
+  const raw = payload["tool_choice"];
+  if (typeof raw === "string") {
+    const mode = raw.toLowerCase();
+    if (mode === "none") return { mode: "none" };
+    if (mode === "required") return { mode: "required" };
+    return { mode: "auto" };
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    const fn = obj["function"] && typeof obj["function"] === "object"
+      ? (obj["function"] as Record<string, unknown>)
+      : {};
+    const name = typeof fn["name"] === "string" ? fn["name"] : "";
+    if (name) return { mode: "function", name };
+  }
+  return { mode: "auto" };
+}
+
+function toolsActive(tools: ToolSpec[], choice: ToolChoice): boolean {
+  return tools.length > 0 && choice.mode !== "none";
+}
+
+/** 工具说明块（对齐参考实现 `buildToolsPrompt`）。 */
+function buildToolsPrompt(tools: ToolSpec[], choice: ToolChoice): string {
+  const lines: string[] = [];
+  lines.push("# 工具调用（重要）");
+  lines.push("本轮**只能**使用下面列出的工具。平台内置工具（CallMcpTool、bash、read_file、write、string_replace、web_fetch 等）一律不要调用，即使它们出现在你的可用函数里。");
+  lines.push("需要调用时，在回复中输出一个 ```tool_call 代码块，格式严格如下：");
+  lines.push("```tool_call");
+  lines.push('{"name":"<工具名>","arguments":{<参数JSON>}}');
+  lines.push("```");
+  lines.push("可输出多个 tool_call 块调用多个工具；代码块之外不要复述工具调用内容。");
+  lines.push("不需要调用工具时正常回复文本，绝对不要输出 tool_call 代码块。");
+  if (choice.mode === "required") lines.push("本轮【必须】至少调用一个工具，禁止直接文本回答。");
+  if (choice.mode === "function" && choice.name) lines.push(`本轮【必须】调用工具 "${choice.name}"。`);
+  lines.push("工具列表：");
+  tools.forEach((spec, i) => {
+    lines.push(`${i + 1}. ${spec.name}${spec.description ? ` — ${spec.description}` : ""}`);
+    lines.push(`   parameters: ${JSON.stringify(spec.parameters)}`);
+  });
+  return lines.join("\n");
 }
 
 /** 取 reasoning effort。 */
@@ -387,34 +462,37 @@ function extractEffort(payload: Record<string, unknown>): string {
 /**
  * 把 OpenAI ChatCompletion 请求改写成 catpaw conversation turn body。
  *
- * ⚠ 上游是**三段式协议**（round → event → turn），而共享 gateway 层只 POST 一次
- * 到 `chatUrl()`（turn URL）。所以这里**同步 fire-and-forget** 先发 round + event，
- * 返回 turn body 供 `openStream` POST 到 turn URL。
+ * 消息按参考实现折叠成**一条 user 文本**（见文件头「消息折叠」）；工具说明
+ * 作为 prompt 尾块注入，上游不认识 OpenAI 的 `tools` / `toolConfigs`。
  *
- * ⚠ round/event 失败不阻塞 turn 请求（失败时上游会回 HTTP 500，由 `openStream` 归为上游错误）。
+ * ⚠ 上游是**三段式协议**（round → event → turn），而共享 gateway 层只 POST 一次
+ * 到 `chatUrl()`（turn URL）。round + event 由 `prepareChat` 钩子按序 await。
  */
 export function buildChatBody(
   req: Record<string, unknown>,
   upstreamModel: string,
 ): Record<string, unknown> {
-  const messages = req["messages"] as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(messages) || messages.length === 0) {
+  const rawMessages = req["messages"];
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
     throw new Error("messages is required and must not be empty");
   }
+  const messages = rawMessages.filter(
+    (m): m is Record<string, unknown> => Boolean(m) && typeof m === "object" && !Array.isArray(m),
+  );
 
   const modelType = catalog.modelTypeOf(upstreamModel);
-  const system = extractSystem(messages);
-  const systemLen = JSON.stringify(system).length - 2; // JSON.stringify(text).length
-  if (systemLen > SYSTEM_PROMPT_MAX_LEN) {
-    throw new Error(
-      `system prompt is ${systemLen} chars after escaping, exceeding the upstream limit ${SYSTEM_PROMPT_MAX_LEN}`,
-    );
-  }
-
-  const upstreamMessages = trimToBudget(toUpstreamMessages(messages));
-  const last = upstreamMessages[upstreamMessages.length - 1]!;
-
   const tools = extractTools(req);
+  const choice = parseToolChoice(req);
+  const toolsBlock = toolsActive(tools, choice) ? buildToolsPrompt(tools, choice) : "";
+  const prompt = renderFullPrompt(parseMessages(messages), toolsBlock);
+
+  const message: UpstreamMessage = {
+    type: "user",
+    role: "user",
+    messageId: randomUUID(),
+    content: [{ type: "text", text: prompt }],
+  };
+
   const effort = extractEffort(req);
   // 上下文档位走 declarativeParams.context（body 字段）：目录带真实档位就用它，
   // 否则按上游默认档位 1M 请求（reference: 204800 / 512000 / 1024000，默认 1M）
@@ -429,35 +507,28 @@ export function buildChatBody(
   const roundBody: Record<string, unknown> = {
     conversationId,
     source: CATPAW_SOURCE,
-    messages: upstreamMessages,
+    messages: [message],
     modelType,
     mode: CATPAW_MODE,
     toolVersion: TOOL_VERSION,
     requestContext,
   };
-  if (system) roundBody["systemPromptContext"] = { systemPromptOverride: system };
 
   const turnBody: Record<string, unknown> = {
     conversationId,
     turnRequestId: randomUUID(),
     source: CATPAW_SOURCE,
     action: "turn",
-    message: last,
+    message,
     modelType,
     mode: CATPAW_MODE,
     permissionMode: PERMISSION_MODE,
     toolVersion: TOOL_VERSION,
     requestContext,
   };
-  if (system) turnBody["systemPromptContext"] = { systemPromptOverride: system };
-  if (tools.length > 0) {
-    turnBody["toolConfigs"] = tools;
-    turnBody["availableTools"] = tools.map((t) => t["name"]);
-  }
 
   // 前置 round + event 由网关通过 `prepareChat` 钩子 await（见下方该函数）。
-  // 这里只把 roundBody 挂上，不发起请求 —— `buildChatBody` 是同步契约，
-  // 且 fire-and-forget 会与 turn 竞争（实测导致「会话未在执行中」）。
+  // 这里只把 roundBody 挂上，不发起请求 —— 且 fire-and-forget 会与 turn 竞争。
   turnBody["__conversationId"] = conversationId;
   turnBody["__roundBody"] = JSON.stringify(roundBody);
   return turnBody;
@@ -516,11 +587,10 @@ function loadCredential(): CredentialShape {
 
 // ── SSE 翻译器 ───────────────────────────────────────────────────────────────
 
-/** 累积 → 增量差分状态机。 */
+/** 累积 → 增量差分状态机（只处理文本与思考；工具调用按完整块收尾下发）。 */
 class SuffixDiff {
   private prevText = "";
   private prevReasoning = "";
-  private prevToolArgs = new Map<string, string>();
 
   textDelta(current: string): string {
     if (current.startsWith(this.prevText)) {
@@ -540,13 +610,6 @@ class SuffixDiff {
     }
     this.prevReasoning = current;
     return current;
-  }
-
-  toolArgsDelta(toolId: string, current: string): string {
-    const prev = this.prevToolArgs.get(toolId);
-    this.prevToolArgs.set(toolId, current);
-    if (prev === undefined) return current;
-    return current.startsWith(prev) ? current.slice(prev.length) : current;
   }
 }
 
@@ -612,17 +675,26 @@ function parseSseLine(
   return rec;
 }
 
-/** 事件类型。 */
+/** 上游原生 tool_use 块（结构化调用优先于正文 fence）。 */
+interface ToolUseBlock {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+/** 事件类型（工具调用不走事件流，单独收集到结尾统一下发）。 */
 type RawEvent =
   | { type: "delta"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "tool_use"; toolId: string; toolName: string; toolArguments: string }
   | { type: "usage"; promptTokens: number; completionTokens: number; totalTokens: number }
-  | { type: "done"; finishReason: string }
   | { type: "error"; message: string; code: number };
 
 /** 把一帧（已解信封）翻成零或多个事件。 */
-function decodeFrame(diff: SuffixDiff, frame: Record<string, unknown>): RawEvent[] {
+function decodeFrame(
+  diff: SuffixDiff,
+  frame: Record<string, unknown>,
+  onToolUse: (block: ToolUseBlock) => void,
+): RawEvent[] {
   const events: RawEvent[] = [];
 
   // 错误帧：{conversationId, error:{code, unifyCode, message}}
@@ -656,18 +728,15 @@ function decodeFrame(diff: SuffixDiff, frame: Record<string, unknown>): RawEvent
           if (delta) events.push({ type: "reasoning", text: delta });
         }
       } else if (p["type"] === "tool_use") {
-        const toolId = typeof p["toolCallId"] === "string" && p["toolCallId"]
-          ? p["toolCallId"]
-          : randomUUID();
         const name = typeof p["toolName"] === "string" ? p["toolName"] : "";
+        if (!name) continue;
         const params = typeof p["toolParams"] === "string"
           ? p["toolParams"]
           : JSON.stringify(p["toolParams"] ?? {});
-        events.push({
-          type: "tool_use",
-          toolId,
-          toolName: name,
-          toolArguments: diff.toolArgsDelta(toolId, params),
+        onToolUse({
+          id: typeof p["toolCallId"] === "string" ? p["toolCallId"] : "",
+          name,
+          arguments: params,
         });
       }
     }
@@ -708,40 +777,23 @@ function decodeFrame(diff: SuffixDiff, frame: Record<string, unknown>): RawEvent
   return events;
 }
 
+/** 单条 delta 帧。 */
+function deltaFrame(delta: Record<string, unknown>): Buffer {
+  return frame({ choices: [{ index: 0, delta, finish_reason: null }] });
+}
+
+/** 结束帧。 */
+function finishFrame(reason: string): Buffer {
+  return frame({ choices: [{ index: 0, delta: {}, finish_reason: reason }] });
+}
+
 /** 事件 → OpenAI SSE 帧。 */
-function eventToSseFrame(event: RawEvent): Buffer | string {
+function eventToSseFrame(event: RawEvent): Buffer {
   switch (event.type) {
     case "delta":
-      return frame({
-        choices: [{
-          index: 0,
-          delta: { content: event.text },
-          finish_reason: null,
-        }],
-      });
+      return deltaFrame({ content: event.text });
     case "reasoning":
-      return frame({
-        choices: [{
-          index: 0,
-          delta: { reasoning_content: event.text },
-          finish_reason: null,
-        }],
-      });
-    case "tool_use":
-      return frame({
-        choices: [{
-          index: 0,
-          delta: {
-            tool_calls: [{
-              index: 0,
-              id: event.toolId,
-              type: "function",
-              function: { name: event.toolName, arguments: event.toolArguments },
-            }],
-          },
-          finish_reason: null,
-        }],
-      });
+      return deltaFrame({ reasoning_content: event.text });
     case "usage":
       // ⚠ OpenAI 的 SSE chunk 里 `choices` 恒为数组；usage-only 帧也必须带空的
       // `choices: []` —— 缺了这个字段，严格校验的客户端（ZCode 等）会整块拒收
@@ -754,14 +806,8 @@ function eventToSseFrame(event: RawEvent): Buffer | string {
           total_tokens: event.totalTokens,
         },
       });
-    case "done":
-      return frame({
-        choices: [{ index: 0, delta: {}, finish_reason: event.finishReason }],
-      });
     case "error":
-      return frame({
-        error: { message: event.message, code: event.code },
-      });
+      return frame({ error: { message: event.message, code: event.code } });
   }
 }
 
@@ -770,41 +816,249 @@ function frame(payload: Record<string, unknown>): Buffer {
   return Buffer.from(`data: ${JSON.stringify(payload)}\n\n`, "utf8");
 }
 
+/** 工具名归一化：大小写、下划线、连字符都抹平（web_fetch ↔ WebFetch）。 */
+function normalizeToolName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, "");
+}
+
+/** 客户端工具名映射（归一化名 → 客户端规范名）。 */
+function clientToolSet(request?: Record<string, unknown>): { active: boolean; known: Map<string, string> } {
+  const known = new Map<string, string>();
+  const tools = request && Array.isArray(request["tools"]) ? (request["tools"] as unknown[]) : [];
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object") continue;
+    const t = tool as Record<string, unknown>;
+    const fn = t["function"] && typeof t["function"] === "object"
+      ? (t["function"] as Record<string, unknown>)
+      : t;
+    const name = typeof fn["name"] === "string" ? fn["name"] : "";
+    if (name) known.set(normalizeToolName(name), name);
+  }
+  const choice = request ? parseToolChoice(request) : { mode: "auto" as const };
+  return { active: known.size > 0 && choice.mode !== "none", known };
+}
+
+/** 解析 fence 里的调用块：单个 {"name","arguments"} 或 {"tool_calls":[…]}。 */
+function parseFenceCalls(body: string): ToolUseBlock[] | null {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  const items: unknown[] = [];
+  if (Array.isArray(parsed)) items.push(...parsed);
+  else if (parsed && typeof parsed === "object") {
+    const rec = parsed as Record<string, unknown>;
+    if (Array.isArray(rec["tool_calls"])) items.push(...rec["tool_calls"]);
+    else items.push(parsed);
+  } else return null;
+
+  const calls: ToolUseBlock[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const name = typeof rec["name"] === "string" ? rec["name"] : "";
+    if (!name) continue;
+    calls.push({ id: "", name, arguments: rawJsonString(rec["arguments"]) });
+  }
+  return calls.length > 0 ? calls : null;
+}
+
+/**
+ * 正文 fence 过滤器：边流边发普通文本，只把 ```tool_call 块拦下来。
+ *
+ * 跨 chunk 的 fence 前缀必须暂存（否则标记被拆开时会把半个 fence 发给客户端）；
+ * 解析失败的块原样放回正文，不吞模型输出。
+ */
+class ToolCallFilter {
+  private static readonly OPEN = "```tool_call";
+  private buf = "";
+  readonly calls: ToolUseBlock[] = [];
+
+  feed(text: string): string {
+    this.buf += text;
+    return this.drain(false);
+  }
+
+  flush(): string {
+    return this.drain(true);
+  }
+
+  private drain(final: boolean): string {
+    let out = "";
+    for (;;) {
+      const idx = this.buf.indexOf("```");
+      if (idx < 0) {
+        const hold = final ? 0 : this.holdLength();
+        if (hold > 0) {
+          out += this.buf.slice(0, this.buf.length - hold);
+          this.buf = this.buf.slice(-hold);
+        } else {
+          out += this.buf;
+          this.buf = "";
+        }
+        return out;
+      }
+      if (idx > 0) {
+        out += this.buf.slice(0, idx);
+        this.buf = this.buf.slice(idx);
+      }
+      // 可能是 opening fence 的前缀：等下一块
+      if (this.buf.length < ToolCallFilter.OPEN.length && ToolCallFilter.OPEN.startsWith(this.buf)) {
+        if (final) {
+          out += this.buf;
+          this.buf = "";
+        }
+        return out;
+      }
+      if (!this.buf.startsWith(ToolCallFilter.OPEN)) {
+        // 普通 markdown 代码块：原样放行
+        out += "```";
+        this.buf = this.buf.slice(3);
+        continue;
+      }
+      const close = this.buf.indexOf("```", ToolCallFilter.OPEN.length);
+      if (close < 0) {
+        if (final) {
+          out += this.buf;
+          this.buf = "";
+        }
+        return out;
+      }
+      const body = this.buf.slice(ToolCallFilter.OPEN.length, close);
+      const parsed = parseFenceCalls(body);
+      if (parsed) {
+        this.calls.push(...parsed);
+      } else {
+        out += this.buf.slice(0, close + 3);
+      }
+      this.buf = this.buf.slice(close + 3);
+    }
+  }
+
+  /** 末尾可能是 ``` 前缀的字节数（保持流式，同时不漏标记）。 */
+  private holdLength(): number {
+    const max = Math.min(2, this.buf.length);
+    for (let n = max; n > 0; n -= 1) {
+      if (this.buf.endsWith("```".slice(0, n))) return n;
+    }
+    return 0;
+  }
+}
+
+/** 校验并归一化工具参数；非法 JSON 丢弃（下发必导致客户端解析失败）。 */
+function normalizeToolArguments(raw: string): string | null {
+  if (!raw.trim()) return "{}";
+  try {
+    return JSON.stringify(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 选出最终下发的工具调用：
+ * - 原生 tool_use 块优先（结构化、参数完整）；
+ * - 没有原生块时才用正文 fence（参考实现同序）；
+ * - 名字按客户端工具表归一化，匹配不上的丢弃（否则客户端报 Tool not found）。
+ */
+function pickToolCalls(
+  nativeCalls: ToolUseBlock[],
+  fenceCalls: ToolUseBlock[],
+  known: Map<string, string>,
+): ToolUseBlock[] {
+  const source = nativeCalls.length > 0 ? nativeCalls : fenceCalls;
+  const out: ToolUseBlock[] = [];
+  const used = new Set<string>();
+  for (const call of source) {
+    const canonical = known.get(normalizeToolName(call.name));
+    if (!canonical) continue;
+    const args = normalizeToolArguments(call.arguments);
+    if (args === null) continue;
+    let id = call.id;
+    if (!id || used.has(id)) id = `call_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+    while (used.has(id)) id = `call_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+    used.add(id);
+    out.push({ id, name: canonical, arguments: args });
+  }
+  return out;
+}
+
 /**
  * CatPaw StreamTranslator：把上游累积帧 → OpenAI delta 流。
- * 必须增量（逐 chunk 喂入），finish() 补 finish_reason 帧与 [DONE]。
+ *
+ * 工具调用按参考实现的口径**在流末尾一次性下发**（每个调用带独立 index、
+ * finish_reason=tool_calls）—— 逐帧发 index=0 的 delta 会让并行调用互相覆盖。
  */
-export function newTranslator(): StreamTranslator {
+export function newTranslator(request?: Record<string, unknown>): StreamTranslator {
   const diff = new SuffixDiff();
   const reader = new SseLineReader();
   const pendingEvents: RawEvent[] = [];
+  const fence = new ToolCallFilter();
+  const nativeCalls = new Map<string, ToolUseBlock>();
+  const tools = clientToolSet(request);
   let doneSent = false;
 
   return {
     feed(chunk: Buffer): Array<Buffer | string> {
-      const out: Array<Buffer | string> = [];
+      const out: Buffer[] = [];
       for (const frame of reader.push(chunk)) {
         if ("__error" in frame) {
           const err = (frame as { __error: CatPawProtocolError }).__error;
           pendingEvents.push({ type: "error", message: err.message, code: err.code });
           continue;
         }
-        const events = decodeFrame(diff, frame as Record<string, unknown>);
+        const events = decodeFrame(diff, frame as Record<string, unknown>, (block) => {
+          // 同一 id 的累积帧覆盖旧值；无 id 时按工具名去重（参数是累积全文）
+          const key = block.id || block.name;
+          nativeCalls.set(key, block);
+        });
         for (const ev of events) pendingEvents.push(ev);
       }
-      // 消费 pending 事件并按序转发
       while (pendingEvents.length > 0) {
-        out.push(eventToSseFrame(pendingEvents.shift()!));
+        const ev = pendingEvents.shift()!;
+        if (ev.type === "delta") {
+          const text = fence.feed(ev.text);
+          if (text) out.push(deltaFrame({ content: text }));
+          continue;
+        }
+        out.push(eventToSseFrame(ev));
       }
       return out;
     },
     finish(): Array<Buffer | string> {
       if (doneSent) return [];
       doneSent = true;
-      return [
-        eventToSseFrame({ type: "done", finishReason: "stop" }),
-        Buffer.from("data: [DONE]\n\n", "utf8"),
-      ];
+      const out: Buffer[] = [];
+      const tail = fence.flush();
+      if (tail) out.push(deltaFrame({ content: tail }));
+      const calls = tools.active
+        ? pickToolCalls([...nativeCalls.values()], fence.calls, tools.known)
+        : [];
+      if (calls.length > 0) {
+        out.push(frame({
+          choices: [{
+            index: 0,
+            delta: {
+              tool_calls: calls.map((call, index) => ({
+                index,
+                id: call.id,
+                type: "function",
+                function: { name: call.name, arguments: call.arguments },
+              })),
+            },
+            finish_reason: null,
+          }],
+        }));
+        out.push(finishFrame("tool_calls"));
+      } else {
+        out.push(finishFrame("stop"));
+      }
+      out.push(Buffer.from("data: [DONE]\n\n", "utf8"));
+      return out;
     },
   };
 }

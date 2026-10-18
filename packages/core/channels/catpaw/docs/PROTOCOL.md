@@ -52,6 +52,7 @@
   → `/turn`（SSE 直出）；只调 turn 会 500。SSE 帧是**累积式**的，turn 以 TCP 关闭结束。
 - `systemPromptContext.systemPromptOverride` 有 **65508 字符**硬上限（JSON 转义后长度口径），
   超限回 `HTTP 200` + `success:false`；round 还拒收连续 `assistant` 消息。
+  **本仓库实现不使用该字段**：system / 历史 / 工具说明全部折叠进一条 user prompt（见下）。
 
 ## 积分中心：额度查询与申领（`[参考]`+本机验证）
 
@@ -70,21 +71,34 @@
 - 上游没有「每日签到」端点；`mx checkin catpaw` 的领取对应注册奖励（幂等）。
 - 早期「网关不暴露额度端点」的结论**有误**，已在 `src/billing.ts` 修正。
 
-## 对话请求的两条实测限制（2026-10-18）
+## 消息折叠与工具调用（2026-10-18，对齐参考实现）
 
-- **消息序列**：上游要求 `assistant` 消息之后必须跟 `user`，**不接受直接跟 `role: tool`**
-  （`CatPawProtocolError: assistant 消息不带 toolCall，后面必须是 user 消息`）。
-  **渠道层已做兼容（2026-10-18，`toUpstreamMessages`）**：`role: tool` 自动转成
-  user 消息（内容带 `[tool result <id>]` 前缀）、`assistant.tool_calls` 折叠成
-  assistant 文本（`[tool call] name(args)`）、相邻同角色消息合并 —— 客户端按
-  OpenAI 标准发 tool 循环即可，无需自行改写。
-- **请求体体积**：round 的请求体超过上游限制会回 `HTTP 413`。表现为
-  `upstream prepare request failed: upstream HTTP 413` —— 长上下文任务请改用
-  其他渠道（lobsterai / qodercn / codearts 等），catpaw 适合中等上下文。
-- 这两类都是**请求级**错误，不参与账号连败计数（凭据是健康的）。
-- **输出帧规范**：usage-only 的 SSE chunk 必须带空的 `choices: []`（OpenAI 规范里
-  `choices` 恒为数组）；缺字段会被严格校验的客户端整块拒收（ZCode 实测
-  `Type validation failed ... choices expected array`）。2026-10-18 已修复。
+> 参考：`reference/HITZY2002_catpaw2api/internal/server/tools.go`、
+> `reference/icebears111_catpaw2api/internal/server/prompt.go` / `handler.go`。
+> 两家都不使用 `systemPromptContext` / `toolConfigs`，而是把一切折叠成一条 user prompt。
+
+- **折叠**：`buildChatBody` 把全部 `system` / `developer`（含数组 content）、
+  对话历史、工具说明折叠成一条 user 文本，结构为
+  `[系统指令] → [对话历史] → [当前消息] → 工具说明块`；`round.messages` 只有这一条。
+  因此不再受 `systemPromptOverride` 的 65508 上限，也不会触发「assistant 后必须跟 user」
+  的序列校验；客户端按 OpenAI 标准发 `assistant.tool_calls → role:tool` 循环即可。
+- **工具模拟**：上游没有客户端工具通道。请求带 `tools` 且 `tool_choice != "none"` 时，
+  渠道把工具名、描述、参数 schema 注入 prompt，要求模型用 ```tool_call 代码块表达调用；
+  同时解析上游原生 `tool_use` 块（结构化调用优先）。
+- **名字归一化**：上游调用的工具名按客户端工具表做大小写、下划线、连字符归一
+  （`web_fetch` ↔ `WebFetch`、`bash` ↔ `Bash`）；匹配不上的调用丢弃，
+  否则客户端会报 `Tool not found`。
+- **下发格式**：所有工具调用在流末尾一次性下发；每个调用带独立 `index`、
+  `finish_reason="tool_calls"`，参数必须是合法 JSON（非法则丢弃）。
+  非流式路径由网关聚合器还原 `message.tool_calls`（只调工具时 `content=null`）。
+- **实测（2026-10-18）**：`catpaw/longcat-2.0` 与 `catpaw/glm-5.3-flash` 均通过
+  单工具、并行工具、tool 结果回灌、system 数组、developer 角色、70k system 测试。
+  glm 起初会优先调用平台内置工具，提示词明确「只能用下列工具」后按 fence 返回。
+- **请求体体积**：折叠后的 prompt 预算 **900KB**（参考实现实测 >1MB 触发 413）；
+  超预算先丢最早历史（保留最后 8 条），仍超则头尾保留、中间省略。
+- 以上都是**请求级**行为，不参与账号连败计数（凭据是健康的）。
+- **输出帧规范**：usage-only 的 SSE chunk 必须带空的 `choices: []`；缺字段会被严格校验的
+  客户端整块拒收（ZCode 实测 `Type validation failed ... choices expected array`）。
 
 ## 上下文档位（`[参考]` + 本机验证）
 
@@ -96,11 +110,10 @@
   contextWindow**（值为 0）。渠道层按已知档位补全（longcat → 1024000），
   并在 `/v1/models` 输出真实 `context_window` —— 否则客户端会按默认 256k 猜，
   长任务被客户端自己截断。
-- 请求侧 `buildChatBody` 按模型目录档位发 `context`（未知则 1M）；`round` 请求体
-  另做 **512KB 字节预算裁剪**（保留首条 user + 最新消息，中段折叠占位），
-  超预算时给出明确错误而不是上游 413。
+- 请求侧 `buildChatBody` 按模型目录档位发 `context`（未知则 1M）；折叠 prompt
+  按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
 
-## 边界与伦理## 边界与伦理
+## 边界与伦理
 
 - 分析对象是**本机、本人账号**的登录态文件；仓库不包含、也不生成任何可用凭据。
 - 结论中的协议知识仅用于理解客户端行为；请不要用它做绕开授权或对外提供服务的事。

@@ -72,15 +72,15 @@ machineId ──▶ SHA-256(`${machineId}:catpaw-desk-token-v2`) ──▶ key (
 ```text
 { access_token, uid? }
    │
-   ▼ ①  POST .../api/agent/conversation/round          提交本轮全部消息（含历史）
+   ▼ ①  POST .../api/agent/conversation/round          提交本轮消息（单条 user）
       body: { conversationId, source:"CatX",
-              messages:[{type:"user"|"assistant", role, messageId, content:[{type:"text",text}]}],
+              messages:[{type:"user", role, messageId,
+                         content:[{type:"text", text:"<折叠后的完整 prompt>"}]}],
               modelType, mode:"CATX_APP", toolVersion:"2.0.2",
-              requestContext:{modelParams:{declarativeParams:{effort,context}}},
-              systemPromptContext:{systemPromptOverride} }
-      校验：末条必须是 user；连续 assistant 被拒（连续 user 允许）
-      上限：systemPromptOverride ≤ 65508 字符（JSON 转义后长度）
-      响应：HTTP 200，靠 body 的 success/code 区分成败（失败也回 200！）
+              requestContext:{modelParams:{declarativeParams:{effort,context}}} }
+      折叠：system/developer + 对话历史 + 工具说明 → 一条 user 文本
+      校验：上游要求末条是 user；本实现恒为单条 user，不触发序列校验
+      上限：不使用 systemPromptContext；prompt 预算 900KB
    │
    ▼ ②  POST .../api/agent/conversation/event          回报轮次状态 running
    │
