@@ -1,5 +1,9 @@
-# CI：与本地门禁同一条命令（npm test = build + 四校验器 + 全部测试）。
-# 推送前须先在本地 WSL 跑通同一命令（见 .githooks/pre-push 与 AGENTS.md 门禁规则）。
+# CI：与本地 WSL 门禁同一条命令（npm test = build + 全部校验器 + 全部测试）。
+#
+# ⚠ 推送前**必须**先在本地 WSL 跑通同一命令（`npm run gate`，见 AGENTS.md「本地 WSL 门禁」）。
+# 本机是 Windows + Git Bash，而这里跑在 ubuntu-latest：verify:commits 需要完整 git 历史
+# （故下方 fetch-depth: 0）、npm ci 装的是平台原生依赖、/mnt/c 有 DrvFs 符号链接问题 ——
+# Windows 侧「跑绿了」不代表这里会绿。
 name: CI
 
 on:

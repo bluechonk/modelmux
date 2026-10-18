@@ -121,7 +121,9 @@ docs/                         契约与规范（唯一的仓库级文档层）
 ```bash
 npm install                       # 装工作区依赖（含软链）
 npm run build                     # 全仓编译（tsc -b 增量 + cli 单文件 bundle）
-npm test                          # build + 三个校验器 + 全部包的测试
+npm test                          # build + 校验器 + 全部包的测试（在 Windows 侧跑）
+npm run gate                      # 【推送前必须】WSL 门禁：clone → npm ci → npm test →（Pages 改动时）产物校验
+npm run verify:pages              # 本地复现 Pages 工作流构建并校验产物（改了 packages/ui 或 workflow 时）
 npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道（也走引用链）
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
 node packages/cli/dist/cli.js model list    # 池视图：动态模型 → 候选渠道 + 账单用量 + 冷却
@@ -157,6 +159,48 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 9. `npm run build` 末尾还要跑 `scripts/copy-ui.mjs`，把 UI 产物拷到**两个**落点
    （`packages/core/gateway/dist/ui` 与 `packages/cli/dist/ui`）—— 少拷一份，全局 `mx web` 就报「UI 未构建」。
 
+## 本地 WSL 门禁
+
+**强制**。
+
+**本机是 Windows + Git Bash，CI 跑在 ubuntu-latest —— 两者有真实差异，Windows 侧「跑绿了」
+不代表 CI 会绿。** 所以任何推送前，必须在 **WSL（真 Linux / ext4）** 里跑一遍与 CI 等价的
+命令；这是独立的一步，不是「npm test 的附加选项」。
+
+```bash
+npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（Pages 改动时）产物校验
+```
+
+`.githooks/pre-push` 会自动调用同一条命令，所以 `git push` 本身就会拦。手动跑的意义是
+**提前发现**，而不是等推送时才发现。实现见 `scripts/wsl-gate.sh`（`pre-push` 只是它的薄包装，
+两者共用同一份逻辑，不分叉）。
+
+### 为什么必须在 WSL 而不是 Windows 侧
+
+| 差异 | 后果 |
+| --- | --- |
+| `verify:commits` 需要完整 git 历史（CI 用 `fetch-depth: 0`） | 浅克隆会漏，Windows 侧假绿 |
+| `npm ci` 装**平台原生依赖**（esbuild 等） | Windows 能装不代表 Linux 能装 |
+| DrvFs（`/mnt/c`）有符号链接与大小写敏感性问题 | ext4 上才与 CI 一致 |
+
+门禁因此在 WSL 里 **clone 一份到 ext4**（默认 `/tmp/modelmux-gate`）再跑，而不是直接在
+`/mnt/c` 工作树上跑。
+
+### 各阶段的强制范围
+
+| 改动范围 | 必须跑 |
+| --- | --- |
+| 任何改动 | `npm run gate`（含 `npm test`） |
+| `packages/ui/**` 或 `.github/workflows/pages.yml` | 上面的 gate 会自动追加 Pages 产物校验；也可单跑 `npm run verify:pages` |
+| `.github/workflows/**`（任意 workflow） | **必须本地先跑通再推** —— workflow 的失败模式通常只有真跑产物才暴露（如 Pages 的 base 前缀不对 → 整页空白），推到云上再改要多一轮提交 |
+
+### 禁止事项
+
+- 禁止以「改动很小」「只改了注释/文档/CI 配置」为由跳过门禁。
+- 禁止用 `--no-verify` 绕过；确需绕过必须先说明理由并获同意。
+- 禁止「先推再修」：不得以「后面会修」为由推送明知会红的提交。
+- **workflow 文件不许「改完直接推，看 CI 结果再说」** —— 这条正是本节要堵的主要漏洞。
+
 ## 提交前检查
 
 **强制**。
@@ -164,15 +208,12 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 1. `npm test` 全绿（自带 `build`，含 `verify:storage` / `verify:docs` / `verify:commits`）。
 2. **测试链读的是各包 `dist/`（不是 `src/`）**，所以编译必须在链首：`npm test` 已内置 `npm run build`；
    单独跑 `npm run verify:storage` 或 `npm test --workspace=packages/core/channels/<cid>` 前必须**先** `npm run build`。
-3. **CI 不通过禁止提交**：
-   - 提交前必须先在本地 WSL 跑通与 CI 等价的命令（`npm test`），本地全绿才允许 `git commit` / `git push`。
-   - 推送后必须确认 GitHub Actions 的 CI 为 `success`；**CI 红着时禁止继续提交新 commit**，
-     必须先把红的那次修绿。
-   - **禁止用 `--no-verify` 绕过** `.githooks/pre-push` 门禁；确需绕过必须先说明理由并获同意。
-   - 禁止「先推再修」：不得以「后面会修」为由推送明知会红的提交。
+3. **本地 WSL 门禁全绿后才允许推送**（见上节 `npm run gate`）；CI 不通过时禁止提交新 commit，
+   必须先把红的那次修绿。
 4. 文档与代码**同一个 commit** 更新。
 5. 不要提交运行时数据（`~/.modelmux/`、`dist/`、`node_modules/`）。
-6. 核对口径：`gh run list --limit 5` 中本次推送对应的 run 必须是 `completed / success`。
+6. 核对口径：推送后本次运行的 CI 必须是 `completed / success`（本机无 `gh`，用
+   `curl -H "Authorization: Bearer $GITHUB_TOKEN" .../commits/<sha>/check-runs` 查）。
 
 ## 改完代码的执行顺序
 
