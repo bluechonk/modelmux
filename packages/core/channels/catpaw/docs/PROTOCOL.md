@@ -125,6 +125,16 @@ translator 立即补 `finish_reason` 与 `[DONE]`，并让 `isDone()` 变为 tru
 网关 `relayStream` / `collectAsOpenAiSse` / `consumeQueueProbe` 读到 `isDone()` 即停止读上游、
 关闭上游连接，不再等 TCP 关闭。
 
+**轮次结束必须回报 completed**：`POST /api/agent/conversation/event`
+（`{"conversationId","eventType":"conversation","data":{"status":"completed"}}`）。
+上游会话只有收到 completed 才会归档；漏发会让会话永久停留在「执行中」，
+turn 的 SSE 也会一直持有连接直到服务端超时（实测 200s+），后续 round 还会被拒。
+参考实现 `RunTurn` 在流结束后无条件调用 `completeConversation`，本项目在
+translator 的 `finalize()` 里 fire-and-forget 回报。
+
+诊断：`CATPAW_TRACE_STREAM=1` 时，每次收尾在 worker 日志打一行
+`stream end conv=… frames=… terminal=… finished=… lastType=… lastStatus=… elapsedMs=…`（不含正文）。
+
 **实测（2026-10-18，重启后）**：
 - 简单请求 `catpaw/deepseek-v4.1-flash` 2.7s、`catpaw/longcat-2.0` 3.2s 返回；
 - 60 工具 + 9KB system + 10 轮历史的重请求：longcat 7.7s、deepseek 4.0s；

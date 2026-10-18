@@ -785,6 +785,8 @@ function decodeFrame(
     }
     onTerminal();
   }
+  // 顶层结束标记（部分帧不带 message）
+  if (frame["finished"] === true) onTerminal();
 
   // 事件帧：agent_end / turn_end / model_end / agent_error / status_update / model_chunk
   const type = typeof frame["type"] === "string" ? frame["type"] : "";
@@ -841,7 +843,11 @@ function decodeFrame(
   }
 
   const message = frame["message"];
-  if (!message || typeof message !== "object" || Array.isArray(message)) return events;
+  if (!message || typeof message !== "object" || Array.isArray(message)) {
+    // 无 message 的帧也要认顶层终止状态（实测有帧只带 status）
+    if (isTerminalStatus(statusText(frame["status"]))) onTerminal();
+    return events;
+  }
   const msg = message as Record<string, unknown>;
 
   // 文本与推理（累积帧）
@@ -1142,11 +1148,26 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
   const nativeCalls = new Map<string, ToolUseBlock>();
   const tools = clientToolSet(request);
   let doneSent = false;
+  let conversationId = "";
+  let terminalSeen = false;
+  let sawFinished = false;
+  let frames = 0;
+  let lastType = "";
+  let lastStatus = "";
+  let longRunLogged = false;
+  const startedAt = Date.now();
 
   /** 收尾：补工具调用、finish_reason 与 [DONE]；重复调用无副作用。 */
   const finalize = (): Array<Buffer | string> => {
     if (doneSent) return [];
     doneSent = true;
+    // 会话必须回报 completed，否则上游一直停在「执行中」并保持 SSE 连接
+    ackConversationCompleted(conversationId);
+    traceStream(
+      `stream end conv=${conversationId || "-"} frames=${frames} terminal=${terminalSeen} ` +
+        `finished=${sawFinished} lastType=${lastType || "-"} lastStatus=${lastStatus || "-"} ` +
+        `elapsedMs=${Date.now() - startedAt}`,
+    );
     const out: Buffer[] = [];
     const tail = fence.flush();
     if (tail) out.push(deltaFrame({ content: tail }));
@@ -1185,11 +1206,45 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
         if ("__error" in frame) {
           const err = (frame as { __error: CatPawProtocolError }).__error;
           pendingEvents.push({ type: "error", message: err.message, code: err.code });
-          continue;
+          // 解析失败说明流已不可继续读；立即收尾，别等 TCP 关闭
+          terminal = true;
+          terminalSeen = true;
+          break;
+        }
+        const record = frame as Record<string, unknown>;
+        frames += 1;
+        if (!conversationId && typeof record["conversationId"] === "string") {
+          conversationId = record["conversationId"];
+        }
+        if (typeof record["type"] === "string") lastType = record["type"];
+        const frameStatus =
+          statusText(record["statusUpdate"]) ||
+          statusText(record["currentStatus"]) ||
+          statusText(record["status"]);
+        if (frameStatus) lastStatus = frameStatus;
+        if (record["finished"] === true) sawFinished = true;
+        const message = record["message"];
+        if (message && typeof message === "object" && !Array.isArray(message)) {
+          const msg = message as Record<string, unknown>;
+          if (msg["finished"] === true) sawFinished = true;
+          const msgStatus = statusText(msg["status"]);
+          if (msgStatus) lastStatus = msgStatus;
+        }
+        if (
+          TRACE_STREAM &&
+          (record["type"] || record["statusUpdate"] || record["currentStatus"] ||
+            record["finished"] === true ||
+            (message && typeof message === "object" && !Array.isArray(message) &&
+              ((message as Record<string, unknown>)["finished"] === true)))
+        ) {
+          traceStream(
+            `frame #${frames} type=${lastType || "-"} status=${lastStatus || "-"} ` +
+              `finished=${record["finished"] === true || sawFinished} keys=${Object.keys(record).slice(0, 8).join(",")}`,
+          );
         }
         const events = decodeFrame(
           diff,
-          frame as Record<string, unknown>,
+          record,
           (block) => {
             // 同一 id 的累积帧覆盖旧值；无 id 时按工具名去重（参数是累积全文）
             const key = block.id || block.name;
@@ -1197,10 +1252,18 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
           },
           () => {
             terminal = true;
+            terminalSeen = true;
           },
         );
         for (const ev of events) pendingEvents.push(ev);
         if (terminal) break;
+      }
+      if (TRACE_STREAM && !longRunLogged && Date.now() - startedAt > 30_000) {
+        longRunLogged = true;
+        traceStream(
+          `still streaming conv=${conversationId || "-"} frames=${frames} finished=${sawFinished} ` +
+            `lastType=${lastType || "-"} lastStatus=${lastStatus || "-"} elapsedMs=${Date.now() - startedAt}`,
+        );
       }
       while (pendingEvents.length > 0) {
         const ev = pendingEvents.shift()!;
@@ -1264,7 +1327,7 @@ async function reportStatus(
 ): Promise<void> {
   try {
     await postJson(
-      `${(DEFAULT_BASE_URL).replace(/\/+$/, "")}${EVENT_PATH}`,
+      eventUrl(),
       headers,
       {
         conversationId,
@@ -1276,6 +1339,28 @@ async function reportStatus(
   } catch {
     /* 状态回报失败不影响本次结果 */
   }
+}
+
+/**
+ * 轮次收尾后回报 completed（参考实现 RunTurn 的 completeConversation）。
+ *
+ * 上游会话只有收到 completed 才会归档；漏发会让会话永久停在「执行中」，
+ * turn 的 SSE 也会一直挂着等后续（实测长请求挂 200s+ 才被服务端断开）。
+ * fire-and-forget：不阻塞客户端收尾，失败只记一行日志。
+ */
+function ackConversationCompleted(conversationId: string): void {
+  if (!conversationId) return;
+  const credential = loadCredential();
+  if (!credential.accessToken) return;
+  const headers = buildHeaders(credential, { stream: false });
+  void reportStatus(headers, conversationId, "completed").catch(() => {});
+}
+
+/** 流诊断开关（只打生命周期信息，不打正文）：CATPAW_TRACE_STREAM=1。 */
+const TRACE_STREAM = process.env["CATPAW_TRACE_STREAM"] === "1";
+
+function traceStream(message: string): void {
+  if (TRACE_STREAM) console.error(`[catpaw] ${message}`);
 }
 
 /** 拉模型目录，回填 catalog。 */
