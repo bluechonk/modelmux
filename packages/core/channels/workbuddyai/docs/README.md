@@ -94,10 +94,15 @@ src/
 
 ## 测试
 
-渠道不写单元/集成测试（`AGENTS.md §7`）。端到端验证由 **Agent 跑 `reasonix-mx-test` skill**
-完成：通过 Reasonix CLI 直连 `http://127.0.0.1:4412/v1`，用 `workbuddyai/<模型>` 池 id 发
-**正确的** OpenAI 兼容请求；只发真实账号、正确形态，禁止任何畸形载荷。覆盖：
-登录入池、`mx models --refresh`、最小对话、工具调用往返、流式 SSE。
+渠道不写单元/集成测试（`AGENTS.md §7`）。
+
+- **临时验证**：抓包核对端点、跑通修复等一次性验证，写临时脚本到项目根 `.tmp/`，用**真实账号、
+  真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md §8`）。
+- **端到端**：由 **Agent 跑 `reasonix-mx-test` skill**，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx models --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+临时脚本示例：`.tmp/probe-xxx.mjs`（任务结束前清理）。
 
 ## 上游约束（改代码前必读）
 
