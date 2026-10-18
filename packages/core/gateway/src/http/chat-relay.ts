@@ -25,6 +25,7 @@ import {
 import { resolvePoolModel } from "../pool/model-pool.js";
 import { asPoolModel, parsePoolModel, poolCandidates, POOL_MODELS, POOL_MODEL_META, getPoolModelMeta } from "../pool/pool-targets.js";
 import { isCooling, maybeRefreshBilling, noteFailure, noteSuccess, scoreOf } from "../pool/pool-usage.js";
+import { logThrottled } from "../runtime/logger.js";
 import * as sseStream from "./sse-stream.js";
 import type { GatewayOptions } from "./gateway.js";
 
@@ -491,7 +492,8 @@ async function callUpstream(
     if (call.ok || (call.status !== 401 && call.status !== 403)) return { kind: "ok", call };
 
     // 401/403：先刷新当前账号的 token（响应体一并留痕，见 openStream）
-    logger(`token rejected, trying refresh...${call.error ? ` (${call.error.message})` : ""}`);
+    // 节流：账号失效时会连发，只留状态变化（见 runtime/logger.ts）
+    logThrottled(logger, `chat:auth-rejected:${cid}`, `[${cid}] token rejected, trying refresh${call.error ? ` (${call.error.message})` : ""}`);
     let refreshed: Credential | null = null;
     try {
       refreshed = await inChannel(channel, () => cred.refresh(credential));
@@ -708,7 +710,7 @@ export async function handleChat(
     //    响应头已发给客户端，换渠道会变成两个响应。
     const outcome = await callUpstream(channel, sendBody, opts.logger);
     if (outcome.kind === "not_authenticated") {
-      opts.logger(`channel ${cid} not logged in: ${outcome.error}`);
+      logThrottled(opts.logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
       noteFailure(cid, activeKeyOf(cid));
       noteAccountFailure(cid);
       lastError = { status: 503, code: "not_authenticated", message: `not logged in: ${outcome.error}` };
@@ -773,7 +775,13 @@ export async function handleChat(
     if (!call.ok) {
       // 上游错误体只进本地日志，不回传客户端（可能含内部信息）
       if (call.connectFailed) opts.logger(`upstream request failed (channel ${cid}): ${String(call.error)}`);
-      else opts.logger(`upstream returned non-200 (channel ${cid}): ${String(call.error?.message ?? "")}`);
+      else {
+        logThrottled(
+          opts.logger,
+          `chat:upstream-error:${cid}`,
+          `upstream returned non-200 (channel ${cid}): ${String(call.error?.message ?? "")}`,
+        );
+      }
       noteFailure(cid, activeKeyOf(cid));
       noteAccountFailure(cid);
       lastError = { status: 502, code: "upstream_error", message: "upstream request failed; see gateway logs" };

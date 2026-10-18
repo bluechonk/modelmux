@@ -11,7 +11,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 import {
   channelCount,
@@ -621,4 +621,19 @@ export async function followLogs(lines = 40, json = false, cid?: string): Promis
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });
+}
+
+/** 日志轮转阈值：8MB。超过则改名 `.1`（保留一代，重启时执行）。 */
+const LOG_ROTATE_BYTES = 8 * 1024 * 1024;
+
+/** 启动前轮转日志：超过阈值把日志文件改名为 `<log>.1`（覆盖旧 `.1`）。 */
+function rotateLogIfNeeded(logPath: string): void {
+  try {
+    if (!existsSync(logPath) || statSync(logPath).size < LOG_ROTATE_BYTES) return;
+    const rotated = `${logPath}.1`;
+    if (existsSync(rotated)) unlinkSync(rotated);
+    renameSync(logPath, rotated);
+  } catch {
+    /* 轮转失败不阻塞启动（顶多继续追加） */
+  }
 }
