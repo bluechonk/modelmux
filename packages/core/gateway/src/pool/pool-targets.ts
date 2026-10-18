@@ -31,6 +31,7 @@
 import { channels, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
+import { logRecovered, logThrottled } from "../runtime/logger.js";
 
 /**
  * 对外暴露的模型池（动态收集：各渠道 `exposedIds()` 归一化后挂上 `<cid>/` 前缀）。
@@ -47,10 +48,18 @@ export function poolModels(): string[] {
     const cid = channel.config.cid;
     const ids = runInChannel(cid, () => {
       try {
-        return channel.catalog.exposedIds();
+        const exposed = channel.catalog.exposedIds() as string[];
+        // 恢复也要留痕：此前处于失败态时打一条 recovered（含静默期间次数）
+        logRecovered(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} exposedIds recovered`);
+        return exposed;
       } catch (err) {
-        // 一个渠道的目录崩掉不该拖垮整池，但必须留痕（否则它只会从 /v1/models 静默消失）
-        console.warn(`[pool] channel ${cid} exposedIds failed: ${String(err)}`);
+        // 一个渠道的目录崩掉不该拖垮整池，但必须留痕 —— 用节流器：
+        // 桩渠道（orcaterm）跟着 UI 轮询每次池收集都抛错，实测一夜刷了 6.4 万条
+        logThrottled(
+          console.warn,
+          `pool:exposedIds:${cid}`,
+          `[pool] channel ${cid} exposedIds failed: ${String(err)}`,
+        );
         return [] as string[];
       }
     });
