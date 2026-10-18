@@ -30,6 +30,12 @@ export interface Credential {
 export interface StreamTranslator {
   feed(chunk: Buffer): Array<Buffer | string>;
   finish(): Array<Buffer | string>;
+  /**
+   * 上游已发出终止标记（`finish()` 已在 `feed()` 内完成）。
+   * 网关据此立即停止读上游，不再等 TCP 关闭 —— 部分渠道（如 catpaw）的
+   * 事件流不随 turn 结束关闭，只等 close 会让请求挂到超时。
+   */
+  isDone?(): boolean;
 }
 
 /** 上游连接配置（渠道自定义字段由各渠道补）。 */

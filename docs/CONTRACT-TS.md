@@ -227,6 +227,11 @@ interface Channel {
 `\n\n` 分隔符都会被切开）。用 `new TextDecoder("utf-8")` 的流式解码 + 字符串缓冲，
 **不要**对每个 chunk 单独 `toString()`。
 
+上游若用**生命周期帧**标记 turn 结束（而不是关闭连接），翻译器应实现可选的
+`isDone?(): boolean`：`feed()` 识别到终止帧后立即补齐 `finish_reason` 与 `[DONE]`，
+并让 `isDone()` 返回 true。网关读到 true 即停止读上游并关闭连接 —— 否则请求会
+一直挂到 idle 超时。参考实现见 `packages/core/channels/catpaw/src/upstream.ts`。
+
 **`buildChatBody(req, upstreamModel)`** 把下游 OpenAI 请求改写成上游能接受的形状：
 
 - 标准 OpenAI 渠道：通常 `{...req, model: upstreamModel}`，可能补 system、强制 `stream: true`

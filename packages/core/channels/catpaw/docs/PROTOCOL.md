@@ -49,7 +49,8 @@
 - 密钥 = `SHA-256("${machineId}:catpaw-desk-token-v2")`，机器码取自注册表 `MachineGuid`（Windows）——**可离线复现**。
 - 同一 token 另有一份**明文**副本在 `~/.meituan-catpaw/auth.json`（CLI 侧落盘），用于交叉验证。
 - 上游对话是**三段式**：`POST /api/agent/conversation/round`（提交全部消息）→ `/event`（回报状态）
-  → `/turn`（SSE 直出）；只调 turn 会 500。SSE 帧是**累积式**的，turn 以 TCP 关闭结束。
+  → `/turn`（SSE 直出）；只调 turn 会 500。SSE 帧是**累积式**的；turn 结束由上游
+  生命周期帧标记（见「流结束语义」），**不能等 TCP 关闭** —— 连接可能一直挂着。
 - `systemPromptContext.systemPromptOverride` 有 **65508 字符**硬上限（JSON 转义后长度口径），
   超限回 `HTTP 200` + `success:false`；round 还拒收连续 `assistant` 消息。
   **本仓库实现不使用该字段**：system / 历史 / 工具说明全部折叠进一条 user prompt（见下）。
@@ -99,6 +100,35 @@
 - 以上都是**请求级**行为，不参与账号连败计数（凭据是健康的）。
 - **输出帧规范**：usage-only 的 SSE chunk 必须带空的 `choices: []`；缺字段会被严格校验的
   客户端整块拒收（ZCode 实测 `Type validation failed ... choices expected array`）。
+
+## 流结束语义（生命周期帧，2026-10-18）
+
+> 来源：`reference/icebears111_catpaw2api/internal/upstream/sse.go`；
+> `reference/HITZY2002_catpaw2api/internal/upstream/client.go`（PollAssistant 只认 `finished=true`）。
+
+上游 turn 的 SSE **不保证在 turn 结束时关闭连接**：长任务会继续持有连接。
+收尾必须识别终止帧，否则网关只能等到 idle 超时（表现为「任务做完了但请求不返回」）。
+
+| 帧形态 | 含义 | 处理 |
+| --- | --- | --- |
+| `{"statusUpdate":"completed"\|"cancel"\|"error"}` | 会话状态终结 | 收尾；`error` 先发 error 帧 |
+| `{"currentStatus":"..."}` | 同上（包装在 headless 信封里） | 同上 |
+| `{"type":"agent_end"\|"turn_end"\|"model_end","reason":"completed"}` | 事件流结束 | 收尾；`reason=error/failed` 先发 error 帧 |
+| `{"type":"agent_error","error":...}` | 上游失败 | error 帧 + 收尾 |
+| `{"type":"status_update","status":"completed"}` | 状态更新 | 同上 |
+| `{"type":"model_chunk","content":...,"finished":true}` | 单模型输出结束 | 收尾 |
+| `message.finished === true` / 顶层 `finished === true` | message 完成 | 收尾 |
+| `{"event":{"type":"...","data":{...}}}` / `{"type":"...","data":{...}}` | 包装层 | 解包后按上面的规则判断 |
+
+实现：`decodeFrame(..., onTerminal)` 在识别到终止帧时通知 translator；
+translator 立即补 `finish_reason` 与 `[DONE]`，并让 `isDone()` 变为 true。
+网关 `relayStream` / `collectAsOpenAiSse` / `consumeQueueProbe` 读到 `isDone()` 即停止读上游、
+关闭上游连接，不再等 TCP 关闭。
+
+**实测（2026-10-18，重启后）**：
+- 简单请求 `catpaw/deepseek-v4.1-flash` 2.7s、`catpaw/longcat-2.0` 3.2s 返回；
+- 60 工具 + 9KB system + 10 轮历史的重请求：longcat 7.7s、deepseek 4.0s；
+- 工具调用场景 3.3s，`finish_reason="tool_calls"` 与 `[DONE]` 同时到达。
 
 ## 上下文档位（`[参考]` + 本机验证）
 

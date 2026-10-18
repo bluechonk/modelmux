@@ -160,7 +160,7 @@ function writeJsonError(res: ServerResponse, status: number, code: string, messa
  */
 function isQuotaExhausted(body: string): boolean {
   if (!body) return false;
-  return /insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额/i.test(body);
+  return /insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额|免费额度已用完|额度已用完|升级套餐/i.test(body);
 }
 
 
@@ -394,6 +394,8 @@ async function relayStream(
         noteFrameUsage(res, buf);
         res.write(buf);
       }
+      // 终止标记已随 feed() 发出（含 finish_reason + [DONE]）：立即停读上游，别等 TCP 关闭
+      if (translator.isDone?.()) break;
     }
     for (const frame of translator.finish()) {
       const buf = asBuffer(frame);
@@ -451,6 +453,7 @@ async function collectAsOpenAiSse(
       const { done, value } = await reader.read();
       if (done) break;
       for (const frame of translator.feed(Buffer.from(value))) out.push(asBuffer(frame));
+      if (translator.isDone?.()) break;
     }
     for (const frame of translator.finish()) out.push(asBuffer(frame));
   } finally {
@@ -563,6 +566,8 @@ async function consumeQueueProbe(
       if (done) break;
       for (const frame of activeTranslator.feed(Buffer.from(value))) take(frame);
       if (stopped) return probe;
+      // 终止帧已在 feed() 内收尾：无需继续探测
+      if (activeTranslator.isDone?.()) return probe;
     }
     for (const frame of activeTranslator.finish()) take(frame);
   } finally {

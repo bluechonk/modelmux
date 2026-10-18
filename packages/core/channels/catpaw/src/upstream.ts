@@ -682,6 +682,84 @@ interface ToolUseBlock {
   arguments: string;
 }
 
+/** 上游生命周期状态里表示「本轮已结束」的取值。 */
+const TERMINAL_OK = new Set([
+  "completed",
+  "complete",
+  "success",
+  "succeeded",
+  "done",
+  "cancel",
+  "canceled",
+  "cancelled",
+  "user_stopped",
+]);
+const TERMINAL_ERROR = new Set(["error", "failed", "failure", "terminated"]);
+
+function statusText(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function isTerminalStatus(status: string): boolean {
+  return TERMINAL_OK.has(status) || TERMINAL_ERROR.has(status);
+}
+
+function isErrorStatus(status: string): boolean {
+  return TERMINAL_ERROR.has(status);
+}
+
+function errorText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "upstream error";
+  }
+}
+
+/**
+ * 解开上游生命周期帧的包装（参考实现 sse.go 的 unwrapHeadless / normalizeEvent）：
+ * - `{event:{type,data}}` / `{type,data}`
+ * - `{headlessRemoteAgentResp:{message|error|currentStatus}}`
+ *
+ * 不改变 message 的形状；只保证 decodeFrame 能看到 statusUpdate / type / currentStatus。
+ */
+function unwrapFrame(raw: Record<string, unknown>): Record<string, unknown> {
+  let frame = raw;
+  const event = frame["event"];
+  if (event && typeof event === "object" && !Array.isArray(event)) {
+    const ev = event as Record<string, unknown>;
+    const data = ev["data"];
+    const merged: Record<string, unknown> = {
+      ...(data && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : {}),
+      ...ev,
+    };
+    if (typeof data === "object" && data !== null && !Array.isArray(data)) {
+      const dataType = (data as Record<string, unknown>)["type"];
+      if (typeof dataType === "string") merged["type"] = dataType;
+    }
+    frame = merged;
+  }
+
+  for (const key of ["headlessRemoteAgentResp", "headlessBackgroundAgentResp"]) {
+    const inner = frame[key];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      frame = inner as Record<string, unknown>;
+    }
+  }
+
+  if (typeof frame["type"] !== "string" && frame["data"]) {
+    const data = frame["data"];
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const d = data as Record<string, unknown>;
+      if (typeof d["type"] === "string") frame = { ...frame, ...d };
+    }
+  }
+  return frame;
+}
+
 /** 事件类型（工具调用不走事件流，单独收集到结尾统一下发）。 */
 type RawEvent =
   | { type: "delta"; text: string }
@@ -689,13 +767,65 @@ type RawEvent =
   | { type: "usage"; promptTokens: number; completionTokens: number; totalTokens: number }
   | { type: "error"; message: string; code: number };
 
-/** 把一帧（已解信封）翻成零或多个事件。 */
+/** 把一帧（已解信封）翻成零或多个事件；生命周期结束帧通过 onTerminal 通知。 */
 function decodeFrame(
   diff: SuffixDiff,
-  frame: Record<string, unknown>,
+  rawFrame: Record<string, unknown>,
   onToolUse: (block: ToolUseBlock) => void,
+  onTerminal: () => void,
 ): RawEvent[] {
   const events: RawEvent[] = [];
+  const frame = unwrapFrame(rawFrame);
+
+  // 生命周期：statusUpdate / currentStatus（completed / cancel / error …）
+  const statusUpdate = statusText(frame["statusUpdate"]) || statusText(frame["currentStatus"]);
+  if (statusUpdate && isTerminalStatus(statusUpdate)) {
+    if (isErrorStatus(statusUpdate)) {
+      events.push({ type: "error", message: `agent status: ${statusUpdate}`, code: 0 });
+    }
+    onTerminal();
+  }
+
+  // 事件帧：agent_end / turn_end / model_end / agent_error / status_update / model_chunk
+  const type = typeof frame["type"] === "string" ? frame["type"] : "";
+  if (type === "agent_end" || type === "turn_end" || type === "model_end") {
+    const reason = statusText(frame["reason"]) || statusText(frame["status"]);
+    if (isErrorStatus(reason)) {
+      events.push({ type: "error", message: `agent ended: ${reason || "error"}`, code: 0 });
+    }
+    onTerminal();
+  } else if (type === "agent_error") {
+    events.push({ type: "error", message: errorText(frame["error"]), code: 0 });
+    onTerminal();
+    return events;
+  } else if (type === "status_update") {
+    const status = statusText(frame["status"]);
+    if (status && isTerminalStatus(status)) {
+      if (isErrorStatus(status)) {
+        events.push({ type: "error", message: `agent status: ${status}`, code: 0 });
+      }
+      onTerminal();
+    }
+  } else if (type === "model_chunk" || type === "delta") {
+    const content = typeof frame["content"] === "string" ? frame["content"] : "";
+    if (content) events.push({ type: "delta", text: content });
+    const reasoning = typeof frame["reasoningContent"] === "string"
+      ? frame["reasoningContent"]
+      : typeof frame["reasoning"] === "string"
+        ? frame["reasoning"]
+        : "";
+    if (reasoning) events.push({ type: "reasoning", text: reasoning });
+    if (frame["finished"] === true) onTerminal();
+    return events;
+  } else if (type === "agent.thinking" || type === "thinking") {
+    const reasoning = typeof frame["reasoningContent"] === "string"
+      ? frame["reasoningContent"]
+      : typeof frame["reasoning"] === "string"
+        ? frame["reasoning"]
+        : "";
+    if (reasoning) events.push({ type: "reasoning", text: reasoning });
+    return events;
+  }
 
   // 错误帧：{conversationId, error:{code, unifyCode, message}}
   const errorDoc = frame["error"];
@@ -706,6 +836,7 @@ function decodeFrame(
       : JSON.stringify(err);
     const code = typeof err["code"] === "number" ? err["code"] : 0;
     events.push({ type: "error", message, code });
+    onTerminal();
     return events;
   }
 
@@ -772,6 +903,16 @@ function decodeFrame(
       completionTokens: completion,
       totalTokens: prompt + completion,
     });
+  }
+
+  // 结束标记：message.finished / 顶层 finished / message.status
+  if (msg["finished"] === true || frame["finished"] === true) onTerminal();
+  const msgStatus = statusText(msg["status"]);
+  if (msgStatus && isTerminalStatus(msgStatus)) {
+    if (isErrorStatus(msgStatus)) {
+      events.push({ type: "error", message: `message status: ${msgStatus}`, code: 0 });
+    }
+    onTerminal();
   }
 
   return events;
@@ -1002,21 +1143,64 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
   const tools = clientToolSet(request);
   let doneSent = false;
 
+  /** 收尾：补工具调用、finish_reason 与 [DONE]；重复调用无副作用。 */
+  const finalize = (): Array<Buffer | string> => {
+    if (doneSent) return [];
+    doneSent = true;
+    const out: Buffer[] = [];
+    const tail = fence.flush();
+    if (tail) out.push(deltaFrame({ content: tail }));
+    const calls = tools.active
+      ? pickToolCalls([...nativeCalls.values()], fence.calls, tools.known)
+      : [];
+    if (calls.length > 0) {
+      out.push(frame({
+        choices: [{
+          index: 0,
+          delta: {
+            tool_calls: calls.map((call, index) => ({
+              index,
+              id: call.id,
+              type: "function",
+              function: { name: call.name, arguments: call.arguments },
+            })),
+          },
+          finish_reason: null,
+        }],
+      }));
+      out.push(finishFrame("tool_calls"));
+    } else {
+      out.push(finishFrame("stop"));
+    }
+    out.push(Buffer.from("data: [DONE]\n\n", "utf8"));
+    return out;
+  };
+
   return {
     feed(chunk: Buffer): Array<Buffer | string> {
-      const out: Buffer[] = [];
+      if (doneSent) return [];
+      const out: Array<Buffer | string> = [];
+      let terminal = false;
       for (const frame of reader.push(chunk)) {
         if ("__error" in frame) {
           const err = (frame as { __error: CatPawProtocolError }).__error;
           pendingEvents.push({ type: "error", message: err.message, code: err.code });
           continue;
         }
-        const events = decodeFrame(diff, frame as Record<string, unknown>, (block) => {
-          // 同一 id 的累积帧覆盖旧值；无 id 时按工具名去重（参数是累积全文）
-          const key = block.id || block.name;
-          nativeCalls.set(key, block);
-        });
+        const events = decodeFrame(
+          diff,
+          frame as Record<string, unknown>,
+          (block) => {
+            // 同一 id 的累积帧覆盖旧值；无 id 时按工具名去重（参数是累积全文）
+            const key = block.id || block.name;
+            nativeCalls.set(key, block);
+          },
+          () => {
+            terminal = true;
+          },
+        );
         for (const ev of events) pendingEvents.push(ev);
+        if (terminal) break;
       }
       while (pendingEvents.length > 0) {
         const ev = pendingEvents.shift()!;
@@ -1027,38 +1211,14 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
         }
         out.push(eventToSseFrame(ev));
       }
+      if (terminal) out.push(...finalize());
       return out;
     },
     finish(): Array<Buffer | string> {
-      if (doneSent) return [];
-      doneSent = true;
-      const out: Buffer[] = [];
-      const tail = fence.flush();
-      if (tail) out.push(deltaFrame({ content: tail }));
-      const calls = tools.active
-        ? pickToolCalls([...nativeCalls.values()], fence.calls, tools.known)
-        : [];
-      if (calls.length > 0) {
-        out.push(frame({
-          choices: [{
-            index: 0,
-            delta: {
-              tool_calls: calls.map((call, index) => ({
-                index,
-                id: call.id,
-                type: "function",
-                function: { name: call.name, arguments: call.arguments },
-              })),
-            },
-            finish_reason: null,
-          }],
-        }));
-        out.push(finishFrame("tool_calls"));
-      } else {
-        out.push(finishFrame("stop"));
-      }
-      out.push(Buffer.from("data: [DONE]\n\n", "utf8"));
-      return out;
+      return finalize();
+    },
+    isDone(): boolean {
+      return doneSent;
     },
   };
 }
