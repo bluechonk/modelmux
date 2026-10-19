@@ -63,6 +63,25 @@ CodeArts 的 APIG 网关对**过期 token** 回 `HTTP 400 + {"error_code":"APIG.
 **接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:4412/v1`（仓库级网关）、
 API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `codearts/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx model codearts --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/codearts/deepseek-v4-flash`）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`，上游响应快）。
+- **本渠道不暴露倍率**：模型表里多数条目倍率显示 `-`（`capabilities.billing=false`），
+  成本口径不明确，测试时只做单轮最小对话，不跑完整 Agent 工具往返。
+- 工具往返在本渠道上游不稳定（工具轮次迟迟不返回），属上游侧行为，非网关问题。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进 [`PROTOCOL.md`](./PROTOCOL.md)。

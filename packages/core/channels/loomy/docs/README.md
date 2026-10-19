@@ -39,6 +39,27 @@ mx status / mx model list / mx bill loomy
 **接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:4412/v1`（仓库级网关）、
 API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `loomy/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx model loomy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/loomy/spark-x`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
+- 留意：本渠道池内账号少，账号被判 `error` 后**没有备选可切** —— 网关日志记
+  `all pool candidates failed (loomy/spark-x, tried loomy)`，直接回 503
+  `not_authenticated`。此时需要重新 `mx login loomy` 微信扫码入池才能恢复。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进 [`PROTOCOL.md`](./PROTOCOL.md)。

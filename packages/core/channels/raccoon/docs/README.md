@@ -42,6 +42,28 @@ mx status / mx model list / mx bill raccoon
 **接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:4412/v1`（仓库级网关）、
 API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `raccoon/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx model raccoon --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/raccoon/glm-5.3-flash`，本渠道最低倍率 0.2）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 本渠道**没有倍率 0 的模型**，测试选最低倍率的 `glm-5.3-flash`；
+  工具往返在上游侧不稳定（工具轮次长时间不返回），本次只做单轮最小对话。
+- **账号坑**：池内账号少，被判 `error` 后没有备选可切，网关直接回
+  503 `not_authenticated`。用 `mx relogin raccoon` 重新授权即可恢复
+  （授权页登录后自动跳回本地回调，无需粘贴）。2026-10-19 实测：账号 `error` 时冒烟
+  503，`relogin` 重新授权后（账号状态回到 `ok`、到期日顺延）冒烟立即通过。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进 [`PROTOCOL.md`](./PROTOCOL.md)。
