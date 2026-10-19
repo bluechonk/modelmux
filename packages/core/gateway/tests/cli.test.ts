@@ -554,15 +554,14 @@ describe("4. 账号池与落点（也走 CLI）", () => {
   });
 
   it("login <cid> 成功后账号**真的**进池（回归：syncPool 必须包 runInChannel）", async () => {
-    // 曾经的 bug：`runLogin` 里裸调 `syncPool(cid)`，而 `syncPool` → `cred.load()`
-    // → `paths.*` 在多渠道模式下靠 ALS 上下文解析；没有上下文时它被 catch 吞掉，
-    // 表现为「登录成功但池子是空的」（codearts 实测中招）。
-    // ⚠ 必须注册**两个以上**渠道才会暴露这个 bug：只有一个渠道时
-    // `getChannel(undefined)` 仍能解析（单渠道特例），裸 `syncPool` 照样成功。
-    // 真实的仓库级 CLI 注册全部渠道 —— 那才是 bug 的现场。
+    // 断言目标：`runLogin` 里的 `syncPool(cid)` 必须在 `runInChannel` 上下文内调用。
+    // `syncPool` → `cred.load()` → `paths.*` 靠 ALS 上下文解析；缺上下文时异常被
+    // catch 吞掉，表现为「登录成功但池子是空的」。
+    // ⚠ 必须注册**两个以上**渠道才暴露：单渠道时 `getChannel(undefined)` 仍能解析
+    // （单渠道特例），裸 `syncPool` 照样成功。仓库级 CLI 注册全部渠道。
     // ⚠ 断言必须**直接读磁盘**，不能借 `accounts <cid>` 去看：那个命令自己会
     // 包着 `runInChannel` 再 syncPool 一次，等于把裸调用漏掉的账号补回来 ——
-    // 用它断言就永远看不出这个 bug。
+    // 用它断言就永远看不出问题。
     // ⚠ 还要先清掉磁盘上的渠道层：套件里更早的用例（如 `accounts alpha`）会留下
     // `accounts.json`，不清的话断言读到的是**上一个用例的残留**，永远为真。
     rmSync(join(root, "alpha"), { recursive: true, force: true });

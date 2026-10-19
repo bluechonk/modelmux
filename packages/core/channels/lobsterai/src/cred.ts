@@ -11,15 +11,15 @@
  * ## 落盘字段名刻意保持 snake_case
  *
  * 内存里用 TS 惯用的 camelCase，磁盘上写 `access_token` / `first_keyfrom` /
- * `latest_keyfrom` / `user_id` / `expires_at` —— 与旧实现同形：
- * 用户从旧实现迁移过来时**无需重新登录**（`load()` 同时认两种写法）。
+ * `latest_keyfrom` / `user_id` / `expires_at` —— 与桌面端**同形**：
+ * 从桌面端迁移过来的用户**无需重新登录**（`load()` 同时认两种写法）。
  *
  * ## 登录/续期的终点判定
  *
  * - 续期：HTTP 401/403 → 终态；信封失败且 `classifyError` 判出 `session-dead`
  *   → 终态；`code:0` 但 `accessToken` 为空 → 终态；其余（网络抖动 / 5xx / 429）
  *   → 普通 Error，走可重试路径。
- * - `latestKeyfrom` **刻意不更新为当前时刻**：严格对齐旧实现
+ * - `latestKeyfrom` **刻意不更新为当前时刻**：严格对齐桌面端行为
  *   （只改 token 与过期时间，`LatestKeyfrom` 永久停在登录那一刻），续期时原样回发。
  */
 

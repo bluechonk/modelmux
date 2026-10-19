@@ -148,7 +148,6 @@ export const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK_MODEL_IDS.map((id
 export const BENEFIT_FALLBACK: readonly string[] = ["glm-5.3-flash", "deepseek-v4.1-flash"];
 
 const BENEFIT_CACHE_FILENAME = "benefit-models.json";
-const MODELS_CACHE_FILENAME = "models.json";
 
 /**
  * 缓存目录：`DSH_CODEARTS_CACHE_DIR`（或 `CODEARTS_CACHE_DIR`）可显式覆盖，
@@ -287,17 +286,13 @@ let benefitCache: string[] | null = null;
  * （巡检/统计工具会 import 各渠道模块拿 config）。
  */
 function loadCaches(): void {
-  // models.json 走共享信封（与其它渠道一致），池层 getPoolModelMeta 才读得到倍率；
-  // 旧版裸数组缓存一次性回读（下次 fetchModels 会重写成信封）。
-  let models: unknown[] | null = readCatalogCache<ModelEntry>();
-  if (!models) {
-    models = readCache(MODELS_CACHE_FILENAME);
-  }
+  // models.json 走共享信封（与其它渠道一致），池层 getPoolModelMeta 才读得到倍率。
+  const models = readCatalogCache<ModelEntry & Record<string, unknown>>();
   if (models && models.length > 0) {
     const entries: ModelEntry[] = [];
     for (const item of models) {
       if (!item || typeof item !== "object") continue;
-      const rec = item as Record<string, unknown>;
+      const rec = item;
       const id = typeof rec["id"] === "string" ? rec["id"] : "";
       if (!id) continue;
       const entry: ModelEntry = {
@@ -306,7 +301,7 @@ function loadCaches(): void {
         source: "remote",
       };
       if (typeof rec["context_window"] === "number") entry.context_window = rec["context_window"];
-      // 旧缓存没有 max_output（那是后来按公开规格补的）—— 读时按规格表补，不必等一次刷新。
+      // 缓存行未带 max_output 时按规格表补（上游目录不下发该字段）。
       const cachedMax = typeof rec["max_output"] === "number" ? rec["max_output"] : undefined;
       const maxOutput = cachedMax ?? maxOutputOf(id);
       if (maxOutput !== undefined) entry.max_output = maxOutput;

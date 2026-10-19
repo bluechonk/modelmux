@@ -32,7 +32,7 @@ export function knownServiceNames(): string[] {
   return ["modelmux", ...channels().map((c) => c.config.cid)];
 }
 
-/** 本实现的语言标识（供 status 区分同名的旧实现）。 */
+/** 本实现的语言标识（供 status 区分同端口上的其它实现）。 */
 
 export const IMPLEMENTATION = "typescript";
 

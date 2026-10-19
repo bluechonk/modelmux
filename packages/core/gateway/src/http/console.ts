@@ -164,7 +164,7 @@ function serveStatic(res: import("node:http").ServerResponse, relPath: string): 
     decoded = decodeURIComponent(relPath);
   } catch {
     // 畸形百分号编码（如 `%E0%A4%A`）会让 decodeURIComponent 抛 URIError；
-    // 不接住就是 uncaughtException，控制台进程会随网关一起挂掉。
+    // 不接住就是 uncaughtException，控制台进程会随网关进程一起退出。
     text(res, 400, "Bad request");
     return;
   }

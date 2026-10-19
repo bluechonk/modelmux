@@ -422,8 +422,6 @@ export async function runLogin(options: {
 
 export interface ServeOptions {
   addr: string;
-  /** 已废弃：单端口模式下控制台与网关共用 `addr`，此字段仅保留签名兼容。 */
-  uiPort?: number;
   verbose: boolean;
   ensureLogin?: boolean;
   forceLogin?: boolean;

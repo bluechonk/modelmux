@@ -151,10 +151,9 @@ export interface AuthLike {
  * `code=11128 Illegal API invocation from an unapproved channel`。
  *
  * 触发物是「各家 CLI 的身份署名 + 计费标记」的特征片段，不是整段样板 ——
- * 故改写必须把片段本身换掉。旧版只把 `Main branch (you will usually use this
- * for PRs)` 改成 `Main branch (used for PRs)`，特征 `Main branch (` 仍原样留着，
- * 等于没改。规则按 hub 的 `wb_proxy.py`（SANITIZE_FEATURES / SANITIZE_REWRITES，
- * 实测口径）补齐整族。
+ * 故改写必须把**片段本身**换掉：只替换片段里的一段文字、保留特征前缀
+ * （如 `Main branch (` 原样留着）等于没改。规则按 hub 的 `wb_proxy.py`
+ * （SANITIZE_FEATURES / SANITIZE_REWRITES，实测口径）补齐整族。
  *
  * 顺序有意：带冒号的计费头必须在裸头名之前删，否则先被裸头规则改成残留串。
  */
@@ -232,8 +231,8 @@ export function loadConfig(): [Config, boolean] {
     tokenType: parsed.tokenType ?? "bearerToken",
     usernameHeader: parsed.usernameHeader ?? "X-User-Id",
   };
-  // 历史遗留：旧版默认 baseUrl 曾是 www.codebuddy.ai，实测 DNS 沉洞（解析到 0.0.0.1），
-  // 国际版请求指向它必然超时 —— 读出即归一到国际版 chat 上游（下次 saveConfig 落盘纠正）
+  // `www.codebuddy.ai` 的 DNS 已沉洞（实测解析到 0.0.0.1）：国际版请求指向它必然超时
+  // —— 读到该域名一律归一到国际版 chat 上游（下次 saveConfig 落盘纠正）
   if (hostOf(cfg.baseUrl) === "www.codebuddy.ai") cfg.baseUrl = REALM_INTL.chatUpstream;
   return [cfg, true];
 }
