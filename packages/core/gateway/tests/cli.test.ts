@@ -259,12 +259,12 @@ describe("1. 常见命令与帮助", () => {
     }
   });
 
-  it("logs --lines 0 不打印历史行（回归：slice(-0) 曾把整个日志打出来）", async () => {
+  it("log --lines 0 不打印历史行（回归：slice(-0) 曾把整个日志打出来）", async () => {
     writeFileSync(join(root, "gateway.log"), "老日志甲\n老日志乙\n", "utf8");
-    const zero = await run(["logs", "--lines", "0"]);
+    const zero = await run(["log", "--lines", "0"]);
     assert.equal(zero.code, 0, zero.err);
     assert.ok(!zero.out.includes("老日志甲") && !zero.out.includes("老日志乙"), `0 行不该有内容：${zero.out}`);
-    const one = await run(["logs", "--lines", "1"]);
+    const one = await run(["log", "--lines", "1"]);
     assert.ok(one.out.includes("老日志乙") && !one.out.includes("老日志甲"), `只留最后一行：${one.out}`);
   });
 });
@@ -428,8 +428,8 @@ describe("3. <动词> [<cid>] 路由", () => {
     assert.ok(r.out.includes("← DeepSeek-V4.1-Flash"), "要能看出目录里的原始写法");
   });
 
-  it("billing <cid> 打印额度", async () => {
-    const r = await run(["billing", "alpha"]);
+  it("bill <cid> 打印额度", async () => {
+    const r = await run(["bill", "alpha"]);
     assert.equal(r.code, 0);
     assert.ok(r.out.includes("12.5 / 100 credits"), r.out);
   });
@@ -496,8 +496,8 @@ describe("3. <动词> [<cid>] 路由", () => {
 });
 
 describe("4. 账号池与落点（也走 CLI）", () => {
-  it("accounts <cid> 列出池子（首次查看会把现有凭证收进来）", async () => {
-    const r = await run(["accounts", "alpha"]);
+  it("acct <cid> 列出池子（首次查看会把现有凭证收进来）", async () => {
+    const r = await run(["acct", "alpha"]);
     assert.equal(r.code, 0);
     assert.ok(r.out.includes("alpha"), r.out);
   });
@@ -536,16 +536,16 @@ describe("4. 账号池与落点（也走 CLI）", () => {
     }
   });
 
-  it("paths <cid> 打印该渠道落点，且是只读", async () => {
-    const r = await run(["paths", "alpha", "--json"]);
+  it("path <cid> 打印该渠道落点，且是只读", async () => {
+    const r = await run(["path", "alpha", "--json"]);
     assert.equal(r.code, 0);
     const parsed = JSON.parse(r.out) as { cid: string; dir: string };
     assert.equal(parsed.cid, "alpha");
     assert.ok(parsed.dir.endsWith("alpha"), parsed.dir);
   });
 
-  it("paths --all 统计全部渠道", async () => {
-    const r = await run(["paths", "--all", "--workspace", process.cwd()]);
+  it("path --all 统计全部渠道", async () => {
+    const r = await run(["path", "--all", "--workspace", process.cwd()]);
     // 工作区里可能找不到（测试目录不是工作区）→ 报用法即可，不抛错
     assert.ok(r.code === 0 || r.code === 2, `退出码 ${r.code}`);
   });

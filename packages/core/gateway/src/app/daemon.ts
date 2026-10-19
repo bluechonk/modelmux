@@ -558,7 +558,7 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
 }
 
 /** 查看网关日志尾部（守护进程的 stdout/stderr 都落在这里）。 */
-/** 日志筛选条件（CLI `mx logs` 用）。 */
+/** 日志筛选条件（CLI `mx log` 用）。 */
 export interface LogFilter {
   kind?: string;
   outcome?: "success" | "failure" | "other";
@@ -633,7 +633,7 @@ function formatBytes(size: number): string {
   return `${size}B`;
 }
 
-/** 列出日志文件（`mx logs --list`）：按修改时间倒序，带大小与时间。 */
+/** 列出日志文件（`mx log --list`）：按修改时间倒序，带大小与时间。 */
 export function listLogs(json = false): number {
   const files = listLogFiles();
   if (json) {

@@ -3,7 +3,7 @@
  * 本文件只做 re-export —— 保持 `index.ts` 与外部调用方的符号面不变。
  *
  * - `commands/model-group.ts`：`model list` / `model usage`、本地目录、可登录渠道列表
- * - `commands/channel-verbs.ts`：渠道动词（login / status / model / billing / accounts / …）
+ * - `commands/channel-verbs.ts`：渠道动词（login / status / model / bill / acct / …）
  */
 
 export {

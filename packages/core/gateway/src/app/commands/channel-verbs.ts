@@ -22,10 +22,10 @@ export const CHANNEL_VERBS: ReadonlyArray<readonly [string, string]> = [
   ["login", "登录渠道：`login <cid>`；`login list` 列出可登录渠道与状态"],
   ["relogin", "重新授权：清掉现有凭据后重走登录流程（`relogin <cid>`）"],
   ["model", "模型：`model <cid>` 查看该渠道目录；`model list` 查看池视图"],
-  ["billing", "额度 / 账单：带 <cid> = 该渠道；不带 = 全部渠道（只读，不经网关）"],
-  ["accounts", "账号池：`accounts [<cid>] list|use <key>|add|remove <key>`"],
-  ["paths", "存储落点与文件：`paths [<cid>]`（只读）"],
-  ["logs", "日志尾部：`logs [<cid>]`（带 -f 持续输出）"],
+  ["bill", "额度 / 账单：带 <cid> = 该渠道；不带 = 全部渠道（只读，不经网关）"],
+  ["acct", "账号池：`acct [<cid>] list|use <key>|add|remove <key>`"],
+  ["path", "存储落点与文件：`path [<cid>]`（只读）"],
+  ["log", "日志尾部：`log [<cid>]`（带 -f 持续输出）"],
 ];
 
 /** 目录的来源，决定 CLI 怎么向用户交代这次列的是哪份数据。 */
@@ -55,16 +55,16 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
         addr: ctx.addr,
         ...(cid !== undefined ? { cid } : {}),
       });
-    case "billing":
+    case "bill":
       return daemon.credits({ json: ctx.json, ...(cid !== undefined ? { cid } : {}) });
-    case "paths":
+    case "path":
       return report.runPaths({
         json: ctx.json,
         all: ctx.all,
         ...(cid !== undefined ? { cid } : {}),
         ...(ctx.workspace !== undefined ? { workspace: ctx.workspace } : {}),
       });
-    case "logs": {
+    case "log": {
       if (ctx.logList) return daemon.listLogs(ctx.json);
       const filter: daemon.LogFilter = {
         ...(ctx.logKind !== undefined ? { kind: ctx.logKind } : {}),
@@ -75,7 +75,7 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
         ? daemon.followLogs(ctx.lines, ctx.json, cid, filter)
         : daemon.logs(ctx.lines, ctx.json, cid, filter);
     }
-    case "accounts":
+    case "acct":
       return accountCli.runAccounts({
         json: ctx.json,
         realm: ctx.realm,

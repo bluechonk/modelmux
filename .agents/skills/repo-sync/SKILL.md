@@ -106,7 +106,7 @@ npm test                       # build + 校验器 + 全部包测试，必须全
 npm run verify:pages           # 【仅当动了 packages/ui/ 或 pages 相关】本地复现 Pages 构建并校验产物
 node packages/cli/dist/cli.js restart   # 改了 gateway/cli/ui 必须重启
 node packages/cli/dist/cli.js status    # 必须不含「网关在跑旧代码」
-# 真机验证：mx models <cid> / mx billing <cid> / 一次真实 chat
+# 真机验证：mx model <cid> / mx bill <cid> / 一次真实 chat
 git status                     # 工作树干净（无未提交 tracked 文件）
 git branch -a                  # 本地/远端只剩 main
 ls .tmp                        # 清理临时文件；截图与诊断产物不留仓库

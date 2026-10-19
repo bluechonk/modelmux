@@ -17,7 +17,7 @@ node channels/loomy/dist/cli.js login   # 登录：微信扫码（唯一登录�
 mx login loomy                          # 仓库级入口等价写法
 node channels/loomy/dist/cli.js serve   # 前台无窗口运行（单渠道）
 mx start                                # 守护式启动（幂等，仓库级网关）
-mx status / mx model list / mx billing loomy
+mx status / mx model list / mx bill loomy
 ```
 
 > **登录方式**：只有微信扫码一条路；未绑手机号时绑定环节需要 `LOOMY_PHONE` /
@@ -33,7 +33,7 @@ mx status / mx model list / mx billing loomy
 | `POST /api/retry-login` | 投递「重试登录」意图 |
 | `POST /api/theme` | 空操作（保留端点兼容） |
 
-日常操作走 `mx` 命令（`mx status` / `mx model list` / `mx login <cid>` / `mx billing <cid>`）。
+日常操作走 `mx` 命令（`mx status` / `mx model list` / `mx login <cid>` / `mx bill <cid>`）。
 
 ## 接入
 

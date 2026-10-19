@@ -76,21 +76,21 @@
 ## 4. CLI
 
 ```bash
-mx logs                                  # 默认：当天 system 日志（gateway/lifecycle）
-mx logs --kind system --lines 100
-mx logs --kind lifecycle                 # 启停与 worker 事件
-mx logs --kind worker                    # worker stdout/stderr
-mx logs --kind access --outcome success  # 成功请求（JSON 行）
-mx logs --kind access --outcome failure  # 失败请求
-mx logs --kind access --outcome other    # 客户端断开/取消
-mx logs --kind error                     # 错误详情（含 request_id）
-mx logs --kind channel --cid catpaw      # 渠道维度
-mx logs --date 2026-10-18 --kind access --outcome failure
-mx logs --list                           # 全部日志文件 + 大小 + 时间
-mx logs --kind access --outcome failure -f   # 持续跟随
+mx log                                   # 默认：当天 system 日志（gateway/lifecycle）
+mx log --kind system --lines 100
+mx log --kind lifecycle                  # 启停与 worker 事件
+mx log --kind worker                     # worker stdout/stderr
+mx log --kind access --outcome success   # 成功请求（JSON 行）
+mx log --kind access --outcome failure   # 失败请求
+mx log --kind access --outcome other     # 客户端断开/取消
+mx log --kind error                      # 错误详情（含 request_id）
+mx log --kind channel --cid catpaw       # 渠道维度
+mx log --date 2026-10-18 --kind access --outcome failure
+mx log --list                            # 全部日志文件 + 大小 + 时间
+mx log --kind access --outcome failure -f    # 持续跟随
 ```
 
-`logs` 不带 `--date` 时优先当天；当天没有则回落到最新有该文件的一天。
+`log` 不带 `--date` 时优先当天；当天没有则回落到最新有该文件的一天。
 
 ## 5. 旧版 `gateway.log`（已删除）
 

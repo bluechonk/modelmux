@@ -50,7 +50,7 @@ node channels/workbuddyai/dist/cli.js --help    # 单渠道 CLI（调试 / 回�
 | `POST /api/retry-login` | 投递「重试登录」意图 |
 
 日常操作走 `mx` 命令（`mx status` / `mx start|stop|restart` / `mx login workbuddyai` /
-`mx model list` / `mx billing workbuddyai`），控制台 API 只是给程序化调用留的口子。
+`mx model list` / `mx bill workbuddyai`），控制台 API 只是给程序化调用留的口子。
 
 **接入**：任意 OpenAI 兼容客户端，类型 `openai-chat-completions`、
 baseUrl `http://127.0.0.1:8787/v1`、API key 任意非空、模型 `deepseek-v4.1-flash` /
@@ -78,7 +78,7 @@ src/
 `MODELMUX_HOME` 可把整个存储根指到别处，便携/测试用。历史顶层目录（`~/.workbuddyai2api/`、
 `~/.workbuddyai-gateway/` 等）与旧环境变量（`ZCB_HOME` / `WBAI2API_HOME`）**已不再识别**
 （更名 modelmux 时整体移除旧兼容），仍在使用的话需手工把数据搬进 `~/.modelmux/workbuddyai/`。
-`mx paths --all` 可只读列出全部落点。
+`mx path --all` 可只读列出全部落点。
 
 拆分成两条渠道后，**裸 `workbuddy` 名字**（`~/.workbuddy-bridge/`、`WORKBUDDY_HOME`、
 `WORKBUDDY_DEBUG_DUMP`）两条渠道都不读：那个目录里是国际版旧凭证，而 `workbuddy`

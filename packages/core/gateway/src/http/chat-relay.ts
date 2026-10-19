@@ -698,7 +698,7 @@ async function callUpstream(
   if (activeAccountIsError(cid)) {
     return {
       kind: "not_authenticated",
-      error: `active account is marked error after repeated failures; switch account (mx accounts use) or re-login (mx login ${cid})`,
+      error: `active account is marked error after repeated failures; switch account (mx acct use) or re-login (mx login ${cid})`,
     };
   }
 

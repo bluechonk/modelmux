@@ -12,29 +12,29 @@ description: modelmux 的日志排查与故障分诊流程。只要用户问“�
 
 ```bash
 mx status --json
-mx logs --list
+mx log --list
 ```
 
 - `reachable=false`：先走 §3「网关不可用」。
 - `stale_build=true`：运行的是旧代码。`npm run build && mx restart`，直到 `stale_build=false`。
 - `log_dir` 是 `~/.modelmux/logs`；不要去仓库目录找日志。
-- `mx logs` 默认读 system 日志，不是访问日志；查请求必须加 `--kind access`。
+- `mx log` 默认是 system 日志，不是访问日志；查请求必须加 `--kind access`。
 
 ## 1. 选对日志，不要全量 grep
 
 | 要查什么 | 命令 / 文件 |
 | --- | --- |
-| 失败请求 | `mx logs --kind access --outcome failure --lines 50` |
-| 成功请求基线 | `mx logs --kind access --outcome success --lines 20` |
+| 失败请求 | `mx log --kind access --outcome failure --lines 50` |
+| 成功请求基线 | `mx log --kind access --outcome success --lines 20` |
 | 慢请求 | `tail -n 50 ~/.modelmux/logs/access/$(date +%F)/slow.log` |
-| 错误详情（带 request_id） | `mx logs --kind error --lines 50` |
-| 启停 / worker 事件 | `mx logs --kind lifecycle --lines 50` |
-| worker stderr | `mx logs --kind worker --lines 100` |
-| 某渠道 | `mx logs <cid> --kind channel --lines 50` |
-| 指定日期 | `mx logs --date YYYY-MM-DD --kind access --outcome failure` |
+| 错误详情（带 request_id） | `mx log --kind error --lines 50` |
+| 启停 / worker 事件 | `mx log --kind lifecycle --lines 50` |
+| worker stderr | `mx log --kind worker --lines 100` |
+| 某渠道 | `mx log <cid> --kind channel --lines 50` |
+| 指定日期 | `mx log --date YYYY-MM-DD --kind access --outcome failure` |
 
 日期目录按本地时区切分；日志行里的 `ts` 是 ISO UTC，判断时间时不要混用。
-文件超过 10MB 会轮转为 `.1.log`…`.3.log`；`mx logs --list` 能看到全部文件。
+文件超过 10MB 会轮转为 `.1.log`…`.3.log`；`mx log --list` 能看到全部文件。
 成功的 `/health` 与 `/v1/models` 轮询不写 `success.log`（避免淹没 chat 请求）；
 看到它们只可能来自旧进程，或是失败/慢请求。
 
@@ -59,8 +59,8 @@ mx logs --list
 
 ```bash
 mx status --json
-mx logs --kind lifecycle --lines 30
-mx logs --kind worker --lines 100
+mx log --kind lifecycle --lines 30
+mx log --kind worker --lines 100
 ```
 
 - `worker_unhealthy` / `start_timeout`：启动窗口内未 ready。先 `mx restart`（默认 30 秒窗口）。
@@ -73,12 +73,12 @@ mx logs --kind worker --lines 100
 
 | error | 先做什么 |
 | --- | --- |
-| `unknown_model` | `GET /v1/models` 核对 `<cid>/<model>`；`mx models <cid>` |
-| `not_authenticated` / `upstream_unauthenticated` | `mx accounts <cid>`；`mx login <cid>`；不要删凭据 |
+| `unknown_model` | `GET /v1/models` 核对 `<cid>/<model>`；`mx model <cid>` |
+| `not_authenticated` / `upstream_unauthenticated` | `mx acct <cid>`；`mx login <cid>`；不要删凭据 |
 | `upstream_error` / `upstream_stream_failed` | 用 `id` 查 `error.log` + `worker.log`；再看渠道 reference / PROTOCOL |
 | `upstream_timeout` | §2 第 4 条；确认上游是否空闲 |
 | `upstream_queued` | 上游排队；声明 `isQueueError` 的渠道会自动重试，等或换模型 |
-| `quota_exhausted` | 账号额度耗尽，已被标记 `error` 并跳过；充值后 `mx accounts <cid> use <key>` 或重新登录恢复 |
+| `quota_exhausted` | 账号额度耗尽，已被标记 `error` 并跳过；充值后 `mx acct <cid> use <key>` 或重新登录恢复 |
 | `invalid_request` | 请求体 / 上下文问题；看渠道 `buildChatBody` 的报错 |
 | `internal_error` | 网关 bug；看 `worker.log` 堆栈，记录复现请求 |
 
@@ -101,7 +101,7 @@ mx status --json   # stale_build 必须为 false
 
 - 旧版根级/渠道级 `gateway.log` 与 `gateway-4413.log` **已于 2026-10-18 全部删除**；
   日志只在 `~/.modelmux/logs/`，不要再去仓库或 `~/.modelmux/*/gateway.log` 找。
-- `mx logs` 默认是 system 日志；查请求必须加 `--kind access`。
+- `mx log` 默认是 system 日志；查请求必须加 `--kind access`。
 - 成功的 `/health` 与 `/v1/models` 不写 `success.log`；看到它们只可能是旧进程或失败/慢请求。
 - `logs/channels/<cid>/` 只在单渠道运行、或消息自带 `[cid]` 前缀时才有文件；仓库级运行主要看
   `access` 与 `system`。

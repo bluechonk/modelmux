@@ -49,7 +49,7 @@ CodeArts 的 STS 信封**只给 `credentials` + `refresh_token`**，从不给 `u
 | `POST /api/retry-login` | 投递「重试登录」意图 |
 | `POST /api/theme` | 空操作（保留端点兼容） |
 
-日常操作走 `mx` 命令（`mx status` / `mx model list` / `mx login <cid>` / `mx billing <cid>`）。
+日常操作走 `mx` 命令（`mx status` / `mx model list` / `mx login <cid>` / `mx bill <cid>`）。
 
 ## 鉴权失效识别（APIG.0602）
 

@@ -54,18 +54,18 @@ ${verbLines.join("\n")}
   --addr <host:port>        网关监听地址（默认 ${defaultAddr()}）
   --ui-port <port>          控制台 API 端口（默认 ${defaultUiPort()}）
   --wait <seconds>          启动健康等待秒数（默认 30）
-  --lines <n>               logs 显示行数（默认 40）
-  --kind <名>               logs：access / error / system / lifecycle / worker / channel
-  --outcome <名>            logs：success / failure / other（仅 --kind access）
-  --date <YYYY-MM-DD>       logs：指定日期（默认今天，缺失则取最新）
-  --list                    logs：列出日志文件（大小 + 时间）
-  -f, --follow              logs：持续输出新增日志（等价 tail -f / docker logs -f）
+  --lines <n>               log 显示行数（默认 40）
+  --kind <名>               log：access / error / system / lifecycle / worker / channel
+  --outcome <名>            log：success / failure / other（仅 --kind access）
+  --date <YYYY-MM-DD>       log：指定日期（默认今天，缺失则取最新）
+  --list                    log：列出日志文件（大小 + 时间）
+  -f, --follow              log：持续输出新增日志（等价 tail -f / docker logs -f）
   --realm <名>              login 的登录域（渠道自定义；单域渠道忽略）
   --wechat                  login：微信扫码登录（仅声明该方式的渠道，如 loomy）
   --refresh                 model <cid> / model usage：强制重拉上游目录 / 重查账单
                             （失败即报错退出）
-  --all                     paths：统计工作区内全部渠道
-  --workspace <dir>         paths：工作区根（默认从当前目录向上查找）
+  --all                     path：统计工作区内全部渠道
+  --workspace <dir>         path：工作区根（默认从当前目录向上查找）
   --json                    输出 JSON（事件行 / 结构化结果）
   --quiet                   不输出过程信息
   --auto                    hook 场景：受 prefs 的 auto_start 开关约束
@@ -82,10 +82,10 @@ ${verbLines.join("\n")}
   ${bin} start                          # 起网关（守护式，幂等）
   ${bin} model list                     # 池视图：全池模型分别会先落到哪家
   ${bin} model usage --refresh          # 立刻重查各渠道账单额度并写进账本
-  ${bin} models ${cid} --refresh        # 强制重拉 ${cid} 的模型目录
+  ${bin} model ${cid} --refresh         # 强制重拉 ${cid} 的模型目录
   ${bin} login ${cid}                   # 登录 ${cid}（把授权 URL 输出到终端，自行打开）
   ${bin} relogin ${cid}                 # 重新授权 ${cid}（清掉旧凭据后重登）
-  ${bin} billing ${cid}                 # 看 ${cid} 的剩余额度 / 账单
+  ${bin} bill ${cid}                    # 看 ${cid} 的剩余额度 / 账单
   ${bin} status ${cid} --json           # 结构化状态（脚本用）
 `;
 }

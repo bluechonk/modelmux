@@ -337,7 +337,7 @@ export interface LogFileInfo {
   mtime: number;
 }
 
-/** 列出日志文件（CLI `mx logs --list` 用），按修改时间倒序。 */
+/** 列出日志文件（CLI `mx log --list` 用），按修改时间倒序。 */
 export function listLogFiles(): LogFileInfo[] {
   const out: LogFileInfo[] = [];
   const walk = (dir: string): void => {

@@ -401,7 +401,7 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
  *
  * 额度不足不是瞬时故障，继续请求只会一遍遍打上游、每次都失败；标记后
  * `pickAccount` / `callUpstream` 都会跳过它。充值 / 切号后由
- * `mx accounts use <key>`（`activateAccount` 会清零连败并恢复 `ok`）解除。
+ * `mx acct use <key>`（`activateAccount` 会清零连败并恢复 `ok`）解除。
  */
 export function noteAccountQuotaExhausted(cid?: string): void {
   let scope: string;
