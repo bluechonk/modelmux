@@ -35,18 +35,30 @@ export function Dashboard(): ReactElement {
   if (error) return <Alert tone="error">加载失败：{String(error)}</Alert>;
   if (!state) return <div className="text-gray-500">（无数据）</div>;
 
-  // 全局模型：附带倍率，按倍率升序（免费最前），不再按渠道分组
-  const modelItems = state.models
-    .map((full) => {
-      const slash = full.indexOf("/");
-      const cid = slash < 0 ? full : full.slice(0, slash);
-      const id = slash < 0 ? full : full.slice(slash + 1);
-      const mult = state.model_info?.[full]?.multiplier ?? null;
-      const freePlan = FREE_PLAN_CHANNELS.has(cid);
-      return { full, cid, id, mult, freePlan, rank: modelRank(mult, freePlan) };
-    })
-    .sort((a, b) => a.rank - b.rank || a.full.localeCompare(b.full));
-  const channelCount = new Set(modelItems.map((m) => m.cid)).size;
+  // 模型按渠道分组：`<cid>/<模型>` → { cid: [排序后的模型…] }；组内按倍率升序（免费最前）
+  const groups = new Map<string, string[]>();
+  for (const full of state.models) {
+    const slash = full.indexOf("/");
+    const cid = slash < 0 ? full : full.slice(0, slash);
+    const id = slash < 0 ? full : full.slice(slash + 1);
+    const mult = state.model_info?.[full]?.multiplier ?? null;
+    const freePlan = FREE_PLAN_CHANNELS.has(cid);
+    const list = groups.get(cid) ?? [];
+    list.push(id);
+    groups.set(cid, list);
+  }
+  // 每组内按倍率升序：免费档（零消耗 / 订阅制）排最前，其余按倍率，再到模型名
+  for (const [cid, ids] of groups) {
+    const freePlan = FREE_PLAN_CHANNELS.has(cid);
+    ids.sort((a, b) => {
+      const ma = state.model_info?.[`${cid}/${a}`]?.multiplier ?? null;
+      const mb = state.model_info?.[`${cid}/${b}`]?.multiplier ?? null;
+      const ra = modelRank(ma, freePlan);
+      const rb = modelRank(mb, freePlan);
+      return ra - rb || a.localeCompare(b);
+    });
+  }
+  const channelCount = groups.size;
   const running = state.ui_state === "running";
 
   return (
@@ -112,55 +124,88 @@ export function Dashboard(): ReactElement {
         </p>
       </section>
 
-      {/* 模型墙：全局按倍率升序（免费最前），倍率内联进 chip，不再分组折叠 */}
+      {/* 模型墙（按渠道分组）：每组内按倍率升序（免费最前），倍率内联进 chip，全部平铺不折叠 */}
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-300">
           <Boxes className="h-4 w-4 text-sky-400" />
-          可用模型（按倍率排序，免费优先）
+          可用模型（渠道/模型）
         </h2>
-        {modelItems.length === 0 ? (
+        {state.models.length === 0 ? (
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-sm text-gray-500">
             （无模型：先在登录页完成渠道授权）
           </div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {modelItems.map((it) => {
-              const m = it.mult;
-              // 倍率内联：零消耗/订阅制标「免费」，其余标 ×倍率，紧贴模型名
-              const badge =
-                m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : it.freePlan ? "免费" : null;
-              const badgeTitle = m != null
-                ? m === 0
-                  ? "零消耗"
-                  : `消耗倍率 ×${formatMultiplier(m)}`
-                : "订阅制，无额外计费";
-              return (
-                <CopyChip
-                  key={it.full}
-                  value={it.full}
-                  display={it.full}
-                  badge={
-                    badge ? (
-                      <span
-                        title={badgeTitle}
-                        className={`ml-0.5 shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
-                          m === 0 || it.freePlan
-                            ? "bg-emerald-500/15 text-emerald-400"
-                            : "bg-amber-500/10 text-amber-300"
-                        }`}
-                      >
-                        {badge}
-                      </span>
-                    ) : undefined
-                  }
-                />
-              );
-            })}
+          <div className="grid gap-3 md:grid-cols-2">
+            {[...groups.entries()].map(([cid, ids]) => (
+              <ChannelModels
+                key={cid}
+                cid={cid}
+                ids={ids}
+                infoFor={(id) => state.model_info?.[`${cid}/${id}`]}
+              />
+            ))}
           </div>
         )}
       </section>
 
       {/* 授权链接 / 登录进度属于登录弹窗（账号池页），仪表盘不再渲染 —— 避免出现在各个页面 */}
+    </div>
+  );
+}
+
+/** 单渠道模型格：组内已按倍率升序，全部平铺，倍率内联进 chip。 */
+function ChannelModels({
+  cid,
+  ids,
+  infoFor,
+}: {
+  cid: string;
+  ids: string[];
+  infoFor: (id: string) => { multiplier: number | null; marketing: string } | undefined;
+}): ReactElement {
+  const freePlan = FREE_PLAN_CHANNELS.has(cid);
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">{cid}</span>
+        <span className="text-xs text-gray-500">{ids.length} 个模型</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {ids.map((id) => {
+          const info = infoFor(id);
+          const m = info?.multiplier;
+          // 倍率内联：零消耗/订阅制标「免费」，其余标 ×倍率，紧贴模型名
+          const badge =
+            m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : freePlan ? "免费" : null;
+          // title 语义分开：倍率 0 = 零消耗；订阅制 = 无倍率概念
+          const badgeTitle = m != null
+            ? m === 0
+              ? "零消耗"
+              : `消耗倍率 ×${formatMultiplier(m)}`
+            : "订阅制，无额外计费";
+          return (
+            <CopyChip
+              key={id}
+              value={`${cid}/${id}`}
+              display={id}
+              badge={
+                badge ? (
+                  <span
+                    title={badgeTitle}
+                    className={`ml-0.5 shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
+                      m === 0 || freePlan
+                        ? "bg-emerald-500/15 text-emerald-400"
+                        : "bg-amber-500/10 text-amber-300"
+                    }`}
+                  >
+                    {badge}
+                  </span>
+                ) : undefined
+              }
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
