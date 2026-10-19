@@ -351,9 +351,40 @@ POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfC
 - `type`：`"ai"` 表示模型生成
 - `code`：`0` 正常，`10050000` 鉴权失效，`429` 限流
 
-累积全部 `content` 帧即为最终正文（**纯文本，不是 JSON**）。网关在流结束后一次性输出。
+累积全部 `content` 帧即为**完整回复**，但它是 OrcaTerm 桌面客户端自己的**内部协议信封**（不是纯文本）：
 
-> 早期臆测上游返回 `{"code":0,"data":{"action":"completion","taskCompletion":"..."}}` 形态，被 curl 真机探测推翻。该结构来自 ZFXing-lite/orcaterm2api Go 参考实现对**非流式**模式的注释，实际流式走的是逐 token 增量。
+```jsonc
+// action=completion：正常回答
+{"action":"completion","thinking":"<思考链>","taskCompletion":"<正文>"}
+
+// action=ask：反问 + 选项按钮
+{"action":"ask","thinking":"...","question":"<反问>","options":["选项1","选项2"]}
+
+// action=review：请求执行工具
+{"action":"review","taskCompletion":"<说明>","tool":{"name":"execute_terminal_command","args":{"command":"ls"}}}
+```
+
+偶尔外面还套一层 markdown 围栏（```` ```json ````）。桌面客户端自己解析这个信封来渲染正文 / 思考 / 选项按钮。
+
+> **网关必须拆信封**（`unwrapProtocolEnvelope`）：直接把累积文本下发，客户端会看到一坨 JSON。
+> 拆法：`completion` → `taskCompletion`；`ask` → `question` + `options` 渲染成列表；
+> `review` → `taskCompletion`（工具名附在缺失时）；`thinking` → OpenAI 的 `reasoning_content` 字段。
+> 拆不掉时原样返回（宁可漏拆，不能吃掉正常回答）。
+
+#### 3.4.3.1 人设覆盖（emphasisPrompt 唯一作用点）
+
+上游将模型训练 / 提示成「OrcaTerm 云端服务器运维助手」，并要求它用上面的信封回复。
+网关要的是**通用模型能力**，所以 `input.emphasisPrompt` 末尾固定追加一段最高优先级指令：
+
+- 声明自己是通用 AI 助手，不再扮演运维助手；
+- 禁止输出 `{"action": ...}` 信封与内部协议字段；
+- 调用方的系统提示与上下文权限更高。
+
+实测（reasonix 真机）：叠加人设覆盖 + 数据层拆信封后，输出为干净的自然语言，
+并遵守调用方系统提示（例如被要求自我介绍时按客户端身份回答，而不是自称运维助手）。
+
+> 只做提示词不可靠（模型经常照旧输出信封），只做拆信封也不够（人设仍是运维助手）；
+> **两层都要有**。
 
 #### 3.4.4 上游模型目录（参考实现内置）
 
