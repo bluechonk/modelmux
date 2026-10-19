@@ -8,7 +8,7 @@ OrcaTerm（腾讯云出品的 AI 运维终端）渠道。
 | 能力 | 状态 |
 | --- | --- |
 | 登录（腾讯云） | 已实现（`mx login orcaterm`；GitHub 分支未实现，见 PROTOCOL §1.1） |
-| 凭据落盘 / 有效性探测 | 已实现 |
+| 凭据落盘 / token 自动续期 | 已实现（`OAuthRefreshToken`，剩余 <10 分钟自动换票，无需重登；见 PROTOCOL §1.7） |
 | 对话上游（`/messages*`） | 已实现（文本；工具调用见「已知限制」） |
 | 模型目录 | 内置表（无远端刷新） |
 | 额度 / 签到 | 无此概念（`capabilities.billing=false` / `signin=false`，CLI 与 UI 显示 `-`） |
@@ -18,9 +18,7 @@ OrcaTerm（腾讯云出品的 AI 运维终端）渠道。
 1. **工具调用未实现**：`upstream.buildChatBody()` 目前把 `tools` 固定为 `[]`，并丢弃
    assistant / tool 消息；翻译层只产出文本 delta。Reasonix 等 Agent 客户端发起的工具往返
    会表现为「模型只说不做」——验收时工具调用数为 0、文件不会落盘。
-2. **上游流偶发失败**：实测冒烟 3 次中前 2 次返回
-   `OrcaProtocolError: upstream error code=undefined`，第 3 次成功；需要重试或进一步诊断。
-3. **无额度 / 签到**：订阅制运维套餐，没有每日积分与签到端点；`mx bill` 显示 `-`。
+2. **无额度 / 签到**：订阅制运维套餐，没有每日积分与签到端点；`mx bill` 显示 `-`。
 
 ## 用法
 
