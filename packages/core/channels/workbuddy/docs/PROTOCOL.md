@@ -33,6 +33,10 @@
 - 目录端点受 UA 门禁：仅三段式 CLI UA 能拿完整目录（hub `remote_config_headers` 注释），
   故一律用 `buildChatHeaders()`。
 - 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddy/cache/models.json`。
+- **倍率在 `models[]` 元数据的 `credits` 字段**（形如 `"x0.34 credits"`），
+  与 workbuddyai 同一 `/v3/config` 端点、同一口径；实测 19 条中 18 条有值
+  （`x0.00` 视为免费）。解析见 `catalog.ts` 的 `parseCreditsRate`，
+  产物经共享层 `model_info.multiplier` 下发前端。
 
 ## 2. 参考实现补充的两个行为细节（HanawaBanana，Go）
 

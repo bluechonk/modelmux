@@ -1,6 +1,6 @@
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { api } from "../lib/api";
 import { AccountCard, type AccountPool, type ChannelBilling } from "../components/AccountCard";
 import { LoginModal } from "../components/LoginModal";
@@ -133,16 +133,6 @@ export function Accounts(): ReactElement {
     },
     onError: (err) => setError(String(err)),
   });
-  /** 刷新账单（全渠道或单渠道）：后端真实重查一遍上游账单。 */
-  const refreshBilling = useMutation({
-    mutationFn: async (cid?: string) => await api.commands.billing(cid, { refresh: true }),
-    onSuccess: () => {
-      setError("");
-      void qc.invalidateQueries({ queryKey: ["billing"] });
-    },
-    onError: (err) => setError(String(err)),
-    onSettled: () => setBusyKey(null),
-  });
 
   // 登录成功即收尾：自动关闭弹窗并立刻刷新账号池 / 额度，不等下一轮轮询
   useEffect(() => {
@@ -164,8 +154,6 @@ export function Accounts(): ReactElement {
     setError("");
     setNotice("登录成功，账号已入池。");
     invalidateAll();
-    // 新账号的额度与旧账号不同，主动重查一次上游账单
-    refreshBilling.mutate(loginChannel);
   }, [loginChannel, state.data?.ui_state]);
 
   // 合并三路数据：账号池 + 登录状态 + 渠道账本（都按 cid 对齐）
@@ -207,23 +195,10 @@ export function Accounts(): ReactElement {
           <Users className="h-6 w-6 text-sky-400" />
           账号池
         </h1>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">
-            {list.filter((x) => x.present).length} / {Math.max(list.length, loginChannels.length)} 个渠道已登录
-          </span>
-          <button
-            className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-200 transition-colors hover:bg-gray-700 disabled:opacity-50"
-            disabled={refreshBilling.isPending}
-            onClick={() => refreshBilling.mutate(undefined)}
-            title="重新请求全部渠道的账单 / 剩余额度"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshBilling.isPending ? "animate-spin" : ""}`} />
-            刷新全部额度
-          </button>
-        </div>
+        <span className="text-xs text-gray-500">
+          {list.filter((x) => x.present).length} / {Math.max(list.length, loginChannels.length)} 个渠道已登录
+        </span>
       </div>
-
-      {/* 添加账号入口已移到每个渠道卡片的右上角（+ 按钮） */}
 
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && <Alert tone="info">{notice}</Alert>}
@@ -243,8 +218,6 @@ export function Accounts(): ReactElement {
             onActivate={(cid, key) => activate.mutate({ cid, key })}
             onRemove={(cid, key) => remove.mutate({ cid, key })}
             onAdd={(cid) => setLoginChannel(cid)}
-            onRefreshBilling={(cid) => refreshBilling.mutate(cid)}
-            refreshing={refreshBilling.isPending && refreshBilling.variables === pool.cid}
             busyKey={busyKey}
           />
         ))}

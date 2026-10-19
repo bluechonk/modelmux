@@ -74,6 +74,8 @@ export interface ModelEntry {
   context_window: number;
   max_output: number;
   max_max_tokens?: number;
+  /** 消耗倍率（features.consumption_rate；活动期取 activity_discount 折后值）。 */
+  multiplier?: number;
   max_mode: boolean;
   multimodal: boolean;
   tiered: boolean;
@@ -179,6 +181,23 @@ function decorateName(base: string, contact: Record<string, unknown>): string {
     return `${base} · x${discount.toFixed(2)}→x${rate.toFixed(2)}`;
   }
   return `${base} · x${rate.toFixed(2)}`;
+}
+
+/**
+ * 从 `features`（JSON 字符串）提取消耗倍率。
+ *
+ * 基础倍率在 `consumption_rate`；活动期（`activity_discount.enable === true`）
+ * 取 `data.current.consumption_rate`（折后生效价）。取不到返回 undefined（不猜）。
+ */
+function parseFeatureRate(features: unknown): number | undefined {
+  const f = parseContactConfig(features);
+  const ad = isRecord(f["activity_discount"]) ? (f["activity_discount"] as Record<string, unknown>) : null;
+  if (ad && ad["enable"] === true) {
+    const data = isRecord(ad["data"]) ? (ad["data"] as Record<string, unknown>) : null;
+    const current = data && isRecord(data["current"]) ? (data["current"] as Record<string, unknown>) : null;
+    if (typeof current?.["consumption_rate"] === "number") return current["consumption_rate"];
+  }
+  return typeof f["consumption_rate"] === "number" ? f["consumption_rate"] : undefined;
 }
 
 /**
@@ -330,6 +349,32 @@ export function resetRemoteCache(): void {
 }
 
 /**
+ * 从 `features`（JSON 字符串）提取消耗倍率。
+ *
+ * 实测顶层 `consumption_rate` 是**对象** `{enable:true, data:{rate:0.8}}`；
+ * 活动开启时（`activity_discount.enable`）优先取 `data.current.consumption_rate`
+ * 的折后值（实测 subsidy 活动 0.4→0.2）。兼容裸数字的旧形态。
+ * 解析不出数字返回 undefined（不猜）。
+ */
+function rateFromFeatures(features: unknown): number | undefined {
+  const parsed = parseContactConfig(features);
+  const activity = isRecord(parsed["activity_discount"]) ? parsed["activity_discount"] : undefined;
+  if (activity?.["enable"] === true) {
+    const data = isRecord(activity["data"]) ? activity["data"] : undefined;
+    const current = data && isRecord(data["current"]) ? data["current"] : undefined;
+    const discounted = current?.["consumption_rate"];
+    if (typeof discounted === "number" && Number.isFinite(discounted)) return discounted;
+  }
+  const base = parsed["consumption_rate"];
+  if (typeof base === "number" && Number.isFinite(base)) return base;
+  if (isRecord(base)) {
+    const inner = isRecord(base["data"]) ? base["data"]["rate"] : undefined;
+    if (typeof inner === "number" && Number.isFinite(inner)) return inner;
+  }
+  return undefined;
+}
+
+/**
  * 解析 Remote 网页目录载荷（协议 §5.0）：
  * `{data:{list:[{function, models:[{name,…}]}]}}` —— 三组模型按组内顺序合并，
  * 同名后不覆盖前（agent_remote 组最全、排最前）。
@@ -355,6 +400,7 @@ export function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] 
         function: nonEmpty(group["function"]) ?? nonEmpty(group["agent_type"]) ?? "solo_agent_remote",
         context_window: FALLBACK_CONTEXT_WINDOW,
         max_output: FALLBACK_MAX_OUTPUT,
+        multiplier: rateFromFeatures(raw["features"]),
         max_mode: false,
         multimodal: false,
         tiered: false,

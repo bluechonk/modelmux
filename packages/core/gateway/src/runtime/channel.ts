@@ -156,6 +156,17 @@ export interface UpstreamModule {
    */
   isAuthFailure?(status: number, body: string): boolean;
   /**
+   * 可选：上游响应头到达后允许的**连续静默上限**（毫秒），默认 `MODELMUX_READ_TIMEOUT_MS`（120s）。
+   *
+   * 有些上游排队/长思考时**收下请求（HTTP 200）后长时间零字节**，且不像其他渠道那样
+   * 发心跳或排队错误帧 —— 固定 120s 会把还活着的上游误杀成超时。
+   * 实测 Qoder 长上下文首字延迟 40–71s，排队时静默可超过 120s（见 qoder/docs/PROTOCOL.md）。
+   *
+   * ⚠ 只放宽「连接层静默容忍」，不改变任何协议语义；声明后网关的首帧等待、
+   * 空闲守卫与探测层统一用这个上限。
+   */
+  idleTimeoutMs?(): number;
+  /**
    * 构造上游请求体。
    *
    * 返回**对象**时，网关会 `JSON.stringify` 后发出（绝大多数渠道）。

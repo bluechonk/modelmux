@@ -240,6 +240,11 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
   `DeepSeek-V4-Pro-Official`、`kimi-k3`、`kimi-k2.7-code`、`Doubao-Seed-*`、`mimo-v2.6-*`、`step-5-preview`
 - 模型名大小写混排（`deepseek-v4.1-flash` 与 `DeepSeek-V4-Flash-Official` 并存）；
   池白名单在共享层做 case-insensitive 匹配
+- **倍率在 `features`**（JSON 字符串，须二次 parse）：顶层 `consumption_rate`
+  是**对象** `{enable:true, data:{rate:0.8}}`（不是裸数字），基础倍率取 `data.rate`；
+  活动开启时（`activity_discount.enable`）优先取 `data.current.consumption_rate`
+  的折后值（实测 subsidy 活动 0.4→0.2）。共享层据此产出 `model_info.multiplier`
+  （实测 20/20 模型全有倍率）
 
 ### 5.1 拉取（Solo 通道，trae-auth.ts:676-706；**对新账号已 2001，仅存档**）
 
