@@ -129,13 +129,14 @@ const QUEUE_RETRY_BUDGET_MS = 300_000;
 /**
  * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道快速重试**次数与退避基数。
  *
- * 实测这类失败是瞬时的：同一形状的请求时而 4.6 秒出字成功、时而静默断流。
- * 一次就判死会把可用渠道误报成坏渠道（参考实现 qoder2api-hub 对瞬时上游故障
- * 同样做同账号 1s/2s 两次重试）。空闲超时不重试：那已经等满渠道声明的静默上限，
- * 客户端早已等不及，重试只会拖长失败。
+ * 上游对「已收下又立刻断流」的请求是**瞬时态**（同形态请求时而 4.6s 出字、时而断流），
+ * 重试通常即恢复（.tmp 实测：同 body 重放 0s/3s/10s/20s 全部成功）。退避取 15s 是
+ * 与实测成功样本对齐的保守值 —— 太短（<3s）在 qoder 上重试仍会被 terminates。
+ * 参考实现 qoder2api-hub 对瞬时上游故障同样做同账号 1s/2s 两次重试。
+ * 空闲超时不重试：那已经等满渠道声明的静默上限，客户端早已等不及，重试只会拖长失败。
  */
 const PROBE_RETRY_MAX = 2;
-const PROBE_RETRY_BASE_MS = 1_000;
+const PROBE_RETRY_BASE_MS = 15_000;
 
 /**
  * 渠道可显式加权 / 主机级隔离：探测重试前换一次候选主机。
@@ -696,7 +697,11 @@ async function consumeQueueProbe(
         probe.rawDelaySec = sec;
         probe.delayMs = Math.max(1_000, sec * 1000);
       }
-      return; // 排队帧本身不转发，继续读后续帧
+      // ⚠ 排队帧**就是这条流的最后一帧**（qoder 实测：发出排队帧后连接保持但彻底静默，
+      // 上游期望客户端按 retryAfterSeconds 等待后重开新请求）。继续读 = 死锁到空闲
+      // abort（undici 报 terminated）；立即返回，交调用方的「等待 → 重开」重试循环接管。
+      stopped = true;
+      return;
     }
     probe.frames.push(buf);
     stopped = true; // 非排队错误帧：停止探测，交回调用方转发/回报

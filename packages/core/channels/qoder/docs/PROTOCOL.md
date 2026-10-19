@@ -397,3 +397,22 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `src/upstream.ts`），网关等待首帧
 期间每 5 秒补 `: ping`。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
 仍会在 900 秒后按超时收尾。
+
+### 7.5 主机级故障与探测重试的主机轮换（2026-10-19 实测）
+
+**现象**：§7.4 的「200 后零字节 / `terminated` 断流」是**主机级**瞬时故障 ——
+同一账号下 `api1` 静默挂起时，`api2` / `api3` 秒回；换台机器即恢复，与请求体无关。
+
+**为什么能换主机**：签名（§7.1）只覆盖 `path`、**不含 host**，换主机后同一签名仍然有效；
+模型目录（§5）早已按 `gatewayCandidates` 做多主机轮换，推理链路此前没跟上。
+
+**modelmux 侧对应**：`upstream.ts` 暴露四个可选钩子，网关探测层用鸭子类型调用 ——
+
+- `chatHostCandidates()`：返回 `[当前主机, 区域表其余候选]` 的副本
+- `setChatHostOverride(host)` / `currentChatHost()`：切换 / 读取本次应答用的主机（含签名槽重签）
+- `rememberChatHost()`：换主机重试成功后，把新主机持久化进凭据 `gatewayHost`，
+  后续请求直接从记忆里的健康主机起步，不再每次先撞坏的那台
+
+**排队帧收尾**：`10605` 排队帧**就是这条流的最后一帧** —— 上游发出后保持连接但彻底静默，
+期望客户端按 `retryAfterSeconds` 等待后重开新请求。探测层识别到排队帧即停止读取、交回
+「等待 → 重开」循环；若继续读会死等到空闲 abort（undici 报 `terminated`）。
