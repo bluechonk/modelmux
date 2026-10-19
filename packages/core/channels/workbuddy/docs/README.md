@@ -81,6 +81,15 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
 
 临时脚本示例：`.tmp/probe-xxx.mjs`（任务结束前清理）。
 
+### 2026-10-19 实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`modelmux/workbuddy/hy3`，倍率 0）：
+
+- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容与要求一致，
+  同会话 `messageCount` 递增，说明多轮工具调用链路完整。
+- 倍率 0：测试前后 `mx bill workbuddy` 剩余额度无变化。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进 [`PROTOCOL.md`](./PROTOCOL.md)。

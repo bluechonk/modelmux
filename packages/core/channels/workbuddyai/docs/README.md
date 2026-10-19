@@ -97,6 +97,16 @@ src/
 
 临时脚本示例：`.tmp/probe-xxx.mjs`（任务结束前清理）。
 
+### 2026-10-19 实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`modelmux/workbuddyai/hy3`，倍率 0）：
+
+- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增，多轮链路完整。
+- 倍率 0：测试前后 `mx bill workbuddyai` 剩余额度无变化。
+- 注意：`workbuddyai` 免费档模型有 `hy3` / `step-5-preview` / `deepseek-v4.1-flash` 三个，
+  测例优先用倍率 0 的，其余模型倍率最高到 6.67（`gpt-6-astra`），勿用于自动化测试。
+
 ## 上游约束（改代码前必读）
 
 转发层要满足六条上游硬约束，实现全在 `src/upstream.ts`（规格见 `docs/PROTOCOL.md` §5）：

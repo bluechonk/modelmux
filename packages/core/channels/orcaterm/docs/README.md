@@ -61,6 +61,26 @@ Tauri 按 Bundle ID `com.orcaterm-desktop.app` 落数据：
 | `%LOCALAPPDATA%\com.orcaterm-desktop.app\` | `.cookies`、`logs\orcaterm.log`、`EBWebView\`（WebView2 profile） |
 | `%APPDATA%\com.orcaterm-desktop.app\` | `data.bin`（KV 存储）、`.window-state.json` |
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / 最小对话 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/orcaterm/hy3`）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），纯文本对话正常。
+- 本渠道**订阅制、无倍率概念**（`capabilities.billing=false`），`mx bill` 显示 `-`，
+  测试前后无额度差值可比。
+- 工具往返**不适用**：见「已知限制」第 1 条 —— `tools` 固定为空、assistant/tool 消息被丢弃，
+  模型只说不做，工具调用数恒为 0、文件不会落盘。这不是上游问题，是本渠道尚未实现。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）。

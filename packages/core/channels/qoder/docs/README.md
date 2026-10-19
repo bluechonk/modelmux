@@ -35,6 +35,26 @@ node channels/qoder/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 > 翻译器对非 200 信封会先解析 body 保真内层 code/message（否则 10605 会被通用文案盖掉、
 > 排队重试永不触发），见 `channels/qoder/src/upstream.ts` 的 `newTranslator`。
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/qoder/qwen3.8-flash`，倍率 0）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
+- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
+  排队重试机制（见「排队重试」），不是故障。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进 [`PROTOCOL.md`](./PROTOCOL.md)。

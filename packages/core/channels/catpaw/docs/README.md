@@ -30,6 +30,24 @@
 - `catpaw/longcat-2.0` 与 `catpaw/glm-5.3-flash`：API 层可跑通，但真实客户端仍有
   兼容问题（用户实测），不建议作为默认模型。
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx model catpaw --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/catpaw/longcat-2.0`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容一致，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill catpaw` 剩余额度无变化。
+
 ## 快速开始
 
 ```bash

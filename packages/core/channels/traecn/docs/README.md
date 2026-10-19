@@ -23,6 +23,27 @@ node channels/traecn/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 `http://127.0.0.1:4412/v1`（唯一端口，全部渠道从它后面供给池内模型）。
 单渠道独立运行（`node channels/traecn/dist/cli.js serve`）仅在调试该渠道时用。
 
+## 测试
+
+渠道不写单元/集成测试（根 `AGENTS.md` 的「测试规则」第 1 条），验收走端到端。
+
+- **端到端**：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
+- 端到端覆盖：登录入池 / `mx model traecn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+- **临时验证**：一次性探测脚本写项目根 `.tmp/`，用真实账号真实请求跑，完事删除，
+  不入库、不写 fixture；禁止虚构请求头/凭据。
+
+### 2026-10-19 实测
+
+Reasonix CLI 直连网关（`modelmux/traecn/glm-5.3-flash`，本渠道最低倍率 0.06）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 本渠道**没有倍率 0 的模型**：最低 0.06（`glm-5.3-flash` / `mimo-v2.6-flash` /
+  `doubao-seed-code`），测试须选这档；`kimi-k3` 倍率 1.83，禁用于自动化测试。
+- 上游偶发瞬时错误（如 `failed to get app config: record not found`，code 2001），
+  重试即可恢复，属上游侧抖动。
+
 ## 参考实现（reference/）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进 [`PROTOCOL.md`](./PROTOCOL.md)。
