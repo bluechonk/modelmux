@@ -448,6 +448,17 @@ Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0
 
 - 冒烟通过（access 日志 `status: 200`、`stream: true`）。
 
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login lobsterai          # 登录入池
+mx status lobsterai         # 状态与凭据
+mx model lobsterai --refresh # 目录刷新
+mx bill lobsterai           # 额度与倍率（测试后核对是否扣费）
+```
+
 ### 端到端测试覆盖
 
 登录入池 / `mx model lobsterai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。

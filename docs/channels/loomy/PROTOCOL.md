@@ -436,6 +436,10 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144。
 本表**先采信远端**；若实测长上下文被拒，改为 262144。
 
+⚠ 上表的**倍率**是 2026-09-26 的快照：`spark-x` 当时是 `x0.1`，而 2026-10-19 的实测
+远端已改成**倍率 0（免费）**（见「2026-10-19 端到端实测」）。倍率以**远端为准**，
+本表只作离线兜底。
+
 ### 5.5 缓存策略（loomy-adapter.ts:264-286）
 
 原实现是 `this.remoteModels = fallback; return fallback` —— 把兜底表当成「已加载」记下，
@@ -590,6 +594,17 @@ Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
 - 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
 - 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
 
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login loomy           # 登录入池（微信扫码，唯一登录路）
+mx status loomy          # 状态与凭据
+mx model loomy --refresh # 目录刷新
+mx bill loomy            # 额度与倍率（测试后核对是否扣费）
+```
+
 ### 端到端测试覆盖
 
 登录入池 / `mx model loomy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
@@ -601,5 +616,5 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 仓库 | 用途 |
 | --- | --- |
 | [Patrick130306/loomy2api](https://github.com/Patrick130306/loomy2api) | 主参照（31★）：额度转 OpenAI 兼容 API |
-| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | 多账号池 + Web 面板 + 防风控；其 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据 |
+| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | 多账号池 + Web 面板 + 防风控；该仓库内的 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据 |
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | 接口结构参考：端点、鉴权形状、请求/响应结构 |

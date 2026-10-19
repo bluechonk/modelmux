@@ -353,6 +353,10 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 - **SSE 空闲超时分两阶段**：首 token 300_000 ms、chunk 间 600_000 ms
  （依据：APIG 网关对 SSE 有 ~60s 空闲断连策略，`reader.read()` 抛 `TypeError: terminated`）
 
+> ⚠ 本节是**渠道层**的排队判定（渠道自己重发整个请求）。共享层转发层对**任何**渠道的
+> 排队帧另有一套退避重试（总时长上限 **5 分钟**，见
+> [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.4）—— 两者叠加，不是冲突。
+
 ---
 
 ## 5. 模型目录
@@ -530,6 +534,17 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 Reasonix CLI 直连网关（`codearts/deepseek-v4-flash`）：
 
 - 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`，上游响应快）。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login codearts          # 登录入池（浏览器授权）
+mx status codearts         # 状态与凭据
+mx model codearts --refresh # 目录刷新
+mx bill codearts           # 额度（该渠道不暴露倍率，见「已知限制」）
+```
 
 ### 端到端测试覆盖
 

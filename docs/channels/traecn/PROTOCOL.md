@@ -414,11 +414,18 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ### 怎么测这个渠道
 
-- 登录入池：`mx login traecn`（浏览器授权 + 本地回调，规格见 §2.1）
-- 目录刷新：`mx model traecn --refresh`；状态与额度：`mx status traecn` / `mx bill traecn`
-- 端到端：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
-  `http://127.0.0.1:4412/v1`，按 `traecn/<模型>` 池 id 发正确的 OpenAI 兼容请求
-  （最小对话 / 工具往返 / 流式 SSE）
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1）
+mx status traecn          # 状态与凭据
+mx model traecn --refresh # 目录刷新
+mx bill traecn            # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model traecn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 ### 2026-10-19 端到端实测
 
@@ -439,7 +446,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 仓库 | 用途 |
 | --- | --- |
-| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（`docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`） |
+| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（该仓库内的 `docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`） |
 | [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | 国内版实现参照 |
-| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（`docs/RESEARCH.md`） |
+| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（该仓库内的 `docs/RESEARCH.md`） |
 | [A-23187/trae-api](https://github.com/A-23187/trae-api) | 最小实现样本 |
