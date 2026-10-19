@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Boxes, ChevronDown, Globe, Link2, MessageSquare, Server } from "lucide-react";
+import { Activity, Boxes, Globe, Link2, MessageSquare, Server } from "lucide-react";
 import { CopyChip } from "../components/CopyChip";
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 
 /** 倍率格式化：最多 4 位小数并去掉尾随 0。 */
@@ -15,8 +15,13 @@ function formatMultiplier(value: number): string {
  */
 const FREE_PLAN_CHANNELS = new Set(["orcaterm"]);
 
-/** 折叠阈值：超过这个数量的模型默认收起，点「展开」看全部。 */
-const COLLAPSE_AT = 5;
+/** 全局模型排序：免费档（零消耗 / 订阅制无倍率概念）排最前，其余按倍率升序。 */
+function modelRank(mult: number | null, freePlan: boolean): number {
+  // 零消耗(m===0) 与订阅制无倍率概念(null) 都归免费档，升序时自然在最前
+  if (mult === 0 || (mult == null && freePlan)) return 0;
+  if (mult == null) return 0;
+  return mult;
+}
 
 /** 仪表盘页：全局状态快照（统计卡 + 端点 + 按渠道分组的模型墙）。 */
 export function Dashboard(): ReactElement {
@@ -30,16 +35,18 @@ export function Dashboard(): ReactElement {
   if (error) return <Alert tone="error">加载失败：{String(error)}</Alert>;
   if (!state) return <div className="text-gray-500">（无数据）</div>;
 
-  // 模型按渠道分组：`<cid>/<模型>` → { cid: [模型…] }
-  const groups = new Map<string, string[]>();
-  for (const m of state.models) {
-    const slash = m.indexOf("/");
-    const cid = slash < 0 ? m : m.slice(0, slash);
-    const id = slash < 0 ? m : m.slice(slash + 1);
-    const list = groups.get(cid) ?? [];
-    list.push(id);
-    groups.set(cid, list);
-  }
+  // 全局模型：附带倍率，按倍率升序（免费最前），不再按渠道分组
+  const modelItems = state.models
+    .map((full) => {
+      const slash = full.indexOf("/");
+      const cid = slash < 0 ? full : full.slice(0, slash);
+      const id = slash < 0 ? full : full.slice(slash + 1);
+      const mult = state.model_info?.[full]?.multiplier ?? null;
+      const freePlan = FREE_PLAN_CHANNELS.has(cid);
+      return { full, cid, id, mult, freePlan, rank: modelRank(mult, freePlan) };
+    })
+    .sort((a, b) => a.rank - b.rank || a.full.localeCompare(b.full));
+  const channelCount = new Set(modelItems.map((m) => m.cid)).size;
   const running = state.ui_state === "running";
 
   return (
@@ -68,7 +75,7 @@ export function Dashboard(): ReactElement {
           <span className="ml-1 text-sm text-gray-500">个</span>
         </StatCard>
         <StatCard icon={<Server className="h-4 w-4" />} label="供给渠道">
-          <span className="text-lg font-semibold">{groups.size}</span>
+          <span className="text-lg font-semibold">{channelCount}</span>
           <span className="ml-1 text-sm text-gray-500">个</span>
         </StatCard>
       </div>
@@ -105,99 +112,55 @@ export function Dashboard(): ReactElement {
         </p>
       </section>
 
-      {/* 模型墙（按渠道分组）：每格自然铺开，超过阈值折叠，不再用内嵌滚动条 */}
+      {/* 模型墙：全局按倍率升序（免费最前），倍率内联进 chip，不再分组折叠 */}
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-300">
           <Boxes className="h-4 w-4 text-sky-400" />
-          可用模型（渠道/模型）
+          可用模型（按倍率排序，免费优先）
         </h2>
-        {state.models.length === 0 ? (
+        {modelItems.length === 0 ? (
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-sm text-gray-500">
             （无模型：先在登录页完成渠道授权）
           </div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {[...groups.entries()].map(([cid, ids]) => (
-              <ChannelModels
-                key={cid}
-                cid={cid}
-                ids={ids}
-                infoFor={(id) => state.model_info?.[`${cid}/${id}`]}
-              />
-            ))}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {modelItems.map((it) => {
+              const m = it.mult;
+              // 倍率内联：零消耗/订阅制标「免费」，其余标 ×倍率，紧贴模型名
+              const badge =
+                m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : it.freePlan ? "免费" : null;
+              const badgeTitle = m != null
+                ? m === 0
+                  ? "零消耗"
+                  : `消耗倍率 ×${formatMultiplier(m)}`
+                : "订阅制，无额外计费";
+              return (
+                <CopyChip
+                  key={it.full}
+                  value={it.full}
+                  display={it.full}
+                  badge={
+                    badge ? (
+                      <span
+                        title={badgeTitle}
+                        className={`ml-0.5 shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
+                          m === 0 || it.freePlan
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : "bg-amber-500/10 text-amber-300"
+                        }`}
+                      >
+                        {badge}
+                      </span>
+                    ) : undefined
+                  }
+                />
+              );
+            })}
           </div>
         )}
       </section>
 
       {/* 授权链接 / 登录进度属于登录弹窗（账号池页），仪表盘不再渲染 —— 避免出现在各个页面 */}
-    </div>
-  );
-}
-
-/** 单渠道模型格：自然铺开，超过 COLLAPSE_AT 个默认折叠，点按钮展开全部。 */
-function ChannelModels({
-  cid,
-  ids,
-  infoFor,
-}: {
-  cid: string;
-  ids: string[];
-  infoFor: (id: string) => { multiplier: number | null; marketing: string } | undefined;
-}): ReactElement {
-  const [expanded, setExpanded] = useState(false);
-  const collapsible = ids.length > COLLAPSE_AT;
-  const shown = collapsible && !expanded ? ids.slice(0, COLLAPSE_AT) : ids;
-
-  return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">{cid}</span>
-        <span className="text-xs text-gray-500">{ids.length} 个模型</span>
-        {collapsible && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="ml-auto flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
-          >
-            {expanded ? "收起" : `展开 ${ids.length - COLLAPSE_AT} 个`}
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </button>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {shown.map((id) => {
-          const info = infoFor(id);
-          const m = info?.multiplier;
-          // 订阅制渠道无倍率概念 → 统一标「免费」；其它渠道拿不到倍率则不标
-          const freePlan = FREE_PLAN_CHANNELS.has(cid);
-          const badge =
-            m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : freePlan ? "免费" : null;
-          // title 语义分开：倍率 0 = 零消耗；订阅制 = 无倍率概念
-          const badgeTitle = m != null ? (m === 0 ? "零消耗" : `消耗倍率 ×${formatMultiplier(m)}`) : "订阅制，无额外计费";
-          return (
-            <div key={id} className="flex items-center gap-1">
-              <CopyChip value={`${cid}/${id}`} display={id} />
-              {badge && (
-                <span
-                  title={badgeTitle}
-                  className={`shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
-                    m === 0 || freePlan
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-amber-500/10 text-amber-300"
-                  }`}
-                >
-                  {badge}
-                </span>
-              )}
-              {info?.marketing && (
-                <span className="shrink-0 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-300">
-                  {info.marketing}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
