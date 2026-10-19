@@ -4,6 +4,25 @@
 
 ---
 
+## 唯一登录路径：浏览器门户 + 本地回调（authCode）
+
+**本渠道只有一条登录路径**（收敛结论见 §2.6）：
+
+```
+浏览器打开 {portalBase}/portal#/login?source=electron&redirect_uri=…&state=…
+  → 门户回跳 http://127.0.0.1:{随机端口}/auth/callback?code=…&state=…
+  → 本地回调服务器校验 state → POST /api/auth/exchange → 落盘 credentials.json
+```
+
+- `redirect_uri` 必须是 `http://127.0.0.1:{port}/auth/callback` 形态（登录页会校验）；
+  hash 段 `#/login` 必须显式拼装，不能用 `URL.searchParams`。
+- **粘贴兜底不是第二条路径**：浏览器回跳打不到本机时，把地址栏整条 URL 粘回来，
+  兜底把它**转交同一个回调处理器**（本地回环请求），走的仍是同一条 exchange 路径。
+- **不引入参考实现的 `login url` / `login poll` 两进程拆分**：那是容器化 / 脚本化的产物
+  （状态靠文件传递），不是上游协议要求。
+
+---
+
 ## 1. 端点（确切 URL）
 
 Base（API）：`https://lobsterai-server.youdao.com`（lobsterai-product.ts:63）

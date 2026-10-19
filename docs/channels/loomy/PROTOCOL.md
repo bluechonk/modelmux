@@ -4,6 +4,33 @@
 
 ---
 
+## 唯一登录路径：微信扫码（纯 HTTP 二维码 + 长轮询）
+
+**微信扫码是本渠道唯一的登录路径**（`mx login loomy`）。手机号 + 验证码**不是**登录入口，
+只是「微信未绑手机号」时的**绑定子步骤**。完整判据见 §2.1。
+
+```
+1. GET https://open.weixin.qq.com/connect/qrconnect?appid=wx18d60be432287cf8
+     &redirect_uri=<官方地址> &response_type=code&scope=snsapi_login&state=<32位随机串>
+   → 页面内嵌 uuid（正则提取，无需执行 JS）
+2. GET https://open.weixin.qq.com/connect/qrcode/<uuid>  → 二维码图片（实测 JPEG）
+3. 长轮询 GET https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=<uuid>
+   errcode 408=待扫码 / 404=已扫待确认 / 405=已确认（wx_code 就在这一帧）/ 403=取消 / 402=失效
+4. POST https://account.xfinfr.com/login/thirdAccount/bind/auth
+   body { "tcode": { "code": "<微信code>" }, "type": "wx" }  → { bind, rcode }
+   bind=1（已绑手机号）→ POST /login/thirdAccount/bind/skip 拿 session
+   bind=0（未绑）→ POST /login/thirdAccount/bind/sendMsg + /bind/checkCode
+                  （需 LOOMY_PHONE / LOOMY_SMS_CODE，⚠ 该分支尚未验证）
+```
+
+⚠ **授权页与二维码是两个不同的会话**（2026-10-20 实测）：授权页每次加载都重新生成 uuid，
+长轮询认的是 **uuid** 而不是 state —— 必须把**本进程这次加载**抽出的 uuid 渲染成二维码给用户扫。
+
+**粘贴兜底不是第二条路径**：微信 302 回官方地址（本机收不到），用户把地址栏整条链接粘回 CLI，
+渠道解析出微信 code 继续走**同一条** `bind/auth` 链路（§2.6）。
+
+---
+
 ## 1. 端点与确切 URL
 
 业务基址 `https://loomyad.xunfei.cn`（API 前缀 `/api/v1`），账号基址 `https://account.xfinfr.com`。

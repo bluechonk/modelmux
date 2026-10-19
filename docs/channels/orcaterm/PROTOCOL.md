@@ -5,6 +5,29 @@
 
 ---
 
+## 唯一登录路径：腾讯云 OAuth（sessionId → 轮询换 token）
+
+**本渠道只有一条登录路径**：腾讯云（`provider=txcloud`）网页授权。实现见 `src/cred.ts::login()`。
+
+```
+1. CLI 自造 sessionId → GET https://orcaterm.com/oauth/authorize?provider=txcloud&source=desktop&session_id=<uuid>
+   → 302 腾讯云授权页（state 由服务端随会话生成，CLI 不需要它）
+2. 用户在浏览器完成腾讯云登录 / 授权 → 落到
+   https://orcaterm.com/oauth/callback?provider=txcloud&code=…&signature=…&state=…
+3. CLI 拿自己那个 sessionId 轮询换 token：
+   POST https://orcaterm.com/cgi/api
+   {"action":"OAuthExchangeToken","data":{"sessionId":"<CLI 生成的那个>"}}
+   → {"data":{"Response":{"Code":0,"AccessToken":"<HS256 JWT>","RefreshToken":"…","ExpiresIn":7200,"User":{…}}}}
+```
+
+**全自动**：只需在浏览器登录 / 授权一次，CLI 自动轮询换取 token，**不需要复制任何内容**。
+
+**其余路径为何不采纳**（判据见 §1.1）：`wechat` 扫码桥接（CLI 侧未点验）、`github`
+（授权地址形态都未实测）、浏览器控制台态 `uin`+`skey`（与「只保留一条登录路径」冲突）——
+三条**只作协议事实保留**，CLI 不提供入口。
+
+---
+
 ## 1. 登录
 
 ### 1.1 三种身份提供方与两条授权路线
