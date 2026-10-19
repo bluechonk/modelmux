@@ -2,7 +2,7 @@
  * Raccoon（商汤小浣熊）认证：手机号 AES-128-CFB 加密、网页登录（授权码）/短信登录、
  * 续期与凭据持久化。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 channels/raccoon/docs/PROTOCOL.md）
+ * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/raccoon/PROTOCOL.md）
  *
  * 1. **手机号必须 AES-128-CFB 加密**（密钥 `senseraccoon2023`，16 字节 ⇒ AES-128，
  *    输出 `base64(iv ‖ ciphertext)`）。**不加密的后果**：`send_sms` 回
@@ -320,7 +320,7 @@ export function newLoginState(): string {
  *   因此 CLI 用本地 HTTP 回调服务器即可自动收码。
  *
  * ⚠ 不要用 `/login/mp?code=…`：那条只给**官方手机 App 扫码**用，网页端没有该路由，
- * 浏览器打开是死链（真机踩过，见 channels/raccoon/docs/PROTOCOL.md §2.4）。
+ * 浏览器打开是死链（真机踩过，见 docs/channels/raccoon/PROTOCOL.md §2.4）。
  */
 export function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
   const url = new URL(AUTHORIZE_PATH, baseUrl(baseOverride));

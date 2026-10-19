@@ -32,6 +32,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   cacheDir as sharedCacheDir,
+  canonicalModelId,
   readCatalogCache,
   writeCatalogCache,
 } from "@modelmux/gateway";
@@ -42,6 +43,8 @@ export interface ModelEntry {
   name: string;
   /** 上下文窗口（仅静态表里有值；远端不下发时留 undefined 让后端默认裁剪）。 */
   context_window?: number;
+  /** 最大输出 token（远端不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  max_output?: number;
   /** 消耗倍率（来自 builtin 端点 `credit` 档位的 `ratio_display`）；benefit 模型无此字段。 */
   multiplier?: number;
   source: "fallback" | "remote";
@@ -69,16 +72,71 @@ export const FALLBACK_MODEL_IDS: readonly string[] = [
 export const CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
   ["GLM-5.2", 202_752],
   ["glm-5.3-flash", 1_048_576],
+  ["glm-5.3", 1_048_576],
+  ["openpangu-2.0-flash", 524_288],
+  ["openpangu-2.0-pro", 524_288],
   ["deepseek-v4-flash", 1_048_576],
   ["deepseek-v4-pro", 1_048_576],
   ["deepseek-v4.1-flash", 1_000_000],
 ]);
 
+/**
+ * 已知模型的**最大输出 token**（远端不下发，按公开规格补）。
+ *
+ * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ */
+const MAX_OUTPUTS: Readonly<Record<string, number>> = {
+  "deepseek-v4-flash": 393_216,
+  "deepseek-v4-pro": 393_216,
+  "deepseek-v4.1-flash": 393_216,
+  "glm-5": 131_072,
+  "glm-5.1": 131_072,
+  "glm-5.2": 131_072,
+  "glm-5.3": 131_072,
+  "glm-5.3-flash": 131_072,
+};
+
+/** 取已知最大输出（按 id 小写匹配）。 */
+function maxOutputOf(id: string): number | undefined {
+  return MAX_OUTPUTS[id.toLowerCase()];
+}
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * `modelId` 是池内的**归一化 id**（上游 `GLM-5.2` → `glm-5.2`），故两张表都按归一化
+ * 形态比对。**查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const wanted = canonicalModelId(modelId);
+  let contextWindow: number | undefined;
+  for (const [key, window] of CONTEXT_WINDOWS) {
+    if (canonicalModelId(key) === wanted) {
+      contextWindow = window;
+      break;
+    }
+  }
+  const maxOutputTokens = maxOutputOf(wanted);
+  if (contextWindow === undefined && maxOutputTokens === undefined) return undefined;
+  return {
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+  };
+}
+
 export const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK_MODEL_IDS.map((id) => {
   const window = CONTEXT_WINDOWS.get(id);
-  return window === undefined
-    ? { id, name: id, source: "fallback" as const }
-    : { id, name: id, context_window: window, source: "fallback" as const };
+  const maxOutput = maxOutputOf(id);
+  return {
+    id,
+    name: id,
+    ...(window === undefined ? {} : { context_window: window }),
+    ...(maxOutput === undefined ? {} : { max_output: maxOutput }),
+    source: "fallback" as const,
+  };
 });
 
 /**
@@ -206,6 +264,8 @@ export function parseModelRows(
     const entry: ModelEntry = { id, name: rawName ? normalizeModelId(rawName) : id, source };
     const window = CONTEXT_WINDOWS.get(id);
     if (window !== undefined) entry.context_window = window;
+    const maxOutput = maxOutputOf(id);
+    if (maxOutput !== undefined) entry.max_output = maxOutput;
     const rate = parseCreditRate(rec["credit"]);
     if (rate !== undefined) entry.multiplier = rate;
     out.push(entry);
@@ -246,6 +306,10 @@ function loadCaches(): void {
         source: "remote",
       };
       if (typeof rec["context_window"] === "number") entry.context_window = rec["context_window"];
+      // 旧缓存没有 max_output（那是后来按公开规格补的）—— 读时按规格表补，不必等一次刷新。
+      const cachedMax = typeof rec["max_output"] === "number" ? rec["max_output"] : undefined;
+      const maxOutput = cachedMax ?? maxOutputOf(id);
+      if (maxOutput !== undefined) entry.max_output = maxOutput;
       if (typeof rec["multiplier"] === "number") entry.multiplier = rec["multiplier"];
       entries.push(entry);
     }

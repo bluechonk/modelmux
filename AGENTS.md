@@ -112,36 +112,43 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 
 **强制**。
 
-1. 契约与规范集中在 `docs/`；渠道文档跟着包走，放在 `packages/core/channels/<cid>/docs/`。
+1. **所有文档集中在根 `docs/`**：规范与契约在 `docs/*.md`，渠道文档在 `docs/channels/<cid>/`。
+   渠道包目录（`packages/core/channels/<cid>/`）只放**实现**（`src/` 的 7 个文件）与包配置，
+   **不再带 `docs/`**。
 2. 各类文档的落点：
 
    | 类别 | 位置 | 内容 |
    | --- | --- | --- |
    | 契约与规范 | `docs/*.md` | 改代码前必读；索引见 `docs/README.md` |
-   | 渠道说明 | `packages/core/channels/<cid>/docs/README.md` | 用法 / 存储 |
-   | 渠道协议规格 | `packages/core/channels/<cid>/docs/PROTOCOL.md` | 实测协议（实现的依据） |
+   | 渠道说明 | `docs/channels/<cid>/README.md` | 用法 / 存储 / 测试 |
+   | 渠道协议规格 | `docs/channels/<cid>/PROTOCOL.md` | 实测协议（实现的依据） |
+   | 逆向结论层 | `docs/channels/<cid>/FINDINGS.md` / `FLOW.md` | 结论汇总与端到端数据流（可选） |
 
 3. `.md` **只允许**落在以下位置（以 `scripts/verify-docs.mjs` 的 `ALLOWED` 为准）：
-   - `docs/` —— 契约与规范 + 文档总入口 `docs/README.md`
+   - `docs/` —— 契约与规范 + 文档总入口 `docs/README.md` + 渠道文档 `docs/channels/<cid>/`
    - `README.md`（**仓库根**）—— 仓库门面，GitHub 只渲染根 README
-   - `packages/core/channels/<cid>/docs/` —— 该渠道自己的文档（说明 + 协议规格 + 逆向结论层）
+   - `AGENTS.md`（**仓库根**）—— 仓库级规则，工具从根读，不能搬
    - `packages/core/channels/<cid>/AGENTS.md` —— 目录级工具指令（工具从目录读，不能搬）
    - `.agents/skills/<name>/`（及 `.zcode/skills/` 覆盖位）—— 项目级技能整包
      （`SKILL.md` + 引用 / 模板 / 脚本；第三方技能必须带 LICENSE 与来源说明）
 4. 新增或修改文档时：
-   - 渠道协议 → `<cid>/docs/PROTOCOL.md`；渠道说明 → `<cid>/docs/README.md`；
-     **渠道文档不要写进仓库级 `docs/`**（包要能单独打包发布）。
-   - 新增 `docs/*.md` 必须同时登记到 `docs/README.md` 的文档表。
+   - 渠道协议 → `docs/channels/<cid>/PROTOCOL.md`；渠道说明 → `docs/channels/<cid>/README.md`；
+     **渠道文档不要散落进仓库级 `docs/` 根**（根层只放跨渠道的规范与契约）。
+   - 新增 `docs/*.md` 必须同时登记到 `docs/README.md` 的文档表；新增渠道目录要登记到
+     `docs/channels/README.md` 的渠道表。
    - markdown 链接用**相对路径**；源码注释里的引用用**仓库根相对路径**
-     （如 `packages/core/channels/catpaw/docs/PROTOCOL.md`）。
+     （如 `docs/channels/catpaw/PROTOCOL.md`）。
    - 跑 `npm test`：`scripts/verify-docs.mjs` 拦住落错位置的 md，`scripts/verify-storage.mjs` 校验落点规范。
 5. 本仓库不设 `archive/` 目录；RUN-LOG、已结项计划、已删渠道存档随任务结束删除，需要时从 git 历史取。
-6. **第三方参考实现（`reference/`）约定**：
-   - 逆向学习用的开源反代项目 clone 到 `packages/core/channels/<cid>/reference/<owner>_<repo>/`
+6. **逆向研究代码不保留**：
+   - 逆向 / 探针 / 解密脚本这类**一次性研究代码**（渠道目录下的 `research/`）**不入库**；
+     它的价值是结论，不是代码。结论必须落到 `docs/channels/<cid>/`（`PROTOCOL.md` /
+     `FINDINGS.md`，每条标注证据等级），代码用完即删。
+   - 逆向学习用的开源反代项目可 clone 到 `packages/core/channels/<cid>/reference/<owner>_<repo>/`
      （`--depth 1`），由渠道级 `.gitignore` 的 `reference/` 条目忽略，**不入库**；
-   - 从参考实现学到的**结论**写进该渠道自己的 `docs/PROTOCOL.md`（每条标注来源仓库与文件）；
-   - 渠道 `docs/README.md` 必须维护「参考实现」一节，列出全部已 clone 仓库的 **GitHub 链接**
-     与一句话用途 —— 克隆或删除参考仓库时同步更新本节。
+   - 从参考实现学到的**结论**写进 `docs/channels/<cid>/PROTOCOL.md`（每条标注来源仓库与文件）；
+   - 渠道 `docs/channels/<cid>/README.md` 必须维护「参考实现」一节，列出全部已 clone 仓库的
+     **GitHub 链接**与一句话用途 —— 克隆或删除参考仓库时同步更新本节。
 
 ## 代码约定
 
@@ -168,7 +175,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
      且条目失效时（不再向上）脚本会报错要求删除。
    目录分层见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §1；规则由 `scripts/verify-layering.mjs` 强制。
 7. 注释写作遵守 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md) 的三层分工：协议事实进
-   `packages/core/channels/<cid>/docs/PROTOCOL.md`、why 跟被治理的函数 docstring、
+   `docs/channels/<cid>/PROTOCOL.md`、why 跟被治理的函数 docstring、
    文件头只留导航 + 行为约束 + 铁律（≤12 行）。
 
 ## 测试规则
@@ -190,7 +197,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - `.tmp/` 脚本是**临时**的：用完即删，不入库，不纳入 CI，不写测试 fixture；
      它的作用是「快速验证真实场景」，不是「离线替代端到端」。
 3. **测试流程必须文档化，让后续 Agent 可复现**：
-   - 每修复一个渠道或改动上游协议，**同步更新该渠道 `docs/PROTOCOL.md`**，记录实测结论
+   - 每修复一个渠道或改动上游协议，**同步更新该渠道 `docs/channels/<cid>/PROTOCOL.md`**，记录实测结论
      （端点、方法、请求头约束、实测状态码）；**同步更新 `docs/README.md`**（索引入口）与
      `AGENTS.md` 测试规则。
    - 端到端测试覆盖（登录入池 / `mx model <cid> --refresh` / 最小对话 / 工具往返 / 流式 SSE）

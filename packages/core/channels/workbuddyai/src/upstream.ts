@@ -4,7 +4,7 @@
  * ## 本模块承载的渠道知识
  *
  * 上游的全部硬约束都在 `buildChatBody()` 里实现（网关只负责调用它），每一条
- * 都是真机实测过的拒收原因（规格见同包 `docs/PROTOCOL.md`）：
+ * 都是真机实测过的拒收原因（规格见 `docs/channels/workbuddyai/PROTOCOL.md`）：
  *
  * 1. **首条消息必须是 system** —— 否则 400 `first message is not system prompt`
  * 2. **只支持流式** —— 否则 400 `Non-stream chat request is currently not supported`；
@@ -24,7 +24,7 @@
  *
  * 另外：上游按**整组身分头**判定请求是否来自官方桌面客户端，缺任一员整条
  * 会话被 400 `code=11128` 拒绝 —— `buildChatHeaders()` 按官方 5.8.4 抓包补齐
- * 头族（规格见同包 `docs/PROTOCOL.md` §1-§3；网关经 `Channel.buildChatHeaders`
+ * 头族（规格见 `docs/channels/workbuddyai/PROTOCOL.md` §1-§3；网关经 `Channel.buildChatHeaders`
  * 可选钩子取用）。
  */
 
@@ -38,7 +38,7 @@ import * as catalog from "./catalog.js";
 
 export const DEFAULT_BASE_URL = "https://www.workbuddy.ai";
 
-/** 桌面端 UA 与版本随 realm 分版（官方 5.8.4 / 5.5.6 抓包；见 docs/PROTOCOL.md §2）。 */
+/** 桌面端 UA 与版本随 realm 分版（官方 5.8.4 / 5.5.6 抓包；见 docs/channels/workbuddyai/PROTOCOL.md §2）。 */
 const DESKTOP_UA_INTL = "WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0";
 const DESKTOP_UA_CN = "WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1";
 
@@ -65,7 +65,7 @@ const REALM_CN = {
   acceptLanguage: "zh-CN",
 } as const;
 
-/** 凭据 domain → realm（取不到就按国际版；见 docs/PROTOCOL.md §1）。 */
+/** 凭据 domain → realm（取不到就按国际版；见 docs/channels/workbuddyai/PROTOCOL.md §1）。 */
 function realmOf(domain: string): typeof REALM_INTL | typeof REALM_CN {
   const d = domain.trim().toLowerCase();
   return d === "copilot.tencent.com" || d.endsWith("codebuddy.cn") ? REALM_CN : REALM_INTL;
@@ -316,7 +316,7 @@ export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string,
 
 /**
  * 对话请求的官方身分头族：在基础头之上补齐 X-Agent-* / X-IDE-* / X-Product /
- * 会话与请求 ID / 链路族（整组缺任一员都会被 11128 拒绝，见 docs/PROTOCOL.md §2/§4）。
+ * 会话与请求 ID / 链路族（整组缺任一员都会被 11128 拒绝，见 docs/channels/workbuddyai/PROTOCOL.md §2/§4）。
  *
  * 会话与请求 ID 是**每轮新生**的（上游不按会话 id 存历史，不需要跨轮一致）；
  * `buildChatBody` 仍负责请求体的三条硬约束（首条 system / 强制流式 / 指纹改写）。

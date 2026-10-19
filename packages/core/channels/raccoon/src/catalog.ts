@@ -1,7 +1,7 @@
 /**
  * Raccoon 模型目录：兜底表、图片能力白名单、倍率展示与远端解析。
  *
- * ## 本模块承载的渠道知识（见 channels/raccoon/docs/PROTOCOL.md §5）
+ * ## 本模块承载的渠道知识（见 docs/channels/raccoon/PROTOCOL.md §5）
  *
  * 1. **模型 id 在远端的 `name` 字段里，不是 `id`**（`id` 是另一个无关字段）。
  * 2. ⚠⚠ **`tags` 不是图片能力契约**（真实缺陷 2026-10-03）：`tags` 的真实用途是

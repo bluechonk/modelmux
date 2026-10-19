@@ -32,13 +32,14 @@ git log --oneline -5          # 最近历史与提交风格
 | 进程模型 / 监督者 / 日志文件 | `docs/DAEMON-SUPERVISOR.md` |
 | Web 控制台（页面 / API / 主题） | `docs/WEB-CONSOLE.md` |
 | 引流入口 / 安装 / 接入方式 | 根 `README.md`（全中文，GitHub 只渲染它） |
-| 某渠道的协议 / 端点 / 头部 / 限制 | `packages/core/channels/<cid>/docs/PROTOCOL.md` |
-| 某渠道的用法 / 存储 / 参考仓库 | `packages/core/channels/<cid>/docs/README.md` |
+| 某渠道的协议 / 端点 / 头部 / 限制 | `docs/channels/<cid>/PROTOCOL.md` |
+| 某渠道的用法 / 存储 / 参考仓库 | `docs/channels/<cid>/README.md` |
 | 新增/改名/删除任何 `docs/*.md` | `docs/README.md` 索引（同步更新） |
 
 硬性约束（`verify-docs.mjs` 会拦）：
-- `.md` 只允许落在 `docs/`、根 `README.md`、`channels/<cid>/docs/`、
+- `.md` 只允许落在 `docs/`（含 `docs/channels/<cid>/`）、根 `README.md` / `AGENTS.md`、
   `channels/<cid>/AGENTS.md`、`.agents/skills/<name>/SKILL.md`。
+- 渠道包（`packages/core/channels/<cid>/`）**只放实现**，不再带 `docs/`。
 - 文档与代码**同一个 commit** 更新；注释同步更新，禁止留过时/误导性注释。
 - 中文、无 emoji、相对路径链接；源码注释里引用文档用仓库根相对路径。
 

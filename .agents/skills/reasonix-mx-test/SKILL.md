@@ -31,8 +31,9 @@ description: 使用 Reasonix CLI Agent 对 modelmux (mx) 网关做端到端模�
 
 - 「测试规则」第 2 条 **临时测试写在 `.tmp/`**：跑 skill 之外的临时探测（抓包核对端点、跑通修复）写到项目根 `.tmp/`，
   **用真实账号 + 真实上游**跑，任务结束前删；**禁止编造请求头/凭据**（风控事件）。
-- 「测试规则」第 3 条 **文档化**：渠道修复后实测结论 → 更新该渠道 `docs/PROTOCOL.md`（端点/方法/头约束/状态码）
-  与 `AGENTS.md` 测试规则；端到端测试覆盖 → 更新渠道 `docs/README.md`「测试」小节，让后续 Agent 可复现。
+- 「测试规则」第 3 条 **文档化**：渠道修复后实测结论 → 更新该渠道 `docs/channels/<cid>/PROTOCOL.md`
+  （端点/方法/头约束/状态码）与 `AGENTS.md` 测试规则；端到端测试覆盖 → 更新渠道
+  `docs/channels/<cid>/README.md`「测试」小节，让后续 Agent 可复现。
 - 「测试规则」第 4、5 条：只发正确形态的请求；真实账号直连上游，禁止 MODELMUX_HOME / 假服务替身。
 
 ## 前置条件

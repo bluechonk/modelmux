@@ -49,6 +49,38 @@ export const DEFAULT_UPSTREAM_MODEL = (() => {
   return hit ? hit.upstream : "TokenHub/deepseek-v4-flash";
 })();
 
+/**
+ * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ *
+ * ⚠ 公开规格是**模型上限**，上游可能更严（超限回空流）—— 客户端应能降档重试。
+ * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ */
+const MAX_OUTPUTS: Readonly<Record<string, number>> = {
+  "deepseek-v4-pro": 393_216,
+  "deepseek-v4-flash": 393_216,
+  "glm-4.7": 131_072,
+  "glm-5.2": 131_072,
+  "glm-5.3": 131_072,
+  "glm-5.3-flash": 131_072,
+  "kimi-k3": 1_048_576,
+  // 兼容别名：指向默认模型（deepseek-v4-flash）
+  [ALIAS_MODEL]: 393_216,
+};
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * `modelId` 是池内的**归一化 id**（与 `exposedIds()` 同形），故直接查表。
+ * **查不到返回 undefined**（不编造 —— 如混元 / kimi-k2 / qwen3 均无公开输出规格）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const maxOutputTokens = MAX_OUTPUTS[modelId.toLowerCase()];
+  if (maxOutputTokens === undefined) return undefined;
+  return { maxOutputTokens };
+}
+
 /** 对外暴露的模型 id 列表（小写）。 */
 export function exposedIds(): string[] {
   return [...MODELS.map((m) => m.id.toLowerCase()), ALIAS_MODEL];

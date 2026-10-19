@@ -44,7 +44,7 @@ mx log --list
 
 1. `upstreamMs` 大（>3–5 秒）：慢在**上游建连 / round+event / 响应头**。
    看 `cid`、`model`、`error`；用 `id` 在 `error.log` 找同一请求，再对照该渠道
-   `packages/core/channels/<cid>/docs/PROTOCOL.md`。
+   `docs/channels/<cid>/PROTOCOL.md`。
 2. `upstreamMs` 正常、`ttfbMs` 大或缺失：慢在**上游首帧**。
    看 `requestBytes`、`messageCount`、`systemChars`、`toolCount`；大 prompt 或上游排队都会这样。
 3. `ttfbMs` 正常、`durationMs` 大：慢在**流式输出 / 工具循环 / 客户端读取**。

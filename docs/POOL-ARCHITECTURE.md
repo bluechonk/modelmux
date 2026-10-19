@@ -191,8 +191,15 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   取**最大档**而非默认档 —— 对客户端报能力上限，否则 1M 模型会被按默认 200k 误判。
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
   回落兜底值（窗口 128000 / 输出 4096）。
-- 上游确实不发该字段的渠道（catpaw·codearts·loomy·lobsterai·qoder 等）只能给兜底值；
-  这类「上游未知」只能靠渠道侧补数据解决，汇聚层无法凭空造出真值。
+- **上游不发 → 问渠道要「已知规格」**：多数渠道的上游目录**不带**窗口与输出上限
+  （实测 catpaw / codearts / lobsterai / loomy / qoder / qodercn 都不发）。这类渠道用
+  自己的 `MAX_OUTPUTS` 表按**公开规格**回答（`catalog.modelSpec()` 钩子，
+  契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。规格的核实结果与来源是
+  [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
+  - 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）→ 表必须放在**渠道包**里。
+  - 4096 兜底是「未知」，不是任何模型的真实上限：客户端按 4096 截断会把每次回答砍到 4k。
+- **上游声明优先**：渠道声明的值比公开规格更贴近「这条渠道实际能吃多少」，
+  两者冲突时以上游为准（分歧记在 [MODEL-SPECS.md](./MODEL-SPECS.md) §6）。
 
 ---
 

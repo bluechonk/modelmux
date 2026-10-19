@@ -12,5 +12,8 @@ __pycache__/
 # 第三方参考实现（clone 下来的学习材料，不入库）
 reference/
 
+# 逆向研究代码（一次性探针/解密脚本，结论入 docs 后即删，不入库）
+research/
+
 *.log
 .DS_Store

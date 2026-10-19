@@ -228,7 +228,7 @@ export function buildChatBody(
   const seqId = randomUUID();
 
   // 上游把「OrcaTerm 运维助手」人设和内部协议信封写死在系统提示里；emphasisPrompt
-  // 拼接在系统提示末尾，是唯一能压过它的位置（见 docs/PROTOCOL.md §3.4.2）。
+  // 拼接在系统提示末尾，是唯一能压过它的位置（见 docs/channels/orcaterm/PROTOCOL.md §3.4.2）。
   const emphasis = [PERSONA_OVERRIDE, ...sysParts].filter((s) => s.trim()).join("\n\n");
 
   return {

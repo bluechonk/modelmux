@@ -24,6 +24,8 @@ export interface CatalogEntry {
   reasoning: boolean;
   /** 上下文窗口。 */
   contextWindow: number;
+  /** 最大输出 token（上游不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  maxOutput?: number;
   /** 描述。 */
   description: string;
   /** 是否支持图片输入。 */
@@ -54,10 +56,50 @@ function contextWindowOfId(parsed: number): number {
 }
 
 /**
+ * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ *
+ * ⚠ 上游 `/model-types` 不带输出上限（[实测]），网关 `/v1/models` 只能给兜底值 ——
+ * 而 4096 的兜底会让客户端把每次回答截到 4k。
+ *
+ * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ */
+const MAX_OUTPUTS: Readonly<Record<string, number>> = {
+  "deepseek-v4-flash": 393_216,
+  "deepseek-v4-pro": 393_216,
+  "deepseek-v4.1-flash": 393_216,
+  "glm-5.3": 131_072,
+  "glm-5.3-flash": 131_072,
+  "glm-5.3-flashx": 131_072,
+  "kimi-k3": 1_048_576,
+  "longcat-2.0": 262_144,
+  "minimax-m3": 131_072,
+};
+
+/** 取已知最大输出（按 id 小写匹配；查不到返回 undefined）。 */
+function maxOutputOf(id: string): number | undefined {
+  return MAX_OUTPUTS[id.toLowerCase()];
+}
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * 上下文：上游目录不下发，渠道按默认档位 1M 请求（见 `DEFAULT_CONTEXT_WINDOW`）；
+ * 最大输出：按公开规格（见 `MAX_OUTPUTS`）。**查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const maxOutputTokens = maxOutputOf(modelId);
+  if (maxOutputTokens === undefined) return undefined;
+  return { contextWindow: DEFAULT_CONTEXT_WINDOW, maxOutputTokens };
+}
+
+/**
  * 兜底表：上游模型目录不可用时仍可暴露的模型。
  *
  * ⚠ **内容取自一次真实的上游 `/model-types` 返回**（2026-10-08 实测，见
- * `channels/catpaw/docs/PROTOCOL.md`）。
+ * `docs/channels/catpaw/PROTOCOL.md`）。
  *
  * ⚠ 曾被写成占位名 `catpaw-flash` —— 那个 id 上游**根本不存在**，
  * 这条兜底项在旧的「家族 + flash」白名单下会被过滤，全模型池下正常出现在池视图中。
@@ -70,6 +112,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     modelType: 1,
     reasoning: true,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
+    maxOutput: 131_072,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
     multiplier: null,
@@ -81,6 +124,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     modelType: 1,
     reasoning: true,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
+    maxOutput: 131_072,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
     multiplier: null,
@@ -92,6 +136,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     modelType: 1,
     reasoning: true,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
+    maxOutput: 393_216,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
     multiplier: null,
@@ -121,7 +166,14 @@ function ensureCachedModels(): void {
   cacheLoaded = true;
   try {
     const cached = readCatalogCache<CatalogEntry>();
-    if (cached) _remote = cached;
+    // 旧缓存没有 maxOutput（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
+    if (cached) {
+      _remote = cached.map((entry) => {
+        if (entry.maxOutput !== undefined) return entry;
+        const maxOutput = maxOutputOf(entry.id);
+        return maxOutput === undefined ? entry : { ...entry, maxOutput };
+      });
+    }
   } catch {
     /* 读不到就回落兜底表 */
   }
@@ -177,7 +229,7 @@ function parseExtendedInfo(row: Record<string, unknown>): {
 }
 
 /**
- * 归一化上游模型行（字段名有多种历史写法，见 channels/catpaw/docs/PROTOCOL.md）。
+ * 归一化上游模型行（字段名有多种历史写法，见 docs/channels/catpaw/PROTOCOL.md）。
  * 供 upstream.fetchModels 调用。
  */
 export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
@@ -199,7 +251,7 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
   };
   const modelType = num("modelType", "modelTypeId");
   if (modelType <= 0) return null;
-  return {
+  const entry: CatalogEntry = {
     id,
     name: pick("displayName", "name") || id,
     modelType,
@@ -212,6 +264,9 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
     supportsImages: row["supportsImages"] === true || row["supportImage"] === true,
     ...parseExtendedInfo(row),
   };
+  const maxOutput = maxOutputOf(id);
+  if (maxOutput !== undefined) entry.maxOutput = maxOutput;
+  return entry;
 }
 
 /**

@@ -215,7 +215,7 @@ interface Channel {
 - `chatHostCandidates()` / `setChatHostOverride(host)` / `currentChatHost()` / `rememberChatHost(host)`：
   多主机上游里个别主机对「200 后零字节 / 断流」是坏的，网关在探测层重试前换下一候选，
   成功后回写记忆。仅 custom 线型且签名不覆盖 host 的渠道适用（如 Qoder，见
-  `packages/core/channels/qoder/docs/PROTOCOL.md` §7.5）；标准 OpenAI 兼容渠道没有这个概念。
+  `docs/channels/qoder/PROTOCOL.md` §7.5）；标准 OpenAI 兼容渠道没有这个概念。
 
 **`WIRE` 怎么选**：
 
@@ -304,6 +304,25 @@ interface Channel {
 
 共享层负责的（渠道不用管）：缓存命中判断、失败时回落内置表、退出码、
 以及告诉用户这次看的是哪份数据。
+
+#### `modelSpec()`：已知模型规格（**可选钩子**）
+
+上游目录**通常不下发**上下文窗口与最大输出（实测 catpaw / codearts / lobsterai /
+loomy / qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底值，而 4096 的输出
+上限会让客户端把每次回答截到 4k。这类渠道**可以**实现：
+
+```ts
+modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined;
+```
+
+- `modelId` 是**对外暴露的 id**（与 `exposedIds()` 返回值同形）—— 渠道内部负责把
+  对外 id 映射到自己的条目（与 `rateTag()` 同一约定）。
+- 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
+  **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
+- 渠道声明的值**优先于**公开规格：上游说的才是「这条渠道实际能吃多少」。
+- 共享层**不许出现模型名** → 这张表必须放在**渠道包**里
+  （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
+- 池层怎么用它见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6。
 
 ### 5.4 `billing.ts`
 
@@ -452,5 +471,5 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 - [ ] `npm install && npm run build` 无错误（`tsc -b`，严格模式；各包 `extends` 根 `tsconfig.base.json`）
 - [ ] 渠道包无 `tests/` 目录、`package.json` 无 `scripts.test`（渠道不做测试，见 §7）
 - [ ] 全仓验证：`npm test` 退出码 0（自带 `build`；根 `tsconfig.json` 为 solution 文件，一次 `tsc -b` 编全仓）
-- [ ] README 更新为 TypeScript 安装/使用说明，并指向 `packages/core/channels/<cid>/docs/PROTOCOL.md`
-- [ ] `packages/core/channels/<cid>/docs/PROTOCOL.md` 保留（协议规格，实现的依据）
+- [ ] README 更新为 TypeScript 安装/使用说明，并指向 `docs/channels/<cid>/PROTOCOL.md`
+- [ ] `docs/channels/<cid>/PROTOCOL.md` 保留（协议规格，实现的依据）

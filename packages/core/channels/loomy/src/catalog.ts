@@ -1,7 +1,7 @@
 /**
  * Loomy 模型目录：倍率归一化、远端目录缓存与档位注册。
  *
- * ## 本模块承载的渠道知识（见 channels/loomy/docs/PROTOCOL.md §5）
+ * ## 本模块承载的渠道知识（见 docs/channels/loomy/PROTOCOL.md §5）
  *
  * 1. **倍率在 `name` 字符串里**（没有独立字段），且三种括号风格混用，必须规范化：
  *      `MiniMax M3 （x4.0）` / `Qwen 3.8 Max (x12.0)` / `GLM 5.3 Flash(x0.8)`
@@ -95,6 +95,8 @@ export interface CatalogEntry {
   /** 消耗倍率数值（由 `rate` 字符串解析，失败为 undefined）。供 `model_info.multiplier` 使用。 */
   multiplier?: number;
   contextWindow: number;
+  /** 最大输出 token（远端不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  maxOutput?: number;
   reasoning: boolean;
   vision: boolean;
   efforts: string[];
@@ -102,6 +104,38 @@ export interface CatalogEntry {
   /** 远端声明的默认档，仅留作排查（**不采信**）。 */
   remoteDefaultEffort: string;
   source: "remote" | "fallback";
+}
+
+/**
+ * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ *
+ * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ */
+const MAX_OUTPUTS: Readonly<Record<string, number>> = {
+  "deepseek-v4.1-flash": 393_216,
+  "deepseek-v4-flash": 393_216,
+  "minimax-m3": 131_072,
+  "kimi-k2.6": 32_768,
+  "qwen-3.8-max": 131_072,
+  "glm-5.3-flash": 131_072,
+  "qwen3.8-flash": 131_072,
+  "spark-x": 262_144,
+  "mimo-v2.5": 131_072,
+};
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * `modelId` 是池内的**归一化 id**（如上游的 `DeepSeek-V4.1-Flash` → `deepseek-v4.1-flash`），
+ * 故查表前先小写化。**查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const maxOutputTokens = MAX_OUTPUTS[modelId.toLowerCase()];
+  if (maxOutputTokens === undefined) return undefined;
+  return { maxOutputTokens };
 }
 
 interface Snapshot {
@@ -228,6 +262,9 @@ export function parseRemoteModels(models: unknown[]): CatalogEntry[] {
       rate,
       ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
       contextWindow: num(item["context_length"]) || fallback?.contextWindow || 0,
+      ...(MAX_OUTPUTS[id.toLowerCase()] !== undefined
+        ? { maxOutput: MAX_OUTPUTS[id.toLowerCase()] }
+        : {}),
       reasoning: capabilities["reasoning"] === true,
       vision,
       efforts,
@@ -250,6 +287,9 @@ export function fallbackEntries(): CatalogEntry[] {
       rate,
       ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
       contextWindow: m.contextWindow,
+      ...(MAX_OUTPUTS[m.id.toLowerCase()] !== undefined
+        ? { maxOutput: MAX_OUTPUTS[m.id.toLowerCase()] }
+        : {}),
       reasoning: true,
       vision: false, // 兜底表不声明图片能力（宁可少报）
       efforts: [...m.efforts],
@@ -312,8 +352,14 @@ function seedFromDiskCache(): void {
   try {
     const cached = readCatalogCache<CatalogEntry>();
     if (cached) {
-      snapshot = { entries: cached, catalogVersion: "" };
-      publish(cached);
+      // 旧缓存没有 maxOutput（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
+      const entries = cached.map((entry) => {
+        if (entry.maxOutput !== undefined) return entry;
+        const maxOutput = MAX_OUTPUTS[entry.id.toLowerCase()];
+        return maxOutput === undefined ? entry : { ...entry, maxOutput };
+      });
+      snapshot = { entries, catalogVersion: "" };
+      publish(entries);
     }
   } catch {
     /* 读不到就继续走兜底表 */

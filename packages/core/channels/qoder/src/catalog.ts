@@ -35,6 +35,45 @@ export interface ModelEntry {
   isReasoning: boolean;
   isVl: boolean;
   maxInputTokens: number;
+  /** 最大输出 token（上游不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  maxOutput?: number;
+}
+
+/**
+ * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ *
+ * ⚠ 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
+ * （按账号档位路由到不同底层模型），没有单一规格，故不列。
+ *
+ * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ */
+const MAX_OUTPUTS: Readonly<Record<string, number>> = {
+  "deepseek-flash": 393_216,
+  "deepseek-v4-pro": 393_216,
+  "glm-5.3": 131_072,
+  "glm-5.3-flash": 131_072,
+  "kimi-k3": 1_048_576,
+  "minimax-m3": 131_072,
+  "minimax-m3.1-flash": 524_288,
+  "qwen3.7-max": 131_072,
+  "qwen3.7-plus": 131_072,
+  "qwen3.8-flash": 131_072,
+  "qwen3.8-max": 131_072,
+};
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * `modelId` 是池内的**归一化 id**（与 `exposedIds()` 同形），故直接查表。
+ * **查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const maxOutputTokens = MAX_OUTPUTS[modelId.toLowerCase()];
+  if (maxOutputTokens === undefined) return undefined;
+  return { maxOutputTokens };
 }
 
 /**
@@ -86,6 +125,10 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   if (!key) return null;
   const displayName = str(raw["display_name"]) || str(raw["name"]) || key;
   const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
+  // 规格表优先；缓存行里若已带 maxOutput（旧版写入的）也认。
+  const spec = MAX_OUTPUTS[id.toLowerCase()];
+  const cached = num(raw["maxOutput"], 0);
+  const maxOutput = spec ?? (cached > 0 ? cached : undefined);
   return {
     key,
     id,
@@ -93,6 +136,7 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
     isReasoning: raw["is_reasoning"] === true,
     isVl: raw["is_vl"] === true,
     maxInputTokens: num(raw["max_input_tokens"], 180_000),
+    ...(maxOutput === undefined ? {} : { maxOutput }),
   };
 }
 
@@ -162,7 +206,11 @@ export async function refresh(): Promise<void> {
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
     .map((item) => {
       const key = str(item["key"]);
-      return { ...item, id: key };
+      const displayName = str(item["display_name"]) || str(item["name"]) || key;
+      const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
+      // 原始字段全留（不裁剪），另附**按公开规格补的**最大输出（上游不下发）。
+      const spec = MAX_OUTPUTS[id.toLowerCase()];
+      return { ...item, id: key, ...(spec === undefined ? {} : { maxOutput: spec }) };
     })
     .filter((item) => str(item["id"]) !== "");
   if (entries.length === 0) throw new Error("upstream model list is empty");
