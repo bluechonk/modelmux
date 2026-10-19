@@ -1,14 +1,16 @@
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users } from "lucide-react";
 import { api } from "../lib/api";
 import { AccountCard, type AccountPool, type ChannelBilling } from "../components/AccountCard";
 import { LoginModal } from "../components/LoginModal";
+import { PageHeader } from "../components/PageHeader";
 import { Alert, Skeleton } from "./Dashboard";
 
 interface StatusRow {
   cid: string;
   present?: boolean;
+  /** 渠道展示名（后端 status 载荷带 `display`）。 */
+  display?: string;
 }
 
 interface BillingRow {
@@ -190,12 +192,7 @@ export function Accounts(): ReactElement {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Users className="h-6 w-6 text-sky-400" />
-          账号池
-        </h1>
-      </div>
+      <PageHeader title="账号池" description="各渠道的凭据、账号池与额度" />
 
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && <Alert tone="info">{notice}</Alert>}

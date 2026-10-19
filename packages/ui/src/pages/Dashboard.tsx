@@ -1,6 +1,18 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Boxes, Globe, Link2, MessageSquare, Server } from "lucide-react";
+import {
+  Activity,
+  Boxes,
+  Globe,
+  Layers,
+  Plug,
+  RefreshCw,
+  Search,
+  Server,
+  X,
+} from "lucide-react";
 import { CopyChip } from "../components/CopyChip";
+import { PageHeader } from "../components/PageHeader";
 import { type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 
@@ -23,120 +35,195 @@ function modelRank(mult: number | null, freePlan: boolean): number {
   return mult;
 }
 
-/** 仪表盘页：全局状态快照（统计卡 + 端点 + 按渠道分组的模型墙）。 */
+/** 仪表盘页：全局状态快照（统计块 + 接入端点 + 按渠道分组的模型墙）。 */
 export function Dashboard(): ReactElement {
-  const { data: state, isLoading, error } = useQuery({
+  const [query, setQuery] = useState("");
+  const { data: state, isLoading, error, isFetching, refetch } = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
     refetchInterval: 3000,
   });
 
+  // 模型按渠道分组：`<cid>/<模型>` → { cid: [排序后的模型…] }；组内按倍率升序（免费最前）
+  const groups = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!state) return map;
+    for (const full of state.models) {
+      const slash = full.indexOf("/");
+      const cid = slash < 0 ? full : full.slice(0, slash);
+      const id = slash < 0 ? full : full.slice(slash + 1);
+      const list = map.get(cid) ?? [];
+      list.push(id);
+      map.set(cid, list);
+    }
+    for (const [cid, ids] of map) {
+      const freePlan = FREE_PLAN_CHANNELS.has(cid);
+      ids.sort((a, b) => {
+        const ma = state.model_info?.[`${cid}/${a}`]?.multiplier ?? null;
+        const mb = state.model_info?.[`${cid}/${b}`]?.multiplier ?? null;
+        const ra = modelRank(ma, freePlan);
+        const rb = modelRank(mb, freePlan);
+        return ra - rb || a.localeCompare(b);
+      });
+    }
+    return map;
+  }, [state]);
+
+  // 搜索：按模型名或渠道名过滤（大小写不敏感）；命中数实时显示
+  const keyword = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!keyword) return groups;
+    const out = new Map<string, string[]>();
+    for (const [cid, ids] of groups) {
+      const hit = ids.filter((id) => id.toLowerCase().includes(keyword) || cid.includes(keyword));
+      if (hit.length > 0) out.set(cid, hit);
+    }
+    return out;
+  }, [groups, keyword]);
+
   if (isLoading) return <Skeleton />;
   if (error) return <Alert tone="error">加载失败：{String(error)}</Alert>;
-  if (!state) return <div className="text-gray-500">（无数据）</div>;
+  if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
-  // 模型按渠道分组：`<cid>/<模型>` → { cid: [排序后的模型…] }；组内按倍率升序（免费最前）
-  const groups = new Map<string, string[]>();
-  for (const full of state.models) {
-    const slash = full.indexOf("/");
-    const cid = slash < 0 ? full : full.slice(0, slash);
-    const id = slash < 0 ? full : full.slice(slash + 1);
-    const mult = state.model_info?.[full]?.multiplier ?? null;
-    const freePlan = FREE_PLAN_CHANNELS.has(cid);
-    const list = groups.get(cid) ?? [];
-    list.push(id);
-    groups.set(cid, list);
-  }
-  // 每组内按倍率升序：免费档（零消耗 / 订阅制）排最前，其余按倍率，再到模型名
-  for (const [cid, ids] of groups) {
-    const freePlan = FREE_PLAN_CHANNELS.has(cid);
-    ids.sort((a, b) => {
-      const ma = state.model_info?.[`${cid}/${a}`]?.multiplier ?? null;
-      const mb = state.model_info?.[`${cid}/${b}`]?.multiplier ?? null;
-      const ra = modelRank(ma, freePlan);
-      const rb = modelRank(mb, freePlan);
-      return ra - rb || a.localeCompare(b);
-    });
-  }
   const channelCount = groups.size;
   const running = state.ui_state === "running";
+  const matched = [...filtered.values()].reduce((sum, ids) => sum + ids.length, 0);
+  const totalModels = state.models.length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">仪表盘</h1>
-        {state.gateway_error && (
-          <span className="text-sm text-red-400">网关错误：{state.gateway_error}</span>
-        )}
-      </div>
-
-      {/* 统计卡 */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard icon={<Activity className="h-4 w-4" />} label="网关状态">
-          <span
-            className={`inline-flex items-center gap-2 text-lg font-semibold ${
-              running ? "text-green-400" : "text-gray-400"
-            }`}
+    <div>
+      <PageHeader
+        title="仪表盘"
+        description="网关状态、接入端点与全渠道模型池快照"
+        actions={
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
           >
-            <span className={`h-2.5 w-2.5 rounded-full ${running ? "bg-green-400" : "bg-gray-600"}`} />
-            {running ? "运行中" : state.ui_state}
-          </span>
-        </StatCard>
-        <StatCard icon={<Boxes className="h-4 w-4" />} label="可用模型">
-          <span className="text-lg font-semibold">{state.models.length}</span>
-          <span className="ml-1 text-sm text-gray-500">个</span>
-        </StatCard>
-        <StatCard icon={<Server className="h-4 w-4" />} label="供给渠道">
-          <span className="text-lg font-semibold">{channelCount}</span>
-          <span className="ml-1 text-sm text-gray-500">个</span>
-        </StatCard>
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            刷新
+          </button>
+        }
+      />
+
+      {state.gateway_error && (
+        <div className="mb-5">
+          <Alert tone="error">网关错误：{state.gateway_error}</Alert>
+        </div>
+      )}
+
+      {/* 统计块 */}
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          icon={<Activity className="h-4 w-4" />}
+          label="网关状态"
+          tone={running ? "free" : "muted"}
+          value={running ? "运行中" : state.ui_state}
+          hint={running ? "端口 4412 正在服务" : "未在运行状态"}
+        />
+        <StatTile
+          icon={<Boxes className="h-4 w-4" />}
+          label="可用模型"
+          tone="brand"
+          value={String(totalModels)}
+          unit="个"
+          hint={`${groups.size} 个渠道供给`}
+        />
+        <StatTile
+          icon={<Layers className="h-4 w-4" />}
+          label="供给渠道"
+          tone="brand"
+          value={String(channelCount)}
+          unit="个"
+          hint="渠道由请求方按前缀选择"
+        />
+        <StatTile
+          icon={<Plug className="h-4 w-4" />}
+          label="接入端点"
+          tone="muted"
+          value={String(state.endpoints.length)}
+          unit="个"
+          hint="OpenAI 兼容协议"
+        />
       </div>
 
-      {/* 端点 */}
-      <section className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-300">
-          <Globe className="h-4 w-4 text-sky-400" />
-          端点
-        </h2>
-        <dl className="space-y-2 text-sm">
-          <div className="flex gap-2">
-            <dt className="flex w-24 shrink-0 items-center gap-1.5 text-gray-500">
-              <Server className="h-3.5 w-3.5" /> base_url
-            </dt>
-            <dd className="break-all font-mono text-gray-200">{state.base_url || "—"}</dd>
+      {/* 接入端点 */}
+      <section className="panel mb-6 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h2 className="panel-title">
+            <Globe className="h-4 w-4 text-brand" />
+            接入端点
+          </h2>
+          <span className="pill bg-overlay text-ink-faint">OpenAI 兼容</span>
+        </div>
+        <div className="space-y-2.5 p-5">
+          <EndpointRow icon={<Server className="h-3.5 w-3.5" />} label="base_url" value={state.base_url} />
+          <EndpointRow icon={<Plug className="h-3.5 w-3.5" />} label="chat_url" value={state.chat_url} />
+          <div className="flex items-start gap-3">
+            <span className="flex w-24 shrink-0 items-center gap-1.5 pt-0.5 text-xs text-ink-faint">
+              <Layers className="h-3.5 w-3.5" />
+              endpoints
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {state.endpoints.map((e) => (
+                <span key={e} className="pill bg-overlay font-mono text-ink-soft">
+                  {e}
+                </span>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <dt className="flex w-24 shrink-0 items-center gap-1.5 text-gray-500">
-              <MessageSquare className="h-3.5 w-3.5" /> chat_url
-            </dt>
-            <dd className="break-all font-mono text-gray-200">{state.chat_url || "—"}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="flex w-24 shrink-0 items-center gap-1.5 text-gray-500">
-              <Link2 className="h-3.5 w-3.5" /> endpoints
-            </dt>
-            <dd className="text-gray-400">{state.endpoints.join("，")}</dd>
-          </div>
-        </dl>
-        <p className="mt-4 rounded-lg bg-sky-950/40 px-3 py-2 text-xs text-gray-400">
-          任何 OpenAI 兼容客户端把 base url 指到上面的 <span className="font-mono">/v1</span>，
-          模型填 <span className="font-mono text-sky-300">渠道/模型</span> 形态即可。
-        </p>
+        </div>
+        <div className="border-t border-line bg-canvas/50 px-5 py-3 text-xs leading-relaxed text-ink-faint">
+          任何 OpenAI 兼容客户端把 base url 指到上面的 <span className="font-mono text-ink-soft">/v1</span>，
+          模型填 <span className="font-mono text-brand">渠道/模型</span> 形态即可。
+        </div>
       </section>
 
-      {/* 模型墙（按渠道分组）：每组内按倍率升序（免费最前），倍率内联进 chip，全部平铺不折叠 */}
+      {/* 模型墙（按渠道分组）：组内按倍率升序（免费最前），全部平铺不折叠 */}
       <section>
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-300">
-          <Boxes className="h-4 w-4 text-sky-400" />
-          可用模型（渠道/模型）
-        </h2>
-        {state.models.length === 0 ? (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-sm text-gray-500">
-            （无模型：先在登录页完成渠道授权）
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <h2 className="panel-title">
+            <Boxes className="h-4 w-4 text-brand" />
+            可用模型
+            <span className="text-xs font-normal text-ink-faint">渠道/模型</span>
+          </h2>
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索模型或渠道…"
+                spellCheck={false}
+                className="w-56 rounded-lg border border-line bg-raised py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink-faint focus:border-brand/50 focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="清除搜索"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint transition-colors hover:text-ink"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <span className="text-[11px] text-ink-faint">
+              {keyword ? `${matched} / ${totalModels}` : `${totalModels} 个`}
+            </span>
+          </div>
+        </div>
+
+        {totalModels === 0 ? (
+          <div className="panel p-5 text-sm text-ink-faint">（无模型：先在账号池页完成渠道授权）</div>
+        ) : filtered.size === 0 ? (
+          <div className="panel p-5 text-sm text-ink-faint">
+            没有匹配「{query}」的模型
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {[...groups.entries()].map(([cid, ids]) => (
+            {[...filtered.entries()].map(([cid, ids]) => (
               <ChannelModels
                 key={cid}
                 cid={cid}
@@ -147,8 +234,27 @@ export function Dashboard(): ReactElement {
           </div>
         )}
       </section>
+    </div>
+  );
+}
 
-      {/* 授权链接 / 登录进度属于登录弹窗（账号池页），仪表盘不再渲染 —— 避免出现在各个页面 */}
+/** 端点行：标签 + 值（等宽字体，可长文本换行）。 */
+function EndpointRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}): ReactElement {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex w-24 shrink-0 items-center gap-1.5 pt-0.5 text-xs text-ink-faint">
+        {icon}
+        {label}
+      </span>
+      <span className="min-w-0 break-all font-mono text-xs text-ink-soft">{value || "—"}</span>
     </div>
   );
 }
@@ -164,11 +270,27 @@ function ChannelModels({
   infoFor: (id: string) => { multiplier: number | null; marketing: string } | undefined;
 }): ReactElement {
   const freePlan = FREE_PLAN_CHANNELS.has(cid);
+  const mults = ids
+    .map((id) => infoFor(id)?.multiplier)
+    .filter((m): m is number => m != null && m > 0);
+  const freeCount = ids.filter((id) => {
+    const m = infoFor(id)?.multiplier;
+    return m === 0 || (m == null && freePlan);
+  }).length;
+
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">{cid}</span>
-        <span className="text-xs text-gray-500">{ids.length} 个模型</span>
+    <div className="panel p-4">
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="pill bg-brand/12 font-mono text-brand">{cid}</span>
+        <span className="text-[11px] text-ink-faint">{ids.length} 个模型</span>
+        {freeCount > 0 && (
+          <span className="pill bg-free/12 text-free">{freeCount} 个免费</span>
+        )}
+        {mults.length > 0 && (
+          <span className="ml-auto text-[11px] text-ink-faint">
+            倍率 ×{formatMultiplier(Math.min(...mults))}–×{formatMultiplier(Math.max(...mults))}
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {ids.map((id) => {
@@ -193,9 +315,7 @@ function ChannelModels({
                   <span
                     title={badgeTitle}
                     className={`ml-0.5 shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
-                      m === 0 || freePlan
-                        ? "bg-emerald-500/15 text-emerald-400"
-                        : "bg-amber-500/10 text-amber-300"
+                      m === 0 || freePlan ? "bg-free/15 text-free" : "bg-overlay text-ink-faint"
                     }`}
                   >
                     {badge}
@@ -210,23 +330,39 @@ function ChannelModels({
   );
 }
 
-/** 统计卡外壳：图标 + 标签 + 任意内容。 */
-function StatCard({
+/** 统计块：图标 + 标签 + 数值 + 副说明。 */
+function StatTile({
   icon,
   label,
-  children,
+  value,
+  unit,
+  hint,
+  tone,
 }: {
   icon: ReactElement;
   label: string;
-  children: ReactNode;
+  value: string;
+  unit?: string;
+  hint?: string;
+  tone: "brand" | "free" | "muted";
 }): ReactElement {
+  const toneClass =
+    tone === "free"
+      ? "bg-free/12 text-free"
+      : tone === "brand"
+        ? "bg-brand/12 text-brand"
+        : "bg-overlay text-ink-soft";
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-      <div className="mb-2 flex items-center gap-2 text-xs text-gray-500">
-        <span className="text-sky-400">{icon}</span>
-        {label}
+    <div className="panel p-4">
+      <div className="flex items-center gap-2.5">
+        <span className={`grid h-8 w-8 place-items-center rounded-lg ${toneClass}`}>{icon}</span>
+        <span className="text-xs text-ink-faint">{label}</span>
       </div>
-      {children}
+      <div className="mt-3 flex items-baseline gap-1.5">
+        <span className="text-2xl font-semibold tracking-tight text-ink">{value}</span>
+        {unit && <span className="text-xs text-ink-faint">{unit}</span>}
+      </div>
+      {hint && <div className="mt-1 text-[11px] text-ink-faint">{hint}</div>}
     </div>
   );
 }
@@ -241,17 +377,17 @@ export function Alert({
 }): ReactElement {
   const cls =
     tone === "error"
-      ? "border-red-900/60 bg-red-950/50 text-red-300"
-      : "border-sky-900/60 bg-sky-950/50 text-gray-300";
-  return <div className={`rounded-lg border p-3 text-sm ${cls}`}>{children}</div>;
+      ? "border-danger/30 bg-danger/10 text-danger"
+      : "border-brand/25 bg-brand/8 text-ink-soft";
+  return <div className={`rounded-xl border p-3 text-sm ${cls}`}>{children}</div>;
 }
 
-/** 加载骨架：三张卡片占位。 */
+/** 加载骨架：四块占位。 */
 export function Skeleton(): ReactElement {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="h-24 animate-pulse rounded-xl border border-gray-800 bg-gray-900" />
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-28 animate-pulse rounded-2xl border border-line bg-raised" />
       ))}
     </div>
   );

@@ -8,6 +8,9 @@ import type { ReactElement, ReactNode } from "react";
  * 复制成功后短暂显示对勾反馈。剪贴板 API 需要安全上下文 —— 控制台跑在
  * `http://127.0.0.1` 下属于安全上下文，可用。
  * `badge` 渲染在 chip 内部右侧（倍率 / 营销角标），让一行信息收进一个胶囊。
+ *
+ * 视觉上刻意「退后」：模型墙里一次能出现上百个 chip，默认态用低对比描边，
+ * 复制图标平时淡出、悬浮时点亮 —— 避免整屏图标噪声。
  */
 export function CopyChip({
   value,
@@ -35,16 +38,16 @@ export function CopyChip({
       type="button"
       title={`点击复制：${value}`}
       onClick={() => void copy()}
-      className={`group inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-mono text-xs transition-colors ${
+      className={`group inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs transition-all ${
         copied
-          ? "border-green-700 bg-green-950/60 text-green-300"
-          : "border-gray-800 bg-gray-950/80 text-gray-300 hover:border-sky-700/80 hover:bg-gray-950 hover:text-sky-200"
+          ? "border-free/50 bg-free/10 text-free"
+          : "border-line bg-canvas/60 text-ink-soft hover:-translate-y-px hover:border-brand/40 hover:bg-overlay hover:text-ink"
       }`}
     >
       {copied ? (
-        <Check className="h-3 w-3 shrink-0 text-green-400" />
+        <Check className="h-3 w-3 shrink-0 text-free" />
       ) : (
-        <Copy className="h-3 w-3 shrink-0 text-gray-600 transition-colors group-hover:text-sky-500" />
+        <Copy className="h-3 w-3 shrink-0 text-ink-faint/60 transition-colors group-hover:text-brand" />
       )}
       <span>{display ?? value}</span>
       {badge}
