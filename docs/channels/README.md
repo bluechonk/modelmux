@@ -21,11 +21,12 @@ docs/channels/<cid>/
 | 状态 / 模型 / 账单 | `mx status <cid>`、`mx model <cid> [--refresh]`、`mx bill <cid>` |
 | 接入客户端 | base url 指到 `http://127.0.0.1:4412/v1`，模型填 `<cid>/<模型>` 池 id（清单见 `GET /v1/models`） |
 | 单渠道调试 | `node packages/core/channels/<cid>/dist/cli.js --help` |
-| 额度 / 签到 | `mx bill <cid>`、`mx login <cid>`（是否支持看各渠道的 CLI 输出，`-` 表示无此概念） |
+| 额度 / 签到 | 额度查 `mx bill <cid>`；**签到由网关启动时自动执行**（`packages/core/gateway/src/auth/auto-signin.ts`，每 30 分钟补一次，跨天常驻也能补签），今天是否已签看 `mx status <cid>`；渠道不支持时 CLI / UI 显示 `-` |
 | 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「测试规则」第 1 条），用 `reasonix-mx-test` skill 走真实客户端 |
 
 > 渠道之间的**差异**（登录方式、推荐模型、已知限制、上游硬约束）都写在该渠道的
-> `PROTOCOL.md` 里 —— 本页只放**对所有渠道都成立**的部分。
+> `PROTOCOL.md` 里 —— 本页只放**对所有渠道都成立**的部分；下方「渠道一览」的一句话说明
+> 只是索引指针，细节仍以各自的 `PROTOCOL.md` 为准。
 
 ## 写作分工
 
@@ -34,6 +35,9 @@ docs/channels/<cid>/
 | `PROTOCOL.md` | 「上游长什么样 + 这条渠道怎么用」 | 端点、请求头约束、请求体、实测结论、推荐模型、已知限制、端到端实测、参考实现清单 | why（why 跟代码走） |
 | `FINDINGS.md` | 「逆向出了什么」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件 | 推断写成实测（禁止） |
 | `FLOW.md` | 「数据怎么流动」 | 端到端链路图（凭据落盘 → 加密 → 解密 → 注入请求） | 与链路无关的旁支 |
+
+当前落地：`PROTOCOL.md` 11 份（每个渠道一份）、`FINDINGS.md` 2 份（`catpaw` / `orcaterm`）、
+`FLOW.md` 1 份（`catpaw`）—— 后两者是**按需**的逆向结论层，不是每个渠道都有。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
 注释的三层分工见 [`MODULE-COMMENTS.md`](../MODULE-COMMENTS.md)。
@@ -44,27 +48,32 @@ docs/channels/<cid>/
 ### 登录方式 / 与国际版的差异 / 存储 / 模型 id / 已知限制 / 推荐模型   ← 渠道特有，按需
 ### 怎么测这个渠道                                                  ← 命令块
 ### 端到端测试覆盖                                                  ← 覆盖清单（AGENTS.md 硬要求成节列出）
-### 2026-10-19 端到端实测                                          ← 实测记录（结论）
+### <实测日期> 端到端实测                                          ← 实测记录（按日期分节）
 ```
+
+- 「怎么测这个渠道」与「端到端测试覆盖」**每个渠道都必须成节存在**；前半段的渠道特有
+  小节按需取舍。
+- 实测记录按**日期**分节（`2026-10-19` / `2026-10-20` …），同一天的多次实测合并成一节。
+- 尚无端到端实测记录的渠道**不写**这一节（当前 11 个渠道中只有 `qodercn` 还没有）。
 
 **逆向研究代码不入库**：探针 / 解密脚本这类一次性研究代码（渠道目录下的 `research/`）
 用完即删，价值在结论，不在代码。结论必须落到本目录的 `PROTOCOL.md` / `FINDINGS.md`。
 
 ## 渠道一览
 
-| cid | 产品 | 文档 |
-| --- | --- | --- |
-| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
-| `codearts` | CodeArts（华为云） | [PROTOCOL](./codearts/PROTOCOL.md) |
-| `lobsterai` | LobsterAI（有道） | [PROTOCOL](./lobsterai/PROTOCOL.md) |
-| `loomy` | Loomy（讯飞） | [PROTOCOL](./loomy/PROTOCOL.md) |
-| `orcaterm` | OrcaTerm（腾讯云） | [PROTOCOL](./orcaterm/PROTOCOL.md) + [FINDINGS](./orcaterm/FINDINGS.md) |
-| `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./qoder/PROTOCOL.md) |
-| `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./qodercn/PROTOCOL.md)（与 `qoder` 同一套协议） |
-| `raccoon` | Raccoon（商汤） | [PROTOCOL](./raccoon/PROTOCOL.md) |
-| `traecn` | TRAE（字节，中国版） | [PROTOCOL](./traecn/PROTOCOL.md) |
-| `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./workbuddy/PROTOCOL.md) |
-| `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
+| cid | 产品 | 一句话说明 | 文档 |
+| --- | --- | --- | --- |
+| `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
+| `codearts` | CodeArts（华为云） | benefit 免费额度**按账号授予**，chat 必须带 `maas_type: benefit` | [PROTOCOL](./codearts/PROTOCOL.md) |
+| `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
+| `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) |
+| `orcaterm` | OrcaTerm（腾讯云） | 工具调用走上游原生工具服务器桥接；无额度 / 签到 | [PROTOCOL](./orcaterm/PROTOCOL.md) + [FINDINGS](./orcaterm/FINDINGS.md) |
+| `qoder` | Qoder（国际版 `qoder.com`） | COSY 签名 + 请求体**自定义 Base64 编码**（直发字符串） | [PROTOCOL](./qoder/PROTOCOL.md) |
+| `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与 `qoder` **同一套协议**，仅域名 / 身份 / 模型目录不同 | [PROTOCOL](./qodercn/PROTOCOL.md) |
+| `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
+| `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
+| `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
+| `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名 | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 

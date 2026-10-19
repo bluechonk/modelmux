@@ -221,16 +221,16 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 
 ### 9.1 端点全表（国际版 base = `https://www.workbuddy.ai`）
 
-| 用途 | 方法 | 完整 URL | 必需 query / body | 实现 |
-| --- | --- | --- | --- | --- |
-| **chat（SSE）** | **POST** | **`https://www.workbuddy.ai/v2/chat/completions`** | **无 query**；body 恒 `stream:true` + `stream_options.include_usage` | `src/upstream.ts` 的 `DEFAULT_CHAT_PATH` / `chatUrl()` |
-| 模型目录（**真目录**） | GET | `https://www.workbuddy.ai/v3/config` | 无 query；**UA 必须是三段式 CLI UA**，未知 UA → `400 code=12403` | `src/upstream.ts` 的 `CATALOG_PATH` / `catalogUrl()` |
-| 连接配置 + 窄表 | GET | `https://www.workbuddy.ai/v2/enterprises/personal/models` | 无 query | `src/upstream.ts` 的 `MODELS_PATH` / `modelsUrl()` |
-| 额度（套餐明细） | POST | `https://www.workbuddy.ai/v2/billing/meter/get-user-resource` | 无 query；body `{PageNumber,PageSize,ProductCode:"p_tcaca",Status:[0,3],PackageEndTimeRangeBegin,PackageEndTimeRangeEnd}` | `src/billing.ts` 的 `RESOURCE_PATH` |
-| 授权链接申请 | POST | `https://www.workbuddy.ai/v2/plugin/auth/state` | query `platform=workbuddy`；body `{}` | `src/cred.ts` 的 `PLATFORM_QS` |
-| 轮询取 token | GET | `https://www.workbuddy.ai/v2/plugin/auth/token` | query `state` | `src/cred.ts::pollToken()` |
-| **取账号档案** | GET | `https://www.workbuddy.ai/v2/plugin/login/account` | query `state`；`Authorization: Bearer <token>` | `src/cred.ts::fetchAccountProfile()`（§8.0.1） |
-| 续期 | POST | `https://www.workbuddy.ai/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 | `src/cred.ts::refresh()` |
+| 用途 | 方法 | 完整 URL | 端点路径 | 必需 query / body | 实现 |
+| --- | --- | --- | --- | --- | --- |
+| **chat（SSE）** | **POST** | **`https://www.workbuddy.ai/v2/chat/completions`** | `/v2/chat/completions` | **无 query**；body 恒 `stream:true` + `stream_options.include_usage` | `src/upstream.ts` 的 `DEFAULT_CHAT_PATH` / `chatUrl()` |
+| 模型目录（**真目录**） | GET | `https://www.workbuddy.ai/v3/config` | `/v3/config` | 无 query；**UA 必须是三段式 CLI UA**，未知 UA → `400 code=12403` | `src/upstream.ts` 的 `CATALOG_PATH` / `catalogUrl()` |
+| 连接配置 + 窄表 | GET | `https://www.workbuddy.ai/v2/enterprises/personal/models` | `/v2/enterprises/personal/models` | 无 query | `src/upstream.ts` 的 `MODELS_PATH` / `modelsUrl()` |
+| 额度（套餐明细） | POST | `https://www.workbuddy.ai/v2/billing/meter/get-user-resource` | `/v2/billing/meter/get-user-resource` | 无 query；body `{PageNumber,PageSize,ProductCode:"p_tcaca",Status:[0,3],PackageEndTimeRangeBegin,PackageEndTimeRangeEnd}` | `src/billing.ts` 的 `RESOURCE_PATH` |
+| 授权链接申请 | POST | `https://www.workbuddy.ai/v2/plugin/auth/state` | `/v2/plugin/auth/state` | query `platform=workbuddy`；body `{}` | `src/cred.ts` 的 `PLATFORM_QS` |
+| 轮询取 token | GET | `https://www.workbuddy.ai/v2/plugin/auth/token` | `/v2/plugin/auth/token` | query `state` | `src/cred.ts::pollToken()` |
+| **取账号档案** | GET | `https://www.workbuddy.ai/v2/plugin/login/account` | `/v2/plugin/login/account` | query `state`；`Authorization: Bearer <token>` | `src/cred.ts::fetchAccountProfile()`（§8.0.1） |
+| 续期 | POST | `https://www.workbuddy.ai/v2/plugin/auth/token/refresh` | `/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 | `src/cred.ts::refresh()` |
 
 > **这三个模型端点是不同端点，别混**：`/v2/enterprises/personal/models` 是连接配置 +
 > 前端窄表（18 条、含 `default-model` 这类路由别名）；`/v3/config` 才是桌面端选择器的
@@ -389,7 +389,116 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
   国内版**三代域名**（`copilot.tencent.com` / `codebuddy.cn` / `workbuddy.cn`）都认
   （`wb_accounts.py:260-266`）。
 
-## 12. 已知边界
+---
+
+## 使用与实测
+
+### 登录
+
+`mx login workbuddyai` 走浏览器设备授权（申请链接 → 打开浏览器 → 轮询令牌），
+全程只有「在浏览器点一下授权」需要人工；国际版 realm 端点见 §1（`www.workbuddy.ai`）。
+**唯一登录路径与「为什么只保留它」的判据见 §8。**
+
+登录链路共 5 步（§8）：申请 state → 浏览器授权 → 轮询令牌 → **取账号档案**（§8.0.1，
+失败不阻塞）→ 落盘。设备授权**没有本机回环**，故 CLI / Web 都支持**粘贴兜底**：
+授权完成后把浏览器地址栏粘回终端，流程会**立刻**用同一个轮询处理器取令牌（§8.0.2）。
+
+`--realm` 参数在本渠道被忽略（保留仅为兼容共享层 CLI 的签名）。国内版（腾讯 CodeBuddy）
+是**独立渠道** `workbuddy`，见 [`workbuddy/PROTOCOL.md`](../workbuddy/PROTOCOL.md)：
+两者共用同一套网关，但账号、凭证落点、模型池各自独立 —— 账号在哪个域就用哪个渠道登录。
+
+### 存储与配置
+
+全部落点在统一存储根 `~/.modelmux/` 下按渠道分层：凭证在
+`~/.modelmux/workbuddyai/credentials.json`（权限 0600），不要提交到 git。
+凭证里的 `expiresAt` / `refreshExpiresAt` 存 **epoch 毫秒**（口径见 §11）。
+`MODELMUX_HOME` 可把整个存储根指到别处，便携/测试用；本渠道只读写
+`~/.modelmux/workbuddyai/`，不读其它顶层目录或旧环境变量。
+`mx path --all` 可只读列出全部落点。
+
+国内版数据在 `~/.modelmux/workbuddy/`，与本渠道不共享 —— 混用会跨产品串号。
+
+### 模型目录
+
+- **对外名 = 上游模型名**（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`）
+- 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddyai/cache/models.json`）
+  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx model workbuddyai --refresh` 强制重拉
+- 短名 `deepseek-flash` 仍能解析，但不出现在 `/v1/models` 里
+- 未识别的模型名原样透传
+
+### 已知限制（实测）
+
+- **SSE 里空的 `tool_calls: []` 必须剔除**：上游每个 delta 都带它，
+  而 ZCode 的解析器判定 `tool_calls != null` 就结束思考块 ——
+  不剔除会让每个 reasoning token 被切成独立的「思考」块。
+- **国际版没有签到端点**：早先「国际版存在 `/billing/meter/daily-checkin`」的结论是错的
+  —— 主参照 hub 实测 `intl.has_checkin = False`（`wb_accounts.py:190`、`:1383-1391`），
+  国际版的每日积分走**网页 agent 会话**通道（本渠道未实现，见 §12.1）。
+  故 `signin.status()` 如实报「无可领」，`signin.claim()` 不发任何上游请求。
+- **对话请求不带 `X-Machine-ID` / `X-Session-ID`**：官方桌面端只在反馈上报时发它们，
+  对话带恒定派生值反而是「网关特征」（§10.1）。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `workbuddyai/hy3` | **倍率 0（免费）**，自动化测试首选 | `[实测]` |
+| `workbuddyai/step-5-preview` | 倍率 0（免费） | `[实测]` |
+| `workbuddyai/deepseek-v4.1-flash` | 倍率 0（免费） | `[实测]` |
+| `workbuddyai/gpt-6-astra` 等高档 | 倍率最高到 **6.67** —— **禁用于自动化测试** | `[实测]` |
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login workbuddyai           # 登录入池（浏览器设备授权）
+mx status workbuddyai          # 状态与凭据
+mx model workbuddyai --refresh # 目录刷新
+mx bill workbuddyai            # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model workbuddyai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）：
+
+- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增，多轮链路完整。
+- 倍率 0：测试前后 `mx bill workbuddyai` 剩余额度无变化。
+- 注意：`workbuddyai` 免费档模型有 `hy3` / `step-5-preview` / `deepseek-v4.1-flash` 三个，
+  测例优先用倍率 0 的，其余模型倍率最高到 6.67（`gpt-6-astra`），勿用于自动化测试。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）：
+
+- **失败**：上游回 **HTTP 429**，业务码 **`code=6004`（用量限额）**。
+- **不是协议回归**：本渠道 2026-10-20 未改代码；失败原因是**账号侧用量限额**打满，
+  不是端点 / 请求头 / 登录态问题。
+- **恢复办法**：等上游额度窗口重置，或换一个有额度的账号重新入池；
+  本渠道**没有**主动续期与限额护栏（§12.1 的「限流护栏全套」「6004 额度用满的持久化禁用」
+  两项都未做），所以 429 只会如实上报。
+- 文档中该业务码的归类见国内版兄弟渠道 `workbuddy` 的 §4.1：`6004` 属
+  `model_rate`（日额度 / 模型繁忙）→ 处置是「换模型或换号」。
+
+---
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [ardeyouxipianyi/workbuddy2api-hub](https://github.com/ardeyouxipianyi/workbuddy2api-hub) | 主参照（1576★，mitmproxy 5.8.4 实测）：`wb_identity.py` 官方身分头族（X-Agent-* / X-IDE-* / 会话头族 / B3 链路）与 UA、realm 端点表（国际版 `www.workbuddy.ai`，`www.codebuddy.ai` 已 DNS 沉洞）、`wb_fingerprint.py` 按账号派生 machineId/sessionId 的防关联口径 |
+| [Tom6814/WorkBuddy2API](https://github.com/Tom6814/WorkBuddy2API) | WorkBuddy / CodeBuddy 逆向 API（97★，Docker 部署） |
+| [ckldy/workbuddy2api](https://github.com/ckldy/workbuddy2api) | WorkBuddy 转服务的对照样本（Go）：登录三端点逐字同协议（`cmd/login/main.go`），账号档案取 `uid`/`enterpriseId`/`nickname` |
+| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 体量最大的面板实现（4025★）：`internal/panel/login.go:34-47` 的 `loginEndpoints()` **global 与 cn 两个 realm 都带 `login/account` 这一步**，是 §8.0.1「国际版也取账号档案」的直接依据 |
+
+## 已知边界
 
 ### 12.1 参考实现有、当前实现没有的功能（29 条，本轮明确不做）
 
@@ -462,87 +571,75 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 | V8 | `/v2/plugin/login/account` 对国际版是否可用 | **已验一半**（2026-10-20 实测）：端点**存在**（无有效令牌回 401，编造的路径回 404）；带有效令牌时能否取到 `uid`/`nickname` 仍要等一次真机登录才知道（该步失败**不阻塞**登录） |
 | V9 | 缺 `X-Enterprise-Id` 是否影响企业账号 | 需要企业账号才能验；无账号则按「不实现」处理 |
 
----
+## 已知边界
 
-## 使用与实测
+### 12.1 参考实现有、当前实现没有的功能（29 条，本轮明确不做）
 
-### 登录
+> 全部来自 `reference/` 三个仓库的源码（证据见
+> `.planning/2026-10-20-channel-reference-parity/research/workbuddyai.md` 的 §5）。
 
-`mx login workbuddyai` 走浏览器设备授权（申请链接 → 打开浏览器 → 轮询令牌），
-全程只有「在浏览器点一下授权」需要人工；国际版 realm 端点见 §1（`www.workbuddy.ai`）。
-**唯一登录路径与「为什么只保留它」的判据见 §8。**
+| 层 | 缺口 | 参考实现 |
+| --- | --- | --- |
+| 账号 / 凭据 | 桌面端加密凭据导入（at-rest AES-256-GCM + Windows 进程内存回收主密钥） | hub `wb_atrest.py`、`wb_accounts.py:3491-3534` |
+| 账号 / 凭据 | 手工 JSON 凭据导入 / 账号导出 | ckldy `internal/auth/auth.go:43-161`；hub `wb_accounts.py:705-739` |
+| 账号 / 凭据 | 企业账号支持（`enterpriseId` 落盘 + JWT 回填 + `X-Enterprise-Id`/`X-Tenant-Id` + 企业用量端点） | hub `wb_accounts.py:537`、`:2061`；`wb_identity.py:224-226` |
+| 账号 / 凭据 | 设备令牌 `X-Device-Token` | hub `wb_accounts.py:392-424` |
+| 账号 / 凭据 | 账号昵称同步（`GET /console/account`） | hub `wb_accounts.py:72-100` |
+| 出站身分 | 三套出站身分切换（`workbuddy` / `vscode` / `cli`） | hub `wb_identity.py:143-230`、`wb_accounts.py:1311-1330` |
+| 防关联 | 每账号出口代理绑定 + 出口退避 + IP 情报 | hub `wb_accounts.py:107-125`、`wb_egress.py`、`wb_ipintel.py:23` |
+| 防关联 | 上游连接池（keep-alive） | hub `wb_upstream_pool.py:285`、`:651` |
+| 续期 / 可靠性 | 主动续期（到期前 N 分钟先刷 + keepalive 调度） | hub `wb_accounts.py:1205-1217`；ckldy `internal/server/handler.go:187-199` |
+| 续期 / 可靠性 | 刷新并发锁（上游会轮换 refresh token） | hub `wb_accounts.py:693`、`:1332-1337` |
+| 护栏 | 限流护栏全套（软限流阶梯 / 熔断 / 降级 / 按模型冷却） | hub `wb_accounts.py:443-506`、`:1005-1055` |
+| 护栏 | 6004 额度用满的持久化禁用 | hub `wb_accounts.py:628-634` |
+| 护栏 | 每日限额三件套（每日 token / 每日 credit / 模型级）+ 低余额保留 + 临期优先 | hub `wb_accounts.py:653-687`、`:871-930` |
+| 护栏 | 账号级权重 / 备注 / 人工禁用模型名单 | hub `wb_accounts.py:557`、`:564-576` |
+| 额度 / 自动化 | 额度明细扩展端点（summary / free-packages / paid-packages / 签到状态 / 企业用量） | hub `wb_accounts.py:214-218`、`:1850-1886` |
+| 额度 / 自动化 | 国际版每日活跃打卡（网页 agent 会话：建会话 → 取沙箱 → ACP 三步 → 轮询 completed） | hub `wb_accounts.py:34-37`、`:1452-1666`、`wb_webagent.py:221` |
+| 额度 / 自动化 | 活动历史落盘与查询（签到 / 每日活跃每一次真实尝试） | hub `wb_activity.py:179`、`:285` |
+| 协议精细度 | 模型目录精度（清洗行内补全模型 / 专线变体；折叠 `-sg`/`-x` 变体后缀；宣告工具与推理档位） | hub `wb_catalog.py:18-1731`、`wb_proxy.py:10673`、`:10730-10771` |
+| 协议精细度 | 按目录元数据注入推理参数（`thinking.type=enabled` 单独不触发思考、GPT 系 `max_tokens` 下限 16、缺省取目录声明） | hub `wb_proxy.py:12402-12435` |
+| 协议精细度 | 提示词模式（`passthrough` / `custom` / `append`） | hub `wb_prompt.py:38`、`:81` |
+| 协议精细度 | 后台模型重定向（后台任务模型 → 免费模型） | hub `wb_proxy.py:355-369` |
+| 网关形态 | 本地网络工具代跑（`web_search` / `web_fetch` 本地执行） | hub `wb_webtools.py:91-577` |
+| 网关形态 | Responses API / Anthropic Messages 适配 | hub `README.md:352-363` |
+| 网关形态 | 图片生成 / 编辑（`/v2/images/generations`、`/v2/images/edits`） | Tom6814 `codebuddy_direct_api.py:63-64`、`server.py:435`、`:506` |
+| 网关形态 | OpenRouter 价估算 / 剩余用量估算 / 积分获取历史 | hub `wb_pricing.py:1124`、`:2230` |
+| 网关形态 | 智能体一键配置（生成 opencode / claude / codex 配置） | hub `wb_agents.py:609` |
+| 网关形态 | 单请求体体积上限（默认 16 MB） | hub `README.md:299-301` |
 
-登录链路共 5 步（§8）：申请 state → 浏览器授权 → 轮询令牌 → **取账号档案**（§8.0.1，
-失败不阻塞）→ 落盘。设备授权**没有本机回环**，故 CLI / Web 都支持**粘贴兜底**：
-授权完成后把浏览器地址栏粘回终端，流程会**立刻**用同一个轮询处理器取令牌（§8.0.2）。
+### 12.2 静态风险（读代码即可定论，未做真机验证）
 
-`--realm` 参数在本渠道被忽略（保留仅为兼容共享层 CLI 的签名）。国内版（腾讯 CodeBuddy）
-是**独立渠道** `workbuddy`，见 [`workbuddy/PROTOCOL.md`](../workbuddy/PROTOCOL.md)：
-两者共用同一套网关，但账号、凭证落点、模型池各自独立 —— 账号在哪个域就用哪个渠道登录。
+| # | 风险 | 现状 |
+| --- | --- | --- |
+| R1 | `expiresIn` 单位三家分歧 | 已修：绝对时刻 → JWT `exp` → 相对量三段式，且秒/毫秒都认（§11） |
+| R2 | 国际版签到端点断言错误 | 已修：改为「国际版无签到端点」，不再打 `/billing/meter/daily-checkin` |
+| R3 | billing 头误用国内版 UA | 已修：按区域取计费 UA（国际版 `WorkBuddy/5.8.4`） |
+| R4 | billing 头缺 `X-Machine-ID` / `X-Session-ID` | 已修：按账号 uid 派生 |
+| R5 | billing 的 `X-Request-ID` 形态不对（带连字符） | 已修：改为 32 位无连字符 hex |
+| R6 | 国内版域名集合漏 `workbuddy.cn` | 已修：`upstream.isCnDomain()` 认三代域名 |
+| R7 | chat / 目录 / 额度的 base 口径不一致 | 部分修：域名覆写处统一过 `normalizeBaseUrl()`；chat 与目录仍分别取「落盘 baseUrl」与「凭据 domain」 |
+| R8 | 刷新无并发锁 | **未做**（见 §12.1） |
+| R9 | 只被动续期，无到期前预刷 | **未做**（见 §12.1） |
+| R10 | 登录端点的匿名头与参考实现不同 | 保留现状（已实测跑通），见 §10.4 |
+| R11 | `platform=workbuddy` 与参考实现的 `CLI` 不同 | 保留现状（已实测跑通），见 §8.2 |
+| R12 | 不打 `/v2/plugin/login/account`，没有昵称 / 企业 id | **已修**（2026-10-20）：登录链路补上该步（§8.0.1），uid / nickname 落盘；`enterpriseId` 仍不落盘（国际版不发企业头） |
+| R13 | 目录不宣告推理档位 / 工具支持 | **未做**（见 §12.1） |
+| R14 | `www.codebuddy.ai` 沉洞的兜底只做了一处 | 已修：收敛到 `normalizeBaseUrl()`，chat / 目录 / 额度 / 续期四条路径都过 |
+| R15 | 随包快照只有 1 条模型 | 未改（远端目录落盘后即以远端为准） |
 
-### 存储与配置
+### 12.3 需要真机验证（不能靠读代码定论）
 
-全部落点在统一存储根 `~/.modelmux/` 下按渠道分层：凭证在
-`~/.modelmux/workbuddyai/credentials.json`（权限 0600），不要提交到 git。
-凭证里的 `expiresAt` / `refreshExpiresAt` 存 **epoch 毫秒**（口径见 §11）。
-`MODELMUX_HOME` 可把整个存储根指到别处，便携/测试用；本渠道只读写
-`~/.modelmux/workbuddyai/`，不读其它顶层目录或旧环境变量。
-`mx path --all` 可只读列出全部落点。
+> 验证纪律：只发**正确形态**的请求，不发畸形载荷（见 `AGENTS.md`「测试规则」第 4 条）。
 
-国内版数据在 `~/.modelmux/workbuddy/`，与本渠道不共享 —— 混用会跨产品串号。
-
-### 模型目录
-
-- **对外名 = 上游模型名**（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`）
-- 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddyai/cache/models.json`）
-  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx model workbuddyai --refresh` 强制重拉
-- 短名 `deepseek-flash` 仍能解析，但不出现在 `/v1/models` 里
-- 未识别的模型名原样透传
-
-### 已知限制（实测）
-
-- **SSE 里空的 `tool_calls: []` 必须剔除**：上游每个 delta 都带它，
-  而 ZCode 的解析器判定 `tool_calls != null` 就结束思考块 ——
-  不剔除会让每个 reasoning token 被切成独立的「思考」块。
-- **国际版没有签到端点**：早先「国际版存在 `/billing/meter/daily-checkin`」的结论是错的
-  —— 主参照 hub 实测 `intl.has_checkin = False`（`wb_accounts.py:190`、`:1383-1391`），
-  国际版的每日积分走**网页 agent 会话**通道（本渠道未实现，见 §12.1）。
-  故 `signin.status()` 如实报「无可领」，`signin.claim()` 不发任何上游请求。
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login workbuddyai           # 登录入池（浏览器设备授权）
-mx status workbuddyai          # 状态与凭据
-mx model workbuddyai --refresh # 目录刷新
-mx bill workbuddyai            # 额度与倍率（测试后核对是否扣费）
-```
-
-### 端到端测试覆盖
-
-登录入池 / `mx model workbuddyai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）：
-
-- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增，多轮链路完整。
-- 倍率 0：测试前后 `mx bill workbuddyai` 剩余额度无变化。
-- 注意：`workbuddyai` 免费档模型有 `hy3` / `step-5-preview` / `deepseek-v4.1-flash` 三个，
-  测例优先用倍率 0 的，其余模型倍率最高到 6.67（`gpt-6-astra`），勿用于自动化测试。
-
----
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [ardeyouxipianyi/workbuddy2api-hub](https://github.com/ardeyouxipianyi/workbuddy2api-hub) | 主参照（1576★，mitmproxy 5.8.4 实测）：`wb_identity.py` 官方身分头族（X-Agent-* / X-IDE-* / 会话头族 / B3 链路）与 UA、realm 端点表（国际版 `www.workbuddy.ai`，`www.codebuddy.ai` 已 DNS 沉洞）、`wb_fingerprint.py` 按账号派生 machineId/sessionId 的防关联口径 |
-| [Tom6814/WorkBuddy2API](https://github.com/Tom6814/WorkBuddy2API) | WorkBuddy / CodeBuddy 逆向 API（97★，Docker 部署） |
-| [ckldy/workbuddy2api](https://github.com/ckldy/workbuddy2api) | WorkBuddy 转服务的对照样本（Go）：登录三端点逐字同协议（`cmd/login/main.go`），账号档案取 `uid`/`enterpriseId`/`nickname` |
-| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 体量最大的面板实现（4025★）：`internal/panel/login.go:34-47` 的 `loginEndpoints()` **global 与 cn 两个 realm 都带 `login/account` 这一步**，是 §8.0.1「国际版也取账号档案」的直接依据 |
+| # | 待验证项 | 判据 |
+| --- | --- | --- |
+| V1 | `expiresIn` 的单位（秒 or 毫秒）与 `expiresAt` / JWT `exp` 的关系 | 三者能推出同一到期时刻 → §11 的判定口径正确 |
+| V2 | 国际版到底有没有 `/billing/meter/daily-checkin` | 404 → 证实「国际版无签到端点」，`signin` 的现状正确 |
+| V3 | 国际版每日 30/50 积分的正确通道（网页 agent 会话）能否跑通 | 跑通 → 值得实现（§12.1）；跑不通 → 该路对网关不可用 |
+| V4 | `platform` query 取值是否影响上游 | 两种取值都能拿到 `state`+`authUrl` → 保留现状 |
+| V5 | 续期请求缺 `Origin` / `Referer` / `Accept-Language` 是否被拒 | 两者都 200 → 现状可留 |
+| V6 | billing 缺 `X-Machine-ID` / `X-Session-ID` 是否影响归因或被拒 | 响应一致 → 现状可留 |
+| V7 | `X-Domain` 与实际 host 不一致是否被拒 | 200 → base 口径可继续收敛；被拒 → base 必须与 `X-Domain` 严格同源 |
+| V8 | `/v2/plugin/login/account` 对国际版是否可用 | **已验一半**（2026-10-20 实测）：端点**存在**（无有效令牌回 401，编造的路径回 404）；带有效令牌时能否取到 `uid`/`nickname` 仍要等一次真机登录才知道（该步失败**不阻塞**登录） |
+| V9 | 缺 `X-Enterprise-Id` 是否影响企业账号 | 需要企业账号才能验；无账号则按「不实现」处理 |

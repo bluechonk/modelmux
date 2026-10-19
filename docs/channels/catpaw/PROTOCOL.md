@@ -307,6 +307,86 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - 文档只保留协议结论与脱敏形态（指纹 / 长度），不含真实凭据；
   密钥派生知识仅用于解析本机登录态。
 
+## 使用与实测
+
+### 登录方式
+
+`mx login catpaw` 走**真实 URL 链路**：login-config → 拼 `auth_url` → 浏览器点一下 →
+poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条登录链路，落盘在
+`~/.modelmux/catpaw/credentials.json`；**不读取任何其它应用的本地文件**
+（不读桌面端密文 / `auth.json`）。
+
+完整流程与「为什么不采纳其它路径」见上文「唯一登录路径」。
+
+### 已知限制
+
+- **工具通道不是上游原生能力**：上游没有承接客户端 function schema 的字段，渠道靠
+  「工具清单注入 prompt + 模型用 ```tool_call 围栏表达调用」模拟（见「消息折叠与工具调用」）。
+  模型不按围栏输出时调用会丢失，工具往返的稳定性取决于模型本身。
+- **每轮结束必须回报 `event(completed)`**：漏报会让会话永久停在「执行中」，后续 round 被拒、
+  turn 的 SSE 一直挂到上游超时（实测 200s+）。
+- **轮次打断未实现**：客户端中断时上游轮次不会被取消（见「已知边界」）。
+- **上下文是请求参数不是模型能力**：上游目录不下发窗口，按 body 字段
+  `requestContext.modelParams.declarativeParams.context` 下发；折叠后的 prompt 预算 **900KB**，
+  超预算先丢最早历史。
+- **token 72h 到期只能重登**：上游**没有刷新端点**，`refresh()` 只是有效性探测。
+- **家族 B 协议不实现**（IDE 侧 `/api/gpt/*`）：token 与家族 A 不通用，见「已知边界」。
+
+### 推荐模型
+
+| 模型 | 结论 | 等级 |
+| --- | --- | --- |
+| `catpaw/deepseek-v4.1-flash` | 2026-10-18 真机验证全绿 —— 普通/流式、单工具、并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过 | `[实测]` |
+| `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
+| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；**用户实测曾报「真实客户端有兼容问题」**，但 2026-10-19 用 Reasonix CLI 的端到端测试**全过**（见下）—— 未能复现，疑与客户端实现有关 | `[实测]` |
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login catpaw           # 登录入池（真实 URL 链路，见上）
+mx status catpaw          # 状态与凭据
+mx model catpaw --refresh # 目录刷新
+mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model catpaw --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容一致，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill catpaw` 剩余额度无变化。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
+- 本轮为**全渠道回归**的一环，未改动本渠道代码；结论与 2026-10-19 的记录一致。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+⚠ 这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**
+（`ai.catpaw.meituan.com` 的 conversation 协议）与本渠道协议同源，家族 B
+（`catpaw.meituan.com/api/gpt/*` 的 IDE 侧协议）**只作对照，不照抄**。
+
+| 仓库 | 家族 | 用途 |
+| --- | --- | --- |
+| [HITZY2002/catpaw2api](https://github.com/HITZY2002/catpaw2api) | A | 主参照（Go）：`internal/upstream/const.go` 的网关/直连双 host 划分与额度、签到端点（`/api/gateway/credit/balance`、`/api/gateway/credit/register`）、`internal/auth/auth.go` 的 72h 令牌有效期 |
+| [icebears111/catpaw2api](https://github.com/icebears111/catpaw2api) | A | 与 HITZY2002 **同源分叉**；`internal/upstream/conversation.go` 的三段式（round/turn/event）实现与 `const.go:83-90` 的 modelType 数值表（`src/catalog.ts` 的 `MODEL_TYPE_FALLBACK` 来源） |
+| [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | B | IDE 侧代理形态参照（**不照抄**） |
+| [Juwan-Hwang/catpaw2api](https://github.com/Juwan-Hwang/catpaw2api) | B | IDE 侧的额度/提额与请求体加密参照（**不照抄**） |
+| [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | B | IDE 侧的短信无头登录、Yoda 挑战、凭据管道参照（**不照抄**） |
+| [fifasheng-tech/catpaw-bridge](https://github.com/fifasheng-tech/catpaw-bridge) | B | IDE 侧的请求体加密与工具翻译参照（**不照抄**） |
+
 ## 已知边界
 
 本节记录**本轮明确不做**的事，以及**待真机验证**的疑点。
@@ -351,62 +431,3 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 | `X-Passport-Token` 头与 `Cookie` 是否都必须 | 本仓双发，参考实现也双发 | 去掉任一个是否仍 200 |
 | `enableHeartBeat` 是否必要 | 只有 icebears111 conversation 协议有 | 去掉是否影响长连接保活 |
 | `permissionMode` 用 `default` 而非 `unsafeBypassPermissions` | `FINDINGS.md` 记的上游常量是后者；参考实现 `const.go:47-49` 注释说 `default` 才是特意选的（工具交客户端执行，避免上游把对话当 agent 任务跑循环）。本仓用 `default` 且已实测通 | 上游是否还有隐藏行为差异 |
-
-## 使用与实测
-
-### 登录方式
-
-`mx login catpaw` 走**真实 URL 链路**：login-config → 拼 `auth_url` → 浏览器点一下 →
-poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条登录链路，落盘在
-`~/.modelmux/catpaw/credentials.json`；**不读取任何其它应用的本地文件**
-（不读桌面端密文 / `auth.json`）。
-
-完整流程与「为什么不采纳其它路径」见上文「唯一登录路径」。
-
-### 推荐模型
-
-| 模型 | 结论 | 等级 |
-| --- | --- | --- |
-| `catpaw/deepseek-v4.1-flash` | 2026-10-18 真机验证全绿 —— 普通/流式、单工具、并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过 | `[实测]` |
-| `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
-| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；**用户实测曾报「真实客户端有兼容问题」**，但 2026-10-19 用 Reasonix CLI 的端到端测试**全过**（见下）—— 未能复现，疑与客户端实现有关 | `[实测]` |
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login catpaw           # 登录入池（真实 URL 链路，见上）
-mx status catpaw          # 状态与凭据
-mx model catpaw --refresh # 目录刷新
-mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
-```
-
-### 端到端测试覆盖
-
-登录入池 / `mx model catpaw --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容一致，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill catpaw` 剩余额度无变化。
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-⚠ 这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**
-（`ai.catpaw.meituan.com` 的 conversation 协议）与本渠道协议同源，家族 B
-（`catpaw.meituan.com/api/gpt/*` 的 IDE 侧协议）**只作对照，不照抄**。
-
-| 仓库 | 家族 | 用途 |
-| --- | --- | --- |
-| [HITZY2002/catpaw2api](https://github.com/HITZY2002/catpaw2api) | A | 主参照（Go）：`internal/upstream/const.go` 的网关/直连双 host 划分与额度、签到端点（`/api/gateway/credit/balance`、`/api/gateway/credit/register`）、`internal/auth/auth.go` 的 72h 令牌有效期 |
-| [icebears111/catpaw2api](https://github.com/icebears111/catpaw2api) | A | 与 HITZY2002 **同源分叉**；`internal/upstream/conversation.go` 的三段式（round/turn/event）实现与 `const.go:83-90` 的 modelType 数值表（`src/catalog.ts` 的 `MODEL_TYPE_FALLBACK` 来源） |
-| [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | B | IDE 侧代理形态参照（**不照抄**） |
-| [Juwan-Hwang/catpaw2api](https://github.com/Juwan-Hwang/catpaw2api) | B | IDE 侧的额度/提额与请求体加密参照（**不照抄**） |
-| [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | B | IDE 侧的短信无头登录、Yoda 挑战、凭据管道参照（**不照抄**） |
-| [fifasheng-tech/catpaw-bridge](https://github.com/fifasheng-tech/catpaw-bridge) | B | IDE 侧的请求体加密与工具翻译参照（**不照抄**） |

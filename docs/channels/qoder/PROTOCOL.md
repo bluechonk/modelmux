@@ -15,6 +15,30 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 
 ---
 
+## 唯一登录路径：PKCE 设备码轮询（不起本地回调服务器）
+
+**本渠道只有这一条登录路径**（完整流程与判据见 §2.1 / §2.2）。
+
+```
+① 构造授权页 URL（浏览器打开）：
+   {website}/device/selectAccounts?challenge&challenge_method=S256&nonce&client_id
+② GET {openapi}/api/v1/deviceToken/poll?nonce&verifier&challenge_method=S256
+   间隔 1s、窗口 300s；HTTP 404 = 用户尚未授权，继续轮询
+③ 补账号档案：GET {openapi}/api/v1/userinfo
+   取 name（昵称）/ user_type（请求体 aliyun_user_type）/ id（uid 兜底）—— 失败不阻塞登录
+④ 落盘 credentials.json
+```
+
+**为什么不采纳其它路径**（判据见 §2.2）：PAT → jobToken 交换（依赖第三套 base `center.qoder.sh`
+与已失效的 legacy 签名族）、读本机官方客户端已登录凭证（依赖桌面端 + DPAPI/os_crypt，
+违反「渠道包 7 文件、零第三方依赖」契约）—— **两条都不做**。
+
+**粘贴兜底不是第二条路径**：设备码流的令牌**只由服务端按 `nonce` 下发**，浏览器的深链
+也打不到本机；`pasteCode` 粘回的内容**只作「浏览器那一步已完成」的信号**，
+驱动**同一个轮询处理器**立刻再取一次令牌（详见 §2.1.1）。
+
+---
+
 ## 1. 端点
 
 ### 1.1 产品配置（域名差异全部在这里）
@@ -52,32 +76,20 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 
 ### 1.3 chat / 模型请求的确切 URL
 
-**对话（实际使用）**
+| 方法 | 完整 URL（国际版 `qoder`） | 完整 URL（中国版 `qodercn`） | 端点路径 | 必需 query / body 来源 |
+|---|---|---|---|---|
+| **POST（对话）** | `https://api1.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1` | `https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1` | `/algo/api/v2/service/pro/sse/agent_chat_generation` | **query 三个都不能少**：`FetchKeys=llm_model_result`、`AgentId=agent_common`、`Encode=1`；body 走自定义 Base64 编码（`qoderEncode`） |
+| GET（**模型目录**） | `https://api1.qoder.sh/algo/api/v2/model/list?Encode=1` | `https://gateway.qoder.com.cn/algo/api/v2/model/list?Encode=1` | `/algo/api/v2/model/list` | **query**：`Encode=1`；**body 必须真的带** `qoder_encode("{}")`（裸 GET 会 403） |
 
-- 方法：**POST**
-- 端点路径：`/algo/api/v2/service/pro/sse/agent_chat_generation`
-- 必需 query（一个都不能少）：`FetchKeys=llm_model_result`、`AgentId=agent_common`、`Encode=1`
-- 完整 URL（国际版）：
-  `https://api1.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1`
-- 完整 URL（中国版）：
-  `https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1`
 - 换主机（国际版 `api1`→`api2`→`api3`）只改 host，**路径与 query 不变** —— 签名只覆盖 path，不含 host。
-- 代码位置：`src/upstream.ts` 的 `CHAT_ENDPOINT_PATH` + `CHAT_QUERY` `[代码]`
+- 代码位置：`src/upstream.ts` 的 `CHAT_ENDPOINT_PATH` + `CHAT_QUERY` /
+  `MODELS_ENDPOINT_PATH` + `MODELS_QUERY` `[代码]`
 
 | query | 值 | 作用 |
 | --- | --- | --- |
 | `FetchKeys` | `llm_model_result` | 要求上游在流里回传模型结果字段 |
 | `AgentId` | `agent_common` | 固定 agent 标识（请求体 `agent_id` 同值） |
 | `Encode` | `1` | 请求体走自定义 Base64 编码（对应 `qoderEncode`） |
-
-**模型目录**
-
-- 方法：**GET**（⚠ **必须真的带 body**：body = `qoder_encode("{}")`；裸 GET 会 403）
-- 端点路径：`/algo/api/v2/model/list`
-- 必需 query：`Encode=1`
-- 完整 URL（国际版）：`https://api1.qoder.sh/algo/api/v2/model/list?Encode=1`
-- 完整 URL（中国版）：`https://gateway.qoder.com.cn/algo/api/v2/model/list?Encode=1`
-- 代码位置：`src/upstream.ts` 的 `MODELS_ENDPOINT_PATH` + `MODELS_QUERY` `[代码]`
 
 > ⚠ Node 的 `fetch` 规范禁止 GET 带 body，所以目录请求走 `node:https` 直发
 > （`src/upstream.ts` 的 `getWithBody`）`[代码]`。
@@ -643,7 +655,93 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 ---
 
-## 9. 已知边界
+## 使用与实测
+
+### 登录方式
+
+`mx login qoder` 走**浏览器设备码授权（PKCE S256）**：CLI 构造授权页 URL → 人工点一次授权 →
+按 `nonce` 轮询 `deviceToken/poll` 取令牌 → 补一次 `userinfo`（昵称 / 身份类型 / uid 兜底）
+→ 落盘 `credentials.json`。
+
+设备码流**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用同一个轮询处理器
+取令牌（粘贴兜底见 §2.1.1 / 文档开头的「唯一登录路径」）。
+**唯一登录路径与「为什么不采纳其它路径」的判据见 §2.1 / §2.2。**
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `qoder/qwen3.8-flash` | **倍率 0 / 免费**（§5.1 的 `qfmodel`）—— 自动化测试首选 | `[实测]` |
+| `qoder/deepseek-flash` | 倍率 0.1（`dfmodel`）；2026-10-20 端到端实测用的就是它 | `[实测]` |
+| `qoder/kimi-k3` | 倍率 1.4 —— **禁用于自动化测试** | `[实测]` |
+
+### 已知限制
+
+- **上游会回 SSE 内嵌业务错误帧**（如排队 `10605`），测试偶发变慢属正常排队重试机制
+  （见 §4.3），不是故障。
+- **签到可能看不到活动**：见 §9.3 R1/R2 —— `/sash` 的机器头与 `cosy-version` 组合
+  尚未经我方实测，症状是「不报错但活动列表为空」。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login qoder
+mx status qoder
+mx model qoder --refresh
+mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
+```
+
+登录走设备码轮询，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
+同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
+
+### 端到端测试覆盖
+
+登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
+- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
+  排队重试机制（见 §4.3），不是故障。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`qoder/deepseek-flash`，倍率 0.1）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 本轮为**全渠道回归**的一环；下节「2026-10-20 改动」列出的四件事已随本次实测复验。
+
+### 2026-10-20 改动（已在同日端到端实测中复验）
+
+本轮改了四件事（G1 / G4 / G18 / G19）并补了 `/sash` 的 `cosy-version`，
+**已在同日的端到端实测中跑通**（见上节）；仍建议后续关注：
+
+1. **推理模型是否开始回 `reasoning_content`**：`model_config.is_reasoning` 现在取目录真值
+   （此前恒 false），推理模型的思考链可能因此出现（预期行为变化，不是故障）。
+2. **`model_config.max_input_tokens` 变大**（部分模型由 180000 变为 1000000）是否影响上游。
+3. **工具往返是否仍通过**（`tools` 归一后形状变了）。
+4. **`mx bill qoder` 的签到状态**（`/sash` 多了 `cosy-version` 头）。
+5. **登录链路的粘贴兜底与 userinfo 字段**（§2.1 / §2.1.1）：授权完成后把浏览器地址栏
+   粘回终端，流程应**立刻**取到令牌；登录后 `userinfo` 也取 `user_type` / `id`，
+   需确认 `aliyun_user_type` 不再恒为默认值 `personal_professional_trial`。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★，国际国内双区多账号网关）：COSY 签名推理、稳定设备指纹防风控、OAuth 设备授权 —— 与本渠道的实现痛点一一对应 |
+| [cubk1/qoder2api](https://github.com/cubk1/qoder2api) | 逆向 demo 对照样本（90★） |
+| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★） |
+
+## 已知边界
 
 本节汇总「参考实现有、但本仓不做」的功能与待验证项。
 完整证据（参考实现的文件:行号）见
@@ -688,7 +786,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 | G5 | 模型的 `enable` / `strategies` 禁用态未解析 | 看不到「需升级套餐」的官方原因 | `qoder_proxy.py:2197-2207` |
 | G8 | 能力矩阵未透出（`capabilities` / `input_modalities` / `modalities`） | `/v1/models` 信息少 | `qoder_proxy.py:2208-2233` |
 | G9 | 模型别名表（`MODEL_ALIASES` / `aliases`）缺失 | 客户端只能用规范 id | `qoder_catalog.py:1591` |
-| G10 | userinfo 只取 `name`，丢了 `id` / `user_type` / `organization_id` / `organization_name` | `user_type` 恒默认值；企业号签名可能无效 | `qoder_accounts.py:3320-3338` |
+| G10 | userinfo 丢了 `organization_id` / `organization_name` | 企业号签名可能无效 | `qoder_accounts.py:3320-3338` |
 | G11 | token 前缀族（`drt-` / `jrt-` / `pt-`）不识别 | 只有一条续期路径（本仓也只有一条登录路径，暂无影响） | `qoder_accounts.py:1790-1812` |
 | G12 | 无原生风控身份（见 §9.1） | 活动列表可能被过滤 | `qoder_accounts.py:1722-1772` |
 | G13 | 另一套额度端点与套餐名（见 §9.1） | — | `qoder_accounts.py:2426-2532` |
@@ -709,7 +807,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 | R1 | `/sash` **无条件发派生** `cosy-machinetoken` + `cosy-machinetype`。主参照 issue #10 实测：**派生六头全发会被判为非官方客户端，把 CLAIMABLE 的「每日领取 100 Credits」整条过滤**（只剩 `VIEW_DETAILS`）；正解是**一个都不发**（`qoder_accounts.py:1736-1746`） | 签到可能看不到活动且**不报错** —— 本轮**未改**（我方行为未验证），待真机比对 |
 | R2 | `/sash` 的 `cosy-version` 取值 `0.4.3`（桌面端系列）未经我方实测 | 版本不对可能仍返回空列表 |
 | R3 | `reasoning_effort` 原样透传，无归一 | 上游静默忽略非法档位 |
-| R4 | `user_type` 恒默认值 `personal_professional_trial` | 正式账号可能被当试用账号 |
+| R4 | ~~`user_type` 恒默认值 `personal_professional_trial`~~ | **已修**（2026-10-20）：userinfo 扩到 name / user_type / id（§2.1），请求体 `aliyun_user_type` 取真实值；取不到才回落默认 |
 | R5 | COSY 身份体的 `organization_id` / `organization_name` / `yx_uid` 恒空 | 企业版账号可能签名无效 |
 | R6 | 授权 URL **不带 `machine_id`**（主参照带、Zhengyuuuui 不带，两方矛盾） | 可能影响服务端设备绑定 / 风控画像 |
 | R7 | 刷新 body 多带 `machine_id`（主参照只带 `refresh_token`） | 可能影响续期成功率 |
@@ -737,70 +835,3 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 | V9 | intl 的 api1/api2/api3 哪个被接受是否随账号变 | 不同账号命中不同主机 → 现有 `gatewayHost` 记忆机制有效 |
 | V10 | 图片链路是否需要 `chat_context.imageUrls` | 图片丢失 → 必须补 G20 |
 | V11 | ~~上游动态接口 `model/list` 到底下发哪些字段~~ | ✅ **已答**（2026-10-19 实测）：下发**完整字段集**，含 `thinking_config` / `context_config` / `promotion` / `strategies` / `enable` / `price_factor`（见 §5.0） |
-
----
-
-## 使用与实测
-
-### 推荐模型
-
-`qwen3.8-flash`（**倍率 0 / 免费**，见 §5.1）—— 端到端实测用的就是它。
-
-### 已知限制
-
-- **上游会回 SSE 内嵌业务错误帧**（如排队 `10605`），测试偶发变慢属正常排队重试机制
-  （见 §4.3），不是故障。
-- **签到可能看不到活动**：见 §9.3 R1/R2 —— `/sash` 的机器头与 `cosy-version` 组合
-  尚未经我方实测，症状是「不报错但活动列表为空」。
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login qoder
-mx status qoder
-mx model qoder --refresh
-mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
-```
-
-登录走设备码轮询，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
-同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
-
-### 端到端测试覆盖
-
-登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
-
-- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
-- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
-  排队重试机制（见 §4.3），不是故障。
-
-### 2026-10-20 改动（**待真机验证**）
-
-本轮改了四件事（G1 / G4 / G18 / G19）并补了 `/sash` 的 `cosy-version`，
-**尚未跑真机** —— 需重跑一次上面的端到端流程，重点看：
-
-1. **推理模型是否开始回 `reasoning_content`**：`model_config.is_reasoning` 现在取目录真值
-   （此前恒 false），推理模型的思考链可能因此出现（预期行为变化，不是故障）。
-2. **`model_config.max_input_tokens` 变大**（部分模型由 180000 变为 1000000）是否影响上游。
-3. **工具往返是否仍通过**（`tools` 归一后形状变了）。
-4. **`mx bill qoder` 的签到状态**（`/sash` 多了 `cosy-version` 头）。
-5. **登录链路的粘贴兜底与 userinfo 字段**（§2.1 / §2.1.1）：授权完成后把浏览器地址栏
-   粘回终端，流程应**立刻**取到令牌；登录后 `userinfo` 也取 `user_type` / `id`，
-   需确认 `aliyun_user_type` 不再恒为默认值 `personal_professional_trial`。
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★，国际国内双区多账号网关）：COSY 签名推理、稳定设备指纹防风控、OAuth 设备授权 —— 与本渠道的实现痛点一一对应 |
-| [cubk1/qoder2api](https://github.com/cubk1/qoder2api) | 逆向 demo 对照样本（90★） |
-| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★） |

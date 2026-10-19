@@ -667,36 +667,6 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 
 ---
 
-## 9. 已知边界（本轮明确不做）
-
-参考实现有、但本渠道**明确不做**的能力（各自原因）：
-
-| 能力 | 原因 |
-|---|---|
-| 密码登录（`/login/account/getPuKey` + `byPwd`，可无人值守重登） | 要长期保存明文密码；参考实现自己注明**没有设 / 改密端点**（用户得先在讯飞账号中心设密码） |
-| 手机号独立登录（`/login/phone/sendMsgCode` + `checkCode`） | 手机号在本渠道只作**绑定子步骤**；官方客户端对外也只有微信一个授权页（§2.1） |
-| 导入桌面客户端已登录 session（`auth-session.json`） | 依赖本机客户端安装目录与本地文件，越出「本渠道自持凭据」的边界 |
-| 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；本仓走「二维码图片 + 用户粘回调链接」的纯 HTTP 路线，已实测跑通 |
-| `/embeddings`、`/images/generations`、`/search/tencent` | 上游有，但本渠道定位是 **OpenAI 兼容对话网关**；我们是否可用、返回形状均未验证 |
-| 多账号加权调度（按额度加权 / 会话粘性 / 在途租约 / 模型级冷却） | 共享层目前只有简单轮换 + 连续失败 3 次标 error；本轮不扩共享层 |
-| 思考开关 `enable_thinking` / `chat_template_kwargs.enable_thinking` | 当前用 `reasoning_effort` 表达档位；上游对未知字段静默忽略，语义需真机确认 |
-| 积分兑换码（`/points/redemption-codes/redeem`）/ 邀请码绑定（`/points/activation`） | 属运营玩法；且需 campus 设备号 `deviceId`（promotions 侧） |
-| 积分流水翻页 + 每模型实际单价统计 | 当前额度只取第一页余额字段；翻页聚合是面板级需求 |
-| `X-Loomy-Request-Purpose` 归属头（17 取值） | 取值语义需先对照参考实现的完整枚举（影响服务端积分归属记账） |
-| `ChatId` / `MsgId` / `TurnId` 会话关联头 | 需先确认网关是否要求成对下发 |
-| `pet-work` 平台每日任务（`/api/v1/pet-work`） | 与 `onboarding/tasks` 并存的另一套任务体系，未验证 |
-| Anthropic 兼容端点（`/v1/messages`） | 网关只做 OpenAI 兼容 |
-
-**待真机复核清单**（改动 `traceparent` / `loomy-version` 后由统一验证流程执行）：
-
-- `traceparent` / `loomy-version` 是否真为必需（`[参考]` 说缺失会挂死到超时，本仓未发也跑通）→ A/B 对照；
-- `Accept: text/event-stream`（本仓）vs `application/json`（参考）是否影响上游行为；
-- `points/records` 的 `recordType`（本仓）vs `record_type`（参考）命名分歧；
-- `bind=0` 绑定分支（发码 → 校验 → 落盘）端到端；
-- session 自然过期后的真实表现（业务码 `100002` 还是 HTTP 401/403）。
-
----
-
 ## 使用与实测
 
 ### 登录方式
@@ -705,6 +675,14 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 **未绑手机号**时的绑定环节需要 `LOOMY_PHONE` / `LOOMY_SMS_CODE` 环境变量
 （这两个变量**只服务于绑定分支**，不是独立登录入口；该分支**尚未验证**）。
 扫码链路（纯 HTTP 路线、二维码 uuid 提取、长轮询状态机）见 §2.6。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `loomy/spark-x` | **倍率 0（免费）** —— 2026-10-19 实测远端已从 `x0.1` 改为免费，自动化测试首选 | `[实测]` |
+| `loomy/qwen3.8-flash` / `loomy/GLM-5.3-Flash` | 倍率 0.8 | `[实测]` |
+| `loomy/qwen-3.8-max` | 倍率 12.0 —— **禁用于自动化测试** | `[实测]` |
 
 ### 已知限制
 
@@ -735,6 +713,17 @@ Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
 - 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
 - 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
 
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
+
+- **失败**：账号被上游标为 `error`，网关直接回 503 `not_authenticated`
+  （日志记 `all pool candidates failed (loomy/spark-x, tried loomy)`），
+  与「已知限制」第 1 条的账号坑一致。
+- **不是协议回归**：本渠道 2026-10-20 未改代码；失败原因是**账号态**而非端点 / 请求头。
+- **恢复办法**：需真人**重新扫码**入池（`mx login loomy`，唯一登录路），
+  账号状态回到 `ok` 后再跑端到端；无法用脚本绕过。
+
 ## 参考实现
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
@@ -745,3 +734,31 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | 多账号池 + Web 面板 + 防风控；该仓库内的 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据，也是 `bind=0` 分支请求形态的对照源（见 §2.1） |
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | 接口结构参考：端点、鉴权形状、请求/响应结构 |
 | [wangliangdong/loomy2api](https://github.com/wangliangdong/loomy2api) | 反面对照样本（13★）：容器内 Chromium + noVNC 走**网页**登录（手机号 + 短信），抓 `loomy_web_session` **Cookie** —— 是**另一族凭据**（Cookie 而非 account API 的 session），本渠道不采纳；其「Loomy 不签发 refresh token、失效只能重登」的结论与本渠道 §2.3 一致 |
+
+## 已知边界
+
+参考实现有、但本渠道**明确不做**的能力（各自原因）：
+
+| 能力 | 原因 |
+|---|---|
+| 密码登录（`/login/account/getPuKey` + `byPwd`，可无人值守重登） | 要长期保存明文密码；参考实现自己注明**没有设 / 改密端点**（用户得先在讯飞账号中心设密码） |
+| 手机号独立登录（`/login/phone/sendMsgCode` + `checkCode`） | 手机号在本渠道只作**绑定子步骤**；官方客户端对外也只有微信一个授权页（§2.1） |
+| 导入桌面客户端已登录 session（`auth-session.json`） | 依赖本机客户端安装目录与本地文件，越出「本渠道自持凭据」的边界 |
+| 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；本仓走「二维码图片 + 用户粘回调链接」的纯 HTTP 路线，已实测跑通 |
+| `/embeddings`、`/images/generations`、`/search/tencent` | 上游有，但本渠道定位是 **OpenAI 兼容对话网关**；我们是否可用、返回形状均未验证 |
+| 多账号加权调度（按额度加权 / 会话粘性 / 在途租约 / 模型级冷却） | 共享层目前只有简单轮换 + 连续失败 3 次标 error；本轮不扩共享层 |
+| 思考开关 `enable_thinking` / `chat_template_kwargs.enable_thinking` | 当前用 `reasoning_effort` 表达档位；上游对未知字段静默忽略，语义需真机确认 |
+| 积分兑换码（`/points/redemption-codes/redeem`）/ 邀请码绑定（`/points/activation`） | 属运营玩法；且需 campus 设备号 `deviceId`（promotions 侧） |
+| 积分流水翻页 + 每模型实际单价统计 | 当前额度只取第一页余额字段；翻页聚合是面板级需求 |
+| `X-Loomy-Request-Purpose` 归属头（17 取值） | 取值语义需先对照参考实现的完整枚举（影响服务端积分归属记账） |
+| `ChatId` / `MsgId` / `TurnId` 会话关联头 | 需先确认网关是否要求成对下发 |
+| `pet-work` 平台每日任务（`/api/v1/pet-work`） | 与 `onboarding/tasks` 并存的另一套任务体系，未验证 |
+| Anthropic 兼容端点（`/v1/messages`） | 网关只做 OpenAI 兼容 |
+
+**待真机复核清单**（改动 `traceparent` / `loomy-version` 后由统一验证流程执行）：
+
+- `traceparent` / `loomy-version` 是否真为必需（`[参考]` 说缺失会挂死到超时，本仓未发也跑通）→ A/B 对照；
+- `Accept: text/event-stream`（本仓）vs `application/json`（参考）是否影响上游行为；
+- `points/records` 的 `recordType`（本仓）vs `record_type`（参考）命名分歧；
+- `bind=0` 绑定分支（发码 → 校验 → 落盘）端到端；
+- session 自然过期后的真实表现（业务码 `100002` 还是 HTTP 401/403）。

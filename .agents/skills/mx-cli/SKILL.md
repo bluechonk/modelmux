@@ -33,12 +33,17 @@ mx <动词> [<cid>] [参数]
 | 池账本 / 用量 | `mx model usage` / `mx model usage --refresh` |
 | 某渠道模型 | `mx model <cid>` / `mx model <cid> --refresh` |
 | 登录 | `mx login <cid>`；`mx login list` |
-| 强制重新授权 | `mx relogin <cid>` |
+| 强制重新授权 | `mx relogin <cid>`（**会清掉现有凭据**，别当成刷新用） |
 | 账号池 | `mx acct [<cid>] list\|use <key>\|add\|remove <key>` |
 | 额度 / 账单 | `mx bill [<cid>]` |
 | 存储落点 | `mx path [<cid>]` / `mx path --all` |
 | 日志 | `mx log ...`（排查流程见 log-triage 技能） |
 | Web 控制台 | `mx web`（确保网关在跑并打开 `/web/`） |
+
+> **`credentials.json` 不见了但账号池里还有货**：先 `mx acct <cid> list` 看池子
+> （有些渠道的凭据只存池里，主文件缺失时 `status` 会显示「未登录」）。
+> 池里有状态正常的账号就 `mx acct <cid> use <key>` —— 它会把池里那份复制回主凭据文件，
+> **不用重新走浏览器授权**。2026-10-20 用这招恢复了 qodercn 与 workbuddyai。
 
 ## 2. 常用工作流
 

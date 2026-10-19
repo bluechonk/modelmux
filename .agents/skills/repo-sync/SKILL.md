@@ -118,8 +118,9 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
   docker CLI 与 act，且 `pre-push` 本就是 WSL 形态）：`npm run verify:pages`。
   `.githooks/pre-push` 已按文件范围自动接入该检查。
 - 涉及登录/凭据/上游的改动：必须 `mx login <cid>` → `mx status <cid>` → 真实对话。
-- 双实例（如 4413 调试实例）：重启后确认 `health=200`，日志写独立文件
-  （如 `gateway-4413.log`），不要混写主 `gateway.log`。
+- 双实例（如 4413 调试实例）：重启后确认 `health=200`；日志按**分层目录**落
+  （`~/.modelmux/logs/system/<日期>/`，实例各自写自己的 `worker.log`），
+  旧的「每实例一个 gateway-<端口>.log」形态已不存在，见 [`docs/LOGGING.md`](../../docs/LOGGING.md) §2。
 
 ## 6. 常见错误（都真机踩过）
 

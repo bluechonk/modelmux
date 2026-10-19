@@ -104,17 +104,17 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 
 ### 2.2 端点全表
 
-| 用途 | 方法 | 完整 URL | 必需 query |
-| --- | --- | --- | --- |
-| 授权页 | GET（浏览器） | `https://qoder.com.cn/device/selectAccounts` | `challenge`、`challenge_method=S256`、`nonce`、`redirect_uri=qoder-work-cn://`、`client_id` |
-| 轮询取 token | GET | `https://openapi.qoder.com.cn/api/v1/deviceToken/poll` | `nonce`、`verifier`、`challenge_method=S256` |
-| 续期 | POST | `https://openapi.qoder.com.cn/api/v1/deviceToken/refresh` | —（body `{refresh_token, machine_id}`） |
-| 用户信息 | GET | `https://openapi.qoder.com.cn/api/v1/userinfo` | — |
-| **chat（SSE 推理）** | **POST** | **`https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation`** | **`FetchKeys=llm_model_result`、`AgentId=agent_common`、`Encode=1`** |
-| 模型目录 | GET | `https://gateway.qoder.com.cn/algo/api/v2/model/list` | `Encode=1` |
-| 额度 | GET | `https://openapi.qoder.com.cn/sash/api/v2/me/usage` | — |
-| 活动列表（签到） | GET | `https://openapi.qoder.com.cn/sash/api/v1/me/campaigns` | — |
-| 领取 | POST | `https://openapi.qoder.com.cn/sash/api/v1/me/campaigns/{campaignId}/claim` | —（body 必须**空串**） |
+| 用途 | 方法 | 完整 URL | 端点路径 | 必需 query |
+| --- | --- | --- | --- | --- |
+| 授权页 | GET（浏览器） | `https://qoder.com.cn/device/selectAccounts` | `/device/selectAccounts` | `challenge`、`challenge_method=S256`、`nonce`、`redirect_uri=qoder-work-cn://`、`client_id` |
+| 轮询取 token | GET | `https://openapi.qoder.com.cn/api/v1/deviceToken/poll` | `/api/v1/deviceToken/poll` | `nonce`、`verifier`、`challenge_method=S256` |
+| 续期 | POST | `https://openapi.qoder.com.cn/api/v1/deviceToken/refresh` | `/api/v1/deviceToken/refresh` | —（body `{refresh_token, machine_id}`） |
+| 用户信息 | GET | `https://openapi.qoder.com.cn/api/v1/userinfo` | `/api/v1/userinfo` | — |
+| **chat（SSE 推理）** | **POST** | **`https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation`** | **`/algo/api/v2/service/pro/sse/agent_chat_generation`** | **`FetchKeys=llm_model_result`、`AgentId=agent_common`、`Encode=1`** |
+| 模型目录 | GET | `https://gateway.qoder.com.cn/algo/api/v2/model/list` | `/algo/api/v2/model/list` | `Encode=1` |
+| 额度 | GET | `https://openapi.qoder.com.cn/sash/api/v2/me/usage` | `/sash/api/v2/me/usage` | — |
+| 活动列表（签到） | GET | `https://openapi.qoder.com.cn/sash/api/v1/me/campaigns` | `/sash/api/v1/me/campaigns` | — |
+| 领取 | POST | `https://openapi.qoder.com.cn/sash/api/v1/me/campaigns/{campaignId}/claim` | `/sash/api/v1/me/campaigns/{campaignId}/claim` | —（body 必须**空串**） |
 
 实现见 `packages/core/channels/qodercn/src/upstream.ts:78-110`（路径常量与必需 query 表）、
 `packages/core/channels/qodercn/src/billing.ts:67-68`（sash 端点）。
@@ -203,7 +203,24 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | `content-type` | `application/json`（续期） | 否 | 常量 | |
 | `user-agent` | `QoderWork/1.1.64` | 否 | 常量 | |
 
-### 3.4 token 与凭据
+### 3.4 请求体的 `model_config` 元数据
+
+请求体的 `model_config`（`display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`）取自**目录**，
+优先级：
+
+1. **动态目录**：`mx model qodercn --refresh` 落盘的目录缓存（来自上游 `model/list`）—— 更准 `[代码]`
+2. **静态兜底表**：`src/catalog.ts` 的 `FALLBACK_RAW`（国内版官方目录快照，14 条，
+   抄自参考实现 `reference/shuishuipingan_qoder2api-hub/qoder_catalog_cn.json`）`[参考]`
+3. 都查不到 → `display_name = key`、`is_vl = false`、`is_reasoning = false`、`max_input_tokens = 180000`
+
+⚠ **接线方式**（与国际版 `qoder` 同）：`catalog.ts` 需要 `upstream.fetchModels()` 拉目录，
+`upstream` 再 import `catalog` 就成环 —— 由 `channel.ts` 装配时注入查询器
+（`upstream.setModelMetaLookup(catalog.metaOfKey)`），两个模块保持单向依赖 `[代码]`。
+
+> 2026-10-20 之前本渠道**没有接线**（`buildChatBody` 传空 meta），
+> 于是 `is_reasoning` 恒 false、`max_input_tokens` 恒 180000 —— 已修。
+
+### 3.5 token 与凭据
 
 **不是 JWT**，是不透明裸串。
 
@@ -219,7 +236,91 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 ---
 
-## 4. 已知边界
+## 使用与实测
+
+### 登录方式
+
+`mx login qodercn` 走**浏览器设备码授权（PKCE S256）**：CLI 构造授权页 URL
+（`https://qoder.com.cn/device/selectAccounts?…&redirect_uri=qoder-work-cn://`）→ 人工授权一次 →
+按 `nonce` 轮询 `deviceToken/poll` 取令牌 → 补一次 `userinfo` → 落盘
+`~/.modelmux/qodercn/credentials.json`。
+
+设备码流**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用同一个轮询处理器
+取令牌（粘贴兜底见 §1.1.1）。**唯一登录路径与「为什么不采纳另外两条」的判据见 §1 / §1.2。**
+
+### 与国际版的差异
+
+- **两个独立渠道**：国内版站点 `qoder.com.cn`（国际版 `qoder.com`）；账号在哪个域就用
+  哪个渠道登录，**不能互相代登**（会串区），也不共用凭据文件。
+- 域名 / 身份 / 模型目录的逐项差异见本文件 §2.3 与
+  [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §1.1（产品配置表）；国内版模型目录见同文件
+  §5.2（中国版 14 条，`q37fmodel`、`gm51model` 为国内版独有，`mmodel` 的版本与国际版 M3 不同）。
+- 登录授权页国内版**额外带 `redirect_uri`**（见 §1.1 与
+  [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
+- **`/sash/**` 的机器头策略两区不同**（见 §3.2）—— 这是国内版与国际版最容易踩混的一处。
+- **登录后补 userinfo 的字段数已对齐**（2026-10-20 本轮改动）：国内版读 `name` / `user_type` /
+  `id`（昵称、请求体 `aliyun_user_type` 用的身份类型、uid 兜底）；**国际版 `qoder` 渠道也已对齐**
+  —— `packages/core/channels/qoder/src/cred.ts` 的 `fetchUserProfile()` 同样读
+  `name` / `user_type` / `id`（snake_case 与 camelCase 两种字段名都认），
+  故两边的 `aliyun_user_type` 都不再恒为默认值 `personal_professional_trial`
+  （取不到才回落默认）。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `qodercn/qwen3.8-flash` | **倍率 0 / 免费**（目录 key `qfmodel`，见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §5.2）—— 自动化测试首选 | `[实测]` |
+| `qodercn/qwen3.8-max` | 倍率 0.2 | `[实测]` |
+| `qodercn/kimi-k3` | 倍率 1.4 —— **禁用于自动化测试** | `[实测]` |
+
+### 已知限制
+
+- **上游会回 SSE 内嵌业务错误帧**（排队 `10605`、额度 `110`、认证 `105` 是三个独立码），
+  测试偶发变慢属正常排队重试机制（见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §4.3），不是故障。
+- **签到可能看不到活动**：`/sash/**` 的「不发机器指纹」策略在本区是否正确仍待真机确认
+  （见「已知边界」V1 / V2）—— 症状是「不报错但活动列表为空」。
+- **`session_type` 取值无出处**：本渠道发 `qoder_work`，三份参考实现分别是 `qodercli` / `qoder`
+  （见「已知边界」第 4 条）。
+- **静态兜底目录是 14 条快照**，必然随上游漂移；`mx model qodercn --refresh` 以动态目录为准。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login qodercn
+mx status qodercn
+mx model qodercn --refresh
+mx bill qodercn
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+签到与额度由网关启动时的自动签到链路执行（无独立命令），当天是否已领看 `mx status qodercn`。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`qodercn/qwen3.8-flash`，倍率 0）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 本轮为**全渠道回归**的一环；国内版的登录 / userinfo / 粘贴兜底改动（§1 / §1.1.1）
+  已随本次实测跑通。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；与 `qoder` **共用同一批 clone**，
+COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 共用，
+国内版独有的结论写在本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★）：**国际国内双区**多账号网关中枢 —— COSY 签名、设备指纹防风控、OAuth 设备授权、CN 活动平台与机器头策略（issue #10）、CN 静态目录快照 `qoder_catalog_cn.json` |
+| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★）；其 `checkin.go` 的**国内版机器头单变量对照实验**是本渠道 §3.2 策略的直接依据 |
+| [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | Go 实现的对照样本（60★）：CN RegionConfig 端点表、jobToken 交换、SSE 终止帧处理 |
+| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | Go 实现的**第三份口径**（31★）：`internal/auth/device_login.go` 的授权页参数 —— `machine_id` **只在读到官方客户端 `cache/id` 时才带**（`:75-77`、`:236-238`），是 §1.1.2「带的是官方客户端真机身份」这一结论的直接依据 |
+
+## 已知边界
 
 ### 4.1 明确**不做**的功能（有意不实现）
 
@@ -268,7 +369,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | # | 待验证 | 验证方式 |
 | --- | --- | --- |
 | V1 | CN 侧 `/sash/api/v1/me/campaigns` 是否确实「不发指纹」才对 | 同一账号分别打「带机器头」与「不带」两次，比对 `campaigns` 长度与顶层 `claimable` |
-| V2 | CN 的「每日领取 100 Credits」到底能不能领到 | 真账号跑 `mx signin qodercn`，对照 campaigns 原始响应 |
+| V2 | CN 的「每日领取 100 Credits」到底能不能领到 | 网关 running 时由自动签到链路领取，对照 campaigns 原始响应与 `mx status qodercn` 的签到摘要 |
 | V3 | 额度端点口径（`/sash/api/v2/me/usage` vs `/api/v2/quota/usage`） | 同一账号各打一次，比对返回体形状 |
 | V4 | 设备授权页是否需要 `machine_id` | **已定案**（§1.1.2）：不带也能登录（poll 不校验它）；若真机出现「授权页报错 / 轮询一直 pending」，再改成带官方客户端真机身份重试 |
 | V5 | CN 的 `session_type` 取值 | 抓一次真实请求体（`QODERCN_DEBUG_DUMP`）比对官方客户端 |
@@ -277,52 +378,3 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | V8 | `cosy-scene` / `cosy-business-product` / `cosy-business-type` 是否必需 | 抓包看官方请求带不带 |
 | V9 | CN 目录是否仍是 14 条、`qfmodel` 是否仍倍率 0 | `mx model qodercn --refresh` 后看缓存里的原始字段 |
 | V10 | `event:finish` / `event:error` 终止帧 | 用 MiniMax 系模型（CN 侧 `mmodel`）跑长回复，看能否正常收尾 |
-
----
-
-## 使用与实测
-
-### 与国际版的差异
-
-- **两个独立渠道**：国内版站点 `qoder.com.cn`（国际版 `qoder.com`）；账号在哪个域就用
-  哪个渠道登录，**不能互相代登**（会串区），也不共用凭据文件。
-- 域名 / 身份 / 模型目录的逐项差异见本文件 §2.3 与
-  [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §1.1（产品配置表）；国内版模型目录见同文件
-  §5.2（中国版 14 条，`q37fmodel`、`gm51model` 为国内版独有，`mmodel` 的版本与国际版 M3 不同）。
-- 登录授权页国内版**额外带 `redirect_uri`**（见 §1.1 与
-  [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
-- **`/sash/**` 的机器头策略两区不同**（见 §3.2）—— 这是国内版与国际版最容易踩混的一处。
-- **登录后补 userinfo 的字段数不同**（2026-10-20 本轮改动）：国内版读 `name` / `user_type` /
-  `id`（昵称、请求体 `aliyun_user_type` 用的身份类型、uid 兜底），国际版 `qoder` 渠道**仍只读
-  `name`**（`packages/core/channels/qoder/src/cred.ts` 的 `fetchNickname`）——
-  国际版的 `user_type` 仍取默认值 `personal_professional_trial`。国际版渠道不在本轮范围内，
-  要对齐得单独改（改法与本文件 §1.1 相同）。
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login qodercn
-mx status qodercn
-mx model qodercn --refresh
-mx bill qodercn
-```
-
-### 端到端测试覆盖
-
-登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE /
-`mx signin qodercn`（额度与签到）。
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；与 `qoder` **共用同一批 clone**，
-COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 共用，
-国内版独有的结论写在本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★）：**国际国内双区**多账号网关中枢 —— COSY 签名、设备指纹防风控、OAuth 设备授权、CN 活动平台与机器头策略（issue #10）、CN 静态目录快照 `qoder_catalog_cn.json` |
-| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★）；其 `checkin.go` 的**国内版机器头单变量对照实验**是本渠道 §3.2 策略的直接依据 |
-| [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | Go 实现的对照样本（60★）：CN RegionConfig 端点表、jobToken 交换、SSE 终止帧处理 |
-| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | Go 实现的**第三份口径**（31★）：`internal/auth/device_login.go` 的授权页参数 —— `machine_id` **只在读到官方客户端 `cache/id` 时才带**（`:75-77`、`:236-238`），是 §1.1.2「带的是官方客户端真机身份」这一结论的直接依据 |

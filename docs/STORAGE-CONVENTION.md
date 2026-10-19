@@ -81,6 +81,14 @@
         （首次使用）才会拉一次并记录。要更新用 `model <cid> --refresh`。
       - **可安全删除**：删掉只影响下一个新进程的显示（回到兜底表），不影响登录态与额度。
       - 没有远端目录层的渠道不会产生这个文件（它只是「不存在」，不是错误）。
+     - 渠道**自有的**缓存文件（同样在 `cache/` 下，同样可安全删除）：
+
+       | 文件 | 渠道 | 内容 |
+       |---|---|---|
+       | `benefit-models.json` | codearts | 该账号的福利（benefit）模型 id 列表 |
+       | `benefit-accounts.json` | codearts | **按账号**分桶的 benefit / 常规模型集合（混合池互不污染） |
+       | `client-version.json` | lobsterai | 客户端版本号兜底（更新接口抽风时用「最后一次已知可用」版本） |
+       | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
   - `state/` 跨重启保持的**状态**：`state/signin.json`（签到台账：
     `{version, timezone, last_claim, history}`，由共享层在**领取成功**或自动签到回填时写入）、
     `state/auto-signin.json`（自动签到的当日失败计数，连败 3 次熔断）。

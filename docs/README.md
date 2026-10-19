@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 规范与契约 | `docs/`（本目录） | 仓库级规则，改代码前必读 |
 | 渠道文档 | `docs/channels/<cid>/` | 每个渠道自己的协议规格与实测（[索引](./channels/README.md)） |
-| 规则与技能 | 根 `AGENTS.md`、`.agents/skills/<name>/` | 工具与 agent 的行为约束（按固定路径读，不能搬） |
+| 门面与规则 | 仓库根 `README.md` / `AGENTS.md`、`.agents/skills/<name>/` | 门面与工具 / agent 的行为约束（按固定路径读，不能搬） |
 
 > 规则本身写在根 [`AGENTS.md`](../AGENTS.md) 的「文档规则」：**所有文档集中在 `docs/`**，
 > 渠道文档在 `docs/channels/<cid>/`。由 `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
@@ -26,7 +26,7 @@
 | --- | --- |
 | [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
-| [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id，§2）+ 账号池（多账号 / 连败标记 / 手动切号，§3） |
+| [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id、目录三级来源与兜底、目录元数据回灌上游，§2）+ 账号池（多账号 / 连败标记 / 手动切号 / 渠道侧的按账号状态，§3） |
 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退） |
 | [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
 | [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 双页深色看板（仪表盘 + 账号池）的架构、构建与 API 面貌 |
@@ -47,18 +47,22 @@
 | `codearts` | CodeArts（华为云） | [PROTOCOL](./channels/codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) |
+| `orcaterm` | OrcaTerm（腾讯云） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./channels/qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表） |
-| `orcaterm` | OrcaTerm（腾讯云，登录已实现 / 上游已接入纯文本） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) |
 
-> `orcaterm` 是**渠道包**（7 文件齐备并已注册）：登录（腾讯云单路）与文本对话已实现；
-> `upstream.buildChatBody()` 目前只发纯文本（`tools` 固定为 `[]`，工具调用不可用）。
-> 额度 / 签到无此概念，CLI 与 UI 显示 `-`；详见其 PROTOCOL 的「使用与实测 / 已知限制」。
-> GitHub 仅协议事实，未实现。
+> `orcaterm` 是**渠道包**（7 文件齐备并已注册）：登录只走**腾讯云**一路
+> （`wechat` / `github` / 控制台态三路仅为协议事实，CLI 不提供入口）；
+> 文本对话与**工具调用**均已实现 —— `buildChatBody()` 会带上 `tools`（开上游原生
+> 工具服务器 + 提示词注入工具清单），翻译层把 `action:"review"` 信封还原成 OpenAI
+> `tool_calls`；但上游只认原生工具名、一次只产出一个调用，能否真的发起调用取决于
+> 客户端声明的工具与上游原生工具的匹配（详见其 PROTOCOL 的「已知限制 / 风险与待验证」）。
+> 额度 / 签到无此概念（`capabilities.billing` / `signin` 均为 false），CLI 与 UI 显示 `-`。
+> GitHub 登录仅协议事实，未实现。
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 
@@ -76,6 +80,7 @@
 | `.agents/skills/repo-sync/SKILL.md` | 收尾流程：`docs/` 与 `.planning/.zcode` 同步、commit / PR / CI / merge |
 | `.agents/skills/log-triage/SKILL.md` | 日志分诊：分层日志 + `upstreamMs/ttfbMs/durationMs` + 错误码速查 |
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
+| `.agents/skills/reasonix-mx-test/SKILL.md` | 端到端测试：Reasonix CLI 直连网关跑真实 Agent 会话；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 
 ## 4. 其它客户端怎么接（任意 OpenAI 客户端）
 

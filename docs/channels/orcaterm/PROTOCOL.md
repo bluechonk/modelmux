@@ -737,31 +737,17 @@ Authorization: Bearer <ot_session>
 2. **无额度 / 签到**：订阅制运维套餐，没有每日积分与签到端点；`mx bill` 显示 `-`
    （端点与实现见 §5.1 / §5.2）。
 
-### 已知边界（本轮明确不做，各有原因）
+### 推荐模型
 
-| 不做的东西 | 原因 |
-| --- | --- |
-| **额度查询** | 上游 `/api/user/package` 等端点需要**请求签名**（回 `MissSignatureParams`），签名方案疑似 TC3-HMAC-SHA256 且密钥在客户端；两个参考实现**均未实现**，无先例可抄（§5.1）。渠道声明 `capabilities.billing=false` |
-| **签到 / 领取** | CAPI 内无签到 action，订阅制无积分概念（§5.2）。渠道声明 `capabilities.signin=false` |
-| **控制台态（`uin`/`skey`）登录** | 与「登录只保留一条」冲突（§1.1）；且票据随腾讯云登录失效、需用户手动从浏览器取 cookie |
-| **图片 / 多模态输入** | 参考实现支持 `image` / `image_url` 两种 ACP part（[参考] `orca.go` `BuildACPPromptWithNote`），但本轮未实现 —— 当前只取 content 里的 `text` part |
-| **真打字机（流式实时抠文本）** | 参考实现有 `StreamFieldExtractor` 逐 token 提取可见文本（[参考] `orca.go`）；本渠道仍是**流末一次性下发**（首字节延迟 = 整段生成时间），本轮不改 |
-| **`ask` 反问的专用行为** | 参考实现有「无人值守模式」提示词 + 非流式自动确认兜底（[参考] `engine.go` `NoAskBehaviorNote` / `autoConfirmAsk`）；本渠道仍把 `ask` 降级成正文（反问 + 选项列表） |
-| **usage（token 用量）统计** | 上游不返回真实 token 数；参考实现也是本地估算。本渠道翻译层不产出 usage 帧，账本无消耗数据 |
-| **`tool_choice` / `parallel_tool_calls` 的显式校验** | 上游不支持 `required` 与具名强制选择，一次只产出一个调用；本轮**不**显式报错（避免打断客户端的正常请求），由上游裁决 |
-
-### 风险与待验证（真机验收时重点看）
-
-| 项 | 状态 | 说明 |
+| 模型（池 id） | 结论 | 等级 |
 | --- | --- | --- |
-| 上游能否真的发起工具调用 | **待验证** | 打开 `mcpServers`/`uiServers` 后上游是否产出 `action:"review"`，两份参考实现都没给出「真机跑通」的日志；这是工具闭环的**唯一硬前提** |
-| 客户端工具名与上游原生工具名的匹配 | **待验证** | 上游只认原生工具名；若模型仍吐原生名，靠 §3.4.5 的桥接规则落到客户端的执行类工具 |
-| `userAccountType=wechat` 与 txcloud 登录不匹配 | 能跑但存疑 | 参考实现两说（`orca.go` 用 `wechat`、`hey7195` 用 `txcloud`）；当前形态真机可用，先不动 |
-| 上游历史的服务端保存语义 | **推断** | 「按 conversationId 保存历史」来自参考实现的结论，本仓库据此实现会话派生；未真机验证「换 conversationId 必然断链」 |
-| 首条消息相同的重复请求会共用上游会话 | **推断** | 会话键以「首条 user 消息」为锚点：同一段首条消息的多次独立请求会落到同一个上游会话，上游会累积历史。客户端若每次都发同样的首条消息，需自行用 `metadata.conversation_id` 区分 |
-| `X-Seq-Id` 与 `input.id` 不同源 | 不确定 | 头与体各自随机生成两个 UUID（参考实现之一用同一个值），上游是否要求一致未实测 |
-| `user.id` 留空 | 能跑但存疑 | 当前发空串，参考实现发真实 userId；若上游按 `user.id` 分流会话会出问题 |
-| `sid` cookie 缺失 | 影响小 | 参考实现会带，本渠道只在凭据文件里存在时才带；缺失时上游自动发放 |
+| `orcaterm/deepseek-v4-flash` | **默认模型**（上游 `TokenHub/deepseek-v4-flash`），最省钱，测试首选；2026-10-20 端到端实测**工具桥接生效** | `[实测]` |
+| `orcaterm/deepseek-v4-pro` | 同系列更高档，测试首选 flash | — |
+| `orcaterm/hy3` | 腾讯混元；2026-10-19 端到端实测用它做过纯文本冒烟 | `[实测]` |
+
+⚠ 本渠道**订阅制、无倍率概念**（`capabilities.billing=false`），`mx bill` 显示 `-`，
+测试前后无额度差值可比；上游对未开通/不存在的模型名返回**空流**（不报错），
+故必须使用已验证的模型。
 
 ### 登录方式（渠道差异）
 
@@ -804,6 +790,16 @@ Reasonix CLI 直连网关（`orcaterm/hy3`）：
   > 此后已实现工具调用与会话连续性（见 §3.4.5 与 §3.4.2），**本条记录保留为历史**；
   > 工具往返需按上面「端到端测试覆盖」重新验收。
 
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`orcaterm/deepseek-v4-flash`，本渠道默认模型）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- **工具桥接生效**：上游吐出的 `action:"review"` 信封被翻译层还原成标准 OpenAI `tool_calls`，
+  客户端回填的工具结果回到**同一上游会话**，模型给出最终回答（不再是 2026-10-19 记录的
+  「模型只说不做」）。
+- 一轮响应里**连吐多个信封**（实测 4 个）的形态已按 §3.4.5 的「逐段扫描平衡花括号」处理。
+
 ### 本机数据落点（逆向依据）
 
 Tauri 按 Bundle ID `com.orcaterm-desktop.app` 落数据：
@@ -826,3 +822,34 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | **主参照** —— 上游协议骨架：请求头族（`setHeaders`）、请求体构造（`buildBodyStream`）、工具调用闭环（`review` → `tool_calls` → `<TOOL_META>` 回填）、原生工具表、会话粘性 |
 | [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | 工具桥接与容错解析的参照 —— 按请求形态切换提示词护栏（`_FMT_GUARD_TOOLS`）、原生工具名 → 客户端执行类工具的桥接 |
 | [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | 官方发行包存档 —— 桌面端逆向（asar / 二进制）与版本对照的一手材料 |
+
+## 已知边界
+
+本节记录**本轮明确不做**的事（各带原因），以及**真机验收时重点看**的风险项。
+上游与协议侧的既有限制见「使用与实测」的「已知限制」一节。
+
+### 本轮明确不做
+
+| 不做的东西 | 原因 |
+| --- | --- |
+| **额度查询** | 上游 `/api/user/package` 等端点需要**请求签名**（回 `MissSignatureParams`），签名方案疑似 TC3-HMAC-SHA256 且密钥在客户端；两个参考实现**均未实现**，无先例可抄（§5.1）。渠道声明 `capabilities.billing=false` |
+| **签到 / 领取** | CAPI 内无签到 action，订阅制无积分概念（§5.2）。渠道声明 `capabilities.signin=false` |
+| **控制台态（`uin`/`skey`）登录** | 与「登录只保留一条」冲突（§1.1）；且票据随腾讯云登录失效、需用户手动从浏览器取 cookie |
+| **图片 / 多模态输入** | 参考实现支持 `image` / `image_url` 两种 ACP part（[参考] `orca.go` `BuildACPPromptWithNote`），但本轮未实现 —— 当前只取 content 里的 `text` part |
+| **真打字机（流式实时抠文本）** | 参考实现有 `StreamFieldExtractor` 逐 token 提取可见文本（[参考] `orca.go`）；本渠道仍是**流末一次性下发**（首字节延迟 = 整段生成时间），本轮不改 |
+| **`ask` 反问的专用行为** | 参考实现有「无人值守模式」提示词 + 非流式自动确认兜底（[参考] `engine.go` `NoAskBehaviorNote` / `autoConfirmAsk`）；本渠道仍把 `ask` 降级成正文（反问 + 选项列表） |
+| **usage（token 用量）统计** | 上游不返回真实 token 数；参考实现也是本地估算。本渠道翻译层不产出 usage 帧，账本无消耗数据 |
+| **`tool_choice` / `parallel_tool_calls` 的显式校验** | 上游不支持 `required` 与具名强制选择，一次只产出一个调用；本轮**不**显式报错（避免打断客户端的正常请求），由上游裁决 |
+
+### 风险与待验证（真机验收时重点看）
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| 上游能否真的发起工具调用 | **待验证** | 打开 `mcpServers`/`uiServers` 后上游是否产出 `action:"review"`，两份参考实现都没给出「真机跑通」的日志；这是工具闭环的**唯一硬前提** |
+| 客户端工具名与上游原生工具名的匹配 | **待验证** | 上游只认原生工具名；若模型仍吐原生名，靠 §3.4.5 的桥接规则落到客户端的执行类工具 |
+| `userAccountType=wechat` 与 txcloud 登录不匹配 | 能跑但存疑 | 参考实现两说（`orca.go` 用 `wechat`、`hey7195` 用 `txcloud`）；当前形态真机可用，先不动 |
+| 上游历史的服务端保存语义 | **推断** | 「按 conversationId 保存历史」来自参考实现的结论，本仓库据此实现会话派生；未真机验证「换 conversationId 必然断链」 |
+| 首条消息相同的重复请求会共用上游会话 | **推断** | 会话键以「首条 user 消息」为锚点：同一段首条消息的多次独立请求会落到同一个上游会话，上游会累积历史。客户端若每次都发同样的首条消息，需自行用 `metadata.conversation_id` 区分 |
+| `X-Seq-Id` 与 `input.id` 不同源 | 不确定 | 头与体各自随机生成两个 UUID（参考实现之一用同一个值），上游是否要求一致未实测 |
+| `user.id` 留空 | 能跑但存疑 | 当前发空串，参考实现发真实 userId；若上游按 `user.id` 分流会话会出问题 |
+| `sid` cookie 缺失 | 影响小 | 参考实现会带，本渠道只在凭据文件里存在时才带；缺失时上游自动发放 |

@@ -4,11 +4,79 @@
 
 ---
 
-## 1. 端点总表
+## 唯一登录路径：新式 IAM OAuth（PKCE + DPoP + 本地回调）
+
+**本渠道只有一条登录路径**：新式 IAM OAuth。旧式 ticket 轮询**默认关闭**，
+仅作兜底（见 §2.6）。
+
+| 步骤 | 内容 |
+|---|---|
+| 1. PKCE | `code_verifier = randomBytes(48).toString('base64url')`；`code_challenge = base64url(sha256(verifier))` |
+| 2. DPoP | 生成 ES256 / P-256 密钥对，`exportJWK` 得 `privateKeyJwk`（持久化）与 `publicKeyJwk` |
+| 3. ticket_id | `randomBytes(32).toString('hex')` |
+| 4. 本地回调服务器 | `127.0.0.1`，**端口必须 ≥ 10000** |
+| 5. 授权 URL | 见下 |
+| 6. 回调 | 取 `?code=` → 立即 exchange → 307 到 portal 结果页 |
+| 7. 结果页 | exchange 成功后 307 到 `https://codearts.huaweicloud.com/portal/login?login_succeed=true&uri_scheme=codearts-agent&locale=zh-cn` |
+| 8. 超时 | 180 秒 |
+| 9. 落盘 | 写 `credentials.json`（`source=codearts-oauth`）+ 清理同一人的历史伪账号 |
+
+**为什么只有这一条**（[实测] + [推断]）：
+
+- [实测] 走通并验证过的只有它：落盘凭据 `source=codearts-oauth`，且同时带
+  `refresh_token` / `code_verifier` / `dpop_private_key_jwk` 三件套
+  —— 旧式 ticket 通道**不产出**这三样。
+- [推断] 只有它能续期：旧式通道只给 AK/SK/security_token/过期时间，
+  而 refresh_token 是一次性轮换的（实测 `STS5.1806`），无法续期的账号等于一次性。
+- [推断] 只有它能解出稳定身份：refresh_token 是 JWT，内含 `user_profile.account_id`
+  （见 §2.3.1）；按 AK 派生身份会让同一个人每次登录都变成池内一个新账号
+  （本仓库为此专门做了 `pruneLegacyAccounts()`）。
+- [参考] 参考实现同样把 `client_id` / `dpop_private_key` / `refresh_token` /
+  `code_verifier` 与凭据一起落盘
+  （reference/HITZY2002_codearts2api/internal/auth/auth.go:23-35）—— 这是协议要求。
+
+**授权 URL 逐字（login.ts:282-291）**：
+
+```
+https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
+&uri_scheme=codearts-agent&client_id=codearts-agent&port={port}
+&code_challenge={challenge}&code_challenge_method=SHA-256
+&ticket_id={ticketId}&plugin-name=snap_AIIDE&plugin-version=5.2.0
+```
+
+常量逐字值：`OAUTH_THEME='2'`、`OAUTH_LOCALE='zh-cn'`、
+`LOGIN_PLUGIN_NAME='snap_AIIDE'`、`LOGIN_PLUGIN_VERSION='5.2.0'`
+
+**三个实测踩坑**（源码注释明写）：
+- `code_challenge_method` 必须是 **`SHA-256`**（非 RFC 标准缩写 `S256`）；
+  portal 以此识别 OAuth 授权，错值会**静默回退旧 ticket 流程**
+- 授权 URL **不能带 `auth_callback_url`** —— portal 仅凭 `port` 参数构造回调
+- 回调端口 < 10000 会被 portal 拒绝
+
+**授权码换取**（oauth.ts:147-161）：同一 STS 端点，form 体为
+`client_id=codearts-agent`、`code=`、`code_verifier=`、`grant_type=authorization_code`、
+`redirect_uri=http://127.0.0.1:{port}/oauth/callback`
+
+**回调打不到本机时的兜底**：本地回调服务器只绑 `127.0.0.1`；远程部署时用户把地址栏里的
+整条回调 URL 粘回来，渠道从里面取 `code` 换取凭据 —— 细节见 §2.7。
+
+---
+
+## chat 与模型请求的确切 URL（端点总表）
 
 所有端点常量集中在 `packages/core/channels/codearts/src/upstream.ts`（路径 + 完整 URL + query 来源），
 基址只由 `upstream.snapBase()`（snap-access）、`upstream.opengwBase()`（opengw）、
 `upstream.STS_BASE`（STS）三处解析 —— 各模块不再各拼一遍。
+
+### chat 与模型请求的确切 URL
+
+| 方法 | 完整 URL | 端点路径 | 必需 query / body 来源 |
+|---|---|---|---|
+| **POST（对话）** | `https://snap-access.cn-north-4.myhuaweicloud.com/api/v2/chat/completions` | `/api/v2/chat/completions` | **无 query**；body 顶层键见 §3.1（`stream` 恒 `true`、`prompt_cache_key` = sessionId、`include` 固定） |
+| GET（常规模型目录） | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/model/builtin` | `/v1/model/builtin` | **无 query**；请求头需带 `maas_type: benefit` 之外的签名头 + 签名后追加的 `Agent-Type` / `X-Language` |
+| GET（**benefit** 模型目录） | `https://opengw.developer.huaweicloud.com/api/v1/gateway/config` | `/api/v1/gateway/config` | **无 query**；**只有签名头**，无任何额外头；chat 该组模型时必须带 `maas_type: benefit`（§5.4） |
+
+### 端点总表
 
 | 用途 | 方法 | 端点路径 | 完整 URL | 必需 query | 代码常量 | 来源 |
 |---|---|---|---|---|---|---|
@@ -47,9 +115,9 @@
   —— 本地生成的那份上游不认（[参考]
   reference/HITZY2002_codearts2api/cmd/login/main.go:143-162）。
 - `port`：portal **仅凭 `port` 参数**构造回调地址；授权 URL 不能带
-  `auth_callback_url`（多带会静默回退旧 ticket 流程）—— 见 §2.5。
+  `auth_callback_url`（多带会静默回退旧 ticket 流程）—— 见「唯一登录路径」。
 - `code_challenge_method=SHA-256`：必须是 `SHA-256` 而非 RFC 缩写 `S256`，
-  错值会**静默回退旧 ticket 流程** —— 见 §2.5。
+  错值会**静默回退旧 ticket 流程** —— 见「唯一登录路径」。
 - agent-center 的 `offset` / `limit` / `is_primary_agent` 三个值都是参考实现写死的。
 
 ---
@@ -108,7 +176,7 @@ dateStamp 保留结尾的 `Z`、毫秒被截掉。
 | `Agent-Type` | 常量 `PromptCenter`（builtin / 积分）/ `AgentCenter`（agent-center） | 否（**签名后追加**） | — | ⚠ **参与签名会 401 APIG.0301**（见本节末） |
 | `X-Language` | 常量 `zh-cn`（builtin / 积分 / agent-center） | 否（**签名后追加**） | — | ⚠ 同上 |
 | `Content-Type`（目录 / 积分 GET） | 常量 `application/json` | 否（签名后追加） | — | GET 的签名头里**没有** `content-type` |
-| `DPoP` | `dpop+jwt` JWS（ES256 / P-256） | **是（证明绑定）** | **每次请求新签** | 只出现在 STS token 请求上；见 §2.6 |
+| `DPoP` | `dpop+jwt` JWS（ES256 / P-256） | **是（证明绑定）** | **每次请求新签** | 只出现在 STS token 请求上；见 §2.5 |
 | `Content-Type`（STS） | 常量 `application/x-www-form-urlencoded` | 否 | — | 授权码换取 / 续期共用 |
 
 **按端点分组**：
@@ -222,60 +290,8 @@ refresh_token, error, error_code, error_msg}`
 （实测 `STS5.1806 the refresh token has been used`）。三条并发入口必须用 per-ref 串行队列，
 且**判终态前先重读凭据**确认「我刚才用的那份 refresh_token 是否还是当前那份」。
 
-### 2.5 唯一登录路径：新式 IAM OAuth（PKCE + DPoP + 本地回调）
-
-**本渠道只有一条登录路径**：新式 IAM OAuth。旧式 ticket 轮询**默认关闭**，
-仅作兜底（见 §2.7）。
-
-| 步骤 | 内容 |
-|---|---|
-| 1. PKCE | `code_verifier = randomBytes(48).toString('base64url')`；`code_challenge = base64url(sha256(verifier))` |
-| 2. DPoP | 生成 ES256 / P-256 密钥对，`exportJWK` 得 `privateKeyJwk`（持久化）与 `publicKeyJwk` |
-| 3. ticket_id | `randomBytes(32).toString('hex')` |
-| 4. 本地回调服务器 | `127.0.0.1`，**端口必须 ≥ 10000** |
-| 5. 授权 URL | 见下 |
-| 6. 回调 | 取 `?code=` → 立即 exchange → 307 到 portal 结果页 |
-| 7. 结果页 | exchange 成功后 307 到 `https://codearts.huaweicloud.com/portal/login?login_succeed=true&uri_scheme=codearts-agent&locale=zh-cn` |
-| 8. 超时 | 180 秒 |
-| 9. 落盘 | 写 `credentials.json`（`source=codearts-oauth`）+ 清理同一人的历史伪账号 |
-
-**为什么只有这一条**（[实测] + [推断]）：
-
-- [实测] 走通并验证过的只有它：落盘凭据 `source=codearts-oauth`，且同时带
-  `refresh_token` / `code_verifier` / `dpop_private_key_jwk` 三件套
-  —— 旧式 ticket 通道**不产出**这三样。
-- [推断] 只有它能续期：旧式通道只给 AK/SK/security_token/过期时间，
-  而 refresh_token 是一次性轮换的（实测 `STS5.1806`），无法续期的账号等于一次性。
-- [推断] 只有它能解出稳定身份：refresh_token 是 JWT，内含 `user_profile.account_id`
-  （见 §2.3.1）；按 AK 派生身份会让同一个人每次登录都变成池内一个新账号
-  （本仓库为此专门做了 `pruneLegacyAccounts()`）。
-- [参考] 参考实现同样把 `client_id` / `dpop_private_key` / `refresh_token` /
-  `code_verifier` 与凭据一起落盘
-  （reference/HITZY2002_codearts2api/internal/auth/auth.go:23-35）—— 这是协议要求。
-
-**授权 URL 逐字（login.ts:282-291）**：
-
-```
-https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
-&uri_scheme=codearts-agent&client_id=codearts-agent&port={port}
-&code_challenge={challenge}&code_challenge_method=SHA-256
-&ticket_id={ticketId}&plugin-name=snap_AIIDE&plugin-version=5.2.0
-```
-
-常量逐字值：`OAUTH_THEME='2'`、`OAUTH_LOCALE='zh-cn'`、
-`LOGIN_PLUGIN_NAME='snap_AIIDE'`、`LOGIN_PLUGIN_VERSION='5.2.0'`
-
 **三个实测踩坑**（源码注释明写）：
-- `code_challenge_method` 必须是 **`SHA-256`**（非 RFC 标准缩写 `S256`）；
- portal 以此识别 OAuth 授权，错值会**静默回退旧 ticket 流程**
-- 授权 URL **不能带 `auth_callback_url`** —— portal 仅凭 `port` 参数构造回调
-- 回调端口 < 10000 会被 portal 拒绝
-
-**授权码换取**（oauth.ts:147-161）：同一 STS 端点，form 体为
-`client_id=codearts-agent`、`code=`、`code_verifier=`、`grant_type=authorization_code`、
-`redirect_uri=http://127.0.0.1:{port}/oauth/callback`
-
-### 2.6 DPoP JWS 构造（oauth.ts:74-85）—— Python 需要哪些库
+### 2.5 DPoP JWS 构造（oauth.ts:74-85）—— Python 需要哪些库
 
 | 项 | 值 |
 |---|---|
@@ -295,14 +311,14 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 
 **持久化只需存私钥 JWK**（含 `d`）；公钥由 `x`/`y` 重建。
 
-### 2.7 旧式 ticket 回退路径（**默认关闭**）
+### 2.6 旧式 ticket 回退路径（**默认关闭**）
 
 > ⚠ **本仓库默认不走这条路。** 需要排查上游旧链路时用
 > `CODEARTS_LEGACY_TICKET=1` 显式打开（`cred.ts` 的 `legacyTicketEnabled()`）。
 
 **为什么降级为默认关闭**：
 
-- [实测] 走通并验证过的只有新式 IAM OAuth（§2.5）；旧式 ticket 通道在本仓库
+- [实测] 走通并验证过的只有新式 IAM OAuth（「唯一登录路径」一节）；旧式 ticket 通道在本仓库
   **从未跑通**。
 - [推断] 旧式通道不返回 `refresh_token` / `code_verifier` / DPoP 私钥 ⇒
   **无法续期**。
@@ -329,7 +345,7 @@ reference/HITZY2002_codearts2api/cmd/login/main.go:164-179）。第一次不回�
 第二次带 code 的回调就永远不来。故即使旧式轮询关着，**`?secret=` 那一次也必须
 307 跳回 `redirect`**，然后等第二次回调走新式 exchange。
 
-### 2.8 回调 URL 粘贴兜底（远程部署 / 端口不可达）
+### 2.7 回调 URL 粘贴兜底（远程部署 / 端口不可达）
 
 本地回调服务器只绑 `127.0.0.1`。远程部署、或浏览器与网关不在同一台机器时，
 portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
@@ -662,6 +678,26 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 
 ## 使用与实测
 
+### 登录方式
+
+`mx login codearts` 走**浏览器 OAuth 授权 + 本地回调**（新式 IAM OAuth）：
+本地起 `127.0.0.1` 回调服务器（端口 ≥ 10000）→ 打开 portal 授权页 → 人工授权一次 →
+回调带 `code` → 换 STS 凭据 → 落盘 `credentials.json`。**全程只有一次人工点击**。
+
+旧式 ticket 轮询**默认关闭**（需 `CODEARTS_LEGACY_TICKET=1` 显式打开），不构成第二条登录路；
+远程部署时回调打不到本机可用**粘贴兜底**。完整流程与「为什么只有这一条」见
+「唯一登录路径」一节。
+
+### 推荐模型
+
+| 模型 | 结论 | 等级 |
+| --- | --- | --- |
+| `codearts/openpangu-2.0-flash` | 2026-10-20 端到端实测通过（本渠道最低成本档之一） | `[实测]` |
+| `codearts/deepseek-v4.1-flash` / `glm-5.3-flash` | 目录可用；**benefit（免费额度）模型**必须先领取福利并带 `maas_type: benefit` 头，否则 404 未注册（§5.2.1 / §5.4） | `[实测]` |
+
+⚠ 本渠道**多数条目不暴露倍率**（`capabilities.billing=false`），成本口径不明确 ——
+自动化测试只做单轮最小对话，不跑完整 Agent 工具往返。
+
 ### 账号身份：不要按 AK 认人
 
 华为每次签发都换一套新 AK，**按 AK 派生 uid 会让同一个人每次登录都变成池内一个新账号**；
@@ -674,9 +710,9 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 - `pruneLegacyAccounts()` 在登录后清理池内同一人的历史伪账号（按 JWT 身份分组，
   保留当前生效那份；解不出身份的一律各自独立，绝不误删）。
 
-### 已知边界
+### 已知限制
 
-**已知的上游/协议限制**：
+上游与协议侧的既有限制：
 
 - **鉴权失效不是 401/403**：APIG 网关对**过期 token** 回
   `HTTP 400 + {"error_code":"APIG.0602"}`。本渠道声明了共享层的 `isAuthFailure` 钩子
@@ -689,37 +725,11 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
   功能上最接近的是 `Agent-Type`（`PromptCenter` / `AgentCenter`）与
   `app-id: CodeAgent3.0`（后者只在参考实现里出现，本仓库未发）。
 
-**待真机验证项**（静态推断不了，必须实跑确认；验证时遵守仓库红线：
-只发正确形态的请求、只用免费/最低倍率模型）：
-
-| # | 待验证项 | 怎么验 | 为什么重要 |
-|---|---|---|---|
-| V1 | **`x-auth-token` 是不是鉴权头** | 在已跑通的基础上**只加这一个头**，看是否 401 | 参考实现的 chat 头带它（[参考] internal/upstream/client.go:453），但同一仓库的逆向记录说传 STS `security_token` 会被 APIG 拒（[参考] docs/reverse-engineering.md:81-84）—— **两份参考材料自相矛盾** |
-| V2 | **benefit 三头口径** | 只发 `maas_type`（现状）vs 加 `model-id` + `model-name`（Johnsheng1 口径），两者都**一起进签名** | 一份参考实现要求三个头一起签（[参考] reference/Johnsheng1_codearts2api/server.py:119-161），另一份只要 `maas_type`；benefit 模型 404 时优先试补后两个 |
-| V3 | **静态兜底模型里哪些真能调** | 逐个发**单轮最小对话** | 参考实现实测 `GLM-5.2-ArkTS-SPARK` / `OpenPangu-2.0-Pro` / `OpenPangu-2.0-Flash` 全部 404（[参考] docs/reverse-engineering.md:174-177），而本仓库的静态兜底表里仍有 `GLM-5.2` / `openpangu-2.0-*` |
-| V4 | **opengw benefit 领取是否真能让模型变可用** | 领取前用免费 benefit 模型发一次（预期 `InferHub.4004.200`）→ 领取 → 再发一次 | 参考实现称「领取后同一模型立即可用」（[参考] docs/reverse-engineering.md:170-173）；这是本轮新加的 `claimBenefit()` 的核心假设 |
-| V5 | **`APIG.0602`（HTTP 400 + token 失效）的真实形态** | 等 token 自然过期时观察网关日志 | 当前是 [推断] 走 `isAuthFailure` 归一（§4.2），未在真实链路上验证过 |
-| V6 | **DPoP 低 S 归一化是否必要** | 同一私钥用两种编码各签一次，比较 `r‖s` 的高半部分（**纯本地计算，不发请求**） | 本仓库直接用 Node 的 `ieee-p1363` 输出（依赖实现细节），参考实现显式做低 S 归一化（[参考] internal/upstream/dpop.go:116-121） |
-| V7 | **排队状态端点 `GET /api/v1/queue/status?model=&task_id=`** | 在一次真实排队请求期间抓该端点响应 | 该端点在 §1 表里但**本仓库未接线**（常量已删，行为靠渠道层重试） |
-| V8 | **旧式 ticket 路径是否还能用** | 若要验，必须**先**把插件身份切成 `snap_jetbrains` / `26.3.3` | 当前默认关闭（§2.7）；不切插件身份测的是混合形态、无结论 |
-| V9 | **agent-center 第三路的真实内容** | 打开 `CODEARTS_AGENT_CENTER_MODELS=1` 后 `mx model codearts --refresh` | 该路默认关（会列入未注册模型）；打开前需要确认它给出的模型确实可调 |
-| V10 | **benefit 按账号隔离是否生效** | 用两个账号分别刷新目录，再看 `cache/benefit-accounts.json` 的分桶 | 本轮新加的按账号分桶（§5.1）需要确认「A 有 B 无」时互不污染 |
-
-**本轮明确不做**（记录在此，避免下次重复分析）：
-
-- 旧 chat 端点族（`/v1/chat/chat`、`/v1/chat/start-chat`、`/v1/chat/agents`、
-  `/v1/chat/management/event`、`/v1/chat/record-request`）—— v2 端点够用。
-- 渠道级**并发槽位**闸（上游单账号最多 3 个并发会话，`TM.00001041`）。
-- **模型级冷却**（把「这个模型这个账号用不了」与「这个账号坏了」分开）。
-- **多账号挑号**（按账号目录里有没有该模型来挑）。
-- **watchdog 保活 / 主动续期**（到期前 N 分钟自动 refresh）。
-- **文本协议工具降级**（提示词注入式工具 + 围栏 JSON 解析；本渠道只有 DSML 一条腿）。
-
 ### 开关一览
 
 | 开关 | 默认 | 作用 |
 |---|---|---|
-| `CODEARTS_LEGACY_TICKET=1` | **关** | 打开旧式 ticket 轮询（§2.7） |
+| `CODEARTS_LEGACY_TICKET=1` | **关** | 打开旧式 ticket 轮询（§2.6） |
 | `CODEARTS_AGENT_CENTER_MODELS=1` | **关** | 打开 agent-center 模型目录第三路（§5.1） |
 | `CODEARTS_BENEFIT_AUTO_CLAIM=0` | **开** | 关掉「模型发现时自动领取 benefit」（§5.2.1） |
 | `CODEARTS_OPENGW_BASE` | 生产 opengw 域 | 覆盖 opengw **基址** |
@@ -737,7 +747,7 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 mx login codearts          # 登录入池（浏览器授权）
 mx status codearts         # 状态与凭据
 mx model codearts --refresh # 目录刷新（会顺带领取 benefit）
-mx bill codearts           # 额度（该渠道不暴露倍率，见「已知边界」）
+mx bill codearts           # 额度（该渠道不暴露倍率，见「已知限制」）
 ```
 
 ### 端到端测试覆盖
@@ -750,6 +760,13 @@ Reasonix CLI 直连网关（`codearts/deepseek-v4-flash`）：
 
 - 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`，上游响应快）。
 
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`codearts/openpangu-2.0-flash`）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 本轮为**全渠道回归**的一环，未改动本渠道代码；结论与 2026-10-19 的记录一致。
+
 ## 参考实现
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
@@ -758,4 +775,39 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | --- | --- |
 | [HITZY2002/codearts2api](https://github.com/HITZY2002/codearts2api) | 主参照（48★）：多账号轮转 + token 自动续期保活 + 并发控制 + **benefit 领取**（§5.2.1）+ agent-center 目录（§5.1） |
 | [Johnsheng1/codearts2api](https://github.com/Johnsheng1/codearts2api) | 订阅服务转 OpenAI 格式的对照样本；**benefit 三头口径**（V2）与 opengw 领取/余额端点（§5.2.1） |
-| [zhuweiyou/codearts2api](https://github.com/zhuweiyou/codearts2api) | Jet Hub 多渠道账号管理 + 本机 OpenAI 网关的组合形态参照；**不含任何 CodeArts 上游协议代码**，只有「回调绑 127.0.0.1 且端口 ≥ 10000，远程部署需隧道」的部署形态参照（§2.8） |
+| [zhuweiyou/codearts2api](https://github.com/zhuweiyou/codearts2api) | Jet Hub 多渠道账号管理 + 本机 OpenAI 网关的组合形态参照；**不含任何 CodeArts 上游协议代码**，只有「回调绑 127.0.0.1 且端口 ≥ 10000，远程部署需隧道」的部署形态参照（§2.7） |
+
+## 已知边界
+
+本节记录**本轮明确不做**的事，以及**待真机验证**的疑点。
+上游与协议侧的既有限制（鉴权失效形态、倍率不暴露、工具往返不稳等）见
+「使用与实测」的「已知限制」一节。
+
+### 待真机验证项
+
+静态推断不了，必须实跑确认；验证时遵守仓库红线：只发正确形态的请求、只用免费/最低倍率模型。
+
+| # | 待验证项 | 怎么验 | 为什么重要 |
+|---|---|---|---|
+| V1 | **`x-auth-token` 是不是鉴权头** | 在已跑通的基础上**只加这一个头**，看是否 401 | 参考实现的 chat 头带它（[参考] internal/upstream/client.go:453），但同一仓库的逆向记录说传 STS `security_token` 会被 APIG 拒（[参考] docs/reverse-engineering.md:81-84）—— **两份参考材料自相矛盾** |
+| V2 | **benefit 三头口径** | 只发 `maas_type`（现状）vs 加 `model-id` + `model-name`（Johnsheng1 口径），两者都**一起进签名** | 一份参考实现要求三个头一起签（[参考] reference/Johnsheng1_codearts2api/server.py:119-161），另一份只要 `maas_type`；benefit 模型 404 时优先试补后两个 |
+| V3 | **静态兜底模型里哪些真能调** | 逐个发**单轮最小对话** | 参考实现实测 `GLM-5.2-ArkTS-SPARK` / `OpenPangu-2.0-Pro` / `OpenPangu-2.0-Flash` 全部 404（[参考] docs/reverse-engineering.md:174-177），而本仓库的静态兜底表里仍有 `GLM-5.2` / `openpangu-2.0-*` |
+| V4 | **opengw benefit 领取是否真能让模型变可用** | 领取前用免费 benefit 模型发一次（预期 `InferHub.4004.200`）→ 领取 → 再发一次 | 参考实现称「领取后同一模型立即可用」（[参考] docs/reverse-engineering.md:170-173）；这是本轮新加的 `claimBenefit()` 的核心假设 |
+| V5 | **`APIG.0602`（HTTP 400 + token 失效）的真实形态** | 等 token 自然过期时观察网关日志 | 当前是 [推断] 走 `isAuthFailure` 归一（§4.2），未在真实链路上验证过 |
+| V6 | **DPoP 低 S 归一化是否必要** | 同一私钥用两种编码各签一次，比较 `r‖s` 的高半部分（**纯本地计算，不发请求**） | 本仓库直接用 Node 的 `ieee-p1363` 输出（依赖实现细节），参考实现显式做低 S 归一化（[参考] internal/upstream/dpop.go:116-121） |
+| V7 | **排队状态端点 `GET /api/v1/queue/status?model=&task_id=`** | 在一次真实排队请求期间抓该端点响应 | 该端点在「chat 与模型请求的确切 URL」表里但**本仓库未接线**（常量已删，行为靠渠道层重试） |
+| V8 | **旧式 ticket 路径是否还能用** | 若要验，必须**先**把插件身份切成 `snap_jetbrains` / `26.3.3` | 当前默认关闭（§2.6）；不切插件身份测的是混合形态、无结论 |
+| V9 | **agent-center 第三路的真实内容** | 打开 `CODEARTS_AGENT_CENTER_MODELS=1` 后 `mx model codearts --refresh` | 该路默认关（会列入未注册模型）；打开前需要确认它给出的模型确实可调 |
+| V10 | **benefit 按账号隔离是否生效** | 用两个账号分别刷新目录，再看 `cache/benefit-accounts.json` 的分桶 | 本轮新加的按账号分桶（§5.1）需要确认「A 有 B 无」时互不污染 |
+
+### 本轮明确不做
+
+记录在此，避免下次重复分析：
+
+- 旧 chat 端点族（`/v1/chat/chat`、`/v1/chat/start-chat`、`/v1/chat/agents`、
+  `/v1/chat/management/event`、`/v1/chat/record-request`）—— v2 端点够用。
+- 渠道级**并发槽位**闸（上游单账号最多 3 个并发会话，`TM.00001041`）。
+- **模型级冷却**（把「这个模型这个账号用不了」与「这个账号坏了」分开）。
+- **多账号挑号**（按账号目录里有没有该模型来挑）。
+- **watchdog 保活 / 主动续期**（到期前 N 分钟自动 refresh）。
+- **文本协议工具降级**（提示词注入式工具 + 围栏 JSON 解析；本渠道只有 DSML 一条腿）。

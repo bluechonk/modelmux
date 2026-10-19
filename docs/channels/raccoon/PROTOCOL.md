@@ -4,7 +4,37 @@
 
 ---
 
-## 1. 端点
+## 唯一登录路径：授权码网页登录（本地回调）
+
+**本渠道只有一条登录路径**：授权码网页登录（完整流程见 §2.4）。
+
+```
+① CLI 在 127.0.0.1 随机端口起 /callback，打印授权页：
+   https://xiaohuanxiong.com/code/authorize?appname=办公小浣熊客户端&state=<32位hex>&redirect=http://127.0.0.1:<port>/callback
+② 用户在页面上用微信 / 验证码 / 密码登录成功
+   → 页面自动跳转 redirect：http://127.0.0.1:<port>/callback?authorization_code=…&state=…
+③ 换凭证：POST https://xiaohuanxiong.com/api/web/auth/v1/login_with_authorization_code
+   body: { "authorization_code": "<回调里的 authorization_code>" }
+```
+
+### 为什么不采纳其它路径（四条判据，逐条可核对）
+
+1. **零实测记录**：授权码路径有 2026-10-19 的端到端实测（见「使用与实测」），短信路径**一条都没有**。
+2. **结构上跑不通**：`send_sms` 的 `captcha_param` **必需**，而本仓**没有任何代码能产出阿里云滑块产物**
+   （旧 vendor 包里的本地登录页不在本仓，见 §2.6）⇒ 连第一步都发不出可用请求。
+3. **三份参考实现零背书**：agent2api 与 xiaohuanxiong2api 全树检索 `send_sms` / `login_with_sms` /
+   `aes-128-cfb` **零命中** —— 两家都只实现授权码一条。
+4. **历史唯一的「验证」是本机假服务替身**：渠道引入时的 selftest 用 `http://127.0.0.1:<fakePort>`
+   的假上游跑过 `sendSms`，`loginWithSms` 连一条测试都没有 —— 正是仓库「测试红线」禁止的形态。
+
+另两条**协议事实级**的落选项同样不采纳：
+
+- `/login/mp?code=…`（官方手机 App 扫码专用）—— 网页端**没有该路由**，真实浏览器打开只会落到
+  SPA 兜底页，是死链（真机踩过）。
+- `office-raccoon://auth/callback?code=…`（桌面客户端自定义协议）—— 本插件是宿主侧 Node 进程，
+  注册不了自定义协议；`parseLoginCallback` 仍接受这种 URL，供手工/脚本注入。
+
+### 1. 端点
 
 API 基址 `https://xiaohuanxiong.com`，五个前缀：
 
@@ -641,7 +671,98 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 ---
 
-## 8. 已知边界
+## 使用与实测
+
+### 登录方式（渠道差异）
+
+网页**授权码链路**（**本渠道唯一登录路径**），两步：打开打印出的 `/code/authorize` 授权页用微信 / 验证码 / 密码登录 →
+页面自动跳回 `http://127.0.0.1:<port>/callback`，CLI 收到授权码并落盘，**无需粘贴**
+（协议细节见 §2.4 / §2.9；短信链路已移除，理由见 §2.5）。
+
+- 浏览器无法访问 localhost（远程环境）时，重新执行 `mx login raccoon`；
+- 也可用 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或 `office-raccoon://` 均可）。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `raccoon/sn-glm-5-3-flash`（文档中亦记作 `glm-5.3-flash`） | **本渠道倍率最低**（原价 0.2 → 生效 0.1），自动化测试首选 | `[实测]` |
+| `raccoon/sn-sensenova-6-8-flash` / `sn-sensenova-6-8-flash-lite` | 原价 0.5 → **生效 0（免费）**，可作免费档备选 | `[实测]` |
+| `raccoon/sn-glm-5-3` | 倍率 0.75；⚠ 上游**节点不一致**（3 次里只对 1 次），见「已知边界」V10 | `[实测]` |
+
+### 已知限制与账号坑
+
+1. **没有倍率 0 的模型**：测试只能选本渠道**倍率最低**的 `glm-5.3-flash`（0.2）。
+2. **工具往返在上游侧不稳定**（工具轮次长时间不返回），2026-10-19 实测只做了单轮最小对话。
+3. **账号池薄**：池内账号少，被判 `error` 后没有备选可切，网关直接回 503 `not_authenticated`；
+   用 `mx relogin raccoon` 重新授权即可恢复（见下「实测」）。
+4. **只有一条登录路径**：短信验证码链路已移除（零实测、`captcha_param` 拿不到、
+   参考实现零背书 —— 见 §2.5）。要恢复必须先解决阿里云滑块产物的来源问题。
+5. **没有临期主动刷新**：只在 HTTP 401/403 时续期（access_token 寿命约 3 小时）；
+   `TOKEN_REFRESH_WINDOW_SECONDS` 只是寿命记录，不是行为开关。
+
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login raccoon
+mx status raccoon
+mx model raccoon --refresh
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model raccoon --refresh` / 最小对话 / 流式 SSE；
+工具往返上游不稳定（见「已知限制」第 2 条），2026-10-19 只做了单轮最小对话。
+账号被判 `error` 时的恢复步骤见「已知限制」第 3 条。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`raccoon/glm-5.3-flash`，本渠道最低倍率 0.2）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 本渠道**没有倍率 0 的模型**，测试选最低倍率的 `glm-5.3-flash`；
+  工具往返在上游侧不稳定（工具轮次长时间不返回），本次只做单轮最小对话。
+- **账号坑**：池内账号少，被判 `error` 后没有备选可切，网关直接回
+  503 `not_authenticated`。用 `mx relogin raccoon` 重新授权即可恢复
+  （授权页登录后自动跳回本地回调，无需粘贴）。2026-10-19 实测：账号 `error` 时冒烟
+  503，`relogin` 重新授权后（账号状态回到 `ok`、到期日顺延）冒烟立即通过。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`raccoon/sn-glm-5-3-flash`，文档中亦记作 `glm-5.3-flash`，
+本渠道最低倍率 0.2）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
+- 本轮为**全渠道回归**的一环；下节「2026-10-20 变更」里列的收敛改动已随本次实测跑通。
+
+### 2026-10-20 变更（本轮收敛，已随上节实测复验）
+
+本轮只做「参考实现 vs 当前实现」对照后的收敛，下列改动已在同日的端到端实测中复验通过：
+
+- **登录路径收敛为一条**：删除短信登录（`sendSms` / `loginWithSms`）与其 AES 工具、
+  `X-Client-Version` / `X-Client-Device-ID`、凭据里的 `device_id`（老凭据读到即忽略）。
+  协议事实保留在 §2.3 / §2.5 / §2.6。
+- **端点表与基址解析收敛到 `src/upstream.ts`**：新增 `channelBaseUrl()` 作为**唯一真源**，
+  鉴权域与推理域共用同一个基址（修掉「登录在镜像、对话在官方」的分叉）；
+  所有端点 builder 去掉 cfg 入参、改为可选的显式 override。
+- **续期加单飞 + 比较写回**：同一 `refresh_token` 的并发续期只发一次上游请求；
+  写回前比较盘上凭证，已被换掉则不覆盖（见 §2.7）。
+- **JWT 用户 id 取值顺序改为** `sub` → `iss` → `user_id`/`userId`/`uid`（见 §2.2）。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [aimod-cc/agent2api](https://github.com/aimod-cc/agent2api) | 主参照（642 文件）：登录回调、请求头形态与错误分类 |
+| [swysgh/xiaohuanxiong2api](https://github.com/swysgh/xiaohuanxiong2api) | 协议补充参照 |
+| [xxhhlk/raccoon2api](https://github.com/xxhhlk/raccoon2api) | 接口结构参考（仅 README + LICENSE，信息量少） |
+
+## 已知边界
 
 本节收纳**本轮未做**的功能缺口与**尚需真机验证**的开放问题。
 证据等级：`[实测]`（真机跑通）/ `[代码]`（源码可查）/ `[推断]`（静态推理）/ `[参考]`（第三方参考实现所载）。
@@ -690,81 +811,3 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 | V14 | `bills` 的分页条数取 20 还是 50 | 缺口 18 |
 | V15 | `desktop/v1/login/points/grant` 的 `popup.points` 与账单 `event_name` 判据 | 本仓用「账单明细」判据，参考实现用「本地结算台账」，口径不同可能误判 |
 | V16 | 短信路径在**有**阿里云滑块产物时到底能不能走通 | 若能走通，§2.5 的「删除」结论要改成「保留但需手工 captcha」 |
-
----
-
-## 使用与实测
-
-### 登录方式（渠道差异）
-
-网页**授权码链路**（**本渠道唯一登录路径**），两步：打开打印出的 `/code/authorize` 授权页用微信 / 验证码 / 密码登录 →
-页面自动跳回 `http://127.0.0.1:<port>/callback`，CLI 收到授权码并落盘，**无需粘贴**
-（协议细节见 §2.4 / §2.9；短信链路已移除，理由见 §2.5）。
-
-- 浏览器无法访问 localhost（远程环境）时，重新执行 `mx login raccoon`；
-- 也可用 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或 `office-raccoon://` 均可）。
-
-### 已知限制与账号坑
-
-1. **没有倍率 0 的模型**：测试只能选本渠道**倍率最低**的 `glm-5.3-flash`（0.2）。
-2. **工具往返在上游侧不稳定**（工具轮次长时间不返回），2026-10-19 实测只做了单轮最小对话。
-3. **账号池薄**：池内账号少，被判 `error` 后没有备选可切，网关直接回 503 `not_authenticated`；
-   用 `mx relogin raccoon` 重新授权即可恢复（见下「实测」）。
-4. **只有一条登录路径**：短信验证码链路已移除（零实测、`captcha_param` 拿不到、
-   参考实现零背书 —— 见 §2.5）。要恢复必须先解决阿里云滑块产物的来源问题。
-5. **没有临期主动刷新**：只在 HTTP 401/403 时续期（access_token 寿命约 3 小时）；
-   `TOKEN_REFRESH_WINDOW_SECONDS` 只是寿命记录，不是行为开关。
-
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login raccoon
-mx status raccoon
-mx model raccoon --refresh
-```
-
-### 端到端测试覆盖
-
-登录入池 / `mx model raccoon --refresh` / 最小对话 / 流式 SSE；
-工具往返上游不稳定（见「已知限制」第 2 条），2026-10-19 只做了单轮最小对话。
-账号被判 `error` 时的恢复步骤见「已知限制」第 3 条。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`raccoon/glm-5.3-flash`，本渠道最低倍率 0.2）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-- 本渠道**没有倍率 0 的模型**，测试选最低倍率的 `glm-5.3-flash`；
-  工具往返在上游侧不稳定（工具轮次长时间不返回），本次只做单轮最小对话。
-- **账号坑**：池内账号少，被判 `error` 后没有备选可切，网关直接回
-  503 `not_authenticated`。用 `mx relogin raccoon` 重新授权即可恢复
-  （授权页登录后自动跳回本地回调，无需粘贴）。2026-10-19 实测：账号 `error` 时冒烟
-  503，`relogin` 重新授权后（账号状态回到 `ok`、到期日顺延）冒烟立即通过。
-
-### 2026-10-20 变更（**尚未真机复验**）
-
-本轮只做「参考实现 vs 当前实现」对照后的收敛，**未向上游发任何请求**，
-下列改动**尚未经真机复验**（待统一验证）：
-
-- **登录路径收敛为一条**：删除短信登录（`sendSms` / `loginWithSms`）与其 AES 工具、
-  `X-Client-Version` / `X-Client-Device-ID`、凭据里的 `device_id`（老凭据读到即忽略）。
-  协议事实保留在 §2.3 / §2.5 / §2.6。
-- **端点表与基址解析收敛到 `src/upstream.ts`**：新增 `channelBaseUrl()` 作为**唯一真源**，
-  鉴权域与推理域共用同一个基址（修掉「登录在镜像、对话在官方」的分叉）；
-  所有端点 builder 去掉 cfg 入参、改为可选的显式 override。
-- **续期加单飞 + 比较写回**：同一 `refresh_token` 的并发续期只发一次上游请求；
-  写回前比较盘上凭证，已被换掉则不覆盖（见 §2.7）。
-- **JWT 用户 id 取值顺序改为** `sub` → `iss` → `user_id`/`userId`/`uid`（见 §2.2）。
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [aimod-cc/agent2api](https://github.com/aimod-cc/agent2api) | 主参照（642 文件）：登录回调、请求头形态与错误分类 |
-| [swysgh/xiaohuanxiong2api](https://github.com/swysgh/xiaohuanxiong2api) | 协议补充参照 |
-| [xxhhlk/raccoon2api](https://github.com/xxhhlk/raccoon2api) | 接口结构参考（仅 README + LICENSE，信息量少） |
