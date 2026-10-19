@@ -76,14 +76,8 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 
 `access_token` 字段名**必须**是这个。
 
-### 2.3 登录流程 A：短信验证码（**已移除，仅存协议事实**）
+### 2.3 账户请求信封（`buildLoomyAccountBody`）
 
-> 独立的短信验证码登录（`sendMsgCode` / `checkCode` 两条端点）已从实现中移除，
-> 只保留微信扫码一条路（见 §2.4）。本节端点与报文是**当时的实测记录**，
-> 留作协议事实存档；微信**绑定**环节（§2.4 的 `bind/sendMsg` / `bind/checkCode`）
-> 仍在用同形报文。
-
-**通用请求体信封**（`buildLoomyAccountBody`）：
 ```json
 {
  "base": {
@@ -101,25 +95,10 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 `ua` 硬编码 `Loomy|Desktop|Electron|macOS`，**客户端在 Windows 上发的也是这个值，照抄不要改**。
 `traceid` 每次调用重新生成。
 
-**第 1 步** 发验证码：
-```
-POST https://account.xfinfr.com/login/phone/sendMsgCode
-param: { "ccode": "86", "phone": "<11位>", "expire": 300 }
-→ data.msgid      （提交验证码时必须原样带回）
-```
+`LOOMY_SESSION_TTL_SECONDS = 1_209_600`（14 天）：服务端只声明有效期，响应不带到期时间戳，
+凭据的 `expires_at` 由本地按此推算。
 
-**第 2 步** 登录：
-```
-POST https://account.xfinfr.com/login/phone/checkCode
-param: { "ccode": "86", "phone": "<11位>", "mcode": "<6位验证码>", "msgid": "<msgid>",
-        "expire": 1209600 }
-→ data: { "session": "<32位hex>", "userid": "<18位数字>" }
-```
-
-`LOOMY_SESSION_TTL_SECONDS = 1_209_600`（14 天）。
-这只是向服务端**声明**的有效期，响应里不带到期时间戳，故凭据的 `expires_at` 由本地按此推算。
-
-### 2.4 登录流程 B：微信扫码（四步强制绑手机号）
+### 2.4 登录流程：微信扫码（四步强制绑手机号）
 
 ```
 1. bindAuthThirdAccount(code) → { bind, rcode, isnew, nickname, headpic }
@@ -190,11 +169,9 @@ param: { "ccode": "86", "phone": "<11位>", "mcode": "<6位验证码>", "msgid":
 | 402 | 二维码失效 | `expired` |
 | 其它/未知 | 保守归 `waiting`（绝不误判成功） | `waiting` |
 
-**真实缺陷（用户报障「扫码后显示已扫码，但没有后续跳转」）**：
-早期把 **404 当成「已确认」、405 当成「已扫码待确认」** —— 恰好**读反了**。
-后果：用户确认后微信回 **405**（`wx_code` 就在这一帧），
-而实现按 404 分支去等一个「带 code 的 404」，**永远等不到** → 流程卡在「已扫码」，
-凭据落盘永不执行 → 账号池里的凭据始终为空。
+**404 / 405 的语义（极易读反）**：404 = 已扫码待确认（继续轮询）；405 = **已确认**，
+`wx_code` 就在这一帧。读反的后果：实现按 404 分支去等一个「带 code 的 404」，
+**永远等不到** → 流程卡在「已扫码」，凭据落盘永不执行 → 账号池里的凭据始终为空。
 
 **响应体解析**（正则，非 JSON）：
 ```
@@ -207,8 +184,8 @@ code    = /wx_code\s*=\s*'([^']*)'/
 
 **请求头**：`User-Agent` 用桌面 Chrome UA，`Referer: https://open.weixin.qq.com/`。
 
-**二维码图片**：实测 **JPEG**，早期只判 PNG 魔数会误报「不是图片」
-—— 故 PNG / JPEG / GIF 三种都认，且字节数 < 200 视为错误页。
+**二维码图片**：实测 **JPEG**（不是 PNG）—— 故 PNG / JPEG / GIF 三种都认，
+且字节数 < 200 视为错误页。
 
 **本地弹窗页**：
 ```

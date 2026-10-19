@@ -6,10 +6,6 @@
 将任何兼容 OpenAI Chat Completion API 的客户端请求，翻译成妙手的 conversation 协议
 （round → event → turn 三段式）转发到上游。
 
-> 本仓库原为 Python 实现（uv + aiohttp + cryptography），已重构为 TypeScript
-> （Node ≥ 22.6，零第三方运行依赖），并纳入 `modelmux` 工作区的
-> `packages/core/gateway` 共享层。旧实现与逆向研究结论保留在 git 历史与 `docs/` 里。
-
 ## 特性
 
 - **OpenAI 兼容**：`/v1/chat/completions` 与 `/v1/models`，流式/非流式
@@ -39,7 +35,7 @@
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login catpaw                            # 仓库级 CLI：登录
-mx status catpaw（model / billing 同法）        # 状态 / 模型 / 账单
+mx status catpaw（model / bill 同法）         # 状态 / 模型 / 账单
 node channels/catpaw/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 

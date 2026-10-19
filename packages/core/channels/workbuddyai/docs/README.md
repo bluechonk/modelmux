@@ -9,10 +9,7 @@ WorkBuddyAI 的本地 OpenAI Chat Completion 透明代理网关（**TypeScript**
 > 国内版（腾讯 CodeBuddy，`codebuddy.ai`）是**独立渠道** `workbuddy`，见
 > [`workbuddy/docs/README.md`](../../workbuddy/docs/README.md)。两者共用同一套网关，但账号、
 > 凭证落点、模型池各自独立 —— 账号在哪个域就用哪个渠道登录。
-> 早期版本用一个 `--realm intl|cn` 参数在两者间切换，现已**移除**：域是渠道身份的一部分。
-
-> 本仓库原为 Python 实现，已重构为 TypeScript（Node ≥ 22.6）。
-> 旧实现保留在 git 历史里：`git show <commit>:src/workbuddy_bridge/gateway.py`。
+> `--realm` 参数在两条渠道上都被忽略（保留仅为兼容共享层 CLI 的签名）。
 
 ## 特性
 
@@ -32,12 +29,12 @@ WorkBuddyAI 的本地 OpenAI Chat Completion 透明代理网关（**TypeScript**
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login workbuddyai                            # 仓库级 CLI：登录
-mx status workbuddyai（model / billing 同法）        # 状态 / 模型 / 账单
+mx status workbuddyai（model / bill 同法）        # 状态 / 模型 / 账单
 node channels/workbuddyai/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 
 日常使用走**仓库级网关**：`mx start` 后把任意 OpenAI 兼容客户端指到
-`http://127.0.0.1:8787/v1`（唯一端口，全部渠道从它后面供给池内模型）。
+`http://127.0.0.1:4412/v1`（唯一端口，全部渠道从它后面供给池内模型）。
 单渠道独立运行（`node channels/workbuddyai/dist/cli.js serve`）仅在调试该渠道时用。
 
 ## 状态 API
@@ -52,9 +49,8 @@ node channels/workbuddyai/dist/cli.js --help    # 单渠道 CLI（调试 / 回�
 日常操作走 `mx` 命令（`mx status` / `mx start|stop|restart` / `mx login workbuddyai` /
 `mx model list` / `mx bill workbuddyai`），控制台 API 只是给程序化调用留的口子。
 
-**接入**：任意 OpenAI 兼容客户端，类型 `openai-chat-completions`、
-baseUrl `http://127.0.0.1:8787/v1`、API key 任意非空、模型 `deepseek-v4.1-flash` /
-API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `workbuddyai/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
+**接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:4412/v1`、API key 任意非空、
+模型填 `<渠道>/<模型>` 池 id 形态（如 `workbuddyai/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
 ## 源码结构
 
@@ -75,29 +71,26 @@ src/
 
 全部落点在统一存储根 `~/.modelmux/` 下按渠道分层：凭证在
 `~/.modelmux/workbuddyai/credentials.json`（权限 0600），不要提交到 git。
-`MODELMUX_HOME` 可把整个存储根指到别处，便携/测试用。历史顶层目录（`~/.workbuddyai2api/`、
-`~/.workbuddyai-gateway/` 等）与旧环境变量（`ZCB_HOME` / `WBAI2API_HOME`）**已不再识别**
-（更名 modelmux 时整体移除旧兼容），仍在使用的话需手工把数据搬进 `~/.modelmux/workbuddyai/`。
+`MODELMUX_HOME` 可把整个存储根指到别处，便携/测试用；本渠道只读写
+`~/.modelmux/workbuddyai/`，不读其它顶层目录或旧环境变量。
 `mx path --all` 可只读列出全部落点。
 
-拆分成两条渠道后，**裸 `workbuddy` 名字**（`~/.workbuddy-bridge/`、`WORKBUDDY_HOME`、
-`WORKBUDDY_DEBUG_DUMP`）两条渠道都不读：那个目录里是国际版旧凭证，而 `workbuddy`
-这个 cid 现在属于国内版 —— 混用会跨产品串号。迁完的旧数据在 `~/.modelmux/workbuddyai/`。
+国内版数据在 `~/.modelmux/workbuddy/`，与本渠道不共享 —— 混用会跨产品串号。
 
 ## 模型目录
 
 - **对外名 = 上游模型名**（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`）
 - 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddyai/cache/models.json`）
-  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx model workbuddy --refresh` 强制重拉
-- 历史短名 `deepseek-flash` 仍能解析（老配置不断），但不出现在 `/v1/models` 里
+  → 随包快照（渠道根 `models.json`）→ 内置兜底；`mx model workbuddyai --refresh` 强制重拉
+- 短名 `deepseek-flash` 仍能解析，但不出现在 `/v1/models` 里
 - 未识别的模型名原样透传
 
 ## 测试
 
-渠道不写单元/集成测试（`AGENTS.md §7`）。
+渠道不写单元/集成测试（`AGENTS.md` 的「测试规则」第 1 条）。
 
 - **临时验证**：抓包核对端点、跑通修复等一次性验证，写临时脚本到项目根 `.tmp/`，用**真实账号、
-  真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md §8`）。
+  真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md` 的「测试规则」第 2 条）。
 - **端到端**：由 **Agent 跑 `reasonix-mx-test` skill**，用 Reasonix CLI 直连
   `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
 - 端到端覆盖：登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。

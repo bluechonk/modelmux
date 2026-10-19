@@ -12,17 +12,15 @@ Qoder（阿里系）的本地 OpenAI Chat Completion 透明代理网关（**Type
 
 ## 快速开始
 
-## 快速开始
-
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login qoder                            # 仓库级 CLI：登录
-mx status qoder（model / billing 同法）        # 状态 / 模型 / 账单
+mx status qoder（model / bill 同法）       # 状态 / 模型 / 账单
 node channels/qoder/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 
 日常使用走**仓库级网关**：`mx start` 后把任意 OpenAI 兼容客户端指到
-`http://127.0.0.1:8787/v1`（唯一端口，全部渠道从它后面供给池内模型）。
+`http://127.0.0.1:4412/v1`（唯一端口，全部渠道从它后面供给池内模型）。
 单渠道独立运行（`node channels/qoder/dist/cli.js serve`）仅在调试该渠道时用。
 
 ## 排队重试（10605）

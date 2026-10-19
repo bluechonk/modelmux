@@ -7,14 +7,14 @@
 | 契约与规范 | `docs/`（本目录） | 仓库级规则，改代码前必读 |
 | 渠道文档 | `packages/core/channels/<cid>/docs/` | 每个渠道自己的说明与协议规格（**随包走**） |
 
-> 规则本身写在根 [`AGENTS.md`](../AGENTS.md) §文档规则：契约留在 `docs/`，渠道文档跟包走，
+> 规则本身写在根 [`AGENTS.md`](../AGENTS.md) 的「文档规则」：契约留在 `docs/`，渠道文档跟包走，
 > 每个渠道包都必须带 `docs/README.md`。由 `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
 
 > 各 `packages/core/channels/<cid>/` 目录里只有 `src/`（实现）与 `docs/`（文档）；
 > 唯一例外 `packages/core/channels/catpaw/AGENTS.md`（给工具读的目录级指令，必须留在原处）。
 
-> 已完成任务的过程记录（逐阶段 RUN-LOG、已结项的 task_plan/progress、已删除渠道的存档）
-> 已清理，需要时从 git 历史取。保留标准：**对当前实现或维护仍有用**。
+> 文档只描述**当前设计**：旧设计与变更记录不写进文档，需要时从 git 历史取；
+> 已完成任务的过程记录（RUN-LOG、task_plan/progress）不入库。
 
 ---
 
@@ -25,9 +25,10 @@
 | [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id，§2）+ 账号池（多账号 / 连败标记 / 刷新换号，§3） |
-| [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退，学 CCR 骨架） |
-| [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx logs` |
+| [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退） |
+| [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
 | [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 双页深色看板（仪表盘 + 账号池）的架构、构建与 API 面貌 |
+| [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
 
 ## 2. 渠道文档 `packages/core/channels/<cid>/docs/`
 
@@ -46,12 +47,12 @@
 | `traecn` | TRAE（字节，中国版） | [说明](../packages/core/channels/traecn/docs/README.md) · [PROTOCOL](../packages/core/channels/traecn/docs/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [说明](../packages/core/channels/workbuddy/docs/README.md) · [PROTOCOL](../packages/core/channels/workbuddy/docs/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [说明](../packages/core/channels/workbuddyai/docs/README.md) · [PROTOCOL](../packages/core/channels/workbuddyai/docs/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表） |
-| `orcaterm` | OrcaTerm（腾讯云，登录已实现 / 上游待实现） | [说明](../packages/core/channels/orcaterm/docs/README.md) · [PROTOCOL](../packages/core/channels/orcaterm/docs/PROTOCOL.md) + [FINDINGS](../packages/core/channels/orcaterm/docs/FINDINGS.md) |
+| `orcaterm` | OrcaTerm（腾讯云，登录已实现 / 上游已接入纯文本） | [说明](../packages/core/channels/orcaterm/docs/README.md) · [PROTOCOL](../packages/core/channels/orcaterm/docs/PROTOCOL.md) + [FINDINGS](../packages/core/channels/orcaterm/docs/FINDINGS.md) |
 
-> `orcaterm` 是**渠道包**（7 文件齐备并已注册），但只有**登录已实现**：
-> `upstream` / `catalog` / `billing` 按契约做成「尚未实现」桩 —— 上游对话协议
-> （`/messages*` 请求体与鉴权）尚未抓到，见其 FINDINGS。
-> 登录支持两路：腾讯云 / 微信（`mx login orcaterm` 弹菜单）；GitHub 仅协议事实，未实现。
+> `orcaterm` 是**渠道包**（7 文件齐备并已注册）：登录（腾讯云单路）与文本对话已实现；
+> `upstream.buildChatBody()` 目前只发纯文本（`tools` 固定为 `[]`，工具调用不可用）。
+> 额度 / 签到无此概念，CLI 与 UI 显示 `-`；详见其 README 的「已知限制」。
+> GitHub 仅协议事实，未实现。
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 
@@ -79,12 +80,11 @@
 
 **不需要**为任何客户端做适配层：网关就是标准 OpenAI 兼容端点，任何客户端把 base url
 指到 `http://127.0.0.1:4412/v1` 即可（凭据与账号池都由网关统一管理）。
-历史上的插件形态（per-channel 插件 → 单 ZCode 插件 → Hermes 适配）已于 2026-10-13 全部移除。
 
 ## 5. 新增一个渠道要动哪些地方
 
 1. 建 `packages/core/channels/<cid>/`：7 个 `src/*.ts`（`channel`/`cli`/`index` + `cred`/`upstream`/`catalog`/`billing`）
-   + `package.json` + `tsconfig.json`（**渠道不做测试**，无需 `tests/`；见 `AGENTS.md §7`）
+   + `package.json` + `tsconfig.json`（**渠道不做测试**，无需 `tests/`；见 `AGENTS.md` 的「测试规则」第 1 条）
 2. `packages/core/channels/<cid>/docs/`：`README.md`（渠道说明）+ `PROTOCOL.md`（协议规格，实测结论）
 3. `packages/cli/src/channels.ts` 加一行 `import "@modelmux/<cid>"`（包名 = `@modelmux/` + 目录名，装好后由工作区软链解析）
 4. 工作区根 `package.json` 的 `workspaces`（`packages/cli` 不必声明依赖：发布 bundle 自包含）

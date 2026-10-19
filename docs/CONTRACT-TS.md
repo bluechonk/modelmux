@@ -1,14 +1,11 @@
 # TypeScript 渠道项目契约（工作区 `modelmux`）
 
-本文件描述**统一后的共享包架构**。所有渠道的实现都必须遵守本契约。
+本文件描述当前共享包架构。所有渠道的实现都必须遵守本契约。
 
 ## 0. 一句话架构
 
 **共享层在 `packages/core/gateway`（工作区名 `@modelmux/gateway`），渠道差异通过
 `Channel` 注册表注入。每个 `packages/core/channels/<cid>/` 只实现 4 个渠道特有模块，其余一律复用共享包。**
-
-旧实现（已废弃）是「每个项目各存一份共享模块副本 + 用 `scaffold_ts.py` 做字符串替换」，
-改一处要重刷 11 份。现在共享模块只有一份，字符串替换已彻底移除。
 
 ---
 
@@ -22,7 +19,7 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              account-pool / secret-file / catalog-cache / cli-consts /
 │       │              logger（日志节流）/ log-store（分层落盘）
 │       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
-│       │              model-pool（渠道内解析）/ model-family（历史白名单，池路径不再调用）
+│       │              model-pool（渠道内解析）/ model-family（当前未启用）
 │       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
 │       ├── http/      网关与转发：gateway / chat-relay / sse-stream / console /
 │       │              web-command-handler / portfree
@@ -125,7 +122,7 @@ getChannel(): Channel;        // 未注册时抛错
 hasChannel(): boolean;        // 供测试/工具探测，不抛错
 ```
 
-### 3.1 `ChannelConfig`（旧实现里靠字符串替换注入的那批常量）
+### 3.1 `ChannelConfig`
 
 ```ts
 interface ChannelConfig {
@@ -144,7 +141,7 @@ interface ChannelConfig {
 无对应能力的渠道（如 orcaterm）在 `channel.ts` 显式声明，不靠抛错或空台账让上层猜。
 
 **落点不由渠道决定**：存储根、`<cid>` 分层、目录内文件名全部由共享层
-`paths.ts` 推导；渠道只给 `cid`，没有任何历史名清单（旧布局兼容已整体移除）。
+`paths.ts` 推导；渠道只给 `cid`，没有任何历史名清单。
 完整规范见 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md)。
 
 ### 3.2 `Channel`
@@ -170,18 +167,11 @@ interface Channel {
 网关对外是**动态模型池**，id 形态为 `<cid>/<规范模型名>`（如 `loomy/kimi-k2.6`）——
 渠道由请求方通过前缀**显式指定**；模型段是各渠道 `catalog` 归一化后的结果，
 **渠道内去重、跨渠道不合并**。匹配是「归一化 + **精确相等**」；裸模型名（无 `/`）
-与未注册渠道前缀一律 `400 unknown_model`（2026-10-17 破坏性更新，取代「无前缀 + 账本路由」）。
+与未注册渠道前缀一律 `400 unknown_model`。
 完整规则、账本落点与刷新节奏见 [`POOL-ARCHITECTURE.md` §2](./POOL-ARCHITECTURE.md)。
 
 >  请求名按**第一个 `/`** 切出渠道段，模型段走归一化路径（剥厂商路径段）——
 > 渠道归属已由前缀声明，模型段再剥不会串渠道。
-
-### 4.2 家族白名单（历史，已移除）
-
-`pool/model-family.ts` 仍保留导出（`FAMILY_ALLOWLIST` / `isAllowedFamily` /
-`MODELMUX_ALLOW_ALL_MODELS`），但**池路径不再调用它**：当前策略是「渠道目录里有什么就
-暴露什么」（全模型池）。保留模块只为了未来需要网关级过滤时有现成实现；改池行为请改
-`pool/pool-targets.ts`，不要复活白名单。
 
 ---
 
@@ -263,7 +253,7 @@ interface Channel {
 `catalog.exposedIds()` 只需给出该渠道**真实可用**的归一化 id；共享层不做家族过滤
 （全模型池，见 §4.2）。
 但**不要列出实测用不了的模型** —— 用户选中后拿到空回答，而错误指向「模型」
-而非真实原因，比不列更糟（ZCode 的 `GLM-5-Turbo` 就是这种情况，已从目录移除）。
+而非真实原因，比不列更糟。
 
 #### 目录来源优先级（**所有渠道一致，按此顺序**）
 
@@ -363,14 +353,12 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 
 1. **代码审查 + 归一化前后 diff 人工核验**：上游约束（身分头族、错误码、归一化管线）
    的正确性不靠运行时发请求去「验证修复」—— 发畸形请求本身就是一次风控事件，轻则
-   429/错误码，重则账号/IP 被封（详见 `AGENTS.md §10`）。
+   429/错误码，重则账号/IP 被封（详见 `AGENTS.md` 的「测试规则」第 4 条）。
 2. **临时验证脚本**：一次性探测（抓包核对端点、跑通刚修复的渠道）写在项目根 `.tmp/`
    （已归入 `.gitignore`），**用真实账号、真实上游**跑，任务结束前清理；
-   **禁止**编写虚构请求头/凭据（详见 `AGENTS.md §8`）。
+   **禁止**编写虚构请求头/凭据（详见 `AGENTS.md` 的「测试规则」第 2 条）。
 3. **端到端测试**：真实账号、真实渠道行为留给「真机手动验收」与 Agent 跑
-   `reasonix-mx-test` skill（详见 `AGENTS.md §7/§9`）。
-
-> 本节已不要求渠道 `tests/selftest.test.ts` 存在 —— 见下方 §10 清单对应项已移除。
+   `reasonix-mx-test` skill（详见 `AGENTS.md` 的「测试规则」第 1 条）。
 
 ---
 
@@ -379,18 +367,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 `npm run build` 只更新 `dist/`，**不会**重启已在跑的守护进程 —— 旧进程继续用内存里的
 旧代码服务请求。这是本仓库最容易让排查跑偏的坑，因为症状会伪装成「修复无效」。
 
-### 8.1 真实事故（2026-10-08）
-
-1. 用户报「catpaw 登录成功后模型还是不能用」；
-2. 排查发现网关进程启动于 `21:29:59`，而相关修复 `21:33` 才编译完 ——
-  期间用户几次请求**全打在旧代码上**（日志里还留着早已修掉的 `上游返回 HTTP 500`）；
-3. 同时暴露第二个问题：模型名写错（`catpaw/deepseek-v4.1-flash`，catpaw 实际叫
-  `deepseek-v4-flash`）被报成 `500 internal_error 网关内部错误` 而不是可读的 400 ——
-  进一步把排查引向「网关/登录坏了」。
-
-两者叠在一起，「修复没生效」和「参数写错」看起来一模一样。
-
-### 8.2 机制化防线（**不靠人记**）
+### 8.1 机制化防线（**不靠人记**）
 
 `packages/core/gateway/src/app/stale-build.ts`：比较**构建产物的最新 mtime**（工作区内各
 `packages/*/dist`、`packages/core/channels/*/dist` 下的 `.js`）与**守护进程启动时刻**
@@ -405,19 +382,18 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 只**报告**、不自动重启：是否重启由用户决定（自动重启会打断正在服务的会话）。
 
 补充：`stop` / `restart` 的 `killTree` 会**等进程真的退出**（win32 的 taskkill 是异步的，
-发出去就返回会留下「进程还活着但 PID 文件已删」的假死状态，下一次 `start` 报「已在运行」
-却根本没换代码 —— 实测踩过一次）。杀不掉时 `stop` 会明确报错并非零退出，不再声称成功。
-成功停止后还会往该 scope 的日志追加一行 `{"event":"stop","pid":…}`——日志平时只有网关
-子进程自己写的 start/ready，"下线"痕迹要靠这一行补上（手动停与崩溃由此可区分）。
+发出去就返回会留下「进程还活着但 PID 文件已删」的假死状态，下一次 `start` 会误报「已在运行」）。
+杀不掉时 `stop` 明确报错并非零退出。成功停止后向该 scope 的日志追加一行
+`{"event":"stop","pid":…}`，用于区分手动停止与崩溃。
 
-### 8.3 agent 的操作规则
+### 8.2 agent 的操作规则
 
 改完共享层/渠道代码并 `npm run build` 后，**主动 `restart` 再验证**；
 涉及登录链路/上游协议的改动必须走一次真机验证（`login <cid>` → `status` → 一次真实对话）。
 
-### 8.4 spawn 入口契约与 PID mtime 注记
+### 8.3 spawn 入口契约与 PID mtime 注记
 
-`daemon.start` 不再直接 spawn `serve`，而是 spawn **监督进程**（`supervise`；
+`daemon.start` spawn **监督进程**（`supervise`；
 契约见 [`DAEMON-SUPERVISOR.md`](./DAEMON-SUPERVISOR.md)）：
 
 - **入口解析仍是 `cliEntry()`**：`start` / `supervise` / `serve` 三者都重跑当前进程的
@@ -432,8 +408,8 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 `mx`（发布名 `modelmux`）的命令形态固定为「**动词在前、渠道在后**」：
 
 ```
-mx <动词> [<cid>] [参数...]              # mx login traecn / mx status traecn / mx billing traecn
-mx <命令组> <子命令> [参数...]           # mx model list / mx model usage / mx accounts <cid> add
+mx <动词> [<cid>] [参数...]              # mx login traecn / mx status traecn / mx bill traecn
+mx <命令组> <子命令> [参数...]           # mx model list / mx model usage / mx acct <cid> add
 ```
 
 - **动词永远在位置 1**；渠道 id 是**位置 2 的操作对象**（operand），可省略 ——
@@ -442,12 +418,12 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 - **TAB 补全**：`mx login <TAB>` 直接列出已注册渠道 —— 补全器只需对位置 2 补「渠道」一个维度，
  不必先猜位置 1 是动词还是渠道名。
 - **生命周期动词不接受 cid**：`start` / `stop` / `restart` 操作的是服务全部渠道的那个网关；
- `status` / `logs` 则**可选** cid（不给 = 仓库级聚合，给 = 该渠道）——两条语义靠**是否带 operand** 区分。
+ `status` / `log` 则**可选** cid（不给 = 仓库级聚合，给 = 该渠道）——两条语义靠**是否带 operand** 区分。
 - **不采用 `mx <cid> <动词>`**：渠道名与动词共享位置 1 会二义（渠道动词 `model`
 既用于仓库级 `model list`/`model usage`，也用于 `mx model <cid>` 列某渠道模型），
 且与主流 CLI 心智相悖。
 - **生命周期与日志参数**：`mx start` 默认健康等待 30s（`--wait` 或 `MODELMUX_START_WAIT_MS`
- 可调）；`mx logs` 支持 `--kind access|error|system|lifecycle|worker|channel`、
+ 可调）；`mx log` 支持 `--kind access|error|system|lifecycle|worker|channel`、
  `--outcome success|failure|other`、`--date <YYYY-MM-DD>`、`--list`、`-f`（见
  [`LOGGING.md`](./LOGGING.md)）。
 

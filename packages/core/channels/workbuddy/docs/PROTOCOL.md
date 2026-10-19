@@ -45,8 +45,8 @@
 ## 2.1 网页登录（设备授权流程，CN realm）
 
 > 来源：`reference/HanawaBanana_workbuddy2api/cmd/login/main.go`（realmConfig 与
-> commonHeaders）。**base 与 Origin 曾错配**：base 写成 `www.codebuddy.ai`
-> （DNS 沉洞，实测连接直接终止）导致授权页打不开 —— 已修正。
+> commonHeaders）。CN 域是 `codebuddy.cn` / `copilot.tencent.com`；`www.codebuddy.ai`
+> 已 DNS 沉洞（实测连接直接终止），授权与资源都不许指向它。
 
 | 项 | 值 |
 | --- | --- |
@@ -61,7 +61,7 @@
 ## 3. 每日签到（`[参考]`，CN 与 global 同形）
 
 > 来源：`reference/HanawaBanana_workbuddy2api` 的 `internal/upstream/checkin_activity.go`
-> 与 `client.go`（实测 2026-09-28）。早期「国内版没有签到端点」的结论有误，已修正。
+> 与 `client.go`。国内版同样有签到端点（billing/meter 域，与 global 同形）。
 
 | 端点（billing/meter 域，billingBase + path） | 方法 | 说明 |
 | --- | --- | --- |

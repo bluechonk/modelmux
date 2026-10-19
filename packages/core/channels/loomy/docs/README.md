@@ -20,8 +20,7 @@ mx start                                # 守护式启动（幂等，仓库级�
 mx status / mx model list / mx bill loomy
 ```
 
-> **登录方式**：只有微信扫码一条路；未绑手机号时绑定环节需要 `LOOMY_PHONE` /
-> `LOOMY_SMS_CODE`（短信验证码登录作为独立方式**已移除**，见 PROTOCOL.md §2.3 说明）。
+> **登录方式**：微信扫码一条路；未绑手机号时绑定环节需要 `LOOMY_PHONE` / `LOOMY_SMS_CODE`。
 
 ## 状态 API
 
@@ -37,7 +36,7 @@ mx status / mx model list / mx bill loomy
 
 ## 接入
 
-**接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:8787/v1`（仓库级网关）、
+**接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:4412/v1`（仓库级网关）、
 API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `loomy/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
 ## 参考实现（reference/）

@@ -157,7 +157,7 @@ function re(encoded) {
 
 | 项 | 值 | 等级 |
 | --- | --- | --- |
-| Base | `https://ai.catpaw.meituan.com` | `[代码]`（旧实现在宿主中真实跑通的常量） |
+| Base | `https://ai.catpaw.meituan.com` | `[代码]`（宿主客户端真实使用的常量） |
 | 对话 | **三段式**：`POST /api/agent/conversation/round`（提交全部消息）→ `/event`（回报状态）→ `/turn`（SSE 直出） | `[实测]`（2026-10-08） |
 | 模型目录 | `POST /api/agent/maas/model-types` | `[代码]` |
 | 必需头 | `M-TRACEID`（32 位无横线 uuid）、`M-APPKEY=fe_com.sankuai.catpaw.external.front`、`gray-set=new-agent-sdk`、`X-Agent-Version=1.0.1`、`Cookie: X-Passport-Token=<token>`、`user-uid` | `[代码]` |

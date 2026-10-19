@@ -102,7 +102,7 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 **回调端口 18080**，被占用（EADDRINUSE/EACCES）时回退随机端口，登录 URL 用**实际**端口重算（:479-543）。
 
 **身份生成**：`machine_id` = 16 随机字节的 32 位 hex；`device_id` 同样 **32 位 hex**
-（早期误做成 16 位纯数字，与协议不符；trae.ts:1299-1321）。
+（协议要求 hex 形态，trae.ts:1299-1321）。
 
 ### 2.2 凭据字段（trae.ts:89-155）
 

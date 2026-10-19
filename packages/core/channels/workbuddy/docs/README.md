@@ -7,44 +7,37 @@ WorkBuddy **国内版**（腾讯 CodeBuddy，`codebuddy.ai`）的本地 OpenAI C
 > 两者的登录协议、上游约束、SSE 处理**完全一致**（代码有意重复，见下），差别只有域名、
 > 模型目录与凭证落点。
 
-## 为什么拆成两条渠道
+## 与国际版的关系
 
-早期只有一个 `workbuddyai` 渠道，用 `--realm intl|cn` 在同一渠道内切换国际/国内域。这带来三个问题：
+`workbuddy`（国内版，`codebuddy.ai`）与 `workbuddyai`（国际版，`workbuddy.ai`）是**两条独立渠道**：
+账号、凭证落点与模型池各自独立，域是渠道身份的一部分。`--realm` 参数在两条渠道上都被忽略
+（保留仅为兼容共享层 CLI 的签名）。
 
-1. **登录链路随参数漂移**：同一个 cid 下，`login --realm cn` 与 `--realm intl` 写同一份
-  `credentials.json`，凭证与域的关系只存在于「用户当时传了什么」里。
-2. **模型池混装**：两条产品线的模型目录被并进一个池子，`/v1/models` 里分不清来源。
-3. **口径不清**：账单/额度是**按域**查的，池子却只有一个。
-
-现在把**域当作渠道身份**：`workbuddy`（codebuddy.ai）与 `workbuddyai`（workbuddy.ai）
-各自独立，`--realm` 参数在两条渠道上都被忽略（保留仅为兼容共享层 CLI 的签名）。
-
-代价是 `cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似。
-**这是有意的**：两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把
-「一个改了两边都变」变成默认行为。
+`cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似，这是有意的：
+两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
+变成默认行为。
 
 ## 快速开始
 
 ```bash
 npm install && npm run build              # 工作区根：装依赖 + 编译全部包
 mx login workbuddy                            # 仓库级 CLI：登录
-mx status workbuddy（model / billing 同法）        # 状态 / 模型 / 账单
+mx status workbuddy（model / bill 同法）        # 状态 / 模型 / 账单
 node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归）
 ```
 
 日常使用走**仓库级网关**：`mx start` 后把任意 OpenAI 兼容客户端指到
-`http://127.0.0.1:8787/v1`（唯一端口，全部渠道从它后面供给池内模型）。
+`http://127.0.0.1:4412/v1`（唯一端口，全部渠道从它后面供给池内模型）。
 单渠道独立运行（`node channels/workbuddy/dist/cli.js serve`）仅在调试该渠道时用。
 
 ## 存储
 
 统一存储根 `~/.modelmux/` 下按 cid 分层，本渠道全部落在 `~/.modelmux/workbuddy/`：
-`credentials.json`（0600）、`upstream.json`、`prefs.json`、`gateway.pid`、`gateway.log`，
-外加 `cache/`、`state/`、`debug/`。
+`credentials.json`（0600）、`accounts.json` + `accounts/<key>.json`、`upstream.json`、
+`prefs.json`、`gateway.pid`，外加 `cache/`、`state/`、`debug/`。
 
-本渠道是拆分后**新建**的，没有历史目录：`~/.workbuddy-bridge/`、`WORKBUDDY_HOME`、
-`WORKBUDDY_DEBUG_DUMP` 这些「裸 workbuddy」旧名字属于国际版（`workbuddyai`），
-本渠道不读它们。详见 [`workbuddyai/docs/README.md`](../../workbuddyai/docs/README.md) 与
+本渠道只读写 `~/.modelmux/workbuddy/`；国际版的数据在 `~/.modelmux/workbuddyai/`，两者不共享。
+详见 [`workbuddyai/docs/README.md`](../../workbuddyai/docs/README.md) 与
 [`docs/STORAGE-CONVENTION.md`](../../../docs/STORAGE-CONVENTION.md)。
 
 ## 模型 id
@@ -78,10 +71,10 @@ node channels/workbuddy/dist/cli.js --help    # 单渠道 CLI（调试 / 回归�
 
 ## 测试
 
-渠道不写单元/集成测试（`AGENTS.md §7`）。
+渠道不写单元/集成测试（`AGENTS.md` 的「测试规则」第 1 条）。
 
 - **临时验证**：抓包核对端点、跑通修复等一次性验证，写临时脚本到项目根 `.tmp/`，用**真实账号、
-  真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md §8`）。
+  真实请求**跑；完事删除，不入库，不写 fixture；**禁止编写虚构请求头/凭据**（`AGENTS.md` 的「测试规则」第 2 条）。
 - **端到端**：由 **Agent 跑 `reasonix-mx-test` skill**，用 Reasonix CLI 直连
   `http://127.0.0.1:4412/v1`，发正确的 OpenAI 兼容请求。
 - 端到端覆盖：登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。

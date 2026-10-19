@@ -4,12 +4,11 @@
 **凭证/配置的字段内容不在此列** —— 各 `packages/core/channels/<cid>/` 自己决定（见 `CONTRACT-TS.md` §5）。
 
 适用范围：工作区内全部渠道包 + 共享包 `packages/core/gateway`（清单以 `mx model list` 为准）。
-历史布局兼容（`legacyDirs` / `fileMigrations` / 旧环境变量）已随 modelmux 更名整体移除：
-**只认下面这一种布局**，不做任何旧目录/旧名字迁移。
+**只认下面这一种布局**，不做旧目录/旧名字迁移。
 
 ---
 
-## 1. 目标布局（一句话）
+## 1. 布局（一句话）
 
 **工作区只有一个存储根 `~/.modelmux/`，各渠道按 `cid` 分一层子目录。**
 
@@ -45,17 +44,17 @@
 - **调试变量命名**：每渠道为 `<CID 大写、- 换 _>_DEBUG_DUMP`（如 `TRAECN_DEBUG_DUMP`），
   由 `scripts/verify-storage.mjs` 逐渠道强制校验。
 - **端口**：每渠道独占一组，登记在 `ChannelConfig.defaultAddr` / `uiPort`，不与他渠道重复
-  （仓库级网关不用它们，见 AGENTS.md §命令；单渠道独立运行才生效）。
+  （仓库级网关不用它们，见 `AGENTS.md` 的「命令与构建」；单渠道独立运行才生效）。
 - `*_DEBUG_DUMP` 是运行期抓包目录（opt-in，值须为绝对路径或 `1`），不构成固定落点。
 - 各包根目录的 `models.json` 是**只读的包内资源**（兜底模型表，随包分发），不是用户存储。
 
 ---
 
-## 3. 目标规范（条文）
+## 3. 规范（条文）
 
 1. **单一存储根**：`~/.modelmux/`，由共享层唯一解析，渠道不得自行拼绝对路径。
 2. **按 cid 分层**：`<root>/<cid>/`。`cid` 全小写、仅 `[a-z0-9-]`、等于 `ChannelConfig.cid`。
-3. **根目录覆盖变量**：`MODELMUX_HOME`（唯一；没有别的名字，也不读历史变量）。
+3. **根目录覆盖变量**：`MODELMUX_HOME`（唯一覆盖变量）。
 4. **目录内固定文件名**（唯一定义处：`packages/core/gateway/src/runtime/paths.ts`）：
 
   | 文件 | 用途 |
@@ -68,8 +67,7 @@
   | `gateway.pid` | 守护式网关 PID（记监督进程） |
   | `gateway-worker.pid` | 守护式网关 worker PID（监督进程维护） |
 
-  旧版 `gateway.log` 已于 2026-10-18 全部删除；运行日志统一在 `<root>/logs/`（见
-  [`LOGGING.md`](./LOGGING.md)）。
+  运行日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 
 5. **渠道特有文件必须落在自己的 cid 层内**：
   - `cache/` 可安全删除、可重建（缓存，丢了只是变慢/回落兜底表）

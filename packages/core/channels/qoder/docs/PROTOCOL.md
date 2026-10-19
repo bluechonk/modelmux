@@ -1,25 +1,13 @@
 # Qoder 协议规格（阿里系）
 
-> ** 修订（2026-10-09，渠道已实现）**：本文件 §7.1「WASM 签名无纯代码替代，只能 wasmtime +
-> 重写 glue」的结论**已过时**。社区至少三个独立项目用纯代码复刻出了同一套算法
-> （RSA-PKCS1v15 包裹会话密钥 + AES-128-CBC 加密身份体 + MD5 签名 + 自定义 Base64 请求体编码），
-> **完全不需要 WASM** —— 渠道已按这条路线实现（`channels/qoder/src/upstream.ts`）。
-> 其余需要修订的点：
->
-> | 项 | 本文件（旧） | 实际 |
-> | --- | --- | --- |
-> | 签名 | 只能靠 WASM | 纯 `node:crypto` 可复刻 |
-> | COSY 版本 | `1.1.49` | `1.1.64` |
-> | 请求体 | 未提编码 | 需经**自定义 Base64 变体**编码后才发 |
-> | 模型列表 | 「端点需 WASM 签名，不实现，恒用静态表」 | 可动态拉：`GET /algo/api/v2/model/list?Encode=1`，**GET 也要带 `qoder_encode("{}")` 作 body**（否则 403） |
-> | `chat_context.text` | 记作字符串 | 实际是**对象** `{type:"text",text}` |
-> | 旧签名 | 提到 `Appcode`/固定 SECRET | 那套已失效（无账号身份参与），现行是 COSY bearer |
->
-> 完整依据、参考项目清单（含许可证）与「照抄不改」清单见
-> 社区五个反代项目的分析结论（原 `docs/journals/qoder/findings.md`，已随任务结束归档到 git 历史）。下文保留作历史记录。
+签名采用**纯 `node:crypto` 复刻**（RSA-PKCS1v15 包裹会话密钥 + AES-128-CBC 加密身份体 +
+MD5 签名 + 自定义 Base64 请求体编码），完全不需要 WASM —— 实现见 `src/upstream.ts`。
+COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?Encode=1`，GET 也要带
+`qoder_encode("{}")` 作 body，否则 403）；`chat_context.text` 是**对象** `{type:"text",text}`；
+现行签名是 COSY bearer（`Appcode` + 固定 SECRET 那套已失效，不参与账号身份）。
 
-提取自 `dsh-our-free-model/vendor/channel-pack/src/` 的 TypeScript 实现（下称 `<SRC>`）。
-行号对应提取时的源码。
+依据：`dsh-our-free-model/vendor/channel-pack/src/` 的 TypeScript 实现（下称 `<SRC>`，
+下文行号对应提取时的源码）与社区五个反代项目的分析结论（参考清单见渠道 README）。
 
 **本项目覆盖双版本**：国际版 `qoder`（qoder.com）与中国版 `qodercn`（qoder.cn）。
 两站共用同一套实现，差异全部收敛在 product 配置里。
@@ -56,7 +44,7 @@
 | 用量/余额 | GET | `{openApiBase}/sash/api/v2/me/usage` | qoder-credits.ts:77 |
 | 活动列表（签到状态） | GET | `{openApiBase}/sash/api/v1/me/campaigns` | qoder-credits.ts:79 |
 | 领取 | POST | `{openApiBase}/sash/api/v1/me/campaigns/{campaignId}/claim`，body 为**空串** | qoder-credits.ts:610-617 |
-| 模型列表 | — | `/api/v2/model/list`（仅注释提及「需 WASM 签名」，**未实现**） | qoder-credits.ts:7 |
+| 模型列表 | GET | `{encryptedInferBase}/algo/api/v2/model/list?Encode=1`（COSY 签名；GET 也带 `qoder_encode("{}")` 作 body） | upstream.ts `MODELS_PATH` |
 
 ---
 
@@ -171,7 +159,7 @@ parameters = { max_tokens?, reasoning_effort?, enable_thinking?, context_length?
 business = { type: "agent" }   ← 必填
 ```
 
-### 3.2 特殊约束（都是实测踩坑记录）
+### 3.2 特殊约束
 
 | 约束 | 后果 | 来源 |
 |---|---|---|
@@ -180,8 +168,8 @@ business = { type: "agent" }   ← 必填
 | 顶层 `tools` 必须真发 | 不下发时模型只能用正文 XML 臆造工具调用；无工具时是**空数组**而非缺字段 | qoder-wasm.ts:216-227 |
 | 目录 key 只能走加密端点 | 把 `qfmodel` 发给公开端点 → `{"code":"invalid_model_error"}` | qoder-product.ts:311-343 |
 | `chat_context` 不能传空对象 | — | qoder-wasm.ts:238-241 |
-| `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 早期把 content 压成纯文本导致图片全部消失 | qoder-wasm.ts:123-136 |
-| assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 早期过滤会丢掉它们，多步工具调用彻底坏掉 | qoder-adapter.ts:313-364 |
+| `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 把 content 压成纯文本会让图片全部消失 | qoder-wasm.ts:123-136 |
+| assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 过滤会丢掉它们，多步工具调用会坏掉 | qoder-adapter.ts:313-364 |
 | 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | qoder-product.ts:280-287 |
 
 ### 3.3 加密端点实际请求头（WASM 生成，必须原样透传）
@@ -215,7 +203,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 - 剥完后就是**标准 OpenAI SSE**
 - 内层帧分类（:54-102）：
  - `chunk`：有 `choices` 数组（**`choices: []` 也算**）或 `usage`
- - `heartbeat`：`null`、空串、`{}`、裸标量 → **整帧跳过**（早期把 `body:null` 当业务错误，导致正常回完内容却报失败，issue IKJOZ8）
+ - `heartbeat`：`null`、空串、`{}`、裸标量 → **整帧跳过**（把 `body:null` 当业务错误会让正常回完内容却报失败，issue IKJOZ8）
  - `error`：显式带 `code` / `message` / `error` / `statusCodeValue` / `type` 之一 → 抛出，且**保真转发** `{code, message, type:'model_error'}`（`code` 必须独立字段，下游靠 `code==='10605'` 识别排队）
 - 非 `data:` 行（如 `event:finish`）原样保留；`[DONE]` 原样传递（:145-154, 204）
 
@@ -247,7 +235,8 @@ HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（qo
 
 ## 5. 模型目录
 
-**不发网络请求**：Qoder 的模型列表端点需 WASM 签名，本实现不实现，恒用静态兜底表（qoder-adapter.ts:514-552）。
+目录以**动态拉取**为准（`GET /algo/api/v2/model/list?Encode=1`，COSY 签名）；拉不到时
+回落到下面的静态兜底表（随包发布的 `<SRC>` 快照，必然随时间与上游脱节）。
 
 ### 5.1 国际版 17 条（qoder-product.ts:387-435）
 

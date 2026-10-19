@@ -19,8 +19,8 @@ packages/
 ├── cli/                      CLI 入口（bin modelmux / mx，注册全部渠道后交给共享 CLI）
 ├── ui/                       Web 管理看板（React 19 SPA，`mx web` 托管）
 └── core/                     服务端运行时
-    ├── gateway/              共享层（网关 / 守护 / 路径 / 渠道注册表，不含任何渠道知识）
-    └── channels/<cid>/       一个渠道 = 一个池子（只实现 cred / upstream / catalog / billing）
+    ├── gateway/              共享层（网关 / 守护 / 路径 / 渠道注册表）
+    └── channels/<cid>/       一个渠道 = 一个池子（模型目录 + 凭据 + 上游协议）
 docs/                         契约与规范（渠道文档在各包 packages/core/channels/<cid>/docs/）
 ```
 
@@ -28,14 +28,15 @@ docs/                         契约与规范（渠道文档在各包 packages/c
 
 ```bash
 npm install          # 装工作区依赖
-npm run build        # 全仓编译（tsc -b + cli 单文件 bundle）
-npm test             # build + 校验器 + 全部包的测试
+npm run build        # 全仓编译（tsc -b + cli 单文件 bundle + copy-ui）
+npm test             # build + 全部校验器 + 全部包的测试
 
 node packages/cli/dist/cli.js start              # 启动网关（守护式，端口 4412）
 node packages/cli/dist/cli.js status --json      # reachable / stale_build / 日志目录
 node packages/cli/dist/cli.js model list         # 池视图：对外模型（渠道/模型）与渠道健康度
 node packages/cli/dist/cli.js login <cid>        # 登录某个渠道（浏览器授权）
-node packages/cli/dist/cli.js logs --list        # 分层日志：access / error / system
+node packages/cli/dist/cli.js web                # 打开 Web 控制台（http://127.0.0.1:4412/web/）
+node packages/cli/dist/cli.js log --list         # 分层日志：access / error / system
 ```
 
 ### 全局安装 / npx
@@ -60,21 +61,15 @@ mx model list
 
 ## 文档
 
-契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)），**渠道文档跟包走**，在各包 `packages/core/channels/<cid>/docs/`：
+项目规则在 [AGENTS.md](AGENTS.md)；契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)），**渠道文档跟包走**，在各包 `packages/core/channels/<cid>/docs/`：
 
 | 想看什么 | 去哪 |
 | --- | --- |
-| 契约与规范（改代码前必读） | [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) |
+| 项目规则（开发 / 提交 / 测试） | [AGENTS.md](AGENTS.md) |
+| 契约与规范 | [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) |
 | 公共模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
 | 某个渠道怎么用 | `packages/core/channels/<cid>/docs/README.md`（如 [packages/core/channels/qodercn/docs/README.md](packages/core/channels/qodercn/docs/README.md)） |
 | 某个上游的协议细节 | `packages/core/channels/<cid>/docs/PROTOCOL.md` |
-
-## 约定
-
-- 文本文件一律 LF，`.gitattributes` 强制（见根 `.gitattributes`）。
-- 代码注释中文、简洁；日志输出英文。
-- 文档中文、不使用 emoji。
-- 提交前 `npm test` 必须全绿；改完代码要重启网关（否则测到的是旧进程）。
