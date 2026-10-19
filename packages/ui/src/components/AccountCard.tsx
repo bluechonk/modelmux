@@ -57,18 +57,26 @@ function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
   };
 }
 
-/** 健康度圆点颜色：ok 绿 / unauthorized、error 红 / 其他灰。 */
+/** 健康度圆点：正常=free / 不可用=danger / 其余=中性。 */
 function healthDot(health: string): string {
-  if (health === "ok") return "bg-green-400";
-  if (health === "unauthorized" || health === "error") return "bg-red-500";
-  return "bg-gray-600";
+  if (health === "ok") return "bg-free";
+  if (health === "unauthorized" || health === "error") return "bg-danger";
+  return "bg-ink-faint";
 }
 
+/** 健康度文案（空串 = 正常，不出徽标）。 */
 function healthText(health: string): string {
   if (health === "error") return "不可用";
   if (health === "unauthorized") return "需登录";
   if (health === "unknown") return "未知";
   return "";
+}
+
+/** 健康度徽标配色：错误=danger / 需登录=warn / 未知=中性。 */
+function healthBadgeClass(health: string): string {
+  if (health === "error") return "bg-danger/12 text-danger";
+  if (health === "unauthorized") return "bg-warn/12 text-warn";
+  return "bg-overlay text-ink-faint";
 }
 
 /** 手机号只露头尾；纯数字 id 标成 UID；其余展示名原样。 */
@@ -90,29 +98,39 @@ function expiryText(expiresAt: number | null): string {
   return `到期 ${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function quotaText(accountBilling: AccountBilling | undefined, unsupported: boolean): string {
-  if (unsupported) return "-";
-  if (accountBilling?.credits) {
-    const { remain, unit } = accountBilling.credits;
-    return `${remain} ${unit || ""}`.trim();
+/** 额度百分比：优先后端给的 remain_percent，缺失时按 remain/size 估算。 */
+function quotaPercent(credits: AccountCredits | null | undefined): number | null {
+  if (!credits) return null;
+  const pct = Number(credits.remain_percent);
+  if (Number.isFinite(pct) && pct >= 0) return Math.min(100, pct);
+  const size = Number(credits.size);
+  const remain = Number(credits.remain);
+  if (Number.isFinite(size) && size > 0 && Number.isFinite(remain)) {
+    return Math.max(0, Math.min(100, (remain / size) * 100));
   }
-  // 额度未拿到（未加载 / 查询失败 / 无账本条）统一以 - 表示
-  return "-";
+  return null;
 }
 
-function quotaClass(accountBilling: AccountBilling | undefined): string {
-  const credits = accountBilling?.credits;
-  if (!credits) return "text-gray-500";
-  if (credits.remain <= 0) return "text-red-400";
-  if (credits.remain_percent > 0 && credits.remain_percent < 10) return "text-amber-300";
-  return "text-emerald-300";
+/** 额度语义：耗尽=danger / 紧张=warn / 正常=free / 无数据=中性。 */
+function quotaTone(credits: AccountCredits | null | undefined): "danger" | "warn" | "free" | "muted" {
+  if (!credits) return "muted";
+  if (Number(credits.remain) <= 0) return "danger";
+  const pct = quotaPercent(credits);
+  if (pct !== null && pct > 0 && pct < 10) return "warn";
+  return "free";
+}
+
+/** 额度文案：剩余值 + 单位；无额度概念或未加载时统一用 -。 */
+function quotaText(credits: AccountCredits | null | undefined, unsupported: boolean): string {
+  if (unsupported || !credits) return "-";
+  return `${credits.remain} ${credits.unit || ""}`.trim();
 }
 
 /**
  * 单渠道账号池卡片。
  *
- * 信息层级按「用户一眼要看什么」排：渠道只显示小写 cid；账号行以可读昵称/用户名为主，
- * 右侧是**该账号**的剩余额度；key 哈希、凭证字段、渠道展示名一律不展示。
+ * 信息层级按「用户一眼要看什么」排：卡头是 cid + 渠道展示名 + 登录状态点；
+ * 账号行以可读昵称/用户名为主，右侧是**该账号**的剩余额度；key 哈希、凭证字段一律不展示。
  */
 export function AccountCard({
   pool,
@@ -137,76 +155,84 @@ export function AccountCard({
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
   const channelDown = present && activeAccount !== undefined && activeAccount.health !== "ok";
-  const dotClass = !present ? "bg-gray-600" : channelDown ? "bg-red-500" : "bg-green-400";
+  // 登录状态点：已登录=绿 / 当前账号异常=红 / 未登录=中性灰
+  const dotClass = !present ? "bg-ink-faint" : channelDown ? "bg-danger" : "bg-free";
   const dotTitle = !present ? "未登录" : channelDown ? "当前账号不可用" : "已登录";
+  const dotText = !present ? "未登录" : channelDown ? "账号不可用" : "已登录";
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 transition-colors hover:border-gray-700">
-      {/* 卡头：cid + 登录状态 + 账号数 + 添加按钮 */}
-      <div className="flex items-center gap-2 border-b border-gray-800/70 bg-gray-950/40 px-4 py-2.5">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} title={dotTitle} />
-        <span className="font-mono text-sm font-semibold text-gray-100">{pool.cid}</span>
-        <span className="text-xs text-gray-500">
-          {accounts.length > 0 ? `${accounts.length} 个账号` : "空池"}
-        </span>
+    <div className="panel flex flex-col overflow-hidden transition-colors hover:border-line-strong">
+      {/* 卡头：状态点 + cid 徽标 + 展示名 + 账号数 + 添加按钮 */}
+      <div className="flex items-start gap-2.5 border-b border-line bg-canvas/40 px-4 py-3">
+        <span
+          className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotClass} ${
+            present && !channelDown ? "live-dot" : ""
+          }`}
+          title={dotTitle}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="pill shrink-0 bg-brand/12 font-mono text-brand">{pool.cid}</span>
+            {pool.display && (
+              <span className="min-w-0 truncate text-sm font-semibold text-ink">{pool.display}</span>
+            )}
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
+            <span className={channelDown ? "text-danger" : "text-ink-faint"}>{dotText}</span>
+            <span className="text-ink-faint/50">·</span>
+            <span>{accounts.length > 0 ? `${accounts.length} 个账号` : "空池"}</span>
+          </div>
+        </div>
         <button
           type="button"
           aria-label={`为 ${pool.cid} 添加账号`}
           title="添加账号（走授权流程，成功后自动入池）"
-          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-sky-500/10 hover:text-sky-300 disabled:opacity-50"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line text-ink-faint transition-colors hover:border-line-strong hover:bg-overlay hover:text-brand disabled:opacity-50"
           disabled={busyKey !== null}
           onClick={() => onAdd(pool.cid)}
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
 
       {accounts.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-gray-600">
-          点右上角 + 添加账号
+        <div className="px-4 py-8 text-center">
+          <div className="text-xs text-ink-faint">还没有账号</div>
+          <div className="mt-1 text-[11px] text-ink-faint/70">点右上角 + 添加账号</div>
         </div>
       ) : (
-        <ul className="divide-y divide-gray-800/60">
+        <ul className="divide-y divide-line">
           {accounts.map((account) => {
             const active = account.key === pool.index.active;
             const bill = billingByKey.get(account.key);
             const health = healthText(account.health);
             const expiry = expiryText(account.expires_at);
+            const failStreak = Number(account.fail_streak ?? 0);
             return (
               <li
                 key={account.key}
-                className={`group relative px-4 py-2.5 transition-colors hover:bg-gray-800/30 ${
-                  active ? "bg-sky-500/[0.06]" : ""
+                className={`group relative px-4 py-3 transition-colors hover:bg-overlay/40 ${
+                  active ? "bg-brand/[0.04]" : ""
                 }`}
               >
                 {/* 生效账号：左侧高亮条 */}
-                {active && (
-                  <span className="absolute inset-y-0 left-0 w-0.5 bg-sky-400" aria-hidden />
-                )}
+                {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
                 <div className="flex items-center gap-2">
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
                     title={health || "正常"}
                   />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-100">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
                     {displayName(account)}
                   </span>
-                  {/* 生效账号的高亮由左侧色条与背景区分，无需"当前"文字标记 */}
+                  {active && <span className="pill shrink-0 bg-brand/12 text-brand">生效中</span>}
                   {health && (
-                    <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
-                      {health}
-                    </span>
+                    <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
                   )}
-                  <span className={`shrink-0 font-mono text-sm tabular-nums ${quotaClass(bill)}`}>
-                    {quotaText(bill, billing?.unsupported === true)}
-                  </span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2 pl-3.5 text-[11px] text-gray-500">
-                  <span className="min-w-0 truncate">{expiry}</span>
-                  <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {!active && (
                       <button
-                        className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-sky-300 disabled:opacity-40"
+                        className="rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
                         disabled={busyKey !== null}
                         onClick={() => onActivate(pool.cid, account.key)}
                         title="切换为生效账号"
@@ -216,7 +242,7 @@ export function AccountCard({
                       </button>
                     )}
                     <button
-                      className="rounded p-1 text-gray-500 transition-colors hover:bg-red-950/60 hover:text-red-300 disabled:opacity-40"
+                      className="rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
                       disabled={busyKey !== null}
                       onClick={() => onRemove(pool.cid, account.key)}
                       title={active ? "删除生效账号 = 同时登出" : "从池中删除"}
@@ -226,12 +252,70 @@ export function AccountCard({
                     </button>
                   </span>
                 </div>
+                <div className="mt-1.5 flex items-center gap-2 pl-3.5">
+                  <span className="min-w-0 truncate text-[11px] text-ink-faint">{expiry}</span>
+                  {failStreak > 0 && (
+                    <span className="shrink-0 text-[11px] text-warn">连续失败 {failStreak} 次</span>
+                  )}
+                  <div className="ml-auto shrink-0">
+                    <QuotaMeter
+                      credits={bill?.credits}
+                      unsupported={billing?.unsupported === true}
+                    />
+                  </div>
+                </div>
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
 
+/** 额度计量条：细进度条 + 剩余值 + 百分比。 */
+function QuotaMeter({
+  credits,
+  unsupported,
+}: {
+  credits: AccountCredits | null | undefined;
+  unsupported: boolean;
+}): ReactElement {
+  const pct = quotaPercent(credits);
+  const tone = quotaTone(credits);
+  if (unsupported || !credits) {
+    return (
+      <span
+        className="font-mono text-[11px] tabular-nums text-ink-faint"
+        title={unsupported ? "该渠道无额度概念" : "额度未加载"}
+      >
+        {quotaText(credits, unsupported)}
+      </span>
+    );
+  }
+  const barClass =
+    tone === "danger" ? "bg-danger" : tone === "warn" ? "bg-warn" : tone === "free" ? "bg-free" : "bg-ink-faint";
+  const textClass =
+    tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : tone === "free" ? "text-free" : "text-ink-soft";
+  return (
+    <div
+      className="flex items-center gap-2"
+      title={pct === null ? undefined : `剩余 ${Math.round(pct)}%`}
+    >
+      <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-canvas">
+        <span
+          className={`block h-full rounded-full ${barClass}`}
+          style={{ width: `${pct ?? 0}%` }}
+        />
+      </span>
+      <span className={`shrink-0 font-mono text-[11px] tabular-nums ${textClass}`}>
+        {quotaText(credits, unsupported)}
+      </span>
+      {pct !== null && (
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">
+          {Math.round(pct)}%
+        </span>
+      )}
     </div>
   );
 }

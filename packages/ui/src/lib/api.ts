@@ -136,8 +136,8 @@ async function command(
   action: string,
   cid: string | undefined,
   args: Record<string, unknown> = {},
-): Promise<Record<string, unknown>> {
-  if (IS_DEMO) return await demoCommand(action, cid, args);
+): Promise<CommandData> {
+  if (IS_DEMO) return (await demoCommand(action, cid, args)) as CommandData;
   const body: Record<string, unknown> = { action, args };
   if (cid !== undefined) body["cid"] = cid;
   const envelope = (await post("/api/commands", body)) as {

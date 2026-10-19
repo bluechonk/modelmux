@@ -1,19 +1,128 @@
 @import "tailwindcss";
 
-/* 全局基础：铺满视口，供 Layout 的 flex 布局使用 */
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
+/**
+ * 设计令牌（Tailwind v4 的 `@theme`）。
+ *
+ * 命名分四组：**表面**（三个深度层）、**描边**、**文字**、**语义色**。
+ * 组件一律用这里的令牌类（如 `bg-raised` / `border-line` / `text-ink-soft`），
+ * 不再直接写 `gray-900` 这类中性灰 —— 换主题时只改这一处。
+ */
+@theme {
+  /* 表面：页面底 → 侧栏 → 卡片 → 悬浮层（越靠上层越亮） */
+  --color-canvas: #060911;
+  --color-surface: #090f1a;
+  --color-raised: #0d1422;
+  --color-overlay: #131c2e;
+
+  /* 描边：常规 / 强调（hover、激活） */
+  --color-line: #1a2334;
+  --color-line-strong: #27334a;
+
+  /* 文字：主 / 次 / 弱 */
+  --color-ink: #e7edf8;
+  --color-ink-soft: #97a5bd;
+  --color-ink-faint: #5d6b83;
+
+  /* 语义色 */
+  --color-brand: #38bdf8;
+  --color-brand-deep: #0284c7;
+  --color-free: #34d399;
+  --color-warn: #fbbf24;
+  --color-danger: #fb7185;
 }
 
-/* 深色主题（唯一主题，不做浅色）：配色底座走 Tailwind 灰阶变量 */
-html {
-  color-scheme: dark;
+@layer base {
+  /* 全局基础：铺满视口，供 Layout 的 flex 布局使用 */
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  /* 深色主题（唯一主题，不做浅色） */
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+      "Noto Sans SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 数字用等宽数位：统计值跳动时不抖 */
+  .font-mono,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 滚动条：细、低对比，不抢视线 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e2839;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2c3a52;
+    background-clip: content-box;
+  }
+
+  /* 键盘可达性：统一的聚焦环（鼠标点击不显示） */
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-brand) 70%, transparent);
+    outline-offset: 2px;
+  }
 }
 
-body {
-  background-color: var(--color-gray-950);
-  color: var(--color-gray-100);
+@layer components {
+  /* 卡片：唯一的容器形态（面板 / 统计块 / 渠道块共用） */
+  .panel {
+    @apply rounded-2xl border border-line bg-raised;
+  }
+
+  /* 面板标题：图标 + 文字 */
+  .panel-title {
+    @apply flex items-center gap-2 text-sm font-semibold text-ink;
+  }
+
+  /* 徽标：渠道 id / 状态 / 计数 */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium;
+  }
+}
+
+/* 状态灯：运行中时缓慢呼吸（纯装饰，尊重 reduced-motion） */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-free) 55%, transparent);
+  }
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+.live-dot {
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
 }
