@@ -1,7 +1,7 @@
 # Web 控制台（mx web）
 
 `mx web` 把 React 管理看板挂在网关的**唯一端口**上（`http://127.0.0.1:4412/web/`，
-控制台 API 在 `/web/api/*`），不再有独立进程与独立端口。
+控制台 API 在 `/web/api/*`），没有独立进程与独立端口。
 
 ## 页面结构（双页深色）
 
@@ -44,7 +44,7 @@
 **为什么不能放 `public/`**：console handler 只托管两个静态位置 —— 前缀根 `/web/`（返回
 `index.html`）与 `/web/assets/*`；其余 GET 一律走 SPA 回退（`console.ts` 的
 `serveStatic(res, WEB_UI_INDEX)`）。放 `public/` 的 `/web/favicon.svg` 会被回退成 HTML
-而拿不到 SVG（**实测踩过**）。同理，图标不要声明成 `/web/favicon.svg` 这类前缀根路径。
+而拿不到 SVG。同理，图标不要声明成 `/web/favicon.svg` 这类前缀根路径。
 
 在 `index.html` 里显式声明 `<link rel="icon" type="image/svg+xml" href="/src/assets/favicon.svg">`
 还有第二个作用：浏览器不再去要默认的 `/favicon.ico` —— 那个路径在网关根下不存在，
@@ -59,7 +59,7 @@
   - `pasteCallback`：手工兜底通道，把用户粘回的回调链接喂给等待中的登录流程。
     raccoon 等授权码渠道现在优先走**本地 HTTP 回调自动完成**，不再需要粘贴。
 - `/api/commands` 返回值由前端 `lib/api.ts` 统一**解包 `data`** —— 页面不要再取一层
-  `.data`（双重解包曾导致 tab 崩溃，实测踩过）。
+  `.data`（双重解包会导致 tab 崩溃）。
 
 ## 账本维度
 

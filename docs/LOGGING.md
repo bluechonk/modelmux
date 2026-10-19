@@ -1,7 +1,7 @@
 # 运行日志规范（`~/.modelmux/logs`）
 
 本文件定义 modelmux 的日志落点、分文件规则、轮转与保留策略。目标是让每次请求
-都能按「结果 / 类型 / 日期」找到，而不是全堆在一个 `gateway.log` 里。
+都能按「结果 / 类型 / 日期」找到。
 
 ## 1. 目录布局
 
@@ -92,14 +92,7 @@ mx log --kind access --outcome failure -f    # 持续跟随
 
 `log` 不带 `--date` 时优先当天；当天没有则回落到最新有该文件的一天。
 
-## 5. 旧版 `gateway.log`（已删除）
-
-历史版本把所有内容写进 `<root>/gateway.log`（或渠道层的 `gateway.log`）。
-2026-10-18 起旧版根级 / 渠道级 `gateway.log` 与调试实例的 `gateway-4413.log`
-**已全部删除**，新日志只在 `~/.modelmux/logs/`。
-`mx logs` 代码里仍保留兼容回落分支，但当前没有任何旧文件可回落。
-
-## 6. 安全约束
+## 5. 安全约束
 
 - 日志不记录 token、Cookie、Authorization 原文。
 - `error.log` 只记录错误消息与请求元数据；上游响应体中的敏感片段不会落盘。

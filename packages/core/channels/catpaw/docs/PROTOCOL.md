@@ -1,11 +1,9 @@
 # CatPaw 凭据逆向：结论与索引
 
 本目录是妙手（CatPaw / catpaw-moon）桌面客户端凭据逆向的**结论层**：结论速览、方法论、
-证据等级约定。逐阶段的过程记录（原始输出与复现步骤）已完成使命、随旧实现清理，
-需要时从 git 历史取。
+证据等级约定。
 
-> **现行实现是 TypeScript**（`channels/catpaw/src/`，7 文件契约）；
-> 逆向过程记录里的脚本输出为 TS/Node 版。结论与证据等级不随实现语言变化。
+> **现行实现是 TypeScript**（`channels/catpaw/src/`，7 文件契约）。
 
 ## 阅读顺序
 
@@ -41,7 +39,7 @@
 | `[实测]` | 由本仓库研究脚本（`channels/catpaw/research/`）在真实机器上跑出来的输出 |
 | `[代码]` | 从磁盘上的实现（`app.asar` 内的 JS、随包 JS、DLL 元数据）直接读到的常量/逻辑 |
 | `[推断]` | 由 `[实测]` + `[代码]` 推导，但未直接验证（例如非 Windows 平台分支） |
-| `[参考]` | 来自第三方参考实现或历史代码（`reference/` 目录），**本机未验证** |
+| `[参考]` | 来自第三方参考实现（`reference/` 目录），**本机未验证** |
 
 ## 关键结论速览
 
@@ -69,10 +67,9 @@
 - 鉴权注意：额度走**网关层** `X-Auth-Token`，与对话直连服务的
   `X-Passport-Token` / Cookie 不是同一套头的语义；两者的 token 都源自
   网关 passport（见 `src/cred.ts` 的 poll-token）。
-- 上游没有「每日签到」端点；`mx checkin catpaw` 的领取对应注册奖励（幂等）。
-- 早期「网关不暴露额度端点」的结论**有误**，已在 `src/billing.ts` 修正。
+- 上游没有「每日签到」端点；`mx bill catpaw` 的额度查询对应积分余额端点。
 
-## 消息折叠与工具调用（2026-10-18，对齐参考实现）
+## 消息折叠与工具调用
 
 > 参考：`reference/HITZY2002_catpaw2api/internal/server/tools.go`、
 > `reference/icebears111_catpaw2api/internal/server/prompt.go` / `handler.go`。

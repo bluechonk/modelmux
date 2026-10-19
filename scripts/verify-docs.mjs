@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * 文档归属检查（规则见根 `AGENTS.md` §2）。
+ * 文档归属检查（规则见根 `AGENTS.md` 的「文档规则」）。
  *
- * **`.md` 只有四类落点**：
+ * **`.md` 只有五类落点**：
  *   1. `docs/`                        —— 契约与规范（仓库级唯一文档层）
  *   2. 仓库根 `README.md` / `AGENTS.md` —— 门面与规则文件（工具按固定路径读）
  *   3. `packages/core/channels/<cid>/docs/`         —— 渠道自己的文档（说明 + 协议规格，随包发布）
  *   4. `packages/core/channels/<cid>/AGENTS.md`     —— 目录级工具指令
+ *   5. `.agents/skills/<name>/` / `.zcode/skills/<name>/` —— 项目级技能整包
  *
  * 这个检查把「文档各归其位」从口头约定变成会失败的测试 —— 有 md 落在别处时
  * `npm test` 直接红，而不是等人发现。
@@ -27,8 +28,8 @@ const ALLOWED = [
   /^README\.md$/, // 仓库门面：GitHub 只渲染根 README，必须留在原处
   /^packages\/core\/channels\/[a-z0-9-]+\/docs\//, // 渠道自己的文档（随包走）
   /^packages\/core\/channels\/[a-z0-9-]+\/AGENTS\.md$/, // 目录级工具指令
-  /^\.agents\/skills\/[a-z0-9-]+\/SKILL\.md$/, // 项目级技能（ZCode 标准发现路径）
-  /^\.zcode\/skills\/[a-z0-9-]+\/SKILL\.md$/, // 项目级技能（高优先级覆盖位）
+  /^\.agents\/skills\/[a-z0-9-]+\//, // 项目级技能整包（SKILL.md + 引用 / 模板 / 脚本）
+  /^\.zcode\/skills\/[a-z0-9-]+\//, // 项目级技能整包（高优先级覆盖位）
 ];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".tmp", ".box-agent", ".box-agent-scratch", ".planning"]);
@@ -99,7 +100,7 @@ for (const rel of candidates) {
   if (ignored.has(rel)) continue; // 被忽略的第三方材料：不归本仓库文档规则管
   checked += 1;
   if (ALLOWED.some((re) => re.test(rel))) continue;
-  problems.push(`${rel} —— md 落点不合法（规则见 AGENTS.md §文档规则）`);
+  problems.push(`${rel} —— md 落点不合法（规则见 AGENTS.md 的「文档规则」）`);
 }
 
 // 每个渠道包都必须自带渠道说明（防止文档又被抽回仓库级 docs/，包单独发布时就没文档了）
@@ -109,7 +110,7 @@ if (existsSync(channelsDir)) {
     if (!entry.isDirectory()) continue;
     const doc = join(channelsDir, entry.name, "docs", "README.md");
     if (!existsSync(doc)) {
-      problems.push(`packages/core/channels/${entry.name}/docs/README.md —— 缺渠道说明（渠道文档跟包走，规则见 AGENTS.md §文档规则）`);
+      problems.push(`packages/core/channels/${entry.name}/docs/README.md —— 缺渠道说明（渠道文档跟包走，规则见 AGENTS.md 的「文档规则」）`);
     }
   }
 }

@@ -2,12 +2,12 @@
 
 OrcaTerm（腾讯云出品的 AI 运维终端）渠道。
 
-登录已实现（腾讯云 / 微信）。对话上游已接入 OpenAI 兼容路径，当前只支持**纯文本**；
+登录已实现（腾讯云）。对话上游已接入 OpenAI 兼容路径，当前只支持**纯文本**；
 `tools` / `tool_calls` 尚未转发，Agent 工具调用不可用。模型目录为内置表。
 
 | 能力 | 状态 |
 | --- | --- |
-| 登录（腾讯云 / 微信） | 已实现（`mx login orcaterm` 弹二选一菜单；GitHub 分支未实现，见 PROTOCOL §1.1） |
+| 登录（腾讯云） | 已实现（`mx login orcaterm`；GitHub 分支未实现，见 PROTOCOL §1.1） |
 | 凭据落盘 / 有效性探测 | 已实现 |
 | 对话上游（`/messages*`） | 已实现（文本；工具调用见「已知限制」） |
 | 模型目录 | 内置表（无远端刷新） |
@@ -25,7 +25,7 @@ OrcaTerm（腾讯云出品的 AI 运维终端）渠道。
 ## 用法
 
 ```bash
-mx login orcaterm          # 弹菜单：1 腾讯云账号 / 2 微信登录
+mx login orcaterm          # 腾讯云登录
 mx relogin orcaterm        # 清掉凭据重走登录
 mx status orcaterm         # 登录状态（能否 load 出凭据）
 node channels/orcaterm/dist/cli.js --help   # 单渠道 CLI（调试）

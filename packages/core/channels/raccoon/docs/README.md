@@ -39,7 +39,7 @@ mx status / mx model list / mx bill raccoon
 
 ## 接入
 
-**接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:8787/v1`（仓库级网关）、
+**接入**：任意 OpenAI 兼容客户端，baseUrl `http://127.0.0.1:4412/v1`（仓库级网关）、
 API key 任意非空、模型填 `<渠道>/<模型>` 池 id 形态（如 `raccoon/deepseek-v4.1-flash`，清单见 `GET /v1/models`）。
 
 ## 参考实现（reference/）

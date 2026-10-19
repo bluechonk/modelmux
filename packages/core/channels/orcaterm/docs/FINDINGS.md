@@ -39,7 +39,7 @@
 | 7 | 微信分支**可自建**：`/oauth/wechat/config` 每次返回新的 `appid`/`redirect_uri`/`scope`/`state` | A | curl 实测（HTTP 200 JSON） |
 | 8 | 腾讯云分支入口**可自建**：`/oauth/authorize?provider=txcloud&session_id=<任意>` → 302 到 `cloud.tencent.com/open/authorize`（`app_id=100045893348`），`state` 由服务端生成 | A | curl 实测 302 |
 | 9 | token 用 **`sessionId` 换取**：`POST /cgi/api {"action":"OAuthExchangeToken","data":{"sessionId":"<CLI 自己生成的那个>"}}` → `AccessToken`（HS256 JWT，2h） | A | `mx login orcaterm` 实测登录成功 |
-| 9b | 三条早期假设被证伪：回调不写 cookie；`return_url=http://127.0.0.1` 登录后不跳转；回调 URL 回放报 `STATE_EXPIRED`（一次性） | A | Chrome 历史 + curl 实测 |
+| 9b | 回调不写 cookie；`return_url=http://127.0.0.1` 登录后不跳转；回调 URL 回放报 `STATE_EXPIRED`（`code` 一次性）—— 三条路都不通，换 token 只走 `OAuthExchangeToken` | A | Chrome 历史 + curl 实测 |
 | 10 | 桌面 App 侧用深链 `orcaterm://oauth_callback?sessionId=…` 拿到 `sessionId` 再换取；**CLI 本就持有 sessionId，故无需深链** | A | App 日志 `[login-handleUrl]` + `[TokenManager]` |
 | 11 | 登录态 = `ot_session` cookie（HS256 JWT，2 小时有效） | A | `.cookies` + JWT 解码 |
 | 12 | KV 落 `oauth_access_token` / `oauth_expires_at` / `auth_identity`(+`_updated_at`)；Rust 另有 `oauth_refresh_token` | A | `data.bin` + 日志 `store_get` |

@@ -227,7 +227,7 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 
 **持久化只需存私钥 JWK**（含 `d`）；公钥由 `x`/`y` 重建。
 
-### 2.7 登录流程（旧式 ticket，回退路径）
+### 2.7 登录流程（ticket 回退路径）
 
 - `ticket_id = randomUUID()`；`secret = 32 随机字节的 hex`
 - `redirectUrl = https://devcloud.cn-north-4.huaweicloud.com/doer/redirect?IdeaType=jetbrains&auth_callback_url={enc http://127.0.0.1:{port}/authentication}&plugin-name=snap_jetbrains&plugin-version=26.3.3&ticket_id={ticketId}`

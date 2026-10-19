@@ -10,6 +10,7 @@
 ### 1.1 三种身份提供方与两条授权路线
 
 桌面端支持三种 OAuth 身份：`wechat`（微信扫码）、`txcloud`（腾讯云）、`github`。
+当前 CLI 只启用 `txcloud`；另外两种仅作为协议事实保留，不提供登录入口。
 统一入口形如 `https://orcaterm.com/oauth/authorize?provider=<...>&source=<desktop|web>`
 （`source=desktop` 为桌面端；不带 `session_id` 时该入口返回 400 `缺少 session_id 参数`
 —— `session_id` 由 App 后端建会话后下发）。
@@ -47,6 +48,8 @@ CSS cookie 落盘可见全值，§1.2/§1.4），CLI 实现读桥接 `Set-Cookie
 真机点验一次。缓存里另见 `POST /oauth/wechat/exchange` 路径，与桥接下发并存。
 
 ### 1.2 微信扫码分支（本次实测走的路径）
+
+> 当前 CLI 不提供微信登录入口；本节保留为上游协议事实与逆向证据。
 
 1. 桌面端打开微信扫码页（页面标题「微信登录」，即 `open.weixin.qq.com/connect/qrconnect`）。
    页面通过对 `https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=<uuid>` 的长轮询
@@ -101,7 +104,7 @@ GET https://orcaterm.com/oauth/authorize?provider=txcloud&source=desktop&session
    （与桌面 App 的 `TokenManager` 同一条路；App 是经深链 `orcaterm://oauth_callback?sessionId=…`
    拿到 `sessionId` 再换，CLI 则本就持有它。）
 
-**三条被实测推翻的早期假设**（留档，避免重复踩）：
+**三条不成立的路线**（实测过，勿再尝试）：
 
 | 假设 | 实测结果 |
 | --- | --- |

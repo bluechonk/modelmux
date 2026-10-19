@@ -28,7 +28,7 @@
 npm run build        # 编译到 dist/（tsc 严格模式）
 npm run typecheck    # 类型检查
 ```
-→ 渠道不写测试（`AGENTS.md §7`）：无 `tests/selftest.test.ts`，无 `scripts.test`。
+→ 渠道不写测试（`AGENTS.md` 的「测试规则」第 1 条）：无 `tests/selftest.test.ts`，无 `scripts.test`。
 
 全仓验证（在工作区根）：
 
