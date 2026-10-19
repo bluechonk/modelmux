@@ -9,8 +9,14 @@ function formatMultiplier(value: number): string {
   return String(Number(value.toFixed(4)));
 }
 
+/**
+ * 无倍率概念（订阅制）的渠道：这些渠道上游没有积分/倍率字段，
+ * `capabilities.billing=false`，统一显示「免费」而不是不标徽标。
+ */
+const FREE_PLAN_CHANNELS = new Set(["orcaterm"]);
+
 /** 折叠阈值：超过这个数量的模型默认收起，点「展开」看全部。 */
-const COLLAPSE_AT = 8;
+const COLLAPSE_AT = 5;
 
 /** 仪表盘页：全局状态快照（统计卡 + 端点 + 按渠道分组的模型墙）。 */
 export function Dashboard(): ReactElement {
@@ -162,15 +168,20 @@ function ChannelModels({
         {shown.map((id) => {
           const info = infoFor(id);
           const m = info?.multiplier;
-          const badge = m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : null;
+          // 订阅制渠道无倍率概念 → 统一标「免费」；其它渠道拿不到倍率则不标
+          const freePlan = FREE_PLAN_CHANNELS.has(cid);
+          const badge =
+            m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : freePlan ? "免费" : null;
+          // title 语义分开：倍率 0 = 零消耗；订阅制 = 无倍率概念
+          const badgeTitle = m != null ? (m === 0 ? "零消耗" : `消耗倍率 ×${formatMultiplier(m)}`) : "订阅制，无额外计费";
           return (
             <div key={id} className="flex items-center gap-1">
               <CopyChip value={`${cid}/${id}`} display={id} />
               {badge && (
                 <span
-                  title={m === 0 ? "零消耗" : `消耗倍率 ×${formatMultiplier(m)}`}
+                  title={badgeTitle}
                   className={`shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
-                    m === 0
+                    m === 0 || freePlan
                       ? "bg-emerald-500/15 text-emerald-400"
                       : "bg-amber-500/10 text-amber-300"
                   }`}
