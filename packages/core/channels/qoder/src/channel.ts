@@ -22,6 +22,13 @@ export const config: ChannelConfig = {
   debugDumpEnv: "QODER_DEBUG_DUMP",
 };
 
+// 模型元数据查询器：catalog（目录知识）→ upstream（请求体消费）。
+//
+// ⚠ **为什么在这里接线而不是互相 import**：`catalog.ts` 需要 `upstream.fetchModels()`
+// 拉目录，`upstream` 再 import `catalog` 就成环（ESM 环依赖下初始化顺序不可靠）。
+// 由装配处注入，两个模块保持单向依赖。
+upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
+
 export const channel: Channel = {
   config,
   cred,

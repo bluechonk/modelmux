@@ -18,6 +18,9 @@
  * ⚠ 快照会**过期**：随包那份只是某个时刻的截图，与国际版同样只有极少数条目。
  * 故远端目录必须落盘（见共享层 `runtime/catalog-cache.ts`），否则换个新进程
  * （`mx model`、`mx model list`）就又只剩快照。
+ *
+ * 非对话条目（`nes-` / `completion-` / `codewise-` 前缀）**一律不入目录**：
+ * 它们列出来也选不中（选中后上游回 `code=11102`）。
  */
 
 import { readFileSync, statSync } from "node:fs";
@@ -57,6 +60,25 @@ export interface ModelEntry {
 const FALLBACK_MODELS: readonly ModelEntry[] = [...new Set(Object.values(LEGACY_ALIASES))].map(
   (slug) => ({ id: slug, exposed: slug, name: slug, source: "fallback" as const }),
 );
+
+/**
+ * 非对话模型前缀（上游目录里的补全 / 图片生成等条目）。
+ *
+ * 这些条目**出现在目录里但选不中**：客户端选中后上游回 `code=11102`（该后端无此模型）。
+ * 参考 go `internal/upstream/client.go:1470-1473`（nonChatModel 规则过滤）`[参考]`。
+ */
+const NON_CHAT_MODEL_PREFIXES = ["nes-", "completion-", "codewise-"] as const;
+
+/**
+ * 该 id 是否是对话模型（非对话条目一律挡在目录外）。
+ *
+ * 目录出口的**唯一漏斗**：`parseRow` 走这里，远端 / 快照 / 兜底三条路都受管。
+ */
+export function isChatModelId(id: string): boolean {
+  const lower = id.trim().toLowerCase();
+  if (!lower) return false;
+  return !NON_CHAT_MODEL_PREFIXES.some((prefix) => lower.startsWith(prefix));
+}
 
 /** `models` 载荷中可用的对外名字段名（按优先级；都不给就用 slug）。 */
 const EXPOSED_FIELDS = ["alias", "short", "shortName", "exposed_id"] as const;
@@ -116,12 +138,16 @@ function parseCreditsRate(credits: string): { rate: string; multiplier: number }
  *
  * 只取列表与用量判断要用的字段；内部运行时画像（`base_instructions`、
  * `service_tiers` 等几十个键）不落盘 —— 缓存是给人看的，不是上游载荷的副本。
+ *
+ * 非对话条目（`nes-` / `completion-` / `codewise-` 前缀）在这里挡掉：它们
+ * 出现在目录里但选不中，选中后上游回 `code=11102`（见 `isChatModelId`）。
  */
 function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null {
   if (!row || typeof row !== "object") return null;
   const rec = row as Record<string, unknown>;
   const id = str(rec["slug"]) || str(rec["id"]);
   if (!id) return null;
+  if (!isChatModelId(id)) return null;
 
   let exposed = "";
   for (const field of EXPOSED_FIELDS) {

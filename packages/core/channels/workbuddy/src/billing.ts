@@ -50,7 +50,7 @@ export interface CreditsResult {
 
 function headers(c: cred.Credentials, baseUrl: string): Record<string, string> {
   const host = upstream.hostOf(baseUrl);
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/plain, */*",
     "X-Requested-With": "XMLHttpRequest",
@@ -62,9 +62,38 @@ function headers(c: cred.Credentials, baseUrl: string): Record<string, string> {
     "X-Domain": host,
     "X-CodeBuddy-Request": "1",
     "X-Request-ID": randomUUID(),
-    "X-No-Enterprise-Id": "1",
     "X-Product": "SaaS",
   };
+  // 企业账号的计费请求带企业身份（与 X-User-Id 成对；go
+  // internal/upstream/headers.go:422-425 同时发 X-Tenant-Id）。
+  if (c.enterpriseId && c.uid) {
+    headers["X-Enterprise-Id"] = c.enterpriseId;
+    headers["X-Tenant-Id"] = c.enterpriseId;
+  } else {
+    headers["X-No-Enterprise-Id"] = "1";
+  }
+  return headers;
+}
+
+/**
+ * 把上游计费错误归一化成一句人话。
+ *
+ * 用渠道层的错误分类器（`upstream.classifyUpstreamError`）判定处置类别，并把
+ * 上游给的**重置时刻**（优先读响应头）带进文案 —— 计费失败最需要知道的是
+ * 「什么时候能恢复」，而不是一个裸错误码。
+ */
+function describeBillingError(
+  status: number,
+  env: Record<string, unknown>,
+  headers: Headers,
+): string {
+  const body = JSON.stringify(env);
+  const info = upstream.classifyUpstreamError(status, body, headers);
+  const code = info.code !== null ? `code=${info.code}` : `http=${status}`;
+  const detail = info.message || String(env["msg"] ?? "");
+  const reset =
+    info.resetAtMs !== null ? `; retry after ${new Date(info.resetAtMs).toISOString()}` : "";
+  return `billing failed: ${code} kind=${info.kind} msg=${detail}${reset}`;
 }
 
 /** 宽容取数：先精确字段后粗略字段，都取不到返回 0。 */
@@ -124,7 +153,7 @@ async function fetchAccounts(c: cred.Credentials, baseUrl: string): Promise<Reco
     throw new CreditsError(`billing response is not valid JSON: ${String(err)}`);
   }
   if (env["code"] !== 0) {
-    throw new CreditsError(`billing returned code=${String(env["code"])} msg=${String(env["msg"] ?? "")}`);
+    throw new CreditsError(describeBillingError(resp.status, env, resp.headers));
   }
   // 信封：data.Response.Data.Accounts（三层，任一层缺失都按空处理）
   const data = env["data"];
@@ -277,7 +306,7 @@ export async function dailyCheckin(): Promise<CheckinResult> {
   if (/already|已签|repeat|duplicate/i.test(msg)) {
     return { checkedIn: true, already: true, message: msg || "今天已签到" };
   }
-  throw new CreditsError(`daily checkin failed: code=${String(code)} msg=${msg}`);
+  throw new CreditsError(describeBillingError(resp.status, env, resp.headers));
 }
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；契约要求**每个渠道都提供**）──────

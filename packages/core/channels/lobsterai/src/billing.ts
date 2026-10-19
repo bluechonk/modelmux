@@ -14,9 +14,12 @@
  *
  * ## 签到三步（缺一步都拿不到积分）
  *
- * 1. `GET /api/client-activities/slot?...` → 活动码 + `configRevision`
+ * 1. `GET /api/client-activities/slot?...` → 活动码 + `configRevision` + `slotState`
  * 2. `GET /api/client-activities/{code}/context?...` → `claimedToday` / `actions`
  * 3. `POST /api/client-activities/{code}/actions/check_in` → 积分
+ *
+ * `slotState` 与 `data.activity` **平级**；取值非 `available` = **当前没有活动**
+ * （不是失败）：签到跳过、余额查询不列可领取项。响应里没有该字段时按旧行为。
  *
  * ⚠️ `platform=win32` 是**伪装客户端形态**，即使跑在 macOS/Linux 上也照发，
  * 与运行环境无关，改了可能拿不到活动。
@@ -29,10 +32,36 @@ import { randomUUID } from "node:crypto";
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
-/** 余额端点（只读）。 */
-export const PROFILE_SUMMARY_PATH = "/api/user/profile-summary";
-/** 活动槽位端点。 */
+/**
+ * 余额端点（只读）—— 常量定义在 `upstream.ts`（端点常量集中一处），此处转出保持旧引用可用。
+ *
+ * `GET {base}/api/user/profile-summary`（无 query）。
+ */
+export const PROFILE_SUMMARY_PATH = upstream.PROFILE_SUMMARY_PATH;
+
+/**
+ * 活动槽位端点。
+ *
+ * `GET {base}/api/client-activities/slot?placement=…&clientVersion=…&containerApiVersion=…&platform=…`
+ * query 四个常量逐字不可改。
+ */
 export const ACTIVITY_SLOT_PATH = "/api/client-activities/slot";
+
+/**
+ * 活动上下文端点（模板）。
+ *
+ * `GET {base}/api/client-activities/{activityCode}/context?configRevision={rev}`
+ * —— `activityCode` 来自槽位响应，`configRevision` 同样来自槽位响应。
+ */
+export const ACTIVITY_CONTEXT_PATH = "/api/client-activities/{activityCode}/context";
+
+/**
+ * 签到动作端点（模板）。
+ *
+ * `POST {base}/api/client-activities/{activityCode}/actions/check_in`
+ * body：`{configRevision, idempotencyKey(uuid4), payload:{}}`。
+ */
+export const CHECKIN_ACTION_PATH = "/api/client-activities/{activityCode}/actions/check_in";
 
 /** 三个固定 query 常量（逐字不可改）。 */
 export const SLOT_PLACEMENT = "desktop_sidebar";
@@ -172,14 +201,18 @@ function dataOf(env: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * 解析活动槽位：拿活动码与 `configRevision`。
+ * 解析活动槽位：拿活动码、`configRevision` 与槽位状态。
  *
  * `clientVersion` 是**必填** query 参数（缺失时活动可能不返回）。
+ *
+ * `slotState` 是 `data` 的字段（与 `data.activity` **平级**），取值 `available` 表示
+ * 有活动；非 `available` = **当前没有活动**（不是失败）。响应里没有该字段时按旧行为：
+ * 取不到 `activityCode` 即报错。
  */
 export async function activitySlot(
   credential: upstream.AuthLike,
   clientVersion: string,
-): Promise<{ activityCode: string; configRevision: string }> {
+): Promise<{ activityCode: string; configRevision: string; slotState: string }> {
   const query = new URLSearchParams({
     placement: SLOT_PLACEMENT,
     clientVersion,
@@ -192,9 +225,14 @@ export async function activitySlot(
     data["activity"] && typeof data["activity"] === "object"
       ? (data["activity"] as Record<string, unknown>)
       : {};
+  const slotState = str(data["slotState"]);
   const activityCode = str(activity["activityCode"]);
+  // 明确「没有活动」：不算失败，交由调用方按「今天没活动」处理。
+  if (slotState && slotState !== "available") {
+    return { activityCode: "", configRevision: "", slotState };
+  }
   if (!activityCode) throw new CreditsError("activity slot has no activityCode");
-  return { activityCode, configRevision: str(activity["configRevision"]) };
+  return { activityCode, configRevision: str(activity["configRevision"]), slotState };
 }
 
 /** 活动上下文：今天是否已签、有哪些动作可用。 */
@@ -204,8 +242,9 @@ export async function activityContext(
   configRevision: string,
 ): Promise<{ claimedToday: boolean; actions: string[] }> {
   const query = new URLSearchParams({ configRevision });
+  const path = ACTIVITY_CONTEXT_PATH.replace("{activityCode}", encodeURIComponent(activityCode));
   const env = await getJson(
-    `/api/client-activities/${encodeURIComponent(activityCode)}/context?${query.toString()}`,
+    `${path}?${query.toString()}`,
     credential,
   );
   const data = dataOf(env);
@@ -315,16 +354,22 @@ export async function fetchCredits(
   try {
     const version = await upstream.resolveClientVersion();
     const slot = await activitySlot(c, version);
-    const context = await activityContext(c, slot.activityCode, slot.configRevision);
-    result.claimable = [
-      {
-        campaign_id: slot.activityCode,
-        title: slot.activityCode,
-        claimable: !context.claimedToday && context.actions.includes("check_in"),
-        claimed_today: context.claimedToday,
-        config_revision: slot.configRevision,
-      },
-    ];
+    if (!slot.activityCode) {
+      // 槽位明确「当前没有活动」：不是可领取项，也不是失败。
+      result.claimable = [];
+    } else {
+      const context = await activityContext(c, slot.activityCode, slot.configRevision);
+      result.claimable = [
+        {
+          campaign_id: slot.activityCode,
+          title: slot.activityCode,
+          claimable: !context.claimedToday && context.actions.includes("check_in"),
+          claimed_today: context.claimedToday,
+          config_revision: slot.configRevision,
+          slot_state: slot.slotState,
+        },
+      ];
+    }
   } catch {
     /* 省略 claimable 字段 */
   }
@@ -342,6 +387,16 @@ export async function claimCheckin(): Promise<ClaimResult> {
   const c = cred.load();
   const version = await upstream.resolveClientVersion();
   const slot = await activitySlot(c, version);
+  if (!slot.activityCode) {
+    // 槽位明确「当前没有活动」：跳过，不算失败。
+    return {
+      ok: false,
+      already: false,
+      credits: 0,
+      code: "no-activity",
+      message: `当前没有可领取的签到活动（slotState=${slot.slotState}）`,
+    };
+  }
   const context = await activityContext(c, slot.activityCode, slot.configRevision);
 
   if (context.claimedToday) {
@@ -358,8 +413,8 @@ export async function claimCheckin(): Promise<ClaimResult> {
   }
 
   const url =
-    `${base().replace(/\/+$/, "")}/api/client-activities/` +
-    `${encodeURIComponent(slot.activityCode)}/actions/check_in`;
+    `${base().replace(/\/+$/, "")}` +
+    CHECKIN_ACTION_PATH.replace("{activityCode}", encodeURIComponent(slot.activityCode));
   let resp: Response;
   try {
     resp = await fetch(url, {
@@ -424,6 +479,15 @@ export const signin: SigninModule = {
     const c = cred.load();
     const version = await upstream.resolveClientVersion();
     const slot = await activitySlot(c, version);
+    if (!slot.activityCode) {
+      // 槽位明确「当前没有活动」：不是「已签」，也不是失败。
+      return {
+        claimable: false,
+        summary: `当前没有可签到的活动（slotState=${slot.slotState}）`,
+        claimedToday: false,
+        daily: true,
+      };
+    }
     const context = await activityContext(c, slot.activityCode, slot.configRevision);
     const canCheckin = context.actions.includes("check_in");
     return {

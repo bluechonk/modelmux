@@ -1,13 +1,26 @@
 /**
- * Qoder 额度与签到（只读 + 一个写动作，均直连上游，不经本地网关）。
+ * Qoder 国内版额度与签到（只读 + 一个写动作，均直连上游，不经本地网关）。
  *
  * ## 为什么用另一套头
  *
  * `/sash/**`（余额、活动）走的是**桌面客户端身份**，不是推理那套 COSY 签名：
- * `Authorization: Bearer <access_token>` + `Cosy-ClientType: 10` + 一对机器头。
+ * `Authorization: Bearer <access_token>` + `Cosy-ClientType: 10` + `Cosy-Version`。
  * ⚠ `Cosy-ClientType` 的 10（桌面）与推理信封里的 `client_type=5`（CLI）**不可混用** ——
  * 用 5 去查活动，服务端返回**空列表**（不是报错，所以更容易误判成"没有活动"）。
- * 机器头缺一个也不行：必须 `Cosy-MachineToken` 与 `Cosy-MachineType` **成对**出现。
+ *
+ * ## 国内版**不发**机器指纹头（与国际版不同，勿照搬）
+ *
+ * 服务端按设备指纹过滤活动：自造的派生指纹会被判成「非官方客户端」，把
+ * `CLAIMABLE` 的「每日领取 100 Credits」**整条过滤**（列表里直接不显示，
+ * 且**不是报错**）。两个参考实现结论一致：
+ * - `reference/Zhengyuuuui_qoder2api/checkin.go:75-88`（国内版单变量对照实验）：
+ *   发自造 `cosy-machinetoken` → `no_campaign`；完全不发 → 正常下发。
+ * - `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:1736-1747`（issue #10）：
+ *   全套派生 `cosy-machine*` 六头会被整条过滤，派生分支一律不发；
+ *   `:1779-1780` 注明「CN 侧不发头是正确行为」。[参考]
+ *
+ * ⚠ 反过来，**缺** `cosy-version` 同样会静默返回**空活动列表**（不报错）——
+ * `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:1733-1735`、`README.md:285`。[参考]
  *
  * ## 余额不只在 userQuota
  *
@@ -54,6 +67,19 @@ export interface CreditsResult {
 const USAGE_PATH = "/sash/api/v2/me/usage";
 const CAMPAIGNS_PATH = "/sash/api/v1/me/campaigns";
 
+/**
+ * `/sash/**` 请求里的 `Cosy-Version`（桌面客户端身份标识）。
+ *
+ * 取国内版官方客户端自身的版本号（`QoderWork/1.1.64`，见 `cred.PRODUCTS.cn.userAgent`），
+ * 与本渠道推理侧的 COSY 协议版本同源。
+ * ⚠ 参考实现给的是另一套号：hub 用桌面 App 版 `0.4.3`
+ * （`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:112`），
+ * zheng 用 `0.4.4`（`reference/Zhengyuuuui_qoder2api/checkin.go:99`）——
+ * 该头的**存在性**是硬要求（缺失 → 空活动列表），**具体数值**未见真机结论，
+ * 属待验证项（见 `docs/channels/qodercn/PROTOCOL.md`「已知边界」）。[推断]
+ */
+const SASH_CLIENT_VERSION = "1.1.64";
+
 /** 活动每日刷新时刻（UTC+8 的 10:00）。 */
 const CAMPAIGN_REFRESH_HOUR_UTC8 = 10;
 
@@ -70,14 +96,18 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-/** `/sash/**` 的请求头：桌面身份 + 成对机器头。 */
+/**
+ * `/sash/**` 的请求头：桌面身份 + 版本头。
+ *
+ * ⚠ **刻意不发 `cosy-machine*` 机器指纹头**（国内版策略，理由见文件头）。
+ * 自造指纹会被服务端判成非官方客户端，把可领取的活动整条过滤掉。
+ */
 function sashHeaders(credential: cred.Credentials): Record<string, string> {
   return {
     Accept: "application/json",
     Authorization: `Bearer ${credential.accessToken}`,
     "Cosy-ClientType": "10", // 桌面 App 身份（用 5 会拿到空活动列表）
-    "Cosy-MachineToken": cred.machineTokenOf(credential.uid),
-    "Cosy-MachineType": cred.machineTypeOf(credential.uid),
+    "Cosy-Version": SASH_CLIENT_VERSION, // 缺这个 → 静默返回空活动列表
     "User-Agent": cred.productOf(credential.realm).userAgent,
   };
 }
@@ -220,21 +250,108 @@ async function listClaimable(credential: cred.Credentials): Promise<Array<Record
   });
 }
 
-/** 领取一个活动（幂等：重复领取上游返回 `replayed: true`）。 */
+/**
+ * 领取结果的业务分类。
+ *
+ * ⚠ **不能只看 HTTP 状态**：服务端对「领不到」大多回 **HTTP 200 + 业务码**，
+ * 按「人」去重、任务未完成、名额发完、风控拦截都**不是**错误响应。
+ * 语义对齐 `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2153-2223`。[参考]
+ */
+export type ClaimResult =
+  /** 领到了（`replayed` = 重复领取，上游幂等不重复发放）。 */
+  | { kind: "claimed"; amount: number; replayed: boolean }
+  /** 服务端按「人」去重：同一台机器/身份下的其他账号本轮已领。 */
+  | { kind: "blocked"; reason: string }
+  /** 活动侧条件不满足（名额发完 / 任务未完成 / 活动未开始 / 风控）。 */
+  | { kind: "unavailable"; reason: string }
+  /** 真失败（HTTP 错误或无法识别的响应）。 */
+  | { kind: "failed"; reason: string };
+
+/**
+ * 业务失败码 → 用户可见文案。
+ *
+ * 对齐官方活动页（`growth-page/activity-iframe`）口径与参考实现
+ * `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:788-794`。[参考]
+ */
+const CLAIM_FAILURE_TEXT: Readonly<Record<string, string>> = {
+  SAME_PERSON_ALREADY_CLAIMED: "同人已领取（服务端按「人」去重：同一台机器/身份下的其他账号本轮已领）",
+  REDEMPTION_CODE_OUT_OF_STOCK: "今日名额已发完（每日 10:00 刷新，次日再来）",
+  ACHIEVEMENT_NOT_COMPLETED: "需先完成新人任务（成就未完成）",
+  CAMPAIGN_NOT_ACTIVE: "活动已结束或尚未开始",
+  RISK_BLOCKED: "风控拦截（当前设备/账号不可领取）",
+  RISK_DEPENDENCY_UNAVAILABLE: "风控服务不可用，稍后重试",
+};
+
+/** 领取成功时的上游状态值。 */
+const CLAIM_OK_STATUS = new Set(["CLAIMED", "GRANTED", "SUCCESS"]);
+
+/** 把上游响应判成 `ClaimResult`。 */
+function classifyClaim(payload: Record<string, unknown>): ClaimResult {
+  const status = str(payload["status"]).toUpperCase();
+  const failure = str(payload["failureCode"]).toUpperCase();
+  const replayed = payload["replayed"] === true;
+  const amount = num(
+    (payload["benefit"] as Record<string, unknown> | undefined)?.["amount"] ??
+      payload["amount"],
+  );
+
+  // 同人已领：服务端按「人」去重，本账号本轮领不到（**不是**本账号已领过）。
+  if (failure === "SAME_PERSON_ALREADY_CLAIMED" || status === "BLOCKED") {
+    return {
+      kind: "blocked",
+      reason: CLAIM_FAILURE_TEXT["SAME_PERSON_ALREADY_CLAIMED"] ?? "同人已领取",
+    };
+  }
+  // 其它已知业务码：活动侧条件不满足，按「暂时领不到」如实回报，不算失败。
+  if (failure && CLAIM_FAILURE_TEXT[failure]) {
+    return { kind: "unavailable", reason: CLAIM_FAILURE_TEXT[failure]! };
+  }
+  // 领到了：上游回 `status` ∈ {CLAIMED, GRANTED, SUCCESS}。
+  // ⚠ **不把「字段全空」当成功** —— 宁可报「无法识别」，也不谎报「领取成功」。
+  if (CLAIM_OK_STATUS.has(status) || (status === "" && payload["success"] === true)) {
+    return { kind: "claimed", amount, replayed };
+  }
+  if (payload["success"] === false) {
+    const message = str(payload["error"]) || str(payload["message"]) || "上游未说明原因";
+    return { kind: "failed", reason: message };
+  }
+  return { kind: "failed", reason: `无法识别的领取响应（status=${status || "空"}）` };
+}
+
+/**
+ * 领取一个活动。
+ *
+ * ⚠ body 必须是**空串**（不是 `{}`）—— 官方如此，实测参考实现
+ * （`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2166`）。
+ * ⚠ 重复领取上游回 HTTP 200 + `replayed: true`（**不重复发放**），
+ * 并发重复领取可能回 HTTP 409 + `errorCode: ALREADY_CLAIMED` —— 同样按「已领」处理
+ * （`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2178-2180`）。
+ */
 async function claimCampaign(
   credential: cred.Credentials,
   campaignId: string,
-): Promise<Record<string, unknown>> {
+): Promise<ClaimResult> {
   const base = cred.productOf(credential.realm).openapi;
   const resp = await fetch(`${base}${CAMPAIGNS_PATH}/${encodeURIComponent(campaignId)}/claim`, {
     method: "POST",
-    // ⚠ body 必须是**空串**（不是 `{}`）—— 官方如此，实测参考实现
     body: "",
     headers: { ...sashHeaders(credential), "Content-Type": "application/json" },
     signal: AbortSignal.timeout(20_000),
   });
-  if (!resp.ok) throw new CreditsError(`Claim failed: HTTP ${resp.status}`);
-  return (await resp.json()) as Record<string, unknown>;
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = (await resp.json()) as Record<string, unknown>;
+  } catch {
+    payload = {};
+  }
+  if (!resp.ok) {
+    const code = str(payload["errorCode"]).toUpperCase();
+    if (resp.status === 409 || code === "ALREADY_CLAIMED" || code === "REPLAYED") {
+      return { kind: "claimed", amount: 0, replayed: true };
+    }
+    return { kind: "failed", reason: `领取失败：HTTP ${resp.status}` };
+  }
+  return classifyClaim(payload);
 }
 
 /**
@@ -317,19 +434,48 @@ export const signin: SigninModule = {
     }
     const summaries: string[] = [];
     let claimed = 0;
+    let blocked = 0;
+    let unavailable = 0;
+    let failed = 0;
     for (const campaign of claimable) {
       const id = str(campaign["campaignId"]);
       if (!id) continue;
       const result = await claimCampaign(credential, id);
-      const amount = num((result["benefit"] as Record<string, unknown> | undefined)?.["amount"]);
-      const replayed = result["replayed"] === true;
-      if (!replayed) claimed += 1;
-      summaries.push(`${amount > 0 ? `+${amount} Credits` : "已领取"}${replayed ? "（重复领取，未重复发放）" : ""}`);
+      switch (result.kind) {
+        case "claimed": {
+          if (!result.replayed) claimed += 1;
+          const amount = result.amount;
+          summaries.push(
+            `${amount > 0 ? `+${amount} Credits` : "已领取"}${result.replayed ? "（重复领取，未重复发放）" : ""}`,
+          );
+          break;
+        }
+        case "blocked":
+          blocked += 1;
+          summaries.push(result.reason);
+          break;
+        case "unavailable":
+          unavailable += 1;
+          summaries.push(result.reason);
+          break;
+        case "failed":
+          failed += 1;
+          summaries.push(result.reason);
+          break;
+      }
     }
+    // ⚠ 汇报口径：**领到了几个**与**为什么没领到**分开说。
+    // 「同人已领」不是本账号已领过（服务端按「人」去重），不能报成「今天已领」。
+    const parts: string[] = [];
+    if (claimed > 0) parts.push(`领取成功 ${claimed} 项`);
+    if (blocked > 0) parts.push(`同人已领 ${blocked} 项`);
+    if (unavailable > 0) parts.push(`暂不可领 ${unavailable} 项`);
+    if (failed > 0) parts.push(`失败 ${failed} 项`);
+    const headline = claimed > 0 ? `领取成功 ${claimed} 项` : parts.join("，") || "没有新的可领奖励";
     return {
-      ok: true,
-      summary: claimed > 0 ? `领取成功：${summaries.join("；")}` : `没有新的可领奖励：${summaries.join("；")}`,
-      detail: { claimed },
+      ok: failed === 0,
+      summary: summaries.length > 0 ? `${headline}：${summaries.join("；")}` : headline,
+      detail: { claimed, blocked, unavailable, failed },
     };
   },
 };

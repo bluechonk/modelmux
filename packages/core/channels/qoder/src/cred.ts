@@ -105,8 +105,16 @@ export const CHANNEL_REALM: Realm = "intl";
 /** 默认区域 = 本渠道的区域（`DEFAULT_REALM` 这个名字是给调用方读的）。 */
 export const DEFAULT_REALM: Realm = CHANNEL_REALM;
 
-/** 契约要求：渠道的默认基址。 */
-export const DEFAULT_BASE_URL = PRODUCTS[DEFAULT_REALM].openapi;
+/**
+ * openapi 业务基址（登录轮询 / 续期 / userinfo / 额度 / 活动）。
+ *
+ * ⚠ 与 `upstream.ts` 的 `DEFAULT_BASE_URL`（**gateway** 推理主机）不是一回事 ——
+ * 契约要求两个模块都导出 `DEFAULT_BASE_URL`，故另起语义名避免误用。
+ */
+export const OPENAPI_BASE = PRODUCTS[DEFAULT_REALM].openapi;
+
+/** 契约要求的别名（语义 = openapi 业务基址）。 */
+export const DEFAULT_BASE_URL = OPENAPI_BASE;
 
 /** 默认身份类型（实测值，服务端按它区分试用/正式）。 */
 export const DEFAULT_USER_TYPE = "personal_professional_trial";

@@ -95,10 +95,44 @@ const FALLBACK: ModelEntry[] = [
     id: "glm-5.3-flash",
     displayName: "GLM-5.3-Flash",
     isReasoning: true,
-    isVl: false,
+    isVl: true,
     maxInputTokens: 1_000_000,
   },
 ];
+
+/**
+ * 上游 key → 模型元数据的**静态兜底表**（请求体的 `model_config` 用）。
+ *
+ * 取自本机动态目录快照（2026-10-19 拉取的
+ * `~/.modelmux/qoder/cache/models.json`），字段集与参考实现的官方目录快照
+ * （解密自官方客户端 `catalog-v6`）同构 `[参考]`。
+ *
+ * ⚠ **只作兜底**：快照会随上游演进而脱节 —— 动态目录
+ * （`GET /algo/api/v2/model/list?Encode=1`，即官方「此刻」的目录）里有就以动态为准。
+ * ⚠ `max_input_tokens` 与目录的 `context_config` 档位表**经常矛盾**（官方客户端
+ * 只认档位表）；这里取 `max_input_tokens` 是因为上游请求体用它
+ * （参考实现 `qoder2api-hub/qoder_proxy.py:3925`）。
+ */
+const STATIC_META: Record<string, upstream.ModelMeta> = {
+  auto: { displayName: "Auto", isVl: true, isReasoning: false, maxInputTokens: 200_000 },
+  ultimate: { displayName: "Ultimate", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
+  performance: { displayName: "Performance", isVl: true, isReasoning: false, maxInputTokens: 1_000_000 },
+  efficient: { displayName: "Efficient", isVl: true, isReasoning: false, maxInputTokens: 200_000 },
+  smodel: { displayName: "Sonus", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
+  cmodel: { displayName: "Cantus", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
+  qmodel_38max: { displayName: "Qwen3.8-Max", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
+  qfmodel: { displayName: "Qwen3.8-Flash", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
+  qmodel_latest: { displayName: "Qwen3.7-Max", isVl: true, isReasoning: false, maxInputTokens: 1_000_000 },
+  qmodel: { displayName: "Qwen3.7-Plus", isVl: true, isReasoning: false, maxInputTokens: 1_000_000 },
+  kmodel_latest: { displayName: "Kimi-K3", isVl: true, isReasoning: false, maxInputTokens: 180_000 },
+  // 快照里 `kmodel` 的 max_input_tokens 为空 → 参考实现回落 180000
+  kmodel: { displayName: "Kimi-K2.8-Preview", isVl: true, isReasoning: false, maxInputTokens: 180_000 },
+  gmodel: { displayName: "GLM-5.3", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
+  gfmodel: { displayName: "GLM-5.3-Flash", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
+  dmodel: { displayName: "DeepSeek-V4-Pro", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
+  dfmodel: { displayName: "DeepSeek-Flash", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
+  mmodel: { displayName: "MiniMax-M3.1-Flash", isVl: true, isReasoning: false, maxInputTokens: 180_000 },
+};
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -173,6 +207,29 @@ export function exposedIds(): string[] {
 export function entryOf(name: string): ModelEntry | null {
   const wanted = name.toLowerCase();
   return loadCatalog().find((entry) => entry.id.toLowerCase() === wanted) ?? null;
+}
+
+/**
+ * 按**上游 key** 取模型元数据（请求体的 `model_config` 用）。
+ *
+ * ⚠ 与 `entryOf()` 的区别：`entryOf()` 按**对外 id** 查（池内视图），
+ * 这里按**上游 key** 查 —— `upstream.buildChatBody` 只拿到 key。
+ *
+ * 优先级：动态目录（磁盘缓存，来自上游 `model/list`）→ 静态兜底表（官方目录快照）。
+ */
+export function metaOfKey(key: string): upstream.ModelMeta | undefined {
+  const wanted = key.trim().toLowerCase();
+  if (!wanted) return undefined;
+  for (const entry of loadCatalog()) {
+    if (entry.key.toLowerCase() !== wanted) continue;
+    return {
+      displayName: entry.displayName,
+      isVl: entry.isVl,
+      isReasoning: entry.isReasoning,
+      maxInputTokens: entry.maxInputTokens,
+    };
+  }
+  return STATIC_META[wanted];
 }
 
 /**

@@ -96,6 +96,29 @@ export function modelSpec(
 }
 
 /**
+ * modelType 数值兜底表（上游目录不可用时用）。
+ *
+ * ⚠ 数值来源：参考实现 `reference/icebears111_catpaw2api/internal/upstream/const.go:83-90`
+ *   （`[参考]`；逆向自 app.asar 的 modelType 编号，与目录返回的 `catPawModelType` 同一套编号）。
+ *
+ * 用途：turn / round 的 body 要的是**数字** modelType（不是模型名）。上游目录拉不到时
+ * （未登录 / 上游不可达）只剩兜底目录，若兜底目录的 modelType 只能填占位值，
+ * 请求会被上游拒 —— 有了这张表就能按模型名解析出真值。
+ *
+ * `0` = auto（由上游自行选型），是「表里没有该模型」时的合法回落。
+ */
+const MODEL_TYPE_FALLBACK: Readonly<Record<string, number>> = {
+  "auto": 0,
+  "longcat-2.0": 77,
+  "deepseek-v4-flash": 63,
+  "deepseek-v4-pro": 64,
+  "glm-5.2": 75,
+  "glm-5.3-flash": 91,
+  "minimax-m3": 70,
+  "kimi-k3": 83,
+};
+
+/**
  * 兜底表：上游模型目录不可用时仍可暴露的模型。
  *
  * ⚠ **内容取自一次真实的上游 `/model-types` 返回**（2026-10-08 实测，见
@@ -104,12 +127,15 @@ export function modelSpec(
  * ⚠ 曾被写成占位名 `catpaw-flash` —— 那个 id 上游**根本不存在**，
  * 这条兜底项在旧的「家族 + flash」白名单下会被过滤，全模型池下正常出现在池视图中。
  * 兜底表要能真的兜住，就得用真实 id。
+ *
+ * ⚠ `modelType` 取自 `MODEL_TYPE_FALLBACK`（表里没有的模型回落 0 = auto）；
+ * 早先这里一律写占位值 `1`，会让目录不可用时的 turn 请求被上游拒。
  */
 const FALLBACK_MODELS: CatalogEntry[] = [
   {
     id: "glm-5.3-flashx",
     name: "GLM-5.3-FlashX",
-    modelType: 1,
+    modelType: MODEL_TYPE_FALLBACK["glm-5.3-flashx"] ?? 0,
     reasoning: true,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxOutput: 131_072,
@@ -121,7 +147,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
   {
     id: "glm-5.3-flash",
     name: "GLM-5.3-Flash",
-    modelType: 1,
+    modelType: MODEL_TYPE_FALLBACK["glm-5.3-flash"] ?? 0,
     reasoning: true,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxOutput: 131_072,
@@ -133,7 +159,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
   {
     id: "deepseek-v4-flash",
     name: "DeepSeek-V4-Flash",
-    modelType: 1,
+    modelType: MODEL_TYPE_FALLBACK["deepseek-v4-flash"] ?? 0,
     reasoning: true,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxOutput: 393_216,
@@ -308,10 +334,23 @@ export function contextWindowOf(id: string): number {
   return DEFAULT_CONTEXT_WINDOW;
 }
 
+/**
+ * 模型 id → turn / round body 必需的**数字** modelType。
+ *
+ * 解析顺序：上游目录条目 → `MODEL_TYPE_FALLBACK` 数值表 → 抛错。
+ *
+ * ⚠ 目录取不到时若没有那张表，兜底目录里的 modelType 只能是占位值，
+ * 请求会被上游拒 —— 即「未登录 / 目录未拉取时全部模型不可用」。
+ *
+ * 注：目录条目的 modelType 恒 > 0（上游返回 0 的条目在 `toModelInfo` 就被丢弃）；
+ * 兜底目录里表未覆盖的模型取 0（= auto，由上游自行选型）。
+ */
 export function modelTypeOf(id: string): number {
   for (const entry of loadCatalog()) {
     if (entry.id === id) return entry.modelType;
   }
+  const fallback = MODEL_TYPE_FALLBACK[id.toLowerCase()];
+  if (fallback !== undefined) return fallback;
   throw new Error(`unknown model id: ${id}`);
 }
 

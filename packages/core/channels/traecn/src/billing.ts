@@ -11,6 +11,16 @@
  * - `9074`（签到人数过多）是**设备级限流**：轮换签到设备代次并报错。
  * - `expire_time` 是**秒**级 Unix（×1000 才是毫秒）。
  *
+ * ## 额度口径（重要）
+ *
+ * `ide_user_ent_usage` 返回的是**权益包列表**，含 work 专属包；
+ * 「权益包剩余」**不等于**「SOLO 通道可对话的余额」。故：
+ *
+ * - `total` 统计的是**通用（SOLO）维度**的包（`entitlement_base_info.available_endpoint === 0`）；
+ *   上游没下发该字段时回落统计全部包（不猜）。
+ * - 若对话流观测到过 `notify_usage`（见 `upstream.readUsageSnapshot()`），
+ *   `total.remain` 用它的 `ide_credits` —— 那是**上游自己算的余额**，权威。
+ *
  * ⚠ 「查不到」不能显示成 0：失败一律抛 `CreditsError`。
  * ⚠ 未登录抛 `cred.NotLoggedInError`。
  */
@@ -20,8 +30,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
+/** 签到状态：POST `{ugHost}/trae/api/v2/ug/checkin_credits/status`（body `{}`）。 */
 export const CHECKIN_STATUS_PATH = "/trae/api/v2/ug/checkin_credits/status";
+/** 签到领取：POST `{ugHost}/trae/api/v2/ug/checkin_credits/claim`（body `{}`，响应不含积分数）。 */
 export const CHECKIN_CLAIM_PATH = "/trae/api/v2/ug/checkin_credits/claim";
+/** 权益包额度：POST `{ugHost}/trae/api/v2/pay/ide_user_ent_usage`（body `{require_usage, req_source}`）。 */
 export const USAGE_PATH = "/trae/api/v2/pay/ide_user_ent_usage";
 
 const HTTP_TIMEOUT_MS = 30_000;
@@ -48,6 +61,11 @@ export interface CreditPackage {
 export interface CreditsResult {
   ok: true;
   account: { uid: string };
+  /**
+   * **对话可用**额度（通用 / SOLO 维度）。
+   *
+   * ⚠ 与 `packages` 的全量明细口径不同：`total` 只算 SOLO 通道消耗的那一维。
+   */
   total: {
     remain: number;
     size: number;
@@ -58,6 +76,12 @@ export interface CreditsResult {
   packages: CreditPackage[];
   /** 可领活动：每日签到（未签到时出现）。 */
   claimable?: Array<Record<string, unknown>>;
+  /** 对话流实测的通道余额（`notify_usage`）；没有观测记录时缺省。 */
+  channel_credits?: {
+    ide_credits: number;
+    work_credits: number;
+    observed_at: string;
+  };
 }
 
 export interface CheckinState {
@@ -235,6 +259,29 @@ function daysLeft(expireSeconds: number | null): number | null {
 }
 
 /**
+ * 参与 `total` 统计的包集合：**通用（SOLO）维度**。
+ *
+ * 权益包带 `entitlement_base_info.available_endpoint`：
+ * `0` = 通用 IDE 额度（本渠道对话消耗的就是它），`1` = work 专属额度。
+ * `ide_user_ent_usage` 聚合的是**全部**包，不分维度就会把 work 额度
+ * 当成可对话余额（对话报 4008 时余额却显示富余）。
+ *
+ * - 上游**没下发**该字段 → 返回全部包（不猜，保持旧口径）。
+ * - 下发了但**没有 0 维包** → 返回空数组（该账号没有通用 IDE 权益；
+ *   此时是否有余额由对话流观测值决定）。
+ */
+function countablePacks(packs: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const dim = (pack: Record<string, unknown>): number | null => {
+    const info = isRecord(pack["entitlement_base_info"]) ? pack["entitlement_base_info"] : {};
+    const value = info["available_endpoint"];
+    return typeof value === "number" ? value : null;
+  };
+  const dims = packs.map(dim);
+  if (!dims.some((d) => d !== null)) return packs;
+  return packs.filter((_, i) => dims[i] === 0);
+}
+
+/**
  * 查询额度：usage（权益包）+ status（可领签到）。
  *
  * @param options.refreshOn401 401 时先走一次续期（ExchangeToken）再重试。
@@ -272,9 +319,6 @@ export async function fetchCredits(
     const size = num(quota, "credits_limit") ?? 0;
     const used = num(usage, "credits_amount") ?? 0;
     const remain = Math.max(size - used, 0);
-    totalRemain += remain;
-    totalSize += size;
-    totalUsed += used;
     const expireSeconds = num(pack, "expire_time") ?? num(info, "expire_time");
     packages.push({
       name: str(info, "display_desc") || str(info, "name") || "TRAE 额度",
@@ -286,6 +330,31 @@ export async function fetchCredits(
       // ⚠ expire_time 是秒级 Unix（×1000 才是毫秒）
       days_left: daysLeft(expireSeconds),
     });
+  }
+  // 对话流实测余额（notify_usage）是上游自己算的数，权威 → 覆盖推导值。
+  // ⚠ 余额按账号归属：快照 uid 与当前账号不符（换过号）就不采信。
+  const snapshot = upstream.readUsageSnapshot();
+  const usable = snapshot && snapshot.uid === c.uid ? snapshot : null;
+
+  // total 只算「对话能消耗的那一维」；明细仍是全量包（work 包也列出来）。
+  let counted = countablePacks(packs);
+  if (counted.length === 0 && !usable) {
+    // 该账号没有通用维度包、又没有对话流观测值 → 回落旧口径（全部包），别显示 0/0
+    counted = packs;
+  }
+  for (const pack of counted) {
+    const info = isRecord(pack["entitlement_base_info"]) ? pack["entitlement_base_info"] : {};
+    const quota = isRecord(info["quota"]) ? info["quota"] : {};
+    const usage = isRecord(pack["usage"]) ? pack["usage"] : {};
+    const size = num(quota, "credits_limit") ?? 0;
+    const used = num(usage, "credits_amount") ?? 0;
+    totalRemain += Math.max(size - used, 0);
+    totalSize += size;
+    totalUsed += used;
+  }
+
+  if (usable) {
+    totalRemain = usable.ide_credits;
   }
 
   const result: CreditsResult = {
@@ -300,6 +369,13 @@ export async function fetchCredits(
     },
     packages,
   };
+  if (usable) {
+    result.channel_credits = {
+      ide_credits: usable.ide_credits,
+      work_credits: usable.work_credits,
+      observed_at: usable.observed_at,
+    };
+  }
 
   // 可领活动 = 未签到的每日签到（status 失败不影响额度结论）
   try {

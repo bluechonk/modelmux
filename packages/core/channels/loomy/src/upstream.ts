@@ -1,7 +1,7 @@
 /**
  * Loomy（讯飞）上游：端点、**两套认证头**、业务码判据与请求体改写。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/loomy/PROTOCOL.md）
+ * ## 本模块承载的渠道知识（见 docs/channels/loomy/PROTOCOL.md）
  *
  * 1. **两套认证头**：`/models` 与 `/points/*`、`/onboarding/*` **只认 `token` 头**；
  *    `/chat/completions` **只认 `Authorization: Bearer`**（chat 端点**两个都发**，
@@ -15,8 +15,13 @@
  *    服务端对未知字段静默忽略）。校验不过时**静默不下发**（退回服务端默认档）。
  * 4. 档位表来自远端 `GET /models`；为**避免 upstream ↔ catalog 循环依赖**，由
  *    `catalog` 在构建目录时把档位注册进本模块的注册表（`setModelEfforts`）。
+ * 5. **端点路径集中在常量表**（`CHAT_PATH` 等）：完整 URL = 业务基址 + 端点路径，
+ *    query / body 的来源写在各常量注释里（PROTOCOL §1）。
+ * 6. `traceparent` / `loomy-version` 是 `[参考]` 标注的**对话必需头**（缺失会挂死到超时）；
+ *    本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核**（PROTOCOL §2.2.1）。
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { chmod, rename, writeFile } from "node:fs/promises";
 
@@ -35,6 +40,71 @@ export const API_PREFIX = "/api/v1";
 export const OK_CODE = "000000";
 export const AUTH_ERROR_CODE = "100002";
 export const BAD_REQUEST_CODE = "100001";
+
+// ── 端点常量表（完整 URL = 业务基址 + 端点路径）──────────────────────────────
+
+/**
+ * 对话端点。
+ * - 方法 / 完整 URL：POST `https://loomyad.xunfei.cn/api/v1/chat/completions`
+ * - 端点路径：`/api/v1/chat/completions`
+ * - query：**无**（`model` / `messages` / `stream` 全在 body；`stream` 恒 true，见 `buildChatBody`）
+ */
+export const CHAT_PATH = `${API_PREFIX}/chat/completions`;
+
+/**
+ * 模型目录端点。
+ * - 方法 / 完整 URL：GET `https://loomyad.xunfei.cn/api/v1/models`
+ * - 端点路径：`/api/v1/models`
+ * - query：**无**
+ */
+export const MODELS_PATH = `${API_PREFIX}/models`;
+
+/**
+ * 积分明细端点（**只读**，最便宜的探测端点）。
+ * - 方法 / 完整 URL：GET `https://loomyad.xunfei.cn/api/v1/points/records?pageNo=1&pageSize=1&recordType=all`
+ * - 端点路径：`/api/v1/points/records`
+ * - query 来源：`POINTS_RECORDS_QUERY`
+ */
+export const POINTS_RECORDS_PATH = `${API_PREFIX}/points/records`;
+
+/**
+ * 每日额度初始化端点（**写**，幂等）。
+ * - 方法 / 完整 URL：POST `https://loomyad.xunfei.cn/api/v1/points/first-login`
+ * - 端点路径：`/api/v1/points/first-login`
+ * - body：**固定 `{}`，无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现），
+ *   本渠道未启用（PROTOCOL §1.1）
+ */
+export const FIRST_LOGIN_PATH = `${API_PREFIX}/points/first-login`;
+
+/**
+ * 新手任务列表端点。
+ * - 方法 / 完整 URL：GET `https://loomyad.xunfei.cn/api/v1/onboarding/tasks`
+ * - 端点路径：`/api/v1/onboarding/tasks`
+ * - query：**无**
+ */
+export const ONBOARDING_TASKS_PATH = `${API_PREFIX}/onboarding/tasks`;
+
+/**
+ * 完成单个新手任务端点。
+ * - 方法 / 完整 URL：POST `https://loomyad.xunfei.cn/api/v1/onboarding/tasks/complete`
+ * - 端点路径：`/api/v1/onboarding/tasks/complete`
+ * - body：`{key}`（**只有 key**；服务端不校验前置行为）
+ */
+export const ONBOARDING_COMPLETE_PATH = `${API_PREFIX}/onboarding/tasks/complete`;
+
+/**
+ * 积分明细分页参数。
+ *
+ * - `pageNo` / `pageSize` **必须 camelCase**：上游只认 camelCase，
+ *   传 snake_case 会被静默忽略并回落默认页大小（`[参考]`）。
+ * - `recordType` 与参考实现用的 `record_type` 命名不一致 → **待真机确认**。
+ *   （本端点只取余额字段，参数名不匹配通常只是被忽略，不影响探测语义。）
+ */
+export const POINTS_RECORDS_QUERY: Record<string, string | number> = {
+  pageNo: 1,
+  pageSize: 1,
+  recordType: "all",
+};
 
 const HTTP_TIMEOUT_MS = 60_000;
 /** 目录端点超时（PROTOCOL §5.1）。 */
@@ -99,34 +169,41 @@ function base(cfg?: Config): string {
   return trimSlash((cfg ?? loadConfig()[0]).baseUrl);
 }
 
+/** 拼 query（按声明顺序，**不排序**；值做 URL 编码）。 */
+function queryString(params: Record<string, string | number>): string {
+  return Object.entries(params)
+    .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
+    .join("&");
+}
+
 /** 对话端点。 */
 export function chatUrl(cfg?: Config): string {
-  return `${base(cfg)}${API_PREFIX}/chat/completions`;
+  return `${base(cfg)}${CHAT_PATH}`;
 }
 
 /** 模型列表端点。 */
 export function modelsUrl(cfg?: Config): string {
-  return `${base(cfg)}${API_PREFIX}/models`;
+  return `${base(cfg)}${MODELS_PATH}`;
 }
 
 /** 积分明细（**只读**，最便宜的探测端点）。 */
 export function pointsRecordsUrl(cfg?: Config): string {
-  return `${base(cfg)}${API_PREFIX}/points/records?pageNo=1&pageSize=1&recordType=all`;
+  return `${base(cfg)}${POINTS_RECORDS_PATH}?${queryString(POINTS_RECORDS_QUERY)}`;
 }
 
 /** 每日额度初始化（**写**端点，幂等）。 */
 export function firstLoginUrl(cfg?: Config): string {
-  return `${base(cfg)}${API_PREFIX}/points/first-login`;
+  return `${base(cfg)}${FIRST_LOGIN_PATH}`;
 }
 
 /** 新手任务列表。 */
 export function tasksUrl(cfg?: Config): string {
-  return `${base(cfg)}${API_PREFIX}/onboarding/tasks`;
+  return `${base(cfg)}${ONBOARDING_TASKS_PATH}`;
 }
 
 /** 完成单个新手任务。 */
 export function taskCompleteUrl(cfg?: Config): string {
-  return `${base(cfg)}${API_PREFIX}/onboarding/tasks/complete`;
+  return `${base(cfg)}${ONBOARDING_COMPLETE_PATH}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,9 +219,32 @@ function str(value: unknown): string {
 /**
  * 业务端点头：**只发 `token`**（`/models`、`/points/*`、`/onboarding/*`）。
  * 多发 `Authorization` 不会被采纳 —— 只认 `token`。
+ *
+ * ⚠ 不发 `traceparent` / `loomy-version`：这两个头是 `[参考]` 标注的**对话**必需头，
+ * 业务端点在本仓 2026-10-19 实测（`mx model loomy --refresh`）不发也正常。
  */
 export function businessHeaders(credential: AuthLike): Record<string, string> {
   return { Accept: "application/json", token: credential.accessToken };
+}
+
+/**
+ * 官方客户端版本号（`loomy-version` 头的值）。
+ *
+ * `[参考]` 取**官方客户端**版本号（与参考实现一致），**不是**本渠道包的版本号；
+ * 上游网关**只检查它存在**。
+ */
+export const CLIENT_VERSION = "0.9.38";
+
+/**
+ * W3C traceparent（`00-<32 hex>-<16 hex>-01`），**每请求新生成**。
+ *
+ * `[参考]` 参考实现标注为**必需**（缺失会挂死到超时）；
+ * 本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核**（PROTOCOL §2.2.1）。
+ */
+function traceparent(): string {
+  const trace = randomUUID().replace(/-/g, "");
+  const span = randomUUID().replace(/-/g, "").slice(0, 16);
+  return `00-${trace}-${span}-01`;
 }
 
 /**
@@ -157,6 +257,8 @@ export function chatHeaders(credential: AuthLike): Record<string, string> {
     "Content-Type": "application/json",
     Authorization: `Bearer ${credential.accessToken}`,
     token: credential.accessToken,
+    traceparent: traceparent(),
+    "loomy-version": CLIENT_VERSION,
   };
 }
 
@@ -327,6 +429,9 @@ export async function fetchPointsRecords(
  *
  * ⚠ 语义是「触发每日额度重置」，**不是「+5000 积分」**：`dailyBalance = dailyQuota - dailyConsumed`，
  * 消耗后不回补。故**不能**在「打开面板」这类高频路径上调用它。
+ *
+ * body 固定 `{}`：**无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现，
+ * `deviceId` 是 promotions 侧的设备号），本渠道**未启用**（PROTOCOL §1.1）。
  */
 export async function triggerFirstLogin(
   credential: AuthLike,

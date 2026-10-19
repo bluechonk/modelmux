@@ -85,7 +85,7 @@ function round2(value: number): number {
 
 function headers(c: cred.Credentials, platform: boolean): Record<string, string> {
   return upstream.buildHeaders(
-    { accessToken: c.accessToken, officeIdentity: c.officeIdentity, deviceId: c.deviceId },
+    { accessToken: c.accessToken, officeIdentity: c.officeIdentity },
     { jsonBody: false, platform },
   );
 }
@@ -125,15 +125,14 @@ export async function fetchCredits(
 ): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
   let c = options.credential ?? cred.load(); // 未登录 → NotLoggedInError
-  const cfg = upstream.loadConfig()[0];
 
   let result: Awaited<ReturnType<typeof getJson>>;
   try {
-    result = await getJson(upstream.balanceUrl(cfg), c);
+    result = await getJson(upstream.balanceUrl(), c);
   } catch (err) {
     if (!refreshOn401) throw err;
     c = await cred.refresh(c); // 失败会抛，交由调用方提示重新登录
-    result = await getJson(upstream.balanceUrl(cfg), c);
+    result = await getJson(upstream.balanceUrl(), c);
   }
   if (result.status === 401 || result.status === 403 || result.code === 200003) {
     throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
@@ -212,9 +211,8 @@ export async function loginRewardClaimed(c?: cred.Credentials): Promise<boolean>
   } catch {
     return false;
   }
-  const cfg = upstream.loadConfig()[0];
   try {
-    const result = await getJson(upstream.billsUrl(cfg), credential);
+    const result = await getJson(upstream.billsUrl(), credential);
     if (result.code !== 0) return false;
     const items = result.data["items"];
     if (!Array.isArray(items)) return false;
@@ -255,8 +253,7 @@ interface DailyGrant {
  * （由调用方决定怎么显示 —— 「查不到」不能显示成「没领」）。
  */
 async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
-  const cfg = upstream.loadConfig()[0];
-  const result = await getJson(upstream.billsUrl(cfg), c, false, 25_000);
+  const result = await getJson(upstream.billsUrl(), c, false, 25_000);
   if (result.status === 401 || result.status === 403 || result.code === 200003) {
     throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
   }
@@ -291,8 +288,7 @@ async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
  */
 export async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<string, unknown>> {
   const credential = c ?? cred.load();
-  const cfg = upstream.loadConfig()[0];
-  const result = await getJson(upstream.settingInfoUrl(cfg), credential, true, 25_000);
+  const result = await getJson(upstream.settingInfoUrl(), credential, true, 25_000);
   if (result.status === 401 || result.status === 403 || result.code === 200003) {
     throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
   }
@@ -320,10 +316,9 @@ export async function claimLoginReward(c?: cred.Credentials): Promise<RewardResu
   } catch (err) {
     return { status: "failed", points: 0, error: String(err) };
   }
-  const cfg = upstream.loadConfig()[0];
   let resp: Response;
   try {
-    resp = await fetch(upstream.loginGrantUrl(cfg), {
+    resp = await fetch(upstream.loginGrantUrl(), {
       method: "POST",
       headers: headers(credential, true), // platform 必需
       signal: AbortSignal.timeout(20_000),

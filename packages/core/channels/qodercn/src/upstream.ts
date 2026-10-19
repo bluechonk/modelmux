@@ -59,13 +59,58 @@ export const WIRE = "custom" as const;
 /** COSY 协议版本（与官方 0.4.3 系列客户端对齐；实测可用）。 */
 export const COSY_VERSION = "1.1.64";
 
-/** 推理端点（`Encode=1` 表示请求体走自定义编码）。 */
-export const CHAT_PATH =
-  "/algo/api/v2/service/pro/sse/agent_chat_generation" +
-  "?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1";
+/*
+ * 国内版三套 base 各自的用途（**互不通用**）。
+ *
+ * | 角色 | 主机 | 走什么鉴权 | 本渠道用它做什么 |
+ * | --- | --- | --- | --- |
+ * | 授权页（站点） | `qoder.com.cn` | 无（浏览器里人工点授权） | 设备码授权的落地页 `{website}/device/selectAccounts` |
+ * | OpenAPI | `openapi.qoder.com.cn` | 纯 `Bearer`，**无** COSY 签名 | 轮询 / 续期 / userinfo / 额度 / 活动 |
+ * | 推理网关 | `gateway.qoder.com.cn` | COSY 签名 + 自定义 Base64 body | chat 与模型目录 |
+ *
+ * 证据：`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:39-80`（REALM_CONFIGS）、
+ * `reference/Zhengyuuuui_qoder2api/account/region.go:36-46`（CN 端点表）、
+ * `reference/EchoPing07_Qoder-2API-Go/auth/auth.go:43-48`（CN RegionConfig）。[参考]
+ * 对应配置见 `cred.PRODUCTS`（`website` / `openapi` / `gateway`）。
+ */
 
-/** 模型目录端点。⚠ GET 也要带 body（`qoder_encode("{}")`）参与签名，否则 403。 */
-export const MODELS_PATH = "/algo/api/v2/model/list?Encode=1";
+/** 推理端点**路径**（不含 query）。 */
+export const CHAT_PATH = "/algo/api/v2/service/pro/sse/agent_chat_generation";
+
+/**
+ * 推理端点的**必需 query**（一个都不能少，否则上游直接拒）。
+ *
+ * - `FetchKeys=llm_model_result` —— 要求回传模型结果字段（官方客户端同款）。
+ * - `AgentId=agent_common` —— 走通用 agent 场景（对应请求体 `agent_id: "agent_common"`）。
+ * - `Encode=1` —— 请求体走**自定义 Base64 编码**（见本文件顶部的编码说明）。
+ *
+ * 三个参考实现逐字一致：
+ * `reference/shuishuipingan_qoder2api-hub/qoder_proxy.py:321-322`、
+ * `reference/Zhengyuuuui_qoder2api/account/region.go:42`、
+ * `reference/EchoPing07_Qoder-2API-Go/auth/auth.go:59`。[参考]
+ */
+export const CHAT_QUERY: ReadonlyArray<readonly [string, string]> = [
+  ["FetchKeys", "llm_model_result"],
+  ["AgentId", "agent_common"],
+  ["Encode", "1"],
+];
+
+/** 模型目录端点**路径**（不含 query）。 */
+export const MODELS_PATH = "/algo/api/v2/model/list";
+
+/**
+ * 模型目录端点的**必需 query**：`Encode=1`（同样表示自定义编码体）。
+ * ⚠ 该端点是 **GET**，但**必须真的带 body**（`qoder_encode("{}")`）参与签名，
+ * 否则服务端校验签名与 body 不一致 → 403。
+ * 证据：`reference/shuishuipingan_qoder2api-hub/qoder_proxy.py:2045-2046`。[参考]
+ */
+export const MODELS_QUERY: ReadonlyArray<readonly [string, string]> = [["Encode", "1"]];
+
+/** 把「路径 + 必需 query」拼成完整 URL 片段。 */
+function withQuery(path: string, query: ReadonlyArray<readonly [string, string]>): string {
+  const search = query.map(([key, value]) => `${key}=${value}`).join("&");
+  return search ? `${path}?${search}` : path;
+}
 
 /**
  * 官方客户端内置的 RSA 公钥（PKCS#1 v1.5，1024 位）。
@@ -324,9 +369,9 @@ function primaryHost(realm: Realm): string {
   return currentGatewayHost() || productOf(realm).gateway[0]!;
 }
 
-/** 推理 URL（当前区域的首选主机）。 */
+/** 推理 URL（当前区域的首选主机 + 必需 query）。 */
 export function chatUrl(): string {
-  return `${hostOverride ?? primaryHost(activeRealm)}${CHAT_PATH}`;
+  return `${hostOverride ?? primaryHost(activeRealm)}${withQuery(CHAT_PATH, CHAT_QUERY)}`;
 }
 
 /**
@@ -369,9 +414,9 @@ export function rememberChatHost(): void {
   if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
 }
 
-/** 模型目录 URL。 */
+/** 模型目录 URL（首选主机 + 必需 query）。 */
 export function modelsUrl(): string {
-  return `${primaryHost(activeRealm)}${MODELS_PATH}`;
+  return `${primaryHost(activeRealm)}${withQuery(MODELS_PATH, MODELS_QUERY)}`;
 }
 
 /** 该区域的全部推理主机候选（主选 + 故障切换）。 */
@@ -608,7 +653,7 @@ export async function fetchModels(credential: Credentials): Promise<Record<strin
   let lastError: Error | null = null;
 
   for (const host of gatewayCandidates(credential.realm)) {
-    const url = `${host}${MODELS_PATH}`;
+    const url = `${host}${withQuery(MODELS_PATH, MODELS_QUERY)}`;
     try {
       const resp = await getWithBody(url, headers, body);
       if (resp.status === 200) {

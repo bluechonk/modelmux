@@ -1,6 +1,24 @@
 /**
  * TRAE（字节跳动）认证：浏览器授权登录、设备指纹、ExchangeToken 续期。
  *
+ * ## 唯一登录路径：**浏览器授权 + 本地回调**（`login()`）
+ *
+ * 本模块**只有一条**取凭据路径，不提供第二种登录方式。判据：
+ *
+ * 1. **唯一实测跑通**：2026-10-19 端到端实测通过（见 `docs/channels/traecn/PROTOCOL.md`）。
+ * 2. **与国内版主参照逐字同构**：授权 URL（`auth_callback_url` / `hide_saas_login` /
+ *    `login_trace_id`）→ 本地回调 → 解析 → `ExchangeToken` → `GetUserInfo` → 落盘，
+ *    参数集与端点逐字一致（参考 `reference/autumnsentiment_Trae2api-cn/src/web_login.py`、
+ *    `reference/JeffHu0912_trae2api/internal/server/callback.go`）。
+ * 3. **其余路径为何不采纳**：
+ *    - **OAuth 设备码流**：主参照自述 `/cloudide/api/v3/trae/oauth/Authorize` 返回 404、
+ *      该流程**不可用**（`reference/autumnsentiment_Trae2api-cn/src/auth_cli.py` 头部注释）。
+ *    - **桌面客户端 `storage.json` 解密**：需把平台相关解密代码搬进渠道包，
+ *      违反「渠道包 `src/` 只能 7 文件、零第三方运行依赖」的仓库契约。
+ *    - **手工粘贴 token / 粘贴回调链接**：那属于**凭据导入**而非登录；
+ *      多账号应由共享层账号池承载，不该在渠道里再造第二套登录流程。
+ *    - **`.env` 读取**：与本仓库「落点由共享层按 cid 推导」的存储约定冲突。
+ *
  * ## 登录（实测，docs/channels/traecn/PROTOCOL.md §2）
  *
  * - 登录页参数名必须是 **`auth_callback_url`**（没有 `callback_url`/`redirect_uri`），
@@ -35,11 +53,40 @@ import { createServer, type Server } from "node:http";
 
 import { credentialsPath, ensureDir, login as sharedLogin, prefsPath } from "@modelmux/gateway";
 
-/** agentHost（对话 + 模型列表）。 */
+/**
+ * agentHost（对话 + 模型列表）。
+ *
+ * ⚠ 契约要求 `cred` 与 `upstream` **都**导出 `DEFAULT_BASE_URL`；
+ * 两处同值不同源迟早漂移，故只在这里定义一次，`upstream.ts` 直接转出这一份。
+ */
 export const DEFAULT_BASE_URL = "https://trae-api-cn.mchost.guru";
 
 /** OAuth host（ExchangeToken / GetUserInfo）。 */
 export const OAUTH_HOST = "https://api.trae.com.cn";
+
+/**
+ * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken`
+ *
+ * - 端点路径：`/cloudide/api/v3/trae/oauth/ExchangeToken`
+ * - 完整 URL：`https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken`
+ *   （可用凭据的 `api_host` 覆盖，见 `Credentials.apiHost`）
+ * - query：无；body `{ClientID, RefreshToken, ClientSecret:"-", UserID:""}`
+ * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/auth.py`（`refresh_token`）、
+ *   `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpExchange`）
+ */
+export const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
+
+/**
+ * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/GetUserInfo`
+ *
+ * - 端点路径：`/cloudide/api/v3/trae/GetUserInfo`
+ * - 完整 URL：`https://api.trae.com.cn/cloudide/api/v3/trae/GetUserInfo`
+ * - query：无；body `{ReqSource:"IDE", IDEVersion:<ideVersion>}`
+ * - ⚠ 鉴权走 **`x-cloudide-token`**，**不能**用 `Authorization: Cloud-IDE-JWT`（会 401）。
+ * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`fetch_user_info`）、
+ *   `reference/JeffHu0912_trae2api/login.sh`（`GetUserInfo` 段）
+ */
+export const OAUTH_USER_INFO_PATH = "/cloudide/api/v3/trae/GetUserInfo";
 
 /** 签到 / 积分 host（规格里是硬编码，未用 product.ugHost）。 */
 export const UG_HOST = "https://api.trae.cn";
@@ -492,7 +539,15 @@ export interface LoginOptions {
   onStatus?: (msg: string) => void;
 }
 
-/** 运行一次浏览器授权登录并持久化结果。baseUrl 仅作为对话域落盘（realm 解析用），不参与授权 URL。 */
+/**
+ * 运行一次浏览器授权登录并持久化结果。
+ *
+ * **本模块唯一的登录路径**（判据见文件头「唯一登录路径」）。流程：
+ * 浏览器授权 → 本地回调 → 解析回调 →（老流程时）`ExchangeToken` 兑换 →
+ * `GetUserInfo` 补全账号信息 → 落盘。
+ *
+ * @param baseUrl 仅作为对话域落盘（realm 解析用），不参与授权 URL。
+ */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
   const { onUrl, onStatus } = options;
   const machineId = generateMachineId();
@@ -507,17 +562,48 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
 
     const flat = await callback.wait(LOGIN_TIMEOUT_MS);
     const fields = parseCallback(flat);
+
+    // 老流程：回调只带 refreshToken（不带 userJwt.Token）→ 先兑换出 access token。
+    // 不兑换的话落盘的 access_token 为空，`load()` 会直接判定「未登录」。
+    let accessToken = fields.access_token;
+    let refreshToken = fields.refresh_token;
+    let expiresAt = normalizeExpiresAt(undefined, accessToken);
+    if (!accessToken && refreshToken) {
+      onStatus?.("Callback carries no access token, exchanging the refresh token…");
+      let pair: TokenPair;
+      try {
+        pair = await exchangeToken(refreshToken);
+      } catch (err) {
+        throw new Error(`ExchangeToken failed during login: ${String(err)}`);
+      }
+      accessToken = pair.accessToken;
+      refreshToken = pair.refreshToken;
+      expiresAt = pair.expiresAt;
+    }
+    if (!accessToken) {
+      throw new Error("Callback carries no usable access token; please log in again");
+    }
+
+    // GetUserInfo 补全账号信息（uid / 昵称 / 脱敏手机号 / 脱敏邮箱 / 企业 id）。
+    // 失败不阻塞登录：沿用回调里的 userInfo（与参考实现同口径）。
+    const info = await fetchUserInfo(accessToken);
+    if (info) {
+      onStatus?.("Account info refreshed via GetUserInfo.");
+    } else {
+      onStatus?.("GetUserInfo unavailable; keeping the account info from the callback.");
+    }
+
     const c: Credentials = {
-      accessToken: fields.access_token,
-      refreshToken: fields.refresh_token,
-      expiresAt: normalizeExpiresAt(undefined, fields.access_token),
-      uid: fields.uid,
-      nickname: fields.nickname,
-      phone: fields.phone,
-      email: fields.email,
+      accessToken,
+      refreshToken,
+      expiresAt,
+      uid: info?.uid || fields.uid,
+      nickname: info?.nickname || fields.nickname,
+      phone: info?.phone || fields.phone,
+      email: info?.email || fields.email,
       machineId,
       deviceId,
-      enterpriseId: fields.enterprise_id,
+      enterpriseId: info?.enterpriseId || fields.enterprise_id,
       domain: hostOf(DEFAULT_BASE_URL),
       apiHost: fields.api_host || undefined,
       checkinGeneration: 0,
@@ -678,16 +764,25 @@ function isAuthStatus(status: number): boolean {
   return status === 401 || status === 403;
 }
 
+/** 一次兑换的结果（access 与 refresh **都**是新的）。 */
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+  /** 毫秒字符串。 */
+  expiresAt: string;
+}
+
 /**
- * 用 refresh token 换新 token。
+ * 调 `ExchangeToken` 用 refresh token 换新 token（**不落盘**）。
  *
- * ⚠ **access 与 refresh 都轮换**，续期后必须回写；
- * 设备指纹字段完全不动。设备指纹之外只有 token/过期时间被更新。
+ * ⚠ **access 与 refresh 都轮换**，调用方必须把两个都写回。
+ * 终态（需重新登录）三条任一：HTTP 401/403、响应非 JSON（HTML 错误页）、
+ * **2xx 且响应是 JSON 却没有 accessToken**。
  */
-export async function refresh(c: Credentials): Promise<Credentials> {
-  if (!c.refreshToken) throw new ReloginRequiredError("No refresh token, please log in again");
-  const host = (c.apiHost || oauthHost()).replace(/\/+$/, "");
-  const url = `${host}/cloudide/api/v3/trae/oauth/ExchangeToken`;
+export async function exchangeToken(refreshToken: string, host?: string): Promise<TokenPair> {
+  if (!refreshToken) throw new ReloginRequiredError("No refresh token, please log in again");
+  const base = (host || oauthHost()).replace(/\/+$/, "");
+  const url = `${base}${OAUTH_EXCHANGE_PATH}`;
 
   let resp: Response;
   try {
@@ -695,7 +790,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
       method: "POST",
       body: JSON.stringify({
         ClientID: CLIENT_ID,
-        RefreshToken: c.refreshToken,
+        RefreshToken: refreshToken,
         ClientSecret: "-",
         UserID: "",
       }),
@@ -740,17 +835,87 @@ export async function refresh(c: Credentials): Promise<Credentials> {
     // 2xx 且响应是 JSON 却没有 accessToken ⇒ 终态（需重新登录）
     throw new ReloginRequiredError("ExchangeToken response has no accessToken, credential is invalid, please log in again");
   }
-  const refreshToken =
-    pick(payload["RefreshToken"]) || pick(payload["refresh_token"]) || c.refreshToken;
-
-  const next: Credentials = {
-    ...c, // 设备指纹与账号标识完全不动
+  return {
     accessToken,
-    refreshToken,
+    refreshToken: pick(payload["RefreshToken"]) || pick(payload["refresh_token"]) || refreshToken,
     expiresAt: normalizeExpiresAt(
       payload["TokenExpireAt"] ?? payload["tokenExpireAt"] ?? payload["ExpireAt"],
       accessToken,
     ),
+  };
+}
+
+/** 账号信息（GetUserInfo 的可识别部分）。 */
+export interface UserInfo {
+  uid: string;
+  nickname: string;
+  phone: string;
+  email: string;
+  enterpriseId: string;
+}
+
+/**
+ * 取账号信息（uid / 昵称 / 脱敏手机号 / 脱敏邮箱 / 企业 id）。
+ *
+ * ⚠ 鉴权头**必须**是 `x-cloudide-token`：用 `Authorization: Cloud-IDE-JWT` 会被 401
+ * （参考实现实测，见 `docs/channels/traecn/PROTOCOL.md`）。
+ * ⚠ 失败**不阻塞登录**（返回 null，调用方沿用回调里的 `userInfo`）。
+ */
+export async function fetchUserInfo(accessToken: string, host?: string): Promise<UserInfo | null> {
+  if (!accessToken) return null;
+  const base = (host || oauthHost()).replace(/\/+$/, "");
+  let resp: Response;
+  try {
+    resp = await fetch(`${base}${OAUTH_USER_INFO_PATH}`, {
+      method: "POST",
+      body: JSON.stringify({ ReqSource: "IDE", IDEVersion: IDE_VERSION }),
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "User-Agent": USER_AGENT,
+        "x-cloudide-token": accessToken,
+      },
+      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+    });
+  } catch {
+    return null;
+  }
+  if (resp.status !== 200) return null;
+  let text: string;
+  try {
+    text = await resp.text();
+  } catch {
+    return null;
+  }
+  const env = parseJsonObject(text);
+  const payload = parseJsonObject(env["Result"] ?? env["result"] ?? env);
+  const uid = pick(payload["UserID"]) || pick(payload["userId"]);
+  if (!uid) return null;
+  return {
+    uid,
+    nickname: fixNickname(pick(payload["ScreenName"]), uid),
+    phone: pick(payload["NonPlainTextMobile"]) || pick(payload["Mobile"]),
+    email: pick(payload["NonPlainTextEmail"]) || pick(payload["Email"]),
+    enterpriseId: pick(payload["EnterpriseID"]) || pick(payload["TenantID"]),
+  };
+}
+
+/**
+ * 用 refresh token 换新 token 并落盘。
+ *
+ * ⚠ **access 与 refresh 都轮换**，续期后必须回写；
+ * 设备指纹字段完全不动。设备指纹之外只有 token/过期时间被更新。
+ */
+export async function refresh(c: Credentials): Promise<Credentials> {
+  if (!c.refreshToken) throw new ReloginRequiredError("No refresh token, please log in again");
+  const host = (c.apiHost || oauthHost()).replace(/\/+$/, "");
+  const pair = await exchangeToken(c.refreshToken, host);
+
+  const next: Credentials = {
+    ...c, // 设备指纹与账号标识完全不动
+    accessToken: pair.accessToken,
+    refreshToken: pair.refreshToken,
+    expiresAt: pair.expiresAt,
   };
   await save(next);
   return next;

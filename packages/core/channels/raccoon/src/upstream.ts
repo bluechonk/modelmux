@@ -1,9 +1,11 @@
 /**
- * Raccoon（商汤小浣熊）上游：端点、三种请求头形态、思考通道与请求体安全化。
+ * Raccoon（商汤小浣熊）上游：**端点表 + 基址解析**、三种请求头形态、思考通道与请求体安全化。
  *
  * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/raccoon/PROTOCOL.md）
  *
- * 1. **思考控制的唯一有效通道是 `extra_body.thinking.type`**（`enabled` / `disabled`，
+ * 1. **本模块是渠道「地址」的唯一真相源**：前缀、端点路径、完整 URL 与基址解析都在这里；
+ *    `cred.ts` 单向导入本模块（**不反向依赖**，避免循环依赖）。
+ * 2. **思考控制的唯一有效通道是 `extra_body.thinking.type`**（`enabled` / `disabled`，
  *    服务端报错原文确认枚举还含 `adaptive`）：
  *    - `reasoning_effort` **被接受但实测无效果**（8 轮配对实验正负各半，纯随机）
  *    - `extra_body.enable_thinking`（单层/双层）、`thinking` 放**顶层**、`thinking.budget_tokens`
@@ -11,14 +13,14 @@
  *      `reasoning_effort`
  *    - 本插件只暴露两态：`on` → `{type:'enabled'}`、`off` → `{type:'disabled'}`；
  *      **只有明确的「关闭」才关**，未知档位一律按开启处理；不传档位时**不发该字段**
- * 2. **`max_tokens` 只放行安全正整数**：`0` / 负数 / `NaN` 会让 DSH 在
+ * 3. **`max_tokens` 只放行安全正整数**：`0` / 负数 / `NaN` 会让 DSH 在
  *    `defaultMaxTokens` 的硬校验上抛 `INVALID_MODEL_MAX_TOKENS`，**整轮对话起不来**
  *    （不是降级，是崩）。
- * 3. **`tools` 必须真的下发到请求体顶层** —— 漏发会让模型在正文里臆造 XML 工具调用，
+ * 4. **`tools` 必须真的下发到请求体顶层** —— 漏发会让模型在正文里臆造 XML 工具调用，
  *    harness 认不出 → 任务终止。
- * 4. **三种头形态**（platform 的有无是硬约束）：
+ * 5. **三种头形态**（platform 的有无是硬约束）：
  *    - 对话：`Accept: text/event-stream` + `Content-Type` + platform（**不含**
- *      `X-Client-Version` / `X-Client-Device-ID`）
+ *      `X-Client-Version` / `X-Client-Device-ID`，也**不含** `User-Agent`）
  *    - 模型目录：内联构造，`Accept: application/json`，**不含** platform、**不含** Content-Type
  *    - `desktop/v1/login/points/grant`：**无 body 但 platform 必需**
  */
@@ -28,21 +30,116 @@ import { chmod, rename, writeFile } from "node:fs/promises";
 
 import { ensureDir, upstreamPath } from "@modelmux/gateway";
 
-export { DEFAULT_BASE_URL, AUTH_PREFIX, LLM_PREFIX, POINTS_PREFIX, DESKTOP_PREFIX, CLIENT_PLATFORM, CLIENT_VERSION, USER_AGENT, EXCHANGE_PATH, AUTHORIZATION_CODE_NOT_FOUND } from "./cred.js";
-import {
-  AUTH_PREFIX,
-  CLIENT_PLATFORM,
-  CLIENT_VERSION,
-  DEFAULT_BASE_URL,
-  DESKTOP_PREFIX,
-  EXCHANGE_PATH,
-  LLM_PREFIX,
-  POINTS_PREFIX,
-  USER_AGENT,
-} from "./cred.js";
-
 /** 展示名（状态页与错误文案用）。 */
 export const DISPLAY_NAME = "Raccoon";
+
+// ── 端点表（渠道的「地址真相源」）────────────────────────────────────────────
+//
+// 每个常量旁注「方法 + 完整 URL + 端点路径 + query/body 来源」。
+// 完整 URL 一律由 `channelBaseUrl()` + 路径拼出，**别处不再拼第二次**。
+
+/** 接口基址。 */
+export const DEFAULT_BASE_URL = "https://xiaohuanxiong.com";
+
+/** 鉴权域前缀。 */
+export const AUTH_PREFIX = "/api/web/auth/v1";
+/** 推理域前缀。 */
+export const LLM_PREFIX = "/api/web/llm/v2";
+/** 积分域前缀。 */
+export const POINTS_PREFIX = "/api/web/points/v1";
+/** 桌面端域前缀。 */
+export const DESKTOP_PREFIX = "/api/web/desktop/v1";
+/** 办公端域前缀（每日积分触发器挂在这里）。 */
+export const OFFICE_PREFIX = "/api/web/office/v3";
+
+/**
+ * 授权码换凭证（网页登录第二步）。
+ * - 方法：POST
+ * - 完整 URL：`{基址}/api/web/auth/v1/login_with_authorization_code`
+ * - 端点路径：`/api/web/auth/v1/login_with_authorization_code`
+ * - body：`{authorization_code}`；失败业务码 `200035`（码已失效/已消费，终态）
+ */
+export const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
+/**
+ * 续期。
+ * - 方法：POST
+ * - 完整 URL：`{基址}/api/web/auth/v1/refresh`
+ * - 端点路径：`/api/web/auth/v1/refresh`
+ * - body：`{refresh_token}`；响应可能只给新的 access_token（此时**保留旧 refresh_token**）
+ */
+export const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
+/**
+ * 用户信息（只用于昵称/手机号展示，失败不阻塞）。
+ * - 方法：GET
+ * - 完整 URL：`{基址}/api/web/auth/v1/user_info`
+ * - 端点路径：`/api/web/auth/v1/user_info`
+ * - query：无
+ */
+export const USER_INFO_PATH = `${AUTH_PREFIX}/user_info`;
+/**
+ * 续期的**桌面端备份前缀**：`{基址}/api/electron/auth/v1/refresh`。
+ *
+ * `[参考]` `reference/raccoon2api/README.md:86-91` 记录了这条等价路径；
+ * **本仓未实测**，只作记录 —— 换码与续期一律走 web 面（`AUTH_PREFIX`）。
+ */
+export const ELECTRON_AUTH_PREFIX = "/api/electron/auth/v1";
+/**
+ * 对话。
+ * - 方法：POST
+ * - 完整 URL：`{基址}/api/web/llm/v2/chat/completions`
+ * - 端点路径：`/api/web/llm/v2/chat/completions`
+ * - 必需 query：无
+ */
+export const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
+/**
+ * 模型目录。
+ * - 方法：GET
+ * - 完整 URL：`{基址}/api/web/llm/v2/model_catalog`
+ * - 端点路径：`/api/web/llm/v2/model_catalog`
+ * - 必需 query：无
+ */
+export const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
+/**
+ * 积分余额（**只读**）。
+ * - 方法：GET
+ * - 完整 URL：`{基址}/api/web/points/v1/balance`
+ * - 端点路径：`/api/web/points/v1/balance`
+ * - query：无
+ */
+export const BALANCE_PATH = `${POINTS_PREFIX}/balance`;
+/**
+ * 积分账单。
+ * - 方法：GET
+ * - 完整 URL：`{基址}/api/web/points/v1/bills?paging.limit=<n>&paging.offset=0`
+ * - 端点路径：`/api/web/points/v1/bills`
+ * - query：`paging.limit` / `paging.offset`（分页；参考实现用 20，本仓用 50）
+ */
+export const BILLS_PATH = `${POINTS_PREFIX}/bills`;
+/** 账单分页条数（参考实现用 20，本仓用 50）。 */
+export const BILLS_LIMIT = 50;
+/**
+ * 桌面端登录奖励（**一次性幂等**，不是每日签到）。
+ * - 方法：POST
+ * - 完整 URL：`{基址}/api/web/desktop/v1/login/points/grant`
+ * - 端点路径：`/api/web/desktop/v1/login/points/grant`
+ * - body：无；**需 `X-Client-Platform` 头**
+ */
+export const LOGIN_GRANT_PATH = `${DESKTOP_PREFIX}/login/points/grant`;
+/**
+ * 每日积分触发器（**按天幂等**，发放由服务端完成；账单才是入账的权威判据）。
+ * - 方法：GET
+ * - 完整 URL：`{基址}/api/web/office/v3/setting_info`
+ * - 端点路径：`/api/web/office/v3/setting_info`
+ * - query：无；**需 `X-Client-Platform` 头**
+ */
+export const SETTING_INFO_PATH = `${OFFICE_PREFIX}/setting_info`;
+
+/** 授权码失效 / 已消费（换码时按终态处理）。 */
+export const AUTHORIZATION_CODE_NOT_FOUND = 200035;
+
+/** 客户端身份（`X-Client-Platform` 猜错会被拒）。 */
+export const CLIENT_PLATFORM = "desktop-windows";
+export const USER_AGENT = "Raccoon Work/1.0.35 (Windows)";
 
 /** 上游线型：标准 OpenAI 兼容 SSE，网关只需规范化透传。 */
 export const WIRE: "openai" | "custom" = "openai";
@@ -63,31 +160,54 @@ export interface Config {
 export interface AuthLike {
   accessToken: string;
   officeIdentity: string;
-  deviceId?: string;
 }
 
 export function defaultConfig(): Config {
   return { baseUrl: DEFAULT_BASE_URL };
 }
 
-/** 读取已解析的上游描述符；返回 `[配置, 是否来自磁盘]`。 */
-export function loadConfig(): [Config, boolean] {
+/**
+ * 磁盘上游描述符（`upstream.json`）里的基址；读不到 / 形状不对返回空串。
+ *
+ * 描述符由共享层在登录成功后落盘（`saveConfig`），内容只有 baseUrl。
+ */
+export function persistedBaseUrl(): string {
   let raw: string;
   try {
     raw = readFileSync(upstreamPath(), "utf8");
   } catch {
-    return [defaultConfig(), false];
+    return "";
   }
-  let parsed: Partial<Config>;
   try {
-    parsed = JSON.parse(raw) as Partial<Config>;
+    const parsed = JSON.parse(raw) as { baseUrl?: unknown };
+    return typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "";
   } catch {
-    return [defaultConfig(), false];
+    return "";
   }
-  const cfg: Config = {
-    baseUrl: typeof parsed.baseUrl === "string" && parsed.baseUrl ? parsed.baseUrl : DEFAULT_BASE_URL,
-  };
-  return [cfg, true];
+}
+
+/** 读取已解析的上游描述符；返回 `[配置, 是否来自磁盘]`。 */
+export function loadConfig(): [Config, boolean] {
+  const baseUrl = persistedBaseUrl();
+  return baseUrl ? [{ baseUrl }, true] : [defaultConfig(), false];
+}
+
+/**
+ * 渠道基址（**唯一真源**：鉴权域与推理域必须用同一个）。
+ *
+ * 优先级（自上而下）：
+ *   1. `override`：调用方显式指定的基址（**取值等于默认值时视为未指定**）
+ *   2. 环境变量 `RACCOON_API_BASE_URL`
+ *   3. 磁盘上游描述符里的 baseUrl
+ *   4. `DEFAULT_BASE_URL`
+ *
+ * ⚠ 曾经鉴权域只认环境变量、推理域只读磁盘描述符 ⇒ 设了环境变量就会出现
+ * 「登录在镜像、对话在官方」，镜像签发的 token 被官方拒（401）。
+ */
+export function channelBaseUrl(opts: { override?: string } = {}): string {
+  const explicit = opts.override && opts.override !== DEFAULT_BASE_URL ? opts.override : "";
+  const raw = explicit || process.env["RACCOON_API_BASE_URL"] || persistedBaseUrl() || DEFAULT_BASE_URL;
+  return raw.replace(/\/+$/, "");
 }
 
 /** 持久化上游描述符（临时文件 + 原子替换）。 */
@@ -100,43 +220,61 @@ export async function saveConfig(cfg: Config): Promise<void> {
   await chmod(path, 0o600).catch(() => {});
 }
 
-function base(cfg?: Config): string {
-  return ((cfg ?? loadConfig()[0]).baseUrl).replace(/\/+$/, "");
+// ── 端点 URL（基址一律走 channelBaseUrl）─────────────────────────────────────
+//
+// 每个 builder 的可选 `override` 是「显式基址」；不传时走统一规则
+// （显式 > 环境变量 > 磁盘描述符 > 默认值）。
+
+/**
+ * 对话端点。
+ * - 方法：POST
+ * - 完整 URL：`https://xiaohuanxiong.com/api/web/llm/v2/chat/completions`
+ * - 端点路径：`/api/web/llm/v2/chat/completions`
+ * - 必需 query：无
+ */
+export function chatUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${CHAT_PATH}`;
 }
 
-/** 对话端点路径。 */
-export const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
-/** 模型目录端点路径。 */
-export const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
-
-/** 对话端点。 */
-export function chatUrl(cfg?: Config): string {
-  return `${base(cfg)}${CHAT_PATH}`;
-}
-
-/** 模型目录端点（**请求头内联，不含 platform**）。 */
-export function modelsUrl(cfg?: Config): string {
-  return `${base(cfg)}${MODEL_CATALOG_PATH}`;
-}
-
-/** 积分余额端点。 */
-export function balanceUrl(cfg?: Config): string {
-  return `${base(cfg)}${POINTS_PREFIX}/balance`;
-}
-
-/** 账单端点（查奖励是否已领）。 */
-export function billsUrl(cfg?: Config): string {
-  return `${base(cfg)}${POINTS_PREFIX}/bills?paging.limit=50&paging.offset=0`;
-}
-
-/** 桌面端登录奖励端点（**platform 必需**；一次性新手奖励，不是每日签到）。 */
-export function loginGrantUrl(cfg?: Config): string {
-  return `${base(cfg)}${DESKTOP_PREFIX}/login/points/grant`;
+/**
+ * 模型目录端点（**请求头内联，不含 platform**）。
+ * - 方法：GET
+ * - 完整 URL：`https://xiaohuanxiong.com/api/web/llm/v2/model_catalog`
+ * - 端点路径：`/api/web/llm/v2/model_catalog`
+ * - 必需 query：无
+ */
+export function modelsUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${MODEL_CATALOG_PATH}`;
 }
 
 /** 授权码换凭证端点（网页登录第二步；body `{authorization_code}`）。 */
-export function exchangeCodeUrl(cfg?: Config): string {
-  return `${base(cfg)}${EXCHANGE_PATH}`;
+export function exchangeCodeUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${EXCHANGE_PATH}`;
+}
+
+/** 续期端点（body `{refresh_token}`）。 */
+export function refreshUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${REFRESH_PATH}`;
+}
+
+/** 用户信息端点。 */
+export function userInfoUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${USER_INFO_PATH}`;
+}
+
+/** 积分余额端点。 */
+export function balanceUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${BALANCE_PATH}`;
+}
+
+/** 账单端点（查奖励是否已领；query 见 `BILLS_PATH`）。 */
+export function billsUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${BILLS_PATH}?paging.limit=${BILLS_LIMIT}&paging.offset=0`;
+}
+
+/** 桌面端登录奖励端点（**platform 必需**；一次性新手奖励，不是每日签到）。 */
+export function loginGrantUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${LOGIN_GRANT_PATH}`;
 }
 
 /**
@@ -145,15 +283,8 @@ export function exchangeCodeUrl(cfg?: Config): string {
  * 官方桌面端每次启动都会打这个接口，服务端据此**按天幂等**发放每日积分
  * —— 它才是「签到」的真正触发点（发放在服务端完成，账单是权威结果）。
  */
-export const SETTING_INFO_PATH = "/api/web/office/v3/setting_info";
-
-export function settingInfoUrl(cfg?: Config): string {
-  return `${base(cfg)}${SETTING_INFO_PATH}`;
-}
-
-/** 用户信息端点。 */
-export function userInfoUrl(cfg?: Config): string {
-  return `${base(cfg)}${AUTH_PREFIX}/user_info`;
+export function settingInfoUrl(override?: string): string {
+  return `${channelBaseUrl({ override })}${SETTING_INFO_PATH}`;
 }
 
 // ── 请求头（三种形态）─────────────────────────────────────────────────────────
@@ -169,7 +300,8 @@ export interface HeaderOptions {
  * 构造上游请求头。
  *
  * ⚠ 对话形态**不含** `X-Client-Version` / `X-Client-Device-ID`（协议 §2.1 内联实测）；
- * client 身份头在 `cred` 里另有带这些头的版本（短信端点用）。
+ * 这两个头原先只随**已移除的短信登录**发出（全仓无其它发送方）⇒ 不再构造。
+ * ⚠ 对话形态也**不含** `User-Agent`（只有 `jsonHeaders` 那一族带）。
  */
 export function buildHeaders(credential: AuthLike, opts: HeaderOptions = {}): Record<string, string> {
   const chat = opts.jsonBody ?? true;
@@ -309,13 +441,10 @@ function isAuthFailure(status: number, code: number): boolean {
  * 拉模型目录（**内联头**：Accept json、无 platform、无 Content-Type）。
  * 401/403/200003 → `UpstreamUnauthorized`。
  */
-export async function fetchModels(
-  credential: AuthLike,
-  cfgOverride?: Config,
-): Promise<Record<string, unknown>> {
+export async function fetchModels(credential: AuthLike): Promise<Record<string, unknown>> {
   let resp: Response;
   try {
-    resp = await fetch(modelsUrl(cfgOverride), {
+    resp = await fetch(modelsUrl(), {
       headers: jsonHeaders(credential),
       signal: AbortSignal.timeout(20_000),
     });
@@ -341,13 +470,10 @@ export async function fetchModels(
 }
 
 /** 探活：拉一次用户信息（`syncProfile` 之外的管理路径也用得上）。 */
-export async function fetchMe(
-  credential: AuthLike,
-  cfgOverride?: Config,
-): Promise<Record<string, unknown>> {
+export async function fetchMe(credential: AuthLike): Promise<Record<string, unknown>> {
   let resp: Response;
   try {
-    resp = await fetch(userInfoUrl(cfgOverride), {
+    resp = await fetch(userInfoUrl(), {
       headers: jsonHeaders(credential),
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });

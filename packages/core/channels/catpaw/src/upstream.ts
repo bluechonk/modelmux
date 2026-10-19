@@ -43,11 +43,71 @@ import * as cred from "./cred.js";
 
 // ── 端点常量（实测，见 docs/channels/catpaw/PROTOCOL.md）─────────────────────────────────────
 
-export const DEFAULT_BASE_URL = "https://ai.catpaw.meituan.com";
+/**
+ * 直连域（对话 / 模型目录）。
+ *
+ * ⚠ 与 `cred.ts` 的 `GATEWAY_HOST`（网关域）**不是同一侧**：
+ * 直连域鉴权用 `X-Passport-Token` + Cookie；网关域鉴权用 `X-Auth-Token`。
+ * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
+ */
+export const DIRECT_HOST = "https://ai.catpaw.meituan.com";
+
+/**
+ * 默认上游基址（契约要求 `upstream` 模块导出 `DEFAULT_BASE_URL`）。
+ *
+ * ⚠ 语义是**直连域**；网关域（登录 / 额度）在 `cred.ts` 的 `GATEWAY_HOST`，
+ * 两者**同名不同值**，极易误改 —— 引用时务必写清是哪一侧。
+ */
+export const DEFAULT_BASE_URL = DIRECT_HOST;
+
+/**
+ * 轮次提交端点（对话三段式 ①）。
+ *
+ * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/conversation/round`
+ * - 端点路径：`/api/agent/conversation/round`
+ * - query：无
+ * - body：`{conversationId, source:"CatX", messages:[…], modelType, mode:"CATX_APP", toolVersion:"2.0.2", requestContext}`
+ * - 鉴权：直连域头族（`buildHeaders`，此端点 `Accept: application/json`）
+ */
 const ROUND_PATH = "/api/agent/conversation/round";
+
+/**
+ * 轮次状态回报端点（对话三段式 ②）。
+ *
+ * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/conversation/event`
+ * - 端点路径：`/api/agent/conversation/event`
+ * - query：无
+ * - body：`{conversationId, eventType:"conversation", data:{status}}`，status ∈ running / completed
+ * - 鉴权：直连域头族（`buildHeaders`，`Accept: application/json`）
+ */
 const EVENT_PATH = "/api/agent/conversation/event";
+
+/**
+ * 轮次执行端点（对话三段式 ③，SSE 直出）—— **网关实际 POST 的那一个**。
+ *
+ * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/conversation/turn`
+ * - 端点路径：`/api/agent/conversation/turn`
+ * - query：无
+ * - body：`{conversationId, turnRequestId, source:"CatX", action:"turn", message, modelType, mode:"CATX_APP", permissionMode, toolVersion, requestContext}`
+ * - 鉴权：直连域头族（`buildHeaders`，此端点 `Accept: text/event-stream`）
+ */
 const TURN_PATH = "/api/agent/conversation/turn";
+
+/**
+ * 模型目录端点。
+ *
+ * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/maas/model-types`
+ * - 端点路径：`/api/agent/maas/model-types`
+ * - query：无
+ * - body：`{tenant:"CatDesk", scene:"CATX_APP", env:"EXTERNAL"}` —— 三字段必填，缺失报 400（`[参考]`）
+ * - 鉴权：直连域头族（`buildHeaders`，`Accept: application/json`）
+ */
 const MODEL_LIST_PATH = "/api/agent/maas/model-types";
+
+/** 模型目录 body 的三字段（`[参考]` 参考实现的 `DefaultTenant`/`DefaultScene`/`DefaultEnv`）。 */
+const MODEL_TENANT = "CatDesk";
+const MODEL_SCENE = "CATX_APP";
+const MODEL_ENV = "EXTERNAL";
 
 export const WIRE: "custom" = "custom";
 export const DISPLAY_NAME = "CatPaw";
@@ -1403,7 +1463,11 @@ export async function fetchModels(credential: CredentialShape): Promise<Record<s
   const resp = await fetchWithTimeout(modelsUrl(), {
     method: "POST",
     headers: { ...headers, Accept: "application/json" },
-    body: JSON.stringify({ tenant: "CatDesk", scene: CATPAW_MODE, env: "EXTERNAL" }),
+    body: JSON.stringify({
+      tenant: MODEL_TENANT,
+      scene: MODEL_SCENE,
+      env: MODEL_ENV,
+    }),
   }, FETCH_TIMEOUT_MS);
   if (resp.status === 401 || resp.status === 403) {
     throw new UpstreamUnauthorized(`upstream HTTP ${resp.status}`);

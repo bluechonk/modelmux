@@ -4,57 +4,53 @@
 
 ---
 
-## 1. 端点
+## 1. 端点（确切 URL）
 
 Base（API）：`https://lobsterai-server.youdao.com`（lobsterai-product.ts:63）
 Base（Portal）：`https://lobsterai.youdao.com`（:77）
 
-| 用途 | 方法 | 完整路径 | 来源 |
-|---|---|---|---|
-| 授权码换 token | POST | `{apiBase}/api/auth/exchange` | lobsterai.ts:32 |
-| 静默续期 | POST | `{apiBase}/api/auth/refresh` | :34 |
-| 对话 | POST | `{apiBase}/api/proxy/v1/chat/completions` | :45 |
-| 模型列表 | GET | `{apiBase}/api/models/available?{keyfrom query}` | :36 |
-| 积分余额 | GET | `{apiBase}/api/user/profile-summary` | lobsterai-credits.ts:40 |
-| 活动槽位 | GET | `{apiBase}/api/client-activities/slot?placement=desktop_sidebar&clientVersion={v}&containerApiVersion=2&platform=win32` | :36, 50-52 |
-| 活动上下文 | GET | `{apiBase}/api/client-activities/{activityCode}/context?configRevision={rev}` | :38 |
-| 签到 | POST | `{apiBase}/api/client-activities/{activityCode}/actions/check_in` | :261 |
-| 客户端版本号 | GET | `https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/prod/update` | lobsterai-product.ts:85-86 |
-| 登录页（浏览器） | GET | `{portalBase}/portal#/login?source=electron&redirect_uri=...&state=...` | lobsterai-oauth.ts:104-116 |
-| 本地回调 | — | `http://127.0.0.1:{port}/auth/callback?code=...&state=...` | :109 |
+`{apiBase}` = API 基址（落盘于 `<cid>/upstream.json` 的 `baseUrl`，缺省 API 基址）；
+`{portalBase}` = 登录门户基址。**多区域/多环境：无**，单一域名。
 
-**多区域/多环境：无。** 单一域名。
+| 用途 | 方法 | 完整 URL | 端点路径 | 必需 query / body 来源 | 实现位置 |
+|---|---|---|---|---|---|
+| 授权码换 token | POST | `{apiBase}/api/auth/exchange` | `/api/auth/exchange` | body：`authCode`（回调里的 code）/ `firstKeyfrom` / `latestKeyfrom` / `uuid` / `version` | `src/upstream.ts` `EXCHANGE_PATH`；`src/cred.ts` `exchange()` |
+| 静默续期 | POST | `{apiBase}/api/auth/refresh` | `/api/auth/refresh` | body：`firstKeyfrom` / `latestKeyfrom`（**用存储值**）/ `version` / `refreshToken` / `uuid?` / `userId?` | `src/upstream.ts` `REFRESH_PATH`；`src/cred.ts` `refresh()` |
+| 对话 | POST | `{apiBase}/api/proxy/v1/chat/completions` | `/api/proxy/v1/chat/completions` | **无 query**；body 见 §3 | `src/upstream.ts` `CHAT_PATH` / `chatUrl()` |
+| 模型列表 | GET | `{apiBase}/api/models/available?{keyfrom query}` | `/api/models/available` | query **全部来自凭据**：`firstKeyfrom` / `latestKeyfrom` / `version`（动态版本号）/ `uuid?` / `userId?`；**不含 `refreshToken`** | `src/upstream.ts` `MODELS_PATH` / `modelsQuery()` / `modelsUrlFor()` |
+| 积分余额 | GET | `{apiBase}/api/user/profile-summary` | `/api/user/profile-summary` | **无 query** | `src/upstream.ts` `PROFILE_SUMMARY_PATH`；`src/billing.ts` |
+| 活动槽位 | GET | `{apiBase}/api/client-activities/slot?placement=desktop_sidebar&clientVersion={v}&containerApiVersion=2&platform=win32` | `/api/client-activities/slot` | 四个 query 常量逐字不可改（`clientVersion` 来自动态版本接口） | `src/billing.ts` `ACTIVITY_SLOT_PATH` / `activitySlot()` |
+| 活动上下文 | GET | `{apiBase}/api/client-activities/{activityCode}/context?configRevision={rev}` | `/api/client-activities/{activityCode}/context` | `configRevision` 来自槽位响应 | `src/billing.ts` `ACTIVITY_CONTEXT_PATH` / `activityContext()` |
+| 签到 | POST | `{apiBase}/api/client-activities/{activityCode}/actions/check_in` | `/api/client-activities/{activityCode}/actions/check_in` | body：`{configRevision, idempotencyKey(uuid4), payload:{}}` | `src/billing.ts` `CHECKIN_ACTION_PATH` / `claimCheckin()` |
+| 客户端版本号 | GET | `https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/prod/update` | `/openapi/get/luna/hardware/lobsterai/prod/update` | **无 query**；**不同域名、非统一信封**，载荷在 `data.value.version` | `src/upstream.ts` `CLIENT_VERSION_URL` |
+| 登录页（浏览器） | GET | `{portalBase}/portal#/login?source=electron&redirect_uri=...&state=...` | `/portal#/login` | `source=electron` / `redirect_uri`（`http://127.0.0.1:{port}/auth/callback`，门户会校验）/ `state` | `src/cred.ts` `buildLoginUrl()` |
+| 本地回调 | — | `http://127.0.0.1:{port}/auth/callback?code=...&state=...` | `/auth/callback` | `code` + `state`（state 必须与本轮会话一致） | `src/cred.ts` `startCallbackServer()` |
+
+**端点常量集中一处**：全部路径常量在 `src/upstream.ts` 顶部（`CHAT_PATH` / `MODELS_PATH` /
+`EXCHANGE_PATH` / `REFRESH_PATH` / `PROFILE_SUMMARY_PATH`）；签到平面的两条模板路径在
+`src/billing.ts`（`ACTIVITY_CONTEXT_PATH` / `CHECKIN_ACTION_PATH`）。
 
 ---
 
 ## 2. 认证
 
-### 2.1 请求头（lobsterai.ts:492-570）
+### 2.1 必需请求头清单
 
-**通用带认证头 `lobsteraiAuthHeaders`**：
-```
-Authorization: Bearer {credential.access_token}
-Accept: {accept}            # 默认 application/json
-Content-Type: application/json
-User-Agent: LobsterAI/0.1.0
-```
+去重后 **6 种**（chat / 模型列表形态发 6 条；匿名控制面 exchange / refresh 发 3 条）。
 
-**对话头 `lobsteraiChatHeaders`** = 上述 + `Accept: text/event-stream, application/json` + 两个能力头：
-```
-X-LobsterAI-Client-Capabilities: kimi-k3-agentic-v1,thinking-level-control-v1
-X-LobsterAI-Client-Version: {动态版本号，如 2026.9.4}
-```
+| 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
+|---|---|---|---|---|
+| `Authorization` | `Bearer {access_token}`（凭据） | **是** | 401/403 → 共享层 `cred.refresh()` 后**原账号**重试一次；刷新也失败则标该账号 `unauthorized`、**不自动切号** | chat / models / profile-summary / activities 全要；exchange / refresh **不带** |
+| `Accept` | 常量，随端点 | 否 | 恒定 | chat = `text/event-stream, application/json`；其余 = `application/json` |
+| `Content-Type` | 常量 `application/json` | 否 | 恒定 | 仅带 body 的请求 |
+| `User-Agent` | 常量 `LobsterAI/0.1.0` | 否 | 恒定（**刻意不跟版本号变**） | 照抄参考实现的 `clientUA`；签到/额度端点也用它（见 §10 已知边界 G3） |
+| `X-LobsterAI-Client-Capabilities` | 常量 `kimi-k3-agentic-v1,thinking-level-control-v1` | 否，但**是模型端点的准入条件** | 恒定 | 不带则 `/api/models/available` 少 5 个模型且**没有 `kimi-k3`**；`thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（不带该能力服务端直接 500）—— 2026-09-17 实测 |
+| `X-LobsterAI-Client-Version` | **动态真值**：更新接口的 `data.value.version`，进程内缓存 12 小时，失败回退 `2026.9.4` | 否 | 12 小时 TTL / 进程启动 | chat 与 models **两个端点都要**；拉取时机 = 登录 exchange / 续期 refresh / 拉目录 / 签到 |
 
-**模型列表头 `lobsteraiModelsHeaders`** = 通用头 + **同样两个** `X-LobsterAI-Client-*` 头。
-
-**这两个头在模型端点是准入条件**（2026-09-17 实测）：
-不带 `X-LobsterAI-Client-Capabilities` 时 `/api/models/available` 只返回 25 个模型且
-**没有 `kimi-k3`**，带上才 26 个。`thinking-level-control-v1` 是 `reasoning_effort: "off"` 的前提
-—— 不带该能力时服务端直接 HTTP 500。
-
-**匿名头 `lobsteraiAnonymousHeaders`（exchange / refresh）**：
-只有 `Accept: application/json`、`Content-Type: application/json`、`User-Agent: LobsterAI/0.1.0`
-—— **不带 `Authorization`**。
+**没有 `X-Client-Key`，也没有任何设备指纹类头**（`X-Device-*` / `X-LobsterAI-Device-*` 等）：
+三份参考实现设置过的头全集就是上面这 6 个（`xinxinshuhao/internal/upstream/client.go:147-160`、
+`greatleo31/internal/upstream/client.go:100-113`、`skyletter/checkin/checkin.py:20-25`）。
+「设备身份」的真正载体是 **body / query 里的 `uuid`**（安装 UUID），不是 HTTP 头。
 
 LobsterAI **不认** CodeBuddy 那套 `X-Domain` / `X-Product` / `X-Product-Code` / `X-IDE-*` 归属头，
 带上无用且可能让服务端按错误客户端形态归因。
@@ -76,6 +72,13 @@ latest_keyfrom?: string       # 最近活动时间戳（毫秒字符串）
 **refresh 请求体不是只带 refreshToken**，还要带 `firstKeyfrom` / `latestKeyfrom` / `uuid`
 —— 这三个字段必须随凭据持久化，丢了就只能重新登录（lobsterai.ts:72-77）。
 **这是与 CodeBuddy 最大的结构差异。**
+
+**`expires_at` 的单位统一为毫秒**：读盘时**秒与毫秒都认**（参考实现落盘的是 Unix 秒，
+差 1000 倍会把「已过期」判成「未过期」），写回一律毫秒。
+
+**读盘认两种形状**：本实现 / 桌面端的**扁平** snake_case，以及参考实现（Go 工具）的
+**嵌套形** `{"auth":{…},"account":{…}}` —— 后者的 `auth` 放令牌与 keyfrom、`account` 放
+uid / userId / nickname，可直接迁入。
 
 ### 2.3 刷新流程（lobsterai-auth.ts:519-562）
 
@@ -122,6 +125,8 @@ Body: {
 `redirect_uri` 必须是 `http://127.0.0.1:{port}/auth/callback` 形态（登录页会校验）；
 hash 段 `#/login` 必须显式拼装，不能用 `URL.searchParams`。
 
+**这是本渠道唯一的登录路径**（收敛结论与粘贴兜底见 §2.6）。
+
 **exchange 请求**（lobsterai-oauth.ts:130-185）：
 ```
 POST {apiBase}/api/auth/exchange
@@ -157,6 +162,35 @@ Body: {
 - 缓存 TTL 12 小时
 - 兜底常量 `LOBSTERAI_FALLBACK_CLIENT_VERSION = '2026.9.4'`
 - **三个消费点**：exchange 的 `version`、refresh 的 `version`、签到 slot 的必填 query 参数
+
+### 2.6 唯一登录路径（收敛结论）
+
+**本渠道只有一条登录路径**：
+
+```
+浏览器打开 {portalBase}/portal#/login?source=electron&redirect_uri=…&state=…
+  → 门户回跳 http://127.0.0.1:{随机端口}/auth/callback?code=…&state=…
+  → 本地回调服务器校验 state → POST /api/auth/exchange → 落盘 credentials.json
+```
+
+| 步骤 | 实现 | 说明 |
+|---|---|---|
+| 1 | `newLoginSession()` | `uuid = randomUUID()`；`firstKeyfrom = String(Date.now())`；`state = randomUUID()` |
+| 2 | `startCallbackServer()` | `127.0.0.1` **随机空闲端口**（`listen(0)`），路径 `/auth/callback` |
+| 3 | `buildLoginUrl()` | `{portalBase}/portal#/login?source=electron&redirect_uri=…&state=…`；hash 段必须显式拼装 |
+| 4 | 回调校验 | `code` 非空且 `state` **严格相等**才继续，否则 400（防 CSRF / 串号） |
+| 5 | `exchange()` | 进程内 `POST /api/auth/exchange` |
+| 6 | 落盘 | `save()` 原子写 + 0600 |
+| 7 | 超时 | 10 分钟 |
+
+**粘贴兜底（不是第二条路径）**：浏览器回跳 `127.0.0.1:{随机端口}` 失败时（远程 / 无头 / 容器），
+用户把地址栏整条 URL 粘回来（也接受裸 `code=…&state=…`）；兜底把它**转交同一个回调处理器**
+（本地回环请求 `http://127.0.0.1:{port}/auth/callback?code=…&state=…`），因此走的仍是**同一条**
+exchange 路径，不会出现「两条路径各换一次 token」的分叉。`state` 不匹配一律拒收。
+参考实现的 `add-account.sh:53-69` 也是这个做法。
+
+**不引入参考实现的 `login url` / `login poll` 两进程拆分**：那是容器化 / 脚本化的产物
+（状态靠文件传递），不是上游协议要求；本仓库是本机 CLI，单进程闭环即可。
 
 ---
 
@@ -322,6 +356,11 @@ glm-5.2, glm-5.1, glm-5v-turbo, glm-5
 `platform=win32` 是**伪装客户端形态**，即使跑在 macOS/Linux 上也照发，
 与运行环境无关，改了可能拿不到活动。
 
+**`slotState` 的语义**：`data.slotState` 与 `data.activity` **平级**，取值 `available` 表示有活动；
+非 `available` = **当前没有活动**（不是失败）：签到跳过、余额查询不列可领取项。
+响应里**没有**该字段时按旧行为（取不到 `activityCode` 即报错）。
+参考实现同样按 `slotState` 判「无可用活动」（`xinxinshuhao/internal/upstream/client.go:473-476`）。
+
 幂等是**客户端**保证：`idempotencyKey`（UUID4）+ 先查 `claimedToday` / `actions` 含 `check_in`。
 两步预检都要做。
 
@@ -435,6 +474,45 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 
 ---
 
+## 10. 已知边界
+
+对照 `reference/` 下三份参考实现逐条核对后的结论。**「参考实现有、本轮未做」**的条目都写了原因。
+
+### 10.1 参考实现有、本轮未做
+
+| # | 缺口 | 参考实现证据 | 本轮未做的原因 |
+|---|---|---|---|
+| G1 | **定时保活（keepalive）**：定时批量 refresh，session-dead 自动禁用 | `xinxinshuhao/internal/scheduler/scheduler.go:110-131`、`:19-21`（默认 22 点）；`greatleo31/internal/scheduler/scheduler.go:433-475` | 需要共享层加定时器；且**先要真机确认 refresh_token 的真实有效期**（access_token 约 30 天，refresh_token 未知）。若 refresh_token 与 access_token 同寿命，则保活无收益 |
+| G2 | **单请求内的账号轮转（换号）**：`MaxRotate=3` + `PickExcluding(tried)` | `xinxinshuhao/internal/server/handler.go:22`、`:190-195`；`greatleo31/internal/server/handler.go:196-249`；`internal/pool/pool.go:131-151` | **共享层缺口**：网关在 401/403 时明确「不自动切号」（`chat-relay.ts`），账号切换是手工动作（`mx acct <cid> use <key>`）。需共享层改造，本轮不动 |
+| G3 | **签到 / 额度端点的 User-Agent 带真实版本号** | `xinxinshuhao/internal/upstream/client.go:424-428`（`User-Agent: LobsterAI/{version}`）；`greatleo31/internal/upstream/checkin.go:130-133`；`skyletter/checkin/checkin.py:24`、`:49` 与 `checkin/credits.py:30` | 要先查版本更新端点，**代价大于收益**：签到 slot 的 `clientVersion` **query 参数**已经带真实版本号（服务端按它判活动可见性）；UA 只是冗余信号。⚠ 未验证：slot 端点是否**同时**看 UA —— 见 §10.3 |
+| G8 | **SSE 首块窥探**：在响应头发出前识别「HTTP 200 + 流内错误帧」，从而还能换号 | `xinxinshuhao/internal/upstream/client.go:277-291`（Peek 4KB + `isSSEErrorFrame`）、`:298-309`；`internal/upstream/sse.go:157-173`（`errFromFrame`，帧内业务码 `code=40300`）；`internal/server/handler.go:225-258` | **需共享层改造**：共享层的「排队探测 / 空帧重试」路径只对 `WIRE !== "openai"` 的渠道可达（`chat-relay.ts` 的 `isCustomWire`），本渠道是 `openai` 线型。响应头一旦发出就无法换号重发 —— 见 §10.3 |
+| G9 | **积分流水与每模型单价**（含额度批次的到期告警） | `skyletter/checkin/credits.py:64-81`（按 `expiresAt` 排序、「⚠️ 7 天内到期」、批次合计 vs `totalCreditsRemaining` 口径核对） | 上游 `profile-summary` **一次性**返回 `creditItems[]`、无分页参数，参考实现同样只取一次快照 —— **不存在「参考实现有分页」的事实**。每模型单价方面：模型目录已解析 `costMultiplier`（`src/catalog.ts`）并由池层透出倍率，但**没有**按模型维度的花费流水；批次到期告警也只落了 `expiresAt` / `days_left` 字段、没有提示文案。三项都需要新的展示层设计，本轮不做 |
+| G10 | **调度看板**（下次签到时间 / 上次结果 / 历史记录 / 错过时段） | `greatleo31/internal/scheduler/scheduler.go:58-73`（`Status` 结构）、`:231-261`（`Status()`）、`:139-171`（`ranToday` / `missedSlots`）、`:263-301`（历史落盘） | 共享层只有签到台账 `state/signin.json`（记「今天签没签」），没有「上次/下次/历史」视图。属控制台展示层设计，本轮不做 |
+
+### 10.2 有意分歧（保持现状）
+
+- **不移植冷却 / 禁用状态机**：参考实现会在分类后自动 `Cooldown(余额不足, 12h)` / `Disable(uid)`，
+  表现为账号被**静默停用**。本实现刻意不做 —— 只有 `modelRateLimits` 与用户手工 `enabled` 开关。
+  **轮转**（这次请求换个人试试）与**冷却**（标记账号不可用一段时间）是两件事：采纳前者，不用后者。
+- **`tool_choice` 一律不发**：参考实现会保留 `tool_choice` 的 object 形态
+  （`xinxinshuhao/internal/upstream/client.go:229-241`），本实现**一律删除** —— 更保守，不会引发上游报错。
+- **不加 `X-Client-Key`、不加任何设备指纹类头**：LobsterAI 协议里**不存在**这些头
+  （三份参考逐条枚举都没有，见 §2.1）。
+
+### 10.3 待真机验证（静态判不了）
+
+| # | 待验证 | 影响 |
+|---|---|---|
+| V1 | 签到 / 额度端点是否**同时**校验 UA 里的版本号 | 决定 G3 是「冗余信号」还是「签到恒失败」 |
+| V2 | access token / refresh token 的真实有效期 | 决定 G1（定时保活）是否必须补 |
+| V3 | refresh 是否轮换 refresh_token（响应不返回新值时旧值是否仍可用） | 决定续期是否「一次就废」 |
+| V4 | chat / models 端点发**真实版本号**（`2026.9.4`）是否被接受 | 参考实现长期发 `0.1.0`；真实版本可能触发更严格的模型集或校验 |
+| V5 | 流内错误帧（HTTP 200 + `event:error`）在当前共享层能否换号 | 决定 G8 的优先级 |
+| V6 | `uuid`（安装 UUID）是否需要跨账号 / 跨登录保持稳定 | 当前每次登录新生成（与参考实现一致） |
+| V7 | `X-LobsterAI-Client-Capabilities` 是否支持逗号分隔多能力 | 当前发 2 个，参考只发 1 个 |
+
+---
+
 ## 使用与实测
 
 ### 已知限制
@@ -462,6 +540,13 @@ mx bill lobsterai           # 额度与倍率（测试后核对是否扣费）
 Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
 
 - 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+
+### 本轮改动后待复测
+
+2026-10-20 收敛改动（登录路径唯一化 + 端点常量集中 + `slotState` 消费 + 凭据形状/单位兼容）
+**尚未做真机复测**，需重跑：`mx login lobsterai`（含**粘贴兜底**：浏览器回跳失败时把地址栏
+整条 URL 粘回终端）→ `mx status lobsterai` → `mx model lobsterai --refresh` →
+`mx bill lobsterai` → `mx <cid> checkin`（验证 `slotState` 分支）。
 
 ## 参考实现
 
