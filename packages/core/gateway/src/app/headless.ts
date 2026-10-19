@@ -444,6 +444,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
           return runInChannel(channel.config.cid, () =>
             authFlow.ensureLogin(ui, {
               interactive: ensureLogin || forceLogin,
+              passiveNoProbe: true,
               ...(ensureLogin || forceLogin ? { baseUrl: cred.resolveBaseUrl(realm) } : {}),
               cid: channel.config.cid,
             }),
