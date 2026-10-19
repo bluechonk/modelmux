@@ -7,8 +7,9 @@
 # 紧急绕过：git push --no-verify（按 AGENTS.md 门禁规则，须先说明理由并获同意）。
 set -euo pipefail
 
-hook_dir=$(cd "$(dirname "$0")" && pwd)
-repo_root=$(dirname "$hook_dir")
+# linked worktree 里 hook 仍来自主工作树的 .githooks；必须用当前工作树解析仓库根，
+# 否则门禁会去测主工作树而不是当前分支。
+repo_root=$(git rev-parse --show-toplevel)
 
 cd "$repo_root"
 if ! bash scripts/wsl-gate.sh; then

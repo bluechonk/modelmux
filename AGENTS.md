@@ -37,7 +37,7 @@ docs/                         契约与规范（唯一的仓库级文档层）
 1. **大规模修改或重构必须先创建新分支**，禁止在 `main` 上直接动手。
 2. 分支名使用明确的类型前缀：`refactor/<模块名>` / `feat/<模块名>` / `fix/<模块名>`。
 3. 分支必须从**最新的 `main`** 创建，保持目标明确、改动可控。
-4. 分支完成后必须走完整流程：推送 → 建 PR → 合并 → 删除分支。
+4. 分支完成后必须走完整流程：推送 → 建 PR → CI 全绿 → rebase 合并 → 删除分支。
 5. 判定为「大规模修改」的情形（命中任一即必须开分支）：
    - 改动跨越 `packages/` 下两个及以上包；
    - 涉及目录结构、包边界、`workspaces`、`tsconfig` references 的调整；
@@ -48,6 +48,33 @@ docs/                         契约与规范（唯一的仓库级文档层）
 6. 大规模修改**动手前**必须先产出方案：目标、影响范围、迁移路径、验证方式、回滚方式。
 7. 重构以**可运行、可测试**为分界；大步骤拆小提交，每个提交保持可构建与逻辑一致。
 8. 纯文档、单文件修复、注释订正等小改动可直接在 `main` 上提交。
+9. **合并统一用 rebase**：`gh pr merge <n> --rebase`（需要压缩时用 `--squash`）。仓库已关闭
+   merge commit；`verify:topology` 会把 tree 与任一父提交相同的冗余 merge 判为失败。单提交 PR
+   用 `--merge` 必然产生这种冗余 merge，禁止。
+
+## Worktree 约束
+
+**按需使用**。仓库只有一个网关端口 4412 和共享的 `~/.modelmux` 存储根，worktree 不能用来
+并行跑两个真实网关。
+
+1. 什么时候开：
+   - 多个 agent 同时做互不依赖的分支；
+   - 一个长任务保留未提交改动，同时另一个任务要用 `main`；
+   - 一边 review PR 一边继续开发；
+   - 需要两套构建/测试产物做隔离对比（但不能同时跑真实网关 e2e）。
+2. 什么时候不开：
+   - 简单顺序任务、单文件改动；
+   - 需要真实账号 + 真实网关的并行 e2e（端口与账号池状态会冲突）；
+   - 磁盘或安装时间不允许每棵树都跑 `npm ci`。
+3. 落点：仓库同级目录 `../modelmux-worktrees/<branch>`，不要放在仓库根目录内
+   （`verify-docs` / `verify-storage` / npm workspaces 会扫到嵌套目录）。
+4. 每棵树独立：`npm ci`、`dist/`、`node_modules/` 都不共享。
+5. 全局 `mx` 指向主工作树的 bundle；在 worktree 里用 `node packages/cli/dist/cli.js`
+   或在该树里重新 `npm link`。
+6. 并行任务用 `PLAN_ID` 绑定 `.planning/`，不要把计划文件写到别的树。
+7. `.githooks/pre-push` 用 `git rev-parse --show-toplevel` 解析当前工作树；不要在 hook 里
+   用 hook 文件所在目录推导仓库根（linked worktree 会指到主工作树）。
+8. 清理：`git worktree remove <path>`，再 `git worktree prune`。
 
 ## 文档规则
 
@@ -138,10 +165,9 @@ docs/                         契约与规范（唯一的仓库级文档层）
 11. **测试红线：禁止用 MODELMUX_HOME 伪装或本机假服务替身测渠道行为**：
     - 端到端测试使用真实账号（扫码入池）直连真实上游，**不能用 MODELMUX_HOME 伪装、不能用
       本机假服务替身**（那测的不是真实渠道行为，结论不可信）。
-    - **测试模型必须低费或免费**：**一律使用 DeepSeek flash 系列**
-      （`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-flash` 等），这是测试首选默认模型；
-      **禁止**用旗舰模型跑测试（`longcat-*` / `*-pro` / `*-max` / `kimi-k3` / 不带 flash 的 `glm-5.3`）；
-      拿不准时先跑 `mx model usage` / `mx model list` 挑最便宜的一档；确需验证非 flash 模型时，
+    - **测试模型必须低费或免费**：优先倍率 0 的免费模型；没有免费模型时先 `mx bill <cid>` /
+      `mx model <cid>` 看额度与倍率，选当前渠道**倍率最低**的模型。**禁止**用高倍率旗舰
+      （`*-pro` / `*-max` / `kimi-k3` / 不带 flash 的 `glm-5.3` 等）；确需验证高倍率模型时，
       只发**单轮最小对话**（一句短问 + 限制输出），并先说明理由。
 
 ## 命令
@@ -156,7 +182,7 @@ npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道�
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
 node packages/cli/dist/cli.js model list    # 池视图：动态模型 → 候选渠道 + 账单用量 + 冷却
 node packages/cli/dist/cli.js model usage   # 池账本；--refresh 立刻重查
-node packages/cli/dist/cli.js login <cid>   # 对某个渠道操作：login / relogin / status / models / billing / accounts / paths / logs
+node packages/cli/dist/cli.js login <cid>   # 对某个渠道操作：login / relogin / status / model / bill / acct / path / log
 node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调试/回归用；只有它才用该渠道的 defaultAddr）
 ```
 
@@ -219,7 +245,7 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（P
 | 改动范围 | 必须跑 |
 | --- | --- |
 | 任何改动 | `npm run gate`（含 `npm test`） |
-| `packages/ui/**` 或 `.github/workflows/pages.yml` | 上面的 gate 会自动追加 Pages 产物校验；也可单跑 `npm run verify:pages` |
+| `packages/ui/**`、`.github/workflows/pages.yml` 或 `.github/workflows/ci.yml` | 上面的 gate 会自动追加 Pages 产物校验；也可单跑 `npm run verify:pages` |
 | `.github/workflows/**`（任意 workflow） | **必须本地先跑通再推** —— workflow 的失败模式通常只有真跑产物才暴露（如 Pages 的 base 前缀不对 → 整页空白），推到云上再改要多一轮提交 |
 
 ### 禁止事项
@@ -233,15 +259,15 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（P
 
 **强制**。
 
-1. `npm test` 全绿（自带 `build`，含 `verify:storage` / `verify:docs` / `verify:commits`）。
+1. `npm test` 全绿（自带 `build`，含 `verify:contract` / `verify:storage` / `verify:docs` / `verify:commits` / `verify:topology` / `verify:layering`）。
 2. **测试链读的是各包 `dist/`（不是 `src/`）**，所以编译必须在链首：`npm test` 已内置 `npm run build`；
    单独跑 `npm run verify:storage` 或 `npm test --workspace=packages/core/channels/<cid>` 前必须**先** `npm run build`。
 3. **本地 WSL 门禁全绿后才允许推送**（见上节 `npm run gate`）；CI 不通过时禁止提交新 commit，
    必须先把红的那次修绿。
 4. 文档与代码**同一个 commit** 更新。
 5. 不要提交运行时数据（`~/.modelmux/`、`dist/`、`node_modules/`）。
-6. 核对口径：推送后本次运行的 CI 必须是 `completed / success`（本机无 `gh`，用
-   `curl -H "Authorization: Bearer $GITHUB_TOKEN" .../commits/<sha>/check-runs` 查）。
+6. 核对口径：推送后本次运行的 CI 必须是 `completed / success`；用 `gh pr checks <n>` /
+   `gh run view <id>` 查看。
 
 ## 改完代码的执行顺序
 
@@ -297,11 +323,14 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（P
 5. footer 可选；破坏性变更用 `!` 或 `BREAKING CHANGE: …` 标注（如 `refactor(repo)!:`）。
 6. 一次逻辑变更只产生一个提交；能合并的改动不要拆成多个 commit。
 
-**merge commit 同样适用**（校验器不过滤 merge）：
+**合并方式**（校验器不过滤 merge）：
 
-1. 本地合并写：`git merge --no-ff -m "merge(scope): 中文描述"`。
-2. **禁止** `Merge pull request #N from …` 这类 GitHub 默认标题（无 type / scope / 中文）。
-3. 仓库设置已固定为 `merge_commit_title=PR_TITLE`，故建 PR 时**PR 标题本身**必须是
-   `type(scope): 中文描述` —— 它会被直接用作 merge commit 标题。
-4. GitHub Actions 在 `pull_request` 事件里构造的临时合并提交（`Merge <sha> into <sha>`）
+1. PR 统一用 rebase 合并：`gh pr merge <n> --rebase`；需要压缩时用 `--squash`。
+2. **禁止 merge commit**：仓库已关闭 merge commit；`verify:topology` 会拦截 tree 与任一父提交
+   相同的冗余 merge。
+3. PR 标题仍必须是 `type(scope): 中文描述` —— squash 会直接用它作为提交信息；rebase 保留
+   分支里的提交信息。
+4. 如果确实需要本地 `git merge --no-ff`（长生命周期分支），必须先确认 merge 的 tree 与两个父提交
+   都不同，并写 `merge(scope): 中文描述`；否则用 rebase。
+5. GitHub Actions 在 `pull_request` 事件里构造的临时合并提交（`Merge <sha> into <sha>`）
    不由人编写、也不可修改，校验器会**自动跳过**，无需处理。
