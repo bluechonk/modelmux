@@ -326,7 +326,55 @@ function primaryHost(realm: Realm): string {
 
 /** 推理 URL（当前区域的首选主机）。 */
 export function chatUrl(): string {
-  return `${primaryHost(activeRealm)}${CHAT_PATH}`;
+  return `${hostOverride ?? primaryHost(activeRealm)}${CHAT_PATH}`;
+}
+
+/**
+ * 本应答的首选主机覆盖（换 host 重试时设置，`null` = 用记忆/默认）。
+ *
+ * Qoder 的「200 后零字节 / 断流」是**主机级**瞬时故障（实测 api1 挂起而 api2
+ * 正常），签名只覆盖 path 不含 host，所以换主机后同一签名仍然有效 —— 与
+ * `fetchModels` 的多主机轮换同源（见 [PROTOCOL.md](./docs/PROTOCOL.md) §7.5）。
+ */
+let hostOverride: string | null = null;
+
+/** 设置 / 清除推理主机覆盖（下一次 `chatUrl()` 生效）。 */
+export function setChatHostOverride(host: string | null): void {
+  hostOverride = host;
+  // 签名覆盖 url：换 host 必须重签，否则上游按旧签名判定 403
+  if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
+}
+
+/** 当前推理 URL 用的主机（排查/测试用）。 */
+export function currentChatHost(): string {
+  return hostOverride ?? primaryHost(activeRealm);
+}
+
+/**
+ * 换 host 成功后把新主机**持久化**到账号记忆（与 `fetchModels` 的记忆同一字段）。
+ *
+ * 不回写的话，每个请求都从坏主机开始、先失败一次再切——慢且污染健康度。
+ * 记忆写进凭据文件的 `gatewayHost`（见 `cred.rememberGatewayHost`）。
+ */
+export function rememberChatHost(): void {
+  const host = currentChatHost();
+  rememberGatewayHost(host);
+  // 生效后清掉本次的覆盖：后续请求直接从持久记忆里取同一台
+  hostOverride = null;
+  if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
+}
+
+/**
+ * 候选推理主机（签名按 path 算、不含 host，所以换主机不重签）。
+ *
+ * 顺序：当前 URL 在用的主机排第一，其后是区域表其余候选 —— 上游对「200 后零字节」这类
+ * **主机级故障**只会自愈在换主机后（实测 api1 静默挂起而 api2 正常，见
+ * [PROTOCOL.md](./docs/PROTOCOL.md) §7.5）。返回**副本**，调用方可安全修改。
+ */
+export function chatHostCandidates(): string[] {
+  const current = currentChatHost();
+  const all = gatewayCandidates(activeRealm);
+  return [current, ...all.filter((h) => h !== current)];
 }
 
 /** 模型目录 URL。 */

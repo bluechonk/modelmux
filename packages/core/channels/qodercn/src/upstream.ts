@@ -326,7 +326,47 @@ function primaryHost(realm: Realm): string {
 
 /** 推理 URL（当前区域的首选主机）。 */
 export function chatUrl(): string {
-  return `${primaryHost(activeRealm)}${CHAT_PATH}`;
+  return `${hostOverride ?? primaryHost(activeRealm)}${CHAT_PATH}`;
+}
+
+/**
+ * 应答期间的首选推理主机覆盖（换 host 重试时由共享层设置，`null` = 用记忆/默认）。
+ *
+ * 国内版是单主机（`gateway.qoder.com.cn`），这里保留同款钩子只是让共享层的
+ * 「主机轮换重试」对两区一套逻辑（国际版实测有效，见 qoder/docs/PROTOCOL.md §7.5）。
+ * 签名只覆盖 path 不含 host，所以换 host 后同一签名仍然有效。
+ */
+let hostOverride: string | null = null;
+
+/** 设置 / 清除推理主机覆盖（下一次 `chatUrl()` 生效；含签名槽重签）。 */
+export function setChatHostOverride(host: string | null): void {
+  hostOverride = host;
+  if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
+}
+
+/** 当前推理 URL 用的主机（排查/测试用）。 */
+export function currentChatHost(): string {
+  return hostOverride ?? primaryHost(activeRealm);
+}
+
+/** 候选推理主机：[当前主机] + 区域表其余候选（国内版实际只有一台）。 */
+export function chatHostCandidates(): string[] {
+  const current = currentChatHost();
+  const all = gatewayCandidates(activeRealm);
+  return [current, ...all.filter((h) => h !== current)];
+}
+
+/**
+ * 换 host 成功后把新主机**持久化**到账号记忆（与国际版同源钩子）。
+ *
+ * 国内版只有一台主机，正常不会走到这里；钩子存在是为了让共享层的
+ * 「主机轮换重试 + 成功回报」对两区是同一套代码路径。
+ */
+export function rememberChatHost(): void {
+  const host = currentChatHost();
+  rememberGatewayHost(host);
+  hostOverride = null;
+  if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
 }
 
 /** 模型目录 URL。 */

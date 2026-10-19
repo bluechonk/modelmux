@@ -205,6 +205,17 @@ interface Channel {
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
   按帧里的 `retryAfterSeconds`（封顶 10s）退避后重开上游重试，总时长上限 5 分钟。
   已吐过内容帧则不重试（避免重复内容）。未声明的渠道照旧把错误帧透传给客户端。
+- `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒），默认
+  `MODELMUX_READ_TIMEOUT_MS`（120s）。用于「收下请求（HTTP 200）后长时间零字节」
+  的上游（如 Qoder 排队/长思考，实测首字延迟 40–71s）；声明后首帧等待、空闲守卫
+  与排队探测统一放宽，等待期网关向客户端补 `: ping` 心跳防空闲断连。
+
+**可选主机轮换钩子**（网关用鸭子类型调用，不实现即忽略）：
+
+- `chatHostCandidates()` / `setChatHostOverride(host)` / `currentChatHost()` / `rememberChatHost(host)`：
+  多主机上游里个别主机对「200 后零字节 / 断流」是坏的，网关在探测层重试前换下一候选，
+  成功后回写记忆。仅 custom 线型且签名不覆盖 host 的渠道适用（如 Qoder，见
+  `packages/core/channels/qoder/docs/PROTOCOL.md` §7.5）；标准 OpenAI 兼容渠道没有这个概念。
 
 **`WIRE` 怎么选**：
 
