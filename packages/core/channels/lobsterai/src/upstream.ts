@@ -29,10 +29,51 @@ import { ensureDir, upstreamPath } from "@modelmux/gateway";
 /** 上游 API 基址（单一域名，无多区域）。 */
 export const DEFAULT_BASE_URL = "https://lobsterai-server.youdao.com";
 
-/** 对话端点（OpenAI 兼容，**仅支持 SSE**）。 */
+// ── 端点常量（方法 + 完整 URL + 端点路径 + query/body 来源）──────────────────
+//
+// 全部上游端点集中在本节：`cred.ts`（控制面）与 `billing.ts`（额度面）都引用这里。
+
+/**
+ * 对话端点（OpenAI 兼容，**仅支持 SSE**）。
+ *
+ * `POST {base}/api/proxy/v1/chat/completions` —— **无 query**。
+ * body：OpenAI 兼容请求（`model` / `messages` / `stream` 恒 true / …），改写见 `buildChatBody()`。
+ */
 export const CHAT_PATH = "/api/proxy/v1/chat/completions";
-/** 可用模型列表端点。 */
+
+/**
+ * 可用模型列表端点。
+ *
+ * `GET {base}/api/models/available?{keyfrom query}` —— query **全部来自凭据**：
+ * `firstKeyfrom` / `latestKeyfrom` / `version`（动态版本号）/ `uuid?` / `userId?`；
+ * **不含 `refreshToken`**（放 query 会进服务端访问日志）。见 `modelsQuery()`。
+ */
 export const MODELS_PATH = "/api/models/available";
+
+/**
+ * 授权码换 token（控制面；**匿名**，不带 `Authorization`）。
+ *
+ * `POST {base}/api/auth/exchange`
+ * body：`authCode`（回调里的 code）/ `firstKeyfrom` / `latestKeyfrom` / `uuid` / `version`。
+ */
+export const EXCHANGE_PATH = "/api/auth/exchange";
+
+/**
+ * 静默续期（控制面；**匿名**，不带 `Authorization`）。
+ *
+ * `POST {base}/api/auth/refresh`
+ * body：`firstKeyfrom` / `latestKeyfrom`（**用存储值**）/ `version` / `refreshToken`，
+ * 另带 `uuid?` / `userId?`（仅非空时带该键）。
+ */
+export const REFRESH_PATH = "/api/auth/refresh";
+
+/**
+ * 积分余额（只读）。
+ *
+ * `GET {base}/api/user/profile-summary` —— **无 query**。
+ * 响应取 `data.totalCreditsRemaining` 与 `data.creditItems[]`。
+ */
+export const PROFILE_SUMMARY_PATH = "/api/user/profile-summary";
 
 /** 展示名（状态页与日志用）。 */
 export const DISPLAY_NAME = "LobsterAI";
@@ -129,13 +170,24 @@ function trimSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-/** 完整限定的 chat-completions URL。 */
+/**
+ * 完整限定的 chat-completions URL。
+ *
+ * `POST {base}/api/proxy/v1/chat/completions`（**无 query**）。
+ * base 取自 `<cid>/upstream.json` 的 `baseUrl`，缺省 `DEFAULT_BASE_URL`；
+ * 共享层转发时**不传参**调用（`chat-relay.ts`），故此处必须能自己解析出 base。
+ */
 export function chatUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
   return `${trimSlash(resolved.baseUrl)}${CHAT_PATH}`;
 }
 
-/** 模型列表 URL（不带 keyfrom query，供状态展示用）。 */
+/**
+ * 模型列表 URL —— **不带 keyfrom query**。
+ *
+ * 只用于展示/调试；真正拉目录走 `modelsUrlFor()`（带 query）。
+ * 拉目录**必须**用带 query 的那个：query 里的 keyfrom 身份载荷是上游的准入输入。
+ */
 export function modelsUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
   return `${trimSlash(resolved.baseUrl)}${MODELS_PATH}`;
@@ -301,7 +353,12 @@ export function modelsQuery(
   return params;
 }
 
-/** 模型列表 URL（带 keyfrom query）。 */
+/**
+ * 模型列表 URL（**带 keyfrom query**）—— 拉目录时用这个。
+ *
+ * `GET {base}/api/models/available?firstKeyfrom=…&latestKeyfrom=…&version=…[&uuid=…][&userId=…]`
+ * 调用点：`upstream.fetchModels()`（唯一）。
+ */
 export function modelsUrlFor(
   cfg: Config,
   credential: AuthLike & KeyfromLike,

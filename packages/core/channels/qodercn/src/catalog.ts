@@ -90,15 +90,119 @@ const POOL_KEY_MAP: Record<string, string> = {
   gfmodel: "glm-5.3-flash",
 };
 
-/** 兜底表：连磁盘缓存都没有时用（元数据取自官方目录快照）。 */
-const FALLBACK: ModelEntry[] = [
+/**
+ * 兜底表：连磁盘缓存都没有时用（未登录 / 上游不可达时的离线目录）。
+ *
+ * **数据来源**：国内版官方目录静态快照（14 条），抄自
+ * `reference/shuishuipingan_qoder2api-hub/qoder_catalog_cn.json`
+ * （上游仓库 `shuishuipingan/qoder2api-hub`；2026-10-20 随参考实现克隆时抄录）。
+ * [参考]
+ *
+ * ⚠ **只抄数据**（`key` / `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`），
+ * 不抄参考实现的任何逻辑；归一化仍走本文件的 `toEntry`，
+ * 保证兜底表与动态目录产出**完全同形**的对外 id。
+ *
+ * ⚠ `context_config`（1M / 200K / 400K 多窗口）与 `price_factor` **不抄**：
+ * 池层是从**磁盘缓存**的原始条目读档位表与倍率的
+ * （`packages/core/gateway/src/pool/pool-targets.ts:249-264`、`:287`），
+ * 兜底表不落缓存、进不了那条路径，抄进来只是死数据。
+ *
+ * ⚠ `auto` 是平台的**策略档位**（按账号档位路由到不同底层模型），
+ * 没有单一规格，故 `MAX_OUTPUTS` 不列它 —— 但上游目录里有它，兜底表也要有，
+ * 否则兜底态的池子比刷新态少一条。
+ */
+const FALLBACK_RAW: ReadonlyArray<Record<string, unknown>> = [
+  { key: "auto", display_name: "Auto", is_vl: true, is_reasoning: true, max_input_tokens: 200_000 },
+  {
+    key: "qmodel_38max",
+    display_name: "Qwen3.8-Max",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "qfmodel",
+    display_name: "Qwen3.8-Flash",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "qmodel_latest",
+    display_name: "Qwen3.7-Max",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "qmodel",
+    display_name: "Qwen3.7-Plus",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "q37fmodel",
+    display_name: "Qwen3.7-Flash",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "dmodel",
+    display_name: "DeepSeek-V4-Pro",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 96_000,
+  },
+  {
+    key: "dfmodel",
+    display_name: "DeepSeek-Flash",
+    is_vl: true,
+    is_reasoning: false,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "gmodel",
+    display_name: "GLM-5.3",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
   {
     key: "gfmodel",
-    id: "glm-5.3-flash",
-    displayName: "GLM-5.3-Flash",
-    isReasoning: true,
-    isVl: false,
-    maxInputTokens: 1_000_000,
+    display_name: "GLM-5.3-Flash",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 1_000_000,
+  },
+  {
+    key: "gm51model",
+    display_name: "GLM-5.2",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "kmodel_latest",
+    display_name: "Kimi-K3",
+    is_vl: true,
+    is_reasoning: false,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "kmodel",
+    display_name: "Kimi-K2.8-Preview",
+    is_vl: true,
+    is_reasoning: true,
+    max_input_tokens: 180_000,
+  },
+  {
+    key: "mmodel",
+    display_name: "MiniMax-M2.7",
+    is_vl: false,
+    is_reasoning: false,
+    max_input_tokens: 180_000,
   },
 ];
 
@@ -156,7 +260,11 @@ export function loadCatalog(): ModelEntry[] {
   } catch {
     /* 缓存读不出来就用兜底表 —— 目录不可用不该让整个渠道消失 */
   }
-  return [...FALLBACK];
+  // 兜底表走同一条 `toEntry` 归一化：对外 id 与动态目录完全一致
+  const fallback = FALLBACK_RAW.map((raw) => toEntry(raw)).filter(
+    (entry): entry is ModelEntry => entry !== null,
+  );
+  return fallback;
 }
 
 /** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */

@@ -22,6 +22,10 @@
  * 9. **回调页线上是 404，这是正常的**：微信只校验 `redirect_uri` 域名不校验路径；
  *    官方 Electron 客户端在内嵌窗口里拦跳转，我们没有浏览器，故 `code` 只能由
  *    用户从地址栏粘回（`parseWechatCallback`）。
+ * 10. **微信扫码是本渠道唯一的登录路径**：手机号 + 验证码**只服务于「微信未绑手机号」
+ *    时的绑定子步骤**（`LOOMY_PHONE` / `LOOMY_SMS_CODE`），**不是**独立的登录入口
+ *    （`[参考]` 客户端对外也只有微信这一个授权页）。
+ * 11. ⚠ **`bind=0`（未绑手机号）分支未验证**：全仓无该分支的实测记录，别当成可用能力。
  */
 
 import { createHash, createHmac, randomUUID } from "node:crypto";
@@ -52,7 +56,12 @@ export const WECHAT_APP_ID = "wx18d60be432287cf8";
 export const WECHAT_REDIRECT_URI = "https://loomy.xunfei.cn/oauth/wechat/callback";
 export const WECHAT_LONG_POLL_TIMEOUT_MS = 40_000;
 
-/** 短信登录的输入来源（无窗口工程没有输入框，用环境变量）。 */
+/**
+ * 微信**绑定**分支的输入来源（无窗口工程没有输入框，用环境变量）。
+ *
+ * ⚠ 这两个变量**只服务于「微信未绑手机号」的绑定子步骤**（`bind=0`），
+ * **不是**独立的登录入口 —— 本渠道唯一的登录路径是微信扫码。
+ */
 export const PHONE_ENV = "LOOMY_PHONE";
 export const SMS_CODE_ENV = "LOOMY_SMS_CODE";
 
@@ -662,7 +671,12 @@ async function credentialsFromSession(
   return c;
 }
 
-/** 微信扫码完整登录（bind=1 走 skip；bind=0 走发短信 + 校验）。 */
+/**
+ * 微信扫码完整登录（`bind=1` 走 skip；`bind=0` 走发短信 + 校验）。
+ *
+ * ⚠ **`bind=0` 分支未验证**：全仓无该分支的实测记录（缺手机号时会直接抛错提示补环境变量）。
+ * `bind=1`（微信已绑手机号）是**已实测跑通**的主路径。
+ */
 export async function loginWechat(
   baseUrl?: string,
   options: WechatWaitOptions & { pasteCode?: () => string | undefined } = {},
@@ -760,11 +774,14 @@ export async function save(c: Credentials): Promise<void> {
 export interface LoginOptions extends WechatWaitOptions {}
 
 /**
- * 登录：微信扫码（本渠道只保留微信这一条路）。
+ * 登录：**微信扫码 —— 本渠道唯一的登录路径**。
  *
  * > 短信验证码登录（含交互菜单）曾作为另一种方式存在，已按决定移除。
- * > 但**微信绑定**在未绑手机号时仍需手机号 + 验证码（见 `loginWechat`）——
- * > 那属于微信链路的子步骤，故 `LOOMY_PHONE` / `LOOMY_SMS_CODE` 仍保留。
+ * > 现在手机号 + 验证码**只服务于「微信未绑手机号」的绑定子步骤**（见 `loginWechat` 的
+ * > `bind=0` 分支），**不是**独立的登录入口：`LOOMY_PHONE` / `LOOMY_SMS_CODE`
+ * > 只在这个分支里被读取。
+ * > 判据：微信扫码是唯一**实测跑通**的路（2026-10-17 真机扫码 + 2026-10-19 端到端），
+ * > 也是官方客户端**对外唯一**的授权页（`[参考]`：密码 / 短信登录都是客户端内部 API 调用）。
  *
  * 登录成功后由 `loginWechat` 调 `POST /points/first-login`（每日额度初始化，失败仅 warn）。
  */

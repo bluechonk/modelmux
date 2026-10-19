@@ -35,6 +35,7 @@ import { request as httpsRequest } from "node:https";
 import type { StreamTranslator } from "@modelmux/gateway";
 
 import {
+  CHANNEL_REALM,
   currentGatewayHost,
   currentRealm,
   currentUserType,
@@ -47,8 +48,16 @@ import {
   type Realm,
 } from "./cred.js";
 
-/** 契约要求：上游默认基址（当前区域的首选推理主机）。 */
-export const DEFAULT_BASE_URL = productOf("cn").gateway[0]!;
+/**
+ * 推理主机基址（**gateway 那一套**）：chat 与模型目录都用它。
+ *
+ * ⚠ 与 `cred.ts` 的 `DEFAULT_BASE_URL`（**openapi** 业务基址）不是一回事 ——
+ * 契约要求两个模块都导出 `DEFAULT_BASE_URL`，故另起语义名避免误用。
+ */
+export const GATEWAY_BASE = productOf().gateway[0]!;
+
+/** 契约要求的别名（语义 = gateway 推理主机）。 */
+export const DEFAULT_BASE_URL = GATEWAY_BASE;
 
 /** 展示名。 */
 export const DISPLAY_NAME = "Qoder";
@@ -59,13 +68,44 @@ export const WIRE = "custom" as const;
 /** COSY 协议版本（与官方 0.4.3 系列客户端对齐；实测可用）。 */
 export const COSY_VERSION = "1.1.64";
 
-/** 推理端点（`Encode=1` 表示请求体走自定义编码）。 */
-export const CHAT_PATH =
-  "/algo/api/v2/service/pro/sse/agent_chat_generation" +
-  "?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1";
+/**
+ * 推理端点路径（**不含 query**）。
+ *
+ * 三个参考实现的路径逐字一致 `[参考]`：
+ * `shuishuipingan/qoder2api-hub/qoder_proxy.py:321`、
+ * `Zhengyuuuui/qoder2api/account/region.go:30,42`。
+ */
+export const CHAT_ENDPOINT_PATH = "/algo/api/v2/service/pro/sse/agent_chat_generation";
 
-/** 模型目录端点。⚠ GET 也要带 body（`qoder_encode("{}")`）参与签名，否则 403。 */
-export const MODELS_PATH = "/algo/api/v2/model/list?Encode=1";
+/**
+ * 推理端点的**必需 query**（一个都不能少）`[参考]`：
+ *
+ * | 参数 | 值 | 作用 |
+ * | --- | --- | --- |
+ * | `FetchKeys` | `llm_model_result` | 要求上游在流里回传模型结果字段 |
+ * | `AgentId` | `agent_common` | 固定 agent 标识（请求体 `agent_id` 同值） |
+ * | `Encode` | `1` | 请求体走自定义 Base64 编码（对应 `qoderEncode`） |
+ */
+export const CHAT_QUERY: Readonly<Record<string, string>> = {
+  FetchKeys: "llm_model_result",
+  AgentId: "agent_common",
+  Encode: "1",
+};
+
+/** 模型目录端点路径（**不含 query**）`[参考]`。 */
+export const MODELS_ENDPOINT_PATH = "/algo/api/v2/model/list";
+
+/**
+ * 模型目录端点的**必需 query**：`Encode=1`（请求体走编码）。
+ *
+ * ⚠ GET 也必须真的带 body（`qoder_encode("{}")`）参与签名，否则 403 `[实测]`。
+ */
+export const MODELS_QUERY: Readonly<Record<string, string>> = { Encode: "1" };
+
+/** 端点路径 + 必需 query → 完整路径（query 顺序固定，便于与抓包逐字比对）。 */
+function endpointPath(path: string, query: Readonly<Record<string, string>>): string {
+  return `${path}?${new URLSearchParams(query).toString()}`;
+}
 
 /**
  * 官方客户端内置的 RSA 公钥（PKCS#1 v1.5，1024 位）。
@@ -300,7 +340,7 @@ export interface UpstreamConfig {
 }
 
 export function defaultConfig(): UpstreamConfig {
-  return { baseUrl: productOf("cn").gateway[0]!, realm: "cn" };
+  return { baseUrl: GATEWAY_BASE, realm: CHANNEL_REALM };
 }
 
 /** 读取配置（本渠道的端点来自区域表，不走凭据目录里的配置文件）。 */
@@ -324,9 +364,9 @@ function primaryHost(realm: Realm): string {
   return currentGatewayHost() || productOf(realm).gateway[0]!;
 }
 
-/** 推理 URL（当前区域的首选主机）。 */
+/** 推理 URL（当前区域的首选主机 + 端点路径 + 必需 query）。 */
 export function chatUrl(): string {
-  return `${hostOverride ?? primaryHost(activeRealm)}${CHAT_PATH}`;
+  return `${hostOverride ?? primaryHost(activeRealm)}${endpointPath(CHAT_ENDPOINT_PATH, CHAT_QUERY)}`;
 }
 
 /**
@@ -377,9 +417,9 @@ export function chatHostCandidates(): string[] {
   return [current, ...all.filter((h) => h !== current)];
 }
 
-/** 模型目录 URL。 */
+/** 模型目录 URL（**同一个 gateway 主机** + 端点路径 + 必需 query）。 */
 export function modelsUrl(): string {
-  return `${primaryHost(activeRealm)}${MODELS_PATH}`;
+  return `${primaryHost(activeRealm)}${endpointPath(MODELS_ENDPOINT_PATH, MODELS_QUERY)}`;
 }
 
 /** 该区域的全部推理主机候选（主选 + 故障切换）。 */
@@ -410,6 +450,89 @@ interface ChatMessage {
   content: unknown;
   tool_calls?: unknown;
   tool_call_id?: string;
+  /** 思考链（OpenAI 形态）。 */
+  reasoning_content?: unknown;
+  /** 思考链（部分客户端用这个别名）。 */
+  reasoning?: unknown;
+}
+
+/**
+ * 模型元数据（请求体 `model_config` 用）。
+ *
+ * 由 `catalog.ts` 侧注入（见 `setModelMetaLookup`）—— 元数据是**目录**的知识，
+ * 归 `catalog.ts` 管；`upstream.ts` 只消费。
+ */
+export interface ModelMeta {
+  /** 官方展示名（`model_config.display_name`）。 */
+  displayName?: string;
+  /** 是否多模态（`model_config.is_vl`）。 */
+  isVl?: boolean;
+  /** 是否推理模型（`model_config.is_reasoning`）。 */
+  isReasoning?: boolean;
+  /** 默认上下文（`model_config.max_input_tokens`）。 */
+  maxInputTokens?: number;
+}
+
+/**
+ * 「上游 key → 模型元数据」查询器（由 `catalog.ts` 在装配时注入）。
+ *
+ * ⚠ **为什么用注入而不是直接 import**：`catalog.ts` 需要 `upstream.fetchModels()`
+ * 拉目录，`upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。
+ * 由 `channel.ts` 装配时接上（`upstream.setModelMetaLookup(catalog.metaOfKey)`），
+ * 两个模块保持单向依赖。
+ */
+let metaLookup: ((modelKey: string) => ModelMeta | undefined) | null = null;
+
+/** 注入模型元数据查询器（`null` = 撤回，恢复「无元数据」行为）。 */
+export function setModelMetaLookup(
+  lookup: ((modelKey: string) => ModelMeta | undefined) | null,
+): void {
+  metaLookup = lookup;
+}
+
+/** 取模型元数据（未注入 / 查不到 → 空对象，请求体退回默认值）。 */
+function metaOf(modelKey: string): ModelMeta {
+  try {
+    return metaLookup?.(modelKey) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** DeepSeek 上游 key：多轮需要 `reasoning_content`，缺了上游会拒 `[参考]`。 */
+const DEEPSEEK_MODEL_KEYS = new Set(["dmodel", "dfmodel"]);
+
+/** 本次请求是否打到 DeepSeek（按上游 key 或展示名判断）。 */
+function isDeepSeekModel(modelKey: string, displayName: string): boolean {
+  if (DEEPSEEK_MODEL_KEYS.has(modelKey.toLowerCase())) return true;
+  return /deepseek/i.test(modelKey) || /deepseek/i.test(displayName);
+}
+
+/**
+ * 顶层 `{type:"function",name,…}` 工具声明包进 `function` 子对象。
+ *
+ * 上游要求 `tools[].function` 是**对象**；顶层 name 形态直接 400
+ * `'function' is a required property, expected an object - 'tools.N'`
+ * （参考实现 `shuishuipingan/qoder2api-hub/qoder_proxy.py:2828-2848,3966-3970`）`[参考]`。
+ */
+function normalizeTools(tools: unknown[]): unknown[] {
+  const out: unknown[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool)) continue;
+    const rec = tool as Record<string, unknown>;
+    if (rec["type"] === "function" && "name" in rec && !("function" in rec)) {
+      const fn: Record<string, unknown> = {
+        name: rec["name"] ?? "",
+        description: rec["description"] ?? "",
+        parameters: rec["parameters"] ?? {},
+      };
+      if ("strict" in rec) fn["strict"] = rec["strict"];
+      out.push({ type: "function", function: fn });
+      continue;
+    }
+    out.push(tool);
+  }
+  return out;
 }
 
 /** 取最后一条 user 消息的纯文本（上游用它做高亮与会话名）。 */
@@ -444,7 +567,7 @@ function lastUserText(messages: ChatMessage[]): string {
 export function buildRequestBody(
   req: Record<string, unknown>,
   modelKey: string,
-  meta: { displayName?: string; isVl?: boolean; isReasoning?: boolean; maxInputTokens?: number } = {},
+  meta: ModelMeta = {},
   realm: Realm = activeRealm,
 ): Record<string, unknown> {
   const rawMessages = Array.isArray(req["messages"]) ? (req["messages"] as ChatMessage[]) : [];
@@ -456,21 +579,46 @@ export function buildRequestBody(
     .filter(Boolean)
     .join("\n\n");
 
+  /**
+   * DeepSeek 多轮一致性：assistant 历史缺 `reasoning_content` 会被上游拒
+   * （参考实现 `shuishuipingan/qoder2api-hub/qoder_proxy.py:2754-2781`）`[参考]`。
+   *
+   * 只在「本次确实打到 DeepSeek」且「会话里出现过思考链」时回填 —— 没有思考链
+   * 时补空串反而会污染上游的判断。
+   */
+  const deepseek = isDeepSeekModel(modelKey, meta.displayName ?? "");
+  const hasTrace =
+    deepseek &&
+    rest.some((m) => m.role === "assistant" && ("reasoning_content" in m || "reasoning" in m));
+
   const messages: Array<Record<string, unknown>> = [];
   if (systemText) messages.push({ role: "system", content: systemText });
   for (const m of rest) {
     const out: Record<string, unknown> = { role: m.role, content: m.content };
     if (m.tool_calls) out["tool_calls"] = m.tool_calls;
     if (m.tool_call_id) out["tool_call_id"] = m.tool_call_id;
+    if (hasTrace && m.role === "assistant") {
+      out["reasoning_content"] = m.reasoning_content ?? m.reasoning ?? "";
+    }
     messages.push(out);
   }
 
   const prompt = lastUserText(rawMessages);
   const requestId = randomUUID();
-  const tools = Array.isArray(req["tools"]) ? req["tools"] : [];
+  const tools = normalizeTools(Array.isArray(req["tools"]) ? req["tools"] : []);
 
   const parameters: Record<string, unknown> = {};
-  if (typeof req["max_tokens"] === "number") parameters["max_tokens"] = req["max_tokens"];
+  /**
+   * `max_completion_tokens` 是 OpenAI 新别名，上游只认 `max_tokens`。
+   *
+   * 共享层不做这个归一，渠道自己兜（参考实现
+   * `shuishuipingan/qoder2api-hub/qoder_proxy.py:2851-2862`）`[参考]`。
+   */
+  if (typeof req["max_tokens"] === "number") {
+    parameters["max_tokens"] = req["max_tokens"];
+  } else if (typeof req["max_completion_tokens"] === "number" && req["max_completion_tokens"] > 0) {
+    parameters["max_tokens"] = req["max_completion_tokens"];
+  }
   if (typeof req["reasoning_effort"] === "string") {
     parameters["reasoning_effort"] = req["reasoning_effort"];
   }
@@ -488,6 +636,13 @@ export function buildRequestBody(
       features: [],
       extra: {
         context: [],
+        /**
+         * 官方客户端模板里这一项就是 `{key, is_reasoning}`（参考实现的
+         * `baseprompt.json`）`[参考]`；参考实现运行时改写成 `model_config` 的完整
+         * 副本（`qoder2api-hub/qoder_proxy.py:3937`）。这里保持官方模板形状，
+         * 但 `is_reasoning` 取**目录里的真实值** —— 两处必须一致，否则上游看到的
+         * 是互相矛盾的推理开关。
+         */
         modelConfig: { key: modelKey, is_reasoning: Boolean(meta.isReasoning) },
         originalContent: { type: "text", text: prompt },
       },
@@ -529,8 +684,9 @@ export function buildRequestBody(
 /**
  * 构造并**编码**请求体，返回要直发的字符串。
  *
- * 模型目录元数据由 `catalog.ts` 注入（display_name / is_vl / is_reasoning），
- * 这里只收一个可选的查表回调，避免四个模块互相 import 成环。
+ * 模型目录元数据（display_name / is_vl / is_reasoning / max_input_tokens）由
+ * `catalog.ts` 侧注入（见 `setModelMetaLookup`），这里只查表取用 ——
+ * 直接 import `catalog` 会与 `catalog → upstream.fetchModels` 形成环。
  */
 export function buildChatBody(
   req: Record<string, unknown>,
@@ -539,7 +695,7 @@ export function buildChatBody(
 ): string {
   const effectiveRealm = realm ?? activeRealm;
   activeRealm = effectiveRealm;
-  const body = buildRequestBody(req, modelKey, {}, effectiveRealm);
+  const body = buildRequestBody(req, modelKey, metaOf(modelKey), effectiveRealm);
   // 身份类型必须用**真实账号**的（参考实现里就是这么覆盖模板默认值的）
   body["aliyun_user_type"] = currentUserType();
   const encoded = qoderEncode(JSON.stringify(body));
@@ -616,7 +772,7 @@ export async function fetchModels(credential: Credentials): Promise<Record<strin
   let lastError: Error | null = null;
 
   for (const host of gatewayCandidates(credential.realm)) {
-    const url = `${host}${MODELS_PATH}`;
+    const url = `${host}${endpointPath(MODELS_ENDPOINT_PATH, MODELS_QUERY)}`;
     try {
       const resp = await getWithBody(url, headers, body);
       if (resp.status === 200) {

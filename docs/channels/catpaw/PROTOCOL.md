@@ -57,6 +57,115 @@
 - `systemPromptContext.systemPromptOverride` 有 **65508 字符**硬上限（JSON 转义后长度口径），
   超限回 `HTTP 200` + `success:false`；round 还拒收连续 `assistant` 消息。
   **本仓库实现不使用该字段**：system / 历史 / 工具说明全部折叠进一条 user prompt（见下）。
+- 上游分**两个域**，鉴权头不同但共用同一个 access_token：网关域 `catx.nocode.cn`（登录 / 额度，
+  `X-Auth-Token`）与直连域 `ai.catpaw.meituan.com`（对话 / 模型目录，`X-Passport-Token` + Cookie）。
+  代码里分别是 `cred.ts` 的 `GATEWAY_HOST` 与 `upstream.ts` 的 `DIRECT_HOST`。
+- 登录**只有一条路径**：真实 URL 授权 + `poll-token` 轮询（见下「唯一登录路径」）。
+
+## 唯一登录路径
+
+> 结论：`mx login catpaw` 走「login-config → 拼 auth_url → 浏览器点一下 → poll-token 轮询
+> → current-user 取 uid → 落盘」，**全程只有一次人工点击**。实现见 `src/cred.ts` 的 `login()`。
+
+### 流程
+
+| 步 | 动作 | 端点 / 参数 |
+| --- | --- | --- |
+| 1 | 取授权入口 | `GET {LOGIN_CONFIG_URL}` → `data.loginEntryUrl`（`cred.ts` 的 `fetchLoginEntryUrl`） |
+| 2 | 拼 auth_url | `${loginEntryUrl}?sid=<16 hex>&state=<16 hex>&redirect=<urlencoded>`（`buildAuthUrl`，**唯一构造点**） |
+| 3 | 人工步骤 | 用户在浏览器完成登录，页面显示「登录成功」 |
+| 4 | 取 token | `GET {POLL_TOKEN_URL}?sid=<sid>`，每 1s 轮询，窗口 10 分钟（`pollToken`） |
+| 5 | 取 uid | `GET {CURRENT_USER_URL}` + `X-Auth-Token`（`fetchCurrentUserId`） |
+| 6 | 落盘 | `~/.modelmux/catpaw/credentials.json`（`save`，0600，先写 `.tmp` 再原子 rename） |
+
+- `sid` / `state` 由**本地**生成（`randomHex(16)`）；`redirect` 是网关的**必填形式参数**
+  （实测缺它直接 400），但**不要求真实可达** —— 我们不监听该端口。
+- 返回的是**不透明 SSO token（非 JWT）**，无法自解 uid，所以第 5 步不可省。
+- `uid` 不是可有可无的展示字段：账号池靠它认同一个账号（uid 为空会退化成按 token 建键，
+  同一账号重登一次就被记成两条）。
+
+### 为什么不采纳其它路径
+
+| 路径 | 出处 | 不采纳的理由 |
+| --- | --- | --- |
+| 本地 loopback 回调服务器 | `reference/HITZY2002_catpaw2api/cmd/login/main.go:51,96`、`reference/icebears111_catpaw2api/cmd/login/main.go:51,96` | **上游从不回调本机端口**。参考实现自己也是「回调 channel 与 1s 轮询 select 竞速」；本仓三次真机登录回调一次都没赢（`source` 恒为 `catpaw-login-poll`），故该通道已删除 |
+| 读妙手桌面端本地文件（`state.vscdb` / `catx-credential.json` / `auth.json`） | `reference/zhou-gy_catpawai-proxy/scripts/import-from-catpaw-state.js`、`reference/Juwan-Hwang_catpaw2api/auth/token_manager.go:75-139`、`reference/fifasheng-tech_catpaw-bridge/src/token_manager.py:19-56` | **违反本仓凭据规则**（`src/cred.ts` 文件头「凭据读取策略」）：凭据只来自真实 URL 登录落盘的文件 |
+| 短信验证码 / 密码登录、人机挑战 | `reference/KanoNoUta_thief-neko/src/catpawAuthClient.js:15-49`、`controller/CatapiController/YodaChallengeWindow.xaml.cs` | 属**另一个上游家族**（见下「已知边界」），token 与本渠道不通用 |
+| HTTP token 刷新（`POST /api/login/refreshToken`） | `reference/KanoNoUta_thief-neko/src/catpawAuthClient.js:51-61` | 同上；且本渠道的 passport **没有** refresh_token（`[参考]` 参考实现 `internal/scheduler/scheduler.go:7`：「token 无 refresh_token，有效期 72h，到期只能重新走 OAuth 登录」） |
+
+### 令牌生命周期
+
+- 有效期 **72 小时**（`[参考]`：`reference/HITZY2002_catpaw2api/internal/auth/auth.go:16`
+  `TokenLifetime = 72 * time.Hour`，注释「逆向自 ACCESS_TOKEN_LIFETIME_MS」；
+  佐证 `reference/HITZY2002_catpaw2api/internal/scheduler/scheduler.go:7`）。
+  本机**未实测**实际到期时刻。
+- **没有刷新端点**：到期只能重走上面那条登录路径。
+- 现行实现的 `refresh()` 做的是**有效性探测**（`GET {AUTH_PING_URL}`）：401/403 判失效、
+  其余（含 5xx / 网络错误）按临时故障处理，不惊动用户重登（判据 `[参考]` 参考实现的 `Ping()`）。
+
+## chat / 模型请求的确切 URL
+
+> 两个域：网关域 `https://catx.nocode.cn`（登录 / 额度，鉴权 `X-Auth-Token`）与
+> 直连域 `https://ai.catpaw.meituan.com`（对话 / 模型目录，鉴权 `X-Passport-Token` + Cookie）。
+> 两侧共用同一个 access_token，但**头语义不同**。
+
+### 直连域（对话 / 模型目录）
+
+| 用途 | 方法 | 完整 URL | 端点路径 | query / body 来源 |
+| --- | --- | --- | --- | --- |
+| **对话（网关实际 POST 的那一个）** | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/turn` | `/api/agent/conversation/turn` | body：`{conversationId, turnRequestId, source:"CatX", action:"turn", message, modelType, mode:"CATX_APP", permissionMode, toolVersion, requestContext}` |
+| 对话前置 ① | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/round` | `/api/agent/conversation/round` | body：`{conversationId, source:"CatX", messages:[…], modelType, mode:"CATX_APP", toolVersion, requestContext}` |
+| 对话前置 ② | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/event` | `/api/agent/conversation/event` | body：`{conversationId, eventType:"conversation", data:{status}}`；status ∈ `running` / `completed` |
+| **模型目录** | POST | `https://ai.catpaw.meituan.com/api/agent/maas/model-types` | `/api/agent/maas/model-types` | body：`{tenant:"CatDesk", scene:"CATX_APP", env:"EXTERNAL"}` —— 三字段**必填**，缺失报 400（`[参考]` 参考实现 `internal/upstream/const.go:64-69`） |
+
+- 三段式时序：`round`（提交本轮消息）→ `event(running)`（置执行中）→ `turn`（SSE 直出）。
+  只调 turn 会 500；缺 event 会「会话未在执行中」。**轮次结束必须回报 `event(completed)`**，
+  否则会话卡在「执行中」，后续 round 被拒。
+- 对上游**没有任何 query 参数**（全是 POST + body）；唯一带 query 的是 `poll-token` 的 `sid`
+  与登录 auth_url 的三参数。
+- `modelType` 是**数字**不是模型名（turn / round body 必填）。上游目录拉不到时按
+  `src/catalog.ts` 的 `MODEL_TYPE_FALLBACK` 数值表兜底（`[参考]` 参考实现
+  `internal/upstream/const.go:83-90`），否则模型不可用。
+
+### 网关域（登录 / 额度）
+
+| 用途 | 方法 | 完整 URL | 端点路径 | query / body 来源 |
+| --- | --- | --- | --- | --- |
+| 登录配置 | GET | `https://catx.nocode.cn/api/gateway/passport/login-config` | `/api/gateway/passport/login-config` | 无 query / 无 body；响应取 `data.loginEntryUrl` |
+| **取 token** | GET | `https://catx.nocode.cn/api/gateway/passport/poll-token?sid=<sid>` | `/api/gateway/passport/poll-token` | query：**`sid`** —— 本地生成的会话 id（`randomHex(16)`），上游按它认本次登录会话；无 body；响应取 `data` |
+| 当前用户 | GET | `https://catx.nocode.cn/api/gateway/passport/current-user` | `/api/gateway/passport/current-user` | 无 query / 无 body；鉴权 `X-Auth-Token` |
+| 令牌有效性探测 | GET | `https://catx.nocode.cn/api/gateway/auth/ping` | `/api/gateway/auth/ping` | 无 query / 无 body；鉴权 `X-Auth-Token`；401/403 = 确定失效 |
+| 额度余额 | GET | `https://catx.nocode.cn/api/gateway/credit/balance` | `/api/gateway/credit/balance` | 无 query / 无 body；响应取 `data.availableCredits` |
+| 注册奖励申领 | POST | `https://catx.nocode.cn/api/gateway/credit/register` | `/api/gateway/credit/register` | body：`{registerChannel:"CATPAW_PC"}`（`[参考]` 参考实现 `RegisterChannel`） |
+
+### 登录 auth_url 的三个 query 参数
+
+`${loginEntryUrl}?sid=<16 hex>&state=<16 hex>&redirect=<urlencoded>` —— **三参数缺一不可**
+（`[参考]` 参考实现 `cmd/login/main.go:77-81` 同样 set 三个；`[实测]` 缺 `redirect` 网关直接 400）。
+`sid` 供第 4 步轮询用，`state` 是防 CSRF 的随机串，`redirect` 只是形式参数。
+
+## 必需请求头清单
+
+### 直连域（`src/upstream.ts` 的 `buildHeaders`）
+
+| 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
+| --- | --- | --- | --- | --- |
+| `M-TRACEID` | 运行时生成：`randomUUID()` 去横线 → 32 位无横线 hex | 否（链路追踪） | **每请求重生成** | ⚠ 格式与参考实现不一致，见「已知边界」 |
+| `M-APPKEY` | 常量 `fe_com.sankuai.catpaw.external.front` | 否（应用标识） | 不变 | 与参考实现逐字一致（`[参考]` `internal/upstream/const.go:43`） |
+| `gray-set` | 常量 `new-agent-sdk` | 否（灰度分组） | 不变 | 同上（`const.go:45`） |
+| `X-Agent-Version` | 常量 `1.0.1` | 否（客户端版本） | 不变 | 同上（`const.go:44`） |
+| `X-Passport-Token` | 凭据 `accessToken` | **是** | 随凭据（登录 / 重登后） | 直连域主鉴权头 |
+| `Cookie: X-Passport-Token=<token>` | 凭据 `accessToken` | **是** | 同上 | 与上一行**双发**；cookie 名就是 `X-Passport-Token` |
+| `enableHeartBeat` | 常量 `true` | 否 | 不变 | 长连接保活（`[参考]` `internal/upstream/conversation.go:53`） |
+| `Content-Type` | 常量 `application/json` | 否 | 不变 | — |
+| `Accept` | **按端点区分**：turn → `text/event-stream`；round / event / model-types → `application/json` | 否 | 不变 | **不能一刀切**：turn 缺 SSE 会 406，round 发 SSE 会 500 |
+| `user-uid` | 凭据 `uid`，**非空才带** | 半（用户标识） | 随凭据 | ⚠ 见「已知边界」的 `user-mis-id` 说明 |
+
+### 网关域
+
+| 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
+| --- | --- | --- | --- | --- |
+| `X-Auth-Token` | 凭据 `accessToken` | **是** | 随凭据 | 用于 `current-user` / `auth/ping` / `credit/*`；与直连域的 `X-Passport-Token` **不是同一套头语义**，但 token 同源（都出自 poll-token） |
 
 ## 积分中心：额度查询与申领（`[参考]`+本机验证）
 
@@ -198,6 +307,51 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - 文档只保留协议结论与脱敏形态（指纹 / 长度），不含真实凭据；
   密钥派生知识仅用于解析本机登录态。
 
+## 已知边界
+
+本节记录**本轮明确不做**的事，以及**待真机验证**的疑点。
+
+### 参考实现分两个家族，只有本家族可用
+
+`reference/` 下的 6 个参考实现实际是**两个互不兼容的上游家族**：
+
+| 家族 | 上游基址 | 鉴权模型 | 参考实现 |
+| --- | --- | --- | --- |
+| **A：conversation 协议**（本渠道用的） | `https://ai.catpaw.meituan.com` | `X-Passport-Token` + Cookie + `M-APPKEY` + `gray-set` + `X-Agent-Version` | HITZY2002、icebears111 |
+| **B：IDE 侧 OpenAI 兼容** | `https://catpaw.meituan.com/api/gpt/*` | `Catpaw-Auth` + `1d47d6ff96_passportid`/`f32a546874_ssoid` cookie + `tenant` + 请求体 RSA/AES 加密 | zhou-gy、KanoNoUta、Juwan-Hwang、fifasheng |
+
+**家族 B 的 token 与家族 A 不通用**（不同签发方、不同头语义）。照抄家族 B 的头或端点会直接
+401/404 —— 本渠道**不实现**家族 B 的任何东西。
+
+另注：HITZY2002 与 icebears111 是**同源分叉**（`cmd/apply/main.go`、`internal/pool/pool_test.go`、
+`internal/server/panel.html` 等 8 对以上文件字节数一致），实为「4 份独立思路 + 1 组分叉」，
+「多实现一致」的交叉验证强度要打对折。
+
+### 本轮不实现（记录在案）
+
+| 项 | 为什么不实现 |
+| --- | --- |
+| 家族 B 全部能力（IDE 侧 `/api/gpt/*` 协议、请求体加密、`Catpaw-Auth` / `tenant` 头） | token 与家族 A 不通用（见上） |
+| 读本机第三方应用文件（`state.vscdb` / `catx-credential.json` / `auth.json`） | 违反 `src/cred.ts` 文件头的凭据读取规则 |
+| 密码 / 短信验证码登录、Yoda 人机挑战 | 属家族 B（`reference/KanoNoUta_thief-neko/src/catpawAuthClient.js:15-49`） |
+| 请求体 RSA/AES 加密（`encrypted-key` 响应解密） | 属家族 B（`reference/fifasheng-tech_catpaw-bridge/src/crypto.py:77,96`） |
+| 额度 watchdog / 自动提额 | 参考实现的 `/api/user/addQuota` 属家族 B；家族 A 侧只有「注册奖励」这一个幂等申领端点，本渠道已实现（`src/billing.ts`） |
+| 会话历史拉取（`GET /api/agent/conversation/history`） | 参考实现用它轮询取回复（free 账号拿不到 reasoningContent 时的回退路径）。本渠道走 turn 的 SSE 直出，暂不需要 —— 若将来需要「断线续接」再接 |
+| OAuth 登录 Web 化（远端面板发起授权） | 参考实现 `internal/server/oauth.go:73,130`。本渠道的登录是本地 CLI 交互式，暂无远端面板需求 |
+| token 72h 到期**自动**续期 | 现行 `refresh()` 只做有效性探测（上游 401/403 才知道失效）。自动续期需要「后台发起 OAuth + 等浏览器打开 auth_url」的流程，与本渠道「一次人工点击」的定位不符 —— 待定 |
+| 轮次打断（`POST /api/agent/conversation/turn/stop`） | 参考实现有（`reference/icebears111_catpaw2api/internal/upstream/const.go:40`），本渠道暂未实现 —— 客户端中断时上游轮次不会被取消 |
+
+### 待真机验证的疑点
+
+| 疑点 | 现状 | 怎么验 |
+| --- | --- | --- |
+| `M-TRACEID` 的正确形态 | 本仓用 32 位无横线 hex；参考实现**三形态并存**：带横线 RFC4122 v4（`internal/upstream/conversation.go:51,65-73`）、纳秒数字（`internal/upstream/client.go:367`）。本仓形态**无参考实现佐证** | 抓一次桌面端真实请求，比对生成方式 |
+| `model-types` 是否需要 `user-mis-id` | 本仓只发 `user-uid`；同族参考实现在这个端点用的是 `user-mis-id`（`internal/upstream/client.go:190,171`），而 conversation 协议端点用 `user-uid` | 消融实验：只发 `user-uid` / 只发 `user-mis-id` / 两个都发，各跑一次 `POST /model-types` |
+| token 72h 有效期 | 只有 `[参考]` 证据（`internal/auth/auth.go:16`），本机未观测过实际到期时刻 | 落盘 `obtainedAt`，隔 72h 观察 ping 与对话行为 |
+| `X-Passport-Token` 头与 `Cookie` 是否都必须 | 本仓双发，参考实现也双发 | 去掉任一个是否仍 200 |
+| `enableHeartBeat` 是否必要 | 只有 icebears111 conversation 协议有 | 去掉是否影响长连接保活 |
+| `permissionMode` 用 `default` 而非 `unsafeBypassPermissions` | `FINDINGS.md` 记的上游常量是后者；参考实现 `const.go:47-49` 注释说 `default` 才是特意选的（工具交客户端执行，避免上游把对话当 agent 任务跑循环）。本仓用 `default` 且已实测通 | 上游是否还有隐藏行为差异 |
+
 ## 使用与实测
 
 ### 登录方式
@@ -206,6 +360,8 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条登录链路，落盘在
 `~/.modelmux/catpaw/credentials.json`；**不读取任何其它应用的本地文件**
 （不读桌面端密文 / `auth.json`）。
+
+完整流程与「为什么不采纳其它路径」见上文「唯一登录路径」。
 
 ### 推荐模型
 
@@ -242,8 +398,15 @@ Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
-| 仓库 | 用途 |
-| --- | --- |
-| [HITZY2002/catpaw2api](https://github.com/HITZY2002/catpaw2api) | 主参照（Go）：`internal/upstream/const.go` 的网关/直连双 host 划分与额度、签到端点（`/api/gateway/credit/balance`、`/api/gateway/credit/register`） |
-| [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | 代理形态参照 |
-| [Juwan-Hwang/catpaw2api](https://github.com/Juwan-Hwang/catpaw2api)、[KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko)、[fifasheng-tech/catpaw-bridge](https://github.com/fifasheng-tech/catpaw-bridge)、[icebears111/catpaw2api](https://github.com/icebears111/catpaw2api) | 同类实现的对照样本 |
+⚠ 这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**
+（`ai.catpaw.meituan.com` 的 conversation 协议）与本渠道协议同源，家族 B
+（`catpaw.meituan.com/api/gpt/*` 的 IDE 侧协议）**只作对照，不照抄**。
+
+| 仓库 | 家族 | 用途 |
+| --- | --- | --- |
+| [HITZY2002/catpaw2api](https://github.com/HITZY2002/catpaw2api) | A | 主参照（Go）：`internal/upstream/const.go` 的网关/直连双 host 划分与额度、签到端点（`/api/gateway/credit/balance`、`/api/gateway/credit/register`）、`internal/auth/auth.go` 的 72h 令牌有效期 |
+| [icebears111/catpaw2api](https://github.com/icebears111/catpaw2api) | A | 与 HITZY2002 **同源分叉**；`internal/upstream/conversation.go` 的三段式（round/turn/event）实现与 `const.go:83-90` 的 modelType 数值表（`src/catalog.ts` 的 `MODEL_TYPE_FALLBACK` 来源） |
+| [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | B | IDE 侧代理形态参照（**不照抄**） |
+| [Juwan-Hwang/catpaw2api](https://github.com/Juwan-Hwang/catpaw2api) | B | IDE 侧的额度/提额与请求体加密参照（**不照抄**） |
+| [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | B | IDE 侧的短信无头登录、Yoda 挑战、凭据管道参照（**不照抄**） |
+| [fifasheng-tech/catpaw-bridge](https://github.com/fifasheng-tech/catpaw-bridge) | B | IDE 侧的请求体加密与工具翻译参照（**不照抄**） |

@@ -4,9 +4,15 @@
  * 登录协议（实测，与国际版 workbuddyai 同一套插件端点）：
  *   1. `POST {base}/v2/plugin/auth/state?platform=workbuddy`（匿名头）→ {state, authUrl}
  *   2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
- *   3. `GET {base}/v2/plugin/auth/token?state=...` 每 5s 轮询，≤5 分钟 → 令牌
- *   4. 落盘为 credentials.json（Go 风格字段名）
+ *   3. `GET {base}/v2/plugin/auth/token?state=...` 每 1s 轮询，≤5 分钟 → 令牌
+ *   4. `GET {base}/v2/plugin/login/account?state=...`（带 Bearer）→ 账号档案
+ *   5. 落盘为 credentials.json（Go 风格字段名）
  * 刷新：`POST /v2/plugin/auth/token/refresh`（纯 HTTP，X-Refresh-Token 头）
+ *
+ * **登录路径只有这一条**（网页设备授权）：手机号 OneID/Keycloak 路线与桌面端
+ * `.info` 凭证路线都不采纳（前者要复刻 11 步跨域短信链路，后者要拉起桌面端
+ * Electron 派生 at-rest key 解密，都超出渠道包的边界）—— 详见
+ * `docs/channels/workbuddy/PROTOCOL.md`「唯一登录路径」。
  *
  * ⚠ 本渠道**只有一个域**（国内版 codebuddy.ai）。账号属于哪个域就必须用哪个渠道
  * 登录：国内账号走本渠道，国际账号走 `workbuddyai` —— 不再有 `--realm` 二选一。
@@ -27,8 +33,10 @@ export const DEFAULT_BASE_URL = "https://copilot.tencent.com";
 /** 向插件端点标识本客户端。 */
 const PLATFORM_QS = "platform=workbuddy";
 
+/** 轮询窗口：官方客户端口径 300s（`[参考]` hub docs/protocol-reference.md:2164-2167）。 */
 const LOGIN_WINDOW_MS = 5 * 60 * 1000;
-const POLL_INTERVAL_MS = 5000;
+/** 轮询间隔：官方客户端口径 1000ms（同上）。 */
+const POLL_INTERVAL_MS = 1000;
 const MAX_LOGIN_ROUNDS = 2;
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -51,6 +59,10 @@ export interface Credentials {
   sessionState: string;
   domain: string;
   uid: string;
+  /** 企业 ID（账号档案端点给）；空 = 个人账号。 */
+  enterpriseId: string;
+  /** 昵称（账号档案端点给）；仅展示用。 */
+  nickname: string;
   expiresIn: string;
   expiresAt: unknown;
   refreshExpiresIn: string;
@@ -67,6 +79,8 @@ export const EMPTY_CREDENTIALS: Credentials = {
   sessionState: "",
   domain: "",
   uid: "",
+  enterpriseId: "",
+  nickname: "",
   expiresIn: "",
   expiresAt: null,
   refreshExpiresIn: "",
@@ -129,6 +143,8 @@ export function load(): Credentials {
     sessionState: str(rec["sessionState"]),
     domain: str(rec["domain"]),
     uid: str(rec["uid"]),
+    enterpriseId: str(rec["enterpriseId"]),
+    nickname: str(rec["nickname"]),
     expiresIn: str(rec["expiresIn"]),
     expiresAt: rec["expiresAt"] ?? null,
     refreshExpiresIn: str(rec["refreshExpiresIn"]),
@@ -155,6 +171,15 @@ export async function save(c: Credentials): Promise<void> {
   await chmod(path, 0o600).catch(() => {});
 }
 
+/** 账号档案（`/v2/plugin/login/account` 的 data 字段）。 */
+interface AccountProfile {
+  uid: string;
+  enterpriseId: string;
+  nickname: string;
+}
+
+const EMPTY_PROFILE: AccountProfile = { uid: "", enterpriseId: "", nickname: "" };
+
 function fromToken(
   access: string,
   refresh: string,
@@ -162,6 +187,7 @@ function fromToken(
   scope: string,
   session: string,
   domain: string,
+  profile?: AccountProfile,
 ): Credentials {
   return {
     ...EMPTY_CREDENTIALS,
@@ -171,25 +197,45 @@ function fromToken(
     scope,
     sessionState: session,
     domain,
-    uid: jwtSub(access),
+    uid: profile?.uid || jwtSub(access),
+    enterpriseId: profile?.enterpriseId ?? "",
+    nickname: profile?.nickname ?? "",
     obtainedAt: nowRfc3339(),
     source: "workbuddy-login-poll",
   };
 }
 
-/** 把请求标记为匿名（未鉴权）的插件端点头。 */
-function anonHeaders(): Record<string, string> {
+/**
+ * 插件端点的通用头（Origin / Referer / UA 等）。
+ *
+ * ⚠ 登录期 UA 用的是桌面三段式，与参考实现的 CLI 形态不一致 —— 未验证，
+ * 登记在 `docs/channels/workbuddy/PROTOCOL.md`「已知边界」，**本轮不改**。
+ */
+function commonHeaders(): Record<string, string> {
   return {
-    "X-No-Authorization": "true",
-    "X-No-User-Id": "true",
-    "X-No-Enterprise-Id": "true",
-    "X-No-Department-Info": "true",
     // reference cmd/login 的 commonHeaders：Origin/Referer 缺失上游会拒（CN 是 codebuddy.cn 站点域）
     Accept: "application/json, text/plain, */*",
     "X-Requested-With": "XMLHttpRequest",
     Origin: "https://codebuddy.cn",
     Referer: "https://codebuddy.cn/",
     "User-Agent": "WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1",
+  };
+}
+
+/**
+ * 把请求标记为匿名（未鉴权）的插件端点头。
+ *
+ * 官方客户端在授权完成前必须带这四个抑制头（值均为字符串 `"true"`），
+ * 否则会被判成「未授权访问受保护接口」（`[参考]` hub
+ * docs/protocol-reference.md:2165-2167）。
+ */
+function anonHeaders(): Record<string, string> {
+  return {
+    ...commonHeaders(),
+    "X-No-Authorization": "true",
+    "X-No-User-Id": "true",
+    "X-No-Enterprise-Id": "true",
+    "X-No-Department-Info": "true",
   };
 }
 
@@ -268,6 +314,41 @@ export interface LoginOptions {
   onStatus?: (message: string) => void;
 }
 
+/**
+ * 取账号档案：`GET {base}/v2/plugin/login/account?state=<state>`（带 Bearer）。
+ *
+ * 这是**登录链路内的最后一步**，不是第二条登录路径：拿的是同一次授权对应的
+ * 账号身份（uid / enterpriseId / nickname），拿不到也不影响登录成功 ——
+ * uid 仍可从 JWT `sub` 提取。
+ *
+ * 参考 go `cmd/login/main.go:266-278`、panel `cmd/login/main.go:273`。
+ */
+async function fetchAccountProfile(
+  baseUrl: string,
+  state: string,
+  accessToken: string,
+): Promise<AccountProfile> {
+  if (!accessToken) return EMPTY_PROFILE;
+  const url = `${baseUrl}/v2/plugin/login/account?state=${encodeURIComponent(state)}`;
+  try {
+    const resp = await fetchWithTimeout(url, {
+      headers: { ...commonHeaders(), Authorization: `Bearer ${accessToken}` },
+    });
+    if (resp.status !== 200) return EMPTY_PROFILE;
+    const env = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!env || env["code"] !== 0 || !env["data"]) return EMPTY_PROFILE;
+    const data = env["data"] as Record<string, unknown>;
+    return {
+      uid: str(data["uid"]),
+      enterpriseId: str(data["enterpriseId"]),
+      nickname: str(data["nickname"]),
+    };
+  } catch {
+    // 档案拿不到不是登录失败：uid 回落 JWT sub，其余字段留空。
+    return EMPTY_PROFILE;
+  }
+}
+
 /** 运行交互式浏览器登录并持久化结果。 */
 export async function login(baseUrl: string, options: LoginOptions = {}): Promise<Credentials> {
   const base = baseUrl || DEFAULT_BASE_URL;
@@ -284,18 +365,23 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
       `Round ${round}/${MAX_LOGIN_ROUNDS}: waiting for authorization ` +
         `(open the URL above in a browser; up to ${LOGIN_WINDOW_MS / 60000} min)…`,
     );
-    const token = await pollToken(base, str(state["state"]));
+    const stateId = str(state["state"]);
+    const token = await pollToken(base, stateId);
     if (!token) {
       onStatus?.(`Round ${round} timed out, retrying…`);
       continue;
     }
+    const accessToken = str(token["accessToken"]);
+    // 账号档案：登录链路内的最后一步（拿 uid / enterpriseId / nickname）。
+    const profile = await fetchAccountProfile(base, stateId, accessToken);
     const c = fromToken(
-      str(token["accessToken"]),
+      accessToken,
       str(token["refreshToken"]),
       str(token["tokenType"]),
       str(token["scope"]),
       str(token["sessionState"]),
       str(token["domain"]),
+      profile,
     );
     if (!c.domain) c.domain = hostOf(base);
     c.expiresIn = anyToStr(token["expiresIn"]);
@@ -317,19 +403,22 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
  */
 export async function refresh(c: Credentials): Promise<Credentials> {
   if (!c.refreshToken) throw new Error("no refresh token available");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/plain, */*",
+    "X-Requested-With": "XMLHttpRequest",
+    "X-Refresh-Token": c.refreshToken,
+    "X-Auth-Refresh-Source": "workbuddy",
+    "X-User-Id": c.uid,
+    "X-Domain": c.domain || "copilot.tencent.com",
+    "X-CodeBuddy-Request": "1",
+  };
+  // 企业账号的刷新同样要带企业身份头（go internal/upstream/headers.go:437-439）。
+  if (c.enterpriseId) headers["X-Enterprise-Id"] = c.enterpriseId;
   const resp = await fetchWithTimeout("https://copilot.tencent.com/v2/plugin/auth/token/refresh", {
     method: "POST",
     body: "{}",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/plain, */*",
-      "X-Requested-With": "XMLHttpRequest",
-      "X-Refresh-Token": c.refreshToken,
-      "X-Auth-Refresh-Source": "workbuddy",
-      "X-User-Id": c.uid,
-      "X-Domain": c.domain || "copilot.tencent.com",
-      "X-CodeBuddy-Request": "1",
-    },
+    headers,
   });
   if (resp.status !== 200) throw new Error(`refresh failed: HTTP ${resp.status}`);
   let env: Record<string, unknown>;
@@ -355,6 +444,8 @@ export async function refresh(c: Credentials): Promise<Credentials> {
     or(token["scope"], c.scope),
     or(token["sessionState"], c.sessionState),
     or(token["domain"], c.domain),
+    // 刷新响应不带账号档案：沿用旧值，别把企业身份与昵称丢掉。
+    { uid: c.uid, enterpriseId: c.enterpriseId, nickname: c.nickname },
   );
   const now = Date.now();
   next.expiresIn = anyToStr(token["expiresIn"]);
@@ -362,6 +453,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
   next.expiresAt = unixAfter(now, token["expiresIn"]);
   next.refreshExpiresAt = unixAfter(now, token["refreshExpiresIn"]);
   if (!next.uid) next.uid = c.uid;
+  if (!next.domain) next.domain = c.domain || hostOf(DEFAULT_BASE_URL);
   await save(next);
   return next;
 }

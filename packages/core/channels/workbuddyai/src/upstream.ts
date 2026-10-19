@@ -30,7 +30,7 @@
 
 import { readFileSync } from "node:fs";
 import { writeFile, rename, chmod } from "node:fs/promises";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { upstreamPath, ensureDir } from "@modelmux/gateway";
 
@@ -47,12 +47,16 @@ const DESKTOP_UA_CN = "WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1";
  *
  * 依据 `wb_identity.py` 的 endpoint_for：cn 桌面端 chat 上游是 copilot.tencent.com，
  * www.codebuddy.cn 只做计费；intl 两者同为 www.workbuddy.ai。
+ *
+ * `billingUa` 是**计费端点**的 UA（单段 `WorkBuddy/<版本>`），与对话用的三段式
+ * `ua` 不同 —— 参考实现 `wb_accounts.py:186-201` 两者分列。
  */
 const REALM_INTL = {
   chatUpstream: "https://www.workbuddy.ai",
   domain: "www.workbuddy.ai",
   origin: "https://www.workbuddy.ai",
   ua: DESKTOP_UA_INTL,
+  billingUa: "WorkBuddy/5.8.4",
   ideVersion: "5.8.4",
   acceptLanguage: "en-US",
 } as const;
@@ -61,14 +65,46 @@ const REALM_CN = {
   domain: "copilot.tencent.com",
   origin: "https://www.codebuddy.cn",
   ua: DESKTOP_UA_CN,
+  billingUa: "WorkBuddy/5.5.6",
   ideVersion: "5.5.6",
   acceptLanguage: "zh-CN",
 } as const;
 
+/**
+ * 国内版域名集合（含三代出口）。
+ *
+ * [代码] 参考实现 `wb_accounts.py:260-266`：国内版换过出口
+ * `copilot.tencent.com → codebuddy.cn → workbuddy.cn`，三个都得认 ——
+ * 只认前两个会把 `workbuddy.cn` 的国内账号判成国际版。
+ */
+const CN_REALM_DOMAINS = ["copilot.tencent.com", "codebuddy.cn", "workbuddy.cn"];
+
 /** 凭据 domain → realm（取不到就按国际版；见 docs/channels/workbuddyai/PROTOCOL.md §1）。 */
 function realmOf(domain: string): typeof REALM_INTL | typeof REALM_CN {
   const d = domain.trim().toLowerCase();
-  return d === "copilot.tencent.com" || d.endsWith("codebuddy.cn") ? REALM_CN : REALM_INTL;
+  if (!d) return REALM_INTL;
+  if (d === "copilot.tencent.com") return REALM_CN;
+  return CN_REALM_DOMAINS.some((marker) => d.endsWith(marker)) ? REALM_CN : REALM_INTL;
+}
+
+/**
+ * 该 domain 是否属**国内版**（含三代出口域名）。
+ *
+ * [代码] 参考实现 `wb_accounts.py:260-266`：国内版换过出口
+ * `copilot.tencent.com → codebuddy.cn → workbuddy.cn`，三个都得认。
+ */
+export function isCnDomain(domain: string): boolean {
+  return realmOf(domain) === REALM_CN;
+}
+
+/**
+ * 计费端点的 UA（按区域）：国际版 `WorkBuddy/5.8.4`，国内版 `WorkBuddy/5.5.6`。
+ *
+ * [代码] 参考实现 `wb_accounts.py:186-201`：计费端点不吃对话那套三段式身分，
+ * 但 UA 的**品牌字样仍要带**（上游按 UA 归因「使用端」，缺了账单会显示为 `-`）。
+ */
+export function billingUserAgent(domain: string): string {
+  return realmOf(domain).billingUa;
 }
 
 /** 每轮新生的会话 id（带连字符 UUID；上游不按它存历史）。 */
@@ -89,6 +125,43 @@ function newMessageId(): string {
   bytes[6] = (bytes[6]! & 0x0f) | 0x70;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   return bytes.toString("hex");
+}
+
+/**
+ * 请求 id（32 位无连字符 hex）。
+ *
+ * [代码] 参考实现 `wb_fingerprint.py:45-51` 的 `generate_request_id` 就是这个形态；
+ *   官方客户端的请求 id 同为 32 位无连字符 hex（5.8.4 抓包，`wb_identity.py:119-122`）。
+ */
+export function newRequestId(): string {
+  return randomBytes(16).toString("hex");
+}
+
+/**
+ * 按账号派生的设备标识（带连字符 UUID 形态）。
+ *
+ * [代码] 参考实现 `wb_fingerprint.py:22-42`：官方客户端「一进程一设备」，而网关是
+ *   一个进程服务多账号 —— machineId / sessionId 必须**按账号 uid 加盐派生**
+ *   （幂等、账号间互不相同），照进程维度取值会把账号池串成同一台设备。
+ * [推断] 取值用 sha256 前 32 位（参考实现用 md5）：这里只要求「随机且按账号固定、
+ *   形状相同」，避开弱哈希。
+ */
+function deriveDeviceId(uid: string, salt: string): string {
+  const seed = `${salt}:${uid || "anonymous"}`;
+  const h = createHash("sha256").update(seed, "utf8").digest("hex").slice(0, 32);
+  // 摆成 UUIDv4 形状（官方客户端的 machineId 就是这个形状）
+  const v = `${h.slice(0, 12)}4${h.slice(13, 16)}a${h.slice(17)}`;
+  return `${v.slice(0, 8)}-${v.slice(8, 12)}-${v.slice(12, 16)}-${v.slice(16, 20)}-${v.slice(20)}`;
+}
+
+/** 该账号的 machineId（计费端点用；按 uid 派生，账号间互不相同）。 */
+export function machineIdOf(uid: string): string {
+  return deriveDeviceId(uid, "machine");
+}
+
+/** 该账号的 sessionId（计费端点用；按 uid 派生，账号间互不相同）。 */
+export function sessionIdOf(uid: string): string {
+  return deriveDeviceId(uid, "session");
 }
 
 /** W3C traceparent + b3 链路族（X-B3-ParentSpanId 需要真实父子关系，不伪造）。 */
@@ -117,8 +190,51 @@ export const DISPLAY_NAME = "WorkBuddyAI";
  */
 export const WIRE: "openai" | "custom" = "openai";
 
-/** 已验证的 chat-completions 路由（见文件头注释）。 */
+/**
+ * chat 端点（对话）。
+ *
+ * - 方法：**POST**
+ * - 端点路径：`/v2/chat/completions`
+ * - 完整 URL（国际版）：`https://www.workbuddy.ai/v2/chat/completions`
+ * - 必需 query：**无**
+ * - body 来源：下游 OpenAI 请求经 `buildChatBody()` 改写（恒 `stream:true`）
+ *
+ * [代码] 参考实现 `wb_proxy.py:336`（`CHAT_PATH`）、`:13171`、`:13577`；
+ *   `ckldy/internal/upstream/client.go:223`；`Tom6814/codebuddy_direct_api.py:62`。
+ * [实测] 模型载荷声明的 `/plugin` 前缀实测 404（见文件头注释），故不使用该前缀。
+ */
 export const DEFAULT_CHAT_PATH = "/v2/chat/completions";
+
+/**
+ * 连接配置 + 窄表端点（**不是**桌面端目录）。
+ *
+ * - 方法：**GET**
+ * - 端点路径：`/v2/enterprises/personal/models`
+ * - 完整 URL（国际版）：`https://www.workbuddy.ai/v2/enterprises/personal/models`
+ * - 必需 query：**无**
+ * - 响应：连接配置（`endpoint` / `authentication`）+ `data.models` 窄表
+ *   （实测 18 条，以 `default-model` 这类前端路由别名开头）
+ *
+ * [代码] 参考实现 `wb_proxy.py:337`（`MODELS_PATH`）、`:11080`。
+ */
+const MODELS_PATH = "/v2/enterprises/personal/models";
+
+/**
+ * 桌面端选择器的**真实目录**端点。
+ *
+ * - 方法：**GET**
+ * - 端点路径：`/v3/config`
+ * - 完整 URL（国际版）：`https://www.workbuddy.ai/v3/config`
+ * - 必需 query：**无**
+ * - 响应：`agents[].models` 裸 id 列表 + `models[]` 元数据
+ *   （实测 27 条，含 `deepseek-v4.1-flash`）
+ * - ⚠ **UA 门禁**：只有三段式 CLI UA 能拿到完整目录，未知 UA 直接 `400 code=12403`
+ *   —— 故本端点用 `buildChatHeaders()` 那套桌面端身分去请求。
+ *
+ * [代码] 参考实现 `wb_proxy.py:10661-10691`（`REMOTE_CONFIG_PATH` +
+ *   `remote_config_headers` 的 UA 门禁注释）、`:10730-10771`。
+ */
+const CATALOG_PATH = "/v3/config";
 
 /** 上游 API 拒绝了访问令牌（HTTP 401/403）。 */
 export class UpstreamUnauthorized extends Error {
@@ -233,7 +349,7 @@ export function loadConfig(): [Config, boolean] {
   };
   // `www.codebuddy.ai` 的 DNS 已沉洞（实测解析到 0.0.0.1）：国际版请求指向它必然超时
   // —— 读到该域名一律归一到国际版 chat 上游（下次 saveConfig 落盘纠正）
-  if (hostOf(cfg.baseUrl) === "www.codebuddy.ai") cfg.baseUrl = REALM_INTL.chatUpstream;
+  cfg.baseUrl = normalizeBaseUrl(cfg.baseUrl);
   return [cfg, true];
 }
 
@@ -256,20 +372,20 @@ function ensureSlash(value: string): string {
   return value.startsWith("/") ? value : `/${value}`;
 }
 
-/** 完整限定的 chat-completions URL。 */
+/** 完整限定的 chat-completions URL（`POST`，无 query）。 */
 export function chatUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
-  return trimSlash(resolved.baseUrl) + ensureSlash(resolved.chatPath);
+  return trimSlash(normalizeBaseUrl(resolved.baseUrl)) + ensureSlash(resolved.chatPath);
 }
 
-/** 连接配置端点（窄口径：endpoint / authentication / agents）。 */
+/** 连接配置端点（窄口径：endpoint / authentication / agents；`GET`，无 query）。 */
 export function modelsUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
-  return `${trimSlash(resolved.baseUrl)}/v2/enterprises/personal/models`;
+  return `${trimSlash(normalizeBaseUrl(resolved.baseUrl))}${MODELS_PATH}`;
 }
 
 /**
- * 真正的模型目录端点。
+ * 真正的模型目录端点（`GET`，无 query）。
  *
  * `/v2/enterprises/personal/models` 的 `data.models` 只是面向前端展示的窄表
  * （实测 18 条，且以 `default-model` 这类路由别名开头）；桌面端选择器的目录在
@@ -279,7 +395,7 @@ export function modelsUrl(cfg?: Config): string {
  */
 export function catalogUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
-  return `${trimSlash(resolved.baseUrl)}/v3/config`;
+  return `${trimSlash(normalizeBaseUrl(resolved.baseUrl))}${CATALOG_PATH}`;
 }
 
 /** 从 baseUrl 提取 host 部分。 */
@@ -287,6 +403,22 @@ export function hostOf(baseUrl: string): string {
   const withoutScheme = baseUrl.includes("://") ? baseUrl.split("://", 2)[1]! : baseUrl;
   const cut = withoutScheme.search(/[/?]/);
   return cut < 0 ? withoutScheme : withoutScheme.slice(0, cut);
+}
+
+/**
+ * 基址归一：`www.codebuddy.ai` 已 DNS 沉洞，一律换成国际版 chat 上游。
+ *
+ * [代码] 参考实现 `wb_identity.py:78-82`：该域名在其实测网络上 getaddrinfo 失败、
+ *   解析器返回 0.0.0.1 沉洞，国际版 CLI 身分因此改走 `www.workbuddy.ai` 边缘。
+ * [实测] 本仓库同样观测到该域名解析到 0.0.0.1（见 PROTOCOL.md §1）。
+ *
+ * ⚠ **chat / 目录 / 额度 / 续期四条路径都要过这里** —— 只兜一处会漏
+ * （请求打到解析到 0.0.0.1 的地址，表现为必然超时）。
+ */
+export function normalizeBaseUrl(baseUrl: string): string {
+  const trimmed = trimSlash(baseUrl);
+  if (!trimmed) return DEFAULT_BASE_URL;
+  return hostOf(trimmed) === "www.codebuddy.ai" ? REALM_INTL.chatUpstream : trimmed;
 }
 
 /**
@@ -840,7 +972,7 @@ export async function fetchModels(
 ): Promise<Record<string, unknown>> {
   const cfg = loadConfig()[0];
   if (credential.domain && credential.domain !== hostOf(cfg.baseUrl)) {
-    cfg.baseUrl = `https://${credential.domain}`;
+    cfg.baseUrl = normalizeBaseUrl(`https://${credential.domain}`);
   }
 
   let resp: Response;

@@ -13,6 +13,9 @@
  * 网关 passport poll-token，两者同源 —— 见 cred.ts）。
  */
 
+import * as cred from "./cred.js";
+import type { SigninModule } from "@modelmux/gateway";
+
 /** 额度查询失败。 */
 export class CreditsError extends Error {
   override name = "CreditsError";
@@ -21,9 +24,27 @@ export class CreditsError extends Error {
   }
 }
 
-const GATEWAY_HOST = "https://catx.nocode.cn";
+/**
+ * 额度查询端点。
+ *
+ * - 方法 / 完整 URL：`GET https://catx.nocode.cn/api/gateway/credit/balance`
+ * - 端点路径：`/api/gateway/credit/balance`
+ * - query：无；body：无
+ * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头）
+ * - 响应：取 `data.availableCredits`（可用积分）
+ */
 const CREDIT_BALANCE_PATH = "/api/gateway/credit/balance";
+
+/**
+ * 注册奖励申领端点（幂等：老用户回 `newUser:false`）。
+ *
+ * - 方法 / 完整 URL：`POST https://catx.nocode.cn/api/gateway/credit/register`
+ * - 端点路径：`/api/gateway/credit/register`
+ * - query：无；body：`{registerChannel:"CATPAW_PC"}`
+ * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头）
+ */
 const CREDIT_REGISTER_PATH = "/api/gateway/credit/register";
+
 /** 注册奖励的申领渠道（参考实现 RegisterChannel 常量）。 */
 const REGISTER_CHANNEL = "CATPAW_PC";
 
@@ -80,7 +101,7 @@ export async function fetchCredits(
 
   let payload: unknown;
   try {
-    const resp = await fetch(`${GATEWAY_HOST}${CREDIT_BALANCE_PATH}`, {
+    const resp = await fetch(`${cred.GATEWAY_HOST}${CREDIT_BALANCE_PATH}`, {
       headers: gatewayHeaders(c.accessToken),
       signal: AbortSignal.timeout(30_000),
     });
@@ -127,7 +148,7 @@ export async function claimRegister(): Promise<{ result: RegisterResult; raw: Re
   const c = cred.load();
   let payload: unknown;
   try {
-    const resp = await fetch(`${GATEWAY_HOST}${CREDIT_REGISTER_PATH}`, {
+    const resp = await fetch(`${cred.GATEWAY_HOST}${CREDIT_REGISTER_PATH}`, {
       method: "POST",
       headers: { ...gatewayHeaders(c.accessToken), "Content-Type": "application/json" },
       body: JSON.stringify({ registerChannel: REGISTER_CHANNEL }),
@@ -158,9 +179,6 @@ export async function claimRegister(): Promise<{ result: RegisterResult; raw: Re
 }
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；契约要求**每个渠道都提供**）──────
-
-import * as cred from "./cred.js";
-import type { SigninModule } from "@modelmux/gateway";
 
 /**
  * 签到 / 领取能力（`<cid> checkin`）。

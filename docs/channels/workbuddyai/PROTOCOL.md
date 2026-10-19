@@ -15,6 +15,30 @@
  国际版请求不得指向它 —— 凭据 `domain` 与落盘 `baseUrl` 必须同源推导。
 - chat 路径为 `/v2/chat/completions`（`/plugin` 前缀实测 404）。
 
+### 1.1 国际版 vs 国内版：base 有**三处**不同（不是一处）
+
+`workbuddyai`（国际版）与 `workbuddy`（国内版）共用同一套端点协议，但 **base 分三个角色**，
+国内版的 chat / 计费 / 前台**不在同一个域** —— 照抄国际版的「三者同域」会打错出口。
+
+| base 角色 | 国际版（`workbuddyai`） | 国内版（`workbuddy`） | 证据（hub） |
+| --- | --- | --- | --- |
+| **chat 上游** | `https://www.workbuddy.ai` | `https://copilot.tencent.com` | `wb_accounts.py:180`、`:194`；`wb_identity.py:76-86` |
+| **计费 / 额度上游** | `https://www.workbuddy.ai`（同域） | `https://www.codebuddy.cn`（**另开一个域**） | `wb_accounts.py:181`、`:195` |
+| **前台 origin / Referer** | `https://www.workbuddy.ai` | `https://www.codebuddy.cn` | `wb_accounts.py:182`、`:196` |
+| `X-Domain` | `www.workbuddy.ai` | `copilot.tencent.com`（chat 侧） | `wb_accounts.py:183`、`:197` |
+| 对话 UA（三段式） | `WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0` | `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1`（无抓包） | `wb_identity.py:41-51` |
+| 计费 UA（单段） | `WorkBuddy/5.8.4` | `WorkBuddy/5.5.6` | `wb_accounts.py:186-201` |
+| `X-IDE-Version` | `5.8.4` | `5.5.6` | `wb_identity.py:41`、`:50` |
+| `Accept-Language` | `en-US` | `zh-CN` | `wb_accounts.py:1248`、`:1280` |
+| 签到端点 | **无**（`has_checkin = False`） | `www.codebuddy.cn/v2/billing/meter/daily-checkin` | `wb_accounts.py:190`、`:204`、`:1383-1391` |
+| 每日积分通道 | 网页 agent 会话（`console/as/conversations/` + ACP） | 对话活跃上报（`POST /v2/report`） | `wb_accounts.py:34-37`、`:1452-1666`；`wb_tasks.py:393-402` |
+
+> 国内版另有两个容易踩的坑：
+> - 国内版换过出口，`copilot.tencent.com` → `codebuddy.cn` → `workbuddy.cn` **三代域名都得认**，
+>   只认前两个会把 `workbuddy.cn` 的账号判成国际版（`wb_accounts.py:260-266`）。
+> - 国内版的 VSCode 身分 base 是 `www.workbuddy.cn`、CLI 身分 base 才是 `copilot.tencent.com`
+>   （`wb_identity.py:77-85`）—— 国际版三者一律 `www.workbuddy.ai`。
+
 ## 2. 官方身分头族（对话请求，缺任一可能触发渠道校验）
 
 | 头 | 值 |
@@ -107,12 +131,310 @@
 
 ---
 
+## 8. 唯一登录路径：浏览器设备授权
+
+本渠道**只有一条**登录路径，实现见 `src/cred.ts::login()`。
+
+```
+1. POST https://www.workbuddy.ai/v2/plugin/auth/state?platform=workbuddy   （匿名头，body "{}"）
+   → { code, msg, data: { state, authUrl } }
+2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
+3. GET  https://www.workbuddy.ai/v2/plugin/auth/token?state=<state>        每 5s 轮询，窗口 5 分钟
+   → code=0 时 data.accessToken / refreshToken / domain / expiresIn ...
+4. 落盘 ~/.modelmux/workbuddyai/credentials.json（0600，临时文件 + 原子替换）
+```
+
+### 8.1 为什么只保留这一条（判据）
+
+1. **它是三家参考实现唯一的共识路径**。hub（`wb_accounts.py:3402-3486`）与 ckldy
+   （`cmd/login/main.go:104-175`）**逐字同协议**：同样三个端点、同样由服务端签发 `state`、
+   同样**无 PKCE**。Tom6814 干脆不实现登录（只读本机已登录客户端的 auth 文件，
+   `codebuddy_direct_api.py:192-256`）—— 因为它定位是「脱离客户端的直连脚本」，
+   把「先装官方客户端并登录」当硬前置，与网关「免客户端」的定位相反。
+2. **依赖面最小，符合仓库硬约束**。设备流只依赖浏览器 + 纯 HTTP；而桌面端导入要
+   AES-256-GCM at-rest 解密 + Windows `ReadProcessMemory` 回收主密钥
+   （hub `wb_atrest.py`、`wb_accounts.py:3491-3534`、`README.md:332-342`），
+   会把平台相关解密代码带进渠道包，违反「渠道包 `src/` 只 7 文件 + 零第三方依赖」。
+3. **手工 JSON 导入属「凭据搬运」而不是登录**（ckldy `internal/auth/auth.go:142-161`）。
+   若将来需要「不打开浏览器也能入池」，正确做法是加一个**凭据导入**入口，
+   而不是再造第二套登录流程。
+4. **多账号不是渠道登录的职责**：账号池、轮询、亲和都在共享层
+   （`packages/core/gateway/src/runtime/account-pool.ts`）。
+
+> **不实现**：桌面端加密凭据导入、手工 JSON 导入（见 §12 已知边界）。
+
+### 8.2 与参考实现的两处字面差异（保留现状，勿轻改）
+
+| 项 | 本渠道 | 参考实现 | 处置 |
+| --- | --- | --- | --- |
+| `platform` query | `workbuddy` | `CLI`（hub `wb_accounts.py:3402`、ckldy `cmd/login/main.go:31`） | 保留现状：已实测跑通（§使用与实测），上游不严格校验 |
+| 登录窗口 | 5 分钟 | 600 秒（hub `wb_accounts.py:221`） | 保留现状（差异仅影响「授权页开得很慢」的边缘情形） |
+
+### 8.3 续期
+
+`POST {base}/v2/plugin/auth/token/refresh`，body `{}`，令牌走 **`X-Refresh-Token` 头**
+（不是 body）。上游会轮换 refresh token，新值必须回写（拿不到就保留旧值）。
+端点与鉴权形态见 hub `wb_accounts.py:1339-1381`。
+
+**触发时机**：本渠道是**纯被动** —— 上游回 401/403 才刷一次
+（`packages/core/gateway/src/http/chat-relay.ts:777-789`），登录后探测失败也刷一次
+（`packages/core/gateway/src/auth/auth-flow.ts:96-99`）。
+参考实现是**主动**的（hub `wb_accounts.py:1205-1217` 剩余 ≤120s 先刷；
+ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷），
+本轮不实现，见 §12 已知边界。
+
+## 9. chat 与模型请求的确切 URL
+
+### 9.1 端点全表（国际版 base = `https://www.workbuddy.ai`）
+
+| 用途 | 方法 | 完整 URL | 必需 query / body | 实现 |
+| --- | --- | --- | --- | --- |
+| **chat（SSE）** | **POST** | **`https://www.workbuddy.ai/v2/chat/completions`** | **无 query**；body 恒 `stream:true` + `stream_options.include_usage` | `src/upstream.ts` 的 `DEFAULT_CHAT_PATH` / `chatUrl()` |
+| 模型目录（**真目录**） | GET | `https://www.workbuddy.ai/v3/config` | 无 query；**UA 必须是三段式 CLI UA**，未知 UA → `400 code=12403` | `src/upstream.ts` 的 `CATALOG_PATH` / `catalogUrl()` |
+| 连接配置 + 窄表 | GET | `https://www.workbuddy.ai/v2/enterprises/personal/models` | 无 query | `src/upstream.ts` 的 `MODELS_PATH` / `modelsUrl()` |
+| 额度（套餐明细） | POST | `https://www.workbuddy.ai/v2/billing/meter/get-user-resource` | 无 query；body `{PageNumber,PageSize,ProductCode:"p_tcaca",Status:[0,3],PackageEndTimeRangeBegin,PackageEndTimeRangeEnd}` | `src/billing.ts` 的 `RESOURCE_PATH` |
+| 授权链接申请 | POST | `https://www.workbuddy.ai/v2/plugin/auth/state` | query `platform=workbuddy`；body `{}` | `src/cred.ts` 的 `PLATFORM_QS` |
+| 轮询取 token | GET | `https://www.workbuddy.ai/v2/plugin/auth/token` | query `state` | `src/cred.ts::pollToken()` |
+| 续期 | POST | `https://www.workbuddy.ai/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 | `src/cred.ts::refresh()` |
+
+> **这三个模型端点是不同端点，别混**：`/v2/enterprises/personal/models` 是连接配置 +
+> 前端窄表（18 条、含 `default-model` 这类路由别名）；`/v3/config` 才是桌面端选择器的
+> 真目录（27 条，含 `deepseek-v4.1-flash`）。详见 §6。
+
+### 9.2 URL 该显式化的地方
+
+1. **`www.codebuddy.ai` 已 DNS 沉洞**，国际版请求不得指向它（解析到 0.0.0.1）。
+   兜底收敛在**一处**：`src/upstream.ts::normalizeBaseUrl()`，
+   **chat / 目录 / 额度 / 续期四条路径都要过它** —— 只兜一处会漏
+   （表现为请求必然超时）。参考实现同样把它当成国际版 CLI 身分的禁用域
+   （`wb_identity.py:78-82`）。
+2. **`/plugin` 前缀实测 404**：模型载荷声明了 `authentication.attributes.prefixPath = /plugin`，
+   但 `POST /plugin/v2/chat/completions` 回 404、`POST /v2/chat/completions` 回 200。
+   **chat 路径不使用该前缀**。
+3. **chat URL 不带任何 query**：三家参考实现逐字一致
+   （hub `wb_proxy.py:336`/`:13171`、ckldy `internal/upstream/client.go:223`、
+   Tom6814 `codebuddy_direct_api.py:62`）。
+4. **不要照抄 Tom6814 的 body `conversationId`**：它从 SSE 回传会话 id，
+   但上游不按这个 id 存历史（同一 id 连发两轮、第二轮只带 system+user，模型仍答不出上一轮）——
+   见 hub `wb_identity.py:146-151`。
+
+## 10. 必需请求头清单
+
+### 10.1 对话请求（chat）—— 共 30 条
+
+实现见 `src/upstream.ts::buildChatHeaders()`（基础 5 条来自 `buildHeaders()`）。
+
+**基础 5 条**
+
+| 头 | 值 | 鉴权 | 刷新时机 |
+| --- | --- | --- | --- |
+| `Content-Type` | `application/json` | 否 | 不变 |
+| `Authorization` | `Bearer <accessToken>` | **是** | 令牌刷新后重取 |
+| `X-User-Id` | 账号 uid（缺失时从 JWT `sub` 补） | **是** | 令牌刷新后重取 |
+| `X-Domain` | intl `www.workbuddy.ai` / cn `copilot.tencent.com` | 是（区域路由） | 换区域时 |
+| `User-Agent` | intl `WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0` / cn `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1` | 是（**品牌字样决定账单归因**，且参与渠道校验） | 随桌面端版本升级 |
+
+**浏览器语义 6 条**（缺任一 → 对话被 11128 拒，而带这组的计费请求畅通）
+
+| 头 | 值 |
+| --- | --- |
+| `Accept` | `application/json, text/plain, */*` |
+| `X-Requested-With` | `XMLHttpRequest` |
+| `Origin` | intl `https://www.workbuddy.ai` / cn `https://www.codebuddy.cn`（**前台域**） |
+| `Referer` | `<Origin>/` |
+| `X-CodeBuddy-Request` | `1` |
+| `Accept-Language` | intl `en-US` / cn `zh-CN` |
+
+**官方身分头族 8 条**
+
+| 头 | 值 |
+| --- | --- |
+| `X-Agent-Intent` | `craft` |
+| `X-Agent-Purpose` | `conversation` |
+| `X-Agent-Type` | `main` |
+| `X-IDE-Name` | `WorkBuddy` |
+| `X-IDE-Type` | `WorkBuddy` |
+| `X-IDE-Version` | intl `5.8.4` / cn `5.5.6` |
+| `X-Private-Data` | `true` |
+| `X-Product` | `SaaS` |
+
+**会话 / 请求 ID 5 条**（**每轮新生成**；上游不按会话 id 存历史）
+
+| 头 | 形态 |
+| --- | --- |
+| `X-Conversation-ID` | 带连字符 UUID |
+| `X-Conversation-Request-ID` | 32 位无连字符 hex（UUIDv7 形态） |
+| `X-Root-Request-ID` | **与 `X-Conversation-Request-ID` 同值**（一轮 user send 生成、本轮复用） |
+| `X-Conversation-Message-ID` | 32 位无连字符 hex（UUIDv7 形态） |
+| `X-Request-ID` | **与 `X-Conversation-Message-ID` 同值** |
+
+**链路族 6 条**
+
+| 头 | 值 |
+| --- | --- |
+| `X-Trace-ID` | `<trace>`（32 hex，与 trace id 同值） |
+| `traceparent` | `00-<32hex>-<16hex>-01` |
+| `b3` | `<trace>-<span>-1` |
+| `X-B3-TraceId` | `<trace>` |
+| `X-B3-SpanId` | `<span>`（16 hex） |
+| `X-B3-Sampled` | `1` |
+
+> `X-B3-ParentSpanId` 需要真实的父子调用关系，网关没有，**不伪造**
+> （hub `wb_identity.py:125-140`）。
+> **chat 请求不带 `X-Machine-ID` / `X-Session-ID`**：官方桌面端只在反馈上报时发它们，
+> 对话带恒定派生值反而是「网关特征」（hub `wb_accounts.py:1225-1232`）。
+
+### 10.2 计费请求（billing）—— 13 条
+
+实现见 `src/billing.ts::headers()`。
+
+| 头 | 值 | 来源 / 备注 |
+| --- | --- | --- |
+| `Content-Type` | `application/json` | 常量 |
+| `Accept` | `application/json, text/plain, */*` | 常量 |
+| `X-Requested-With` | `XMLHttpRequest` | 常量 |
+| `User-Agent` | intl `WorkBuddy/5.8.4` / cn `WorkBuddy/5.5.6` | **计费 UA 是单段**，与对话的三段式不同（hub `wb_accounts.py:186-201`） |
+| `Origin` / `Referer` | 前台域 + `/` | 与 §1.1 的前台 base 一致 |
+| `Authorization` | `Bearer <accessToken>` | **是** |
+| `X-User-Id` | 账号 uid | **是** |
+| `X-Domain` | base 的 host | 区域 |
+| `X-CodeBuddy-Request` | `1` | 常量 |
+| `X-Request-ID` | 32 位**无连字符** hex | 与官方形态一致（hub `wb_fingerprint.py:45-51`） |
+| `X-Machine-ID` | **按账号 uid 派生**（带连字符 UUID） | 防关联：网关一进程服务多账号，取进程级值会把账号池串成同一台设备（hub `wb_accounts.py:1229-1232`、`wb_fingerprint.py:22-42`） |
+| `X-Session-ID` | **按账号 uid 派生**（带连字符 UUID） | 同上 |
+| `X-No-Enterprise-Id` | `1` | 本渠道暂不支持企业账号（见 §12） |
+| `X-Product` | `SaaS` | 常量 |
+
+### 10.3 续期请求（refresh）—— 8 条
+
+| 头 | 值 |
+| --- | --- |
+| `Content-Type` | `application/json` |
+| `Accept` | `application/json, text/plain, */*` |
+| `X-Requested-With` | `XMLHttpRequest` |
+| `X-Refresh-Token` | 刷新令牌（**唯一鉴权物**） |
+| `X-Auth-Refresh-Source` | intl `plugin` / cn `workbuddy` |
+| `X-User-Id` | 账号 uid |
+| `X-Domain` | 凭据 domain |
+| `X-CodeBuddy-Request` | `1` |
+
+> **chat 请求绝不能带 `X-Refresh-Token`**（ckldy `internal/upstream/headers.go:54-55` 的安全红线）。
+
+### 10.4 匿名请求（登录端点）—— 4 条
+
+`X-No-Authorization` / `X-No-User-Id` / `X-No-Enterprise-Id` / `X-No-Department-Info`，值均为 `true`。
+
+> 参考实现走登录端点时发的是 `Origin` / `Referer` / `User-Agent` / `Accept`
+> （hub `wb_accounts.py:3405-3412`、ckldy `cmd/login/main.go:38-45`），
+> 不发这组 `X-No-*`。本渠道已实测跑通，故保留现状；若真机发现登录端点收紧，
+> 按参考实现补 `Origin` / `Referer` 即可（见 §12 待验证项）。
+
+## 11. token / JWT 与到期时刻
+
+- **格式**：访问令牌是 **JWT**（三段式）；uid 从 payload 的 `sub` 取
+  （`src/cred.ts` 的 `jwtSub`）。刷新令牌是不透明串，只在续期端点用。
+- **落盘字段**：`~/.modelmux/workbuddyai/credentials.json`，
+  `expiresAt` / `refreshExpiresAt` 统一存 **epoch 毫秒**（取不到为 null）。
+  共享层账号池的 `parseExpiry` 认得秒/毫秒两种形态
+  （`packages/core/gateway/src/runtime/account-pool.ts:120-137`），旧文件（秒）继续可用。
+- **到期时刻的推导顺序**（口径对齐 hub `wb_accounts.py:540`）：
+  1. 上游给的**绝对时刻** `expiresAt`（秒/毫秒都认）；
+  2. 访问令牌 JWT 的 `exp`（标准秒级 epoch）；
+  3. 相对时长 `expiresIn` / `refreshExpiresIn`。
+- **秒 / 毫秒都认**：三家参考实现对 `expiresIn` 的单位并不一致 —— hub **不用**它
+  （改用 `expiresAt` / JWT `exp`，`wb_accounts.py:540`、`:1375`）、
+  ckldy 当**秒**（`internal/upstream/client.go:213-215`）、
+  Tom6814 当**毫秒**（`codebuddy_direct_api.py:368-373`）。
+  本渠道因此**不猜**：有绝对锚点时按「哪一种解释更贴近锚点」判定单位，
+  没有锚点时才按量级兜底（相对量不会超过 1e6 秒 ≈ 11.6 天，超过按毫秒解释）。
+  **绝对时刻的秒/毫秒判据与共享层账号池一致**：`> 1e12` 视为毫秒，否则视为秒。
+- **刷新令牌轮换**：上游会轮换 refresh token，新值必须回写；拿不到就保留旧值。
+- **区域判定**：按凭据 `domain` 走 `upstream.isCnDomain()`，
+  国内版**三代域名**（`copilot.tencent.com` / `codebuddy.cn` / `workbuddy.cn`）都认
+  （`wb_accounts.py:260-266`）。
+
+## 12. 已知边界
+
+### 12.1 参考实现有、当前实现没有的功能（29 条，本轮明确不做）
+
+> 全部来自 `reference/` 三个仓库的源码（证据见
+> `.planning/2026-10-20-channel-reference-parity/research/workbuddyai.md` 的 §5）。
+
+| 层 | 缺口 | 参考实现 |
+| --- | --- | --- |
+| 账号 / 凭据 | 桌面端加密凭据导入（at-rest AES-256-GCM + Windows 进程内存回收主密钥） | hub `wb_atrest.py`、`wb_accounts.py:3491-3534` |
+| 账号 / 凭据 | 手工 JSON 凭据导入 / 账号导出 | ckldy `internal/auth/auth.go:43-161`；hub `wb_accounts.py:705-739` |
+| 账号 / 凭据 | 企业账号支持（`enterpriseId` 落盘 + JWT 回填 + `X-Enterprise-Id`/`X-Tenant-Id` + 企业用量端点） | hub `wb_accounts.py:537`、`:2061`；`wb_identity.py:224-226` |
+| 账号 / 凭据 | 设备令牌 `X-Device-Token` | hub `wb_accounts.py:392-424` |
+| 账号 / 凭据 | 账号昵称同步（`GET /console/account`） | hub `wb_accounts.py:72-100` |
+| 出站身分 | 三套出站身分切换（`workbuddy` / `vscode` / `cli`） | hub `wb_identity.py:143-230`、`wb_accounts.py:1311-1330` |
+| 防关联 | 每账号出口代理绑定 + 出口退避 + IP 情报 | hub `wb_accounts.py:107-125`、`wb_egress.py`、`wb_ipintel.py:23` |
+| 防关联 | 上游连接池（keep-alive） | hub `wb_upstream_pool.py:285`、`:651` |
+| 续期 / 可靠性 | 主动续期（到期前 N 分钟先刷 + keepalive 调度） | hub `wb_accounts.py:1205-1217`；ckldy `internal/server/handler.go:187-199` |
+| 续期 / 可靠性 | 刷新并发锁（上游会轮换 refresh token） | hub `wb_accounts.py:693`、`:1332-1337` |
+| 护栏 | 限流护栏全套（软限流阶梯 / 熔断 / 降级 / 按模型冷却） | hub `wb_accounts.py:443-506`、`:1005-1055` |
+| 护栏 | 6004 额度用满的持久化禁用 | hub `wb_accounts.py:628-634` |
+| 护栏 | 每日限额三件套（每日 token / 每日 credit / 模型级）+ 低余额保留 + 临期优先 | hub `wb_accounts.py:653-687`、`:871-930` |
+| 护栏 | 账号级权重 / 备注 / 人工禁用模型名单 | hub `wb_accounts.py:557`、`:564-576` |
+| 额度 / 自动化 | 额度明细扩展端点（summary / free-packages / paid-packages / 签到状态 / 企业用量） | hub `wb_accounts.py:214-218`、`:1850-1886` |
+| 额度 / 自动化 | 国际版每日活跃打卡（网页 agent 会话：建会话 → 取沙箱 → ACP 三步 → 轮询 completed） | hub `wb_accounts.py:34-37`、`:1452-1666`、`wb_webagent.py:221` |
+| 额度 / 自动化 | 活动历史落盘与查询（签到 / 每日活跃每一次真实尝试） | hub `wb_activity.py:179`、`:285` |
+| 协议精细度 | 模型目录精度（清洗行内补全模型 / 专线变体；折叠 `-sg`/`-x` 变体后缀；宣告工具与推理档位） | hub `wb_catalog.py:18-1731`、`wb_proxy.py:10673`、`:10730-10771` |
+| 协议精细度 | 按目录元数据注入推理参数（`thinking.type=enabled` 单独不触发思考、GPT 系 `max_tokens` 下限 16、缺省取目录声明） | hub `wb_proxy.py:12402-12435` |
+| 协议精细度 | 提示词模式（`passthrough` / `custom` / `append`） | hub `wb_prompt.py:38`、`:81` |
+| 协议精细度 | 后台模型重定向（后台任务模型 → 免费模型） | hub `wb_proxy.py:355-369` |
+| 网关形态 | 本地网络工具代跑（`web_search` / `web_fetch` 本地执行） | hub `wb_webtools.py:91-577` |
+| 网关形态 | Responses API / Anthropic Messages 适配 | hub `README.md:352-363` |
+| 网关形态 | 图片生成 / 编辑（`/v2/images/generations`、`/v2/images/edits`） | Tom6814 `codebuddy_direct_api.py:63-64`、`server.py:435`、`:506` |
+| 网关形态 | OpenRouter 价估算 / 剩余用量估算 / 积分获取历史 | hub `wb_pricing.py:1124`、`:2230` |
+| 网关形态 | 智能体一键配置（生成 opencode / claude / codex 配置） | hub `wb_agents.py:609` |
+| 网关形态 | 单请求体体积上限（默认 16 MB） | hub `README.md:299-301` |
+
+### 12.2 静态风险（读代码即可定论，未做真机验证）
+
+| # | 风险 | 现状 |
+| --- | --- | --- |
+| R1 | `expiresIn` 单位三家分歧 | 已修：绝对时刻 → JWT `exp` → 相对量三段式，且秒/毫秒都认（§11） |
+| R2 | 国际版签到端点断言错误 | 已修：改为「国际版无签到端点」，不再打 `/billing/meter/daily-checkin` |
+| R3 | billing 头误用国内版 UA | 已修：按区域取计费 UA（国际版 `WorkBuddy/5.8.4`） |
+| R4 | billing 头缺 `X-Machine-ID` / `X-Session-ID` | 已修：按账号 uid 派生 |
+| R5 | billing 的 `X-Request-ID` 形态不对（带连字符） | 已修：改为 32 位无连字符 hex |
+| R6 | 国内版域名集合漏 `workbuddy.cn` | 已修：`upstream.isCnDomain()` 认三代域名 |
+| R7 | chat / 目录 / 额度的 base 口径不一致 | 部分修：域名覆写处统一过 `normalizeBaseUrl()`；chat 与目录仍分别取「落盘 baseUrl」与「凭据 domain」 |
+| R8 | 刷新无并发锁 | **未做**（见 §12.1） |
+| R9 | 只被动续期，无到期前预刷 | **未做**（见 §12.1） |
+| R10 | 登录端点的匿名头与参考实现不同 | 保留现状（已实测跑通），见 §10.4 |
+| R11 | `platform=workbuddy` 与参考实现的 `CLI` 不同 | 保留现状（已实测跑通），见 §8.2 |
+| R12 | 不打 `/v2/plugin/login/account`，没有昵称 / 企业 id | **未做**（见 §12.1） |
+| R13 | 目录不宣告推理档位 / 工具支持 | **未做**（见 §12.1） |
+| R14 | `www.codebuddy.ai` 沉洞的兜底只做了一处 | 已修：收敛到 `normalizeBaseUrl()`，chat / 目录 / 额度 / 续期四条路径都过 |
+| R15 | 随包快照只有 1 条模型 | 未改（远端目录落盘后即以远端为准） |
+
+### 12.3 需要真机验证（不能靠读代码定论）
+
+> 验证纪律：只发**正确形态**的请求，不发畸形载荷（见 `AGENTS.md`「测试规则」第 4 条）。
+
+| # | 待验证项 | 判据 |
+| --- | --- | --- |
+| V1 | `expiresIn` 的单位（秒 or 毫秒）与 `expiresAt` / JWT `exp` 的关系 | 三者能推出同一到期时刻 → §11 的判定口径正确 |
+| V2 | 国际版到底有没有 `/billing/meter/daily-checkin` | 404 → 证实「国际版无签到端点」，`signin` 的现状正确 |
+| V3 | 国际版每日 30/50 积分的正确通道（网页 agent 会话）能否跑通 | 跑通 → 值得实现（§12.1）；跑不通 → 该路对网关不可用 |
+| V4 | `platform` query 取值是否影响上游 | 两种取值都能拿到 `state`+`authUrl` → 保留现状 |
+| V5 | 续期请求缺 `Origin` / `Referer` / `Accept-Language` 是否被拒 | 两者都 200 → 现状可留 |
+| V6 | billing 缺 `X-Machine-ID` / `X-Session-ID` 是否影响归因或被拒 | 响应一致 → 现状可留 |
+| V7 | `X-Domain` 与实际 host 不一致是否被拒 | 200 → base 口径可继续收敛；被拒 → base 必须与 `X-Domain` 严格同源 |
+| V8 | `/v2/plugin/login/account` 对国际版是否可用 | 返回 `uid`/`nickname` → 可补昵称；404 → 维持现状 |
+| V9 | 缺 `X-Enterprise-Id` 是否影响企业账号 | 需要企业账号才能验；无账号则按「不实现」处理 |
+
+---
+
 ## 使用与实测
 
 ### 登录
 
 `mx login workbuddyai` 走浏览器设备授权（申请链接 → 打开浏览器 → 轮询令牌），
 全程只有「在浏览器点一下授权」需要人工；国际版 realm 端点见 §1（`www.workbuddy.ai`）。
+**唯一登录路径与「为什么只保留它」的判据见 §8。**
 
 `--realm` 参数在本渠道被忽略（保留仅为兼容共享层 CLI 的签名）。国内版（腾讯 CodeBuddy）
 是**独立渠道** `workbuddy`，见 [`workbuddy/PROTOCOL.md`](../workbuddy/PROTOCOL.md)：
@@ -122,6 +444,7 @@
 
 全部落点在统一存储根 `~/.modelmux/` 下按渠道分层：凭证在
 `~/.modelmux/workbuddyai/credentials.json`（权限 0600），不要提交到 git。
+凭证里的 `expiresAt` / `refreshExpiresAt` 存 **epoch 毫秒**（口径见 §11）。
 `MODELMUX_HOME` 可把整个存储根指到别处，便携/测试用；本渠道只读写
 `~/.modelmux/workbuddyai/`，不读其它顶层目录或旧环境变量。
 `mx path --all` 可只读列出全部落点。
@@ -141,6 +464,10 @@
 - **SSE 里空的 `tool_calls: []` 必须剔除**：上游每个 delta 都带它，
   而 ZCode 的解析器判定 `tool_calls != null` 就结束思考块 ——
   不剔除会让每个 reasoning token 被切成独立的「思考」块。
+- **国际版没有签到端点**：早先「国际版存在 `/billing/meter/daily-checkin`」的结论是错的
+  —— 主参照 hub 实测 `intl.has_checkin = False`（`wb_accounts.py:190`、`:1383-1391`），
+  国际版的每日积分走**网页 agent 会话**通道（本渠道未实现，见 §12.1）。
+  故 `signin.status()` 如实报「无可领」，`signin.claim()` 不发任何上游请求。
 
 ### 怎么测这个渠道
 

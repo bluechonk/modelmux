@@ -1,15 +1,28 @@
 /**
  * 认证状态：浏览器设备登录流程、凭证持久化与访问令牌刷新。
  *
- * 登录协议（实测）：
+ * ## 登录协议（唯一一条路径）
+ *
  *   1. `POST {base}/v2/plugin/auth/state?platform=workbuddy`（匿名头）→ {state, authUrl}
  *   2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
  *   3. `GET {base}/v2/plugin/auth/token?state=...` 每 5s 轮询，≤5 分钟 → 令牌
  *   4. 落盘为 credentials.json（Go 风格字段名）
- * 刷新：`POST /v2/plugin/auth/token/refresh`（纯 HTTP，X-Refresh-Token 头）
+ *   刷新：`POST /v2/plugin/auth/token/refresh`（纯 HTTP，X-Refresh-Token 头）
  *
  * ⚠ 本渠道**只有一个域**（国际版 workbuddy.ai）。国内版（codebuddy.ai）是**独立渠道**
  * `workbuddy` —— 账号属于哪个域就用哪个渠道登录，不再有 `--realm` 二选一。
+ *
+ * ## 为什么只保留这一条登录路径
+ *
+ * [代码] 设备授权是 hub（`wb_accounts.py:3402-3486`）与 ckldy
+ *   （`cmd/login/main.go:104-175`）**逐字同协议**的唯一共识路径（同样三个端点、
+ *   同样由服务端签发 state、同样无 PKCE），且不依赖任何本机特权。
+ * [推断] 参考实现的另两条**不实现**：
+ *   - 桌面端加密凭据导入（hub `wb_accounts.py:3491-3534` + `wb_atrest.py`）要
+ *     AES-256-GCM at-rest 解密 + Windows `ReadProcessMemory` 回收主密钥 ——
+ *     违反渠道包 7 文件 / 零第三方依赖的契约；
+ *   - 手工 JSON 导入（ckldy `internal/auth/auth.go:142-161`）属**凭据搬运**，
+ *     不是登录；真要「不打开浏览器入池」，也应做成凭据导入而不是第二套登录。
  */
 
 import { readFileSync } from "node:fs";
@@ -20,6 +33,8 @@ import {
   ensureDir,
   login as sharedLogin,
 } from "@modelmux/gateway";
+
+import { isCnDomain, normalizeBaseUrl } from "./upstream.js";
 
 /** 登录基址（国际版 workbuddy.ai）。 */
 export const DEFAULT_BASE_URL = "https://www.workbuddy.ai";
@@ -34,6 +49,23 @@ const HTTP_TIMEOUT_MS = 30_000;
 
 const NOT_LOGGED_IN_MSG = "no credentials found; start the gateway to log in";
 
+/**
+ * epoch 毫秒阈值（秒/毫秒判据）。
+ *
+ * [代码] 与共享层账号池一致（`runtime/account-pool.ts:120-137` 的 `parseExpiry`）：
+ * 数值 `> 1e12` 视为**毫秒**（2001-09 之后的 epoch 毫秒），否则视为**秒**。
+ */
+const EPOCH_MS_THRESHOLD = 1e12;
+
+/**
+ * 相对时长的秒数上限（超过就不太可能是「秒」，按毫秒解释）。
+ *
+ * [推断] 相对量不是 epoch，套不了上面的 epoch 阈值；令牌有效期不会超过
+ * 1e6 秒（≈11.6 天），超过就按毫秒解释。**只作兜底** —— 有绝对锚点时
+ * 用锚点反推单位（见 `durationUnitMs`）。
+ */
+const DURATION_SEC_LIMIT = 1e6;
+
 /** 磁盘上不存在可用凭证。 */
 export class NotLoggedInError extends Error {
   override name = "NotLoggedInError";
@@ -42,7 +74,13 @@ export class NotLoggedInError extends Error {
   }
 }
 
-/** credentials.json 的磁盘布局。JSON 字段名与 Go 版一致（camelCase）。 */
+/**
+ * credentials.json 的磁盘布局。JSON 字段名与 Go 版一致（camelCase）。
+ *
+ * `expiresAt` / `refreshExpiresAt` 统一存 **epoch 毫秒**（取不到为 null）。
+ * 共享层账号池的 `parseExpiry` 认得这两种形态（毫秒会换算成秒），
+ * 见 `runtime/account-pool.ts:120-137`。
+ */
 export interface Credentials {
   accessToken: string;
   refreshToken: string;
@@ -52,8 +90,10 @@ export interface Credentials {
   domain: string;
   uid: string;
   expiresIn: string;
+  /** 访问令牌到期时刻（epoch 毫秒；null = 取不到）。 */
   expiresAt: unknown;
   refreshExpiresIn: string;
+  /** 刷新令牌到期时刻（epoch 毫秒；null = 取不到）。 */
   refreshExpiresAt: unknown;
   obtainedAt: string;
   source: string;
@@ -194,15 +234,90 @@ function anyToStr(value: unknown): string {
   return typeof value === "string" ? value : String(value);
 }
 
-function unixAfter(startMs: number, value: unknown): number | null {
-  let seconds: number;
-  if (typeof value === "number") seconds = value;
-  else if (typeof value === "string") {
+/** 数字取值（字符串数字也认）；取不到返回 null。 */
+function numOf(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
     const parsed = Number.parseFloat(value);
-    if (!Number.isFinite(parsed)) return null;
-    seconds = parsed;
-  } else return null;
-  return Math.trunc(startMs / 1000 + seconds);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * **绝对时刻** → epoch 毫秒（秒/毫秒都认）。
+ *
+ * [代码] 判据与共享层账号池一致（`runtime/account-pool.ts:125`）：
+ * 数值 `> 1e12` 视为毫秒，否则视为秒。
+ */
+function epochToMs(value: unknown): number | null {
+  const n = numOf(value);
+  if (n === null || n <= 0) return null;
+  return Math.trunc(n > EPOCH_MS_THRESHOLD ? n : n * 1000);
+}
+
+/**
+ * 相对时长（`expiresIn` / `refreshExpiresIn`）的单位判定。
+ *
+ * [代码] 三家参考实现口径不一：hub **不用**这两个字段（改用 `expiresAt` /
+ *   JWT `exp`，`wb_accounts.py:540`、`:1375`）、ckldy 当**秒**
+ *   （`internal/upstream/client.go:213-215`）、tom 当**毫秒**
+ *   （`Tom6814/codebuddy_direct_api.py:368-373`）。
+ * [推断] 故这里不猜：有绝对锚点时按「哪一种解释更贴近锚点」判定；
+ *   没有锚点时才按量级兜底。
+ *
+ * @param anchorMs 绝对到期时刻（毫秒）；没有就传 null
+ * @returns 换算乘数：相对量按**秒**解释时是 1000，按**毫秒**解释时是 1
+ */
+function durationUnitMs(
+  relative: unknown,
+  nowMs: number,
+  anchorMs: number | null,
+): number {
+  const n = numOf(relative);
+  if (n === null || n <= 0) return 1000;
+  if (anchorMs !== null) {
+    const remain = anchorMs - nowMs;
+    const asSec = Math.abs(remain - n * 1000);
+    const asMs = Math.abs(remain - n);
+    return asSec <= asMs ? 1000 : 1;
+  }
+  return n > DURATION_SEC_LIMIT ? 1 : 1000;
+}
+
+/**
+ * 相对时长 → 到期时刻（epoch 毫秒）。
+ *
+ * @param perUnitMs 换算乘数（`durationUnitMs` 的返回值）
+ */
+function durationToMs(value: unknown, nowMs: number, perUnitMs: number): number | null {
+  const n = numOf(value);
+  if (n === null || n <= 0) return null;
+  return Math.trunc(nowMs + n * perUnitMs);
+}
+
+/**
+ * 令牌束的到期时刻（epoch 毫秒）。
+ *
+ * [代码] 口径对齐 hub `wb_accounts.py:540`：**绝对时刻优先 → JWT `exp` → 相对时长**。
+ * - `expiresAt`（上游给的绝对时刻）：秒/毫秒都认；
+ * - 访问令牌 JWT 的 `exp`：标准秒级 epoch（共享层 `login.ts` 的 `jwtExpMs`）；
+ * - `expiresIn` / `refreshExpiresIn`（相对量）：单位由上面的绝对锚点反推。
+ *
+ * 刷新令牌没有 JWT，只能靠访问令牌的锚点反推单位 —— 故两者共用同一个换算乘数。
+ */
+function resolveExpiries(
+  bundle: Record<string, unknown>,
+  nowMs: number,
+): { expiresAt: number | null; refreshExpiresAt: number | null } {
+  const absolute = epochToMs(bundle["expiresAt"]);
+  const jwtExp = sharedLogin.jwtExpMs(str(bundle["accessToken"]));
+  const anchorMs = absolute ?? (jwtExp > 0 ? jwtExp : null);
+  const perUnitMs = durationUnitMs(bundle["expiresIn"], nowMs, anchorMs);
+  return {
+    expiresAt: anchorMs ?? durationToMs(bundle["expiresIn"], nowMs, perUnitMs),
+    refreshExpiresAt: durationToMs(bundle["refreshExpiresIn"], nowMs, perUnitMs),
+  };
 }
 
 async function fetchWithTimeout(
@@ -296,9 +411,9 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
     if (!c.domain) c.domain = hostOf(base);
     c.expiresIn = anyToStr(token["expiresIn"]);
     c.refreshExpiresIn = anyToStr(token["refreshExpiresIn"]);
-    const now = Date.now();
-    c.expiresAt = unixAfter(now, token["expiresIn"]);
-    c.refreshExpiresAt = unixAfter(now, token["refreshExpiresIn"]);
+    const { expiresAt, refreshExpiresAt } = resolveExpiries(token, Date.now());
+    c.expiresAt = expiresAt;
+    c.refreshExpiresAt = refreshExpiresAt;
     await save(c);
     return c;
   }
@@ -310,11 +425,16 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
  * 端点与鉴权形态按 hub 实测（`wb_accounts.py` 的 `_refresh_locked`）：路径带
  * `/token/` 段，令牌走 `X-Refresh-Token` 头、请求体为空对象；上游会轮换
  * refresh token，新值必须回写（拿不到就保留旧值）。
+ *
+ * [代码] 区域判定复用 `upstream.isCnDomain()`（含国内版三代域名
+ * `copilot.tencent.com` / `codebuddy.cn` / `workbuddy.cn`，
+ * 见 `wb_accounts.py:260-266`）；续期 base 一律过 `normalizeBaseUrl()`
+ * （`www.codebuddy.ai` 已 DNS 沉洞）。
  */
 export async function refresh(c: Credentials): Promise<Credentials> {
   if (!c.refreshToken) throw new Error("no refresh token available");
-  const realmCn = c.domain === "copilot.tencent.com" || c.domain.endsWith("codebuddy.cn");
-  const base = realmCn ? "https://copilot.tencent.com" : DEFAULT_BASE_URL;
+  const realmCn = isCnDomain(c.domain);
+  const base = normalizeBaseUrl(realmCn ? "https://copilot.tencent.com" : DEFAULT_BASE_URL);
   const resp = await fetchWithTimeout(`${base}/v2/plugin/auth/token/refresh`, {
     method: "POST",
     body: "{}",
@@ -357,8 +477,9 @@ export async function refresh(c: Credentials): Promise<Credentials> {
   const now = Date.now();
   next.expiresIn = anyToStr(token["expiresIn"]);
   next.refreshExpiresIn = anyToStr(token["refreshExpiresIn"]);
-  next.expiresAt = unixAfter(now, token["expiresIn"]);
-  next.refreshExpiresAt = unixAfter(now, token["refreshExpiresIn"]);
+  const { expiresAt, refreshExpiresAt } = resolveExpiries(token, now);
+  next.expiresAt = expiresAt ?? c.expiresAt;
+  next.refreshExpiresAt = refreshExpiresAt ?? c.refreshExpiresAt;
   if (!next.uid) next.uid = c.uid;
   await save(next);
   return next;

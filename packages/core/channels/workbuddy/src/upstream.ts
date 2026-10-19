@@ -42,8 +42,6 @@ const DESKTOP_UA_CN = "WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1";
 const DESKTOP_IDE_VERSION_CN = "5.5.6";
 /** 国内版前台域（对话请求的 Origin/Referer；chat 上游仍是 copilot.tencent.com）。 */
 const FRONT_DOMAIN_CN = "https://www.codebuddy.cn";
-/** 凭据没带 domain 时的 X-Domain 缺省值（= chat 上游 host）。 */
-const CHAT_DOMAIN_CN = "copilot.tencent.com";
 
 /** 每轮新生的会话 id（带连字符 UUID；上游不按它存历史）。 */
 function newConversationId(): string {
@@ -99,6 +97,325 @@ export class UpstreamUnauthorized extends Error {
   override name = "UpstreamUnauthorized";
 }
 
+// ── 上游业务错误分类 ────────────────────────────────────────────────────────────
+
+/**
+ * 上游业务错误的**处置类别**。
+ *
+ * 码表来自官方客户端 `app.asar` 里提取的 `ServerErrorCode` 枚举，分类口径按
+ * 「语义具体优先」分层（秒/分/时级限流是账号级、日额度是账号×模型级、
+ * 模型缺服务是确定性不可用）。
+ *
+ * `[参考]` 码表与分层表：`reference/xiaofan6ya_workbuddy2api/docs/protocol-reference.md:1904-1952`
+ * （码表）、`:1869-1889`（分层表）。本表只抄「码 → 语义 → 处置」的对应关系。
+ */
+export type UpstreamErrorKind =
+  /** 该后端无此模型（确定性）→ 换模型 */
+  | "model_block"
+  /** 模型级日额度 / 模型繁忙 → 换模型或换号 */
+  | "model_rate"
+  /** 模型排队 → 等上游给的 retry_after */
+  | "model_queue"
+  /** 秒/分/时级限流 → 换号即可 */
+  | "soft_rate"
+  /** 额度用尽（个人/企业/腾讯侧）→ 换号或等次日重置 */
+  | "hard_credit"
+  /** 账号级授权 / 风控限制 → 换号 */
+  | "account_fault"
+  /** 会话被上游删除 → 需重登 */
+  | "session_dead"
+  /** 模型行为策略拒绝 → 透传给客户端 */
+  | "model_behavior"
+  /** 上下文超长 → 透传给客户端 */
+  | "context_too_long"
+  /** 上游 5xx → 可退避重试 */
+  | "server"
+  /** 404 */
+  | "not_found"
+  /** 其余 4xx（含 11128 指纹、11101 参数、11148 工具配对）→ 不可重试 */
+  | "client";
+
+/**
+ * 业务码 → 处置类别。
+ *
+ * ⚠ 这些码**不总是配 429**：上游会把限流包在 HTTP 200 或 400 里返回，只看状态码
+ * 的实现会把它落到「不可重试」（`[参考]` hub docs/protocol-reference.md:1949-1952）。
+ */
+const BUSINESS_CODE_KINDS: Record<number, UpstreamErrorKind> = {
+  // 限流码族 6000-6008：6004/6008 是「每天」额度（客户端当日额度、不重试）
+  6000: "soft_rate",
+  6001: "soft_rate",
+  6002: "soft_rate",
+  6003: "soft_rate",
+  6004: "model_rate",
+  6005: "soft_rate",
+  6006: "soft_rate",
+  6007: "soft_rate",
+  6008: "model_rate",
+  // 排队（模型级，附 retry_after）
+  6020: "model_queue",
+  6021: "model_queue",
+  6022: "model_queue",
+  // 额度 / 授权
+  14001: "hard_credit",
+  14003: "model_rate",
+  14012: "hard_credit",
+  14013: "hard_credit",
+  14014: "hard_credit",
+  14015: "account_fault",
+  14016: "account_fault",
+  14017: "account_fault",
+  14018: "hard_credit",
+  14019: "hard_credit",
+  // 模型 / 账号 / 会话
+  11102: "model_block",
+  11115: "context_too_long",
+  11140: "account_fault",
+  11141: "model_behavior",
+  11142: "account_fault",
+  12153: "session_dead",
+};
+
+/** 各类别的处置建议。 */
+interface KindDisposition {
+  /** 换模型即可解（该模型对这个账号不可用）。 */
+  rotateModel: boolean;
+  /** 换号即可解（账号级问题）。 */
+  rotateAccount: boolean;
+  /** 需要重新登录（上游已删除该会话）。 */
+  needsRelogin: boolean;
+  /** 瞬时故障，可退避后重试。 */
+  retryable: boolean;
+}
+
+const KIND_DISPOSITIONS: Record<UpstreamErrorKind, KindDisposition> = {
+  model_block: { rotateModel: true, rotateAccount: false, needsRelogin: false, retryable: false },
+  model_rate: { rotateModel: true, rotateAccount: true, needsRelogin: false, retryable: false },
+  model_queue: { rotateModel: true, rotateAccount: false, needsRelogin: false, retryable: true },
+  soft_rate: { rotateModel: false, rotateAccount: true, needsRelogin: false, retryable: true },
+  hard_credit: { rotateModel: false, rotateAccount: true, needsRelogin: false, retryable: false },
+  account_fault: { rotateModel: false, rotateAccount: true, needsRelogin: false, retryable: false },
+  session_dead: { rotateModel: false, rotateAccount: false, needsRelogin: true, retryable: false },
+  model_behavior: { rotateModel: false, rotateAccount: false, needsRelogin: false, retryable: false },
+  context_too_long: { rotateModel: false, rotateAccount: false, needsRelogin: false, retryable: false },
+  server: { rotateModel: false, rotateAccount: false, needsRelogin: false, retryable: true },
+  not_found: { rotateModel: false, rotateAccount: false, needsRelogin: false, retryable: false },
+  client: { rotateModel: false, rotateAccount: false, needsRelogin: false, retryable: false },
+};
+
+/** 会话被上游删除的文案标记（码可能没给，只给了话）。 */
+const SESSION_DEAD_MARKERS = ["offline user session not found", "12153"];
+
+/** 额度耗尽的文案标记。 */
+const HARD_CREDIT_MARKERS = [
+  "insufficient credit",
+  "no credit",
+  "credit exhausted",
+  "credits exhausted",
+  "out of credit",
+  "quota exceeded",
+  "quota exhaust",
+  "payment required",
+  "credit not enough",
+  "not enough credit",
+  "积分不足",
+  "额度不足",
+  "余额不足",
+  "积分用完",
+  "额度用尽",
+  "没有积分",
+];
+
+/** 一次上游错误的归一化结论。 */
+export interface UpstreamErrorInfo {
+  kind: UpstreamErrorKind;
+  /** 上游业务码（信封里的 code）；取不到为 null。 */
+  code: number | null;
+  /** 上游给的人话（`displayMsg.zh` 优先，其次 `msg` / `message`）。 */
+  message: string;
+  /** 上游给出的重置/恢复时刻（毫秒时间戳）；取不到为 null。 */
+  resetAtMs: number | null;
+  /** 换模型即可解。 */
+  rotateModel: boolean;
+  /** 换号即可解。 */
+  rotateAccount: boolean;
+  /** 需要重新登录。 */
+  needsRelogin: boolean;
+  /** 瞬时故障，可退避后重试。 */
+  retryable: boolean;
+}
+
+/** 取对象（非数组、非 null）当字典看。 */
+function asDict(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * 从上游响应体里抽出业务码与人话。
+ *
+ * 信封形如 `{code, msg, data}`；人话优先取 `displayMsg.zh`（官方给中文提示的字段），
+ * 其次 `displayMsg.en` / `msg` / `message` / `error.message`。
+ */
+function parseUpstreamEnvelope(body: string): { code: number | null; message: string } {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return { code: null, message: body.slice(0, 200) };
+  }
+  const root = asDict(payload);
+  if (!root) return { code: null, message: body.slice(0, 200) };
+
+  const errObj = asDict(root["error"]);
+  const rawCode = root["code"] ?? errObj?.["code"];
+  const code = typeof rawCode === "number" && Number.isFinite(rawCode) ? rawCode : null;
+
+  const display = asDict(root["displayMsg"]) ?? asDict(errObj?.["displayMsg"]);
+  const candidates = [
+    display?.["zh"],
+    display?.["en"],
+    root["msg"],
+    root["message"],
+    errObj?.["message"],
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return { code, message: candidate.trim() };
+  }
+  return { code, message: "" };
+}
+
+/**
+ * 判断「HTTP 200 但体内是错误信封」。
+ *
+ * 上游会把内部故障塞进 200 的响应体里（例如 `{"code":-32603,"message":"Internal error",
+ * "data":{"details":"ENOSPC: no space left on device","category":"internal"}}`）——
+ * 只看状态码的实现会把这种响应当成成功（`[参考]` hub
+ * docs/protocol-reference.md:2011-2038）。
+ */
+export function isErrorEnvelope(payload: unknown): boolean {
+  const root = asDict(payload);
+  if (!root) return false;
+  const rawCode = root["code"];
+  if (typeof rawCode === "number" && Number.isFinite(rawCode) && rawCode !== 0) return true;
+  if (root["error"] !== undefined && root["error"] !== null) return true;
+  const data = asDict(root["data"]);
+  if (!data) return false;
+  if (data["category"] === "internal") return true;
+  return /ENOSPC/i.test(String(data["details"] ?? ""));
+}
+
+/**
+ * 限流重置时间：**优先读响应头**（机器契约），其次才看响应体文案。
+ *
+ * 头序：`Retry-After`（整数秒，最权威；日期形态按官方行为忽略）→
+ * `anthropic-ratelimit-unified-reset`（epoch 秒或 HTTP 日期）→
+ * `x-ratelimit-reset`（epoch 秒或 HTTP 日期）。
+ * `[参考]` hub docs/protocol-reference.md:1891-1902。
+ */
+export function resetAtFromHeaders(headers: Headers | undefined): number | null {
+  if (!headers) return null;
+  const now = Date.now();
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number.parseInt(retryAfter.trim(), 10);
+    if (Number.isFinite(seconds) && seconds > 0) return now + seconds * 1000;
+  }
+  for (const name of ["anthropic-ratelimit-unified-reset", "x-ratelimit-reset"]) {
+    const raw = headers.get(name);
+    if (!raw) continue;
+    const text = raw.trim();
+    const epoch = Number.parseInt(text, 10);
+    if (Number.isFinite(epoch) && epoch > 0) return epoch * 1000;
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+/**
+ * 把上游响应归一化成「类别 + 处置」。
+ *
+ * 判定顺序：**业务码优先**于状态码 —— 上游的限流/额度码不一定配 429，装在 200
+ * 或 400 里返回；只按状态码判会把可换号的失败当成不可重试的客户端错误。
+ */
+export function classifyUpstreamError(
+  status: number,
+  body: string,
+  headers?: Headers,
+): UpstreamErrorInfo {
+  const { code, message } = parseUpstreamEnvelope(body);
+  // 文案标记只在**抽出来的人话**里找（不扫整段响应体）：长 body 里偶然出现
+  // 「12153」不该被判成会话失效。
+  const lower = message.toLowerCase();
+
+  let kind: UpstreamErrorKind;
+  if (code !== null && BUSINESS_CODE_KINDS[code] !== undefined) {
+    kind = BUSINESS_CODE_KINDS[code]!;
+  } else if (SESSION_DEAD_MARKERS.some((marker) => lower.includes(marker))) {
+    kind = "session_dead";
+  } else if (HARD_CREDIT_MARKERS.some((marker) => lower.includes(marker))) {
+    kind = "hard_credit";
+  } else if (status === 401) {
+    kind = "session_dead";
+  } else if (status === 403) {
+    kind = "account_fault";
+  } else if (status === 429) {
+    kind = "soft_rate";
+  } else if (status === 402 || status === 412) {
+    kind = "hard_credit";
+  } else if (status === 404) {
+    kind = "not_found";
+  } else if (status >= 500) {
+    kind = "server";
+  } else {
+    kind = "client";
+  }
+
+  const disposition = KIND_DISPOSITIONS[kind];
+  return {
+    kind,
+    code,
+    message,
+    resetAtMs: resetAtFromHeaders(headers),
+    rotateModel: disposition.rotateModel,
+    rotateAccount: disposition.rotateAccount,
+    needsRelogin: disposition.needsRelogin,
+    retryable: disposition.retryable,
+  };
+}
+
+/**
+ * 非标准状态码的鉴权失败判定（共享层钩子 `isAuthFailure`）。
+ *
+ * 上游删除会话（`12153` / `Offline user session not found`）时可能回 400 而不是
+ * 401；归一成鉴权失败后，共享层会先刷新令牌重试一次、再把账号标为不可用 ——
+ * 这正是「需要重登」的处置（`[参考]` hub docs/protocol-reference.md:1874、:2270-2300）。
+ *
+ * ⚠ 只对 4xx 且非 401/403 的响应调用；`11128`（指纹）**不**算鉴权失败 ——
+ * 它要靠请求体改写解决，换令牌没用。
+ */
+export function isAuthFailure(status: number, body: string): boolean {
+  return classifyUpstreamError(status, body).needsRelogin;
+}
+
+/**
+ * 流内排队帧判定（共享层钩子 `isQueueError`）。
+ *
+ * 上游在 HTTP 200 的流里投一条业务错误帧表示「模型在排队」（码 6020-6022），
+ * 帧里带 `retryAfterSeconds`。
+ *
+ * ⚠ 共享层目前只对 `WIRE === "custom"` 的渠道查这个钩子；本渠道是 `openai` 线型，
+ * 故该钩子**当前不会被调用**（保留接口，等共享层放开）。
+ */
+export function isQueueError(frame: Record<string, unknown>): boolean {
+  const errObj = asDict(frame["error"]);
+  const rawCode = frame["code"] ?? errObj?.["code"];
+  const code = typeof rawCode === "number" && Number.isFinite(rawCode) ? rawCode : null;
+  return code !== null && BUSINESS_CODE_KINDS[code] === "model_queue";
+}
+
 /** 描述如何到达 WorkBuddy（国内版）chat 端点。JSON 字段名与 Go 版一致。 */
 export interface Config {
   baseUrl: string;
@@ -106,6 +423,14 @@ export interface Config {
   tokenHeader: string;
   tokenType: string;
   usernameHeader: string;
+  /**
+   * 设备风控 token（`X-Device-Token`）。
+   *
+   * 腾讯 T-Sec TuringShield 原生 SDK 采集硬件指纹后换取的不透明串，**纯 HTTP 侧
+   * 无法复刻**（`[参考]` hub docs/protocol-reference.md:2328-2351）。官方自身
+   * 「拿不到就降级不带」，故缺失不算异常。手工填入 `upstream.json` 即可启用。
+   */
+  deviceToken: string;
 }
 
 /**
@@ -118,6 +443,10 @@ export interface AuthLike {
   accessToken: string;
   uid: string;
   domain: string;
+  /** 企业 ID（账号档案端点给）；空 = 个人账号。 */
+  enterpriseId?: string;
+  /** 昵称（账号档案端点给）；仅展示用。 */
+  nickname?: string;
 }
 
 /**
@@ -140,8 +469,12 @@ const FINGERPRINT_RULES: Array<[RegExp, string]> = [
     "You are Claude Code, Anthropic's official CLI tool for Claude",
   ],
   [
-    /You are a coding agent running in the Codex CLI, a terminal-based coding assistant\./gi,
-    "You are a coding agent running in the Codex CLI tool, a terminal-based coding assistant.",
+    // Codex 身份句：**匹配串不带结尾标点**。CLI 版以句号收尾，桌面版
+    // （claude-desktop-3p / Agent SDK）以逗号接后继内容 —— 带句号的整句只匹配
+    // 前者，桌面版会漏网、指纹原样发上游 → 400 code=11128。替换串同样不带标点，
+    // 让原文的标点原样保留（go internal/upstream/sanitize.go:42-49）。
+    /You are a coding agent running in the Codex CLI, a terminal-based coding assistant/gi,
+    "You are a coding agent running in the Codex CLI tool, a terminal-based coding assistant",
   ],
   [
     /To give feedback, users should report the issue at https:\/\/github\.com\/anthropics\/claude-code\/issues/gi,
@@ -180,6 +513,7 @@ export function defaultConfig(): Config {
     tokenHeader: "Authorization",
     tokenType: "bearerToken",
     usernameHeader: "X-User-Id",
+    deviceToken: "",
   };
 }
 
@@ -204,6 +538,7 @@ export function loadConfig(): [Config, boolean] {
     tokenHeader: parsed.tokenHeader ?? "Authorization",
     tokenType: parsed.tokenType ?? "bearerToken",
     usernameHeader: parsed.usernameHeader ?? "X-User-Id",
+    deviceToken: typeof parsed.deviceToken === "string" ? parsed.deviceToken : "",
   };
   // `www.codebuddy.ai` 的 DNS 已沉洞（实测解析到 0.0.0.1）：配置里读到该域名
   // 一律归一到国内版 chat 上游（下次 saveConfig 落盘纠正）
@@ -229,6 +564,31 @@ function ensureSlash(value: string): string {
   if (!value) return "/";
   return value.startsWith("/") ? value : `/${value}`;
 }
+
+/**
+ * 端点与常量（显式化）。
+ *
+ * 国内版（`copilot.tencent.com`）与国际版（`www.workbuddy.ai`）**共用同一套路径**，
+ * 只有 host 不同。下表逐条给出「方法 + 完整 URL + 端点路径 + query/body 来源」：
+ *
+ * | 用途 | 方法 | 完整 URL（国内版） | query / body |
+ * | --- | --- | --- | --- |
+ * | chat（流式） | POST | `https://copilot.tencent.com/v2/chat/completions` | 无 query；body 由 `buildChatBody` 归一化 |
+ * | 真目录 | GET | `https://copilot.tencent.com/v3/config` | 无 query |
+ * | 窄表（企业） | GET | `https://copilot.tencent.com/v2/enterprises/personal/models`（兜底 `/console/…`） | 无 query |
+ * | 令牌刷新 | POST | `https://copilot.tencent.com/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 |
+ * | 登录 state | POST | `https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy` | `platform`（见 `cred.ts`） |
+ * | 登录轮询 | GET | `https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | `state` |
+ * | 账号档案 | GET | `https://copilot.tencent.com/v2/plugin/login/account?state=<state>` | `state`；带 `Authorization` |
+ * | 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | 无 query；body 带分页与 `ProductCode` |
+ * | 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
+ *
+ * ⚠ `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
+ * chat 路径加它实测 404（见文件头注释）。
+ * ⚠ 计费域在参考实现里是**另一个 host**（`www.codebuddy.cn`，go
+ * `internal/upstream/client.go:875`）；本渠道实测复用 chat base 可通，**未分离**
+ * —— 登记在 `docs/channels/workbuddy/PROTOCOL.md`「已知边界」。
+ */
 
 /** 完整限定的 chat-completions URL。 */
 export function chatUrl(cfg?: Config): string {
@@ -286,21 +646,57 @@ export function hostOf(baseUrl: string): string {
  *
  * `User-Agent` 的**品牌字样是必须的**：上游按出站 UA 归因「使用端」，
  * 缺了对应产品品牌会让账单显示为 `-`。
+ *
+ * 身份头按官方 CLI 的 `X-No-*` 约定成对出现：某字段没有时用 `X-No-xxx: 1`
+ * 代替，**不**两个都发（go `internal/upstream/headers.go:242-255`、
+ * dsh `src/upstream.ts:479-483`）。
  */
 export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string, string> {
   const resolved = cfg ?? loadConfig()[0];
-  const domain = credential.domain || hostOf(resolved.baseUrl) || CHAT_DOMAIN_CN;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     // 官方桌面端 UA：上游按 UA 归因「使用端」（账单品牌）并参与渠道校验
     "User-Agent": DESKTOP_UA_CN,
-    "X-Domain": domain,
   };
   const headerName = resolved.tokenHeader || "Authorization";
   headers[headerName] = `Bearer ${credential.accessToken}`;
+
+  // 账号域：有域发 X-Domain，没域发 X-No-Department-Info（两者互斥）。
+  // ⚠ 正常登录的凭据恒带域（`cred.login` 落盘时已兜底成 chat 上游 host），
+  // 只有手写的旧凭据才会落到 X-No-Department-Info 分支。
+  const domain = credential.domain;
+  if (domain) {
+    headers["X-Domain"] = domain;
+  } else {
+    headers["X-No-Department-Info"] = "1";
+  }
+
+  // 账号 id：有 uid 发 X-User-Id，没有发 X-No-User-Id（互斥）。
   if (resolved.usernameHeader && credential.uid) {
     headers[resolved.usernameHeader] = credential.uid;
+  } else if (resolved.usernameHeader === "X-User-Id") {
+    headers["X-No-User-Id"] = "1";
   }
+
+  // 企业身份：`X-Enterprise-Id` 与 `X-User-Id` 必须**成对**出现 ——
+  // dsh 实测：/v3/config 上只带 X-User-Id 选不中任何东西、只带 X-Enterprise-Id
+  // 被直接拒；企业账号不带这对头会被**静默回个人目录**（18 vs 19 个模型，
+  // dsh `src/upstream.ts:522-532`）。缺企业 id（或缺 uid，成对不成立）时
+  // 按官方约定发 X-No-Enterprise-Id。
+  if (credential.enterpriseId && credential.uid) {
+    headers["X-Enterprise-Id"] = credential.enterpriseId;
+  } else {
+    headers["X-No-Enterprise-Id"] = "1";
+  }
+
+  // 设备风控 token：Turing SDK 产出的不透明串，纯 HTTP 侧无法生成；
+  // 官方自己「拿不到就降级不带」，故缺失不算异常（hub
+  // docs/protocol-reference.md:2342-2345）。填在 `upstream.json` 的
+  // `deviceToken` 里即可启用。
+  if (resolved.deviceToken) {
+    headers["X-Device-Token"] = resolved.deviceToken;
+  }
+
   return headers;
 }
 
@@ -349,7 +745,11 @@ export function applyAuth(
   token: string,
   uid: string,
 ): void {
-  Object.assign(headers, buildHeaders({ accessToken: token, uid, domain: "" }, cfg));
+  // 域取配置里的 chat 上游 host（与旧的「无域则用 host 兜底」行为一致）。
+  Object.assign(
+    headers,
+    buildHeaders({ accessToken: token, uid, domain: hostOf(cfg.baseUrl) }, cfg),
+  );
 }
 
 type Rec = Record<string, unknown>;
@@ -821,6 +1221,10 @@ export function buildChatBody(
  * 拉取并解码模型载荷，返回其中的 data 字典。
  *
  * 用途有二：① 解析连接配置；② 探测凭据是否有效（401/403 抛 UpstreamUnauthorized）。
+ *
+ * 目录**并发双探**：真目录（`/v3/config`，主路）+ 企业窄表（次路），两路结果合并
+ * 后落盘 —— 口径参考 go `internal/upstream/client.go:1281-1330`（FetchModels 并发探
+ * 两端点）与 `:1336-1357`（mergeModelInfos：主路优先、次路只补缺）。
  */
 export async function fetchModels(
   credential: AuthLike,
@@ -831,6 +1235,114 @@ export async function fetchModels(
     cfg.baseUrl = `https://${credential.domain}`;
   }
 
+  const probe = await probeCatalog(credential, cfg, timeoutMs);
+  const merged = mergeCatalogRows(probe.v3Rows, probe.narrowRows);
+  if (merged.length === 0) {
+    throw new Error(`models request failed: ${probe.errors.join("; ") || "no catalog rows"}`);
+  }
+  catalog.setRemoteModels(merged);
+  // 连接配置（`endpoint` / `authentication`）只在窄表载荷里有；取不到时返回空对象，
+  // `resolveConfig` 会保留既有配置。
+  return probe.narrowData;
+}
+
+/** 目录行（已归一成 catalog.parseRow 能读的字段名）。 */
+export interface CatalogRow {
+  id: string;
+  name?: string;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  supportsImages?: boolean;
+  credits?: string;
+}
+
+/** 一次并发双探的结果。 */
+interface CatalogProbe {
+  /** 真目录（`/v3/config`）解析出的行。 */
+  v3Rows: CatalogRow[];
+  /** 企业窄表的原始行（未归一，交给 `catalog.parseRow` 解析）。 */
+  narrowRows: unknown[];
+  /** 窄表载荷的 data 字典（连接配置来源：`endpoint` / `authentication`）。 */
+  narrowData: Record<string, unknown>;
+  /** 两路各自的失败原因（拼进报错文案）。 */
+  errors: string[];
+}
+
+/**
+ * 并发双探目录：真目录（主路）+ 企业窄表（次路）。
+ *
+ * 两路**并发**发起（不串行等）：真目录是桌面端选择器那份，窄表是前端展示那份，
+ * 各有各的失败模式 —— 串行的话窄表先成功就会把真目录挡在后面。
+ * `[参考]` go `internal/upstream/client.go:1281-1330`。
+ */
+async function probeCatalog(
+  credential: AuthLike,
+  cfg: Config,
+  timeoutMs: number,
+): Promise<CatalogProbe> {
+  const errors: string[] = [];
+  const settle = async <T>(label: string, run: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await run();
+    } catch (err) {
+      // 鉴权失败要冒泡（共享层据此走刷新链路），其余失败降级成空结果。
+      if (err instanceof UpstreamUnauthorized) throw err;
+      errors.push(`${label}: ${String(err)}`);
+      return fallback;
+    }
+  };
+
+  const [v3Rows, narrow] = await Promise.all([
+    settle<CatalogRow[]>("v3/config", () => probeV3Catalog(credential, cfg, timeoutMs), []),
+    settle(
+      "models",
+      () => probeNarrowModels(credential, cfg, timeoutMs),
+      { rows: [] as unknown[], data: {} as Record<string, unknown> },
+    ),
+  ]);
+  return { v3Rows, narrowRows: narrow.rows, narrowData: narrow.data, errors };
+}
+
+/** 探真目录：`GET {base}/v3/config`。 */
+async function probeV3Catalog(
+  credential: AuthLike,
+  cfg: Config,
+  timeoutMs: number,
+): Promise<CatalogRow[]> {
+  let resp: Response;
+  try {
+    resp = await fetch(catalogUrl(cfg), {
+      // 目录端点跟着桌面端身分走：UA 决定回哪份目录，未知 UA 直接 400 code=12403
+      headers: buildChatHeaders(credential, cfg),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    throw new Error(`catalog request failed: ${String(err)}`);
+  }
+  if (resp.status === 401 || resp.status === 403) {
+    throw new UpstreamUnauthorized("upstream rejected the access token (HTTP 401/403)");
+  }
+  if (resp.status !== 200) throw new Error(`catalog request failed: HTTP ${resp.status}`);
+
+  let payload: unknown;
+  try {
+    payload = await resp.json();
+  } catch (err) {
+    throw new Error(`catalog response is not valid JSON: ${String(err)}`);
+  }
+  return parseCatalogPayload(payload);
+}
+
+/**
+ * 探企业窄表：`GET {base}/v2|console/enterprises/personal/models`。
+ *
+ * 候选路径按序试（`/v2` 优先，`/console` 兜底，理由见 `MODELS_PATHS` 注释）。
+ */
+async function probeNarrowModels(
+  credential: AuthLike,
+  cfg: Config,
+  timeoutMs: number,
+): Promise<{ rows: unknown[]; data: Record<string, unknown> }> {
   let resp: Response | null = null;
   const attempted: string[] = [];
   for (const url of modelsUrls(cfg)) {
@@ -873,24 +1385,40 @@ export async function fetchModels(
   const record = data as Record<string, unknown>;
   const models = record["models"];
   if (!Array.isArray(models)) throw new Error("models payload contains no models");
-  // 窄表只是展示用目录；真实目录在 /v3/config（见 catalogUrl 注释）。
-  // 真目录拉不到时用窄表兜底 —— 有表总比只剩随包快照强。
-  try {
-    await fetchCatalog(credential, cfg);
-  } catch {
-    catalog.setRemoteModels(models);
-  }
-  return record;
+  return { rows: models, data: record };
 }
 
-/** 目录行（已归一成 catalog.parseRow 能读的字段名）。 */
-export interface CatalogRow {
-  id: string;
-  name?: string;
-  maxInputTokens?: number;
-  maxOutputTokens?: number;
-  supportsImages?: boolean;
-  credits?: string;
+/** 取一行目录条目的 id（窄表用 `slug`，真目录用 `id`）。 */
+function catalogRowId(row: unknown): string {
+  const rec = asRecord(row);
+  if (!rec) return "";
+  const slug = rec["slug"];
+  if (typeof slug === "string" && slug.trim()) return slug.trim();
+  const id = rec["id"];
+  return typeof id === "string" ? id.trim() : "";
+}
+
+/**
+ * 合并两路目录：主路（真目录）在前，次路（企业窄表）只补主路缺的 id。
+ *
+ * 同 id 以主路为准（真目录带倍率与上下文元数据），输出顺序 = 主路原序 + 次路补充项。
+ * `[参考]` go `internal/upstream/client.go:1336-1357`（mergeModelInfos）。
+ */
+function mergeCatalogRows(primary: unknown[], secondary: unknown[]): unknown[] {
+  if (secondary.length === 0) return [...primary];
+  const seen = new Set<string>();
+  for (const row of primary) {
+    const id = catalogRowId(row);
+    if (id) seen.add(id);
+  }
+  const out: unknown[] = [...primary];
+  for (const row of secondary) {
+    const id = catalogRowId(row);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
 }
 
 /**
@@ -899,6 +1427,10 @@ export interface CatalogRow {
  * 目录本体是 `agents[].models` 的**裸 id 字符串**（cli 那个 agent 最全）；
  * 逐模型元数据散在 `models[]`（`id` / `name` / `maxInputTokens` / `supportsImages`）。
  * 两份都要拼起来，只有 id 的表也并非不可用（名字退回 id）。
+ *
+ * 非对话条目（`nes-` / `completion-` / `codewise-` 前缀）在这里挡掉：它们列出来
+ * 也选不中，选中后上游回 `code=11102`（`[参考]` go
+ * `internal/upstream/client.go:1470-1473`）。
  */
 export function parseCatalogPayload(payload: unknown): CatalogRow[] {
   const root = asRecord(payload);
@@ -916,7 +1448,7 @@ export function parseCatalogPayload(payload: unknown): CatalogRow[] {
       if (!rec || !Array.isArray(rec["models"])) continue;
       const ids = rec["models"]
         .map((value) => (typeof value === "string" ? value.trim() : ""))
-        .filter((value) => value !== "");
+        .filter((value) => value !== "" && catalog.isChatModelId(value));
       if (ids.length === 0) continue;
       const label = `${String(rec["name"] ?? "")} ${String(rec["id"] ?? "")}`.toLowerCase();
       lists.push({ cli: label.includes("cli"), ids });
@@ -938,7 +1470,7 @@ export function parseCatalogPayload(payload: unknown): CatalogRow[] {
         const item = asRecord(row);
         if (!item) continue;
         const id = typeof item["id"] === "string" ? item["id"].trim() : "";
-        if (id && !meta.has(id)) meta.set(id, item);
+        if (id && catalog.isChatModelId(id) && !meta.has(id)) meta.set(id, item);
       }
     }
     for (const value of Object.values(rec)) walk(value);
@@ -972,45 +1504,35 @@ export function parseCatalogPayload(payload: unknown): CatalogRow[] {
 /**
  * 拉取真实模型目录并落盘（`mx model <cid> --refresh` 与登录后自动调用）。
  *
- * 失败**招错**：自动路径由 `fetchModels` 捕获后回落窄表，显式刷新时用户必须
- * 知道这次没成。
+ * 与 `fetchModels` 同样**并发双探 + 合并**：显式刷新时用户必须看到真目录，
+ * 不能只拿到窄表。
  */
 export async function fetchCatalog(
   credential: AuthLike,
   cfgOverride?: Config,
   timeoutMs = 20_000,
-): Promise<CatalogRow[]> {
+): Promise<unknown[]> {
   const cfg = cfgOverride ?? loadConfig()[0];
-  let resp: Response;
-  try {
-    resp = await fetch(catalogUrl(cfg), {
-      // 目录端点跟着桌面端身分走：UA 决定回哪份目录，未知 UA 直接 400 code=12403
-      headers: buildChatHeaders(credential, cfg),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    throw new Error(`catalog request failed: ${String(err)}`);
+  const probe = await probeCatalog(credential, cfg, timeoutMs);
+  const merged = mergeCatalogRows(probe.v3Rows, probe.narrowRows);
+  if (merged.length === 0) {
+    throw new Error(`catalog request failed: ${probe.errors.join("; ") || "no catalog rows"}`);
   }
-  if (resp.status === 401 || resp.status === 403) {
-    throw new UpstreamUnauthorized("upstream rejected the access token (HTTP 401/403)");
-  }
-  if (resp.status !== 200) throw new Error(`catalog request failed: HTTP ${resp.status}`);
-
-  let payload: unknown;
-  try {
-    payload = await resp.json();
-  } catch (err) {
-    throw new Error(`catalog response is not valid JSON: ${String(err)}`);
-  }
-  const rows = parseCatalogPayload(payload);
-  if (rows.length === 0) throw new Error("catalog payload contains no models");
-  catalog.setRemoteModels(rows);
-  return rows;
+  catalog.setRemoteModels(merged);
+  return merged;
 }
 
-/** 从模型载荷推导连接配置。 */
+/**
+ * 从模型载荷推导连接配置。
+ *
+ * `deviceToken` 是**客户端级**（机器级）配置：解析连接配置不该把它清掉 ——
+ * 共享层登录后调的是 `resolveConfig(data)`（无 fallback），故在此兜底读回磁盘值。
+ */
 export function resolveConfig(data: Record<string, unknown>, fallback?: Config): Config {
   const cfg: Config = { ...(fallback ?? defaultConfig()) };
+  if (fallback === undefined && !cfg.deviceToken) {
+    cfg.deviceToken = loadConfig()[0].deviceToken;
+  }
   const endpoint = data["endpoint"];
   if (typeof endpoint === "string" && endpoint) cfg.baseUrl = endpoint;
   cfg.chatPath = DEFAULT_CHAT_PATH;

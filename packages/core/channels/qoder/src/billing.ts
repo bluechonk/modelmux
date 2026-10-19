@@ -57,6 +57,22 @@ const CAMPAIGNS_PATH = "/sash/api/v1/me/campaigns";
 /** 活动每日刷新时刻（UTC+8 的 10:00）。 */
 const CAMPAIGN_REFRESH_HOUR_UTC8 = 10;
 
+/**
+ * 桌面端版本号（`Cosy-Version` 头）。
+ *
+ * `/sash/**` 走**桌面 App 身份**（`Cosy-ClientType: 10`），该身份对应的是桌面端
+ * 0.4.x 系列，**不是**推理那套 CLI 的 `1.1.64`（参考实现
+ * `shuishuipingan/qoder2api-hub/qoder_accounts.py:112` 的 `DESKTOP_CLIENT_VERSION`）`[参考]`。
+ *
+ * ⚠ **为什么必须发**：主参照实测「缺 UA / `cosy-clienttype` / `cosy-version` 三个头
+ * 里的任意一个 → 服务端不报错，但活动列表返回**空**」
+ * （`qoder_accounts.py:1733-1735`）`[参考]`。
+ * ⚠ 版本号本身待真机验证（可用 `QODER_DESKTOP_VERSION` 覆盖）。
+ */
+function desktopVersion(): string {
+  return process.env["QODER_DESKTOP_VERSION"] ?? "0.4.3";
+}
+
 function num(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -76,6 +92,7 @@ function sashHeaders(credential: cred.Credentials): Record<string, string> {
     Accept: "application/json",
     Authorization: `Bearer ${credential.accessToken}`,
     "Cosy-ClientType": "10", // 桌面 App 身份（用 5 会拿到空活动列表）
+    "Cosy-Version": desktopVersion(),
     "Cosy-MachineToken": cred.machineTokenOf(credential.uid),
     "Cosy-MachineType": cred.machineTypeOf(credential.uid),
     "User-Agent": cred.productOf(credential.realm).userAgent,

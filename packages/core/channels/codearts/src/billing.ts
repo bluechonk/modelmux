@@ -202,10 +202,9 @@ export function unwrapEnvelope(
   return { ok: true, data: raw };
 }
 
-/** 拼出 snap-access 基址（优先已保存配置，便于自托管/测试）。 */
+/** snap-access 基址（**唯一拼接入口**在 `upstream.snapBase()`，这里只做转发）。 */
 function snapBase(): string {
-  const [cfg] = upstream.loadConfig();
-  return (cfg.baseUrl || upstream.DEFAULT_BASE_URL).replace(/\/+$/, "");
+  return upstream.snapBase();
 }
 
 /** 发起一次带签名的 snap-access 请求。 */

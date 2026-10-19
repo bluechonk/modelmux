@@ -12,6 +12,18 @@
  *   多余参数会让它静默回退旧 ticket 流程）。
  * - `code_challenge_method` 必须是 **`SHA-256`**（不是 RFC 缩写 `S256`）。
  *
+ * ## 唯一登录路径 = 新式 IAM OAuth
+ *
+ * - [实测] 走通并验证过的只有这条（落盘 `source=codearts-oauth`，
+ *   且带 `refresh_token` / `code_verifier` / `dpop_private_key_jwk` 三件套）。
+ * - 旧式 ticket 轮询**降级为默认关闭**的兜底（`CODEARTS_LEGACY_TICKET=1` 才开）：
+ *   它不返回 refresh_token ⇒ 无法续期；且旧式流程在参考实现里是 JetBrains
+ *   插件形态（`snap_jetbrains`/`26.3.3`），与本仓库用的
+ *   `snap_AIIDE`/`5.2.0` 对不上。详见 `legacyTicketEnabled()`。
+ * - 另有一条**粘贴兜底**：本地回调服务器只绑 `127.0.0.1`，远程部署时
+ *   portal 的回调打不到本机 —— 用户把地址栏里的整条回调 URL 粘回来即可
+ *   （`pasteCode` 通道）。
+ *
  * ## DPoP JWS 手写（不引第三方库）
  *
  * `jose` 那类库在桥接层是不必要的重依赖：仓库约定 `dependencies` 为空，
@@ -48,7 +60,7 @@ import * as upstream from "./upstream.js";
 export const DEFAULT_BASE_URL = upstream.DEFAULT_BASE_URL;
 
 /** 华为 STS token 端点（授码换取与续期共用）。 */
-export const STS_TOKEN_ENDPOINT = "https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens";
+export const STS_TOKEN_ENDPOINT = `${upstream.STS_BASE}${upstream.STS_TOKEN_PATH}`;
 
 /** portal 基址（授权页与登录结果页）。 */
 export const DEFAULT_PORTAL_BASE = "https://codearts.huaweicloud.com";
@@ -72,10 +84,30 @@ export const OAUTH_THEME = "2";
 /** 界面语言。 */
 export const OAUTH_LOCALE = "zh-cn";
 
-/** 旧式 ticket 凭据轮询（回退路径）。 */
+/** 旧式 ticket 凭据轮询（**默认关闭**的兜底路径，见 `legacyTicketEnabled()`）。 */
 export const TICKET_PATH = "/snap-manager/v1/login/ticket";
 export const TICKET_POLL_INTERVAL_MS = 1_000;
 export const TICKET_POLL_MAX = 120;
+
+/**
+ * 旧式 ticket 轮询是否启用（**默认关闭**）。
+ *
+ * ## 为什么默认关闭
+ *
+ * - [实测] 走通并验证过的只有新式 IAM OAuth（落盘 `source=codearts-oauth`）；
+ *   旧式 ticket 通道在本仓库**从未跑通**。
+ * - 旧式通道不返回 `refresh_token` / `code_verifier` / DPoP 私钥 ⇒
+ *   **无法续期**，而 refresh_token 是一次性轮换的（实测 `STS5.1806`）。
+ * - 旧式流程在参考实现里是 **JetBrains 插件**形态（`plugin-name=snap_jetbrains`
+ *   / `plugin-version=26.3.3`，见 docs/channels/codearts/PROTOCOL.md §2.7），
+ *   本仓库用的是 `snap_AIIDE` / `5.2.0` —— 参数组合对不上。
+ *
+ * 需要排查上游旧链路时用 `CODEARTS_LEGACY_TICKET=1` 显式打开。
+ */
+export function legacyTicketEnabled(): boolean {
+  const value = process.env["CODEARTS_LEGACY_TICKET"];
+  return typeof value === "string" && /^(1|true|yes|on)$/i.test(value.trim());
+}
 
 const NOT_LOGGED_IN_MSG = "no credentials found; run `codearts login` first";
 
@@ -686,9 +718,9 @@ export function credentialFromTicketPayload(payload: Record<string, unknown>): C
   };
 }
 
-/** 旧式 ticket 轮询（间隔 1 秒，最多 120 次）。 */
+/** 旧式 ticket 轮询（间隔 1 秒，最多 120 次；**仅在显式打开旧链路时**才会被调用）。 */
 export async function pollTicketCredential(ticketId: string, secret: string): Promise<Credentials> {
-  const base = (upstream.loadConfig()[0].baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const base = upstream.snapBase();
   const url = `${base}${TICKET_PATH}?ticket_id=${encodeURIComponent(ticketId)}&secret=${encodeURIComponent(secret)}`;
   for (let attempt = 0; attempt < TICKET_POLL_MAX; attempt += 1) {
     try {
@@ -726,6 +758,8 @@ export function startCallbackServer(options: {
   ticketId: string;
   timeoutMs?: number;
   pollTicket?: (ticketId: string, secret: string) => Promise<Credentials>;
+  /** 状态回报（回调链路上的进展）。 */
+  onStatus?: (message: string) => void;
 }): Promise<CallbackServer> {
   const timeoutMs = options.timeoutMs ?? LOGIN_TIMEOUT_MS;
   return new Promise<CallbackServer>((resolveReady, rejectReady) => {
@@ -752,8 +786,19 @@ export function startCallbackServer(options: {
       const secret = url.searchParams.get("secret");
       if (secret) {
         const redirectTo = url.searchParams.get("redirect") ?? buildPortalLoginResultUrl(true);
+        // ⚠️ **307 必须照发**：portal 的登录链路是「先 secret+redirect、再 code」
+        //   两次回调（[参考]
+        //   reference/HITZY2002_codearts2api/cmd/login/main.go:164-179）。
+        //   这一步不回跳，第二次带 code 的回调就永远不来。
         res.writeHead(307, { Location: redirectTo });
         res.end();
+        if (!legacyTicketEnabled()) {
+          // 旧式 ticket 轮询默认关闭：等第二次带 code 的回调（新式链路）。
+          options.onStatus?.(
+            "portal sent a legacy secret callback; waiting for the authorization code (legacy ticket polling is disabled by default).",
+          );
+          return;
+        }
         const poll = options.pollTicket ?? pollTicketCredential;
         poll(options.ticketId, secret).then(settle, fail);
         return;
@@ -803,15 +848,111 @@ export function startCallbackServer(options: {
 export interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
+  /**
+   * 取走用户粘回的**整条回调 URL**（浏览器地址栏）。
+   *
+   * 本地回调服务器只绑 `127.0.0.1`：远程部署、或浏览器与网关不在同一台机器时，
+   * portal 的回调打不到本机，服务器会一直等到超时。此时用户把地址栏里的
+   * `http://127.0.0.1:<port>/oauth/callback?code=…` 粘回来即可收尾。
+   *
+   * 共享层已经在传这个回调了（`auth-flow.ts` / `headless.ts` 的 `pasteCode`），
+   * 本渠道之前**没接住** —— 接住它就多一条登记得成的路。
+   */
+  pasteCode?: () => string | undefined;
 }
 
-/** 完整登录流程：PKCE + DPoP + 本地回调（≥10000）+ 打开浏览器 + 落盘。 */
+/**
+ * 从用户粘回的文本里解析出授权码。
+ *
+ * 接受三种形态（用户随手粘的东西很杂）：
+ *  - 完整回调 URL：`http://127.0.0.1:12345/oauth/callback?code=abc`
+ *  - 纯 query：`code=abc`（可带其它参数）
+ *  - 裸码：`abc`
+ *
+ * @returns 授权码；解析不出返回空串。
+ */
+export function extractAuthCode(raw: string): string {
+  const text = raw.trim();
+  if (!text) return "";
+  // 完整 URL：直接读 query。
+  if (/^https?:\/\//i.test(text)) {
+    try {
+      return new URL(text).searchParams.get("code")?.trim() ?? "";
+    } catch {
+      return "";
+    }
+  }
+  // query 串（含或不含前导 ?）。
+  const queryAt = text.indexOf("?");
+  const query = queryAt >= 0 ? text.slice(queryAt + 1) : text;
+  if (query.includes("=")) {
+    for (const pair of query.split("&")) {
+      const [key, value = ""] = pair.split("=");
+      if (key === "code") return decodeURIComponent(value.replace(/\+/g, " ")).trim();
+    }
+    return "";
+  }
+  // 裸码：不含空白与分隔符才算。
+  return /^[A-Za-z0-9._~%-]+$/.test(text) ? text : "";
+}
+
+/** 粘贴通道的轮询间隔（毫秒）。 */
+const PASTE_POLL_INTERVAL_MS = 500;
+
+/**
+ * 粘贴通道：从用户粘回的回调 URL 里取授权码并换取凭据。
+ *
+ * ⚠ **不抛**：粘回来的内容可能不是有效授权码（用户粘错了、复制了一半）。
+ * 失败时回报状态并返回 `null`，让本地回调通道继续等 —— 不能因为一次粘贴
+ * 失误就把整场登录判死。
+ *
+ * @returns 换到的凭据；超时、或粘回来的内容里没有授权码时返回 `null`。
+ */
+async function credentialFromPastedCallback(
+  paste: () => string | undefined,
+  pkce: PkcePair,
+  keyPair: DpopKeyPair,
+  port: number,
+  deadlineMs: number,
+  stopped: () => boolean,
+  onStatus?: (message: string) => void,
+): Promise<Credentials | null> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (stopped()) return null;
+    let raw = "";
+    try {
+      raw = paste() ?? "";
+    } catch {
+      /* 取不到就下一轮再取 */
+    }
+    const code = extractAuthCode(raw);
+    if (code) {
+      try {
+        const token = await exchangeAuthorizationCode(code, pkce.codeVerifier, port, keyPair);
+        return credentialFromTokenResponse(token, pkce, keyPair, "codearts-oauth");
+      } catch (err) {
+        onStatus?.(`pasted callback could not be exchanged: ${String(err)}; still waiting for the browser callback.`);
+        return null;
+      }
+    }
+    await new Promise((r) => setTimeout(r, PASTE_POLL_INTERVAL_MS));
+  }
+  return null;
+}
+
+/**
+ * 完整登录流程：PKCE + DPoP + 本地回调（≥10000）+ 打开浏览器 + 落盘。
+ *
+ * 两条收尾通道竞速：**本地回调服务器**（浏览器能回到 127.0.0.1 时）与
+ * **用户粘贴回调 URL**（远程部署 / 端口不可达时），谁先到用谁。
+ */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
   const base = (baseUrl ?? resolveBaseUrl()) || DEFAULT_BASE_URL;
   // 把「配置指向的基址」落盘：billing / models 也读同一份配置（单一直相源）。
   try {
     const [cfg] = upstream.loadConfig();
-    if (cfg.baseUrl !== base) await upstream.saveConfig({ baseUrl: base });
+    if (cfg.baseUrl !== base) await upstream.saveConfig({ baseUrl: base, agentCenterModels: cfg.agentCenterModels });
   } catch {
     /* 配置写不进去不影响登录本身 */
   }
@@ -819,18 +960,50 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   const pkce = generatePkcePair();
   const keyPair = generateDpopKeyPair();
   const ticketId = randomBytes(32).toString("hex");
-  const callback = await startCallbackServer({ pkce, keyPair, ticketId });
+  const callback = await startCallbackServer({ pkce, keyPair, ticketId, onStatus: options.onStatus });
   const url = buildLoginUrl(callback.port, pkce, ticketId);
   // ⚠️ 拿到 URL 后**立刻**回调（命令行据此展示链接，用户自行在浏览器打开）
   options.onUrl?.(url);
-  options.onStatus?.(`waiting for authorization (open the URL above in a browser; up to ${LOGIN_TIMEOUT_MS / 1000}s)...`);
+  options.onStatus?.(
+    `waiting for authorization (open the URL above in a browser; up to ${LOGIN_TIMEOUT_MS / 1000}s)...` +
+      (options.pasteCode
+        ? " — if the browser cannot reach this machine, paste the whole callback URL from the address bar here."
+        : ""),
+  );
+
+  // 粘贴通道：与回调服务器并行；谁先拿到授权码谁收尾。
+  let stopped = false;
+  const pasted = options.pasteCode
+    ? credentialFromPastedCallback(
+        options.pasteCode,
+        pkce,
+        keyPair,
+        callback.port,
+        LOGIN_TIMEOUT_MS,
+        () => stopped,
+        options.onStatus,
+      )
+    : null;
+
   try {
-    const c = await callback.result;
+    const c = pasted
+      ? await Promise.race([
+          callback.result,
+          pasted.then((p) => {
+            if (!p) {
+              // 粘贴通道超时：本地回调若还没来，就继续等它（它自己会超时）。
+              return callback.result;
+            }
+            return p;
+          }),
+        ])
+      : await callback.result;
     await save(c);
     pruneLegacyAccounts();
     options.onStatus?.("authorization succeeded; credentials saved.");
     return c;
   } finally {
+    stopped = true;
     await callback.close();
   }
 }

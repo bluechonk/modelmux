@@ -1,6 +1,13 @@
 /**
  * LobsterAI 凭据：浏览器授权登录（本地回调 + authCode）、凭据持久化与静默续期。
  *
+ * ## 登录路径只有一条
+ *
+ * 本地回调服务器 → `POST /api/auth/exchange` → 落盘。浏览器回跳到
+ * `127.0.0.1:{随机端口}/auth/callback` 即完成。
+ * 浏览器回跳不了时（远程 / 无头 / 容器）走**粘贴兜底**：用户把地址栏整条 URL
+ * 粘回来，兜底把它转交同一个回调处理器 —— **不是第二条登录路径**。
+ *
  * ## 与 CodeBuddy 系最大的结构差异
  *
  * `POST /api/auth/refresh` 的请求体**不是只带 refreshToken**，还要带
@@ -13,6 +20,12 @@
  * 内存里用 TS 惯用的 camelCase，磁盘上写 `access_token` / `first_keyfrom` /
  * `latest_keyfrom` / `user_id` / `expires_at` —— 与桌面端**同形**：
  * 从桌面端迁移过来的用户**无需重新登录**（`load()` 同时认两种写法）。
+ * 读盘还认参考实现（Go 工具）的**嵌套形** `{"auth":{…},"account":{…}}`。
+ *
+ * ## expires_at 统一用毫秒
+ *
+ * 参考实现落盘的是 **Unix 秒**，本实现是**毫秒**。读盘两种都认（`normalizeExpiresAtMs`），
+ * 写回统一毫秒 —— 差 1000 倍会把「已过期」判成「未过期」。
  *
  * ## 登录/续期的终点判定
  *
@@ -228,10 +241,45 @@ export interface DiskCredentials {
   source: string;
 }
 
+/** 是否是普通对象（非 null、非数组）。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 摊平磁盘上的凭据记录。
+ *
+ * 参考实现（Go 工具）落盘的是**嵌套形** `{"auth":{…},"account":{…}}`
+ * —— `auth` 放令牌与 keyfrom，`account` 放 uid / userId / nickname；
+ * 桌面端与本实现是**扁平** snake_case。读盘时两种都认（嵌套形优先）。
+ */
+function flattenDisk(rec: Record<string, unknown>): Record<string, unknown> {
+  const auth = isRecord(rec["auth"]) ? rec["auth"] : null;
+  const account = isRecord(rec["account"]) ? rec["account"] : null;
+  if (!auth && !account) return rec;
+  return { ...rec, ...(auth ?? {}), ...(account ?? {}) };
+}
+
+/**
+ * 过期时刻归一：统一成**毫秒**时间戳字符串。
+ *
+ * 历史数据可能是**秒**（参考实现落盘的 `expiresAt` 是 Unix 秒）—— 秒与毫秒差 1000 倍，
+ * 不归一会把「已过期」判成「未过期」。阈值 1e12 与共享层账号池的 `parseExpiry` 一致。
+ * 解析不出数字时原样保留（调用方据此**不判定过期**）。
+ */
+export function normalizeExpiresAtMs(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const numeric = Number(trimmed);
+  if (!Number.isFinite(numeric) || numeric <= 0) return trimmed;
+  return String(Math.trunc(numeric > 1e12 ? numeric : numeric * 1000));
+}
+
 function fromDisk(rec: Record<string, unknown>): Credentials {
+  const flat = flattenDisk(rec);
   const pick = (...keys: string[]): string => {
     for (const key of keys) {
-      const value = str(rec[key]);
+      const value = str(flat[key]);
       if (value) return value;
     }
     return "";
@@ -239,7 +287,7 @@ function fromDisk(rec: Record<string, unknown>): Credentials {
   return {
     accessToken: pick("access_token", "accessToken"),
     refreshToken: pick("refresh_token", "refreshToken"),
-    expiresAt: pick("expires_at", "expiresAt"),
+    expiresAt: normalizeExpiresAtMs(pick("expires_at", "expiresAt")),
     uid: pick("uid", "user_id", "userId"),
     userId: pick("user_id", "userId", "yid"),
     nickname: normalizeNickname(pick("nickname")),
@@ -256,7 +304,7 @@ function toDisk(c: Credentials): DiskCredentials {
   return {
     access_token: c.accessToken,
     refresh_token: c.refreshToken,
-    expires_at: c.expiresAt,
+    expires_at: normalizeExpiresAtMs(c.expiresAt),
     uid: c.uid,
     user_id: c.userId,
     nickname: c.nickname,
@@ -358,7 +406,7 @@ export async function exchange(
     uuid: session.uuid,
     version,
   };
-  const resp = await fetch(`${base.replace(/\/+$/, "")}/api/auth/exchange`, {
+  const resp = await fetch(`${base.replace(/\/+$/, "")}${upstream.EXCHANGE_PATH}`, {
     method: "POST",
     body: JSON.stringify(body),
     headers: anonymousHeaders(),
@@ -487,9 +535,108 @@ export function startCallbackServer(
 export interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
+  /**
+   * 取走用户粘回的回调链接（可选，一次性消费）。
+   *
+   * 浏览器回跳 `127.0.0.1:{随机端口}` 失败时（远程 / 无头 / 容器）靠它兜底：
+   * 粘回的整条地址栏 URL 会被**转交本地回调服务器**，走的仍是同一条 exchange 路径。
+   */
+  pasteCode?: () => string | undefined;
 }
 
-/** 完整登录流程：本地回调服务器 + exchange + 落盘（授权链接由命令行打印，用户自行打开）。 */
+/** 粘贴轮询间隔（毫秒）。 */
+const PASTE_POLL_MS = 400;
+/** 粘贴内容转交本地回调服务器的超时（毫秒）。 */
+const PASTE_FORWARD_TIMEOUT_MS = 10_000;
+
+/** 轮询休眠；定时器 unref，不吊住进程。 */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
+/**
+ * 从用户粘回的内容里取 `code` / `state`。
+ *
+ * 接受四种形态：整条回调 URL、`?code=…&state=…` 查询串、`#code=…&state=…` 片段、
+ * 裸 `code=…&state=…`。
+ */
+export function parseCallbackParams(raw: string): { code: string; state: string } {
+  const trimmed = raw.trim();
+  for (const sep of ["?", "#"]) {
+    const idx = trimmed.indexOf(sep);
+    if (idx < 0) continue;
+    const params = new URLSearchParams(trimmed.slice(idx + 1));
+    const code = params.get("code") ?? "";
+    if (code) return { code, state: params.get("state") ?? "" };
+  }
+  // 裸查询串（没有 ? / # 前缀）：整串按 query 解析。
+  if (trimmed.includes("=")) {
+    const params = new URLSearchParams(trimmed);
+    const code = params.get("code") ?? "";
+    if (code) return { code, state: params.get("state") ?? "" };
+  }
+  return { code: "", state: "" };
+}
+
+/**
+ * 粘贴兜底：轮询 `options.pasteCode()`，把粘回的整条回调 URL **转交本地回调服务器**。
+ *
+ * 为什么不自己换 token：转交之后走的是**同一条** exchange 路径（回调服务器 → exchange），
+ * 不会出现「两条路径各换一次 token」的分叉。参考实现的 `add-account.sh` 也是这个做法。
+ *
+ * 该协程永不 reject；登录已由回调服务器完成时自行退出。
+ */
+async function watchPastedCallback(
+  port: number,
+  session: LoginSession,
+  options: LoginOptions,
+  isStopped: () => boolean,
+): Promise<void> {
+  const paste = options.pasteCode;
+  if (typeof paste !== "function") return;
+  for (;;) {
+    if (isStopped()) return;
+    let raw: string | undefined;
+    try {
+      raw = paste();
+    } catch {
+      raw = undefined;
+    }
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
+    if (trimmed) {
+      const { code, state } = parseCallbackParams(trimmed);
+      if (!code) {
+        options.onStatus?.(
+          "pasted text has no `code`; paste the ENTIRE callback url from the browser address bar.",
+        );
+      } else if (state !== session.state) {
+        options.onStatus?.(
+          "pasted url `state` does not match this login session; finish the login in the browser instead.",
+        );
+      } else {
+        // 转交本地回调服务器：与浏览器直接回跳走的是同一个处理器。
+        const query = new URLSearchParams({ code, state }).toString();
+        await fetch(`http://127.0.0.1:${port}${CALLBACK_PATH}?${query}`, {
+          signal: AbortSignal.timeout(PASTE_FORWARD_TIMEOUT_MS),
+        })
+          .then((resp) => resp.text().catch(() => ""))
+          .catch(() => undefined);
+      }
+    }
+    await sleep(PASTE_POLL_MS);
+  }
+}
+
+/**
+ * 完整登录流程（**唯一一条**）：本地回调服务器 + exchange + 落盘。
+ *
+ * 授权链接由命令行打印，用户自行在浏览器打开；浏览器回跳到本地回调即完成。
+ * 浏览器回跳不了时（远程 / 无头 / 容器）走**粘贴兜底** —— 用户把地址栏整条 URL
+ * 粘回来，兜底把它转交同一个回调处理器，**不是第二条登录路径**。
+ */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
   const base = (baseUrl ?? resolveBaseUrl()) || DEFAULT_BASE_URL;
   const session = newLoginSession();
@@ -498,12 +645,16 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   // ⚠️ 拿到 URL 后**立刻**回调（命令行据此展示链接，用户自行在浏览器打开）
   options.onUrl?.(url);
   options.onStatus?.(`waiting for authorization (open the URL above in a browser; up to ${LOGIN_TIMEOUT_MS / 60000} min)...`);
+  // 粘贴兜底：浏览器回跳失败时，用户把地址栏整条 URL 粘回来即可（同一路径）。
+  let stopped = false;
+  void watchPastedCallback(callback.port, session, options, () => stopped).catch(() => undefined);
   try {
     const c = await callback.result;
     await save(c);
     options.onStatus?.("authorization succeeded; credentials saved.");
     return c;
   } finally {
+    stopped = true;
     await callback.close();
   }
 }
@@ -538,7 +689,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
 
   let resp: Response;
   try {
-    resp = await fetch(`${base.replace(/\/+$/, "")}/api/auth/refresh`, {
+    resp = await fetch(`${base.replace(/\/+$/, "")}${upstream.REFRESH_PATH}`, {
       method: "POST",
       body: JSON.stringify(body),
       headers: anonymousHeaders(),

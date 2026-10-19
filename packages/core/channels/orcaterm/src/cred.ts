@@ -10,6 +10,10 @@
  *
  * 只需在浏览器登录一次，CLI 自动换取 token。
  *
+ * 微信扫码（`provider=wechat`）与 GitHub（`provider=github`）两条路**只作协议事实**
+ * 保留在 PROTOCOL.md §1.1，本渠道不提供入口 —— 微信路未在 CLI 侧点验、GitHub 路的
+ * 授权地址形态未实测，且两者都要用户额外操作，收益低于腾讯云这一条全自动路径。
+ *
  * ## 铁律
  *
  * token 原文不进日志/输出，只给指纹与脱敏形态。
@@ -29,11 +33,8 @@ export const DEFAULT_BASE_URL = "https://orcaterm.com";
 
 /** 腾讯云开放平台给 OrcaTerm 的 app_id（客户端可见，非密钥）。 */
 export const TXCLOUD_APP_ID = "100045893348";
+/** OAuth 入口（`/oauth/authorize`）：带任意 `session_id` 即 302 到平台授权页。 */
 const OAUTH_AUTHORIZE_URL = `${DEFAULT_BASE_URL}/oauth/authorize`;
-
-/** 只读探测端点（refresh 用）。 */
-export const USER_INFO_URL_DEFAULT = `${DEFAULT_BASE_URL}/cgi/v2/user/getInfo`;
-const USER_INFO_URL_ENV = "ORCATERN_USER_INFO_URL";
 
 const FETCH_TIMEOUT_MS = 30_000;
 /** 等用户完成浏览器登录、轮询换 token 的上限 (10 分钟)。 */
@@ -46,10 +47,8 @@ const CAPI_URL = `${DEFAULT_BASE_URL}/cgi/api`;
 
 /** OAuth 入口 URL（带 session_id，值任意；OrcaTerm 会 302 到平台授权页）。 */
 export function buildAuthEntryUrl(sessionId: string, baseUrl = DEFAULT_BASE_URL): string {
-  return (
-    `${baseUrl}/oauth/authorize?provider=txcloud` +
-    `&source=desktop&session_id=${encodeURIComponent(sessionId)}`
-  );
+  const entry = baseUrl === DEFAULT_BASE_URL ? OAUTH_AUTHORIZE_URL : `${baseUrl}/oauth/authorize`;
+  return `${entry}?provider=txcloud&source=desktop&session_id=${encodeURIComponent(sessionId)}`;
 }
 
 // ── 换 token ─────────────────────────────────────────────────────────────────
@@ -144,6 +143,13 @@ export interface Credentials {
   provider: string;
   obtainedAt: string;
   expiresAt: string;
+  /**
+   * lightai 域的 sid cookie（可选）。
+   *
+   * 对话端点的 API 会话层票据：[参考] orca.go 的 oauth 分支会带上它，
+   * 但上游在缺失时会自动发放 —— 故没有也不影响对话。
+   */
+  sid: string;
 }
 
 const EMPTY_CREDENTIALS: Credentials = {
@@ -153,10 +159,16 @@ const EMPTY_CREDENTIALS: Credentials = {
   provider: "txcloud",
   obtainedAt: "",
   expiresAt: "",
+  sid: "",
 };
 
 /** 解析 ot_session (JWT) → 凭据字段。 */
-export function decodeOtSession(token: string, provider = "txcloud", baseUrl = DEFAULT_BASE_URL): Credentials {
+export function decodeOtSession(
+  token: string,
+  provider = "txcloud",
+  baseUrl = DEFAULT_BASE_URL,
+  sid = "",
+): Credentials {
   const payload = decodeJwtPayload(token);
   const uid = String(payload["userId"] ?? payload["uid"] ?? "");
   const expMs = jwtExpMs(token);
@@ -167,6 +179,7 @@ export function decodeOtSession(token: string, provider = "txcloud", baseUrl = D
     provider,
     obtainedAt: sharedLogin.nowIso(),
     expiresAt: expMs > 0 ? new Date(expMs).toISOString() : "",
+    sid,
   };
 }
 
@@ -210,6 +223,7 @@ export function load(): Credentials {
     provider: String(rec["provider"] ?? "txcloud"),
     obtainedAt: String(rec["obtainedAt"] ?? rec["obtained_at"] ?? ""),
     expiresAt: String(rec["expiresAt"] ?? rec["expires_at"] ?? ""),
+    sid: String(rec["sid"] ?? ""),
   };
 }
 
@@ -225,6 +239,7 @@ export async function save(c: Credentials): Promise<void> {
     provider: c.provider,
     obtainedAt: c.obtainedAt || sharedLogin.nowIso(),
     expiresAt: c.expiresAt,
+    sid: c.sid,
   };
   await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   await rename(tmp, path);
@@ -304,7 +319,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
   const json = (await res.json().catch(() => ({}))) as unknown;
   const token = findAccessToken(json);
   if (!token) throw new NotLoggedInError(`refresh rejected: ${exchangeError(json)}`);
-  const next = decodeOtSession(token, c.provider || "txcloud", resolveBaseUrl());
+  const next = decodeOtSession(token, c.provider || "txcloud", resolveBaseUrl(), c.sid);
   await save(next);
   return next;
 }

@@ -19,15 +19,32 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { chmod, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import * as catalog from "./catalog.js";
-import { APP_ID, IDE_VERSION, IDE_VERSION_CODE, USER_AGENT } from "./cred.js";
-import { ensureDir, login as sharedLogin, upstreamPath } from "@modelmux/gateway";
+import {
+  APP_ID,
+  DEFAULT_BASE_URL as AGENT_HOST,
+  IDE_VERSION,
+  IDE_VERSION_CODE,
+  USER_AGENT,
+} from "./cred.js";
+import {
+  ensureCacheDir,
+  ensureDir,
+  login as sharedLogin,
+  upstreamPath,
+} from "@modelmux/gateway";
 
-/** agentHost：对话 + 模型列表。 */
-export const DEFAULT_BASE_URL = "https://trae-api-cn.mchost.guru";
+/**
+ * agentHost：对话 + 模型列表。
+ *
+ * ⚠ 契约要求 `upstream` 模块也导出 `DEFAULT_BASE_URL`；值统一取 `cred.ts` 那份，
+ * 免得两处同值不同源、漂移后排查不到。
+ */
+export const DEFAULT_BASE_URL = AGENT_HOST;
 
 /** 展示名（状态页与错误文案用）。 */
 export const DISPLAY_NAME = "TRAE";
@@ -38,10 +55,73 @@ export const DISPLAY_NAME = "TRAE";
  */
 export const WIRE: "openai" | "custom" = "custom";
 
+/**
+ * 对话端点（**solo / IDE 传输**，当前实现的 chat 走这条）。
+ *
+ * - 方法：**POST**
+ * - 端点路径：`/api/agent/v3/llm_utils_chat`
+ * - 完整 URL：`https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat`
+ * - query：**无**（请求体里也不存在 `query` 字段）
+ * - 来源：参考实现 `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpChat`）、
+ *   `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`IDE_ENDPOINTS[0]`）
+ */
 export const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
 
-/** 多通道模型列表（单通道的 get_detail_param 无调用方）。 */
+/**
+ * 多通道模型目录（**solo / IDE 传输**，目录回落路径用；单通道的 `get_detail_param` 无调用方）。
+ *
+ * - 方法：**POST**
+ * - 端点路径：`/api/ide/v1/batch_get_detail_param`
+ * - 完整 URL：`https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param`
+ * - query：**无**（22 个 `functions` 通道等参数在 body 里）
+ * - ⚠ 实测对新账号全线 `error_code=2001`（账号无 SOLO 权益）→ 目录主源已切到
+ *   `REMOTE_MODELS_PATH`
+ */
 export const MODELS_PATH = "/api/ide/v1/batch_get_detail_param";
+
+/**
+ * Remote 网页目录（**work / chat_sessions 传输**，目录主源走这条）。
+ *
+ * - 方法：**GET**
+ * - 端点路径：`/api/remote/v1/models`
+ * - 完整 URL：`https://trae-api-cn.mchost.guru/api/remote/v1/models?functions=…&show_custom_model=true`
+ * - 必需 query：
+ *   - `functions` = `solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote`（三组，逗号分隔且 URL 编码）
+ *   - `show_custom_model` = `true`
+ * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`_fetch_web_model_configs`，
+ *   URL 逐字一致）
+ */
+export const REMOTE_MODELS_PATH = "/api/remote/v1/models";
+
+/** Remote 目录的 `functions` query（三组通道，逗号分隔且 URL 编码；逐字取自参考实现）。 */
+export const REMOTE_FUNCTIONS = "solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote";
+
+/** Remote 目录的 `show_custom_model` query（逐字取自参考实现）。 */
+export const REMOTE_SHOW_CUSTOM_MODEL = "true";
+
+/**
+ * work / chat_sessions 传输的三端点（**本轮只登记常量与注释，尚未实现**）。
+ *
+ * 国内版主参照已把 IDE Raw 从公共预设移除，公共预设只剩 `/api/remote/v1/chat_sessions`；
+ * 切换过去是**会话管理器级**改造（建会话 / 事件流 / 消息 id / 账号绑定快照），
+ * 风险高，本轮明确不做（见 `docs/channels/traecn/PROTOCOL.md`「已知边界」）。
+ *
+ * - 建会话：**POST** `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions`
+ *   （无 URL query；`mode` / `agent_type` / `common_params` 都在 body 的 `initial_message` 里）
+ * - 拉事件流：**GET** `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/events`
+ *   —— **必需 query `reply_to_message_id`**（取建会话响应里的 `message_id`）
+ * - 停止会话：**POST** `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/stop`
+ *
+ * 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_remote_client.py`、
+ * `reference/autumnsentiment_Trae2api-cn/src/traework_compat.py`
+ */
+export const WORK_SESSION_PATH = "/api/remote/v1/chat_sessions";
+/** 拉事件流：GET `{agentHost}/api/remote/v1/chat_sessions/{session_id}/events`（必需 query 见下）。 */
+export const WORK_SESSION_EVENTS_PATH = "/api/remote/v1/chat_sessions/{session_id}/events";
+/** 停止会话：POST `{agentHost}/api/remote/v1/chat_sessions/{session_id}/stop`（无 query）。 */
+export const WORK_SESSION_STOP_PATH = "/api/remote/v1/chat_sessions/{session_id}/stop";
+/** 拉事件流的必需 query：回哪条消息（建会话响应里的 `message_id`）。 */
+export const WORK_SESSION_EVENTS_QUERY = "reply_to_message_id";
 
 /** 缺省通道（`function` 字段）。 */
 export const DEFAULT_FUNCTION = "solo_work_lite";
@@ -164,12 +244,16 @@ export function hostOf(baseUrl: string): string {
   return sharedLogin.hostOf(baseUrl);
 }
 
+/** 最近一次构造请求头所用账号的 uid（余额快照要按账号归属，故记下来）。 */
+let lastAuthUid = "";
+
 /** 构造上游请求头（鉴权 + 客户端伪装）。 */
 export function buildHeaders(
   credential: AuthLike,
   options: { accept?: string } = {},
 ): Record<string, string> {
   const token = credential.accessToken;
+  if (credential.uid) lastAuthUid = credential.uid;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: options.accept ?? "text/event-stream",
@@ -484,10 +568,6 @@ export async function fetchModels(
   return env;
 }
 
-/** Remote 网页目录端点（对齐 trae2api 实测；Solo batch 端点对新账号已 2001）。 */
-export const REMOTE_MODELS_PATH = "/api/remote/v1/models";
-const REMOTE_FUNCTIONS = "solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote";
-
 /** 从模型载荷推导连接配置（远端不掌握 host 时保持默认）。 */
 export function resolveConfig(data: Record<string, unknown>, fallback?: Config): Config {
   const cfg: Config = { ...(fallback ?? loadConfig()[0] ?? defaultConfig()) };
@@ -512,7 +592,9 @@ export async function fetchRemoteModels(
   if (credential.domain && credential.domain !== hostOf(cfg.baseUrl)) {
     cfg.baseUrl = `https://${credential.domain}`;
   }
-  const url = `${trimSlash(cfg.baseUrl)}${REMOTE_MODELS_PATH}?functions=${REMOTE_FUNCTIONS}&show_custom_model=true`;
+  const url =
+    `${trimSlash(cfg.baseUrl)}${REMOTE_MODELS_PATH}` +
+    `?functions=${REMOTE_FUNCTIONS}&show_custom_model=${REMOTE_SHOW_CUSTOM_MODEL}`;
   const headers = buildHeaders(credential, { accept: "application/json" });
   headers["Origin"] = "https://www.trae.cn";
   headers["Referer"] = "https://www.trae.cn/";
@@ -543,6 +625,113 @@ export async function fetchRemoteModels(
   }
   if (!isRecord(env)) throw new Error("Remote model list response is not a JSON object");
   return env;
+}
+
+// ── 对话流实测余额（notify_usage） ───────────────────────────────────────────
+
+/**
+ * 对话流 `event:notify_usage` 下发的**通道余额**快照。
+ *
+ * ⚠ `ide_user_ent_usage` 聚合的是**权益包**（含 work 包），
+ * 所以「权益包剩余」≠「SOLO 通道真余额」——真余额只有对话流的下发才是权威
+ * （见 `docs/channels/traecn/PROTOCOL.md` §「已知边界」）。
+ */
+export interface UsageSnapshot {
+  /** 观测账号的 uid（余额按账号归属，换号后旧快照不再采信）。 */
+  uid: string;
+  /** SOLO（通用 IDE）通道余额 —— 本渠道对话消耗的就是它。 */
+  ide_credits: number;
+  /** work 通道余额（本渠道当前用不到，仅记录）。 */
+  work_credits: number;
+  /** 观测时刻（ISO）。 */
+  observed_at: string;
+}
+
+/** 快照落点（渠道层 `cache/` 子目录；丢了只影响显示，不影响功能）。 */
+const USAGE_CACHE_FILE = "usage.json";
+
+function usageCachePath(): string {
+  return join(ensureCacheDir(), USAGE_CACHE_FILE);
+}
+
+/** 读最近一次对话流观测到的通道余额；没有 / 损坏 → null。 */
+export function readUsageSnapshot(): UsageSnapshot | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(usageCachePath(), "utf8"));
+    if (!isRecord(parsed)) return null;
+    const ide = parsed["ide_credits"];
+    const work = parsed["work_credits"];
+    if (typeof ide !== "number" || typeof work !== "number") return null;
+    const observedAt = parsed["observed_at"];
+    const uid = parsed["uid"];
+    return {
+      uid: typeof uid === "string" ? uid : "",
+      ide_credits: ide,
+      work_credits: work,
+      observed_at: typeof observedAt === "string" ? observedAt : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 写快照（原子替换 + 0600）；失败不抛（缓存不该影响主流程）。 */
+function writeUsageSnapshot(snapshot: UsageSnapshot): void {
+  try {
+    const path = usageCachePath();
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    renameSync(tmp, path);
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      /* Windows 上 chmod 意义有限 */
+    }
+  } catch {
+    /* 缓存写失败不影响对话 */
+  }
+}
+
+/**
+ * 从 `notify_usage` 载荷里取通道余额。
+ *
+ * 载荷形如 `{billing_mode:"credits", cn_credits_remain_info:{ide_credits, work_credits}}`；
+ * 不同版本可能把它裹在 `data` / `usage` 下，故逐层找。
+ */
+function parseUsageRemain(
+  payload: Record<string, unknown>,
+): { ide: number; work: number } | null {
+  const data = isRecord(payload["data"]) ? (payload["data"] as Record<string, unknown>) : undefined;
+  const usage = isRecord(payload["usage"]) ? (payload["usage"] as Record<string, unknown>) : undefined;
+  for (const container of [payload, data, usage, data?.["usage"]]) {
+    if (!isRecord(container)) continue;
+    const info = container["cn_credits_remain_info"] ?? container["cnCreditsRemainInfo"];
+    if (!isRecord(info)) continue;
+    const ide = info["ide_credits"] ?? info["ideCredits"];
+    const work = info["work_credits"] ?? info["workCredits"];
+    if (typeof ide !== "number" && typeof work !== "number") continue;
+    return {
+      ide: typeof ide === "number" ? ide : 0,
+      work: typeof work === "number" ? work : 0,
+    };
+  }
+  return null;
+}
+
+/**
+ * 记一次对话流观测到的通道余额。
+ *
+ * ⚠ 余额**按账号归属**：不知道是哪个账号的观测值就不记（否则换号后会串）。
+ */
+function recordUsage(payload: Record<string, unknown>): void {
+  const remain = parseUsageRemain(payload);
+  if (!remain || !lastAuthUid) return;
+  writeUsageSnapshot({
+    uid: lastAuthUid,
+    ide_credits: remain.ide,
+    work_credits: remain.work,
+    observed_at: new Date().toISOString(),
+  });
 }
 
 // ── 流翻译：TRAE event 流 → OpenAI SSE（必须是增量） ─────────────────────────
@@ -697,6 +886,11 @@ export function newTranslator(): StreamTranslator {
         out.push(chunkFrame({}, null, usage));
         break;
       }
+      case "notify_usage": {
+        // 计费事件：不产出客户端帧，但要把**通道余额**记下来（额度页要显示真余额）。
+        recordUsage(payload);
+        break;
+      }
       case "done": {
         if (!finishSent) {
           finishSent = true;
@@ -721,7 +915,9 @@ export function newTranslator(): StreamTranslator {
         break;
       }
       default:
-        // metadata / timing_cost / extra_info：出现即算「上游已开工」，无输出
+        // metadata / timing_cost / extra_info：出现即算「上游已开工」，无输出。
+        // 兜底：事件名不认识但载荷带通道余额的，照样记下来。
+        if (!eventName) recordUsage(payload);
         break;
     }
     return out;

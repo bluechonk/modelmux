@@ -272,14 +272,13 @@ export function fallbackEntries(): ModelEntry[] {
  * （与 Loomy 同构：只缓存**真实远端目录**，兜底表每次现算）。
  */
 export async function refreshCatalog(): Promise<void> {
-  const cfg = upstream.loadConfig()[0];
   const now = Date.now();
   const cached = remoteCache;
   if (!(cached && now - cached.at < (cached.entries.length > 0 ? REMOTE_TTL_MS : REMOTE_FAIL_COOLDOWN_MS))) {
     let entries: ModelEntry[] = [];
     try {
       const c = cred.load();
-      const payload = await upstream.fetchModels(c, cfg);
+      const payload = await upstream.fetchModels(c);
       const data = isRecord(payload["data"]) ? payload["data"] : {};
       entries = parseRemoteModels(data);
     } catch {
@@ -321,9 +320,8 @@ function seedFromDiskCache(): void {
  * 失败时**不写** `remoteCache`：否则会把一次失败记成冷却期，反而挡住后续自动刷新。
  */
 export async function refresh(): Promise<void> {
-  const cfg = upstream.loadConfig()[0];
   const c = cred.load();
-  const payload = await upstream.fetchModels(c, cfg);
+  const payload = await upstream.fetchModels(c);
   const data = isRecord(payload["data"]) ? payload["data"] : {};
   const entries = parseRemoteModels(data);
   if (entries.length === 0) throw new Error("Upstream returned an empty model catalog");

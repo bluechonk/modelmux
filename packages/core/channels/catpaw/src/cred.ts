@@ -17,6 +17,16 @@
  * 返回的是与桌面端登录同一身份的不透明 SSO token（非 JWT）。
  * 落盘到 `~/.modelmux/catpaw/credentials.json`。
  *
+ * ## 两个域（别搞混）
+ *
+ * | 域 | 常量 | 用途 | 鉴权头 |
+ * | --- | --- | --- | --- |
+ * | 网关域 | `GATEWAY_HOST` | 登录、额度 | `X-Auth-Token` |
+ * | 直连域 | `upstream.DIRECT_HOST` | 对话、模型目录 | `X-Passport-Token` + Cookie |
+ *
+ * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
+ * 契约要求本模块导出 `DEFAULT_BASE_URL`，语义固定为**网关域**。
+ *
  * ## 凭据读取策略（按用户规则 #4）
  *
  * 凭据只来自「真实 URL 登录落盘」的文件。**不得**从妙手桌面端的本地文件
@@ -42,14 +52,55 @@ const {
 
 // ── 常量 ────────────────────────────────────────────────────────────────────
 
-/** 登录配置端点（返回 loginEntryUrl）。 */
-export const LOGIN_CONFIG_URL = "https://catx.nocode.cn/api/gateway/passport/login-config";
-/** 令牌轮询端点。 */
-export const POLL_TOKEN_URL = "https://catx.nocode.cn/api/gateway/passport/poll-token";
-/** 当前用户端点（登录后取 uid；见 `fetchCurrentUserId`）。 */
-export const CURRENT_USER_URL = "https://catx.nocode.cn/api/gateway/passport/current-user";
-/** 令牌有效性探测端点（`refresh()` 用；401/403 = 确定失效）。 */
-export const AUTH_PING_URL = "https://catx.nocode.cn/api/gateway/auth/ping";
+/**
+ * 个人版网关域（登录 / 额度）。
+ *
+ * ⚠ 与 `upstream.ts` 的 `DIRECT_HOST`（直连域）**不是同一侧**：
+ * 网关域鉴权用 `X-Auth-Token`，直连域鉴权用 `X-Passport-Token` + Cookie。
+ * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
+ */
+export const GATEWAY_HOST = "https://catx.nocode.cn";
+
+/**
+ * 登录配置端点。
+ *
+ * - 方法 / 完整 URL：`GET https://catx.nocode.cn/api/gateway/passport/login-config`
+ * - 端点路径：`/api/gateway/passport/login-config`
+ * - query：无；body：无
+ * - 响应：取 `data.loginEntryUrl`（见 `fetchLoginEntryUrl`）
+ */
+export const LOGIN_CONFIG_URL = `${GATEWAY_HOST}/api/gateway/passport/login-config`;
+
+/**
+ * 令牌轮询端点（**取 token 的唯一通道**）。
+ *
+ * - 方法 / 完整 URL：`GET https://catx.nocode.cn/api/gateway/passport/poll-token?sid=<sid>`
+ * - 端点路径：`/api/gateway/passport/poll-token`
+ * - query：`sid` —— 本地生成的会话 id（`randomHex(16)`，见 `login`）；上游按它认本次登录会话
+ * - body：无；响应：取 `data`（不透明 SSO token，非 JWT；见 `pollToken`）
+ */
+export const POLL_TOKEN_URL = `${GATEWAY_HOST}/api/gateway/passport/poll-token`;
+
+/**
+ * 当前用户端点（登录后取 uid；见 `fetchCurrentUserId`）。
+ *
+ * - 方法 / 完整 URL：`GET https://catx.nocode.cn/api/gateway/passport/current-user`
+ * - 端点路径：`/api/gateway/passport/current-user`
+ * - query：无；body：无
+ * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头，与直连域的 `X-Passport-Token` 不是同一套）
+ */
+export const CURRENT_USER_URL = `${GATEWAY_HOST}/api/gateway/passport/current-user`;
+
+/**
+ * 令牌有效性探测端点（`refresh()` 用；401/403 = 确定失效）。
+ *
+ * - 方法 / 完整 URL：`GET https://catx.nocode.cn/api/gateway/auth/ping`
+ * - 端点路径：`/api/gateway/auth/ping`
+ * - query：无；body：无
+ * - 鉴权：`X-Auth-Token: <accessToken>`
+ * - 判据：只有 401/403 算失效；5xx 与网络错误算临时故障（`[参考]` 参考实现的 `Ping()`）
+ */
+export const AUTH_PING_URL = `${GATEWAY_HOST}/api/gateway/auth/ping`;
 
 /**
  * `refresh()` 实际请求的 ping 地址。
@@ -68,6 +119,14 @@ function authPingUrl(): string {
  * token 一律从 `poll-token` 取。留着常量是为了 URL 形态与桌面端一致。
  */
 const CALLBACK_PATH = "/callback";
+
+/**
+ * `redirect` 参数的 origin（同样**不监听**，见 `CALLBACK_PATH`）。
+ *
+ * 端口 37890 与参考实现一致（`[参考]` `reference/HITZY2002_catpaw2api/cmd/login/main.go:49`、
+ * `internal/server/oauth.go:109`）—— 上游不校验可达性，保持形态一致更保险。
+ */
+const CALLBACK_ORIGIN = "http://127.0.0.1:37890";
 
 /** 登录轮询周期（毫秒）。 */
 const POLL_INTERVAL_MS = 1_000;
@@ -118,12 +177,18 @@ export const EMPTY_CREDENTIALS: Credentials = {
 
 // ── 登录基址 ────────────────────────────────────────────────────────────────
 
-/** 默认登录基址（catpaw 无独立登录域，登录走 passport 网关）。 */
-export const DEFAULT_BASE_URL = "https://catx.nocode.cn";
+/**
+ * 默认登录基址（catpaw 无独立登录域，登录走 passport 网关）。
+ *
+ * ⚠ 契约要求 `cred` 模块导出 `DEFAULT_BASE_URL`（共享层 `auth/auth-flow.ts` 读它做登录），
+ * 语义固定为**网关域**。直连域在 `upstream.ts` 的 `DIRECT_HOST` —— 两者**同名不同值**，
+ * 引用时务必写清是哪一侧。
+ */
+export const DEFAULT_BASE_URL = GATEWAY_HOST;
 
 /** 解析登录基址。catpaw 只有一个域，realm 参数仅作兼容保留。 */
 export function resolveBaseUrl(realm = "auto"): string {
-  return DEFAULT_BASE_URL;
+  return GATEWAY_HOST;
 }
 
 // ── 工具 ────────────────────────────────────────────────────────────────────
@@ -214,29 +279,21 @@ async function fetchLoginEntryUrl(): Promise<string> {
 }
 
 /**
- * 拼出完整 auth_url（三参数缺一不可）。
+ * 拼出完整 auth_url（三参数缺一不可）—— **auth_url 的唯一构造点**。
  *
  * `redirect` 只是网关的必填形式参数（缺了直接 400），我们并不监听它 ——
  * token 一律从 `poll-token?sid=` 取（见 `login()`）。
+ *
+ * @param loginEntryUrl `login-config` 返回的入口地址
+ * @param redirect 回调地址（形式参数，不要求可达）
+ * @param sid   会话 id；缺省时本地生成（轮询要用同一个值，故由调用方传入）
+ * @param state 防 CSRF 随机串；缺省时本地生成
  */
 export function buildAuthUrl(loginEntryUrl: string, redirect: string, sid?: string, state?: string): string {
   const s = sid ?? randomHex(16);
   const st = state ?? randomHex(16);
   const encRedirect = encodeURIComponent(redirect);
   return `${loginEntryUrl}?sid=${s}&state=${st}&redirect=${encRedirect}`;
-}
-
-/** 从 loginEntryUrl + redirect 拼 auth_url，同时返回 sid/state（供轮询用）。 */
-export function buildAuthParams(loginEntryUrl: string, redirect: string): {
-  authUrl: string;
-  sid: string;
-  state: string;
-} {
-  const sid = randomHex(16);
-  const state = randomHex(16);
-  const encRedirect = encodeURIComponent(redirect);
-  const authUrl = `${loginEntryUrl}?sid=${sid}&state=${state}&redirect=${encRedirect}`;
-  return { authUrl, sid, state };
 }
 
 /**
@@ -357,7 +414,7 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
   // 我们不监听该端口，token 一律从 poll-token 取。
   const sid = randomHex(16);
   const state = randomHex(16);
-  const redirect = `http://127.0.0.1:37890${CALLBACK_PATH}`;
+  const redirect = `${CALLBACK_ORIGIN}${CALLBACK_PATH}`;
   const finalAuthUrl = buildAuthUrl(loginEntryUrl, redirect, sid, state);
 
   onUrl?.(finalAuthUrl);
@@ -375,16 +432,6 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
   const c = fromToken(token, "catpaw-login-poll", uid);
   await save(c);
   return c;
-}
-
-/** 从 auth_url 的查询参数里取出 sid。 */
-export function extractSid(authUrl: string): string {
-  const marker = "sid=";
-  const idx = authUrl.indexOf(marker);
-  if (idx < 0) return "";
-  const rest = authUrl.slice(idx + marker.length);
-  const amp = rest.indexOf("&");
-  return (amp < 0 ? rest : rest.slice(0, amp)).replace(/\+/g, " ").trim();
 }
 
 // ── 刷新 ────────────────────────────────────────────────────────────────────

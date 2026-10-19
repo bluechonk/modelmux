@@ -32,6 +32,14 @@
  * 故 `buildChatBody()` 会把「本次请求的规范化 body + chat/session id」存进
  * 模块内的 pending 槽，`buildHeaders()` 从那里取。JS 单线程且两步之间无 await，
  * 并发请求不会交错 —— 这一点在文件内注释里写明，避免后来者误以为可以改成异步。
+ *
+ * ## benefit 判定放在 `buildHeaders()`（按账号隔离）
+ *
+ * `buildChatBody()` 拿不到凭据，而 benefit（免费额度）是**按账号授予**的
+ * （[参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:11-12）：
+ * A 账号有、B 账号没有时，全局一份集合会让两个账号互相污染 ——
+ * A 少带 `maas_type` 报 404 未注册，B 多带报 unsupported model。
+ * 故判定挪到 `buildHeaders()`：它拿得到凭据，`credential.uid` 即账号维度键。
  */
 
 import { createHash, createHmac } from "node:crypto";
@@ -44,20 +52,92 @@ import { ensureDir, upstreamPath } from "@modelmux/gateway";
 /** 上游基址（snap-access 网关；硬编码 cn-north-4，无多区域）。 */
 export const DEFAULT_BASE_URL = "https://snap-access.cn-north-4.myhuaweicloud.com";
 
-/** 对话端点。 */
-export const CHAT_PATH = "/api/v2/chat/completions";
-/** 常规模型目录端点（签名 GET + 签名后追加 Agent-Type/X-Language）。 */
-export const SNAP_BUILTIN_PATH = "/v1/model/builtin";
-/** benefit（免费额度）模型目录端点（只有签名头，无任何额外头）。 */
-export const OPENGW_CONFIG_URL = "https://opengw.developer.huaweicloud.com/api/v1/gateway/config";
+/** IAM/STS 基址（token 端点与 caller-identity 都在这个域）。 */
+export const STS_BASE = "https://sts.cn-north-4.myhuaweicloud.com";
 
-/** benefit 目录端点；`CODEARTS_OPENGW_URL` 可覆盖（自托管 / 离线测试）。 */
+/** opengw 免费额度网关基址（benefit 模型目录 / 领取 / 余额都在这个域）。 */
+export const OPENGW_BASE = "https://opengw.developer.huaweicloud.com";
+
+// ── 端点常量（方法 + 完整 URL + 端点路径 + query 来源）────────────────────────
+//
+// 完整 URL 里的 {snap} / {opengw} / {sts} 分别是 DEFAULT_BASE_URL /
+// OPENGW_BASE / STS_BASE；query 一律在注释里写明来源，没有就写「无」。
+
+/** 对话：POST {snap}/api/v2/chat/completions —— query：无。 */
+export const CHAT_PATH = "/api/v2/chat/completions";
+
+/** 常规模型目录：GET {snap}/v1/model/builtin —— query：无。 */
+export const SNAP_BUILTIN_PATH = "/v1/model/builtin";
+
+/**
+ * agent-center 智能体列表：GET {snap}/v1/agent-center/agents/useragents
+ * —— query：`offset=0` + `limit=100` + `is_primary_agent=true`
+ * （三个值都是参考实现写死的，见
+ * [参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:383）。
+ */
+export const AGENT_CENTER_LIST_PATH = "/v1/agent-center/agents/useragents";
+
+/**
+ * agent-center 智能体详情：GET {snap}/v1/agent-center/agents/detail
+ * —— query：`agent_id={agentId}`（取自上一步返回的 agent_id）。
+ */
+export const AGENT_CENTER_DETAIL_PATH = "/v1/agent-center/agents/detail";
+
+/**
+ * 福利网关总开关：GET {snap}/v1/benefit-gateway-config —— query：无。
+ * [参考] reference/HITZY2002_codearts2api/docs/reverse-engineering.md:146。
+ */
+export const BENEFIT_GATEWAY_CONFIG_PATH = "/v1/benefit-gateway-config";
+
+/**
+ * 当前用户：GET {snap}/snap-manager/v1/current/user —— query：无。
+ * [参考] reference/HITZY2002_codearts2api/internal/upstream/client.go:746-760。
+ */
+export const CURRENT_USER_PATH = "/snap-manager/v1/current/user";
+
+/**
+ * 调用者身份：GET {sts}/v5/caller-identity —— query：无。
+ * [参考] reference/HITZY2002_codearts2api/internal/upstream/client.go:726-743。
+ */
+export const CALLER_IDENTITY_PATH = "/v5/caller-identity";
+
+/** STS token 端点：POST {sts}/v1/oauth2/tokens —— query：无（参数走 form 体）。 */
+export const STS_TOKEN_PATH = "/v1/oauth2/tokens";
+
+/** benefit 模型目录：GET {opengw}/api/v1/gateway/config —— query：无。 */
+export const OPENGW_CONFIG_PATH = "/api/v1/gateway/config";
+
+/** benefit 模型目录的完整 URL（历史导出名，值不变）。 */
+export const OPENGW_CONFIG_URL = `${OPENGW_BASE}${OPENGW_CONFIG_PATH}`;
+
+/**
+ * benefit 福利领取：POST {opengw}/api/v1/benefit/claim —— query：无（空 body `{}`）。
+ * [参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:476-510。
+ */
+export const BENEFIT_CLAIM_PATH = "/api/v1/benefit/claim";
+
+/**
+ * benefit 免费额度余额：GET {opengw}/api/v1/user/tokens/balance —— query：无。
+ * [参考] reference/Johnsheng1_codearts2api/benefit.py:42, 103-105。
+ */
+export const BENEFIT_BALANCE_PATH = "/api/v1/user/tokens/balance";
+
+/** opengw 基址；`CODEARTS_OPENGW_BASE` 可覆盖（自托管 / 离线测试）。 */
+export function opengwBase(): string {
+  const override = process.env["CODEARTS_OPENGW_BASE"];
+  return override && override.trim() ? trimSlash(override.trim()) : OPENGW_BASE;
+}
+
+/**
+ * benefit 目录端点；`CODEARTS_OPENGW_URL` 可覆盖**完整 URL**（自托管 / 离线测试）。
+ *
+ * ⚠ 该变量是**完整 URL** 覆盖（历史语义不变）；只改基址用 `CODEARTS_OPENGW_BASE`。
+ * 领取 / 余额端点只认**基址**（`opengwBase()`），不受这个完整 URL 覆盖影响。
+ */
 export function opengwConfigUrl(): string {
   const override = process.env["CODEARTS_OPENGW_URL"];
-  return override && override.trim() ? override.trim() : OPENGW_CONFIG_URL;
+  return override && override.trim() ? override.trim() : `${opengwBase()}${OPENGW_CONFIG_PATH}`;
 }
-/** 排队状态端点（桥接层不轮询它，保留常量供诊断用）。 */
-export const QUEUE_STATUS_BASE = `${DEFAULT_BASE_URL}/api/v1/queue/status`;
 
 /** 展示名（状态页与日志用）。 */
 export const DISPLAY_NAME = "CodeArts";
@@ -83,6 +163,12 @@ export class UpstreamUnauthorized extends Error {
 /** 描述如何到达 CodeArts chat 端点。 */
 export interface Config {
   baseUrl: string;
+  /**
+   * 是否启用 agent-center 模型目录（第三路）。
+   *
+   * 默认关闭 —— 见 `agentCenterEnabled()` 的理由。
+   */
+  agentCenterModels?: boolean;
 }
 
 /** 凭据的最小面（避免 upstream ↔ cred 循环依赖）。 */
@@ -96,7 +182,7 @@ export interface AuthLike {
 }
 
 export function defaultConfig(): Config {
-  return { baseUrl: DEFAULT_BASE_URL };
+  return { baseUrl: DEFAULT_BASE_URL, agentCenterModels: false };
 }
 
 /** 读取上游描述符；文件缺失/损坏时返回默认配置。 */
@@ -111,10 +197,34 @@ export function loadConfig(): [Config, boolean] {
     const parsed = JSON.parse(raw) as Partial<Config>;
     const baseUrl =
       typeof parsed.baseUrl === "string" && parsed.baseUrl ? parsed.baseUrl : DEFAULT_BASE_URL;
-    return [{ baseUrl }, true];
+    const agentCenterModels = parsed.agentCenterModels === true;
+    return [{ baseUrl, agentCenterModels }, true];
   } catch {
     return [defaultConfig(), false];
   }
+}
+
+/**
+ * 是否启用 agent-center 模型目录（模型发现的第三路）。
+ *
+ * ## 为什么默认关闭
+ *
+ * [参考] 这路会列出**当前账号未注册**的模型：HITZY2002 实测
+ * `GLM-5.2-ArkTS-SPARK` / `OpenPangu-2.0-Pro` / `OpenPangu-2.0-Flash`
+ * 全部返回 `InferHub.002002009.404`
+ * （reference/HITZY2002_codearts2api/docs/reverse-engineering.md:174-177）。
+ * 打开会把不可用模型混进目录，用户的每次尝试都变成一次 400。
+ *
+ * ## 怎么打开
+ *
+ * - 配置项 `agentCenterModels: true`（落盘在上游描述符里），或
+ * - 环境变量 `CODEARTS_AGENT_CENTER_MODELS=1`（优先于配置项，便于临时试）。
+ */
+export function agentCenterEnabled(cfg?: Config): boolean {
+  const env = process.env["CODEARTS_AGENT_CENTER_MODELS"];
+  if (env && env.trim()) return /^(1|true|yes|on)$/i.test(env.trim());
+  const resolved = cfg ?? loadConfig()[0];
+  return resolved.agentCenterModels === true;
 }
 
 /** 原子写入上游描述符。 */
@@ -131,16 +241,25 @@ function trimSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+/**
+ * snap-access 基址（去掉尾部斜杠）。
+ *
+ * **所有 snap 端点 URL 的唯一拼接入口** —— 基址只在这里解析一次；
+ * 各模块各拼一遍时，拼法不一致会让「签名用的 URI」与「实际请求的 URI」对不上。
+ */
+export function snapBase(cfg?: Config): string {
+  const resolved = cfg ?? loadConfig()[0];
+  return trimSlash(resolved.baseUrl || DEFAULT_BASE_URL);
+}
+
 /** 完整限定的 chat-completions URL。 */
 export function chatUrl(cfg?: Config): string {
-  const resolved = cfg ?? loadConfig()[0];
-  return `${trimSlash(resolved.baseUrl)}${CHAT_PATH}`;
+  return `${snapBase(cfg)}${CHAT_PATH}`;
 }
 
 /** 常规模型目录 URL（不带认证；签名由 `fetchModels` 负责）。 */
 export function modelsUrl(cfg?: Config): string {
-  const resolved = cfg ?? loadConfig()[0];
-  return `${trimSlash(resolved.baseUrl)}${SNAP_BUILTIN_PATH}`;
+  return `${snapBase(cfg)}${SNAP_BUILTIN_PATH}`;
 }
 
 // ── SDK-HMAC-SHA256 签名 ─────────────────────────────────────────────────────
@@ -460,8 +579,8 @@ export function deriveSessionKey(model: string, messages: readonly unknown[]): s
 interface PendingChat {
   payloadJson: string;
   sessionKey: string;
+  /** 上游模型 id —— benefit 判定要用（`buildHeaders` 才知道凭据/账号）。 */
   model: string;
-  benefit: boolean;
 }
 
 let pendingChat: PendingChat | null = null;
@@ -552,9 +671,18 @@ export function buildChatBody(
     payloadJson,
     sessionKey,
     model: upstreamModel,
-    benefit: catalog.isBenefitModel(upstreamModel),
   };
   return out;
+}
+
+/**
+ * 账号维度键：优先稳定 `uid`（refresh_token 里解出的 account_id），
+ * 退到 accessKeyId，都没有则 "default"。
+ *
+ * benefit（免费额度）是**按账号授予**的，目录与判定都要按这个键分桶。
+ */
+export function accountKeyOf(credential: AuthLike): string {
+  return credential.uid?.trim() || credential.accessKeyId?.trim() || "default";
 }
 
 /**
@@ -562,6 +690,12 @@ export function buildChatBody(
  *
  * 注意 `Agent-Type` / `X-Language` **不在** chat 头里（chat 端点本来就不需要），
  * 而签名的 `maas_type`（benefit 模型）必须随请求发出。
+ *
+ * ## benefit 判定在这里做（按账号）
+ *
+ * `buildChatBody()` 拿不到凭据，而 benefit 是按账号授予的（见文件头说明），
+ * 故用 `credential.uid` 作账号键查该账号的 benefit 集合；
+ * 该账号没有记录时回退「静态种子 ∪ 全局集合」。
  *
  * `dropBenefit` 供调用方在收到 `InferHub.4004.200` 时去掉该头重试一次
  * ——共享网关没有这个重试钩子，故默认保留；该选项留给外部/未来接线。
@@ -573,7 +707,10 @@ export function buildHeaders(
   const { ak, sk, st } = credentialParts(credential);
   const pending = pendingChat;
   const body = pending?.payloadJson ?? "";
-  const benefit = (pending?.benefit ?? false) && !options.dropBenefit;
+  const benefit =
+    pending !== null &&
+    !options.dropBenefit &&
+    catalog.isBenefitModel(pending.model, accountKeyOf(credential));
   const signed = signRequest({
     method: "POST",
     url: chatUrl(),
@@ -632,11 +769,206 @@ async function signedGet(
 }
 
 /**
- * 拉取模型目录：opengw `gateway/config`（benefit 模型）+ snap `/v1/model/builtin`
- * （常规模型），合并去重后灌入缓存并返回。
+ * 发一次签名请求并返回解析后的 JSON（**不抛业务错误**）。
+ *
+ * 与 `signedGet` 的差别：支持 POST + 请求体，且失败时**不**抛
+ * `UpstreamUnauthorized` —— 领取 / 探测类接口失败不该让整条目录刷新挂掉。
+ */
+export async function signedJson(
+  method: "GET" | "POST",
+  url: string,
+  credential: AuthLike,
+  options: { body?: string; timeoutMs?: number } = {},
+): Promise<{ status: number; ok: boolean; json: Record<string, unknown> | null; text: string }> {
+  const { ak, sk, st } = credentialParts(credential);
+  const headers = withoutHost(
+    signRequest({
+      method,
+      url,
+      ...(options.body === undefined ? {} : { body: options.body }),
+      ak,
+      sk,
+      securityToken: st,
+    }),
+  );
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method,
+      headers,
+      ...(options.body === undefined ? {} : { body: options.body }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? HTTP_TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { status: 0, ok: false, json: null, text: `network error: ${String(err)}` };
+  }
+  const text = await resp.text().catch(() => "");
+  let json: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    json = isRecord(parsed) ? parsed : null;
+  } catch {
+    json = null;
+  }
+  return { status: resp.status, ok: resp.ok, json, text };
+}
+
+/** 福利领取的结果。 */
+export interface BenefitClaimResult {
+  /** 请求本身成功且上游判定为成功（`error_code === "0000"`）。 */
+  ok: boolean;
+  /** 上游业务错误码（成功时为 `"0000"`）。 */
+  errorCode: string;
+  /** 上游业务错误文案。 */
+  errorMsg: string;
+}
+
+/**
+ * 领取 opengw 免费额度（benefit 福利领取）。
+ *
+ * ## 端点
+ *
+ * `POST https://opengw.developer.huaweicloud.com/api/v1/benefit/claim`
+ * —— 空 body（`{}`）、AK/SK 签名、**只有签名头**（与同 host 的
+ * `gateway/config` 一致；`[参考]` 参考实现多签了 `Content-Type`/`X-Language`，
+ * 本仓库按「额外头一律签名后追加」的既有约定不发）。
+ *
+ * ## 触发时机
+ *
+ * **模型发现时**（`fetchModels` 拉 benefit 目录之前）—— 对齐官方客户端
+ * 「打开模型菜单即调用」的行为
+ * （[参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:518-522）。
+ * 可用 `CODEARTS_BENEFIT_AUTO_CLAIM=0` 关掉自动领取。
+ *
+ * ## 幂等语义
+ *
+ * 上游是**幂等**的：已领取时再调仍返回成功（`error_code === "0000"`），
+ * 不会重复发放 —— 故本函数可以安全地重复调用。
+ *
+ * ## 为什么必须有它
+ *
+ * 未领取时福利模型一律返回 `InferHub.4004.200 benefit not found`，
+ * 领取后同一模型立即可用
+ * （[参考] reference/HITZY2002_codearts2api/docs/reverse-engineering.md:170-173）。
+ */
+export async function claimBenefit(
+  credential: AuthLike,
+  timeoutMs = HTTP_TIMEOUT_MS,
+): Promise<BenefitClaimResult> {
+  const url = `${opengwBase()}${BENEFIT_CLAIM_PATH}`;
+  const resp = await signedJson("POST", url, credential, { body: "{}", timeoutMs });
+  const json = resp.json;
+  const errorCode = json ? strField(json["error_code"]) : "";
+  const errorMsg = json ? strField(json["error_msg"]) : "";
+  if (!resp.ok) {
+    return { ok: false, errorCode, errorMsg: errorMsg || resp.text.slice(0, 200) };
+  }
+  // 上游用 `error_code === "0000"` 表示成功（[参考] models.go:506-508）。
+  const ok = errorCode === "" || errorCode === "0000" || errorCode === "0";
+  return { ok, errorCode, errorMsg };
+}
+
+/** 读字符串字段（数字也收）。 */
+function strField(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+/**
+ * agent-center 模型目录（第三路，**默认关闭**，见 `agentCenterEnabled()`）。
+ *
+ * 流程：`GET /v1/agent-center/agents/useragents` 取智能体列表 → 选出 CodeAgent
+ * → `GET /v1/agent-center/agents/detail?agent_id=…` → 读 `gpts.models[]`。
+ *
+ * 选智能体的顺序（[参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:382-415）：
+ * ① `agent_name==="CodeAgent" && alias.alias_zh_cn==="智能体" && show_in_ide`
+ * ② 退到 `is_primary_agent` ③ 再退到列表首个。
+ *
+ * @returns 条目数组；任一端点失败返回空数组（**不抛**：这一路是补充，不是必需）。
+ */
+async function fetchAgentCenterModels(
+  credential: AuthLike,
+  timeoutMs: number,
+): Promise<catalog.ModelEntry[]> {
+  const extraHeaders = {
+    "Content-Type": "application/json",
+    // ⚠️ 这两个头在签名之后追加（进签名会 401 APIG.0301）。
+    "Agent-Type": "AgentCenter",
+    "X-Language": "zh-cn",
+  };
+  const listUrl =
+    `${snapBase()}${AGENT_CENTER_LIST_PATH}` +
+    "?offset=0&limit=100&is_primary_agent=true";
+  const list = await signedGet(listUrl, credential, extraHeaders, timeoutMs);
+  if (!list) return [];
+  const agents = list["agents"];
+  if (!isRecordArray(agents) || agents.length === 0) return [];
+  const agentId = pickAgentId(agents);
+  if (!agentId) return [];
+
+  const detailUrl = `${snapBase()}${AGENT_CENTER_DETAIL_PATH}?agent_id=${encodeURIComponent(agentId)}`;
+  const detail = await signedGet(detailUrl, credential, extraHeaders, timeoutMs);
+  if (!detail) return [];
+  const gpts = detail["gpts"];
+  const models = isRecord(gpts) ? gpts["models"] : null;
+  if (!isRecordArray(models)) return [];
+
+  const out: catalog.ModelEntry[] = [];
+  for (const row of models) {
+    if (!isRecord(row)) continue;
+    const params = isRecord(row["model_parameters"]) ? row["model_parameters"] : {};
+    const id =
+      strField(row["model_id"]) || strField(row["model_name"]) || strField(row["model_alias"]);
+    if (!id) continue;
+    const normalized = catalog.normalizeModelId(id);
+    // 视觉模型与 builtin 一致地过滤（上下文小、不支持工具调用）。
+    if (catalog.isVisionModel(normalized)) continue;
+    const entry: catalog.ModelEntry = {
+      id: normalized,
+      name: strField(row["model_name"]) || id,
+      source: "remote",
+    };
+    const window = Number(params["context_window"]);
+    if (Number.isFinite(window) && window > 0) entry.context_window = window;
+    const maxTokens = Number(params["max_tokens"]);
+    if (Number.isFinite(maxTokens) && maxTokens > 0) entry.max_output = maxTokens;
+    out.push(entry);
+  }
+  return out;
+}
+
+/** 按参考实现的顺序挑一个智能体 id。 */
+function pickAgentId(agents: readonly unknown[]): string {
+  const records = agents.filter(isRecord);
+  const match = (r: Record<string, unknown>): boolean => {
+    const alias = isRecord(r["alias"]) ? r["alias"] : {};
+    return (
+      r["agent_name"] === "CodeAgent" &&
+      alias["alias_zh_cn"] === "智能体" &&
+      r["show_in_ide"] === true
+    );
+  };
+  for (const r of records) if (match(r)) return strField(r["agent_id"]);
+  for (const r of records) if (r["is_primary_agent"] === true) return strField(r["agent_id"]);
+  const first = records[0];
+  return first ? strField(first["agent_id"]) : "";
+}
+
+/**
+ * 拉取模型目录，三路合并去重后灌入缓存：
+ *
+ * | # | 端点 | 提取路径 | 说明 |
+ * |---|---|---|---|
+ * | 1 | opengw `gateway/config` | `result.models[]` | benefit（免费额度）模型 |
+ * | 2 | snap `/v1/model/builtin` | `builtinModels[]` | 常规模型（带 `credit` 倍率） |
+ * | 3 | snap agent-center（**默认关闭**） | `gpts.models[]` | 账号专属模型 + 上下文/最大输出 |
  *
  * benefit 集合**只记录归一化未改写的 id**：带日期后缀（`-0731`）与无后缀在后端
  * 是**两个不同模型、benefit 属性相反**，记录改写后的 id 会把无后缀模型误标。
+ *
+ * 目录与 benefit 集合都**按账号**落盘（`accountKey`）—— benefit 是按账号授予的，
+ * 混合池里 A 有 B 无时不能共用一份。
  */
 export async function fetchModels(
   credential: AuthLike,
@@ -646,8 +978,20 @@ export async function fetchModels(
   const entries: catalog.ModelEntry[] = [];
   const seen = new Set<string>();
   const benefitIds: string[] = [];
+  /** 「常规」模型 id（builtin / agent-center）—— 它们不是 benefit。 */
+  const regularIds: string[] = [];
+
+  // 领取在前：未领取时福利模型一律 4004.200（见 `claimBenefit` 注释）。
+  if (benefitAutoClaimEnabled()) {
+    const claim = await claimBenefit(credential, timeoutMs);
+    if (!claim.ok) {
+      // 领取失败**不阻断**目录刷新（参考实现同样只记日志）。
+      console.warn(`[codearts] benefit claim failed: ${claim.errorCode} ${claim.errorMsg}`);
+    }
+  }
 
   const gateway = await signedGet(opengwConfigUrl(), credential, undefined, timeoutMs);
+  const benefitSourceOk = gateway !== null;
   if (gateway) {
     const result = gateway["result"];
     const models = isRecord(result) ? result["models"] : null;
@@ -680,18 +1024,63 @@ export async function fetchModels(
     if (isRecordArray(rows)) {
       for (const row of rows) {
         if (!isRecord(row)) continue;
+        const rawId = typeof row["model_id"] === "string" ? row["model_id"] : "";
+        // ⚠ 用**原始 id**记「常规」集合：去重可能把这个条目吃掉（opengw 先来），
+        // 但「它被 builtin 登记过」这件事仍要记下来（转正判定要用）。
+        if (rawId) regularIds.push(catalog.normalizeModelId(rawId));
         entries.push(...catalog.parseModelRows([row], seen, "remote"));
       }
     }
   }
 
-  if (entries.length > 0) catalog.setRemoteModels(entries, benefitIds);
-  return { models: entries, benefitIds, baseUrl: cfg.baseUrl };
+  if (agentCenterEnabled(cfg)) {
+    // 这一路是**补充**：失败（含 401）不能拖垮整次目录发现 ——
+    // 401 仍会由上面两路自己抛出来。
+    try {
+      for (const entry of await fetchAgentCenterModels(credential, timeoutMs)) {
+        regularIds.push(entry.id);
+        if (seen.has(entry.id)) continue;
+        seen.add(entry.id);
+        entries.push(entry);
+      }
+    } catch (err) {
+      console.warn(`[codearts] agent-center model discovery failed: ${String(err)}`);
+    }
+  }
+
+  const accountKey = accountKeyOf(credential);
+  if (entries.length > 0) {
+    catalog.setRemoteModels({
+      entries,
+      benefitIds,
+      regularIds,
+      accountKey,
+      benefitSourceOk,
+    });
+  }
+  return { models: entries, benefitIds, accountKey, baseUrl: cfg.baseUrl };
 }
 
-/** 从模型载荷推导连接配置（登录成功后由 auth-flow 调用）。 */
+/**
+ * 是否随模型发现自动领取 benefit 福利。
+ *
+ * 默认**开**（对齐官方客户端「打开模型菜单即调用」+ 参考实现默认自动领取）。
+ * `CODEARTS_BENEFIT_AUTO_CLAIM=0` 可关掉（不想产生任何写请求时用）。
+ */
+export function benefitAutoClaimEnabled(): boolean {
+  const env = process.env["CODEARTS_BENEFIT_AUTO_CLAIM"];
+  if (env && env.trim()) return !/^(0|false|no|off)$/i.test(env.trim());
+  return true;
+}
+
+/**
+ * 从模型载荷推导连接配置（登录成功后由 auth-flow 调用）。
+ *
+ * ⚠ 兜底用**当前已落盘的配置**而不是 `defaultConfig()`：登录后 auth-flow 会把
+ * 结果写回，若兜底是默认值，`agentCenterModels` 开关会被悄悄重置成 `false`。
+ */
 export function resolveConfig(data: Record<string, unknown>, fallback?: Config): Config {
-  const cfg: Config = { ...(fallback ?? defaultConfig()) };
+  const cfg: Config = { ...(fallback ?? loadConfig()[0]) };
   const baseUrl = data["baseUrl"];
   if (typeof baseUrl === "string" && baseUrl) cfg.baseUrl = baseUrl;
   return cfg;

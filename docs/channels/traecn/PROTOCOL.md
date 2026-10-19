@@ -28,27 +28,81 @@
 **版本号是模型准入条件**：上游按 `X-Ide-Version` / `X-App-Version-Code` 决定哪些模型可返回，
 版本过低时 glm-5.3 等新模型报 `4001 param is invalid`。
 
-### 1.2 端点清单（trae.ts:44-70）
+### 1.2 chat / 模型请求的确切 URL
 
-| 用途 | 方法 | 路径 | Host |
-|---|---|---|---|
-| 对话 | POST | `/api/agent/v3/llm_utils_chat` | agentHost |
-| 模型列表（单通道，**无调用方**） | POST | `/api/ide/v1/get_detail_param` | agentHost |
-| 模型列表（多通道，**实际使用**） | POST | `/api/ide/v1/batch_get_detail_param` | agentHost |
-| ExchangeToken | POST | `/cloudide/api/v3/trae/oauth/ExchangeToken` | oauthHost（或凭据 `api_host`） |
-| GetUserInfo | POST | `/cloudide/api/v3/trae/GetUserInfo` | 同上 |
-| 签到状态 | POST | `/trae/api/v2/ug/checkin_credits/status` | `https://api.trae.cn`（**硬编码**） |
-| 签到领取 | POST | `/trae/api/v2/ug/checkin_credits/claim` | 同上 |
-| 积分余额 | POST | `/trae/api/v2/pay/ide_user_ent_usage` | 同上 |
-| 登录回调 | — | `http://127.0.0.1:18080/authorize` | 本地 |
+上游有**两套互不兼容的传输**，方法、URL、请求体形状、事件流语义都不同。
+**当前实现是混合态：chat 走 A 套，模型目录主源走 B 套。** `[代码]`
+
+| | **A. solo / IDE 传输** | **B. work / chat_sessions 传输** |
+|---|---|---|
+| 形态 | 单次 POST，SSE 直接吐 `event:output` | **两段式**：先 POST 建会话拿 `chat_session_id` + `message_id`，再 GET `/events` 拉流 |
+| base | `https://trae-api-cn.mchost.guru` | `https://trae-api-cn.mchost.guru/api/remote/v1` |
+| 请求体 | `{stream, function, model, config_name, messages[], tools[]}`（SOLO 形状） | `{mode, environment_id, initial_message{…common_params…}, env:"remote", auto_create_project, origin}` |
+| 事件流 | `metadata` / `output` / `token_usage` / `notify_usage` / `done` / `error` | `metadata` / `plan_item` / `output` / `token_usage` / `done` |
+| 当前实现 | **chat 走这套** | **chat 未实现**；模型目录主源走这套的 `/models` |
+
+> ⚠ 两套不能混用 base：IDE/SOLO 路由的 base 若带上 `/api/remote/v1`，
+> 会拼出 `/api/remote/v1/api/agent/...` 拿到误导性 404/502
+> （参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py:482-497` 明确警告）。
+
+**端点全表**（方法 + 完整 URL + 必需 query + 归属传输）：
+
+| 用途 | 传输 | 方法 | 完整 URL | 必需 query | 当前实现 |
+|---|---|---|---|---|---|
+| **chat** | **A** | **POST** | `https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat` | **无**（请求体里也不存在 `query` 字段） | `upstream.ts` `CHAT_PATH` |
+| chat（work） | B | POST | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions` | 无（`mode` / `agent_type` / `common_params` 在 body 的 `initial_message` 里） | **无**（常量已登记，见本节末注） |
+| 拉事件流（work） | B | GET | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/events` | **`reply_to_message_id`**（建会话响应里的 `message_id`） | **无** |
+| 停止会话（work） | B | POST | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/stop` | 无 | **无** |
+| **模型目录（主源）** | **B** | **GET** | `https://trae-api-cn.mchost.guru/api/remote/v1/models?functions=solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote&show_custom_model=true` | **`functions`（三组通道，逗号分隔且 URL 编码）+ `show_custom_model=true`** | `upstream.ts` `REMOTE_MODELS_PATH` / `REMOTE_FUNCTIONS` / `REMOTE_SHOW_CUSTOM_MODEL` |
+| 模型目录（回落） | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param` | 无（22 个 `functions` 通道在 body 里） | `upstream.ts` `MODELS_PATH` |
+| 模型目录（单通道，**无调用方**） | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param` | 无 | **无** |
+| TraeCode 原生 raw | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v2/llm_raw_chat`（回落 `/api/ide/v1/llm_raw_chat`） | 无 | **无**（见「已知边界」） |
+| ExchangeToken | — | POST | `https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken`（可用凭据 `api_host` 覆盖） | 无（body 四字段） | `cred.ts` `OAUTH_EXCHANGE_PATH` |
+| GetUserInfo | — | POST | `https://api.trae.com.cn/cloudide/api/v3/trae/GetUserInfo` | 无（body `{ReqSource:"IDE", IDEVersion}`） | `cred.ts` `OAUTH_USER_INFO_PATH` |
+| 签到状态 | — | POST | `https://api.trae.cn/trae/api/v2/ug/checkin_credits/status` | 无（body `{}`） | `billing.ts` `CHECKIN_STATUS_PATH` |
+| 签到领取 | — | POST | `https://api.trae.cn/trae/api/v2/ug/checkin_credits/claim` | 无（body `{}`） | `billing.ts` `CHECKIN_CLAIM_PATH` |
+| 积分余额 | — | POST | `https://api.trae.cn/trae/api/v2/pay/ide_user_ent_usage` | 无（body `{require_usage, req_source}`） | `billing.ts` `USAGE_PATH` |
+| 授权页（浏览器） | — | GET | `https://www.trae.cn/authorization?` + 20 个 query | `auth_callback_url`（**必须叫这个名**）、`machine_id`、`device_id`、`x_device_id`、`x_machine_id`、`login_trace_id`、`client_id`、`hide_saas_login=true` 等 | `cred.ts` `buildAuthorizeUrl` |
+| 登录回调 | — | — | `http://127.0.0.1:18080/authorize` | — | `cred.ts` `CALLBACK_PORT` / `CALLBACK_PATH` |
 
 超时：控制面 `30000ms`；登录总超时 `600000ms`（trae.ts:68-70）。
+
+> **work / chat_sessions 三端点常量已登记但未实现**（`upstream.ts` 的
+> `WORK_SESSION_PATH` / `WORK_SESSION_EVENTS_PATH` / `WORK_SESSION_STOP_PATH` /
+> `WORK_SESSION_EVENTS_QUERY`）。切换过去是**会话管理器级**改造，风险高，
+> 本轮明确不做 —— 理由见 §「已知边界」。
 
 ---
 
 ## 2. 认证
 
-### 2.1 登录：浏览器授权 + 本地回调
+### 2.1 唯一登录路径：**浏览器授权 + 本地回调**
+
+本渠道**只有一条**取凭据路径（`cred.ts` 的 `login()`），不提供第二种登录方式。
+
+**判据**：
+
+1. **唯一实测跑通**：2026-10-19 端到端实测通过（见本文「使用与实测」）。`[实测]`
+2. **与国内版主参照 autumn 逐字同构**：授权 URL（`auth_callback_url` / `hide_saas_login` /
+   `login_trace_id`）→ 本地回调 → 解析 → `ExchangeToken` → `GetUserInfo` → 落盘，
+   参数集与端点逐字一致。`[代码]`
+   - 参考：`reference/autumnsentiment_Trae2api-cn/src/web_login.py`（独立登录脚本）、
+     `reference/autumnsentiment_Trae2api-cn/src/main.py`（服务端 `/authorize` 回调端点）、
+     `reference/JeffHu0912_trae2api/internal/server/callback.go`（`BuildLoginURL` / `ParseCallback`）、
+     `reference/JeffHu0912_trae2api/internal/server/login.go`（Web 面板闭环）。
+3. **其余路径为何不采纳**：
+
+   | 候选路径 | 参考实现出处 | 不采纳的理由 |
+   |---|---|---|
+   | OAuth 设备码流 | `reference/autumnsentiment_Trae2api-cn/src/auth_cli.py` | 主参照**自述** `/cloudide/api/v3/trae/oauth/Authorize` 返回 404、该流程**不可用**。`[参考]` |
+   | 桌面客户端 `storage.json` 解密 | `reference/autumnsentiment_Trae2api-cn/src/trae_decrypt.py` | 需把平台相关解密代码搬进渠道包，违反「渠道包 `src/` 只能 7 文件、零第三方运行依赖」的仓库契约。 |
+   | 手工粘贴 Cloud-IDE-JWT / 粘贴回调链接 | `reference/autumnsentiment_Trae2api-cn/src/main.py`（`/api/web-auth`）、`reference/JeffHu0912_trae2api/login.sh`、`reference/A-23187_trae-api/auth.js` | 那是**凭据导入**而非登录；多账号应由共享层账号池承载，不该在渠道里再造第二套登录流程。 |
+   | `.env` 读取 | `reference/autumnsentiment_Trae2api-cn/src/auth.py` | 与本仓库「落点由共享层按 cid 推导」的存储约定冲突（`docs/STORAGE-CONVENTION.md`）。 |
+
+**保留条件**：若真机发现 `ExchangeToken` 续期链路上游已判死（连续 401/403，账号必须天天手工重登），
+届时也只应加**「凭据导入」入口**（把已有 token 塞进账号池），**不是**第二套登录流程。
+
+### 2.2 登录：浏览器授权 + 本地回调
 
 **回调直接回传 token**，不是 OAuth `?code=`。
 
@@ -99,12 +153,21 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 体 `{"ReqSource":"IDE","IDEVersion":"0.1.52"}`；
 响应 `Result.{UserID, ScreenName, EnterpriseID, NonPlainTextMobile, NonPlainTextEmail}`。失败不阻塞登录。
 
+> ⚠ **鉴权头必须是 `x-cloudide-token`**：用 `Authorization: Cloud-IDE-JWT` 会被 401
+> （参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py:740-741` 明确记录）。`[参考]`
+>
+> 当前实现**已接入**这一步（`cred.ts` 的 `fetchUserInfo()`）：登录拿到 access token 后
+> 调一次 `GetUserInfo`，用它补全 `uid` / `nickname` / `phone` / `email` / `enterprise_id`；
+> 失败**不阻塞登录**，沿用回调里的 `userInfo`。`[代码]`
+> 另外：回调**只带 refreshToken**（老流程）时，登录会先调 `ExchangeToken` 换出 access token
+> —— 否则落盘的 `access_token` 为空，`load()` 会直接判定「未登录」。`[代码]`
+
 **回调端口 18080**，被占用（EADDRINUSE/EACCES）时回退随机端口，登录 URL 用**实际**端口重算（:479-543）。
 
 **身份生成**：`machine_id` = 16 随机字节的 32 位 hex；`device_id` 同样 **32 位 hex**
 （协议要求 hex 形态，trae.ts:1299-1321）。
 
-### 2.2 凭据字段（trae.ts:89-155）
+### 2.3 凭据字段（trae.ts:89-155）
 
 `access_token`、`refresh_token`、`expires_at`（**毫秒字符串**，兼容秒/ISO/JWT exp 兜底）、
 `uid`、`nickname`、`phone`（脱敏手机号）、`email`（脱敏邮箱）、
@@ -113,7 +176,7 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 
 同日两账号共用 device_id 会被「该设备已签到」拦截。
 
-### 2.3 续期
+### 2.4 续期
 
 同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（trae-auth.ts:378-432）。
 
@@ -128,30 +191,80 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 
 ## 3. 对话请求
 
-### 3.1 请求头（`traeSOLOHeaders`，trae.ts:204-236）
+### 3.1 必需请求头清单
 
-| 头 | 值 |
-|---|---|
-| `Content-Type` | `application/json` |
-| `Accept` | `text/event-stream`（流式）/ `application/json` |
-| `User-Agent` | `Trae/0.1.52` |
-| `Authorization` | `Cloud-IDE-JWT <access_token>` |
-| `X-Cloudide-Token` | `<access_token>` |
-| `X-Ide-Token` | `<access_token>` |
-| `X-Uid` | `uid` |
-| `X-App-Id` | `6eefa01a-1036-4c7e-9ca5-d891f63bfcd8` |
-| `X-App-Version` | `default` |
-| `X-Ide-Version` / `X-Ide-Version-Code` | `0.1.52` / `20260811` |
-| `X-App-Version-Code` | `20260811` |
-| `X-Ide-Version-Type` | `stable` |
-| `X-Device-Type` | `macos` |
-| `X-OS-Version` | `macOS 15.7.4` |
-| `X-Device-Brand` | `Apple` |
-| `Request-Traffic-Type` | `prod` |
-| `X-Machine-Id` | `machine_id` |
-| `X-Device-Id` | `device_id` |
+上游**按场景用不同的头族**：对话（A 套）、Remote 目录（B 套）、签到/额度（UG 域）、OAuth。
+下表逐族列出当前实现实际发的头。`[代码]`
+
+#### 3.1.1 对话 / 模型目录（SOLO 头，20 个）
+
+| 头 | 值 | 鉴权 | 刷新时机 |
+|---|---|---|---|
+| `Content-Type` | `application/json` | 否 | 常量 |
+| `Accept` | `text/event-stream`（流式）/ `application/json`（目录） | 否 | 按用途 |
+| `User-Agent` | `Trae/0.1.52` | 否 | 常量 |
+| `Authorization` | `Cloud-IDE-JWT <access_token>` | **是** | 换 token 时 |
+| `X-Cloudide-Token` | `<access_token>` | **是** | 换 token 时 |
+| `X-Ide-Token` | `<access_token>` | **是** | 换 token 时 |
+| `X-Uid` | `uid`（非空才发） | **是**（账号绑定） | 换账号时 |
+| `X-App-Id` | `6eefa01a-1036-4c7e-9ca5-d891f63bfcd8` | 否 | 常量 |
+| `X-App-Version` | `default` | 否 | 常量 |
+| `X-Ide-Version` | `0.1.52` | **是（模型准入条件）** | 常量 |
+| `X-Ide-Version-Code` | `20260811` | **是** | 常量 |
+| `X-App-Version-Code` | `20260811` | **是** | 常量 |
+| `X-Ide-Version-Type` | `stable` | 否 | 常量 |
+| `X-Device-Type` | `macos` | 否（指纹） | 常量 |
+| `X-OS-Version` | `macOS 15.7.4` | 否（指纹） | 常量 |
+| `X-Device-Brand` | `Apple` | 否（指纹） | 常量 |
+| `Request-Traffic-Type` | `prod` | 否 | 常量 |
+| `X-Machine-Id` | `machine_id`（32 hex，登录后不变） | 风控身份 | 换账号时 |
+| `X-Device-Id` | `device_id`（32 hex，每账号不同） | 风控身份 | 换账号时 |
 
 **同一 token 设三处**（Authorization / X-Cloudide-Token / X-Ide-Token），**缺任一个都可能被拒**。
+本表与参考实现 `reference/JeffHu0912_trae2api/internal/upstream/headers.go:14-45` 逐字一致。`[代码]`
+
+#### 3.1.2 Remote 目录（`/api/remote/v1/models`，21 个）
+
+= §3.1.1 的 20 个 + `Origin` / `Referer`（只在该端点发，对话不发）。
+
+| 头 | 当前实现 | 参考实现 | 差异 |
+|---|---|---|---|
+| `Origin` | `https://www.trae.cn` | `https://solo.trae.cn` | **值不同**（参考：`reference/autumnsentiment_Trae2api-cn/src/trae_client.py:1041-1046`）`[参考]` |
+| `Referer` | `https://www.trae.cn/` | `https://solo.trae.cn/` | 同上 |
+| `X-Trae-Client-Type` | **不发** | `web`（work 模式 `lite`） | **缺**（参考：`trae_client.py:981`）`[参考]` |
+| `X-Preferenced-Language` | **不发** | `zh-CN` | **缺**（参考：`trae_client.py:982-984`）`[参考]` |
+| `x-user-region` | **不发** | `CN` | **缺**（参考：`trae_client.py:985-987`）`[参考]` |
+
+> ⚠ **本轮明确不补这 3 个头、也不改 `Origin` 值** —— 当前实现实测能取到目录（§5.0），
+> 差异是否必要**未验证**，见「已知边界」的待验证项。`[推断]`
+
+#### 3.1.3 签到 / 额度（`api.trae.cn`，21 个）
+
+`Content-Type`、`Accept: */*`、`Accept-Encoding`、`Accept-Language: zh-CN`、
+`User-Agent: VSCode 1.107.1 (TRAE SOLO CN)`、
+`Authorization: Cloud-IDE-JWT <access_token>`、
+`X-Market-Client-Id: VSCode 1.107.1`、`X-Market-User-Id: <派生 UUIDv4>`、
+`X-User-Region: CN`、**`X-Device-Id: <派生 15 位数字>`**、
+`X-Lgw-Req-Sdk-Type: 3`、`Package-Type: stable_cn`、`X-Lscbd-Aid: 787976`、
+`X-Lscbd-Platform: windows`、`App-Version: 0.1.52`、
+`X-Tt-Trace-Id: 00-<randomHex16>-01`、`Vscode-Sessionid: <派生 64 hex>`、
+`X-Request-Id: <uuidV4>`、`Sec-Fetch-Dest/Mode/Site: empty/no-cors/none`。
+
+> ⚠ **同名不同值**：签到头的 `X-Device-Id` 是**签到专用派生值**（`cred.ts` 的
+> `deriveCheckinDeviceId`），对话头的 `X-Device-Id` 是**账号级 32 hex**。
+> 参考实现同样把这两个场景分开（`trae_client.py:632` vs `:442`）。别「统一」。`[代码]`
+>
+> 参考实现的签到头**少得多**（autumn 5~7 个、jeff 5 个），本实现是更完整的
+> trae-mate `device_map.rs` 对齐版，且**已实测**（§6.2）→ 不改。`[实测]`
+
+#### 3.1.4 OAuth（ExchangeToken / GetUserInfo，3 + 1 个）
+
+| 头 | 值 | 备注 |
+|---|---|---|
+| `Content-Type` | `application/json` | |
+| `Accept` | `application/json` | |
+| `User-Agent` | `Trae/0.1.52` | |
+| `x-cloudide-token` | `<access_token>` | **仅 GetUserInfo**；用 `Authorization: Cloud-IDE-JWT` 会 401 |
 
 ### 3.2 请求体（`transformToSOLOBody`，trae.ts:1545-1577）
 
@@ -193,6 +306,7 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 | `metadata` / `timing_cost` / `extra_info` | 未消费 | 出现即算「上游已开工」 |
 | `output` | `response`（正文**增量**）、`reasoning_content`（思考**增量**）、`tool_calls`（null 或数组） | 主要帧 |
 | `token_usage` | `prompt_tokens`、`completion_tokens`、`reasoning_tokens` | 用量 |
+| `notify_usage` | `billing_mode`、`cn_credits_remain_info.{ide_credits, work_credits}` | **通道余额**；不产出客户端帧，只落盘（见 §6.4） |
 | `done` | `finish_reason` | **流结束标志** |
 | `error` | `code`、`message` | 业务错误 |
 
@@ -200,6 +314,8 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 - 帧格式：`event:<name>\n` + `data:<json>\n\n`，空行是事件分隔；`data:` 可跨行拼接；
  注释行（`:`）忽略（trae.ts:1860-1917）
 - 结束：`done` 事件（非 `[DONE]`）；转成 OpenAI 时最后发 `data: [DONE]\n\n`
+- `notify_usage` 的载荷可能裹在 `data` / `usage` 下，解析时逐层找；
+  事件名不认识但载荷带 `cn_credits_remain_info` 的也照样记。`[代码]`
 
 ### 4.2 错误码与换号
 
@@ -366,6 +482,32 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
    remaining = credits_limit - used
 ```
 
+### 6.4 「对话可用余额」的口径（重要）
+
+`ide_user_ent_usage` 返回的是**权益包列表**，含 work 专属包。
+**「权益包剩余」≠「SOLO 通道能对话的余额」** —— 不分维度就会出现
+「对话报 4008 配额耗尽、额度页却显示余额富余」。`[参考]`
+
+当前实现的处理（`billing.ts` 的 `fetchCredits()`）：`[代码]`
+
+| 项 | 口径 |
+|---|---|
+| `packages[]` | **全量**权益包（work 包也列出来，便于看明细） |
+| `total` | 只统计**通用（SOLO）维度**：包带 `entitlement_base_info.available_endpoint === 0`；**上游没下发该字段时不瞎猜**，回落统计全部包（保持旧口径） |
+| `total.remain` | 若对话流观测到过 `notify_usage`，用它的 `ide_credits`（**上游自己算的余额，权威**）；否则用 `size - used` 推导值 |
+| `channel_credits` | 观测快照原样带出（`ide_credits` / `work_credits` / `observed_at`），仅 `mx bill --json` 可见 |
+
+**边界情形**：上游下发了维度但**没有 0 维包**（该账号没有通用 IDE 权益）时，
+若也没有对话流观测值，则回落旧口径统计全部包 —— 避免显示成 `0/0` 让人误判。`[代码]`
+
+**对话流余额快照**：`notify_usage` 的观测值落在渠道层 `cache/usage.json`
+（`{uid, ide_credits, work_credits, observed_at}`）。
+余额**按账号归属** —— 快照 `uid` 与当前账号不符（换过号）就不采信。`[代码]`
+
+> ⚠ `available_endpoint` 的取值语义（`0` = 通用 IDE / `1` = work 专属）来自参考实现
+> `reference/autumnsentiment_Trae2api-cn/src/trae_client.py:787-830`，**本仓库未复验**。`[参考]`
+> 真机确认前，若该字段不存在则自动回落旧口径，不会显示错数。`[推断]`
+
 ### 6.3 错误分类冷却表（trae-credits.ts:74-100）
 
 `200+code1005` → PlanLimit 43200s；429 → SoftRate 60s；401 → SessionDead 永久；
@@ -410,6 +552,88 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ---
 
+## 8. 已知边界
+
+本节记录**参考实现有、当前实现没有**的能力，以及**待真机验证**的事项。
+完整对照分析见 `.planning/2026-10-20-channel-reference-parity/research/traecn.md`。
+
+### 8.1 本轮明确不做（附理由）
+
+| 项 | 理由 |
+|---|---|
+| work / `chat_sessions` 传输改造 | 会话管理器级（建会话 / 事件流 / 消息 id / 账号绑定快照），风险高；主参照也仍在演进。**端点常量已登记**（§1.2），未实现。 |
+| TraeCode 原生 raw `llm_raw_chat` | 主参照已把它从公共预设移除（只作内部诊断），本渠道暂无账号缺 app-config 记录的确证。 |
+| 多账号池 | **属共享层**（`packages/core/gateway/src/pool/`）；渠道层只负责「拿到一个可用账号」。渠道侧待定的只有「一账号一文件」的落点形状。 |
+| 额度双口径（`req_source=1` / `2`）与账户级对账 / 投影 | 共享层账本与自动签到已有对账机制；渠道侧先只做「维度 + 对话流实测余额」。 |
+| 思考档位白名单归一化 | 目录已解析出 `efforts`，但裁剪策略要与上游档位集对齐，需真机确认哪些档位被上游接受。 |
+| `max_completion_tokens` 钳位 | 归一化层职责。 |
+| 模型别名映射 | 本仓库对外模型 id 是 `<cid>/<规范模型名>`，别名表属可选便利。 |
+| 多模态图片块构造与校验 | 需真机确认上游接受的图片块形状。 |
+| 签到 9074 退避重试 | 退避策略属共享层 auto-signin；渠道侧只做「轮换设备代次 + 如实报错」。 |
+| 签到 `device_id` 位数分歧（15 vs 16） | 见 §8.3 的 V4，先不动。 |
+| 老 IDE 端点族（`/api/ide/v1/chat`、`create_agent_task` 等） | 参考实现里也已降级为兼容 / 诊断用途。 |
+| Anthropic / Responses 协议适配 | **属共享层**归一化管线。 |
+| 定时自动签到 | **属共享层** auto-signin。 |
+| Web 面板 | **属共享层** `packages/ui/`。 |
+| 账号导入导出 | **属共享层**账号池。 |
+| 本地 WorkBridge（`ai-agent` IPC） | 需要本机装 Trae 桌面端，服务端不可用。 |
+| OAuth 设备码流 | 主参照自述端点 404，不可用（§2.1）。 |
+| 桌面 `storage.json` 解密 | 违反渠道包 7 文件 / 零第三方依赖契约（§2.1）。 |
+
+### 8.2 参考实现有、当前实现没有（14 条）
+
+按优先级排序。括号内是参考实现的证据位置（`reference/` 下）。
+
+1. **`GetUserInfo` 账号信息补全**（高）—— **本轮已做**：`cred.ts` 的 `fetchUserInfo()`，
+   登录后调一次补全 `uid` / `nickname` / `phone` / `email` / `enterprise_id`。
+   参考：`autumnsentiment_Trae2api-cn/src/trae_client.py:737-759`、
+   `JeffHu0912_trae2api/login.sh:197-209`。
+2. **work / `chat_sessions` 传输**（高）—— 见 §8.1。
+   参考：`autumnsentiment_Trae2api-cn/src/trae_remote_client.py:790-982`、`:985-1069`。
+3. **TraeCode raw 传输 + raw→legacy 回落**（中）——
+   参考：`autumnsentiment_Trae2api-cn/src/raw_client.py:39`、`:51-52`、`:734-867`、
+   `autumnsentiment_Trae2api-cn/src/main.py:8690-8782`。
+4. **多账号池与账号轮询**（中，主体属共享层）——
+   参考：`autumnsentiment_Trae2api-cn/src/auth.py:100-101`、`:1454-1504`；
+   `JeffHu0912_trae2api/internal/pool/pool.go`。
+5. **对话流 `notify_usage` → 通道真余额**（中）—— **本轮已做**：翻译器解析
+   `event:notify_usage` 的 `cn_credits_remain_info`，落盘到 `cache/usage.json`；
+   `mx bill` 的 `total.remain` 用它（权威值），并在 `channel_credits` 字段带出观测时刻。
+   参考（结论出处，非代码）：`JeffHu0912_trae2api/docs/RESEARCH.md:38-43`、`:50-51`。
+6. **额度双口径 + 账户级对账 / 投影**（中）—— 见 §8.1。
+   参考：`autumnsentiment_Trae2api-cn/src/trae_client.py:710-735`、`:787-846`、
+   `autumnsentiment_Trae2api-cn/src/auth.py:1021-1200`。
+7. **单通道模型目录 `get_detail_param`**（中）—— 参考：`JeffHu0912_trae2api/internal/upstream/client.go:271-320`、
+   `autumnsentiment_Trae2api-cn/src/trae_client.py:1634-1660`。
+8. **思考档位白名单归一化**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/reasoning_effort.py:39-105`。
+9. **`max_completion_tokens` 钳位**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/model_limits.py`。
+10. **模型别名映射**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/trae_client.py:96-172`。
+11. **多模态图片块构造与校验**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/images.py`、
+    `autumnsentiment_Trae2api-cn/src/trae_client.py:1144-1255`。
+12. **签到 9074 退避重试**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/main.py:239-253`、
+    `autumnsentiment_Trae2api-cn/src/trae_client.py:580-599`。
+13. **签到 `device_id` 形态分歧**（低）—— 参考用 **16 位**（`trae_client.py:602-625`、
+    `JeffHu0912_trae2api/internal/auth/deviceid.go:17-35`），当前实现用 **15 位**
+    （`cred.ts` 的 `deriveCheckinDeviceId`）；对话头另用 32 hex 账号级 device_id。
+14. **老 IDE 端点族**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/trae_client.py:61-65`、
+    `JeffHu0912_trae2api/internal/upstream/work_client.go:52-55`。
+
+### 8.3 待真机验证（9 条）
+
+| # | 待验证 | 为什么要真机 | 怎么验 |
+|---|---|---|---|
+| V1 | **`llm_utils_chat` 今天还是不是可用主路径** | 2026-10-18 曾 2001、2026-10-19 又通过（判为瞬时抖动）；而主参照已把公共预设换成 chat_sessions。「抖动」与「上游按账号类型收紧」静态判不了 | 同账号连打 10 次最小对话，统计 2001 出现率；>50% 则该切 B 套 |
+| V2 | 切到 `chat_sessions` 后账号绑定 / 事件流是否稳定 | 需要 `chat_session_id` + `message_id` + 账号绑定快照 | 同一账号分别打 A / B 两套，比首 token 延迟与事件类型 |
+| V3 | Remote 目录的 `Origin` / `Referer` / `User-Agent` 该用哪一套 | 参考用 `solo.trae.cn` + Chrome UA，当前用 `www.trae.cn` + `Trae/0.1.52`，且**实测能通** | 单变量 A/B：同一次请求只换 `Origin`，各拉一次比对条数 |
+| V4 | 签到 `device_id` 要 15 位还是 16 位、纯数字还是 hex | 当前 15 位 vs 参考 16 位；jeff 自述真实注册号是 16 位纯数字 | 真账号走一次 `mx signin traecn`；**一天只试一次**，避免触发 9074 |
+| V5 | 对话流里到底有没有 `notify_usage`、能否拿到 `ide_credits` | 参考只给了结论（RESEARCH.md），本仓库无抓包 | 抓一次真实对话的原始 SSE（`TRAECN_DEBUG_DUMP`），看有无该事件 |
+| V6 | `ide_user_ent_usage` 的 `req_source=1` 是否返回不同数据 | 参考分两口径，当前只用 `req_source: 2` | 同账号各打一次，比对 `user_entitlement_pack_list` |
+| V7 | Remote 目录是否需要 `X-Trae-Client-Type` / `X-Preferenced-Language` / `x-user-region` | 参考发、当前不发且实测 200 | 单变量：加 / 不加各拉一次，比对返回条数 |
+| V8 | `chat_sessions` 建会话时 `mode` 与 `agent_type` 的正确组合 | 参考两处口径不同（`trae_remote_client.py:267-274` vs `main.py:11231-11233`） | 若实施缺口 2，需按 `agent_type` 分组逐一验证 |
+| V9 | `batch_get_detail_param` 的 2001 是不是所有新账号通病 | 「账号无 SOLO 权益」与「账号级配置缺失」静态判不了 | 两个不同账号各拉一次 Solo 目录对比 |
+
+---
+
 ## 使用与实测
 
 ### 怎么测这个渠道
@@ -417,7 +641,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
-mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1）
+mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1 / §2.2）
 mx status traecn          # 状态与凭据
 mx model traecn --refresh # 目录刷新
 mx bill traecn            # 额度与倍率（测试后核对是否扣费）

@@ -1,21 +1,19 @@
 /**
- * Raccoon（商汤小浣熊）认证：手机号 AES-128-CFB 加密、网页登录（授权码）/短信登录、
+ * Raccoon（商汤小浣熊）认证：**唯一登录路径 = 授权码网页登录**（本地 HTTP 回调）、
  * 续期与凭据持久化。
  *
  * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/raccoon/PROTOCOL.md）
  *
- * 1. **手机号必须 AES-128-CFB 加密**（密钥 `senseraccoon2023`，16 字节 ⇒ AES-128，
- *    输出 `base64(iv ‖ ciphertext)`）。**不加密的后果**：`send_sms` 回
- *    `100003 params_encryted_error`。
- *    ⚠ 零依赖：用 `node:crypto` 的 `createCipheriv("aes-128-cfb", …)`（CFB128）；
- *    密钥是 16 字节，写成 `aes-256-cfb` 会因长度不足而抛错。
- * 2. **网页登录优先走本地回调**：授权页（`/code/authorize`）在非 desktop 模式
+ * 1. **唯一登录路径是授权码网页登录**：授权页（`/code/authorize`）在非 desktop 模式
  *    （不带 `login_source`、带 `redirect=http://127.0.0.1:<port>/callback`）下会把
  *    `authorization_code` 拼到 redirect 上；CLI 起本地 HTTP 服务接住授权码，
  *    再 `POST …/login_with_authorization_code` 换 token。
  *    官方桌面端的 `login_source=desktop` + `office-raccoon://` 自定义协议作为兼容
  *    路径保留（本进程注册不了协议，浏览器没有桌面客户端时不会跳转）。
  *    ⚠ 别用 `/login/mp?code=…`：它只给官方手机 App 扫码用，网页端是死链。
+ * 2. **短信登录已移除**（协议事实留在 PROTOCOL.md §2.5/§2.6，**无实现路径**）：
+ *    零实测记录、结构上跑不通（`captcha_param` 在本仓拿不到）、
+ *    三份参考实现零背书、历史唯一的「验证」是本机假服务替身。
  * 3. **过期时间取值优先级**：`expires_at`（显式）→ **JWT 的 `exp`**（本地 base64url
  *    解码 payload，**只解码不验签**）。回退到 JWT 是**必需的**：老凭据/手工导入的
  *    凭据可能没有 `expires_at`，只读它会让过期判定**恒为 false** → `refreshAll`
@@ -23,45 +21,41 @@
  * 4. **续期只返回新的 access_token 时必须保留旧 refresh_token** ——
  *    否则续期一次就把账号变成不可续期。HTTP 401 **或** `code === 200003` 是终态
  *    （提示重新登录，**不重试**）。
- * 5. **`nickname` 是服务端自动生成的默认名**（实测 `RaccoonAva`），登录**不回传**
+ * 5. **续期必须单飞 + 比较写回**：上游的 refresh_token **会轮换**，并发刷新里后到的
+ *    会把先到的作废 ⇒ 账号变不可续期（参考实现 agent2api 有同样的单飞表）。
+ * 6. **`nickname` 是服务端自动生成的默认名**（实测 `RaccoonAva`），登录**不回传**
  *    用户昵称 —— 多账号消歧要靠 `phone`（`uid` 优先 `user_id`，其次 `phone`）。
+ *
+ * ## 端点与基址
+ *
+ * 端点表与基址解析在 `upstream.ts`（渠道的「地址真相源」），本模块**单向导入**它
+ * —— 不反向依赖，避免循环依赖。
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { chmod, rename, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
 
 import { credentialsPath, ensureDir, login as sharedLogin } from "@modelmux/gateway";
 
-/** 接口基址。 */
-export const DEFAULT_BASE_URL = "https://xiaohuanxiong.com";
+import {
+  AUTHORIZATION_CODE_NOT_FOUND,
+  USER_AGENT,
+  channelBaseUrl,
+  exchangeCodeUrl,
+  refreshUrl,
+  userInfoUrl,
+} from "./upstream.js";
 
-export const AUTH_PREFIX = "/api/web/auth/v1";
-export const LLM_PREFIX = "/api/web/llm/v2";
-export const POINTS_PREFIX = "/api/web/points/v1";
-export const DESKTOP_PREFIX = "/api/web/desktop/v1";
+/** 接口基址（端点表在 `upstream.ts`；框架按 `cred.DEFAULT_BASE_URL` 取值）。 */
+export { DEFAULT_BASE_URL } from "./upstream.js";
 
-export const SEND_SMS_PATH = `${AUTH_PREFIX}/send_sms`;
-export const LOGIN_WITH_SMS_PATH = `${AUTH_PREFIX}/login_with_sms`;
-export const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
-export const USER_INFO_PATH = `${AUTH_PREFIX}/user_info`;
-/** 授权码换凭证（网页登录第二步）。 */
-export const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
-
-/** 上游约定：授权码不存在 / 已过期 / 已消费（换码时按终态处理）。 */
-export const AUTHORIZATION_CODE_NOT_FOUND = 200035;
-
-/** 客户端身份（`X-Client-Platform` 猜错会被拒）。 */
-export const CLIENT_PLATFORM = "desktop-windows";
-export const CLIENT_VERSION = "v1.0.35";
-export const USER_AGENT = "Raccoon Work/1.0.35 (Windows)";
-
-/** 手机号加密密钥（**公开常量**，客户端硬编码在前端 bundle 里，不是安全边界）。 */
-export const PHONE_CIPHER_SECRET = Buffer.from("senseraccoon2023", "utf8");
-
-/** access_token 寿命约 3 小时（实测 `exp - nbf = 10805s`），提前 300s 视为需要续期。 */
+/**
+ * access_token 寿命约 3 小时（实测 `exp - nbf = 10805s`）。
+ *
+ * ⚠ 当前**没有**临期主动刷新（只在 401/403 时续期），本常量只作寿命记录。
+ */
 export const TOKEN_REFRESH_WINDOW_SECONDS = 300;
 
 /** 等待用户完成网页登录的时限。 */
@@ -102,7 +96,7 @@ export class RefreshTokenExpiredError extends Error {
 export interface Credentials {
   readonly accessToken: string;
   readonly refreshToken: string;
-  /** `user_id`（来自 JWT `sub`）优先，其次 `phone` —— 服务端 `name` 是自动生成的默认名。 */
+  /** `user_id`（来自 JWT，字段顺序见 `jwtSubject`）优先，其次 `phone` —— 服务端 `name` 是自动生成的默认名。 */
   readonly uid: string;
   /** Raccoon 端点固定 → 恒空串。 */
   readonly domain: string;
@@ -110,8 +104,6 @@ export interface Credentials {
   readonly userId: string;
   readonly nickname: string;
   readonly phone: string;
-  /** 设备指纹（32 位 hex）。 */
-  readonly deviceId: string;
   /** **毫秒时间戳字符串**（显式字段优先，其次 JWT `exp` 推算）。 */
   readonly expiresAt: string;
   readonly obtainedAt: string;
@@ -127,7 +119,6 @@ export const EMPTY_CREDENTIALS: Credentials = {
   userId: "",
   nickname: "",
   phone: "",
-  deviceId: "",
   expiresAt: "",
   obtainedAt: "",
   source: "",
@@ -144,33 +135,6 @@ export function randomHex32(): string {
   return sharedLogin.randomHex(16);
 }
 
-// ── 手机号加密（AES-128-CFB）──────────────────────────────────────────────────
-
-/**
- * 手机号加密：`base64(iv ‖ ciphertext)`。
- *
- * ⚠ iv 每次随机（同一明文两次密文不同）；CFB 是流密码，密文与明文等长。
- */
-export function encryptPhone(phone: string): string {
-  const iv = randomBytes(16);
-  const cipher = createCipheriv("aes-128-cfb", PHONE_CIPHER_SECRET, iv);
-  const ciphertext = Buffer.concat([cipher.update(Buffer.from(phone, "utf8")), cipher.final()]);
-  return Buffer.concat([iv, ciphertext]).toString("base64");
-}
-
-/** 解密（仅供测试/诊断：验证本地加密确实可逆）。 */
-export function decryptPhone(blob: string): string {
-  const raw = Buffer.from(blob, "base64");
-  const iv = raw.subarray(0, 16);
-  const decipher = createDecipheriv("aes-128-cfb", PHONE_CIPHER_SECRET, iv);
-  return Buffer.concat([decipher.update(raw.subarray(16)), decipher.final()]).toString("utf8");
-}
-
-/** 手机号本地校验（与客户端一致）。 */
-export function isValidPhone(phone: string): boolean {
-  return /^1[3-9]\d{9}$/.test(phone);
-}
-
 // ── JWT / 过期判定 ────────────────────────────────────────────────────────────
 
 /** 解码 JWT 载荷（**只解码不验签**；转发共享层原语）。 */
@@ -178,9 +142,31 @@ export function decodeJwtPayload(token: string): Record<string, unknown> {
   return sharedLogin.decodeJwtPayload(token);
 }
 
-/** 从 JWT 取 `sub`（服务端的用户 id；转发共享层原语）。 */
+/**
+ * 从 JWT 取用户标识（**只解码不验签**）。
+ *
+ * 取值顺序：`sub` → `iss` → `user_id` / `userId` / `uid`，第一个非空者胜。
+ *
+ * ⚠ 三份来源的口径互不相同，故本仓不采信任何一方为定论：
+ * - 本仓原实现**只取** `sub`；
+ * - agent2api 取 `sid`(hex→十进制) → `iss`(hex→十进制) → `sub`/`id`/`user_id`，
+ *   它的本机实测记录明确说 **`sid` 不是纯 hex（带 `w` 前缀与 `-`），真正命中的是 `iss`**
+ *   （`reference/agent2api/desktop-tauri/src-tauri/server/src/server/core/providers/raccoon/jwt.rs:53-78`）`[参考]`；
+ * - xiaohuanxiong2api 取 `user_id` / `userId` / `uid` / `userID`
+ *   （`reference/xiaohuanxiong2api/src/internal/upstream/jwt.go:41-78`）`[参考]`。
+ *
+ * ⚠ agent2api 对 `iss` 还做 hex→十进制换算；本仓**只取原值** —— 真机确认哪个字段
+ * 才是用户 id 之前不做换算（换错了比空值更难排查）`[推断]`。
+ * 真机确认见 PROTOCOL.md「已知边界」的待验证项。
+ */
 export function jwtSubject(token: string): string {
-  return sharedLogin.jwtSubject(token);
+  const claims = decodeJwtPayload(token);
+  for (const key of ["sub", "iss", "user_id", "userId", "uid"]) {
+    const value = claims[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value) && value !== 0) return String(value);
+  }
+  return "";
 }
 
 /**
@@ -225,16 +211,18 @@ export function envelopeMessage(payload: unknown): string {
   return [message, details].filter(Boolean).join(": ");
 }
 
-function baseUrl(override?: string): string {
-  return (override || process.env["RACCOON_API_BASE_URL"] || DEFAULT_BASE_URL).replace(/\/+$/, "");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** 请求头（见 upstream.buildHeaders 的三种形态说明）。 */
-function headers(c: Credentials, opts: { jsonBody?: boolean; platform?: boolean } = {}): Record<string, string> {
+/**
+ * 鉴权域请求头（换码 / 续期 / 用户信息）。
+ *
+ * ⚠ 不带 `X-Client-Platform` / `X-Client-Version` / `X-Client-Device-ID`：
+ * 那三个头原先只随**已移除的短信登录**发出，全仓无其它发送方。
+ * ⚠ `Authorization` 在未鉴权端点（换码 / 续期）也发（值为空串）—— 保持既有行为不变。
+ */
+function headers(c: Credentials, opts: { jsonBody?: boolean } = {}): Record<string, string> {
   const out: Record<string, string> = {
     Accept: "application/json",
     Authorization: `Bearer ${c.accessToken}`,
@@ -243,11 +231,6 @@ function headers(c: Credentials, opts: { jsonBody?: boolean; platform?: boolean 
     "User-Agent": USER_AGENT,
   };
   if (opts.jsonBody) out["Content-Type"] = "application/json";
-  if (opts.platform) {
-    out["X-Client-Platform"] = CLIENT_PLATFORM;
-    out["X-Client-Version"] = CLIENT_VERSION;
-    if (c.deviceId) out["X-Client-Device-ID"] = c.deviceId;
-  }
   return out;
 }
 
@@ -323,7 +306,7 @@ export function newLoginState(): string {
  * 浏览器打开是死链（真机踩过，见 docs/channels/raccoon/PROTOCOL.md §2.4）。
  */
 export function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
-  const url = new URL(AUTHORIZE_PATH, baseUrl(baseOverride));
+  const url = new URL(AUTHORIZE_PATH, channelBaseUrl({ override: baseOverride }));
   url.searchParams.set("appname", AUTHORIZE_APPNAME);
   url.searchParams.set("state", state);
   if (redirectUri) {
@@ -642,7 +625,7 @@ async function exchangeLogin(
     onStatus?.("callback state not verified (missing state in callback); proceeding");
   }
 
-  const result = await apiCall(`${baseUrl(baseUrlOverride)}${EXCHANGE_PATH}`, {
+  const result = await apiCall(exchangeCodeUrl(baseUrlOverride), {
     method: "POST",
     headers: headers(EMPTY_CREDENTIALS, { jsonBody: true }),
     body: JSON.stringify({ authorization_code: parsed.code }),
@@ -681,7 +664,6 @@ function credentialsFromLogin(
   source: string,
 ): Credentials {
   const userId = jwtSubject(accessToken);
-  const deviceId = str(data["device_id"]) || randomHex32();
   return {
     ...EMPTY_CREDENTIALS,
     accessToken,
@@ -691,68 +673,58 @@ function credentialsFromLogin(
     userId,
     nickname: str(data["nickname"]),
     phone: str(data["phone"]),
-    deviceId,
     expiresAt: expiresAtMs({ ...EMPTY_CREDENTIALS, accessToken, expiresAt: "" })?.toString() ?? "",
     obtainedAt: nowIso(),
     source,
   };
 }
 
-/** 短信登录：`send_sms`（需阿里云滑块 captcha_param）→ `login_with_sms`。 */
-export async function sendSms(phone: string, captchaParam = "", baseOverride?: string): Promise<void> {
-  if (!isValidPhone(phone)) throw new Error(`Invalid phone number: ${phone}`);
-  const result = await apiCall(`${baseUrl(baseOverride)}${SEND_SMS_PATH}`, {
-    method: "POST",
-    headers: headers(EMPTY_CREDENTIALS, { jsonBody: true, platform: true }),
-    body: JSON.stringify({
-      captcha_param: captchaParam,
-      nation_code: "86",
-      // ⚠ 手机号必须 AES-128-CFB 加密，否则 100003 params_encryted_error
-      phone: encryptPhone(phone),
-    }),
-  });
-  if (result.code !== 0) {
-    throw new Error(`Failed to send SMS: code=${result.code} ${envelopeMessage(result.payload)}`);
-  }
-}
-
-/** 短信验证码登录（body 里的手机号同样是密文）。 */
-export async function loginWithSms(
-  phone: string,
-  smsCode: string,
-  baseOverride?: string,
-): Promise<Credentials> {
-  const result = await apiCall(`${baseUrl(baseOverride)}${LOGIN_WITH_SMS_PATH}`, {
-    method: "POST",
-    headers: headers(EMPTY_CREDENTIALS, { jsonBody: true, platform: true }),
-    body: JSON.stringify({ nation_code: "86", phone: encryptPhone(phone), sms_code: smsCode }),
-  });
-  if (result.code !== 0) {
-    throw new Error(`SMS login failed: code=${result.code} ${envelopeMessage(result.payload)}`);
-  }
-  const accessToken = str(result.data["access_token"]);
-  const refreshToken = str(result.data["refresh_token"]);
-  if (!accessToken) throw new Error("SMS login response has no access_token");
-  const c: Credentials = {
-    ...credentialsFromLogin(accessToken, refreshToken, result.data, "raccoon-sms"),
-    phone,
-  };
-  await save(c);
-  return c;
-}
-
 // ── 续期 ──────────────────────────────────────────────────────────────────────
+
+/**
+ * 续期单飞表：同一 `refresh_token` 的并发刷新**只发一次**上游请求，其余等待同一结果。
+ *
+ * ⚠ 为什么要单飞：上游的 refresh_token **会轮换**，两次并发刷新里后到的会把先到的
+ *   结果作废 ⇒ 账号变不可续期（参考实现 agent2api 有同样的单飞表：
+ *   `reference/agent2api/.../providers/raccoon/credentials.rs:504-545`）`[参考]`。
+ *
+ * key 用 refresh_token 的 SHA-256 指纹（截断 16 hex）：**明文不进 key、不打印**。
+ */
+const refreshFlights = new Map<string, Promise<Credentials>>();
+
+/** 刷新单飞 key：refresh_token 的指纹。 */
+function refreshKey(refreshToken: string): string {
+  return sharedLogin.sha256Hex(refreshToken).slice(0, 16);
+}
 
 /**
  * 续期：`POST {AUTH}/refresh` body `{refresh_token}`。
  *
  * - HTTP 401 **或** `code === 200003` → 终态（「登录态已过期，请重新登录」）
  * - 服务端可能**只返回新的 access_token** → **保留旧 refresh_token**
- * - 服务端不返回的附加字段（昵称、身份、设备号）也要保留
+ * - 服务端不返回的附加字段（昵称、身份）也要保留
+ * - **单飞**：同一 refresh_token 的并发调用只发一次请求（见 `refreshFlights`）
+ * - **比较-再写**：写回前先读磁盘，盘上凭证已被换掉则**不覆盖**，改用盘上最新值
  */
 export async function refresh(c: Credentials, baseOverride?: string): Promise<Credentials> {
   if (!c.refreshToken) throw new RefreshTokenExpiredError("Credential has no refresh_token, cannot refresh");
-  const result = await apiCall(`${baseUrl(baseOverride)}${REFRESH_PATH}`, {
+  const key = refreshKey(c.refreshToken);
+  const running = refreshFlights.get(key);
+  if (running) return running; // 同一 refresh_token 的并发刷新 → 等同一结果
+  const task = refreshOnce(c, baseOverride);
+  refreshFlights.set(key, task);
+  // 本轮结束即释放表项（成功/失败都释放）⇒ 下一轮必定发起新请求
+  void task
+    .catch(() => {})
+    .finally(() => {
+      if (refreshFlights.get(key) === task) refreshFlights.delete(key);
+    });
+  return task;
+}
+
+/** 真正发一次刷新请求，并**比较-再写**落盘。 */
+async function refreshOnce(c: Credentials, baseOverride?: string): Promise<Credentials> {
+  const result = await apiCall(refreshUrl(baseOverride), {
     method: "POST",
     headers: headers(EMPTY_CREDENTIALS, { jsonBody: true }),
     body: JSON.stringify({ refresh_token: c.refreshToken }),
@@ -766,18 +738,35 @@ export async function refresh(c: Credentials, baseOverride?: string): Promise<Cr
   const accessToken = str(result.data["access_token"]);
   if (!accessToken) throw new Error("Refresh response has no access_token (retryable)");
   const refreshToken = str(result.data["refresh_token"]) || c.refreshToken;
+
+  // 比较-再写：盘上凭证已被别处换掉（用户重登 / 另一轮刷新先落地）时**不覆盖**，
+  // 改用盘上的最新值返回（参考实现 agent2api 同一处置：`.../raccoon/credentials.rs:689-742`）`[参考]`。
+  const disk = readDiskCredentials();
+  if (disk && disk.refreshToken !== c.refreshToken) return disk;
+
+  const base = disk ?? c; // 盘上更权威（可能比内存新）
+  const subject = jwtSubject(accessToken);
   const next: Credentials = {
-    ...c, // 附加字段（昵称、身份、设备号）全部保留
+    ...base, // 附加字段（昵称、身份）全部保留
     accessToken,
     refreshToken,
-    uid: jwtSubject(accessToken) || c.userId || c.phone,
-    userId: jwtSubject(accessToken) || c.userId,
+    uid: subject || base.userId || base.phone,
+    userId: subject || base.userId,
     expiresAt:
-      expiresAtMs({ ...c, accessToken, expiresAt: "" })?.toString() ?? c.expiresAt,
+      expiresAtMs({ ...base, accessToken, expiresAt: "" })?.toString() ?? base.expiresAt,
     obtainedAt: nowIso(),
   };
   await save(next);
   return next;
+}
+
+/** 读磁盘凭据；读不到（缺文件 / 损坏）返回 null（**不抛**）。 */
+function readDiskCredentials(): Credentials | null {
+  try {
+    return load();
+  } catch {
+    return null;
+  }
 }
 
 // ── 用户信息 ──────────────────────────────────────────────────────────────────
@@ -788,7 +777,7 @@ export async function fetchUserInfo(
   baseOverride?: string,
 ): Promise<Record<string, unknown>> {
   try {
-    const result = await apiCall(`${baseUrl(baseOverride)}${USER_INFO_PATH}`, {
+    const result = await apiCall(userInfoUrl(baseOverride), {
       method: "GET",
       headers: headers(c),
     });
@@ -822,18 +811,12 @@ export async function syncProfile(c: Credentials, baseOverride?: string): Promis
 
 // ── 凭据落盘 ──────────────────────────────────────────────────────────────────
 
-function writeSyncAtomic(path: string, payload: unknown): void {
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  renameSync(tmp, path);
-}
-
 /**
  * 读凭据。
  *
  * - 文件缺失 / JSON 损坏 / 缺 `access_token` → `NotLoggedInError`
- * - **老凭据缺 `device_id` → 补生成 32 位 hex 并写回磁盘**（不拒绝整条凭据）
  * - `expires_at` 缺失 → 由 JWT `exp` 推算（静默失效的根源，见文件头注释 3）
+ * - ⚠ 旧凭据里的 `device_id` **读到了就忽略**（该字段已随短信路径移除，不再落盘也不再上行）
  */
 export function load(): Credentials {
   let raw: string;
@@ -858,17 +841,11 @@ export function load(): Credentials {
   const nickname = str(data["nickname"]);
   const phone = str(data["phone"]);
   const obtainedAt = str(data["obtained_at"] ?? data["obtainedAt"]);
-  let deviceId = str(data["device_id"] ?? data["deviceId"]);
   const expiresAt =
     str(data["expires_at"] ?? data["expiresAt"]) ||
     (expiresAtMs({ ...EMPTY_CREDENTIALS, accessToken, expiresAt: "" })?.toString() ?? "");
 
-  let patchNeeded = false;
-  if (!deviceId) {
-    deviceId = randomHex32();
-    patchNeeded = true;
-  }
-  const c: Credentials = {
+  return {
     accessToken,
     refreshToken,
     uid: userId || phone,
@@ -877,32 +854,10 @@ export function load(): Credentials {
     userId,
     nickname,
     phone,
-    deviceId,
     expiresAt,
     obtainedAt,
     source: str(data["source"]),
   };
-  if (patchNeeded) {
-    // 老凭据补字段后写回（不拒绝整条凭据）；load 是同步函数 → 同步原子写
-    try {
-      ensureDir();
-      writeSyncAtomic(credentialsPath(), {
-        access_token: c.accessToken,
-        refresh_token: c.refreshToken,
-        office_identity: c.officeIdentity,
-        user_id: c.userId,
-        nickname: c.nickname,
-        phone: c.phone,
-        device_id: c.deviceId,
-        expires_at: c.expiresAt,
-        obtained_at: c.obtainedAt,
-        source: c.source,
-      });
-    } catch {
-      /* 写不回也不影响本次读取 */
-    }
-  }
-  return c;
 }
 
 /** 原子写凭据（0600）。 */
@@ -917,7 +872,6 @@ export async function save(c: Credentials): Promise<void> {
     user_id: c.userId,
     nickname: c.nickname,
     phone: c.phone,
-    device_id: c.deviceId,
     expires_at: c.expiresAt,
     obtained_at: c.obtainedAt || nowIso(),
     source: c.source,
@@ -929,5 +883,5 @@ export async function save(c: Credentials): Promise<void> {
 
 /** 登录基址：Raccoon 端点固定，无 realm 概念（参数仅为满足契约）。 */
 export function resolveBaseUrl(_realm = "auto"): string {
-  return baseUrl();
+  return channelBaseUrl();
 }
