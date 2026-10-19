@@ -1,7 +1,7 @@
 /**
  * OrcaTerm 认证：登录（腾讯云 OAuth）、凭据持久化与有效性探测。
  *
- * ## 登录协议（实测，见 channels/orcaterm/docs/PROTOCOL.md）
+ * ## 登录协议（实测，见 docs/channels/orcaterm/PROTOCOL.md）
  *
  * 只保留**腾讯云账号**登录（One way），流程：
  *

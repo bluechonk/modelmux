@@ -1,7 +1,7 @@
 /**
  * CatPaw 上游客户端：OpenAI 兼容请求 ↔ 妙手 conversation 三段式协议互译。
  *
- * ## 上游协议（WIRE = "custom"，实测见 channels/catpaw/docs/PROTOCOL.md）
+ * ## 上游协议（WIRE = "custom"，实测见 docs/channels/catpaw/PROTOCOL.md）
  *
  * 三段式：
  *   1. POST /api/agent/conversation/round  提交本轮全部消息（含历史，type 标角色）
@@ -41,7 +41,7 @@ const { fetchWithTimeout } = sharedLogin;
 import * as catalog from "./catalog.js";
 import * as cred from "./cred.js";
 
-// ── 端点常量（实测，见 channels/catpaw/docs/PROTOCOL.md）─────────────────────────────────────
+// ── 端点常量（实测，见 docs/channels/catpaw/PROTOCOL.md）─────────────────────────────────────
 
 export const DEFAULT_BASE_URL = "https://ai.catpaw.meituan.com";
 const ROUND_PATH = "/api/agent/conversation/round";

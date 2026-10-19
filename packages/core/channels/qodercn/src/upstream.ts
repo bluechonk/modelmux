@@ -333,7 +333,7 @@ export function chatUrl(): string {
  * 应答期间的首选推理主机覆盖（换 host 重试时由共享层设置，`null` = 用记忆/默认）。
  *
  * 国内版是单主机（`gateway.qoder.com.cn`），这里保留同款钩子只是让共享层的
- * 「主机轮换重试」对两区一套逻辑（国际版实测有效，见 qoder/docs/PROTOCOL.md §7.5）。
+ * 「主机轮换重试」对两区一套逻辑（国际版实测有效，见 docs/channels/qoder/PROTOCOL.md §7.5）。
  * 签名只覆盖 path 不含 host，所以换 host 后同一签名仍然有效。
  */
 let hostOverride: string | null = null;

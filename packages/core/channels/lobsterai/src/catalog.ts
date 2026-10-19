@@ -1,4 +1,4 @@
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /**
  * LobsterAI 模型目录：远端 `/api/models/available` 的解析、缓存与兜底表。
@@ -103,11 +103,78 @@ const FALLBACK: readonly string[] = [
 /** 兜底上下文窗口估计值（统一填，非逐个实测）。 */
 export const FALLBACK_CONTEXT_WINDOW = 131_072;
 
+/**
+ * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ *
+ * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ */
+const MAX_OUTPUTS: Readonly<Record<string, number>> = {
+  "deepseek-flash": 393_216,
+  "deepseek-v4-flash": 393_216,
+  "deepseek-v4-flash-vision-exp": 393_216,
+  "deepseek-v4-pro": 393_216,
+  "doubao-seed-2.0-code-preview": 131_072,
+  "doubao-seed-2.1-pro": 262_144,
+  "doubao-seed-2.1-turbo": 262_144,
+  "glm-4.7": 131_072,
+  "glm-5": 131_072,
+  "glm-5.1": 131_072,
+  "glm-5.2": 131_072,
+  "glm-5.3": 131_072,
+  "glm-5.3-flash": 131_072,
+  "glm-5.3-flashx": 131_072,
+  "glm-5v-turbo": 131_072,
+  "kimi-k2.6": 32_768,
+  "kimi-k2.7-code": 32_768,
+  "kimi-k2.7-code-highspeed": 32_768,
+  "kimi-k3": 1_048_576,
+  "minimax-m2.7": 131_072,
+  "minimax-m3": 131_072,
+  "minimax-m3.1-flash": 524_288,
+  "qwen3.5-plus": 65_536,
+  "qwen3.6-plus": 65_536,
+  "qwen3.7-max": 131_072,
+  "qwen3.7-plus": 131_072,
+  "qwen3.8-flash": 131_072,
+  "qwen3.8-max": 131_072,
+  "qwen3.8-omni-flash": 131_072,
+};
+
+/**
+ * 取已知最大输出：按**归一化 id** 查表，再剥掉发布日后缀试一次。
+ *
+ * ⚠ 上游 id 与池 id 写法不同（上游 `doubao-seed-2-1-pro-260915` / 池 `doubao-seed-2.1-pro-260915`），
+ * 故先过一遍 `canonicalModelId` 再查表；发布日（`-260915` / `-2026-04-20`）再剥一层。
+ */
+function maxOutputOf(id: string): number | undefined {
+  const key = canonicalModelId(id);
+  const exact = MAX_OUTPUTS[key];
+  if (exact !== undefined) return exact;
+  return MAX_OUTPUTS[key.replace(/-\d{6}$/, "").replace(/-\d{4}[-.]\d{2}[-.]\d{2}$/, "")];
+}
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * `modelId` 是池内的**归一化 id**（上游 `doubao-seed-2-1-pro-260915` → 池
+ * `doubao-seed-2.1-pro-260915`），故按归一化形态 + 去发布日后缀查表。
+ * **查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const maxOutputTokens = maxOutputOf(modelId);
+  if (maxOutputTokens === undefined) return undefined;
+  return { maxOutputTokens };
+}
+
 /** 兜底条目（id 与展示名相同）。 */
 export const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK.map((id) => ({
   id,
   name: id,
   context_window: FALLBACK_CONTEXT_WINDOW,
+  ...(maxOutputOf(id) !== undefined ? { max_output: maxOutputOf(id) } : {}),
   source: "fallback" as const,
 }));
 
@@ -125,7 +192,14 @@ function ensureCachedModels(): void {
   cacheLoaded = true;
   try {
     const cached = readCatalogCache<ModelEntry>();
-    if (cached) remoteCache = cached;
+    // 旧缓存没有 max_output（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
+    if (cached) {
+      remoteCache = cached.map((entry) => {
+        if (entry.max_output !== undefined) return entry;
+        const maxOutput = maxOutputOf(entry.id);
+        return maxOutput === undefined ? entry : { ...entry, max_output: maxOutput };
+      });
+    }
   } catch {
     /* 读不到就回落兜底表 */
   }
@@ -206,7 +280,7 @@ export function parseRemoteModels(rows: readonly unknown[]): ModelEntry[] {
       context_window: num(rec["contextWindow"]) ?? FALLBACK_CONTEXT_WINDOW,
       source: "remote",
     };
-    const maxOutput = num(rec["maxTokens"]);
+    const maxOutput = num(rec["maxTokens"]) ?? maxOutputOf(id);
     if (maxOutput !== undefined) entry.max_output = maxOutput;
     if (typeof rec["supportsImage"] === "boolean") entry.supports_image = rec["supportsImage"];
     if (typeof rec["supportsThinking"] === "boolean") entry.supports_thinking = rec["supportsThinking"];

@@ -266,7 +266,11 @@ function contextWindowOf(entry: Record<string, unknown>): number | null {
 }
 
 /** 从缓存条目拼出对外元数据（窗口取不到时回落到 `DEFAULT_META`）。 */
-function metaFromEntry(entry: Record<string, unknown>, model: string): PoolModelMeta {
+function metaFromEntry(
+  entry: Record<string, unknown>,
+  model: string,
+  spec?: { contextWindow?: number; maxOutputTokens?: number },
+): PoolModelMeta {
   const input = entry["inputModalities"] ?? entry["input_modalities"];
   const output = entry["outputModalities"] ?? entry["output_modalities"];
   const effort = entry["effort"];
@@ -274,8 +278,9 @@ function metaFromEntry(entry: Record<string, unknown>, model: string): PoolModel
     name: typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
     // 目录里窗口 = 0 表示「上游未声明」——不能当有效值透给客户端
     // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
-    contextWindow: contextWindowOf(entry) ?? DEFAULT_META.contextWindow,
-    maxOutputTokens: firstPositive(entry, OUTPUT_KEYS) ?? DEFAULT_META.maxOutputTokens,
+    contextWindow: contextWindowOf(entry) ?? spec?.contextWindow ?? DEFAULT_META.contextWindow,
+    maxOutputTokens:
+      firstPositive(entry, OUTPUT_KEYS) ?? spec?.maxOutputTokens ?? DEFAULT_META.maxOutputTokens,
     inputModalities: Array.isArray(input) ? (input as string[]) : DEFAULT_META.inputModalities,
     outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
     effort:
@@ -285,7 +290,12 @@ function metaFromEntry(entry: Record<string, unknown>, model: string): PoolModel
   };
 }
 
-/** 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。 */
+/**
+ * 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。
+ *
+ * ⚠ 上游目录**通常不下发**窗口与输出上限 → 缓存里没有 → 问渠道要「已知规格」
+ * （`catalog.modelSpec()`，渠道按公开规格维护）。两者都拿不到才回落兜底值。
+ */
 export function getPoolModelMeta(model: string): PoolModelMeta {
   const parsed = parsePoolModel(model);
   if (!parsed) return DEFAULT_META;
@@ -298,15 +308,23 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
       return [];
     }
   });
+  const spec = runInChannel(channel.config.cid, () => {
+    try {
+      return channel.catalog.modelSpec?.(parsed.model);
+    } catch {
+      return undefined;
+    }
+  });
   const entry = cache.find((d: any) => canonicalModelId(d.id) === parsed.model) as any;
   // 缓存 id 可能是上游 key（如 `qfmodel`），与对外名（如 `glm-5.3-flash`）不同 ——
   // 用 resolveModel 将对外名解析为上游 key，再按 key 匹配
   if (!entry) {
     const upstreamKey = runInChannel(channel.config.cid, () => channel.catalog.resolveModel(parsed.model));
     const found = cache.find((d: any) => d.key === upstreamKey || canonicalModelId(d.id) === upstreamKey) as any;
-    if (found) return metaFromEntry(found, model);
+    if (found) return metaFromEntry(found, model, spec);
   }
-  if (entry) return metaFromEntry(entry, model);
+  if (entry) return metaFromEntry(entry, model, spec);
+  if (spec) return { ...DEFAULT_META, ...spec, name: model };
   return DEFAULT_META;
 }
 

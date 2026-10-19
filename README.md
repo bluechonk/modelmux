@@ -61,7 +61,7 @@ mx model list
 
 ## 文档
 
-项目规则在 [AGENTS.md](AGENTS.md)；契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)），**渠道文档跟包走**，在各包 `packages/core/channels/<cid>/docs/`：
+项目规则在 [AGENTS.md](AGENTS.md)；契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)），**渠道文档统一在** `docs/channels/<cid>/`：
 
 | 想看什么 | 去哪 |
 | --- | --- |
@@ -71,5 +71,5 @@ mx model list
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
-| 某个渠道怎么用 | `packages/core/channels/<cid>/docs/README.md`（如 [packages/core/channels/qodercn/docs/README.md](packages/core/channels/qodercn/docs/README.md)） |
-| 某个上游的协议细节 | `packages/core/channels/<cid>/docs/PROTOCOL.md` |
+| 某个渠道怎么用 | `docs/channels/<cid>/README.md`（如 [docs/channels/qodercn/README.md](docs/channels/qodercn/README.md)） |
+| 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |

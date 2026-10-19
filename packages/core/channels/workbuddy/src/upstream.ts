@@ -4,8 +4,8 @@
  * ## 本模块承载的渠道知识
  *
  * 上游的全部硬约束都在 `buildChatBody()` 里实现（网关只负责调用它），每一条
- * 都是真机实测过的拒收原因（与国际版 `workbuddyai` 同一套协议，规格见其
- * `docs/PROTOCOL.md`）：
+ * 都是真机实测过的拒收原因（与国际版 `workbuddyai` 同一套协议，规格见
+ * `docs/channels/workbuddyai/PROTOCOL.md`）：
  *
  * 1. **首条消息必须是 system** —— 否则 400 `first message is not system prompt`
  * 2. **只支持流式** —— 否则 400 `Non-stream chat request is currently not supported`

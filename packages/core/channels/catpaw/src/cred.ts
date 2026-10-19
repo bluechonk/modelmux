@@ -1,7 +1,7 @@
 /**
  * CatPaw 认证：真实 URL 登录流程、凭证持久化与有效性探测。
  *
- * ## 登录协议（实测，见 channels/catpaw/docs/PROTOCOL.md）
+ * ## 登录协议（实测，见 docs/channels/catpaw/PROTOCOL.md）
  *
  *   1. GET  {LOGIN_CONFIG_URL}                          → { loginEntryUrl }
  *   2. auth_url = `${loginEntryUrl}?sid=&state=&redirect=`（三参数缺一不可；

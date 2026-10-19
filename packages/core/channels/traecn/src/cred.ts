@@ -1,7 +1,7 @@
 /**
  * TRAE（字节跳动）认证：浏览器授权登录、设备指纹、ExchangeToken 续期。
  *
- * ## 登录（实测，channels/traecn/docs/PROTOCOL.md §2）
+ * ## 登录（实测，docs/channels/traecn/PROTOCOL.md §2）
  *
  * - 登录页参数名必须是 **`auth_callback_url`**（没有 `callback_url`/`redirect_uri`），
  *   写错登录页**永远停在授权中**（真实缺陷）。

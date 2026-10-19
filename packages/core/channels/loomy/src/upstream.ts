@@ -1,7 +1,7 @@
 /**
  * Loomy（讯飞）上游：端点、**两套认证头**、业务码判据与请求体改写。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 channels/loomy/docs/PROTOCOL.md）
+ * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/loomy/PROTOCOL.md）
  *
  * 1. **两套认证头**：`/models` 与 `/points/*`、`/onboarding/*` **只认 `token` 头**；
  *    `/chat/completions` **只认 `Authorization: Bearer`**（chat 端点**两个都发**，

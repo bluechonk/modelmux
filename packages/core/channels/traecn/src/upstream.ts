@@ -1,7 +1,7 @@
 /**
  * TRAE（字节跳动）上游：SOLO 形状的端点、请求头、请求体改写、Error 分类与流翻译。
  *
- * ## 本模块承载的渠道知识（每一条都有实测依据，见 channels/traecn/docs/PROTOCOL.md）
+ * ## 本模块承载的渠道知识（每一条都有实测依据，见 docs/channels/traecn/PROTOCOL.md）
  *
  * 1. **请求头同一 token 设三处**：`Authorization: Cloud-IDE-JWT <token>` /
  *    `X-Cloudide-Token` / `X-Ide-Token` —— 缺任一个都可能被拒。

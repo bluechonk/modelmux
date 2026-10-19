@@ -244,6 +244,18 @@ export interface CatalogModule {
    * 映射到自己的条目并取出倍率——如需要先经 `resolveModel()` 映射到上游 slug 再查。
    */
   rateTag?(modelId: string): string;
+  /**
+   * 已知模型规格（上下文窗口 / 最大输出 token）。
+   *
+   * 上游目录**通常不下发**这两个数（实测：catpaw / codearts / lobsterai / loomy /
+   * qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底值，而 4096 的输出上限
+   * 会让客户端把每次回答截到 4k。渠道按**公开规格**维护这张表（数值与来源见
+   * `docs/channels/<cid>/PROTOCOL.md`），供池层透出。
+   *
+   * `modelId` 是对外暴露的 id（与 `exposedIds()` 返回值同形）；渠道内部负责把对外 id
+   * 映射到自己的条目。**查不到返回 undefined**（= 上游与公开资料都没有，不编造）。
+   */
+  modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined;
 }
 
 /** 签到 / 领取的**只读**状态。 */

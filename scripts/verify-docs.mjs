@@ -3,10 +3,10 @@
  * 文档归属检查（规则见根 `AGENTS.md` 的「文档规则」）。
  *
  * **`.md` 只有五类落点**：
- *   1. `docs/`                        —— 契约与规范（仓库级唯一文档层）
+ *   1. `docs/`                       —— 契约与规范（仓库级唯一文档层）
  *   2. 仓库根 `README.md` / `AGENTS.md` —— 门面与规则文件（工具按固定路径读）
- *   3. `packages/core/channels/<cid>/docs/`         —— 渠道自己的文档（说明 + 协议规格，随包发布）
- *   4. `packages/core/channels/<cid>/AGENTS.md`     —— 目录级工具指令
+ *   3. `docs/channels/<cid>/`         —— 渠道自己的文档（说明 + 协议规格 + 逆向结论层）
+ *   4. `packages/core/channels/<cid>/AGENTS.md` —— 目录级工具指令
  *   5. `.agents/skills/<name>/` / `.zcode/skills/<name>/` —— 项目级技能整包
  *
  * 这个检查把「文档各归其位」从口头约定变成会失败的测试 —— 有 md 落在别处时
@@ -23,14 +23,19 @@ const workspaceRoot = dirname(import.meta.dirname);
 
 /** md 允许的落点（固定路径白名单）。 */
 const ALLOWED = [
-  /^docs\//, // 契约与规范
-  /^AGENTS\.md$/, // 规则文件本身：工具从仓库根读，不能搬
+  /^docs\//, // 契约与规范 + 渠道文档（docs/channels/<cid>/）
+  /^AGENTS\.md$/, // 仓库级规则：工具从仓库根读，不能搬
   /^README\.md$/, // 仓库门面：GitHub 只渲染根 README，必须留在原处
-  /^packages\/core\/channels\/[a-z0-9-]+\/docs\//, // 渠道自己的文档（随包走）
-  /^packages\/core\/channels\/[a-z0-9-]+\/AGENTS\.md$/, // 目录级工具指令
+  /^packages\/core\/channels\/[a-z0-9-]+\/AGENTS\.md$/, // 目录级工具指令：工具从目录读，不能搬
   /^\.agents\/skills\/[a-z0-9-]+\//, // 项目级技能整包（SKILL.md + 引用 / 模板 / 脚本）
   /^\.zcode\/skills\/[a-z0-9-]+\//, // 项目级技能整包（高优先级覆盖位）
 ];
+
+/** 渠道包目录（实现与包配置）。 */
+const CHANNELS_DIR = join(workspaceRoot, "packages", "core", "channels");
+
+/** 渠道文档目录（说明与协议规格）。 */
+const CHANNEL_DOCS_DIR = join(workspaceRoot, "docs", "channels");
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".tmp", ".box-agent", ".box-agent-scratch", ".planning"]);
 
@@ -100,17 +105,38 @@ for (const rel of candidates) {
   if (ignored.has(rel)) continue; // 被忽略的第三方材料：不归本仓库文档规则管
   checked += 1;
   if (ALLOWED.some((re) => re.test(rel))) continue;
-  problems.push(`${rel} —— md 落点不合法（规则见 AGENTS.md 的「文档规则」）`);
+  // 渠道包里的 docs/ 是旧落点：给一句人话，别只甩路径
+  const stray = /^packages\/core\/channels\/[a-z0-9-]+\/docs\//.test(rel);
+  problems.push(
+    stray
+      ? `${rel} —— 渠道文档不在包内（改放 docs/channels/<cid>/，规则见 AGENTS.md 的「文档规则」）`
+      : `${rel} —— md 落点不合法（规则见 AGENTS.md 的「文档规则」）`,
+  );
 }
 
-// 每个渠道包都必须自带渠道说明（防止文档又被抽回仓库级 docs/，包单独发布时就没文档了）
-const channelsDir = join(workspaceRoot, "packages", "core", "channels");
-if (existsSync(channelsDir)) {
-  for (const entry of readdirSync(channelsDir, { withFileTypes: true })) {
+// 每个渠道都必须在 docs/channels/<cid>/ 有渠道说明（防止文档没写、或写错 cid）
+const channelIds = [];
+if (existsSync(CHANNELS_DIR)) {
+  for (const entry of readdirSync(CHANNELS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const doc = join(channelsDir, entry.name, "docs", "README.md");
+    channelIds.push(entry.name);
+    const doc = join(CHANNEL_DOCS_DIR, entry.name, "README.md");
     if (!existsSync(doc)) {
-      problems.push(`packages/core/channels/${entry.name}/docs/README.md —— 缺渠道说明（渠道文档跟包走，规则见 AGENTS.md 的「文档规则」）`);
+      problems.push(
+        `docs/channels/${entry.name}/README.md —— 缺渠道说明（渠道文档统一在 docs/channels/，规则见 AGENTS.md 的「文档规则」）`,
+      );
+    }
+  }
+}
+
+// 反向：docs/channels/ 下不许有「没有对应渠道包」的孤儿目录
+if (existsSync(CHANNEL_DOCS_DIR)) {
+  for (const entry of readdirSync(CHANNEL_DOCS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!channelIds.includes(entry.name)) {
+      problems.push(
+        `docs/channels/${entry.name}/ —— 没有对应的渠道包 packages/core/channels/${entry.name}/`,
+      );
     }
   }
 }
@@ -121,4 +147,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`✓ 文档归属检查通过：${checked} 份 md，落点全部合规`);
+console.log(`✓ 文档归属检查通过：${checked} 份 md，落点全部合规（${channelIds.length} 个渠道）`);
