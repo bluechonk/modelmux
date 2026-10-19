@@ -127,7 +127,7 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   if (!key) return null;
   const displayName = str(raw["display_name"]) || str(raw["name"]) || key;
   const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
-  // 规格表优先；缓存行里若已带 maxOutput（旧版写入的）也认。
+  // 规格表优先；缓存行里已带 maxOutput 的（刷新时写入的）也认。
   const spec = MAX_OUTPUTS[id.toLowerCase()];
   const cached = num(raw["maxOutput"], 0);
   const maxOutput = spec ?? (cached > 0 ? cached : undefined);

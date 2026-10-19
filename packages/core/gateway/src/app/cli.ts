@@ -257,7 +257,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     case "serve":
       return headless.runServe({
         addr,
-        uiPort,
         verbose: boolOpt(o, "verbose"),
         ensureLogin: boolOpt(o, "ensure-login"),
         forceLogin: boolOpt(o, "force-login"),

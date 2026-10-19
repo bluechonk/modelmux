@@ -42,7 +42,6 @@ userData 目录：`%APPDATA%\catpaw-moon`；CLI 目录：`%USERPROFILE%\.meituan
 | `Local State` | 490 B | 否 | — | `os_crypt`（Electron safeStorage 元数据）——本产品**未**用这条通道存 token | `[实测]` |
 | `catpaw-memory-<scope>.db` | 33.2 MiB | 否 | — | SQLite：`conversations` / `sessions` / `memory_chunks_fts` … | `[实测]` |
 | `catpaw-memory-anon.db` | 224 KiB | 否 | — | 同上（匿名 scope） | `[实测]` |
-| `<roaming>\CatPawAI\User\globalStorage\state.vscdb` | 不存在 | （历史） | 否 | 旧版 VSCode 系线路的凭据表 | `[实测]`（本机不存在） |
 
 **关键判断**：这条产品线**没有**走 Electron `safeStorage`（即没有 DPAPI/Keychain 包裹），
 而是自己实现了一套基于机器码的密钥派生 —— 这既降低了提取门槛，也决定了它的强度边界：
@@ -234,4 +233,3 @@ JSON 起始符，可排除「未加密」这一支。 `[实测]`
 | 上游 `model-types` 的字段全集 | 只覆盖归一化时用到的字段；真实请求已跑通，字段全集仍未穷举 |
 | `round.messages` 总量是否有独立上限 | 未找到：user 单条撑到 10 万字符仍 200 `[实测]`（2026-10-08） |
 | `systemPromptOverride` 上限的服务端实现依据 | 边界已二分实测，但"字符 vs 字节"无法从外部区分到更细粒度；按 `escaped_length()` 取保守口径 |
-| 旧版 CatPawAI（VSCode 系）线路 | 本机未安装，未做分析；旧线路已不在使用，不再保留第三方参考实现对照 |

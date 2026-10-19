@@ -406,7 +406,7 @@ describe("3. 仓库级命令在多渠道路由下可用", () => {
 
   it("daemon.status 不抛错（根级路径解析不再要求「唯一渠道」）", async () => {
     // 回归：曾因 paths.rootDir() 走 getChannel() 而在多渠道路由下直接抛错
-    const code = await daemon.status({ json: true, addr: "127.0.0.1:1", uiPort: 1 });
+    const code = await daemon.status({ json: true, addr: "127.0.0.1:1" });
     assert.equal(code, 0);
   });
 

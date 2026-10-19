@@ -212,7 +212,7 @@ export interface PollDeviceOptions<T> {
  *
  * - `slow_down`：**累积**抬高间隔（每次都加，不重置）—— 这是 RFC 8628 的要求，
  *   重置成固定值会在服务端持续限流时陷入死循环。
- * - 连续网络失败计数：超过上限即抛错，避免上游挂掉后一直空转到超时。
+ * - 连续网络失败计数：超过上限即抛错，避免上游不可用时持续空转到超时。
  */
 export async function pollDeviceCode<T>(options: PollDeviceOptions<T>): Promise<T> {
   const { expiresInSec, maxConsecutiveFailures = 5, onStatus, slowDownStepMs = 1000 } = options;
