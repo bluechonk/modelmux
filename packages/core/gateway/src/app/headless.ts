@@ -8,6 +8,8 @@
  * 渠道差异由注册的 `Channel` 提供。
  */
 
+import { createInterface, type Interface } from "node:readline";
+
 import * as authFlow from "../auth/auth-flow.js";
 import { startAutoSignin } from "../auth/auto-signin.js";
 import { captureActive, syncPool } from "../runtime/account-pool.js";
@@ -25,9 +27,78 @@ function emit(event: Record<string, unknown>): void {
   console.log(JSON.stringify(event));
 }
 
+/**
+ * 终端粘贴通道：把用户粘回来的回调链接喂给等待中的登录流程。
+ *
+ * 背景：微信回调页线上是 404，授权码只出现在浏览器地址栏 —— 没有浏览器的进程
+ * 拿不到那个跳转，只能靠用户把链接粘回来。Web 端有输入框（`pasteCallback` 命令），
+ * CLI 端就收**标准输入的一行**。
+ *
+ * 两种取法：
+ * - TTY：用 `readline` 的 `line` 事件（按行交付，用户粘一整条 URL 回车即可）；
+ * - 非 TTY（管道 / 重定向）：用 `data` 事件自己按行切分。
+ *
+ * ⚠ 非 TTY 也要能收：`mx relogin loomy < callback.txt` 这种用法很常见，
+ * 只在 TTY 下生效等于把管道场景整个废掉。
+ */
+class StdinPasteReader {
+  private pending: string | undefined;
+  private readonly rl: Interface | null = null;
+  private buffer = "";
+  /** 非 TTY 分支的 data 监听（收尾时按引用摘掉）。 */
+  private readonly onData = (chunk: string): void => {
+    this.buffer += chunk;
+    let idx = this.buffer.indexOf("\n");
+    while (idx >= 0) {
+      const line = this.buffer.slice(0, idx).trim();
+      this.buffer = this.buffer.slice(idx + 1);
+      if (line) this.pending = line;
+      idx = this.buffer.indexOf("\n");
+    }
+  };
+
+  constructor() {
+    if (process.stdin.isTTY) {
+      this.rl = createInterface({ input: process.stdin });
+      this.rl.on("line", (line: string) => {
+        const text = line.trim();
+        if (text) this.pending = text;
+      });
+      return;
+    }
+    // 管道 / 重定向：按行切分自己收
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", this.onData);
+    process.stdin.resume();
+  }
+
+  /** 取走一行用户输入（只消费一次）；没有则返回 undefined。 */
+  take(): string | undefined {
+    const v = this.pending;
+    this.pending = undefined;
+    return v;
+  }
+
+  /** 收尾：关掉 readline / 摘掉 data 监听，避免进程挂着不退。 */
+  close(): void {
+    this.rl?.close();
+    if (!this.rl) process.stdin.off("data", this.onData);
+  }
+}
+
 /** `auth-flow.LoginUi` 协议的无界面实现：状态打到 stdout。 */
 class StdoutLoginUi implements authFlow.LoginUi {
   authUrl = "";
+  /** 本轮二维码图片 URL（CLI 下要打印出来，否则用户根本扫不到码）。 */
+  private qrUrl = "";
+  /**
+   * CLI 端的粘贴通道（标准输入）。
+   *
+   * ⚠ **必须显式开启**（`enableStdinPaste`）：`serve` 模式也是无观察者的，
+   * 若在构造时就接管 stdin，长驻守护进程会吃掉终端输入（用户没法再敲命令）。
+   * 只有 `login` / `relogin` 这种「前台等人操作」的流程才该开。
+   */
+  private stdinPaste: StdinPasteReader | undefined;
   constructor(
     private readonly jsonMode: boolean,
     /** 多渠道路由时带上渠道 id，便于解析方区分（单渠道为 undefined）。 */
@@ -40,19 +111,56 @@ class StdoutLoginUi implements authFlow.LoginUi {
     private readonly observer?: authFlow.LoginUi,
   ) {}
 
-  /** 二维码图片 URL：转发给观察者（控制台据此渲染 `<img>`）。 */
-  setQr(url: string): void {
-    this.observer?.setQr?.(url);
+  /**
+   * 开启终端粘贴通道（`login` / `relogin` 用）。
+   *
+   * Web 端有自己的输入框（`pasteCallback` 命令），有观察者时不抢 stdin。
+   */
+  enableStdinPaste(): void {
+    if (this.observer || this.stdinPaste) return;
+    this.stdinPaste = new StdinPasteReader();
   }
 
-  /** 取走用户粘回的回调链接（转发给观察者）。 */
+  /**
+   * 二维码图片 URL。
+   *
+   * ⚠ **CLI 下必须真的打印出来**：只转发给 observer 的话，终端里就永远拿不到
+   * 扫码入口（控制台有 observer 会渲染 `<img>`，CLI 没有）。
+   * 「扫码必须用这一张」——它对应本轮长轮询的 uuid，授权页每次加载都会换 uuid。
+   */
+  setQr(url: string): void {
+    this.qrUrl = url;
+    this.observer?.setQr?.(url);
+    if (this.jsonMode) {
+      emit({ event: "login", state: "login", message: "scan the QR code with WeChat", qr_url: url });
+    } else {
+      this.printQr(url);
+    }
+  }
+
+  /** 打印二维码图片 URL（stdout 模式；裸 URL 单独成行便于 Ctrl+点击）。 */
+  private printQr(url: string): void {
+    console.log("[login] 二维码图片（用微信扫这一张，不要去开授权页）：");
+    console.log(url);
+  }
+
+  /** 取走用户粘回的回调链接（转发给观察者；CLI 下从 stdin 收）。 */
   takePastedCallback(): string | undefined {
-    return this.observer?.takePastedCallback?.();
+    return this.observer?.takePastedCallback?.() ?? this.stdinPaste?.take();
+  }
+
+  /** 登录结束后关掉 stdin 监听（否则进程挂着不退）。 */
+  closePasteReader(): void {
+    this.stdinPaste?.close();
   }
 
   setState(state: string, message = "", url = "", qr = ""): void {
     if (url) this.authUrl = url;
-    if (qr) this.observer?.setQr?.(qr);
+    if (qr) {
+      this.qrUrl = qr;
+      this.observer?.setQr?.(qr);
+      if (!this.jsonMode) this.printQr(qr);
+    }
     this.observer?.setState(state, message, url);
     const tag = this.cid ? `[${this.cid}] ` : "";
     if (this.jsonMode) {
@@ -183,6 +291,9 @@ export async function runLogin(options: {
       return 1;
     }
     const ui = new StdoutLoginUi(json, cid, observer);
+    // CLI 下开终端粘贴通道：回调页是 404，授权码只在浏览器地址栏里，
+    // 用户粘回终端才能让流程收尾（无观察者时这是唯一出路）。
+    ui.enableStdinPaste();
     if (json) emit({ event: "start", mode: "login", force, realm, wechat: true, ...(cid ? { cid } : {}) });
     let ok = false;
     try {
@@ -194,12 +305,16 @@ export async function runLogin(options: {
           onQr: (qr: string) => ui.setState("login", "scan the QR code with WeChat and confirm on your phone", "", qr),
           onStatus: (msg: string) => ui.setState("login", msg),
           // 长轮询拿不到时的兜底：让界面能把用户粘回的回调链接喂进来。
-          pasteCode: () => observer?.takePastedCallback?.(),
+          // ⚠ 走 `ui` 而不是直接摸 `observer`：CLI 下没有 observer，但 stdin
+          // 也是一条能用的粘贴通道（否则终端用户根本无处可贴）。
+          pasteCode: () => ui.takePastedCallback?.(),
         }),
       );
       ok = true;
     } catch (err) {
       ui.setState("error", `wechat login failed: ${String(err)}`);
+    } finally {
+      ui.closePasteReader();
     }
     if (ok && target) {
       runInChannel(target.config.cid, () => {
@@ -230,6 +345,8 @@ export async function runLogin(options: {
   }
 
   const ui = new StdoutLoginUi(json, cid, observer);
+  // 同上：CLI 前台登录要能接收用户粘回的回调链接。
+  ui.enableStdinPaste();
   if (json) emit({ event: "start", mode: "login", force, realm, ...(cid ? { cid } : {}) });
 
   // 已有凭据且未 force：login 是幂等的，不会重新授权 —— 必须明确说清，
@@ -262,7 +379,10 @@ export async function runLogin(options: {
       baseUrl: cred.resolveBaseUrl(realm),
       ...(cid !== undefined ? { cid } : {}),
     }),
-  );
+  ).finally(() => {
+    // 登录结束（成败都算）：关掉 stdin 监听，否则进程挂着不退。
+    ui.closePasteReader();
+  });
 
   // 登录即入池：把刚拿到的凭证收进账号池（幂等；失败不影响登录结果）。
   // ⚠ 必须包 `runInChannel`：`syncPool` 内部走 `cred.load()` → `paths.*`，
