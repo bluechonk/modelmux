@@ -26,7 +26,7 @@ git log --oneline -5          # 最近历史与提交风格
 
 | 改动落点 | 必须同步的文档 |
 | --- | --- |
-| 契约 / CLI 形态 / 模块边界 / 分层 | `docs/CONTRACT-TS.md`、根 `AGENTS.md` §代码约定 |
+| 契约 / CLI 形态 / 模块边界 / 分层 | `docs/CONTRACT-TS.md`、根 `AGENTS.md` 的「代码约定」 |
 | 池（模型池 / 账号池 / 账本 / 路由） | `docs/POOL-ARCHITECTURE.md` |
 | 存储落点 / 文件命名 / 权限 | `docs/STORAGE-CONVENTION.md` |
 | 进程模型 / 监督者 / 日志文件 | `docs/DAEMON-SUPERVISOR.md` |
