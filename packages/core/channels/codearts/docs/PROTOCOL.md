@@ -361,8 +361,14 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 
 | # | 端点 | 提取路径 | 条目字段 |
 |---|---|---|---|
-| 1 | `OPENGW_GATEWAY_CONFIG_URL` | `result.models[]` | `model_id`、`model_name` |
-| 2 | `SNAP_MODEL_BUILTIN_URL` | `builtinModels[]` | `model_id`、`model_name` |
+| 1 | `OPENGW_GATEWAY_CONFIG_URL` | `result.models[]` | `model_id`、`model_name`（均为 benefit 模型，无倍率字段） |
+| 2 | `SNAP_MODEL_BUILTIN_URL` | `builtinModels[]` | `model_id`、`model_name`、`credit` |
+
+**倍率（builtin 端点的 `credit`）**：`credit` **本身就是数组**（不是字符串），每档含
+`ratio`（内部计价系数）与 `ratio_display`（对外展示倍率，如 `"0.7x"`）。
+共享层 `model_info.multiplier` 取 `ratio_display`（缺失退回 `ratio`）—— 该口径与
+其它渠道一致（实测 glm-5.3 = 0.79，与 raccoon / workbuddyai 同模型同量级）。
+benefit 模型与 gateway/config 端点不带 `credit` → 倍率显示 `-`。
 
 **归一化（models.ts:77-100）**：
 - `normalizeModelId(id)`：去掉末尾 `-` + 4 位数字（`deepseek-v4-flash-0731` → `deepseek-v4-flash`）。

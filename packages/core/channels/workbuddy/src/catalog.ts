@@ -46,6 +46,10 @@ export interface ModelEntry {
   context_window?: number;
   max_output?: number;
   supports_image?: boolean;
+  /** 倍率展示文案（如 `"x0.34"`）；上游 `credits` 字段为空时缺省。 */
+  rate?: string;
+  /** 倍率数值（由 `rate` 解析）；供共享层 `model_info.multiplier` 使用。 */
+  multiplier?: number;
   source: "fallback" | "snapshot" | "remote";
 }
 
@@ -83,6 +87,24 @@ function str(value: unknown): string {
 
 function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * 解析上游 `credits` 字段得到倍率（与 workbuddyai 同一 `/v3/config` 端点、同一口径）。
+ *
+ * 形如 `"x0.34 credits"`；`x0.00` 视为免费（0）；Auto 这类不给倍率的条目是空串。
+ * 取不到数字就返回 null（不猜）。
+ */
+function parseCreditsRate(credits: string): { rate: string; multiplier: number } | null {
+  const text = credits.trim();
+  if (!text) return null;
+  if (/free|免费/i.test(text)) return { rate: "免费", multiplier: 0 };
+  const m = /x?\s*([0-9]+(?:\.[0-9]+)?)/i.exec(text);
+  if (!m) return null;
+  const value = Number.parseFloat(m[1]!);
+  if (!Number.isFinite(value)) return null;
+  if (value === 0) return { rate: "免费", multiplier: 0 };
+  return { rate: `x${value}`, multiplier: value };
 }
 
 /**
@@ -128,6 +150,11 @@ function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null
   if (output !== undefined) entry.max_output = output;
   const image = rec["supports_image_detail_original"] ?? rec["supportsImages"];
   if (typeof image === "boolean") entry.supports_image = image;
+  const rate = parseCreditsRate(str(rec["credits"]));
+  if (rate) {
+    entry.rate = rate.rate;
+    entry.multiplier = rate.multiplier;
+  }
   return entry;
 }
 

@@ -380,3 +380,20 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 - `Cosy-ClientType` 两个身份不可合并：推理信封的 `clientMetadata.client_type='5'`（CLI）
  与 `/sash/` 的 `sashClientType='10'`（桌面 app）
 - 续期请求体缺 `machine_id` 会破坏设备绑定；续期后必须保留 `machine_id`/`uid`/`nickname`
+
+### 7.4 200 后零字节挂起（2026-10-19 实测；本渠道 `idleTimeoutMs=900s`）
+
+**现象**：上游 `HTTP 200` 后**零字节**挂起，与请求大小、是否带工具无关 —— 52KB 的
+2 轮请求有时 4.6 秒出字成功，有时静默到超时；107 字节的最小请求也复现过。
+既没有 10605 排队帧，也不发 `[DONE]`，流就是不开。
+
+**参考实现结论**：[shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub)
+`qoder_proxy.py:4610` 的 `sse_with_heartbeat` —— Qoder 排队/长思考时**首字延迟实测
+40–71 秒**，排队时更久；其单次静默上限 `idle_limit=900` 秒，等待期每 5 秒向客户端
+发 SSE 注释心跳 `": ping\n\n"`（`:` 注释行客户端忽略）防空闲断连。
+
+**modelmux 侧对应**：共享层默认静默 120s 会误杀这类「已收下但还在排」的请求
+（旧行为还会让探测层异常穿透成 500 `internal_error`，现归 502 `upstream_timeout`）。
+本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `src/upstream.ts`），网关等待首帧
+期间每 5 秒补 `: ping`。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
+仍会在 900 秒后按超时收尾。

@@ -14,13 +14,11 @@ import { type Channel, type Credential, type StreamTranslator } from "../runtime
 import { hasChannel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import {
-  activateAccount,
   activeAccountIsError,
   markActiveHealth,
   noteAccountFailure,
   noteAccountQuotaExhausted,
   noteAccountSuccess,
-  pickAccount,
   readIndex,
 } from "../runtime/account-pool.js";
 import { resolvePoolModel } from "../pool/model-pool.js";
@@ -127,6 +125,17 @@ const QUEUE_RETRY_MAX_DELAY_MS = 10_000;
 /** 排队重试：整个请求的总时长上限（含首次尝试与所有等待）。 */
 
 const QUEUE_RETRY_BUDGET_MS = 300_000;
+
+/**
+ * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道快速重试**次数与退避基数。
+ *
+ * 实测这类失败是瞬时的：同一形状的请求时而 4.6 秒出字成功、时而静默断流。
+ * 一次就判死会把可用渠道误报成坏渠道（参考实现 qoder2api-hub 对瞬时上游故障
+ * 同样做同账号 1s/2s 两次重试）。空闲超时不重试：那已经等满渠道声明的静默上限，
+ * 客户端早已等不及，重试只会拖长失败。
+ */
+const PROBE_RETRY_MAX = 2;
+const PROBE_RETRY_BASE_MS = 1_000;
 
 /**
  * 服务标识：出现在 `/health` 应答里。
@@ -257,7 +266,10 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
 
   let resp: Response;
   const controller = new AbortController();
-  const timeoutMs = readTimeoutMs();
+  let timeoutMs = readTimeoutMs();
+  // 渠道可放宽静默上限（首字慢的上游如 qoder：200 后长时间零字节，见 UpstreamModule.idleTimeoutMs）
+  const channelIdleMs = upstream.idleTimeoutMs?.();
+  if (channelIdleMs !== undefined) timeoutMs = Math.max(timeoutMs, channelIdleMs);
   const headerTimer = setTimeout(() => {
     controller.abort(new Error(`upstream header timeout after ${timeoutMs}ms`));
   }, timeoutMs);
@@ -362,8 +374,11 @@ function noteFrameUsage(res: ServerResponse, frame: Buffer | string): void {
 
 /** 已收到客户端可执行工具调用后，上游静默超过该时长即主动收尾。 */
 const TOOL_CALL_IDLE_FLUSH_MS = 2_500;
-/** 还没收到任何内容时的首帧静默上限（慢上游容错）。 */
+/** 还没收到任何内容时的首帧静默上限（慢上游容错）。渠道可用
+ *  `UpstreamModule.idleTimeoutMs()` 放宽（qoder 实测 200 后零字节可超 120s）。 */
 const FIRST_TOKEN_IDLE_MS = 120_000;
+/** 首帧等待期的心跳间隔：上游零字节时向客户端补 SSE 注释帧（`: ping`）防空闲断开。 */
+const FIRST_BYTE_HEARTBEAT_MS = 5_000;
 
 type IdleRead = { idle: true };
 
@@ -371,19 +386,33 @@ type IdleRead = { idle: true };
  * `reader.read()` 的竞速版本：静默 `idleMs` 后返回 idle。
  * 上游等工具结果、上游发完正文不关流（catpaw 实测 170s）都会触发，
  * 由调用方决定是下发工具调用还是收尾本轮。
+ *
+ * `onHeartbeat` 传入时按 5 秒粒度等待：每次静默到一个心跳点先回调（写 `: ping`），
+ * 累计静默仍达 `idleMs` 才判空闲 —— 长首字上游（qoder 实测 40–71s）不会因
+ * 客户端/中间代理空闲超时而断连。
  */
 async function readWithIdle(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   idleMs: number,
+  onHeartbeat?: () => void,
 ): Promise<{ done: boolean; value?: Uint8Array } | IdleRead> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const idle = new Promise<IdleRead>((resolve) => {
-    timer = setTimeout(() => resolve({ idle: true }), idleMs);
-  });
-  try {
-    return await Promise.race([reader.read(), idle]);
-  } finally {
-    if (timer) clearTimeout(timer);
+  const tickMs = onHeartbeat ? Math.min(FIRST_BYTE_HEARTBEAT_MS, idleMs) : idleMs;
+  let waited = 0;
+  for (;;) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const idle = new Promise<IdleRead>((resolve) => {
+      timer = setTimeout(() => resolve({ idle: true }), tickMs);
+    });
+    let settled: { done: boolean; value?: Uint8Array } | IdleRead;
+    try {
+      settled = await Promise.race([reader.read(), idle]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!("idle" in settled)) return settled;
+    waited += tickMs;
+    if (waited >= idleMs) return { idle: true };
+    onHeartbeat?.();
   }
 }
 
@@ -404,6 +433,8 @@ async function relayStream(
   }
 
   const { upstream } = channel;
+  // 首帧静默上限：渠道可放宽（qoder 排队时 200 后零字节超 120s）
+  const firstTokenIdleMs = channel.upstream.idleTimeoutMs?.() ?? FIRST_TOKEN_IDLE_MS;
   // ⚠ 排队探测可能已用同一实例读了一段：必须接着用同一个。换新实例会把
   //   旧实例缓冲里的**半行**丢掉，残行收尾时整帧解析失败被丢弃（实测：tool_call 参数损坏）。
   const translator = resumeTranslator ?? upstream.newTranslator(request);
@@ -418,8 +449,11 @@ async function relayStream(
         ? TOOL_CALL_IDLE_FLUSH_MS
         : sawContent
           ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
-          : FIRST_TOKEN_IDLE_MS;
-      const next = await readWithIdle(reader, idleMs);
+          : firstTokenIdleMs;
+      // 首帧等待期补心跳：上游长时间零字节时客户端/中间代理容易空闲断连
+      const next = await readWithIdle(reader, idleMs, sawContent ? undefined : () => {
+        if (!res.writableEnded) res.write(": ping\n\n");
+      });
       if ("idle" in next) {
         if (pendingTool) {
           logger("upstream idle after tool call; flushing tool_calls to client");
@@ -501,6 +535,8 @@ async function collectAsOpenAiSse(
   if (!isCustomWire(channel)) return sseStream.readAll(upstreamBody, cid);
 
   const { upstream } = channel;
+  // 首帧静默上限与流式路径同源（见 relayStream；非流式聚合同样受慢首字影响）
+  const firstTokenIdleMs = channel.upstream.idleTimeoutMs?.() ?? FIRST_TOKEN_IDLE_MS;
   // ⚠ 与 relayStream 同理：探测用过的实例必须接着用，半行缓冲不能丢。
   const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
@@ -513,7 +549,7 @@ async function collectAsOpenAiSse(
         ? TOOL_CALL_IDLE_FLUSH_MS
         : sawContent
           ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
-          : FIRST_TOKEN_IDLE_MS;
+          : firstTokenIdleMs;
       const next = await readWithIdle(reader, idleMs);
       if ("idle" in next) {
         if (!pendingTool) {
@@ -665,10 +701,6 @@ async function consumeQueueProbe(
 
 // ── 路由 ──────────────────────────────────────────────────────────────────────
 
-/** 账号池失败转移的最大尝试账号数（首个账号也计入）。 */
-
-const MAX_ACCOUNT_ATTEMPTS = 3;
-
 /** 取上游流式响应的结果；把"调不动上游"的几种情形分开，好给出准确的错误语义。 */
 
 type UpstreamOutcome =
@@ -677,13 +709,14 @@ type UpstreamOutcome =
   | { kind: "auth_exhausted"; error: string };
 
 /**
- * 向上游发起请求，失败时按「刷新 token → 换池内账号」重试。
+ * 向上游发起请求，鉴权失败时**不自动切换池内账号**。
  *
- * 账号池的价值就在这里：某个账号的凭据失效时，不必等用户重新登录 —— 自动切到池内
- * 另一个可用账号。每个不可用的账号都会被标成 `unauthorized`，后续请求由
- * `pickAccount()` 跳过它（所以同一个坏账号不会被反复踩）。
+ * 账号切换一律由用户手动完成（`mx acct <cid> use <key>` / Web 账号池）：自动切号会
+ * 让请求在用户不知情时落到另一个账号上（额度、配额、IP 风控各算一份），排障时也
+ * 看不出究竟是哪个账号在服务。故这里只做「刷新 token → 重试一次」，失败就标记
+ * 当前账号不可用并如实报错，下一步交给用户。
  *
- * 只在**鉴权类**失败（401/403、刷新失败）时转移；上游 5xx / 网络错误照旧直接报错。
+ * 只在**鉴权类**失败（401/403、刷新失败）时处理；上游 5xx / 网络错误照旧直接报错。
  */
 
 async function callUpstream(
@@ -692,7 +725,7 @@ async function callUpstream(
   logger: (m: string) => void,
 ): Promise<UpstreamOutcome> {
   const cid = channel.config.cid;
-  const { cred, upstream } = channel;
+  const { cred } = channel;
 
   // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）
   if (activeAccountIsError(cid)) {
@@ -709,61 +742,35 @@ async function callUpstream(
     return { kind: "not_authenticated", error: String(err) };
   }
 
-  const tried: string[] = [];
+  let call = await inChannel(channel, () => openStream(channel, credential, sendBody));
+  if (!call.ok && call.connectFailed) {
+    // 连接从未建立（请求没发出去），重试一次即可自愈网络抖动
+    logger(`upstream connect failed, retrying once: ${String(call.error)}`);
+    call = await inChannel(channel, () => openStream(channel, credential, sendBody));
+  }
+  if (call.ok || (call.status !== 401 && call.status !== 403)) return { kind: "ok", call };
 
-  for (let attempt = 0; attempt < MAX_ACCOUNT_ATTEMPTS; attempt += 1) {
-    let call = await inChannel(channel, () => openStream(channel, credential, sendBody));
-    if (!call.ok && call.connectFailed) {
-      // 连接从未建立（请求没发出去），重试一次即可自愈网络抖动
-      logger(`upstream connect failed, retrying once: ${String(call.error)}`);
-      call = await inChannel(channel, () => openStream(channel, credential, sendBody));
-    }
-    if (call.ok || (call.status !== 401 && call.status !== 403)) return { kind: "ok", call };
-
-    // 401/403：先刷新当前账号的 token（响应体一并留痕，见 openStream）
-    // 节流：账号失效时会连发，只留状态变化（见 runtime/logger.ts）
-    logThrottled(logger, `chat:auth-rejected:${cid}`, `[${cid}] token rejected, trying refresh${call.error ? ` (${call.error.message})` : ""}`);
-    let refreshed: Credential | null = null;
-    try {
-      refreshed = await inChannel(channel, () => cred.refresh(credential));
-    } catch (err) {
-      noteFailure(cid, activeKeyOf(cid));
-      noteAccountFailure(cid);
-      logger(`refresh failed: ${String(err)}`);
-    }
-    if (refreshed) {
-      const retry = await inChannel(channel, () => openStream(channel, refreshed, sendBody));
-      if (retry.ok || (retry.status !== 401 && retry.status !== 403)) return { kind: "ok", call: retry };
-    }
-
-    // 这个账号确定不可用 → 记健康度，换池内下一个
-    markActiveHealth("unauthorized", cid);
-    const activeKey = readIndex(cid).active;
-    if (activeKey) tried.push(activeKey);
-    const next = pickAccount(cid, tried);
-    if (!next) {
-      // 所有账号都被拒且无后备。**凭证一律保留**（2026-10-18 起）：
-      // 上游的「拒绝」可能是 11140 账号限制、临时风控或令牌轮换，删掉凭证等于
-      // 把可恢复状态变成不可恢复，且用户只想重试时被迫重新授权。
-      // 健康度已标 unauthorized，池路由照常按凭据过滤；是否重新登录由用户决定。
-      logger(
-        `auth failed (${cid}): token rejected by upstream and refresh unusable; ` +
-          `credentials kept, run \`mx login ${cid}\` to re-authorize if needed`,
-      );
-      return {
-        kind: "auth_exhausted",
-        error: `${upstream.DISPLAY_NAME} rejected the token and no other account in the pool is available; please log in again`,
-      };
-    }
-    logger(`account ${activeKey ?? "(unknown)"} unavailable, using pool account ${next.key} (${next.label})`);
-    activateAccount(next.key, cid);
-    credential = inChannel(channel, () => cred.load());
+  // 401/403：先刷新当前账号的 token，刷成则原账号重试一次（仍是同一个账号）
+  logThrottled(logger, `chat:auth-rejected:${cid}`, `[${cid}] token rejected, trying refresh${call.error ? ` (${call.error.message})` : ""}`);
+  try {
+    const refreshed = await inChannel(channel, () => cred.refresh(credential));
+    const retry = await inChannel(channel, () => openStream(channel, refreshed, sendBody));
+    if (retry.ok || (retry.status !== 401 && retry.status !== 403)) return { kind: "ok", call: retry };
+  } catch (err) {
+    noteFailure(cid, activeKeyOf(cid));
+    noteAccountFailure(cid);
+    logger(`refresh failed: ${String(err)}`);
   }
 
-  // 循环能走到这里，说明每一轮都栽在鉴权上
+  // 当前账号确定不可用：标健康度（后续请求由 pickAccount 跳过），但**不自动切号**
+  markActiveHealth("unauthorized", cid);
+  logger(
+    `auth failed (${cid}): token rejected by upstream and refresh unusable; ` +
+      `credentials kept, switch account manually (\`mx acct ${cid} use <key>\`) or \`mx login ${cid}\``,
+  );
   return {
     kind: "auth_exhausted",
-    error: `${upstream.DISPLAY_NAME} rejected the token (tried ${tried.length} accounts); please log in again`,
+    error: `the current account's token was rejected; switch account (mx acct ${cid} use <key>) or log in again`,
   };
 }
 
@@ -987,14 +994,72 @@ export async function handleChat(
     //    探测用的翻译器（半行缓冲）也要交给转发层接续 —— 两者丢一个就是流中缺段。
     const pendingFrames: Buffer[] = [];
     let queuedOut = false;
+    let probeFailed = false;
     let probeTranslator: StreamTranslator | undefined;
+    let probeAttempts = 0;
+    /**
+     * 探测层瞬时失败的**同渠道重试**：重开一条上游流并让探测循环接着跑。
+     *
+     * 返回 false 表示重试机会用尽 / 重开失败（调用方按失败收尾）。
+     * 只在响应头发出前调用，所以换个请求不会造成两个响应。
+     */
+    const retryProbeLater = async (reason: string): Promise<boolean> => {
+      if (probeAttempts >= PROBE_RETRY_MAX) return false;
+      probeAttempts += 1;
+      const delayMs = PROBE_RETRY_BASE_MS * probeAttempts;
+      logThrottled(
+        opts.logger,
+        `chat:probe-retry:${cid}`,
+        `probe failed (channel ${cid}), retry ${probeAttempts}/${PROBE_RETRY_MAX} in ${delayMs}ms: ${reason}`,
+      );
+      await new Promise((r) => setTimeout(r, delayMs));
+      const credential = loadCredentialSafe(channel);
+      if (!credential) return false;
+      const next = await inChannel(channel, () => openStream(channel, credential, sendBody));
+      if (!next.ok) {
+        logThrottled(
+          opts.logger,
+          `chat:probe-retry-open:${cid}`,
+          `probe retry reopen failed (channel ${cid}): ${String(next.error?.message ?? "")}`,
+        );
+        return false;
+      }
+      // 旧流已死：释放它再换新流（探测用的 reader 已在 consumeQueueProbe 里 releaseLock）
+      await call.body?.cancel().catch(() => {});
+      call = next;
+      return true;
+    };
     if (isCustomWire(channel) && channel.upstream.isQueueError) {
       const startedAt = Date.now();
       for (;;) {
         // 每次探测用新翻译器（换流后旧缓冲作废）；成功那次的实例要传给转发层
         const translator = channel.upstream.newTranslator(payload);
-        const probe = await inChannel(channel, () => consumeQueueProbe(call.body!, channel, cid, translator, payload));
+        let probe: QueueProbe;
+        try {
+          probe = await inChannel(channel, () => consumeQueueProbe(call.body!, channel, cid, translator, payload));
+        } catch (err) {
+          // 上游收下请求（HTTP 200）后探测阶段断流/零字节 abort：属上游失败，
+          // 不能让异常穿透成网关 500（qoder 实测：200 后静默 120s → internal_error）。
+          // 非超时的瞬时断流先同渠道快速重试（见 PROBE_RETRY_MAX）。
+          const timedOut = /timeout/i.test(String(err));
+          if (!timedOut && (await retryProbeLater(String(err)))) continue;
+          logThrottled(opts.logger, `chat:probe-failed:${cid}`, `queue probe read failed (channel ${cid}): ${String(err)}`);
+          if (timedOut) noteRequestError(res, "upstream_timeout", String(err));
+          noteFailure(cid, activeKeyOf(cid));
+          lastError = {
+            status: 502,
+            code: timedOut ? "upstream_timeout" : "upstream_error",
+            message: "upstream request failed; see gateway logs",
+          };
+          probeFailed = true;
+          break;
+        }
         if (!probe.queued || probe.hasContent) {
+          // 上游 200 但流**空着结束**（零帧、无排队帧）同样是瞬时故障：重试一次再认输
+          if (!probe.queued && !probe.hasContent && probe.frames.length === 0 &&
+              (await retryProbeLater("upstream stream ended with no frames"))) {
+            continue;
+          }
           // 探测消费掉的帧一个都不能丢：按原序交回转发
           pendingFrames.push(...probe.frames);
           probeTranslator = translator;
@@ -1028,6 +1093,11 @@ export async function handleChat(
       }
     }
 
+    if (probeFailed) {
+      // 探测层异常：这条流已死，跳过转发层（call.ok 仍是 true，不能让它进 relayUpstream）
+      await call.body?.cancel().catch(() => {});
+      continue;
+    }
     if (!call.ok) {
       // 上游错误体只进本地日志，不回传客户端（可能含内部信息）
       if (call.connectFailed) opts.logger(`upstream request failed (channel ${cid}): ${String(call.error)}`);

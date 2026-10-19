@@ -30,7 +30,11 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cacheDir as sharedCacheDir } from "@modelmux/gateway";
+import {
+  cacheDir as sharedCacheDir,
+  readCatalogCache,
+  writeCatalogCache,
+} from "@modelmux/gateway";
 
 /** 一条目录条目。 */
 export interface ModelEntry {
@@ -38,6 +42,8 @@ export interface ModelEntry {
   name: string;
   /** 上下文窗口（仅静态表里有值；远端不下发时留 undefined 让后端默认裁剪）。 */
   context_window?: number;
+  /** 消耗倍率（来自 builtin 端点 `credit` 档位的 `ratio_display`）；benefit 模型无此字段。 */
+  multiplier?: number;
   source: "fallback" | "remote";
 }
 
@@ -146,7 +152,41 @@ export function isVisionModel(id: string): boolean {
   return id.includes("-VL-") || id.endsWith("-VL");
 }
 
-/** 解析一组远端模型行（`model_id` / `model_name`）。 */
+/**
+ * 从 builtin 端点的 `credit` 字段解析消耗倍率。
+ *
+ * 实测 `credit` **本身就是数组**（`[{ratio, ratio_display, input_from, …}]`），
+ * 不是序列化字符串；每档含 `ratio`（内部计价系数）与 `ratio_display`（对外展示倍率，
+ * 如 `"0.7x"`）。展示倍率才是与其它渠道同口径的值（实测 glm-5.3 的 0.79x 与
+ * raccoon / workbuddyai 同模型一致），故取 `ratio_display`，缺失时退回 `ratio`。
+ * benefit 模型（gateway/config 端点）不带 `credit` → undefined。
+ *
+ * 兼容字符串形态：本地缓存 JSON 往返后字段类型不变，但历史排查脚本打印过二次
+ * 编码的假象，两种都收。
+ */
+export function parseCreditRate(credit: unknown): number | undefined {
+  let tiers: unknown = credit;
+  if (typeof credit === "string" && credit.trim()) {
+    try {
+      tiers = JSON.parse(credit);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(tiers)) return undefined;
+  for (const tier of tiers) {
+    if (!tier || typeof tier !== "object") continue;
+    const rec = tier as Record<string, unknown>;
+    const display = typeof rec["ratio_display"] === "string" ? rec["ratio_display"] : "";
+    const fromDisplay = Number.parseFloat(display.replace(/x/i, ""));
+    if (Number.isFinite(fromDisplay)) return fromDisplay;
+    const ratio = Number(rec["ratio"]);
+    if (Number.isFinite(ratio)) return ratio;
+  }
+  return undefined;
+}
+
+/** 解析一组远端模型行（`model_id` / `model_name` / `credit`）。 */
 export function parseModelRows(
   rows: readonly unknown[],
   seen: SeenSet = new Set<string>(),
@@ -166,6 +206,8 @@ export function parseModelRows(
     const entry: ModelEntry = { id, name: rawName ? normalizeModelId(rawName) : id, source };
     const window = CONTEXT_WINDOWS.get(id);
     if (window !== undefined) entry.context_window = window;
+    const rate = parseCreditRate(rec["credit"]);
+    if (rate !== undefined) entry.multiplier = rate;
     out.push(entry);
   }
   return out;
@@ -185,7 +227,12 @@ let benefitCache: string[] | null = null;
  * （巡检/统计工具会 import 各渠道模块拿 config）。
  */
 function loadCaches(): void {
-  const models = readCache(MODELS_CACHE_FILENAME);
+  // models.json 走共享信封（与其它渠道一致），池层 getPoolModelMeta 才读得到倍率；
+  // 旧版裸数组缓存一次性回读（下次 fetchModels 会重写成信封）。
+  let models: unknown[] | null = readCatalogCache<ModelEntry>();
+  if (!models) {
+    models = readCache(MODELS_CACHE_FILENAME);
+  }
   if (models && models.length > 0) {
     const entries: ModelEntry[] = [];
     for (const item of models) {
@@ -199,6 +246,7 @@ function loadCaches(): void {
         source: "remote",
       };
       if (typeof rec["context_window"] === "number") entry.context_window = rec["context_window"];
+      if (typeof rec["multiplier"] === "number") entry.multiplier = rec["multiplier"];
       entries.push(entry);
     }
     if (entries.length > 0) remoteCache = entries;
@@ -222,7 +270,7 @@ function ensureCaches(): void {
 export function setRemoteModels(entries: readonly ModelEntry[], benefitIds?: readonly string[]): void {
   if (entries.length > 0) {
     remoteCache = [...entries];
-    writeCache(MODELS_CACHE_FILENAME, remoteCache);
+    writeCatalogCache(remoteCache);
   }
   if (benefitIds && benefitIds.length > 0) {
     // ⚠️ 只在确实拿到 benefit 模型时写入，避免用空集合覆盖可用缓存。

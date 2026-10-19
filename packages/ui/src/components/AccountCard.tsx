@@ -1,4 +1,4 @@
-import { Plus, RefreshCw, Trash2, UserCheck } from "lucide-react";
+import { Plus, Trash2, UserCheck } from "lucide-react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
 
@@ -121,8 +121,6 @@ export function AccountCard({
   onActivate,
   onRemove,
   onAdd,
-  onRefreshBilling,
-  refreshing,
   busyKey,
 }: {
   pool: AccountPool;
@@ -131,8 +129,6 @@ export function AccountCard({
   onActivate: (cid: string, key: string) => void;
   onRemove: (cid: string, key: string) => void;
   onAdd: (cid: string) => void;
-  onRefreshBilling: (cid: string) => void;
-  refreshing: boolean;
   busyKey: string | null;
 }): ReactElement {
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
@@ -243,7 +239,7 @@ export function AccountCard({
         </ul>
       )}
 
-      {/* 卡脚：供给规模 + 整卡刷新 */}
+      {/* 卡脚：供给规模（额度由后端按分钟轮询，无需手动刷新） */}
       <div className="flex items-center gap-2 border-t border-gray-800/70 bg-gray-950/40 px-4 py-2 text-[11px] text-gray-500">
         {billing ? (
           <span>
@@ -252,15 +248,6 @@ export function AccountCard({
         ) : (
           <span>暂无账本</span>
         )}
-        <button
-          className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-50"
-          disabled={refreshing || busyKey !== null}
-          onClick={() => onRefreshBilling(pool.cid)}
-          title="重新查询本渠道每个账号的额度"
-        >
-          <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
-          {refreshing ? "刷新中" : "刷新额度"}
-        </button>
       </div>
     </div>
   );

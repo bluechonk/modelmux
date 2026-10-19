@@ -613,6 +613,17 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
   return code === "10605" || /isQueued|retryAfterSeconds|10605/i.test(msg);
 }
 
+/**
+ * 首帧静默上限：**900 秒**（与国际版同源，对齐参考实现 `qoder2api-hub` 的 `idle_limit=900`）。
+ *
+ * 国内版上游同样会「收下请求（HTTP 200）后长时间零字节」：共享层默认 120 秒
+ * 会把还活着的排队请求误判成超时。声明本上限后网关等待首帧至多 900 秒，
+ * 并在等待期向客户端补 `: ping` 心跳。
+ */
+export function idleTimeoutMs(): number {
+  return 900_000;
+}
+
 interface Envelope {
   headers?: unknown;
   body?: unknown;
