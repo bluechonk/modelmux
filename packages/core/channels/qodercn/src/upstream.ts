@@ -564,10 +564,53 @@ export function buildRequestBody(
 }
 
 /**
+ * 模型元数据（请求体 `model_config` 用）。
+ *
+ * 由 `catalog.ts` 侧注入（见 `setModelMetaLookup`）—— 元数据是**目录**的知识，
+ * 归 `catalog.ts` 管；`upstream.ts` 只消费。
+ */
+export interface ModelMeta {
+  /** 官方展示名（`model_config.display_name`）。 */
+  displayName?: string;
+  /** 是否多模态（`model_config.is_vl`）。 */
+  isVl?: boolean;
+  /** 是否推理模型（`model_config.is_reasoning`）。 */
+  isReasoning?: boolean;
+  /** 默认上下文（`model_config.max_input_tokens`）。 */
+  maxInputTokens?: number;
+}
+
+/**
+ * 「上游 key → 模型元数据」查询器（由 `catalog.ts` 在装配时注入）。
+ *
+ * ⚠ **为什么用注入而不是直接 import**：`catalog.ts` 需要 `upstream.fetchModels()`
+ * 拉目录，`upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。
+ * 由 `channel.ts` 装配时接上（`upstream.setModelMetaLookup(catalog.metaOfKey)`），
+ * 两个模块保持单向依赖。
+ */
+let metaLookup: ((modelKey: string) => ModelMeta | undefined) | null = null;
+
+/** 注入模型元数据查询器（`null` = 撤回，恢复「无元数据」行为）。 */
+export function setModelMetaLookup(
+  lookup: ((modelKey: string) => ModelMeta | undefined) | null,
+): void {
+  metaLookup = lookup;
+}
+
+/** 取模型元数据（未注入 / 查不到 → 空对象，请求体退回默认值）。 */
+function metaOf(modelKey: string): ModelMeta {
+  try {
+    return metaLookup?.(modelKey) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * 构造并**编码**请求体，返回要直发的字符串。
  *
- * 模型目录元数据由 `catalog.ts` 注入（display_name / is_vl / is_reasoning），
- * 这里只收一个可选的查表回调，避免四个模块互相 import 成环。
+ * 模型目录元数据由 `catalog.ts` 注入（display_name / is_vl / is_reasoning /
+ * max_input_tokens），这里只消费 —— 见上面的 `setModelMetaLookup`。
  */
 export function buildChatBody(
   req: Record<string, unknown>,
@@ -576,7 +619,7 @@ export function buildChatBody(
 ): string {
   const effectiveRealm = realm ?? activeRealm;
   activeRealm = effectiveRealm;
-  const body = buildRequestBody(req, modelKey, {}, effectiveRealm);
+  const body = buildRequestBody(req, modelKey, metaOf(modelKey), effectiveRealm);
   // 身份类型必须用**真实账号**的（参考实现里就是这么覆盖模板默认值的）
   body["aliyun_user_type"] = currentUserType();
   const encoded = qoderEncode(JSON.stringify(body));

@@ -187,17 +187,17 @@
 
 方法 + 完整 URL + 端点路径 + query/body 来源。`src/upstream.ts` 顶部有同一张表的代码注释。
 
-| 用途 | 方法 | 完整 URL（国内版） | query / body 来源 |
-| --- | --- | --- | --- |
-| chat（流式） | POST | `https://copilot.tencent.com/v2/chat/completions` | 无 query；body 由 `buildChatBody` 归一化（强制 `stream:true`） |
-| 真目录 | GET | `https://copilot.tencent.com/v3/config` | 无 query |
-| 窄表（企业） | GET | `https://copilot.tencent.com/v2/enterprises/personal/models`（兜底 `/console/enterprises/personal/models`） | 无 query |
-| 令牌刷新 | POST | `https://copilot.tencent.com/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 |
-| 登录 state | POST | `https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy` | `platform`（§2.1） |
-| 登录轮询 | GET | `https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | `state` |
-| 账号档案 | GET | `https://copilot.tencent.com/v2/plugin/login/account?state=<state>` | `state`；带 `Authorization` |
-| 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | 无 query；body 带 `PageNumber` / `PageSize` / `ProductCode` / `Status` / `PackageEndTimeRange*` |
-| 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
+| 用途 | 方法 | 完整 URL（国内版） | 端点路径 | query / body 来源 |
+| --- | --- | --- | --- | --- |
+| chat（流式） | POST | `https://copilot.tencent.com/v2/chat/completions` | `/v2/chat/completions` | 无 query；body 由 `buildChatBody` 归一化（强制 `stream:true`） |
+| 真目录 | GET | `https://copilot.tencent.com/v3/config` | `/v3/config` | 无 query |
+| 窄表（企业） | GET | `https://copilot.tencent.com/v2/enterprises/personal/models`（兜底 `/console/enterprises/personal/models`） | `/v2/enterprises/personal/models` | 无 query |
+| 令牌刷新 | POST | `https://copilot.tencent.com/v2/plugin/auth/token/refresh` | `/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 |
+| 登录 state | POST | `https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy` | `/v2/plugin/auth/state` | `platform`（§2.1） |
+| 登录轮询 | GET | `https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | `/v2/plugin/auth/token` | `state` |
+| 账号档案 | GET | `https://copilot.tencent.com/v2/plugin/login/account?state=<state>` | `/v2/plugin/login/account` | `state`；带 `Authorization` |
+| 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | `/v2/billing/meter/get-user-resource` | 无 query；body 带 `PageNumber` / `PageSize` / `ProductCode` / `Status` / `PackageEndTimeRange*` |
+| 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | `/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
 
 - ⚠ `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
   chat 路径加它实测 **404**（`POST /v2/chat/completions` 才是 200）。`[实测]`
@@ -297,7 +297,122 @@
   `X-Requested-With` / `User-Agent`（**单段** `WorkBuddy/5.5.6`，无 CLI 段）/ `Origin` /
   `Referer`；企业账号另带 `X-Enterprise-Id` + `X-Tenant-Id`，否则发 `X-No-Enterprise-Id`。
 
-## 7. 已知边界
+---
+
+## 使用与实测
+
+### 登录方式
+
+`mx login workbuddy` 走**网页设备授权**：申请 `state`（`POST /v2/plugin/auth/state?platform=workbuddy`）
+→ 浏览器打开 `authUrl` 人工授权一次 → 轮询 `GET /v2/plugin/auth/token?state=`
+→ 取账号档案 `GET /v2/plugin/login/account?state=` → 落盘 `credentials.json`。
+
+设备授权**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用同一个轮询处理器
+取令牌（粘贴兜底见 §2.1.1）。**唯一登录路径与「为什么不采纳另外两条路线」的判据见 §2.1。**
+
+### 与国际版（`workbuddyai`）的关系
+
+`workbuddy`（国内版 CodeBuddy，域见本文件 §1 / §2.1）与 `workbuddyai`
+（国际版 WorkBuddy，`www.workbuddy.ai`）是**两条独立渠道**：
+账号、凭证落点与模型池各自独立，域是渠道身份的一部分。`--realm` 参数在两条渠道上都被忽略
+（保留仅为兼容共享层 CLI 的签名）。
+
+两者的登录协议、上游约束、SSE 处理**完全一致**（代码有意重复），差别只有域名、
+模型目录与凭证落点 —— 规格见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)。
+
+`cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似，这是有意的：
+两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
+变成默认行为。
+
+### 存储
+
+统一存储根 `~/.modelmux/` 下按 cid 分层，本渠道全部落在 `~/.modelmux/workbuddy/`：
+`credentials.json`（0600）、`accounts.json` + `accounts/<key>.json`、`upstream.json`、
+`prefs.json`、`gateway.pid`，外加 `cache/`、`state/`、`debug/`。
+
+本渠道只读写 `~/.modelmux/workbuddy/`；国际版的数据在 `~/.modelmux/workbuddyai/`，两者不共享。
+详见 [`STORAGE-CONVENTION.md`](../../STORAGE-CONVENTION.md)。
+
+`upstream.json` 里的 `deviceToken` 字段用于启用 `X-Device-Token`（§6.1）。
+
+### 模型 id 与目录
+
+对外名 = 上游模型名（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`），不做短名映射。
+多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道，
+裸模型名一律 400。
+
+目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddy/cache/models.json`）
+→ 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
+`mx model workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
+
+### 已知限制（实测）
+
+- SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
+  （原因与结论见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md) 的「使用与实测」）。
+- **上游按「业务码优先于状态码」归一**：限流 / 额度码不总是配 429，只看状态码的实现
+  会把可换号的失败当成不可重试的客户端错误（§4.1）。
+- **HTTP 200 也可能是错误信封**（上游把内部故障塞进 200 的响应体），但**对话路径尚无拦截点**
+  —— 共享层没有「发完再判响应体」的渠道钩子（见「已知边界」§7.2 缺口 5）。
+- **账号档案步拿不到不影响登录**（uid 回落 JWT `sub`），但企业账号的 `X-Enterprise-Id` /
+  `X-Tenant-Id` 头就发不出（§6）。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `workbuddy/hy3` | **倍率 0（免费）**，自动化测试首选；2026-10-19 与 2026-10-20 端到端实测都用它 | `[实测]` |
+| `workbuddy/deepseek-v4.1-flash` | 目录里的免费档之一（国际版同款） | `[实测]` |
+| 目录里倍率最高的几档 | 最高到 6.67 —— **禁用于自动化测试** | `[实测]` |
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login workbuddy           # 登录入池（网页设备授权，规格见 §2.1）
+mx status workbuddy          # 状态与凭据
+mx model workbuddy --refresh # 目录刷新（并发双探 + 合并）
+mx bill workbuddy            # 额度与倍率（测试后核对是否扣费）
+```
+
+登录走设备授权，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
+同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
+
+### 端到端测试覆盖
+
+登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）：
+
+- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容与要求一致，
+  同会话 `messageCount` 递增，说明多轮工具调用链路完整。
+- 倍率 0：测试前后 `mx bill workbuddy` 剩余额度无变化。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）：
+
+- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
+- 本轮为**全渠道回归**的一环，未改动本渠道代码；结论与 2026-10-19 的记录一致。
+
+---
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [HanawaBanana/workbuddy2api](https://github.com/HanawaBanana/workbuddy2api) | 主参照（Go）：`internal/upstream/headers.go` 的官方桌面端指纹注入（X-Agent-Purpose + X-IDE-* 四头 + 按 realm 切 UA）、`internal/prompt/prompt.go` 的 11128 指纹串误杀与中性提示词重试、`cmd/login/main.go` 的设备授权 + 账号档案端点、`internal/upstream/client.go` 的目录并发双探与合并 |
+| [xiaofan6ya/workbuddy2api](https://github.com/xiaofan6ya/workbuddy2api) | 协议与上游错误码参照（该仓库内的 `docs/protocol-reference.md`、`docs/RELEASE_NOTES_UPSTREAM_ERRORS.md`）：`ServerErrorCode` 全表、错误分类表、限流重置读头、200 错误信封、官方刷新节奏、拟人化请求头 |
+| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 管理面板与账号池运营形态参照；成长计划 / 连签抽奖 / 猫猫旅行 / 权益领取端点族（`internal/upstream/{tasks,streak,travel,growth_bonus,blackcat}.go`） |
+| [Sliverkiss/CodeBuddy2api](https://github.com/Sliverkiss/CodeBuddy2api) | CodeBuddy 双区参照（83★）：国内端点 `copilot.tencent.com` 与本渠道对应（`internal/ioa`），**CLI 形态身分**（`X-IDE-Type: CLI`）；其国际端点用旧域名 `www.codebuddy.ai`（实测已 DNS 沉洞，桌面端已迁 `workbuddy.ai`，故不归 `workbuddyai` 渠道） |
+| [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) | 端点与凭据流程参照（clone 目录 `reference/dsh-workbuddy-connect`）：chat / billing / 前台三套 base 的分离、`/v3/config` 的 UA 与企业账号分流、`X-Conversation-*` 三件套的 11128 结论 |
+
+## 已知边界
 
 ### 7.1 明确不做（本轮及后续都不实现）
 
@@ -363,88 +478,3 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
    本仓实测该路径 302 跳登录页（浏览器路由），故改用 `/v2/...` 为首选。
 5. 参考实现表原未覆盖 sliver 的 **CLI 形态身分**（`X-IDE-Type: CLI`）与 panel 的
    **成长 / 权益端点族** —— 本轮补上。
-
----
-
-## 使用与实测
-
-### 与国际版（`workbuddyai`）的关系
-
-`workbuddy`（国内版 CodeBuddy，域见本文件 §1 / §2.1）与 `workbuddyai`
-（国际版 WorkBuddy，`www.workbuddy.ai`）是**两条独立渠道**：
-账号、凭证落点与模型池各自独立，域是渠道身份的一部分。`--realm` 参数在两条渠道上都被忽略
-（保留仅为兼容共享层 CLI 的签名）。
-
-两者的登录协议、上游约束、SSE 处理**完全一致**（代码有意重复），差别只有域名、
-模型目录与凭证落点 —— 规格见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)。
-
-`cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似，这是有意的：
-两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
-变成默认行为。
-
-### 存储
-
-统一存储根 `~/.modelmux/` 下按 cid 分层，本渠道全部落在 `~/.modelmux/workbuddy/`：
-`credentials.json`（0600）、`accounts.json` + `accounts/<key>.json`、`upstream.json`、
-`prefs.json`、`gateway.pid`，外加 `cache/`、`state/`、`debug/`。
-
-本渠道只读写 `~/.modelmux/workbuddy/`；国际版的数据在 `~/.modelmux/workbuddyai/`，两者不共享。
-详见 [`STORAGE-CONVENTION.md`](../../STORAGE-CONVENTION.md)。
-
-`upstream.json` 里的 `deviceToken` 字段用于启用 `X-Device-Token`（§6.1）。
-
-### 模型 id 与目录
-
-对外名 = 上游模型名（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`），不做短名映射。
-多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道，
-裸模型名一律 400。
-
-目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddy/cache/models.json`）
-→ 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
-`mx model workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
-
-### 已知限制（实测）
-
-- SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
-  （原因与结论见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md) 的「使用与实测」）。
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login workbuddy           # 登录入池（网页设备授权，规格见 §2.1）
-mx status workbuddy          # 状态与凭据
-mx model workbuddy --refresh # 目录刷新（并发双探 + 合并）
-mx bill workbuddy            # 额度与倍率（测试后核对是否扣费）
-```
-
-登录走设备授权，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
-同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
-
-### 端到端测试覆盖
-
-登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）：
-
-- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容与要求一致，
-  同会话 `messageCount` 递增，说明多轮工具调用链路完整。
-- 倍率 0：测试前后 `mx bill workbuddy` 剩余额度无变化。
-
----
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [HanawaBanana/workbuddy2api](https://github.com/HanawaBanana/workbuddy2api) | 主参照（Go）：`internal/upstream/headers.go` 的官方桌面端指纹注入（X-Agent-Purpose + X-IDE-* 四头 + 按 realm 切 UA）、`internal/prompt/prompt.go` 的 11128 指纹串误杀与中性提示词重试、`cmd/login/main.go` 的设备授权 + 账号档案端点、`internal/upstream/client.go` 的目录并发双探与合并 |
-| [xiaofan6ya/workbuddy2api](https://github.com/xiaofan6ya/workbuddy2api) | 协议与上游错误码参照（该仓库内的 `docs/protocol-reference.md`、`docs/RELEASE_NOTES_UPSTREAM_ERRORS.md`）：`ServerErrorCode` 全表、错误分类表、限流重置读头、200 错误信封、官方刷新节奏、拟人化请求头 |
-| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 管理面板与账号池运营形态参照；成长计划 / 连签抽奖 / 猫猫旅行 / 权益领取端点族（`internal/upstream/{tasks,streak,travel,growth_bonus,blackcat}.go`） |
-| [Sliverkiss/CodeBuddy2api](https://github.com/Sliverkiss/CodeBuddy2api) | CodeBuddy 双区参照（83★）：国内端点 `copilot.tencent.com` 与本渠道对应（`internal/ioa`），**CLI 形态身分**（`X-IDE-Type: CLI`）；其国际端点用旧域名 `www.codebuddy.ai`（实测已 DNS 沉洞，桌面端已迁 `workbuddy.ai`，故不归 `workbuddyai` 渠道） |
-| [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) | 端点与凭据流程参照（clone 目录 `reference/dsh-workbuddy-connect`）：chat / billing / 前台三套 base 的分离、`/v3/config` 的 UA 与企业账号分流、`X-Conversation-*` 三件套的 11128 结论 |

@@ -199,10 +199,58 @@ interface Channel {
 失效时抛错 —— **不要假装续期成功**（那会让 UI 显示「已续期」而请求仍 401）。
 `load()` 遇到「老凭据缺新字段」时，能补就补，而不是拒绝整条凭据。
 
+#### 5.1.1 登录回调（`login()` 的第二个参数）
+
+`cred.login(baseUrl, options?)` 的 `options` 是渠道与界面之间的回调面，四个成员
+**全部可选**（类型见 `packages/core/gateway/src/runtime/channel.ts:115-125`）：
+
+| 回调 | 语义 | 共享层调用点 |
+|---|---|---|
+| `onUrl(url)` | 拿到授权 URL 后**立刻**回调（界面展示链接，**不**自动开浏览器） | `packages/core/gateway/src/auth/auth-flow.ts:62` |
+| `onStatus(msg)` | 进度提示 | `packages/core/gateway/src/auth/auth-flow.ts:65` |
+| `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts:64` |
+| `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts:67` |
+
+`pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
+（`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
+常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:67` 包一次，
+扫码路径在 `packages/core/gateway/src/app/headless.ts:310` 包一次；
+Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
+（`packages/core/gateway/src/app/headless.ts:222-231`）进来。
+
+**渠道必须接住这个回调**：既不声明、也不消费 = 用户粘回的内容被静默丢弃。
+授权回调页线上是 404（授权码只出现在浏览器地址栏里），此时流程只能白等到超时。
+
+#### 5.1.2 粘贴兜底的两种形态（**只有一条登录路径**）
+
+粘贴是**兜底**，不是第二条路径：无论哪种形态，最终都收敛到**同一个回调处理器**
+或**同一个轮询处理器**，token 只换一次。
+
+| 形态 | 本机回环服务器 | 粘贴内容怎么用 | 渠道 |
+|---|---|---|---|
+| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | codearts、lobsterai |
+| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | loomy、qodercn、workbuddyai、qoder、workbuddy |
+
+形态 B 另有一条硬要求：**认出「授权被拒 / 出错」的措辞就立刻收尾报错**
+（不等轮询超时）—— 用户拒绝授权时看到的是白等几分钟。措辞集合见各渠道
+`cred.ts` 的 `AUTH_ERROR_MARKERS`（如 `packages/core/channels/qoder/src/cred.ts:434`）。
+
+⚠ `pasteCode()` **一次性消费**：调用方取出一次即清空
+（`packages/core/gateway/src/app/headless.ts:76-80`、`223-227`），
+渠道必须按「可能返回 `undefined`」处理，不能假设一定有值。
+
 ### 5.2 `upstream.ts`
 
-**两个可选钩子的语义**（实现细节见 `POOL-ARCHITECTURE.md` §2.4）：
+**可选钩子的语义**（路由相关的两项见 `POOL-ARCHITECTURE.md` §2.4）：
 
+- `buildChatHeaders?(credential, cfg)`：对话请求的**专用头族**（上游按整组头判定
+  「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
+  （`packages/core/gateway/src/http/chat-relay.ts:284`）；普通 OpenAI 兼容渠道无需声明。
+- `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
+  （`packages/core/gateway/src/http/chat-relay.ts:974-990`）。参数是**网关已经建好的
+  body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
+  会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
+  （`packages/core/gateway/src/runtime/channel.ts:179`）。
 - `isAuthFailure(status, body)`：只对 **4xx 且非 401/403** 的响应调用；返回 true 时网关按
   401/403 同路径处理（刷新 token → 换池内账号）。用于上游不用标准状态码表达凭据失效的渠道。
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
@@ -249,26 +297,46 @@ interface Channel {
 （收到内容后的静默阈值）与 `ackConversation?(): void`（回报会话完成）；网关据此
 在静默后主动收尾，避免客户端一直等待。参考实现同上。
 
+**错误帧的 `code` 一律是字符串**：上游给的可能是数字，直接透传会让
+按 `error.code: string` 解码的客户端整帧解码失败。翻译器产出错误帧时必须
+`String(...)` 归一（`packages/core/channels/catpaw/src/upstream.ts:1024`、
+`packages/core/channels/traecn/src/upstream.ts:942`）。
+共享层提取错误帧时也只认字符串 `code`，数字码会被丢掉，报错里就没有错误码了
+（`packages/core/gateway/src/http/sse-stream.ts:224`）。
+
+**上游一轮响应里可能有多个 JSON 片段**：翻译器必须按**平衡花括号逐段扫描**
+（对字符串与转义感知），不能按「最外层花括号跨度」一刀切 —— 后者会把多个片段
+连成一坨，JSON 解析必然失败，整段只能当纯文本透传。参考实现见
+`packages/core/channels/orcaterm/src/upstream.ts:708-740`。
+
 **`buildChatBody(req, upstreamModel)`** 把下游 OpenAI 请求改写成上游能接受的形状：
 
 - 标准 OpenAI 渠道：通常 `{...req, model: upstreamModel}`，可能补 system、强制 `stream: true`
 - Anthropic 渠道：翻成 `{model, system, messages, max_tokens, stream}`
-- 自定义渠道：翻成上游字段名（如 TRAE 的 `function` / `config_name` / `messages[].content`）
+- 自定义渠道：翻成上游字段名（工具声明包进 `function` 子对象、消息内容换字段名等）
 
 上游只支持流式时**恒设 `stream: true`**（客户端要非流式由网关聚合）。
 
 聚合出的非流式响应体里，**纯工具调用消息不带 `content` 键**（不是 `content: null`）：
 严格客户端（Go 的 `Content string`）解 `null` 会直接失败，缺失字段对它们等价于空串。
+（实现见 `packages/core/gateway/src/http/sse-stream.ts:171-176`。）
 
 **`buildHeaders(credential)`** 返回**完整**的上游请求头（含鉴权与伪装）。
 网关只会额外补 `Accept: text/event-stream`（若头里没有）。
+
+**按账号生效的上游属性必须在 `buildHeaders()` 判定**：`buildChatBody()` 的签名里
+**没有凭据**（`packages/core/gateway/src/runtime/channel.ts:181-184`），只有
+`buildHeaders(credential)` 拿得到。凡是「按账号授予」的上游属性（免费额度标记、
+按账号路由的端点等），判定都要放在 `buildHeaders()`，用 `credential.uid` 作账号键，
+并按账号分桶落盘 —— 否则多账号场景下会把一个账号的标记发给另一个账号。
+参考实现见 `packages/core/channels/codearts/src/upstream.ts:694-722`。
 
 ### 5.3 `catalog.ts`
 
 **兜底表是必需的**：未登录或上游目录失败时用户仍应看到模型（否则渠道在选择器里
 凭空消失，用户以为插件坏了）。
 `catalog.exposedIds()` 只需给出该渠道**真实可用**的归一化 id；共享层不做家族过滤
-（全模型池，见 §4.2）。
+（全模型池，见 §4.1）。
 但**不要列出实测用不了的模型** —— 用户选中后拿到空回答，而错误指向「模型」
 而非真实原因，比不列更糟。
 
@@ -321,14 +389,38 @@ loomy / qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底�
 modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined;
 ```
 
-- `modelId` 是**对外暴露的 id**（与 `exposedIds()` 返回值同形）—— 渠道内部负责把
-  对外 id 映射到自己的条目（与 `rateTag()` 同一约定）。
+- `modelId` 是池 id 里的**规范模型名**（`exposedIds()` 经归一化后的结果）——
+  渠道内部负责把它映射到自己的条目（与 `rateTag()` 同一约定）。
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
-- 渠道声明的值**优先于**公开规格：上游说的才是「这条渠道实际能吃多少」。
+- **共享层在缓存缺值时才问渠道要规格**：先读该渠道的目录缓存
+  （`packages/core/gateway/src/pool/pool-targets.ts:303-309`），再问
+  `catalog.modelSpec()`（`packages/core/gateway/src/pool/pool-targets.ts:310-316`），
+  两者都拿不到才回落兜底值。
+- **取值优先级：上游目录 > 渠道声明 > 兜底**
+  （`packages/core/gateway/src/pool/pool-targets.ts:268-290`）——
+  上游说的才是「这条渠道实际能吃多少」。
 - 共享层**不许出现模型名** → 这张表必须放在**渠道包**里
   （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
 - 池层怎么用它见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6。
+
+#### 渠道内部：`catalog` 与 `upstream` 的依赖方向
+
+渠道包内 **`catalog` → `upstream` 是既有方向**（`catalog` 要调 `upstream.fetchModels()`
+拉目录）。因此 **`upstream` 不得反向 import `catalog`** —— ESM 环依赖下模块初始化
+顺序不可靠。
+
+`upstream` 若需要**目录元数据**（请求体里的模型配置：展示名、是否多模态、是否推理、
+上下文上限等），由**装配处注入查询函数**：
+
+```ts
+// packages/core/channels/<cid>/src/channel.ts
+upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
+```
+
+目录知识仍归 `catalog` 管，两个模块保持单向依赖。参考实现见
+`packages/core/channels/qoder/src/channel.ts:25-30`、
+`packages/core/channels/qoder/src/upstream.ts:476-491`。
 
 ### 5.4 `billing.ts`
 
@@ -364,11 +456,16 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 下面是已验证的三类骨架（`src/cred.ts` 里实现）。**不得**从其它 AI 应用的本地文件
 （凭据数据库、`auth.json`、Local Storage 等）读取登录态。
 
+类型字母与共享层骨架对齐（`packages/core/gateway/src/auth/login-flow.ts:1-19`）：
+
 | 类型 | 用法 | 渠道 |
 |---|---|---|
-| **A. 创建 flow + 轮询** | `POST .../auth/state` 或 `.../oauth/cli/init` → 取 `authorize_url`/`authUrl` → 轮询拿 token | workbuddyai、workbuddy |
-| **B. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、codearts、lobsterai |
-| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | loomy、raccoon |
+| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、codearts、lobsterai |
+| **B. flow 轮询** | `POST .../auth/state` 或 `.../oauth/cli/init` → 取 `authorize_url`/`authUrl` → 轮询拿 token | workbuddyai、workbuddy |
+| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | loomy、raccoon、qoder、qodercn |
+
+各渠道的端点、请求头与字段是**渠道知识**，写在 `docs/channels/<cid>/PROTOCOL.md`，
+不进本契约。
 
 共同要求：
 
@@ -377,6 +474,9 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 2. **轮询的终态判据**：HTTP 4xx（除 408/429）才是失败；5xx 与网络错误继续重试。
 3. **超时**给明确上限，超时抛错并提示重试。
 4. 成功即 `save()` 落盘（原子替换 + 0600）。
+5. **接住 `options.pasteCode`**：共享层一直在传（`auth/auth-flow.ts:67`），
+   渠道不消费 = 用户粘回的内容被静默丢弃。粘贴是**兜底**、不是第二条登录路径，
+   两种形态见 §5.1.2。
 
 ---
 

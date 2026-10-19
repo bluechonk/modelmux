@@ -251,6 +251,32 @@ rm -rf ".tmp/reasonix-$CID"
 
 实例（loomy，2026-10-19）：`deepseek-v4.1-flash` 倍率 2，测试前 5000 / 5000，测试后 4983 / 4983，消耗 17 积分（1 次冒烟 + 3 轮工具往返）。
 
+### 6.1 客户端声明了哪些工具（桥接类渠道要靠它）
+
+Reasonix 一次声明 **18 个**工具，其中与文件/命令相关的是：
+`bash`（参数 `command`）、`write_file`（`content` + `path`）、`read_file`（`path`）、
+`edit_file`（`path` + `old_string` + `new_string`），其余是
+`ask` / `await_user` / `browser_*` / `compress` / `context_budget` / `recall` /
+`todo_write` / `use_capability` / `bash_output` / `complete_step` / `kill_shell` / `wait`。
+
+渠道把上游的原生工具名桥接回客户端时，**按这套名字对**（上游给 `command` → 客户端 `bash`；
+给「路径 + 内容」→ `write_file`；只给路径 → `read_file`）。
+要确认客户端到底声明了什么，最快的办法是临时把 `base_url` 指向一个本地回显服务，
+跑一次请求把 `tools` 数组打出来（**测完把 `base_url` 改回去**）。
+
+### 6.2 已知的工具调用坑（2026-10-20 实测）
+
+| 渠道 | 现象 | 根因 |
+| --- | --- | --- |
+| traecn | 文件写成功但**读回**失败，上游报 `code=4027 Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` | 上游只认 assistant 消息上的 **`tool_calls` 数组**，改写成单个 `function_call` 对象就不认 |
+| orcaterm | 工具调用完全不发生，模型输出一坨 `{"action":"review",...}` | 上游一轮响应**连吐多个信封**，按「最外层花括号」切会解析失败 → 整段当文本透传 |
+| 全部渠道 | 客户端报 `cannot unmarshal number into Go struct field streamWireError.error.code` | 错误帧的 `code` 必须是**字符串**（上游给数字会让客户端解码失败） |
+| 全部渠道 | 客户端报 `cannot unmarshal null into Go struct field streamWire...` | 纯工具调用消息的非流式聚合体**不能带 `content: null`**，要省略该键 |
+
+判工具调用是否真跑通，以**访问日志**为准：`toolCount>0` 且 `messageCount` 随工具轮次递增；
+只看模型嘴上说「做完了」不算。
+
+
 注意：`mx bill` 输出里的「已用 0」是该额度桶的已用字段，不代表本次差值；差值要用前后「剩余额度」相减。
 
 ### 7. 网关未启动时的处理

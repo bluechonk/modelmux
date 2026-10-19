@@ -10,8 +10,9 @@
 | 维度 | 当前设计 | 说明 |
 |---|---|---|
 | 对外模型 id 形态 | `<cid>/<模型>` 动态池（见 §2） | 客户端用渠道前缀显式选池子 |
+| 模型目录来源 | 磁盘缓存 → 远端目录 → 渠道内置兜底表（见 §2.7） | 三级来源，兜底表在渠道包里 |
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
-| 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；切号一律手动 | 见 §3.4 |
+| 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；切号一律手动 | 见 §3.3 |
 | 跨渠道自动选池 | 不做：渠道由请求前缀显式指定 | 见 §2.4 |
 | 额度耗尽自动换号 / 轮询 | 未实现 | 见 §3.4 |
 
@@ -182,24 +183,82 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 **字段名由渠道自定，汇聚层逐个尝试**（与倍率字段 `MULTIPLIER_KEYS` 同一惯例 ——
 字段名只是约定，不算渠道知识，共享层不硬编码任何渠道特性）：
 
-| 语义 | 候选字段名 | 实测写入方 |
+| 语义 | 候选字段名 | 渠道缓存里实际写的键 |
 |---|---|---|
-| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | catpaw·loomy·raccoon 写驼峰，codearts·lobsterai·traecn·workbuddy 写下划线，qoder 写 `max_input_tokens` |
-| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | raccoon 写 `maxOutput`，traecn·workbuddy 写 `max_output`，其余渠道上游不发该字段 |
+| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（codearts·lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
+| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（codearts·lobsterai·traecn·workbuddy·workbuddyai） |
+
+上游自己的字段名（lobsterai 的 `maxTokens`、workbuddyai 的 `maxOutputTokens` /
+`max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
+汇聚层只认缓存里那两种写法（`pool-targets.ts` 的 `CONTEXT_KEYS` / `OUTPUT_KEYS`）。
 
 - **档位表取上限**：qoder 的 `context_config` 是档位表（`{"1M":{token_count:1000000}, …}`），
   取**最大档**而非默认档 —— 对客户端报能力上限，否则 1M 模型会被按默认 200k 误判。
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
   回落兜底值（窗口 128000 / 输出 4096）。
 - **上游不发 → 问渠道要「已知规格」**：多数渠道的上游目录**不带**窗口与输出上限
-  （实测 catpaw / codearts / lobsterai / loomy / qoder / qodercn 都不发）。这类渠道用
-  自己的 `MAX_OUTPUTS` 表按**公开规格**回答（`catalog.modelSpec()` 钩子，
-  契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。规格的核实结果与来源是
-  [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
+  （实测 catpaw / codearts / lobsterai / loomy / orcaterm / qoder / qodercn 都不发）。
+  这类渠道用自己的 `MAX_OUTPUTS` 表按**公开规格**回答 —— 入口是**可选钩子**
+  `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
+  当前实现该钩子的渠道：catpaw / codearts / lobsterai / loomy / orcaterm / qoder /
+  qodercn；raccoon / traecn / workbuddy / workbuddyai 的目录自带这两个数，
+  走下面「上游声明优先」那条路。
+  规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
   - 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）→ 表必须放在**渠道包**里。
   - 4096 兜底是「未知」，不是任何模型的真实上限：客户端按 4096 截断会把每次回答砍到 4k。
 - **上游声明优先**：渠道声明的值比公开规格更贴近「这条渠道实际能吃多少」，
   两者冲突时以上游为准（分歧记在 [MODEL-SPECS.md](./MODEL-SPECS.md) §6）。
+
+### 2.7 模型目录的三级来源与兜底表
+
+目录的来源顺序**所有渠道一致**（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）：
+
+| 级 | 来源 | 落点 | 说明 |
+|---|---|---|---|
+| 1 | 磁盘缓存 | `<root>/<cid>/cache/models.json` | **常态来源**：上次真实拉到的目录，新进程直接可读（`runtime/catalog-cache.ts`） |
+| 2 | 远端目录 | —— | `upstream.fetchModels()`：登录后拉一次；本地无缓存时 `mx model <cid>` 也会拉；`--refresh` 强制重拉。拉到即落盘 |
+| 3 | 渠道内置兜底表 | 渠道包 `src/catalog.ts`（11 个渠道里 9 个另有随包 `models.json` 快照） | 连缓存都没有时用，保证「未登录 / 离线时渠道不凭空消失」 |
+
+规则：
+
+- **兜底表是数据，不是机制**：它随包发布、必然随上游演进而脱节。它的意义只是
+  「不留空白」，不是「这份目录是对的」。各渠道兜底表的具体内容写在该渠道的
+  `PROTOCOL.md`，此处只说跨渠道规则。
+- **兜底表必须能真的兜住**：用**真实上游 id**，不用占位名（catpaw 曾写 `catpaw-flash`，
+  上游根本不存在，选中必然失败）。
+- **兜底表的形态随上游协议而定**：目录条目表（多数渠道）、上游目录快照
+  （qodercn 的国内版目录 14 条）、上游元数据快照（qoder 的 `STATIC_META`，
+  供请求体的 `model_config` 用）、以及**上游协议要求的数值表**（catpaw 的
+  `modelType` 数值表 —— turn / round 的请求体要的是**数字** modelType 而不是模型名，
+  目录拉不到时没有这张表就等于全部模型不可用）。
+- **共享层不持有任何兜底模型**：目录读不出来时 `poolModels()` 返回空
+  （`pool/pool-targets.ts:45`），空池意味着「所有渠道的目录都读不出来」，
+  此时对外公布幻影模型只会让请求必然落空。
+
+### 2.8 目录元数据回灌上游请求体
+
+有些上游要求请求体里带**目录的元数据**（展示名 / 是否推理模型 / 上下文上限），
+否则上游按默认值处理。这条链路与 §2.6 方向相反：§2.6 是「目录 → 池元数据」，
+这里是「目录 → 上游请求体」。
+
+**接线方式：注入，不互相 import**。`catalog.ts` 要靠 `upstream.fetchModels()` 拉目录，
+`upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。因此：
+
+1. `upstream` 侧导出 `setModelMetaLookup(lookup)`，只认注入进来的查询器
+   （`packages/core/channels/qoder/src/upstream.ts:487`）；
+2. 渠道装配处（`channel.ts`）接上：`upstream.setModelMetaLookup(catalog.metaOfKey)`
+   （`packages/core/channels/qoder/src/channel.ts:30`）；
+3. 查询器按**上游 key** 查（`buildChatBody` 只拿到 key；对外 id 是另一套名字，
+   见 `catalog.metaOfKey` 与 `catalog.entryOf` 的分工）。
+
+**接线状态**：
+
+| 渠道 | 状态 | 后果 |
+|---|---|---|
+| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:698`） |
+| `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:579`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:557`） |
+
+判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
 
 ---
 
@@ -242,10 +301,17 @@ interface CredModule {
 
 ### 3.3 策略
 
-- **选择**：当前生效账号（`accounts.json.active`）；`pickAccount` 跳过 `unauthorized` / `error`。
-- **失败转移**：401/403 → 先刷新 token，再换池内下一个账号；连续失败达 `FAIL_STREAK_LIMIT = 3`
-  次标记 `error` 并跳过，**凭证一律保留**；成功清零连败，手动切号恢复 `error`。
-- **未实现**：按额度耗尽自动换号、轮询、最久未用。
+- **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
+  `callUpstream` 入口**直接短路**，不再发上游请求（`http/chat-relay.ts:757`）。
+  `pickAccount`（账号池的候选选择器）跳过 `unauthorized` / `error` 的账号
+  （`runtime/account-pool.ts:494`）。
+- **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
+  `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
+  `mx acct <cid> use <key>` 手动决定（`http/chat-relay.ts:791`）。
+  `pickAccount` 因此**没有自动切号的调用方**。
+- **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
+  **凭证一律保留**；成功清零连败，手动切号恢复 `error`。
+- **未实现**：自动切号、按额度耗尽自动换号、轮询、最久未用。
 - **与 realm 共存**：workbuddy 的 intl/cn 账号由渠道自己解释；账号切换不改变渠道基址。
 
 ---
@@ -290,7 +356,7 @@ interface CredModule {
 - `health`：`ok` | `unauthorized` | `unknown` | `error`。由**网关**在刷新失败时写
  `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
 - **`error` = 连续失败标记**：生效账号连续请求失败达
- `FAIL_STREAK_LIMIT = 3` 次 → `health` 标 `error`，路由与 `pickAccount` 都跳过它，
+ `FAIL_STREAK_LIMIT = 3` 次 → `health` 标 `error`，路由与账号选择都跳过它，
  `callUpstream` 入口直接短路不再发上游请求；**凭据一律保留**。只有「凭据/网络/
  上游 5xx」计入连败 —— 模型目录问题、请求体协议错（如 catpaw 的 tool 消息序列）、
  上游 4xx 业务错是请求级问题，不计入（否则健康账号会被误标）。
@@ -319,7 +385,28 @@ interface CredModule {
 | `mx acct remove <key>` | 从池子删除（生效账号 → 同时登出） |
 | `login` 成功后 / 守护 `start` 前 | 自动同步（登录即入池；刷新过的 token 回灌） |
 
-**当前未实现（策略层，见 §3.3）**：按额度耗尽自动换号、轮询、最久未用。
+**当前未实现（策略层，见 §3.3）**：自动切号、按额度耗尽自动换号、轮询、最久未用。
+
+### 3.5 渠道侧的按账号状态（benefit 类）
+
+共享账号池管的是**凭据**；渠道自己还有一类**按账号授予**的上游状态
+（如 codearts 的 benefit 免费额度模型集合）。这类状态不归共享层管，但有两条跨渠道规则：
+
+1. **按账号键分桶落盘**：不能全局共用一份集合 —— 池里 A 账号有、B 账号没有时
+   共用会互相污染（该带判定的少带报 404，多带报 unsupported）。
+   账号键用渠道给的稳定标识（如 `cred.uid`），落点在**渠道层内**
+   （`<root>/<cid>/cache/`，见 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md)）。
+2. **判定放在拿得到凭据的那一步**：共享网关的调用序列是
+   `buildChatBody()` → `buildHeaders()`，**只有 `buildHeaders()` 拿到凭据**
+   （契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.2）。所以依赖账号的判定
+   （这个模型是不是 benefit、要不要多带一个上游头）必须放在 `buildHeaders()`；
+   `buildChatBody()` 需要的判定输入（如本次的上游模型 id）经**模块级 pending 槽**
+   从 `buildChatBody` 传给 `buildHeaders`（`packages/core/channels/codearts/src/upstream.ts:586`）。
+
+实现位置：codearts 在 `buildHeaders()` 里用 `credential.uid` 查该账号的 benefit 集合
+（`packages/core/channels/codearts/src/upstream.ts:713`），分桶落盘在
+`cache/benefit-accounts.json`（`packages/core/channels/codearts/src/catalog.ts:163`）。
+哪些模型算 benefit、福利怎么领等渠道差异写在 codearts 的 PROTOCOL。
 
 ## 4. 公共层设计
 

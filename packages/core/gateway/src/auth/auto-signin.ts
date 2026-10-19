@@ -11,11 +11,11 @@
  * - **单渠道连败 3 次 → 当日熔断**：失败计数落盘 `state/auto-signin.json`
  *   （跨重启累计；守护进程随时可能被 restart，内存计数撑不住）。日期翻篇自动清零。
  *
- * ## 与手动 `checkin` 的关系
+ * ## 与渠道签到契约的关系
  *
  * 完全复用 `signin.status()` / `signin.claim()` 契约，不做任何渠道特判；
- * 成功记账走同一个 `recordClaim`，所以 `checkin --status` 与 `mx status` 的
- * 签到摘要对自动签到天然可见。
+ * 成功记账走同一个 `recordClaim`，所以 `mx status <cid>` 里的签到摘要
+ * 对自动签到天然可见。
  */
 
 import { channelCapabilities, channels, type Channel, type SigninStatus } from "../runtime/channel.js";

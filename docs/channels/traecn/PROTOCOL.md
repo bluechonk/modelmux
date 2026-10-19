@@ -45,25 +45,25 @@
 > 会拼出 `/api/remote/v1/api/agent/...` 拿到误导性 404/502
 > （参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py:482-497` 明确警告）。
 
-**端点全表**（方法 + 完整 URL + 必需 query + 归属传输）：
+**端点全表**（方法 + 完整 URL + 端点路径 + 必需 query + 归属传输）：
 
-| 用途 | 传输 | 方法 | 完整 URL | 必需 query | 当前实现 |
-|---|---|---|---|---|---|
-| **chat** | **A** | **POST** | `https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat` | **无**（请求体里也不存在 `query` 字段） | `upstream.ts` `CHAT_PATH` |
-| chat（work） | B | POST | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions` | 无（`mode` / `agent_type` / `common_params` 在 body 的 `initial_message` 里） | **无**（常量已登记，见本节末注） |
-| 拉事件流（work） | B | GET | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/events` | **`reply_to_message_id`**（建会话响应里的 `message_id`） | **无** |
-| 停止会话（work） | B | POST | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/stop` | 无 | **无** |
-| **模型目录（主源）** | **B** | **GET** | `https://trae-api-cn.mchost.guru/api/remote/v1/models?functions=solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote&show_custom_model=true` | **`functions`（三组通道，逗号分隔且 URL 编码）+ `show_custom_model=true`** | `upstream.ts` `REMOTE_MODELS_PATH` / `REMOTE_FUNCTIONS` / `REMOTE_SHOW_CUSTOM_MODEL` |
-| 模型目录（回落） | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param` | 无（22 个 `functions` 通道在 body 里） | `upstream.ts` `MODELS_PATH` |
-| 模型目录（单通道，**无调用方**） | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param` | 无 | **无** |
-| TraeCode 原生 raw | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v2/llm_raw_chat`（回落 `/api/ide/v1/llm_raw_chat`） | 无 | **无**（见「已知边界」） |
-| ExchangeToken | — | POST | `https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken`（可用凭据 `api_host` 覆盖） | 无（body 四字段） | `cred.ts` `OAUTH_EXCHANGE_PATH` |
-| GetUserInfo | — | POST | `https://api.trae.com.cn/cloudide/api/v3/trae/GetUserInfo` | 无（body `{ReqSource:"IDE", IDEVersion}`） | `cred.ts` `OAUTH_USER_INFO_PATH` |
-| 签到状态 | — | POST | `https://api.trae.cn/trae/api/v2/ug/checkin_credits/status` | 无（body `{}`） | `billing.ts` `CHECKIN_STATUS_PATH` |
-| 签到领取 | — | POST | `https://api.trae.cn/trae/api/v2/ug/checkin_credits/claim` | 无（body `{}`） | `billing.ts` `CHECKIN_CLAIM_PATH` |
-| 积分余额 | — | POST | `https://api.trae.cn/trae/api/v2/pay/ide_user_ent_usage` | 无（body `{require_usage, req_source}`） | `billing.ts` `USAGE_PATH` |
-| 授权页（浏览器） | — | GET | `https://www.trae.cn/authorization?` + 20 个 query | `auth_callback_url`（**必须叫这个名**）、`machine_id`、`device_id`、`x_device_id`、`x_machine_id`、`login_trace_id`、`client_id`、`hide_saas_login=true` 等 | `cred.ts` `buildAuthorizeUrl` |
-| 登录回调 | — | — | `http://127.0.0.1:18080/authorize` | — | `cred.ts` `CALLBACK_PORT` / `CALLBACK_PATH` |
+| 用途 | 传输 | 方法 | 完整 URL | 端点路径 | 必需 query | 当前实现 |
+|---|---|---|---|---|---|---|
+| **chat** | **A** | **POST** | `https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat` | `/api/agent/v3/llm_utils_chat` | **无**（请求体里也不存在 `query` 字段） | `upstream.ts` `CHAT_PATH` |
+| chat（work） | B | POST | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions` | `/api/remote/v1/chat_sessions` | 无（`mode` / `agent_type` / `common_params` 在 body 的 `initial_message` 里） | **无**（常量已登记，见本节末注） |
+| 拉事件流（work） | B | GET | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/events` | `/api/remote/v1/chat_sessions/{session_id}/events` | **`reply_to_message_id`**（建会话响应里的 `message_id`） | **无** |
+| 停止会话（work） | B | POST | `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/stop` | `/api/remote/v1/chat_sessions/{session_id}/stop` | 无 | **无** |
+| **模型目录（主源）** | **B** | **GET** | `https://trae-api-cn.mchost.guru/api/remote/v1/models?functions=solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote&show_custom_model=true` | `/api/remote/v1/models` | **`functions`（三组通道，逗号分隔且 URL 编码）+ `show_custom_model=true`** | `upstream.ts` `REMOTE_MODELS_PATH` / `REMOTE_FUNCTIONS` / `REMOTE_SHOW_CUSTOM_MODEL` |
+| 模型目录（回落） | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param` | `/api/ide/v1/batch_get_detail_param` | 无（22 个 `functions` 通道在 body 里） | `upstream.ts` `MODELS_PATH` |
+| 模型目录（单通道，**无调用方**） | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v1/get_detail_param` | `/api/ide/v1/get_detail_param` | 无 | **无** |
+| TraeCode 原生 raw | A | POST | `https://trae-api-cn.mchost.guru/api/ide/v2/llm_raw_chat`（回落 `/api/ide/v1/llm_raw_chat`） | `/api/ide/v2/llm_raw_chat` | 无 | **无**（见「已知边界」） |
+| ExchangeToken | — | POST | `https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken`（可用凭据 `api_host` 覆盖） | `/cloudide/api/v3/trae/oauth/ExchangeToken` | 无（body 四字段） | `cred.ts` `OAUTH_EXCHANGE_PATH` |
+| GetUserInfo | — | POST | `https://api.trae.com.cn/cloudide/api/v3/trae/GetUserInfo` | `/cloudide/api/v3/trae/GetUserInfo` | 无（body `{ReqSource:"IDE", IDEVersion}`） | `cred.ts` `OAUTH_USER_INFO_PATH` |
+| 签到状态 | — | POST | `https://api.trae.cn/trae/api/v2/ug/checkin_credits/status` | `/trae/api/v2/ug/checkin_credits/status` | 无（body `{}`） | `billing.ts` `CHECKIN_STATUS_PATH` |
+| 签到领取 | — | POST | `https://api.trae.cn/trae/api/v2/ug/checkin_credits/claim` | `/trae/api/v2/ug/checkin_credits/claim` | 无（body `{}`） | `billing.ts` `CHECKIN_CLAIM_PATH` |
+| 积分余额 | — | POST | `https://api.trae.cn/trae/api/v2/pay/ide_user_ent_usage` | `/trae/api/v2/pay/ide_user_ent_usage` | 无（body `{require_usage, req_source}`） | `billing.ts` `USAGE_PATH` |
+| 授权页（浏览器） | — | GET | `https://www.trae.cn/authorization?` + 20 个 query | `/authorization` | `auth_callback_url`（**必须叫这个名**）、`machine_id`、`device_id`、`x_device_id`、`x_machine_id`、`login_trace_id`、`client_id`、`hide_saas_login=true` 等 | `cred.ts` `buildAuthorizeUrl` |
+| 登录回调 | — | — | `http://127.0.0.1:18080/authorize` | `/authorize` | — | `cred.ts` `CALLBACK_PORT` / `CALLBACK_PATH` |
 
 超时：控制面 `30000ms`；登录总超时 `600000ms`（trae.ts:68-70）。
 
@@ -609,7 +609,110 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ---
 
-## 8. 已知边界
+## 使用与实测
+
+### 登录方式
+
+`mx login traecn` 走**浏览器授权 + 本地回调**：CLI 起 `127.0.0.1:18080`（被占用时回退随机端口）
+回调服务器 → 打开 `{consoleHost}/authorization?…`（**`auth_callback_url` 参数名不能写错**）→
+人工授权一次 → 回调直接回传 `refreshToken` 与 `userInfo` → `ExchangeToken` 换 access token →
+`GetUserInfo` 补全账号信息 → 落盘。
+
+**唯一登录路径与「其余路径为何不采纳」的判据见 §2.1**（设备码流 404、桌面 `storage.json` 解密、
+手工粘贴凭据等一律不采纳）。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `traecn/glm-5.3-flash` / `mimo-v2.6-flash` / `doubao-seed-code` | **本渠道倍率最低**（0.06），自动化测试首选 | `[实测]` |
+| `traecn/deepseek-v4.1-flash` | 2026-10-20 AppID 修复后实测可用（非流式 / 流式均 200） | `[实测]` |
+| `traecn/kimi-k3` | 倍率 1.83 —— **禁用于自动化测试** | `[实测]` |
+
+### 已知限制
+
+- **没有倍率 0 的模型**：最低 0.06；测试须选这一档。
+- **AppID 是硬约束**：上游按 `X-App-Id` 查 app config 记录，查不到就 2001 把对话打死
+  （HTTP 200 + 流内 `event:error`）。上游轮换 AppID 时本渠道会**整体失效**，
+  修法是改 `src/cred.ts` 的 `APP_ID` 一个常量（§3.1.1）。
+- **SOLO 传输的 assistant 工具调用必须保持 `tool_calls` 数组**（`{id, type, function_call}`）：
+  改写成单个 `function_call` 对象后，客户端回传的 `role:'tool'` 消息会被上游拒收
+  （`code=4027`，见 §3.2 第 5 条）。
+- **工具消息顺序是硬约束**：`role:'tool'` 必须紧跟其 assistant `tool_calls`，
+  中间插任何消息都会 400，且坏报文会落进会话历史导致**永久无法对话**（§3.3）。
+- **偶发「HTTP 200 但 `content` 为空、只有 `reasoning_content`」**：那是**上游模型行为**
+  （原始 SSE 里就没有 content 帧），不是翻译丢帧 —— 判「对话坏掉」前先看 HTTP 状态码（§7）。
+- **模型 id 大小写混排**（`deepseek-v4.1-flash` 与 `DeepSeek-V4-Flash-Official` 并存），
+  池白名单在共享层做 case-insensitive 匹配（§5.0）。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1 / §2.2）
+mx status traecn          # 状态与凭据
+mx model traecn --refresh # 目录刷新
+mx bill traecn            # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model traecn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`traecn/glm-5.3-flash`，本渠道最低倍率 0.06）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 本渠道**没有倍率 0 的模型**：最低 0.06（`glm-5.3-flash` / `mimo-v2.6-flash` /
+  `doubao-seed-code`），测试须选这档；`kimi-k3` 倍率 1.83，禁用于自动化测试。
+- ⚠ 当时记为「上游偶发瞬时错误（2001 app config），重试即可恢复」——**该结论已被
+  2026-10-20 的复核推翻**：2001 不是抖动，是 `X-App-Id` 陈旧（§3.1.1）。
+
+### 2026-10-20 端到端实测（AppID 修复）
+
+故障请求原样复现（`POST http://127.0.0.1:4412/v1/chat/completions`，
+`{"model":"traecn/deepseek-v4.1-flash","messages":[{"role":"user","content":"只回两个字：收到"}],"stream":false,"max_tokens":64}`）：
+
+| 阶段 | 结果 |
+|---|---|
+| 修复前 | HTTP **502**，`failed to do chat: failed to get app config: record not found`（上游 HTTP 200 + 流内 `event:error` code 2001） |
+| 修复后（非流式） | HTTP **200**，正文 `收到`，`reasoning_content` 正常，`usage` 35/16/51 |
+| 修复后（流式） | HTTP **200**，34 帧增量 SSE，`finish_reason: stop` + `[DONE]` |
+| 修复后（`traecn/glm-5.3-flash`） | HTTP **200**，正文 `收到` |
+
+⚠ 复测中偶见「HTTP 200 但 `content` 为空、只有 `reasoning_content`」——那是**上游模型
+行为**（原始 SSE 里就没有 content 帧），不是翻译丢帧，见 §7。`[实测]`
+
+同时实测：AppID 改正后 `batch_get_detail_param`（Solo 目录）22 个通道**全部**返回
+目录（此前全线 2001），即「目录也随 AppID 一起恢复」。`[实测]`
+
+排查路径（供后续复现）：先看流内错误码 2001 → 比对 `X-App-Id` → 再看头族 / `function` /
+模型名。**只换 AppID 即可复现「通 / 不通」的差异**（其余变量逐一固定）。
+
+同日**全渠道回归**再跑一次 `traecn/deepseek-v4.1-flash`：冒烟通过
+（access 日志 `status: 200`、`stream: true`），结论与上表「修复后」一致。`[实测]`
+
+---
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（该仓库内的 `docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`）；**AppID 常量来源**：`internal/upstream/constants.go:10`、`internal/upstream/work_client.go:42-44` |
+| [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | 国内版实现参照；**AppID 常量来源**：`src/trae_client.py:47`、`src/raw_client.py:53`；Remote（chat_sessions）传输与公共预设口径：`src/trae_remote_client.py`、`src/main.py:1810-1830` |
+| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（该仓库内的 `docs/RESEARCH.md`）；**AppID 常量来源**：`internal/upstream/constants.go:10` |
+| [A-23187/trae-api](https://github.com/A-23187/trae-api) | 最小实现样本；**AppID 常量来源**：`auth.js:48` |
+
+> 四份参考实现**逐字一致**地使用 `X-App-Id: 6eefa01c-1036-4c7e-9ca5-d891f63bfcd8`
+> —— 这正是本轮故障的对照面（本仓库此前用 `…01a…`）。四份均为 **MIT** 许可，
+> 本渠道只借鉴**协议知识**（端点 / 头 / 常量），未复制其代码。`[参考]`
+
+## 已知边界
 
 本节记录**参考实现有、当前实现没有**的能力，以及**待真机验证**的事项。
 完整对照分析见 `.planning/2026-10-20-channel-reference-parity/research/traecn.md`。
@@ -690,71 +793,4 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 | V9 | ~~`batch_get_detail_param` 的 2001 是不是所有新账号通病~~ | **已答（2026-10-20）**：不是账号问题，是 AppID 问题；改正后同账号 22 个通道全部返回目录（§5.1） | — |
 | V10 | 上游下次轮换 AppID 时如何快速发现 | AppID 失效表现为「HTTP 200 + 流内 2001」，网关按 502 上报，易误判为上游抖动 | 见到 2001 `app config: record not found` → 先比对 `src/cred.ts` 的 `APP_ID` 与参考实现（`trae_client.py:47` / `constants.go:10` / `auth.js:48`） |
 | V11 | SOLO 传输的对话流**没有** `notify_usage` 事件 | 2026-10-20 实测 SOLO 流的完整事件为 `metadata` / `timing_cost` / `output` / `extra_info` / `token_usage` / `done`；`notify_usage` 只出现在 Remote（chat_sessions）传输 | 故 `mx bill` 的通道余额快照在 SOLO 传输下取不到值，只能回落权益包口径（§6.4）；若要权威值需切 Remote 传输 |
-
----
-
-## 使用与实测
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1 / §2.2）
-mx status traecn          # 状态与凭据
-mx model traecn --refresh # 目录刷新
-mx bill traecn            # 额度与倍率（测试后核对是否扣费）
-```
-
-### 端到端测试覆盖
-
-登录入池 / `mx model traecn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`traecn/glm-5.3-flash`，本渠道最低倍率 0.06）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 本渠道**没有倍率 0 的模型**：最低 0.06（`glm-5.3-flash` / `mimo-v2.6-flash` /
-  `doubao-seed-code`），测试须选这档；`kimi-k3` 倍率 1.83，禁用于自动化测试。
-- ⚠ 当时记为「上游偶发瞬时错误（2001 app config），重试即可恢复」——**该结论已被
-  2026-10-20 的复核推翻**：2001 不是抖动，是 `X-App-Id` 陈旧（§3.1.1）。
-
-### 2026-10-20 端到端实测（AppID 修复）
-
-故障请求原样复现（`POST http://127.0.0.1:4412/v1/chat/completions`，
-`{"model":"traecn/deepseek-v4.1-flash","messages":[{"role":"user","content":"只回两个字：收到"}],"stream":false,"max_tokens":64}`）：
-
-| 阶段 | 结果 |
-|---|---|
-| 修复前 | HTTP **502**，`failed to do chat: failed to get app config: record not found`（上游 HTTP 200 + 流内 `event:error` code 2001） |
-| 修复后（非流式） | HTTP **200**，正文 `收到`，`reasoning_content` 正常，`usage` 35/16/51 |
-| 修复后（流式） | HTTP **200**，34 帧增量 SSE，`finish_reason: stop` + `[DONE]` |
-| 修复后（`traecn/glm-5.3-flash`） | HTTP **200**，正文 `收到` |
-
-⚠ 复测中偶见「HTTP 200 但 `content` 为空、只有 `reasoning_content`」——那是**上游模型
-行为**（原始 SSE 里就没有 content 帧），不是翻译丢帧，见 §7。`[实测]`
-
-同时实测：AppID 改正后 `batch_get_detail_param`（Solo 目录）22 个通道**全部**返回
-目录（此前全线 2001），即「目录也随 AppID 一起恢复」。`[实测]`
-
-排查路径（供后续复现）：先看流内错误码 2001 → 比对 `X-App-Id` → 再看头族 / `function` /
-模型名。**只换 AppID 即可复现「通 / 不通」的差异**（其余变量逐一固定）。
-
----
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（该仓库内的 `docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`）；**AppID 常量来源**：`internal/upstream/constants.go:10`、`internal/upstream/work_client.go:42-44` |
-| [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | 国内版实现参照；**AppID 常量来源**：`src/trae_client.py:47`、`src/raw_client.py:53`；Remote（chat_sessions）传输与公共预设口径：`src/trae_remote_client.py`、`src/main.py:1810-1830` |
-| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（该仓库内的 `docs/RESEARCH.md`）；**AppID 常量来源**：`internal/upstream/constants.go:10` |
-| [A-23187/trae-api](https://github.com/A-23187/trae-api) | 最小实现样本；**AppID 常量来源**：`auth.js:48` |
-
-> 四份参考实现**逐字一致**地使用 `X-App-Id: 6eefa01c-1036-4c7e-9ca5-d891f63bfcd8`
-> —— 这正是本轮故障的对照面（本仓库此前用 `…01a…`）。四份均为 **MIT** 许可，
-> 本渠道只借鉴**协议知识**（端点 / 头 / 常量），未复制其代码。`[参考]`
+本渠道只借鉴**协议知识**（端点 / 头 / 常量），未复制其代码。`[参考]`

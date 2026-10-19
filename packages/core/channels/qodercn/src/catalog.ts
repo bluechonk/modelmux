@@ -286,6 +286,29 @@ export function entryOf(name: string): ModelEntry | null {
 }
 
 /**
+ * 按**上游 key** 取模型元数据（请求体的 `model_config` 用）。
+ *
+ * ⚠ 与 `entryOf()` 的区别：`entryOf()` 按**对外 id** 查（池内视图），
+ * 这里按**上游 key** 查 —— `upstream.buildChatBody` 只拿到 key。
+ *
+ * 优先级：动态目录（磁盘缓存，来自上游 `model/list`）→ 静态兜底表（官方目录快照）。
+ */
+export function metaOfKey(key: string): upstream.ModelMeta | undefined {
+  const wanted = key.trim().toLowerCase();
+  if (!wanted) return undefined;
+  for (const entry of loadCatalog()) {
+    if (entry.key.toLowerCase() !== wanted) continue;
+    return {
+      displayName: entry.displayName,
+      isVl: entry.isVl,
+      isReasoning: entry.isReasoning,
+      maxInputTokens: entry.maxInputTokens,
+    };
+  }
+  return undefined;
+}
+
+/**
  * 对外 id（或上游 key）→ 上游 key。
  *
  * 三种输入都认：池内名（`glm-5.3-flash`）、上游 key（`gfmodel`）、

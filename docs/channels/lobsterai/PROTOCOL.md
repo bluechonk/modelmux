@@ -528,7 +528,111 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 
 ---
 
-## 10. 已知边界
+## 使用与实测
+
+### 登录方式
+
+`mx login lobsterai` 走**浏览器门户 + 本地回调**：CLI 在 `127.0.0.1` 随机端口起
+`/auth/callback` → 打开 `{portalBase}/portal#/login?source=electron&redirect_uri=…&state=…`
+→ 人工登录一次 → 门户回跳 `code` → 本地回调校验 `state` → `POST /api/auth/exchange` 换凭据。
+
+**粘贴兜底不是第二条路径**：浏览器回跳打不到本机（远程 / 无头 / 容器）时，把地址栏整条
+URL 粘回终端，兜底把它**转交同一个回调处理器**，走的仍是同一条 exchange 路径。
+详见「唯一登录路径」一节。
+
+### 推荐模型
+
+| 模型（池 id） | 结论 | 等级 |
+| --- | --- | --- |
+| `lobsterai/deepseek-flash` | **本渠道倍率最低**（0.05），自动化测试首选 | `[实测]` |
+| `lobsterai/kimi-k3` | 倍率 20 —— **禁用于自动化测试** | `[实测]` |
+
+### 已知限制
+
+- **本渠道没有倍率 0 的模型**：最低是 `deepseek-flash` 0.05，测试须选它；
+  `kimi-k3` 倍率 20，禁用于自动化测试。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login lobsterai          # 登录入池
+mx status lobsterai         # 状态与凭据
+mx model lobsterai --refresh # 目录刷新
+mx bill lobsterai           # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model lobsterai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+
+### 2026-10-20 端到端实测
+
+Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
+- 本轮为**全渠道回归**的一环；同时验证了同日修复的签到与额度解析（见下节「故障与修复」
+  的「验证」段）：原失败的 502 请求复测为 HTTP 200。
+
+### 2026-10-20 故障与修复（对话 502「免费额度已用完，请升级套餐」）
+
+**现象**：`POST /v1/chat/completions`（`lobsterai/deepseek-flash`）连续 3 次 **502**，
+错误文案 `免费额度已用完，请升级套餐`（上游原文）；凭据有效（`expires_at` 未过期、有 `refresh_token`）。
+
+**排查结论：额度确实一度为 0，但根因是**我们的签到解析写错了**，不是账号被跑干**：
+
+| 步骤 | 事实 | 证据 |
+|---|---|---|
+| 1 | 免费额度真用光了 | `/api/user/quota`：`freeCreditsUsed=300 / freeCreditsTotal=300`，`freeCreditsRemaining=0`；`profile-summary`：`totalCreditsRemaining=0`、`creditItems=[]` |
+| 2 | 但**每日签到活动一直可用、一直没领** | `slot`：`slotState=available`、`activityCode=daily-check-in-evergreen-prod-20260814`；`context`：`claimedToday=false`、`actions=["check_in"]`、`rewardCredits=100` |
+| 3 | 领不到的原因是**我们把 `actions` 读错了** | 上游 `actions` 是**字符串数组**（官方类型 `ActivityContextResponse.actions: TAction[]`，`TAction='check_in'`）；本实现只认对象数组 `{action:"check_in"}` → actions 恒空 → `claimable` 恒 false → 自动签到每天「跳过」且**不报错** |
+| 4 | 于是初始赠送的 300 分在 10-08 ~ 10-19 之间烧完 | 签到台账 `state/signin.json` 最后一次是 `2026-10-08`（`via=upstream-backfill`，上游回填而非我们领的）；`state/auto-signin.json` 停在 `2026-10-17` |
+
+**修复**（只改 `packages/core/channels/lobsterai/src/**`）：
+
+1. `billing.ts` `activityContext()`：`actions` 字符串 / 对象两种形态都认（**根因**）。
+2. `billing.ts` `fetchCredits()`：用**字段是否存在**区分「查不到」与「余额为 0」
+   （旧判据把「余额用光」误报成「查不到额度信息」，掩盖了真因）。
+3. `billing.ts` `claimCheckin()`：积分回退链补齐到 5 个字段名，且 `data` / `data.result` 两处都找。
+4. `upstream.ts` `resolveClientVersion()`：版本号**落盘** `<cid>/cache/client-version.json`，
+   版本源抽风时先用「最后一次已知可用」版本兜底（防签到静默断供）。
+
+**验证**（真实账号、真实上游）：
+
+- 重启网关 → 自动签到**成功领到 100 分**（`claimedDays` 1→2、`claimedCredits` 100→200）；
+  `mx bill lobsterai`：`额度: 剩余 100 / 100 credits`（`· 每日登录奖励: 100/100，29 天后到期`）。
+- 原失败请求 `POST /v1/chat/completions`（同载荷）→ **HTTP 200**，正文「收到」。
+- 扣费核对：`deepseek-flash` 倍率 0.05，35 prompt + 32 completion token → 余额 100 → **99.98**。
+
+### 本轮改动后待复测
+
+2026-10-20 收敛改动（登录路径唯一化 + 端点常量集中 + `slotState` 消费 + 凭据形状/单位兼容）
+的**对话链路**已在同日的端到端实测中复验通过（见上「2026-10-20 端到端实测」）；
+下列**登录与目录**环节仍需单独复跑一遍：`mx login lobsterai`（含**粘贴兜底**：浏览器回跳失败时把地址栏
+整条 URL 粘回终端）→ `mx status lobsterai` → `mx model lobsterai --refresh` →
+`mx bill lobsterai`。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [netease-youdao/LobsterAI](https://github.com/netease-youdao/LobsterAI) | **官方客户端源码（6130★，MIT）**：活动平面协议的类型真相源（`src/shared/activity/constants.ts` 的 `ActivityContextResponse.actions: TAction[]`、`ActivitySlotState`、`ActivityActionResponse.result.creditsGranted`）与端点构造（`src/main/libs/activity/activityClient.ts`） |
+| [xinxinshuhao-create/lobsterai2api](https://github.com/xinxinshuhao-create/lobsterai2api) | 主参照（88★）：有道 LobsterAI 的 OpenAI 兼容桥接（多账号） |
+| [greatleo31/lobsterAi2api](https://github.com/greatleo31/lobsterAi2api) | Go 多账号实现的对照样本 |
+| [skyletter/lobsterai2api-docker](https://github.com/skyletter/lobsterai2api-docker) | Docker 化发行形态参照（GHCR 自动构建） |
+| [L0NE-6/LobsterAI-AutoCheckin](https://github.com/L0NE-6/LobsterAI-AutoCheckin) | 纯签到脚本（11★，MIT）：签到三步 + 版本门槛（`clientVersion` query 低于门槛 → `slotState=empty`）+ 积分字段 5 名回退 |
+| [gurio-wine/dsh-account-hub](https://github.com/gurio-wine/dsh-account-hub) | **本实现的上游来源包**（DSH 插件，17★，MIT）：`src/lobsterai-credits.ts` 的 `readActions` / 「查不到 ≠ 余额 0」口径 / `docs/agents/providers-lobsterai.md` 协议笔记 |
+
+## 已知边界
 
 对照 `reference/` 下六份参考实现（含**官方客户端源码**）逐条核对后的结论。
 **「参考实现有、本轮未做」**的条目都写了原因。
@@ -569,83 +673,3 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 | V6 | `uuid`（安装 UUID）是否需要跨账号 / 跨登录保持稳定 | 当前每次登录新生成（与参考实现一致） |
 | V7 | `X-LobsterAI-Client-Capabilities` 是否支持逗号分隔多能力 | 当前发 2 个，参考只发 1 个 |
 | V8 | `clientVersion` query 参数的**门槛下限**会随客户端发版抬高到多少 | 决定兜底版本号（`2026.9.4`）还能用多久；本实现已加磁盘兜底（§2.5）降低风险 |
-
----
-
-## 使用与实测
-
-### 已知限制
-
-- **本渠道没有倍率 0 的模型**：最低是 `deepseek-flash` 0.05，测试须选它；
-  `kimi-k3` 倍率 20，禁用于自动化测试。
-
-### 怎么测这个渠道
-
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
-
-```bash
-mx login lobsterai          # 登录入池
-mx status lobsterai         # 状态与凭据
-mx model lobsterai --refresh # 目录刷新
-mx bill lobsterai           # 额度与倍率（测试后核对是否扣费）
-```
-
-### 端到端测试覆盖
-
-登录入池 / `mx model lobsterai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-
-### 2026-10-20 故障与修复（对话 502「免费额度已用完，请升级套餐」）
-
-**现象**：`POST /v1/chat/completions`（`lobsterai/deepseek-flash`）连续 3 次 **502**，
-错误文案 `免费额度已用完，请升级套餐`（上游原文）；凭据有效（`expires_at` 未过期、有 `refresh_token`）。
-
-**排查结论：额度确实一度为 0，但根因是**我们的签到解析写错了**，不是账号被跑干**：
-
-| 步骤 | 事实 | 证据 |
-|---|---|---|
-| 1 | 免费额度真用光了 | `/api/user/quota`：`freeCreditsUsed=300 / freeCreditsTotal=300`，`freeCreditsRemaining=0`；`profile-summary`：`totalCreditsRemaining=0`、`creditItems=[]` |
-| 2 | 但**每日签到活动一直可用、一直没领** | `slot`：`slotState=available`、`activityCode=daily-check-in-evergreen-prod-20260814`；`context`：`claimedToday=false`、`actions=["check_in"]`、`rewardCredits=100` |
-| 3 | 领不到的原因是**我们把 `actions` 读错了** | 上游 `actions` 是**字符串数组**（官方类型 `ActivityContextResponse.actions: TAction[]`，`TAction='check_in'`）；本实现只认对象数组 `{action:"check_in"}` → actions 恒空 → `claimable` 恒 false → 自动签到每天「跳过」且**不报错** |
-| 4 | 于是初始赠送的 300 分在 10-08 ~ 10-19 之间烧完 | 签到台账 `state/signin.json` 最后一次是 `2026-10-08`（`via=upstream-backfill`，上游回填而非我们领的）；`state/auto-signin.json` 停在 `2026-10-17` |
-
-**修复**（只改 `packages/core/channels/lobsterai/src/**`）：
-
-1. `billing.ts` `activityContext()`：`actions` 字符串 / 对象两种形态都认（**根因**）。
-2. `billing.ts` `fetchCredits()`：用**字段是否存在**区分「查不到」与「余额为 0」
-   （旧判据把「余额用光」误报成「查不到额度信息」，掩盖了真因）。
-3. `billing.ts` `claimCheckin()`：积分回退链补齐到 5 个字段名，且 `data` / `data.result` 两处都找。
-4. `upstream.ts` `resolveClientVersion()`：版本号**落盘** `<cid>/cache/client-version.json`，
-   版本源抽风时先用「最后一次已知可用」版本兜底（防签到静默断供）。
-
-**验证**（真实账号、真实上游）：
-
-- 重启网关 → 自动签到**成功领到 100 分**（`claimedDays` 1→2、`claimedCredits` 100→200）；
-  `mx bill lobsterai`：`额度: 剩余 100 / 100 credits`（`· 每日登录奖励: 100/100，29 天后到期`）。
-- 原失败请求 `POST /v1/chat/completions`（同载荷）→ **HTTP 200**，正文「收到」。
-- 扣费核对：`deepseek-flash` 倍率 0.05，35 prompt + 32 completion token → 余额 100 → **99.98**。
-
-### 本轮改动后待复测
-
-2026-10-20 收敛改动（登录路径唯一化 + 端点常量集中 + `slotState` 消费 + 凭据形状/单位兼容）
-**尚未做真机复测**，需重跑：`mx login lobsterai`（含**粘贴兜底**：浏览器回跳失败时把地址栏
-整条 URL 粘回终端）→ `mx status lobsterai` → `mx model lobsterai --refresh` →
-`mx bill lobsterai`。
-
-## 参考实现
-
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
-
-| 仓库 | 用途 |
-| --- | --- |
-| [netease-youdao/LobsterAI](https://github.com/netease-youdao/LobsterAI) | **官方客户端源码（6130★，MIT）**：活动平面协议的类型真相源（`src/shared/activity/constants.ts` 的 `ActivityContextResponse.actions: TAction[]`、`ActivitySlotState`、`ActivityActionResponse.result.creditsGranted`）与端点构造（`src/main/libs/activity/activityClient.ts`） |
-| [xinxinshuhao-create/lobsterai2api](https://github.com/xinxinshuhao-create/lobsterai2api) | 主参照（88★）：有道 LobsterAI 的 OpenAI 兼容桥接（多账号） |
-| [greatleo31/lobsterAi2api](https://github.com/greatleo31/lobsterAi2api) | Go 多账号实现的对照样本 |
-| [skyletter/lobsterai2api-docker](https://github.com/skyletter/lobsterai2api-docker) | Docker 化发行形态参照（GHCR 自动构建） |
-| [L0NE-6/LobsterAI-AutoCheckin](https://github.com/L0NE-6/LobsterAI-AutoCheckin) | 纯签到脚本（11★，MIT）：签到三步 + 版本门槛（`clientVersion` query 低于门槛 → `slotState=empty`）+ 积分字段 5 名回退 |
-| [gurio-wine/dsh-account-hub](https://github.com/gurio-wine/dsh-account-hub) | **本实现的上游来源包**（DSH 插件，17★，MIT）：`src/lobsterai-credits.ts` 的 `readActions` / 「查不到 ≠ 余额 0」口径 / `docs/agents/providers-lobsterai.md` 协议笔记 |
