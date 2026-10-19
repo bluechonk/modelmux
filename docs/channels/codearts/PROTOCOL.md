@@ -498,3 +498,49 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
 `src/catalog.ts` 的 `CONTEXT_WINDOWS` / `MAX_OUTPUTS`。⚠ 公开规格是**模型上限**，
 上游可能更严 —— 客户端应能降档重试。
+
+---
+
+## 使用与实测
+
+### 账号身份：不要按 AK 认人
+
+华为每次签发都换一套新 AK，**按 AK 派生 uid 会让同一个人每次登录都变成池内一个新账号**；
+稳定身份在 `refresh_token` 的 JWT 里（`user_profile.account_id`）——
+取值优先级与实测证据见 §2.3.1。
+
+渠道侧的兜底：
+
+- `load()` 会把历史遗留的伪 uid（`uid == sha256(自己的 AK)[:16]`）在内存里纠正为稳定身份；
+- `pruneLegacyAccounts()` 在登录后清理池内同一人的历史伪账号（按 JWT 身份分组，
+  保留当前生效那份；解不出身份的一律各自独立，绝不误删）。
+
+### 已知限制
+
+- **鉴权失效不是 401/403**：APIG 网关对**过期 token** 回
+  `HTTP 400 + {"error_code":"APIG.0602"}`。本渠道声明了共享层的 `isAuthFailure` 钩子
+  （复用渠道自己的 `isAuthError` 判定，见 §4.2），网关收到这类响应会归一成 401，
+  走既有的「刷新 token → 换池内账号」链路。
+- **不暴露倍率**：模型表里多数条目倍率显示 `-`（`capabilities.billing=false`），
+  成本口径不明确；测试时只做单轮最小对话，不跑完整 Agent 工具往返。
+- **工具往返在上游不稳定**：工具轮次迟迟不返回，属上游侧行为，非网关问题。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`codearts/deepseek-v4-flash`）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`，上游响应快）。
+
+### 端到端测试覆盖
+
+登录入池 / `mx model codearts --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [HITZY2002/codearts2api](https://github.com/HITZY2002/codearts2api) | 主参照（48★）：多账号轮转 + token 自动续期保活 + 并发控制 |
+| [Johnsheng1/codearts2api](https://github.com/Johnsheng1/codearts2api) | 订阅服务转 OpenAI 格式的对照样本 |
+| [zhuweiyou/codearts2api](https://github.com/zhuweiyou/codearts2api) | Jet Hub 多渠道账号管理 + 本机 OpenAI 网关的组合形态参照 |

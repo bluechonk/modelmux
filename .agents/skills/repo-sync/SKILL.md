@@ -33,7 +33,7 @@ git log --oneline -5          # 最近历史与提交风格
 | Web 控制台（页面 / API / 主题） | `docs/WEB-CONSOLE.md` |
 | 引流入口 / 安装 / 接入方式 | 根 `README.md`（全中文，GitHub 只渲染它） |
 | 某渠道的协议 / 端点 / 头部 / 限制 | `docs/channels/<cid>/PROTOCOL.md` |
-| 某渠道的用法 / 存储 / 参考仓库 | `docs/channels/<cid>/README.md` |
+| 某渠道的用法 / 参考仓库 | `docs/channels/<cid>/PROTOCOL.md` 的「使用与实测」「参考实现」小节 |
 | 新增/改名/删除任何 `docs/*.md` | `docs/README.md` 索引（同步更新） |
 
 硬性约束（`verify-docs.mjs` 会拦）：

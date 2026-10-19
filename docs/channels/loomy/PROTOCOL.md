@@ -565,3 +565,41 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
 `src/catalog.ts` 的 `MAX_OUTPUTS`。
+
+---
+
+## 使用与实测
+
+### 登录方式
+
+**微信扫码一条路**（`mx login loomy`）。**未绑手机号**时绑定环节需要
+`LOOMY_PHONE` / `LOOMY_SMS_CODE` 环境变量。扫码链路（纯 HTTP 路线、二维码 uuid 提取、
+长轮询状态机）见 §2.4 / §2.5。
+
+### 已知限制
+
+- **池内账号少**：账号被判 `error` 后**没有备选可切** —— 网关日志记
+  `all pool candidates failed (loomy/spark-x, tried loomy)`，直接回 503 `not_authenticated`。
+  此时需要重新 `mx login loomy` 微信扫码入池才能恢复。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
+
+### 端到端测试覆盖
+
+登录入池 / `mx model loomy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [Patrick130306/loomy2api](https://github.com/Patrick130306/loomy2api) | 主参照（31★）：额度转 OpenAI 兼容 API |
+| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | 多账号池 + Web 面板 + 防风控；其 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据 |
+| [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | 接口结构参考：端点、鉴权形状、请求/响应结构 |

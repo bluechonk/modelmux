@@ -1,8 +1,8 @@
 # workbuddy 协议规格（国内版 CodeBuddy）
 
 > 结论来源：`reference/HanawaBanana_workbuddy2api`（Go）与
-> `reference/ardeyouxipianyi_workbuddy2api-hub`（与 `workbuddyai` 共用一套抓包结论，
-> 见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)）。
+> `ardeyouxipianyi_workbuddy2api-hub`（clone 在**国际版** `workbuddyai/reference/` 下，
+> 与 `workbuddyai` 共用一套抓包结论，见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)）。
 > 国内版桌面端**无独立抓包**：版本号与 UA 维持参考实现原值（5.5.6 / CLI 2.137.1），不凭猜测改。
 
 ## 1. realm 与端点
@@ -81,3 +81,76 @@
 
 `11128`（request illegal / 非官方特征）与 `11140`（账号被限制）语义与
 `workbuddyai` 相同，见其 PROTOCOL.md §4。
+
+---
+
+## 使用与实测
+
+### 与国际版（`workbuddyai`）的关系
+
+`workbuddy`（国内版 CodeBuddy，域见本文件 §1 / §2.1）与 `workbuddyai`
+（国际版 WorkBuddy，`www.workbuddy.ai`）是**两条独立渠道**：
+账号、凭证落点与模型池各自独立，域是渠道身份的一部分。`--realm` 参数在两条渠道上都被忽略
+（保留仅为兼容共享层 CLI 的签名）。
+
+两者的登录协议、上游约束、SSE 处理**完全一致**（代码有意重复），差别只有域名、
+模型目录与凭证落点 —— 规格见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)。
+
+`cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似，这是有意的：
+两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
+变成默认行为。
+
+### 存储
+
+统一存储根 `~/.modelmux/` 下按 cid 分层，本渠道全部落在 `~/.modelmux/workbuddy/`：
+`credentials.json`（0600）、`accounts.json` + `accounts/<key>.json`、`upstream.json`、
+`prefs.json`、`gateway.pid`，外加 `cache/`、`state/`、`debug/`。
+
+本渠道只读写 `~/.modelmux/workbuddy/`；国际版的数据在 `~/.modelmux/workbuddyai/`，两者不共享。
+详见 [`STORAGE-CONVENTION.md`](../../STORAGE-CONVENTION.md)。
+
+### 模型 id 与目录
+
+对外名 = 上游模型名（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`），不做短名映射。
+多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道，
+裸模型名一律 400。
+
+目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddy/cache/models.json`）
+→ 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
+`mx model workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
+
+### 已知限制（实测）
+
+- SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
+  （原因与结论见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md) 的「使用与实测」）。
+
+### 怎么测这个渠道
+
+- 登录入池：`mx login workbuddy`（网页设备授权，规格见 §2.1）
+- 目录刷新：`mx model workbuddy --refresh`；状态与额度：`mx status workbuddy` / `mx bill workbuddy`
+- 端到端：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，按 `workbuddy/<模型>` 池 id 发正确的 OpenAI 兼容请求
+  （最小对话 / 工具往返 / 流式 SSE）
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）：
+
+- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容与要求一致，
+  同会话 `messageCount` 递增，说明多轮工具调用链路完整。
+- 倍率 0：测试前后 `mx bill workbuddy` 剩余额度无变化。
+
+---
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [HanawaBanana/workbuddy2api](https://github.com/HanawaBanana/workbuddy2api) | 主参照（Go）：`internal/upstream/headers.go` 的官方桌面端指纹注入（X-Agent-Purpose + X-IDE-* 四头 + 按 realm 切 UA）、`internal/prompt/prompt.go` 的 11128 指纹串误杀与中性提示词重试 |
+| [xiaofan6ya/workbuddy2api](https://github.com/xiaofan6ya/workbuddy2api) | 协议与上游错误码参照（`docs/protocol-reference.md`、`docs/RELEASE_NOTES_UPSTREAM_ERRORS.md`） |
+| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 管理面板与账号池运营形态参照 |
+| [Sliverkiss/CodeBuddy2api](https://github.com/Sliverkiss/CodeBuddy2api) | CodeBuddy 双区参照（83★）：国内端点 `copilot.tencent.com` 与本渠道对应（`internal/ioa`），CLI 身分（`X-IDE-Type: CLI`）；其国际端点用旧域名 `www.codebuddy.ai`（实测已 DNS 沉洞，桌面端已迁 `workbuddy.ai`，故不归 `workbuddyai` 渠道） |
+| [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) | 端点与凭据流程参照（clone 目录 `reference/dsh-workbuddy-connect`） |

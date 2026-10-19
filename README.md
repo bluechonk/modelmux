@@ -71,5 +71,5 @@ mx model list
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
-| 某个渠道怎么用 | `docs/channels/<cid>/README.md`（如 [docs/channels/qodercn/README.md](docs/channels/qodercn/README.md)） |
+| 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |

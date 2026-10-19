@@ -397,11 +397,49 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ## Chat 传输现状（2026-10-18 实测）
 
-- 当前实现的 `POST /api/agent/v3/llm_utils_chat`（solo/IDE 传输）对**个人账号**恒返回
-  `2001 failed to get app config: record not found` —— 上游已按账号类型收紧。
+- 当前实现的 `POST /api/agent/v3/llm_utils_chat`（solo/IDE 传输）曾对**个人账号**返回
+  `2001 failed to get app config: record not found`（2026-10-18 实测，当时判为「上游已按账号类型收紧」）；
+  **2026-10-19 的真实客户端端到端测试推翻了这条结论**：同一端点冒烟通过（200 / stream true），
+  2001 属**偶发瞬时错误**、重试即恢复（见「使用与实测」）。
 - 参考实现 `autumnsentiment_Trae2api-cn`（src/main.py L1810-1830 注释）因此**移除了
   IDE Raw preset**，公共预设只剩 **`/api/remote/v1/chat_sessions`**（work 传输，
   product=traework，配合账号绑定的 Cloud-IDE-JWT 与账号绑定快照）。
 - 切换到 chat_sessions 是会话管理器级改造（创建会话 / 事件流 / 消息 id / 账号绑定
   快照，见 reference `run_remote_session`），未在本轮实施；在此如实记录现状。
 - model / billing / 签到不受影响。
+
+---
+
+## 使用与实测
+
+### 怎么测这个渠道
+
+- 登录入池：`mx login traecn`（浏览器授权 + 本地回调，规格见 §2.1）
+- 目录刷新：`mx model traecn --refresh`；状态与额度：`mx status traecn` / `mx bill traecn`
+- 端到端：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
+  `http://127.0.0.1:4412/v1`，按 `traecn/<模型>` 池 id 发正确的 OpenAI 兼容请求
+  （最小对话 / 工具往返 / 流式 SSE）
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`traecn/glm-5.3-flash`，本渠道最低倍率 0.06）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 本渠道**没有倍率 0 的模型**：最低 0.06（`glm-5.3-flash` / `mimo-v2.6-flash` /
+  `doubao-seed-code`），测试须选这档；`kimi-k3` 倍率 1.83，禁用于自动化测试。
+- 上游偶发瞬时错误（如 `failed to get app config: record not found`，code 2001），
+  重试即可恢复，属上游侧抖动。
+
+---
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（`docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`） |
+| [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | 国内版实现参照 |
+| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（`docs/RESEARCH.md`） |
+| [A-23187/trae-api](https://github.com/A-23187/trae-api) | 最小实现样本 |
