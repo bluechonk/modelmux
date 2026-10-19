@@ -96,8 +96,8 @@ function quotaText(accountBilling: AccountBilling | undefined, unsupported: bool
     const { remain, unit } = accountBilling.credits;
     return `${remain} ${unit || ""}`.trim();
   }
-  if (accountBilling?.billing_ok === false) return "额度查询失败";
-  return "额度未知";
+  // 额度未拿到（未加载 / 查询失败 / 无账本条）统一以 - 表示
+  return "-";
 }
 
 function quotaClass(accountBilling: AccountBilling | undefined): string {
@@ -191,11 +191,7 @@ export function AccountCard({
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-100">
                     {displayName(account)}
                   </span>
-                  {active && (
-                    <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
-                      当前
-                    </span>
-                  )}
+                  {/* 生效账号的高亮由左侧色条与背景区分，无需"当前"文字标记 */}
                   {health && (
                     <span className="shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
                       {health}
@@ -206,10 +202,7 @@ export function AccountCard({
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center gap-2 pl-3.5 text-[11px] text-gray-500">
-                  <span className="min-w-0 truncate">
-                    {account.uid && account.uid !== displayName(account) ? `uid ${account.uid}` : ""}
-                    {expiry && (account.uid ? ` · ${expiry}` : expiry)}
-                  </span>
+                  <span className="min-w-0 truncate">{expiry}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {!active && (
                       <button
@@ -239,16 +232,6 @@ export function AccountCard({
         </ul>
       )}
 
-      {/* 卡脚：供给规模（额度由后端按分钟轮询，无需手动刷新） */}
-      <div className="flex items-center gap-2 border-t border-gray-800/70 bg-gray-950/40 px-4 py-2 text-[11px] text-gray-500">
-        {billing ? (
-          <span>
-            供给 <span className="font-mono text-gray-300">{billing.models}</span> 个池模型
-          </span>
-        ) : (
-          <span>暂无账本</span>
-        )}
-      </div>
     </div>
   );
 }
