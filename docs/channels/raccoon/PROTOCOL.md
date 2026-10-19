@@ -573,18 +573,6 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 3. **账号池薄**：池内账号少，被判 `error` 后没有备选可切，网关直接回 503 `not_authenticated`；
    用 `mx relogin raccoon` 重新授权即可恢复（见下「实测」）。
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`raccoon/glm-5.3-flash`，本渠道最低倍率 0.2）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-- 本渠道**没有倍率 0 的模型**，测试选最低倍率的 `glm-5.3-flash`；
-  工具往返在上游侧不稳定（工具轮次长时间不返回），本次只做单轮最小对话。
-- **账号坑**：池内账号少，被判 `error` 后没有备选可切，网关直接回
-  503 `not_authenticated`。用 `mx relogin raccoon` 重新授权即可恢复
-  （授权页登录后自动跳回本地回调，无需粘贴）。2026-10-19 实测：账号 `error` 时冒烟
-  503，`relogin` 重新授权后（账号状态回到 `ok`、到期日顺延）冒烟立即通过。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -600,6 +588,18 @@ mx model raccoon --refresh
 登录入池 / `mx model raccoon --refresh` / 最小对话 / 流式 SSE；
 工具往返上游不稳定（见「已知限制」第 2 条），2026-10-19 只做了单轮最小对话。
 账号被判 `error` 时的恢复步骤见「已知限制」第 3 条。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`raccoon/glm-5.3-flash`，本渠道最低倍率 0.2）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 本渠道**没有倍率 0 的模型**，测试选最低倍率的 `glm-5.3-flash`；
+  工具往返在上游侧不稳定（工具轮次长时间不返回），本次只做单轮最小对话。
+- **账号坑**：池内账号少，被判 `error` 后没有备选可切，网关直接回
+  503 `not_authenticated`。用 `mx relogin raccoon` 重新授权即可恢复
+  （授权页登录后自动跳回本地回调，无需粘贴）。2026-10-19 实测：账号 `error` 时冒烟
+  503，`relogin` 重新授权后（账号状态回到 `ok`、到期日顺延）冒烟立即通过。
 
 ## 参考实现
 

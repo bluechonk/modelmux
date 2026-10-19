@@ -215,14 +215,6 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 | `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
 | `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；**用户实测曾报「真实客户端有兼容问题」**，但 2026-10-19 用 Reasonix CLI 的端到端测试**全过**（见下）—— 未能复现，疑与客户端实现有关 | `[实测]` |
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容一致，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill catpaw` 剩余额度无变化。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -237,6 +229,14 @@ mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model catpaw --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容一致，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill catpaw` 剩余额度无变化。
 
 ## 参考实现
 

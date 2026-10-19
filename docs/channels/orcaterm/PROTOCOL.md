@@ -482,7 +482,6 @@ POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfC
 **实现状态**：OAuth 桌面态（`ot_session`）由 `mx login orcaterm` 全流程覆盖（见 §1）。
 控制台态需要用户从浏览器手动获取 cookie（参考 ZFXing-lite/orcaterm2api 的书签收号流程）。
 
-
 ---
 
 ## 4. 证据等级
@@ -577,16 +576,6 @@ Authorization: Bearer <ot_session>
 | --- | --- |
 | `ORCATERN_USER_INFO_URL` | 覆盖 `refresh()` 的只读探测端点（离线测试用） |
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`orcaterm/hy3`）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`），纯文本对话正常。
-- 本渠道**订阅制、无倍率概念**（`capabilities.billing=false`），`mx bill` 显示 `-`，
-  测试前后无额度差值可比。
-- 工具往返**不适用**：见「已知限制」第 1 条 —— `tools` 固定为空、assistant/tool 消息被丢弃，
-  模型只说不做，工具调用数恒为 0、文件不会落盘。这不是上游问题，是本渠道尚未实现。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -600,6 +589,16 @@ mx model orcaterm --refresh
 ### 端到端测试覆盖
 
 登录入池 / 最小对话 / 流式 SSE；**工具往返不适用**（见「已知限制」第 1 条）。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`orcaterm/hy3`）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），纯文本对话正常。
+- 本渠道**订阅制、无倍率概念**（`capabilities.billing=false`），`mx bill` 显示 `-`，
+  测试前后无额度差值可比。
+- 工具往返**不适用**：见「已知限制」第 1 条 —— `tools` 固定为空、assistant/tool 消息被丢弃，
+  模型只说不做，工具调用数恒为 0、文件不会落盘。这不是上游问题，是本渠道尚未实现。
 
 ### 本机数据落点（逆向依据）
 

@@ -442,12 +442,6 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 - **本渠道没有倍率 0 的模型**：最低是 `deepseek-flash` 0.05，测试须选它；
   `kimi-k3` 倍率 20，禁用于自动化测试。
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -462,6 +456,12 @@ mx bill lobsterai           # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model lobsterai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
 
 ## 参考实现
 
