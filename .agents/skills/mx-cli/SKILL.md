@@ -15,7 +15,8 @@ mx <动词> [<cid>] [参数]
 
 - 动词永远在第一位，渠道 id 在第二位：`mx login catpaw`、`mx status catpaw`。
 - 不要写 `mx catpaw status`：渠道名与动词共享位置会产生二义，补全器也无法工作。
-- 仓库级动词（`start` / `stop` / `restart` / `status` / `log` / `web`）不带 cid；
+- 仓库级动词（`start` / `stop` / `restart` / `log` / `web`）不带 cid；
+  `status` / `model` / `bill` / `acct` / `path` / `login` / `relogin` 都可以带 cid ——
   `mx status <cid>` 才是「某渠道的状态」。
 - 命令组同样是动词在前：`mx model list` / `mx model usage`。
 - 不确定时先 `mx --help`；脚本里加 `--json`。

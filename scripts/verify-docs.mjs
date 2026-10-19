@@ -16,8 +16,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 const workspaceRoot = dirname(import.meta.dirname);
 
@@ -153,10 +153,80 @@ if (existsSync(CHANNEL_DOCS_DIR)) {
   }
 }
 
+// ── 链接体检：受管 md 里的相对链接必须可达 ─────────────────────────────────
+// 文档搬过一轮之后，「链接指向已删文件」是最容易犯又最难发现的错 —— 把它变成会失败的测试。
+function checkLinks(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const found = [];
+  const re = /\[[^\]]*\]\(([^)\s]+)\)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const href = m[1];
+    if (/^(https?:|mailto:|#)/.test(href)) continue; // 外链与纯锚点不查
+    const target = decodeURIComponent(href.split("#")[0]);
+    if (!target) continue;
+    const resolved = resolve(dirname(abs), target);
+    if (!existsSync(resolved)) found.push(`[${href}]`);
+  }
+  return found;
+}
+
+let linkCount = 0;
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  const dead = checkLinks(rel);
+  linkCount += 1;
+  for (const d of dead) problems.push(`${rel}  ->  ${d}  —— 死链`);
+}
+
+// ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
+// 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
+function readText(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+const docsIndex = readText(join(workspaceRoot, "docs", "README.md"));
+const channelIndex = readText(join(CHANNEL_DOCS_DIR, "README.md"));
+
+// 1) docs/ 顶层每份文档都要在 docs/README.md 的文档表里登记
+for (const name of readdirSync(join(workspaceRoot, "docs"))) {
+  if (!name.toLowerCase().endsWith(".md") || name === "README.md") continue;
+  if (!docsIndex.includes(name)) {
+    problems.push(`docs/${name} —— 未登记到 docs/README.md 的文档表（规则见 AGENTS.md 的「文档规则」）`);
+  }
+}
+
+// 2) 每个渠道都要在两张渠道表里登记（漏登记 = 文档没人找得到）
+for (const cid of channelIds) {
+  if (!docsIndex.includes(`channels/${cid}/`)) {
+    problems.push(
+      `docs/channels/${cid}/ —— 未登记到 docs/README.md 的渠道表（规则见 AGENTS.md 的「文档规则」）`,
+    );
+  }
+  if (!channelIndex.includes(`/${cid}/`)) {
+    problems.push(
+      `docs/channels/${cid}/ —— 未登记到 docs/channels/README.md 的渠道一览（规则见 AGENTS.md 的「文档规则」）`,
+    );
+  }
+}
+
 if (problems.length > 0) {
   console.error(`✗ 文档归属检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
   process.exit(1);
 }
 
-console.log(`✓ 文档归属检查通过：${checked} 份 md，落点全部合规（${channelIds.length} 个渠道）`);
+console.log(
+  `✓ 文档归属检查通过：${checked} 份 md，落点全部合规（${channelIds.length} 个渠道），` +
+    `相对链接全部可达`,
+);

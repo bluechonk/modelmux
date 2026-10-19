@@ -5,7 +5,7 @@
 | 层 | 位置 | 放什么 |
 | --- | --- | --- |
 | 规范与契约 | `docs/`（本目录） | 仓库级规则，改代码前必读 |
-| 渠道文档 | `docs/channels/<cid>/` | 每个渠道自己的说明与协议规格（[索引](./channels/README.md)） |
+| 渠道文档 | `docs/channels/<cid>/` | 每个渠道自己的协议规格与实测（[索引](./channels/README.md)） |
 | 规则与技能 | 根 `AGENTS.md`、`.agents/skills/<name>/` | 工具与 agent 的行为约束（按固定路径读，不能搬） |
 
 > 规则本身写在根 [`AGENTS.md`](../AGENTS.md) 的「文档规则」：**所有文档集中在 `docs/`**，
@@ -35,9 +35,11 @@
 
 ## 2. 渠道文档 `docs/channels/<cid>/`
 
-每个渠道的说明与协议规格都在 `docs/channels/<cid>/` 下（**与实现分离**：渠道包只带代码，
+每个渠道的**协议规格**都在 `docs/channels/<cid>/` 下（**与实现分离**：渠道包只带代码，
 文档集中一处，便于一处读全、也便于按渠道检索）。协议规格是从上游客户端/实现里实测提取的，
 **改渠道实现前先看这里**；源码注释里写的 `见 docs/channels/<cid>/PROTOCOL.md` 指的就是这些文件。
+渠道之间的**通用用法**（登录 / 状态 / 接入 / 调试 / 端到端测试）在
+[channels/README.md](./channels/README.md) 一处，各渠道的差异写在它自己的 `PROTOCOL.md`。
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
@@ -94,3 +96,4 @@
 3. `packages/cli/src/channels.ts` 加一行 `import "@modelmux/<cid>"`（包名 = `@modelmux/` + 目录名，装好后由工作区软链解析）
 4. 工作区根 `package.json` 的 `workspaces`（`packages/cli` 不必声明依赖：发布 bundle 自包含）
 5. `npm install && npm test`（自带 `build`；`verify-storage` 校验落点规范、`verify-docs` 校验文档归属）
+

@@ -126,11 +126,18 @@
 
 ### 怎么测这个渠道
 
-- 登录入池：`mx login workbuddy`（网页设备授权，规格见 §2.1）
-- 目录刷新：`mx model workbuddy --refresh`；状态与额度：`mx status workbuddy` / `mx bill workbuddy`
-- 端到端：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
-  `http://127.0.0.1:4412/v1`，按 `workbuddy/<模型>` 池 id 发正确的 OpenAI 兼容请求
-  （最小对话 / 工具往返 / 流式 SSE）
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login workbuddy           # 登录入池（网页设备授权，规格见 §2.1）
+mx status workbuddy          # 状态与凭据
+mx model workbuddy --refresh # 目录刷新
+mx bill workbuddy            # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 ### 2026-10-19 端到端实测
 
@@ -150,7 +157,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 仓库 | 用途 |
 | --- | --- |
 | [HanawaBanana/workbuddy2api](https://github.com/HanawaBanana/workbuddy2api) | 主参照（Go）：`internal/upstream/headers.go` 的官方桌面端指纹注入（X-Agent-Purpose + X-IDE-* 四头 + 按 realm 切 UA）、`internal/prompt/prompt.go` 的 11128 指纹串误杀与中性提示词重试 |
-| [xiaofan6ya/workbuddy2api](https://github.com/xiaofan6ya/workbuddy2api) | 协议与上游错误码参照（`docs/protocol-reference.md`、`docs/RELEASE_NOTES_UPSTREAM_ERRORS.md`） |
+| [xiaofan6ya/workbuddy2api](https://github.com/xiaofan6ya/workbuddy2api) | 协议与上游错误码参照（该仓库内的 `docs/protocol-reference.md`、`docs/RELEASE_NOTES_UPSTREAM_ERRORS.md`） |
 | [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 管理面板与账号池运营形态参照 |
 | [Sliverkiss/CodeBuddy2api](https://github.com/Sliverkiss/CodeBuddy2api) | CodeBuddy 双区参照（83★）：国内端点 `copilot.tencent.com` 与本渠道对应（`internal/ioa`），CLI 身分（`X-IDE-Type: CLI`）；其国际端点用旧域名 `www.codebuddy.ai`（实测已 DNS 沉洞，桌面端已迁 `workbuddy.ai`，故不归 `workbuddyai` 渠道） |
 | [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) | 端点与凭据流程参照（clone 目录 `reference/dsh-workbuddy-connect`） |

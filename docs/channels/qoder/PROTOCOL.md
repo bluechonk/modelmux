@@ -226,8 +226,13 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 | `105` | `auth_error`（与 10605 独立，不可合并） | 续期后重试 | model-queue.ts:26 |
 | 409 | `duplicate_request` | 不刷新凭据，直接重发一次 | qoder-adapter.ts:834-838 |
 
-排队错误的**两种下发形态都必须处理**（只修一条会回归）：
-HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（qoder-adapter.ts:744-757）。
+⚠ **两处「排队重试」不是同一件事**，别混：
+本节的 180 次 / 30 分钟是**渠道探测层**的排队判定（上游回 10605 时渠道自己重发整个请求）；
+共享层转发层对**任何**渠道的排队帧另有一套退避重试，总时长上限 **5 分钟**
+（见 [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.4 与
+[CONTRACT-TS.md](../../CONTRACT-TS.md) §5）。两者叠加，不是冲突。
+
+排队错误的**两种下发形态都必须处理**（只修一条会回归）：HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（qoder-adapter.ts:744-757）。
 
 额度错误实测走 SSE（HTTP 200）通道；受限时标记「该账号 + 该模型」到 **UTC+8 当日 24:00**，
 然后切换账号池下一个账号。
@@ -472,7 +477,9 @@ mx model qoder --refresh
 mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
 ```
 
-端到端覆盖：登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+### 端到端测试覆盖
+
+登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 ## 参考实现
 

@@ -97,6 +97,9 @@
 - **实测（2026-10-18）**：`catpaw/longcat-2.0` 与 `catpaw/glm-5.3-flash` 均通过
   单工具、并行工具、tool 结果回灌、system 数组、developer 角色、70k system 测试。
   glm 起初会优先调用平台内置工具，提示词明确「只能用下列工具」后按 fence 返回。
+- **实测（2026-10-18）**：`catpaw/deepseek-v4.1-flash` 亦全绿 —— 普通/流式、单工具、
+  并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过
+  （结论见「使用与实测」的「推荐模型」）。
 - **请求体体积**：折叠后的 prompt 预算 **900KB**（参考实现实测 >1MB 触发 413）；
   超预算先丢最早历史（保留最后 8 条），仍超则头尾保留、中间省略。
 - 以上都是**请求级**行为，不参与账号连败计数（凭据是健康的）。
@@ -219,6 +222,17 @@ Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
 - 冒烟通过（access 日志 `status: 200`、`stream: true`）。
 - 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容一致，同会话 `messageCount` 递增。
 - 倍率 0：测试前后 `mx bill catpaw` 剩余额度无变化。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login catpaw           # 登录入池（真实 URL 链路，见上）
+mx status catpaw          # 状态与凭据
+mx model catpaw --refresh # 目录刷新
+mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
+```
 
 ### 端到端测试覆盖
 

@@ -26,7 +26,9 @@ mx status qodercn
 mx model qodercn --refresh
 ```
 
-端到端覆盖：登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+### 端到端测试覆盖
+
+登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 ## 参考实现
 

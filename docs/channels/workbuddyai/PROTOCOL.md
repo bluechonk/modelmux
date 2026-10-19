@@ -144,12 +144,18 @@
 
 ### 怎么测这个渠道
 
-- 登录入池：`mx login workbuddyai`（浏览器设备授权）
-- 目录刷新：`mx model workbuddyai --refresh`；状态与额度：`mx status workbuddyai` /
-  `mx bill workbuddyai`
-- 端到端：由 Agent 跑 `reasonix-mx-test` skill，用 Reasonix CLI 直连
-  `http://127.0.0.1:4412/v1`，按 `workbuddyai/<模型>` 池 id 发正确的 OpenAI 兼容请求
-  （最小对话 / 工具往返 / 流式 SSE）
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login workbuddyai           # 登录入池（浏览器设备授权）
+mx status workbuddyai          # 状态与凭据
+mx model workbuddyai --refresh # 目录刷新
+mx bill workbuddyai            # 额度与倍率（测试后核对是否扣费）
+```
+
+### 端到端测试覆盖
+
+登录入池 / `mx model workbuddyai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 ### 2026-10-19 端到端实测
 

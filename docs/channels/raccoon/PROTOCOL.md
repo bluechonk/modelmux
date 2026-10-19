@@ -595,7 +595,9 @@ mx status raccoon
 mx model raccoon --refresh
 ```
 
-端到端覆盖：登录入池 / `mx model raccoon --refresh` / 最小对话 / 流式 SSE；
+### 端到端测试覆盖
+
+登录入池 / `mx model raccoon --refresh` / 最小对话 / 流式 SSE；
 工具往返上游不稳定（见「已知限制」第 2 条），2026-10-19 只做了单轮最小对话。
 账号被判 `error` 时的恢复步骤见「已知限制」第 3 条。
 
