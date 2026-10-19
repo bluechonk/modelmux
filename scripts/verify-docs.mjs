@@ -114,16 +114,28 @@ for (const rel of candidates) {
   );
 }
 
-// 每个渠道都必须在 docs/channels/<cid>/ 有渠道说明（防止文档没写、或写错 cid）
+// 每个渠道都必须在 docs/channels/<cid>/ 有协议规格文档（防止文档没写、或写错 cid）
 const channelIds = [];
 if (existsSync(CHANNELS_DIR)) {
   for (const entry of readdirSync(CHANNELS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     channelIds.push(entry.name);
-    const doc = join(CHANNEL_DOCS_DIR, entry.name, "README.md");
+    const doc = join(CHANNEL_DOCS_DIR, entry.name, "PROTOCOL.md");
     if (!existsSync(doc)) {
       problems.push(
-        `docs/channels/${entry.name}/README.md —— 缺渠道说明（渠道文档统一在 docs/channels/，规则见 AGENTS.md 的「文档规则」）`,
+        `docs/channels/${entry.name}/PROTOCOL.md —— 缺渠道协议规格（渠道文档统一在 docs/channels/，规则见 AGENTS.md 的「文档规则」）`,
+      );
+    }
+  }
+}
+
+// 渠道目录里不再留 README.md —— 那是 11 份一模一样的样板，通用部分已在 docs/channels/README.md
+if (existsSync(CHANNEL_DOCS_DIR)) {
+  for (const entry of readdirSync(CHANNEL_DOCS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (existsSync(join(CHANNEL_DOCS_DIR, entry.name, "README.md"))) {
+      problems.push(
+        `docs/channels/${entry.name}/README.md —— 渠道目录不留 README（通用内容在 docs/channels/README.md，渠道差异写进 PROTOCOL.md）`,
       );
     }
   }

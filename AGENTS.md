@@ -120,8 +120,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    | 类别 | 位置 | 内容 |
    | --- | --- | --- |
    | 契约与规范 | `docs/*.md` | 改代码前必读；索引见 `docs/README.md` |
-   | 渠道说明 | `docs/channels/<cid>/README.md` | 用法 / 存储 / 测试 |
-   | 渠道协议规格 | `docs/channels/<cid>/PROTOCOL.md` | 实测协议（实现的依据） |
+   | 渠道协议规格 | `docs/channels/<cid>/PROTOCOL.md` | 实测协议（实现的依据）+ 该渠道的使用与实测 + 参考实现清单 |
    | 逆向结论层 | `docs/channels/<cid>/FINDINGS.md` / `FLOW.md` | 结论汇总与端到端数据流（可选） |
 
 3. `.md` **只允许**落在以下位置（以 `scripts/verify-docs.mjs` 的 `ALLOWED` 为准）：
@@ -132,8 +131,10 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - `.agents/skills/<name>/`（及 `.zcode/skills/` 覆盖位）—— 项目级技能整包
      （`SKILL.md` + 引用 / 模板 / 脚本；第三方技能必须带 LICENSE 与来源说明）
 4. 新增或修改文档时：
-   - 渠道协议 → `docs/channels/<cid>/PROTOCOL.md`；渠道说明 → `docs/channels/<cid>/README.md`；
-     **渠道文档不要散落进仓库级 `docs/` 根**（根层只放跨渠道的规范与契约）。
+   - 渠道协议 → `docs/channels/<cid>/PROTOCOL.md`；**渠道目录不留 `README.md`**
+     （通用用法写在 `docs/channels/README.md`，渠道差异写进各自的 `PROTOCOL.md`）——
+     11 份一模一样的样板文档是纯负担，`verify-docs` 会拦。
+   - **渠道文档不要散落进仓库级 `docs/` 根**（根层只放跨渠道的规范与契约）。
    - 新增 `docs/*.md` 必须同时登记到 `docs/README.md` 的文档表；新增渠道目录要登记到
      `docs/channels/README.md` 的渠道表。
    - markdown 链接用**相对路径**；源码注释里的引用用**仓库根相对路径**
@@ -147,7 +148,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - 逆向学习用的开源反代项目可 clone 到 `packages/core/channels/<cid>/reference/<owner>_<repo>/`
      （`--depth 1`），由渠道级 `.gitignore` 的 `reference/` 条目忽略，**不入库**；
    - 从参考实现学到的**结论**写进 `docs/channels/<cid>/PROTOCOL.md`（每条标注来源仓库与文件）；
-   - 渠道 `docs/channels/<cid>/README.md` 必须维护「参考实现」一节，列出全部已 clone 仓库的
+   - 渠道 `docs/channels/<cid>/PROTOCOL.md` 必须维护「参考实现」一节，列出全部已 clone 仓库的
      **GitHub 链接**与一句话用途 —— 克隆或删除参考仓库时同步更新本节。
 
 ## 代码约定
@@ -201,7 +202,8 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
      （端点、方法、请求头约束、实测状态码）；**同步更新 `docs/README.md`**（索引入口）与
      `AGENTS.md` 测试规则。
    - 端到端测试覆盖（登录入池 / `mx model <cid> --refresh` / 最小对话 / 工具往返 / 流式 SSE）
-     应在渠道 README「测试」小节列明，供后续 Agent 按 `reasonix-mx-test` skill 复现。
+     应在渠道 `docs/channels/<cid>/PROTOCOL.md` 的「使用与实测」小节列明，
+     供后续 Agent 按 `reasonix-mx-test` skill 复现。
 4. **端到端测试要发正确形态的请求，严禁向上游发任何故意畸形/会触发风控的载荷**：
    - Agent 跑 `reasonix-mx-test` skill、真机手动验收、扫码入池后验证、`.tmp/` 临时脚本，
      **一律只发符合上游规范的正确请求**（普通 user 文本、合法的 tool_calls 往返、流式/非流式等

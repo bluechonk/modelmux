@@ -41,21 +41,21 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `catpaw` | CatPaw（美团妙手） | [说明](./channels/catpaw/README.md) · [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
-| `codearts` | CodeArts（华为云） | [说明](./channels/codearts/README.md) · [PROTOCOL](./channels/codearts/PROTOCOL.md) |
-| `lobsterai` | LobsterAI（有道） | [说明](./channels/lobsterai/README.md) · [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
-| `loomy` | Loomy（讯飞） | [说明](./channels/loomy/README.md) · [PROTOCOL](./channels/loomy/PROTOCOL.md) |
-| `qoder` | Qoder（国际版 `qoder.com`） | [说明](./channels/qoder/README.md) · [PROTOCOL](./channels/qoder/PROTOCOL.md) |
-| `qodercn` | Qoder 国内版（`qoder.com.cn`） | [说明](./channels/qodercn/README.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
-| `raccoon` | Raccoon（商汤） | [说明](./channels/raccoon/README.md) · [PROTOCOL](./channels/raccoon/PROTOCOL.md) |
-| `traecn` | TRAE（字节，中国版） | [说明](./channels/traecn/README.md) · [PROTOCOL](./channels/traecn/PROTOCOL.md) |
-| `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [说明](./channels/workbuddy/README.md) · [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
-| `workbuddyai` | WorkBuddyAI（国际版） | [说明](./channels/workbuddyai/README.md) · [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表） |
-| `orcaterm` | OrcaTerm（腾讯云，登录已实现 / 上游已接入纯文本） | [说明](./channels/orcaterm/README.md) · [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) |
+| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
+| `codearts` | CodeArts（华为云） | [PROTOCOL](./channels/codearts/PROTOCOL.md) |
+| `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
+| `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) |
+| `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./channels/qoder/PROTOCOL.md) |
+| `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
+| `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) |
+| `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
+| `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
+| `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表） |
+| `orcaterm` | OrcaTerm（腾讯云，登录已实现 / 上游已接入纯文本） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) |
 
 > `orcaterm` 是**渠道包**（7 文件齐备并已注册）：登录（腾讯云单路）与文本对话已实现；
 > `upstream.buildChatBody()` 目前只发纯文本（`tools` 固定为 `[]`，工具调用不可用）。
-> 额度 / 签到无此概念，CLI 与 UI 显示 `-`；详见其 README 的「已知限制」。
+> 额度 / 签到无此概念，CLI 与 UI 显示 `-`；详见其 PROTOCOL 的「使用与实测 / 已知限制」。
 > GitHub 仅协议事实，未实现。
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
@@ -89,7 +89,8 @@
 
 1. 建 `packages/core/channels/<cid>/`：7 个 `src/*.ts`（`channel`/`cli`/`index` + `cred`/`upstream`/`catalog`/`billing`）
    + `package.json` + `tsconfig.json`（**渠道不做测试**，无需 `tests/`；见 `AGENTS.md` 的「测试规则」第 1 条）
-2. `docs/channels/<cid>/`：`README.md`（渠道说明）+ `PROTOCOL.md`（协议规格，实测结论）
+2. `docs/channels/<cid>/PROTOCOL.md`（协议规格，实测结论 + 使用与实测 + 参考实现清单）；
+   渠道目录**不放 `README.md`**（通用用法在 `docs/channels/README.md`）
 3. `packages/cli/src/channels.ts` 加一行 `import "@modelmux/<cid>"`（包名 = `@modelmux/` + 目录名，装好后由工作区软链解析）
 4. 工作区根 `package.json` 的 `workspaces`（`packages/cli` 不必声明依赖：发布 bundle 自包含）
 5. `npm install && npm test`（自带 `build`；`verify-storage` 校验落点规范、`verify-docs` 校验文档归属）

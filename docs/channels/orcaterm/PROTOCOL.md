@@ -552,3 +552,72 @@ Authorization: Bearer <ot_session>
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
 `src/catalog.ts` 的 `MAX_OUTPUTS`。
+
+---
+
+## 使用与实测
+
+### 已知限制
+
+1. **只支持纯文本，工具调用未实现**：`upstream.buildChatBody()` 目前把 `tools` 固定为 `[]`，
+   并丢弃 assistant / tool 消息；翻译层只产出文本 delta。Reasonix 等 Agent 客户端发起的
+   工具往返会表现为「模型只说不做」—— 验收时工具调用数为 0、文件不会落盘。
+   这不是上游问题，是本渠道尚未实现（上游的工具形态与回填格式见 §3.4.5）。
+2. **无额度 / 签到**：订阅制运维套餐，没有每日积分与签到端点；`mx bill` 显示 `-`
+   （端点与实现见 §5.1 / §5.2）。
+
+### 登录方式（渠道差异）
+
+只启用**腾讯云**一路（`mx login orcaterm`，不弹菜单）：CLI 自造 `sessionId` → 打开腾讯云
+授权页 → 浏览器完成登录 → CLI 轮询 `POST /cgi/api OAuthExchangeToken(sessionId)` 换
+`ot_session`。**全自动**：只需在浏览器登录/授权一次，CLI 自动轮询换取 token
+（协议细节见 §1.3；`wechat` / `github` 两路只是协议事实，见 §1.1）。
+
+| 环境变量 | 作用 |
+| --- | --- |
+| `ORCATERN_USER_INFO_URL` | 覆盖 `refresh()` 的只读探测端点（离线测试用） |
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`orcaterm/hy3`）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`），纯文本对话正常。
+- 本渠道**订阅制、无倍率概念**（`capabilities.billing=false`），`mx bill` 显示 `-`，
+  测试前后无额度差值可比。
+- 工具往返**不适用**：见「已知限制」第 1 条 —— `tools` 固定为空、assistant/tool 消息被丢弃，
+  模型只说不做，工具调用数恒为 0、文件不会落盘。这不是上游问题，是本渠道尚未实现。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login orcaterm          # 腾讯云登录（唯一可用的登录路）
+mx status orcaterm         # 凭据能否 load 出来
+mx model orcaterm --refresh
+```
+
+端到端覆盖：登录入池 / 最小对话 / 流式 SSE；**工具往返不适用**（见「已知限制」第 1 条）。
+
+### 本机数据落点（逆向依据）
+
+Tauri 按 Bundle ID `com.orcaterm-desktop.app` 落数据：
+
+| 路径 | 内容 |
+| --- | --- |
+| `%LOCALAPPDATA%\OrcaTerm\OrcaTerm.exe` | 主程序（58 MB，Tauri v2 + WebView2） |
+| `%LOCALAPPDATA%\com.orcaterm-desktop.app\` | `.cookies`、`logs\orcaterm.log`、`EBWebView\`（WebView2 profile） |
+| `%APPDATA%\com.orcaterm-desktop.app\` | `data.bin`（KV 存储）、`.window-state.json` |
+
+逆向证据的取法（读落盘文件 + 扫 WebView2 Code Cache 提字符串字面量，只读、不联网）见
+[FINDINGS.md](./FINDINGS.md) §1。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | 上游协议参照 —— 文本对话已按该实现接入；工具调用转发仍待补齐 |
+| [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | 上游协议的补充参照 |
+| [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | 官方发行包存档 —— 桌面端逆向（asar / 二进制）与版本对照的一手材料 |

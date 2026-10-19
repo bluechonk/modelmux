@@ -7,9 +7,10 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 现行签名是 COSY bearer（`Appcode` + 固定 SECRET 那套已失效，不参与账号身份）。
 
 依据：`dsh-our-free-model/vendor/channel-pack/src/` 的 TypeScript 实现（下称 `<SRC>`，
-下文行号对应提取时的源码）与社区五个反代项目的分析结论（参考清单见渠道 README）。
+下文行号对应提取时的源码）与社区反代项目的分析结论（参考清单见本文件末尾
+「参考实现」；国内版的清单见 [`qodercn/PROTOCOL.md`](../qodercn/PROTOCOL.md)）。
 
-**本项目覆盖双版本**：国际版 `qoder`（qoder.com）与中国版 `qodercn`（qoder.cn）。
+**本项目覆盖双版本**：国际版 `qoder`（qoder.com）与中国版 `qodercn`（qoder.com.cn）。
 两站共用同一套实现，差异全部收敛在 product 配置里。
 
 ---
@@ -20,11 +21,11 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 
 | 字段 | 国际版 `qoder` | 中国版 `qodercn` | 来源 |
 |---|---|---|---|
-| `authBase` | `https://qoder.com` | `https://qoder.cn` | qoder-product.ts:442 / 592 |
+| `authBase` | `https://qoder.com` | `https://qoder.com.cn` | `cred.ts` 的 `PRODUCTS` 配置 |
 | `openApiBase` | `https://openapi.qoder.sh` | `https://openapi.qoder.com.cn` | 443 / 593 |
 | `inferBase`（公开 OpenAI 兼容，**无调用方**） | `https://api2-v2.qoder.sh` | `https://gateway.qoder.com.cn` | 444 / 601 |
 | `encryptedInferBase`（加密推理，实际使用） | `https://api2.qoder.sh` | `https://gateway.qoder.com.cn` | 445 / 604 |
-| `clientId` | `e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb` | `732aef47-9cf2-46a2-95fe-4cebb5d0d1fa` | 446 / 609 |
+| `clientId` | `e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb` | `1c5e33e1-364d-4ce6-b02c-acaa81274a5c` | `cred.ts` 的 `PRODUCTS` 配置 |
 | `sashClientType` | `'10'` | `'10'` | 455 / 626 |
 | `userAgentPrefix` | `qoder`（拼成 `qoder/1.0.0`） | 同 | 456 / 628 |
 | `clientMetadata` | `{client_type:'5', business_product:'cli', business_type:'agent', scene:'assistant'}` | 同 | 448-453 / 619-624 |
@@ -436,3 +437,49 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
 `src/catalog.ts` 的 `MAX_OUTPUTS`（国内版 `qodercn` 同一套）。
+
+---
+
+## 使用与实测
+
+### 推荐模型
+
+`qwen3.8-flash`（**倍率 0 / 免费**，见 §5.1）—— 端到端实测用的就是它。
+
+### 已知限制
+
+- **上游会回 SSE 内嵌业务错误帧**（如排队 `10605`），测试偶发变慢属正常排队重试机制
+  （见 §4.3），不是故障。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
+- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
+  排队重试机制（见 §4.3），不是故障。
+
+### 怎么测这个渠道
+
+端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+
+```bash
+mx login qoder
+mx status qoder
+mx model qoder --refresh
+mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
+```
+
+端到端覆盖：登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★，国际国内双区多账号网关）：COSY 签名推理、稳定设备指纹防风控、OAuth 设备授权 —— 与本渠道的实现痛点一一对应 |
+| [cubk1/qoder2api](https://github.com/cubk1/qoder2api) | 逆向 demo 对照样本（90★） |
+| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★） |

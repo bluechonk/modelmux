@@ -432,3 +432,32 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 ⚠ 上游 id 带发布日（如 `doubao-seed-2-1-pro-260915`），查表前先归一化并剥发布日期。
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
 `src/catalog.ts` 的 `MAX_OUTPUTS`。
+
+---
+
+## 使用与实测
+
+### 已知限制
+
+- **本渠道没有倍率 0 的模型**：最低是 `deepseek-flash` 0.05，测试须选它；
+  `kimi-k3` 倍率 20，禁用于自动化测试。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+
+### 端到端测试覆盖
+
+登录入池 / `mx model lobsterai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+## 参考实现
+
+clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+
+| 仓库 | 用途 |
+| --- | --- |
+| [xinxinshuhao-create/lobsterai2api](https://github.com/xinxinshuhao-create/lobsterai2api) | 主参照（86★）：有道 LobsterAI 的 OpenAI 兼容桥接（多账号） |
+| [greatleo31/lobsterAi2api](https://github.com/greatleo31/lobsterAi2api) | Go 多账号实现的对照样本 |
+| [skyletter/lobsterai2api-docker](https://github.com/skyletter/lobsterai2api-docker) | Docker 化发行形态参照（GHCR 自动构建） |
