@@ -41,10 +41,11 @@ lx_path=$(printf '%s' "$win_path" | sed -E 's#^([A-Za-z]):/#/mnt/\L\1/#')
 # 中文输出经 Git Bash ↔ WSL 管道会被判成二进制而看不清，故 WSL 内一律英文。
 if ! wsl.exe -e bash -lc "
   set -e
+  export LANG=C.UTF-8 LC_ALL=C.UTF-8
   rm -rf '$GATE'
   git clone --no-hardlinks -q '$lx_path' '$GATE'
   cd '$GATE'
-  npm ci --no-fund --no-audit >/dev/null 2>&1
+  npm ci --no-fund --no-audit
   npm test
 "; then
   echo "[wsl-gate] ✗ 测试未全绿 —— 与 CI 等价的门禁拦截（本地修完再推）" >&2
@@ -61,12 +62,13 @@ else
   changed=$(git ls-files)
 fi
 
-if printf '%s\n' "$changed" | grep -qE '^(packages/ui/|\.github/workflows/pages\.yml|scripts/verify-pages)'; then
+if printf '%s\n' "$changed" | grep -qE '^(packages/ui/|\.github/workflows/(pages|ci)\.yml|scripts/verify-pages)'; then
   [ "$QUIET" = 0 ] && echo "[wsl-gate] 检测到 Pages 相关改动，复现 pages.yml build 并校验产物"
   if ! wsl.exe -e bash -lc "
     set -e
+    export LANG=C.UTF-8 LC_ALL=C.UTF-8
     cd '$GATE'
-    DEMO=1 npm run build --workspace=packages/ui >/dev/null 2>&1
+    DEMO=1 npm run build --workspace=packages/ui
     cp packages/ui/dist/index.html packages/ui/dist/404.html
     touch packages/ui/dist/.nojekyll
     node scripts/verify-pages-artifact.mjs packages/ui/dist

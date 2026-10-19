@@ -19,6 +19,8 @@
  * 这类提交按固定标题模式识别并跳过，`Merge pull request #N from …` 仍照常拦截。
  *
  * 用法：`node scripts/verify-commits.mjs [<range>]`，默认校验「本地领先 origin/main 的提交」。
+ * CI 的 push 事件通过 `GITHUB_EVENT_BEFORE` 传入上一次 main 的 SHA，范围变成
+ * `<before>..<GITHUB_SHA>`；pull_request 事件该变量为空，仍回落到 `origin/main..HEAD`。
  * range 例：`HEAD~5..HEAD`、`origin/main..HEAD`。
  */
 import { execFileSync } from "node:child_process";
@@ -46,6 +48,23 @@ const args = ["log", "--pretty=format:%h%x09%s", ...(range ? [range] : [])];
  * 读不到 origin/main 时退化为校验 HEAD 全部历史（单机上仍可用）。
  */
 function defaultRange() {
+  const before = process.env["GITHUB_EVENT_BEFORE"] ?? "";
+  const sha = process.env["GITHUB_SHA"] ?? "HEAD";
+  // push 事件：校验本次实际推送的提交，而不是 origin/main..HEAD（在 main 上该范围恒为空）
+  if (/^[0-9a-f]{40}$/.test(before) && !/^0+$/.test(before)) {
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", before, sha], { stdio: "ignore" });
+      return `${before}..${sha}`;
+    } catch {
+      // force-push / 非祖先：只校验被推送的 tip，避免把整段历史重算一遍
+      try {
+        execFileSync("git", ["rev-parse", "--verify", `${sha}~1`], { stdio: "ignore" });
+        return `${sha}~1..${sha}`;
+      } catch {
+        return sha;
+      }
+    }
+  }
   try {
     execFileSync("git", ["rev-parse", "--verify", "origin/main"], { stdio: "ignore" });
     return "origin/main..HEAD";
