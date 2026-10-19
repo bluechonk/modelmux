@@ -158,11 +158,12 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
   `requestContext.modelParams.declarativeParams.context`（字符串档位）。
 - 可选档位：`204800` / `512000` / **`1024000`**（默认 1M）。来源：
   `reference/icebears111_catpaw2api/internal/upstream/const.go`（DefaultContextWindow）。
-- 上游目录对部分模型（如 `LongCat-2.0`，modelType 77，限时免费）**不返回
-  contextWindow**（值为 0）。渠道层按已知档位补全（longcat → 1024000），
-  并在 `/v1/models` 输出真实 `context_window` —— 否则客户端会按默认 256k 猜，
-  长任务被客户端自己截断。
-- 请求侧 `buildChatBody` 按模型目录档位发 `context`（未知则 1M）；折叠 prompt
+- 上游目录**不下发窗口**（`/model-types` 实测：所有模型 `contextWindow` 均为 0）——
+  上下文是**请求参数**（body 字段），不是上游声明的模型能力。[实测]
+- 渠道层按默认档位补全并**落盘**：目录值 > 0 用之，否则一律补 `1024000`（1M）；
+  `/v1/models` 因此输出真实 `context_window`（1024000）—— 否则客户端会按兜底
+  128k 截断长任务。[实测] 2026-10-20 修：此前落盘恒为 0，池层回落 128000。
+- 请求侧 `buildChatBody` 按目录档位发 `context`（= 1M，与落盘值同源）；折叠 prompt
   按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
 
 ## 边界与伦理

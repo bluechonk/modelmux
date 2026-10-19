@@ -35,6 +35,25 @@ export interface CatalogEntry {
 }
 
 /**
+ * 渠道默认上下文档位。
+ *
+ * ⚠ 上下文档位是**请求参数**（body 的 `requestContext.modelParams.declarativeParams.context`），
+ * 不是上游目录声明的模型能力：上游 `/model-types` **不下发窗口**（[实测]），
+ * 可选档位是 204800 / 512000 / **1024000**（默认 1M）—— 来源：参考实现
+ * `reference/icebears111_catpaw2api/internal/upstream/const.go` [参考]。
+ *
+ * 渠道一直按 1M 发请求（见 `upstream.ts` 的 `context`），所以对外就该报 1M：
+ * 落盘 0 会让 `/v1/models` 回落兜底 128k，客户端按 128k 截断就是错的。
+ */
+export const DEFAULT_CONTEXT_WINDOW = 1_024_000;
+
+/** 补全 contextWindow：目录值 > 0 用之；否则按渠道默认档位（1M）补。 */
+function contextWindowOfId(parsed: number): number {
+  if (parsed > 0) return parsed;
+  return DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
  * 兜底表：上游模型目录不可用时仍可暴露的模型。
  *
  * ⚠ **内容取自一次真实的上游 `/model-types` 返回**（2026-10-08 实测，见
@@ -50,7 +69,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     name: "GLM-5.3-FlashX",
     modelType: 1,
     reasoning: true,
-    contextWindow: 0,
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
     multiplier: null,
@@ -61,7 +80,7 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     name: "GLM-5.3-Flash",
     modelType: 1,
     reasoning: true,
-    contextWindow: 0,
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
     multiplier: null,
@@ -72,31 +91,13 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     name: "DeepSeek-V4-Flash",
     modelType: 1,
     reasoning: true,
-    contextWindow: 0,
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
     multiplier: null,
     marketing: "",
   },
 ];
-
-/**
- * 已知上下文档位（上游目录不带 contextWindow 时按真实档位补）。
- *
- * 来源：`reference/icebears111_catpaw2api/internal/upstream/const.go` —— 上下文档位
- * 走 body 的 `requestContext.modelParams.declarativeParams.context`，可选
- * 204800 / 512000 / **1024000**（默认 1M）。LongCat-2.0 是限时免费模型，
- * 向上游按 1M 请求即可（此前目录报 0，客户端只能按默认 256k 猜）。
- */
-const KNOWN_CONTEXT_WINDOWS: Record<string, number> = {
-  "longcat-2.0": 1_024_000,
-};
-
-/** 补全 contextWindow：目录值 > 0 用之；否则查已知档位表（0 = 仍未知）。 */
-function contextWindowOfId(id: string, parsed: number): number {
-  if (parsed > 0) return parsed;
-  return KNOWN_CONTEXT_WINDOWS[id.toLowerCase()] ?? 0;
-}
 
 /** 上游目录缓存（由 upstream.fetchModels() 成功时回填）。 */
 let _remote: CatalogEntry[] | null = null;
@@ -206,7 +207,7 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
       row["reasoning"] === true ||
       Array.isArray(row["parameterDefinitions"]) ||
       row["supportsReasoning"] === true,
-    contextWindow: contextWindowOfId(id, num("contextWindow", "maxContextLength")),
+    contextWindow: contextWindowOfId(num("contextWindow", "maxContextLength")),
     description: pick("description"),
     supportsImages: row["supportsImages"] === true || row["supportImage"] === true,
     ...parseExtendedInfo(row),
@@ -239,14 +240,17 @@ export function resolveModel(name: string): string {
   throw new Error(`unknown model: ${name}`);
 }
 
-/** 从模型 id 解析上游 modelType 数值（供 buildChatBody 使用）。 */
-/** 某模型的上下文档位（未知返回 0；LongCat-2.0 为 1M）。 */
+/**
+ * 某模型的上下文档位（上游目录不下发窗口 → 恒为渠道默认档位 1M）。
+ *
+ * 供 `upstream.ts` 组请求体用；取不到条目时也回落默认档位（与实际请求一致）。
+ */
 export function contextWindowOf(id: string): number {
   const wanted = id.toLowerCase();
   for (const entry of loadCatalog()) {
-    if (entry.id.toLowerCase() === wanted) return contextWindowOfId(entry.id, entry.contextWindow);
+    if (entry.id.toLowerCase() === wanted) return contextWindowOfId(entry.contextWindow);
   }
-  return KNOWN_CONTEXT_WINDOWS[wanted] ?? 0;
+  return DEFAULT_CONTEXT_WINDOW;
 }
 
 export function modelTypeOf(id: string): number {
