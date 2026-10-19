@@ -30,9 +30,9 @@ export type { LoginUi };
  */
 export async function ensureLogin(
   ui: LoginUi,
-  options: { interactive?: boolean; baseUrl?: string; cid?: string } = {},
+  options: { interactive?: boolean; baseUrl?: string; cid?: string; passiveNoProbe?: boolean } = {},
 ): Promise<boolean> {
-  const { interactive = true, baseUrl, cid } = options;
+  const { interactive = true, baseUrl, cid, passiveNoProbe = false } = options;
   const { cred, upstream } = getChannel(cid);
 
   let c: ReturnType<typeof cred.load> | null;
@@ -82,7 +82,9 @@ export async function ensureLogin(
     return true;
   }
 
-  // 有凭证：探测登录状态（失效先刷新，仍失败则引导重新登录）
+  // 有凭证：被动启动探测可跳过网络校验（非交互且启用 passiveNoProbe 时，
+  // 仅本地凭据存在即视为可用；网络/失效由运行期首请求自动 refresh）
+  if (!interactive && passiveNoProbe) return true;
   try {
     await upstream.fetchModels(c);
     return true;
