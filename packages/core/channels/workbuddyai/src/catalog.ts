@@ -46,6 +46,10 @@ export interface ModelEntry {
   context_window?: number;
   max_output?: number;
   supports_image?: boolean;
+  /** 倍率展示文案（如 `"x0.34"`）；上游 `credits` 字段为空时缺省。 */
+  rate?: string;
+  /** 倍率数值（由 `rate` 解析）；供共享层 `model_info.multiplier` 使用。 */
+  multiplier?: number;
   source: "fallback" | "snapshot" | "remote";
 }
 
@@ -86,10 +90,28 @@ function num(value: unknown): number | undefined {
 }
 
 /**
+ * 解析上游 `credits` 字段得到倍率。
+ *
+ * 实测 `/v3/config` 的 `models[]` 用 `credits` 承载消耗倍率，形如 `"x0.34 credits"`；
+ * Auto / default-model 这类不给倍率的条目是空串。取不到数字就返回 null（不猜）。
+ */
+function parseCreditsRate(credits: string): { rate: string; multiplier: number } | null {
+  const text = credits.trim();
+  if (!text) return null;
+  if (/free|免费/i.test(text)) return { rate: "免费", multiplier: 0 };
+  const m = /x?\s*([0-9]+(?:\.[0-9]+)?)/i.exec(text);
+  if (!m) return null;
+  const value = Number.parseFloat(m[1]!);
+  if (!Number.isFinite(value)) return null;
+  return { rate: `x${value}`, multiplier: value };
+}
+
+/**
  * 把一行上游模型载荷解析成条目。
  *
  * 两个口径都要认（同一个产品的两张目录）：
- * - `/v3/config` 的 `models[]`：`id` / `name` / `maxInputTokens` / `maxOutputTokens` / `supportsImages`
+ * - `/v3/config` 的 `models[]`：`id` / `name` / `maxInputTokens` / `maxOutputTokens` /
+ *   `supportsImages` / `credits`（消费倍率，形如 `"x0.34 credits"`）
  * - 随包快照（旧插件端点）：`slug` / `display_name` / `context_window` / `max_output_tokens`
  *
  * 只取列表与用量判断要用的字段；内部运行时画像（`base_instructions`、
@@ -128,6 +150,11 @@ function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null
   if (output !== undefined) entry.max_output = output;
   const image = rec["supports_image_detail_original"] ?? rec["supportsImages"];
   if (typeof image === "boolean") entry.supports_image = image;
+  const rate = parseCreditsRate(str(rec["credits"]));
+  if (rate) {
+    entry.rate = rate.rate;
+    entry.multiplier = rate.multiplier;
+  }
   return entry;
 }
 
@@ -235,6 +262,14 @@ export function resolveModel(name: string): string {
   const legacy = LEGACY_ALIASES[name];
   if (legacy) return legacy;
   return name;
+}
+
+/** 模型的倍率展示文案（如 `"x0.34"`），未知模型或无倍率返回空串。 */
+export function rateTag(modelId: string): string {
+  for (const entry of entries()) {
+    if (entry.exposed === modelId || entry.id === modelId) return entry.rate ?? "";
+  }
+  return "";
 }
 
 /** 仅供测试：清空目录缓存（快照与远端都清）。 */
