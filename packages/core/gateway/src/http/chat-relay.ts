@@ -71,9 +71,8 @@ function readTimeoutMs(): number {
 /**
  * 把上游响应体包成「空闲超时」流：**每读到一块就重置计时**。
  *
- * 旧实现用 `AbortSignal.timeout()` 掐总时长，长任务（catpaw 的 agent 轮次、
- * 长 tool 循环）只要总耗时超过阈值就被硬切断，日志只剩一句无上下文的
- * TimeoutError。现在只在「连续 N 秒没有任何数据」时中止，持续出字的流不受影响。
+ * 判定依据是「连续无数据时长」，不是「总时长」：长任务（catpaw 的 agent 轮次、
+ * 长 tool 循环）总耗时超过阈值但持续出字时不会被切断。
  */
 function idleGuardedBody(
   body: ReadableStream<Uint8Array>,
@@ -921,7 +920,7 @@ export async function handleChat(
   const available = authed.filter((c) => !isCooling(c.cid));
   const attempts = (available.length > 0 ? available : authed).slice(0, maxPoolAttempts());
   if (available.length === 0) {
-    // 只记异常路径：部分过滤是设计内行为，逐请求打日志会在冷却窗口内刷屏
+    // 只记录异常路径：候选被过滤属设计内行为，逐请求输出会在冷却窗口内产生大量重复日志
     opts.logger(
       `pool: all ${authed.length} logged-in candidate(s) cooling down (${target}); falling back to retry`,
     );

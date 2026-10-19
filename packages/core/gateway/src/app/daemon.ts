@@ -186,7 +186,7 @@ export async function start(options: StartOptions = {}): Promise<number> {
     workerDir,
   ];
   // ⚠ stdio 全部重定向到日志文件：监督进程没有控制台可继承，
-  //   继承父进程的 stdout 会在父进程退出后写入失败（EPIPE 刷屏）
+  //   继承父进程的 stdout 会在父进程退出后写入失败（EPIPE 重复报错）
   const logFd = openSync(workerLog, "a");
   const child = spawn(process.execPath, superviseArgs, {
     detached: true,
@@ -386,7 +386,6 @@ export async function status(
   if (gatewayUp) {
     try {
       // 单端口模式：控制台与网关共用 `addr`，控制台 API 在 `/web/api/*` 下。
-      // （旧实现探测 `uiPort/api/state` —— 那是控制台独立进程时代的两端口布局，已失效。）
       const resp = await fetch(`${baseUrlOf(addr)}${REPO_UI_PREFIX}/api/state`, {
         signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
       });
