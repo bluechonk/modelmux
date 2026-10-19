@@ -180,6 +180,32 @@ Rust 侧 store 还有 `oauth_refresh_token`（日志可见 `store_get`，样本�
 - `[handleLoginInvalid] ... (source: orcaApiRequest)` —— **任一 API 请求返回未授权即在
   Rust 侧触发重新登录流程**，前端不必各自处理
 
+### 1.7 token 续期（`OAuthRefreshToken`，实测 `[A]`）
+
+`ot_session` 只有 2 小时有效，但**可无限续期，无需再走浏览器授权**：
+
+```
+POST https://orcaterm.com/cgi/api
+Cookie: ot_session=<当前 JWT>
+{"action":"OAuthRefreshToken","data":{"refreshToken":"jti-based-refresh"}}
+→ {"data":{"Response":{"Code":0,"Message":"Success","AccessToken":"<新 HS256 JWT>","ExpiresIn":7200}}}
+```
+
+实测结论（2026-10-19，真实账号）：
+
+- `refreshToken` 是**固定字面值** `"jti-based-refresh"`（登录响应 `RefreshToken` 字段
+  给的就是这个串），服务端按 `ot_session` cookie 里的 `jti` 定位当前会话。
+- **幂等**：同一 refreshToken 可反复换取新 token，`jti` 不变、`exp` 顺延 7200s。
+- action 名精确为 `OAuthRefreshToken`（`RefreshToken` / `OAuthRenewToken` 等均回
+  `ACTION_INVALID ... not match`）。
+- 桌面端 `[TokenManager] Refreshing token... → Token refresh successful` 走的就是
+  这条路，并在过期前约 110 分钟主动续一次；服务端也会经响应头 `X-OT-Token-Refreshed`
+  下发新 JWT（前端 `onServerTokenRefreshed` 接收）。
+
+本仓库实现（`src/cred.ts`）：`refresh()` 调本端点换票并落盘；`ensureFresh()`（启动
+探测，`fetchModels` 内 await）与 `ensureFreshInBackground()`（每个对话请求头构造时
+fire-and-forget）在剩余 <10 分钟时触发续期，`ORCATERM_REFRESH_LEAD_MS` 可覆盖窗口。
+
 ---
 
 ## 2. 自有 API（CAPI 框架）

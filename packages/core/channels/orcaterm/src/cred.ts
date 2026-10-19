@@ -274,27 +274,83 @@ export async function login(baseUrl = DEFAULT_BASE_URL, _options: LoginOptions =
   return creds;
 }
 
-// ── 有效性探测 ────────────────────────────────────────────────────────────────
+// ── 续期 ─────────────────────────────────────────────────────────────────────
 
-function userInfoUrl(): string {
-  return process.env[USER_INFO_URL_ENV] || USER_INFO_URL_DEFAULT;
-}
+/** 刷新令牌：登录响应 `RefreshToken` 的固定字面值（实测，见 PROTOCOL.md §1.6）。 */
+const REFRESH_TOKEN_LITERAL = "jti-based-refresh";
 
 /**
- * 续期：本渠道无刷新端点，只做有效性探测。
- * 契约（CONTRACT-TS §5.1/§6）：失效必须抛错，401/403 判失效，其它状态当抖动。
+ * 续期：`POST /cgi/api OAuthRefreshToken`，实测可用且**幂等**（同一 refreshToken
+ * 可反复换取新 token，jti 不变、exp 顺延 7200s）。与桌面端 TokenManager 同一条路。
+ * 契约（CONTRACT-TS §5.1/§6）：失效必须抛错。
  */
 export async function refresh(c: Credentials): Promise<Credentials> {
   if (!c.accessToken) throw new NotLoggedInError();
   const res = await fetchWithTimeout(
-    userInfoUrl(),
-    { headers: { Cookie: `ot_session=${c.accessToken}` } },
+    CAPI_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `ot_session=${c.accessToken}`,
+      },
+      body: JSON.stringify({ action: "OAuthRefreshToken", data: { refreshToken: REFRESH_TOKEN_LITERAL } }),
+    },
     FETCH_TIMEOUT_MS,
   );
   if (res.status === 401 || res.status === 403) {
     throw new NotLoggedInError("OrcaTerm session expired; run `mx relogin orcaterm`");
   }
-  return c;
+  const json = (await res.json().catch(() => ({}))) as unknown;
+  const token = findAccessToken(json);
+  if (!token) throw new NotLoggedInError(`refresh rejected: ${exchangeError(json)}`);
+  const next = decodeOtSession(token, c.provider || "txcloud", resolveBaseUrl());
+  await save(next);
+  return next;
+}
+
+/**
+ * 后台预刷新：token 进入续期窗口（默认剩余 <10 分钟）时异步换一次新 token 并落盘。
+ *
+ * 由 `upstream.buildChatHeaders` 在每个对话请求前调用 —— 只读触发、不阻塞当前请求
+ * （当前请求继续用旧 token，仍在有效期内；下一个请求 `load()` 时自然读到新的）。
+ * 同一时刻只允许一次在途刷新；失败静默（下个请求再试），真失效由请求路径的
+ * `upstream_auth_expired` 明确暴露。`ORCATERM_REFRESH_LEAD_MS` 可覆盖窗口（测试用）。
+ */
+const REFRESH_LEAD_MS = Number(process.env["ORCATERM_REFRESH_LEAD_MS"] || 10 * 60 * 1000);
+let refreshInFlight: Promise<unknown> | null = null;
+
+export function ensureFreshInBackground(c: { accessToken: string }): void {
+  if (refreshInFlight || !c.accessToken) return;
+  const expMs = jwtExpMs(c.accessToken);
+  if (expMs <= 0 || Date.now() < expMs - REFRESH_LEAD_MS) return;
+  refreshInFlight = refresh(c as Credentials)
+    .catch(() => {
+      /* 续期失败不打断请求；真失效由请求路径报错 */
+    })
+    .finally(() => {
+      refreshInFlight = null;
+    });
+}
+
+/**
+ * 同步版预续期（网关启动探测用，auth-flow await fetchModels）：
+ * token 新鲜则直接返回；进入续期窗口或已过期则换一张并落盘；换不到抛错。
+ */
+export async function ensureFresh(c: { accessToken: string }): Promise<void> {
+  if (!c.accessToken) throw new NotLoggedInError();
+  const fresh = (): boolean => {
+    const expMs = jwtExpMs(c.accessToken);
+    return expMs > 0 && Date.now() < expMs - REFRESH_LEAD_MS;
+  };
+  if (fresh()) return;
+  if (refreshInFlight) {
+    // 等别的请求发起的在途续期；成功后 load 路径会读到新 token，
+    // 这里只保证「不重复发」，失败留给下面的自查兜底
+    await refreshInFlight.catch(() => {});
+    return;
+  }
+  await refresh(c as Credentials);
 }
 
 function sleep(ms: number): Promise<void> {

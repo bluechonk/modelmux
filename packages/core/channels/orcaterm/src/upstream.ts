@@ -27,6 +27,7 @@ import { login as sharedLogin, type StreamTranslator } from "@modelmux/gateway";
 const { fetchWithTimeout } = sharedLogin;
 
 import * as catalog from "./catalog.js";
+import * as cred from "./cred.js";
 
 // ── 端点常量 ────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,8 @@ export function buildHeaders(
   _cfg?: Config,
 ): Record<string, string> {
   const token = credential.accessToken;
+  // 进入续期窗口时后台换一张新 token 落盘（当前请求仍用旧 token，不阻塞）
+  cred.ensureFreshInBackground(credential);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "Accept": "text/event-stream, application/json",
@@ -276,15 +279,27 @@ export function buildToolResultPrompt(toolName: string, output: string): string 
 
 // ── SSE 响应帧 ───────────────────────────────────────────────────────────
 
-/** 实测上游 SSE 帧结构（curl 真机探测 + Go orca.go 双源确认） */
+/**
+ * 实测上游 SSE 帧结构（curl 真机探测 + Go orca.go 双源确认）。
+ *
+ * ⚠ `code` 实测**两种形态都有**：SSE 帧里是数字（`code:0`），
+ * 而 HTTP 200 + 裸 JSON 错误体里是字符串（`"code":"10050000"`）。
+ * 故按 `number | string` 收，比较时统一转数字（见 `codeOf`）。
+ */
 interface SseFrame {
   id: string;
   content: string;
   reasoningContent?: string;
   reasoning?: boolean;
   type?: string;
-  code: number;
+  code: number | string;
   message?: string;
+}
+
+/** 帧的 code 归一成数字；解析不出返回 0（当作无错误）。 */
+function codeOf(frame: SseFrame): number {
+  const n = typeof frame.code === "number" ? frame.code : Number(frame.code);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** 去掉 markdown 围栏与前后空白。 */
@@ -401,10 +416,36 @@ class SseLineReader {
             // 非 JSON 载荷行，跳过
           }
         }
+      } else if (line.startsWith("{") && line.endsWith("}")) {
+        // 鉴权失败等场景上游回 HTTP 200 + **裸 JSON**（无 data: 前缀），
+        // 形如 {"code":"10050000","message":"Invalid or expired AccessToken"}。
+        // 不识别就会被当成空流，客户端拿到 200 + 空 content。
+        try {
+          out.push(JSON.parse(line) as SseFrame);
+        } catch {
+          // 非 JSON 行，跳过
+        }
       }
       idx = this.tail.indexOf("\n");
     }
     return out;
+  }
+
+  /**
+   * 流结束时冲刷残余缓冲。
+   *
+   * 上游的 HTTP 200 + JSON 错误体**不带换行符**，按行切分永远等不到 `\n`，
+   * 整份 JSON 会一直留在 tail 里被丢掉 —— 故收尾时必须再试一次完整解析。
+   */
+  flush(): SseFrame[] {
+    const rest = this.tail.trim();
+    this.tail = "";
+    if (!rest.startsWith("{") || !rest.endsWith("}")) return [];
+    try {
+      return [JSON.parse(rest) as SseFrame];
+    } catch {
+      return [];
+    }
   }
 }
 
@@ -426,20 +467,21 @@ export function newTranslator(_request?: Record<string, unknown>): StreamTransla
   const idleCutoffMs = Number(process.env["ORCATERM_IDLE_CUTOFF_MS"] || 30_000);
 
   const parseFrame = (frame: SseFrame): void => {
-    // 鉴权失效
-    if (frame.code === CODE_AUTH_EXPIRED) {
-      throw new UpstreamUnauthorized(`upstream auth expired (code=${frame.code})`);
+    const code = codeOf(frame);
+    // 鉴权失效（SSE 帧为数字 code，HTTP 200 裸 JSON 错误体为字符串 code）
+    if (code === CODE_AUTH_EXPIRED) {
+      throw new UpstreamUnauthorized(`upstream auth expired (code=${code})`);
     }
     if (isConsoleAuthExpired(frame.message || "")) {
       throw new UpstreamUnauthorized(`console auth expired: ${frame.message}`);
     }
     // 限流
-    if (frame.code === 429) {
+    if (code === 429) {
       throw new OrcaProtocolError(frame.message || "rate limited", 429);
     }
     // 其他业务错误
-    if (frame.code !== 0 && frame.code !== 200) {
-      throw new OrcaProtocolError(frame.message || `upstream error code=${frame.code}`, frame.code);
+    if (code !== 0 && code !== 200) {
+      throw new OrcaProtocolError(frame.message || `upstream error code=${code}`, code);
     }
     // 累积正文
     if (frame.content) aggregatedContent += frame.content;
@@ -462,26 +504,45 @@ export function newTranslator(_request?: Record<string, unknown>): StreamTransla
     return out;
   };
 
+  const drainFrames = (frames: SseFrame[]): Array<Buffer | string> => {
+    const out: Array<Buffer | string> = [];
+    for (const frame of frames) {
+      try {
+        parseFrame(frame);
+      } catch (e) {
+        if (e instanceof UpstreamUnauthorized) {
+          return [
+            sseFrame({ error: { message: e.message, type: "upstream_auth_expired" } }),
+            ...finalize(),
+          ];
+        }
+        throw e;
+      }
+    }
+    return out;
+  };
+
   return {
     feed(chunk: Buffer): Array<Buffer | string> {
       if (doneSent) return [];
       const frames = reader.push(chunk);
-      for (const frame of frames) {
-        try {
-          parseFrame(frame);
-        } catch (e) {
-          if (e instanceof UpstreamUnauthorized) {
-            return [
-              sseFrame({ error: { message: e.message, type: "upstream_auth_expired" } }),
-              ...finalize(),
-            ];
-          }
-          throw e;
-        }
+      const asError = drainFrames(frames);
+      if (asError.length > 0) {
+        doneSent = true;
+        return asError;
       }
       return [];
     },
     finish(): Array<Buffer | string> {
+      // 收尾冲刷：上游错误体可能整份留在行缓冲里（无换行符）
+      if (!doneSent) {
+        const rest = reader.flush();
+        if (rest.length > 0) {
+          const asError = drainFrames(rest);
+          doneSent = true;
+          return asError.length > 0 ? asError : finalize();
+        }
+      }
       return finalize();
     },
     isDone(): boolean {
@@ -493,10 +554,24 @@ export function newTranslator(_request?: Record<string, unknown>): StreamTransla
   };
 }
 
-// ── fetchModels（上游无模型列表端点，返回静态目录）──────────────────────────────
+// ── fetchModels（上游无模型列表端点，返回静态目录；顺带做启动期的 token 续期）──
 
-export async function fetchModels(_credential: CredentialShape): Promise<Record<string, unknown>> {
-  void _credential;
+/**
+ * 返回内置目录，并**真正探测登录态**：token 已过期或进入续期窗口时同步续一张新的
+ * （auth-flow 在网关启动时 await 本函数，续期结果落盘后由 `cred.load()` 读到）。
+ *
+ * ⚠ 不能只回静态表就宣称「已登录」—— 上游 token 只有 2 小时，闲置过期的场景必须
+ * 在这里兜住，否则启动探测永远成功、运行期第一个请求才炸。
+ */
+export async function fetchModels(credential: CredentialShape): Promise<Record<string, unknown>> {
+  try {
+    await cred.ensureFresh(credential);
+  } catch (err) {
+    // 续期失败 = 登录态真没了：映射成 UpstreamUnauthorized，
+    // 让 auth-flow 走「删凭据 + 引导重登」而不是当成网络抖动放行
+    if (err instanceof cred.NotLoggedInError) throw new UpstreamUnauthorized(err.message);
+    throw err;
+  }
   const ids = catalog.exposedIds();
   return {
     ok: true,
