@@ -529,12 +529,6 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
   成本口径不明确；测试时只做单轮最小对话，不跑完整 Agent 工具往返。
 - **工具往返在上游不稳定**：工具轮次迟迟不返回，属上游侧行为，非网关问题。
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`codearts/deepseek-v4-flash`）：
-
-- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`，上游响应快）。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -549,6 +543,12 @@ mx bill codearts           # 额度（该渠道不暴露倍率，见「已知限
 ### 端到端测试覆盖
 
 登录入池 / `mx model codearts --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`codearts/deepseek-v4-flash`）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`，上游响应快）。
 
 ## 参考实现
 

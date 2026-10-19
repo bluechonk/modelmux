@@ -586,14 +586,6 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
   `all pool candidates failed (loomy/spark-x, tried loomy)`，直接回 503 `not_authenticated`。
   此时需要重新 `mx login loomy` 微信扫码入池才能恢复。
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -608,6 +600,14 @@ mx bill loomy            # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model loomy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
+
+- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
 
 ## 参考实现
 

@@ -15,8 +15,7 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist",
-    "README.md"
+    "dist"
   ],
   "scripts": {
     "build": "tsc -b tsconfig.json",

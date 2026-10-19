@@ -456,16 +456,6 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 - **上游会回 SSE 内嵌业务错误帧**（如排队 `10605`），测试偶发变慢属正常排队重试机制
   （见 §4.3），不是故障。
 
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
-
-- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
-- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
-  排队重试机制（见 §4.3），不是故障。
-
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
@@ -480,6 +470,16 @@ mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 2026-10-19 端到端实测
+
+Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
+
+- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
+- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
+- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
+- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
+  排队重试机制（见 §4.3），不是故障。
 
 ## 参考实现
 
