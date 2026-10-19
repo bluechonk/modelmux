@@ -173,6 +173,27 @@
 > 单渠道独立运行（`packages/core/channels/<cid>/dist/cli.js start`）**也走池**：
 > `/v1/models` 同样是 `<cid>/<模型>` 形态，只是候选渠道只有一个。
 
+### 2.6 池元数据：上下文窗口与最大输出
+
+`/v1/models` 每条除了 id，还带 `context_window` / `max_output_tokens`（字段结构对齐
+DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。取值来自
+**渠道 catalog 缓存**（`<root>/<cid>/cache/models.json`）里那条目录条目。
+
+**字段名由渠道自定，汇聚层逐个尝试**（与倍率字段 `MULTIPLIER_KEYS` 同一惯例 ——
+字段名只是约定，不算渠道知识，共享层不硬编码任何渠道特性）：
+
+| 语义 | 候选字段名 | 实测写入方 |
+|---|---|---|
+| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | catpaw·loomy·raccoon 写驼峰，codearts·lobsterai·traecn·workbuddy 写下划线，qoder 写 `max_input_tokens` |
+| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | raccoon 写 `maxOutput`，traecn·workbuddy 写 `max_output`，其余渠道上游不发该字段 |
+
+- **档位表取上限**：qoder 的 `context_config` 是档位表（`{"1M":{token_count:1000000}, …}`），
+  取**最大档**而非默认档 —— 对客户端报能力上限，否则 1M 模型会被按默认 200k 误判。
+- **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
+  回落兜底值（窗口 128000 / 输出 4096）。
+- 上游确实不发该字段的渠道（catpaw·codearts·loomy·lobsterai·qoder 等）只能给兜底值；
+  这类「上游未知」只能靠渠道侧补数据解决，汇聚层无法凭空造出真值。
+
 ---
 
 ## 3. 账号池

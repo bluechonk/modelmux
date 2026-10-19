@@ -210,6 +210,81 @@ function firstString(entry: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
+/**
+ * 各渠道缓存条目里可能出现的**上下文窗口**字段名 —— 渠道自己决定字段名，汇聚层逐个尝试
+ * （与 `MULTIPLIER_KEYS` 同一惯例：字段名只是约定，不算渠道知识）。
+ */
+const CONTEXT_KEYS = [
+  "contextWindow",
+  "context_window",
+  "maxInputTokens",
+  "max_input_tokens",
+];
+
+/** 各渠道缓存条目里可能出现的**最大输出**字段名。 */
+const OUTPUT_KEYS = [
+  "maxOutputTokens",
+  "max_output_tokens",
+  "maxOutput",
+  "max_output",
+  "maxTokens",
+  "max_tokens",
+];
+
+/** 取候选字段名里的第一个**正整数**值（0 / 缺字段 / 非数都算「上游未声明」）。 */
+function firstPositive(entry: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = Number(entry[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * 上下文窗口取值：直字段 + 档位表（`context_config`）取**较大者**。
+ *
+ * 档位表是 qoder 形态（`{"1M":{token_count:1000000}, "200K":{token_count:200000, is_default:true}}`）；
+ * 与 traecn 渠道「有档位时更靠 max」的口径一致 —— 对客户端报**能力上限**，
+ * 否则 1M 模型会被按默认档误判成 200k。
+ */
+function contextWindowOf(entry: Record<string, unknown>): number | null {
+  const direct = firstPositive(entry, CONTEXT_KEYS);
+  const config = entry["context_config"];
+  let tierMax: number | null = null;
+  if (config && typeof config === "object" && !Array.isArray(config)) {
+    for (const tier of Object.values(config as Record<string, unknown>)) {
+      if (!tier || typeof tier !== "object") continue;
+      const count = Number((tier as Record<string, unknown>)["token_count"]);
+      if (Number.isFinite(count) && count > 0 && (tierMax === null || count > tierMax)) {
+        tierMax = count;
+      }
+    }
+  }
+  if (direct === null) return tierMax;
+  if (tierMax === null) return direct;
+  return Math.max(direct, tierMax);
+}
+
+/** 从缓存条目拼出对外元数据（窗口取不到时回落到 `DEFAULT_META`）。 */
+function metaFromEntry(entry: Record<string, unknown>, model: string): PoolModelMeta {
+  const input = entry["inputModalities"] ?? entry["input_modalities"];
+  const output = entry["outputModalities"] ?? entry["output_modalities"];
+  const effort = entry["effort"];
+  return {
+    name: typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
+    // 目录里窗口 = 0 表示「上游未声明」——不能当有效值透给客户端
+    // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
+    contextWindow: contextWindowOf(entry) ?? DEFAULT_META.contextWindow,
+    maxOutputTokens: firstPositive(entry, OUTPUT_KEYS) ?? DEFAULT_META.maxOutputTokens,
+    inputModalities: Array.isArray(input) ? (input as string[]) : DEFAULT_META.inputModalities,
+    outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
+    effort:
+      effort && typeof effort === "object" ? (effort as PoolModelMeta["effort"]) : DEFAULT_META.effort,
+    multiplier: firstNumber(entry, MULTIPLIER_KEYS),
+    marketing: firstString(entry, MARKETING_KEYS),
+  };
+}
+
 /** 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。 */
 export function getPoolModelMeta(model: string): PoolModelMeta {
   const parsed = parsePoolModel(model);
@@ -229,35 +304,9 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
   if (!entry) {
     const upstreamKey = runInChannel(channel.config.cid, () => channel.catalog.resolveModel(parsed.model));
     const found = cache.find((d: any) => d.key === upstreamKey || canonicalModelId(d.id) === upstreamKey) as any;
-    if (found) {
-      const win2 = Number(found.contextWindow ?? found.context_window ?? 0);
-      return {
-        name: found.name ?? model,
-        contextWindow: Number.isFinite(win2) && win2 > 0 ? win2 : DEFAULT_META.contextWindow,
-        maxOutputTokens: found.maxOutputTokens ?? found.max_output_tokens ?? DEFAULT_META.maxOutputTokens,
-        inputModalities: found.inputModalities ?? found.input_modalities ?? DEFAULT_META.inputModalities,
-        outputModalities: found.outputModalities ?? found.output_modalities ?? DEFAULT_META.outputModalities,
-        effort: found.effort ?? DEFAULT_META.effort,
-        multiplier: firstNumber(found, MULTIPLIER_KEYS),
-        marketing: firstString(found, MARKETING_KEYS),
-      };
-    }
+    if (found) return metaFromEntry(found, model);
   }
-  if (entry) {
-    // 目录里 contextWindow = 0 表示「上游未声明」——不能当有效值透给客户端
-    // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
-    const win = Number(entry.contextWindow ?? entry.context_window ?? 0);
-    return {
-      name: entry.name ?? model,
-      contextWindow: Number.isFinite(win) && win > 0 ? win : DEFAULT_META.contextWindow,
-      maxOutputTokens: entry.maxOutputTokens ?? entry.max_output_tokens ?? DEFAULT_META.maxOutputTokens,
-      inputModalities: entry.inputModalities ?? entry.input_modalities ?? DEFAULT_META.inputModalities,
-      outputModalities: entry.outputModalities ?? entry.output_modalities ?? DEFAULT_META.outputModalities,
-      effort: entry.effort ?? DEFAULT_META.effort,
-      multiplier: firstNumber(entry, MULTIPLIER_KEYS),
-      marketing: firstString(entry, MARKETING_KEYS),
-    };
-  }
+  if (entry) return metaFromEntry(entry, model);
   return DEFAULT_META;
 }
 

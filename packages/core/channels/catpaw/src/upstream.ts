@@ -495,9 +495,8 @@ export function buildChatBody(
 
   const effort = extractEffort(req);
   // 上下文档位走 declarativeParams.context（body 字段）：目录带真实档位就用它，
-  // 否则按上游默认档位 1M 请求（reference: 204800 / 512000 / 1024000，默认 1M）
-  const catalogWindow = catalog.contextWindowOf(upstreamModel);
-  const context = catalogWindow > 0 ? catalogWindow : 1024000;
+  // 否则按渠道默认档位 1M 请求（reference: 204800 / 512000 / 1024000，默认 1M）
+  const context = catalog.contextWindowOf(upstreamModel) || catalog.DEFAULT_CONTEXT_WINDOW;
 
   const conversationId = randomUUID();
   const requestContext = {
