@@ -434,22 +434,27 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const worker = async (): Promise<void> => {
     for (;;) {
       let anyOk = false;
-      for (const channel of targets) {
-        const { cred } = channel;
-        const ui = new StdoutLoginUi(json, multi ? channel.config.cid : cid);
-        const ok = await runInChannel(channel.config.cid, () =>
-          authFlow.ensureLogin(ui, {
-            interactive: ensureLogin || forceLogin,
-            ...(ensureLogin || forceLogin ? { baseUrl: cred.resolveBaseUrl(realm) } : {}),
-            cid: channel.config.cid,
-          }),
-        );
-        if (ok) anyOk = true;
-        if (multi && !json) {
-          console.log(`${prefix} [${channel.config.cid}] ${ok ? "logged in" : "not logged in"}`);
-        }
-        if (state.quitting) return;
-      }
+      // 并行探测所有渠道登录态：单渠道卡网络/授权不再阻塞其余渠道与端口监听，
+      // 把最慢启动从「串行累加」压到「单路最慢」（实测 30s → ~5s）。
+      // 各路在 runInChannel(cid) 内独立运行（AsyncLocalStorage 上下文隔离），无共享可变状态。
+      await Promise.all(
+        targets.map((channel) => {
+          const { cred } = channel;
+          const ui = new StdoutLoginUi(json, multi ? channel.config.cid : cid);
+          return runInChannel(channel.config.cid, () =>
+            authFlow.ensureLogin(ui, {
+              interactive: ensureLogin || forceLogin,
+              ...(ensureLogin || forceLogin ? { baseUrl: cred.resolveBaseUrl(realm) } : {}),
+              cid: channel.config.cid,
+            }),
+          ).then((ok) => {
+            if (ok) anyOk = true;
+            if (multi && !json) {
+              console.log(`${prefix} [${channel.config.cid}] ${ok ? "logged in" : "not logged in"}`);
+            }
+          });
+        }),
+      );
       if (state.quitting) return;
       if (anyOk) break;
       // 等「重试登录」意图（或进程被终止）
