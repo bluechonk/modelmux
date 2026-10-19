@@ -51,7 +51,7 @@ export const SUBDIRS = {
 
 const warned = new Set<string>();
 
-/** 同一进程内同一提示只打一次，避免每次取路径都刷屏。 */
+/** 同一进程内同一提示只输出一次，避免重复取路径时产生重复日志。 */
 export function noteOnce(key: string, message: string): void {
   if (warned.has(key)) return;
   warned.add(key);

@@ -49,12 +49,11 @@ export function poolModels(): string[] {
     const ids = runInChannel(cid, () => {
       try {
         const exposed = channel.catalog.exposedIds() as string[];
-        // 恢复也要留痕：此前处于失败态时打一条 recovered（含静默期间次数）
+        // 恢复时输出一条状态变化记录（含静默期间的重复次数）
         logRecovered(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} exposedIds recovered`);
         return exposed;
       } catch (err) {
-        // 一个渠道的目录崩掉不该拖垮整池，但必须留痕 —— 用节流器：
-        // 桩渠道（orcaterm）跟着 UI 轮询每次池收集都抛错，实测一夜刷了 6.4 万条
+        // 单个渠道的目录异常不影响整池收集；输出走节流器，避免高频重复占满日志
         logThrottled(
           console.warn,
           `pool:exposedIds:${cid}`,

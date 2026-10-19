@@ -6,7 +6,7 @@
  *   <root>/logs/
  *   ├── access/<YYYY-MM-DD>/{success,failure,other,slow}.log
  *   ├── error/<YYYY-MM-DD>/error.log
- *   ├── system/<YYYY-MM-DD>/{gateway,lifecycle}.log
+ *   ├── system/<YYYY-MM-DD>/{gateway,lifecycle,worker}.log
  *   └── channels/<cid>/<YYYY-MM-DD>.log
  *
  * 规则：

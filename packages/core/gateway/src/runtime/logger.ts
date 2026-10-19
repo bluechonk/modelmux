@@ -1,20 +1,22 @@
 /**
- * 受控日志器：**状态变化 + 节流**，防止单个渠道的高频错误把日志刷屏。
+ * 受控日志器：**状态变化 + 节流**。
  *
- * ## 为什么要它
+ * ## 规则
  *
- * 实测（2026-10-18）：orcaterm 的目录桩每次池收集都抛错，而池收集跟着 UI 的
- * 3 秒轮询跑 —— 一夜在 gateway.log 里刷了 64261 条同一条告警（占日志 96.8%），
- * 把真正要排查的错误全埋了。
- *
- * ## 语义
- *
- * - `logThrottled`：**同类错误只在状态变化时打印** —— 首次失败打一条；之后
- *   静默累计；距上次输出超过 `intervalMs`（默认 10 分钟）再打一条摘要
- *   「still failing ×N」；**恢复**由 `logRecovered` 打「recovered ×N」。
+ * - `logThrottled`：同一 key 只在**状态变化**时输出 ——
+ *   首次失败输出一条；其后同 key 重复只计数、不输出；
+ *   距上次输出超过 `intervalMs`（默认 10 分钟）输出一条计数摘要
+ *   （`still failing ×N since <ts>`），随后计数归零。
+ * - `logRecovered`：同 key 此前处于失败态时输出一条恢复消息
+ *   （`recovered after N suppressed repeats`）并清态；未处于失败态则不输出。
  * - key 是稳定的错误标识（如 `pool:exposedIds:${cid}`、`chat:auth:${cid}`）。
- * - 输出行带 ISO 时间戳前缀（存量日志行没有时间戳，排查时对不上时刻）。
- * - 内存态即可，不需要落盘：进程重启后首条会重新打印，正是想要的。
+ * - 输出行统一带 ISO 时间戳前缀。
+ * - 节流状态只存内存：进程重启后首条重新输出。
+ *
+ * ## 目的
+ *
+ * 单条错误的高频重复会占满日志容量，淹没其它错误；节流把重复压成周期性摘要，
+ * 保留「仍在失败」与「已恢复」两个状态变化。
  */
 
 /** 单个 key 的打印状态。 */
@@ -38,7 +40,7 @@ function stamp(): string {
 /**
  * 打印一条**会被节流**的消息（失败/告警类）。
  *
- * 同 key 首次打印；静默期内重复只计数；超过 interval 再打一条带计数的摘要。
+ * 同 key 首次输出；静默期内重复只计数；超过 interval 再输出一条带计数的摘要。
  * `logger` 是调用方的输出通道（gateway 用 opts.logger，保持多形态一致）。
  */
 export function logThrottled(
@@ -64,12 +66,12 @@ export function logThrottled(
     state.lastAt = now;
     return;
   }
-  // 静默累计，不打
+  // 静默期内只计数，不输出。
 }
 
 /**
  * 打印一条**恢复**消息：同 key 此前处于失败态时输出（含静默期间次数）并清态；
- * 此前不处于失败态则**什么都不打**（成功是常态，不该刷日志）。
+ * 未处于失败态则不输出（正常路径不产生日志）。
  */
 export function logRecovered(logger: (message: string) => void, key: string, message: string): void {
   const state = states.get(key);
