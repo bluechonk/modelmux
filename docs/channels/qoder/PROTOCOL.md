@@ -89,7 +89,7 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 | 授权页（登录） | GET（浏览器） | `{website}/device/selectAccounts?challenge&challenge_method=S256&nonce&client_id`（CN 额外带 `redirect_uri`） | `src/cred.ts` |
 | 轮询取 token | GET | `{openapi}/api/v1/deviceToken/poll?nonce&verifier&challenge_method=S256` | `src/cred.ts` |
 | 续期 | POST | `{openapi}/api/v1/deviceToken/refresh` | `src/cred.ts` |
-| 用户信息 | GET | `{openapi}/api/v1/userinfo` | `src/cred.ts` |
+| 用户信息 | GET | `{openapi}/api/v1/userinfo` | `src/cred.ts` 的 `fetchUserProfile`（取 `name` / `user_type` / `id`，见 §2.1） |
 | 用量/余额 | GET | `{openapi}/sash/api/v2/me/usage` | `src/billing.ts` |
 | 活动列表（签到状态） | GET | `{openapi}/sash/api/v1/me/campaigns` | `src/billing.ts` |
 | 领取 | POST | `{openapi}/sash/api/v1/me/campaigns/{campaignId}/claim`，body 为**空串** | `src/billing.ts` |
@@ -125,7 +125,42 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 `expires_at|expiresAt`、`refresh_token_expires_at`、`user_id|userId`、`user_name|userName`
 
 **踩坑**：设备码轮询响应**不带 `user_name`**，故登录后必须补一次
-`GET /api/v1/userinfo` 取 `name` 作昵称（qoder.ts:344-394）。`uid` 实际来源是设备码响应的 `user_id`。
+`GET /api/v1/userinfo`（qoder.ts:344-394）。`uid` 实际来源是设备码响应的 `user_id`。
+
+**账号档案字段来源**（`GET {openapi}/api/v1/userinfo`，2026-10-20 补齐）：
+
+| 凭据字段 | userinfo 字段 | 用途 |
+|---|---|---|
+| `nickname` | `name`（兜底 `nickname`） | 展示名 |
+| `userType` | `user_type`（兜底 `userType`） | 请求体 `aliyun_user_type` |
+| `uid` | `id`（兜底 `user_id` / `userId`） | 轮询响应没带 `user_id` 时的兜底 |
+
+- 字段名两家参考实现不一致：hub 用 snake_case（`id` / `name` / `user_type`，
+  `qoder_accounts.py:3332-3334`），Zhengyuuuui 用 camelCase（`userId` / `name` /
+  `userType`，`account/oauth.go:198-212`）—— 故两种都认。
+- 取不到**不阻塞登录**：uid 回落轮询响应的 `user_id`，身份类型回落默认值
+  `personal_professional_trial`。
+- ⚠ 此前只取 `name`，`userType` **恒为默认值** → 请求体 `aliyun_user_type` 恒为
+  `personal_professional_trial`；非试用账号会被上游按试用身份处理 `[推断]`。
+  本轮与国内版 `qodercn` 对齐（同口径，见
+  [`qodercn/PROTOCOL.md`](../qodercn/PROTOCOL.md) §1.1）。
+
+### 2.1.1 粘贴兜底（设备码流没有本机回环）
+
+设备码流的令牌**只由服务端按 `nonce` 下发**（`deviceToken/poll`），没有「拿 code 换 token」
+的接口；浏览器的 `qoder://aicoding.aicoding-agent/login-success` 深链也**打不到本机**。故
+`pasteCode` 粘回的内容**只作「浏览器那一步已完成」的信号**，由渠道转交**同一个轮询处理器**
+立刻再取一次令牌：
+
+| 位置 | 职责 |
+|---|---|
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/qoder/src/cred.ts:354`） | **声明**该回调（每次轮询前取一次） |
+| 轮询的 `attempt`（`packages/core/channels/qoder/src/cred.ts:459`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
+
+⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
+被**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
+结论一致：**不是第二条登录路径**。
 
 ### 2.2 为何不采纳其它登录路径
 
@@ -729,6 +764,9 @@ mx model qoder --refresh
 mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
 ```
 
+登录走设备码轮询，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
+同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
+
 ### 端到端测试覆盖
 
 登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
@@ -753,6 +791,9 @@ Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
 2. **`model_config.max_input_tokens` 变大**（部分模型由 180000 变为 1000000）是否影响上游。
 3. **工具往返是否仍通过**（`tools` 归一后形状变了）。
 4. **`mx bill qoder` 的签到状态**（`/sash` 多了 `cosy-version` 头）。
+5. **登录链路的粘贴兜底与 userinfo 字段**（§2.1 / §2.1.1）：授权完成后把浏览器地址栏
+   粘回终端，流程应**立刻**取到令牌；登录后 `userinfo` 也取 `user_type` / `id`，
+   需确认 `aliyun_user_type` 不再恒为默认值 `personal_professional_trial`。
 
 ## 参考实现
 

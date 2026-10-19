@@ -257,6 +257,9 @@ interface Channel {
 
 上游只支持流式时**恒设 `stream: true`**（客户端要非流式由网关聚合）。
 
+聚合出的非流式响应体里，**纯工具调用消息不带 `content` 键**（不是 `content: null`）：
+严格客户端（Go 的 `Content string`）解 `null` 会直接失败，缺失字段对它们等价于空串。
+
 **`buildHeaders(credential)`** 返回**完整**的上游请求头（含鉴权与伪装）。
 网关只会额外补 `Accept: text/event-stream`（若头里没有）。
 

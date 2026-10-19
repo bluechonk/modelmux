@@ -17,14 +17,17 @@
  *    **不发 `tool_choice`**。
  *
  * 客户端版本号是**动态真值**：`{portal}/.../prod/update`（第三方域名，非统一信封，
- * 载荷在 `data.value.version`），缓存 12 小时，失败回退 `2026.9.4`。
+ * 载荷在 `data.value.version`），缓存 12 小时；取不到时先退到**磁盘上最后一次
+ * 成功解析到的版本**，再退到兜底常量 `2026.9.4`（版本号是签到 slot 的准入门槛，
+ * 退得太旧会静默拿不到每日签到）。
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { chmod, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import * as catalog from "./catalog.js";
-import { ensureDir, upstreamPath } from "@modelmux/gateway";
+import { ensureCacheDir, ensureDir, upstreamPath } from "@modelmux/gateway";
 
 /** 上游 API 基址（单一域名，无多区域）。 */
 export const DEFAULT_BASE_URL = "https://lobsterai-server.youdao.com";
@@ -102,7 +105,7 @@ export const CLIENT_VERSION_URL =
   "https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/prod/update";
 /** 版本号缓存有效期（12 小时）—— 版本是日期式的，变更频率极低。 */
 export const VERSION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-/** 动态拉取失败时的兜底版本号。 */
+/** 动态拉取失败时的**最后一道**兜底版本号（磁盘缓存优先，见 `resolveClientVersion`）。 */
 export const FALLBACK_CLIENT_VERSION = "2026.9.4";
 
 const HTTP_TIMEOUT_MS = 30_000;
@@ -247,7 +250,20 @@ export function modelsHeaders(credential: AuthLike, version = clientVersion()): 
 
 // ── 客户端版本号 ─────────────────────────────────────────────────────────────
 
+/**
+ * 客户端版本号的磁盘缓存文件（渠道层 `cache/` 子目录）。
+ *
+ * 落盘的意义：**版本号是签到 slot 的准入门槛**（`clientVersion` query 参数低于
+ * 门槛 → `slotState=empty` → 拿不到每日签到 → 积分不再补充）。
+ * 更新接口是第三方域名（`api-overmind.youdao.com`），抽风时若直接退到写死的
+ * 兜底常量，一旦上游把门槛抬过那个常量，签到会**静默失效**（没有任何报错）——
+ * 故把「最后一次成功解析到的版本」落盘，抽风时用它兜底。
+ */
+const VERSION_CACHE_FILE = "client-version.json";
+
 let versionCache: { value: string; at: number } | null = null;
+/** 进程内记住的「最后一次已知可用」版本（网络取到或从磁盘读到都会记）。 */
+let knownVersion: string | null = null;
 
 /** 版本号端点；`LOBSTERAI_VERSION_URL` 可覆盖（自托管 / 离线测试）。 */
 export function versionEndpoint(): string {
@@ -279,21 +295,48 @@ export function parseClientVersionFromUpdate(body: unknown): string | undefined 
   return parseClientVersion((value as Record<string, unknown>)["version"]);
 }
 
-/** 同步取当前版本号：缓存有效则用缓存，否则用兜底常量。 */
+/** 同步取当前版本号：缓存有效则用缓存，否则用「最后一次已知可用」版本 / 兜底常量。 */
 export function clientVersion(): string {
   if (versionCache && Date.now() - versionCache.at < VERSION_CACHE_TTL_MS) {
     return versionCache.value;
   }
-  return FALLBACK_CLIENT_VERSION;
+  return knownVersion ?? FALLBACK_CLIENT_VERSION;
+}
+
+/** 读磁盘上最后一次成功解析到的版本号（读不到返回 undefined）。 */
+function readPersistedVersion(): string | undefined {
+  try {
+    const raw = readFileSync(join(ensureCacheDir(), VERSION_CACHE_FILE), "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return parseClientVersion(parsed?.version);
+  } catch {
+    return undefined;
+  }
+}
+
+/** 记住并落盘版本号（写不进去只影响兜底精度，不阻塞主流程）。 */
+function rememberVersion(version: string): void {
+  knownVersion = version;
+  try {
+    const dir = ensureCacheDir();
+    const path = join(dir, VERSION_CACHE_FILE);
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify({ version, at: new Date().toISOString() }, null, 2)}\n`, "utf8");
+    renameSync(tmp, path);
+  } catch {
+    /* 缓存失败不影响主流程 */
+  }
 }
 
 /**
  * 拉取（或复用缓存的）动态版本号。
  *
- * 失败**不抛错**：返回兜底常量。理由与 Go 的「取不到就放弃签到」不同 ——
- * 后端对 `version` 并不强校验（Go 侧长期发假值 `0.1.0` 也能用），
- * 让用户完全无法登录/签到比用一个稍旧的版本号更糟。
- * 兜底值**不进缓存**（一次瞬时故障不该在 12 小时内持续生效）。
+ * 失败**不抛错**：返回「最后一次已知可用」版本（磁盘缓存优先），再退到兜底常量。
+ * 理由与 Go 的「取不到就放弃签到」不同 —— 后端对 `version` 并**不**强校验
+ * （Go 侧长期发假值 `0.1.0` 也能用），但**签到 slot 的 `clientVersion` query
+ * 参数有下限门槛**（实测低于门槛 → `slotState=empty`），让用户完全无法登录/签到
+ * 比用一个稍旧的版本号更糟。
+ * 兜底值**不进 12 小时缓存**（一次瞬时故障不该在 12 小时内持续生效）。
  */
 export async function resolveClientVersion(
   options: { force?: boolean; timeoutMs?: number } = {},
@@ -311,11 +354,17 @@ export async function resolveClientVersion(
       const version = parseClientVersionFromUpdate(await resp.json());
       if (version) {
         versionCache = { value: version, at: Date.now() };
+        rememberVersion(version);
         return version;
       }
     }
   } catch {
     /* 网络/解析失败：走兜底，不缓存兜底值 */
+  }
+  const persisted = readPersistedVersion();
+  if (persisted) {
+    knownVersion = persisted;
+    return persisted;
   }
   return FALLBACK_CLIENT_VERSION;
 }
@@ -323,6 +372,7 @@ export async function resolveClientVersion(
 /** 清空版本缓存（测试与「强制刷新版本号」用）。 */
 export function clearVersionCache(): void {
   versionCache = null;
+  knownVersion = null;
 }
 
 /** keyfrom 身份载荷（exchange / refresh / models 共用）。 */

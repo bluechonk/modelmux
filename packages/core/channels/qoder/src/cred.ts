@@ -16,9 +16,16 @@
  *
  * ## 登录拿到的凭据字段
  *
- * 设备码轮询响应**不带昵称**，所以要补一次 `GET /api/v1/userinfo` 取 `name`；
- * `uid` 来自轮询响应的 `user_id`。续期响应不含 `machine_id` / `uid` / `nickname`，
- * 必须从旧凭据保留（见 `refresh()`）。
+ * 设备码轮询响应**不带昵称**，所以要补一次 `GET /api/v1/userinfo`：取 `name`（昵称）、
+ * `user_type`（请求体 `aliyun_user_type` 用它）与 `id`（uid 兜底）。两个参考实现的字段名
+ * 不一致（hub 用 snake_case，Zhengyuuuui 用 camelCase），故两种都认。
+ * 续期响应不含 `machine_id` / `uid` / `nickname`，必须从旧凭据保留（见 `refresh()`）。
+ *
+ * ## 粘贴兜底
+ *
+ * 设备码流**没有本机回环**：令牌由服务端按 `nonce` 下发，浏览器的 `qoder://` 深链
+ * 也打不到本机。故 `pasteCode` 粘回的内容只作「浏览器那一步已完成」的信号 ——
+ * 转交**同一个轮询处理器**立刻再取一次令牌（不是第二条登录路径）。
  */
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -351,6 +358,14 @@ export interface LoginOptions {
   sleep?: (ms: number) => Promise<void>;
   /** 指定区域；缺省按 baseUrl 推断，再缺省用 `DEFAULT_REALM`。 */
   realm?: string;
+  /**
+   * 取走用户粘回的浏览器回调内容（可选，一次性消费）。
+   *
+   * 设备码流**没有本机回环**：令牌由服务端按 `nonce` 下发，浏览器的 `qoder://`
+   * 深链也打不到本机。故粘回的内容只作「浏览器那一步已完成」的信号 ——
+   * 转交**同一个轮询处理器**立刻再取一次令牌，**不是**第二条登录路径。
+   */
+  pasteCode?: () => string | undefined;
 }
 
 interface DeviceToken {
@@ -361,8 +376,31 @@ interface DeviceToken {
   refreshExpireAt: number | null;
 }
 
-/** 补昵称：设备码轮询响应里没有，必须单独取。尽力而为，失败不阻塞登录。 */
-async function fetchNickname(product: ProductConfig, accessToken: string): Promise<string> {
+/** 账号档案（`/api/v1/userinfo` 的 data 字段）。 */
+interface UserProfile {
+  /** 账号 id（轮询响应没带 uid 时的兜底）。 */
+  uid: string;
+  nickname: string;
+  /** 请求体 `aliyun_user_type` 用的身份类型（取不到回落默认值）。 */
+  userType: string;
+}
+
+const EMPTY_PROFILE: UserProfile = { uid: "", nickname: "", userType: "" };
+
+/**
+ * 取账号档案：设备码轮询响应**不带**昵称与身份类型，必须单独取。
+ *
+ * 尽力而为，失败不阻塞登录（uid 回落轮询响应，身份类型回落默认值）。
+ *
+ * 字段名两家参考实现不一致：hub 用 snake_case（`id` / `name` / `user_type`，
+ * `qoder_accounts.py:3332-3334`），Zhengyuuuui 用 camelCase（`userId` / `name` /
+ * `userType`，`account/oauth.go:198-212`）—— 故两种都认。
+ */
+async function fetchUserProfile(
+  product: ProductConfig,
+  accessToken: string,
+): Promise<UserProfile> {
+  if (!accessToken) return EMPTY_PROFILE;
   try {
     const resp = await shared.fetchWithTimeout(
       `${product.openapi}/api/v1/userinfo`,
@@ -375,16 +413,45 @@ async function fetchNickname(product: ProductConfig, accessToken: string): Promi
       },
       15_000,
     );
-    if (!resp.ok) return "";
+    if (!resp.ok) return EMPTY_PROFILE;
     const data = (await resp.json()) as Record<string, unknown>;
-    return str(data["name"]) || str(data["nickname"]);
+    return {
+      uid: str(data["id"]) || str(data["user_id"]) || str(data["userId"]),
+      nickname: str(data["name"]) || str(data["nickname"]),
+      userType: str(data["user_type"]) || str(data["userType"]),
+    };
   } catch {
-    return "";
+    return EMPTY_PROFILE;
   }
 }
 
 /**
- * 完整设备授权登录：构造授权 URL → 用户浏览器授权 → 轮询取 token → 补昵称 → 落盘。
+ * 粘贴内容里的「授权失败」措辞。
+ *
+ * 授权后浏览器会跳 `qoder://` 深链（打不开），用户拒绝授权时页面/地址栏里会留下
+ * 错误措辞 —— 认出来就能**立刻**结束等待，而不是白等 5 分钟。
+ */
+const AUTH_ERROR_MARKERS = ["error=", "errmsg=", "denied", "access_denied", "拒绝", "失败"];
+
+/** 粘回的内容是否表示「授权被拒 / 出错」。 */
+function pastedAuthError(raw: string): string {
+  const text = raw.trim().toLowerCase();
+  for (const marker of AUTH_ERROR_MARKERS) {
+    if (text.includes(marker.toLowerCase())) {
+      const params = new URLSearchParams(text.split("?")[1] ?? "");
+      return (
+        params.get("errmsg") ??
+        params.get("error_description") ??
+        params.get("error") ??
+        "the browser reported an authorization error"
+      );
+    }
+  }
+  return "";
+}
+
+/**
+ * 完整设备授权登录：构造授权 URL → 用户浏览器授权 → 轮询取 token → 补账号档案 → 落盘。
  *
  * ⚠ 轮询的 HTTP 404 是**正常中间态**（官方语义：用户还没点同意），必须继续轮询；
  * 其它非 2xx 才是错误（实测参考实现）。
@@ -398,18 +465,39 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   const authUrl = buildAuthUrl(product, challenge, nonce);
   options.onUrl?.(authUrl);
   options.onStatus?.(
-    `${product.label}: open the URL above in your browser to authorize`,
+    `${product.label}: open the URL above in your browser to authorize` +
+      (options.pasteCode
+        ? " — after authorizing you can paste the browser address bar back here to fetch the token immediately."
+        : ""),
   );
 
   const pollQuery = new URLSearchParams({ nonce, verifier, challenge_method: "S256" });
   const pollUrl = `${product.openapi}/api/v1/deviceToken/poll?${pollQuery.toString()}`;
 
+  let pasteReported = false;
   const token = await loginFlow.pollDeviceCode<DeviceToken>({
     intervalMs: POLL_INTERVAL_MS,
     expiresInSec: POLL_EXPIRES_SEC,
     ...(options.sleep ? { sleep: options.sleep } : {}),
     ...(options.onStatus ? { onStatus: options.onStatus } : {}),
     attempt: async () => {
+      // 粘贴兜底：粘回的内容 = 「浏览器那一步已完成」的信号。
+      // 设备码流的令牌只由服务端按 nonce 下发（没有 code 换 token 的接口），
+      // 故这里只做两件事：认出「授权被拒」立刻收尾；否则立刻再轮询一次。
+      const pasted = options.pasteCode?.();
+      if (typeof pasted === "string" && pasted.trim()) {
+        const reason = pastedAuthError(pasted);
+        if (reason) {
+          return {
+            kind: "fatal",
+            error: new Error(`browser authorization failed: ${reason}`),
+          };
+        }
+        if (!pasteReported) {
+          options.onStatus?.("got the pasted callback, fetching the token now...");
+          pasteReported = true;
+        }
+      }
       const resp = await shared.fetchWithTimeout(
         pollUrl,
         { headers: { Accept: "application/json" } },
@@ -442,17 +530,21 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
 
   if (!token.accessToken) throw new Error("Device authorization succeeded but no access token was returned");
 
-  const nickname = await fetchNickname(product, token.accessToken);
-  const machineId = machineIdOf(token.uid);
-  rememberIdentity(product.realm, DEFAULT_USER_TYPE);
+  // 账号档案（昵称 / 身份类型 / uid 兜底）：轮询响应不带，必须单独取一次（失败不阻塞登录）。
+  const profile = await fetchUserProfile(product, token.accessToken);
+  const uid = token.uid || profile.uid;
+  const userType = profile.userType || DEFAULT_USER_TYPE;
+  const nickname = profile.nickname;
+  const machineId = machineIdOf(uid);
+  rememberIdentity(product.realm, userType);
   const credential: Credentials = {
     accessToken: token.accessToken,
-    uid: token.uid,
+    uid,
     domain: product.domain,
     refreshToken: token.refreshToken,
     nickname,
     machineId,
-    userType: DEFAULT_USER_TYPE,
+    userType,
     realm: product.realm,
     // 新登录：还不知道哪个推理主机能被接受，留给第一次成功请求去记
     gatewayHost: "",

@@ -6,8 +6,14 @@
  *   1. `POST {base}/v2/plugin/auth/state?platform=workbuddy`（匿名头）→ {state, authUrl}
  *   2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
  *   3. `GET {base}/v2/plugin/auth/token?state=...` 每 5s 轮询，≤5 分钟 → 令牌
- *   4. 落盘为 credentials.json（Go 风格字段名）
+ *   4. `GET {base}/v2/plugin/login/account?state=...`（带 Bearer）→ 账号档案
+ *      （uid / enterpriseId / nickname；**失败不阻塞登录**，uid 回落 JWT `sub`）
+ *   5. 落盘为 credentials.json（Go 风格字段名）
  *   刷新：`POST /v2/plugin/auth/token/refresh`（纯 HTTP，X-Refresh-Token 头）
+ *
+ * 设备授权**没有本机回环**（令牌由服务端按 state 下发），故 `pasteCode` 粘回的
+ * 内容只作「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**立刻再取一次
+ * 令牌，不是第二条登录路径。
  *
  * ⚠ 本渠道**只有一个域**（国际版 workbuddy.ai）。国内版（codebuddy.ai）是**独立渠道**
  * `workbuddy` —— 账号属于哪个域就用哪个渠道登录，不再有 `--realm` 二选一。
@@ -89,6 +95,8 @@ export interface Credentials {
   sessionState: string;
   domain: string;
   uid: string;
+  /** 账号昵称（`/v2/plugin/login/account` 取；取不到留空，uid 回落 JWT `sub`）。 */
+  nickname: string;
   expiresIn: string;
   /** 访问令牌到期时刻（epoch 毫秒；null = 取不到）。 */
   expiresAt: unknown;
@@ -107,6 +115,7 @@ export const EMPTY_CREDENTIALS: Credentials = {
   sessionState: "",
   domain: "",
   uid: "",
+  nickname: "",
   expiresIn: "",
   expiresAt: null,
   refreshExpiresIn: "",
@@ -171,6 +180,7 @@ export function load(): Credentials {
     sessionState: str(rec["sessionState"]),
     domain: str(rec["domain"]),
     uid: str(rec["uid"]),
+    nickname: str(rec["nickname"]),
     expiresIn: str(rec["expiresIn"]),
     expiresAt: rec["expiresAt"] ?? null,
     refreshExpiresIn: str(rec["refreshExpiresIn"]),
@@ -197,6 +207,15 @@ export async function save(c: Credentials): Promise<void> {
   await chmod(path, 0o600).catch(() => {});
 }
 
+/** 账号档案（`/v2/plugin/login/account` 的 data 字段）。 */
+interface AccountProfile {
+  uid: string;
+  enterpriseId: string;
+  nickname: string;
+}
+
+const EMPTY_PROFILE: AccountProfile = { uid: "", enterpriseId: "", nickname: "" };
+
 function fromToken(
   access: string,
   refresh: string,
@@ -204,6 +223,7 @@ function fromToken(
   scope: string,
   session: string,
   domain: string,
+  profile?: AccountProfile,
 ): Credentials {
   return {
     ...EMPTY_CREDENTIALS,
@@ -213,7 +233,8 @@ function fromToken(
     scope,
     sessionState: session,
     domain,
-    uid: jwtSub(access),
+    uid: profile?.uid || jwtSub(access),
+    nickname: profile?.nickname ?? "",
     obtainedAt: nowRfc3339(),
     source: "workbuddy-login-poll",
   };
@@ -353,10 +374,74 @@ async function createLoginState(
   return state;
 }
 
-async function pollToken(baseUrl: string, state: string): Promise<Record<string, unknown> | null> {
+/**
+ * 取账号档案：`GET {base}/v2/plugin/login/account?state=<state>`（带 Bearer）。
+ *
+ * 这是**登录链路内的最后一步**，不是第二条登录路径：拿的是同一次授权对应的
+ * 账号身份（uid / enterpriseId / nickname），拿不到也不影响登录成功 ——
+ * uid 仍可从 JWT `sub` 提取。
+ *
+ * 参考实现：hub `wb_accounts.py:3458-3468`、ckldy `cmd/login/main.go:151-163`。
+ * ⚠ 国际版该端点**确实存在**（无有效令牌回 401，随手编的路径回 404，2026-10-20 实测）。
+ */
+async function fetchAccountProfile(
+  baseUrl: string,
+  state: string,
+  accessToken: string,
+): Promise<AccountProfile> {
+  if (!accessToken) return EMPTY_PROFILE;
+  const url = `${baseUrl}/v2/plugin/login/account?state=${encodeURIComponent(state)}`;
+  try {
+    const resp = await fetchWithTimeout(url, {
+      // ⚠ 这里**不能**带 `anonHeaders()`（X-No-Authorization 等「未鉴权」标记）——
+      // 与 `Authorization` 自相矛盾，会被上游判成未鉴权。参考实现同样只带
+      // 公共头 + `Authorization`（hub `wb_accounts.py:3462`、ckldy `cmd/login/main.go:157-160`）。
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (resp.status !== 200) return EMPTY_PROFILE;
+    const env = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!env || env["code"] !== 0 || !env["data"]) return EMPTY_PROFILE;
+    const data = env["data"] as Record<string, unknown>;
+    return {
+      uid: str(data["uid"]),
+      enterpriseId: str(data["enterpriseId"]),
+      nickname: str(data["nickname"]),
+    };
+  } catch {
+    // 档案拿不到不是登录失败：uid 回落 JWT sub，其余字段留空。
+    return EMPTY_PROFILE;
+  }
+}
+
+/**
+ * 轮询取令牌。
+ *
+ * 粘贴兜底：设备授权**没有本机回环**（令牌由服务端按 `state` 下发），
+ * 故粘回的内容只作「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**
+ * 立刻再取一次，不是第二条登录路径。
+ */
+async function pollToken(
+  baseUrl: string,
+  state: string,
+  options: LoginOptions = {},
+): Promise<Record<string, unknown> | null> {
   const url = `${baseUrl}/v2/plugin/auth/token?state=${encodeURIComponent(state)}`;
   const deadline = Date.now() + LOGIN_WINDOW_MS;
+  let pasteReported = false;
   while (Date.now() < deadline) {
+    // 粘贴兜底：认「授权被拒」的措辞（立刻收尾），否则当作「浏览器那步已完成」。
+    const pasted = options.pasteCode?.();
+    if (typeof pasted === "string" && pasted.trim()) {
+      const reason = pastedAuthError(pasted);
+      if (reason) throw new Error(`browser authorization failed: ${reason}`);
+      if (!pasteReported) {
+        options.onStatus?.("got the pasted callback, fetching the token now...");
+        pasteReported = true;
+      }
+    }
     try {
       const resp = await fetchWithTimeout(url, { headers: anonHeaders() });
       if (resp.status === 200) {
@@ -374,9 +459,36 @@ async function pollToken(baseUrl: string, state: string): Promise<Record<string,
   return null;
 }
 
+/** 粘回内容里的「授权失败」措辞（认出就立刻结束等待，不白等 5 分钟）。 */
+const AUTH_ERROR_MARKERS = ["error=", "errmsg=", "denied", "access_denied", "拒绝", "失败"];
+
+/** 粘回的内容是否表示「授权被拒 / 出错」。 */
+function pastedAuthError(raw: string): string {
+  const text = raw.trim().toLowerCase();
+  for (const marker of AUTH_ERROR_MARKERS) {
+    if (text.includes(marker.toLowerCase())) {
+      const params = new URLSearchParams(text.split("?")[1] ?? "");
+      return (
+        params.get("errmsg") ??
+        params.get("error_description") ??
+        params.get("error") ??
+        "the browser reported an authorization error"
+      );
+    }
+  }
+  return "";
+}
+
 export interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
+  /**
+   * 取走用户粘回的浏览器回调内容（可选，一次性消费）。
+   *
+   * 设备授权**没有本机回环**（令牌由服务端按 `state` 下发），故粘回的内容只作
+   * 「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**立刻再取一次令牌。
+   */
+  pasteCode?: () => string | undefined;
 }
 
 /** 运行交互式浏览器登录并持久化结果。 */
@@ -393,13 +505,19 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
     onUrl?.(authUrl);
     onStatus?.(
       `Round ${round}/${MAX_LOGIN_ROUNDS}: waiting for authorization ` +
-        `(open the URL above in a browser; up to ${LOGIN_WINDOW_MS / 60000} min)…`,
+        `(open the URL above in a browser; up to ${LOGIN_WINDOW_MS / 60000} min)…` +
+        (options.pasteCode
+          ? " — after signing in you can paste the address bar back here to fetch the token immediately."
+          : ""),
     );
-    const token = await pollToken(base, str(state["state"]));
+    const stateId = str(state["state"]);
+    const token = await pollToken(base, stateId, options);
     if (!token) {
       onStatus?.(`Round ${round} timed out, retrying…`);
       continue;
     }
+    // 账号档案：登录链路内的最后一步（拿 uid / enterpriseId / nickname）。
+    const profile = await fetchAccountProfile(base, stateId, str(token["accessToken"]));
     const c = fromToken(
       str(token["accessToken"]),
       str(token["refreshToken"]),
@@ -407,6 +525,7 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
       str(token["scope"]),
       str(token["sessionState"]),
       str(token["domain"]),
+      profile,
     );
     if (!c.domain) c.domain = hostOf(base);
     c.expiresIn = anyToStr(token["expiresIn"]);
@@ -473,6 +592,8 @@ export async function refresh(c: Credentials): Promise<Credentials> {
     or(token["scope"], c.scope),
     or(token["sessionState"], c.sessionState),
     or(token["domain"], c.domain),
+    // 刷新响应不带账号档案：沿用旧值，别把 uid 与昵称丢掉。
+    { uid: c.uid, enterpriseId: "", nickname: c.nickname },
   );
   const now = Date.now();
   next.expiresIn = anyToStr(token["expiresIn"]);

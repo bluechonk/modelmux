@@ -586,15 +586,24 @@ Web 版（`https://orcaterm.cloud.tencent.com` + 浏览器 UA）。
 1. 流末把累积文本整体当 JSON 解析（[参考] `orca.go` `ParseOutcomeText`）：容错三种形态 ——
    内层协议 JSON、完整信封 `{"code":0,"data":{…}}`、以及「模型先说话再给 JSON」
    （取最外层花括号跨度）。
+   ⚠ **实测第四种形态：一轮响应里连着吐多个信封**（一次实测出现
+   `completion` → `review(bash)` → `review(execute_command)` → `review(remote_write)` 四个）。
+   按「最外层花括号跨度」切会把它们连成一坨 → JSON 解析必失败 → 整段当文本透传。
+   故实现改为**逐段扫描平衡的 `{…}`**（字符串与转义感知），逐段解析、按出现顺序取。
 2. `action == "review"` → 取 `tool.name` / `tool.args` → 转成 OpenAI `tool_calls`：
    `{"id":"call_<hex>","type":"function","function":{"name":…,"arguments":"<JSON 字符串>"}}`，
    并下发 `finish_reason:"tool_calls"`。
-3. **工具名桥接**：上游给的是原生工具名（`execute_terminal_command` / `fetch` …），客户端声明的
-   往往是 `bash` / `shell` 一类。桥接顺序：
+   多个 review 时**按出现顺序逐个桥接**，第一个能桥到客户端工具的胜出；都桥不上才降级成文本。
+3. **工具名桥接**：上游给的是原生工具名（`execute_terminal_command` / `remote_write` / `fetch` …），
+   客户端声明的往往是 `bash` / `write_file` 一类。桥接顺序：
    名字一致 → 直接透传；上游给的是命令（`args.command`）→ 桥接到客户端的**执行类**工具
    （名字含 bash/shell/exec/terminal/command/run，参数含 command/cmd/script/code）；
    上游给的是链接（`args.url`）→ 桥接到客户端的**抓取类**工具（名字含 fetch/web/http/browse，
-   参数含 url/uri/link）。桥接不上 → 降级成可读文本 `[OrcaTerm 请求执行工具 <name>]`
+   参数含 url/uri/link）；上游给的是「路径 + 内容」（`args.file_path` + `args.content`，
+   实测上游的 `remote_write` 就是这个形态）→ 桥接到客户端的**写文件类**工具
+   （名字含 write_file/write/create_file，路径参数含 path/file_path/filename）；
+   只给路径 → 桥接到客户端的**读文件类**工具（名字含 read_file/read/cat）。
+   桥接不上 → 降级成可读文本 `[OrcaTerm 请求执行工具 <name>]`
    （不给客户端一个它根本执行不了的调用）。
 4. 共享层 `sse-stream.ts` 会按 `index` 累积 `delta.tool_calls`，非流式请求聚合成
    `message.tool_calls` + `finish_reason:"tool_calls"` —— 渠道只要吐标准 OpenAI 帧即可，

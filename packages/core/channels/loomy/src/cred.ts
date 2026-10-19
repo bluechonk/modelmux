@@ -479,6 +479,13 @@ export interface WechatWaitOptions {
   onStatus?: (message: string) => void;
   timeoutSec?: number;
   pollIntervalSec?: number;
+  /**
+   * 取走用户粘回的回调链接（可选，一次性消费）。
+   *
+   * 微信只校验 `redirect_uri` 的**域名**，回调页线上是 404 —— `code` 只出现在
+   * 用户浏览器地址栏里，故长轮询拿不到时靠它兜底（见 `parseWechatCallback`）。
+   */
+  pasteCode?: () => string | undefined;
 }
 
 /** 二维码图片基址（uuid → PNG/JPEG）。 */
@@ -505,7 +512,7 @@ export interface WechatCodeResult {
  * 轮询永远等不到确认。
  */
 export async function wechatWaitForCode(
-  options: WechatWaitOptions & { pasteCode?: () => string | undefined } = {},
+  options: WechatWaitOptions = {},
 ): Promise<string> {
   const result = await wechatObtainCode(options);
   return result.code;
@@ -532,7 +539,7 @@ export const LOOMY_WECHAT_GUIDE =
   "把地址栏里整条链接复制下来，粘贴到本终端回车即可完成登录。";
 
 export async function wechatObtainCode(
-  options: WechatWaitOptions & { pasteCode?: () => string | undefined } = {},
+  options: WechatWaitOptions = {},
 ): Promise<WechatCodeResult> {
   const { onUrl, onQr, onStatus, pasteCode } = options;
   const timeoutSec = options.timeoutSec ?? 300;
@@ -679,7 +686,7 @@ async function credentialsFromSession(
  */
 export async function loginWechat(
   baseUrl?: string,
-  options: WechatWaitOptions & { pasteCode?: () => string | undefined } = {},
+  options: WechatWaitOptions = {},
 ): Promise<Credentials> {
   const { onStatus } = options;
   const code = await wechatWaitForCode(options);
@@ -770,7 +777,7 @@ export async function save(c: Credentials): Promise<void> {
 
 // ── 登录（微信）/ 续期（探测）──────────────────────────────────────────────────
 
-/** 登录选项：微信扫码的等待参数。 */
+/** 登录选项：微信扫码的等待参数（含粘贴回调兜底，见 `WechatWaitOptions.pasteCode`）。 */
 export interface LoginOptions extends WechatWaitOptions {}
 
 /**

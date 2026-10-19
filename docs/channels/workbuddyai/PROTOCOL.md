@@ -141,8 +141,42 @@
 2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
 3. GET  https://www.workbuddy.ai/v2/plugin/auth/token?state=<state>        每 5s 轮询，窗口 5 分钟
    → code=0 时 data.accessToken / refreshToken / domain / expiresIn ...
-4. 落盘 ~/.modelmux/workbuddyai/credentials.json（0600，临时文件 + 原子替换）
+4. GET  https://www.workbuddy.ai/v2/plugin/login/account?state=<state>      （带 Bearer）
+   → { code, msg, data: { uid, enterpriseId, nickname } }
+5. 落盘 ~/.modelmux/workbuddyai/credentials.json（0600，临时文件 + 原子替换）
 ```
+
+### 8.0.1 第 4 步「取账号档案」
+
+**这是登录链路内的最后一步，不是第二条登录路径**（2026-10-20 补齐）。取的是**同一次授权**
+对应的账号身份，拿不到**不影响登录成功**（uid 回落 JWT `sub`，其余字段留空）。
+
+- 三家参考实现都做这一步：hub `wb_accounts.py:3458-3468`、ckldy
+  `cmd/login/main.go:151-163`、workbuddy2api-panel `internal/panel/login.go:191-203`
+  （后者 global 与 cn **两个 realm 都做**）。
+- 国内版兄弟渠道 `workbuddy` 本来就有这一步（`packages/core/channels/workbuddy/src/cred.ts`
+  的 `fetchAccountProfile`），本渠道此前**漏了**（见 §12.2 的 R12）。
+- ⚠ 国际版该端点**确实存在**（2026-10-20 实测）：不带有效令牌 → **401**；
+  随手编的路径（`/v2/plugin/login/account-probe`）→ **404**。故「国际版没有这个端点」
+  的旧猜测被推翻（§12.3 的 V8）。
+- 取到的 `enterpriseId` **不落盘**：国际版上游不发企业身份头（`X-Enterprise-Id` 只在
+  国内版成对出现，见 `workbuddy` 渠道的实现），落一个用不到的字段只是死数据。
+
+### 8.0.2 粘贴兜底（设备授权没有本机回环）
+
+设备授权的令牌**只由服务端按 `state` 下发**（`auth/token`），没有「拿 code 换 token」的
+接口，也没有本机回调服务器。故 `pasteCode` 粘回的内容**只作「浏览器那一步已完成」的信号**，
+由渠道转交**同一个轮询处理器**立刻再取一次令牌：
+
+| 位置 | 职责 |
+|---|---|
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddyai/src/cred.ts`） | **声明**该回调（每轮轮询前取一次） |
+| `pollToken` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
+
+⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
+**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
+结论一致：**不是第二条登录路径**。
 
 ### 8.1 为什么只保留这一条（判据）
 
@@ -195,6 +229,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 | 额度（套餐明细） | POST | `https://www.workbuddy.ai/v2/billing/meter/get-user-resource` | 无 query；body `{PageNumber,PageSize,ProductCode:"p_tcaca",Status:[0,3],PackageEndTimeRangeBegin,PackageEndTimeRangeEnd}` | `src/billing.ts` 的 `RESOURCE_PATH` |
 | 授权链接申请 | POST | `https://www.workbuddy.ai/v2/plugin/auth/state` | query `platform=workbuddy`；body `{}` | `src/cred.ts` 的 `PLATFORM_QS` |
 | 轮询取 token | GET | `https://www.workbuddy.ai/v2/plugin/auth/token` | query `state` | `src/cred.ts::pollToken()` |
+| **取账号档案** | GET | `https://www.workbuddy.ai/v2/plugin/login/account` | query `state`；`Authorization: Bearer <token>` | `src/cred.ts::fetchAccountProfile()`（§8.0.1） |
 | 续期 | POST | `https://www.workbuddy.ai/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 | `src/cred.ts::refresh()` |
 
 > **这三个模型端点是不同端点，别混**：`/v2/enterprises/personal/models` 是连接配置 +
@@ -335,6 +370,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
   （`src/cred.ts` 的 `jwtSub`）。刷新令牌是不透明串，只在续期端点用。
 - **落盘字段**：`~/.modelmux/workbuddyai/credentials.json`，
   `expiresAt` / `refreshExpiresAt` 统一存 **epoch 毫秒**（取不到为 null）。
+  `nickname` 来自登录链路第 4 步的账号档案（§8.0.1），取不到留空；
   共享层账号池的 `parseExpiry` 认得秒/毫秒两种形态
   （`packages/core/gateway/src/runtime/account-pool.ts:120-137`），旧文件（秒）继续可用。
 - **到期时刻的推导顺序**（口径对齐 hub `wb_accounts.py:540`）：
@@ -405,7 +441,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 | R9 | 只被动续期，无到期前预刷 | **未做**（见 §12.1） |
 | R10 | 登录端点的匿名头与参考实现不同 | 保留现状（已实测跑通），见 §10.4 |
 | R11 | `platform=workbuddy` 与参考实现的 `CLI` 不同 | 保留现状（已实测跑通），见 §8.2 |
-| R12 | 不打 `/v2/plugin/login/account`，没有昵称 / 企业 id | **未做**（见 §12.1） |
+| R12 | 不打 `/v2/plugin/login/account`，没有昵称 / 企业 id | **已修**（2026-10-20）：登录链路补上该步（§8.0.1），uid / nickname 落盘；`enterpriseId` 仍不落盘（国际版不发企业头） |
 | R13 | 目录不宣告推理档位 / 工具支持 | **未做**（见 §12.1） |
 | R14 | `www.codebuddy.ai` 沉洞的兜底只做了一处 | 已修：收敛到 `normalizeBaseUrl()`，chat / 目录 / 额度 / 续期四条路径都过 |
 | R15 | 随包快照只有 1 条模型 | 未改（远端目录落盘后即以远端为准） |
@@ -423,7 +459,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 | V5 | 续期请求缺 `Origin` / `Referer` / `Accept-Language` 是否被拒 | 两者都 200 → 现状可留 |
 | V6 | billing 缺 `X-Machine-ID` / `X-Session-ID` 是否影响归因或被拒 | 响应一致 → 现状可留 |
 | V7 | `X-Domain` 与实际 host 不一致是否被拒 | 200 → base 口径可继续收敛；被拒 → base 必须与 `X-Domain` 严格同源 |
-| V8 | `/v2/plugin/login/account` 对国际版是否可用 | 返回 `uid`/`nickname` → 可补昵称；404 → 维持现状 |
+| V8 | `/v2/plugin/login/account` 对国际版是否可用 | **已验一半**（2026-10-20 实测）：端点**存在**（无有效令牌回 401，编造的路径回 404）；带有效令牌时能否取到 `uid`/`nickname` 仍要等一次真机登录才知道（该步失败**不阻塞**登录） |
 | V9 | 缺 `X-Enterprise-Id` 是否影响企业账号 | 需要企业账号才能验；无账号则按「不实现」处理 |
 
 ---
@@ -435,6 +471,10 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 `mx login workbuddyai` 走浏览器设备授权（申请链接 → 打开浏览器 → 轮询令牌），
 全程只有「在浏览器点一下授权」需要人工；国际版 realm 端点见 §1（`www.workbuddy.ai`）。
 **唯一登录路径与「为什么只保留它」的判据见 §8。**
+
+登录链路共 5 步（§8）：申请 state → 浏览器授权 → 轮询令牌 → **取账号档案**（§8.0.1，
+失败不阻塞）→ 落盘。设备授权**没有本机回环**，故 CLI / Web 都支持**粘贴兜底**：
+授权完成后把浏览器地址栏粘回终端，流程会**立刻**用同一个轮询处理器取令牌（§8.0.2）。
 
 `--realm` 参数在本渠道被忽略（保留仅为兼容共享层 CLI 的签名）。国内版（腾讯 CodeBuddy）
 是**独立渠道** `workbuddy`，见 [`workbuddy/PROTOCOL.md`](../workbuddy/PROTOCOL.md)：
@@ -504,4 +544,5 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | --- | --- |
 | [ardeyouxipianyi/workbuddy2api-hub](https://github.com/ardeyouxipianyi/workbuddy2api-hub) | 主参照（1576★，mitmproxy 5.8.4 实测）：`wb_identity.py` 官方身分头族（X-Agent-* / X-IDE-* / 会话头族 / B3 链路）与 UA、realm 端点表（国际版 `www.workbuddy.ai`，`www.codebuddy.ai` 已 DNS 沉洞）、`wb_fingerprint.py` 按账号派生 machineId/sessionId 的防关联口径 |
 | [Tom6814/WorkBuddy2API](https://github.com/Tom6814/WorkBuddy2API) | WorkBuddy / CodeBuddy 逆向 API（97★，Docker 部署） |
-| [ckldy/workbuddy2api](https://github.com/ckldy/workbuddy2api) | WorkBuddy 转服务的对照样本 |
+| [ckldy/workbuddy2api](https://github.com/ckldy/workbuddy2api) | WorkBuddy 转服务的对照样本（Go）：登录三端点逐字同协议（`cmd/login/main.go`），账号档案取 `uid`/`enterpriseId`/`nickname` |
+| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | 体量最大的面板实现（4025★）：`internal/panel/login.go:34-47` 的 `loginEndpoints()` **global 与 cn 两个 realm 都带 `login/account` 这一步**，是 §8.0.1「国际版也取账号档案」的直接依据 |

@@ -73,7 +73,12 @@ export interface AggregatedChoice {
   index: number;
   message: {
     role: string;
-    content: string | null;
+    /**
+     * 正文。纯工具调用时**省略该键**（而不是给 `null`）——
+     * 严格客户端（Go 的 `Content string`）解 `null` 会直接失败，
+     * 缺失字段对它们等价于空串。
+     */
+    content?: string | null;
     reasoning_content?: string;
     tool_calls?: AggregatedToolCall[];
   };
@@ -165,8 +170,9 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
 
   const message: AggregatedChoice["message"] = {
     role: "assistant",
-    // 纯工具调用消息按 OpenAI 规范 content 为 null（不是空字符串）
-    content: contentParts.length > 0 ? contentParts.join("") : calls.length > 0 ? null : "",
+    // 纯工具调用消息：OpenAI 规范给 `content: null`，但严格客户端解 null 会失败 →
+    // 这里**省略该键**（缺失对多数解析器等价于空串）。
+    content: contentParts.length > 0 ? contentParts.join("") : calls.length > 0 ? undefined : "",
   };
   if (reasoningParts.length > 0) message.reasoning_content = reasoningParts.join("");
   if (calls.length > 0) {

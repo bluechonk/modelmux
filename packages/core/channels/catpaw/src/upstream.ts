@@ -1019,7 +1019,9 @@ function eventToSseFrame(event: RawEvent): Buffer {
         },
       });
     case "error":
-      return frame({ error: { message: event.message, code: event.code } });
+      // ⚠ code 一律转字符串：客户端按 `error.code` 是字符串解析，
+      // 上游给数字时会让客户端解码失败。
+      return frame({ error: { message: event.message, code: String(event.code ?? "upstream_error") } });
   }
 }
 

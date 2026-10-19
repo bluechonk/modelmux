@@ -72,7 +72,7 @@
 | --- | --- | --- |
 | 1 | `POST https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy`（body `{}`） | 匿名头 → `{state, authUrl}` |
 | 2 | 浏览器打开 `authUrl` | 人工授权（**唯一人工步骤**） |
-| 3 | `GET https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | **每 1s 轮询、最长 300s**（官方客户端口径，hub `docs/protocol-reference.md:2164-2167`）`[参考]`；pending 时业务码非 0，完成时 `code=0` + token bundle |
+| 3 | `GET https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | **每 1s 轮询、最长 300s**（官方客户端口径，hub `docs/protocol-reference.md:2164-2167`）`[参考]`；pending 时业务码非 0，完成时 `code=0` + token bundle；**粘贴兜底**见 §2.1.1 |
 | 4 | `GET https://copilot.tencent.com/v2/plugin/login/account?state=<state>`（带 `Authorization`） | 取账号档案 `uid` / `enterpriseId` / `nickname`（go `cmd/login/main.go:266-278`）`[参考]`；**拿不到不影响登录**（uid 回落 JWT `sub`） |
 | 5 | 落盘 `credentials.json` | 字段见下 |
 
@@ -103,6 +103,22 @@
 - `authUrl` 缺失时**本地兜底**拼 `{base}/login?platform=workbuddy&state=…`；
   go 是「缺 `authUrl` 直接失败」（`cmd/login/main.go:221-223`）。兜底无害，但拼出的
   域与 go 不同。
+
+### 2.1.1 粘贴兜底（设备授权没有本机回环）
+
+设备授权的令牌**只由服务端按 `state` 下发**（`auth/token`），没有「拿 code 换 token」的
+接口，也没有本机回调服务器。故 `pasteCode` 粘回的内容**只作「浏览器那一步已完成」的信号**，
+由渠道转交**同一个轮询处理器**立刻再取一次令牌：
+
+| 位置 | 职责 |
+|---|---|
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:358`） | **声明**该回调（每轮轮询前取一次） |
+| `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:302`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
+
+⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
+**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
+结论一致：**不是第二条登录路径**。
 
 ## 3. 每日签到
 
@@ -402,6 +418,9 @@ mx status workbuddy          # 状态与凭据
 mx model workbuddy --refresh # 目录刷新（并发双探 + 合并）
 mx bill workbuddy            # 额度与倍率（测试后核对是否扣费）
 ```
+
+登录走设备授权，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
+同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
 
 ### 端到端测试覆盖
 
