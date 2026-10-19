@@ -162,6 +162,8 @@ export interface PoolModelMeta {
   effort: { supportedLevels: string[]; defaultLevel: string };
   /** 消耗倍率；null 表示渠道目录未提供。 */
   multiplier: number | null;
+  /** 营销角标文案（如「限时免费」「新」）；空串表示无。 */
+  marketing: string;
 }
 
 /** 默认元数据（从渠道 catalog 中提取不到时的兜底）。 */
@@ -173,6 +175,7 @@ const DEFAULT_META: PoolModelMeta = {
   outputModalities: ["text"],
   effort: { supportedLevels: ["low", "high"], defaultLevel: "high" },
   multiplier: null,
+  marketing: "",
 };
 
 /** 各渠道缓存条目里可能出现的倍率字段名 —— 渠道自己决定字段名，汇聚层逐个尝试。 */
@@ -194,6 +197,17 @@ function firstNumber(entry: Record<string, unknown>, keys: string[]): number | n
     }
   }
   return null;
+}
+
+/** 各渠道缓存条目里可能出现的营销角标字段名（catpaw 写 `marketing` / `marketingCopy`，兜底 `marketing_copy`）。 */
+const MARKETING_KEYS = ["marketing", "marketingCopy", "marketing_copy"];
+
+function firstString(entry: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = entry[key];
+    if (typeof value === "string" && value !== "") return value;
+  }
+  return "";
 }
 
 /** 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。 */
@@ -225,6 +239,7 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
         outputModalities: found.outputModalities ?? found.output_modalities ?? DEFAULT_META.outputModalities,
         effort: found.effort ?? DEFAULT_META.effort,
         multiplier: firstNumber(found, MULTIPLIER_KEYS),
+        marketing: firstString(found, MARKETING_KEYS),
       };
     }
   }
@@ -240,6 +255,7 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
       outputModalities: entry.outputModalities ?? entry.output_modalities ?? DEFAULT_META.outputModalities,
       effort: entry.effort ?? DEFAULT_META.effort,
       multiplier: firstNumber(entry, MULTIPLIER_KEYS),
+      marketing: firstString(entry, MARKETING_KEYS),
     };
   }
   return DEFAULT_META;
