@@ -145,26 +145,32 @@ export function AccountCard({
   const dotTitle = !present ? "未登录" : channelDown ? "当前账号不可用" : "已登录";
 
   return (
-    <div className="flex flex-col rounded-xl border border-gray-800 bg-gray-900 p-3 transition-colors hover:border-gray-700">
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className="font-mono text-sm font-medium text-gray-200">{pool.cid}</span>
-        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} title={dotTitle} />
+    <div className="flex flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 transition-colors hover:border-gray-700">
+      {/* 卡头：cid + 登录状态 + 账号数 + 添加按钮 */}
+      <div className="flex items-center gap-2 border-b border-gray-800/70 bg-gray-950/40 px-4 py-2.5">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} title={dotTitle} />
+        <span className="font-mono text-sm font-semibold text-gray-100">{pool.cid}</span>
+        <span className="text-xs text-gray-500">
+          {accounts.length > 0 ? `${accounts.length} 个账号` : "空池"}
+        </span>
         <button
           type="button"
           aria-label={`为 ${pool.cid} 添加账号`}
           title="添加账号（走授权流程，成功后自动入池）"
-          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-gray-700 text-gray-400 transition-colors hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
+          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-sky-500/10 hover:text-sky-300 disabled:opacity-50"
           disabled={busyKey !== null}
           onClick={() => onAdd(pool.cid)}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
       </div>
 
       {accounts.length === 0 ? (
-        <div className="py-3 text-xs text-gray-600">空池，点右上角 + 添加账号</div>
+        <div className="px-4 py-6 text-center text-xs text-gray-600">
+          点右上角 + 添加账号
+        </div>
       ) : (
-        <ul className="space-y-1.5">
+        <ul className="divide-y divide-gray-800/60">
           {accounts.map((account) => {
             const active = account.key === pool.index.active;
             const bill = billingByKey.get(account.key);
@@ -173,10 +179,14 @@ export function AccountCard({
             return (
               <li
                 key={account.key}
-                className={`rounded-lg px-2.5 py-2 ${
-                  active ? "bg-sky-500/10 ring-1 ring-sky-500/20" : "bg-gray-950/50"
+                className={`group relative px-4 py-2.5 transition-colors hover:bg-gray-800/30 ${
+                  active ? "bg-sky-500/[0.06]" : ""
                 }`}
               >
+                {/* 生效账号：左侧高亮条 */}
+                {active && (
+                  <span className="absolute inset-y-0 left-0 w-0.5 bg-sky-400" aria-hidden />
+                )}
                 <div className="flex items-center gap-2">
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
@@ -186,7 +196,7 @@ export function AccountCard({
                     {displayName(account)}
                   </span>
                   {active && (
-                    <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
+                    <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
                       当前
                     </span>
                   )}
@@ -195,16 +205,16 @@ export function AccountCard({
                       {health}
                     </span>
                   )}
-                  <span className={`shrink-0 text-sm font-semibold ${quotaClass(bill)}`}>
+                  <span className={`shrink-0 font-mono text-sm tabular-nums ${quotaClass(bill)}`}>
                     {quotaText(bill, billing?.unsupported === true)}
                   </span>
                 </div>
-                <div className="mt-1 flex items-center gap-2 pl-3.5 text-[11px] text-gray-500">
+                <div className="mt-0.5 flex items-center gap-2 pl-3.5 text-[11px] text-gray-500">
                   <span className="min-w-0 truncate">
                     {account.uid && account.uid !== displayName(account) ? `uid ${account.uid}` : ""}
                     {expiry && (account.uid ? ` · ${expiry}` : expiry)}
                   </span>
-                  <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                  <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {!active && (
                       <button
                         className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-sky-300 disabled:opacity-40"
@@ -233,8 +243,15 @@ export function AccountCard({
         </ul>
       )}
 
-      <div className="mt-auto flex items-center gap-2 pt-2 text-[11px] text-gray-600">
-        {billing ? <span>供给 {billing.models} 个池模型</span> : <span>暂无账本</span>}
+      {/* 卡脚：供给规模 + 整卡刷新 */}
+      <div className="flex items-center gap-2 border-t border-gray-800/70 bg-gray-950/40 px-4 py-2 text-[11px] text-gray-500">
+        {billing ? (
+          <span>
+            供给 <span className="font-mono text-gray-300">{billing.models}</span> 个池模型
+          </span>
+        ) : (
+          <span>暂无账本</span>
+        )}
         <button
           className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-gray-800 hover:text-gray-300 disabled:opacity-50"
           disabled={refreshing || busyKey !== null}
