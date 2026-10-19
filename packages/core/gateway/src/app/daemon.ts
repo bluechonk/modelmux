@@ -337,6 +337,40 @@ function readWorkerPidValue(scope: Scope): number | null {
   return pid || null;
 }
 
+/**
+ * **真正在跑的那个网关**的 scope —— pid 文件与陈旧构建判定都要对着它。
+ *
+ * ⚠ 仓库级多渠道路由下跑的是**仓库级**网关（根 pid 文件），而 `status <cid>` 的
+ * scope 是**渠道级**的：渠道级 pid 文件只在「该渠道独立运行」时才有意义，多渠道
+ * 模式下它常常是历史遗留（某次单渠道调试留下的）。拿它判陈旧构建会**误报**
+ * 「网关在跑旧代码」，报出来的 daemon_pid / worker_pid 也不是在跑的进程。
+ *
+ * 判定顺序：
+ * 1. `/health` 的 `service` —— `modelmux` = 仓库级（根 pid 文件），`<cid>` = 该渠道独立运行；
+ * 2. 该 scope 的 pid 文件里若指向**活进程**，就认定它是在跑的那个；
+ * 3. 都判不出 → 退回命令自身的 scope（网关没起来时也无从谈起）。
+ */
+function runningScopeOf(scope: Scope, health: Record<string, unknown> | null): Scope {
+  if (!health) return scope; // 网关没起来：没有「在跑的网关」可指
+  const service = typeof health["service"] === "string" ? health["service"] : "";
+  const candidates: Scope[] = [];
+  if (!service || service === "modelmux") {
+    candidates.push(scopeOf(undefined)); // 仓库级 → 根 pid 文件
+  } else {
+    try {
+      candidates.push(scopeOf(service)); // 单渠道独立运行 → 该渠道的 pid 文件
+    } catch {
+      /* 认不出的服务名（别的实现）：跳过 */
+    }
+  }
+  if (scope.cid !== undefined) candidates.push(scope);
+  for (const candidate of candidates) {
+    const pid = readPid(candidate);
+    if (pid && pidAlive(pid)) return candidate;
+  }
+  return candidates[0] ?? scope;
+}
+
 /** 聚合状态：网关健康、控制台快照、守护 PID、凭证、auto_start。 */
 export async function status(
   options: { json?: boolean; addr?: string; cid?: string } = {},
@@ -377,7 +411,9 @@ export async function status(
   const credentialsPresent = perChannel.some((c) => c.present);
 
   // 守护进程是否在跑旧代码（改完 build 没 restart）—— 见 stale-build.ts 的事故说明
-  const stale = gatewayUp ? detectStaleBuild(scope.pidPath()) : { stale: false, buildMs: null, pidMs: null };
+  // ⚠ 判定要对准**真正在跑的那个网关**的 pid 文件（仓库级 vs 渠道级，见 runningScopeOf）
+  const running = runningScopeOf(scope, health);
+  const stale = gatewayUp ? detectStaleBuild(running.pidPath()) : { stale: false, buildMs: null, pidMs: null };
 
   // 签到（**只看本地台账，不发网络请求**）：status 也能一眼看到"今天签了几个"。
   // 为什么不查上游：status 是高频诊断命令，让它去打所有渠道的上游端点不合适。
@@ -407,8 +443,9 @@ export async function status(
       channels: list.map((c) => c.config.cid),
     },
     console: consoleState,
-    daemon_pid: readPidValue(scope),
-    worker_pid: readWorkerPidValue(scope),
+    // pid 报的是**在跑的那个网关**（仓库级多渠道路由下 = 根 pid 文件，见 runningScopeOf）
+    daemon_pid: readPidValue(running),
+    worker_pid: readWorkerPidValue(running),
     credentials:
       list.length === 1
         ? { present: credentialsPresent }

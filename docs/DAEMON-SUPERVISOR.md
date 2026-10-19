@@ -64,6 +64,11 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 - `readPid` 的唯一读者不需要感知语义微调；`stale-build` 只读 `gateway.pid` 的 mtime
   （= start 时刻），worker 重生不更新它——陈旧构建判定仍指本批监督者/worker 的构建时间。
 - 渠道级在 `<root>/<cid>/`，仓库级在 `<root>/`（与日志同层，见 STORAGE-CONVENTION）。
+- ⚠ **读哪一份取决于「谁在跑」**：仓库级多渠道路由下跑的是仓库级网关（根 pid 文件），
+  渠道级 pid 文件只在该渠道**独立运行**时才有意义 —— 仓库级模式下它常是历史遗留。
+  `status <cid>` 按渠道级 pid 文件判定会**误报**「网关在跑旧代码」；
+  正确做法见 [CONTRACT-TS.md](./CONTRACT-TS.md) §8.1（按 `/health` 的 `service` 判定 +
+  「哪个 pid 指向活进程」确认）。
 
 ## 6. 实现落点
 

@@ -32,7 +32,7 @@ modelmux/                     ← 仓库根 = 工作区根
 │   └── src/
 │       ├── channels.ts           ← import 全部渠道包（副作用 = setChannel）
 │       └── cli.ts                ← bin 入口：注册全部渠道后调共享 `main()`
-├── docs/                         ← 契约与规范（渠道文档在各包 packages/core/channels/<cid>/docs/）
+├── docs/                         ← **全部文档**：契约与规范 + 渠道文档（docs/channels/<cid>/）
 └── scripts/                        ← 仓库级校验器（verify-contract / verify-storage / verify-docs）
 ```
 
@@ -40,7 +40,6 @@ modelmux/                     ← 仓库根 = 工作区根
 
 ```
 packages/core/channels/<cid>/
-├── docs/                       ← 渠道文档：README.md（说明）+ PROTOCOL.md（协议规格），随包走
 └── src/
    ├── channel.ts                ← **本渠道装配**：ChannelConfig + 4 个模块 → setChannel()
    ├── cli.ts                    ← bin 入口：注册本渠道后调共享 `main()`（单渠道调试用）
@@ -50,6 +49,10 @@ packages/core/channels/<cid>/
    ├── catalog.ts                ← **渠道特有**
    └── billing.ts                ← **渠道特有**
 ```
+
+> **渠道包只放实现**（`src/` 的 7 个文件 + 包配置）；渠道文档统一在
+> [`docs/channels/<cid>/`](./channels/README.md)（`PROTOCOL.md` 协议规格 + 使用与实测 +
+> 参考实现清单，另有可选的 `FINDINGS.md` / `FLOW.md`）。
 
 > **一个渠道 = 一个池子**：渠道 `catalog` 提供模型，共享层的**公共模型池**把它们以
 > `<cid>/<模型>` 池 id 对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
@@ -410,6 +413,17 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
  被拦下、用户以为已经启动好了」的漏点
 
 只**报告**、不自动重启：是否重启由用户决定（自动重启会打断正在服务的会话）。
+
+**pid 文件必须取「真正在跑的那个网关」的那一份**（仓库级 vs 渠道级）：
+
+- 仓库级多渠道路由下跑的是**仓库级**网关 → pid 文件在**根**（`~/.modelmux/gateway.pid`）；
+- 单渠道独立运行 → pid 文件在**渠道目录**（`~/.modelmux/<cid>/gateway.pid`）。
+
+⚠ 取错的后果（实测踩过）：`status <cid>` 若按**渠道级** pid 文件判定，仓库级模式下
+那个文件往往是历史遗留（某次单渠道调试留下的）→ **误报**「网关在跑旧代码」，
+报出来的 `daemon_pid` / `worker_pid` 也不是在跑的进程。
+判定依据是 `/health` 的 `service` 字段（`modelmux` = 仓库级，`<cid>` = 单渠道），
+再由「哪个 pid 文件指向活进程」确认（实现见 `daemon.ts` 的 `runningScopeOf`）。
 
 补充：`stop` / `restart` 的 `killTree` 会**等进程真的退出**（win32 的 taskkill 是异步的，
 发出去就返回会留下「进程还活着但 PID 文件已删」的假死状态，下一次 `start` 会误报「已在运行」）。
