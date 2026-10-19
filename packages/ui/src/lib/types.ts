@@ -56,6 +56,7 @@ export interface PoolRow {
     used: number;
     unit: string;
     cooling: boolean;
+    unsupported?: boolean;
     ok: number;
     fail: number;
     billing_at: string | null;

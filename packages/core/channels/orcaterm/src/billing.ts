@@ -1,18 +1,20 @@
 /**
  * OrcaTerm 额度 / 签到。
  *
- * ## 实现状态
+ * ## 能力声明
  *
- * **额度**：OrcaTerm 上游有额度查询端点（`orcaterm.com/api/user/package`、
- * `api/user/quota`），但**需要请求签名（MissSignatureParams）**——签名方案非简单 token
- * 透传，疑似 TC3-HMAC-SHA256 派生自客户端持有密钥。Go 与 Python 参考实现
- * （ZFXing-lite/orcaterm2api、hey7195/orcaterm_proxy）均未实现额度查询。
+ * OrcaTerm 为订阅制运维套餐，**没有额度与每日签到概念**。渠道在 `channel.ts`
+ * 声明 `capabilities: { billing: false, signin: false }`，共享层据此直接显示 `-`，
+ * 不会调用本模块。
  *
- * 故 `fetchCredits()` 抛 `CreditsError`，网关会捕获并展示，不伪装成「余额为零」。
+ * ## 保留的实现
  *
- * **签到**：CAPI 框架内无签到/领取动作（全部返回 `ACTION_INVALID`）；
- * OrcaTerm 的运维套餐为订阅制，无每日积分概念。`signin.status()` 与
- * `claim()` 按网关契约返回「无此功能」的人读说明（不抛错、不报退出码）。
+ * `fetchCredits()` 保留为防御性兜底：上游额度端点需要请求签名
+ * （MissSignatureParams），签名方案非简单 token 透传，参考实现
+ * （ZFXing-lite/orcaterm2api、hey7195/orcaterm_proxy）均未实现。若有人绕过
+ * 能力声明直接调用，按查询失败抛错，不伪造「余额为零」。
+ *
+ * `signin` 按网关契约保留，返回说明性结果；共享层不会调用。
  */
 
 import type { SigninModule } from "@modelmux/gateway";
@@ -21,14 +23,13 @@ import type { SigninModule } from "@modelmux/gateway";
 export class CreditsError extends Error {
   override name = "CreditsError";
   constructor(
-    message = "OrcaTerm 额度查询需要请求签名（MissSignatureParams），当前未实现" +
-      "（参考实现 ZFXing-lite/orcaterm2api 与 hey7195/orcaterm_proxy 同样未实现）",
+    message = "OrcaTerm 没有额度概念（capabilities.billing=false）；共享层不应调用 fetchCredits()",
   ) {
     super(message);
   }
 }
 
-/** 查询额度：上游需要请求签名，当前无法获取。 */
+/** 查询额度（防御性兜底）：共享层按 capabilities 跳过；直接调用时抛错。 */
 export async function fetchCredits(): Promise<never> {
   throw new CreditsError();
 }
@@ -36,8 +37,8 @@ export async function fetchCredits(): Promise<never> {
 /**
  * 签到 / 领取能力。
  *
- * OrcaTerm 为订阅制运维套餐，无每日积分/签到概念（CAPI 无对应动作）。
- * 按网关契约（`SigninModule`），无此功能的渠道返回「无此功能」说明而非抛错。
+ * OrcaTerm 无此概念（`capabilities.signin=false`），共享层不会调用。
+ * 按网关契约（`SigninModule`）保留说明性返回值，供直接调用时使用。
  */
 export const signin: SigninModule = {
   async status() {

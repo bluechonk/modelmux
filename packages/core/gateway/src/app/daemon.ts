@@ -15,6 +15,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join } from "node:path";
 
 import {
+  channelCapabilities,
   channelCount,
   channels,
   getChannel,
@@ -386,6 +387,9 @@ export async function status(
       claimed_today: claimedTodayPerLedger(channel.config.cid),
     }))
     .filter((row) => ledgerExists(row.cid));
+  const unsupportedSignin = list
+    .filter((channel) => !channelCapabilities(channel.config).signin)
+    .map((channel) => channel.config.cid);
 
   const info = {
     signin: {
@@ -393,6 +397,7 @@ export async function status(
       claimed_today: withLedger.filter((r) => r.claimed_today).length,
       tracked: withLedger.length,
       channels: withLedger,
+      unsupported: unsupportedSignin,
     },
     gateway: {
       addr: baseUrlOf(addr),
@@ -437,11 +442,19 @@ export async function status(
       `渠道: ${perChannel.map((c) => `${c.cid}${c.present ? "✓" : "✗"}`).join(" ")}`,
     );
   }
-  if (info.signin.tracked > 0) {
-    console.log(
-      `签到（本地记录）: 今天已签 ${info.signin.claimed_today}/${info.signin.tracked} 个渠道` +
-        `（${info.signin.channels.map((c) => `${c.cid}${c.claimed_today ? "✓" : ""}`).join(", ")}）`,
-    );
+  const signinParts = [
+    ...info.signin.channels.map((c) => `${c.cid}${c.claimed_today ? "✓" : ""}`),
+    ...info.signin.unsupported.map((cid) => `${cid}-`),
+  ];
+  if (signinParts.length > 0) {
+    if (info.signin.tracked > 0) {
+      console.log(
+        `签到（本地记录）: 今天已签 ${info.signin.claimed_today}/${info.signin.tracked} 个渠道` +
+          `（${signinParts.join(", ")}）`,
+      );
+    } else {
+      console.log(`签到: -（${info.signin.unsupported.join(", ")} 无签到功能）`);
+    }
   }
   // 下一步建议：有异常才说话，正常不打扰（status 是高频诊断命令的收尾）
   const notLoggedIn = perChannel.filter((c) => !c.present);
@@ -501,6 +514,12 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
 
   for (const channel of list) {
     const label = list.length === 1 ? name : channel.config.cid;
+    // 无额度能力：直接显示 `-`，不调用上游、不算失败
+    if (!channelCapabilities(channel.config).billing) {
+      results.push({ cid: channel.config.cid, ok: true, unsupported: true });
+      if (list.length > 1 && !options.json) console.log(`[${label}] -`);
+      continue;
+    }
     const { billing, cred } = channel;
     try {
       const info: CreditsResult = await runInChannel(channel.config.cid, () => billing.fetchCredits());
@@ -530,6 +549,14 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
   if (list.length === 1) {
     const only = results[0]!;
     if (only["ok"] !== true) return 1;
+    if (only["unsupported"] === true) {
+      if (options.json) {
+        console.log(JSON.stringify(only, null, 2));
+        return 0;
+      }
+      console.log("额度: -");
+      return 0;
+    }
     if (options.json) {
       console.log(JSON.stringify(only, null, 2));
       return 0;

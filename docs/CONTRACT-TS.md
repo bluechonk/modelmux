@@ -135,8 +135,13 @@ interface ChannelConfig {
  defaultAddr: string;         // **单渠道独立运行**的网关默认地址，如 "127.0.0.1:8803"
  uiPort: number;              // **单渠道独立运行**的控制台端口（仓库级路由用 REPO_DEFAULT_*）
  debugDumpEnv: string;        // 抓包落盘目录的环境变量名（值 "1" 表示用渠道内 debug/）
+ capabilities?: Partial<ChannelCapabilities>; // 能力声明：billing / signin，缺省 true
 }
 ```
+
+**能力声明**：`capabilities.billing` / `capabilities.signin` 为 `false` 表示该渠道没有额度 /
+签到概念。共享层据此直接显示 `-`，不调用对应模块；缺省视为支持，兼容所有现有渠道。
+无对应能力的渠道（如 orcaterm）在 `channel.ts` 显式声明，不靠抛错或空台账让上层猜。
 
 **落点不由渠道决定**：存储根、`<cid>` 分层、目录内文件名全部由共享层
 `paths.ts` 推导；渠道只给 `cid`，没有任何历史名清单（旧布局兼容已整体移除）。
@@ -306,17 +311,18 @@ interface Channel {
 **回填**台账（自愈：覆盖"在客户端签的"这种情况）。`claimedToday` 缺失 + 台账也没有时，
 原样输出渠道自己的 `summary`（它最清楚是"没端点"还是"查不到"）。
 
-`signin` 是**必需**的（契约统一，共享层**不做能力探测、不特判任何渠道**）：
-上游确实没有签到端点的渠道，也照样实现它 —— `status()` 返回 `claimable: false` + 一句**自己的说明**，
-`claim()` 原样回同一句；那**不是失败**，也不影响退出码。用户看到的就是那句说明。
-各渠道叫法不同（`check-in` / `signin` / 活动 `claim` / 上游自动发），统一收敛成 `status()` + `claim()`
-两个动作；`claim()` 必须是幂等的或至少可安全重复调用。
-未实现的渠道（桩）保持「立即抛错 + 实现依据指引」的语义。
+`signin` 是**必需**的（契约统一，共享层不特判任何渠道）。有签到端点的渠道真实查询 / 领取；
+没有签到端点的渠道在 `ChannelConfig.capabilities` 声明 `signin: false`，共享层直接显示 `-`，
+不调用 `signin.status()`，自动签到也会跳过。`signin` 模块本身仍保留（契约要求），返回值只供
+直接调用时使用。各渠道叫法不同（`check-in` / `signin` / 活动 `claim` / 上游自动发），统一收敛成
+`status()` + `claim()` 两个动作；`claim()` 必须是幂等的或至少可安全重复调用。
 
-**「查不到」不能显示成 0**：失败时抛 `CreditsError`，而不是返回 `remain: 0`。
+**「查不到」不能显示成 0**：有额度能力但查询失败时抛 `CreditsError`，而不是返回 `remain: 0`。
 未登录时抛 `cred.NotLoggedInError`。
-没有额度端点的渠道，抛 `CreditsError("该渠道没有公开的额度查询端点")` 并在 docstring
-说明原因 —— 不要伪造数字。
+**没有额度概念的渠道**在 `ChannelConfig.capabilities` 声明 `billing: false`：共享层不调用
+`fetchCredits()`，`mx bill` / Web 控制台统一显示 `-`，退出码 0。`CreditsError` 只用于
+「有额度能力但查询失败」，不用于「无此功能」。未实现的渠道（桩）同样先声明能力为 false；
+`fetchCredits()` 可保留抛错作为防御性兜底。
 
 **按账号查询**：`fetchCredits(options?: { refreshOn401?: boolean; credential?: unknown })`。
 不传 `credential` = 当前生效账号；传入时用它代替 `cred.load()`，并配合

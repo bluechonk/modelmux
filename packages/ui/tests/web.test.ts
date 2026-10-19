@@ -21,13 +21,17 @@ const HOME = mkdtempSync(join(tmpdir(), "modelmux-web-e2e-"));
 process.env["MODELMUX_HOME"] = HOME;
 
 /** 合成渠道：credentials.json 即视为已登录，不碰网络。 */
-function makeChannel(cid: string): Channel {
+function makeChannel(
+  cid: string,
+  opts: { capabilities?: { billing?: boolean; signin?: boolean }; models?: string[] } = {},
+): Channel {
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,
     version: "0.0.0",
     defaultAddr: "127.0.0.1:1",
     uiPort: 2,
+    ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
   };
   const load = (): Record<string, unknown> => {
     throw new Error("not logged in");
@@ -60,7 +64,7 @@ function makeChannel(cid: string): Channel {
       resolveConfig: () => ({}),
       newTranslator: () => ({ feed: (c) => [c], finish: () => [] }),
     },
-    catalog: { exposedIds: () => [], resolveModel: (n) => n },
+    catalog: { exposedIds: () => opts.models ?? [], resolveModel: (n) => n },
     billing: { CreditsError: class CreditsError extends Error {}, fetchCredits: async () => ({ ok: true, total: {}, packages: [] }) },
   } as unknown as Channel;
 }
@@ -84,6 +88,8 @@ let server: Awaited<ReturnType<typeof start>>;
 
 before(async () => {
   setChannel(makeChannel("webchan"));
+  // 无额度能力的合成渠道：billing 命令必须标记 unsupported
+  setChannel(makeChannel("nobill", { capabilities: { billing: false }, models: ["test-model"] }));
   server = await start(0, bridge, "127.0.0.1");
 });
 
@@ -111,6 +117,29 @@ describe("console 静态托管与命令 API", () => {
     const payload = (await res.json()) as { ok: boolean; data?: { channels?: Array<{ cid: string }> } };
     assert.equal(payload.ok, true);
     assert.ok((payload.data?.channels ?? []).some((c) => c.cid === "webchan"));
+  });
+
+  it("billing 命令对无额度能力渠道标记 unsupported", async () => {
+    const res = await fetch(`${server.url}api/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "billing", cid: "nobill" }),
+    });
+    assert.equal(res.status, 200);
+    const payload = (await res.json()) as {
+      ok: boolean;
+      data?: {
+        rows?: Array<{
+          model: string;
+          candidates: Array<{ cid: string; unsupported?: boolean }>;
+        }>;
+      };
+    };
+    assert.equal(payload.ok, true);
+    const candidate = (payload.data?.rows ?? [])
+      .flatMap((row) => row.candidates)
+      .find((c) => c.cid === "nobill");
+    assert.equal(candidate?.unsupported, true, "无额度能力必须标记 unsupported");
   });
 
   it("静态路径穿越拒绝 403", async () => {

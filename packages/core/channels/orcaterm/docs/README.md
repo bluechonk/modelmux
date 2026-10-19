@@ -2,18 +2,25 @@
 
 OrcaTerm（腾讯云出品的 AI 运维终端）渠道。
 
-**登录已实现（二选一：腾讯云 / 微信），对话上游尚未实现。** 上游协议（`/messages*` 请求体与鉴权）
-只能从 WebView2 缓存看到路径、抓不到请求，因此 `upstream` / `catalog` / `billing`
-按契约 CONTRACT-TS §7 做成**立即抛错**的桩（消息含「尚未实现 + 依据指引」），
-不返回空值假装可用。
+登录已实现（腾讯云 / 微信）。对话上游已接入 OpenAI 兼容路径，当前只支持**纯文本**；
+`tools` / `tool_calls` 尚未转发，Agent 工具调用不可用。模型目录为内置表。
 
 | 能力 | 状态 |
 | --- | --- |
-| 登录（腾讯云 / 微信） | ✅ 已实现（`mx login orcaterm` 弹二选一菜单；GitHub 分支未实现，见 PROTOCOL §1.1） |
-| 凭据落盘 / 有效性探测 | ✅ 已实现 |
-| 对话上游（`/messages*`） | ⛔ 尚未实现（桩） |
-| 模型目录 | ⛔ 尚未实现（桩） |
-| 额度 / 签到 | ⛔ 尚未实现（桩） |
+| 登录（腾讯云 / 微信） | 已实现（`mx login orcaterm` 弹二选一菜单；GitHub 分支未实现，见 PROTOCOL §1.1） |
+| 凭据落盘 / 有效性探测 | 已实现 |
+| 对话上游（`/messages*`） | 已实现（文本；工具调用见「已知限制」） |
+| 模型目录 | 内置表（无远端刷新） |
+| 额度 / 签到 | 无此概念（`capabilities.billing=false` / `signin=false`，CLI 与 UI 显示 `-`） |
+
+## 已知限制
+
+1. **工具调用未实现**：`upstream.buildChatBody()` 目前把 `tools` 固定为 `[]`，并丢弃
+   assistant / tool 消息；翻译层只产出文本 delta。Reasonix 等 Agent 客户端发起的工具往返
+   会表现为「模型只说不做」——验收时工具调用数为 0、文件不会落盘。
+2. **上游流偶发失败**：实测冒烟 3 次中前 2 次返回
+   `OrcaProtocolError: upstream error code=undefined`，第 3 次成功；需要重试或进一步诊断。
+3. **无额度 / 签到**：订阅制运维套餐，没有每日积分与签到端点；`mx bill` 显示 `-`。
 
 ## 用法
 
@@ -62,6 +69,6 @@ clone 到 `reference/` 的学习材料（不入库）。
 
 | 仓库 | 用途 |
 | --- | --- |
-| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | 当前唯一的上游协议参照 —— 本渠道的对话上游尚未实现，协议路径只能从 WebView2 缓存观测，实现 `upstream` 时以该仓库为起点 |
+| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | 上游协议参照 —— 文本对话已按该实现接入；工具调用转发仍待补齐 |
 | [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | 上游协议的补充参照 |
 | [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | 官方发行包存档 —— 桌面端逆向（asar / 二进制）与版本对照的一手材料 |

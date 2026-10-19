@@ -18,6 +18,8 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8819",
   uiPort: 8820,
   debugDumpEnv: "ORCATERM_DEBUG_DUMP",
+  // 订阅制运维套餐：没有额度与每日签到概念，CLI / UI 统一显示 "-"
+  capabilities: { billing: false, signin: false },
 };
 
 export const channel: Channel = { config, cred, upstream, catalog, billing };

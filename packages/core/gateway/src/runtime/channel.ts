@@ -299,6 +299,14 @@ export interface BillingModule {
   signin: SigninModule;
 }
 
+/** 渠道能力声明（缺省视为支持）。 */
+export interface ChannelCapabilities {
+  /** 是否提供额度查询。false = 无额度概念，CLI / UI 统一显示 `-`。 */
+  readonly billing: boolean;
+  /** 是否提供签到 / 领取。false = 无签到概念，CLI 统一显示 `-`。 */
+  readonly signin: boolean;
+}
+
 /**
  * 渠道的静态配置：cid / 展示名 / 版本 / 端口集中在一个对象里。
  */
@@ -321,6 +329,19 @@ export interface ChannelConfig {
   readonly uiPort: number;
   /** 抓包落盘目录的环境变量名，如 `CATPAW_DEBUG_DUMP`（值 `1` 表示用渠道内 `debug/`）。 */
   readonly debugDumpEnv: string;
+  /**
+   * 能力声明（可选）。省略 = `billing` / `signin` 都支持。
+   * 无对应能力的渠道声明 false：共享层直接显示 `-`，不再调用上游。
+   */
+  readonly capabilities?: Partial<ChannelCapabilities>;
+}
+
+/** 读取渠道能力（缺省 true）。 */
+export function channelCapabilities(config: ChannelConfig): ChannelCapabilities {
+  return {
+    billing: config.capabilities?.billing ?? true,
+    signin: config.capabilities?.signin ?? true,
+  };
 }
 
 /** 一个渠道的完整装配：配置 + 四个渠道独有模块。 */

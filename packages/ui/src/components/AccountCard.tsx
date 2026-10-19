@@ -39,6 +39,8 @@ export interface ChannelBilling {
   ok: number;
   fail: number;
   models: number;
+  /** 该渠道没有额度概念（后端 capabilities.billing=false）。 */
+  unsupported?: boolean;
   /** 按账号拆分的请求计数与额度。 */
   accounts?: AccountBilling[];
   billing_at?: string | null;
@@ -88,7 +90,8 @@ function expiryText(expiresAt: number | null): string {
   return `到期 ${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function quotaText(accountBilling: AccountBilling | undefined): string {
+function quotaText(accountBilling: AccountBilling | undefined, unsupported: boolean): string {
+  if (unsupported) return "-";
   if (accountBilling?.credits) {
     const { remain, unit } = accountBilling.credits;
     return `${remain} ${unit || ""}`.trim();
@@ -193,7 +196,7 @@ export function AccountCard({
                     </span>
                   )}
                   <span className={`shrink-0 text-sm font-semibold ${quotaClass(bill)}`}>
-                    {quotaText(bill)}
+                    {quotaText(bill, billing?.unsupported === true)}
                   </span>
                 </div>
                 <div className="mt-1 flex items-center gap-2 pl-3.5 text-[11px] text-gray-500">

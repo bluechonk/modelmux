@@ -9,7 +9,7 @@
  * 调用方（headless 的 bridge）负责提供实现。
  */
 
-import { channels, getChannel, hasChannel } from "../runtime/channel.js";
+import { channelCapabilities, channels, getChannel, hasChannel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { POOL_MODELS, canonicalModelId, poolModelId, poolCandidates } from "../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../pool/pool-usage.js";
@@ -119,6 +119,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
               cooling: (entry?.cooldown_until ?? 0) > now,
               billing_at: entry?.billing_at ?? null,
               billing_ok: entry?.billing_ok ?? false,
+              unsupported: !channelCapabilities(candidate.channel.config).billing,
               ok: entry?.ok ?? 0,
               fail: entry?.fail ?? 0,
               // 渠道 × 账号拆分：每个账号的 ok / fail 计数与额度快照

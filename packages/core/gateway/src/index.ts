@@ -29,6 +29,8 @@ export {
   channelFor,
   channelCount,
   clearChannels,
+  channelCapabilities,
+  type ChannelCapabilities,
   type ChannelConfig,
   type Channel,
   type Credential,

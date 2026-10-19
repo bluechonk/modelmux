@@ -51,6 +51,10 @@ interface FakeSigninSpec {
   daily?: boolean;
   /** 让 status() 抛错（模拟未登录 / 上游拒绝）。 */
   statusThrows?: boolean;
+  /** 能力声明（缺省都支持）。 */
+  capabilities?: { billing?: boolean; signin?: boolean };
+  /** 观测：fetchCredits 实际调用次数。 */
+  billingCalls?: number;
 }
 
 function makeChannel(cid: string, opts: FakeSigninSpec): Channel {
@@ -61,6 +65,7 @@ function makeChannel(cid: string, opts: FakeSigninSpec): Channel {
     defaultAddr: "127.0.0.1:1",
     uiPort: 2,
     debugDumpEnv: `${cid.toUpperCase()}_DEBUG_DUMP`,
+    ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
   };
   // ⚠ 必须像真实渠道那样用 **`credentialsPath()`（不带 cid）**：它内部走
   // `configOf(undefined)` → `activeCid()`，即依赖 ALS 上下文。若传 cid（或自己
@@ -74,11 +79,14 @@ function makeChannel(cid: string, opts: FakeSigninSpec): Channel {
   const fakeCred = { accessToken: "tok", uid: `${cid}-user`, domain: "" };
   const billing: Record<string, unknown> = {
     CreditsError: class CreditsError extends Error {},
-    fetchCredits: async () => ({
-      ok: true,
-      total: { remain: 12.5, size: 100, used: 87.5, unit: "credits", remain_percent: 12.5 },
-      packages: [],
-    }),
+    fetchCredits: async () => {
+      opts.billingCalls = (opts.billingCalls ?? 0) + 1;
+      return {
+        ok: true,
+        total: { remain: 12.5, size: 100, used: 87.5, unit: "credits", remain_percent: 12.5 },
+        packages: [],
+      };
+    },
     // 契约要求每个渠道都给 signin
     signin: opts.signin
       ? {
@@ -432,6 +440,49 @@ describe("3. <动词> [<cid>] 路由", () => {
     const r = await run(["bill", "alpha"]);
     assert.equal(r.code, 0);
     assert.ok(r.out.includes("12.5 / 100 credits"), r.out);
+  });
+
+  it("bill <cid> 无额度能力输出 -，且不调用 fetchCredits", async () => {
+    const spec: FakeSigninSpec = {
+      signin: false,
+      capabilities: { billing: false, signin: false },
+    };
+    setChannel(makeChannel("gamma", spec));
+    try {
+      const r = await run(["bill", "gamma"]);
+      assert.equal(r.code, 0, r.err);
+      assert.ok(r.out.includes("额度: -"), r.out);
+      assert.equal(spec.billingCalls ?? 0, 0, "无额度能力不得调用 fetchCredits");
+
+      const j = await run(["bill", "gamma", "--json"]);
+      assert.equal(j.code, 0, j.err);
+      const parsed = JSON.parse(j.out) as { ok: boolean; unsupported?: boolean };
+      assert.equal(parsed.ok, true);
+      assert.equal(parsed.unsupported, true);
+    } finally {
+      resetChannels();
+    }
+  });
+
+  it("status <cid> 无签到能力显示 -", async () => {
+    setChannel(
+      makeChannel("gamma", {
+        signin: false,
+        capabilities: { billing: false, signin: false },
+      }),
+    );
+    try {
+      const r = await run(["status", "gamma", "--addr", "127.0.0.1:1", "--ui-port", "1", "--json"]);
+      assert.equal(r.code, 0);
+      const parsed = JSON.parse(r.out) as { signin: { unsupported: string[] } };
+      assert.deepEqual(parsed.signin.unsupported, ["gamma"]);
+
+      const text = await run(["status", "gamma", "--addr", "127.0.0.1:1", "--ui-port", "1"]);
+      assert.equal(text.code, 0);
+      assert.ok(text.out.includes("签到: -"), text.out);
+    } finally {
+      resetChannels();
+    }
   });
 
   it("status <cid> 走 daemon（借假地址，不抛错）", async () => {

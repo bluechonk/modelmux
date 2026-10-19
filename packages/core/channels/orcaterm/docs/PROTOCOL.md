@@ -426,6 +426,9 @@ POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfC
 `submit_agent_tasks`、`read_cloud_space_file` 等（完整列表见 `upstream.ts` 的 `NATIVE_TOOLS`）。
 
 > ⚠ 上游只接受原生工具名，不支持随意注册自定义 function。
+>
+> **实现状态**：以上是协议事实，但 `upstream.ts` 当前把 `tools` 固定为 `[]` 并丢弃
+> assistant / tool 消息，工具调用转发尚未实现；Agent 客户端会看到「模型只说不做」。
 
 #### 3.4.6 控制台态（uin/skey）补充说明
 
@@ -468,10 +471,9 @@ OrcaTerm 上游有额度查询端点（实测返回 `MissSignatureParams`）：
 需要**请求签名**（非 token 透传），签名方案疑似 TC3-HMAC-SHA256，由客户端持有密钥派生。
 Go（ZFXing-lite/orcaterm2api）与 Python（hey7195/orcaterm_proxy）参考实现**均未实现额度查询**。
 
-渠道包 `billing.ts` 的 `fetchCredits()` 抛 `CreditsError`，网关展示为：
-```
-[orcaterm] CreditsError: OrcaTerm 额度查询需要请求签名（MissSignatureParams），当前未实现
-```
+渠道在 `channel.ts` 声明 `capabilities.billing=false`：`mx bill orcaterm` 直接输出
+`额度: -`，退出码 0；Web 控制台同样显示 `-`。`billing.ts` 的 `fetchCredits()` 仅作
+防御性兜底，直接调用时抛 `CreditsError`，不伪造「余额为零」。
 
 ### 5.2 签到（无此功能）
 
@@ -479,7 +481,9 @@ CAPI 框架（`POST orcaterm.com/cgi/api`）内无签到/领取动作——
 `DailyCheckin` / `Checkin` / `DailySignin` / `ClaimDaily` 等常见命名全部返回 `ACTION_INVALID`。
 
 OrcaTerm 的运维套餐为**订阅制**（非积分制），无每日积分概念。
-渠道包 `billing.ts` 的 `signin.status()` 返回 `claimable: false` + 人读说明。
+渠道在 `channel.ts` 声明 `capabilities.signin=false`：`mx status orcaterm` 显示
+`签到: -`，自动签到直接跳过，不调用 `signin.status()`。`billing.ts` 的 `signin`
+实现仅作契约占位。
 
 ### 5.3 凭证体检（已实现）
 

@@ -6,7 +6,7 @@
  * 依赖方向为单向：`channel-verbs.ts` → 本文件。
  */
 
-import { channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
+import { channelCapabilities, channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, getPoolModelMeta, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
@@ -214,6 +214,7 @@ export async function listPoolModels(json: boolean): Promise<number> {
           ok: entry?.ok ?? 0,
           fail: entry?.fail ?? 0,
           billing_at: entry?.billing_at ?? null,
+          unsupported: !channelCapabilities(candidate.channel.config).billing,
         };
       }),
   }));
@@ -233,7 +234,9 @@ export async function listPoolModels(json: boolean): Promise<number> {
       continue;
     }
     for (const candidate of row.candidates) {
-      const used = `${candidate.used}${candidate.unit ? ` ${candidate.unit}` : ""}`;
+      const used = candidate.unsupported
+        ? "-"
+        : `${candidate.used}${candidate.unit ? ` ${candidate.unit}` : ""}`;
       const marks = [
         candidate.cooling ? "冷却中" : "",
         candidate.ok > 0 ? `ok=${candidate.ok}` : "",

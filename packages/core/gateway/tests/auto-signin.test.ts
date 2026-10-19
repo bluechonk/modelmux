@@ -43,6 +43,8 @@ interface Behavior {
   claimable?: boolean | null;
   claimOk?: boolean;
   claimError?: boolean;
+  /** 能力声明（缺省都支持）。 */
+  capabilities?: { billing?: boolean; signin?: boolean };
   /** 观测：status/claim 实际发出的次数（渠道私有，避免注册表共享导致的串扰）。 */
   statusCalls?: number;
   claimCalls?: number;
@@ -58,7 +60,12 @@ function makeChannel(cid: string, behavior: Behavior): Channel {
       }
     : () => ({ accessToken: "t", uid: "u", domain: "example.test" });
   return {
-    config: { cid, display: cid, version: "0.0.0" },
+    config: {
+      cid,
+      display: cid,
+      version: "0.0.0",
+      ...(behavior.capabilities ? { capabilities: behavior.capabilities } : {}),
+    },
     cred: {
       DEFAULT_BASE_URL: "https://example.test",
       NotLoggedInError: class extends Error {},
@@ -178,5 +185,15 @@ test("auto signin: 上游无可领 → 跳过且不计失败", async () => {
     assert.equal(behavior.claimCalls, 0, "无可领不领取");
     assert.equal(autoSignin.readFailures("autosign-none"), 0, "无可领不算失败");
     assert.equal(autoSignin.tripped("autosign-none"), false);
+  });
+});
+
+test("auto signin: 无签到能力不调用 signin.status()", async () => {
+  await withIsolatedRoot(async () => {
+    const behavior: Behavior = { capabilities: { signin: false } };
+    setChannel(makeChannel("autosign-nosignin", behavior));
+    await autoSignin.runOnce();
+    assert.equal(behavior.statusCalls, 0, "无签到能力不得查询上游");
+    assert.equal(behavior.claimCalls, 0);
   });
 });

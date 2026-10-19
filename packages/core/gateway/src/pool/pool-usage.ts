@@ -22,7 +22,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import { channels, type Channel } from "../runtime/channel.js";
+import { channelCapabilities, channels, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { listAccounts, readAccountCredential } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
@@ -326,6 +326,7 @@ async function refreshAccountCredits(
   cid: string,
   logger: (m: string) => void,
 ): Promise<void> {
+  if (!channelCapabilities(channel.config).billing) return;
   const index = runInChannel(cid, () => listAccounts(cid));
   for (const account of index.accounts) {
     const raw = runInChannel(cid, () => readAccountCredential(account.key, cid));
@@ -352,6 +353,7 @@ export function ledgerSnapshot(): PoolLedger {
 export function needsBillingRefresh(now = Date.now()): boolean {
   const ledger = load();
   for (const channel of channels()) {
+    if (!channelCapabilities(channel.config).billing) continue;
     const cid = channel.config.cid;
     const entry = ledger.channels[cid];
     if (!entry || !entry.billing_at) return true;
@@ -373,7 +375,8 @@ export interface RefreshResult {
 
 /** 查一轮账单（并行；不抛错，失败只记在返回值与账本里）。 */
 async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
-  const list = channels();
+  // 无额度能力的渠道没有账单可刷，直接排除（不记成功也不记失败）
+  const list = channels().filter((channel) => channelCapabilities(channel.config).billing);
   const result: RefreshResult = { refreshed: [], failed: [] };
   const settled = await Promise.allSettled(
     list.map(async (channel: Channel) => {

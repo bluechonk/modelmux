@@ -19,6 +19,7 @@ interface BillingRow {
     used?: number;
     unit?: string;
     cooling?: boolean;
+    unsupported?: boolean;
     ok?: number;
     fail?: number;
     accounts?: Array<{
@@ -184,6 +185,7 @@ export function Accounts(): ReactElement {
         ok: c.ok ?? 0,
         fail: c.fail ?? 0,
         models: 1,
+        unsupported: Boolean(c.unsupported),
         accounts: c.accounts ?? [],
         billing_at: null,
       });

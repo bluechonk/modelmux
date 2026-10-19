@@ -18,7 +18,7 @@
  * 签到摘要对自动签到天然可见。
  */
 
-import { channels, type Channel, type SigninStatus } from "../runtime/channel.js";
+import { channelCapabilities, channels, type Channel, type SigninStatus } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { readFileSync } from "node:fs";
 import { ensureStateDir, stateDir } from "../runtime/paths.js";
@@ -81,10 +81,13 @@ export function tripped(cid: string): boolean {
 /**
  * 对单个渠道执行一轮自动签到。返回是否发了领取请求。
  *
- * 跳过链（按序）：熔断 → 台账已签 → 未登录（不发请求）→ 上游已签/无可领。
+ * 跳过链（按序）：无签到能力 → 熔断 → 台账已签 → 未登录（不发请求）→ 上游已签/无可领。
  */
 async function attemptChannel(channel: Channel): Promise<boolean> {
   const cid = channel.config.cid;
+
+  // ⓪ 无签到能力：共享层直接跳过，不调用渠道的 signin 模块
+  if (!channelCapabilities(channel.config).signin) return false;
 
   // ① 当日熔断：连败 3 次的渠道今天不再触发
   if (tripped(cid)) return false;

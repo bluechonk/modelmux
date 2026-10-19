@@ -330,6 +330,7 @@ export function demoBilling(state: DemoState): { rows: unknown[]; models: string
           used: ledger?.used ?? 0,
           unit: ledger?.unit ?? "",
           cooling: ledger?.cooling ?? false,
+          unsupported: false,
           ok: totalOk,
           fail: totalFail,
           billing_at: "2026-10-18T00:00:00.000Z",
