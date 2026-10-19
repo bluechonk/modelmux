@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Boxes, Globe, Link2, MessageSquare, Server } from "lucide-react";
+import { Activity, Boxes, ChevronDown, Globe, Link2, MessageSquare, Server } from "lucide-react";
 import { CopyChip } from "../components/CopyChip";
-import type { ReactElement, ReactNode } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { api } from "../lib/api";
 
 /** 倍率格式化：最多 4 位小数并去掉尾随 0。 */
 function formatMultiplier(value: number): string {
   return String(Number(value.toFixed(4)));
 }
+
+/** 折叠阈值：超过这个数量的模型默认收起，点「展开」看全部。 */
+const COLLAPSE_AT = 8;
 
 /** 仪表盘页：全局状态快照（统计卡 + 端点 + 按渠道分组的模型墙）。 */
 export function Dashboard(): ReactElement {
@@ -96,7 +99,7 @@ export function Dashboard(): ReactElement {
         </p>
       </section>
 
-      {/* 模型墙（按渠道分组） */}
+      {/* 模型墙（按渠道分组）：每格自然铺开，超过阈值折叠，不再用内嵌滚动条 */}
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-300">
           <Boxes className="h-4 w-4 text-sky-400" />
@@ -109,48 +112,81 @@ export function Dashboard(): ReactElement {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {[...groups.entries()].map(([cid, ids]) => (
-              <div key={cid} className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">{cid}</span>
-                  <span className="text-xs text-gray-500">{ids.length} 个模型</span>
-                </div>
-                <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                  {ids.map((id) => {
-                    const info = state.model_info?.[`${cid}/${id}`];
-                    const m = info?.multiplier;
-                    const badge =
-                      m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : null;
-                    return (
-                      <div key={id} className="flex items-center gap-1">
-                        <CopyChip value={`${cid}/${id}`} display={id} />
-                        {badge && (
-                          <span
-                            title={m === 0 ? "零消耗" : `消耗倍率 ×${formatMultiplier(m)}`}
-                            className={`shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
-                              m === 0
-                                ? "bg-emerald-500/15 text-emerald-400"
-                                : "bg-amber-500/10 text-amber-300"
-                            }`}
-                          >
-                            {badge}
-                          </span>
-                        )}
-                        {info?.marketing && (
-                          <span className="shrink-0 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-300">
-                            {info.marketing}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <ChannelModels
+                key={cid}
+                cid={cid}
+                ids={ids}
+                infoFor={(id) => state.model_info?.[`${cid}/${id}`]}
+              />
             ))}
           </div>
         )}
       </section>
 
       {/* 授权链接 / 登录进度属于登录弹窗（账号池页），仪表盘不再渲染 —— 避免出现在各个页面 */}
+    </div>
+  );
+}
+
+/** 单渠道模型格：自然铺开，超过 COLLAPSE_AT 个默认折叠，点按钮展开全部。 */
+function ChannelModels({
+  cid,
+  ids,
+  infoFor,
+}: {
+  cid: string;
+  ids: string[];
+  infoFor: (id: string) => { multiplier: number | null; marketing: string } | undefined;
+}): ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = ids.length > COLLAPSE_AT;
+  const shown = collapsible && !expanded ? ids.slice(0, COLLAPSE_AT) : ids;
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">{cid}</span>
+        <span className="text-xs text-gray-500">{ids.length} 个模型</span>
+        {collapsible && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="ml-auto flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+          >
+            {expanded ? "收起" : `展开 ${ids.length - COLLAPSE_AT} 个`}
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {shown.map((id) => {
+          const info = infoFor(id);
+          const m = info?.multiplier;
+          const badge = m != null ? (m === 0 ? "免费" : `×${formatMultiplier(m)}`) : null;
+          return (
+            <div key={id} className="flex items-center gap-1">
+              <CopyChip value={`${cid}/${id}`} display={id} />
+              {badge && (
+                <span
+                  title={m === 0 ? "零消耗" : `消耗倍率 ×${formatMultiplier(m)}`}
+                  className={`shrink-0 rounded px-1 py-0.5 font-mono text-[10px] ${
+                    m === 0
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "bg-amber-500/10 text-amber-300"
+                  }`}
+                >
+                  {badge}
+                </span>
+              )}
+              {info?.marketing && (
+                <span className="shrink-0 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-300">
+                  {info.marketing}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
