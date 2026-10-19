@@ -86,13 +86,16 @@ export interface LoginUi {
   /**
    * 二维码图片 URL（可选）。扫码必须用这一张：它对应本轮长轮询的 uuid，
    * 而授权页每次加载都会生成新的 uuid。
+   *
+   * ⚠ 实现**不能**把它丢掉：CLI 没有观察者，丢掉就等于没给用户扫码入口
+   * （终端里得把这条 URL 打出来，让用户打开图片扫码）。
    */
   setQr?(url: string): void;
   /**
    * 取走用户粘回的回调链接（可选，只消费一次）。
    *
    * 回调页线上是 404，`code` 只出现在浏览器地址栏；没有浏览器的进程
-   * （网关/CLI）只能靠用户把它粘回来。
+   * （网关/CLI）只能靠用户把它粘回来 —— 故 CLI 侧要收 stdin 一行。
    */
   takePastedCallback?(): string | undefined;
 }
@@ -160,7 +163,7 @@ export interface UpstreamModule {
    *
    * 有些上游排队/长思考时**收下请求（HTTP 200）后长时间零字节**，且不像其他渠道那样
    * 发心跳或排队错误帧 —— 固定 120s 会把还活着的上游误杀成超时。
-   * 实测 Qoder 长上下文首字延迟 40–71s，排队时静默可超过 120s（见 qoder/docs/PROTOCOL.md）。
+   * 实测 Qoder 长上下文首字延迟 40–71s，排队时静默可超过 120s（见 docs/channels/qoder/PROTOCOL.md）。
    *
    * ⚠ 只放宽「连接层静默容忍」，不改变任何协议语义；声明后网关的首帧等待、
    * 空闲守卫与探测层统一用这个上限。

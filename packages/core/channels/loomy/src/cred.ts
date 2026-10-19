@@ -1,7 +1,7 @@
 /**
  * Loomy（讯飞）认证：HMAC-SHA1 账号签名、微信登录、凭据持久化与「续期=探测」。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 channels/loomy/docs/PROTOCOL.md）
+ * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/loomy/PROTOCOL.md）
  *
  * 1. **签名是 9 段 `\n` 连接**，后两段（SignedHeaders / CanonicalizedHeaders）
  *    恒为空串 ⇒ 最终字符串**以两个换行结尾**。这是 `join("\n")` 在 9 个元素上的
@@ -502,6 +502,26 @@ export async function wechatWaitForCode(
   return result.code;
 }
 
+/**
+ * 微信扫码指引（CLI 与 Web 共用一条文案）。
+ *
+ * ⚠ 措辞要点：**不要**让用户「打开授权页去扫码」——授权页每次加载都换 uuid，
+ * 用户在那个页面上扫的码属于**另一次会话**，本进程的长轮询永远看不到「已确认」，
+ * 表现为「手机上确认了但流程一直卡住」（实测踩过）。
+ *
+ * 正确姿势是扫**本进程 uuid 的二维码图片**（`onQr` 给的那张）：
+ * 微信长轮询认的是 uuid，图片与 uuid 绑定 → 扫了就能收到确认。
+ *
+ * 兜底（长轮询拿不到时）：让用户自己开授权页扫，微信 302 到
+ * `https://loomy.xunfei.cn/oauth/wechat/callback?code=…&state=…`（线上 404 页，
+ * 正常），把地址栏整条链接粘回来。
+ */
+export const LOOMY_WECHAT_GUIDE =
+  "微信扫码登录：用微信扫「二维码图片」那一条链接里的图，在手机上确认后本命令自动完成。" +
+  "注意：不要去打开「授权页」链接扫码 —— 那个页面每次加载都是新的二维码会话，扫了这边等不到。" +
+  "若改用授权页扫码，授权后浏览器会跳到 loomy.xunfei.cn 的 404 页（正常），" +
+  "把地址栏里整条链接复制下来，粘贴到本终端回车即可完成登录。";
+
 export async function wechatObtainCode(
   options: WechatWaitOptions & { pasteCode?: () => string | undefined } = {},
 ): Promise<WechatCodeResult> {
@@ -511,6 +531,7 @@ export async function wechatObtainCode(
 
   const state = randomUUID().replace(/-/g, "");
   const url = wechatAuthorizeUrl(state);
+  // 授权页 URL 仍然给出（用户想手动开页面时的入口），但**不**把它当扫码入口。
   onUrl?.(url);
 
   let html: string;
@@ -523,7 +544,7 @@ export async function wechatObtainCode(
   const uuid = extractWechatUuid(html);
   if (!uuid) throw new Error("could not extract the QR uuid from the authorize page (risk control or redesign?)");
   onQr?.(qrImageUrl(uuid));
-  onStatus?.("QR code generated; scan it with WeChat and confirm on your phone");
+  onStatus?.(LOOMY_WECHAT_GUIDE);
 
   const deadline = Date.now() + timeoutSec * 1000;
   let last = "";

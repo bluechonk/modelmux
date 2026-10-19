@@ -55,12 +55,11 @@ export async function ensureLogin(
     ui.setState("login", "requesting authorization URL...");
     try {
       c = await cred.login(baseUrl ?? cred.DEFAULT_BASE_URL, {
-        onUrl: (url) =>
-          ui.setState(
-            "login",
-            "open the URL below in your browser to authorize (Ctrl+click or copy); login continues automatically once authorized.",
-            url,
-          ),
+        // ⚠ 只说「这个 URL 在哪」，**不**承诺「授权后自动完成」：渠道各有各的
+        // 回调方式（本地回调服务器 / 设备码轮询 / 扫码长轮询），自动完成与否
+        // 由渠道自己的 onStatus 指引说明。乱承诺会让用户在错误的入口扫码
+        // （loomy 实测踩过：授权页每次加载都换 uuid，扫了这边永远等不到）。
+        onUrl: (url) => ui.setState("login", "authorization URL (open it in a browser if you need it)", url),
         // 二维码图片：扫码必须用这张（授权页每次加载都会换一个新的二维码会话）
         onQr: (qr) => ui.setQr?.(qr),
         onStatus: (msg) => ui.setState("login", msg),
