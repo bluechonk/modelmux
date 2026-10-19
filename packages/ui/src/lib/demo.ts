@@ -167,6 +167,48 @@ export function demoSettings(state: DemoState): UiSnapshot {
   return base;
 }
 
+function demoModelInfo(models: string[]): Record<string, { multiplier: number | null; marketing: string }> {
+  const DEMO_MULTIPLIER: Record<string, number> = {
+    "deepseek-v4-flash": 0.03,
+    "deepseek-v4.1-flash": 0.06,
+    "deepseek-v4-pro": 0.48,
+    "glm-5.3": 0.44,
+    "glm-5.3-flash": 0.06,
+    "glm-5.3-flashx": 0.16,
+    "kimi-k3": 0.94,
+    "kimi-k2.6": 0.94,
+    "longcat-2.0": 0,
+    "minimax-m3": 0.22,
+    "deepseek-flash": 0.03,
+    "doubao-seed-2.1-pro": 0.4,
+    "mimo-v2.5": 0.3,
+    "qwen3.8-max": 0.6,
+    "qwen3.8-flash": 0.05,
+    "spark-x": 0.1,
+    "glm-5": 0.35,
+    "sensenova-6.8-flash": 0.12,
+    "doubao-seed-2.0-code-preview-260215": 0.54,
+    "doubao-seed-2.1-pro-260915": 0.68,
+    "doubao-seed-2.1-turbo-260628": 0.34,
+  };
+  const DEMO_MARKETING: Record<string, string> = {
+    "longcat-2.0": "限时免费",
+    "deepseek-v4.1-flash": "新",
+  };
+  return Object.fromEntries(
+    models.map((model) => {
+      const name = model.slice(model.indexOf("/") + 1);
+      return [
+        model,
+        {
+          multiplier: DEMO_MULTIPLIER[name] ?? null,
+          marketing: DEMO_MARKETING[name] ?? "",
+        },
+      ];
+    }),
+  );
+}
+
 function demoSettingsBase(state: DemoState): UiSnapshot {
   return {
     ui_state: "running",
@@ -177,7 +219,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: demoModels(state),
-    model_info: {},
+    model_info: demoModelInfo(demoModels(state)),
     theme_mode: "dark",
     resolved_theme: "dark",
     gateway_error: "",

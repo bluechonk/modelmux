@@ -135,6 +135,11 @@ export function Dashboard(): ReactElement {
                             {badge}
                           </span>
                         )}
+                        {info?.marketing && (
+                          <span className="shrink-0 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-300">
+                            {info.marketing}
+                          </span>
+                        )}
                       </div>
                     );
                   })}

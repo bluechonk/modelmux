@@ -28,6 +28,10 @@ export interface CatalogEntry {
   description: string;
   /** 是否支持图片输入。 */
   supportsImages: boolean;
+  /** 消耗倍率（上游 `extendedInfo.rateMultiplier`）；null = 上游未提供。 */
+  multiplier: number | null;
+  /** 营销角标文案（上游 `extendedInfo.marketingCopy`，如「限时免费」「新」）。 */
+  marketing: string;
 }
 
 /**
@@ -49,6 +53,8 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     contextWindow: 0,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
+    multiplier: null,
+    marketing: "",
   },
   {
     id: "glm-5.3-flash",
@@ -58,6 +64,8 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     contextWindow: 0,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
+    multiplier: null,
+    marketing: "",
   },
   {
     id: "deepseek-v4-flash",
@@ -67,6 +75,8 @@ const FALLBACK_MODELS: CatalogEntry[] = [
     contextWindow: 0,
     description: "fallback (upstream unavailable)",
     supportsImages: false,
+    multiplier: null,
+    marketing: "",
   },
 ];
 
@@ -141,6 +151,31 @@ export async function refresh(): Promise<void> {
 }
 
 /**
+ * 解析上游行里的 `extendedInfo`：`rateMultiplier` 是倍率（字符串数字），
+ * `marketingCopy` 是「限时免费 / 新」这类角标。缺失时倍率 null、角标空串。
+ */
+function parseExtendedInfo(row: Record<string, unknown>): {
+  multiplier: number | null;
+  marketing: string;
+} {
+  const ext = row["extendedInfo"];
+  if (!ext || typeof ext !== "object" || Array.isArray(ext)) {
+    return { multiplier: null, marketing: "" };
+  }
+  const rec = ext as Record<string, unknown>;
+  const raw = rec["rateMultiplier"];
+  let multiplier: number | null = null;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    multiplier = raw;
+  } else if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) multiplier = parsed;
+  }
+  const marketing = typeof rec["marketingCopy"] === "string" ? rec["marketingCopy"] : "";
+  return { multiplier, marketing };
+}
+
+/**
  * 归一化上游模型行（字段名有多种历史写法，见 channels/catpaw/docs/PROTOCOL.md）。
  * 供 upstream.fetchModels 调用。
  */
@@ -173,7 +208,8 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
       row["supportsReasoning"] === true,
     contextWindow: contextWindowOfId(id, num("contextWindow", "maxContextLength")),
     description: pick("description"),
-    supportsImages: row["supportsImages"] === true,
+    supportsImages: row["supportsImages"] === true || row["supportImage"] === true,
+    ...parseExtendedInfo(row),
   };
 }
 
@@ -230,5 +266,7 @@ export function details(): Record<string, unknown>[] {
     context_window: e.contextWindow,
     description: e.description,
     supports_images: e.supportsImages,
+    multiplier: e.multiplier,
+    marketing: e.marketing,
   }));
 }

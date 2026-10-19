@@ -11,6 +11,12 @@ export interface UiSnapshot {
   chat_url: string;
   endpoints: string[];
   models: string[];
+  /**
+   * 每模型附加信息（键 = 池模型 id）：消耗倍率与营销角标文案。
+   *
+   * 类型对齐共享层的 PoolModelMeta；建模为可选是因为旧版快照可能不含该字段。
+   */
+  model_info?: Record<string, { multiplier: number | null; marketing: string }>;
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;
