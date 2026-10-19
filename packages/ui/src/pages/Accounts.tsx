@@ -195,9 +195,6 @@ export function Accounts(): ReactElement {
           <Users className="h-6 w-6 text-sky-400" />
           账号池
         </h1>
-        <span className="text-xs text-gray-500">
-          {list.filter((x) => x.present).length} / {Math.max(list.length, loginChannels.length)} 个渠道已登录
-        </span>
       </div>
 
       {error && <Alert tone="error">{error}</Alert>}
