@@ -138,6 +138,28 @@ const PROBE_RETRY_MAX = 2;
 const PROBE_RETRY_BASE_MS = 1_000;
 
 /**
+ * 渠道可显式加权 / 主机级隔离：探测重试前换一次候选主机。
+ *
+ * 有些上游的多主机里个别主机对「200 后零字节 / 断流」是坏的，换台机器就恢复
+ * （实测 qoder api1 挂起、api2 正常）。`chatHostCandidates()` 给出候选清单，
+ * 渠道再自己把 URL 切过去（标准 OpenAI 兼容渠道没有这个概念，返回 undefined）。
+ */
+function chatHostRotator(channel: Channel): (() => boolean) | undefined {
+  const hc = (channel.upstream as unknown as { chatHostCandidates?: () => string[] }).chatHostCandidates;
+  const setter = (channel.upstream as unknown as { setChatHostOverride?: (h: string | null) => void }).setChatHostOverride;
+  if (!hc || !setter) return undefined;
+  let index = 0;
+  const candidates = hc();
+  return () => {
+    index += 1;
+    const next = candidates[index];
+    if (next === undefined) return false;
+    setter(next);
+    return true;
+  };
+}
+
+/**
  * 服务标识：出现在 `/health` 应答里。
  *
  * ⚠ 为什么需要它：同一端口上可能跑着**其它实现或其它项目的网关**，
@@ -997,20 +1019,26 @@ export async function handleChat(
     let probeFailed = false;
     let probeTranslator: StreamTranslator | undefined;
     let probeAttempts = 0;
+    /** 最近一次实际发往的主机（由 rotateHost 刷新；供成功回报用）。 */
+    const chatHostRef: { value: string | null } = { value: null };
     /**
      * 探测层瞬时失败的**同渠道重试**：重开一条上游流并让探测循环接着跑。
      *
      * 返回 false 表示重试机会用尽 / 重开失败（调用方按失败收尾）。
      * 只在响应头发出前调用，所以换个请求不会造成两个响应。
      */
+    const rotateHost = chatHostRotator(channel);
     const retryProbeLater = async (reason: string): Promise<boolean> => {
       if (probeAttempts >= PROBE_RETRY_MAX) return false;
       probeAttempts += 1;
       const delayMs = PROBE_RETRY_BASE_MS * probeAttempts;
+      // 主机级隔离的渠道（qoder 国际版三主机）先换一台再重试
+      const rotated = rotateHost?.() ?? false;
       logThrottled(
         opts.logger,
         `chat:probe-retry:${cid}`,
-        `probe failed (channel ${cid}), retry ${probeAttempts}/${PROBE_RETRY_MAX} in ${delayMs}ms: ${reason}`,
+        `probe failed (channel ${cid}), retry ${probeAttempts}/${PROBE_RETRY_MAX} in ${delayMs}ms` +
+          `${rotated ? " after host rotation" : ""}: ${reason}`,
       );
       await new Promise((r) => setTimeout(r, delayMs));
       const credential = loadCredentialSafe(channel);
@@ -1024,6 +1052,9 @@ export async function handleChat(
         );
         return false;
       }
+      // 记下这条应答实际发往的主机（成功回报用）
+      const currentHost = (channel.upstream as unknown as { currentChatHost?: () => string }).currentChatHost;
+      if (currentHost) chatHostRef.value = currentHost();
       // 旧流已死：释放它再换新流（探测用的 reader 已在 consumeQueueProbe 里 releaseLock）
       await call.body?.cancel().catch(() => {});
       call = next;
@@ -1145,6 +1176,15 @@ export async function handleChat(
     noteSuccess(cid, activeKeyOf(cid));
     noteAccountSuccess(cid);
     markActiveHealth("ok", cid);
+    // 换 host 重试成功后回报新主机（渠道有能力就持久化，后续请求不再走坏的那台）
+    const rememberHost = (channel.upstream as unknown as { rememberChatHost?: (h: string) => void }).rememberChatHost;
+    if (rememberHost && chatHostRef.value) {
+      try {
+        rememberHost(chatHostRef.value);
+      } catch {
+        /* 回写失败不影响本次应答 */
+      }
+    }
     await relayUpstream(res, channel, cid, call, wantStream, opts.logger, pendingFrames, queuedOut, probeTranslator, payload);
     return;
   }
