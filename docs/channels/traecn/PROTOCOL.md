@@ -4,6 +4,29 @@
 
 ---
 
+## 唯一登录路径：浏览器授权 + 本地回调
+
+**本渠道只有一条**取凭据路径（`cred.ts` 的 `login()`），不提供第二种登录方式。判据见 §2.1。
+
+```
+1. CLI 起本地回调服务器 127.0.0.1:18080（被占用时回退随机端口，登录 URL 用实际端口重算）
+2. 打开 {consoleHost}/authorization?<17 个 query>
+   —— 参数名必须是 auth_callback_url（写错登录页永远停在授权中）
+   —— 回调直接回传 refreshToken 与 userInfo（不是 OAuth ?code=）
+3. POST {oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken
+   body {"ClientID":"ono9krqynydwx5","RefreshToken":"…","ClientSecret":"-","UserID":""}
+   → {Result:{Token, RefreshToken, TokenExpireAt, …}}（access 与 refresh 都轮换）
+4. POST {oauthHost}/cloudide/api/v3/trae/GetUserInfo（头 x-cloudide-token）
+   → 补全 uid / nickname / phone / email / enterprise_id（失败不阻塞登录）
+5. 落盘 credentials.json
+```
+
+**其余路径为何不采纳**（理由与证据等级见 §2.1 的对照表）：OAuth 设备码流（主参照自述端点 404）、
+桌面客户端 `storage.json` 解密（违反渠道包 7 文件 / 零第三方依赖契约）、手工粘贴凭据
+（那是「凭据导入」而不是登录）。
+
+---
+
 ## 1. 端点与常量
 
 ### 1.1 基址
