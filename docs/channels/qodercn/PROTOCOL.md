@@ -21,15 +21,51 @@
 | --- | --- | --- |
 | 1 | 构造授权页 URL，浏览器打开人工点授权 | `GET https://qoder.com.cn/device/selectAccounts?challenge&challenge_method=S256&nonce&redirect_uri&qoder-work-cn://&client_id` |
 | 2 | 轮询取 token（间隔 1 s，窗口 300 s；**HTTP 404 = 尚未授权，继续轮询**） | `GET https://openapi.qoder.com.cn/api/v1/deviceToken/poll?nonce&verifier&challenge_method=S256` |
-| 3 | 补昵称（轮询响应**不带**昵称） | `GET https://openapi.qoder.com.cn/api/v1/userinfo` |
+| 3 | 补账号档案（轮询响应**不带**昵称 / 身份类型）：取 `name`（昵称）、`user_type`（请求体 `aliyun_user_type` 用它）、`id`（uid 兜底）；**失败不阻塞登录** | `GET https://openapi.qoder.com.cn/api/v1/userinfo` |
 | 4 | 落盘 | `~/.modelmux/qodercn/credentials.json` |
 
 续期：`POST https://openapi.qoder.com.cn/api/v1/deviceToken/refresh`，body
 `{refresh_token, machine_id}`；**401/403 = 终态**（需重新登录），5xx/429/网络错误 = 可重试。
 续期响应**不含** `machine_id` / `uid` / `nickname`，必须从旧凭据保留。[代码]
 
-实现见 `packages/core/channels/qodercn/src/cred.ts:384-457`（登录）、
-`:469-517`（续期）、`:214-223`（授权 URL）、`:166-183`（设备指纹派生）。
+### 1.1.1 粘贴兜底（设备码流没有本机回环）
+
+设备码流的令牌**只由服务端按 `nonce` 下发**（`deviceToken/poll`），没有「拿 code 换 token」
+的接口；浏览器的 `qoder-work-cn://` 深链也**打不到本机**。故 `pasteCode` 粘回的内容
+**只作「浏览器那一步已完成」的信号**，由渠道转交**同一个轮询处理器**立刻再取一次令牌：
+
+| 位置 | 职责 |
+|---|---|
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/qodercn/src/cred.ts`） | **声明**该回调（每次轮询前取一次） |
+| 轮询的 `attempt` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
+
+⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
+被**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
+结论一致：**不是第二条登录路径**。
+
+### 1.1.2 `machine_id` 分歧的结论（2026-10-20 核对三家参考实现后定案）
+
+三家参考实现对「授权页是否带 `machine_id`」确实分歧，但**分歧的根源是「有没有官方客户端」**：
+
+| 参考实现 | 授权页带 `machine_id`？ | 它的 `machine_id` 从哪来 |
+|---|---|---|
+| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub)（234★） | **带**（CN 带 `redirect_uri+client_id+machine_id`，国际带 `client_id+machine_id`） | 读**官方客户端**本机缓存的 `machine_id`（`qoder_accounts.py:3215-3227`），读不到就自己生成 uuid |
+| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api)（31★） | **带，但可选**：只在读到官方客户端的 `cache/id` 时才带（`internal/auth/device_login.go:75-77`、`:236-238`、`:514-522`） | 官方客户端的 `cache/id`；读不到就**不带** |
+| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api)（76★） | **不带**（`account/oauth.go:64-70`） | — |
+
+**结论**：带 `machine_id` 的两家带的是**官方客户端的真机身份**；本渠道**没有官方客户端**，
+而本渠道的 `machineId`（`md5("machine:{uid}")`）是**给 COSY 推理头用的派生值**，
+与授权页那个 `machine_id` **不是同一个东西**。把派生值塞进授权页 = 用一个假身份去换令牌，
+**故本渠道选择不带**（对齐 Zhengyuuuui），且 `deviceToken/poll` **不校验**该参数
+（两家「带」的实现都能正常轮询到令牌，poll 的 query 只有 `nonce`/`verifier`/`challenge_method`）。
+
+`[推断]` 风险与验证方式：若真机发现「不带 `machine_id` 就授权失败」（授权页报错或轮询一直
+pending），再改成「带官方客户端真机身份」；在那之前保持不带（与 `qoder` 国际版渠道一致，
+见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
+
+实现见 `packages/core/channels/qodercn/src/cred.ts:451-556`（登录）、
+`:561-610`（续期）、`:221-230`（授权 URL）、`:173-183`（设备指纹派生）。
 
 ### 1.2 为什么不采纳另外两条
 
@@ -45,10 +81,9 @@
 **保留条件**：真机若证明 `dt-` 续期链路上游已判死（连续 401/403），
 才重新评估；即便引入 PAT，也应定位成「凭据导入」而非第二套登录流程。
 
-⚠ **一处未决分歧**：hub 的国内版授权页 URL **带** `machine_id`
-（`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:3248-3250`），
-Zhengyuuuui **不带**（`reference/Zhengyuuuui_qoder2api/account/oauth.go:64-70`）。
-本渠道按后者（不带）实现，与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1 的记载一致。
+⚠ **`machine_id` 的分歧已定案**（见 §1.1.2）：带它的两家带的是**官方客户端真机身份**，
+本渠道没有官方客户端（自己的 `machineId` 是给 COSY 头用的派生值），故**不带**
+（对齐 Zhengyuuuui，与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1 的记载一致）。
 
 ---
 
@@ -62,7 +97,7 @@ Zhengyuuuui **不带**（`reference/Zhengyuuuui_qoder2api/account/oauth.go:64-70
 | OpenAPI | `https://openapi.qoder.com.cn` | 纯 `Bearer`，**无** COSY 签名 | 轮询 / 续期 / userinfo / 额度 / 活动 |
 | 推理网关 | `https://gateway.qoder.com.cn` | COSY 签名 + 自定义 Base64 body | chat 与模型目录 |
 
-配置源：`packages/core/channels/qodercn/src/cred.ts:60-74`（`PRODUCTS.cn`）。
+配置源：`packages/core/channels/qodercn/src/cred.ts:67-97`（`PRODUCTS.cn`）。
 证据：`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:39-58`、
 `reference/Zhengyuuuui_qoder2api/account/region.go:36-46`、
 `reference/EchoPing07_Qoder-2API-Go/auth/auth.go:43-48`。[参考]
@@ -178,8 +213,9 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | 设备流 refresh | `drt-`（每次刷新旋转） | 约 1 年 | `POST {openapi}/api/v1/deviceToken/refresh` |
 
 落盘字段：`accessToken` / `refreshToken` / `uid` / `nickname` / `machineId`（**必须持久化**，
-参与服务端设备绑定）/ `userType` / `domain` / `realm` / `gatewayHost` / `expireAt` /
-`refreshExpireAt`。实现见 `packages/core/channels/qodercn/src/cred.ts:122-139`、`:440-453`。
+参与服务端设备绑定）/ `userType`（登录时取自 `userinfo` 的 `user_type`，取不到回落
+`personal_professional_trial`）/ `domain` / `realm` / `gatewayHost` / `expireAt` /
+`refreshExpireAt`。实现见 `packages/core/channels/qodercn/src/cred.ts:130-146`、`:532-549`。
 
 ---
 
@@ -234,7 +270,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | V1 | CN 侧 `/sash/api/v1/me/campaigns` 是否确实「不发指纹」才对 | 同一账号分别打「带机器头」与「不带」两次，比对 `campaigns` 长度与顶层 `claimable` |
 | V2 | CN 的「每日领取 100 Credits」到底能不能领到 | 真账号跑 `mx signin qodercn`，对照 campaigns 原始响应 |
 | V3 | 额度端点口径（`/sash/api/v2/me/usage` vs `/api/v2/quota/usage`） | 同一账号各打一次，比对返回体形状 |
-| V4 | 设备授权页是否需要 `machine_id` | 先按现状（不带）登录成功；再手工在 URL 加上 `machine_id` 试一次，比较上游差异 |
+| V4 | 设备授权页是否需要 `machine_id` | **已定案**（§1.1.2）：不带也能登录（poll 不校验它）；若真机出现「授权页报错 / 轮询一直 pending」，再改成带官方客户端真机身份重试 |
 | V5 | CN 的 `session_type` 取值 | 抓一次真实请求体（`QODERCN_DEBUG_DUMP`）比对官方客户端 |
 | V6 | CN 的 `cosy-version` 取值（`1.1.64` vs `0.4.3`/`0.4.4`） | 抓包看官方客户端打 `/sash/**` 时带的值 |
 | V7 | CN 的 `user-agent` 形态（`QoderWork/1.1.64` vs `Qoder`） | 抓包比对；或并入 V1 的 A/B 对照 |
@@ -256,6 +292,11 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 - 登录授权页国内版**额外带 `redirect_uri`**（见 §1.1 与
   [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
 - **`/sash/**` 的机器头策略两区不同**（见 §3.2）—— 这是国内版与国际版最容易踩混的一处。
+- **登录后补 userinfo 的字段数不同**（2026-10-20 本轮改动）：国内版读 `name` / `user_type` /
+  `id`（昵称、请求体 `aliyun_user_type` 用的身份类型、uid 兜底），国际版 `qoder` 渠道**仍只读
+  `name`**（`packages/core/channels/qoder/src/cred.ts` 的 `fetchNickname`）——
+  国际版的 `user_type` 仍取默认值 `personal_professional_trial`。国际版渠道不在本轮范围内，
+  要对齐得单独改（改法与本文件 §1.1 相同）。
 
 ### 怎么测这个渠道
 
@@ -284,3 +325,4 @@ COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) �
 | [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★）：**国际国内双区**多账号网关中枢 —— COSY 签名、设备指纹防风控、OAuth 设备授权、CN 活动平台与机器头策略（issue #10）、CN 静态目录快照 `qoder_catalog_cn.json` |
 | [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★）；其 `checkin.go` 的**国内版机器头单变量对照实验**是本渠道 §3.2 策略的直接依据 |
 | [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | Go 实现的对照样本（60★）：CN RegionConfig 端点表、jobToken 交换、SSE 终止帧处理 |
+| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | Go 实现的**第三份口径**（31★）：`internal/auth/device_login.go` 的授权页参数 —— `machine_id` **只在读到官方客户端 `cache/id` 时才带**（`:75-77`、`:236-238`），是 §1.1.2「带的是官方客户端真机身份」这一结论的直接依据 |

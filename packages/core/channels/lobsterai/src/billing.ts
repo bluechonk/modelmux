@@ -7,10 +7,15 @@
  * profile-summary 有 5297.72，quota 只有 300）。故余额取
  * `GET /api/user/profile-summary` 的 `data.totalCreditsRemaining`。
  *
- * ## 「查不到」不能显示成 0
+ * ## 「查不到」与「余额为 0」是两件事
  *
- * `total === 0 && packages.length === 0` → 抛 `CreditsError`
- * （「查不到」而非「余额为 0」：后者会让用户以为额度真的用光了）。
+ * 上游**恒**下发 `data.totalCreditsRemaining`（实测余额真的为 0 时也返回 0，
+ * `creditItems` 也恒为数组）—— 故只有该**字段缺失**才是「查不到」，
+ * 此时抛 `CreditsError`；字段在（哪怕值是 0）就如实报余额。
+ *
+ * 早期判据是「`remain === 0 && packages.length === 0` → 抛错」，
+ * 于是「余额真的用光了」被误报成「查不到额度信息」，用户看不到真相
+ * （实测本渠道 2026-10-20 的真实故障正是余额耗尽，却被报成查不到）。
  *
  * ## 签到三步（缺一步都拿不到积分）
  *
@@ -235,7 +240,15 @@ export async function activitySlot(
   return { activityCode, configRevision: str(activity["configRevision"]), slotState };
 }
 
-/** 活动上下文：今天是否已签、有哪些动作可用。 */
+/**
+ * 活动上下文：今天是否已签、有哪些动作可用。
+ *
+ * ⚠️ `data.actions` 是**字符串数组**（实测 `["check_in"]`）—— 三份参考实现都按
+ * 字符串读（Go `Actions []string` / Python `"check_in" not in ctx["actions"]`）。
+ * 早期本实现只认对象形态 `{action:"check_in"}`，于是 actions 恒为空 →
+ * `claimable` 恒 false → **每日签到永远领不到积分** → 免费额度耗尽后对话全挂
+ * （「免费额度已用完，请升级套餐」）。故两种形态都认。
+ */
 export async function activityContext(
   credential: upstream.AuthLike,
   activityCode: string,
@@ -254,11 +267,13 @@ export async function activityContext(
       : {};
   const actions = Array.isArray(data["actions"])
     ? data["actions"]
-        .map((action) =>
-          action && typeof action === "object"
-            ? str((action as Record<string, unknown>)["action"])
-            : "",
-        )
+        .map((action) => {
+          if (typeof action === "string") return action.trim();
+          if (action && typeof action === "object") {
+            return str((action as Record<string, unknown>)["action"]);
+          }
+          return "";
+        })
         .filter(Boolean)
     : [];
   return { claimedToday: state["claimedToday"] === true, actions };
@@ -321,10 +336,24 @@ export function summarize(
 }
 
 /**
+ * `data.totalCreditsRemaining` 是否**真实存在**（区分「余额为 0」与「查不到」）。
+ *
+ * 上游恒下发该字段（余额真的为 0 时也返回 0），故「字段缺失」才是查不到。
+ * 判据比 `in` 更严：值必须是有限数字或数字字符串（`null` / 空串 = 没有）。
+ */
+function hasTotalCreditsField(data: Record<string, unknown>): boolean {
+  if (!("totalCreditsRemaining" in data)) return false;
+  const value = data["totalCreditsRemaining"];
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "string") return /^-?\d+(\.\d+)?$/.test(value.trim());
+  return false;
+}
+
+/**
  * 查询余额（并尽力附上「当前可领取的签到活动」）。
  *
  * 401/403 时（默认）刷新一次令牌再试；仍失败抛 `CreditsError` / `NotLoggedInError`。
- * 「查不到」抛 `CreditsError` —— **绝不返回 0**。
+ * 「查不到」抛 `CreditsError`；**余额真的为 0 则如实返回 0**（上游恒下发该字段）。
  */
 export async function fetchCredits(
   options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
@@ -345,8 +374,9 @@ export async function fetchCredits(
   const env = await load();
   const data = dataOf(env);
   const result = summarize(data, { uid: c.uid, domain: c.domain });
-  if (result.total.remain === 0 && result.packages.length === 0) {
-    // 「查不到」与「余额为 0」是两件事：前者不该显示成 0。
+  if (!hasTotalCreditsField(data) && result.packages.length === 0) {
+    // 「查不到」与「余额为 0」是两件事：上游恒下发该字段，
+    // 字段缺失才是真的查不到（字段在但值为 0 = 余额真的用光了，如实报）。
     throw new CreditsError("upstream returned no credits info (not found != zero balance)");
   }
 
@@ -381,7 +411,8 @@ export async function fetchCredits(
  *
  * 幂等由客户端保证：`claimedToday` 为真直接返回 `already`（**不发请求**）；
  * `actions` 里没有 `check_in` 直接返回失败。否则发一次 check_in，
- * 积分按 `creditsGranted` → `rewardCredits` → `credits` 三级回退读取。
+ * 积分按 `creditsGranted` → `rewardCredits` → `credits` → `grantedCredits`
+ * → `creditAmount` 逐个回退读取（先看 `data` 顶层，再看 `data.result`）。
  */
 export async function claimCheckin(): Promise<ClaimResult> {
   const c = cred.load();
@@ -455,14 +486,35 @@ export async function claimCheckin(): Promise<ClaimResult> {
     env["data"] && typeof env["data"] === "object"
       ? (env["data"] as Record<string, unknown>)
       : {};
-  const result =
-    data["result"] && typeof data["result"] === "object"
-      ? (data["result"] as Record<string, unknown>)
-      : {};
-  // 三级回退：服务端不同活动用不同字段名。
-  const credits =
-    num(result["creditsGranted"]) || num(result["rewardCredits"]) || num(result["credits"]);
+  const credits = extractCredits(data);
   return { ok: true, already: false, credits, code: "claimed", message: "签到成功" };
+}
+
+/** 签到发放积分的候选字段名（上游改过名，逐个试；顺序对齐参考实现）。 */
+const CREDIT_FIELDS = [
+  "creditsGranted",
+  "rewardCredits",
+  "credits",
+  "grantedCredits",
+  "creditAmount",
+] as const;
+
+/**
+ * 从签到响应里取「本次发放了多少积分」。
+ *
+ * 先看 `data` 顶层、再看 `data.result`（上游两种形态都出现过），
+ * 字段名逐个回退 —— 字段认错会静默变成「签到成功，+0」。
+ */
+function extractCredits(data: Record<string, unknown>): number {
+  for (const source of [data, data["result"]]) {
+    if (!source || typeof source !== "object") continue;
+    const rec = source as Record<string, unknown>;
+    for (const field of CREDIT_FIELDS) {
+      const value = num(rec[field]);
+      if (value > 0) return value;
+    }
+  }
+  return 0;
 }
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────

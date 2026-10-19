@@ -30,6 +30,10 @@ Base（Portal）：`https://lobsterai.youdao.com`（:77）
 `EXCHANGE_PATH` / `REFRESH_PATH` / `PROFILE_SUMMARY_PATH`）；签到平面的两条模板路径在
 `src/billing.ts`（`ACTIVITY_CONTEXT_PATH` / `CHECKIN_ACTION_PATH`）。
 
+**渠道层文件**：除凭据 / 上游描述符外，本渠道只写两处缓存 ——
+`cache/models.json`（远端模型目录）与 `cache/client-version.json`（客户端版本号兜底，见 §2.5），
+都在 `cache/` 下（可安全删除、可重建）。
+
 ---
 
 ## 2. 认证
@@ -43,9 +47,9 @@ Base（Portal）：`https://lobsterai.youdao.com`（:77）
 | `Authorization` | `Bearer {access_token}`（凭据） | **是** | 401/403 → 共享层 `cred.refresh()` 后**原账号**重试一次；刷新也失败则标该账号 `unauthorized`、**不自动切号** | chat / models / profile-summary / activities 全要；exchange / refresh **不带** |
 | `Accept` | 常量，随端点 | 否 | 恒定 | chat = `text/event-stream, application/json`；其余 = `application/json` |
 | `Content-Type` | 常量 `application/json` | 否 | 恒定 | 仅带 body 的请求 |
-| `User-Agent` | 常量 `LobsterAI/0.1.0` | 否 | 恒定（**刻意不跟版本号变**） | 照抄参考实现的 `clientUA`；签到/额度端点也用它（见 §10 已知边界 G3） |
+| `User-Agent` | 常量 `LobsterAI/0.1.0` | 否 | 恒定（**刻意不跟版本号变**） | 照抄参考实现的 `clientUA`；签到/额度端点也用它。**[实测]** UA 里带不带真实版本号对 `profile-summary` / `slot` 的响应**逐字一致** —— 真正的版本门槛在 `clientVersion` **query 参数**上（见 §6.2） |
 | `X-LobsterAI-Client-Capabilities` | 常量 `kimi-k3-agentic-v1,thinking-level-control-v1` | 否，但**是模型端点的准入条件** | 恒定 | 不带则 `/api/models/available` 少 5 个模型且**没有 `kimi-k3`**；`thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（不带该能力服务端直接 500）—— 2026-09-17 实测 |
-| `X-LobsterAI-Client-Version` | **动态真值**：更新接口的 `data.value.version`，进程内缓存 12 小时，失败回退 `2026.9.4` | 否 | 12 小时 TTL / 进程启动 | chat 与 models **两个端点都要**；拉取时机 = 登录 exchange / 续期 refresh / 拉目录 / 签到 |
+| `X-LobsterAI-Client-Version` | **动态真值**：更新接口的 `data.value.version`，进程内缓存 12 小时；取不到时先退到**磁盘缓存**的版本号，再退到 `2026.9.4` | 否 | 12 小时 TTL / 进程启动 | chat 与 models **两个端点都要**；拉取时机 = 登录 exchange / 续期 refresh / 拉目录 / 签到 |
 
 **没有 `X-Client-Key`，也没有任何设备指纹类头**（`X-Device-*` / `X-LobsterAI-Device-*` 等）：
 三份参考实现设置过的头全集就是上面这 6 个（`xinxinshuhao/internal/upstream/client.go:147-160`、
@@ -160,8 +164,13 @@ Body: {
  code:0, msg:"OK"}` —— `code`/`msg` 在**外层**，载荷在 `data.value`
 - 版本号正则：`^(\d+(?:\.\d+)*)(?:-[0-9A-Za-z.-]+)?$`
 - 缓存 TTL 12 小时
-- 兜底常量 `LOBSTERAI_FALLBACK_CLIENT_VERSION = '2026.9.4'`
+- 兜底常量 `FALLBACK_CLIENT_VERSION = '2026.9.4'`
 - **三个消费点**：exchange 的 `version`、refresh 的 `version`、签到 slot 的必填 query 参数
+- **磁盘兜底 [2026-10-20 新增]**：最近一次成功解析到的版本号落盘到
+  `<cid>/cache/client-version.json`；更新接口（第三方域名）抽风时**先用它**兜底，
+  再退到写死常量。理由：版本号是签到 slot 的**准入门槛**（§6.2），
+  一次版本源故障若直接退到过旧的常量，签到会**静默失效**（无任何报错），
+  每日积分就此断供 —— 与 2026-10-20 那次 502 同类的故障。
 
 ### 2.6 唯一登录路径（收敛结论）
 
@@ -341,15 +350,56 @@ glm-5.2, glm-5.1, glm-5v-turbo, glm-5
 
 **不用 `/api/user/quota`**：它只有 `freeCreditsTotal=300`，**不含活动积分**
 （实测某账号 profile-summary 有 5297.72，quota 只有 300）。
-`total === 0 && packages.length === 0` → 返回 `null`（「查不到」而非「余额为 0」）。
+
+**「查不到」≠「余额为 0」[实测]**：上游**恒**下发 `data.totalCreditsRemaining`
+（余额真的为 0 时也返回 0，`creditItems` 恒为数组），故判据是**字段是否存在**
+（值须是有限数字或数字字符串），不是「余额是不是 0」。
+字段缺失 **且** 没有任何明细 → 报「查不到」；字段在（哪怕值为 0）→ 如实报余额 0。
+
+> 2026-10-20 修复：旧判据是「`remain === 0 && packages.length === 0` → 报查不到」，
+> 于是「余额真的用光了」被误报成「查不到额度信息」，**掩盖了真实故障**。
+> 与 `dsh-account-hub`（本实现的上游来源包）口径一致（`src/lobsterai-credits.ts:349-357`）。
+
+`/api/user/quota` 的补充字段 [实测]：`freeCreditsTotal` / `freeCreditsUsed` /
+`freeCreditsRemaining` / `freeCreditsExpiresAt` / `subscriptionStatus` / `planName`。
+**只作诊断用**（免费额度与活动积分是两套账：`quota` 的 300 用完了不影响签到领的 100）。
 
 ### 6.2 签到三步（lobsterai-credits.ts:234-295）
 
 | 步 | 请求 | 响应字段 |
 |---|---|---|
-| 1 | `GET /api/client-activities/slot?placement=desktop_sidebar&clientVersion={v}&containerApiVersion=2&platform=win32` | `data.slotState`、`data.activity.activityCode`、`data.activity.configRevision` |
+| 1 | `GET /api/client-activities/slot?placement=desktop_sidebar&clientVersion={v}&containerApiVersion=2&platform=win32` | `data.slotState`（`empty` / `available`）、`data.activity.activityCode`、`data.activity.configRevision` |
 | 2 | `GET /api/client-activities/{activityCode}/context?configRevision={rev}` | `data.state.claimedToday`、`data.actions[]` |
-| 3 | `POST /api/client-activities/{activityCode}/actions/check_in`，body `{configRevision, idempotencyKey: uuid4, payload: {}}` | `data.result.{creditsGranted \| rewardCredits \| credits}` |
+| 3 | `POST /api/client-activities/{activityCode}/actions/check_in`，body `{configRevision, idempotencyKey: uuid4, payload: {}}` | `data.result.creditsGranted`（官方类型：`ActivityActionResponse = {replayed, result:{creditsGranted,…}, context}`） |
+
+**`data.actions` 是**字符串数组**（实测 `["check_in"]`）**——官方源码
+`netease-youdao/LobsterAI` 的 `src/shared/activity/constants.ts` 里
+`ActivityContextResponse.actions: TAction[]`，而 `TAction = 'check_in' | 'claim'`
+是**字符串字面量联合**；三份桥接实现也全按字符串读
+（Go `Actions []string` / Python `"check_in" not in ctx["actions"]` / TS `readActions` 过滤 `typeof item === 'string'`）。
+
+> 2026-10-20 修复（**本渠道 502 故障的根因**）：本实现早先把 `actions` 只当**对象数组**
+> 读（取 `action["action"]`），于是 actions 恒为空 → `claimable` 恒 false →
+> **每日签到永远领不到积分** → 初始赠送的 300 免费额度用完后，
+> 对话全线 502「免费额度已用完，请升级套餐」。现两种形态都认。
+
+**版本门槛在 `clientVersion` query 参数上，不在 UA 上 [实测]**：
+
+| `clientVersion`（query） | `slotState` |
+|---|---|
+| `2026.10.16`（当前线上版） | `available` |
+| `2026.9.4` | `available` |
+| `2026.8.1` | `empty` |
+| `0.1.0` | `empty` |
+
+同一时刻把 UA 从 `LobsterAI/0.1.0` 换成 `LobsterAI/2026.10.16`，
+`profile-summary` 与 `slot` 的响应**逐字一致** → UA 里带不带真实版本号**无关**
+（参考实现注释里的「写低了一律 slotState=empty」说的是 **query 参数**）。
+
+**活动平面的业务错误码 [参考]**（官方 `ActivityServerErrorCode`）：
+`51100` NotFound / `51101` NotActive / `51102` LoginRequired /
+`51103` ActionInvalid / `51104` AlreadyClaimed / `51105` ConfigInvalid /
+`51106` RevisionMismatch。
 
 三个固定 query 常量：`placement='desktop_sidebar'`、`containerApiVersion='2'`、`platform='win32'`。
 
@@ -358,13 +408,17 @@ glm-5.2, glm-5.1, glm-5v-turbo, glm-5
 
 **`slotState` 的语义**：`data.slotState` 与 `data.activity` **平级**，取值 `available` 表示有活动；
 非 `available` = **当前没有活动**（不是失败）：签到跳过、余额查询不列可领取项。
+官方只定义了两个取值：`empty` / `available`（`ActivitySlotState`）。
 响应里**没有**该字段时按旧行为（取不到 `activityCode` 即报错）。
 参考实现同样按 `slotState` 判「无可用活动」（`xinxinshuhao/internal/upstream/client.go:473-476`）。
 
 幂等是**客户端**保证：`idempotencyKey`（UUID4）+ 先查 `claimedToday` / `actions` 含 `check_in`。
 两步预检都要做。
 
-积分三级回退：`creditsGranted` → `rewardCredits` → `credits`。
+**积分回退链**：`creditsGranted` → `rewardCredits` → `credits` → `grantedCredits`
+→ `creditAmount`，**先看 `data` 顶层、再看 `data.result`**（上游两种形态都出现过；
+官方类型里 `result.creditsGranted` 是权威字段，其余是历史变体）。
+字段名认错会静默变成「签到成功，+0」。
 
 ---
 
@@ -476,7 +530,8 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 
 ## 10. 已知边界
 
-对照 `reference/` 下三份参考实现逐条核对后的结论。**「参考实现有、本轮未做」**的条目都写了原因。
+对照 `reference/` 下六份参考实现（含**官方客户端源码**）逐条核对后的结论。
+**「参考实现有、本轮未做」**的条目都写了原因。
 
 ### 10.1 参考实现有、本轮未做
 
@@ -484,7 +539,7 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 |---|---|---|---|
 | G1 | **定时保活（keepalive）**：定时批量 refresh，session-dead 自动禁用 | `xinxinshuhao/internal/scheduler/scheduler.go:110-131`、`:19-21`（默认 22 点）；`greatleo31/internal/scheduler/scheduler.go:433-475` | 需要共享层加定时器；且**先要真机确认 refresh_token 的真实有效期**（access_token 约 30 天，refresh_token 未知）。若 refresh_token 与 access_token 同寿命，则保活无收益 |
 | G2 | **单请求内的账号轮转（换号）**：`MaxRotate=3` + `PickExcluding(tried)` | `xinxinshuhao/internal/server/handler.go:22`、`:190-195`；`greatleo31/internal/server/handler.go:196-249`；`internal/pool/pool.go:131-151` | **共享层缺口**：网关在 401/403 时明确「不自动切号」（`chat-relay.ts`），账号切换是手工动作（`mx acct <cid> use <key>`）。需共享层改造，本轮不动 |
-| G3 | **签到 / 额度端点的 User-Agent 带真实版本号** | `xinxinshuhao/internal/upstream/client.go:424-428`（`User-Agent: LobsterAI/{version}`）；`greatleo31/internal/upstream/checkin.go:130-133`；`skyletter/checkin/checkin.py:24`、`:49` 与 `checkin/credits.py:30` | 要先查版本更新端点，**代价大于收益**：签到 slot 的 `clientVersion` **query 参数**已经带真实版本号（服务端按它判活动可见性）；UA 只是冗余信号。⚠ 未验证：slot 端点是否**同时**看 UA —— 见 §10.3 |
+| G3 | **签到 / 额度端点的 User-Agent 带真实版本号** | `xinxinshuhao/internal/upstream/client.go:424-428`（`User-Agent: LobsterAI/{version}`）；`greatleo31/internal/upstream/checkin.go:130-133`；`skyletter/checkin/checkin.py:24`、`:49` 与 `checkin/credits.py:30`；`L0NE-6/lobsterai_checkin.py:158`、`:319` | **已结论（2026-10-20 实测）：不需要**。同一请求把 UA 从 `LobsterAI/0.1.0` 换成 `LobsterAI/2026.10.16`，`profile-summary` 与 `slot` 响应**逐字一致**。真正的版本门槛在 `clientVersion` **query 参数**上（§6.2），本实现本来就传真实版本号 |
 | G8 | **SSE 首块窥探**：在响应头发出前识别「HTTP 200 + 流内错误帧」，从而还能换号 | `xinxinshuhao/internal/upstream/client.go:277-291`（Peek 4KB + `isSSEErrorFrame`）、`:298-309`；`internal/upstream/sse.go:157-173`（`errFromFrame`，帧内业务码 `code=40300`）；`internal/server/handler.go:225-258` | **需共享层改造**：共享层的「排队探测 / 空帧重试」路径只对 `WIRE !== "openai"` 的渠道可达（`chat-relay.ts` 的 `isCustomWire`），本渠道是 `openai` 线型。响应头一旦发出就无法换号重发 —— 见 §10.3 |
 | G9 | **积分流水与每模型单价**（含额度批次的到期告警） | `skyletter/checkin/credits.py:64-81`（按 `expiresAt` 排序、「⚠️ 7 天内到期」、批次合计 vs `totalCreditsRemaining` 口径核对） | 上游 `profile-summary` **一次性**返回 `creditItems[]`、无分页参数，参考实现同样只取一次快照 —— **不存在「参考实现有分页」的事实**。每模型单价方面：模型目录已解析 `costMultiplier`（`src/catalog.ts`）并由池层透出倍率，但**没有**按模型维度的花费流水；批次到期告警也只落了 `expiresAt` / `days_left` 字段、没有提示文案。三项都需要新的展示层设计，本轮不做 |
 | G10 | **调度看板**（下次签到时间 / 上次结果 / 历史记录 / 错过时段） | `greatleo31/internal/scheduler/scheduler.go:58-73`（`Status` 结构）、`:231-261`（`Status()`）、`:139-171`（`ranToday` / `missedSlots`）、`:263-301`（历史落盘） | 共享层只有签到台账 `state/signin.json`（记「今天签没签」），没有「上次/下次/历史」视图。属控制台展示层设计，本轮不做 |
@@ -497,19 +552,23 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 - **`tool_choice` 一律不发**：参考实现会保留 `tool_choice` 的 object 形态
   （`xinxinshuhao/internal/upstream/client.go:229-241`），本实现**一律删除** —— 更保守，不会引发上游报错。
 - **不加 `X-Client-Key`、不加任何设备指纹类头**：LobsterAI 协议里**不存在**这些头
-  （三份参考逐条枚举都没有，见 §2.1）。
+  （参考实现逐条枚举都没有，见 §2.1）。
+- **UA 固定 `LobsterAI/0.1.0`**：参考实现多数发真实版本号，但 **[实测]** UA 版本号对
+  `profile-summary` / `slot` / `context` 的响应**无影响**（§6.2、§10.3 V1），
+  故保持常量；真正需要真实版本号的地方是 `clientVersion` query 参数，已经在传。
 
 ### 10.3 待真机验证（静态判不了）
 
 | # | 待验证 | 影响 |
 |---|---|---|
-| V1 | 签到 / 额度端点是否**同时**校验 UA 里的版本号 | 决定 G3 是「冗余信号」还是「签到恒失败」 |
+| V1 | ~~签到 / 额度端点是否**同时**校验 UA 里的版本号~~ | **已结论（2026-10-20 实测）**：**不校验**。UA 带不带真实版本号，响应逐字一致；门槛只在 `clientVersion` query 参数上 → G3 关闭 |
 | V2 | access token / refresh token 的真实有效期 | 决定 G1（定时保活）是否必须补 |
 | V3 | refresh 是否轮换 refresh_token（响应不返回新值时旧值是否仍可用） | 决定续期是否「一次就废」 |
 | V4 | chat / models 端点发**真实版本号**（`2026.9.4`）是否被接受 | 参考实现长期发 `0.1.0`；真实版本可能触发更严格的模型集或校验 |
 | V5 | 流内错误帧（HTTP 200 + `event:error`）在当前共享层能否换号 | 决定 G8 的优先级 |
 | V6 | `uuid`（安装 UUID）是否需要跨账号 / 跨登录保持稳定 | 当前每次登录新生成（与参考实现一致） |
 | V7 | `X-LobsterAI-Client-Capabilities` 是否支持逗号分隔多能力 | 当前发 2 个，参考只发 1 个 |
+| V8 | `clientVersion` query 参数的**门槛下限**会随客户端发版抬高到多少 | 决定兜底版本号（`2026.9.4`）还能用多久；本实现已加磁盘兜底（§2.5）降低风险 |
 
 ---
 
@@ -541,12 +600,42 @@ Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0
 
 - 冒烟通过（access 日志 `status: 200`、`stream: true`）。
 
+### 2026-10-20 故障与修复（对话 502「免费额度已用完，请升级套餐」）
+
+**现象**：`POST /v1/chat/completions`（`lobsterai/deepseek-flash`）连续 3 次 **502**，
+错误文案 `免费额度已用完，请升级套餐`（上游原文）；凭据有效（`expires_at` 未过期、有 `refresh_token`）。
+
+**排查结论：额度确实一度为 0，但根因是**我们的签到解析写错了**，不是账号被跑干**：
+
+| 步骤 | 事实 | 证据 |
+|---|---|---|
+| 1 | 免费额度真用光了 | `/api/user/quota`：`freeCreditsUsed=300 / freeCreditsTotal=300`，`freeCreditsRemaining=0`；`profile-summary`：`totalCreditsRemaining=0`、`creditItems=[]` |
+| 2 | 但**每日签到活动一直可用、一直没领** | `slot`：`slotState=available`、`activityCode=daily-check-in-evergreen-prod-20260814`；`context`：`claimedToday=false`、`actions=["check_in"]`、`rewardCredits=100` |
+| 3 | 领不到的原因是**我们把 `actions` 读错了** | 上游 `actions` 是**字符串数组**（官方类型 `ActivityContextResponse.actions: TAction[]`，`TAction='check_in'`）；本实现只认对象数组 `{action:"check_in"}` → actions 恒空 → `claimable` 恒 false → 自动签到每天「跳过」且**不报错** |
+| 4 | 于是初始赠送的 300 分在 10-08 ~ 10-19 之间烧完 | 签到台账 `state/signin.json` 最后一次是 `2026-10-08`（`via=upstream-backfill`，上游回填而非我们领的）；`state/auto-signin.json` 停在 `2026-10-17` |
+
+**修复**（只改 `packages/core/channels/lobsterai/src/**`）：
+
+1. `billing.ts` `activityContext()`：`actions` 字符串 / 对象两种形态都认（**根因**）。
+2. `billing.ts` `fetchCredits()`：用**字段是否存在**区分「查不到」与「余额为 0」
+   （旧判据把「余额用光」误报成「查不到额度信息」，掩盖了真因）。
+3. `billing.ts` `claimCheckin()`：积分回退链补齐到 5 个字段名，且 `data` / `data.result` 两处都找。
+4. `upstream.ts` `resolveClientVersion()`：版本号**落盘** `<cid>/cache/client-version.json`，
+   版本源抽风时先用「最后一次已知可用」版本兜底（防签到静默断供）。
+
+**验证**（真实账号、真实上游）：
+
+- 重启网关 → 自动签到**成功领到 100 分**（`claimedDays` 1→2、`claimedCredits` 100→200）；
+  `mx bill lobsterai`：`额度: 剩余 100 / 100 credits`（`· 每日登录奖励: 100/100，29 天后到期`）。
+- 原失败请求 `POST /v1/chat/completions`（同载荷）→ **HTTP 200**，正文「收到」。
+- 扣费核对：`deepseek-flash` 倍率 0.05，35 prompt + 32 completion token → 余额 100 → **99.98**。
+
 ### 本轮改动后待复测
 
 2026-10-20 收敛改动（登录路径唯一化 + 端点常量集中 + `slotState` 消费 + 凭据形状/单位兼容）
 **尚未做真机复测**，需重跑：`mx login lobsterai`（含**粘贴兜底**：浏览器回跳失败时把地址栏
 整条 URL 粘回终端）→ `mx status lobsterai` → `mx model lobsterai --refresh` →
-`mx bill lobsterai` → `mx <cid> checkin`（验证 `slotState` 分支）。
+`mx bill lobsterai`。
 
 ## 参考实现
 
@@ -554,6 +643,9 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 仓库 | 用途 |
 | --- | --- |
-| [xinxinshuhao-create/lobsterai2api](https://github.com/xinxinshuhao-create/lobsterai2api) | 主参照（86★）：有道 LobsterAI 的 OpenAI 兼容桥接（多账号） |
+| [netease-youdao/LobsterAI](https://github.com/netease-youdao/LobsterAI) | **官方客户端源码（6130★，MIT）**：活动平面协议的类型真相源（`src/shared/activity/constants.ts` 的 `ActivityContextResponse.actions: TAction[]`、`ActivitySlotState`、`ActivityActionResponse.result.creditsGranted`）与端点构造（`src/main/libs/activity/activityClient.ts`） |
+| [xinxinshuhao-create/lobsterai2api](https://github.com/xinxinshuhao-create/lobsterai2api) | 主参照（88★）：有道 LobsterAI 的 OpenAI 兼容桥接（多账号） |
 | [greatleo31/lobsterAi2api](https://github.com/greatleo31/lobsterAi2api) | Go 多账号实现的对照样本 |
 | [skyletter/lobsterai2api-docker](https://github.com/skyletter/lobsterai2api-docker) | Docker 化发行形态参照（GHCR 自动构建） |
+| [L0NE-6/LobsterAI-AutoCheckin](https://github.com/L0NE-6/LobsterAI-AutoCheckin) | 纯签到脚本（11★，MIT）：签到三步 + 版本门槛（`clientVersion` query 低于门槛 → `slotState=empty`）+ 积分字段 5 名回退 |
+| [gurio-wine/dsh-account-hub](https://github.com/gurio-wine/dsh-account-hub) | **本实现的上游来源包**（DSH 插件，17★，MIT）：`src/lobsterai-credits.ts` 的 `readActions` / 「查不到 ≠ 余额 0」口径 / `docs/agents/providers-lobsterai.md` 协议笔记 |

@@ -671,6 +671,14 @@ interface EnvelopeResult {
   reasoning: string;
   /** 工具调用（`action=review`）；没有则 undefined。 */
   tool?: UpstreamToolCall;
+  /**
+   * 全部工具调用候选（按出现顺序）。
+   *
+   * 上游一轮响应里可能**连着吐多个信封**（实测：completion → review(bash) →
+   * review(execute_command) → review(远程写)），桥接时按顺序逐个试，
+   * 第一个能桥到客户端工具的胜出。
+   */
+  tools?: UpstreamToolCall[];
 }
 
 /** 取字符串字段。 */
@@ -692,35 +700,93 @@ function outermostJSON(text: string): string {
 }
 
 /**
- * 从文本里解析协议信封。
+ * 扫出文本里所有**平衡的** `{...}` 片段（字符串与转义感知）。
+ *
+ * 上游一轮响应里会连着吐多个信封（实测一次响应里出现 4 个），
+ * 按最外层跨度切会把它们连成一坨 → JSON 解析必然失败。
+ */
+function jsonSegments(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+      continue;
+    }
+    if (ch === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        out.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 从文本里解析协议信封**序列**。
  *
  * 容错三种形态（[参考] orca.go ParseOutcomeText）：内层协议 JSON、完整信封
  * `{"code":0,"data":{…}}`、以及模型先说话再给 JSON（取最外层花括号跨度）。
+ * 另加一种实测形态：一轮响应里**连着多个信封** → 逐段扫描。
  */
-function parseEnvelope(text: string): ProtocolEnvelope | null {
-  const candidates: string[] = [text];
-  const span = outermostJSON(text);
-  if (span) {
-    candidates.push(span);
-    candidates.push(`{"code":0,"data":${span}}`);
-  }
-  for (const candidate of candidates) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(candidate);
-    } catch {
-      continue;
-    }
-    if (!parsed || typeof parsed !== "object") continue;
+function parseEnvelopes(text: string): ProtocolEnvelope[] {
+  const found: ProtocolEnvelope[] = [];
+  const take = (parsed: unknown): boolean => {
+    if (!parsed || typeof parsed !== "object") return false;
     const rec = parsed as Record<string, unknown>;
-    if (typeof rec["action"] === "string") return rec as ProtocolEnvelope;
+    if (typeof rec["action"] === "string") {
+      found.push(rec as ProtocolEnvelope);
+      return true;
+    }
     const data = rec["data"];
     if (data && typeof data === "object") {
       const dataRec = data as Record<string, unknown>;
-      if (typeof dataRec["action"] === "string") return dataRec as ProtocolEnvelope;
+      if (typeof dataRec["action"] === "string") {
+        found.push(dataRec as ProtocolEnvelope);
+        return true;
+      }
     }
+    return false;
+  };
+  const tryParse = (raw: string): boolean => {
+    try {
+      return take(JSON.parse(raw));
+    } catch {
+      return false;
+    }
+  };
+
+  // 整段先试一次（单信封的常见形态）
+  if (tryParse(text)) return found;
+  // 逐段扫（上游连着吐多个信封的形态）
+  for (const seg of jsonSegments(text)) {
+    tryParse(seg);
   }
-  return null;
+  if (found.length > 0) return found;
+  // 「先说话再给 JSON」：取最外层跨度再试一次
+  const span = outermostJSON(text);
+  if (span) {
+    if (tryParse(span)) return found;
+    tryParse(`{"code":0,"data":${span}}`);
+  }
+  return found;
 }
 
 /**
@@ -734,45 +800,52 @@ function parseEnvelope(text: string): ProtocolEnvelope | null {
  */
 export function unwrapProtocolEnvelope(raw: string): EnvelopeResult {
   const text = stripOutputShell(raw);
-  const env = parseEnvelope(text);
-  if (!env) return { content: text, reasoning: "" };
+  const envs = parseEnvelopes(text);
+  if (envs.length === 0) return { content: text, reasoning: "" };
 
-  const reasoning = str(env.thinking);
+  let reasoning = "";
   let content = "";
+  const tools: UpstreamToolCall[] = [];
 
-  switch (env.action) {
-    case "completion":
-      content = str(env.taskCompletion);
-      break;
-    case "ask": {
-      content = str(env.question) || str(env.taskCompletion);
-      const options = Array.isArray(env.options)
-        ? env.options.filter((o): o is string => typeof o === "string" && o.trim() !== "")
-        : [];
-      if (options.length > 0) content += `\n\n${options.map((o) => `- ${o}`).join("\n")}`;
-      break;
-    }
-    case "review": {
-      const tool = asRecord(env.tool);
-      const name = str(tool["name"]);
-      const note = str(env.taskCompletion);
-      if (!name) {
-        content = note || "[OrcaTerm 请求执行工具 unknown]";
+  for (const env of envs) {
+    if (!reasoning) reasoning = str(env.thinking);
+    switch (env.action) {
+      case "review": {
+        const tool = asRecord(env.tool);
+        const name = str(tool["name"]);
+        const note = str(env.taskCompletion);
+        if (name) {
+          tools.push({ name, args: asRecord(tool["args"]), note });
+        } else if (!content) {
+          content = note || "[OrcaTerm 请求执行工具 unknown]";
+        }
         break;
       }
-      return {
-        content: "",
-        reasoning,
-        tool: { name, args: asRecord(tool["args"]), note },
-      };
+      case "completion": {
+        if (!content) content = str(env.taskCompletion);
+        break;
+      }
+      case "ask": {
+        if (content) break;
+        content = str(env.question) || str(env.taskCompletion);
+        const options = Array.isArray(env.options)
+          ? env.options.filter((o): o is string => typeof o === "string" && o.trim() !== "")
+          : [];
+        if (options.length > 0) content += `\n\n${options.map((o) => `- ${o}`).join("\n")}`;
+        break;
+      }
+      default:
+        break;
     }
-    default:
-      return { content: text, reasoning: "" };
   }
 
-  // 信封里既没正文也没思考 → 不是有效信封，原样返回
-  if (!content.trim() && !reasoning.trim()) return { content: text, reasoning: "" };
-  return { content, reasoning };
+  if (!content && !reasoning && tools.length === 0) return { content: text, reasoning: "" };
+  return {
+    content,
+    reasoning,
+    tool: tools[0],
+    tools,
+  };
 }
 
 // ── 原生工具 → 客户端工具 桥接 ───────────────────────────────────────────────
@@ -785,6 +858,14 @@ const EXEC_PARAM_NAMES = ["command", "cmd", "script", "code", "bash", "shell"];
 const FETCH_TOOL_NAMES = ["fetch", "web", "http", "browse", "search", "url"];
 /** 抓取类工具的参数名提示。 */
 const URL_PARAM_NAMES = ["url", "uri", "link", "target"];
+/** 写文件类工具名提示。 */
+const WRITE_TOOL_NAMES = ["write_file", "write", "create_file", "file_write"];
+/** 写文件类工具的路径参数名提示。 */
+const WRITE_PATH_PARAMS = ["path", "file_path", "filename", "file"];
+/** 写文件类工具的内容参数名提示。 */
+const WRITE_CONTENT_PARAMS = ["content", "text", "body"];
+/** 读文件类工具名提示。 */
+const READ_TOOL_NAMES = ["read_file", "read", "cat", "view_file"];
 
 /**
  * 上游原生工具调用 → 客户端声明的工具调用。
@@ -813,7 +894,34 @@ function bridgeToolCall(
     const fetcher = pickTool(tools, FETCH_TOOL_NAMES, URL_PARAM_NAMES);
     if (fetcher) return { name: fetcher.name, args: { [fetcher.param]: url } };
   }
+  // 写文件：上游给的是「路径 + 内容」（实测上游的 remote_write 就是这个形态）
+  const path = firstArg(tool.args, WRITE_PATH_PARAMS);
+  const content = firstArg(tool.args, WRITE_CONTENT_PARAMS);
+  if (path) {
+    if (content) {
+      const writer = pickTool(tools, WRITE_TOOL_NAMES, WRITE_PATH_PARAMS);
+      if (writer) {
+        const args: Record<string, unknown> = { [writer.param]: path };
+        const contentParam = firstParam(writer.tool, WRITE_CONTENT_PARAMS);
+        if (contentParam) args[contentParam] = content;
+        return { name: writer.name, args };
+      }
+    }
+    // 读文件：上游只给了路径
+    const reader = pickTool(tools, READ_TOOL_NAMES, WRITE_PATH_PARAMS);
+    if (reader) return { name: reader.name, args: { [reader.param]: path } };
+  }
   return null;
+}
+
+/** 取参数里第一个命中提示的字符串值。 */
+function firstArg(args: Record<string, unknown>, hints: string[]): string {
+  for (const key of Object.keys(args)) {
+    if (!hints.some((h) => key.toLowerCase().includes(h))) continue;
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
 }
 
 /** 找一个名字像、且带指定参数的工具。 */
@@ -821,13 +929,13 @@ function pickTool(
   tools: ToolDef[],
   nameHints: string[],
   paramHints: string[],
-): { name: string; param: string } | null {
+): { name: string; param: string; tool: ToolDef } | null {
   for (const t of tools) {
     const lower = t.function.name.toLowerCase();
     if (!nameHints.some((h) => lower.includes(h))) continue;
     const param = firstParam(t, paramHints);
     if (!param) continue;
-    return { name: t.function.name, param };
+    return { name: t.function.name, param, tool: t };
   }
   return null;
 }
@@ -968,18 +1076,29 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
       out.push(chunk([{ index: 0, delta: { reasoning_content: envelope.reasoning } }]));
     }
 
-    const bridged = envelope.tool ? bridgeToolCall(envelope.tool, tools) : null;
-    if (envelope.tool) {
+    // 工具调用可能不止一个（上游一轮连着吐多个信封）→ 按顺序逐个桥接，
+    // 第一个能桥到客户端工具的胜出；都桥不上才降级成文本。
+    const candidates = envelope.tools ?? (envelope.tool ? [envelope.tool] : []);
+    let bridged: { name: string; args: Record<string, unknown> } | null = null;
+    let picked: UpstreamToolCall | null = null;
+    for (const cand of candidates) {
+      const mapped = bridgeToolCall(cand, tools);
+      if (mapped) {
+        bridged = mapped;
+        picked = cand;
+        break;
+      }
+    }
+    if (candidates.length > 0) {
       if (!bridged) {
         // 桥接不上（客户端没声明可执行工具）：降级成可读文本，
         // 不给客户端一个它根本执行不了的调用。
-        const note = envelope.tool.note ? `${envelope.tool.note}\n` : "";
-        out.push(
-          chunk([{ index: 0, delta: { content: `${note}[OrcaTerm 请求执行工具 ${envelope.tool.name}]` } }]),
-        );
-      } else if (envelope.tool.note.trim()) {
+        const first = candidates[0]!;
+        const note = first.note ? `${first.note}\n` : "";
+        out.push(chunk([{ index: 0, delta: { content: `${note}[OrcaTerm 请求执行工具 ${first.name}]` } }]));
+      } else if (picked && picked.note.trim()) {
         // 工具调用可以与正文共存（OpenAI 惯例）：把模型的说明一起下发。
-        out.push(chunk([{ index: 0, delta: { content: envelope.tool.note } }]));
+        out.push(chunk([{ index: 0, delta: { content: picked.note } }]));
       }
     } else if (envelope.content.trim()) {
       out.push(chunk([{ index: 0, delta: { content: envelope.content } }]));

@@ -339,38 +339,64 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** `messages[].content` 一律转块数组（字符串 → `[{type:"text",text}]`）。 */
+/**
+ * `messages[].content` 一律转块数组（字符串 → `[{type:"text",text}]`）。
+ *
+ * 空内容（null / 空串 / 空数组）转成**空数组** —— 上游对「没有正文」的
+ * assistant 消息要求不带 content 键，而不是带一个空文本块
+ * （[参考] autumnsentiment_Trae2api-cn/src/raw_client.py 的 build_raw_messages）。
+ */
 function toContentBlocks(content: unknown): Array<Record<string, unknown>> {
-  if (typeof content === "string") return [{ type: "text", text: content }];
+  if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
   if (Array.isArray(content)) {
     const parts = content.filter(isRecord);
-    return parts.length > 0 ? parts : [{ type: "text", text: "" }];
+    return parts;
   }
   if (isRecord(content)) return [content];
-  return [{ type: "text", text: "" }];
+  return [];
 }
 
 /**
- * assistant 的 `tool_calls` → SOLO 的单个 `function_call`。
+ * assistant 的工具调用 → SOLO 的 `tool_calls` **数组**。
  *
- * 无 `function_call.name` 的调用被剔除（协议要求）；
- * 第二个及之后的调用 SOLO 不接受（单函数调用形态）。
+ * ⚠ 形态要点：SOLO 按「前序消息带 `tool_calls`」校验工具结果，
+ * 发单个 `function_call` 对象不被认 —— 上游直接回
+ * `tool call failed: Messages with role 'tool' must be a response to a
+ * preceding message with 'tool_calls'`。
+ * 数组元素形如 `{id, type:"function", function_call:{name, arguments}}`
+ * （[参考] autumnsentiment_Trae2api-cn/src/raw_client.py 的 _traecode_tool_calls）。
  */
-function pickFunctionCall(rec: Record<string, unknown>): Record<string, unknown> | null {
-  const calls = rec["tool_calls"];
-  if (!Array.isArray(calls)) return null;
-  for (const call of calls) {
-    if (!isRecord(call)) continue;
-    const fn = isRecord(call["function"]) ? call["function"] : null;
-    const name = nonEmpty(fn?.["name"]);
+function toSoloToolCalls(msg: Record<string, unknown>): Array<Record<string, unknown>> {
+  const raw = msg["tool_calls"];
+  const list: unknown[] = Array.isArray(raw) ? [...raw] : [];
+  const legacy = msg["function_call"];
+  if (isRecord(legacy)) list.push(legacy);
+
+  const out: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!isRecord(item)) continue;
+    const fn = isRecord(item["function"])
+      ? item["function"]
+      : isRecord(item["function_call"])
+        ? item["function_call"]
+        : item;
+    const name = nonEmpty(fn["name"]);
     if (!name) continue;
-    const args = fn?.["arguments"];
-    return {
-      name,
-      arguments: typeof args === "string" ? args : JSON.stringify(args ?? {}),
-    };
+    const args = fn["arguments"] ?? fn["partial_arguments"] ?? fn["input"];
+    const id = nonEmpty(item["id"]) || nonEmpty(item["tool_call_id"]) || `call_${out.length}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      type: "function",
+      function_call: {
+        name,
+        arguments: typeof args === "string" ? args : JSON.stringify(args ?? {}),
+      },
+    });
   }
-  return null;
+  return out;
 }
 
 /** tools 的 `parameters` 对象 → JSON 字符串（SOLO 要求）。 */
@@ -470,11 +496,15 @@ export function buildChatBody(
   for (const msg of rawMessages) {
     if (!isRecord(msg)) continue;
     const out: Record<string, unknown> = { ...msg };
-    out["content"] = toContentBlocks(msg["content"]);
+    const blocks = toContentBlocks(msg["content"]);
+    if (blocks.length > 0) out["content"] = blocks;
+    else delete out["content"];
     if (msg["role"] === "assistant") {
-      const functionCall = pickFunctionCall(msg);
+      // SOLO 的 assistant 工具调用是 `tool_calls` **数组**（见 toSoloToolCalls 的注释）
+      const calls = toSoloToolCalls(msg);
       delete out["tool_calls"];
-      if (functionCall) out["function_call"] = functionCall;
+      delete out["function_call"];
+      if (calls.length > 0) out["tool_calls"] = calls;
     }
     messages.push(out);
   }
@@ -907,7 +937,9 @@ export function newTranslator(): StreamTranslator {
               error: {
                 type: "upstream_error",
                 message: nonEmpty(payload["message"]) ?? "upstream emitted an error event",
-                ...(payload["code"] === undefined ? {} : { code: payload["code"] }),
+                // ⚠ code 一律转字符串：客户端按 `error.code` 是字符串解析，
+                // 上游给的是数字（实测 4027）时会让客户端解码失败。
+                ...(payload["code"] === undefined ? {} : { code: String(payload["code"]) }),
               },
             }),
           );

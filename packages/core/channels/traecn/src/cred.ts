@@ -103,7 +103,19 @@ export const CONSOLE_HOST = "https://www.trae.cn";
 export const CLIENT_ID = "ono9krqynydwx5";
 /** IDE 客户端 ID：对话 / 模型列表 / 签到链路的身份，不用于授权页。 */
 export const IDE_CLIENT_ID = "en1oxy7wnw8j9n";
-export const APP_ID = "6eefa01a-1036-4c7e-9ca5-d891f63bfcd8";
+/**
+ * SOLO/IDE 应用的 AppID（对话与 Solo 目录的 `X-App-Id`）。
+ *
+ * ⚠ **上游按 AppID 查「app config」记录**：AppID 不对就直接
+ * `2001 failed to get app config: record not found`（HTTP 200，流内 error 帧）。
+ * 本值必须是 `…01c…` —— 旧的 `…01a…` 记录已被上游撤下。
+ * 参考实现逐字一致：`autumnsentiment_Trae2api-cn/src/trae_client.py:47`、
+ * `JeffHu0912_trae2api/internal/upstream/constants.go:10`、
+ * `connectedGraph/trae2api-web/internal/upstream/constants.go:10`、
+ * `A-23187_trae-api/auth.js:48`（`[参考]`）；`[实测]` 见
+ * `docs/channels/traecn/PROTOCOL.md` §3.1.1。
+ */
+export const APP_ID = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8";
 /** ideVersion 是模型准入条件：版本过低时 glm-5.3 等新模型报 4001。 */
 export const IDE_VERSION = "0.1.52";
 export const IDE_VERSION_CODE = "20260811";

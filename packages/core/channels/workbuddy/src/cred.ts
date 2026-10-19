@@ -14,6 +14,10 @@
  * Electron 派生 at-rest key 解密，都超出渠道包的边界）—— 详见
  * `docs/channels/workbuddy/PROTOCOL.md`「唯一登录路径」。
  *
+ * 设备授权**没有本机回环**（令牌由服务端按 state 下发），故 `pasteCode` 粘回的
+ * 内容只作「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**立刻再取一次
+ * 令牌，不是第二条登录路径。
+ *
  * ⚠ 本渠道**只有一个域**（国内版 codebuddy.ai）。账号属于哪个域就必须用哪个渠道
  * 登录：国内账号走本渠道，国际账号走 `workbuddyai` —— 不再有 `--realm` 二选一。
  */
@@ -288,10 +292,32 @@ async function createLoginState(
   return state;
 }
 
-async function pollToken(baseUrl: string, state: string): Promise<Record<string, unknown> | null> {
+/**
+ * 轮询取令牌。
+ *
+ * 粘贴兜底：设备授权**没有本机回环**（令牌由服务端按 `state` 下发），
+ * 故粘回的内容只作「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**
+ * 立刻再取一次，不是第二条登录路径。
+ */
+async function pollToken(
+  baseUrl: string,
+  state: string,
+  options: LoginOptions = {},
+): Promise<Record<string, unknown> | null> {
   const url = `${baseUrl}/v2/plugin/auth/token?state=${encodeURIComponent(state)}`;
   const deadline = Date.now() + LOGIN_WINDOW_MS;
+  let pasteReported = false;
   while (Date.now() < deadline) {
+    // 粘贴兜底：认「授权被拒」的措辞（立刻收尾），否则当作「浏览器那步已完成」。
+    const pasted = options.pasteCode?.();
+    if (typeof pasted === "string" && pasted.trim()) {
+      const reason = pastedAuthError(pasted);
+      if (reason) throw new Error(`browser authorization failed: ${reason}`);
+      if (!pasteReported) {
+        options.onStatus?.("got the pasted callback, fetching the token now...");
+        pasteReported = true;
+      }
+    }
     try {
       const resp = await fetchWithTimeout(url, { headers: anonHeaders() });
       if (resp.status === 200) {
@@ -309,9 +335,36 @@ async function pollToken(baseUrl: string, state: string): Promise<Record<string,
   return null;
 }
 
+/** 粘回内容里的「授权失败」措辞（认出就立刻结束等待，不白等 5 分钟）。 */
+const AUTH_ERROR_MARKERS = ["error=", "errmsg=", "denied", "access_denied", "拒绝", "失败"];
+
+/** 粘回的内容是否表示「授权被拒 / 出错」。 */
+function pastedAuthError(raw: string): string {
+  const text = raw.trim().toLowerCase();
+  for (const marker of AUTH_ERROR_MARKERS) {
+    if (text.includes(marker.toLowerCase())) {
+      const params = new URLSearchParams(text.split("?")[1] ?? "");
+      return (
+        params.get("errmsg") ??
+        params.get("error_description") ??
+        params.get("error") ??
+        "the browser reported an authorization error"
+      );
+    }
+  }
+  return "";
+}
+
 export interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
+  /**
+   * 取走用户粘回的浏览器回调内容（可选，一次性消费）。
+   *
+   * 设备授权**没有本机回环**（令牌由服务端按 `state` 下发），故粘回的内容只作
+   * 「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**立刻再取一次令牌。
+   */
+  pasteCode?: () => string | undefined;
 }
 
 /**
@@ -363,10 +416,13 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
     onUrl?.(authUrl);
     onStatus?.(
       `Round ${round}/${MAX_LOGIN_ROUNDS}: waiting for authorization ` +
-        `(open the URL above in a browser; up to ${LOGIN_WINDOW_MS / 60000} min)…`,
+        `(open the URL above in a browser; up to ${LOGIN_WINDOW_MS / 60000} min)…` +
+        (options.pasteCode
+          ? " — after signing in you can paste the address bar back here to fetch the token immediately."
+          : ""),
     );
     const stateId = str(state["state"]);
-    const token = await pollToken(base, stateId);
+    const token = await pollToken(base, stateId, options);
     if (!token) {
       onStatus?.(`Round ${round} timed out, retrying…`);
       continue;

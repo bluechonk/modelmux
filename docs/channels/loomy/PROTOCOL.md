@@ -64,7 +64,27 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 | 扫码取 code | `open.weixin.qq.com` 授权页 + 长轮询 | 纯 HTTP（uuid → 二维码图片 → 长轮询），详见 §2.6 | `[实测]` 已跑通 |
 | code → rcode | `POST /login/thirdAccount/bind/auth` | 微信 code（**只用一次**） | `[实测]` 已跑通 |
 | rcode → session（已绑手机号，`bind=1`） | `POST /login/thirdAccount/bind/skip` | rcode | `[实测]` 已跑通 |
-| rcode → session（未绑手机号，`bind=0`） | `POST /login/thirdAccount/bind/sendMsg` + `/bind/checkCode` | **`LOOMY_PHONE` + `LOOMY_SMS_CODE` 环境变量** | ⚠ **未验证**（全仓无该分支的实测记录） |
+| rcode → session（未绑手机号，`bind=0`） | `POST /login/thirdAccount/bind/sendMsg` + `/bind/checkCode` | **`LOOMY_PHONE` + `LOOMY_SMS_CODE` 环境变量** | ⚠ **未验证**（全仓无该分支的实测记录；请求形态已与参考实现逐字段核对一致，见下） |
+
+**`bind=0` 分支的参考实现核对（2026-10-20，结论：形态一致，但仍标「未验证」）**：
+
+`reference/xingluoyuankong_loomy2api/loomy2api/account.py:501-550` 与
+`reference/xingluoyuankong_loomy2api/docs/CLIENT-LOGIN.md:96-99` 逐字给出四个端点与
+字段，本仓库实现（`packages/core/channels/loomy/src/cred.ts:607-661`）**逐字段一致**：
+
+| 端点 | 参考实现的 param | 本仓库实现 | 一致 |
+|---|---|---|---|
+| `/login/thirdAccount/bind/auth` | `{tcode:{code}, type:"wx"}` | 同 | ✅ |
+| `/login/thirdAccount/bind/sendMsg` | `{rcode, phone, ccode:"86", expire:300}` | 同 | ✅ |
+| `/login/thirdAccount/bind/checkCode` | `{rcode, mcode, msgid, expire:1209600}` | 同 | ✅ |
+| `/login/thirdAccount/bind/skip` | `{rcode, expire:1209600}` | 同 | ✅ |
+
+差异只有两处，且都不影响请求形状：参考实现的 `bind/auth` 在配置了
+`wechat_authconf` 时多带一个 `authconf` 字段（本渠道没有该配置，不发）；
+参考实现返回体另有 `isnew` / `headpic`（本渠道不用）。
+
+⚠ **「未验证」标注保留**：形态一致 ≠ 能跑通 —— 该分支**全仓仍无任何实测记录**，
+`bind=0` 时的短信能否真收到、验证码是否被上游接受，都还是未知数。
 
 **判据（为什么只保留微信扫码）**：
 
@@ -231,6 +251,17 @@ same uuid across loads? DIFFERENT
 **兜底路径（长轮询拿不到时）**：用户自己开授权页扫码 → 微信 302 到
 `https://loomy.xunfei.cn/oauth/wechat/callback?code=…&state=…`（线上 404 页，正常）
 → 把地址栏整条链接粘回 CLI（CLI 收 stdin 一行；Web 端收 `pasteCallback` 命令）。
+
+**粘贴兜底在代码里的落点**（与 `codearts` / `lobsterai` 同一形态）：
+
+| 位置 | 职责 |
+|---|---|
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/loomy/src/cred.ts` 的 `WechatWaitOptions`） | **声明**该回调（`wechatObtainCode` 每轮轮询取一次） |
+| `wechatObtainCode` → `parseWechatCallback` | 解析粘回的内容（整条 URL / 只有 query / 裸 code 三种形态），转成微信 code 继续 `bind/auth` |
+
+即：**用户即使浏览器回调打不到本机**（远程 / 无头 / 容器），把地址栏那条链接粘回终端
+也能把登录走完 —— 走的是**同一条** `bind/auth` 链路，不是第二条登录路径。
 
 **uuid 提取**（两条路径互为兜底，无需执行 JS）：
 - 主路径：`<img class="js_qrcode_img" src="/connect/qrcode/<uuid>"/>`
@@ -711,5 +742,6 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 仓库 | 用途 |
 | --- | --- |
 | [Patrick130306/loomy2api](https://github.com/Patrick130306/loomy2api) | 主参照（31★）：额度转 OpenAI 兼容 API |
-| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | 多账号池 + Web 面板 + 防风控；该仓库内的 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据 |
+| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | 多账号池 + Web 面板 + 防风控；该仓库内的 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据，也是 `bind=0` 分支请求形态的对照源（见 §2.1） |
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | 接口结构参考：端点、鉴权形状、请求/响应结构 |
+| [wangliangdong/loomy2api](https://github.com/wangliangdong/loomy2api) | 反面对照样本（13★）：容器内 Chromium + noVNC 走**网页**登录（手机号 + 短信），抓 `loomy_web_session` **Cookie** —— 是**另一族凭据**（Cookie 而非 account API 的 session），本渠道不采纳；其「Loomy 不签发 refresh token、失效只能重登」的结论与本渠道 §2.3 一致 |
