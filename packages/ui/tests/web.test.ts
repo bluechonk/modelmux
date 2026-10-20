@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { request } from "node:http";
 import { after, before, describe, it } from "node:test";
 
-import { start, emptySnapshot, type ControlBridge } from "../../core/gateway/dist/http/console.js";
+import { start, emptySnapshot, type ControlBridge } from "../../core/gateway/dist/http/console/console.js";
 import { channels, clearChannels, setChannel, type Channel, type ChannelConfig } from "../../core/gateway/dist/runtime/channel.js";
 import { runInChannel } from "../../core/gateway/dist/runtime/channel-context.js";
 import { listAccounts, syncPool } from "../../core/gateway/dist/runtime/account-pool.js";

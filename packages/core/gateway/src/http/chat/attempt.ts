@@ -11,20 +11,20 @@
 
 import type { ServerResponse } from "node:http";
 
-import { type Channel, type StreamTranslator } from "../runtime/channel.js";
+import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
   markActiveHealth,
   noteAccountFailure,
   noteAccountQuotaExhausted,
   noteAccountSuccess,
-} from "../runtime/account-pool.js";
-import { resolvePoolModel } from "../pool/model-pool.js";
-import { noteFailure, noteSuccess } from "../pool/pool-usage.js";
-import { logThrottled } from "../runtime/logger.js";
-import { noteRequestError, noteUpstreamReady } from "../runtime/log-store.js";
-import { inChannel, isCustomWire } from "./chat-channel.js";
-import { activeKeyOf } from "./chat-candidates.js";
-import { isQuotaExhausted, writeJsonError } from "./chat-errors.js";
+} from "../../runtime/account-pool.js";
+import { resolvePoolModel } from "../../pool/model-pool.js";
+import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
+import { logThrottled } from "../../runtime/logger.js";
+import { noteRequestError, noteUpstreamReady } from "../../runtime/log-store.js";
+import { inChannel, isCustomWire } from "./channel.js";
+import { activeKeyOf } from "./candidates.js";
+import { isQuotaExhausted, writeJsonError } from "./errors.js";
 import {
   consumeQueueProbe,
   loadCredentialSafe,
@@ -34,11 +34,11 @@ import {
   QUEUE_RETRY_MAX_DELAY_MS,
   type ProbeFrames,
   type QueueProbe,
-} from "./chat-queue.js";
-import { callUpstream } from "./chat-auth.js";
-import { openStream, type UpstreamCall } from "./chat-upstream.js";
-import { relayUpstream } from "./chat-forward.js";
-import type { PoolCandidate } from "../pool/pool-targets.js";
+} from "./queue.js";
+import { callUpstream } from "./auth.js";
+import { openStream, type UpstreamCall } from "./upstream.js";
+import { relayUpstream } from "./forward.js";
+import type { PoolCandidate } from "../../pool/pool-targets.js";
 
 /** 一次失败的错误三元组：状态码 + 错误码 + 文案（回给客户端的信封内容）。 */
 export interface ChatError {

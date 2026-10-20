@@ -433,7 +433,7 @@ event:done   | data:{"finish_reason":"stop"}
 >   限流标记回退时长 1 小时」** —— **本仓没有这套机制**：翻译器对 `event:error`
 >   只**产出一个 error 帧**（`packages/core/channels/traecn/src/upstream.ts:885-902`），
 >   本渠道**没有声明** `isQueueError` 钩子，共享层不会为它做排队重试；
->   账号切换也**不由网关自动完成**（`packages/core/gateway/src/http/chat-auth.ts:26-34`
+>   账号切换也**不由网关自动完成**（`packages/core/gateway/src/http/chat/auth.ts:26-34`
 >   明写「账号切换一律由用户手动完成」），`<cid>/<model>` 形态下候选渠道只有一条
 >   （`packages/core/gateway/src/pool/pool-targets.ts:500-514`），不存在「换号上限 3 个账号」。
 

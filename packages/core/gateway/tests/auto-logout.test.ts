@@ -18,7 +18,7 @@ import { after, before, describe, it } from "node:test";
 
 import { listAccounts } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
-import * as gateway from "../dist/http/gateway.js";
+import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 
@@ -112,7 +112,7 @@ async function chat(addr: string, model: string): Promise<{ status: number; text
     // 旧行为：裸模型名 `glm-5.3-flash`（网关跨渠道匹配候选）。
     // 新行为：池 id 必须是 `<cid>/<模型>` 形态，渠道由请求方显式指定 ——
     //   裸名一律 400 unknown_model（src/pool/pool-targets.ts:473 `asPoolModel`
-    //   + src/http/chat-relay.ts:867 的 400 分支）。
+    //   + src/http/chat/relay.ts:867 的 400 分支）。
     body: JSON.stringify({ model, messages: [{ role: "user", content: "hi" }], stream: true }),
   });
   return { status: resp.status, text: await resp.text() };
@@ -171,7 +171,7 @@ describe("候选过滤：未登录渠道不被路由（高用量也不参与）"
   // 新行为：渠道由请求方在池 id 前缀里显式指定（`<cid>/<模型>`），候选至多一条
   //   （src/pool/pool-targets.ts:498 poolCandidates）；「未登录渠道不被路由」这条保证
   //   改由「点名未登录渠道 → 503 且不打上游」来兑现
-  //   （src/http/chat-relay.ts:910-919：authed 为空即 503 not_authenticated）。
+  //   （src/http/chat/relay.ts:910-919：authed 为空即 503 not_authenticated）。
   let root = "";
   let upstream: Awaited<ReturnType<typeof fakeUpstream>>;
   let gw: gateway.RunningGateway;

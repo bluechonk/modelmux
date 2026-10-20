@@ -488,7 +488,7 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）�
 ### 2026-10-20 归一化下沉后的端到端实测（共享层 `openai-normalize`）
 
 本轮把本渠道 415 行的通用 OpenAI 归一化下沉到共享层
-（`packages/core/gateway/src/http/openai-normalize.ts`），请求体由渠道自己组装 → 共享层归一。
+（`packages/core/gateway/src/http/wire/openai-normalize.ts`），请求体由渠道自己组装 → 共享层归一。
 **已复验**：
 
 - 模型 `workbuddy/step-5-preview`（倍率 0），Reasonix Agent 工具往返通过：
@@ -530,11 +530,11 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | 4 | 非对话模型过滤（`nes-` / `completion-` / `codewise-`） | go `internal/upstream/client.go:1470-1473` | **已做**（§1.1） |
 | 5 | 上游错误码全表与分类、200 带错误信封、限流重置读头 | hub `docs/protocol-reference.md:1904-1952`、`:1869-1889`、`:2011-2038`、`:1891-1902` | **分类表已做**（§4.1）；**对话路径的 200 错误信封仍无拦截点**（共享层无该钩子） |
 | 6 | 目录**企业账号分流**（`X-User-Id` + `X-Enterprise-Id` 成对） | dsh `packages/core/channels/workbuddy/src/upstream.ts:663-672` | 头已发，但**没有企业账号可验**（`enterpriseId` 要真实企业账号才有） |
-| 7 | 目录**促销 badge**（`badge:<label>:<color>`） | dsh `packages/core/channels/workbuddy/src/upstream.ts:319-355`、`packages/core/gateway/src/http/openai-normalize.ts:294-320`（只在 console 文档里） | 未做 |
+| 7 | 目录**促销 badge**（`badge:<label>:<color>`） | dsh `packages/core/channels/workbuddy/src/upstream.ts:319-355`、`packages/core/gateway/src/http/wire/openai-normalize.ts:294-320`（只在 console 文档里） | 未做 |
 | 8 | **签到活动状态**（`/v2/billing/meter/checkin-activity-status`） | go `internal/upstream/checkin_activity.go:30-33`；hub `docs/protocol-reference.md:284-287` | 未做 |
 | 9 | 目录 **reasoning / effort 元数据** | dsh `packages/core/channels/workbuddy/src/upstream.ts:250-293`；go `internal/upstream/client.go:1312-1329` | 未做 |
 | 10 | **模型繁忙程度**（`/v2/chat/busy`） | hub `admin/backend.py:267`；`docs/protocol-reference.md:1867` | 未做 |
-| 11 | **企业额度**（`/v2/billing/meter/get-enterprise-user-usage`） | dsh `packages/core/gateway/src/http/openai-normalize.ts:470`；panel `internal/upstream/client.go:1987-2050` | 未做 |
+| 11 | **企业额度**（`/v2/billing/meter/get-enterprise-user-usage`） | dsh `packages/core/gateway/src/http/wire/openai-normalize.ts:470`；panel `internal/upstream/client.go:1987-2050` | 未做 |
 | 12 | **对话活跃上报**（`/v2/report`） | go `internal/upstream/report.go:21-35`；panel `internal/upstream/report.go:22` | 未做 |
 | 13 | **成长计划任务族**（`/v2/activity/growth/tasks` + accept + claim） | panel `internal/upstream/tasks.go:29-30`、`:211-227` | 未做 |
 | 14 | **连签 / 抽奖**（`/activity/growth/streak`、`/activity/growth/lottery/*`） | panel `internal/upstream/streak.go:21-23` | 未做 |

@@ -281,8 +281,8 @@ Body: {"refresh_token": "...", "machine_id": "..."}
 **合并规则**：续期响应不含 `machine_id`/`uid`/`nickname`，必须从旧凭据保留（本仓实现见 `packages/core/channels/qoder/src/cred.ts:571-588`）。
 
 **触发时机**：渠道代码里**没有主动续期** —— 续期由共享层在收到 401/403 时驱动
-（`packages/core/gateway/src/http/chat-auth.ts` 的 `openStream` 失败 → `cred.refresh()`
-（`packages/core/gateway/src/http/chat-auth.ts:70`）→ 重开上游）。
+（`packages/core/gateway/src/http/chat/auth.ts` 的 `openStream` 失败 → `cred.refresh()`
+（`packages/core/gateway/src/http/chat/auth.ts:70`）→ 重开上游）。
 即只有「401 后被动续期」，没有「到期前主动续期」`[代码]`。
 
 ### 2.5 必需请求头清单
@@ -414,8 +414,8 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 | `chat_context` 不能传空对象 | — | `packages/core/channels/qoder/src/upstream.ts:645-662` |
 | `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 把 content 压成纯文本会让图片全部消失 | `packages/core/channels/qoder/src/upstream.ts:691`（`imageUrls: null`）、`packages/core/channels/qoder/src/upstream.ts:663`（`image_urls: null`） |
 | assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 过滤会丢掉它们，多步工具调用会坏掉 | `packages/core/channels/qoder/src/upstream.ts:607-615` |
-| 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | 参考实现 `qoder-product.ts` 的实测；本仓入站请求体上限 32 MiB（`packages/core/gateway/src/http/chat-request.ts:18`） |
-| `tools[]` 必须是**嵌套** `function` 形态 | 顶层 `{type:"function",name,…}` 直接 400 `'function' is a required property, expected an object - 'tools.N'`；本仓已做归一 | `packages/core/channels/qoder/src/upstream.ts:522-529`（口径说明）、`packages/core/channels/qoder/src/upstream.ts:619-620`（调用共享层 `normalizeToolList`）；共享层 `packages/core/gateway/src/http/openai-normalize.ts`；参考实现 `qoder_proxy.py` `[参考]` |
+| 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | 参考实现 `qoder-product.ts` 的实测；本仓入站请求体上限 32 MiB（`packages/core/gateway/src/http/chat/request.ts:18`） |
+| `tools[]` 必须是**嵌套** `function` 形态 | 顶层 `{type:"function",name,…}` 直接 400 `'function' is a required property, expected an object - 'tools.N'`；本仓已做归一 | `packages/core/channels/qoder/src/upstream.ts:522-529`（口径说明）、`packages/core/channels/qoder/src/upstream.ts:619-620`（调用共享层 `normalizeToolList`）；共享层 `packages/core/gateway/src/http/wire/openai-normalize.ts`；参考实现 `qoder_proxy.py` `[参考]` |
 | `max_completion_tokens` 要归一成 `max_tokens` | 上游只认 `max_tokens`；不归一则用新别名的客户端**静默丢掉输出上限**；本仓已做归一 | `packages/core/channels/qoder/src/upstream.ts:629-631`（调用共享层 `translateMaxCompletionTokens`）；参考实现 `qoder_proxy.py` `[参考]` |
 | DeepSeek 多轮的 assistant 要带 `reasoning_content` | 缺了上游拒（表现为「偶发失败、重试有时能过」）；本仓已按上游 key（`dmodel`/`dfmodel`）回填 | `packages/core/channels/qoder/src/upstream.ts:584-603`（回填）、`packages/core/channels/qoder/src/upstream.ts:513-520`（DeepSeek 上游 key 判定）；参考实现 `qoder_proxy.py` `[参考]` |
 | 顶层**没有** `system` 字段 | system 消息必须并进 `messages`（`{role:"system", content:<纯文本>}`）；多条 system 用空行（`\n\n`）拼接成一条。**本仓已做** | `packages/core/channels/qoder/src/upstream.ts:575-582`（拆出 `systems` → `systemText`）、`packages/core/channels/qoder/src/upstream.ts:605-615`（塞回 `messages` 首条） |
@@ -431,7 +431,7 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 #### 3.2.1 通用归一化在共享层，渠道只留协议判据
 
 形状修复（工具声明嵌套化、输出上限别名、思考链回填）已下沉到共享层
-`packages/core/gateway/src/http/openai-normalize.ts`；渠道包不再自备副本。
+`packages/core/gateway/src/http/wire/openai-normalize.ts`；渠道包不再自备副本。
 本渠道的**协议判据**由 `packages/core/channels/qoder/src/upstream.ts:584-603` 用选项表达：
 
 | 选项 | 本渠道取值 | 依据 |
@@ -497,10 +497,10 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 | 码 | 语义 | 本仓的处理 | 来源 |
 |---|---|---|---|
-| `10605`（字符串） | 模型排队 | 渠道只负责**判定**：内层 `code === "10605"`，或 `message` 里含 `isQueued` / `retryAfterSeconds` / `10605`（`packages/core/channels/qoder/src/upstream.ts:824-830`）。**重试与退避全在共享层**：延迟只从 `message` 里解析 `retryAfterSeconds`（正则 `/retryAfterSeconds\D+(\d+)/i`，`packages/core/gateway/src/http/chat-queue.ts:120`）→ 秒×1000，下限 1s、**上限 10 秒**（`packages/core/gateway/src/http/chat-queue.ts:17` 的 `QUEUE_RETRY_MAX_DELAY_MS`）；整个请求的排队等待**总预算 5 分钟**（`packages/core/gateway/src/http/chat-queue.ts:19` 的 `QUEUE_RETRY_BUDGET_MS`），超预算即放弃。**没有次数上限、没有环境变量** | 渠道 `packages/core/channels/qoder/src/upstream.ts:824-830`；共享层 `packages/core/gateway/src/http/chat-queue.ts:17-19`、`packages/core/gateway/src/http/chat-queue.ts:117-131`、`packages/core/gateway/src/http/chat-attempt.ts:221-228` |
-| `110` | 额度用尽 | 共享层按**响应体文案**判额度耗尽（`isQuotaExhausted`，`packages/core/gateway/src/http/chat-errors.ts:33-36`），正则 = `insufficient_points\|insufficient_quota\|quota[_ -]?exceeded\|credit[s]?[_ -]?(exhausted\|insufficient)\|余额不足\|积分不足\|额度不足\|配额不足\|超出配额\|免费额度已用完\|额度已用完\|升级套餐`。命中即把**生效账号**标 `health=error`（`noteAccountQuotaExhausted`，`packages/core/gateway/src/runtime/account-pool.ts:416-432`），回 503 `quota_exhausted` | 共享层 `packages/core/gateway/src/http/chat-errors.ts:33-36`、`packages/core/gateway/src/http/chat-attempt.ts:383-400`；`packages/core/gateway/src/runtime/account-pool.ts:416-432` |
-| `105` | `auth_error`（与 10605 独立，不可合并） | **只被转成 error 帧保真转发 `code`**（`packages/core/channels/qoder/src/upstream.ts:931-935`），**不会触发续期**。共享层的续期只在 **HTTP 401/403** 时驱动（`packages/core/gateway/src/http/chat-upstream.ts:182-195` 识别 → `packages/core/gateway/src/http/chat-auth.ts:70-77` 调 `cred.refresh()` 后重开一次）。流内业务码 `105` 走的是 HTTP 200 通道，**不在**续期触发条件里 | `packages/core/channels/qoder/src/upstream.ts:931-935`；`packages/core/gateway/src/http/chat-upstream.ts:182-195`、`packages/core/gateway/src/http/chat-auth.ts:70-77` |
-| 409 `duplicate_request` | 上游 HTTP 409 | **本仓没有 409 分支**：既不在渠道的 `isQueueError` 判据里，共享层也没有 409 专门处理（非 200 → 统一按上游错误回 502 `upstream_error`） | 共享层 `packages/core/gateway/src/http/chat-upstream.ts:196-212`（非 200 分支）、`packages/core/gateway/src/http/chat-attempt.ts:402-413` |
+| `10605`（字符串） | 模型排队 | 渠道只负责**判定**：内层 `code === "10605"`，或 `message` 里含 `isQueued` / `retryAfterSeconds` / `10605`（`packages/core/channels/qoder/src/upstream.ts:824-830`）。**重试与退避全在共享层**：延迟只从 `message` 里解析 `retryAfterSeconds`（正则 `/retryAfterSeconds\D+(\d+)/i`，`packages/core/gateway/src/http/chat/queue.ts:120`）→ 秒×1000，下限 1s、**上限 10 秒**（`packages/core/gateway/src/http/chat/queue.ts:17` 的 `QUEUE_RETRY_MAX_DELAY_MS`）；整个请求的排队等待**总预算 5 分钟**（`packages/core/gateway/src/http/chat/queue.ts:19` 的 `QUEUE_RETRY_BUDGET_MS`），超预算即放弃。**没有次数上限、没有环境变量** | 渠道 `packages/core/channels/qoder/src/upstream.ts:824-830`；共享层 `packages/core/gateway/src/http/chat/queue.ts:17-19`、`packages/core/gateway/src/http/chat/queue.ts:117-131`、`packages/core/gateway/src/http/chat/attempt.ts:221-228` |
+| `110` | 额度用尽 | 共享层按**响应体文案**判额度耗尽（`isQuotaExhausted`，`packages/core/gateway/src/http/chat/errors.ts:33-36`），正则 = `insufficient_points\|insufficient_quota\|quota[_ -]?exceeded\|credit[s]?[_ -]?(exhausted\|insufficient)\|余额不足\|积分不足\|额度不足\|配额不足\|超出配额\|免费额度已用完\|额度已用完\|升级套餐`。命中即把**生效账号**标 `health=error`（`noteAccountQuotaExhausted`，`packages/core/gateway/src/runtime/account-pool.ts:416-432`），回 503 `quota_exhausted` | 共享层 `packages/core/gateway/src/http/chat/errors.ts:33-36`、`packages/core/gateway/src/http/chat/attempt.ts:383-400`；`packages/core/gateway/src/runtime/account-pool.ts:416-432` |
+| `105` | `auth_error`（与 10605 独立，不可合并） | **只被转成 error 帧保真转发 `code`**（`packages/core/channels/qoder/src/upstream.ts:931-935`），**不会触发续期**。共享层的续期只在 **HTTP 401/403** 时驱动（`packages/core/gateway/src/http/chat/upstream.ts:182-195` 识别 → `packages/core/gateway/src/http/chat/auth.ts:70-77` 调 `cred.refresh()` 后重开一次）。流内业务码 `105` 走的是 HTTP 200 通道，**不在**续期触发条件里 | `packages/core/channels/qoder/src/upstream.ts:931-935`；`packages/core/gateway/src/http/chat/upstream.ts:182-195`、`packages/core/gateway/src/http/chat/auth.ts:70-77` |
+| 409 `duplicate_request` | 上游 HTTP 409 | **本仓没有 409 分支**：既不在渠道的 `isQueueError` 判据里，共享层也没有 409 专门处理（非 200 → 统一按上游错误回 502 `upstream_error`） | 共享层 `packages/core/gateway/src/http/chat/upstream.ts:196-212`（非 200 分支）、`packages/core/gateway/src/http/chat/attempt.ts:402-413` |
 
 > ⚠ **原描述 → 现在的行为**（本表四行）：
 > - `10605` 行原写「延迟优先序 `retry_after_ms` → `retryAfterMs` → `retryAfterSeconds×1000`，
@@ -512,7 +512,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 > - `110` 行原写「文案兜底正则 `/billing\s+daily\s+count\s+exceeded|billing_error/i`」
 >   —— 那是**参考实现**的判据。**本仓共享层的实际正则是**
 >   `insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额|免费额度已用完|额度已用完|升级套餐`
->   （`packages/core/gateway/src/http/chat-errors.ts:35`）。
+>   （`packages/core/gateway/src/http/chat/errors.ts:35`）。
 >   ⚠ 注意差异：只含 `Billing daily count exceeded` / `billing_error` 字样、而**不含**上述任一措辞的
 >   报文，**不会**被判成额度耗尽 —— 别按旧正则去判断。
 > - `105` 行原写「续期后重试」—— **本仓只在 HTTP 401/403 时续期**；流内业务码 `105`
@@ -521,7 +521,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 **排队重试只有共享层这一套**（本仓没有「渠道探测层」）：
 渠道只提供 `isQueueError` 判定（`packages/core/channels/qoder/src/upstream.ts:824-830`），
-退避与重开上游由 `packages/core/gateway/src/http/chat-attempt.ts:121-246` 承担 ——
+退避与重开上游由 `packages/core/gateway/src/http/chat/attempt.ts:121-246` 承担 ——
 单帧退避上限 **10 秒**、整个请求的排队等待**总预算 5 分钟**（见
 [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.4 与
 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5）。
@@ -536,7 +536,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 ⚠ **原描述 → 现在的行为**：原文档写「标记『该账号 + 该模型』到 **UTC+8 当日 24:00**，然后切换账号池下一个账号」
 —— **本仓没有按模型维度的额度标记，也没有 UTC+8 24:00 时刻**（那是**参考实现**的口径）；
 账号切换一律由用户手动完成（`mx acct <cid> use <key>`），网关**不自动切号**
-（`packages/core/gateway/src/http/chat-auth.ts:26-34` 的注释明写）。
+（`packages/core/gateway/src/http/chat/auth.ts:26-34` 的注释明写）。
 
 ---
 
@@ -762,7 +762,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 **modelmux 侧对应**：共享层默认静默 120s 会误杀这类「已收下但还在排」的请求
 （旧行为还会让探测层异常穿透成 500 `internal_error`，现归 502 `upstream_timeout`）。
 本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `packages/core/channels/qoder/src/upstream.ts:840-841`），网关等待首帧
-期间每 5 秒补 `: ping`（`packages/core/gateway/src/http/chat-stream.ts:52` 与 `packages/core/gateway/src/http/chat-stream.ts:157`）。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
+期间每 5 秒补 `: ping`（`packages/core/gateway/src/http/chat/stream.ts:52` 与 `packages/core/gateway/src/http/chat/stream.ts:157`）。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
 仍会在 900 秒后按超时收尾。
 
 ### 7.5 主机级故障与探测重试的主机轮换（2026-10-19 实测）
@@ -871,7 +871,7 @@ Reasonix CLI 直连网关（`qoder/deepseek-flash`，倍率 0.1）：
 
 ### 2026-10-20 归一化口径收敛后的端到端实测（共享层下沉后）
 
-本轮把通用 OpenAI 归一化下沉到共享层（`packages/core/gateway/src/http/openai-normalize.ts`），
+本轮把通用 OpenAI 归一化下沉到共享层（`packages/core/gateway/src/http/wire/openai-normalize.ts`），
 qoder 改用共享层实现（`max_completion_tokens` 口径与参考实现一致，思考链回填按
 `mirrorReasoning: false` + `requireExistingTrace: true`）。**请求体因此有变化**，已复验：
 

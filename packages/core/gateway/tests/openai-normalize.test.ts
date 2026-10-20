@@ -1,5 +1,5 @@
 /**
- * 通用 OpenAI 请求体归一化（`http/openai-normalize.ts`）。
+ * 通用 OpenAI 请求体归一化（`http/wire/openai-normalize.ts`）。
  *
  * 这些函数原先是 workbuddy / workbuddyai 两个渠道里**逐行重复**的私有副本；
  * 下沉到共享层后必须用单测把行为锁死 —— 归一化结果一旦漂移，上游会以
@@ -27,7 +27,7 @@ import {
   thinkingRequested,
   translateMaxCompletionTokens,
   type TextRewrite,
-} from "../dist/http/openai-normalize.js";
+} from "../dist/http/wire/openai-normalize.js";
 
 /** 把 `X` 换成 `Y` 的改写器（模拟内容审核改写）。 */
 const rewriteX: TextRewrite = (text) => {

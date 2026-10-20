@@ -9,9 +9,9 @@
  * 铁律：只在响应头发出前调用本模块的探测入口。
  */
 
-import { type Channel, type Credential, type StreamTranslator } from "../runtime/channel.js";
-import { inChannel } from "./chat-channel.js";
-import { asBuffer } from "./chat-stream.js";
+import { type Channel, type Credential, type StreamTranslator } from "../../runtime/channel.js";
+import { inChannel } from "./channel.js";
+import { asBuffer } from "./stream.js";
 
 /** 排队重试：单帧退避上限（上游给的 retryAfterSeconds 超过它就按这个等）。 */
 export const QUEUE_RETRY_MAX_DELAY_MS = 10_000;

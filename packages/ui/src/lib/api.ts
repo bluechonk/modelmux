@@ -29,7 +29,7 @@ import {
 
 /**
  * 后端基地址：单端口模式下 UI 挂在网关的 `/web` 前缀下，
- * 控制台 API 相应地位于 `/web/api/*`（见 `core/gateway/src/http/console.ts`）。
+ * 控制台 API 相应地位于 `/web/api/*`（见 `core/gateway/src/http/console/console.ts`）。
  *
  * 演示模式（GitHub Pages 静态部署）下不走这里 —— 见 `IS_DEMO`。
  */

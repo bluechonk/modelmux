@@ -9,11 +9,11 @@
  * 调用方（headless 的 bridge）负责提供实现。
  */
 
-import { channelCapabilities, channels, getChannel, hasChannel } from "../runtime/channel.js";
-import { runInChannel } from "../runtime/channel-context.js";
-import { POOL_MODELS, canonicalModelId, poolModelId, poolCandidates } from "../pool/pool-targets.js";
-import { ledgerSnapshot, refreshBilling, scoreOf } from "../pool/pool-usage.js";
-import { listAccounts, activateAccount, removeAccount, syncPool } from "../runtime/account-pool.js";
+import { channelCapabilities, channels, getChannel, hasChannel } from "../../runtime/channel.js";
+import { runInChannel } from "../../runtime/channel-context.js";
+import { POOL_MODELS, canonicalModelId, poolModelId, poolCandidates } from "../../pool/pool-targets.js";
+import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
+import { listAccounts, activateAccount, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { renderChannelPool } from "./web-types.js";
 import type { WebCommandBody, WebCommandResult, WebChannelStatus } from "./web-types.js";
 

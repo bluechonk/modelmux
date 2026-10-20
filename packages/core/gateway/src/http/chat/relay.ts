@@ -2,22 +2,22 @@
  * 聊天转发的编排层：请求解析 → 池路由 → 候选尝试 → 汇总错误。
  *
  * 本文件只留**编排**；成块的逻辑都在专职模块里：
- * `chat-request`（请求解析与校验）、`chat-route`（池路由）、`chat-attempt`（单候选尝试）、
- * `chat-forward`（转发层），以及 `chat-channel`/`chat-candidates`/`chat-errors`/
- * `chat-stream`/`chat-queue`/`chat-upstream`/`chat-auth`。
+ * `request`（请求解析与校验）、`route`（池路由）、`attempt`（单候选尝试）、
+ * `forward`（转发层），以及 `channel`/`candidates`/`errors`/
+ * `stream`/`queue`/`upstream`/`auth`。
  *
- * ⚠ 本文件不定义路由，只被 `gateway.ts` 的 `createHandler` 调用。
+ * ⚠ 本文件不定义路由，只被 `server.ts` 的 `createHandler` 调用。
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { type Channel } from "../runtime/channel.js";
-import { getRequestLog } from "../runtime/log-store.js";
-import type { GatewayOptions } from "./gateway.js";
-import { attemptCandidate, type ChatError } from "./chat-attempt.js";
-import { writeJsonError } from "./chat-errors.js";
-import { parseChatRequest } from "./chat-request.js";
-import { resolvePoolRoute } from "./chat-route.js";
+import { type Channel } from "../../runtime/channel.js";
+import { getRequestLog } from "../../runtime/log-store.js";
+import type { GatewayOptions } from "../server.js";
+import { attemptCandidate, type ChatError } from "./attempt.js";
+import { writeJsonError } from "./errors.js";
+import { parseChatRequest } from "./request.js";
+import { resolvePoolRoute } from "./route.js";
 
 /**
  * 渠道可显式加权 / 主机级隔离：探测重试前换一次候选主机。

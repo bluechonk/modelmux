@@ -11,14 +11,14 @@
 
 import type { ServerResponse } from "node:http";
 
-import { type Channel, type StreamTranslator } from "../runtime/channel.js";
-import { noteFirstByte, noteRequestError, noteUsage } from "../runtime/log-store.js";
-import { inChannel, isCustomWire } from "./chat-channel.js";
-import { writeJson, writeJsonError } from "./chat-errors.js";
-import { collectAsOpenAiSse, relayStream } from "./chat-stream.js";
-import type { ProbeFrames } from "./chat-queue.js";
-import type { UpstreamCall } from "./chat-upstream.js";
-import * as sseStream from "./sse-stream.js";
+import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
+import { noteFirstByte, noteRequestError, noteUsage } from "../../runtime/log-store.js";
+import { inChannel, isCustomWire } from "./channel.js";
+import { writeJson, writeJsonError } from "./errors.js";
+import { collectAsOpenAiSse, relayStream } from "./stream.js";
+import type { ProbeFrames } from "./queue.js";
+import type { UpstreamCall } from "./upstream.js";
+import * as sseStream from "../wire/sse-stream.js";
 
 /**
  * 转发响应时剔除的头：hop-by-hop 头，以及与本进程实际发出内容不一致的头。

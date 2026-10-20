@@ -9,11 +9,11 @@
  * 铁律：失败后保留凭据并如实报错，不替用户决定换哪个账号。
  */
 
-import { type Channel, type Credential } from "../runtime/channel.js";
-import { activeAccountIsError, markActiveHealth } from "../runtime/account-pool.js";
-import { logThrottled } from "../runtime/logger.js";
-import { inChannel } from "./chat-channel.js";
-import { openStream, type UpstreamCall } from "./chat-upstream.js";
+import { type Channel, type Credential } from "../../runtime/channel.js";
+import { activeAccountIsError, markActiveHealth } from "../../runtime/account-pool.js";
+import { logThrottled } from "../../runtime/logger.js";
+import { inChannel } from "./channel.js";
+import { openStream, type UpstreamCall } from "./upstream.js";
 
 /** 取上游流式响应的结果；把"调不动上游"的几种情形分开，好给出准确的错误语义。 */
 

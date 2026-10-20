@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { channelCount, channels, getChannel, type Channel } from "../runtime/channel.js";
 import { defaultAddr } from "../runtime/cli-consts.js";
-import * as gateway from "../http/gateway.js";
+import * as gateway from "../http/server.js";
 import * as paths from "../runtime/paths.js";
 import { baseUrlOf } from "../http/portfree.js";
 

@@ -8,7 +8,8 @@
  * runtime (0)   渠道 SDK：channel / paths / account-pool / secret-file / catalog-cache / cli-consts
  * pool  (1)     模型池与账本：pool-targets / pool-usage / model-pool
  * auth  (1)     登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
- * http  (2)     HTTP 层：gateway / chat-relay / console / sse-stream / portfree / web-*
+ * http  (2)     HTTP 层：server（网关入口）/ chat/（转发管线）/ wire/（SSE 与归一化）/
+ *               console/（控制台）/ portfree（端口自愈）
  * app   (3)     进程编排：commands（命令面）/ daemon / process / headless / supervisor / …
  * ```
  *

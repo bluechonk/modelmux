@@ -9,7 +9,7 @@
  * - 新：**不自动切号** —— 只「刷新 token → 用新 token 重试本账号」，仍失败则把该账号
  *   标 `unauthorized`、**凭证原样保留**，返回 502 `upstream_unauthenticated`，
  *   下一步由用户手动切号（`mx acct <cid> use <key>`）。
- *   依据：`src/http/chat-relay.ts:748-801`（`callUpstream` 的注释与分支）、
+ *   依据：`src/http/chat/relay.ts:748-801`（`callUpstream` 的注释与分支）、
  *   `src/runtime/account-pool.ts:494-505`（`pickAccount` 无自动切号的调用方）、
  *   `docs/POOL-ARCHITECTURE.md:308-316`（§3.3 明确「不自动切号」）。
  *
@@ -26,7 +26,7 @@ import { after, before, describe, it } from "node:test";
 
 import { activateAccount, captureActive, listAccounts } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
-import * as gateway from "../dist/http/gateway.js";
+import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
 const CID = "solo";
@@ -200,7 +200,7 @@ describe("账号池失败转移", () => {
     const { status, text } = await chat(gw.addr);
     // ⚠ 旧契约：换账号后应当成功（200 + "B 回答"）；
     //   新契约：**不自动切号** → 502 upstream_unauthenticated
-    //   （`src/http/chat-relay.ts:791-801`）。
+    //   （`src/http/chat/relay.ts:791-801`）。
     assert.equal(status, 502, "不自动切号 → 如实报错");
     assert.equal(
       (JSON.parse(text) as { error: { code: string } }).error.code,
@@ -240,7 +240,7 @@ describe("账号池失败转移", () => {
     const index = listAccounts(CID);
     assert.equal(index.active, keyA, "生效账号仍是 A");
     // ⚠ 连败口径：**一次鉴权失败记一次**连败（记账只在 `handleChat` 的 `auth_exhausted` 分支，
-    //   `src/http/chat-relay.ts` 的 `callUpstream` catch 里**不再重复记**）。
+    //   `src/http/chat/relay.ts` 的 `callUpstream` catch 里**不再重复记**）。
     //   第 2 次请求后 fail_streak=2 < `FAIL_STREAK_LIMIT=3`（`src/runtime/account-pool.ts:42`）
     //   → 仍是 `unauthorized`（**不是** `error`）；到第 3 次才标 `error`。
     assert.equal(
