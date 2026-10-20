@@ -285,7 +285,7 @@ export async function runLogin(options: {
 
   // 微信路径：渠道自己声明了 loginWechat 才能走（共享层不含渠道知识）
   if (wechat) {
-    const loginWechat = (cred as { loginWechat?: (baseUrl?: string, options?: Record<string, unknown>) => Promise<unknown> }).loginWechat;
+    const loginWechat = cred.loginWechat;
     if (!loginWechat) {
       console.error(`[login] channel ${target.config.cid} does not support --wechat login`);
       return 1;

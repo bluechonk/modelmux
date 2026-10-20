@@ -155,11 +155,6 @@ check(
   "pool-targets.ts: 共享层不得硬编码厂商模型名（模型只由各渠道 exposedIds() 提供）",
 );
 
-// 池白名单判据定义在共享层（渠道不得自行实现家族过滤，CONTRACT-TS §4）
-const modelFamily = read("packages/core/gateway/src/pool/model-family.ts");
-check(/FAMILY_ALLOWLIST/.test(modelFamily), "model-family.ts: 缺 FAMILY_ALLOWLIST（池白名单必须在共享层）");
-check(/REQUIRED_ALLOWLIST/.test(modelFamily), "model-family.ts: 缺 REQUIRED_ALLOWLIST（型号闸门必须在共享层）");
-
 if (failures.length > 0) {
   console.error(`✗ 工程契约校验失败（${failures.length} 项，渠道 ${channelDirs.length} 个 / 注册 ${registeredImports} 个）：`);
   for (const f of failures) console.error(`  - ${f}`);
@@ -167,5 +162,5 @@ if (failures.length > 0) {
 }
 console.log(
   `✓ 工程契约校验通过：${channelDirs.length} 个渠道（7 文件 + 依赖白名单 + cid 一致），` +
-    `bin 双名，工程引用对齐，POOL_MODELS 动态化，池白名单在共享层`,
+    `bin 双名，工程引用对齐，POOL_MODELS 动态化`,
 );

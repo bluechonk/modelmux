@@ -19,7 +19,7 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              account-pool / secret-file / catalog-cache / cli-consts /
 │       │              logger（日志节流）/ log-store（分层落盘）
 │       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
-│       │              model-pool（渠道内解析）/ model-family（当前未启用）
+│       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）
 │       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
 │       ├── http/      网关与转发：gateway / chat-relay / sse-stream / console /
 │       │              web-command-handler / portfree
@@ -261,12 +261,14 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   的上游（如 Qoder 排队/长思考，实测首字延迟 40–71s）；声明后首帧等待、空闲守卫
   与排队探测统一放宽，等待期网关向客户端补 `: ping` 心跳防空闲断连。
 
-**可选主机轮换钩子**（网关用鸭子类型调用，不实现即忽略）：
+**可选主机轮换钩子**（`UpstreamModule` 的**可选成员**，不实现即跳过）：
 
-- `chatHostCandidates()` / `setChatHostOverride(host)` / `currentChatHost()` / `rememberChatHost(host)`：
+- `chatHostCandidates()` / `setChatHostOverride(host)` / `currentChatHost()` / `rememberChatHost()`：
   多主机上游里个别主机对「200 后零字节 / 断流」是坏的，网关在探测层重试前换下一候选，
   成功后回写记忆。仅 custom 线型且签名不覆盖 host 的渠道适用（如 Qoder，见
   `docs/channels/qoder/PROTOCOL.md` §7.5）；标准 OpenAI 兼容渠道没有这个概念。
+  ⚠ `rememberChatHost` 的**实现是零参**（渠道自己取当前主机）；声明写成
+  `rememberChatHost?(host?: string)` 是为了兼容「零参实现」与「共享层带 host 传参」两种形态。
 
 **`WIRE` 怎么选**：
 
@@ -390,7 +392,8 @@ modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number 
 ```
 
 - `modelId` 是池 id 里的**规范模型名**（`exposedIds()` 经归一化后的结果）——
-  渠道内部负责把它映射到自己的条目（与 `rateTag()` 同一约定）。
+  渠道内部负责把它映射到自己的条目。
+  （倍率不走这里：倍率由目录条目的倍率字段汇聚成 `PoolModelMeta.multiplier`。）
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
 - **共享层在缓存缺值时才问渠道要规格**：先读该渠道的目录缓存

@@ -125,6 +125,25 @@ export interface CredModule {
   ): Promise<any>;
   refresh(c: any): Promise<any>;
   resolveBaseUrl(realm?: string): string;
+  /**
+   * 可选：渠道自带的**扫码登录**入口（与 `login` 并列的第二条登录路径）。
+   *
+   * 共享层只负责把界面回调（授权页 URL / 二维码图 / 状态 / 粘贴兜底）递进去，
+   * 不关心扫码协议本身 —— 渠道没声明本钩子时，CLI 的扫码登录参数直接报「不支持」。
+   *
+   * 参数与 `login` 的 options 同形，便于共享层用同一套界面回调驱动两条路径。
+   */
+  loginWechat?(
+    baseUrl?: string,
+    options?: {
+      onUrl?: (url: string) => void;
+      onStatus?: (msg: string) => void;
+      /** 二维码图片 URL（扫码必须用这一张）。 */
+      onQr?: (url: string) => void;
+      /** 取走用户粘回的回调链接。 */
+      pasteCode?: () => string | undefined;
+    },
+  ): Promise<any>;
 }
 
 /** 渠道 `upstream.ts` 需要提供的接口。 */
@@ -216,9 +235,41 @@ export interface UpstreamModule {
    * ⚠ 只在响应头发出前调用；返回 true 且已吐过字节时不会重试（避免重复内容）。
    */
   isQueueError?(frame: Record<string, unknown>): boolean;
+  /**
+   * 可选：候选**对话主机**清单（主机级故障切换用）。
+   *
+   * 有些上游是多主机部署，个别主机对「200 后零字节 / 断流」是坏的，换台机器就恢复。
+   * 网关的**探测重试**在失败后会换主机重开上游，未声明本钩子的渠道照旧原地重试。
+   *
+   * 返回**副本**语义由渠道保证（调用方会缓存并按序取用）。
+   */
+  chatHostCandidates?(): string[];
+  /**
+   * 可选：切换本次应答使用的对话主机（`null` = 回到默认 / 记忆中的主机）。
+   *
+   * 与 `chatHostCandidates` 配套：网关换主机时调用它，改写后续请求的落点。
+   */
+  setChatHostOverride?(host: string | null): void;
+  /**
+   * 可选：读取本次应答实际使用的主机。
+   *
+   * 网关用它记下「这条应答跑在哪台机器上」，换主机重试成功后据此回报。
+   */
+  currentChatHost?(): string;
+  /**
+   * 可选：换主机成功后把主机**持久化**（后续请求直接用这台，别再从坏机器开始）。
+   *
+   * 参数是网关观测到的主机（提示）；实现也可自行取当前主机。
+   */
+  rememberChatHost?(host?: string): void;
 }
 
-/** 渠道 `catalog.ts` 需要提供的接口。 */
+/**
+ * 渠道 `catalog.ts` 需要提供的接口。
+ *
+ * ⚠ **倍率不在这里**：消耗倍率统一走池层的 `PoolModelMeta.multiplier`
+ * （由各渠道目录里的倍率字段汇聚而来），目录模块不承担倍率文案职责。
+ */
 export interface CatalogModule {
   exposedIds(): string[];
   resolveModel(name: string): string;
@@ -237,13 +288,6 @@ export interface CatalogModule {
    *   必须知道到底成没成，而不是看到一张旧表还以为刷成功了。
    */
   refresh?(): Promise<void>;
-  /**
-   * 返回模型倍率展示文案（如 `"x2.0"`、`"免费"`），无倍率概念的渠道省略本方法。
-   *
-   * `modelId` 是对外暴露的 id（与 `exposedIds()` 返回值同形）。渠道内部负责把对外 id
-   * 映射到自己的条目并取出倍率——如需要先经 `resolveModel()` 映射到上游 slug 再查。
-   */
-  rateTag?(modelId: string): string;
   /**
    * 已知模型规格（上下文窗口 / 最大输出 token）。
    *
