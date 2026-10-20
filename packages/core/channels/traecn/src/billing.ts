@@ -31,11 +31,11 @@ import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
 /** 签到状态：POST `{ugHost}/trae/api/v2/ug/checkin_credits/status`（body `{}`）。 */
-export const CHECKIN_STATUS_PATH = "/trae/api/v2/ug/checkin_credits/status";
+const CHECKIN_STATUS_PATH = "/trae/api/v2/ug/checkin_credits/status";
 /** 签到领取：POST `{ugHost}/trae/api/v2/ug/checkin_credits/claim`（body `{}`，响应不含积分数）。 */
-export const CHECKIN_CLAIM_PATH = "/trae/api/v2/ug/checkin_credits/claim";
+const CHECKIN_CLAIM_PATH = "/trae/api/v2/ug/checkin_credits/claim";
 /** 权益包额度：POST `{ugHost}/trae/api/v2/pay/ide_user_ent_usage`（body `{require_usage, req_source}`）。 */
-export const USAGE_PATH = "/trae/api/v2/pay/ide_user_ent_usage";
+const USAGE_PATH = "/trae/api/v2/pay/ide_user_ent_usage";
 
 const HTTP_TIMEOUT_MS = 30_000;
 /** 设备级限流码（签到人数过多）。 */
@@ -47,7 +47,7 @@ export class CreditsError extends Error {
 }
 
 /** 一个权益包的额度明细。 */
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   remain: number;
   size: number;
@@ -58,7 +58,7 @@ export interface CreditPackage {
   [key: string]: unknown;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   account: { uid: string };
   /**
@@ -84,7 +84,7 @@ export interface CreditsResult {
   };
 }
 
-export interface CheckinState {
+interface CheckinState {
   checked_in: boolean;
   credits: number;
   enable: boolean;
@@ -121,7 +121,7 @@ function str(rec: Record<string, unknown>, ...keys: string[]): string {
  * `Authorization` 与对话同款（`Cloud-IDE-JWT`）；设备字段是**确定性派生**的，
  * 每个账号稳定唯一 —— 这正是「同一设备每天只能签一次」不被误伤的原因。
  */
-export function buildCheckinHeaders(c: cred.Credentials): Record<string, string> {
+function buildCheckinHeaders(c: cred.Credentials): Record<string, string> {
   const generation = c.checkinGeneration ?? 0;
   return {
     "Content-Type": "application/json",
@@ -199,7 +199,7 @@ async function handleDeviceRateLimit(c: cred.Credentials, env: Record<string, un
 }
 
 /** 查询签到状态。 */
-export async function checkinStatus(c?: cred.Credentials): Promise<CheckinState> {
+async function checkinStatus(c?: cred.Credentials): Promise<CheckinState> {
   const current = c ?? cred.load();
   const env = await postJson(CHECKIN_STATUS_PATH, {}, buildCheckinHeaders(current));
   const code = num(env, "code");
@@ -220,7 +220,7 @@ export async function checkinStatus(c?: cred.Credentials): Promise<CheckinState>
  * ⚠ claim 的 body 是 **`{}`**（不是 `{"req_source":2}`）；响应**不含积分数**，
  * 故领取后必须补查一次 `status` 才能拿到 `credits`。
  */
-export async function claimDaily(c?: cred.Credentials): Promise<{
+async function claimDaily(c?: cred.Credentials): Promise<{
   already: boolean;
   credits: number;
   streak_days: number;

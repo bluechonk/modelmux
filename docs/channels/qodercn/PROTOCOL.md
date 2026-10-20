@@ -29,6 +29,7 @@
 
 续期：`POST https://openapi.qoder.com.cn/api/v1/deviceToken/refresh`，body
 `{refresh_token, machine_id}`；**401/403 = 终态**（需重新登录），5xx/429/网络错误 = 可重试。
+续期请求**不带 `Authorization` 头**（只有 `content-type` / `accept` / `user-agent`）。
 续期响应**不含** `machine_id` / `uid` / `nickname`，必须从旧凭据保留。[代码]
 
 ### 1.1.1 粘贴兜底（设备码流没有本机回环）
@@ -67,8 +68,8 @@
 pending），再改成「带官方客户端真机身份」；在那之前保持不带（与 `qoder` 国际版渠道一致，
 见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
 
-实现见 `packages/core/channels/qodercn/src/cred.ts:451-556`（登录）、
-`:561-610`（续期）、`:221-230`（授权 URL）、`:173-183`（设备指纹派生）。
+实现见 `packages/core/channels/qodercn/src/cred.ts:446-555`（登录）、
+`:556-605`（续期）、`:221-229`（授权 URL）、`:173-190`（设备指纹派生）。
 
 ### 1.2 为什么不采纳另外两条
 
@@ -124,7 +125,7 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 
 ⚠ **模型目录是 GET，但必须真的带 body**（`qoder_encode("{}")`）参与签名，否则服务端
 校验签名与 body 不一致 → 403。WHATWG fetch 禁止 GET 带 body，故走 `node:https`
-（`packages/core/channels/qodercn/src/upstream.ts:610-641`）。[代码]
+（`packages/core/channels/qodercn/src/upstream.ts:634-661`）。[代码]
 
 ### 2.3 与国际版的逐项差异
 
@@ -195,13 +196,13 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 - 国际版则**必须**发真实 UMID 机器身份，否则活动列表为空
   （[qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §7.2）—— 两区策略不同，别互相照搬。
 
-实现见 `packages/core/channels/qodercn/src/billing.ts:99-113`。
+实现见 `packages/core/channels/qodercn/src/billing.ts:105-119`。
 
 ### 3.3 OpenAPI 业务请求（轮询 / 续期 / userinfo）
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 | --- | --- | --- | --- | --- |
-| `authorization` | `Bearer {token}`（userinfo / 续期用） | 是 | 换 token 时 | **轮询请求不带 Authorization**（设备流只有 nonce/verifier/challenge） |
+| `authorization` | `Bearer {token}`（**仅 userinfo 用**） | 是 | 换 token 时 | **轮询与续期请求都不带 Authorization**（轮询只有 nonce/verifier/challenge；续期只有 `content-type` / `accept` / `user-agent` 三个头，见 `packages/core/channels/qodercn/src/cred.ts:561-585`） |
 | `accept` | `application/json` | 否 | 常量 | |
 | `content-type` | `application/json`（续期） | 否 | 常量 | |
 | `user-agent` | `QoderWork/1.1.64` | 否 | 常量 | |
@@ -347,7 +348,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
    `qmodel_38max` 与 `qfmodel` `xhigh/low/medium`、`qmodel` / `q37fmodel` / `mmodel` 无档位），
    但上游对**不支持的档位不报错、直接忽略**（回落默认档），客户端会以为「档位没生效」。
    本渠道目前**原样透传** `reasoning_effort`
-   （`packages/core/channels/qodercn/src/upstream.ts:511-512`），
+   （`packages/core/channels/qodercn/src/upstream.ts:492-493`），
    归一化实现见参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`（思考档位归一段）。[参考]
 2. **`/sash/**` 的 `cosy-version` 取值未验证**：本渠道用 `1.1.64`
    （国内版客户端自身版本），参考实现给的是 `0.4.3`（hub）与 `0.4.4`（zheng）；
@@ -356,7 +357,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
    三个参考实现都用 `/api/v2/quota/usage` + 顶层 `userQuota` / `addOnQuota`
    （`qoderUsage` 这个键名在参考实现里零命中）。
 4. **`session_type` 的国内版取值无出处**：本渠道发 `qoder_work`
-   （`packages/core/channels/qodercn/src/upstream.ts:544`），
+   （`packages/core/channels/qodercn/src/upstream.ts:525`），
    但三个参考实现里分别是 `qodercli`（hub baseprompt）与 `qoder`（zheng baseprompt），
    `qoder_work` 只出现在本仓库自己的文档里。
 5. **模型目录的静态兜底为 14 条快照**（`packages/core/channels/qodercn/src/catalog.ts:114`）：

@@ -42,15 +42,15 @@ export const DISPLAY_NAME = "Raccoon";
 export const DEFAULT_BASE_URL = "https://xiaohuanxiong.com";
 
 /** 鉴权域前缀。 */
-export const AUTH_PREFIX = "/api/web/auth/v1";
+const AUTH_PREFIX = "/api/web/auth/v1";
 /** 推理域前缀。 */
-export const LLM_PREFIX = "/api/web/llm/v2";
+const LLM_PREFIX = "/api/web/llm/v2";
 /** 积分域前缀。 */
-export const POINTS_PREFIX = "/api/web/points/v1";
+const POINTS_PREFIX = "/api/web/points/v1";
 /** 桌面端域前缀。 */
-export const DESKTOP_PREFIX = "/api/web/desktop/v1";
+const DESKTOP_PREFIX = "/api/web/desktop/v1";
 /** 办公端域前缀（每日积分触发器挂在这里）。 */
-export const OFFICE_PREFIX = "/api/web/office/v3";
+const OFFICE_PREFIX = "/api/web/office/v3";
 
 /**
  * 授权码换凭证（网页登录第二步）。
@@ -59,7 +59,7 @@ export const OFFICE_PREFIX = "/api/web/office/v3";
  * - 端点路径：`/api/web/auth/v1/login_with_authorization_code`
  * - body：`{authorization_code}`；失败业务码 `200035`（码已失效/已消费，终态）
  */
-export const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
+const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
 /**
  * 续期。
  * - 方法：POST
@@ -67,7 +67,7 @@ export const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
  * - 端点路径：`/api/web/auth/v1/refresh`
  * - body：`{refresh_token}`；响应可能只给新的 access_token（此时**保留旧 refresh_token**）
  */
-export const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
+const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
 /**
  * 用户信息（只用于昵称/手机号展示，失败不阻塞）。
  * - 方法：GET
@@ -75,14 +75,7 @@ export const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
  * - 端点路径：`/api/web/auth/v1/user_info`
  * - query：无
  */
-export const USER_INFO_PATH = `${AUTH_PREFIX}/user_info`;
-/**
- * 续期的**桌面端备份前缀**：`{基址}/api/electron/auth/v1/refresh`。
- *
- * `[参考]` `reference/raccoon2api/README.md:86-91` 记录了这条等价路径；
- * **本仓未实测**，只作记录 —— 换码与续期一律走 web 面（`AUTH_PREFIX`）。
- */
-export const ELECTRON_AUTH_PREFIX = "/api/electron/auth/v1";
+const USER_INFO_PATH = `${AUTH_PREFIX}/user_info`;
 /**
  * 对话。
  * - 方法：POST
@@ -90,7 +83,7 @@ export const ELECTRON_AUTH_PREFIX = "/api/electron/auth/v1";
  * - 端点路径：`/api/web/llm/v2/chat/completions`
  * - 必需 query：无
  */
-export const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
+const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
 /**
  * 模型目录。
  * - 方法：GET
@@ -98,7 +91,7 @@ export const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
  * - 端点路径：`/api/web/llm/v2/model_catalog`
  * - 必需 query：无
  */
-export const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
+const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
 /**
  * 积分余额（**只读**）。
  * - 方法：GET
@@ -106,7 +99,7 @@ export const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
  * - 端点路径：`/api/web/points/v1/balance`
  * - query：无
  */
-export const BALANCE_PATH = `${POINTS_PREFIX}/balance`;
+const BALANCE_PATH = `${POINTS_PREFIX}/balance`;
 /**
  * 积分账单。
  * - 方法：GET
@@ -114,9 +107,9 @@ export const BALANCE_PATH = `${POINTS_PREFIX}/balance`;
  * - 端点路径：`/api/web/points/v1/bills`
  * - query：`paging.limit` / `paging.offset`（分页；参考实现用 20，本仓用 50）
  */
-export const BILLS_PATH = `${POINTS_PREFIX}/bills`;
+const BILLS_PATH = `${POINTS_PREFIX}/bills`;
 /** 账单分页条数（参考实现用 20，本仓用 50）。 */
-export const BILLS_LIMIT = 50;
+const BILLS_LIMIT = 50;
 /**
  * 桌面端登录奖励（**一次性幂等**，不是每日签到）。
  * - 方法：POST
@@ -124,7 +117,7 @@ export const BILLS_LIMIT = 50;
  * - 端点路径：`/api/web/desktop/v1/login/points/grant`
  * - body：无；**需 `X-Client-Platform` 头**
  */
-export const LOGIN_GRANT_PATH = `${DESKTOP_PREFIX}/login/points/grant`;
+const LOGIN_GRANT_PATH = `${DESKTOP_PREFIX}/login/points/grant`;
 /**
  * 每日积分触发器（**按天幂等**，发放由服务端完成；账单才是入账的权威判据）。
  * - 方法：GET
@@ -132,13 +125,13 @@ export const LOGIN_GRANT_PATH = `${DESKTOP_PREFIX}/login/points/grant`;
  * - 端点路径：`/api/web/office/v3/setting_info`
  * - query：无；**需 `X-Client-Platform` 头**
  */
-export const SETTING_INFO_PATH = `${OFFICE_PREFIX}/setting_info`;
+const SETTING_INFO_PATH = `${OFFICE_PREFIX}/setting_info`;
 
 /** 授权码失效 / 已消费（换码时按终态处理）。 */
 export const AUTHORIZATION_CODE_NOT_FOUND = 200035;
 
 /** 客户端身份（`X-Client-Platform` 猜错会被拒）。 */
-export const CLIENT_PLATFORM = "desktop-windows";
+const CLIENT_PLATFORM = "desktop-windows";
 export const USER_AGENT = "Raccoon Work/1.0.35 (Windows)";
 
 /** 上游线型：标准 OpenAI 兼容 SSE，网关只需规范化透传。 */
@@ -152,12 +145,12 @@ export class UpstreamUnauthorized extends Error {
 }
 
 /** 描述如何到达 Raccoon 端点。 */
-export interface Config {
+interface Config {
   baseUrl: string;
 }
 
 /** 凭据的最小面（避免 upstream ↔ cred 循环依赖）。 */
-export interface AuthLike {
+interface AuthLike {
   accessToken: string;
   officeIdentity: string;
 }
@@ -171,7 +164,7 @@ export function defaultConfig(): Config {
  *
  * 描述符由共享层在登录成功后落盘（`saveConfig`），内容只有 baseUrl。
  */
-export function persistedBaseUrl(): string {
+function persistedBaseUrl(): string {
   let raw: string;
   try {
     raw = readFileSync(upstreamPath(), "utf8");
@@ -289,7 +282,7 @@ export function settingInfoUrl(override?: string): string {
 
 // ── 请求头（三种形态）─────────────────────────────────────────────────────────
 
-export interface HeaderOptions {
+interface HeaderOptions {
   /** 带 `Content-Type: application/json`（有 body 时）。 */
   jsonBody?: boolean;
   /** 带 `X-Client-Platform`（grant 必需；对话也有）。 */
@@ -323,7 +316,7 @@ export function buildHeaders(credential: AuthLike, opts: HeaderOptions = {}): Re
 }
 
 /** 探活/管理端点用的头（JSON Accept，无 platform）。 */
-export function jsonHeaders(credential: AuthLike): Record<string, string> {
+function jsonHeaders(credential: AuthLike): Record<string, string> {
   return {
     Accept: "application/json",
     Authorization: `Bearer ${credential.accessToken}`,
@@ -347,7 +340,7 @@ function isSystemMessage(msg: unknown): boolean {
 }
 
 /** `system` 提示词提升为 `messages[0]`（多条字符串内容用 `\n\n` 合并）。 */
-export function hoistSystemMessages(messages: unknown[]): unknown[] {
+function hoistSystemMessages(messages: unknown[]): unknown[] {
   const systems = messages.filter(isSystemMessage);
   if (systems.length === 0) return [...messages];
   const contents = systems.map((m) => (m as Record<string, unknown>)["content"]);
@@ -372,7 +365,7 @@ function thinkingType(value: unknown): string {
  * （`off`/`none`/`disabled`/`false` → `disabled`，其余任何值 → `enabled`）。
  * 三处都没有 → **不发该字段**（服务端默认 = 开启，实测与显式 enabled 等价）。
  */
-export function resolveThinkingType(req: Record<string, unknown>): string {
+function resolveThinkingType(req: Record<string, unknown>): string {
   const explicit = thinkingType(isRecord(req["extra_body"]) ? req["extra_body"]["thinking"] : undefined);
   if (explicit) return explicit;
   const topLevel = thinkingType(req["thinking"]);
@@ -388,7 +381,7 @@ export function resolveThinkingType(req: Record<string, unknown>): string {
 }
 
 /** `max_tokens` 只放行安全正整数；其余**删掉该键**（远端输入不能崩掉整轮对话）。 */
-export function sanitizeMaxTokens(value: unknown): number | undefined {
+function sanitizeMaxTokens(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   const n = Math.trunc(value);
   return n > 0 ? n : undefined;
@@ -469,29 +462,6 @@ export async function fetchModels(credential: AuthLike): Promise<Record<string, 
   return record;
 }
 
-/** 探活：拉一次用户信息（`syncProfile` 之外的管理路径也用得上）。 */
-export async function fetchMe(credential: AuthLike): Promise<Record<string, unknown>> {
-  let resp: Response;
-  try {
-    resp = await fetch(userInfoUrl(), {
-      headers: jsonHeaders(credential),
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new Error(`User info request failed: ${String(err)}`);
-  }
-  if (resp.status === 401 || resp.status === 403) {
-    throw new UpstreamUnauthorized(`Raccoon rejected the access token (HTTP ${resp.status})`);
-  }
-  if (resp.status !== 200) throw new Error(`User info returned HTTP ${resp.status}`);
-  const payload = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
-  const code = typeof payload["code"] === "number" ? payload["code"] : 0;
-  if (isAuthFailure(resp.status, code)) {
-    throw new UpstreamUnauthorized(`Raccoon session expired (code=${code})`);
-  }
-  return isRecord(payload["data"]) ? (payload["data"] as Record<string, unknown>) : {};
-}
-
 /**
  * 从模型载荷推导连接配置。Raccoon 端点固定（保留本函数是为了契约一致）。
  */
@@ -500,7 +470,7 @@ export function resolveConfig(_data: Record<string, unknown>, fallback?: Config)
 }
 
 /** 翻译器接口（`WIRE === "openai"` 时网关不会调用，导出仅为契约一致）。 */
-export interface StreamTranslator {
+interface StreamTranslator {
   feed(chunk: Buffer): Array<Buffer | string>;
   finish(): Array<Buffer | string>;
 }

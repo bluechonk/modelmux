@@ -11,7 +11,7 @@
  *    官方桌面端的 `login_source=desktop` + `office-raccoon://` 自定义协议作为兼容
  *    路径保留（本进程注册不了协议，浏览器没有桌面客户端时不会跳转）。
  *    ⚠ 别用 `/login/mp?code=…`：它只给官方手机 App 扫码用，网页端是死链。
- * 2. **短信登录已移除**（协议事实留在 PROTOCOL.md §2.5/§2.6，**无实现路径**）：
+ * 2. **短信登录已移除**（协议事实留在 FINDINGS.md，**无实现路径**）：
  *    零实测记录、结构上跑不通（`captcha_param` 在本仓拿不到）、
  *    三份参考实现零背书、历史唯一的「验证」是本机假服务替身。
  * 3. **过期时间取值优先级**：`expires_at`（显式）→ **JWT 的 `exp`**（本地 base64url
@@ -51,30 +51,23 @@ import {
 /** 接口基址（端点表在 `upstream.ts`；框架按 `cred.DEFAULT_BASE_URL` 取值）。 */
 export { DEFAULT_BASE_URL } from "./upstream.js";
 
-/**
- * access_token 寿命约 3 小时（实测 `exp - nbf = 10805s`）。
- *
- * ⚠ 当前**没有**临期主动刷新（只在 401/403 时续期），本常量只作寿命记录。
- */
-export const TOKEN_REFRESH_WINDOW_SECONDS = 300;
-
-/** 等待用户完成网页登录的时限。 */
-export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
-
 // ── 网页登录（授权码）常量 ────────────────────────────────────────────────────
 
+/** 等待用户完成网页登录的时限。 */
+const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** 授权页路径（官方桌面端同款）。 */
-export const AUTHORIZE_PATH = "/code/authorize";
+const AUTHORIZE_PATH = "/code/authorize";
 /** 官方桌面端上报的登录来源。 */
-export const AUTHORIZE_LOGIN_SOURCE = "desktop";
+const AUTHORIZE_LOGIN_SOURCE = "desktop";
 /** 官方桌面端上报的客户端名（**不是** 网站自己的「小浣熊官网」）。 */
-export const AUTHORIZE_APPNAME = "办公小浣熊客户端";
+const AUTHORIZE_APPNAME = "办公小浣熊客户端";
 /** 回调深链（官方客户端注册的自定义协议；作为兼容路径保留）。 */
-export const CALLBACK_SCHEME = "office-raccoon";
-export const CALLBACK_HOST = "auth";
-export const CALLBACK_PATH = "/callback";
+const CALLBACK_SCHEME = "office-raccoon";
+const CALLBACK_HOST = "auth";
+const CALLBACK_PATH = "/callback";
 /** 本地 HTTP 回调路径（非 desktop 授权页把 authorization_code 拼到这里）。 */
-export const LOCAL_CALLBACK_PATH = "/callback";
+const LOCAL_CALLBACK_PATH = "/callback";
 
 const HTTP_TIMEOUT_MS = 60_000;
 const NOT_LOGGED_IN_MSG = "No usable credential found, run `raccoon login` first";
@@ -88,7 +81,7 @@ export class NotLoggedInError extends Error {
 }
 
 /** 登录态已过期（终态，重试无用，必须重新登录）。 */
-export class RefreshTokenExpiredError extends Error {
+class RefreshTokenExpiredError extends Error {
   override name = "RefreshTokenExpiredError";
 }
 
@@ -110,7 +103,7 @@ export interface Credentials {
   readonly source: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
+const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   refreshToken: "",
   uid: "",
@@ -131,14 +124,14 @@ const str = sharedLogin.str;
 const nowIso = sharedLogin.nowIso;
 
 /** 生成 32 位 hex 设备指纹 / 扫码 code（转发共享层原语）。 */
-export function randomHex32(): string {
+function randomHex32(): string {
   return sharedLogin.randomHex(16);
 }
 
 // ── JWT / 过期判定 ────────────────────────────────────────────────────────────
 
 /** 解码 JWT 载荷（**只解码不验签**；转发共享层原语）。 */
-export function decodeJwtPayload(token: string): Record<string, unknown> {
+function decodeJwtPayload(token: string): Record<string, unknown> {
   return sharedLogin.decodeJwtPayload(token);
 }
 
@@ -159,7 +152,7 @@ export function decodeJwtPayload(token: string): Record<string, unknown> {
  * 才是用户 id 之前不做换算（换错了比空值更难排查）`[推断]`。
  * 真机确认见 PROTOCOL.md「已知边界」的待验证项。
  */
-export function jwtSubject(token: string): string {
+function jwtSubject(token: string): string {
   const claims = decodeJwtPayload(token);
   for (const key of ["sub", "iss", "user_id", "userId", "uid"]) {
     const value = claims[key];
@@ -173,17 +166,12 @@ export function jwtSubject(token: string): string {
  * 过期时刻（毫秒）：**显式 `expires_at` 优先，其次 JWT 的 `exp`**。
  * 都无法解析时返回 null（**不编造**）。转发共享层原语。
  */
-export function expiresAtMs(c: Credentials): number | null {
+function expiresAtMs(c: Credentials): number | null {
   const explicit = Number.parseInt(c.expiresAt || "0", 10);
   return sharedLogin.resolveExpiresAtMs(
     Number.isFinite(explicit) && explicit > 0 ? explicit : undefined,
     c.accessToken,
   );
-}
-
-/** 是否已过期（`expires_at` 缺失时回退 JWT `exp`；都未知则保守 false）。 */
-export function isExpired(c: Credentials, leadSeconds = 0): boolean {
-  return sharedLogin.isExpiredAt(expiresAtMs(c), leadSeconds * 1000);
 }
 
 // ── 业务信封 ──────────────────────────────────────────────────────────────────
@@ -194,7 +182,7 @@ export function isExpired(c: Credentials, leadSeconds = 0): boolean {
  *
  * ⚠ 失败可能带 HTTP 400/401，也可能 HTTP 200 + 非 0 code。
  */
-export function envelopeCode(payload: unknown, status: number): number {
+function envelopeCode(payload: unknown, status: number): number {
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
     const code = (payload as Record<string, unknown>)["code"];
     if (typeof code === "number" && Number.isFinite(code)) return code;
@@ -271,7 +259,7 @@ async function apiCall(
 
 // ── 网页登录（授权码） ────────────────────────────────────────────────────────
 
-export interface LoginOptions {
+interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
   /**
@@ -289,7 +277,7 @@ export interface LoginOptions {
 }
 
 /** 一次登录的 state（32 位 hex）；回调时逐字比对，防「别人的 code 换进你的账号」。 */
-export function newLoginState(): string {
+function newLoginState(): string {
   return randomHex32();
 }
 
@@ -305,7 +293,7 @@ export function newLoginState(): string {
  * ⚠ 不要用 `/login/mp?code=…`：那条只给**官方手机 App 扫码**用，网页端没有该路由，
  * 浏览器打开是死链（真机踩过，见 docs/channels/raccoon/PROTOCOL.md §2.4）。
  */
-export function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
+function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
   const url = new URL(AUTHORIZE_PATH, channelBaseUrl({ override: baseOverride }));
   url.searchParams.set("appname", AUTHORIZE_APPNAME);
   url.searchParams.set("state", state);
@@ -318,11 +306,11 @@ export function authorizeUrl(state: string, baseOverride?: string, redirectUri?:
 }
 
 /** 回调 URL 不合法（协议/主机/路径不对、缺 code、state 不匹配）。 */
-export class LoginCallbackError extends Error {
+class LoginCallbackError extends Error {
   override name = "LoginCallbackError";
 }
 
-export interface LoginCallback {
+interface LoginCallback {
   code: string;
   /** 是否逐字校验过 state（裸 code 兜底路径与「回调没带 state」均为 false）。 */
   stateVerified: boolean;
@@ -337,7 +325,7 @@ export interface LoginCallback {
  * state 的处置：带且不等 → 拒绝；没带 → 放行但标记未校验。兜底：整段文本不是 URL
  * 但像授权码时按裸 code 处理（stateVerified=false）。
  */
-export function parseLoginCallback(raw: string, expectedState = ""): LoginCallback {
+function parseLoginCallback(raw: string, expectedState = ""): LoginCallback {
   const text = (raw ?? "").trim();
   if (!text) throw new LoginCallbackError("empty callback");
   let url: URL;
@@ -384,7 +372,7 @@ export function parseLoginCallback(raw: string, expectedState = ""): LoginCallba
 }
 
 /** 本地回调服务器：登录完成后浏览器跳回这里，CLI 自动收授权码。 */
-export interface LoginCallbackServer {
+interface LoginCallbackServer {
   port: number;
   result: Promise<LoginCallback>;
   close: () => Promise<void>;
@@ -396,7 +384,7 @@ export interface LoginCallbackServer {
  * 只接受 `/callback?authorization_code=…&state=…`；state 必须逐字匹配。
  * 成功页直接返回「登录成功」，浏览器可关闭；授权码不打印到 stdout。
  */
-export function startLoginCallbackServer(
+function startLoginCallbackServer(
   state: string,
   timeoutMs = LOGIN_TIMEOUT_MS,
 ): Promise<LoginCallbackServer> {
@@ -772,7 +760,7 @@ function readDiskCredentials(): Credentials | null {
 // ── 用户信息 ──────────────────────────────────────────────────────────────────
 
 /** 用户信息（**失败返回空对象而不是抛错**：只用于昵称展示）。 */
-export async function fetchUserInfo(
+async function fetchUserInfo(
   c: Credentials,
   baseOverride?: string,
 ): Promise<Record<string, unknown>> {
@@ -786,27 +774,6 @@ export async function fetchUserInfo(
   } catch {
     return {};
   }
-}
-
-/**
- * 昵称修复（启动时主动补一次）：**幂等**，已有 `phone` 就不再拉；
- * **不发写请求**（只 GET user_info），失败不阻塞启动。
- */
-export async function syncProfile(c: Credentials, baseOverride?: string): Promise<Credentials> {
-  if (c.phone) return c; // 已有 phone → 不再请求（幂等）
-  const info = await fetchUserInfo(c, baseOverride);
-  const phone = str(info["phone"]);
-  const name = str(info["name"]);
-  if (!phone && !name) return c;
-  const next: Credentials = {
-    ...c,
-    phone: phone || c.phone,
-    nickname: c.nickname || name, // 不覆盖已有昵称
-    officeIdentity: c.officeIdentity || str(info["office_identity"]),
-    uid: c.userId || phone || c.phone,
-  };
-  await save(next);
-  return next;
 }
 
 // ── 凭据落盘 ──────────────────────────────────────────────────────────────────

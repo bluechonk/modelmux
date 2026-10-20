@@ -36,7 +36,7 @@ import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux
  */
 
 /** 一条目录条目。 */
-export interface ModelEntry {
+interface ModelEntry {
   id: string;
   name: string;
   /** 上下文窗口；兜底表统一填 131072（**桥接层估计值，非逐个实测**）。 */
@@ -101,7 +101,7 @@ const FALLBACK: readonly string[] = [
 ];
 
 /** 兜底上下文窗口估计值（统一填，非逐个实测）。 */
-export const FALLBACK_CONTEXT_WINDOW = 131_072;
+const FALLBACK_CONTEXT_WINDOW = 131_072;
 
 /**
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
@@ -170,7 +170,7 @@ export function modelSpec(
 }
 
 /** 兜底条目（id 与展示名相同）。 */
-export const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK.map((id) => ({
+const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK.map((id) => ({
   id,
   name: id,
   context_window: FALLBACK_CONTEXT_WINDOW,
@@ -313,17 +313,6 @@ export function setRemoteModels(entries: readonly ModelEntry[]): void {
   if (entries.length > 0) writeCatalogCache(entries);
 }
 
-/** 当前远端缓存（磁盘缓存的也算）；都没有时返回 null。 */
-export function remoteModels(): ModelEntry[] | null {
-  ensureCachedModels();
-  return remoteCache ? [...remoteCache] : null;
-}
-
-/** 清空远端缓存（供测试与「刷新目录」用）。 */
-export function resetRemoteCache(): void {
-  remoteCache = null;
-}
-
 /**
  * 强制从上游重拉目录并落盘（CLI `--refresh` / `model refresh`）。
  *
@@ -346,7 +335,7 @@ export async function refresh(): Promise<void> {
 }
 
 /** 当前生效的目录：远端优先，未拉到时用兜底表。 */
-export function entries(): ModelEntry[] {
+function entries(): ModelEntry[] {
   ensureCachedModels();
   return remoteCache && remoteCache.length > 0 ? [...remoteCache] : [...FALLBACK_MODELS];
 }
@@ -386,9 +375,4 @@ export function reasoningEffortWire(model: string, level: string): string {
   const mapped = entry?.efforts_wire?.[level];
   if (mapped) return mapped;
   return level === "max" ? "xhigh" : level;
-}
-
-/** 详情列表（状态页 / 调试用）。 */
-export function details(): Array<Record<string, unknown>> {
-  return entries().map((entry) => ({ ...entry }));
 }

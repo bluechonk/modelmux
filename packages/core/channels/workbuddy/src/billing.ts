@@ -22,7 +22,7 @@ export class CreditsError extends Error {
 }
 
 /** 一个套餐包的额度明细。 */
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   product: string;
   remain: number;
@@ -35,7 +35,7 @@ export interface CreditPackage {
   in_usage: boolean;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   account: { uid: string; domain: string };
   total: {
@@ -249,7 +249,7 @@ export async function fetchCredits(options: { refreshOn401?: boolean; credential
 const DAILY_CHECKIN_PATH = "/v2/billing/meter/daily-checkin";
 
 /** 一次签到的结果。 */
-export interface CheckinResult {
+interface CheckinResult {
   checkedIn: boolean;
   /** 上游幂等拒绝（今天已签）时为 true。 */
   already: boolean;
@@ -262,7 +262,7 @@ export interface CheckinResult {
  * 参考实现实测（2026-09-28，CN 与 global 同形）：已签到时上游业务码非 0，
  * 按「幂等成功」处理而不是报错；其余业务码如实抛 CreditsError。
  */
-export async function dailyCheckin(): Promise<CheckinResult> {
+async function dailyCheckin(): Promise<CheckinResult> {
   const c = cred.load(); // 未登录 → NotLoggedInError
 
   let cfg: upstream.Config;

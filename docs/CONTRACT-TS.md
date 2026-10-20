@@ -551,6 +551,29 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 - **PID mtime 锚点不变**：`stale-build` 读的仍是 `gateway.pid` 的 mtime——它由
   `start` 亲手写（≈ start 时刻），worker 由监督者重生**不更新**它，判定语义不受影响。
 
+### 8.4 已知问题：全局 bundle 里的随包 models.json 快照**不生效**
+
+渠道 catalog 有两级目录来源：**远端目录**（`<cid>/cache/models.json`）与
+**随包快照**（渠道包根 `models.json`，未登录 / 上游拉不到时的兜底）。
+`packages/cli/scripts/bundle.mjs` 声称用 esbuild 插件把快照内联进单文件产物，
+**但插件永不触发**：
+
+- 插件的 `onResolve({ filter: /\.json$/ })` 只拦**静态 import 的 .json**；
+  而渠道是在**运行时** `readFileSync(join(import.meta.url, "..", "..", "models.json"))` 读盘。
+  全仓没有任何 `.json` 的 import 语句 → 插件没有命中点。
+- 实证：`packages/cli/dist/cli.bundle.js` 里 workbuddy 快照的特征字段计数为 0；
+  bundle 运行时 `import.meta.url` 指向 `packages/cli/dist/`，其上两级是 `packages/`，
+  **没有** `models.json` → 全局 `mx` 下随包兜底失效（开发树与单渠道 bin 不受影响，
+  它们各自包根就有快照）。
+
+**影响**：仅当「上游不可达 **且** 未登录」时，loomy / traecn / workbuddy / workbuddyai
+四个带快照的渠道会少显示随包兜底模型（实测 lobsterai 曾因此只显示 1 条、真实 8 条）。
+
+**修法方向**（未实施）：随包快照是**构建产物**，落点应由共享层按 `cid` 推导
+（与 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) 的落点纪律一致），
+由 bundle 步骤把各渠道快照复制到**运行时可见**的位置，而不是指望 esbuild 插件拦截运行时读盘。
+**在修好之前，不要把「插件已内联快照」当成既成事实。**
+
 ---
 
 ## 9. CLI 命令形态（动词优先）

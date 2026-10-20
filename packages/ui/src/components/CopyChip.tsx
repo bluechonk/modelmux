@@ -1,3 +1,9 @@
+/**
+ * 可复制 chip：显示 `display`，点击复制 `value`（完整调用名），复制后短暂显示对勾。
+ *
+ * `badge` 渲染在 chip 内部右侧（倍率 / 营销角标），让一行信息收进一个胶囊。
+ */
+
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";

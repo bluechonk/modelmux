@@ -31,34 +31,23 @@ import * as upstream from "./upstream.js";
 import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
-export const EFFORT_VOCABULARY = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-
-/** 档位 id → 中文展示名。 */
-export const EFFORT_NAMES: Record<string, string> = {
-  none: "关闭思考",
-  minimal: "最小",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "极高",
-  max: "最大",
-};
+const EFFORT_VOCABULARY = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 /** 本插件自己的默认档（**不采信**远端的 `default_reasoning_effort`）。 */
-export const DEFAULT_EFFORT = "high";
+const DEFAULT_EFFORT = "high";
 
 /** 档位排序（用于挑「最接近 high」的档位）。 */
 const EFFORT_RANK: string[] = [...EFFORT_VOCABULARY];
 
 /** 兜底表的档位（8 条全部相同）。 */
-export const FALLBACK_EFFORTS = ["none", "low", "medium", "high", "xhigh"];
+const FALLBACK_EFFORTS = ["none", "low", "medium", "high", "xhigh"];
 
 /** 远端目录成功结果的缓存时长。 */
 const REMOTE_TTL_MS = 5 * 60 * 1000;
 /** 远端失败/空结果的冷却时长。 */
 const REMOTE_FAIL_COOLDOWN_MS = 30 * 1000;
 
-export interface FallbackModel {
+interface FallbackModel {
   id: string;
   name: string;
   contextWindow: number;
@@ -74,7 +63,7 @@ export interface FallbackModel {
  * `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144。
  * 本表**先采信远端**；若实测长上下文被拒，改为 262144。
  */
-export const FALLBACK_MODELS: FallbackModel[] = [
+const FALLBACK_MODELS: FallbackModel[] = [
   { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash · x2.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731 · x3.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "MiniMax-M3", name: "MiniMax M3 · x4.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
@@ -88,7 +77,7 @@ export const FALLBACK_MODELS: FallbackModel[] = [
 
 const FALLBACK_BY_ID = new Map(FALLBACK_MODELS.map((m) => [m.id, m]));
 
-export interface CatalogEntry {
+interface CatalogEntry {
   id: string;
   name: string;
   rate: string;
@@ -149,13 +138,6 @@ let refreshAttempted = false;
 let remoteCache: { entries: CatalogEntry[]; version: string; at: number } | null = null;
 let refreshing = false;
 
-/** 仅供测试：清空缓存。 */
-export function clearCache(): void {
-  snapshot = null;
-  remoteCache = null;
-  upstream.clearModelEfforts();
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -179,7 +161,7 @@ const TRAILING_PAREN_RATE = /^(.*?)\s*[（(]\s*(x\s*[\d.]+)\s*[)）]\s*$/i;
 const NORMALIZED_RATE = /^(.*?)\s*·\s*(x\s*[\d.]+)\s*$/i;
 
 /** 拆分末尾倍率 → `[主体, 倍率]`（无倍率时倍率为空串）。 */
-export function splitRate(name: string): [string, string] {
+function splitRate(name: string): [string, string] {
   const paren = TRAILING_PAREN_RATE.exec(name);
   if (paren?.[1]?.trim()) return [paren[1].trim(), paren[2]!.replace(/\s+/g, "")];
   const normalized = NORMALIZED_RATE.exec(name);
@@ -189,7 +171,7 @@ export function splitRate(name: string): [string, string] {
 }
 
 /** 展示名：`{name} · {rate}`（无倍率时不追加分隔符）；幂等。 */
-export function displayName(name: string): string {
+function displayName(name: string): string {
   const [base, rate] = splitRate(name);
   return rate ? `${base} · ${rate}` : name;
 }
@@ -197,7 +179,7 @@ export function displayName(name: string): string {
 // ── 远端解析 ──────────────────────────────────────────────────────────────────
 
 /** 清洗远端档位：只留词表内的字符串、去重、保持顺序。 */
-export function cleanEfforts(raw: unknown): string[] {
+function cleanEfforts(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const out: string[] = [];
   for (const item of raw) {
@@ -210,7 +192,7 @@ export function cleanEfforts(raw: unknown): string[] {
 }
 
 /** 默认档必须落在该模型的 efforts 内；efforts 为空时退回 `high`。 */
-export function pickDefaultEffort(efforts: string[]): string {
+function pickDefaultEffort(efforts: string[]): string {
   if (efforts.length === 0) return DEFAULT_EFFORT;
   if (efforts.includes(DEFAULT_EFFORT)) return DEFAULT_EFFORT;
   const highRank = EFFORT_RANK.indexOf(DEFAULT_EFFORT);
@@ -235,7 +217,7 @@ export function pickDefaultEffort(efforts: string[]): string {
  * 上游新旧格式由 `parseModelsResponse()` 统一收敛：旧格式读 `data.models`（包在信封里），
  * 新格式读顶层 `data` 数组。本函数只见模型数组，不感知信封。
  */
-export function parseRemoteModels(models: unknown[]): CatalogEntry[] {
+function parseRemoteModels(models: unknown[]): CatalogEntry[] {
   const entries: CatalogEntry[] = [];
   if (!Array.isArray(models)) return entries;
 
@@ -277,7 +259,7 @@ export function parseRemoteModels(models: unknown[]): CatalogEntry[] {
 }
 
 /** 兜底条目（每次现算，永不被当成「已加载的远端目录」）。 */
-export function fallbackEntries(): CatalogEntry[] {
+function fallbackEntries(): CatalogEntry[] {
   return FALLBACK_MODELS.map((m) => {
     const rate = splitRate(m.name)[1];
     const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
@@ -311,7 +293,7 @@ function publish(entries: CatalogEntry[]): void {
  * 异步刷新远端目录。失败/空结果**保留上一次快照**（从未成功过 → 兜底表），
  * 并进入冷却，避免被逐模型放大成请求风暴。
  */
-export async function refreshCatalog(): Promise<void> {
+async function refreshCatalog(): Promise<void> {
   const cfg = upstream.loadConfig()[0];
   const now = Date.now();
   const cached = remoteCache;
@@ -418,24 +400,8 @@ export async function refresh(): Promise<void> {
 }
 
 /** 远端 catalog 版本（`reasoning_catalog_version`）。 */
-export function catalogVersion(): string {
+function catalogVersion(): string {
   return snapshot?.catalogVersion ?? "";
-}
-
-/** 某模型的档位（未知模型 → []）。 */
-export function effortsFor(model: string): string[] {
-  for (const entry of currentEntries()) {
-    if (entry.id === model) return [...entry.efforts];
-  }
-  return [];
-}
-
-/** 某模型的默认档（未知模型 → `high`）。 */
-export function defaultEffortFor(model: string): string {
-  for (const entry of currentEntries()) {
-    if (entry.id === model) return entry.defaultEffort;
-  }
-  return DEFAULT_EFFORT;
 }
 
 // ── 别名（models.json 可选覆盖）───────────────────────────────────────────────
@@ -518,31 +484,4 @@ export function resolveModel(name: string): string {
     if (short === name) return slug;
   }
   return name;
-}
-
-/** 模型的倍率展示文案（如 `"x2.0"`），未知模型或无倍率返回空串。 */
-export function rateTag(modelId: string): string {
-  // 对外 id 可能是别名短名，先解析为内部 slug
-  const slug = resolveModel(modelId);
-  for (const entry of currentEntries()) {
-    if (entry.id === slug) return entry.rate;
-  }
-  return "";
-}
-
-/** 目录详情（供状态页）。 */
-export function details(): Array<Record<string, unknown>> {
-  return currentEntries().map((e) => ({
-    id: e.id,
-    name: e.name,
-    rate: e.rate,
-    context_window: e.contextWindow,
-    vision: e.vision,
-    reasoning: e.reasoning,
-    efforts: [...e.efforts],
-    default_effort: e.defaultEffort,
-    remote_default_effort: e.remoteDefaultEffort,
-    effort_names: EFFORT_NAMES,
-    source: e.source,
-  }));
 }

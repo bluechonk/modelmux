@@ -67,7 +67,7 @@ export interface ModelEntry {
  * 远端两个端点都拉不到时（未登录 / 网络问题）仍要让用户看到模型 ——
  * 否则渠道在选择器里凭空消失。
  */
-export const FALLBACK_MODEL_IDS: readonly string[] = [
+const FALLBACK_MODEL_IDS: readonly string[] = [
   "GLM-5.2",
   "GLM-5.1",
   "GLM-5",
@@ -80,7 +80,7 @@ export const FALLBACK_MODEL_IDS: readonly string[] = [
 ];
 
 /** 上下文窗口表（仅这几个模型公开了容量；其余留 undefined 让后端默认裁剪）。 */
-export const CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
+const CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
   ["GLM-5.2", 202_752],
   ["glm-5.3-flash", 1_048_576],
   ["glm-5.3", 1_048_576],
@@ -138,7 +138,7 @@ export function modelSpec(
   };
 }
 
-export const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK_MODEL_IDS.map((id) => {
+const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK_MODEL_IDS.map((id) => {
   const window = CONTEXT_WINDOWS.get(id);
   const maxOutput = maxOutputOf(id);
   return {
@@ -156,7 +156,7 @@ export const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK_MODEL_IDS.map((id
  * 权威来源是 gateway/config，但首次启动 / 未登录 / 远端失败时拿不到，
  * 故保留这份来自真实 IDE 抓包 + 逐一实测的兜底。
  */
-export const BENEFIT_FALLBACK: readonly string[] = ["glm-5.3-flash", "deepseek-v4.1-flash"];
+const BENEFIT_FALLBACK: readonly string[] = ["glm-5.3-flash", "deepseek-v4.1-flash"];
 
 const BENEFIT_CACHE_FILENAME = "benefit-models.json";
 /** 按账号的 benefit 快照文件（`{账号键: {benefit, regular}}`）。 */
@@ -166,7 +166,7 @@ const BENEFIT_ACCOUNTS_FILENAME = "benefit-accounts.json";
  * 缓存目录：`DSH_CODEARTS_CACHE_DIR`（或 `CODEARTS_CACHE_DIR`）可显式覆盖，
  * 默认落在渠道层内（`<存储根>/codearts/cache/`）。
  */
-export function cacheDir(): string {
+function cacheDir(): string {
   const override = process.env["DSH_CODEARTS_CACHE_DIR"] ?? process.env["CODEARTS_CACHE_DIR"];
   if (override && override.trim()) return override.trim();
   return sharedCacheDir();
@@ -257,7 +257,7 @@ export function isVisionModel(id: string): boolean {
  * 兼容字符串形态：本地缓存 JSON 往返后字段类型不变，但历史排查脚本打印过二次
  * 编码的假象，两种都收。
  */
-export function parseCreditRate(credit: unknown): number | undefined {
+function parseCreditRate(credit: unknown): number | undefined {
   let tiers: unknown = credit;
   if (typeof credit === "string" && credit.trim()) {
     try {
@@ -440,25 +440,6 @@ export function setRemoteModels(update: CatalogUpdate): void {
   writeCacheObject(BENEFIT_ACCOUNTS_FILENAME, Object.fromEntries(accountBenefits));
 }
 
-export function remoteModels(): ModelEntry[] | null {
-  ensureCaches();
-  return remoteCache ? [...remoteCache] : null;
-}
-
-/** 某账号的 benefit 快照（没有记录时返回 null）。 */
-export function accountBenefit(accountKey: string): AccountBenefit | null {
-  ensureCaches();
-  const rec = accountBenefits.get(accountKey);
-  return rec ? { benefit: [...rec.benefit], regular: [...rec.regular] } : null;
-}
-
-/** 清空内存与磁盘缓存（测试隔离 / 用户点「刷新目录」）。 */
-export function resetRemoteCache(): void {
-  remoteCache = null;
-  benefitCache = null;
-  accountBenefits.clear();
-}
-
 /**
  * 强制从上游重拉目录并落盘（CLI `--refresh` / `model refresh`）。
  *
@@ -481,11 +462,6 @@ export async function refresh(): Promise<void> {
 export function entries(): ModelEntry[] {
   ensureCaches();
   return remoteCache && remoteCache.length > 0 ? [...remoteCache] : [...FALLBACK_MODELS];
-}
-
-/** 按 id 取条目；不存在返回 null。 */
-export function entryFor(id: string): ModelEntry | null {
-  return entries().find((entry) => entry.id === id) ?? null;
 }
 
 /** 对外暴露的模型 id。 */
@@ -534,19 +510,4 @@ export function isBenefitModel(id: string, accountKey?: string): boolean {
   }
   if (BENEFIT_FALLBACK.includes(normalized)) return true;
   return (benefitCache ?? []).includes(normalized);
-}
-
-/** 当前 benefit 集合（诊断用）；给了账号键就看该账号的那一份。 */
-export function benefitModels(accountKey?: string): string[] {
-  ensureCaches();
-  if (accountKey) {
-    const rec = accountBenefits.get(accountKey);
-    if (rec) return [...new Set([...BENEFIT_FALLBACK, ...rec.benefit])];
-  }
-  return [...new Set([...BENEFIT_FALLBACK, ...(benefitCache ?? [])])];
-}
-
-/** 详情列表（状态页 / 调试用）。 */
-export function details(): Array<Record<string, unknown>> {
-  return entries().map((entry) => ({ ...entry }));
 }

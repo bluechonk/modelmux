@@ -144,7 +144,7 @@ export interface RegisterResult {
  *
  * 这是「签到」在这个渠道上的对应物 —— 上游没有每日签到，只有注册奖励与活动。
  */
-export async function claimRegister(): Promise<{ result: RegisterResult; raw: Record<string, unknown> }> {
+async function claimRegister(): Promise<{ result: RegisterResult; raw: Record<string, unknown> }> {
   const c = cred.load();
   let payload: unknown;
   try {

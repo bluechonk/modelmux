@@ -65,7 +65,7 @@ export const WIRE: "openai" | "custom" = "custom";
  * - 来源：参考实现 `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpChat`）、
  *   `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`IDE_ENDPOINTS[0]`）
  */
-export const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
+const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
 
 /**
  * 多通道模型目录（**solo / IDE 传输**，目录回落路径用；单通道的 `get_detail_param` 无调用方）。
@@ -77,7 +77,7 @@ export const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
  * - ⚠ 实测对新账号全线 `error_code=2001`（账号无 SOLO 权益）→ 目录主源已切到
  *   `REMOTE_MODELS_PATH`
  */
-export const MODELS_PATH = "/api/ide/v1/batch_get_detail_param";
+const MODELS_PATH = "/api/ide/v1/batch_get_detail_param";
 
 /**
  * Remote 网页目录（**work / chat_sessions 传输**，目录主源走这条）。
@@ -91,49 +91,25 @@ export const MODELS_PATH = "/api/ide/v1/batch_get_detail_param";
  * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`_fetch_web_model_configs`，
  *   URL 逐字一致）
  */
-export const REMOTE_MODELS_PATH = "/api/remote/v1/models";
+const REMOTE_MODELS_PATH = "/api/remote/v1/models";
 
 /** Remote 目录的 `functions` query（三组通道，逗号分隔且 URL 编码；逐字取自参考实现）。 */
-export const REMOTE_FUNCTIONS = "solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote";
+const REMOTE_FUNCTIONS = "solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote";
 
 /** Remote 目录的 `show_custom_model` query（逐字取自参考实现）。 */
-export const REMOTE_SHOW_CUSTOM_MODEL = "true";
-
-/**
- * work / chat_sessions 传输的三端点（**本轮只登记常量与注释，尚未实现**）。
- *
- * 国内版主参照已把 IDE Raw 从公共预设移除，公共预设只剩 `/api/remote/v1/chat_sessions`；
- * 切换过去是**会话管理器级**改造（建会话 / 事件流 / 消息 id / 账号绑定快照），
- * 风险高，本轮明确不做（见 `docs/channels/traecn/PROTOCOL.md`「已知边界」）。
- *
- * - 建会话：**POST** `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions`
- *   （无 URL query；`mode` / `agent_type` / `common_params` 都在 body 的 `initial_message` 里）
- * - 拉事件流：**GET** `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/events`
- *   —— **必需 query `reply_to_message_id`**（取建会话响应里的 `message_id`）
- * - 停止会话：**POST** `https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/{session_id}/stop`
- *
- * 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_remote_client.py`、
- * `reference/autumnsentiment_Trae2api-cn/src/traework_compat.py`
- */
-export const WORK_SESSION_PATH = "/api/remote/v1/chat_sessions";
-/** 拉事件流：GET `{agentHost}/api/remote/v1/chat_sessions/{session_id}/events`（必需 query 见下）。 */
-export const WORK_SESSION_EVENTS_PATH = "/api/remote/v1/chat_sessions/{session_id}/events";
-/** 停止会话：POST `{agentHost}/api/remote/v1/chat_sessions/{session_id}/stop`（无 query）。 */
-export const WORK_SESSION_STOP_PATH = "/api/remote/v1/chat_sessions/{session_id}/stop";
-/** 拉事件流的必需 query：回哪条消息（建会话响应里的 `message_id`）。 */
-export const WORK_SESSION_EVENTS_QUERY = "reply_to_message_id";
+const REMOTE_SHOW_CUSTOM_MODEL = "true";
 
 /** 缺省通道（`function` 字段）。 */
-export const DEFAULT_FUNCTION = "solo_work_lite";
+const DEFAULT_FUNCTION = "solo_work_lite";
 
 /** `max_tokens` 安全上限：实测客户端索要 131072 会被打成 4xx。 */
-export const MAX_TOKENS_LIMIT = 64_000;
+const MAX_TOKENS_LIMIT = 64_000;
 
 /** Max 模式的 prompt 预算（成套字段之一）。 */
-export const MAX_MODE_PROMPT_TOKENS = 936_000;
+const MAX_MODE_PROMPT_TOKENS = 936_000;
 
 /** 模型列表请求的 22 个通道，逐字（§5.1）。 */
-export const MODEL_FUNCTIONS: readonly string[] = [
+const MODEL_FUNCTIONS: readonly string[] = [
   "ui_builder_v2",
   "solo_coder",
   "chat_v3",
@@ -163,14 +139,14 @@ export class UpstreamUnauthorized extends Error {
   override name = "UpstreamUnauthorized";
 }
 
-export interface Config {
+interface Config {
   baseUrl: string;
   chatPath: string;
   modelsPath: string;
 }
 
 /** 凭据的最小面（避免 upstream ↔ cred 循环依赖）。 */
-export interface AuthLike {
+interface AuthLike {
   accessToken: string;
   uid: string;
   machineId: string;
@@ -240,7 +216,7 @@ export function modelsUrl(cfg?: Config): string {
   return trimSlash(resolved.baseUrl) + ensureSlash(resolved.modelsPath);
 }
 
-export function hostOf(baseUrl: string): string {
+function hostOf(baseUrl: string): string {
   return sharedLogin.hostOf(baseUrl);
 }
 
@@ -282,7 +258,7 @@ export function buildHeaders(
 
 // ── 错误分类（§4.2） ─────────────────────────────────────────────────────────
 
-export type TraeErrorKind =
+type TraeErrorKind =
   | "hard-plan"
   | "quota-exceeded"
   | "soft-rate"
@@ -310,27 +286,6 @@ export function classifyError(status: number, body: string): TraeErrorKind {
   if (status >= 500) return "server";
   if (status >= 400) return "client";
   return "none";
-}
-
-/**
- * 各错误分类的建议冷却秒数；`null` 表示无固定冷却
- * （session-dead 需重新登录；quota-exceeded 由账号池决定换号）。
- */
-export function cooldownSeconds(kind: TraeErrorKind): number | null {
-  switch (kind) {
-    case "hard-plan":
-      return 43_200; // 12h
-    case "soft-rate":
-      return 60;
-    case "not-found":
-      return 60;
-    case "server":
-      return 600;
-    case "client":
-      return 600;
-    default:
-      return null;
-  }
 }
 
 // ── 请求体改写：OpenAI → SOLO ───────────────────────────────────────────────
@@ -439,12 +394,12 @@ function normalizeToolChoice(choice: unknown): { value: string | null; dropTools
 }
 
 /** 模型名去掉 `__dev` / `__max` 档位后缀（SOLO 的 model 字段不带后缀）。 */
-export function stripModelSuffix(model: string): string {
+function stripModelSuffix(model: string): string {
   return model.replace(/__(dev|max)$/, "");
 }
 
 /** Max 模式（1M 上下文）的入场信息（由目录条目提供）。 */
-export interface EntryHint {
+interface EntryHint {
   function?: string;
   max_mode?: boolean;
   max_context?: number;
@@ -452,7 +407,7 @@ export interface EntryHint {
 }
 
 /** 从目录推导通道 / Max 模式明细（网关只传两个参数时的兜底路径）。 */
-export function catalogHint(model: string): EntryHint {
+function catalogHint(model: string): EntryHint {
   const entry = catalog.entryFor(model);
   if (!entry) return {};
   return {
@@ -669,7 +624,7 @@ export async function fetchRemoteModels(
  * 所以「权益包剩余」≠「SOLO 通道真余额」——真余额只有对话流的下发才是权威
  * （见 `docs/channels/traecn/PROTOCOL.md` §「已知边界」）。
  */
-export interface UsageSnapshot {
+interface UsageSnapshot {
   /** 观测账号的 uid（余额按账号归属，换号后旧快照不再采信）。 */
   uid: string;
   /** SOLO（通用 IDE）通道余额 —— 本渠道对话消耗的就是它。 */
@@ -769,7 +724,7 @@ function recordUsage(payload: Record<string, unknown>): void {
 
 // ── 流翻译：TRAE event 流 → OpenAI SSE（必须是增量） ─────────────────────────
 
-export interface StreamTranslator {
+interface StreamTranslator {
   /** 喂入一块字节，返回本次可产出的 OpenAI SSE 帧。 */
   feed(chunk: Buffer): Array<Buffer | string>;
   /** 流结束：处理残余、补 `finish_reason` 帧与 `data: [DONE]`。 */
@@ -781,7 +736,7 @@ function sseFrame(payload: unknown): string {
 }
 
 /** finish_reason 归一化（done 事件给的是上游自己的枚举）。 */
-export function mapFinishReason(reason: unknown): string {
+function mapFinishReason(reason: unknown): string {
   switch (reason) {
     case "length":
     case "max_tokens":

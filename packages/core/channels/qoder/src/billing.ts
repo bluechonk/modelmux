@@ -28,7 +28,7 @@ export class CreditsError extends Error {
   override name = "CreditsError";
 }
 
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   remain: number;
   size: number;
@@ -38,7 +38,7 @@ export interface CreditPackage {
   [key: string]: unknown;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   total: {
     remain: number;

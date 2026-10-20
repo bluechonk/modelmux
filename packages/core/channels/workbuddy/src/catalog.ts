@@ -40,12 +40,12 @@ import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux
  *
  * 改名的理由：短名让「列表里的 id」和「上游收到的 model」不一致，出问题时得多查一层。
  */
-export const LEGACY_ALIASES: Record<string, string> = {
+const LEGACY_ALIASES: Record<string, string> = {
   "deepseek-flash": "deepseek-v4.1-flash",
 };
 
 /** 一条目录条目。`id` 必填（共享层缓存契约只要求这一个字段）。 */
-export interface ModelEntry {
+interface ModelEntry {
   /** 上游模型名（发给上游的 `model` 字段）。 */
   id: string;
   /** 对外名（默认等于 `id`；快照里给了 alias 时才不同）。 */
@@ -357,7 +357,7 @@ function ensureRemoteLoaded(): void {
 }
 
 /** 当前生效的目录：远端 → 快照 → 内置兜底。 */
-export function entries(): ModelEntry[] {
+function entries(): ModelEntry[] {
   ensureRemoteLoaded();
   if (remote && remote.length > 0) return [...remote];
   const snap = snapshotEntries();
@@ -405,11 +405,4 @@ export function resolveModel(name: string): string {
   const legacy = LEGACY_ALIASES[name];
   if (legacy) return legacy;
   return name;
-}
-
-/** 仅供测试：清空目录缓存（快照与远端都清）。 */
-export function clearCache(): void {
-  snapshot = null;
-  remote = null;
-  remoteLoaded = false;
 }

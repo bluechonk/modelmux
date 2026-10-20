@@ -1,3 +1,9 @@
+/**
+ * 仪表盘页：全局状态快照（统计块 + 接入端点）+ 按渠道分组的模型墙。
+ *
+ * 模型排序：免费档（零消耗 / 订阅制无倍率概念）排最前，其余按倍率升序。
+ */
+
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -27,11 +33,19 @@ function formatMultiplier(value: number): string {
  */
 const FREE_PLAN_CHANNELS = new Set(["orcaterm"]);
 
-/** 全局模型排序：免费档（零消耗 / 订阅制无倍率概念）排最前，其余按倍率升序。 */
+/** 倍率未知（目录没给）的排序位：排最后 —— 既不是免费档，也不该冒充免费。 */
+const UNKNOWN_MULTIPLIER_RANK = 1e9;
+
+/**
+ * 全局模型排序：免费档（零消耗 / 订阅制无倍率概念）排最前，其余按倍率升序。
+ *
+ * ⚠ 倍率**未知**（`mult == null`）且渠道不是订阅制的，排在**最后**而不是免费档 ——
+ * 免费徽标只认「零消耗」与「订阅制无倍率概念」两种（见下方 `freeCount` 的判据），
+ * 排序与徽标必须同一口径，否则会出现「排在最前却不带免费徽标」的模型。
+ */
 function modelRank(mult: number | null, freePlan: boolean): number {
-  // 零消耗(m===0) 与订阅制无倍率概念(null) 都归免费档，升序时自然在最前
-  if (mult === 0 || (mult == null && freePlan)) return 0;
-  if (mult == null) return 0;
+  if (mult === 0) return 0;
+  if (mult == null) return freePlan ? 0 : UNKNOWN_MULTIPLIER_RANK;
   return mult;
 }
 

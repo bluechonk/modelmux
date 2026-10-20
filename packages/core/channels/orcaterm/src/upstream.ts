@@ -96,7 +96,7 @@ export class UpstreamUnauthorized extends Error {
 }
 
 /** 上游协议解析错误。 */
-export class OrcaProtocolError extends Error {
+class OrcaProtocolError extends Error {
   override name = "OrcaProtocolError";
   readonly code: number;
   constructor(message: string, code = 0) {
@@ -107,7 +107,7 @@ export class OrcaProtocolError extends Error {
 
 // ── 配置 ────────────────────────────────────────────────────────────────────
 
-export interface Config {
+interface Config {
   baseUrl: string;
 }
 
@@ -150,7 +150,7 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 
 // ── 凭据形状 ─────────────────────────────────────────────────────────────────
 
-export interface CredentialShape {
+interface CredentialShape {
   accessToken: string;
   uid: string;
   domain: string;
@@ -233,7 +233,7 @@ interface ToolDef {
 }
 
 /** 读取客户端声明的工具列表（形状宽松：缺 description / parameters 也能用）。 */
-export function declaredTools(req: Record<string, unknown>): ToolDef[] {
+function declaredTools(req: Record<string, unknown>): ToolDef[] {
   const raw = req["tools"];
   if (!Array.isArray(raw)) return [];
   const out: ToolDef[] = [];
@@ -372,7 +372,7 @@ function uuidShape(hex: string): string {
  * 同一段对话必须复用同一个 id —— 上游按它保存历史，每请求新建会让模型只看到
  * 最后一轮（多轮对话与工具回填都会断链）。
  */
-export function conversationIdOf(req: Record<string, unknown>): string {
+function conversationIdOf(req: Record<string, unknown>): string {
   return `cid-${uuidShape(sessionKeyOf(req))}-${PRODUCT}`;
 }
 
@@ -590,7 +590,7 @@ const TOOL_RESULT_LABEL = "返回结果";
  *
  * 上游只认这个包裹（[参考] orca.go BuildToolResultPrompt）：空输出视为用户拒绝执行。
  */
-export function buildToolResultPrompt(toolName: string, output: string): string {
+function buildToolResultPrompt(toolName: string, output: string): string {
   if (!output.trim()) {
     return `${TOOL_META_OPEN}${TOOL_RESULT_LABEL}${TOOL_META_CLOSE}\n用户拒绝执行工具 ${toolName}，请根据已有信息继续回答。`;
   }
@@ -798,7 +798,7 @@ function parseEnvelopes(text: string): ProtocolEnvelope[] {
  *
  * `action=review` 是**工具调用**：内容在 `tool` 字段里，不进正文。
  */
-export function unwrapProtocolEnvelope(raw: string): EnvelopeResult {
+function unwrapProtocolEnvelope(raw: string): EnvelopeResult {
   const text = stripOutputShell(raw);
   const envs = parseEnvelopes(text);
   if (envs.length === 0) return { content: text, reasoning: "" };

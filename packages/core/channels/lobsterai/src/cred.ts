@@ -12,7 +12,7 @@
  *
  * `POST /api/auth/refresh` 的请求体**不是只带 refreshToken**，还要带
  * `firstKeyfrom` / `latestKeyfrom` / `uuid` —— 这三个字段是登录那一刻生成的
- * 客户端状态，服务端不返回，**丢了就只能重新登录**（`lobsterai.ts:72-77`）。
+ * 客户端状态，服务端不返回，**丢了就只能重新登录**（见 docs/channels/lobsterai/PROTOCOL.md §2.2）。
  * 故它们是凭据的一等字段，落盘时必须原样保留。
  *
  * ## 落盘字段名刻意保持 snake_case
@@ -53,15 +53,15 @@ import * as upstream from "./upstream.js";
 export const DEFAULT_BASE_URL = upstream.DEFAULT_BASE_URL;
 
 /** 登录门户基址（与 API 同 IP 不同路径）。 */
-export const DEFAULT_PORTAL_BASE = "https://lobsterai.youdao.com";
+const DEFAULT_PORTAL_BASE = "https://lobsterai.youdao.com";
 
 /** 本地回调路径（对齐 Go `cmd/login/main.go` 的 `callbackPath`）。 */
-export const CALLBACK_PATH = "/auth/callback";
+const CALLBACK_PATH = "/auth/callback";
 
 /** 登录流程总超时（10 分钟，对齐 Go 的回调窗口）。 */
-export const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 /** 控制面请求超时（exchange / refresh；对话流式请求不适用）。 */
-export const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 const NOT_LOGGED_IN_MSG = "no credentials found; start the gateway to log in";
 
@@ -74,7 +74,7 @@ export class NotLoggedInError extends Error {
 }
 
 /** 刷新令牌已被服务端作废：重试无意义，只能重新登录。 */
-export class RefreshTokenExpiredError extends Error {
+class RefreshTokenExpiredError extends Error {
   override name = "RefreshTokenExpiredError";
 }
 
@@ -106,7 +106,7 @@ export interface Credentials {
   readonly source: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
+const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   refreshToken: "",
   expiresAt: "",
@@ -147,12 +147,12 @@ function jwtExpMs(token: string): number {
  * ⚠️ 刻意**不在 yid 与哈希之间插 JWT `sub`**：Go 没有这一级，
  * 插进去会让同一账号在两边得到不同 uid（见 PROTOCOL §2.4）。
  */
-export function uidFallbackHash(accessToken: string): string {
+function uidFallbackHash(accessToken: string): string {
   return createHash("sha256").update(accessToken).digest("hex").slice(0, 16);
 }
 
 /** uid 四级回退（登录/续期响应的 user 对象）。 */
-export function uidFromUser(user: Record<string, unknown>, accessToken: string): string {
+function uidFromUser(user: Record<string, unknown>, accessToken: string): string {
   for (const key of ["id", "userId", "yid"]) {
     const value = str(user[key]);
     if (value) return value;
@@ -166,7 +166,7 @@ export function uidFromUser(user: Record<string, unknown>, accessToken: string):
  * 服务端把手机号本身当昵称下发且只脱敏到「露末 4 位」（实测 `130****1100`），
  * 归一化后为 `130******00`；真实昵称（如 `用户00000000000`）原样返回。
  */
-export function normalizeNickname(value: string): string {
+function normalizeNickname(value: string): string {
   const trimmed = value.trim();
   const masked = /^(\d{3})(\*+)(\d{2,4})$/.exec(trimmed);
   if (masked) return `${masked[1]}${"*".repeat(trimmed.length - 5)}${trimmed.slice(-2)}`;
@@ -180,7 +180,7 @@ export function normalizeNickname(value: string): string {
  * ⚠️ 基准取当前时刻而非 JWT `iat`（Go 用 `time.Now()`）；无法解析时留空，
  * 调用方据此**不判定过期**。
  */
-export function expiresAtFrom(
+function expiresAtFrom(
   payload: Record<string, unknown>,
   accessToken: string,
   nowMs = Date.now(),
@@ -194,7 +194,7 @@ export function expiresAtFrom(
 }
 
 /** 控制面请求头（exchange / refresh 用，**不带 Authorization**）。 */
-export function anonymousHeaders(): Record<string, string> {
+function anonymousHeaders(): Record<string, string> {
   return {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -227,7 +227,7 @@ export function resolveBaseUrl(realm = "auto"): string {
 // ── 凭据读写 ─────────────────────────────────────────────────────────────────
 
 /** 磁盘布局（snake_case）。 */
-export interface DiskCredentials {
+interface DiskCredentials {
   access_token: string;
   refresh_token: string;
   expires_at: string;
@@ -267,7 +267,7 @@ function flattenDisk(rec: Record<string, unknown>): Record<string, unknown> {
  * 不归一会把「已过期」判成「未过期」。阈值 1e12 与共享层账号池的 `parseExpiry` 一致。
  * 解析不出数字时原样保留（调用方据此**不判定过期**）。
  */
-export function normalizeExpiresAtMs(value: string): string {
+function normalizeExpiresAtMs(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
   const numeric = Number(trimmed);
@@ -359,7 +359,7 @@ export async function save(c: Credentials): Promise<void> {
 // ── 登录 ─────────────────────────────────────────────────────────────────────
 
 /** 一次登录会话的客户端状态。 */
-export interface LoginSession {
+interface LoginSession {
   /** 安装 UUID（exchange/refresh 必带）。 */
   uuid: string;
   /** 首次登录时间戳（毫秒字符串）。 */
@@ -368,12 +368,12 @@ export interface LoginSession {
   state: string;
 }
 
-export function newLoginSession(nowMs = Date.now()): LoginSession {
+function newLoginSession(nowMs = Date.now()): LoginSession {
   return { uuid: randomUUID(), firstKeyfrom: String(nowMs), state: randomUUID() };
 }
 
 /** 登录门户基址；`LOBSTERAI_PORTAL_BASE` 可覆盖（自托管 / 测试）。 */
-export function portalBase(): string {
+function portalBase(): string {
   const override = process.env["LOBSTERAI_PORTAL_BASE"];
   return override && override.trim() ? override.trim().replace(/\/+$/, "") : DEFAULT_PORTAL_BASE;
 }
@@ -385,14 +385,14 @@ export function portalBase(): string {
  * 查询串放在 `#` 之前，portal 拿不到参数）；`redirect_uri` 必须是
  * `http://127.0.0.1:{port}/auth/callback` 形态（portal 会校验）。
  */
-export function buildLoginUrl(port: number, state: string, portal = portalBase()): string {
+function buildLoginUrl(port: number, state: string, portal = portalBase()): string {
   const redirect = `http://127.0.0.1:${port}${CALLBACK_PATH}`;
   const query = new URLSearchParams({ source: "electron", redirect_uri: redirect, state });
   return `${portal}/portal#/login?${query.toString()}`;
 }
 
 /** 授权码换 token（回调收到 code 后立即在进程内发起）。 */
-export async function exchange(
+async function exchange(
   base: string,
   authCode: string,
   session: LoginSession,
@@ -452,7 +452,7 @@ export async function exchange(
   };
 }
 
-export interface CallbackServer {
+interface CallbackServer {
   port: number;
   close: () => Promise<void>;
   /** 授权成功并完成 exchange 后 resolve；失败/超时 reject。 */
@@ -465,7 +465,7 @@ export interface CallbackServer {
  * `code` 非空且 `state` **严格相等**才继续，否则 400（防 CSRF / 串号）。
  * 成功页文案逐字「登录成功，可以关闭此窗口了」；exchange 失败回 500。
  */
-export function startCallbackServer(
+function startCallbackServer(
   session: LoginSession,
   base: string,
   options: { timeoutMs?: number } = {},
@@ -532,7 +532,7 @@ export function startCallbackServer(
   });
 }
 
-export interface LoginOptions {
+interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
   /**
@@ -563,7 +563,7 @@ function sleep(ms: number): Promise<void> {
  * 接受四种形态：整条回调 URL、`?code=…&state=…` 查询串、`#code=…&state=…` 片段、
  * 裸 `code=…&state=…`。
  */
-export function parseCallbackParams(raw: string): { code: string; state: string } {
+function parseCallbackParams(raw: string): { code: string; state: string } {
   const trimmed = raw.trim();
   for (const sep of ["?", "#"]) {
     const idx = trimmed.indexOf(sep);

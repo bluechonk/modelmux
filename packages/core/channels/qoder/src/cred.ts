@@ -44,7 +44,7 @@ import {
 export type Realm = "intl" | "cn";
 
 /** 一个区域的全部端点与身份常量（差异只在这里）。 */
-export interface ProductConfig {
+interface ProductConfig {
   realm: Realm;
   label: string;
   /** 授权页与用户可见站点。 */
@@ -64,7 +64,7 @@ export interface ProductConfig {
   nonceDashed: boolean;
 }
 
-export const PRODUCTS: Record<Realm, ProductConfig> = {
+const PRODUCTS: Record<Realm, ProductConfig> = {
   cn: {
     realm: "cn",
     label: "Qoder 国内版",
@@ -110,7 +110,7 @@ export const PRODUCTS: Record<Realm, ProductConfig> = {
 export const CHANNEL_REALM: Realm = "intl";
 
 /** 默认区域 = 本渠道的区域（`DEFAULT_REALM` 这个名字是给调用方读的）。 */
-export const DEFAULT_REALM: Realm = CHANNEL_REALM;
+const DEFAULT_REALM: Realm = CHANNEL_REALM;
 
 /**
  * openapi 业务基址（登录轮询 / 续期 / userinfo / 额度 / 活动）。
@@ -118,13 +118,13 @@ export const DEFAULT_REALM: Realm = CHANNEL_REALM;
  * ⚠ 与 `upstream.ts` 的 `DEFAULT_BASE_URL`（**gateway** 推理主机）不是一回事 ——
  * 契约要求两个模块都导出 `DEFAULT_BASE_URL`，故另起语义名避免误用。
  */
-export const OPENAPI_BASE = PRODUCTS[DEFAULT_REALM].openapi;
+const OPENAPI_BASE = PRODUCTS[DEFAULT_REALM].openapi;
 
 /** 契约要求的别名（语义 = openapi 业务基址）。 */
 export const DEFAULT_BASE_URL = OPENAPI_BASE;
 
 /** 默认身份类型（实测值，服务端按它区分试用/正式）。 */
-export const DEFAULT_USER_TYPE = "personal_professional_trial";
+const DEFAULT_USER_TYPE = "personal_professional_trial";
 
 /** 登录轮询的超时与间隔（官方设备码语义）。 */
 const POLL_INTERVAL_MS = 1000;
@@ -161,7 +161,7 @@ export interface Credentials extends Credential {
  * 保留参数只是为了满足既有调用点的签名，刻意忽略它 —— `--realm` 不该让凭据
  * 落到另一个区的域名上。
  */
-export function normalizeRealm(_value?: string): Realm {
+function normalizeRealm(_value?: string): Realm {
   return CHANNEL_REALM;
 }
 
@@ -178,7 +178,7 @@ export function resolveBaseUrl(_realm = "auto"): string {
 // ── 设备指纹（按 uid 稳定派生；`upstream.ts` 的 COSY 头直接用这三个） ──────────
 
 /** `md5("{salt}:{uid}")` 的 hex —— 稳定、幂等。 */
-export function deriveId(uid: string, salt: string): string {
+function deriveId(uid: string, salt: string): string {
   return createHash("md5").update(`${salt}:${uid || "anonymous"}`, "utf8").digest("hex");
 }
 
@@ -208,7 +208,7 @@ const PKCE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234567
  * ⚠ challenge = base64url(sha256(verifier)) 且**不带 `=` padding** ——
  * 带 padding 会被服务端判为校验失败。
  */
-export function makePkce(): { verifier: string; challenge: string } {
+function makePkce(): { verifier: string; challenge: string } {
   const length = 43 + Math.floor(86 * Math.random()); // 43..128
   const bytes = randomBytes(length);
   let verifier = "";
@@ -226,7 +226,7 @@ export function makePkce(): { verifier: string; challenge: string } {
  * `redirect_uri` —— **不带 `machine_id`**。
  * `machine_id` 只用于 cosy 推理头，由 `machineIdOf(uid)` 稳定派生，不参与登录链路。
  */
-export function buildAuthUrl(
+function buildAuthUrl(
   product: ProductConfig,
   challenge: string,
   nonce: string,
@@ -288,17 +288,12 @@ export function rememberGatewayHost(host: string): void {
 }
 
 /** 记下身份（由 `load` / `login` / `refresh` 调用）。 */
-export function rememberIdentity(realm: Realm, userType: string, gatewayHost = ""): void {
+function rememberIdentity(realm: Realm, userType: string, gatewayHost = ""): void {
   lastIdentity = {
     realm,
     userType: userType || DEFAULT_USER_TYPE,
     gatewayHost: gatewayHost || lastIdentity.gatewayHost,
   };
-}
-
-/** **仅供测试**：重置最近身份。 */
-export function resetIdentityForTest(): void {
-  lastIdentity = { realm: DEFAULT_REALM, userType: DEFAULT_USER_TYPE, gatewayHost: "" };
 }
 
 // ── 凭据读写 ──────────────────────────────────────────────────────────────────
@@ -351,7 +346,7 @@ export async function save(credential: Credentials): Promise<void> {
 
 // ── 登录 ─────────────────────────────────────────────────────────────────────
 
-export interface LoginOptions {
+interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (msg: string) => void;
   /** 测试注入的 sleep（不起真实定时器）。 */

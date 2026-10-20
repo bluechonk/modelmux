@@ -62,7 +62,7 @@ import { credentialsPath, ensureDir, login as sharedLogin, prefsPath } from "@mo
 export const DEFAULT_BASE_URL = "https://trae-api-cn.mchost.guru";
 
 /** OAuth host（ExchangeToken / GetUserInfo）。 */
-export const OAUTH_HOST = "https://api.trae.com.cn";
+const OAUTH_HOST = "https://api.trae.com.cn";
 
 /**
  * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken`
@@ -74,7 +74,7 @@ export const OAUTH_HOST = "https://api.trae.com.cn";
  * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/auth.py`（`refresh_token`）、
  *   `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpExchange`）
  */
-export const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
+const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
 
 /**
  * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/GetUserInfo`
@@ -86,13 +86,13 @@ export const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
  * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`fetch_user_info`）、
  *   `reference/JeffHu0912_trae2api/login.sh`（`GetUserInfo` 段）
  */
-export const OAUTH_USER_INFO_PATH = "/cloudide/api/v3/trae/GetUserInfo";
+const OAUTH_USER_INFO_PATH = "/cloudide/api/v3/trae/GetUserInfo";
 
 /** 签到 / 积分 host（规格里是硬编码，未用 product.ugHost）。 */
-export const UG_HOST = "https://api.trae.cn";
+const UG_HOST = "https://api.trae.cn";
 
 /** 登录门户（consoleHost）。 */
-export const CONSOLE_HOST = "https://www.trae.cn";
+const CONSOLE_HOST = "https://www.trae.cn";
 
 /**
  * 网页授权门户的 client_id（tr 兆 web 端身份）。
@@ -100,9 +100,7 @@ export const CONSOLE_HOST = "https://www.trae.cn";
  * ⚠ 与 IDE 客户端 ID（对话链路用）不同：授权页只认 web 端 ID，
  * 传 IDE ID 会直接 404（对齐 trae2api 实测）。
  */
-export const CLIENT_ID = "ono9krqynydwx5";
-/** IDE 客户端 ID：对话 / 模型列表 / 签到链路的身份，不用于授权页。 */
-export const IDE_CLIENT_ID = "en1oxy7wnw8j9n";
+const CLIENT_ID = "ono9krqynydwx5";
 /**
  * SOLO/IDE 应用的 AppID（对话与 Solo 目录的 `X-App-Id`）。
  *
@@ -120,11 +118,11 @@ export const APP_ID = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8";
 export const IDE_VERSION = "0.1.52";
 export const IDE_VERSION_CODE = "20260811";
 /** 登录 URL 用的 pluginVersion（≠ ideVersion）。 */
-export const PLUGIN_VERSION = "2.3.62834";
+const PLUGIN_VERSION = "2.3.62834";
 export const USER_AGENT = "Trae/0.1.52";
 
-export const CALLBACK_PORT = 18080;
-export const CALLBACK_PATH = "/authorize";
+const CALLBACK_PORT = 18080;
+const CALLBACK_PATH = "/authorize";
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -139,7 +137,7 @@ export class NotLoggedInError extends Error {
 }
 
 /** 登录/续期要求重新登录（终态）。 */
-export class ReloginRequiredError extends Error {
+class ReloginRequiredError extends Error {
   override name = "ReloginRequiredError";
 }
 
@@ -171,23 +169,8 @@ export interface Credentials {
   readonly obtainedAt?: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
-  accessToken: "",
-  refreshToken: "",
-  expiresAt: "",
-  uid: "",
-  nickname: "",
-  phone: "",
-  email: "",
-  machineId: "",
-  deviceId: "",
-  enterpriseId: "",
-  domain: "",
-  checkinGeneration: 0,
-};
-
 /** 上游 OAuth host（可用 TRAE_OAUTH_HOST 覆盖，便于离线自检）。 */
-export function oauthHost(): string {
+function oauthHost(): string {
   return (process.env["TRAE_OAUTH_HOST"] || OAUTH_HOST).replace(/\/+$/, "");
 }
 
@@ -216,7 +199,7 @@ function readPrefs(): Record<string, unknown> {
 }
 
 /** 支持的域（源码中不存在国际版配置，只有这一份 CN 配置）。 */
-export const REALMS: Record<string, string> = {
+const REALMS: Record<string, string> = {
   cn: DEFAULT_BASE_URL,
 };
 
@@ -240,7 +223,7 @@ export function resolveBaseUrl(realm = "auto"): string {
 }
 
 /** 从 URL 提取主机名（转发共享层原语）。 */
-export function hostOf(url: string): string {
+function hostOf(url: string): string {
   return sharedLogin.hostOf(url);
 }
 
@@ -249,12 +232,12 @@ export function hostOf(url: string): string {
 /** SHA-256 的 hex 摘要（转发共享层原语）。 */
 const sha256Hex = sharedLogin.sha256Hex;
 
-export function generateMachineId(): string {
+function generateMachineId(): string {
   return randomBytes(16).toString("hex"); // 32 位 hex
 }
 
 /** device_id 必须每账号互不相同（同日共用会被「该设备已签到」拦截）。 */
-export function generateDeviceId(): string {
+function generateDeviceId(): string {
   return randomBytes(16).toString("hex"); // 32 位 hex
 }
 
@@ -301,7 +284,7 @@ const ASCII_RE = /^[\x20-\x7E]+$/;
  * 规则（实测）：先尝试 latin-1 → utf8；修得出来且更像正常文本就用修复值；
  * 否则保留原文（含 CJK 时）；再否则回退 `用户+uid末4位`。
  */
-export function fixNickname(raw: string, uid = ""): string {
+function fixNickname(raw: string, uid = ""): string {
   const fallback = uid.length >= 4 ? `用户${uid.slice(-4)}` : "用户";
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return fallback;
@@ -325,7 +308,7 @@ export function fixNickname(raw: string, uid = ""): string {
  * ⚠ client_id 必须是网页端 `ono9krqynydwx5`（IDE 客户端 ID 会被门户 404）；
  * ExchangeToken/GetUserInfo 也用同一 client_id，保证 token 与兑换域一致。
  */
-export function buildAuthorizeUrl(
+function buildAuthorizeUrl(
   callbackUrl: string,
   machineId: string,
   deviceId: string,
@@ -357,7 +340,7 @@ export function buildAuthorizeUrl(
   return `${(consoleHost || CONSOLE_HOST).replace(/\/+$/, "")}/authorization?${params.toString()}`;
 }
 
-export interface CallbackFields {
+interface CallbackFields {
   access_token: string;
   refresh_token: string;
   uid: string;
@@ -397,7 +380,7 @@ function pick(value: unknown): string {
  * 不是 OAuth `?code=`；PKCE 变体（`code`/`authCode`/`authCodeInfo`）明确报错。
  * ⚠ TenantID 才是租户标识（不是 EnterpriseID）。
  */
-export function parseCallback(flat: Record<string, unknown>): CallbackFields {
+function parseCallback(flat: Record<string, unknown>): CallbackFields {
   const userInfo = parseJsonObject(flat["userInfo"] ?? flat["user_info"]);
   const userJwt = parseJsonObject(flat["userJwt"] ?? flat["user_jwt"]);
 
@@ -446,7 +429,7 @@ export function parseCallback(flat: Record<string, unknown>): CallbackFields {
 }
 
 /** 本地回调服务器：收到一次回调后即可 `wait()` 出参数。 */
-export interface CallbackServer {
+interface CallbackServer {
   port: number;
   wait(timeoutMs: number): Promise<Record<string, string>>;
   close(): void;
@@ -475,7 +458,7 @@ function listenOn(server: Server, port: number): Promise<number> {
  * 端口被占用（EADDRINUSE/EACCES）时回退随机端口 —— 调用方必须用返回的
  * 实际端口重算登录 URL。
  */
-export async function startCallbackServer(port = CALLBACK_PORT): Promise<CallbackServer> {
+async function startCallbackServer(port = CALLBACK_PORT): Promise<CallbackServer> {
   let resolveParams: (value: Record<string, string>) => void = () => {};
   let rejectParams: (err: Error) => void = () => {};
   const params = new Promise<Record<string, string>>((resolve, reject) => {
@@ -546,7 +529,7 @@ export async function startCallbackServer(port = CALLBACK_PORT): Promise<Callbac
   };
 }
 
-export interface LoginOptions {
+interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (msg: string) => void;
 }
@@ -752,7 +735,7 @@ function jwtExp(token: string): number | null {
  *
  * 兼容：毫秒数字/数字串、秒级数字（<1e12）、ISO 8601、以及 JWT 的 `exp` 兜底。
  */
-export function normalizeExpiresAt(value: unknown, token = ""): string {
+function normalizeExpiresAt(value: unknown, token = ""): string {
   const numeric =
     typeof value === "number"
       ? value
@@ -777,7 +760,7 @@ function isAuthStatus(status: number): boolean {
 }
 
 /** 一次兑换的结果（access 与 refresh **都**是新的）。 */
-export interface TokenPair {
+interface TokenPair {
   accessToken: string;
   refreshToken: string;
   /** 毫秒字符串。 */
@@ -791,7 +774,7 @@ export interface TokenPair {
  * 终态（需重新登录）三条任一：HTTP 401/403、响应非 JSON（HTML 错误页）、
  * **2xx 且响应是 JSON 却没有 accessToken**。
  */
-export async function exchangeToken(refreshToken: string, host?: string): Promise<TokenPair> {
+async function exchangeToken(refreshToken: string, host?: string): Promise<TokenPair> {
   if (!refreshToken) throw new ReloginRequiredError("No refresh token, please log in again");
   const base = (host || oauthHost()).replace(/\/+$/, "");
   const url = `${base}${OAUTH_EXCHANGE_PATH}`;
@@ -858,7 +841,7 @@ export async function exchangeToken(refreshToken: string, host?: string): Promis
 }
 
 /** 账号信息（GetUserInfo 的可识别部分）。 */
-export interface UserInfo {
+interface UserInfo {
   uid: string;
   nickname: string;
   phone: string;
@@ -873,7 +856,7 @@ export interface UserInfo {
  * （参考实现实测，见 `docs/channels/traecn/PROTOCOL.md`）。
  * ⚠ 失败**不阻塞登录**（返回 null，调用方沿用回调里的 `userInfo`）。
  */
-export async function fetchUserInfo(accessToken: string, host?: string): Promise<UserInfo | null> {
+async function fetchUserInfo(accessToken: string, host?: string): Promise<UserInfo | null> {
   if (!accessToken) return null;
   const base = (host || oauthHost()).replace(/\/+$/, "");
   let resp: Response;

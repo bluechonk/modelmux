@@ -27,17 +27,17 @@ import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
 /** 账户/套餐信息端点（积分账户检测的唯一真相源）。 */
-export const PACKAGE_INFO_PATH = "/snap-manager/v1/statistics/plugin";
+const PACKAGE_INFO_PATH = "/snap-manager/v1/statistics/plugin";
 /** 活动列表端点。 */
-export const OPS_DELIVERY_PATH = "/v1/ops/delivery";
+const OPS_DELIVERY_PATH = "/v1/ops/delivery";
 /** 领取端点。 */
-export const OPS_CLAIM_PATH = "/v1/ops/claim";
+const OPS_CLAIM_PATH = "/v1/ops/claim";
 /** 领取确认端点。 */
-export const OPS_CONFIRM_PATH = "/v1/ops/confirm";
+const OPS_CONFIRM_PATH = "/v1/ops/confirm";
 /** 渠道标识（声明请求来自 IDE 形态）。 */
-export const OPS_CHANNEL = "IDE";
+const OPS_CHANNEL = "IDE";
 /** 「每日签到得积分」在活动列表里的 `type` 取值。 */
-export const DAILY_LOGIN_TYPE = "USER_LOGIN";
+const DAILY_LOGIN_TYPE = "USER_LOGIN";
 
 /**
  * 签名后追加的附加头（**绝不参与签名**）。
@@ -46,13 +46,13 @@ export const DAILY_LOGIN_TYPE = "USER_LOGIN";
  * SignedHeaders，服务端回 `401 {"error_code":"APIG.0301",...verify ak sk
  * signature fail}`；同一个头在**签名之后**追加则 200。
  */
-export const SNAP_EXTRA_HEADERS: Readonly<Record<string, string>> = {
+const SNAP_EXTRA_HEADERS: Readonly<Record<string, string>> = {
   "Agent-Type": "PromptCenter",
   "X-Language": "zh-cn",
 };
 
 /** 「已领取/已确认/已核销」三种状态（UI 里领取按钮在这三态下禁用）。 */
-export const CLAIMED_STATUSES: readonly string[] = ["CLAIMED", "CONFIRMED", "CONSUMED"];
+const CLAIMED_STATUSES: readonly string[] = ["CLAIMED", "CONFIRMED", "CONSUMED"];
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -142,7 +142,7 @@ function str(value: unknown): string {
  * 专门为 `campaignId` 而生：华为侧对同一语义字段的类型并不一致，
  * 只接受字符串会得到空串（真实缺陷）。
  */
-export function readIdentifier(source: Record<string, unknown>, key: string): string {
+function readIdentifier(source: Record<string, unknown>, key: string): string {
   return str(source[key]);
 }
 
@@ -171,7 +171,7 @@ function readRecord(source: Record<string, unknown>, key: string): Record<string
 }
 
 /** 把非 2xx 响应整理成**带服务端原因**的说明（`APIG.0301` 这类线索不能丢）。 */
-export function describeHttpFailure(status: number, text: string): string {
+function describeHttpFailure(status: number, text: string): string {
   let detail = "";
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -183,7 +183,7 @@ export function describeHttpFailure(status: number, text: string): string {
 }
 
 /** 解包响应：`{code,message,data}` 信封，或**裸对象**（statistics/plugin）。 */
-export function unwrapEnvelope(
+function unwrapEnvelope(
   raw: Record<string, unknown>,
 ): { ok: true; data: Record<string, unknown> } | { ok: false; code: number; message: string } {
   const code = raw["code"];
@@ -270,8 +270,8 @@ export interface AccountInfo {
   packages: CreditPackage[];
 }
 
-/** 解析账户/套餐信息（纯函数，便于测试）。 */
-export function parseAccountInfo(data: Record<string, unknown>): AccountInfo {
+/** 解析账户/套餐信息（纯函数）。 */
+function parseAccountInfo(data: Record<string, unknown>): AccountInfo {
   const pkg = readRecord(data, "package");
   const metrics = Array.isArray(data["metrics"]) ? data["metrics"] : [];
   const packages: CreditPackage[] = [];
@@ -317,13 +317,13 @@ export function parseAccountInfo(data: Record<string, unknown>): AccountInfo {
 }
 
 /** 查询账户/套餐信息（签名 GET）。 */
-export async function fetchAccountInfo(c: upstream.AuthLike): Promise<AccountInfo> {
+async function fetchAccountInfo(c: upstream.AuthLike): Promise<AccountInfo> {
   const data = await signedRequest("GET", PACKAGE_INFO_PATH, c);
   return parseAccountInfo(data);
 }
 
 /** 拉取活动列表（签名 GET，`channel=IDE`）。 */
-export async function fetchActivities(c: upstream.AuthLike): Promise<OpsActivity[]> {
+async function fetchActivities(c: upstream.AuthLike): Promise<OpsActivity[]> {
   const data = await signedRequest("GET", `${OPS_DELIVERY_PATH}?channel=${OPS_CHANNEL}`, c);
   const items = Array.isArray(data["items"]) ? data["items"] : [];
   const out: OpsActivity[] = [];
@@ -350,7 +350,7 @@ export async function fetchActivities(c: upstream.AuthLike): Promise<OpsActivity
  * `claim` 响应 `data.id !== null && !== undefined` 时必须补发 `confirm` ——
  * 漏掉这一步积分会停在「待确认」不入账。
  */
-export async function claimCampaign(c: upstream.AuthLike, activity: OpsActivity): Promise<ClaimOutcome> {
+async function claimCampaign(c: upstream.AuthLike, activity: OpsActivity): Promise<ClaimOutcome> {
   if (!activity.campaignId) {
     return {
       campaignId: "",
@@ -398,7 +398,7 @@ export async function claimCampaign(c: upstream.AuthLike, activity: OpsActivity)
 }
 
 /** 领取全部「每日签到」活动（预检 + 逐个领取）。 */
-export async function claimDailyLogin(c: upstream.AuthLike): Promise<ClaimOutcome[]> {
+async function claimDailyLogin(c: upstream.AuthLike): Promise<ClaimOutcome[]> {
   const activities = await fetchActivities(c);
   const out: ClaimOutcome[] = [];
   for (const activity of activities) {
@@ -494,7 +494,7 @@ import type { SigninModule } from "@modelmux/gateway";
  * - 没有该类活动 → `claimedToday: null`（这个账号没有每日签到这回事，不猜）
  * - 有可领的 → 未签；全部已领 → 已签
  */
-export async function signinStatus(
+async function signinStatus(
   c: upstream.AuthLike,
 ): Promise<{ claimedToday: boolean | null; claimable: boolean; total: number }> {
   const activities = await fetchActivities(c);

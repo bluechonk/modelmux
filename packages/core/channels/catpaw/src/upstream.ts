@@ -50,7 +50,7 @@ import * as cred from "./cred.js";
  * 直连域鉴权用 `X-Passport-Token` + Cookie；网关域鉴权用 `X-Auth-Token`。
  * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
  */
-export const DIRECT_HOST = "https://ai.catpaw.meituan.com";
+const DIRECT_HOST = "https://ai.catpaw.meituan.com";
 
 /**
  * 默认上游基址（契约要求 `upstream` 模块导出 `DEFAULT_BASE_URL`）。
@@ -132,7 +132,7 @@ export class UpstreamUnauthorized extends Error {
 }
 
 /** 上游返回业务错误码。 */
-export class CatPawProtocolError extends Error {
+class CatPawProtocolError extends Error {
   override name = "CatPawProtocolError";
   readonly code: number;
   constructor(message: string, code = 0) {
@@ -170,12 +170,12 @@ export function modelsUrl(cfg?: Config): string {
   return `${base}${MODEL_LIST_PATH}`;
 }
 
-export function roundUrl(cfg?: Config): string {
+function roundUrl(cfg?: Config): string {
   const base = resolveBaseUrl(cfg);
   return `${base}${ROUND_PATH}`;
 }
 
-export function eventUrl(cfg?: Config): string {
+function eventUrl(cfg?: Config): string {
   const base = resolveBaseUrl(cfg);
   return `${base}${EVENT_PATH}`;
 }

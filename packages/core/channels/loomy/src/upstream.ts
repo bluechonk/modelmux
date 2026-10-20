@@ -36,9 +36,9 @@ export const DISPLAY_NAME = "Loomy";
 /** 上游线型：标准 OpenAI 兼容 SSE，网关只需规范化透传。 */
 export const WIRE: "openai" | "custom" = "openai";
 
-export const API_PREFIX = "/api/v1";
+const API_PREFIX = "/api/v1";
 export const OK_CODE = "000000";
-export const AUTH_ERROR_CODE = "100002";
+const AUTH_ERROR_CODE = "100002";
 export const BAD_REQUEST_CODE = "100001";
 
 // ── 端点常量表（完整 URL = 业务基址 + 端点路径）──────────────────────────────
@@ -49,7 +49,7 @@ export const BAD_REQUEST_CODE = "100001";
  * - 端点路径：`/api/v1/chat/completions`
  * - query：**无**（`model` / `messages` / `stream` 全在 body；`stream` 恒 true，见 `buildChatBody`）
  */
-export const CHAT_PATH = `${API_PREFIX}/chat/completions`;
+const CHAT_PATH = `${API_PREFIX}/chat/completions`;
 
 /**
  * 模型目录端点。
@@ -57,7 +57,7 @@ export const CHAT_PATH = `${API_PREFIX}/chat/completions`;
  * - 端点路径：`/api/v1/models`
  * - query：**无**
  */
-export const MODELS_PATH = `${API_PREFIX}/models`;
+const MODELS_PATH = `${API_PREFIX}/models`;
 
 /**
  * 积分明细端点（**只读**，最便宜的探测端点）。
@@ -65,7 +65,7 @@ export const MODELS_PATH = `${API_PREFIX}/models`;
  * - 端点路径：`/api/v1/points/records`
  * - query 来源：`POINTS_RECORDS_QUERY`
  */
-export const POINTS_RECORDS_PATH = `${API_PREFIX}/points/records`;
+const POINTS_RECORDS_PATH = `${API_PREFIX}/points/records`;
 
 /**
  * 每日额度初始化端点（**写**，幂等）。
@@ -74,7 +74,7 @@ export const POINTS_RECORDS_PATH = `${API_PREFIX}/points/records`;
  * - body：**固定 `{}`，无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现），
  *   本渠道未启用（PROTOCOL §1.1）
  */
-export const FIRST_LOGIN_PATH = `${API_PREFIX}/points/first-login`;
+const FIRST_LOGIN_PATH = `${API_PREFIX}/points/first-login`;
 
 /**
  * 新手任务列表端点。
@@ -82,7 +82,7 @@ export const FIRST_LOGIN_PATH = `${API_PREFIX}/points/first-login`;
  * - 端点路径：`/api/v1/onboarding/tasks`
  * - query：**无**
  */
-export const ONBOARDING_TASKS_PATH = `${API_PREFIX}/onboarding/tasks`;
+const ONBOARDING_TASKS_PATH = `${API_PREFIX}/onboarding/tasks`;
 
 /**
  * 完成单个新手任务端点。
@@ -90,7 +90,7 @@ export const ONBOARDING_TASKS_PATH = `${API_PREFIX}/onboarding/tasks`;
  * - 端点路径：`/api/v1/onboarding/tasks/complete`
  * - body：`{key}`（**只有 key**；服务端不校验前置行为）
  */
-export const ONBOARDING_COMPLETE_PATH = `${API_PREFIX}/onboarding/tasks/complete`;
+const ONBOARDING_COMPLETE_PATH = `${API_PREFIX}/onboarding/tasks/complete`;
 
 /**
  * 积分明细分页参数。
@@ -100,7 +100,7 @@ export const ONBOARDING_COMPLETE_PATH = `${API_PREFIX}/onboarding/tasks/complete
  * - `recordType` 与参考实现用的 `record_type` 命名不一致 → **待真机确认**。
  *   （本端点只取余额字段，参数名不匹配通常只是被忽略，不影响探测语义。）
  */
-export const POINTS_RECORDS_QUERY: Record<string, string | number> = {
+const POINTS_RECORDS_QUERY: Record<string, string | number> = {
   pageNo: 1,
   pageSize: 1,
   recordType: "all",
@@ -116,14 +116,14 @@ export class UpstreamUnauthorized extends Error {
 }
 
 /** 描述如何到达 Loomy 端点。 */
-export interface Config {
+interface Config {
   baseUrl: string;
 }
 
 /**
  * 凭据的最小面（避免 upstream ↔ cred 循环依赖）。
  */
-export interface AuthLike {
+interface AuthLike {
   accessToken: string;
 }
 
@@ -187,22 +187,22 @@ export function modelsUrl(cfg?: Config): string {
 }
 
 /** 积分明细（**只读**，最便宜的探测端点）。 */
-export function pointsRecordsUrl(cfg?: Config): string {
+function pointsRecordsUrl(cfg?: Config): string {
   return `${base(cfg)}${POINTS_RECORDS_PATH}?${queryString(POINTS_RECORDS_QUERY)}`;
 }
 
 /** 每日额度初始化（**写**端点，幂等）。 */
-export function firstLoginUrl(cfg?: Config): string {
+function firstLoginUrl(cfg?: Config): string {
   return `${base(cfg)}${FIRST_LOGIN_PATH}`;
 }
 
 /** 新手任务列表。 */
-export function tasksUrl(cfg?: Config): string {
+function tasksUrl(cfg?: Config): string {
   return `${base(cfg)}${ONBOARDING_TASKS_PATH}`;
 }
 
 /** 完成单个新手任务。 */
-export function taskCompleteUrl(cfg?: Config): string {
+function taskCompleteUrl(cfg?: Config): string {
   return `${base(cfg)}${ONBOARDING_COMPLETE_PATH}`;
 }
 
@@ -223,7 +223,7 @@ function str(value: unknown): string {
  * ⚠ 不发 `traceparent` / `loomy-version`：这两个头是 `[参考]` 标注的**对话**必需头，
  * 业务端点在本仓 2026-10-19 实测（`mx model loomy --refresh`）不发也正常。
  */
-export function businessHeaders(credential: AuthLike): Record<string, string> {
+function businessHeaders(credential: AuthLike): Record<string, string> {
   return { Accept: "application/json", token: credential.accessToken };
 }
 
@@ -233,7 +233,7 @@ export function businessHeaders(credential: AuthLike): Record<string, string> {
  * `[参考]` 取**官方客户端**版本号（与参考实现一致），**不是**本渠道包的版本号；
  * 上游网关**只检查它存在**。
  */
-export const CLIENT_VERSION = "0.9.38";
+const CLIENT_VERSION = "0.9.38";
 
 /**
  * W3C traceparent（`00-<32 hex>-<16 hex>-01`），**每请求新生成**。
@@ -251,7 +251,7 @@ function traceparent(): string {
  * chat 端点头：**两个都发**（只认 `Authorization: Bearer`；`Bearer ` 前缀必需，
  * 实测无前缀同样回 `100002 缺少 token`）。
  */
-export function chatHeaders(credential: AuthLike): Record<string, string> {
+function chatHeaders(credential: AuthLike): Record<string, string> {
   return {
     Accept: "text/event-stream",
     "Content-Type": "application/json",
@@ -288,7 +288,7 @@ export function parseEnvelope(payload: unknown): {
 }
 
 /** `100002` = 登录失效（收到它**不得重试**，必须重新登录）。 */
-export function isAuthError(code: string): boolean {
+function isAuthError(code: string): boolean {
   return code === AUTH_ERROR_CODE;
 }
 
@@ -482,7 +482,7 @@ export function resolveConfig(_data: Record<string, unknown>, fallback?: Config)
 
 // ── 档位注册表（避免 upstream ↔ catalog 循环依赖）──────────────────────────────
 
-export interface ModelEfforts {
+interface ModelEfforts {
   efforts: string[];
   defaultEffort: string;
 }
@@ -495,7 +495,7 @@ export function setModelEfforts(model: string, efforts: string[], defaultEffort:
 }
 
 /** 查询已登记的档位；未知模型返回 null（→ 不下发 reasoning_effort）。 */
-export function modelEfforts(model: string): ModelEfforts | null {
+function modelEfforts(model: string): ModelEfforts | null {
   return effortsRegistry.get(model) ?? null;
 }
 
@@ -514,7 +514,7 @@ function isSystemMessage(msg: unknown): boolean {
  * `system` 提示词提升为 `messages[0]`（**先拼再放进对象**，不依赖
  * 「后面的键覆盖前面」的隐式行为）；多条字符串内容用 `\n\n` 合并。
  */
-export function hoistSystemMessages(messages: unknown[]): unknown[] {
+function hoistSystemMessages(messages: unknown[]): unknown[] {
   const systems = messages.filter(isSystemMessage);
   if (systems.length === 0) return [...messages];
   const contents = systems.map((m) => (m as Record<string, unknown>)["content"]);
@@ -558,7 +558,7 @@ export function buildChatBody(
 }
 
 /** 翻译器接口（`WIRE === "openai"` 时网关不会调用，导出仅为契约一致）。 */
-export interface StreamTranslator {
+interface StreamTranslator {
   feed(chunk: Buffer): Array<Buffer | string>;
   finish(): Array<Buffer | string>;
 }

@@ -52,7 +52,7 @@
 回调完成后统一经深链 `orcaterm://oauth_callback`（国际版 `orcaterm-global://oauth_callback`）
 把登录态交回桌面端。
 
-**实现状态（唯一登录路径）**：渠道包 `channels/orcaterm/src/cred.ts` **只实现 `txcloud` 一路**
+**实现状态（唯一登录路径）**：渠道包 `packages/core/channels/orcaterm/src/cred.ts` **只实现 `txcloud` 一路**
 （One way，`mx login orcaterm` 不弹菜单）。`wechat` / `github` / 浏览器控制台态
 （`uin`+`skey`）三路仅作**协议事实**保留（本节记录其端点与流程），CLI 不提供入口。
 
@@ -300,6 +300,9 @@ body `{"action":"GetUserInfo"}` → 返回 `{nickName, username, userId, userAcc
 
 ## 3. 对话 / 模型请求
 
+本节有两份专题文件：请求体与响应格式见 [REQUEST-BODY.md](./REQUEST-BODY.md)，
+工具调用协议见 [TOOL-CALLS.md](./TOOL-CALLS.md)；本节只留端点、必需请求头与模型目录。
+
 ### 3.1 Agent 对话路径（实测提取）
 
 前端 bundle（`packages/orcaterm/features/ai_chat/...`）中提取到的对话相关路径：
@@ -417,132 +420,9 @@ Web 版（`https://orcaterm.cloud.tencent.com` + 浏览器 UA）。
 
 两种形态可混在一个账号池里跑，由网关按凭证类型自动选择（参考实现 `orcaterm2api/internal/orca/orca.go` 的 `setHeaders`）。
 
-#### 3.4.2 请求体（参考实现验证）
+#### 3.4.2 请求体与响应格式（专题文件）
 
-```jsonc
-{
-  "conversationId": "cid-<uuid>-orcaterm",
-  "user": {
-    "id": "<userId>",
-    "setting": {
-      "mcpServers": [],
-      "uiServers": [],
-      "tools": [],
-      "approvedTools": [],
-      "approvedMCPTools": [],
-      "enableAutoSubtaskExecution": false,
-      "env": [],
-      "model": "TokenHub/deepseek-v4-flash",
-      "modelDesc": {},
-      "hideToolMessage": false,
-      "isNormalToolMessageIgnored": false,
-      "shouldHideDirectOutputToolReview": false,
-      "extra": {}
-    }
-  },
-  "input": {
-    "type": "start",
-    "input": "{\"_format\":\"acp-prompt\",\"version\":1,\"prompt\":[{\"type\":\"text\",\"text\":\"<用户输入>\"}]}",
-    "id": "<uuid>",
-    "emphasisPrompt": "<系统提示词，能压过 OrcaTerm 默认运维助手人设>",
-    "files": []
-  },
-  "stream": true
-}
-```
-
-- `conversationId` 格式固定为 `cid-<uuid>-orcaterm`
-- `input.input` 是 ACP 信封（JSON 字符串），包含用户输入
-- `input.emphasisPrompt` 在服务端拼到系统提示词后部，能覆盖 OrcaTerm 默认人设
-- `stream: true` 走 SSE 分块传输（绕过 CDN 单体响应限制）
-- `setting.model` 是上游模型名，走 `TokenHub/<名称>` 或 `Hunyuan3/<名称>` 前缀
-- `setting.mcpServers` / `setting.uiServers`：客户端声明了工具时才打开上游原生工具服务器
-  （`mcp-server-orcaterm-oauth` / `ui-tools-orcaterm-explorer`），详见 §3.4.5
-
-**会话连续性（`conversationId` 怎么来）**
-
-上游**按 conversationId 服务端保存历史**（[参考] `orcaterm2api` README：「历史由服务端保存」），
-所以同一段对话必须复用同一个 id —— 每请求新建会让模型只看到最后一轮（多轮对话与工具
-回填都断链）。本渠道按**会话键**派生（实现见 `upstream.ts` 的 `sessionKeyOf`）：
-
-| 优先级 | 锚点 | 说明 |
-| --- | --- | --- |
-| 1 | `metadata.conversation_id` / `conversationId` / `conversationID` | 客户端显式给的会话标识 |
-| 2 | `user` | OpenAI 请求体的用户标识（客户端常把它设成**跨会话恒定**的值） |
-| 3 | 「模型 + 首条 user 消息」派生 | 兜底：按首条 user 消息的哈希 |
-
-三者都会**混入首条 user 消息的摘要**再哈希成 uuid 形状 —— 客户端把 `user` 当用户标识时，
-靠这一项把不同会话分开（否则多段对话会共用同一个上游会话，历史互相污染）。
-同一段对话的后续请求带着同样的首条 user 消息 → 派生结果相同 → 复用同一会话。
-
-工具结果回填时另有一张**在途映射**（工具调用 id → 上游会话 id）兜底：客户端裁剪了历史或
-换了首条消息时，仍能回到发起该调用的那个会话。
-
-**本轮只发新增内容**：上游已有历史，故 `input.input` 只放**末条 user / tool 消息**，
-不重发整段历史（重发会与上游已有历史重复）。
-
-#### 3.4.3 响应格式（SSE，curl 真机探测 + Go 参考实现双源确认）
-
-流式响应每帧为**逐 token 增量**形态（非全量JSON信封）：
-
-```jsonc
-// 正文帧（每帧只有当前 token 的增量文本）
-{"id":"7dca47643e234ebf8b8413fe60ae76ad1","content":"你","reasoningContent":"","reasoning":false,"type":"ai","code":0}
-{"id":"7dca47643e234ebf8b8413fe60ae76ad1","content":"好","reasoningContent":"","reasoning":false,"type":"ai","code":0}
-
-// 鉴权失效帧
-{"id":"...","content":"","code":10050000,"message":"..."}
-
-// 控制台态票据失效帧
-{"id":"...","content":"","code":500,"message":"VERIFY_SKEY_UIN_FAILED: ..."}
-{"id":"...","content":"","code":500,"message":"NEED_UIN_AND_SKEY: ..."}
-```
-
-字段说明：
-- `id`：本轮会话 uuid，全程不变
-- `content`：当前 token 的增量文本（非完整正文）
-- `reasoningContent`：思考链内容（`reasoning:true` 时有值）
-- `type`：`"ai"` 表示模型生成
-- `code`：`0` 正常，`10050000` 鉴权失效，`429` 限流
-
-累积全部 `content` 帧即为**完整回复**，但它是 OrcaTerm 桌面客户端自己的**内部协议信封**（不是纯文本）：
-
-```jsonc
-// action=completion：正常回答
-{"action":"completion","thinking":"<思考链>","taskCompletion":"<正文>"}
-
-// action=ask：反问 + 选项按钮
-{"action":"ask","thinking":"...","question":"<反问>","options":["选项1","选项2"]}
-
-// action=review：请求执行工具
-{"action":"review","taskCompletion":"<说明>","tool":{"name":"execute_terminal_command","args":{"command":"ls"}}}
-```
-
-偶尔外面还套一层 markdown 围栏（```` ```json ````）。桌面客户端自己解析这个信封来渲染正文 / 思考 / 选项按钮。
-
-> **网关必须拆信封**（`unwrapProtocolEnvelope`）：直接把累积文本下发，客户端会看到一坨 JSON。
-> 拆法：`completion` → `taskCompletion`；`ask` → `question` + `options` 渲染成列表；
-> `review` → `taskCompletion`（工具名附在缺失时）；`thinking` → OpenAI 的 `reasoning_content` 字段。
-> 拆不掉时原样返回（宁可漏拆，不能吃掉正常回答）。
-
-#### 3.4.3.1 人设覆盖（emphasisPrompt 唯一作用点）
-
-上游将模型训练 / 提示成「OrcaTerm 云端服务器运维助手」，并要求它用上面的信封回复。
-网关要的是**通用模型能力**，所以 `input.emphasisPrompt` 末尾固定追加一段最高优先级指令：
-
-- 声明自己是通用 AI 助手，不再扮演运维助手；
-- 禁止输出 `{"action": ...}` 信封与内部协议字段；
-- 调用方的系统提示与上下文权限更高。
-
-实测（reasonix 真机）：叠加人设覆盖 + 数据层拆信封后，输出为干净的自然语言，
-并遵守调用方系统提示（例如被要求自我介绍时按客户端身份回答，而不是自称运维助手）。
-
-> 只做提示词不可靠（模型经常照旧输出信封），只做拆信封也不够（人设仍是运维助手）；
-> **两层都要有**。
-
-**有工具时口径要变**：客户端声明了 tools 就不再说「禁止输出 `{"action":…}` 信封」，
-改成「只有确实需要调用工具时才输出工具 JSON」（格式见 §3.4.5）—— 否则人设覆盖会与
-工具格式要求自相矛盾。
+请求体构造、会话连续性、SSE 响应信封与人设覆盖见 [REQUEST-BODY.md](./REQUEST-BODY.md)。
 
 #### 3.4.4 上游模型目录（参考实现内置）
 
@@ -571,90 +451,9 @@ Web 版（`https://orcaterm.cloud.tencent.com` + 浏览器 UA）。
 
 > 上游对未开通/不存在的模型名返回空流（不报错），故测试时务必使用已验证的低费模型。
 
-#### 3.4.5 工具调用协议（请求侧 → 响应侧 → 回填侧）
+#### 3.4.5 工具调用协议（专题文件）
 
-上游**只认原生工具**，不接受客户端自定义 function；工具调用也不是独立流帧，而是累积文本里
-的一段 JSON 信封。完整闭环三步如下。
-
-**（1）请求侧：怎么带 tools**
-
-上游请求体里能表达工具的只有两个字段，且 `setting.tools` 在两个参考实现里**恒为 `[]`**：
-
-| 字段 | 取值 | 出处 |
-| --- | --- | --- |
-| `user.setting.mcpServers` | `["mcp-server-orcaterm-oauth"]`（**仅当客户端声明了 tools 时**） | [参考] `orca.go` `buildBodyStream` |
-| `user.setting.uiServers` | `["ui-tools-orcaterm-explorer"]`（同上条件） | [参考] 同上 |
-| `user.setting.tools` / `approvedTools` / `approvedMCPTools` | 恒 `[]` | [参考] 同上 |
-
-客户端工具的**名字与参数只能靠提示词注入**（上游没有承接 function schema 的字段）：
-
-- `input.emphasisPrompt` 里追加「工具调用格式」一节：给出 JSON 模板
-  `{"action":"review","taskCompletion":"…","tool":{"name":"<工具名>","args":{…}}}`，
-  并逐条列出客户端声明的工具名、描述与参数（`name (type，必填)` 形式）。
-- [参考] `hey7195_orcaterm_proxy` 的 `_FMT_GUARD_TOOLS` 是同一思路：按「请求是否带 tools」
-  切换护栏文案（带 tools → 要求输出原生 JSON 动作格式；不带 → 要求纯文本）。
-- 同时人设覆盖要改口径：**有工具时不再禁止输出 `{"action":…}` 信封**，而是「只有需要调用
-  工具时才输出该 JSON」（否则与「禁止输出信封」自相矛盾）。
-
-**（2）响应侧：流里怎么还原 tool_calls**
-
-上游 SSE 每帧是**逐 token 增量文本**，工具调用不是独立帧 —— 它是累积文本里的一段信封：
-
-```jsonc
-{"action":"review","taskCompletion":"<说明>","tool":{"name":"execute_terminal_command","args":{"command":"ls"}}}
-```
-
-还原路径：
-
-1. 流末把累积文本整体当 JSON 解析（[参考] `orca.go` `ParseOutcomeText`）：容错三种形态 ——
-   内层协议 JSON、完整信封 `{"code":0,"data":{…}}`、以及「模型先说话再给 JSON」
-   （取最外层花括号跨度）。
-   ⚠ **实测第四种形态：一轮响应里连着吐多个信封**（一次实测出现
-   `completion` → `review(bash)` → `review(execute_command)` → `review(remote_write)` 四个）。
-   按「最外层花括号跨度」切会把它们连成一坨 → JSON 解析必失败 → 整段当文本透传。
-   故实现改为**逐段扫描平衡的 `{…}`**（字符串与转义感知），逐段解析、按出现顺序取。
-2. `action == "review"` → 取 `tool.name` / `tool.args` → 转成 OpenAI `tool_calls`：
-   `{"id":"call_<hex>","type":"function","function":{"name":…,"arguments":"<JSON 字符串>"}}`，
-   并下发 `finish_reason:"tool_calls"`。
-   多个 review 时**按出现顺序逐个桥接**，第一个能桥到客户端工具的胜出；都桥不上才降级成文本。
-3. **工具名桥接**：上游给的是原生工具名（`execute_terminal_command` / `remote_write` / `fetch` …），
-   客户端声明的往往是 `bash` / `write_file` 一类。桥接顺序：
-   名字一致 → 直接透传；上游给的是命令（`args.command`）→ 桥接到客户端的**执行类**工具
-   （名字含 bash/shell/exec/terminal/command/run，参数含 command/cmd/script/code）；
-   上游给的是链接（`args.url`）→ 桥接到客户端的**抓取类**工具（名字含 fetch/web/http/browse，
-   参数含 url/uri/link）；上游给的是「路径 + 内容」（`args.file_path` + `args.content`，
-   实测上游的 `remote_write` 就是这个形态）→ 桥接到客户端的**写文件类**工具
-   （名字含 write_file/write/create_file，路径参数含 path/file_path/filename）；
-   只给路径 → 桥接到客户端的**读文件类**工具（名字含 read_file/read/cat）。
-   桥接不上 → 降级成可读文本 `[OrcaTerm 请求执行工具 <name>]`
-   （不给客户端一个它根本执行不了的调用）。
-4. 共享层 `sse-stream.ts` 会按 `index` 累积 `delta.tool_calls`，非流式请求聚合成
-   `message.tool_calls` + `finish_reason:"tool_calls"` —— 渠道只要吐标准 OpenAI 帧即可，
-   **不需要改共享层**。
-
-**（3）回填侧：工具结果怎么送回去**
-
-客户端执行完工具后回传 `role:"tool"` 的消息，网关按**真机格式**包裹后作为新一轮的文本，
-**发回同一个上游会话**：
-
-```
-<TOOL_META>返回结果</TOOL_META>
-<工具输出>
-```
-
-- 空输出视为「用户拒绝执行」，发
-  `<TOOL_META>返回结果</TOOL_META>\n用户拒绝执行工具 <name>，请根据已有信息继续回答。`
-- 已含 `<TOOL_META>` 的内容原样透传（避免二次包裹）。
-- 会话对齐：优先用「发起该调用」时记下的在途映射（工具调用 id → 上游会话 id），
-  记不到时按 §3.4.2 的会话键派生 —— 两者都指向同一个 `conversationId`。
-
-已知原生工具（部分，完整快照见 [参考] `orca.go` 的 `NativeTools`）：`fetch`、
-`execute_terminal_command`、`run_commands`、`list_terminals`、`submit_agent_tasks`、
-`read_cloud_space_file` 等。
-
-> 上游的能力边界（[参考] `orcaterm2api` README）：一次只产出一个工具调用；不支持
-> `tool_choice:"required"` 与具名强制选择；不支持一次回传多个工具结果。
-> 本渠道**不**对这些情况显式报错（客户端兼容性优先），由上游自行裁决。
+上游原生工具的请求侧、响应侧与回填侧闭环见 [TOOL-CALLS.md](./TOOL-CALLS.md)。
 
 #### 3.4.6 控制台态（uin/skey）补充说明
 
@@ -675,6 +474,7 @@ Web 版（`https://orcaterm.cloud.tencent.com` + 浏览器 UA）。
 | **A 实测** | 直接从本机落盘文件/日志读到（cookie 值、JWT 解码、日志行） |
 | **B 静态提取** | 从 WebView2 缓存（Code Cache / HTTP Cache）里的字符串字面量提取 |
 | **C 推断** | 由 A/B 推论，尚未直接验证（如请求体形状、"含义"列） |
+| `[实测]` | 真机跑通（等价于 **A**） |
 | `[参考]` | 来自第三方参考实现的协议事实（行内标注，附来源仓库与文件） |
 | `[代码]` | 本仓库当前实现的代码事实（行内标注） |
 | `[推断]` | 静态推断，尚未真机验证（行内标注） |
@@ -684,6 +484,8 @@ Web 版（`https://orcaterm.cloud.tencent.com` + 浏览器 UA）。
 工具调用协议（§3.4.5）、会话连续性（§3.4.2）、请求头清单（§3.4.0.1）主要依据
 `[参考]`（`ZFXing-lite/orcaterm2api` 与 `hey7195_orcaterm_proxy`）与 `[代码]`（本渠道实现），
 尚未真机验证的部分在「已知边界」与「风险」里点名。
+两份专题文件（[REQUEST-BODY.md](./REQUEST-BODY.md) / [TOOL-CALLS.md](./TOOL-CALLS.md)）
+沿用同一套标记。
 
 ## 5. 额度 / 签到
 
@@ -839,12 +641,13 @@ Tauri 按 Bundle ID `com.orcaterm-desktop.app` 落数据：
 ## 参考实现
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+下表与 `packages/core/channels/orcaterm/reference/` 下实际 clone 的目录逐条对应。
 
-| 仓库 | 用途 |
-| --- | --- |
-| [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | **主参照** —— 上游协议骨架：请求头族（`setHeaders`）、请求体构造（`buildBodyStream`）、工具调用闭环（`review` → `tool_calls` → `<TOOL_META>` 回填）、原生工具表、会话粘性 |
-| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | 工具桥接与容错解析的参照 —— 按请求形态切换提示词护栏（`_FMT_GUARD_TOOLS`）、原生工具名 → 客户端执行类工具的桥接 |
-| [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | 官方发行包存档 —— 桌面端逆向（asar / 二进制）与版本对照的一手材料 |
+| 仓库 | 关键文件 | 用途 |
+| --- | --- | --- |
+| [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | `internal/orca/orca.go`（`setHeaders` / `buildBodyStream` / `ParseOutcomeText` / `NativeTools`）、`internal/relay/engine.go`（`NoAskBehaviorNote` / `autoConfirmAsk`） | **主参照** —— 上游协议骨架：请求头族、请求体构造、工具调用闭环（`review` → `tool_calls` → `<TOOL_META>` 回填）、原生工具表、会话粘性 |
+| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | `server.py`（`_FMT_GUARD_TOOLS` / `pick_exec_tool` / `bridge_tool_call`） | 工具桥接与容错解析的参照 —— 按请求形态切换提示词护栏、原生工具名 → 客户端执行类工具的桥接 |
+| [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | `README.md`（发行包与更新元数据索引） | 官方发行包存档 —— 桌面端逆向（asar / 二进制）与版本对照的一手材料 |
 
 ## 已知边界
 

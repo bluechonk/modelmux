@@ -42,7 +42,7 @@ export const DEFAULT_BASE_URL = "https://lobsterai-server.youdao.com";
  * `POST {base}/api/proxy/v1/chat/completions` —— **无 query**。
  * body：OpenAI 兼容请求（`model` / `messages` / `stream` 恒 true / …），改写见 `buildChatBody()`。
  */
-export const CHAT_PATH = "/api/proxy/v1/chat/completions";
+const CHAT_PATH = "/api/proxy/v1/chat/completions";
 
 /**
  * 可用模型列表端点。
@@ -51,7 +51,7 @@ export const CHAT_PATH = "/api/proxy/v1/chat/completions";
  * `firstKeyfrom` / `latestKeyfrom` / `version`（动态版本号）/ `uuid?` / `userId?`；
  * **不含 `refreshToken`**（放 query 会进服务端访问日志）。见 `modelsQuery()`。
  */
-export const MODELS_PATH = "/api/models/available";
+const MODELS_PATH = "/api/models/available";
 
 /**
  * 授权码换 token（控制面；**匿名**，不带 `Authorization`）。
@@ -96,17 +96,17 @@ export const USER_AGENT = "LobsterAI/0.1.0";
  * 两个能力都必须声明：`kimi-k3-agentic-v1` 决定模型集合里有没有 `kimi-k3`；
  * `thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（否则 500）。
  */
-export const CLIENT_CAPABILITIES = "kimi-k3-agentic-v1,thinking-level-control-v1";
-export const CAPABILITIES_HEADER = "X-LobsterAI-Client-Capabilities";
-export const VERSION_HEADER = "X-LobsterAI-Client-Version";
+const CLIENT_CAPABILITIES = "kimi-k3-agentic-v1,thinking-level-control-v1";
+const CAPABILITIES_HEADER = "X-LobsterAI-Client-Capabilities";
+const VERSION_HEADER = "X-LobsterAI-Client-Version";
 
 /** 客户端版本号查询端点（第三方域名，非统一信封）。 */
-export const CLIENT_VERSION_URL =
+const CLIENT_VERSION_URL =
   "https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/prod/update";
 /** 版本号缓存有效期（12 小时）—— 版本是日期式的，变更频率极低。 */
-export const VERSION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const VERSION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 动态拉取失败时的**最后一道**兜底版本号（磁盘缓存优先，见 `resolveClientVersion`）。 */
-export const FALLBACK_CLIENT_VERSION = "2026.9.4";
+const FALLBACK_CLIENT_VERSION = "2026.9.4";
 
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -116,12 +116,12 @@ export class UpstreamUnauthorized extends Error {
 }
 
 /** 模型声明不支持图片时显式报错（**不静默丢弃**）。 */
-export class UnsupportedContentError extends Error {
+class UnsupportedContentError extends Error {
   override name = "UnsupportedContentError";
 }
 
 /** 描述如何到达 LobsterAI chat 端点。 */
-export interface Config {
+interface Config {
   baseUrl: string;
 }
 
@@ -240,7 +240,7 @@ export function buildHeaders(credential: AuthLike): Record<string, string> {
  * 集合，不带它 `kimi-k3` 不会出现。早先版本用只有 4 个基础头的形态请求本端点，
  * 于是即使解析正确也**永久缺少 `kimi-k3`**。
  */
-export function modelsHeaders(credential: AuthLike, version = clientVersion()): Record<string, string> {
+function modelsHeaders(credential: AuthLike, version = clientVersion()): Record<string, string> {
   return {
     ...authHeaders(credential, "application/json"),
     [CAPABILITIES_HEADER]: CLIENT_CAPABILITIES,
@@ -266,7 +266,7 @@ let versionCache: { value: string; at: number } | null = null;
 let knownVersion: string | null = null;
 
 /** 版本号端点；`LOBSTERAI_VERSION_URL` 可覆盖（自托管 / 离线测试）。 */
-export function versionEndpoint(): string {
+function versionEndpoint(): string {
   const override = process.env["LOBSTERAI_VERSION_URL"];
   return override && override.trim() ? override.trim() : CLIENT_VERSION_URL;
 }
@@ -278,7 +278,7 @@ export function versionEndpoint(): string {
  * 之所以要**校验**而不是直接采信：版本号是签到接口的必填 query 参数，
  * 把 `null` / HTML 错误页拼进 URL 只会换来更费解的错误。
  */
-export function parseClientVersion(raw: unknown): string | undefined {
+function parseClientVersion(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const trimmed = raw.trim();
   if (!/^(\d+(?:\.\d+)*)(?:-[0-9A-Za-z.-]+)?$/.test(trimmed)) return undefined;
@@ -286,7 +286,7 @@ export function parseClientVersion(raw: unknown): string | undefined {
 }
 
 /** 从更新接口响应体取 `data.value.version`（`code`/`msg` 在外层）。 */
-export function parseClientVersionFromUpdate(body: unknown): string | undefined {
+function parseClientVersionFromUpdate(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
   const data = (body as Record<string, unknown>)["data"];
   if (!data || typeof data !== "object") return undefined;
@@ -296,7 +296,7 @@ export function parseClientVersionFromUpdate(body: unknown): string | undefined 
 }
 
 /** 同步取当前版本号：缓存有效则用缓存，否则用「最后一次已知可用」版本 / 兜底常量。 */
-export function clientVersion(): string {
+function clientVersion(): string {
   if (versionCache && Date.now() - versionCache.at < VERSION_CACHE_TTL_MS) {
     return versionCache.value;
   }
@@ -369,14 +369,8 @@ export async function resolveClientVersion(
   return FALLBACK_CLIENT_VERSION;
 }
 
-/** 清空版本缓存（测试与「强制刷新版本号」用）。 */
-export function clearVersionCache(): void {
-  versionCache = null;
-  knownVersion = null;
-}
-
 /** keyfrom 身份载荷（exchange / refresh / models 共用）。 */
-export interface KeyfromLike {
+interface KeyfromLike {
   firstKeyfrom?: string;
   latestKeyfrom?: string;
   uuid?: string;
@@ -389,7 +383,7 @@ export interface KeyfromLike {
  * ⚠️ **不含 `refreshToken`** —— 放 query 既是信息泄露（会进服务端访问日志），
  * 也不是该端点的预期输入。空值字段**删键**而不是写空串（Go 的 `if != ""` 语义）。
  */
-export function modelsQuery(
+function modelsQuery(
   credential: AuthLike & KeyfromLike,
   version: string,
 ): Record<string, string> {
@@ -409,7 +403,7 @@ export function modelsQuery(
  * `GET {base}/api/models/available?firstKeyfrom=…&latestKeyfrom=…&version=…[&uuid=…][&userId=…]`
  * 调用点：`upstream.fetchModels()`（唯一）。
  */
-export function modelsUrlFor(
+function modelsUrlFor(
   cfg: Config,
   credential: AuthLike & KeyfromLike,
   version: string,
@@ -421,7 +415,7 @@ export function modelsUrlFor(
 // ── 请求体改写 ───────────────────────────────────────────────────────────────
 
 /** 工具结果内嵌图片的载体文本（与官方 deepseek 适配器同名同义）。 */
-export const TOOL_RESULT_IMAGE_TEXT = "Attached image(s) from tool result:";
+const TOOL_RESULT_IMAGE_TEXT = "Attached image(s) from tool result:";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -541,7 +535,7 @@ function resolveToolPairing(messages: readonly Record<string, unknown>[]): {
  *   内嵌图片挂起到其后的**独立 user 消息**（载体文本逐字）
  * - 图片统一为 `{type:'image_url', image_url:{url:'data:...'}}`
  */
-export function normalizeMessages(
+function normalizeMessages(
   messages: readonly unknown[],
   supportsImage: boolean | undefined,
 ): Array<Record<string, unknown>> {
@@ -686,7 +680,7 @@ export function buildChatBody(
 /**
  * 拉取模型列表并灌入目录缓存。
  *
- * 响应**两种形状都必须认**（`lobsterai-adapter.ts:241-252`）：
+ * 响应**两种形状都必须认**（见 docs/channels/lobsterai/PROTOCOL.md §5.1）：
  * 单层 `{code:0, message:'success', data:[...]}`（实测真实形态）
  * 或双层 `{code:0, msg:'OK', data:{data:[...]}}`。
  * ⚠️ 不能复用「`data` 必须是对象」的信封校验 —— 此端点 `data` 恰恰是数组，
@@ -752,7 +746,7 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 // ── 错误分类（顺序即优先级，不可重排）────────────────────────────────────────
 
 /** 上游错误类别。 */
-export type ErrorKind =
+type ErrorKind =
   /** 成功（HTTP < 400 且未命中任何关键词）。 */
   | "none"
   /** 余额/积分不足。 */
@@ -777,7 +771,7 @@ export type ErrorKind =
  * 而早期表里只有「额度用尽」「积分用完」——「已用完」与「用尽」字面不同，
  * 于是这个**最主要的失败模式**判成 `none`（不换号、不记徽章）。
  */
-export const HARD_CREDIT_MARKERS: readonly string[] = [
+const HARD_CREDIT_MARKERS: readonly string[] = [
   "insufficient credit",
   "no credit",
   "credit exhausted",
@@ -805,17 +799,12 @@ export const HARD_CREDIT_MARKERS: readonly string[] = [
 ];
 
 /** 会话终止标记（`40100`/`40101` 是刷新被拒的业务码）。 */
-export const SESSION_DEAD_MARKERS: readonly string[] = [
+const SESSION_DEAD_MARKERS: readonly string[] = [
   "40100",
   "40101",
   "token rejected",
   "refresh token was rejected",
 ];
-
-/** 换号上限（进循环前已用首个凭据发过一次请求，故判据是 `attempt >= MAX - 1`）。 */
-export const MAX_ROTATE = 3;
-/** 限流重置时间兜底（1 小时）。 */
-export const RATE_LIMIT_FALLBACK_MS = 3_600_000;
 
 /**
  * 按 HTTP 状态码 + 响应体判定错误类别。
@@ -857,42 +846,9 @@ export function classifyError(status: number, body: string): ErrorKind {
   return "none";
 }
 
-/**
- * 判定**流内错误帧**（HTTP 200 + SSE `{error:{message}}`）的类别。
- *
- * 不能直接复用 `classifyError`：它的优先级里状态码排最前，而流内错误的 HTTP
- * 状态是 200 —— 那些分支全部失效，未命中关键词时只会得到 `none`
- * （= 不换号），而额度耗尽正是以 HTTP 200 + 流内错误帧表达的。
- * 故默认值取 `client`（可轮转）：该账号此刻没能服务这个请求，应当换号再试。
- */
-export function classifyStreamError(message: string): ErrorKind {
-  const byKeyword = classifyError(200, message);
-  return byKeyword === "none" ? "client" : byKeyword;
-}
-
-/** 是否应当「换下一个账号」—— 除成功外每一类都换号。 */
-export function shouldRotateAccount(kind: ErrorKind): boolean {
-  return kind !== "none";
-}
-
-/**
- * 是否记为**该模型**的限流标记（UI 亮「限额重置」徽章）。
- *
- * 只覆盖真正写了冷却时间的三类；`session-dead` 与 server/client 只轮转、
- * 不留徽章 —— 否则一个 400 请求错误会被显示成「该模型限流 1 小时」，是虚假信息。
- */
-export function recordsRateLimit(kind: ErrorKind): boolean {
-  return kind === "hard-credit" || kind === "soft-rate" || kind === "not-found";
-}
-
-/** 是否属于**终态**（重试无意义，只能重新登录）。 */
-export function isTerminalError(kind: ErrorKind): boolean {
-  return kind === "session-dead";
-}
-
 // ── 流翻译器（契约要求所有渠道都导出）────────────────────────────────────────
 
-export interface StreamTranslator {
+interface StreamTranslator {
   feed(chunk: Buffer): Array<Buffer | string>;
   finish(): Array<Buffer | string>;
 }

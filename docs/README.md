@@ -46,11 +46,11 @@
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
 | `codearts` | CodeArts（华为云） | [PROTOCOL](./channels/codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
-| `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) |
-| `orcaterm` | OrcaTerm（腾讯云） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) |
+| `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
+| `orcaterm` | OrcaTerm（腾讯云） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) / [TOOL-CALLS](./channels/orcaterm/TOOL-CALLS.md) / [REQUEST-BODY](./channels/orcaterm/REQUEST-BODY.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./channels/qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
-| `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) |
+| `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表） |

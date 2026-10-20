@@ -1,26 +1,13 @@
 /**
  * 渠道上下文：**当前正在为哪个 cid 干活**。
  *
- * ## 为什么需要它
- *
- * 渠道模块（`cred.ts` / `upstream.ts` / `catalog.ts`）内部会调共享层的 `paths.*`
- * （`credentialsPath()` / `upstreamPath()` / `ensureDir()` / `cacheDir()` …），
- * 但这些函数不知道该渠道是谁 —— 单渠道模式下「唯一注册的渠道」就够，多渠道路由下
- * 必须由**调用方**告诉它们。
+ * 为什么需要它：渠道模块内部会调共享层的 `paths.*`，但那些函数不知道渠道是谁 ——
+ * 多渠道路由下必须由**调用方**告诉它们。
  *
  * 用 `AsyncLocalStorage` 而不是模块级变量：`cred.refresh()` / `login()` 这类异步链路
- * 中间有 await，模块级变量会被并发请求互相踩（A 请求刷新 token 时切到 B 的渠道，
- * A 就可能把凭据写进 B 的目录）。ALS 把上下文绑在异步执行链上，天然隔离。
+ * 中间有 await，模块级变量会被并发请求互相踩（A 渠道的凭据写进 B 的目录）。
  *
- * ## 用法
- *
- * 共享层在**每一次调用渠道模块之前**包一层：
- *
- * ```ts
- * await runInChannel(channel.config.cid, () => channel.cred.load());
- * ```
- *
- * 单渠道模式下也建议照包 —— 行为等价，但语义显式。
+ * 用法：每次调用渠道模块前包一层 `runInChannel(cid, fn)`；单渠道模式也建议照包。
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";

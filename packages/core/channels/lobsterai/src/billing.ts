@@ -42,7 +42,7 @@ import * as upstream from "./upstream.js";
  *
  * `GET {base}/api/user/profile-summary`（无 query）。
  */
-export const PROFILE_SUMMARY_PATH = upstream.PROFILE_SUMMARY_PATH;
+const PROFILE_SUMMARY_PATH = upstream.PROFILE_SUMMARY_PATH;
 
 /**
  * 活动槽位端点。
@@ -50,7 +50,7 @@ export const PROFILE_SUMMARY_PATH = upstream.PROFILE_SUMMARY_PATH;
  * `GET {base}/api/client-activities/slot?placement=…&clientVersion=…&containerApiVersion=…&platform=…`
  * query 四个常量逐字不可改。
  */
-export const ACTIVITY_SLOT_PATH = "/api/client-activities/slot";
+const ACTIVITY_SLOT_PATH = "/api/client-activities/slot";
 
 /**
  * 活动上下文端点（模板）。
@@ -58,7 +58,7 @@ export const ACTIVITY_SLOT_PATH = "/api/client-activities/slot";
  * `GET {base}/api/client-activities/{activityCode}/context?configRevision={rev}`
  * —— `activityCode` 来自槽位响应，`configRevision` 同样来自槽位响应。
  */
-export const ACTIVITY_CONTEXT_PATH = "/api/client-activities/{activityCode}/context";
+const ACTIVITY_CONTEXT_PATH = "/api/client-activities/{activityCode}/context";
 
 /**
  * 签到动作端点（模板）。
@@ -66,15 +66,15 @@ export const ACTIVITY_CONTEXT_PATH = "/api/client-activities/{activityCode}/cont
  * `POST {base}/api/client-activities/{activityCode}/actions/check_in`
  * body：`{configRevision, idempotencyKey(uuid4), payload:{}}`。
  */
-export const CHECKIN_ACTION_PATH = "/api/client-activities/{activityCode}/actions/check_in";
+const CHECKIN_ACTION_PATH = "/api/client-activities/{activityCode}/actions/check_in";
 
 /** 三个固定 query 常量（逐字不可改）。 */
-export const SLOT_PLACEMENT = "desktop_sidebar";
-export const SLOT_CONTAINER_API_VERSION = "2";
-export const SLOT_PLATFORM = "win32";
+const SLOT_PLACEMENT = "desktop_sidebar";
+const SLOT_CONTAINER_API_VERSION = "2";
+const SLOT_PLATFORM = "win32";
 
 /** 积分单位（上游是「积分」，不是 token）。 */
-export const CREDIT_UNIT = "credits";
+const CREDIT_UNIT = "credits";
 
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -84,7 +84,7 @@ export class CreditsError extends Error {
 }
 
 /** 一个积分包的明细。 */
-export interface CreditPackage {
+interface CreditPackage {
   /** 展示名（实测「每日登录奖励」）。 */
   name: string;
   /** 机器分类码（实测 `campaign`）。 */
@@ -99,7 +99,7 @@ export interface CreditPackage {
   days_left: number | null;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   account?: { uid: string; domain: string };
   total: {
@@ -115,7 +115,7 @@ export interface CreditsResult {
 }
 
 /** 签到结果。 */
-export interface ClaimResult {
+interface ClaimResult {
   ok: boolean;
   /** 今天已经签过（预检判定，**没有发过 check_in 请求**）。 */
   already: boolean;
@@ -144,7 +144,7 @@ function round2(value: number): number {
 }
 
 /** 到期天数；解析不了返回 null（**不编造数字**）。 */
-export function daysLeft(expiresAt: string, nowMs = Date.now()): number | null {
+function daysLeft(expiresAt: string, nowMs = Date.now()): number | null {
   if (!expiresAt) return null;
   const trimmed = expiresAt.trim();
   const parsed = Date.parse(trimmed.includes(" ") ? trimmed.replace(" ", "T") : trimmed);
@@ -214,7 +214,7 @@ function dataOf(env: Record<string, unknown>): Record<string, unknown> {
  * 有活动；非 `available` = **当前没有活动**（不是失败）。响应里没有该字段时按旧行为：
  * 取不到 `activityCode` 即报错。
  */
-export async function activitySlot(
+async function activitySlot(
   credential: upstream.AuthLike,
   clientVersion: string,
 ): Promise<{ activityCode: string; configRevision: string; slotState: string }> {
@@ -249,7 +249,7 @@ export async function activitySlot(
  * `claimable` 恒 false → **每日签到永远领不到积分** → 免费额度耗尽后对话全挂
  * （「免费额度已用完，请升级套餐」）。故两种形态都认。
  */
-export async function activityContext(
+async function activityContext(
   credential: upstream.AuthLike,
   activityCode: string,
   configRevision: string,
@@ -280,7 +280,7 @@ export async function activityContext(
 }
 
 /** 组装 `fetchCredits()` 的结果（供测试与 debug 直接调用）。 */
-export function summarize(
+function summarize(
   data: Record<string, unknown>,
   account: { uid: string; domain: string },
 ): CreditsResult {
@@ -414,7 +414,7 @@ export async function fetchCredits(
  * 积分按 `creditsGranted` → `rewardCredits` → `credits` → `grantedCredits`
  * → `creditAmount` 逐个回退读取（先看 `data` 顶层，再看 `data.result`）。
  */
-export async function claimCheckin(): Promise<ClaimResult> {
+async function claimCheckin(): Promise<ClaimResult> {
   const c = cred.load();
   const version = await upstream.resolveClientVersion();
   const slot = await activitySlot(c, version);

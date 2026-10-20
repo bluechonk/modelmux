@@ -1,21 +1,9 @@
 /**
- * 路径解析：**工作区统一存储根 + 按 cid 分层**。
- *
- * 布局（见 docs/STORAGE-CONVENTION.md §1/§4）：
- *
- *   ~/.modelmux/                 ← 唯一存储根（`MODELMUX_HOME` 可覆盖）
- *       prefs.json               （可选）跨渠道共享偏好
- *       <cid>/                   ← 渠道层，cid 取自 ChannelConfig
- *           credentials.json     登录凭证
- *           upstream.json        上游端点与鉴权头名称
- *           prefs.json           渠道内偏好（auto_start 等）
- *           gateway.pid          守护式网关 PID
- *           logs/                运行日志（类型/日期/结果分层，见 docs/LOGGING.md）
- *           cache/  state/  debug/
+ * 路径解析：**工作区统一存储根 + 按 cid 分层**（布局见
+ * docs/STORAGE-CONVENTION.md §1，固定文件名见 §3 第 4 条）。
  *
  * 根目录名与分层规则是共享常量，渠道**不得**自行决定（也不得自行拼绝对路径）——
- * 渠道只能给 `cid`。历史布局兼容（legacyDirs / fileMigrations / 旧环境变量）已随
- * modelmux 更名整体移除：只认 `<root>/<cid>/` 这一种布局。
+ * 渠道只能给 `cid`。只认 `<root>/<cid>/` 这一种布局，不做旧目录/旧名字迁移。
  */
 
 import { mkdirSync } from "node:fs";
@@ -104,13 +92,13 @@ export function ensureDir(cid?: string): string {
 /**
  * 渠道层内的文件路径。
  *
- * 文件名受校验：全小写、`-`/`.` 分隔（见 STORAGE-CONVENTION.md §4.7），
+ * 文件名受校验：全小写、`-`/`.` 分隔（见 docs/STORAGE-CONVENTION.md §3 第 7 条），
  * 渠道不得绕过这里自行拼路径。
  */
 export function channelFile(name: string, cid?: string): string {
   if (!/^[a-z0-9][a-z0-9.-]*$/.test(name)) {
     throw new Error(
-      `invalid file name: ${name} (must be lowercase a-z0-9.- only; see docs/STORAGE-CONVENTION.md §4.7)`,
+      `invalid file name: ${name} (must be lowercase a-z0-9.- only; see docs/STORAGE-CONVENTION.md §3)`,
     );
   }
   return join(channelDir(cid), name);
@@ -197,7 +185,7 @@ export function rootPrefsPath(cid?: string): string {
  */
 export function rootFile(name: string): string {
   if (!/^[a-z0-9][a-z0-9.-]*$/.test(name)) {
-    throw new Error(`invalid file name: ${name} (see docs/STORAGE-CONVENTION.md §4.7)`);
+    throw new Error(`invalid file name: ${name} (see docs/STORAGE-CONVENTION.md §3)`);
   }
   return join(rootDir(), name);
 }
@@ -216,7 +204,7 @@ export function rootLogPath(): string {
  * 公共模型池的渠道账本路径（`<root>/pool-usage.json`）。
  *
  * 它记录**所有渠道**的账单已用量与请求成败，不属于任何单个渠道，故落在根级 ——
- * 与 `<cid>/` 分层并列（见 docs/STORAGE-CONVENTION.md §4）。
+ * 与 `<cid>/` 分层并列（见 docs/STORAGE-CONVENTION.md §3 第 10 条）。
  */
 export function poolUsagePath(): string {
   return rootFile("pool-usage.json");

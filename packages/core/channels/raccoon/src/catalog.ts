@@ -27,7 +27,7 @@ import * as upstream from "./upstream.js";
 import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /** 实测确认能读图、但远端未声明 vision 的个案（显式白名单，不是「恒 true」）。 */
-export const IMAGE_CAPABILITY_OVERRIDES: ReadonlySet<string> = new Set([
+const IMAGE_CAPABILITY_OVERRIDES: ReadonlySet<string> = new Set([
   "sn-deepseek-v4-1-flash",
   "sn-glm-5-3-flash",
 ]);
@@ -40,7 +40,7 @@ const REMOTE_TTL_MS = 5 * 60 * 1000;
 /** 远端失败/空结果的冷却时长。 */
 const REMOTE_FAIL_COOLDOWN_MS = 30 * 1000;
 
-export interface ModelEntry {
+interface ModelEntry {
   id: string;
   name: string;
   /** 上下文窗口（**远端声明**：`params.context_window`）。 */
@@ -101,7 +101,7 @@ export function modelSpec(
  * 来源：2026-09-26 实测 `GET /api/web/llm/v2/model_catalog`。
  * ⚠ 不含 `Raccoon-Auto`（发给 chat 会 404），也不含 3 个 `visible:false` 的内部模型。
  */
-export const FALLBACK_MODELS: ModelEntry[] = [
+const FALLBACK_MODELS: ModelEntry[] = [
   {
     id: "sn-sensenova-6-8-flash",
     name: "SenseNova-6.8-Flash",
@@ -185,12 +185,6 @@ let refreshAttempted = false;
 let remoteCache: { entries: ModelEntry[]; at: number } | null = null;
 let refreshing = false;
 
-/** 仅供测试：清空缓存。 */
-export function clearCache(): void {
-  snapshot = null;
-  remoteCache = null;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -215,48 +209,16 @@ function num(value: unknown): number | null {
  *
  * ⚠ 用**显式白名单**而不是「恒 true」：只覆盖**实测确认**的个案。
  */
-export function supportsImage(modelId: string, tags: unknown): boolean {
+function supportsImage(modelId: string, tags: unknown): boolean {
   if (IMAGE_CAPABILITY_OVERRIDES.has(modelId)) return true;
   if (!Array.isArray(tags)) return false;
   return tags.some((tag) => IMAGE_TAGS.includes(String(tag).toLowerCase()));
 }
 
-// ── 倍率展示 ──────────────────────────────────────────────────────────────────
-
-/** 倍率格式化：最多 4 位小数并去掉尾随 0。 */
-export function formatMultiplier(value: number): string {
-  return String(Number(value.toFixed(4)));
-}
-
-/**
- * 倍率后缀（三条规则见文件头注释 3）。
- *
- * ⚠ 非有限数 / 负数 / 缺失 → 不追加后缀（宁可不显示，也不显示假的）。
- */
-export function priceSuffix(effective: number | null, original: number | null): string {
-  if (effective === null || !Number.isFinite(effective) || effective < 0) return "";
-  if (effective === 0) return "免费"; // 不是 x0
-  if (
-    original !== null &&
-    Number.isFinite(original) &&
-    original > 0 &&
-    effective < original
-  ) {
-    return `x${formatMultiplier(original)}→x${formatMultiplier(effective)}`;
-  }
-  return `x${formatMultiplier(effective)}`; // ⚠ 1 倍也要显示
-}
-
-/** 展示名：`{name} · {suffix}`（无后缀时不追加分隔符）。 */
-export function displayName(entry: Pick<ModelEntry, "name" | "effectiveMultiplier" | "multiplier">): string {
-  const suffix = priceSuffix(entry.effectiveMultiplier, entry.multiplier);
-  return suffix ? `${entry.name} · ${suffix}` : entry.name;
-}
-
 // ── 远端解析 ──────────────────────────────────────────────────────────────────
 
 /** `billing_status` 三态映射：`discount` / `limited_free` / 其它 → `normal`。 */
-export function mapBillingStatus(value: unknown): string {
+function mapBillingStatus(value: unknown): string {
   const text = str(value);
   return text === "discount" || text === "limited_free" ? text : "normal";
 }
@@ -267,7 +229,7 @@ export function mapBillingStatus(value: unknown): string {
  * 规则：只取 `categories[].type === 'chat'`，过滤 `visible === false`（**缺省视为可见**），
  * 按 id（即 `name` 字段）去重，**剔除 `Raccoon-Auto`**。
  */
-export function parseRemoteModels(data: unknown): ModelEntry[] {
+function parseRemoteModels(data: unknown): ModelEntry[] {
   const out: ModelEntry[] = [];
   const seen = new Set<string>();
   const categories = isRecord(data) ? data["categories"] : null;
@@ -306,7 +268,7 @@ export function parseRemoteModels(data: unknown): ModelEntry[] {
 }
 
 /** 兜底表（每次现算）。 */
-export function fallbackEntries(): ModelEntry[] {
+function fallbackEntries(): ModelEntry[] {
   return FALLBACK_MODELS.map((m) => ({ ...m }));
 }
 
@@ -314,7 +276,7 @@ export function fallbackEntries(): ModelEntry[] {
  * 异步刷新远端目录。失败/空结果保留上一次快照（从未成功 → 兜底表），并进入冷却
  * （与 Loomy 同构：只缓存**真实远端目录**，兜底表每次现算）。
  */
-export async function refreshCatalog(): Promise<void> {
+async function refreshCatalog(): Promise<void> {
   const now = Date.now();
   const cached = remoteCache;
   if (!(cached && now - cached.at < (cached.entries.length > 0 ? REMOTE_TTL_MS : REMOTE_FAIL_COOLDOWN_MS))) {
@@ -405,21 +367,4 @@ export function exposedIds(): string[] {
 /** 模型 id → 上游 slug：Raccoon 的 id 就是 slug，**未知原样返回**。 */
 export function resolveModel(name: string): string {
   return name;
-}
-
-/** 目录详情（供状态页）。 */
-export function details(): Array<Record<string, unknown>> {
-  return currentEntries().map((e) => ({
-    id: e.id,
-    name: displayName(e),
-    description: "",
-    context_window: e.contextWindow,
-    max_output: e.maxOutput,
-    vision: e.supportsImage,
-    billing_status: e.billingStatus,
-    billing_status_note: e.billingStatusNote,
-    multiplier: e.multiplier,
-    effective_multiplier: e.effectiveMultiplier,
-    source: e.source,
-  }));
 }

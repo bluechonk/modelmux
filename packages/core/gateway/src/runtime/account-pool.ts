@@ -1,30 +1,14 @@
 /**
- * 账号池：一个渠道下挂多个账号。
- *
- * ## 目录结构（见 docs/POOL-ARCHITECTURE.md §3）
- *
- * ```
- * <root>/<cid>/
- * ├── credentials.json         当前生效账号（渠道的 cred.load() 语义**不变**）
- * ├── accounts.json            索引：账号列表 + 当前选中 + 元信息
- * └── accounts/<key>.json      单账号凭证（与 credentials.json 同构）
- * ```
- *
- * ## 为什么共享层能不知道渠道的凭证格式
+ * 账号池：一个渠道下挂多个账号（目录布局见 docs/POOL-ARCHITECTURE.md §3.1）。
  *
  * 共享层**不解析**任何渠道的磁盘字段，只做三件事：
+ *  - **收进池子**：把 `credentials.json` 原样复制成 `accounts/<key>.json`；
+ *    元信息取自渠道 `cred.load()` 的契约字段 `uid` / `domain`
+ *  - **切换账号**：把 `accounts/<key>.json` 复制回 `credentials.json` 并更新索引
+ *  - **对账**：按 mtime 做「谁新用谁」的回灌，让渠道零改动即可与生效凭证保持一致
  *
- * 1. **收进池子**：把"当前生效"的 `credentials.json` 原样复制成
- *    `accounts/<key>.json`；元信息（uid / domain）取自渠道 `cred.load()` 的返回值 ——
- *    `uid` / `domain` 是契约字段（`CredModule` 要求每个渠道都提供），故无需渠道知识。
- *    `label` / `expires_at` 是**尽力而为**的展示信息（见下），取不到就是空/null。
- * 2. **切换账号**：把 `accounts/<key>.json` 复制回 `credentials.json`，更新索引里的 `active`。
- * 3. **对账**：渠道自己的 `cred.refresh()` 只会写 `credentials.json`，不会回灌池子；
- *    故按 mtime 做一次「谁新用谁」的回灌（渠道零改动即可保持池子与生效凭证一致）。
- *
- * `key` 用 `sha256(domain \u0000 uid)` 的前 16 hex：稳定（重登不变）、文件名安全
- * （全小写 hex，过得了 `paths.channelFile` 的校验）。uid 为空的渠道退化为按
- * accessToken 派生 —— 那种渠道重登会得到新 key（已知限制，见 §备注）。
+ * `key` = `sha256(domain \u0000 uid)` 的前 16 hex（稳定、文件名安全）；
+ * uid 为空的渠道退化为按 accessToken 派生（重登会换 key，属已知限制）。
  */
 
 import { createHash } from "node:crypto";

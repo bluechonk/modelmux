@@ -1,16 +1,13 @@
 /**
  * 单文件发布构建：把 cli + gateway + 全部渠道打成自包含的 ESM bundle。
  *
- * 为什么需要它：`packages/cli` 的运行时依赖是 workspace 软链（`@modelmux/catpaw` →
- * `packages/core/channels/catpaw`），全局安装 / 发 registry 时软链断裂、包名在 registry 上不存在。
- * esbuild 从唯一聚合点 `src/cli.ts` 沿静态 import 收编整条依赖图，产物里不再有任何
- * 外部包引用 —— tarball 自包含，`npm i -g` 直接可用。
+ * 为什么需要它：`packages/cli` 的运行时依赖是 workspace 软链，全局安装 / 发 registry 时
+ * 软链断裂、包名在 registry 上不存在。esbuild 从唯一聚合点 `src/cli.ts` 沿静态 import
+ * 收编整条依赖图，产物里不再有任何外部包引用 —— tarball 自包含，`npm i -g` 直接可用。
  *
- * models.json 快照注入：loomy / traecn / workbuddy(ai) 的 catalog 用
- * `join(import.meta.url, "..", "..", "models.json")` 定位随包快照（dist/ 上两级 = 包根）。
- * bundle 后该相对路径指向「bundle 所在目录的上两级」，解析不到任何真实文件。
- * 机制必须保真：构建期把各渠道包根的 models.json 原样内联为模块导出，loader 按
- * 「importer 所属包根 + 相对路径」精确匹配替换。
+ * 随包 models.json 快照：渠道 catalog 用 `join(import.meta.url, "..", "..", "models.json")`
+ * 在**运行时**读包根快照，bundle 后该相对路径失效。下面的插件按「importer 所属包根 +
+ * 相对路径」内联快照，但它只拦**静态 import 的 .json** —— 渠道走运行时读盘，故当前未生效。
  */
 
 import { readFileSync } from "node:fs";

@@ -46,7 +46,6 @@ import {
   createSign,
   generateKeyPairSync,
   randomBytes,
-  randomUUID,
   type JsonWebKey,
 } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -60,34 +59,34 @@ import * as upstream from "./upstream.js";
 export const DEFAULT_BASE_URL = upstream.DEFAULT_BASE_URL;
 
 /** 华为 STS token 端点（授码换取与续期共用）。 */
-export const STS_TOKEN_ENDPOINT = `${upstream.STS_BASE}${upstream.STS_TOKEN_PATH}`;
+const STS_TOKEN_ENDPOINT = `${upstream.STS_BASE}${upstream.STS_TOKEN_PATH}`;
 
 /** portal 基址（授权页与登录结果页）。 */
-export const DEFAULT_PORTAL_BASE = "https://codearts.huaweicloud.com";
+const DEFAULT_PORTAL_BASE = "https://codearts.huaweicloud.com";
 
 /** CodeArts Agent 的 OAuth client_id（即其 URI scheme）。 */
-export const CLIENT_ID = "codearts-agent";
+const CLIENT_ID = "codearts-agent";
 /** 本地回调路径。 */
-export const REDIRECT_PATH = "/oauth/callback";
+const REDIRECT_PATH = "/oauth/callback";
 /** 回调端口下限：低于它的端口会被 portal 拒绝。 */
-export const MIN_CALLBACK_PORT = 10_000;
+const MIN_CALLBACK_PORT = 10_000;
 /** 登录等待预算（浏览器 + 人工操作，180 秒）。 */
-export const LOGIN_TIMEOUT_MS = 180_000;
+const LOGIN_TIMEOUT_MS = 180_000;
 /** token 请求超时（与真实插件一致）。 */
-export const TOKEN_TIMEOUT_MS = 60_000;
+const TOKEN_TIMEOUT_MS = 60_000;
 
 /** portal 期望的插件名 / 版本（逆向常量，硬编码为真实扩展版本，勿用本包版本）。 */
-export const LOGIN_PLUGIN_NAME = "snap_AIIDE";
-export const LOGIN_PLUGIN_VERSION = "5.2.0";
+const LOGIN_PLUGIN_NAME = "snap_AIIDE";
+const LOGIN_PLUGIN_VERSION = "5.2.0";
 /** 主题色 kind（2 = Dark）。 */
-export const OAUTH_THEME = "2";
+const OAUTH_THEME = "2";
 /** 界面语言。 */
-export const OAUTH_LOCALE = "zh-cn";
+const OAUTH_LOCALE = "zh-cn";
 
 /** 旧式 ticket 凭据轮询（**默认关闭**的兜底路径，见 `legacyTicketEnabled()`）。 */
-export const TICKET_PATH = "/snap-manager/v1/login/ticket";
-export const TICKET_POLL_INTERVAL_MS = 1_000;
-export const TICKET_POLL_MAX = 120;
+const TICKET_PATH = "/snap-manager/v1/login/ticket";
+const TICKET_POLL_INTERVAL_MS = 1_000;
+const TICKET_POLL_MAX = 120;
 
 /**
  * 旧式 ticket 轮询是否启用（**默认关闭**）。
@@ -104,7 +103,7 @@ export const TICKET_POLL_MAX = 120;
  *
  * 需要排查上游旧链路时用 `CODEARTS_LEGACY_TICKET=1` 显式打开。
  */
-export function legacyTicketEnabled(): boolean {
+function legacyTicketEnabled(): boolean {
   const value = process.env["CODEARTS_LEGACY_TICKET"];
   return typeof value === "string" && /^(1|true|yes|on)$/i.test(value.trim());
 }
@@ -128,7 +127,7 @@ export class NotLoggedInError extends Error {
  * （时钟偏差 / 重放判定 / 网关抖动），与 refresh_token 能否继续用无关；
  * 把它当终态会把材料完好的账号一步标死。
  */
-export class RefreshTokenExpiredError extends Error {
+class RefreshTokenExpiredError extends Error {
   override name = "RefreshTokenExpiredError";
 }
 
@@ -185,7 +184,7 @@ export interface Credentials {
   readonly source: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
+const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   uid: "",
   domain: "",
@@ -219,14 +218,14 @@ const nowIso = sharedLogin.nowIso;
 // ── PKCE / DPoP ──────────────────────────────────────────────────────────────
 
 /** PKCE 配对：verifier 随机 48 字节 base64url，challenge 为 S256。 */
-export function generatePkcePair(): PkcePair {
+function generatePkcePair(): PkcePair {
   const codeVerifier = randomBytes(48).toString("base64url");
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
   return { codeVerifier, codeChallenge };
 }
 
 /** 生成 ES256（P-256）DPoP 密钥对（JWK 形态）。 */
-export function generateDpopKeyPair(): DpopKeyPair {
+function generateDpopKeyPair(): DpopKeyPair {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const privateKeyJwk = privateKey.export({ format: "jwk" }) as DpopPrivateJwk;
   const publicKeyJwk = publicKey.export({ format: "jwk" }) as DpopPublicJwk;
@@ -245,7 +244,7 @@ const b64url = sharedLogin.b64url;
  * 每次请求都要新签（`jti` 随机、`iat` 当前秒）—— 重放同一个 proof 会被服务端
  * 按重放判定拒绝。
  */
-export function signDpopJws(keyPair: DpopKeyPair, htm: string, htu: string): string {
+function signDpopJws(keyPair: DpopKeyPair, htm: string, htu: string): string {
   const header = { alg: "ES256", typ: "dpop+jwt", jwk: keyPair.publicKeyJwk };
   const payload = {
     htm,
@@ -267,7 +266,7 @@ export function signDpopJws(keyPair: DpopKeyPair, htm: string, htu: string): str
 }
 
 /** 从持久化的私钥 JWK 恢复密钥对（公钥由 x/y 重建）。 */
-export function keyPairFromStoredJwk(jwk: DpopPrivateJwk): DpopKeyPair {
+function keyPairFromStoredJwk(jwk: DpopPrivateJwk): DpopKeyPair {
   return {
     privateKeyJwk: jwk,
     publicKeyJwk: { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y },
@@ -293,7 +292,7 @@ export interface TokenResponse {
 }
 
 /** STS 端点；`CODEARTS_STS_URL` 可覆盖（自托管 / 离线测试）。 */
-export function stsEndpoint(): string {
+function stsEndpoint(): string {
   const override = process.env["CODEARTS_STS_URL"];
   return override && override.trim() ? override.trim() : STS_TOKEN_ENDPOINT;
 }
@@ -304,7 +303,7 @@ export function stsEndpoint(): string {
  * 终态判定只认 `invalid_grant` / `ExpiredRefreshToken`（见
  * `RefreshTokenExpiredError` 的说明）。
  */
-export async function requestToken(
+async function requestToken(
   body: Record<string, string>,
   keyPair: DpopKeyPair,
 ): Promise<TokenResponse> {
@@ -341,7 +340,7 @@ export async function requestToken(
 }
 
 /** 授权码换取（新式 IAM OAuth）。 */
-export function exchangeAuthorizationCode(
+function exchangeAuthorizationCode(
   code: string,
   codeVerifier: string,
   port: number,
@@ -360,7 +359,7 @@ export function exchangeAuthorizationCode(
 }
 
 /** 刷新令牌换取（静默续期）。 */
-export function exchangeRefreshToken(
+function exchangeRefreshToken(
   refreshToken: string,
   codeVerifier: string,
   keyPair: DpopKeyPair,
@@ -398,7 +397,7 @@ export function exchangeRefreshToken(
  * 不参与鉴权判断 —— 真伪由上游对 token 本身的校验负责。解不开就返回空串，
  * 由调用方退回到旧算法（保守，不改变既有行为）。
  */
-export function identityFromRefreshToken(refreshToken: string): string {
+function identityFromRefreshToken(refreshToken: string): string {
   try {
     const parts = refreshToken.split(".");
     if (parts.length < 2) return "";
@@ -434,7 +433,7 @@ export function identityFromRefreshToken(refreshToken: string): string {
  * ⚠ 第 3 条会让账号池把同一个人当成不同账号（见 `identityFromRefreshToken` 说明），
  * 所以只要第 2 条可用就绝不走它。
  */
-export function credentialFromTokenResponse(
+function credentialFromTokenResponse(
   token: TokenResponse,
   pkce: PkcePair,
   keyPair: DpopKeyPair,
@@ -607,7 +606,7 @@ export async function save(c: Credentials): Promise<void> {
 }
 
 /** 凭据是否已过期（无法解析时**不判定过期**）。 */
-export function isExpired(c: Credentials, nowMs = Date.now()): boolean {
+function isExpired(c: Credentials, nowMs = Date.now()): boolean {
   if (!c.expiresAt) return false;
   const parsed = Date.parse(c.expiresAt);
   return Number.isFinite(parsed) ? nowMs >= parsed : false;
@@ -616,7 +615,7 @@ export function isExpired(c: Credentials, nowMs = Date.now()): boolean {
 // ── 登录 ─────────────────────────────────────────────────────────────────────
 
 /** portal 基址；`CODEARTS_PORTAL_BASE` 可覆盖（自托管 / 测试）。 */
-export function portalBase(): string {
+function portalBase(): string {
   const override = process.env["CODEARTS_PORTAL_BASE"];
   return override && override.trim()
     ? override.trim().replace(/\/+$/, "")
@@ -631,7 +630,7 @@ export function portalBase(): string {
  * - **不能带 `auth_callback_url`**（portal 仅凭 `port` 参数构造回调）
  * - 端口 < 10000 会被 portal 拒绝（`startCallbackServer` 保证 ≥ 10000）
  */
-export function buildLoginUrl(port: number, pkce: PkcePair, ticketId: string): string {
+function buildLoginUrl(port: number, pkce: PkcePair, ticketId: string): string {
   return (
     `${portalBase()}/portal/authorize?theme=${OAUTH_THEME}&locale=${OAUTH_LOCALE}` +
     `&uri_scheme=${CLIENT_ID}&client_id=${CLIENT_ID}&port=${port}` +
@@ -641,7 +640,7 @@ export function buildLoginUrl(port: number, pkce: PkcePair, ticketId: string): s
 }
 
 /** portal 登录结果页 URL（回调成功后 307 重定向到此页）。 */
-export function buildPortalLoginResultUrl(succeeded: boolean): string {
+function buildPortalLoginResultUrl(succeeded: boolean): string {
   return (
     `${portalBase()}/portal/login?login_succeed=${succeeded}` +
     `&uri_scheme=${CLIENT_ID}&locale=${OAUTH_LOCALE}`
@@ -682,7 +681,7 @@ function listenOnCallbackPort(server: ReturnType<typeof createServer>): Promise<
 }
 
 /** 旧式 ticket 凭据解析：兼容 `data.credential.*` 与 `data.result.*` 两种形状。 */
-export function credentialFromTicketPayload(payload: Record<string, unknown>): Credentials | null {
+function credentialFromTicketPayload(payload: Record<string, unknown>): Credentials | null {
   const data =
     payload["data"] && typeof payload["data"] === "object"
       ? (payload["data"] as Record<string, unknown>)
@@ -719,7 +718,7 @@ export function credentialFromTicketPayload(payload: Record<string, unknown>): C
 }
 
 /** 旧式 ticket 轮询（间隔 1 秒，最多 120 次；**仅在显式打开旧链路时**才会被调用）。 */
-export async function pollTicketCredential(ticketId: string, secret: string): Promise<Credentials> {
+async function pollTicketCredential(ticketId: string, secret: string): Promise<Credentials> {
   const base = upstream.snapBase();
   const url = `${base}${TICKET_PATH}?ticket_id=${encodeURIComponent(ticketId)}&secret=${encodeURIComponent(secret)}`;
   for (let attempt = 0; attempt < TICKET_POLL_MAX; attempt += 1) {
@@ -752,7 +751,7 @@ export async function pollTicketCredential(ticketId: string, secret: string): Pr
  * 新流程：`?code=` → 立即 exchange → 307 到 portal 结果页（成功/失败页不同）。
  * 旧流程回退：`?secret=` → 307 到 `redirect` 参数 → 后台轮询 ticket 端点。
  */
-export function startCallbackServer(options: {
+function startCallbackServer(options: {
   pkce: PkcePair;
   keyPair: DpopKeyPair;
   ticketId: string;
@@ -871,7 +870,7 @@ export interface LoginOptions {
  *
  * @returns 授权码；解析不出返回空串。
  */
-export function extractAuthCode(raw: string): string {
+function extractAuthCode(raw: string): string {
   const text = raw.trim();
   if (!text) return "";
   // 完整 URL：直接读 query。
@@ -1037,7 +1036,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
  *
  * 幂等；任何异常都吞掉 —— 清理失败不该影响登录/续期主流程。
  */
-export function pruneLegacyAccounts(): number {
+function pruneLegacyAccounts(): number {
   try {
     const index = accounts.readIndex();
     // 身份解析一次，后面复用
@@ -1177,19 +1176,4 @@ export function resolveBaseUrl(realm = "auto"): string {
   if (!known.has(realm)) throw new Error(`unknown realm: ${realm} (CodeArts only supports cn-north-4)`);
   const [cfg] = upstream.loadConfig();
   return cfg.baseUrl || DEFAULT_BASE_URL;
-}
-
-/** 仅供测试：清空续期串行队列。 */
-export function resetRefreshQueue(): void {
-  refreshQueue = Promise.resolve();
-}
-
-/** 生成一个 32 位 hex 的 id（Chat-Id / Session-Id / prompt_cache_key 同款）。 */
-export function newHex32(): string {
-  return randomBytes(16).toString("hex");
-}
-
-/** 生成 uuid4（PKCE 之外的通用标识）。 */
-export function newUuid(): string {
-  return randomUUID();
 }

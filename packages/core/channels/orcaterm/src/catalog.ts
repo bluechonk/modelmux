@@ -17,10 +17,10 @@ interface ModelEntry {
 }
 
 /** 兼容别名，指向默认模型。 */
-export const ALIAS_MODEL = "orcaterm-assistant";
+const ALIAS_MODEL = "orcaterm-assistant";
 
 /** 默认模型。 */
-export const DEFAULT_MODEL_ID = "deepseek-v4-flash";
+const DEFAULT_MODEL_ID = "deepseek-v4-flash";
 
 /** 模型目录（快照）。 */
 const MODELS: ModelEntry[] = [
@@ -44,7 +44,7 @@ const MODELS: ModelEntry[] = [
 ];
 
 /** 默认模型的上游 id。 */
-export const DEFAULT_UPSTREAM_MODEL = (() => {
+const DEFAULT_UPSTREAM_MODEL = (() => {
   const hit = MODELS.find((m) => m.id === DEFAULT_MODEL_ID);
   return hit ? hit.upstream : "TokenHub/deepseek-v4-flash";
 })();
@@ -93,10 +93,4 @@ export function resolveModel(name: string): string {
   const hit = MODELS.find((m) => m.id.toLowerCase() === lower);
   if (hit) return hit.upstream;
   return lower;
-}
-
-/** 检查是否为已知模型。 */
-export function isKnownModel(name: string): boolean {
-  const lower = name.toLowerCase().trim();
-  return MODELS.some((m) => m.id.toLowerCase() === lower) || lower === ALIAS_MODEL || lower === "";
 }
