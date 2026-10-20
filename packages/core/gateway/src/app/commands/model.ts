@@ -12,7 +12,7 @@ import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, getPoolModelMeta, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
-import * as accountCli from "../account-cli.js";
+import * as accountCli from "./accounts.js";
 import * as daemon from "../daemon.js";
 import * as headless from "../headless.js";
 import * as report from "../report.js";

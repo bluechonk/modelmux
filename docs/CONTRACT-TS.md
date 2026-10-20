@@ -30,10 +30,10 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              chat-upstream（建连与空闲守卫）/ chat-candidates / chat-errors /
 │       │              chat-channel / sse-stream / openai-normalize（通用 OpenAI 归一化）/
 │       │              console / web-command-handler / web-types（控制台类型）/ portfree
-│       ├── app/       进程编排：cli / command-groups（命令组门面）/ commands/（model-group /
-│       │              channel-verbs）/ daemon / headless / supervisor / process-utils /
-│       │              stale-build / web / report / account-cli
-│       └── index.ts   对外的统一出口（54 个源文件合计）
+│       ├── app/       进程编排：commands/（index 命令入口 / model 模型组 / channel 渠道动词 /
+│       │              accounts 账号池）/ daemon / headless / supervisor / process /
+│       │              stale-build / web / report
+│       └── index.ts   对外的统一出口（53 个源文件合计）
 ├── packages/core/channels/                     ← 渠道（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
 │   └── <cid>/                    ← 结构见下
 ├── packages/cli/                 ← **CLI 入口**（bin `modelmux` / `mx`）
@@ -117,7 +117,7 @@ packages/core/channels/<cid>/
   机制与理由见 §8.4）；
 - daemon 重启守护进程用 `process.argv[1]`（当前入口），bundle 形态下天然正确；
   回退分支（`node -e` 等异常启动方式）在 bundle 下同样失效，属已知限制
-  （见 `packages/core/gateway/src/app/process-utils.ts` 的 `cliEntry()`）。
+  （见 `packages/core/gateway/src/app/process.ts` 的 `cliEntry()`）。
 
 ---
 
@@ -622,10 +622,10 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 `model list` 与 `model usage` 是**两个不同视图**：前者按渠道分组列模型，后者只按渠道列账本。
 账本数字**不决定路由**（渠道由池 id 前缀指定），两处都只作健康度观察。
 
-实现落点：`packages/core/gateway/src/app/cli.ts` 的分发（动词表在前、cid 作 operand）；
-`commands/channel-verbs.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
-`runVerb`（动词 + 可选 cid）；`commands/model-group.ts` 的 `runModelGroup`（`list` / `usage`
-两个子命令各自渲染）；`command-groups.ts` 只做这两处的 re-export。
+实现落点：`packages/core/gateway/src/app/commands/index.ts` 的分发（动词表在前、cid 作 operand）；
+`commands/channel.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
+`runVerb`（动词 + 可选 cid）；`commands/model.ts` 的 `runModelGroup`（`list` / `usage`
+两个子命令各自渲染）。
 
 ---
 
