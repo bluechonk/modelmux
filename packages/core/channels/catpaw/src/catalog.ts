@@ -8,6 +8,21 @@
  *    上游目录通过 `upstream.fetchModels()` 成功时经 `setCatalog()` 回填缓存；
  *    未回填前走兜底表。
  * 4. **兜底表**：未登录或上游目录未拉取时，仍能暴露 flash 模型。
+ *
+ * ## 图片能力：**不对外声明**（`supportsImages` 恒 false）
+ *
+ * 上游模型目录**逐模型声明**了 `supportImage`（布尔）—— 那是**模型自身**能不能读图，
+ * 不是「本渠道能不能把图送过去」。本渠道走的是 conversation 协议
+ * （`/api/agent/conversation/{round,event,turn}`），请求体的消息内容只有
+ * `{type:"text",text}` 分片，**没有图片字段**；`upstream.ts` 的 `textOfContent`
+ * 把多段 content 拍平成纯文本（`image_url` 分片直接丢弃）。
+ * 两家参考实现同构：恒发 `"images":[]`（那是另一条 nocode 建聊流程的字段），
+ * 且 `flattenContent` 同样只留 `text`。
+ *
+ * 结论：**上游声明 ≠ 本渠道可送达**。照抄上游的 `supportImage` 会让
+ * `/v1/models` 对外报「能吃图」，客户端真发图过来却被静默丢弃 ——
+ * 用户看到的是「模型读不到图片」。故本目录恒声明 `supportsImages: false`。
+ * 证据与来源见 `docs/channels/catpaw/PROTOCOL.md`「图片能力」。
  */
 
 import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
@@ -28,7 +43,12 @@ export interface CatalogEntry {
   maxOutput?: number;
   /** 描述。 */
   description: string;
-  /** 是否支持图片输入。 */
+  /**
+   * 是否支持图片输入 —— **恒 false**。
+   *
+   * ⚠ 上游模型目录的 `supportImage` 是**模型自身**的能力声明，本渠道的 conversation
+   * 协议没有图片传输路径（见文件头「图片能力」）；照抄上游会对外误报能吃图。
+   */
   supportsImages: boolean;
   /** 消耗倍率（上游 `extendedInfo.rateMultiplier`）；null = 上游未提供。 */
   multiplier: number | null;
@@ -194,11 +214,19 @@ function ensureCachedModels(): void {
     const cached = readCatalogCache<CatalogEntry>();
     // 旧缓存没有 maxOutput（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
     if (cached) {
-      _remote = cached.map((entry) => {
-        if (entry.maxOutput !== undefined) return entry;
-        const maxOutput = maxOutputOf(entry.id);
-        return maxOutput === undefined ? entry : { ...entry, maxOutput };
+      const entries = cached.map((entry) => {
+        // 旧缓存可能带着上游的 `supportsImages: true` —— 那是**模型**的能力声明，
+        // 不是本渠道的传输能力；读时钉死为 false（否则对外会误报能吃图）。
+        const patched =
+          entry.supportsImages === false ? entry : { ...entry, supportsImages: false };
+        if (patched.maxOutput !== undefined) return patched;
+        const maxOutput = maxOutputOf(patched.id);
+        return maxOutput === undefined ? patched : { ...patched, maxOutput };
       });
+      // 顺带落盘：池层直接读磁盘缓存（`pool-targets.ts` 的 `getPoolModelMeta`）——
+      // 不修盘的话池层还会看到旧值，对外误报能吃图。
+      if (entries.some((entry, i) => entry !== cached[i])) writeCatalogCache(entries);
+      _remote = entries;
     }
   } catch {
     /* 读不到就回落兜底表 */
@@ -287,7 +315,9 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
       row["supportsReasoning"] === true,
     contextWindow: contextWindowOfId(num("contextWindow", "maxContextLength")),
     description: pick("description"),
-    supportsImages: row["supportsImages"] === true || row["supportImage"] === true,
+    // 上游的 `supportImage` 是**模型**的能力声明；本渠道的 conversation 协议不传图片
+    // （内容拍平成纯文本）→ 不对外声明图片能力（见文件头「图片能力」）。
+    supportsImages: false,
     ...parseExtendedInfo(row),
   };
   const maxOutput = maxOutputOf(id);

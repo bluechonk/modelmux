@@ -300,6 +300,39 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 `src/catalog.ts` 的 `MAX_OUTPUTS`。⚠ 公开规格是**模型上限**，上游可能更严
 （超限回 400）—— 客户端应能降档重试。
 
+## 图片能力：**本渠道不对外声明**（2026-10-20 修）
+
+> 结论先行：**上游声明 ≠ 本渠道可送达**。本渠道的 `/v1/models` 对 catpaw 的模型
+> 一律报 `input_modalities: ["text"]` —— 图片不会被送到上游（发了也等于不发）。
+
+| 事实 | 等级 | 来源 |
+|---|---|---|
+| 上游模型目录**逐模型声明** `supportImage`（布尔）：`LongCat-2.0` / `glm-5.2` / `MiniMax-M3` / `kimi-k3` 为 true，`deepseek-v4-flash` / `deepseek-v4-pro` / `auto` 为 false | `[参考]` | `reference/HITZY2002_catpaw2api/internal/upstream/client.go:386`（`SupportImage bool` / `json:"supportImage"`）、`docs/reverse-engineering.md:129-142` 的真实模型表；`reference/icebears111_catpaw2api/internal/upstream/client.go:346` 同构 |
+| 本机实测：上游 `/api/agent/maas/model-types` 确实带该标志（本仓目录缓存里 `LongCat-2.0` / `glm-5.3-flash` / `glm-5.3-flashx` 为 true，`glm-5.3` 为 false） | `[实测]` | 2026-10-20 `~/.modelmux/catpaw/cache/models.json` |
+| ⚠ 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事 | `[推断]` | 见下两条 |
+| 本渠道走的 conversation 协议（`/api/agent/conversation/{round,event,turn}`）请求体的消息内容只有 `{type:"text",text}` 分片，**没有图片字段**；`src/upstream.ts` 的 `textOfContent` 把多段 content 拍平成纯文本，`image_url` 分片直接丢弃 | `[代码]` | `src/upstream.ts:255-259`（`UpstreamMessage.content` 的类型）、`:291-305`（`textOfContent`） |
+| 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片 | `[参考]` | `reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76` |
+
+### 为什么必须改成「不声明」
+
+- 早先 `src/catalog.ts` 直接抄上游的 `supportImage` 填 `supportsImages`，于是
+  `/v1/models` 对 catpaw 的模型报 `input_modalities: ["text","image"]` —— 但请求侧
+  仍会把 `image_url` 拍平成纯文本。**声明与实现不符**：客户端以为图能到，
+  用户看到的是「模型读不到图片」，且没有任何报错。
+- 现在 `src/catalog.ts` 的 `supportsImages` 恒 `false`（上游的 `supportImage`
+  不再抄进来），旧磁盘缓存在读时一并钉死并回写（池层直接读磁盘缓存，
+  不回写的话 `/v1/models` 还会看到旧值）。
+
+### 将来要支持图片，得先答清这三件事
+
+1. conversation 流程（不是 nocode 建聊流程）到底有没有图片字段？字段名与形态
+   （URL / base64 / 文件 id）是什么？—— 目前**无任何证据**。
+2. 若有，`round.messages[].content[]` 的分片类型怎么写（`image` / `image_url`？）
+   与 `requestContext` 里要不要额外的声明位？
+3. 真机带图实测通过后，再把 `supportsImages` 接回上游的 `supportImage`。
+
+⚠ 在这三条落定之前，**不要**因为上游目录写了 `supportImage: true` 就对外声明能吃图。
+
 ## 边界与伦理
 
 - 分析对象是**本机、本人账号**的登录态文件；仓库不包含、也不生成任何可用凭据。
@@ -330,6 +363,9 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
   `requestContext.modelParams.declarativeParams.context` 下发；折叠后的 prompt 预算 **900KB**，
   超预算先丢最早历史。
 - **token 72h 到期只能重登**：上游**没有刷新端点**，`refresh()` 只是有效性探测。
+- **不支持图片输入**：上游目录虽逐模型声明 `supportImage`，但 conversation 协议
+  没有图片传输路径（内容被拍平成纯文本）→ 本渠道不对外声明图片能力，
+  `/v1/models` 报 `input_modalities: ["text"]`。见「图片能力」。
 - **家族 B 协议不实现**（IDE 侧 `/api/gpt/*`）：token 与家族 A 不通用，见「已知边界」。
 
 ### 推荐模型

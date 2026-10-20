@@ -21,13 +21,19 @@
  *
  * 非对话条目（`nes-` / `completion-` / `codewise-` 前缀）**一律不入目录**：
  * 它们列出来也选不中（选中后上游回 `code=11102`）。
+ *
+ * ## 已知规格表
+ *
+ * `MODEL_SPECS` 按**公开规格**（`docs/MODEL-SPECS.md` §3）给已知型号补上下文窗口与
+ * 单次回复上限，经 `modelSpec()` 钩子供池层 `/v1/models` 透出；
+ * 上游目录自己声明的值优先，本表只在目录没声明时兜底。
  */
 
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /**
  * 历史短名 → 上游 slug（**仅输入兼容**，不作为对外名）。
@@ -54,6 +60,72 @@ export interface ModelEntry {
   /** 倍率数值（由 `rate` 解析）；供共享层 `model_info.multiplier` 使用。 */
   multiplier?: number;
   source: "fallback" | "snapshot" | "remote";
+}
+
+/**
+ * 已知模型规格（上下文窗口 / 单次回复上限）。
+ *
+ * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）—— 数值必须与那份表一致，
+ * 改规格先改那份文档。
+ *
+ * ⚠ **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
+ * 不是上游目录里的原始写法（目录 `kimi-k3-1` → 池 id `kimi-k3.1`）。
+ *
+ * ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
+ * `maxOutputTokens` = **单次回复**上限。官方没公布输出上限的型号只填 `contextWindow`，
+ * 输出留空 → 网关回落兜底值（不猜数字）。
+ *
+ * ⚠ 只列公开规格表里有的型号：档位别名（`auto` / `default`）与官方无公开规格的型号
+ * （`hy3-x` / `space-bunny` / `kimi-k2.7` / `kimi-k3.1`）一律不列，
+ * 逐条理由见 `docs/channels/workbuddy/PROTOCOL.md` 的「模型窗口规格」。
+ */
+const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens?: number }>> = {
+  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "deepseek-v4-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "deepseek-v4-pro": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.2": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.1": { contextWindow: 202_752, maxOutputTokens: 131_072 },
+  // 目录里叫 `glm-5.0`（展示名 GLM-5.0），公开规格表记作 `glm-5`
+  "glm-5.0": { contextWindow: 202_752, maxOutputTokens: 131_072 },
+  "glm-4.7": { contextWindow: 202_752, maxOutputTokens: 131_072 },
+  "glm-5v-turbo": { contextWindow: 202_752, maxOutputTokens: 131_072 },
+  "hy3": { contextWindow: 262_144 },
+  "hy4-preview": { contextWindow: 1_048_576 },
+  // 目录里带 `-x` 后缀（路由变体），展示名同 `hy4-preview`
+  "hy4-preview-x": { contextWindow: 1_048_576 },
+  "kimi-k2.5": { contextWindow: 262_144 },
+  "kimi-k2.6": { contextWindow: 262_144, maxOutputTokens: 32_768 },
+  "kimi-k2.8-preview": { contextWindow: 1_048_576 },
+  "minimax-m3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "minimax-m3.1-flash": { contextWindow: 1_000_000, maxOutputTokens: 524_288 },
+  "mimo-v2.6-pro": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "step-5-preview": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
+  // 目录里叫 `hunyuan-chat`，展示名是 Hunyuan-Turbos（公开规格表记作 `hunyuan-turbos`）
+  "hunyuan-chat": { contextWindow: 262_144 },
+};
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * 取值优先级：**上游目录声明 > 本表 > 兜底值**（共享层 `pool-targets.ts` 的
+ * `metaFromEntry` 就是这个顺序）。目录条目里的 `context_window` / `max_output`
+ * 是**上游自己声明的**（`/v3/config` 的 `maxInputTokens` / `maxOutputTokens`），
+ * 比公开规格更贴近「这条渠道实际能吃多少」，故本表只在目录没声明时兜底。
+ *
+ * `modelId` 是池 id 里的**规范模型名**（`canonicalModelId()` 归一后的结果），
+ * 故查表前再归一一次。**查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const spec = MODEL_SPECS[canonicalModelId(modelId)];
+  if (!spec) return undefined;
+  return {
+    contextWindow: spec.contextWindow,
+    ...(spec.maxOutputTokens === undefined ? {} : { maxOutputTokens: spec.maxOutputTokens }),
+  };
 }
 
 /** 内置兜底表（快照与远端都拿不到时用）：对外名 = 上游名。 */

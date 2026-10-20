@@ -422,6 +422,16 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
   活动开启时（`activity_discount.enable`）优先取 `data.current.consumption_rate`
   的折后值（实测 subsidy 活动 0.4→0.2）。共享层据此产出 `model_info.multiplier`
   （实测 20/20 模型全有倍率）
+- **上下文窗口在 `context_window_tokens{dev,max}`**（实测三组都有该字段）：
+  `dev` 是默认档（多在 200000 / 232768 / 256000），`max` 是 Max 档
+  （多数型号 1000000，`mimo-v2.6-*` 是 981504，部分型号为 0 = 无该档）。
+  ⚠ **Remote 目录不下发输出上限**（只有 Solo 目录的 `model_detail_list` 有），
+  故 `/v1/models` 的 `max_output_tokens` 按公开规格给（见 §5.4）。
+- ⚠ 三组的窗口档位**不一致**（同一型号三个值）⇒ 取**各组最大值**报能力上限；
+  通道（`function`）仍取**先出现**的那组（改动会改变请求路由）。
+  ⚠ 实测载荷的组序是 **`solo_design_remote` → `solo_work_remote` → `solo_agent_remote`**
+  （`agent_remote` 排**最后**，不是最先 —— 代码里的旧注释写反了），
+  故只取先出现那组会丢掉 `agent_remote` 的 1M 档
 
 ### 5.1 拉取（Solo 通道，trae-auth.ts:676-706；**AppID 修正后实测可用**）
 
@@ -487,7 +497,76 @@ custom_model_deepseek_reasoner, custom_model_deepseek_v4,
 explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 ```
 
-全部 `contextWindow=200000`（估值，远端可用时完全采信远端），产品级兜底输出上限 32000。
+内置表只给**模型 id**：窗口 / 输出上限**不写估值**（上游没声明就是未声明）——
+数值一律由 `modelSpec` 按公开规格给（见 §5.4）。
+
+### 5.4 已知规格表（`modelSpec` 钩子）
+
+`catalog.modelSpec(modelId)` 回答「上下文窗口 / 单次回复最大输出」
+（契约见 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5.3），
+透出到 `GET /v1/models` 的 `context_window` / `max_output_tokens`。
+
+**取值优先级：目录（上游声明）→ 规格表 → 网关兜底值**
+（三层，见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §5）：
+
+1. **目录里的上游声明** —— 目录条目只写上游**真实声明**的值：
+   - 上下文窗口：Remote 目录的 `context_window_tokens{dev,max}`（§5.0），
+     取**两档的较大者**（能力上限）；
+   - 输出上限：只有 Solo 目录的 `model_detail_list[].max_tokens`（§5.1）会声明；
+     **Remote 目录根本不下发输出上限** ⇒ 绝大多数型号走第 2 层。
+   - ⚠ **只认远端目录**：内置兜底表（§5.3）里的数值不是上游声明。
+2. **规格表**（本节）—— 上游没声明的字段按**公开规格**补。
+3. 都没有 → 回落网关兜底值（128000 / 4096），不编造数字。
+
+⚠ **2026-10-20 修正**：此前目录条目把 `context_window` / `max_output` 写成渠道**估值**
+（200000 / 32000），于是估值会**挡住**公开规格，`/v1/models` 一直报那个估值。
+现在条目里只写上游声明（未声明 = 0），估值只留在**请求体**一侧
+（Max 模式成套下发需要 `context_window_size`，见 §3.2）。
+
+**实测的上下文窗口声明**（2026-10-20，Remote 目录）：
+
+| 型号 | 声明的窗口 | 备注 |
+|---|---|---|
+| `glm-5.3` / `glm-5.3-flash` / `glm-5.3-flashx` / `glm-5.2` / `deepseek-v4.1-flash` / `DeepSeek-V4-*-Official` / `kimi-k3` / `minimax-m3(-1-flash)` / `step-5-preview` / `qwen3.8-max` / `qwen-3.7-plus` / `Doubao-Seed-2.1-Pro` / `Doubao-Seed-Evolving` | 1_000_000 | `solo_agent_remote` 组带 `max` 档（`dev` 档是 200000/256000） |
+| `mimo-v2.6-flash` / `mimo-v2.6-pro` | 981_504 | `max` 档 981504 |
+| `Doubao-Seed-2.1-Turbo` / `Doubao-Seed-Code` | 256_000 | 只有 `dev` 档（`max` = 0） |
+| `kimi-k2.6` / `kimi-k2.7-code` | 200_000 | 只有 `dev` 档（`max` = 0） |
+
+**规格表（键是归一后的规范模型名，`DeepSeek-V4-Flash-Official` → `deepseek-v4-flash`）**：
+
+| 规范模型名 | contextWindow | maxOutputTokens | 来源 |
+|---|---|---|---|
+| `deepseek-v4-flash` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
+| `deepseek-v4-pro` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
+| `deepseek-v4.1-flash` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
+| `doubao-seed-2.1-pro` | 1_048_576 | 262_144 | MODEL-SPECS §3 |
+| `doubao-seed-2.1-turbo` | 262_144 | 262_144 | MODEL-SPECS §3 |
+| `doubao-seed-evolving` | 1_048_576 | 262_144 | MODEL-SPECS §3 |
+| `glm-5` | 202_752 | 131_072 | MODEL-SPECS §3 |
+| `glm-5.2` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `glm-5.3` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `glm-5.3-flash` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `glm-5.3-flashx` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `kimi-k2.6` | 262_144 | 32_768 | MODEL-SPECS §3 |
+| `kimi-k2.7-code` | 262_144 | 32_768 | MODEL-SPECS §3 |
+| `kimi-k3` | 1_048_576 | 1_048_576 | MODEL-SPECS §3 |
+| `mimo-v2.6-flash` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `mimo-v2.6-pro` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `minimax-m3` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
+| `minimax-m3.1-flash` | 1_000_000 | 524_288 | MODEL-SPECS §3 |
+| `qwen-3.7-plus` | 1_000_000 | 131_072 | MODEL-SPECS §3（本文写作 `qwen3.7-plus`） |
+| `qwen3.8-max` | 1_000_000 | 131_072 | MODEL-SPECS §3 |
+| `step-5-preview` | 1_048_576 | 65_536 | MODEL-SPECS §3 |
+
+**留空（官方无公开规格 / 非公开型号）**：
+`doubao-seed-code`（MODEL-SPECS §4：**该型号官方无公开输出规格**，方舟模型列表与价格页均无
+该 id）、`doubao-seed-2.0-code`、`glm-5-turbo`、`seed-code-pro`、`sagitta`、
+`aquila`、各 `custom_model_*`、各 `*_subagent` / `summary`（TRAE 内部子代理）。
+一律不写数字，让 `/v1/models` 回落兜底值。
+
+⚠ **`max_output_tokens` 是模型上限，不是本渠道的请求上限**：
+本渠道请求体里的 `max_tokens` 仍收敛到 **64000**（实测索要 131072 会被上游打成 4xx，
+见 §3.2）—— 公开规格可能比上游宽松，客户端应能降档重试。
 
 ---
 
