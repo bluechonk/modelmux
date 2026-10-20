@@ -17,12 +17,19 @@
  * 目录来源优先级：远端目录（`mergeRemote` 写入的缓存）→ 仓库根 `models.json`
  * → 内置兜底表（32 条，含 4 条官方隐藏）。**兜底是必需的**：未登录或上游目录
  * 失败时用户仍应看到模型，否则渠道在选择器里凭空消失。
+ *
+ * ## 窗口 / 输出上限：目录只写**上游声明**，其余按公开规格补
+ *
+ * 目录条目里的 `context_window` / `max_output` **只写上游真实声明的值**
+ * （Remote 目录的 `context_window_tokens`、Solo 目录的 `model_detail_list`），
+ * 上游没声明就是 0（= 未声明）—— **不写渠道估值**，否则估值会挡住公开规格
+ * （`modelSpec` 钩子），`/v1/models` 就会一直报那个估值。
  */
 
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /** 缺省通道（`function` 字段）。 */
 export const DEFAULT_FUNCTION = "solo_work_lite";
@@ -71,7 +78,9 @@ export interface ModelEntry {
   name: string;
   /** 该模型所属通道（请求体 function）。 */
   function: string;
+  /** 上下文窗口（**上游声明**；0 = 上游未声明，按公开规格表补）。 */
   context_window: number;
+  /** 单次回复最大输出（**上游声明**；0 = 上游未声明，按公开规格表补）。 */
   max_output: number;
   max_max_tokens?: number;
   /** 消耗倍率（features.consumption_rate；活动期取 activity_discount 折后值）。 */
@@ -84,10 +93,84 @@ export interface ModelEntry {
   hidden: boolean;
 }
 
-/** 产品级兜底输出上限（远端可用时完全采信远端）。 */
-const FALLBACK_MAX_OUTPUT = 32_000;
-/** 兜底 contextWindow（估值）。 */
-const FALLBACK_CONTEXT_WINDOW = 200_000;
+/**
+ * 已知模型规格（上下文窗口 / 单次回复最大输出）。
+ *
+ * ⚠ 键是**归一后的规范模型名**（`DeepSeek-V4-Flash-Official` → `deepseek-v4-flash`、
+ * `Doubao-Seed-2.1-Pro` → `doubao-seed-2.1-pro`）。
+ * ⚠ `qwen-3.7-plus` 在本文写作 `qwen3.7-plus`（同一个模型，键按本渠道的规范名）。
+ *
+ * ⚠ **不列**官方未公开数值的型号（`doubao-seed-code` / `doubao-seed-2.0-code` /
+ * `glm-5-turbo` / `sagitta` / `aquila` / 各 `custom_model_*` 等）——
+ * 见 `docs/MODEL-SPECS.md` §4「没有公开规格的」；不编造数字。
+ *
+ * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）。
+ */
+const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens: number }>> = {
+  "deepseek-v4-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "deepseek-v4-pro": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "doubao-seed-2.1-pro": { contextWindow: 1_048_576, maxOutputTokens: 262_144 },
+  "doubao-seed-2.1-turbo": { contextWindow: 262_144, maxOutputTokens: 262_144 },
+  "doubao-seed-evolving": { contextWindow: 1_048_576, maxOutputTokens: 262_144 },
+  "glm-5": { contextWindow: 202_752, maxOutputTokens: 131_072 },
+  "glm-5.2": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3-flashx": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "kimi-k2.6": { contextWindow: 262_144, maxOutputTokens: 32_768 },
+  "kimi-k2.7-code": { contextWindow: 262_144, maxOutputTokens: 32_768 },
+  "kimi-k3": { contextWindow: 1_048_576, maxOutputTokens: 1_048_576 },
+  "mimo-v2.6-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "mimo-v2.6-pro": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "minimax-m3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "minimax-m3.1-flash": { contextWindow: 1_000_000, maxOutputTokens: 524_288 },
+  "qwen-3.7-plus": { contextWindow: 1_000_000, maxOutputTokens: 131_072 },
+  "qwen3.8-max": { contextWindow: 1_000_000, maxOutputTokens: 131_072 },
+  "step-5-preview": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
+};
+
+/**
+ * Max 模式（1M 上下文）成套下发时的**窗口兜底**。
+ *
+ * ⚠ 上游目录没声明窗口时用它（`context_window_size` 必须成套下发，见 upstream.ts）。
+ * ⚠ **只给请求体用** —— 目录条目里的 `context_window` 只写上游声明，不写这个估值。
+ */
+export const FALLBACK_CONTEXT_WINDOW = 200_000;
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * ## 优先级：目录（上游声明）→ 规格表
+ *
+ * 1. **目录**：`context_window` / `max_output` 是上游**真实声明**的值（Remote 目录的
+ *    `context_window_tokens`、Solo 目录的 `model_detail_list`）—— 上游声明最权威
+ *    （`docs/MODEL-SPECS.md` §5「上游声明优先」）。
+ *    ⚠ **只认远端目录**：内置兜底表里没有声明（0），不算数。
+ * 2. **规格表**：上游没声明的字段按**公开规格**补（`docs/MODEL-SPECS.md` §3）——
+ *    Remote 目录**不下发输出上限**，故绝大多数型号的输出上限来自这张表。
+ * 3. 都没有 → 返回 undefined（= 未知，回落网关兜底值，不编造）。
+ *
+ * ⚠ **查不到返回 undefined**（不编造数字）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const wanted = canonicalModelId(modelId);
+  // ① 远端目录里的上游声明（磁盘缓存 / mergeRemote 灌入的那份）
+  const entry = remoteEntries().find((e) => canonicalModelId(e.id) === wanted);
+  const dirContext = entry && entry.context_window > 0 ? entry.context_window : undefined;
+  const dirMaxOutput = entry && entry.max_output > 0 ? entry.max_output : undefined;
+  // ② 公开规格表（上游没声明的字段用它补）
+  const spec = MODEL_SPECS[wanted];
+  const contextWindow = dirContext ?? spec?.contextWindow;
+  const maxOutputTokens = dirMaxOutput ?? spec?.maxOutputTokens;
+  if (contextWindow === undefined && maxOutputTokens === undefined) return undefined;
+  return {
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+  };
+}
 
 /** 32 条兜底模型（含 4 条官方隐藏 —— 隐藏条目不在 exposedIds 里）。 */
 const FALLBACK_NAMES: Array<[string, boolean]> = [
@@ -125,13 +208,19 @@ const FALLBACK_NAMES: Array<[string, boolean]> = [
   ["summary", true],
 ];
 
+/**
+ * 内置兜底模型表（**只有 id**，不带窗口 / 输出上限）。
+ *
+ * ⚠ 窗口与输出上限**不写估值**：内置表不是上游声明，写了就会挡住公开规格
+ * （`modelSpec` 钩子）—— 数值一律由 `modelSpec` 按公开规格给。
+ */
 export const FALLBACK_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
   id,
   model: id,
   name: id,
   function: DEFAULT_FUNCTION,
-  context_window: FALLBACK_CONTEXT_WINDOW,
-  max_output: FALLBACK_MAX_OUTPUT,
+  context_window: 0, // 上游未声明（内置表不是声明源）
+  max_output: 0, // 上游未声明
   max_mode: false,
   multimodal: false,
   tiered: false,
@@ -154,6 +243,20 @@ function numberOr(value: unknown, fallback: number): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = typeof value === "string" ? Number.parseFloat(value) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/**
+ * 目录里**上游声明**的上下文窗口（`context_window_tokens{dev,max}`）。
+ *
+ * ⚠ 取两档的**较大者**：档位表报的是**能力上限**（与共享层「档位表取上限」一致）——
+ * 只报 `dev`（默认档）会把 1M 档的模型误判成 200k。
+ * ⚠ 上游没声明 → 0（= 未声明），不写渠道估值。
+ */
+function declaredContextWindow(value: unknown): number {
+  const windows = isRecord(value) ? value : {};
+  const dev = numberOr(windows["dev"], 0);
+  const max = numberOr(windows["max"], 0);
+  return Math.max(dev, max);
 }
 
 /** `display_contact_config` 是 JSON **字符串**，必须二次 parse。 */
@@ -219,12 +322,13 @@ function parseConfigEntry(functionName: string, raw: unknown): ModelEntry | null
   const model = nonEmpty(raw["config_name"]);
   if (!model) return null;
 
-  // context_window 取 max（有档位时更靠 max），缺省用兜底估值
-  const windows = isRecord(raw["context_window_tokens"]) ? raw["context_window_tokens"] : {};
-  const contextWindow = numberOr(windows["max"], numberOr(windows["dev"], FALLBACK_CONTEXT_WINDOW));
+  // context_window 取 max（有档位时更靠 max）；上游没声明就是 0（= 未声明）
+  const contextWindow = declaredContextWindow(raw["context_window_tokens"]);
 
   // model_detail_list 的 __dev / __max 后缀区分档位明细
-  let maxOutput = FALLBACK_MAX_OUTPUT;
+  // ⚠ 上游没给 __dev 明细时输出上限算**未声明**（0）—— 不写渠道估值，
+  // 否则估值会挡住公开规格（见 modelSpec）。
+  let maxOutput = 0;
   let maxMaxTokens: number | undefined;
   const details = raw["model_detail_list"];
   if (Array.isArray(details)) {
@@ -376,14 +480,24 @@ function rateFromFeatures(features: unknown): number | undefined {
 
 /**
  * 解析 Remote 网页目录载荷（协议 §5.0）：
- * `{data:{list:[{function, models:[{name,…}]}]}}` —— 三组模型按组内顺序合并，
- * 同名后不覆盖前（agent_remote 组最全、排最前）。
+ * `{data:{list:[{function, models:[{name,…}]}]}}` —— 三组模型按载荷里的组序合并，
+ * 同名后不覆盖前（**先出现的组胜出**；实测载荷顺序是 design → work → agent）。
+ *
+ * ⚠ **上下文窗口取各组声明的最大值**：同一个模型在三组里的窗口档位不同
+ * （实测 `Doubao-Seed-2.1-Pro`：`solo_design_remote` 232768 / `solo_work_remote`
+ * 256000 / `solo_agent_remote` 256000 **+ max 档 1000000**），
+ * 只取先出现的那组会丢掉 1M 档 —— 对客户端报**能力上限**更准
+ * （与共享层「档位表取上限」一致）。
+ * ⚠ 通道（`function`）等其余字段仍取**先出现**的那组（改动会改变请求路由）。
+ *
+ * ⚠ Remote 目录**不下发输出上限** ⇒ `max_output` = 0（未声明），
+ * 数值由 `modelSpec` 按公开规格补。
  */
 export function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
   const list = (payload["data"] as Record<string, unknown> | undefined)?.["list"];
   if (!Array.isArray(list)) return [];
   const entries: ModelEntry[] = [];
-  const seen = new Set<string>();
+  const byName = new Map<string, ModelEntry>();
   for (const group of list) {
     if (!isRecord(group)) continue;
     const models = group["models"];
@@ -391,15 +505,20 @@ export function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] 
     for (const raw of models) {
       if (!isRecord(raw)) continue;
       const name = nonEmpty(raw["name"]);
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      entries.push({
+      if (!name) continue;
+      const declared = declaredContextWindow(raw["context_window_tokens"]);
+      const existing = byName.get(name);
+      if (existing) {
+        if (declared > existing.context_window) existing.context_window = declared;
+        continue;
+      }
+      const entry: ModelEntry = {
         id: name,
         model: name,
         name,
         function: nonEmpty(group["function"]) ?? nonEmpty(group["agent_type"]) ?? "solo_agent_remote",
-        context_window: FALLBACK_CONTEXT_WINDOW,
-        max_output: FALLBACK_MAX_OUTPUT,
+        context_window: declared,
+        max_output: 0, // Remote 目录不下发输出上限 → 未声明
         multiplier: rateFromFeatures(raw["features"]),
         max_mode: false,
         multimodal: false,
@@ -407,7 +526,9 @@ export function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] 
         efforts: [],
         default_effort: "",
         hidden: false,
-      });
+      };
+      byName.set(name, entry);
+      entries.push(entry);
     }
   }
   return entries;
@@ -486,8 +607,8 @@ function parseCatalogFile(path: string): ModelEntry[] {
       model: slug,
       name: nonEmpty(model["name"]) || slug,
       function: nonEmpty(model["function"]) || nonEmpty(model["channel"]) || DEFAULT_FUNCTION,
-      context_window: numberOr(model["context_window"], FALLBACK_CONTEXT_WINDOW),
-      max_output: numberOr(model["max_output"], FALLBACK_MAX_OUTPUT),
+      context_window: numberOr(model["context_window"], 0),
+      max_output: numberOr(model["max_output"], 0),
       max_mode: model["max_mode"] === true,
       multimodal: model["multimodal"] === true,
       tiered: false,
@@ -519,6 +640,17 @@ export function loadCatalog(): ModelEntry[] {
     }
   }
   return FALLBACK_MODELS.map((e) => ({ ...e }));
+}
+
+/**
+ * **远端**目录条目（磁盘缓存 / `mergeRemote` 灌入的那份）。
+ *
+ * ⚠ **不含**内置兜底表与 models.json 快照 —— 那两份不是上游声明，
+ * 里面的数值只是估值，不能当「上游声明」用（见 `modelSpec` 的优先级）。
+ */
+function remoteEntries(): ModelEntry[] {
+  ensureCachedModels();
+  return remoteCache ?? [];
 }
 
 /** 对外暴露的模型 ID 列表（隐藏条目不在其中）。 */
@@ -568,23 +700,31 @@ export function entryFor(name: string): ModelEntry | null {
   );
 }
 
-/** 供状态页/UI 使用的目录详情。 */
+/**
+ * 供状态页/UI 使用的目录详情。
+ *
+ * ⚠ 窗口 / 输出上限报**生效值**：上游声明优先，其次公开规格（`modelSpec`）——
+ * 与 `/v1/models` 的口径一致（上游没声明时目录条目里是 0）。
+ */
 export function details(): Array<Record<string, unknown>> {
   return loadCatalog()
     .filter((e) => !e.hidden)
-    .map((e) => ({
-      id: e.id,
-      name: e.name,
-      model: e.model,
-      function: e.function,
-      context_window: e.context_window,
-      max_output: e.max_output,
-      max_max_tokens: e.max_max_tokens ?? null,
-      max_mode: e.max_mode,
-      tiered: e.tiered,
-      efforts: e.efforts,
-      default_effort: e.default_effort,
-    }));
+    .map((e) => {
+      const spec = modelSpec(e.id);
+      return {
+        id: e.id,
+        name: e.name,
+        model: e.model,
+        function: e.function,
+        context_window: e.context_window > 0 ? e.context_window : (spec?.contextWindow ?? 0),
+        max_output: e.max_output > 0 ? e.max_output : (spec?.maxOutputTokens ?? 0),
+        max_max_tokens: e.max_max_tokens ?? null,
+        max_mode: e.max_mode,
+        tiered: e.tiered,
+        efforts: e.efforts,
+        default_effort: e.default_effort,
+      };
+    });
 }
 
 /** 仅供测试：清空 models.json 缓存。 */

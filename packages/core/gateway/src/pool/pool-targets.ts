@@ -26,6 +26,14 @@
  * 不再限制只暴露 `deepseek-v4.1-flash` / `glm-5.3-flash` 两个 flash 模型，
  * 而是**动态收集**全部渠道 `exposedIds()` 归一化后的结果。
  * 模型元数据从渠道 catalog 缓存中提取（contextWindow / name 等）。
+ *
+ * ## 图片能力（输入模态）
+ *
+ * 各渠道目录条目的「这个模型能不能吃图」用的**字段名各不相同**（实测 11 个渠道
+ * 8 种写法，布尔与字符串数组两种形态混用），汇聚层按候选表逐个尝试
+ * （见 `IMAGE_CAPABILITY_KEYS`）；字段全缺 → 回落 `["text"]`。
+ * 少了这一步，`/v1/models` 的 `input_modalities` 会恒为纯文本 ——
+ * 客户端（Reasonix / DSH 等）就永远按纯文本处理图片，多模态模型形同虚设。
  */
 
 import { channels, type Channel } from "../runtime/channel.js";
@@ -230,6 +238,41 @@ const OUTPUT_KEYS = [
   "max_tokens",
 ];
 
+/**
+ * 各渠道缓存条目里可能出现的**图片能力**字段名 —— 渠道自己决定字段名，汇聚层逐个尝试
+ * （与 `MULTIPLIER_KEYS` / `CONTEXT_KEYS` 同一惯例：字段名只是约定，不算渠道知识）。
+ *
+ * ⚠ 这里收的是「上游/渠道**可能**用的字段名」，**不是**任何一家的私有协议：
+ *   目录条目会把上游的原始字段名原样缓存下来，汇聚层照单全收；某个名字看着像
+ *   某家的私有缩写也一样收 —— 汇聚层只认识「字段名 → 归一能力」这一张约定表，
+ *   不认识渠道（渠道知识只允许出现在各渠道包内）。
+ */
+const IMAGE_CAPABILITY_KEYS = [
+  // 模态数组（取值是字符串数组，如 ["text","image"]）：比布尔开关更具体，优先试
+  "inputModalities",
+  "input_modalities",
+  // 布尔开关（true = 该模型能吃图）
+  "supportsImages",
+  "supportsImage",
+  "supports_image",
+  "supports_image_detail_original",
+  "supportImage",
+  "vision",
+  "is_vl",
+  "isVl",
+  "multimodal",
+];
+
+/** 输入模态的别名表（键一律小写；查表前先小写化）。 */
+const MODALITY_ALIASES: Readonly<Record<string, string>> = {
+  text: "text",
+  txt: "text",
+  image: "image",
+  images: "image",
+  img: "image",
+  vision: "image",
+};
+
 /** 取候选字段名里的第一个**正整数**值（0 / 缺字段 / 非数都算「上游未声明」）。 */
 function firstPositive(entry: Record<string, unknown>, keys: string[]): number | null {
   for (const key of keys) {
@@ -264,13 +307,49 @@ function contextWindowOf(entry: Record<string, unknown>): number | null {
   return Math.max(direct, tierMax);
 }
 
+/** 模态数组归一：小写化 + 别名映射 + 去重（保持首次出现的顺序）。 */
+function normalizeModalities(raw: readonly unknown[]): string[] {
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const key = item.trim().toLowerCase();
+    if (!key) continue;
+    const norm = MODALITY_ALIASES[key] ?? key;
+    if (!out.includes(norm)) out.push(norm);
+  }
+  return out;
+}
+
+/**
+ * 输入模态：目录条目声明的输入能力，归一成 `["text", …]` 形态。
+ *
+ * 候选字段名见 `IMAGE_CAPABILITY_KEYS`；取值有两类：
+ * - **布尔**：`true` → `["text","image"]`（能吃图），`false` → `["text"]`；
+ * - **字符串数组**：直接取，归一大小写与别名（`vision` / `img` → `image`）。
+ *
+ * 一律带 `text`：模型再怎么说也是文本模型，纯文本入口必须留着。
+ * 字段全缺 → 回落 `["text"]`（宁可少报，别让客户端以为能发图）。
+ */
+export function inputModalitiesOf(entry: Record<string, unknown>): string[] {
+  for (const key of IMAGE_CAPABILITY_KEYS) {
+    const value = entry[key];
+    if (value === undefined || value === null) continue;
+    // 布尔是**显式声明**（含 false）→ 不再往后试别的键
+    if (typeof value === "boolean") return value ? ["text", "image"] : ["text"];
+    if (Array.isArray(value)) {
+      const modalities = normalizeModalities(value);
+      return modalities.length > 0 ? modalities : DEFAULT_META.inputModalities;
+    }
+  }
+  return DEFAULT_META.inputModalities;
+}
+
 /** 从缓存条目拼出对外元数据（窗口取不到时回落到 `DEFAULT_META`）。 */
 function metaFromEntry(
   entry: Record<string, unknown>,
   model: string,
   spec?: { contextWindow?: number; maxOutputTokens?: number },
 ): PoolModelMeta {
-  const input = entry["inputModalities"] ?? entry["input_modalities"];
   const output = entry["outputModalities"] ?? entry["output_modalities"];
   const effort = entry["effort"];
   return {
@@ -280,7 +359,7 @@ function metaFromEntry(
     contextWindow: contextWindowOf(entry) ?? spec?.contextWindow ?? DEFAULT_META.contextWindow,
     maxOutputTokens:
       firstPositive(entry, OUTPUT_KEYS) ?? spec?.maxOutputTokens ?? DEFAULT_META.maxOutputTokens,
-    inputModalities: Array.isArray(input) ? (input as string[]) : DEFAULT_META.inputModalities,
+    inputModalities: inputModalitiesOf(entry),
     outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
     effort:
       effort && typeof effort === "object" ? (effort as PoolModelMeta["effort"]) : DEFAULT_META.effort,

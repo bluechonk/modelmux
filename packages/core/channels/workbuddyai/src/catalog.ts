@@ -18,13 +18,19 @@
  * ⚠ 快照会**过期**：实测随包那份只有 1 条 flash，而上游真实目录远不止一条。
  * 故远端目录必须落盘（见共享层 `runtime/catalog-cache.ts`），否则换个新进程
  * （`mx model`、`mx model list`）就又只剩快照。
+ *
+ * ## 已知规格表
+ *
+ * `MODEL_SPECS` 按**公开规格**（`docs/MODEL-SPECS.md` §3）给已知型号补上下文窗口与
+ * 单次回复上限，经 `modelSpec()` 钩子供池层 `/v1/models` 透出；
+ * 上游目录自己声明的值优先，本表只在目录没声明时兜底。
  */
 
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /**
  * 历史短名 → 上游 slug（**仅输入兼容**，不作为对外名）。
@@ -51,6 +57,75 @@ export interface ModelEntry {
   /** 倍率数值（由 `rate` 解析）；供共享层 `model_info.multiplier` 使用。 */
   multiplier?: number;
   source: "fallback" | "snapshot" | "remote";
+}
+
+/**
+ * 已知模型规格（上下文窗口 / 单次回复上限）。
+ *
+ * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）—— 数值必须与那份表一致，
+ * 改规格先改那份文档。
+ *
+ * ⚠ **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
+ * 不是上游目录里的原始写法。
+ *
+ * ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
+ * `maxOutputTokens` = **单次回复**上限。官方没公布输出上限的型号只填 `contextWindow`，
+ * 输出留空 → 网关回落兜底值（不猜数字）。
+ *
+ * ⚠ 只列公开规格表里有的型号：档位别名（`default-model` / `fast-model` /
+ * `balanced-model` / `primary-model`）不列，逐条理由见
+ * `docs/channels/workbuddyai/PROTOCOL.md` 的「模型窗口规格」。
+ */
+const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens?: number }>> = {
+  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  // 区域变体（`-sg`），与国内版同款模型
+  "deepseek-v4.1-flash-sg": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  // Gemini 的 1048576 是**输入**上限，输出上限另算 65536（MODEL-SPECS §2）
+  "gemini-3.5-flash": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
+  "gemini-3.8-flash": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
+  "glm-5.2": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "gpt-5.4": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-5.5": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-5.6-luna": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-5.6-sol": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-5.6-terra": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-6-astra": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-6-luna": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-6-sol": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  "gpt-6.1-sol": { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  // 官方写「无独立输出上限」→ 只给上下文
+  "grok-4.7": { contextWindow: 500_000 },
+  "hy3": { contextWindow: 262_144 },
+  "hy4-preview": { contextWindow: 1_048_576 },
+  "kimi-k2.6": { contextWindow: 262_144, maxOutputTokens: 32_768 },
+  "kimi-k2.8-preview": { contextWindow: 1_048_576 },
+  "kimi-k3": { contextWindow: 1_048_576, maxOutputTokens: 1_048_576 },
+  "minimax-m3.1-flash": { contextWindow: 1_000_000, maxOutputTokens: 524_288 },
+  "step-5-preview": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
+};
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * 取值优先级：**上游目录声明 > 本表 > 兜底值**（共享层 `pool-targets.ts` 的
+ * `metaFromEntry` 就是这个顺序）。目录条目里的 `context_window` / `max_output`
+ * 是**上游自己声明的**（`/v3/config` 的 `maxInputTokens` / `maxOutputTokens`），
+ * 比公开规格更贴近「这条渠道实际能吃多少」，故本表只在目录没声明时兜底。
+ *
+ * `modelId` 是池 id 里的**规范模型名**（`canonicalModelId()` 归一后的结果），
+ * 故查表前再归一一次。**查不到返回 undefined**（不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const spec = MODEL_SPECS[canonicalModelId(modelId)];
+  if (!spec) return undefined;
+  return {
+    contextWindow: spec.contextWindow,
+    ...(spec.maxOutputTokens === undefined ? {} : { maxOutputTokens: spec.maxOutputTokens }),
+  };
 }
 
 /** 内置兜底表（快照与远端都拿不到时用）：对外名 = 上游名。 */

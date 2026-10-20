@@ -197,12 +197,14 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
   回落兜底值（窗口 128000 / 输出 4096）。
 - **上游不发 → 问渠道要「已知规格」**：多数渠道的上游目录**不带**窗口与输出上限
-  （实测 catpaw / codearts / lobsterai / loomy / orcaterm / qoder / qodercn 都不发）。
+  （实测 catpaw / codearts / lobsterai / loomy / orcaterm / qoder / qodercn 都不发；
+  而 workbuddy / workbuddyai 的上游 `/v3/config` **是发的**，
+  raccoon / traecn 的远端目录**只发上下文、不发输出上限**）。
   这类渠道用自己的 `MAX_OUTPUTS` 表按**公开规格**回答 —— 入口是**可选钩子**
   `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
-  当前实现该钩子的渠道：catpaw / codearts / lobsterai / loomy / orcaterm / qoder /
-  qodercn；raccoon / traecn / workbuddy / workbuddyai 的目录自带这两个数，
-  走下面「上游声明优先」那条路。
+  当前**11 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
+  取值优先级：**上游目录声明 > 渠道公开规格 > 兜底**（见下面「上游声明优先」那条路）——
+  钩子只在「上游没声明」或「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
   规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
   - 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）→ 表必须放在**渠道包**里。
   - 4096 兜底是「未知」，不是任何模型的真实上限：客户端按 4096 截断会把每次回答砍到 4k。

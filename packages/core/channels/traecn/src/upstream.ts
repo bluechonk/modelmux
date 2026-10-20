@@ -458,7 +458,10 @@ export function catalogHint(model: string): EntryHint {
   return {
     function: entry.function,
     max_mode: entry.max_mode,
-    max_context: entry.context_window,
+    max_context:
+      // ⚠ 目录条目里的窗口是**上游声明**（没声明时是 0）——
+      // Max 模式必须成套下发 `context_window_size`，故未知时用渠道估值兜底。
+      entry.context_window > 0 ? entry.context_window : catalog.FALLBACK_CONTEXT_WINDOW,
     max_max_tokens: entry.max_max_tokens,
   };
 }

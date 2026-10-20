@@ -17,11 +17,14 @@
  *    其余（**含 1 倍**）→ `x生效价`。
  * 4. 兜底表**不含** `Raccoon-Auto`：它是客户端 i18n 条目渲染的「自动选模」入口，
  *    不是远端模型 —— 直接发给 `chat/completions` 会 404。
+ * 5. **已知规格表**（`modelSpec` 钩子）：远端目录自带窗口与输出上限
+ *    （`params.context_window` / `params.max_tokens`），本表只在**远端没下发**时
+ *    按公开规格兜底（来源 `docs/MODEL-SPECS.md` §3）。
  */
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /** 实测确认能读图、但远端未声明 vision 的个案（显式白名单，不是「恒 true」）。 */
 export const IMAGE_CAPABILITY_OVERRIDES: ReadonlySet<string> = new Set([
@@ -40,7 +43,9 @@ const REMOTE_FAIL_COOLDOWN_MS = 30 * 1000;
 export interface ModelEntry {
   id: string;
   name: string;
+  /** 上下文窗口（**远端声明**：`params.context_window`）。 */
   contextWindow: number;
+  /** 单次回复最大输出（**远端声明**：`params.max_tokens`）。 */
   maxOutput: number;
   supportsImage: boolean;
   /** 当前生效倍率；null = 未知。 */
@@ -50,6 +55,44 @@ export interface ModelEntry {
   billingStatus: string;
   billingStatusNote: string;
   source: "remote" | "fallback";
+}
+
+/**
+ * 已知模型规格（上下文窗口 / 单次回复最大输出）。
+ *
+ * ⚠ 上游目录**自带**这两个数（实测 `params.context_window` / `params.max_tokens`，
+ * 见 docs/channels/raccoon/PROTOCOL.md §5.2）—— 有上游声明时以**上游为准**
+ * （docs/MODEL-SPECS.md §5「三层取值：上游声明优先」）。
+ * 本表只在**上游没下发**时兜底（目录缓存缺失 / 新型号未声明）。
+ *
+ * ⚠ 键是**归一后的规范模型名**（`sn-glm-5-3-flash` → `glm-5.3-flash`），
+ * 不是目录里的原始写法。
+ *
+ * ⚠ `sensenova-6.8-flash` / `sensenova-6.8-flash-lite` **不列**：官方未公开数值
+ * （docs/MODEL-SPECS.md §4「没有公开规格的」）—— 不编造数字，让网关回落兜底值。
+ *
+ * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）。
+ */
+const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens: number }>> = {
+  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
+  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+  "kimi-k3": { contextWindow: 1_048_576, maxOutputTokens: 1_048_576 },
+};
+
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * `modelId` 是池内的**规范模型名**（`canonicalModelId` 归一后的结果）；
+ * 这里再归一一次，保证目录里的原始写法（`sn-glm-5-3-flash`）也命中同一张表。
+ * **查不到返回 undefined**（= 上游与公开资料都没有，不编造）。
+ */
+export function modelSpec(
+  modelId: string,
+): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const spec = MODEL_SPECS[canonicalModelId(modelId)];
+  if (!spec) return undefined;
+  return { contextWindow: spec.contextWindow, maxOutputTokens: spec.maxOutputTokens };
 }
 
 /**

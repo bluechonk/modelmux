@@ -345,6 +345,66 @@
 → 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
 `mx model workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
 
+### 模型窗口规格（`modelSpec()` 钩子）
+
+`catalog.modelSpec()` 钩子给池层提供**已知规格**（契约见
+[`CONTRACT-TS.md`](../../CONTRACT-TS.md) §5.3），落到 `GET /v1/models` 的
+`context_window` / `max_output_tokens`。取值优先级：**上游目录声明 > 渠道规格表 >
+兜底值**（128000 / 4096）。
+
+- ⚠ 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
+  `maxOutputTokens`，落盘成 `context_window` / `max_output`），所以正常情况下
+  `/v1/models` 显示的是**上游声明值**；规格表只在目录没声明（或目录缓存缺失）时兜底。
+- ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
+  `maxOutputTokens` = **单次回复**上限。
+- 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：`docs/MODEL-SPECS.md` §3
+  （联网核实的唯一事实源）；键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。
+
+| 规范模型名 | 上下文 | 单次回复上限 |
+| --- | --- | --- |
+| `deepseek-v4.1-flash` | 1048576 | 393216 |
+| `deepseek-v4-flash` | 1048576 | 393216 |
+| `deepseek-v4-pro` | 1048576 | 393216 |
+| `glm-5.3` | 1048576 | 131072 |
+| `glm-5.3-flash` | 1048576 | 131072 |
+| `glm-5.2` | 1048576 | 131072 |
+| `glm-5.1` | 202752 | 131072 |
+| `glm-5.0` | 202752 | 131072 |
+| `glm-4.7` | 202752 | 131072 |
+| `glm-5v-turbo` | 202752 | 131072 |
+| `hy3` | 262144 | 官方无公开输出规格 |
+| `hy4-preview` | 1048576 | 官方无公开输出规格 |
+| `hy4-preview-x` | 1048576 | 官方无公开输出规格 |
+| `kimi-k2.5` | 262144 | 官方无公开输出规格 |
+| `kimi-k2.6` | 262144 | 32768 |
+| `kimi-k2.8-preview` | 1048576 | 官方无公开输出规格 |
+| `minimax-m3` | 1048576 | 131072 |
+| `minimax-m3.1-flash` | 1000000 | 524288 |
+| `mimo-v2.6-pro` | 1048576 | 131072 |
+| `step-5-preview` | 1048576 | 65536 |
+| `hunyuan-chat` | 262144 | 官方无公开输出规格 |
+
+**目录写法与公开规格名不一致**（按上游展示名对应同一型号，值取公开规格表那一行）：
+`glm-5.0` = `glm-5`（展示名 GLM-5.0）、`hunyuan-chat` = `hunyuan-turbos`
+（展示名 Hunyuan-Turbos）、`hy4-preview-x` = `hy4-preview`（展示名 Hy4 preview，
+`-x` 是路由变体）。
+
+**留空**（不写规格，回落兜底值）：
+
+| 规范模型名 | 原因 |
+| --- | --- |
+| `auto` / `default` | 平台**档位别名**（按账号档位路由到不同底层模型），无单一规格（`docs/MODEL-SPECS.md` §4） |
+| `hy3-x` | 官方无公开规格（§4：无此仓库 / 无第三方登记） |
+| `space-bunny` | 目录条目，官方无公开规格（§4） |
+| `kimi-k2.7` | 官方无公开规格（§4：无此独立型号，公开规格表只有 `kimi-k2.7-code`） |
+| `kimi-k3.1` | 官方无公开规格（§4：官方未发布；目录 id 是 `kimi-k3-1`，展示名 Kimi-K3） |
+| `glm-4.6` / `glm-4.6v` | 不在 `docs/MODEL-SPECS.md` §3 规格表内 |
+| `minimax-m2.5` | 不在 §3 规格表内（§3 只有 `minimax-m2.7`） |
+| `kimi-k2-thinking` | 思考变体，不在 §3 规格表内 |
+| `deepseek-v3.2-volc` | 不在 §3 规格表内 |
+| `hunyuan-2.0-thinking` | 不在 §3 规格表内 |
+| `hunyuan-image-alpha` | 图片条目，不在 §3 规格表内 |
+
 ### 已知限制（实测）
 
 - SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
