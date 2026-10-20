@@ -573,6 +573,10 @@ interface SessionSlot {
   （`packages/core/gateway/src/http/chat/attempt.ts:358`），而本渠道
   `WIRE = "openai"`（`packages/core/channels/codearts/src/upstream.ts:142`）且**没有声明** `isQueueError`
   → chat 请求不会被重发。
+- **渠道层有「会话槽位闸」**（§3.5）：`prepareChat()` 里按账号排队，保证
+  「最近 65s 内本渠道发出的请求 ≤ 3 条」—— 这是**排队**（等上游放出槽位），
+  不是「重试」；等不到就等，不把请求送去撞 `TM.00001041`。
+  实测：Agent 会话里第 4 条请求排队 **60.3s** 后正常返回 200。
 - **SSE 空闲超时只有一档**：默认 **120000 ms**
   （`packages/core/gateway/src/http/chat/upstream.ts:15` 的 `READ_TIMEOUT_MS`，
   可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`packages/core/gateway/src/http/chat/upstream.ts:19-24`），
@@ -843,7 +847,11 @@ benefit 模型（`gateway/config` 端点）不带 `credit`，倍率显示 `-`（
   benefit 模型（`gateway/config` 端点）不带 `credit`，倍率显示 `-`。
   本渠道**未声明** `capabilities`，共享层按缺省 `billing: true` 处理
   （`packages/core/gateway/src/runtime/channel.ts:409-415`），额度查询照常进行；
-  测试时仍只做单轮最小对话，不跑完整 Agent 工具往返。
+  **测试请用 free benefit 模型**（`deepseek-v4.1-flash` / `glm-5.3-flash`）——
+  付费模型要做前后账单核对（该账号是 token 计费，`mx bill codearts` 会报
+  `CreditsError`，只能用池账本的 `ok/fail` 计数看差值）。
+- **每账号每 65s 最多 3 条请求**（上游会话槽位 ~60s 才释放，见 §3.5）：
+  第 4 条起在渠道层排队，客户端要能等 60s+；这是**上游限制**，不是网关故障。
 - **工具往返在上游不稳定**：工具轮次迟迟不返回，属上游侧行为，非网关问题。
 - **`X-IDE-Type` 头不存在**：当前实现与三份参考实现**均无**该头，**不加**。
   功能上最接近的是 `Agent-Type`（`PromptCenter` / `AgentCenter`）与
@@ -890,6 +898,41 @@ Reasonix CLI 直连网关（`codearts/openpangu-2.0-flash`）：
 
 - 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
 - 本轮为**全渠道回归**的一环，未改动本渠道代码；结论与 2026-10-19 的记录一致。
+- ⚠ 同轮该渠道第 4 轮起连回 8 次 `TM.00001041`（约 64s 后第 9 次才成功）——
+  **会话槽位闸**的起因（见 §3.5）。
+
+### 2026-10-20 端到端实测（会话槽位闸落地后）
+
+模型用**免费 benefit 模型** `codearts/deepseek-v4.1-flash`
+（benefit 集合见 `~/.modelmux/codearts/cache/benefit-models.json`；
+该账号是 token 计费，`mx bill codearts` 报 `CreditsError`，
+额度差值只能用池账本的 `ok/fail` 计数看）：
+
+| 项 | 结果 |
+|---|---|
+| 轮次 | 同一 Agent 会话 **10 条请求**（`messageCount` 2→4→7→11→13→16→18→20→23→25） |
+| 状态码 | 全部 `status: 200`、`stream: true`、`toolCount: 18` |
+| 排队 | 第 10 条请求 `upstreamMs: 60289`（**排队 60.3s** 等上游放槽位后成功） |
+| 工具往返 | `write_file` / `read_file` / `bash`（`pwd && ls`、`ls -la`）均有，文件正确落盘 |
+| 前缀缓存 | `cached_tokens` 13 312 → 21 760 → 29 696（同一 session id 持续命中） |
+| 错误日志 | **无** `TM.00001041`（修复前同一窗口连回 8 次 400） |
+| 池账本 | `ok` 174→187、`fail` 154→**154**（无新增失败） |
+
+复现命令（Reasonix v2.44）：
+
+```bash
+mkdir -p .tmp/reasonix-codearts
+reasonix run --dir .tmp/reasonix-codearts \
+  --model modelmux/codearts/deepseek-v4.1-flash -y --max-steps 12 \
+  "在当前目录创建 codearts-e2e.txt，写入内容 deepseek-v4.1-flash ok；然后读取该文件确认内容；再用 bash 执行 pwd 和 ls；最后用一句话总结你执行了哪些操作。"
+# 同一会话继续加轮次（≥4 轮）：
+reasonix run --resume <session>.jsonl --dir .tmp/reasonix-codearts \
+  --model modelmux/codearts/deepseek-v4.1-flash -y --max-steps 12 "继续：…"
+rm -rf .tmp/reasonix-codearts
+```
+
+⚠ **代价**：上游的槽位 ~60s 才释放，故一个账号**每 65s 最多 3 条请求**；
+第 4 条起会在渠道层排队（客户端要能等 60s+）。
 
 ## 参考实现
 
@@ -930,8 +973,10 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 - 旧 chat 端点族（`/v1/chat/chat`、`/v1/chat/start-chat`、`/v1/chat/agents`、
   `/v1/chat/management/event`、`/v1/chat/record-request`）—— v2 端点够用。
-- 渠道级**并发槽位**闸（上游单账号最多 3 个并发会话，`TM.00001041`）。
 - **模型级冷却**（把「这个模型这个账号用不了」与「这个账号坏了」分开）。
 - **多账号挑号**（按账号目录里有没有该模型来挑）。
 - **watchdog 保活 / 主动续期**（到期前 N 分钟自动 refresh）。
 - **文本协议工具降级**（提示词注入式工具 + 围栏 JSON 解析；本渠道只有 DSML 一条腿）。
+
+> 渠道级**并发槽位**闸已于 2026-10-20 落地（§3.5）：上游按**请求**占会话槽位
+> （~60s 释放），故闸门 = 「按账号排队（≤3 条 / 65s）」+「账号级 session id 闸（≤3 个 id）」。

@@ -47,6 +47,32 @@
  * A 账号有、B 账号没有时，全局一份集合会让两个账号互相污染 ——
  * A 少带 `maas_type` 报 404 未注册，B 多带报 unsupported model。
  * 故判定挪到 `buildHeaders()`：它拿得到凭据，`credential.uid` 即账号维度键。
+ *
+ * ## 会话槽位闸（账号级，2026-10-20）
+ *
+ * 上游按**单账号**最多 3 个并发会话计数，超了回 HTTP 400
+ * `{"error_code":"TM.00001041","error_msg":"并发会话数已达上限(3个)…"}`。
+ *
+ * 实测（2026-10-20，免费 benefit 模型、真实账号、同一条网关链路）：
+ *
+ * | 探针 | 结果 | 说明 |
+ * |---|---|---|
+ * | 5 条**并发**请求，**同一个** session id | 3 成功、2 被拒 | 同一 id 并发时各占一个槽位 |
+ * | 5 条**串行**请求，**同一个** session id | 3 成功、2 被拒 | **槽位按请求占，与 id 无关** |
+ * | 5 条**串行**请求，**5 个不同** session id | 3 成功、2 被拒 | 同上 |
+ * | 填满 3 个槽位后每 8~10s 探一次 | 第 ~62s 起放行 | **槽位在请求结束后仍占 ~60s** |
+ *
+ * ⇒ 闸门分两半：
+ *
+ * 1. **节流（主闸）**：`prepareChat()` 里按账号排队，保证「最近 65s 内本渠道
+ *    发出的请求不超过 3 条」—— 等不到就排队，而不是把请求送去撞线；
+ * 2. **会话 id 闸**：账号侧的 session id 永远不超过 3 个（同一条对话复用
+ *    同一个 id → 前缀缓存不丢；新对话顶掉最久未用的槽位 → 账号侧不会
+ *    开出第 4 个会话 id）。
+ *
+ * ⚠ 槽位表是**账号级**缓存（进程内、不落盘），与请求级的 pending 槽
+ * 不同性质；它由 `cred.ts` 注册的「当前生效账号」解析器分桶
+ * （`buildChatBody()` 拿不到凭据，见 `registerAccountKeyResolver()`）。
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -553,24 +579,233 @@ function serializeMessages(messages: readonly unknown[]): Array<Record<string, u
   return wire;
 }
 
+// ── 会话槽位闸（账号级）─────────────────────────────────────────────────────
+
+/** 上游单账号的并发会话槽位上限（超了回 `TM.00001041`）。 */
+const SESSION_SLOT_LIMIT = 3;
+
 /**
- * 本请求的 chat/session id 派生。
+ * 上游会话槽位的存活时长（毫秒）。
+ *
+ * 实测（2026-10-20，真实账号）：**每个上游请求占住一个槽位**，请求结束后
+ * 槽位还要再占 ~60s 才释放（3 条请求填满后，第 ~62s 起才重新放行）。
+ * 保守取 65s：宁可多排一会儿，也不要把请求送去撞 `TM.00001041`。
+ */
+const SLOT_RELEASE_MS = 65_000;
+
+/** 槽位已满后的退避时长（毫秒）——上游的槽位释放慢，退避避免继续撞线。 */
+const SLOT_FULL_BACKOFF_MS = 5_000;
+
+/** 单次请求最多为槽位已满退避多久（毫秒；再长就交给共享层的重试阶梯）。 */
+const SLOT_FULL_BACKOFF_MAX_MS = 15_000;
+
+/**
+ * 一个会话槽位。
+ *
+ * 槽位 = 上游那边的一个「会话位」：同一时刻一个账号最多 3 个。
+ */
+interface SessionSlot {
+  /** 槽位持有的 session id（32 位 hex）。 */
+  id: string;
+  /** 占用该槽位的对话指纹（`sha256(模型 + 首条 user 文本)`）。 */
+  conversation: string;
+  /** 最后使用时间（毫秒时间戳；LRU 依据）。 */
+  lastUsedAt: number;
+}
+
+/**
+ * 账号级槽位表：`账号维度键` → 该账号的槽位（≤ 3 个）。
+ *
+ * **进程内缓存、不落盘**（与目录 / 账本缓存同级）：进程重启后重新学，
+ * 上游的槽位本来也会自己释放。
+ */
+const sessionSlots = new Map<string, SessionSlot[]>();
+
+/** 账号 → 槽位已满的退避截止时间（毫秒时间戳）。 */
+const slotFullBackoff = new Map<string, number>();
+
+/**
+ * 「当前生效账号」的维度键解析器（由 `cred.ts` 注册）。
+ *
+ * `buildChatBody()` 拿不到凭据（共享层的渠道接口只给 `req` + 模型名），
+ * 而槽位表必须**按账号分桶**（上游按账号计数）—— 故由 cred 侧注入。
+ * 注册放在 cred.ts（而不是 upstream 反向 import cred）是为了避开
+ * upstream ↔ cred 的静态环。
+ */
+let accountKeyResolver: (() => string) | null = null;
+
+/** 注册「当前生效账号」的维度键解析器（由 `cred.ts` 在模块加载时调用）。 */
+export function registerAccountKeyResolver(resolver: () => string): void {
+  accountKeyResolver = resolver;
+}
+
+/** 当前生效账号的维度键；解析器缺失 / 抛错时退到 `"default"`。 */
+function currentAccountKey(): string {
+  try {
+    return accountKeyResolver?.() || "default";
+  } catch {
+    return "default";
+  }
+}
+
+/**
+ * 对话指纹：模型 + 首条 user 文本（同一对话的各轮请求得到同一个指纹）。
+ *
+ * ## 为什么按「首条 user 文本」派生
  *
  * 官方 IDE 用「每次会话生成一个 32 hex 的 Session-Id」并把同一个值同时用于
  * `prompt_cache_key`（前缀缓存命中依据）、`Chat-Id`、`Session-Id` 头。
- * 共享网关没有「会话」概念（每个请求都是独立 HTTP 调用），故这里**按
- * 对话首条 user 文本 + 模型名派生**：同一条对话的后续请求得到同一个值
+ * 共享网关没有「会话」概念（每个请求都是独立 HTTP 调用），故按
+ * 「对话首条 user 文本 + 模型名」派生：同一条对话的后续请求得到同一个值
  * （前缀缓存能命中），不同对话得到不同的值。
+ *
+ * 只取**首条** user 文本而不是整段历史：对话越长历史越不同，指纹必须稳定。
+ * 没有 user 文本时退到「首条任意角色的文本」（system 也算），再没有才随机。
+ *
+ * 指纹的**前 32 hex** 就是裸派生的 session id（与历史派生一致）。
  */
-function deriveSessionKey(model: string, messages: readonly unknown[]): string {
-  let firstUser = "";
+function conversationFingerprint(model: string, messages: readonly unknown[]): string {
+  let firstAny = "";
   for (const message of messages) {
-    if (!isRecord(message) || message["role"] !== "user") continue;
-    firstUser = contentToText(message["content"]);
-    if (firstUser) break;
+    if (!isRecord(message)) continue;
+    const text = contentToText(message["content"]);
+    if (!text) continue;
+    if (message["role"] === "user") {
+      firstAny = text;
+      break;
+    }
+    if (!firstAny) firstAny = text;
   }
-  const seed = firstUser ? `${model}\u0000${firstUser}` : `${model}\u0000${Math.random()}`;
-  return sha256Hex(seed).slice(0, 32);
+  const seed = firstAny ? `${model}\u0000${firstAny}` : `${model}\u0000${Math.random()}`;
+  return sha256Hex(seed);
+}
+
+/**
+ * 给本次对话挑一个槽位，返回它持有的 session id。
+ *
+ * ## 选槽规则（账号级，≤ 3 个槽位）
+ *
+ * 1. **同一对话** → 复用原槽位（id 不变）：前缀缓存继续命中 ✓；
+ * 2. **还有空位** → 新开槽位，id 由对话指纹派生（与历史派生一致）；
+ * 3. **槽位已满** → **复用最久未用的槽位的 id**（归属改成新对话）：
+ *    上游那边这个 id 已经存在 → 不会再开新槽 → **账号侧永远不超过 3 个会话** ✓。
+ *
+ * 复用 id 的代价：被顶掉的那条对话下次再来会拿到别的 id（前缀缓存重新冷启动），
+ * 但账号不会再撞 `TM.00001041` —— 取舍见文件头。
+ */
+function pickSessionId(accountKey: string, conversation: string): string {
+  const now = Date.now();
+  const table = sessionSlots.get(accountKey) ?? [];
+  // ① 同一对话：复用原槽位。
+  const owned = table.find((slot) => slot.conversation === conversation);
+  if (owned) {
+    owned.lastUsedAt = now;
+    sessionSlots.set(accountKey, table);
+    return owned.id;
+  }
+  // ② 还有空位：新开槽位（id 沿用「对话指纹前 32 hex」的派生，与历史一致）。
+  if (table.length < SESSION_SLOT_LIMIT) {
+    const id = conversation.slice(0, 32);
+    table.push({ id, conversation, lastUsedAt: now });
+    sessionSlots.set(accountKey, table);
+    return id;
+  }
+  // ③ 槽位已满：复用最久未用的槽位的 id（LRU）。
+  let lru = table[0];
+  for (const slot of table) {
+    if (lru === undefined || slot.lastUsedAt < lru.lastUsedAt) lru = slot;
+  }
+  if (!lru) {
+    // 理论上不可达（表非空），兜底成新槽位，避免返回 undefined。
+    const id = conversation.slice(0, 32);
+    table.push({ id, conversation, lastUsedAt: now });
+    sessionSlots.set(accountKey, table);
+    return id;
+  }
+  lru.conversation = conversation;
+  lru.lastUsedAt = now;
+  sessionSlots.set(accountKey, table);
+  return lru.id;
+}
+
+/**
+ * 记一次「上游会话槽位已满」（HTTP 400 + `TM.00001041`）。
+ *
+ * 渠道层能看到上游错误体的**唯一**入口是共享层的 `isAuthFailure` 钩子
+ * （它对非 2xx 且非 401/403 的响应调用一次）—— 故由 `channel.ts` 转调这里。
+ * 记账内容：给该账号加一段退避，后续请求先等一等再打，避免继续撞线。
+ */
+export function noteUpstreamError(status: number, body: string): void {
+  if (!isSessionSlotFullError(body)) return;
+  const accountKey = currentAccountKey();
+  slotFullBackoff.set(accountKey, Date.now() + SLOT_FULL_BACKOFF_MS);
+  console.warn(
+    `[codearts] upstream session slots are full (account ${accountKey}, status ${status}); ` +
+      `backing off ${SLOT_FULL_BACKOFF_MS}ms`,
+  );
+}
+
+/**
+ * 发上游请求前的准备动作（共享层钩子 `prepareChat`）。
+ *
+ * 做两件事：
+ *
+ * 1. **排队等上游会话槽位**（主闸）：上游按单账号最多 3 个并发会话计数，
+ *    且**每个请求占一个槽位约 60s** —— 故这里保证「最近 SLOT_RELEASE_MS 内
+ *    本渠道发出的请求不超过 3 条」，等不到就排队，而不是把请求送去撞线。
+ * 2. **槽位已满退避**（兜底）：真撞上 `TM.00001041`（别的进程占着这个账号
+ *    的槽位）时，给该账号加一段退避，避免继续撞同一条线。
+ */
+export async function prepareChat(_body: Record<string, unknown>): Promise<void> {
+  const accountKey = currentAccountKey();
+  await acquireUpstreamSlot(accountKey);
+  const until = slotFullBackoff.get(accountKey) ?? 0;
+  const waitMs = until - Date.now();
+  if (waitMs <= 0) return;
+  const delay = Math.min(waitMs, SLOT_FULL_BACKOFF_MAX_MS);
+  console.warn(
+    `[codearts] waiting ${delay}ms before the next upstream request ` +
+      `(account ${accountKey}, session slots still full)`,
+  );
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+/**
+ * 账号 → 最近发出的上游请求时间戳（升序）。
+ *
+ * 只保留 `SLOT_RELEASE_MS` 内的（更早的槽位已释放）→ 每个账号最多 3 条。
+ */
+const recentUpstreamRequests = new Map<string, number[]>();
+
+/**
+ * 拿一个上游会话槽位；没有就等到有为止。
+ *
+ * ## 为什么必须等
+ *
+ * 上游的槽位是**按请求**占的（不是按 session id）：实测同一个 session id
+ * 串行发 5 条，第 4 条起回 `TM.00001041`；且槽位在请求结束后还要占 ~60s。
+ * 直接把第 4 条送出去 = 必然失败；等一等让它排上 = 一次成功。
+ */
+async function acquireUpstreamSlot(accountKey: string): Promise<void> {
+  const now = Date.now();
+  const stamps = (recentUpstreamRequests.get(accountKey) ?? []).filter(
+    (stamp) => now - stamp < SLOT_RELEASE_MS,
+  );
+  if (stamps.length < SESSION_SLOT_LIMIT) {
+    stamps.push(now);
+    recentUpstreamRequests.set(accountKey, stamps);
+    return;
+  }
+  // 槽位占满：等到最早的那个释放（升序 → stamps[0] 最老）。
+  const oldest = stamps[0] ?? now;
+  const waitMs = Math.max(0, oldest + SLOT_RELEASE_MS - now);
+  recentUpstreamRequests.set(accountKey, stamps);
+  console.warn(
+    `[codearts] all ${SESSION_SLOT_LIMIT} upstream session slots are busy ` +
+      `(account ${accountKey}); queueing this request for ${waitMs}ms`,
+  );
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
+  await acquireUpstreamSlot(accountKey);
 }
 
 /**
@@ -615,7 +850,7 @@ export function buildChatBody(
   }
   const wireMessages = serializeMessages(messages);
 
-  const sessionKey = deriveSessionKey(upstreamModel, messages);
+  const sessionKey = pickSessionId(currentAccountKey(), conversationFingerprint(upstreamModel, messages));
 
   // tools：DSML 模式下**不发**（工具说明改注入 system）。
   const rawTools = Array.isArray(body["tools"]) ? (body["tools"] as unknown[]) : [];
@@ -680,9 +915,10 @@ export function buildChatBody(
  * 账号维度键：优先稳定 `uid`（refresh_token 里解出的 account_id），
  * 退到 accessKeyId，都没有则 "default"。
  *
- * benefit（免费额度）是**按账号授予**的，目录与判定都要按这个键分桶。
+ * benefit（免费额度）是**按账号授予**的，目录与判定都要按这个键分桶；
+ * 会话槽位表同样按这个键分桶（上游按账号计数会话）。
  */
-function accountKeyOf(credential: AuthLike): string {
+export function accountKeyOf(credential: AuthLike): string {
   return credential.uid?.trim() || credential.accessKeyId?.trim() || "default";
 }
 
@@ -729,7 +965,7 @@ export function buildHeaders(
   // canonical request，与签名时的 `application/json` 不符，于是回
   // `401 APIG.0301 verify ak sk signature fail`（实测 2026-10-08，抓包确认）。
   // 签名头必须原样发出，一个字节都不能变。
-  const sessionKey = pending?.sessionKey ?? deriveSessionKey("", []);
+  const sessionKey = pending?.sessionKey ?? sha256Hex(`${Math.random()}`).slice(0, 32);
   headers["Chat-Id"] = sessionKey;
   headers["Session-Id"] = sessionKey;
   headers["lang"] = "en";
@@ -1094,6 +1330,7 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 export type FailureKind =
   | "quota-exhausted"
   | "queue-retry"
+  | "session-slot-full"
   | "benefit-missing"
   | "auth"
   | "rate-limit"
@@ -1101,6 +1338,9 @@ export type FailureKind =
   | "invalid-request"
   | "server"
   | "unknown";
+
+/** 上游「并发会话数已达上限」的错误码（单账号最多 3 个并发会话）。 */
+export const SESSION_SLOT_FULL_ERROR_CODE = "TM.00001041";
 
 /**
  * 额度用尽判据（**不可重试**，标账号受限 + 换号）。
@@ -1113,18 +1353,34 @@ function isQuotaExhaustedError(errorCode: string, message: string): boolean {
 }
 
 /**
+ * 「上游会话槽位已满」判据（HTTP 400 + `TM.00001041`）。
+ *
+ * 归入**独立的一类**（`session-slot-full`），不再混进「排队/限流」——
+ * 两者的处置完全不同：排队是等上游放行，槽位已满是**本账号开太多会话**，
+ * 要靠会话槽位闸（复用旧 id）+ 退避解决。
+ *
+ * 错误码与中文文案都认（上游可能改措辞）。
+ */
+export function isSessionSlotFullError(body: string): boolean {
+  return (
+    body.includes(SESSION_SLOT_FULL_ERROR_CODE) ||
+    /并发会话数已达上限/.test(body)
+  );
+}
+
+/**
  * 可重试的排队 / 限流判据。
  *
  * ⚠️ **`429` 必须锚定为独立数字**：无边界子串会让额度码 `InferHub.4291.200`
  * 命中 `429` 前缀而被误判成「可重试排队」，进入 30 分钟静默重试、界面零输出
  * （真实缺陷，2026-10-02 实测 25 秒内 4 次 chat + 3 次探测、产出 0 chunk）。
+ *
+ * ⚠️ `TM.00001041` **不在**这里：它归 `session-slot-full`（见
+ * `isSessionSlotFullError()`），否则会被当成「排队」无限重试。
  */
 function isQueueRetryableError(status: number, body: string): boolean {
   if (status === 404 && /InferHub\.002002009\.404|not registered/i.test(body)) return false;
-  return (
-    body.includes("TM.00001041") ||
-    /81111|TPM|(^|[^0-9])429([^0-9]|$)|rate.?limit|too many requests|排队|限流/i.test(body)
-  );
+  return /81111|TPM|(^|[^0-9])429([^0-9]|$)|rate.?limit|too many requests|排队|限流/i.test(body);
 }
 
 /** 该账号没有 benefit 包（去掉 `maas_type` 头重试一次即可）。 */
@@ -1149,10 +1405,12 @@ function isContextWindowError(body: string): boolean {
 /**
  * 判定**流内错误帧**（HTTP 200 + `error_code`/`error_msg`）。
  *
- * 优先级不可颠倒：额度用尽 → 排队/限流 → benefit 缺失 → 其它（INVALID_REQUEST）。
+ * 优先级不可颠倒：额度用尽 → 会话槽位已满 → 排队/限流 → benefit 缺失
+ * → 其它（INVALID_REQUEST）。
  */
-function classifyStreamError(errorCode: string, message: string): FailureKind {
+export function classifyStreamError(errorCode: string, message: string): FailureKind {
   if (isQuotaExhaustedError(errorCode, message)) return "quota-exhausted";
+  if (isSessionSlotFullError(`${errorCode} ${message}`)) return "session-slot-full";
   if (isQueueRetryableError(200, `${errorCode} ${message}`)) return "queue-retry";
   if (isBenefitNotFoundError(errorCode)) return "benefit-missing";
   return "invalid-request";
@@ -1162,12 +1420,13 @@ function classifyStreamError(errorCode: string, message: string): FailureKind {
  * 判定 HTTP 非 2xx（PROTOCOL §4.2）。
  *
  * 401/403 → auth（先 refresh 一次再重试）；429 → rate-limit；
- * 400 → context-window（命中上下文超限措辞）否则 invalid-request；
- * ≥500 → server；其它 → unknown。
+ * 400 → 会话槽位已满（`TM.00001041`）→ context-window（命中上下文超限
+ * 措辞）否则 invalid-request；≥500 → server；其它 → unknown。
  */
-function classifyHttpError(status: number, body: string): FailureKind {
+export function classifyHttpError(status: number, body: string): FailureKind {
   if (isAuthError(status, body)) return "auth";
   if (status === 429) return "rate-limit";
+  if (isSessionSlotFullError(body)) return "session-slot-full";
   if (status === 400) return isContextWindowError(body) ? "context-window" : "invalid-request";
   if (status >= 500) return "server";
   return "unknown";
