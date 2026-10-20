@@ -51,6 +51,11 @@ export interface ModelEntry {
   name: string;
   context_window?: number;
   max_output?: number;
+  /**
+   * 这个模型**能不能吃图**（判据见 `supportsImageOf`）。
+   *
+   * ⚠ 与上游的 `supports_image_detail_original`（**原图细节**）无关，别混用。
+   */
   supports_image?: boolean;
   /** 倍率展示文案（如 `"x0.34"`）；上游 `credits` 字段为空时缺省。 */
   rate?: string;
@@ -182,12 +187,51 @@ function parseCreditsRate(credits: string): { rate: string; multiplier: number }
 }
 
 /**
+ * `input_modalities` 里代表「图片」的写法（小写化后比对）。
+ *
+ * 口径对齐共享层 `pool-targets.ts` 的模态别名表（`image` / `images` / `img` / `vision`）。
+ */
+const IMAGE_MODALITY_ALIASES = new Set(["image", "images", "img", "vision"]);
+
+/**
+ * 判定「这个模型能不能吃图」。
+ *
+ * 判据（按优先级，先到先得）：
+ * 1. **数组形态** `input_modalities` / `inputModalities` —— 含 `image` 即为真
+ *    （随包快照走的就是这种形态：`["text","image"]`）；
+ * 2. **布尔形态** `supportsImages` / `supportsImage` / `supports_image`
+ *    （`/v3/config` 与企业窄表走的就是这种形态）。
+ *
+ * ⚠ `supports_image_detail_original` **不作判据**：它的语义是「支不支持**原图细节**」，
+ * 与「支不支持图片」是两回事。把它当判据，会把同时下发
+ * `input_modalities:["text","image"]` 与 `supports_image_detail_original:false` 的型号
+ * （随包快照的 `deepseek-v4.1-flash` 就是这样）报成纯文本 → 客户端不再给它发图片。
+ *
+ * 取不到判据 → 返回 undefined（条目不填该字段），由汇聚层回落纯文本（宁可少报）。
+ */
+function supportsImageOf(rec: Record<string, unknown>): boolean | undefined {
+  for (const key of ["input_modalities", "inputModalities"]) {
+    const value = rec[key];
+    if (!Array.isArray(value)) continue;
+    return value.some(
+      (item) => typeof item === "string" && IMAGE_MODALITY_ALIASES.has(item.trim().toLowerCase()),
+    );
+  }
+  for (const key of ["supportsImages", "supportsImage", "supports_image"]) {
+    const value = rec[key];
+    if (typeof value === "boolean") return value;
+  }
+  return undefined;
+}
+
+/**
  * 把一行上游模型载荷解析成条目。
  *
  * 两个口径都要认（同一个产品的两张目录）：
  * - `/v3/config` 的 `models[]`：`id` / `name` / `maxInputTokens` / `maxOutputTokens` /
- *   `supportsImages` / `credits`（消费倍率，形如 `"x0.34 credits"`）
- * - 随包快照（旧插件端点）：`slug` / `display_name` / `context_window` / `max_output_tokens`
+ *   `supportsImages`（**能不能吃图的判据**）/ `credits`（消费倍率，形如 `"x0.34 credits"`）
+ * - 随包快照（旧插件端点）：`slug` / `display_name` / `context_window` / `max_output_tokens` /
+ *   `input_modalities`（**能不能吃图的判据**）
  *
  * 只取列表与用量判断要用的字段；内部运行时画像（`base_instructions`、
  * `service_tiers` 等几十个键）不落盘 —— 缓存是给人看的，不是上游载荷的副本。
@@ -223,8 +267,8 @@ function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null
   const output =
     num(rec["max_output_tokens"]) ?? num(rec["max_tokens"]) ?? num(rec["maxOutputTokens"]);
   if (output !== undefined) entry.max_output = output;
-  const image = rec["supports_image_detail_original"] ?? rec["supportsImages"];
-  if (typeof image === "boolean") entry.supports_image = image;
+  const image = supportsImageOf(rec);
+  if (image !== undefined) entry.supports_image = image;
   const rate = parseCreditsRate(str(rec["credits"]));
   if (rate) {
     entry.rate = rate.rate;

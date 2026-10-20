@@ -54,6 +54,31 @@
   选不中（选中后上游回 `code=11102`），故一律挡掉（go
   `internal/upstream/client.go:1470-1473`）。`[参考]`
 
+### 1.2 图片能力判据（哪个字段说了算）
+
+`GET /v1/models` 的 `input_modalities` 由渠道目录条目里的 `supports_image` 决定
+（汇聚层 `pool-targets.ts` 的 `IMAGE_CAPABILITY_KEYS` 读的就是这个字段名），
+故渠道侧**填值**必须用对字段。
+
+| 字段 | 语义 | 形态 | 证据 |
+| --- | --- | --- | --- |
+| `input_modalities` | **能不能吃图**（含 `image` 即为真） | 字符串数组 | `[实测]` 随包快照（旧插件端点）下发 `["text","image"]` |
+| `supportsImages` | **能不能吃图** | 布尔 | `[实测]` `/v3/config`（62 条）与企业窄表（34 条）的 `models[]` **只给这个**（2026-10-20 实测字段全集：无 `input_modalities`、无 `supports_image_detail_original`） |
+| `supports_image_detail_original` | **支不支持原图细节**（与「能不能吃图」无关） | 布尔 | `[实测]` 随包快照下发 `false`，而同一行的 `input_modalities` 是 `["text","image"]` |
+
+- **判据优先级**：数组形态 `input_modalities`（含 `image` 即为真）→ 布尔形态
+  `supportsImages` / `supports_image`；取不到 → 条目不填该字段，由汇聚层回落
+  `["text"]`（宁可少报）。实现见 `src/catalog.ts` 的 `supportsImageOf`。
+- ⚠ **不要拿 `supports_image_detail_original` 当判据**（2026-10-20 修掉的 bug）：
+  改动前 `src/catalog.ts` 写的是 `rec["supports_image_detail_original"] ?? rec["supportsImages"]`，
+  于是同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
+  的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）被报成纯文本 →
+  客户端不再给它发图片。修完随包快照路径实测：`deepseek-v4.1-flash` 的
+  `input_modalities` 从 `["text"]` 变回 `["text","image"]`。
+- `[参考]` 同一判据口径与各参考实现一致：go `internal/upstream/client.go:1156`、`:1187`
+  （`SupportsImages bool \`json:"supportsImages"\``）、`internal/upstream/global_models.go:646`
+  （`mi.SupportsImages, _ = obj["supportsImages"].(bool)`）。
+
 ## 2. 参考实现补充的两个行为细节（go）
 
 - **用量归属头**（`internal/upstream/headers.go` injectAttribution）：默认伪造官方桌面端指纹
@@ -344,6 +369,8 @@
 目录三档优先级：**远端缓存**（`<MODELMUX_HOME>/workbuddy/cache/models.json`）
 → 随包快照（渠道根 `models.json`，可用 `WB_MODELS_FILE` 覆盖）→ 内置兜底；
 `mx model workbuddy --refresh` 强制重拉。未识别的模型名原样透传。
+
+图片能力（`/v1/models` 的 `input_modalities`）的字段判据见 §1.2。
 
 ### 模型窗口规格（`modelSpec()` 钩子）
 

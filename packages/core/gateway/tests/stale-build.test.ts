@@ -10,8 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 
+// 旧行为：实现位于共享层根（`src/stale-build.ts` → `dist/stale-build.js`）。
+// 新行为：共享层按职责分了五层目录，陈旧构建检测属「进程编排」层 ——
+//   `src/app/stale-build.ts` → `dist/app/stale-build.js`
+//   （见提交 662f0ae「共享层 src 按职责划分为五层目录」的改名记录）
 const { findWorkspaceRoot, detectStaleBuild, staleBuildHint } = await import(
-  "../dist/stale-build.js"
+  "../dist/app/stale-build.js"
 );
 
 const ROOT = mkdtempSync(join(tmpdir(), "stale-build-"));
@@ -20,7 +24,12 @@ after(() => rmSync(ROOT, { recursive: true, force: true }));
 /** 造一个「工作区根 + 一个包的 dist + pid 文件」的迷你布局。 */
 function scaffold(name: string, buildMs: number, pidMs: number): { root: string; pid: string } {
   const root = join(ROOT, name);
-  const dist = join(root, "packages", "gw", "dist");
+  // 旧行为：dist 放在 `packages/gw/dist` —— 那是「顶层 groups 遍历一层」的老布局。
+  // 新行为：实现只扫**显式列出的**包目录（`packages/cli` / `packages/ui` /
+  //   `packages/core/gateway`）+ `packages/core/channels/*` 下的渠道包
+  //   （见 src/app/stale-build.ts:98-108，提交 ff3f46b 把共享层下沉到 packages/core 时改的）。
+  //   布局不对 → 扫不到任何 .js → buildMs 为 null → 一律判「不 stale」，测的就不是陈旧检测了。
+  const dist = join(root, "packages", "core", "gateway", "dist");
   mkdirSync(dist, { recursive: true });
   writeFileSync(
     join(root, "package.json"),
@@ -70,7 +79,7 @@ describe("陈旧构建检测", () => {
     // 本仓库布局早已是 packages/* + channels/*；旧判据在此**永远失败**
     // （实测 `paths <cid>` 一直报「未找到工作区根」）。
     const { root } = scaffold("ws-root", T0, T0);
-    assert.equal(findWorkspaceRoot(join(root, "packages", "gw", "dist")), root);
+    assert.equal(findWorkspaceRoot(join(root, "packages", "core", "gateway", "dist")), root);
 
     // 没有 workspaces 的 package.json 不算根
     const notRoot = join(ROOT, "not-a-root");

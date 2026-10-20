@@ -255,12 +255,14 @@ const IMAGE_CAPABILITY_KEYS = [
   "supportsImages",
   "supportsImage",
   "supports_image",
-  "supports_image_detail_original",
   "supportImage",
   "vision",
   "is_vl",
   "isVl",
   "multimodal",
+  // ⚠ **不收** `supports_image_detail_original`：它的语义是「支持原图细节」，
+  // 不是「支持图片」—— 收进来会把真能吃图、但不支持原图的型号判成纯文本
+  // （实测 workbuddy 随包快照里 `deepseek-v4.1-flash` 就是这个组合）。
 ];
 
 /** 输入模态的别名表（键一律小写；查表前先小写化）。 */

@@ -783,8 +783,9 @@ async function callUpstream(
     const retry = await inChannel(channel, () => openStream(channel, refreshed, sendBody));
     if (retry.ok || (retry.status !== 401 && retry.status !== 403)) return { kind: "ok", call: retry };
   } catch (err) {
-    noteFailure(cid, activeKeyOf(cid));
-    noteAccountFailure(cid);
+    // ⚠ 这里**不记账**：本次失败会由上层 `handleChat` 的 `auth_exhausted` 分支统一记一次。
+    // 两处都记会让「一次鉴权失败」算成两次连败 → 两次请求就打到 FAIL_STREAK_LIMIT，
+    // 账号被提前标成 `error`（下次直接短路，连上游都不打）。
     logger(`refresh failed: ${String(err)}`);
   }
 
