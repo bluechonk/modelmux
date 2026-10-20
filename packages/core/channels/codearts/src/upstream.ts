@@ -27,11 +27,18 @@
  *
  * ## 网关契约带来的一个约束
  *
- * 共享网关的调用序列是 `buildChatBody()` → `buildHeaders()`（中间无 await）——
- * 后者是同步接口、拿不到请求体，而 `x-sdk-content-sha256` 需要 body 哈希。
- * 故 `buildChatBody()` 会把「本次请求的规范化 body + chat/session id」存进
- * 模块内的 pending 槽，`buildHeaders()` 从那里取。JS 单线程且两步之间无 await，
- * 并发请求不会交错 —— 这一点在文件内注释里写明，避免后来者误以为可以改成异步。
+ * 共享网关的调用序列是 `buildChatBody()` → `buildHeaders()`，中间隔着共享层的重试路径
+ * （连接失败重试 / token 刷新后重试 / 排队等待后重开），每次重试都会**再调一次**
+ * `buildHeaders()`。后者是同步接口、拿不到请求体，而 `x-sdk-content-sha256` 需要
+ * body 哈希。故 `buildChatBody()` 会把「本次请求的规范化 body + chat/session id +
+ * 上游模型 id」存进**请求级**的 pending 槽，`buildHeaders()` 从那里取。
+ *
+ * ⚠ 槽必须是**请求级**的（`AsyncLocalStorage`），不能用模块级变量：同一渠道的并发
+ * 请求共用一个模块级变量 → 后一个请求覆盖前一个的待签名 body → 前一个请求重开时
+ * **按别人的 body 算哈希** → 签名与实际请求体不符，上游回
+ * `401 APIG.0301 verify ak sk signature fail`。
+ * （与 `qoder` / `qodercn` 的待签名槽同构，但签名机制是 HMAC + canonical request，
+ * 不可照抄 COSY 的实现。）
  *
  * ## benefit 判定放在 `buildHeaders()`（按账号隔离）
  *
@@ -42,6 +49,7 @@
  * 故判定挪到 `buildHeaders()`：它拿得到凭据，`credential.uid` 即账号维度键。
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
@@ -565,7 +573,14 @@ function deriveSessionKey(model: string, messages: readonly unknown[]): string {
   return sha256Hex(seed).slice(0, 32);
 }
 
-/** 本次 chat 请求的待签名载荷（`buildChatBody` → `buildHeaders` 之间的传递槽）。 */
+/**
+ * 本次 chat 请求的待签名载荷（`buildChatBody` → `buildHeaders` 之间的传递槽）。
+ *
+ * ⚠ **请求级作用域**：用 `AsyncLocalStorage` 承载，跟随请求的异步链传递 ——
+ * 并发请求各持一份，后一个请求不会覆盖前一个的待签名 body。
+ * 模块级变量做不到这点：共享层的重试路径隔着 await 再调 `buildHeaders()`，
+ * 期间别的请求会覆盖槽里的 body → 前一个请求**按别人的 body 算哈希** → 签名失配。
+ */
 interface PendingChat {
   payloadJson: string;
   sessionKey: string;
@@ -573,7 +588,7 @@ interface PendingChat {
   model: string;
 }
 
-let pendingChat: PendingChat | null = null;
+const pendingChats = new AsyncLocalStorage<PendingChat>();
 
 /**
  * 把下游 OpenAI 请求改写成 CodeArts 能接受的形状。
@@ -582,8 +597,8 @@ let pendingChat: PendingChat | null = null;
  * `prompt_cache_key` / `include` / `reasoning_summary` / `thinking`（仅关闭时） /
  * `tool_stream: true` / `max_tokens`（默认 65536）/ `tools`（仅非空且非 DSML）。
  *
- * ⚠️ 这里还会把「本次请求的规范化 body + session key」存进 pending 槽，
- * 供同步的 `buildHeaders()` 计算 `x-sdk-content-sha256` 用（见文件头说明）。
+ * ⚠️ 这里还会把「本次请求的规范化 body + session key + 上游模型 id」存进**请求级**
+ * pending 槽，供同步的 `buildHeaders()` 计算 `x-sdk-content-sha256` 用（见文件头说明）。
  */
 export function buildChatBody(
   req: Record<string, unknown>,
@@ -652,11 +667,12 @@ export function buildChatBody(
   if (wireTools.length > 0) out["tools"] = wireTools;
 
   const payloadJson = JSON.stringify(out);
-  pendingChat = {
+  // 待签名载荷跟着**本次请求的异步上下文**走（并发请求各持一份）
+  pendingChats.enterWith({
     payloadJson,
     sessionKey,
     model: upstreamModel,
-  };
+  });
   return out;
 }
 
@@ -690,10 +706,11 @@ export function buildHeaders(
   options: { dropBenefit?: boolean } = {},
 ): Record<string, string> {
   const { ak, sk, st } = credentialParts(credential);
-  const pending = pendingChat;
+  // 待签名载荷取自**本次请求**的上下文（并发请求各持一份，互不覆盖）
+  const pending = pendingChats.getStore();
   const body = pending?.payloadJson ?? "";
   const benefit =
-    pending !== null &&
+    pending !== undefined &&
     !options.dropBenefit &&
     catalog.isBenefitModel(pending.model, accountKeyOf(credential));
   const signed = signRequest({
