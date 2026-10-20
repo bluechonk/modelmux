@@ -59,7 +59,17 @@ export function resolvePoolRoute(
   }
   // 拆出渠道段与模型段：`asPoolModel` 已归一过，parsePoolModel 这里必成功，仅作类型收窄
   const targetParts = parsePoolModel(target);
-  if (!targetParts) return null;
+  if (!targetParts) {
+    // ⚠ 必须写应答：调用方（chat-relay）把 null 当「已应答」直接 return，
+    // 不写就是**连接挂死**（客户端一直等到超时，网关侧还不留错误日志）。
+    writeJsonError(
+      res,
+      400,
+      "unknown_model",
+      `unknown model ${model}; 请用 <渠道>/<模型> 形态（模型清单见 GET /v1/models）`,
+    );
+    return null;
+  }
   const reqLog = getRequestLog(res);
   if (reqLog) reqLog.cid = targetParts.cid;
   // 渠道段要有对应注册渠道（客户端写错渠道名是**请求问题**，400，与未登录的 503 分开）

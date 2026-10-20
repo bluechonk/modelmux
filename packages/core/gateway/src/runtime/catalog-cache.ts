@@ -11,10 +11,11 @@
  * ⚠ 缓存是**机器本地**的、不随包发布；仓库里那份 `models.json` 是随包快照，两者不同。
  */
 
-import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ensureCacheDir } from "./paths.js";
+import { writeAtomicFile } from "./secret-file.js";
 
 /** 缓存文件名（写在渠道层的 `cache/` 子目录里）。 */
 export const CATALOG_CACHE_FILE = "models.json";
@@ -72,6 +73,9 @@ export function readCatalogCache<T extends CachedModel>(cid?: string): T[] | nul
  *
  * ⚠ 写不进去**不抛错** —— 缓存失败不该影响主流程（与目录加载的容错口径一致）。
  *
+ * ⚠ 走共享层的原子写（唯一临时名 + 幂等 rename）：网关与 CLI 可能同时刷同一个渠道的
+ * 缓存，固定 `.tmp` 名会互相覆盖并抛 ENOENT。
+ *
  * @returns 是否写成功（便于测试断言）
  */
 export function writeCatalogCache<T extends CachedModel>(
@@ -86,14 +90,7 @@ export function writeCatalogCache<T extends CachedModel>(
   };
   try {
     const path = catalogCachePath(cid);
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
-    renameSync(tmp, path);
-    try {
-      chmodSync(path, 0o600);
-    } catch {
-      /* Windows 上 chmod 意义有限 */
-    }
+    writeAtomicFile(path, `${JSON.stringify(envelope, null, 2)}\n`, 0o600);
     return true;
   } catch {
     return false;

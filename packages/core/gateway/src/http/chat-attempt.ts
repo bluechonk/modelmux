@@ -419,10 +419,19 @@ export async function attemptCandidate(
   markActiveHealth("ok", cid);
   // 换 host 重试成功后回报新主机（渠道有能力就持久化，后续请求不再走坏的那台）
   if (state.host) {
+    const host = state.host;
     try {
-      channel.upstream.rememberChatHost?.(state.host);
-    } catch {
-      /* 回写失败不影响本次应答 */
+      // ⚠ 必须包渠道上下文：渠道的实现会写凭据文件（内部用无参 `paths.*` 解析落点），
+      // 裸调在仓库级多渠道路由下会抛「multi-channel routing requires an explicit cid」，
+      // 被吞掉就等于「换主机持久化」静默失效（每次重启都从坏主机开始）。
+      inChannel(channel, () => channel.upstream.rememberChatHost?.(host));
+    } catch (err) {
+      // 回写失败不影响本次应答，但必须留痕（原来完全静默）
+      logThrottled(
+        logger,
+        `chat:remember-host:${cid}`,
+        `remember chat host failed (channel ${cid}): ${String(err)}`,
+      );
     }
   }
   await relayUpstream(res, channel, cid, call, {

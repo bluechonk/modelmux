@@ -16,6 +16,8 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, s
 import { join } from "node:path";
 
 import { getChannel, type Channel } from "./channel.js";
+import { runInChannel } from "./channel-context.js";
+import { logThrottled } from "./logger.js";
 import { channelDir, credentialsPath, ensureDir } from "./paths.js";
 import { writeJsonSecret } from "./secret-file.js";
 
@@ -209,6 +211,34 @@ function refreshLabels(index: PoolIndex, cid?: string): void {
   if (changed) writeIndex(index, cid);
 }
 
+/** 渠道约定的「未登录」异常（渠道各自定义，共享层只按契约识别）。 */
+function isNotLoggedIn(channel: Channel, err: unknown): boolean {
+  if (err instanceof channel.cred.NotLoggedInError) return true;
+  // 兜底：按类名识别（有的渠道/替身抛的是另一个同名类）
+  return err instanceof Error && err.constructor?.name === "NotLoggedInError";
+}
+
+/**
+ * 调渠道的 `cred.load()` 读当前生效凭据（**必须**在渠道上下文里）。
+ *
+ * ⚠ 渠道内部一律用无参 `paths.*` 解析落点，裸调在仓库级多渠道路由下会抛
+ * 「multi-channel routing requires an explicit cid」—— 症状是「登录了但池子是空的」。
+ *
+ * 未登录（渠道抛 `NotLoggedInError`）返回 null；**其它异常抛出去**：静默 null 会把
+ * 真实故障伪装成「没东西可收」，谁也看不出来。
+ */
+function loadCredentialOf(channel: Channel): Record<string, unknown> | null {
+  try {
+    const loaded: unknown = runInChannel(channel.config.cid, () => channel.cred.load());
+    return loaded && typeof loaded === "object" && !Array.isArray(loaded)
+      ? (loaded as Record<string, unknown>)
+      : null;
+  } catch (err) {
+    if (isNotLoggedIn(channel, err)) return null;
+    throw new Error(`credential load failed (channel ${channel.config.cid}): ${String(err)}`);
+  }
+}
+
 /**
  * 把渠道当前的 `credentials.json` 收进池子（新增或更新 active）。
  *
@@ -223,13 +253,9 @@ export function captureActive(
   const source = credentialsPath(cid);
   if (!existsSync(source)) return null;
 
-  let raw: Record<string, unknown>;
-  try {
-    const loaded: unknown = channel.cred.load();
-    raw = loaded && typeof loaded === "object" ? (loaded as Record<string, unknown>) : {};
-  } catch {
-    return null;
-  }
+  // 读不到就是**没东西可收**（未登录）；但失败原因必须可诊断 —— 见 loadCredentialOf
+  const raw = loadCredentialOf(channel);
+  if (!raw) return null;
 
   const key = accountKey(raw);
   const index = readIndex(cid);
@@ -457,14 +483,7 @@ function readRawCredential(cid?: string): Record<string, unknown> {
 
 /** 读当前生效凭证（走渠道自己的 `load()`，从而拿到契约字段 uid/domain）。未登录返回 null。 */
 function loadLive(cid?: string): Record<string, unknown> | null {
-  try {
-    const loaded: unknown = getChannel(cid).cred.load();
-    return loaded && typeof loaded === "object" && !Array.isArray(loaded)
-      ? (loaded as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
+  return loadCredentialOf(getChannel(cid));
 }
 
 /**
@@ -554,8 +573,9 @@ export function syncPool(cid?: string): void {
       return;
     }
     captureActive(cid); // 换了账号、或池子还没 active：收进来并设为当前生效
-  } catch {
-    /* 同步失败不影响主流程 */
+  } catch (err) {
+    // 同步失败不影响主流程，但**必须留痕**：静默吞掉时症状是「登录了但池子是空的」
+    logThrottled(console.warn, `account-pool:sync:${cid ?? "-"}`, `account pool sync failed: ${String(err)}`);
   }
 }
 

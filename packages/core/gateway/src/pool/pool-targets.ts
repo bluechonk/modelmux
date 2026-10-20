@@ -399,9 +399,19 @@ export function getPoolModelMeta(model: string): PoolModelMeta {
   // 缓存 id 可能是上游 key（如 `qfmodel`），与对外名（如 `glm-5.3-flash`）不同 ——
   // 用 resolveModel 将对外名解析为上游 key，再按 key 匹配
   if (!entry) {
-    const upstreamKey = runInChannel(channel.config.cid, () => channel.catalog.resolveModel(parsed.model));
-    const found = cache.find((d: any) => d.key === upstreamKey || canonicalModelId(d.id) === upstreamKey) as any;
-    if (found) return metaFromEntry(found, model, spec);
+    // ⚠ 渠道调用必须兜异常（同上两处）：任一渠道的 resolveModel 抛错都会让
+    // `/v1/models` 整页 500（控制台与 `mx model list` 都依赖这个端点）。
+    const upstreamKey = runInChannel(channel.config.cid, () => {
+      try {
+        return channel.catalog.resolveModel(parsed.model);
+      } catch {
+        return undefined;
+      }
+    });
+    if (upstreamKey !== undefined) {
+      const found = cache.find((d: any) => d.key === upstreamKey || canonicalModelId(d.id) === upstreamKey) as any;
+      if (found) return metaFromEntry(found, model, spec);
+    }
   }
   if (entry) return metaFromEntry(entry, model, spec);
   if (spec) return { ...DEFAULT_META, ...spec, name: model };

@@ -256,6 +256,27 @@ class ServiceState {
   }
 }
 
+/**
+ * 登录后入池（幂等）。
+ *
+ * ⚠ 必须包 `runInChannel`：`captureActive` / `syncPool` 内部走 `cred.load()` →
+ * `paths.*`，而这些在多渠道模式下靠 ALS 上下文才知道为谁解析。
+ *
+ * 入池失败**不影响登录结果**（登录本身已成功），但必须留痕：静默吞掉时症状是
+ * 「登录了但池子是空的」，外部无从判断。
+ */
+function captureIntoPool(cid: string): void {
+  try {
+    runInChannel(cid, () => {
+      // 登录成功即入池并恢复健康度（重新授权同一账号也要把 error 清掉）
+      captureActive(cid);
+      syncPool(cid);
+    });
+  } catch (err) {
+    console.error(`[login] account pool sync failed (${cid}): ${String(err)}`);
+  }
+}
+
 /** 无窗口完成登录并保存凭证；成功返回 0。 */
 export async function runLogin(options: {
   force?: boolean;
@@ -317,11 +338,7 @@ export async function runLogin(options: {
       ui.closePasteReader();
     }
     if (ok && target) {
-      runInChannel(target.config.cid, () => {
-        // 重新授权成功后恢复健康度（同一账号重登也要把 error 清掉）
-        captureActive(target.config.cid);
-        syncPool(target.config.cid);
-      });
+      captureIntoPool(target.config.cid);
       ui.setState("done", "登录成功，账号已入池。", "", "");
     }
     if (json) {
@@ -329,7 +346,9 @@ export async function runLogin(options: {
       if (ui.authUrl) done["auth_url"] = ui.authUrl;
       if (ok) {
         try {
-          const c = cred.load();
+          // ⚠ 必须包渠道上下文：渠道的 `cred.load()` 内部用无参 `paths.*` 解析落点，
+          // 裸调在仓库级多渠道模式下会抛错 → uid/domain/obtained_at **永远缺失**。
+          const c = runInChannel(target.config.cid, () => cred.load());
           done["uid"] = c.uid;
           done["domain"] = c.domain;
           done["obtained_at"] = (c as { obtainedAt?: string }).obtainedAt ?? "";
@@ -386,14 +405,9 @@ export async function runLogin(options: {
 
   // 登录即入池：把刚拿到的凭证收进账号池（幂等；失败不影响登录结果）。
   // ⚠ 必须包 `runInChannel`：`syncPool` 内部走 `cred.load()` → `paths.*`，
-  // 而这些在多渠道模式下靠 ALS 上下文才知道为谁解析。裸调用会静默收不到
-  // （`loadLive` 的 catch 吞掉「无上下文」），表现为「登录了但池子是空的」。
+  // 而这些在多渠道模式下靠 ALS 上下文才知道为谁解析。
   if (ok && target) {
-    runInChannel(target.config.cid, () => {
-      // 登录成功即入池并恢复健康度（重新授权同一账号也要把 error 清掉）
-      captureActive(target.config.cid);
-      syncPool(target.config.cid);
-    });
+    captureIntoPool(target.config.cid);
     ui.setState("done", "登录成功，账号已入池。", "", "");
   } else {
     ui.setState("error", "登录失败，请重试。", "", "");
@@ -404,7 +418,9 @@ export async function runLogin(options: {
     if (ui.authUrl) done["auth_url"] = ui.authUrl;
     if (ok) {
       try {
-        const c = cred.load();
+        // ⚠ 必须包渠道上下文：渠道的 `cred.load()` 内部用无参 `paths.*` 解析落点，
+        // 裸调在仓库级多渠道模式下会抛错 → uid/domain/obtained_at **永远缺失**。
+        const c = runInChannel(target.config.cid, () => cred.load());
         done["uid"] = c.uid;
         done["domain"] = c.domain;
         // obtainedAt 是可选字段（契约只要求 accessToken/uid/domain）
