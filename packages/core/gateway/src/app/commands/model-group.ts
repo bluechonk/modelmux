@@ -224,28 +224,37 @@ export async function listPoolModels(json: boolean): Promise<number> {
     return 0;
   }
 
-  console.log(
-    `公共模型池（对外 ${POOL_MODELS.length} 个模型；id 为「渠道/模型」，由请求方指定渠道）\n`,
-  );
+  // 按渠道分组输出：**渠道级账本状态只出现一次**（旧版每个模型都重复一遍
+  // `used=… ok=… fail=…`，30 个模型的渠道要重复 30 行同样的数字）。
+  const byCid = new Map<string, { models: string[]; stat: (typeof rows)[number]["candidates"][number] | null }>();
   for (const row of rows) {
-    console.log(`  ${row.model}`);
-    if (row.candidates.length === 0) {
-      console.log("    （渠道目录里没有它，或目录未就绪）\n");
-      continue;
-    }
-    for (const candidate of row.candidates) {
-      const used = candidate.unsupported
+    const cid = row.model.split("/")[0] ?? row.model;
+    const group = byCid.get(cid) ?? { models: [], stat: null };
+    group.models.push(row.model);
+    // 同渠道的账本状态一致，取第一条候选的即可
+    if (!group.stat && row.candidates.length > 0) group.stat = row.candidates[0]!;
+    byCid.set(cid, group);
+  }
+
+  console.log(
+    `公共模型池  ${rows.length} 个模型 / ${byCid.size} 个渠道（id 形如 渠道/模型，由请求方指定渠道）\n`,
+  );
+  for (const [cid, group] of byCid) {
+    const stat = group.stat;
+    const used = stat
+      ? stat.unsupported
         ? "-"
-        : `${candidate.used}${candidate.unit ? ` ${candidate.unit}` : ""}`;
-      const marks = [
-        candidate.cooling ? "冷却中" : "",
-        candidate.ok > 0 ? `ok=${candidate.ok}` : "",
-        candidate.fail > 0 ? `fail=${candidate.fail}` : "",
-      ]
-        .filter(Boolean)
-        .join("  ");
-      console.log(`    ${candidate.cid.padEnd(14)} used=${used.padEnd(16)} ${marks}`);
-    }
+        : `${stat.used}${stat.unit ? ` ${stat.unit}` : ""}`
+      : "-";
+    const marks = [
+      stat?.cooling ? "冷却中" : "",
+      stat && stat.ok > 0 ? `ok=${stat.ok}` : "",
+      stat && stat.fail > 0 ? `fail=${stat.fail}` : "",
+    ]
+      .filter(Boolean)
+      .join("  ");
+    console.log(`${cid}  ${group.models.length} 个模型  used=${used}${marks ? `  ${marks}` : ""}`);
+    for (const model of group.models) console.log(`  ${model}`);
     console.log();
   }
   console.log(`账本: ${poolUsagePath()}（账单额度每 8 小时自动刷一次）`);
@@ -318,10 +327,14 @@ export async function runModelGroup(args: string[], ctx: CommandContext): Promis
 }
 
 /**
- * `model usage [--refresh]`：看池账本；`--refresh` 立刻重查一遍各渠道账单。
+ * `model usage [--refresh]`：看**池账本**；`--refresh` 立刻重查一遍各渠道账单。
  *
- * 展示的仍是池视图（模型 → 候选渠道 + 已用量 + 冷却）—— 账本的意义是
- * 「下一次请求会先落到谁」，单看一串数字看不出这个。
+ * 与 `model list` 的分工：
+ * - `model list` = **哪些模型可用**（逐个模型列出，196 行）；
+ * - `model usage` = **各渠道用得怎么样**（逐个渠道一行，十几行）。
+ *
+ * 账本不再决定路由（渠道由池 id 前缀指定），所以这里只回答「哪个渠道在被用、
+ * 哪个在冷却」——不再重复列出 196 个模型。
  */
 
 export async function showPoolUsage(json: boolean, force = false): Promise<number> {
@@ -337,7 +350,51 @@ export async function showPoolUsage(json: boolean, force = false): Promise<numbe
       );
     }
   }
-  return listPoolModels(json);
+
+  const now = Date.now();
+  const ledger = ledgerSnapshot();
+  const list = channels();
+  if (json) {
+    console.log(
+      JSON.stringify(
+        list.map((channel) => {
+          const entry = ledger.channels[channel.config.cid];
+          return {
+            cid: channel.config.cid,
+            display: channel.upstream.DISPLAY_NAME,
+            used: entry?.used ?? 0,
+            unit: entry?.unit ?? "",
+            ok: entry?.ok ?? 0,
+            fail: entry?.fail ?? 0,
+            cooling: (entry?.cooldown_until ?? 0) > now,
+            billing_at: entry?.billing_at ?? null,
+            unsupported: !channelCapabilities(channel.config).billing,
+          };
+        }),
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  console.log(`池账本  ${list.length} 个渠道（账单额度每 8 小时自动刷一次）\n`);
+  for (const channel of list) {
+    const cid = channel.config.cid;
+    const entry = ledger.channels[cid];
+    const unsupported = !channelCapabilities(channel.config).billing;
+    const used = unsupported ? "-" : `${entry?.used ?? 0}${entry?.unit ? ` ${entry.unit}` : ""}`;
+    const marks = [
+      (entry?.cooldown_until ?? 0) > now ? "冷却中" : "",
+      entry && entry.ok > 0 ? `ok=${entry.ok}` : "",
+      entry && entry.fail > 0 ? `fail=${entry.fail}` : "",
+    ]
+      .filter(Boolean)
+      .join("  ");
+    console.log(`${cid.padEnd(12)} used=${used.padEnd(18)} ${marks}`);
+  }
+  console.log(`\n账本: ${poolUsagePath()}`);
+  return 0;
 }
 
 /** 渠道动词名集合（`mx <动词> [<cid>]` 的第一参数）。 */

@@ -119,6 +119,18 @@ async function loadConfig(pkgDir: string): Promise<ChannelConfig | null> {
   return null;
 }
 
+/**
+ * 是不是渠道包：看**渠道入口**在不在（`src/channel.ts` 或构建后的 `dist/channel.js`）。
+ *
+ * 不能按包名判断 —— 共享层与 UI 也叫 `@modelmux/*`（`@modelmux/gateway`、`@modelmux/ui`），
+ * 它们本来就没有渠道入口，把它们报成「未构建的渠道包」纯属噪声。
+ */
+function isChannelPackageDir(pkgDir: string): boolean {
+  return (
+    existsSync(join(pkgDir, "src", "channel.ts")) || existsSync(join(pkgDir, "dist", "channel.js"))
+  );
+}
+
 function formatEntry(e: EntryReport): string {
   return e.exists ? `✓ ${e.name} (${e.bytes}B${e.mode ? ` ${e.mode}` : ""})` : `· ${e.name}`;
 }
@@ -168,7 +180,11 @@ export async function runPaths(options: PathsOptions = {}): Promise<number> {
   for (const pkgDir of expandWorkspaces(root, workspace ?? process.cwd())) {
     const config = await loadConfig(pkgDir);
     if (!config) {
-      console.error(`[warn] 跳过未构建的渠道包: ${pkgDir}`);
+      // 只有**渠道包**没构建出来才值得提醒；工作区里还有 cli / ui / 共享层等非渠道包，
+      // 它们没有 channel config 是正常的（早先会把这些也报成「跳过未构建的渠道包」，纯属噪声）。
+      if (isChannelPackageDir(pkgDir)) {
+        console.error(`[warn] 跳过未构建的渠道包: ${pkgDir}`);
+      }
       continue;
     }
     reports.push(inspect(config));

@@ -19,76 +19,72 @@ import * as headless from "./headless.js";
 import { runWeb } from "./web.js";
 import * as supervisor from "./supervisor.js";
 
-/** 生成当前渠道的帮助文本。 */
+/**
+ * 生成当前渠道的帮助文本。
+ *
+ * 设计取向：**一眼能看懂** —— 命令按用途分组、每行「用法 + 一句话」，
+ * 选项按命令归类（而不是平铺 25 条），示例只留最常用的几条。
+ * 实现细节（落点、协议、账本口径）一律不进帮助，见 docs/CONTRACT-TS.md。
+ */
 export function usage(): string {
   const single = channelCount() === 1;
   // 仓库级入口的 bin 有 `modelmux` / `mx` 两个名字，帮助里统一用短名 `mx`。
   const bin = single ? getChannel().config.cid : "mx";
   const display = single ? getChannel().config.display : "多渠道路由（模型池）";
-  const verbLines = CHANNEL_VERBS.map(([v, d]) => `  ${v.padEnd(10)} ${d}`);
   // 帮助里的示例渠道取**注册表里的第一个**（动态取值）——
   // 共享层不硬编码任何渠道 id（渠道知识只允许出现在各渠道包内）。
   const cid = single ? bin : (channels()[0]?.config.cid ?? "<cid>");
-  return `${bin} — ${display} OpenAI Chat Completion 网关（本地多渠道）
+  const pad = (s: string): string => s.padEnd(34);
 
-用法: ${bin} <动词> [<cid>] [参数]
-      <cid> 一律写在动词之后，如 ${bin} login ${cid}
+  // 动词按分组渲染：模型组先给池视图两条，再给渠道级 `model <cid>`。
+  const groupLines = (group: "模型" | "渠道"): string[] => {
+    const lines: string[] = [];
+    if (group === "模型") {
+      lines.push("  " + pad("model list") + "池视图：模型 → 候选渠道 + 已用量 + 冷却");
+      lines.push("  " + pad("model usage [--refresh]") + "池账本；--refresh 立刻重查额度");
+    }
+    for (const v of CHANNEL_VERBS) {
+      if (v.group === group) lines.push("  " + pad(v.usage) + v.summary);
+    }
+    return lines;
+  };
 
-网关（仓库级，不带 <cid>）:
-  start                     守护式启动网关（幂等：已在跑直接返回）
-  stop                      停止守护式网关（读 PID 文件杀进程树，不碰第三方进程）
-  restart                   重启守护式网关（stop + start）
-  serve                     前台运行网关（内部命令，供调试）
-  web                       打开 Web 控制台（http://127.0.0.1:4412/web/）
+  return `${bin} — ${display} · OpenAI 兼容网关
 
-模型池（全模型池：动态返回全部渠道能提供的模型，请求落到哪家渠道由网关按账单已用量决定）:
-  model list                池视图：全池模型 → 候选渠道 + 已用量 + 冷却/暂不可用
-  model usage [--refresh]   池账本；--refresh 立刻重查各渠道账单额度
+用法: ${bin} <动词> [<cid>] [参数]     <cid> 写在动词之后
 
-按渠道操作（<cid> 是动词后的第一个位置参数，必须是已注册渠道名）:
-${verbLines.join("\n")}
+网关:
+  ${pad("start | stop | restart")}守护式启停（幂等）
+  ${pad("serve")}前台运行（调试用）
+  ${pad("web")}打开 Web 控制台
 
-其它:
-  help                      显示本帮助（等价 -h / --help）
-  version                   显示版本（等价 -v / --version）
+模型:
+${groupLines("模型").join("\n")}
 
-选项:
-  --addr <host:port>        网关监听地址（默认 ${defaultAddr()}）
-  --ui-port <port>          控制台 API 端口（默认 ${defaultUiPort()}）
-  --wait <seconds>          启动健康等待秒数（默认 30）
-  --lines <n>               log 显示行数（默认 40）
-  --kind <名>               log：access / error / system / lifecycle / worker / channel
-  --outcome <名>            log：success / failure / other（仅 --kind access）
-  --date <YYYY-MM-DD>       log：指定日期（默认今天，缺失则取最新）
-  --list                    log：列出日志文件（大小 + 时间）
-  -f, --follow              log：持续输出新增日志（等价 tail -f / docker logs -f）
-  --realm <名>              login 的登录域（渠道自定义；单域渠道忽略）
-  --wechat                  login：微信扫码登录（仅声明该方式的渠道，如 loomy）
-  --refresh                 model <cid> / model usage：强制重拉上游目录 / 重查账单
-                            （失败即报错退出）
-  --all                     path：统计工作区内全部渠道
-  --workspace <dir>         path：工作区根（默认从当前目录向上查找）
-  --json                    输出 JSON（事件行 / 结构化结果）
-  --quiet                   不输出过程信息
-  --auto                    hook 场景：受 prefs 的 auto_start 开关约束
-  --force                   start 时已在跑也重启
-  --strict                  启动失败以非零码退出（默认始终返回 0）
-  --ensure-login            serve：未登录时引导登录（授权链接打到日志）
-  --force-login             serve：忽略已有凭证重新登录
-  --verbose                 serve：打印每个上游请求
-  --no-console              serve：不启动控制台 API 服务
-  -h, --help                显示本帮助
-  -v, --version             显示版本
+渠道:
+${groupLines("渠道").join("\n")}
+
+选项（按命令）:
+  通用    --json 输出 JSON | --quiet 静默 | --addr <host:port> 监听地址（默认 ${defaultAddr()}）
+  model   --refresh 强制重拉目录 / 重查账单
+  log     --kind <名> access|error|system|lifecycle|worker|channel
+         --outcome <名> success|failure|other（--kind access）  --date <YYYY-MM-DD>
+         --lines <n> 行数（默认 40）  -f, --follow 持续输出  --list 列出日志文件
+  login   --realm <名> 登录域（单域渠道忽略）  --wechat 微信扫码
+  start   --force 已在跑也重启  --wait <s> 健康等待秒数（默认 30）
+  serve   --ensure-login 未登录时引导  --force-login 忽略凭据重登
+         --verbose 打印每个上游请求  --no-console 不起控制台 API
+  path    --all 全部渠道  --workspace <dir> 工作区根
+  其它    --ui-port <port> 控制台端口  --auto 受 auto_start 约束
+         --strict 启动失败非零退出
+         help | version 显示帮助 / 版本（-h --help / -v --version）
 
 示例:
-  ${bin} start                          # 起网关（守护式，幂等）
-  ${bin} model list                     # 池视图：全池模型分别会先落到哪家
-  ${bin} model usage --refresh          # 立刻重查各渠道账单额度并写进账本
-  ${bin} model ${cid} --refresh         # 强制重拉 ${cid} 的模型目录
-  ${bin} login ${cid}                   # 登录 ${cid}（把授权 URL 输出到终端，自行打开）
-  ${bin} relogin ${cid}                 # 重新授权 ${cid}（清掉旧凭据后重登）
-  ${bin} bill ${cid}                    # 看 ${cid} 的剩余额度 / 账单
-  ${bin} status ${cid} --json           # 结构化状态（脚本用）
+  ${bin} start                起网关
+  ${bin} model list           看池视图
+  ${bin} login ${cid}         登录 ${cid}
+  ${bin} bill ${cid}          看 ${cid} 额度
+  ${bin} status ${cid} --json 结构化状态（脚本用）
 `;
 }
 
