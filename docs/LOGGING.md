@@ -22,7 +22,7 @@
 | --- | --- | --- | --- | --- |
 | `access/<date>/success.log` | 判定为成功的请求 | 结构化行 | `log-store.ts` | 响应结束时 `outcome=success`（§3.2、§3.3 的例外除外） |
 | `access/<date>/failure.log` | 判定为失败的请求 | 结构化行 | 同上 | `outcome=failure` |
-| `access/<date>/other.log` | 客户端提前断开或取消的请求 | 结构化行 | 同上 | `outcome=other` |
+| `access/<date>/other.log` | **没给出状态码**的请求（连接在应答前就断了） | 结构化行 | 同上 | `outcome=other` |
 | `access/<date>/slow.log` | 耗时达到慢阈值的请求（与结果分类并行写入） | 结构化行 | 同上 | `durationMs >= MODELMUX_SLOW_MS`（默认 30000） |
 | `error/<date>/error.log` | 错误上下文 | 结构化行 | `appendError()` | 失败请求镜像（§3.4）+ worker 错误行 + 监督者错误事件 |
 | `system/<date>/lifecycle.log` | 进程生命周期事件 | 结构化行 | `appendSystem()` | §4 的事件名单 |
@@ -70,8 +70,11 @@
 | `200 <= status < 400` | `success` |
 | `status < 200` | `other` |
 
-显式标记优先于推导：流内错误、上游错误、超时由 `noteRequestError()` 置为 `failure`；
-客户端提前断开由 `noteClientDisconnect()` 置为 `other`。
+显式标记优先于推导：流内错误、上游错误、超时由 `noteRequestError()` 置为 `failure`。
+客户端提前断开**不改变分桶**（`noteClientDisconnect()` 与 `close` 回调都只留一句说明）——
+`outcome` 表达的是**服务端这次请求的结果**：上游该回的已经回了（200）就记 `success` ✓，
+说明里带上「客户端提前断开」即可；按 `success.log` 统计成功率才不失真 ✓。
+真没给出状态码（连接在应答前就断了）才是 `other` ✓。
 
 ### 3.3 例外规则
 
@@ -153,7 +156,7 @@ mx log --kind lifecycle                  # 生命周期事件
 mx log --kind worker                     # worker 原始输出
 mx log --kind access --outcome success   # 成功请求（结构化行）
 mx log --kind access --outcome failure   # 失败请求
-mx log --kind access --outcome other     # 客户端断开 / 取消
+mx log --kind access --outcome other     # 没给出状态码的请求（应答前就断了）
 mx log --kind error                      # 错误详情（含 request_id）
 mx log catpaw --kind channel             # 渠道维度（cid 是**位置参数**，不是 --cid）
 mx log --date 2026-10-18 --kind access --outcome failure
