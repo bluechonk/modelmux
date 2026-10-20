@@ -3,9 +3,9 @@
  *
  * 结构：
  * - 本文件：`createHandler`（路由分发）/ `makeApp` / `start` / `describe` / `splitAddr`
- * - `chat-relay.ts`：聊天转发的**编排**（候选排序、失败转移、结果回传）—— 由 handleChat 承载
- * - `chat-channel/candidates/errors/stream/queue/upstream/auth.ts`：转发链路的分块（帧、排队、错误、候选、建连、鉴权）
- * - `sse-stream.ts` / `portfree.ts`：SSE 规范化与端口自愈
+ * - `chat/relay.ts`：聊天转发的**编排**（候选排序、失败转移、结果回传）—— 由 handleChat 承载
+ * - `chat/`（channel/candidates/errors/stream/queue/upstream/auth）：转发链路的分块（帧、排队、错误、候选、建连、鉴权）
+ * - `wire/sse-stream.ts` / `portfree.ts`：SSE 规范化与端口自愈
  *
  * 渠道差异全部由注册的 `Channel`（`upstream` / `cred` / `catalog`）提供，
  * 本层不含任何渠道知识（见 `docs/POOL-ARCHITECTURE.md`）。
@@ -16,10 +16,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { channelCount, channelFor, channels, getChannel, type Channel, type Credential, type StreamTranslator, type UpstreamConfig } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { POOL_MODELS, getPoolModelMeta, poolCandidates } from "../pool/pool-targets.js";
-import { inChannel } from "./chat-channel.js";
+import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
-import { handleChat } from "./chat-relay.js";
-import { writeJson, writeJsonError } from "./chat-errors.js";
+import { handleChat } from "./chat/relay.js";
+import { writeJson, writeJsonError } from "./chat/errors.js";
 import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
 
 /**

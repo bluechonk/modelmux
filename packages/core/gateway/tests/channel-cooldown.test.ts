@@ -12,7 +12,7 @@
  * - 新：对外模型 id 是 `<cid>/<模型>`，**渠道由请求方指定** → 候选**至多一条**
  *   （`src/pool/pool-targets.ts:498-513`），既没有"次选"可落，冷却也不再改候选集；
  *   冷却只在"多候选排序"里起作用，全池都在冷却时回退到完整候选
- *   （`src/http/chat-relay.ts:909-927`）。
+ *   （`src/http/chat/relay.ts:909-927`）。
  *
  * 与 `failover.test.ts` 的分工：那是**账号级**语义（同一渠道的鉴权失败不自动切号），
  * 这是**渠道级**账本与冷却。
@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
-import * as gateway from "../dist/http/gateway.js";
+import * as gateway from "../dist/http/server.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 
 /** 假上游：tok-alpha 一律 500，其它 token 回 200 SSE。 */
@@ -167,7 +167,7 @@ describe("渠道级冷却：失败的渠道进冷却（候选由池 id 前缀指
     // ⚠ 旧契约：alpha 失败 → 自动转移到 beta → 200（"beta 回答"）；
     //   新契约：池 id 前缀已指定渠道 → 候选至多一条，失败即如实报错
     //   （`src/pool/pool-targets.ts:498-513`；尝试循环见
-    //     `src/http/chat-relay.ts:933-1203`）。
+    //     `src/http/chat/relay.ts:933-1203`）。
     assert.equal(status, 502);
     assert.deepEqual(
       upstream.captured.filter((a) => a.includes("tok-")),
@@ -194,7 +194,7 @@ describe("渠道级冷却：失败的渠道进冷却（候选由池 id 前缀指
     // ⚠ 旧契约：冷却中的 alpha 被**硬排除** → 只打 beta；
     //   新契约：冷却只影响"多候选排序"，候选集由池 id 前缀决定（至多一条），
     //   全池都在冷却时回退到完整候选 → 仍会试这条冷却中的唯一候选
-    //   （`src/http/chat-relay.ts:920-927`）。
+    //   （`src/http/chat/relay.ts:920-927`）。
     assert.equal(status, 502);
     assert.deepEqual(
       upstream.captured.filter((a) => a.includes("tok-")),

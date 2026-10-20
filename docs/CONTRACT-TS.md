@@ -24,12 +24,13 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）
 │       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger /
 │       │              paste-detect（粘贴文本启发式）
-│       ├── http/      网关与转发：gateway / chat-relay（编排）/ chat-request（请求解析）/
-│       │              chat-route（池路由）/ chat-attempt（单候选尝试）/ chat-forward（转发层）/
-│       │              chat-stream（帧与中继）/ chat-queue（排队探测）/ chat-auth（鉴权链路）/
-│       │              chat-upstream（建连与空闲守卫）/ chat-candidates / chat-errors /
-│       │              chat-channel / sse-stream / openai-normalize（通用 OpenAI 归一化）/
-│       │              console / web-command-handler / web-types（控制台类型）/ portfree
+│       ├── http/      网关与转发（19 个源文件）：server（网关入口）/ portfree（端口自愈）/
+│       │              chat/（转发管线）：relay（编排）/ request（请求解析）/ route（池路由）/
+│       │              attempt（单候选尝试）/ forward（转发层）/ stream（帧与中继）/
+│       │              queue（排队探测）/ auth（鉴权链路）/ upstream（建连与空闲守卫）/
+│       │              candidates / errors / channel
+│       │              wire/（协议线）：sse-stream（SSE 规范化）/ openai-normalize（通用 OpenAI 归一化）
+│       │              console/（控制台）：console / web-command-handler / web-types（控制台类型）
 │       ├── app/       进程编排：commands/（index 命令入口 / model 模型组 / channel 渠道动词 /
 │       │              accounts 账号池）/ daemon / headless / supervisor / process /
 │       │              stale-build / web / report
@@ -67,7 +68,7 @@ packages/core/channels/<cid>/
 > 账号池见同文档 §3。
 
 **每个 `packages/core/channels/<cid>/` 的 `src/` 只有 7 个文件。** 任何不在上表里的 `src/*.ts`
-（`gateway.ts` / `daemon.ts` / `paths.ts` / `sse-stream.ts` …）都是旧副本残留，应删除。
+（`server.ts` / `daemon.ts` / `paths.ts` / `sse-stream.ts` …）都是旧副本残留，应删除。
 
 ### 1.1 各渠道的共享依赖声明
 
@@ -254,9 +255,9 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 - `buildChatHeaders?(credential, cfg)`：对话请求的**专用头族**（上游按整组头判定
   「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
-  （`packages/core/gateway/src/http/chat-upstream.ts:137-140`）；普通 OpenAI 兼容渠道无需声明。
+  （`packages/core/gateway/src/http/chat/upstream.ts:137-140`）；普通 OpenAI 兼容渠道无需声明。
 - `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
-  （`packages/core/gateway/src/http/chat-attempt.ts:301-319`）。参数是**网关已经建好的
+  （`packages/core/gateway/src/http/chat/attempt.ts:301-319`）。参数是**网关已经建好的
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
   会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
   （`packages/core/gateway/src/runtime/channel.ts:200-203`）。
@@ -314,7 +315,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 `String(...)` 归一（`packages/core/channels/catpaw/src/upstream.ts:1024`、
 `packages/core/channels/traecn/src/upstream.ts:896`）。
 共享层提取错误帧时也只认字符串 `code`，数字码会被丢掉，报错里就没有错误码了
-（`packages/core/gateway/src/http/sse-stream.ts:224`）。
+（`packages/core/gateway/src/http/wire/sse-stream.ts:224`）。
 
 **上游一轮响应里可能有多个 JSON 片段**：翻译器必须按**平衡花括号逐段扫描**
 （对字符串与转义感知），不能按「最外层花括号跨度」一刀切 —— 后者会把多个片段
@@ -331,7 +332,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 聚合出的非流式响应体里，**纯工具调用消息不带 `content` 键**（不是 `content: null`）：
 严格客户端（Go 的 `Content string`）解 `null` 会直接失败，缺失字段对它们等价于空串。
-（实现见 `packages/core/gateway/src/http/sse-stream.ts:171-176`。）
+（实现见 `packages/core/gateway/src/http/wire/sse-stream.ts:171-176`。）
 
 **`buildHeaders(credential)`** 返回**完整**的上游请求头（含鉴权与伪装）。
 网关只会额外补 `Accept: text/event-stream`（若头里没有）。

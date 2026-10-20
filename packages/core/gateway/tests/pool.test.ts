@@ -10,7 +10,7 @@
  * - 新：对外模型 id 必须是 `<cid>/<模型>`（`alpha/glm-5.3-flash`），**渠道由请求方
  *   显式指定**，候选**至多一条**（`src/pool/pool-targets.ts:99-106` 解析、
  *   `:498-513` 收集候选）；裸模型名一律 400 `unknown_model`
- *   （`src/http/chat-relay.ts:867-876`）。
+ *   （`src/http/chat/relay.ts:867-876`）。
  *
  * 匹配/归一化的细粒度用例见 `pool-routing.test.ts`；这里只走真实请求路径。
  * 全程离线：假上游是本机 http server，存储根指向 `mkdtemp`。
@@ -25,7 +25,7 @@ import { after, before, describe, it } from "node:test";
 
 import { channels, clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
 import * as daemon from "../dist/app/daemon.js";
-import * as gateway from "../dist/http/gateway.js";
+import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 
@@ -237,7 +237,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     ]);
     // ⚠ 旧契约：`owned_by` 恒为 "modelmux"（池身份，不泄露候选渠道）；
     //   新契约：`owned_by` 就是 id 前缀里的渠道（请求方照它选池子）——
-    //   见 `src/http/gateway.ts:65-72`。
+    //   见 `src/http/server.ts:65-72`。
     assert.equal(payload.data[0]!.owned_by, "alpha", "owned_by 即 id 前缀里的渠道");
   });
 
@@ -297,7 +297,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     try {
       // ⚠ 旧契约：没有任何渠道提供该模型 → 503 not_authenticated（可用性问题）；
       //   新契约：渠道段写错是**请求问题** → 400 unknown_model
-      //   （`src/http/chat-relay.ts:881-890`）。
+      //   （`src/http/chat/relay.ts:881-890`）。
       const { status, text } = await chat(gw, "alpha/glm-5.3-flash");
       assert.equal(status, 400);
       assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");
@@ -309,7 +309,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
   it("渠道已注册但目录里没有该模型 → 400 unknown_model", async () => {
     // ⚠ 旧契约：裸名 "gpt-4o" 无渠道可提供 → 503 not_authenticated；
     //   新契约：渠道没货也是 400 unknown_model（换渠道是客户端的决定）——
-    //   见 `src/http/chat-relay.ts:891-902`（候选为空 → 400）。
+    //   见 `src/http/chat/relay.ts:891-902`（候选为空 → 400）。
     const { status, text } = await chat(gw, "alpha/gpt-4o");
     assert.equal(status, 400);
     const err = JSON.parse(text) as { error: { code: string } };
@@ -320,7 +320,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     // ⚠ 旧契约（这条用例当年断言的正是反面）：`<cid>/<模型>` 形态应当失效、裸名可用；
     //   新契约**恰好相反** —— 池 id 统一为 `<cid>/<模型>`，裸模型名一律 400
     //   （`src/pool/pool-targets.ts:473-477` 的 `asPoolModel` 判 null，
-    //     `src/http/chat-relay.ts:867-876` 回 400 unknown_model）。
+    //     `src/http/chat/relay.ts:867-876` 回 400 unknown_model）。
     const { status, text } = await chat(gw, "glm-5.3-flash");
     assert.equal(status, 400);
     assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");
@@ -404,7 +404,7 @@ describe("2. 账本记录成败与冷却；落点由池 id 前缀决定", () => 
       const { status } = await chat(gw, "first/deepseek-v4.1-flash");
       // ⚠ 旧契约：首选失败 → 落到次选（second）并拿到 200；
       //   新契约：候选至多一条，没有"次选"可落 → 直接报错
-      //   （`src/http/chat-relay.ts:933-1203` 的尝试循环只遍历这一条候选）。
+      //   （`src/http/chat/relay.ts:933-1203` 的尝试循环只遍历这一条候选）。
       assert.equal(status, 502, "候选只有 first 一条，失败即如实报错");
       assert.equal(first.captured.length, 1, "只打了 first");
       assert.equal(second.captured.length, 0, "不会跨渠道转移到 second");
@@ -426,7 +426,7 @@ describe("2. 账本记录成败与冷却；落点由池 id 前缀决定", () => 
 
     // ⚠ 旧契约：冷却中的渠道被**硬排除**，请求改打另一家；
     //   新契约：候选由池 id 前缀指定（至多一条），冷却只影响"多候选排序"，
-    //   全池都在冷却时回退到完整候选（`src/http/chat-relay.ts:920-927`）——
+    //   全池都在冷却时回退到完整候选（`src/http/chat/relay.ts:920-927`）——
     //   也就是**仍会试**这条冷却中的唯一候选。
     const other = await chat(gw, "second/deepseek-v4.1-flash");
     assert.equal(other.status, 200);
@@ -523,7 +523,7 @@ describe("4. 单渠道模式也走池（不再暴露裸短名）", () => {
   it("该渠道提供不了的池模型 → 400 unknown_model", async () => {
     // ⚠ 旧契约：裸名 "glm-5.3-flash" → 503 not_authenticated；
     //   新契约：渠道已注册但目录里没这个模型 → 400 unknown_model
-    //   （`src/http/chat-relay.ts:891-902`）。
+    //   （`src/http/chat/relay.ts:891-902`）。
     const { status } = await chat(gw, "solo/glm-5.3-flash");
     assert.equal(status, 400);
   });

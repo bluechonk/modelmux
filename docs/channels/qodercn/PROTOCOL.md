@@ -241,7 +241,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 ### 3.6 通用归一化在共享层（与国际版同一口径）
 
 国内版与国际版是**同一套协议的两个域**（端点路径、COSY 签名、请求体形状全同），
-形状修复因此共用共享层 `packages/core/gateway/src/http/openai-normalize.ts`，
+形状修复因此共用共享层 `packages/core/gateway/src/http/wire/openai-normalize.ts`，
 渠道包不再自备副本：
 
 | 归一 | 共享层接口 | 本渠道调用点 | 协议依据 |

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
-import * as gateway from "../dist/http/gateway.js";
+import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
 const CID = "queuechan";
@@ -199,7 +199,7 @@ async function chat(addr: string, stream: boolean): Promise<{ status: number; te
     // 旧行为：裸模型名 `glm-5.3-flash`（网关跨渠道匹配候选）。
     // 新行为：池 id 必须是 `<cid>/<模型>` 形态，渠道由请求方显式指定 ——
     //   裸名一律 400 unknown_model（见 src/pool/pool-targets.ts:473 asPoolModel
-    //   与 src/http/chat-relay.ts:867 的 400 分支）。
+    //   与 src/http/chat/relay.ts:867 的 400 分支）。
     body: JSON.stringify({
       model: `${CID}/glm-5.3-flash`,
       messages: [{ role: "user", content: "hi" }],

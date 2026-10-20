@@ -169,10 +169,10 @@ dateStamp 保留结尾的 `Z`、毫秒被截掉。
 | `content-type` | 常量 `application/json` | 参与签名 | — | **仅非 GET**；⚠ 绝不能再叠加第二个 `Content-Type`（见本节末） |
 | `maas_type` | `benefit`（**仅 benefit 模型**） | 参与签名 | **模型目录刷新时更新** | **反例**：它必须参与签名，否则 404 未注册 |
 | `Authorization` | `SDK-HMAC-SHA256 Access={ak},SignedHeaders={…},Signature={hex}` | **是** | 每次请求 | `SignedHeaders` 只列实际参与签名的头 |
-| `Chat-Id` | `sessionKey`（32 位 hex，由「首条 user 文本 + 模型」派生） | 否（签名后追加） | 每会话固定 | 与 `Session-Id` 同值 |
-| `Session-Id` | 同 `Chat-Id` | 否（签名后追加） | 每会话固定 | 前缀缓存命中依据 |
+| `Chat-Id` | `sessionKey`（32 位 hex，**账号级会话槽位表**给出，见 §3.5） | 否（签名后追加） | 每会话固定 | 与 `Session-Id` 同值 |
+| `Session-Id` | 同 `Chat-Id` | 否（签名后追加） | 每会话固定 | 前缀缓存命中依据（与 `prompt_cache_key` 同值） |
 | `lang` | 常量 `en` | 否（签名后追加） | — | chat 端点专用 |
-| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat-upstream.ts:139-141`：渠道没给就加），故渠道侧不发 |
+| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat/upstream.ts:139-141`：渠道没给就加），故渠道侧不发 |
 | `Agent-Type` | 常量 `PromptCenter`（builtin / 积分）/ `AgentCenter`（agent-center） | 否（**签名后追加**） | — | ⚠ **参与签名会 401 APIG.0301**（见本节末） |
 | `X-Language` | 常量 `zh-cn`（builtin / 积分 / agent-center） | 否（**签名后追加**） | — | ⚠ 同上 |
 | `Content-Type`（目录 / 积分 GET） | 常量 `application/json` | 否（签名后追加） | — | GET 的签名头里**没有** `content-type` |
@@ -455,6 +455,63 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 
 故只声明「开启/关闭」两档，`disabled` → reasoning_tokens 3/3 全为 0。
 
+### 3.5 会话槽位闸（账号级，2026-10-20 新增）
+
+上游按**单账号**最多 3 个并发会话计数，超了回 HTTP 400
+`{"error_code":"TM.00001041","error_msg":"并发会话数已达上限(3个)，请关闭部分会话后重试。"}`。
+
+#### 3.5.1 上游到底数什么（**实测**，2026-10-20，真实账号 + 免费 benefit 模型）
+
+| 探针 | 结果 | 结论 |
+|---|---|---|
+| 5 条**并发**请求，**同一个** session id | 3 成功、2 条 `TM.00001041` | 并发时每个请求各占一个槽位 |
+| 5 条**串行**请求，**同一个** session id | 3 成功、2 条 `TM.00001041` | **槽位按请求占，与 session id 无关** |
+| 5 条**串行**请求，**5 个不同** session id | 3 成功、2 条 `TM.00001041` | 同上 |
+| 填满 3 个槽位后每 8~10s 探一次 | 第 ~62s 起放行 | **槽位在请求结束后仍占 ~60s** |
+
+⇒ 上游的会话槽位是**按请求**记的（每条请求占一个，~60s 后释放），
+`Chat-Id` / `Session-Id` / `prompt_cache_key` **不影响**这个计数
+（它们只负责前缀缓存亲和）。**参考实现也没有关闭会话的调用**
+（[参考] `reference/HITZY2002_codearts2api/internal/upstream/client.go`），
+它靠**每账号串行**（`internal/pool/pool.go:60` 的 `MaxConcurrent`，默认 1）压住并发。
+
+#### 3.5.2 本渠道的闸（两半）
+
+| 半 | 做什么 | 在哪 |
+|---|---|---|
+| **节流（主闸）** | 按账号排队，保证「最近 65s 内本渠道发出的请求 ≤ 3 条」；等不到就排队，**不**把请求送去撞线 | `prepareChat()` → `acquireUpstreamSlot()` |
+| **会话 id 闸** | 账号侧的 session id **永远不超过 3 个**：同一对话复用同一个 id（前缀缓存不丢）；新对话顶掉**最久未用**的槽位 | `pickSessionId()` |
+
+**会话 id 闸的结构**（`sessionSlots`：`账号键 → 槽位[]`，进程内、不落盘）：
+
+```ts
+interface SessionSlot {
+  id: string;          // 槽位持有的 session id（32 hex）
+  conversation: string;// 占用该槽位的对话指纹 = sha256(模型 + 首条 user 文本)
+  lastUsedAt: number;  // LRU 依据
+}
+```
+
+选槽规则：
+
+1. **同一对话**（指纹相同）→ 复用原槽位，`id` 不变 → 前缀缓存继续命中；
+2. **还有空位** → 新开槽位，`id` = 对话指纹前 32 hex（与历史派生一致）；
+3. **槽位已满（3 个）** → **复用最久未用的槽位的 `id`**（归属改成新对话）。
+
+> 第 3 条的取舍：被顶掉的对话下次再来会拿到别的 id（前缀缓存重新冷启动），
+> 但**账号侧永远开不出第 4 个会话 id**，撞线概率归零。
+
+⚠ 槽位表是**账号级**缓存（不是请求级状态）：账号维度键由 `cred.ts` 注册的
+解析器提供（`registerAccountKeyResolver()`）—— `buildChatBody()` 拿不到凭据，
+而上游是**按账号**计数的。
+
+#### 3.5.3 实测效果（2026-10-20）
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 5 条串行请求（不同 id） | `200,200,200,502,502` | `200,200,200,200,200`（第 4 条排队 58.6s 后成功） |
+| Agent 会话 6 轮工具往返 | 第 4 轮起连回 8 次 400 | 6 轮全 200（`messageCount` 2→4→7→11→13→16） |
+
 ---
 
 ## 4. 流式响应（标准 OpenAI SSE）
@@ -479,7 +536,8 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 | 判据 | 处理 |
 |---|---|
 | `error_code.includes('4291')` 或 `/insufficient[\s_-]+quota/i.test(message)` | 额度用尽 → **不可重试**，标账号受限 + 换号 |
-| `error_code === 'TM.00001041'` 或 `/81111\|TPM\|(^\|[^0-9])429([^0-9]\|$)\|rate.?limit\|too many requests\|排队\|限流/i` | 排队/限流 → 可重试 |
+| `error_code === 'TM.00001041'` 或 `/并发会话数已达上限/` | **会话槽位已满** → 账号侧会话槽位闸（§3.5）+ 按账号退避 |
+| `/81111\|TPM\|(^\|[^0-9])429([^0-9]\|$)\|rate.?limit\|too many requests\|排队\|限流/i` | 排队/限流 → 可重试 |
 | `error_code === 'InferHub.4004.200'` | 账号无 benefit 包 → 去掉 `maas_type` 头重试一次 |
 | 其它 | `INVALID_REQUEST` |
 
@@ -487,13 +545,23 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 而被误判成「可重试排队」，进入 30 分钟静默重试、界面零输出
 （真实缺陷，2026-10-02 实测 25 秒内 4 次 chat + 3 次探测、产出 0 chunk）。
 
+**`TM.00001041` 已从「排队/限流」里摘出来**（2026-10-20）：它是**会话槽位已满**
+（`FailureKind = "session-slot-full"`），处置是「会话槽位闸 + 退避」，
+不是「等上游放行」—— 混进排队会让它被无限重试。
+
 ### 4.2 HTTP 非 2xx 分类（`packages/core/channels/codearts/src/upstream.ts:1151-1157`）
 
 401/403 → `AUTH`（先 refresh 一次再重试）；429 → `RATE_LIMIT`；
-400 → `CONTEXT_WINDOW_EXCEEDED`（命中上下文超限措辞）否则 `INVALID_REQUEST`；
+400 → `SESSION_SLOT_FULL`（`TM.00001041`）→ `CONTEXT_WINDOW_EXCEEDED`
+（命中上下文超限措辞）否则 `INVALID_REQUEST`；
 ≥500 → `SERVER`；其它 `HTTP_{status}`。
 
 另有 `isAuthError`：body 含 `APIG.0602` 或 `invalid token`/`token expired`/`token is invalid` 也归 AUTH。
+
+> 渠道层能看到上游错误体的**唯一**入口是共享层的 `isAuthFailure` 钩子
+> （`packages/core/gateway/src/http/chat/upstream.ts:201`，对非 2xx 且非 401/403
+> 的响应调用一次）。本渠道在 `channel.ts` 里借它转调 `noteUpstreamError()`：
+> 命中 `TM.00001041` 时给该账号加退避并打一条英文告警（便于排障）。
 
 ### 4.3 排队重试与超时
 
@@ -502,13 +570,13 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
   `packages/core/channels/codearts/src/upstream.ts:1105-1111`、`packages/core/channels/codearts/src/upstream.ts:1137-1142`）——
   **没有任何重试循环**消费它（这两个导出函数在渠道包与共享层里都没有调用方）。
 - **共享层的排队重试对本渠道不生效**：它要求「`custom` 线型 + 渠道声明 `isQueueError`」
-  （`packages/core/gateway/src/http/chat-attempt.ts:358`），而本渠道
+  （`packages/core/gateway/src/http/chat/attempt.ts:358`），而本渠道
   `WIRE = "openai"`（`packages/core/channels/codearts/src/upstream.ts:142`）且**没有声明** `isQueueError`
   → chat 请求不会被重发。
 - **SSE 空闲超时只有一档**：默认 **120000 ms**
-  （`packages/core/gateway/src/http/chat-upstream.ts:15` 的 `READ_TIMEOUT_MS`，
-  可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`packages/core/gateway/src/http/chat-upstream.ts:19-24`），
-  作用于**整条响应体**（`idleGuardedBody`，`packages/core/gateway/src/http/chat-upstream.ts:65-71`，挂在 `packages/core/gateway/src/http/chat-upstream.ts:217`）。
+  （`packages/core/gateway/src/http/chat/upstream.ts:15` 的 `READ_TIMEOUT_MS`，
+  可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`packages/core/gateway/src/http/chat/upstream.ts:19-24`），
+  作用于**整条响应体**（`idleGuardedBody`，`packages/core/gateway/src/http/chat/upstream.ts:65-71`，挂在 `packages/core/gateway/src/http/chat/upstream.ts:217`）。
   本渠道**没有** `idleTimeoutMs()` 钩子，故不能像 qoder 那样放宽到 900 秒
   （钩子接口见 `packages/core/gateway/src/runtime/channel.ts:190`）。
 - ⚠ 「APIG 网关对 SSE 有 ~60s 空闲断连策略、`reader.read()` 抛 `TypeError: terminated`」

@@ -235,7 +235,7 @@
 端点与鉴权形态见 hub `wb_accounts.py:1339-1381`。
 
 **触发时机**：本渠道是**纯被动** —— 上游回 401/403 才刷一次
-（`packages/core/gateway/src/http/chat-auth.ts:62-74`），登录后探测失败也刷一次
+（`packages/core/gateway/src/http/chat/auth.ts:62-74`），登录后探测失败也刷一次
 （`packages/core/gateway/src/auth/auth-flow.ts:96-99`）。
 参考实现是**主动**的（hub `wb_accounts.py:1205-1217` 剩余 ≤120s 先刷；
 ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷），

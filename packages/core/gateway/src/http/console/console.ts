@@ -19,7 +19,7 @@ import { isAbsolute, extname, join, resolve, sep } from "node:path";
 import { createServer, type Server } from "node:http";
 import { fileURLToPath } from "node:url";
 
-import { serviceName } from "./gateway.js";
+import { serviceName } from "../server.js";
 
 export const DEFAULT_UI_HOST = "127.0.0.1";
 
@@ -29,7 +29,7 @@ const THEME_MODES = new Set(["system", "dark", "light"]);
  * UI 静态产物根：按**候选顺序**探测，取第一个含 index.html 的目录。
  *
  * 两种运行形态的 `import.meta.url` 落点不同：
- * - 编译后独立运行：`core/gateway/dist/console.js` → 平级取 `dist/ui`
+ * - 编译后独立运行：`core/gateway/dist/http/console/console.js` → 上溯两级取 `dist/ui`
  * - bundle 后（`npm i -g` 的 mx）：整包内联进 `cli/dist/cli.bundle.js` → 平级取 `cli/dist/ui`
  *
  * 环境变量 `MODELMUX_WEB_UI_ROOT` 可显式覆盖（排查 / 自定义部署用）。
@@ -39,9 +39,9 @@ function resolveWebUiRoot(): string {
   if (override) return resolve(override);
   const here = fileURLToPath(new URL(".", import.meta.url));
   const candidates = [
-    resolve(here, "ui"), // gateway/dist/console.js → dist/ui
+    resolve(here, "ui"), // bundle：cli/dist/cli.bundle.js → cli/dist/ui
     resolve(here, "..", "..", "..", "core", "gateway", "dist", "ui"), // cli/dist/cli.bundle.js → core/gateway/dist/ui
-    resolve(here, "..", "ui"), // 兜底：上一层
+    resolve(here, "..", "..", "ui"), // 兜底：独立运行 → core/gateway/dist/ui
   ];
   for (const dir of candidates) {
     if (existsSync(join(dir, "index.html"))) return dir;
@@ -95,7 +95,7 @@ export interface UiSnapshot {
    *
    * 倍率为 null 表示该渠道目录没有提供；前端据此不渲染倍率标签。
    */
-  model_info: Record<string, import("../pool/pool-targets.js").PoolModelMeta>;
+  model_info: Record<string, import("../../pool/pool-targets.js").PoolModelMeta>;
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;

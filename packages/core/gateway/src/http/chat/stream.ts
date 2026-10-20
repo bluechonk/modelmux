@@ -12,15 +12,15 @@
 
 import type { ServerResponse } from "node:http";
 
-import { type Channel, type StreamTranslator } from "../runtime/channel.js";
+import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
   noteClientDisconnect,
   noteFirstByte,
   noteRequestError,
   noteUsage,
-} from "../runtime/log-store.js";
-import { isCustomWire } from "./chat-channel.js";
-import * as sseStream from "./sse-stream.js";
+} from "../../runtime/log-store.js";
+import { isCustomWire } from "./channel.js";
+import * as sseStream from "../wire/sse-stream.js";
 
 /** 把翻译器产出的帧统一成 Buffer。 */
 export function asBuffer(frame: Buffer | string): Buffer {

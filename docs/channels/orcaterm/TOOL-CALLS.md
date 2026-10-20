@@ -67,7 +67,7 @@
    只给路径 → 桥接到客户端的**读文件类**工具（名字含 read_file/read/cat）。
    桥接不上 → 降级成可读文本 `[OrcaTerm 请求执行工具 <name>]`
    （不给客户端一个它根本执行不了的调用）。
-4. 共享层 `packages/core/gateway/src/http/sse-stream.ts` 会按 `index` 累积 `delta.tool_calls`，非流式请求聚合成
+4. 共享层 `packages/core/gateway/src/http/wire/sse-stream.ts` 会按 `index` 累积 `delta.tool_calls`，非流式请求聚合成
    `message.tool_calls` + `finish_reason:"tool_calls"` —— 渠道只要吐标准 OpenAI 帧即可，
    **不需要改共享层**。
 

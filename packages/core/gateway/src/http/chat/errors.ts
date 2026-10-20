@@ -10,7 +10,7 @@
 
 import type { ServerResponse } from "node:http";
 
-import { noteRequestError } from "../runtime/log-store.js";
+import { noteRequestError } from "../../runtime/log-store.js";
 
 /** 统一 JSON 应答（`/health`、`/v1/models` 等）。 */
 export function writeJson(res: ServerResponse, data: unknown, status = 200): void {

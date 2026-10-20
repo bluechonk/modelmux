@@ -1,8 +1,8 @@
 /**
- * 流式聚合（`http/sse-stream.ts` 的 `aggregateChatSse`）。
+ * 流式聚合（`http/wire/sse-stream.ts` 的 `aggregateChatSse`）。
  *
  * 为什么要有它：共享层的 HTTP 归一化层此前**零单测**（20 个测试文件没有一处 import
- * `sse-stream.js` / `chat-relay.js`），于是纯工具调用消息的聚合体带上了 `content: null`，
+ * `wire/sse-stream.js` / `chat/relay.js`），于是纯工具调用消息的聚合体带上了 `content: null`，
  * 严格客户端（Go 的 `Content string`）解 null 直接失败 —— 整帧报错，工具调用全废。
  *
  * 全程离线：纯字符串输入，不发任何请求。
@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { aggregateChatSse } from "../dist/http/sse-stream.js";
+import { aggregateChatSse } from "../dist/http/wire/sse-stream.js";
 
 /** 拼一个 SSE 帧（`data: <json>\n\n`）。 */
 function frame(payload: unknown): string {

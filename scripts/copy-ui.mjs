@@ -4,9 +4,9 @@
  *   1. packages/core/gateway/dist/ui —— gateway 作为独立进程托管（`serve` / 单渠道 CLI）
  *   2. packages/cli/dist/ui           —— CLI bundle 托管（全局 `mx web`）
  *
- * 为什么要两份：console.ts 的 WEB_UI_ROOT 按「与当前 js 平级」解析。
- * gateway 的 dist/console.js 平级取到 gateway/dist/ui；而 bundle 后整包内联进
- * cli/dist/cli.bundle.js，此时 `import.meta.url` 指向 bundle，平级只能是 cli/dist/ui。
+ * 为什么要两份：console.ts 的 WEB_UI_ROOT 按「与当前 js 平级 / 上溯」解析。
+ * 独立运行时 gateway 的 dist/http/console/console.js 上溯两级取到 gateway/dist/ui；而
+ * bundle 后整包内联进 cli/dist/cli.bundle.js，此时平级只能是 cli/dist/ui。
  * 少拷一份，`npm i -g` 装的 `mx web` 就会报「UI 未构建」。
  *
  * 根 `npm run build` 在 tsc -b 与 CLI bundle 之后调用本脚本。

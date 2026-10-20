@@ -11,8 +11,8 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { getRequestLog } from "../runtime/log-store.js";
-import { writeJsonError } from "./chat-errors.js";
+import { getRequestLog } from "../../runtime/log-store.js";
+import { writeJsonError } from "./errors.js";
 
 /** 入站请求体上限（32 MiB）。 */
 const MAX_BODY = 32 << 20;

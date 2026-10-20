@@ -8,8 +8,8 @@
  * 铁律：账本读写只经 pool 层，本文件不落盘。
  */
 
-import { readIndex } from "../runtime/account-pool.js";
-import { scoreOf } from "../pool/pool-usage.js";
+import { readIndex } from "../../runtime/account-pool.js";
+import { scoreOf } from "../../pool/pool-usage.js";
 
 /** 当前生效账号的 key（账本按「渠道 × 账号」记账用；读不到返回 undefined）。 */
 export function activeKeyOf(cid: string): string | undefined {

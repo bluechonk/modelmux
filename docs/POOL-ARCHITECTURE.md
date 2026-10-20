@@ -91,7 +91,7 @@
 > `packages/core/gateway/src/pool/pool-usage.ts:26`）内该渠道在账本里被标「冷却中」，
 > 供视图观察。但路由侧「剔除冷却渠道 → 全冷却时回退完整候选」这条逻辑在现行
 > `<cid>/<模型>` 形态下**没有实际效果** —— 候选至多一条，剔除后必然回退到它自己
-> （`packages/core/gateway/src/http/chat-route.ts:114-121`）。
+> （`packages/core/gateway/src/http/chat/route.ts:114-121`）。
 > 也就是说：**冷却不会让请求失败，也换不到别的渠道**，只是账本上的一个观察标记。
 
 ### 2.3 账本落点与刷新节奏
@@ -314,12 +314,12 @@ interface CredModule {
 ### 3.3 策略
 
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
-  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat-auth.ts:45`）。
+  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat/auth.ts:45`）。
   `pickAccount`（账号池的候选选择器）跳过 `unauthorized` / `error` 的账号
   （`packages/core/gateway/src/runtime/account-pool.ts:500-505`）。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
-  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat-auth.ts:80-86`）。
+  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts:80-86`）。
   `pickAccount` 因此**没有自动切号的调用方**。
 - **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
   **凭证一律保留**；成功清零连败，手动切号恢复 `error`。

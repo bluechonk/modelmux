@@ -11,13 +11,13 @@
 
 import type { ServerResponse } from "node:http";
 
-import { hasChannel } from "../runtime/channel.js";
-import { getRequestLog } from "../runtime/log-store.js";
-import { asPoolModel, parsePoolModel, poolCandidates, type PoolCandidate } from "../pool/pool-targets.js";
-import { isCooling, maybeRefreshBilling } from "../pool/pool-usage.js";
-import { maxPoolAttempts, rankCandidates } from "./chat-candidates.js";
-import { loadCredentialSafe } from "./chat-queue.js";
-import { writeJsonError } from "./chat-errors.js";
+import { hasChannel } from "../../runtime/channel.js";
+import { getRequestLog } from "../../runtime/log-store.js";
+import { asPoolModel, parsePoolModel, poolCandidates, type PoolCandidate } from "../../pool/pool-targets.js";
+import { isCooling, maybeRefreshBilling } from "../../pool/pool-usage.js";
+import { maxPoolAttempts, rankCandidates } from "./candidates.js";
+import { loadCredentialSafe } from "./queue.js";
+import { writeJsonError } from "./errors.js";
 
 /** 一次请求的路由结果。 */
 export interface PoolRoute {
@@ -60,7 +60,7 @@ export function resolvePoolRoute(
   // 拆出渠道段与模型段：`asPoolModel` 已归一过，parsePoolModel 这里必成功，仅作类型收窄
   const targetParts = parsePoolModel(target);
   if (!targetParts) {
-    // ⚠ 必须写应答：调用方（chat-relay）把 null 当「已应答」直接 return，
+    // ⚠ 必须写应答：调用方（chat/relay）把 null 当「已应答」直接 return，
     // 不写就是**连接挂死**（客户端一直等到超时，网关侧还不留错误日志）。
     writeJsonError(
       res,

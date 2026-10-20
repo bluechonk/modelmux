@@ -24,8 +24,8 @@ import { captureActive, listAccounts } from "../dist/runtime/account-pool.js";
 import { activeCid } from "../dist/runtime/channel-context.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import { runLogin } from "../dist/app/headless.js";
-import { resolvePoolRoute } from "../dist/http/chat-route.js";
-import * as gateway from "../dist/http/gateway.js";
+import { resolvePoolRoute } from "../dist/http/chat/route.js";
+import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 

@@ -8,9 +8,9 @@
 export * as authFlow from "./auth/auth-flow.js";
 export * as autoSignin from "./auth/auto-signin.js";
 export * as cli from "./app/commands/index.js";
-export * as consoleApi from "./http/console.js";
+export * as consoleApi from "./http/console/console.js";
 export * as daemon from "./app/daemon.js";
-export * as gateway from "./http/gateway.js";
+export * as gateway from "./http/server.js";
 export * as headless from "./app/headless.js";
 export * as login from "./auth/login.js";
 export * as loginFlow from "./auth/login-flow.js";
@@ -19,11 +19,11 @@ export * as modelFamily from "./pool/model-policy.js";
 export * as pasteDetect from "./auth/paste-detect.js";
 export type { PastedCallback } from "./auth/paste-detect.js";
 // 通用 OpenAI 请求体归一化（与上游无关的形状修复；渠道判据由渠道传入）
-export * as openaiNormalize from "./http/openai-normalize.js";
+export * as openaiNormalize from "./http/wire/openai-normalize.js";
 export * as paths from "./runtime/paths.js";
 export * as portfree from "./http/portfree.js";
 export * as report from "./app/report.js";
-export * as sseStream from "./http/sse-stream.js";
+export * as sseStream from "./http/wire/sse-stream.js";
 
 // 渠道注册表
 export {
@@ -106,7 +106,7 @@ export {
 } from "./runtime/cli-consts.js";
 
 // 服务身份（池路由入口在 pool-targets.ts）
-export { serviceName, knownServiceNames, IMPLEMENTATION } from "./http/gateway.js";
+export { serviceName, knownServiceNames, IMPLEMENTATION } from "./http/server.js";
 
 // 落点与凭据路径（渠道模块常用）
 export {

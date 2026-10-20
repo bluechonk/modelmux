@@ -21,10 +21,10 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
-import { relayUpstream } from "../dist/http/chat-forward.js";
-import { relayStream } from "../dist/http/chat-stream.js";
-import type { UpstreamCall } from "../dist/http/chat-upstream.js";
-import * as gateway from "../dist/http/gateway.js";
+import { relayUpstream } from "../dist/http/chat/forward.js";
+import { relayStream } from "../dist/http/chat/stream.js";
+import type { UpstreamCall } from "../dist/http/chat/upstream.js";
+import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
 /** 假响应对象：只实现转发层用到的接口（够写断言即可）。 */

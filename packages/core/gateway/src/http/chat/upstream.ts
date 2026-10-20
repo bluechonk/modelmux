@@ -10,7 +10,7 @@
  * 铁律：只发起请求与判定上游应答，不含任何渠道知识。
  */
 
-import { type Channel, type Credential } from "../runtime/channel.js";
+import { type Channel, type Credential } from "../../runtime/channel.js";
 
 const READ_TIMEOUT_MS = 120_000;
 /** 错误响应体的读取上限：上游「发一半 body 然后挂住」时不能把请求拖死。 */
