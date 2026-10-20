@@ -23,11 +23,14 @@
  *
  * ## 签名需要 body，但 `buildHeaders` 拿不到
  *
- * 共享网关的调用序列是 `buildChatBody()` → `buildHeaders()`（中间无 await），
- * 与 codearts 同一套解法：`buildChatBody` 把「编码后的 body + 目标 URL + 模型 key」
- * 存进模块级 pending 槽，`buildHeaders` 从那里取。JS 单线程，两步之间无 await，安全。
+ * 共享网关的调用序列是 `buildChatBody()` → `buildHeaders()`，中间隔着共享层的重试路径
+ * （连接失败重试 / token 刷新后重试 / 排队等待后重开），每次重试都会**再调一次**
+ * `buildHeaders()`。所以「编码后的 body + 目标 URL + 模型 key」必须**跟着本次请求走**
+ * （见下方待签名槽）：并发请求各持一份，后一个请求不会覆盖前一个的待签名 body。
+ * 解法与 `qoder` 渠道同源（`AsyncLocalStorage` 请求级槽）。
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createCipheriv, createHash, publicEncrypt, randomUUID, constants as cryptoConstants } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -315,7 +318,34 @@ function sessionFor(credential: Credentials): CosySession {
 
 // ── 待签名槽（`buildChatBody` → `buildHeaders`） ──────────────────────────────
 
-let pendingChat: { body: string; url: string; modelKey: string } | null = null;
+/** 本次请求的待签名载荷。 */
+interface PendingChat {
+  /** 编码后的请求体（签名覆盖它）。 */
+  body: string;
+  /** 目标 URL（签名只取其 path）。 */
+  url: string;
+  /** 上游模型 key（`x-model-key` 头）。 */
+  modelKey: string;
+}
+
+/**
+ * 待签名槽：**跟着本次请求的异步上下文走**，不是模块级变量。
+ *
+ * ⚠ 为什么不能放模块级变量：共享网关重试时会隔着一个 await 再调 `buildHeaders()`
+ * （连接失败重试 / token 刷新后重试 / 排队等待后重开），同一渠道的并发请求共用一个
+ * 模块级变量 → 后一个请求覆盖前一个的待签名 body → 前一个请求重开时**按别人的 body
+ * 签名** → 上游 403 / 内容错配。
+ *
+ * `AsyncLocalStorage` 让载荷随请求的异步链传递：共享层的 `buildChatBody` 与
+ * `buildHeaders` 都在 `runInChannel` 里同步调用，中间只隔 await，跨 await 仍可见。
+ */
+const pendingChats = new AsyncLocalStorage<PendingChat>();
+
+/** 换主机后刷新待签名载荷里的 URL（只影响当前请求）。 */
+function refreshPendingUrl(): void {
+  const pending = pendingChats.getStore();
+  if (pending) pendingChats.enterWith({ ...pending, url: chatUrl() });
+}
 
 /** 当前请求该走哪个区域（由凭据的最近身份决定，见 cred.ts 的 `currentRealm`）。 */
 let activeRealm: Realm = currentRealm();
@@ -367,7 +397,8 @@ let hostOverride: string | null = null;
 /** 设置 / 清除推理主机覆盖（下一次 `chatUrl()` 生效；含签名槽重签）。 */
 export function setChatHostOverride(host: string | null): void {
   hostOverride = host;
-  if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
+  // 签名覆盖 url：换 host 必须重签，否则上游按旧签名判定 403（只改当前请求那一份）
+  refreshPendingUrl();
 }
 
 /** 当前推理 URL 用的主机（排查/测试用）。 */
@@ -392,7 +423,7 @@ export function rememberChatHost(): void {
   const host = currentChatHost();
   rememberGatewayHost(host);
   hostOverride = null;
-  if (pendingChat) pendingChat = { ...pendingChat, url: chatUrl() };
+  refreshPendingUrl();
 }
 
 /** 模型目录 URL（首选主机 + 必需 query）。 */
@@ -412,7 +443,8 @@ function clientUserAgent(): string {
 
 export function buildHeaders(credential: Credentials): Record<string, string> {
   activeRealm = credential.realm;
-  const pending = pendingChat;
+  // 待签名载荷取自**本次请求**的上下文（并发请求各持一份，互不覆盖）
+  const pending = pendingChats.getStore();
   const body = pending?.body ?? "";
   const url = pending?.url ?? chatUrl();
   const session = sessionFor(credential);
@@ -660,7 +692,8 @@ export function buildChatBody(
   // 身份类型必须用**真实账号**的（参考实现里就是这么覆盖模板默认值的）
   body["aliyun_user_type"] = currentUserType();
   const encoded = qoderEncode(JSON.stringify(body));
-  pendingChat = { body: encoded, url: chatUrl(), modelKey };
+  // 待签名载荷跟着**本次请求的异步上下文**走（并发请求各持一份）
+  pendingChats.enterWith({ body: encoded, url: chatUrl(), modelKey });
   return encoded;
 }
 
