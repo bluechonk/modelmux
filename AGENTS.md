@@ -24,8 +24,7 @@
 npm install                       # 装工作区依赖（含软链）
 npm run build                     # 全仓编译（tsc -b 增量 + cli 单文件 bundle + copy-ui）
 npm test                          # build + 全部 verify:* + 全部包的测试（Windows 侧快速反馈）
-npm run gate                      # 【推送前必须】WSL 门禁：clone → npm ci → npm test →（Pages 改动时）产物校验
-npm run verify:pages              # 本地复现 Pages 工作流构建并校验产物（改了 packages/ui 或 workflow 时）
+npm run gate                      # 【推送前必须】WSL 门禁：clone → npm ci → npm test
 npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道（也走引用链）
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
 node packages/cli/dist/cli.js model list    # 池视图：有哪些模型（按渠道分组）
@@ -251,7 +250,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 推送前必须在 **WSL（真 Linux / ext4）** 里跑与 CI 等价的命令；这是独立的一步，不是 `npm test` 的附加选项。
 
 ```bash
-npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（Pages 改动时）产物校验
+npm run gate          # 完整门禁：WSL clone → npm ci → npm test
 ```
 
 `.githooks/pre-push` 会自动调用同一条命令；手动跑的意义是提前发现。实现见 `scripts/wsl-gate.sh`
@@ -273,10 +272,10 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test →（P
 | 改动范围 | 必须跑 |
 | --- | --- |
 | 任何改动 | `npm run gate`（含 `npm test`） |
-| `packages/ui/**`、`.github/workflows/pages.yml` 或 `.github/workflows/ci.yml` | 上面的 gate 会自动追加 Pages 产物校验；也可单跑 `npm run verify:pages` |
 | `.github/workflows/**`（任意 workflow） | 必须本地先跑通再推 |
 
-Pages 演示构建与校验的完整说明见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) 的「演示模式」。
+> 本仓库**不再发布 GitHub Pages**（Pages 部署与其产物校验已移除 ✓）。
+> 控制台的演示构建只是本地预览手段，见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) 的「演示模式」。
 
 ### 推送前检查
 
@@ -295,7 +294,7 @@ Pages 演示构建与校验的完整说明见 [docs/WEB-CONSOLE.md](docs/WEB-CON
 
 - 本仓库的 WSL 门禁不允许以「改动很小」「只改了注释/文档/CI 配置」为由跳过。
 - **workflow 文件不许「改完直接推，看 CI 结果再说」** —— workflow 的失败模式通常只有真跑产物才暴露
-  （如 Pages 的 base 前缀不对 → 整页空白），推到云上再改要多一轮提交。
+  （如 CI 的 node 版本矩阵与本地不一致），推到云上再改要多一轮提交。
 
 ## 提交信息规范
 

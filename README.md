@@ -60,6 +60,22 @@ mx model list
 指到 `http://127.0.0.1:4412/v1`，模型填 `<渠道>/<模型>` 形态的池 id
 （清单看 `GET /v1/models`，如 `loomy/kimi-k2.6`；API key 任意非空）即可。
 
+## Web 控制台
+
+`mx web` 起一个本地看板（`http://127.0.0.1:4412/web/`）：网关状态、接入端点、
+全渠道模型池与各渠道账号池额度，都在同一页里。
+
+![仪表盘：网关状态、接入端点与按渠道分组的模型池](docs/images/web-dashboard.png)
+
+![账号池：各渠道的凭据、账号与额度](docs/images/web-accounts.png)
+
+- **仪表盘**：网关状态 / 可用模型 / 供给渠道 / 接入端点四块统计 + 接入端点面板 +
+  模型区（按渠道分组的表，列出每个模型的**倍率、上下文窗口、输出上限与输入模态**，
+  可按渠道筛选、只看免费、切「分组 / 扁平」两种视图）。
+- **账号池**：每个渠道的登录状态、账号列表、剩余额度与到期时间、切换 / 删除 / 新增。
+
+页面结构、数据通道与设计令牌见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
+
 ## 文档
 
 项目规则在 [AGENTS.md](AGENTS.md)；契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)），**渠道文档统一在** `docs/channels/<cid>/`：

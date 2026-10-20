@@ -27,27 +27,6 @@ env:
   GITHUB_EVENT_BEFORE: ${{ github.event.before }}
 
 jobs:
-  changes:
-    name: detect changes
-    runs-on: ubuntu-latest
-    outputs:
-      pages: ${{ steps.filter.outputs.pages }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: filter
-        name: 判断是否涉及 Pages 产物
-        run: |
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            echo "pages=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$base" HEAD -- packages/ui .github/workflows/pages.yml scripts/verify-pages-artifact.mjs; then
-            echo "pages=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "pages=true" >> "$GITHUB_OUTPUT"
-          fi
-
   test:
     name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -69,28 +48,3 @@ jobs:
         run: npm ci
       - name: 测试（build + 校验器 + 全部测试）
         run: npm test
-
-  pages:
-    name: Pages artifact
-    needs: changes
-    if: needs.changes.outputs.pages == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: 安装依赖
-        run: npm ci
-      - name: 构建 UI 演示产物
-        run: DEMO=1 npm run build --workspace=packages/ui
-      - name: 补 SPA 回退
-        run: cp packages/ui/dist/index.html packages/ui/dist/404.html
-      - name: 禁用 Jekyll
-        run: touch packages/ui/dist/.nojekyll
-      - name: 校验 Pages 产物
-        run: node scripts/verify-pages-artifact.mjs packages/ui/dist

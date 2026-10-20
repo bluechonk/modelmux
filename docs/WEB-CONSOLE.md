@@ -130,19 +130,18 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 （`ChannelLedger.accounts[key]`），控制台账号池卡片按「渠道 × 账号」展示；
 账本数字记在请求发生时的当前生效账号头上。
 
-## 演示模式（GitHub Pages 静态站）
+## 演示模式（本地静态构建）
 
-`.github/workflows/pages.yml`（手动 `workflow_dispatch` 触发）把控制台的**演示构建**
-发布到 GitHub Pages：`https://<owner>.github.io/modelmux/`。
+控制台的**演示构建**（`DEMO=1`）用一份**虚构数据**在浏览器里跑完整交互流程，
+不需要起网关、不碰任何真实账号。
 
-### 为什么必须是「演示构建」
+> ⚠ **不再发布到 GitHub Pages**：本仓库已移除 Pages 部署（`pages.yml` 与相关产物校验
+> 一并删掉 ✓）。控制台是**本机工具**，没有公网版本 —— 想看界面就 `mx web` ✓。
 
-Pages 是纯静态托管，没有后端；而控制台每个页面都要 `fetch('/web/api/*')` 读本机网关。
-指向本机网关这条路走不通，有三重**有意设计**的限制（不应为演示削弱）：
+### 为什么需要「演示构建」
 
-1. 网关不发 CORS 头 → 浏览器拦下跨源响应；
-2. `console.ts` 的 `isSameOrigin` 拒绝跨源写命令（403「跨源请求已拒绝」）；
-3. Chrome 的 Private Network Access 拦「公网页 → 127.0.0.1」。
+真实控制台每个页面都要 `fetch('/web/api/*')` 读本机网关；演示构建把这层换成内存实现，
+于是**任何静态托管**（甚至直接双击 `dist/index.html`）都能看界面与点流程 ✓。
 
 ### 实现
 
@@ -150,49 +149,31 @@ Pages 是纯静态托管，没有后端；而控制台每个页面都要 `fetch(
 | --- | --- |
 | `src/lib/demo.ts` | 虚构数据源 + 内存状态机（渠道/模型/账号池/账本 + 登录流程） |
 | `src/lib/api.ts` | `IS_DEMO` 为真时用内存实现替换所有 fetch |
-| `vite.config.ts` | `DEMO=1` 时 `base=/modelmux/` 并注入 `__DEMO_MODE__` |
-| `src/App.tsx` | `basename` 跟随同一个标志（`/modelmux` 或 `/web`） |
+| `vite.config.ts` | `DEMO=1` 时切换 base 并注入 `__DEMO_MODE__` |
+| `src/App.tsx` | `basename` 跟随同一个标志 |
 | `src/env.d.ts` | `__DEMO_MODE__` 的类型声明 |
 
-构建：`DEMO=1 npm run build --workspace=packages/ui`。
+构建：`DEMO=1 npm run build --workspace=packages/ui`，
+产物在 `packages/ui/dist/`（`base=/` ✓，直接用静态服务器打开即可 ✓）。
 
 演示的是**交互流程**而非假死截图：添加账号真的会把渠道置为已登录、账号入池并设为生效，
-模型墙与统计卡随之更新（登录/登出一个渠道会同时改变模型数与渠道数）。
+模型区与统计卡随之更新（登录/登出一个渠道会同时改变模型数与渠道数）。
 
 ### 数据纪律
 
-页面是**公开**的，所以 `demo.ts` 里所有 uid / 手机号 / 域名一律用明显虚构的占位值
-（`demo000000000000a1`、`138****0001`、`example.com`），**不读取也不复制
-`~/.modelmux/` 下的任何真实数据**。侧栏常驻「演示模式：数据均为虚构，未连接任何真实网关」提示。
+演示数据里所有 uid / 手机号 / 域名一律用明显虚构的占位值
+（`demo000000000000a1`、`138****0001`、`example.com`），
+**不读取也不复制 `~/.modelmux/` 下的任何真实数据** ✓。
+侧栏常驻「演示模式：数据均为虚构，未连接任何真实网关」提示 ✓。
 
-### SPA 深链接
+### 本地预览
 
-演示站是客户端路由（`/modelmux/` 与 `/modelmux/accounts`）。Pages 直接访问深链接会找
-同名文件而 404 —— 工作流因此额外生成 `404.html`（内容同 `index.html`）交给 React Router。
-
-### 本地先跑（推送前必须）
-
-`pages.yml` 的失败模式（base 前缀不对 → 整页空白；缺 `404.html` → 深链接 404）只有看到
-真实产物才暴露，推到云上再改成本高。所以本地先复现：
+演示构建的失败模式（base 前缀不对 → 整页空白）只有看到真实产物才暴露，
+所以改完 UI 先本地构建看一眼：
 
 ```bash
-npm run verify:pages            # 完整复现：clone → npm ci → DEMO 构建 → 校验
-bash scripts/verify-pages.sh --serve   # 额外起静态服务，浏览器打开核对
+DEMO=1 npm run build --workspace=packages/ui   # 产物在 packages/ui/dist/
+npx serve packages/ui/dist                      # 或任何静态服务器，打开首页即可
 ```
 
-用 **WSL 而不是 Docker**：本机有 WSL（Ubuntu）、没有 docker CLI，且 `pre-push` 门禁本就是
-「clone 到 WSL ext4 跑真 Linux 命令」的形态，沿用同一套不引入新依赖。
-
-两个文件的职责分工：
-
-| 文件 | 作用 |
-| --- | --- |
-| `scripts/verify-pages-artifact.mjs` | **纯校验**产物：必需文件、资源前缀、资源存在性、演示数据是否打入、与 workflow 的漂移 |
-| `scripts/verify-pages.sh` | **编排**：在 WSL 里复现 workflow 的 build 阶段，然后调上面的校验器 |
-
-校验器用 Node 而非 bash 写 —— bash 版的中文输出经 Git Bash ↔ WSL 管道会被判成二进制，
-实测看不全结果。
-
-`.githooks/pre-push` 已接入：动了 `packages/ui/` 或 pages 相关文件时，复用门禁里已
-clone + `npm ci` 的目录补跑一次 DEMO 构建与校验，不重复装依赖。`verify:pages` **不进
-`npm test`** —— 它含 `npm ci` + 全量构建，比现有校验器重得多，且只在 Pages 相关改动时才有意义。
+真实控制台不需要这些：`mx web` 直接起在 `http://127.0.0.1:4412/web/` ✓。

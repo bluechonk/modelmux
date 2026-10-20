@@ -39,30 +39,4 @@ if ! wsl.exe -e bash -lc "
 fi
 [ "$QUIET" = 0 ] && echo "[wsl-gate] npm test 通过"
 
-# —— 第 2 步：Pages 产物校验（仅当本次改动触及相关文件）——
-# 复用上面已 clone + npm ci 的目录，不重复装依赖。
-base=$(git rev-parse --verify -q "$BASE_REF" 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "")
-if [ -n "$base" ]; then
-  changed=$(git diff --name-only "$base" HEAD 2>/dev/null || true)
-else
-  changed=$(git ls-files)
-fi
-
-if printf '%s\n' "$changed" | grep -qE '^(packages/ui/|\.github/workflows/(pages|ci)\.yml|scripts/verify-pages)'; then
-  [ "$QUIET" = 0 ] && echo "[wsl-gate] 检测到 Pages 相关改动，复现 pages.yml build 并校验产物"
-  if ! wsl.exe -e bash -lc "
-    set -e
-    export LANG=C.UTF-8 LC_ALL=C.UTF-8
-    cd '$GATE'
-    DEMO=1 npm run build --workspace=packages/ui
-    cp packages/ui/dist/index.html packages/ui/dist/404.html
-    touch packages/ui/dist/.nojekyll
-    node scripts/verify-pages-artifact.mjs packages/ui/dist
-  "; then
-    echo "[wsl-gate] ✗ Pages 产物校验未通过（本地可单跑：npm run verify:pages）" >&2
-    exit 1
-  fi
-  [ "$QUIET" = 0 ] && echo "[wsl-gate] Pages 产物校验通过"
-fi
-
 echo "[wsl-gate] ✓ 全绿，可推送"
