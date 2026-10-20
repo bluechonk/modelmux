@@ -1,19 +1,32 @@
 /**
- * `stop` 的终止记录：成功停掉守护进程后，往该 scope 的日志追加一行
- * `{"event":"stop","pid":…}` —— 日志平时只有网关子进程自己写的 start/ready，
- * 不补这行时间线就没有“下线”痕迹（手动停与崩溃分不出来）。
+ * `stop` 的终止记录：成功停掉守护进程后，往生命周期时间线追加一行
+ * `{"event":"stop","pid":…}` —— 时间线平时只有 start/ready，
+ * 不补这行就没有“下线”痕迹（手动停与崩溃分不出来）。
+ *
+ * 落点：旧行为是 scope 内的 `gateway.log`（`appendFileSync(scope.logPath(), …)`，
+ *   见提交 e974042 之前的 daemon.ts）；新行为是**分层日志**里的生命周期文件
+ *   `<root>/logs/system/<YYYY-MM-DD>/lifecycle.log`（`appendSystem("stop", { pid })`，
+ *   见 src/app/daemon.ts:234-237 与 src/runtime/log-store.ts:308-311，
+ *   契约见 docs/LOGGING.md §4「生命周期事件规范」）。
+ *   start / ready 也写同一份文件，故「原有内容保留」在这里才真正说得通。
  *
  * 完全离线：只起一个本地 dummy 进程当“网关”，不碰网络与真实主目录。
  */
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { stop } from "../dist/app/daemon.js";
+import { localDate } from "../dist/runtime/log-store.js";
+
+/** 生命周期时间线的落点：`<root>/logs/system/<本地日期>/lifecycle.log`。 */
+function lifecyclePath(root: string): string {
+  return join(root, "logs", "system", localDate(), "lifecycle.log");
+}
 
 describe("stop：终止记录写入日志", () => {
   let root = "";
@@ -35,15 +48,17 @@ describe("stop：终止记录写入日志", () => {
     const dummy = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
     try {
       const pidPath = join(root, "gateway.pid");
-      const logPath = join(root, "gateway.log");
+      const logPath = lifecyclePath(root);
       writeFileSync(pidPath, String(dummy.pid), "utf8");
-      writeFileSync(logPath, `{"event":"ready","gateway":"http://127.0.0.1:8787"}\n`, "utf8");
+      mkdirSync(dirname(logPath), { recursive: true });
+      const ready = `{"ts":"2026-01-01T00:00:00.000Z","event":"ready","addr":"http://127.0.0.1:8787","pid":1}`;
+      writeFileSync(logPath, `${ready}\n`, "utf8");
 
       const code = await stop({ quiet: true, addr: "127.0.0.1:1" });
       assert.equal(code, 0, "stop 应成功");
       assert.ok(!existsSync(pidPath), "PID 文件应被清除");
       const lines = readFileSync(logPath, "utf8").trimEnd().split("\n");
-      assert.equal(lines[0], `{"event":"ready","gateway":"http://127.0.0.1:8787"}`, "原有日志必须保留");
+      assert.equal(lines[0], ready, "原有日志必须保留");
       const last = JSON.parse(lines[lines.length - 1] ?? "{}") as { event?: string; pid?: number };
       assert.equal(last.event, "stop", "末行应是终止记录");
       assert.equal(last.pid, dummy.pid, "终止记录要带被停的 PID");
@@ -54,12 +69,13 @@ describe("stop：终止记录写入日志", () => {
 
   it("进程已死（PID 失效）也如实补记录，不误报失败", async () => {
     const pidPath = join(root, "gateway.pid");
-    const logPath = join(root, "gateway.log");
+    const logPath = lifecyclePath(root);
     // 起一个立刻退出的进程，拿到一个已死亡的 pid 写进 PID 文件
     const gone = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
     const gonePid = gone.pid ?? 0;
     await new Promise((r) => gone.once("exit", r));
     writeFileSync(pidPath, String(gonePid), "utf8");
+    mkdirSync(dirname(logPath), { recursive: true });
     writeFileSync(logPath, "", "utf8");
 
     const code = await stop({ quiet: true, addr: "127.0.0.1:1" });

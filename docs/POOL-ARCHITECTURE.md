@@ -126,7 +126,8 @@
 有些上游不用 401/403 表达凭据失效 —— 如 codearts 的 APIG 网关对过期 token 回
 `HTTP 400 + {"error_code":"APIG.0602"}`。渠道声明 `upstream.isAuthFailure(status, body)`
 后，共享层在收到 **4xx 且非 401/403** 的响应时问一次该钩子；返回 true 就归一成 401，
-走既有的「刷新 token → 换池内账号」链路。未声明的渠道行为不变。
+走既有的「刷新 token → **重试当前账号**」链路；仍失败则标该账号 `unauthorized`、
+**保留凭据**、回 502 `upstream_unauthenticated`，**不自动切号**（见 §3.3）。未声明的渠道行为不变。
 
 #### 排队帧退避重试（`isQueueError`）
 

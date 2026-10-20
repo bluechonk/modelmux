@@ -1024,6 +1024,14 @@ export interface CatalogRow {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   supportsImages?: boolean;
+  /**
+   * 输入模态数组（如 `["text","image"]`）。
+   *
+   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（实测 2026-10-20：`models[]` 只有
+   * `supportsImages`）；这里带着是为了上游哪天改用数组形态时不丢字段 ——
+   * `catalog.parseRow` 判「能不能吃图」时数组形态优先于布尔开关。
+   */
+  input_modalities?: string[];
   credits?: string;
 }
 
@@ -1031,8 +1039,8 @@ export interface CatalogRow {
  * 从任意一份 product-config 载荷里取模型目录。
  *
  * 目录本体是 `agents[].models` 的**裸 id 字符串**（cli 那个 agent 最全）；
- * 逐模型元数据散在 `models[]`（`id` / `name` / `maxInputTokens` / `supportsImages`）。
- * 两份都要拼起来，只有 id 的表也并非不可用（名字退回 id）。
+ * 逐模型元数据散在 `models[]`（`id` / `name` / `maxInputTokens` / `supportsImages` /
+ * `input_modalities`）。两份都要拼起来，只有 id 的表也并非不可用（名字退回 id）。
  */
 export function parseCatalogPayload(payload: unknown): CatalogRow[] {
   const root = asRecord(payload);
@@ -1097,6 +1105,10 @@ export function parseCatalogPayload(payload: unknown): CatalogRow[] {
       if (typeof value === "number" && Number.isFinite(value)) row[key] = value;
     }
     if (typeof info["supportsImages"] === "boolean") row.supportsImages = info["supportsImages"];
+    const modalities = info["input_modalities"];
+    if (Array.isArray(modalities)) {
+      row.input_modalities = modalities.filter((v): v is string => typeof v === "string");
+    }
     if (typeof info["credits"] === "string" && info["credits"]) row.credits = info["credits"];
     rows.push(row);
   }

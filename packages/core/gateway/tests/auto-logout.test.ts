@@ -105,11 +105,15 @@ function seedCredential(cid: string, token: string): void {
   );
 }
 
-async function chat(addr: string): Promise<{ status: number; text: string }> {
+async function chat(addr: string, model: string): Promise<{ status: number; text: string }> {
   const resp = await fetch(`http://${addr}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "glm-5.3-flash", messages: [{ role: "user", content: "hi" }], stream: true }),
+    // 旧行为：裸模型名 `glm-5.3-flash`（网关跨渠道匹配候选）。
+    // 新行为：池 id 必须是 `<cid>/<模型>` 形态，渠道由请求方显式指定 ——
+    //   裸名一律 400 unknown_model（src/pool/pool-targets.ts:473 `asPoolModel`
+    //   + src/http/chat-relay.ts:867 的 400 分支）。
+    body: JSON.stringify({ model, messages: [{ role: "user", content: "hi" }], stream: true }),
   });
   return { status: resp.status, text: await resp.text() };
 }
@@ -140,7 +144,7 @@ describe("鉴权失败：凭证保留（不再自动登出）", () => {
 
   it("401 + 刷新不可用 → 请求失败但凭证与池账号保留", async () => {
     assert.equal(existsSync(paths.credentialsPath("dead")), true, "前置：凭证文件存在");
-    const { status } = await chat(gw.addr);
+    const { status } = await chat(gw.addr, "dead/glm-5.3-flash");
     assert.equal(status, 502, "所有候选失败 → 502");
     assert.equal(existsSync(paths.credentialsPath("dead")), true, "凭证必须保留（不许删）");
     assert.equal(listAccounts("dead").accounts.length, 1, "池账号也原样保留");
@@ -152,7 +156,7 @@ describe("鉴权失败：凭证保留（不再自动登出）", () => {
 
   it("下一次请求仍会尝试上游（凭证还在），并再次失败", async () => {
     upstream.captured.length = 0;
-    const { status, text } = await chat(gw.addr);
+    const { status, text } = await chat(gw.addr, "dead/glm-5.3-flash");
     assert.equal(status, 502);
     assert.ok(upstream.captured.length > 0, "凭据还在，路由会继续尝试上游");
     const payload = JSON.parse(text) as { error: { code: string } };
@@ -162,6 +166,12 @@ describe("鉴权失败：凭证保留（不再自动登出）", () => {
 });
 
 describe("候选过滤：未登录渠道不被路由（高用量也不参与）", () => {
+  // 旧行为：一个裸模型名跨渠道匹配出多个候选，按账单用量排序（ghost 最高 → 排第一），
+  //   再靠「未登录」过滤把它剔除，落到 alive。
+  // 新行为：渠道由请求方在池 id 前缀里显式指定（`<cid>/<模型>`），候选至多一条
+  //   （src/pool/pool-targets.ts:498 poolCandidates）；「未登录渠道不被路由」这条保证
+  //   改由「点名未登录渠道 → 503 且不打上游」来兑现
+  //   （src/http/chat-relay.ts:910-919：authed 为空即 503 not_authenticated）。
   let root = "";
   let upstream: Awaited<ReturnType<typeof fakeUpstream>>;
   let gw: gateway.RunningGateway;
@@ -174,7 +184,7 @@ describe("候选过滤：未登录渠道不被路由（高用量也不参与）"
     setChannel(makeChannel("ghost", upstream.url)); // 不写凭证 = 未登录
     setChannel(makeChannel("alive", upstream.url));
     seedCredential("alive", "tok-alive");
-    // ghost 账单用量最高 → 正常排序它会排第一；凭据过滤必须让它靠边
+    // ghost 账单用量最高 → 账本排序它会排第一；凭据过滤必须让它靠边
     poolUsage.writeBilling("ghost", { total: { used: 9999, size: 10000, remain: 1, unit: "credits" } });
     gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
   });
@@ -189,7 +199,7 @@ describe("候选过滤：未登录渠道不被路由（高用量也不参与）"
 
   it("请求只落到已登录渠道；未登录的 ghost 一次都不被尝试", async () => {
     upstream.captured.length = 0;
-    const { status, text } = await chat(gw.addr);
+    const { status, text } = await chat(gw.addr, "alive/glm-5.3-flash");
     assert.equal(status, 200);
     assert.ok(text.includes("alive 回答"));
     assert.deepEqual(
@@ -197,5 +207,14 @@ describe("候选过滤：未登录渠道不被路由（高用量也不参与）"
       ["Bearer tok-alive"],
       "ghost 没有凭据，不应出现在任何上游请求里",
     );
+  });
+
+  it("点名未登录渠道 → 503 且一次都不打上游", async () => {
+    upstream.captured.length = 0;
+    const { status, text } = await chat(gw.addr, "ghost/glm-5.3-flash");
+    assert.equal(status, 503, `未登录渠道应报 503（实际 ${status}: ${text.slice(0, 200)}）`);
+    const payload = JSON.parse(text) as { error?: { code?: string } };
+    assert.equal(payload.error?.code, "not_authenticated", text);
+    assert.deepEqual(upstream.captured, [], "未登录渠道不该被打上游");
   });
 });
