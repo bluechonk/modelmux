@@ -42,7 +42,7 @@ description: 使用 Reasonix CLI Agent 对 modelmux (mx) 网关做端到端模�
 |------|------|
 | modelmux 网关在跑 | `curl http://127.0.0.1:4412/health` 返回 `ok: true` |
 | Reasonix 已安装 | `reasonix --version` 输出版本号 |
-| 目标渠道已登录 | `mx status <cid>` 显示 `logged_in: true` |
+| 目标渠道已登录 | `mx status <cid> --json` 的 `credentials.present` 为 `true`（`logged_in` 是 `/health` 的字段，不是 `status --json` 的） |
 | 已选定免费或最低倍率模型 | 见上文「测试成本红线」 |
 
 ## 配置方法

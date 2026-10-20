@@ -33,7 +33,7 @@ mx log --list
 | 错误上下文 | `mx log --kind error --lines 50` |
 | 启停与 worker 事件 | `mx log --kind lifecycle --lines 50` |
 | worker 原始输出 | `mx log --kind worker --lines 100` |
-| 某渠道 | `mx log --kind channel --cid catpaw --lines 50` |
+| 某渠道 | `mx log catpaw --kind channel --lines 50` |
 | 指定日期 | `mx log --date YYYY-MM-DD --kind access --outcome failure` |
 
 - `mx log` 默认是 system 日志；查请求必须加 `--kind access`。
@@ -108,6 +108,8 @@ mx status --json          # stale_build 必须为 false
 - **上游错误响应体片段会落盘**（`gateway.log` 与 `error.log` 各一份，上限 2048 字符），
   且不脱敏 —— 报告里不要复制大段上游原文，只给结论与关键片段。
 - 网关不主动写入凭据字段；但**不要把请求头原文贴进报告**。
+- `mx log` 的渠道 id 是**位置参数**（`mx log <cid> --kind channel`），**没有 `--cid` 选项**
+  —— CLI 走 `parseArgs` 严格模式，未知选项直接报错退出。
 - 有活跃流时不要执行 `mx restart`（会切断客户端请求）；先确认网关是否真的不可用。
 - 不用 `--no-verify` 绕过推送门禁；CI 失败先修。
 

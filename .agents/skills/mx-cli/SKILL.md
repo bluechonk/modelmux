@@ -15,9 +15,11 @@ mx <动词> [<cid>] [参数]
 
 - 动词永远在第一位，渠道 id 在第二位：`mx login catpaw`、`mx status catpaw`。
 - 不要写 `mx catpaw status`：渠道名与动词共享位置会产生二义，补全器也无法工作。
-- 仓库级动词（`start` / `stop` / `restart` / `log` / `web`）不带 cid；
+- 仓库级动词（`start` / `stop` / `restart` / `web`）不带 cid；
   `status` / `model` / `bill` / `acct` / `path` / `login` / `relogin` 都可以带 cid ——
   `mx status <cid>` 才是「某渠道的状态」。
+  `log` 也可以带 cid，但只有配 `--kind channel` 才有区别（渠道维度日志按 cid 分目录）：
+  `mx log catpaw --kind channel`。
 - 命令组同样是动词在前：`mx model list` / `mx model usage`。
 - 不确定时先 `mx --help`；脚本里加 `--json`。
 
@@ -29,8 +31,8 @@ mx <动词> [<cid>] [参数]
 | 停网关 | `mx stop` |
 | 重启 | `mx restart` |
 | 网关 / 渠道状态 | `mx status` / `mx status <cid>` / `mx status --json` |
-| 全池模型视图 | `mx model list` |
-| 池账本 / 用量 | `mx model usage` / `mx model usage --refresh` |
+| 全池模型视图（有哪些模型） | `mx model list` |
+| 池账本（各渠道用得怎么样） | `mx model usage` / `mx model usage --refresh` |
 | 某渠道模型 | `mx model <cid>` / `mx model <cid> --refresh` |
 | 登录 | `mx login <cid>`；`mx login list` |
 | 强制重新授权 | `mx relogin <cid>`（**会清掉现有凭据**，别当成刷新用） |
@@ -61,7 +63,8 @@ mx status --json    # reachable=true 且 stale_build=false
 ### 2.2 看模型：两个命令别混
 
 ```bash
-mx model list                 # 池视图：每个对外 id 会落到哪些渠道、用量、冷却
+mx model list                 # 池视图：有哪些模型（按渠道分组，渠道级账本状态只出现一次）
+mx model usage                # 池账本：各渠道用得怎么样（每渠道一行）
 mx model catpaw              # 渠道视角：catpaw 目录里的模型（读本地缓存）
 mx model catpaw --refresh    # 强制重拉上游目录（失败即报错）
 curl -s http://127.0.0.1:4412/v1/models   # 客户端实际看到的 id
@@ -89,11 +92,12 @@ mx acct catpaw remove <key>    # 生效账号=同时登出；非必要不要删
 ```bash
 mx bill                     # 全部渠道的额度/账单（只读，不经网关）
 mx bill catpaw              # 单渠道
-mx model usage                # 池账本（请求成败、已用量、冷却）
-mx model usage --refresh      # 立刻重查各渠道账单
+mx model usage              # 池账本（各渠道用得怎么样：请求成败、已用量、冷却）
+mx model usage --refresh    # 立刻重查各渠道账单
 ```
 
 `mx bill` 是上游额度；`mx model usage` 是本地池账本，两者不是一回事。
+两个视图都**不决定路由** —— 渠道由池 id 前缀（`<cid>/<模型>`）指定，账本只作健康度观察。
 
 ### 2.5 日志与 Web
 

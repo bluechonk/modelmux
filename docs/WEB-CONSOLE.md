@@ -90,8 +90,8 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 ## 技术栈与构建
 
-- React 19 + TypeScript + Vite（`base=/web/`）+ Tailwind CSS v4 + TanStack Query v5 +
-  react-router v7 + lucide-react 图标。
+- React 19 + TypeScript + Vite 8（`base=/web/`）+ Tailwind CSS v4 + TanStack Query v5 +
+  react-router v8 + lucide-react 图标。
 - `npm run build` 顺序：`tsc -b` → `vite build packages/ui` → cli bundle →
   `scripts/copy-ui.mjs` 把产物拷到 `packages/core/gateway/dist/ui` 与 `packages/cli/dist/ui`
   （**少拷一份，全局 `mx web` 就报「UI 未构建」**）。
@@ -113,11 +113,14 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 ## 数据通道
 
 - `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点）。
-- `POST /web/api/commands`：动作分发（login / status / model / billing / accounts /
+- `POST /web/api/commands`：动作分发（login / status / **models** / billing / accounts /
   activateAccount / removeAccount / syncPool / pasteCallback）。
   - `billing` 支持 `args.refresh: true`（真实重查各渠道账单）与 `cid` 过滤（单渠道刷新）。
   - `pasteCallback`：手工兜底通道，把用户粘回的回调链接喂给等待中的登录流程。
     raccoon 等授权码渠道现在优先走**本地 HTTP 回调自动完成**，不再需要粘贴。
+- `POST /web/api/theme`：切主题；`POST /web/api/retry-login`：重试登录。
+  两者在 `console.ts` 里已实现，但当前 UI **没有入口**（深色是唯一主题，也没有重试登录按钮）——
+  前端 `lib/api.ts` 里的 `setTheme` / `retryLogin` 只是保留的调用面。
 - `/api/commands` 返回值由前端 `lib/api.ts` 统一**解包 `data`** —— 页面不要再取一层
   `.data`（双重解包会导致 tab 崩溃）。
 

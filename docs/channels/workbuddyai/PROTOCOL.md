@@ -396,7 +396,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
   `expiresAt` / `refreshExpiresAt` 统一存 **epoch 毫秒**（取不到为 null）。
   `nickname` 来自登录链路第 4 步的账号档案（§8.0.1），取不到留空；
   共享层账号池的 `parseExpiry` 认得秒/毫秒两种形态
-  （`packages/core/gateway/src/runtime/account-pool.ts:103-121`），旧文件（秒）继续可用。
+  （`packages/core/gateway/src/runtime/account-pool.ts:105-123`），旧文件（秒）继续可用。
 - **到期时刻的推导顺序**（口径对齐 hub `wb_accounts.py:540`）：
   1. 上游给的**绝对时刻** `expiresAt`（秒/毫秒都认）；
   2. 访问令牌 JWT 的 `exp`（标准秒级 epoch）；

@@ -172,7 +172,7 @@ dateStamp 保留结尾的 `Z`、毫秒被截掉。
 | `Chat-Id` | `sessionKey`（32 位 hex，由「首条 user 文本 + 模型」派生） | 否（签名后追加） | 每会话固定 | 与 `Session-Id` 同值 |
 | `Session-Id` | 同 `Chat-Id` | 否（签名后追加） | 每会话固定 | 前缀缓存命中依据 |
 | `lang` | 常量 `en` | 否（签名后追加） | — | chat 端点专用 |
-| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat-upstream.ts:97-99`：渠道没给就加），故渠道侧不发 |
+| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat-upstream.ts:139-141`：渠道没给就加），故渠道侧不发 |
 | `Agent-Type` | 常量 `PromptCenter`（builtin / 积分）/ `AgentCenter`（agent-center） | 否（**签名后追加**） | — | ⚠ **参与签名会 401 APIG.0301**（见本节末） |
 | `X-Language` | 常量 `zh-cn`（builtin / 积分 / agent-center） | 否（**签名后追加**） | — | ⚠ 同上 |
 | `Content-Type`（目录 / 积分 GET） | 常量 `application/json` | 否（签名后追加） | — | GET 的签名头里**没有** `content-type` |
@@ -376,7 +376,7 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 
 - 入口：`packages/core/channels/codearts/src/cred.ts:860-866` 的 `LoginOptions.pasteCode`
   （共享层已经在传 —— `packages/core/gateway/src/auth/auth-flow.ts:62` /
-  `packages/core/gateway/src/app/headless.ts:310` 的 `pasteCode: () => ui.takePastedCallback?.()`；
+  `packages/core/gateway/src/app/headless.ts:331` 的 `pasteCode: () => ui.takePastedCallback?.()`；
   **本渠道之前没接住**，现已接上）。
 - 解析：`extractAuthCode()` 接受三种形态 ——
   完整回调 URL `http://127.0.0.1:<port>/oauth/callback?code=…`、
@@ -506,9 +506,9 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
   `WIRE = "openai"`（`packages/core/channels/codearts/src/upstream.ts:142`）且**没有声明** `isQueueError`
   → chat 请求不会被重发。
 - **SSE 空闲超时只有一档**：默认 **120000 ms**
-  （`packages/core/gateway/src/http/chat-upstream.ts:14` 的 `READ_TIMEOUT_MS`，
-  可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`packages/core/gateway/src/http/chat-upstream.ts:16-21`），
-  作用于**整条响应体**（`idleGuardedBody`，`packages/core/gateway/src/http/chat-upstream.ts:23-71`，挂在 `packages/core/gateway/src/http/chat-upstream.ts:173`）。
+  （`packages/core/gateway/src/http/chat-upstream.ts:15` 的 `READ_TIMEOUT_MS`，
+  可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`packages/core/gateway/src/http/chat-upstream.ts:19-24`），
+  作用于**整条响应体**（`idleGuardedBody`，`packages/core/gateway/src/http/chat-upstream.ts:65-71`，挂在 `packages/core/gateway/src/http/chat-upstream.ts:217`）。
   本渠道**没有** `idleTimeoutMs()` 钩子，故不能像 qoder 那样放宽到 900 秒
   （钩子接口见 `packages/core/gateway/src/runtime/channel.ts:190`）。
 - ⚠ 「APIG 网关对 SSE 有 ~60s 空闲断连策略、`reader.read()` 抛 `TypeError: terminated`」
