@@ -7,7 +7,7 @@
  *    工具调用序列的结构性修复、思考链字段回填。
  * 2. **不许出现渠道知识**：厂商名、渠道 id、渠道特有字段、渠道模型名一律不写。
  *    「上游只认某种类型」这类**渠道协议事实**由调用方以参数传入
- *    （如 `stringOnly` / `modelPrefix`），判据本身留在渠道包里。
+ *    （如 `stringOnly` / `modelPrefix` / `mirrorReasoning`），判据本身留在渠道包里。
  * 3. **就地改写**传入的请求体 / 消息数组（不复制输入），返回值只报告改了什么。
  * 4. 归一化必须**幂等**：同一份请求体归一化两次，第二次不再产生改动。
  *
@@ -104,11 +104,41 @@ export function thinkingRequested(body: OpenAiRecord): boolean {
 /** 回填思考链字段的适用模型（**渠道协议事实，由渠道传入**）。 */
 export interface BackfillReasoningOptions {
   /**
-   * 只对模型名以该前缀开头的请求回填；空串表示全部模型。
+   * 只对模型名以该前缀开头的请求回填；空串表示全部模型
+   * （判据由渠道自己把关时传空串）。
    *
    * 判据（哪一族模型要求思考链字段）属于渠道协议事实，共享层不认厂商名。
    */
   modelPrefix: string;
+  /**
+   * 目标端**也认旧字段** `reasoning` 时镜像一份（默认 true）。
+   *
+   * 只认标准字段 `reasoning_content` 的目标端传 false —— 多写的字段会被上游拒。
+   */
+  mirrorReasoning?: boolean;
+  /**
+   * 只有历史里**已经出现过思考链**才回填（默认 false）。
+   *
+   * 目标端以「会话已有思考链」为要求信号时传 true：此时本轮要思考也不足以触发，
+   * 没有链的会话不会被塞进空占位。
+   */
+  requireExistingTrace?: boolean;
+}
+
+/**
+ * 会话里是否出现过思考链。
+ *
+ * 判据：任一消息带 `reasoning_content` 字段，或带非空的 `reasoning` 串。
+ */
+export function hasReasoningTrace(messages: unknown[]): boolean {
+  for (const msg of messages) {
+    const rec = asRecord(msg);
+    if (!rec) continue;
+    const reasoning = rec["reasoning"];
+    if (typeof reasoning === "string" && reasoning) return true;
+    if ("reasoning_content" in rec) return true;
+  }
+  return false;
 }
 
 /**
@@ -118,10 +148,12 @@ export interface BackfillReasoningOptions {
  * 而多数客户端只回传自己那部分，历史里总会有空位。
  *
  * 补两处：标准字段 `reasoning_content` 与旧字段 `reasoning`（后者镜像成
- * 非空串 —— 空串长度不合法）。
+ * 非空串 —— 空串长度不合法）。目标端只认标准字段时用 `mirrorReasoning: false`
+ * 关闭镜像。
  *
- * 已在历史里出现过思考链（客户端自己回传了）时补齐其余；否则只有本轮
- * 要了思考才回填，普通无思考的短对话不会被塞进空占位。
+ * 触发条件：已在历史里出现过思考链（客户端自己回传了）时补齐其余；否则只有本轮
+ * 要了思考才回填，普通无思考的短对话不会被塞进空占位。目标端以「会话已有思考链」
+ * 为唯一要求信号时用 `requireExistingTrace: true` 收紧。
  */
 export function backfillReasoningContent(
   messages: unknown[],
@@ -132,22 +164,10 @@ export function backfillReasoningContent(
   if (!model.toLowerCase().startsWith(options.modelPrefix.toLowerCase())) return 0;
 
   // 历史里已有思考链（客户端自己回传了）→ 必须补齐其余；否则看本轮有没有要思考
-  let hasTrace = false;
-  for (const msg of messages) {
-    const rec = asRecord(msg);
-    if (!rec) continue;
-    const reasoning = rec["reasoning"];
-    if (typeof reasoning === "string" && reasoning) {
-      hasTrace = true;
-      break;
-    }
-    if ("reasoning_content" in rec) {
-      hasTrace = true;
-      break;
-    }
-  }
-  if (!hasTrace && !thinkingRequested(body)) return 0;
+  const hasTrace = hasReasoningTrace(messages);
+  if (!hasTrace && (options.requireExistingTrace === true || !thinkingRequested(body))) return 0;
 
+  const mirror = options.mirrorReasoning !== false;
   let filled = 0;
   for (const msg of messages) {
     const rec = asRecord(msg);
@@ -159,6 +179,7 @@ export function backfillReasoningContent(
       rec["reasoning_content"] = text;
       filled += 1;
     }
+    if (!mirror) continue;
     const existing = rec["reasoning"];
     if (!(typeof existing === "string" && existing)) {
       rec["reasoning"] = text || " ";
@@ -409,13 +430,13 @@ export function normalizeToolChoice(body: OpenAiRecord, options: ToolChoiceOptio
 }
 
 /**
- * 工具声明归一成 OpenAI 的嵌套形态。
+ * 工具声明归一成 OpenAI 的嵌套形态（返回**新数组**）。
  *
- * 顶层 `{type:"function",name,…}` → `{type:"function",function:{name,…}}`。
+ * 顶层 `{type:"function",name,…}` → `{type:"function",function:{name,…}}`；
+ * 非对象条目丢弃，其余原样保留。
  */
-export function normalizeTools(body: OpenAiRecord): void {
-  const tools = body["tools"];
-  if (!Array.isArray(tools)) return;
+export function normalizeToolList(tools: unknown): unknown[] {
+  if (!Array.isArray(tools)) return [];
   const normalized: unknown[] = [];
   for (const tool of tools) {
     const rec = asRecord(tool);
@@ -432,7 +453,17 @@ export function normalizeTools(body: OpenAiRecord): void {
     }
     normalized.push(tool);
   }
-  body["tools"] = normalized;
+  return normalized;
+}
+
+/**
+ * 工具声明归一成 OpenAI 的嵌套形态（就地改 body）。
+ *
+ * 顶层 `{type:"function",name,…}` → `{type:"function",function:{name,…}}`。
+ */
+export function normalizeTools(body: OpenAiRecord): void {
+  if (!Array.isArray(body["tools"])) return;
+  body["tools"] = normalizeToolList(body["tools"]);
 }
 
 /**

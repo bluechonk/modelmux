@@ -15,10 +15,12 @@ import {
   asRecord,
   backfillReasoningContent,
   cleanupOrphanToolCalls,
+  hasReasoningTrace,
   mergeAdjacentToolCalls,
   normalizeDeveloperRole,
   normalizeStop,
   normalizeToolChoice,
+  normalizeToolList,
   normalizeTools,
   repackToolResultBlocks,
   sanitizeMessageTexts,
@@ -185,6 +187,83 @@ describe("backfillReasoningContent", () => {
     assert.equal(m[1]!["reasoning_content"], "");
     assert.equal(m[1]!["reasoning"], " ");
     assert.ok(!("reasoning_content" in m[2]!));
+  });
+});
+
+describe("hasReasoningTrace", () => {
+  it("带 reasoning_content 字段即算有链（哪怕是空串）", () => {
+    assert.equal(hasReasoningTrace([{ role: "assistant", reasoning_content: "" }]), true);
+    assert.equal(hasReasoningTrace([{ role: "tool", reasoning_content: "链" }]), true);
+  });
+
+  it("旧字段 reasoning 要非空才算链", () => {
+    assert.equal(hasReasoningTrace([{ role: "assistant", reasoning: "链" }]), true);
+    assert.equal(hasReasoningTrace([{ role: "assistant", reasoning: "" }]), false);
+  });
+
+  it("没有思考链时为 false", () => {
+    assert.equal(hasReasoningTrace([{ role: "user", content: "u" }]), false);
+    assert.equal(hasReasoningTrace([]), false);
+    assert.equal(hasReasoningTrace(["junk"]), false);
+  });
+});
+
+describe("backfillReasoningContent（只认标准字段的目标端）", () => {
+  /** 目标端只认 `reasoning_content`、且以「会话已有链」为要求信号时的口径。 */
+  const OPTS = { modelPrefix: "", mirrorReasoning: false, requireExistingTrace: true };
+
+  it("不写旧字段 reasoning（上游只认标准字段）", () => {
+    const messages: unknown[] = [
+      { role: "assistant", content: "1", reasoning_content: "链" },
+      { role: "assistant", content: "2" },
+    ];
+    const filled = backfillReasoningContent(messages, { model: "dmodel" }, OPTS);
+    assert.equal(filled, 1);
+    const m = messages as Record<string, unknown>[];
+    assert.equal(m[1]!["reasoning_content"], "");
+    assert.ok(!("reasoning" in m[1]!));
+  });
+
+  it("本轮要思考但历史无链时不回填", () => {
+    const messages: unknown[] = [{ role: "assistant", content: "hi" }];
+    const filled = backfillReasoningContent(
+      messages,
+      { model: "dmodel", reasoning_effort: "high" },
+      OPTS,
+    );
+    assert.equal(filled, 0);
+    assert.deepEqual(messages, [{ role: "assistant", content: "hi" }]);
+  });
+
+  it("历史已有链时补齐其余 assistant（只写标准字段）", () => {
+    const messages: unknown[] = [
+      { role: "assistant", content: "1", reasoning_content: "链" },
+      { role: "assistant", content: "2" },
+      { role: "user", content: "u" },
+    ];
+    const filled = backfillReasoningContent(messages, { model: "dmodel" }, OPTS);
+    assert.equal(filled, 1);
+    const m = messages as Record<string, unknown>[];
+    assert.equal(m[1]!["reasoning_content"], "");
+    assert.ok(!("reasoning" in m[1]!));
+    assert.ok(!("reasoning_content" in m[2]!));
+  });
+
+  it("旧字段 reasoning 的内容会搬到标准字段", () => {
+    const messages: unknown[] = [{ role: "assistant", content: "hi", reasoning: "旧链" }];
+    backfillReasoningContent(messages, { model: "dmodel" }, OPTS);
+    const m = messages[0] as Record<string, unknown>;
+    assert.equal(m["reasoning_content"], "旧链");
+    assert.equal(m["reasoning"], "旧链");
+  });
+
+  it("空前缀 = 不按模型名过滤（模型族判据由渠道把关）", () => {
+    const messages: unknown[] = [
+      { role: "assistant", content: "1", reasoning_content: "链" },
+      { role: "assistant", content: "2" },
+    ];
+    const filled = backfillReasoningContent(messages, { model: "任意模型" }, OPTS);
+    assert.equal(filled, 1);
   });
 });
 
@@ -452,6 +531,34 @@ describe("normalizeTools", () => {
     const body: Record<string, unknown> = { tools: "nope" };
     normalizeTools(body);
     assert.equal(body["tools"], "nope");
+  });
+});
+
+describe("normalizeToolList", () => {
+  it("顶层声明包进 function 子对象（返回新数组）", () => {
+    const input = [{ type: "function", name: "f", description: "d", parameters: { type: "object" } }];
+    const out = normalizeToolList(input);
+    assert.deepEqual(out, [
+      { type: "function", function: { name: "f", description: "d", parameters: { type: "object" } } },
+    ]);
+    assert.equal(input[0]!["type"], "function");
+    assert.ok(!("function" in input[0]!));
+  });
+
+  it("与 normalizeTools（就地改 body）口径一致", () => {
+    const tools = [
+      { type: "function", name: "f", strict: true },
+      { type: "function", function: { name: "g" } },
+      "junk",
+    ];
+    const body: Record<string, unknown> = { tools: [...tools] };
+    normalizeTools(body);
+    assert.deepEqual(normalizeToolList(tools), body["tools"]);
+  });
+
+  it("不是数组时给空数组", () => {
+    assert.deepEqual(normalizeToolList(undefined), []);
+    assert.deepEqual(normalizeToolList("nope"), []);
   });
 });
 

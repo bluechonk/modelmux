@@ -36,10 +36,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import { writeFile, rename, chmod } from "node:fs/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { upstreamPath, ensureDir, openaiNormalize } from "@modelmux/gateway";
+import { upstreamPath, ensureDir, openaiNormalize, writeJsonFile } from "@modelmux/gateway";
 
 import * as catalog from "./catalog.js";
 
@@ -363,11 +362,7 @@ export function loadConfig(): [Config, boolean] {
 /** 持久化上游描述符（临时文件 + 原子替换，避免半截文件）。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 function trimSlash(value: string): string {

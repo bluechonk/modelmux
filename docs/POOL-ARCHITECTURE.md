@@ -235,7 +235,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   `modelType` 数值表 —— turn / round 的请求体要的是**数字** modelType 而不是模型名，
   目录拉不到时没有这张表就等于全部模型不可用）。
 - **共享层不持有任何兜底模型**：目录读不出来时 `poolModels()` 返回空
-  （`pool/pool-targets.ts:45`），空池意味着「所有渠道的目录都读不出来」，
+  （`packages/core/gateway/src/pool/pool-targets.ts:45`），空池意味着「所有渠道的目录都读不出来」，
   此时对外公布幻影模型只会让请求必然落空。
 
 ### 2.8 目录元数据回灌上游请求体
@@ -259,7 +259,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 | 渠道 | 状态 | 后果 |
 |---|---|---|
 | `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:646-657`） |
-| `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:584`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:528-538`） |
+| `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:640`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:584-594`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
 
@@ -305,12 +305,12 @@ interface CredModule {
 ### 3.3 策略
 
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
-  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat-relay.ts:296`）。
+  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat-auth.ts:45`）。
   `pickAccount`（账号池的候选选择器）跳过 `unauthorized` / `error` 的账号
   （`packages/core/gateway/src/runtime/account-pool.ts:481-486`）。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
-  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat-relay.ts:330`）。
+  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat-auth.ts:80-86`）。
   `pickAccount` 因此**没有自动切号的调用方**。
 - **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
   **凭证一律保留**；成功清零连败，手动切号恢复 `error`。
@@ -404,10 +404,10 @@ interface CredModule {
    （契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.2）。所以依赖账号的判定
    （这个模型是不是 benefit、要不要多带一个上游头）必须放在 `buildHeaders()`；
    `buildChatBody()` 需要的判定输入（如本次的上游模型 id）经**模块级 pending 槽**
-   从 `buildChatBody` 传给 `buildHeaders`（`packages/core/channels/codearts/src/upstream.ts:586`）。
+   从 `buildChatBody` 传给 `buildHeaders`（`packages/core/channels/codearts/src/upstream.ts:581`）。
 
 实现位置：codearts 在 `buildHeaders()` 里用 `credential.uid` 查该账号的 benefit 集合
-（`packages/core/channels/codearts/src/upstream.ts:713`），分桶落盘在
+（`packages/core/channels/codearts/src/upstream.ts:708`），分桶落盘在
 `cache/benefit-accounts.json`（`packages/core/channels/codearts/src/catalog.ts:163`）。
 哪些模型算 benefit、福利怎么领等渠道差异写在 codearts 的 PROTOCOL。
 

@@ -20,7 +20,6 @@
 
 import { randomBytes } from "node:crypto";
 import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import * as catalog from "./catalog.js";
@@ -36,6 +35,7 @@ import {
   ensureDir,
   login as sharedLogin,
   upstreamPath,
+  writeJsonFile,
 } from "@modelmux/gateway";
 
 /**
@@ -190,11 +190,7 @@ function nonEmpty(value: unknown): string | null {
 /** 持久化上游描述符（临时文件 + 原子替换）。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 function trimSlash(value: string): string {

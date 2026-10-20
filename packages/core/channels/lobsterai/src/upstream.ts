@@ -23,11 +23,10 @@
  */
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import * as catalog from "./catalog.js";
-import { ensureCacheDir, ensureDir, upstreamPath } from "@modelmux/gateway";
+import { ensureCacheDir, ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
 
 /** 上游 API 基址（单一域名，无多区域）。 */
 export const DEFAULT_BASE_URL = "https://lobsterai-server.youdao.com";
@@ -162,11 +161,7 @@ export function loadConfig(): [Config, boolean] {
 /** 原子写入上游描述符。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 function trimSlash(value: string): string {

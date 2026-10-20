@@ -1,0 +1,175 @@
+/**
+ * 转发层：把胜出候选的上游响应交给客户端（非流式聚合 / 流式透传）。
+ *
+ * 关键约束：
+ *   - 一旦开始写响应头就**不能再转移渠道**：本模块只在池路由的最后一跳调用
+ *   - `pendingFrames` 是探测层消费掉的帧：一个都不能丢，按原序先写给客户端
+ *   - `probeTranslator` 必须与探测层是**同一个**翻译器实例（半行缓冲在里面）
+ *
+ * 铁律：只搬运字节，不重试也不换渠道。
+ */
+
+import type { ServerResponse } from "node:http";
+
+import { type Channel, type StreamTranslator } from "../runtime/channel.js";
+import { noteFirstByte, noteRequestError, noteUsage } from "../runtime/log-store.js";
+import { inChannel, isCustomWire } from "./chat-channel.js";
+import { writeJson, writeJsonError } from "./chat-errors.js";
+import { collectAsOpenAiSse, relayStream } from "./chat-stream.js";
+import type { ProbeFrames } from "./chat-queue.js";
+import type { UpstreamCall } from "./chat-upstream.js";
+import * as sseStream from "./sse-stream.js";
+
+/**
+ * 转发响应时剔除的头：hop-by-hop 头，以及与本进程实际发出内容不一致的头。
+ *
+ * `content-length` 与 `content-encoding` 必须剔除：Node 会自动解压上游响应体，
+ * 若把上游的 content-encoding 原样转发，客户端会按 gzip 去解压后的明文而出错。
+ */
+
+const STRIP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "content-length",
+  "content-encoding",
+]);
+
+/** 转发层要用的上下文。 */
+export interface ForwardOptions {
+  /** 客户端是否要流式。 */
+  wantStream: boolean;
+  /** 日志出口。 */
+  logger: (m: string) => void;
+  /** 探测层消费掉的帧（按原序先写给客户端）。 */
+  pendingFrames?: ProbeFrames;
+  /** 排队等待预算耗尽。 */
+  queuedOut?: boolean;
+  /** 探测用的翻译器实例（必须与探测层是同一个）。 */
+  probeTranslator?: StreamTranslator;
+  /** 客户端原始请求体（渠道的翻译器要用）。 */
+  request?: Record<string, unknown>;
+}
+
+/** 聚合结果是否「什么都没有」：无 content、无 reasoning、无 token 用量。 */
+
+function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChatSse>): boolean {
+  const choice = completion.choices[0];
+  if (!choice) return true;
+  if (choice.message.content) return false;
+  if (choice.message.reasoning_content) return false;
+  if (choice.message.tool_calls && choice.message.tool_calls.length > 0) return false;
+  const total = (completion.usage as { total_tokens?: unknown }).total_tokens;
+  return !(typeof total === "number" && total > 0);
+}
+
+/**
+ * 把胜出候选的上游响应交给客户端：非流式聚合、流式透传。
+ *
+ * ⚠ 一旦开始写响应头就**不能再转移渠道** —— 所以它只在池路由的最后一跳调用，
+ *   池路由的尝试循环里不许出现它。
+ *
+ * ⚠ `pendingFrames` 是**探测层消费掉的帧**（内容帧 + 非排队错误帧）：
+ *   一个都不能丢，必须按原序先写给客户端（见 `ProbeFrames`）。
+ * ⚠ `probeTranslator` 必须与探测层是**同一个**翻译器实例（半行缓冲在里面）。
+ */
+export async function relayUpstream(
+  res: ServerResponse,
+  channel: Channel,
+  cid: string,
+  call: UpstreamCall,
+  opts: ForwardOptions,
+): Promise<void> {
+  const {
+    wantStream,
+    logger,
+    pendingFrames = [],
+    queuedOut = false,
+    probeTranslator,
+    request,
+  } = opts;
+  const streamBody = call.body;
+  if (!streamBody) {
+    writeJsonError(res, 502, "upstream_error", "upstream returned an empty response body");
+    return;
+  }
+
+  // 非流式：消费完整上游流（必要时先翻译），聚合成一个 chat.completion JSON。
+  // custom 线型且渠道声明了 isQueueError 时，**响应头还没发**——排队帧可以触发
+  // 等待 + 重开上游重试（与流式路径同一套预算）。
+  if (!wantStream) {
+    try {
+      // ⚠ 这里**不再二次探测**：尝试层已用同一条件探测过这条流并推进了它的位置，
+      // 再探测会丢掉第一次消费掉的帧（非流式空响应的元凶）。此处只把探测结果（前缀内容帧 /
+      // 错误帧）与流剩余部分拼起来聚合。
+      const buf = Buffer.concat([
+        ...pendingFrames,
+        await inChannel(channel, () => collectAsOpenAiSse(streamBody, channel, cid, probeTranslator, request)),
+      ]);
+      // 排队耗尽且零内容：给客户端一个明确的错误，而不是空 completion
+      if (queuedOut && buf.length === 0) {
+        writeJsonError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
+        return;
+      }
+      const aggregated = sseStream.aggregateChatSse(buf);
+      noteUsage(res, aggregated.usage);
+      // 流内业务错误（上游 HTTP 200 + error 帧）且没有任何内容 → 报错误，别回空 completion
+      if (isEmptyCompletion(aggregated)) {
+        const sseError = sseStream.firstSseError(buf);
+        if (sseError) {
+          writeJsonError(res, 502, sseError.code ?? "upstream_error", sseError.message ?? "upstream error");
+          return;
+        }
+      }
+      noteFirstByte(res);
+      writeJson(res, aggregated);
+    } catch (err) {
+      logger(`reading upstream response interrupted: ${String(err)}`);
+      const timedOut = /timeout/i.test(String(err));
+      writeJsonError(res, 502, timedOut ? "upstream_timeout" : "upstream_error", "upstream request failed; see gateway logs");
+      noteRequestError(res, timedOut ? "upstream_timeout" : "upstream_read_failed", String(err));
+    }
+    return;
+  }
+
+  // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传
+  const outHeaders: Record<string, string> = {};
+  if (isCustomWire(channel)) {
+    // 自定义线型的输出恒为 OpenAI SSE，不能透传上游的 content-type
+    outHeaders["Content-Type"] = "text/event-stream; charset=utf-8";
+    outHeaders["Cache-Control"] = "no-cache";
+  } else {
+    for (const [name, value] of call.headers) {
+      if (!STRIP_HEADERS.has(name.toLowerCase())) outHeaders[name] = value;
+    }
+  }
+  res.writeHead(call.status, outHeaders);
+  // 排队探测阶段已经消费掉的内容帧先补写给客户端（它们属于这次响应的前缀）
+  for (const frame of pendingFrames) res.write(frame);
+  if (queuedOut && pendingFrames.length === 0) {
+    // 排队预算耗尽且没有任何内容：给出明确错误帧后结束
+    res.write(
+      `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
+    );
+    res.end();
+    return;
+  }
+  await inChannel(channel, () =>
+        relayStream(
+          res,
+          streamBody,
+          call.headers.get("content-type") ?? "",
+          logger,
+          channel,
+          cid,
+          probeTranslator,
+          request,
+          pendingFrames.length > 0,
+        ),
+  );
+}

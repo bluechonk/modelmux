@@ -44,10 +44,9 @@
 
 import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 
 import * as catalog from "./catalog.js";
-import { ensureDir, upstreamPath } from "@modelmux/gateway";
+import { ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
 
 /** 上游基址（snap-access 网关；硬编码 cn-north-4，无多区域）。 */
 export const DEFAULT_BASE_URL = "https://snap-access.cn-north-4.myhuaweicloud.com";
@@ -225,11 +224,7 @@ function agentCenterEnabled(cfg?: Config): boolean {
 /** 原子写入上游描述符。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 function trimSlash(value: string): string {

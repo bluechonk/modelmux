@@ -60,7 +60,7 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 | `openapi`（业务 API） | `https://openapi.qoder.sh` | `https://openapi.qoder.com.cn` | `packages/core/channels/qoder/src/cred.ts:68-98` 的 `PRODUCTS` |
 | `gateway`（推理主机） | `https://api1.qoder.sh`（主）+ `api2` / `api3` 故障切换 | `https://gateway.qoder.com.cn` | `packages/core/channels/qoder/src/cred.ts:68-98` 的 `PRODUCTS` |
 | `clientId` | `e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb` | `1c5e33e1-364d-4ce6-b02c-acaa81274a5c` | `packages/core/channels/qoder/src/cred.ts:68-98` 的 `PRODUCTS` |
-| `sashClientType` | `'10'` | `'10'` | `src/billing.ts:90-100` 的 `sashHeaders`（`/sash/**` 的 `Cosy-ClientType`） |
+| `sashClientType` | `'10'` | `'10'` | `packages/core/channels/qoder/src/billing.ts:90-100` 的 `sashHeaders`（`/sash/**` 的 `Cosy-ClientType`） |
 | `userAgent` | `Qoder/1.1.64` | `QoderWork/1.1.64` | `packages/core/channels/qoder/src/cred.ts:68-98` 的 `PRODUCTS` |
 
 > ⚠ **原描述 → 现在的行为**（`userAgentPrefix` 一行）：
@@ -167,7 +167,7 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 
 ⚠ **本仓不读 `user_name` / `userName`** —— 原文档把这两个字段列进了「token 响应字段」，
 但**本仓实现里没有这两处读取**（`packages/core/channels/qoder/src/cred.ts:487-501` 与
-`:600-612` 逐字段可查）。昵称只能靠下面那次 `userinfo` 补。
+`packages/core/channels/qoder/src/cred.ts:575-587` 逐字段可查）。昵称只能靠下面那次 `userinfo` 补。
 （`user_name` / `userName` 是**参考实现**的字段名 `[参考]`。）
 
 **踩坑**：设备码轮询响应**不带 `user_name`**，故登录后必须补一次
@@ -281,8 +281,8 @@ Body: {"refresh_token": "...", "machine_id": "..."}
 **合并规则**：续期响应不含 `machine_id`/`uid`/`nickname`，必须从旧凭据保留（本仓实现见 `packages/core/channels/qoder/src/cred.ts:571-588`）。
 
 **触发时机**：渠道代码里**没有主动续期** —— 续期由共享层在收到 401/403 时驱动
-（`packages/core/gateway/src/http/chat-relay.ts` 的 `openStream` 失败 → `cred.refresh()`
-（`packages/core/gateway/src/http/chat-relay.ts:324`）→ 重开上游）。
+（`packages/core/gateway/src/http/chat-auth.ts` 的 `openStream` 失败 → `cred.refresh()`
+（`packages/core/gateway/src/http/chat-auth.ts:70`）→ 重开上游）。
 即只有「401 后被动续期」，没有「到期前主动续期」`[代码]`。
 
 ### 2.5 必需请求头清单
@@ -313,7 +313,7 @@ Body: {"refresh_token": "...", "machine_id": "..."}
 | `x-model-key` | 上游模型 key | 否（**上游路由**） | 随模型 | |
 | `x-model-source` | 常量 `system` | 否 | — | |
 
-**COSY 签名的 MAC 计算**（`src/upstream.ts:245-258` 的 `CosySession.bearer`）`[代码]`：
+**COSY 签名的 MAC 计算**（`packages/core/channels/qoder/src/upstream.ts:245-258` 的 `CosySession.bearer`）`[代码]`：
 
 ```
 payloadB64 \n cosyKey \n date \n body \n pathWithoutAlgo      → md5_hex
@@ -362,7 +362,7 @@ Authorization = "Bearer COSY." + payloadB64 + "." + md5_hex
 
 ### 3.1 明文请求体结构
 
-逐项复刻官方 `G4A()`（本仓实现见 `src/upstream.ts:548-663` 的 `buildRequestBody`）：
+逐项复刻官方 `G4A()`（本仓实现见 `packages/core/channels/qoder/src/upstream.ts:538-663` 的 `buildRequestBody`）：
 
 ```
 request_id / request_set_id / chat_record_id   = 同一个随机 UUID
@@ -407,19 +407,19 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 
 | 约束 | 后果 | 来源 |
 |---|---|---|
-| `business` 必填 | 缺失时请求恒被路由到故障节点 `oa_qwen-plus-2025-04-28`，返回 `[FAIL]node:... msg:Execution failed` | `src/upstream.ts:661` |
-| `uid` 必须有 | 缺 uid 时 WASM 产出**签名无效**的请求 → `Signature invalid (101)` | `src/upstream.ts:224-234`（身份体含 `uid`）、`src/upstream.ts:268`（`cosy-user` 头） |
-| 顶层 `tools` 必须真发 | 不下发时模型只能用正文 XML 臆造工具调用；无工具时是**空数组**而非缺字段 | `src/upstream.ts:660` |
-| 目录 key 只能走加密端点 | 把 `qfmodel` 发给公开端点 → `{"code":"invalid_model_error"}` | `src/upstream.ts:78`（本仓只走加密端点 `CHAT_ENDPOINT_PATH`） |
-| `chat_context` 不能传空对象 | — | `src/upstream.ts:615-632` |
-| `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 把 content 压成纯文本会让图片全部消失 | `src/upstream.ts:631`（`imageUrls: null`）、`src/upstream.ts:633`（`image_urls: null`） |
-| assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 过滤会丢掉它们，多步工具调用会坏掉 | `src/upstream.ts:578-585` |
-| 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | 参考实现 `qoder-product.ts` 的实测；本仓入站请求体上限 32 MiB（`packages/core/gateway/src/http/chat-relay.ts:50`） |
-| `tools[]` 必须是**嵌套** `function` 形态 | 顶层 `{type:"function",name,…}` 直接 400 `'function' is a required property, expected an object - 'tools.N'`；本仓已做归一 | `src/upstream.ts:499-517`（`normalizeTools`）；参考实现 `qoder_proxy.py` `[参考]` |
-| `max_completion_tokens` 要归一成 `max_tokens` | 上游只认 `max_tokens`；不归一则用新别名的客户端**静默丢掉输出上限**；本仓已做归一 | `src/upstream.ts:591-606`；参考实现 `qoder_proxy.py` `[参考]` |
-| DeepSeek 多轮的 assistant 要带 `reasoning_content` | 缺了上游拒（表现为「偶发失败、重试有时能过」）；本仓已按上游 key（`dmodel`/`dfmodel`）回填 | `src/upstream.ts:563-583`（回填）、`src/upstream.ts:484-490`（DeepSeek 上游 key 判定）；参考实现 `qoder_proxy.py` `[参考]` |
-| 顶层**没有** `system` 字段 | system 消息必须并进 `messages`（`{role:"system", content:<纯文本>}`）；多条 system 用空行（`\n\n`）拼接成一条。**本仓已做** | `src/upstream.ts:555-577`（拆出 `systems` → `systemText` → 塞回 `messages` 首条） |
-| `parameters` **只发三个键** | 本仓只发 `max_tokens`（`max_completion_tokens` 会先归一成它）/ `reasoning_effort` / `temperature`；**不发** `enable_thinking` / `context_length` | `src/upstream.ts:591-606` |
+| `business` 必填 | 缺失时请求恒被路由到故障节点 `oa_qwen-plus-2025-04-28`，返回 `[FAIL]node:... msg:Execution failed` | `packages/core/channels/qoder/src/upstream.ts:661` |
+| `uid` 必须有 | 缺 uid 时 WASM 产出**签名无效**的请求 → `Signature invalid (101)` | `packages/core/channels/qoder/src/upstream.ts:224-234`（身份体含 `uid`）、`packages/core/channels/qoder/src/upstream.ts:268`（`cosy-user` 头） |
+| 顶层 `tools` 必须真发 | 不下发时模型只能用正文 XML 臆造工具调用；无工具时是**空数组**而非缺字段 | `packages/core/channels/qoder/src/upstream.ts:660` |
+| 目录 key 只能走加密端点 | 把 `qfmodel` 发给公开端点 → `{"code":"invalid_model_error"}` | `packages/core/channels/qoder/src/upstream.ts:78`（本仓只走加密端点 `CHAT_ENDPOINT_PATH`） |
+| `chat_context` 不能传空对象 | — | `packages/core/channels/qoder/src/upstream.ts:615-632` |
+| `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 把 content 压成纯文本会让图片全部消失 | `packages/core/channels/qoder/src/upstream.ts:631`（`imageUrls: null`）、`packages/core/channels/qoder/src/upstream.ts:633`（`image_urls: null`） |
+| assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 过滤会丢掉它们，多步工具调用会坏掉 | `packages/core/channels/qoder/src/upstream.ts:577-585` |
+| 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | 参考实现 `qoder-product.ts` 的实测；本仓入站请求体上限 32 MiB（`packages/core/gateway/src/http/chat-request.ts:18`） |
+| `tools[]` 必须是**嵌套** `function` 形态 | 顶层 `{type:"function",name,…}` 直接 400 `'function' is a required property, expected an object - 'tools.N'`；本仓已做归一 | `packages/core/channels/qoder/src/upstream.ts:492-499`（口径说明）、`packages/core/channels/qoder/src/upstream.ts:589-590`（调用共享层 `normalizeToolList`）；共享层 `packages/core/gateway/src/http/openai-normalize.ts`；参考实现 `qoder_proxy.py` `[参考]` |
+| `max_completion_tokens` 要归一成 `max_tokens` | 上游只认 `max_tokens`；不归一则用新别名的客户端**静默丢掉输出上限**；本仓已做归一 | `packages/core/channels/qoder/src/upstream.ts:592-602`（调用共享层 `translateMaxCompletionTokens`）；参考实现 `qoder_proxy.py` `[参考]` |
+| DeepSeek 多轮的 assistant 要带 `reasoning_content` | 缺了上游拒（表现为「偶发失败、重试有时能过」）；本仓已按上游 key（`dmodel`/`dfmodel`）回填 | `packages/core/channels/qoder/src/upstream.ts:554-573`（回填）、`packages/core/channels/qoder/src/upstream.ts:483-490`（DeepSeek 上游 key 判定）；参考实现 `qoder_proxy.py` `[参考]` |
+| 顶层**没有** `system` 字段 | system 消息必须并进 `messages`（`{role:"system", content:<纯文本>}`）；多条 system 用空行（`\n\n`）拼接成一条。**本仓已做** | `packages/core/channels/qoder/src/upstream.ts:544-552`（拆出 `systems` → `systemText`）、`packages/core/channels/qoder/src/upstream.ts:575-585`（塞回 `messages` 首条） |
+| `parameters` **只发三个键** | 本仓只发 `max_tokens`（`max_completion_tokens` 会先归一成它）/ `reasoning_effort` / `temperature`；**不发** `enable_thinking` / `context_length` | `packages/core/channels/qoder/src/upstream.ts:592-606` |
 
 > ⚠ **原描述 → 现在的行为**（本表末两行）：
 > 原 §3.1 的请求体清单里写有独立的 `system = [{type:"text", text}]` 字段，
@@ -427,6 +427,21 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 > 那是**参考实现**的请求体形状。**本仓没有 `system` 顶层字段**（system 并进 `messages`），
 > `parameters` 也**只发三个键**；按原文档去加 `enable_thinking` / `context_length`
 > 只会把上游不认的键发出去。
+
+#### 3.2.1 通用归一化在共享层，渠道只留协议判据
+
+形状修复（工具声明嵌套化、输出上限别名、思考链回填）已下沉到共享层
+`packages/core/gateway/src/http/openai-normalize.ts`；渠道包不再自备副本。
+本渠道的**协议判据**由 `packages/core/channels/qoder/src/upstream.ts:554-573` 用选项表达：
+
+| 选项 | 本渠道取值 | 依据 |
+|---|---|---|
+| `modelPrefix` | `""`（不按模型名过滤） | 哪一族模型要求思考链字段是**渠道事实**：按上游 key（`dmodel`/`dfmodel`）或展示名判定（`packages/core/channels/qoder/src/upstream.ts:483-490`） |
+| `mirrorReasoning` | `false` | 上游只认 `reasoning_content`，不认旧字段 `reasoning`（多写会被拒） |
+| `requireExistingTrace` | `true` | 上游以「会话已有思考链」为要求信号；本轮要思考不足以触发，没有链时补空串会污染上游判断（参考实现 `qoder_proxy.py:2754-2781` 同一口径）`[参考]` |
+
+> 国内版 `qodercn` 是同一套协议的两个域，**归一化口径与本渠道完全一致**（同一套共享层调用与选项）。
+
 
 ### 3.3 加密端点的请求头
 
@@ -443,7 +458,7 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 **本仓未发的头**：`Cosy-Business-Product` / `Cosy-Business-Type` / `Cosy-Scene`
 （参考实现 `Zhengyuuuui/qoder2api` 的 `internal/bridge/client.go` 发，但主参照的推理头
 没有这三个 —— `shuishuipingan/qoder2api-hub` 的 `qoder_sign.py`）`[参考]`；
-本仓实际发的推理头以 `src/upstream.ts:261-287`（`CosySession.headers`）为准；
+本仓实际发的推理头以 `packages/core/channels/qoder/src/upstream.ts:261-287`（`CosySession.headers`）为准；
 `Cosy-Organization-Id` / `Cosy-Organization-Tags`（本仓身份体的 `organization_id` 恒空，见 §9）`[推断]`。
 
 签名相关字面量：`authsign` / `cosy` / `Date` / `Appcode` / `Signature` / `Bearer COSY.`，
@@ -453,7 +468,7 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 
 ## 4. 流式响应
 
-### 4.1 信封（实现见 `src/upstream.ts:856-968` 的 `newTranslator`）
+### 4.1 信封（实现见 `packages/core/channels/qoder/src/upstream.ts:856-968` 的 `newTranslator`）
 
 加密端点每帧多一层信封：
 
@@ -461,13 +476,13 @@ business = { product: "cli", version: "0.1.43", type: "agent", id, name, begin_a
 data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","statusCodeValue":200,"statusCode":"OK"}
 ```
 
-- **内层 `body` 未加密**（只有请求体要 WASM 加密）；`body` 是 JSON 字符串时直接取，是对象时 `JSON.stringify`（实现见 `src/upstream.ts:832-846`）
+- **内层 `body` 未加密**（只有请求体要 WASM 加密）；`body` 是 JSON 字符串时直接取，是对象时 `JSON.stringify`（实现见 `packages/core/channels/qoder/src/upstream.ts:832-846`）
 - 剥完后就是**标准 OpenAI SSE**
-- 内层帧分类（实现见 `src/upstream.ts:860-946` 的 `processLine`）：
+- 内层帧分类（实现见 `packages/core/channels/qoder/src/upstream.ts:860-946` 的 `processLine`）：
  - `chunk`：有 `choices` 数组（**`choices: []` 也算**）或 `usage`
  - `heartbeat`：`null`、空串、`{}`、裸标量 → **整帧跳过**（把 `body:null` 当业务错误会让正常回完内容却报失败，issue IKJOZ8）
  - `error`：显式带 `code` / `message` / `error` / `statusCodeValue` / `type` 之一 → 抛出，且**保真转发** `{code, message, type:'model_error'}`（`code` 必须独立字段，下游靠 `code==='10605'` 识别排队）
-- 非 `data:` 行（如 `event:finish`）原样保留；`[DONE]` 原样传递（实现见 `src/upstream.ts:862-864`）
+- 非 `data:` 行（如 `event:finish`）原样保留；`[DONE]` 原样传递（实现见 `packages/core/channels/qoder/src/upstream.ts:862-864`）
 
 ### 4.2 事件与结束标志
 
@@ -482,10 +497,10 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 | 码 | 语义 | 本仓的处理 | 来源 |
 |---|---|---|---|
-| `10605`（字符串） | 模型排队 | 渠道只负责**判定**：内层 `code === "10605"`，或 `message` 里含 `isQueued` / `retryAfterSeconds` / `10605`（`src/upstream.ts:793-799`）。**重试与退避全在共享层**：延迟只从 `message` 里解析 `retryAfterSeconds`（正则 `/retryAfterSeconds\D+(\d+)/i`，`packages/core/gateway/src/http/chat-queue.ts:120`）→ 秒×1000，下限 1s、**上限 10 秒**（`packages/core/gateway/src/http/chat-queue.ts:17` 的 `QUEUE_RETRY_MAX_DELAY_MS`）；整个请求的排队等待**总预算 5 分钟**（`packages/core/gateway/src/http/chat-queue.ts:19` 的 `QUEUE_RETRY_BUDGET_MS`），超预算即放弃。**没有次数上限、没有环境变量** | 渠道 `src/upstream.ts:793-799`；共享层 `packages/core/gateway/src/http/chat-queue.ts:17-19`、`packages/core/gateway/src/http/chat-queue.ts:117-131`、`packages/core/gateway/src/http/chat-relay.ts:648-656` |
-| `110` | 额度用尽 | 共享层按**响应体文案**判额度耗尽（`isQuotaExhausted`，`packages/core/gateway/src/http/chat-errors.ts:33-36`），正则 = `insufficient_points\|insufficient_quota\|quota[_ -]?exceeded\|credit[s]?[_ -]?(exhausted\|insufficient)\|余额不足\|积分不足\|额度不足\|配额不足\|超出配额\|免费额度已用完\|额度已用完\|升级套餐`。命中即把**生效账号**标 `health=error`（`noteAccountQuotaExhausted`，`runtime/account-pool.ts:390-406`），回 503 `quota_exhausted` | 共享层 `packages/core/gateway/src/http/chat-errors.ts:33-36`、`packages/core/gateway/src/http/chat-relay.ts:695-709`；`packages/core/gateway/src/runtime/account-pool.ts:390-406` |
-| `105` | `auth_error`（与 10605 独立，不可合并） | **只被转成 error 帧保真转发 `code`**（`src/upstream.ts:931-936`），**不会触发续期**。共享层的续期只在 **HTTP 401/403** 时驱动（`packages/core/gateway/src/http/chat-relay.ts:233-245` 识别 → `packages/core/gateway/src/http/chat-relay.ts:324-331` 调 `cred.refresh()` 后重开一次）。流内业务码 `105` 走的是 HTTP 200 通道，**不在**续期触发条件里 | `src/upstream.ts:931-936`；`packages/core/gateway/src/http/chat-relay.ts:233-245`、`packages/core/gateway/src/http/chat-relay.ts:324-331` |
-| 409 `duplicate_request` | 上游 HTTP 409 | **本仓没有 409 分支**：既不在渠道的 `isQueueError` 判据里，共享层也没有 409 专门处理（非 200 → 统一按上游错误回 502 `upstream_error`） | 共享层 `packages/core/gateway/src/http/chat-relay.ts:246-261`（非 200 分支）、`packages/core/gateway/src/http/chat-relay.ts:716-721` |
+| `10605`（字符串） | 模型排队 | 渠道只负责**判定**：内层 `code === "10605"`，或 `message` 里含 `isQueued` / `retryAfterSeconds` / `10605`（`packages/core/channels/qoder/src/upstream.ts:793-799`）。**重试与退避全在共享层**：延迟只从 `message` 里解析 `retryAfterSeconds`（正则 `/retryAfterSeconds\D+(\d+)/i`，`packages/core/gateway/src/http/chat-queue.ts:120`）→ 秒×1000，下限 1s、**上限 10 秒**（`packages/core/gateway/src/http/chat-queue.ts:17` 的 `QUEUE_RETRY_MAX_DELAY_MS`）；整个请求的排队等待**总预算 5 分钟**（`packages/core/gateway/src/http/chat-queue.ts:19` 的 `QUEUE_RETRY_BUDGET_MS`），超预算即放弃。**没有次数上限、没有环境变量** | 渠道 `packages/core/channels/qoder/src/upstream.ts:793-799`；共享层 `packages/core/gateway/src/http/chat-queue.ts:17-19`、`packages/core/gateway/src/http/chat-queue.ts:117-131`、`packages/core/gateway/src/http/chat-attempt.ts:221-228` |
+| `110` | 额度用尽 | 共享层按**响应体文案**判额度耗尽（`isQuotaExhausted`，`packages/core/gateway/src/http/chat-errors.ts:33-36`），正则 = `insufficient_points\|insufficient_quota\|quota[_ -]?exceeded\|credit[s]?[_ -]?(exhausted\|insufficient)\|余额不足\|积分不足\|额度不足\|配额不足\|超出配额\|免费额度已用完\|额度已用完\|升级套餐`。命中即把**生效账号**标 `health=error`（`noteAccountQuotaExhausted`，`packages/core/gateway/src/runtime/account-pool.ts:390-406`），回 503 `quota_exhausted` | 共享层 `packages/core/gateway/src/http/chat-errors.ts:33-36`、`packages/core/gateway/src/http/chat-attempt.ts:383-400`；`packages/core/gateway/src/runtime/account-pool.ts:390-406` |
+| `105` | `auth_error`（与 10605 独立，不可合并） | **只被转成 error 帧保真转发 `code`**（`packages/core/channels/qoder/src/upstream.ts:931-936`），**不会触发续期**。共享层的续期只在 **HTTP 401/403** 时驱动（`packages/core/gateway/src/http/chat-upstream.ts:140-152` 识别 → `packages/core/gateway/src/http/chat-auth.ts:70-77` 调 `cred.refresh()` 后重开一次）。流内业务码 `105` 走的是 HTTP 200 通道，**不在**续期触发条件里 | `packages/core/channels/qoder/src/upstream.ts:931-936`；`packages/core/gateway/src/http/chat-upstream.ts:140-152`、`packages/core/gateway/src/http/chat-auth.ts:70-77` |
+| 409 `duplicate_request` | 上游 HTTP 409 | **本仓没有 409 分支**：既不在渠道的 `isQueueError` 判据里，共享层也没有 409 专门处理（非 200 → 统一按上游错误回 502 `upstream_error`） | 共享层 `packages/core/gateway/src/http/chat-upstream.ts:153-168`（非 200 分支）、`packages/core/gateway/src/http/chat-attempt.ts:402-413` |
 
 > ⚠ **原描述 → 现在的行为**（本表四行）：
 > - `10605` 行原写「延迟优先序 `retry_after_ms` → `retryAfterMs` → `retryAfterSeconds×1000`，
@@ -501,19 +516,19 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 >   ⚠ 注意差异：只含 `Billing daily count exceeded` / `billing_error` 字样、而**不含**上述任一措辞的
 >   报文，**不会**被判成额度耗尽 —— 别按旧正则去判断。
 > - `105` 行原写「续期后重试」—— **本仓只在 HTTP 401/403 时续期**；流内业务码 `105`
->   只是被转成 error 帧（`src/upstream.ts:931-936`）。
+>   只是被转成 error 帧（`packages/core/channels/qoder/src/upstream.ts:931-936`）。
 > - `409` 行原写「不刷新凭据，直接重发一次」—— **本仓没有 409 分支**（那一条是**参考实现**行为）。
 
 **排队重试只有共享层这一套**（本仓没有「渠道探测层」）：
-渠道只提供 `isQueueError` 判定（`src/upstream.ts:793-799`），
-退避与重开上游由 `packages/core/gateway/src/http/chat-relay.ts:610-673` 承担 ——
+渠道只提供 `isQueueError` 判定（`packages/core/channels/qoder/src/upstream.ts:793-799`），
+退避与重开上游由 `packages/core/gateway/src/http/chat-attempt.ts:121-246` 承担 ——
 单帧退避上限 **10 秒**、整个请求的排队等待**总预算 5 分钟**（见
 [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.4 与
 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5）。
 （参考实现另有一层「180 次 / 30 分钟（`DSH_QODER_QUEUE_TIMEOUT_MS`）」的渠道探测层，
 **本仓没有**，别照抄那个口径。）
 
-排队错误的**两种下发形态都必须处理**（只修一条会回归）：HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（后者是本仓关心的那一支：非 200 信封里的内嵌错误见 `src/upstream.ts:893-908`，流内业务错误帧见 `src/upstream.ts:931-936`；参考实现 `qoder-adapter.ts` 两种都处理）。
+排队错误的**两种下发形态都必须处理**（只修一条会回归）：HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（后者是本仓关心的那一支：非 200 信封里的内嵌错误见 `packages/core/channels/qoder/src/upstream.ts:893-908`，流内业务错误帧见 `packages/core/channels/qoder/src/upstream.ts:931-936`；参考实现 `qoder-adapter.ts` 两种都处理）。
 
 额度错误实测走 SSE（HTTP 200）通道；共享层命中额度判据后**把生效账号标 `health=error`**
 （`noteAccountQuotaExhausted`，`packages/core/gateway/src/runtime/account-pool.ts:390-406`），
@@ -521,7 +536,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 ⚠ **原描述 → 现在的行为**：原文档写「标记『该账号 + 该模型』到 **UTC+8 当日 24:00**，然后切换账号池下一个账号」
 —— **本仓没有按模型维度的额度标记，也没有 UTC+8 24:00 时刻**（那是**参考实现**的口径）；
 账号切换一律由用户手动完成（`mx acct <cid> use <key>`），网关**不自动切号**
-（`packages/core/gateway/src/http/chat-relay.ts:282-290` 的注释明写）。
+（`packages/core/gateway/src/http/chat-auth.ts:26-34` 的注释明写）。
 
 ---
 
@@ -536,7 +551,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 优先级：
 
 1. **动态目录**：`mx model qoder --refresh` 落盘的目录缓存（来自上游 `model/list`）—— 更准 `[代码]`
-2. **静态兜底表**：`src/catalog.ts:116-135` 的 `STATIC_META`，取自本机动态目录快照
+2. **静态兜底表**：`packages/core/channels/qoder/src/catalog.ts:116-135` 的 `STATIC_META`，取自本机动态目录快照
    （2026-10-19 拉取），字段集与参考实现的**官方目录快照**同构 `[参考]`
 3. 都查不到 → `display_name = key`、`is_vl = false`、`is_reasoning = false`、`max_input_tokens = 180000`
 
@@ -565,7 +580,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 
 ⚠ 静态表里的 `max_input_tokens` 与 §5.3 的上下文口径**是两回事**（见下）。
 
-### 5.1 国际版 17 条（本仓静态兜底表见 `src/catalog.ts:116-135` 的 `STATIC_META`）
+### 5.1 国际版 17 条（本仓静态兜底表见 `packages/core/channels/qoder/src/catalog.ts:116-135` 的 `STATIC_META`）
 
 | id | 名称 | 上下文 | 倍率 | 备注 |
 |---|---|---|---|---|
@@ -611,7 +626,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
  `dfmodel` 999,991 通过、`qfmodel` 983,490 通过（越界报 `Range of input length should be [1, 983616]`）、
  `dmodel` 852,951 通过（实测见参考实现 `qoder-product.ts`）
  ⚠ 但**请求体的 `model_config.max_input_tokens` 用的是目录 `max_input_tokens` 的原值**
- （上游请求体用它；本仓取值见 `src/upstream.ts:656` 与 `src/catalog.ts:116-135`，参考实现见 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`）`[参考]` ——
+ （上游请求体用它；本仓取值见 `packages/core/channels/qoder/src/upstream.ts:656` 与 `packages/core/channels/qoder/src/catalog.ts:116-135`，参考实现见 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`）`[参考]` ——
  两个口径本来就不同，不要混用。
 
 ---
@@ -627,12 +642,12 @@ Headers: Accept: application/json, Authorization: Bearer <token>,
         User-Agent: Qoder/1.1.64（国际）/ QoderWork/1.1.64（国内）,
         Cosy-MachineToken: <配对头>, Cosy-MachineType: <配对头>
 ```
-（本仓实现见 `src/billing.ts:90-100` 的 `sashHeaders`，端点常量见 `src/billing.ts:54-55`；头表见 §2.5.2）
+（本仓实现见 `packages/core/channels/qoder/src/billing.ts:90-100` 的 `sashHeaders`，端点常量见 `packages/core/channels/qoder/src/billing.ts:54-55`；头表见 §2.5.2）
 
 ⚠ **原描述 → 现在的行为**：原代码块写 `User-Agent: Qoder` —— **与同文档 §2.5.2 自相矛盾**
 （那里写的是 `Qoder/1.1.64`）。**本仓实际发完整 UA 串**：`cred.productOf(realm).userAgent`
 （国际 `Qoder/1.1.64` / 国内 `QoderWork/1.1.64`，`packages/core/channels/qoder/src/cred.ts:93` / `packages/core/channels/qoder/src/cred.ts:78`），
-由 `src/billing.ts:98` 取出。
+由 `packages/core/channels/qoder/src/billing.ts:98` 取出。
 
 响应：`displayMode: "qoder"|"enterprise"`（enterprise 无额度数字，返回 null）；
 `qoderUsage.userQuota{total,used,remaining,unit}`、`qoderUsage.addOnQuota{...}`、
@@ -651,7 +666,7 @@ body: 空串（不是 {}）
 ```
 - 只有 `actionType==='CLAIM_BENEFIT' && claimStatus==='CLAIMABLE'` 才可领；`VIEW_DETAILS` 不领
 - 幂等判据是响应体 `replayed:true`（重复领取同样 HTTP 200，但不含 `benefit`、`claimedAt` 是旧时间）
--  活动每日 **10:00（UTC+8）刷新**（本仓实现见 `src/billing.ts:58` 的 `CAMPAIGN_REFRESH_HOUR_UTC8 = 10` 与 `src/billing.ts:131-147` 的 `claimedToday`）；
+-  活动每日 **10:00（UTC+8）刷新**（本仓实现见 `packages/core/channels/qoder/src/billing.ts:58` 的 `CAMPAIGN_REFRESH_HOUR_UTC8 = 10` 与 `packages/core/channels/qoder/src/billing.ts:131-147` 的 `claimedToday`）；
  刷新前看到的 `CLAIMED` 属昨天，**不能报「今天已领」**
   （常量名就叫 `CAMPAIGN_REFRESH_HOUR_UTC8`，**没有 `QODER_` 前缀**；模块级私有常量，不导出）
 
@@ -669,7 +684,7 @@ body: 空串（不是 {}）
 `decrypt_server_response`、`profileencryptor_new/encryptChunk/header`
 
 参考实现默认客户端版本常量 `COSY_VERSION = '1.1.49'`（见参考实现 `qoder-wasm.ts`；注意与桌面端 0.3.4 不是一个号）。
-**本仓不走 WASM**，实际发的是 `COSY_VERSION = "1.1.64"`（`src/upstream.ts:69`）。
+**本仓不走 WASM**，实际发的是 `COSY_VERSION = "1.1.64"`（`packages/core/channels/qoder/src/upstream.ts:69`）。
 
 **调用链**：
 ```
@@ -680,7 +695,7 @@ qodercontext_new(machineId, version, userInfoJson, clientMetadataJson)
 qodercontext_prepareInferRequest(host, body, modelKey, source)
  → {url, headers, body}    其中 Authorization: Bearer COSY.<载荷>.<签名>
 ```
-（调用链见参考实现 `qoder-wasm.ts`；**本仓不实现 WASM 路线**，等价能力用纯 `node:crypto` 复刻，见 `src/upstream.ts:207-287`）
+（调用链见参考实现 `qoder-wasm.ts`；**本仓不实现 WASM 路线**，等价能力用纯 `node:crypto` 复刻，见 `packages/core/channels/qoder/src/upstream.ts:207-287`）
 
 **Python 复现路线**：
 - **无纯 Python 替代**，源码里也没有第二实现
@@ -716,7 +731,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 > ⚠ **本仓不实现 UMID / `runtime-info` 桥**：国际版改用**按 uid 稳定派生**的成对机器头
 > （`packages/core/channels/qoder/src/cred.ts:179-199` 的 `machineIdOf` / `machineTokenOf` / `machineTypeOf`，
-> 实际发头见 `src/billing.ts:90-100` 的 `sashHeaders` 与 `src/upstream.ts:261-287`）；
+> 实际发头见 `packages/core/channels/qoder/src/billing.ts:90-100` 的 `sashHeaders` 与 `packages/core/channels/qoder/src/upstream.ts:261-287`）；
 > 国内版干脆不发这两个头（见 [qodercn 的 PROTOCOL](../qodercn/PROTOCOL.md) §3.2）。
 > 上面的来源优先级是**参考实现**的口径，本仓以派生值为准。
 
@@ -728,7 +743,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 - 排队 `10605` 与额度 `110` 与认证 `105` 是**三个独立码**，不能合并
 - `Cosy-ClientType` 两个身份不可合并：推理请求头的 `cosy-clienttype=5`（CLI，
-  `src/upstream.ts:272`）与 `/sash/` 的 `Cosy-ClientType=10`（桌面 app，`src/billing.ts:94`）
+  `packages/core/channels/qoder/src/upstream.ts:272`）与 `/sash/` 的 `Cosy-ClientType=10`（桌面 app，`packages/core/channels/qoder/src/billing.ts:94`）
   —— ⚠ 参考实现把前一个放在**请求体**的 `clientMetadata.client_type` 里 `[参考]`，
   **本仓请求体里没有 `clientMetadata` 字段**（只发 §2.5.1 列出的头）
 - 续期请求体缺 `machine_id` 会破坏设备绑定；续期后必须保留 `machine_id`/`uid`/`nickname`
@@ -746,7 +761,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 **modelmux 侧对应**：共享层默认静默 120s 会误杀这类「已收下但还在排」的请求
 （旧行为还会让探测层异常穿透成 500 `internal_error`，现归 502 `upstream_timeout`）。
-本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `src/upstream.ts:809-811`），网关等待首帧
+本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `packages/core/channels/qoder/src/upstream.ts:809-811`），网关等待首帧
 期间每 5 秒补 `: ping`（`packages/core/gateway/src/http/chat-stream.ts:52` 与 `packages/core/gateway/src/http/chat-stream.ts:135`）。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
 仍会在 900 秒后按超时收尾。
 
@@ -760,10 +775,10 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 **modelmux 侧对应**：`upstream.ts` 暴露四个可选钩子，网关探测层用鸭子类型调用 ——
 
-- `chatHostCandidates()`：返回 `[当前主机, 区域表其余候选]` 的副本（`src/upstream.ts:395-399`）
-- `setChatHostOverride(host)` / `currentChatHost()`：切换 / 读取本次应答用的主机（含签名槽重签）（`src/upstream.ts:363-372`）
+- `chatHostCandidates()`：返回 `[当前主机, 区域表其余候选]` 的副本（`packages/core/channels/qoder/src/upstream.ts:395-399`）
+- `setChatHostOverride(host)` / `currentChatHost()`：切换 / 读取本次应答用的主机（含签名槽重签）（`packages/core/channels/qoder/src/upstream.ts:363-372`）
 - `rememberChatHost()`：换主机重试成功后，把新主机持久化进凭据 `gatewayHost`，
-  后续请求直接从记忆里的健康主机起步，不再每次先撞坏的那台（`src/upstream.ts:380-386`，
+  后续请求直接从记忆里的健康主机起步，不再每次先撞坏的那台（`packages/core/channels/qoder/src/upstream.ts:380-386`，
   回写凭据见 `packages/core/channels/qoder/src/cred.ts:280-289`）
 
 **排队帧收尾**：`10605` 排队帧**就是这条流的最后一帧** —— 上游发出后保持连接但彻底静默，
@@ -788,7 +803,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 倍率 → 不给规格，回落兜底值（**不编造**）。
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts:51-63` 的 `MAX_OUTPUTS`（国内版 `qodercn` 同一套）。
+`packages/core/channels/qoder/src/catalog.ts:51-63` 的 `MAX_OUTPUTS`（国内版 `qodercn` 同一套）。
 
 ---
 
@@ -854,6 +869,20 @@ Reasonix CLI 直连网关（`qoder/deepseek-flash`，倍率 0.1）：
 - 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
 - 本轮为**全渠道回归**的一环；下节「2026-10-20 改动」列出的四件事已随本次实测复验。
 
+### 2026-10-20 归一化口径收敛后的端到端实测（共享层下沉后）
+
+本轮把通用 OpenAI 归一化下沉到共享层（`packages/core/gateway/src/http/openai-normalize.ts`），
+qoder 改用共享层实现（`max_completion_tokens` 口径与参考实现一致，思考链回填按
+`mirrorReasoning: false` + `requireExistingTrace: true`）。**请求体因此有变化**，已复验：
+
+- 模型 `qoder/deepseek-flash`（倍率 0），Reasonix Agent 工具往返通过：
+  写文件 → 读回确认 → `bash` 执行 `pwd`/`ls` → 总结，四步全过；
+- 落盘文件内容与要求完全一致（`qoder/deepseek-flash ok`）；
+- access 日志：`status: 200`、`stream: true`、`toolCount: 18`、
+  `messageCount` 2 → 6（随工具轮次递增）；
+- 错误日志当日**无该渠道新增条目**；
+- 费用：免费模型（倍率 0），账单差值 0。
+
 ### 2026-10-20 改动（已在同日端到端实测中复验）
 
 本轮改了四件事（G1 / G4 / G18 / G19）并补了 `/sash` 的 `cosy-version`，
@@ -910,7 +939,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 | G4 | `max_completion_tokens` 被忽略 | ✅ 已修（§3.2） |
 | G18 | `tools` 顶层 `name` 型不归一（上游 400） | ✅ 已修（§3.2） |
 | G19 | assistant 历史丢 `reasoning_content`（DeepSeek 多轮被拒） | ✅ 已修（§3.2） |
-| G6 | `context_config` 多窗口未解析 | ✅ **已由共享层实现**（不是本渠道代码）：共享层从 `context_config` 档位表取**最大档**作对外 `context_window`（`packages/core/gateway/src/pool/pool-targets.ts:294-310` 的 `contextWindowOf`，`:361` 落到 `metaFromEntry`）——与 §5.3 的口径一致 |
+| G6 | `context_config` 多窗口未解析 | ✅ **已由共享层实现**（不是本渠道代码）：共享层从 `context_config` 档位表取**最大档**作对外 `context_window`（`packages/core/gateway/src/pool/pool-targets.ts:294-310` 的 `contextWindowOf`，`packages/core/gateway/src/pool/pool-targets.ts:361` 落到 `metaFromEntry`）——与 §5.3 的口径一致 |
 
 **未做 16 条**（按优先级排）：
 
@@ -934,7 +963,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 | G15 | `GET /sash/api/v1/me/campaigns/{id}/reward` 未接 | 领不了也查不了单个活动状态 | hub `qoder_accounts.py`（campaign 奖励查询段） |
 | G16 | 领取结果的细粒度判定（`BLOCKED` / 兑换码） | 只判 `replayed` | hub `qoder_accounts.py`（领取结果判定段） |
 | G17 | Pro 升级包（见 §9.1） | — | hub `qoder_accounts.py`（Pro 升级包段） |
-| G20 | `chat_context.imageUrls` / `image_urls` 恒 `null` | 图片只能走 `messages[].content` 多模态数组 | hub `qoder_proxy.py`（`imageUrls` 段）；本仓实现见 `src/upstream.ts:631-633` |
+| G20 | `chat_context.imageUrls` / `image_urls` 恒 `null` | 图片只能走 `messages[].content` 多模态数组 | hub `qoder_proxy.py`（`imageUrls` 段）；本仓实现见 `packages/core/channels/qoder/src/upstream.ts:631-633` |
 | G21 | 多入口协议（Anthropic `/v1/messages`、OpenAI `/v1/responses`、Codex）与 DSML 回退 | 只有 OpenAI Chat 形态 | hub `qoder_anthropic.py`、`qoder_proxy.py`（多入口协议段） |
 
 > 另有**会话亲和**（同一会话固定落同一账号）未做：参考实现的
@@ -945,7 +974,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 
 | # | 风险 | 影响 |
 | --- | --- | --- |
-| R1 | `/sash` **无条件发派生** `cosy-machinetoken` + `cosy-machinetype`。主参照 issue #10 实测：**派生六头全发会被判为非官方客户端，把 CLAIMABLE 的「每日领取 100 Credits」整条过滤**（只剩 `VIEW_DETAILS`）；正解是**一个都不发**（参考实现 hub `qoder_accounts.py` 的 issue #10 结论） | 签到可能看不到活动且**不报错** —— 本轮**未改**（我方行为未验证），待真机比对；本仓当前仍无条件发派生头（`src/billing.ts:90-100`） |
+| R1 | `/sash` **无条件发派生** `cosy-machinetoken` + `cosy-machinetype`。主参照 issue #10 实测：**派生六头全发会被判为非官方客户端，把 CLAIMABLE 的「每日领取 100 Credits」整条过滤**（只剩 `VIEW_DETAILS`）；正解是**一个都不发**（参考实现 hub `qoder_accounts.py` 的 issue #10 结论） | 签到可能看不到活动且**不报错** —— 本轮**未改**（我方行为未验证），待真机比对；本仓当前仍无条件发派生头（`packages/core/channels/qoder/src/billing.ts:90-100`） |
 | R2 | `/sash` 的 `cosy-version` 取值 `0.4.3`（桌面端系列）未经我方实测 | 版本不对可能仍返回空列表 |
 | R3 | `reasoning_effort` 原样透传，无归一 | 上游静默忽略非法档位 |
 | R4 | ~~`user_type` 恒默认值 `personal_professional_trial`~~ | **已修**（2026-10-20）：userinfo 扩到 name / user_type / id（§2.1），请求体 `aliyun_user_type` 取真实值；取不到才回落默认 |

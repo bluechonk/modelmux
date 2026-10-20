@@ -23,9 +23,8 @@
 
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 
-import { ensureDir, upstreamPath } from "@modelmux/gateway";
+import { ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
 
 /** 业务基址（推理与积分端点）。 */
 export const DEFAULT_BASE_URL = "https://loomyad.xunfei.cn";
@@ -154,11 +153,7 @@ export function loadConfig(): [Config, boolean] {
 /** 持久化上游描述符（临时文件 + 原子替换）。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 function trimSlash(value: string): string {
