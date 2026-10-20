@@ -5,6 +5,7 @@
  *   - `openai` 线型走规范化透传，自定义线型走翻译器的增量帧
  *   - 静默判定按「连续无数据时长」而非总时长（持续出字的长任务不该被切断）
  *   - 翻译器实例跨「探测 → 转发」必须复用同一个（行缓冲里可能还剩半行）
+ *   - 读上游**任何时刻只有一个 read 在飞**（心跳不得另起 read，否则丢帧）
  *
  * 铁律：只搬运与解析字节，不含任何渠道知识。
  */
@@ -51,6 +52,13 @@ const FIRST_TOKEN_IDLE_MS = 120_000;
 /** 首帧等待期的心跳间隔：上游零字节时向客户端补 SSE 注释帧（`: ping`）防空闲断开。 */
 const FIRST_BYTE_HEARTBEAT_MS = 5_000;
 
+/** 心跳间隔可用环境变量覆盖（测试与长部署按需调整）。 */
+function heartbeatMs(): number {
+  const raw = process.env["MODELMUX_HEARTBEAT_MS"];
+  const value = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(value) && value > 0 ? value : FIRST_BYTE_HEARTBEAT_MS;
+}
+
 type IdleRead = { idle: true };
 
 /**
@@ -58,29 +66,43 @@ type IdleRead = { idle: true };
  * 上游等工具结果、上游发完正文不关流（实测有上游沉默 170s）都会触发，
  * 由调用方决定是下发工具调用还是收尾本轮。
  *
- * `onHeartbeat` 传入时按 5 秒粒度等待：每次静默到一个心跳点先回调（写 `: ping`），
+ * `onHeartbeat` 传入时按心跳粒度等待：每次静默到一个心跳点先回调（写 `: ping`），
  * 累计静默仍达 `idleMs` 才判空闲 —— 长首字上游（实测 40–71s）不会因
  * 客户端/中间代理空闲超时而断连。
+ *
+ * ⚠ 铁律：**任何时刻只有一个 read 在飞**。待决 read 的 Promise 被复用
+ *   （超时后不新建 read）—— 被丢弃的 read 仍排在 reader 的请求队列里，
+ *   上游来数据时先满足那个没人消费的 read，**上游帧被静默吃掉**。
  */
 async function readWithIdle(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   idleMs: number,
   onHeartbeat?: () => void,
 ): Promise<{ done: boolean; value?: Uint8Array } | IdleRead> {
-  const tickMs = onHeartbeat ? Math.min(FIRST_BYTE_HEARTBEAT_MS, idleMs) : idleMs;
+  const tickMs = onHeartbeat ? Math.min(heartbeatMs(), idleMs) : idleMs;
   let waited = 0;
+  /** 待决 read：整个调用期间最多一个（超时后复用，不新建）。 */
+  let pending: Promise<{ done: boolean; value?: Uint8Array }> | undefined;
   for (;;) {
+    if (!pending) {
+      const p = reader.read();
+      // 被放弃的 read 也要挂拒绝处理器：上游断流时不会变成未处理拒绝
+      void p.catch(() => {});
+      pending = p;
+    }
+    const read = pending;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const idle = new Promise<IdleRead>((resolve) => {
       timer = setTimeout(() => resolve({ idle: true }), tickMs);
     });
     let settled: { done: boolean; value?: Uint8Array } | IdleRead;
     try {
-      settled = await Promise.race([reader.read(), idle]);
+      settled = await Promise.race([read, idle]);
     } finally {
       if (timer) clearTimeout(timer);
     }
     if (!("idle" in settled)) return settled;
+    // 静默：待决 read 仍在飞 → 复用它（不新建 read，因此不会丢帧）
     waited += tickMs;
     if (waited >= idleMs) return { idle: true };
     onHeartbeat?.();

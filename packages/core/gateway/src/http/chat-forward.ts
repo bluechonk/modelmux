@@ -103,6 +103,15 @@ export async function relayUpstream(
   // custom 线型且渠道声明了 isQueueError 时，**响应头还没发**——排队帧可以触发
   // 等待 + 重开上游重试（与流式路径同一套预算）。
   if (!wantStream) {
+    // ⚠ 排队预算耗尽的判定必须**排在读流之前**（与流式路径同一口径、同一顺序）：
+    //   排队耗尽时上游是「收下请求后彻底静默」，先读流会把客户端拖到静默超时
+    //   （实测 900s）才拿到 503。判据与流式路径一致：探测层没拿到任何内容帧。
+    if (queuedOut && pendingFrames.length === 0) {
+      // 释放这条已静默的上游流（流式路径同处也释放）
+      await call.body?.cancel().catch(() => {});
+      writeJsonError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
+      return;
+    }
     try {
       // ⚠ 这里**不再二次探测**：尝试层已用同一条件探测过这条流并推进了它的位置，
       // 再探测会丢掉第一次消费掉的帧（非流式空响应的元凶）。此处只把探测结果（前缀内容帧 /
@@ -111,11 +120,6 @@ export async function relayUpstream(
         ...pendingFrames,
         await inChannel(channel, () => collectAsOpenAiSse(streamBody, channel, cid, probeTranslator, request)),
       ]);
-      // 排队耗尽且零内容：给客户端一个明确的错误，而不是空 completion
-      if (queuedOut && buf.length === 0) {
-        writeJsonError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
-        return;
-      }
       const aggregated = sseStream.aggregateChatSse(buf);
       noteUsage(res, aggregated.usage);
       // 流内业务错误（上游 HTTP 200 + error 帧）且没有任何内容 → 报错误，别回空 completion
@@ -153,6 +157,8 @@ export async function relayUpstream(
   for (const frame of pendingFrames) res.write(frame);
   if (queuedOut && pendingFrames.length === 0) {
     // 排队预算耗尽且没有任何内容：给出明确错误帧后结束
+    // （与非流式路径同一顺序：先判预算，不再读那条已静默的上游流）
+    await call.body?.cancel().catch(() => {});
     res.write(
       `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
     );
