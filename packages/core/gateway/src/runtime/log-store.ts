@@ -247,7 +247,11 @@ export function attachRequestLog(method: string, path: string, res: ServerRespon
   });
   res.once("close", () => {
     if (finished) return;
-    log.outcome ??= "other";
+    // ⚠ 这里**不写 outcome**：outcome 表达的是**服务端这次请求的结果**，
+    // 由 `finishRequestLog` 按状态码统一分类（2xx → success ✓）。
+    // 客户端先关连接只说明「客户端不等了」—— 上游该回的已经回了（200 ✓），
+    // 把它记成 other 会让「按 success.log 统计成功率」失真
+    // （实测成功请求 100% 落 other.log ✓）。
     log.message ??= "client disconnected before response finished";
     finishRequestLog(log, res.statusCode);
   });
@@ -272,7 +276,8 @@ export function noteRequestError(res: ServerResponse, code: string, message: str
 export function noteClientDisconnect(res: ServerResponse): void {
   const log = getRequestLog(res);
   if (!log) return;
-  log.outcome = "other";
+  // 同 `attachRequestLog` 的 close 分支：只留说明，**不预判 outcome** ✓
+  // —— 这次请求服务端到底成没成，由状态码说话 ✓。
   log.message ??= "client disconnected";
 }
 
