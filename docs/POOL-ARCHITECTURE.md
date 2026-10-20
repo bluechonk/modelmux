@@ -248,7 +248,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。因此：
 
 1. `upstream` 侧导出 `setModelMetaLookup(lookup)`，只认注入进来的查询器
-   （`packages/core/channels/qoder/src/upstream.ts:487`）；
+   （`packages/core/channels/qoder/src/upstream.ts:468-472`）；
 2. 渠道装配处（`channel.ts`）接上：`upstream.setModelMetaLookup(catalog.metaOfKey)`
    （`packages/core/channels/qoder/src/channel.ts:30`）；
 3. 查询器按**上游 key** 查（`buildChatBody` 只拿到 key；对外 id 是另一套名字，
@@ -258,8 +258,8 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 渠道 | 状态 | 后果 |
 |---|---|---|
-| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:698`） |
-| `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:579`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:557`） |
+| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:646-657`） |
+| `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:584`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:528-538`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
 
@@ -305,12 +305,12 @@ interface CredModule {
 ### 3.3 策略
 
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
-  `callUpstream` 入口**直接短路**，不再发上游请求（`http/chat-relay.ts:757`）。
+  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat-relay.ts:296`）。
   `pickAccount`（账号池的候选选择器）跳过 `unauthorized` / `error` 的账号
-  （`runtime/account-pool.ts:494`）。
+  （`packages/core/gateway/src/runtime/account-pool.ts:481-486`）。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
-  `mx acct <cid> use <key>` 手动决定（`http/chat-relay.ts:791`）。
+  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat-relay.ts:330`）。
   `pickAccount` 因此**没有自动切号的调用方**。
 - **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
   **凭证一律保留**；成功清零连败，手动切号恢复 `error`。

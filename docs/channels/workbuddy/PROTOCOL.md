@@ -137,9 +137,9 @@
 
 | 位置 | 职责 |
 |---|---|
-| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
-| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:358`） | **声明**该回调（每轮轮询前取一次） |
-| `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:302`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:62` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:338`） | **声明**该回调（每轮轮询前取一次） |
+| `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:300`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
 ⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
@@ -228,7 +228,7 @@
   chat 路径加它实测 **404**（`POST /v2/chat/completions` 才是 200）。`[实测]`
 - ⚠ **计费域没有与 chat base 分离**：三家参考实现都把计费放在**另一个 host**
   （CN = `https://www.codebuddy.cn`，go `internal/upstream/client.go:875`、
-  panel `internal/upstream/client.go:841-846`、dsh `src/upstream.ts:418-420`），
+  panel `internal/upstream/client.go:841-846`、dsh `packages/core/channels/workbuddy/src/upstream.ts:425-427`），
   本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本轮不改**，
   列入 §7.3 V8。
 - 国际版把同样的路径挂在 `https://www.workbuddy.ai` 上（两渠道共用协议，
@@ -251,7 +251,7 @@
 
 - **`X-Enterprise-Id` 与 `X-User-Id` 必须成对**：只带 `X-User-Id` 选不中任何东西，
   只带 `X-Enterprise-Id` 被直接拒；企业账号不带这对头会被**静默回个人目录**
-  （18 vs 19 个模型，dsh `src/upstream.ts:522-532`）`[参考]`。
+  （18 vs 19 个模型，dsh `packages/core/channels/workbuddy/src/upstream.ts:529-539`）`[参考]`。
 - 另有**可选**的 `X-Device-Token`（腾讯 T-Sec TuringShield 原生 SDK 产出的不透明串）。
   纯 HTTP 侧**无法复刻**（hub `docs/protocol-reference.md:2328-2351`）`[参考]`；
   官方自身「拿不到就降级不带」，故缺失不算异常。填进
@@ -514,16 +514,16 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | # | 缺口 | 参考实现证据 | 本轮状态 |
 | --- | --- | --- | --- |
 | 1 | **登录后取账号档案**（`uid` / `enterpriseId` / `nickname`） | go `cmd/login/main.go:266-278` | **已做**（§2.1 步 4） |
-| 2 | **企业身份头族**（`X-Enterprise-Id` / `X-Tenant-Id`） | go `internal/upstream/headers.go:242-255`；dsh `src/upstream.ts:479-483` | **已做**（§6） |
+| 2 | **企业身份头族**（`X-Enterprise-Id` / `X-Tenant-Id`） | go `internal/upstream/headers.go:242-255`；dsh `packages/core/channels/workbuddy/src/upstream.ts:486-490` | **已做**（§6） |
 | 3 | 目录**并发双探 + 并集合并** | go `internal/upstream/client.go:1281-1330`、`:1336-1357` | **已做**（§1.1） |
 | 4 | 非对话模型过滤（`nes-` / `completion-` / `codewise-`） | go `internal/upstream/client.go:1470-1473` | **已做**（§1.1） |
 | 5 | 上游错误码全表与分类、200 带错误信封、限流重置读头 | hub `docs/protocol-reference.md:1904-1952`、`:1869-1889`、`:2011-2038`、`:1891-1902` | **分类表已做**（§4.1）；**对话路径的 200 错误信封仍无拦截点**（共享层无该钩子） |
-| 6 | 目录**企业账号分流**（`X-User-Id` + `X-Enterprise-Id` 成对） | dsh `src/upstream.ts:522-532` | 头已发，但**没有企业账号可验**（`enterpriseId` 要真实企业账号才有） |
-| 7 | 目录**促销 badge**（`badge:<label>:<color>`） | dsh `src/upstream.ts:313-349`、`:963-989`（只在 console 文档里） | 未做 |
+| 6 | 目录**企业账号分流**（`X-User-Id` + `X-Enterprise-Id` 成对） | dsh `packages/core/channels/workbuddy/src/upstream.ts:529-539` | 头已发，但**没有企业账号可验**（`enterpriseId` 要真实企业账号才有） |
+| 7 | 目录**促销 badge**（`badge:<label>:<color>`） | dsh `packages/core/channels/workbuddy/src/upstream.ts:320-356`、`packages/core/gateway/src/http/openai-normalize.ts:273-299`（只在 console 文档里） | 未做 |
 | 8 | **签到活动状态**（`/v2/billing/meter/checkin-activity-status`） | go `internal/upstream/checkin_activity.go:30-33`；hub `docs/protocol-reference.md:284-287` | 未做 |
-| 9 | 目录 **reasoning / effort 元数据** | dsh `src/upstream.ts:244-287`；go `internal/upstream/client.go:1312-1329` | 未做 |
+| 9 | 目录 **reasoning / effort 元数据** | dsh `packages/core/channels/workbuddy/src/upstream.ts:251-294`；go `internal/upstream/client.go:1312-1329` | 未做 |
 | 10 | **模型繁忙程度**（`/v2/chat/busy`） | hub `admin/backend.py:267`；`docs/protocol-reference.md:1867` | 未做 |
-| 11 | **企业额度**（`/v2/billing/meter/get-enterprise-user-usage`） | dsh `src/upstream.ts:1114`；panel `internal/upstream/client.go:1987-2050` | 未做 |
+| 11 | **企业额度**（`/v2/billing/meter/get-enterprise-user-usage`） | dsh `packages/core/gateway/src/http/openai-normalize.ts:439`；panel `internal/upstream/client.go:1987-2050` | 未做 |
 | 12 | **对话活跃上报**（`/v2/report`） | go `internal/upstream/report.go:21-35`；panel `internal/upstream/report.go:22` | 未做 |
 | 13 | **成长计划任务族**（`/v2/activity/growth/tasks` + accept + claim） | panel `internal/upstream/tasks.go:29-30`、`:211-227` | 未做 |
 | 14 | **连签 / 抽奖**（`/activity/growth/streak`、`/activity/growth/lottery/*`） | panel `internal/upstream/streak.go:21-23` | 未做 |
@@ -533,7 +533,7 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | 18 | **会话头族轮级聚合**（一次 user send 复用同一 `X-Conversation-Request-ID`） | go `internal/upstream/headers.go:270-318`；hub `docs/protocol-reference.md:2311` | 未做 |
 | 19 | **截断流补终止帧**（`finish_reason`） | hub `docs/protocol-reference.md:2186-2201` | 未做 |
 | 20 | **`prompt_cache_key` 前缀缓存**（实测费用降 ~17×）+ `reasoning_effort` 档位降级 | panel `internal/upstream/client.go:788-798`、`internal/upstream/cache_key.go` | 未做 |
-| 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh 的 `src/client-identity.ts`（本实现对应：`packages/core/channels/workbuddy/src/upstream.ts:729`） | 未做 |
+| 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh 的 `src/client-identity.ts`（本实现对应：`packages/core/channels/workbuddy/src/upstream.ts:734`） | 未做 |
 
 ### 7.3 待真机验证（12 条）
 

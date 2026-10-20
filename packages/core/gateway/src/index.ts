@@ -15,6 +15,11 @@ export * as headless from "./app/headless.js";
 export * as login from "./auth/login.js";
 export * as loginFlow from "./auth/login-flow.js";
 export * as modelFamily from "./pool/model-policy.js";
+// 粘贴兜底的文本识别（授权失败页 / 授权码提取；与渠道无关的字符串启发式）
+export * as pasteDetect from "./auth/paste-detect.js";
+export type { PastedCallback } from "./auth/paste-detect.js";
+// 通用 OpenAI 请求体归一化（与上游无关的形状修复；渠道判据由渠道传入）
+export * as openaiNormalize from "./http/openai-normalize.js";
 export * as paths from "./runtime/paths.js";
 export * as portfree from "./http/portfree.js";
 export * as report from "./app/report.js";

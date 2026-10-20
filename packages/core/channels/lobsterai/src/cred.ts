@@ -38,10 +38,14 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 
-import { credentialsPath, ensureDir, login as sharedLogin } from "@modelmux/gateway";
+import {
+  credentialsPath,
+  ensureDir,
+  login as sharedLogin,
+  writeJsonSecret,
+} from "@modelmux/gateway";
 import * as upstream from "./upstream.js";
 
 /**
@@ -346,14 +350,11 @@ export function load(): Credentials {
  * 原子写盘（临时文件 + rename）并置 0600。
  *
  * Windows 上 chmod 语义有限，仍保持一致以免其它平台漏掉权限收敛。
+ * 写法统一走共享层 `writeJsonSecret`（tmp → rename → 0600），不再各写一遍。
  */
 export async function save(c: Credentials): Promise<void> {
   ensureDir();
-  const path = credentialsPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(toDisk(c), null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonSecret(credentialsPath(), toDisk(c));
 }
 
 // ── 登录 ─────────────────────────────────────────────────────────────────────

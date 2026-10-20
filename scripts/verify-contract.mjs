@@ -85,6 +85,16 @@ check(
   cliDeps.every((d) => DEP_ALLOW.includes(d) || CHANNEL_PKG_RE.test(d)),
   `packages/cli: dependencies 含意外包 ${cliDeps.filter((d) => !DEP_ALLOW.includes(d) && !CHANNEL_PKG_RE.test(d)).join(", ")}`,
 );
+// 随包快照必须进发布包：bundle 步骤把各渠道的 models.json 复制到 dist/models/<cid>.json，
+// 渠道侧靠它兜底（见 docs/CONTRACT-TS.md §8.4）—— files 漏了它，npm 包里的快照就白复制了。
+check(
+  (cliPkg.files ?? []).includes("dist/models"),
+  "packages/cli: files 必须包含 dist/models（bundle 复制的随包快照，否则发布包里兜底失效）",
+);
+check(
+  (cliPkg.files ?? []).includes("dist/cli.bundle.js"),
+  "packages/cli: files 必须包含 dist/cli.bundle.js（bin 指向它）",
+);
 const registered = [...read("packages/cli/src/channels.ts").matchAll(/import\s+"(@modelmux\/[a-z0-9-]+)"/g)].map((m) => m[1]);
 registeredImports = registered.length;
 for (const cid of channelDirs) {

@@ -34,6 +34,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /**
  * 历史短名 → 上游 slug（**仅输入兼容**，不作为对外名）。
@@ -177,6 +178,9 @@ function candidatePaths(): string[] {
   // dist/catalog.js → 上两级是项目根
   const here = fileURLToPath(import.meta.url);
   paths.push(join(here, "..", "..", "models.json"));
+  // 单文件 bundle 里的随包快照（按 cid 分文件，见共享层 runtime/snapshot.ts）
+  const bundled = bundledSnapshotPath();
+  if (bundled) paths.push(bundled);
   return paths;
 }
 

@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
 const EFFORT_VOCABULARY = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -422,6 +423,9 @@ function candidatePaths(): string[] {
   paths.push(join(process.cwd(), "models.json"));
   const here = fileURLToPath(import.meta.url);
   paths.push(join(here, "..", "..", "models.json"));
+  // 单文件 bundle 里的随包快照（按 cid 分文件，见共享层 runtime/snapshot.ts）
+  const bundled = bundledSnapshotPath();
+  if (bundled) paths.push(bundled);
   return paths;
 }
 

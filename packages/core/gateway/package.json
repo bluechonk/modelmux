@@ -24,6 +24,10 @@
       "types": "./dist/cli-consts.d.ts",
       "default": "./dist/cli-consts.js"
     },
+    "./snapshot": {
+      "types": "./dist/runtime/snapshot.d.ts",
+      "default": "./dist/runtime/snapshot.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

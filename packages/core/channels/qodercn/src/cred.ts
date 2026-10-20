@@ -36,6 +36,7 @@ import {
   ensureDir,
   login as shared,
   loginFlow,
+  pasteDetect,
   writeJsonSecret,
   type Credential,
 } from "@modelmux/gateway";
@@ -413,31 +414,6 @@ async function fetchUserProfile(
 }
 
 /**
- * 粘贴内容里的「授权失败」措辞。
- *
- * 国内版授权后浏览器会跳 `qoder-work-cn://` 深链（打不开），用户拒绝授权时
- * 页面/地址栏里会留下错误措辞 —— 认出来就能**立刻**结束等待，而不是白等 5 分钟。
- */
-const AUTH_ERROR_MARKERS = ["error=", "errmsg=", "denied", "access_denied", "拒绝", "失败"];
-
-/** 粘回的内容是否表示「授权被拒 / 出错」。 */
-function pastedAuthError(raw: string): string {
-  const text = raw.trim().toLowerCase();
-  for (const marker of AUTH_ERROR_MARKERS) {
-    if (text.includes(marker.toLowerCase())) {
-      const params = new URLSearchParams(text.split("?")[1] ?? "");
-      return (
-        params.get("errmsg") ??
-        params.get("error_description") ??
-        params.get("error") ??
-        "the browser reported an authorization error"
-      );
-    }
-  }
-  return "";
-}
-
-/**
  * 完整设备授权登录：构造授权 URL → 用户浏览器授权 → 轮询取 token → 补账号档案 → 落盘。
  *
  * ⚠ 轮询的 HTTP 404 是**正常中间态**（官方语义：用户还没点同意），必须继续轮询；
@@ -471,9 +447,12 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
       // 粘贴兜底：粘回的内容 = 「浏览器那一步已完成」的信号。
       // 设备码流的令牌只由服务端按 nonce 下发（没有 code 换 token 的接口），
       // 故这里只做两件事：认出「授权被拒」立刻收尾；否则立刻再轮询一次。
+      // 失败措辞的识别是**渠道无关**的通用启发式（见共享层 auth/paste-detect.ts）：
+      // 国内版授权后浏览器会跳 `qoder-work-cn://` 深链（打不开），用户拒绝授权时
+      // 页面/地址栏里会留下错误措辞 —— 认出来就能**立刻**结束等待，而不是白等 5 分钟。
       const pasted = options.pasteCode?.();
       if (typeof pasted === "string" && pasted.trim()) {
-        const reason = pastedAuthError(pasted);
+        const reason = pasteDetect.pastedAuthFailureReason(pasted);
         if (reason) {
           return {
             kind: "fatal",

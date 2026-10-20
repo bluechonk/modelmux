@@ -30,9 +30,13 @@
 
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 
-import { credentialsPath, ensureDir, login as sharedLogin } from "@modelmux/gateway";
+import {
+  credentialsPath,
+  ensureDir,
+  login as sharedLogin,
+  writeJsonSecret,
+} from "@modelmux/gateway";
 import * as upstream from "./upstream.js";
 
 /** 账号端点基址（微信绑定的发码/校验走这里）。 */
@@ -756,11 +760,13 @@ export function load(): Credentials {
   };
 }
 
-/** 原子写凭据（0600）。 */
+/**
+ * 原子写凭据（0600）。
+ *
+ * 写法统一走共享层 `writeJsonSecret`（tmp → rename → 0600），不再各写一遍。
+ */
 export async function save(c: Credentials): Promise<void> {
   ensureDir();
-  const path = credentialsPath();
-  const tmp = `${path}.tmp`;
   const payload = {
     access_token: c.accessToken,
     userid: c.userid,
@@ -770,9 +776,7 @@ export async function save(c: Credentials): Promise<void> {
     obtained_at: c.obtainedAt || nowIso(),
     source: c.source,
   };
-  await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonSecret(credentialsPath(), payload);
 }
 
 // ── 登录（微信）/ 续期（探测）──────────────────────────────────────────────────

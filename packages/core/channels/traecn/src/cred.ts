@@ -47,11 +47,16 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 
-import { credentialsPath, ensureDir, login as sharedLogin, prefsPath } from "@modelmux/gateway";
+import {
+  credentialsPath,
+  ensureDir,
+  login as sharedLogin,
+  prefsPath,
+  writeSecretFile,
+} from "@modelmux/gateway";
 
 /**
  * agentHost（对话 + 模型列表）。
@@ -634,17 +639,14 @@ function toDisk(c: Credentials): string {
   return `${JSON.stringify(disk, null, 2)}\n`;
 }
 
+/**
+ * 同步回写凭据（tmp → 同目录 rename → 0600）。
+ *
+ * 写法统一走共享层 `writeSecretFile`（tmp → rename → 0600），不再各写一遍。
+ */
 function persistSync(c: Credentials): void {
   ensureDir();
-  const path = credentialsPath();
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, toDisk(c), "utf8");
-  renameSync(tmp, path); // 同目录 rename 原子替换
-  try {
-    chmodSync(path, 0o600);
-  } catch {
-    /* Windows 上 chmod 意义有限 */
-  }
+  writeSecretFile(credentialsPath(), toDisk(c));
 }
 
 /**
@@ -705,14 +707,14 @@ export function load(): Credentials {
   return c;
 }
 
-/** 以 0600 权限原子写入凭据。 */
+/**
+ * 以 0600 权限原子写入凭据。
+ *
+ * 写法统一走共享层 `writeSecretFile`（tmp → rename → 0600），不再各写一遍。
+ */
 export async function save(c: Credentials): Promise<void> {
   ensureDir();
-  const path = credentialsPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, toDisk(c), "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeSecretFile(credentialsPath(), toDisk(c));
 }
 
 /** 仅改签到设备代数并回写（9074 设备级限流时轮换）。 */

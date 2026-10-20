@@ -23,12 +23,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import { writeFile, rename, chmod } from "node:fs/promises";
 
 import {
   credentialsPath,
   ensureDir,
   login as sharedLogin,
+  pasteDetect,
+  writeJsonSecret,
 } from "@modelmux/gateway";
 
 /** 登录基址（国内版 CodeBuddy）。 */
@@ -165,14 +166,11 @@ export function load(): Credentials {
  * 以 0600 权限写入凭证文件（Windows 上 chmod 意义有限，仍保持一致）。
  *
  * 先写临时文件再原子替换：写入过程崩溃不会留下半截 JSON 导致凭证损坏。
+ * 写法统一走共享层 `writeJsonSecret`（tmp → rename → 0600），不再各写一遍。
  */
 export async function save(c: Credentials): Promise<void> {
   ensureDir();
-  const path = credentialsPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(c, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonSecret(credentialsPath(), c);
 }
 
 /** 账号档案（`/v2/plugin/login/account` 的 data 字段）。 */
@@ -309,9 +307,11 @@ async function pollToken(
   let pasteReported = false;
   while (Date.now() < deadline) {
     // 粘贴兜底：认「授权被拒」的措辞（立刻收尾），否则当作「浏览器那步已完成」。
+    // 措辞识别是**渠道无关**的通用启发式（见共享层 auth/paste-detect.ts）：
+    // 认出就立刻结束等待，不白等 5 分钟。
     const pasted = options.pasteCode?.();
     if (typeof pasted === "string" && pasted.trim()) {
-      const reason = pastedAuthError(pasted);
+      const reason = pasteDetect.pastedAuthFailureReason(pasted);
       if (reason) throw new Error(`browser authorization failed: ${reason}`);
       if (!pasteReported) {
         options.onStatus?.("got the pasted callback, fetching the token now...");
@@ -333,26 +333,6 @@ async function pollToken(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   return null;
-}
-
-/** 粘回内容里的「授权失败」措辞（认出就立刻结束等待，不白等 5 分钟）。 */
-const AUTH_ERROR_MARKERS = ["error=", "errmsg=", "denied", "access_denied", "拒绝", "失败"];
-
-/** 粘回的内容是否表示「授权被拒 / 出错」。 */
-function pastedAuthError(raw: string): string {
-  const text = raw.trim().toLowerCase();
-  for (const marker of AUTH_ERROR_MARKERS) {
-    if (text.includes(marker.toLowerCase())) {
-      const params = new URLSearchParams(text.split("?")[1] ?? "");
-      return (
-        params.get("errmsg") ??
-        params.get("error_description") ??
-        params.get("error") ??
-        "the browser reported an authorization error"
-      );
-    }
-  }
-  return "";
 }
 
 interface LoginOptions {
