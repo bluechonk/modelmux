@@ -194,7 +194,7 @@
 
 | 位置 | 职责 |
 |---|---|
-| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:62` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddyai/src/cred.ts`） | **声明**该回调（每轮轮询前取一次） |
 | `pollToken` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
@@ -235,7 +235,7 @@
 端点与鉴权形态见 hub `wb_accounts.py:1339-1381`。
 
 **触发时机**：本渠道是**纯被动** —— 上游回 401/403 才刷一次
-（`packages/core/gateway/src/http/chat-relay.ts:777-789`），登录后探测失败也刷一次
+（`packages/core/gateway/src/http/chat-relay.ts:316-328`），登录后探测失败也刷一次
 （`packages/core/gateway/src/auth/auth-flow.ts:96-99`）。
 参考实现是**主动**的（hub `wb_accounts.py:1205-1217` 剩余 ≤120s 先刷；
 ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷），
@@ -396,7 +396,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
   `expiresAt` / `refreshExpiresAt` 统一存 **epoch 毫秒**（取不到为 null）。
   `nickname` 来自登录链路第 4 步的账号档案（§8.0.1），取不到留空；
   共享层账号池的 `parseExpiry` 认得秒/毫秒两种形态
-  （`packages/core/gateway/src/runtime/account-pool.ts:120-137`），旧文件（秒）继续可用。
+  （`packages/core/gateway/src/runtime/account-pool.ts:103-121`），旧文件（秒）继续可用。
 - **到期时刻的推导顺序**（口径对齐 hub `wb_accounts.py:540`）：
   1. 上游给的**绝对时刻** `expiresAt`（秒/毫秒都认）；
   2. 访问令牌 JWT 的 `exp`（标准秒级 epoch）；

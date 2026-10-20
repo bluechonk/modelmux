@@ -206,14 +206,14 @@ interface Channel {
 
 | 回调 | 语义 | 共享层调用点 |
 |---|---|---|
-| `onUrl(url)` | 拿到授权 URL 后**立刻**回调（界面展示链接，**不**自动开浏览器） | `packages/core/gateway/src/auth/auth-flow.ts:62` |
-| `onStatus(msg)` | 进度提示 | `packages/core/gateway/src/auth/auth-flow.ts:65` |
-| `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts:64` |
-| `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts:67` |
+| `onUrl(url)` | 拿到授权 URL 后**立刻**回调（界面展示链接，**不**自动开浏览器） | `packages/core/gateway/src/auth/auth-flow.ts:57` |
+| `onStatus(msg)` | 进度提示 | `packages/core/gateway/src/auth/auth-flow.ts:60` |
+| `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts:59` |
+| `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts:62` |
 
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
-常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:67` 包一次，
+常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:62` 包一次，
 扫码路径在 `packages/core/gateway/src/app/headless.ts:310` 包一次；
 Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 （`packages/core/gateway/src/app/headless.ts:222-231`）进来。
@@ -232,8 +232,8 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 | **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | loomy、qodercn、workbuddyai、qoder、workbuddy |
 
 形态 B 另有一条硬要求：**认出「授权被拒 / 出错」的措辞就立刻收尾报错**
-（不等轮询超时）—— 用户拒绝授权时看到的是白等几分钟。措辞集合见各渠道
-`cred.ts` 的 `AUTH_ERROR_MARKERS`（如 `packages/core/channels/qoder/src/cred.ts:434`）。
+（不等轮询超时）—— 用户拒绝授权时看到的是白等几分钟。措辞集合是**渠道无关**的
+通用启发式，见共享层 `packages/core/gateway/src/auth/paste-detect.ts`（`AUTH_ERROR_MARKERS`）。
 
 ⚠ `pasteCode()` **一次性消费**：调用方取出一次即清空
 （`packages/core/gateway/src/app/headless.ts:76-80`、`223-227`），
@@ -245,12 +245,12 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 - `buildChatHeaders?(credential, cfg)`：对话请求的**专用头族**（上游按整组头判定
   「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
-  （`packages/core/gateway/src/http/chat-relay.ts:284`）；普通 OpenAI 兼容渠道无需声明。
+  （`packages/core/gateway/src/http/chat-relay.ts:186`）；普通 OpenAI 兼容渠道无需声明。
 - `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
-  （`packages/core/gateway/src/http/chat-relay.ts:974-990`）。参数是**网关已经建好的
+  （`packages/core/gateway/src/http/chat-relay.ts:517-533`）。参数是**网关已经建好的
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
   会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
-  （`packages/core/gateway/src/runtime/channel.ts:179`）。
+  （`packages/core/gateway/src/runtime/channel.ts:200-203`）。
 - `isAuthFailure(status, body)`：只对 **4xx 且非 401/403** 的响应调用；返回 true 时网关按
   401/403 同路径处理（刷新 token → 换池内账号）。用于上游不用标准状态码表达凭据失效的渠道。
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
@@ -327,7 +327,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 网关只会额外补 `Accept: text/event-stream`（若头里没有）。
 
 **按账号生效的上游属性必须在 `buildHeaders()` 判定**：`buildChatBody()` 的签名里
-**没有凭据**（`packages/core/gateway/src/runtime/channel.ts:181-184`），只有
+**没有凭据**（`packages/core/gateway/src/runtime/channel.ts:200-203`），只有
 `buildHeaders(credential)` 拿得到。凡是「按账号授予」的上游属性（免费额度标记、
 按账号路由的端点等），判定都要放在 `buildHeaders()`，用 `credential.uid` 作账号键，
 并按账号分桶落盘 —— 否则多账号场景下会把一个账号的标记发给另一个账号。
@@ -477,7 +477,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 2. **轮询的终态判据**：HTTP 4xx（除 408/429）才是失败；5xx 与网络错误继续重试。
 3. **超时**给明确上限，超时抛错并提示重试。
 4. 成功即 `save()` 落盘（原子替换 + 0600）。
-5. **接住 `options.pasteCode`**：共享层一直在传（`auth/auth-flow.ts:67`），
+5. **接住 `options.pasteCode`**：共享层一直在传（`packages/core/gateway/src/auth/auth-flow.ts:62`），
    渠道不消费 = 用户粘回的内容被静默丢弃。粘贴是**兜底**、不是第二条登录路径，
    两种形态见 §5.1.2。
 
@@ -551,28 +551,25 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 - **PID mtime 锚点不变**：`stale-build` 读的仍是 `gateway.pid` 的 mtime——它由
   `start` 亲手写（≈ start 时刻），worker 由监督者重生**不更新**它，判定语义不受影响。
 
-### 8.4 已知问题：全局 bundle 里的随包 models.json 快照**不生效**
+### 8.4 随包 models.json 快照在单文件 bundle 里的落点
 
-渠道 catalog 有两级目录来源：**远端目录**（`<cid>/cache/models.json`）与
-**随包快照**（渠道包根 `models.json`，未登录 / 上游拉不到时的兜底）。
-`packages/cli/scripts/bundle.mjs` 声称用 esbuild 插件把快照内联进单文件产物，
-**但插件永不触发**：
+渠道 catalog 有两级目录来源：**远端目录**（`<cid>/cache/models.json`，拉取成功即落盘）
+与**随包快照**（渠道包根 `models.json`，未登录 / 上游拉不到时的兜底）。
+快照是**构建产物**，不随运行时存储根走。
 
-- 插件的 `onResolve({ filter: /\.json$/ })` 只拦**静态 import 的 .json**；
-  而渠道是在**运行时** `readFileSync(join(import.meta.url, "..", "..", "models.json"))` 读盘。
-  全仓没有任何 `.json` 的 import 语句 → 插件没有命中点。
-- 实证：`packages/cli/dist/cli.bundle.js` 里 workbuddy 快照的特征字段计数为 0；
-  bundle 运行时 `import.meta.url` 指向 `packages/cli/dist/`，其上两级是 `packages/`，
-  **没有** `models.json` → 全局 `mx` 下随包兜底失效（开发树与单渠道 bin 不受影响，
-  它们各自包根就有快照）。
+- **渠道自建**（`packages/core/channels/<cid>/dist/`）：快照在渠道包根，
+  catalog 用 `join(import.meta.url, "..", "..", "models.json")` 命中。
+- **单文件 bundle**（`packages/cli/dist/cli.bundle.js`）：所有渠道共用一个模块目录，
+  渠道包根不存在 → 快照由 **bundle 步骤按 cid 复制**到 `dist/models/<cid>.json`，
+  catalog 通过共享层的 `bundledSnapshotPath()`（`@modelmux/gateway/snapshot`）找到它。
+  共享层按**本模块的 `import.meta.url`** 推导目录：bundle 里它就是 bundle 所在目录；
+  渠道自建时它是共享层的 dist 目录（那里没有快照 → 探测落空，属正常）。
+  cid 取自**渠道上下文**（`activeCid()`）—— 不用 `getChannel()`：多渠道路由下注册表里
+  有多个渠道，无参 `getChannel()` 会抛错。
 
-**影响**：仅当「上游不可达 **且** 未登录」时，loomy / traecn / workbuddy / workbuddyai
-四个带快照的渠道会少显示随包兜底模型（实测 lobsterai 曾因此只显示 1 条、真实 8 条）。
-
-**修法方向**（未实施）：随包快照是**构建产物**，落点应由共享层按 `cid` 推导
-（与 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) 的落点纪律一致），
-由 bundle 步骤把各渠道快照复制到**运行时可见**的位置，而不是指望 esbuild 插件拦截运行时读盘。
-**在修好之前，不要把「插件已内联快照」当成既成事实。**
+⚠ **不要用 esbuild 插件内联快照**：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
+而渠道是**运行时** `readFileSync` 读盘 —— 插件永远没有命中点（曾经就这么错过：
+插件从未触发，bundle 里的快照特征字段计数为 0）。
 
 ---
 

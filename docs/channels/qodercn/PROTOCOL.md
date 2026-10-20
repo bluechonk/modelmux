@@ -40,7 +40,7 @@
 
 | 位置 | 职责 |
 |---|---|
-| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:67` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:62` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/qodercn/src/cred.ts`） | **声明**该回调（每次轮询前取一次） |
 | 轮询的 `attempt` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
@@ -68,7 +68,7 @@
 pending），再改成「带官方客户端真机身份」；在那之前保持不带（与 `qoder` 国际版渠道一致，
 见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
 
-实现见 `packages/core/channels/qodercn/src/cred.ts:446-555`（登录）、
+实现见 `packages/core/channels/qodercn/src/cred.ts:422-534`（登录）、
 `:556-605`（续期）、`:221-229`（授权 URL）、`:173-190`（设备指纹派生）。
 
 ### 1.2 为什么不采纳另外两条
@@ -101,7 +101,7 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 | OpenAPI | `https://openapi.qoder.com.cn` | 纯 `Bearer`，**无** COSY 签名 | 轮询 / 续期 / userinfo / 额度 / 活动 |
 | 推理网关 | `https://gateway.qoder.com.cn` | COSY 签名 + 自定义 Base64 body | chat 与模型目录 |
 
-配置源：`packages/core/channels/qodercn/src/cred.ts:67-97`（`PRODUCTS.cn`）。
+配置源：`packages/core/channels/qodercn/src/cred.ts:68-98`（`PRODUCTS.cn`）。
 证据：参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（区域配置表）、
 `Zhengyuuuui/qoder2api` 的 `account/region.go`（CN 端点表）、
 `EchoPing07/Qoder-2API-Go` 的 `auth/auth.go`（CN RegionConfig）。[参考]
@@ -202,7 +202,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 | --- | --- | --- | --- | --- |
-| `authorization` | `Bearer {token}`（**仅 userinfo 用**） | 是 | 换 token 时 | **轮询与续期请求都不带 Authorization**（轮询只有 nonce/verifier/challenge；续期只有 `content-type` / `accept` / `user-agent` 三个头，见 `packages/core/channels/qodercn/src/cred.ts:561-585`） |
+| `authorization` | `Bearer {token}`（**仅 userinfo 用**） | 是 | 换 token 时 | **轮询与续期请求都不带 Authorization**（轮询只有 nonce/verifier/challenge；续期只有 `content-type` / `accept` / `user-agent` 三个头，见 `packages/core/channels/qodercn/src/cred.ts:540-564`） |
 | `accept` | `application/json` | 否 | 常量 | |
 | `content-type` | `application/json`（续期） | 否 | 常量 | |
 | `user-agent` | `QoderWork/1.1.64` | 否 | 常量 | |
@@ -236,7 +236,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 落盘字段：`accessToken` / `refreshToken` / `uid` / `nickname` / `machineId`（**必须持久化**，
 参与服务端设备绑定）/ `userType`（登录时取自 `userinfo` 的 `user_type`，取不到回落
 `personal_professional_trial`）/ `domain` / `realm` / `gatewayHost` / `expireAt` /
-`refreshExpireAt`。实现见 `packages/core/channels/qodercn/src/cred.ts:130-146`、`:532-549`。
+`refreshExpireAt`。实现见 `packages/core/channels/qodercn/src/cred.ts:131-147`、`:532-549`。
 
 ---
 

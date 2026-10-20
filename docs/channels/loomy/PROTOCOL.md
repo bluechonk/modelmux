@@ -60,7 +60,7 @@
 > 与**密码登录**端点（`/login/account/getPuKey`、`/login/account/byPwd`）—— 本渠道**不使用**，
 > 原因见 §2.1 与 §9。
 
-**没有 refresh 端点**（`packages/core/channels/loomy/src/cred.ts:800-820`）：`session` 是登录时声明 14 天得来的，
+**没有 refresh 端点**（`packages/core/channels/loomy/src/cred.ts:804-824`）：`session` 是登录时声明 14 天得来的，
 过期只能**重新走登录流程（微信扫码）**。故 `isLoomyRefreshable` **恒返回 false** —— 诚实标记，不是遗漏。
 
 超时：业务请求 60s，模型目录 30s（对应 `LOOMY_REQUEST_TIMEOUT_MS = 60_000`）。
@@ -98,7 +98,7 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 
 `reference/xingluoyuankong_loomy2api/loomy2api/account.py:501-550` 与
 `reference/xingluoyuankong_loomy2api/docs/CLIENT-LOGIN.md:96-99` 逐字给出四个端点与
-字段，本仓库实现（`packages/core/channels/loomy/src/cred.ts:607-661`）**逐字段一致**：
+字段，本仓库实现（`packages/core/channels/loomy/src/cred.ts:611-665`）**逐字段一致**：
 
 | 端点 | 参考实现的 param | 本仓库实现 | 一致 |
 |---|---|---|---|
@@ -164,7 +164,7 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 chat 端点两个都发是因为官方客户端在 session 模式下也是两个都发。
 业务端点**不发** `traceparent` / `loomy-version`（本仓 2026-10-19 实测目录刷新正常）。
 
-### 2.3 凭据字段（`packages/core/channels/loomy/src/cred.ts:80-95`）
+### 2.3 凭据字段（`packages/core/channels/loomy/src/cred.ts:84-99`）
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
@@ -176,7 +176,7 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 
 `access_token` 字段名**必须**是这个。
 
-### 2.4 账户请求信封（`packages/core/channels/loomy/src/cred.ts:231-243`）
+### 2.4 账户请求信封（`packages/core/channels/loomy/src/cred.ts:235-247`）
 
 ```json
 {
@@ -259,7 +259,7 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 授权页与二维码的两个会话、uuid 提取、长轮询状态机与粘贴兜底见
 [FINDINGS.md](./FINDINGS.md)。
 
-### 2.7  签名算法（`packages/core/channels/loomy/src/cred.ts:175-223`）—— 逐字节复刻客户端
+### 2.7  签名算法（`packages/core/channels/loomy/src/cred.ts:179-227`）—— 逐字节复刻客户端
 
 **Python 标准库完全可以实现**（`hashlib` / `hmac` / `base64` / `uuid` / `email.utils`，无需第三方）。
 
@@ -325,7 +325,7 @@ body_str = json.dumps(body, separators=(',',':'))
 # 签名用 body_str；发送时直接传 body_str.encode()，不要让 requests 重新序列化 dict
 ```
 
-#### 密钥来源（`packages/core/channels/loomy/src/cred.ts:41-44`）
+#### 密钥来源（`packages/core/channels/loomy/src/cred.ts:45-48`）
 
 ```
 accessKeyId     = <讯飞 AccessKey id>
@@ -457,7 +457,7 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 最终展示名：`{name} · {rate}`（无倍率时不追加分隔符）。
 倍率必须拼进 `name`（**不是** `description`）。
 
-### 5.4 兜底静态模型表（8 条，`packages/core/channels/loomy/src/catalog.ts:77-87`）
+### 5.4 兜底静态模型表（8 条，`packages/core/channels/loomy/src/catalog.ts:78-88`）
 
 来源：2026-09-26 实测 `GET /api/v1/models`，取 `type === 'chat'` 的 8 条。
 
@@ -482,7 +482,7 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 远端已改成**倍率 0（免费）**（见「2026-10-19 端到端实测」）。倍率以**远端为准**，
 本表只作离线兜底。
 
-### 5.5 缓存策略（`packages/core/channels/loomy/src/catalog.ts:310-344`）
+### 5.5 缓存策略（`packages/core/channels/loomy/src/catalog.ts:311-345`）
 
 原实现是 `this.remoteModels = fallback; return fallback` —— 把兜底表当成「已加载」记下，
 于是一次瞬时失败会让该 provider **整个进程生命周期**都只剩兜底模型。

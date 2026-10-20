@@ -5,12 +5,18 @@
  * 软链断裂、包名在 registry 上不存在。esbuild 从唯一聚合点 `src/cli.ts` 沿静态 import
  * 收编整条依赖图，产物里不再有任何外部包引用 —— tarball 自包含，`npm i -g` 直接可用。
  *
- * 随包 models.json 快照：渠道 catalog 用 `join(import.meta.url, "..", "..", "models.json")`
- * 在**运行时**读包根快照，bundle 后该相对路径失效。下面的插件按「importer 所属包根 +
- * 相对路径」内联快照，但它只拦**静态 import 的 .json** —— 渠道走运行时读盘，故当前未生效。
+ * 随包 models.json 快照：渠道 catalog 有两级目录来源 —— 远端目录（`<cid>/cache/models.json`）
+ * 与**随包快照**（渠道包根 `models.json`，未登录 / 上游拉不到时的兜底）。
+ * 快照是构建产物，bundle 后渠道包根不存在，因此由本步骤**按 cid 复制**到
+ * `dist/models/<cid>.json` —— 渠道侧通过共享层的 `bundledSnapshotPath()`
+ * （`@modelmux/gateway/snapshot`）找到它。
+ *
+ * ⚠ 这里**不用** esbuild 插件内联：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
+ * 而渠道是**运行时** `readFileSync` 读盘，插件永远没有命中点（实测 bundle 里快照特征字段
+ * 计数为 0）。详见 docs/CONTRACT-TS.md §8.4。
  */
 
-import { readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -18,20 +24,7 @@ import { build } from "esbuild";
 const here = dirname(fileURLToPath(import.meta.url)); // packages/cli/scripts
 const cliRoot = resolve(here, "..");                  // packages/cli
 const repoRoot = resolve(cliRoot, "../..");            // 仓库根
-
-// 携带随包 models.json 快照的渠道（其余渠道无此机制，无需处理）
-const SNAPSHOT_CHANNELS = ["loomy", "traecn", "workbuddy", "workbuddyai"];
-
-/** 收集各渠道包根的 models.json：绝对路径 → 内联模块源码。 */
-function snapshotModules() {
-  const mods = new Map();
-  for (const cid of SNAPSHOT_CHANNELS) {
-    const pkgDir = join(repoRoot, "packages", "core", "channels", cid);
-    const content = readFileSync(join(pkgDir, "models.json"), "utf8");
-    mods.set(resolve(pkgDir, "models.json"), `export default ${JSON.stringify(JSON.parse(content))};`);
-  }
-  return mods;
-}
+const channelsRoot = join(repoRoot, "packages", "core", "channels");
 
 await build({
   entryPoints: [join(cliRoot, "src/cli.ts")],
@@ -42,26 +35,34 @@ await build({
   outfile: join(cliRoot, "dist/cli.bundle.js"),
   banner: { js: "#!/usr/bin/env node" },
   // node: 内置模块自动豁免；external 留空 = 全量内联（零第三方运行依赖）
-  plugins: [
-    {
-      name: "inline-channel-models-json",
-      setup(b) {
-        const mods = snapshotModules();
-        b.onResolve({ filter: /\.json$/ }, (args) => {
-          if (args.importer.includes("node_modules")) return null;
-          // importer 形如 …/packages/core/channels/traecn/src/catalog.ts → 包根 = 上两级
-          const pkgDir = resolve(dirname(args.importer), "..", "..");
-          const target = resolve(args.path);
-          if (!mods.has(target)) return null; // 非快照 json（如 package.json 探测）不拦截
-          return { path: target, namespace: "models-snapshot" };
-        });
-        b.onLoad({ filter: /.*/, namespace: "models-snapshot" }, (args) => ({
-          contents: mods.get(args.path) ?? "",
-          loader: "js",
-        }));
-      },
-    },
-  ],
 });
 
+/**
+ * 把各渠道包根的随包快照复制到 `dist/models/<cid>.json`。
+ *
+ * 只复制**有内容**的快照（`models` 数组非空）；空壳快照（`{"models": []}`）没有兜底价值。
+ */
+function copySnapshots() {
+  const outDir = join(cliRoot, "dist", "models");
+  mkdirSync(outDir, { recursive: true });
+  let copied = 0;
+  for (const entry of readdirSync(channelsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const src = join(channelsRoot, entry.name, "models.json");
+    if (!existsSync(src)) continue;
+    let models;
+    try {
+      models = JSON.parse(readFileSync(src, "utf8"))?.models;
+    } catch {
+      console.warn(`[bundle] 跳过快照（不是合法 JSON）：${relative(repoRoot, src)}`);
+      continue;
+    }
+    if (!Array.isArray(models) || models.length === 0) continue;
+    copyFileSync(src, join(outDir, `${entry.name}.json`));
+    copied += 1;
+  }
+  if (copied > 0) console.log(`[bundle] 随包快照已复制：${copied} 个 → dist/models/`);
+}
+
+copySnapshots();
 console.log("[bundle] dist/cli.bundle.js built");

@@ -35,7 +35,7 @@
   `code_verifier` 与凭据一起落盘
   （参考实现 `reference/HITZY2002_codearts2api/internal/auth/auth.go`）—— 这是协议要求。
 
-**授权 URL 逐字（`packages/core/channels/codearts/src/cred.ts:633-640`）**：
+**授权 URL 逐字（`packages/core/channels/codearts/src/cred.ts:638-645`）**：
 
 ```
 https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
@@ -53,7 +53,7 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 - 授权 URL **不能带 `auth_callback_url`** —— portal 仅凭 `port` 参数构造回调
 - 回调端口 < 10000 会被 portal 拒绝
 
-**授权码换取**（`packages/core/channels/codearts/src/cred.ts:343-359`）：同一 STS 端点，form 体为
+**授权码换取**（`packages/core/channels/codearts/src/cred.ts:348-364`）：同一 STS 端点，form 体为
 `client_id=codearts-agent`、`code=`、`code_verifier=`、`grant_type=authorization_code`、
 `redirect_uri=http://127.0.0.1:{port}/oauth/callback`
 
@@ -95,10 +95,10 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 | 当前用户 | GET | `/snap-manager/v1/current/user` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/current/user` | **无** | `CURRENT_USER_PATH` | `packages/core/channels/codearts/src/upstream.ts:96`（[参考] `reference/HITZY2002_codearts2api/internal/upstream/client.go`） |
 | 调用者身份 | GET | `/v5/caller-identity` | `https://sts.cn-north-4.myhuaweicloud.com/v5/caller-identity` | **无** | `CALLER_IDENTITY_PATH` | `packages/core/channels/codearts/src/upstream.ts:102`（[参考] 同上） |
 | **OAuth token（STS）** | POST | `/v1/oauth2/tokens` | `https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens` | **无**（form 体承载参数） | `STS_TOKEN_PATH` | `packages/core/channels/codearts/src/upstream.ts:105` |
-| OAuth 授权页 | GET（浏览器） | `/portal/authorize` | `https://codearts.huaweicloud.com/portal/authorize` | `theme=2` + `locale=zh-cn` + `uri_scheme=codearts-agent` + `client_id=codearts-agent` + `port={port}` + `code_challenge={c}` + `code_challenge_method=SHA-256` + `ticket_id={t}` + `plugin-name=snap_AIIDE` + `plugin-version=5.2.0` | `buildLoginUrl()`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:633-640` |
-| portal 登录结果页 | — | `/portal/login` | `https://codearts.huaweicloud.com/portal/login` | `login_succeed={bool}` + `uri_scheme=codearts-agent` + `locale=zh-cn` | `buildPortalLoginResultUrl()`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:644-649` |
-| 旧式 ticket 凭据轮询 | GET | `/snap-manager/v1/login/ticket` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/login/ticket` | `ticket_id={t}` + `secret={s}` | `TICKET_PATH`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:87` |
-| 新式本地回调 | — | `/oauth/callback` | `http://127.0.0.1:{port}/oauth/callback`（端口强制 ≥ 10000） | `code={授权码}` | `REDIRECT_PATH`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:70` |
+| OAuth 授权页 | GET（浏览器） | `/portal/authorize` | `https://codearts.huaweicloud.com/portal/authorize` | `theme=2` + `locale=zh-cn` + `uri_scheme=codearts-agent` + `client_id=codearts-agent` + `port={port}` + `code_challenge={c}` + `code_challenge_method=SHA-256` + `ticket_id={t}` + `plugin-name=snap_AIIDE` + `plugin-version=5.2.0` | `buildLoginUrl()`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:638-645` |
+| portal 登录结果页 | — | `/portal/login` | `https://codearts.huaweicloud.com/portal/login` | `login_succeed={bool}` + `uri_scheme=codearts-agent` + `locale=zh-cn` | `buildPortalLoginResultUrl()`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:649-654` |
+| 旧式 ticket 凭据轮询 | GET | `/snap-manager/v1/login/ticket` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/login/ticket` | `ticket_id={t}` + `secret={s}` | `TICKET_PATH`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:92` |
+| 新式本地回调 | — | `/oauth/callback` | `http://127.0.0.1:{port}/oauth/callback`（端口强制 ≥ 10000） | `code={授权码}` | `REDIRECT_PATH`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:75` |
 | 旧式本地回调 | — | `/authentication` | `http://127.0.0.1:{port}/authentication` | `secret` + `redirect` | — | —（**本仓没有这个端点**：回调服务器只服务 `/oauth/callback`，见 §2.6） |
 | 旧式登录跳板 | GET（浏览器） | `/doer/redirect` | `https://devcloud.cn-north-4.myhuaweicloud.com/doer/redirect` | `IdeaType` + `auth_callback_url` + `plugin-name` + `plugin-version` + `ticket_id` | — | —（**本仓没有这个端点**：授权页只有新式 portal URL，见 §2.6） |
 | 旧式华为登录页 | GET（浏览器） | `/authui/login.html` | `https://auth.huaweicloud.com/authui/login.html` | `service={enc redirectUrl}` | — | —（本仓未接线，见 §2.6） |
@@ -172,7 +172,7 @@ dateStamp 保留结尾的 `Z`、毫秒被截掉。
 | `Chat-Id` | `sessionKey`（32 位 hex，由「首条 user 文本 + 模型」派生） | 否（签名后追加） | 每会话固定 | 与 `Session-Id` 同值 |
 | `Session-Id` | 同 `Chat-Id` | 否（签名后追加） | 每会话固定 | 前缀缓存命中依据 |
 | `lang` | 常量 `en` | 否（签名后追加） | — | chat 端点专用 |
-| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat-relay.ts:288-290`：渠道没给就加），故渠道侧不发 |
+| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat-relay.ts:190-192`：渠道没给就加），故渠道侧不发 |
 | `Agent-Type` | 常量 `PromptCenter`（builtin / 积分）/ `AgentCenter`（agent-center） | 否（**签名后追加**） | — | ⚠ **参与签名会 401 APIG.0301**（见本节末） |
 | `X-Language` | 常量 `zh-cn`（builtin / 积分 / agent-center） | 否（**签名后追加**） | — | ⚠ 同上 |
 | `Content-Type`（目录 / 积分 GET） | 常量 `application/json` | 否（签名后追加） | — | GET 的签名头里**没有** `content-type` |
@@ -219,7 +219,7 @@ canonical request，与签名时的 `application/json` 不符 ⇒
 > （禁入签名）。两边都能跑通，说明上游是**按 `SignedHeaders=` 列表**重算的 ——
 > 额外未签的头无害。**以本仓库的实测口径为准。**
 
-### 2.3 凭据结构（`packages/core/channels/codearts/src/cred.ts:165-185`）
+### 2.3 凭据结构（`packages/core/channels/codearts/src/cred.ts:170-190`）
 
 必填：`access_key_id`、`secret_access_key`、`security_token`、`expires_at`（字符串）
 可选：`domain_id`、`user_id`、`user_name`、`refresh_token`、`code_verifier`、
@@ -262,7 +262,7 @@ canonical request，与签名时的 `application/json` 不符 ⇒
 2. `refresh_token` JWT 的 `account_id` → `principal_id`
 3. `sha256(access_key_id)[:16]` —— **最后兜底**，每次登录都会变，只保证不空
 
-### 2.4 刷新流程（`packages/core/channels/codearts/src/cred.ts:362-377`）
+### 2.4 刷新流程（`packages/core/channels/codearts/src/cred.ts:367-382`）
 
 ```
 POST https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens
@@ -279,10 +279,10 @@ Body (form-urlencoded):
 响应：`{credentials:{access_key_id, secret_access_key, security_token, expiration},
 refresh_token, error, error_code, error_msg}`
 
-**终态判定（只认两种，`packages/core/channels/codearts/src/cred.ts:334`）**：
+**终态判定（只认两种，`packages/core/channels/codearts/src/cred.ts:339`）**：
 `error === 'invalid_grant'` 或 `error_code` 包含 `ExpiredRefreshToken`。
 
-**`InvalidDPoPHeader` 明确被移出终态**（`packages/core/channels/codearts/src/cred.ts:124-131` 长注释）：
+**`InvalidDPoPHeader` 明确被移出终态**（`packages/core/channels/codearts/src/cred.ts:129-136` 长注释）：
 它说的是「这一次 proof 没过校验」（时钟偏差 / 重放判定 / 网关抖动），
 与 refresh_token 能否继续用无关；当终态会把材料完好的账号一步标死。
 
@@ -291,7 +291,7 @@ refresh_token, error, error_code, error_msg}`
 且**判终态前先重读凭据**确认「我刚才用的那份 refresh_token 是否还是当前那份」。
 
 **三个实测踩坑**（源码注释明写）：
-### 2.5 DPoP JWS 构造（`packages/core/channels/codearts/src/cred.ts:228-247`）—— Python 需要哪些库
+### 2.5 DPoP JWS 构造（`packages/core/channels/codearts/src/cred.ts:233-252`）—— Python 需要哪些库
 
 | 项 | 值 |
 |---|---|
@@ -314,7 +314,7 @@ refresh_token, error, error_code, error_msg}`
 ### 2.6 旧式 ticket 回退路径（**默认关闭**）
 
 > ⚠ **本仓库默认不走这条路。** 需要排查上游旧链路时用
-> `CODEARTS_LEGACY_TICKET=1` 显式打开（`packages/core/channels/codearts/src/cred.ts:106-109` 的 `legacyTicketEnabled()`）。
+> `CODEARTS_LEGACY_TICKET=1` 显式打开（`packages/core/channels/codearts/src/cred.ts:111-114` 的 `legacyTicketEnabled()`）。
 
 **为什么降级为默认关闭**：
 
@@ -324,23 +324,23 @@ refresh_token, error, error_code, error_msg}`
   **无法续期**。
 - [推断] 参数组合对不上：旧式流程在参考实现里是 **JetBrains 插件**形态
   （`plugin-name=snap_jetbrains` / `plugin-version=26.3.3`），本仓库用的是
-  `snap_AIIDE` / `5.2.0`（`packages/core/channels/codearts/src/cred.ts:79-80` 的 `LOGIN_PLUGIN_NAME` / `LOGIN_PLUGIN_VERSION`）。
+  `snap_AIIDE` / `5.2.0`（`packages/core/channels/codearts/src/cred.ts:84-85` 的 `LOGIN_PLUGIN_NAME` / `LOGIN_PLUGIN_VERSION`）。
 
 **流程**：
 
-- `ticket_id = randomBytes(32).toString("hex")`（`packages/core/channels/codearts/src/cred.ts:961`）——⚠ **不是 `randomUUID()`**；`secret` **不是本地生成的**，它来自 portal 回调 URL 上的 `?secret=` 查询参数（`cred.ts:785`）。
+- `ticket_id = randomBytes(32).toString("hex")`（`packages/core/channels/codearts/src/cred.ts:966`）——⚠ **不是 `randomUUID()`**；`secret` **不是本地生成的**，它来自 portal 回调 URL 上的 `?secret=` 查询参数（`packages/core/channels/codearts/src/cred.ts:790`）。
 - **本仓打开的授权页只有一个**：`buildLoginUrl()` 拼出的**新式** portal URL
-  （`cred.ts:633-640`），参数里带 `plugin-name=snap_AIIDE` / `plugin-version=5.2.0`
-  （取常量 `LOGIN_PLUGIN_NAME` / `LOGIN_PLUGIN_VERSION`，`cred.ts:79-80`）。
+  （`packages/core/channels/codearts/src/cred.ts:638-645`），参数里带 `plugin-name=snap_AIIDE` / `plugin-version=5.2.0`
+  （取常量 `LOGIN_PLUGIN_NAME` / `LOGIN_PLUGIN_VERSION`，`packages/core/channels/codearts/src/cred.ts:84-85`）。
 - **本仓没有 `/doer/redirect` 跳板，也没有 `/authentication` 回调端点，更没有
   `authui/login.html` 这一跳** —— `codearts` 渠道包里搜不到这三个路径
   （端点总表里那两行已标「本仓未接线」）。本地回调服务器**只服务一个路径**：
-  `/oauth/callback`（常量 `REDIRECT_PATH`，`cred.ts:70`；路由判定 `cred.ts:779-784`，
+  `/oauth/callback`（常量 `REDIRECT_PATH`，`packages/core/channels/codearts/src/cred.ts:75`；路由判定 `packages/core/channels/codearts/src/cred.ts:784-789`，
   其它路径一律 404）。
 - 轮询：GET `.../snap-manager/v1/login/ticket?ticket_id=&secret=`，
  请求头 `Content-Type: application/json;charset=UTF-8`、**`plugin-name: snap_AIIDE`**、
- **`plugin-version: 5.2.0`**、`Accept: application/json`（`cred.ts:726-733`）；间隔 1 秒、最多 120 次（`cred.ts:88-89` 的 `TICKET_POLL_INTERVAL_MS` / `TICKET_POLL_MAX`）。
-- 凭据解析兼容两种形状（`packages/core/channels/codearts/src/cred.ts:684-718`）：
+ **`plugin-version: 5.2.0`**、`Accept: application/json`（`packages/core/channels/codearts/src/cred.ts:731-738`）；间隔 1 秒、最多 120 次（`packages/core/channels/codearts/src/cred.ts:93-94` 的 `TICKET_POLL_INTERVAL_MS` / `TICKET_POLL_MAX`）。
+- 凭据解析兼容两种形状（`packages/core/channels/codearts/src/cred.ts:689-723`）：
  `data.credential.{access,secret,securitytoken|securityToken,expires_at|expiresAt}`
  或 `data.result.{accessKeyId,secretAccessKey,securityToken,expiration|expiresAt}`
 - `expires_at` 无法解析时回退 `now + 24h`
@@ -356,14 +356,14 @@ refresh_token, error, error_code, error_msg}`
 > ③ `secret` 由 portal 回调下发（`?secret=`），**不是本地生成**；
 > ④ `ticket_id` 是 32 字节 hex，**不是 `randomUUID()`**。
 > 上面的「JetBrains 插件形态」是**参考实现**的形态（也正是本仓把旧式链路默认关闭的原因之一，
-> 见 `cred.ts:100-103` 的注释）。
+> 见 `packages/core/channels/codearts/src/cred.ts:105-108` 的注释）。
 
 **⚠ 回调链路上 307 必须照发**：portal 的登录链路是「先带 `secret`+`redirect` 回调、
 再带 `code` 回调」**两次**（[参考]
 `reference/HITZY2002_codearts2api/cmd/login/main.go`）。第一次不回跳，
 第二次带 code 的回调就永远不来。故即使旧式轮询关着，**`?secret=` 那一次也必须
 307 跳回 `redirect`**，然后等第二次回调走新式 exchange
-（本仓实现见 `packages/core/channels/codearts/src/cred.ts:785-804`：`Location` 取 URL 上的
+（本仓实现见 `packages/core/channels/codearts/src/cred.ts:790-809`：`Location` 取 URL 上的
 `redirect` 参数，缺省用 `buildPortalLoginResultUrl(true)`；旧式轮询默认关闭时只回跳、继续等
 带 `code` 的第二次回调）。
 
@@ -374,8 +374,8 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 
 **兜底**：用户把地址栏里的**整条**回调 URL 粘回来，渠道从里面取 `code` 换取凭据。
 
-- 入口：`packages/core/channels/codearts/src/cred.ts:855-861` 的 `LoginOptions.pasteCode`
-  （共享层已经在传 —— `packages/core/gateway/src/auth/auth-flow.ts:67` /
+- 入口：`packages/core/channels/codearts/src/cred.ts:860-866` 的 `LoginOptions.pasteCode`
+  （共享层已经在传 —— `packages/core/gateway/src/auth/auth-flow.ts:62` /
   `packages/core/gateway/src/app/headless.ts:310` 的 `pasteCode: () => ui.takePastedCallback?.()`；
   **本渠道之前没接住**，现已接上）。
 - 解析：`extractAuthCode()` 接受三种形态 ——
@@ -502,13 +502,13 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
   `packages/core/channels/codearts/src/upstream.ts:1110-1116`、`:1153-1158`）——
   **没有任何重试循环**消费它（这两个导出函数在渠道包与共享层里都没有调用方）。
 - **共享层的排队重试对本渠道不生效**：它要求「`custom` 线型 + 渠道声明 `isQueueError`」
-  （`packages/core/gateway/src/http/chat-relay.ts:1071`），而本渠道
-  `WIRE = "openai"`（`upstream.ts:143`）且**没有声明** `isQueueError`
+  （`packages/core/gateway/src/http/chat-relay.ts:610`），而本渠道
+  `WIRE = "openai"`（`packages/core/channels/codearts/src/upstream.ts:143`）且**没有声明** `isQueueError`
   → chat 请求不会被重发。
 - **SSE 空闲超时只有一档**：默认 **120000 ms**
-  （`packages/core/gateway/src/http/chat-relay.ts:62` 的 `READ_TIMEOUT_MS`，
-  可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`:64-69`），
-  作用于**整条响应体**（`idleGuardedBody`，`http/chat-relay.ts:77-119`，挂在 `:364`）。
+  （`packages/core/gateway/src/http/chat-relay.ts:73` 的 `READ_TIMEOUT_MS`，
+  可用环境变量 `MODELMUX_READ_TIMEOUT_MS` 覆盖，`packages/core/gateway/src/http/chat-relay.ts:75-80`），
+  作用于**整条响应体**（`idleGuardedBody`，`packages/core/gateway/src/http/chat-relay.ts:88-130`，挂在 `packages/core/gateway/src/http/chat-relay.ts:266`）。
   本渠道**没有** `idleTimeoutMs()` 钩子，故不能像 qoder 那样放宽到 900 秒
   （钩子接口见 `packages/core/gateway/src/runtime/channel.ts:190`）。
 - ⚠ 「APIG 网关对 SSE 有 ~60s 空闲断连策略、`reader.read()` 抛 `TypeError: terminated`」
@@ -852,7 +852,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | V5 | **`APIG.0602`（HTTP 400 + token 失效）的真实形态** | 等 token 自然过期时观察网关日志 | 当前是 [推断] 走 `isAuthFailure` 归一（§4.2），未在真实链路上验证过 |
 | V6 | **DPoP 低 S 归一化是否必要** | 同一私钥用两种编码各签一次，比较 `r‖s` 的高半部分（**纯本地计算，不发请求**） | 本仓库直接用 Node 的 `ieee-p1363` 输出（依赖实现细节），参考实现显式做低 S 归一化（[参考] `reference/HITZY2002_codearts2api/internal/upstream/dpop.go`） |
 | V7 | **排队状态端点 `GET /api/v1/queue/status?model=&task_id=`** | 在一次真实排队请求期间抓该端点响应 | 该端点在「chat 与模型请求的确切 URL」表里但**本仓库未接线**（常量已删，行为靠渠道层重试） |
-| V8 | **旧式 ticket 路径是否还能用** | 若要验，必须**先**把插件身份切成 `snap_jetbrains` / `26.3.3`（本仓当前常量是 `snap_AIIDE` / `5.2.0`，`cred.ts:79-80`） | 当前默认关闭（§2.6）；不切插件身份测的是混合形态、无结论 |
+| V8 | **旧式 ticket 路径是否还能用** | 若要验，必须**先**把插件身份切成 `snap_jetbrains` / `26.3.3`（本仓当前常量是 `snap_AIIDE` / `5.2.0`，`packages/core/channels/codearts/src/cred.ts:84-85`） | 当前默认关闭（§2.6）；不切插件身份测的是混合形态、无结论 |
 | V9 | **agent-center 第三路的真实内容** | 打开 `CODEARTS_AGENT_CENTER_MODELS=1` 后 `mx model codearts --refresh` | 该路默认关（会列入未注册模型）；打开前需要确认它给出的模型确实可调 |
 | V10 | **benefit 按账号隔离是否生效** | 用两个账号分别刷新目录，再看 `cache/benefit-accounts.json` 的分桶 | 本轮新加的按账号分桶（§5.1）需要确认「A 有 B 无」时互不污染 |
 

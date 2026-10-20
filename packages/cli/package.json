@@ -12,6 +12,7 @@
   },
   "files": [
     "dist/cli.bundle.js",
+    "dist/models",
     "dist/ui"
   ],
   "scripts": {

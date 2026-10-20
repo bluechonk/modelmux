@@ -3,7 +3,8 @@
  *
  * 结构：
  * - 本文件：`createHandler`（路由分发）/ `makeApp` / `start` / `describe` / `splitAddr`
- * - `chat-relay.ts`：聊天转发链路（候选排序、失败转移、SSE 中继）—— 由 handleChat 承载
+ * - `chat-relay.ts`：聊天转发的**编排**（候选排序、失败转移、结果回传）—— 由 handleChat 承载
+ * - `chat-channel/candidates/errors/stream/queue.ts`：转发链路的分块（帧、排队、错误、候选）
  * - `sse-stream.ts` / `portfree.ts`：SSE 规范化与端口自愈
  *
  * 渠道差异全部由注册的 `Channel`（`upstream` / `cred` / `catalog`）提供，
@@ -15,11 +16,23 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { channelCount, channelFor, channels, getChannel, type Channel, type Credential, type StreamTranslator, type UpstreamConfig } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { POOL_MODELS, getPoolModelMeta, poolCandidates } from "../pool/pool-targets.js";
-import { inChannel } from "./chat-relay.js";
+import { inChannel } from "./chat-channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
-import { handleChat, writeJson, writeJsonError } from "./chat-relay.js";
+import { handleChat } from "./chat-relay.js";
+import { writeJson, writeJsonError } from "./chat-errors.js";
 import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
 
+/**
+ * 服务标识：出现在 `/health` 应答里。
+ *
+ * ⚠ 为什么需要它：同一端口上可能跑着**其它实现或其它项目的网关**，
+ * 它们同样返回 `{"ok":true}`。只按 `ok` 判定会让 `status` 把别人的进程
+ * 报成「自己的网关 OK」，而请求实际发去了另一个程序。
+ * 故 `daemon.gatewayHealthy()` 会核对 `service` 字段。
+ *
+ * 取值：单渠道模式为**渠道身份 `cid`**；多渠道路由下为仓库级身份 `modelmux`
+ * —— 它同时服务所有已注册渠道。
+ */
 export function serviceName(cid?: string): string {
   if (cid !== undefined) return channelFor(cid).config.cid;
   if (channelCount() === 1) return channels()[0]!.config.cid;

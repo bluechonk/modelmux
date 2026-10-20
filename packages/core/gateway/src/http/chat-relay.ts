@@ -1,9 +1,9 @@
 /**
- * 聊天转发的核心链路：候选排序 → 尝试循环 → 失败转移 → 流式/非流式回传。
+ * 聊天转发的编排层：候选排序 → 尝试循环 → 失败转移 → 流式/非流式回传。
  *
- * 从 `gateway.ts` 拆出：这是全仓最复杂的事务逻辑（账本排序、冷却排除、账号池
- * 转移、排队帧重试、SSE 中继交织），单独成文件后 `gateway.ts` 只剩路由与生命周期，
- * 可以一眼读完。
+ * 本文件只留**编排**（请求解析、候选选择、建连、鉴权失败、结果回传）；
+ * 成块的纯逻辑已分出去：`chat-channel`（上下文/线型）、`chat-candidates`（候选/账号）、
+ * `chat-errors`（应答/错误分类）、`chat-stream`（帧与中继）、`chat-queue`（排队探测）。
  *
  * ⚠ 本文件不定义路由，只被 `gateway.ts` 的 `createHandler` 调用。
  */
@@ -12,22 +12,19 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Channel, type Credential, type StreamTranslator } from "../runtime/channel.js";
 import { hasChannel } from "../runtime/channel.js";
-import { runInChannel } from "../runtime/channel-context.js";
 import {
   activeAccountIsError,
   markActiveHealth,
   noteAccountFailure,
   noteAccountQuotaExhausted,
   noteAccountSuccess,
-  readIndex,
 } from "../runtime/account-pool.js";
 import { resolvePoolModel } from "../pool/model-pool.js";
-import { asPoolModel, parsePoolModel, poolCandidates, POOL_MODELS, POOL_MODEL_META, getPoolModelMeta } from "../pool/pool-targets.js";
-import { isCooling, maybeRefreshBilling, noteFailure, noteSuccess, scoreOf } from "../pool/pool-usage.js";
+import { asPoolModel, parsePoolModel, poolCandidates } from "../pool/pool-targets.js";
+import { isCooling, maybeRefreshBilling, noteFailure, noteSuccess } from "../pool/pool-usage.js";
 import { logThrottled } from "../runtime/logger.js";
 import {
   getRequestLog,
-  noteClientDisconnect,
   noteFirstByte,
   noteRequestError,
   noteUpstreamReady,
@@ -35,6 +32,20 @@ import {
 } from "../runtime/log-store.js";
 import * as sseStream from "./sse-stream.js";
 import type { GatewayOptions } from "./gateway.js";
+import { inChannel, isCustomWire } from "./chat-channel.js";
+import { activeKeyOf, maxPoolAttempts, rankCandidates } from "./chat-candidates.js";
+import { isQuotaExhausted, writeJson, writeJsonError } from "./chat-errors.js";
+import { collectAsOpenAiSse, relayStream } from "./chat-stream.js";
+import {
+  consumeQueueProbe,
+  loadCredentialSafe,
+  PROBE_RETRY_BASE_MS,
+  PROBE_RETRY_MAX,
+  QUEUE_RETRY_BUDGET_MS,
+  QUEUE_RETRY_MAX_DELAY_MS,
+  type ProbeFrames,
+  type QueueProbe,
+} from "./chat-queue.js";
 
 const MAX_BODY = 32 << 20;
 
@@ -71,7 +82,7 @@ function readTimeoutMs(): number {
 /**
  * 把上游响应体包成「空闲超时」流：**每读到一块就重置计时**。
  *
- * 判定依据是「连续无数据时长」，不是「总时长」：长任务（catpaw 的 agent 轮次、
+ * 判定依据是「连续无数据时长」，不是「总时长」：长任务（agent 轮次、
  * 长 tool 循环）总耗时超过阈值但持续出字时不会被切断。
  */
 function idleGuardedBody(
@@ -118,31 +129,12 @@ function idleGuardedBody(
   });
 }
 
-/** 排队重试：单帧退避上限（上游给的 retryAfterSeconds 超过它就按这个等）。 */
-
-const QUEUE_RETRY_MAX_DELAY_MS = 10_000;
-/** 排队重试：整个请求的总时长上限（含首次尝试与所有等待）。 */
-
-const QUEUE_RETRY_BUDGET_MS = 300_000;
-
-/**
- * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道快速重试**次数与退避基数。
- *
- * 上游对「已收下又立刻断流」的请求是**瞬时态**（同形态请求时而 4.6s 出字、时而断流），
- * 重试通常即恢复（.tmp 实测：同 body 重放 0s/3s/10s/20s 全部成功）。退避取 15s 是
- * 与实测成功样本对齐的保守值 —— 太短（<3s）在 qoder 上重试仍会被 terminates。
- * 参考实现 qoder2api-hub 对瞬时上游故障同样做同账号 1s/2s 两次重试。
- * 空闲超时不重试：那已经等满渠道声明的静默上限，客户端早已等不及，重试只会拖长失败。
- */
-const PROBE_RETRY_MAX = 2;
-const PROBE_RETRY_BASE_MS = 15_000;
-
 /**
  * 渠道可显式加权 / 主机级隔离：探测重试前换一次候选主机。
  *
- * 有些上游的多主机里个别主机对「200 后零字节 / 断流」是坏的，换台机器就恢复
- * （实测 qoder api1 挂起、api2 正常）。`chatHostCandidates()` 给出候选清单，
- * 渠道再自己把 URL 切过去（没有主机概念的渠道不声明这两个钩子）。
+ * 有些上游的多主机里个别主机对「200 后零字节 / 断流」是坏的，换台机器就恢复。
+ * `chatHostCandidates()` 给出候选清单，渠道再自己把 URL 切过去
+ * （没有主机概念的渠道不声明这两个钩子）。
  */
 function chatHostRotator(channel: Channel): (() => boolean) | undefined {
   const upstream = channel.upstream;
@@ -158,42 +150,6 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
   };
 }
 
-/**
- * 服务标识：出现在 `/health` 应答里。
- *
- * ⚠ 为什么需要它：同一端口上可能跑着**其它实现或其它项目的网关**，
- * 它们同样返回 `{"ok":true}`。只按 `ok` 判定会让 `status` 把别人的进程
- * 报成「自己的网关 OK」，而请求实际发去了另一个程序。
- * 故 `daemon.gatewayHealthy()` 会核对 `service` 字段。
- *
- * 取值：单渠道模式为**渠道身份 `cid`**；多渠道路由下为仓库级身份 `modelmux`
- * —— 它同时服务所有已注册渠道。
- */
-
-function writeJson(res: ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(data));
-}
-
-/** 错误响应 JSON 结构：`{"error":{"type","code","message"}}`。 */
-
-function writeJsonError(res: ServerResponse, status: number, code: string, message: string): void {
-  noteRequestError(res, code, message);
-  writeJson(res, { error: { type: "error", code, message } }, status);
-}
-
-/**
- * 上游响应体是否表示**额度耗尽**（不是请求参数/内容错误）。
- *
- * 额度类错误必须与普通 4xx 区分：后者（模型参数、tool 消息序列等）是请求级问题，
- * 换账号也会失败；前者继续打同一个账号只会重复失败，应直接把账号标不可用。
- */
-function isQuotaExhausted(body: string): boolean {
-  if (!body) return false;
-  return /insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额|免费额度已用完|额度已用完|升级套餐/i.test(body);
-}
-
-
 async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -204,60 +160,6 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
     chunks.push(buf);
   }
   return Buffer.concat(chunks);
-}
-
-/** 调用渠道模块时一律包进渠道上下文（渠道内部的 `paths.*` 据此解析自己的落点）。 */
-
-export function inChannel<T>(channel: Channel, fn: () => T): T {
-  return runInChannel(channel.config.cid, fn);
-}
-
-/** 该渠道的上游线型是否为自定义（需翻译层）。 */
-
-function isCustomWire(channel: Channel): boolean {
-  return String(channel.upstream.WIRE) !== "openai";
-}
-
-/** 当前生效账号的 key（账本按「渠道 × 账号」记账用；读不到返回 undefined）。 */
-
-function activeKeyOf(cid: string): string | undefined {
-  try {
-    return readIndex(cid).active ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * 池路由一次请求最多尝试几个候选渠道。
- *
- * ⚠ 现行池 id 形态是 `<cid>/<规范模型名>`：**渠道由请求方在 id 前缀里显式指定**，
- * `poolCandidates()` 因此**最多返回 1 条**候选（见 `pool/pool-targets.ts`），
- * 这个上限当下不会成为约束 —— 保留它是为了将来「同模型多渠道」形态回归时仍有兜底。
- * `MODELMUX_POOL_MAX_TRIES` 可覆盖。
- */
-
-const DEFAULT_POOL_ATTEMPTS = 3;
-
-
-function maxPoolAttempts(): number {
-  const raw = process.env["MODELMUX_POOL_MAX_TRIES"];
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_POOL_ATTEMPTS;
-}
-
-/**
- * 按账本给候选排序：**账单已用量降序**，冷却期内当 0，同分保持注册顺序。
- *
- * `poolCandidates()` 已按注册顺序返回，而 `Array.prototype.sort` 稳定，
- * 所以并列时天然保持注册顺序 —— 不需要额外的 tie-break 字段。
- *
- * ⚠ 现行池 id 钉死渠道后候选**至多一条**，排序实际是空操作；
- * 账本用量现在只用于**池视图展示排序**（`mx model list` / 控制台），不决定路由去向。
- */
-
-function rankCandidates<T extends { cid: string }>(candidates: T[]): T[] {
-  return [...candidates].sort((a, b) => scoreOf(b.cid) - scoreOf(a.cid));
 }
 
 
@@ -283,7 +185,7 @@ interface UpstreamCall {
 
 async function openStream(channel: Channel, c: Credential, body: Buffer): Promise<UpstreamCall> {
   const { upstream } = channel;
-  // 渠道声明了对话专用头族（如 workbuddyai 的官方身分头）就用它，否则回退基础头
+  // 渠道声明了对话专用头族就用它，否则回退基础头
   const headers = upstream.buildChatHeaders ? upstream.buildChatHeaders(c) : upstream.buildHeaders(c);
   if (!Object.keys(headers).some((k) => k.toLowerCase() === "accept")) {
     headers["Accept"] = "text/event-stream";
@@ -292,7 +194,7 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
   let resp: Response;
   const controller = new AbortController();
   let timeoutMs = readTimeoutMs();
-  // 渠道可放宽静默上限（首字慢的上游如 qoder：200 后长时间零字节，见 UpstreamModule.idleTimeoutMs）
+  // 渠道可放宽静默上限（首字慢的上游：200 后长时间零字节，见 UpstreamModule.idleTimeoutMs）
   const channelIdleMs = upstream.idleTimeoutMs?.();
   if (channelIdleMs !== undefined) timeoutMs = Math.max(timeoutMs, channelIdleMs);
   const headerTimer = setTimeout(() => {
@@ -329,8 +231,8 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
   }
 
   if (resp.status === 401 || resp.status === 403) {
-    // 鉴权类失败也**读响应体**：11140（账号被限制）同样是 403，不读 body
-    // 就永远分不清「令牌过期」和「账号被封」（排查 workbuddy 时实际踩过）
+    // 鉴权类失败也**读响应体**：有的上游用 403 表示「账号被限制」，
+    // 不读 body 就永远分不清「令牌过期」和「账号被封」
     const snippet = await resp.text().catch(() => "");
     return {
       ok: false,
@@ -343,7 +245,7 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
   }
   if (resp.status !== 200) {
     const snippet = await resp.text().catch(() => "");
-    // 渠道可声明「非标准状态码的鉴权失败」（如 codearts 的 400 + APIG.0602）：
+    // 渠道可声明「非标准状态码的鉴权失败」（如 400 + 渠道特有错误码）：
     // 归一成 401，让调用方走刷新/换账号链路
     if (upstream.isAuthFailure && upstream.isAuthFailure(resp.status, snippet)) {
       return { ok: false, status: 401, headers: resp.headers, body: null };
@@ -363,369 +265,6 @@ async function openStream(channel: Channel, c: Credential, body: Buffer): Promis
     headers: resp.headers,
     body: resp.body ? idleGuardedBody(resp.body, controller, timeoutMs) : null,
   };
-}
-
-// ── 流处理 ────────────────────────────────────────────────────────────────────
-
-/** 把翻译器产出的帧统一成 Buffer。 */
-
-function asBuffer(frame: Buffer | string): Buffer {
-  return Buffer.isBuffer(frame) ? frame : Buffer.from(frame, "utf8");
-}
-
-/** 从一帧 OpenAI SSE 里提取 usage（流式 usage 帧可能是独立 chunk）。 */
-function noteFrameUsage(res: ServerResponse, frame: Buffer | string): void {
-  const text = typeof frame === "string" ? frame : frame.toString("utf8");
-  if (!text.includes('"usage"')) return;
-  for (const line of text.split("\n")) {
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") continue;
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>;
-      if (parsed["usage"]) noteUsage(res, parsed["usage"]);
-    } catch {
-      /* 非 JSON 帧不处理 */
-    }
-  }
-}
-
-/**
- * 流式转发：`openai` 线型走规范化透传，`custom` 线型走增量翻译。
- *
- * ⚠ 翻译异常**不能穿透成 500**（响应头已发出）：产出 error 帧并正常结束，
- *   否则客户端只看到一个断掉的连接，拿不到任何原因。
- */
-
-/** 已收到客户端可执行工具调用后，上游静默超过该时长即主动收尾。 */
-const TOOL_CALL_IDLE_FLUSH_MS = 2_500;
-/** 还没收到任何内容时的首帧静默上限（慢上游容错）。渠道可用
- *  `UpstreamModule.idleTimeoutMs()` 放宽（qoder 实测 200 后零字节可超 120s）。 */
-const FIRST_TOKEN_IDLE_MS = 120_000;
-/** 首帧等待期的心跳间隔：上游零字节时向客户端补 SSE 注释帧（`: ping`）防空闲断开。 */
-const FIRST_BYTE_HEARTBEAT_MS = 5_000;
-
-type IdleRead = { idle: true };
-
-/**
- * `reader.read()` 的竞速版本：静默 `idleMs` 后返回 idle。
- * 上游等工具结果、上游发完正文不关流（catpaw 实测 170s）都会触发，
- * 由调用方决定是下发工具调用还是收尾本轮。
- *
- * `onHeartbeat` 传入时按 5 秒粒度等待：每次静默到一个心跳点先回调（写 `: ping`），
- * 累计静默仍达 `idleMs` 才判空闲 —— 长首字上游（qoder 实测 40–71s）不会因
- * 客户端/中间代理空闲超时而断连。
- */
-async function readWithIdle(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  idleMs: number,
-  onHeartbeat?: () => void,
-): Promise<{ done: boolean; value?: Uint8Array } | IdleRead> {
-  const tickMs = onHeartbeat ? Math.min(FIRST_BYTE_HEARTBEAT_MS, idleMs) : idleMs;
-  let waited = 0;
-  for (;;) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const idle = new Promise<IdleRead>((resolve) => {
-      timer = setTimeout(() => resolve({ idle: true }), tickMs);
-    });
-    let settled: { done: boolean; value?: Uint8Array } | IdleRead;
-    try {
-      settled = await Promise.race([reader.read(), idle]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    if (!("idle" in settled)) return settled;
-    waited += tickMs;
-    if (waited >= idleMs) return { idle: true };
-    onHeartbeat?.();
-  }
-}
-
-async function relayStream(
-  res: ServerResponse,
-  upstreamBody: ReadableStream<Uint8Array>,
-  contentType: string,
-  logger: (m: string) => void,
-  channel: Channel,
-  cid?: string,
-  resumeTranslator?: StreamTranslator,
-  request?: Record<string, unknown>,
-  initialContent = false,
-): Promise<void> {
-  if (!isCustomWire(channel)) {
-    await sseStream.relay(res, upstreamBody, contentType, cid);
-    return;
-  }
-
-  const { upstream } = channel;
-  // 首帧静默上限：渠道可放宽（qoder 排队时 200 后零字节超 120s）
-  const firstTokenIdleMs = channel.upstream.idleTimeoutMs?.() ?? FIRST_TOKEN_IDLE_MS;
-  // ⚠ 排队探测可能已用同一实例读了一段：必须接着用同一个。换新实例会把
-  //   旧实例缓冲里的**半行**丢掉，残行收尾时整帧解析失败被丢弃（实测：tool_call 参数损坏）。
-  const translator = resumeTranslator ?? upstream.newTranslator(request);
-  const reader = upstreamBody.getReader();
-  // 探测阶段可能已经写过帧：据此判断是否已收到内容
-  let first = true;
-  let sawContent = initialContent;
-  try {
-    for (;;) {
-      const pendingTool = translator.hasPendingToolCall?.() ?? false;
-      const idleMs = pendingTool
-        ? TOOL_CALL_IDLE_FLUSH_MS
-        : sawContent
-          ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
-          : firstTokenIdleMs;
-      // 首帧等待期补心跳：上游长时间零字节时客户端/中间代理容易空闲断连
-      const next = await readWithIdle(reader, idleMs, sawContent ? undefined : () => {
-        if (!res.writableEnded) res.write(": ping\n\n");
-      });
-      if ("idle" in next) {
-        if (pendingTool) {
-          logger("upstream idle after tool call; flushing tool_calls to client");
-        } else {
-          logger("upstream silent after content; acking completion and finalizing");
-          try {
-            translator.ackConversation?.();
-          } catch {
-            /* 回报失败不影响收尾 */
-          }
-        }
-        break;
-      }
-      const { done, value } = next;
-      if (done || !value) break;
-      for (const frame of translator.feed(Buffer.from(value))) {
-        if (first) {
-          noteFirstByte(res);
-          first = false;
-          sawContent = true;
-        }
-        const buf = asBuffer(frame);
-        noteFrameUsage(res, buf);
-        res.write(buf);
-      }
-      // 终止标记已随 feed() 发出（含 finish_reason + [DONE]）：立即停读上游，别等 TCP 关闭
-      if (translator.isDone?.()) break;
-    }
-    for (const frame of translator.finish()) {
-      const buf = asBuffer(frame);
-      noteFrameUsage(res, buf);
-      res.write(buf);
-    }
-  } catch (err) {
-    const code = (err as { code?: string } | null)?.code;
-    const name = (err as { name?: string } | null)?.name;
-    if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE") {
-      // 客户端提前断开（如主动取消请求）属正常情况
-      noteClientDisconnect(res);
-      logger("client disconnected, stopping relay");
-    } else if (name === "TimeoutError" || /timeout/i.test(String(err))) {
-      noteRequestError(res, "upstream_timeout", `upstream stream timed out: ${String(err)}`);
-      logger(`upstream stream timed out: ${String(err)}`);
-      if (!res.writableEnded) {
-        res.write(
-          `data: ${JSON.stringify({ error: { code: "upstream_timeout", message: `upstream stream timed out: ${String(err)}` } })}\n\n`,
-        );
-      }
-    } else {
-      noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
-      logger(`upstream stream failed: ${String(err)}`);
-      if (!res.writableEnded) {
-        res.write(
-          `data: ${JSON.stringify({ error: { message: `upstream stream failed: ${String(err)}` } })}\n\n`,
-        );
-      }
-    }
-  } finally {
-    // 客户端断开或上游异常时也要触发翻译器收尾（渠道可在 finish 里回报会话完成）
-    try {
-      translator.finish();
-    } catch {
-      /* 收尾失败不影响响应 */
-    }
-    await reader.cancel().catch(() => {});
-    if (!res.writableEnded) res.end();
-  }
-}
-
-/** 把上游流聚合成 OpenAI SSE 字节（非流式路径用）。 */
-
-async function collectAsOpenAiSse(
-  upstreamBody: ReadableStream<Uint8Array>,
-  channel: Channel,
-  cid?: string,
-  resumeTranslator?: StreamTranslator,
-  request?: Record<string, unknown>,
-): Promise<Buffer> {
-  if (!isCustomWire(channel)) return sseStream.readAll(upstreamBody, cid);
-
-  const { upstream } = channel;
-  // 首帧静默上限与流式路径同源（见 relayStream；非流式聚合同样受慢首字影响）
-  const firstTokenIdleMs = channel.upstream.idleTimeoutMs?.() ?? FIRST_TOKEN_IDLE_MS;
-  // ⚠ 与 relayStream 同理：探测用过的实例必须接着用，半行缓冲不能丢。
-  const translator = resumeTranslator ?? upstream.newTranslator(request);
-  const reader = upstreamBody.getReader();
-  const out: Buffer[] = [];
-  let sawContent = false;
-  try {
-    for (;;) {
-      const pendingTool = translator.hasPendingToolCall?.() ?? false;
-      const idleMs = pendingTool
-        ? TOOL_CALL_IDLE_FLUSH_MS
-        : sawContent
-          ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
-          : firstTokenIdleMs;
-      const next = await readWithIdle(reader, idleMs);
-      if ("idle" in next) {
-        if (!pendingTool) {
-          try {
-            translator.ackConversation?.();
-          } catch {
-            /* 回报失败不影响收尾 */
-          }
-        }
-        break;
-      }
-      const { done, value } = next;
-      if (done || !value) break;
-      for (const frame of translator.feed(Buffer.from(value))) {
-        out.push(asBuffer(frame));
-        sawContent = true;
-      }
-      if (translator.isDone?.()) break;
-    }
-    for (const frame of translator.finish()) out.push(asBuffer(frame));
-  } finally {
-    // 读取中断（异常/取消）时补一次收尾，触发渠道的会话完成回报
-    try {
-      translator.finish();
-    } catch {
-      /* 收尾失败不影响已聚合内容 */
-    }
-    await reader.cancel().catch(() => {});
-  }
-  return Buffer.concat(out);
-}
-
-// ── 排队探测（响应头发出前） ─────────────────────────────────────────────────
-
-/** `cred.load()` 的安全包装：未登录返回 null（排队重开上游时用）。 */
-
-function loadCredentialSafe(channel: Channel): Credential | null {
-  try {
-    return inChannel(channel, () => channel.cred.load());
-  } catch {
-    return null;
-  }
-}
-
-
-interface QueueProbe {
-  /** 流内是否出现排队帧（渠道 isQueueError 判定）。 */
-  queued: boolean;
-  /** 上游建议的等待秒数（从排队帧解析；没有就不给）。 */
-  delayMs?: number;
-  /**
-   * 探测消费掉、必须交回调用方**按原序**转发的帧（内容帧 + 非排队错误帧）。
-   * 一个都不能丢 —— 吞掉就是流中缺段、非流式空响应（见本文件「排队探测」注释）。
-   */
-  frames: Buffer[];
-  /** 是否已见到内容帧（见到 = 响应是真实的，排队重试必须停）。 */
-  hasContent: boolean;
-  /** 排队帧里解析到的 retryAfterSeconds 原文（日志用）。 */
-  rawDelaySec?: number;
-  /**
-   * 探测用的翻译器实例。它的行缓冲里可能还剩**半行**（跨 TCP 块的帧前缀），
-   * 转发阶段必须接着用同一实例，换新实例会把半行前缀丢掉、残行整帧解析失败。
-   */
-  translator: StreamTranslator;
-}
-
-/**
- * 消费上游流做「排队探测」：**不向客户端写任何字节**。
- *
- * 翻译器逐帧处理：
- * - 内容帧（`data:` 且非 error）→ 记入 `frames` 并停止探测（有内容就不能重试），
- *   **但同一块里紧随其后的帧也要一并收走**（TCP 合并发送时一块可能有多帧）
- * - 错误帧 → 问渠道 `isQueueError`：是排队就记下延迟并继续等下一帧；
- *   否则记入 `frames` 后停止探测（交回调用方，不能吞）
- * - 流结束仍无内容也无排队 → `queued: false`（正常完成或普通错误）
- *
- * ⚠ 只在 `relayUpstream` **之前**调用：一旦开始向客户端写字节，本函数就没意义了。
- * ⚠ 返回的 `translator` 必须交给转发层接着用（半行缓冲在里面）。
- */
-
-async function consumeQueueProbe(
-  upstreamBody: ReadableStream<Uint8Array>,
-  channel: Channel,
-  cid?: string,
-  translator?: StreamTranslator,
-  request?: Record<string, unknown>,
-): Promise<QueueProbe> {
-  const activeTranslator = translator ?? channel.upstream.newTranslator(request);
-  const reader = upstreamBody.getReader();
-  const probe: QueueProbe = { queued: false, frames: [], hasContent: false, translator: activeTranslator };
-  /** 已决定停止探测：同块剩余帧只收不判（丢了就是流中缺段）。 */
-  let stopped = false;
-  const take = (frame: Buffer | string): void => {
-    const buf = asBuffer(frame);
-    if (stopped) {
-      probe.frames.push(buf);
-      return;
-    }
-    const text = buf.toString("utf8");
-    // 错误帧形如 `data: {"error":{...}}`
-    const isErrorFrame = /^data: /.test(text) && /"error"\s*:/.test(text);
-    if (!isErrorFrame) {
-      probe.frames.push(buf);
-      probe.hasContent = true;
-      stopped = true;
-      return;
-    }
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(text.slice("data: ".length).trim()) as Record<string, unknown>;
-    } catch {
-      probe.frames.push(buf); // 判不了就转发（丢帧比转发危险）
-      stopped = true;
-      return;
-    }
-    if (channel.upstream.isQueueError?.(payload)) {
-      probe.queued = true;
-      const errObj = payload["error"] as { code?: unknown; message?: unknown } | undefined;
-      const m = /retryAfterSeconds\D+(\d+)/i.exec(String(errObj?.message ?? ""));
-      if (m) {
-        const sec = Number.parseInt(m[1]!, 10);
-        probe.rawDelaySec = sec;
-        probe.delayMs = Math.max(1_000, sec * 1000);
-      }
-      // ⚠ 排队帧**就是这条流的最后一帧**（qoder 实测：发出排队帧后连接保持但彻底静默，
-      // 上游期望客户端按 retryAfterSeconds 等待后重开新请求）。继续读 = 死锁到空闲
-      // abort（undici 报 terminated）；立即返回，交调用方的「等待 → 重开」重试循环接管。
-      stopped = true;
-      return;
-    }
-    probe.frames.push(buf);
-    stopped = true; // 非排队错误帧：停止探测，交回调用方转发/回报
-  };
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      for (const frame of activeTranslator.feed(Buffer.from(value))) take(frame);
-      if (stopped) return probe;
-      // 终止帧已在 feed() 内收尾：无需继续探测
-      if (activeTranslator.isDone?.()) return probe;
-    }
-    for (const frame of activeTranslator.finish()) take(frame);
-  } finally {
-    // ⚠ 必须 releaseLock（不是 cancel）：流可能还没读完就提前返回（发现内容/普通错误），
-    // 此时 cancel 会抛「ReadableStream is locked」；releaseLock 后调用方才能安全地
-    // cancel 或重新 getReader。
-    reader.releaseLock();
-  }
-  return probe;
 }
 
 // ── 路由 ──────────────────────────────────────────────────────────────────────
@@ -957,7 +496,7 @@ export async function handleChat(
     }
 
     // `buildChatBody` 通常返回 JSON 对象；个别渠道的上游要求**编码后的字符串**
-    // 作为请求体（qoder 的 COSY 自定义 Base64 变体就是这么发的），此时按字符串直发。
+    // 作为请求体（此时按字符串直发）。
     let built: Record<string, unknown> | string;
     try {
       built = inChannel(channel, () => upstream.buildChatBody(payload, resolvedModel));
@@ -972,7 +511,7 @@ export async function handleChat(
     const encodedBody = typeof built === "string" ? built : null;
 
     // 可选的异步前置（渠道声明了才有）：必须在发上游**之前完成**。
-    // 例如 catpaw 要求 round → event（置 running）→ turn 的顺序，错一步上游就拒。
+    // 例如有些渠道要求「建会话 → 标记 running → 再发对话」的顺序，错一步上游就拒。
     // ⚠ 传入**同一个 body**：渠道不能再调一次 buildChatBody（会生成新会话 id）。
     // 返回字符串（自编码请求体）的渠道不走这个钩子。
     if (upstream.prepareChat && body) {
@@ -981,7 +520,7 @@ export async function handleChat(
       } catch (err) {
         opts.logger(`upstream prepare failed (channel ${cid}): ${String(err)}`);
         noteFailure(cid, activeKeyOf(cid));
-        // 请求体协议错是客户端问题（如 catpaw 的 tool 消息序列），不计凭据连败
+        // 请求体协议错是客户端问题（如 tool 消息序列），不计凭据连败
         lastError = {
           status: 502,
           code: "upstream_error",
@@ -1020,9 +559,9 @@ export async function handleChat(
     // 排队重试：渠道声明了 isQueueError 且上游回了排队帧（HTTP 200 + 流内业务错误）
     // → 按 retryAfterSeconds 退避后重开上游，直到出内容或预算耗尽。
     // ⚠ 只在**响应头发出前**做：一旦开始向客户端写字节就不能再换请求。
-    // ⚠ 探测消费掉的帧按原序记在 `pendingFrames`，转发前先写给客户端；
+    // ⚠ 探测消费掉的帧一个都不能丢：按原序记在 `pendingFrames`，转发前先写给客户端；
     //    探测用的翻译器（半行缓冲）也要交给转发层接续 —— 两者丢一个就是流中缺段。
-    const pendingFrames: Buffer[] = [];
+    const pendingFrames: ProbeFrames = [];
     let queuedOut = false;
     let probeFailed = false;
     let probeTranslator: StreamTranslator | undefined;
@@ -1040,7 +579,7 @@ export async function handleChat(
       if (probeAttempts >= PROBE_RETRY_MAX) return false;
       probeAttempts += 1;
       const delayMs = PROBE_RETRY_BASE_MS * probeAttempts;
-      // 主机级隔离的渠道（qoder 国际版三主机）先换一台再重试
+      // 主机级隔离的渠道（多主机部署）先换一台再重试
       const rotated = rotateHost?.() ?? false;
       logThrottled(
         opts.logger,
@@ -1078,7 +617,7 @@ export async function handleChat(
           probe = await inChannel(channel, () => consumeQueueProbe(call.body!, channel, cid, translator, payload));
         } catch (err) {
           // 上游收下请求（HTTP 200）后探测阶段断流/零字节 abort：属上游失败，
-          // 不能让异常穿透成网关 500（qoder 实测：200 后静默 120s → internal_error）。
+          // 不能让异常穿透成网关 500（实测：200 后静默 120s → internal_error）。
           // 非超时的瞬时断流先同渠道快速重试（见 PROBE_RETRY_MAX）。
           const timedOut = /timeout/i.test(String(err));
           if (!timedOut && (await retryProbeLater(String(err)))) continue;
@@ -1101,7 +640,9 @@ export async function handleChat(
           }
           // 探测消费掉的帧一个都不能丢：按原序交回转发
           pendingFrames.push(...probe.frames);
-          probeTranslator = translator;
+          // ⚠ 必须是**同一个**翻译器实例（半行缓冲在里面）：用探测返回的那个，
+          //    转发层才接得上（换新实例会丢半行，残行整帧解析失败被丢弃）。
+          probeTranslator = probe.translator;
           break;
         }
         const elapsed = Date.now() - startedAt;
@@ -1170,7 +711,7 @@ export async function handleChat(
 
       noteFailure(cid, activeKeyOf(cid));
       // 仅「上游不可用/网络」计账号连败；4xx 业务错（模型/参数/内容）属请求级，
-      // 计进去会把健康账号误标 error（catpaw 的 tool 消息序列实测踩过）
+      // 计进去会把健康账号误标 error（tool 消息序列实测踩过）
       if (call.status <= 0 || call.status >= 500) noteAccountFailure(cid);
       lastError = {
         status: 502,
@@ -1222,6 +763,10 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
  *
  * ⚠ 一旦开始写响应头就**不能再转移渠道** —— 所以它只在池路由的最后一跳调用，
  *   池路由的尝试循环里不许出现它。
+ *
+ * ⚠ `pendingFrames` 是**探测层消费掉的帧**（内容帧 + 非排队错误帧）：
+ *   一个都不能丢，必须按原序先写给客户端（见 `ProbeFrames`）。
+ * ⚠ `probeTranslator` 必须与探测层是**同一个**翻译器实例（半行缓冲在里面）。
  */
 
 async function relayUpstream(
@@ -1231,7 +776,7 @@ async function relayUpstream(
   call: UpstreamCall,
   wantStream: boolean,
   logger: (m: string) => void,
-  pendingFrames: Buffer[] = [],
+  pendingFrames: ProbeFrames = [],
   queuedOut = false,
   probeTranslator?: StreamTranslator,
   request?: Record<string, unknown>,
@@ -1316,12 +861,3 @@ async function relayUpstream(
         ),
   );
 }
-
-/**
- * 公共模型池：`/v1/models` **动态返回全部渠道能提供的模型**。
- *
- * 客户端看到 `<cid>/<模型>` 形态的池 id（如 `loomy/kimi-k2.6`），
- * 请求时用渠道前缀显式选池子；渲染逻辑在 `gateway.ts` 的 handleModels。
- */
-
-export { writeJson, writeJsonError };

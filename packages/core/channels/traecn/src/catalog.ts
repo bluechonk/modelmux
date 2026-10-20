@@ -30,6 +30,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 缺省通道（`function` 字段）。 */
 const DEFAULT_FUNCTION = "solo_work_lite";
@@ -574,6 +575,9 @@ function candidatePaths(): string[] {
   paths.push(join(process.cwd(), "models.json"));
   const here = fileURLToPath(import.meta.url);
   paths.push(join(here, "..", "..", "models.json"));
+  // 单文件 bundle 里的随包快照（按 cid 分文件，见共享层 runtime/snapshot.ts）
+  const bundled = bundledSnapshotPath();
+  if (bundled) paths.push(bundled);
   return paths;
 }
 

@@ -127,7 +127,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 `reference/xiaohuanxiong2api/src/internal/upstream/client.go:103-108`）。
 多发通常无害，但是否被上游用于风控判定**未验证**（见 §8）。
 
-### 2.2 凭据字段（`packages/core/channels/raccoon/src/cred.ts:95-111`）
+### 2.2 凭据字段（`packages/core/channels/raccoon/src/cred.ts:99-115`）
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
@@ -152,7 +152,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 ⚠ 本仓**只取原值**、不做 hex→十进制换算（换错了比空值更难排查）`[推断]`；
 真机确认哪个字段才是用户 id 之前不下定论（见 §8）。
 
-**过期时间取值优先级**（`packages/core/channels/raccoon/src/cred.ts:173-186`）：
+**过期时间取值优先级**（`packages/core/channels/raccoon/src/cred.ts:177-190`）：
 `expires_at`（显式字段）→ **JWT 的 `exp`**（本地 base64url 解码 payload，**只解码不验签**）
 
 **回退到 JWT 是必需的，不是锦上添花**：`expires_at` 是可选字段，
