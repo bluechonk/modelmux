@@ -10,7 +10,7 @@
 
 import { parseArgs } from "node:util";
 
-import { channelCount, getChannel, hasChannel } from "../runtime/channel.js";
+import { channelCount, channels, getChannel, hasChannel } from "../runtime/channel.js";
 import { CHANNEL_VERBS, isChannelVerb } from "./command-groups.js";
 import * as groups from "./command-groups.js";
 import { defaultAddr, defaultUiPort, version } from "../runtime/cli-consts.js";
@@ -26,7 +26,9 @@ export function usage(): string {
   const bin = single ? getChannel().config.cid : "mx";
   const display = single ? getChannel().config.display : "多渠道路由（模型池）";
   const verbLines = CHANNEL_VERBS.map(([v, d]) => `  ${v.padEnd(10)} ${d}`);
-  const cid = single ? bin : "traecn";
+  // 帮助里的示例渠道取**注册表里的第一个**（动态取值）——
+  // 共享层不硬编码任何渠道 id（渠道知识只允许出现在各渠道包内）。
+  const cid = single ? bin : (channels()[0]?.config.cid ?? "<cid>");
   return `${bin} — ${display} OpenAI Chat Completion 网关（本地多渠道）
 
 用法: ${bin} <动词> [<cid>] [参数]
