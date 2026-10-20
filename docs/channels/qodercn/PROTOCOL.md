@@ -7,7 +7,10 @@
 
 > 证据等级：`[实测]` 真机实测 / `[代码]` 源码逐字读出 / `[推断]` 由结构推出 /
 > `[参考]` 仅见于参考实现自述、本仓库未复验。
-> 引用写成 `仓库根相对路径:行号`（`reference/` 下也写全路径）。
+> 引用写成 `仓库根相对路径:行号`（**本仓真实位置**）；**参考实现**（第三方反代项目，
+> clone 在 `packages/core/channels/qoder/reference/` 下、**不入库**，国内版与 `qoder`
+> 共用同一批 clone）只写**仓库与文件名**、**不写行号**。
+> **参考实现只提供协议知识，事实以本仓实现为准。**
 
 ---
 
@@ -50,9 +53,9 @@
 
 | 参考实现 | 授权页带 `machine_id`？ | 它的 `machine_id` 从哪来 |
 |---|---|---|
-| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub)（234★） | **带**（CN 带 `redirect_uri+client_id+machine_id`，国际带 `client_id+machine_id`） | 读**官方客户端**本机缓存的 `machine_id`（`qoder_accounts.py:3215-3227`），读不到就自己生成 uuid |
-| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api)（31★） | **带，但可选**：只在读到官方客户端的 `cache/id` 时才带（`internal/auth/device_login.go:75-77`、`:236-238`、`:514-522`） | 官方客户端的 `cache/id`；读不到就**不带** |
-| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api)（76★） | **不带**（`account/oauth.go:64-70`） | — |
+| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub)（234★） | **带**（CN 带 `redirect_uri+client_id+machine_id`，国际带 `client_id+machine_id`） | 读**官方客户端**本机缓存的 `machine_id`（参考实现 `qoder_accounts.py` 的 `machine_id` 来源段），读不到就自己生成 uuid |
+| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api)（31★） | **带，但可选**：只在读到官方客户端的 `cache/id` 时才带（参考实现 `internal/auth/device_login.go` 的授权页参数段） | 官方客户端的 `cache/id`；读不到就**不带** |
+| [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api)（76★） | **不带**（参考实现 `account/oauth.go` 的授权页参数段） | — |
 
 **结论**：带 `machine_id` 的两家带的是**官方客户端的真机身份**；本渠道**没有官方客户端**，
 而本渠道的 `machineId`（`md5("machine:{uid}")`）是**给 COSY 推理头用的派生值**，
@@ -73,10 +76,10 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 
 | 路径 | 出处 | 不采纳的理由 |
 | --- | --- | --- |
-| **PAT 导入**（`pt-` → `/api/v1/jobToken/exchange` 换 `jt-`/`jrt-`） | `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:3365-3416`；`reference/Zhengyuuuui_qoder2api/service.go:75-82` | ① 要用户去 Qoder 网页版手工造 `pt-` 令牌，登录步骤反而更多；② 引入**第二套 token 族**（`jt-` 24 h / `jrt-` 48 h）与第二套刷新路由（`jobToken/refresh` + PAT 重新交换），违反「登录逻辑只保留一个」；③ 设备流 `dt-`/`drt-` 寿命更长（约 30 天 / 约 1 年），现有静默续期链路已覆盖 |
-| **本机已登录凭证扫描**（桌面 App `auth.v1.dat` 的 os_crypt/DPAPI 解密 + CLI `~/.qoder*/.auth/user` 的 AES-128-CBC 解密） | `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:3494-3588`、`:3591+` | ① 要把平台相关的解密代码（DPAPI / Chromium os_crypt / AES-GCM）带进渠道包，违反「渠道包 `src/` 只 7 文件、零第三方运行依赖」的契约；② 依赖用户装了官方桌面客户端并已登录，可移植性最差；③ 仍只是一条「导入已有凭据」的路，不是登录 |
+| **PAT 导入**（`pt-` → `/api/v1/jobToken/exchange` 换 `jt-`/`jrt-`） | 参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（PAT → jobToken 交换段）；`Zhengyuuuui/qoder2api` 的 `service.go` | ① 要用户去 Qoder 网页版手工造 `pt-` 令牌，登录步骤反而更多；② 引入**第二套 token 族**（`jt-` 24 h / `jrt-` 48 h）与第二套刷新路由（`jobToken/refresh` + PAT 重新交换），违反「登录逻辑只保留一个」；③ 设备流 `dt-`/`drt-` 寿命更长（约 30 天 / 约 1 年），现有静默续期链路已覆盖 |
+| **本机已登录凭证扫描**（桌面 App `auth.v1.dat` 的 os_crypt/DPAPI 解密 + CLI `~/.qoder*/.auth/user` 的 AES-128-CBC 解密） | 参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（本机凭证扫描段） | ① 要把平台相关的解密代码（DPAPI / Chromium os_crypt / AES-GCM）带进渠道包，违反「渠道包 `src/` 只 7 文件、零第三方运行依赖」的契约；② 依赖用户装了官方桌面客户端并已登录，可移植性最差；③ 仍只是一条「导入已有凭据」的路，不是登录 |
 
-判据与决策记录见
+判据与决策记录见本地规划目录（**不入库**）
 `.planning/2026-10-20-channel-reference-parity/research/qodercn.md` §1.4。
 **保留条件**：真机若证明 `dt-` 续期链路上游已判死（连续 401/403），
 才重新评估；即便引入 PAT，也应定位成「凭据导入」而非第二套登录流程。
@@ -98,9 +101,9 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 | 推理网关 | `https://gateway.qoder.com.cn` | COSY 签名 + 自定义 Base64 body | chat 与模型目录 |
 
 配置源：`packages/core/channels/qodercn/src/cred.ts:67-97`（`PRODUCTS.cn`）。
-证据：`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:39-58`、
-`reference/Zhengyuuuui_qoder2api/account/region.go:36-46`、
-`reference/EchoPing07_Qoder-2API-Go/auth/auth.go:43-48`。[参考]
+证据：参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（区域配置表）、
+`Zhengyuuuui/qoder2api` 的 `account/region.go`（CN 端点表）、
+`EchoPing07/Qoder-2API-Go` 的 `auth/auth.go`（CN RegionConfig）。[参考]
 
 ### 2.2 端点全表
 
@@ -185,10 +188,10 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 - 服务端按设备指纹过滤活动，**自造的派生指纹**会被判成「非官方客户端」，把
   `CLAIMABLE` 的「每日领取 100 Credits」**整条过滤**（列表里直接不显示，且不是报错）。
-- 证据：`reference/Zhengyuuuui_qoder2api/checkin.go:75-88`（国内版单变量对照实验：
+- 证据：参考实现 `Zhengyuuuui/qoder2api` 的 `checkin.go`（国内版单变量对照实验：
   发自造 `cosy-machinetoken` → `no_campaign`；完全不发 → 正常下发）；
-  `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:1736-1747`（issue #10：
-  全套派生六头会被整条过滤，派生分支一律不发）、`:1779-1780`（「CN 侧不发头是正确行为」）。[参考]
+  `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（issue #10：
+  全套派生六头会被整条过滤，派生分支一律不发；另注明「CN 侧不发头是正确行为」）。[参考]
 - 国际版则**必须**发真实 UMID 机器身份，否则活动列表为空
   （[qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §7.2）—— 两区策略不同，别互相照搬。
 
@@ -210,7 +213,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 1. **动态目录**：`mx model qodercn --refresh` 落盘的目录缓存（来自上游 `model/list`）—— 更准 `[代码]`
 2. **静态兜底表**：`src/catalog.ts` 的 `FALLBACK_RAW`（国内版官方目录快照，14 条，
-   抄自参考实现 `reference/shuishuipingan_qoder2api-hub/qoder_catalog_cn.json`）`[参考]`
+   抄自参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_catalog_cn.json`）`[参考]`
 3. 都查不到 → `display_name = key`、`is_vl = false`、`is_reasoning = false`、`max_input_tokens = 180000`
 
 ⚠ **接线方式**（与国际版 `qoder` 同）：`catalog.ts` 需要 `upstream.fetchModels()` 拉目录，
@@ -309,16 +312,17 @@ Reasonix CLI 直连网关（`qodercn/qwen3.8-flash`，倍率 0）：
 
 ## 参考实现
 
-clone 到 `reference/` 的学习材料（不入库）；与 `qoder` **共用同一批 clone**，
-COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 共用，
-国内版独有的结论写在本文件。
+clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不入库**）；
+与 `qoder` **共用同一批 clone**，COSY 签名等协议正文结论与
+[qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 共用，国内版独有的结论写在本文件。
+下文的引用只写**仓库与文件名**（参考实现不在本仓，行号会随上游漂移）。
 
 | 仓库 | 用途 |
 | --- | --- |
 | [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | 主参照（191★）：**国际国内双区**多账号网关中枢 —— COSY 签名、设备指纹防风控、OAuth 设备授权、CN 活动平台与机器头策略（issue #10）、CN 静态目录快照 `qoder_catalog_cn.json` |
 | [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | OpenAI / Claude / Codex 三格式兼容，含每日签到领 credit（72★）；其 `checkin.go` 的**国内版机器头单变量对照实验**是本渠道 §3.2 策略的直接依据 |
 | [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | Go 实现的对照样本（60★）：CN RegionConfig 端点表、jobToken 交换、SSE 终止帧处理 |
-| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | Go 实现的**第三份口径**（31★）：`internal/auth/device_login.go` 的授权页参数 —— `machine_id` **只在读到官方客户端 `cache/id` 时才带**（`:75-77`、`:236-238`），是 §1.1.2「带的是官方客户端真机身份」这一结论的直接依据 |
+| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | Go 实现的**第三份口径**（31★）：`internal/auth/device_login.go` 的授权页参数 —— `machine_id` **只在读到官方客户端 `cache/id` 时才带**，是 §1.1.2「带的是官方客户端真机身份」这一结论的直接依据 |
 
 ## 已知边界
 
@@ -326,15 +330,15 @@ COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) �
 
 | 功能 | 参考实现出处 | 不做的理由 |
 | --- | --- | --- |
-| PAT / jobToken 登录 | hub `qoder_accounts.py:3365-3416` | 见 §1.2：引入第二套 token 族与刷新路由 |
-| 本机官方客户端凭证扫描 | hub `qoder_accounts.py:3494-3588` | 见 §1.2：需平台相关解密代码，破坏渠道包契约 |
-| 兑换码 `redemptionCode` 落盘 | hub `qoder_accounts.py:2197-2203` | 国内版当前无兑换码类活动在跑；真出现时再补 |
-| `GET /sash/api/v1/me/campaigns/{id}/reward` | hub `qoder_accounts.py:107`、`:2143-2152` | 领取接口本身已回 `status` / `replayed`，额外查询收益有限 |
-| Pro 福利包 eligibility→claim | hub `qoder_accounts.py:98-99`、`:2535-2568` | 一次性活动，官方入口不在常规链路 |
-| `GET {openapi}/api/v2/user/plan`（套餐名） | hub `qoder_accounts.py:95`、`:2518-2532` | 套餐名可从额度接口的 `displayMode` 间接看出 |
-| `GET {openapi}/api/v2/quota/usage`（额度第二口径） | hub `qoder_accounts.py:94`、`:2426-2516` | 三个参考实现只用这一支，但本渠道的实测口径是 `/sash/api/v2/me/usage`；两者关系未查清（见待验证项 V3），不并行维护 |
-| 旧 sash 签到兜底（`/sash/api/v1/me/daily-check-in/*`） | hub `qoder_accounts.py:96-97`、`:1893-2002` | 国内版实测 `status=DISABLED`，该接口已不开放（hub `README.md:300`） |
-| 工具调用语义修复（结构化工具历史 / 回声还原 / `reasoning_content` 回填） | hub `qoder_proxy.py:3696`、`:3851`、`README.md:23` | 协议形状已满足（顶层 `tools` 必须真发、无工具给空数组）；语义修复属网关层议题 |
+| PAT / jobToken 登录 | hub `qoder_accounts.py`（PAT → jobToken 交换段） | 见 §1.2：引入第二套 token 族与刷新路由 |
+| 本机官方客户端凭证扫描 | hub `qoder_accounts.py`（本机凭证扫描段） | 见 §1.2：需平台相关解密代码，破坏渠道包契约 |
+| 兑换码 `redemptionCode` 落盘 | hub `qoder_accounts.py`（campaign 兑换码段） | 国内版当前无兑换码类活动在跑；真出现时再补 |
+| `GET /sash/api/v1/me/campaigns/{id}/reward` | hub `qoder_accounts.py`（campaign 奖励查询段） | 领取接口本身已回 `status` / `replayed`，额外查询收益有限 |
+| Pro 福利包 eligibility→claim | hub `qoder_accounts.py`（Pro 福利包段） | 一次性活动，官方入口不在常规链路 |
+| `GET {openapi}/api/v2/user/plan`（套餐名） | hub `qoder_accounts.py`（套餐名段） | 套餐名可从额度接口的 `displayMode` 间接看出 |
+| `GET {openapi}/api/v2/quota/usage`（额度第二口径） | hub `qoder_accounts.py`（额度端点段） | 三个参考实现只用这一支，但本渠道的实测口径是 `/sash/api/v2/me/usage`；两者关系未查清（见待验证项 V3），不并行维护 |
+| 旧 sash 签到兜底（`/sash/api/v1/me/daily-check-in/*`） | hub `qoder_accounts.py`（daily-check-in 段）、hub `README.md` | 国内版实测 `status=DISABLED`，该接口已不开放 |
+| 工具调用语义修复（结构化工具历史 / 回声还原 / `reasoning_content` 回填） | hub `qoder_proxy.py`、hub `README.md` | 协议形状已满足（顶层 `tools` 必须真发、无工具给空数组）；语义修复属网关层议题 |
 
 ### 4.2 已识别的功能缺口（参考实现有、本渠道没有）
 
@@ -344,7 +348,7 @@ COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) �
    但上游对**不支持的档位不报错、直接忽略**（回落默认档），客户端会以为「档位没生效」。
    本渠道目前**原样透传** `reasoning_effort`
    （`packages/core/channels/qodercn/src/upstream.ts:511-512`），
-   归一化实现见 `reference/shuishuipingan_qoder2api-hub/qoder_proxy.py:2564-2651`。[参考]
+   归一化实现见参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`（思考档位归一段）。[参考]
 2. **`/sash/**` 的 `cosy-version` 取值未验证**：本渠道用 `1.1.64`
    （国内版客户端自身版本），参考实现给的是 `0.4.3`（hub）与 `0.4.4`（zheng）；
    该头的**存在性**是硬要求，**具体数值**尚无真机结论。
@@ -356,7 +360,7 @@ COSY 签名等协议正文结论与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) �
    但三个参考实现里分别是 `qodercli`（hub baseprompt）与 `qoder`（zheng baseprompt），
    `qoder_work` 只出现在本仓库自己的文档里。
 5. **模型目录的静态兜底为 14 条快照**（`packages/core/channels/qodercn/src/catalog.ts:114`）：
-   来自 `reference/shuishuipingan_qoder2api-hub/qoder_catalog_cn.json`
+   来自参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_catalog_cn.json`
    （2026-10-20 抄录），只抄数据、归一化仍走 `toEntry`，与动态目录同形。
    快照必然随上游漂移，`mx model qodercn --refresh` 以动态目录为准。
 6. **桌面客户端真实机器身份（UMID）未接入**：`/sash/**` 走「不发指纹」策略；

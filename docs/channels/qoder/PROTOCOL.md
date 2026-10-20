@@ -6,9 +6,20 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 `qoder_encode("{}")` 作 body，否则 403）；`chat_context.text` 是**对象** `{type:"text",text}`；
 现行签名是 COSY bearer（`Appcode` + 固定 SECRET 那套已失效，不参与账号身份）。
 
-依据：`dsh-our-free-model/vendor/channel-pack/src/` 的 TypeScript 实现（下称 `<SRC>`，
-下文行号对应提取时的源码）与社区反代项目的分析结论（参考清单见本文件末尾
-「参考实现」；国内版的清单见 [`qodercn/PROTOCOL.md`](../qodercn/PROTOCOL.md)）。
+**引用口径**（本文件的源码引用只有两类）：
+
+1. **本仓真实位置** —— 渠道包 `packages/core/channels/qoder/src/...` 与共享层
+   `packages/core/gateway/src/...`，写成 `文件:行号`（范围写 `起始-结束`）。
+2. **参考实现** —— 第三方反代项目，clone 在 `packages/core/channels/qoder/reference/`
+   下、**不入库**；只写**文件名与段落语义**，**不写行号**（那些文件不在本仓，
+   行号也会随上游漂移）。
+
+**参考实现只提供协议知识，事实以本仓实现为准。** 参考清单见本文件末尾「参考实现」；
+国内版的清单见 [`qodercn/PROTOCOL.md`](../qodercn/PROTOCOL.md)。
+
+> ⚠ **历史说明**：早期版本的行号锚点来自 `dsh-our-free-model/vendor/channel-pack/src/`
+> 的快照（**该 vendor 目录不在本仓**），因此那批 `qoder-*.ts` 锚点全部失效；
+> 本文件已改为指向本仓真实位置，或改成参考实现的指路形式。
 
 **本项目覆盖双版本**：国际版 `qoder`（qoder.com）与中国版 `qodercn`（qoder.com.cn）。
 两站共用同一套实现，差异全部收敛在 product 配置里。
@@ -45,20 +56,20 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 
 | 代码里的字段 | 国际版 `qoder` | 中国版 `qodercn` | 来源 |
 |---|---|---|---|
-| `website`（授权页 / 站点） | `https://qoder.com` | `https://qoder.com.cn` | `cred.ts` 的 `PRODUCTS` 配置 |
-| `openapi`（业务 API） | `https://openapi.qoder.sh` | `https://openapi.qoder.com.cn` | `cred.ts` 的 `PRODUCTS` 配置 |
-| `gateway`（推理主机） | `https://api1.qoder.sh`（主）+ `api2` / `api3` 故障切换 | `https://gateway.qoder.com.cn` | `cred.ts` 的 `PRODUCTS` 配置 |
-| `clientId` | `e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb` | `1c5e33e1-364d-4ce6-b02c-acaa81274a5c` | `cred.ts` 的 `PRODUCTS` 配置 |
-| `sashClientType` | `'10'` | `'10'` | `/sash/**` 的 `Cosy-ClientType` |
-| `userAgentPrefix` | `qoder`（拼成 `qoder/1.0.0`） | 同 | `cred.ts` 的 `PRODUCTS` 配置 |
-| `clientMetadata` | `{client_type:'5', business_product:'cli', business_type:'agent', scene:'assistant'}` | 同 | 455 / 626 |
+| `website`（授权页 / 站点） | `https://qoder.com` | `https://qoder.com.cn` | `src/cred.ts:67-97` 的 `PRODUCTS` |
+| `openapi`（业务 API） | `https://openapi.qoder.sh` | `https://openapi.qoder.com.cn` | `src/cred.ts:67-97` 的 `PRODUCTS` |
+| `gateway`（推理主机） | `https://api1.qoder.sh`（主）+ `api2` / `api3` 故障切换 | `https://gateway.qoder.com.cn` | `src/cred.ts:67-97` 的 `PRODUCTS` |
+| `clientId` | `e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb` | `1c5e33e1-364d-4ce6-b02c-acaa81274a5c` | `src/cred.ts:67-97` 的 `PRODUCTS` |
+| `sashClientType` | `'10'` | `'10'` | `src/billing.ts:90-100` 的 `sashHeaders`（`/sash/**` 的 `Cosy-ClientType`） |
+| `userAgentPrefix` | `qoder`（拼成 `qoder/1.0.0`） | 同 | `src/cred.ts:67-97` 的 `PRODUCTS` |
+| `clientMetadata` | `{client_type:'5', business_product:'cli', business_type:'agent', scene:'assistant'}` | 同 | 参考实现的 WASM 侧元数据；**本仓不发送该字段**（CLI 身份由 `cosy-clienttype: 5` 承担，见 `src/upstream.ts:285`） |
 
 > ⚠ **历史别名**：早期文档里的 `openApiBase` / `inferBase` / `encryptedInferBase` 来自
 > `dsh-our-free-model/vendor/channel-pack/src/` 的快照，**该 vendor 目录不在本仓**——
 > 那三个名字只是**别名**，不是本仓代码里的标识符。本仓代码只有
-> `website` / `openapi` / `gateway` 三套（`cred.ts` 的 `PRODUCTS`）。
+> `website` / `openapi` / `gateway` 三套（`src/cred.ts:67-97` 的 `PRODUCTS`）。
 
-`client_id` **必须用 prod 值**：用 test 值会被服务端在回调阶段拒绝，页面报「参数无效 / 你可以稍后前往 IDE 客户端并登录Qoder」（qoder.ts:103-107，真实缺陷记录）。
+`client_id` **必须用 prod 值**：用 test 值会被服务端在回调阶段拒绝，页面报「参数无效 / 你可以稍后前往 IDE 客户端并登录Qoder」（真实缺陷记录）。本仓发的是 `PRODUCTS.intl.clientId`（`src/cred.ts:89`），prod 值写死在产品配置里；授权 URL 的拼装见 `src/cred.ts:229-238`。
 
 ### 1.2 三套 base 的用途
 
@@ -123,21 +134,24 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 - 字符集 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~`（66 个）
 - challenge = `base64url(sha256(verifier))` 且**去 padding**（带 `=` 服务端校验失败）
 
-**machine_id**：登录后由 `md5("machine:{uid}")` 稳定派生（参考实现 `qoder_fingerprint.py` derive_id 与 `fingerprint.go` DeriveMachineID 同构），
+**machine_id**：登录后由 `md5("machine:{uid}")` 稳定派生（本仓实现见 `src/cred.ts:180-198` 的
+`deriveId` / `machineIdOf`；与参考实现 `qoder_fingerprint.py` 的 `derive_id`、
+`fingerprint.go` 的 `DeriveMachineID` 同构），
 同一账号永远相同，多账号天然隔离。不参与登录链路 —— 登录 URL 不含此参数。
 
-**轮询规则**（qoder-oauth.ts:119-164）：
+**轮询规则**（本仓实现：轮询参数在 `src/cred.ts:130-131`，`attempt` 在 `src/cred.ts:501-510`；
+连续网络失败上限在共享层 `packages/core/gateway/src/auth/login-flow.ts:217-238`）：
 - 间隔 `1000ms`、总超时 `300000ms`、连续网络失败上限 5
 -  **HTTP 404 = 用户尚未授权，继续轮询**（实测 404 体 `{"errorCode":"NotFound"}`；任意不存在路径返回 401，说明该端点被网关豁免认证）
 - 其他非 2xx 立即抛错
-- 轮询请求头只有 `Accept: application/json`
+- 轮询请求头只有 `Accept: application/json`（`src/cred.ts:503`）
 
-**token 响应字段**（登录与续期字段名不同，都接受，qoder.ts:211-235）：
+**token 响应字段**（登录与续期字段名不同，都接受；本仓实现见 `src/cred.ts:511-527` 与 `src/cred.ts:600-612`）：
 `token` / `device_token` / `access_token`（取第一个非空）、`refresh_token|refreshToken`、
 `expires_at|expiresAt`、`refresh_token_expires_at`、`user_id|userId`、`user_name|userName`
 
 **踩坑**：设备码轮询响应**不带 `user_name`**，故登录后必须补一次
-`GET /api/v1/userinfo`（qoder.ts:344-394）。`uid` 实际来源是设备码响应的 `user_id`。
+`GET /api/v1/userinfo`（本仓实现见 `src/cred.ts:399-426` 的 `fetchUserProfile`）。`uid` 实际来源是设备码响应的 `user_id`。
 
 **账号档案字段来源**（`GET {openapi}/api/v1/userinfo`，2026-10-20 补齐）：
 
@@ -148,8 +162,9 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 | `uid` | `id`（兜底 `user_id` / `userId`） | 轮询响应没带 `user_id` 时的兜底 |
 
 - 字段名两家参考实现不一致：hub 用 snake_case（`id` / `name` / `user_type`，
-  `qoder_accounts.py:3332-3334`），Zhengyuuuui 用 camelCase（`userId` / `name` /
-  `userType`，`account/oauth.go:198-212`）—— 故两种都认。
+  见参考实现 `qoder_accounts.py`），Zhengyuuuui 用 camelCase（`userId` / `name` /
+  `userType`，见参考实现 `account/oauth.go`）—— 故两种都认（本仓两种都读，
+  见 `src/cred.ts:419-421`）。
 - 取不到**不阻塞登录**：uid 回落轮询响应的 `user_id`，身份类型回落默认值
   `personal_professional_trial`。
 - ⚠ 此前只取 `name`，`userType` **恒为默认值** → 请求体 `aliyun_user_type` 恒为
@@ -180,13 +195,18 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 
 | 参考实现的其它路径 | 出处 | 不采纳的理由 |
 | --- | --- | --- |
-| **PAT（`pt-`）→ jobToken 交换** | `shuishuipingan/qoder2api-hub/qoder_accounts.py:3364-3399`；`Zhengyuuuui/qoder2api/internal/cosy/auth.go:13-81`；`cubk1/qoder2api/.../JobTokenClient.java:17-70` | ① 依赖 `center.qoder.sh`（第三套 base，见 §1.2），本仓不接；② 用 legacy `appcode`+`signature` 签名族（其 secret 是参考实现的常量，本仓不落盘），而该族对账号鉴权已失效；③ PAT 需用户从本仓之外取得令牌，操作面反而更差 |
-| **读本机官方客户端已登录凭证** | `cubk1/qoder2api/.../LocalAuth.java:19-40`（`~/.qoder/.auth/id` + `user`，AES-CBC 解密）；`shuishuipingan/qoder2api-hub/qoder_sign.py:382-456`（DPAPI / Chromium `os_crypt`） | 要求本机安装 Qoder 桌面端，且解密依赖 Windows DPAPI 与 Chromium os_crypt —— 跨平台不可用，与「零第三方运行依赖、纯 Node 实现」的渠道约束冲突 |
+| **PAT（`pt-`）→ jobToken 交换** | `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（PAT → jobToken 交换段）；`Zhengyuuuui/qoder2api` 的 `internal/cosy/auth.go`；`cubk1/qoder2api` 的 `JobTokenClient.java` | ① 依赖 `center.qoder.sh`（第三套 base，见 §1.2），本仓不接；② 用 legacy `appcode`+`signature` 签名族（其 secret 是参考实现的常量，本仓不落盘），而该族对账号鉴权已失效；③ PAT 需用户从本仓之外取得令牌，操作面反而更差 |
+| **读本机官方客户端已登录凭证** | `cubk1/qoder2api` 的 `LocalAuth.java`（`~/.qoder/.auth/id` + `user`，AES-CBC 解密）；`shuishuipingan/qoder2api-hub` 的 `qoder_sign.py`（DPAPI / Chromium `os_crypt`） | 要求本机安装 Qoder 桌面端，且解密依赖 Windows DPAPI 与 Chromium os_crypt —— 跨平台不可用，与「零第三方运行依赖、纯 Node 实现」的渠道约束冲突 |
 
 **设备码路径本身已端到端跑通**（登录入池 / 模型目录刷新 / 最小对话 / 工具往返 / 流式 SSE，
 见本文件「使用与实测」），符合「保留能真实跑通的那条」的收敛判据。
 
-### 2.3 凭据字段（qoder.ts:144-164）
+### 2.3 凭据字段
+
+> 下表是**参考实现**的凭据字段名；**本仓**的凭据字段与落盘映射见
+> `src/cred.ts:137-154`（`Credentials`）与 `src/cred.ts:324-343`（`load()` 的读取映射）——
+> 字段名以本仓为准（`accessToken` / `refreshToken` / `uid` / `nickname` / `machineId` /
+> `userType` / `domain` / `realm` / `gatewayHost` / `expireAt` / `refreshExpireAt`）。
 
 | 字段 | 说明 |
 |---|---|
@@ -204,17 +224,18 @@ POST {openapi}/api/v1/deviceToken/refresh
 Headers: Content-Type: application/json, Accept: application/json, User-Agent: qoder/1.0.0
 Body: {"refresh_token": "...", "machine_id": "..."}
 ```
-（qoder-auth.ts:398-404；qoder.ts:287-292。官方还会带 `machine_token`，本实现没有 UMID 子系统故不发）
+（本仓实现见 `src/cred.ts:569-589` 的 `refresh()`。官方还会带 `machine_token`，本实现没有 UMID 子系统故不发）
 
-**终态判定**（qoder-auth.ts:414-437）：
+**终态判定**（本仓实现见 `src/cred.ts:595-598`）：
 - HTTP 401/403 → 需重新登录
 - 200 但无 token → 同样视为终态
 - 其余（5xx/429/网络）可重试
 
-**合并规则**：续期响应不含 `machine_id`/`uid`/`nickname`，必须从旧凭据保留（qoder.ts:324-341）。
+**合并规则**：续期响应不含 `machine_id`/`uid`/`nickname`，必须从旧凭据保留（本仓实现见 `src/cred.ts:596-613`）。
 
 **触发时机**：渠道代码里**没有主动续期** —— 续期由共享层在收到 401/403 时驱动
-（`packages/core/gateway/src/http/chat-relay.ts` 的 `openStream` 失败 → `cred.refresh()` → 重开上游）。
+（`packages/core/gateway/src/http/chat-relay.ts` 的 `openStream` 失败 → `cred.refresh()`
+（`packages/core/gateway/src/http/chat-relay.ts:781`）→ 重开上游）。
 即只有「401 后被动续期」，没有「到期前主动续期」`[代码]`。
 
 ### 2.5 必需请求头清单
@@ -245,7 +266,7 @@ Body: {"refresh_token": "...", "machine_id": "..."}
 | `x-model-key` | 上游模型 key | 否（**上游路由**） | 随模型 | |
 | `x-model-source` | 常量 `system` | 否 | — | |
 
-**COSY 签名的 MAC 计算**（`src/upstream.ts` 的 `CosySession.bearer`）`[代码]`：
+**COSY 签名的 MAC 计算**（`src/upstream.ts:258-271` 的 `CosySession.bearer`）`[代码]`：
 
 ```
 payloadB64 \n cosyKey \n date \n body \n pathWithoutAlgo      → md5_hex
@@ -278,7 +299,9 @@ Authorization = "Bearer COSY." + payloadB64 + "." + md5_hex
 | `userinfo` | `accept` / `authorization` / `user-agent` |
 
 参考实现的通用业务头还带 `X-Request-ID` / `X-Machine-ID` / `X-Session-ID` / `Origin` / `Referer`
-（`shuishuipingan/qoder2api-hub/qoder_accounts.py:1708-1720`）`[参考]`，本仓未发 —— 推断非必需 `[推断]`。
+（见参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`）`[参考]`，本仓未发 —— 推断非必需 `[推断]`。
+本仓实际发的业务头以 `src/cred.ts:501-505`（轮询）、`src/cred.ts:569-589`（续期）、
+`src/cred.ts:399-426`（userinfo）三处为准。
 
 ---
 
@@ -286,7 +309,7 @@ Authorization = "Bearer COSY." + payloadB64 + "." + md5_hex
 
 ### 3.1 明文请求体结构
 
-逐项复刻官方 `G4A()`（qoder-wasm.ts:245-326）：
+逐项复刻官方 `G4A()`（本仓实现见 `src/upstream.ts:567-682` 的 `buildRequestBody`）：
 
 ```
 request_id / request_set_id / chat_record_id   = 同一个随机 UUID
@@ -328,17 +351,17 @@ business = { type: "agent" }   ← 必填
 
 | 约束 | 后果 | 来源 |
 |---|---|---|
-| `business` 必填 | 缺失时请求恒被路由到故障节点 `oa_qwen-plus-2025-04-28`，返回 `[FAIL]node:... msg:Execution failed` | qoder-wasm.ts:205-215 |
-| `uid` 必须有 | 缺 uid 时 WASM 产出**签名无效**的请求 → `Signature invalid (101)` | qoder-adapter.ts:661-667 |
-| 顶层 `tools` 必须真发 | 不下发时模型只能用正文 XML 臆造工具调用；无工具时是**空数组**而非缺字段 | qoder-wasm.ts:216-227 |
-| 目录 key 只能走加密端点 | 把 `qfmodel` 发给公开端点 → `{"code":"invalid_model_error"}` | qoder-product.ts:311-343 |
-| `chat_context` 不能传空对象 | — | qoder-wasm.ts:238-241 |
-| `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 把 content 压成纯文本会让图片全部消失 | qoder-wasm.ts:123-136 |
-| assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 过滤会丢掉它们，多步工具调用会坏掉 | qoder-adapter.ts:313-364 |
-| 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | qoder-product.ts:280-287 |
-| `tools[]` 必须是**嵌套** `function` 形态 | 顶层 `{type:"function",name,…}` 直接 400 `'function' is a required property, expected an object - 'tools.N'`；本仓已做归一 | `shuishuipingan/qoder2api-hub/qoder_proxy.py:2828-2848,3966-3970` `[参考]` |
-| `max_completion_tokens` 要归一成 `max_tokens` | 上游只认 `max_tokens`；不归一则用新别名的客户端**静默丢掉输出上限**；本仓已做归一 | `shuishuipingan/qoder2api-hub/qoder_proxy.py:2851-2862` `[参考]` |
-| DeepSeek 多轮的 assistant 要带 `reasoning_content` | 缺了上游拒（表现为「偶发失败、重试有时能过」）；本仓已按上游 key（`dmodel`/`dfmodel`）回填 | `shuishuipingan/qoder2api-hub/qoder_proxy.py:2733-2781` `[参考]` |
+| `business` 必填 | 缺失时请求恒被路由到故障节点 `oa_qwen-plus-2025-04-28`，返回 `[FAIL]node:... msg:Execution failed` | `src/upstream.ts:680` |
+| `uid` 必须有 | 缺 uid 时 WASM 产出**签名无效**的请求 → `Signature invalid (101)` | `src/upstream.ts:237-247`（身份体含 `uid`）、`src/upstream.ts:281`（`cosy-user` 头） |
+| 顶层 `tools` 必须真发 | 不下发时模型只能用正文 XML 臆造工具调用；无工具时是**空数组**而非缺字段 | `src/upstream.ts:679` |
+| 目录 key 只能走加密端点 | 把 `qfmodel` 发给公开端点 → `{"code":"invalid_model_error"}` | `src/upstream.ts:78`（本仓只走加密端点 `CHAT_ENDPOINT_PATH`） |
+| `chat_context` 不能传空对象 | — | `src/upstream.ts:634-651` |
+| `imageUrls` 恒 `null`；图片走 `messages[].content` 的 `{type:'image_url',image_url:{url}}` 数组 | 把 content 压成纯文本会让图片全部消失 | `src/upstream.ts:650`（`imageUrls: null`）、`src/upstream.ts:652`（`image_urls: null`） |
+| assistant 的 `tool_calls` 与 `role:'tool'` 的 `tool_call_id` 必须保留 | 过滤会丢掉它们，多步工具调用会坏掉 | `src/upstream.ts:596-603` |
+| 请求体体积 | 实测 8 张 2560×1600 原图可过、15 张（≈57 MiB）`TRANSPORT: fetch failed` | 参考实现 `qoder-product.ts` 的实测；本仓入站请求体上限 32 MiB（`packages/core/gateway/src/http/chat-relay.ts:39`） |
+| `tools[]` 必须是**嵌套** `function` 形态 | 顶层 `{type:"function",name,…}` 直接 400 `'function' is a required property, expected an object - 'tools.N'`；本仓已做归一 | `src/upstream.ts:511-536`（`normalizeTools`）；参考实现 `qoder_proxy.py` `[参考]` |
+| `max_completion_tokens` 要归一成 `max_tokens` | 上游只认 `max_tokens`；不归一则用新别名的客户端**静默丢掉输出上限**；本仓已做归一 | `src/upstream.ts:610-621`；参考实现 `qoder_proxy.py` `[参考]` |
+| DeepSeek 多轮的 assistant 要带 `reasoning_content` | 缺了上游拒（表现为「偶发失败、重试有时能过」）；本仓已按上游 key（`dmodel`/`dfmodel`）回填 | `src/upstream.ts:582-604`（回填）、`src/upstream.ts:502-509`（DeepSeek 上游 key 判定）；参考实现 `qoder_proxy.py` `[参考]` |
 
 ### 3.3 加密端点的请求头
 
@@ -353,8 +376,9 @@ business = { type: "agent" }   ← 必填
 `Connection: keep-alive`、`Accept-Encoding: identity`
 
 **本仓未发的头**：`Cosy-Business-Product` / `Cosy-Business-Type` / `Cosy-Scene`
-（参考实现 `Zhengyuuuui/qoder2api/internal/bridge/client.go:51-53` 发，但主参照的推理头
-没有这三个 —— `shuishuipingan/qoder2api-hub/qoder_sign.py:600-617`）`[参考]`；
+（参考实现 `Zhengyuuuui/qoder2api` 的 `internal/bridge/client.go` 发，但主参照的推理头
+没有这三个 —— `shuishuipingan/qoder2api-hub` 的 `qoder_sign.py`）`[参考]`；
+本仓实际发的推理头以 `src/upstream.ts:274-300`（`CosySession.headers`）为准；
 `Cosy-Organization-Id` / `Cosy-Organization-Tags`（本仓身份体的 `organization_id` 恒空，见 §9）`[推断]`。
 
 签名相关字面量：`authsign` / `cosy` / `Date` / `Appcode` / `Signature` / `Bearer COSY.`，
@@ -364,7 +388,7 @@ business = { type: "agent" }   ← 必填
 
 ## 4. 流式响应
 
-### 4.1 信封（qoder-envelope.ts）
+### 4.1 信封（实现见 `src/upstream.ts:875-987` 的 `newTranslator`）
 
 加密端点每帧多一层信封：
 
@@ -372,13 +396,13 @@ business = { type: "agent" }   ← 必填
 data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","statusCodeValue":200,"statusCode":"OK"}
 ```
 
-- **内层 `body` 未加密**（只有请求体要 WASM 加密）；`body` 是 JSON 字符串时直接取，是对象时 `JSON.stringify`（:42-52）
+- **内层 `body` 未加密**（只有请求体要 WASM 加密）；`body` 是 JSON 字符串时直接取，是对象时 `JSON.stringify`（实现见 `src/upstream.ts:851-865`）
 - 剥完后就是**标准 OpenAI SSE**
-- 内层帧分类（:54-102）：
+- 内层帧分类（实现见 `src/upstream.ts:879-965` 的 `processLine`）：
  - `chunk`：有 `choices` 数组（**`choices: []` 也算**）或 `usage`
  - `heartbeat`：`null`、空串、`{}`、裸标量 → **整帧跳过**（把 `body:null` 当业务错误会让正常回完内容却报失败，issue IKJOZ8）
  - `error`：显式带 `code` / `message` / `error` / `statusCodeValue` / `type` 之一 → 抛出，且**保真转发** `{code, message, type:'model_error'}`（`code` 必须独立字段，下游靠 `code==='10605'` 识别排队）
-- 非 `data:` 行（如 `event:finish`）原样保留；`[DONE]` 原样传递（:145-154, 204）
+- 非 `data:` 行（如 `event:finish`）原样保留；`[DONE]` 原样传递（实现见 `src/upstream.ts:881-883`）
 
 ### 4.2 事件与结束标志
 
@@ -393,10 +417,10 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 | 码 | 语义 | 处理 | 来源 |
 |---|---|---|---|
-| `10605`（字符串） | 模型排队 | 内层 `message` 是 **JSON 字符串**，需二次解析：`{"isQueued":true,...,"retryAfterSeconds":30}`；延迟优先序 `retry_after_ms` → `retryAfterMs` → `retryAfterSeconds×1000`，**封顶 10 秒**；最大 180 次；总时长默认 30 分钟（`DSH_QODER_QUEUE_TIMEOUT_MS` 可覆盖，0 合法） | model-queue.ts:36, 138, 188-255 |
-| `110` | 额度用尽（`Billing daily count exceeded`） | 归 `QUOTA_EXCEEDED`（**不可重试**）；文案兜底正则 `/billing\s+daily\s+count\s+exceeded\|billing_error/i` | model-queue.ts:73-130 |
-| `105` | `auth_error`（与 10605 独立，不可合并） | 续期后重试 | model-queue.ts:26 |
-| 409 | `duplicate_request` | 不刷新凭据，直接重发一次 | qoder-adapter.ts:834-838 |
+| `10605`（字符串） | 模型排队 | 内层 `message` 是 **JSON 字符串**，需二次解析：`{"isQueued":true,...,"retryAfterSeconds":30}`；延迟优先序 `retry_after_ms` → `retryAfterMs` → `retryAfterSeconds×1000`，**封顶 10 秒**；最大 180 次；总时长默认 30 分钟（`DSH_QODER_QUEUE_TIMEOUT_MS` 可覆盖，0 合法） | 本仓：`src/upstream.ts:812-818`（`isQueueError` 判定 10605）+ 共享层 `packages/core/gateway/src/http/chat-relay.ts:121-126`（单帧退避上限 10 秒 / 总预算 5 分钟） |
+| `110` | 额度用尽（`Billing daily count exceeded`） | 归 `QUOTA_EXCEEDED`（**不可重试**）；文案兜底正则 `/billing\s+daily\s+count\s+exceeded\|billing_error/i` | 共享层 `packages/core/gateway/src/http/chat-relay.ts:191-193`（额度文案兜底正则）、`packages/core/gateway/src/http/chat-relay.ts:1150-1164`（标记账号额度用尽并换号） |
+| `105` | `auth_error`（与 10605 独立，不可合并） | 续期后重试 | `src/upstream.ts:950-955`（业务错误帧保真转发 `code`）；续期由共享层在 401/403 时驱动（§2.4） |
+| 409 | `duplicate_request` | 不刷新凭据，直接重发一次 | 参考实现 `qoder-adapter.ts` |
 
 ⚠ **两处「排队重试」不是同一件事**，别混：
 本节的 180 次 / 30 分钟是**渠道探测层**的排队判定（上游回 10605 时渠道自己重发整个请求）；
@@ -404,7 +428,13 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 （见 [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.4 与
 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5）。两者叠加，不是冲突。
 
-排队错误的**两种下发形态都必须处理**（只修一条会回归）：HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（qoder-adapter.ts:744-757）。
+> ⚠ **口径说明（来源）**：上面「180 次 / 30 分钟（`DSH_QODER_QUEUE_TIMEOUT_MS`）」是
+> **参考实现**（`model-queue.ts`）的渠道探测层口径；**本仓没有这一层** ——
+> 渠道只提供 `isQueueError` 判定（`src/upstream.ts:812-818`），重试与退避全部由共享层
+> 承担（单帧退避上限 10 秒、总预算 5 分钟，
+> `packages/core/gateway/src/http/chat-relay.ts:121-126`）。
+
+排队错误的**两种下发形态都必须处理**（只修一条会回归）：HTTP 403 + 排队 JSON 体；HTTP 200 + SSE 内嵌 `{code:"10605",...}` 帧（后者是本仓关心的那一支：非 200 信封里的内嵌错误见 `src/upstream.ts:912-927`，流内业务错误帧见 `src/upstream.ts:950-955`；参考实现 `qoder-adapter.ts` 两种都处理）。
 
 额度错误实测走 SSE（HTTP 200）通道；受限时标记「该账号 + 该模型」到 **UTC+8 当日 24:00**，
 然后切换账号池下一个账号。
@@ -422,7 +452,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 优先级：
 
 1. **动态目录**：`mx model qoder --refresh` 落盘的目录缓存（来自上游 `model/list`）—— 更准 `[代码]`
-2. **静态兜底表**：`src/catalog.ts` 的 `STATIC_META`，取自本机动态目录快照
+2. **静态兜底表**：`src/catalog.ts:116-135` 的 `STATIC_META`，取自本机动态目录快照
    （2026-10-19 拉取），字段集与参考实现的**官方目录快照**同构 `[参考]`
 3. 都查不到 → `display_name = key`、`is_vl = false`、`is_reasoning = false`、`max_input_tokens = 180000`
 
@@ -450,7 +480,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 
 ⚠ 静态表里的 `max_input_tokens` 与 §5.3 的上下文口径**是两回事**（见下）。
 
-### 5.1 国际版 17 条（qoder-product.ts:387-435）
+### 5.1 国际版 17 条（本仓静态兜底表见 `src/catalog.ts:116-135` 的 `STATIC_META`）
 
 | id | 名称 | 上下文 | 倍率 | 备注 |
 |---|---|---|---|---|
@@ -472,7 +502,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 | dfmodel | DeepSeek-Flash | 1M | 0.1 | efforts high/max/low，默认 max，可关 |
 | mmodel | MiniMax-M3 | 1M | 0.2 | |
 
-### 5.2 中国版 14 条（qoder-product.ts:531-580）
+### 5.2 中国版 14 条（本仓静态兜底表见 `packages/core/channels/qodercn/src/catalog.ts:114-207` 的 `FALLBACK_RAW`）
 
 `auto`(200K,0.5)、`qmodel_38max`(1M,0.2,免费,默认 medium)、`qfmodel`(1M,0,免费)、
 `qmodel_latest`(1M,0.1)、`qmodel`(1M,0.04)、**`q37fmodel` Qwen3.7-Flash**(1M,0.1，CN 独有)、
@@ -484,13 +514,13 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 
 - 档位白名单（asar 常量 `Qj`）：`['none','low','medium','high','xhigh','max']`，
  别名 `disabled→none`、`off→none`
-- 中文名：`none:关闭思考 / minimal:最小 / low:低 / medium:中 / high:高 / xhigh:极高 / max:最大`（qoder-product.ts:113-117）
+- 中文名：`none:关闭思考 / minimal:最小 / low:低 / medium:中 / high:高 / xhigh:极高 / max:最大`（档位表见参考实现 `qoder-product.ts`；**本仓尚未实现档位归一**，见 §9.2 G3）
 -  **上下文口径**：对外报（`/v1/models` 的 `context_window`）取目录 `context_config` 档位表**最大档**，
  不是 `max_input_tokens`（两者经常矛盾，官方客户端只认档位表）。实测服务端上限因模型而异：
  `dfmodel` 999,991 通过、`qfmodel` 983,490 通过（越界报 `Range of input length should be [1, 983616]`）、
- `dmodel` 852,951 通过（qoder-product.ts:485-520）
+ `dmodel` 852,951 通过（实测见参考实现 `qoder-product.ts`）
  ⚠ 但**请求体的 `model_config.max_input_tokens` 用的是目录 `max_input_tokens` 的原值**
- （上游请求体用它，参考实现 `shuishuipingan/qoder2api-hub/qoder_proxy.py:3925`）`[参考]` ——
+ （上游请求体用它；本仓取值见 `src/upstream.ts:675` 与 `src/catalog.ts:116-135`，参考实现见 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`）`[参考]` ——
  两个口径本来就不同，不要混用。
 
 ---
@@ -506,7 +536,7 @@ Headers: Accept: application/json, Authorization: Bearer <token>,
         User-Agent: Qoder,
         Cosy-MachineToken: <配对头>, Cosy-MachineType: <配对头>
 ```
-（qoder-credits.ts:229-240；本仓实现见 `src/billing.ts` 的 `sashHeaders`，头表见 §2.5.2）
+（本仓实现见 `src/billing.ts:90-100` 的 `sashHeaders`，端点常量见 `src/billing.ts:54-55`；头表见 §2.5.2）
 
 响应：`displayMode: "qoder"|"enterprise"`（enterprise 无额度数字，返回 null）；
 `qoderUsage.userQuota{total,used,remaining,unit}`、`qoderUsage.addOnQuota{...}`、
@@ -525,7 +555,7 @@ body: 空串（不是 {}）
 ```
 - 只有 `actionType==='CLAIM_BENEFIT' && claimStatus==='CLAIMABLE'` 才可领；`VIEW_DETAILS` 不领
 - 幂等判据是响应体 `replayed:true`（重复领取同样 HTTP 200，但不含 `benefit`、`claimedAt` 是旧时间）
--  活动每日 **10:00（UTC+8）刷新**（`QODER_CAMPAIGN_REFRESH_HOUR_UTC8 = 10`，qoder-credits.ts:89）；
+-  活动每日 **10:00（UTC+8）刷新**（本仓实现见 `src/billing.ts:58` 的 `CAMPAIGN_REFRESH_HOUR_UTC8 = 10` 与 `src/billing.ts:131-147` 的 `claimedToday`）；
  刷新前看到的 `CLAIMED` 属昨天，**不能报「今天已领」**
 
 ---
@@ -541,7 +571,8 @@ body: 空串（不是 {}）
 `requestresult_url/headers/headerCount/body`、`model_cache_decrypt`、`model_cache_encrypt`、
 `decrypt_server_response`、`profileencryptor_new/encryptChunk/header`
 
-默认客户端版本常量 `COSY_VERSION = '1.1.49'`（qoder-wasm.ts:66；注意与桌面端 0.3.4 不是一个号）。
+参考实现默认客户端版本常量 `COSY_VERSION = '1.1.49'`（见参考实现 `qoder-wasm.ts`；注意与桌面端 0.3.4 不是一个号）。
+**本仓不走 WASM**，实际发的是 `COSY_VERSION = "1.1.64"`（`src/upstream.ts:69`）。
 
 **调用链**：
 ```
@@ -552,13 +583,13 @@ qodercontext_new(machineId, version, userInfoJson, clientMetadataJson)
 qodercontext_prepareInferRequest(host, body, modelKey, source)
  → {url, headers, body}    其中 Authorization: Bearer COSY.<载荷>.<签名>
 ```
-（qoder-wasm.ts:545-698）
+（调用链见参考实现 `qoder-wasm.ts`；**本仓不实现 WASM 路线**，等价能力用纯 `node:crypto` 复刻，见 `src/upstream.ts:220-301`）
 
 **Python 复现路线**：
 - **无纯 Python 替代**，源码里也没有第二实现
 - 唯一可行路线是用 `wasmtime` / `wasmtime-py` 加载**同一个 .wasm**，并自己重写 wasm-bindgen glue
- （本仓库的 glue 约 200 行 TS，qoder-wasm.ts:357-543）
-- 三个必须照抄的坑（qoder-wasm.ts:390-410, 462-527）：
+ （参考实现那侧的 glue 约 200 行 TS，见参考实现 `qoder-wasm.ts`）
+- 三个必须照抄的坑（见参考实现 `qoder-wasm.ts`）：
  1. 两个 `getRandomValues` import 签名方向相反（`__wbg_getRandomValues_d49329ff89a07af1` 写 wasm 内存；
     `_c44a50d8cfdaebeb` 调 JS 对象），写反得到 Rust panic `unreachable`
  2. 返回值布局两套：字符串类 `ptr/len/valIdx/isErr`，而 `qodercontext_new`/`prepareInferRequest`
@@ -572,7 +603,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 ### 7.2 设备头 `Cosy-MachineToken` / `Cosy-MachineType`
 
-来源优先级（qoder-machine.ts:211-231, 319-471）：
+参考实现的来源优先级（见参考实现 `qoder-machine.ts`）：
 
 1. **实时 spawn** `<home>/.qoder/.bin/umid-<platform>-<hash>/runtime-info(.exe)`，
   参数**必须**是 `['3', '--account-stdin']`（environment 是第一个位置参数，
@@ -585,6 +616,12 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 3. 都拿不到 → 不带这两个头（保守降级）
 
 环境变量覆盖：`QODER_MACHINE_TOKEN_PATH`、`QODER_RUNTIME_INFO`。
+
+> ⚠ **本仓不实现 UMID / `runtime-info` 桥**：国际版改用**按 uid 稳定派生**的成对机器头
+> （`src/cred.ts:178-198` 的 `machineIdOf` / `machineTokenOf` / `machineTypeOf`，
+> 实际发头见 `src/billing.ts:90-100` 的 `sashHeaders` 与 `src/upstream.ts:274-300`）；
+> 国内版干脆不发这两个头（见 [qodercn 的 PROTOCOL](../qodercn/PROTOCOL.md) §3.2）。
+> 上面的来源优先级是**参考实现**的口径，本仓以派生值为准。
 
 **消融结论**：`Cosy-MachineToken` 与 `Cosy-MachineType` **必须成对**，缺一即失效；
 `Cosy-MachineId` / `Cosy-Version` / `MachineOS` / `MachineHostname` / `MachineCode` 实测**均非必需**。
@@ -604,14 +641,14 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 既没有 10605 排队帧，也不发 `[DONE]`，流就是不开。
 
 **参考实现结论**：[shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub)
-`qoder_proxy.py:4610` 的 `sse_with_heartbeat` —— Qoder 排队/长思考时**首字延迟实测
+参考实现 `qoder_proxy.py` 的 `sse_with_heartbeat` —— Qoder 排队/长思考时**首字延迟实测
 40–71 秒**，排队时更久；其单次静默上限 `idle_limit=900` 秒，等待期每 5 秒向客户端
 发 SSE 注释心跳 `": ping\n\n"`（`:` 注释行客户端忽略）防空闲断连。
 
 **modelmux 侧对应**：共享层默认静默 120s 会误杀这类「已收下但还在排」的请求
 （旧行为还会让探测层异常穿透成 500 `internal_error`，现归 502 `upstream_timeout`）。
-本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `src/upstream.ts`），网关等待首帧
-期间每 5 秒补 `: ping`。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
+本渠道因此声明 `idleTimeoutMs() = 900_000`（见 `src/upstream.ts:828-830`），网关等待首帧
+期间每 5 秒补 `: ping`（`packages/core/gateway/src/http/chat-relay.ts:402` 与 `:476`）。**这只是把等待放宽，不是协议能力增强** —— 真挂死的流
 仍会在 900 秒后按超时收尾。
 
 ### 7.5 主机级故障与探测重试的主机轮换（2026-10-19 实测）
@@ -624,10 +661,11 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 **modelmux 侧对应**：`upstream.ts` 暴露四个可选钩子，网关探测层用鸭子类型调用 ——
 
-- `chatHostCandidates()`：返回 `[当前主机, 区域表其余候选]` 的副本
-- `setChatHostOverride(host)` / `currentChatHost()`：切换 / 读取本次应答用的主机（含签名槽重签）
+- `chatHostCandidates()`：返回 `[当前主机, 区域表其余候选]` 的副本（`src/upstream.ts:414-418`）
+- `setChatHostOverride(host)` / `currentChatHost()`：切换 / 读取本次应答用的主机（含签名槽重签）（`src/upstream.ts:382-391`）
 - `rememberChatHost()`：换主机重试成功后，把新主机持久化进凭据 `gatewayHost`，
-  后续请求直接从记忆里的健康主机起步，不再每次先撞坏的那台
+  后续请求直接从记忆里的健康主机起步，不再每次先撞坏的那台（`src/upstream.ts:399-405`，
+  回写凭据见 `src/cred.ts:279-288`）
 
 **排队帧收尾**：`10605` 排队帧**就是这条流的最后一帧** —— 上游发出后保持连接但彻底静默，
 期望客户端按 `retryAfterSeconds` 等待后重开新请求。探测层识别到排队帧即停止读取、交回
@@ -651,7 +689,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 倍率 → 不给规格，回落兜底值（**不编造**）。
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `MAX_OUTPUTS`（国内版 `qodercn` 同一套）。
+`src/catalog.ts:51-63` 的 `MAX_OUTPUTS`（国内版 `qodercn` 同一套）。
 
 ---
 
@@ -733,7 +771,7 @@ Reasonix CLI 直连网关（`qoder/deepseek-flash`，倍率 0.1）：
 
 ## 参考实现
 
-clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不入库**）；结论进本文件。
 
 | 仓库 | 用途 |
 | --- | --- |
@@ -744,22 +782,24 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 ## 已知边界
 
 本节汇总「参考实现有、但本仓不做」的功能与待验证项。
-完整证据（参考实现的文件:行号）见
+下表的「参考实现出处」一列只给**仓库与文件名**（参考实现 clone 在
+`packages/core/channels/qoder/reference/` 下、**不入库**，故不写行号）；
+完整证据（参考实现的文件:行号）见本地规划目录（**不入库**）
 `.planning/2026-10-20-channel-reference-parity/research/qoder.md`。
 
 ### 9.1 明确不做的功能
 
 | 功能 | 参考实现出处 | 不做的理由 |
 | --- | --- | --- |
-| PAT → jobToken 登录 | `shuishuipingan/qoder2api-hub/qoder_accounts.py:3364-3399` | 见 §2.2（第三套 base + 已失效的 legacy 签名族） |
-| 本机官方客户端凭证读取 | `cubk1/qoder2api/.../LocalAuth.java:19-40` | 见 §2.2（依赖桌面端 + DPAPI/os_crypt） |
-| `/api/v2/quota/usage`（另一套额度端点） | `qoder_accounts.py:94,2426-2516` | 与 `/sash/api/v2/me/usage` 口径重复，收益有限 |
-| `/api/v2/user/plan`（套餐名） | `qoder_accounts.py:95,2518-2532` | 套餐名不影响路由与额度 |
-| daily-check-in 端点与连续签到统计 | `qoder_accounts.py:96-97,1893-1975,243-325` | 活动平台已承接签到（§6.2）；连续统计属锦上添花 |
-| campaign 兑换码（`redemptionCode`） | `qoder_accounts.py:2197-2202` | 兑换码类奖励当前无活动在用 |
-| campaign 的「同人已领」判定 | `qoder_accounts.py:2186-2194` | 多号同机场景本仓账号池不做同人去重 |
-| Pro 升级包领取 | `qoder_accounts.py:98-99,2534-2568` | 一次性活动，与日常路由无关 |
-| 原生风控身份（`runtime-info` / UMID） | `qoder_accounts.py:210-260,1722-1772` | 需本机装官方客户端；派生指纹已够用 |
+| PAT → jobToken 登录 | `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py` | 见 §2.2（第三套 base + 已失效的 legacy 签名族） |
+| 本机官方客户端凭证读取 | `cubk1/qoder2api` 的 `LocalAuth.java` | 见 §2.2（依赖桌面端 + DPAPI/os_crypt） |
+| `/api/v2/quota/usage`（另一套额度端点） | hub `qoder_accounts.py`（额度端点段） | 与 `/sash/api/v2/me/usage` 口径重复，收益有限 |
+| `/api/v2/user/plan`（套餐名） | hub `qoder_accounts.py`（套餐名段） | 套餐名不影响路由与额度 |
+| daily-check-in 端点与连续签到统计 | hub `qoder_accounts.py`（daily-check-in 段） | 活动平台已承接签到（§6.2）；连续统计属锦上添花 |
+| campaign 兑换码（`redemptionCode`） | hub `qoder_accounts.py`（campaign 兑换码段） | 兑换码类奖励当前无活动在用 |
+| campaign 的「同人已领」判定 | hub `qoder_accounts.py`（campaign 同人判定段） | 多号同机场景本仓账号池不做同人去重 |
+| Pro 升级包领取 | hub `qoder_accounts.py`（Pro 升级包段） | 一次性活动，与日常路由无关 |
+| 原生风控身份（`runtime-info` / UMID） | hub `qoder_accounts.py`（UMID / runtime-info 段） | 需本机装官方客户端；派生指纹已够用 |
 
 ### 9.2 已知功能缺口（对照参考实现）
 
@@ -779,32 +819,33 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | # | 缺口 | 影响 | 证据 |
 | --- | --- | --- | --- |
-| G3 | 思考档位未按模型归一（上游对不支持的档位**静默忽略**） | 客户端以为档位没生效 | `qoder_proxy.py:2565-2669` |
-| G2 | `thinking_config` 未解析（无 `reasoning_efforts` / `reasoning_default_effort` / `reasoning_can_disable`） | 目录信息不全 | `qoder_catalog.py:19`、`qoder_proxy.py:2263-2276` |
-| G6 | `context_config` 多窗口未解析 | 对外只报单值上下文 | `qoder_proxy.py:2234-2256` |
-| G7 | 峰谷价（`promotion`）未解析 | 只看得到当前倍率，看不到低谷时段 | `qoder_proxy.py:2287-2339` |
-| G5 | 模型的 `enable` / `strategies` 禁用态未解析 | 看不到「需升级套餐」的官方原因 | `qoder_proxy.py:2197-2207` |
-| G8 | 能力矩阵未透出（`capabilities` / `input_modalities` / `modalities`） | `/v1/models` 信息少 | `qoder_proxy.py:2208-2233` |
-| G9 | 模型别名表（`MODEL_ALIASES` / `aliases`）缺失 | 客户端只能用规范 id | `qoder_catalog.py:1591` |
-| G10 | userinfo 丢了 `organization_id` / `organization_name` | 企业号签名可能无效 | `qoder_accounts.py:3320-3338` |
-| G11 | token 前缀族（`drt-` / `jrt-` / `pt-`）不识别 | 只有一条续期路径（本仓也只有一条登录路径，暂无影响） | `qoder_accounts.py:1790-1812` |
-| G12 | 无原生风控身份（见 §9.1） | 活动列表可能被过滤 | `qoder_accounts.py:1722-1772` |
-| G13 | 另一套额度端点与套餐名（见 §9.1） | — | `qoder_accounts.py:2426-2532` |
-| G14 | daily-check-in 端点与连续签到统计（见 §9.1） | — | `qoder_accounts.py:1893-1975` |
-| G15 | `GET /sash/api/v1/me/campaigns/{id}/reward` 未接 | 领不了也查不了单个活动状态 | `qoder_accounts.py:2143-2151` |
-| G16 | 领取结果的细粒度判定（`BLOCKED` / 兑换码） | 只判 `replayed` | `qoder_accounts.py:2153-2208` |
-| G17 | Pro 升级包（见 §9.1） | — | `qoder_accounts.py:2534-2568` |
-| G20 | `chat_context.imageUrls` / `image_urls` 恒 `null` | 图片只能走 `messages[].content` 多模态数组 | `qoder_proxy.py:3939-3941` |
-| G21 | 多入口协议（Anthropic `/v1/messages`、OpenAI `/v1/responses`、Codex）与 DSML 回退 | 只有 OpenAI Chat 形态 | `qoder_anthropic.py:171-243`、`qoder_proxy.py:2865-2900` |
+| G3 | 思考档位未按模型归一（上游对不支持的档位**静默忽略**） | 客户端以为档位没生效 | hub `qoder_proxy.py`（思考档位归一段） |
+| G2 | `thinking_config` 未解析（无 `reasoning_efforts` / `reasoning_default_effort` / `reasoning_can_disable`） | 目录信息不全 | hub `qoder_catalog.py`、`qoder_proxy.py`（`thinking_config` 解析段） |
+| G6 | `context_config` 多窗口未解析 | 对外只报单值上下文 | hub `qoder_proxy.py`（`context_config` 解析段） |
+| G7 | 峰谷价（`promotion`）未解析 | 只看得到当前倍率，看不到低谷时段 | hub `qoder_proxy.py`（`promotion` 解析段） |
+| G5 | 模型的 `enable` / `strategies` 禁用态未解析 | 看不到「需升级套餐」的官方原因 | hub `qoder_proxy.py`（禁用态解析段） |
+| G8 | 能力矩阵未透出（`capabilities` / `input_modalities` / `modalities`） | `/v1/models` 信息少 | hub `qoder_proxy.py`（能力矩阵段） |
+| G9 | 模型别名表（`MODEL_ALIASES` / `aliases`）缺失 | 客户端只能用规范 id | hub `qoder_catalog.py`（`MODEL_ALIASES`） |
+| G10 | userinfo 丢了 `organization_id` / `organization_name` | 企业号签名可能无效 | hub `qoder_accounts.py`（userinfo 段） |
+| G11 | token 前缀族（`drt-` / `jrt-` / `pt-`）不识别 | 只有一条续期路径（本仓也只有一条登录路径，暂无影响） | hub `qoder_accounts.py`（token 前缀族段） |
+| G12 | 无原生风控身份（见 §9.1） | 活动列表可能被过滤 | hub `qoder_accounts.py`（UMID 段） |
+| G13 | 另一套额度端点与套餐名（见 §9.1） | — | hub `qoder_accounts.py`（额度端点段） |
+| G14 | daily-check-in 端点与连续签到统计（见 §9.1） | — | hub `qoder_accounts.py`（daily-check-in 段） |
+| G15 | `GET /sash/api/v1/me/campaigns/{id}/reward` 未接 | 领不了也查不了单个活动状态 | hub `qoder_accounts.py`（campaign 奖励查询段） |
+| G16 | 领取结果的细粒度判定（`BLOCKED` / 兑换码） | 只判 `replayed` | hub `qoder_accounts.py`（领取结果判定段） |
+| G17 | Pro 升级包（见 §9.1） | — | hub `qoder_accounts.py`（Pro 升级包段） |
+| G20 | `chat_context.imageUrls` / `image_urls` 恒 `null` | 图片只能走 `messages[].content` 多模态数组 | hub `qoder_proxy.py`（`imageUrls` 段）；本仓实现见 `src/upstream.ts:650-652` |
+| G21 | 多入口协议（Anthropic `/v1/messages`、OpenAI `/v1/responses`、Codex）与 DSML 回退 | 只有 OpenAI Chat 形态 | hub `qoder_anthropic.py`、`qoder_proxy.py`（多入口协议段） |
 
-> 另有**会话亲和**（同一会话固定落同一账号）未做：参考实现
-> `qoder_proxy.py:1756,4407`、`qoder_accounts.py:2615`；共享层有账号池但没有亲和层。
+> 另有**会话亲和**（同一会话固定落同一账号）未做：参考实现的
+> `qoder_proxy.py`（会话亲和段）与 `qoder_accounts.py`（账号亲和段）；
+> 共享层有账号池但没有亲和层。
 
 ### 9.3 静态风险（读代码即可判定）
 
 | # | 风险 | 影响 |
 | --- | --- | --- |
-| R1 | `/sash` **无条件发派生** `cosy-machinetoken` + `cosy-machinetype`。主参照 issue #10 实测：**派生六头全发会被判为非官方客户端，把 CLAIMABLE 的「每日领取 100 Credits」整条过滤**（只剩 `VIEW_DETAILS`）；正解是**一个都不发**（`qoder_accounts.py:1736-1746`） | 签到可能看不到活动且**不报错** —— 本轮**未改**（我方行为未验证），待真机比对 |
+| R1 | `/sash` **无条件发派生** `cosy-machinetoken` + `cosy-machinetype`。主参照 issue #10 实测：**派生六头全发会被判为非官方客户端，把 CLAIMABLE 的「每日领取 100 Credits」整条过滤**（只剩 `VIEW_DETAILS`）；正解是**一个都不发**（参考实现 hub `qoder_accounts.py` 的 issue #10 结论） | 签到可能看不到活动且**不报错** —— 本轮**未改**（我方行为未验证），待真机比对；本仓当前仍无条件发派生头（`src/billing.ts:90-100`） |
 | R2 | `/sash` 的 `cosy-version` 取值 `0.4.3`（桌面端系列）未经我方实测 | 版本不对可能仍返回空列表 |
 | R3 | `reasoning_effort` 原样透传，无归一 | 上游静默忽略非法档位 |
 | R4 | ~~`user_type` 恒默认值 `personal_professional_trial`~~ | **已修**（2026-10-20）：userinfo 扩到 name / user_type / id（§2.1），请求体 `aliyun_user_type` 取真实值；取不到才回落默认 |

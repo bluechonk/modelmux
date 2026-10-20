@@ -377,7 +377,8 @@ glm-5.2, glm-5.1, glm-5v-turbo, glm-5
 
 > 2026-10-20 修复：旧判据是「`remain === 0 && packages.length === 0` → 报查不到」，
 > 于是「余额真的用光了」被误报成「查不到额度信息」，**掩盖了真实故障**。
-> 与 `dsh-account-hub`（本实现的上游来源包）口径一致（`src/lobsterai-credits.ts:349-357`）。
+> 与 `dsh-account-hub`（本实现的上游来源包）口径一致（该包的 `readActions` 读法；
+> 本实现的对应实现在 `packages/core/channels/lobsterai/src/billing.ts:256-279`）。
 
 `/api/user/quota` 的补充字段 [实测]：`freeCreditsTotal` / `freeCreditsUsed` /
 `freeCreditsRemaining` / `freeCreditsExpiresAt` / `subscriptionStatus` / `planName`。

@@ -142,19 +142,18 @@ const PROBE_RETRY_BASE_MS = 15_000;
  *
  * 有些上游的多主机里个别主机对「200 后零字节 / 断流」是坏的，换台机器就恢复
  * （实测 qoder api1 挂起、api2 正常）。`chatHostCandidates()` 给出候选清单，
- * 渠道再自己把 URL 切过去（标准 OpenAI 兼容渠道没有这个概念，返回 undefined）。
+ * 渠道再自己把 URL 切过去（没有主机概念的渠道不声明这两个钩子）。
  */
 function chatHostRotator(channel: Channel): (() => boolean) | undefined {
-  const hc = (channel.upstream as unknown as { chatHostCandidates?: () => string[] }).chatHostCandidates;
-  const setter = (channel.upstream as unknown as { setChatHostOverride?: (h: string | null) => void }).setChatHostOverride;
-  if (!hc || !setter) return undefined;
+  const upstream = channel.upstream;
+  const candidates = upstream.chatHostCandidates?.();
+  if (!candidates || !upstream.setChatHostOverride) return undefined;
   let index = 0;
-  const candidates = hc();
   return () => {
     index += 1;
     const next = candidates[index];
     if (next === undefined) return false;
-    setter(next);
+    upstream.setChatHostOverride?.(next);
     return true;
   };
 }
@@ -1058,8 +1057,8 @@ export async function handleChat(
         return false;
       }
       // 记下这条应答实际发往的主机（成功回报用）
-      const currentHost = (channel.upstream as unknown as { currentChatHost?: () => string }).currentChatHost;
-      if (currentHost) chatHostRef.value = currentHost();
+      const currentHost = channel.upstream.currentChatHost?.();
+      if (currentHost !== undefined) chatHostRef.value = currentHost;
       // 旧流已死：释放它再换新流（探测用的 reader 已在 consumeQueueProbe 里 releaseLock）
       await call.body?.cancel().catch(() => {});
       call = next;
@@ -1182,10 +1181,9 @@ export async function handleChat(
     noteAccountSuccess(cid);
     markActiveHealth("ok", cid);
     // 换 host 重试成功后回报新主机（渠道有能力就持久化，后续请求不再走坏的那台）
-    const rememberHost = (channel.upstream as unknown as { rememberChatHost?: (h: string) => void }).rememberChatHost;
-    if (rememberHost && chatHostRef.value) {
+    if (chatHostRef.value) {
       try {
-        rememberHost(chatHostRef.value);
+        channel.upstream.rememberChatHost?.(chatHostRef.value);
       } catch {
         /* 回写失败不影响本次应答 */
       }

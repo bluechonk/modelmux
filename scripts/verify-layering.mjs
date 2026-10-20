@@ -6,7 +6,7 @@
  *
  * ```
  * runtime (0)   渠道 SDK：channel / paths / account-pool / secret-file / catalog-cache / cli-consts
- * pool  (1)     模型池与账本：pool-targets / pool-usage / model-family / model-pool
+ * pool  (1)     模型池与账本：pool-targets / pool-usage / model-pool
  * auth  (1)     登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
  * http  (2)     HTTP 层：gateway / chat-relay / console / sse-stream / portfree / web-*
  * app   (3)     进程编排：cli / daemon / process-utils / headless / supervisor / …

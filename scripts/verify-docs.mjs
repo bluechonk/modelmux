@@ -185,6 +185,58 @@ for (const rel of candidates) {
   for (const d of dead) problems.push(`${rel}  ->  ${d}  —— 死链`);
 }
 
+// ── 源码引用可达：带行号的引用必须指向本仓真实存在、且行号不越界的文件 ────────
+// 渠道文档大量引用「文件:行号」指实现。引用一旦指向**已被重构掉的文件**
+// （旧文件名、搬过目录的路径），读者按它去找会扑空 —— 架构审查实测 121 处这种失效引用。
+// 这里把它变成会失败的检查：带**行号**的引用必须解析到本仓真实文件，且行号在文件行数内。
+// 不带行号的文件名（散文里提到参考实现的文件名）不查。
+const SRC_REF_RE = /`([^`\s|]+\.(?:ts|tsx|mjs|js)):(\d+)(?:-(\d+))?`/g;
+
+function checkSourceRefs(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  // 解析基准：仓库根 / 文档所在目录 / 所属渠道包 / 共享层 src
+  // （渠道文档里的 `src/upstream.ts` 指渠道包内的，仓库级文档里的 `auth/…` 指共享层的）
+  const bases = [join(workspaceRoot, ""), dirname(abs)];
+  const cid = rel.match(/^docs\/channels\/([^/]+)\//)?.[1];
+  if (cid) {
+    bases.push(join(workspaceRoot, "packages", "core", "channels", cid));
+    bases.push(join(workspaceRoot, "packages", "core", "channels", cid, "src"));
+  }
+  bases.push(join(workspaceRoot, "packages", "core", "gateway", "src"));
+
+  const found = [];
+  let m;
+  while ((m = SRC_REF_RE.exec(text)) !== null) {
+    const file = m[1];
+    // ⚠ `reference/` 前缀的引用**按约定指向不入库的参考实现 clone**
+    //（仓库里没有这些文件，clone 是本机 gitignore 的工作副本）→ 不查。
+    if (/(^|\/)reference\//.test(file)) continue;
+    const from = Number(m[2]);
+    const to = m[3] ? Number(m[3]) : from;
+    const hit = bases.map((b) => join(b, file)).find((p) => existsSync(p));
+    if (!hit) {
+      found.push(`\`${file}:${m[2]}${m[3] ? "-" + m[3] : ""}\`（本仓无此文件）`);
+      continue;
+    }
+    const lines = readFileSync(hit, "utf8").split("\n").length;
+    if (from > lines || to > lines) {
+      found.push(`\`${file}:${m[2]}${m[3] ? "-" + m[3] : ""}\`（行号超出该文件 ${lines} 行）`);
+    }
+  }
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkSourceRefs(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {

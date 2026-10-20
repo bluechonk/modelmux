@@ -1,6 +1,6 @@
 # CodeArts 协议规格（华为云）
 
-提取自 `dsh-our-free-model/vendor/channel-pack/src/`（`llm-adapter.ts` / `oauth.ts` / `login.ts` / `models.ts` / `codearts-credits.ts` / `sign.ts` / `types.ts`）。
+本文件的事实以本仓渠道包 `packages/core/channels/codearts/src/`（`upstream.ts` / `cred.ts` / `catalog.ts` / `billing.ts`）为准；最初的协议草稿提取自一份第三方 vendor 包（`dsh-our-free-model`，不在本仓），其结论已全部落到下述章节。第三方参考实现的出处见文末「参考实现」一节。
 
 ---
 
@@ -33,9 +33,9 @@
   （本仓库为此专门做了 `pruneLegacyAccounts()`）。
 - [参考] 参考实现同样把 `client_id` / `dpop_private_key` / `refresh_token` /
   `code_verifier` 与凭据一起落盘
-  （reference/HITZY2002_codearts2api/internal/auth/auth.go:23-35）—— 这是协议要求。
+  （参考实现 `reference/HITZY2002_codearts2api/internal/auth/auth.go`）—— 这是协议要求。
 
-**授权 URL 逐字（login.ts:282-291）**：
+**授权 URL 逐字（`packages/core/channels/codearts/src/cred.ts:634-641`）**：
 
 ```
 https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
@@ -53,7 +53,7 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 - 授权 URL **不能带 `auth_callback_url`** —— portal 仅凭 `port` 参数构造回调
 - 回调端口 < 10000 会被 portal 拒绝
 
-**授权码换取**（oauth.ts:147-161）：同一 STS 端点，form 体为
+**授权码换取**（`packages/core/channels/codearts/src/cred.ts:344-360`）：同一 STS 端点，form 体为
 `client_id=codearts-agent`、`code=`、`code_verifier=`、`grant_type=authorization_code`、
 `redirect_uri=http://127.0.0.1:{port}/oauth/callback`
 
@@ -80,40 +80,40 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 
 | 用途 | 方法 | 端点路径 | 完整 URL | 必需 query | 代码常量 | 来源 |
 |---|---|---|---|---|---|---|
-| **对话** | POST | `/api/v2/chat/completions` | `https://snap-access.cn-north-4.myhuaweicloud.com/api/v2/chat/completions` | **无** | `CHAT_PATH` | llm-adapter.ts:23, 1117 |
-| 常规模型目录 | GET | `/v1/model/builtin` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/model/builtin` | **无** | `SNAP_BUILTIN_PATH` | models.ts:17 |
-| **benefit 模型目录** | GET | `/api/v1/gateway/config` | `https://opengw.developer.huaweicloud.com/api/v1/gateway/config` | **无** | `OPENGW_CONFIG_PATH` | models.ts:9 |
-| **benefit 福利领取** | POST | `/api/v1/benefit/claim` | `https://opengw.developer.huaweicloud.com/api/v1/benefit/claim` | **无**（空 body `{}`） | `BENEFIT_CLAIM_PATH` | [参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:476-510 |
-| benefit 额度余额 | GET | `/api/v1/user/tokens/balance` | `https://opengw.developer.huaweicloud.com/api/v1/user/tokens/balance` | **无** | `BENEFIT_BALANCE_PATH` | [参考] reference/Johnsheng1_codearts2api/benefit.py:42, 103-105 |
-| 账户/套餐（含积分） | GET | `/snap-manager/v1/statistics/plugin` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/statistics/plugin` | **无** | `PACKAGE_INFO_PATH`（billing.ts） | codearts-credits.ts:79, 82 |
-| 活动列表 | GET | `/v1/ops/delivery` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/ops/delivery` | **`channel=IDE`** | `OPS_DELIVERY_PATH` | :79, 84, 91 |
-| 领取 | POST | `/v1/ops/claim` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/ops/claim` | **无**（body 承载 `campaignId` + `channel`） | `OPS_CLAIM_PATH` | :79, 86 |
-| 领取确认 | POST | `/v1/ops/confirm` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/ops/confirm` | **无**（body 承载 `campaignId`） | `OPS_CONFIRM_PATH` | :79, 88 |
-| agent-center 智能体列表 | GET | `/v1/agent-center/agents/useragents` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/agent-center/agents/useragents` | `offset=0` + `limit=100` + `is_primary_agent=true` | `AGENT_CENTER_LIST_PATH` | [参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:383 |
-| agent-center 智能体详情 | GET | `/v1/agent-center/agents/detail` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/agent-center/agents/detail` | `agent_id={agentId}` | `AGENT_CENTER_DETAIL_PATH` | [参考] 同上 :340 |
-| 福利网关总开关 | GET | `/v1/benefit-gateway-config` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/benefit-gateway-config` | **无** | `BENEFIT_GATEWAY_CONFIG_PATH` | [参考] reference/HITZY2002_codearts2api/docs/reverse-engineering.md:146 |
-| 当前用户 | GET | `/snap-manager/v1/current/user` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/current/user` | **无** | `CURRENT_USER_PATH` | [参考] reference/HITZY2002_codearts2api/internal/upstream/client.go:746-760 |
-| 调用者身份 | GET | `/v5/caller-identity` | `https://sts.cn-north-4.myhuaweicloud.com/v5/caller-identity` | **无** | `CALLER_IDENTITY_PATH` | [参考] 同上 :726-743 |
-| **OAuth token（STS）** | POST | `/v1/oauth2/tokens` | `https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens` | **无**（form 体承载参数） | `STS_TOKEN_PATH` | oauth.ts:10 |
-| OAuth 授权页 | GET（浏览器） | `/portal/authorize` | `https://codearts.huaweicloud.com/portal/authorize` | `theme=2` + `locale=zh-cn` + `uri_scheme=codearts-agent` + `client_id=codearts-agent` + `port={port}` + `code_challenge={c}` + `code_challenge_method=SHA-256` + `ticket_id={t}` + `plugin-name=snap_AIIDE` + `plugin-version=5.2.0` | `buildLoginUrl()`（cred.ts） | login.ts:264 |
-| portal 登录结果页 | — | `/portal/login` | `https://codearts.huaweicloud.com/portal/login` | `login_succeed={bool}` + `uri_scheme=codearts-agent` + `locale=zh-cn` | `buildPortalLoginResultUrl()`（cred.ts） | login.ts:266 |
-| 旧式 ticket 凭据轮询 | GET | `/snap-manager/v1/login/ticket` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/login/ticket` | `ticket_id={t}` + `secret={s}` | `TICKET_PATH`（cred.ts） | login.ts:13, 86 |
-| 新式本地回调 | — | `/oauth/callback` | `http://127.0.0.1:{port}/oauth/callback`（端口强制 ≥ 10000） | `code={授权码}` | `REDIRECT_PATH`（cred.ts） | oauth.ts:8, login.ts:359 |
-| 旧式本地回调 | — | `/authentication` | `http://127.0.0.1:{port}/authentication` | `secret` + `redirect` | — | login.ts:26 |
-| 旧式登录跳板 | GET（浏览器） | `/doer/redirect` | `https://devcloud.cn-north-4.myhuaweicloud.com/doer/redirect` | `IdeaType` + `auth_callback_url` + `plugin-name` + `plugin-version` + `ticket_id` | — | login.ts:11 |
-| 旧式华为登录页 | GET（浏览器） | `/authui/login.html` | `https://auth.huaweicloud.com/authui/login.html` | `service={enc redirectUrl}` | — | login.ts:12, 28 |
-| 并发排队状态 | GET | `/api/v1/queue/status` | `https://snap-access.cn-north-4.myhuaweicloud.com/api/v1/queue/status` | `model={model}` + `task_id={sessionId}` | —（**未接线**） | :272, 2040 |
+| **对话** | POST | `/api/v2/chat/completions` | `https://snap-access.cn-north-4.myhuaweicloud.com/api/v2/chat/completions` | **无** | `CHAT_PATH` | `packages/core/channels/codearts/src/upstream.ts:67` |
+| 常规模型目录 | GET | `/v1/model/builtin` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/model/builtin` | **无** | `SNAP_BUILTIN_PATH` | `packages/core/channels/codearts/src/upstream.ts:70` |
+| **benefit 模型目录** | GET | `/api/v1/gateway/config` | `https://opengw.developer.huaweicloud.com/api/v1/gateway/config` | **无** | `OPENGW_CONFIG_PATH` | `packages/core/channels/codearts/src/upstream.ts:108` |
+| **benefit 福利领取** | POST | `/api/v1/benefit/claim` | `https://opengw.developer.huaweicloud.com/api/v1/benefit/claim` | **无**（空 body `{}`） | `BENEFIT_CLAIM_PATH` | `packages/core/channels/codearts/src/upstream.ts:117`（[参考] `reference/HITZY2002_codearts2api/internal/upstream/models.go`） |
+| benefit 额度余额 | GET | `/api/v1/user/tokens/balance` | `https://opengw.developer.huaweicloud.com/api/v1/user/tokens/balance` | **无** | `BENEFIT_BALANCE_PATH` | `packages/core/channels/codearts/src/upstream.ts:123`（[参考] `reference/Johnsheng1_codearts2api/benefit.py`） |
+| 账户/套餐（含积分） | GET | `/snap-manager/v1/statistics/plugin` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/statistics/plugin` | **无** | `PACKAGE_INFO_PATH`（billing.ts） | `packages/core/channels/codearts/src/billing.ts:30` |
+| 活动列表 | GET | `/v1/ops/delivery` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/ops/delivery` | **`channel=IDE`** | `OPS_DELIVERY_PATH` | `packages/core/channels/codearts/src/billing.ts:32` |
+| 领取 | POST | `/v1/ops/claim` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/ops/claim` | **无**（body 承载 `campaignId` + `channel`） | `OPS_CLAIM_PATH` | `packages/core/channels/codearts/src/billing.ts:34` |
+| 领取确认 | POST | `/v1/ops/confirm` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/ops/confirm` | **无**（body 承载 `campaignId`） | `OPS_CONFIRM_PATH` | `packages/core/channels/codearts/src/billing.ts:36` |
+| agent-center 智能体列表 | GET | `/v1/agent-center/agents/useragents` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/agent-center/agents/useragents` | `offset=0` + `limit=100` + `is_primary_agent=true` | `AGENT_CENTER_LIST_PATH` | `packages/core/channels/codearts/src/upstream.ts:78`（[参考] `reference/HITZY2002_codearts2api/internal/upstream/models.go`） |
+| agent-center 智能体详情 | GET | `/v1/agent-center/agents/detail` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/agent-center/agents/detail` | `agent_id={agentId}` | `AGENT_CENTER_DETAIL_PATH` | `packages/core/channels/codearts/src/upstream.ts:84`（[参考] 同上） |
+| 福利网关总开关 | GET | `/v1/benefit-gateway-config` | `https://snap-access.cn-north-4.myhuaweicloud.com/v1/benefit-gateway-config` | **无** | `BENEFIT_GATEWAY_CONFIG_PATH` | `packages/core/channels/codearts/src/upstream.ts:90`（[参考] `reference/HITZY2002_codearts2api/docs/reverse-engineering.md`） |
+| 当前用户 | GET | `/snap-manager/v1/current/user` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/current/user` | **无** | `CURRENT_USER_PATH` | `packages/core/channels/codearts/src/upstream.ts:96`（[参考] `reference/HITZY2002_codearts2api/internal/upstream/client.go`） |
+| 调用者身份 | GET | `/v5/caller-identity` | `https://sts.cn-north-4.myhuaweicloud.com/v5/caller-identity` | **无** | `CALLER_IDENTITY_PATH` | `packages/core/channels/codearts/src/upstream.ts:102`（[参考] 同上） |
+| **OAuth token（STS）** | POST | `/v1/oauth2/tokens` | `https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens` | **无**（form 体承载参数） | `STS_TOKEN_PATH` | `packages/core/channels/codearts/src/upstream.ts:105` |
+| OAuth 授权页 | GET（浏览器） | `/portal/authorize` | `https://codearts.huaweicloud.com/portal/authorize` | `theme=2` + `locale=zh-cn` + `uri_scheme=codearts-agent` + `client_id=codearts-agent` + `port={port}` + `code_challenge={c}` + `code_challenge_method=SHA-256` + `ticket_id={t}` + `plugin-name=snap_AIIDE` + `plugin-version=5.2.0` | `buildLoginUrl()`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:634-641` |
+| portal 登录结果页 | — | `/portal/login` | `https://codearts.huaweicloud.com/portal/login` | `login_succeed={bool}` + `uri_scheme=codearts-agent` + `locale=zh-cn` | `buildPortalLoginResultUrl()`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:644-649` |
+| 旧式 ticket 凭据轮询 | GET | `/snap-manager/v1/login/ticket` | `https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/login/ticket` | `ticket_id={t}` + `secret={s}` | `TICKET_PATH`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:88` |
+| 新式本地回调 | — | `/oauth/callback` | `http://127.0.0.1:{port}/oauth/callback`（端口强制 ≥ 10000） | `code={授权码}` | `REDIRECT_PATH`（cred.ts） | `packages/core/channels/codearts/src/cred.ts:71` |
+| 旧式本地回调 | — | `/authentication` | `http://127.0.0.1:{port}/authentication` | `secret` + `redirect` | — | —（本仓未接线，见 §2.6） |
+| 旧式登录跳板 | GET（浏览器） | `/doer/redirect` | `https://devcloud.cn-north-4.myhuaweicloud.com/doer/redirect` | `IdeaType` + `auth_callback_url` + `plugin-name` + `plugin-version` + `ticket_id` | — | —（本仓未接线，见 §2.6） |
+| 旧式华为登录页 | GET（浏览器） | `/authui/login.html` | `https://auth.huaweicloud.com/authui/login.html` | `service={enc redirectUrl}` | — | —（本仓未接线，见 §2.6） |
+| 并发排队状态 | GET | `/api/v1/queue/status` | `https://snap-access.cn-north-4.myhuaweicloud.com/api/v1/queue/status` | `model={model}` + `task_id={sessionId}` | —（**未接线**） | —（本仓未实现该端点） |
 
 **多区域/多环境：无。** 全部硬编码 `cn-north-4`。
 
 **query 来源逐条说明**：
 
 - `channel=IDE`：声明请求来自 IDE 形态，参考实现写死为常量
-  （[参考] reference/HITZY2002_codearts2api/internal/upstream/checkin.go:18），
-  本仓库同源（`billing.ts` 的 `OPS_CHANNEL`）。
+  （[参考] `reference/HITZY2002_codearts2api/internal/upstream/checkin.go`），
+  本仓库同源（`packages/core/channels/codearts/src/billing.ts:38` 的 `OPS_CHANNEL`）。
 - `ticket_id` 客户端生成（32 字节 hex）；`secret` **必须用 portal 回调时下发的那个**
   —— 本地生成的那份上游不认（[参考]
-  reference/HITZY2002_codearts2api/cmd/login/main.go:143-162）。
+  `reference/HITZY2002_codearts2api/cmd/login/main.go`）。
 - `port`：portal **仅凭 `port` 参数**构造回调地址；授权 URL 不能带
   `auth_callback_url`（多带会静默回退旧 ticket 流程）—— 见「唯一登录路径」。
 - `code_challenge_method=SHA-256`：必须是 `SHA-256` 而非 RFC 缩写 `S256`，
@@ -124,7 +124,7 @@ https://codearts.huaweicloud.com/portal/authorize?theme=2&locale=zh-cn
 
 ## 2. 认证
 
-### 2.1 请求签名：`SDK-HMAC-SHA256`（sign.ts:28-68）
+### 2.1 请求签名：`SDK-HMAC-SHA256`（`packages/core/channels/codearts/src/upstream.ts:277-359`）
 
 参与签名的头：
 
@@ -155,7 +155,7 @@ stringToSign = 'SDK-HMAC-SHA256\n' + dateStamp + '\n' + sha256_hex(canonical)
 signature    = hmac_sha256_hex(sk, stringToSign)
 ```
 
-`canonical` 中头行与 `SignedHeaders` 之间**有一个空行**（sign.ts:24）。
+`canonical` 中头行与 `SignedHeaders` 之间**有一个空行**（`packages/core/channels/codearts/src/upstream.ts:283-295`）。
 dateStamp 保留结尾的 `Z`、毫秒被截掉。
 
 ### 2.2 必需请求头清单（汇总表）
@@ -172,7 +172,7 @@ dateStamp 保留结尾的 `Z`、毫秒被截掉。
 | `Chat-Id` | `sessionKey`（32 位 hex，由「首条 user 文本 + 模型」派生） | 否（签名后追加） | 每会话固定 | 与 `Session-Id` 同值 |
 | `Session-Id` | 同 `Chat-Id` | 否（签名后追加） | 每会话固定 | 前缀缓存命中依据 |
 | `lang` | 常量 `en` | 否（签名后追加） | — | chat 端点专用 |
-| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`chat-relay.ts`：渠道没给就加），故渠道侧不发 |
+| `Accept` | 常量 `text/event-stream` | 否 | — | **共享层补上**（`packages/core/gateway/src/http/chat-relay.ts:284-286`：渠道没给就加），故渠道侧不发 |
 | `Agent-Type` | 常量 `PromptCenter`（builtin / 积分）/ `AgentCenter`（agent-center） | 否（**签名后追加**） | — | ⚠ **参与签名会 401 APIG.0301**（见本节末） |
 | `X-Language` | 常量 `zh-cn`（builtin / 积分 / agent-center） | 否（**签名后追加**） | — | ⚠ 同上 |
 | `Content-Type`（目录 / 积分 GET） | 常量 `application/json` | 否（签名后追加） | — | GET 的签名头里**没有** `content-type` |
@@ -206,7 +206,7 @@ canonical request，与签名时的 `application/json` 不符 ⇒
 （目录路径没有重复头），很容易误判成「凭证失效 / 签名算法错」。定位方法：把
 `chatUrl()` 指向本地 echo 服务，原样打印收到的头 —— 重复的 `content-type` 一眼可见。
 
-**`Agent-Type` / `X-Language` 绝不能参与签名**（codearts-credits.ts:113-129）：
+**`Agent-Type` / `X-Language` 绝不能参与签名**（`packages/core/channels/codearts/src/billing.ts:42-52`）：
 实测（2026-09-18 真实凭据）进入 canonical request 与 SignedHeaders 会得
 `401 {"error_code":"APIG.0301","error_msg":"...verify ak sk signature fail"}`；签名后追加则 200。
 
@@ -214,12 +214,12 @@ canonical request，与签名时的 `application/json` 不符 ⇒
 
 > ⚠ **与参考实现的口径差异**（不要照抄参考实现）：`HITZY2002` 的签名函数把
 > 「签名前请求里存在的全部头」都算进 canonical
-> （[参考] reference/HITZY2002_codearts2api/internal/upstream/signer.go:63-75），
+> （[参考] `reference/HITZY2002_codearts2api/internal/upstream/signer.go`），
 > 于是它的 `Agent-Type` / `X-Language` 是**参与签名**的。本仓库的 [实测] 结论相反
 > （禁入签名）。两边都能跑通，说明上游是**按 `SignedHeaders=` 列表**重算的 ——
 > 额外未签的头无害。**以本仓库的实测口径为准。**
 
-### 2.3 凭据结构（types.ts:1127-1143）
+### 2.3 凭据结构（`packages/core/channels/codearts/src/cred.ts:166-186`）
 
 必填：`access_key_id`、`secret_access_key`、`security_token`、`expires_at`（字符串）
 可选：`domain_id`、`user_id`、`user_name`、`refresh_token`、`code_verifier`、
@@ -262,7 +262,7 @@ canonical request，与签名时的 `application/json` 不符 ⇒
 2. `refresh_token` JWT 的 `account_id` → `principal_id`
 3. `sha256(access_key_id)[:16]` —— **最后兜底**，每次登录都会变，只保证不空
 
-### 2.4 刷新流程（oauth.ts:96-176）
+### 2.4 刷新流程（`packages/core/channels/codearts/src/cred.ts:362-377`）
 
 ```
 POST https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens
@@ -279,10 +279,10 @@ Body (form-urlencoded):
 响应：`{credentials:{access_key_id, secret_access_key, security_token, expiration},
 refresh_token, error, error_code, error_msg}`
 
-**终态判定（只认两种，oauth.ts:134-140）**：
+**终态判定（只认两种，`packages/core/channels/codearts/src/cred.ts:331-339`）**：
 `error === 'invalid_grant'` 或 `error_code` 包含 `ExpiredRefreshToken`。
 
-**`InvalidDPoPHeader` 明确被移出终态**（oauth.ts:126-133 长注释）：
+**`InvalidDPoPHeader` 明确被移出终态**（`packages/core/channels/codearts/src/cred.ts:122-133` 长注释）：
 它说的是「这一次 proof 没过校验」（时钟偏差 / 重放判定 / 网关抖动），
 与 refresh_token 能否继续用无关；当终态会把材料完好的账号一步标死。
 
@@ -291,7 +291,7 @@ refresh_token, error, error_code, error_msg}`
 且**判终态前先重读凭据**确认「我刚才用的那份 refresh_token 是否还是当前那份」。
 
 **三个实测踩坑**（源码注释明写）：
-### 2.5 DPoP JWS 构造（oauth.ts:74-85）—— Python 需要哪些库
+### 2.5 DPoP JWS 构造（`packages/core/channels/codearts/src/cred.ts:248-267`）—— Python 需要哪些库
 
 | 项 | 值 |
 |---|---|
@@ -314,7 +314,7 @@ refresh_token, error, error_code, error_msg}`
 ### 2.6 旧式 ticket 回退路径（**默认关闭**）
 
 > ⚠ **本仓库默认不走这条路。** 需要排查上游旧链路时用
-> `CODEARTS_LEGACY_TICKET=1` 显式打开（`cred.ts` 的 `legacyTicketEnabled()`）。
+> `CODEARTS_LEGACY_TICKET=1` 显式打开（`packages/core/channels/codearts/src/cred.ts:107-110` 的 `legacyTicketEnabled()`）。
 
 **为什么降级为默认关闭**：
 
@@ -324,7 +324,7 @@ refresh_token, error, error_code, error_msg}`
   **无法续期**。
 - [推断] 参数组合对不上：旧式流程在参考实现里是 **JetBrains 插件**形态
   （`plugin-name=snap_jetbrains` / `plugin-version=26.3.3`），本仓库用的是
-  `snap_AIIDE` / `5.2.0`（`cred.ts` 的 `LOGIN_PLUGIN_NAME` / `LOGIN_PLUGIN_VERSION`）。
+  `snap_AIIDE` / `5.2.0`（`packages/core/channels/codearts/src/cred.ts:80-81` 的 `LOGIN_PLUGIN_NAME` / `LOGIN_PLUGIN_VERSION`）。
 
 **流程**：
 
@@ -334,14 +334,14 @@ refresh_token, error, error_code, error_msg}`
 - 轮询：GET `.../snap-manager/v1/login/ticket?ticket_id=&secret=`，
  请求头 `Content-Type: application/json;charset=UTF-8`、`plugin-name: snap_jetbrains`、
  `plugin-version: 26.3.3`；间隔 1 秒、最多 120 次
-- 凭据解析兼容两种形状（login.ts:33-62）：
+- 凭据解析兼容两种形状（`packages/core/channels/codearts/src/cred.ts:685-719`）：
  `data.credential.{access,secret,securitytoken|securityToken,expires_at|expiresAt}`
  或 `data.result.{accessKeyId,secretAccessKey,securityToken,expiration|expiresAt}`
 - `expires_at` 无法解析时回退 `now + 24h`
 
 **⚠ 回调链路上 307 必须照发**：portal 的登录链路是「先带 `secret`+`redirect` 回调、
 再带 `code` 回调」**两次**（[参考]
-reference/HITZY2002_codearts2api/cmd/login/main.go:164-179）。第一次不回跳，
+`reference/HITZY2002_codearts2api/cmd/login/main.go`）。第一次不回跳，
 第二次带 code 的回调就永远不来。故即使旧式轮询关着，**`?secret=` 那一次也必须
 307 跳回 `redirect`**，然后等第二次回调走新式 exchange。
 
@@ -352,8 +352,9 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 
 **兜底**：用户把地址栏里的**整条**回调 URL 粘回来，渠道从里面取 `code` 换取凭据。
 
-- 入口：`cred.ts` 的 `LoginOptions.pasteCode`（共享层已经在传 ——
-  `auth-flow.ts` / `headless.ts` 的 `pasteCode: () => ui.takePastedCallback?.()`；
+- 入口：`packages/core/channels/codearts/src/cred.ts:848-862` 的 `LoginOptions.pasteCode`
+  （共享层已经在传 —— `packages/core/gateway/src/auth/auth-flow.ts:67` /
+  `packages/core/gateway/src/app/headless.ts:310` 的 `pasteCode: () => ui.takePastedCallback?.()`；
   **本渠道之前没接住**，现已接上）。
 - 解析：`extractAuthCode()` 接受三种形态 ——
   完整回调 URL `http://127.0.0.1:<port>/oauth/callback?code=…`、
@@ -362,14 +363,14 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 - 粘贴内容无效时**不判死登录**：回报状态后继续等本地回调。
 
 > [参考] 同思路的参考实现：
-> reference/HITZY2002_codearts2api/internal/server/oauth.go:317-380
+> `reference/HITZY2002_codearts2api/internal/server/oauth.go`
 > （`adminOAuthImportCallback`，人工粘贴回调 URL 的桥接）。
 
 ---
 
 ## 3. 对话请求
 
-### 3.1 请求体顶层键（llm-adapter.ts:1085-1116）
+### 3.1 请求体顶层键（`packages/core/channels/codearts/src/upstream.ts:603-676`）
 
 | 键 | 值 / 条件 |
 |---|---|
@@ -384,7 +385,7 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 | `max_tokens` | `options.maxTokens ?? 65536`（实测 65536 可用、131072 触发空流被拒） |
 | `tools` | OpenAI function 数组；**DSML 模式下不发** |
 
-### 3.2 消息结构（llm-adapter.ts:116-182）
+### 3.2 消息结构（`packages/core/channels/codearts/src/upstream.ts:495-556`）
 
 | role | 字段 |
 |---|---|
@@ -394,14 +395,14 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 | `tool` | `{role:'tool', tool_call_id, content}`（工具结果从 harness user 消息**展开**为独立消息） |
 
 **`reasoning_content` 恒带是硬要求**：deepseek-v4 系对缺失该字段的历史直接
-400 `Missing reasoning_content field`（llm-adapter.ts:148-152）。
+400 `Missing reasoning_content field`（`packages/core/channels/codearts/src/upstream.ts:487-494`）。
 
 - 只保留 `text` 块；`reasoning` 块折叠进 `reasoning_content`；**图片块被丢弃**
 - 孤儿 tool_call / tool_result 必须剔除，否则后端对之后每条消息都 400
 - `options.system` 非空时 `messages.unshift({role:'system', ...})`
  —— **没有**「首条必须是 system」的硬约束（那是 WorkBuddy 的机制）
 
-### 3.3 DSML 工具模式（llm-adapter.ts:202-264, 1076-1084）
+### 3.3 DSML 工具模式（`packages/core/channels/codearts/src/upstream.ts:396-425`）
 
 仅 `^deepseek-v4-(flash|pro)$`（**无日期后缀**）触发。
 
@@ -411,7 +412,7 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 **理由**：标准 tool_calls 需一次性打包参数，生成期间 SSE 静默 > 60s 被 APIG 网关掐断
 （`terminated`）；DSML 走 `delta.content` 流式通道，实测 1000 行 write 全程最大静默 204ms。
 
-**DSML magic string（llm-adapter.ts:627-634）**：
+**DSML magic string（`packages/core/channels/codearts/src/upstream.ts:385-393`）**：
 
 ```
 <｜DSML｜tool_calls>  </｜DSML｜tool_calls>
@@ -451,7 +452,7 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 
 ### 4.1 内嵌错误帧（HTTP 200）
 
-顶层 `error_code` / `error_msg`（llm-adapter.ts:1642-1662），分类优先级**不可颠倒**：
+顶层 `error_code` / `error_msg`（`packages/core/channels/codearts/src/upstream.ts:1153-1158`），分类优先级**不可颠倒**：
 
 | 判据 | 处理 |
 |---|---|
@@ -464,7 +465,7 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 而被误判成「可重试排队」，进入 30 分钟静默重试、界面零输出
 （真实缺陷，2026-10-02 实测 25 秒内 4 次 chat + 3 次探测、产出 0 chunk）。
 
-### 4.2 HTTP 非 2xx 分类（llm-adapter.ts:550-561）
+### 4.2 HTTP 非 2xx 分类（`packages/core/channels/codearts/src/upstream.ts:1167-1173`）
 
 401/403 → `AUTH`（先 refresh 一次再重试）；429 → `RATE_LIMIT`；
 400 → `CONTEXT_WINDOW_EXCEEDED`（命中上下文超限措辞）否则 `INVALID_REQUEST`；
@@ -486,7 +487,7 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 
 ## 5. 模型目录
 
-### 5.1 三个端点合并去重（models.ts:159-227）
+### 5.1 三个端点合并去重（`packages/core/channels/codearts/src/upstream.ts:973-1062`）
 
 | # | 端点 | 提取路径 | 条目字段 | 开关 |
 |---|---|---|---|---|
@@ -497,12 +498,13 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 **第三路（agent-center）默认关闭**：
 
 - 开关：环境变量 `CODEARTS_AGENT_CENTER_MODELS=1`（优先），或上游描述符里的
-  `agentCenterModels: true`（`upstream.ts` 的 `agentCenterEnabled()`）。
-- 关闭的理由（[参考] docs/reverse-engineering.md:174-177）：这路会列出**当前账号
+  `agentCenterModels: true`（`packages/core/channels/codearts/src/upstream.ts:223-228` 的 `agentCenterEnabled()`）。
+- 关闭的理由（[参考] `reference/HITZY2002_codearts2api/docs/reverse-engineering.md`）：这路会列出**当前账号
   未注册**的模型（实测 `GLM-5.2-ArkTS-SPARK` / `OpenPangu-2.0-Pro` /
   `OpenPangu-2.0-Flash` 全部 404），打开会把不可用模型混进目录。
 - 关闭时行为与从前**完全一致**（仍只有前两路）。
-- 选智能体的顺序（[参考] internal/upstream/models.go:382-415）：
+- 选智能体的顺序（[参考] `reference/HITZY2002_codearts2api/internal/upstream/models.go`；
+  本仓实现见 `packages/core/channels/codearts/src/upstream.ts:941-956`）：
   ① `agent_name==="CodeAgent" && alias.alias_zh_cn==="智能体" && show_in_ide`
   ② 退到 `is_primary_agent` ③ 再退到列表首个。
 
@@ -512,7 +514,7 @@ DSML 解析出的工具调用 id 用 `dsml-{uuid 去横线}`。
 其它渠道一致（实测 glm-5.3 = 0.79，与 raccoon / workbuddyai 同模型同量级）。
 benefit 模型与 gateway/config 端点不带 `credit` → 倍率显示 `-`。
 
-**归一化（models.ts:77-100）**：
+**归一化（`packages/core/channels/codearts/src/catalog.ts:235-246`）**：
 - `normalizeModelId(id)`：去掉末尾 `-` + 4 位数字（`deepseek-v4-flash-0731` → `deepseek-v4-flash`）。
  chat 端点只认不带后缀的 id
 - 过滤 id 含 `-VL-` 或以 `-VL` 结尾的视觉模型
@@ -525,7 +527,7 @@ benefit 模型与 gateway/config 端点不带 `credit` → 倍率显示 `-`。
 记录改写后的 id 会让无后缀模型被误标。
 
 **按账号分桶**（本轮新增）：benefit 是**按账号授予**的（[参考]
-reference/HITZY2002_codearts2api/internal/upstream/models.go:11-12）。池里 A 账号有、
+`reference/HITZY2002_codearts2api/internal/upstream/models.go`）。池里 A 账号有、
 B 账号没有时共用一份集合会互相污染 —— A 少带 `maas_type` 报 404 未注册，
 B 多带报 `unsupported model`。
 
@@ -548,16 +550,16 @@ B 多带报 `unsupported model`。
 
 - **触发时机**：**模型发现时**（`fetchModels` 拉 benefit 目录之前）——对齐官方客户端
   「打开模型菜单即调用」与参考实现的默认自动领取
-  （[参考] internal/upstream/models.go:518-522）。
+  （[参考] `reference/HITZY2002_codearts2api/internal/upstream/models.go`）。
   `CODEARTS_BENEFIT_AUTO_CLAIM=0` 可关掉（不想产生任何写请求时用）。
 - **幂等语义**：上游幂等 —— 已领取时再调仍返回成功（`error_code === "0000"`），
   不会重复发放，故可安全重复调用。
 - **为什么必须有**：未领取时福利模型一律返回 `InferHub.4004.200 benefit not found`，
-  领取后同一模型立即可用（[参考] docs/reverse-engineering.md:170-173）。
+  领取后同一模型立即可用（[参考] `reference/HITZY2002_codearts2api/docs/reverse-engineering.md`）。
   没有它 ⇒ 免费（benefit）模型基本不可用。
 - 领取失败**不阻断**目录刷新（只记一行告警）。
 
-### 5.3 静态兜底模型表（llm-adapter.ts:48-54，共 9 个）
+### 5.3 静态兜底模型表（`packages/core/channels/codearts/src/catalog.ts:70-80`，共 9 个）
 
 ```
 GLM-5.2, GLM-5.1, GLM-5, glm-5.3-flash,
@@ -565,12 +567,12 @@ openpangu-2.0-flash, openpangu-2.0-pro,
 deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 ```
 
-**benefit 静态兜底集合（models.ts:52，2 个）**：`['glm-5.3-flash', 'deepseek-v4.1-flash']`
+**benefit 静态兜底集合（`packages/core/channels/codearts/src/catalog.ts:159`，2 个）**：`['glm-5.3-flash', 'deepseek-v4.1-flash']`
 
 > ⚠ 兜底表里的 `GLM-5.2` / `openpangu-2.0-*` 在参考实现里实测**不可用**（404），
 > 见「已知边界」V3 —— 待真机复核后再决定是否摘掉。
 
-**上下文窗口表（llm-adapter.ts:65-71）**：
+**上下文窗口表（`packages/core/channels/codearts/src/catalog.ts:83-92`）**：
 `GLM-5.2`=202752、`glm-5.3-flash`=1048576、`deepseek-v4-flash`=1048576、
 `deepseek-v4-pro`=1048576、`deepseek-v4.1-flash`=1000000
 
@@ -598,7 +600,7 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 
 ## 6. 额度查询
 
-### 6.1 账户/套餐（codearts-credits.ts:461-484）
+### 6.1 账户/套餐（`packages/core/channels/codearts/src/billing.ts:274-317`）
 
 `GET {SNAP}/snap-manager/v1/statistics/plugin`
 
@@ -607,7 +609,7 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 - `package.is_credit_package`（积分账户判定）、`package.is_token_package`、
  `package.spec_code`、`package.package_name_cn` / `package_name_en`、`package.status`
 - `metrics[]`：`name` / `package_credit_amount` / `package_credit_used` / `package_credit_remain`
-- metric 名（codearts-credits.ts:142-150）：`usageTotalPackageCredit`（总积分包）、
+- metric 名（`packages/core/channels/codearts/src/billing.ts:60-65`）：`usageTotalPackageCredit`（总积分包）、
  `usageBasicPackageCredit`、`usageOnDemandPackageCredit`、`usageBonusPackageCredit`
 
 总额取 `usageTotalPackageCredit` 的 `package_credit_remain`，**不累加分类明细**；
@@ -671,7 +673,7 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 | `glm-5.2-sft-harmony` / `kimi-k2.6-vl` | 无公开规格 | 无公开规格 |
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `CONTEXT_WINDOWS` / `MAX_OUTPUTS`。⚠ 公开规格是**模型上限**，
+`packages/core/channels/codearts/src/catalog.ts` 的 `CONTEXT_WINDOWS` / `MAX_OUTPUTS`。⚠ 公开规格是**模型上限**，
 上游可能更严 —— 客户端应能降档重试。
 
 ---
@@ -695,7 +697,12 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 | `codearts/openpangu-2.0-flash` | 2026-10-20 端到端实测通过（本渠道最低成本档之一） | `[实测]` |
 | `codearts/deepseek-v4.1-flash` / `glm-5.3-flash` | 目录可用；**benefit（免费额度）模型**必须先领取福利并带 `maas_type: benefit` 头，否则 404 未注册（§5.2.1 / §5.4） | `[实测]` |
 
-⚠ 本渠道**多数条目不暴露倍率**（`capabilities.billing=false`），成本口径不明确 ——
+⚠ **倍率只覆盖 builtin 端点下发的模型**：`/v1/model/builtin` 的 `credit` 档位含
+`ratio_display`，渠道按它产出倍率（`packages/core/channels/codearts/src/catalog.ts:260-280`）；
+benefit 模型（`gateway/config` 端点）不带 `credit`，倍率显示 `-`（§5.1）。
+本渠道**未声明** `capabilities`，共享层按缺省 `billing: true` 处理
+（`packages/core/gateway/src/runtime/channel.ts:409-415`）——
+`mx bill codearts` 会实际查询额度，**不是**「无量产接口」。
 自动化测试只做单轮最小对话，不跑完整 Agent 工具往返。
 
 ### 账号身份：不要按 AK 认人
@@ -718,8 +725,12 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
   `HTTP 400 + {"error_code":"APIG.0602"}`。本渠道声明了共享层的 `isAuthFailure` 钩子
   （复用渠道自己的 `isAuthError` 判定，见 §4.2），网关收到这类响应会归一成 401，
   走既有的「刷新 token → 换池内账号」链路。
-- **不暴露倍率**：模型表里多数条目倍率显示 `-`（`capabilities.billing=false`），
-  成本口径不明确；测试时只做单轮最小对话，不跑完整 Agent 工具往返。
+- **倍率只覆盖部分模型**：builtin 端点下发的模型有倍率（取 `credit[].ratio_display`，
+  `packages/core/channels/codearts/src/catalog.ts:260-280`）；
+  benefit 模型（`gateway/config` 端点）不带 `credit`，倍率显示 `-`。
+  本渠道**未声明** `capabilities`，共享层按缺省 `billing: true` 处理
+  （`packages/core/gateway/src/runtime/channel.ts:409-415`），额度查询照常进行；
+  测试时仍只做单轮最小对话，不跑完整 Agent 工具往返。
 - **工具往返在上游不稳定**：工具轮次迟迟不返回，属上游侧行为，非网关问题。
 - **`X-IDE-Type` 头不存在**：当前实现与三份参考实现**均无**该头，**不加**。
   功能上最接近的是 `Agent-Type`（`PromptCenter` / `AgentCenter`）与
@@ -737,7 +748,7 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 | `CODEARTS_STS_URL` | 生产 STS 域 | 覆盖 STS token 端点（自托管 / 离线测试） |
 | `CODEARTS_PORTAL_BASE` | 生产 portal 域 | 覆盖 portal 基址 |
 | `DSH_CODEARTS_CACHE_DIR` / `CODEARTS_CACHE_DIR` | 渠道缓存目录 | 覆盖模型目录 / benefit 缓存目录 |
-| `CODEARTS_DEBUG_DUMP` | — | 渠道调试转储（`channel.ts` 的 `debugDumpEnv`） |
+| `CODEARTS_DEBUG_DUMP` | — | 渠道调试转储（`packages/core/channels/codearts/src/channel.ts:22` 的 `debugDumpEnv`） |
 
 ### 怎么测这个渠道
 
@@ -747,7 +758,7 @@ deepseek-v4-flash, deepseek-v4-pro, deepseek-v4.1-flash
 mx login codearts          # 登录入池（浏览器授权）
 mx status codearts         # 状态与凭据
 mx model codearts --refresh # 目录刷新（会顺带领取 benefit）
-mx bill codearts           # 额度（该渠道不暴露倍率，见「已知限制」）
+mx bill codearts           # 额度（倍率只覆盖 builtin 模型，见「已知限制」）
 ```
 
 ### 端到端测试覆盖
@@ -780,7 +791,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 ## 已知边界
 
 本节记录**本轮明确不做**的事，以及**待真机验证**的疑点。
-上游与协议侧的既有限制（鉴权失效形态、倍率不暴露、工具往返不稳等）见
+上游与协议侧的既有限制（鉴权失效形态、部分模型无倍率、工具往返不稳等）见
 「使用与实测」的「已知限制」一节。
 
 ### 待真机验证项
@@ -789,12 +800,12 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | # | 待验证项 | 怎么验 | 为什么重要 |
 |---|---|---|---|
-| V1 | **`x-auth-token` 是不是鉴权头** | 在已跑通的基础上**只加这一个头**，看是否 401 | 参考实现的 chat 头带它（[参考] internal/upstream/client.go:453），但同一仓库的逆向记录说传 STS `security_token` 会被 APIG 拒（[参考] docs/reverse-engineering.md:81-84）—— **两份参考材料自相矛盾** |
-| V2 | **benefit 三头口径** | 只发 `maas_type`（现状）vs 加 `model-id` + `model-name`（Johnsheng1 口径），两者都**一起进签名** | 一份参考实现要求三个头一起签（[参考] reference/Johnsheng1_codearts2api/server.py:119-161），另一份只要 `maas_type`；benefit 模型 404 时优先试补后两个 |
-| V3 | **静态兜底模型里哪些真能调** | 逐个发**单轮最小对话** | 参考实现实测 `GLM-5.2-ArkTS-SPARK` / `OpenPangu-2.0-Pro` / `OpenPangu-2.0-Flash` 全部 404（[参考] docs/reverse-engineering.md:174-177），而本仓库的静态兜底表里仍有 `GLM-5.2` / `openpangu-2.0-*` |
-| V4 | **opengw benefit 领取是否真能让模型变可用** | 领取前用免费 benefit 模型发一次（预期 `InferHub.4004.200`）→ 领取 → 再发一次 | 参考实现称「领取后同一模型立即可用」（[参考] docs/reverse-engineering.md:170-173）；这是本轮新加的 `claimBenefit()` 的核心假设 |
+| V1 | **`x-auth-token` 是不是鉴权头** | 在已跑通的基础上**只加这一个头**，看是否 401 | 参考实现的 chat 头带它（[参考] `reference/HITZY2002_codearts2api/internal/upstream/client.go`），但同一仓库的逆向记录说传 STS `security_token` 会被 APIG 拒（[参考] `reference/HITZY2002_codearts2api/docs/reverse-engineering.md`）—— **两份参考材料自相矛盾** |
+| V2 | **benefit 三头口径** | 只发 `maas_type`（现状）vs 加 `model-id` + `model-name`（Johnsheng1 口径），两者都**一起进签名** | 一份参考实现要求三个头一起签（[参考] `reference/Johnsheng1_codearts2api/server.py`），另一份只要 `maas_type`；benefit 模型 404 时优先试补后两个 |
+| V3 | **静态兜底模型里哪些真能调** | 逐个发**单轮最小对话** | 参考实现实测 `GLM-5.2-ArkTS-SPARK` / `OpenPangu-2.0-Pro` / `OpenPangu-2.0-Flash` 全部 404（[参考] `reference/HITZY2002_codearts2api/docs/reverse-engineering.md`），而本仓库的静态兜底表里仍有 `GLM-5.2` / `openpangu-2.0-*` |
+| V4 | **opengw benefit 领取是否真能让模型变可用** | 领取前用免费 benefit 模型发一次（预期 `InferHub.4004.200`）→ 领取 → 再发一次 | 参考实现称「领取后同一模型立即可用」（[参考] `reference/HITZY2002_codearts2api/docs/reverse-engineering.md`）；这是本轮新加的 `claimBenefit()` 的核心假设 |
 | V5 | **`APIG.0602`（HTTP 400 + token 失效）的真实形态** | 等 token 自然过期时观察网关日志 | 当前是 [推断] 走 `isAuthFailure` 归一（§4.2），未在真实链路上验证过 |
-| V6 | **DPoP 低 S 归一化是否必要** | 同一私钥用两种编码各签一次，比较 `r‖s` 的高半部分（**纯本地计算，不发请求**） | 本仓库直接用 Node 的 `ieee-p1363` 输出（依赖实现细节），参考实现显式做低 S 归一化（[参考] internal/upstream/dpop.go:116-121） |
+| V6 | **DPoP 低 S 归一化是否必要** | 同一私钥用两种编码各签一次，比较 `r‖s` 的高半部分（**纯本地计算，不发请求**） | 本仓库直接用 Node 的 `ieee-p1363` 输出（依赖实现细节），参考实现显式做低 S 归一化（[参考] `reference/HITZY2002_codearts2api/internal/upstream/dpop.go`） |
 | V7 | **排队状态端点 `GET /api/v1/queue/status?model=&task_id=`** | 在一次真实排队请求期间抓该端点响应 | 该端点在「chat 与模型请求的确切 URL」表里但**本仓库未接线**（常量已删，行为靠渠道层重试） |
 | V8 | **旧式 ticket 路径是否还能用** | 若要验，必须**先**把插件身份切成 `snap_jetbrains` / `26.3.3` | 当前默认关闭（§2.6）；不切插件身份测的是混合形态、无结论 |
 | V9 | **agent-center 第三路的真实内容** | 打开 `CODEARTS_AGENT_CENTER_MODELS=1` 后 `mx model codearts --refresh` | 该路默认关（会列入未注册模型）；打开前需要确认它给出的模型确实可调 |

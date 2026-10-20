@@ -14,7 +14,7 @@ export * as gateway from "./http/gateway.js";
 export * as headless from "./app/headless.js";
 export * as login from "./auth/login.js";
 export * as loginFlow from "./auth/login-flow.js";
-export * as modelFamily from "./pool/model-family.js";
+export * as modelFamily from "./pool/model-policy.js";
 export * as paths from "./runtime/paths.js";
 export * as portfree from "./http/portfree.js";
 export * as report from "./app/report.js";
@@ -131,9 +131,6 @@ export {
   credentialsPath,
   upstreamPath,
 } from "./runtime/paths.js";
-
-// 模型家族白名单
-export { FAMILY_ALLOWLIST, isAllowedFamily, filterAllowedFamily, allowlistSummary } from "./pool/model-family.js";
 
 // CLI 入口
 export { main, usage } from "./app/cli.js";

@@ -3,8 +3,11 @@
  *
  * 各渠道落盘的字段命名不统一（`accessToken` vs `access_token`、`firstKeyfrom` vs
  * `first_keyfrom`），而渠道 billing 只认自己 `cred.load()` 的形状。这里做一次通用
- * 「snake_case → camelCase」深度转换；渠道若有更特殊的映射，可在自己的 `cred` 模块里
- * 覆盖（预留钩子，见 `channel.ts` 的 `CredModule.parseAccount?`）。
+ * 「snake_case → camelCase」深度转换。
+ *
+ * 归一化的**落点**在池层：按账号查额度时，池层先用本函数把磁盘上的原始凭证转成
+ * 渠道认得的形状，再交给 `billing.fetchCredits`（见 `pool/pool-usage.ts` 的
+ * `refreshAccountCredits`）。
  *
  * ⚠ 只做形状转换，不解释语义、不派生字段；转换结果是**只读副本**，不回写磁盘。
  */

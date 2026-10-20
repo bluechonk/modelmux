@@ -115,7 +115,7 @@
 | 路线 | 出处 | 不采纳的理由 |
 | --- | --- | --- |
 | 手机号 OneID/Keycloak 纯协议登录 | hub `admin/wb_login.py:18-53` | 要复刻 **11 步跨 3 个域**（OneID / Keycloak / console）的短信链路；`state_token` **一次性**（先调 `accounts` 再调 `select_account` 必然 `E0010072`），跨域 cookie 必须同 jar。属「服务端托管注册流」，与本仓「本地网关 + 用户自己的账号」形态不符 |
-| 桌面端 `.info` 凭证读取 | dsh `src/auth.ts:106`、`:546-563` | 要读官方客户端的加密存储，dsh 为此需**拉起 WorkBuddy Electron 派生 at-rest key**；违反「渠道 `src/` 只 7 文件、零第三方运行依赖」的仓库约束 |
+| 桌面端 `.info` 凭证读取 | dsh 的 `src/auth.ts`（读官方客户端加密存储的那一步） | 要读官方客户端的加密存储，dsh 为此需**拉起 WorkBuddy Electron 派生 at-rest key**；违反「渠道 `src/` 只 7 文件、零第三方运行依赖」的仓库约束 |
 
 **已知边界**（登录期三处未验证项）：
 
@@ -533,7 +533,7 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | 18 | **会话头族轮级聚合**（一次 user send 复用同一 `X-Conversation-Request-ID`） | go `internal/upstream/headers.go:270-318`；hub `docs/protocol-reference.md:2311` | 未做 |
 | 19 | **截断流补终止帧**（`finish_reason`） | hub `docs/protocol-reference.md:2186-2201` | 未做 |
 | 20 | **`prompt_cache_key` 前缀缓存**（实测费用降 ~17×）+ `reasoning_effort` 档位降级 | panel `internal/upstream/client.go:788-798`、`internal/upstream/cache_key.go` | 未做 |
-| 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh `src/client-identity.ts:173-199` | 未做 |
+| 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh 的 `src/client-identity.ts`（本实现对应：`packages/core/channels/workbuddy/src/upstream.ts:729`） | 未做 |
 
 ### 7.3 待真机验证（12 条）
 
