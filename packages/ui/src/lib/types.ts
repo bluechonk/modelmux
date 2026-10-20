@@ -12,11 +12,21 @@ export interface UiSnapshot {
   endpoints: string[];
   models: string[];
   /**
-   * 每模型附加信息（键 = 池模型 id）：消耗倍率与营销角标文案。
+   * 每模型附加信息（键 = 池模型 id）。
    *
-   * 类型对齐共享层的 PoolModelMeta；建模为可选是因为上游目录可能不带这些字段。
+   * 字段对齐共享层的 `PoolModelMeta`：消耗倍率、营销角标、上下文窗口、
+   * 单次输出上限、输入模态（多模态能力）。建模为可选是因为上游目录可能不带这些字段。
    */
-  model_info?: Record<string, { multiplier: number | null; marketing: string }>;
+  model_info?: Record<
+    string,
+    {
+      multiplier: number | null;
+      marketing: string;
+      contextWindow: number;
+      maxOutputTokens: number;
+      inputModalities: string[];
+    }
+  >;
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;

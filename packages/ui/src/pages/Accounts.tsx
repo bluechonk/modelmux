@@ -206,18 +206,24 @@ export function Accounts(): ReactElement {
           {pools.isLoading ? <Skeleton /> : "（无渠道账号池；先在上面添加账号）"}
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/*
+        渠道卡用 **多栏（masonry）** 排布，不用网格：
+        网格的行高取最高那张卡，账号数少的渠道会被拉出整片空白（账号数 1 vs 3 时最明显）。
+        卡片本身自包含，列序阅读可接受。
+      */}
+      <div className="columns-1 gap-3 sm:columns-2 lg:columns-3">
         {list.map(({ pool, present, billing: bill }) => (
-          <AccountCard
-            key={pool.cid}
-            pool={pool}
-            present={present}
-            billing={bill}
-            onActivate={(cid, key) => activate.mutate({ cid, key })}
-            onRemove={(cid, key) => remove.mutate({ cid, key })}
-            onAdd={(cid) => setLoginChannel(cid)}
+          <div key={pool.cid} className="mb-3 break-inside-avoid">
+            <AccountCard
+              pool={pool}
+              present={present}
+              billing={bill}
+              onActivate={(cid, key) => activate.mutate({ cid, key })}
+              onRemove={(cid, key) => remove.mutate({ cid, key })}
+              onAdd={(cid) => setLoginChannel(cid)}
             busyKey={busyKey}
-          />
+            />
+          </div>
         ))}
       </div>
 
