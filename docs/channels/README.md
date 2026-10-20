@@ -80,6 +80,36 @@ docs/channels/<cid>/
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 
+## 端到端测试现状（2026-10-20 全渠道复测）
+
+用 `reasonix-mx-test` 逐渠道跑「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，
+只用**免费或倍率最低**的模型。判据：access 日志 `status 200` / `stream true` / `toolCount > 0` /
+`messageCount` 随工具轮次递增，错误日志无该渠道新增条目。
+
+| 渠道 | 测的模型 | 结果 | 备注 |
+| --- | --- | --- | --- |
+| `catpaw` | `longcat-2.0`（倍率 0） | 通过 | 首次失败是**被另一会话重启网关**打断，重试即过 |
+| `codearts` | `openpangu-2.0-flash` | 功能通过，**错误日志有新增** | 见下「已知问题」 |
+| `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费 3.54 credits（与倍率相符） |
+| `loomy` | — | **未测** | 凭证缺失，需真人扫码 |
+| `orcaterm` | `deepseek-v4-flash` | 通过 | 订阅制，无倍率概念 |
+| `qoder` | `deepseek-flash`（倍率 0） | **受限** | 上游排队饱和：单请求 TTFB 220–290s，模型不再推进 |
+| `qodercn` | `qwen3.8-flash`（倍率 0） | 通过 | |
+| `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费 4 积分（与倍率相符） |
+| `traecn` | `deepseek-v4.1-flash`（倍率 0.06） | 通过 | 扣费 1.49 credits（与倍率相符） |
+| `workbuddy` | `hy3`（倍率 0） | 通过 | |
+| `workbuddyai` | `deepseek-v4.1-flash`（倍率 0） | 功能通过，**错误日志有新增** | 上游 429「模型繁忙」，属账号侧限流 |
+
+**已知问题**（下一轮跟进）：
+
+1. **codearts 的会话策略**：上游按「单账号最多 3 个并发会话」计数，而本仓的 `Session-Id` 由
+   **请求体**派生 → 每轮对话都是新会话 → 4 轮 Agent 往返必然撞线
+   （上游回 `TM.00001041`「并发会话数已达上限(3个)」）。渠道级并发槽位闸尚未做，
+   见 [`codearts/PROTOCOL.md`](./codearts/PROTOCOL.md) 的「已知边界」。
+2. **访问日志的 outcome 分桶**：客户端先关连接时 `outcome ??= "other"` → 成功的请求被记进
+   `other.log`（codearts / lobsterai / workbuddy / workbuddyai 的成功请求全落 `other`），
+   按 `success.log` 统计成功率会失真。`slow.log` 是**副本**不是独立请求，统计请求数要按 `id` 去重。
+
 ## 新增渠道要动的文档
 
 1. `docs/channels/<cid>/PROTOCOL.md` —— 协议规格（实测结论）+ 使用与实测 + 参考实现
