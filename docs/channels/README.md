@@ -36,8 +36,11 @@ docs/channels/<cid>/
 | `FINDINGS.md` | 「逆向出了什么」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件 | 推断写成实测（禁止） |
 | `FLOW.md` | 「数据怎么流动」 | 端到端链路图（凭据落盘 → 加密 → 解密 → 注入请求） | 与链路无关的旁支 |
 
-当前落地：`PROTOCOL.md` 11 份（每个渠道一份）、`FINDINGS.md` 2 份（`catpaw` / `orcaterm`）、
-`FLOW.md` 1 份（`catpaw`）—— 后两者是**按需**的逆向结论层，不是每个渠道都有。
+当前落地：`PROTOCOL.md` 11 份（每个渠道一份）、`FINDINGS.md` 4 份
+（`catpaw` / `orcaterm` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
+后两者是**按需**的逆向结论层，不是每个渠道都有。
+另有专题文件：`orcaterm/TOOL-CALLS.md` 与 `orcaterm/REQUEST-BODY.md`
+（把 PROTOCOL 里过长的工具调用与请求体细节拆出来，主文档留指针）。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
 注释的三层分工见 [`MODULE-COMMENTS.md`](../MODULE-COMMENTS.md)。
@@ -66,8 +69,8 @@ docs/channels/<cid>/
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
 | `codearts` | CodeArts（华为云） | benefit 免费额度**按账号授予**，chat 必须带 `maas_type: benefit` | [PROTOCOL](./codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
-| `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) |
-| `orcaterm` | OrcaTerm（腾讯云） | 工具调用走上游原生工具服务器桥接；无额度 / 签到 | [PROTOCOL](./orcaterm/PROTOCOL.md) + [FINDINGS](./orcaterm/FINDINGS.md) |
+| `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
+| `orcaterm` | OrcaTerm（腾讯云） | 工具调用走上游原生工具服务器桥接；无额度 / 签到 | [PROTOCOL](./orcaterm/PROTOCOL.md) + [FINDINGS](./orcaterm/FINDINGS.md) / [TOOL-CALLS](./orcaterm/TOOL-CALLS.md) / [REQUEST-BODY](./orcaterm/REQUEST-BODY.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | COSY 签名 + 请求体**自定义 Base64 编码**（直发字符串） | [PROTOCOL](./qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与 `qoder` **同一套协议**，仅域名 / 身份 / 模型目录不同 | [PROTOCOL](./qodercn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |

@@ -1,27 +1,13 @@
 #!/usr/bin/env bash
 # WSL 门禁：在真 Linux 环境（WSL ext4）复现 CI 全部命令，全绿才通过。
 #
-# ## 为什么必须有这一层
+# 为什么必须有这一层：本机是 Windows + Git Bash，CI 跑在 ubuntu-latest ——
+# `verify:commits` 需要完整 git 历史（CI 用 fetch-depth: 0）、`npm ci` 装平台原生
+# 依赖、DrvFs（/mnt/c）有符号链接与大小写敏感性问题 ⇒ Windows 侧「跑绿了」不代表 CI 会绿。
+# 所以门禁在 WSL 里 clone 一份到 ext4 再跑，而不是直接在 /mnt/c 工作树上跑。
 #
-# 本机是 Windows + Git Bash，而 CI 跑在 ubuntu-latest。两者有真实差异，本地
-# Windows 侧「跑绿了」不代表 CI 会绿：
-#   - `verify:commits` 需要完整 git 历史（CI 用 fetch-depth: 0），浅克隆会漏；
-#   - `npm ci` 装的是**平台原生依赖**（esbuild 等），Windows 装了不代表 Linux 能装；
-#   - DrvFs（/mnt/c）上有符号链接与大小写敏感性问题，ext4 上没有。
-# 所以门禁在 WSL 里 **clone 一份到 ext4** 再跑，而不是直接在 /mnt/c 工作树上跑。
-#
-# 「绕过 CI 直接推」的实际代价：CI 红 → 仍要回头修 → 多一轮提交。本地跑一次更便宜。
-#
-# ## 用法
-#
-#   bash scripts/wsl-gate.sh              # 完整门禁（CI 等价 + Pages 产物体检）
-#   bash scripts/wsl-gate.sh --quiet      # 只输出结论行
-#   git push                              # 由 .githooks/pre-push 自动调用
-#
-# 环境变量：
-#   WSL_GATE_DIR   门禁工作目录（默认 /tmp/modelmux-gate）
-#   WSL_GATE_BASE  Pages 变更检测的基线 ref（默认 origin/main）
-#
+# 用法：bash scripts/wsl-gate.sh [--quiet]（git push 由 .githooks/pre-push 自动调用）
+# 环境变量：WSL_GATE_DIR（默认 /tmp/modelmux-gate）、WSL_GATE_BASE（默认 origin/main）
 # 退出码：0 = 通过；非 0 = 未通过（输出里会指出失败步骤）。
 set -euo pipefail
 

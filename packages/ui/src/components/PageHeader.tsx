@@ -1,3 +1,7 @@
+/**
+ * 页头：标题 + 说明 + 右侧操作区（两个页面共用，保证标题区排版一致）。
+ */
+
 import type { ReactElement, ReactNode } from "react";
 
 /**

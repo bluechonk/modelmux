@@ -1,3 +1,10 @@
+/**
+ * 「添加账号」登录弹窗（模态）：渲染授权步骤时间线与二维码 / 授权链接。
+ *
+ * ⚠ 只有右上角的关闭按钮能关闭 —— 遮罩点击 / ESC 一律不关（登录进行中误触
+ * 丢流程比关不掉更糟）。授权页渲染成**按钮**而不是裸 URL。
+ */
+
 import {
   AlertCircle,
   Check,
@@ -11,12 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
-/**
- * 「添加账号」登录弹窗（模态）。
- *
- * ⚠ 只有右上角的关闭按钮能关闭 —— 遮罩点击 / ESC 一律不关（登录进行中误触
- * 丢流程比关不掉更糟）。步骤渲染成时间线：授权页渲染成**按钮**而不是裸 URL。
- */
+/** 登录态快照（后端 `GET /web/api/state` 的 `ui_state` / `auth_url` / `qr_url` 等字段）。 */
 export interface LoginSnapshot {
   ui_state: string;
   message: string;

@@ -32,14 +32,14 @@ import { fileURLToPath } from "node:url";
 import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /** 缺省通道（`function` 字段）。 */
-export const DEFAULT_FUNCTION = "solo_work_lite";
+const DEFAULT_FUNCTION = "solo_work_lite";
 
 /**
  * 通道白名单（15 个，顺序即优先级）。
  *
  * ⚠ 可用 `TRAE_CHANNELS`（逗号分隔）覆盖整张表 —— 上游调整通道时不必改代码。
  */
-export const DEFAULT_CHANNEL_WHITELIST: string[] = [
+const DEFAULT_CHANNEL_WHITELIST: string[] = [
   "solo_agent",
   "solo_work_lite",
   "solo_agent_remote",
@@ -58,7 +58,7 @@ export const DEFAULT_CHANNEL_WHITELIST: string[] = [
 ];
 
 /** 当前白名单（含环境变量覆盖）。 */
-export function channelWhitelist(): string[] {
+function channelWhitelist(): string[] {
   const env = process.env["TRAE_CHANNELS"];
   if (env) {
     const list = env
@@ -70,7 +70,7 @@ export function channelWhitelist(): string[] {
   return [...DEFAULT_CHANNEL_WHITELIST];
 }
 
-export interface ModelEntry {
+interface ModelEntry {
   /** 对外暴露的 id。 */
   id: string;
   /** 上游 config_name（请求体 model / config_name 用它）。 */
@@ -214,7 +214,7 @@ const FALLBACK_NAMES: Array<[string, boolean]> = [
  * ⚠ 窗口与输出上限**不写估值**：内置表不是上游声明，写了就会挡住公开规格
  * （`modelSpec` 钩子）—— 数值一律由 `modelSpec` 按公开规格给。
  */
-export const FALLBACK_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
+const FALLBACK_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
   id,
   model: id,
   name: id,
@@ -379,7 +379,7 @@ function parseConfigEntry(functionName: string, raw: unknown): ModelEntry | null
  *
  * 白名单外的通道**整组丢弃**；白名单内按合并规则去重。
  */
-export function parseRemoteCatalog(payload: Record<string, unknown>): ModelEntry[] {
+function parseRemoteCatalog(payload: Record<string, unknown>): ModelEntry[] {
   const configs = payload["function_configs"];
   if (!Array.isArray(configs)) return [];
   const byFunction = new Map<string, unknown[]>();
@@ -441,15 +441,10 @@ function ensureCachedModels(): void {
  *
  * 同时**落盘**到 `cache/models.json` —— 否则换个新进程就只剩兜底表（实测过这个坑）。
  */
-export function mergeRemote(entries: ModelEntry[]): void {
+function mergeRemote(entries: ModelEntry[]): void {
   remoteCache = entries.length > 0 ? entries : null;
   cacheLoaded = true;
   if (entries.length > 0) writeCatalogCache(entries);
-}
-
-/** 清空远端缓存（仅测试/重登时用）。 */
-export function resetRemoteCache(): void {
-  remoteCache = null;
 }
 
 /**
@@ -493,7 +488,7 @@ function rateFromFeatures(features: unknown): number | undefined {
  * ⚠ Remote 目录**不下发输出上限** ⇒ `max_output` = 0（未声明），
  * 数值由 `modelSpec` 按公开规格补。
  */
-export function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
+function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
   const list = (payload["data"] as Record<string, unknown> | undefined)?.["list"];
   if (!Array.isArray(list)) return [];
   const entries: ModelEntry[] = [];
@@ -621,7 +616,7 @@ function parseCatalogFile(path: string): ModelEntry[] {
 }
 
 /** 当前目录（远端缓存 → models.json → 兜底表）。 */
-export function loadCatalog(): ModelEntry[] {
+function loadCatalog(): ModelEntry[] {
   ensureCachedModels();
   if (remoteCache) return remoteCache.map((e) => ({ ...e }));
   for (const path of candidatePaths()) {
@@ -706,7 +701,7 @@ export function entryFor(name: string): ModelEntry | null {
  * ⚠ 窗口 / 输出上限报**生效值**：上游声明优先，其次公开规格（`modelSpec`）——
  * 与 `/v1/models` 的口径一致（上游没声明时目录条目里是 0）。
  */
-export function details(): Array<Record<string, unknown>> {
+function details(): Array<Record<string, unknown>> {
   return loadCatalog()
     .filter((e) => !e.hidden)
     .map((e) => {
@@ -725,9 +720,4 @@ export function details(): Array<Record<string, unknown>> {
         default_effort: e.default_effort,
       };
     });
-}
-
-/** 仅供测试：清空 models.json 缓存。 */
-export function clearCache(): void {
-  fileCache = null;
 }

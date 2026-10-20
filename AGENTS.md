@@ -278,7 +278,8 @@ Pages 演示构建与校验的完整说明见 [docs/WEB-CONSOLE.md](docs/WEB-CON
 
 ### 推送前检查
 
-1. `npm test` 全绿（自带 `build`，含全部 `verify:*`：`contract` / `storage` / `docs` / `commits` / `topology` / `layering`）。
+1. `npm test` 全绿（自带 `build`，含全部 `verify:*`：`contract` / `storage` / `docs` / `commits` /
+   `topology` / `layering` / `wiring`，以及全部包的测试 —— 含共享层 `packages/core/gateway/tests/`）。
 2. 测试链读的是各包 `dist/`（不是 `src/`），所以编译必须在链首：`npm test` 已内置 `npm run build`；
    单独跑 `npm run verify:*` 或 `npm test --workspace=packages/core/channels/<cid>` 前必须先 `npm run build`。
 3. 本地 WSL 门禁全绿后才允许推送。

@@ -1,3 +1,10 @@
+/**
+ * 控制台根组件：React Query 客户端 + 路由挂载（`/` 仪表盘、`/accounts` 账号池）。
+ *
+ * ⚠ 路由 `basename` 必须与 `vite.config.ts` 的 `base` 一致（单端口模式挂 `/web`，
+ * 演示构建挂 `/modelmux`）—— 只改 Vite 的 `base` 不改 Router 会整页空白。
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router";
 import type { ReactElement } from "react";

@@ -45,7 +45,6 @@ import { credentialsPath, ensureDir, login as sharedLogin } from "@modelmux/gate
 const {
   fetchWithTimeout,
   randomHex,
-  sha256Hex,
   str,
   nowIso,
 } = sharedLogin;
@@ -69,7 +68,7 @@ export const GATEWAY_HOST = "https://catx.nocode.cn";
  * - query：无；body：无
  * - 响应：取 `data.loginEntryUrl`（见 `fetchLoginEntryUrl`）
  */
-export const LOGIN_CONFIG_URL = `${GATEWAY_HOST}/api/gateway/passport/login-config`;
+const LOGIN_CONFIG_URL = `${GATEWAY_HOST}/api/gateway/passport/login-config`;
 
 /**
  * 令牌轮询端点（**取 token 的唯一通道**）。
@@ -79,7 +78,7 @@ export const LOGIN_CONFIG_URL = `${GATEWAY_HOST}/api/gateway/passport/login-conf
  * - query：`sid` —— 本地生成的会话 id（`randomHex(16)`，见 `login`）；上游按它认本次登录会话
  * - body：无；响应：取 `data`（不透明 SSO token，非 JWT；见 `pollToken`）
  */
-export const POLL_TOKEN_URL = `${GATEWAY_HOST}/api/gateway/passport/poll-token`;
+const POLL_TOKEN_URL = `${GATEWAY_HOST}/api/gateway/passport/poll-token`;
 
 /**
  * 当前用户端点（登录后取 uid；见 `fetchCurrentUserId`）。
@@ -89,7 +88,7 @@ export const POLL_TOKEN_URL = `${GATEWAY_HOST}/api/gateway/passport/poll-token`;
  * - query：无；body：无
  * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头，与直连域的 `X-Passport-Token` 不是同一套）
  */
-export const CURRENT_USER_URL = `${GATEWAY_HOST}/api/gateway/passport/current-user`;
+const CURRENT_USER_URL = `${GATEWAY_HOST}/api/gateway/passport/current-user`;
 
 /**
  * 令牌有效性探测端点（`refresh()` 用；401/403 = 确定失效）。
@@ -100,7 +99,7 @@ export const CURRENT_USER_URL = `${GATEWAY_HOST}/api/gateway/passport/current-us
  * - 鉴权：`X-Auth-Token: <accessToken>`
  * - 判据：只有 401/403 算失效；5xx 与网络错误算临时故障（`[参考]` 参考实现的 `Ping()`）
  */
-export const AUTH_PING_URL = `${GATEWAY_HOST}/api/gateway/auth/ping`;
+const AUTH_PING_URL = `${GATEWAY_HOST}/api/gateway/auth/ping`;
 
 /**
  * `refresh()` 实际请求的 ping 地址。
@@ -167,7 +166,7 @@ export interface Credentials {
   obtainedAt: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
+const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   uid: "",
   domain: "",
@@ -189,26 +188,6 @@ export const DEFAULT_BASE_URL = GATEWAY_HOST;
 /** 解析登录基址。catpaw 只有一个域，realm 参数仅作兼容保留。 */
 export function resolveBaseUrl(realm = "auto"): string {
   return GATEWAY_HOST;
-}
-
-// ── 工具 ────────────────────────────────────────────────────────────────────
-
-/** 32 位无横线 hex（对应 M-TRACEID 的形状）。 */
-export function traceId(): string {
-  return randomHex(16);
-}
-
-/** token 的 sha256 指纹（脱敏输出用）。 */
-export function fingerprint(token: string): string {
-  return sha256Hex(token).slice(0, 16);
-}
-
-/** 脱敏形态：前缀…[长度]。 */
-export function maskSecret(token: string): string {
-  if (!token) return "";
-  const head = token.slice(0, 6);
-  const len = token.length;
-  return `${head}…[${len}]`;
 }
 
 // ── 读取 ────────────────────────────────────────────────────────────────────
@@ -289,7 +268,7 @@ async function fetchLoginEntryUrl(): Promise<string> {
  * @param sid   会话 id；缺省时本地生成（轮询要用同一个值，故由调用方传入）
  * @param state 防 CSRF 随机串；缺省时本地生成
  */
-export function buildAuthUrl(loginEntryUrl: string, redirect: string, sid?: string, state?: string): string {
+function buildAuthUrl(loginEntryUrl: string, redirect: string, sid?: string, state?: string): string {
   const s = sid ?? randomHex(16);
   const st = state ?? randomHex(16);
   const encRedirect = encodeURIComponent(redirect);
@@ -348,7 +327,7 @@ async function pollToken(sid: string, signal?: AbortSignal): Promise<string | nu
  *
  * 失败不阻塞登录：拿不到 uid 就留空，由账号池按 token 退化处理。
  */
-export async function fetchCurrentUserId(token: string): Promise<string> {
+async function fetchCurrentUserId(token: string): Promise<string> {
   try {
     const resp = await fetchWithTimeout(CURRENT_USER_URL, {
       headers: { "X-Auth-Token": token, Accept: "application/json" },
@@ -477,7 +456,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
  *
  * 幂等：uid 已有值时直接返回，不产生网络请求。
  */
-export async function ensureUid(c: Credentials): Promise<Credentials> {
+async function ensureUid(c: Credentials): Promise<Credentials> {
   if (c.uid) return c;
   const uid = await fetchCurrentUserId(c.accessToken);
   if (!uid) return c;
@@ -485,11 +464,3 @@ export async function ensureUid(c: Credentials): Promise<Credentials> {
   await save(next);
   return next;
 }
-
-// ── 测试辅助 ────────────────────────────────────────────────────────────────
-
-/**
- * 兼容别名：现规范名等同 `paths.credentialsPath()` 的文件名部分
- * （凭证落点由共享层按 cid 推导，见 docs/STORAGE-CONVENTION.md）。
- */
-export const CREDENTIALS_FILE = "credentials.json";

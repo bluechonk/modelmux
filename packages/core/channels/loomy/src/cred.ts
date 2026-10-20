@@ -39,22 +39,22 @@ import * as upstream from "./upstream.js";
 export const DEFAULT_BASE_URL = "https://account.xfinfr.com";
 
 /** 讯飞 AccessKey（随客户端分发 + AES 混淆，只用于账号端点的请求签名）。 */
-export const ACCESS_KEY_ID = "2thryby66wxi53sk";
-export const ACCESS_KEY_SECRET = "zsak6eadrbawz683wf5r3m2snrwj868r";
-export const APP_ID = "GM3LOOMY";
+const ACCESS_KEY_ID = "2thryby66wxi53sk";
+const ACCESS_KEY_SECRET = "zsak6eadrbawz683wf5r3m2snrwj868r";
+const APP_ID = "GM3LOOMY";
 
 /** session 声明有效期 14 天（响应不带到期时间，故本地推算）。 */
-export const SESSION_TTL_SECONDS = 1_209_600;
+const SESSION_TTL_SECONDS = 1_209_600;
 
-export const BIND_AUTH_PATH = "/login/thirdAccount/bind/auth";
-export const BIND_SEND_MSG_PATH = "/login/thirdAccount/bind/sendMsg";
-export const BIND_CHECK_CODE_PATH = "/login/thirdAccount/bind/checkCode";
-export const BIND_SKIP_PATH = "/login/thirdAccount/bind/skip";
+const BIND_AUTH_PATH = "/login/thirdAccount/bind/auth";
+const BIND_SEND_MSG_PATH = "/login/thirdAccount/bind/sendMsg";
+const BIND_CHECK_CODE_PATH = "/login/thirdAccount/bind/checkCode";
+const BIND_SKIP_PATH = "/login/thirdAccount/bind/skip";
 
 /** 微信扫码（**纯 HTTP 路线**，不用官方 Electron 的 will-redirect 截获）。 */
-export const WECHAT_APP_ID = "wx18d60be432287cf8";
-export const WECHAT_REDIRECT_URI = "https://loomy.xunfei.cn/oauth/wechat/callback";
-export const WECHAT_LONG_POLL_TIMEOUT_MS = 40_000;
+const WECHAT_APP_ID = "wx18d60be432287cf8";
+const WECHAT_REDIRECT_URI = "https://loomy.xunfei.cn/oauth/wechat/callback";
+const WECHAT_LONG_POLL_TIMEOUT_MS = 40_000;
 
 /**
  * 微信**绑定**分支的输入来源（无窗口工程没有输入框，用环境变量）。
@@ -62,8 +62,8 @@ export const WECHAT_LONG_POLL_TIMEOUT_MS = 40_000;
  * ⚠ 这两个变量**只服务于「微信未绑手机号」的绑定子步骤**（`bind=0`），
  * **不是**独立的登录入口 —— 本渠道唯一的登录路径是微信扫码。
  */
-export const PHONE_ENV = "LOOMY_PHONE";
-export const SMS_CODE_ENV = "LOOMY_SMS_CODE";
+const PHONE_ENV = "LOOMY_PHONE";
+const SMS_CODE_ENV = "LOOMY_SMS_CODE";
 
 const HTTP_TIMEOUT_MS = 60_000;
 
@@ -95,7 +95,7 @@ export interface Credentials {
   readonly source: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
+const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   userid: "",
   uid: "",
@@ -114,19 +114,19 @@ const str = sharedLogin.str;
 const nowIso = sharedLogin.nowIso;
 
 /** 从登录时刻推算 `expires_at`（毫秒时间戳字符串）。 */
-export function computeExpiresAt(fromMs = Date.now()): string {
+function computeExpiresAt(fromMs = Date.now()): string {
   return String(Math.trunc(fromMs + SESSION_TTL_SECONDS * 1000));
 }
 
 /** 凭据是否已过期（无法解析时间戳时保守返回 false）。 */
-export function isExpired(c: Credentials): boolean {
+function isExpired(c: Credentials): boolean {
   return sharedLogin.isExpiredAt(Number.parseInt(c.expiresAt || "0", 10));
 }
 
 // ── 签名（loomy-sign.ts 的逐字节复刻）─────────────────────────────────────────
 
 /** RFC3986 转义：`encodeURIComponent` + 补转 `! ' ( ) *`。 */
-export function escape(value: string): string {
+function escape(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
     (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
@@ -134,7 +134,7 @@ export function escape(value: string): string {
 }
 
 /** 转义路径：补前导 `/`、剥末尾 `/`、**逐段**转义（空段保留）。 */
-export function escapedPath(path: string): string {
+function escapedPath(path: string): string {
   let text = path || "/";
   if (!text.startsWith("/")) text = `/${text}`;
   if (text.length > 1) text = text.replace(/\/+$/, "") || "/";
@@ -145,7 +145,7 @@ export function escapedPath(path: string): string {
 }
 
 /** 转义查询串：key/value **都**转义、**不排序**、null/undefined → 空串。 */
-export function escapedQuery(query?: Record<string, unknown> | Array<[string, unknown]> | null): string {
+function escapedQuery(query?: Record<string, unknown> | Array<[string, unknown]> | null): string {
   if (!query) return "";
   const entries: Array<[string, unknown]> = Array.isArray(query) ? query : Object.entries(query);
   return entries
@@ -154,12 +154,12 @@ export function escapedQuery(query?: Record<string, unknown> | Array<[string, un
 }
 
 /** `base64(md5(body_utf8_bytes))`；**空 body 返回空串**（不是空串的 md5）。 */
-export function contentMd5(bodyStr: string): string {
+function contentMd5(bodyStr: string): string {
   if (!bodyStr) return "";
   return createHash("md5").update(bodyStr, "utf8").digest("base64");
 }
 
-export interface SignInput {
+interface SignInput {
   bodyStr?: string;
   contentType?: string;
   date: string;
@@ -172,7 +172,7 @@ export interface SignInput {
  *
  * ⚠ 后两段恒为空串 ⇒ 结果**以两个换行结尾**，这是协议要求，不是笔误。
  */
-export function buildStringToSign(method: string, path: string, input: SignInput): string {
+function buildStringToSign(method: string, path: string, input: SignInput): string {
   return [
     method.toUpperCase(),
     escapedPath(path),
@@ -187,11 +187,11 @@ export function buildStringToSign(method: string, path: string, input: SignInput
 }
 
 /** HMAC-SHA1 签名（base64）。 */
-export function sign(stringToSign: string): string {
+function sign(stringToSign: string): string {
   return createHmac("sha1", ACCESS_KEY_SECRET).update(stringToSign, "utf8").digest("base64");
 }
 
-export interface SignHeaderInput {
+interface SignHeaderInput {
   bodyStr?: string;
   query?: Record<string, unknown> | Array<[string, unknown]> | null;
   contentType?: string;
@@ -201,7 +201,7 @@ export interface SignHeaderInput {
 }
 
 /** 账号端点的签名请求头（前缀是 `account`，不是 `Bearer`）。 */
-export function signHeaders(method: string, path: string, input: SignHeaderInput = {}): Record<string, string> {
+function signHeaders(method: string, path: string, input: SignHeaderInput = {}): Record<string, string> {
   // UTC 字符串（等价 email.utils.formatdate(usegmt=True)）
   const date = input.date ?? new Date().toUTCString();
   const nonce = input.nonce ?? randomUUID();
@@ -228,7 +228,7 @@ export function signHeaders(method: string, path: string, input: SignHeaderInput
  * ⚠ `ua` 硬编码 `Loomy|Desktop|Electron|macOS` —— 客户端在 Windows 上发的也是这个值，
  * **照抄不要改**；`traceid` 每次调用重新生成（32 位 hex）。
  */
-export function accountBody(param: Record<string, unknown>): Record<string, unknown> {
+function accountBody(param: Record<string, unknown>): Record<string, unknown> {
   return {
     base: {
       appid: APP_ID,
@@ -251,7 +251,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 业务响应信封（`desc` 优先于 `message`；code 归一成字符串）。 */
-export function parseEnvelope(payload: unknown): { code: string; desc: string; data: Record<string, unknown> } {
+function parseEnvelope(payload: unknown): { code: string; desc: string; data: Record<string, unknown> } {
   if (!isRecord(payload)) return { code: "", desc: "", data: {} };
   const code = payload["code"] === undefined || payload["code"] === null ? "" : String(payload["code"]);
   const desc = str(payload["desc"]) || str(payload["message"]);
@@ -265,7 +265,7 @@ export function parseEnvelope(payload: unknown): { code: string; desc: string; d
  * 业务失败恒 HTTP 200 也适用于账号端点（实测账号端点回 `{code:"100001",desc}`），
  * 故成败只读 `code`。
  */
-export async function accountPost(
+async function accountPost(
   path: string,
   param: Record<string, unknown>,
   baseOverride?: string,
@@ -329,7 +329,7 @@ function wechatHeaders(): Record<string, string> {
  * ⚠ `redirect_uri` **必须用官方地址**（微信校验域名白名单）：换成 127.0.0.1 或任意
  * 域名会得到 872 字节的「redirect_uri 参数错误」页 —— 故**不能**用本地回调服务器收 code。
  */
-export function wechatAuthorizeUrl(state: string): string {
+function wechatAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
     appid: WECHAT_APP_ID,
     redirect_uri: WECHAT_REDIRECT_URI,
@@ -356,7 +356,7 @@ const CALLBACK_CODE_PATTERN = /^[A-Za-z0-9_-]{1,512}$/;
  *
  * 容错三种形态：整条 URL / 只有 query / 只有 code 本身。
  */
-export function parseWechatCallback(raw: string): string {
+function parseWechatCallback(raw: string): string {
   const text = raw.trim().replace(/^["']|["']$/g, "");
   if (!text) throw new Error("no callback link provided");
 
@@ -394,7 +394,7 @@ export function parseWechatCallback(raw: string): string {
 }
 
 /** 从授权页 HTML 提取 uuid（两条路径互为兜底，无需执行 JS）。 */
-export function extractWechatUuid(html: string): string {
+function extractWechatUuid(html: string): string {
   const primary = /\/connect\/qrcode\/([A-Za-z0-9_\-=+/]+)/.exec(html);
   if (primary?.[1] && UUID_PATTERN.test(primary[1])) return primary[1];
   const fallback = /l\/qrconnect\?uuid=([A-Za-z0-9_\-=+/]+)/.exec(html);
@@ -402,9 +402,9 @@ export function extractWechatUuid(html: string): string {
   return "";
 }
 
-export type WechatPollStatus = "waiting" | "scanned" | "confirmed" | "cancelled" | "expired" | "error";
+type WechatPollStatus = "waiting" | "scanned" | "confirmed" | "cancelled" | "expired" | "error";
 
-export interface WechatFrame {
+interface WechatFrame {
   status: WechatPollStatus;
   /** `status === "confirmed"` 时的 `wx_code`。 */
   code: string;
@@ -421,7 +421,7 @@ export interface WechatFrame {
  * - 其它/未知 → 保守 `waiting`（绝不误判成功）
  * - 网络异常 → `error` 状态而**不抛错**
  */
-export async function wechatPollOnce(uuid: string, last = ""): Promise<WechatFrame> {
+async function wechatPollOnce(uuid: string, last = ""): Promise<WechatFrame> {
   const url = new URL(wechatLongPollUrl());
   url.searchParams.set("uuid", uuid);
   if (last) url.searchParams.set("last", last);
@@ -457,7 +457,7 @@ export async function wechatPollOnce(uuid: string, last = ""): Promise<WechatFra
   }
 }
 
-export interface WechatWaitOptions {
+interface WechatWaitOptions {
   /**
    * 授权页 URL。
    *
@@ -489,17 +489,17 @@ export interface WechatWaitOptions {
 }
 
 /** 二维码图片基址（uuid → PNG/JPEG）。 */
-export const WECHAT_QR_IMAGE_BASE = "https://open.weixin.qq.com/connect/qrcode/";
+const WECHAT_QR_IMAGE_BASE = "https://open.weixin.qq.com/connect/qrcode/";
 
 /** uuid → 二维码图片 URL。 */
-export function qrImageUrl(uuid: string): string {
+function qrImageUrl(uuid: string): string {
   return `${WECHAT_QR_IMAGE_BASE}${uuid}`;
 }
 
 /** 扫码结果的来源：`poll` = 长轮询拿到；`paste` = 用户粘回回调链接。 */
-export type WechatCodeSource = "poll" | "paste";
+type WechatCodeSource = "poll" | "paste";
 
-export interface WechatCodeResult {
+interface WechatCodeResult {
   code: string;
   source: WechatCodeSource;
 }
@@ -511,7 +511,7 @@ export interface WechatCodeResult {
  * （经 `onQr` 给出）。让用户去 `onUrl` 那个页面扫码会拿到另一次会话的码，
  * 轮询永远等不到确认。
  */
-export async function wechatWaitForCode(
+async function wechatWaitForCode(
   options: WechatWaitOptions = {},
 ): Promise<string> {
   const result = await wechatObtainCode(options);
@@ -532,13 +532,13 @@ export async function wechatWaitForCode(
  * `https://loomy.xunfei.cn/oauth/wechat/callback?code=…&state=…`（线上 404 页，
  * 正常），把地址栏整条链接粘回来。
  */
-export const LOOMY_WECHAT_GUIDE =
+const LOOMY_WECHAT_GUIDE =
   "微信扫码登录：用微信扫「二维码图片」那一条链接里的图，在手机上确认后本命令自动完成。" +
   "注意：不要去打开「授权页」链接扫码 —— 那个页面每次加载都是新的二维码会话，扫了这边等不到。" +
   "若改用授权页扫码，授权后浏览器会跳到 loomy.xunfei.cn 的 404 页（正常），" +
   "把地址栏里整条链接复制下来，粘贴到本终端回车即可完成登录。";
 
-export async function wechatObtainCode(
+async function wechatObtainCode(
   options: WechatWaitOptions = {},
 ): Promise<WechatCodeResult> {
   const { onUrl, onQr, onStatus, pasteCode } = options;
@@ -604,7 +604,7 @@ export async function wechatObtainCode(
 }
 
 /** 第 1 步：微信 code 换 `rcode`（code 只在这里用一次）。 */
-export async function bindAuthThirdAccount(
+async function bindAuthThirdAccount(
   code: string,
   baseOverride?: string,
 ): Promise<{ bind: number; rcode: string; nickname: string }> {
@@ -618,7 +618,7 @@ export async function bindAuthThirdAccount(
 }
 
 /** 第 2 步（未绑手机号）：给手机号发验证码。 */
-export async function bindSendMsg(
+async function bindSendMsg(
   rcode: string,
   phone: string,
   baseOverride?: string,
@@ -635,7 +635,7 @@ export async function bindSendMsg(
 }
 
 /** 第 3 步（未绑手机号）：校验验证码完成绑定登录。 */
-export async function bindCheckCode(
+async function bindCheckCode(
   rcode: string,
   mcode: string,
   msgid: string,
@@ -651,7 +651,7 @@ export async function bindCheckCode(
 }
 
 /** 第 4 步（已绑手机号）：直接拿 session。 */
-export async function bindSkip(rcode: string, baseOverride?: string): Promise<Credentials> {
+async function bindSkip(rcode: string, baseOverride?: string): Promise<Credentials> {
   if (!rcode) throw new Error("rcode is missing; cannot log in directly (bind=1 requires rcode)");
   const data = await accountPost(BIND_SKIP_PATH, { rcode, expire: SESSION_TTL_SECONDS }, baseOverride);
   return credentialsFromSession(data, "loomy-wechat");
@@ -778,7 +778,7 @@ export async function save(c: Credentials): Promise<void> {
 // ── 登录（微信）/ 续期（探测）──────────────────────────────────────────────────
 
 /** 登录选项：微信扫码的等待参数（含粘贴回调兜底，见 `WechatWaitOptions.pasteCode`）。 */
-export interface LoginOptions extends WechatWaitOptions {}
+interface LoginOptions extends WechatWaitOptions {}
 
 /**
  * 登录：**微信扫码 —— 本渠道唯一的登录路径**。

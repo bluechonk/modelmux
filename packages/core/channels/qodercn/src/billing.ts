@@ -41,7 +41,7 @@ export class CreditsError extends Error {
   override name = "CreditsError";
 }
 
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   remain: number;
   size: number;
@@ -51,7 +51,7 @@ export interface CreditPackage {
   [key: string]: unknown;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   total: {
     remain: number;
@@ -257,7 +257,7 @@ async function listClaimable(credential: cred.Credentials): Promise<Array<Record
  * 按「人」去重、任务未完成、名额发完、风控拦截都**不是**错误响应。
  * 语义对齐 `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2153-2223`。[参考]
  */
-export type ClaimResult =
+type ClaimResult =
   /** 领到了（`replayed` = 重复领取，上游幂等不重复发放）。 */
   | { kind: "claimed"; amount: number; replayed: boolean }
   /** 服务端按「人」去重：同一台机器/身份下的其他账号本轮已领。 */

@@ -37,16 +37,26 @@
 | `ugHost`（签到/积分） | `https://api.trae.cn` | `packages/core/channels/traecn/src/cred.ts:92` |
 | `oauthHost`（ExchangeToken / GetUserInfo） | `https://api.trae.com.cn` | `packages/core/channels/traecn/src/cred.ts:65` |
 | `consoleHost`（登录门户） | `https://www.trae.cn` | `packages/core/channels/traecn/src/cred.ts:95` |
-| `clientId` | `en1oxy7wnw8j9n` | `packages/core/channels/traecn/src/cred.ts:105` |
+| `clientId`（**登录门户用**） | `ono9krqynydwx5` | `packages/core/channels/traecn/src/cred.ts:103`（常量 `CLIENT_ID`） |
+| `IDE_CLIENT_ID`（**本仓登录链路不用**） | `en1oxy7wnw8j9n` | `packages/core/channels/traecn/src/cred.ts:105`；网页授权门户对它**直接 404**，见 §2.2 |
 | `appId` | `6eefa01c-1036-4c7e-9ca5-d891f63bfcd8` | `packages/core/channels/traecn/src/cred.ts:118`；参考实现逐字一致（`trae_client.py` / `constants.go` / `auth.js`）`[参考]`；`[实测]` 见 §3.1.1 |
 | `ideVersion` / `ideVersionCode` | `0.1.52` / `20260811` | `packages/core/channels/traecn/src/cred.ts:120-121` |
-| `deviceBrand` / `osVersion` | `Apple` / `macOS 15.7.4` | `packages/core/channels/traecn/src/upstream.ts:272-273` |
-| `function`（默认通道） | `solo_work_lite` | `packages/core/channels/traecn/src/upstream.ts:127` |
+| `deviceBrand` / `osVersion` | `Apple` / `macOS 15.7.4` | `packages/core/channels/traecn/src/upstream.ts:248-249` |
+| `function`（默认通道） | `solo_work_lite` | `packages/core/channels/traecn/src/upstream.ts:103` |
 | `pluginVersion`（登录 URL 用，≠ideVersion） | `2.3.62834` | `packages/core/channels/traecn/src/cred.ts:123` |
 | `userAgent` | `Trae/0.1.52` | `packages/core/channels/traecn/src/cred.ts:124` |
 
 **源码中不存在国际版（trae.com）配置** —— 只有这一份 CN 配置。
 `trae.cn`（UG/登录门户）与 `trae.com.cn`（OAuth）是同一份配置里的两个 host。
+
+> ⚠ **原描述 → 现在的行为**（`clientId` 一行）：
+> 原表把 `clientId` 写成 `en1oxy7wnw8j9n` —— 那是**IDE 客户端 id**
+> （常量 `IDE_CLIENT_ID`，`cred.ts:105`），**本仓登录链路不用它**：
+> 授权 URL 与 `ExchangeToken` / `GetUserInfo` 都用 **`ono9krqynydwx5`**
+> （常量 `CLIENT_ID`，`cred.ts:103`；`buildAuthorizeUrl` 的 `client_id` 见 `cred.ts:340`，
+> `ExchangeToken` 的 `ClientID` 见 `cred.ts:804`）。
+> 用 IDE 客户端 id 打网页授权门户会**直接 404**（`cred.ts:325` 的注释明写）——
+> 原表与同文档 §2.2 自相矛盾，按原表改会直接登录失败。
 
 **版本号是模型准入条件**：上游按 `X-Ide-Version` / `X-App-Version-Code` 决定哪些模型可返回，
 版本过低时 glm-5.3 等新模型报 `4001 param is invalid`。
@@ -90,9 +100,12 @@
 
 超时：控制面 `30000ms`；登录总超时 `600000ms`（`packages/core/channels/traecn/src/cred.ts:128-129`）。
 
-> **work / chat_sessions 三端点常量已登记但未实现**（`packages/core/channels/traecn/src/upstream.ts:118-124` 的
-> `WORK_SESSION_PATH` / `WORK_SESSION_EVENTS_PATH` / `WORK_SESSION_STOP_PATH` /
-> `WORK_SESSION_EVENTS_QUERY`）。切换过去是**会话管理器级**改造，风险高，
+> **work / chat_sessions 三端点：协议已知，但本仓未实现**（端点与必需 query 见上表）。
+> ⚠ 2026-10-20 的导出收缩重构把原先登记的 `WORK_SESSION_PATH` /
+> `WORK_SESSION_EVENTS_PATH` / `WORK_SESSION_STOP_PATH` / `WORK_SESSION_EVENTS_QUERY`
+> 常量从 `upstream.ts` 移除了（当前工作树里已搜不到这四个常量）——
+> **它们只是「协议已摸清、尚未接线」的登记项，不是可用能力**。
+> 切换过去是**会话管理器级**改造（建会话 / 事件流 / 消息 id / 账号绑定快照），风险高，
 > 本轮明确不做 —— 理由见 §「已知边界」。
 
 ---
@@ -203,7 +216,7 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 
 ### 2.4 续期
 
-同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（`packages/core/channels/traecn/src/cred.ts:921-933`）。
+同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（`packages/core/channels/traecn/src/cred.ts:904-915`）。
 
 **终态（需重新登录）三条任一**：
 - HTTP 401/403
@@ -221,7 +234,13 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 上游**按场景用不同的头族**：对话（A 套）、Remote 目录（B 套）、签到/额度（UG 域）、OAuth。
 下表逐族列出当前实现实际发的头。`[代码]`
 
-#### 3.1.1 对话 / 模型目录（SOLO 头，20 个）
+#### 3.1.1 对话 / 模型目录（SOLO 头：18 固定 + 条件 `X-Uid`，最多 19 个）
+
+⚠ **原描述 → 现在的行为**：原标题写「20 个」。**本仓实际最多 19 个** ——
+`buildHeaders()` 里**固定 18 个**头，`X-Uid` **仅在 uid 非空时**才加
+（`packages/core/channels/traecn/src/upstream.ts:227-256`：18 个字面量头 +
+`:279` 的 `if (credential.uid) headers["X-Uid"] = credential.uid;`）。
+下表 19 行 = 18 固定 + 1 条件。
 
 | 头 | 值 | 鉴权 | 刷新时机 |
 |---|---|---|---|
@@ -279,7 +298,13 @@ event:done   | data:{"finish_reason":"stop"}
 
 #### 3.1.2 Remote 目录（`/api/remote/v1/models`，21 个）
 
-= §3.1.1 的 20 个 + `Origin` / `Referer`（只在该端点发，对话不发）。
+= §3.1.1 的 **19 个**（18 固定 + 条件 `X-Uid`）+ `Origin` / `Referer` = **21 个**
+（`Origin` / `Referer` 只在该端点发，对话不发 —— `packages/core/channels/traecn/src/upstream.ts:587-588`
+的 `fetchRemoteModels()`）。
+
+⚠ **原描述 → 现在的行为**：原标题写「21 个」但正文写「= §3.1.1 的 **20** 个 + Origin/Referer」
+—— 20 + 2 = 22，与标题的 21 自相矛盾。正确拆解是 **19 + 2 = 21**
+（§3.1.1 的真实头数是「18 固定 + 条件 `X-Uid`」，见上一节）。
 
 | 头 | 当前实现 | 参考实现 | 差异 |
 |---|---|---|---|
@@ -320,7 +345,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `User-Agent` | `Trae/0.1.52` | |
 | `x-cloudide-token` | `<access_token>` | **仅 GetUserInfo**；用 `Authorization: Cloud-IDE-JWT` 会 401 |
 
-### 3.2 请求体（`transformToSOLOBody`，本仓实现为 `buildChatBody`，`packages/core/channels/traecn/src/upstream.ts:479-547`）
+### 3.2 请求体（`transformToSOLOBody`，本仓实现为 `buildChatBody`，`packages/core/channels/traecn/src/upstream.ts:434-502`）
 
 1. `stream` **强制 true**
 2. `function` = 该模型所属通道（缺省 `solo_work_lite`）
@@ -339,7 +364,7 @@ event:done   | data:{"finish_reason":"stop"}
 8. `max_tokens` 收敛到安全上限 **64000**（实测客户端索要 131072 会被上游打成 4xx）
 9. `reasoning_effort` 原样透传
 
-**Max 模式（1M 上下文）字段**（`packages/core/channels/traecn/src/upstream.ts:533-545`，仅远端 `display_config.max_mode === true` 的模型允许）：
+**Max 模式（1M 上下文）字段**（`packages/core/channels/traecn/src/upstream.ts:488-500`，仅远端 `display_config.max_mode === true` 的模型允许）：
 `model_auto_selection:{strategy:'max',...}`、`model_selection_strategy:'max'`、`mode_type:1`、
 `context_window_size:<maxContext>`、`prompt_max_tokens:936000`、`max_tokens:<__max 明细或 64000>`
 只调大 `max_tokens` 无效，必须成套下发。
@@ -359,7 +384,7 @@ event:done   | data:{"finish_reason":"stop"}
 
 ## 4. 流式响应（自定义 SSE，非 OpenAI 标准）
 
-### 4.1 事件类型（`packages/core/channels/traecn/src/upstream.ts:895-957`）
+### 4.1 事件类型（`packages/core/channels/traecn/src/upstream.ts:850-912`）
 
 | event | data 字段 | 说明 |
 |---|---|---|
@@ -372,7 +397,7 @@ event:done   | data:{"finish_reason":"stop"}
 
 - `tool_calls[]` 里 `function_call` → `function`，并清理 SOLO 专属字段 `namespace` / `partial_arguments`
 - 帧格式：`event:<name>\n` + `data:<json>\n\n`，空行是事件分隔；`data:` 可跨行拼接；
- 注释行（`:`）忽略（`packages/core/channels/traecn/src/upstream.ts:873-884`）
+ 注释行（`:`）忽略（`packages/core/channels/traecn/src/upstream.ts:828-839`）
 - 结束：`done` 事件（非 `[DONE]`）；转成 OpenAI 时最后发 `data: [DONE]\n\n`
 - `notify_usage` 的载荷可能裹在 `data` / `usage` 下，解析时逐层找；
   事件名不认识但载荷带 `cn_credits_remain_info` 的也照样记。`[代码]`
@@ -381,18 +406,36 @@ event:done   | data:{"finish_reason":"stop"}
 
 | 码 | 语义 | 处理 | 来源 |
 |---|---|---|---|
-| `1005` | Plan 权益不足 → `hard-plan`，冷却 12h | 换号 | `packages/core/channels/traecn/src/upstream.ts:303` |
-| `4008` | 配额耗尽 → `quota-exceeded`（**判定必须先于 4011**） | 换号 | `packages/core/channels/traecn/src/upstream.ts:304` |
-| `4011` | 频率超限 → `soft-rate`，60s | 换号 | `packages/core/channels/traecn/src/upstream.ts:305` |
-| `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓无专门分支：HTTP 400 落到 `classifyError` 的 `client`（`packages/core/channels/traecn/src/upstream.ts:311`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:119` |
-| `4027` | tool 消息顺序错误 | 直接失败 | `packages/core/channels/traecn/src/upstream.ts:311` |
+| `1005` | Plan 权益不足 → 分类 `hard-plan` | 如实报错；**网关不自动换号**（换号由用户手动执行，见本节末注）；渠道层无冷却表，冷却由共享层 `noteFailure()` 统一给（默认 60s，见 §6.3） | `packages/core/channels/traecn/src/upstream.ts:279` |
+| `4008` | 配额耗尽 → 分类 `quota-exceeded`（**判定必须先于 4011**） | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:280` |
+| `4011` | 频率超限 → 分类 `soft-rate` | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:281` |
+| `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓**没有** `4001` 专门分支：`classifyError` 里没有这一项，落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:287`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:119` |
+| `4027` | tool 消息顺序错误 | 直接失败 | 本仓**没有** `4027` 专门分支：同样落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:287`） |
 | `4023` | `the model is unknown`（不可调用通道） | 通道白名单已挡 | `packages/core/channels/traecn/src/catalog.ts:42-58` |
 | `3003` | `model service is unavailable`（`inline_chat`） | 同上 | `packages/core/channels/traecn/src/catalog.ts:42-58` |
-| `9074` | 签到人数过多（设备级限流） | 冷却 300s | `packages/core/channels/traecn/src/billing.ts:190-199` |
+| `9074` | 签到人数过多（设备级限流） | **轮换签到设备代次**（持久化到凭据的 `checkin_generation`）并抛 `CreditsError`；**渠道层没有 300s 冷却** | `packages/core/channels/traecn/src/billing.ts:190-199`（`handleDeviceRateLimit`）、`packages/core/channels/traecn/src/cred.ts:735-740`（`rotateCheckinGeneration`） |
 
-流内 `event:error` 在**尚未产出任何内容**时用内部哨兵码抛出交给外层换号；
-**已有输出则如实抛错，绝不重放**（防重复计费）（`packages/core/channels/traecn/src/upstream.ts:934-951`）。
-换号上限 3 个账号，限流标记回退时长 1 小时。
+流内 `event:error` **只被转成一个 error 帧**（`code` 转字符串保真转发），
+共享层原样写给客户端（`packages/core/channels/traecn/src/upstream.ts:889-906`）。
+本渠道**没有**「内部哨兵码」「换号上限 3 个账号」「限流标记回退时长 1 小时」这套机制 ——
+账号切换一律由用户手动完成（`mx acct traecn use <key>`）。
+
+> ⚠ **原描述 → 现在的行为**（本节三处）：
+> - **`9074` 行原写「冷却 300s」** —— **本仓没有这个 300s 冷却**：签到端点回 `code=9074` 时
+>   `handleDeviceRateLimit`（`packages/core/channels/traecn/src/billing.ts:190-199`）
+>   **轮换签到设备代次**（写回凭据 `checkin_generation`）后抛 `CreditsError`
+>   （`cred.ts:735-740` 的 `rotateCheckinGeneration`），由上层重试时换设备桶。
+>   「300s 冷却」是**参考实现**的口径。
+> - **`4001` / `4027` 行** —— 本仓 `classifyError`（`packages/core/channels/traecn/src/upstream.ts:277-289`）
+>   **没有这两个码的专门分支**（只判 1005 / 4008 / 4011 三个业务码 + 401/403 + 报错措辞正则 + 状态码），
+>   两者都落到 4xx 兜底的 `client`（`:311`）。
+> - **本节末尾原写「流内 `event:error` 用内部哨兵码抛出交给外层换号」「换号上限 3 个账号，
+>   限流标记回退时长 1 小时」** —— **本仓没有这套机制**：翻译器对 `event:error`
+>   只**产出一个 error 帧**（`packages/core/channels/traecn/src/upstream.ts:889-906`），
+>   本渠道**没有声明** `isQueueError` 钩子，共享层不会为它做排队重试；
+>   账号切换也**不由网关自动完成**（`packages/core/gateway/src/http/chat-relay.ts:743-751`
+>   明写「账号切换一律由用户手动完成」），`<cid>/<model>` 形态下候选渠道只有一条
+>   （`packages/core/gateway/src/pool/pool-targets.ts:500-514`），不存在「换号上限 3 个账号」。
 
 ---
 
@@ -435,7 +478,7 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
   （`agent_remote` 排**最后**，不是最先 —— 代码里的旧注释写反了），
   故只取先出现那组会丢掉 `agent_remote` 的 1M 档
 
-### 5.1 拉取（Solo 通道，`packages/core/channels/traecn/src/upstream.ts:552-602`；**AppID 修正后实测可用**）
+### 5.1 拉取（Solo 通道，`packages/core/channels/traecn/src/upstream.ts:507-557`；**AppID 修正后实测可用**）
 
 ```
 POST {agentHost}/api/ide/v1/batch_get_detail_param
@@ -650,17 +693,50 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 > `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`，**本仓库未复验**。`[参考]`
 > 真机确认前，若该字段不存在则自动回落旧口径，不会显示错数。`[推断]`
 
-### 6.3 错误分类冷却表（`packages/core/channels/traecn/src/upstream.ts:301-334`）
+### 6.3 错误分类（`packages/core/channels/traecn/src/upstream.ts:277-289` 的 `classifyError()`）
 
-`200+code1005` → PlanLimit 43200s；429 → SoftRate 60s；401 → SessionDead 永久；
-404 → 60s；5xx → 600s；4xx → 600s；业务码非 0 → 300s
+**本仓的分类实现是「子串包含 + 正则 + 状态码」三者串联**，
+不是**参考实现**那种「标记数组」逐项比对：
 
-`classifyTraeError` 标记表（参考实现 `trae-errors.ts`；本仓实现见 `packages/core/channels/traecn/src/upstream.ts:301-313`）：
-- session-dead 标记 `['login','token 失效','token invalid','session','unauthorized','401']`
-- plan 标记 `['"code":1005','1005']`
-- 配额标记 `['4008','"code":4008','quota','exceeded the quota']`
+`classifyError(status, body)`（`packages/core/channels/traecn/src/upstream.ts:277-289`，
+先把报文转小写）：
 
-判定顺序：1005+plan → 4008 → 4011 → 401 → 429 → 404 → 5xx → 4xx → none
+| 顺序 | 判据 | 结果 |
+|---|---|---|
+| 1 | 报文**包含子串** `1005` | `hard-plan`（Plan 权益不足） |
+| 2 | 报文**包含子串** `4008` | `quota-exceeded`（配额耗尽） |
+| 3 | 报文**包含子串** `4011` | `soft-rate`（频率超限） |
+| 4 | 状态码 401 / 403 | `session-dead` |
+| 5 | 报文命中**正则** `/token invalid\|token 失效\|session\|unauthorized\|login/` | `session-dead` |
+| 6 | 状态码 429 | `soft-rate` |
+| 7 | 状态码 404 | `not-found` |
+| 8 | 状态码 ≥ 500 | `server` |
+| 9 | 状态码 ≥ 400 | `client` |
+| 10 | 其余 | `none` |
+
+- ⚠ **配额只看 `4008`**：本仓**没有** `quota` / `exceeded the quota` 这类文案判据
+  （那是**参考实现** `trae-errors.ts` 的标记数组口径）。
+- ⚠ **`4008` 必须先于 `4011`**：报文里两个码都有时按配额耗尽处理（顺序不可颠倒）。
+- ⚠ `session-dead` 的兜底措辞里含 `login` 子串 —— 报文出现 `login` 也会被判成会话失效。
+
+**冷却秒数**：⚠ **渠道层没有冷却表**。
+原先的 `cooldownSeconds(kind)`（`hard-plan` 43200 / `soft-rate` 60 / `not-found` 60 /
+`server` 600 / `client` 600 / `session-dead` 与 `quota-exceeded` 为 `null`）
+在 2026-10-20 的导出收缩重构中**已从 `upstream.ts` 移除**（当前工作树里搜不到该函数），
+而且它此前也**没有调用方** —— 渠道层从不消费它。
+**对话链路上真正生效的冷却来自共享层**
+`packages/core/gateway/src/pool/pool-usage.ts:253` 的 `noteFailure()`
+（默认 `FAIL_COOLDOWN_MS = 60s`，`pool/pool-usage.ts:26`）。
+
+⚠ **原描述 → 现在的行为**（本节两处）：
+
+1. 原表写「**业务码非 0 → 300s**」这一档 —— **本仓从来没有这一档**。
+   删除前的 `cooldownSeconds()` 只有 5 个非空值（43200 / 60 / 60 / 600 / 600），
+   `session-dead` 与 `quota-exceeded` 都是 `null`；该函数现已整体移除。
+2. 原节写「`classifyTraeError` **标记表**（参考实现 `trae-errors.ts`）：
+   session-dead 标记 `[...]`、plan 标记 `[...]`、配额标记 `[...]`」——
+   那是**参考实现**的标记数组口径。**本仓是上表的子串 + 正则 + 状态码判定**，
+   配额仅看 `4008`。
 
 ---
 

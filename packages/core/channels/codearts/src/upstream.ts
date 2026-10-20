@@ -56,7 +56,7 @@ export const DEFAULT_BASE_URL = "https://snap-access.cn-north-4.myhuaweicloud.co
 export const STS_BASE = "https://sts.cn-north-4.myhuaweicloud.com";
 
 /** opengw 免费额度网关基址（benefit 模型目录 / 领取 / 余额都在这个域）。 */
-export const OPENGW_BASE = "https://opengw.developer.huaweicloud.com";
+const OPENGW_BASE = "https://opengw.developer.huaweicloud.com";
 
 // ── 端点常量（方法 + 完整 URL + 端点路径 + query 来源）────────────────────────
 //
@@ -64,10 +64,10 @@ export const OPENGW_BASE = "https://opengw.developer.huaweicloud.com";
 // OPENGW_BASE / STS_BASE；query 一律在注释里写明来源，没有就写「无」。
 
 /** 对话：POST {snap}/api/v2/chat/completions —— query：无。 */
-export const CHAT_PATH = "/api/v2/chat/completions";
+const CHAT_PATH = "/api/v2/chat/completions";
 
 /** 常规模型目录：GET {snap}/v1/model/builtin —— query：无。 */
-export const SNAP_BUILTIN_PATH = "/v1/model/builtin";
+const SNAP_BUILTIN_PATH = "/v1/model/builtin";
 
 /**
  * agent-center 智能体列表：GET {snap}/v1/agent-center/agents/useragents
@@ -75,55 +75,52 @@ export const SNAP_BUILTIN_PATH = "/v1/model/builtin";
  * （三个值都是参考实现写死的，见
  * [参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:383）。
  */
-export const AGENT_CENTER_LIST_PATH = "/v1/agent-center/agents/useragents";
+const AGENT_CENTER_LIST_PATH = "/v1/agent-center/agents/useragents";
 
 /**
  * agent-center 智能体详情：GET {snap}/v1/agent-center/agents/detail
  * —— query：`agent_id={agentId}`（取自上一步返回的 agent_id）。
  */
-export const AGENT_CENTER_DETAIL_PATH = "/v1/agent-center/agents/detail";
+const AGENT_CENTER_DETAIL_PATH = "/v1/agent-center/agents/detail";
 
 /**
  * 福利网关总开关：GET {snap}/v1/benefit-gateway-config —— query：无。
  * [参考] reference/HITZY2002_codearts2api/docs/reverse-engineering.md:146。
  */
-export const BENEFIT_GATEWAY_CONFIG_PATH = "/v1/benefit-gateway-config";
+const BENEFIT_GATEWAY_CONFIG_PATH = "/v1/benefit-gateway-config";
 
 /**
  * 当前用户：GET {snap}/snap-manager/v1/current/user —— query：无。
  * [参考] reference/HITZY2002_codearts2api/internal/upstream/client.go:746-760。
  */
-export const CURRENT_USER_PATH = "/snap-manager/v1/current/user";
+const CURRENT_USER_PATH = "/snap-manager/v1/current/user";
 
 /**
  * 调用者身份：GET {sts}/v5/caller-identity —— query：无。
  * [参考] reference/HITZY2002_codearts2api/internal/upstream/client.go:726-743。
  */
-export const CALLER_IDENTITY_PATH = "/v5/caller-identity";
+const CALLER_IDENTITY_PATH = "/v5/caller-identity";
 
 /** STS token 端点：POST {sts}/v1/oauth2/tokens —— query：无（参数走 form 体）。 */
 export const STS_TOKEN_PATH = "/v1/oauth2/tokens";
 
 /** benefit 模型目录：GET {opengw}/api/v1/gateway/config —— query：无。 */
-export const OPENGW_CONFIG_PATH = "/api/v1/gateway/config";
-
-/** benefit 模型目录的完整 URL（历史导出名，值不变）。 */
-export const OPENGW_CONFIG_URL = `${OPENGW_BASE}${OPENGW_CONFIG_PATH}`;
+const OPENGW_CONFIG_PATH = "/api/v1/gateway/config";
 
 /**
  * benefit 福利领取：POST {opengw}/api/v1/benefit/claim —— query：无（空 body `{}`）。
  * [参考] reference/HITZY2002_codearts2api/internal/upstream/models.go:476-510。
  */
-export const BENEFIT_CLAIM_PATH = "/api/v1/benefit/claim";
+const BENEFIT_CLAIM_PATH = "/api/v1/benefit/claim";
 
 /**
  * benefit 免费额度余额：GET {opengw}/api/v1/user/tokens/balance —— query：无。
  * [参考] reference/Johnsheng1_codearts2api/benefit.py:42, 103-105。
  */
-export const BENEFIT_BALANCE_PATH = "/api/v1/user/tokens/balance";
+const BENEFIT_BALANCE_PATH = "/api/v1/user/tokens/balance";
 
 /** opengw 基址；`CODEARTS_OPENGW_BASE` 可覆盖（自托管 / 离线测试）。 */
-export function opengwBase(): string {
+function opengwBase(): string {
   const override = process.env["CODEARTS_OPENGW_BASE"];
   return override && override.trim() ? trimSlash(override.trim()) : OPENGW_BASE;
 }
@@ -134,7 +131,7 @@ export function opengwBase(): string {
  * ⚠ 该变量是**完整 URL** 覆盖（历史语义不变）；只改基址用 `CODEARTS_OPENGW_BASE`。
  * 领取 / 余额端点只认**基址**（`opengwBase()`），不受这个完整 URL 覆盖影响。
  */
-export function opengwConfigUrl(): string {
+function opengwConfigUrl(): string {
   const override = process.env["CODEARTS_OPENGW_URL"];
   return override && override.trim() ? override.trim() : `${opengwBase()}${OPENGW_CONFIG_PATH}`;
 }
@@ -146,12 +143,10 @@ export const DISPLAY_NAME = "CodeArts";
 export const WIRE: "openai" | "custom" = "openai";
 
 /** 默认最大输出（实测 65536 可用、131072 触发空流被拒）。 */
-export const DEFAULT_MAX_TOKENS = 65_536;
+const DEFAULT_MAX_TOKENS = 65_536;
 
 /** benefit 模型缺 `maas_type` 时后端下发的稳定错误码（去掉该头可重试一次）。 */
-export const BENEFIT_NOT_FOUND_ERROR_CODE = "InferHub.4004.200";
-/** 账号无 benefit 包时的 SSE 错误码（同义）。 */
-export const BENEFIT_NOT_FOUND_CODE = "BENEFIT_NOT_FOUND";
+const BENEFIT_NOT_FOUND_ERROR_CODE = "InferHub.4004.200";
 
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -220,7 +215,7 @@ export function loadConfig(): [Config, boolean] {
  * - 配置项 `agentCenterModels: true`（落盘在上游描述符里），或
  * - 环境变量 `CODEARTS_AGENT_CENTER_MODELS=1`（优先于配置项，便于临时试）。
  */
-export function agentCenterEnabled(cfg?: Config): boolean {
+function agentCenterEnabled(cfg?: Config): boolean {
   const env = process.env["CODEARTS_AGENT_CENTER_MODELS"];
   if (env && env.trim()) return /^(1|true|yes|on)$/i.test(env.trim());
   const resolved = cfg ?? loadConfig()[0];
@@ -265,12 +260,12 @@ export function modelsUrl(cfg?: Config): string {
 // ── SDK-HMAC-SHA256 签名 ─────────────────────────────────────────────────────
 
 /** SHA-256 hex（`node:crypto` 同步实现，契约要求零依赖）。 */
-export function sha256Hex(data: string | Buffer | Uint8Array): string {
+function sha256Hex(data: string | Buffer | Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
 /** HMAC-SHA256 hex。 */
-export function hmacSha256Hex(key: string | Buffer, data: string | Buffer): string {
+function hmacSha256Hex(key: string | Buffer, data: string | Buffer): string {
   return createHmac("sha256", key).update(data).digest("hex");
 }
 
@@ -280,7 +275,7 @@ export function hmacSha256Hex(key: string | Buffer, data: string | Buffer): stri
  * `headers` 的键必须已统一为小写；函数内部按 key 排序（普通字典序，
  * 不要用 localeCompare —— 后者受 locale 影响）。
  */
-export function buildCanonicalRequest(
+function buildCanonicalRequest(
   method: string,
   uri: string,
   query: string,
@@ -295,12 +290,12 @@ export function buildCanonicalRequest(
 }
 
 /** `SDK-HMAC-SHA256\n{dateStamp}\n{canonicalHash}`。 */
-export function buildStringToSign(dateStamp: string, canonicalHash: string): string {
+function buildStringToSign(dateStamp: string, canonicalHash: string): string {
   return `SDK-HMAC-SHA256\n${dateStamp}\n${canonicalHash}`;
 }
 
 /** `YYYYMMDDTHHMMSSZ`（毫秒被截掉，结尾保留 Z）。 */
-export function formatDateStamp(date: Date = new Date()): string {
+function formatDateStamp(date: Date = new Date()): string {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
 }
 
@@ -378,22 +373,22 @@ function credentialParts(credential: AuthLike): { ak: string; sk: string; st: st
 // ── 请求体改写 ───────────────────────────────────────────────────────────────
 
 /** DSML 工具模式的触发模型（**无日期后缀**的 deepseek-v4 flash/pro）。 */
-export const DSML_MODEL_PATTERN = /^deepseek-v4-(flash|pro)$/;
+const DSML_MODEL_PATTERN = /^deepseek-v4-(flash|pro)$/;
 /** 只有这些「大参数」工具才值得切 DSML（小参数工具保持标准 tool_calls）。 */
-export const DSML_LARGE_PARAM_TOOLS = ["write", "file_write", "apply_patch"];
+const DSML_LARGE_PARAM_TOOLS = ["write", "file_write", "apply_patch"];
 
 /** DSML magic string（`｜` 是 U+FF5C 全角竖线，逐字不可改）。 */
-export const DSML_TOOL_CALLS_OPEN = "<｜DSML｜tool_calls>";
-export const DSML_TOOL_CALLS_CLOSE = "</｜DSML｜tool_calls>";
-export const DSML_INVOKE_OPEN = "<｜DSML｜invoke name=\"...\">";
-export const DSML_INVOKE_CLOSE = "</｜DSML｜invoke>";
-export const DSML_PARAM_OPEN = "<｜DSML｜parameter name=\"...\" string=\"true\">";
-export const DSML_PARAM_CLOSE = "</｜DSML｜parameter>";
-export const THOUGHT_OPEN = "<thought>";
-export const THOUGHT_CLOSE = "</thought>";
+const DSML_TOOL_CALLS_OPEN = "<｜DSML｜tool_calls>";
+const DSML_TOOL_CALLS_CLOSE = "</｜DSML｜tool_calls>";
+const DSML_INVOKE_OPEN = "<｜DSML｜invoke name=\"...\">";
+const DSML_INVOKE_CLOSE = "</｜DSML｜invoke>";
+const DSML_PARAM_OPEN = "<｜DSML｜parameter name=\"...\" string=\"true\">";
+const DSML_PARAM_CLOSE = "</｜DSML｜parameter>";
+const THOUGHT_OPEN = "<thought>";
+const THOUGHT_CLOSE = "</thought>";
 
 /** 是否切 DSML 模式（仅 deepseek-v4 且工具列表含大参数写文件类工具）。 */
-export function needsDsmlToolMode(model: string, toolNames: readonly string[]): boolean {
+function needsDsmlToolMode(model: string, toolNames: readonly string[]): boolean {
   return DSML_MODEL_PATTERN.test(model) && toolNames.some((n) => DSML_LARGE_PARAM_TOOLS.includes(n));
 }
 
@@ -405,7 +400,7 @@ export function needsDsmlToolMode(model: string, toolNames: readonly string[]): 
  * （`terminated`）；DSML 走 `delta.content` 流式通道，实测 1000 行 write 全程
  * 最大静默仅 204ms。这也是本渠道**唯一**的「工具形态」分叉。
  */
-export function buildDsmlSystemPrompt(
+function buildDsmlSystemPrompt(
   tools: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }>,
 ): string {
   const schemas = tools
@@ -492,7 +487,7 @@ function resolveToolPairing(messages: readonly Record<string, unknown>[]): {
  * 图片块被丢弃（端点只接受文本——与 buddy / lobsterai 不同，那两个渠道必须
  * 显式报错或转 image_url）。
  */
-export function serializeMessages(messages: readonly unknown[]): Array<Record<string, unknown>> {
+function serializeMessages(messages: readonly unknown[]): Array<Record<string, unknown>> {
   const records = messages.filter(isRecord);
   const { keepCallIds, keepResultIds } = resolveToolPairing(records);
   const wire: Array<Record<string, unknown>> = [];
@@ -564,7 +559,7 @@ export function serializeMessages(messages: readonly unknown[]): Array<Record<st
  * 对话首条 user 文本 + 模型名派生**：同一条对话的后续请求得到同一个值
  * （前缀缓存能命中），不同对话得到不同的值。
  */
-export function deriveSessionKey(model: string, messages: readonly unknown[]): string {
+function deriveSessionKey(model: string, messages: readonly unknown[]): string {
   let firstUser = "";
   for (const message of messages) {
     if (!isRecord(message) || message["role"] !== "user") continue;
@@ -584,11 +579,6 @@ interface PendingChat {
 }
 
 let pendingChat: PendingChat | null = null;
-
-/** 仅供测试：读取/清空 pending 槽。 */
-export function peekPendingChat(): PendingChat | null {
-  return pendingChat;
-}
 
 /**
  * 把下游 OpenAI 请求改写成 CodeArts 能接受的形状。
@@ -681,7 +671,7 @@ export function buildChatBody(
  *
  * benefit（免费额度）是**按账号授予**的，目录与判定都要按这个键分桶。
  */
-export function accountKeyOf(credential: AuthLike): string {
+function accountKeyOf(credential: AuthLike): string {
   return credential.uid?.trim() || credential.accessKeyId?.trim() || "default";
 }
 
@@ -774,7 +764,7 @@ async function signedGet(
  * 与 `signedGet` 的差别：支持 POST + 请求体，且失败时**不**抛
  * `UpstreamUnauthorized` —— 领取 / 探测类接口失败不该让整条目录刷新挂掉。
  */
-export async function signedJson(
+async function signedJson(
   method: "GET" | "POST",
   url: string,
   credential: AuthLike,
@@ -851,7 +841,7 @@ export interface BenefitClaimResult {
  * 领取后同一模型立即可用
  * （[参考] reference/HITZY2002_codearts2api/docs/reverse-engineering.md:170-173）。
  */
-export async function claimBenefit(
+async function claimBenefit(
   credential: AuthLike,
   timeoutMs = HTTP_TIMEOUT_MS,
 ): Promise<BenefitClaimResult> {
@@ -1067,7 +1057,7 @@ export async function fetchModels(
  * 默认**开**（对齐官方客户端「打开模型菜单即调用」+ 参考实现默认自动领取）。
  * `CODEARTS_BENEFIT_AUTO_CLAIM=0` 可关掉（不想产生任何写请求时用）。
  */
-export function benefitAutoClaimEnabled(): boolean {
+function benefitAutoClaimEnabled(): boolean {
   const env = process.env["CODEARTS_BENEFIT_AUTO_CLAIM"];
   if (env && env.trim()) return !/^(0|false|no|off)$/i.test(env.trim());
   return true;
@@ -1106,7 +1096,7 @@ export type FailureKind =
  * `InferHub.4291.200` 这类额度码必须靠 `includes('4291')` 命中，
  * 而**不能**被下面的 429 边界正则误判成排队。
  */
-export function isQuotaExhaustedError(errorCode: string, message: string): boolean {
+function isQuotaExhaustedError(errorCode: string, message: string): boolean {
   return errorCode.includes("4291") || /insufficient[\s_-]+quota/i.test(message);
 }
 
@@ -1117,7 +1107,7 @@ export function isQuotaExhaustedError(errorCode: string, message: string): boole
  * 命中 `429` 前缀而被误判成「可重试排队」，进入 30 分钟静默重试、界面零输出
  * （真实缺陷，2026-10-02 实测 25 秒内 4 次 chat + 3 次探测、产出 0 chunk）。
  */
-export function isQueueRetryableError(status: number, body: string): boolean {
+function isQueueRetryableError(status: number, body: string): boolean {
   if (status === 404 && /InferHub\.002002009\.404|not registered/i.test(body)) return false;
   return (
     body.includes("TM.00001041") ||
@@ -1126,7 +1116,7 @@ export function isQueueRetryableError(status: number, body: string): boolean {
 }
 
 /** 该账号没有 benefit 包（去掉 `maas_type` 头重试一次即可）。 */
-export function isBenefitNotFoundError(errorCode: string): boolean {
+function isBenefitNotFoundError(errorCode: string): boolean {
   return errorCode === BENEFIT_NOT_FOUND_ERROR_CODE;
 }
 
@@ -1140,17 +1130,16 @@ export function isAuthError(status: number, body: string): boolean {
 }
 
 /** 上下文超限措辞（400 的两个分支靠它区分）。 */
-export function isContextWindowError(body: string): boolean {
+function isContextWindowError(body: string): boolean {
   return /context|token.{0,20}(limit|length|exceed)|max.{0,10}tokens|too long/i.test(body);
 }
 
 /**
  * 判定**流内错误帧**（HTTP 200 + `error_code`/`error_msg`）。
  *
- * 优先级不可颠倒（`llm-adapter.ts:1642-1662`）：
- * 额度用尽 → 排队/限流 → benefit 缺失 → 其它（INVALID_REQUEST）。
+ * 优先级不可颠倒：额度用尽 → 排队/限流 → benefit 缺失 → 其它（INVALID_REQUEST）。
  */
-export function classifyStreamError(errorCode: string, message: string): FailureKind {
+function classifyStreamError(errorCode: string, message: string): FailureKind {
   if (isQuotaExhaustedError(errorCode, message)) return "quota-exhausted";
   if (isQueueRetryableError(200, `${errorCode} ${message}`)) return "queue-retry";
   if (isBenefitNotFoundError(errorCode)) return "benefit-missing";
@@ -1164,7 +1153,7 @@ export function classifyStreamError(errorCode: string, message: string): Failure
  * 400 → context-window（命中上下文超限措辞）否则 invalid-request；
  * ≥500 → server；其它 → unknown。
  */
-export function classifyHttpError(status: number, body: string): FailureKind {
+function classifyHttpError(status: number, body: string): FailureKind {
   if (isAuthError(status, body)) return "auth";
   if (status === 429) return "rate-limit";
   if (status === 400) return isContextWindowError(body) ? "context-window" : "invalid-request";

@@ -1,6 +1,7 @@
 # Raccoon 协议规格（商汤小浣熊）
 
-提取自 `dsh-our-free-model/vendor/channel-pack/src/raccoon*.ts`。
+实现见 `packages/core/channels/raccoon/src/`；已移除路径的协议备查见
+[FINDINGS.md](./FINDINGS.md)。
 
 ---
 
@@ -17,15 +18,11 @@
    body: { "authorization_code": "<回调里的 authorization_code>" }
 ```
 
-### 为什么不采纳其它路径（四条判据，逐条可核对）
+### 为什么不采纳其它路径
 
-1. **零实测记录**：授权码路径有 2026-10-19 的端到端实测（见「使用与实测」），短信路径**一条都没有**。
-2. **结构上跑不通**：`send_sms` 的 `captcha_param` **必需**，而本仓**没有任何代码能产出阿里云滑块产物**
-   （旧 vendor 包里的本地登录页不在本仓，见 §2.6）⇒ 连第一步都发不出可用请求。
-3. **三份参考实现零背书**：agent2api 与 xiaohuanxiong2api 全树检索 `send_sms` / `login_with_sms` /
-   `aes-128-cfb` **零命中** —— 两家都只实现授权码一条。
-4. **历史唯一的「验证」是本机假服务替身**：渠道引入时的 selftest 用 `http://127.0.0.1:<fakePort>`
-   的假上游跑过 `sendSms`，`loginWithSms` 连一条测试都没有 —— 正是仓库「测试红线」禁止的形态。
+短信验证码链路（`send_sms` / `login_with_sms` / 阿里云滑块）**结构上跑不通、零实测、
+参考实现零背书**，故只保留授权码网页登录一条；「为什么删」的四条判据与协议备查见
+[FINDINGS.md](./FINDINGS.md)。
 
 另两条**协议事实级**的落选项同样不采纳：
 
@@ -98,8 +95,8 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 
 ## 2. 认证：唯一登录路径（授权码网页登录）
 
-**本渠道只有一条登录路径**：授权码网页登录（§2.4）。短信验证码链路（§2.5/§2.6）
-**已移除**，仅保留协议事实备查。
+**本渠道只有一条登录路径**：授权码网页登录（§2.4）。短信验证码链路与阿里云验证码
+**已移除**，仅保留协议事实备查（见 [FINDINGS.md](./FINDINGS.md)）。
 
 ### 2.1 必需请求头清单
 
@@ -130,7 +127,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 `reference/xiaohuanxiong2api/src/internal/upstream/client.go:103-108`）。
 多发通常无害，但是否被上游用于风控判定**未验证**（见 §8）。
 
-### 2.2 凭据字段（raccoon.ts:78-106）
+### 2.2 凭据字段（`packages/core/channels/raccoon/src/cred.ts:95-111`）
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
@@ -155,41 +152,17 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 ⚠ 本仓**只取原值**、不做 hex→十进制换算（换错了比空值更难排查）`[推断]`；
 真机确认哪个字段才是用户 id 之前不下定论（见 §8）。
 
-**过期时间取值优先级**（raccoon.ts:142-150）：
+**过期时间取值优先级**（`packages/core/channels/raccoon/src/cred.ts:173-186`）：
 `expires_at`（显式字段）→ **JWT 的 `exp`**（本地 base64url 解码 payload，**只解码不验签**）
 
 **回退到 JWT 是必需的，不是锦上添花**：`expires_at` 是可选字段，
 老凭据或手工导入的凭据可能没有它。只读 `expires_at` 会让过期判定**恒为 false**，
 于是 `refreshAll` 永远跳过这些账号 —— 表现为「凭据悄悄过期、续期从不触发」（静默失效，无任何报错）。
 
-### 2.3  手机号 AES-128-CFB 加密 —— **协议事实，无实现路径，仅备查**
+### 2.3 / 2.5 / 2.6 已移除的三条路径（协议事实备查）
 
-> ⚠ 本节描述的是**已移除的短信登录**所需的加密形态（算法形状与业务码是实测结论，
-> 有留档价值），**本仓已无任何实现**（`encryptPhone` 等函数已删）。保留它是为了
-> 将来若要恢复短信路径时有据可依；恢复前必须先解决 §2.5 的 `captcha_param` 来源问题。
-
-算法照抄客户端（渲染层模块 68284 的 `yv()`）：
-
-```
-key   = 16 字节公开常量（来自参考实现 / 客户端内嵌 bundle；本文档不落值）
-       ⇒ 16 字节 ⇒ AES-128
-iv    = 随机 16 字节
-mode  = CFB, padding = NoPadding
-输出  = Base64(iv ‖ ciphertext)
-```
-
-密钥：**16 字节的公开常量**（客户端硬编码在前端 bundle 里，不是安全边界）——
-本文档不落其值，实现侧也已无引用。
-
--  **公开常量**（客户端把它硬编码在前端 bundle 里），
- 只用于防止手机号明文出现在日志/代理里，**不是安全边界**
--  必须**显式**写 `aes-128-cfb`：密钥是 16 字节，写成 `aes-256-cfb` 会因长度不足而抛错
--  填充语义已实测：CFB 是流密码，`setAutoPadding(true/false)` 输出**完全一致**
-- Python 等价：`cryptography.hazmat.primitives.ciphers` 的
- `Cipher(algorithms.AES(key), modes.CFB(iv))`；或 `pycryptodome` 的
- `AES.new(key, AES.MODE_CFB, iv, segment_size=128)`
-
-**不加密的后果**：`send_sms` 回 `100003 params_encryted_error`。
+手机号 AES-128-CFB 加密、短信验证码登录、阿里云验证码三条路径**本仓均无实现**，
+协议形态、业务码与「为什么删」的四条判据见 [FINDINGS.md](./FINDINGS.md)。
 
 ### 2.4 唯一登录路径：授权码网页登录（本地回调）
 
@@ -224,58 +197,6 @@ body: { "authorization_code": "<回调里的 authorization_code>" }
 **为什么不用 `/login/mp?code=…`**：那条是**官方手机 App 扫码**专用（官方桌面端的
 二维码、网站自己的微信登录二维码都用它），但网页端**没有该路由** —— 真实浏览器
 打开只会落到 SPA 兜底页，是死链（真机踩过）。授权码链路才是「浏览器里能走通」的那条。
-
-### 2.5 已移除：短信验证码登录 —— **协议事实，无实现路径，仅备查**
-
-> ⚠ 本节**没有实现**（`sendSms` / `loginWithSms` 已删）。保留协议形态与业务码备查。
-
-**为什么删**（四条判据，逐条可核对）：
-
-1. **零实测记录**：授权码路径有 2026-10-19 的端到端实测（见「使用与实测」），短信路径**一条都没有**。
-2. **结构上跑不通**：`send_sms` 的 `captcha_param` **必需**，而本仓**没有任何代码能产出阿里云滑块产物**
-   （旧 vendor 包里的本地登录页不在本仓，见 §2.6）⇒ 连第一步都发不出可用请求。
-3. **三份参考实现零背书**：agent2api 与 xiaohuanxiong2api 全树检索 `send_sms` / `login_with_sms` /
-   `aes-128-cfb` **零命中** —— 两家都只实现授权码一条。
-4. **历史唯一的「验证」是本机假服务替身**：渠道引入时的 selftest 用 `http://127.0.0.1:<fakePort>`
-   的假上游跑过 `sendSms`，`loginWithSms` 连一条测试都没有 —— 正是仓库「测试红线」禁止的形态。
-
-**协议形态（备查）**：
-
-**第 1 步** 发短信：
-```
-POST https://xiaohuanxiong.com/api/web/auth/v1/send_sms
-body: {
- "captcha_param": "<阿里云滑块产物>",
- "nation_code": "86",
- "phone": "<AES-128-CFB 加密后 base64>"
-}
-```
-`captcha_param` **必需**（否则 `100006 captcha_verify_error`）。
-
-**第 2 步** 登录：
-```
-POST /api/web/auth/v1/login_with_sms
-body: { "nation_code": "86", "phone": "<加密后>", "sms_code": "<6位>" }
-→ { code: 0, data: { access_token, refresh_token, office_identity } }
-```
-
-### 2.6  阿里云验证码 —— **协议事实，无实现路径，仅备查**
-
-> ⚠ 旧 vendor 包的本地登录页（`raccoon-login-page.ts`）不在本仓；本仓**不加载**官方脚本。
-
-脚本与参数（来自旧实现）：
-
-```
-script src = https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js
-sceneId   = '1pkmy0x3'
-prefix    = 'hk1r5l'
-mode      = 'popup'
-slideStyle= { width: 320, height: 40 }
-language  = 'cn'
-```
-
-脚本未加载（离线/被拦截）时**退化为直接提交**（`captchaParam: ''`），
-让服务端报明确原因。
 
 ### 2.7 续期流程
 
@@ -322,7 +243,7 @@ GET https://xiaohuanxiong.com/api/web/auth/v1/user_info
 `office-raccoon://` 均可）。
 
 **短信登录链路已移除**（`send_sms` + `login_with_sms` 与手机号本地校验一并删除）——
-理由与协议备查见 §2.5；本渠道**只有授权码网页登录一条**。
+理由与协议备查见 [FINDINGS.md](./FINDINGS.md)；本渠道**只有授权码网页登录一条**。
 
 ---
 
@@ -529,7 +450,7 @@ def raccoon_supports_image(model_id, tags):
 它 3 次里只对 1 次。错误体暴露网关有 3 个 fallback 组
 （`raccoon-4eb26a` / `raccoon-0c119c` / `raccoon-ecc5fd`），**部分节点是纯文本的**。
 
-### 5.4 展示名规则（raccoon.ts:243-262）
+### 5.4 展示名规则（`packages/core/channels/raccoon/src/catalog.ts:224-254`）
 
 **1 倍也要显示**：省略 1 倍会让该模型在列表里**看起来没有计费信息**。
 
@@ -686,7 +607,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
  本插件起本地回调服务器自动收码，不再依赖 `office-raccoon://` 自定义协议。
  桌面端的自定义协议回调仍作为兼容 URL 被 `parseLoginCallback` 接受（手工/脚本注入）。
  浏览器登录页本身用官方同款 `/code/authorize`（见 §2.4）
-- **只有一条登录路径**：短信验证码链路已移除（见 §2.5 的四条判据），
+- **只有一条登录路径**：短信验证码链路已移除（见 [FINDINGS.md](./FINDINGS.md) 的四条判据），
   `X-Client-Version` / `X-Client-Device-ID` / `device_id` 随之退场
 - **端点表与基址解析唯一真源在 `src/upstream.ts`**：所有前缀、端点路径与完整 URL
   都在那里，`src/cred.ts` 单向导入它；**鉴权域与推理域共用同一个基址**
@@ -711,7 +632,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 网页**授权码链路**（**本渠道唯一登录路径**），两步：打开打印出的 `/code/authorize` 授权页用微信 / 验证码 / 密码登录 →
 页面自动跳回 `http://127.0.0.1:<port>/callback`，CLI 收到授权码并落盘，**无需粘贴**
-（协议细节见 §2.4 / §2.9；短信链路已移除，理由见 §2.5）。
+（协议细节见 §2.4 / §2.9；短信链路已移除，理由见 [FINDINGS.md](./FINDINGS.md)）。
 
 - 浏览器无法访问 localhost（远程环境）时，重新执行 `mx login raccoon`；
 - 也可用 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或 `office-raccoon://` 均可）。
@@ -731,7 +652,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 3. **账号池薄**：池内账号少，被判 `error` 后没有备选可切，网关直接回 503 `not_authenticated`；
    用 `mx relogin raccoon` 重新授权即可恢复（见下「实测」）。
 4. **只有一条登录路径**：短信验证码链路已移除（零实测、`captcha_param` 拿不到、
-   参考实现零背书 —— 见 §2.5）。要恢复必须先解决阿里云滑块产物的来源问题。
+   参考实现零背书 —— 见 [FINDINGS.md](./FINDINGS.md)）。要恢复必须先解决阿里云滑块产物的来源问题。
 5. **没有临期主动刷新**：只在 HTTP 401/403 时续期（access_token 寿命约 3 小时）；
    `TOKEN_REFRESH_WINDOW_SECONDS` 只是寿命记录，不是行为开关。
 
@@ -778,7 +699,7 @@ Reasonix CLI 直连网关（`raccoon/sn-glm-5-3-flash`，文档中亦记作 `glm
 
 - **登录路径收敛为一条**：删除短信登录（`sendSms` / `loginWithSms`）与其 AES 工具、
   `X-Client-Version` / `X-Client-Device-ID`、凭据里的 `device_id`（老凭据读到即忽略）。
-  协议事实保留在 §2.3 / §2.5 / §2.6。
+  协议事实保留在 [FINDINGS.md](./FINDINGS.md)（原 §2.3 / §2.5 / §2.6）。
 - **端点表与基址解析收敛到 `src/upstream.ts`**：新增 `channelBaseUrl()` 作为**唯一真源**，
   鉴权域与推理域共用同一个基址（修掉「登录在镜像、对话在官方」的分叉）；
   所有端点 builder 去掉 cfg 入参、改为可选的显式 override。
@@ -789,12 +710,13 @@ Reasonix CLI 直连网关（`raccoon/sn-glm-5-3-flash`，文档中亦记作 `glm
 ## 参考实现
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
+下表与 `packages/core/channels/raccoon/reference/` 下实际 clone 的目录逐条对应。
 
-| 仓库 | 用途 |
-| --- | --- |
-| [aimod-cc/agent2api](https://github.com/aimod-cc/agent2api) | 主参照（642 文件）：登录回调、请求头形态与错误分类 |
-| [swysgh/xiaohuanxiong2api](https://github.com/swysgh/xiaohuanxiong2api) | 协议补充参照 |
-| [xxhhlk/raccoon2api](https://github.com/xxhhlk/raccoon2api) | 接口结构参考（仅 README + LICENSE，信息量少） |
+| 仓库 | 关键文件 | 用途 |
+| --- | --- | --- |
+| [aimod-cc/agent2api](https://github.com/aimod-cc/agent2api) | `core/providers/raccoon/{mod,jwt,balance,credentials,models,oauth,onboarding}.rs`、`core/account_store/raccoon_{accounts,import}.rs` | 主参照（642 文件）：登录回调、请求头形态与错误分类 |
+| [swysgh/xiaohuanxiong2api](https://github.com/swysgh/xiaohuanxiong2api) | `src/internal/upstream/{client,catalog,jwt,oauth,balance}.go`、`src/internal/server/login.go`、`config.example.json` | 协议补充参照 |
+| [xxhhlk/raccoon2api](https://github.com/xxhhlk/raccoon2api) | `README.md` | 接口结构参考（仅 README + LICENSE，信息量少） |
 
 ## 已知边界
 
@@ -844,4 +766,4 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | V13 | `entitlement_info` 的真实响应形状 | 缺口 6 的实现成本 |
 | V14 | `bills` 的分页条数取 20 还是 50 | 缺口 18 |
 | V15 | `desktop/v1/login/points/grant` 的 `popup.points` 与账单 `event_name` 判据 | 本仓用「账单明细」判据，参考实现用「本地结算台账」，口径不同可能误判 |
-| V16 | 短信路径在**有**阿里云滑块产物时到底能不能走通 | 若能走通，§2.5 的「删除」结论要改成「保留但需手工 captcha」 |
+| V16 | 短信路径在**有**阿里云滑块产物时到底能不能走通 | 若能走通，[FINDINGS.md](./FINDINGS.md) 里 §2.5 的「删除」结论要改成「保留但需手工 captcha」 |

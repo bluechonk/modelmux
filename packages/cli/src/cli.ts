@@ -1,5 +1,5 @@
 /**
- * 仓库级 CLI 入口（bin 指向 dist/cli.js）。
+ * 仓库级 CLI 入口（`bin` 指向 dist/cli.bundle.js，即本文件的打包产物）。
  *
  * 只做两件事：注册**全部**渠道（`./channels.js` 的副作用）→ 交给共享 CLI。
  * 命令实现全在 `@modelmux/gateway`。

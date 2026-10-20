@@ -57,7 +57,7 @@ export const DISPLAY_NAME = "Qoder 国内版";
 export const WIRE = "custom" as const;
 
 /** COSY 协议版本（与官方 0.4.3 系列客户端对齐；实测可用）。 */
-export const COSY_VERSION = "1.1.64";
+const COSY_VERSION = "1.1.64";
 
 /*
  * 国内版三套 base 各自的用途（**互不通用**）。
@@ -75,7 +75,7 @@ export const COSY_VERSION = "1.1.64";
  */
 
 /** 推理端点**路径**（不含 query）。 */
-export const CHAT_PATH = "/algo/api/v2/service/pro/sse/agent_chat_generation";
+const CHAT_PATH = "/algo/api/v2/service/pro/sse/agent_chat_generation";
 
 /**
  * 推理端点的**必需 query**（一个都不能少，否则上游直接拒）。
@@ -89,14 +89,14 @@ export const CHAT_PATH = "/algo/api/v2/service/pro/sse/agent_chat_generation";
  * `reference/Zhengyuuuui_qoder2api/account/region.go:42`、
  * `reference/EchoPing07_Qoder-2API-Go/auth/auth.go:59`。[参考]
  */
-export const CHAT_QUERY: ReadonlyArray<readonly [string, string]> = [
+const CHAT_QUERY: ReadonlyArray<readonly [string, string]> = [
   ["FetchKeys", "llm_model_result"],
   ["AgentId", "agent_common"],
   ["Encode", "1"],
 ];
 
 /** 模型目录端点**路径**（不含 query）。 */
-export const MODELS_PATH = "/algo/api/v2/model/list";
+const MODELS_PATH = "/algo/api/v2/model/list";
 
 /**
  * 模型目录端点的**必需 query**：`Encode=1`（同样表示自定义编码体）。
@@ -104,7 +104,7 @@ export const MODELS_PATH = "/algo/api/v2/model/list";
  * 否则服务端校验签名与 body 不一致 → 403。
  * 证据：`reference/shuishuipingan_qoder2api-hub/qoder_proxy.py:2045-2046`。[参考]
  */
-export const MODELS_QUERY: ReadonlyArray<readonly [string, string]> = [["Encode", "1"]];
+const MODELS_QUERY: ReadonlyArray<readonly [string, string]> = [["Encode", "1"]];
 
 /** 把「路径 + 必需 query」拼成完整 URL 片段。 */
 function withQuery(path: string, query: ReadonlyArray<readonly [string, string]>): string {
@@ -140,7 +140,7 @@ export class UpstreamUnauthorized extends Error {
  *
  * 轮转公式（`a = floor(n/3)`）：`rearranged = std[n-a:] + std[a:n-a] + std[:a]`。
  */
-export function qoderEncode(plain: string | Buffer): string {
+function qoderEncode(plain: string | Buffer): string {
   const std = Buffer.from(plain).toString("base64");
   const n = std.length;
   const a = Math.floor(n / 3);
@@ -153,19 +153,6 @@ export function qoderEncode(plain: string | Buffer): string {
   return out;
 }
 
-/** `qoderEncode` 的逆运算（测试与调试用）。 */
-export function qoderDecode(encoded: string): Buffer {
-  let std = "";
-  for (const ch of encoded) {
-    const idx = CUSTOM_ALPHABET.indexOf(ch);
-    std += idx >= 0 ? STD_ALPHABET[idx] : ch === CUSTOM_PAD ? "=" : ch;
-  }
-  const n = std.length;
-  const a = Math.floor(n / 3);
-  const original = std.slice(n - a) + std.slice(a, n - a) + std.slice(0, a);
-  return Buffer.from(original, "base64");
-}
-
 // ── 紧凑排序 JSON 与 AES ─────────────────────────────────────────────────────
 
 /**
@@ -174,7 +161,7 @@ export function qoderDecode(encoded: string): Buffer {
  * ⚠ 服务端按同一套字节算签名/解密，所以**不能**用 `JSON.stringify(obj)` 直接产出
  * （它保持插入顺序）；必须按键排序，且 `null` 视作空串。
  */
-export function sortedCompactJson(mapping: Record<string, unknown>): string {
+function sortedCompactJson(mapping: Record<string, unknown>): string {
   const parts = Object.keys(mapping)
     .sort()
     .map((key) => {
@@ -199,7 +186,7 @@ function rsaWrap(key: string): Buffer {
 }
 
 /** 去掉 `/algo` 前缀 —— 服务端签名覆盖的是这个形态的 path。 */
-export function signPathOf(rawUrl: string): string {
+function signPathOf(rawUrl: string): string {
   let path: string;
   try {
     path = new URL(rawUrl).pathname;
@@ -222,7 +209,7 @@ interface Identity {
 }
 
 /** 一个账号的 COSY 会话（会话密钥 + 加密身份体，access token 轮换后重建）。 */
-export class CosySession {
+class CosySession {
   readonly cosyKey: string;
   readonly info: string;
   readonly machineId: string;
@@ -309,7 +296,7 @@ export class CosySession {
 const sessions = new Map<string, { token: string; session: CosySession }>();
 
 /** 取（必要时建）会话；token 轮换会让旧会话作废。 */
-export function sessionFor(credential: Credentials): CosySession {
+function sessionFor(credential: Credentials): CosySession {
   const key = credential.uid || credential.accessToken.slice(0, 16);
   const hit = sessions.get(key);
   if (hit && hit.token === credential.accessToken) return hit.session;
@@ -326,12 +313,6 @@ export function sessionFor(credential: Credentials): CosySession {
   return session;
 }
 
-/** **仅供测试**：清空会话缓存。 */
-export function resetSessionsForTest(): void {
-  sessions.clear();
-  pendingChat = null;
-}
-
 // ── 待签名槽（`buildChatBody` → `buildHeaders`） ──────────────────────────────
 
 let pendingChat: { body: string; url: string; modelKey: string } | null = null;
@@ -339,7 +320,7 @@ let pendingChat: { body: string; url: string; modelKey: string } | null = null;
 /** 当前请求该走哪个区域（由凭据的最近身份决定，见 cred.ts 的 `currentRealm`）。 */
 let activeRealm: Realm = currentRealm();
 
-export interface UpstreamConfig {
+interface UpstreamConfig {
   baseUrl: string;
   realm: Realm;
 }
@@ -420,7 +401,7 @@ export function modelsUrl(): string {
 }
 
 /** 该区域的全部推理主机候选（主选 + 故障切换）。 */
-export function gatewayCandidates(realm: Realm): string[] {
+function gatewayCandidates(realm: Realm): string[] {
   return [...productOf(realm).gateway];
 }
 
@@ -478,7 +459,7 @@ function lastUserText(messages: ChatMessage[]): string {
  * - `imageUrls` 恒 `null`（图片走 `messages[].content` 的多模态数组）
  * - 顶层 `tools` 无工具时给**空数组**，不是缺字段
  */
-export function buildRequestBody(
+function buildRequestBody(
   req: Record<string, unknown>,
   modelKey: string,
   meta: { displayName?: string; isVl?: boolean; isReasoning?: boolean; maxInputTokens?: number } = {},
@@ -628,12 +609,12 @@ export function buildChatBody(
 }
 
 /** 模型目录端点要带一个空的编码 body（否则签名与 body 不一致 → 403）。 */
-export function emptyEncodedBody(): string {
+function emptyEncodedBody(): string {
   return qoderEncode("{}");
 }
 
 /** 为模型目录请求构造签名头（不经过 pending 槽，直接用给定 body）。 */
-export function modelsHeaders(credential: Credentials): Record<string, string> {
+function modelsHeaders(credential: Credentials): Record<string, string> {
   activeRealm = credential.realm;
   const body = emptyEncodedBody();
   const session = sessionFor(credential);

@@ -31,8 +31,6 @@ const { fetchWithTimeout, hostOf, decodeJwtPayload, jwtExpMs } = sharedLogin;
 
 export const DEFAULT_BASE_URL = "https://orcaterm.com";
 
-/** 腾讯云开放平台给 OrcaTerm 的 app_id（客户端可见，非密钥）。 */
-export const TXCLOUD_APP_ID = "100045893348";
 /** OAuth 入口（`/oauth/authorize`）：带任意 `session_id` 即 302 到平台授权页。 */
 const OAUTH_AUTHORIZE_URL = `${DEFAULT_BASE_URL}/oauth/authorize`;
 
@@ -46,7 +44,7 @@ const CAPI_URL = `${DEFAULT_BASE_URL}/cgi/api`;
 // ── URL 构造 ─────────────────────────────────────────────────────────────────
 
 /** OAuth 入口 URL（带 session_id，值任意；OrcaTerm 会 302 到平台授权页）。 */
-export function buildAuthEntryUrl(sessionId: string, baseUrl = DEFAULT_BASE_URL): string {
+function buildAuthEntryUrl(sessionId: string, baseUrl = DEFAULT_BASE_URL): string {
   const entry = baseUrl === DEFAULT_BASE_URL ? OAUTH_AUTHORIZE_URL : `${baseUrl}/oauth/authorize`;
   return `${entry}?provider=txcloud&source=desktop&session_id=${encodeURIComponent(sessionId)}`;
 }
@@ -54,7 +52,7 @@ export function buildAuthEntryUrl(sessionId: string, baseUrl = DEFAULT_BASE_URL)
 // ── 换 token ─────────────────────────────────────────────────────────────────
 
 /** 在响应 JSON 里递归找 AccessToken。 */
-export function findAccessToken(value: unknown): string {
+function findAccessToken(value: unknown): string {
   if (Array.isArray(value)) {
     for (const v of value) {
       const hit = findAccessToken(v);
@@ -73,7 +71,7 @@ export function findAccessToken(value: unknown): string {
 }
 
 /** 取响应里的错误描述。 */
-export function exchangeError(json: unknown): string {
+function exchangeError(json: unknown): string {
   const err = (json as { data?: { Response?: { Error?: { Code?: string; Message?: string } } } })?.data
     ?.Response?.Error;
   return err ? `${err.Code ?? "?"}: ${err.Message ?? ""}` : "no AccessToken in response";
@@ -85,7 +83,7 @@ export function exchangeError(json: unknown): string {
  * 实测：sessionId 是**我们自己生成**的那个，浏览器登录完成后即可换取；
  * 未完成/不存在时统一报 TOKEN_EXPIRED（所以轮询只能看「有没有 AccessToken」）。
  */
-export async function exchangeSessionToken(
+async function exchangeSessionToken(
   sessionId: string,
   baseUrl = DEFAULT_BASE_URL,
 ): Promise<{ token: string; raw: unknown } | { error: string; raw: unknown }> {
@@ -110,7 +108,7 @@ export async function exchangeSessionToken(
  *
  * state 由 orcaterm 服务端生成（每次调用都不同），必须用服务端下发的。
  */
-export async function resolvePlatformAuthorizeUrl(
+async function resolvePlatformAuthorizeUrl(
   sessionId: string,
   baseUrl = DEFAULT_BASE_URL,
 ): Promise<string> {
@@ -134,7 +132,7 @@ export class NotLoggedInError extends Error {
   }
 }
 
-export interface Credentials {
+interface Credentials {
   /** ot_session 的原文（HS256 JWT）。 */
   accessToken: string;
   /** OrcaTerm 用户 id（JWT userId）。 */
@@ -163,7 +161,7 @@ const EMPTY_CREDENTIALS: Credentials = {
 };
 
 /** 解析 ot_session (JWT) → 凭据字段。 */
-export function decodeOtSession(
+function decodeOtSession(
   token: string,
   provider = "txcloud",
   baseUrl = DEFAULT_BASE_URL,
@@ -184,7 +182,7 @@ export function decodeOtSession(
 }
 
 /** token 指纹（脱敏）。 */
-export function fingerprint(token: string): string {
+function fingerprint(token: string): string {
   if (!token) return "(none)";
   return `${token.slice(0, 8)}…${token.slice(-4)} (len ${token.length})`;
 }
@@ -248,7 +246,7 @@ export async function save(c: Credentials): Promise<void> {
 
 // ── 登录 ──────────────────────────────────────────────────────────────────────
 
-export interface LoginOptions {
+interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (msg: string) => void;
 }

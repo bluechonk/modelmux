@@ -1,21 +1,14 @@
 /**
- * 自动签到调度器：网关 running 后逐渠道尝试每日签到。
+ * 自动签到调度器：网关 running 后逐渠道尝试每日签到（启动后跑一轮，此后每
+ * `CHECK_INTERVAL_MS` 轮询一次，覆盖网关跨天常驻的场景）。
  *
- * ## 触发规则
+ * 关键约束：
+ *  - **未登录渠道直接跳过**：不发任何网络请求（登录必须用户主动触发）
+ *  - **台账已签（今天）跳过**：不再问上游（台账见 `signin-ledger.ts`）
+ *  - **单渠道连败 3 次 → 当日熔断**：计数落盘 `state/auto-signin.json`，日期翻篇清零
  *
- * - 网关启动（`runServe` 里网关进入 running）后触发一轮；此后每 `CHECK_INTERVAL_MS`
- *   轮询一次，捕获「网关跨天常驻」的场景（凌晨新的一天到来时自动补签）。
- * - **未登录渠道直接跳过**：不发任何网络请求（风控要求：登录必须用户主动触发）。
- * - **台账已签（今天）跳过**：本地台账（`state/signin.json`）记着今天领过，
- *   不再问上游 —— 状态登记在领取成功/上游回填时由签到链路自己完成。
- * - **单渠道连败 3 次 → 当日熔断**：失败计数落盘 `state/auto-signin.json`
- *   （跨重启累计；守护进程随时可能被 restart，内存计数撑不住）。日期翻篇自动清零。
- *
- * ## 与渠道签到契约的关系
- *
- * 完全复用 `signin.status()` / `signin.claim()` 契约，不做任何渠道特判；
- * 成功记账走同一个 `recordClaim`，所以 `mx status <cid>` 里的签到摘要
- * 对自动签到天然可见。
+ * 复用 `signin.status()` / `signin.claim()` 契约，不做渠道特判；成功记账走同一个
+ * `recordClaim`，`mx status <cid>` 的签到摘要天然可见。
  */
 
 import { channelCapabilities, channels, type Channel, type SigninStatus } from "../runtime/channel.js";

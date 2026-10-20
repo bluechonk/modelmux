@@ -1,3 +1,11 @@
+/**
+ * 控制台 API 客户端：统一封装 `/web/api/*` 的读写（演示模式下换成内存数据）。
+ *
+ * 关键约束：
+ *  - 基址固定为 `<origin>/web`（单端口模式下 UI 与控制台 API 共用网关端口）
+ *  - 演示模式由构建期常量 `__DEMO_MODE__` 判定，真实构建里该分支被静态消除
+ */
+
 import type {
   ChannelInfo,
   ChannelPool,

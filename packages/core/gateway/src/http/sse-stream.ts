@@ -31,7 +31,7 @@ export class StreamError extends Error {
  *
  * 变量名取自渠道的 `debugDumpEnv`。值为 `1`/`true` 时落到渠道层内的
  * `debug/`；其余值必须是**绝对路径**。未设置则返回 null —— 抓包是 opt-in，
- * 默认不落盘（见 STORAGE-CONVENTION.md §4.5）。
+ * 默认不落盘（见 STORAGE-CONVENTION.md §3 第 5 条）。
  */
 function debugDumpDir(cid?: string): string | null {
   const { config } = getChannel(cid);

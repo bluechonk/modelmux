@@ -24,7 +24,7 @@ import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
 /** 额度单位。 */
-export const UNIT = "积分";
+const UNIT = "积分";
 
 /** 额度查询/领取失败。 */
 export class CreditsError extends Error {
@@ -32,7 +32,7 @@ export class CreditsError extends Error {
 }
 
 /** 任务 key → 积分与标题（顺序即执行顺序，合计 10000）。 */
-export const ONBOARDING_TASKS: Array<{ key: string; amount: number; label: string }> = [
+const ONBOARDING_TASKS: Array<{ key: string; amount: number; label: string }> = [
   { key: "first_message", amount: 500, label: "发送你的第一条消息" },
   { key: "pick_skill", amount: 1000, label: "试试选择一个技能" },
   { key: "generate_ppt", amount: 1500, label: "生成第一份 PPT" },
@@ -44,9 +44,8 @@ export const ONBOARDING_TASKS: Array<{ key: string; amount: number; label: strin
 ];
 
 const TASK_AMOUNT = new Map(ONBOARDING_TASKS.map((t) => [t.key, t.amount]));
-const TASK_LABEL = new Map(ONBOARDING_TASKS.map((t) => [t.key, t.label]));
 
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   remain: number;
   size: number;
@@ -56,7 +55,7 @@ export interface CreditPackage {
   [key: string]: unknown;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   total: {
     remain: number;
@@ -176,7 +175,7 @@ export async function fetchCredits(
   };
 }
 
-export interface ClaimResult {
+interface ClaimResult {
   status: "completed" | "already-claimed" | "failed" | "skipped";
   key: string;
   amount: number;
@@ -190,7 +189,7 @@ export interface ClaimResult {
  * ⚠ 上报 body **只有 `key`**。未知 key → `100001` → `CreditsError`；
  * 登录失效 → `100002` → `NotLoggedInError`（调用方应立即终止后续请求）。
  */
-export async function claim(key: string, c?: cred.Credentials): Promise<ClaimResult> {
+async function claim(key: string, c?: cred.Credentials): Promise<ClaimResult> {
   const credential = c ?? cred.load();
   const amount = TASK_AMOUNT.get(key) ?? 0;
   let data: Record<string, unknown>;
@@ -216,7 +215,7 @@ export async function claim(key: string, c?: cred.Credentials): Promise<ClaimRes
   };
 }
 
-export interface ClaimAllResult {
+interface ClaimAllResult {
   earned: number;
   results: ClaimResult[];
 }
@@ -228,7 +227,7 @@ export interface ClaimAllResult {
  * - **不采信服务端 `earned`**，按本地表算
  * - 任一任务收到 `100002`（登录失效）时**立即抛出**，不再对后续任务发请求
  */
-export async function claimAll(): Promise<ClaimAllResult> {
+async function claimAll(): Promise<ClaimAllResult> {
   const c = cred.load();
   let completed: Record<string, unknown> = {};
   try {
@@ -251,46 +250,6 @@ export async function claimAll(): Promise<ClaimAllResult> {
     if (result.status === "completed") earned += task.amount;
   }
   return { earned: round2(earned), results };
-}
-
-export interface DailyQuotaResult {
-  status: "claimed" | "already-claimed" | "failed";
-  daily_quota?: number;
-  current_balance?: number;
-  error?: string;
-}
-
-/**
- * 触发每日额度初始化（**写**端点，幂等）。
- *
- * ⚠ 幂等判据是响应体的 `alreadyProcessed` → 映射成 `already-claimed`；
- * ⚠ 本函数**不抛错**（失败也返回 `failed`），供 UI 的「一键签到」按钮调用。
- */
-export async function triggerDailyQuota(): Promise<DailyQuotaResult> {
-  let c: cred.Credentials;
-  try {
-    c = cred.load();
-  } catch (err) {
-    return { status: "failed", error: String(err) };
-  }
-  try {
-    const data = await upstream.triggerFirstLogin(c);
-    const already = data["alreadyProcessed"] === true;
-    const dailyQuota = numOrNull(data["dailyQuota"]);
-    const balance = numOrNull(data["currentBalance"]);
-    return {
-      status: already ? "already-claimed" : "claimed",
-      ...(dailyQuota === null ? {} : { daily_quota: dailyQuota }),
-      ...(balance === null ? {} : { current_balance: balance }),
-    };
-  } catch (err) {
-    return { status: "failed", error: String(err) };
-  }
-}
-
-/** 任务标题（供 UI 展示）。 */
-export function taskLabel(key: string): string {
-  return TASK_LABEL.get(key) ?? key;
 }
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────

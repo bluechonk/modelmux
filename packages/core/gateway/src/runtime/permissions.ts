@@ -1,8 +1,7 @@
 /**
  * 权限基线：存储根与渠道层 0700，层内文件 0600（Windows 上 chmod 意义有限，忽略失败）。
  *
- * 历史迁移逻辑（legacyDirs 收拢 / fileMigrations 收敛）已随 modelmux 更名整体移除——
- * 不再兼容旧目录布局，只维护权限。
+ * 只维护权限，不做目录收拢或文件迁移（存储布局见 docs/STORAGE-CONVENTION.md §3 第 6 条）。
  */
 
 import { chmodSync, readdirSync, statSync } from "node:fs";

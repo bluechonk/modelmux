@@ -1,18 +1,11 @@
 /**
- * 运行日志落盘：按「类型 / 日期 / 结果」分文件，绝不把所有日志堆进一个文件。
- *
- * 布局（见 docs/LOGGING.md）：
- *
- *   <root>/logs/
- *   ├── access/<YYYY-MM-DD>/{success,failure,other,slow}.log
- *   ├── error/<YYYY-MM-DD>/error.log
- *   ├── system/<YYYY-MM-DD>/{gateway,lifecycle,worker}.log
- *   └── channels/<cid>/<YYYY-MM-DD>.log
+ * 运行日志落盘：按「类型 / 日期 / 结果」分文件，绝不把所有日志堆进一个文件
+ * （文件清单见 docs/LOGGING.md §2，轮转与保留见 §6）。
  *
  * 规则：
- * - 每类文件独立大小上限（默认 10MB），超限轮转 `<name>.1.log` … 最多保留 3 份；
- * - 日期目录按本地时区切分，默认保留 14 天，过期目录在当日首次写入时清理；
- * - 所有写入 best-effort：日志失败绝不影响请求。
+ *  - 每类文件独立大小上限（默认 10MB），超限轮转 `<name>.1.log` … 最多保留 3 份
+ *  - 日期目录按本地时区切分，默认保留 14 天，过期目录在当日首次写入时清理
+ *  - 所有写入 best-effort：日志失败绝不影响请求
  */
 
 import { randomUUID } from "node:crypto";

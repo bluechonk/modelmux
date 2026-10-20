@@ -1,3 +1,9 @@
+/**
+ * 控制台布局：左侧栏导航 + 主内容区，侧栏底部常驻网关状态灯。
+ *
+ * 状态灯 3 秒轮询一次 `/web/api/state`：运行中=绿、查询失败=红、其余=灰（启动中）。
+ */
+
 import { NavLink, Outlet } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Layers, LayoutDashboard, Plug, Users } from "lucide-react";

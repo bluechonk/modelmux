@@ -26,7 +26,7 @@ import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
 /** 一条模型条目（本渠道内部形态）。 */
-export interface ModelEntry {
+interface ModelEntry {
   /** 上游 key（`x-model-key` / 请求体 `model_config.key` 用它）。 */
   key: string;
   /** 对外 id（池内名）。 */
@@ -247,7 +247,7 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
 }
 
 /** 读目录：磁盘缓存优先，缓存缺失/为空时退回内置表。 */
-export function loadCatalog(): ModelEntry[] {
+function loadCatalog(): ModelEntry[] {
   try {
     // 缓存条目运行期带着渠道自己的字段（key / display_name…），类型上只保证 `id`
     const cached = readCatalogCache();
@@ -280,7 +280,7 @@ export function exposedIds(): string[] {
 }
 
 /** 按对外 id 取完整条目（供 upstream 填 `model_config` 元数据）。 */
-export function entryOf(name: string): ModelEntry | null {
+function entryOf(name: string): ModelEntry | null {
   const wanted = name.toLowerCase();
   return loadCatalog().find((entry) => entry.id.toLowerCase() === wanted) ?? null;
 }

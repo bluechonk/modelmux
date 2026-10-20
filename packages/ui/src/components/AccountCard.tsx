@@ -1,3 +1,9 @@
+/**
+ * 账号池卡片：展示某渠道下的账号列表、额度与切换/新增/删除操作。
+ *
+ * 数据形状直接吃后端 `/web/api/commands` 的宽松 JSON（见下方 `AccountPool`）。
+ */
+
 import { Plus, Trash2, UserCheck } from "lucide-react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";

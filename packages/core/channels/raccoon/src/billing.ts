@@ -24,13 +24,13 @@ import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
 /** 额度单位。 */
-export const UNIT = "积分";
+const UNIT = "积分";
 
 /** 登录奖励的伪 campaign id（本地编排用，服务端没有这个字段）。 */
-export const LOGIN_REWARD_CAMPAIGN_ID = "desktop-login-reward";
+const LOGIN_REWARD_CAMPAIGN_ID = "desktop-login-reward";
 
 /** 默认额度（服务端只回 `granted` 与 `popup.points` 时兜底展示）。 */
-export const LOGIN_REWARD_POINTS = 3000;
+const LOGIN_REWARD_POINTS = 3000;
 
 /** 已领判据：账单里存在这条记录（`biz_type` + `event_name` 缺一不可）。 */
 const REWARD_BIZ_TYPE = "reward_grant";
@@ -41,7 +41,7 @@ export class CreditsError extends Error {
   override name = "CreditsError";
 }
 
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   remain: number;
   size: number;
@@ -51,7 +51,7 @@ export interface CreditPackage {
   [key: string]: unknown;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   total: {
     remain: number;
@@ -204,7 +204,7 @@ export async function fetchCredits(
  * ⚠ 服务端没有单独的奖励状态端点，故只能查账单明细；
  * ⚠ 查询失败时**保守返回 `claimed: false`**（宁可多显示一次领取按钮）。
  */
-export async function loginRewardClaimed(c?: cred.Credentials): Promise<boolean> {
+async function loginRewardClaimed(c?: cred.Credentials): Promise<boolean> {
   let credential: cred.Credentials;
   try {
     credential = c ?? cred.load();
@@ -225,12 +225,6 @@ export async function loginRewardClaimed(c?: cred.Credentials): Promise<boolean>
   } catch {
     return false;
   }
-}
-
-export interface RewardResult {
-  status: "claimed" | "already-claimed" | "failed";
-  points: number;
-  error?: string;
 }
 
 // ── 每日签到（setting_info 触发 + 账单核对）────────────────────────────────────
@@ -286,7 +280,7 @@ async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
  * 官方桌面端每次启动都会打这个接口；发放由服务端完成，本函数的返回值只是
  * 发放通知（`point_grant_popups` / `point_grant_toast`），**不是**结果判据。
  */
-export async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<string, unknown>> {
+async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<string, unknown>> {
   const credential = c ?? cred.load();
   const result = await getJson(upstream.settingInfoUrl(), credential, true, 25_000);
   if (result.status === 401 || result.status === 403 || result.code === 200003) {
@@ -299,55 +293,6 @@ export async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<st
     popups: result.data["point_grant_popups"] ?? null,
     toast: result.data["point_grant_toast"] ?? null,
   };
-}
-
-/**
- * 领取桌面端登录奖励（**幂等一次性**，不是每日签到）。
- *
- * ⚠ **需要 `X-Client-Platform` 头**（依据主进程 `resolveDesktopClientPlatform`，
- * `win32` → `desktop-windows`；猜错会被拒）；
- * ⚠ 幂等判据是 `granted`，`false` → `already-claimed`；
- * ⚠ 本函数**不抛错**（失败也返回 `failed`）。
- */
-export async function claimLoginReward(c?: cred.Credentials): Promise<RewardResult> {
-  let credential: cred.Credentials;
-  try {
-    credential = c ?? cred.load();
-  } catch (err) {
-    return { status: "failed", points: 0, error: String(err) };
-  }
-  let resp: Response;
-  try {
-    resp = await fetch(upstream.loginGrantUrl(), {
-      method: "POST",
-      headers: headers(credential, true), // platform 必需
-      signal: AbortSignal.timeout(20_000),
-    });
-  } catch (err) {
-    return { status: "failed", points: 0, error: `Claim request failed: ${String(err)}` };
-  }
-  let payload: unknown = null;
-  try {
-    payload = await resp.json();
-  } catch {
-    /* 非 JSON */
-  }
-  const record = isRecord(payload) ? payload : {};
-  const code =
-    typeof record["code"] === "number" ? (record["code"] as number) : resp.status >= 400 ? resp.status : 0;
-  if (resp.status >= 400 || code !== 0) {
-    return {
-      status: "failed",
-      points: 0,
-      error: `Claim failed: HTTP ${resp.status} code=${code} ${cred.envelopeMessage(payload)}`,
-    };
-  }
-  const data = isRecord(record["data"]) ? (record["data"] as Record<string, unknown>) : {};
-  const popup = isRecord(data["popup"]) ? (data["popup"] as Record<string, unknown>) : {};
-  const points = num(popup["points"]) ?? LOGIN_REWARD_POINTS;
-  if (data["granted"] === true) return { status: "claimed", points };
-  // 幂等判据是 granted → false 映射成 already-claimed（不是 claimed）
-  return { status: "already-claimed", points: 0 };
 }
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────

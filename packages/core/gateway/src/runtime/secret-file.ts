@@ -2,8 +2,8 @@
  * 含密文件的写入：**临时文件 + 同目录 rename + 0600**。
  *
  * 为什么要单独一个模块：账号池（`accounts.json` / `accounts/<key>.json`）与签到台账
- * （`state/signin.json`）都是"写坏了会丢登录态/丢记录"的文件，必须同一套原子写 + 权限，
- * 而不是各写一遍。渠道自己的 `cred.save()` 也用同样的模式（见 STORAGE-CONVENTION.md §4.6）。
+ * （`state/signin.json`）都是「写坏了会丢登录态/丢记录」的文件，必须同一套原子写 + 权限，
+ * 而不是各写一遍。渠道自己的 `cred.save()` 也用同样的模式（见 docs/STORAGE-CONVENTION.md §3 第 6、7 条）。
  *
  * 崩溃语义：写入过程中断只会留下一个 `.tmp`，目标文件要么是旧的完整内容、要么是新的完整内容。
  */

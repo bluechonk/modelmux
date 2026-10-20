@@ -234,7 +234,7 @@ function ensureCachedModels(): void {
 }
 
 /** 当前目录（上游缓存优先，缺则兜底）。 */
-export function loadCatalog(): CatalogEntry[] {
+function loadCatalog(): CatalogEntry[] {
   ensureCachedModels();
   if (_remote && _remote.length > 0) return [..._remote];
   return FALLBACK_MODELS.map((e) => ({ ...e }));
@@ -382,19 +382,4 @@ export function modelTypeOf(id: string): number {
   const fallback = MODEL_TYPE_FALLBACK[id.toLowerCase()];
   if (fallback !== undefined) return fallback;
   throw new Error(`unknown model id: ${id}`);
-}
-
-/** 全量目录（不过滤家族），供状态页展示。 */
-export function details(): Record<string, unknown>[] {
-  return loadCatalog().map((e) => ({
-    id: e.id,
-    display_name: e.name,
-    model_type: e.modelType,
-    reasoning: e.reasoning,
-    context_window: e.contextWindow,
-    description: e.description,
-    supports_images: e.supportsImages,
-    multiplier: e.multiplier,
-    marketing: e.marketing,
-  }));
 }

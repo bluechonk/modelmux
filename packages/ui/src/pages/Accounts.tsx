@@ -1,3 +1,7 @@
+/**
+ * 账号池页：各渠道凭据、账号列表与额度，支持添加账号（登录弹窗）与账号切换。
+ */
+
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
