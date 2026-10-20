@@ -742,7 +742,13 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ## 7. 其他特殊机制与坑
 
-- **machine_id 默认不轮换**：只有 `DSH_TRAE_ROTATE_MACHINE_ID=1` 时每 4 次请求派生一代
+- **machine_id 登录后从不轮换**：本仓 `machine_id` 登录时**一次生成**并落盘
+  （`packages/core/channels/traecn/src/cred.ts:553` 的 `generateMachineId()`），
+  之后只读不改 —— 缺失时补齐的分支也保持「同一账号恒定」
+  （`packages/core/channels/traecn/src/cred.ts:693-697`），请求头恒发该值
+  （`packages/core/channels/traecn/src/upstream.ts:248`）。`[代码]`
+  ⚠ `DSH_TRAE_ROTATE_MACHINE_ID=1`「每 4 次请求派生一代」是**参考实现**的开关与行为，
+  **本仓没有这个环境变量、也不轮换 machine_id**。`[参考]`
 - **签到设备轮换代次**：`deriveCheckinDeviceId` = `sha256(base#genN)` 前 32 hex；
  9074 是 **device_id 级**限流
 - **思考档位**：`reasoning_effort_config.options` 是单值字符串（既展示名也是 wire 值）；
