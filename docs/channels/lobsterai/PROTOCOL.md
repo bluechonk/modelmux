@@ -285,11 +285,15 @@ URL：`POST {apiBase}/api/proxy/v1/chat/completions`
 
 ### 4.1 think 标签归位（lobsterai-adapter.ts:1563-1593）
 
+⚠ 本节描述的是**参考实现（`lobsterai-adapter.ts`）**的行为；`splitThinkTaggedContent`
+与下述环境变量**本仓代码里都不存在**，照抄无效。
+
 收尾**无条件**调用 `splitThinkTaggedContent` —— `</think:hex>` 标签**前**的内心独白
 归入 reasoning 块，标签**后**的才是正文。
 
 逐帧探测必然漏判（实测二分帧 7/11 漏），故**不能加「先探测有没有标签」的门禁**。
-裸 `</think>` 兜底剥离**默认关闭**（`DSH_THINK_LEAK_STRIP=1` 才启用）。
+裸 `</think>` 兜底剥离**默认关闭** —— 开启靠的是**参考实现的环境变量**
+`DSH_THINK_LEAK_STRIP=1`；**本仓没有这个环境变量，也就没有这个开关**。`[参考]`
 
 ### 4.2 空闲超时与 finish reason
 

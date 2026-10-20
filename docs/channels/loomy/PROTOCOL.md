@@ -474,8 +474,9 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 
 全部 8 条的 `efforts` 都是 `['none','low','medium','high','xhigh']`，兜底 `defaultEffort = 'high'`。
 
-`spark-x` 是**已知分歧**：远端声明 1048576，而 Loomy 客户端用本地表
-`MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144。
+`spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
+`MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144
+—— ⚠ 该符号是**客户端**的，**本仓没有** `[参考]`。
 本表**先采信远端**；若实测长上下文被拒，改为 262144。
 
 ⚠ 上表的**倍率**是 2026-09-26 的快照：`spark-x` 当时是 `x0.1`，而 2026-10-19 的实测

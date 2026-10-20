@@ -60,8 +60,9 @@ interface FallbackModel {
  * 兜底静态模型表（9 条，源：2026-10-19 实测 `GET /api/v1/models` 的 `type === 'chat'`，
  * 新增 `DeepSeek-V4.1-Flash`；`spark-x` 倍率从 x0.1 改为 x0.0 免费）。
  *
- * ⚠ `spark-x` 是**已知分歧**：远端声明 1048576，而 Loomy 客户端用本地表
- * `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144。
+ * ⚠ `spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
+ * `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144
+ * —— 该符号是**客户端的**，本仓没有。
  * 本表**先采信远端**；若实测长上下文被拒，改为 262144。
  */
 const FALLBACK_MODELS: FallbackModel[] = [
