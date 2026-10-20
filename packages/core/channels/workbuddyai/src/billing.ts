@@ -27,7 +27,7 @@ export class CreditsError extends Error {
 }
 
 /** 一个套餐包的额度明细。 */
-export interface CreditPackage {
+interface CreditPackage {
   name: string;
   product: string;
   remain: number;
@@ -40,7 +40,7 @@ export interface CreditPackage {
   in_usage: boolean;
 }
 
-export interface CreditsResult {
+interface CreditsResult {
   ok: true;
   account: { uid: string; domain: string };
   total: {

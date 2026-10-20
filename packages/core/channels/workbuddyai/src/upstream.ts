@@ -203,7 +203,7 @@ export const WIRE: "openai" | "custom" = "openai";
  *   `ckldy/internal/upstream/client.go:223`；`Tom6814/codebuddy_direct_api.py:62`。
  * [实测] 模型载荷声明的 `/plugin` 前缀实测 404（见文件头注释），故不使用该前缀。
  */
-export const DEFAULT_CHAT_PATH = "/v2/chat/completions";
+const DEFAULT_CHAT_PATH = "/v2/chat/completions";
 
 /**
  * 连接配置 + 窄表端点（**不是**桌面端目录）。
@@ -256,7 +256,7 @@ export interface Config {
  * 刻意只声明这几个字段而不是 import `cred.Credentials` —— 那会形成
  * upstream ↔ cred 的循环依赖。
  */
-export interface AuthLike {
+interface AuthLike {
   accessToken: string;
   uid: string;
   domain: string;
@@ -393,7 +393,7 @@ export function modelsUrl(cfg?: Config): string {
  * 参考 `ardeyouxipianyi_workbuddy2api-hub` 的 `REMOTE_CONFIG_PATH`：
  * “The narrow endpoint is not the desktop catalogue”。
  */
-export function catalogUrl(cfg?: Config): string {
+function catalogUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
   return `${trimSlash(normalizeBaseUrl(resolved.baseUrl))}${CATALOG_PATH}`;
 }
@@ -484,16 +484,6 @@ export function buildChatHeaders(credential: AuthLike, cfg?: Config): Record<str
     "X-Request-ID": messageId,
     ...traceHeaders(),
   };
-}
-
-/** 兼容旧调用形态：把鉴权头就地合并进 `headers`。 */
-export function applyAuth(
-  headers: Record<string, string>,
-  cfg: Config,
-  token: string,
-  uid: string,
-): void {
-  Object.assign(headers, buildHeaders({ accessToken: token, uid, domain: "" }, cfg));
 }
 
 type Rec = Record<string, unknown>;
@@ -1018,7 +1008,7 @@ export async function fetchModels(
 }
 
 /** 目录行（已归一成 catalog.parseRow 能读的字段名）。 */
-export interface CatalogRow {
+interface CatalogRow {
   id: string;
   name?: string;
   maxInputTokens?: number;
@@ -1042,7 +1032,7 @@ export interface CatalogRow {
  * 逐模型元数据散在 `models[]`（`id` / `name` / `maxInputTokens` / `supportsImages` /
  * `input_modalities`）。两份都要拼起来，只有 id 的表也并非不可用（名字退回 id）。
  */
-export function parseCatalogPayload(payload: unknown): CatalogRow[] {
+function parseCatalogPayload(payload: unknown): CatalogRow[] {
   const root = asRecord(payload);
   if (!root) return [];
   const scopes: Rec[] = [root];
@@ -1174,7 +1164,7 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 }
 
 /** 翻译器接口（契约要求所有渠道都导出，即使 `WIRE === "openai"` 用不到）。 */
-export interface StreamTranslator {
+interface StreamTranslator {
   feed(chunk: Buffer): Array<Buffer | string>;
   finish(): Array<Buffer | string>;
 }

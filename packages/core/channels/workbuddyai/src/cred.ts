@@ -107,7 +107,7 @@ export interface Credentials {
   source: string;
 }
 
-export const EMPTY_CREDENTIALS: Credentials = {
+const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   refreshToken: "",
   tokenType: "",
@@ -139,7 +139,7 @@ export function resolveBaseUrl(_realm = "auto"): string {
 }
 
 /** 从 base URL 提取主机名（转发共享层原语）。 */
-export function hostOf(baseUrl: string): string {
+function hostOf(baseUrl: string): string {
   return sharedLogin.hostOf(baseUrl);
 }
 
@@ -479,7 +479,7 @@ function pastedAuthError(raw: string): string {
   return "";
 }
 
-export interface LoginOptions {
+interface LoginOptions {
   onUrl?: (url: string) => void;
   onStatus?: (message: string) => void;
   /**
@@ -605,9 +605,3 @@ export async function refresh(c: Credentials): Promise<Credentials> {
   await save(next);
   return next;
 }
-
-/**
- * 兼容别名：现规范名等同 `paths.credentialsPath()` 的文件名部分
- * （凭证落点由共享层按 cid 推导，见 docs/STORAGE-CONVENTION.md）。
- */
-export const CREDENTIALS_FILE = "credentials.json";
