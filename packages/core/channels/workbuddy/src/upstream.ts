@@ -90,7 +90,7 @@ export const DISPLAY_NAME = "WorkBuddy";
 export const WIRE: "openai" | "custom" = "openai";
 
 /** 已验证的 chat-completions 路由（见文件头注释）。 */
-export const DEFAULT_CHAT_PATH = "/v2/chat/completions";
+const DEFAULT_CHAT_PATH = "/v2/chat/completions";
 
 /** 上游 API 拒绝了访问令牌（HTTP 401/403）。 */
 export class UpstreamUnauthorized extends Error {
@@ -109,7 +109,7 @@ export class UpstreamUnauthorized extends Error {
  * `[参考]` 码表与分层表：`reference/xiaofan6ya_workbuddy2api/docs/protocol-reference.md:1904-1952`
  * （码表）、`:1869-1889`（分层表）。本表只抄「码 → 语义 → 处置」的对应关系。
  */
-export type UpstreamErrorKind =
+type UpstreamErrorKind =
   /** 该后端无此模型（确定性）→ 换模型 */
   | "model_block"
   /** 模型级日额度 / 模型繁忙 → 换模型或换号 */
@@ -227,7 +227,7 @@ const HARD_CREDIT_MARKERS = [
 ];
 
 /** 一次上游错误的归一化结论。 */
-export interface UpstreamErrorInfo {
+interface UpstreamErrorInfo {
   kind: UpstreamErrorKind;
   /** 上游业务码（信封里的 code）；取不到为 null。 */
   code: number | null;
@@ -287,26 +287,6 @@ function parseUpstreamEnvelope(body: string): { code: number | null; message: st
 }
 
 /**
- * 判断「HTTP 200 但体内是错误信封」。
- *
- * 上游会把内部故障塞进 200 的响应体里（例如 `{"code":-32603,"message":"Internal error",
- * "data":{"details":"ENOSPC: no space left on device","category":"internal"}}`）——
- * 只看状态码的实现会把这种响应当成成功（`[参考]` hub
- * docs/protocol-reference.md:2011-2038）。
- */
-export function isErrorEnvelope(payload: unknown): boolean {
-  const root = asDict(payload);
-  if (!root) return false;
-  const rawCode = root["code"];
-  if (typeof rawCode === "number" && Number.isFinite(rawCode) && rawCode !== 0) return true;
-  if (root["error"] !== undefined && root["error"] !== null) return true;
-  const data = asDict(root["data"]);
-  if (!data) return false;
-  if (data["category"] === "internal") return true;
-  return /ENOSPC/i.test(String(data["details"] ?? ""));
-}
-
-/**
  * 限流重置时间：**优先读响应头**（机器契约），其次才看响应体文案。
  *
  * 头序：`Retry-After`（整数秒，最权威；日期形态按官方行为忽略）→
@@ -314,7 +294,7 @@ export function isErrorEnvelope(payload: unknown): boolean {
  * `x-ratelimit-reset`（epoch 秒或 HTTP 日期）。
  * `[参考]` hub docs/protocol-reference.md:1891-1902。
  */
-export function resetAtFromHeaders(headers: Headers | undefined): number | null {
+function resetAtFromHeaders(headers: Headers | undefined): number | null {
   if (!headers) return null;
   const now = Date.now();
   const retryAfter = headers.get("retry-after");
@@ -439,7 +419,7 @@ export interface Config {
  * 刻意只声明这几个字段而不是 import `cred.Credentials` —— 那会形成
  * upstream ↔ cred 的循环依赖。
  */
-export interface AuthLike {
+interface AuthLike {
   accessToken: string;
   uid: string;
   domain: string;
@@ -611,7 +591,7 @@ const MODELS_PATHS = [
 ] as const;
 
 /** 候选模型端点完整 URL（按优先级）。 */
-export function modelsUrls(cfg?: Config): string[] {
+function modelsUrls(cfg?: Config): string[] {
   const resolved = cfg ?? loadConfig()[0];
   return MODELS_PATHS.map((path) => trimSlash(resolved.baseUrl) + path);
 }
@@ -629,7 +609,7 @@ export function modelsUrl(cfg?: Config): string {
  * 含 `deepseek-v4.1-flash`）。参考 `ardeyouxipianyi_workbuddy2api-hub` 的
  * `REMOTE_CONFIG_PATH`：“The narrow endpoint is not the desktop catalogue”。
  */
-export function catalogUrl(cfg?: Config): string {
+function catalogUrl(cfg?: Config): string {
   const resolved = cfg ?? loadConfig()[0];
   return `${trimSlash(resolved.baseUrl)}/v3/config`;
 }
@@ -736,20 +716,6 @@ export function buildChatHeaders(credential: AuthLike, cfg?: Config): Record<str
     "X-Request-ID": messageId,
     ...traceHeaders(),
   };
-}
-
-/** 兼容旧调用形态：把鉴权头就地合并进 `headers`。 */
-export function applyAuth(
-  headers: Record<string, string>,
-  cfg: Config,
-  token: string,
-  uid: string,
-): void {
-  // 域取配置里的 chat 上游 host（与旧的「无域则用 host 兜底」行为一致）。
-  Object.assign(
-    headers,
-    buildHeaders({ accessToken: token, uid, domain: hostOf(cfg.baseUrl) }, cfg),
-  );
 }
 
 type Rec = Record<string, unknown>;
@@ -1247,7 +1213,7 @@ export async function fetchModels(
 }
 
 /** 目录行（已归一成 catalog.parseRow 能读的字段名）。 */
-export interface CatalogRow {
+interface CatalogRow {
   id: string;
   name?: string;
   maxInputTokens?: number;
@@ -1440,7 +1406,7 @@ function mergeCatalogRows(primary: unknown[], secondary: unknown[]): unknown[] {
  * 也选不中，选中后上游回 `code=11102`（`[参考]` go
  * `internal/upstream/client.go:1470-1473`）。
  */
-export function parseCatalogPayload(payload: unknown): CatalogRow[] {
+function parseCatalogPayload(payload: unknown): CatalogRow[] {
   const root = asRecord(payload);
   if (!root) return [];
   const scopes: Rec[] = [root];
@@ -1562,7 +1528,7 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 }
 
 /** 翻译器接口（契约要求所有渠道都导出，即使 `WIRE === "openai"` 用不到）。 */
-export interface StreamTranslator {
+interface StreamTranslator {
   feed(chunk: Buffer): Array<Buffer | string>;
   finish(): Array<Buffer | string>;
 }
