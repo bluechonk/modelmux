@@ -32,7 +32,7 @@ import { createCipheriv, createHash, publicEncrypt, randomUUID, constants as cry
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
-import type { StreamTranslator } from "@modelmux/gateway";
+import { openaiNormalize, type StreamTranslator } from "@modelmux/gateway";
 
 import {
   currentGatewayHost,
@@ -428,6 +428,19 @@ interface ChatMessage {
   content: unknown;
   tool_calls?: unknown;
   tool_call_id?: string;
+  /** 思考链（OpenAI 形态）。 */
+  reasoning_content?: unknown;
+  /** 思考链（部分客户端用这个别名）。 */
+  reasoning?: unknown;
+}
+
+/** DeepSeek 上游 key：多轮需要 `reasoning_content`，缺了上游会拒 `[参考]`。 */
+const DEEPSEEK_MODEL_KEYS = new Set(["dmodel", "dfmodel"]);
+
+/** 本次请求是否打到 DeepSeek（按上游 key 或展示名判断）。 */
+function isDeepSeekModel(modelKey: string, displayName: string): boolean {
+  if (DEEPSEEK_MODEL_KEYS.has(modelKey.toLowerCase())) return true;
+  return /deepseek/i.test(modelKey) || /deepseek/i.test(displayName);
 }
 
 /** 取最后一条 user 消息的纯文本（上游用它做高亮与会话名）。 */
@@ -451,6 +464,14 @@ function lastUserText(messages: ChatMessage[]): string {
 }
 
 /**
+ * ## 与共享层的分工
+ *
+ * 通用 OpenAI 形状修复（工具声明嵌套化、输出上限别名、思考链回填）在共享层
+ * `http/openai-normalize.ts`；本模块只留**渠道特有**的判据（哪个上游模型族要求
+ * 思考链字段）与上游私有请求体（`chat_context` / `model_config` 等）的字段形状。
+ * 与国际版 `qoder` 是同一套协议的两个域，归一化口径完全一致。
+ */
+/**
  * OpenAI 请求 → Qoder 请求体（明文）。
  *
  * 字段清单来自 `PROTOCOL.md` §3.1 与参考实现的 `baseprompt.json` 模板。几个**必须**的点：
@@ -467,12 +488,34 @@ function buildRequestBody(
 ): Record<string, unknown> {
   const rawMessages = Array.isArray(req["messages"]) ? (req["messages"] as ChatMessage[]) : [];
   const systems = rawMessages.filter((m) => m.role === "system");
-  const rest = rawMessages.filter((m) => m.role !== "system");
+  // 逐条浅拷贝：共享层的思考链回填是**就地改写**，不能污染网关持有的原始 payload
+  const rest = rawMessages.filter((m) => m.role !== "system").map((m) => ({ ...m }));
 
   const systemText = systems
     .map((m) => (typeof m.content === "string" ? m.content : ""))
     .filter(Boolean)
     .join("\n\n");
+
+  /**
+   * DeepSeek 多轮一致性：assistant 历史缺 `reasoning_content` 会被上游拒
+   * （参考实现 `shuishuipingan/qoder2api-hub/qoder_proxy.py:2754-2781`）`[参考]`。
+   *
+   * 协议事实（与共享层默认口径不同，用选项表达）：
+   * - 上游只认 `reasoning_content`，不认旧字段 `reasoning` → 不镜像；
+   * - 只有「会话里已出现过思考链」才回填 —— 本轮要思考不足以触发，
+   *   没有链时补空串反而会污染上游的判断。
+   *
+   * 模型族判据（上游 key）在渠道侧，共享层不按模型名过滤（前缀传空串）。
+   */
+  const deepseek = isDeepSeekModel(modelKey, meta.displayName ?? "");
+  const hasTrace = deepseek && openaiNormalize.hasReasoningTrace(rest);
+  if (hasTrace) {
+    openaiNormalize.backfillReasoningContent(rest, req, {
+      modelPrefix: "",
+      mirrorReasoning: false,
+      requireExistingTrace: true,
+    });
+  }
 
   const messages: Array<Record<string, unknown>> = [];
   if (systemText) messages.push({ role: "system", content: systemText });
@@ -480,15 +523,28 @@ function buildRequestBody(
     const out: Record<string, unknown> = { role: m.role, content: m.content };
     if (m.tool_calls) out["tool_calls"] = m.tool_calls;
     if (m.tool_call_id) out["tool_call_id"] = m.tool_call_id;
+    if (hasTrace && m.role === "assistant") {
+      out["reasoning_content"] = m.reasoning_content ?? "";
+    }
     messages.push(out);
   }
 
   const prompt = lastUserText(rawMessages);
   const requestId = randomUUID();
-  const tools = Array.isArray(req["tools"]) ? req["tools"] : [];
+  // 工具声明归一成嵌套 `function` 形态（共享层；上游要求 `tools[].function` 是对象）
+  const tools = openaiNormalize.normalizeToolList(req["tools"]);
 
   const parameters: Record<string, unknown> = {};
-  if (typeof req["max_tokens"] === "number") parameters["max_tokens"] = req["max_tokens"];
+  /**
+   * `max_completion_tokens` 是 OpenAI 新别名，上游只认 `max_tokens`。
+   *
+   * 别名归一在共享层（与参考实现同口径，见
+   * `shuishuipingan/qoder2api-hub/qoder_proxy.py:2851-2862`）`[参考]`。
+   */
+  const limits: Record<string, unknown> = { ...req };
+  openaiNormalize.translateMaxCompletionTokens(limits);
+  const limit = limits["max_tokens"];
+  if (typeof limit === "number") parameters["max_tokens"] = limit;
   if (typeof req["reasoning_effort"] === "string") {
     parameters["reasoning_effort"] = req["reasoning_effort"];
   }

@@ -33,10 +33,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import { writeFile, rename, chmod } from "node:fs/promises";
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { upstreamPath, ensureDir, openaiNormalize } from "@modelmux/gateway";
+import { upstreamPath, ensureDir, openaiNormalize, writeJsonFile } from "@modelmux/gateway";
 
 import * as catalog from "./catalog.js";
 
@@ -536,11 +535,7 @@ export function loadConfig(): [Config, boolean] {
 /** 持久化上游描述符（临时文件 + 原子替换，避免半截文件）。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 function trimSlash(value: string): string {
@@ -668,7 +663,7 @@ export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string,
   // 企业身份：`X-Enterprise-Id` 与 `X-User-Id` 必须**成对**出现 ——
   // dsh 实测：/v3/config 上只带 X-User-Id 选不中任何东西、只带 X-Enterprise-Id
   // 被直接拒；企业账号不带这对头会被**静默回个人目录**（18 vs 19 个模型，
-  // dsh `src/upstream.ts:522-532`）。缺企业 id（或缺 uid，成对不成立）时
+  // dsh `reference/dsh-workbuddy-connect/src/upstream.ts:522-532`）。缺企业 id（或缺 uid，成对不成立）时
   // 按官方约定发 X-No-Enterprise-Id。
   if (credential.enterpriseId && credential.uid) {
     headers["X-Enterprise-Id"] = credential.enterpriseId;

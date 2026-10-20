@@ -170,7 +170,7 @@ mx log --kind access --outcome failure -f    # 持续跟随
 | --- | --- |
 | 日志函数不接收凭据字段：token / Cookie / Authorization 不作为参数传给任何日志接口 | 实现事实（`log-store.ts` 的接口里没有这类字段） |
 | 错误说明截断到 800 字符 | 实现事实（`noteRequestError`） |
-| **上游响应体片段会落盘**：上游非 2xx 时，网关取响应体前 2048 字符放入 Error 文本，经 `logger()` 写入 `system/<date>/gateway.log`；该行命中 §5 关键词规则时，同一文本另写入 `error/<date>/error.log` | 实现事实（`chat-relay.ts` 的上游错误分支 + `headless.ts` 的 `logLine` 路由） |
+| **上游响应体片段会落盘**：上游非 2xx 时，网关取响应体前 2048 字符放入 Error 文本，经 `logger()` 写入 `system/<date>/gateway.log`；该行命中 §5 关键词规则时，同一文本另写入 `error/<date>/error.log` | 实现事实（`chat-upstream.ts` 的上游错误分支 + `chat-attempt.ts` 的错误日志 + `headless.ts` 的 `logLine` 路由） |
 | **上游响应体不脱敏**：若上游在错误响应里回显了凭据，该片段会被原样记录（受上述两级截断约束） | 调用方与渠道实现的约束：不得让上游错误体包含凭据 |
 | 渠道维度日志的 `<cid>` 必须匹配 `^[a-z0-9][a-z0-9.-]*$`，否则该行被丢弃 | 实现事实（`appendChannel`） |
 | 日志只写在本机存储根下，不进入 git（`~/.modelmux` 不在仓库内） | 目录约定 |

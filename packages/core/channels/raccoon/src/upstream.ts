@@ -26,9 +26,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { chmod, rename, writeFile } from "node:fs/promises";
 
-import { ensureDir, upstreamPath } from "@modelmux/gateway";
+import { ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
 
 /** 展示名（状态页与错误文案用）。 */
 export const DISPLAY_NAME = "Raccoon";
@@ -206,11 +205,7 @@ export function channelBaseUrl(opts: { override?: string } = {}): string {
 /** 持久化上游描述符（临时文件 + 原子替换）。 */
 export async function saveConfig(cfg: Config): Promise<void> {
   ensureDir();
-  const path = upstreamPath();
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
-  await chmod(path, 0o600).catch(() => {});
+  writeJsonFile(upstreamPath(), cfg);
 }
 
 // ── 端点 URL（基址一律走 channelBaseUrl）─────────────────────────────────────

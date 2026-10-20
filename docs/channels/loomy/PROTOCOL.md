@@ -65,7 +65,7 @@
 
 超时：业务请求 60s，模型目录 30s（对应 `LOOMY_REQUEST_TIMEOUT_MS = 60_000`）。
 
-### 业务成功/错误码（`packages/core/channels/loomy/src/upstream.ts:40-42`）
+### 业务成功/错误码（`packages/core/channels/loomy/src/upstream.ts:39-41`）
 
 ```
 LOOMY_OK_CODE         = '000000'   业务成功

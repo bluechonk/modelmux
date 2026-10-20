@@ -53,8 +53,8 @@ export {
   type SigninOutcome,
 } from "./runtime/channel.js";
 
-// 含密文件的原子写（账号池 / 签到台账共用）
-export { writeSecretFile, writeJsonSecret } from "./runtime/secret-file.js";
+// 原子写盘（含密文件与上游连接配置共用）
+export { writeSecretFile, writeJsonSecret, writeJsonFile } from "./runtime/secret-file.js";
 
 // 签到台账（本地记"我们最后一次领到是什么时候"）
 export * as signinLedger from "./auth/signin-ledger.js";

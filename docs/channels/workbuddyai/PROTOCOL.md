@@ -235,7 +235,7 @@
 端点与鉴权形态见 hub `wb_accounts.py:1339-1381`。
 
 **触发时机**：本渠道是**纯被动** —— 上游回 401/403 才刷一次
-（`packages/core/gateway/src/http/chat-relay.ts:316-328`），登录后探测失败也刷一次
+（`packages/core/gateway/src/http/chat-auth.ts:62-74`），登录后探测失败也刷一次
 （`packages/core/gateway/src/auth/auth-flow.ts:96-99`）。
 参考实现是**主动**的（hub `wb_accounts.py:1205-1217` 剩余 ≤120s 先刷；
 ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷），
@@ -562,6 +562,19 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）
   两项都未做），所以 429 只会如实上报。
 - 文档中该业务码的归类见国内版兄弟渠道 `workbuddy` 的 §4.1：`6004` 属
   `model_rate`（日额度 / 模型繁忙）→ 处置是「换模型或换号」。
+
+### 2026-10-20 下半日：上游会话失效（账号侧，非协议回归）
+
+下午复测（归一化下沉 + 共享层管线拆分后）本渠道**仍失败**，但症状变了：
+
+- 上游回**「not logged in: run the login subcommand, open the printed authorization URL
+  in a browser, then retry.」**（网关 access 日志 `status: 502`、`upstream_ms: 340`）。
+- **不是本轮改动的回归**：本渠道最后一次成功在 **2026-10-19 23:05（北京时间）**，
+  首次失败在 **2026-10-20 00:32** —— 比本轮改动（当日 12:30 之后）**早约 12 小时**；
+  且同协议的兄弟渠道 `workbuddy` 在同一份共享层代码下**实测通过**。
+- 本地凭据**未过期**（`expiresAt` 到 2027-10-18），`mx bill workbuddyai` 也能通
+  （剩余 100/100）→ 说明**上游侧会话已被注销**（与上午的 429 限额同源的账号问题）。
+- **恢复办法**：重新走一次登录（`mx login workbuddyai`），或换一个账号入池。
 
 ---
 

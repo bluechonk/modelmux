@@ -21,8 +21,12 @@ modelmux/                     ← 仓库根 = 工作区根
 │       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
 │       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）
 │       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
-│       ├── http/      网关与转发：gateway / chat-relay / sse-stream / console /
-│       │              web-command-handler / portfree
+│       ├── http/      网关与转发：gateway / chat-relay（编排）/ chat-request（请求解析）/
+│       │              chat-route（池路由）/ chat-attempt（单候选尝试）/ chat-forward（转发层）/
+│       │              chat-stream（帧与中继）/ chat-queue（排队探测）/ chat-auth（鉴权链路）/
+│       │              chat-upstream（建连与空闲守卫）/ chat-candidates / chat-errors /
+│       │              chat-channel / sse-stream / openai-normalize（通用 OpenAI 归一化）/
+│       │              console / web-command-handler / portfree
 │       ├── app/       进程编排：cli / daemon / headless / supervisor / process-utils /
 │       │              stale-build / web / report / account-cli
 │       └── index.ts   对外的统一出口
@@ -245,9 +249,9 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 - `buildChatHeaders?(credential, cfg)`：对话请求的**专用头族**（上游按整组头判定
   「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
-  （`packages/core/gateway/src/http/chat-relay.ts:186`）；普通 OpenAI 兼容渠道无需声明。
+  （`packages/core/gateway/src/http/chat-upstream.ts:93`）；普通 OpenAI 兼容渠道无需声明。
 - `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
-  （`packages/core/gateway/src/http/chat-relay.ts:517-533`）。参数是**网关已经建好的
+  （`packages/core/gateway/src/http/chat-attempt.ts:301-319`）。参数是**网关已经建好的
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
   会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
   （`packages/core/gateway/src/runtime/channel.ts:200-203`）。
@@ -302,7 +306,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 **错误帧的 `code` 一律是字符串**：上游给的可能是数字，直接透传会让
 按 `error.code: string` 解码的客户端整帧解码失败。翻译器产出错误帧时必须
 `String(...)` 归一（`packages/core/channels/catpaw/src/upstream.ts:1024`、
-`packages/core/channels/traecn/src/upstream.ts:942`）。
+`packages/core/channels/traecn/src/upstream.ts:938`）。
 共享层提取错误帧时也只认字符串 `code`，数字码会被丢掉，报错里就没有错误码了
 （`packages/core/gateway/src/http/sse-stream.ts:224`）。
 
@@ -331,7 +335,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 `buildHeaders(credential)` 拿得到。凡是「按账号授予」的上游属性（免费额度标记、
 按账号路由的端点等），判定都要放在 `buildHeaders()`，用 `credential.uid` 作账号键，
 并按账号分桶落盘 —— 否则多账号场景下会把一个账号的标记发给另一个账号。
-参考实现见 `packages/core/channels/codearts/src/upstream.ts:694-722`。
+参考实现见 `packages/core/channels/codearts/src/upstream.ts:689-717`。
 
 ### 5.3 `catalog.ts`
 

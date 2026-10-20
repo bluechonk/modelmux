@@ -4,7 +4,7 @@
  * 结构：
  * - 本文件：`createHandler`（路由分发）/ `makeApp` / `start` / `describe` / `splitAddr`
  * - `chat-relay.ts`：聊天转发的**编排**（候选排序、失败转移、结果回传）—— 由 handleChat 承载
- * - `chat-channel/candidates/errors/stream/queue.ts`：转发链路的分块（帧、排队、错误、候选）
+ * - `chat-channel/candidates/errors/stream/queue/upstream/auth.ts`：转发链路的分块（帧、排队、错误、候选、建连、鉴权）
  * - `sse-stream.ts` / `portfree.ts`：SSE 规范化与端口自愈
  *
  * 渠道差异全部由注册的 `Channel`（`upstream` / `cred` / `catalog`）提供，
