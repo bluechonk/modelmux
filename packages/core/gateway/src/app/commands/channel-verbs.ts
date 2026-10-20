@@ -17,21 +17,43 @@ import * as headless from "../headless.js";
 import * as report from "../report.js";
 import { CommandContext, listLocalModels, listLogins, runModelGroup } from "./model-group.js";
 
-export const CHANNEL_VERBS: ReadonlyArray<readonly [string, string]> = [
-  ["status", "状态：带 <cid> = 该渠道；不带 = 仓库级聚合（全部渠道）"],
-  ["login", "登录渠道：`login <cid>`；`login list` 列出可登录渠道与状态"],
-  ["relogin", "重新授权：清掉现有凭据后重走登录流程（`relogin <cid>`）"],
-  ["model", "模型：`model <cid>` 查看该渠道目录；`model list` 查看池视图"],
-  ["bill", "额度 / 账单：带 <cid> = 该渠道；不带 = 全部渠道（只读，不经网关）"],
-  ["acct", "账号池：`acct [<cid>] list|use <key>|add|remove <key>`"],
-  ["path", "存储落点与文件：`path [<cid>]`（只读）"],
-  ["log", "日志尾部：`log [<cid>]`（带 -f 持续输出）"],
+/** 渠道动词的说明项（帮助里按 group 分组展示）。 */
+export interface ChannelVerb {
+  /** 动词名。 */
+  name: string;
+  /** 帮助里的用法形态。 */
+  usage: string;
+  /** 一句话说明。 */
+  summary: string;
+  /** 帮助里的分组。 */
+  group: "模型" | "渠道";
+}
+
+/**
+ * 渠道动词表。
+ *
+ * `usage` / `summary` 面向**一眼能看懂**：用法形态与一句话说清，不写实现细节。
+ */
+export const CHANNEL_VERBS: readonly ChannelVerb[] = [
+  { name: "status", usage: "status [<cid>]", summary: "状态（不带 = 全部渠道）", group: "渠道" },
+  { name: "login", usage: "login <cid> | login list", summary: "登录（授权 URL 打到终端）", group: "渠道" },
+  { name: "relogin", usage: "relogin <cid>", summary: "清凭据后重新授权", group: "渠道" },
+  { name: "model", usage: "model <cid> [--refresh]", summary: "某渠道的模型目录", group: "模型" },
+  { name: "bill", usage: "bill [<cid>]", summary: "额度 / 账单（只读）", group: "渠道" },
+  {
+    name: "acct",
+    usage: "acct <cid> list|use|add|remove",
+    summary: "账号池（<key> 见 acct list）",
+    group: "渠道",
+  },
+  { name: "path", usage: "path [<cid>]", summary: "存储落点（只读）", group: "渠道" },
+  { name: "log", usage: "log [<cid>]", summary: "日志尾部（-f 持续输出）", group: "渠道" },
 ];
 
 /** 目录的来源，决定 CLI 怎么向用户交代这次列的是哪份数据。 */
 
 export function isChannelVerb(verb: string): boolean {
-  return CHANNEL_VERBS.some(([v]) => v === verb);
+  return CHANNEL_VERBS.some((v) => v.name === verb);
 }
 
 /**
@@ -97,7 +119,7 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
     default:
       console.error(
         `未知动词: ${verb}\n` +
-          `用法: mx <动词> [<cid>]；可用动词: ${CHANNEL_VERBS.map(([v]) => v).join(" / ")}`,
+          `用法: mx <动词> [<cid>]；可用动词: ${CHANNEL_VERBS.map((v) => v.name).join(" / ")}`,
       );
       return 2;
   }

@@ -235,9 +235,14 @@ describe("1. 常见命令与帮助", () => {
       const r = await run(argv);
       assert.equal(r.code, 0, argv.join(" "));
       assert.ok(r.out.includes("用法:"), "有用法说明");
-      assert.ok(r.out.includes("按渠道操作"), "有按渠道操作一节");
+      assert.ok(r.out.includes("网关:"), "有网关命令一节");
+      assert.ok(r.out.includes("模型:"), "有模型命令一节");
+      assert.ok(r.out.includes("渠道:"), "有渠道命令一节");
       assert.ok(r.out.includes("示例:"), "有中文示例");
       assert.ok(r.out.includes("--json"), "选项有中文说明");
+      // 一眼能看完：帮助的行数有上限（改帮助时别让它膨胀回去）
+      const lines = r.out.split("\n").length;
+      assert.ok(lines <= 45, `帮助不超过 45 行（当前 ${lines} 行）`);
     }
   });
 
