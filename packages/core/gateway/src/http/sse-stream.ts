@@ -168,12 +168,12 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
     .map(([, call]) => call)
     .filter((call) => call.name);
 
-  const message: AggregatedChoice["message"] = {
-    role: "assistant",
-    // 纯工具调用消息：OpenAI 规范给 `content: null`，但严格客户端解 null 会失败 →
-    // 这里**省略该键**（缺失对多数解析器等价于空串）。
-    content: contentParts.length > 0 ? contentParts.join("") : calls.length > 0 ? undefined : "",
-  };
+  const message: AggregatedChoice["message"] = { role: "assistant" };
+  // 纯工具调用消息：OpenAI 规范给 `content: null`，但严格客户端（Go 的 `Content string`）
+  // 解 null 会整帧失败 → 这里**根本不设该键**（不是设成 undefined —— 键存在即会被序列化器
+  // 当成「有这个字段」，缺失对多数解析器等价于空串）。
+  if (contentParts.length > 0) message.content = contentParts.join("");
+  else if (calls.length === 0) message.content = "";
   if (reasoningParts.length > 0) message.reasoning_content = reasoningParts.join("");
   if (calls.length > 0) {
     message.tool_calls = calls.map((call) => ({
