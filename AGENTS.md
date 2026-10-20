@@ -28,8 +28,8 @@ npm run gate                      # 【推送前必须】WSL 门禁：clone → 
 npm run verify:pages              # 本地复现 Pages 工作流构建并校验产物（改了 packages/ui 或 workflow 时）
 npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道（也走引用链）
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
-node packages/cli/dist/cli.js model list    # 池视图：动态模型 → 候选渠道 + 账单用量 + 冷却
-node packages/cli/dist/cli.js model usage   # 池账本；--refresh 立刻重查
+node packages/cli/dist/cli.js model list    # 池视图：有哪些模型（按渠道分组）
+node packages/cli/dist/cli.js model usage   # 池账本：各渠道用得怎么样（每渠道一行）；--refresh 立刻重查
 node packages/cli/dist/cli.js <动词> [<cid>]  # 渠道动词：status / login / relogin / model / bill / acct / path / log
 node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调试/回归用；只有它才用该渠道的 defaultAddr）
 ```
@@ -168,7 +168,9 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 6. **共享层内部单向分层**（`scripts/verify-layering.mjs` 在 `npm test` 里强制）：
    `runtime(0) < pool(1) / auth(1) < http(2) < app(3)` —— **只能 import 层级 ≤ 自己的目录**，
    向上依赖一律失败。`index.ts` 是桶导出，不受限。
-   - `runtime/` = 渠道 SDK（channel / paths / account-pool / secret-file / catalog-cache / cli-consts / logger（日志节流）/ log-store（分层落盘））
+   - `runtime/` = 渠道 SDK（channel / channel-context / paths / permissions / account-pool /
+     secret-file / catalog-cache / cli-consts / credential-shape / snapshot / logger（日志节流）/
+     log-store（分层落盘））
    - `pool/` = 模型池与账本；`auth/` = 登录链路
    - `http/` = 网关与转发；`app/` = 进程编排（cli / daemon / headless / supervisor…）
    - 需要跨层动作时**下沉或经回调注入**，不要直接向上 import。

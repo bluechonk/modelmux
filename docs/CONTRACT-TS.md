@@ -15,21 +15,25 @@
 modelmux/                     ← 仓库根 = 工作区根
 ├── packages/core/gateway/             ← **共享包** `@modelmux/gateway`
 │   └── src/
-│       ├── runtime/   渠道 SDK：channel / channel-context / paths / permissions /
-│       │              account-pool / secret-file / catalog-cache / cli-consts /
+│       ├── runtime/   渠道 SDK（12 个源文件）：channel（注册表）/ channel-context（runInChannel）/
+│       │              paths（落点）/ permissions（权限基线）/ account-pool（账号池）/
+│       │              secret-file（原子写盘）/ catalog-cache（目录缓存）/ cli-consts（默认值）/
+│       │              credential-shape（凭据形状归一）/ snapshot（随包快照落点）/
 │       │              logger（日志节流）/ log-store（分层落盘）
 │       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
 │       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）
-│       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
+│       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger /
+│       │              paste-detect（粘贴文本启发式）
 │       ├── http/      网关与转发：gateway / chat-relay（编排）/ chat-request（请求解析）/
 │       │              chat-route（池路由）/ chat-attempt（单候选尝试）/ chat-forward（转发层）/
 │       │              chat-stream（帧与中继）/ chat-queue（排队探测）/ chat-auth（鉴权链路）/
 │       │              chat-upstream（建连与空闲守卫）/ chat-candidates / chat-errors /
 │       │              chat-channel / sse-stream / openai-normalize（通用 OpenAI 归一化）/
-│       │              console / web-command-handler / portfree
-│       ├── app/       进程编排：cli / daemon / headless / supervisor / process-utils /
+│       │              console / web-command-handler / web-types（控制台类型）/ portfree
+│       ├── app/       进程编排：cli / command-groups（命令组门面）/ commands/（model-group /
+│       │              channel-verbs）/ daemon / headless / supervisor / process-utils /
 │       │              stale-build / web / report / account-cli
-│       └── index.ts   对外的统一出口
+│       └── index.ts   对外的统一出口（54 个源文件合计）
 ├── packages/core/channels/                     ← 渠道（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
 │   └── <cid>/                    ← 结构见下
 ├── packages/cli/                 ← **CLI 入口**（bin `modelmux` / `mx`）
@@ -108,11 +112,12 @@ packages/core/channels/<cid>/
 约束：
 
 - 渠道源码保持全静态 ESM import（无运行时动态加载渠道包），bundle 才能收干净；
-- loomy / traecn / workbuddy(ai) 的 `models.json` 随包快照由 loader 在构建期
-  内联（bundle 后 `import.meta.url` 相对路径失效，机制必须保真）；
+- 各渠道包根的 `models.json` 随包快照由 **bundle 步骤按 cid 复制**到 `dist/models/<cid>.json`
+  （渠道侧经共享层的 `bundledSnapshotPath()` 找到它；**不是** esbuild 插件内联 ——
+  机制与理由见 §8.4）；
 - daemon 重启守护进程用 `process.argv[1]`（当前入口），bundle 形态下天然正确；
   回退分支（`node -e` 等异常启动方式）在 bundle 下同样失效，属已知限制
-  （见 `daemon.ts` 的 `cliEntry()`）。
+  （见 `packages/core/gateway/src/app/process-utils.ts` 的 `cliEntry()`）。
 
 ---
 
@@ -218,9 +223,9 @@ interface Channel {
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
 常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:62` 包一次，
-扫码路径在 `packages/core/gateway/src/app/headless.ts:310` 包一次；
+扫码路径在 `packages/core/gateway/src/app/headless.ts:331` 包一次；
 Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
-（`packages/core/gateway/src/app/headless.ts:222-231`）进来。
+（`packages/core/gateway/src/app/headless.ts:223-232`）进来。
 
 **渠道必须接住这个回调**：既不声明、也不消费 = 用户粘回的内容被静默丢弃。
 授权回调页线上是 404（授权码只出现在浏览器地址栏里），此时流程只能白等到超时。
@@ -249,7 +254,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 - `buildChatHeaders?(credential, cfg)`：对话请求的**专用头族**（上游按整组头判定
   「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
-  （`packages/core/gateway/src/http/chat-upstream.ts:93`）；普通 OpenAI 兼容渠道无需声明。
+  （`packages/core/gateway/src/http/chat-upstream.ts:137-140`）；普通 OpenAI 兼容渠道无需声明。
 - `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
   （`packages/core/gateway/src/http/chat-attempt.ts:301-319`）。参数是**网关已经建好的
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
@@ -263,7 +268,8 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 - `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒），默认
   `MODELMUX_READ_TIMEOUT_MS`（120s）。用于「收下请求（HTTP 200）后长时间零字节」
   的上游（如 Qoder 排队/长思考，实测首字延迟 40–71s）；声明后首帧等待、空闲守卫
-  与排队探测统一放宽，等待期网关向客户端补 `: ping` 心跳防空闲断连。
+  与排队探测统一放宽，等待期网关向客户端补 `: ping` 心跳防空闲断连
+  （心跳间隔默认 5s，`MODELMUX_HEARTBEAT_MS` 可覆盖）。
 
 **可选主机轮换钩子**（`UpstreamModule` 的**可选成员**，不实现即跳过）：
 
@@ -306,7 +312,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 **错误帧的 `code` 一律是字符串**：上游给的可能是数字，直接透传会让
 按 `error.code: string` 解码的客户端整帧解码失败。翻译器产出错误帧时必须
 `String(...)` 归一（`packages/core/channels/catpaw/src/upstream.ts:1024`、
-`packages/core/channels/traecn/src/upstream.ts:938`）。
+`packages/core/channels/traecn/src/upstream.ts:896`）。
 共享层提取错误帧时也只认字符串 `code`，数字码会被丢掉，报错里就没有错误码了
 （`packages/core/gateway/src/http/sse-stream.ts:224`）。
 
@@ -361,8 +367,9 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 规则：
 
-- **兜底表是数据、不是机制**：它随包发布，必然随时间与上游脱节（实测 lobsterai 兜底只有
- 1 条 flash，上游真实 8 条）。别指望它准；它的意义只是「未登录/离线时不留空白」。
+- **兜底表是数据、不是机制**：它随包发布、必然与上游脱节 —— 别指望它准，
+  它只是「未登录 / 离线时不留空白」的兜底（跨渠道口径见
+  [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.7）。
 - 拉取失败 / 未登录时**不要清空缓存**：旧的远端目录通常比随包快照新，继续用它显示。
 - 惰性读取：`catalog.ts` 在**首次被问**时读缓存、再决定是否拉远端，避免模块加载期就碰磁盘
  （模块加载可能发生在渠道上下文之外，那时 `paths.*` 不知道为谁解析）。
@@ -401,11 +408,11 @@ modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number 
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
 - **共享层在缓存缺值时才问渠道要规格**：先读该渠道的目录缓存
-  （`packages/core/gateway/src/pool/pool-targets.ts:303-309`），再问
-  `catalog.modelSpec()`（`packages/core/gateway/src/pool/pool-targets.ts:310-316`），
+  （`packages/core/gateway/src/pool/pool-targets.ts:384-390`），再问
+  `catalog.modelSpec()`（`packages/core/gateway/src/pool/pool-targets.ts:391-396`），
   两者都拿不到才回落兜底值。
 - **取值优先级：上游目录 > 渠道声明 > 兜底**
-  （`packages/core/gateway/src/pool/pool-targets.ts:268-290`）——
+  （`packages/core/gateway/src/pool/pool-targets.ts:361-363`）——
   上游说的才是「这条渠道实际能吃多少」。
 - 共享层**不许出现模型名** → 这张表必须放在**渠道包**里
   （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
@@ -427,7 +434,7 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 
 目录知识仍归 `catalog` 管，两个模块保持单向依赖。参考实现见
 `packages/core/channels/qoder/src/channel.ts:25-30`、
-`packages/core/channels/qoder/src/upstream.ts:476-491`。
+`packages/core/channels/qoder/src/upstream.ts:487-502`。
 
 ### 5.4 `billing.ts`
 
@@ -600,9 +607,25 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
  可调）；`mx log` 支持 `--kind access|error|system|lifecycle|worker|channel`、
  `--outcome success|failure|other`、`--date <YYYY-MM-DD>`、`--list`、`-f`（见
  [`LOGGING.md`](./LOGGING.md)）。
+- **`--kind channel` 必须配渠道**：渠道维度日志按 `<cid>` 分目录落盘，cid 是**位置参数**
+  （`mx log <cid> --kind channel`），**没有 `--cid` 这个选项**（CLI 走 `parseArgs` 严格模式，
+  未知选项直接报错）。
 
-实现落点：`packages/core/gateway/src/app/cli.ts` 的分发（动词表在前、cid 作 operand）、
-`command-groups.ts` 的 `CHANNEL_VERBS`（动词 → 说明表）与 `runVerb`（动词 + 可选 cid）。
+### 9.1 `model` 命令组的两个视图
+
+| 命令 | 回答的问题 | 输出形态 |
+| --- | --- | --- |
+| `mx model list` | **有哪些模型可用** | 按渠道分组：每渠道一行（模型数 + 账本状态）+ 该渠道的模型 id 列表 |
+| `mx model usage [--refresh]` | **各渠道用得怎么样** | 每渠道一行（已用量 / 单位 / ok / fail / 冷却）；`--refresh` 立刻重查各渠道账单 |
+| `mx model <cid> [--refresh]` | **某个渠道的目录** | 该渠道对外暴露的模型 + 倍率 + 目录来源（缓存 / 远端 / 内置） |
+
+`model list` 与 `model usage` 是**两个不同视图**：前者按渠道分组列模型，后者只按渠道列账本。
+账本数字**不决定路由**（渠道由池 id 前缀指定），两处都只作健康度观察。
+
+实现落点：`packages/core/gateway/src/app/cli.ts` 的分发（动词表在前、cid 作 operand）；
+`commands/channel-verbs.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
+`runVerb`（动词 + 可选 cid）；`commands/model-group.ts` 的 `runModelGroup`（`list` / `usage`
+两个子命令各自渲染）；`command-groups.ts` 只做这两处的 re-export。
 
 ---
 

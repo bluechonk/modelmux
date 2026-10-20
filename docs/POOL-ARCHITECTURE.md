@@ -82,12 +82,17 @@
 账本（`pool-usage.json`）按渠道记录账单已用量与 ok / fail 计数；渠道由 `<cid>/` 前缀显式指定，
 账本用于：
 
-- `mx model list` / Web 控制台展示渠道健康度（已用量、冷却、连败）；
-- 失败冷却仍然生效：刚失败的渠道**下一次请求**会被短暂排除（冷却只是短暂状态，
-  全部候选都在冷却时回退为照常尝试），避免对已知不可用的渠道白打一轮。
+- `mx model list` / `mx model usage` / Web 控制台展示渠道健康度（已用量、冷却、连败）。
 
 上游账单**没有「请求次数」**这种字段，只有额度（积分 / credits / 美元，各家单位不同）——
 账本数字只作健康度参考，不作路由依据。
+
+> **失败冷却只标记、不剔除请求**：冷却期（`FAIL_COOLDOWN_MS = 60s`，
+> `packages/core/gateway/src/pool/pool-usage.ts:26`）内该渠道在账本里被标「冷却中」，
+> 供视图观察。但路由侧「剔除冷却渠道 → 全冷却时回退完整候选」这条逻辑在现行
+> `<cid>/<模型>` 形态下**没有实际效果** —— 候选至多一条，剔除后必然回退到它自己
+> （`packages/core/gateway/src/http/chat-route.ts:114-121`）。
+> 也就是说：**冷却不会让请求失败，也换不到别的渠道**，只是账本上的一个观察标记。
 
 ### 2.3 账本落点与刷新节奏
 
@@ -143,9 +148,9 @@
 - 探测阶段已消费的帧**按原序补写**给客户端再续传剩余流，不丢前缀；探测用的**翻译器实例
   也一并与转发层共享**（它的行缓冲里可能还有半行）。
 
-注意：这是**请求级**的等待重试（单活跃账号模型下的简化形态）；多账号场景由账号池在
-账号池的切号一律**手动**：鉴权失败只刷新 token 重试本账号，失败就标记不可用，
-由用户 `mx acct <cid> use <key>` 决定下一步。
+注意：这是**请求级**的等待重试（单活跃账号模型下的简化形态）。
+账号切换一律**手动**：鉴权失败只刷新 token 重试本账号，失败就标记不可用，
+由用户 `mx acct <cid> use <key>` 决定下一步（见 §3.3）。
 
 **三个必须保持的行为（均有回归测试锁死）**：
 
@@ -168,9 +173,12 @@
 
 | 命令 | 看什么 |
 |---|---|
-| `mx model list` | **池视图**：对外模型（`<cid>/<模型>`）+ 各渠道账本状态（健康度观察，不表示路由顺序） |
+| `mx model list` | **池视图**：有哪些模型 —— 按渠道分组，每渠道一行（模型数 + 账本状态）+ 该渠道的模型 id 列表 |
 | `mx model <cid>` | **渠道视角**：该渠道对外暴露哪些模型（`--refresh` 重拉上游目录） |
-| `mx model usage [--refresh]` | 看账本；`--refresh` 立刻重查各渠道账单额度 |
+| `mx model usage [--refresh]` | **池账本**：各渠道用得怎么样 —— 每渠道一行（已用量 / 单位 / ok / fail / 冷却）；`--refresh` 立刻重查各渠道账单 |
+
+> `model list` 与 `model usage` 是**两个不同视图**（前者按渠道分组列模型，后者只按渠道列账本），
+> 两者都**不表示路由顺序** —— 渠道由池 id 前缀指定，账本只作健康度观察。
 
 > 单渠道独立运行（`packages/core/channels/<cid>/dist/cli.js start`）**也走池**：
 > `/v1/models` 同样是 `<cid>/<模型>` 形态，只是候选渠道只有一个。
@@ -200,7 +208,8 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **上游不发 → 问渠道要「已知规格」**：多数渠道的上游目录**不带**窗口与输出上限
   （实测 catpaw / codearts / lobsterai / loomy / orcaterm / qoder / qodercn 都不发；
   而 workbuddy / workbuddyai 的上游 `/v3/config` **是发的**，
-  raccoon / traecn 的远端目录**只发上下文、不发输出上限**）。
+  raccoon 的远端目录**两个都发**（`params.context_window` / `params.max_tokens`），
+  traecn 的远端目录**只发上下文**（Remote 目录不下发输出上限，`max_output` 恒 0））。
   这类渠道用自己的 `MAX_OUTPUTS` 表按**公开规格**回答 —— 入口是**可选钩子**
   `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
   当前**11 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
@@ -235,7 +244,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   `modelType` 数值表 —— turn / round 的请求体要的是**数字** modelType 而不是模型名，
   目录拉不到时没有这张表就等于全部模型不可用）。
 - **共享层不持有任何兜底模型**：目录读不出来时 `poolModels()` 返回空
-  （`packages/core/gateway/src/pool/pool-targets.ts:45`），空池意味着「所有渠道的目录都读不出来」，
+  （`packages/core/gateway/src/pool/pool-targets.ts:53`），空池意味着「所有渠道的目录都读不出来」，
   此时对外公布幻影模型只会让请求必然落空。
 
 ### 2.8 目录元数据回灌上游请求体
@@ -248,7 +257,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。因此：
 
 1. `upstream` 侧导出 `setModelMetaLookup(lookup)`，只认注入进来的查询器
-   （`packages/core/channels/qoder/src/upstream.ts:468-472`）；
+   （`packages/core/channels/qoder/src/upstream.ts:498-502`）；
 2. 渠道装配处（`channel.ts`）接上：`upstream.setModelMetaLookup(catalog.metaOfKey)`
    （`packages/core/channels/qoder/src/channel.ts:30`）；
 3. 查询器按**上游 key** 查（`buildChatBody` 只拿到 key；对外 id 是另一套名字，
@@ -258,7 +267,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 渠道 | 状态 | 后果 |
 |---|---|---|
-| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:646-657`） |
+| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:676-687`） |
 | `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:640`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:584-594`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
@@ -307,7 +316,7 @@ interface CredModule {
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
   `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat-auth.ts:45`）。
   `pickAccount`（账号池的候选选择器）跳过 `unauthorized` / `error` 的账号
-  （`packages/core/gateway/src/runtime/account-pool.ts:481-486`）。
+  （`packages/core/gateway/src/runtime/account-pool.ts:500-505`）。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
   `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat-auth.ts:80-86`）。
@@ -404,10 +413,10 @@ interface CredModule {
    （契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.2）。所以依赖账号的判定
    （这个模型是不是 benefit、要不要多带一个上游头）必须放在 `buildHeaders()`；
    `buildChatBody()` 需要的判定输入（如本次的上游模型 id）经**模块级 pending 槽**
-   从 `buildChatBody` 传给 `buildHeaders`（`packages/core/channels/codearts/src/upstream.ts:581`）。
+   从 `buildChatBody` 传给 `buildHeaders`（`packages/core/channels/codearts/src/upstream.ts:655`）。
 
 实现位置：codearts 在 `buildHeaders()` 里用 `credential.uid` 查该账号的 benefit 集合
-（`packages/core/channels/codearts/src/upstream.ts:708`），分桶落盘在
+（`packages/core/channels/codearts/src/upstream.ts:695-698`），分桶落盘在
 `cache/benefit-accounts.json`（`packages/core/channels/codearts/src/catalog.ts:163`）。
 哪些模型算 benefit、福利怎么领等渠道差异写在 codearts 的 PROTOCOL。
 
@@ -454,8 +463,9 @@ hasChannel(cid?: string): boolean;
  任何入口（单渠道 bin / 仓库级 bin）都自洽。
 - **服务身份**：单渠道 = `cid`；多渠道路由 = `modelmux`。守护进程探测时接受
  「本进程认得的全部身份」，所以单渠道的 `status` 也认得多渠道路由的网关。
-- **`model list` / `model usage` 子命令**：池视图（对外模型 `<cid>/<模型>`、各渠道账本
- 用量与冷却/暂不可用）与池账本；渠道视角并入 `model <cid>`。
+- **`model` 命令组的三个视图**：`model list` = 池视图（有哪些模型，按渠道分组，
+  渠道级账本状态只出现一次）、`model usage` = 池账本（各渠道用得怎么样，每渠道一行）、
+  `model <cid>` = 渠道视角（该渠道的目录）。见 §2.5 与 [CONTRACT-TS.md](./CONTRACT-TS.md) §9.1。
 - **仓库级 CLI**：`packages/cli`（bin `modelmux` / `mx`）。
 
 ### 4.4 三层进程模型

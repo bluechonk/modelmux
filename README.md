@@ -33,7 +33,8 @@ npm test             # build + 全部校验器 + 全部包的测试
 
 node packages/cli/dist/cli.js start              # 启动网关（守护式，端口 4412）
 node packages/cli/dist/cli.js status --json      # reachable / stale_build / 日志目录
-node packages/cli/dist/cli.js model list         # 池视图：对外模型（渠道/模型）与渠道健康度
+node packages/cli/dist/cli.js model list         # 池视图：有哪些模型（按渠道分组）
+node packages/cli/dist/cli.js model usage        # 池账本：各渠道用得怎么样（每渠道一行）
 node packages/cli/dist/cli.js login <cid>        # 登录某个渠道（浏览器授权）
 node packages/cli/dist/cli.js web                # 打开 Web 控制台（http://127.0.0.1:4412/web/）
 node packages/cli/dist/cli.js log --list         # 分层日志：access / error / system

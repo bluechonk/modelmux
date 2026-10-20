@@ -155,7 +155,7 @@ mx log --kind access --outcome success   # 成功请求（结构化行）
 mx log --kind access --outcome failure   # 失败请求
 mx log --kind access --outcome other     # 客户端断开 / 取消
 mx log --kind error                      # 错误详情（含 request_id）
-mx log --kind channel --cid catpaw       # 渠道维度
+mx log catpaw --kind channel             # 渠道维度（cid 是**位置参数**，不是 --cid）
 mx log --date 2026-10-18 --kind access --outcome failure
 mx log --list                            # 全部日志文件 + 大小 + 修改时间
 mx log --kind access --outcome failure -f    # 持续跟随
@@ -163,6 +163,9 @@ mx log --kind access --outcome failure -f    # 持续跟随
 
 解析规则：未指定 `--date` 时取本地当天；当天无该文件时回落到**最新一个含该文件的日期**。
 `--kind access` 未指定 `--outcome` 时默认 `success`。
+`--kind channel` 必须配渠道 id（**位置参数**，如 `mx log catpaw --kind channel`）——
+渠道维度日志按 `<cid>` 分目录落盘，没有 cid 时该 kind 找不到文件。
+CLI 走 `parseArgs` 严格模式：**未知选项直接报错**（没有 `--cid` 这种写法）。
 
 ## 8. 安全边界
 
