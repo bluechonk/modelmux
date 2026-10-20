@@ -1182,3 +1182,21 @@ export function resolveBaseUrl(realm = "auto"): string {
   const [cfg] = upstream.loadConfig();
   return cfg.baseUrl || DEFAULT_BASE_URL;
 }
+
+/**
+ * 把「当前生效账号」的维度键交给上游层。
+ *
+ * 上游的**会话槽位表**必须按账号分桶（上游按单账号数并发会话），
+ * 但 `buildChatBody()` 拿不到凭据（共享层的渠道接口只给 req + 模型名）。
+ * 故由 cred 侧注册解析器 —— 注册放在这里（而不是 upstream 反向 import cred）
+ * 是为了避开 upstream ↔ cred 的静态环。
+ *
+ * ⚠ 解析器只在**被调用时**读盘（`load()`），模块加载本身没有读盘副作用。
+ */
+upstream.registerAccountKeyResolver(() => {
+  try {
+    return upstream.accountKeyOf(load());
+  } catch {
+    return "default";
+  }
+});

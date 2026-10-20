@@ -25,7 +25,16 @@ export const config: ChannelConfig = {
 export const channel: Channel = {
   config,
   cred,
-  upstream: { ...upstream, isAuthFailure: (status: number, body: string) => upstream.isAuthError(status, body) },
+  upstream: {
+    ...upstream,
+    isAuthFailure: (status: number, body: string) => {
+      // 渠道层能看到上游错误体的**唯一**入口就是这个钩子（共享层对非 2xx
+      // 且非 401/403 的响应调用一次）。借它记一次「会话槽位已满」
+      // （`TM.00001041`），给该账号加退避 —— 见 upstream.ts 的 noteUpstreamError。
+      upstream.noteUpstreamError(status, body);
+      return upstream.isAuthError(status, body);
+    },
+  },
   catalog,
   billing,
 };
