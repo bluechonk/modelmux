@@ -9,7 +9,7 @@
  * pool  (1)     模型池与账本：pool-targets / pool-usage / model-pool
  * auth  (1)     登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
  * http  (2)     HTTP 层：gateway / chat-relay / console / sse-stream / portfree / web-*
- * app   (3)     进程编排：cli / daemon / process-utils / headless / supervisor / …
+ * app   (3)     进程编排：commands（命令面）/ daemon / process / headless / supervisor / …
  * ```
  *
  * 规则：**只能 import 层级 ≤ 自己的目录**（同层与向下都允许，向上禁止）。

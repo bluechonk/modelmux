@@ -199,5 +199,5 @@ export async function killTree(pid: number): Promise<boolean> {
 export function cliEntry(): string {
   const entry = process.argv[1];
   if (entry && /\.(m?js|cjs)$/i.test(entry) && existsSync(entry)) return entry;
-  return fileURLToPath(new URL("./cli.js", import.meta.url));
+  return fileURLToPath(new URL("./commands/index.js", import.meta.url));
 }

@@ -10,14 +10,14 @@
 
 import { parseArgs } from "node:util";
 
-import { channelCount, channels, getChannel, hasChannel } from "../runtime/channel.js";
-import { CHANNEL_VERBS, isChannelVerb } from "./command-groups.js";
-import * as groups from "./command-groups.js";
-import { defaultAddr, defaultUiPort, version } from "../runtime/cli-consts.js";
-import * as daemon from "./daemon.js";
-import * as headless from "./headless.js";
-import { runWeb } from "./web.js";
-import * as supervisor from "./supervisor.js";
+import { channelCount, channels, getChannel, hasChannel } from "../../runtime/channel.js";
+import { CHANNEL_VERBS, isChannelVerb, runVerb } from "./channel.js";
+import * as groups from "./model.js";
+import { defaultAddr, defaultUiPort, version } from "../../runtime/cli-consts.js";
+import * as daemon from "../daemon.js";
+import * as headless from "../headless.js";
+import { runWeb } from "../web.js";
+import * as supervisor from "../supervisor.js";
 
 /**
  * 生成当前渠道的帮助文本。
@@ -236,11 +236,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     if (first === undefined || !hasChannel(first)) {
       return groups.runModelGroup(positionals.slice(1), ctx);
     }
-    return groups.runVerb("model", positionals.slice(1), ctx);
+    return runVerb("model", positionals.slice(1), ctx);
   }
   // ② 渠道动词：`mx <动词> [<cid>] [参数]`（cid 在动词之后）
   if (isChannelVerb(command)) {
-    return groups.runVerb(command, positionals.slice(1), ctx);
+    return runVerb(command, positionals.slice(1), ctx);
   }
 
   // ③ 仓库级动词（不带 <cid>）

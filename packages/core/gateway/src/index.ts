@@ -7,7 +7,7 @@
 
 export * as authFlow from "./auth/auth-flow.js";
 export * as autoSignin from "./auth/auto-signin.js";
-export * as cli from "./app/cli.js";
+export * as cli from "./app/commands/index.js";
 export * as consoleApi from "./http/console.js";
 export * as daemon from "./app/daemon.js";
 export * as gateway from "./http/gateway.js";
@@ -138,4 +138,4 @@ export {
 } from "./runtime/paths.js";
 
 // CLI 入口
-export { main, usage } from "./app/cli.js";
+export { main, usage } from "./app/commands/index.js";

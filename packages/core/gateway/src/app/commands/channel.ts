@@ -11,11 +11,11 @@ import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
-import * as accountCli from "../account-cli.js";
+import * as accountCli from "./accounts.js";
 import * as daemon from "../daemon.js";
 import * as headless from "../headless.js";
 import * as report from "../report.js";
-import { CommandContext, listLocalModels, listLogins, runModelGroup } from "./model-group.js";
+import { CommandContext, listLocalModels, listLogins, runModelGroup } from "./model.js";
 
 /** 渠道动词的说明项（帮助里按 group 分组展示）。 */
 export interface ChannelVerb {

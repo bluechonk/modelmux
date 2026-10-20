@@ -50,10 +50,10 @@ import {
   readPid,
   killTree,
   cliEntry,
-} from "./process-utils.js";
+} from "./process.js";
 
 // 公开面兼容：这些工具原先定义在本文件，外部按 `@modelmux/gateway` 的 daemon 命名空间取用
-export { gatewayHealthy, foreignServiceOnPort, pidAlive, killTree, cliEntry } from "./process-utils.js";
+export { gatewayHealthy, foreignServiceOnPort, pidAlive, killTree, cliEntry } from "./process.js";
 
 /**
  * start 等待网关就绪的默认时长（毫秒）。
