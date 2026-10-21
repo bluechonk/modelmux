@@ -74,11 +74,11 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 
 | 文件 | 职责 |
 | --- | --- |
-| `packages/core/gateway/src/app/supervisor.ts` | 监督进程：spawn worker、退避重生、维护 worker pid 文件 |
-| `packages/core/gateway/src/app/headless.ts` | worker 自退钩子（IPC disconnect → shutdown） |
-| `packages/core/gateway/src/app/daemon.ts` | start 改 spawn `supervise`；stop 三步流 |
+| `packages/core/gateway/src/app/lifecycle/supervisor.ts` | 监督进程：spawn worker、退避重生、维护 worker pid 文件 |
+| `packages/core/gateway/src/app/lifecycle/headless.ts` | worker 自退钩子（IPC disconnect → shutdown） |
+| `packages/core/gateway/src/app/lifecycle/daemon.ts` | start 改 spawn `supervise`；stop 三步流 |
 | `packages/core/gateway/src/runtime/paths.ts` | `workerPidPath` / `FILES.workerPid` |
-| `packages/core/gateway/src/app/commands/index.ts` | 隐藏内部命令 `supervise`（同 `serve` 待遇） |
+| `packages/core/gateway/src/app/cli/index.ts` | 隐藏内部命令 `supervise`（同 `serve` 待遇） |
 
 ## 日志布局与实例隔离
 

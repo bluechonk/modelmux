@@ -13,9 +13,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { channelCount, channelFor, getChannel, type ChannelConfig } from "../runtime/channel.js";
-import { FILES, SUBDIRS, channelDirFor, rootDirFor } from "../runtime/paths.js";
-import { findWorkspaceRoot } from "./stale-build.js";
+import { channelCount, channelFor, getChannel, type ChannelConfig } from "../../runtime/channel.js";
+import { FILES, SUBDIRS, channelDirFor, rootDirFor } from "../../runtime/paths.js";
+import { findWorkspaceRoot } from "../lifecycle/stale-build.js";
 
 export interface EntryReport {
   name: string;

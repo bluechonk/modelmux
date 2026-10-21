@@ -10,11 +10,11 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { channelCount, channels, getChannel, type Channel } from "../runtime/channel.js";
-import { defaultAddr } from "../runtime/cli-consts.js";
-import * as gateway from "../http/server.js";
-import * as paths from "../runtime/paths.js";
-import { baseUrlOf } from "../http/portfree.js";
+import { channelCount, channels, getChannel, type Channel } from "../../runtime/channel.js";
+import { defaultAddr } from "../../runtime/cli-consts.js";
+import * as gateway from "../../http/server.js";
+import * as paths from "../../runtime/paths.js";
+import { baseUrlOf } from "../../http/portfree.js";
 
 /** 探测超时（毫秒）：status 与 probe 共用。 */
 export const HEALTH_TIMEOUT_MS = 1500;
@@ -192,12 +192,13 @@ export async function killTree(pid: number): Promise<boolean> {
  * `cli.js` 只是一组导出、没有自带入口调用 —— 重跑它会立刻退出（守护进程永远起不来）。
  * 重跑自己才能带上与父进程一致的渠道集合。
  *
- * 回退（argv[1] 不是可执行的 JS，如 `node -e`）：本模块同目录的 `cli.js`，由调用方接受失败。
+ * 回退（argv[1] 不是可执行的 JS，如 `node -e`）：CLI 门面的 `index.js`（`app/cli/`），
+ * 由调用方接受失败。
  * 注意 bundle 形态下该回退同样失效（bundle 里没有独立 cli.js）——但回退只在异常启动方式
  * （非文件入口）下触发，属已知限制。
  */
 export function cliEntry(): string {
   const entry = process.argv[1];
   if (entry && /\.(m?js|cjs)$/i.test(entry) && existsSync(entry)) return entry;
-  return fileURLToPath(new URL("./commands/index.js", import.meta.url));
+  return fileURLToPath(new URL("../cli/index.js", import.meta.url));
 }

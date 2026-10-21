@@ -16,7 +16,7 @@ import {
   type PoolAccount,
   type PoolIndex,
 } from "../../runtime/account-pool.js";
-import * as headless from "../headless.js";
+import * as headless from "../lifecycle/headless.js";
 
 export interface AccountsOptions {
   /** list（默认）/ use / add / remove。 */

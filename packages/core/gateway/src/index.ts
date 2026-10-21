@@ -7,11 +7,11 @@
 
 export * as authFlow from "./auth/auth-flow.js";
 export * as autoSignin from "./auth/auto-signin.js";
-export * as cli from "./app/commands/index.js";
+export * as cli from "./app/cli/index.js";
 export * as consoleApi from "./http/console/console.js";
-export * as daemon from "./app/daemon.js";
+export * as daemon from "./app/lifecycle/daemon.js";
 export * as gateway from "./http/server.js";
-export * as headless from "./app/headless.js";
+export * as headless from "./app/lifecycle/headless.js";
 export * as login from "./auth/login.js";
 export * as loginFlow from "./auth/login-flow.js";
 export * as modelFamily from "./pool/model-policy.js";
@@ -22,7 +22,7 @@ export type { PastedCallback } from "./auth/paste-detect.js";
 export * as openaiNormalize from "./http/wire/openai-normalize.js";
 export * as paths from "./runtime/paths.js";
 export * as portfree from "./http/portfree.js";
-export * as report from "./app/report.js";
+export * as report from "./app/cli/report.js";
 export * as sseStream from "./http/wire/sse-stream.js";
 
 // 渠道注册表
@@ -138,4 +138,4 @@ export {
 } from "./runtime/paths.js";
 
 // CLI 入口
-export { main, usage } from "./app/commands/index.js";
+export { main, usage } from "./app/cli/index.js";
