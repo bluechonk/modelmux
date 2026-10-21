@@ -5,6 +5,10 @@ dist/
 # agent 运行时状态（本机私有）
 .box-agent/
 .box-agent-scratch/
+.commandcode/
+
+# 逆向研究残留目录（catpaw 的本机数据目录副本；研究代码不入库，结论入 docs）
+.meituan-catpaw/
 
 # 日志与临时文件
 *.log

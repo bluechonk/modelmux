@@ -6,13 +6,12 @@
  * 依赖方向为单向：`channel-verbs.ts` → 本文件。
  */
 
-import { channelCapabilities, channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
+import { channelCapabilities, channels, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, getPoolModelMeta, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
-import * as accountCli from "./accounts.js";
 import * as daemon from "../daemon.js";
 import * as headless from "../headless.js";
 import * as report from "../report.js";

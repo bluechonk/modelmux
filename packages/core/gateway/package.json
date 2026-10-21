@@ -12,18 +12,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./channel": {
-      "types": "./dist/channel.d.ts",
-      "default": "./dist/channel.js"
-    },
-    "./paths": {
-      "types": "./dist/paths.d.ts",
-      "default": "./dist/paths.js"
-    },
-    "./cli-consts": {
-      "types": "./dist/cli-consts.d.ts",
-      "default": "./dist/cli-consts.js"
-    },
     "./snapshot": {
       "types": "./dist/runtime/snapshot.d.ts",
       "default": "./dist/runtime/snapshot.js"

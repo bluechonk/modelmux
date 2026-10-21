@@ -315,12 +315,13 @@ interface CredModule {
 
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
   `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat/auth.ts:45`）。
-  `pickAccount`（账号池的候选选择器）跳过 `unauthorized` / `error` 的账号
-  （`packages/core/gateway/src/runtime/account-pool.ts:500-505`）。
+  账号池里的候选**不做自动挑选** —— `activeAccountIsError`（`packages/core/gateway/src/runtime/account-pool.ts`）
+  只回答「当前账号还能不能用」。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
   `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts:80-86`）。
-  `pickAccount` 因此**没有自动切号的调用方**。
+  账号池因此**没有自动切号的调用方**（原 `pickAccount` 候选选择器已删除：零调用点，
+  留着只会让人误以为会自动切号）。
 - **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
   **凭证一律保留**；成功清零连败，手动切号恢复 `error`。
 - **未实现**：自动切号、按额度耗尽自动换号、轮询、最久未用。

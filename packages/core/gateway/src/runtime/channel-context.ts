@@ -23,13 +23,3 @@ export function runInChannel<T>(cid: string, fn: () => T): T {
 export function activeCid(): string | undefined {
   return storage.getStore();
 }
-
-/**
- * 若不在任何渠道上下文里，则在 `cid` 上下文里运行 `fn`；已在上下文里则直接运行。
- *
- * 用于 `/v1/models` 这类「逐个渠道遍历」的循环：外层可能已经有上下文（某个请求），
- * 内层不必重复进入。
- */
-export function withinChannel<T>(cid: string, fn: () => T): T {
-  return storage.getStore() === undefined ? storage.run(cid, fn) : fn();
-}

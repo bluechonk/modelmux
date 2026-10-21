@@ -77,7 +77,7 @@ export async function callUpstream(
     logger(`refresh failed: ${String(err)}`);
   }
 
-  // 当前账号确定不可用：标健康度（后续请求由 pickAccount 跳过），但**不自动切号**
+  // 当前账号确定不可用：标健康度（后续请求由 `activeAccountIsError` 短路），但**不自动切号**
   markActiveHealth("unauthorized", cid);
   logger(
     `auth failed (${cid}): token rejected by upstream and refresh unusable; ` +

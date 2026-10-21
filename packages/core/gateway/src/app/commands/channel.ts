@@ -5,12 +5,8 @@
  * 从 `./model-group.js` 取（单向依赖）。
  */
 
-import { channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
-import { runInChannel } from "../../runtime/channel-context.js";
-import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
+import { channels, getChannel, hasChannel } from "../../runtime/channel.js";
 
-import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
-import { poolUsagePath } from "../../runtime/paths.js";
 import * as accountCli from "./accounts.js";
 import * as daemon from "../daemon.js";
 import * as headless from "../headless.js";

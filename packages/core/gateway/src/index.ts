@@ -94,7 +94,7 @@ export * as poolUsage from "./pool/pool-usage.js";
 export type { PoolLedger, ChannelLedger, RefreshResult } from "./pool/pool-usage.js";
 
 // 渠道上下文（调用渠道模块前包一层，让渠道内部的 paths.* 解析到自己的落点）
-export { runInChannel, withinChannel, activeCid } from "./runtime/channel-context.js";
+export { runInChannel, activeCid } from "./runtime/channel-context.js";
 
 // 默认值（随注册的渠道而变）
 export {
