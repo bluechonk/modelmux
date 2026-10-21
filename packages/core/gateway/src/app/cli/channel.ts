@@ -8,9 +8,9 @@
 import { channels, getChannel, hasChannel } from "../../runtime/channel.js";
 
 import * as accountCli from "./accounts.js";
-import * as daemon from "../daemon.js";
-import * as headless from "../headless.js";
-import * as report from "../report.js";
+import * as daemon from "../lifecycle/daemon.js";
+import * as headless from "../lifecycle/headless.js";
+import * as report from "./report.js";
 import { CommandContext, listLocalModels, listLogins, runModelGroup } from "./model.js";
 
 /** 渠道动词的说明项（帮助里按 group 分组展示）。 */

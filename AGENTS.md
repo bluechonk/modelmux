@@ -178,7 +178,8 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
      secret-file / catalog-cache / cli-consts / credential-shape / snapshot / logger（日志节流）/
      log-store（分层落盘））
    - `pool/` = 模型池与账本；`auth/` = 登录链路
-   - `http/` = 网关与转发；`app/` = 进程编排（cli / daemon / headless / supervisor…）
+   - `http/` = 网关与转发；`app/` = 顶层门面与进程编排（`app/cli/` = CLI 门面，
+     `app/lifecycle/` = 守护 / worker / 监督者等进程生命周期）
    - 需要跨层动作时**下沉或经回调注入**，不要直接向上 import。
    - 极少数必要例外列在脚本的 `ALLOWLIST`（必须写理由）；新增例外要慎重，
      且条目失效时（不再向上）脚本会报错要求删除。
@@ -247,9 +248,9 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 - 禁止只 `build` 不 `restart`。
 - 禁止以「改动很小」「只改了注释」为由跳过 `restart`。
 - 禁止在 `status` 报陈旧构建时继续验证或宣称修复生效。
-- 禁止修改 `packages/core/gateway/src/app/stale-build.ts` 的判据来让 `status` 不再报警。
+- 禁止修改 `packages/core/gateway/src/app/lifecycle/stale-build.ts` 的判据来让 `status` 不再报警。
 
-实现见 `packages/core/gateway/src/app/stale-build.ts`；事故记录见 `docs/CONTRACT-TS.md` 第 8 节「陈旧构建」。
+实现见 `packages/core/gateway/src/app/lifecycle/stale-build.ts`；事故记录见 `docs/CONTRACT-TS.md` 第 8 节「陈旧构建」。
 
 ### 本地 WSL 门禁
 

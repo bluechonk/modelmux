@@ -12,9 +12,9 @@ import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, getPoolModelMeta, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
-import * as daemon from "../daemon.js";
-import * as headless from "../headless.js";
-import * as report from "../report.js";
+import * as daemon from "../lifecycle/daemon.js";
+import * as headless from "../lifecycle/headless.js";
+import * as report from "./report.js";
 
 export interface CommandContext {
   json: boolean;

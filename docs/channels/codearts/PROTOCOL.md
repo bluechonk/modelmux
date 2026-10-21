@@ -376,7 +376,7 @@ portal 的回调**打不到本机**，服务器会一直等到 180 秒超时。
 
 - 入口：`packages/core/channels/codearts/src/cred.ts:860-866` 的 `LoginOptions.pasteCode`
   （共享层已经在传 —— `packages/core/gateway/src/auth/auth-flow.ts:62` /
-  `packages/core/gateway/src/app/headless.ts:331` 的 `pasteCode: () => ui.takePastedCallback?.()`；
+  `packages/core/gateway/src/app/lifecycle/headless.ts:331` 的 `pasteCode: () => ui.takePastedCallback?.()`；
   **本渠道之前没接住**，现已接上）。
 - 解析：`extractAuthCode()` 接受三种形态 ——
   完整回调 URL `http://127.0.0.1:<port>/oauth/callback?code=…`、

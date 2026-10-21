@@ -31,9 +31,11 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              candidates / errors / channel
 │       │              wire/（协议线）：sse-stream（SSE 规范化）/ openai-normalize（通用 OpenAI 归一化）
 │       │              console/（控制台）：console / web-command-handler / web-types（控制台类型）
-│       ├── app/       进程编排：commands/（index 命令入口 / model 模型组 / channel 渠道动词 /
-│       │              accounts 账号池）/ daemon / headless / supervisor / process /
-│       │              stale-build / web / report
+│       ├── app/       顶层门面与进程编排，两个子目录分工明确：
+│       │              cli/（CLI 门面：index 命令入口 / model 模型组 / channel 渠道动词 /
+│       │              accounts 账号池 / report 落点巡检）
+│       │              lifecycle/（进程生命周期：daemon / headless / supervisor / process /
+│       │              stale-build / web）
 │       └── index.ts   对外的统一出口（53 个源文件合计）
 ├── packages/core/channels/                     ← 渠道（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
 │   └── <cid>/                    ← 结构见下
@@ -118,7 +120,7 @@ packages/core/channels/<cid>/
   机制与理由见 §8.4）；
 - daemon 重启守护进程用 `process.argv[1]`（当前入口），bundle 形态下天然正确；
   回退分支（`node -e` 等异常启动方式）在 bundle 下同样失效，属已知限制
-  （见 `packages/core/gateway/src/app/process.ts` 的 `cliEntry()`）。
+  （见 `packages/core/gateway/src/app/lifecycle/process.ts` 的 `cliEntry()`）。
 
 ---
 
@@ -224,9 +226,9 @@ interface Channel {
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
 常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:62` 包一次，
-扫码路径在 `packages/core/gateway/src/app/headless.ts:331` 包一次；
+扫码路径在 `packages/core/gateway/src/app/lifecycle/headless.ts:331` 包一次；
 Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
-（`packages/core/gateway/src/app/headless.ts:223-232`）进来。
+（`packages/core/gateway/src/app/lifecycle/headless.ts:223-232`）进来。
 
 **渠道必须接住这个回调**：既不声明、也不消费 = 用户粘回的内容被静默丢弃。
 授权回调页线上是 404（授权码只出现在浏览器地址栏里），此时流程只能白等到超时。
@@ -246,7 +248,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 通用启发式，见共享层 `packages/core/gateway/src/auth/paste-detect.ts`（`AUTH_ERROR_MARKERS`）。
 
 ⚠ `pasteCode()` **一次性消费**：调用方取出一次即清空
-（`packages/core/gateway/src/app/headless.ts:76-80`、`223-227`），
+（`packages/core/gateway/src/app/lifecycle/headless.ts:76-80`、`223-227`），
 渠道必须按「可能返回 `undefined`」处理，不能假设一定有值。
 
 ### 5.2 `upstream.ts`
@@ -520,7 +522,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 
 ### 8.1 机制化防线（**不靠人记**）
 
-`packages/core/gateway/src/app/stale-build.ts`：比较**构建产物的最新 mtime**（工作区内各
+`packages/core/gateway/src/app/lifecycle/stale-build.ts`：比较**构建产物的最新 mtime**（工作区内各
 `packages/*/dist`、`packages/core/channels/*/dist` 下的 `.js`）与**守护进程启动时刻**
 （pid 文件的 mtime，`start` 亲手写的那一刻，等价且零平台依赖）。
 
@@ -623,7 +625,7 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 `model list` 与 `model usage` 是**两个不同视图**：前者按渠道分组列模型，后者只按渠道列账本。
 账本数字**不决定路由**（渠道由池 id 前缀指定），两处都只作健康度观察。
 
-实现落点：`packages/core/gateway/src/app/commands/index.ts` 的分发（动词表在前、cid 作 operand）；
+实现落点：`packages/core/gateway/src/app/cli/index.ts` 的分发（动词表在前、cid 作 operand）；
 `commands/channel.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
 `runVerb`（动词 + 可选 cid）；`commands/model.ts` 的 `runModelGroup`（`list` / `usage`
 两个子命令各自渲染）。

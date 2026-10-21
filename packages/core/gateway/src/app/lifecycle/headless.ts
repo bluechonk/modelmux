@@ -10,17 +10,17 @@
 
 import { createInterface, type Interface } from "node:readline";
 
-import * as authFlow from "../auth/auth-flow.js";
-import { startAutoSignin } from "../auth/auto-signin.js";
-import { captureActive, syncPool } from "../runtime/account-pool.js";
-import { runInChannel } from "../runtime/channel-context.js";
-import { channels, getChannel, hasChannel, type Channel } from "../runtime/channel.js";
-import * as console_ from "../http/console/console.js";
-import * as gateway from "../http/server.js";
-import { REPO_UI_PREFIX } from "../runtime/cli-consts.js";
-import { appendChannel, appendError, appendGateway } from "../runtime/log-store.js";
-import { credentialsPath } from "../runtime/paths.js";
-import { getPoolModelMeta } from "../pool/pool-targets.js";
+import * as authFlow from "../../auth/auth-flow.js";
+import { startAutoSignin } from "../../auth/auto-signin.js";
+import { captureActive, syncPool } from "../../runtime/account-pool.js";
+import { runInChannel } from "../../runtime/channel-context.js";
+import { channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
+import * as console_ from "../../http/console/console.js";
+import * as gateway from "../../http/server.js";
+import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
+import { appendChannel, appendError, appendGateway } from "../../runtime/log-store.js";
+import { credentialsPath } from "../../runtime/paths.js";
+import { getPoolModelMeta } from "../../pool/pool-targets.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
 function emit(event: Record<string, unknown>): void {

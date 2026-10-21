@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { channels, clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
-import * as daemon from "../dist/app/daemon.js";
+import * as daemon from "../dist/app/lifecycle/daemon.js";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";

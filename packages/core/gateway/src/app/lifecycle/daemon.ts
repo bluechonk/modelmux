@@ -22,14 +22,14 @@ import {
   type Channel,
   type CreditPackage,
   type CreditsResult,
-} from "../runtime/channel.js";
-import { defaultAddr, defaultUiPort, REPO_UI_PREFIX } from "../runtime/cli-consts.js";
-import { syncPool } from "../runtime/account-pool.js";
-import { claimedTodayPerLedger, ledgerExists } from "../auth/signin-ledger.js";
-import { runInChannel } from "../runtime/channel-context.js";
-import * as gateway from "../http/server.js";
-import * as paths from "../runtime/paths.js";
-import { baseUrlOf, displayBase } from "../http/portfree.js";
+} from "../../runtime/channel.js";
+import { defaultAddr, defaultUiPort, REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
+import { syncPool } from "../../runtime/account-pool.js";
+import { claimedTodayPerLedger, ledgerExists } from "../../auth/signin-ledger.js";
+import { runInChannel } from "../../runtime/channel-context.js";
+import * as gateway from "../../http/server.js";
+import * as paths from "../../runtime/paths.js";
+import { baseUrlOf, displayBase } from "../../http/portfree.js";
 import { detectStaleBuild, staleBuildHint } from "./stale-build.js";
 import {
   appendSystem,
@@ -38,7 +38,7 @@ import {
   logsRoot,
   resolveLogPath,
   rotateIfNeeded,
-} from "../runtime/log-store.js";
+} from "../../runtime/log-store.js";
 import {
   HEALTH_TIMEOUT_MS,
   Scope,

@@ -6,7 +6,7 @@
  * 落点：旧行为是 scope 内的 `gateway.log`（`appendFileSync(scope.logPath(), …)`，
  *   见提交 e974042 之前的 daemon.ts）；新行为是**分层日志**里的生命周期文件
  *   `<root>/logs/system/<YYYY-MM-DD>/lifecycle.log`（`appendSystem("stop", { pid })`，
- *   见 src/app/daemon.ts:234-237 与 src/runtime/log-store.ts:308-311，
+ *   见 src/app/lifecycle/daemon.ts:234-237 与 src/runtime/log-store.ts:308-311，
  *   契约见 docs/LOGGING.md §4「生命周期事件规范」）。
  *   start / ready 也写同一份文件，故「原有内容保留」在这里才真正说得通。
  *
@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { stop } from "../dist/app/daemon.js";
+import { stop } from "../dist/app/lifecycle/daemon.js";
 import { localDate } from "../dist/runtime/log-store.js";
 
 /** 生命周期时间线的落点：`<root>/logs/system/<本地日期>/lifecycle.log`。 */

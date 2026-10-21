@@ -14,10 +14,10 @@ import { channelCount, channels, getChannel, hasChannel } from "../../runtime/ch
 import { CHANNEL_VERBS, isChannelVerb, runVerb } from "./channel.js";
 import * as groups from "./model.js";
 import { defaultAddr, defaultUiPort, version } from "../../runtime/cli-consts.js";
-import * as daemon from "../daemon.js";
-import * as headless from "../headless.js";
-import { runWeb } from "../web.js";
-import * as supervisor from "../supervisor.js";
+import * as daemon from "../lifecycle/daemon.js";
+import * as headless from "../lifecycle/headless.js";
+import { runWeb } from "../lifecycle/web.js";
+import * as supervisor from "../lifecycle/supervisor.js";
 
 /**
  * 生成当前渠道的帮助文本。

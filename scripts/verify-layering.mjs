@@ -10,7 +10,9 @@
  * auth  (1)     登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger
  * http  (2)     HTTP 层：server（网关入口）/ chat/（转发管线）/ wire/（SSE 与归一化）/
  *               console/（控制台）/ portfree（端口自愈）
- * app   (3)     进程编排：commands（命令面）/ daemon / process / headless / supervisor / …
+ * app   (3)     顶层门面与进程编排：cli/（CLI 门面：命令入口 / 模型组 / 渠道动词 /
+ *               账号池 / 落点巡检）/ lifecycle/（进程生命周期：daemon / headless /
+ *               supervisor / process / stale-build / web）
  * ```
  *
  * 规则：**只能 import 层级 ≤ 自己的目录**（同层与向下都允许，向上禁止）。

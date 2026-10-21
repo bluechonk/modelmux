@@ -20,7 +20,7 @@ import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
 import { credentialsPath } from "../dist/runtime/paths.js";
-import { main } from "../dist/app/commands/index.js";
+import { main } from "../dist/app/cli/index.js";
 import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
 
 /** 跑一次 CLI，收 stdout/stderr 与退出码。 */
