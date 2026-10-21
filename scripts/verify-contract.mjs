@@ -180,8 +180,10 @@ function expandWorkspaces() {
 }
 
 const allPackages = expandWorkspaces();
+const pkgVersions = new Map();
 for (const pkgPath of allPackages) {
   const pkg = JSON.parse(read(`${pkgPath}/package.json`));
+  pkgVersions.set(pkgPath, pkg.version);
   // 每个包都必须有 typecheck 脚本：`npm run typecheck`（不带 --if-present）会因此硬失败。
   // 新增包时漏写 → `npm test` 直接红，不会重演「UI 类型错误长期无人拦截」。
   check(
@@ -201,6 +203,26 @@ for (const pkgPath of allPackages) {
       `${pkgPath}: 可发布包的 bin["${binName}"] 不能以 './' 开头（npm 发布时会把该条目整条删除）`,
     );
   }
+}
+
+// 版本号：**全仓一个版本线**（自用工具，走 0.1.x，不搞对外的版本语义）。
+// 同一事实只记一遍 —— package.json 的 version 是唯一真相，渠道的 ChannelConfig.version
+// 必须与它一致（那处版本会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。
+// 靠人同步 22 处版本号必然漂移（此前 catpaw / workbuddyai 就漂到了 0.4.0），故机器守。
+const versionSet = new Set(pkgVersions.values());
+check(
+  versionSet.size === 1,
+  `工作区包版本不一致（应全仓同一版本线）：${[...pkgVersions]
+    .map(([p, v]) => `${p}=${v}`)
+    .join(", ")}`,
+);
+for (const cid of channelDirs) {
+  const declared = read(`packages/core/channels/${cid}/src/channel.ts`).match(/version:\s*"([^"]+)"/)?.[1];
+  const pkgVersion = pkgVersions.get(`packages/core/channels/${cid}`);
+  check(
+    declared === pkgVersion,
+    `packages/core/channels/${cid}: channel.ts 声明的 version（${declared}）与 package.json（${pkgVersion}）不一致`,
+  );
 }
 for (const pkgPath of NO_EMIT_PACKAGES) {
   check(
