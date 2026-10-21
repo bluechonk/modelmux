@@ -1,6 +1,8 @@
 # 依赖与构建产物
 node_modules/
 dist/
+# 发布包里的许可证副本（由 packages/cli 的 prepack 从仓库根复制，属构建产物）
+packages/cli/LICENSE
 
 # agent 运行时状态（本机私有）
 .box-agent/
