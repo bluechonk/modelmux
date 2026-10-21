@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "build": "tsc -b tsconfig.json && node scripts/bundle.mjs",
+    "prepack": "node scripts/prepack.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test tests/*.test.ts"
   },
@@ -25,5 +26,23 @@
     "esbuild": "^0.28.2",
     "typescript": "^5.9.2"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bluechonk/modelmux.git"
+  },
+  "homepage": "https://github.com/bluechonk/modelmux#readme",
+  "bugs": {
+    "url": "https://github.com/bluechonk/modelmux/issues"
+  },
+  "keywords": [
+    "openai",
+    "gateway",
+    "proxy",
+    "cli",
+    "model-router",
+    "llm",
+    "openai-compatible"
+  ],
+  "author": "bluechonk",
   "license": "MIT"
 }
