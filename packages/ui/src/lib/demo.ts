@@ -1,10 +1,13 @@
 /**
- * 演示模式的数据源（GitHub Pages 静态部署用）。
+ * 演示模式的数据源（**本地预览**用：界面完整渲染，动作只改内存状态）。
  *
- * 为什么需要它：Pages 是**纯静态托管**（没有后端、跑不了 Node），而控制台每个页面都要
- * `fetch('/web/api/*')` 读本机网关 —— 网关不发 CORS 头、`console.ts` 的 `isSameOrigin`
- * 拒绝跨源写命令、Chrome 的 Private Network Access 拦「公网页 → 127.0.0.1」。
- * 所以演示模式在 `api` 层用本模块替换 fetch：界面完整渲染，动作只改内存状态。
+ * 为什么需要它：控制台每个页面都要 `fetch('/web/api/*')` 读本机网关 ——
+ * 网关不发 CORS 头、`console.ts` 的 `isSameOrigin` 拒绝跨源写命令、Chrome 的
+ * Private Network Access 拦「公网页 → 127.0.0.1」。演示模式在 `api` 层用本模块
+ * 替换 fetch。
+ *
+ * ⚠ 本仓库**不再发布 GitHub Pages**（Pages 部署已移除）；演示构建只是本地预览手段
+ * （见 `vite.config.ts` 的「演示模式」）。
  *
  * 数据纪律：页面是**公开**的 —— 账号 uid / 手机号 / 域名一律用明显虚构的占位值，
  * 不读取、不复制 `~/.modelmux/` 下的任何真实数据。
@@ -12,11 +15,13 @@
 
 import type { UiSnapshot } from "./types";
 
-/** 渠道：cid + 展示名 + 是否已登录（虚构）。 */
+/** 渠道：cid + 展示名 + 是否已登录 + 有没有额度概念（虚构）。 */
 interface DemoChannel {
   cid: string;
   display: string;
   present: boolean;
+  /** 有没有额度/倍率概念（订阅制 = false）—— 对应真实快照的 `channel_caps`。 */
+  billing: boolean;
 }
 
 /** 一个虚构账号。uid/label 全部明显是占位值，不含任何真实身份信息。 */
@@ -28,17 +33,18 @@ interface DemoAccount {
 }
 
 const DEMO_CHANNELS: DemoChannel[] = [
-  { cid: "catpaw", display: "CatPaw", present: true },
-  { cid: "codearts", display: "CodeArts", present: true },
-  { cid: "lobsterai", display: "LobsterAI", present: true },
-  { cid: "loomy", display: "Loomy", present: true },
-  { cid: "orcaterm", display: "OrcaTerm", present: false },
-  { cid: "qoder", display: "Qoder", present: false },
-  { cid: "qodercn", display: "Qoder 国内版", present: true },
-  { cid: "raccoon", display: "Raccoon", present: true },
-  { cid: "traecn", display: "TRAE", present: true },
-  { cid: "workbuddy", display: "WorkBuddy", present: false },
-  { cid: "workbuddyai", display: "WorkBuddyAI", present: true },
+  { cid: "catpaw", display: "CatPaw", present: true, billing: true },
+  { cid: "codearts", display: "CodeArts", present: true, billing: true },
+  { cid: "lobsterai", display: "LobsterAI", present: true, billing: true },
+  { cid: "loomy", display: "Loomy", present: true, billing: true },
+  // 订阅制：没有积分/倍率概念（真实实现里 orcaterm 声明 capabilities.billing=false）
+  { cid: "orcaterm", display: "OrcaTerm", present: false, billing: false },
+  { cid: "qoder", display: "Qoder", present: false, billing: true },
+  { cid: "qodercn", display: "Qoder 国内版", present: true, billing: true },
+  { cid: "raccoon", display: "Raccoon", present: true, billing: true },
+  { cid: "traecn", display: "TRAE", present: true, billing: true },
+  { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
+  { cid: "workbuddyai", display: "WorkBuddyAI", present: true, billing: true },
 ];
 
 /** 各渠道对外暴露的模型（虚构演示集，形态与真实一致：`<cid>/<模型名>`）。 */
@@ -220,6 +226,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: demoModels(state),
     model_info: demoModelInfo(demoModels(state)),
+    channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),
     theme_mode: "dark",
     resolved_theme: "dark",
     gateway_error: "",

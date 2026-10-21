@@ -60,6 +60,10 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   列天然对齐、屏幕阅读器可读。
 - 排序口径与徽标口径**必须一致**：倍率 0 与「订阅制无倍率概念」算免费；倍率**未知**排最后，
   不冒充免费（旧版两个分支都返回 0，会把未知倍率的模型排到免费档前面却不带徽标）。
+- 「订阅制」由服务端的**能力位**判定：`/web/api/state` 的 `channel_caps[cid].billing` 为 `false`
+  即没有额度/倍率概念（渠道在 `ChannelConfig.capabilities` 里声明）。
+  ⚠ 前端**不得硬编码渠道名** —— 早前模型区写死了一个渠道名列表，再接一个订阅制渠道就会漏标；
+  账号池页走的是同一个能力位（`unsupported`），两处口径现已统一。
 - 数据来自 `/web/api/state` 的 `model_info`（共享层 `PoolModelMeta`）——
   上下文窗口、输出上限、输入模态**本来就有**，旧版只画 chip 把信息丢了。
 - 窄屏（< 1024px）隐藏「上下文 / 输出上限」两列，避免挤压换行。
@@ -112,7 +116,8 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 ## 数据通道
 
-- `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点）。
+- `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点），
+  外加模型池视图所需的 `models` / `model_info` / `channel_caps`（各渠道能力位）。
 - `POST /web/api/commands`：动作分发（login / status / **models** / billing / accounts /
   activateAccount / removeAccount / syncPool / pasteCallback）。
   - `billing` 支持 `args.refresh: true`（真实重查各渠道账单）与 `cid` 过滤（单渠道刷新）。

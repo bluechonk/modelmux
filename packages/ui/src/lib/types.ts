@@ -27,6 +27,13 @@ export interface UiSnapshot {
       inputModalities: string[];
     }
   >;
+  /**
+   * 各渠道的能力位（键 = cid）。
+   *
+   * `billing: false` = 该渠道没有额度/倍率概念（订阅制）—— 前端据此把它的模型
+   * 按「免费」显示。**不硬编码渠道名**：再接一个订阅制渠道，前端不用改。
+   */
+  channel_caps?: Record<string, { billing: boolean }>;
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;
