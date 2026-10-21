@@ -46,7 +46,6 @@ import {
   createSign,
   generateKeyPairSync,
   randomBytes,
-  type JsonWebKey,
 } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -59,6 +58,18 @@ import {
   writeJsonSecret,
 } from "@modelmux/gateway";
 import * as upstream from "./upstream.js";
+
+/**
+ * `node:crypto` 的 JWK 输入形状（本地声明，跨 @types/node 版本通用）。
+ *
+ * ⚠ 不能直接 `import type { JsonWebKey } from "node:crypto"`：@types/node 22 在模块顶层
+ * 导出它，26 把它移进了 `webcrypto` 命名空间，且两版形状不同 —— 22 的顶层版带索引签名，
+ * 26 的 webcrypto 版不带。写死任何一版都会在另一版下编译失败。
+ * 这里声明「索引签名 + 同名可选字段」的公共形状，两版的 `createPrivateKey` 都能收。
+ */
+interface JwkInput {
+  [key: string]: any;
+}
 
 /** 上游 API 基址（snap-access 网关，硬编码 cn-north-4，无多区域）。 */
 export const DEFAULT_BASE_URL = upstream.DEFAULT_BASE_URL;
@@ -259,7 +270,7 @@ function signDpopJws(keyPair: DpopKeyPair, htm: string, htu: string): string {
   };
   const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
   // `node:crypto` 要求 JsonWebKey（带索引签名），故这里做一次结构化转换。
-  const jwk = { ...keyPair.privateKeyJwk } as unknown as JsonWebKey;
+  const jwk = { ...keyPair.privateKeyJwk } as unknown as JwkInput;
   const key = createPrivateKey({ key: jwk, format: "jwk" });
   const signer = createSign("SHA256");
   signer.update(signingInput);
