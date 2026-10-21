@@ -76,9 +76,14 @@ for (const cid of channelDirs) {
 
 // 仓库级入口：bin 双名 + 注册清单与渠道目录一致
 const cliPkg = JSON.parse(read("packages/cli/package.json"));
+// ⚠ bin 路径**不带** `./` 前缀 —— 这是 npm 11 的发布归一化规则，不是笔误：
+// npm 的 `secureAndUnixifyPath`（@npmcli/package-json/lib/normalize.js）会把
+// `path.join('.', '/dist/cli.bundle.js')` 归一成 `./dist/...`，而它**以 './' 开头就判为
+// 无效并整条删除** —— 结果是发布出去的包没有 `mx` / `modelmux` 命令，且 npm 只打一句
+// 含糊的 "was invalid and removed"。实测：带 "./" → bin 被删；不带 → 保留。
 check(
-  cliPkg.bin?.["modelmux"] === "./dist/cli.bundle.js" && cliPkg.bin?.["mx"] === "./dist/cli.bundle.js",
-  "packages/cli: bin 必须同时提供 modelmux 与 mx，且都指向 dist/cli.bundle.js",
+  cliPkg.bin?.["modelmux"] === "dist/cli.bundle.js" && cliPkg.bin?.["mx"] === "dist/cli.bundle.js",
+  "packages/cli: bin 必须同时提供 modelmux 与 mx，且都指向 dist/cli.bundle.js（不带 ./ 前缀）",
 );
 const cliDeps = Object.keys(cliPkg.dependencies ?? {});
 check(
@@ -183,6 +188,19 @@ for (const pkgPath of allPackages) {
     typeof pkg.scripts?.typecheck === "string",
     `${pkgPath}: package.json 缺 typecheck 脚本（npm test 的 typecheck 链要求每个工作区都能自查类型）`,
   );
+
+  // **可发布包**（没有 private 标记）的 bin 路径一律不得带 './' 前缀 ——
+  // npm 发布归一化（@npmcli/package-json 的 secureAndUnixifyPath）会把 './x.js'
+  // 判为无效并**整条删除**，结果：装完没有命令，npm 只打一句含糊的
+  // "was invalid and removed"。渠道包都是 private、不发布，保留 './dist/cli.js'
+  // 形态（由上面的渠道 bin 断言钉住），故这条只管可发布包。
+  if (pkg.private === true) continue;
+  for (const [binName, binPath] of Object.entries(pkg.bin ?? {})) {
+    check(
+      typeof binPath === "string" && !binPath.startsWith("./"),
+      `${pkgPath}: 可发布包的 bin["${binName}"] 不能以 './' 开头（npm 发布时会把该条目整条删除）`,
+    );
+  }
 }
 for (const pkgPath of NO_EMIT_PACKAGES) {
   check(
