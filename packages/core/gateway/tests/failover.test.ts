@@ -10,7 +10,7 @@
  *   标 `unauthorized`、**凭证原样保留**，返回 502 `upstream_unauthenticated`，
  *   下一步由用户手动切号（`mx acct <cid> use <key>`）。
  *   依据：`src/http/chat/relay.ts:748-801`（`callUpstream` 的注释与分支）、
- *   `src/runtime/account-pool.ts:494-505`（`pickAccount` 无自动切号的调用方）、
+ *   `src/runtime/account-pool.ts`（`activeAccountIsError`：只短路当前账号，不挑下一个）、
  *   `docs/POOL-ARCHITECTURE.md:308-316`（§3.3 明确「不自动切号」）。
  *
  * ⚠ 池 id 形态：请求必须是 `<cid>/<模型>`（`solo/glm-5.3-flash`）——

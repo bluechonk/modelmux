@@ -410,7 +410,7 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
  * 额度耗尽：**立即**把生效账号标 `error`（不等 3 次连败）。
  *
  * 额度不足不是瞬时故障，继续请求只会一遍遍打上游、每次都失败；标记后
- * `pickAccount` / `callUpstream` 都会跳过它。充值 / 切号后由
+ * `activeAccountIsError` 会在**发请求前**短路掉它。充值 / 切号后由
  * `mx acct use <key>`（`activateAccount` 会清零连败并恢复 `ok`）解除。
  */
 export function noteAccountQuotaExhausted(cid?: string): void {
@@ -487,29 +487,8 @@ function loadLive(cid?: string): Record<string, unknown> | null {
 }
 
 /**
- * 选下一个可用账号（**失败转移**用）。
- *
- * 跳过 `unauthorized` 的（已知不可用）与 `exclude` 里的（本次请求已经试过）；
- * 其余按 `last_used_at` 升序（最久未用优先）。没有可用账号返回 null。
- *
- * `unknown` 健康度**不算不可用** —— 那是"还没试过"，正该拿它去试。
- */
-export function pickAccount(cid?: string, exclude: readonly string[] = []): PoolAccount | null {
-  const index = readIndex(cid);
-  const usable = index.accounts
-    .filter(
-      (a) =>
-        a.health !== "unauthorized" &&
-        a.health !== "error" && // 连续失败被标记的凭据不再发起请求
-        !exclude.includes(a.key),
-    )
-    .sort((a, b) => (a.last_used_at < b.last_used_at ? -1 : a.last_used_at > b.last_used_at ? 1 : 0));
-  return usable[0] ?? null;
-}
-
-/**
  * 一次请求失败：生效账号连续失败 +1；达到 FAIL_STREAK_LIMIT 即把 health 标为
- * `error`（路由与 pickAccount 都会跳过，**凭证保留**，恢复靠用户切号/重登）。
+ * `error`（路由侧 `activeAccountIsError` 会跳过它，**凭证保留**，恢复靠用户切号/重登）。
  *
  * 与 markActiveHealth 的区别：那个按「最后一次结果」覆盖 health；这个是
  * **累计口径**，只升不降（成功由 noteAccountSuccess 清零连败）。

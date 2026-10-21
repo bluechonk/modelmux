@@ -102,13 +102,16 @@ docs/channels/<cid>/
 
 **已知问题**（下一轮跟进）：
 
-1. **codearts 的会话策略**：上游按「单账号最多 3 个并发会话」计数，而本仓的 `Session-Id` 由
-   **请求体**派生 → 每轮对话都是新会话 → 4 轮 Agent 往返必然撞线
-   （上游回 `TM.00001041`「并发会话数已达上限(3个)」）。渠道级并发槽位闸尚未做，
-   见 [`codearts/PROTOCOL.md`](./codearts/PROTOCOL.md) 的「已知边界」。
-2. **访问日志的 outcome 分桶**：客户端先关连接时 `outcome ??= "other"` → 成功的请求被记进
-   `other.log`（codearts / lobsterai / workbuddy / workbuddyai 的成功请求全落 `other`），
-   按 `success.log` 统计成功率会失真。`slow.log` 是**副本**不是独立请求，统计请求数要按 `id` 去重。
+1. **上游限流与账号侧风控**：workbuddyai 上游 429「模型繁忙」、raccoon / loomy 的
+   `not_authenticated`（token 失效后需用户手动 `mx acct <cid> use <key>` 切号）——
+   都是账号侧约束，不是协议缺陷。
+2. **qoder 上游排队饱和**：单请求 TTFB 220–290s 后模型不再推进（见上表「受限」）。
+
+> 下面两条曾记在这里，现已过时并删除，代码为准：
+> - ① **codearts 的会话槽位闸**（上游按「单账号最多 3 个并发会话」计数）：已由 `0cf9a44` 实现
+>   ——账号级节流 + session id LRU 闸，见 `packages/core/channels/codearts/src/upstream.ts`。
+> - ② **访问日志的 outcome 分桶**（客户端先关连接时 `outcome ??= "other"`，成功请求落
+>   `other.log`）：已由 `2978bf5` 修好 —— `runtime/log-store.ts` 改为按状态码判定 outcome。
 
 ## 新增渠道要动的文档
 
