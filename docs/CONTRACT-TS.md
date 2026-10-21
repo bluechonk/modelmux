@@ -122,6 +122,17 @@ packages/core/channels/<cid>/
   回退分支（`node -e` 等异常启动方式）在 bundle 下同样失效，属已知限制
   （见 `packages/core/gateway/src/app/lifecycle/process.ts` 的 `cliEntry()`）。
 
+#### 发布到 npm 的三条硬约定
+
+| 约定 | 原因 |
+| --- | --- |
+| **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
+| **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
+| **`prepublishOnly` 先跑 `npm run build`** | 发布出去的 `dist/` 必须与当前源码一致；没有它，`npm publish` 会把上一次的构建产物（甚至空目录）发出去 |
+
+发布前的自检：`cd packages/cli && npm publish --dry-run` —— 输出里除「需要登录」外**不应有任何
+`npm warn publish`**；有任何一条都先修掉再发。
+
 ---
 
 ## 3. 渠道注册表（共享层与渠道层的唯一接缝）
