@@ -14,10 +14,19 @@ import { type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 
 /**
- * 无倍率概念（订阅制）的渠道：这些渠道上游没有积分/倍率字段，
- * `capabilities.billing=false`，统一显示「免费」而不是不标徽标。
+ * 无倍率概念（订阅制）的渠道集合：**从服务端能力位推导**，不硬编码渠道名。
+ *
+ * 服务端在快照的 `channel_caps` 里给出每个渠道的 `billing` 能力位
+ * （`billing=false` = 订阅制，没有积分/倍率字段）。前端据此把这些渠道的模型
+ * 按「免费」显示 —— 再接一个订阅制渠道，前端不用改。
  */
-const FREE_PLAN_CHANNELS = new Set(["orcaterm"]);
+function freePlanCidsOf(caps: Record<string, { billing: boolean }> | undefined): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const [cid, cap] of Object.entries(caps ?? {})) {
+    if (cap?.billing === false) out.add(cid);
+  }
+  return out;
+}
 
 /** 仪表盘页：全局状态快照（统计块 + 接入端点 + 可用模型区）。 */
 export function Dashboard(): ReactElement {
@@ -139,7 +148,7 @@ export function Dashboard(): ReactElement {
       <ModelExplorer
         models={state.models}
         infoOf={(poolId) => state.model_info?.[poolId]}
-        freePlanCids={FREE_PLAN_CHANNELS}
+        freePlanCids={freePlanCidsOf(state.channel_caps)}
       />
     </div>
   );

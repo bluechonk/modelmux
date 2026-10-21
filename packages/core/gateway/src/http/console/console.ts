@@ -73,6 +73,17 @@ const MIME: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
+/** 渠道能力位（键 = cid）。 */
+export interface ChannelCaps {
+  /**
+   * 该渠道有没有额度/倍率概念。
+   *
+   * `false` = 订阅制（上游不按积分/倍率计费）—— 前端据此把该渠道的模型按「免费」显示，
+   * 而**不是**硬编码渠道名（每接一个订阅制渠道，前端不该跟着改一次）。
+   */
+  billing: boolean;
+}
+
 /** 状态快照；`ui_state` 取值 probing / login / error / running。 */
 export interface UiSnapshot {
   ui_state: string;
@@ -96,6 +107,13 @@ export interface UiSnapshot {
    * 倍率为 null 表示该渠道目录没有提供；前端据此不渲染倍率标签。
    */
   model_info: Record<string, import("../../pool/pool-targets.js").PoolModelMeta>;
+  /**
+   * 各渠道的能力位（键 = cid）。
+   *
+   * 为什么要下发：前端要区分「该渠道没有倍率概念（订阅制）」。靠**能力位**而不是
+   * 前端硬编码渠道名 —— 否则每接一个订阅制渠道，前端就得跟着改一次。
+   */
+  channel_caps: Record<string, ChannelCaps>;
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;
@@ -112,6 +130,7 @@ export function emptySnapshot(): UiSnapshot {
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: [],
     model_info: {},
+    channel_caps: {},
     theme_mode: "system",
     resolved_theme: "dark",
     gateway_error: "",

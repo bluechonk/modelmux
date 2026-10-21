@@ -14,7 +14,7 @@ import * as authFlow from "../../auth/auth-flow.js";
 import { startAutoSignin } from "../../auth/auto-signin.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
-import { channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
+import { channels, getChannel, hasChannel, channelCapabilities, type Channel } from "../../runtime/channel.js";
 import * as console_ from "../../http/console/console.js";
 import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
@@ -247,6 +247,9 @@ class ServiceState {
       chat_url: this.chatUrl,
       models: [...this.modelsShown],
       model_info: Object.fromEntries(this.modelsShown.map((id) => [id, getPoolModelMeta(id)])),
+      channel_caps: Object.fromEntries(
+        channels().map((channel) => [channel.config.cid, channelCapabilities(channel.config)]),
+      ),
       gateway_error: this.gatewayError,
     };
   }
