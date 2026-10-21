@@ -156,7 +156,14 @@ export function demoSettings(state: DemoState): UiSnapshot {
   return base;
 }
 
-function demoModelInfo(models: string[]): Record<string, { multiplier: number | null; marketing: string }> {
+/**
+ * 演示用的模型元数据（键 = 池模型 id）。
+ *
+ * ⚠ 字段必须与 `UiSnapshot.model_info` 的形状**逐字段对齐**（倍率 / 营销角标 /
+ * 上下文窗口 / 单次输出上限 / 输入模态）—— 少一个字段就是一处类型错误，
+ * 而 UI 的类型检查此前不在 CI 链路里，这类缺口会长期潜伏。
+ */
+function demoModelInfo(models: string[]): UiSnapshot["model_info"] {
   const DEMO_MULTIPLIER: Record<string, number> = {
     "deepseek-v4-flash": 0.03,
     "deepseek-v4.1-flash": 0.06,
@@ -192,6 +199,10 @@ function demoModelInfo(models: string[]): Record<string, { multiplier: number | 
         {
           multiplier: DEMO_MULTIPLIER[name] ?? null,
           marketing: DEMO_MARKETING[name] ?? "",
+          // 演示值（虚构）：窗口与输出上限取常见量级，模态一律文本
+          contextWindow: 128000,
+          maxOutputTokens: 8192,
+          inputModalities: ["text"],
         },
       ];
     }),

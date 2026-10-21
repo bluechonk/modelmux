@@ -147,6 +147,54 @@ check(
   `tsconfig.json: references 与仓库包不一致（缺 ${missingRefs.join(", ") || "无"}；多 ${strayRefs.join(", ") || "无"}）`,
 );
 
+// 「不进 tsc emit 图」的包（显式白名单 + 理由，避免后人困惑）。
+//
+// 为什么需要白名单：`tsconfig.json` 的 solution 是 **emit 图**（谁产 JS 谁在里面）。
+// `packages/ui` 是 Vite SPA —— 产物由 `vite build` 出，`tsc` 对它只做类型检查
+// （`noEmit`），把它塞进 solution 只会逼出假的声明产物。
+// ⚠ 但**类型检查不能因此缺席**：`npm test` 的链里有 `npm run typecheck`（全工作区），
+// 且下面会检查每个包都有 typecheck 脚本 —— 类型缺口仍然会被 CI 拦住。
+const NO_EMIT_PACKAGES = ["packages/ui"]; // Vite 产 JS，tsc 只查类型
+
+// 展开根 workspaces 的每个包（工作区清单是唯一的「有哪些包」事实源）。
+function expandWorkspaces() {
+  const rootPkg = JSON.parse(read("package.json"));
+  const out = new Set();
+  for (const pattern of rootPkg.workspaces ?? []) {
+    if (pattern.endsWith("/*")) {
+      const base = join(repo, pattern.slice(0, -2));
+      if (!existsSync(base)) continue;
+      for (const name of readdirSync(base)) {
+        if (existsSync(join(base, name, "package.json"))) out.add(`${pattern.slice(0, -2)}/${name}`);
+      }
+    } else if (existsSync(join(repo, pattern, "package.json"))) {
+      out.add(pattern);
+    }
+  }
+  return [...out];
+}
+
+const allPackages = expandWorkspaces();
+for (const pkgPath of allPackages) {
+  const pkg = JSON.parse(read(`${pkgPath}/package.json`));
+  // 每个包都必须有 typecheck 脚本：`npm run typecheck`（不带 --if-present）会因此硬失败。
+  // 新增包时漏写 → `npm test` 直接红，不会重演「UI 类型错误长期无人拦截」。
+  check(
+    typeof pkg.scripts?.typecheck === "string",
+    `${pkgPath}: package.json 缺 typecheck 脚本（npm test 的 typecheck 链要求每个工作区都能自查类型）`,
+  );
+}
+for (const pkgPath of NO_EMIT_PACKAGES) {
+  check(
+    allPackages.includes(pkgPath),
+    `NO_EMIT_PACKAGES 里的 ${pkgPath} 不是实际工作区包（白名单与 workspaces 不一致）`,
+  );
+  check(
+    !solutionPaths.includes(pkgPath),
+    `${pkgPath}: 已列入 NO_EMIT_PACKAGES，不应同时出现在 tsconfig.json 的 references 里`,
+  );
+}
+
 // 共享包自身必须零第三方依赖（CONTRACT-TS §2）
 const gwDeps = Object.keys(JSON.parse(read("packages/core/gateway/package.json")).dependencies ?? {});
 check(gwDeps.length === 0, `packages/core/gateway: 共享包必须零运行依赖，当前 ${gwDeps.join(", ")}`);

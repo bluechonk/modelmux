@@ -23,7 +23,8 @@
 ```bash
 npm install                       # 装工作区依赖（含软链）
 npm run build                     # 全仓编译（tsc -b 增量 + cli 单文件 bundle + copy-ui）
-npm test                          # build + 全部 verify:* + 全部包的测试（Windows 侧快速反馈）
+npm test                          # build + typecheck + 全部 verify:* + 全部包的测试（Windows 侧快速反馈）
+npm run typecheck                 # 全工作区类型检查（UI 也在内；新增包必须带 typecheck 脚本）
 npm run gate                      # 【推送前必须】WSL 门禁：clone → npm ci → npm test
 npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道（也走引用链）
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
@@ -68,6 +69,12 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    （`packages/core/gateway/dist/ui` 与 `packages/cli/dist/ui`）—— 少拷一份，全局 `mx web` 就报「UI 未构建」。
 4. 发布构建与 UI 产物落点的完整说明见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §2.1 与
    [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) 的「技术栈与构建」。
+5. **`packages/ui` 不在 solution 的 references 里**：solution 是 **emit 图**（谁产 JS 谁在里面），
+   而 UI 的产物由 `vite build` 出（`tsc` 对它只做类型检查）。把它塞进 solution 只会逼出
+   假的声明产物（TS 不允许 composite + noEmit）。
+   ⚠ 但**类型检查不能因此缺席**：`npm test` 的链里有 `npm run typecheck`（全工作区），
+   且 `scripts/verify-contract.mjs` 会检查**每个工作区包都有 `typecheck` 脚本** ——
+   新增包漏写就直接红，不会重演「UI 类型错误长期无人拦截」。
 
 ## 分支与重构
 
@@ -279,8 +286,9 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test
 
 ### 推送前检查
 
-1. `npm test` 全绿（自带 `build`，含全部 `verify:*`：`contract` / `storage` / `docs` / `commits` /
-   `topology` / `layering` / `wiring`，以及全部包的测试 —— 含共享层 `packages/core/gateway/tests/`）。
+1. `npm test` 全绿（自带 `build` + `typecheck` + 全部 `verify:*`：`contract` / `storage` / `docs` /
+   `commits` / `topology` / `layering` / `wiring`，以及全部包的测试 —— 含共享层
+   `packages/core/gateway/tests/`）。
 2. 测试链读的是各包 `dist/`（不是 `src/`），所以编译必须在链首：`npm test` 已内置 `npm run build`；
    单独跑 `npm run verify:*` 或 `npm test --workspace=packages/core/channels/<cid>` 前必须先 `npm run build`。
 3. 本地 WSL 门禁全绿后才允许推送。

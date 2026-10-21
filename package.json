@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "tsc -b && npm run build --workspace=packages/ui && npm run build --workspace=packages/cli && node scripts/copy-ui.mjs",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces",
     "verify:contract": "node scripts/verify-contract.mjs",
     "verify:storage": "node scripts/verify-storage.mjs",
     "verify:docs": "node scripts/verify-docs.mjs",
@@ -20,7 +20,7 @@
     "verify:layering": "node scripts/verify-layering.mjs",
     "verify:wiring": "node scripts/verify-wiring.mjs",
     "gate": "bash scripts/wsl-gate.sh",
-    "test": "npm run build && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:commits && npm run verify:topology && npm run verify:layering && npm run verify:wiring && npm run test --workspaces --if-present"
+    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:commits && npm run verify:topology && npm run verify:layering && npm run verify:wiring && npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.6"
