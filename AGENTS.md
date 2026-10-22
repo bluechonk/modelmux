@@ -90,6 +90,27 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 2. 大规模修改的分支流程按全局规则执行；完成后必须走完整流程：推送 → 建 PR → CI 全绿 → rebase 合并 → 删除分支。
    合并方式的细则见「提交信息规范 / 合并方式」。
 
+### 分支与 PR 的节奏（**攒够一批再走，不是每次改动都走**）
+
+`main` 有分支保护（`enforce_admins=true` + 必需 `test (node 22)` / `test (node 24)` 双状态检查），
+**没有直推这条路** —— 任何上远端的改动都只能走 PR。但 PR 的**节奏**按改动规模分：
+
+| 改动规模 | 节奏 |
+|---|---|
+| 大规模改动（命中上面 5 条判定） | **立即开分支**，完成一批即走完整流程：提交 → `npm run gate` → push → 建 PR → CI 双绿 → rebase 合并 → 删分支 |
+| 小改动（单包、单文件、注释、文档、UI 微调等，未命中任何一条） | **先本地 commit 攒着**（main 上直接提交、不上远端），攒够一批或需要让改动生效时，再一次性走 PR |
+
+⚠ 无论哪种节奏，**推送前**的约束都一样，不因改动小而放宽：
+
+1. `npm test` 全绿（含 typecheck 与全部 `verify:*`）；
+2. `npm run gate`（WSL 门禁）全绿 —— `.githooks/pre-push` 会自动再跑一次，禁止 `--no-verify`；
+3. 提交信息符合 `type(scope): 中文描述`（`verify:commits` 在 `npm test` 里校验）；
+4. 文档与代码**同一个 commit** 更新。
+
+> 一句话：**main 禁直推，改动必须走 PR；但小改动先攒本地 commit，攒够了再一个 PR 上去**，
+> 不要一个 commit 开一个 PR。
+
+
 ## Worktree 约束
 
 **按需使用**。仓库只有一个网关端口 4412 和共享的 `~/.modelmux` 存储根，worktree 不能用来
