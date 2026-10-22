@@ -137,6 +137,24 @@ function quotaText(credits: AccountCredits | null | undefined, unsupported: bool
 }
 
 /**
+ * 额度新鲜度：网关每 5 分钟后台并行重查一轮（`startBillingRefresher`），
+ * 这里把「这条数字多久前查的」显示出来 —— 否则用户看到旧数会以为面板没生效。
+ *
+ * 阈值与后端一致：>15 分钟算「偏旧」（正常应 ≤5 分钟，留 3 倍容差给慢查询/失败重试）。
+ */
+function freshnessText(billingAt: string | null | undefined): { text: string; stale: boolean } {
+  if (!billingAt) return { text: "未查到", stale: true };
+  const at = Date.parse(billingAt);
+  if (!Number.isFinite(at)) return { text: "未查到", stale: true };
+  const mins = Math.floor((Date.now() - at) / 60_000);
+  if (mins < 1) return { text: "刚刚更新", stale: false };
+  if (mins < 60) return { text: `${mins} 分钟前`, stale: mins > 15 };
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return { text: `${hours} 小时前`, stale: true };
+  return { text: `${Math.floor(hours / 24)} 天前`, stale: true };
+}
+
+/**
  * 单渠道账号池卡片。
  *
  * 信息层级按「用户一眼要看什么」排：卡头是 cid + 登录状态点；
@@ -268,6 +286,18 @@ export function AccountCard({
                   {failStreak > 0 && (
                     <span className="shrink-0 text-[11px] text-warn">连续失败 {failStreak} 次</span>
                   )}
+                  {/* 额度新鲜度：让「数字是不是旧的」一眼可见（网关每 5 分钟后台重查） */}
+                  {(() => {
+                    const fresh = freshnessText(bill?.billing_at);
+                    return (
+                      <span
+                        className={`shrink-0 text-[11px] ${fresh.stale ? "text-warn" : "text-ink-faint/70"}`}
+                        title={`额度查询时间：${bill?.billing_at ?? "未知"}（网关每 5 分钟自动重查）`}
+                      >
+                        {fresh.text}
+                      </span>
+                    );
+                  })()}
                   <div className="ml-auto shrink-0">
                     <QuotaMeter
                       credits={bill?.credits}

@@ -425,6 +425,71 @@ export function maybeRefreshBilling(logger: (m: string) => void = () => {}): voi
   void refreshBilling(logger).catch((err: unknown) => logger(`billing refresh error: ${String(err)}`));
 }
 
+// ── 后台定时刷新（控制台/面板的「额度新鲜度」靠它）──────────────────────────
+
+/**
+ * 后台刷新间隔：**3 分钟**（可用 `MODELMUX_BILLING_REFRESH_MS` 覆盖，0 = 关闭）。
+ *
+ * 为什么不等 TTL（`BILLING_TTL_MS = 8h`）：TTL 是「聊天请求路径上顺手补一次」的判据，
+ * 目的是不给每条请求加网络开销；而控制台的额度展示需要**分钟级**的新鲜度 ——
+ * 用户改了额度/充了值，不该等 8 小时或手动 `mx bill` 才看到。
+ *
+ * 3 分钟是主人 2026-10-23 指定的节奏（原 5 分钟）。
+ * ⚠ 代价是**每个渠道每 3 分钟一次上游查询**（约 10 渠道 × 20 次/小时）。
+ * 都是只读的积分查询端点（官方客户端也在轮），但若上游出现限流就调大这个值或设 0 关掉。
+ */
+export const BILLING_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
+
+/** 解析间隔（环境变量覆盖；非法值回落默认）。 */
+function refreshIntervalMs(): number {
+  const raw = process.env["MODELMUX_BILLING_REFRESH_MS"];
+  if (raw === undefined || raw.trim() === "") return BILLING_REFRESH_INTERVAL_MS;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value >= 0 ? value : BILLING_REFRESH_INTERVAL_MS;
+}
+
+let refresherTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 启动后台账单刷新器（网关 running 后调用一次；幂等，重复调用不会起第二个定时器）。
+ *
+ * 跑一轮的语义与 `mx bill` 一致：**并行**查全部有账单能力的渠道（见 `runRefresh`），
+ * 并发去重交给 `inFlight`，所以与聊天路径的 `maybeRefreshBilling` 不会互相叠加。
+ */
+export function startBillingRefresher(logger: (m: string) => void = () => {}): void {
+  if (refresherTimer) return;
+  const interval = refreshIntervalMs();
+  if (interval <= 0) {
+    logger("billing refresher disabled (MODELMUX_BILLING_REFRESH_MS=0)");
+    return;
+  }
+  refresherTimer = setInterval(() => {
+    void refreshBilling(logger)
+      .then((result) => {
+        if (result.refreshed.length > 0 || result.failed.length > 0) {
+          logger(
+            `billing refreshed (${result.refreshed.length} ok, ${result.failed.length} failed)` +
+              (result.failed.length > 0
+                ? `: ${result.failed.map((f) => f.cid).join(", ")}`
+                : ""),
+          );
+        }
+      })
+      .catch((err: unknown) => logger(`billing refresh error: ${String(err)}`));
+  }, interval);
+  // 定时器不该阻止进程退出（与 auto-signin 的调度器同类）
+  refresherTimer.unref?.();
+  logger(`billing refresher started (every ${Math.round(interval / 1000)}s)`);
+}
+
+/** **仅供测试**：停掉后台刷新器。 */
+export function stopBillingRefresherForTest(): void {
+  if (refresherTimer) {
+    clearInterval(refresherTimer);
+    refresherTimer = null;
+  }
+}
+
 /** **仅供测试**：清空内存缓存（切存储根 / 隔离用例）。 */
 export function resetPoolLedgerForTest(): void {
   if (saveTimer) {

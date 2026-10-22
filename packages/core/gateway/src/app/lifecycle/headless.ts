@@ -21,6 +21,7 @@ import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway } from "../../runtime/log-store.js";
 import { credentialsPath } from "../../runtime/paths.js";
 import { getPoolModelMeta } from "../../pool/pool-targets.js";
+import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
 function emit(event: Record<string, unknown>): void {
@@ -628,6 +629,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
     }
     // 网关 ready 即挂自动签到：逐渠道（未登录跳过 / 台账已签跳过 / 连败 3 次当日熔断）
     startAutoSignin(logLine);
+
+    // 额度保鲜：每 5 分钟并行查一遍全部有账单能力的渠道（控制台的额度展示靠它，
+    // 不再依赖 8 小时的 TTL 或用户手动 `mx bill`）。间隔见 BILLING_REFRESH_INTERVAL_MS。
+    poolUsage.startBillingRefresher(logLine);
 
     // 目录保鲜：每天后台重拉一次各渠道模型目录（实现了 catalog.refresh 的渠道才拉），
     // 渠道上游加了新模型时无需手动 `--refresh`。失败静默保留旧表（下次再试）。
