@@ -57,7 +57,7 @@ docs/channels/<cid>/
 - 「怎么测这个渠道」与「端到端测试覆盖」**每个渠道都必须成节存在**；前半段的渠道特有
   小节按需取舍。
 - 实测记录按**日期**分节（`2026-10-19` / `2026-10-20` …），同一天的多次实测合并成一节。
-- 尚无端到端实测记录的渠道**不写**这一节（当前 11 个渠道**全部**已有端到端实测记录）。
+- 尚无端到端实测记录的渠道**不写**这一节（当前 10 个渠道**全部**已有端到端实测记录）。
 
 **逆向研究代码不入库**：探针 / 解密脚本这类一次性研究代码（渠道目录下的 `research/`）
 用完即删，价值在结论，不在代码。结论必须落到本目录的 `PROTOCOL.md` / `FINDINGS.md`。
@@ -67,7 +67,6 @@ docs/channels/<cid>/
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
-| `codearts` | CodeArts（华为云） | benefit 免费额度**按账号授予**，chat 必须带 `maas_type: benefit` | [PROTOCOL](./codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
 | `orcaterm` | OrcaTerm（腾讯云） | 工具调用走上游原生工具服务器桥接；无额度 / 签到 | [PROTOCOL](./orcaterm/PROTOCOL.md) + [FINDINGS](./orcaterm/FINDINGS.md) / [TOOL-CALLS](./orcaterm/TOOL-CALLS.md) / [REQUEST-BODY](./orcaterm/REQUEST-BODY.md) |
@@ -89,9 +88,8 @@ docs/channels/<cid>/
 | 渠道 | 测的模型 | 结果 | 备注 |
 | --- | --- | --- | --- |
 | `catpaw` | `longcat-2.0`（倍率 0） | 通过 | 首次失败是**被另一会话重启网关**打断，重试即过 |
-| `codearts` | `openpangu-2.0-flash` | 功能通过，**错误日志有新增** | 见下「已知问题」 |
 | `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费 3.54 credits（与倍率相符） |
-| `loomy` | — | **未测** | 凭证缺失，需真人扫码 |
+| `loomy` | `spark-x`（倍率 0） | 通过 | 2026-10-22 手机验证码入池后实测：工具往返通过、零扣费；冷启动首字 ~25s |
 | `orcaterm` | `deepseek-v4-flash` | 通过 | 订阅制，无倍率概念 |
 | `qoder` | `deepseek-flash`（倍率 0） | **受限** | 上游排队饱和：单请求 TTFB 220–290s，模型不再推进 |
 | `qodercn` | `qwen3.8-flash`（倍率 0） | 通过 | |
@@ -107,11 +105,9 @@ docs/channels/<cid>/
    都是账号侧约束，不是协议缺陷。
 2. **qoder 上游排队饱和**：单请求 TTFB 220–290s 后模型不再推进（见上表「受限」）。
 
-> 下面两条曾记在这里，现已过时并删除，代码为准：
-> - ① **codearts 的会话槽位闸**（上游按「单账号最多 3 个并发会话」计数）：已由 `0cf9a44` 实现
->   ——账号级节流 + session id LRU 闸，见 `packages/core/channels/codearts/src/upstream.ts`。
-> - ② **访问日志的 outcome 分桶**（客户端先关连接时 `outcome ??= "other"`，成功请求落
->   `other.log`）：已由 `2978bf5` 修好 —— `runtime/log-store.ts` 改为按状态码判定 outcome。
+> 下面这条曾记在这里，现已过时并删除，代码为准：
+> **访问日志的 outcome 分桶**（客户端先关连接时 `outcome ??= "other"`，成功请求落
+> `other.log`）：已由 `2978bf5` 修好 —— `runtime/log-store.ts` 改为按状态码判定 outcome。
 
 ## 新增渠道要动的文档
 

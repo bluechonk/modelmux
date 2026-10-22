@@ -122,7 +122,7 @@ function makeChannel(cid: string): Channel {
       buildHeaders: (credential: { accessToken: string }) => ({
         Authorization: `Bearer ${credential.accessToken}`,
       }),
-      // 模拟 codearts：400 + APIG.0602 也是鉴权失败
+      // 模拟华为云 APIG 风格：400 + APIG.0602 也是鉴权失败
       isAuthFailure: (_status: number, body: string) => body.includes("APIG.0602"),
       buildChatBody: (req: Record<string, unknown>, upstreamModel: string) => ({ ...req, model: upstreamModel }),
       fetchModels: async () => ({}),

@@ -87,9 +87,7 @@
 
        | 文件 | 渠道 | 内容 |
        |---|---|---|
-       | `benefit-models.json` | codearts | 该账号的福利（benefit）模型 id 列表 |
-       | `benefit-accounts.json` | codearts | **按账号**分桶的 benefit / 常规模型集合（混合池互不污染） |
-       | `client-version.json` | lobsterai | 客户端版本号兜底（更新接口抽风时用「最后一次已知可用」版本） |
+                     | `client-version.json` | lobsterai | 客户端版本号兜底（更新接口抽风时用「最后一次已知可用」版本） |
        | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
   - `state/` 跨重启保持的**状态**：`state/signin.json`（签到台账：
     `{version, timezone, last_claim, history}`，由共享层在**领取成功**或自动签到回填时写入）、

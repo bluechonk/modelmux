@@ -63,9 +63,8 @@ describe("仓库级模型池", () => {
     assert.equal(resp.status, 200);
     const payload = (await resp.json()) as { data: Array<{ id: string; owned_by: string }> };
     const ids = payload.data.map((m) => m.id).sort();
-    // 全模型池：11 个渠道能提供的全部模型，按渠道挂前缀（同名模型各归各家）
+    // 全模型池：各渠道能提供的全部模型，按渠道挂前缀（同名模型各归各家）
     assert.ok(ids.includes("workbuddyai/deepseek-v4.1-flash"), "应包含 workbuddyai/deepseek-v4.1-flash");
-    assert.ok(ids.includes("codearts/deepseek-v4.1-flash"), "应包含 codearts/deepseek-v4.1-flash");
     assert.ok(ids.includes("catpaw/glm-5.3-flash"), "应包含 catpaw/glm-5.3-flash");
     assert.ok(ids.length > 2, `应多于 2 个模型，实际 ${ids.length}`);
     assert.ok(

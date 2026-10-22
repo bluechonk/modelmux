@@ -3,7 +3,7 @@
  * 客户端先关连接**不改变**分桶（只留一句说明）。
  *
  * 修的是什么：原先 `close` 回调里 `outcome ??= "other"` 抢在状态码分类之前把 outcome 定死，
- * 于是**成功的 200 请求被记进 other.log**（实测 codearts / lobsterai / workbuddy / workbuddyai
+ * 于是**成功的 200 请求被记进 other.log**（实测 lobsterai / workbuddy / workbuddyai
  * 的成功请求 100% 落 other）→ 按 `success.log` 统计成功率会失真。
  *
  * 全程在 mkdtemp 的临时存储根下进行，绝不碰真实主目录。

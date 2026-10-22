@@ -1,5 +1,5 @@
 /**
- * Loomy（讯飞）认证：HMAC-SHA1 账号签名、微信登录、凭据持久化与「续期=探测」。
+ * Loomy（讯飞）认证：HMAC-SHA1 账号签名、手机验证码登录、凭据持久化与「续期=探测」。
  *
  * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/loomy/PROTOCOL.md）
  *
@@ -12,20 +12,14 @@
  *    （键序/空格），签名随即失效。故 `accountPost()` 只 `JSON.stringify` 一次。
  * 5. **没有 refresh 端点**（session 是登录时声明 14 天得来的）：`refresh()` 只做
  *    **有效性探测**，失效时抛错 —— **不假装续期成功**（那会让 UI 显示「已续期」而请求仍 401）。
- * 6. **微信长轮询：405 = 已确认（code 在这一帧），404 = 已扫码待确认**。
- *    早期实现恰好读反，后果是用户确认后流程永久卡在「已扫码」。
- * 7. **微信 code 只在第 1 步用一次**，后续三步只用 `rcode`；`bind` 缺失时**归为 0**
- *    （走绑定流程，保守方向）；`rcode` 缺失必须明确报错。
- * 8. **扫码必须扫「本进程 uuid」那张二维码**：授权页每次加载都生成新 uuid
- *    （实测同一 state 连开 3 次得 3 个不同 uuid），轮询的却是本进程这一次的 uuid。
- *    让用户去授权页扫会扫到另一次会话的码 —— 轮询永远等不到「已确认」。
- * 9. **回调页线上是 404，这是正常的**：微信只校验 `redirect_uri` 域名不校验路径；
- *    官方 Electron 客户端在内嵌窗口里拦跳转，我们没有浏览器，故 `code` 只能由
- *    用户从地址栏粘回（`parseWechatCallback`）。
- * 10. **微信扫码是本渠道唯一的登录路径**：手机号 + 验证码**只服务于「微信未绑手机号」
- *    时的绑定子步骤**（`LOOMY_PHONE` / `LOOMY_SMS_CODE`），**不是**独立的登录入口
- *    （`[参考]` 客户端对外也只有微信这一个授权页）。
- * 11. ⚠ **`bind=0`（未绑手机号）分支未验证**：全仓无该分支的实测记录，别当成可用能力。
+ * 6. **登录只有手机验证码一条路**（主人决定，2026-10-22）：两步协议 ——
+ *    `POST /login/phone/sendMsgCode` 拿 `msgid`，再 `POST /login/phone/checkCode`
+ *    用 `msgid` + 验证码换 `session`（`expire` 直接声明 14 天）。
+ * 7. **`msgid` 是两步之间的强绑定**：`checkCode` 不带第一步的 `msgid` 必失败，
+ *    故发码结果必须回传给用户（打进错误信息里），不能吞掉。
+ * 8. ⚠ 历史上的微信扫码与账号密码登录都已移除：前者在无浏览器环境下注定别扭
+ *    （授权页每次加载都是新 uuid，回调页线上还是 404），后者要求用户先在讯飞账号
+ *    中心设密码。逆向结论保留在 docs/channels/loomy/FINDINGS.md，别照着重写。
  */
 
 import { createHash, createHmac, randomUUID } from "node:crypto";
@@ -39,7 +33,7 @@ import {
 } from "@modelmux/gateway";
 import * as upstream from "./upstream.js";
 
-/** 账号端点基址（微信绑定的发码/校验走这里）。 */
+/** 账号端点基址（登录的发码/校验走这里）。 */
 export const DEFAULT_BASE_URL = "https://account.xfinfr.com";
 
 /** 讯飞 AccessKey（随客户端分发 + AES 混淆，只用于账号端点的请求签名）。 */
@@ -50,24 +44,19 @@ const APP_ID = "GM3LOOMY";
 /** session 声明有效期 14 天（响应不带到期时间，故本地推算）。 */
 const SESSION_TTL_SECONDS = 1_209_600;
 
-const BIND_AUTH_PATH = "/login/thirdAccount/bind/auth";
-const BIND_SEND_MSG_PATH = "/login/thirdAccount/bind/sendMsg";
-const BIND_CHECK_CODE_PATH = "/login/thirdAccount/bind/checkCode";
-const BIND_SKIP_PATH = "/login/thirdAccount/bind/skip";
-
-/** 微信扫码（**纯 HTTP 路线**，不用官方 Electron 的 will-redirect 截获）。 */
-const WECHAT_APP_ID = "wx18d60be432287cf8";
-const WECHAT_REDIRECT_URI = "https://loomy.xunfei.cn/oauth/wechat/callback";
-const WECHAT_LONG_POLL_TIMEOUT_MS = 40_000;
+/** 手机验证码登录（两步：发码拿 `msgid` → 用 `msgid` + 验证码换 session）。 */
+const PHONE_SEND_MSG_PATH = "/login/phone/sendMsgCode";
+const PHONE_CHECK_CODE_PATH = "/login/phone/checkCode";
 
 /**
- * 微信**绑定**分支的输入来源（无窗口工程没有输入框，用环境变量）。
+ * 手机号 / 验证码的输入来源（无窗口工程没有输入框，用环境变量）。
  *
- * ⚠ 这两个变量**只服务于「微信未绑手机号」的绑定子步骤**（`bind=0`），
- * **不是**独立的登录入口 —— 本渠道唯一的登录路径是微信扫码。
+ * - `LOOMY_PHONE` 单独给 → 发码（第一步），报出 `msgid`；
+ * - `LOOMY_PHONE` + `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` → 校验换 session（第二步）。
  */
 const PHONE_ENV = "LOOMY_PHONE";
 const SMS_CODE_ENV = "LOOMY_SMS_CODE";
+const SMS_MSGID_ENV = "LOOMY_SMS_MSGID";
 
 const HTTP_TIMEOUT_MS = 60_000;
 
@@ -302,424 +291,6 @@ async function accountPost(
   return env.data;
 }
 
-// ── 微信扫码（纯 HTTP 路线）───────────────────────────────────────────────────
-
-/** 微信开放平台基址（可用 `LOOMY_WECHAT_BASE_URL` 覆盖，测试用）。 */
-function wechatBase(): string {
-  return process.env["LOOMY_WECHAT_BASE_URL"] || "https://open.weixin.qq.com";
-}
-
-/** 长轮询端点（可用 `LOOMY_WECHAT_LONG_POLL_URL` 覆盖，测试用）。 */
-function wechatLongPollUrl(): string {
-  return (
-    process.env["LOOMY_WECHAT_LONG_POLL_URL"] ||
-    "https://long.open.weixin.qq.com/connect/l/qrconnect"
-  );
-}
-
-/** 桌面 Chrome UA + Referer（微信要求）。 */
-function wechatHeaders(): Record<string, string> {
-  return {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/124.0.0.0 Safari/537.36",
-    Referer: "https://open.weixin.qq.com/",
-  };
-}
-
-/**
- * 授权页 URL。
- *
- * ⚠ `redirect_uri` **必须用官方地址**（微信校验域名白名单）：换成 127.0.0.1 或任意
- * 域名会得到 872 字节的「redirect_uri 参数错误」页 —— 故**不能**用本地回调服务器收 code。
- */
-function wechatAuthorizeUrl(state: string): string {
-  const params = new URLSearchParams({
-    appid: WECHAT_APP_ID,
-    redirect_uri: WECHAT_REDIRECT_URI,
-    response_type: "code",
-    scope: "snsapi_login",
-    state,
-  });
-  return `${wechatBase()}/connect/qrconnect?${params.toString()}#wechat_redirect`;
-}
-
-const UUID_PATTERN = /^[A-Za-z0-9_\-=+/]{6,64}$/;
-
-/** 微信回调里 `code` 的合法形态（一次性授权码，字母数字与 `-` `_`）。 */
-const CALLBACK_CODE_PATTERN = /^[A-Za-z0-9_-]{1,512}$/;
-
-/**
- * 从用户粘回来的内容解析出 `code`。
- *
- * 为什么需要这条路径：微信只校验 `redirect_uri` 的**域名**（已登记
- * `loomy.xunfei.cn`），不校验路径；而 `https://loomy.xunfei.cn/oauth/wechat/callback`
- * 线上是 **404**（官方 Electron 客户端在内嵌窗口里 `preventDefault()` 拦下跳转，
- * 从不需要这个页面）。我们没有浏览器，`code` 只出现在用户浏览器地址栏里 ——
- * 所以让用户 Ctrl+L / Ctrl+C 把那条链接粘回来。
- *
- * 容错三种形态：整条 URL / 只有 query / 只有 code 本身。
- */
-function parseWechatCallback(raw: string): string {
-  const text = raw.trim().replace(/^["']|["']$/g, "");
-  if (!text) throw new Error("no callback link provided");
-
-  // 带 `?` 或 `=` 就按 query 解析：这样微信回 `errmsg=access_denied`（无 code）
-  // 时能报出准确原因，而不是误报「code 格式不对」。
-  const looksLikeUrl = text.includes("?") || text.includes("=") || /^https?/i.test(text);
-  let code = "";
-  if (looksLikeUrl) {
-    const query = (text.includes("?") ? text.slice(text.indexOf("?") + 1) : text).split("#")[0]!;
-    const params = new URLSearchParams(query);
-    code = params.get("code") ?? "";
-    if (!code) {
-      const reason = params.get("errmsg") ?? params.get("error") ?? "WeChat did not return a code";
-      throw new Error(`WeChat authorization failed: ${reason}`);
-    }
-  } else {
-    code = text;
-  }
-
-  if (!CALLBACK_CODE_PATTERN.test(code)) {
-    throw new Error(
-      "the pasted value does not contain a valid WeChat code; " +
-        "copy the whole URL from the browser address bar after scanning",
-    );
-  }
-  // 裸 code 太短几乎必然是「用户没复制对」：实测踩过粘进 4 个字符却被
-  // 当成 code 的情况，最后报「code 不合法」让人一头雾水。长度下限拦在解析层。
-  if (!looksLikeUrl && code.length < 8) {
-    throw new Error(
-      `the pasted value has only ${code.length} characters, which is not a WeChat code; ` +
-        "copy the whole URL from the browser address bar after scanning",
-    );
-  }
-  return code;
-}
-
-/** 从授权页 HTML 提取 uuid（两条路径互为兜底，无需执行 JS）。 */
-function extractWechatUuid(html: string): string {
-  const primary = /\/connect\/qrcode\/([A-Za-z0-9_\-=+/]+)/.exec(html);
-  if (primary?.[1] && UUID_PATTERN.test(primary[1])) return primary[1];
-  const fallback = /l\/qrconnect\?uuid=([A-Za-z0-9_\-=+/]+)/.exec(html);
-  if (fallback?.[1] && UUID_PATTERN.test(fallback[1])) return fallback[1];
-  return "";
-}
-
-type WechatPollStatus = "waiting" | "scanned" | "confirmed" | "cancelled" | "expired" | "error";
-
-interface WechatFrame {
-  status: WechatPollStatus;
-  /** `status === "confirmed"` 时的 `wx_code`。 */
-  code: string;
-}
-
-/**
- * 长轮询一次。
- *
- * ⚠⚠ 语义以微信授权页内嵌 JS 为准（**不能读反**）：
- * - `408` 待扫码 → `waiting`
- * - `404` **已扫码待确认** → `scanned`
- * - `405` **已确认**，`wx_code` 就在这一帧 → `confirmed`（但 code 为空时保守判 `scanned`）
- * - `403` 取消 / `402` 失效
- * - 其它/未知 → 保守 `waiting`（绝不误判成功）
- * - 网络异常 → `error` 状态而**不抛错**
- */
-async function wechatPollOnce(uuid: string, last = ""): Promise<WechatFrame> {
-  const url = new URL(wechatLongPollUrl());
-  url.searchParams.set("uuid", uuid);
-  if (last) url.searchParams.set("last", last);
-  url.searchParams.set("_", String(Date.now()));
-  let text: string;
-  try {
-    const resp = await fetch(url, {
-      headers: wechatHeaders(),
-      signal: AbortSignal.timeout(WECHAT_LONG_POLL_TIMEOUT_MS),
-    });
-    text = await resp.text();
-  } catch {
-    return { status: "error", code: "" };
-  }
-  const errcodeMatch = /wx_errcode\s*=\s*(\d+)/.exec(text);
-  if (!errcodeMatch) return { status: "waiting", code: "" };
-  const errcode = Number.parseInt(errcodeMatch[1]!, 10);
-  const code = /wx_code\s*=\s*'([^']*)'/.exec(text)?.[1] ?? "";
-  switch (errcode) {
-    case 408:
-      return { status: "waiting", code: "" };
-    case 404:
-      return { status: "scanned", code: "" };
-    case 405:
-      // 已确认：但没带 code 时不能判成功（保守继续轮询）
-      return code ? { status: "confirmed", code } : { status: "scanned", code: "" };
-    case 403:
-      return { status: "cancelled", code: "" };
-    case 402:
-      return { status: "expired", code: "" };
-    default:
-      return { status: "waiting", code: "" };
-  }
-}
-
-interface WechatWaitOptions {
-  /**
-   * 授权页 URL。
-   *
-   * ⚠ **不要把用户送到这个链接上扫码**：该页每次加载都会**新生成一个 uuid**
-   * （实测同一 state 连续 3 次加载得到 3 个不同 uuid），而本流程轮询的是
-   * **自己这一次**加载的 uuid。用户在那个页面上扫的码属于另一次会话，
-   * 长轮询永远看不到「已确认」，表现为「手机上确认了但流程一直卡住」。
-   *
-   * 正确做法见 `qrImageUrl`：把本流程的 uuid 渲染成二维码图片给用户扫。
-   * 这个 URL 仍保留，用于终端里展示「授权页在哪」以及拿回调 code。
-   */
-  onUrl?: (url: string) => void;
-  /**
-   * **本流程 uuid 对应的二维码图片 URL**（真正该给用户扫的那张）。
-   *
-   * ⚠ 与 `onUrl` 是**两个不同的会话**：请用这张，不要用授权页上那张。
-   */
-  onQr?: (qrImageUrl: string) => void;
-  onStatus?: (message: string) => void;
-  timeoutSec?: number;
-  pollIntervalSec?: number;
-  /**
-   * 取走用户粘回的回调链接（可选，一次性消费）。
-   *
-   * 微信只校验 `redirect_uri` 的**域名**，回调页线上是 404 —— `code` 只出现在
-   * 用户浏览器地址栏里，故长轮询拿不到时靠它兜底（见 `parseWechatCallback`）。
-   */
-  pasteCode?: () => string | undefined;
-}
-
-/** 二维码图片基址（uuid → PNG/JPEG）。 */
-const WECHAT_QR_IMAGE_BASE = "https://open.weixin.qq.com/connect/qrcode/";
-
-/** uuid → 二维码图片 URL。 */
-function qrImageUrl(uuid: string): string {
-  return `${WECHAT_QR_IMAGE_BASE}${uuid}`;
-}
-
-/** 扫码结果的来源：`poll` = 长轮询拿到；`paste` = 用户粘回回调链接。 */
-type WechatCodeSource = "poll" | "paste";
-
-interface WechatCodeResult {
-  code: string;
-  source: WechatCodeSource;
-}
-
-/**
- * 完整扫码：生成 state → 加载授权页 → 提取 uuid → 轮询到拿到 `wx_code`。
- *
- * ⚠ **这一页由本进程加载，用户必须扫本进程 uuid 渲染出的二维码**
- * （经 `onQr` 给出）。让用户去 `onUrl` 那个页面扫码会拿到另一次会话的码，
- * 轮询永远等不到确认。
- */
-async function wechatWaitForCode(
-  options: WechatWaitOptions = {},
-): Promise<string> {
-  const result = await wechatObtainCode(options);
-  return result.code;
-}
-
-/**
- * 微信扫码指引（CLI 与 Web 共用一条文案）。
- *
- * ⚠ 措辞要点：**不要**让用户「打开授权页去扫码」——授权页每次加载都换 uuid，
- * 用户在那个页面上扫的码属于**另一次会话**，本进程的长轮询永远看不到「已确认」，
- * 表现为「手机上确认了但流程一直卡住」（实测踩过）。
- *
- * 正确姿势是扫**本进程 uuid 的二维码图片**（`onQr` 给的那张）：
- * 微信长轮询认的是 uuid，图片与 uuid 绑定 → 扫了就能收到确认。
- *
- * 兜底（长轮询拿不到时）：让用户自己开授权页扫，微信 302 到
- * `https://loomy.xunfei.cn/oauth/wechat/callback?code=…&state=…`（线上 404 页，
- * 正常），把地址栏整条链接粘回来。
- */
-const LOOMY_WECHAT_GUIDE =
-  "微信扫码登录：用微信扫「二维码图片」那一条链接里的图，在手机上确认后本命令自动完成。" +
-  "注意：不要去打开「授权页」链接扫码 —— 那个页面每次加载都是新的二维码会话，扫了这边等不到。" +
-  "若改用授权页扫码，授权后浏览器会跳到 loomy.xunfei.cn 的 404 页（正常），" +
-  "把地址栏里整条链接复制下来，粘贴到本终端回车即可完成登录。";
-
-async function wechatObtainCode(
-  options: WechatWaitOptions = {},
-): Promise<WechatCodeResult> {
-  const { onUrl, onQr, onStatus, pasteCode } = options;
-  const timeoutSec = options.timeoutSec ?? 300;
-  const intervalMs = Math.max(0, (options.pollIntervalSec ?? 1.2) * 1000);
-
-  const state = randomUUID().replace(/-/g, "");
-  const url = wechatAuthorizeUrl(state);
-  // 授权页 URL 仍然给出（用户想手动开页面时的入口），但**不**把它当扫码入口。
-  onUrl?.(url);
-
-  let html: string;
-  try {
-    const resp = await fetch(url, { headers: wechatHeaders(), signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
-    html = await resp.text();
-  } catch (err) {
-    throw new Error(`opening the WeChat authorize page failed: ${String(err)}`);
-  }
-  const uuid = extractWechatUuid(html);
-  if (!uuid) throw new Error("could not extract the QR uuid from the authorize page (risk control or redesign?)");
-  onQr?.(qrImageUrl(uuid));
-  onStatus?.(LOOMY_WECHAT_GUIDE);
-
-  const deadline = Date.now() + timeoutSec * 1000;
-  let last = "";
-  let scannedReported = false;
-  let pasteReported = false;
-  while (Date.now() < deadline) {
-    const frame = await wechatPollOnce(uuid, last);
-    if (frame.status === "error") {
-      onStatus?.("long-poll network error, retrying");
-    } else if (frame.status === "waiting") {
-      /* 待扫码是常态 */
-    } else if (frame.status === "scanned") {
-      if (!scannedReported) {
-        onStatus?.("scanned, please confirm on your phone");
-        scannedReported = true;
-      }
-    } else if (frame.status === "confirmed") {
-      onStatus?.("confirmed, finishing login...");
-      return { code: frame.code, source: "poll" };
-    } else if (frame.status === "cancelled") {
-      throw new Error("user cancelled the WeChat login");
-    } else if (frame.status === "expired") {
-      throw new Error("QR code expired; please scan again");
-    }
-    // 兜底：用户把回调链接粘回来（长轮询拿不到时的唯一出路）
-    const pasted = pasteCode?.();
-    if (pasted) {
-      if (!pasteReported) {
-        onStatus?.("got the callback link, finishing login...");
-        pasteReported = true;
-      }
-      return { code: parseWechatCallback(pasted), source: "paste" };
-    }
-    if (intervalMs > 0) await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  throw new Error(
-    "WeChat scan timed out; re-run loomy login. " +
-      "Note: after scanning, the browser lands on a 404 page — that is expected; " +
-      "copy the address bar URL back so the flow can finish without polling.",
-  );
-}
-
-/** 第 1 步：微信 code 换 `rcode`（code 只在这里用一次）。 */
-async function bindAuthThirdAccount(
-  code: string,
-  baseOverride?: string,
-): Promise<{ bind: number; rcode: string; nickname: string }> {
-  const data = await accountPost(BIND_AUTH_PATH, { tcode: { code }, type: "wx" }, baseOverride);
-  return {
-    // ⚠ bind 缺失时归为 0（走绑定流程）—— 保守方向
-    bind: Number.parseInt(String(data["bind"] ?? "0"), 10) === 1 ? 1 : 0,
-    rcode: str(data["rcode"]),
-    nickname: str(data["nickname"]),
-  };
-}
-
-/** 第 2 步（未绑手机号）：给手机号发验证码。 */
-async function bindSendMsg(
-  rcode: string,
-  phone: string,
-  baseOverride?: string,
-): Promise<string> {
-  if (!rcode) throw new Error("rcode is missing; cannot continue the WeChat binding flow");
-  const data = await accountPost(
-    BIND_SEND_MSG_PATH,
-    { rcode, phone, ccode: "86", expire: 300 },
-    baseOverride,
-  );
-  const msgid = str(data["msgid"]);
-  if (!msgid) throw new Error("WeChat binding send-sms response has no msgid");
-  return msgid;
-}
-
-/** 第 3 步（未绑手机号）：校验验证码完成绑定登录。 */
-async function bindCheckCode(
-  rcode: string,
-  mcode: string,
-  msgid: string,
-  baseOverride?: string,
-): Promise<Credentials> {
-  if (!rcode) throw new Error("rcode is missing; cannot continue the WeChat binding flow");
-  const data = await accountPost(
-    BIND_CHECK_CODE_PATH,
-    { rcode, mcode, msgid, expire: SESSION_TTL_SECONDS },
-    baseOverride,
-  );
-  return credentialsFromSession(data, "loomy-wechat-bind");
-}
-
-/** 第 4 步（已绑手机号）：直接拿 session。 */
-async function bindSkip(rcode: string, baseOverride?: string): Promise<Credentials> {
-  if (!rcode) throw new Error("rcode is missing; cannot log in directly (bind=1 requires rcode)");
-  const data = await accountPost(BIND_SKIP_PATH, { rcode, expire: SESSION_TTL_SECONDS }, baseOverride);
-  return credentialsFromSession(data, "loomy-wechat");
-}
-
-async function credentialsFromSession(
-  data: Record<string, unknown>,
-  source: string,
-): Promise<Credentials> {
-  const session = str(data["session"]);
-  const userid = str(data["userid"]);
-  if (!session) throw new Error("login response has no session");
-  const c: Credentials = {
-    ...EMPTY_CREDENTIALS,
-    accessToken: session,
-    userid,
-    uid: userid,
-    phone: str(data["phone"]),
-    expiresAt: computeExpiresAt(),
-    obtainedAt: nowIso(),
-    source,
-  };
-  await save(c);
-  return c;
-}
-
-/**
- * 微信扫码完整登录（`bind=1` 走 skip；`bind=0` 走发短信 + 校验）。
- *
- * ⚠ **`bind=0` 分支未验证**：全仓无该分支的实测记录（缺手机号时会直接抛错提示补环境变量）。
- * `bind=1`（微信已绑手机号）是**已实测跑通**的主路径。
- */
-export async function loginWechat(
-  baseUrl?: string,
-  options: WechatWaitOptions = {},
-): Promise<Credentials> {
-  const { onStatus } = options;
-  const code = await wechatWaitForCode(options);
-  const binding = await bindAuthThirdAccount(code, baseUrl);
-
-  let c: Credentials;
-  if (binding.bind === 1) {
-    if (!binding.rcode) throw new Error("bind=1 but the response has no rcode");
-    c = await bindSkip(binding.rcode, baseUrl);
-  } else {
-    const phone = process.env[PHONE_ENV] ?? "";
-    const smsCode = process.env[SMS_CODE_ENV] ?? "";
-    if (!phone || !smsCode) {
-      throw new Error(
-        `phone not bound: provide phone and SMS code via env vars ${PHONE_ENV} / ${SMS_CODE_ENV} and retry`,
-      );
-    }
-    onStatus?.(`sending binding SMS to ${phone}...`);
-    const msgid = await bindSendMsg(binding.rcode, phone, baseUrl);
-    c = await bindCheckCode(binding.rcode, smsCode, msgid, baseUrl);
-    // 绑定流程拿回的 phone 写在 param 里，服务端可能不回传
-    if (!c.phone) c = { ...c, phone };
-  }
-  await upstream.triggerFirstLogin(c).catch((err: unknown) => {
-    onStatus?.(`daily quota init failed (does not affect login): ${String(err)}`);
-  });
-  return c;
-}
-
 // ── 凭据落盘 ──────────────────────────────────────────────────────────────────
 
 /** 从磁盘读凭据；缺 `expires_at` 时按 `obtained_at + 14 天` 补算（不拒绝整条凭据）。 */
@@ -779,26 +350,113 @@ export async function save(c: Credentials): Promise<void> {
   writeJsonSecret(credentialsPath(), payload);
 }
 
-// ── 登录（微信）/ 续期（探测）──────────────────────────────────────────────────
-
-/** 登录选项：微信扫码的等待参数（含粘贴回调兜底，见 `WechatWaitOptions.pasteCode`）。 */
-interface LoginOptions extends WechatWaitOptions {}
+// ── 登录（手机验证码）/ 续期（探测）──────────────────────────────────────────
 
 /**
- * 登录：**微信扫码 —— 本渠道唯一的登录路径**。
+ * 登录响应 → 凭据并落盘。
  *
- * > 短信验证码登录（含交互菜单）曾作为另一种方式存在，已按决定移除。
- * > 现在手机号 + 验证码**只服务于「微信未绑手机号」的绑定子步骤**（见 `loginWechat` 的
- * > `bind=0` 分支），**不是**独立的登录入口：`LOOMY_PHONE` / `LOOMY_SMS_CODE`
- * > 只在这个分支里被读取。
- * > 判据：微信扫码是唯一**实测跑通**的路（2026-10-17 真机扫码 + 2026-10-19 端到端），
- * > 也是官方客户端**对外唯一**的授权页（`[参考]`：密码 / 短信登录都是客户端内部 API 调用）。
+ * `session` 是响应里唯一的凭据（32 位小写 hex），`expire` 已在请求里声明 14 天，
+ * 上游不回到期时间 ⇒ 由本地按 `SESSION_TTL_SECONDS` 推算。
+ */
+async function credentialsFromSession(
+  data: Record<string, unknown>,
+  source: string,
+): Promise<Credentials> {
+  const session = str(data["session"]);
+  const userid = str(data["userid"]);
+  if (!session) throw new Error("login response has no session");
+  const c: Credentials = {
+    ...EMPTY_CREDENTIALS,
+    accessToken: session,
+    userid,
+    uid: userid,
+    phone: str(data["phone"]),
+    expiresAt: computeExpiresAt(),
+    obtainedAt: nowIso(),
+    source,
+  };
+  await save(c);
+  return c;
+}
+
+/**
+ * 登录选项。
  *
- * 登录成功后由 `loginWechat` 调 `POST /points/first-login`（每日额度初始化，失败仅 warn）。
+ * ⚠ 共享层还会传 `onUrl` / `onQr` / `pasteCode` / `timeoutSec` 等字段（扫码类渠道用），
+ * 短信登录**不用**它们；这里只声明自己读的字段，其余按结构类型宽松忽略。
+ */
+interface LoginOptions {
+  /** 进度提示（打到 CLI/控制台）。 */
+  onStatus?: (message: string) => void;
+}
+
+/**
+ * 手机验证码登录第一步：发码，返回 `msgid`（第二步要用它）。
+ *
+ * 两步是协议强制：`checkCode` 必须带上发码响应里的 `msgid`。
+ */
+export async function sendPhoneLoginCode(phone: string, baseUrl?: string): Promise<string> {
+  if (!phone) throw new Error(`SMS login needs a phone number (${PHONE_ENV})`);
+  const data = await accountPost(
+    PHONE_SEND_MSG_PATH,
+    { ccode: "86", phone, expire: 300 },
+    baseUrl,
+  );
+  const msgid = str(data["msgid"]);
+  if (!msgid) throw new Error("phone sendMsgCode response has no msgid");
+  return msgid;
+}
+
+/** 手机验证码登录第二步：用 `msgid` + 验证码换 `session`。 */
+export async function loginByPhoneCode(
+  phone: string,
+  mcode: string,
+  msgid: string,
+  baseUrl?: string,
+): Promise<Credentials> {
+  if (!phone) throw new Error(`SMS login needs a phone number (${PHONE_ENV})`);
+  if (!mcode) throw new Error(`SMS login needs the code (${SMS_CODE_ENV})`);
+  if (!msgid) throw new Error(`SMS login needs the msgid from the previous run (${SMS_MSGID_ENV})`);
+  const data = await accountPost(
+    PHONE_CHECK_CODE_PATH,
+    { ccode: "86", phone, mcode, msgid, expire: SESSION_TTL_SECONDS },
+    baseUrl,
+  );
+  return credentialsFromSession(data, "loomy-sms");
+}
+
+/**
+ * 登录：**手机验证码，唯一路径**（两步协议，按环境变量驱动）。
+ *
+ * - 只给 `LOOMY_PHONE` → 发码，把 `msgid` 打进错误信息里（第一步）；
+ * - 再给 `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` → 校验换 `session`（第二步）。
+ *
+ * 为什么只留这条路（主人决定，2026-10-22）：微信扫码在无浏览器环境下注定别扭 ——
+ * 授权页每次加载都是新 uuid（扫错就永远等不到），回调页线上是 404 只能靠用户从地址栏
+ * 把 `code` 粘回来；密码登录则要求用户先在讯飞账号中心设密码。短信是唯一**单一路径就能
+ * 闭环**的方式。历史实现见 `docs/channels/loomy/FINDINGS.md`。
  */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
-  options.onStatus?.("using WeChat QR login");
-  return loginWechat(baseUrl, options);
+  const { onStatus } = options;
+  const phone = (process.env[PHONE_ENV] ?? "").trim();
+  const mcode = (process.env[SMS_CODE_ENV] ?? "").trim();
+  const msgid = (process.env[SMS_MSGID_ENV] ?? "").trim();
+
+  if (!phone) {
+    throw new Error(
+      `SMS login needs a phone number: set ${PHONE_ENV}=<phone> and re-run (then ${SMS_CODE_ENV} + ${SMS_MSGID_ENV} with the code)`,
+    );
+  }
+  if (mcode && msgid) {
+    onStatus?.("verifying the phone code...");
+    return loginByPhoneCode(phone, mcode, msgid, baseUrl);
+  }
+  // 只有手机号：把码发出去，让用户带着验证码 + msgid 重跑第二步。
+  onStatus?.("sending the SMS code...");
+  const freshMsgid = await sendPhoneLoginCode(phone, baseUrl);
+  throw new Error(
+    `SMS code sent to ${phone}. Re-run with ${SMS_CODE_ENV}=<code> ${SMS_MSGID_ENV}=${freshMsgid} to finish login.`,
+  );
 }
 
 /**

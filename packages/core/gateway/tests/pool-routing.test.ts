@@ -60,7 +60,7 @@ describe("1. 归一化：各渠道实测写法都能收敛", () => {
     // 连字符版本号（raccoon）
     ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"],
     ["sn-glm-5-3-flash", "glm-5.3-flash"],
-    // 日期后缀（loomy / codearts）
+    // 日期后缀（loomy 等）
     ["deepseek-v4-flash-0731", "deepseek-v4-flash"],
     // 厂商路径段（历史 id 形态）
     ["deepseek/deepseek-v4.1-flash", "deepseek-v4.1-flash"],

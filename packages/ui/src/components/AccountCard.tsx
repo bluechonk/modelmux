@@ -12,7 +12,7 @@ import type { ReactElement } from "react";
  * 账号池卡片的数据形状（直接吃 /api/commands 的宽松 JSON）。
  *
  * 没有 `display`：卡头只显示 cid —— 它就是模型池 id 的前缀，带功能含义；
- * 渠道展示名（CatPaw / CodeArts…）与 cid 是同一条信息的两种拼写，不并排渲染。
+ * 渠道展示名（CatPaw / Raccoon…）与 cid 是同一条信息的两种拼写，不并排渲染。
  */
 export interface AccountPool {
   cid: string;
@@ -143,7 +143,7 @@ function quotaText(credits: AccountCredits | null | undefined, unsupported: bool
  * 账号行以可读昵称/用户名为主，右侧是**该账号**的剩余额度；key 哈希、凭证字段一律不展示。
  *
  * ⚠ 卡头**只显示 cid 一个名字**：cid 同时就是模型池 id 的前缀（`mx model list` 里看到的
- * `catpaw/xxx`），有功能含义；`display`（CatPaw / CodeArts…）只是同一渠道的另一种拼写，
+ * `catpaw/xxx`），有功能含义；`display`（CatPaw / Raccoon…）只是同一渠道的另一种拼写，
  * 与 cid 并列会把同一信息显示两遍，且把池身份挤成一行里两个等价的徽标。
  */
 export function AccountCard({

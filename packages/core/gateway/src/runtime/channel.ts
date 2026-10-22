@@ -170,7 +170,7 @@ export interface UpstreamModule {
   /**
    * 可选：判定「非 401/403 的响应」是否也算**鉴权失败**（触发 token 刷新 + 换账号）。
    *
-   * 有些上游不用标准状态码表达凭据失效 —— 如 codearts 的 APIG 网关对过期 token
+   * 有些上游不用标准状态码表达凭据失效 —— 如华为云 APIG 网关对过期 token
    * 回 `HTTP 400 + {"error_code":"APIG.0602"}`。共享层默认只认 401/403，这类渠道
    * 声明本钩子后，其「body 里的鉴权措辞」也能走完整的刷新/转移链路。
    *
@@ -276,7 +276,7 @@ export interface CatalogModule {
   /**
    * **强制**从上游重拉目录并落盘（CLI 的 `--refresh` 用）。
    *
-   * 可选：只有具备「远端目录层」的渠道才实现（catpaw / codearts / lobsterai /
+   * 可选：只有具备「远端目录层」的渠道才实现（catpaw / lobsterai /
    * traecn / raccoon / loomy）。目录本身就是静态内置表的渠道
    * （workbuddyai / qoder）**不实现** —— 共享层据此回报
    * 「该渠道的模型表是内置的，没有可刷新的远端」，而不是假装刷了一遍。
@@ -291,7 +291,7 @@ export interface CatalogModule {
   /**
    * 已知模型规格（上下文窗口 / 最大输出 token）。
    *
-   * 上游目录**通常不下发**这两个数（实测：catpaw / codearts / lobsterai / loomy /
+   * 上游目录**通常不下发**这两个数（实测：catpaw / lobsterai / loomy /
    * qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底值，而 4096 的输出上限
    * 会让客户端把每次回答截到 4k。渠道按**公开规格**维护这张表（数值与来源见
    * `docs/channels/<cid>/PROTOCOL.md`），供池层透出。

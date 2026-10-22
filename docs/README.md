@@ -44,7 +44,6 @@
 | cid | 产品 | 文档 |
 | --- | --- | --- |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
-| `codearts` | CodeArts（华为云） | [PROTOCOL](./channels/codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
 | `orcaterm` | OrcaTerm（腾讯云） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) / [TOOL-CALLS](./channels/orcaterm/TOOL-CALLS.md) / [REQUEST-BODY](./channels/orcaterm/REQUEST-BODY.md) |

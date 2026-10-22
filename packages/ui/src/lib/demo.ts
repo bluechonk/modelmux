@@ -34,7 +34,6 @@ interface DemoAccount {
 
 const DEMO_CHANNELS: DemoChannel[] = [
   { cid: "catpaw", display: "CatPaw", present: true, billing: true },
-  { cid: "codearts", display: "CodeArts", present: true, billing: true },
   { cid: "lobsterai", display: "LobsterAI", present: true, billing: true },
   { cid: "loomy", display: "Loomy", present: true, billing: true },
   // 订阅制：没有积分/倍率概念（真实实现里 orcaterm 声明 capabilities.billing=false）
@@ -50,7 +49,6 @@ const DEMO_CHANNELS: DemoChannel[] = [
 /** 各渠道对外暴露的模型（虚构演示集，形态与真实一致：`<cid>/<模型名>`）。 */
 const DEMO_MODELS: Record<string, string[]> = {
   catpaw: ["deepseek-v4-flash", "deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "longcat-2.0"],
-  codearts: ["deepseek-v4-flash", "deepseek-v4-pro", "glm-5.3-flash", "kimi-k2.6-vl"],
   lobsterai: ["deepseek-v4-flash", "doubao-seed-2.1-pro", "glm-5", "glm-5.3", "kimi-k2.6", "minimax-m3", "qwen3.8-max"],
   loomy: ["deepseek-v4-flash", "glm-5.3-flash", "kimi-k2.6", "mimo-v2.5", "minimax-m3", "qwen3.8-flash", "spark-x"],
   // 未登录渠道也留一份目录：登录后模型墙立刻多出这一组，演示「登录 → 模型可用」的因果。
@@ -69,7 +67,6 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
     { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "138****0001", health: "ok" },
     { key: "demo000000000000a2", uid: "demo-uid-catpaw-2", label: "138****0002", health: "ok" },
   ],
-  codearts: [{ key: "demo000000000000b1", uid: "demo-uid-codearts-1", label: "demo***@example.com", health: "ok" }],
   lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "139****0003", health: "ok" }],
   loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "137****0004", health: "ok" }],
   qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", health: "ok" }],
@@ -81,7 +78,6 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
 /** 池账本（虚构用量）。`accounts` 是按生效账号拆分的请求计数。 */
 const DEMO_LEDGER: Record<string, { used: number; unit: string; ok: number; fail: number; cooling: boolean }> = {
   catpaw: { used: 128, unit: "credits", ok: 96, fail: 2, cooling: false },
-  codearts: { used: 0, unit: "", ok: 41, fail: 0, cooling: false },
   lobsterai: { used: 0, unit: "credits", ok: 17, fail: 0, cooling: false },
   loomy: { used: 42, unit: "积分", ok: 30, fail: 0, cooling: false },
   orcaterm: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },

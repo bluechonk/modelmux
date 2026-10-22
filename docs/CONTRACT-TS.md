@@ -126,7 +126,7 @@ packages/core/channels/<cid>/
 
 | 约定 | 原因 |
 | --- | --- |
-| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + 11 个渠道包）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
+| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + 10 个渠道包）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
 | **版本号只记一遍** | `package.json` 的 `version` 是唯一真相；渠道 `src/channel.ts` 的 `ChannelConfig.version` 必须与之一致（那处会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。同一事实记两遍必然漂移 —— 此前 catpaw / workbuddyai 就漂到了 `0.4.0` |
 | **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
 | **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
@@ -253,7 +253,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 | 形态 | 本机回环服务器 | 粘贴内容怎么用 | 渠道 |
 |---|---|---|---|
-| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | codearts、lobsterai |
+| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | lobsterai |
 | **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | loomy、qodercn、workbuddyai、qoder、workbuddy |
 
 形态 B 另有一条硬要求：**认出「授权被拒 / 出错」的措辞就立刻收尾报错**
@@ -357,7 +357,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 `buildHeaders(credential)` 拿得到。凡是「按账号授予」的上游属性（免费额度标记、
 按账号路由的端点等），判定都要放在 `buildHeaders()`，用 `credential.uid` 作账号键，
 并按账号分桶落盘 —— 否则多账号场景下会把一个账号的标记发给另一个账号。
-参考实现见 `packages/core/channels/codearts/src/upstream.ts:689-717`。
+
 
 ### 5.3 `catalog.ts`
 
@@ -410,7 +410,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 #### `modelSpec()`：已知模型规格（**可选钩子**）
 
-上游目录**通常不下发**上下文窗口与最大输出（实测 catpaw / codearts / lobsterai /
+上游目录**通常不下发**上下文窗口与最大输出（实测 catpaw / lobsterai /
 loomy / qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底值，而 4096 的输出
 上限会让客户端把每次回答截到 4k。这类渠道**可以**实现：
 
@@ -490,7 +490,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 
 | 类型 | 用法 | 渠道 |
 |---|---|---|
-| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、codearts、lobsterai |
+| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、lobsterai |
 | **B. flow 轮询** | `POST .../auth/state` 或 `.../oauth/cli/init` → 取 `authorize_url`/`authUrl` → 轮询拿 token | workbuddyai、workbuddy |
 | **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | loomy、raccoon、qoder、qodercn |
 
