@@ -8,10 +8,14 @@ import { Plus, Trash2, UserCheck } from "lucide-react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
 
-/** 账号池卡片的数据形状（直接吃 /api/commands 的宽松 JSON）。 */
+/**
+ * 账号池卡片的数据形状（直接吃 /api/commands 的宽松 JSON）。
+ *
+ * 没有 `display`：卡头只显示 cid —— 它就是模型池 id 的前缀，带功能含义；
+ * 渠道展示名（CatPaw / CodeArts…）与 cid 是同一条信息的两种拼写，不并排渲染。
+ */
 export interface AccountPool {
   cid: string;
-  display?: string;
   index: {
     active: string | null;
     accounts: PoolAccount[] | Array<Record<string, unknown>>;
@@ -135,8 +139,12 @@ function quotaText(credits: AccountCredits | null | undefined, unsupported: bool
 /**
  * 单渠道账号池卡片。
  *
- * 信息层级按「用户一眼要看什么」排：卡头是 cid + 渠道展示名 + 登录状态点；
+ * 信息层级按「用户一眼要看什么」排：卡头是 cid + 登录状态点；
  * 账号行以可读昵称/用户名为主，右侧是**该账号**的剩余额度；key 哈希、凭证字段一律不展示。
+ *
+ * ⚠ 卡头**只显示 cid 一个名字**：cid 同时就是模型池 id 的前缀（`mx model list` 里看到的
+ * `catpaw/xxx`），有功能含义；`display`（CatPaw / CodeArts…）只是同一渠道的另一种拼写，
+ * 与 cid 并列会把同一信息显示两遍，且把池身份挤成一行里两个等价的徽标。
  */
 export function AccountCard({
   pool,
@@ -168,7 +176,7 @@ export function AccountCard({
 
   return (
     <div className="panel flex flex-col overflow-hidden transition-colors hover:border-line-strong">
-      {/* 卡头：状态点 + cid 徽标 + 展示名 + 账号数 + 添加按钮 */}
+      {/* 卡头：状态点 + cid（池 id 前缀，唯一显示的名字）+ 账号数 + 添加按钮 */}
       <div className="flex items-start gap-2.5 border-b border-line bg-canvas/40 px-4 py-3">
         <span
           className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotClass} ${
@@ -179,9 +187,6 @@ export function AccountCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="pill shrink-0 bg-brand/12 font-mono text-brand">{pool.cid}</span>
-            {pool.display && (
-              <span className="min-w-0 truncate text-sm font-semibold text-ink">{pool.display}</span>
-            )}
           </div>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
             <span className={channelDown ? "text-danger" : "text-ink-faint"}>{dotText}</span>
