@@ -426,10 +426,26 @@ export async function loginByPhoneCode(
 }
 
 /**
+ * 登录后初始化当日额度（`POST /points/first-login`）。
+ *
+ * 官方客户端登录后会打这一下，语义是**触发每日额度重置**（不是 +5000）。
+ * **失败只 warn**：拿不到 session 才算登录失败，额度初始化失败不该把登录拖垮。
+ */
+async function initDailyQuota(c: Credentials, onStatus?: (message: string) => void): Promise<void> {
+  try {
+    await upstream.triggerFirstLogin(c);
+  } catch (err) {
+    onStatus?.(`daily quota init failed (does not affect login): ${String(err)}`);
+  }
+}
+
+/**
  * 登录：**手机验证码，唯一路径**（两步协议，按环境变量驱动）。
  *
  * - 只给 `LOOMY_PHONE` → 发码，把 `msgid` 打进错误信息里（第一步）；
  * - 再给 `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` → 校验换 `session`（第二步）。
+ *
+ * 第二步成功后顺手调一次 `points/first-login`（每日额度初始化，失败仅 warn）。
  *
  * 为什么只留这条路（主人决定，2026-10-22）：微信扫码在无浏览器环境下注定别扭 ——
  * 授权页每次加载都是新 uuid（扫错就永远等不到），回调页线上是 404 只能靠用户从地址栏
@@ -449,7 +465,9 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   }
   if (mcode && msgid) {
     onStatus?.("verifying the phone code...");
-    return loginByPhoneCode(phone, mcode, msgid, baseUrl);
+    const c = await loginByPhoneCode(phone, mcode, msgid, baseUrl);
+    await initDailyQuota(c, onStatus);
+    return c;
   }
   // 只有手机号：把码发出去，让用户带着验证码 + msgid 重跑第二步。
   onStatus?.("sending the SMS code...");
