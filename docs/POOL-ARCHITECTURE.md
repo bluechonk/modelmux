@@ -100,7 +100,7 @@
 
 ```json
 { "version": 1, "channels": {
-   "codearts": { "used": 17, "size": 100, "remain": 83, "unit": "credits",
+   "lobsterai": { "used": 17, "size": 100, "remain": 83, "unit": "credits",
                  "billing_at": "2026-10-08T…", "billing_ok": true,
                  "ok": 12, "fail": 0, "cooldown_until": 0,
                  "accounts": { "<account-key>": { "ok": 10, "fail": 1,
@@ -128,7 +128,7 @@
 
 #### 非标准状态码的鉴权失败（`isAuthFailure`）
 
-有些上游不用 401/403 表达凭据失效 —— 如 codearts 的 APIG 网关对过期 token 回
+有些上游不用 401/403 表达凭据失效 —— 如华为云 APIG 网关对过期 token 回
 `HTTP 400 + {"error_code":"APIG.0602"}`。渠道声明 `upstream.isAuthFailure(status, body)`
 后，共享层在收到 **4xx 且非 401/403** 的响应时问一次该钩子；返回 true 就归一成 401，
 走既有的「刷新 token → **重试当前账号**」链路；仍失败则标该账号 `unauthorized`、
@@ -194,8 +194,8 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 语义 | 候选字段名 | 渠道缓存里实际写的键 |
 |---|---|---|
-| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（codearts·lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
-| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（codearts·lobsterai·traecn·workbuddy·workbuddyai） |
+| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
+| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（lobsterai·traecn·workbuddy·workbuddyai） |
 
 上游自己的字段名（lobsterai 的 `maxTokens`、workbuddyai 的 `maxOutputTokens` /
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
@@ -206,13 +206,13 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
   回落兜底值（窗口 128000 / 输出 4096）。
 - **上游不发 → 问渠道要「已知规格」**：多数渠道的上游目录**不带**窗口与输出上限
-  （实测 catpaw / codearts / lobsterai / loomy / orcaterm / qoder / qodercn 都不发；
+  （实测 catpaw / lobsterai / loomy / orcaterm / qoder / qodercn 都不发；
   而 workbuddy / workbuddyai 的上游 `/v3/config` **是发的**，
   raccoon 的远端目录**两个都发**（`params.context_window` / `params.max_tokens`），
   traecn 的远端目录**只发上下文**（Remote 目录不下发输出上限，`max_output` 恒 0））。
   这类渠道用自己的 `MAX_OUTPUTS` 表按**公开规格**回答 —— 入口是**可选钩子**
   `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
-  当前**11 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
+  当前**10 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
   取值优先级：**上游目录声明 > 渠道公开规格 > 兜底**（见下面「上游声明优先」那条路）——
   钩子只在「上游没声明」或「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
   规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
@@ -229,7 +229,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 |---|---|---|---|
 | 1 | 磁盘缓存 | `<root>/<cid>/cache/models.json` | **常态来源**：上次真实拉到的目录，新进程直接可读（`runtime/catalog-cache.ts`） |
 | 2 | 远端目录 | —— | `upstream.fetchModels()`：登录后拉一次；本地无缓存时 `mx model <cid>` 也会拉；`--refresh` 强制重拉。拉到即落盘 |
-| 3 | 渠道内置兜底表 | 渠道包 `src/catalog.ts`（11 个渠道里 9 个另有随包 `models.json` 快照） | 连缓存都没有时用，保证「未登录 / 离线时渠道不凭空消失」 |
+| 3 | 渠道内置兜底表 | 渠道包 `src/catalog.ts`（10 个渠道里 8 个另有随包 `models.json` 快照） | 连缓存都没有时用，保证「未登录 / 离线时渠道不凭空消失」 |
 
 规则：
 
@@ -400,10 +400,11 @@ interface CredModule {
 
 **当前未实现（策略层，见 §3.3）**：自动切号、按额度耗尽自动换号、轮询、最久未用。
 
-### 3.5 渠道侧的按账号状态（benefit 类）
+### 3.5 渠道侧的按账号状态
 
-共享账号池管的是**凭据**；渠道自己还有一类**按账号授予**的上游状态
-（如 codearts 的 benefit 免费额度模型集合）。这类状态不归共享层管，但有两条跨渠道规则：
+共享账号池管的是**凭据**；渠道自己还可能有一类**按账号授予**的上游状态
+（某个账号才有的免费额度模型集合、按账号路由的端点等）。这类状态不归共享层管，
+但有两条跨渠道规则：
 
 1. **按账号键分桶落盘**：不能全局共用一份集合 —— 池里 A 账号有、B 账号没有时
    共用会互相污染（该带判定的少带报 404，多带报 unsupported）。
@@ -412,14 +413,11 @@ interface CredModule {
 2. **判定放在拿得到凭据的那一步**：共享网关的调用序列是
    `buildChatBody()` → `buildHeaders()`，**只有 `buildHeaders()` 拿到凭据**
    （契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.2）。所以依赖账号的判定
-   （这个模型是不是 benefit、要不要多带一个上游头）必须放在 `buildHeaders()`；
-   `buildChatBody()` 需要的判定输入（如本次的上游模型 id）经**模块级 pending 槽**
-   从 `buildChatBody` 传给 `buildHeaders`（`packages/core/channels/codearts/src/upstream.ts:655`）。
+   必须放在 `buildHeaders()`；`buildChatBody()` 需要的判定输入（如本次的上游模型 id）
+   经**模块级 pending 槽**从 `buildChatBody` 传给 `buildHeaders()`。
 
-实现位置：codearts 在 `buildHeaders()` 里用 `credential.uid` 查该账号的 benefit 集合
-（`packages/core/channels/codearts/src/upstream.ts:695-698`），分桶落盘在
-`cache/benefit-accounts.json`（`packages/core/channels/codearts/src/catalog.ts:163`）。
-哪些模型算 benefit、福利怎么领等渠道差异写在 codearts 的 PROTOCOL。
+> 当前 10 个渠道都没有用到这类状态（历史上只有已删除的 `codearts` 用 benefit 集合
+> 实现过）。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
 
 ## 4. 公共层设计
 

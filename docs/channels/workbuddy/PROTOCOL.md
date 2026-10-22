@@ -141,7 +141,7 @@
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:338`） | **声明**该回调（每轮轮询前取一次） |
 | `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:300`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
+⚠ 与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 

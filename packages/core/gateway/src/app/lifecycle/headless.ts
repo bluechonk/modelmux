@@ -373,7 +373,7 @@ export async function runLogin(options: {
 
   // 已有凭据且未 force：login 是幂等的，不会重新授权 —— 必须明确说清，
   // 否则用户看到 "done" 以为重登成功，实际用的还是旧凭据（实测踩过：
-  // codearts token 过期后 `login` 秒回 done，浏览器根本没开）。
+  // 某些渠道 token 过期后 `login` 秒回 done，浏览器根本没开）。
   if (!force) {
     let existing: ReturnType<typeof cred.load> | null = null;
     try {
@@ -413,7 +413,10 @@ export async function runLogin(options: {
     captureIntoPool(target.config.cid);
     ui.setState("done", "登录成功，账号已入池。", "", "");
   } else {
-    ui.setState("error", "登录失败，请重试。", "", "");
+    // ⚠ 用**中性**措辞，不要说「失败」：有些渠道的两步登录（如 loomy 的短信验证码）
+    // 第一步「发码」是**正常中间态**，渠道会在错误信息里给出下一步（msgid + 重跑命令）。
+    // 这里再盖一句「登录失败，请重试」会把「按提示做第二步」误导成「出错了」。
+    ui.setState("error", "登录未完成，请按上面的提示处理（两步登录需带上第二步参数重跑）。", "", "");
   }
 
   if (json) {

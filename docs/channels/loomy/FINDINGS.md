@@ -1,4 +1,13 @@
-# Loomy 逆向结论（微信扫码链路）
+# Loomy 逆向结论（微信扫码链路，**已移除**）
+
+> ⚠ **本文件是历史记录，不是现行实现说明。**
+> 微信扫码登录与账号密码登录**已于 2026-10-22 从代码中删除**，本渠道现在**只有手机验证码一条登录路**
+> （见 [PROTOCOL.md](./PROTOCOL.md) §2.1）。本文件保留微信链路的实测发现与踩坑记录，
+> 供将来需要时查阅；**不要照着重写实现**（尤其别再引入 `LOOMY_PASSWORD` / `LOOMY_LOGIN_ID`
+> 或 `thirdAccount/bind/*` 那套端点）。
+>
+> 下文引用的 `WechatWaitOptions` / `wechatObtainCode` / `parseWechatCallback` 等符号
+> **在 `cred.ts` 里已不存在**（行号也不再对应）。
 
 本文是 [PROTOCOL.md](./PROTOCOL.md) §2 的逆向结论层：微信扫码链路的实测发现与踩坑记录
 （原 PROTOCOL.md §2.6.1）。**协议规格**（端点、请求头、签名、额度、模型目录）仍以
@@ -35,7 +44,7 @@ same uuid across loads? DIFFERENT
 `https://loomy.xunfei.cn/oauth/wechat/callback?code=…&state=…`（线上 404 页，正常）
 → 把地址栏整条链接粘回 CLI（CLI 收 stdin 一行；Web 端收 `pasteCallback` 命令）。
 
-**粘贴兜底在代码里的落点**（与 `codearts` / `lobsterai` 同一形态）`[代码]`：
+**粘贴兜底在代码里的落点**（与 `lobsterai` 同一形态）`[代码]`（**已随微信路移除**）：
 
 | 位置 | 职责 |
 |---|---|

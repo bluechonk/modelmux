@@ -1,34 +1,36 @@
 # Loomy 协议规格（讯飞）
 
-实现见 `packages/core/channels/loomy/src/`；微信扫码链路的逆向结论见
-[FINDINGS.md](./FINDINGS.md)。
+实现见 `packages/core/channels/loomy/src/`；微信扫码与账号密码两条**已移除**登录路的逆向结论见
+[FINDINGS.md](./FINDINGS.md)（留作历史记录，别照着重写）。
 
 ---
 
-## 唯一登录路径：微信扫码（纯 HTTP 二维码 + 长轮询）
+## 登录路径：手机验证码（唯一）
 
-**微信扫码是本渠道唯一的登录路径**（`mx login loomy`）。手机号 + 验证码**不是**登录入口，
-只是「微信未绑手机号」时的**绑定子步骤**。完整判据见 §2.1。
+`mx login loomy` **只有手机验证码一条路**（2026-10-22 主人决定），两步协议、环境变量驱动：
+
+| 步骤 | 触发条件 | 行为 |
+|---|---|---|
+| 第一步 | `LOOMY_PHONE=<手机号>` | 发码，把 `msgid` 打进错误信息里 |
+| 第二步 | 再加 `LOOMY_SMS_CODE=<验证码>` + `LOOMY_SMS_MSGID=<上一步的 msgid>` | 换 14 天 session 并落盘 |
 
 ```
-1. GET https://open.weixin.qq.com/connect/qrconnect?appid=wx18d60be432287cf8
-     &redirect_uri=<官方地址> &response_type=code&scope=snsapi_login&state=<32位随机串>
-   → 页面内嵌 uuid（正则提取，无需执行 JS）
-2. GET https://open.weixin.qq.com/connect/qrcode/<uuid>  → 二维码图片（实测 JPEG）
-3. 长轮询 GET https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=<uuid>
-   errcode 408=待扫码 / 404=已扫待确认 / 405=已确认（wx_code 就在这一帧）/ 403=取消 / 402=失效
-4. POST https://account.xfinfr.com/login/thirdAccount/bind/auth
-   body { "tcode": { "code": "<微信code>" }, "type": "wx" }  → { bind, rcode }
-   bind=1（已绑手机号）→ POST /login/thirdAccount/bind/skip 拿 session
-   bind=0（未绑）→ POST /login/thirdAccount/bind/sendMsg + /bind/checkCode
-                  （需 LOOMY_PHONE / LOOMY_SMS_CODE，⚠ 该分支尚未验证）
+1. POST https://account.xfinfr.com/login/phone/sendMsgCode
+   body { ccode: "86", phone, expire: 300 }            → { msgid }
+2. POST https://account.xfinfr.com/login/phone/checkCode
+   body { ccode, phone, mcode, msgid, expire: 1209600 } → { session, userid, phone }
 ```
 
-⚠ **授权页与二维码是两个不同的会话**（2026-10-20 实测，最易踩的坑）—— 细节见
-[FINDINGS.md](./FINDINGS.md)。
+⚠ **`msgid` 是两步之间的强绑定**：`checkCode` 不带第一步的 `msgid` 必失败，
+所以发码结果必须回传给用户（本渠道打进错误信息里），不能吞掉。验证码有效期 300 秒。
 
-**粘贴兜底不是第二条路径**：微信 302 回官方地址（本机收不到），用户把地址栏整条链接粘回 CLI，
-渠道解析出微信 code 继续走**同一条** `bind/auth` 链路（§2.6）。
+**为什么只留这一条**（历史判据见 [FINDINGS.md](./FINDINGS.md)）：
+
+1. **微信扫码**在无浏览器环境下注定别扭 —— 授权页每次加载都生成新 uuid（扫错就永远等不到），
+   回调页 `loomy.xunfei.cn/oauth/wechat/callback` 线上还是 404，只能靠用户从地址栏粘回 code。
+2. **账号密码**要求用户先在讯飞账号中心设置密码（客户端没有设 / 改密入口），
+   且要长期保存明文密码 —— 换来的只是「不用收短信」，不值得。
+3. **手机验证码**是唯一**单路径就能闭环**的方式：一步发码、一步校验，无浏览器、无粘贴、无额外前置条件。
 
 ---
 
@@ -49,19 +51,16 @@
 
 ### 1.2 账号域（登录，全部 HMAC-SHA1 签名）
 
+**本渠道只使用下面两条**（其余端点属于已移除的微信 / 密码登录路，见 [FINDINGS.md](./FINDINGS.md)）：
+
 | 用途 | 方法 | 完整 URL | 端点路径 | param | 认证 |
 |---|---|---|---|---|---|
-| 微信授权码换 rcode | POST | `https://account.xfinfr.com/login/thirdAccount/bind/auth` | `/login/thirdAccount/bind/auth` | `{ "tcode": { "code": "<微信code>" }, "type": "wx" }` | HMAC-SHA1 |
-| 微信绑定发短信 | POST | `https://account.xfinfr.com/login/thirdAccount/bind/sendMsg` | `/login/thirdAccount/bind/sendMsg` | `{ "rcode", "phone", "ccode": "86", "expire": 300 }` | HMAC-SHA1 |
-| 微信绑定校验（拿 session） | POST | `https://account.xfinfr.com/login/thirdAccount/bind/checkCode` | `/login/thirdAccount/bind/checkCode` | `{ "rcode", "mcode", "msgid", "expire": 1209600 }` | HMAC-SHA1 |
-| 微信已绑定直接登录 | POST | `https://account.xfinfr.com/login/thirdAccount/bind/skip` | `/login/thirdAccount/bind/skip` | `{ "rcode", "expire": 1209600 }` | HMAC-SHA1 |
+| **手机验证码发码** | POST | `https://account.xfinfr.com/login/phone/sendMsgCode` | `/login/phone/sendMsgCode` | `{ "ccode": "86", "phone", "expire": 300 }` | HMAC-SHA1 |
+| **手机验证码换 session** | POST | `https://account.xfinfr.com/login/phone/checkCode` | `/login/phone/checkCode` | `{ "ccode": "86", "phone", "mcode", "msgid", "expire": 1209600 }` | HMAC-SHA1 |
 
-> 参考实现另有**手机号独立登录**端点（`/login/phone/sendMsgCode`、`/login/phone/checkCode`）
-> 与**密码登录**端点（`/login/account/getPuKey`、`/login/account/byPwd`）—— 本渠道**不使用**，
-> 原因见 §2.1 与 §9。
-
-**没有 refresh 端点**（`packages/core/channels/loomy/src/cred.ts:804-824`）：`session` 是登录时声明 14 天得来的，
-过期只能**重新走登录流程（微信扫码）**。故 `isLoomyRefreshable` **恒返回 false** —— 诚实标记，不是遗漏。
+**没有 refresh 端点**（`packages/core/channels/loomy/src/cred.ts`）：`session` 是登录时声明 14 天得来的，
+过期只能**重新走登录流程**（再收一次短信）。
+故 `isLoomyRefreshable` **恒返回 false** —— 诚实标记，不是遗漏。
 
 超时：业务请求 60s，模型目录 30s（对应 `LOOMY_REQUEST_TIMEOUT_MS = 60_000`）。
 
@@ -82,50 +81,29 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 
 ## 2. 认证
 
-### 2.1 唯一登录路径
+### 2.1 登录路径
 
-**微信扫码是本渠道唯一的登录路径**（`mx login loomy`）。手机号 + 验证码**不是**登录入口，
-只是「微信未绑手机号」时的**绑定子步骤**。
+`login()` **只有手机验证码一条路**（两步，环境变量驱动）：
 
 | 环节 | 端点 | 输入来源 | 状态 |
 |---|---|---|---|
-| 扫码取 code | `open.weixin.qq.com` 授权页 + 长轮询 | 纯 HTTP（uuid → 二维码图片 → 长轮询），详见 §2.6 | `[实测]` 已跑通 |
-| code → rcode | `POST /login/thirdAccount/bind/auth` | 微信 code（**只用一次**） | `[实测]` 已跑通 |
-| rcode → session（已绑手机号，`bind=1`） | `POST /login/thirdAccount/bind/skip` | rcode | `[实测]` 已跑通 |
-| rcode → session（未绑手机号，`bind=0`） | `POST /login/thirdAccount/bind/sendMsg` + `/bind/checkCode` | **`LOOMY_PHONE` + `LOOMY_SMS_CODE` 环境变量** | ⚠ **未验证**（全仓无该分支的实测记录；请求形态已与参考实现逐字段核对一致，见下） |
+| **验证码发码** | `POST /login/phone/sendMsgCode` | `LOOMY_PHONE` | `[实测]` 2026-10-22 真机跑通（返回 `msgid`） |
+| **验证码换 session** | `POST /login/phone/checkCode` | + `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` | `[实测]` 2026-10-22 真机跑通（入池 + 额度 4999） |
 
-**`bind=0` 分支的参考实现核对（2026-10-20，结论：形态一致，但仍标「未验证」）**：
+**环境变量只有三个**（`packages/core/channels/loomy/src/cred.ts` 的 `PHONE_ENV` / `SMS_CODE_ENV` / `SMS_MSGID_ENV`）：
 
-`reference/xingluoyuankong_loomy2api/loomy2api/account.py:501-550` 与
-`reference/xingluoyuankong_loomy2api/docs/CLIENT-LOGIN.md:96-99` 逐字给出四个端点与
-字段，本仓库实现（`packages/core/channels/loomy/src/cred.ts:611-665`）**逐字段一致**：
+| 变量 | 第一步 | 第二步 |
+|---|---|---|
+| `LOOMY_PHONE` | 必填 | 必填 |
+| `LOOMY_SMS_CODE` | — | 必填（6 位验证码） |
+| `LOOMY_SMS_MSGID` | — | 必填（第一步输出） |
 
-| 端点 | 参考实现的 param | 本仓库实现 | 一致 |
-|---|---|---|---|
-| `/login/thirdAccount/bind/auth` | `{tcode:{code}, type:"wx"}` | 同 | ✅ |
-| `/login/thirdAccount/bind/sendMsg` | `{rcode, phone, ccode:"86", expire:300}` | 同 | ✅ |
-| `/login/thirdAccount/bind/checkCode` | `{rcode, mcode, msgid, expire:1209600}` | 同 | ✅ |
-| `/login/thirdAccount/bind/skip` | `{rcode, expire:1209600}` | 同 | ✅ |
+发码失败的常见原因：手机号格式不对（要 11 位大陆号）、发码过于频繁（上游限流）。
+`msgid` 有效期与验证码同步（300 秒），超时需重新发码。
 
-差异只有两处，且都不影响请求形状：参考实现的 `bind/auth` 在配置了
-`wechat_authconf` 时多带一个 `authconf` 字段（本渠道没有该配置，不发）；
-参考实现返回体另有 `isnew` / `headpic`（本渠道不用）。
-
-⚠ **「未验证」标注保留**：形态一致 ≠ 能跑通 —— 该分支**全仓仍无任何实测记录**，
-`bind=0` 时的短信能否真收到、验证码是否被上游接受，都还是未知数。
-
-**判据（为什么只保留微信扫码）**：
-
-1. 只有微信扫码**实测跑通**（2026-10-17 真机扫码；2026-10-19 端到端 `loomy/spark-x` 冒烟 + 工具往返）。
-2. 官方客户端**对外只有一个授权页**（微信扫码）；密码与短信登录都是**客户端内部 API 调用**，
-   没有任何外部页面（`[参考]`）。
-3. 手机号在参考实现里是**两义**的：既能独立登录（`/login/phone/*`），又是微信绑定的子步骤
-   （`/login/thirdAccount/bind/*`）。本渠道只取后者 ——
-   **不要把绑定子步骤当成第二条登录路径**。
-4. 密码路不采纳：需要用户在讯飞账号中心先设过密码（参考实现自己注明**没有设 / 改密端点**），
-   且要长期保存明文密码。
-
-**`LOOMY_PHONE` / `LOOMY_SMS_CODE` 的定位**：**只服务于 `bind=0` 绑定分支**，不是独立登录入口。
+> **已移除的两条路**（微信扫码 / 账号密码）的端点、签名与踩坑记录见
+> [FINDINGS.md](./FINDINGS.md) —— 那里是**历史记录**，代码里已经没有对应实现，
+> 不要照着重写（尤其别再引入 `LOOMY_PASSWORD` / `LOOMY_LOGIN_ID`）。
 
 ### 2.2 必需请求头清单
 
@@ -164,7 +142,7 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 chat 端点两个都发是因为官方客户端在 session 模式下也是两个都发。
 业务端点**不发** `traceparent` / `loomy-version`（本仓 2026-10-19 实测目录刷新正常）。
 
-### 2.3 凭据字段（`packages/core/channels/loomy/src/cred.ts:84-99`）
+### 2.3 凭据字段（`packages/core/channels/loomy/src/cred.ts:74-89`）
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
@@ -176,7 +154,7 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 
 `access_token` 字段名**必须**是这个。
 
-### 2.4 账户请求信封（`packages/core/channels/loomy/src/cred.ts:235-247`）
+### 2.4 账户请求信封（`packages/core/channels/loomy/src/cred.ts:224-236`）
 
 ```json
 {
@@ -198,68 +176,32 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 `LOOMY_SESSION_TTL_SECONDS = 1_209_600`（14 天）：服务端只声明有效期，响应不带到期时间戳，
 凭据的 `expires_at` 由本地按此推算。
 
-### 2.5 登录流程：微信扫码（四步强制绑手机号）
+### 2.5 登录流程：手机验证码（两步）
 
 ```
-1. bindAuthThirdAccount(code) → { bind, rcode, isnew, nickname, headpic }
-    - bind=1 已绑手机号 → 直接 bindSkip 拿 session
-    - bind=0 未绑       → 弹绑定 UI，走 bindSendMsg + bindCheckCode
-2. bindSendMsg({ rcode, phone })          → { msgid }
-3. bindCheckCode({ rcode, mcode, msgid }) → session + userid + phone
-4. bindSkip({ rcode })                    → session + userid
+1. sendPhoneLoginCode(phone)  → { msgid }
+2. loginByPhoneCode(phone, mcode, msgid) → session + userid + phone
 ```
-
-微信 code **只在第 1 步用一次**；后续三步只用 `rcode`。
 
 | 步骤 | URL | param |
 |---|---|---|
-| 1 | `/login/thirdAccount/bind/auth` | `{ "tcode": { "code": "<微信code>" }, "type": "wx" }` |
-| 2 | `/login/thirdAccount/bind/sendMsg` | `{ "rcode", "phone", "ccode": "86", "expire": 300 }` |
-| 3 | `/login/thirdAccount/bind/checkCode` | `{ "rcode", "mcode", "msgid", "expire": 1209600 }` |
-| 4 | `/login/thirdAccount/bind/skip` | `{ "rcode", "expire": 1209600 }` |
+| 1 | `/login/phone/sendMsgCode` | `{ "ccode": "86", "phone", "expire": 300 }` |
+| 2 | `/login/phone/checkCode` | `{ "ccode": "86", "phone", "mcode", "msgid", "expire": 1209600 }` |
 
-`bind` 缺失时**归为 0**（走绑定流程）：保守方向。
-`rcode` 缺失必须明确报错。
+**两步的绑定关系**：第 2 步必须带第 1 步返回的 `msgid`（上游用它把「这次发的码」和「这次校验」配对）。
+故本渠道把发码结果打进错误信息里交给用户（CLI 下不能吞掉，否则第二步无从下手）。
+`expire: 300` 是验证码有效期；`expire: 1209600` 是**要申请的 session 有效期**（14 天）。
 
-⚠ 第 2/3 步（`bind=0` 绑定分支）**尚未验证**：全仓没有该分支的实测记录，
-它只是**微信链路的子步骤**，不是独立登录入口（§2.1）。
+`session` 是唯一的凭据（32 位小写 hex），响应里还会带 `userid` 与 `phone`。
 
-### 2.6 微信扫码的完整链路（纯 HTTP 路线）
+### 2.6 已移除的登录路（历史）
 
-**为什么不能用官方的 Electron 做法**：官方客户端用 `BrowserWindow` 的 `will-redirect`
-事件在**导航发生前**截获微信回调里的 `code`，`event.preventDefault()` 后关窗
-—— **从不真的加载回调页**。那个回调页实测 **404**。
+微信扫码与账号密码**两条路已从代码中删除**（2026-10-22，判据见 §2.1）。
+它们的完整逆向结论（授权页 uuid 提取、长轮询状态机、粘贴兜底、`bind` 四步、
+`getPuKey` + `byPwd` 的 RSA 加密形态）保留在 [FINDINGS.md](./FINDINGS.md)，
+**仅作历史记录** —— 需要时再读，不要据此重写实现。
 
-**本实现走「纯 HTTP」路线**（2026-09-26 实测打通）：
-
-```
-1. GET https://open.weixin.qq.com/connect/qrconnect
-    ?appid=wx18d60be432287cf8
-    &redirect_uri=<URL编码的 https://loomy.xunfei.cn/oauth/wechat/callback>
-    &response_type=code&scope=snsapi_login&state=<32位随机串>
-    #wechat_redirect
-  → HTML 里**内嵌 uuid**（正则直接提取，无需执行 JS）
-2. GET https://open.weixin.qq.com/connect/qrcode/<uuid>
-  → 二维码图片（实测 **JPEG**，约 47KB，可转 data URL 渲染）
-3. GET https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=<uuid>[&last=<prev>]&_=<毫秒时间戳>
-  → 长轮询状态机
-```
-
-**关键常量**：
-- `LOOMY_WECHAT_APP_ID = 'wx18d60be432287cf8'`
-- `LOOMY_WECHAT_REDIRECT_URI = 'https://loomy.xunfei.cn/oauth/wechat/callback'`
-- `LOOMY_WECHAT_POLL_TIMEOUT_MS = 40_000`
-
-**redirect_uri 必须用官方地址**：实测换成 `http://127.0.0.1:<port>/callback` 或任意域名，
-微信直接返回 **872 字节**的「redirect_uri 参数错误」页；用官方地址才返回 **42KB** 的正常授权页。
-微信校验域名白名单，故**不能**用本地回调服务器收 code。
-
-#### 2.6.1 授权页与二维码是**两个不同的会话**（2026-10-20 实测）
-
-授权页与二维码的两个会话、uuid 提取、长轮询状态机与粘贴兜底见
-[FINDINGS.md](./FINDINGS.md)。
-
-### 2.7  签名算法（`packages/core/channels/loomy/src/cred.ts:179-227`）—— 逐字节复刻客户端
+### 2.7  签名算法（`packages/core/channels/loomy/src/cred.ts:168-216`）—— 逐字节复刻客户端
 
 **Python 标准库完全可以实现**（`hashlib` / `hmac` / `base64` / `uuid` / `email.utils`，无需第三方）。
 
@@ -325,7 +267,7 @@ body_str = json.dumps(body, separators=(',',':'))
 # 签名用 body_str；发送时直接传 body_str.encode()，不要让 requests 重新序列化 dict
 ```
 
-#### 密钥来源（`packages/core/channels/loomy/src/cred.ts:45-48`）
+#### 密钥来源（`packages/core/channels/loomy/src/cred.ts:39-42`）
 
 ```
 accessKeyId     = <讯飞 AccessKey id>
@@ -620,32 +562,63 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 
 ### 登录方式
 
-**微信扫码一条路**（`mx login loomy`），本渠道**唯一**的登录路径 —— 详见 §2.1。
-**未绑手机号**时的绑定环节需要 `LOOMY_PHONE` / `LOOMY_SMS_CODE` 环境变量
-（这两个变量**只服务于绑定分支**，不是独立登录入口；该分支**尚未验证**）。
-扫码链路（纯 HTTP 路线）见 §2.6，二维码 uuid 提取与长轮询状态机见
-[FINDINGS.md](./FINDINGS.md)。
+`mx login loomy` **只有手机验证码一条路**，两步（详见 §2.1）：
+
+```powershell
+# 第一步：发码（CLI 会把 msgid 打在输出里）
+$env:LOOMY_PHONE = "138xxxxxxxx"
+mx login loomy
+#   → SMS code sent to 138xxxxxxxx. Re-run with LOOMY_SMS_CODE=<code> LOOMY_SMS_MSGID=<msgid> ...
+
+# 第二步：带验证码 + msgid 重跑（验证码 300 秒内有效）
+$env:LOOMY_SMS_CODE = "123456"
+$env:LOOMY_SMS_MSGID = "<上一步输出的 msgid>"
+mx login loomy
+#   → [login] done: 登录成功，账号已入池。
+```
+
+> 第一步「失败」是设计的一部分：发码本身成功，只是需要第二步才能换到 session。
+> 环境变量只在当前终端有效；开新终端要重新设置。
 
 ### 推荐模型
 
 | 模型（池 id） | 结论 | 等级 |
 | --- | --- | --- |
-| `loomy/spark-x` | **倍率 0（免费）** —— 2026-10-19 实测远端已从 `x0.1` 改为免费，自动化测试首选 | `[实测]` |
+| `loomy/spark-x` | **倍率 0（免费）** —— chat 首选；注意它是**思考型**模型，冷启动首字慢（见下） | `[实测]` |
 | `loomy/qwen3.8-flash` / `loomy/GLM-5.3-Flash` | 倍率 0.8 | `[实测]` |
 | `loomy/qwen-3.8-max` | 倍率 12.0 —— **禁用于自动化测试** | `[实测]` |
+
+### ⚠ spark-x 的延迟构成（2026-10-22 实测）
+
+`spark-x` 是思考型模型，`upstreamMs`（= **上游首字耗时**）差异极大：
+
+| 场景 | 首字耗时 |
+|---|---|
+| 冷启动（首次带工具集，DSH 的 61 工具 / 38,915 prompt tokens） | **24,921 ms** |
+| 同一 payload 走 `catpaw/longcat-2.0` 对照 | 4,788 ms |
+| 热（同工具集、前缀缓存命中） | 3,352–4,295 ms |
+
+**结论**：慢在上游 prefill，不在网关（网关侧从首字到流结束约 3.4s）。
+工具集或上下文一变缓存即失效，会重新吃 ~25s 冷启动。
+**交互式对话建议换 `workbuddyai/deepseek-v4.1-flash`（首字 1.3–1.9s，同样免费）**；
+spark-x 适合不在乎延迟的批量任务。
+
+另注：`max_tokens` 太小时（如 64）正文可能为空 —— 思考 token 把预算吃光了，
+`finish_reason` 会是 `length`，属正常行为不是缺陷。
 
 ### 已知限制
 
 - **池内账号少**：账号被判 `error` 后**没有备选可切** —— 网关日志记
   `all pool candidates failed (loomy/spark-x, tried loomy)`，直接回 503 `not_authenticated`。
-  此时需要重新 `mx login loomy` 微信扫码入池才能恢复。
+  此时需要重新 `mx login loomy` 收码入池才能恢复。
+- **session 14 天到期**：无 refresh 端点，到期只能重新收码登录。
 
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
-mx login loomy           # 登录入池（微信扫码，唯一登录路）
+mx login loomy           # 登录入池（手机验证码两步，见上）
 mx status loomy          # 状态与凭据
 mx model loomy --refresh # 目录刷新
 mx bill loomy            # 额度与倍率（测试后核对是否扣费）
@@ -671,8 +644,31 @@ Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
   （日志记 `all pool candidates failed (loomy/spark-x, tried loomy)`），
   与「已知限制」第 1 条的账号坑一致。
 - **不是协议回归**：本渠道 2026-10-20 未改代码；失败原因是**账号态**而非端点 / 请求头。
-- **恢复办法**：需真人**重新扫码**入池（`mx login loomy`，唯一登录路），
+- **恢复办法**：重新入池（`mx login loomy`，手机验证码两步，见 §2.1），
   账号状态回到 `ok` 后再跑端到端；无法用脚本绕过。
+
+### 2026-10-22 端到端实测（手机验证码登录 + spark-x）
+
+**登录链路**（真机，两步协议，全程无浏览器）：
+
+| 步骤 | 结果 |
+|---|---|
+| `mx login loomy` + `LOOMY_PHONE` | 发码成功，返回 `msgid=5bd8836c29264f4ca2d26594a182104a` |
+| + `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` 重跑 | `[login] done: 登录成功，账号已入池。` |
+| 入池后额度 | **4999 / 4999 积分**（每日赠送） |
+
+**端到端测试**（`reasonix-mx-test` skill，`loomy/spark-x`，倍率 0）：
+
+| 检查项 | 实测 |
+|---|---|
+| 前置 | 网关 `ok: true` / Reasonix v2.44.0 / `credentials.present = true` |
+| 冒烟 | 返回文本（26s） |
+| Agent 工具往返 | `write_file` → `bash` → `read_file` 三类齐全；落盘 `spark-x ok` 一致 |
+| 访问日志 | `status=200` / `stream=true` / `toolCount=18` / `messageCount` 2→5→7 递增 |
+| 错误日志 | 测试窗口内该渠道**新增 0 条** |
+| 账单 | 4999 → 4999（**差值 0**，与倍率 0 相符） |
+
+结论：**手机验证码登录链路真机跑通，spark-x 可作免费测试模型长期使用**（延迟特性见「已知限制」上方）。
 
 ## 参考实现
 
@@ -681,8 +677,8 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 仓库 | 关键文件 | 用途 |
 | --- | --- | --- |
-| [Patrick130306/loomy2api](https://github.com/Patrick130306/loomy2api) | `loomy2api/account.py`、`loomy2api/signer.py`、`docs/PROTOCOL.md` | 主参照（31★）：额度转 OpenAI 兼容 API |
-| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | `loomy2api/account.py`、`loomy2api/wechat.py`、`docs/CLIENT-LOGIN.md` | 多账号池 + Web 面板 + 防风控；该仓库内的 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓 + 对照实验）是本渠道微信扫码登录修复的一手依据，也是 `bind=0` 分支请求形态的对照源（见 §2.1） |
+| [Patrick130306/loomy2api](https://github.com/Patrick130306/loomy2api) | `loomy2api/account.py`、`loomy2api/signer.py`、`docs/PROTOCOL.md` | 主参照（31★）：额度转 OpenAI 兼容 API；**本渠道手机验证码登录（`/login/phone/*`）的端点与签名依据** |
+| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | `loomy2api/account.py`、`loomy2api/wechat.py`、`docs/CLIENT-LOGIN.md` | **历史参照**：多账号池 + Web 面板 + 防风控；其 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓）曾是微信扫码登录的对照源 —— 微信路已于 2026-10-22 移除，此仓库现仅作逆向结论存档 |
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | `README.md` | 接口结构参考：端点、鉴权形状、请求/响应结构 |
 | [wangliangdong/loomy2api](https://github.com/wangliangdong/loomy2api) | `auth_browser.py`、`credit.py` | 反面对照样本（13★）：容器内 Chromium + noVNC 走**网页**登录（手机号 + 短信），抓 `loomy_web_session` **Cookie** —— 是**另一族凭据**（Cookie 而非 account API 的 session），本渠道不采纳；其「Loomy 不签发 refresh token、失效只能重登」的结论与本渠道 §2.3 一致 |
 
@@ -692,10 +688,10 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 能力 | 原因 |
 |---|---|
-| 密码登录（`/login/account/getPuKey` + `byPwd`，可无人值守重登） | 要长期保存明文密码；参考实现自己注明**没有设 / 改密端点**（用户得先在讯飞账号中心设密码） |
-| 手机号独立登录（`/login/phone/sendMsgCode` + `checkCode`） | 手机号在本渠道只作**绑定子步骤**；官方客户端对外也只有微信一个授权页（§2.1） |
+| 账号密码登录（`/login/account/getPuKey` + `byPwd`） | **2026-10-22 移除**：要长期保存明文密码，且需先在讯飞账号中心设密码（参考实现注明**没有设 / 改密端点**）；换来的只是「不用收短信」，不值得。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
+| 微信扫码登录（授权页 + 长轮询 + `bind/*` 四步） | **2026-10-22 移除**：无浏览器环境下注定别扭（授权页每次加载新 uuid、回调页线上 404 只能粘回）。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
 | 导入桌面客户端已登录 session（`auth-session.json`） | 依赖本机客户端安装目录与本地文件，越出「本渠道自持凭据」的边界 |
-| 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；本仓走「二维码图片 + 用户粘回调链接」的纯 HTTP 路线，已实测跑通 |
+| 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；短信路已实测跑通，无此必要 |
 | `/embeddings`、`/images/generations`、`/search/tencent` | 上游有，但本渠道定位是 **OpenAI 兼容对话网关**；我们是否可用、返回形状均未验证 |
 | 多账号加权调度（按额度加权 / 会话粘性 / 在途租约 / 模型级冷却） | 共享层目前只有简单轮换 + 连续失败 3 次标 error；本轮不扩共享层 |
 | 思考开关 `enable_thinking` / `chat_template_kwargs.enable_thinking` | 当前用 `reasoning_effort` 表达档位；上游对未知字段静默忽略，语义需真机确认 |
@@ -711,5 +707,5 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 - `traceparent` / `loomy-version` 是否真为必需（`[参考]` 说缺失会挂死到超时，本仓未发也跑通）→ A/B 对照；
 - `Accept: text/event-stream`（本仓）vs `application/json`（参考）是否影响上游行为；
 - `points/records` 的 `recordType`（本仓）vs `record_type`（参考）命名分歧；
-- `bind=0` 绑定分支（发码 → 校验 → 落盘）端到端；
-- session 自然过期后的真实表现（业务码 `100002` 还是 HTTP 401/403）。
+- session 自然过期后的真实表现（业务码 `100002` 还是 HTTP 401/403）；
+- 发码频率上限（连续发码是否触发上游限流）。

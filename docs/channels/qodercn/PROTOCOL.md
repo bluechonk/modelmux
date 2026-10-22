@@ -44,7 +44,7 @@
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/qodercn/src/cred.ts`） | **声明**该回调（每次轮询前取一次） |
 | 轮询的 `attempt` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-⚠ 与 `codearts` / `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
+⚠ 与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
 被**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 
