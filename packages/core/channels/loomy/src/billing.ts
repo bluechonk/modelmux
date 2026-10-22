@@ -11,13 +11,17 @@
  * 3. **`dailyQuota` 只在 `first-login` 的响应里**（`points/records` 不返回它），
  *    故未签到时该字段缺省 —— **不要硬编码 5000**。
  * 4. **一键签到（`first-login`）的幂等判据是响应体的 `alreadyProcessed`**，
- *    故已处理映射成 `already-claimed` 而**不是** `claimed`；
- *    它的语义是「触发每日额度重置」，**不是「+5000 积分」**。本函数**不抛错**。
+ *    故已处理映射成 `already-claimed` 而**不是** `completed`；
+ *    它的语义是「触发每日额度重置」，**不是「+5000 积分」**。
+ *    它是本渠道签到的**主判据**（见文件末尾 `signin`），失败返回 `failed` 而不抛错。
  * 5. **新手任务是纯 API 直领**：body 只有 `{key}`，服务端**不校验前置行为**
  *    （实测 8 个任务直领全部成功，余额 0 → 10000，没有真的发对话/生成 PPT/装技能）。
  *    ⚠ **不采信服务端 `earned`**，按本地表算；任一任务收到 `100002` 时**立即抛出**，
  *    不再对后续任务发请求。
  * 6. ⚠ **「查不到」不能显示成 0**：`balance` 缺失即抛 `CreditsError`。
+ * 7. **签到是全自动能力，没有 CLI 动词**：网关 running 后由 `auth/auto-signin.ts`
+ *    调度（启动跑一轮 + 每 30 分钟一轮，带台账去重与连败 3 次熔断）。
+ *    本渠道的签到 = 每日额度重置（`first-login`）+ 新手任务直领，见文件末尾。
  */
 
 import * as cred from "./cred.js";
@@ -252,33 +256,83 @@ async function claimAll(): Promise<ClaimAllResult> {
   return { earned: round2(earned), results };
 }
 
-// ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────
+// ── 签到 / 领取能力（共享层自动签到调度器用；见 SigninModule 契约）────────────
 
 import type { SigninModule } from "@modelmux/gateway";
+
+/** 每日额度重置的结果。 */
+interface DailyResetResult {
+  status: "completed" | "already-claimed" | "failed";
+  error?: string;
+}
+
 /**
- * 签到 / 领取能力（`<cid> checkin`）。
+ * 触发每日额度重置（`POST /points/first-login`）—— **这才是 Loomy 的「签到」**。
  *
- * 上游是「新手任务一键领取」（`claimAll()`：跳过已完成的，任一任务登录失效即中止）。
- * 没有独立的签到状态端点 —— 状态返回 `claimable: null`（"不知道"，不是"没有"）。
+ * 幂等判据是响应体的 `alreadyProcessed`：已处理映射成 `already-claimed`（不是 `completed`），
+ * 所以重复调用不会重复计账。**不抛错**（失败返回 `failed`），由调用方决定是否计一次失败。
+ */
+async function triggerDailyReset(c: cred.Credentials): Promise<DailyResetResult> {
+  try {
+    const data = await upstream.triggerFirstLogin(c);
+    return { status: data["alreadyProcessed"] === true ? "already-claimed" : "completed" };
+  } catch (err) {
+    return { status: "failed", error: String(err) };
+  }
+}
+
+/**
+ * 签到 / 领取能力（**全自动**，共享层 `auth/auto-signin.ts` 调度，无 CLI 动词）。
+ *
+ * 本渠道的「签到」由两件事组成，顺序固定：
+ * 1. **每日额度重置**（`first-login`，写）—— 主判据，`ok` 只看它；
+ * 2. **新手任务直领**（`claimAll()`，写）—— 一次性 10000 分，失败不影响签到结论但如实报出。
+ *
+ * 状态查询返回 `claimable: null`：上游**没有**独立的签到状态端点，
+ * `null` 是「不知道」（不是「没有」），故调度器每天都会走到 `claim()`，
+ * 由 `alreadyProcessed` 保证幂等；调度器的台账（`state/signin.json`）保证**一天只打一次**。
  */
 export const signin: SigninModule = {
   async status() {
     return {
       claimable: null,
-      summary: "（该渠道没有独立的签到状态端点；claim 会跳过已完成的任务）",
+      summary: "（该渠道没有独立的签到状态端点；claim 会触发每日额度重置并领新手任务）",
     };
   },
   async claim() {
-    const r = await claimAll();
-    const claimed = r.results.filter((x) => x.status === "completed");
+    const c = cred.load();
+    const reset = await triggerDailyReset(c);
+
+    // 新手任务是一次性的：失败/登录失效都不改变「签到」结论，但要如实报出
+    let tasks: ClaimAllResult | null = null;
+    let tasksError = "";
+    try {
+      tasks = await claimAll();
+    } catch (err) {
+      tasksError = String(err);
+    }
+
+    const parts = [
+      reset.status === "failed"
+        ? `每日额度重置失败：${reset.error ?? "unknown"}`
+        : reset.status === "already-claimed"
+          ? "每日额度今天已处理"
+          : "每日额度已触发重置",
+    ];
+    if (tasksError) parts.push(`新手任务：${tasksError}`);
+    else if (tasks) {
+      const claimed = tasks.results.filter((x) => x.status === "completed").length;
+      parts.push(
+        claimed > 0
+          ? `领取 ${claimed} 项，+${tasks.earned}`
+          : `新手任务无可领（${tasks.results.map((x) => x.status).join(", ")}）`,
+      );
+    }
+
     return {
-      ok: claimed.length > 0 || r.results.every((x) => x.status !== "failed"),
-      summary: r.earned > 0
-        ? `领取 ${claimed.length} 项，+${r.earned}`
-        : r.results.length
-          ? `没有可领的任务（${r.results.map((x) => x.status).join(", ")}）`
-          : "没有任务可领",
-      detail: r,
+      ok: reset.status !== "failed",
+      summary: parts.join("；"),
+      detail: { first_login: reset, tasks },
     };
   },
 };

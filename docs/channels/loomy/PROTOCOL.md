@@ -462,7 +462,7 @@ token: <session>
 `balance` 是核心字段：没有它就说明响应形状不对，不编造数字，返回 `null`。
 `total` 用 `availableBalance`，缺失则 `permanent + daily`。
 
-### 6.3 一键签到（写，幂等）
+### 6.3 每日额度重置（写，幂等）—— 本渠道的「签到」
 
 ```
 POST https://loomyad.xunfei.cn/api/v1/points/first-login
@@ -471,19 +471,29 @@ token: <session>
 Content-Type: application/json
 body: {}
 → data: { alreadyProcessed, currentBalance, permanentBalance, dailyBalance,
-         dailyQuota, dailyConsumed, dailyCycleDate, ... }
+         dailyQuota, dailyConsumed, dailyCycleDate, registerReward, ... }
 ```
 
-**`dailyQuota` 只在 `first-login` 的响应里**，`points/records` 不返回它。
-故未签到时该字段缺省 —— **不要硬编码 5000**。
+**`dailyQuota` 只在 `first-login` 的响应里**，`points/records` 不返回它（实测后者
+`dailyQuota=undefined`）—— 故 `mx bill` 的「每日赠送」总量在日常查询里取
+`dailyBalance + dailyConsumed` 兜底，**不要硬编码 5000**。
 
 **幂等判据是响应体的 `alreadyProcessed`**，故已处理映射成 `already-claimed`
-而**不是** `claimed`。
-
-语义是「触发每日额度重置」，**不是「+5000 积分」**：
+而**不是** `completed`。语义是「触发每日额度重置」，**不是「+5000 积分」**：
 `dailyBalance = dailyQuota - dailyConsumed`，消耗后不回补。
 
-本函数**不抛错**（失败也返回 `failed`）。
+**2026-10-22 实测**：`dailyQuota=5000`、`dailyConsumed=4022`、`dailyBalance=978`；
+连调两次前后 `points/records` 完全一致（**幂等已验**）。
+
+**谁调它（两个入口，都不需要手动命令）**：
+
+| 入口 | 时机 | 失败处理 |
+|---|---|---|
+| 登录成功 | `cred.login()` 第二步换到 session 后顺手调一次 | 仅 warn，不影响登录结果 |
+| **自动签到调度器** | 网关 running 后启动一轮 + 每 30 分钟一轮（`auth/auto-signin.ts`） | 计一次失败，连续 3 次当日熔断 |
+
+签到**没有 CLI 动词**：它是内置能力，`mx start` 起来就自动跑；台账（`state/signin.json`）
+保证一天只打一次，结果在 `mx status` 的「签到（本地记录）」一行可见。
 
 ### 6.4 新手任务（`packages/core/channels/loomy/src/billing.ts:35-46`）
 
@@ -612,6 +622,21 @@ spark-x 适合不在乎延迟的批量任务。
   `all pool candidates failed (loomy/spark-x, tried loomy)`，直接回 503 `not_authenticated`。
   此时需要重新 `mx login loomy` 收码入池才能恢复。
 - **session 14 天到期**：无 refresh 端点，到期只能重新收码登录。
+
+### 积分经济性（**倍率会烧每日池**）
+
+每日池 **5000 分/天**（`dailyQuota=5000`，见 §6.3），**按模型的倍率扣**：
+
+| 模型 | 倍率 | 5000 分能跑多久 |
+|---|---|---|
+| `loomy/spark-x` | **0** | **不扣分**（可无限跑） |
+| `loomy/glm-5.3-flash` / `loomy/qwen3.8-flash` | 0.8 | 约 6250 单位 |
+| `loomy/deepseek-v4.1-flash` | **2** | 约 2500 单位 |
+| `loomy/qwen-3.8-max` | **12** | 约 417 单位（**禁用于测试**） |
+
+⚠ **交互式客户端（DSH / Reasonix）默认上下文很大**（带工具时可达 3.9 万 prompt token），
+倍率 2 的模型几轮就能烧掉几千分 —— 2026-10-22 实测当天 `dailyConsumed=4022`（就是 DSH
+跑 `deepseek-v4.1-flash` 烧的）。**要免费就把交互式会话切到 `loomy/spark-x`。**
 
 ### 怎么测这个渠道
 
