@@ -32,10 +32,7 @@ worker 触发 exit 事件后，监督者按以下规则决定是否重生与何�
 
 成功重生后监督者更新 `gateway-worker.pid`，并继续等健康探测通过。
 
-## 3. 代际计数
-
-监督者维护**重生代次**：每次「重置重生意图」递增，迟到的退出事件按提交时的代次核对，
-不匹配即作废。
+## 3. 重生作废
 
 - 监督者是独立进程，**杀掉监督者本身即作废重生**——`mx stop` 先 killTree 监督者，
   之后 worker 退出（无论什么原因）都不会再被拉起。
@@ -61,14 +58,8 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 | `gateway.pid` | **监督者** pid（纯数字单行，格式不变） | `mx start`（一次） |
 | `gateway-worker.pid` | 当前 worker pid | 监督者（spawn/重生时更新） |
 
-- `readPid` 的唯一读者不需要感知语义微调；`stale-build` 只读 `gateway.pid` 的 mtime
-  （= start 时刻），worker 重生不更新它——陈旧构建判定仍指本批监督者/worker 的构建时间。
 - 渠道级在 `<root>/<cid>/`，仓库级在 `<root>/`（与日志同层，见 STORAGE-CONVENTION）。
-- ⚠ **读哪一份取决于「谁在跑」**：仓库级多渠道路由下跑的是仓库级网关（根 pid 文件），
-  渠道级 pid 文件只在该渠道**独立运行**时才有意义 —— 仓库级模式下它常是历史遗留。
-  `status <cid>` 按渠道级 pid 文件判定会**误报**「网关在跑旧代码」；
-  正确做法见 [CONTRACT-TS.md](./CONTRACT-TS.md) §8.1（按 `/health` 的 `service` 判定 +
-  「哪个 pid 指向活进程」确认）。
+- 陈旧构建判定读哪一份 pid 文件、如何避免误报，见 [CONTRACT-TS.md](./CONTRACT-TS.md) §8.1。
 
 ## 6. 实现落点
 
@@ -82,14 +73,7 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 
 ## 日志布局与实例隔离
 
-- 运行日志统一落在 `~/.modelmux/logs/`，按「类型 / 日期 / 结果」分文件：
-  `access/<date>/{success,failure,other,slow}.log`、`error/<date>/error.log`、
-  `system/<date>/{lifecycle,gateway,worker}.log`、`channels/<cid>/<date>.log`。
-  完整字段与轮转规则见 [LOGGING.md](./LOGGING.md)。
-- 每类文件默认 10MB 轮转（保留 `.1`~`.3`），日期目录默认保留 14 天；
-  由 `MODELMUX_LOG_MAX_BYTES` / `MODELMUX_LOG_RETENTION_DAYS` 覆盖。
-- 高频错误不重复刷屏：共享层 `runtime/logger.ts` 提供状态节流（同类错误首条 +
-  10 分钟摘要「still failing ×N」+ 恢复一条「recovered ×N」），带 ISO 时间戳。
+- 运行日志的落点、格式、轮转与保留规则见 [LOGGING.md](./LOGGING.md)。
 - **多实例隔离**：调试用的第二实例（如 `serve --addr 127.0.0.1:4413`）使用自己的
   `system/<date>/worker.log`；不要与主实例共用同一文件，否则日志互相穿插。
 - **启动窗口**：worker 必须在 `DEFAULT_WAIT_MS`（默认 30s，`MODELMUX_START_WAIT_MS` 可覆盖）

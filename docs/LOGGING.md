@@ -8,7 +8,7 @@
 | 编号 | 规则 |
 | --- | --- |
 | G1 | 全部日志位于存储根的 `logs/` 下（存储根由 `MODELMUX_HOME` 覆盖，默认 `~/.modelmux`）。 |
-| G2 | 顶层按**用途**分四类：`access/`（请求）、`error/`（错误）、`system/`（进程与自身输出）、`channels/`（渠道维度）。 |
+| G2 | 顶层按**用途**分四类：`access/`（请求）、`error/`（错误）、`system/`（进程与自身输出）、`channels/`（渠道维度）。这四类是**网关进程**的日志；外部守护 `scripts/mx-watchdog.mjs` 另有根级 `watchdog.log`（见 §2 文件清单）。 |
 | G3 | 按**本地时区**切分日期；`access/`、`error/`、`system/` 用 `YYYY-MM-DD/` 目录，`channels/` 用 `YYYY-MM-DD.log` 文件名。 |
 | G4 | 写入一律 **best-effort**：目录不可写、单文件写失败、轮转失败都只影响日志本身，不影响请求处理。 |
 | G5 | 每个文件独立大小上限（默认 10MB），超限轮转为 `<name>.1.log` … `<name>.3.log`，最多保留 3 份历史。 |
@@ -29,6 +29,7 @@
 | `system/<date>/gateway.log` | 网关与 worker 的自身输出 | 文本行 | `appendGateway()` | worker 的 stdout/stderr 转发（§5） |
 | `system/<date>/worker.log` | worker 进程的原始 stdout/stderr | 文本行 | 监督者按 fd 落盘 | worker 启动时打开 |
 | `channels/<cid>/<date>.log` | 渠道维度输出 | 文本行 | `appendChannel()` | §5 的路由规则 |
+| `watchdog.log` | 外部守护 `scripts/mx-watchdog.mjs` 的输出（开机拉起 + 挂了拉回） | 文本行 | 守护脚本自身 | 守护运行期（前台 / 开机脚本，按日不切分） |
 
 `channels/` 的 `<cid>` 必须匹配 `^[a-z0-9][a-z0-9.-]*$`，否则该行被丢弃（防止路径穿越）。
 
@@ -133,7 +134,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 2. 渠道维度：单渠道运行时写入 `channels/<cid>/<date>.log`；多渠道运行时按消息的
    `[cid]` 前缀路由到对应渠道目录，前缀不匹配已知渠道则不写渠道日志。
 3. 错误判定：消息命中 `error` / `failed` / `timeout` / `reject` / `aborted` / `exception` /
-   `unauthorized` 之一（不区分大小写）时，追加写入 `error/<date>/error.log`（结构化行）。
+   `unauthor` 之一（不区分大小写、**前缀匹配**）时，追加写入 `error/<date>/error.log`（结构化行）。
    该判定是**关键词匹配**，不解析上游错误结构。
 
 ## 6. 轮转、保留与阈值

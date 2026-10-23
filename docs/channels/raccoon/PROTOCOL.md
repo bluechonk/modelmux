@@ -1,6 +1,6 @@
 # Raccoon 协议规格（商汤小浣熊）
 
-实现见 `packages/core/channels/raccoon/src/`；已移除路径的协议备查见
+实现见 `packages/core/channels/raccoon/src/`；本仓不实现路径的协议备查见
 [FINDINGS.md](./FINDINGS.md)。
 
 ---
@@ -45,7 +45,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 
 | 用途 | 方法 | 完整 URL | 认证 |
 |---|---|---|---|
-| 授权页（网页登录第一步，官方桌面端同款） | GET | `/code/authorize?login_source=desktop&appname=办公小浣熊客户端&state=<32位hex>` | 无 |
+| 授权页（网页登录第一步；**desktop 兼容模式**，本渠道主用本地回调模式见 §2.4） | GET | `/code/authorize?login_source=desktop&appname=办公小浣熊客户端&state=<32位hex>` | 无 |
 | 授权码换凭证（网页登录第二步） | POST | `/api/web/auth/v1/login_with_authorization_code` | 无 |
 | 续期 | POST | `/api/web/auth/v1/refresh` | 无（body 带 refresh_token） |
 | 用户信息 | GET | `/api/web/auth/v1/user_info` | Bearer |
@@ -96,7 +96,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 ## 2. 认证：唯一登录路径（授权码网页登录）
 
 **本渠道只有一条登录路径**：授权码网页登录（§2.4）。短信验证码链路与阿里云验证码
-**已移除**，仅保留协议事实备查（见 [FINDINGS.md](./FINDINGS.md)）。
+**本仓不实现**，仅保留协议事实备查（见 [FINDINGS.md](./FINDINGS.md)）。
 
 ### 2.1 必需请求头清单
 
@@ -108,8 +108,8 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 | `X-Org-Code` | `office_identity`（个人账号为空串） | 否 | 随凭据 | 参考实现**完全不发**该头 `[参考]` |
 | `X-Raccoon-Language` | 固定 `zh` | 否 | — | 参考实现只在签到链路发 `[参考]` |
 | `X-Client-Platform` | 固定 `desktop-windows` | 否 | — | 对 `desktop/v1/login/points/grant` **必需**（依据主进程 `desktopDeviceIdentity.js` 的 `resolveDesktopClientPlatform`，`win32` → `desktop-windows`），猜错会被拒 |
-| `X-Client-Version` | ~~固定 `v1.0.35`~~ | 否 | — | **已移除**：只随短信登录发出（全仓无其它发送方）；参考实现在签到/grant 链路上带 `v1.0.0` `[参考]`，是否该补待真机验证（见 §8） |
-| `X-Client-Device-ID` | ~~32 位 hex 设备指纹~~ | 否 | — | **已移除**：同上，只随短信登录发出；`device_id` 字段随之不再落盘（老凭据里的该字段读到即忽略） |
+| `X-Client-Version` | ~~固定 `v1.0.35`~~ | 否 | — | **本仓不发**：只随短信登录发出（全仓无其它发送方）；参考实现在签到/grant 链路上带 `v1.0.0` `[参考]`，是否该补待真机验证（见 §8） |
+| `X-Client-Device-ID` | ~~32 位 hex 设备指纹~~ | 否 | — | **本仓不发**：同上，只随短信登录发出；`device_id` 字段随之不再落盘（老凭据里的该字段读到即忽略） |
 | `User-Agent` | 固定 `Raccoon Work/1.0.35 (Windows)` | 否 | — | ⚠ **对话请求实际不带**（只有鉴权端点与模型目录/user_info 带）；参考实现把 UA 做成可配 `[参考]` |
 
 **三种请求形态**（`src/upstream.ts` 的 `buildHeaders` / `jsonHeaders`）：
@@ -138,7 +138,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 | `user_id` | 否 | 用户 id（取自 JWT，字段顺序见下） |
 | `nickname` | 否 |  服务端的 `name` 是**自动生成的默认名**（实测 `RaccoonAva`），登录**不回传用户昵称** |
 | `phone` | 否 | 绑定/注册的手机号，用于**多账号消歧** |
-| ~~`device_id`~~ | — | **已移除**（随短信路径）：不再落盘、不再上行；老凭据里的该字段读到即忽略 |
+| ~~`device_id`~~ | — | **本仓不存**（随短信路径）：不再落盘、不再上行；老凭据里的该字段读到即忽略 |
 
 **JWT 里的用户 id 取哪个字段**：本仓按 **`sub` → `iss` → `user_id` / `userId` / `uid`**
 顺序取第一个非空者（`src/cred.ts` 的 `jwtSubject`）。三份来源口径互不相同：
@@ -159,14 +159,13 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 老凭据或手工导入的凭据可能没有它。只读 `expires_at` 会让过期判定**恒为 false**，
 于是 `refreshAll` 永远跳过这些账号 —— 表现为「凭据悄悄过期、续期从不触发」（静默失效，无任何报错）。
 
-### 2.3 / 2.5 / 2.6 已移除的三条路径（协议事实备查）
+### 2.3 / 2.5 / 2.6 本仓不实现的三条路径（协议事实备查）
 
-手机号 AES-128-CFB 加密、短信验证码登录、阿里云验证码三条路径**本仓均无实现**，
-协议形态、业务码与「为什么删」的四条判据见 [FINDINGS.md](./FINDINGS.md)。
+手机号 AES-128-CFB 加密、短信验证码登录、阿里云验证码三条路径本仓均无实现，协议形态与「为什么删」的判据见 [FINDINGS.md](./FINDINGS.md)。
 
 ### 2.4 唯一登录路径：授权码网页登录（本地回调）
 
-2026-10-18 起优先走**本地 HTTP 回调**，不再依赖 `office-raccoon://` 自定义协议：
+优先走**本地 HTTP 回调**，不依赖 `office-raccoon://` 自定义协议：
 
 ```
 ① CLI 在 127.0.0.1 随机端口起 /callback，打印授权页：
@@ -242,7 +241,7 @@ GET https://xiaohuanxiong.com/api/web/auth/v1/user_info
 非交互场景可用环境变量 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或
 `office-raccoon://` 均可）。
 
-**短信登录链路已移除**（`send_sms` + `login_with_sms` 与手机号本地校验一并删除）——
+**短信登录链路本仓不实现**（`send_sms` + `login_with_sms` 与手机号本地校验一并删除）——
 理由与协议备查见 [FINDINGS.md](./FINDINGS.md)；本渠道**只有授权码网页登录一条**。
 
 ---
@@ -267,7 +266,7 @@ GET https://xiaohuanxiong.com/api/web/auth/v1/user_info
 - `system` 提示词拼为 `messages[0]` 的 `{role:'system', content}`
 -  **`tools` 必须真的下发到请求体顶层** —— Qoder 与 TRAE 都因漏发而让模型在正文里臆造
  XML 工具调用，harness 认不出 → 任务终止
--  **`thinking` 必须在 `extra_body` 内** —— 实测放顶层会被忽略（连非法值都不报错）
+-  **`thinking` 必须在 `extra_body` 内** —— 上游忽略直接下发的顶层 `thinking`；本仓把它当输入意图翻译进 `extra_body.thinking`
 
 ### 3.2 必需请求头
 
@@ -318,7 +317,7 @@ thinking.type: expected one of `adaptive`, `enabled`, `disabled`
 | `extra_body.enable_thinking=false` |  无效 |
 | `extra_body.extra_body.enable_thinking=false`（双层） |  无效 |
 | `reasoning_effort`（单层/双层/顶层） |  被接受但**无效果** |
-| `thinking` 放**顶层**（不在 `extra_body` 内） |  被忽略（非法值也不报错） |
+| `thinking` 放**顶层**（不在 `extra_body` 内） |  上游忽略；本仓把它当输入意图翻译进 `extra_body.thinking` |
 | `thinking.budget_tokens` |  仅被**格式校验**（`max_tokens < budget_tokens` 回 400），1~4096 全接受但思考量无规律 |
 
 客户端注释说 `extra_body` 双层嵌套是 **LiteLLM SDK 的调用约定**
@@ -402,14 +401,14 @@ X-Raccoon-Language: zh
 | `billing_multiplier` | 原价倍率 |
 | `billing_status` | `'discount'` / `'limited_free'` / 其它→`'normal'` |
 | `billing_status_note` | 状态角标文案 |
-| `params.context_window` 或 `entry.context_window` | 上下文窗口 |
+| `params.context_window` | 上下文窗口 |
 | `params.max_tokens` | 单次输出上限 |
 | `tags` | 小写化后判图片能力（见下） |
 
 实测已穷举 9 个条目的**键并集**：顶层 14 个键、`params` **只有** `context_window`
 与 `max_tokens`。用模态相关词扫描，**命中 0 个**。⇒ 远端**从未下发**模态字段。
 
-### 5.3  图片能力：`tags` 不是能力契约（真实缺陷，2026-10-03 报障）
+### 5.3 图片能力：`tags` 不是能力契约
 
 **症状**：给 `sn-deepseek-v4-1-flash` 发图，模型回「无法读取图片 / 不支持图片」。
 
@@ -494,7 +493,7 @@ def raccoon_supports_image(model_id, tags):
 1. **上游目录声明** —— 本渠道**自带**这两个数（`params.context_window` /
    `params.max_tokens`，见 §5.2），池层**优先**用它；
 2. **渠道已知规格表**（本节）—— 上游**没下发**时兜底；
-3. **网关兜底值**（128000 / 4096）—— 两者都没有。
+3. **网关兜底值**（200000 / 65536）—— 两者都没有。
 
 ⚠ **上游声明的其实是「平台配额」而非逐型号规格**（2026-10-20 实测）：
 4 个型号（`glm-5.3` / `kimi-k3` / `glm-5.3-flash` / `deepseek-v4.1-flash`）
@@ -607,7 +606,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
  本插件起本地回调服务器自动收码，不再依赖 `office-raccoon://` 自定义协议。
  桌面端的自定义协议回调仍作为兼容 URL 被 `parseLoginCallback` 接受（手工/脚本注入）。
  浏览器登录页本身用官方同款 `/code/authorize`（见 §2.4）
-- **只有一条登录路径**：短信验证码链路已移除（见 [FINDINGS.md](./FINDINGS.md) 的四条判据），
+- **只有一条登录路径**：短信验证码链路本仓不实现（见 [FINDINGS.md](./FINDINGS.md) 的四条判据），
   `X-Client-Version` / `X-Client-Device-ID` / `device_id` 随之退场
 - **端点表与基址解析唯一真源在 `src/upstream.ts`**：所有前缀、端点路径与完整 URL
   都在那里，`src/cred.ts` 单向导入它；**鉴权域与推理域共用同一个基址**
@@ -632,7 +631,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 网页**授权码链路**（**本渠道唯一登录路径**），两步：打开打印出的 `/code/authorize` 授权页用微信 / 验证码 / 密码登录 →
 页面自动跳回 `http://127.0.0.1:<port>/callback`，CLI 收到授权码并落盘，**无需粘贴**
-（协议细节见 §2.4 / §2.9；短信链路已移除，理由见 [FINDINGS.md](./FINDINGS.md)）。
+（协议细节见 §2.4 / §2.9；短信链路本仓不实现，理由见 [FINDINGS.md](./FINDINGS.md)）。
 
 - 浏览器无法访问 localhost（远程环境）时，重新执行 `mx login raccoon`；
 - 也可用 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或 `office-raccoon://` 均可）。
@@ -651,7 +650,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 2. **工具往返在上游侧不稳定**（工具轮次长时间不返回），2026-10-19 实测只做了单轮最小对话。
 3. **账号池薄**：池内账号少，被判 `error` 后没有备选可切，网关直接回 503 `not_authenticated`；
    用 `mx relogin raccoon` 重新授权即可恢复（见下「实测」）。
-4. **只有一条登录路径**：短信验证码链路已移除（零实测、`captcha_param` 拿不到、
+4. **只有一条登录路径**：短信验证码链路本仓不实现（零实测、`captcha_param` 拿不到、
    参考实现零背书 —— 见 [FINDINGS.md](./FINDINGS.md)）。要恢复必须先解决阿里云滑块产物的来源问题。
 5. **没有临期主动刷新**：只在 HTTP 401/403 时续期（access_token 寿命约 3 小时）；
    `TOKEN_REFRESH_WINDOW_SECONDS` 只是寿命记录，不是行为开关。
@@ -691,21 +690,9 @@ Reasonix CLI 直连网关（`raccoon/sn-glm-5-3-flash`，文档中亦记作 `glm
 本渠道最低倍率 0.2）：
 
 - 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
-- 本轮为**全渠道回归**的一环；下节「2026-10-20 变更」里列的收敛改动已随本次实测跑通。
-
-### 2026-10-20 变更（本轮收敛，已随上节实测复验）
-
-本轮只做「参考实现 vs 当前实现」对照后的收敛，下列改动已在同日的端到端实测中复验通过：
-
-- **登录路径收敛为一条**：删除短信登录（`sendSms` / `loginWithSms`）与其 AES 工具、
-  `X-Client-Version` / `X-Client-Device-ID`、凭据里的 `device_id`（老凭据读到即忽略）。
-  协议事实保留在 [FINDINGS.md](./FINDINGS.md)（原 §2.3 / §2.5 / §2.6）。
-- **端点表与基址解析收敛到 `src/upstream.ts`**：新增 `channelBaseUrl()` 作为**唯一真源**，
-  鉴权域与推理域共用同一个基址（修掉「登录在镜像、对话在官方」的分叉）；
-  所有端点 builder 去掉 cfg 入参、改为可选的显式 override。
-- **续期加单飞 + 比较写回**：同一 `refresh_token` 的并发续期只发一次上游请求；
-  写回前比较盘上凭证，已被换掉则不覆盖（见 §2.7）。
-- **JWT 用户 id 取值顺序改为** `sub` → `iss` → `user_id`/`userId`/`uid`（见 §2.2）。
+- 收敛结论：登录路径只剩授权码网页登录一条（§2.4）；端点表与基址解析统一到
+  `src/upstream.ts` 的 `channelBaseUrl()`（§1.1）；续期走单飞 + 比较写回（§2.7）；
+  JWT 用户 id 取 `sub` → `iss` → `user_id`/`userId`/`uid`（§2.2）。
 
 ## 参考实现
 
@@ -720,11 +707,11 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ## 已知边界
 
-本节收纳**本轮未做**的功能缺口与**尚需真机验证**的开放问题。
+本节收纳**未做**的功能缺口与**尚需真机验证**的开放问题。
 证据等级：`[实测]`（真机跑通）/ `[代码]`（源码可查）/ `[推断]`（静态推理）/ `[参考]`（第三方参考实现所载）。
 参考实现的证据位置写在 `packages/core/channels/raccoon/reference/` 下，路径以 `reference/<repo>/...` 缩写。
 
-### 8.1 功能缺口（参考实现有、当前实现没有）—— 本轮未做
+### 8.1 功能缺口（参考实现有、当前实现没有）—— 未做
 
 | # | 缺口 | 参考实现证据 | 备注 |
 |---|---|---|---|

@@ -1,29 +1,12 @@
 # 结论汇总（FINDINGS）
 
-本文把所有实测与代码读取得到的结论集中在一处，逐条标注证据等级。
+本文把凭据逆向的实测与代码读取结论集中在一处，逐条标注证据等级。
 证据等级定义见 [PROTOCOL.md](PROTOCOL.md#证据等级约定)。
 
----
-
-## 1. 目标客户端
-
-| 项 | 值 | 等级 |
-| --- | --- | --- |
-| 产品名 | 妙手（CatPaw，应用目录名即 `妙手`） | `[实测]` |
-| Windows 安装目录 | `%LOCALAPPDATA%\妙手` | `[实测]` |
-| 版本 | `2026.0923.1905` | `[实测]` |
-| commit | `9a497699f6cb7f92f33d64b328846b975578a230` | `[实测]` |
-| applicationName | `catpaw-moon`（决定 Electron userData 目录名） | `[实测]` |
-| appId | `com.catx.catpaw` | `[实测]` |
-| dataFolderName | `.meituan-catpaw`（决定 CLI 落盘目录） | `[实测]` |
-| cliCommandName | `paw`（别名 `catdesk`） | `[实测]` |
-| win32MutexName | `CatPawAppMutex` | `[实测]` |
-| 主程序归档 | `resources\app.asar`，381.1 MiB | `[实测]` |
-| 随包 Agent SDK | `resources\app.asar.unpacked\node_modules\@catpaw\agent-sdk`（含 `bin\catpaw-cli.exe`） | `[实测]` |
-| 随包 CLI | `resources\cli\catpaw-cli.js`，189.9 KiB | `[实测]` |
-
-技术栈是 Electron；主进程与渲染层代码全部打进 `app.asar`（不压缩），
-因此**静态检索就能读到加密实现** —— 这是「读代码定算法」这条路成立的前提。 `[代码]`
+> ⚠ **本文是历史快照，不是现行实现说明。** 下列 §2–§5 来自对妙手桌面客户端
+> （`app.asar`）的凭据逆向；**本仓不读桌面端任何文件**，现行登录只走真实 URL 链路
+> （见 [PROTOCOL.md](PROTOCOL.md)）。协议事实（端点、请求头、请求体、实测结论）以 PROTOCOL.md
+> 为唯一事实源，本文不重复。
 
 ---
 
@@ -195,41 +178,3 @@ function re(encoded) {
 **「这个字段到底有没有加密」不靠熵判断，而看首字节**：真信封的首字节是随机 IV，
 几乎不可能是 `{` / `[` / `"`；明文 JSON 落盘则必然以它们开头。本样本首字节不是
 JSON 起始符，可排除「未加密」这一支。 `[实测]`
-
----
-
-## 6. 上游协议要点
-
-| 项 | 值 | 等级 |
-| --- | --- | --- |
-| Base | `https://ai.catpaw.meituan.com` | `[代码]`（宿主客户端真实使用的常量） |
-| 对话 | **三段式**：`POST /api/agent/conversation/round`（提交全部消息）→ `/event`（回报状态）→ `/turn`（SSE 直出） | `[实测]`（2026-10-08） |
-| 模型目录 | `POST /api/agent/maas/model-types` | `[代码]` |
-| 必需头 | `M-TRACEID`（32 位无横线 uuid）、`M-APPKEY=fe_com.sankuai.catpaw.external.front`、`gray-set=new-agent-sdk`、`X-Agent-Version=1.0.1`、`Cookie: X-Passport-Token=<token>`、`user-uid` | `[代码]` |
-| turn body | `source=CatX`、`action=turn`、`mode=CATX_APP`、`permissionMode=unsafeBypassPermissions`、`toolVersion=2.0.2` | `[代码]` |
-| system prompt | 上游支持 `systemPromptContext.systemPromptOverride`；**本仓库实现不使用**：system / developer / 历史 / 工具说明折叠成一条 user 文本（见 PROTOCOL.md） | `[代码]` |
-| system prompt 上限 | **65508 字符**，口径为 JSON 转义后长度（等价 `JSON.stringify(s).length`）；超限回 `HTTP 200` + `success:false`。折叠实现不受此限 | `[实测]`（2026-10-08，二分 65508 过 / 65509 挂） |
-| round 消息序列 | 连续 `user` 允许；**连续 `assistant` 被拒**（「assistant 消息不带 toolCall，后面必须是 user」）；末条必须是 `user`。折叠实现恒为单条 user | `[实测]`（2026-10-08） |
-| SSE | 每帧是**累积全文**，需 suffix-diff 转增量；turn 以**上游生命周期帧**收尾（`finished` 字段不可依赖；连接可能一直挂着，**不能等 TCP 关闭** —— 见 PROTOCOL.md「流结束语义」） | `[代码]` |
-| usage | `prompt = max(upstream_prompt, total − completion)` | `[代码]` |
-| 工具通道 | 上游**无原生用户工具通道**：按参考实现注入工具说明 + 解析 ```tool_call fence / 原生 `tool_use` 块；工具名归一到客户端工具表，匹配不上的丢弃；末尾统一下发并置 `finish_reason=tool_calls` | `[参考]` + `[实测]`（2026-10-18，longcat-2.0 / glm-5.3-flash） |
-
-上表带 `[实测]` 的行来自**真实上游调用**（三段式协议全程跑通）。
-
-模型目录端点 `POST /api/agent/maas/model-types` 的调用方是渠道实现：
-`mx model catpaw --refresh` → `src/catalog.ts` 的 `refresh()` → `upstream.fetchModels()`
-→ `setCatalog()` 回填并落盘到渠道模型缓存，对外暴露为 `catpaw/<上游 id>`。 `[代码]`
-
----
-
-## 7. 尚未验证 / 留白
-
-| 项 | 状态 |
-| --- | --- |
-| Linux / macOS 的安装路径与 userData 路径 | `[推断]`：按 `product.json` 字段名（`applicationName` / `dataFolderName`）推得，未在对应平台实测 |
-| macOS / Linux 的机器码读取分支 | `[代码]`：从 `node-machine-id` 实现读出，未实测 |
-| `catx-enterprise-token.json` 的 `sessions` 结构 | 本机为空，未展开 |
-| `catpaw-memory-*.db` 的会话内容语义 | 只列了表名，未做内容分析（与凭据无关，超出本课题范围） |
-| 上游 `model-types` 的字段全集 | 只覆盖归一化时用到的字段；真实请求已跑通，字段全集仍未穷举 |
-| `round.messages` 总量是否有独立上限 | 未找到：user 单条撑到 10 万字符仍 200 `[实测]`（2026-10-08） |
-| `systemPromptOverride` 上限的服务端实现依据 | 边界已二分实测，但"字符 vs 字节"无法从外部区分到更细粒度；按 `escaped_length()` 取保守口径 |

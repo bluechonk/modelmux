@@ -49,15 +49,6 @@
 **源码中不存在国际版（trae.com）配置** —— 只有这一份 CN 配置。
 `trae.cn`（UG/登录门户）与 `trae.com.cn`（OAuth）是同一份配置里的两个 host。
 
-> ⚠ **原描述 → 现在的行为**（`clientId` 一行）：
-> 原表把 `clientId` 写成 `en1oxy7wnw8j9n` —— 那是**IDE 客户端 id**
-> （常量 `IDE_CLIENT_ID`，`packages/core/channels/traecn/src/cred.ts:110`），**本仓登录链路不用它**：
-> 授权 URL 与 `ExchangeToken` / `GetUserInfo` 都用 **`ono9krqynydwx5`**
-> （常量 `CLIENT_ID`，`packages/core/channels/traecn/src/cred.ts:108`；`buildAuthorizeUrl` 的 `client_id` 见 `packages/core/channels/traecn/src/cred.ts:328`，
-> `ExchangeToken` 的 `ClientID` 见 `packages/core/channels/traecn/src/cred.ts:789`）。
-> 用 IDE 客户端 id 打网页授权门户会**直接 404**（`packages/core/channels/traecn/src/cred.ts:313-314` 的注释明写）——
-> 原表与同文档 §2.2 自相矛盾，按原表改会直接登录失败。
-
 **版本号是模型准入条件**：上游按 `X-Ide-Version` / `X-App-Version-Code` 决定哪些模型可返回，
 版本过低时 glm-5.3 等新模型报 `4001 param is invalid`。
 
@@ -101,12 +92,8 @@
 超时：控制面 `30000ms`；登录总超时 `600000ms`（`packages/core/channels/traecn/src/cred.ts:131-132`）。
 
 > **work / chat_sessions 三端点：协议已知，但本仓未实现**（端点与必需 query 见上表）。
-> ⚠ 2026-10-20 的导出收缩重构把原先登记的 `WORK_SESSION_PATH` /
-> `WORK_SESSION_EVENTS_PATH` / `WORK_SESSION_STOP_PATH` / `WORK_SESSION_EVENTS_QUERY`
-> 常量从 `upstream.ts` 移除了（当前工作树里已搜不到这四个常量）——
-> **它们只是「协议已摸清、尚未接线」的登记项，不是可用能力**。
 > 切换过去是**会话管理器级**改造（建会话 / 事件流 / 消息 id / 账号绑定快照），风险高，
-> 本轮明确不做 —— 理由见 §「已知边界」。
+> 本渠道不实现 —— 理由见 §「已知边界」。
 
 ---
 
@@ -168,7 +155,7 @@ hide_saas_login=true（**不带会 404**）
 ```
 
 **参数名必须是 `auth_callback_url`**（没有 `callback_url`/`redirect_uri`），
-写错登录页**永远停在授权中**（真实缺陷）。
+写错登录页**永远停在授权中**。
 
 **回调解析**（`packages/core/channels/traecn/src/cred.ts:405-451`）：
 - `refreshToken`（query，缺则回退 `userJwt.RefreshToken`）
@@ -187,14 +174,14 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 ```
 （大小写两种键都接受。**access 与 refresh 都轮换**，续期后必须回写）
 
-**GetUserInfo**（`packages/core/channels/traecn/src/cred.ts:878-915`）：同 host，头加 `X-Cloudide-Token: <accessToken>`；
+**GetUserInfo**（`packages/core/channels/traecn/src/cred.ts` 的 `fetchUserInfo()`）：同 host，头加 `X-Cloudide-Token: <accessToken>`；
 体 `{"ReqSource":"IDE","IDEVersion":"0.1.52"}`；
 响应 `Result.{UserID, ScreenName, EnterpriseID, NonPlainTextMobile, NonPlainTextEmail}`。失败不阻塞登录。
 
 > ⚠ **鉴权头必须是 `x-cloudide-token`**：用 `Authorization: Cloud-IDE-JWT` 会被 401
 > （参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py` 明确记录）。`[参考]`
 >
-> 当前实现**已接入**这一步（`packages/core/channels/traecn/src/cred.ts:878-915` 的 `fetchUserInfo()`）：登录拿到 access token 后
+> 当前实现**已接入**这一步（`packages/core/channels/traecn/src/cred.ts` 的 `fetchUserInfo()`）：登录拿到 access token 后
 > 调一次 `GetUserInfo`，用它补全 `uid` / `nickname` / `phone` / `email` / `enterprise_id`；
 > 失败**不阻塞登录**，沿用回调里的 `userInfo`。`[代码]`
 > 另外：回调**只带 refreshToken**（老流程）时，登录会先调 `ExchangeToken` 换出 access token
@@ -216,7 +203,7 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 
 ### 2.4 续期
 
-同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（`packages/core/channels/traecn/src/cred.ts:906-917`）。
+同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（`packages/core/channels/traecn/src/cred.ts`）。
 
 **终态（需重新登录）三条任一**：
 - HTTP 401/403
@@ -235,12 +222,6 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 下表逐族列出当前实现实际发的头。`[代码]`
 
 #### 3.1.1 对话 / 模型目录（SOLO 头：18 固定 + 条件 `X-Uid`，最多 19 个）
-
-⚠ **原描述 → 现在的行为**：原标题写「20 个」。**本仓实际最多 19 个** ——
-`buildHeaders()` 里**固定 18 个**头，`X-Uid` **仅在 uid 非空时**才加
-（`packages/core/channels/traecn/src/upstream.ts:223-252`：18 个字面量头 +
-`packages/core/channels/traecn/src/upstream.ts:251` 的 `if (credential.uid) headers["X-Uid"] = credential.uid;`）。
-下表 19 行 = 18 固定 + 1 条件。
 
 | 头 | 值 | 鉴权 | 刷新时机 |
 |---|---|---|---|
@@ -280,7 +261,7 @@ event:done   | data:{"finish_reason":"stop"}
 - **报错形态是「HTTP 200 + 流内 error 帧」**，不是 4xx → 网关按流内错误处理（502
   `failed to do chat: …`），**不会**触发换号/刷 token。`[实测]`
 - AppID 取值必须是 **`6eefa01c-1036-4c7e-9ca5-d891f63bfcd8`**（`packages/core/channels/traecn/src/cred.ts:121`）；旧值
-  `6eefa01a-…`（本仓库此前用的）已被上游撤下 → 记录 not found。`[实测]`
+  `6eefa01a-…` 已被上游撤下 → 记录 not found。`[实测]`
   参考实现逐字一致（`autumnsentiment_Trae2api-cn/src/trae_client.py`、
   `reference/autumnsentiment_Trae2api-cn/src/raw_client.py`、
   `reference/JeffHu0912_trae2api/internal/upstream/constants.go`、
@@ -302,10 +283,6 @@ event:done   | data:{"finish_reason":"stop"}
 （`Origin` / `Referer` 只在该端点发，对话不发 —— `packages/core/channels/traecn/src/upstream.ts:583-584`
 的 `fetchRemoteModels()`）。
 
-⚠ **原描述 → 现在的行为**：原标题写「21 个」但正文写「= §3.1.1 的 **20** 个 + Origin/Referer」
-—— 20 + 2 = 22，与标题的 21 自相矛盾。正确拆解是 **19 + 2 = 21**
-（§3.1.1 的真实头数是「18 固定 + 条件 `X-Uid`」，见上一节）。
-
 | 头 | 当前实现 | 参考实现 | 差异 |
 |---|---|---|---|
 | `Origin` | `https://www.trae.cn` | `https://solo.trae.cn` | **值不同**（参考：`reference/autumnsentiment_Trae2api-cn/src/trae_client.py`）`[参考]` |
@@ -314,7 +291,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `X-Preferenced-Language` | **不发** | `zh-CN` | **缺**（参考：`trae_client.py`）`[参考]` |
 | `x-user-region` | **不发** | `CN` | **缺**（参考：`trae_client.py`）`[参考]` |
 
-> ⚠ **本轮明确不补这 3 个头、也不改 `Origin` 值** —— 当前实现实测能取到目录（§5.0），
+> ⚠ **本渠道不补这 3 个头、也不改 `Origin` 值** —— 当前实现实测能取到目录（§5.0），
 > 差异是否必要**未验证**，见「已知边界」的待验证项。`[推断]`
 
 #### 3.1.3 签到 / 额度（`api.trae.cn`，21 个）
@@ -377,7 +354,10 @@ event:done   | data:{"finish_reason":"stop"}
  中间插任何消息（含带图 user 消息）会被拒
  `code=4027 Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`；
  坏报文会落进会话历史导致**永久无法对话**（参考实现的 `trae-adapter.ts`）
-- 图片能力逐模型判定（远端 `display_config.multimodal`）
+- 图片能力逐模型判定：Remote 目录的 `models[].multimodal`（顶层布尔，如
+  `Doubao-Seed-2.1-Turbo` / `deepseek-v4.1-flash` / `kimi-k3` / `minimax-m3` 为 `true`；
+  `glm-5.3*` 为 `false`）；同名模型出现在多个 function 组时任一组为 `true` 即算多模态。
+  Solo 目录对应字段在 `display_config.multimodal`。
 - 空响应（HTTP 200 但一个事件都没发）判为可重试的 TRANSPORT，同账号重试一次
 
 ---
@@ -420,31 +400,14 @@ event:done   | data:{"finish_reason":"stop"}
 本渠道**没有**「内部哨兵码」「换号上限 3 个账号」「限流标记回退时长 1 小时」这套机制 ——
 账号切换一律由用户手动完成（`mx acct traecn use <key>`）。
 
-> ⚠ **原描述 → 现在的行为**（本节三处）：
-> - **`9074` 行原写「冷却 300s」** —— **本仓没有这个 300s 冷却**：签到端点回 `code=9074` 时
->   `handleDeviceRateLimit`（`packages/core/channels/traecn/src/billing.ts:190-199`）
->   **轮换签到设备代次**（写回凭据 `checkin_generation`）后抛 `CreditsError`
->   （`packages/core/channels/traecn/src/cred.ts:720-725` 的 `rotateCheckinGeneration`），由上层重试时换设备桶。
->   「300s 冷却」是**参考实现**的口径。
-> - **`4001` / `4027` 行** —— 本仓 `classifyError`（`packages/core/channels/traecn/src/upstream.ts:273-285`）
->   **没有这两个码的专门分支**（只判 1005 / 4008 / 4011 三个业务码 + 401/403 + 报错措辞正则 + 状态码），
->   两者都落到 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）。
-> - **本节末尾原写「流内 `event:error` 用内部哨兵码抛出交给外层换号」「换号上限 3 个账号，
->   限流标记回退时长 1 小时」** —— **本仓没有这套机制**：翻译器对 `event:error`
->   只**产出一个 error 帧**（`packages/core/channels/traecn/src/upstream.ts:885-902`），
->   本渠道**没有声明** `isQueueError` 钩子，共享层不会为它做排队重试；
->   账号切换也**不由网关自动完成**（`packages/core/gateway/src/http/chat/auth.ts:26-34`
->   明写「账号切换一律由用户手动完成」），`<cid>/<model>` 形态下候选渠道只有一条
->   （`packages/core/gateway/src/pool/pool-targets.ts:500-514`），不存在「换号上限 3 个账号」。
-
 ---
 
 ## 5. 模型目录
 
 ### 5.0 Remote 网页目录（**当前主来源**，2026-10 实测）
 
-**背景**：`batch_get_detail_param`（§5.1）此前的「全线 2001」**根因是 AppID 陈旧**
-（§3.1.1），不是「账号无 SOLO 权益」—— AppID 改成 `…01c…` 后同账号 22 个通道
+**背景**：`batch_get_detail_param`（§5.1）的「全线 2001」**根因是 AppID 陈旧**
+（§3.1.1），不是「账号无 SOLO 权益」—— AppID 用 `…01c…` 后同账号 22 个通道
 **全部返回目录**（实测：`solo_work_lite` 47 条、`solo_agent_remote` 46 条、
 `chat_v3` 58 条……）。`[实测]`
 目录主源仍是 Remote（信息更全、模型更新），Solo 目录现可作补充源（上下文窗口 /
@@ -561,11 +524,9 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
      **Remote 目录根本不下发输出上限** ⇒ 绝大多数型号走第 2 层。
    - ⚠ **只认远端目录**：内置兜底表（§5.3）里的数值不是上游声明。
 2. **规格表**（本节）—— 上游没声明的字段按**公开规格**补。
-3. 都没有 → 回落网关兜底值（128000 / 4096），不编造数字。
+3. 都没有 → 回落网关兜底值（200000 / 65536），不编造数字。
 
-⚠ **2026-10-20 修正**：此前目录条目把 `context_window` / `max_output` 写成渠道**估值**
-（200000 / 32000），于是估值会**挡住**公开规格，`/v1/models` 一直报那个估值。
-现在条目里只写上游声明（未声明 = 0），估值只留在**请求体**一侧
+⚠ 目录条目里只写上游声明（未声明 = 0），估值只留在**请求体**一侧
 （Max 模式成套下发需要 `context_window_size`，见 §3.2）。
 
 **实测的上下文窗口声明**（2026-10-20，Remote 目录）：
@@ -720,23 +681,9 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 - ⚠ `session-dead` 的兜底措辞里含 `login` 子串 —— 报文出现 `login` 也会被判成会话失效。
 
 **冷却秒数**：⚠ **渠道层没有冷却表**。
-原先的 `cooldownSeconds(kind)`（`hard-plan` 43200 / `soft-rate` 60 / `not-found` 60 /
-`server` 600 / `client` 600 / `session-dead` 与 `quota-exceeded` 为 `null`）
-在 2026-10-20 的导出收缩重构中**已从 `upstream.ts` 移除**（当前工作树里搜不到该函数），
-而且它此前也**没有调用方** —— 渠道层从不消费它。
 **对话链路上真正生效的冷却来自共享层**
 `packages/core/gateway/src/pool/pool-usage.ts:253` 的 `noteFailure()`
 （默认 `FAIL_COOLDOWN_MS = 60s`，`packages/core/gateway/src/pool/pool-usage.ts:26`）。
-
-⚠ **原描述 → 现在的行为**（本节两处）：
-
-1. 原表写「**业务码非 0 → 300s**」这一档 —— **本仓从来没有这一档**。
-   删除前的 `cooldownSeconds()` 只有 5 个非空值（43200 / 60 / 60 / 600 / 600），
-   `session-dead` 与 `quota-exceeded` 都是 `null`；该函数现已整体移除。
-2. 原节写「`classifyTraeError` **标记表**（参考实现 `trae-errors.ts`）：
-   session-dead 标记 `[...]`、plan 标记 `[...]`、配额标记 `[...]`」——
-   那是**参考实现**的标记数组口径。**本仓是上表的子串 + 正则 + 状态码判定**，
-   配额仅看 `4008`。
 
 ---
 
@@ -767,31 +714,10 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
   `glm-5.3-flash` 未见。**判「对话坏掉」前先看 HTTP 状态码**：200 + 空 content
   是模型行为，重发即可。`[实测]`
 
-## Chat 传输现状（2026-10-20 复核）
+## Chat 传输现状
 
-- **2001 的根因已定位：`X-App-Id` 取值陈旧**（`…01a…` → 上游已把该 app config 记录
-  撤下），**不是**「上游按账号类型收紧」，**也不是**偶发瞬时错误、重试即恢复。
-  改成 `…01c…` 后同账号同请求实测 200。详见 §3.1.1。`[实测]`
-- 历史误判来源：2026-10-18 观察到 2001 → 2026-10-19 又通了 → 判为「瞬时抖动」。
-  实测澄清：**同一份代码、同一个账号，AppID 一换就通**；AppID 不换，重试多少次都
-  是 2001（对话与 Solo 目录同时中招）。`[实测]`
-- 参考实现 `autumnsentiment_Trae2api-cn`（src/main.py L1810-1830 注释）因此**移除了
-  IDE Raw preset**，公共预设只剩 **`/api/remote/v1/chat_sessions`**（work 传输，
-  product=traework，配合账号绑定的 Cloud-IDE-JWT 与账号绑定快照）。
-  该 preset 的移除针对的是 **`/api/ide/v2/llm_raw_chat`**（TraeCode 原生 raw，需企业版
-  app config/PAT），**不含** `/api/agent/v3/llm_utils_chat`（SOLO 传输）——
-  后者在 AppID 正确时个人账号可用（实测）。`[参考]` + `[实测]`
-- 传输切换到 chat_sessions 仍**未实施**：SOLO 传输（`/api/agent/v3/llm_utils_chat`）
-  单次 POST 直出 SSE，**天然契合本网关「一次上游请求 → 一条流」的契约**；
-  chat_sessions 是两段式（POST 建会话 → GET 拉事件流），需要共享层支持两步，
-  属共享层改造（见 §8.1）。`[实测]`（Remote 传输两段式本身也已实测可用）
-- **Remote（work / chat_sessions）传输实测可用**（2026-10-20）：
-  `POST /api/remote/v1/chat_sessions` → 200 拿 `chat_session_id` + `message_id`；
-  `GET /api/remote/v1/chat_sessions/{id}/events?reply_to_message_id=` → 200 SSE，
-  模型正常作答。**事件语义与 SOLO 传输不同**（`plan_item` / `model_config` /
-  `timing_events` / `status_changed` / `heartbeat`，无 `output.response` 增量），
-  换传输需要重写翻译层。`[实测]`
-- model / billing / 签到不受影响（签到与额度走 UG 域，不带 `X-App-Id`）。
+- **AppID 是硬约束**：上游按 `X-App-Id` 查 app config 记录，查不到就 2001 把对话打死（详见 §3.1.1）。
+- 传输选型见 §1.2（chat 走 SOLO 传输）与 §8.1（work / `chat_sessions` 未实现）。
 
 ---
 
@@ -854,32 +780,30 @@ Reasonix CLI 直连网关（`traecn/glm-5.3-flash`，本渠道最低倍率 0.06�
 - 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
 - 本渠道**没有倍率 0 的模型**：最低 0.06（`glm-5.3-flash` / `mimo-v2.6-flash` /
   `doubao-seed-code`），测试须选这档；`kimi-k3` 倍率 1.83，禁用于自动化测试。
-- ⚠ 当时记为「上游偶发瞬时错误（2001 app config），重试即可恢复」——**该结论已被
-  2026-10-20 的复核推翻**：2001 不是抖动，是 `X-App-Id` 陈旧（§3.1.1）。
+- ⚠ 2001 `app config: record not found` 不是偶发抖动，是 `X-App-Id` 陈旧（§3.1.1）。
 
-### 2026-10-20 端到端实测（AppID 修复）
+### 2026-10-20 端到端实测
 
 故障请求原样复现（`POST http://127.0.0.1:4412/v1/chat/completions`，
 `{"model":"traecn/deepseek-v4.1-flash","messages":[{"role":"user","content":"只回两个字：收到"}],"stream":false,"max_tokens":64}`）：
 
-| 阶段 | 结果 |
+| 场景 | 结果 |
 |---|---|
-| 修复前 | HTTP **502**，`failed to do chat: failed to get app config: record not found`（上游 HTTP 200 + 流内 `event:error` code 2001） |
-| 修复后（非流式） | HTTP **200**，正文 `收到`，`reasoning_content` 正常，`usage` 35/16/51 |
-| 修复后（流式） | HTTP **200**，34 帧增量 SSE，`finish_reason: stop` + `[DONE]` |
-| 修复后（`traecn/glm-5.3-flash`） | HTTP **200**，正文 `收到` |
+| 非流式 | HTTP **200**，正文 `收到`，`reasoning_content` 正常，`usage` 35/16/51 |
+| 流式 | HTTP **200**，34 帧增量 SSE，`finish_reason: stop` + `[DONE]` |
+| `traecn/glm-5.3-flash` | HTTP **200**，正文 `收到` |
 
 ⚠ 复测中偶见「HTTP 200 但 `content` 为空、只有 `reasoning_content`」——那是**上游模型
 行为**（原始 SSE 里就没有 content 帧），不是翻译丢帧，见 §7。`[实测]`
 
 同时实测：AppID 改正后 `batch_get_detail_param`（Solo 目录）22 个通道**全部**返回
-目录（此前全线 2001），即「目录也随 AppID 一起恢复」。`[实测]`
+目录，即「目录也随 AppID 一起恢复」。`[实测]`
 
 排查路径（供后续复现）：先看流内错误码 2001 → 比对 `X-App-Id` → 再看头族 / `function` /
 模型名。**只换 AppID 即可复现「通 / 不通」的差异**（其余变量逐一固定）。
 
-同日**全渠道回归**再跑一次 `traecn/deepseek-v4.1-flash`：冒烟通过
-（access 日志 `status: 200`、`stream: true`），结论与上表「修复后」一致。`[实测]`
+另跑一次 `traecn/deepseek-v4.1-flash`：冒烟通过
+（access 日志 `status: 200`、`stream: true`），与上表一致。`[实测]`
 
 ---
 
@@ -895,19 +819,19 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | [A-23187/trae-api](https://github.com/A-23187/trae-api) | 最小实现样本；**AppID 常量来源**：`auth.js` |
 
 > 四份参考实现**逐字一致**地使用 `X-App-Id: 6eefa01c-1036-4c7e-9ca5-d891f63bfcd8`
-> —— 这正是本轮故障的对照面（本仓库此前用 `…01a…`）。四份均为 **MIT** 许可，
+> —— 与本渠道取值一致。四份均为 **MIT** 许可，
 > 本渠道只借鉴**协议知识**（端点 / 头 / 常量），未复制其代码。`[参考]`
 
 ## 已知边界
 
 本节记录**参考实现有、当前实现没有**的能力，以及**待真机验证**的事项。
-完整对照分析见 `.planning/2026-10-20-channel-reference-parity/research/traecn.md`。
+完整对照分析见 §8.1 下表。
 
-### 8.1 本轮明确不做（附理由）
+### 8.1 本渠道不做的（附理由）
 
 | 项 | 理由 |
 |---|---|
-| work / `chat_sessions` 传输改造 | **本网关契约是「一次上游请求 → 一条流」**（`chatUrl()` 收 POST、响应体直接喂翻译器），而 chat_sessions 是两段式（POST 建会话 → GET 拉事件流）→ 需要共享层支持两步，**属共享层改造**。SOLO 传输单次 POST 直出 SSE 且实测可用，故本轮不做。**端点常量已登记**（§1.2）。 |
+| work / `chat_sessions` 传输改造 | **本网关契约是「一次上游请求 → 一条流」**（`chatUrl()` 收 POST、响应体直接喂翻译器），而 chat_sessions 是两段式（POST 建会话 → GET 拉事件流）→ 需要共享层支持两步，**属共享层改造**。SOLO 传输单次 POST 直出 SSE 且实测可用，故本渠道不做。**端点常量已登记**（§1.2）。 |
 | TraeCode 原生 raw `llm_raw_chat` | 主参照已把它从公共预设移除（只作内部诊断）；参考实现自述该路径需**企业版 app config/PAT**，个人账号固定 2001（参考实现的 `README.md`、`release-v1.0.2.md`）。`[参考]` |
 | 多账号池 | **属共享层**（`packages/core/gateway/src/pool/`）；渠道层只负责「拿到一个可用账号」。渠道侧待定的只有「一账号一文件」的落点形状。 |
 | 额度双口径（`req_source=1` / `2`）与账户级对账 / 投影 | 共享层账本与自动签到已有对账机制；渠道侧先只做「维度 + 对话流实测余额」。 |
@@ -930,7 +854,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 按优先级排序。括号内是参考实现的证据位置（`reference/` 下）。
 
-1. **`GetUserInfo` 账号信息补全**（高）—— **本轮已做**：`packages/core/channels/traecn/src/cred.ts:878-915` 的 `fetchUserInfo()`，
+1. **`GetUserInfo` 账号信息补全**（高）—— **已实现**：`packages/core/channels/traecn/src/cred.ts` 的 `fetchUserInfo()`，
    登录后调一次补全 `uid` / `nickname` / `phone` / `email` / `enterprise_id`。
    参考：`autumnsentiment_Trae2api-cn/src/trae_client.py`、
    `JeffHu0912_trae2api/login.sh`。
@@ -942,7 +866,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 4. **多账号池与账号轮询**（中，主体属共享层）——
    参考：`autumnsentiment_Trae2api-cn/src/auth.py`；
    `JeffHu0912_trae2api/internal/pool/pool.go`。
-5. **对话流 `notify_usage` → 通道真余额**（中）—— **本轮已做**：翻译器解析
+5. **对话流 `notify_usage` → 通道真余额**（中）—— **已实现**：翻译器解析
    `event:notify_usage` 的 `cn_credits_remain_info`，落盘到 `cache/usage.json`；
    `mx bill` 的 `total.remain` 用它（权威值），并在 `channel_credits` 字段带出观测时刻。
    参考（结论出处，非代码）：`JeffHu0912_trae2api/docs/RESEARCH.md`。
@@ -968,7 +892,6 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | # | 待验证 | 为什么要真机 | 怎么验 |
 |---|---|---|---|
-| V1 | ~~`llm_utils_chat` 今天还是不是可用主路径~~ | **已答（2026-10-20）**：可用主路径就是它；2001 的根因是 AppID 陈旧，改 `…01c…` 后实测 200（§3.1.1） | — |
 | V2 | 切到 `chat_sessions` 后账号绑定 / 事件流是否稳定 | Remote 传输本身已实测可用（建会话 200 + 事件流 200 + 正常作答），但**网关契约是一次上游请求一条流**，两段式需共享层支持 | 若实施缺口 2，需共享层配合两段式，再比首 token 延迟与事件类型 |
 | V3 | Remote 目录的 `Origin` / `Referer` / `User-Agent` 该用哪一套 | 参考用 `solo.trae.cn` + Chrome UA，当前用 `www.trae.cn` + `Trae/0.1.52`，且**实测能通** | 单变量 A/B：同一次请求只换 `Origin`，各拉一次比对条数 |
 | V4 | 签到 `device_id` 要 15 位还是 16 位、纯数字还是 hex | 当前 15 位 vs 参考 16 位；jeff 自述真实注册号是 16 位纯数字 | 真账号走一次 `mx signin traecn`；**一天只试一次**，避免触发 9074 |
@@ -976,7 +899,6 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | V6 | `ide_user_ent_usage` 的 `req_source=1` 是否返回不同数据 | 参考分两口径，当前只用 `req_source: 2` | 同账号各打一次，比对 `user_entitlement_pack_list` |
 | V7 | Remote 目录是否需要 `X-Trae-Client-Type` / `X-Preferenced-Language` / `x-user-region` | 参考发、当前不发且实测 200 | 单变量：加 / 不加各拉一次，比对返回条数 |
 | V8 | `chat_sessions` 建会话时 `mode` 与 `agent_type` 的正确组合 | 参考两处口径不同（`trae_remote_client.py` vs `main.py`） | 若实施缺口 2，需按 `agent_type` 分组逐一验证 |
-| V9 | ~~`batch_get_detail_param` 的 2001 是不是所有新账号通病~~ | **已答（2026-10-20）**：不是账号问题，是 AppID 问题；改正后同账号 22 个通道全部返回目录（§5.1） | — |
 | V10 | 上游下次轮换 AppID 时如何快速发现 | AppID 失效表现为「HTTP 200 + 流内 2001」，网关按 502 上报，易误判为上游抖动 | 见到 2001 `app config: record not found` → 先比对 `packages/core/channels/traecn/src/cred.ts` 的 `APP_ID` 与参考实现（`trae_client.py` / `constants.go` / `auth.js`） |
 | V11 | SOLO 传输的对话流**没有** `notify_usage` 事件 | 2026-10-20 实测 SOLO 流的完整事件为 `metadata` / `timing_cost` / `output` / `extra_info` / `token_usage` / `done`；`notify_usage` 只出现在 Remote（chat_sessions）传输 | 故 `mx bill` 的通道余额快照在 SOLO 传输下取不到值，只能回落权益包口径（§6.4）；若要权威值需切 Remote 传输 |
 本渠道只借鉴**协议知识**（端点 / 头 / 常量），未复制其代码。`[参考]`

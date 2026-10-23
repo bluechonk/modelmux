@@ -113,7 +113,7 @@
 
 | 用途 | 方法 | 完整 URL | 端点路径 | query / body 来源 |
 | --- | --- | --- | --- | --- |
-| **对话（网关实际 POST 的那一个）** | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/turn` | `/api/agent/conversation/turn` | body：`{conversationId, turnRequestId, source:"CatX", action:"turn", message, modelType, mode:"CATX_APP", permissionMode, toolVersion, requestContext}` |
+| **对话（网关实际 POST 的那一个）** | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/turn` | `/api/agent/conversation/turn` | body：`{conversationId, turnRequestId, source:"CatX", action:"turn", message, modelType, mode:"CATX_APP", permissionMode:"default", toolVersion, requestContext}` |
 | 对话前置 ① | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/round` | `/api/agent/conversation/round` | body：`{conversationId, source:"CatX", messages:[…], modelType, mode:"CATX_APP", toolVersion, requestContext}` |
 | 对话前置 ② | POST | `https://ai.catpaw.meituan.com/api/agent/conversation/event` | `/api/agent/conversation/event` | body：`{conversationId, eventType:"conversation", data:{status}}`；status ∈ `running` / `completed` |
 | **模型目录** | POST | `https://ai.catpaw.meituan.com/api/agent/maas/model-types` | `/api/agent/maas/model-types` | body：`{tenant:"CatDesk", scene:"CATX_APP", env:"EXTERNAL"}` —— 三字段**必填**，缺失报 400（`[参考]` 参考实现 `internal/upstream/const.go:64-69`） |
@@ -269,24 +269,41 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - 60 工具 + 9KB system + 10 轮历史的重请求：longcat 7.7s、deepseek 4.0s；
 - 工具调用场景 3.3s，`finish_reason="tool_calls"` 与 `[DONE]` 同时到达。
 
-## 上下文档位（`[参考]` + 本机验证）
+## 上下文档位（`[实测]` 2026-10-23）
 
 - 上下文档位不是 URL query，而是 **body 字段**
   `requestContext.modelParams.declarativeParams.context`（字符串档位）。
-- 可选档位：`204800` / `512000` / **`1024000`**（默认 1M）。来源：
-  `reference/icebears111_catpaw2api/internal/upstream/const.go`（DefaultContextWindow）。
-- 上游目录**不下发窗口**（`/model-types` 实测：所有模型 `contextWindow` 均为 0）——
-  上下文是**请求参数**（body 字段），不是上游声明的模型能力。[实测]
-- 渠道层按默认档位补全并**落盘**：目录值 > 0 用之，否则一律补 `1024000`（1M）；
-  `/v1/models` 因此输出真实 `context_window`（1024000）—— 否则客户端会按兜底
-  128k 截断长任务。[实测] 2026-10-20 修：此前落盘恒为 0，池层回落 128000。
-- 请求侧 `buildChatBody` 按目录档位发 `context`（= 1M，与落盘值同源）；折叠 prompt
+- **上游逐型号声明档位**：`/model-types` 的 `parameterDefinitions[id=context].values`
+  给出该型号的可选档位，渠道对外报**最大档**、请求也发最大档。实测各型号最大档：
+
+  | 型号 | 上游最大档 |
+  |---|---|
+  | `glm-5.3` | **800000** |
+  | `deepseek-v4-pro` | **700000** |
+  | `deepseek-v4.1-flash` | **600000** |
+  | `longcat-2.0` / `glm-5.3-flashx` / `glm-5.3-flash` / `minimax-m3` / `minimax-m3.1-flash` / `kimi-k3` | 1024000 |
+
+  ⚠ 发不在该型号档位里的值，上游**可能不接受**（未实测）—— 所以不能像早先那样一律发 1M。
+- 上游没声明档位的型号（如 `auto`）才回落渠道默认档 `1024000`（`DEFAULT_CONTEXT_WINDOW`）。
+  档位候选（`204800` / `512000` / `1024000`）来源：`reference/icebears111_catpaw2api/internal/upstream/const.go`。
+- 请求侧 `buildChatBody` 按**该型号**的档位发 `context`（与落盘值同源）；折叠 prompt
   按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
+
+### 思考强度
+
+上游 `parameterDefinitions` 还声明了思考相关参数，渠道透出到 `/v1/models` 的 `effort`：
+
+- `id:"effort"`（ENUM）→ `effort.supportedLevels` + `effort.defaultLevel`。
+  实测：`glm-5.3` / `glm-5.3-flash` / `glm-5.3-flashx` / `kimi-k3` = `[low,high,max]`（默认 high）；
+  `deepseek-v4.1-flash` = `[low,high,max]`（默认 high）；`deepseek-v4-pro` = `[high,max]`（默认 high）；
+  `minimax-m3.1-flash` = `[low,medium,high,xhigh,max]`（默认 low）。
+- `id:"thinking"`（BOOLEAN）→ 只说明该型号用「思考开关」而非档位（`longcat-2.0` / `minimax-m3`），
+  此时不报上游档位，`effort` 回落池层默认 `low/high`。
 
 ### 最大输出 token
 
-上游目录同样**不下发输出上限**（[实测]），网关 `/v1/models` 只能给兜底值 4096 ——
-客户端按 4096 截断会把每次回答砍到 4k。本渠道按**公开规格**补齐：
+上游目录同样**不下发输出上限**（[实测]），网关 `/v1/models` 只能给兜底值 65536 ——
+客户端按兜底值猜会与真实上限有出入。本渠道按**公开规格**补齐：
 
 | 模型 | 最大输出 |
 |---|---|
@@ -300,7 +317,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 `src/catalog.ts` 的 `MAX_OUTPUTS`。⚠ 公开规格是**模型上限**，上游可能更严
 （超限回 400）—— 客户端应能降档重试。
 
-## 图片能力：**本渠道不对外声明**（2026-10-20 修）
+## 图片能力：**本渠道不对外声明**
 
 > 结论先行：**上游声明 ≠ 本渠道可送达**。本渠道的 `/v1/models` 对 catpaw 的模型
 > 一律报 `input_modalities: ["text"]` —— 图片不会被送到上游（发了也等于不发）。
@@ -374,7 +391,7 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 | --- | --- | --- |
 | `catpaw/deepseek-v4.1-flash` | 2026-10-18 真机验证全绿 —— 普通/流式、单工具、并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过 | `[实测]` |
 | `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
-| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；**用户实测曾报「真实客户端有兼容问题」**，但 2026-10-19 用 Reasonix CLI 的端到端测试**全过**（见下）—— 未能复现，疑与客户端实现有关 | `[实测]` |
+| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；Reasonix CLI 端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关 | `[实测]` |
 
 ### 怎么测这个渠道
 
@@ -404,7 +421,7 @@ Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
 Reasonix CLI 直连网关（`catpaw/longcat-2.0`，倍率 0）：
 
 - 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
-- 本轮为**全渠道回归**的一环，未改动本渠道代码；结论与 2026-10-19 的记录一致。
+- 结论与 2026-10-19 的记录一致。
 
 ## 参考实现
 
@@ -425,7 +442,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ## 已知边界
 
-本节记录**本轮明确不做**的事，以及**待真机验证**的疑点。
+本节记录**本渠道不做**的事，以及**待真机验证**的疑点。
 
 ### 参考实现分两个家族，只有本家族可用
 
@@ -443,7 +460,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 `internal/server/panel.html` 等 8 对以上文件字节数一致），实为「4 份独立思路 + 1 组分叉」，
 「多实现一致」的交叉验证强度要打对折。
 
-### 本轮不实现（记录在案）
+### 本渠道不实现（记录在案）
 
 | 项 | 为什么不实现 |
 | --- | --- |
@@ -466,4 +483,4 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | token 72h 有效期 | 只有 `[参考]` 证据（`internal/auth/auth.go:16`），本机未观测过实际到期时刻 | 落盘 `obtainedAt`，隔 72h 观察 ping 与对话行为 |
 | `X-Passport-Token` 头与 `Cookie` 是否都必须 | 本仓双发，参考实现也双发 | 去掉任一个是否仍 200 |
 | `enableHeartBeat` 是否必要 | 只有 icebears111 conversation 协议有 | 去掉是否影响长连接保活 |
-| `permissionMode` 用 `default` 而非 `unsafeBypassPermissions` | `FINDINGS.md` 记的上游常量是后者；参考实现 `const.go:47-49` 注释说 `default` 才是特意选的（工具交客户端执行，避免上游把对话当 agent 任务跑循环）。本仓用 `default` 且已实测通 | 上游是否还有隐藏行为差异 |
+| `permissionMode` 用 `default` | 参考实现 `const.go:47-49` 注释说 `default` 才是特意选的（工具交客户端执行，避免上游把对话当 agent 任务跑循环）。本仓用 `default` 且已实测通 | 上游是否还有隐藏行为差异 |

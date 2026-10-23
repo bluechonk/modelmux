@@ -108,9 +108,9 @@ data: {"message":{"content":[…]},"contextInfo":{"usage":{…}}}   ← 每帧�
 
 对应实现：`src/upstream.ts`（三段式协议 + 帧解码 + 消息折叠）。
 
-> 工具调用：上游**无原生用户工具通道**，网关把工具说明注入 system prompt，模型以
+> 工具调用：上游**无原生用户工具通道**，网关把工具说明注入折叠后的 user 文本，模型以
 > ` ```tool_call ` 块输出，网关解析后转回 OpenAI `tool_calls`（`finish_reason=tool_calls`）。
-> 工具说明也占用 65508 的预算，故 `openai.fit_system_prompt()` 会按需截断工具描述。
+> 折叠 prompt 按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
 
 ---
 

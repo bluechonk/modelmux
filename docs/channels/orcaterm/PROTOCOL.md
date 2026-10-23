@@ -86,7 +86,7 @@
 CSS cookie 落盘可见全值，§1.2/§1.4），CLI 实现读桥接 `Set-Cookie` —— 这条路待
 真机点验一次。缓存里另见 `POST /oauth/wechat/exchange` 路径，与桥接下发并存。
 
-### 1.2 微信扫码分支（本次实测走的路径）
+### 1.2 微信扫码分支（历史 / 未实现）
 
 > 当前 CLI 不提供微信登录入口；本节保留为上游协议事实与逆向证据。
 
@@ -305,6 +305,8 @@ body `{"action":"GetUserInfo"}` → 返回 `{nickName, username, userId, userAcc
 
 ### 3.1 Agent 对话路径（实测提取）
 
+> ⚠ 下表是 **App 内部路径**，**本渠道不调用**；实际对话端点见 §3.4.0。
+
 前端 bundle（`packages/orcaterm/features/ai_chat/...`）中提取到的对话相关路径：
 
 | 路径 | 含义（推断） |
@@ -320,10 +322,7 @@ body `{"action":"GetUserInfo"}` → 返回 `{nickName, username, userId, userAcc
 
 ### 3.2 鉴权形态
 
-两种可能（静态证据都指向）：
-
-- `Cookie: ot_session=<JWT>`（登录即下发，最简单）
-- `Authorization: Bearer <oauth_access_token>`（与第三方供应商统一走 Bearer）
+桌面 OAuth 态用 `Authorization: Bearer <ot_session>`（见 §3.4.1）。
 
 ### 3.3 Agent 的第三方「编码套餐」供应商预置
 
@@ -347,8 +346,8 @@ OrcaTerm Agent 可挂多家供应商（用户自填 key）。Code Cache 中提�
 `qwen3-max`、`minimax-m2.5`、`moonshot-v1-128k`、`glm-4.7`、`hunyuan-*` 等。
 第三方请求头为 `Authorization: Bearer <用户自填 key>`。
 
-> 这条与「网关把上游翻译成 OpenAI 兼容」的既有渠道一致：若做 orcaterm 渠道，
-> **真正要对接的是自有 Agent 通道（`/messages*`）**，第三方预置只是 Agent 的可选项。
+> 这条与「网关把上游翻译成 OpenAI 兼容」的既有渠道一致：本渠道对接的是自有 Agent 通道
+> `POST /assistant/chat`（见 §3.4.0），第三方预置只是 Agent 的可选项。
 
 ### 3.4 对话端点与鉴权（真机实测 + 参考实现验证）
 
@@ -422,7 +421,8 @@ Web 版（`https://orcaterm.cloud.tencent.com` + 浏览器 UA）。
 
 #### 3.4.2 请求体与响应格式（专题文件）
 
-请求体构造、会话连续性、SSE 响应信封与人设覆盖见 [REQUEST-BODY.md](./REQUEST-BODY.md)。
+请求体构造、会话连续性、SSE 响应信封与人设覆盖见 [REQUEST-BODY.md](./REQUEST-BODY.md)
+的 §3.4.2.1（请求体）与 §3.4.2.2（响应格式）。
 
 #### 3.4.4 上游模型目录（参考实现内置）
 
@@ -535,18 +535,21 @@ Authorization: Bearer <ot_session>
 ## 6. 模型窗口规格
 
 本渠道无上游模型列表端点（目录与客户端同源内置），**自然也没有窗口与输出上限** ——
-网关 `/v1/models` 只能给兜底值 4096。本渠道按**公开规格**补齐有公开值的部分：
+网关 `/v1/models` 只能给兜底值（窗口 200K / 输出 64K）。本渠道按**公开规格**补齐有公开值的部分：
 
-| 模型 | 最大输出 |
-|---|---|
-| `deepseek-v4-pro` / `deepseek-v4-flash` | 393216 |
-| `glm-4.7` / `glm-5.2` / `glm-5.3` / `glm-5.3-flash` | 131072 |
-| `kimi-k3` | 1048576（官方上限；默认 131072） |
-| `orcaterm-assistant`（兼容别名 → 默认模型） | 393216 |
-| `hunyuan-t1` / `hunyuan-turbos` / `hy3` / `hy4-preview` / `kimi-k2` / `kimi-k2.5` / `qwen3` / `deepseek-chat` | 无公开规格 |
+| 模型 | 上下文窗口 | 最大输出 |
+|---|---|---|
+| `deepseek-v4-flash` / `deepseek-v4-pro` | 1048576 | 393216 |
+| `glm-4.7` | 202752 | 131072 |
+| `glm-5.2` / `glm-5.3` / `glm-5.3-flash` | 1048576 | 131072 |
+| `kimi-k2` | 131072 | 无公开规格 |
+| `kimi-k2.5` | 262144 | 无公开规格 |
+| `kimi-k3` | 1048576 | 1048576（官方上限；默认 131072） |
+| `orcaterm-assistant`（兼容别名 → 默认模型） | 1048576 | 393216 |
+| `hunyuan-t1` / `hunyuan-turbos` / `hy3` / `hy4-preview` / `kimi-k2-thinking` / `kimi-k2.5-thinking` / `qwen3` / `deepseek-chat` | 无公开规格 | 无公开规格 |
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `MAX_OUTPUTS`。
+`src/catalog.ts` 的 `MODEL_SPECS`（**两个字段都返回**，否则上下文会回落兜底 200K）。
 
 ---
 
@@ -612,8 +615,6 @@ Reasonix CLI 直连网关（`orcaterm/hy3`）：
 - 本渠道**订阅制、无倍率概念**（`capabilities.billing=false`），`mx bill` 显示 `-`，
   测试前后无额度差值可比。
 - 工具往返**当时不适用**：`tools` 固定为空、assistant/tool 消息被丢弃，模型只说不做。
-  > 此后已实现工具调用与会话连续性（见 §3.4.5 与 §3.4.2），**本条记录保留为历史**；
-  > 工具往返需按上面「端到端测试覆盖」重新验收。
 
 ### 2026-10-20 端到端实测
 
@@ -651,21 +652,21 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ## 已知边界
 
-本节记录**本轮明确不做**的事（各带原因），以及**真机验收时重点看**的风险项。
+本节记录**本渠道不做**的事（各带原因），以及**真机验收时重点看**的风险项。
 上游与协议侧的既有限制见「使用与实测」的「已知限制」一节。
 
-### 本轮明确不做
+### 本渠道不做
 
 | 不做的东西 | 原因 |
 | --- | --- |
 | **额度查询** | 上游 `/api/user/package` 等端点需要**请求签名**（回 `MissSignatureParams`），签名方案疑似 TC3-HMAC-SHA256 且密钥在客户端；两个参考实现**均未实现**，无先例可抄（§5.1）。渠道声明 `capabilities.billing=false` |
 | **签到 / 领取** | CAPI 内无签到 action，订阅制无积分概念（§5.2）。渠道声明 `capabilities.signin=false` |
 | **控制台态（`uin`/`skey`）登录** | 与「登录只保留一条」冲突（§1.1）；且票据随腾讯云登录失效、需用户手动从浏览器取 cookie |
-| **图片 / 多模态输入** | 参考实现支持 `image` / `image_url` 两种 ACP part（[参考] `orca.go` `BuildACPPromptWithNote`），但本轮未实现 —— 当前只取 content 里的 `text` part |
-| **真打字机（流式实时抠文本）** | 参考实现有 `StreamFieldExtractor` 逐 token 提取可见文本（[参考] `orca.go`）；本渠道仍是**流末一次性下发**（首字节延迟 = 整段生成时间），本轮不改 |
+| **图片 / 多模态输入** | 参考实现支持 `image` / `image_url` 两种 ACP part（[参考] `orca.go` `BuildACPPromptWithNote`），但本渠道未实现 —— 当前只取 content 里的 `text` part |
+| **真打字机（流式实时抠文本）** | 参考实现有 `StreamFieldExtractor` 逐 token 提取可见文本（[参考] `orca.go`）；本渠道仍是**流末一次性下发**（首字节延迟 = 整段生成时间），本渠道不改 |
 | **`ask` 反问的专用行为** | 参考实现有「无人值守模式」提示词 + 非流式自动确认兜底（[参考] `engine.go` `NoAskBehaviorNote` / `autoConfirmAsk`）；本渠道仍把 `ask` 降级成正文（反问 + 选项列表） |
 | **usage（token 用量）统计** | 上游不返回真实 token 数；参考实现也是本地估算。本渠道翻译层不产出 usage 帧，账本无消耗数据 |
-| **`tool_choice` / `parallel_tool_calls` 的显式校验** | 上游不支持 `required` 与具名强制选择，一次只产出一个调用；本轮**不**显式报错（避免打断客户端的正常请求），由上游裁决 |
+| **`tool_choice` / `parallel_tool_calls` 的显式校验** | 上游不支持 `required` 与具名强制选择，一次只产出一个调用；本渠道**不**显式报错（避免打断客户端的正常请求），由上游裁决 |
 
 ### 风险与待验证（真机验收时重点看）
 

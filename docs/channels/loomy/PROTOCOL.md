@@ -1,13 +1,13 @@
 # Loomy 协议规格（讯飞）
 
-实现见 `packages/core/channels/loomy/src/`；微信扫码与账号密码两条**已移除**登录路的逆向结论见
-[FINDINGS.md](./FINDINGS.md)（留作历史记录，别照着重写）。
+实现见 `packages/core/channels/loomy/src/`；微信扫码与账号密码两条**本仓不实现**登录路的逆向结论见
+[FINDINGS.md](./FINDINGS.md)（仅作参考，别照着重写）。
 
 ---
 
 ## 登录路径：手机验证码（唯一）
 
-`mx login loomy` **只有手机验证码一条路**（2026-10-22 主人决定），两步协议、环境变量驱动：
+`mx login loomy` **只有手机验证码一条路**，两步协议、环境变量驱动：
 
 | 步骤 | 触发条件 | 行为 |
 |---|---|---|
@@ -51,7 +51,7 @@
 
 ### 1.2 账号域（登录，全部 HMAC-SHA1 签名）
 
-**本渠道只使用下面两条**（其余端点属于已移除的微信 / 密码登录路，见 [FINDINGS.md](./FINDINGS.md)）：
+**本渠道只使用下面两条**（其余端点属于本仓不实现的登录路，见 [FINDINGS.md](./FINDINGS.md)）：
 
 | 用途 | 方法 | 完整 URL | 端点路径 | param | 认证 |
 |---|---|---|---|---|---|
@@ -101,8 +101,8 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 发码失败的常见原因：手机号格式不对（要 11 位大陆号）、发码过于频繁（上游限流）。
 `msgid` 有效期与验证码同步（300 秒），超时需重新发码。
 
-> **已移除的两条路**（微信扫码 / 账号密码）的端点、签名与踩坑记录见
-> [FINDINGS.md](./FINDINGS.md) —— 那里是**历史记录**，代码里已经没有对应实现，
+> **本仓不实现的两条路**（微信扫码 / 账号密码）的端点、签名与踩坑记录见
+> [FINDINGS.md](./FINDINGS.md) —— 那里是**参考记录**，代码里已经没有对应实现，
 > 不要照着重写（尤其别再引入 `LOOMY_PASSWORD` / `LOOMY_LOGIN_ID`）。
 
 ### 2.2 必需请求头清单
@@ -117,8 +117,8 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 | `Content-Type` | 常量 `application/json` | 否 | — | — |
 | `traceparent` | `00-<32 hex>-<16 hex>-01`，**每请求新生成** | 否（链路追踪） | 每请求 | `[参考]` 标注为**必需**（缺失会挂死到超时）；本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核** |
 | `loomy-version` | 常量（官方客户端版本号） | 否（网关只检查它存在） | — | `[参考]` 同上，**待真机 A/B 复核** |
-| `X-Loomy-Request-Purpose` | — | 否（服务端积分归属记账） | — | **本轮不做**：17 个取值的语义需先对照参考实现枚举（§9） |
-| `ChatId` / `MsgId` / `TurnId` | — | 否（会话关联） | — | **本轮不做**（§9） |
+| `X-Loomy-Request-Purpose` | — | 否（服务端积分归属记账） | — | **本渠道不做**：17 个取值的语义需先对照参考实现枚举（§9） |
+| `ChatId` / `MsgId` / `TurnId` | — | 否（会话关联） | — | **本渠道不做**（§9） |
 
 #### 2.2.2 账号端点（HMAC-SHA1 签名）
 
@@ -194,12 +194,12 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 
 `session` 是唯一的凭据（32 位小写 hex），响应里还会带 `userid` 与 `phone`。
 
-### 2.6 已移除的登录路（历史）
+### 2.6 本仓不实现的登录路（参考）
 
-微信扫码与账号密码**两条路已从代码中删除**（2026-10-22，判据见 §2.1）。
+微信扫码与账号密码两条路**本仓不实现**（判据见 §2.1）。
 它们的完整逆向结论（授权页 uuid 提取、长轮询状态机、粘贴兜底、`bind` 四步、
-`getPuKey` + `byPwd` 的 RSA 加密形态）保留在 [FINDINGS.md](./FINDINGS.md)，
-**仅作历史记录** —— 需要时再读，不要据此重写实现。
+`getPuKey` + `byPwd` 的 RSA 加密形态）见 [FINDINGS.md](./FINDINGS.md)，
+**仅作参考** —— 不要据此重写实现。
 
 ### 2.7  签名算法（`packages/core/channels/loomy/src/cred.ts:168-216`）—— 逐字节复刻客户端
 
@@ -399,31 +399,30 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 最终展示名：`{name} · {rate}`（无倍率时不追加分隔符）。
 倍率必须拼进 `name`（**不是** `description`）。
 
-### 5.4 兜底静态模型表（8 条，`packages/core/channels/loomy/src/catalog.ts:78-88`）
+### 5.4 兜底静态模型表（9 条，`packages/core/channels/loomy/src/catalog.ts:53-63`）
 
-来源：2026-09-26 实测 `GET /api/v1/models`，取 `type === 'chat'` 的 8 条。
+来源：2026-10-19 实测 `GET /api/v1/models`，取 `type === 'chat'` 的 9 条
+（含 `DeepSeek-V4.1-Flash`）。
 
 | id | name | contextWindow |
 |---|---|---|
+| `DeepSeek-V4.1-Flash` | DeepSeek V4.1 Flash · x2.0 | 1_048_576 |
 | `deepseek-v4-flash-0731` | DeepSeek V4 Flash 0731 · x3.0 | 1_048_576 |
 | `MiniMax-M3` | MiniMax M3 · x4.0 | 1_048_576 |
 | `Kimi-k2.6` | Kimi k2.6 · x6.5 | 262_144 |
 | `qwen-3.8-max` | Qwen 3.8 Max · x12.0 | 1_000_000 |
 | `GLM-5.3-Flash` | GLM 5.3 Flash · x0.8 | 1_048_576 |
 | `qwen3.8-flash` | qwen 3.8 flash · x0.8 | 1_000_000 |
-| `spark-x` | Spark X2.5 · x0.1 | 1_048_576 |
+| `spark-x` | Spark-X2.5 · x0.0 | 1_048_576 |
 | `mimo-v2.5` | MiMo V2.5 · x3.3 | 1_048_576 |
 
-全部 8 条的 `efforts` 都是 `['none','low','medium','high','xhigh']`，兜底 `defaultEffort = 'high'`。
+全部 9 条的 `efforts` 都是 `['none','low','medium','high','xhigh']`，兜底 `defaultEffort = 'high'`。
 
 `spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
 `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144
 —— ⚠ 该符号是**客户端**的，**本仓没有** `[参考]`。
 本表**先采信远端**；若实测长上下文被拒，改为 262144。
-
-⚠ 上表的**倍率**是 2026-09-26 的快照：`spark-x` 当时是 `x0.1`，而 2026-10-19 的实测
-远端已改成**倍率 0（免费）**（见「2026-10-19 端到端实测」）。倍率以**远端为准**，
-本表只作离线兜底。
+倍率以**远端为准**，本表只作离线兜底。
 
 ### 5.5 缓存策略（`packages/core/channels/loomy/src/catalog.ts:311-345`）
 
@@ -549,22 +548,28 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 
 ## 8. 模型窗口规格
 
-上游目录**不下发**最大输出（[实测]）—— 网关 `/v1/models` 只能给兜底值 4096，
-客户端按 4096 截断会把每次回答砍到 4k。本渠道按**公开规格**补齐：
+上游 `/api/v1/models` **逐型号下发** `context_length` 与 `max_output_tokens`（[实测] 2026-10-23）——
+渠道两个都读上游；上游没给的字段才回落公开规格表 `MAX_OUTPUTS`。
 
-| 模型 | 最大输出 |
-|---|---|
-| `deepseek-v4.1-flash` / `deepseek-v4-flash` | 393216 |
-| `minimax-m3` / `qwen-3.8-max` / `qwen3.8-flash` / `glm-5.3-flash` / `mimo-v2.5` | 131072 |
-| `kimi-k2.6` | 32768（官方只给 `max_tokens` 默认值级证据） |
-| `spark-x`（讯飞星火 X2.5） | 262144（官方写 `< 256K`） |
+| 型号 | 上游上下文 | 上游最大输出 |
+|---|---|---|
+| `spark-x2.6` | 1048576 | 131072 |
+| `spark-x` | 1048576 | 65536 |
+| `deepseek-v4.1-flash` | 1048576 | 384000 |
+| `minimax-m3` | 1048576 | 512000 |
+| `glm-5.3-flash` / `mimo-v2.5` | 1048576 | 131072 |
+| `kimi-k2.6` | 262144 | 65536 |
+| `qwen-3.8-max` / `qwen3.8-flash` | 1000000 | 65536 / 131072 |
+
+思考强度：上游 `reasoning_efforts` = `[none,low,medium,high,xhigh]`（远端 `default_reasoning_effort=low`，
+渠道**刻意不采信**，见 `src/catalog.ts`）。
 
 ⚠ **已知分歧**：`spark-x` 的**上下文**上游声明 1048576，而讯飞官方规格是 262144 ——
 **以上游为准**（这条渠道实际能吃多少以它自己为准），分歧记在
 [MODEL-SPECS.md](../../MODEL-SPECS.md) §6。
 
-数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `MAX_OUTPUTS`。
+数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源）；上游没给字段的型号回落渠道表
+`src/catalog.ts` 的 `MAX_OUTPUTS`（公开规格）。
 
 ---
 
@@ -715,12 +720,12 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 能力 | 原因 |
 |---|---|
-| 账号密码登录（`/login/account/getPuKey` + `byPwd`） | **2026-10-22 移除**：要长期保存明文密码，且需先在讯飞账号中心设密码（参考实现注明**没有设 / 改密端点**）；换来的只是「不用收短信」，不值得。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
-| 微信扫码登录（授权页 + 长轮询 + `bind/*` 四步） | **2026-10-22 移除**：无浏览器环境下注定别扭（授权页每次加载新 uuid、回调页线上 404 只能粘回）。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
+| 账号密码登录（`/login/account/getPuKey` + `byPwd`） | **本渠道不实现**：要长期保存明文密码，且需先在讯飞账号中心设密码（参考实现注明**没有设 / 改密端点**）；换来的只是「不用收短信」，不值得。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
+| 微信扫码登录（授权页 + 长轮询 + `bind/*` 四步） | **本渠道不实现**：无浏览器环境下注定别扭（授权页每次加载新 uuid、回调页线上 404 只能粘回）。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
 | 导入桌面客户端已登录 session（`auth-session.json`） | 依赖本机客户端安装目录与本地文件，越出「本渠道自持凭据」的边界 |
 | 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；短信路已实测跑通，无此必要 |
 | `/embeddings`、`/images/generations`、`/search/tencent` | 上游有，但本渠道定位是 **OpenAI 兼容对话网关**；我们是否可用、返回形状均未验证 |
-| 多账号加权调度（按额度加权 / 会话粘性 / 在途租约 / 模型级冷却） | 共享层目前只有简单轮换 + 连续失败 3 次标 error；本轮不扩共享层 |
+| 多账号加权调度（按额度加权 / 会话粘性 / 在途租约 / 模型级冷却） | 共享层目前只有简单轮换 + 连续失败 3 次标 error；本渠道不扩共享层 |
 | 思考开关 `enable_thinking` / `chat_template_kwargs.enable_thinking` | 当前用 `reasoning_effort` 表达档位；上游对未知字段静默忽略，语义需真机确认 |
 | 积分兑换码（`/points/redemption-codes/redeem`）/ 邀请码绑定（`/points/activation`） | 属运营玩法；且需 campus 设备号 `deviceId`（promotions 侧） |
 | 积分流水翻页 + 每模型实际单价统计 | 当前额度只取第一页余额字段；翻页聚合是面板级需求 |
@@ -729,7 +734,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | `pet-work` 平台每日任务（`/api/v1/pet-work`） | 与 `onboarding/tasks` 并存的另一套任务体系，未验证 |
 | Anthropic 兼容端点（`/v1/messages`） | 网关只做 OpenAI 兼容 |
 
-**待真机复核清单**（改动 `traceparent` / `loomy-version` 后由统一验证流程执行）：
+**待真机复核清单**（由统一验证流程执行）：
 
 - `traceparent` / `loomy-version` 是否真为必需（`[参考]` 说缺失会挂死到超时，本仓未发也跑通）→ A/B 对照；
 - `Accept: text/event-stream`（本仓）vs `application/json`（参考）是否影响上游行为；

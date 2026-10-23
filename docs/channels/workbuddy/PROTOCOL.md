@@ -69,12 +69,10 @@
 - **判据优先级**：数组形态 `input_modalities`（含 `image` 即为真）→ 布尔形态
   `supportsImages` / `supports_image`；取不到 → 条目不填该字段，由汇聚层回落
   `["text"]`（宁可少报）。实现见 `src/catalog.ts` 的 `supportsImageOf`。
-- ⚠ **不要拿 `supports_image_detail_original` 当判据**（2026-10-20 修掉的 bug）：
-  改动前 `src/catalog.ts` 写的是 `rec["supports_image_detail_original"] ?? rec["supportsImages"]`，
-  于是同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
-  的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）被报成纯文本 →
-  客户端不再给它发图片。修完随包快照路径实测：`deepseek-v4.1-flash` 的
-  `input_modalities` 从 `["text"]` 变回 `["text","image"]`。
+- ⚠ **不要拿 `supports_image_detail_original` 当判据**：
+  同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
+  的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）会被报成纯文本 →
+  客户端不再给它发图片。
 - `[参考]` 同一判据口径与各参考实现一致：go `internal/upstream/client.go:1156`、`:1187`
   （`SupportsImages bool \`json:"supportsImages"\``）、`internal/upstream/global_models.go:646`
   （`mi.SupportsImages, _ = obj["supportsImages"].(bool)`）。
@@ -121,7 +119,7 @@
 
 - 登录期 **UA 用的是桌面三段式**（`WorkBuddy/5.5.6 …`），而 go / dsh / sliver 三个
   「自己实现登录」的参考实现**全部用 CLI 形态** `CLI/<v> CodeBuddy/<v>`。口径不一致、
-  未验证 → **本轮不改**，见 §7.3 V2。
+  未验证 → **本渠道不改**，见 §7.3 V2。
 - 登录期 **Origin 少 `www`**（`https://codebuddy.cn`），参考实现都是
   `https://www.codebuddy.cn` → 见 §7.3 V3。
 - `platform` 取值 `workbuddy`（hub + 本仓）vs `CLI`（go / panel / sliver）→ 见 §7.3 V1。
@@ -229,7 +227,7 @@
 - ⚠ **计费域没有与 chat base 分离**：三家参考实现都把计费放在**另一个 host**
   （CN = `https://www.codebuddy.cn`，go `internal/upstream/client.go:875`、
   panel `internal/upstream/client.go:841-846`、dsh `packages/core/channels/workbuddy/src/upstream.ts:424-426`），
-  本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本轮不改**，
+  本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本渠道不改**，
   列入 §7.3 V8。
 - 国际版把同样的路径挂在 `https://www.workbuddy.ai` 上（两渠道共用协议，
   见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)）。
@@ -377,7 +375,7 @@
 `catalog.modelSpec()` 钩子给池层提供**已知规格**（契约见
 [`CONTRACT-TS.md`](../../CONTRACT-TS.md) §5.3），落到 `GET /v1/models` 的
 `context_window` / `max_output_tokens`。取值优先级：**上游目录声明 > 渠道规格表 >
-兜底值**（128000 / 4096）。
+兜底值**（200000 / 65536）。
 
 - ⚠ 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
   `maxOutputTokens`，落盘成 `context_window` / `max_output`），所以正常情况下
@@ -480,21 +478,13 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）�
 
 ### 2026-10-20 端到端实测
 
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）：
+Reasonix CLI 直连 `http://127.0.0.1:4412/v1`：
 
-- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
-- 本轮为**全渠道回归**的一环，未改动本渠道代码；结论与 2026-10-19 的记录一致。
-
-### 2026-10-20 归一化下沉后的端到端实测（共享层 `openai-normalize`）
-
-本轮把本渠道 415 行的通用 OpenAI 归一化下沉到共享层
-（`packages/core/gateway/src/http/wire/openai-normalize.ts`），请求体由渠道自己组装 → 共享层归一。
-**已复验**：
-
-- 模型 `workbuddy/step-5-preview`（倍率 0），Reasonix Agent 工具往返通过：
-  写文件 → 读回确认 → `bash` 执行 `pwd`/`ls` → 总结，四步全过；
-- 落盘文件内容与要求完全一致（`workbuddy/step-5-preview ok`）；
-- 错误日志当日**无该渠道新增条目**；费用：免费模型，账单差值 0。
+- `workbuddy/hy3`（倍率 0）：冒烟通过，模型正常回话（网关 access 日志 `status: 200`、
+  `stream: true`）；结论与 2026-10-19 的记录一致。
+- `workbuddy/step-5-preview`（倍率 0）：工具往返（写文件 → 读回确认 → `bash` 执行
+  `pwd`/`ls` → 总结）通过；落盘文件内容与要求一致（`workbuddy/step-5-preview ok`）；
+  错误日志无该渠道新增条目；账单差值 0。
 
 ---
 
@@ -512,7 +502,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ## 已知边界
 
-### 7.1 明确不做（本轮及后续都不实现）
+### 7.1 明确不做（不实现）
 
 手机号 OneID/Keycloak 路线、桌面端 `.info` 路线（§2.1）、多账号挑号、限流护栏全套、
 6004 cap 持久化、每日限额三件套、账号级权重与人工禁用、每账号出口代理、连接池
@@ -522,7 +512,7 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 
 ### 7.2 参考实现有、当前实现没有的功能（21 条）
 
-| # | 缺口 | 参考实现证据 | 本轮状态 |
+| # | 缺口 | 参考实现证据 | 状态 |
 | --- | --- | --- | --- |
 | 1 | **登录后取账号档案**（`uid` / `enterpriseId` / `nickname`） | go `cmd/login/main.go:266-278` | **已做**（§2.1 步 4） |
 | 2 | **企业身份头族**（`X-Enterprise-Id` / `X-Tenant-Id`） | go `internal/upstream/headers.go:242-255`；dsh `packages/core/channels/workbuddy/src/upstream.ts:485-489` | **已做**（§6） |
@@ -562,17 +552,3 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | V10 | `/v3/config` 对企业账号的分流 | 缺 `enterpriseId`（要真实企业账号才有） | 企业账号登录后对比带 / 不带那对头的模型条数 |
 | V11 | 非对话模型前缀过滤是否必需 | 本仓目录实测未见这些前缀 | `mx model workbuddy --refresh` 后看 `cache/models.json` 有无这些前缀 |
 | V12 | 国际版 UA 次段大小写（`WorkBuddy AI` vs `workbuddy-ai`） | go / dsh 与 hub 抓包不一致 | 只影响 `workbuddyai` 渠道；抓包国际版桌面端即可定论 |
-
-### 7.4 本轮修正的 5 处文档漂移
-
-1. §2.1 原写「授权页 URL **由 state 端点返回**；**本地不再兜底拼接** `base/login?...`」
-   —— 代码**仍在兜底**（`src/cred.ts` 的 `login()`）。本轮把文档改成与代码一致：
-   兜底保留，并注明与 go（缺 `authUrl` 直接失败）的差异。
-2. §3 原把 `/v2/billing/meter/checkin-activity-status` 写进签到规格 —— 该端点
-   **未实现**。本轮从规格移除，改列入 §7.2 缺口 8。
-3. §1 原只写 chat 侧 Origin —— 本轮补上**登录侧** Origin（`https://codebuddy.cn`，
-   少 `www`）并标明与 chat 侧不同。
-4. §1.1 原未写「为何与 go 的 CN 现状相反」—— 本轮补上：go 用 `/console/...`，
-   本仓实测该路径 302 跳登录页（浏览器路由），故改用 `/v2/...` 为首选。
-5. 参考实现表原未覆盖 sliver 的 **CLI 形态身分**（`X-IDE-Type: CLI`）与 panel 的
-   **成长 / 权益端点族** —— 本轮补上。
