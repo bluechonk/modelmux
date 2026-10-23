@@ -32,6 +32,7 @@
 | [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 双页深色看板（仪表盘 + 账号池）的架构、构建与 API 面貌 |
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
 | [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型窗口规格**：上下文 / 最大输出 token 的联网核实结果（唯一事实源）、核实方法、无公开规格的型号清单 |
+| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：42 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 
 ## 2. 渠道文档 `docs/channels/<cid>/`
 
