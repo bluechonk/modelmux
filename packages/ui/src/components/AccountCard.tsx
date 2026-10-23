@@ -5,7 +5,6 @@
  */
 
 import { Plus, Trash2, UserCheck } from "lucide-react";
-import { useEffect, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
 
@@ -40,6 +39,8 @@ export interface AccountBilling {
   credits?: AccountCredits | null;
   billing_at?: string | null;
   billing_ok?: boolean;
+  /** 当日基线（当天第一个账单的 remain），用作 100% 分母。 */
+  baseline?: { date: string; remain: number } | null;
 }
 
 /** 渠道级账本条（billing action 聚合后的形状）。 */
@@ -134,13 +135,24 @@ function expiryText(expiresAt: number | null): string {
   return `到期 ${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-/** 额度百分比：优先后端给的 remain_percent，缺失时按 remain/size 估算。 */
-function quotaPercent(credits: AccountCredits | null | undefined): number | null {
+/**
+ * 额度百分比：**优先以「当天第一个账单」为 100% 基线**（主人 2026-10-23 要求）——
+ * 当天消耗多少就掉多少，跨天自动回到满格。
+ *
+ * 兜底顺序：基线（>0）→ 后端 `remain_percent` → `remain / size`（上游口径不可靠时）。
+ */
+function quotaPercent(
+  credits: AccountCredits | null | undefined,
+  baseline?: { date: string; remain: number } | null,
+): number | null {
   if (!credits) return null;
+  const remain = Number(credits.remain);
+  if (baseline && Number.isFinite(baseline.remain) && baseline.remain > 0 && Number.isFinite(remain)) {
+    return Math.max(0, Math.min(100, (remain / baseline.remain) * 100));
+  }
   const pct = Number(credits.remain_percent);
   if (Number.isFinite(pct) && pct >= 0) return Math.min(100, pct);
   const size = Number(credits.size);
-  const remain = Number(credits.remain);
   if (Number.isFinite(size) && size > 0 && Number.isFinite(remain)) {
     return Math.max(0, Math.min(100, (remain / size) * 100));
   }
@@ -148,10 +160,13 @@ function quotaPercent(credits: AccountCredits | null | undefined): number | null
 }
 
 /** 额度语义：耗尽=danger / 紧张=warn / 正常=free / 无数据=中性。 */
-function quotaTone(credits: AccountCredits | null | undefined): "danger" | "warn" | "free" | "muted" {
+function quotaTone(
+  credits: AccountCredits | null | undefined,
+  baseline?: { date: string; remain: number } | null,
+): "danger" | "warn" | "free" | "muted" {
   if (!credits) return "muted";
   if (Number(credits.remain) <= 0) return "danger";
-  const pct = quotaPercent(credits);
+  const pct = quotaPercent(credits, baseline);
   if (pct !== null && pct > 0 && pct < 10) return "warn";
   return "free";
 }
@@ -194,15 +209,7 @@ function freshnessText(
   };
 }
 
-/** 每秒心跳：秒数要真的在跳，否则只在数据刷新时变一次，看着像卡死。 */
-function useSecondTick(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
+/** 每秒心跳 **已移除**：主人要求「秒不用自己 +1」，只在渲染/刷新时算一次（见下）。 */
 
 /** 上次查询的**绝对时间**（本地时区，供 title 悬浮查看，与相对时长互相印证）。 */
 function updatedAtText(billingAt: string | null | undefined): string {
@@ -242,7 +249,8 @@ export function AccountCard({
   busyKey: string | null;
 }): ReactElement {
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
-  const now = useSecondTick(); // 新鲜度显示到秒 → 每秒心跳一次
+  // 新鲜度只在渲染时算一次（不挂定时器）：秒数不自己跳，用户刷新页面/数据轮询时才更新
+  const now = Date.now();
   const accounts = [...pool.index.accounts]
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
@@ -387,6 +395,7 @@ export function AccountCard({
                   <div className="ml-auto shrink-0">
                     <QuotaMeter
                       credits={bill?.credits}
+                      baseline={bill?.baseline}
                       unsupported={billing?.unsupported === true}
                     />
                   </div>
@@ -400,16 +409,18 @@ export function AccountCard({
   );
 }
 
-/** 额度计量条：细进度条 + 剩余值 + 百分比。 */
+/** 额度计量条：细进度条 + 剩余值 + 百分比（分母 = 当天第一个账单）。 */
 function QuotaMeter({
   credits,
+  baseline,
   unsupported,
 }: {
   credits: AccountCredits | null | undefined;
+  baseline?: { date: string; remain: number } | null;
   unsupported: boolean;
 }): ReactElement {
-  const pct = quotaPercent(credits);
-  const tone = quotaTone(credits);
+  const pct = quotaPercent(credits, baseline);
+  const tone = quotaTone(credits, baseline);
   if (unsupported || !credits) {
     return (
       <span

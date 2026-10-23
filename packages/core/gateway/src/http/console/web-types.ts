@@ -20,7 +20,24 @@ export interface WebChannelStatus {
 }
 
 /** 把 `PoolIndex` 转换成 Web 展示形态（独立于 account-cli.ts 的 render）。 */
-export function renderChannelPool(cid: string, display: string, index: { version: 1; active: string | null; accounts: Array<{ key: string; label: string; uid: string; health: string; expires_at: number | null; fail_streak?: number }> }): Record<string, unknown> {
+export function renderChannelPool(
+  cid: string,
+  display: string,
+  index: {
+    version: 1;
+    active: string | null;
+    accounts: Array<{
+      key: string;
+      label: string;
+      uid: string;
+      health: string;
+      expires_at: number | null;
+      fail_streak?: number;
+      cooldown_until?: string | null;
+      cooldown_reason?: string;
+    }>;
+  },
+): Record<string, unknown> {
   return {
     cid,
     display,
@@ -34,6 +51,9 @@ export function renderChannelPool(cid: string, display: string, index: { version
         health: a.health,
         expires_at: a.expires_at,
         fail_streak: a.fail_streak ?? 0,
+        // 冷却信息必须透出：Web 要显示「冷却中，到 MM-DD HH:mm」与原因
+        cooldown_until: a.cooldown_until ?? null,
+        cooldown_reason: a.cooldown_reason ?? "",
       })),
     },
   };

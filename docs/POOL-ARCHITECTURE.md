@@ -144,6 +144,13 @@
 - 短路：`activeAccountIsError()` 对 `error` 与「未到期的 `cooldown`」都返回 true
   （请求入口不再打上游），到期的 `cooldown` 放行。
 - 展示：`activeAccountCooldown(cid)` 给出 `{ until, reason }` 供 CLI / Web 显示「冷却到几点」。
+- **冷却中的账号不参与账单刷新**（2026-10-23 主人要求）：额度要等窗口刷新才会变，
+  冷却期反复查它的额度既拿不到新数字、又白打一次上游。实现见
+  `runRefresh` / `refreshAccountCredits` —— 只跳**这个账号**（生效账号冷却时渠道级查询跳过，
+  池里其余健康账号照查），跳过的渠道记在 `RefreshResult.skipped` 里可观测。
+- 反向补充：**账单查到 0 也会进冷却**（`markCooldownIfExhausted`）—— 有的渠道额度用完不会
+  立刻回 4xx（如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
+  账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。
 
 > ⚠ 两个层级的「冷却」不要混：
 >

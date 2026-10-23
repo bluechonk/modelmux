@@ -450,6 +450,28 @@ function coolingDown(account: PoolAccount, now = Date.now()): boolean {
 }
 
 /**
+ * 该账号是否**正在冷却**（供共享层判断「这次别去查它的额度了」）。
+ *
+ * 额度要等上游窗口刷新才会变，冷却期内反复查它的账单既拿不到新数字、
+ * 又白白打一次上游（2026-10-23 主人要求：冷却账号不再执行 bill）。
+ */
+export function isAccountCooling(account: PoolAccount, now = Date.now()): boolean {
+  return coolingDown(account, now);
+}
+
+/** 生效账号是否正在冷却（拿不到就是 false）。 */
+export function activeAccountCooling(cid?: string, now = Date.now()): PoolAccount | null {
+  try {
+    const index = readIndex(cid);
+    if (!index.active) return null;
+    const hit = index.accounts.find((a) => a.key === index.active);
+    return hit && coolingDown(hit, now) ? hit : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 额度耗尽：**把生效账号标 `cooldown`**（不是 `error`），并记下等到什么时候。
  *
  * 与 `error` 的分工（2026-10-23 修订）：

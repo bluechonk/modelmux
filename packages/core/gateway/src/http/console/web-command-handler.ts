@@ -132,6 +132,8 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
                 credits: count.credits ?? null,
                 billing_at: count.billing_at ?? null,
                 billing_ok: count.billing_ok ?? false,
+                // 当日基线（当天首个 bill 的 remain）：前端拿它当 100% 分母
+                baseline: count.baseline ?? null,
               })),
             };
           }),
