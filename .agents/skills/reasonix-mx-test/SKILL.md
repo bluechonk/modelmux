@@ -276,6 +276,7 @@ Reasonix 一次声明 **18 个**工具，其中与文件/命令相关的是：
 | orcaterm 工具调用完全不发生，模型输出一坨 `{"action":"review",...}` | 渠道 `jsonSegments()` 逐段扫描平衡花括号，能拆「一轮连吐多个信封」（`packages/core/channels/orcaterm/src/upstream.ts:682`）；`verify-wiring` 规则 5 强制逐段扫描 |
 | 客户端报 `cannot unmarshal number into Go struct field streamWireError.error.code` | 错误帧 `code` 一律字符串化（traecn `upstream.ts:885`、catpaw `:1003`、loomy `:263` 等）；`verify-wiring` 规则 3 校验 `String(...)` 收敛 |
 | 客户端报 `cannot unmarshal null into Go struct field streamWire...` | 纯工具调用消息的聚合体**不设 `content` 键**（`packages/core/gateway/src/http/wire/sse-stream.ts:172`），由 `tests/sse-aggregate.test.ts` 断言「不得出现 `"content":null`」 |
+| traecn 连续报 `4001 param is invalid`，且该会话此前一直正常 | 客户端把「纯思考无正文」的空壳 assistant 存进历史，重放到删 `content` 键的渠道退化成 `{role,reasoning_content}`，上游判 param invalid。共享层 `dropEmptyAssistantMessages()` 已剔除（traecn 等渠道接入，`packages/core/channels/traecn/src/upstream.ts` 的 `buildChatBody`），2026-10-23 重放实测通过 |
 
 判工具调用是否真跑通，以**访问日志**为准：`toolCount>0` 且 `messageCount` 随工具轮次递增；
 只看模型嘴上说「做完了」不算。
