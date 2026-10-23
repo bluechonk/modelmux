@@ -563,6 +563,19 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）
   **账号级冷却**（`health: "cooldown"` + `cooldown_until`），Web 显示「冷却中」并写明
   等到什么时候，到期自动恢复；实现见 `http/chat/attempt.ts` 的 `isQuotaExhausted` 分支 +
   `runtime/account-pool.ts` 的 `noteAccountQuotaExhausted`。
+- **冷却截止时间：用上游给的滚动重置时间**（`upstream.quotaResetAt`），**不是**「次日 0 点」。
+  2026-10-23 真机原文（HTTP 429，重置时间随消费时刻滚动）：
+
+  ```
+  {"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will reset
+   at 2026-10-23 17:36:25 UTC+8, alternatively, you can switch to the other models to
+   continue using it.","requestId":"..."}
+  ```
+
+  实测网关据此冷却到 **17:36**（而不是 0 点），账号显示「冷却中 · 到 10-23 17:36」。
+- ⚠ **该限额对所有模型生效**：本渠道用量打满时，连目录里标成倍率 0 的
+  `deepseek-v4.1-flash` 也吃 6004（2026-10-23 实测）。故网关对**账户级用量限额**
+  （`isUsageLimit`）一律冷却，不再按模型倍率豁免。
 - 冷却截止时间：`upstream.quotaResetAt(bodySnippet)`（本文件 `src/upstream.ts`）从错误体里解析。
   **2026-10-23 已核实**：上游把重置时间写在 **msg 文本**里，不是 JSON 字段 —— 参考实现
   `ardeyouxipianyi/workbuddy2api-hub` 的 `wb_proxy.py::parse_rate_limit_reset` 给出两种真实形状：

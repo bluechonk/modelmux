@@ -24,7 +24,7 @@ import { logThrottled } from "../../runtime/logger.js";
 import { noteRequestError, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { activeKeyOf } from "./candidates.js";
-import { isQuotaExhausted, writeJsonError } from "./errors.js";
+import { isQuotaExhausted, isUsageLimit, writeJsonError } from "./errors.js";
 import {
   consumeQueueProbe,
   loadCredentialSafe,
@@ -387,17 +387,20 @@ export async function attemptCandidate(
     // ⚠ 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
     //   3 连败熔断打成「不可用」（2026-10-23 之前 workbuddyai 就是这样被误标的）。
     const quotaOut = isQuotaExhausted(call.bodySnippet ?? "");
-    if (quotaOut && !freeModel) {
+    const usageLimit = isUsageLimit(call.bodySnippet ?? "");
+    // 账户级用量限额（workbuddyai 的 6004）对所有模型生效 → 一律冷却；
+    // 余额类（loomy 的 402）只冷却付费模型，免费模型继续打上游拿真实结论。
+    if (quotaOut && (usageLimit || !freeModel)) {
       const resetAt =
         (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(call.bodySnippet ?? "") : null) ?? null;
       const untilMs = noteAccountQuotaExhausted(cid, {
         until: resetAt,
-        reason: "上游返回额度耗尽（等额度窗口刷新）",
+        reason: usageLimit ? "上游用量限额（所有模型都受限）" : "上游返回额度耗尽（等额度窗口刷新）",
       });
       logThrottled(
         logger,
         `chat:quota:${cid}`,
-        `account quota exhausted (channel ${cid}); cooling down until ${new Date(untilMs).toISOString()} (channel-reported reset: ${resetAt === null ? "no" : "yes"})`,
+        `account quota exhausted (channel ${cid}); cooling down until ${new Date(untilMs).toISOString()} (usage-limit=${usageLimit}, free-model=${freeModel}, channel-reported reset: ${resetAt === null ? "no" : "yes"})`,
       );
       return {
         kind: "retry",
@@ -409,7 +412,7 @@ export async function attemptCandidate(
       };
     }
     if (quotaOut && freeModel) {
-      // 免费模型不该因为额度信号被冷却：把上游错误**如实透出**，账号健康态保持不动
+      // 免费模型遇到余额类信号：不冷却账号（它不消耗额度），把上游错误如实透出
       //（2026-10-23 主人实测：这个分支曾把免费模型一起锁死）。
       logThrottled(
         logger,

@@ -200,11 +200,19 @@ function writeIndex(index: PoolIndex, cid?: string): void {
   writeJsonSecret(indexFile(cid), index);
 }
 
-/** 池子摘要（供 CLI / 网关）：先与"现实"同步，再读索引。 */
+/**
+ * 池子摘要（供 CLI / Web）：先与"现实"同步，再读索引。
+ *
+ * ⚠ 这里要顺手做**冷却惰性过期**：聊天路径（`activeAccountCooldown`）读一次就恢复，
+ * 但列表路径不读它，否则 Web 会一直显示已过期的「冷却中」而实际请求早就能打
+ * （2026-10-23 实测踩到：写一个过去的 cooldown_until，UI 仍显示冷却中）。
+ * 恢复只在真有变化时写盘（`expireCooldown` 内部判断），不会造成读放大。
+ */
 export function listAccounts(cid?: string): PoolIndex {
   syncPool(cid);
   const index = readIndex(cid);
   refreshLabels(index, cid);
+  expireCooldown(index, cid);
   return index;
 }
 
