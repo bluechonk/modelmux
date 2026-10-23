@@ -14,9 +14,16 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { channelCapabilities, channels, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
-import { listAccounts, readAccountCredential } from "../runtime/account-pool.js";
+import {
+  activeAccountCooling,
+  isAccountCooling,
+  listAccounts,
+  noteAccountQuotaExhausted,
+  readAccountCredential,
+} from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { poolUsagePath } from "../runtime/paths.js";
+import { localDate } from "../runtime/log-store.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 账单缓存有效期：8 小时 ≈ 一天三次。 */
@@ -68,6 +75,16 @@ export interface AccountCount {
   billing_at?: string | null;
   /** 该账号额度查询是否成功。 */
   billing_ok?: boolean;
+  /**
+   * **当日基线**：本地日期 + 当天第一次查到的 `remain`。
+   *
+   * Web 的额度百分比以它为分母（主人 2026-10-23 要求：当天首个 bill 当 100%，
+   * 之后每轮刷新的消耗都算作从 100% 下降）。跨天自动重置。
+   *
+   * 为什么不用上游的 `size`：各渠道口径不一（loomy 的 `dailyQuota` 只在 first-login
+   * 响应里、workbuddyai 的 size 是月包 credits），拿它当分母会算出「永远 100%」。
+   */
+  baseline?: { date: string; remain: number } | null;
 }
 
 export interface PoolLedger {
@@ -124,12 +141,22 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
           };
         })()
       : undefined;
+    const baselineRaw = rec.baseline;
+    const baseline =
+      baselineRaw && typeof baselineRaw === "object" && !Array.isArray(baselineRaw)
+        ? (() => {
+            const b = baselineRaw as Record<string, unknown>;
+            const date = typeof b.date === "string" ? b.date : "";
+            return date !== "" ? { date, remain: num(b.remain) } : null;
+          })()
+        : null;
     out[key] = {
       ok: num(rec.ok),
       fail: num(rec.fail),
       ...(credits ? { credits } : {}),
       billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
       billing_ok: rec.billing_ok === true,
+      ...(baseline ? { baseline } : {}),
     };
   }
   return out;
@@ -284,21 +311,53 @@ function noteBillingAttempt(cid: string, ok: boolean): void {
 export function writeAccountBilling(cid: string, key: string, credits: unknown): void {
   const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
   const entry = accountEntry(entryOf(load(), cid), key);
+  const remain = num(total["remain"]);
   entry.credits = {
-    remain: num(total["remain"]),
+    remain,
     size: num(total["size"]),
     used: num(total["used"]),
     unit: str(total["unit"]),
     remain_percent: num(total["remain_percent"]),
   };
+  // 当日基线：每个本地日期只在**第一次**查到账单时落一次，跨天自动重来
+  const today = localDate();
+  if (!entry.baseline || entry.baseline.date !== today) {
+    entry.baseline = { date: today, remain };
+  }
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = true;
   scheduleSave();
 }
 
+/**
+ * 账单显示额度为 0 → 把生效账号标**冷却**（等到渠道声明的下次刷新时刻）。
+ *
+ * 为什么要在「账单」这条路上也标：有的渠道额度用完**不会**立刻回 4xx ——
+ * 比如 loomy 的每日 5000 积分烧光后，`points/records` 直接给出 `dailyBalance = 0`，
+ * 请求要等到下一次才失败。账单是更早的信号，用它提前冷却，避免打一轮必失败的请求。
+ *
+ * ⚠ 只认**真正的数字 0**：`remain` 缺失（上游没给这个字段）不算耗尽，
+ * 否则会把「查不到」误判成「用完了」。
+ */
+function markCooldownIfExhausted(channel: Channel, cid: string, credits: unknown): void {
+  const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
+  const raw = total["remain"];
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw > 0) return;
+  const resetsAt = channel.billing.quotaPeriod?.()?.resets_at ?? null;
+  try {
+    runInChannel(cid, () =>
+      noteAccountQuotaExhausted(cid, {
+        until: resetsAt,
+        reason: "账单显示额度已用尽，等额度窗口刷新",
+      }),
+    );
+  } catch {
+    /* 池子不可用（未登录 / 未注册）时静默跳过，不影响账单刷新 */
+  }
+}
+
 /** 标记某账号额度查询失败（保留上一次的数字）。 */
-function noteAccountBillingAttempt(cid: string, key: string, ok: boolean): void {
-  const entry = accountEntry(entryOf(load(), cid), key);
+function noteAccountBillingAttempt(cid: string, key: string, ok: boolean): void {  const entry = accountEntry(entryOf(load(), cid), key);
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = ok;
   scheduleSave();
@@ -319,6 +378,13 @@ async function refreshAccountCredits(
   if (!channelCapabilities(channel.config).billing) return;
   const index = runInChannel(cid, () => listAccounts(cid));
   for (const account of index.accounts) {
+    // 冷却中的账号不查：额度要等窗口刷新才会变（2026-10-23 主人要求）
+    if (isAccountCooling(account)) {
+      logger(
+        `account billing skipped (${cid}/${account.key.slice(0, 8)}…): cooling down until ${account.cooldown_until ?? "?"}`,
+      );
+      continue;
+    }
     const raw = runInChannel(cid, () => readAccountCredential(account.key, cid));
     const credential = normalizeCredentialShape(raw);
     if (Object.keys(credential).length === 0) continue;
@@ -361,16 +427,30 @@ export interface RefreshResult {
   refreshed: string[];
   /** 查失败的渠道及原因。 */
   failed: Array<{ cid: string; error: string }>;
+  /** 因账号冷却跳过查询的渠道（2026-10-23：冷却账号不再执行 bill）。 */
+  skipped: string[];
 }
 
 /** 查一轮账单（并行；不抛错，失败只记在返回值与账本里）。 */
 async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
   // 无额度能力的渠道没有账单可刷，直接排除（不记成功也不记失败）
   const list = channels().filter((channel) => channelCapabilities(channel.config).billing);
-  const result: RefreshResult = { refreshed: [], failed: [] };
+  const result: RefreshResult = { refreshed: [], failed: [], skipped: [] };
   const settled = await Promise.allSettled(
     list.map(async (channel: Channel) => {
       const cid = channel.config.cid;
+      // 生效账号在冷却中：额度要等窗口刷新才会变，渠道级查询（= 查生效账号）跳过；
+      // 但**兄弟账号照查**（`refreshAccountCredits` 会逐个跳过冷却中的账号）。
+      const cooling = runInChannel(cid, () => activeAccountCooling(cid));
+      if (cooling) {
+        logger(
+          `billing skipped (${cid}): active account cooling down until ${cooling.cooldown_until ?? "?"}`,
+        );
+        await refreshAccountCredits(channel, cid, logger).catch((err: unknown) => {
+          logger(`account billing refresh failed (${cid}): ${String(err)}`);
+        });
+        return { cid, credits: undefined, skipped: true };
+      }
       let credits: unknown;
       try {
         credits = await runInChannel(cid, () =>
@@ -382,13 +462,19 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
           logger(`account billing refresh failed (${cid}): ${String(err)}`);
         });
       }
-      return { cid, credits };
+      return { cid, credits, skipped: false };
     }),
   );
   settled.forEach((item, index) => {
     const cid = list[index]!.config.cid;
     if (item.status === "fulfilled") {
+      if (item.value.skipped) {
+        result.skipped.push(cid);
+        return;
+      }
       writeBilling(cid, item.value.credits);
+      // 账单显示 0 → 提前进冷却（见 markCooldownIfExhausted 的 why）
+      markCooldownIfExhausted(list[index]!, cid, item.value.credits);
       result.refreshed.push(cid);
     } else {
       const error = String(item.reason);
