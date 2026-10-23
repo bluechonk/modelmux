@@ -127,7 +127,7 @@ packages/core/channels/<cid>/
 | 约定 | 原因 |
 | --- | --- |
 | **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + 10 个渠道包）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
-| **版本号只记一遍** | `package.json` 的 `version` 是唯一真相；渠道 `src/channel.ts` 的 `ChannelConfig.version` 必须与之一致（那处会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。同一事实记两遍必然漂移 —— 此前 catpaw / workbuddyai 就漂到了 `0.4.0` |
+| **版本号只记一遍** | `package.json` 的 `version` 是唯一真相；渠道 `src/channel.ts` 的 `ChannelConfig.version` 必须与之一致（那处会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。同一事实记两遍必然漂移 |
 | **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
 | **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
 | **`prepublishOnly` 先跑 `npm run build`** | 发布出去的 `dist/` 必须与当前源码一致；没有它，`npm publish` 会把上一次的构建产物（甚至空目录）发出去 |
@@ -239,7 +239,7 @@ interface Channel {
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
 常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:62` 包一次，
-扫码路径在 `packages/core/gateway/src/app/lifecycle/headless.ts:331` 包一次；
+扫码路径在 `packages/core/gateway/src/app/lifecycle/headless.ts:335` 包一次；
 Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 （`packages/core/gateway/src/app/lifecycle/headless.ts:223-232`）进来。
 
@@ -253,8 +253,10 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 | 形态 | 本机回环服务器 | 粘贴内容怎么用 | 渠道 |
 |---|---|---|---|
-| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | lobsterai |
-| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | loomy、qodercn、workbuddyai、qoder、workbuddy |
+| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | lobsterai、raccoon |
+| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | qodercn、workbuddyai、qoder、workbuddy |
+
+不消费 `pasteCode` 的渠道：loomy（手机验证码两步）、catpaw、orcaterm、traecn。
 
 形态 B 另有一条硬要求：**认出「授权被拒 / 出错」的措辞就立刻收尾报错**
 （不等轮询超时）—— 用户拒绝授权时看到的是白等几分钟。措辞集合是**渠道无关**的
@@ -275,30 +277,25 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   （`packages/core/gateway/src/http/chat/attempt.ts:301-319`）。参数是**网关已经建好的
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
   会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
-  （`packages/core/gateway/src/runtime/channel.ts:200-203`）。
-- `isAuthFailure(status, body)`：只对 **4xx 且非 401/403** 的响应调用；返回 true 时网关按
-  401/403 同路径处理（刷新 token → 换池内账号）。用于上游不用标准状态码表达凭据失效的渠道。
-- `quotaResetAt(bodySnippet)`（**可选**，2026-10-23 新增）：从上游**错误体**里认出
-  「额度耗尽 + 下次刷新时刻」（epoch ms；认不出返回 `null`）。共享层已有一层通用措辞判定
-  （`isQuotaExhausted`），命中就把该账号标**账号级冷却**；但「等到什么时候」只有渠道知道 ——
-  有的上游直接把重置时间写进错误体（workbuddyai 花完日额度后返回下次刷新时间）。
-  返回 `null` 时共享层回落**次日本地 0 点**。**不要编造时间**：编错会让账号冷却到错误的时刻。
-- `quotaSignal(status, body)`（**可选**，2026-10-23 新增）：声明本渠道的**额度信号**。
-  共享层只认**通用措辞**（`insufficient_quota`、「余额不足」这类任何上游都可能用的说法）；
-  渠道自己的**业务码与专有措辞**（如 workbuddyai 的 `code=6004`「usage exceeds frequency
-  limit」）**必须**由渠道经本钩子上报 —— 共享层不许硬编码渠道知识（AGENTS.md 铁律）。
-  - 返回 `usage_limit` = **账户级用量限额**（对所有模型生效，含倍率 0 的）→ 网关一律冷却；
-  - 返回 `balance` = **余额不足**（只影响计费用量）→ 只冷却付费模型，免费模型继续打上游；
+  （`packages/core/gateway/src/runtime/channel.ts:223`）。
+- `isAuthFailure(status, body)`：对**任何非 200** 的响应都会调用；返回 true 时网关把它归一成
+  401，走「刷新 token → 重试**本账号**」（不切号）。用于上游不用标准状态码表达凭据失效的渠道。
+  完整链路见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
+- `quotaResetAt(bodySnippet)`（**可选**）：从上游**错误体**里认出「额度耗尽 + 下次刷新时刻」
+  （epoch ms；认不出返回 `null`）。共享层命中额度信号后用它定冷却截止，`null` 回落次日本地 0 点。
+  **不要编造时间**：编错会让账号冷却到错误的时刻。语义与判定见 POOL-ARCHITECTURE.md §2.4。
+- `quotaSignal(status, body)`（**可选**）：声明本渠道的**额度信号** —— 共享层只认通用措辞，
+  渠道业务码与专有措辞**必须**经本钩子上报（共享层不许硬编码渠道知识）。
+  - 返回 `usage_limit` = 账户级用量限额（对所有模型生效，含倍率 0 的）→ 一律冷却；
+  - 返回 `balance` = 余额不足（只影响计费用量）→ 只冷却付费模型，免费模型继续打上游；
   - 认不出返回 `null`。
   - 守卫：`tests/quota-signal.test.ts` 会扫共享层**可执行代码**里有没有渠道业务码，有就红。
+  - 两类信号的判定与作用范围见 POOL-ARCHITECTURE.md §2.4。
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
   按帧里的 `retryAfterSeconds`（封顶 10s）退避后重开上游重试，总时长上限 5 分钟。
   已吐过内容帧则不重试（避免重复内容）。未声明的渠道照旧把错误帧透传给客户端。
-- `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒），默认
-  `MODELMUX_READ_TIMEOUT_MS`（120s）。用于「收下请求（HTTP 200）后长时间零字节」
-  的上游（如 Qoder 排队/长思考，实测首字延迟 40–71s）；声明后首帧等待、空闲守卫
-  与排队探测统一放宽，等待期网关向客户端补 `: ping` 心跳防空闲断连
-  （心跳间隔默认 5s，`MODELMUX_HEARTBEAT_MS` 可覆盖）。
+- `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒）；默认值与心跳口径见
+  [LOGGING.md](./LOGGING.md) §6。声明后首帧等待、空闲守卫与排队探测统一放宽。
 
 **可选主机轮换钩子**（`UpstreamModule` 的**可选成员**，不实现即跳过）：
 
@@ -366,7 +363,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 网关只会额外补 `Accept: text/event-stream`（若头里没有）。
 
 **按账号生效的上游属性必须在 `buildHeaders()` 判定**：`buildChatBody()` 的签名里
-**没有凭据**（`packages/core/gateway/src/runtime/channel.ts:200-203`），只有
+**没有凭据**（`packages/core/gateway/src/runtime/channel.ts:225-228`），只有
 `buildHeaders(credential)` 拿得到。凡是「按账号授予」的上游属性（免费额度标记、
 按账号路由的端点等），判定都要放在 `buildHeaders()`，用 `credential.uid` 作账号键，
 并按账号分桶落盘 —— 否则多账号场景下会把一个账号的标记发给另一个账号。
@@ -423,9 +420,8 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 #### `modelSpec()`：已知模型规格（**可选钩子**）
 
-上游目录**通常不下发**上下文窗口与最大输出（实测 catpaw / lobsterai /
-loomy / qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底值，而 4096 的输出
-上限会让客户端把每次回答截到 4k。这类渠道**可以**实现：
+上游目录**普遍只下发部分字段**（哪些字段各渠道不同，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6）—— 对上游没声明的字段，网关 `/v1/models` 只能给兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5），
+而兜底值不是任何模型的真实上限。这类渠道**可以**实现：
 
 ```ts
 modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined;
@@ -436,13 +432,8 @@ modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number 
   （倍率不走这里：倍率由目录条目的倍率字段汇聚成 `PoolModelMeta.multiplier`。）
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
-- **共享层在缓存缺值时才问渠道要规格**：先读该渠道的目录缓存
-  （`packages/core/gateway/src/pool/pool-targets.ts:384-390`），再问
-  `catalog.modelSpec()`（`packages/core/gateway/src/pool/pool-targets.ts:391-396`），
-  两者都拿不到才回落兜底值。
-- **取值优先级：上游目录 > 渠道声明 > 兜底**
-  （`packages/core/gateway/src/pool/pool-targets.ts:361-363`）——
-  上游说的才是「这条渠道实际能吃多少」。
+- **取值优先级：上游目录 > 渠道声明 > 兜底**（`packages/core/gateway/src/pool/pool-targets.ts:361-363`）——
+  三层来源与兜底值口径见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5。
 - 共享层**不许出现模型名** → 这张表必须放在**渠道包**里
   （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
 - 池层怎么用它见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6。
@@ -490,7 +481,7 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 `refreshOn401: false`（避免刷新 / 回写生效账号的凭证文件）。账号池刷新账单时按账号调用，
 结果写入账本 `accounts[key].credits`（见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.4）。
 
-**额度周期（`quotaPeriod?()`，可选，2026-10-23 新增）**：返回
+**额度周期（`quotaPeriod?()`，可选）**：返回
 `{ label, size, unit, resets_at }` —— 周期的人读文案（如「每天 5000 积分，0 点刷新」）、
 本周期总量、单位、下次刷新时刻（epoch ms）。共享层用它做两件事：**展示**（Web 账号池 /
 `mx bill`）与**账号级冷却的截止时间**（额度耗尽后等到 `resets_at`，见
@@ -512,9 +503,10 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 
 | 类型 | 用法 | 渠道 |
 |---|---|---|
-| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、lobsterai |
-| **B. flow 轮询** | `POST .../auth/state` 或 `.../oauth/cli/init` → 取 `authorize_url`/`authUrl` → 轮询拿 token | workbuddyai、workbuddy |
-| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | loomy、raccoon、qoder、qodercn |
+| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、lobsterai、raccoon |
+| **B. flow 轮询** | 拼授权 URL → 交给用户打开 → 轮询拿 token | workbuddyai、workbuddy、catpaw、orcaterm |
+| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | qoder、qodercn |
+| **D. 手机验证码两步** | 发码（返回 `msgid`）→ 带 `msgid` + 验证码换 token | loomy |
 
 各渠道的端点、请求头与字段是**渠道知识**，写在 `docs/channels/<cid>/PROTOCOL.md`，
 不进本契约。
@@ -574,7 +566,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 - 仓库级多渠道路由下跑的是**仓库级**网关 → pid 文件在**根**（`~/.modelmux/gateway.pid`）；
 - 单渠道独立运行 → pid 文件在**渠道目录**（`~/.modelmux/<cid>/gateway.pid`）。
 
-⚠ 取错的后果（实测踩过）：`status <cid>` 若按**渠道级** pid 文件判定，仓库级模式下
+⚠ 取错的后果：`status <cid>` 若按**渠道级** pid 文件判定，仓库级模式下
 那个文件往往是历史遗留（某次单渠道调试留下的）→ **误报**「网关在跑旧代码」，
 报出来的 `daemon_pid` / `worker_pid` 也不是在跑的进程。
 判定依据是 `/health` 的 `service` 字段（`modelmux` = 仓库级，`<cid>` = 单渠道），
@@ -661,8 +653,8 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 账本数字**不决定路由**（渠道由池 id 前缀指定），两处都只作健康度观察。
 
 实现落点：`packages/core/gateway/src/app/cli/index.ts` 的分发（动词表在前、cid 作 operand）；
-`commands/channel.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
-`runVerb`（动词 + 可选 cid）；`commands/model.ts` 的 `runModelGroup`（`list` / `usage`
+`packages/core/gateway/src/app/cli/channel.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
+`runVerb`（动词 + 可选 cid）；`packages/core/gateway/src/app/cli/model.ts` 的 `runModelGroup`（`list` / `usage`
 两个子命令各自渲染）。
 
 ---

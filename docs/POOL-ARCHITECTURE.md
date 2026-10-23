@@ -88,7 +88,7 @@
 账本数字只作健康度参考，不作路由依据。
 
 > **失败冷却只标记、不剔除请求**：冷却期（`FAIL_COOLDOWN_MS = 60s`，
-> `packages/core/gateway/src/pool/pool-usage.ts:26`）内该渠道在账本里被标「冷却中」，
+> `packages/core/gateway/src/pool/pool-usage.ts:33`）内该渠道在账本里被标「冷却中」，
 > 供视图观察。但路由侧「剔除冷却渠道 → 全冷却时回退完整候选」这条逻辑在现行
 > `<cid>/<模型>` 形态下**没有实际效果** —— 候选至多一条，剔除后必然回退到它自己
 > （`packages/core/gateway/src/http/chat/route.ts:114-121`）。
@@ -109,7 +109,7 @@
                      "billing_ok": true, "billing_at": "2026-10-18T…" } } } } }
 ```
 
-- 账单**每 3 分钟后台并行一轮**（`BILLING_REFRESH_INTERVAL_MS`；`MODELMUX_BILLING_REFRESH_MS` 可覆盖，设 0 关闭。2026-10-23 由 5 分钟改 3 分钟）：网关 ready 后起第一轮，之后每轮并行查全部有账单能力的渠道；
+- 账单**每 3 分钟后台并行一轮**（`BILLING_REFRESH_INTERVAL_MS`；`MODELMUX_BILLING_REFRESH_MS` 可覆盖，设 0 关闭）：网关 ready 后起第一轮，之后每轮并行查全部有账单能力的渠道；
  绝不阻塞正在处理的请求。TTL 兜底（`BILLING_TTL_MS = 8h`）另有一条：聊天路径发现账本太旧会在后台补一轮（`maybeRefreshBilling`）。
 - 手动刷新：`mx model usage --refresh`。
 - 账单查询失败只更新尝试时刻、**保留上一次的用量数字**（不把账清零，也不用 0 冒充）。
@@ -128,7 +128,7 @@
 
 #### 额度耗尽 → 账号**冷却**（不是故障）
 
-2026-10-23 修订。额度耗尽与真故障是**两种不同的事**，混在一起会把会自己好的账号永久跳过：
+额度耗尽与真故障是**两种不同的事**，混在一起会把会自己好的账号永久跳过：
 
 | 情形 | 判据 | 账号状态 | 恢复方式 |
 |---|---|---|---|
@@ -136,27 +136,27 @@
 | **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却中」） | **到期自动恢复**（惰性，无需定时器） |
 
 - 写入：`noteAccountQuotaExhausted(cid, { until, reason })` —— **不动 `fail_streak`**
-  （额度耗尽不是连败，计进去会被 3 连败熔断误标「不可用」，这正是本次要修的 bug）。
+  （额度耗尽不是连败，计进去会被 3 连败熔断误标「不可用」）。
 - 截止时间：渠道可用 `upstream.quotaResetAt(bodySnippet)` 从错误体里认（上游把下次刷新时间
   写在响应里时最准）；认不出就兜底**次日本地 0 点**（`nextLocalMidnight()`）。
 - 到期：读的时候顺手恢复成 `ok` 并清零连败（`expireCooldown`），因此**不需要定时器**，
   进程重启也不会留下永久的「冷却中」。
-- 短路：`activeAccountIsError()` 对 `error` 与「未到期的 `cooldown`」都返回 true
-  （请求入口不再打上游），到期的 `cooldown` 放行。
+- 短路：`activeAccountIsError()` 只对 `error` 为真（请求入口不再打上游）；`cooldown` 由
+  `activeAccountCooldown()` 按模型判定 —— 倍率 0 的免费模型不受冷却限制，照常打上游。
 - 展示：`activeAccountCooldown(cid)` 给出 `{ until, reason }` 供 CLI / Web 显示「冷却到几点」。
-- **冷却中的账号不参与账单刷新**（2026-10-23 主人要求）：额度要等窗口刷新才会变，
+- **冷却中的账号不参与账单刷新**：额度要等窗口刷新才会变，
   冷却期反复查它的额度既拿不到新数字、又白打一次上游。实现见
   `runRefresh` / `refreshAccountCredits` —— 只跳**这个账号**（生效账号冷却时渠道级查询跳过，
   池里其余健康账号照查），跳过的渠道记在 `RefreshResult.skipped` 里可观测。
 - 反向补充：**账单查到 0 也会进冷却**（`markCooldownIfExhausted`）—— 有的渠道额度用完不会
   立刻回 4xx（如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
   账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。
-- ⚠ **余额类信号只冷却付费模型**（2026-10-23 修正）：倍率 0 的模型不吃额度，冷却期必须照常
-  可路由；而且它自己撞到**余额类**错误时**不许**反过来把账号打成冷却（否则免费模型被一起锁死 ——
-  主人实测踩过）。判定见 `http/chat/attempt.ts::isFreePoolModel` 与 `http/chat/auth.ts`
+- ⚠ **余额类信号只冷却付费模型**：倍率 0 的模型不吃额度，冷却期必须照常
+  可路由；而且它自己撞到**余额类**错误时**不许**反过来把账号打成冷却（否则免费模型被一起锁死）。
+  判定见 `http/chat/attempt.ts::isFreePoolModel` 与 `http/chat/auth.ts`
   的 `freeModel` 参数：免费模型 → 跳过冷却闸门、跳过冷却写入，上游错误如实透出为
   `402 upstream_insufficient_quota`。真故障（`error`）仍**不分模型**一律短路。
-- ⚠ **两类额度信号要分开**（2026-10-23 真机后修正）：
+- ⚠ **两类额度信号要分开**：
 
   | 信号 | 原文样例 | 作用范围 | 处置 |
   |---|---|---|---|
@@ -171,13 +171,13 @@
 > | 层级 | 落点 | 作用 |
 > |---|---|---|
 > | **渠道级**（早就有） | 账本 `pool-usage.json` 的 `cooldown_until` | 观测/排序标记，**不剔除请求** |
-> | **账号级**（本次新增） | 账号池 `accounts.json` 的 `health: "cooldown"` | **请求入口短路**，到期自动放行 |
+> | **账号级** | 账号池 `accounts.json` 的 `health: "cooldown"` | **请求入口短路**，到期自动放行 |
 
 #### 非标准状态码的鉴权失败（`isAuthFailure`）
 
 有些上游不用 401/403 表达凭据失效 —— 如华为云 APIG 网关对过期 token 回
 `HTTP 400 + {"error_code":"APIG.0602"}`。渠道声明 `upstream.isAuthFailure(status, body)`
-后，共享层在收到 **4xx 且非 401/403** 的响应时问一次该钩子；返回 true 就归一成 401，
+后，共享层在收到**任何非 200** 的响应时问一次该钩子；返回 true 就归一成 401，
 走既有的「刷新 token → **重试当前账号**」链路；仍失败则标该账号 `unauthorized`、
 **保留凭据**、回 502 `upstream_unauthenticated`，**不自动切号**（见 §3.3）。未声明的渠道行为不变。
 
@@ -251,39 +251,38 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **档位表取上限**：qoder 的 `context_config` 是档位表（`{"1M":{token_count:1000000}, …}`），
   取**最大档**而非默认档 —— 对客户端报能力上限，否则 1M 模型会被按默认 200k 误判。
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
-  回落兜底值（窗口 128000 / 输出 4096）。
-- **上游不发 → 问渠道要「已知规格」**：多数渠道的上游目录**不带**窗口与输出上限
-  （实测 catpaw / lobsterai / loomy / orcaterm / qoder / qodercn 都不发；
-  而 workbuddy / workbuddyai 的上游 `/v3/config` **是发的**，
-  raccoon 的远端目录**两个都发**（`params.context_window` / `params.max_tokens`），
-  traecn 的远端目录**只发上下文**（Remote 目录不下发输出上限，`max_output` 恒 0））。
-  这类渠道用自己的 `MAX_OUTPUTS` 表按**公开规格**回答 —— 入口是**可选钩子**
+  回落兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）。
+- **上游不发 → 问渠道要「已知规格」**：上游目录**普遍只下发部分字段**，缺的那部分由渠道表补。
+  实测（见各渠道 PROTOCOL 的「模型窗口规格」节）：
+  - **上下文也发**：catpaw（`parameterDefinitions[id=context]` 逐型号档位）、loomy（`context_length`）、
+    lobsterai（`contextWindow`）、qoder / qodercn（`max_input_tokens` + `context_config` 档位表）、
+    raccoon（`params.context_window`）、traecn（Remote `context_window_tokens`）、
+    workbuddy / workbuddyai（`maxInputTokens`）。
+  - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
+    traecn（Solo `model_detail_list[].max_tokens`）、workbuddy / workbuddyai（`maxOutputTokens`）。
+  - **只发上下文、不发输出**：catpaw / lobsterai / qoder / qodercn（输出按公开规格补）。
+  - **完全无上游目录**：orcaterm（目录内置，只能按公开规格补）。
+  缺字段的渠道用自己的 `MAX_OUTPUTS` / `MODEL_SPECS` 表按**公开规格**回答 —— 入口是**可选钩子**
   `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
   当前**10 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
   取值优先级：**上游目录声明 > 渠道公开规格 > 兜底**（见下面「上游声明优先」那条路）——
   钩子只在「上游没声明」或「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
   规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
   - 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）→ 表必须放在**渠道包**里。
-  - 4096 兜底是「未知」，不是任何模型的真实上限：客户端按 4096 截断会把每次回答砍到 4k。
+  - 兜底值是「未知」，不是任何模型的真实上限（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）：
+    客户端按兜底值猜会与真实上限有出入，故能查到公开规格的型号应由渠道表给出真值。
 - **上游声明优先**：渠道声明的值比公开规格更贴近「这条渠道实际能吃多少」，
   两者冲突时以上游为准（分歧记在 [MODEL-SPECS.md](./MODEL-SPECS.md) §6）。
 
-### 2.7 模型目录的三级来源与兜底表
+### 2.7 模型目录兜底表（跨渠道规则）
 
-目录的来源顺序**所有渠道一致**（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）：
-
-| 级 | 来源 | 落点 | 说明 |
-|---|---|---|---|
-| 1 | 磁盘缓存 | `<root>/<cid>/cache/models.json` | **常态来源**：上次真实拉到的目录，新进程直接可读（`runtime/catalog-cache.ts`） |
-| 2 | 远端目录 | —— | `upstream.fetchModels()`：登录后拉一次；本地无缓存时 `mx model <cid>` 也会拉；`--refresh` 强制重拉。拉到即落盘 |
-| 3 | 渠道内置兜底表 | 渠道包 `src/catalog.ts`（10 个渠道里 8 个另有随包 `models.json` 快照） | 连缓存都没有时用，保证「未登录 / 离线时渠道不凭空消失」 |
-
-规则：
+目录来源顺序**所有渠道一致**（磁盘缓存 → 远端目录 → 渠道内置兜底表），契约见
+[CONTRACT-TS.md](./CONTRACT-TS.md) §5.3。此处只说跨渠道规则：
 
 - **兜底表是数据，不是机制**：它随包发布、必然随上游演进而脱节。它的意义只是
   「不留空白」，不是「这份目录是对的」。各渠道兜底表的具体内容写在该渠道的
   `PROTOCOL.md`，此处只说跨渠道规则。
-- **兜底表必须能真的兜住**：用**真实上游 id**，不用占位名（catpaw 曾写 `catpaw-flash`，
+- **兜底表必须能真的兜住**：用**真实上游 id**，不用占位名（占位名如 `catpaw-flash`，
   上游根本不存在，选中必然失败）。
 - **兜底表的形态随上游协议而定**：目录条目表（多数渠道）、上游目录快照
   （qodercn 的国内版目录 14 条）、上游元数据快照（qoder 的 `STATIC_META`，
@@ -315,7 +314,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 | 渠道 | 状态 | 后果 |
 |---|---|---|
 | `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:676-687`） |
-| `qodercn` | **未接线** | `buildChatBody` 仍传空对象（`packages/core/channels/qodercn/src/upstream.ts:640`），故其请求体的 `is_reasoning` 恒 `false`、`max_input_tokens` 恒 `180000`（`packages/core/channels/qodercn/src/upstream.ts:584-594`） |
+| `qodercn` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qodercn/src/channel.ts:44`、`packages/core/channels/qodercn/src/upstream.ts:593-603`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
 
@@ -325,18 +324,12 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 ### 3.1 目录布局
 
-```
-<root>/<cid>/
-├── credentials.json        ← 「当前生效账号」的兼容镜像
-├── accounts.json           ← 索引：账号列表 + 当前选中 + 每账号元信息
-└── accounts/
-   └── <account-key>.json  ← 单账号凭证（account-key = 稳定账号标识）
-```
+目录树见 §3.4。
 
 - **`credentials.json` 的定位**：全部渠道的 `cred.load()` / `save()`、CLI 命令与 `paths`
- 都依赖它；`accounts/` 承载多账号。
+  都依赖它；`accounts/` 承载多账号。
 - `accounts.json` 每条的元信息：`key` / `uid` / `nickname` / `domain`（realm）/ `expires_at` /
- `last_used` / `health`（`ok` / `unauthorized` / `error` / `unknown`）。
+  `last_used` / `health`（`ok` / `unauthorized` / `error` / `cooldown` / `unknown`）。
 - `account-key` 用渠道已有的稳定标识派生（JWT sub / `sha256(token)[:16]` / `accountId` 等），
  **不要用递增序号**（重登会串号）。
 
@@ -367,8 +360,7 @@ interface CredModule {
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
   `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts:80-86`）。
-  账号池因此**没有自动切号的调用方**（原 `pickAccount` 候选选择器已删除：零调用点，
-  留着只会让人误以为会自动切号）。
+  账号池因此**没有自动切号的调用方**。
 - **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
   **凭证一律保留**；成功清零连败，手动切号恢复 `error`。
 - **未实现**：自动切号、按额度耗尽自动换号、轮询、最久未用。
@@ -413,18 +405,15 @@ interface CredModule {
  过得了 `paths.channelFile` 的校验）。uid 为空的渠道退化为按 token 派生（那类渠道重登会得到新
  key，属已知限制）。
 - `label` / `expires_at` 是**尽力而为的展示字段**（取不到就空 / `null`），不参与任何判据。
-- `health`：`ok` | `unauthorized` | `unknown` | `error`。由**网关**在刷新失败时写
- `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
+- `health`：`ok` | `unauthorized` | `unknown` | `error` | `cooldown`。由**网关**在刷新失败时写
+  `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
 - **`error` = 连续失败标记**：生效账号连续请求失败达
  `FAIL_STREAK_LIMIT = 3` 次 → `health` 标 `error`，路由与账号选择都跳过它，
  `callUpstream` 入口直接短路不再发上游请求；**凭据一律保留**。只有「凭据/网络/
  上游 5xx」计入连败 —— 模型目录问题、请求体协议错（如 catpaw 的 tool 消息序列）、
  上游 4xx 业务错是请求级问题，不计入（否则健康账号会被误标）。
  成功一次清零连败；手动切号同时清零连败并恢复 `error`。
-- **额度耗尽 = 立即不可用**：上游返回 `insufficient_points` / 余额不足 / 配额不足时，
- 生效账号**立即**标 `error`（`fail_streak` 置为上限），后续请求在 `callUpstream`
- 入口短路，不再发上游；充值后 `mx acct <cid> use <key>`（或重新登录）恢复。
-  这与普通 4xx 请求级错误不同 —— 后者不标账号，避免误伤健康凭据。
+- **额度耗尽 → 账号 `cooldown`**（不是 `error`）：判据、截止时间与按模型放行的规则见 §2.4。
 - **共享层不解析渠道磁盘格式**：只做「复制文件 + 记下 `cred.load()` 的契约字段 uid/domain」，
  所以全部渠道**零改动**就支持账号池。
 - **同步按身份，不按时间**：`credentials.json` 变新时先比 `accountKey` —— 同一账号 → 回灌池内
@@ -460,11 +449,10 @@ interface CredModule {
 2. **判定放在拿得到凭据的那一步**：共享网关的调用序列是
    `buildChatBody()` → `buildHeaders()`，**只有 `buildHeaders()` 拿到凭据**
    （契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.2）。所以依赖账号的判定
-   必须放在 `buildHeaders()`；`buildChatBody()` 需要的判定输入（如本次的上游模型 id）
+   必须放在 `buildHeaders()`；`buildChatBody()` 需要的判定输入（如上游模型 id）
    经**模块级 pending 槽**从 `buildChatBody` 传给 `buildHeaders()`。
 
-> 当前 10 个渠道都没有用到这类状态（历史上只有已删除的 `codearts` 用 benefit 集合
-> 实现过）。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
+> 当前 10 个渠道都没有用到这类状态。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
 
 ## 4. 公共层设计
 

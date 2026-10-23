@@ -17,7 +17,10 @@
 ├── prefs.json                   ← （可选）跨渠道共享偏好
 ├── gateway.pid                  ← 仓库级网关监督进程 PID（不属于任何渠道）
 ├── gateway-worker.pid           ← 仓库级网关 worker PID（监督进程维护）
+├── watchdog.pid                 ← 外部守护 PID（scripts/mx-watchdog.mjs）
+├── watchdog.pause               ← 外部守护暂停标记（存在时只探测不拉起）
 ├── logs/                        ← 运行日志（类型/日期/结果分层，见 LOGGING.md）
+│   └── watchdog.log             ← 外部守护日志
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
 ├── workbuddyai/                 ← cid 层
 │   ├── credentials.json         当前生效账号（兼容镜像）
@@ -55,7 +58,7 @@
 1. **单一存储根**：`~/.modelmux/`，由共享层唯一解析，渠道不得自行拼绝对路径。
 2. **按 cid 分层**：`<root>/<cid>/`。`cid` 全小写、仅 `[a-z0-9-]`、等于 `ChannelConfig.cid`。
 3. **根目录覆盖变量**：`MODELMUX_HOME`（唯一覆盖变量）。
-4. **目录内固定文件名**（唯一定义处：`packages/core/gateway/src/runtime/paths.ts`）：
+4. **目录内固定文件名**（定义处：`packages/core/gateway/src/runtime/paths.ts` 的 `FILES`；`accounts.json` / `accounts/<key>.json` 另见 `runtime/account-pool.ts`）：
 
   | 文件 | 用途 |
   |---|---|
@@ -66,7 +69,7 @@
   | `prefs.json` | 渠道内偏好（`auto_start` 等） |
   | `gateway.pid` | 守护式网关 PID（记监督进程） |
   | `gateway-worker.pid` | 守护式网关 worker PID（监督进程维护） |
-  | `gateway.log` | **旧式**网关日志落点：现行日志统一在 `<root>/logs/`（见下），这里只在系统日志尚不存在时被监督者兜底写入，`mx log` 也会回落读它 |
+  | `gateway.log` | **旧式**网关日志落点：现行日志统一在 `<root>/logs/`（见下）；当前无写入方，`mx log` 回落读它 |
 
   运行日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 
@@ -105,5 +108,6 @@
    预留跨渠道设置，当前未使用。
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
    `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
-   账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）。走 `paths.rootFile()`
+   账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）、
+   `watchdog.pid` / `watchdog.pause`（外部守护 `scripts/mx-watchdog.mjs`）。走 `paths.rootFile()`
    或 `paths.logsDir()`，文件名同样受本节第 7 条的校验。

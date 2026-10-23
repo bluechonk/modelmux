@@ -50,7 +50,7 @@
 | User-Agent | intl `WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0`；cn `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1`（次段**小写** `workbuddy-ai`：对话由客户端内置 CLI 子进程发出，别照抄 Electron 主进程的 UA） |
 | X-User-Id / Authorization | 账号 uid / `Bearer <token>` |
 | X-Conversation-ID | 带连字符 UUID；上游不按它存历史，每轮新生成即可 |
-| X-Conversation-Request-ID = X-Root-Request-ID | **同一值**：一轮 user send 开始时生成、本轮所有请求复用（后台按它聚合） |
+| X-Conversation-Request-ID = X-Root-Request-ID | **同一值**：一轮 user send 开始时生成、同一轮所有请求复用（后台按它聚合） |
 | X-Conversation-Message-ID = X-Request-ID | 32 位无连字符 hex（UUIDv7） |
 | 链路族 | `traceparent: 00-<32hex>-<16hex>-01`、`b3: <trace>-<span>-1`、`X-B3-TraceId` / `X-B3-SpanId` / `X-B3-Sampled: 1`（`X-B3-ParentSpanId` 需要真实父子关系，不伪造）、`X-Trace-ID: <trace>`（官方客户端自家的 trace 头，取值同 trace id） |
 | Accept / X-Requested-With | `application/json, text/plain, */*` / `XMLHttpRequest` |
@@ -131,12 +131,10 @@
 - **判据优先级**：数组形态 `input_modalities`（含 `image` 即为真）→ 布尔形态
   `supportsImages` / `supports_image`；取不到 → 条目不填该字段，由汇聚层回落
   `["text"]`（宁可少报）。实现见 `src/catalog.ts` 的 `supportsImageOf`。
-- ⚠ **不要拿 `supports_image_detail_original` 当判据**（2026-10-20 修掉的 bug）：
-  改动前 `src/catalog.ts` 写的是 `rec["supports_image_detail_original"] ?? rec["supportsImages"]`，
-  于是同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
-  的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）被报成纯文本 →
-  客户端不再给它发图片。修完随包快照路径实测：`deepseek-v4.1-flash` 的
-  `input_modalities` 从 `["text"]` 变回 `["text","image"]`。
+- ⚠ **不要拿 `supports_image_detail_original` 当判据**：
+  同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
+  的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）会被报成纯文本 →
+  客户端不再给它发图片。
 - `[参考]` 同一判据口径与 hub 一致：`wb_proxy.py:10526`
   （`vision = bool(meta.get("supportsImages")) and not meta.get("disabledMultimodal")`）。
 
@@ -144,10 +142,10 @@
 
 渠道**不写单元/集成测试**（参见 `AGENTS.md` 的「测试规则」第 1 条）。
 
-- 临时验证脚本（抓包核对端点、跑通修复）放在项目根 `.tmp/`，**用真实账号、真实请求**快速验证；
+- 临时验证脚本（抓包核对端点、验证行为）放在项目根 `.tmp/`，**用真实账号、真实请求**快速验证；
   任务结束前删除，不入库，不写 fixture；禁止编写虚构请求头/凭证（`AGENTS.md` 的「测试规则」第 2 条）。
 - 上游约束（§2 头族、§4 错误码、§5 归一化管线）的正确性由**代码审查 +
-  归一化前后 diff 人工核验**保障，不靠运行时发任何请求去「验证修复」——
+  归一化结果人工核验**保障，不靠运行时发任何请求去「验证行为」——
   发畸形请求本身就是一次风控事件。
 - 渠道是否跑得通的**唯一判据**是端到端测试：由 Agent 跑 `reasonix-mx-test` skill，
   通过 Reasonix CLI 直连 `http://127.0.0.1:4412/v1`，用 `<渠道>/<模型>` 池 id 发
@@ -178,11 +176,8 @@
 - 三家参考实现都做这一步：hub `wb_accounts.py:3458-3468`、ckldy
   `cmd/login/main.go:151-163`、workbuddy2api-panel `internal/panel/login.go:191-203`
   （后者 global 与 cn **两个 realm 都做**）。
-- 国内版兄弟渠道 `workbuddy` 本来就有这一步（`packages/core/channels/workbuddy/src/cred.ts`
-  的 `fetchAccountProfile`），本渠道此前**漏了**（见 §12.2 的 R12）。
-- ⚠ 国际版该端点**确实存在**（2026-10-20 实测）：不带有效令牌 → **401**；
-  随手编的路径（`/v2/plugin/login/account-probe`）→ **404**。故「国际版没有这个端点」
-  的旧猜测被推翻（§12.3 的 V8）。
+- 国内版兄弟渠道 `workbuddy` 同有这一步（`packages/core/channels/workbuddy/src/cred.ts`
+  的 `fetchAccountProfile`）；国际版该端点存在（不带有效令牌 → **401**，编造路径 → **404**）。
 - 取到的 `enterpriseId` **不落盘**：国际版上游不发企业身份头（`X-Enterprise-Id` 只在
   国内版成对出现，见 `workbuddy` 渠道的实现），落一个用不到的字段只是死数据。
 
@@ -239,7 +234,7 @@
 （`packages/core/gateway/src/auth/auth-flow.ts:96-99`）。
 参考实现是**主动**的（hub `wb_accounts.py:1205-1217` 剩余 ≤120s 先刷；
 ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷），
-本轮不实现，见 §12 已知边界。
+本渠道不实现，见 §12 已知边界。
 
 ## 9. chat 与模型请求的确切 URL
 
@@ -323,7 +318,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 | --- | --- |
 | `X-Conversation-ID` | 带连字符 UUID |
 | `X-Conversation-Request-ID` | 32 位无连字符 hex（UUIDv7 形态） |
-| `X-Root-Request-ID` | **与 `X-Conversation-Request-ID` 同值**（一轮 user send 生成、本轮复用） |
+| `X-Root-Request-ID` | **与 `X-Conversation-Request-ID` 同值**（一轮 user send 生成、同一轮复用） |
 | `X-Conversation-Message-ID` | 32 位无连字符 hex（UUIDv7 形态） |
 | `X-Request-ID` | **与 `X-Conversation-Message-ID` 同值** |
 
@@ -456,7 +451,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 `catalog.modelSpec()` 钩子给池层提供**已知规格**（契约见
 [`CONTRACT-TS.md`](../../CONTRACT-TS.md) §5.3），落到 `GET /v1/models` 的
 `context_window` / `max_output_tokens`。取值优先级：**上游目录声明 > 渠道规格表 >
-兜底值**（128000 / 4096）。
+兜底值**（200000 / 65536）。
 
 - ⚠ 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
   `maxOutputTokens`，落盘成 `context_window` / `max_output`），所以正常情况下
@@ -558,10 +553,9 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）
 - **不是协议回归**：本渠道 2026-10-20 未改代码；失败原因是**账号侧用量限额**打满，
   不是端点 / 请求头 / 登录态问题。
 - **恢复办法**：等上游额度窗口重置，或换一个有额度的账号重新入池。
-- **2026-10-23 补齐（冷却替代「不可用」）**：以前 429 会被当成普通失败记连败、3 次后
-  把账号标 `error`（Web 显示「不可用」）—— 但额度耗尽是**会自己好**的。现在改判为
-  **账号级冷却**（`health: "cooldown"` + `cooldown_until`），Web 显示「冷却中」并写明
-  等到什么时候，到期自动恢复；实现见 `http/chat/attempt.ts` 的 `isQuotaExhausted` 分支 +
+- **429 / 6004 判为账号级冷却**：额度耗尽会自行恢复，故不记连败、不标 `error`，
+  而是置 `health: "cooldown"` + `cooldown_until`，Web 显示「冷却中」并写明等到什么时候，
+  到期自动恢复；实现见 `http/chat/attempt.ts` 的 `isQuotaExhausted` 分支 +
   `runtime/account-pool.ts` 的 `noteAccountQuotaExhausted`。
 - **冷却截止时间：用上游给的滚动重置时间**（`upstream.quotaResetAt`），**不是**「次日 0 点」。
   2026-10-23 真机原文（HTTP 429，重置时间随消费时刻滚动）：
@@ -603,9 +597,7 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）
 
 - 上游回**「not logged in: run the login subcommand, open the printed authorization URL
   in a browser, then retry.」**（网关 access 日志 `status: 502`、`upstream_ms: 340`）。
-- **不是本轮改动的回归**：本渠道最后一次成功在 **2026-10-19 23:05（北京时间）**，
-  首次失败在 **2026-10-20 00:32** —— 比本轮改动（当日 12:30 之后）**早约 12 小时**；
-  且同协议的兄弟渠道 `workbuddy` 在同一份共享层代码下**实测通过**。
+- **非协议回归**：失败是账号侧问题（用量限额 / 会话被注销），不是端点 / 请求头 / 登录态问题。
 - 本地凭据**未过期**（`expiresAt` 到 2027-10-18），`mx bill workbuddyai` 也能通
   （剩余 100/100）→ 说明**上游侧会话已被注销**（与上午的 429 限额同源的账号问题）。
 - **恢复办法**：重新走一次登录（`mx login workbuddyai`），或换一个账号入池。
@@ -625,10 +617,9 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ## 已知边界
 
-### 12.1 参考实现有、当前实现没有的功能（29 条，本轮明确不做）
+### 12.1 参考实现有、当前实现没有的功能（29 条，本渠道不做）
 
-> 全部来自 `reference/` 三个仓库的源码（证据见
-> `.planning/2026-10-20-channel-reference-parity/research/workbuddyai.md` 的 §5）。
+> 全部来自 `reference/` 三个仓库的源码（证据为源码中的文件:行号，见下表）。
 
 | 层 | 缺口 | 参考实现 |
 | --- | --- | --- |
@@ -664,20 +655,11 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | # | 风险 | 现状 |
 | --- | --- | --- |
-| R1 | `expiresIn` 单位三家分歧 | 已修：绝对时刻 → JWT `exp` → 相对量三段式，且秒/毫秒都认（§11） |
-| R2 | 国际版签到端点断言错误 | 已修：改为「国际版无签到端点」，不再打 `/billing/meter/daily-checkin` |
-| R3 | billing 头误用国内版 UA | 已修：按区域取计费 UA（国际版 `WorkBuddy/5.8.4`） |
-| R4 | billing 头缺 `X-Machine-ID` / `X-Session-ID` | 已修：按账号 uid 派生 |
-| R5 | billing 的 `X-Request-ID` 形态不对（带连字符） | 已修：改为 32 位无连字符 hex |
-| R6 | 国内版域名集合漏 `workbuddy.cn` | 已修：`upstream.isCnDomain()` 认三代域名 |
-| R7 | chat / 目录 / 额度的 base 口径不一致 | 部分修：域名覆写处统一过 `normalizeBaseUrl()`；chat 与目录仍分别取「落盘 baseUrl」与「凭据 domain」 |
 | R8 | 刷新无并发锁 | **未做**（见 §12.1） |
 | R9 | 只被动续期，无到期前预刷 | **未做**（见 §12.1） |
 | R10 | 登录端点的匿名头与参考实现不同 | 保留现状（已实测跑通），见 §10.4 |
 | R11 | `platform=workbuddy` 与参考实现的 `CLI` 不同 | 保留现状（已实测跑通），见 §8.2 |
-| R12 | 不打 `/v2/plugin/login/account`，没有昵称 / 企业 id | **已修**（2026-10-20）：登录链路补上该步（§8.0.1），uid / nickname 落盘；`enterpriseId` 仍不落盘（国际版不发企业头） |
 | R13 | 目录不宣告推理档位 / 工具支持 | **未做**（见 §12.1） |
-| R14 | `www.codebuddy.ai` 沉洞的兜底只做了一处 | 已修：收敛到 `normalizeBaseUrl()`，chat / 目录 / 额度 / 续期四条路径都过 |
 | R15 | 随包快照只有 1 条模型 | 未改（远端目录落盘后即以远端为准） |
 
 ### 12.3 需要真机验证（不能靠读代码定论）

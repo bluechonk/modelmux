@@ -7,9 +7,8 @@
 
 > 证据等级：`[实测]` 真机实测 / `[代码]` 源码逐字读出 / `[推断]` 由结构推出 /
 > `[参考]` 仅见于参考实现自述、本仓库未复验。
-> 引用写成 `仓库根相对路径:行号`（**本仓真实位置**）；**参考实现**（第三方反代项目，
-> clone 在 `packages/core/channels/qoder/reference/` 下、**不入库**，国内版与 `qoder`
-> 共用同一批 clone）只写**仓库与文件名**、**不写行号**。
+> **引用口径与参考实现约定**见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 的「引用口径」
+> （国内版与 `qoder` 共用同一批 clone，位于 `packages/core/channels/qoder/reference/`、**不入库**）。
 > **参考实现只提供协议知识，事实以本仓实现为准。**
 
 ---
@@ -48,7 +47,7 @@
 被**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 
-### 1.1.2 `machine_id` 分歧的结论（2026-10-20 核对三家参考实现后定案）
+### 1.1.2 `machine_id` 分歧的结论（核对三家参考实现）
 
 三家参考实现对「授权页是否带 `machine_id`」确实分歧，但**分歧的根源是「有没有官方客户端」**：
 
@@ -68,8 +67,7 @@
 pending），再改成「带官方客户端真机身份」；在那之前保持不带（与 `qoder` 国际版渠道一致，
 见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
 
-实现见 `packages/core/channels/qodercn/src/cred.ts:422-523`（登录）、
-`packages/core/channels/qodercn/src/cred.ts:535-583`（续期）、`packages/core/channels/qodercn/src/cred.ts:221-229`（授权 URL）、`packages/core/channels/qodercn/src/cred.ts:173-190`（设备指纹派生）。
+实现见 `packages/core/channels/qodercn/src/cred.ts` 的登录、续期、授权 URL 构造与设备指纹派生。
 
 ### 1.2 为什么不采纳另外两条
 
@@ -80,12 +78,11 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 | **PAT 导入**（`pt-` → `/api/v1/jobToken/exchange` 换 `jt-`/`jrt-`） | 参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（PAT → jobToken 交换段）；`Zhengyuuuui/qoder2api` 的 `service.go` | ① 要用户去 Qoder 网页版手工造 `pt-` 令牌，登录步骤反而更多；② 引入**第二套 token 族**（`jt-` 24 h / `jrt-` 48 h）与第二套刷新路由（`jobToken/refresh` + PAT 重新交换），违反「登录逻辑只保留一个」；③ 设备流 `dt-`/`drt-` 寿命更长（约 30 天 / 约 1 年），现有静默续期链路已覆盖 |
 | **本机已登录凭证扫描**（桌面 App `auth.v1.dat` 的 os_crypt/DPAPI 解密 + CLI `~/.qoder*/.auth/user` 的 AES-128-CBC 解密） | 参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（本机凭证扫描段） | ① 要把平台相关的解密代码（DPAPI / Chromium os_crypt / AES-GCM）带进渠道包，违反「渠道包 `src/` 只 7 文件、零第三方运行依赖」的契约；② 依赖用户装了官方桌面客户端并已登录，可移植性最差；③ 仍只是一条「导入已有凭据」的路，不是登录 |
 
-判据与决策记录见本地规划目录（**不入库**）
-`.planning/2026-10-20-channel-reference-parity/research/qodercn.md` §1.4。
+上述两条路径的判据见上表「不采纳的理由」列。
 **保留条件**：真机若证明 `dt-` 续期链路上游已判死（连续 401/403），
 才重新评估；即便引入 PAT，也应定位成「凭据导入」而非第二套登录流程。
 
-⚠ **`machine_id` 的分歧已定案**（见 §1.1.2）：带它的两家带的是**官方客户端真机身份**，
+⚠ **`machine_id` 的分歧结论**（见 §1.1.2）：带它的两家带的是**官方客户端真机身份**，
 本渠道没有官方客户端（自己的 `machineId` 是给 COSY 头用的派生值），故**不带**
 （对齐 Zhengyuuuui，与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1 的记载一致）。
 
@@ -221,9 +218,6 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 `upstream` 再 import `catalog` 就成环 —— 由 `channel.ts` 装配时注入查询器
 （`upstream.setModelMetaLookup(catalog.metaOfKey)`），两个模块保持单向依赖 `[代码]`。
 
-> 2026-10-20 之前本渠道**没有接线**（`buildChatBody` 传空 meta），
-> 于是 `is_reasoning` 恒 false、`max_input_tokens` 恒 180000 —— 已修。
-
 ### 3.5 token 与凭据
 
 **不是 JWT**，是不透明裸串。
@@ -236,7 +230,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 落盘字段：`accessToken` / `refreshToken` / `uid` / `nickname` / `machineId`（**必须持久化**，
 参与服务端设备绑定）/ `userType`（登录时取自 `userinfo` 的 `user_type`，取不到回落
 `personal_professional_trial`）/ `domain` / `realm` / `gatewayHost` / `expireAt` /
-`refreshExpireAt`。实现见 `packages/core/channels/qodercn/src/cred.ts:131-147`、`packages/core/channels/qodercn/src/cred.ts:532-549`。
+`refreshExpireAt`。实现见 `packages/core/channels/qodercn/src/cred.ts`。
 
 ### 3.6 通用归一化在共享层（与国际版同一口径）
 
@@ -279,12 +273,11 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 - 登录授权页国内版**额外带 `redirect_uri`**（见 §1.1 与
   [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
 - **`/sash/**` 的机器头策略两区不同**（见 §3.2）—— 这是国内版与国际版最容易踩混的一处。
-- **登录后补 userinfo 的字段数已对齐**（2026-10-20 本轮改动）：国内版读 `name` / `user_type` /
-  `id`（昵称、请求体 `aliyun_user_type` 用的身份类型、uid 兜底）；**国际版 `qoder` 渠道也已对齐**
+- **登录后补 userinfo 的字段数两区一致**：国内版读 `name` / `user_type` /
+  `id`（昵称、请求体 `aliyun_user_type` 用的身份类型、uid 兜底）；**国际版 `qoder` 渠道同口径**
   —— `packages/core/channels/qoder/src/cred.ts` 的 `fetchUserProfile()` 同样读
   `name` / `user_type` / `id`（snake_case 与 camelCase 两种字段名都认），
-  故两边的 `aliyun_user_type` 都不再恒为默认值 `personal_professional_trial`
-  （取不到才回落默认）。
+  故两边的 `aliyun_user_type` 都取真实值（取不到才回落默认 `personal_professional_trial`）。
 
 ### 推荐模型
 
@@ -325,20 +318,9 @@ mx bill qodercn
 Reasonix CLI 直连网关（`qodercn/qwen3.8-flash`，倍率 0）：
 
 - 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
-- 本轮为**全渠道回归**的一环；国内版的登录 / userinfo / 粘贴兜底改动（§1 / §1.1.1）
-  已随本次实测跑通。
-
-### 2026-10-20 归一化口径收敛后的端到端实测（补齐三项缺失归一）
-
-本轮 qodercn 与 qoder 收敛到共享层归一化实现（§3.6），并**补齐了三项此前缺失的归一**
-（`tools[]` 顶层 `name` 型 → 嵌套 `function` 型、`max_completion_tokens` 别名 →
-`max_tokens`、DeepSeek 多轮 assistant 的 `reasoning_content` 回填）—— 这些是**请求体**变化，
-已用端到端复验：
-
-- 模型 `qodercn/qwen3.8-flash`（倍率 0），Reasonix Agent 工具往返通过：
-  写文件 → 读回确认 → `bash` 执行 `pwd`/`ls` → 总结，四步全过；
-- 落盘文件内容与要求完全一致（`qodercn/qwen3.8-flash ok`）；
-- 错误日志当日**无该渠道新增条目**；费用：免费模型，账单差值 0。
+- 工具往返（写文件 → 读回确认 → `bash` 执行 `pwd`/`ls` → 总结）通过；
+  落盘文件内容与要求完全一致（`qodercn/qwen3.8-flash ok`）。
+- 错误日志无该渠道新增条目；费用：免费模型，账单差值 0。
 
 ## 参考实现
 
@@ -405,7 +387,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 | V1 | CN 侧 `/sash/api/v1/me/campaigns` 是否确实「不发指纹」才对 | 同一账号分别打「带机器头」与「不带」两次，比对 `campaigns` 长度与顶层 `claimable` |
 | V2 | CN 的「每日领取 100 Credits」到底能不能领到 | 网关 running 时由自动签到链路领取，对照 campaigns 原始响应与 `mx status qodercn` 的签到摘要 |
 | V3 | 额度端点口径（`/sash/api/v2/me/usage` vs `/api/v2/quota/usage`） | 同一账号各打一次，比对返回体形状 |
-| V4 | 设备授权页是否需要 `machine_id` | **已定案**（§1.1.2）：不带也能登录（poll 不校验它）；若真机出现「授权页报错 / 轮询一直 pending」，再改成带官方客户端真机身份重试 |
+| V4 | 设备授权页是否需要 `machine_id` | **结论**（§1.1.2）：不带也能登录（poll 不校验它）；若真机出现「授权页报错 / 轮询一直 pending」，再改成带官方客户端真机身份重试 |
 | V5 | CN 的 `session_type` 取值 | 抓一次真实请求体（`QODERCN_DEBUG_DUMP`）比对官方客户端 |
 | V6 | CN 的 `cosy-version` 取值（`1.1.64` vs `0.4.3`/`0.4.4`） | 抓包看官方客户端打 `/sash/**` 时带的值 |
 | V7 | CN 的 `user-agent` 形态（`QoderWork/1.1.64` vs `Qoder`） | 抓包比对；或并入 V1 的 A/B 对照 |

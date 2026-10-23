@@ -40,7 +40,7 @@ docs/channels/<cid>/
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：`PROTOCOL.md` 11 份（每个渠道一份）、`FINDINGS.md` 4 份
+当前落地：`PROTOCOL.md` 10 份（每个渠道一份）、`FINDINGS.md` 4 份
 （`catpaw` / `orcaterm` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
 后两者是**按需**的逆向结论层，不是每个渠道都有。
 另有专题文件：`orcaterm/TOOL-CALLS.md` 与 `orcaterm/REQUEST-BODY.md`
@@ -83,7 +83,7 @@ docs/channels/<cid>/
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 
-## 端到端测试现状（2026-10-20 全渠道复测）
+## 端到端测试现状（全渠道复测，最近 2026-10-22）
 
 用 `reasonix-mx-test` 逐渠道跑「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，
 只用**免费或倍率最低**的模型。判据：access 日志 `status 200` / `stream true` / `toolCount > 0` /
@@ -108,10 +108,6 @@ docs/channels/<cid>/
    `not_authenticated`（token 失效后需用户手动 `mx acct <cid> use <key>` 切号）——
    都是账号侧约束，不是协议缺陷。
 2. **qoder 上游排队饱和**：单请求 TTFB 220–290s 后模型不再推进（见上表「受限」）。
-
-> 下面这条曾记在这里，现已过时并删除，代码为准：
-> **访问日志的 outcome 分桶**（客户端先关连接时 `outcome ??= "other"`，成功请求落
-> `other.log`）：已由 `2978bf5` 修好 —— `runtime/log-store.ts` 改为按状态码判定 outcome。
 
 ## 新增渠道要动的文档
 

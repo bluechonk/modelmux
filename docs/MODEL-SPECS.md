@@ -10,13 +10,13 @@
 | `context_window` | 模型能吃进去的**总** token（输入 + 输出） | 客户端按默认猜（常见 128k / 256k），长会话被**自己**截断 |
 | `max_output_tokens` | 单次回复的**最大**输出 token | 客户端按默认猜（常见 4096），每次回答被截到 4k |
 
-⚠️ **4096 是兜底值，不是任何模型的真实上限** —— 早期 `/v1/models` 对全池返回 4096，
-正是因为上游目录普遍**不下发**这两个数（见 §4）。
+⚠️ **兜底值（窗口 200K / 输出 64K）不是任何模型的真实上限** —— 上游目录普遍**不下发**
+这两个数（见 §4），兜底值只是「未知」的占位（常见档位的下限），不是真实规格。
 
 ⚠️ 公开规格是**模型上限**，上游渠道可能比它更严（超限回 400 / 空流）——
 客户端收到超限错误应能**降档重试**。
 
-## 2. 核实方法（2026-10-20）
+## 2. 核实方法
 
 1. **官方文档优先**：平台 API 文档页、模型卡、定价页（带「长度限制 / 上下文窗口 / 最大输出」原文）。
 2. **官方模型卡**（HuggingFace / GitHub / 官方仓库 `config.json`）补官方文档没写的型号。
@@ -37,6 +37,7 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 | `deepseek-v4-flash` | 1048576 | 393216 | 同上（型号已退役，路由到 V4.1-Flash-1017） |
 | `deepseek-v4-pro` | 1048576 | 393216 | 同上（2026-09 起别名路由到 V4.1-Flash） |
 | `deepseek-v4.1-flash` | 1048576 | 393216 | 同上 + [百炼](https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash) |
+| `deepseek-v4.1-flash-sg` | 1048576 | 393216 | 同 [deepseek 官方](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)（workbuddyai 目录名，= `deepseek-v4.1-flash`） |
 | `qwen3.5-plus` | 1000000 | 65536 | [百炼](https://help.aliyun.com/zh/model-studio/qwen3-5-plus) |
 | `qwen3.6-plus` | 1000000 | 65536 | [百炼](https://help.aliyun.com/zh/model-studio/qwen3-6-plus) |
 | `qwen3.7-max` | 1000000 | 131072 | [百炼](https://help.aliyun.com/zh/model-studio/qwen3-7-max) |
@@ -47,6 +48,7 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 | `qwen3.8-omni-flash` | 1000000 | 131072 | [百炼](https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash) |
 | `glm-4.7` | 202752 | 131072 | [docs.z.ai](https://docs.z.ai/guides/llm/glm-4.7) |
 | `glm-5` | 202752 | 131072 | [docs.z.ai](https://docs.z.ai/guides/llm/glm-5) |
+| `glm-5.0` | 202752 | 131072 | [docs.z.ai](https://docs.z.ai/guides/llm/glm-5)（workbuddy 目录名，= `glm-5`） |
 | `glm-5.1` | 202752 | 131072 | [bigmodel.cn](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.1) |
 | `glm-5.2` | 1048576 | 131072 | [docs.z.ai](https://docs.z.ai/guides/llm/glm-5.2) |
 | `glm-5.3` | 1048576 | 131072 | [docs.z.ai](https://docs.z.ai/guides/llm/glm-5.3) |
@@ -72,8 +74,10 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 | `doubao-seed-2.1-turbo` | 262144 | 262144 | 同上 |
 | `doubao-seed-evolving` | 1048576 | 262144 | [火山方舟](https://docs.volcengine.com/docs/ark/latest-model?lang=zh) |
 | `hunyuan-turbos` | 262144 | 无公开规格 | [模型卡](https://github.com/tencent-hunyuan/Hunyuan-Turbos) |
+| `hunyuan-chat` | 262144 | 无公开规格 | [模型卡](https://github.com/tencent-hunyuan/Hunyuan-Turbos)（workbuddy 目录名，= `hunyuan-turbos`） |
 | `hy3` | 262144 | 无公开规格 | [模型卡](https://github.com/tencent-hunyuan/Hy3) |
 | `hy4-preview` | 1048576 | 无公开规格 | [模型卡](https://github.com/tencent-hunyuan/Hy4-preview) |
+| `hy4-preview-x` | 1048576 | 无公开规格 | [模型卡](https://github.com/tencent-hunyuan/Hy4-preview)（workbuddy 目录名，= `hy4-preview`） |
 | `step-5-preview` | 1048576 | 65536 | [阶跃文档](https://platform.stepfun.com/docs/zh/guides/models/step-5-preview) |
 | `openpangu-2.0-flash` | 524288 | 无公开规格 | [模型卡](https://huggingface.co/openpangu/openPangu-2.0-Flash) |
 | `openpangu-2.0-pro` | 524288 | 无公开规格 | [模型卡](https://huggingface.co/openpangu/openPangu-2.0-Pro) |
@@ -110,7 +114,7 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 2. **渠道已知规格表**（本文）—— 上游不发时，渠道用自己的 `MAX_OUTPUTS` 表回答
    （`catalog.modelSpec()` 钩子，见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
    **表里的数值必须与本文一致**；改规格先改本文，再改渠道表。
-3. **兜底值** —— 两者都没有时给 128000 / 4096，表示「未知」。
+3. **兜底值** —— 两者都没有时给 200000 / 65536，表示「未知」（不是真实上限）。
 
 ⚠️ 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）——
 所以第 2 层的表**必须放在渠道包里**（`packages/core/channels/<cid>/src/catalog.ts`），
@@ -122,10 +126,19 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 | --- | --- | --- | --- |
 | `spark-x`（loomy） | 上下文 1048576 | 262144 | **以上游为准**（渠道实际能吃多少以它自己为准），分歧记在 `docs/channels/loomy/PROTOCOL.md` |
 | `glm-4.7` | — | 202752 / 131072 | 按公开规格填 |
+| `gpt-5.4`（workbuddyai） | 272000 / 72000 | 1050000 / 128000 | **以上游为准**；同页的 `gpt-5.5` 及以后上游声明 1000000 / 128000，与公开规格一致 |
+| `grok-4.7`（workbuddyai） | 500000 / 128000 | 500000 / 官方写「No text output limit」 | **以上游为准**（上游给了具体上限） |
+| `kimi-k3`（workbuddyai） | 1000000 / 32000 | 1048576 / 1048576 | **以上游为准**（上游更严） |
+| `spark-x2.6`（loomy） | 1048576 / 131072 | 未核实到公开规格 | **以上游为准** |
+| `sensenova-6.8-flash` / `-lite`（raccoon） | 256000 / 63999 | 未核实到公开规格 | **以上游为准** |
+| `hy3` / `hy4-preview` / `hunyuan-turbos`（workbuddy） | 192000 / 1048576 / 262144（均未声明输出） | 262144 / 1048576 / 262144 | **以上游为准** |
+| `glm-5.3`（catpaw） | 最大档 800000 | 1048576 | **以上游为准**（上游逐型号声明档位，见 `docs/channels/catpaw/PROTOCOL.md`） |
+| `deepseek-v4.1-flash` / `deepseek-v4-pro`（catpaw） | 最大档 600000 / 700000 | 1048576 | **以上游为准** |
+| `spark-x`（loomy）最大输出 | 65536 | 262144 | **以上游为准** |
 
 ## 7. 怎么更新
 
 1. 厂商发新版本 → 重新核实（§2 的方法）→ **先改本文 §3 / §4**。
-2. 再改对应渠道的 `MAX_OUTPUTS` 表（`packages/core/channels/<cid>/src/catalog.ts`）。
+2. 再改对应渠道的规格表（`packages/core/channels/<cid>/src/catalog.ts` 的 `MAX_OUTPUTS` 或 `MODEL_SPECS`）。
 3. `npm run build` → `mx restart` → 复测 `GET /v1/models`。
 4. 型号**没有**公开规格时，**删表里的行**（让网关回落兜底），不要猜一个数填进去。
