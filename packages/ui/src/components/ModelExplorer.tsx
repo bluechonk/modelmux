@@ -219,7 +219,7 @@ export function ModelExplorer({
               className={`px-2.5 py-1.5 text-xs transition-colors ${
                 flat ? "text-ink-faint hover:text-ink" : "bg-overlay text-ink"
               }`}
-              title="按渠道分组"
+              aria-label="按渠道分组"
             >
               <LayoutList className="h-3.5 w-3.5" />
             </button>
@@ -229,7 +229,7 @@ export function ModelExplorer({
               className={`px-2.5 py-1.5 text-xs transition-colors ${
                 flat ? "bg-overlay text-ink" : "text-ink-faint hover:text-ink"
               }`}
-              title="全部按倍率排平"
+              aria-label="全部按倍率排平"
             >
               <Rows3 className="h-3.5 w-3.5" />
             </button>
@@ -298,9 +298,7 @@ function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: Re
   if (m === 0 || (m == null && freePlan)) {
     return (
       <td className="whitespace-nowrap px-3 py-2 text-right">
-        <span className="pill bg-free/12 font-mono text-free" title={m === 0 ? "零消耗" : "订阅制，无额外计费"}>
-          免费
-        </span>
+        <span className="pill bg-free/12 font-mono text-free">免费</span>
       </td>
     );
   }
@@ -308,10 +306,7 @@ function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: Re
     return <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-faint">—</td>;
   }
   return (
-    <td
-      className="whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft"
-      title={`消耗倍率 ×${formatMultiplier(m)}`}
-    >
+    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft">
       ×{formatMultiplier(m)}
     </td>
   );
@@ -326,7 +321,7 @@ function ModalityCell({ row }: { row: ModelRow }): ReactElement {
   }
   return (
     <td className="whitespace-nowrap px-3 py-2">
-      <span className="pill bg-brand/12 text-brand" title={`输入模态：${modes.join(" / ")}`}>
+      <span className="pill bg-brand/12 text-brand">
         <ImageIcon className="h-3 w-3" />
         文本+图
       </span>
@@ -334,10 +329,10 @@ function ModalityCell({ row }: { row: ModelRow }): ReactElement {
   );
 }
 
-/** 模型名单元格：等宽字体，超长截断（悬停看全名）。 */
+/** 模型名单元格：等宽字体，超长截断（全名可用旁边的复制按钮取）。 */
 function ModelNameCell({ row }: { row: ModelRow }): ReactElement {
   return (
-    <td className="max-w-[22rem] truncate px-4 py-2 font-mono text-xs text-ink" title={row.id}>
+    <td className="max-w-[22rem] truncate px-4 py-2 font-mono text-xs text-ink">
       {row.id}
     </td>
   );
