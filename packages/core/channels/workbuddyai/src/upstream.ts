@@ -808,74 +808,57 @@ export function newTranslator(): StreamTranslator {
 /**
  * 从上游错误体里认「额度耗尽 + 下次刷新时刻」（`UpstreamModule.quotaResetAt`）。
  *
- * 依据：本渠道的用量限额打满是 **HTTP 429 + 业务码 `code=6004`**（2026-10-20 实测，
- * 见 `docs/channels/workbuddyai/PROTOCOL.md` §「2026-10-20 端到端实测」）。
- * 主人反馈「花完日额度后上游会返回下次刷新时间」，但**具体字段名尚未在响应里核实**
- * （参考实现未 clone，见 PROTOCOL §4 待确认），所以这里是**宽容解析**：
+ * **上游把重置时间写在 msg 文本里，不是 JSON 字段**。2026-10-23 由参考实现
+ * `ardeyouxipianyi/workbuddy2api-hub` 的 `wb_proxy.py::parse_rate_limit_reset` 确认，
+ * 那个函数的注释给了两种真实形状：
  *
- * 1. 只在识别到「额度/限额」措辞或 `6004` 时才看时间字段（避免把 401/400 的
- *    `expires_at` 之类误当额度重置时间）；
- * 2. 依次尝试常见字段名（`resetTime` / `nextResetAt` / `refreshTime` / `availableAt` …），
- *    支持 ISO 字符串、`YYYY-MM-DD HH:mm:ss`（上游账单就用这种）与秒/毫秒时间戳；
- * 3. **认不出返回 `null`** —— 共享层会回落次日本地 0 点，绝不编一个时间。
+ * ```
+ * "... your usage will reset at 2026-09-19 18:29:03 UTC+8 ..."
+ * "您的使用量已超出频率限制，将在 2026-10-02 16:00:34 UTC+8 重置 ..."
+ * ```
+ *
+ * 时间戳是 **body 自己声明的 UTC 偏移**下的墙钟时间（`UTC+8`），所以按 UTC 解释成
+ * epoch 后再**减去**该偏移 —— 直接按本地时区解析会在非 UTC+8 的机器上差几个小时
+ * （参考实现的注释里专门强调过这一点，它用 `timegm` 而不是 `mktime`）。
+ *
+ * 措辞不认识时用更稳的兜底：认「时间戳 + `UTC±N`」这个搭配。
+ * **认不出返回 `null`** —— 共享层回落次日本地 0 点，绝不编造时间。
  */
 export function quotaResetAt(bodySnippet: string): number | null {
-  const text = bodySnippet ?? "";
-  if (text === "") return null;
-  // ① 先确认这是「额度/限额」而不是别的错误
-  const looksQuota = /6004|quota|usage\s+limit|limit\s+exceeded|insufficient|额度|限额|用量/i.test(text);
-  if (!looksQuota) return null;
+  const raw = bodySnippet ?? "";
+  if (raw === "") return null;
+  // 错误体里的中文 msg 常被转义成 \uXXXX
+  const text = raw.replace(/\\u([0-9a-fA-F]{4})/g, (_all: string, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+  // 先确认这是「额度/限流」而不是别的 4xx
+  if (!/6004|quota|usage|limit|频率|额度|限额|超出/i.test(text)) return null;
 
-  // ② 再找时间字段（键名不区分大小写，允许下划线/连字符）
-  const FIELD_NAMES = [
-    "resetTime",
-    "reset_time",
-    "resetAt",
-    "reset_at",
-    "nextResetTime",
-    "next_reset_time",
-    "nextResetAt",
-    "next_refresh_time",
-    "nextRefreshTime",
-    "refreshTime",
-    "refresh_time",
-    "availableAt",
-    "available_at",
-    "recoverAt",
-    "recover_at",
-    "quotaResetTime",
-    "cycleEndTime",
-    "cycle_end",
-  ];
-  for (const name of FIELD_NAMES) {
-    const re = new RegExp(`"${name}"\\s*:\\s*("([^"]*)"|([0-9]+))`, "i");
-    const hit = re.exec(text);
-    if (!hit) continue;
-    const asString = hit[2] ?? hit[3] ?? "";
-    const parsed = parseTimeLike(asString);
-    if (parsed !== null) return parsed;
-  }
-  return null;
-}
+  const keyword = /(?:reset at|将在)\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/.exec(text);
+  const loose = /(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\s*UTC[+-]\d{1,2}/.exec(text);
+  const match = keyword ?? loose;
+  if (!match) return null;
+  const stamp = (match[1] ?? "").replace("T", " ");
 
-/** 解析上游常见的时间写法；认不出返回 null。 */
-function parseTimeLike(raw: string): number | null {
-  const value = raw.trim();
-  if (value === "") return null;
-  // 纯数字：>= 1e12 当毫秒，>= 1e9 当秒（更小的当日期序号/无意义）
-  if (/^\d+$/.test(value)) {
-    const num = Number.parseInt(value, 10);
-    if (num >= 1e12) return num;
-    if (num >= 1e9) return num * 1000;
-    return null;
+  // 偏移：UTC+8 / UTC-5 / UTC+05:30
+  const tz = /UTC([+-]\d{1,2})(?::?(\d{2}))?/.exec(text);
+  let offsetSeconds = 0;
+  if (tz) {
+    const hours = Number.parseInt(tz[1] ?? "0", 10);
+    const minutes = Number.parseInt(tz[2] ?? "0", 10);
+    offsetSeconds = hours * 3600 + (hours >= 0 ? minutes * 60 : -minutes * 60);
   }
-  // `YYYY-MM-DD HH:mm:ss`（上游账单口径，按**本地时区**解释）→ 换成 ISO 再 parse
-  const dashed = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
-  if (dashed) {
-    const [, y, mo, d, h, mi, s] = dashed;
-    const local = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s ?? "0"));
-    return Number.isFinite(local.getTime()) ? local.getTime() : null;
-  }
-  const iso = Date.parse(value);
-  return Number.isFinite(iso) ? iso : null;
+
+  const parts = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(stamp);
+  if (!parts) return null;
+  const utcMs = Date.UTC(
+    Number(parts[1]),
+    Number(parts[2]) - 1,
+    Number(parts[3]),
+    Number(parts[4]),
+    Number(parts[5]),
+    Number(parts[6]),
+  );
+  if (!Number.isFinite(utcMs)) return null;
+  return utcMs - offsetSeconds * 1000;
 }

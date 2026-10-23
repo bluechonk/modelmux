@@ -563,12 +563,24 @@ Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）
   **账号级冷却**（`health: "cooldown"` + `cooldown_until`），Web 显示「冷却中」并写明
   等到什么时候，到期自动恢复；实现见 `http/chat/attempt.ts` 的 `isQuotaExhausted` 分支 +
   `runtime/account-pool.ts` 的 `noteAccountQuotaExhausted`。
-- 冷却截止时间：`upstream.quotaResetAt(bodySnippet)`（本文件 `src/upstream.ts`）从错误体里
-  **尽力解析**常见时间字段；认不出就回落**次日本地 0 点**。⚠ 上游「下次刷新时间」的确切
-  字段名**尚未在响应里核实**（未 clone 参考实现，见 §4 待确认），故解析器是宽容式的。
-- **额度口径**：账单 API 只回 credits（免费档 `CapacitySize = 100`）；主人说明免费档是
-  **每日 1 亿 token**，但**没有端点回报「今日已用多少 token」**，所以 `billing.quotaPeriod()`
-  只把 1 亿写进展示文案，数字仍用 credits（**不编造 token 余量**）。
+- 冷却截止时间：`upstream.quotaResetAt(bodySnippet)`（本文件 `src/upstream.ts`）从错误体里解析。
+  **2026-10-23 已核实**：上游把重置时间写在 **msg 文本**里，不是 JSON 字段 —— 参考实现
+  `ardeyouxipianyi/workbuddy2api-hub` 的 `wb_proxy.py::parse_rate_limit_reset` 给出两种真实形状：
+
+  ```
+  "... your usage will reset at 2026-09-19 18:29:03 UTC+8 ..."
+  "您的使用量已超出频率限制，将在 2026-10-02 16:00:34 UTC+8 重置 ..."
+  ```
+
+  时间戳是 **body 自己声明的 UTC 偏移**下的墙钟时间，故按 UTC 解释成 epoch 再**减去**该偏移
+  （参考实现特意用 `timegm` 而非 `mktime`，否则非 UTC+8 机器会差几小时）。措辞不认识时兜底认
+  「时间戳 + `UTC±N`」组合；都认不出返回 `null` → 共享层回落次日本地 0 点。
+  本地探针实测：EN / CN 两种形状分别还原成北京时间 18:29:03 / 16:00:34，
+  非额度错误（`11128`）与「有码无时间」都返回 `null`。
+- **额度口径**：账单 API 只回 credits（免费档 `CapacitySize = 100`）。主人说明免费档是
+  **每日 1 亿 token**；参考实现的 `daily_token_limit` 默认值是 **0（关闭）** —— 那是它自己
+  客户端侧的护栏，不是上游配额。上游**没有**端点回报「今日已用多少 token」，所以
+  `billing.quotaPeriod()` 只把 1 亿写进展示文案，数字仍用 credits（**不编造 token 余量**）。
 - 文档中该业务码的归类见国内版兄弟渠道 `workbuddy` 的 §4.1：`6004` 属
   `model_rate`（日额度 / 模型繁忙）→ 处置是「换模型或换号」。
 
