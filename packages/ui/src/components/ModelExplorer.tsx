@@ -40,6 +40,15 @@ export function formatMultiplier(value: number): string {
   return String(Number(value.toFixed(4)));
 }
 
+/**
+ * 分组视图里**每个渠道默认露出的模型数**，其余折进「展开剩余 N 个模型」。
+ *
+ * 为什么是 3：渠道目录动辄几十个模型（workbuddyai / catpaw 尤甚），全展开会把
+ * 仪表盘撑成几千像素的长页，反而看不见「哪个渠道供给什么」。搜索/筛选一旦生效
+ * 就直接全展开（见 `GroupedTable` 的 `previewAll`）——用户在找东西时不该被藏。
+ */
+const PREVIEW_COUNT = 3;
+
 /** 窗口/上限的紧凑写法：128000 → 128k，1000000 → 1M，981504 → 0.98M。 */
 function compactNumber(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "—";
@@ -82,6 +91,17 @@ export function ModelExplorer({
   const [freeOnly, setFreeOnly] = useState(false);
   const [flat, setFlat] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  /** 组内展开：默认每组只露前 `PREVIEW_COUNT` 个，其余点「展开」才出现。 */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
+  const toggleExpanded = (cid: string): void => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(cid)) next.delete(cid);
+      else next.add(cid);
+      return next;
+    });
+  };
 
   const rows = useMemo<ModelRow[]>(() => {
     const out: ModelRow[] = [];
@@ -235,6 +255,9 @@ export function ModelExplorer({
           freePlanCids={freePlanCids}
           collapsed={collapsed}
           onToggle={toggle}
+          expanded={expanded}
+          onToggleExpanded={toggleExpanded}
+          previewAll={keyword !== "" || cidFilter !== "all" || freeOnly}
         />
       )}
     </section>
@@ -344,11 +367,19 @@ function GroupedTable({
   freePlanCids,
   collapsed,
   onToggle,
+  expanded,
+  onToggleExpanded,
+  previewAll,
 }: {
   groups: Map<string, ModelRow[]>;
   freePlanCids: ReadonlySet<string>;
   collapsed: ReadonlySet<string>;
   onToggle: (cid: string) => void;
+  /** 组内「已展开全部」的渠道集合。 */
+  expanded: ReadonlySet<string>;
+  onToggleExpanded: (cid: string) => void;
+  /** 有搜索/筛选时直接全展开：用户已经在缩小范围，再藏模型会挡住他要找的。 */
+  previewAll: boolean;
 }): ReactElement {
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-raised">
@@ -356,6 +387,10 @@ function GroupedTable({
         <Head showChannel={false} />
         {[...groups.entries()].map(([cid, rows]) => {
           const isCollapsed = collapsed.has(cid);
+          // 默认每组只露前 3 个：一个渠道几十个模型会把整页撑爆（见文件头布局说明）
+          const showAll = previewAll || expanded.has(cid);
+          const shown = showAll ? rows : rows.slice(0, PREVIEW_COUNT);
+          const hidden = rows.length - shown.length;
           const free = rows.filter((r) => isFree(r, freePlanCids)).length;
           const vision = rows.filter((r) => (r.meta?.inputModalities ?? []).includes("image")).length;
           const mults = rows
@@ -387,7 +422,7 @@ function GroupedTable({
                 </th>
               </tr>
               {!isCollapsed &&
-                rows.map((row) => (
+                shown.map((row) => (
                   <tr
                     key={row.poolId}
                     className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
@@ -400,6 +435,21 @@ function GroupedTable({
                     <CopyCell row={row} />
                   </tr>
                 ))}
+              {/* 折叠隐藏的数量 + 展开/收起开关：只在「有隐藏项」或「已手动展开」时出现 */}
+              {!isCollapsed && (hidden > 0 || (!previewAll && expanded.has(cid) && rows.length > PREVIEW_COUNT)) && (
+                <tr className="border-b border-line/40 last:border-b-0">
+                  <td colSpan={7} className="px-4 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onToggleExpanded(cid)}
+                      className="text-[11px] text-ink-faint transition-colors hover:text-brand"
+                      aria-expanded={showAll}
+                    >
+                      {hidden > 0 ? `展开剩余 ${hidden} 个模型` : "收起"}
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           );
         })}
