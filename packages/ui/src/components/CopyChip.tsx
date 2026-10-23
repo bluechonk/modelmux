@@ -42,7 +42,7 @@ export function CopyChip({
   return (
     <button
       type="button"
-      title={`点击复制：${value}`}
+      aria-label={`复制 ${value}`}
       onClick={() => void copy()}
       className={`group inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs transition-all ${
         copied
@@ -89,7 +89,6 @@ export function CopyButton({
   return (
     <button
       type="button"
-      title={`复制：${value}`}
       aria-label={label}
       onClick={() => void copy()}
       className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-ink-faint/70 transition-colors hover:border-line hover:bg-overlay hover:text-brand"

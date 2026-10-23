@@ -208,6 +208,12 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 7. 注释写作遵守 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md) 的三层分工：协议事实进
    `docs/channels/<cid>/PROTOCOL.md`、why 跟被治理的函数 docstring、
    文件头只留导航 + 行为约束 + 铁律（≤12 行）。
+8. **Web 控制台禁止 hover 悬浮气泡**（`packages/ui/**` 硬规则，见
+   [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md) §「交互铁律」）：
+   - 不用原生 `title=` 属性、不自建 hover tooltip / popover；
+   - 信息要么直接可见（写进正文、允许换行不裁切），要么放进**点击后**出现的详情区；
+   - 按钮的无障碍名称用 `aria-label`（不产生可见气泡），不要用 `title` 兼职；
+   - 原因：截图 / 投屏 / 触屏 / 键盘都拿不到 hover 内容，依赖悬停等于让信息只对鼠标可见。
 
 ## 测试规则
 

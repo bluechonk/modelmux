@@ -330,14 +330,11 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
   return (
     <div className="flex items-center gap-2 rounded-lg border border-line bg-canvas/70 px-2.5 py-1.5">
       <span className="shrink-0 text-[11px] text-ink-faint">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-soft" title={url}>
-        {url}
-      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-soft">{url}</span>
       <button
         type="button"
         onClick={() => void copy()}
         aria-label={`复制${label}`}
-        title={`复制${label}`}
         className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-brand"
       >
         {copied ? (

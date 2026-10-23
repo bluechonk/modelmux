@@ -116,14 +116,41 @@ function cooldownUntilText(until: string | null | undefined): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 手机号只露头尾；纯数字 id 标成 UID；其余展示名原样。 */
+/**
+ * 账号标识**脱敏**：保留头尾、中间统一换成 `****`（主人 2026-10-23 要求）。
+ *
+ * 页面上不出现任何完整账号 id / 昵称 / 邮箱 —— 看板可能被投屏、截图分享。
+ * 头尾长度按总长比例取（短串也至少留 1 头 1 尾），保证同池两账号还能区分开。
+ */
+function maskMiddle(raw: string): string {
+  const text = raw.trim();
+  if (text === "") return "";
+  if (text.length <= 2) return `${text.slice(0, 1)}****`;
+  if (text.length <= 6) return `${text.slice(0, 1)}****${text.slice(-1)}`;
+  const head = Math.min(4, Math.max(2, Math.floor(text.length * 0.3)));
+  const tail = Math.min(3, Math.max(1, Math.floor(text.length * 0.2)));
+  return `${text.slice(0, head)}****${text.slice(-tail)}`;
+}
+
+/**
+ * 账号展示名：**一律脱敏**（手机号 / 纯数字 UID / 邮箱 / 昵称）。
+ *
+ * 输出形态：`131****9411`（手机号）、`UID 452****126`（纯数字）、`blu****onk`（其余）。
+ * 拿不到展示名时用 key 的头 4 位 + `****`，不暴露完整 key。
+ */
 function displayName(account: PoolAccount): string {
   const label = account.label?.trim() ?? "";
   const raw = label || account.uid?.trim() || "";
+  if (raw === "") return `账号 ${maskMiddle(account.key)}`;
   if (/^\d{11}$/.test(raw)) return `${raw.slice(0, 3)}****${raw.slice(-4)}`;
-  if (/^\d{7,}$/.test(raw)) return `UID ${raw}`;
-  if (raw && raw !== account.key) return raw;
-  return `账号 ${account.key.slice(0, 6)}`;
+  if (/^\d{7,}$/.test(raw)) return `UID ${maskMiddle(raw)}`;
+  const at = raw.indexOf("@");
+  if (at > 0) {
+    // 邮箱：本地部分脱敏 + 保留域名（域名不是账号标识）
+    return `${maskMiddle(raw.slice(0, at))}${raw.slice(at)}`;
+  }
+  if (raw === account.key) return `账号 ${maskMiddle(raw)}`;
+  return maskMiddle(raw);
 }
 
 function expiryText(expiresAt: number | null): string {
@@ -171,10 +198,18 @@ function quotaTone(
   return "free";
 }
 
-/** 额度文案：剩余值 + 单位；无额度概念或未加载时统一用 -。 */
-function quotaText(credits: AccountCredits | null | undefined, unsupported: boolean): string {
+/**
+ * 额度数字：**只显示数值，不带单位**（主人 2026-10-23 要求：积分 / credits 不显示）。
+ *
+ * 千分位 + 最多 2 位小数（`1095.96` → `1,095.96`，`8.76` → `8.76`，`1932` → `1,932`），
+ * 免得长数字把卡片挤爆。
+ */
+function quotaAmount(credits: AccountCredits | null | undefined, unsupported: boolean): string {
   if (unsupported || !credits) return "-";
-  return `${credits.remain} ${credits.unit || ""}`.trim();
+  const value = Number(credits.remain);
+  if (!Number.isFinite(value)) return "-";
+  const fixed = Number.isInteger(value) ? value : Number(value.toFixed(2));
+  return fixed.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 /**
@@ -207,18 +242,6 @@ function freshnessText(
     text: `更新于 ${parts.join("")}前`,
     stale: totalSeconds > 15 * 60,
   };
-}
-
-/** 每秒心跳 **已移除**：主人要求「秒不用自己 +1」，只在渲染/刷新时算一次（见下）。 */
-
-/** 上次查询的**绝对时间**（本地时区，供 title 悬浮查看，与相对时长互相印证）。 */
-function updatedAtText(billingAt: string | null | undefined): string {
-  if (!billingAt) return "未知";
-  const at = Date.parse(billingAt);
-  if (!Number.isFinite(at)) return "未知";
-  const d = new Date(at);
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /**
@@ -277,7 +300,7 @@ export function AccountCard({
           className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotClass} ${
             present && !channelDown ? "live-dot" : ""
           }`}
-          title={dotTitle}
+          aria-label={dotTitle}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -292,15 +315,12 @@ export function AccountCard({
           </div>
           {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
           {billing?.quota?.label && (
-            <div className="mt-0.5 text-[11px] text-ink-faint/70" title={billing.quota.label}>
-              {billing.quota.label}
-            </div>
+            <div className="mt-0.5 text-[11px] text-ink-faint/70">{billing.quota.label}</div>
           )}
         </div>
         <button
           type="button"
           aria-label={`为 ${pool.cid} 添加账号`}
-          title="添加账号（走授权流程，成功后自动入池）"
           className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line text-ink-faint transition-colors hover:border-line-strong hover:bg-overlay hover:text-brand disabled:opacity-50"
           disabled={busyKey !== null}
           onClick={() => onAdd(pool.cid)}
@@ -331,10 +351,11 @@ export function AccountCard({
               >
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
+                {/* 第一行：脱敏账号名 + 状态徽标（动作按钮 hover 出现） */}
                 <div className="flex items-center gap-2">
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
-                    title={health || "正常"}
+                    aria-label={health || "正常"}
                   />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
                     {displayName(account)}
@@ -343,22 +364,12 @@ export function AccountCard({
                   {health && (
                     <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
                   )}
-                  {/* 冷却中：把「等到什么时候」直接写出来（额度耗尽不是故障，会自己好） */}
-                  {account.health === "cooldown" && cooldownUntilText(account.cooldown_until) !== "" && (
-                    <span
-                      className="shrink-0 text-[11px] text-warn"
-                      title={account.cooldown_reason ?? "额度耗尽，等额度窗口刷新"}
-                    >
-                      到 {cooldownUntilText(account.cooldown_until)}
-                    </span>
-                  )}
                   <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {!active && (
                       <button
                         className="rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
                         disabled={busyKey !== null}
                         onClick={() => onActivate(pool.cid, account.key)}
-                        title="切换为生效账号"
                         aria-label="切换为生效账号"
                       >
                         <UserCheck className="h-3.5 w-3.5" />
@@ -368,37 +379,40 @@ export function AccountCard({
                       className="rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
                       disabled={busyKey !== null}
                       onClick={() => onRemove(pool.cid, account.key)}
-                      title={active ? "删除生效账号 = 同时登出" : "从池中删除"}
-                      aria-label="删除账号"
+                      aria-label={active ? "删除生效账号（同时登出）" : "从池中删除"}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </span>
                 </div>
-                <div className="mt-1.5 flex items-center gap-2 pl-3.5">
-                  <span className="min-w-0 truncate text-[11px] text-ink-faint">{expiry}</span>
-                  {failStreak > 0 && (
-                    <span className="shrink-0 text-[11px] text-warn">连续失败 {failStreak} 次</span>
-                  )}
-                  {/* 额度新鲜度：精确到「X天X小时X分钟X秒前」，悬浮看绝对时间 */}
+
+                {/* 第二行：额度条独占整行（单位不显示，只留数值 + 百分比） */}
+                <div className="mt-1.5 pl-3.5">
+                  <QuotaMeter
+                    credits={bill?.credits}
+                    baseline={bill?.baseline}
+                    unsupported={billing?.unsupported === true}
+                  />
+                </div>
+
+                {/* 第三行：时间与状态说明 —— 允许换行，绝不裁切 */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">
                   {(() => {
                     const fresh = freshnessText(bill?.billing_at, now);
                     return (
-                      <span
-                        className={`shrink-0 text-[11px] ${fresh.stale ? "text-warn" : "text-ink-faint/70"}`}
-                        title={`上次查询：${updatedAtText(bill?.billing_at)}（网关每 3 分钟自动重查）`}
-                      >
+                      <span className={fresh.stale ? "text-warn" : "text-ink-faint/70"}>
                         {fresh.text}
                       </span>
                     );
                   })()}
-                  <div className="ml-auto shrink-0">
-                    <QuotaMeter
-                      credits={bill?.credits}
-                      baseline={bill?.baseline}
-                      unsupported={billing?.unsupported === true}
-                    />
-                  </div>
+                  {expiry !== "" && <span className="text-ink-faint/60">· {expiry}</span>}
+                  {failStreak > 0 && <span className="text-warn">· 连续失败 {failStreak} 次</span>}
+                  {/* 冷却中：把「等到什么时候」直接写出来（额度耗尽不是故障，会自己好） */}
+                  {account.health === "cooldown" && cooldownUntilText(account.cooldown_until) !== "" && (
+                    <span className="text-warn">
+                      · 冷却到 {cooldownUntilText(account.cooldown_until)}
+                    </span>
+                  )}
                 </div>
               </li>
             );
@@ -409,7 +423,12 @@ export function AccountCard({
   );
 }
 
-/** 额度计量条：细进度条 + 剩余值 + 百分比（分母 = 当天第一个账单）。 */
+/**
+ * 额度计量：进度条**独占整行宽度**（不挤在时间行里被裁切）+ 数值 + 百分比。
+ *
+ * 数值**不带单位**（积分 / credits 一律不显示，主人 2026-10-23 要求），
+ * 长数字用千分位，百分比固定在右侧。
+ */
 function QuotaMeter({
   credits,
   baseline,
@@ -423,11 +442,8 @@ function QuotaMeter({
   const tone = quotaTone(credits, baseline);
   if (unsupported || !credits) {
     return (
-      <span
-        className="font-mono text-[11px] tabular-nums text-ink-faint"
-        title={unsupported ? "该渠道无额度概念" : "额度未加载"}
-      >
-        {quotaText(credits, unsupported)}
+      <span className="font-mono text-[11px] tabular-nums text-ink-faint">
+        {quotaAmount(credits, unsupported)}
       </span>
     );
   }
@@ -436,21 +452,18 @@ function QuotaMeter({
   const textClass =
     tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : tone === "free" ? "text-free" : "text-ink-soft";
   return (
-    <div
-      className="flex items-center gap-2"
-      title={pct === null ? undefined : `剩余 ${Math.round(pct)}%`}
-    >
-      <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-canvas">
+    <div className="flex w-full items-center gap-2">
+      <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-canvas">
         <span
           className={`block h-full rounded-full ${barClass}`}
           style={{ width: `${pct ?? 0}%` }}
         />
       </span>
       <span className={`shrink-0 font-mono text-[11px] tabular-nums ${textClass}`}>
-        {quotaText(credits, unsupported)}
+        {quotaAmount(credits, unsupported)}
       </span>
       {pct !== null && (
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">
+        <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-faint">
           {Math.round(pct)}%
         </span>
       )}
