@@ -120,6 +120,8 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
               billing_at: entry?.billing_at ?? null,
               billing_ok: entry?.billing_ok ?? false,
               unsupported: !channelCapabilities(candidate.channel.config).billing,
+              // 额度周期（渠道声明；没声明就 null，前端回落到通用说明）
+              quota: candidate.channel.billing.quotaPeriod?.() ?? null,
               ok: entry?.ok ?? 0,
               fail: entry?.fail ?? 0,
               // 渠道 × 账号拆分：每个账号的 ok / fail 计数与额度快照

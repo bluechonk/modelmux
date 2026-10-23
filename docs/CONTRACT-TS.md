@@ -278,6 +278,11 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   （`packages/core/gateway/src/runtime/channel.ts:200-203`）。
 - `isAuthFailure(status, body)`：只对 **4xx 且非 401/403** 的响应调用；返回 true 时网关按
   401/403 同路径处理（刷新 token → 换池内账号）。用于上游不用标准状态码表达凭据失效的渠道。
+- `quotaResetAt(bodySnippet)`（**可选**，2026-10-23 新增）：从上游**错误体**里认出
+  「额度耗尽 + 下次刷新时刻」（epoch ms；认不出返回 `null`）。共享层已有一层通用措辞判定
+  （`isQuotaExhausted`），命中就把该账号标**账号级冷却**；但「等到什么时候」只有渠道知道 ——
+  有的上游直接把重置时间写进错误体（workbuddyai 花完日额度后返回下次刷新时间）。
+  返回 `null` 时共享层回落**次日本地 0 点**。**不要编造时间**：编错会让账号冷却到错误的时刻。
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
   按帧里的 `retryAfterSeconds`（封顶 10s）退避后重开上游重试，总时长上限 5 分钟。
   已吐过内容帧则不重试（避免重复内容）。未声明的渠道照旧把错误帧透传给客户端。
@@ -476,6 +481,15 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 不传 `credential` = 当前生效账号；传入时用它代替 `cred.load()`，并配合
 `refreshOn401: false`（避免刷新 / 回写生效账号的凭证文件）。账号池刷新账单时按账号调用，
 结果写入账本 `accounts[key].credits`（见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.4）。
+
+**额度周期（`quotaPeriod?()`，可选，2026-10-23 新增）**：返回
+`{ label, size, unit, resets_at }` —— 周期的人读文案（如「每天 5000 积分，0 点刷新」）、
+本周期总量、单位、下次刷新时刻（epoch ms）。共享层用它做两件事：**展示**（Web 账号池 /
+`mx bill`）与**账号级冷却的截止时间**（额度耗尽后等到 `resets_at`，见
+[`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §2.4）。
+
+- **不认识自己的周期就别实现**：共享层有兜底（次日本地 0 点），编一个假的比不实现更糟。
+- `size` 拿不到就给 `null`（不编数字）；`resets_at` 拿不到也给 `null`。
 
 ---
 

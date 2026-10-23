@@ -237,7 +237,7 @@ export async function fetchCredits(options: { refreshOn401?: boolean; credential
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；契约要求**每个渠道都提供**）──────
 
-import type { SigninModule } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
 
 /**
  * 国际版**没有**每日签到端点 —— 这一条曾经写反了。
@@ -274,3 +274,30 @@ export const signin: SigninModule = {
     return { ok: true, summary: `${NO_CHECKIN_SUMMARY}（本次未发起任何上游请求）` };
   },
 };
+
+/**
+ * 额度周期（`BillingModule.quotaPeriod`）：免费档**每日 1 亿 token**，本地 0 点刷新。
+ *
+ * 依据与边界（别放大结论）：
+ * - 「每天 1 亿 token」来自**主人 2026-10-23 的说明**，本仓库没有在响应里核实过；
+ * - 上游**账单**口径是 credits（免费档 `CapacitySize = 100`，`CapacityUnit = credits`），
+ *   且**没有**任何端点回报「今日已用多少 token」→ 所以 `size` 这里只报 credits 口径，
+ *   token 的 1 亿只写在 `label` 里（不编造剩余 token 数）；
+ * - 用量限额打满时上游回 `429 + code=6004`，重置时间由 `upstream.quotaResetAt` 尽力解析，
+ *   认不出就回落次日本地 0 点（共享层兜底）。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "免费档每日 1 亿 token（本地 0 点刷新）· 账单口径为 credits",
+    size: null,
+    unit: "credits",
+    resets_at: nextLocalMidnight(),
+  };
+}
+
+/** 下一次**本机时区**的 0 点（epoch ms）。 */
+function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}

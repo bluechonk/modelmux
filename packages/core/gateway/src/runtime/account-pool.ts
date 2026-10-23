@@ -21,8 +21,16 @@ import { logThrottled } from "./logger.js";
 import { channelDir, credentialsPath, ensureDir } from "./paths.js";
 import { writeJsonSecret } from "./secret-file.js";
 
-/** 账号健康状态。`unauthorized` 由网关在刷新失败时写入。 */
-export type AccountHealth = "ok" | "unauthorized" | "unknown" | "error";
+/**
+ * 账号健康状态。
+ *
+ * - `ok` / `unknown` / `unauthorized`：见各自写入点（`unauthorized` 由网关在刷新失败时写入）。
+ * - `error`：真故障（连败达 `FAIL_STREAK_LIMIT`），**凭证保留**，恢复靠切号/重登。
+ * - `cooldown`：**额度耗尽**（不是故障）—— 等到 `cooldown_until` 上游窗口刷新后自动恢复。
+ *   与 `error` 分开是因为额度耗尽会自然好转，把它当故障会让账号被永久跳过
+ *   （2026-10-23 之前就是这样：workbuddyai 的 429/6004 被打了 `fail_streak` → 显示「不可用」）。
+ */
+export type AccountHealth = "ok" | "unauthorized" | "unknown" | "error" | "cooldown";
 
 /** 连续请求失败达到该次数 → 凭据标记为 error，路由跳过（2026-10-18 决策）。 */
 export const FAIL_STREAK_LIMIT = 3;
@@ -42,6 +50,10 @@ export interface PoolAccount {
   health_at: string;
   /** 连续请求失败次数（成功清零；达到 FAIL_STREAK_LIMIT 时 health 标 error）。 */
   fail_streak: number;
+  /** 冷却截止（ISO8601）；`health === "cooldown"` 时有意义，到期即自动视为 `ok`。 */
+  cooldown_until?: string | null;
+  /** 冷却原因（人话，来自渠道判定，如「上游 429 用量限额」）。 */
+  cooldown_reason?: string;
 }
 
 export interface PoolIndex {
@@ -148,6 +160,7 @@ export function readIndex(cid?: string): PoolIndex {
       const a = item as Record<string, unknown>;
       const key = typeof a["key"] === "string" ? a["key"] : "";
       if (!key) continue;
+      const rawHealth = a["health"];
       accounts.push({
         key,
         uid: String(a["uid"] ?? ""),
@@ -156,13 +169,18 @@ export function readIndex(cid?: string): PoolIndex {
         added_at: String(a["added_at"] ?? ""),
         last_used_at: String(a["last_used_at"] ?? ""),
         expires_at: typeof a["expires_at"] === "number" ? a["expires_at"] : null,
-        health: (a["health"] === "unauthorized" || a["health"] === "ok" || a["health"] === "error"
-          ? a["health"]
+        health: (rawHealth === "unauthorized" ||
+        rawHealth === "ok" ||
+        rawHealth === "error" ||
+        rawHealth === "cooldown"
+          ? rawHealth
           : "unknown") as AccountHealth,
         health_at: String(a["health_at"] ?? ""),
         fail_streak: typeof a["fail_streak"] === "number" && Number.isFinite(a["fail_streak"]) && a["fail_streak"] > 0
           ? Math.trunc(a["fail_streak"])
           : 0,
+        cooldown_until: typeof a["cooldown_until"] === "string" ? a["cooldown_until"] : null,
+        cooldown_reason: typeof a["cooldown_reason"] === "string" ? a["cooldown_reason"] : undefined,
       });
     }
     const active = typeof rec["active"] === "string" ? rec["active"] : null;
@@ -305,11 +323,13 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
     /* 忽略 */
   }
   account.last_used_at = nowIso();
-  // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error 标记一并恢复
+  // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error / cooldown 标记一并恢复
   account.fail_streak = 0;
-  if (account.health === "error") {
+  if (account.health === "error" || account.health === "cooldown") {
     account.health = "ok";
     account.health_at = nowIso();
+    account.cooldown_until = null;
+    account.cooldown_reason = undefined;
   }
   writeIndex({ version: 1, active: key, accounts: index.accounts }, cid);
   return account;
@@ -406,29 +426,94 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
   writeIndex(index, cid);
 }
 
+/** 一天毫秒数（回落「次日 0 点」用）。 */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * 额度耗尽：**立即**把生效账号标 `error`（不等 3 次连败）。
+ * 下一次**本地零点**（epoch ms）—— 渠道没给「下次刷新时间」时的兜底。
  *
- * 额度不足不是瞬时故障，继续请求只会一遍遍打上游、每次都失败；标记后
- * `activeAccountIsError` 会在**发请求前**短路掉它。充值 / 切号后由
- * `mx acct use <key>`（`activateAccount` 会清零连败并恢复 `ok`）解除。
+ * 为什么敢兜底：上游额度窗口基本都按自然日重置（loomy 实测 `dailyCycleDate` 就是日期串、
+ * workbuddyai 的用量限额 `6004` 也是日额度）。渠道能给出更准的时间就用渠道的（见 `until` 参数）。
  */
-export function noteAccountQuotaExhausted(cid?: string): void {
+export function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0); // 下一个 0 点
+  return d.getTime();
+}
+
+/** 冷却是否仍然有效（无 `cooldown_until` 视为长期有效；已过期返回 false）。 */
+function coolingDown(account: PoolAccount, now = Date.now()): boolean {
+  if (account.health !== "cooldown") return false;
+  const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
+  if (!Number.isFinite(until)) return true; // 没写截止时间：当作还没好，交给下次判定
+  return until > now;
+}
+
+/**
+ * 额度耗尽：**把生效账号标 `cooldown`**（不是 `error`），并记下等到什么时候。
+ *
+ * 与 `error` 的分工（2026-10-23 修订）：
+ * - 额度耗尽不是故障 —— 上游窗口刷新后会自然好转，所以**不动 `fail_streak`**，
+ *   否则「额度用满」会被连败熔断误判成「账号不可用」（主人截图里的 workbuddyai 就是受害者）；
+ * - 真故障（连败、鉴权失效）仍走 `noteAccountFailure` / `markActiveHealth`。
+ *
+ * @param options.until  下次额度刷新时刻（epoch ms）。不给则回落**次日 0 点**。
+ * @param options.reason 冷却原因（人话，直接进 UI）。
+ * @returns 实际写入的截止时刻（epoch ms）。
+ */
+export function noteAccountQuotaExhausted(
+  cid?: string,
+  options: { until?: number | null; reason?: string } = {},
+): number {
+  const untilMs =
+    typeof options.until === "number" && Number.isFinite(options.until) && options.until > Date.now()
+      ? options.until
+      : nextLocalMidnight();
   let scope: string;
   try {
     scope = channelDir(cid);
   } catch {
-    return;
+    return untilMs;
   }
   const index = readIndex(cid);
-  if (!index.active) return;
+  if (!index.active) return untilMs;
   const hit = index.accounts.find((a) => a.key === index.active);
-  if (!hit) return;
-  hit.health = "error";
+  if (!hit) return untilMs;
+  hit.health = "cooldown";
   hit.health_at = nowIso();
-  hit.fail_streak = FAIL_STREAK_LIMIT;
-  healthCache.set(scope, "error");
+  hit.cooldown_until = new Date(untilMs).toISOString();
+  hit.cooldown_reason = options.reason ?? "额度耗尽，等上游窗口刷新";
+  // ⚠ 刻意**不动 fail_streak**：额度耗尽不是连败，不该累积到熔断
+  healthCache.set(scope, "cooldown");
   writeIndex(index, cid);
+  return untilMs;
+}
+
+/**
+ * 冷却到期了没；到期就把账号恢复成 `ok`（**惰性**：读的时候顺手修，不需要定时器）。
+ *
+ * 返回是否发生了变化（调用方一般不需要）。
+ */
+function expireCooldown(index: PoolIndex, cid?: string, now = Date.now()): boolean {
+  let changed = false;
+  for (const account of index.accounts) {
+    if (account.health !== "cooldown") continue;
+    if (coolingDown(account, now)) continue;
+    account.health = "ok";
+    account.health_at = nowIso();
+    account.cooldown_until = null;
+    account.cooldown_reason = undefined;
+    account.fail_streak = 0; // 窗口刷新 = 干净重来
+    changed = true;
+  }
+  if (changed) {
+    try {
+      writeIndex(index, cid);
+    } catch {
+      /* 写盘失败不影响本次判定 */
+    }
+  }
+  return changed;
 }
 
 /**
@@ -523,14 +608,42 @@ export function noteAccountSuccess(cid?: string): void {
   writeIndex(index, cid);
 }
 
-/** 生效账号是否已被标记 error（callUpstream 入口直接短路，不再发上游请求）。 */
+/**
+ * 生效账号现在能不能用（`callUpstream` 入口短路，不再发上游请求）。
+ *
+ * 两种「不能用」：
+ * - `error`  —— 真故障（连败/鉴权），恢复靠切号或重登；
+ * - `cooldown` —— 额度耗尽且**还没到刷新时刻**，到期会由 `expireCooldown` 自动放行。
+ */
 export function activeAccountIsError(cid?: string): boolean {
   try {
     const index = readIndex(cid);
     if (!index.active) return false;
-    return index.accounts.find((a) => a.key === index.active)?.health === "error";
+    const hit = index.accounts.find((a) => a.key === index.active);
+    if (!hit) return false;
+    if (hit.health === "error") return true;
+    if (hit.health !== "cooldown") return false;
+    if (expireCooldown(index, cid)) return false; // 刚好到期：放行
+    return coolingDown(hit);
   } catch {
     return false;
+  }
+}
+
+/** 生效账号的冷却信息（`activeAccountIsError` 为 true 时给 UI/日志用）。 */
+export function activeAccountCooldown(cid?: string): { until: string; reason: string } | null {
+  try {
+    const index = readIndex(cid);
+    if (!index.active) return null;
+    const hit = index.accounts.find((a) => a.key === index.active);
+    if (!hit || hit.health !== "cooldown") return null;
+    if (!coolingDown(hit)) return null;
+    return {
+      until: hit.cooldown_until ?? "",
+      reason: hit.cooldown_reason ?? "额度耗尽，等上游窗口刷新",
+    };
+  } catch {
+    return null;
   }
 }
 

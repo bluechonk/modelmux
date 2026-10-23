@@ -55,6 +55,19 @@ export interface ChannelBilling {
   /** 按账号拆分的请求计数与额度。 */
   accounts?: AccountBilling[];
   billing_at?: string | null;
+  /** 额度周期（渠道声明；null = 没声明，前端用通用说明）。 */
+  quota?: QuotaPeriod | null;
+}
+
+/** 额度周期（与共享层 `QuotaPeriod` 同形）。 */
+export interface QuotaPeriod {
+  /** 人读文案，如「每天送 5000 积分，本地 0 点刷新」。 */
+  label: string;
+  /** 本周期总量；null = 上游不公开。 */
+  size: number | null;
+  unit: string;
+  /** 下次刷新时刻（epoch ms）；null = 未知。 */
+  resets_at: number | null;
 }
 
 function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
@@ -68,26 +81,38 @@ function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
   };
 }
 
-/** 健康度圆点：正常=free / 不可用=danger / 其余=中性。 */
+/** 健康度圆点：正常=free / 不可用=danger / 冷却=warn / 其余=中性。 */
 function healthDot(health: string): string {
   if (health === "ok") return "bg-free";
-  if (health === "unauthorized" || health === "error") return "bg-danger";
+  if (health === "error" || health === "unauthorized") return "bg-danger";
+  if (health === "cooldown") return "bg-warn";
   return "bg-ink-faint";
 }
 
 /** 健康度文案（空串 = 正常，不出徽标）。 */
 function healthText(health: string): string {
   if (health === "error") return "不可用";
+  if (health === "cooldown") return "冷却中";
   if (health === "unauthorized") return "需登录";
   if (health === "unknown") return "未知";
   return "";
 }
 
-/** 健康度徽标配色：错误=danger / 需登录=warn / 未知=中性。 */
+/** 健康度徽标配色：错误=danger / 冷却=warn / 需登录=warn / 未知=中性。 */
 function healthBadgeClass(health: string): string {
   if (health === "error") return "bg-danger/12 text-danger";
-  if (health === "unauthorized") return "bg-warn/12 text-warn";
+  if (health === "cooldown" || health === "unauthorized") return "bg-warn/12 text-warn";
   return "bg-overlay text-ink-faint";
+}
+
+/** 冷却截止时刻（`MM-DD HH:mm`）；解析不出来给空串。 */
+function cooldownUntilText(until: string | null | undefined): string {
+  if (!until) return "";
+  const at = Date.parse(until);
+  if (!Number.isFinite(at)) return "";
+  const d = new Date(at);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** 手机号只露头尾；纯数字 id 标成 UID；其余展示名原样。 */
@@ -222,11 +247,19 @@ export function AccountCard({
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
-  const channelDown = present && activeAccount !== undefined && activeAccount.health !== "ok";
-  // 登录状态点：已登录=绿 / 当前账号异常=红 / 未登录=中性灰
-  const dotClass = !present ? "bg-ink-faint" : channelDown ? "bg-danger" : "bg-free";
-  const dotTitle = !present ? "未登录" : channelDown ? "当前账号不可用" : "已登录";
-  const dotText = !present ? "未登录" : channelDown ? "账号不可用" : "已登录";
+  const activeHealth = activeAccount?.health ?? "ok";
+  const channelDown = present && activeAccount !== undefined && activeHealth !== "ok";
+  // 额度冷却中与真故障分开着色：冷却会自己好（warn），故障要人介入（danger）
+  const cooling = present && activeHealth === "cooldown";
+  const dotClass = !present
+    ? "bg-ink-faint"
+    : cooling
+      ? "bg-warn"
+      : channelDown
+        ? "bg-danger"
+        : "bg-free";
+  const dotTitle = !present ? "未登录" : cooling ? "额度冷却中（等窗口刷新）" : channelDown ? "当前账号不可用" : "已登录";
+  const dotText = !present ? "未登录" : cooling ? "冷却中" : channelDown ? "账号不可用" : "已登录";
 
   return (
     <div className="panel flex flex-col overflow-hidden transition-colors hover:border-line-strong">
@@ -243,10 +276,18 @@ export function AccountCard({
             <span className="pill shrink-0 bg-brand/12 font-mono text-brand">{pool.cid}</span>
           </div>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
-            <span className={channelDown ? "text-danger" : "text-ink-faint"}>{dotText}</span>
+            <span className={cooling ? "text-warn" : channelDown ? "text-danger" : "text-ink-faint"}>
+              {dotText}
+            </span>
             <span className="text-ink-faint/50">·</span>
             <span>{accounts.length > 0 ? `${accounts.length} 个账号` : "空池"}</span>
           </div>
+          {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
+          {billing?.quota?.label && (
+            <div className="mt-0.5 text-[11px] text-ink-faint/70" title={billing.quota.label}>
+              {billing.quota.label}
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -293,6 +334,15 @@ export function AccountCard({
                   {active && <span className="pill shrink-0 bg-brand/12 text-brand">生效中</span>}
                   {health && (
                     <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
+                  )}
+                  {/* 冷却中：把「等到什么时候」直接写出来（额度耗尽不是故障，会自己好） */}
+                  {account.health === "cooldown" && cooldownUntilText(account.cooldown_until) !== "" && (
+                    <span
+                      className="shrink-0 text-[11px] text-warn"
+                      title={account.cooldown_reason ?? "额度耗尽，等额度窗口刷新"}
+                    >
+                      到 {cooldownUntilText(account.cooldown_until)}
+                    </span>
                   )}
                   <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {!active && (

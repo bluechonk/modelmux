@@ -109,8 +109,8 @@
                      "billing_ok": true, "billing_at": "2026-10-18T…" } } } } }
 ```
 
-- 账单**一天刷两三次**（TTL 8 小时）：网关启动时、以及 TTL 到期后的下一次请求，
- 在**后台**异步刷新（`maybeRefreshBilling`），绝不阻塞正在处理的请求。
+- 账单**每 3 分钟后台并行一轮**（`BILLING_REFRESH_INTERVAL_MS`；`MODELMUX_BILLING_REFRESH_MS` 可覆盖，设 0 关闭。2026-10-23 由 5 分钟改 3 分钟）：网关 ready 后起第一轮，之后每轮并行查全部有账单能力的渠道；
+ 绝不阻塞正在处理的请求。TTL 兜底（`BILLING_TTL_MS = 8h`）另有一条：聊天路径发现账本太旧会在后台补一轮（`maybeRefreshBilling`）。
 - 手动刷新：`mx model usage --refresh`。
 - 账单查询失败只更新尝试时刻、**保留上一次的用量数字**（不把账清零，也不用 0 冒充）。
 
@@ -125,6 +125,32 @@
 4. **渠道内部**先做一次「刷新 token → 用新 token 重试本账号」；仍失败则标记该账号
    不可用并返回鉴权错误，**由用户手动切换账号**（`mx acct <cid> use <key>` /
    Web 账号池），不自动切号。
+
+#### 额度耗尽 → 账号**冷却**（不是故障）
+
+2026-10-23 修订。额度耗尽与真故障是**两种不同的事**，混在一起会把会自己好的账号永久跳过：
+
+| 情形 | 判据 | 账号状态 | 恢复方式 |
+|---|---|---|---|
+| 真故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error`（Web 显示「不可用」） | 手动切号 / 重登 |
+| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却中」） | **到期自动恢复**（惰性，无需定时器） |
+
+- 写入：`noteAccountQuotaExhausted(cid, { until, reason })` —— **不动 `fail_streak`**
+  （额度耗尽不是连败，计进去会被 3 连败熔断误标「不可用」，这正是本次要修的 bug）。
+- 截止时间：渠道可用 `upstream.quotaResetAt(bodySnippet)` 从错误体里认（上游把下次刷新时间
+  写在响应里时最准）；认不出就兜底**次日本地 0 点**（`nextLocalMidnight()`）。
+- 到期：读的时候顺手恢复成 `ok` 并清零连败（`expireCooldown`），因此**不需要定时器**，
+  进程重启也不会留下永久的「冷却中」。
+- 短路：`activeAccountIsError()` 对 `error` 与「未到期的 `cooldown`」都返回 true
+  （请求入口不再打上游），到期的 `cooldown` 放行。
+- 展示：`activeAccountCooldown(cid)` 给出 `{ until, reason }` 供 CLI / Web 显示「冷却到几点」。
+
+> ⚠ 两个层级的「冷却」不要混：
+>
+> | 层级 | 落点 | 作用 |
+> |---|---|---|
+> | **渠道级**（早就有） | 账本 `pool-usage.json` 的 `cooldown_until` | 观测/排序标记，**不剔除请求** |
+> | **账号级**（本次新增） | 账号池 `accounts.json` 的 `health: "cooldown"` | **请求入口短路**，到期自动放行 |
 
 #### 非标准状态码的鉴权失败（`isAuthFailure`）
 
