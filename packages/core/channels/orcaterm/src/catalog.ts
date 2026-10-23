@@ -1,12 +1,9 @@
 /**
- * OrcaTerm 模型目录。
+ * OrcaTerm 模型目录：无上游列表端点，目录与客户端同源内置（快照）。
  *
- * 协议事实（来自 ZFXing-lite/orcaterm2api 与 hey7195/orcaterm_proxy 的参考实现）：
- * - 上游 `setting.model` 走 `TokenHub/<模型名>` 前缀，少量模型走 `Hunyuan3/` 前缀
- * - 18 个已知模型（8 current + 9 legacy + 1 兼容别名 `orcaterm-assistant`）
- * - 上游对未开通/不存在的模型名返回空流（不报错），故只列出已验证的模型
- *
- * 无上游模型列表端点，目录与 OrcaTerm 客户端同源内置。
+ * 关键约束（端点/字段/实测见 docs/channels/orcaterm/PROTOCOL.md）：
+ *   - 上游对未开通/不存在的模型名返回空流而不报错，故只列出已验证的模型。
+ *   - 上下文窗口与最大输出按公开规格补，查不到就不返回该型号（不编造）。
  */
 
 /** 模型条目：id 为网关对外展示名，upstream 为上游 setting.model。 */

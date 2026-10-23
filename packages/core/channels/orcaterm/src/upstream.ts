@@ -1,38 +1,12 @@
 /**
- * OrcaTerm 上游客户端 —— 把 OrcaTerm 内置 AI 助手暴露为 OpenAI 兼容 API。
+ * OrcaTerm 上游客户端：把内置 AI 助手暴露为 OpenAI 兼容 API（请求体 + SSE 翻译）。
  *
- * ## 上游协议（实测 + 参考 ZFXing-lite/orcaterm2api）
+ * 关键约束（端点/字段/实测见 docs/channels/orcaterm/PROTOCOL.md）：
+ *   - 上游按 conversationId 服务端保存历史，同一段对话必须复用同一 id（按会话键派生，见 sessionKeyOf）。
+ *   - 只认原生工具，不接受客户端自定义 function：工具名与参数只能靠 emphasisPrompt 注入。
+ *   - 模型输出是内部协议信封（累积文本里的 JSON），流末拆信封转成标准 tool_calls；拆不掉就原样返回。
  *
- * 端点：POST https://lightai.cloud.tencent.com/assistant/chat?name=orcaterm&mode=0&csrfCode=&sseresume=true
- *
- * 鉴权：Authorization: Bearer <ot_session> + Cookie(ot_session/userId)
- *
- * 请求体：
- *   - conversationId: "cid-<uuid>-orcaterm"（**按会话键派生**，见「会话连续性」）
- *   - input.input: ACP 信封 {"_format":"acp-prompt","version":1,"prompt":[...]}
- *   - input.emphasisPrompt: 注入到系统提示词后部
- *   - user.setting.model: 上游模型名 (如 "TokenHub/deepseek-v4-flash")
- *   - stream: true
- *
- * 响应（SSE，实测每帧形态——来自 curl 真机探测 + Go 参考实现 orca.go TokenStream.Next()）：
- *   data: {"id":"<uuid>","content":"<逐 token 增量文本>","reasoningContent":"","reasoning":false,"type":"ai","code":0}
- *   - code=10050000 → 鉴权失效
- *   - 累积全部 content 帧即为最终正文（可能是 OrcaTerm 内部协议信封）
- *
- * ## 会话连续性
- *
- * 上游**按 conversationId 服务端保存历史**（[参考] orcaterm2api README：「历史由服务端保存」），
- * 同一段对话必须复用同一个 conversationId —— 每请求新建会让模型只看到最后一轮。
- * 本模块按「会话键」派生 conversationId（见 `sessionKeyOf`）。
- *
- * ## 工具调用
- *
- * 上游只认**原生工具**（`setting.mcpServers` / `setting.uiServers` 打开），
- * **不接受客户端自定义 function** —— 客户端工具的名字与参数只能靠 `emphasisPrompt`
- * 提示词注入告知模型。模型产出的工具调用不是独立流帧，而是**累积文本里的 JSON 信封**
- * `{"action":"review","tool":{"name","args"}}`，流末解析后转成标准 OpenAI `tool_calls`；
- * 客户端回传 `role:"tool"` 的结果按真机格式 `<TOOL_META>返回结果</TOOL_META>` 包裹后
- * 回到**同一个会话**。
+ * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
 import { createHash, randomUUID } from "node:crypto";

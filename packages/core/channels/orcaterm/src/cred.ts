@@ -1,22 +1,12 @@
 /**
  * OrcaTerm 认证：登录（腾讯云 OAuth）、凭据持久化与有效性探测。
  *
- * ## 登录协议（实测，见 docs/channels/orcaterm/PROTOCOL.md）
+ * 关键约束（端点/字段/实测见 docs/channels/orcaterm/PROTOCOL.md）：
+ *   - 只保留腾讯云账号登录：CLI 生成 sessionId → 入口 302 到平台授权页 → 轮询换 ot_session。
+ *   - 微信扫码与 GitHub 两条路只作协议事实保留在 PROTOCOL.md，本渠道不提供入口。
+ *   - 后台预刷新在续期窗口内异步换 token 并落盘，不阻塞当前请求；真失效由请求路径明确暴露。
  *
- * 只保留**腾讯云账号**登录（One way），流程：
- *
- * CLI 自己生成 `sessionId` → 入口接受任意 `session_id` 即 302 到平台授权页
- * → 浏览器完成登录 → CLI 轮询 `POST /cgi/api OAuthExchangeToken` 换 `ot_session`。
- *
- * 只需在浏览器登录一次，CLI 自动换取 token。
- *
- * 微信扫码（`provider=wechat`）与 GitHub（`provider=github`）两条路**只作协议事实**
- * 保留在 PROTOCOL.md §1.1，本渠道不提供入口 —— 微信路未在 CLI 侧点验、GitHub 路的
- * 授权地址形态未实测，且两者都要用户额外操作，收益低于腾讯云这一条全自动路径。
- *
- * ## 铁律
- *
- * token 原文不进日志/输出，只给指纹与脱敏形态。
+ * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
 import { randomUUID } from "node:crypto";

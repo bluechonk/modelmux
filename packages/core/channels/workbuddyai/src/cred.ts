@@ -1,34 +1,10 @@
 /**
- * 认证状态：浏览器设备登录流程、凭证持久化与访问令牌刷新。
+ * WorkBuddyAI 凭据：浏览器设备登录、持久化与令牌刷新。
  *
- * ## 登录协议（唯一一条路径）
- *
- *   1. `POST {base}/v2/plugin/auth/state?platform=workbuddy`（匿名头）→ {state, authUrl}
- *   2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
- *   3. `GET {base}/v2/plugin/auth/token?state=...` 每 5s 轮询，≤5 分钟 → 令牌
- *   4. `GET {base}/v2/plugin/login/account?state=...`（带 Bearer）→ 账号档案
- *      （uid / enterpriseId / nickname；**失败不阻塞登录**，uid 回落 JWT `sub`）
- *   5. 落盘为 credentials.json（Go 风格字段名）
- *   刷新：`POST /v2/plugin/auth/token/refresh`（纯 HTTP，X-Refresh-Token 头）
- *
- * 设备授权**没有本机回环**（令牌由服务端按 state 下发），故 `pasteCode` 粘回的
- * 内容只作「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**立刻再取一次
- * 令牌，不是第二条登录路径。
- *
- * ⚠ 本渠道**只有一个域**（国际版 workbuddy.ai）。国内版（codebuddy.ai）是**独立渠道**
- * `workbuddy` —— 账号属于哪个域就用哪个渠道登录，不再有 `--realm` 二选一。
- *
- * ## 为什么只保留这一条登录路径
- *
- * [代码] 设备授权是 hub（`wb_accounts.py:3402-3486`）与 ckldy
- *   （`cmd/login/main.go:104-175`）**逐字同协议**的唯一共识路径（同样三个端点、
- *   同样由服务端签发 state、同样无 PKCE），且不依赖任何本机特权。
- * [推断] 参考实现的另两条**不实现**：
- *   - 桌面端加密凭据导入（hub `wb_accounts.py:3491-3534` + `wb_atrest.py`）要
- *     AES-256-GCM at-rest 解密 + Windows `ReadProcessMemory` 回收主密钥 ——
- *     违反渠道包 7 文件 / 零第三方依赖的契约；
- *   - 手工 JSON 导入（ckldy `internal/auth/auth.go:142-161`）属**凭据搬运**，
- *     不是登录；真要「不打开浏览器入池」，也应做成凭据导入而不是第二套登录。
+ * 关键约束（端点/字段/实测见 docs/channels/workbuddyai/PROTOCOL.md）：
+ *   - 登录只有 `login()` 一条路径（网页设备授权，无 PKCE），不提供第二种登录方式（桌面端加密导入 / 手工 JSON 导入均不采纳）。
+ *   - 设备授权无本机回环：`pasteCode` 只作「浏览器已完成」信号，转交同一轮询处理器再取一次令牌。
+ *   - 本渠道只有一个域（国际版 `workbuddy.ai`），账号属于哪个域就用哪个渠道登录。
  */
 
 import { readFileSync } from "node:fs";

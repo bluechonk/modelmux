@@ -1,32 +1,10 @@
 /**
- * 模型目录（国内版）。
+ * WorkBuddy 国内版模型目录。
  *
- * **对外暴露的 id 就是上游模型名**（`models` 载荷的 `slug`，如 `deepseek-v4.1-flash`）——
- * 不做短名花活：客户端看到的与服务端实际收到的保持一致，排查时少一层心算。
- * 若某条模型显式给了 `alias` / `short` / `shortName` / `exposed_id`，则用该字段作对外名。
- *
- * `LEGACY_ALIASES`：**只用于输入兼容**。早期版本对外用过 `deepseek-flash` 这个短名，
- * 老客户端配置里若还写着它，进来仍能解析到 slug；但它**不会**出现在 `/v1/models` 里。
- *
- * ## 三份目录的优先级
- *
- * 1. **远端**（`<cid>/cache/models.json`，由 `upstream.fetchModels()` 每次成功拉取后落盘）——
- *    权威来源，`/v1/models` 与 `mx model` 正常看到的就是它；
- * 2. **随包快照**（渠道根 `models.json`）—— 未登录 / 上游拉不到时的兜底；
- * 3. **内置兜底表**（`LEGACY_ALIASES` 的值）—— 连快照都缺失时的最后一道。
- *
- * ⚠ 快照会**过期**：随包那份只是某个时刻的截图，与国际版同样只有极少数条目。
- * 故远端目录必须落盘（见共享层 `runtime/catalog-cache.ts`），否则换个新进程
- * （`mx model`、`mx model list`）就又只剩快照。
- *
- * 非对话条目（`nes-` / `completion-` / `codewise-` 前缀）**一律不入目录**：
- * 它们列出来也选不中（选中后上游回 `code=11102`）。
- *
- * ## 已知规格表
- *
- * `MODEL_SPECS` 按**公开规格**（`docs/MODEL-SPECS.md` §3）给已知型号补上下文窗口与
- * 单次回复上限，经 `modelSpec()` 钩子供池层 `/v1/models` 透出；
- * 上游目录自己声明的值优先，本表只在目录没声明时兜底。
+ * 关键约束（端点/字段/实测见 docs/channels/workbuddy/PROTOCOL.md）：
+ *   - 对外暴露 id 就是上游模型名 `slug`（条目显式给了 alias/short/shortName/exposed_id 时用该字段），不做短名花活。
+ *   - `LEGACY_ALIASES` 只用于输入兼容（老客户端短名仍能解析），不会出现在 `/v1/models`。
+ *   - 目录按 远端缓存 → 随包快照 → 内置兜底 三源解析；非对话前缀（`nes-`/`completion-`/`codewise-`）条目一律不入目录。
  */
 
 import { readFileSync, statSync } from "node:fs";

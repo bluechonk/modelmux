@@ -1,12 +1,13 @@
 /**
  * WorkBuddyAI 渠道装配（**国际版**：`workbuddy.ai`）。
  *
- * 本文件是**共享层与渠道层的唯一边界**：`@modelmux/gateway` 里的
- * gateway / daemon / headless / auth-flow 都通过这里注册的 `Channel` 拿到
- * cred / upstream / catalog / billing。
+ * 本文件是**共享层与渠道层的唯一边界**：`@modelmux/gateway` 里的 gateway / daemon /
+ * headless / auth-flow 都通过这里注册的 `Channel` 拿到 cred / upstream / catalog / billing。
  *
- * ⚠ 国内版（腾讯 CodeBuddy，`codebuddy.ai`）是**独立渠道** `workbuddy`：
- * 域是渠道身份的一部分，一个渠道一个域，不再按 `--realm` 分流。
+ * ⚠ 国内版（腾讯 CodeBuddy，`codebuddy.ai`）是**独立渠道** `workbuddy`：域是渠道身份的一部分，
+ * 一个渠道一个域，不按 `--realm` 分流。
+ *
+ * 端点/字段/实测见 docs/channels/workbuddyai/PROTOCOL.md。
  */
 
 import { setChannel, type ChannelConfig, type Channel } from "@modelmux/gateway";

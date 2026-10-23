@@ -1,16 +1,10 @@
 /**
- * CatPaw 额度查询与申领（个人版网关积分中心）。
+ * CatPaw 额度查询与注册奖励申领（个人版网关积分中心）。
  *
- * 结论来源：`reference/HITZY2002_catpaw2api`（Go，`internal/upstream/const.go`
- * 与 `client.go` 的 CreditBalance / Register），推翻了本模块早期
- * 「网关不暴露额度端点」的错误结论 —— 额度在**个人版网关**上：
- *
- * - 查询：`GET https://catx.nocode.cn/api/gateway/credit/balance`
- * - 申领（注册奖励，幂等）：`POST https://catx.nocode.cn/api/gateway/credit/register`
- *
- * 鉴权是网关层 `X-Auth-Token: <accessToken>`（与对话用的
- * `X-Passport-Token` / Cookie 不是同一套；我们的 accessToken 就来自
- * 网关 passport poll-token，两者同源 —— 见 cred.ts）。
+ * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
+ *   - 额度只有「可用积分」一个字段，used 恒 0、size=remain 是如实映射，不是伪造。
+ *   - 上游没有每日签到；「签到」对应注册奖励申领（幂等，老用户不重复发放）。
+ *   - 鉴权是网关域 X-Auth-Token，与对话用的直连域头（X-Passport-Token + Cookie）不是同一套。
  */
 
 import * as cred from "./cred.js";

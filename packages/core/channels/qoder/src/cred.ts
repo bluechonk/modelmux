@@ -1,31 +1,10 @@
 /**
- * Qoder 凭据：OAuth 设备授权登录（PKCE S256）+ 续期 + **设备指纹稳定派生**。
+ * Qoder 凭据：OAuth 设备授权登录（PKCE S256）+ 续期 + 设备指纹稳定派生。
  *
- * ## 双区
- *
- * 同一套协议服务两个区：国际 `qoder.com` 与国内 `qoder.com.cn`，差异全部收敛在
- * `PRODUCTS` 表里（域名 / client_id / 授权 URL 参数形态 / UA）。凭据里的 `domain`
- * 按区取值 —— 账号池的 `key = sha256(domain+uid)` 靠它区分"同一 uid 属于哪个区"。
- *
- * ## 为什么要有设备指纹
- *
- * COSY 推理头必须带 `cosy-machineid` / `cosy-machinetoken` / `cosy-machinetype`
- * 三个字段（见 `upstream.ts`）。它们**按 uid 稳定派生**而不是随机生成：同一账号
- * 永远来自同一台"虚拟设备"，多账号之间天然隔离 —— 随机机器码会触发上游风控
- * （参考实现 `qoder2api-hub/qoder_fingerprint.py` 的结论）。
- *
- * ## 登录拿到的凭据字段
- *
- * 设备码轮询响应**不带昵称**，所以要补一次 `GET /api/v1/userinfo`：取 `name`（昵称）、
- * `user_type`（请求体 `aliyun_user_type` 用它）与 `id`（uid 兜底）。两个参考实现的字段名
- * 不一致（hub 用 snake_case，Zhengyuuuui 用 camelCase），故两种都认。
- * 续期响应不含 `machine_id` / `uid` / `nickname`，必须从旧凭据保留（见 `refresh()`）。
- *
- * ## 粘贴兜底
- *
- * 设备码流**没有本机回环**：令牌由服务端按 `nonce` 下发，浏览器的 `qoder://` 深链
- * 也打不到本机。故 `pasteCode` 粘回的内容只作「浏览器那一步已完成」的信号 ——
- * 转交**同一个轮询处理器**立刻再取一次令牌（不是第二条登录路径）。
+ * 关键约束（端点/字段/实测见 docs/channels/qoder/PROTOCOL.md）：
+ *   - 国际版与国内版是同一套协议的两个区，差异收敛在 `PRODUCTS` 表；凭据按 `domain` 分区，账号池 key 靠它区分。
+ *   - 设备指纹按 uid 稳定派生（非随机），随机机器码会触发上游风控。
+ *   - 设备码流无本机回环：`pasteCode` 只作「浏览器已完成」信号，转交同一轮询处理器再取一次令牌。
  */
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";

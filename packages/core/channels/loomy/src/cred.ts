@@ -1,25 +1,12 @@
 /**
  * Loomy（讯飞）认证：HMAC-SHA1 账号签名、手机验证码登录、凭据持久化与「续期=探测」。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/loomy/PROTOCOL.md）
+ * 关键约束（端点/字段/实测见 docs/channels/loomy/PROTOCOL.md）：
+ *   - 签名是 9 段换行连接，后两段恒空串 ⇒ 结果以两个换行结尾，不要顺手去掉尾随换行；认证头前缀是 account 而非 Bearer。
+ *   - 签名与发送必须共用同一序列化 body 字符串；账号端点只序列化一次。
+ *   - 登录只有手机验证码一条路（两步协议，msgid 是强绑定）；没有 refresh 端点，refresh() 只做有效性探测。
  *
- * 1. **签名是 9 段 `\n` 连接**，后两段（SignedHeaders / CanonicalizedHeaders）
- *    恒为空串 ⇒ 最终字符串**以两个换行结尾**。这是 `join("\n")` 在 9 个元素上的
- *    自然结果，**不要「顺手」去掉尾随换行** —— 去掉即签名不匹配。
- * 2. **空 body 的 Content-MD5 段是空串**（而不是「空串的 md5」）。
- * 3. **认证头前缀是 `account {ak}:{sig}`**，不是 `Bearer`。
- * 4. **签名与发送必须共用同一个序列化后的 body 字符串**：二次序列化会改变字节
- *    （键序/空格），签名随即失效。故 `accountPost()` 只 `JSON.stringify` 一次。
- * 5. **没有 refresh 端点**（session 是登录时声明 14 天得来的）：`refresh()` 只做
- *    **有效性探测**，失效时抛错 —— **不假装续期成功**（那会让 UI 显示「已续期」而请求仍 401）。
- * 6. **登录只有手机验证码一条路**（主人决定，2026-10-22）：两步协议 ——
- *    `POST /login/phone/sendMsgCode` 拿 `msgid`，再 `POST /login/phone/checkCode`
- *    用 `msgid` + 验证码换 `session`（`expire` 直接声明 14 天）。
- * 7. **`msgid` 是两步之间的强绑定**：`checkCode` 不带第一步的 `msgid` 必失败，
- *    故发码结果必须回传给用户（打进错误信息里），不能吞掉。
- * 8. ⚠ 历史上的微信扫码与账号密码登录都已移除：前者在无浏览器环境下注定别扭
- *    （授权页每次加载都是新 uuid，回调页线上还是 404），后者要求用户先在讯飞账号
- *    中心设密码。逆向结论保留在 docs/channels/loomy/FINDINGS.md，别照着重写。
+ * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
 import { createHash, createHmac, randomUUID } from "node:crypto";

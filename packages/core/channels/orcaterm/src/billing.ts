@@ -1,20 +1,9 @@
 /**
- * OrcaTerm 额度 / 签到。
+ * OrcaTerm 额度 / 签到：订阅制套餐无此概念，仅保留契约占位。
  *
- * ## 能力声明
- *
- * OrcaTerm 为订阅制运维套餐，**没有额度与每日签到概念**。渠道在 `channel.ts`
- * 声明 `capabilities: { billing: false, signin: false }`，共享层据此直接显示 `-`，
- * 不会调用本模块。
- *
- * ## 保留的实现
- *
- * `fetchCredits()` 保留为防御性兜底：上游额度端点需要请求签名
- * （MissSignatureParams），签名方案非简单 token 透传，参考实现
- * （ZFXing-lite/orcaterm2api、hey7195/orcaterm_proxy）均未实现。若有人绕过
- * 能力声明直接调用，按查询失败抛错，不伪造「余额为零」。
- *
- * `signin` 按网关契约保留，返回说明性结果；共享层不会调用。
+ * 关键约束（端点/字段/实测见 docs/channels/orcaterm/PROTOCOL.md）：
+ *   - 渠道声明 billing/signin 能力为 false，共享层不会调用本模块。
+ *   - fetchCredits() 为防御性兜底：上游额度端点需请求签名，直接调用按失败抛错，不伪造「余额为零」。
  */
 
 import type { SigninModule } from "@modelmux/gateway";

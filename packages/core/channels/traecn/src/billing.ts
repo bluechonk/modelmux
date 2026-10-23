@@ -1,28 +1,10 @@
 /**
- * TRAE 额度与签到：签到三端点（status / claim / usage），全部走 `api.trae.cn`。
+ * TRAE 额度与签到：额度查询 + 每日签到领积分。
  *
- * ## 实测要点（docs/channels/traecn/PROTOCOL.md §6）
- *
- * - **claim 的 body 是 `{}`**（不是 `{"req_source":2}`），且成功响应只有
- *   `{"code":0,"message":"success"}` —— **不含积分数**，必须补查一次 `status`
- *   才能拿到 `credits`（实测 150）。
- * - **设备身份确定性派生**（`deviceId15` / `marketUserId` / `sessionId`）：
- *   每个账号稳定唯一，从而规避「每设备每天一次」配额。
- * - `9074`（签到人数过多）是**设备级限流**：轮换签到设备代次并报错。
- * - `expire_time` 是**秒**级 Unix（×1000 才是毫秒）。
- *
- * ## 额度口径（重要）
- *
- * `ide_user_ent_usage` 返回的是**权益包列表**，含 work 专属包；
- * 「权益包剩余」**不等于**「SOLO 通道可对话的余额」。故：
- *
- * - `total` 统计的是**通用（SOLO）维度**的包（`entitlement_base_info.available_endpoint === 0`）；
- *   上游没下发该字段时回落统计全部包（不猜）。
- * - 若对话流观测到过 `notify_usage`（见 `upstream.readUsageSnapshot()`），
- *   `total.remain` 用它的 `ide_credits` —— 那是**上游自己算的余额**，权威。
- *
- * ⚠ 「查不到」不能显示成 0：失败一律抛 `CreditsError`。
- * ⚠ 未登录抛 `cred.NotLoggedInError`。
+ * 关键约束（端点/字段/实测见 docs/channels/traecn/PROTOCOL.md）：
+ *   - `total` 只统计通用（SOLO）维度权益包；有对话流余额快照（`upstream.readUsageSnapshot()`）时以上游自算的 `ide_credits` 覆盖推导值。
+ *   - 「查不到」一律抛 `CreditsError`，不得显示成 0；未登录抛 `cred.NotLoggedInError`。
+ *   - 签到领取后需补查一次 status 才能取到积分数（`signin` 内实现）。
  */
 
 import { randomBytes, randomUUID } from "node:crypto";

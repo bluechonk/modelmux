@@ -1,32 +1,10 @@
 /**
- * Qoder 上游：**COSY 签名** + 自定义请求体编码 + SSE 信封解包。
+ * Qoder 上游：COSY 签名 + 自定义请求体编码 + SSE 信封解包。
  *
- * ## COSY 签名（纯 `node:crypto` 复刻）
- *
- * ```
- * temp_key  = 16 个 hex 字符      → 同时当 AES-128 的 key 与 IV
- * cosy_key  = base64(RSA_PKCS1v15(temp_key))          ← 官方 1024-bit 公钥
- * info      = base64(AES-128-CBC(身份体 JSON 紧凑排序, key=iv=temp_key))
- * payload   = base64(紧凑排序({cosyVersion, ideVersion, info, requestId, version}))
- * sig       = md5_hex([payload, cosy_key, date, body, path].join("\n"))
- * Authorization = "Bearer COSY." + payload + "." + sig
- * ```
- *
- * ⚠ **照抄不改**的三处（改了服务端直接拒）：`temp_key` 的形态（16 hex，不是随机 16 字节）、
- * 身份体的**键排序 + 紧凑 JSON**、签名里 `path` 要去掉 `/algo` 前缀。
- *
- * ## 请求体是编码后的字符串
- *
- * Qoder 的 body 不是 JSON 对象，而是 JSON 经**自定义 Base64 变体**编码后的字符串
- * （三段轮转 + 私有字母表，`=`→`$`）。所以 `buildChatBody` 返回**字符串**，
- * 网关会按字符串直发（见 `channel.ts` 的契约说明）。
- *
- * ## 签名需要 body，但 `buildHeaders` 拿不到
- *
- * 共享网关的调用序列是 `buildChatBody()` → `buildHeaders()`，中间隔着共享层的重试路径
- * （连接失败重试 / token 刷新后重试 / 排队等待后重开），每次重试都会**再调一次**
- * `buildHeaders()`。所以「编码后的 body + 目标 URL + 模型 key」必须**跟着本次请求走**
- * （见下方待签名槽）：并发请求各持一份，后一个请求不会覆盖前一个的待签名 body。
+ * 关键约束（端点/字段/实测见 docs/channels/qoder/PROTOCOL.md）：
+ *   - COSY 签名含多处「照抄不改」的形态细节，改动即被服务端拒；算法与细节见 PROTOCOL.md。
+ *   - 请求体是自定义 Base64 变体编码后的字符串，`buildChatBody` 返回字符串，由网关按字符串直发。
+ *   - 签名需要 body，但共享网关在重试路径上会多次调用 `buildHeaders`：待签名 body 必须走请求级槽（`AsyncLocalStorage`），并发各持一份。
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
