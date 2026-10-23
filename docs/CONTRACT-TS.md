@@ -283,6 +283,14 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   （`isQuotaExhausted`），命中就把该账号标**账号级冷却**；但「等到什么时候」只有渠道知道 ——
   有的上游直接把重置时间写进错误体（workbuddyai 花完日额度后返回下次刷新时间）。
   返回 `null` 时共享层回落**次日本地 0 点**。**不要编造时间**：编错会让账号冷却到错误的时刻。
+- `quotaSignal(status, body)`（**可选**，2026-10-23 新增）：声明本渠道的**额度信号**。
+  共享层只认**通用措辞**（`insufficient_quota`、「余额不足」这类任何上游都可能用的说法）；
+  渠道自己的**业务码与专有措辞**（如 workbuddyai 的 `code=6004`「usage exceeds frequency
+  limit」）**必须**由渠道经本钩子上报 —— 共享层不许硬编码渠道知识（AGENTS.md 铁律）。
+  - 返回 `usage_limit` = **账户级用量限额**（对所有模型生效，含倍率 0 的）→ 网关一律冷却；
+  - 返回 `balance` = **余额不足**（只影响计费用量）→ 只冷却付费模型，免费模型继续打上游；
+  - 认不出返回 `null`。
+  - 守卫：`tests/quota-signal.test.ts` 会扫共享层**可执行代码**里有没有渠道业务码，有就红。
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
   按帧里的 `retryAfterSeconds`（封顶 10s）退避后重开上游重试，总时长上限 5 分钟。
   已吐过内容帧则不重试（避免重复内容）。未声明的渠道照旧把错误帧透传给客户端。
