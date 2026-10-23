@@ -330,6 +330,18 @@ export function writeAccountBilling(cid: string, key: string, credits: unknown):
 }
 
 /**
+ * 账单派生的冷却上限。
+ *
+ * 账单读到 0 就冻到「下一个额度窗口」并不可靠：窗口边界上的快照可能仍是旧值
+ * （实测 lobsterai 2026-10-23T16:00:37Z 读到 0，随后日奖励到账变成 100/100），
+ * 而冷却期内又不再查账单 → 账号被错误冻满一整天、Web 卡片停在 0。
+ *
+ * 因此账单派生的冷却最多持续这么久，到期必然重查一次；查到有额度即恢复。
+ * 真正的上游 4xx 额度错误不走这里（仍按渠道声明的窗口冷却）。
+ */
+const BILLING_COOLDOWN_PROBE_MS = 30 * 60_000;
+
+/**
  * 账单显示额度为 0 → 把生效账号标**冷却**（等到渠道声明的下次刷新时刻）。
  *
  * 为什么要在「账单」这条路上也标：有的渠道额度用完**不会**立刻回 4xx ——
@@ -344,10 +356,16 @@ function markCooldownIfExhausted(channel: Channel, cid: string, credits: unknown
   const raw = total["remain"];
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw > 0) return;
   const resetsAt = channel.billing.quotaPeriod?.()?.resets_at ?? null;
+  // 冷却最多到「窗口重置」与「探测上限」中较早的那个（见 BILLING_COOLDOWN_PROBE_MS）
+  const probeAt = Date.now() + BILLING_COOLDOWN_PROBE_MS;
+  const until =
+    typeof resetsAt === "number" && Number.isFinite(resetsAt)
+      ? Math.min(resetsAt, probeAt)
+      : probeAt;
   try {
     runInChannel(cid, () =>
       noteAccountQuotaExhausted(cid, {
-        until: resetsAt,
+        until,
         reason: "账单显示额度已用尽，等额度窗口刷新",
       }),
     );

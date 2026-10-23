@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -24,6 +24,9 @@ const KEY = "acct1";
 
 /** 调用计数：用来断言「有没有真去查上游」。 */
 let fetchCalls = 0;
+
+/** 账单返回的剩余额度（用例可改成 0 触发冷却）。 */
+let creditsRemain = 5;
 
 /** 合成渠道：billing 只回一个固定额度并计数。 */
 function registerChannel(): void {
@@ -46,7 +49,9 @@ function registerChannel(): void {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => {
         fetchCalls += 1;
-        return { total: { remain: 5, size: 10, used: 5, unit: "credits", remain_percent: 50 } };
+        return {
+          total: { remain: creditsRemain, size: 10, used: 10 - creditsRemain, unit: "credits", remain_percent: creditsRemain * 10 },
+        };
       },
       signin: {
         status: async () => ({ claimable: false, summary: "无" }),
@@ -108,6 +113,7 @@ describe("冷却账号不再执行 bill", () => {
   });
   beforeEach(() => {
     fetchCalls = 0;
+    creditsRemain = 5;
     poolUsage.resetPoolLedgerForTest();
   });
   after(() => {
@@ -138,5 +144,21 @@ describe("冷却账号不再执行 bill", () => {
     const result = await poolUsage.refreshBilling();
     assert.ok(fetchCalls >= 1, "冷却过期后应恢复查询");
     assert.deepEqual(result.refreshed, [CID]);
+  });
+
+  it("账单读到 0 → 冷却最多 30 分钟，不冻满整个额度窗口", async () => {
+    creditsRemain = 0;
+    seedPool("ok", null);
+    const result = await poolUsage.refreshBilling();
+    assert.deepEqual(result.refreshed, [CID], "本次仍应查到账单（0 是有效结果）");
+
+    const index = JSON.parse(
+      readFileSync(join(paths.channelDir(CID), "accounts.json"), "utf8"),
+    ) as { accounts: Array<{ health: string; cooldown_until: string }> };
+    const account = index.accounts[0]!;
+    assert.equal(account.health, "cooldown", "额度为 0 应标冷却");
+    const delta = Date.parse(account.cooldown_until) - Date.now();
+    assert.ok(delta > 25 * 60_000, `冷却应接近 30 分钟，实际 ${delta}ms`);
+    assert.ok(delta <= 30 * 60_000 + 5_000, `冷却不得超过 30 分钟，实际 ${delta}ms`);
   });
 });
