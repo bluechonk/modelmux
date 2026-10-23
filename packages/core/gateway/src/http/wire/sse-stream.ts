@@ -17,6 +17,7 @@ import { isAbsolute, join } from "node:path";
 import type { ServerResponse } from "node:http";
 
 import { getChannel } from "../../runtime/channel.js";
+import { noteUsage } from "../../runtime/log-store.js";
 import { debugDir, noteOnce } from "../../runtime/paths.js";
 
 const READ_CHUNK = 8192;
@@ -324,14 +325,21 @@ export async function relay(
           buffer = buffer.slice(crlf + 4);
         }
         const processed = processEvent(event);
-        if (processed !== null) out.write(`${processed.replace(/\r+$/, "")}\n\n`);
+        if (processed !== null) {
+          const frame = processed.replace(/\r+$/, "");
+          noteFrameUsage(out, frame);
+          out.write(`${frame}\n\n`);
+        }
       }
     }
     if (isSse) {
       buffer += decoder.decode();
       if (buffer) {
         const processed = processEvent(buffer);
-        if (processed !== null) out.write(processed);
+        if (processed !== null) {
+          noteFrameUsage(out, processed);
+          out.write(processed);
+        }
       }
     }
   } catch (err) {
@@ -352,6 +360,33 @@ function isBenignDisconnect(err: unknown): boolean {
     code === "ERR_STREAM_PREMATURE_CLOSE" ||
     (err as Error | null)?.name === "AbortError"
   );
+}
+
+/**
+ * 从一个 SSE 帧里提取 usage 并记到请求日志。
+ *
+ * 两条转发路径共用：翻译器路径（`chat/stream.ts`）与 `openai` 线型的直通路径
+ * （本文件的 `relay`）。直通路径此前不采集 usage，导致 workbuddy / lobsterai /
+ * loomy / raccoon / workbuddyai 的**流式请求访问日志全部没有 usage 字段**
+ * （2026-10-24 实测：这四个渠道当日 0/385、0/211、0/474、0/16）。
+ *
+ * 快判：绝大多数帧不含 `"usage"`，只做一次子串扫描就返回，不给直通路径
+ * 增加 JSON 解析开销。
+ */
+export function noteFrameUsage(out: ServerResponse, frame: Buffer | string): void {
+  const text = typeof frame === "string" ? frame : frame.toString("utf8");
+  if (!text.includes('"usage"')) return;
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      if (parsed["usage"]) noteUsage(out, parsed["usage"]);
+    } catch {
+      /* 非 JSON 帧不处理 */
+    }
+  }
 }
 
 /** 读完整个上游响应体（非流式路径），读取中断抛 StreamError。 */
