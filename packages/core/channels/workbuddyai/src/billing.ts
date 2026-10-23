@@ -1,15 +1,9 @@
 /**
- * 上游计费：查询 WorkBuddyAI 账号的剩余额度（credits）。
+ * WorkBuddyAI 额度：查询账号剩余额度（credits）。
  *
- * 走上游 billing 端点（**不是**本地网关 —— 网关只代理 chat），只读，不做任何写入。
- *
- * - 额度端点：`POST {base}/v2/billing/meter/get-user-resource`（**国际版 base** =
- *   `https://www.workbuddy.ai`；国内版另见 `workbuddy` 渠道）
- * - 必需 query：无；body = `{PageNumber,PageSize,ProductCode:"p_tcaca",Status:[0,3],
- *   PackageEndTimeRangeBegin,PackageEndTimeRangeEnd}`
- *
- * [代码] 端点常量见参考实现 `wb_accounts.py:213`（`GET_RESOURCE_PATH`）、
- *   `ckldy/internal/upstream/client.go:299-308`。
+ * 关键约束（端点/字段/实测见 docs/channels/workbuddyai/PROTOCOL.md）：
+ *   - 走上游 billing 端点直连（不经本地网关，网关只代理 chat），只读不做写入。
+ *   - 「查不到」一律抛 `CreditsError`，不得显示成 0；未登录抛 `cred.NotLoggedInError`。
  */
 
 import * as cred from "./cred.js";

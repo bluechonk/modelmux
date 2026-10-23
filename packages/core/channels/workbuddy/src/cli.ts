@@ -3,6 +3,8 @@
  *
  * 只做两件事：注册本渠道（`./channel.js` 的副作用）→ 交给共享 CLI。
  * 命令实现全在 `@modelmux/gateway`。
+ *
+ * 端点/字段/实测见 docs/channels/workbuddy/PROTOCOL.md。
  */
 
 import "./channel.js"; // 副作用：setChannel(本渠道)

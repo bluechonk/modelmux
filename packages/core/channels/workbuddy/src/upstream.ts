@@ -1,35 +1,10 @@
 /**
  * WorkBuddy（国内版）上游：端点、请求头、请求体改写。
  *
- * ## 本模块承载的渠道知识
- *
- * 上游的全部硬约束都在 `buildChatBody()` 里实现（网关只负责调用它），每一条
- * 都是真机实测过的拒收原因（与国际版 `workbuddyai` 同一套协议，规格见
- * `docs/channels/workbuddyai/PROTOCOL.md`）：
- *
- * 1. **首条消息必须是 system** —— 否则 400 `first message is not system prompt`
- * 2. **只支持流式** —— 否则 400 `Non-stream chat request is currently not supported`
- * 3. **指纹拦截** —— 命中即 400 `code=11128 Illegal API invocation from an
- *    unapproved channel`，需改写特征片段
- * 4. **`tool_choice` / `stop` 只认 Go 原生类型** —— 对象形态与字符串 `stop` 都是 400
- *    `code=11101`
- * 5. **工具调用序列必须成对且相邻** —— 违反即 400 `code=11148`
- * 6. **DeepSeek 思考模式下每条 assistant 必须带 `reasoning_content`**
- *
- * ## 与共享层的分工
- *
- * 通用 OpenAI 形状修复（`developer` 降级、思考链回填、工具调用配对修复、
- * `max_completion_tokens` / `tool_choice` / `tools` / `stop` 归一）已下沉到
- * `@modelmux/gateway` 的 `http/openai-normalize.ts`；本模块只保留**渠道特有**
- * 的判据（指纹改写规则、模型族、角色枚举、流式要求），其余一律调用共享层。
- *
- * ⚠ **chat 路径不用 `prefixPath`**（实测）：`POST /plugin/v2/chat/completions`
- * 返回 **404**，而 `POST /v2/chat/completions` 返回 **200** —— 故不使用该前缀。
- *
- * 另外：上游按**整组身分头**判定请求是否来自官方桌面客户端，缺任一员整条
- * 会话被 400 `code=11128` 拒绝 —— `buildChatHeaders()` 按官方头族补齐。
- * 国内版的 chat 上游是 `copilot.tencent.com`，而 `www.codebuddy.cn` 只做计费与
- * 前台 Origin（`wb_identity.py` 的 endpoint_for 口径）。
+ * 关键约束（端点/字段/实测见 docs/channels/workbuddy/PROTOCOL.md）：
+ *   - `buildChatBody()` 承担全部渠道特有改写；上游全部拒收原因（首条消息、仅流式、指纹、Go 原生类型、工具配对、思考模式字段）都实现在此。
+ *   - `buildChatHeaders()` 按官方身分头族补齐，缺任一员整条会话会被拒。
+ *   - chat 路径刻意不用 `prefixPath`（该前缀不可用）；通用 OpenAI 形状修复已下沉共享层 `http/openai-normalize.ts`。
  */
 
 import { readFileSync } from "node:fs";

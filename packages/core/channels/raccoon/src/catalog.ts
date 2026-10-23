@@ -1,25 +1,10 @@
 /**
  * Raccoon 模型目录：兜底表、图片能力白名单、倍率展示与远端解析。
  *
- * ## 本模块承载的渠道知识（见 docs/channels/raccoon/PROTOCOL.md §5）
- *
- * 1. **模型 id 在远端的 `name` 字段里，不是 `id`**（`id` 是另一个无关字段）。
- * 2. ⚠⚠ **`tags` 不是图片能力契约**（真实缺陷 2026-10-03）：`tags` 的真实用途是
- *    客户端「Raccoon-Auto 选模」的偏好标签，回答的是「适不适合处理这类任务」，
- *    **不是**「能不能吃图」。曾把「tags 含 vision」当成能力声明，结果
- *    `sn-deepseek-v4-1-flash`（tags 无 vision）被播报成纯文本 → **DSH 在
- *    `LlmRuntime` 里把图片替换成文本占位符** → 图片根本没发出去，用户却看到
- *    「模型读不到图片」。带图实测 6/6 全读对（`sn-deepseek-v4-1-flash` 5/5）。
- *    故判定 = **显式白名单覆盖实测确认的个案** + tags 含 vision/image/…
- *    ⚠ 兜底表路径**不走本函数**：它的真相源是 `FALLBACK_MODELS[].supportsImage`。
- * 3. **展示名规则：1 倍也要显示**（真实报障：Kimi-K3 未显示计费信息）：
- *    生效价 0 → 「免费」（**不是** `x0`）；生效价 < 原价 → `x原价→x折后价`；
- *    其余（**含 1 倍**）→ `x生效价`。
- * 4. 兜底表**不含** `Raccoon-Auto`：它是客户端 i18n 条目渲染的「自动选模」入口，
- *    不是远端模型 —— 直接发给 `chat/completions` 会 404。
- * 5. **已知规格表**（`modelSpec` 钩子）：远端目录自带窗口与输出上限
- *    （`params.context_window` / `params.max_tokens`），本表只在**远端没下发**时
- *    按公开规格兜底（来源 `docs/MODEL-SPECS.md` §3）。
+ * 关键约束（端点/字段/实测见 docs/channels/raccoon/PROTOCOL.md）：
+ *   - 远端模型 id 在 `name` 字段里（`id` 是无关字段）；兜底表不含 `Raccoon-Auto`（客户端「自动选模」入口，直发会 404）。
+ *   - `tags` 是选模偏好标签、不是图片能力契约：图片能力 = 显式白名单覆盖已确认个案 + tags 含 vision/image 等。
+ *   - 展示价 1 倍也要显示：0 → 「免费」，低于原价 → `x原价→x折后价`，其余（含 1 倍）→ `x生效价`。
  */
 
 import * as cred from "./cred.js";

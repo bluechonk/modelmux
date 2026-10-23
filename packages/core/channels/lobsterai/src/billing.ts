@@ -1,35 +1,10 @@
 /**
  * LobsterAI 额度查询与签到（只读 + 一个写动作，均直连上游，不经本地网关）。
  *
- * ## 余额为什么不用 `/api/user/quota`
- *
- * 那个端点只有 `freeCreditsTotal=300`、**不含活动积分**（实测某账号
- * profile-summary 有 5297.72，quota 只有 300）。故余额取
- * `GET /api/user/profile-summary` 的 `data.totalCreditsRemaining`。
- *
- * ## 「查不到」与「余额为 0」是两件事
- *
- * 上游**恒**下发 `data.totalCreditsRemaining`（实测余额真的为 0 时也返回 0，
- * `creditItems` 也恒为数组）—— 故只有该**字段缺失**才是「查不到」，
- * 此时抛 `CreditsError`；字段在（哪怕值是 0）就如实报余额。
- *
- * 早期判据是「`remain === 0 && packages.length === 0` → 抛错」，
- * 于是「余额真的用光了」被误报成「查不到额度信息」，用户看不到真相
- * （实测本渠道 2026-10-20 的真实故障正是余额耗尽，却被报成查不到）。
- *
- * ## 签到三步（缺一步都拿不到积分）
- *
- * 1. `GET /api/client-activities/slot?...` → 活动码 + `configRevision` + `slotState`
- * 2. `GET /api/client-activities/{code}/context?...` → `claimedToday` / `actions`
- * 3. `POST /api/client-activities/{code}/actions/check_in` → 积分
- *
- * `slotState` 与 `data.activity` **平级**；取值非 `available` = **当前没有活动**
- * （不是失败）：签到跳过、余额查询不列可领取项。响应里没有该字段时按旧行为。
- *
- * ⚠️ `platform=win32` 是**伪装客户端形态**，即使跑在 macOS/Linux 上也照发，
- * 与运行环境无关，改了可能拿不到活动。
- * ⚠️ 幂等是**客户端**保证（无服务端幂等键）：`idempotencyKey`（UUID4）+
- * 先查 `claimedToday` / `actions` 里有没有 `check_in`，两步预检都要做。
+ * 关键约束（端点/字段/实测见 docs/channels/lobsterai/PROTOCOL.md）：
+ *   - 「查不到」与「余额为 0」是两件事：字段缺失才抛错，字段在（哪怕为 0）如实报余额。
+ *   - 签到三步（slot → context → check_in）缺一步都拿不到积分；幂等由客户端保证（先查 claimedToday/actions）。
+ *   - platform=win32 是伪装客户端形态，与运行环境无关，改了可能拿不到活动。
  */
 
 import { randomUUID } from "node:crypto";

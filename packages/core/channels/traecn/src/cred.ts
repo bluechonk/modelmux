@@ -1,49 +1,10 @@
 /**
- * TRAE（字节跳动）认证：浏览器授权登录、设备指纹、ExchangeToken 续期。
+ * TRAE 凭据：浏览器授权登录、设备指纹、续期与落盘。
  *
- * ## 唯一登录路径：**浏览器授权 + 本地回调**（`login()`）
- *
- * 本模块**只有一条**取凭据路径，不提供第二种登录方式。判据：
- *
- * 1. **唯一实测跑通**：2026-10-19 端到端实测通过（见 `docs/channels/traecn/PROTOCOL.md`）。
- * 2. **与国内版主参照逐字同构**：授权 URL（`auth_callback_url` / `hide_saas_login` /
- *    `login_trace_id`）→ 本地回调 → 解析 → `ExchangeToken` → `GetUserInfo` → 落盘，
- *    参数集与端点逐字一致（参考 `reference/autumnsentiment_Trae2api-cn/src/web_login.py`、
- *    `reference/JeffHu0912_trae2api/internal/server/callback.go`）。
- * 3. **其余路径为何不采纳**：
- *    - **OAuth 设备码流**：主参照自述 `/cloudide/api/v3/trae/oauth/Authorize` 返回 404、
- *      该流程**不可用**（`reference/autumnsentiment_Trae2api-cn/src/auth_cli.py` 头部注释）。
- *    - **桌面客户端 `storage.json` 解密**：需把平台相关解密代码搬进渠道包，
- *      违反「渠道包 `src/` 只能 7 文件、零第三方运行依赖」的仓库契约。
- *    - **手工粘贴 token / 粘贴回调链接**：那属于**凭据导入**而非登录；
- *      多账号应由共享层账号池承载，不该在渠道里再造第二套登录流程。
- *    - **`.env` 读取**：与本仓库「落点由共享层按 cid 推导」的存储约定冲突。
- *
- * ## 登录（实测，docs/channels/traecn/PROTOCOL.md §2）
- *
- * - 登录页参数名必须是 **`auth_callback_url`**（没有 `callback_url`/`redirect_uri`），
- *   写错登录页**永远停在授权中**（真实缺陷）。
- * - **回调直接回传 token**（不是 OAuth `?code=`）；若上游改走 PKCE
- *   （回调里只有 `code`/`authCode`），本模块明确报错而不是静默失败。
- * - 本地回调端口 **18080**，被占用（EADDRINUSE/EACCES）时回退随机端口，
- *   登录 URL 用**实际**端口重算。
- * - 昵称有 latin-1 双重编码乱码（实测 `Óû§8847309959`），用
- *   `Buffer.from(raw,"latin1").toString("utf8")` 修复；修不好且无 CJK 时回退
- *   `用户+uid末4位`。
- *
- * ## 设备指纹
- *
- * - `machine_id` / `device_id` 都是 **32 位 hex**（早期误做成 16 位纯数字，与协议不符）。
- * - `device_id` **每账号互不相同**：同日两账号共用会被「该设备已签到」拦截。
- * - 签到用的设备标识是**确定性派生**（`sha256(salt:uid + 代数)`），因此同一账号
- *   稳定唯一，从而规避「每设备每天一次」配额；9074（设备级限流）时轮换代次。
- *
- * ## 续期
- *
- * `POST {oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken`
- * —— **access 与 refresh 都轮换**，续期后必须回写。
- * 终态（需重新登录）三条任一：HTTP 401/403、错误分类 session-dead、
- * **2xx 且响应是 JSON 却没有 accessToken**（含 HTML 错误页）。
+ * 关键约束（端点/字段/实测见 docs/channels/traecn/PROTOCOL.md）：
+ *   - 登录只有 `login()` 一条路径（浏览器授权 + 本地回调），不提供第二种登录方式。
+ *   - 设备指纹按账号确定性派生且每账号互不相同（`deriveCheckinDeviceId` / `deriveMarketUserId`），同日两账号共用会被「该设备已签到」拦截。
+ *   - 续期（`refresh()`）同时轮换 access 与 refresh，成功后必须回写。
  */
 
 import { createHash, randomBytes } from "node:crypto";

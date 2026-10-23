@@ -1,36 +1,10 @@
 /**
  * Qoder 国内版额度与签到（只读 + 一个写动作，均直连上游，不经本地网关）。
  *
- * ## 为什么用另一套头
- *
- * `/sash/**`（余额、活动）走的是**桌面客户端身份**，不是推理那套 COSY 签名：
- * `Authorization: Bearer <access_token>` + `Cosy-ClientType: 10` + `Cosy-Version`。
- * ⚠ `Cosy-ClientType` 的 10（桌面）与推理信封里的 `client_type=5`（CLI）**不可混用** ——
- * 用 5 去查活动，服务端返回**空列表**（不是报错，所以更容易误判成"没有活动"）。
- *
- * ## 国内版**不发**机器指纹头（与国际版不同，勿照搬）
- *
- * 服务端按设备指纹过滤活动：自造的派生指纹会被判成「非官方客户端」，把
- * `CLAIMABLE` 的「每日领取 100 Credits」**整条过滤**（列表里直接不显示，
- * 且**不是报错**）。两个参考实现结论一致：
- * - `reference/Zhengyuuuui_qoder2api/checkin.go:75-88`（国内版单变量对照实验）：
- *   发自造 `cosy-machinetoken` → `no_campaign`；完全不发 → 正常下发。
- * - `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:1736-1747`（issue #10）：
- *   全套派生 `cosy-machine*` 六头会被整条过滤，派生分支一律不发；
- *   `:1779-1780` 注明「CN 侧不发头是正确行为」。[参考]
- *
- * ⚠ 反过来，**缺** `cosy-version` 同样会静默返回**空活动列表**（不报错）——
- * `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:1733-1735`、`README.md:285`。[参考]
- *
- * ## 余额不只在 userQuota
- *
- * 实测 `userQuota.remaining = 0` 而 `addOnQuota.remaining = 100` 是常态，所以两者要合并。
- * `displayMode === "enterprise"` 时上游不给额度数字（返回 null）——那不算错误。
- *
- * ## 活动的"今天"怎么算
- *
- * 活动每日 **10:00（UTC+8）刷新**：刷新前看到的 `CLAIMED` 属于**昨天**，
- * 不能就此报「今天已领」。
+ * 关键约束（端点/字段/实测见 docs/channels/qodercn/PROTOCOL.md）：
+ *   - `/sash/**` 走桌面客户端身份，与推理信封的 CLI 身份不可混用，混用会静默返回空列表。
+ *   - 国内版不发机器指纹头：自造派生指纹会被判成非官方客户端而整条过滤活动；缺 `cosy-version` 同样静默返回空列表。
+ *   - 余额须合并 `userQuota` 与 `addOnQuota`；`enterprise` 模式上游返回 null 不算错误；活动按 UTC+8 每日 10:00 刷新。
  */
 
 import type { SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";

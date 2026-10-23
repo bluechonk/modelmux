@@ -1,24 +1,10 @@
 /**
- * Loomy（讯飞）上游：端点、**两套认证头**、业务码判据与请求体改写。
+ * Loomy（讯飞）上游：端点、两套认证头、业务码判据与请求体改写。
  *
- * ## 本模块承载的渠道知识（见 docs/channels/loomy/PROTOCOL.md）
- *
- * 1. **两套认证头**：`/models` 与 `/points/*`、`/onboarding/*` **只认 `token` 头**；
- *    `/chat/completions` **只认 `Authorization: Bearer`**（chat 端点**两个都发**，
- *    因为官方客户端在 session 模式下也是两个都发）。
- *    实测交叉验证：带错的那个 → HTTP 200 + `{"code":"100002","desc":"缺少 token"}`。
- * 2. **业务失败恒返回 HTTP 200**：成败只能读 body 的 `code`
- *    （`000000` 成功 / `100002` 登录失效 / `100001` 参数错误）。
- *    只看状态码会把「登录已失效」误判成成功。
- * 3. **`reasoning_effort` 必须校验档位在该模型的 efforts 内**（不能被 HTTP 状态码骗：
- *    实测传 `reasoning_effort` / `reasoningEffort` / `thinking` 三种名字**都返回 200**，
- *    服务端对未知字段静默忽略）。校验不过时**静默不下发**（退回服务端默认档）。
- * 4. 档位表来自远端 `GET /models`；为**避免 upstream ↔ catalog 循环依赖**，由
- *    `catalog` 在构建目录时把档位注册进本模块的注册表（`setModelEfforts`）。
- * 5. **端点路径集中在常量表**（`CHAT_PATH` 等）：完整 URL = 业务基址 + 端点路径，
- *    query / body 的来源写在各常量注释里（PROTOCOL §1）。
- * 6. `traceparent` / `loomy-version` 是 `[参考]` 标注的**对话必需头**（缺失会挂死到超时）；
- *    本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核**（PROTOCOL §2.2.1）。
+ * 关键约束（端点/字段/实测见 docs/channels/loomy/PROTOCOL.md）：
+ *   - 两套认证头：业务端点只认 token 头，chat 端点只认 Bearer（chat 两个都发）。
+ *   - 业务失败恒返回 HTTP 200，成败只能读 body 的 code；reasoning_effort 必须校验档位在该模型档位表内。
+ *   - 档位表来自远端目录，由 catalog 构建时注册进本模块（避免循环依赖）。
  */
 
 import { randomUUID } from "node:crypto";

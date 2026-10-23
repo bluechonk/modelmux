@@ -1,25 +1,10 @@
 /**
  * LobsterAI 上游：端点、请求头、请求体改写、客户端版本号与错误分类。
  *
- * ## 本模块承载的渠道知识
- *
- * 1. **`X-LobsterAI-Client-Capabilities` / `X-LobsterAI-Client-Version` 是模型端点的
- *    准入条件**（2026-09-17 实测）：不带 capabilities 时 `/api/models/available`
- *    只返回 25 个模型且**没有 `kimi-k3`**，带上才 26 个；`thinking-level-control-v1`
- *    还是 `reasoning_effort:"off"` 的前提（不带该能力时服务端直接 500）。
- * 2. **`stream: false` 会返回 500** —— 上游只支持 SSE，`buildChatBody()` 恒设 `stream: true`，
- *    客户端要非流式由网关聚合。
- * 3. **图片形态必须是 `{type:'image_url', image_url:{url:'data:...'}}`**：
- *    `{type:'image'}` 与裸 base64 字符串都返回 **500**。
- * 4. **错误分类顺序不可重排**（`classifyError`）：body 关键词必须排在状态码之前
- *    （除 402）—— 实测上游用 **400 + 中文「积分不足」**表达余额耗尽。
- * 5. **不发 `prompt_cache_key`**（腾讯后端的前缀缓存机制，此处未实测支持），
- *    **不发 `tool_choice`**。
- *
- * 客户端版本号是**动态真值**：`{portal}/.../prod/update`（第三方域名，非统一信封，
- * 载荷在 `data.value.version`），缓存 12 小时；取不到时先退到**磁盘上最后一次
- * 成功解析到的版本**，再退到兜底常量 `2026.9.4`（版本号是签到 slot 的准入门槛，
- * 退得太旧会静默拿不到每日签到）。
+ * 关键约束（端点/字段/实测见 docs/channels/lobsterai/PROTOCOL.md）：
+ *   - 模型端点必须带客户端能力/版本头，否则模型集合缺项；恒流式（stream:false 回 500）。
+ *   - 错误分类顺序不可重排：body 关键词排在状态码之前（除 402），否则余额耗尽被判成可重试。
+ *   - 客户端版本号是动态真值，取不到时退到磁盘缓存再退兜底常量（版本是签到准入门槛）。
  */
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";

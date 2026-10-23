@@ -1,23 +1,10 @@
 /**
  * Qoder 额度与签到（只读 + 一个写动作，均直连上游，不经本地网关）。
  *
- * ## 为什么用另一套头
- *
- * `/sash/**`（余额、活动）走的是**桌面客户端身份**，不是推理那套 COSY 签名：
- * `Authorization: Bearer <access_token>` + `Cosy-ClientType: 10` + 一对机器头。
- * ⚠ `Cosy-ClientType` 的 10（桌面）与推理信封里的 `client_type=5`（CLI）**不可混用** ——
- * 用 5 去查活动，服务端返回**空列表**（不是报错，所以更容易误判成"没有活动"）。
- * 机器头缺一个也不行：必须 `Cosy-MachineToken` 与 `Cosy-MachineType` **成对**出现。
- *
- * ## 余额不只在 userQuota
- *
- * 实测 `userQuota.remaining = 0` 而 `addOnQuota.remaining = 100` 是常态，所以两者要合并。
- * `displayMode === "enterprise"` 时上游不给额度数字（返回 null）——那不算错误。
- *
- * ## 活动的"今天"怎么算
- *
- * 活动每日 **10:00（UTC+8）刷新**：刷新前看到的 `CLAIMED` 属于**昨天**，
- * 不能就此报「今天已领」。
+ * 关键约束（端点/字段/实测见 docs/channels/qoder/PROTOCOL.md）：
+ *   - `/sash/**` 走桌面客户端身份，与推理信封的 CLI 身份不可混用，混用会静默返回空列表。
+ *   - 余额须合并 `userQuota` 与 `addOnQuota`；`enterprise` 模式上游返回 null 不算错误。
+ *   - 活动按 UTC+8 每日 10:00 刷新，刷新前的 `CLAIMED` 属于昨天。
  */
 
 import type { SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";

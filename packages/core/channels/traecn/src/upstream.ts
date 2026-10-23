@@ -1,21 +1,10 @@
 /**
- * TRAE（字节跳动）上游：SOLO 形状的端点、请求头、请求体改写、Error 分类与流翻译。
+ * TRAE 上游：SOLO 形状端点、请求头、请求体改写与自定义 event 流翻译。
  *
- * ## 本模块承载的渠道知识（每一条都有实测依据，见 docs/channels/traecn/PROTOCOL.md）
- *
- * 1. **请求头同一 token 设三处**：`Authorization: Cloud-IDE-JWT <token>` /
- *    `X-Cloudide-Token` / `X-Ide-Token` —— 缺任一个都可能被拒。
- * 2. **版本头是模型准入条件**：`X-Ide-Version` / `X-App-Version-Code` 过低时
- *    glm-5.3 等新模型报 4001 `param is invalid`。
- * 3. **请求体**（§3.2）：`function`（通道）、`model` 与 `config_name` **双字段同值**、
- *    `messages[].content` 一律转 `[{type:"text",text}]` 数组、
- *    `tools[].function.parameters` 转 **JSON 字符串**、
- *    `max_tokens` 收敛到上限 **64000**（索要 131072 会被上游打成 4xx）。
- * 4. **Max 模式（1M 上下文）必须成套下发**：只调大 `max_tokens` 无效。
- * 5. **响应是自定义 event 流**（§4.1）：`event:output` 的 `response` 是正文**增量**、
- *    `reasoning_content` 是思考增量、`tool_calls` 里的 `function_call` 要改名为
- *    `function` 并清理 SOLO 专属字段；结束是 `event:done`（不是 `[DONE]`）；
- *    `event:error` 必须显式产出 error 帧。
+ * 关键约束（端点/字段/实测见 docs/channels/traecn/PROTOCOL.md）：
+ *   - 请求头把同一 token 设到三处，且版本头是模型准入条件（过低时新模型会被拒）。
+ *   - `buildChatBody()` 承担全部渠道特有改写（通道与模型字段、content 数组化、工具参数 JSON 字符串化、`max_tokens` 收敛上限、Max 模式成套下发）。
+ *   - 响应是自定义 event 流而非标准 SSE：`event:output` 是增量、`event:done` 结束、`event:error` 必须显式产出 error 帧。
  */
 
 import { randomBytes } from "node:crypto";

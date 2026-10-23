@@ -4,6 +4,8 @@
  * 本文件是**共享层与渠道层的唯一边界**：`@modelmux/gateway` 里的
  * gateway / daemon / headless / auth-flow 都通过这里注册的 `Channel` 拿到
  * cred / upstream / catalog / billing。
+ *
+ * 端点/字段/实测见 docs/channels/traecn/PROTOCOL.md。
  */
 
 import { setChannel, type ChannelConfig, type Channel } from "@modelmux/gateway";

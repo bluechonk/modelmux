@@ -1,35 +1,10 @@
 /**
- * Raccoon（商汤小浣熊）认证：**唯一登录路径 = 授权码网页登录**（本地 HTTP 回调）、
- * 续期与凭据持久化。
+ * Raccoon（商汤小浣熊）认证：授权码网页登录（本地 HTTP 回调）、续期与凭据持久化。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/raccoon/PROTOCOL.md）
- *
- * 1. **唯一登录路径是授权码网页登录**：授权页（`/code/authorize`）在非 desktop 模式
- *    （不带 `login_source`、带 `redirect=http://127.0.0.1:<port>/callback`）下会把
- *    `authorization_code` 拼到 redirect 上；CLI 起本地 HTTP 服务接住授权码，
- *    再 `POST …/login_with_authorization_code` 换 token。
- *    官方桌面端的 `login_source=desktop` + `office-raccoon://` 自定义协议作为兼容
- *    路径保留（本进程注册不了协议，浏览器没有桌面客户端时不会跳转）。
- *    ⚠ 别用 `/login/mp?code=…`：它只给官方手机 App 扫码用，网页端是死链。
- * 2. **短信登录已移除**（协议事实留在 FINDINGS.md，**无实现路径**）：
- *    零实测记录、结构上跑不通（`captcha_param` 在本仓拿不到）、
- *    三份参考实现零背书、历史唯一的「验证」是本机假服务替身。
- * 3. **过期时间取值优先级**：`expires_at`（显式）→ **JWT 的 `exp`**（本地 base64url
- *    解码 payload，**只解码不验签**）。回退到 JWT 是**必需的**：老凭据/手工导入的
- *    凭据可能没有 `expires_at`，只读它会让过期判定**恒为 false** → `refreshAll`
- *    永远跳过这些账号 → 「凭据悄悄过期、续期从不触发」的静默失效。
- * 4. **续期只返回新的 access_token 时必须保留旧 refresh_token** ——
- *    否则续期一次就把账号变成不可续期。HTTP 401 **或** `code === 200003` 是终态
- *    （提示重新登录，**不重试**）。
- * 5. **续期必须单飞 + 比较写回**：上游的 refresh_token **会轮换**，并发刷新里后到的
- *    会把先到的作废 ⇒ 账号变不可续期（参考实现 agent2api 有同样的单飞表）。
- * 6. **`nickname` 是服务端自动生成的默认名**（实测 `RaccoonAva`），登录**不回传**
- *    用户昵称 —— 多账号消歧要靠 `phone`（`uid` 优先 `user_id`，其次 `phone`）。
- *
- * ## 端点与基址
- *
- * 端点表与基址解析在 `upstream.ts`（渠道的「地址真相源」），本模块**单向导入**它
- * —— 不反向依赖，避免循环依赖。
+ * 关键约束（端点/字段/实测见 docs/channels/raccoon/PROTOCOL.md）：
+ *   - 唯一登录路径是授权码网页登录：本地 HTTP 服务接住回调里的 `authorization_code` 再换 token；桌面端自定义协议仅作兼容路径。
+ *   - 过期时间优先取 `expires_at`，缺失时回退 JWT 的 `exp`（只解码不验签），否则老凭据过期判定恒为 false、续期永不触发。
+ *   - 续期必须单飞 + 比较写回：`refresh_token` 会轮换，并发刷新会互相作废；只回新 `access_token` 时须保留旧 `refresh_token`。
  */
 
 import { readFileSync } from "node:fs";

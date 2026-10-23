@@ -1,28 +1,11 @@
 /**
- * CatPaw 模型目录：上游 `/api/agent/maas/model-types` 返回的模型表。
+ * CatPaw 模型目录：上游模型表解析、缓存与兜底表（对外 id = 上游 id，不做短名映射）。
  *
- * ## 策略
- *
- * 1. **短名映射**：直接用上游 `id` 字段，不做短名映射（避免多层维护）。
-  * 3. **同步接口**：`exposedIds()` / `resolveModel()` 必须同步返回 ——
- *    上游目录通过 `upstream.fetchModels()` 成功时经 `setCatalog()` 回填缓存；
- *    未回填前走兜底表。
- * 4. **兜底表**：未登录或上游目录未拉取时，仍能暴露 flash 模型。
- *
- * ## 图片能力：**不对外声明**（`supportsImages` 恒 false）
- *
- * 上游模型目录**逐模型声明**了 `supportImage`（布尔）—— 那是**模型自身**能不能读图，
- * 不是「本渠道能不能把图送过去」。本渠道走的是 conversation 协议
- * （`/api/agent/conversation/{round,event,turn}`），请求体的消息内容只有
- * `{type:"text",text}` 分片，**没有图片字段**；`upstream.ts` 的 `textOfContent`
- * 把多段 content 拍平成纯文本（`image_url` 分片直接丢弃）。
- * 两家参考实现同构：恒发 `"images":[]`（那是另一条 nocode 建聊流程的字段），
- * 且 `flattenContent` 同样只留 `text`。
- *
- * 结论：**上游声明 ≠ 本渠道可送达**。照抄上游的 `supportImage` 会让
- * `/v1/models` 对外报「能吃图」，客户端真发图过来却被静默丢弃 ——
- * 用户看到的是「模型读不到图片」。故本目录恒声明 `supportsImages: false`。
- * 证据与来源见 `docs/channels/catpaw/PROTOCOL.md`「图片能力」。
+ * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
+ *   - 图片能力恒不对外声明（supportsImages=false）：上游逐模型声明的是模型自身能力，
+ *     本渠道 conversation 协议不传图片，照抄会对外误报能吃图。
+ *   - 上下文窗口取上游逐型号声明的最大档，未声明的型号回落渠道默认档（见 DEFAULT_CONTEXT_WINDOW）。
+ *   - 目录未登录/不可达时走兜底表；exposedIds/resolveModel 必须同步返回。
  */
 
 import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";

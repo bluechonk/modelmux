@@ -1,39 +1,12 @@
 /**
  * LobsterAI 凭据：浏览器授权登录（本地回调 + authCode）、凭据持久化与静默续期。
  *
- * ## 登录路径只有一条
+ * 关键约束（端点/字段/实测见 docs/channels/lobsterai/PROTOCOL.md）：
+ *   - 登录只有本地回调一条路；浏览器回跳不了时走粘贴兜底，转交同一回调处理器（不是第二条路径）。
+ *   - 登录时生成的客户端状态字段丢了只能重新登录，必须原样落盘、续期时原样回发（latestKeyfrom 停在登录那一刻）。
+ *   - 落盘字段名保持 snake_case 与桌面端同形（迁移用户无需重登）；expires_at 统一用毫秒。
  *
- * 本地回调服务器 → `POST /api/auth/exchange` → 落盘。浏览器回跳到
- * `127.0.0.1:{随机端口}/auth/callback` 即完成。
- * 浏览器回跳不了时（远程 / 无头 / 容器）走**粘贴兜底**：用户把地址栏整条 URL
- * 粘回来，兜底把它转交同一个回调处理器 —— **不是第二条登录路径**。
- *
- * ## 与 CodeBuddy 系最大的结构差异
- *
- * `POST /api/auth/refresh` 的请求体**不是只带 refreshToken**，还要带
- * `firstKeyfrom` / `latestKeyfrom` / `uuid` —— 这三个字段是登录那一刻生成的
- * 客户端状态，服务端不返回，**丢了就只能重新登录**（见 docs/channels/lobsterai/PROTOCOL.md §2.2）。
- * 故它们是凭据的一等字段，落盘时必须原样保留。
- *
- * ## 落盘字段名刻意保持 snake_case
- *
- * 内存里用 TS 惯用的 camelCase，磁盘上写 `access_token` / `first_keyfrom` /
- * `latest_keyfrom` / `user_id` / `expires_at` —— 与桌面端**同形**：
- * 从桌面端迁移过来的用户**无需重新登录**（`load()` 同时认两种写法）。
- * 读盘还认参考实现（Go 工具）的**嵌套形** `{"auth":{…},"account":{…}}`。
- *
- * ## expires_at 统一用毫秒
- *
- * 参考实现落盘的是 **Unix 秒**，本实现是**毫秒**。读盘两种都认（`normalizeExpiresAtMs`），
- * 写回统一毫秒 —— 差 1000 倍会把「已过期」判成「未过期」。
- *
- * ## 登录/续期的终点判定
- *
- * - 续期：HTTP 401/403 → 终态；信封失败且 `classifyError` 判出 `session-dead`
- *   → 终态；`code:0` 但 `accessToken` 为空 → 终态；其余（网络抖动 / 5xx / 429）
- *   → 普通 Error，走可重试路径。
- * - `latestKeyfrom` **刻意不更新为当前时刻**：严格对齐桌面端行为
- *   （只改 token 与过期时间，`LatestKeyfrom` 永久停在登录那一刻），续期时原样回发。
+ * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
 import { createHash, randomUUID } from "node:crypto";

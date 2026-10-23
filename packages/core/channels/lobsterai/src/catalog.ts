@@ -1,39 +1,13 @@
-import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
-
 /**
- * LobsterAI 模型目录：远端 `/api/models/available` 的解析、缓存与兜底表。
+ * LobsterAI 模型目录：远端模型列表的解析、缓存与兜底表。
  *
- * ## 兜底表是必需的，但**不能**替代远端
- *
- * 未登录或上游目录失败时用户仍要在模型选择器里看到模型（否则渠道凭空消失，
- * 用户以为插件坏了）——故保留一张静态兜底表。
- * 但远端列表才是权威：实测它会下发 `contextWindow`（多为 1000000）、
- * `thinkingConfig`、`costMultiplier`（裸数字）等静态表没有的信息。
- *
- * 兜底表与远端**必然脱节**（它只是某个时刻的快照）：实测 2026-08-06 那份 19 条里
- * 只有 1 条 flash，而 2026-10-08 上游真实是 30 条、8 条 flash —— 故兜底表已对齐到
- * 2026-10-08 的一次真实拉取，并且**成功拉到远端时会写磁盘缓存**（见下「缓存由谁填充」），
- * 让新进程直接看到真实目录，而不是随包发布的兜底快照。
- *
- * ## 两个语义不可混用的档位
- *
- * `thinkingConfig.options[].level` 是产品侧档位名（含 `max`，给 UI），
- * `openclawLevel` 才是发给服务端的 wire 值（`off/minimal/low/medium/high/xhigh`，
- * **没有 `max`**）。实测远端把 `level:'max'` 映射到 `openclawLevel:'xhigh'`，
- * 直接发 `reasoning_effort:'max'` 与不带参数无差异 —— 故两者分开记录。
- *
- * ## 缓存由谁填充
- *
- * 网关的 `/v1/models` 走同步的 `exposedIds()`，而拉远端是异步的。
- * 拉取动作挂在 `upstream.fetchModels()` 上（`auth-flow` 在启动/登录时必调），
- * 拉到后调 `setRemoteModels()` 灌进本模块的内存缓存 —— 这样网关保持同步、
- * 且不会为了列模型额外打一次上游。
- *
- * `setRemoteModels()` 同时把这份**真实目录**写进 `<cid>/cache/models.json`，
- * 于是一个**新进程**（比如 `model list`）能直接读到它，不必重拉、也不回落到兜底表。
- * 读取是惰性的（`ensureCachedModels()`）：`channelFile()` 要求渠道上下文已建立，
- * 模块加载期读盘会踩空。
+ * 关键约束（端点/字段/实测见 docs/channels/lobsterai/PROTOCOL.md）：
+ *   - 兜底表是快照、不能替代远端；远端权威，拉到后写磁盘缓存供新进程直接读（setRemoteModels）。
+ *   - 产品档位名与服务端 wire 档位不可混用（含 max 的档位需换算），映射缺失时按既定规则兜底（见 reasoningEffortWire）。
+ *   - 读取惰性：模块加载期读盘会踩空（channelFile 要求渠道已注册）。
  */
+
+import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 
 /** 一条目录条目。 */
 interface ModelEntry {
@@ -41,7 +15,12 @@ interface ModelEntry {
   name: string;
   /** 上下文窗口；兜底表统一填 131072（**桥接层估计值，非逐个实测**）。 */
   context_window: number;
-  /** 最大输出 token（远端 `maxTokens`）。 */
+  /**
+   * 最大输出 token。
+   *
+   * ⚠ 上游 `/api/models/available` **不下发**该字段（[实测] 2026-10-23：响应里没有 `maxTokens`），
+   * 所以只能按公开规格补（`MAX_OUTPUTS`，来源见 `docs/MODEL-SPECS.md`）。
+   */
   max_output?: number;
   supports_image?: boolean;
   supports_thinking?: boolean;

@@ -1,35 +1,12 @@
 /**
  * CatPaw 上游客户端：OpenAI 兼容请求 ↔ 妙手 conversation 三段式协议互译。
  *
- * ## 上游协议（WIRE = "custom"，实测见 docs/channels/catpaw/PROTOCOL.md）
+ * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
+ *   - 上游是 round → event → turn 三段式；round + event 由 prepareChat 顺序 await，必须用网关建好的同一 body。
+ *   - 消息折叠成一条 user 文本、工具走「提示词注入 + 输出解析」（renderFullPrompt）；SSE 是累积帧，需 suffix-diff。
+ *   - 工具调用按流末尾一次性下发；turn 必须回报 completed 才会归档。
  *
- * 三段式：
- *   1. POST /api/agent/conversation/round  提交本轮全部消息（含历史，type 标角色）
- *   2. POST /api/agent/conversation/event  回报轮次状态（running / completed / failed / canceled）
- *   3. POST /api/agent/conversation/turn   执行轮次，SSE 直出
- *
- * 关键实测事实：
- *   - 直接调 turn（不先 round）一律 500 空响应
- *   - round.messages 用 `type` 标角色，必须带 messageId，最后一条必须是 user
- *   - `systemPromptContext.systemPromptOverride` 有 65508 硬上限；`toolConfigs`
- *     完全不被识别 —— 工具必须走「提示词注入 + 输出解析」（见下文折叠方案）
- *   - permissionMode 用 `default`：上游只生成文本（工具调用以 tool_use 分块出现在文本里）
- *   - SSE 帧是累积式（每帧给全文），要按「当前串是否以已发送串为前缀」做 suffix-diff
- *   - 没有结束标志：turn 以 TCP 关闭结束
- *
- * ## 消息折叠（对齐参考实现）
- *
- * HITZY2002 / icebears111 两家参考实现都不使用结构化消息字段，而是把
- * system / developer / 历史 / 工具说明折叠成**一条 user 文本**：
- *
- *   [系统指令] … [对话历史] … [当前消息] … <工具说明块>
- *
- * 这样同时绕开 systemPromptContext 的 65508 上限与上游对消息序列的硬校验
- * （assistant 后必须是 user）。本模块按同一方案实现（`renderFullPrompt`）。
- *
- * ## 铁律
- *
- * token 原文不进日志/输出，只给指纹与脱敏形态。
+ * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
 import { randomUUID } from "node:crypto";

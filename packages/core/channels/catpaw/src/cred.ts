@@ -1,40 +1,13 @@
 /**
  * CatPaw 认证：真实 URL 登录流程、凭证持久化与有效性探测。
  *
- * ## 登录协议（实测，见 docs/channels/catpaw/PROTOCOL.md）
+ * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
+ *   - token 只从 passport poll-token?sid= 取，无本地回调服务器；登录返回不透明 SSO token（非 JWT）。
+ *   - 两个域别混：网关域（GATEWAY_HOST，X-Auth-Token）与直连域（upstream.DIRECT_HOST，X-Passport-Token + Cookie）
+ *     共用同一 access_token 但头语义不同；DEFAULT_BASE_URL 固定为网关域。
+ *   - 凭据只来自真实 URL 登录落盘，不得读桌面端本地文件；refresh() 只做 ping 有效性探测。
  *
- *   1. GET  {LOGIN_CONFIG_URL}                          → { loginEntryUrl }
- *   2. auth_url = `${loginEntryUrl}?sid=&state=&redirect=`（三参数缺一不可；
- *      缺 `redirect` 网关直接 400 —— 但它只是形式要求，见下）
- *      → 302 到 passport.meituan.com 登录页
- *   3. 用户在浏览器完成登录（唯一人工步骤）
- *   4. GET {POLL_TOKEN_URL}?sid=...  每 1s 轮询，≤10 分钟 → token
- *   5. GET {CURRENT_USER_URL}（`X-Auth-Token`）取 uid —— 账号池靠它认「同一账号」
- *
- * ⚠ **没有本地回调服务器**：token 只从 `poll-token?sid=` 取，`sid` 由本地生成，
- * 不依赖浏览器回打本地端口（早期 loopback 回调从未成功，已删除）。
- *
- * 返回的是与桌面端登录同一身份的不透明 SSO token（非 JWT）。
- * 落盘到 `~/.modelmux/catpaw/credentials.json`。
- *
- * ## 两个域（别搞混）
- *
- * | 域 | 常量 | 用途 | 鉴权头 |
- * | --- | --- | --- | --- |
- * | 网关域 | `GATEWAY_HOST` | 登录、额度 | `X-Auth-Token` |
- * | 直连域 | `upstream.DIRECT_HOST` | 对话、模型目录 | `X-Passport-Token` + Cookie |
- *
- * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
- * 契约要求本模块导出 `DEFAULT_BASE_URL`，语义固定为**网关域**。
- *
- * ## 凭据读取策略（按用户规则 #4）
- *
- * 凭据只来自「真实 URL 登录落盘」的文件。**不得**从妙手桌面端的本地文件
- * （catx-credential.json / auth.json / Local Storage 等）读取登录态。
- *
- * ## 铁律
- *
- * token 原文不进日志/输出，只给指纹与脱敏形态。
+ * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
 import { readFileSync } from "node:fs";

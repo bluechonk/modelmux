@@ -6,6 +6,8 @@
  *
  * cred / upstream / catalog / billing 与国际版高度相似（重复代码）是有意的：两区的端点、
  * 模型目录、账单口径都可能各自演进，共享抽象会把「一个改了两边都变」变成默认行为。
+ *
+ * 端点/字段/实测见 docs/channels/qodercn/PROTOCOL.md。
  */
 
 import { setChannel, type ChannelConfig, type Channel } from "@modelmux/gateway";

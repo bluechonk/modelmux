@@ -1,8 +1,9 @@
 /**
- * 上游计费：查询 WorkBuddy 国内版账号的剩余额度（credits）。
+ * WorkBuddy 国内版额度：查询账号剩余额度（credits）。
  *
- * 走上游 billing 端点（**不是**本地网关 —— 网关只代理 chat），只读，不做任何写入。
- * 端点：`POST /v2/billing/meter/get-user-resource`。
+ * 关键约束（端点/字段/实测见 docs/channels/workbuddy/PROTOCOL.md）：
+ *   - 走上游 billing 端点直连（不经本地网关，网关只代理 chat），只读不做写入。
+ *   - 「查不到」一律抛 `CreditsError`，不得显示成 0；未登录抛 `cred.NotLoggedInError`。
  */
 
 import { randomUUID } from "node:crypto";

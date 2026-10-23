@@ -1,28 +1,10 @@
 /**
- * Raccoon（商汤小浣熊）上游：**端点表 + 基址解析**、三种请求头形态、思考通道与请求体安全化。
+ * Raccoon（商汤小浣熊）上游：端点表 + 基址解析、三种请求头形态、思考通道与请求体安全化。
  *
- * ## 本模块承载的渠道知识（每条都是实测结论，见 docs/channels/raccoon/PROTOCOL.md）
- *
- * 1. **本模块是渠道「地址」的唯一真相源**：前缀、端点路径、完整 URL 与基址解析都在这里；
- *    `cred.ts` 单向导入本模块（**不反向依赖**，避免循环依赖）。
- * 2. **思考控制的唯一有效通道是 `extra_body.thinking.type`**（`enabled` / `disabled`，
- *    服务端报错原文确认枚举还含 `adaptive`）：
- *    - `reasoning_effort` **被接受但实测无效果**（8 轮配对实验正负各半，纯随机）
- *    - `extra_body.enable_thinking`（单层/双层）、`thinking` 放**顶层**、`thinking.budget_tokens`
- *      **全部无效** ⇒ 必须把下游的意图**翻译**进 `extra_body.thinking`，且**不能**原样透传
- *      `reasoning_effort`
- *    - 本插件只暴露两态：`on` → `{type:'enabled'}`、`off` → `{type:'disabled'}`；
- *      **只有明确的「关闭」才关**，未知档位一律按开启处理；不传档位时**不发该字段**
- * 3. **`max_tokens` 只放行安全正整数**：`0` / 负数 / `NaN` 会让 DSH 在
- *    `defaultMaxTokens` 的硬校验上抛 `INVALID_MODEL_MAX_TOKENS`，**整轮对话起不来**
- *    （不是降级，是崩）。
- * 4. **`tools` 必须真的下发到请求体顶层** —— 漏发会让模型在正文里臆造 XML 工具调用，
- *    harness 认不出 → 任务终止。
- * 5. **三种头形态**（platform 的有无是硬约束）：
- *    - 对话：`Accept: text/event-stream` + `Content-Type` + platform（**不含**
- *      `X-Client-Version` / `X-Client-Device-ID`，也**不含** `User-Agent`）
- *    - 模型目录：内联构造，`Accept: application/json`，**不含** platform、**不含** Content-Type
- *    - `desktop/v1/login/points/grant`：**无 body 但 platform 必需**
+ * 关键约束（端点/字段/实测见 docs/channels/raccoon/PROTOCOL.md）：
+ *   - 本模块是渠道「地址」的唯一真相源，`cred.ts` 单向导入本模块（不反向依赖，避免循环依赖）。
+ *   - 思考控制只能翻译进 `extra_body.thinking`（`reasoning_effort` 等原样透传无效）；只有明确的「关闭」才关，未知档位按开启处理。
+ *   - `max_tokens` 只放行安全正整数（0/负数/NaN 会让整轮对话起不来）；`tools` 必须真的下发到请求体顶层。
  */
 
 import { readFileSync } from "node:fs";

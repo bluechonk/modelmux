@@ -1,25 +1,10 @@
 /**
- * 认证状态：浏览器设备登录流程、凭证持久化与访问令牌刷新。
+ * WorkBuddy 国内版凭据：浏览器设备登录、持久化与令牌刷新。
  *
- * 登录协议（实测，与国际版 workbuddyai 同一套插件端点）：
- *   1. `POST {base}/v2/plugin/auth/state?platform=workbuddy`（匿名头）→ {state, authUrl}
- *   2. 浏览器打开 authUrl，人工授权（唯一人工步骤）
- *   3. `GET {base}/v2/plugin/auth/token?state=...` 每 1s 轮询，≤5 分钟 → 令牌
- *   4. `GET {base}/v2/plugin/login/account?state=...`（带 Bearer）→ 账号档案
- *   5. 落盘为 credentials.json（Go 风格字段名）
- * 刷新：`POST /v2/plugin/auth/token/refresh`（纯 HTTP，X-Refresh-Token 头）
- *
- * **登录路径只有这一条**（网页设备授权）：手机号 OneID/Keycloak 路线与桌面端
- * `.info` 凭证路线都不采纳（前者要复刻 11 步跨域短信链路，后者要拉起桌面端
- * Electron 派生 at-rest key 解密，都超出渠道包的边界）—— 详见
- * `docs/channels/workbuddy/PROTOCOL.md`「唯一登录路径」。
- *
- * 设备授权**没有本机回环**（令牌由服务端按 state 下发），故 `pasteCode` 粘回的
- * 内容只作「浏览器那一步已完成」的信号 —— 转交**同一个轮询处理器**立刻再取一次
- * 令牌，不是第二条登录路径。
- *
- * ⚠ 本渠道**只有一个域**（国内版 codebuddy.ai）。账号属于哪个域就必须用哪个渠道
- * 登录：国内账号走本渠道，国际账号走 `workbuddyai` —— 不再有 `--realm` 二选一。
+ * 关键约束（端点/字段/实测见 docs/channels/workbuddy/PROTOCOL.md）：
+ *   - 登录只有 `login()` 一条路径（网页设备授权），不提供第二种登录方式（手机号 OneID / 桌面端 `.info` 路线均不采纳）。
+ *   - 设备授权无本机回环：`pasteCode` 只作「浏览器已完成」信号，转交同一轮询处理器再取一次令牌。
+ *   - 本渠道只有一个域（国内版 `codebuddy.ai`），账号属于哪个域就用哪个渠道登录。
  */
 
 import { readFileSync } from "node:fs";
