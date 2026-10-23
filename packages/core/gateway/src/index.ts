@@ -52,6 +52,7 @@ export {
   type SigninStatus,
   type SigninOutcome,
   type QuotaPeriod,
+  type QuotaSignal,
 } from "./runtime/channel.js";
 
 // 原子写盘（含密文件与上游连接配置共用）

@@ -386,13 +386,18 @@ export async function attemptCandidate(
     // 冷却截止由渠道从错误体里认（`upstream.quotaResetAt`），认不出就兜底次日本地 0 点。
     // ⚠ 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
     //   3 连败熔断打成「不可用」（2026-10-23 之前 workbuddyai 就是这样被误标的）。
-    const quotaOut = isQuotaExhausted(call.bodySnippet ?? "");
-    const usageLimit = isUsageLimit(call.bodySnippet ?? "");
-    // 账户级用量限额（workbuddyai 的 6004）对所有模型生效 → 一律冷却；
-    // 余额类（loomy 的 402）只冷却付费模型，免费模型继续打上游拿真实结论。
+    const bodySnippet = call.bodySnippet ?? "";
+    // 额度信号 = 共享层**通用措辞** 或 渠道自己声明的业务码（`upstream.quotaSignal`）。
+    // 渠道业务码属渠道知识，只能由渠道上报；共享层不硬编码任何厂商码（AGENTS.md 铁律）。
+    const channelSignal =
+      inChannel(channel, () => channel.upstream.quotaSignal?.(call.status, bodySnippet)) ?? null;
+    const quotaOut = isQuotaExhausted(bodySnippet) || channelSignal !== null;
+    const usageLimit = isUsageLimit(bodySnippet) || channelSignal === "usage_limit";
+    // 账户级用量限额对所有模型生效 → 一律冷却；
+    // 余额类只冷却付费模型，免费模型继续打上游拿真实结论。
     if (quotaOut && (usageLimit || !freeModel)) {
       const resetAt =
-        (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(call.bodySnippet ?? "") : null) ?? null;
+        (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(bodySnippet) : null) ?? null;
       const untilMs = noteAccountQuotaExhausted(cid, {
         until: resetAt,
         reason: usageLimit ? "上游用量限额（所有模型都受限）" : "上游返回额度耗尽（等额度窗口刷新）",

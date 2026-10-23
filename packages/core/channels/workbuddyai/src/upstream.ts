@@ -39,6 +39,7 @@ import { readFileSync } from "node:fs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { upstreamPath, ensureDir, openaiNormalize, writeJsonFile } from "@modelmux/gateway";
+import type { QuotaSignal } from "@modelmux/gateway";
 
 import * as catalog from "./catalog.js";
 
@@ -803,6 +804,30 @@ export function newTranslator(): StreamTranslator {
     feed: (chunk: Buffer) => [chunk],
     finish: () => [],
   };
+}
+
+/**
+ * 声明本渠道的额度信号（`UpstreamModule.quotaSignal`）。
+ *
+ * 本渠道用量打满回 **HTTP 429 + 业务码 `code=6004`**，原文（2026-10-23 真机）：
+ *
+ * ```
+ * {"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will
+ *  reset at 2026-10-23 17:36:25 UTC+8, alternatively, you can switch to the other models
+ *  to continue using it.","requestId":"..."}
+ * ```
+ *
+ * 它是**账户级用量限额**（对所有模型生效，含本渠道目录里标倍率 0 的模型），且重置时间是
+ * **滚动窗口**（随消费时刻，不是每日 0 点）—— 故上报 `usage_limit`，具体截止由
+ * `quotaResetAt()` 从同一条消息里解析。
+ *
+ * ⚠ 业务码 `6004` 只能出现在**渠道包**里；共享层只认通用措辞
+ * （见 `packages/core/gateway/src/http/chat/errors.ts`）。
+ */
+export function quotaSignal(status: number, body: string): QuotaSignal | null {
+  const text = body ?? "";
+  if (status !== 429) return null;
+  return /6004|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(text) ? "usage_limit" : null;
 }
 
 /**

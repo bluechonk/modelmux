@@ -178,6 +178,19 @@ export interface UpstreamModule {
    */
   isAuthFailure?(status: number, body: string): boolean;
   /**
+   * 可选：声明本渠道的**额度信号**（业务码 / 专有措辞）。
+   *
+   * 为什么需要它：额度类业务码是**渠道知识**（如 workbuddyai 的 `code=6004`
+   * 「usage exceeds frequency limit」），共享层不许硬编码。共享层只认**通用**措辞
+   * （`insufficient_quota`、「余额不足」这类任何上游都可能用的说法）；渠道自己的
+   * 码与专有措辞通过本钩子上报。
+   *
+   * @returns `usage_limit` = **账户级用量限额**（对所有模型生效，含倍率 0 的，一律冷却）；
+   *          `balance` = **余额不足**（只影响计费用量，免费模型仍可继续打上游）。
+   *          认不出返回 `null`。
+   */
+  quotaSignal?(status: number, body: string): QuotaSignal | null;
+  /**
    * 可选：从**上游错误体**里认出「额度耗尽 + 下次刷新时刻」。
    *
    * 共享层已有一层通用判定（`isQuotaExhausted`，看措辞），命中就**冷却**该账号；
@@ -365,6 +378,16 @@ export interface SigninModule {
   status(): Promise<SigninStatus>;
   claim(): Promise<SigninOutcome>;
 }
+
+/**
+ * 渠道声明的额度信号类型。
+ *
+ * - `usage_limit`：**账户级用量限额**（如 workbuddyai `6004`）—— 对所有模型生效，
+ *   连倍率 0 的也受限 → 网关**一律冷却**该账号。
+ * - `balance`：**余额不足**（如 loomy `402 insufficient_quota`）—— 只影响计费用量，
+ *   免费模型仍可继续打上游 → 只冷却**付费**模型。
+ */
+export type QuotaSignal = "usage_limit" | "balance";
 
 /**
  * 渠道的额度周期（可选能力，见 `BillingModule.quotaPeriod`）。

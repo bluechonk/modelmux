@@ -30,27 +30,26 @@ export function writeJsonError(res: ServerResponse, status: number, code: string
  * 额度类错误必须与普通 4xx 区分：后者（模型参数、tool 消息序列等）是请求级问题，
  * 换账号也会失败；前者继续打同一个账号只会重复失败，应把账号**冷却**起来。
  *
- * ⚠ 词表来自实测，别凭感觉加：
- * - `insufficient_quota` / `insufficient_points` / 「积分余额不足」—— loomy 实测（HTTP 402）；
- * - `code:6004` + `usage exceeds frequency limit` —— workbuddyai 实测（HTTP 429，2026-10-23
- *   真机拿到原文：「usage exceeds frequency limit, but don't worry, your usage will reset at
- *   2026-10-23 17:36:25 UTC+8」）。此前词表不认这句，6004 被当成普通 502 放过、账号不冷却。
+ * ⚠ **这里只放通用措辞**（任何上游都可能用的说法）。渠道自己的业务码与专有措辞走
+ * `upstream.quotaSignal()` 钩子上报 —— 共享层不许硬编码渠道知识
+ * （AGENTS.md：共享层不许出现任何渠道知识）。实测出处：loomy `HTTP 402` +
+ * `insufficient_quota`「积分余额不足」（2026-10-23）。
  */
 export function isQuotaExhausted(body: string): boolean {
   if (!body) return false;
-  return /insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额|免费额度已用完|额度已用完|升级套餐|usage[_ ]exceeds|frequency[_ ]limit|频率限制|code["'\s:=]{1,4}6004\b/i.test(body);
+  return /insufficient_points|insufficient_quota|quota[_ -]?exceeded|credit[s]?[_ -]?(exhausted|insufficient)|余额不足|积分不足|额度不足|配额不足|超出配额|免费额度已用完|额度已用完|升级套餐|usage[_ ]exceeds|frequency[_ ]limit|频率限制/i.test(body);
 }
 
 /**
  * 是否为**账户级用量限额**（区别于「余额不足」）。
  *
- * 为什么要分：workbuddyai 的 `6004` 是**账号用量限额**（`usage exceeds frequency limit`），
- * 它对**所有模型**生效 —— 包括我们目录里标成倍率 0 的模型（实测：倍率 0 的
- * `deepseek-v4.1-flash` 一样吃 6004）。而 loomy 的 `insufficient_quota`（余额不足）
- * 主要影响计费用量。所以：**账户级限额 → 冷却与模型倍率无关**；余额类 → 只冷却付费模型
- * （免费模型不消耗额度，让它去打上游拿真实结论）。
+ * 为什么要分：用量限额对**所有模型**生效 —— 实测 workbuddyai 用量打满时，连我们目录里
+ * 标倍率 0 的模型也吃限额 —— 所以一律冷却；而余额不足只影响计费用量，免费模型不该被连坐。
+ *
+ * 同样只放通用措辞；渠道的专有业务码（如 workbuddyai 的 `6004`）由
+ * `upstream.quotaSignal()` 上报，别写在这里。
  */
 export function isUsageLimit(body: string): boolean {
   if (!body) return false;
-  return /frequency[_ ]limit|usage[_ ]exceeds|频率限制|code["'\s:=]{1,4}6004\b/i.test(body);
+  return /frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body);
 }

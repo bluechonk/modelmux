@@ -13,6 +13,9 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 import { isQuotaExhausted, isUsageLimit } from "../dist/http/chat/errors.js";
@@ -45,5 +48,36 @@ describe("额度/用量信号识别", () => {
   it("空体不误判", () => {
     assert.equal(isQuotaExhausted(""), false);
     assert.equal(isQuotaExhausted("not json at all"), false);
+  });
+
+  /**
+   * 架构守卫：**共享层不许出现渠道业务码**（AGENTS.md：共享层不许出现任何渠道知识）。
+   *
+   * 渠道自己的码（如 workbuddyai 的 `6004`）必须由渠道包经 `upstream.quotaSignal()` 上报；
+   * 一旦有人把它写回共享层的正则里，这个用例就红 —— 防止知识回流。
+   * 注释里提到码名是允许的（说明知识归属），只查**可执行代码**（去掉注释与字符串里的码名示例）。
+   */
+  it("共享层代码里没有渠道业务码（6004 只能由渠道上报）", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sharedRoot = join(here, "..", "src");
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readFileSync === undefined ? [] : readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.name.endsWith(".ts")) continue;
+        // 去掉注释行（// 与 /* */），只留可执行代码
+        const code = readFileSync(full, "utf8")
+          .split("\n")
+          .filter((line) => !line.trimStart().startsWith("//") && !line.trimStart().startsWith("*"))
+          .join("\n");
+        if (/\b6004\b/.test(code)) offenders.push(full.replace(sharedRoot, "src"));
+      }
+    };
+    walk(sharedRoot);
+    assert.deepEqual(offenders, [], `共享层出现了渠道业务码 6004：${offenders.join(", ")}`);
   });
 });
