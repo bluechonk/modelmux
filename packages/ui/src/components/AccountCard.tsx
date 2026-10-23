@@ -5,6 +5,7 @@
  */
 
 import { Plus, Trash2, UserCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
 
@@ -274,6 +275,12 @@ export function AccountCard({
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
   // 新鲜度只在渲染时算一次（不挂定时器）：秒数不自己跳，用户刷新页面/数据轮询时才更新
   const now = Date.now();
+  // 删除二次确认：点了垃圾桶先进入「确认中」状态，再点一次才真删（主人 2026-10-23 要求）。
+  // 同时只允许一个账号处于确认态；切换账号/忙碌时清空。
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (busyKey !== null) setConfirmKey(null);
+  }, [busyKey]);
   const accounts = [...pool.index.accounts]
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
@@ -378,7 +385,7 @@ export function AccountCard({
                     <button
                       className="rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
                       disabled={busyKey !== null}
-                      onClick={() => onRemove(pool.cid, account.key)}
+                      onClick={() => setConfirmKey(account.key)}
                       aria-label={active ? "删除生效账号（同时登出）" : "从池中删除"}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -394,6 +401,33 @@ export function AccountCard({
                     unsupported={billing?.unsupported === true}
                   />
                 </div>
+
+                {/* 删除二次确认：真删是不可逆的（生效账号会同时登出），先问一次 */}
+                {confirmKey === account.key && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/8 px-2 py-1.5 pl-2.5">
+                    <span className="text-[11px] text-danger">
+                      {active ? "删除生效账号将同时登出，确认？" : "确认删除该账号？"}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busyKey !== null}
+                      onClick={() => {
+                        setConfirmKey(null);
+                        onRemove(pool.cid, account.key);
+                      }}
+                      className="rounded bg-danger/15 px-2 py-0.5 text-[11px] font-medium text-danger transition-colors hover:bg-danger/25 disabled:opacity-50"
+                    >
+                      确认删除
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmKey(null)}
+                      className="rounded px-2 py-0.5 text-[11px] text-ink-faint transition-colors hover:text-ink"
+                    >
+                      取消
+                    </button>
+                  </div>
+                )}
 
                 {/* 第三行：时间与状态说明 —— 允许换行，绝不裁切 */}
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">

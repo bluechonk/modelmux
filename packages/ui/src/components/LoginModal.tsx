@@ -10,7 +10,6 @@ import {
   Check,
   CheckCircle2,
   Copy,
-  ExternalLink,
   Lightbulb,
   Loader2,
   QrCode,
@@ -60,6 +59,19 @@ export function LoginModal({
   const preparing = !authUrl && !qrUrl;
   const failed = uiState === "error";
   const done = uiState === "done";
+
+  /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口（主人 2026-10-23 要求）。 */
+  const [authCopied, setAuthCopied] = useState(false);
+  const copyAuthUrl = async (): Promise<void> => {
+    if (authUrl === "") return;
+    try {
+      await navigator.clipboard.writeText(authUrl);
+      setAuthCopied(true);
+      setTimeout(() => setAuthCopied(false), 1800);
+    } catch {
+      // 剪贴板不可用（非安全上下文等）：静默失败，用户仍可手动复制下面那一行
+    }
+  };
   // 二维码流 3 步、授权链接流 4 步；标题栏据此给步骤提示
   const totalSteps = qrUrl ? 3 : 4;
   const stepLabel = failed
@@ -108,19 +120,23 @@ export function LoginModal({
     },
   ];
 
-  // 授权链接流：开授权页 → 登录授权 → 自动回调 → 手动兜底
+  // 授权链接流：**复制链接** → 自己粘到浏览器 → 登录授权 → 自动回调 → 手动兜底
+  // ⚠ 不再用 window.open / target=_blank 弹新窗口（主人 2026-10-23 要求）：
+  //    点击只做「复制到剪贴板」，由用户自己决定在哪个浏览器/窗口打开。
   const authSteps: Array<{ title: string; body: ReactNode; state: StepState }> = [
     {
-      title: "打开授权页",
+      title: "复制授权链接",
       body: (
         <div className="space-y-2">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-canvas transition-colors hover:bg-brand/85"
-            onClick={() => window.open(authUrl, "_blank", "noopener")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-canvas transition-colors hover:bg-brand/85 disabled:opacity-50"
+            disabled={authUrl === ""}
+            onClick={() => void copyAuthUrl()}
+            aria-label="复制授权链接到剪贴板"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            打开授权页（新窗口）
+            {authCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {authCopied ? "已复制，粘到浏览器打开" : "复制授权链接"}
           </button>
           <CopyableLink url={authUrl} label="授权链接" />
         </div>
