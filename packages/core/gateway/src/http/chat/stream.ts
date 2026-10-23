@@ -1,5 +1,6 @@
 /**
- * 帧处理与中继：翻译器驱动的流式中继、非流式聚合、帧内 usage 提取。
+ * 帧处理与中继：翻译器驱动的流式中继、非流式聚合。
+ * （帧内 usage 提取在 `wire/sse-stream.ts` 的 `noteFrameUsage`，两条转发路径共用。）
  *
  * 关键约束：
  *   - `openai` 线型走规范化透传，自定义线型走翻译器的增量帧
@@ -17,7 +18,6 @@ import {
   noteClientDisconnect,
   noteFirstByte,
   noteRequestError,
-  noteUsage,
 } from "../../runtime/log-store.js";
 import { isCustomWire } from "./channel.js";
 import * as sseStream from "../wire/sse-stream.js";
@@ -25,23 +25,6 @@ import * as sseStream from "../wire/sse-stream.js";
 /** 把翻译器产出的帧统一成 Buffer。 */
 export function asBuffer(frame: Buffer | string): Buffer {
   return Buffer.isBuffer(frame) ? frame : Buffer.from(frame, "utf8");
-}
-
-/** 从一帧 OpenAI SSE 里提取 usage（流式 usage 帧可能是独立 chunk）。 */
-function noteFrameUsage(res: ServerResponse, frame: Buffer | string): void {
-  const text = typeof frame === "string" ? frame : frame.toString("utf8");
-  if (!text.includes('"usage"')) return;
-  for (const line of text.split("\n")) {
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") continue;
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>;
-      if (parsed["usage"]) noteUsage(res, parsed["usage"]);
-    } catch {
-      /* 非 JSON 帧不处理 */
-    }
-  }
 }
 
 /** 已收到客户端可执行工具调用后，上游静默超过该时长即主动收尾。 */
@@ -178,7 +161,7 @@ export async function relayStream(
           sawContent = true;
         }
         const buf = asBuffer(frame);
-        noteFrameUsage(res, buf);
+        sseStream.noteFrameUsage(res, buf);
         res.write(buf);
       }
       // 终止标记已随 feed() 发出（含 finish_reason + [DONE]）：立即停读上游，别等 TCP 关闭
@@ -186,7 +169,7 @@ export async function relayStream(
     }
     for (const frame of translator.finish()) {
       const buf = asBuffer(frame);
-      noteFrameUsage(res, buf);
+      sseStream.noteFrameUsage(res, buf);
       res.write(buf);
     }
   } catch (err) {
