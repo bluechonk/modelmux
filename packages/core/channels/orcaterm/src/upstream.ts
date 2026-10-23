@@ -2,14 +2,15 @@
  * OrcaTerm 上游客户端：把内置 AI 助手暴露为 OpenAI 兼容 API（请求体 + SSE 翻译）。
  *
  * 关键约束（端点/字段/实测见 docs/channels/orcaterm/PROTOCOL.md）：
- *   - 上游按 conversationId 服务端保存历史，同一段对话必须复用同一 id（按会话键派生，见 sessionKeyOf）。
+ *   - 上下文**只由调用方提供**：每请求新建上游会话，把客户端完整 messages 拍平进 ACP prompt
+ *     （上游服务端历史不参与；原因见 `buildHistoryPrompt` 的注释）。
  *   - 只认原生工具，不接受客户端自定义 function：工具名与参数只能靠 emphasisPrompt 注入。
  *   - 模型输出是内部协议信封（累积文本里的 JSON），流末拆信封转成标准 tool_calls；拆不掉就原样返回。
  *
  * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import type { StreamTranslator } from "@modelmux/gateway";
 
@@ -191,7 +192,8 @@ const PERSONA_NO_TOOL = [
 /** 有工具时的收尾条款：允许（且仅允许）工具信封。 */
 const PERSONA_WITH_TOOL = [
   "只有确实需要调用工具时才输出「工具调用格式」一节规定的 JSON；不需要调用工具时直接输出自然语言回答。",
-  "除工具 JSON 外，不要输出 thinking / taskCompletion / question / options 等内部协议字段。",
+  "需要读写文件、执行命令或访问网络时**必须实际输出工具 JSON**，不要声称「已完成」——你没有直接操作能力，声称完成会让任务静默失败。",
+  "不要输出 thinking / taskCompletion / question / options 等内部协议字段（工具 JSON 的 taskCompletion 除外）。",
 ];
 
 // ── 工具声明（客户端侧） ─────────────────────────────────────────────────────
@@ -274,51 +276,7 @@ function buildToolGuard(tools: ToolDef[]): string {
   ].join("\n");
 }
 
-// ── 会话键与上游会话 ─────────────────────────────────────────────────────────
-
-/**
- * 会话键：决定上游 conversationId。
- *
- * 优先级：`metadata.conversation_id` > `user` > 「模型 + 首条 user 消息」派生。
- * 无论显式键是否存在，都**混入首条 user 消息的摘要** —— 客户端常把 `user` 当作
- * 跨会话恒定的用户标识，靠这一项把不同会话分开（否则多段对话会共用同一个上游
- * 会话，历史互相污染）。
- */
-function sessionKeyOf(req: Record<string, unknown>): string {
-  const explicit = explicitSessionKey(req);
-  const model = typeof req["model"] === "string" ? req["model"] : "";
-  return createHash("sha256")
-    .update(`${explicit} ${model} ${firstUserText(req)}`)
-    .digest("hex");
-}
-
-/** 客户端显式给的会话标识（`metadata.conversation_id` 优先于 `user`）。 */
-function explicitSessionKey(req: Record<string, unknown>): string {
-  const meta = req["metadata"];
-  if (meta && typeof meta === "object") {
-    const rec = meta as Record<string, unknown>;
-    for (const key of ["conversation_id", "conversationId", "conversationID"]) {
-      const value = rec[key];
-      if (typeof value === "string" && value.trim()) return `meta:${value.trim()}`;
-    }
-  }
-  const user = req["user"];
-  if (typeof user === "string" && user.trim()) return `user:${user.trim()}`;
-  return "";
-}
-
-/** 首条 user 消息的纯文本（会话派生的锚点）。 */
-function firstUserText(req: Record<string, unknown>): string {
-  const messages = req["messages"];
-  if (!Array.isArray(messages)) return "";
-  for (const m of messages) {
-    if (!m || typeof m !== "object") continue;
-    const rec = m as Record<string, unknown>;
-    if (String(rec["role"] ?? "").toLowerCase() !== "user") continue;
-    return messageText(rec);
-  }
-  return "";
-}
+// ── 上下文构造 ───────────────────────────────────────────────────────────────
 
 /** 消息的纯文本（content 可为字符串或内容块数组）。 */
 function messageText(msg: Record<string, unknown>): string {
@@ -332,40 +290,6 @@ function messageText(msg: Record<string, unknown>): string {
     if (rec["type"] === "text" && typeof rec["text"] === "string") parts.push(rec["text"]);
   }
   return parts.join("\n");
-}
-
-/** 32 位十六进制 → uuid 形状（上游要求 `cid-<uuid>-orcaterm`）。 */
-function uuidShape(hex: string): string {
-  const h = hex.padEnd(32, "0").slice(0, 32);
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
-}
-
-/**
- * 派生上游 conversationId。
- *
- * 同一段对话必须复用同一个 id —— 上游按它保存历史，每请求新建会让模型只看到
- * 最后一轮（多轮对话与工具回填都会断链）。
- */
-function conversationIdOf(req: Record<string, unknown>): string {
-  return `cid-${uuidShape(sessionKeyOf(req))}-${PRODUCT}`;
-}
-
-/**
- * 工具调用 → 上游会话的短期映射。
- *
- * 工具结果必须回到**发起该调用**的会话：正常情况下会话键派生即可复现，
- * 这张表是兜底（客户端裁剪了历史、或换了首条消息时仍能回到原会话）。
- */
-const pendingToolCalls = new Map<string, { conversationId: string; toolName: string }>();
-/** 在途映射上限（防无限增长；超出按插入顺序淘汰最旧的）。 */
-const PENDING_TOOL_CALLS_MAX = 200;
-
-function rememberToolCall(id: string, conversationId: string, toolName: string): void {
-  if (pendingToolCalls.size >= PENDING_TOOL_CALLS_MAX) {
-    const oldest = pendingToolCalls.keys().next();
-    if (!oldest.done) pendingToolCalls.delete(oldest.value);
-  }
-  pendingToolCalls.set(id, { conversationId, toolName });
 }
 
 // ── ACP 信封构造 ─────────────────────────────────────────────────────────────
@@ -384,67 +308,64 @@ function buildACPPrompt(text: string, behaviorNote: string): string {
   });
 }
 
-// ── 本轮输入（新增内容） ─────────────────────────────────────────────────────
-
-/** 本轮新增内容：最后一条 user / tool 消息。 */
-interface TurnInput {
-  kind: "user" | "tool";
-  text: string;
-}
+// ── 完整历史拍平 ─────────────────────────────────────────────────────────────
 
 /**
- * 取本轮新增内容。
+ * 把客户端提供的完整 messages 拍平成一段文本。
  *
- * 上游按会话保存历史，本轮**只发新增部分**（末条 user 或 tool 消息）——
- * 整段历史重发会与上游已有的历史重复。
+ * 上游虽然按 conversationId 保存服务端历史，但那条路要求「客户端历史」与
+ * 「上游历史」严格同步：客户端压缩上下文、换模型、多个客户端共用一个 `user`
+ * 时都会断链；更关键的是**上游对客户端自带的上文完全不可见** —— 实测单请求里
+ * 带「记住暗号：蓝鲸-7788」，模型答「无法在当前上下文中找到」。
+ *
+ * 因此上下文**只由调用方提供**：每请求新建上游会话，客户端给多少历史就发多少。
+ * 角色标签与工具调用形态对齐参考实现（[参考] hey7195_orcaterm_proxy/server.py）。
+ * system / developer 不进这里 —— 它们走 `emphasisPrompt`（服务端高优先级位置）。
  */
-function latestTurn(messages: unknown[]): TurnInput {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i];
+function buildHistoryPrompt(messages: unknown[]): string {
+  const blocks: string[] = [];
+  for (const m of messages) {
     if (!m || typeof m !== "object") continue;
     const rec = m as Record<string, unknown>;
     const role = String(rec["role"] ?? "").toLowerCase();
-    if (role === "tool") return { kind: "tool", text: messageText(rec) };
-    if (role === "user") return { kind: "user", text: messageText(rec) };
-  }
-  return { kind: "user", text: "" };
-}
+    if (role === "system" || role === "developer") continue;
 
-/** 工具结果消息 → 工具名与（权威的）上游会话 id。 */
-interface ToolTurn {
-  toolCallId: string;
-  toolName: string;
-  conversationId: string;
-}
-
-/**
- * 解析工具结果消息。
- *
- * 优先用「发起该调用」时记下的会话与工具名（最准）；记不到时按 `tool_call_id`
- * 回查客户端历史里 assistant 的 tool_calls。
- */
-function resolveToolTurn(messages: unknown[], fallbackConversationId: string): ToolTurn {
-  let toolMsg: Record<string, unknown> | null = null;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i];
-    if (!m || typeof m !== "object") continue;
-    const rec = m as Record<string, unknown>;
-    if (String(rec["role"] ?? "").toLowerCase() === "tool") {
-      toolMsg = rec;
-      break;
+    if (role === "tool") {
+      const callId = typeof rec["tool_call_id"] === "string" ? rec["tool_call_id"] : "";
+      const name = findToolName(messages, callId);
+      const text = messageText(rec).trim();
+      // 工具结果沿用真机格式（<TOOL_META>返回结果</TOOL_META> + 输出），模型按这个协议续跑。
+      const body = text ? buildToolResultPrompt(name, text) : "（无输出）";
+      blocks.push(`[Tool 结果${name ? ` ${name}` : ""}]\n${body}`);
+      continue;
     }
+
+    const text = messageText(rec).trim();
+    const calls = role === "assistant" ? formatToolCalls(rec) : "";
+    if (!text && !calls) continue;
+    const label = role === "assistant" ? "[Assistant]" : role === "user" ? "[User]" : `[${role}]`;
+    blocks.push(`${label}\n${[text, calls].filter(Boolean).join("\n")}`);
   }
-  const callId = toolMsg && typeof toolMsg["tool_call_id"] === "string" ? toolMsg["tool_call_id"] : "";
-  const pending = callId ? pendingToolCalls.get(callId) : undefined;
-  if (pending) {
-    pendingToolCalls.delete(callId);
-    return { toolCallId: callId, toolName: pending.toolName, conversationId: pending.conversationId };
+  return blocks.join("\n\n");
+}
+
+/** assistant 的 `tool_calls` → 文本行（用客户端工具名，与工具提示词一致）。 */
+function formatToolCalls(rec: Record<string, unknown>): string {
+  const calls = rec["tool_calls"];
+  if (!Array.isArray(calls)) return "";
+  const lines: string[] = [];
+  for (const c of calls) {
+    if (!c || typeof c !== "object") continue;
+    const call = c as Record<string, unknown>;
+    const fn = call["function"];
+    if (!fn || typeof fn !== "object") continue;
+    const f = fn as Record<string, unknown>;
+    const name = typeof f["name"] === "string" ? f["name"] : "";
+    if (!name) continue;
+    const args = typeof f["arguments"] === "string" ? f["arguments"] : JSON.stringify(f["arguments"] ?? {});
+    lines.push(`[工具调用 ${name}(${args})]`);
   }
-  return {
-    toolCallId: callId,
-    toolName: findToolName(messages, callId),
-    conversationId: fallbackConversationId,
-  };
+  return lines.join("\n");
 }
 
 /** 按 `tool_call_id` 回查客户端历史里 assistant 的 tool_calls 工具名。 */
@@ -494,20 +415,13 @@ export function buildChatBody(
   }
 
   const tools = declaredTools(req);
-  const derivedConversationId = conversationIdOf(req);
 
-  // 本轮新增内容：末条 user（普通轮）或末条 tool（工具回填轮）。
-  const turn = latestTurn(messages);
-  let conversationId = derivedConversationId;
-  let inputText = turn.text;
-  if (turn.kind === "tool") {
-    const resolved = resolveToolTurn(messages, derivedConversationId);
-    conversationId = resolved.conversationId;
-    inputText = buildToolResultPrompt(resolved.toolName, turn.text);
+  // 上下文完全由调用方提供：完整历史拍平后一次下发，每请求新建上游会话。
+  const historyText = buildHistoryPrompt(messages);
+  if (!historyText.trim()) {
+    throw new Error("messages must contain at least one user/assistant/tool message with text");
   }
-  if (!inputText.trim()) {
-    throw new Error("the last user/tool message must carry text content");
-  }
+  const conversationId = `cid-${randomUUID()}-${PRODUCT}`;
 
   // 人设覆盖 + 工具格式说明都进 emphasisPrompt：服务端把它拼到系统提示词后部，
   // 是唯一能压过 OrcaTerm 默认运维助手人设的位置（见 docs/channels/orcaterm/PROTOCOL.md §3.4.2）。
@@ -544,7 +458,7 @@ export function buildChatBody(
     },
     input: {
       type: "start",
-      input: buildACPPrompt(inputText, ""),
+      input: buildACPPrompt(historyText, ""),
       id: randomUUID(),
       emphasisPrompt: emphasis,
       files: [],
@@ -1006,7 +920,6 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
   const reader = new SseLineReader();
   const req = request ?? {};
   const tools = declaredTools(req);
-  const conversationId = conversationIdOf(req);
   let aggregatedContent = "";
   let doneSent = false;
   let pendingTool = false;
@@ -1080,8 +993,6 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
 
     if (bridged) {
       const id = `call_${randomUUID().replace(/-/g, "")}`;
-      // 记住「这次调用属于哪个上游会话」：工具结果必须回到同一会话。
-      rememberToolCall(id, conversationId, bridged.name);
       out.push(
         chunk([
           {

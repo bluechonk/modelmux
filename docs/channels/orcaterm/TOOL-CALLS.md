@@ -73,20 +73,20 @@
 
 **（3）回填侧：工具结果怎么送回去**
 
-客户端执行完工具后回传 `role:"tool"` 的消息，网关按**真机格式**包裹后作为新一轮的文本，
-**发回同一个上游会话**：
+客户端执行完工具后回传 `role:"tool"` 的消息。本渠道**无状态**：工具结果不「回填到同一会话」，
+而是作为完整历史的一部分拍平进下一次请求的 `input.input`（见
+[REQUEST-BODY.md](./REQUEST-BODY.md) 的「上下文构造」），格式仍按真机协议：
 
 ```
 <TOOL_META>返回结果</TOOL_META>
 <工具输出>
 ```
 
-- 空输出视为「用户拒绝执行」，发
+- 空输出视为「用户拒绝执行」，写
   `<TOOL_META>返回结果</TOOL_META>\n用户拒绝执行工具 <name>，请根据已有信息继续回答。`
 - 已含 `<TOOL_META>` 的内容原样透传（避免二次包裹）。
-- 会话对齐：优先用「发起该调用」时记下的在途映射（工具调用 id → 上游会话 id），
-  记不到时按 [REQUEST-BODY.md](./REQUEST-BODY.md) 的会话键派生 —— 两者都指向同一个
-  `conversationId`。
+- 工具名按 `tool_call_id` 回查前序 assistant 的 `tool_calls`，只用于正文里的角色标签
+  （`[Tool 结果 <name>]`），不影响路由 —— 每次请求都是新的上游会话。
 
 已知原生工具（部分，完整快照见 [参考] `orca.go` 的 `NativeTools`）：`fetch`、
 `execute_terminal_command`、`run_commands`、`list_terminals`、`submit_agent_tasks`、
