@@ -137,21 +137,38 @@ function quotaText(credits: AccountCredits | null | undefined, unsupported: bool
 }
 
 /**
- * 额度新鲜度：网关每 5 分钟后台并行重查一轮（`startBillingRefresher`），
- * 这里把「这条数字多久前查的」显示出来 —— 否则用户看到旧数会以为面板没生效。
+ * 额度新鲜度：网关每 3 分钟后台并行重查一轮（`startBillingRefresher`），
+ * 这里把「这条数字距现在多久」**精确**显示出来 —— 「刚刚更新 / N 分钟前」这种模糊说法
+ * 看不出到底多久没刷了。零值单位不显示（`0天5小时` 只写 `5小时`），分钟恒显示。
  *
- * 阈值与后端一致：>15 分钟算「偏旧」（正常应 ≤5 分钟，留 3 倍容差给慢查询/失败重试）。
+ * 阈值与后端一致：>15 分钟算「偏旧」（正常应 ≤3 分钟，留 5 倍容差给慢查询/失败重试）。
  */
 function freshnessText(billingAt: string | null | undefined): { text: string; stale: boolean } {
   if (!billingAt) return { text: "未查到", stale: true };
   const at = Date.parse(billingAt);
   if (!Number.isFinite(at)) return { text: "未查到", stale: true };
-  const mins = Math.floor((Date.now() - at) / 60_000);
-  if (mins < 1) return { text: "刚刚更新", stale: false };
-  if (mins < 60) return { text: `${mins} 分钟前`, stale: mins > 15 };
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return { text: `${hours} 小时前`, stale: true };
-  return { text: `${Math.floor(hours / 24)} 天前`, stale: true };
+  const totalMinutes = Math.max(0, Math.floor((Date.now() - at) / 60_000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}天`);
+  if (hours > 0) parts.push(`${hours}小时`);
+  parts.push(`${minutes}分钟`);
+  return {
+    text: `更新于 ${parts.join("")}前`,
+    stale: totalMinutes > 15,
+  };
+}
+
+/** 上次查询的**绝对时间**（本地时区，供 title 悬浮查看，与相对时长互相印证）。 */
+function updatedAtText(billingAt: string | null | undefined): string {
+  if (!billingAt) return "未知";
+  const at = Date.parse(billingAt);
+  if (!Number.isFinite(at)) return "未知";
+  const d = new Date(at);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /**
@@ -286,13 +303,13 @@ export function AccountCard({
                   {failStreak > 0 && (
                     <span className="shrink-0 text-[11px] text-warn">连续失败 {failStreak} 次</span>
                   )}
-                  {/* 额度新鲜度：让「数字是不是旧的」一眼可见（网关每 5 分钟后台重查） */}
+                  {/* 额度新鲜度：精确到「X天X小时X分钟前」，悬浮看绝对时间 */}
                   {(() => {
                     const fresh = freshnessText(bill?.billing_at);
                     return (
                       <span
                         className={`shrink-0 text-[11px] ${fresh.stale ? "text-warn" : "text-ink-faint/70"}`}
-                        title={`额度查询时间：${bill?.billing_at ?? "未知"}（网关每 5 分钟自动重查）`}
+                        title={`上次查询：${updatedAtText(bill?.billing_at)}（网关每 3 分钟自动重查）`}
                       >
                         {fresh.text}
                       </span>
