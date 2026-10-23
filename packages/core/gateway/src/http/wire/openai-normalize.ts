@@ -371,6 +371,36 @@ export function cleanupOrphanToolCalls(messages: unknown[]): boolean {
   return true;
 }
 
+/**
+ * 丢弃既没有正文也没有工具调用的 assistant 消息。
+ *
+ * 流式响应可能只产出思考链没有正文（目标端偶发「HTTP 200 但 content 为空」），
+ * 客户端把这条「content 为空 + 无 tool_calls」的空壳 assistant 存进会话历史；
+ * 下次重放时，对「空正文不带 content 键」的目标端（traecn 的 `toContentBlocks` 删键）
+ * 会退化成 `{role:"assistant",reasoning_content:…}` 空壳，上游判 param invalid
+ * （实测 traecn 4001：2026-10-23 ZCode 会话 27 次成功后连续 3 次失败，
+ * 空壳数与成败零例外相关）。
+ *
+ * 删除是安全的：空壳不带 tool_calls，不影响工具配对；思考链本就不建议回传
+ * 下一轮（OpenAI 规范），丢弃无信息损失。放在归一化管线**最前**跑 ——
+ * 删出的相邻 assistant 交给 `mergeAdjacentToolCalls`，且不影响
+ * `repackToolResultBlocks` 的配对前提。
+ */
+export function dropEmptyAssistantMessages(messages: unknown[]): boolean {
+  const out = messages.filter((msg) => {
+    const rec = asRecord(msg);
+    if (!rec || rec["role"] !== "assistant") return true;
+    if (!isEmptyContent(rec["content"])) return true;
+    const calls = rec["tool_calls"];
+    if (Array.isArray(calls) && calls.length > 0) return true;
+    return false;
+  });
+  if (out.length === messages.length) return false;
+  messages.length = 0;
+  messages.push(...out);
+  return true;
+}
+
 /** `max_completion_tokens`（新版 OpenAI 名）→ `max_tokens`（旧名，旧端 / 兼容端通用）。 */
 export function translateMaxCompletionTokens(body: OpenAiRecord): void {
   const alias = body["max_completion_tokens"];

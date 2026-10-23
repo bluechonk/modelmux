@@ -15,6 +15,7 @@ import {
   asRecord,
   backfillReasoningContent,
   cleanupOrphanToolCalls,
+  dropEmptyAssistantMessages,
   hasReasoningTrace,
   mergeAdjacentToolCalls,
   normalizeDeveloperRole,
@@ -405,6 +406,63 @@ describe("cleanupOrphanToolCalls", () => {
   });
 });
 
+describe("dropEmptyAssistantMessages", () => {
+  it("丢弃真实会话里的空壳（content 空串 + 思考链 + 无 tool_calls）", () => {
+    const messages: unknown[] = [
+      { role: "user", content: "u" },
+      { role: "assistant", content: "", reasoning_content: "纯思考".repeat(100) },
+      { role: "user", content: "u2" },
+    ];
+    assert.equal(dropEmptyAssistantMessages(messages), true);
+    assert.equal(messages.length, 2);
+    assert.equal((messages[0] as Record<string, unknown>)["role"], "user");
+    assert.equal((messages[1] as Record<string, unknown>)["role"], "user");
+  });
+
+  it("丢弃连 content 键都没有的 assistant", () => {
+    const messages: unknown[] = [{ role: "assistant" }];
+    assert.equal(dropEmptyAssistantMessages(messages), true);
+    assert.equal(messages.length, 0);
+  });
+
+  it("保留有正文的 assistant（含 content 为非空数组的形态）", () => {
+    const messages: unknown[] = [
+      { role: "assistant", content: "正文" },
+      { role: "assistant", content: [{ type: "text", text: "块" }] },
+    ];
+    assert.equal(dropEmptyAssistantMessages(messages), false);
+    assert.equal(messages.length, 2);
+  });
+
+  it("保留纯工具调用消息（content null 但有 tool_calls）", () => {
+    const messages: unknown[] = [
+      { role: "assistant", content: null, tool_calls: [{ id: "a", type: "function" }] },
+    ];
+    assert.equal(dropEmptyAssistantMessages(messages), false);
+    assert.equal(messages.length, 1);
+  });
+
+  it("空数组 tool_calls 不算有效调用，但有正文时仍保留", () => {
+    const messages: unknown[] = [
+      { role: "assistant", content: "正文", tool_calls: [] },
+      { role: "assistant", content: "", tool_calls: [] },
+    ];
+    assert.equal(dropEmptyAssistantMessages(messages), true);
+    assert.equal(messages.length, 1);
+    assert.equal((messages[0] as Record<string, unknown>)["content"], "正文");
+  });
+
+  it("非 assistant 消息一概不动", () => {
+    const messages: unknown[] = [
+      { role: "system", content: "" },
+      { role: "user", content: "" },
+      { role: "tool", content: "" },
+    ];
+    assert.equal(dropEmptyAssistantMessages(messages), false);
+    assert.equal(messages.length, 3);
+  });
+});
+
 describe("translateMaxCompletionTokens", () => {
   it("改名并落到 max_tokens", () => {
     const body: Record<string, unknown> = { max_completion_tokens: 100 };
@@ -616,6 +674,7 @@ describe("归一化管线（与渠道 buildChatBody 同序）", () => {
     sanitizeMessageTexts(messages, rewriteX);
     backfillReasoningContent(messages, body, { modelPrefix: "deepseek" });
 
+    dropEmptyAssistantMessages(messages);
     mergeAdjacentToolCalls(messages);
     repackToolResultBlocks(messages);
     cleanupOrphanToolCalls(messages);
