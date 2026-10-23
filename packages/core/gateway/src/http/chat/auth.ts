@@ -10,7 +10,7 @@
  */
 
 import { type Channel, type Credential } from "../../runtime/channel.js";
-import { activeAccountIsError, markActiveHealth } from "../../runtime/account-pool.js";
+import { activeAccountCooldown, activeAccountIsError, markActiveHealth } from "../../runtime/account-pool.js";
 import { logThrottled } from "../../runtime/logger.js";
 import { inChannel } from "./channel.js";
 import { openStream, type UpstreamCall } from "./upstream.js";
@@ -37,16 +37,30 @@ export async function callUpstream(
   channel: Channel,
   sendBody: Buffer,
   logger: (m: string) => void,
+  options: { freeModel?: boolean } = {},
 ): Promise<UpstreamOutcome> {
   const cid = channel.config.cid;
   const { cred } = channel;
 
-  // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）
+  // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）。
+  // ⚠ 这是**真故障**（凭据坏了），连免费模型也救不了，故不区分模型。
   if (activeAccountIsError(cid)) {
     return {
       kind: "not_authenticated",
       error: `active account is marked error after repeated failures; switch account (mx acct use) or re-login (mx login ${cid})`,
     };
+  }
+
+  // 额度耗尽的**冷却**只挡付费模型：倍率 0 的模型不吃额度，冷却期必须照常可路由
+  //（2026-10-23 主人实测：loomy 冷却后连免费模型 spark-x 都被锁死）。
+  if (options.freeModel !== true) {
+    const cooling = activeAccountCooldown(cid);
+    if (cooling) {
+      return {
+        kind: "not_authenticated",
+        error: `account quota exhausted (${cid}); cooling down until ${cooling.until} (${cooling.reason}) — free (×0) models are still available`,
+      };
+    }
   }
 
   let credential: Credential;

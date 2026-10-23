@@ -151,6 +151,11 @@
 - 反向补充：**账单查到 0 也会进冷却**（`markCooldownIfExhausted`）—— 有的渠道额度用完不会
   立刻回 4xx（如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
   账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。
+- ⚠ **冷却只挡付费模型**（2026-10-23 修正）：倍率 0 的模型不吃额度，冷却期必须照常可路由；
+  而且它自己撞到额度类错误时**不许**反过来把账号打成冷却（否则免费模型被一起锁死 ——
+  主人实测踩过）。判定见 `http/chat/attempt.ts::isFreePoolModel` 与 `http/chat/auth.ts`
+  的 `freeModel` 参数：免费模型 → 跳过冷却闸门、跳过冷却写入，上游错误如实透出为
+  `402 upstream_insufficient_quota`。真故障（`error`）仍**不分模型**一律短路。
 
 > ⚠ 两个层级的「冷却」不要混：
 >

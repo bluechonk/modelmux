@@ -11,7 +11,7 @@
 
 import type { ServerResponse } from "node:http";
 
-import { getChannel, hasChannel, type Channel, type StreamTranslator } from "../../runtime/channel.js";
+import { getChannel, hasChannel, channelCapabilities, type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
   markActiveHealth,
   noteAccountFailure,
@@ -39,6 +39,7 @@ import { callUpstream } from "./auth.js";
 import { openStream, type UpstreamCall } from "./upstream.js";
 import { relayUpstream } from "./forward.js";
 import type { PoolCandidate } from "../../pool/pool-targets.js";
+import { getPoolModelMeta } from "../../pool/pool-targets.js";
 
 /** 一次失败的错误三元组：状态码 + 错误码 + 文案（回给客户端的信封内容）。 */
 export interface ChatError {
@@ -325,7 +326,10 @@ export async function attemptCandidate(
 
   // ⚠ 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入转发层，
   //    响应头已发给客户端，换渠道会变成两个响应。
-  const outcome = await callUpstream(channel, sendBody, logger);
+  // 免费模型（倍率 0 / 渠道没有额度概念）不吃额度：既不受账号冷却限制，也不该**触发**冷却
+  // （2026-10-23 主人实测：免费模型撞到上游 402 后把整个账号又打成冷却，免费模型被一起锁死）。
+  const freeModel = isFreePoolModel(cid, candidate.exposedId);
+  const outcome = await callUpstream(channel, sendBody, logger, { freeModel });
   if (outcome.kind === "ok") noteUpstreamReady(res);
   if (outcome.kind === "not_authenticated") {
     logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
@@ -383,7 +387,7 @@ export async function attemptCandidate(
     // ⚠ 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
     //   3 连败熔断打成「不可用」（2026-10-23 之前 workbuddyai 就是这样被误标的）。
     const quotaOut = isQuotaExhausted(call.bodySnippet ?? "");
-    if (quotaOut) {
+    if (quotaOut && !freeModel) {
       const resetAt =
         (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(call.bodySnippet ?? "") : null) ?? null;
       const untilMs = noteAccountQuotaExhausted(cid, {
@@ -401,6 +405,23 @@ export async function attemptCandidate(
           status: 503,
           code: "quota_exhausted",
           message: `account quota exhausted (${cid}); cooling down until ${new Date(untilMs).toISOString()}, or switch account`,
+        },
+      };
+    }
+    if (quotaOut && freeModel) {
+      // 免费模型不该因为额度信号被冷却：把上游错误**如实透出**，账号健康态保持不动
+      //（2026-10-23 主人实测：这个分支曾把免费模型一起锁死）。
+      logThrottled(
+        logger,
+        `chat:quota-free:${cid}:${candidate.exposedId}`,
+        `upstream quota-style error on a free (×0) model (channel ${cid}, model ${candidate.exposedId}); account left untouched`,
+      );
+      return {
+        kind: "retry",
+        error: {
+          status: 402,
+          code: "upstream_insufficient_quota",
+          message: "upstream says insufficient quota for this model; see gateway logs",
         },
       };
     }
@@ -449,4 +470,16 @@ export async function attemptCandidate(
     request: payload,
   });
   return { kind: "done" };
+}
+
+/**
+ * 该池模型是否**免费**（倍率 0，或渠道根本没有额度概念）。
+ *
+ * 免费模型不消耗额度，因此**不受「账号额度冷却」限制** —— 冷却只该挡付费用量。
+ * 2026-10-23 主人实测踩过：loomy 每日 5000 积分烧光进冷却后，连 spark-x（倍率 0）
+ * 都被一起锁死。倍率查不到（null）按**付费**处理（宁可挡一下，也不放走可能计费的请求）。
+ */
+function isFreePoolModel(cid: string, exposedId: string): boolean {
+  if (hasChannel(cid) && !channelCapabilities(getChannel(cid).config).billing) return true;
+  return getPoolModelMeta(`${cid}/${exposedId}`).multiplier === 0;
 }

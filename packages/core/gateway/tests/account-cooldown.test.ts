@@ -126,17 +126,26 @@ describe("账号级冷却（额度耗尽 ≠ 故障）", () => {
     assert.equal(hit["fail_streak"], 0, "额度耗尽不该累积连败（否则会被 3 连败熔断误标不可用）");
   });
 
-  it("冷却中：请求入口短路，但状态不是 error", () => {
+  it("冷却中：不算 error（按模型放行），冷却信息可读", () => {
     seedPool("cooldown", new Date(Date.now() + 600_000).toISOString());
-    assert.equal(activeAccountIsError(CID), true, "冷却未到期时应短路");
+    // ⚠ 冷却**不算** error（2026-10-23 修正）：免费模型（倍率 0）冷却期必须照常可路由，
+    // 「要不要挡」由调用方按模型倍率决定（见 http/chat/auth.ts 的 freeModel 参数）。
+    assert.equal(activeAccountIsError(CID), false, "冷却不是真故障，不能整体短路");
     const info = activeAccountCooldown(CID);
-    assert.ok(info, "应能拿到冷却信息给 UI 显示");
+    assert.ok(info, "应能拿到冷却信息给 UI / 付费模型短路用");
     assert.match(info.reason, /额度耗尽/);
+  });
+
+  it("真故障 → error 短路（连免费模型也不该打）", () => {
+    seedPool("error", null);
+    assert.equal(activeAccountIsError(CID), true);
+    assert.equal(activeAccountCooldown(CID), null, "error 不是冷却");
   });
 
   it("冷却到期 → 惰性恢复 ok 并清零连败", () => {
     seedPool("cooldown", new Date(Date.now() - 60_000).toISOString());
-    assert.equal(activeAccountIsError(CID), false, "过期后应放行");
+    // 惰性过期发生在读冷却的时候（`activeAccountCooldown`）；不是 error 那条路径
+    assert.equal(activeAccountCooldown(CID), null, "过期后应放行");
     const hit = active();
     assert.equal(hit["health"], "ok", "过期后应自动恢复 ok");
     assert.equal(hit["cooldown_until"], null, "恢复后应清掉截止时间");
