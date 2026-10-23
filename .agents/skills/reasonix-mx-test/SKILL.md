@@ -264,14 +264,18 @@ Reasonix 一次声明 **18 个**工具，其中与文件/命令相关的是：
 要确认客户端到底声明了什么，最快的办法是临时把 `base_url` 指向一个本地回显服务，
 跑一次请求把 `tools` 数组打出来（**测完把 `base_url` 改回去**）。
 
-### 6.2 已知的工具调用坑
+### 6.2 工具调用的历史坑（均已修复，不必再防）
 
-| 渠道 | 现象 | 根因 / 现状 |
-| --- | --- | --- |
-| traecn | **已修复**（2026-10-23 实测不复现）：此前文件写成功但**读回**失败，上游报 `code=4027 Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` | 根因是上游只认 assistant 消息上的 **`tool_calls` 数组**，改写成单个 `function_call` 对象就不认。渠道 `toSoloToolCalls()`（`packages/core/channels/traecn/src/upstream.ts:309`，提交 `28b49b0`）已把工具调用统一转成数组形态，写文件与读回往返均正常 |
-| orcaterm | 工具调用完全不发生，模型输出一坨 `{"action":"review",...}` | 上游一轮响应**连吐多个信封**，按「最外层花括号」切会解析失败 → 整段当文本透传 |
-| 全部渠道 | 客户端报 `cannot unmarshal number into Go struct field streamWireError.error.code` | 错误帧的 `code` 必须是**字符串**（上游给数字会让客户端解码失败） |
-| 全部渠道 | 客户端报 `cannot unmarshal null into Go struct field streamWire...` | 纯工具调用消息的非流式聚合体**不能带 `content: null`**，要省略该键 |
+以下四类问题**曾经**真实发生过，但当前实现全部修复，并由 `npm run verify:wiring`
+（在 `npm test` 链里）做静态校验，改回去就直接红。测试时不需要额外提防，只需记住
+「`verify:wiring` 报错时，八成是这四条之一被改回去了」：
+
+| 历史现象 | 修复落点 |
+| --- | --- |
+| traecn 文件写成功但**读回**失败，上游报 `code=4027 Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` | 渠道 `toSoloToolCalls()` 把 assistant 工具调用统一成 `tool_calls` **数组**（`packages/core/channels/traecn/src/upstream.ts:309`）；`verify-wiring` 规则 4 禁止往消息顶层写 `function_call` |
+| orcaterm 工具调用完全不发生，模型输出一坨 `{"action":"review",...}` | 渠道 `jsonSegments()` 逐段扫描平衡花括号，能拆「一轮连吐多个信封」（`packages/core/channels/orcaterm/src/upstream.ts:682`）；`verify-wiring` 规则 5 强制逐段扫描 |
+| 客户端报 `cannot unmarshal number into Go struct field streamWireError.error.code` | 错误帧 `code` 一律字符串化（traecn `upstream.ts:885`、catpaw `:1003`、loomy `:263` 等）；`verify-wiring` 规则 3 校验 `String(...)` 收敛 |
+| 客户端报 `cannot unmarshal null into Go struct field streamWire...` | 纯工具调用消息的聚合体**不设 `content` 键**（`packages/core/gateway/src/http/wire/sse-stream.ts:172`），由 `tests/sse-aggregate.test.ts` 断言「不得出现 `"content":null`」 |
 
 判工具调用是否真跑通，以**访问日志**为准：`toolCount>0` 且 `messageCount` 随工具轮次递增；
 只看模型嘴上说「做完了」不算。
