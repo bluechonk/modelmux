@@ -338,8 +338,15 @@ event:done   | data:{"finish_reason":"stop"}
 6. `tools[].function.parameters` 对象 → **JSON 字符串**（SOLO 要求）
 7. `tool_choice` 归一化：`"none"`/`{type:"none"}` → 删 `tool_choice` + 删 `tools`/`functions`；
   `auto`/`required` → 字符串；`{type:"function",function:{name}}` → 字符串 name
-8. `max_tokens` 收敛到安全上限 **64000**（实测客户端索要 131072 会被上游打成 4xx）
+8. `max_tokens` 收敛到安全上限 **64000**（实测客户端索要 131072 会被上游打成 4xx）；
+   入口先经共享层 `translateMaxCompletionTokens` 把新名 `max_completion_tokens` 换算过来
+   （实测 ZCode 只发新名，值 384000 —— 不换算则上游侧 `max_tokens` 缺失）
 9. `reasoning_effort` 原样透传
+10. **消息序列归一化**（共享层 `openaiNormalize`，在 content 数组化之前对消息数组副本跑）：
+    `dropEmptyAssistantMessages`（剔除「无正文且无 tool_calls」的空壳 assistant ——
+    纯思考消息重放到本渠道会退化成 `{role,reasoning_content}`，上游 4001，
+    实测见「使用与实测」2026-10-23）、`mergeAdjacentToolCalls` / `repackToolResultBlocks` /
+    `cleanupOrphanToolCalls`（批次合并 / 结果紧跟 / 孤儿裁剪，4027 前置防线）
 
 **Max 模式（1M 上下文）字段**（`packages/core/channels/traecn/src/upstream.ts:484-496`，仅远端 `display_config.max_mode === true` 的模型允许）：
 `model_auto_selection:{strategy:'max',...}`、`model_selection_strategy:'max'`、`mode_type:1`、
@@ -389,7 +396,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `1005` | Plan 权益不足 → 分类 `hard-plan` | 如实报错；**网关不自动换号**（换号由用户手动执行，见本节末注）；渠道层无冷却表，冷却由共享层 `noteFailure()` 统一给（默认 60s，见 §6.3） | `packages/core/channels/traecn/src/upstream.ts:275` |
 | `4008` | 配额耗尽 → 分类 `quota-exceeded`（**判定必须先于 4011**） | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:276` |
 | `4011` | 频率超限 → 分类 `soft-rate` | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:277` |
-| `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓**没有** `4001` 专门分支：`classifyError` 里没有这一项，落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:124` |
+| `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓**没有** `4001` 专门分支：`classifyError` 里没有这一项，落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:124`。⚠ 除版本准入外，**空壳 assistant 消息**（无正文且无 tool_calls）也触发 4001 —— 已由消息序列归一化挡在网关侧（§3.2 第 10 条，实测见「使用与实测」2026-10-23） |
 | `4027` | tool 消息顺序错误 | 直接失败 | 本仓**没有** `4027` 专门分支：同样落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`） |
 | `4023` | `the model is unknown`（不可调用通道） | 通道白名单已挡 | `packages/core/channels/traecn/src/catalog.ts:43-59` |
 | `3003` | `model service is unavailable`（`inline_chat`） | 同上 | `packages/core/channels/traecn/src/catalog.ts:43-59` |
@@ -804,6 +811,32 @@ Reasonix CLI 直连网关（`traecn/glm-5.3-flash`，本渠道最低倍率 0.06�
 
 另跑一次 `traecn/deepseek-v4.1-flash`：冒烟通过
 （access 日志 `status: 200`、`stream: true`），与上表一致。`[实测]`
+
+### 2026-10-23 端到端实测（4001 空壳 assistant）
+
+ZCode 会话（session `d2b4c141`，30 次请求）调 `traecn/deepseek-v4.1-flash`：
+**前 27 次成功（msgs 6→78），随后连续 3 次** `4001 We're sorry, the param is invalid`
+（msgs 82/83/84）。全程参数不变（`max_completion_tokens: 384000` / `reasoning_effort: max` /
+`tools: 9`），排除参数问题。`[实测]`
+
+根因（证据链）：
+
+1. 成功（msgs=78）与失败（msgs=82）请求**前 78 条消息逐字节相同**；新增 4 条中，
+   第 80 条是 `content: ""` + 4266 字符 `reasoning_content` + 无 `tool_calls` 的 assistant
+   —— 来源是 §7 记录的「HTTP 200 但 content 为空」模型行为 + 用户中途插话（`preempts
+   active turn`），客户端把纯思考 assistant 存进了历史。
+2. `toContentBlocks("")` 返回空数组后 `delete out["content"]`（§3.2 第 4 条规则），
+   该消息发到上游时只剩 `{role,reasoning_content}` —— 全 82 条里唯一空壳。
+   该规则对**纯工具调用消息**是对的（有 `tool_calls` 撑着），对空壳 assistant 不成立。
+3. 反证：27 次成功请求空壳数全 0，3 次失败请求空壳数全 1，零例外
+   （本地跑 `buildChatBody` 统计）。
+4. 网关侧 3 次失败均 `status: 200` / `outcome: success` / `upstreamMs` 505/285/585ms
+   —— 上游 HTTP 200 + 流内 `event:error`（4001），网关按既有路径原样转发。
+
+修复：共享层新增 `dropEmptyAssistantMessages()`（剔除空壳 assistant，§3.2 第 10 条），
+本渠道 `buildChatBody` 接入消息归一化管线；顺带接入 `translateMaxCompletionTokens`
+（`max_completion_tokens: 384000` 此前未换算，上游侧 `max_tokens` 缺失）。
+真机重放该失败请求验证通过。`[实测]`
 
 ---
 

@@ -3,7 +3,7 @@
  *
  * 关键约束（端点/字段/实测见 docs/channels/traecn/PROTOCOL.md）：
  *   - 请求头把同一 token 设到三处，且版本头是模型准入条件（过低时新模型会被拒）。
- *   - `buildChatBody()` 承担全部渠道特有改写（通道与模型字段、content 数组化、工具参数 JSON 字符串化、`max_tokens` 收敛上限、Max 模式成套下发）。
+ *   - `buildChatBody()` 承担全部渠道特有改写（消息序列归一化、通道与模型字段、content 数组化、工具参数 JSON 字符串化、`max_tokens` 收敛上限、Max 模式成套下发）。
  *   - 响应是自定义 event 流而非标准 SSE：`event:output` 是增量、`event:done` 结束、`event:error` 必须显式产出 error 帧。
  */
 
@@ -23,6 +23,7 @@ import {
   ensureCacheDir,
   ensureDir,
   login as sharedLogin,
+  openaiNormalize,
   upstreamPath,
   writeJsonFile,
 } from "@modelmux/gateway";
@@ -434,7 +435,16 @@ export function buildChatBody(
   };
   // ⚠ 请求体不存在 query 字段
 
-  const rawMessages = Array.isArray(req["messages"]) ? req["messages"] : [];
+  // 消息序列归一（共享层通用形状修复，在改写前先跑）：
+  // 空壳 assistant（纯思考无正文无调用）重放到本渠道会因「空正文删 content 键」
+  // 退化成 {role,reasoning_content}，上游判 4001 param invalid（实测 2026-10-23）；
+  // 批次合并 / 结果重排 / 孤儿裁剪是 4027 工具配对硬约束的前置防线。
+  // 克隆一份再原地归一，不改写调用方的请求对象。
+  const rawMessages: unknown[] = Array.isArray(req["messages"]) ? [...req["messages"]] : [];
+  openaiNormalize.dropEmptyAssistantMessages(rawMessages);
+  openaiNormalize.mergeAdjacentToolCalls(rawMessages);
+  openaiNormalize.repackToolResultBlocks(rawMessages);
+  openaiNormalize.cleanupOrphanToolCalls(rawMessages);
   const messages: Array<Record<string, unknown>> = [];
   for (const msg of rawMessages) {
     if (!isRecord(msg)) continue;
@@ -460,9 +470,14 @@ export function buildChatBody(
   if (tools.length > 0) body["tools"] = tools;
   if (choice.value) body["tool_choice"] = choice.value;
 
+  // max_completion_tokens（OpenAI 新名）→ max_tokens（共享层别名归一）：
+  // 客户端只发新名时旧逻辑拿不到上限（实测 ZCode 发 384000，转换后被下面收敛到 64000）
+  const limits: Record<string, unknown> = { ...req };
+  openaiNormalize.translateMaxCompletionTokens(limits);
+
   // max_tokens 收敛到安全上限（只收不放）
-  if (typeof req["max_tokens"] === "number") {
-    body["max_tokens"] = Math.min(req["max_tokens"], MAX_TOKENS_LIMIT);
+  if (typeof limits["max_tokens"] === "number") {
+    body["max_tokens"] = Math.min(limits["max_tokens"], MAX_TOKENS_LIMIT);
   }
   if (typeof req["temperature"] === "number") body["temperature"] = req["temperature"];
   if (typeof req["top_p"] === "number") body["top_p"] = req["top_p"];
