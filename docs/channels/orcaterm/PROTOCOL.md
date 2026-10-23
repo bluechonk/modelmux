@@ -559,7 +559,8 @@ Authorization: Bearer <ot_session>
 
 1. **工具调用已实现，但受上游能力边界约束**：`buildChatBody()` 现在会带上 `tools`
    （开上游原生工具服务器 + 提示词注入工具清单），翻译层会把 `action:"review"` 信封还原成
-   OpenAI `tool_calls`，客户端回传的工具结果按真机格式回填到**同一会话**（协议见 §3.4.5）。
+   OpenAI `tool_calls`；客户端回传的工具结果作为**完整历史的一部分**按真机格式
+   （`<TOOL_META>返回结果</TOOL_META>`）拍平进下一次请求（协议见 §3.4.5）。
    但上游**只认原生工具名**、一次只产出一个调用，且**能否让上游真的发起工具调用**
    取决于客户端声明的工具与上游原生工具的匹配情况（见 §3.4.5 的桥接规则与「已知边界」）。
 2. **无额度 / 签到**：订阅制运维套餐，没有每日积分与签到端点；`mx bill` 显示 `-`
@@ -605,7 +606,30 @@ mx model orcaterm --refresh
 登录入池 / 最小对话 / 流式 SSE / **工具往返**（工具调用 → 客户端执行 → 结果回填 → 最终回答）。
 
 工具往返的验收要点：响应里 `finish_reason` 为 `tool_calls` 且 `tool_calls[0].function.name`
-是**客户端声明过的工具名**；回填后上游能接上同一会话给出最终回答（不再是「模型只说不做」）。
+是**客户端声明过的工具名**；回填（工具结果进入下一次请求的完整历史）后模型能接着给出
+最终回答（不再是「模型只说不做」）。
+
+### 2026-10-24 上下文构造实测
+
+**问题**：旧实现按会话键派生 conversationId、只把末条 user/tool 发给上游，依赖服务端历史。
+实测单请求里带「记住暗号：蓝鲸-7788」+「暗号是什么？」，模型答「无法在当前上下文中找到」
+—— 客户端自带的上文完全不可见。
+
+**方案**：改为无状态 —— 每请求新建 conversationId，`buildHistoryPrompt()` 把完整 messages
+拍平下发（角色标签 + `[工具调用 name(args)]` + `<TOOL_META>` 工具结果）。
+
+| 验证项 | 结果 |
+| --- | --- |
+| 单请求自带上文（含暗号） | 稳定答出 `蓝鲸-7788`（连跑 3 次） |
+| 对照：只发末条 | 答不出（符合预期） |
+| 历史以工具结果结尾（续跑） | 模型正确接续并给出最终回答 |
+| 多轮（客户端每轮带完整历史） | 上下文正确 |
+| 工具往返（reasonix `write_file` → `read_file`） | 通过：文件落盘内容正确，访问日志 `messageCount` 2→4（工具结果进入下一轮历史） |
+| 出站 body 抓包 | conversationId 每请求新 uuid；ACP prompt 为完整历史 |
+
+⚠ 已知现象：上游模型偶发「只说不做」（直接声称已完成、不输出工具 JSON）。已通过
+`PERSONA_WITH_TOOL` 补强提示（「必须实际输出工具 JSON，不要声称已完成」）显著降低复现率；
+仍属上游模型行为，不是上下文构造问题。
 
 ### 2026-10-19 端到端实测
 
@@ -646,9 +670,9 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 仓库 | 关键文件 | 用途 |
 | --- | --- | --- |
-| [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | `internal/orca/orca.go`（`setHeaders` / `buildBodyStream` / `ParseOutcomeText` / `NativeTools`）、`internal/relay/engine.go`（`NoAskBehaviorNote` / `autoConfirmAsk`） | **主参照** —— 上游协议骨架：请求头族、请求体构造、工具调用闭环（`review` → `tool_calls` → `<TOOL_META>` 回填）、原生工具表、会话粘性 |
-| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | `server.py`（`_FMT_GUARD_TOOLS` / `pick_exec_tool` / `bridge_tool_call`） | 工具桥接与容错解析的参照 —— 按请求形态切换提示词护栏、原生工具名 → 客户端执行类工具的桥接 |
-| [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | `README.md`（发行包与更新元数据索引） | 官方发行包存档 —— 桌面端逆向（asar / 二进制）与版本对照的一手材料 |
+| [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | `internal/orca/orca.go`（`setHeaders` / `buildBodyStream` / `ParseOutcomeText` / `NativeTools`）、`internal/relay/engine.go`（`NoAskBehaviorNote` / `autoConfirmAsk` / `buildTurnInput`） | **主参照** —— 上游协议骨架：请求头族、请求体构造、工具调用闭环（`review` → `tool_calls` → `<TOOL_META>` 回填）、原生工具表、会话粘性（服务端历史模式） |
+| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | `server.py`（`build_upstream_body` / `_FMT_GUARD_TOOLS` / `pick_exec_tool` / `bridge_tool_call`） | **上下文构造参照** —— 无状态模式：每请求新建 conversationId，客户端完整 messages 拍平进 ACP prompt；工具桥接与提示词护栏 |
+| [JoneMini/orcabridge](https://github.com/JoneMini/orcabridge) | `main.go`（`chatBody` / `buildTurnInput`）、`session.go`（`SessionStore` / `PendingCall` / `Lease`）、`content.go`（`BuildACPPrompt`） | 会话存储与在途工具调用状态机、并发租约的完整 Go 实现；ACP 信封与工具桥接的另一种写法 |
 
 ## 已知边界
 
@@ -675,8 +699,8 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 上游能否真的发起工具调用 | **待验证** | 打开 `mcpServers`/`uiServers` 后上游是否产出 `action:"review"`，两份参考实现都没给出「真机跑通」的日志；这是工具闭环的**唯一硬前提** |
 | 客户端工具名与上游原生工具名的匹配 | **待验证** | 上游只认原生工具名；若模型仍吐原生名，靠 §3.4.5 的桥接规则落到客户端的执行类工具 |
 | `userAccountType=wechat` 与 txcloud 登录不匹配 | 能跑但存疑 | 参考实现两说（`orca.go` 用 `wechat`、`hey7195` 用 `txcloud`）；当前形态真机可用，先不动 |
-| 上游历史的服务端保存语义 | **推断** | 「按 conversationId 保存历史」来自参考实现的结论，本仓库据此实现会话派生；未真机验证「换 conversationId 必然断链」 |
-| 首条消息相同的重复请求会共用上游会话 | **推断** | 会话键以「首条 user 消息」为锚点：同一段首条消息的多次独立请求会落到同一个上游会话，上游会累积历史。客户端若每次都发同样的首条消息，需自行用 `metadata.conversation_id` 区分 |
+| 上游历史的服务端保存语义 | 不再依赖 | 「按 conversationId 保存历史」来自参考实现的结论；本渠道路由已改为**无状态**（每请求新建会话 + 完整历史下发），该语义不再影响正确性 |
+| 客户端自带上下文能否被上游看见 | **实测可见** | 2026-10-24 拍平完整历史后，模型能答出上文里的暗号；旧实现（只发末条）答不出 |
 | `X-Seq-Id` 与 `input.id` 不同源 | 不确定 | 头与体各自随机生成两个 UUID（参考实现之一用同一个值），上游是否要求一致未实测 |
 | `user.id` 留空 | 能跑但存疑 | 当前发空串，参考实现发真实 userId；若上游按 `user.id` 分流会话会出问题 |
 | `sid` cookie 缺失 | 影响小 | 参考实现会带，本渠道只在凭据文件里存在时才带；缺失时上游自动发放 |

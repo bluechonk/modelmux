@@ -55,27 +55,51 @@ SSE 响应信封、人设覆盖**。
   （`mcp-server-orcaterm-oauth` / `ui-tools-orcaterm-explorer`），详见
   [TOOL-CALLS.md](./TOOL-CALLS.md)
 
-**会话连续性（`conversationId` 怎么来）**
+**上下文构造（客户端历史完整下发）** `[实测]`
 
 上游**按 conversationId 服务端保存历史**（[参考] `orcaterm2api` README：「历史由服务端保存」），
-所以同一段对话必须复用同一个 id —— 每请求新建会让模型只看到最后一轮（多轮对话与工具
-回填都断链）。本渠道按**会话键**派生（实现见 `upstream.ts` 的 `sessionKeyOf`）：
+但本渠道**不使用**这条路径 —— 上下文完全由调用方提供（实现见 `upstream.ts` 的
+`buildHistoryPrompt`）：
 
-| 优先级 | 锚点 | 说明 |
-| --- | --- | --- |
-| 1 | `metadata.conversation_id` / `conversationId` / `conversationID` | 客户端显式给的会话标识 |
-| 2 | `user` | OpenAI 请求体的用户标识（客户端常把它设成**跨会话恒定**的值） |
-| 3 | 「模型 + 首条 user 消息」派生 | 兜底：按首条 user 消息的哈希 |
+- **每请求新建 conversationId**（`cid-<新 uuid>-orcaterm`），不派生、不复用。
+- `input.input` 放**客户端完整 messages 拍平后的文本**，客户端给多少历史就发多少。
+- `system` / `developer` 不进正文，走 `emphasisPrompt`（服务端高优先级位置）。
 
-三者都会**混入首条 user 消息的摘要**再哈希成 uuid 形状 —— 客户端把 `user` 当用户标识时，
-靠这一项把不同会话分开（否则多段对话会共用同一个上游会话，历史互相污染）。
-同一段对话的后续请求带着同样的首条 user 消息 → 派生结果相同 → 复用同一会话。
+为什么不用服务端历史（2026-10-24 实测）：服务端历史要求「客户端历史」与「上游历史」
+严格同步，一旦客户端压缩上下文、换模型、多个客户端共用一个 `user` 就断链；更关键的是
+**上游对客户端自带的上文完全不可见** —— 单请求里带「记住暗号：蓝鲸-7788」，旧实现
+（只发末条）模型答「无法在当前上下文中找到」，改为完整下发后稳定答出暗号。
 
-工具结果回填时另有一张**在途映射**（工具调用 id → 上游会话 id）兜底：客户端裁剪了历史或
-换了首条消息时，仍能回到发起该调用的那个会话。
+拍平格式（角色标签对齐参考实现 `hey7195_orcaterm_proxy/server.py`）：
 
-**本轮只发新增内容**：上游已有历史，故 `input.input` 只放**末条 user / tool 消息**，
-不重发整段历史（重发会与上游已有历史重复）。
+```text
+[User]
+<用户输入>
+
+[Assistant]
+<正文>
+[工具调用 <客户端工具名>(<arguments JSON>)]
+
+[Tool 结果 <客户端工具名>]
+<TOOL_META>返回结果</TOOL_META>
+<工具输出>
+
+[User]
+<下一条用户输入>
+```
+
+| 角色 | 处理 |
+| --- | --- |
+| `system` / `developer` | 进 `emphasisPrompt`，不进正文 |
+| `user` | `[User]\n<纯文本>` |
+| `assistant` | `[Assistant]\n<正文>` + 每条 `tool_calls` 一行 `[工具调用 name(args)]` |
+| `tool` | `[Tool 结果 name]\n<TOOL_META>返回结果</TOOL_META>\n<输出>`；工具名按 `tool_call_id` 回查 |
+
+空正文且无工具调用的消息跳过；整段拍平后为空则报 `invalid_request`。
+
+代价与取舍：每轮都要把完整历史作为文本重发（与其它渠道转发完整 messages 的成本同量级），
+上游不再有服务端记忆；换来的是**上下文只由调用方决定**，压缩/切换模型/多客户端都不会断链。
+
 
 ## 3.4.2.2 响应格式（SSE，curl 真机探测 + Go 参考实现双源确认）`[实测]` + `[参考]`
 
