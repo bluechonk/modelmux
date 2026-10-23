@@ -178,6 +178,18 @@ export interface UpstreamModule {
    */
   isAuthFailure?(status: number, body: string): boolean;
   /**
+   * 可选：从**上游错误体**里认出「额度耗尽 + 下次刷新时刻」。
+   *
+   * 共享层已有一层通用判定（`isQuotaExhausted`，看措辞），命中就**冷却**该账号；
+   * 但「等到什么时候」只有渠道知道 —— 有的上游直接把重置时间放在错误体里
+   * （主人实测 workbuddyai 花完 1 亿 token 后返回下次刷新时间），有的按自然日重置。
+   *
+   * @param bodySnippet 上游错误响应体的片段（可能被截断，见 `BUFFER_LIMIT`）。
+   * @returns 下次刷新时刻（epoch ms）；**认不出返回 `null`**，共享层回落次日本地 0 点。
+   *          不要为了「显得完整」编一个时间 —— 编错会让账号冷却到错误的时刻。
+   */
+  quotaResetAt?(bodySnippet: string): number | null;
+  /**
    * 可选：上游响应头到达后允许的**连续静默上限**（毫秒），默认 `MODELMUX_READ_TIMEOUT_MS`（120s）。
    *
    * 有些上游排队/长思考时**收下请求（HTTP 200）后长时间零字节**，且不像其他渠道那样
@@ -354,6 +366,23 @@ export interface SigninModule {
   claim(): Promise<SigninOutcome>;
 }
 
+/**
+ * 渠道的额度周期（可选能力，见 `BillingModule.quotaPeriod`）。
+ *
+ * 共享层靠它做两件事：**展示**（「每天 5000 积分，0 点刷新」）与**冷却判定**
+ * （额度耗尽时等到 `resets_at`）。渠道不给就回落共享层的兜底（次日本地 0 点）。
+ */
+export interface QuotaPeriod {
+  /** 人读文案，如「每天 5000 积分，0 点刷新」。 */
+  label: string;
+  /** 本周期额度总量；上游不公开给 `null`（不要编造）。 */
+  size: number | null;
+  /** 单位（积分 / credits / token…）。 */
+  unit: string;
+  /** 下次额度刷新时刻（epoch ms）；未知给 `null`。 */
+  resets_at: number | null;
+}
+
 /** 渠道 `billing.ts` 需要提供的接口。 */
 export interface BillingModule {
   CreditsError: new (message?: string) => Error;
@@ -365,6 +394,13 @@ export interface BillingModule {
    * 当前生效账号的凭证文件）。形状见 `credential-shape.ts` 的归一化结果。
    */
   fetchCredits(options?: { refreshOn401?: boolean; credential?: unknown }): Promise<any>;
+  /**
+   * 额度周期（**可选**）：周期文案 + 总量 + 下次刷新时刻。
+   *
+   * 用途见 `QuotaPeriod`。渠道**不认识自己的周期就别实现** —— 共享层有兜底（次日 0 点），
+   * 编一个假的周期比不实现更糟。
+   */
+  quotaPeriod?(): QuotaPeriod | null;
   /** 签到 / 领取能力（见 `SigninModule`；**每个渠道都必须提供**）。 */
   signin: SigninModule;
 }

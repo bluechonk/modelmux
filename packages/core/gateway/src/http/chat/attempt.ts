@@ -11,7 +11,7 @@
 
 import type { ServerResponse } from "node:http";
 
-import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
+import { getChannel, hasChannel, type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
   markActiveHealth,
   noteAccountFailure,
@@ -378,23 +378,29 @@ export async function attemptCandidate(
     }
     if (call.timeout) noteRequestError(res, "upstream_timeout", String(call.error));
 
-    // 额度耗尽：不是瞬时故障，继续打同一个账号只会重复失败。
-    // 立即标 error（不等 3 次连败），后续请求在 callUpstream 入口短路。
+    // 额度耗尽：不是瞬时故障，继续打同一个账号只会重复失败 → **冷却**它（不是标 error）。
+    // 冷却截止由渠道从错误体里认（`upstream.quotaResetAt`），认不出就兜底次日本地 0 点。
+    // ⚠ 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
+    //   3 连败熔断打成「不可用」（2026-10-23 之前 workbuddyai 就是这样被误标的）。
     const quotaOut = isQuotaExhausted(call.bodySnippet ?? "");
     if (quotaOut) {
-      noteAccountQuotaExhausted(cid);
-      noteFailure(cid, activeKeyOf(cid));
+      const resetAt =
+        (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(call.bodySnippet ?? "") : null) ?? null;
+      const untilMs = noteAccountQuotaExhausted(cid, {
+        until: resetAt,
+        reason: "上游返回额度耗尽（等额度窗口刷新）",
+      });
       logThrottled(
         logger,
         `chat:quota:${cid}`,
-        `account quota exhausted (channel ${cid}); account marked error and will be skipped`,
+        `account quota exhausted (channel ${cid}); cooling down until ${new Date(untilMs).toISOString()} (channel-reported reset: ${resetAt === null ? "no" : "yes"})`,
       );
       return {
         kind: "retry",
         error: {
           status: 503,
           code: "quota_exhausted",
-          message: `account quota exhausted (${cid}); recharge or switch account`,
+          message: `account quota exhausted (${cid}); cooling down until ${new Date(untilMs).toISOString()}, or switch account`,
         },
       };
     }

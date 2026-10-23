@@ -51,6 +51,10 @@ export interface PoolAccount {
   health_at: string;
   /** 连续失败次数（达到上限后 health=error）。 */
   fail_streak?: number;
+  /** 冷却截止（ISO8601）；`health === "cooldown"`（额度耗尽，等额度窗口刷新）时有意义。 */
+  cooldown_until?: string | null;
+  /** 冷却原因（人话，渠道给的判定）。 */
+  cooldown_reason?: string;
 }
 
 export interface ChannelPool {

@@ -258,7 +258,7 @@ async function claimAll(): Promise<ClaimAllResult> {
 
 // ── 签到 / 领取能力（共享层自动签到调度器用；见 SigninModule 契约）────────────
 
-import type { SigninModule } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
 
 /** 每日额度重置的结果。 */
 interface DailyResetResult {
@@ -336,3 +336,32 @@ export const signin: SigninModule = {
     };
   },
 };
+
+// ── 额度周期（`BillingModule.quotaPeriod`，供共享层展示与冷却截止时间）────────
+
+/**
+ * 每日额度周期：**每天 5000 积分，本地 0 点刷新**。
+ *
+ * 依据（不是猜的）：
+ * - `dailyQuota = 5000`：2026-10-22 真机调 `POST /points/first-login` 实测返回
+ *   （`dailyBalance=978 / dailyConsumed=4022`，见 `docs/channels/loomy/PROTOCOL.md` §6.3）；
+ * - 0 点刷新：`points/records` 的 `dailyCycleDate` 是日期串，且实测跨天后额度回到满额。
+ *
+ * ⚠ `points/records` **不返回** `dailyQuota`（只有 first-login 响应里有），所以这里用
+ * 实测常量而不是去查上游 —— 本函数是**纯本地**的（共享层可能在展示路径高频调用）。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天送 5000 积分，本地 0 点刷新",
+    size: 5000,
+    unit: "积分",
+    resets_at: nextLocalMidnight(),
+  };
+}
+
+/** 下一次**本机时区**的 0 点（epoch ms）。 */
+function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
