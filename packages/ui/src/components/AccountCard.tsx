@@ -5,6 +5,7 @@
  */
 
 import { Plus, Trash2, UserCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
 
@@ -139,26 +140,43 @@ function quotaText(credits: AccountCredits | null | undefined, unsupported: bool
 /**
  * 额度新鲜度：网关每 3 分钟后台并行重查一轮（`startBillingRefresher`），
  * 这里把「这条数字距现在多久」**精确**显示出来 —— 「刚刚更新 / N 分钟前」这种模糊说法
- * 看不出到底多久没刷了。零值单位不显示（`0天5小时` 只写 `5小时`），分钟恒显示。
+ * 看不出到底多久没刷了。零值单位不显示（`0天5小时` 只写 `5小时`），秒恒显示。
  *
  * 阈值与后端一致：>15 分钟算「偏旧」（正常应 ≤3 分钟，留 5 倍容差给慢查询/失败重试）。
  */
-function freshnessText(billingAt: string | null | undefined): { text: string; stale: boolean } {
+function freshnessText(
+  billingAt: string | null | undefined,
+  now: number,
+): { text: string; stale: boolean } {
   if (!billingAt) return { text: "未查到", stale: true };
   const at = Date.parse(billingAt);
   if (!Number.isFinite(at)) return { text: "未查到", stale: true };
-  const totalMinutes = Math.max(0, Math.floor((Date.now() - at) / 60_000));
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
+  const totalSeconds = Math.max(0, Math.floor((now - at) / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  // 只印「最高非零单位 → 秒」这一段，避免出现「0天0小时0分钟30秒前」这种噪声；
+  // 分钟为 0 且天/时也为 0 时也跳过（就只剩 `30秒前`）。
   const parts: string[] = [];
   if (days > 0) parts.push(`${days}天`);
-  if (hours > 0) parts.push(`${hours}小时`);
-  parts.push(`${minutes}分钟`);
+  if (hours > 0 || days > 0) parts.push(`${hours}小时`);
+  if (minutes > 0 || parts.length > 0) parts.push(`${minutes}分钟`);
+  parts.push(`${seconds}秒`);
   return {
     text: `更新于 ${parts.join("")}前`,
-    stale: totalMinutes > 15,
+    stale: totalSeconds > 15 * 60,
   };
+}
+
+/** 每秒心跳：秒数要真的在跳，否则只在数据刷新时变一次，看着像卡死。 */
+function useSecondTick(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
 }
 
 /** 上次查询的**绝对时间**（本地时区，供 title 悬浮查看，与相对时长互相印证）。 */
@@ -199,6 +217,7 @@ export function AccountCard({
   busyKey: string | null;
 }): ReactElement {
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
+  const now = useSecondTick(); // 新鲜度显示到秒 → 每秒心跳一次
   const accounts = [...pool.index.accounts]
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
@@ -303,9 +322,9 @@ export function AccountCard({
                   {failStreak > 0 && (
                     <span className="shrink-0 text-[11px] text-warn">连续失败 {failStreak} 次</span>
                   )}
-                  {/* 额度新鲜度：精确到「X天X小时X分钟前」，悬浮看绝对时间 */}
+                  {/* 额度新鲜度：精确到「X天X小时X分钟X秒前」，悬浮看绝对时间 */}
                   {(() => {
-                    const fresh = freshnessText(bill?.billing_at);
+                    const fresh = freshnessText(bill?.billing_at, now);
                     return (
                       <span
                         className={`shrink-0 text-[11px] ${fresh.stale ? "text-warn" : "text-ink-faint/70"}`}
