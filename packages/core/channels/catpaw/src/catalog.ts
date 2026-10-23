@@ -54,18 +54,21 @@ export interface CatalogEntry {
   multiplier: number | null;
   /** 营销角标文案（上游 `extendedInfo.marketingCopy`，如「限时免费」「新」）。 */
   marketing: string;
+  /**
+   * 上游声明的思考强度档位（`parameterDefinitions[id=effort]`）。
+   * 用 `thinking` 开关（无 effort）的型号没有该字段。
+   */
+  effort?: { supportedLevels: string[]; defaultLevel: string };
 }
 
 /**
  * 渠道默认上下文档位。
  *
- * ⚠ 上下文档位是**请求参数**（body 的 `requestContext.modelParams.declarativeParams.context`），
- * 不是上游目录声明的模型能力：上游 `/model-types` **不下发窗口**（[实测]），
- * 可选档位是 204800 / 512000 / **1024000**（默认 1M）—— 来源：参考实现
- * `reference/icebears111_catpaw2api/internal/upstream/const.go` [参考]。
- *
- * 渠道一直按 1M 发请求（见 `upstream.ts` 的 `context`），所以对外就该报 1M：
- * 落盘 0 会让 `/v1/models` 回落兜底 128k，客户端按 128k 截断就是错的。
+ * 上下文档位是**请求参数**（body 的 `requestContext.modelParams.declarativeParams.context`），
+ * 但上游 `/model-types` 的 `parameterDefinitions[id=context]` **逐型号声明了可选档位**
+ * （实测 2026-10-23：`glm-5.3` 最大 800000、`deepseek-v4-pro` 最大 700000、
+ * `deepseek-v4.1-flash` 最大 600000，其余到 1024000）。
+ * 对外报**该型号的最大档**（能力上限）；上游没声明的型号（如 `auto`）才回落到本默认档。
  */
 export const DEFAULT_CONTEXT_WINDOW = 1_024_000;
 
@@ -73,6 +76,74 @@ export const DEFAULT_CONTEXT_WINDOW = 1_024_000;
 function contextWindowOfId(parsed: number): number {
   if (parsed > 0) return parsed;
   return DEFAULT_CONTEXT_WINDOW;
+}
+
+/** 上游 `parameterDefinitions` 里的一条参数定义（只取用到的字段）。 */
+interface ParamDef {
+  id: string;
+  type: string;
+  defaultValue?: string;
+  values?: { value: string; displayName?: string }[];
+}
+
+/** 解析上游 `parameterDefinitions`（形状不对返回空数组）。 */
+function parameterDefinitionsOf(row: Record<string, unknown>): ParamDef[] {
+  const raw = row["parameterDefinitions"];
+  if (!Array.isArray(raw)) return [];
+  const out: ParamDef[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    if (typeof rec["id"] !== "string") continue;
+    const values = Array.isArray(rec["values"])
+      ? rec["values"]
+          .filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === "object")
+          .map((v) => ({
+            value: String(v["value"] ?? ""),
+            displayName: typeof v["displayName"] === "string" ? v["displayName"] : undefined,
+          }))
+      : undefined;
+    out.push({
+      id: rec["id"],
+      type: typeof rec["type"] === "string" ? rec["type"] : "",
+      defaultValue: typeof rec["defaultValue"] === "string" ? rec["defaultValue"] : undefined,
+      values,
+    });
+  }
+  return out;
+}
+
+/**
+ * 上游声明的**上下文档位最大值**（`id:"context"` 的 ENUM 档位取 max）。
+ * 取不到返回 0（= 未声明，走渠道默认档）。
+ */
+function declaredContextWindow(row: Record<string, unknown>): number {
+  for (const def of parameterDefinitionsOf(row)) {
+    if (def.id !== "context" || !def.values) continue;
+    let max = 0;
+    for (const v of def.values) {
+      const n = Number(v.value);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max;
+  }
+  return 0;
+}
+
+/**
+ * 上游声明的**思考强度档位**（`id:"effort"`）→ 池层 `effort` 形状。
+ * 用 `thinking` 开关（无 effort）的型号返回 undefined。
+ */
+function declaredEffort(
+  row: Record<string, unknown>,
+): { supportedLevels: string[]; defaultLevel: string } | undefined {
+  for (const def of parameterDefinitionsOf(row)) {
+    if (def.id !== "effort" || !def.values || def.values.length === 0) continue;
+    const supportedLevels = def.values.map((v) => v.value);
+    const preferred = def.defaultValue && supportedLevels.includes(def.defaultValue) ? def.defaultValue : supportedLevels[supportedLevels.length - 1]!;
+    return { supportedLevels, defaultLevel: preferred };
+  }
+  return undefined;
 }
 
 /**
@@ -305,6 +376,7 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
   };
   const modelType = num("modelType", "modelTypeId");
   if (modelType <= 0) return null;
+  const effort = declaredEffort(row);
   const entry: CatalogEntry = {
     id,
     name: pick("displayName", "name") || id,
@@ -313,12 +385,16 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
       row["reasoning"] === true ||
       Array.isArray(row["parameterDefinitions"]) ||
       row["supportsReasoning"] === true,
-    contextWindow: contextWindowOfId(num("contextWindow", "maxContextLength")),
+    // 上游逐型号声明的上下文档位最大值优先；没有才看旧字段，再没有走渠道默认档
+    contextWindow: contextWindowOfId(
+      declaredContextWindow(row) || num("contextWindow", "maxContextLength"),
+    ),
     description: pick("description"),
     // 上游的 `supportImage` 是**模型**的能力声明；本渠道的 conversation 协议不传图片
     // （内容拍平成纯文本）→ 不对外声明图片能力（见文件头「图片能力」）。
     supportsImages: false,
     ...parseExtendedInfo(row),
+    ...(effort ? { effort } : {}),
   };
   const maxOutput = maxOutputOf(id);
   if (maxOutput !== undefined) entry.maxOutput = maxOutput;

@@ -173,11 +173,16 @@ export interface PoolModelMeta {
   marketing: string;
 }
 
-/** 默认元数据（从渠道 catalog 中提取不到时的兜底）。 */
+/**
+ * 默认元数据（从渠道 catalog 中提取不到时的兜底）。
+ *
+ * 兜底值表示「未知」，不是任何模型的真实上限：窗口 200K / 输出 64K 是常见档位的**下限**，
+ * 比 4096 更贴近真实模型，避免客户端把长回答截断。能查到公开规格的型号应由渠道表给出真值。
+ */
 const DEFAULT_META: PoolModelMeta = {
   name: "Unknown",
-  contextWindow: 128_000,
-  maxOutputTokens: 4_096,
+  contextWindow: 200_000,
+  maxOutputTokens: 65_536,
   inputModalities: ["text"],
   outputModalities: ["text"],
   effort: { supportedLevels: ["low", "high"], defaultLevel: "high" },
