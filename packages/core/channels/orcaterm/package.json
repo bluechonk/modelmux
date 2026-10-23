@@ -1,6 +1,6 @@
 {
   "name": "@modelmux/orcaterm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "OrcaTerm（腾讯云 AI 运维终端）渠道：双路登录（腾讯云 / 微信），对话上游消费待实现",

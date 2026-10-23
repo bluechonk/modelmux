@@ -16,7 +16,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "catpaw",
   display: "CatPaw",
-  version: "0.1.0",
+  version: "0.1.1",
   defaultAddr: "127.0.0.1:8790",
   uiPort: 8791,
   debugDumpEnv: "CATPAW_DEBUG_DUMP",

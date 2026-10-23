@@ -1,6 +1,6 @@
 {
   "name": "modelmux",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "多渠道本地模型池网关 CLI：多个渠道汇成一个 OpenAI 兼容端点，对外暴露各渠道真实模型",
   "engines": {
