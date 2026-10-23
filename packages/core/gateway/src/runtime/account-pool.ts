@@ -631,34 +631,31 @@ export function noteAccountSuccess(cid?: string): void {
 }
 
 /**
- * 生效账号现在能不能用（`callUpstream` 入口短路，不再发上游请求）。
+ * 生效账号是否已被标记 **`error`**（真故障：连败 / 鉴权失效）→ 任何模型都不该再打它。
  *
- * 两种「不能用」：
- * - `error`  —— 真故障（连败/鉴权），恢复靠切号或重登；
- * - `cooldown` —— 额度耗尽且**还没到刷新时刻**，到期会由 `expireCooldown` 自动放行。
+ * ⚠ **刻意不含 `cooldown`**（2026-10-23 修正）：额度耗尽的冷却必须**按模型**判断 ——
+ * 倍率 0 的免费模型不消耗额度，冷却期照样能用（主人实测踩过：loomy 冷却后连
+ * `spark-x` 这种免费模型都被锁死）。「这个模型要不要受冷却限制」由调用方
+ * （`http/chat/auth.ts`）按模型的倍率决定。
  */
 export function activeAccountIsError(cid?: string): boolean {
   try {
     const index = readIndex(cid);
     if (!index.active) return false;
-    const hit = index.accounts.find((a) => a.key === index.active);
-    if (!hit) return false;
-    if (hit.health === "error") return true;
-    if (hit.health !== "cooldown") return false;
-    if (expireCooldown(index, cid)) return false; // 刚好到期：放行
-    return coolingDown(hit);
+    return index.accounts.find((a) => a.key === index.active)?.health === "error";
   } catch {
     return false;
   }
 }
 
-/** 生效账号的冷却信息（`activeAccountIsError` 为 true 时给 UI/日志用）。 */
+/** 生效账号的冷却信息（未被冷却 / 已到期返回 null，顺带做惰性过期）。 */
 export function activeAccountCooldown(cid?: string): { until: string; reason: string } | null {
   try {
     const index = readIndex(cid);
     if (!index.active) return null;
     const hit = index.accounts.find((a) => a.key === index.active);
     if (!hit || hit.health !== "cooldown") return null;
+    if (expireCooldown(index, cid)) return null; // 刚好到期：放行
     if (!coolingDown(hit)) return null;
     return {
       until: hit.cooldown_until ?? "",
