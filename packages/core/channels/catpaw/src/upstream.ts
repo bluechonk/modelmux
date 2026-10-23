@@ -554,8 +554,10 @@ export function buildChatBody(
   };
 
   const effort = extractEffort(req);
-  // 上下文档位走 declarativeParams.context（body 字段）：目录带真实档位就用它，
-  // 否则按渠道默认档位 1M 请求（reference: 204800 / 512000 / 1024000，默认 1M）
+  // 上下文档位走 declarativeParams.context（body 字段）：优先用目录里**该型号**声明的最大档
+  // （上游 `parameterDefinitions[id=context]`，如 glm-5.3 是 800000、deepseek-v4-pro 是 700000），
+  // 目录没声明才按渠道默认档位 1M 请求（reference: 204800 / 512000 / 1024000）。
+  // ⚠ 发超过该型号档位的值会被上游拒，所以必须逐型号取。
   const context = catalog.contextWindowOf(upstreamModel) || catalog.DEFAULT_CONTEXT_WINDOW;
 
   const conversationId = randomUUID();

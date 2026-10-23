@@ -506,6 +506,8 @@ function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
       const existing = byName.get(name);
       if (existing) {
         if (declared > existing.context_window) existing.context_window = declared;
+        // 同名模型可能出现在多个 function 组里，任一组声明多模态即为多模态
+        if (raw["multimodal"] === true) existing.multimodal = true;
         continue;
       }
       const entry: ModelEntry = {
@@ -517,7 +519,8 @@ function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
         max_output: 0, // Remote 目录不下发输出上限 → 未声明
         multiplier: rateFromFeatures(raw["features"]),
         max_mode: false,
-        multimodal: false,
+        // Remote 目录逐型号下发 multimodal（如 Doubao-Seed-2.1-Turbo / deepseek-v4.1-flash 为 true）
+        multimodal: raw["multimodal"] === true,
         tiered: false,
         efforts: [],
         default_effort: "",

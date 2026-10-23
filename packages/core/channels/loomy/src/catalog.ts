@@ -237,6 +237,9 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
     const remoteEfforts = cleanEfforts(item["reasoning_efforts"]);
     const fallback = FALLBACK_BY_ID.get(id);
     const efforts = remoteEfforts.length > 0 ? remoteEfforts : (fallback?.efforts ?? []);
+    // 最大输出：上游 `max_output_tokens` 优先（实测 2026-10-23：spark-x2.6 131072、
+    // MiniMax-M3 512000、DeepSeek-V4.1-Flash 384000），上游没给才回落公开规格表
+    const remoteMaxOutput = num(item["max_output_tokens"]);
     const rawName = str(item["name"]) || id;
     const [, rate] = splitRate(rawName);
     const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
@@ -246,8 +249,8 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
       rate,
       ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
       contextWindow: num(item["context_length"]) || fallback?.contextWindow || 0,
-      ...(MAX_OUTPUTS[id.toLowerCase()] !== undefined
-        ? { maxOutput: MAX_OUTPUTS[id.toLowerCase()] }
+      ...(remoteMaxOutput || MAX_OUTPUTS[id.toLowerCase()]
+        ? { maxOutput: remoteMaxOutput || MAX_OUTPUTS[id.toLowerCase()] }
         : {}),
       reasoning: capabilities["reasoning"] === true,
       vision,

@@ -1021,9 +1021,9 @@ function mergeCatalogRows(primary: unknown[], secondary: unknown[]): unknown[] {
 /**
  * 从任意一份 product-config 载荷里取模型目录。
  *
- * 目录本体是 `agents[].models` 的**裸 id 字符串**（cli 那个 agent 最全）；
- * 逐模型元数据散在 `models[]`（`id` / `name` / `maxInputTokens` / `supportsImages` /
- * `input_modalities`）。两份都要拼起来，只有 id 的表也并非不可用（名字退回 id）。
+ * **型号集合取 `models[]` 全量**；`agents[].models` 的裸 id 字符串只作**排序基准**
+ * （cli 那个 agent 排最前）。逐模型元数据散在 `models[]`（`id` / `name` / `maxInputTokens` /
+ * `supportsImages` / `input_modalities`），只有 id 的表也并非不可用（名字退回 id）。
  *
  * 非对话条目（`nes-` / `completion-` / `codewise-` 前缀）在这里挡掉：它们列出来
  * 也选不中，选中后上游回 `code=11102`（`[参考]` go
@@ -1076,13 +1076,26 @@ function parseCatalogPayload(payload: unknown): CatalogRow[] {
 
   const pool = lists.some((entry) => entry.cli) ? lists.filter((entry) => entry.cli) : lists;
   pool.sort((a, b) => b.ids.length - a.ids.length);
-  const ordered = pool[0]?.ids ?? [...meta.keys()];
 
+  // 排序基准：cli/最长 agent 的裸 id 列表；**型号集合取 `models[]` 全量**。
+  // ⚠ agent 列表只能当排序基准，不能当白名单 —— 否则 `models[]` 里不在 agent 列表的型号
+  // 会被整条丢掉，让窄表的旧值补位（实测：池内 `kimi-k2.5` 报 164000 而真目录是 256000）。
+  const ordered: string[] = [];
+  const orderedSeen = new Set<string>();
+  for (const id of pool[0]?.ids ?? []) {
+    if (orderedSeen.has(id)) continue;
+    orderedSeen.add(id);
+    ordered.push(id);
+  }
+  for (const id of meta.keys()) {
+    if (orderedSeen.has(id)) continue;
+    orderedSeen.add(id);
+    ordered.push(id);
+  }
+
+  // `ordered` 已去重，逐条建 row
   const rows: CatalogRow[] = [];
-  const seen = new Set<string>();
   for (const id of ordered) {
-    if (seen.has(id)) continue;
-    seen.add(id);
     const info = meta.get(id) ?? {};
     const row: CatalogRow = { id };
     const name = typeof info["name"] === "string" ? info["name"] : "";
