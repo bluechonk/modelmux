@@ -631,6 +631,26 @@ mx model orcaterm --refresh
 `PERSONA_WITH_TOOL` 补强提示（「必须实际输出工具 JSON，不要声称已完成」）显著降低复现率；
 仍属上游模型行为，不是上下文构造问题。
 
+### 2026-10-24 全面回归（tools / skills / MCP）
+
+| 模型 | 基础对话 | 工具调用 | 技能调用 | MCP 调用 |
+| --- | --- | --- | --- | --- |
+| `deepseek-v4-flash` | ✓ | ✓ 多轮（write/read/edit/bash，7 轮） | ✓ | ✓ |
+| `glm-5.3-flash` | ✓ | ✓ 单请求（`bash pwd`） | 未测 | 未测 |
+| `hy3` | ✓ | ✓ 单请求（`bash pwd`） | 未测 | 未测 |
+
+- 工具往返判据：访问日志 `messageCount` 递增（deepseek 实测 2→16）、`status: 200`、
+  错误日志无新增条目；落盘内容与 prompt 一致。
+- 技能：模型经 `use_capability → run_skill` 加载工作区技能，按技能步骤写文件并回答
+  `SKILL-OK`（桥接实现见 [TOOL-CALLS.md](./TOOL-CALLS.md) §6）。
+- MCP：模型经 `use_capability → mcp-tool:<server>/<tool>` 调用本地 echo 服务器，返回
+  `mcp-echo: hello-mcp`。⚠ `reasonix run` 会话会禁用 MCP（同一提示换 catpaw 复现，
+  harness 限制），需用 `reasonix -p --allowed-tools "MCP(*)"`。
+- 模型差异（均非渠道问题）：
+  - `glm-5.3-flash` 在长任务里偶发「环境不一致」反问（`action=ask`），拒绝执行；直接
+    给单步工具任务时正常调用。
+  - `hy3` 单轮较慢（实测 36–54s/轮），多轮 agent 任务容易超出短超时窗口。
+
 ### 2026-10-19 端到端实测
 
 Reasonix CLI 直连网关（`orcaterm/hy3`）：

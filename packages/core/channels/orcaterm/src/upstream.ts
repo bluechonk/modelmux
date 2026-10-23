@@ -266,12 +266,24 @@ function buildToolGuard(tools: ToolDef[]): string {
     const params = summarizeParams(t.function.parameters);
     return `- ${t.function.name}${desc ? `：${desc}` : ""}${params ? `　参数：${params}` : ""}`;
   });
+  const hasCapability = tools.some((t) => t.function.name === "use_capability");
   return [
     "【工具调用格式·必须遵守】",
     "需要调用工具时，只输出下面这一个 JSON 对象（不要加解释文字、不要加 markdown 围栏、不要加其它字段）：",
     '{"action":"review","taskCompletion":"<一句话说明你要做什么，可省略>","tool":{"name":"<工具名>","args":{…}}}',
     "只能使用下面列出的工具名，args 必须符合各自的参数：",
     ...lines,
+    // 客户端把技能与 MCP 放在延迟能力目录里，只直接暴露 use_capability；
+    // 不这样约束时模型会吐内部工具名（internal_load_skill）或裸 MCP 名，客户端认不出。
+    ...(hasCapability
+      ? [
+          "技能与 MCP 工具是延迟能力，必须通过 use_capability 调用（tool.name = use_capability）：",
+          '  加载技能：args = {"action":"call","capability_id":"skill:<技能名>","arguments":{}}',
+          '  调用 MCP：args = {"action":"call","capability_id":"mcp-tool:<server>/<tool>","arguments":{…}}',
+          '  不确定 id：args = {"action":"search","query":"<工具或技能名>"}',
+          "禁止使用 internal_load_skill、internal_load_skill_file 等上游内部工具名。",
+        ]
+      : []),
     "不需要调用工具时不要输出这个 JSON，直接用自然语言回答。",
   ].join("\n");
 }
@@ -759,10 +771,12 @@ const READ_TOOL_NAMES = ["read_file", "read", "cat", "view_file"];
  * 上游原生工具调用 → 客户端声明的工具调用。
  *
  * 上游只认原生工具名（`execute_terminal_command` / `fetch` …），客户端声明的
- * 工具名通常不同（`bash` / `shell`…）。三条降级路径：
- * 名字一致 → 直接透传；上游给的是命令 → 桥接到客户端的执行类工具；
- * 上游给的是链接 → 桥接到客户端的抓取类工具。桥接不上返回 null（降级成文本，
- * 不给客户端一个它执行不了的调用）。
+ * 工具名通常不同（`bash` / `shell`…）。降级顺序：
+ * 1. 名字一致 → 直接透传；
+ * 2. 上游给的是命令 / 链接 / 路径+内容 → 桥接到客户端的执行 / 抓取 / 文件类工具；
+ * 3. 客户端声明了延迟能力工具（`use_capability`）→ 把上游内部工具名折成能力调用
+ *    （技能 `skill:<name>`、其余按名字 `search`，MCP 工具由客户端自己解析 id）；
+ * 4. 仍桥接不上返回 null（降级成文本，不给客户端一个它执行不了的调用）。
  */
 function bridgeToolCall(
   tool: UpstreamToolCall,
@@ -799,7 +813,39 @@ function bridgeToolCall(
     const reader = pickTool(tools, READ_TOOL_NAMES, WRITE_PATH_PARAMS);
     if (reader) return { name: reader.name, args: { [reader.param]: path } };
   }
-  return null;
+  return bridgeCapabilityCall(tool, tools);
+}
+
+/**
+ * 延迟能力桥接：上游内部工具名 → 客户端的 `use_capability`。
+ *
+ * 客户端（reasonix 等）把技能与 MCP 工具放在延迟能力目录里，只直接暴露
+ * 一个 `use_capability`。上游模型却会按自己的系统提示词吐 `internal_load_skill`
+ * 之类的内部工具名（实测 2026-10-24），或直接点 MCP 工具名（`echo`）——
+ * 这些名字不在客户端的直接工具表里，原样下发会降级成文本、任务空转。
+ *
+ * - 技能类内部工具 → `{action:"call", capability_id:"skill:<name>"}`
+ * - 其它未知名字 → `{action:"search", query:"<name>"}`，让客户端自己解析
+ *   `mcp-tool:<server>/<tool>` 这类稳定 id（渠道拿不到客户端的 MCP 目录）。
+ */
+function bridgeCapabilityCall(
+  tool: UpstreamToolCall,
+  tools: ToolDef[],
+): { name: string; args: Record<string, unknown> } | null {
+  const cap = tools.find((t) => t.function.name === "use_capability");
+  if (!cap) return null;
+  const lower = tool.name.toLowerCase();
+  if (lower.startsWith("internal_load_skill") || lower === "load_skill" || lower === "skill_load") {
+    const skill =
+      str(tool.args["name"]) || str(tool.args["skill"]) || str(tool.args["skill_name"]);
+    if (skill) {
+      return {
+        name: cap.function.name,
+        args: { action: "call", capability_id: `skill:${skill}`, arguments: {} },
+      };
+    }
+  }
+  return { name: cap.function.name, args: { action: "search", query: tool.name } };
 }
 
 /** 取参数里第一个命中提示的字符串值。 */

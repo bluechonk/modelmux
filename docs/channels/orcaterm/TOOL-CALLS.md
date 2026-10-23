@@ -92,6 +92,34 @@
 `execute_terminal_command`、`run_commands`、`list_terminals`、`submit_agent_tasks`、
 `read_cloud_space_file` 等。
 
+## 6. 延迟能力：技能（skills）与 MCP
+
+客户端（reasonix 等）把技能与 MCP 工具放在**延迟能力目录**里，只直接暴露一个
+`use_capability`。上游模型却会按自己的系统提示词吐内部工具名，或直接点 MCP 工具名
+（实测 2026-10-24：`internal_load_skill`、`internal_load_skill_file`、裸 `echo`）——
+这些名字不在客户端的直接工具表里，原样下发会被降级成文本、任务空转。
+
+本渠道做两层处理（实现见 `upstream.ts` 的 `bridgeCapabilityCall`）：
+
+| 上游给的名字 | 桥接结果 |
+| --- | --- |
+| `internal_load_skill` / `internal_load_skill_file` / `load_skill` / `skill_load` | `use_capability{action:"call", capability_id:"skill:<name>", arguments:{}}`（name 取 `args.name` / `skill` / `skill_name`） |
+| 其它未声明的工具名（MCP 等） | `use_capability{action:"search", query:"<原名>"}`，由客户端解析 `mcp-tool:<server>/<tool>` 这类稳定 id —— 渠道拿不到客户端的 MCP 目录 |
+
+另有提示词层约束（`buildToolGuard`）：客户端声明了 `use_capability` 时，明确告诉模型
+技能/MCP 必须走 `use_capability`、禁止使用 `internal_load_skill*` 等内部工具名。
+
+### 6.1 测试方式（2026-10-24 实测）
+
+| 场景 | 命令要点 | 结果 |
+| --- | --- | --- |
+| 技能 | 工作区 `.agents/skills/<name>/SKILL.md` + `reasonix run` | 模型 `use_capability → run_skill`，按技能步骤执行，落盘与最终回答均符合技能要求 |
+| MCP | 本地 stdio MCP 服务器 + `reasonix -p --allowed-tools "MCP(*)"` | `use_capability → mcp-tool:<server>/<tool>`，返回 `mcp-echo: hello-mcp` |
+
+⚠ **`reasonix run` 会在会话里禁用 MCP 服务器**（报 `MCP server "..." is disabled in this session`）；
+这是 test harness 的限制，不是渠道问题 —— 同一提示换 `catpaw/longcat-2.0` 复现，改用
+`reasonix -p --allowed-tools "MCP(*)"` 才能跑通。
+
 > 上游的能力边界（[参考] `orcaterm2api` README）：一次只产出一个工具调用；不支持
 > `tool_choice:"required"` 与具名强制选择；不支持一次回传多个工具结果。
 > 本渠道**不**对这些情况显式报错（客户端兼容性优先），由上游自行裁决。
