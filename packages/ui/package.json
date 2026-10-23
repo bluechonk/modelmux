@@ -1,6 +1,6 @@
 {
   "name": "@modelmux/ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Web 管理看板（mx web 服务的 React SPA）",

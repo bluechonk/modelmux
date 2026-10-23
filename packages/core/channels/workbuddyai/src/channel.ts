@@ -20,7 +20,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "workbuddyai",
   display: "WorkBuddyAI",
-  version: "0.1.0",
+  version: "0.1.1",
   defaultAddr: "127.0.0.1:8787",
   uiPort: 8788,
   debugDumpEnv: "WORKBUDDYAI_DEBUG_DUMP",
