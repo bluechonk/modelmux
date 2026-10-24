@@ -16,10 +16,29 @@ import { type Channel, type Credential, type StreamTranslator } from "../../runt
 import { inChannel } from "./channel.js";
 import { asBuffer } from "./stream.js";
 
-/** 排队重试：单帧退避上限（上游给的 retryAfterSeconds 超过它就按这个等）。 */
-export const QUEUE_RETRY_MAX_DELAY_MS = 10_000;
-/** 排队重试：整个请求的总时长上限（含首次尝试与所有等待）。 */
-export const QUEUE_RETRY_BUDGET_MS = 300_000;
+/**
+ * 排队重试：单帧退避上限（上游给的 retryAfterSeconds 超过它就按这个等）。
+ *
+ * 取 12s：进度文案按轮次下发，间隔太密会让客户端把多条文案挤进同一屏
+ * （实测 10s 间隔下 ZCode 每轮都弹同一条「正在加载」提示）。
+ */
+export const QUEUE_RETRY_MAX_DELAY_MS = 12_000;
+
+/**
+ * 排队重试：整个请求的总时长上限（含首次尝试与所有等待），毫秒。
+ *
+ * 超过就不再干等，直接把「劝主人换渠道」的文案作为**正常应答**返回 ——
+ * 实测 qoder 排队能拖到 290s，而客户端 60s 就超时走人了，等下去只是白耗。
+ * 可用 `MODELMUX_QUEUE_BUDGET_MS` 覆盖（测试与运维调参用）。
+ *
+ * ⚠ 做成函数而不是常量：测试要能在运行时改这个上限，常量在模块加载时就定死了。
+ */
+export function queueBudgetMs(): number {
+  const raw = process.env["MODELMUX_QUEUE_BUDGET_MS"];
+  if (!raw) return 90_000;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 90_000;
+}
 
 /**
  * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道快速重试**次数与退避基数。

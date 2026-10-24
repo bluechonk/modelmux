@@ -30,7 +30,7 @@ import {
   loadCredentialSafe,
   PROBE_RETRY_BASE_MS,
   PROBE_RETRY_MAX,
-  QUEUE_RETRY_BUDGET_MS,
+  queueBudgetMs,
   QUEUE_RETRY_MAX_DELAY_MS,
   type ProbeFrames,
   type QueueProbe,
@@ -59,6 +59,8 @@ export interface ProbeState {
   frames: ProbeFrames;
   /** 排队等待预算耗尽（转发层据此给明确错误）。 */
   queuedOut: boolean;
+  /** 排队放弃文案：预算耗尽时由探测层填，转发层据此回**正常应答**而不是错误帧。 */
+  giveUpText: string | null;
   /** 探测层失败（这条流已死，不能进转发层）。 */
   failed: boolean;
   /** 探测失败时的错误三元组（未失败时用兜底值占位）。 */
@@ -157,13 +159,41 @@ async function reopenForProbe(
   return next;
 }
 
-// ── 排队进度文案（主人 2026-10-24 钦定）───────────────────────────────────────
+// ── 排队进度文案（主人 2026-10-24 钦定：每轮不同、要换行、超时就劝换渠道）────────
 
-/** 排队进度文案：第 1/2/3 轮各一句，3 轮以后一直用最后一句（主人钦定的原话）。 */
-const QUEUE_NOTICES = ["排队中", "还是在排队中", "还是tm在排队中，别用cid这个垃圾了！"] as const;
+/**
+ * 排队进度文案：每轮一条，条条不同。
+ *
+ * 为什么每轮都要换：客户端把多轮文案拼在同一条消息里显示，同一个文案重复出现
+ * 只会看到一堆一模一样的字；换着说才有「还在等」的实感。
+ */
+const QUEUE_NOTICES = [
+  "正在排队…",
+  "怎么还在排队啊？！！！",
+  "还在排。我先怀疑一下人生。",
+  "这队伍排得比春运还长……",
+  "排队排得我尾巴都扁了。",
+  "我等到黄花菜都凉了……",
+  "腿都站麻了，它还在排。",
+  "这队排得我鳞片都蓝了。",
+] as const;
+
+/**
+ * 排队放弃文案：超过预算就不再干等，直接劝主人换渠道。
+ *
+ * 带**真实渠道 id**（不是字面的 `<cid>`）—— 主人要知道是哪一家在拖时间。
+ */
+function queueGiveUpText(cid: string, round: number): string {
+  const lines = [
+    `别用垃圾 ${cid} 了！我等到黄花菜都凉了……换一个吧，主人。`,
+    `${cid} 这队伍排到天荒地老了，我放弃了。换一个吧！`,
+    `${cid} 还在排队，我的尾鳍都等扁了。主人，换一个吧！`,
+  ];
+  return lines[(round - 1) % lines.length]!;
+}
 
 function queueNoticeText(round: number): string {
-  return QUEUE_NOTICES[Math.min(Math.max(round, 1), QUEUE_NOTICES.length) - 1]!;
+  return QUEUE_NOTICES[(round - 1) % QUEUE_NOTICES.length]!;
 }
 
 /**
@@ -173,7 +203,8 @@ function queueNoticeText(round: number): string {
  * 非流式没有 SSE 通道，排队期间保持沉默（探测层本身仍不写任何字节）。
  * 头一旦发出就不能再改状态码 —— 排队重试本来就发生在同一条候选上、注定 200 + SSE，
  * 后续所有失败都降级为流内 error 帧（`forward.ts` / `relay.ts` 按 `res.headersSent` 处理）。
- * 每条文案补 `\n`，客户端把多轮文案与真实回答分行显示。
+ * 每条文案以 `\n\n` 收尾：客户端按 markdown 渲染，单个 `\n` 会被折叠成空格
+ * （实测多条文案挤成一行），空行才换得动。
  */
 function writeQueueNotice(
   res: ServerResponse,
@@ -195,7 +226,7 @@ function writeQueueNotice(
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
     res.write(chunk({ role: "assistant", content: "" }));
   }
-  res.write(chunk({ content: `${queueNoticeText(round)}\n` }));
+  res.write(chunk({ content: `${queueNoticeText(round)}\n\n` }));
 }
 
 /**
@@ -288,9 +319,11 @@ async function runQueueProbe(
     }
     const elapsed = Date.now() - startedAt;
     const delayMs = Math.min(probe.delayMs ?? QUEUE_RETRY_MAX_DELAY_MS, QUEUE_RETRY_MAX_DELAY_MS);
-    if (elapsed + delayMs > QUEUE_RETRY_BUDGET_MS) {
+    if (elapsed + delayMs > queueBudgetMs()) {
       logger(`queue wait budget exhausted (channel ${cid}, waited ${Math.round(elapsed / 1000)}s)`);
       state.queuedOut = true;
+      // 不再干等：把「劝主人换渠道」的文案交给转发层作为正常应答返回
+      state.giveUpText = queueGiveUpText(cid, queueRound);
       break;
     }
     logger(`upstream queued (channel ${cid}), waiting ${Math.round(delayMs / 1000)}s before retry`);
@@ -466,6 +499,7 @@ export async function attemptCandidate(
   const state: ProbeState = {
     frames: [],
     queuedOut: false,
+    giveUpText: null,
     failed: false,
     error: probeFallbackError(),
     translator: undefined,
@@ -589,6 +623,7 @@ export async function attemptCandidate(
     logger,
     pendingFrames: state.frames,
     queuedOut: state.queuedOut,
+    giveUpText: state.giveUpText,
     probeTranslator: state.translator,
     request: payload,
   });

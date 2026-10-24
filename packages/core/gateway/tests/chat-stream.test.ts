@@ -210,7 +210,13 @@ describe("A1 首帧等待期：心跳不得吞掉上游帧", () => {
 });
 
 describe("A2 排队预算耗尽：判定必须排在读流之前", () => {
-  /** 上游收下请求后彻底静默：流永不产出任何字节。 */
+  /**
+   * 上游收下请求后彻底静默：流永不产出任何字节。
+   *
+   * ⚠ 本组用例**不传 `giveUpText`**，走的是「排队重开失败 / 凭据丢失」的兜底错误路径。
+   * 「排队等满预算」那条路会带 `giveUpText`，回的是劝主人换渠道的**正常应答**
+   * （见 `queue-notice.test.ts`），不是这里的错误帧。
+   */
   function silentBody(): ReadableStream<Uint8Array> {
     return new ReadableStream<Uint8Array>({
       start() {
@@ -219,7 +225,7 @@ describe("A2 排队预算耗尽：判定必须排在读流之前", () => {
     });
   }
 
-  it("非流式：上游只回排队帧 → 预算内回 503（不等满静默超时）", async () => {
+  it("非流式：兜底路径回 503（不等满静默超时）", async () => {
     const res = new FakeRes();
     const channel = makeChannel("streamtest");
     const call: UpstreamCall = {
