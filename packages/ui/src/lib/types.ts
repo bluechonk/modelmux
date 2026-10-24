@@ -25,6 +25,13 @@ export interface UiSnapshot {
       contextWindow: number;
       maxOutputTokens: number;
       inputModalities: string[];
+      /**
+       * 思考模式（reasoning effort）档位；`null` = 渠道未声明。
+       *
+       * 与共享层 `PoolModelMeta.effort` 同形：**刻意可空**，界面据此显示
+       * 「不支持」而不是编造档位。
+       */
+      effort?: { supportedLevels: string[]; defaultLevel: string } | null;
     }
   >;
   /**

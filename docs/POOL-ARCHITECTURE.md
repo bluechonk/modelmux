@@ -258,9 +258,9 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 > 单渠道独立运行（`packages/core/channels/<cid>/dist/cli.js start`）**也走池**：
 > `/v1/models` 同样是 `<cid>/<模型>` 形态，只是候选渠道只有一个。
 
-### 2.6 池元数据：上下文窗口与最大输出
+### 2.6 池元数据：最大上下文、最大输出与思考档位
 
-`/v1/models` 每条除了 id，还带 `context_window` / `max_output_tokens`（字段结构对齐
+`/v1/models` 每条除了 id，还带 `context_window` / `max_output_tokens` / `effort`（字段结构对齐
 DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。取值来自
 **渠道 catalog 缓存**（`<root>/<cid>/cache/models.json`）里那条目录条目。
 
@@ -271,15 +271,23 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 |---|---|---|
 | 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
 | 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（lobsterai·traecn·workbuddy·workbuddyai） |
+| 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn·lobsterai） |
+
+- **`context_window` 报的是「最大上下文」**：qoder 的 `context_config` 是档位表
+  （`{"1M":{token_count:1000000}, …}`），取**最大档**而非默认档 —— 客户端永远走最大上下文，
+  报能力上限才对（否则 1M 模型会被按默认 200k 误判）。控制台该列因此叫「最大上下文」。
+- **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
+  回落兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）。
+- **`effort` 可为 `null` = 渠道没声明**（⚠ 兜底**不许编档位**）：
+  渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
+  lobsterai（`efforts` 数组）有真值，其余渠道没有。旧版给所有模型都填了
+  `["low","high"]`，等于把「不知道」说成「支持」（界面上 200 个模型都写着 low/high）。
+  空数组同样算未声明（traecn 全部模型都写 `[]`）。`effort` 为 `null` 时控制台显示「不支持」。
 
 上游自己的字段名（lobsterai 的 `maxTokens`、workbuddyai 的 `maxOutputTokens` /
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
 汇聚层只认缓存里那两种写法（`pool-targets.ts` 的 `CONTEXT_KEYS` / `OUTPUT_KEYS`）。
 
-- **档位表取上限**：qoder 的 `context_config` 是档位表（`{"1M":{token_count:1000000}, …}`），
-  取**最大档**而非默认档 —— 对客户端报能力上限，否则 1M 模型会被按默认 200k 误判。
-- **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
-  回落兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）。
 - **上游不发 → 问渠道要「已知规格」**：上游目录**普遍只下发部分字段**，缺的那部分由渠道表补。
   实测（见各渠道 PROTOCOL 的「模型窗口规格」节）：
   - **上下文也发**：catpaw（`parameterDefinitions[id=context]` 逐型号档位）、loomy（`context_length`）、

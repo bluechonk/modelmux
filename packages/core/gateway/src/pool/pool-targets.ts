@@ -166,7 +166,15 @@ export interface PoolModelMeta {
   maxOutputTokens: number;
   inputModalities: string[];
   outputModalities: string[];
-  effort: { supportedLevels: string[]; defaultLevel: string };
+  /**
+   * **思考模式（reasoning effort）档位**；`null` = 渠道**没有声明**。
+   *
+   * ⚠ 刻意可空：渠道目录**普遍不下发**思考档位（实测只有 catpaw 的 `effort`、
+   * loomy / traecn / lobsterai 的 `efforts` 数组有真值）。
+   * 兜底**不许编档位**（旧版给所有模型都填了 `["low","high"]`，等于把「不知道」
+   * 说成「支持」）——没有声明就是「不支持 / 未知」，由调用方如实呈现。
+   */
+  effort: { supportedLevels: string[]; defaultLevel: string } | null;
   /** 消耗倍率；null 表示渠道目录未提供。 */
   multiplier: number | null;
   /** 营销角标文案（如「限时免费」「新」）；空串表示无。 */
@@ -185,7 +193,8 @@ const DEFAULT_META: PoolModelMeta = {
   maxOutputTokens: 65_536,
   inputModalities: ["text"],
   outputModalities: ["text"],
-  effort: { supportedLevels: ["low", "high"], defaultLevel: "high" },
+  /** 未声明就是未声明 —— 不编档位（见 `PoolModelMeta.effort` 注释）。 */
+  effort: null,
   multiplier: null,
   marketing: "",
 };
@@ -242,6 +251,54 @@ const OUTPUT_KEYS = [
   "maxTokens",
   "max_tokens",
 ];
+
+/**
+ * 各渠道缓存条目里可能出现的**思考档位**字段名（与 `MULTIPLIER_KEYS` 同一惯例：
+ * 字段名只是约定，不算渠道知识）。
+ *
+ * 两种形态（实测）：
+ * - `effort`：对象，catpaw 写 `{supportedLevels:[…], defaultLevel:"high"}`；
+ * - `efforts`：字符串数组，loomy / traecn / lobsterai 写 `["none","low","medium","high"]`，
+ *   默认档另放在 `defaultEffort` / `default_effort`。
+ *
+ * **空数组 = 未声明**（traecn 全部模型都写 `[]`），不能当成「支持但档位为空」。
+ */
+const EFFORT_LIST_KEYS = ["efforts"];
+const EFFORT_DEFAULT_KEYS = ["defaultEffort", "default_effort", "default_effort_level"];
+
+/** 归一出 `effort` 形态：`null` = 没声明。 */
+function effortOf(entry: Record<string, unknown>): PoolModelMeta["effort"] {
+  // 形态一：对象（catpaw）
+  const obj = entry["effort"];
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    const rec = obj as Record<string, unknown>;
+    const levelsRaw = Array.isArray(rec["supportedLevels"])
+      ? rec["supportedLevels"]
+      : Array.isArray(rec["supported_levels"])
+        ? rec["supported_levels"]
+        : [];
+    const levels = levelsRaw.filter(
+      (v): v is string => typeof v === "string" && v.trim() !== "",
+    );
+    if (levels.length > 0) {
+      return { supportedLevels: levels, defaultLevel: firstString(rec, ["defaultLevel", "default_level"]) };
+    }
+  }
+  // 形态二：数组 + 默认档字段（loomy / traecn / lobsterai）
+  for (const key of EFFORT_LIST_KEYS) {
+    const list = entry[key];
+    if (!Array.isArray(list)) continue;
+    const levels = list.filter(
+      (v): v is string => typeof v === "string" && v.trim() !== "",
+    );
+    if (levels.length === 0) continue; // 空数组 = 未声明
+    return {
+      supportedLevels: levels,
+      defaultLevel: firstString(entry, EFFORT_DEFAULT_KEYS),
+    };
+  }
+  return null;
+}
 
 /**
  * 各渠道缓存条目里可能出现的**图片能力**字段名 —— 渠道自己决定字段名，汇聚层逐个尝试
@@ -358,7 +415,6 @@ function metaFromEntry(
   spec?: { contextWindow?: number; maxOutputTokens?: number },
 ): PoolModelMeta {
   const output = entry["outputModalities"] ?? entry["output_modalities"];
-  const effort = entry["effort"];
   return {
     name: typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
     // 目录里窗口 = 0 表示「上游未声明」——不能当有效值透给客户端
@@ -368,8 +424,8 @@ function metaFromEntry(
       firstPositive(entry, OUTPUT_KEYS) ?? spec?.maxOutputTokens ?? DEFAULT_META.maxOutputTokens,
     inputModalities: inputModalitiesOf(entry),
     outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
-    effort:
-      effort && typeof effort === "object" ? (effort as PoolModelMeta["effort"]) : DEFAULT_META.effort,
+    // 思考档位：渠道声明了才有（`effort` 对象 / `efforts` 数组），没声明就是 null
+    effort: effortOf(entry),
     multiplier: firstNumber(entry, MULTIPLIER_KEYS),
     marketing: firstString(entry, MARKETING_KEYS),
   };

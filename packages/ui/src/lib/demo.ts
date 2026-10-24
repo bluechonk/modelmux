@@ -165,7 +165,7 @@ export function demoSettings(state: DemoState): UiSnapshot {
  * 演示用的模型元数据（键 = 池模型 id）。
  *
  * ⚠ 字段必须与 `UiSnapshot.model_info` 的形状**逐字段对齐**（倍率 / 营销角标 /
- * 上下文窗口 / 单次输出上限 / 输入模态）—— 少一个字段就是一处类型错误，
+ * 上下文窗口 / 单次输出上限 / 输入模态 / 思考档位）—— 少一个字段就是一处类型错误，
  * 而 UI 的类型检查此前不在 CI 链路里，这类缺口会长期潜伏。
  */
 function demoModelInfo(models: string[]): UiSnapshot["model_info"] {
@@ -196,6 +196,13 @@ function demoModelInfo(models: string[]): UiSnapshot["model_info"] {
     "longcat-2.0": "限时免费",
     "deepseek-v4.1-flash": "新",
   };
+  // 演示思考档位（虚构）：只给一部分模型声明，其余为 null（=「不支持」）——
+  // 刻意与真实数据同形，避免演示页把「没声明」显示成「支持」。
+  const DEMO_EFFORT: Record<string, { supportedLevels: string[]; defaultLevel: string }> = {
+    "glm-5.3-flash": { supportedLevels: ["low", "high", "max"], defaultLevel: "high" },
+    "deepseek-v4-pro": { supportedLevels: ["high", "max"], defaultLevel: "high" },
+    "kimi-k3": { supportedLevels: ["none", "low", "medium", "high"], defaultLevel: "high" },
+  };
   return Object.fromEntries(
     models.map((model) => {
       const name = model.slice(model.indexOf("/") + 1);
@@ -208,6 +215,7 @@ function demoModelInfo(models: string[]): UiSnapshot["model_info"] {
           contextWindow: 128000,
           maxOutputTokens: 8192,
           inputModalities: ["text"],
+          effort: DEMO_EFFORT[name] ?? null,
         },
       ];
     }),
