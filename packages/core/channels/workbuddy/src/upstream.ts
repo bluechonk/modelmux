@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { upstreamPath, ensureDir, openaiNormalize, writeJsonFile } from "@modelmux/gateway";
+import { upstreamPath, ensureDir, openaiNormalize, writeJsonFile, type QuotaSignal } from "@modelmux/gateway";
 
 import * as catalog from "./catalog.js";
 
@@ -375,6 +375,83 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
   const rawCode = frame["code"] ?? errObj?.["code"];
   const code = typeof rawCode === "number" && Number.isFinite(rawCode) ? rawCode : null;
   return code !== null && BUSINESS_CODE_KINDS[code] === "model_queue";
+}
+
+/**
+ * 声明本渠道的额度信号（`UpstreamModule.quotaSignal`）。
+ *
+ * 本渠道用量限流回 **HTTP 429 + 业务码 `6004`**，原文（2026-10-24 真机，gateway.log）：
+ *
+ * ```
+ * {"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-24 23:54:22 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"…"}
+ * ```
+ *
+ * 关键语义：上游原文明说「**您也可以切换其他模型继续使用**」—— 这是**模型级**限流，
+ * 不是账户级用量限额（国际版 `workbuddyai` 的同码 6004 才是账户级，两渠道行为不同）。
+ * 故上报 `model_limit`：共享层只冷却这一个模型，**不连坐账号**。
+ * 在此之前共享层靠通用正则命中「频率限制」按账户级处理，把整个账号冷却了 15 小时
+ * （2026-10-24 实测），其他本来可用的模型被一起封掉。
+ *
+ * ⚠ 业务码 `6004` / `6008` 只能出现在**渠道包**里；共享层只认通用措辞
+ * （见 `packages/core/gateway/src/http/chat/errors.ts`）。
+ */
+export function quotaSignal(status: number, body: string): QuotaSignal | null {
+  if (status !== 429) return null;
+  // 6004/6008 按 PROTOCOL §4.1 是模型级「每天」额度（客户端当日额度）；文案同族即频率限制
+  return /600[48]|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body) ? "model_limit" : null;
+}
+
+/**
+ * 从上游错误体里认「限流重置时刻」（`UpstreamModule.quotaResetAt`）。
+ *
+ * **上游把重置时间写在 msg 文本里，不是 JSON 字段**，形状（2026-10-24 国内版真机）：
+ *
+ * ```
+ * "您的使用量已超出频率限制，将在 2026-10-24 23:54:22 UTC+8 重置 …"
+ * ```
+ *
+ * 时间戳是 **body 自己声明的 UTC 偏移**下的墙钟时间，按 UTC 解释成 epoch 后再**减去**
+ * 该偏移 —— 直接按本地时区解析会在非 UTC+8 的机器上差几个小时（国际版同族实现
+ * `workbuddyai/src/upstream.ts` 的 `quotaResetAt` 有同一结论，解析逻辑与其保持一致）。
+ * 认不出返回 `null` —— 共享层回落自己的兜底，绝不编造时间。
+ */
+export function quotaResetAt(bodySnippet: string): number | null {
+  const raw = bodySnippet ?? "";
+  if (raw === "") return null;
+  // 错误体里的中文 msg 常被转义成 \uXXXX
+  const text = raw.replace(/\\u([0-9a-fA-F]{4})/g, (_all: string, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+  // 先确认这是「额度/限流」而不是别的 4xx
+  if (!/6004|quota|usage|limit|频率|额度|限额|超出/i.test(text)) return null;
+
+  const keyword = /(?:reset at|将在)\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/.exec(text);
+  const loose = /(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\s*UTC[+-]\d{1,2}/.exec(text);
+  const match = keyword ?? loose;
+  if (!match) return null;
+  const stamp = (match[1] ?? "").replace("T", " ");
+
+  // 偏移：UTC+8 / UTC-5 / UTC+05:30
+  const tz = /UTC([+-]\d{1,2})(?::?(\d{2}))?/.exec(text);
+  let offsetSeconds = 0;
+  if (tz) {
+    const hours = Number.parseInt(tz[1] ?? "0", 10);
+    const minutes = Number.parseInt(tz[2] ?? "0", 10);
+    offsetSeconds = hours * 3600 + (hours >= 0 ? minutes * 60 : -minutes * 60);
+  }
+
+  const parts = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(stamp);
+  if (!parts) return null;
+  const utcMs = Date.UTC(
+    Number(parts[1]),
+    Number(parts[2]) - 1,
+    Number(parts[3]),
+    Number(parts[4]),
+    Number(parts[5]),
+    Number(parts[6]),
+  );
+  if (!Number.isFinite(utcMs)) return null;
+  return utcMs - offsetSeconds * 1000;
 }
 
 /** 描述如何到达 WorkBuddy（国内版）chat 端点。JSON 字段名与 Go 版一致。 */
