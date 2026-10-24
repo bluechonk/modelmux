@@ -1,15 +1,21 @@
 /**
- * 仪表盘页：全局状态快照（统计块 + 接入端点）+ 可用模型区。
+ * 仪表盘页：hero 问候 + 接入端点（composer 形态）+ 全局统计 + 可用模型区。
  *
- * 模型区在 `components/ModelExplorer.tsx`：渠道分组表 / 扁平表两种视图，
- * 布局与取舍见那里的文件头。
+ * ## 为什么是 composer 形态
+ *
+ * 参照 DeepSeek 的首屏：一块大的圆角输入区占据视觉中心，周围大量留白，
+ * 统计信息退到下方。旧版把四块统计卡放在最上面，整页像运维看板 ——
+ * 而这里最常见的动作是「把 base_url 抄走」，所以把端点做成首屏主体。
+ *
+ * 模型区在 `components/ModelExplorer.tsx`：渠道分组表 / 扁平表两种视图。
  */
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Boxes, Globe, Layers, Plug, RefreshCw, Server } from "lucide-react";
+import { Activity, Boxes, Check, Copy, Layers, Plug, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { ModelExplorer } from "../components/ModelExplorer";
-import { PageHeader } from "../components/PageHeader";
+import { BrandMark } from "../components/BrandMark";
 import { type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 
@@ -28,7 +34,7 @@ function freePlanCidsOf(caps: Record<string, { billing: boolean }> | undefined):
   return out;
 }
 
-/** 仪表盘页：全局状态快照（统计块 + 接入端点 + 可用模型区）。 */
+/** 仪表盘页：hero 问候 + 接入端点 + 统计 + 模型区。 */
 export function Dashboard(): ReactElement {
   const { data: state, isLoading, error, isFetching, refetch } = useQuery({
     queryKey: ["state"],
@@ -56,20 +62,18 @@ export function Dashboard(): ReactElement {
 
   return (
     <div>
-      <PageHeader
-        title="仪表盘"
-        description="网关状态、接入端点与全渠道模型池快照"
-        actions={
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            刷新
-          </button>
-        }
-      />
+      {/* hero：品牌 mark + 问候，DeepSeek 首屏的对应物 */}
+      <div className="flex flex-col items-center pb-7 pt-10 text-center">
+        <div className="flex items-center gap-3">
+          <BrandMark size={34} />
+          <h1 className="text-[26px] font-semibold tracking-tight text-ink">
+            {running ? "网关正在运行" : state.ui_state}
+          </h1>
+        </div>
+        <p className="mt-2.5 text-sm text-ink-faint">
+          {channelCount} 个渠道 · {totalModels} 个模型，一个 OpenAI 兼容端点
+        </p>
+      </div>
 
       {state.gateway_error && (
         <div className="mb-5">
@@ -77,55 +81,13 @@ export function Dashboard(): ReactElement {
         </div>
       )}
 
-      {/* 统计块 */}
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          icon={<Activity className="h-4 w-4" />}
-          label="网关状态"
-          tone={running ? "free" : "muted"}
-          value={running ? "运行中" : state.ui_state}
-          hint={running ? "端口 4412 正在服务" : "未在运行状态"}
-        />
-        <StatTile
-          icon={<Boxes className="h-4 w-4" />}
-          label="可用模型"
-          tone="brand"
-          value={String(totalModels)}
-          unit="个"
-          hint={`${groups.size} 个渠道供给`}
-        />
-        <StatTile
-          icon={<Layers className="h-4 w-4" />}
-          label="供给渠道"
-          tone="brand"
-          value={String(channelCount)}
-          unit="个"
-          hint="渠道由请求方按前缀选择"
-        />
-        <StatTile
-          icon={<Plug className="h-4 w-4" />}
-          label="接入端点"
-          tone="muted"
-          value={String(state.endpoints.length)}
-          unit="个"
-          hint="OpenAI 兼容协议"
-        />
-      </div>
-
-      {/* 接入端点 */}
-      <section className="panel mb-6 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-          <h2 className="panel-title">
-            <Globe className="h-4 w-4 text-brand" />
-            接入端点
-          </h2>
-          <span className="pill bg-overlay text-ink-faint">OpenAI 兼容</span>
-        </div>
-        <div className="space-y-2.5 p-5">
-          <EndpointRow icon={<Server className="h-3.5 w-3.5" />} label="base_url" value={state.base_url} />
+      {/* composer 形态的接入区：一整块圆角面板，端点逐行可复制 */}
+      <section className="panel mb-8 overflow-hidden">
+        <div className="space-y-1 p-5">
+          <EndpointRow icon={<Plug className="h-3.5 w-3.5" />} label="base_url" value={state.base_url} />
           <EndpointRow icon={<Plug className="h-3.5 w-3.5" />} label="chat_url" value={state.chat_url} />
-          <div className="flex items-start gap-3">
-            <span className="flex w-24 shrink-0 items-center gap-1.5 pt-0.5 text-xs text-ink-faint">
+          <div className="flex items-start gap-3 pt-1">
+            <span className="flex w-20 shrink-0 items-center gap-1.5 pt-1 text-xs text-ink-faint">
               <Layers className="h-3.5 w-3.5" />
               endpoints
             </span>
@@ -138,11 +100,48 @@ export function Dashboard(): ReactElement {
             </div>
           </div>
         </div>
-        <div className="border-t border-line bg-canvas/50 px-5 py-3 text-xs leading-relaxed text-ink-faint">
-          任何 OpenAI 兼容客户端把 base url 指到上面的 <span className="font-mono text-ink-soft">/v1</span>，
-          模型填 <span className="font-mono text-brand">渠道/模型</span> 形态即可。
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-5 py-3 text-xs text-ink-faint">
+          <span>
+            模型填 <span className="font-mono text-brand">渠道/模型</span> 形态即可
+          </span>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+          >
+            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+            刷新
+          </button>
         </div>
       </section>
+
+      {/* 统计：从四张卡压成一行数据条，不抢 hero 的视觉权重 */}
+      <div className="mb-8 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          icon={<Activity className="h-3.5 w-3.5" />}
+          label="网关"
+          tone={running ? "free" : "muted"}
+          value={running ? "运行中" : state.ui_state}
+        />
+        <StatTile
+          icon={<Boxes className="h-3.5 w-3.5" />}
+          label="可用模型"
+          tone="brand"
+          value={String(totalModels)}
+        />
+        <StatTile
+          icon={<Layers className="h-3.5 w-3.5" />}
+          label="供给渠道"
+          tone="brand"
+          value={String(channelCount)}
+        />
+        <StatTile
+          icon={<Plug className="h-3.5 w-3.5" />}
+          label="接入端点"
+          tone="muted"
+          value={String(state.endpoints.length)}
+        />
+      </div>
 
       {/* 模型区：渠道分组表 / 扁平表（见 ModelExplorer 的布局说明） */}
       <ModelExplorer
@@ -154,7 +153,7 @@ export function Dashboard(): ReactElement {
   );
 }
 
-/** 端点行：标签 + 值（等宽字体，可长文本换行）。 */
+/** 端点行：标签 + 值（等宽字体，可长文本换行）+ 复制按钮。 */
 function EndpointRow({
   icon,
   label,
@@ -165,49 +164,62 @@ function EndpointRow({
   value: string;
 }): ReactElement {
   return (
-    <div className="flex items-start gap-3">
-      <span className="flex w-24 shrink-0 items-center gap-1.5 pt-0.5 text-xs text-ink-faint">
+    <div className="flex items-center gap-3 rounded-lg px-1 py-1.5 transition-colors hover:bg-overlay/50">
+      <span className="flex w-20 shrink-0 items-center gap-1.5 text-xs text-ink-faint">
         {icon}
         {label}
       </span>
-      <span className="min-w-0 break-all font-mono text-xs text-ink-soft">{value || "—"}</span>
+      <span className="min-w-0 flex-1 break-all font-mono text-xs text-ink-soft">{value || "—"}</span>
+      <CopyInline value={value} label={`复制 ${label}`} />
     </div>
   );
 }
 
-/** 统计块：图标 + 标签 + 数值 + 副说明。 */
+/** 行内复制按钮：复制后短暂显示对勾（剪贴板不可用时静默失败）。 */
+function CopyInline({ value, label }: { value: string; label: string }): ReactElement {
+  const [copied, setCopied] = useState(false);
+  const copy = async (): Promise<void> => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // 剪贴板不可用（非安全上下文等）：静默失败
+    }
+  };
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={!value}
+      onClick={() => void copy()}
+      className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-30"
+    >
+      {copied ? <Check className="h-3 w-3 text-free" /> : <Copy className="h-3 w-3" />}
+    </button>
+  );
+}
+
+/** 统计块：一行紧凑数据（图标 + 标签 + 数值），不再是四张大卡。 */
 function StatTile({
   icon,
   label,
   value,
-  unit,
-  hint,
   tone,
 }: {
   icon: ReactElement;
   label: string;
   value: string;
-  unit?: string;
-  hint?: string;
   tone: "brand" | "free" | "muted";
 }): ReactElement {
   const toneClass =
-    tone === "free"
-      ? "bg-free/12 text-free"
-      : tone === "brand"
-        ? "bg-brand/12 text-brand"
-        : "bg-overlay text-ink-soft";
+    tone === "free" ? "text-free" : tone === "brand" ? "text-brand" : "text-ink-soft";
   return (
-    <div className="panel p-4">
-      <div className="flex items-center gap-2.5">
-        <span className={`grid h-8 w-8 place-items-center rounded-lg ${toneClass}`}>{icon}</span>
-        <span className="text-xs text-ink-faint">{label}</span>
-      </div>
-      <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-2xl font-semibold tracking-tight text-ink">{value}</span>
-        {unit && <span className="text-xs text-ink-faint">{unit}</span>}
-      </div>
-      {hint && <div className="mt-1 text-[11px] text-ink-faint">{hint}</div>}
+    <div className="flex items-center gap-2.5 rounded-xl border border-line bg-raised px-3 py-2.5">
+      <span className={`shrink-0 ${toneClass}`}>{icon}</span>
+      <span className="text-xs text-ink-faint">{label}</span>
+      <span className="ml-auto font-mono text-sm font-medium tabular-nums text-ink">{value}</span>
     </div>
   );
 }
@@ -230,9 +242,9 @@ export function Alert({
 /** 加载骨架：四块占位。 */
 export function Skeleton(): ReactElement {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-28 animate-pulse rounded-2xl border border-line bg-raised" />
+        <div key={i} className="h-11 animate-pulse rounded-xl border border-line bg-raised" />
       ))}
     </div>
   );

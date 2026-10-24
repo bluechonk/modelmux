@@ -5,7 +5,13 @@
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { AccountCard, type AccountPool, type ChannelBilling } from "../components/AccountCard";
+import {
+  AccountCard,
+  classifyChannel,
+  type AccountPool,
+  type ChannelBilling,
+  type ChannelStatus,
+} from "../components/AccountCard";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
 import { Alert, Skeleton } from "./Dashboard";
@@ -46,6 +52,15 @@ interface BillingRow {
     }>;
   }>;
 }
+
+/** 总览条各状态的展示口径（与卡片 `STATUS_META` 同色，这里只做计数）。 */
+const SUMMARY_ORDER: Array<{ key: ChannelStatus; label: string; dot: string }> = [
+  { key: "ok", label: "正常", dot: "bg-free" },
+  { key: "cooldown", label: "冷却", dot: "bg-warn" },
+  { key: "down", label: "异常", dot: "bg-danger" },
+  { key: "offline", label: "未登录", dot: "bg-ink-faint" },
+  { key: "empty", label: "空池", dot: "bg-ink-faint" },
+];
 
 /**
  * 账号池页（渠道管理中枢）。
@@ -193,6 +208,20 @@ export function Accounts(): ReactElement {
     billing: billingMap.get(pool.cid),
   }));
 
+  // 总览计数：与卡片用同一个 classifyChannel，口径不会两边漂移
+  const counts: Record<ChannelStatus, number> = {
+    ok: 0,
+    cooldown: 0,
+    down: 0,
+    offline: 0,
+    empty: 0,
+  };
+  let totalAccounts = 0;
+  for (const { pool, present } of list) {
+    counts[classifyChannel(pool, present)] += 1;
+    totalAccounts += pool.index.accounts.length;
+  }
+
   const loginChannels = logins.data ?? [];
   const snapshot = state.data;
 
@@ -203,31 +232,51 @@ export function Accounts(): ReactElement {
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && <Alert tone="info">{notice}</Alert>}
 
-      {list.length === 0 && (
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-sm text-gray-500">
-          {pools.isLoading ? <Skeleton /> : "（无渠道账号池；先在上面添加账号）"}
+      {list.length === 0 ? (
+        <div className="rounded-xl border border-line p-5 text-sm text-ink-faint">
+          {pools.isLoading ? <Skeleton /> : "（无渠道账号池；先添加账号）"}
         </div>
-      )}
-      {/*
-        渠道卡用 **多栏（masonry）** 排布，不用网格：
-        网格的行高取最高那张卡，账号数少的渠道会被拉出整片空白（账号数 1 vs 3 时最明显）。
-        卡片本身自包含，列序阅读可接受。
-      */}
-      <div className="columns-1 gap-3 sm:columns-2 lg:columns-3">
-        {list.map(({ pool, present, billing: bill }) => (
-          <div key={pool.cid} className="mb-3 break-inside-avoid">
-            <AccountCard
-              pool={pool}
-              present={present}
-              billing={bill}
-              onActivate={(cid, key) => activate.mutate({ cid, key })}
-              onRemove={(cid, key) => remove.mutate({ cid, key })}
-              onAdd={(cid) => setLoginChannel(cid)}
-            busyKey={busyKey}
-            />
+      ) : (
+        <>
+          {/* 总览条：一眼看清正常 / 冷却 / 异常 / 未登录各几个，不用逐张翻卡 */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1">
+            <span className="text-xs text-ink-faint">
+              共 <span className="font-mono font-medium text-ink">{list.length}</span> 渠道 ·{" "}
+              <span className="font-mono font-medium text-ink">{totalAccounts}</span> 账号
+            </span>
+            <span className="h-3 w-px bg-line" aria-hidden />
+            {SUMMARY_ORDER.map(({ key, label, dot }) => (
+              <span key={key} className="flex items-center gap-1.5 text-xs text-ink-soft">
+                <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+                {label}
+                <span className="font-mono tabular-nums text-ink">{counts[key]}</span>
+              </span>
+            ))}
           </div>
-        ))}
-      </div>
+
+          {/*
+            渠道卡用**对齐网格**（items-start）：卡顶成行对齐，短卡不在单元格内被拉伸，
+            不再出现 masonry 那种列底大片参差留白。
+
+            最多两列：三列时单卡仅 ~380px，中文账号名与额度条会互相挤压
+            （实测「塞西莉亚4412」被截断）。
+          */}
+          <div className="grid items-start gap-3 lg:grid-cols-2">
+            {list.map(({ pool, present, billing: bill }) => (
+              <AccountCard
+                key={pool.cid}
+                pool={pool}
+                present={present}
+                billing={bill}
+                onActivate={(cid, key) => activate.mutate({ cid, key })}
+                onRemove={(cid, key) => remove.mutate({ cid, key })}
+                onAdd={(cid) => setLoginChannel(cid)}
+                busyKey={busyKey}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* 登录弹窗（仅右上角关闭键可关） */}
       {loginChannel !== null && (
