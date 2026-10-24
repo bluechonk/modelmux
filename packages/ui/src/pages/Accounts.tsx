@@ -2,8 +2,7 @@
  * 账号池页：各渠道凭据、账号列表与额度，支持添加账号（登录弹窗）与账号切换。
  */
 
-import { type ReactElement, useEffect, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type ReactElement, useEffect, useRef, useState } from "react";import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
   AccountCard,
@@ -99,11 +98,33 @@ export function Accounts(): ReactElement {
   const billing = useQuery({
     queryKey: ["billing"],
     queryFn: async () => {
-      const res = (await api.commands.billing()) as { rows?: BillingRow[] };
+      // 服务端失败时 envelope.ok=false（HTTP 400）。不抛错的话前端会把它当成
+      // 「查到了 0 行」→ 卡片显示「未查到」，把「请求失败」伪装成「没有数据」。
+      const res = (await api.commands.billing()) as {
+        ok?: boolean;
+        rows?: BillingRow[];
+        error?: string;
+      };
+      if (res.ok === false) throw new Error(res.error ?? "账单加载失败");
       return res.rows ?? [];
     },
     refetchInterval: 60_000,
   });
+  /**
+   * 账单的加载 / 失败态：卡片据此渲染**骨架**而不是「未查到」。
+   *
+   * 为什么需要显式区分：React Query 在没有数据时 `data` 是 undefined，
+   * 卡片若按「没有额度」渲染，就会把「还在等 / 请求失败」显示成「未查到」，
+   * 用户看到的是稳定的「没数据」而不是「正在加载」（主人 2026-10-24 反馈）。
+   */
+  const billingLoading = billing.isPending;
+  const billingError = billing.isError;
+  /** 全局时钟：新鲜度文案要随时间走（否则数据不变时秒数永远停在第一次渲染）。 */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   // 弹窗轮询：登录进度 / 二维码 / 授权链接都从这里来（弹窗关闭即停）
   const state = useQuery({
     queryKey: ["state"],
@@ -268,6 +289,9 @@ export function Accounts(): ReactElement {
                 pool={pool}
                 present={present}
                 billing={bill}
+                billingLoading={billingLoading}
+                billingError={billingError}
+                now={now}
                 onActivate={(cid, key) => activate.mutate({ cid, key })}
                 onRemove={(cid, key) => remove.mutate({ cid, key })}
                 onAdd={(cid) => setLoginChannel(cid)}
