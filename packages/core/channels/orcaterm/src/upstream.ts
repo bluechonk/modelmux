@@ -893,6 +893,13 @@ class SseLineReader {
   private decoder = new TextDecoder("utf-8");
   /** 收到过 `data: [DONE]`（上游的流终止标记）。 */
   sawDone = false;
+  /** 上游错误行 `data: [ERROR]: ...` 的原文。 */
+  private errorText = "";
+
+  /** 上游错误行原文（已去掉 `[ERROR]:` 前缀）；没有则空串。 */
+  get error(): string {
+    return this.errorText;
+  }
 
   push(chunk: Uint8Array): SseFrame[] {
     this.tail += this.decoder.decode(chunk, { stream: true });
@@ -906,7 +913,13 @@ class SseLineReader {
         if (raw === "[DONE]") {
           // 上游的流终止标记：立刻收尾，不等 TCP 关闭（上游可能保持连接）。
           this.sawDone = true;
-        } else if (raw && !raw.startsWith("[ERROR]")) {
+        } else if (raw.startsWith("[ERROR]")) {
+          // 上游错误行（实测形态：`data: [ERROR]: [LLM_ERROR]: LLM(x) is not loaded.`）。
+          // 必须让客户端看到真实错误 —— 丢掉就变成「200 + 空 content」，
+          // 客户端只会报「Model request failed」而看不到原因。
+          // [参考] ZFXing-lite_orcaterm2api/internal/orca/orca.go 同样按错误上抛。
+          this.errorText = raw.slice("[ERROR]:".length).trim();
+        } else if (raw) {
           try {
             out.push(JSON.parse(raw) as SseFrame);
           } catch {
@@ -935,10 +948,16 @@ class SseLineReader {
    * 整份 JSON 会一直留在 tail 里被丢掉 —— 故收尾时必须再试一次完整解析。
    */
   flush(): SseFrame[] {
-    const rest = this.tail.trim();
+    let rest = this.tail.trim();
     this.tail = "";
+    // tail 可能是带 `data:` 前缀的半行，也可能是不带前缀的裸 JSON（上游忽略 stream 时）
+    if (rest.startsWith("data:")) rest = rest.slice(5).trim();
     if (rest === "[DONE]") {
       this.sawDone = true;
+      return [];
+    }
+    if (rest.startsWith("[ERROR]")) {
+      this.errorText = rest.slice("[ERROR]:".length).trim();
       return [];
     }
     if (!rest.startsWith("{") || !rest.endsWith("}")) return [];
@@ -970,6 +989,10 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
   let doneSent = false;
   let pendingTool = false;
   const idleCutoffMs = Number(process.env["ORCATERM_IDLE_CUTOFF_MS"] || 30_000);
+  /** 已下发但尚未冲刷给网关的增量帧（当前只有思考链）。 */
+  const pendingDelta: Buffer[] = [];
+  /** 思考链是否已经增量下发过（避免 finalize 再发一遍）。 */
+  let reasoningStreamed = false;
 
   // OpenAI chunk 外壳：共享层的聚合器靠 id/model/created 填非流式响应体。
   const chunkId = `chatcmpl-${randomUUID().replace(/-/g, "")}`;
@@ -997,6 +1020,11 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
     }
     // 累积正文
     if (frame.content) aggregatedContent += frame.content;
+    // 思考链是纯文本，边收边发 —— 客户端不必等整轮生成完才看到模型在想什么
+    if (frame.reasoningContent) {
+      reasoningStreamed = true;
+      pendingDelta.push(chunk([{ index: 0, delta: { reasoning_content: frame.reasoningContent } }]));
+    }
   };
 
   const finalize = (): Array<Buffer | string> => {
@@ -1005,7 +1033,9 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
     const out: Buffer[] = [];
 
     const envelope = unwrapProtocolEnvelope(aggregatedContent);
-    if (envelope.reasoning.trim()) {
+    // 思考链已边收边发过就不再发一次（信封里的 thinking 与帧级 reasoningContent 同源，
+    // 重复下发会让客户端看到两遍）；完全没流式下发过时才在这里补。
+    if (!reasoningStreamed && envelope.reasoning.trim()) {
       out.push(chunk([{ index: 0, delta: { reasoning_content: envelope.reasoning } }]));
     }
 
@@ -1073,6 +1103,7 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
         parseFrame(frame);
       } catch (e) {
         if (e instanceof UpstreamUnauthorized) {
+          doneSent = true;
           return [
             sseFrame({ error: { message: e.message, type: "upstream_auth_expired" } }),
             ...finalize(),
@@ -1081,6 +1112,13 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
         throw e;
       }
     }
+    // 思考链等增量边收边发；冲刷前把已累积的一起交出去
+    out.push(...pendingDelta.splice(0, pendingDelta.length));
+    // 上游错误行（`data: [ERROR]: ...`）：只回错误帧，不再补空正文
+    if (reader.error) {
+      doneSent = true;
+      return [sseFrame({ error: { message: reader.error, type: "upstream_error" } })];
+    }
     return out;
   };
 
@@ -1088,11 +1126,9 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
     feed(chunk: Buffer): Array<Buffer | string> {
       if (doneSent) return [];
       const frames = reader.push(chunk);
-      const asError = drainFrames(frames);
-      if (asError.length > 0) {
-        doneSent = true;
-        return asError;
-      }
+      // drainFrames 返回：增量帧（思考链等）或 [错误帧, ...finalize()]
+      const drained = drainFrames(frames);
+      if (drained.length > 0) return drained;
       // 上游发了 [DONE]：立刻收尾（不再等 TCP 关闭）。
       if (reader.sawDone) return finalize();
       return [];
@@ -1101,6 +1137,11 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
       // 收尾冲刷：上游错误体可能整份留在行缓冲里（无换行符）
       if (!doneSent) {
         const rest = reader.flush();
+        // 错误行可能整份留在 tail（flush 对错误行返回空数组），单独判一次
+        if (reader.error) {
+          doneSent = true;
+          return [sseFrame({ error: { message: reader.error, type: "upstream_error" } })];
+        }
         if (rest.length > 0) {
           const asError = drainFrames(rest);
           doneSent = true;

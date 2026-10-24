@@ -448,6 +448,29 @@ export function ensureFreshInBackground(c: { accessToken: string }): void {
 }
 
 /**
+ * 可选钩子：发请求前确保 token 未过期（网关 `refreshIfExpired`）。
+ *
+ * 只在 token **已经过期**时阻塞续期 —— 续期窗口内仍走后台非阻塞刷新
+ * （`ensureFreshInBackground`），否则每个请求都要多等一次网络往返。
+ *
+ * 为什么需要它：`ensureFreshInBackground` 是惰性的，过期后没有请求进来时
+ * 不会刷新；而一旦过期，当前请求会拿着死 token 发出去，上游回
+ * HTTP 200 + 鉴权失效帧 —— 客户端报「Model request failed」，而后台刷新
+ * 其实已经把下一个请求修好了（实测两次仅相差 7ms）。
+ *
+ * 钩子就地改写 credential，使随后的 `buildHeaders` 用上新 token。
+ */
+export async function refreshIfExpired(c: Credentials): Promise<void> {
+  const expMs = jwtExpMs(c.accessToken);
+  if (expMs > 0 && Date.now() < expMs) return;
+  const refreshed = await refresh(c);
+  c.accessToken = refreshed.accessToken;
+  c.uid = refreshed.uid || c.uid;
+  c.expiresAt = refreshed.expiresAt || c.expiresAt;
+  c.nickname = refreshed.nickname || c.nickname;
+}
+
+/**
  * 同步版预续期（网关启动探测用，auth-flow await fetchModels）：
  * token 新鲜则直接返回；进入续期窗口或已过期则换一张并落盘；换不到抛错。
  */

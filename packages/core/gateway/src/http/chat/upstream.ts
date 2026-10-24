@@ -134,6 +134,9 @@ export interface UpstreamCall {
 
 export async function openStream(channel: Channel, c: Credential, body: Buffer): Promise<UpstreamCall> {
   const { upstream } = channel;
+  // 渠道可在建头前异步确保凭据可用（如 token 已过期时阻塞续期）；
+  // 未声明钩子的渠道保持同步行为，不受影响。
+  await upstream.refreshIfExpired?.(c);
   // 渠道声明了对话专用头族就用它，否则回退基础头
   const headers = upstream.buildChatHeaders ? upstream.buildChatHeaders(c) : upstream.buildHeaders(c);
   if (!Object.keys(headers).some((k) => k.toLowerCase() === "accept")) {
