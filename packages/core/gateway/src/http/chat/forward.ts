@@ -141,7 +141,9 @@ export async function relayUpstream(
     return;
   }
 
-  // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传
+  // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传。
+  // ⚠ 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 writeQueueNotice）：
+  //   此时不能再 writeHead（会抛 ERR_HTTP_HEADERS_SENT），后续帧直接续写。
   const outHeaders: Record<string, string> = {};
   if (isCustomWire(channel)) {
     // 自定义线型的输出恒为 OpenAI SSE，不能透传上游的 content-type
@@ -152,7 +154,7 @@ export async function relayUpstream(
       if (!STRIP_HEADERS.has(name.toLowerCase())) outHeaders[name] = value;
     }
   }
-  res.writeHead(call.status, outHeaders);
+  if (!res.headersSent) res.writeHead(call.status, outHeaders);
   // 排队探测阶段已经消费掉的内容帧先补写给客户端（它们属于这次响应的前缀）
   for (const frame of pendingFrames) res.write(frame);
   if (queuedOut && pendingFrames.length === 0) {

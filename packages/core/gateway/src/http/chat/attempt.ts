@@ -157,11 +157,56 @@ async function reopenForProbe(
   return next;
 }
 
+// ── 排队进度文案（主人 2026-10-24 钦定）───────────────────────────────────────
+
+/** 排队进度文案：第 1/2/3 轮各一句，3 轮以后一直用最后一句（主人钦定的原话）。 */
+const QUEUE_NOTICES = ["排队中", "还是在排队中", "还是tm在排队中，别用cid这个垃圾了！"] as const;
+
+function queueNoticeText(round: number): string {
+  return QUEUE_NOTICES[Math.min(Math.max(round, 1), QUEUE_NOTICES.length) - 1]!;
+}
+
+/**
+ * 向客户端发一条排队进度（OpenAI 流式 content delta 帧）。
+ *
+ * 首条前先发 SSE 响应头 + role 帧（流式惯例）。**只对流式请求调用**：
+ * 非流式没有 SSE 通道，排队期间保持沉默（探测层本身仍不写任何字节）。
+ * 头一旦发出就不能再改状态码 —— 排队重试本来就发生在同一条候选上、注定 200 + SSE，
+ * 后续所有失败都降级为流内 error 帧（`forward.ts` / `relay.ts` 按 `res.headersSent` 处理）。
+ * 每条文案补 `\n`，客户端把多轮文案与真实回答分行显示。
+ */
+function writeQueueNotice(
+  res: ServerResponse,
+  payload: Record<string, unknown>,
+  round: number,
+  progressId: string,
+  created: number,
+): void {
+  const chunk = (delta: Record<string, unknown>): string =>
+    `data: ${JSON.stringify({
+      id: progressId,
+      object: "chat.completion.chunk",
+      created,
+      model: payload["model"],
+      choices: [{ index: 0, delta, finish_reason: null }],
+    })}\n\n`;
+  if (!res.headersSent) {
+    // 与转发层的 custom 线型输出同形（见 forward.ts）：恒为 OpenAI SSE
+    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
+    res.write(chunk({ role: "assistant", content: "" }));
+  }
+  res.write(chunk({ content: `${queueNoticeText(round)}\n` }));
+}
+
 /**
  * 排队探测子循环：响应头发出前把「排队帧」等掉，直到出内容或预算耗尽。
  *
  * ⚠ 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
  *   转发层必须**原序**交出这些帧，并**接着用同一个**翻译器实例（半行缓冲在里面）。
+ * ⚠ 排队期间向客户端**分批发进度文案**（仅流式，主人 2026-10-24 要求）：
+ *   每轮等待前发一条，文案随轮次升级；首条会顺带发出 SSE 响应头。
+ * ⚠ 每轮开头检查客户端断连：排队可能长达数分钟，客户端（60s 超时）走人后
+ *   继续轮询上游纯属浪费（实测断连后空转 4 分钟、白打 22 次上游请求）。
  *
  * @returns 探测结束后实际在用的上游流（失败时也是它，调用方负责释放）。
  */
@@ -173,7 +218,22 @@ async function runQueueProbe(
   const { ctx, channel, cid, sendBody } = env;
   const { payload, logger, res } = ctx;
   const startedAt = Date.now();
+  const progressId = `chatcmpl-queue-${startedAt.toString(36)}`;
+  const progressCreated = Math.floor(startedAt / 1000);
+  let queueRound = 0;
   for (;;) {
+    // 客户端已断开：探测再久也没有收件人，立即止损（释放上游流、结束应答）。
+    if (res.destroyed || res.writableEnded) {
+      await call.body?.cancel().catch(() => {});
+      if (res.headersSent) res.end();
+      state.failed = true;
+      state.error = {
+        status: 499,
+        code: "client_disconnected",
+        message: "client disconnected while upstream queued",
+      };
+      return call;
+    }
     // 每次探测用新翻译器（换流后旧缓冲作废）；成功那次的实例要传给转发层
     const translator = channel.upstream.newTranslator(payload);
     let probe: QueueProbe;
@@ -226,6 +286,17 @@ async function runQueueProbe(
       break;
     }
     logger(`upstream queued (channel ${cid}), waiting ${Math.round(delayMs / 1000)}s before retry`);
+    // 排队进度（主人 2026-10-24 要求）：每轮等待前发一条文案，按当前等待秒数分批。
+    // 只对流式发；round 从 1 计，文案随轮次升级。写失败（客户端已断）不在此处理，
+    // 下一轮循环顶部的断连检测会退出。
+    if (ctx.wantStream) {
+      queueRound += 1;
+      try {
+        writeQueueNotice(res, payload, queueRound, progressId, progressCreated);
+      } catch {
+        /* 客户端已断：交给循环顶部的断连检测 */
+      }
+    }
     await new Promise((r) => setTimeout(r, delayMs));
     const credential = loadCredentialSafe(channel);
     if (!credential) {
@@ -345,6 +416,25 @@ export async function attemptCandidate(
     noteAccountFailure(cid);
     return { kind: "retry", error: { status: 502, code: "upstream_unauthenticated", message: outcome.error } };
   }
+  // 冷却中：本地短路，**未打上游**。额度耗尽不是故障（`account-pool.ts` 的
+  // `noteAccountQuotaExhausted` 刻意不动 `fail_streak`），故这里也**不记任何连败** ——
+  // 记了就会在冷却窗口内被 3 连败熔断打成 `error`，连免费模型一起锁死且无自动恢复
+  //（2026-10-24 实测 workbuddy：11 次短路 → fail_streak 11 → health=error）。
+  if (outcome.kind === "cooling") {
+    logThrottled(
+      logger,
+      `chat:cooling:${cid}`,
+      `account cooling down (channel ${cid}); short-circuiting until ${outcome.until} (${outcome.reason})`,
+    );
+    return {
+      kind: "retry",
+      error: {
+        status: 503,
+        code: "quota_exhausted",
+        message: `account quota exhausted (${cid}); cooling down until ${outcome.until} (${outcome.reason}), or switch account`,
+      },
+    };
+  }
   let call = outcome.call;
 
   // 排队重试：渠道声明了 isQueueError 且上游回了排队帧（HTTP 200 + 流内业务错误）
@@ -365,6 +455,8 @@ export async function attemptCandidate(
     if (state.failed) {
       // 探测层异常：这条流已死，跳过转发层（call.ok 仍是 true，不能让它进转发层）
       await probedCall.body?.cancel().catch(() => {});
+      // 客户端已断开：没有应答对象了，直接终局（编排层不再换候选、不再写错误）
+      if (state.error.code === "client_disconnected") return { kind: "done" };
       return { kind: "retry", error: state.error };
     }
     call = probedCall;

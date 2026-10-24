@@ -20,7 +20,9 @@ import { openStream, type UpstreamCall } from "./upstream.js";
 export type UpstreamOutcome =
   | { kind: "ok"; call: UpstreamCall }
   | { kind: "not_authenticated"; error: string }
-  | { kind: "auth_exhausted"; error: string };
+  | { kind: "auth_exhausted"; error: string }
+  /** 账号仍在额度冷却窗口内：本地短路，未打上游。**不是**鉴权失败，不记账连败。 */
+  | { kind: "cooling"; until: string; reason: string };
 
 /**
  * 向上游发起请求，鉴权失败时**不自动切换池内账号**。
@@ -53,13 +55,14 @@ export async function callUpstream(
 
   // 额度耗尽的**冷却**只挡付费模型：倍率 0 的模型不吃额度，冷却期必须照常可路由
   //（2026-10-23 主人实测：loomy 冷却后连免费模型 spark-x 都被锁死）。
+  //
+  // ⚠ 必须用独立的 `cooling` 类别，**不能**混进 `not_authenticated`：那个分支在
+  // `attempt.ts` 里会记连败，冷却期内每来一个请求就 +1，3 次就把账号打成 `error`
+  //（2026-10-24 实测 workbuddy：11 次短路 = fail_streak 11，从此免费模型也锁死且无自动恢复）。
   if (options.freeModel !== true) {
     const cooling = activeAccountCooldown(cid);
     if (cooling) {
-      return {
-        kind: "not_authenticated",
-        error: `account quota exhausted (${cid}); cooling down until ${cooling.until} (${cooling.reason}) — free (×0) models are still available`,
-      };
+      return { kind: "cooling", until: cooling.until, reason: cooling.reason };
     }
   }
 

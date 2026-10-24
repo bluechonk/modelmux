@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Channel } from "../../runtime/channel.js";
-import { getRequestLog } from "../../runtime/log-store.js";
+import { getRequestLog, noteRequestError } from "../../runtime/log-store.js";
 import type { GatewayOptions } from "../server.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
 import { writeJsonError } from "./errors.js";
@@ -84,5 +84,14 @@ export async function handleChat(
     code: "upstream_error",
     message: "upstream request failed; see gateway logs",
   };
+  if (res.headersSent) {
+    // 排队进度帧已把 SSE 头发出（状态码定死 200 + text/event-stream）：
+    // 不能再回 JSON 错误信封（writeHead 会抛 ERR_HTTP_HEADERS_SENT），
+    // 只能流内报错后收尾。失败统计照记（noteRequestError），不因降级丢失。
+    noteRequestError(res, final.code, final.message);
+    res.write(`data: ${JSON.stringify({ error: { code: final.code, message: final.message } })}\n\n`);
+    res.end();
+    return;
+  }
   writeJsonError(res, final.status, final.code, final.message);
 }
