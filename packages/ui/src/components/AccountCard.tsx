@@ -302,6 +302,9 @@ export function AccountCard({
   pool,
   present,
   billing,
+  billingLoading = false,
+  billingError = false,
+  now,
   onActivate,
   onRemove,
   onAdd,
@@ -310,6 +313,12 @@ export function AccountCard({
   pool: AccountPool;
   present: boolean;
   billing?: ChannelBilling;
+  /** 账单查询还没拿到数据（首次加载 / 缓存被回收）：卡片画骨架，不画「未查到」。 */
+  billingLoading?: boolean;
+  /** 账单查询失败且没有可用数据：显示可重试的失败态，而不是「未查到」。 */
+  billingError?: boolean;
+  /** 全局时钟（由页面每秒推一次）：新鲜度文案要随时间走。 */
+  now?: number;
   onActivate: (cid: string, key: string) => void;
   onRemove: (cid: string, key: string) => void;
   onAdd: (cid: string) => void;
@@ -317,7 +326,7 @@ export function AccountCard({
 }): ReactElement {
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
   // 新鲜度只在渲染时算一次（不挂定时器）：秒数不自己跳，用户刷新页面/数据轮询时才更新
-  const now = Date.now();
+  const clock = now ?? Date.now();
   // 删除二次确认：点了垃圾桶先进入「确认中」状态，再点一次才真删（主人 2026-10-23 要求）。
   // 同时只允许一个账号处于确认态；切换账号/忙碌时清空。
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
@@ -449,13 +458,21 @@ export function AccountCard({
                     **固定高度**：额度条有两种渲染分支 —— 正常分支返回块级 flex 行，
                     「无额度概念」渠道（capabilities.billing=false，如 orcaterm）返回
                     裸行内 span，行盒会更高（实测 24px vs 17px），导致账号块高度不一致、
-                    卡片网格参差。统一成固定高度的 flex 行，两个分支同高。 */}
+                    卡片网格参差。统一成固定高度的 flex 行，两个分支同高。
+
+                    ⚠ 账单**还没拿到数据**（加载中 / 失败且无可用数据）时画骨架条，
+                    不画 `-` —— 「-」与「未查到」看起来像「查过了但没有」，会把等待与
+                    失败伪装成结果（主人 2026-10-24 反馈）。 */}
                 <div className="mt-1.5 flex h-[17px] items-center pl-3.5">
-                  <QuotaMeter
-                    credits={bill?.credits}
-                    baseline={bill?.baseline}
-                    unsupported={billing?.unsupported === true}
-                  />
+                  {billingLoading || (billingError && !bill?.billing_at) ? (
+                    <span className="h-1 w-2/5 animate-pulse rounded-full bg-overlay" />
+                  ) : (
+                    <QuotaMeter
+                      credits={bill?.credits}
+                      baseline={bill?.baseline}
+                      unsupported={billing?.unsupported === true}
+                    />
+                  )}
                 </div>
 
                 {/* 删除二次确认：真删是不可逆的（生效账号会同时登出），先问一次 */}
@@ -485,14 +502,23 @@ export function AccountCard({
                   </div>
                 )}
 
-                {/* 第三行：时间与状态说明 —— 允许换行，绝不裁切 */}
+                {/* 第三行：时间与状态说明 —— 允许换行，绝不裁切。
+                    账单还没到 / 请求失败时**不写「未查到」**：那是等待态，不是结果。 */}
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">
                   {(() => {
                     // 没有额度概念的渠道（`capabilities.billing=false`，如 orcaterm 订阅制）
                     // 不显示账单新鲜度：它永远不会刷新，只会一直累加「更新于 N 天前」，
                     // 看起来像故障（2026-10-24 主人反馈）。
                     if (billing?.unsupported === true) return null;
-                    const fresh = freshnessText(bill?.billing_at, now);
+                    // 账单查询还没数据：画骨架（第三行与第二行同宽度的短条）
+                    if (billingLoading) {
+                      return <span className="h-2 w-1/3 animate-pulse rounded bg-overlay" />;
+                    }
+                    // 账单查询失败且没有可用数据：如实说失败，由下一次轮询自动重试
+                    if (billingError && !bill?.billing_at) {
+                      return <span className="text-warn">账单获取失败，稍后自动重试</span>;
+                    }
+                    const fresh = freshnessText(bill?.billing_at, clock);
                     return (
                       <span className={fresh.stale ? "text-warn" : "text-ink-faint/70"}>
                         {fresh.text}
