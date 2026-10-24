@@ -386,19 +386,24 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
  * {"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-24 23:54:22 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"…"}
  * ```
  *
- * 关键语义：上游原文明说「**您也可以切换其他模型继续使用**」—— 这是**模型级**限流，
- * 不是账户级用量限额（国际版 `workbuddyai` 的同码 6004 才是账户级，两渠道行为不同）。
- * 故上报 `model_limit`：共享层只冷却这一个模型，**不连坐账号**。
- * 在此之前共享层靠通用正则命中「频率限制」按账户级处理，把整个账号冷却了 15 小时
- * （2026-10-24 实测），其他本来可用的模型被一起封掉。
+ * 上报 `usage_limit`（**账户级**）：上游文案里「您也可以切换其他模型继续使用」是客套话，
+ * 实测不可信 —— 国际版兄弟渠道 `workbuddyai` 的 429/6004 文案**同样**写着
+ * 「alternatively, you can switch to the other models」，但 2026-10-23 真机实测证明
+ * 连目录里标倍率 0 的 `deepseek-v4.1-flash` 也照样吃 6004
+ * （`docs/channels/workbuddyai/PROTOCOL.md:569-573`）。两渠道同属腾讯 CodeBuddy、
+ * 业务码与文案同族，故按账户级处理。
+ *
+ * ⚠ 若按「模型级」只冷却单个模型，用户换一个模型会立刻再撞同一个限额，且账号级冷却
+ * 会被反复触发 —— 比误冷却更糟。共享层对 `usage_limit` 一律冷却账号、**不计连败**
+ * （额度耗尽不是故障，窗口刷新自然恢复）。
  *
  * ⚠ 业务码 `6004` / `6008` 只能出现在**渠道包**里；共享层只认通用措辞
  * （见 `packages/core/gateway/src/http/chat/errors.ts`）。
  */
 export function quotaSignal(status: number, body: string): QuotaSignal | null {
   if (status !== 429) return null;
-  // 6004/6008 按 PROTOCOL §4.1 是模型级「每天」额度（客户端当日额度）；文案同族即频率限制
-  return /600[48]|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body) ? "model_limit" : null;
+  // 6004/6008 按 PROTOCOL §4.1 是「每天」额度；文案同族即频率限制
+  return /600[48]|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body) ? "usage_limit" : null;
 }
 
 /**
