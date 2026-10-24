@@ -797,6 +797,22 @@ Reasonix CLI 直连网关（`qoder/deepseek-flash`）：
   `messageCount` 2 → 6（随工具轮次递增）。
 - 错误日志无该渠道新增条目；账单差值 0。
 
+### 2026-10-24 端到端实测（双模型）
+
+Reasonix CLI 直连网关，`qoder/minimax-m3.1-flash` 与 `qoder/glm-5.3-flash`（倍率均 0.1）：
+
+| 模型 | 冒烟 | 工具往返 | 落盘 | 访问日志 |
+| --- | --- | --- | --- | --- |
+| `minimax-m3.1-flash` | 通过 | write_file → read_file → bash | `minimax-m3.1-flash ok` | msgs 2→2→2→6，全 200 |
+| `glm-5.3-flash` | 通过 | write_file → read_file → bash | `glm-5.3-flash ok` | msgs 2→4→6→9→11，全 200 |
+
+- 错误日志 `cid=qoder` 零新增条目；账单 400 → 383，消耗 17 credits（两轮完整 Agent，量级合理）。
+- **排队是主要耗时**：测试窗口内 `gateway.log` 有 135 + 64 条
+  `upstream queued (channel qoder), waiting 9-10s before retry`；`ttfbMs` 65–225 秒
+  远大于 `upstreamMs` 0.4–2.3 秒，说明时间花在等上游队列而非上游响应本身。
+  最极端一次冒烟 291 秒才返回但最终成功，全部请求无一条落 failure ——
+  排队自动重试机制工作正常（见 §4.3）。
+
 ## 参考实现
 
 clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不入库**）；结论进本文件。
