@@ -22,7 +22,9 @@ export type UpstreamOutcome =
   | { kind: "not_authenticated"; error: string }
   | { kind: "auth_exhausted"; error: string }
   /** 账号仍在额度冷却窗口内：本地短路，未打上游。**不是**鉴权失败，不记账连败。 */
-  | { kind: "cooling"; until: string; reason: string };
+  | { kind: "cooling"; until: string; reason: string }
+  /** 账号已被标 `error`（终态，再记连败只会虚增数字）：调用方**不记账**。 */
+  | { kind: "account_error"; error: string };
 
 /**
  * 向上游发起请求，鉴权失败时**不自动切换池内账号**。
@@ -46,9 +48,11 @@ export async function callUpstream(
 
   // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）。
   // ⚠ 这是**真故障**（凭据坏了），连免费模型也救不了，故不区分模型。
+  // ⚠ **不记账**：error 已是终态，短路再累加连败只会把 fail_streak 刷成无意义的大数
+  //   （2026-10-24 实测 11 次 not_authenticated 把它刷到 11）。
   if (activeAccountIsError(cid)) {
     return {
-      kind: "not_authenticated",
+      kind: "account_error",
       error: `active account is marked error after repeated failures; switch account (mx acct use) or re-login (mx login ${cid})`,
     };
   }

@@ -294,6 +294,10 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 - `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 时网关
   按帧里的 `retryAfterSeconds`（封顶 10s）退避后重开上游重试，总时长上限 5 分钟。
   已吐过内容帧则不重试（避免重复内容）。未声明的渠道照旧把错误帧透传给客户端。
+  排队等待期间网关向**流式**客户端按轮次分批发进度文案（content delta）；
+  客户端断开（res `close` 事件，比 `res.destroyed` 可靠）后探测立即止损，
+  不再打上游 —— 2026-10-24 修订：早先只查 `res.destroyed`，客户端 60s 超时走人后
+  仍会多打一次上游并滞留一个等待轮次。
 - `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒）；默认值与心跳口径见
   [LOGGING.md](./LOGGING.md) §6。声明后首帧等待、空闲守卫与排队探测统一放宽。
 
