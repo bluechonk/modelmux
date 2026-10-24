@@ -269,3 +269,50 @@ describe("5. login 幂等提示", () => {
     );
   }));
 });
+
+describe("6. 展示名（name / label）", () => {
+  it("有名称类字段：name 有值，label 用名称（不是 uid）", withRoot(async () => {
+    mkdirSync(paths.channelDir(CID), { recursive: true });
+    writeFileSync(
+      paths.credentialsPath(CID),
+      `${JSON.stringify({ accessToken: "tok-1", uid: "u-1", domain: "example.com", nickname: "alice" }, null, 2)}\n`,
+      "utf8",
+    );
+    const account = captureActive(CID)!;
+    assert.equal(account.name, "alice", "nickname 应进 name");
+    assert.equal(account.label, "alice", "label 优先用名称");
+  }));
+
+  it("只有 uid：name 为空串，label 退化为 uid（供 Web 显示脱敏 id）", withRoot(async () => {
+    mkdirSync(paths.channelDir(CID), { recursive: true });
+    writeFileSync(
+      paths.credentialsPath(CID),
+      `${JSON.stringify({ accessToken: "tok-9", uid: "user-9", domain: "example.com" }, null, 2)}\n`,
+      "utf8",
+    );
+    const account = captureActive(CID)!;
+    assert.equal(account.name, "", "没有名称类字段时 name 必须是空串");
+    assert.equal(account.label, "user-9", "label 退化为 uid");
+  }));
+
+  it("渠道后来补上名称：listAccounts 刷新 label 与 name", withRoot(async () => {
+    mkdirSync(paths.channelDir(CID), { recursive: true });
+    writeFileSync(
+      paths.credentialsPath(CID),
+      `${JSON.stringify({ accessToken: "tok-7", uid: "user-7", domain: "example.com" }, null, 2)}\n`,
+      "utf8",
+    );
+    captureActive(CID)!;
+    assert.equal(listAccounts(CID).accounts[0]!.name, "", "补名称之前 name 为空");
+
+    // 渠道补存了昵称（重新登录 / 上游回填）
+    writeFileSync(
+      paths.credentialsPath(CID),
+      `${JSON.stringify({ accessToken: "tok-7", uid: "user-7", domain: "example.com", nickname: "bob" }, null, 2)}\n`,
+      "utf8",
+    );
+    const refreshed = listAccounts(CID).accounts[0]!;
+    assert.equal(refreshed.name, "bob", "补上的昵称应进入 name");
+    assert.equal(refreshed.label, "bob", "弱 label（uid）应升级为名称");
+  }));
+});

@@ -416,6 +416,7 @@ interface CredModule {
      "uid": "1b2f4d3e-5a67-4c89-9d01-2e3f4a5b6c7d",
      "domain": "www.example.com",
      "label": "example-user",
+     "name": "example-user",
      "added_at": "2026-10-08T10:00:48.647Z",
      "last_used_at": "2026-10-08T10:00:49.109Z",
      "expires_at": null,
@@ -431,7 +432,13 @@ interface CredModule {
 - **`key = sha256(domain\0uid)[:16]`** —— 稳定（重登不变）、文件名安全（全小写 hex，
  过得了 `paths.channelFile` 的校验）。uid 为空的渠道退化为按 token 派生（那类渠道重登会得到新
  key，属已知限制）。
-- `label` / `expires_at` 是**尽力而为的展示字段**（取不到就空 / `null`），不参与任何判据。
+- `label` / `name` / `expires_at` 是**尽力而为的展示字段**（取不到就空 / `null`），不参与任何判据。
+  - `name`：**名称类字段**（`nickname` → `displayName` → `username` → 邮箱 → 手机号，
+    见 `NAME_FIELDS`），渠道没给就是空串 —— Web 据此决定「显示名字」还是「显示脱敏 id」。
+  - `label`：`name` 的兜底版本，取不到名称才退化成 `uid` / `key`；CLI 文本视图用它。
+  - 渠道实测：traecn / qoder / qodercn / raccoon 给 nickname，loomy 给已脱敏手机号，
+    workbuddy / workbuddyai 的 nickname 可能为空，**catpaw / orcaterm 只有 uid**。
+    读池子时（`refreshLabels`）若渠道补上了名称，两者会一起升级。
 - `health`：`ok` | `unauthorized` | `unknown` | `error` | `cooldown`。由**网关**在刷新失败时写
   `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
 - **`error` = 连续失败标记**：生效账号连续请求失败达

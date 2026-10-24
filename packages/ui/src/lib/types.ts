@@ -44,6 +44,13 @@ export interface PoolAccount {
   uid: string;
   domain: string;
   label: string;
+  /**
+   * 名称类字段（昵称 / 用户名 / 邮箱 / 手机号）；渠道没给就是空串。
+   *
+   * 与 `label` 的区别：`label` 会退化成 uid / key，而 `name` 只在渠道真的
+   * 提供了可读名称时才有值 —— 有 `name` 就显示名字，没有才退回脱敏 id。
+   */
+  name?: string;
   added_at: string;
   last_used_at: string;
   expires_at: number | null;

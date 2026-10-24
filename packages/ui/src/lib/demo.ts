@@ -24,11 +24,13 @@ interface DemoChannel {
   billing: boolean;
 }
 
-/** 一个虚构账号。uid/label 全部明显是占位值，不含任何真实身份信息。 */
+/** 一个虚构账号。uid/label/name 全部明显是占位值，不含任何真实身份信息。 */
 interface DemoAccount {
   key: string;
   uid: string;
   label: string;
+  /** 名称类字段；空串表示该渠道只有 uid（演示「无名字 → 显示脱敏 id」）。 */
+  name?: string;
   health: string;
 }
 
@@ -61,18 +63,19 @@ const DEMO_MODELS: Record<string, string[]> = {
   workbuddyai: ["deepseek-v4.1-flash"],
 };
 
-/** 演示账号池：key / uid / label 全是虚构占位值。 */
+/** 演示账号池：key / uid / label / name 全是虚构占位值。 */
 const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
   catpaw: [
-    { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "138****0001", health: "ok" },
-    { key: "demo000000000000a2", uid: "demo-uid-catpaw-2", label: "138****0002", health: "ok" },
+    // catpaw 真实只给 uid，演示「无名字 → 显示脱敏 id」
+    { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "ok" },
+    { key: "demo000000000000a2", uid: "demo-uid-catpaw-2", label: "demo-uid-catpaw-2", health: "ok" },
   ],
-  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "139****0003", health: "ok" }],
-  loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "137****0004", health: "ok" }],
-  qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", health: "ok" }],
-  raccoon: [{ key: "demo000000000000f1", uid: "demo-uid-raccoon-1", label: "demo-raccoon-user", health: "ok" }],
-  traecn: [{ key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", health: "ok" }],
-  workbuddyai: [{ key: "demo000000000000h1", uid: "demo-uid-wbai-1", label: "demo-wbai-user", health: "unauthorized" }],
+  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "139****0003", name: "139****0003", health: "ok" }],
+  loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "137****0004", name: "137****0004", health: "ok" }],
+  qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", name: "demo-qoder-user", health: "ok" }],
+  raccoon: [{ key: "demo000000000000f1", uid: "demo-uid-raccoon-1", label: "demo-raccoon-user", name: "demo-raccoon-user", health: "ok" }],
+  traecn: [{ key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok" }],
+  workbuddyai: [{ key: "demo000000000000h1", uid: "demo-uid-wbai-1", label: "demo-uid-wbai-1", health: "unauthorized" }],
 };
 
 /** 池账本（虚构用量）。`accounts` 是按生效账号拆分的请求计数。 */
