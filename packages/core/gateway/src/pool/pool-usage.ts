@@ -76,15 +76,19 @@ export interface AccountCount {
   /** 该账号额度查询是否成功。 */
   billing_ok?: boolean;
   /**
-   * **当日基线**：本地日期 + 当天第一次查到的 `remain`。
+   * **额度基线**：当前额度窗口内第一次账单的 `remain`，Web 百分比的分母。
    *
-   * Web 的额度百分比以它为分母（主人 2026-10-23 要求：当天首个 bill 当 100%，
-   * 之后每轮刷新的消耗都算作从 100% 下降）。跨天自动重置。
+   * 口径（主人 2026-10-24 确认）：
+   *   - 窗口键 `window` 取渠道声明的「下次刷新时刻」，渠道没声明才用本地日期。
+   *     不能只用自然日 —— 多个渠道的日额度在本地 0 点之后才到账，按自然日抓基线
+   *     会让 `remain > 基线`，百分比被 clamp 成恒 100%（实测 traecn / qodercn / raccoon）。
+   *   - 同一窗口内 `remain` **回升**（日奖励到账、额度恢复）时重设基线，
+   *     否则回升后的消耗会被 clamp 掩盖。
    *
    * 为什么不用上游的 `size`：各渠道口径不一（loomy 的 `dailyQuota` 只在 first-login
    * 响应里、workbuddyai 的 size 是月包 credits），拿它当分母会算出「永远 100%」。
    */
-  baseline?: { date: string; remain: number } | null;
+  baseline?: { window: string; date: string; remain: number; at: string } | null;
 }
 
 export interface PoolLedger {
@@ -147,7 +151,15 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
         ? (() => {
             const b = baselineRaw as Record<string, unknown>;
             const date = typeof b.date === "string" ? b.date : "";
-            return date !== "" ? { date, remain: num(b.remain) } : null;
+            if (date === "") return null;
+            // 旧数据只有 {date, remain}：把 date 当作窗口键，下一轮刷新会升级成窗口键。
+            const window = typeof b.window === "string" && b.window ? b.window : `d:${date}`;
+            return {
+              window,
+              date,
+              remain: num(b.remain),
+              at: typeof b.at === "string" ? b.at : "",
+            };
           })()
         : null;
     out[key] = {
@@ -307,6 +319,46 @@ function noteBillingAttempt(cid: string, ok: boolean): void {
   scheduleSave();
 }
 
+/**
+ * 额度窗口键：渠道声明了「下次刷新时刻」就用它（窗口滚动时值会变），否则本地日期。
+ *
+ * 不能只用自然日：多个渠道的日额度在本地 0 点之后才到账，按自然日抓基线会让
+ * `remain > 基线`，百分比被 clamp 成恒 100%（2026-10-24 实测 traecn / qodercn / raccoon）。
+ */
+function windowKeyOf(cid: string): string {
+  const channel = channels().find((c) => c.config.cid === cid);
+  const resetsAt = channel?.billing?.quotaPeriod?.()?.resets_at ?? null;
+  if (typeof resetsAt === "number" && Number.isFinite(resetsAt) && resetsAt > 0) {
+    return `w:${resetsAt}`;
+  }
+  return `d:${localDate()}`;
+}
+
+/**
+ * 决定额度基线（100% 分母）。
+ *
+ * - 没有基线 / 窗口变了 → 用本轮 `remain` 起新基线；
+ * - 同一窗口内 `remain` **回升**（日奖励到账、额度恢复）→ 以新值为基线 ——
+ *   否则 `remain > baseline` 会把比例 clamp 在 100%，掩盖之后的消耗；
+ * - 其余保持原基线，这就是「窗口内第一次 bill 当 100%」。
+ */
+function pickBaseline(
+  prev: AccountCount["baseline"],
+  remain: number,
+  window: string,
+): NonNullable<AccountCount["baseline"]> {
+  const next = { window, date: localDate(), remain, at: new Date().toISOString() };
+  if (!prev) return next;
+  // 旧数据升级：`d:<今天>`（自然日口径）→ `w:<窗口>` 时保留当天已抓的基线，
+  // 否则部署当天正确的比例（如 qoder 的 96%）会被重置成 100%。只影响这一次切换。
+  if (prev.window.startsWith("d:") && prev.date === next.date && !window.startsWith("d:")) {
+    return remain > prev.remain ? next : { ...prev, window };
+  }
+  if (prev.window !== window) return next;
+  if (remain > prev.remain) return next;
+  return prev;
+}
+
 /** 写某账号的额度快照（按账号查询成功时）。 */
 export function writeAccountBilling(cid: string, key: string, credits: unknown): void {
   const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
@@ -319,11 +371,7 @@ export function writeAccountBilling(cid: string, key: string, credits: unknown):
     unit: str(total["unit"]),
     remain_percent: num(total["remain_percent"]),
   };
-  // 当日基线：每个本地日期只在**第一次**查到账单时落一次，跨天自动重来
-  const today = localDate();
-  if (!entry.baseline || entry.baseline.date !== today) {
-    entry.baseline = { date: today, remain };
-  }
+  entry.baseline = pickBaseline(entry.baseline, remain, windowKeyOf(cid));
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = true;
   scheduleSave();

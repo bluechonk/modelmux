@@ -41,6 +41,8 @@ interface BillingRow {
       } | null;
       billing_at?: string | null;
       billing_ok?: boolean;
+      /** 额度基线（当前窗口内第一次账单的 remain），百分比分母。 */
+      baseline?: { window?: string; date: string; remain: number; at?: string } | null;
     }>;
   }>;
 }
