@@ -285,13 +285,19 @@ function Head({
   return (
     <thead className="sticky top-0 z-10 bg-raised">
       <tr className="border-b border-line text-[11px] text-ink-faint">
-        <th className="px-4 py-2 text-left font-normal">模型</th>
-        {showChannel && <th className="px-3 py-2 text-left font-normal">渠道</th>}
-        <th className="px-3 py-2 text-right font-normal">倍率</th>
-        <th className="hidden px-3 py-2 text-right font-normal lg:table-cell">最大上下文</th>
-        <th className="hidden px-3 py-2 text-right font-normal lg:table-cell">输出上限</th>
-        <th className="hidden px-3 py-2 text-left font-normal lg:table-cell">思考模式</th>
-        <th className="px-3 py-2 text-left font-normal">输入</th>
+        <th className="whitespace-nowrap px-4 py-2 text-left font-normal">模型</th>
+        {showChannel && <th className="whitespace-nowrap px-3 py-2 text-left font-normal">渠道</th>}
+        <th className="whitespace-nowrap px-3 py-2 text-right font-normal">倍率</th>
+        <th className="hidden whitespace-nowrap px-3 py-2 text-right font-normal md:table-cell">
+          最大上下文
+        </th>
+        <th className="hidden whitespace-nowrap px-3 py-2 text-right font-normal md:table-cell">
+          输出上限
+        </th>
+        <th className="hidden whitespace-nowrap px-3 py-2 text-left font-normal md:table-cell">
+          思考模式
+        </th>
+        <th className="whitespace-nowrap px-3 py-2 text-left font-normal">输入</th>
         <th className="w-10 px-2 py-2" />
       </tr>
     </thead>
@@ -353,17 +359,25 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
  * ⚠ 不能给「不支持」的模型编档位：旧版共享层给所有模型都填了 `["low","high"]`，
  * 于是 200 个没声明过的模型都被显示成「支持 low/high」（主人 2026-10-24 反馈）。
  * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现。
+ *
+ * 窄屏（< lg）整列隐藏 —— 与表头同一断点，否则会出现「列头没了、内容还在」。
  */
 function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
   const effort = row.meta?.effort ?? null;
   if (effort === null || effort.supportedLevels.length === 0) {
-    return <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-faint">不支持</td>;
+    return (
+      <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-ink-faint md:table-cell">
+        不支持
+      </td>
+    );
   }
   const levels = effort.supportedLevels.map(
     (level) => THINKING_LEVEL_LABELS[level.toLowerCase()] ?? level,
   );
   return (
-    <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-soft">{levels.join(" / ")}</td>
+    <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-ink-soft md:table-cell">
+      {levels.join(" / ")}
+    </td>
   );
 }
 
@@ -379,7 +393,7 @@ function ModelNameCell({ row }: { row: ModelRow }): ReactElement {
 /** 窗口/上限单元格。 */
 function SizeCell({ value }: { value: number | undefined }): ReactElement {
   return (
-    <td className="hidden whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft lg:table-cell">
+    <td className="hidden whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft md:table-cell">
       {value ? compactNumber(value) : "—"}
     </td>
   );
@@ -415,8 +429,8 @@ function GroupedTable({
   previewAll: boolean;
 }): ReactElement {
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-raised">
-      <table className="w-full border-collapse">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-raised">
+      <table className="w-full min-w-[440px] border-collapse">
         <Head showChannel={false} />
         {[...groups.entries()].map(([cid, rows]) => {
           const isCollapsed = collapsed.has(cid);
@@ -501,8 +515,8 @@ function FlatTable({
   freePlanCids: ReadonlySet<string>;
 }): ReactElement {
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-raised">
-      <table className="w-full border-collapse">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-raised">
+      <table className="w-full min-w-[440px] border-collapse">
         <Head showChannel={true} />
         <tbody>
           {rows.map((row) => (

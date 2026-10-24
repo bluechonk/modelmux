@@ -195,10 +195,12 @@ export function LoginModal({
           </button>
         </div>
 
-        {/* 两栏：左侧渠道与步骤概览，右侧当前流程 */}
-        <div className="flex min-h-0 flex-1">
-          <aside className="flex w-56 shrink-0 flex-col gap-1 border-r border-line px-3 py-2">
-            <div className="flex items-center gap-2.5 rounded-lg bg-overlay px-3 py-2.5">
+        {/* 两栏：左侧渠道与步骤概览，右侧当前流程。
+            窄屏**堆叠**（渠道行横排 + 底部描边）：左栏固定 224px 在 480px 下会把
+            右侧挤到 ~200px，步骤正文与输入框都不可用。 */}
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <aside className="flex w-full shrink-0 items-start gap-3 border-b border-line px-4 py-3 md:w-56 md:flex-col md:gap-1 md:border-b-0 md:border-r md:px-3 md:py-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg bg-overlay px-3 py-2.5 md:flex-none">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-overlay text-ink-soft">
                 <QrCode className="h-4 w-4" />
               </span>
@@ -207,14 +209,14 @@ export function LoginModal({
                 <div className="truncate text-[11px] text-ink-faint">{display ?? "渠道账号"}</div>
               </div>
             </div>
-            <div className="mt-2 px-3 text-[11px] leading-relaxed text-ink-faint">
+            <div className="mt-0 text-[11px] leading-relaxed text-ink-faint md:mt-2 md:px-3">
               <div className={stepTone}>{stepLabel}</div>
               <div className="mt-0.5 text-ink-faint/70">{stepHint}</div>
             </div>
           </aside>
 
           {/* 右侧：步骤区 */}
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
             {qrUrl ? (
               <Steps items={qrSteps} />
             ) : authUrl ? (
