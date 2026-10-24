@@ -50,6 +50,8 @@ export interface ForwardOptions {
   pendingFrames?: ProbeFrames;
   /** 排队等待预算耗尽。 */
   queuedOut?: boolean;
+  /** 排队放弃文案：探测层填了它，本层就回**正常应答**（劝主人换渠道）而不是错误帧。 */
+  giveUpText?: string | null;
   /** 探测用的翻译器实例（必须与探测层是同一个）。 */
   probeTranslator?: StreamTranslator;
   /** 客户端原始请求体（渠道的翻译器要用）。 */
@@ -66,6 +68,46 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
   if (choice.message.tool_calls && choice.message.tool_calls.length > 0) return false;
   const total = (completion.usage as { total_tokens?: unknown }).total_tokens;
   return !(typeof total === "number" && total > 0);
+}
+
+/**
+ * 排队超时后的收尾：把「劝主人换渠道」的文案作为**正常应答**返回。
+ *
+ * 为什么不回错误帧：排队耗尽时客户端早已等不及，回一个 `upstream_queued` 错误
+ * 只会让它显示「上游排队」这种没用的信息；直接告诉主人「别用这家了」才有用。
+ * 流式与非流式各按自己的形态给出完整应答（含 `finish_reason` 与 `[DONE]`）。
+ */
+function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wantStream: boolean): void {
+  const id = `chatcmpl-queue-${Date.now().toString(36)}`;
+  const created = Math.floor(Date.now() / 1000);
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null): string =>
+    `data: ${JSON.stringify({
+      id,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    })}\n\n`;
+  if (!wantStream) {
+    writeJson(res, {
+      id,
+      object: "chat.completion",
+      created,
+      model,
+      choices: [
+        { index: 0, message: { role: "assistant", content: `${text}\n\n` }, finish_reason: "stop" },
+      ],
+    });
+    return;
+  }
+  if (!res.headersSent) {
+    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
+    res.write(chunk({ role: "assistant", content: "" }, null));
+  }
+  res.write(chunk({ content: `${text}\n\n` }, null));
+  res.write(chunk({}, "stop"));
+  res.write("data: [DONE]\n\n");
+  res.end();
 }
 
 /**
@@ -90,6 +132,7 @@ export async function relayUpstream(
     logger,
     pendingFrames = [],
     queuedOut = false,
+    giveUpText = null,
     probeTranslator,
     request,
   } = opts;
@@ -109,6 +152,11 @@ export async function relayUpstream(
     if (queuedOut && pendingFrames.length === 0) {
       // 释放这条已静默的上游流（流式路径同处也释放）
       await call.body?.cancel().catch(() => {});
+      // 排队太久：回「劝主人换渠道」的正常应答，而不是一个没用的错误信封
+      if (giveUpText) {
+        writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
+        return;
+      }
       writeJsonError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
       return;
     }
@@ -158,9 +206,14 @@ export async function relayUpstream(
   // 排队探测阶段已经消费掉的内容帧先补写给客户端（它们属于这次响应的前缀）
   for (const frame of pendingFrames) res.write(frame);
   if (queuedOut && pendingFrames.length === 0) {
-    // 排队预算耗尽且没有任何内容：给出明确错误帧后结束
+    // 排队预算耗尽且没有任何内容：给出明确应答后结束
     // （与非流式路径同一顺序：先判预算，不再读那条已静默的上游流）
     await call.body?.cancel().catch(() => {});
+    // 排队太久：回「劝主人换渠道」的正常应答，而不是一个没用的错误帧
+    if (giveUpText) {
+      writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
+      return;
+    }
     res.write(
       `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
     );
