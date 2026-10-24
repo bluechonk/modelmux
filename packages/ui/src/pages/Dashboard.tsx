@@ -70,11 +70,11 @@ export function Dashboard(): ReactElement {
 
       {/* composer 形态的接入区：一整块圆角盒，端点逐行可复制 */}
       <section className="panel mb-7 overflow-hidden">
-        <div className="space-y-1 p-5">
+        <div className="space-y-1 p-4 sm:p-5">
           <EndpointRow label="base_url" value={state.base_url} />
           <EndpointRow label="chat_url" value={state.chat_url} />
-          <div className="flex items-start gap-4 pt-1">
-            <span className="w-24 shrink-0 pt-1 text-[13px] text-ink-faint">endpoints</span>
+          <div className="flex flex-col gap-1.5 pt-1 sm:flex-row sm:items-start sm:gap-4">
+            <span className="shrink-0 pt-0.5 text-[13px] text-ink-faint sm:pt-1 sm:w-24">endpoints</span>
             <div className="flex flex-wrap gap-1.5">
               {state.endpoints.map((e) => (
                 <span key={e} className="pill bg-overlay font-mono text-ink-soft">
@@ -122,11 +122,13 @@ export function Dashboard(): ReactElement {
   );
 }
 
-/** 端点行：标签 + 值（等宽字体，可长文本换行）+ 复制按钮。 */
+/** 端点行：标签 + 值（等宽字体，可长文本换行）+ 复制按钮。
+    窄屏**堆叠**（标签在上、值独占一行）：宽屏时标签固定 96px，值列被压到几像素，
+    URL 会逐字换行（实测 480px 下完全不可读）。 */
 function EndpointRow({ label, value }: { label: string; value: string }): ReactElement {
   return (
-    <div className="flex items-center gap-4 rounded-lg px-1 py-1.5 transition-colors hover:bg-overlay/40">
-      <span className="w-24 shrink-0 text-[13px] text-ink-faint">{label}</span>
+    <div className="flex flex-col gap-1 rounded-lg px-1 py-1.5 transition-colors hover:bg-overlay/40 sm:flex-row sm:items-center sm:gap-4">
+      <span className="shrink-0 text-[13px] text-ink-faint sm:w-24">{label}</span>
       <span className="min-w-0 flex-1 break-all font-mono text-[13px] text-ink-soft">{value || "—"}</span>
       <CopyInline value={value} label={`复制 ${label}`} />
     </div>
