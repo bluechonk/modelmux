@@ -432,6 +432,15 @@ export async function refresh(c: Credentials): Promise<Credentials> {
  * `upstream_auth_expired` 明确暴露。`ORCATERM_REFRESH_LEAD_MS` 可覆盖窗口（测试用）。
  */
 const REFRESH_LEAD_MS = Number(process.env["ORCATERM_REFRESH_LEAD_MS"] || 10 * 60 * 1000);
+
+/**
+ * 过期判据的安全余量：本地看还在有效期内、请求送达上游时已经过期。
+ *
+ * 实测请求发出时距 `exp` 仅 120ms，上游回 `auth expired` —— 网络耗时与双方时钟
+ * 偏差都能吃掉这点余量。取 60 秒：远大于单程网络耗时，又不会把「还剩 2 小时」
+ * 的正常请求误判成过期（那样每个请求都要多等一次续期往返）。
+ */
+const EXPIRY_MARGIN_MS = 60_000;
 let refreshInFlight: Promise<unknown> | null = null;
 
 export function ensureFreshInBackground(c: { accessToken: string }): void {
@@ -450,7 +459,7 @@ export function ensureFreshInBackground(c: { accessToken: string }): void {
 /**
  * 可选钩子：发请求前确保 token 未过期（网关 `refreshIfExpired`）。
  *
- * 只在 token **已经过期**时阻塞续期 —— 续期窗口内仍走后台非阻塞刷新
+ * 只在 token **已经过期**（或即将过期）时阻塞续期 —— 续期窗口内仍走后台非阻塞刷新
  * （`ensureFreshInBackground`），否则每个请求都要多等一次网络往返。
  *
  * 为什么需要它：`ensureFreshInBackground` 是惰性的，过期后没有请求进来时
@@ -458,11 +467,16 @@ export function ensureFreshInBackground(c: { accessToken: string }): void {
  * HTTP 200 + 鉴权失效帧 —— 客户端报「Model request failed」，而后台刷新
  * 其实已经把下一个请求修好了（实测两次仅相差 7ms）。
  *
+ * ⚠ 判据必须留 `EXPIRY_MARGIN_MS` 安全余量，不能用「`Date.now() < exp`」裸判：
+ * 实测请求发出时距 `exp` 仅 120ms，本地看还在有效期内，但请求送达上游时已过期
+ * （网络耗时 + 时钟偏差），上游照样回 `auth expired`。余量按「单程网络耗时 +
+ * 双方时钟偏差」取，太小等于没加。
+ *
  * 钩子就地改写 credential，使随后的 `buildHeaders` 用上新 token。
  */
 export async function refreshIfExpired(c: Credentials): Promise<void> {
   const expMs = jwtExpMs(c.accessToken);
-  if (expMs > 0 && Date.now() < expMs) return;
+  if (expMs > 0 && Date.now() < expMs - EXPIRY_MARGIN_MS) return;
   const refreshed = await refresh(c);
   c.accessToken = refreshed.accessToken;
   c.uid = refreshed.uid || c.uid;
