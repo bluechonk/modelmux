@@ -256,6 +256,14 @@ Cookie: ot_session=<当前 JWT>
 探测，`fetchModels` 内 await）与 `ensureFreshInBackground()`（每个对话请求头构造时
 fire-and-forget）在剩余 <10 分钟时触发续期，`ORCATERM_REFRESH_LEAD_MS` 可覆盖窗口。
 
+⚠ **惰性预续期会漏掉过期后的第一个请求**：`ensureFreshInBackground()` 不阻塞，
+token 过期后若没有请求进来就不会续；一旦过期，当前请求会拿着死 token 发出去，
+上游回 HTTP 200 + 鉴权失效帧（实测凭据 `obtainedAt` 与失败请求仅差 7ms —— 后台
+续期完成了，但那个请求已经废了）。故本渠道声明共享层契约钩子
+`refreshIfExpired(credential)`：**已过期**时阻塞续期并就地改写 credential，
+仍在续期窗口内则保持非阻塞（否则每个请求都要多等一次网络往返）。
+契约见 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5。
+
 ---
 
 ## 2. 自有 API（CAPI 框架）
@@ -614,6 +622,31 @@ mx model orcaterm --refresh
 是**客户端声明过的工具名**；回填（工具结果进入下一次请求的完整历史）后模型能接着给出
 最终回答（不再是「模型只说不做」）。
 
+### 2026-10-24 增量流式与上游错误行
+
+**问题一：伪流式**。翻译器原先把所有帧累积到 `finalize()` 才产出，实测
+`ttfbMs == durationMs`（2899/2900）—— 客户端全程只能转圈。而上游本身是增量的
+（直连实测 3035 帧、首帧 2608ms、末帧 77117ms）。
+
+**修法**：`reasoningContent` 是纯文本，改为边收边发；只有 `content` 仍缓冲到最后
+拆信封（信封里的 thinking 与帧级 `reasoningContent` 同源，已增量下发过就不再重复发）。
+修复后网关流式实测 257–386 帧、首帧 3.8s / 34.7s、末帧 85–130s（首帧比末帧早 95 秒）。
+
+**问题二：上游错误行被吞**。上游用 `data: [ERROR]: ...` 行表达失败
+（实测形态：`[ERROR]: [LLM_ERROR]: LLM(x) is not loaded.`）。原实现把这类行当无效帧
+丢掉，客户端于是只看到「200 + 空 content」，报「Model request failed」而看不到原因。
+
+**修法**：`SseLineReader` 单独记下错误行原文，翻译器把它转成
+`{error:{type:"upstream_error", message:<原文>}}` 错误帧；鉴权失效行则转成
+`type:"upstream_auth_expired"`。同时修 `flush()` 的既有 bug：它拿到的是含 `data:`
+前缀的原始 tail，却按去前缀后的形态判断，导致无换行的错误行永远匹配不上。
+
+| 验证项 | 结果 |
+| --- | --- |
+| 错误行有换行 / 整份留在 tail 两种形态 | 都转成 error 帧 |
+| 网关流式帧数 | 257–386 帧（修复前 2 帧全挤在末尾） |
+| 鉴权失效帧 | 透出 `upstream_auth_expired` |
+
 ### 2026-10-24 上下文构造实测
 
 **问题**：旧实现按会话键派生 conversationId、只把末条 user/tool 发给上游，依赖服务端历史。
@@ -712,7 +745,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | **签到 / 领取** | CAPI 内无签到 action，订阅制无积分概念（§5.2）。渠道声明 `capabilities.signin=false` |
 | **控制台态（`uin`/`skey`）登录** | 与「登录只保留一条」冲突（§1.1）；且票据随腾讯云登录失效、需用户手动从浏览器取 cookie |
 | **图片 / 多模态输入** | 参考实现支持 `image` / `image_url` 两种 ACP part（[参考] `orca.go` `BuildACPPromptWithNote`），但本渠道未实现 —— 当前只取 content 里的 `text` part |
-| **真打字机（流式实时抠文本）** | 参考实现有 `StreamFieldExtractor` 逐 token 提取可见文本（[参考] `orca.go`）；本渠道仍是**流末一次性下发**（首字节延迟 = 整段生成时间），本渠道不改 |
+| **逐 token 抠可见文本** | 参考实现有 `StreamFieldExtractor` 逐 token 提取可见文本（[参考] `orca.go`）；本渠道改为**思考链增量下发**（见「2026-10-24 增量流式与上游错误行」），正文仍整段缓冲到最后拆信封 —— 不再要求客户端等整轮生成完才看到第一个字，但正文不是逐 token 粒度 |
 | **`ask` 反问的专用行为** | 参考实现有「无人值守模式」提示词 + 非流式自动确认兜底（[参考] `engine.go` `NoAskBehaviorNote` / `autoConfirmAsk`）；本渠道仍把 `ask` 降级成正文（反问 + 选项列表） |
 | **usage（token 用量）统计** | 上游不返回真实 token 数；参考实现也是本地估算。本渠道翻译层不产出 usage 帧，账本无消耗数据 |
 | **`tool_choice` / `parallel_tool_calls` 的显式校验** | 上游不支持 `required` 与具名强制选择，一次只产出一个调用；本渠道**不**显式报错（避免打断客户端的正常请求），由上游裁决 |
