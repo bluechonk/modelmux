@@ -161,6 +161,20 @@ export interface UpstreamModule {
   modelsUrl(cfg?: any): string;
   buildHeaders(credential: any, cfg?: any): Record<string, string>;
   /**
+   * 可选：发请求前确保凭据可用（如 token **已过期**时阻塞续期）。
+   *
+   * 为什么需要：`buildHeaders` 是同步的，无法「先续期再发」。而有些渠道的
+   * 预刷新是惰性的（由请求触发、非阻塞），一旦 token 已经过期，当前请求会
+   * 拿着死 token 发出去 —— 上游回 HTTP 200 + 鉴权失效帧，客户端报请求失败，
+   * 而后台刷新其实已经把下一个请求修好了。声明本钩子后，网关在 `buildHeaders`
+   * 之前先 `await` 它；钩子只需在**已过期**时阻塞，续期窗口内不必阻塞
+   * （否则每个请求都要多等一次网络往返）。
+   *
+   * 钩子可就地改写传入的 credential（如换上新 accessToken），使随后的
+   * `buildHeaders` 用上新 token。
+   */
+  refreshIfExpired?(credential: any): Promise<void>;
+  /**
    * 可选：对话请求的**专用头族**（上游按整组头判定「是否官方客户端」的渠道需要）。
    *
    * 缺省时网关回退 `buildHeaders`（基础鉴权头）——普通 OpenAI 兼容渠道无需声明。
