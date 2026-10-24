@@ -40,8 +40,8 @@ export interface AccountBilling {
   credits?: AccountCredits | null;
   billing_at?: string | null;
   billing_ok?: boolean;
-  /** 当日基线（当天第一个账单的 remain），用作 100% 分母。 */
-  baseline?: { date: string; remain: number } | null;
+  /** 额度基线（当前窗口内第一次账单的 remain），用作 100% 分母。 */
+  baseline?: { window?: string; date: string; remain: number; at?: string } | null;
 }
 
 /** 渠道级账本条（billing action 聚合后的形状）。 */
@@ -164,33 +164,29 @@ function expiryText(expiresAt: number | null): string {
 }
 
 /**
- * 额度百分比：**优先以「当天第一个账单」为 100% 基线**（主人 2026-10-23 要求）——
- * 当天消耗多少就掉多少，跨天自动回到满格。
+ * 额度百分比：**以当前额度窗口内第一次账单为 100% 基线**（主人 2026-10-24 确认）——
+ * 窗口内消耗多少就掉多少，换窗口自动回到满格。
  *
- * 兜底顺序：基线（>0）→ 后端 `remain_percent` → `remain / size`（上游口径不可靠时）。
+ * 不做兜底猜测：没有基线、或 remain 不是有限数字时返回 null（不画进度条、不显示百分比）。
+ * 退回上游 `remain_percent` 会给出误导性的满格 —— 那是窗口占比，不是当日消耗。
  */
 function quotaPercent(
   credits: AccountCredits | null | undefined,
-  baseline?: { date: string; remain: number } | null,
+  baseline?: { window?: string; date: string; remain: number; at?: string } | null,
 ): number | null {
-  if (!credits) return null;
+  if (!credits || !baseline) return null;
   const remain = Number(credits.remain);
-  if (baseline && Number.isFinite(baseline.remain) && baseline.remain > 0 && Number.isFinite(remain)) {
-    return Math.max(0, Math.min(100, (remain / baseline.remain) * 100));
-  }
-  const pct = Number(credits.remain_percent);
-  if (Number.isFinite(pct) && pct >= 0) return Math.min(100, pct);
-  const size = Number(credits.size);
-  if (Number.isFinite(size) && size > 0 && Number.isFinite(remain)) {
-    return Math.max(0, Math.min(100, (remain / size) * 100));
-  }
-  return null;
+  const base = Number(baseline.remain);
+  if (!Number.isFinite(remain) || !Number.isFinite(base)) return null;
+  // 0 基线：耗尽当天显示 0%；若随后回升，后端会在下一轮刷新重设基线。
+  if (base <= 0) return remain <= 0 ? 0 : null;
+  return Math.max(0, Math.min(100, (remain / base) * 100));
 }
 
 /** 额度语义：耗尽=danger / 紧张=warn / 正常=free / 无数据=中性。 */
 function quotaTone(
   credits: AccountCredits | null | undefined,
-  baseline?: { date: string; remain: number } | null,
+  baseline?: { window?: string; date: string; remain: number; at?: string } | null,
 ): "danger" | "warn" | "free" | "muted" {
   if (!credits) return "muted";
   if (Number(credits.remain) <= 0) return "danger";
@@ -469,12 +465,13 @@ function QuotaMeter({
   unsupported,
 }: {
   credits: AccountCredits | null | undefined;
-  baseline?: { date: string; remain: number } | null;
+  baseline?: { window?: string; date: string; remain: number; at?: string } | null;
   unsupported: boolean;
 }): ReactElement {
   const pct = quotaPercent(credits, baseline);
   const tone = quotaTone(credits, baseline);
-  if (unsupported || !credits) {
+  // 没有基线 / 数值不可用：只显示数额，不画进度条也不显示百分比（不猜 100%）
+  if (unsupported || !credits || pct === null) {
     return (
       <span className="font-mono text-[11px] tabular-nums text-ink-faint">
         {quotaAmount(credits, unsupported)}

@@ -92,7 +92,11 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   `billing.fetchCredits({ credential, refreshOn401: false })`，结果写进账本
   `accounts[key].credits`；卡片里额度条**独占一行**，只显示数值与百分比
   （**不显示「积分」「credits」这类单位**），数值带千分位、最多 2 位小数。
-- 百分比以**当天首个账单**为 100% 基线（跨天重置，见 `pool-usage.ts` 的 `baseline`）—— 不用上游 `size` 当分母（各渠道口径不一）。
+- 百分比以**当前额度窗口内第一次账单**为 100% 基线（实现见 `pool-usage.ts` 的 `pickBaseline`）：
+  窗口键取渠道声明的 `quotaPeriod().resets_at`，没声明才回落本地日期；窗口滚动或同一窗口内
+  `remain` 回升（奖励到账）时重设基线。**没有基线或 `remain` 不可用时不显示百分比** ——
+  不回退上游 `remain_percent`（它是窗口占比，常年 100，会给出误导性的满格）。
+  也不用上游 `size` 当分母（各渠道口径不一）。
 - 查询失败显示「额度查询失败」，不把未知显示成 0。
 
 ### 交互铁律：**不要 hover 悬浮气泡**
