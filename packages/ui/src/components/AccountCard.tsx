@@ -401,8 +401,12 @@ export function AccountCard({
                   </span>
                 </div>
 
-                {/* 第二行：额度条独占整行（单位不显示，只留数值 + 百分比） */}
-                <div className="mt-1.5 pl-3.5">
+                {/* 第二行：额度条独占整行。
+                    **固定高度**：额度条有两种渲染分支 —— 正常分支返回块级 flex 行，
+                    「无额度概念」渠道（capabilities.billing=false，如 orcaterm）返回
+                    裸行内 span，行盒会更高（实测 24px vs 17px），导致账号块高度不一致、
+                    卡片网格参差。统一成固定高度的 flex 行，两个分支同高。 */}
+                <div className="mt-1.5 flex h-[17px] items-center pl-3.5">
                   <QuotaMeter
                     credits={bill?.credits}
                     baseline={bill?.baseline}
