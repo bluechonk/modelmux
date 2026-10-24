@@ -221,9 +221,17 @@ async function runQueueProbe(
   const progressId = `chatcmpl-queue-${startedAt.toString(36)}`;
   const progressCreated = Math.floor(startedAt / 1000);
   let queueRound = 0;
+  // 客户端断连检测：客户端断开时 Node 触发 res 的 `close` 事件，但**不一定**置
+  // `res.destroyed`（实测：要等一次写失败后才置位）—— 必须挂 close 监听，
+  // 否则探测会在客户端走后继续按预算空转（2026-10-24 实测白打 4 分钟上游）。
+  let clientGone = res.destroyed || res.writableEnded;
+  const clientClosed = new Promise<void>((resolve) => {
+    if (clientGone) resolve();
+    else res.once("close", () => { clientGone = true; resolve(); });
+  });
   for (;;) {
     // 客户端已断开：探测再久也没有收件人，立即止损（释放上游流、结束应答）。
-    if (res.destroyed || res.writableEnded) {
+    if (clientGone || res.destroyed || res.writableEnded) {
       await call.body?.cancel().catch(() => {});
       if (res.headersSent) res.end();
       state.failed = true;
@@ -297,7 +305,14 @@ async function runQueueProbe(
         /* 客户端已断：交给循环顶部的断连检测 */
       }
     }
-    await new Promise((r) => setTimeout(r, delayMs));
+    // 等待期与「客户端断开」竞速：断开就立刻醒，最多省一个轮次的空转。
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, delayMs);
+        timer.unref?.();
+      }),
+      clientClosed,
+    ]);
     const credential = loadCredentialSafe(channel);
     if (!credential) {
       logger(`queue retry aborted: no credential available (channel ${cid})`);
@@ -433,6 +448,14 @@ export async function attemptCandidate(
         code: "quota_exhausted",
         message: `account quota exhausted (${cid}); cooling down until ${outcome.until} (${outcome.reason}), or switch account`,
       },
+    };
+  }
+  // error 终态短路：已标 error，再记连败只会虚增 fail_streak（2026-10-24 实测被刷到 11）。
+  if (outcome.kind === "account_error") {
+    logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
+    return {
+      kind: "retry",
+      error: { status: 503, code: "not_authenticated", message: `not logged in: ${outcome.error}` },
     };
   }
   let call = outcome.call;

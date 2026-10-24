@@ -164,6 +164,9 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 - 短路：`activeAccountIsError()` 只对 `error` 为真（请求入口不再打上游）；`cooldown` 由
   `activeAccountCooldown()` 按模型判定 —— 倍率 0 的免费模型不受冷却限制，照常打上游。
 - 展示：`activeAccountCooldown(cid)` 给出 `{ until, reason }` 供 CLI / Web 显示「冷却到几点」。
+- **error 终态短路也不记账**（`auth.ts` 的独立 `account_error` 类别）：error 已是终态，
+  短路再记连败只会把 `fail_streak` 刷成无意义的大数（2026-10-24 实测被 11 次
+  not_authenticated 刷到 11），不影响行为但污染账面与排障判断。
 - **冷却中的账号不参与账单刷新**：额度要等窗口刷新才会变，
   冷却期反复查它的额度既拿不到新数字、又白打一次上游。实现见
   `runRefresh` / `refreshAccountCredits` —— 只跳**这个账号**（生效账号冷却时渠道级查询跳过，
