@@ -235,6 +235,35 @@ function jwtNickname(token: string): string {
   return "";
 }
 
+/**
+ * 从 `OAuthExchangeToken` 的响应里找账号名（`Response.User` 对象）。
+ *
+ * 该端点除了 token 还回一个 `User` 对象，字段未在文档中列明；这里做防御性提取 ——
+ * 递归找名为 `User` 的对象，读其中的名字类字段，取不到就返回空串。
+ */
+function nicknameFromExchange(raw: unknown): string {
+  let found = "";
+  const walk = (value: unknown, depth: number): void => {
+    if (depth > 6 || found) return;
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1);
+      return;
+    }
+    const rec = value as Record<string, unknown>;
+    for (const key of ["nickName", "nickname", "name", "providerUsername"]) {
+      const hit = rec[key];
+      if (typeof hit === "string" && hit.trim()) {
+        found = hit.trim();
+        return;
+      }
+    }
+    for (const key of Object.keys(rec)) walk(rec[key], depth + 1);
+  };
+  walk(raw, 0);
+  return found;
+}
+
 /** token 指纹（脱敏）。 */
 function fingerprint(token: string): string {
   if (!token) return "(none)";
@@ -335,8 +364,11 @@ async function loginByTxcloud(options: LoginOptions, baseUrl: string): Promise<C
     if ("token" in result) {
       onStatus?.(`session acquired (${fingerprint(result.token)})`);
       const creds = decodeOtSession(result.token, "txcloud", baseUrl);
-      // 账号名：JWT 声明优先（微信登录才有），CAPI nickName 兜底
-      const nickname = creds.nickname || (await fetchAccountNickname(result.token, baseUrl));
+      // 账号名：JWT 声明优先，交换响应的 User 对象次之，CAPI nickName 兜底
+      const nickname =
+        creds.nickname ||
+        nicknameFromExchange(result.raw) ||
+        (await fetchAccountNickname(result.token, baseUrl));
       return { ...creds, nickname };
     }
     if (result.error !== lastError) {
