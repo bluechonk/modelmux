@@ -430,6 +430,32 @@
 | `hunyuan-2.0-thinking` | 不在 §3 规格表内 |
 | `hunyuan-image-alpha` | 图片条目，不在 §3 规格表内 |
 
+### 2026-10-24 用量限额（429 / 6004）与冷却记账实测
+
+长会话（1183–1248 条消息、单请求 2.5–2.8MB、单次 `prompt_tokens` 约 62 万）连续跑通后，
+上游开始回 **HTTP 429 + 业务码 `6004`**：
+
+```
+{"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-24 23:54:22 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"…"}
+```
+
+网关侧观测（`~/.modelmux/logs/access/2026-10-24/failure.log`）：12 次失败，1 次
+`quota_exhausted` + 11 次 `not_authenticated`（后者的 `durationMs` 仅 42–79ms，**未打上游**）。
+
+- **`6004` 按账户级用量限额处理**（`quotaSignal` 上报 `usage_limit`）。上游文案里
+  「您也可以切换其他模型继续使用」**不可信**：国际版同族文案写着同样的话，但 2026-10-23
+  真机实测证明连倍率 0 的 `deepseek-v4.1-flash` 也照吃 `6004`
+  （[`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)「使用与实测」）。
+- **冷却截止用上游给的滚动重置时刻**（`quotaResetAt` 从 msg 文本解析，含 `UTC+8` 偏移换算），
+  不再回落次日本地 0 点。
+- **事故根因在共享层记账**：冷却期间 `http/chat/auth.ts` 把短路报成 `not_authenticated`，
+  而 `attempt.ts` 对该 kind 一律记连败 → 3 次即把账号打成 `error`，`fail_streak` 涨到 11；
+  `error` 短路不区分模型，免费模型一起锁死且无自动恢复路径。
+  已改为独立 `cooling` 类别、**不计连败**，回归用例见
+  `packages/core/gateway/tests/cooling-accounting.test.ts`。
+- 恢复路径：等窗口刷新（`cooldown_until` 到期惰性恢复），或 `mx acct workbuddy use <key>`
+  手动切号（会同时清掉 `cooldown` 与 `fail_streak`）。
+
 ### 已知限制（实测）
 
 - SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
