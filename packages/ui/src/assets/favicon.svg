@@ -1,20 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="modelmux">
   <title>modelmux</title>
-  <desc>多渠道路由网关：三条渠道汇聚到一个 OpenAI 兼容端点。</desc>
+  <desc>多渠道路由网关：鲸鱼身 + 分叉尾鳍，尾鳍两股即多条渠道。</desc>
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#38bdf8" />
-      <stop offset="1" stop-color="#0284c7" />
+    <linearGradient id="whale" x1="4" y1="6" x2="21" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7d92ff" />
+      <stop offset="1" stop-color="#3a55d9" />
     </linearGradient>
   </defs>
-  <!-- 品牌底色：与侧栏 logo 同形的圆角方块（sky 渐变） -->
-  <rect width="24" height="24" rx="6" fill="url(#tile)" />
-  <!-- 三条渠道汇聚成一条总线，末端接上单一端点 -->
-  <g fill="none" stroke="#0b1220" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M5.2 7.2C8.2 7.2 8.8 12 11.8 12" />
-    <path d="M5.2 12h6.6" />
-    <path d="M5.2 16.8C8.2 16.8 8.8 12 11.8 12" />
-    <path d="M11.8 12h4.8" />
-  </g>
-  <circle cx="18" cy="12" r="1.7" fill="#0b1220" />
+  <!-- 鲸身：圆头朝左，尾柄收到右侧 -->
+  <path
+    d="M4.2 12.4C4.2 9 6.9 6.5 10.3 6.5c3.6 0 6.5 2.7 6.5 6.1 0 3.3-2.8 5.7-6.4 5.7-3.5 0-6.2-2.5-6.2-5.9Z"
+    fill="url(#whale)"
+  />
+  <!-- 尾鳍：上下两股分叉，呼应「多渠道」 -->
+  <path
+    d="M16.4 12.2c1.6-1 3.2-2.6 3.9-4.5.2-.6.9-.5 1 .1.3 2.1-.3 3.8-1.4 4.9 1.1 1 1.7 2.7 1.4 4.8-.1.6-.8.7-1 .1-.7-1.9-2.3-3.4-3.9-4.4Z"
+    fill="#6b83ff"
+    opacity="0.9"
+  />
+  <!-- 眼睛 -->
+  <circle cx="8.8" cy="10.9" r="0.95" fill="#131313" />
 </svg>

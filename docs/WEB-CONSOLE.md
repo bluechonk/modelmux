@@ -5,42 +5,60 @@
 
 ## 设计系统（`packages/ui/src/index.css`）
 
+视觉语言参照 **DeepSeek**：**近黑中性灰 + 单一品牌蓝**。不用彩色面板底，
+靠留白、字号与极淡描边区分层级；语义色只在「需要人介入」时着色。
+
 UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次**，组件一律用令牌类，
 不直接写 `gray-900` / `sky-500` 这类原始色 —— 换主题只改这一处。
 
 | 组 | 令牌类 | 用途 |
 | --- | --- | --- |
-| 表面（四个深度层） | `bg-canvas` / `bg-surface` / `bg-raised` / `bg-overlay` | 页面底 → 侧栏 → 卡片 → 悬浮层与徽标底 |
-| 描边 | `border-line` / `border-line-strong` | 常规 / hover 与强调 |
-| 文字 | `text-ink` / `text-ink-soft` / `text-ink-faint` | 主 / 次 / 弱 |
-| 语义 | `text-brand` `bg-brand/12` / `text-free` `bg-free/12` / `text-warn` `bg-warn/12` / `text-danger` `bg-danger/12` | 品牌蓝 / 免费与正常 / 注意 / 错误 |
+| 表面（四个深度层） | `bg-canvas` `#131313` / `bg-surface` `#1a1a1a` / `bg-raised` `#1f1f1f` / `bg-overlay` `#2a2a2a` | 主内容底 → 侧栏 → 卡片 → 悬浮层与选中底 |
+| 描边 | `border-line` `#2b2b2b` / `border-line-strong` `#3d3d3d` | 常规 / hover 与强调（都很淡，不抢视线） |
+| 文字 | `text-ink` `#e8e8e8` / `text-ink-soft` `#a6a6a6` / `text-ink-faint` `#6e6e6e` | 主 / 次 / 弱 |
+| 语义 | `brand` `#4d6bfe` / `free` `#4ec9a0` / `warn` `#e8b339` / `danger` `#f0616d` | 品牌蓝（只给主操作与选中）/ 正常与免费 / 注意 / 错误 |
 
-另有两个组件类与一处动效：
+三个组件类与一处动效：
 
 | 类 | 用途 |
 | --- | --- |
-| `.panel` | 唯一的容器形态（`rounded-2xl border border-line bg-raised`），面板、统计块、渠道块共用 |
+| `.panel` | 唯一的容器形态（`rounded-2xl border border-line bg-raised`），面板、渠道块共用 |
 | `.panel-title` | 面板标题（图标 + 文字，14px 半粗） |
-| `.pill` | 徽标（渠道 id / 状态 / 计数） |
+| `.pill` | 徽标（状态 / 计数）；正常态用 `bg-overlay text-ink-soft`，不铺彩色底 |
+| `.nav-item` | 侧栏导航项（纯文本 + 圆角 hover 底；选中态用 `bg-overlay`，不用彩色底） |
 | `.live-dot` | 网关状态灯的呼吸动效（`prefers-reduced-motion` 下自动关闭） |
 
 约定：
 
 - 圆角只有两档：容器 `rounded-2xl`、行内元素 `rounded-lg`；徽标 `rounded-md`。
-- 页面结构固定为「页头（`PageHeader`：标题 + 说明 + 右侧操作）→ 统计块 → 面板 → 列表」。
+- **徽标与卡头不铺彩色底**：DeepSeek 的面板一律中性，状态靠圆点 + 文字着色表达。
+  只有「冷却 / 不可用」这类需要人介入的状态才用 `bg-warn/12` / `bg-danger/12`。
 - 语义色的用法固定：**绿=正常/免费**、**蓝=品牌与主操作**、**黄=注意（连续失败、临期）**、
   **红=不可用（账号失效、额度耗尽）**、**灰=未加载或未登录**。
 - 数字用等宽数位（`.tabular`），统计值变化时不抖动。
 - 键盘可达：`:focus-visible` 有统一聚焦环（鼠标点击不显示）。
-- 图标统一用 `lucide-react`，尺寸三档：12（小徽标）/ 14（行内）/ 16（面板标题）；
-  同一语义不换图标（侧栏品牌用 `Layers`，面板里的「层级」也用 `Layers`）。
+- 图标统一用 `lucide-react`，尺寸三档：12（小徽标）/ 14（行内）/ 16（面板标题）。
+- **品牌 mark 是内联组件**（`components/BrandMark.tsx`，鲸鱼身 + 分叉尾鳍 =
+  多条渠道），与 `assets/favicon.svg` 同形；侧栏与 hero 共用，不引用外部图片。
 
 ## 页面结构（双页深色）
 
 | 页面 | 内容 |
 | --- | --- |
-| 仪表盘 `/web/` | 页头 + 四块统计（网关状态 / 可用模型 / 供给渠道 / 接入端点）、**接入端点面板**（base_url / chat_url / endpoints）、**模型区**（见下） |
-| 账号池 `/web/accounts` | 添加账号（**登录引导弹窗**）、渠道卡片（**小写 cid** + 账号列表：可读昵称/用户名 + 各账号剩余额度进度条 + 切换/删除） |
+| 仪表盘 `/web/` | **hero**（品牌 mark + 「网关正在运行」+ 渠道/模型计数）、**composer 形态的接入区**（base_url / chat_url / endpoints，逐行可复制）、一行四块紧凑统计、**模型区**（见下） |
+| 账号池 `/web/accounts` | 添加账号（**登录引导弹窗**）、总览条（正常/冷却/异常/未登录计数）、渠道卡片**两列网格**（小写 cid + 账号列表：可读昵称/用户名 + 各账号剩余额度进度条 + 切换/删除） |
+
+### 为什么仪表盘首屏是「hero + 接入区」
+
+参照 DeepSeek 的首屏：一块大的圆角区域占据视觉中心，周围大量留白，统计退到下方。
+旧版把四块统计卡放在最上面，整页像运维看板；而这里最常见的动作是**把 base_url 抄走**，
+所以端点做成首屏主体、统计压成一行紧凑数据条。
+
+### 为什么账号卡最多两列
+
+三列时单卡仅约 380px，中文账号名与额度条会互相挤压（实测「塞西莉亚4412」被截断）。
+两列下每卡约 570px，名称行固定 22px 行高、UID 退到次行并留 6px 上间距 ——
+中文名字形下缘低，仅靠 `leading` 会看成与 UID 叠字。
 
 ### 模型区（`components/ModelExplorer.tsx`）
 

@@ -160,7 +160,7 @@ export function ModelExplorer({
     <section className="mb-2">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="panel-title">
-          <Rows3 className="h-4 w-4 text-brand" />
+          <Rows3 className="h-4 w-4 text-ink-soft" />
           可用模型
           <span className="text-xs font-normal text-ink-faint">渠道/模型</span>
         </h2>
@@ -172,7 +172,7 @@ export function ModelExplorer({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索模型或渠道…"
-              className="w-52 rounded-lg border border-line bg-raised py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink-faint focus:border-brand/50 focus:outline-none"
+              className="w-52 rounded-lg border border-line bg-raised py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
             />
             {query && (
               <button
@@ -189,7 +189,7 @@ export function ModelExplorer({
           <select
             value={cidFilter}
             onChange={(e) => setCidFilter(e.target.value)}
-            className="rounded-lg border border-line bg-raised px-2 py-1.5 text-xs text-ink-soft focus:border-brand/50 focus:outline-none"
+            className="rounded-lg border border-line bg-raised px-2 py-1.5 text-xs text-ink-soft focus:border-line-strong focus:outline-none"
             aria-label="按渠道筛选"
           >
             <option value="all">全部渠道（{channelIds.length}）</option>
@@ -235,7 +235,7 @@ export function ModelExplorer({
             </button>
           </div>
 
-          <span className="text-[11px] text-ink-faint">
+          <span className="font-mono text-[11px] text-ink-faint">
             {keyword || cidFilter !== "all" || freeOnly
               ? `${visible.length} / ${total}`
               : `${total} 个`}
@@ -277,7 +277,7 @@ function Head({
   showChannel: boolean;
 }): ReactElement {
   return (
-    <thead className="sticky top-0 z-10 bg-raised/95 backdrop-blur">
+    <thead className="sticky top-0 z-10 bg-raised">
       <tr className="border-b border-line text-[11px] text-ink-faint">
         <th className="px-4 py-2 text-left font-normal">模型</th>
         {showChannel && <th className="px-3 py-2 text-left font-normal">渠道</th>}
@@ -291,14 +291,14 @@ function Head({
   );
 }
 
-/** 倍率单元格：免费档用绿色徽标，其余用等宽数字。 */
+/** 倍率单元格：免费档用绿色文字（不铺彩色底），其余用等宽数字。 */
 function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: ReadonlySet<string> }): ReactElement {
   const m = row.meta?.multiplier ?? null;
   const freePlan = freePlanCids.has(row.cid);
   if (m === 0 || (m == null && freePlan)) {
     return (
       <td className="whitespace-nowrap px-3 py-2 text-right">
-        <span className="pill bg-free/12 font-mono text-free">免费</span>
+        <span className="font-mono text-[11px] text-free">免费</span>
       </td>
     );
   }
@@ -312,7 +312,7 @@ function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: Re
   );
 }
 
-/** 输入模态单元格：能吃图才给徽标，纯文本留白。 */
+/** 输入模态单元格：能吃图才给标记，纯文本留白。 */
 function ModalityCell({ row }: { row: ModelRow }): ReactElement {
   const modes = row.meta?.inputModalities ?? [];
   const vision = modes.includes("image");
@@ -321,7 +321,7 @@ function ModalityCell({ row }: { row: ModelRow }): ReactElement {
   }
   return (
     <td className="whitespace-nowrap px-3 py-2">
-      <span className="pill bg-brand/12 text-brand">
+      <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft">
         <ImageIcon className="h-3 w-3" />
         文本+图
       </span>
@@ -394,7 +394,7 @@ function GroupedTable({
           return (
             <tbody key={cid}>
               <tr>
-                <th colSpan={7} scope="rowgroup" className="border-b border-line bg-canvas/60 text-left">
+                <th colSpan={7} scope="rowgroup" className="border-b border-line bg-canvas/50 text-left">
                   <div className="flex items-center gap-2.5 px-4 py-2.5">
                     <button
                       type="button"
@@ -404,13 +404,13 @@ function GroupedTable({
                     >
                       {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </button>
-                    <span className="pill bg-brand/12 font-mono text-brand">{cid}</span>
+                    <span className="font-mono text-[13px] font-medium text-ink">{cid}</span>
                     <span className="text-[11px] text-ink-faint">{rows.length} 个模型</span>
-                    {free > 0 && <span className="pill bg-free/12 text-free">{free} 个免费</span>}
-                    {vision > 0 && <span className="pill bg-overlay text-ink-soft">{vision} 个可吃图</span>}
+                    {free > 0 && <span className="text-[11px] text-free">{free} 个免费</span>}
+                    {vision > 0 && <span className="text-[11px] text-ink-faint">{vision} 个可吃图</span>}
                     {mults.length > 0 && (
-                      <span className="ml-auto text-[11px] text-ink-faint">
-                        倍率 ×{formatMultiplier(Math.min(...mults))}–×{formatMultiplier(Math.max(...mults))}
+                      <span className="ml-auto font-mono text-[11px] text-ink-faint">
+                        ×{formatMultiplier(Math.min(...mults))}–×{formatMultiplier(Math.max(...mults))}
                       </span>
                     )}
                   </div>
@@ -473,7 +473,7 @@ function FlatTable({
             >
               <ModelNameCell row={row} />
               <td className="px-3 py-2">
-                <span className="pill bg-brand/12 font-mono text-brand">{row.cid}</span>
+                <span className="font-mono text-[11px] text-ink-soft">{row.cid}</span>
               </td>
               <MultiplierCell row={row} freePlanCids={freePlanCids} />
               <SizeCell value={row.meta?.contextWindow} />

@@ -17,6 +17,7 @@ import type { ReactElement, ReactNode } from "react";
  *
  * 视觉上刻意「退后」：模型墙里一次能出现上百个 chip，默认态用低对比描边，
  * 复制图标平时淡出、悬浮时点亮 —— 避免整屏图标噪声。
+ * 不做 hover 位移（`translate-y`）：列表里成排元素一起跳会晃眼。
  */
 export function CopyChip({
   value,
@@ -44,16 +45,16 @@ export function CopyChip({
       type="button"
       aria-label={`复制 ${value}`}
       onClick={() => void copy()}
-      className={`group inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs transition-all ${
+      className={`group inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs transition-colors ${
         copied
           ? "border-free/50 bg-free/10 text-free"
-          : "border-line bg-canvas/60 text-ink-soft hover:-translate-y-px hover:border-brand/40 hover:bg-overlay hover:text-ink"
+          : "border-line bg-canvas/60 text-ink-soft hover:border-line-strong hover:bg-overlay hover:text-ink"
       }`}
     >
       {copied ? (
         <Check className="h-3 w-3 shrink-0 text-free" />
       ) : (
-        <Copy className="h-3 w-3 shrink-0 text-ink-faint/60 transition-colors group-hover:text-brand" />
+        <Copy className="h-3 w-3 shrink-0 text-ink-faint/60 transition-colors group-hover:text-ink-soft" />
       )}
       <span>{display ?? value}</span>
       {badge}
@@ -91,7 +92,7 @@ export function CopyButton({
       type="button"
       aria-label={label}
       onClick={() => void copy()}
-      className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-ink-faint/70 transition-colors hover:border-line hover:bg-overlay hover:text-brand"
+      className="grid h-7 w-7 place-items-center rounded-md text-ink-faint/70 transition-colors hover:bg-overlay hover:text-ink"
     >
       {copied ? <Check className="h-3.5 w-3.5 text-free" /> : <Copy className="h-3.5 w-3.5" />}
     </button>

@@ -1,6 +1,9 @@
 /**
  * 「添加账号」登录弹窗（模态）：渲染授权步骤时间线与二维码 / 授权链接。
  *
+ * 视觉参照 DeepSeek 的系统设置弹窗：一个居中的大圆角面板，左侧是渠道/步骤概览，
+ * 右侧是当前步骤的正文；标题栏只有标题与关闭键。
+ *
  * ⚠ 只有右上角的关闭按钮能关闭 —— 遮罩点击 / ESC 一律不关（登录进行中误触
  * 丢流程比关不掉更糟）。授权页渲染成**按钮**而不是裸 URL。
  */
@@ -10,7 +13,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
-  Lightbulb,
+  Info,
   Loader2,
   QrCode,
   X,
@@ -72,7 +75,8 @@ export function LoginModal({
       // 剪贴板不可用（非安全上下文等）：静默失败，用户仍可手动复制下面那一行
     }
   };
-  // 二维码流 3 步、授权链接流 4 步；标题栏据此给步骤提示
+
+  // 扫码流 3 步、授权链接流 4 步；标题栏据此给步骤提示
   const totalSteps = qrUrl ? 3 : 4;
   const stepLabel = failed
     ? "登录失败"
@@ -130,7 +134,7 @@ export function LoginModal({
         <div className="space-y-2">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-canvas transition-colors hover:bg-brand/85 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-deep disabled:opacity-50"
             disabled={authUrl === ""}
             onClick={() => void copyAuthUrl()}
             aria-label="复制授权链接到剪贴板"
@@ -170,88 +174,94 @@ export function LoginModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/85 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
       aria-label={`添加账号：${cid}`}
       // 刻意不绑 onClick 关闭：登录进行中误触遮罩会丢流程（需求：仅关闭键可关）
     >
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.8)]">
-        {/* 标题栏：渠道名 + 步骤提示 */}
-        <div className="flex items-start gap-3 border-b border-line px-5 py-4">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand/12 text-brand">
-            <QrCode className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-ink">添加账号</span>
-              <span className="pill bg-brand/12 font-mono text-brand">{cid}</span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-ink-faint">
-              {display && <span className="truncate">{display}</span>}
-              <span className={stepTone}>{stepLabel}</span>
-              <span className="text-ink-faint/70">{stepHint}</span>
-            </div>
-          </div>
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]">
+        {/* 标题栏：标题 + 关闭键（DeepSeek 设置弹窗的同构标题栏） */}
+        <div className="flex items-center justify-between px-6 py-4">
+          <h2 className="text-base font-semibold text-ink">添加账号</h2>
           {/* 唯一的关闭入口 */}
           <button
             type="button"
             aria-label="关闭"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
             onClick={onClose}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* 步骤区 */}
-        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
-          {qrUrl ? (
-            <Steps items={qrSteps} />
-          ) : authUrl ? (
-            <Steps items={authSteps} />
-          ) : (
-            <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line bg-canvas/60 px-4 py-10 text-center">
-              <Loader2 className="h-5 w-5 animate-spin text-brand" />
-              <div className="text-sm text-ink-soft">正在准备登录会话…</div>
-              <div className="text-[11px] text-ink-faint">授权链接与二维码生成后会立刻出现在这里</div>
+        {/* 两栏：左侧渠道与步骤概览，右侧当前流程 */}
+        <div className="flex min-h-0 flex-1">
+          <aside className="flex w-56 shrink-0 flex-col gap-1 border-r border-line px-3 py-2">
+            <div className="flex items-center gap-2.5 rounded-lg bg-overlay px-3 py-2.5">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface text-ink-soft">
+                <QrCode className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="truncate font-mono text-[13px] font-medium text-ink">{cid}</div>
+                <div className="truncate text-[11px] text-ink-faint">{display ?? "渠道账号"}</div>
+              </div>
             </div>
-          )}
+            <div className="mt-2 px-3 text-[11px] leading-relaxed text-ink-faint">
+              <div className={stepTone}>{stepLabel}</div>
+              <div className="mt-0.5 text-ink-faint/70">{stepHint}</div>
+            </div>
+          </aside>
 
-          {/* 温馨提醒 */}
-          <div className="rounded-xl border border-warn/25 bg-warn/8 p-3 text-xs leading-relaxed text-warn/85">
-            <div className="mb-1 flex items-center gap-1.5 font-medium text-warn">
-              <Lightbulb className="h-3.5 w-3.5" />
-              温馨提醒
+          {/* 右侧：步骤区 */}
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {qrUrl ? (
+              <Steps items={qrSteps} />
+            ) : authUrl ? (
+              <Steps items={authSteps} />
+            ) : (
+              <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
+                <Loader2 className="h-5 w-5 animate-spin text-brand" />
+                <div className="text-sm text-ink-soft">正在准备登录会话…</div>
+                <div className="text-[11px] text-ink-faint">授权链接与二维码生成后会立刻出现在这里</div>
+              </div>
+            )}
+
+            {/* 温馨提醒：中性底 + 细字，不用黄色警示块（这里不是错误） */}
+            <div className="rounded-xl bg-raised p-3.5 text-xs leading-relaxed text-ink-faint">
+              <div className="mb-1.5 flex items-center gap-1.5 font-medium text-ink-soft">
+                <Info className="h-3.5 w-3.5" />
+                提醒
+              </div>
+              <ul className="list-disc space-y-1 pl-4">
+                <li>授权链接只会复制到剪贴板，由你自己决定在哪个浏览器打开。</li>
+                <li>授权成功后会自动跳回本地回调完成登录；若跳转被拦截，复制地址栏链接粘贴。</li>
+                <li>登录成功后账号自动入池并设为生效；失败时本弹窗会显示原因。</li>
+              </ul>
             </div>
-            <ul className="list-disc space-y-1 pl-4 text-warn/75">
-              <li>如果浏览器拦截了新窗口，回到步骤 1 再点一次「打开授权页」即可。</li>
-              <li>授权成功后会自动跳回本地回调完成登录；若跳转被拦截，复制地址栏链接粘贴。</li>
-              <li>登录成功后账号自动入池并设为生效；失败时本弹窗会显示原因。</li>
-            </ul>
+
+            {/* 后端状态 / 错误 */}
+            {message && (
+              <div
+                className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
+                  failed
+                    ? "border-danger/30 bg-danger/10 text-danger"
+                    : done
+                      ? "border-free/25 bg-free/10 text-free"
+                      : "border-line text-ink-soft"
+                }`}
+              >
+                {failed ? (
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                ) : done ? (
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+                )}
+                <span className="min-w-0 break-words">{message || (failed ? "登录失败" : "进行中…")}</span>
+              </div>
+            )}
           </div>
-
-          {/* 后端状态 / 错误 */}
-          {message && (
-            <div
-              className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
-                failed
-                  ? "border-danger/30 bg-danger/10 text-danger"
-                  : done
-                    ? "border-free/25 bg-free/10 text-free"
-                    : "border-line bg-canvas/60 text-ink-soft"
-              }`}
-            >
-              {failed ? (
-                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              ) : done ? (
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
-              )}
-              <span className="min-w-0 break-words">{message || (failed ? "登录失败" : "进行中…")}</span>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -300,13 +310,13 @@ function StepBadge({ state, index }: { state: StepState; index: number }): React
   }
   if (state === "active") {
     return (
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand/12 text-xs font-semibold text-brand ring-1 ring-brand/30">
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-white">
         {index}
       </span>
     );
   }
   return (
-    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-line bg-canvas text-xs font-semibold text-ink-faint">
+    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-line text-xs font-semibold text-ink-faint">
       {index}
     </span>
   );
@@ -323,7 +333,7 @@ function stepTitleClass(state: StepState): string {
 /** 步骤正文容器：当前步骤 / 失败步骤各自染色，其余保持中性。 */
 function stepBody(state: StepState, body: ReactNode): ReactNode {
   if (state === "active") {
-    return <div className="rounded-xl border border-brand/25 bg-brand/8 p-3">{body}</div>;
+    return <div className="rounded-xl bg-raised p-3">{body}</div>;
   }
   if (state === "failed") {
     return <div className="rounded-xl border border-danger/25 bg-danger/8 p-3">{body}</div>;
@@ -344,14 +354,14 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
     }
   };
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line bg-canvas/70 px-2.5 py-1.5">
+    <div className="flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
       <span className="shrink-0 text-[11px] text-ink-faint">{label}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-soft">{url}</span>
       <button
         type="button"
         onClick={() => void copy()}
         aria-label={`复制${label}`}
-        className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-brand"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
       >
         {copied ? (
           <Check className="h-3.5 w-3.5 text-free" />
@@ -389,14 +399,14 @@ function CallbackForm({
         <input
           id="login-callback-url"
           spellCheck={false}
-          className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-brand/50 focus:outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
           placeholder={placeholder}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
         <button
           type="submit"
-          className="shrink-0 rounded-lg bg-brand px-3 py-2 text-xs font-medium text-canvas transition-colors hover:bg-brand/85 disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-brand px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-brand-deep disabled:opacity-50"
           disabled={submitting || !value.trim()}
         >
           完成登录
