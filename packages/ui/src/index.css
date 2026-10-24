@@ -3,33 +3,35 @@
 /**
  * 设计令牌（Tailwind v4 的 `@theme`）。
  *
- * 视觉语言参照 DeepSeek：**近黑中性灰 + 单一品牌蓝**，不用彩色面板底，
- * 靠留白、字号与描边区分层级。命名分四组：**表面**（四个深度层）、**描边**、
- * **文字**、**语义色**。组件一律用这里的令牌类（如 `bg-raised` / `border-line` /
- * `text-ink-soft`），不再直接写 `gray-900` 这类中性灰 —— 换主题时只改这一处。
+ * 视觉语言参照 Codex / ChatGPT：**纯近黑单色系**。侧栏比主区更深、浮层比主区更浅，
+ * 层级只靠底色差与留白表达；**accent 就是白**（主按钮白底黑字、选中态白色高亮），
+ * 不用任何彩色品牌色；状态语义色保留但饱和度压低，只出现在「需要人看」的地方。
+ * 命名分四组：**表面**（四个深度层）、**描边**、**文字**、**语义色**。
+ * 组件一律用这里的令牌类（如 `bg-raised` / `border-line` / `text-ink-soft`），
+ * 不再直接写 `gray-900` 这类中性灰 —— 换主题时只改这一处。
  */
 @theme {
-  /* 表面：主内容底 → 侧栏 → 卡片 → 悬浮层（越靠上层越亮，但差距极小） */
-  --color-canvas: #131313;
-  --color-surface: #1a1a1a;
-  --color-raised: #1f1f1f;
-  --color-overlay: #2a2a2a;
+  /* 表面：侧栏（最深）→ 主区 → 卡片/输入盒 → 悬浮层（ChatGPT 的经典四层） */
+  --color-canvas: #212121;
+  --color-surface: #171717;
+  --color-raised: #2f2f2f;
+  --color-overlay: #3a3a3a;
 
-  /* 描边：常规 / 强调（hover、激活）。DeepSeek 的描边很克制，只在需要分块时出现 */
-  --color-line: #2b2b2b;
-  --color-line-strong: #3d3d3d;
+  /* 描边：几乎不用；需要分块时才出现，且刻意看不清 */
+  --color-line: #383838;
+  --color-line-strong: #4d4d4d;
 
-  /* 文字：主 / 次 / 弱 */
-  --color-ink: #e8e8e8;
-  --color-ink-soft: #a6a6a6;
-  --color-ink-faint: #6e6e6e;
+  /* 文字：主（近白）/ 次 / 弱 */
+  --color-ink: #ececec;
+  --color-ink-soft: #b4b4b4;
+  --color-ink-faint: #8e8e8e;
 
-  /* 语义色：品牌蓝只用于主操作与选中态，其余语义色饱和度压低 */
-  --color-brand: #4d6bfe;
-  --color-brand-deep: #3a55d9;
-  --color-free: #4ec9a0;
-  --color-warn: #e8b339;
-  --color-danger: #f0616d;
+  /* 语义色：accent = 白（单色系的「品牌色」就是前景色本身） */
+  --color-brand: #ffffff;
+  --color-brand-deep: #d9d9d9;
+  --color-free: #86d9a8;
+  --color-warn: #dcbd6b;
+  --color-danger: #ee7062;
 }
 
 @layer base {
@@ -71,41 +73,40 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #2e2e2e;
+    background: #3d3d3d;
     border-radius: 999px;
     border: 3px solid transparent;
     background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #414141;
+    background: #505050;
     background-clip: content-box;
   }
 
   /* 键盘可达性：统一的聚焦环（鼠标点击不显示） */
   :focus-visible {
-    outline: 2px solid color-mix(in oklab, var(--color-brand) 80%, transparent);
+    outline: 2px solid color-mix(in oklab, var(--color-brand) 55%, transparent);
     outline-offset: 2px;
   }
 }
 
 @layer components {
-  /* 卡片：唯一的容器形态（面板 / 统计块 / 渠道块共用）。
-     圆角取 DeepSeek 的 16px 档；描边极淡，靠底色差分层 */
+  /* 卡片 / 输入盒：唯一的容器形态。圆角 16px 档，描边极淡，靠底色差分层 */
   .panel {
     @apply rounded-2xl border border-line bg-raised;
   }
 
   /* 面板标题：图标 + 文字 */
   .panel-title {
-    @apply flex items-center gap-2 text-sm font-semibold text-ink;
+    @apply flex items-center gap-2 text-sm font-medium text-ink;
   }
 
-  /* 徽标：渠道 id / 状态 / 计数。DeepSeek 的徽标是中性底 + 细字，不带彩色底 */
+  /* 徽标：状态 / 计数。中性底 + 细字，不带彩色底 */
   .pill {
     @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium;
   }
 
-  /* 侧栏导航项：纯文本 + 圆角 hover 底，选中态用浅灰底而不是彩色底 */
+  /* 侧栏导航项：纯文本 + 圆角 hover 底；选中态用浅底 */
   .nav-item {
     @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors;
   }
@@ -116,7 +117,7 @@
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-free) 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-free) 45%, transparent);
   }
   50% {
     opacity: 0.8;

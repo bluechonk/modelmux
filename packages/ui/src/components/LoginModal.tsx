@@ -94,7 +94,7 @@ export function LoginModal({
         : qrUrl
           ? "扫码授权"
           : "浏览器授权";
-  const stepTone = failed ? "text-danger" : done ? "text-free" : "text-brand";
+  const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
 
   // 扫码流：扫码 → 手机确认 → 自动入池
   const qrSteps: Array<{ title: string; body: ReactNode; state: StepState }> = [
@@ -134,7 +134,7 @@ export function LoginModal({
         <div className="space-y-2">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-deep disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
             disabled={authUrl === ""}
             onClick={() => void copyAuthUrl()}
             aria-label="复制授权链接到剪贴板"
@@ -180,10 +180,10 @@ export function LoginModal({
       aria-label={`添加账号：${cid}`}
       // 刻意不绑 onClick 关闭：登录进行中误触遮罩会丢流程（需求：仅关闭键可关）
     >
-      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]">
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]">
         {/* 标题栏：标题 + 关闭键（DeepSeek 设置弹窗的同构标题栏） */}
         <div className="flex items-center justify-between px-6 py-4">
-          <h2 className="text-base font-semibold text-ink">添加账号</h2>
+          <h2 className="text-lg font-medium text-ink">添加账号</h2>
           {/* 唯一的关闭入口 */}
           <button
             type="button"
@@ -199,7 +199,7 @@ export function LoginModal({
         <div className="flex min-h-0 flex-1">
           <aside className="flex w-56 shrink-0 flex-col gap-1 border-r border-line px-3 py-2">
             <div className="flex items-center gap-2.5 rounded-lg bg-overlay px-3 py-2.5">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface text-ink-soft">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-overlay text-ink-soft">
                 <QrCode className="h-4 w-4" />
               </span>
               <div className="min-w-0">
@@ -221,7 +221,7 @@ export function LoginModal({
               <Steps items={authSteps} />
             ) : (
               <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
-                <Loader2 className="h-5 w-5 animate-spin text-brand" />
+                <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
                 <div className="text-sm text-ink-soft">正在准备登录会话…</div>
                 <div className="text-[11px] text-ink-faint">授权链接与二维码生成后会立刻出现在这里</div>
               </div>
@@ -310,7 +310,7 @@ function StepBadge({ state, index }: { state: StepState; index: number }): React
   }
   if (state === "active") {
     return (
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-white">
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-[#171717]">
         {index}
       </span>
     );
@@ -354,7 +354,7 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
     }
   };
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
+    <div className="flex items-center gap-2 rounded-lg bg-canvas/60 px-2.5 py-1.5">
       <span className="shrink-0 text-[11px] text-ink-faint">{label}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-soft">{url}</span>
       <button
@@ -399,14 +399,14 @@ function CallbackForm({
         <input
           id="login-callback-url"
           spellCheck={false}
-          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
           placeholder={placeholder}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
         <button
           type="submit"
-          className="shrink-0 rounded-lg bg-brand px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-brand-deep disabled:opacity-50"
+          className="shrink-0 rounded-full bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
           disabled={submitting || !value.trim()}
         >
           完成登录
