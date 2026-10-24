@@ -29,6 +29,7 @@ export function renderChannelPool(
     accounts: Array<{
       key: string;
       label: string;
+      name?: string;
       uid: string;
       health: string;
       expires_at: number | null;
@@ -47,6 +48,8 @@ export function renderChannelPool(
       accounts: index.accounts.map((a) => ({
         key: a.key,
         label: a.label,
+        // 名称类字段：Web 有名字就显示名字，没有才退回脱敏 id
+        name: a.name ?? "",
         uid: a.uid,
         health: a.health,
         expires_at: a.expires_at,
