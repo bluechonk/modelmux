@@ -42,6 +42,14 @@ export interface PoolAccount {
   domain: string;
   /** 展示名（尽力而为：nickname → email → phone → uid → key）。 */
   label: string;
+  /**
+   * **名称类字段**（昵称 / 用户名 / 邮箱 / 手机号），取不到为空串。
+   *
+   * 与 `label` 的区别：`label` 可能退化成 uid / key（`label` 是「展示用，尽力而为」），
+   * 而 `name` 只在渠道真的给了可读名称时才有值 —— Web 据此决定「显示名字」还是「显示 id」，
+   * 避免把 `UID 452****126` 这种泛化值当成账号名展示。
+   */
+  name: string;
   added_at: string;
   last_used_at: string;
   /** 过期时刻（epoch 秒）；取不到为 null。**仅展示用**，不作为判据。 */
@@ -65,19 +73,38 @@ export interface PoolIndex {
 
 const INDEX_NAME = "accounts.json";
 const ACCOUNT_DIR = "accounts";
-/** 索引里保留的展示字段别名（尽力而为，取不到就空）。 */
-const LABEL_FIELDS = [
+/**
+ * **名称类字段**（按「区分度」排序，越靠前越像人读的账号名）。
+ *
+ * 只放能代表「这是谁」的字段；`uid` / `key` 这类机器标识不进表 —— 它们是兜底，
+ * 不是名字。各渠道实测：traecn/qoder/qodercn/raccoon 给 nickname，loomy 给
+ * 已脱敏手机号，workbuddy/workbuddyai 给 nickname（可能为空），catpaw/orcaterm
+ * 只有 uid。
+ */
+const NAME_FIELDS = [
   "nickname",
+  "nickName",
   "name",
   "displayName",
+  "display_name",
   "username",
   "userName",
   "user_name",
+  "realName",
+  "real_name",
+  "userNickname",
+  "accountName",
+  "loginName",
   "email",
   "phone",
-  "account",
-  "login",
+  "mobile",
+  "phoneNumber",
 ] as const;
+/**
+ * 展示名兜底链（`label` 用）：先名称类，再渠道可能塞进来的账号串。
+ * 取不到就回落 `uid` / `key`（`PoolAccount.name` 则保持空 —— 没名字就是没名字）。
+ */
+const LABEL_FIELDS = [...NAME_FIELDS, "account", "login"] as const;
 const EXPIRY_FIELDS = ["expiresAt", "expireTime", "expiry", "expires_at", "refreshExpiresAt"] as const;
 
 function accountDir(cid?: string): string {
@@ -166,6 +193,7 @@ export function readIndex(cid?: string): PoolIndex {
         uid: String(a["uid"] ?? ""),
         domain: String(a["domain"] ?? ""),
         label: String(a["label"] ?? "") || key,
+        name: String(a["name"] ?? ""),
         added_at: String(a["added_at"] ?? ""),
         last_used_at: String(a["last_used_at"] ?? ""),
         expires_at: typeof a["expires_at"] === "number" ? a["expires_at"] : null,
@@ -225,7 +253,13 @@ function refreshLabels(index: PoolIndex, cid?: string): void {
   let changed = false;
   for (const account of index.accounts) {
     const raw = readAccountCredential(account.key, cid);
-    const candidate = hint(raw, LABEL_FIELDS);
+    // `name` 独立维护：渠道后来补上了昵称/邮箱时，`label` 也该跟着升级
+    const name = hint(raw, NAME_FIELDS);
+    if (name && name !== account.name) {
+      account.name = name;
+      changed = true;
+    }
+    const candidate = name || hint(raw, LABEL_FIELDS);
     if (!candidate || candidate === account.key) continue;
     const current = account.label.trim();
     if (current && current !== account.key && current !== account.uid) continue;
@@ -287,11 +321,13 @@ export function captureActive(
   const index = readIndex(cid);
   const existing = index.accounts.find((a) => a.key === key);
   const stamp = nowIso();
+  const name = hint(raw, NAME_FIELDS);
   const account: PoolAccount = {
     key,
     uid: String(raw["uid"] ?? ""),
     domain: String(raw["domain"] ?? ""),
-    label: options.label?.trim() || hint(raw, LABEL_FIELDS) || String(raw["uid"] ?? "") || key,
+    name,
+    label: options.label?.trim() || name || hint(raw, LABEL_FIELDS) || String(raw["uid"] ?? "") || key,
     added_at: existing?.added_at ?? stamp,
     last_used_at: existing?.last_used_at ?? stamp,
     expires_at: parseExpiry(raw),

@@ -78,6 +78,7 @@ function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
     ...row,
     uid: String(row.uid ?? ""),
     label: String(row.label ?? ""),
+    name: String(row.name ?? ""),
     health: String(row.health ?? "unknown"),
     fail_streak: Number(row.fail_streak ?? 0),
   };
@@ -134,12 +135,18 @@ function maskMiddle(raw: string): string {
 }
 
 /**
- * 账号展示名：**一律脱敏**（手机号 / 纯数字 UID / 邮箱 / 昵称）。
+ * 账号展示名：**有名称就显示名称，没有才脱敏 id**。
  *
- * 输出形态：`131****9411`（手机号）、`UID 452****126`（纯数字）、`blu****onk`（其余）。
- * 拿不到展示名时用 key 的头 4 位 + `****`，不暴露完整 key。
+ * `account.name` 是渠道给的可读名称（nickname / 用户名 / 邮箱 / 手机号），直接展示
+ * 才能区分同渠道的多个账号；`label` 可能退化成 uid / key，那种泛化值按标识脱敏
+ * （手机号 / 纯数字 UID / 邮箱 / key）。
+ *
+ * 输出形态：`bluechonk`（名称）、`131****9411`（手机号）、`UID 452****126`（纯数字）、
+ * `账号 acc****1234`（key 兜底）。
  */
 function displayName(account: PoolAccount): string {
+  const name = account.name?.trim() ?? "";
+  if (name) return name;
   const label = account.label?.trim() ?? "";
   const raw = label || account.uid?.trim() || "";
   if (raw === "") return `账号 ${maskMiddle(account.key)}`;
@@ -362,6 +369,11 @@ export function AccountCard({
                   />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
                     {displayName(account)}
+                    {account.name?.trim() && account.uid?.trim() ? (
+                      <span className="ml-1.5 align-middle text-[11px] font-normal text-ink-faint">
+                        UID {maskMiddle(account.uid)}
+                      </span>
+                    ) : null}
                   </span>
                   {active && <span className="pill shrink-0 bg-brand/12 text-brand">生效中</span>}
                   {health && (
