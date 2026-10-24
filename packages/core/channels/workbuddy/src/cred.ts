@@ -101,6 +101,34 @@ function jwtSub(token: string): string {
   return sharedLogin.jwtSubject(token);
 }
 
+/**
+ * 从 JWT 载荷提取账号名（档案端点的 `nickname` 可能为空）。
+ *
+ * 档案端点带一次性 `state`，登录后无法重放；而 JWT 在登录链路里已经拿到，
+ * 缺名字时从声明里取，避免 Web 只能显示脱敏 uid。
+ *
+ * 取值优先级：`nickname` → `name` → `given_name` → 邮箱/`preferred_username` 的
+ * `@` 前本地部分（域名不是账号标识）→ `preferred_username`。
+ */
+function jwtNickname(token: string): string {
+  const claims = sharedLogin.decodeJwtPayload(token);
+  const pick = (key: string): string => {
+    const value = claims[key];
+    return typeof value === "string" && value.trim() ? value.trim() : "";
+  };
+  for (const key of ["nickname", "name", "given_name"]) {
+    const value = pick(key);
+    if (value) return value;
+  }
+  for (const key of ["email", "preferred_username"]) {
+    const value = pick(key);
+    if (!value) continue;
+    const at = value.indexOf("@");
+    if (at > 0) return value.slice(0, at);
+  }
+  return pick("preferred_username");
+}
+
 /** 当前时间的 RFC3339 字串（转发共享层原语）。 */
 const nowRfc3339 = sharedLogin.nowIso;
 
@@ -144,6 +172,15 @@ export function load(): Credentials {
   };
   if (!c.accessToken) throw new NotLoggedInError();
   if (!c.uid) c.uid = jwtSub(c.accessToken);
+  // 老凭据没有 nickname（档案端点当时返回空）→ 从 JWT 补一次并落盘。
+  // 只在缺名字时写，写一次之后读到就有值，不会变成每请求一次 I/O。
+  if (!c.nickname) {
+    const nickname = jwtNickname(c.accessToken);
+    if (nickname) {
+      c.nickname = nickname;
+      writeJsonSecret(credentialsPath(), c);
+    }
+  }
   return c;
 }
 
@@ -186,7 +223,8 @@ function fromToken(
     domain,
     uid: profile?.uid || jwtSub(access),
     enterpriseId: profile?.enterpriseId ?? "",
-    nickname: profile?.nickname ?? "",
+    // 档案端点的 nickname 可能为空 → 回落 JWT 声明（见 jwtNickname）
+    nickname: profile?.nickname?.trim() || jwtNickname(access),
     obtainedAt: nowRfc3339(),
     source: "workbuddy-login-poll",
   };

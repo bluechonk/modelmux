@@ -95,6 +95,40 @@ async function exchangeSessionToken(
   return token ? { token, raw: json } : { error: exchangeError(json), raw: json };
 }
 
+/**
+ * 取账号名（CAPI `GetUserInfo` 的 `nickName`）。
+ *
+ * 该端点返回 `nickName` / `username` / `userId`；实测对部分账号 `nickName`
+ * 为空，此时留空 —— JWT 的 `providerUsername`（微信登录）仍是更可靠的名字来源。
+ * 失败不阻塞登录。
+ */
+async function fetchAccountNickname(token: string, baseUrl = DEFAULT_BASE_URL): Promise<string> {
+  try {
+    const res = await fetchWithTimeout(
+      `${baseUrl === DEFAULT_BASE_URL ? CAPI_URL : `${baseUrl}/cgi/api`}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/plain, */*",
+          Cookie: `ot_session=${token}`,
+        },
+        body: JSON.stringify({ action: "GetUserInfo" }),
+      },
+      FETCH_TIMEOUT_MS,
+    );
+    if (res.status !== 200) return "";
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const data = json["data"];
+    const response = data && typeof data === "object" ? (data as Record<string, unknown>)["Response"] : undefined;
+    const rec = response && typeof response === "object" ? (response as Record<string, unknown>) : undefined;
+    const value = rec?.["nickName"];
+    return typeof value === "string" && value.trim() ? value.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 // ── 302 重定向解析 ───────────────────────────────────────────────────────────
 
 /**
@@ -131,6 +165,13 @@ interface Credentials {
   accessToken: string;
   /** OrcaTerm 用户 id（JWT userId）。 */
   uid: string;
+  /**
+   * 账号名（JWT `providerUsername`，微信登录时才有）。
+   *
+   * 只取 uid 的话，Web 账号池只能显示脱敏 uid；该声明是 JWT 里已有的
+   * 可读名称，取不到留空。
+   */
+  nickname: string;
   domain: string;
   provider: string;
   obtainedAt: string;
@@ -147,6 +188,7 @@ interface Credentials {
 const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   uid: "",
+  nickname: "",
   domain: "",
   provider: "txcloud",
   obtainedAt: "",
@@ -167,12 +209,30 @@ function decodeOtSession(
   return {
     accessToken: token,
     uid,
+    // 账号名：微信登录的 JWT 带 providerUsername；其它 provider 没有则留空
+    nickname: jwtNickname(token),
     domain: hostOf(baseUrl),
     provider,
     obtainedAt: sharedLogin.nowIso(),
     expiresAt: expMs > 0 ? new Date(expMs).toISOString() : "",
     sid,
   };
+}
+
+/**
+ * 从 JWT 载荷提取账号名。
+ *
+ * 微信登录的 `ot_session` 带 `providerUsername`（微信昵称），其余 provider 没有；
+ * 账号信息端点（`GetUserInfo`）虽然也返回 `nickName`，但它要额外一次请求，
+ * 且对当前账号可能为空 —— JWT 是登录链路里已经拿到的东西，优先用它。
+ */
+function jwtNickname(token: string): string {
+  const payload = decodeJwtPayload(token);
+  for (const key of ["providerUsername", "nickname", "nickName", "name"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
 }
 
 /** token 指纹（脱敏）。 */
@@ -207,16 +267,27 @@ export function load(): Credentials {
   const rec = data as Record<string, unknown>;
   const accessToken = String(rec["accessToken"] ?? rec["access_token"] ?? "");
   if (!accessToken) throw new NotLoggedInError();
-  return {
+  const creds: Credentials = {
     ...EMPTY_CREDENTIALS,
     accessToken,
     uid: String(rec["uid"] ?? rec["userId"] ?? ""),
+    nickname: String(rec["nickname"] ?? ""),
     domain: String(rec["domain"] ?? ""),
     provider: String(rec["provider"] ?? "txcloud"),
     obtainedAt: String(rec["obtainedAt"] ?? rec["obtained_at"] ?? ""),
     expiresAt: String(rec["expiresAt"] ?? rec["expires_at"] ?? ""),
     sid: String(rec["sid"] ?? ""),
   };
+  // 老凭据没有 nickname → 从 JWT 补一次并落盘。
+  // 只在缺名字时写，写一次之后读到就有值，不会变成每请求一次 I/O。
+  if (!creds.nickname) {
+    const nickname = jwtNickname(creds.accessToken);
+    if (nickname) {
+      creds.nickname = nickname;
+      writeJsonSecret(credentialsPath(), creds);
+    }
+  }
+  return creds;
 }
 
 /**
@@ -229,6 +300,7 @@ export async function save(c: Credentials): Promise<void> {
   const payload = {
     accessToken: c.accessToken,
     uid: c.uid,
+    nickname: c.nickname,
     domain: c.domain,
     provider: c.provider,
     obtainedAt: c.obtainedAt || sharedLogin.nowIso(),
@@ -262,7 +334,10 @@ async function loginByTxcloud(options: LoginOptions, baseUrl: string): Promise<C
     const result = await exchangeSessionToken(sessionId, baseUrl);
     if ("token" in result) {
       onStatus?.(`session acquired (${fingerprint(result.token)})`);
-      return decodeOtSession(result.token, "txcloud", baseUrl);
+      const creds = decodeOtSession(result.token, "txcloud", baseUrl);
+      // 账号名：JWT 声明优先（微信登录才有），CAPI nickName 兜底
+      const nickname = creds.nickname || (await fetchAccountNickname(result.token, baseUrl));
+      return { ...creds, nickname };
     }
     if (result.error !== lastError) {
       onStatus?.(`waiting for login… (${result.error})`);
