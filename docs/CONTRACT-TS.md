@@ -278,6 +278,15 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
   会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
   （`packages/core/gateway/src/runtime/channel.ts:223`）。
+- `refreshIfExpired?(credential)`：建头**之前**的异步凭据保鲜，网关在 `buildHeaders` 前
+  `await` 它（`packages/core/gateway/src/http/chat/upstream.ts:139`）。
+  为什么需要：`buildHeaders` 是同步的，无法「先续期再发」；而渠道的预续期若是惰性的
+  （由请求触发、非阻塞），token 过期后当前请求就会拿着**死 token** 发出去，上游回
+  HTTP 200 + 鉴权失效帧，客户端报请求失败 —— 而后台续期其实已经把下一个请求修好了。
+  约定：**只在已过期时阻塞**续期；仍在续期窗口内则保持非阻塞，否则每个请求都要多等
+  一次网络往返。钩子可就地改写传入的 credential（换上新 accessToken），使随后的
+  `buildHeaders` 用上新 token。未声明时网关保持同步行为，不受影响。
+  参考实现见 `packages/core/channels/orcaterm/src/cred.ts`（`refreshIfExpired`）。
 - `isAuthFailure(status, body)`：对**任何非 200** 的响应都会调用；返回 true 时网关把它归一成
   401，走「刷新 token → 重试**本账号**」（不切号）。用于上游不用标准状态码表达凭据失效的渠道。
   完整链路见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
