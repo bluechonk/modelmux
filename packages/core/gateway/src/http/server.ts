@@ -72,28 +72,31 @@ export interface GatewayOptions {
 function handleModels(res: ServerResponse): void {
   writeJson(res, {
     object: "list",
-    // 字段结构对齐 DeepSeek 官方 `GET /models`（见 pool-targets.ts 的 PoolModelMeta）：
-    // **没有 `created`**，`name` 与 `id` 一致（同为 `<cid>/<模型>` 池形态），
-    // 并带上上下文 / 最大输出 / 模态 / 档位。
-    // `owned_by` 即 id 前缀里的渠道（请求方照它选池子）。
-    data: POOL_MODELS.map((id) => {
-      const meta = getPoolModelMeta(id);
-      return {
-        id,
-        object: "model",
-        owned_by: id.split("/")[0] ?? "modelmux",
-        name: id,
-        context_window: meta.contextWindow,
-        max_output_tokens: meta.maxOutputTokens,
-        input_modalities: meta.inputModalities,
-        output_modalities: meta.outputModalities,
-        effort: {
-          supported_levels: meta.effort.supportedLevels,
-          default_level: meta.effort.defaultLevel,
-        },
-        multiplier: meta.multiplier,
-      };
-    }),
+        // 字段结构对齐 DeepSeek 官方 `GET /models`（见 pool-targets.ts 的 PoolModelMeta）：
+        // **没有 `created`**，`name` 与 `id` 一致（同为 `<cid>/<模型>` 池形态），
+        // 并带上上下文 / 最大输出 / 模态 / 思考档位。
+        // `owned_by` 即 id 前缀里的渠道（请求方照它选池子）。
+        // `effort` 可为 **null**：渠道目录没声明思考档位（见 PoolModelMeta.effort 注释）。
+        data: POOL_MODELS.map((id) => {
+          const meta = getPoolModelMeta(id);
+          return {
+            id,
+            object: "model",
+            owned_by: id.split("/")[0] ?? "modelmux",
+            name: id,
+            context_window: meta.contextWindow,
+            max_output_tokens: meta.maxOutputTokens,
+            input_modalities: meta.inputModalities,
+            output_modalities: meta.outputModalities,
+            effort: meta.effort
+              ? {
+                  supported_levels: meta.effort.supportedLevels,
+                  default_level: meta.effort.defaultLevel,
+                }
+              : null,
+            multiplier: meta.multiplier,
+          };
+        }),
   });
 }
 

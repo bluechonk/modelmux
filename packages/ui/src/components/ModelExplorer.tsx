@@ -33,6 +33,13 @@ export interface ModelMeta {
   contextWindow: number;
   maxOutputTokens: number;
   inputModalities: string[];
+  /**
+   * 思考模式（reasoning effort）档位；`null` = 渠道未声明（界面上显示「不支持」）。
+   *
+   * 与共享层 `PoolModelMeta.effort` 同形：**刻意可空** —— 兜底不许编档位，
+   * 否则「不知道」会被显示成「支持」。
+   */
+  effort?: { supportedLevels: string[]; defaultLevel: string } | null;
 }
 
 /** 倍率格式化：最多 4 位小数并去掉尾随 0。 */
@@ -281,8 +288,9 @@ function Head({
         <th className="px-4 py-2 text-left font-normal">模型</th>
         {showChannel && <th className="px-3 py-2 text-left font-normal">渠道</th>}
         <th className="px-3 py-2 text-right font-normal">倍率</th>
-        <th className="hidden px-3 py-2 text-right font-normal lg:table-cell">上下文</th>
+        <th className="hidden px-3 py-2 text-right font-normal lg:table-cell">最大上下文</th>
         <th className="hidden px-3 py-2 text-right font-normal lg:table-cell">输出上限</th>
+        <th className="hidden px-3 py-2 text-left font-normal lg:table-cell">思考模式</th>
         <th className="px-3 py-2 text-left font-normal">输入</th>
         <th className="w-10 px-2 py-2" />
       </tr>
@@ -325,6 +333,37 @@ function ModalityCell({ row }: { row: ModelRow }): ReactElement {
         文本+图
       </span>
     </td>
+  );
+}
+
+/** 思考档位的中文名：上游档位名是英文，控制台按中文呈现（未知档名原样显示）。 */
+const THINKING_LEVEL_LABELS: Record<string, string> = {
+  none: "关闭",
+  off: "关闭",
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "超高",
+  max: "最大",
+};
+
+/**
+ * 思考模式单元格：**渠道声明了档位才列出档位**，没声明就明确写「不支持」。
+ *
+ * ⚠ 不能给「不支持」的模型编档位：旧版共享层给所有模型都填了 `["low","high"]`，
+ * 于是 200 个没声明过的模型都被显示成「支持 low/high」（主人 2026-10-24 反馈）。
+ * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现。
+ */
+function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
+  const effort = row.meta?.effort ?? null;
+  if (effort === null || effort.supportedLevels.length === 0) {
+    return <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-faint">不支持</td>;
+  }
+  const levels = effort.supportedLevels.map(
+    (level) => THINKING_LEVEL_LABELS[level.toLowerCase()] ?? level,
+  );
+  return (
+    <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-soft">{levels.join(" / ")}</td>
   );
 }
 
@@ -393,7 +432,7 @@ function GroupedTable({
           return (
             <tbody key={cid}>
               <tr>
-                <th colSpan={7} scope="rowgroup" className="border-b border-line bg-canvas/50 text-left">
+                <th colSpan={8} scope="rowgroup" className="border-b border-line bg-canvas/50 text-left">
                   <div className="flex items-center gap-2.5 px-4 py-2.5">
                     <button
                       type="button"
@@ -425,6 +464,7 @@ function GroupedTable({
                     <MultiplierCell row={row} freePlanCids={freePlanCids} />
                     <SizeCell value={row.meta?.contextWindow} />
                     <SizeCell value={row.meta?.maxOutputTokens} />
+                    <ThinkingCell row={row} />
                     <ModalityCell row={row} />
                     <CopyCell row={row} />
                   </tr>
@@ -432,7 +472,7 @@ function GroupedTable({
               {/* 折叠隐藏的数量 + 展开/收起开关：只在「有隐藏项」或「已手动展开」时出现 */}
               {!isCollapsed && (hidden > 0 || (!previewAll && expanded.has(cid) && rows.length > PREVIEW_COUNT)) && (
                 <tr className="border-b border-line/40 last:border-b-0">
-                  <td colSpan={7} className="px-4 py-1.5">
+                  <td colSpan={8} className="px-4 py-1.5">
                     <button
                       type="button"
                       onClick={() => onToggleExpanded(cid)}
@@ -477,6 +517,7 @@ function FlatTable({
               <MultiplierCell row={row} freePlanCids={freePlanCids} />
               <SizeCell value={row.meta?.contextWindow} />
               <SizeCell value={row.meta?.maxOutputTokens} />
+              <ThinkingCell row={row} />
               <ModalityCell row={row} />
               <CopyCell row={row} />
             </tr>
