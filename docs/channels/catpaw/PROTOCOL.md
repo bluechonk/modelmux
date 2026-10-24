@@ -133,10 +133,15 @@
 | --- | --- | --- | --- | --- |
 | 登录配置 | GET | `https://catx.nocode.cn/api/gateway/passport/login-config` | `/api/gateway/passport/login-config` | 无 query / 无 body；响应取 `data.loginEntryUrl` |
 | **取 token** | GET | `https://catx.nocode.cn/api/gateway/passport/poll-token?sid=<sid>` | `/api/gateway/passport/poll-token` | query：**`sid`** —— 本地生成的会话 id（`randomHex(16)`），上游按它认本次登录会话；无 body；响应取 `data` |
-| 当前用户 | GET | `https://catx.nocode.cn/api/gateway/passport/current-user` | `/api/gateway/passport/current-user` | 无 query / 无 body；鉴权 `X-Auth-Token` |
+| 当前用户 | GET | `https://catx.nocode.cn/api/gateway/passport/current-user` | `/api/gateway/passport/current-user` | 无 query / 无 body；鉴权 `X-Auth-Token`；响应 `data`：`userId` / `userName` / `mobile` / `avatarType` / `avatarUrl` |
 | 令牌有效性探测 | GET | `https://catx.nocode.cn/api/gateway/auth/ping` | `/api/gateway/auth/ping` | 无 query / 无 body；鉴权 `X-Auth-Token`；401/403 = 确定失效 |
 | 额度余额 | GET | `https://catx.nocode.cn/api/gateway/credit/balance` | `/api/gateway/credit/balance` | 无 query / 无 body；响应取 `data.availableCredits` |
 | 注册奖励申领 | POST | `https://catx.nocode.cn/api/gateway/credit/register` | `/api/gateway/credit/register` | body：`{registerChannel:"CATPAW_PC"}`（`[参考]` 参考实现 `RegisterChannel`） |
+
+`current-user` 同时是**账号名来源**：`userName` 进凭据 `nickname`（取不到回落 `mobile`），
+账号池靠它显示可读账号名而不是脱敏 uid。`userId` 是**数字**形态，必须按数字解析 ——
+用只认字符串的转换会把它静默丢成空串，账号池随即退化成按 token 建键（同一账号登录两次
+记成两条）。
 
 ### 登录 auth_url 的三个 query 参数
 

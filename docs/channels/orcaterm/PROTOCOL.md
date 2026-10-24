@@ -285,6 +285,10 @@ https://orcaterm.com/cgi/api?action=<Action>&<参数>
 鉴权确认样本：`POST https://orcaterm.com/cgi/api` + `Cookie: ot_session=<token>`，
 body `{"action":"GetUserInfo"}` → 返回 `{nickName, username, userId, userAccountType, uin}`。
 
+**账号名有两个来源**：JWT 的 `providerUsername`（微信登录时才有）与 `GetUserInfo` 的
+`nickName`。前者在本渠道的登录链路里已经拿到，优先用它；后者作兜底（实测对部分账号
+两者都为空，此时账号池显示脱敏 uid）。`username` 是腾讯账号号，不是名字，不用作展示名。
+
 ### 2.2 已确认存在的 CAPI 动作
 
 | action | 用途 | 备注 |

@@ -128,8 +128,15 @@ export class NotLoggedInError extends Error {
 export interface Credentials {
   /** 不透明 SSO token（上游请求里放在 Cookie: X-Passport-Token）。 */
   accessToken: string;
-  /** 用户 uid（登录链路不返回，运行期由上游请求补空）。 */
+  /** 用户 uid（`/api/gateway/passport/current-user` 的 `userId`）。 */
   uid: string;
+  /**
+   * 账号名（同一端点的 `userName`，取不到回落 `mobile`）。
+   *
+   * 只取 userId 的话，Web 账号池只能显示脱敏 uid；`userName` 才是
+   * 可读的账号标识。
+   */
+  nickname: string;
   /** 登录域（无头登录不涉及多域，通常为空）。 */
   domain: string;
   /** 凭证来源，如 "catpaw-login-poll"。 */
@@ -141,6 +148,7 @@ export interface Credentials {
 const EMPTY_CREDENTIALS: Credentials = {
   accessToken: "",
   uid: "",
+  nickname: "",
   domain: "",
   source: "",
   obtainedAt: "",
@@ -185,6 +193,7 @@ export function load(): Credentials {
   return {
     accessToken,
     uid: str(rec["uid"]),
+    nickname: str(rec["nickname"]),
     domain: str(rec["domain"]),
     source: str(rec["source"]) || "catpaw-login-poll",
     obtainedAt: str(rec["obtained_at"]) || str(rec["obtainedAt"]) || nowIso(),
@@ -287,25 +296,26 @@ async function pollToken(sid: string, signal?: AbortSignal): Promise<string | nu
 }
 
 /**
- * 拉取当前登录用户（uid）。
+ * 拉取当前登录用户（uid + 账号名）。
  *
  * 参考实现（HITZY2002 / icebears111 catpaw2api）登录后都有这一步：`poll-token`
- * 只给不透明 token，**uid 要另取**。`uid` 不是可有可无的展示字段 —— 账号池靠它
- * 认「同一个账号」（`accountKey` 在 uid 为空时退化成按 token 建键，而 token
- * 每次登录都变，于是同一账号会被重复记成多条）。
+ * 只给不透明 token，**uid 与账号名都要另取**。`uid` 不是可有可无的展示字段 ——
+ * 账号池靠它认「同一个账号」（`accountKey` 在 uid 为空时退化成按 token 建键，
+ * 而 token 每次登录都变，于是同一账号会被重复记成多条）。
  *
- * 失败不阻塞登录：拿不到 uid 就留空，由账号池按 token 退化处理。
+ * 失败不阻塞登录：拿不到就留空，由账号池按 token 退化处理。
  */
-async function fetchCurrentUserId(token: string): Promise<string> {
+async function fetchCurrentUser(token: string): Promise<{ uid: string; nickname: string }> {
   try {
     const resp = await fetchWithTimeout(CURRENT_USER_URL, {
       headers: { "X-Auth-Token": token, Accept: "application/json" },
     }, HTTP_TIMEOUT_MS);
-    if (resp.status !== 200) return "";
+    if (resp.status !== 200) return { uid: "", nickname: "" };
     const body = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
     const data = body?.["data"];
-    if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+    if (!data || typeof data !== "object" || Array.isArray(data)) return { uid: "", nickname: "" };
     const rec = data as Record<string, unknown>;
+    let uid = "";
     // 字段名以参考实现为准（userId）；其余为历史/变体写法。
     //
     // ⚠ 不能直接用共享的 `str()`：它只认字符串，而上游实测返回的是**数字**
@@ -313,21 +323,37 @@ async function fetchCurrentUserId(token: string): Promise<string> {
     //   账号池随即退化成按 token 建键（同一账号登录两次记成两条）。
     for (const key of ["userId", "uid", "user_id", "id"]) {
       const value = rec[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
-      if (typeof value === "number" && Number.isFinite(value)) return String(value);
+      if (typeof value === "string" && value.trim()) {
+        uid = value.trim();
+        break;
+      }
+      if (typeof value === "number" && Number.isFinite(value)) {
+        uid = String(value);
+        break;
+      }
     }
-    return "";
+    // 账号名：`userName` 优先，`mobile` 兜底（都是同一个端点返回的展示字段）
+    let nickname = "";
+    for (const key of ["userName", "nickname", "name", "mobile"]) {
+      const value = rec[key];
+      if (typeof value === "string" && value.trim()) {
+        nickname = value.trim();
+        break;
+      }
+    }
+    return { uid, nickname };
   } catch {
-    return "";
+    return { uid: "", nickname: "" };
   }
 }
 
 /** 从登录响应构建凭据对象。 */
-function fromToken(token: string, source: string, uid = ""): Credentials {
+function fromToken(token: string, source: string, uid = "", nickname = ""): Credentials {
   return {
     ...EMPTY_CREDENTIALS,
     accessToken: token,
     uid,
+    nickname,
     domain: "",
     source: source || "catpaw-login",
     obtainedAt: nowIso(),
@@ -373,11 +399,11 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
   const token = await pollToken(sid);
   if (!token) throw new Error("poll timeout: no login detected within 10 minutes");
 
-  // 取 uid：账号池靠它认「同一个账号」（见 fetchCurrentUserId）
+  // 取 uid 与账号名：账号池靠 uid 认「同一个账号」（见 fetchCurrentUser）
   onStatus?.("Login succeeded, fetching account info...");
-  const uid = await fetchCurrentUserId(token);
+  const { uid, nickname } = await fetchCurrentUser(token);
 
-  const c = fromToken(token, "catpaw-login-poll", uid);
+  const c = fromToken(token, "catpaw-login-poll", uid, nickname);
   await save(c);
   return c;
 }
@@ -421,15 +447,19 @@ export async function refresh(c: Credentials): Promise<Credentials> {
  *
  * 早期版本的登录链路不取 uid，磁盘上会留下 `uid: ""` 的凭据；账号池因此退化成
  * 按 token 建键（同一账号重复记多条）。这里在**读凭据时顺带补一次**：
- * 拿到 uid 就落盘，拿不到就原样返回 —— 不回填失败不阻塞任何调用方。
+ * 拿到 uid / 账号名就落盘，拿不到就原样返回 —— 不回填失败不阻塞任何调用方。
  *
- * 幂等：uid 已有值时直接返回，不产生网络请求。
+ * 幂等：uid 与账号名都已有值时直接返回，不产生网络请求。
  */
 async function ensureUid(c: Credentials): Promise<Credentials> {
-  if (c.uid) return c;
-  const uid = await fetchCurrentUserId(c.accessToken);
-  if (!uid) return c;
-  const next: Credentials = { ...c, uid };
+  if (c.uid && c.nickname) return c;
+  const { uid, nickname } = await fetchCurrentUser(c.accessToken);
+  if (!uid && !nickname) return c;
+  const next: Credentials = {
+    ...c,
+    uid: c.uid || uid,
+    nickname: c.nickname || nickname,
+  };
   await save(next);
   return next;
 }
