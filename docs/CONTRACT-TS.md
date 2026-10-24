@@ -304,7 +304,9 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   按帧里的 `retryAfterSeconds`（封顶 12s）退避后重开上游重试，总时长上限 90 秒
   （`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）。已吐过内容帧则不重试（避免重复内容）。
   未声明的渠道照旧把错误帧透传给客户端。
-  排队等待期间网关向**流式**客户端按轮次分批发进度文案（content delta，每条以空行收尾）；
+  排队等待期间网关向**流式**客户端按轮次分批发进度文案（**`reasoning_content` delta**，
+  每条以空行收尾）；⚠ 刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒若走
+  `content` 会先建出正文行，模型的思考就落到正文后面了（主人 2026-10-24 反馈）；
   超预算仍无内容时**直接回正常应答**劝主人换渠道（文案带真实渠道 id），不再回错误帧。
   客户端断开（res `close` 事件，比 `res.destroyed` 可靠）后探测立即止损，
   不再打上游 —— 2026-10-24 修订：早先只查 `res.destroyed`，客户端 60s 超时走人后

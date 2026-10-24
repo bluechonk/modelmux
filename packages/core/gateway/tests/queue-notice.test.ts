@@ -242,7 +242,10 @@ describe("排队进度推送与断连止损", () => {
       assert.ok(content > secondNotice, "真实内容在进度文案之后");
       assert.ok(!text.includes("10605"), "排队帧不能透传");
       // 文案是 content delta（客户端可直接显示），以空行收尾才会换行（markdown 会折叠单个 \n）
-      assert.ok(text.includes('"delta":{"content":"正在排队…\\n\\n"}'), "文案应作为 content delta 下发，并以空行换行");
+      assert.ok(
+        text.includes('"delta":{"reasoning_content":"正在排队…\\n\\n"}'),
+        "文案应作为 reasoning_content delta 下发（走 content 会让客户端先建正文行、思考落到后面），并以空行换行",
+      );
     } finally {
       await new Promise<void>((r) => upstream.server.close(() => r()));
     }

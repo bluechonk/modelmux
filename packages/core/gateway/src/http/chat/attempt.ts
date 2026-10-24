@@ -197,7 +197,13 @@ function queueNoticeText(round: number): string {
 }
 
 /**
- * 向客户端发一条排队进度（OpenAI 流式 content delta 帧）。
+ * 向客户端发一条排队进度。
+ *
+ * ⚠ **走 `reasoning_content`，不走 `content`**（主人 2026-10-24 反馈「思考过程被输出在
+ *   正文后面」）。原因：客户端（ZCode）按 chunk 到达顺序建行 —— 先到的 content
+ *   建「正文行」，后到的 reasoning 建「思考行」，渲染顺序 = 建行顺序。提醒若用
+ *   `content`，它先建出正文行，模型的思考就落到了正文后面。改用 `reasoning_content`
+ *   后思考行先建、正文行后建，渲染顺序才是「先思考、后正文」。
  *
  * 首条前先发 SSE 响应头 + role 帧（流式惯例）。**只对流式请求调用**：
  * 非流式没有 SSE 通道，排队期间保持沉默（探测层本身仍不写任何字节）。
@@ -226,7 +232,7 @@ function writeQueueNotice(
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
     res.write(chunk({ role: "assistant", content: "" }));
   }
-  res.write(chunk({ content: `${queueNoticeText(round)}\n\n` }));
+  res.write(chunk({ reasoning_content: `${queueNoticeText(round)}\n\n` }));
 }
 
 /**
