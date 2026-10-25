@@ -59,6 +59,8 @@ export interface ProbeState {
   frames: ProbeFrames;
   /** 排队等待预算耗尽（转发层据此给明确错误）。 */
   queuedOut: boolean;
+  /** 探测过程中**真的见到过排队帧**：只有它才该发「排队成功」分界。 */
+  queuedAny: boolean;
   /** 排队放弃文案：预算耗尽时由探测层填，转发层据此回**正常应答**而不是错误帧。 */
   giveUpText: string | null;
   /** 探测层失败（这条流已死，不能进转发层）。 */
@@ -236,6 +238,34 @@ function writeQueueNotice(
 }
 
 /**
+ * 排队解除后补一条**正文**：「排队成功，开始生成…」。
+ *
+ * 为什么需要这条分界：提醒走 `reasoning_content`（思考块），模型的真思考也走
+ * `reasoning_content`，两者在同一个块里；中间没有正文分隔时，「排队中」和
+ * 「模型在想什么」糊成一段，看不出排队已经结束。补一条正文后渲染顺序是
+ * `思考块(提醒) → 正文(排队成功) → 思考块(真思考) → 正文(回答)`，分界清晰
+ * （主人 2026-10-25 要求）。
+ *
+ * 只在**排队真的解除过**时发（探测拿到非排队帧），没排过队的请求不受影响。
+ */
+function writeQueueCleared(
+  res: ServerResponse,
+  payload: Record<string, unknown>,
+  progressId: string,
+  created: number,
+): void {
+  const chunk = (delta: Record<string, unknown>): string =>
+    `data: ${JSON.stringify({
+      id: progressId,
+      object: "chat.completion.chunk",
+      created,
+      model: payload["model"],
+      choices: [{ index: 0, delta, finish_reason: null }],
+    })}\n\n`;
+  res.write(chunk({ content: "排队成功，开始生成…\n\n" }));
+}
+
+/**
  * 排队探测子循环：响应头发出前把「排队帧」等掉，直到出内容或预算耗尽。
  *
  * ⚠ 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
@@ -307,8 +337,9 @@ async function runQueueProbe(
       };
       return call;
     }
-    if (!probe.queued || probe.hasContent) {
-      // 上游 200 但流**空着结束**（零帧、无排队帧）同样是瞬时故障：重试一次再认输
+    // 记下「真的排过队」：只有它才该发「排队成功」分界
+    if (probe.queued) state.queuedAny = true;
+    if (!probe.queued || probe.hasContent) {      // 上游 200 但流**空着结束**（零帧、无排队帧）同样是瞬时故障：重试一次再认输
       if (!probe.queued && !probe.hasContent && probe.frames.length === 0) {
         const next = await reopenForProbe(env, state, call, "upstream stream ended with no frames");
         if (next) {
@@ -321,6 +352,12 @@ async function runQueueProbe(
       // ⚠ 必须是**同一个**翻译器实例（半行缓冲在里面）：用探测返回的那个，
       //    转发层才接得上（换新实例会丢半行，残行整帧解析失败被丢弃）。
       state.translator = probe.translator;
+      // 排队真的解除了（拿到非排队帧）→ 补一条正文分界，再交回转发层。
+      // ⚠ 只在**真的排过队**时发：探测直接拿到帧（没排过）也走这个分支，
+      //    那种情况下发「排队成功」是无中生有（实测会凭空多一行）。
+      if (state.queuedAny && probe.frames.length > 0 && ctx.wantStream) {
+        writeQueueCleared(res, payload, progressId, progressCreated);
+      }
       break;
     }
     const elapsed = Date.now() - startedAt;
@@ -505,6 +542,7 @@ export async function attemptCandidate(
   const state: ProbeState = {
     frames: [],
     queuedOut: false,
+    queuedAny: false,
     giveUpText: null,
     failed: false,
     error: probeFallbackError(),

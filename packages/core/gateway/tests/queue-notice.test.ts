@@ -246,6 +246,10 @@ describe("排队进度推送与断连止损", () => {
         text.includes('"delta":{"reasoning_content":"正在排队…\\n\\n"}'),
         "文案应作为 reasoning_content delta 下发（走 content 会让客户端先建正文行、思考落到后面），并以空行换行",
       );
+      // 排队解除后补一条正文分界，且必须排在所有提醒之后、真实内容之前
+      const cleared = text.indexOf("排队成功，开始生成…");
+      assert.ok(cleared > secondNotice, "「排队成功」应在提醒之后");
+      assert.ok(cleared < content, "「排队成功」应在真实内容之前（提醒与真思考同在思考块里，需要正文分界）");
     } finally {
       await new Promise<void>((r) => upstream.server.close(() => r()));
     }

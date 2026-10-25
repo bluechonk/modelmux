@@ -450,7 +450,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 | 码 | 语义 | 本仓的处理 | 来源 |
 |---|---|---|---|
-| `10605`（字符串） | 模型排队 | 渠道只负责**判定**：内层 `code === "10605"`，或 `message` 里含 `isQueued` / `retryAfterSeconds` / `10605`（`packages/core/channels/qoder/src/upstream.ts:824-830`）。**重试与退避全在共享层**：延迟只从 `message` 里解析 `retryAfterSeconds`（正则 `/retryAfterSeconds\D+(\d+)/i`，`packages/core/gateway/src/http/chat/queue.ts:120`）→ 秒×1000，下限 1s、**上限 12 秒**（`packages/core/gateway/src/http/chat/queue.ts:20` 的 `QUEUE_RETRY_MAX_DELAY_MS`）；整个请求的排队等待**总预算 90 秒**（`packages/core/gateway/src/http/chat/queue.ts:31` 的 `queueBudgetMs()`，可用 `MODELMUX_QUEUE_BUDGET_MS` 覆盖），超预算不再干等，**直接回正常应答**劝主人换渠道（文案带真实渠道 id）。**没有次数上限** | 渠道 `packages/core/channels/qoder/src/upstream.ts:824-830`；共享层 `packages/core/gateway/src/http/chat/queue.ts:20`、`packages/core/gateway/src/http/chat/queue.ts:31`、`packages/core/gateway/src/http/chat/queue.ts:117-131`、`packages/core/gateway/src/http/chat/attempt.ts:160-200` |
+| `10605`（字符串） | 模型排队 | 渠道只负责**判定**：内层 `code === "10605"`，或 `message` 里含 `isQueued` / `retryAfterSeconds` / `10605`（`packages/core/channels/qoder/src/upstream.ts:824-830`）。**重试与退避全在共享层**：延迟只从 `message` 里解析 `retryAfterSeconds`（正则 `/retryAfterSeconds\D+(\d+)/i`，`packages/core/gateway/src/http/chat/queue.ts:120`）→ 秒×1000，下限 1s、**上限 12 秒**（`packages/core/gateway/src/http/chat/queue.ts:20` 的 `QUEUE_RETRY_MAX_DELAY_MS`）；整个请求的排队等待**总预算 120 秒**（`packages/core/gateway/src/http/chat/queue.ts:31` 的 `queueBudgetMs()`，可用 `MODELMUX_QUEUE_BUDGET_MS` 覆盖），超预算不再干等，**直接回正常应答**劝主人换渠道（文案带真实渠道 id）。**没有次数上限** | 渠道 `packages/core/channels/qoder/src/upstream.ts:824-830`；共享层 `packages/core/gateway/src/http/chat/queue.ts:20`、`packages/core/gateway/src/http/chat/queue.ts:31`、`packages/core/gateway/src/http/chat/queue.ts:117-131`、`packages/core/gateway/src/http/chat/attempt.ts:160-200` |
 | `110` | 额度用尽 | 共享层按**响应体文案**判额度耗尽（`isQuotaExhausted`，`packages/core/gateway/src/http/chat/errors.ts:33-36`），正则 = `insufficient_points\|insufficient_quota\|quota[_ -]?exceeded\|credit[s]?[_ -]?(exhausted\|insufficient)\|余额不足\|积分不足\|额度不足\|配额不足\|超出配额\|免费额度已用完\|额度已用完\|升级套餐`。命中即把**生效账号**标 `health=error`（`noteAccountQuotaExhausted`，`packages/core/gateway/src/runtime/account-pool.ts:416-432`），回 503 `quota_exhausted` | 共享层 `packages/core/gateway/src/http/chat/errors.ts:33-36`、`packages/core/gateway/src/http/chat/attempt.ts:383-400`；`packages/core/gateway/src/runtime/account-pool.ts:416-432` |
 | `105` | `auth_error`（与 10605 独立，不可合并） | **只被转成 error 帧保真转发 `code`**（`packages/core/channels/qoder/src/upstream.ts:931-935`），**不会触发续期**。共享层的续期只在 **HTTP 401/403** 时驱动（`packages/core/gateway/src/http/chat/upstream.ts:182-195` 识别 → `packages/core/gateway/src/http/chat/auth.ts:70-77` 调 `cred.refresh()` 后重开一次）。流内业务码 `105` 走的是 HTTP 200 通道，**不在**续期触发条件里 | `packages/core/channels/qoder/src/upstream.ts:931-935`；`packages/core/gateway/src/http/chat/upstream.ts:182-195`、`packages/core/gateway/src/http/chat/auth.ts:70-77` |
 | 409 `duplicate_request` | 上游 HTTP 409 | **本仓没有 409 分支**：既不在渠道的 `isQueueError` 判据里，共享层也没有 409 专门处理（非 200 → 统一按上游错误回 502 `upstream_error`） | 共享层 `packages/core/gateway/src/http/chat/upstream.ts:196-212`（非 200 分支）、`packages/core/gateway/src/http/chat/attempt.ts:402-413` |
@@ -458,7 +458,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 **排队重试只有共享层这一套**（本仓没有「渠道探测层」）：
 渠道只提供 `isQueueError` 判定（`packages/core/channels/qoder/src/upstream.ts:824-830`），
 退避与重开上游由 `packages/core/gateway/src/http/chat/attempt.ts:121-246` 承担 ——
-单帧退避上限 **12 秒**、整个请求的排队等待**总预算 90 秒**（见
+单帧退避上限 **12 秒**、整个请求的排队等待**总预算 120 秒**（见
 [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.4 与
 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5）。
 （参考实现另有一层「180 次 / 30 分钟（`DSH_QODER_QUEUE_TIMEOUT_MS`）」的渠道探测层，
@@ -545,6 +545,52 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 `dmodel`(1M,0.5)、`dfmodel`(1M,0.1)、`gmodel`(1M,0.8)、`gfmodel`(1M,0.1)、
 **`gm51model` GLM-5.2**(1M,0.6，CN 独有)、`kmodel_latest`(1M,1.4)、`kmodel`(1M,0.8)、
 **`mmodel` MiniMax-M2.7**(200K,0.2，版本与国际版 M3.1-Flash 不同)
+
+### 5.2.1 上游字段全集与思考档位 [实测]
+
+缓存 `~/.modelmux/qoder/cache/models.json` 条目字段全集（14 条）：
+
+| 字段 | 说明 |
+|---|---|
+| key | 模型 key（如 `ultimate` / `dmodel`） |
+| status | 状态 |
+| format | 格式 |
+| source | 数据来源 |
+| enable | 是否启用 |
+| display_name | 展示名 |
+| is_vl | 是否 VL（视觉） |
+| is_reasoning | 是否推理 |
+| is_default | 是否默认 |
+| price_factor | 倍率 |
+| max_input_tokens | 最大输入 |
+| strategies | 策略 |
+| is_sensitive | 是否敏感 |
+| is_lite_plan | 是否 lite 计划 |
+| context_config | 上下文档位表（如 `{"200K":{token_count:200000,"is_default":true}}`） |
+| id | 模型 id |
+| is_free | 是否免费 |
+| is_editable | 是否可编辑 |
+| thinking_config | 思考配置（见下） |
+| promotion | 推广 |
+| is_new | 是否新 |
+| minimal_version | 最低版本 |
+| maxOutput | 最大输出（渠道补） |
+| original_price_factor | 原始倍率 |
+| tags | 标签 |
+
+**thinking_config 是上游思考档位的完整声明**，但本渠道当前**不解析**：
+
+```json
+{"enabled":{"efforts":{"xhigh":{},"high":{"is_default":true},"low":{},"max":{},"medium":{}},"is_default":true}}
+```
+
+- `enabled.efforts` 的 key 是档位名（`xhigh`/`high`/`low`/`max`/`medium`），
+  含 `is_default:true` 的档位是默认档
+- `disabled` 字段存在时表示可关闭思考（如 `dmodel`）
+- 部分模型 `is_reasoning` 与 `thinking_config` 不同步
+  （如 `kmodel_latest` / `kmodel` `is_reasoning:false` 但有 thinking_config）
+- ⚠ **池层不读取 `thinking_config`**，`/v1/models` 的 `effort` 为 null（潜在改进点）
+
 
 ### 5.3 档位与上下文口径
 
