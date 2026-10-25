@@ -168,7 +168,7 @@ function maskMiddle(raw: string): string {
  * 才能区分同渠道的多个账号；`label` 可能退化成 uid / key，那种泛化值按标识脱敏
  * （手机号 / 纯数字 UID / 邮箱 / key）。
  *
- * 输出形态：`bluechonk`（名称）、`131****9411`（手机号）、`UID 452****126`（纯数字）、
+ * 输出形态：`demo-user`（名称）、`138****0001`（手机号）、`UID 100****042`（纯数字）、
  * `账号 acc****1234`（key 兜底）。
  */
 function displayName(account: PoolAccount): string {
