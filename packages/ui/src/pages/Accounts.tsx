@@ -295,13 +295,14 @@ export function Accounts(): ReactElement {
           </div>
 
           {/*
-            渠道卡用**对齐网格**（items-start）：卡顶成行对齐，短卡不在单元格内被拉伸，
-            不再出现 masonry 那种列底大片参差留白。
+            渠道卡网格：**同行等高**（默认 stretch）—— 卡顶卡底都成行对齐，短卡底部留白；
+            配合卡内「恒定四行架构 + 默认最多 4 账号」，任意卡的高度都可预期，
+            多账号/多状态不再把页面撑得参差（2026-10-25 主人反馈）。
 
             最多两列：三列时单卡仅 ~380px，中文账号名与额度条会互相挤压
             （实测「塞西莉亚4412」被截断）。
           */}
-          <div className="grid items-start gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             {list.map(({ pool, present, billing: bill }) => (
               <AccountCard
                 key={pool.cid}
