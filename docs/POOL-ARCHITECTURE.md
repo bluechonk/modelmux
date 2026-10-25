@@ -220,8 +220,11 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 - 排队期间向**流式**客户端按轮次发进度文案（**`reasoning_content` delta**，每条以空行收尾才会换行）。
   ⚠ 刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒走 `content` 会先建出正文行，
   模型的思考就落到正文后面了（主人 2026-10-24 反馈）；
-- 总时长上限 **90 秒**（含首次尝试与所有等待，`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）；
+- 总时长上限 **120 秒**（含首次尝试与所有等待，`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）；
   耗尽仍无内容 → **直接回正常应答**劝主人换渠道（文案带真实渠道 id），不再干等；
+- **排队解除后补一条正文分界**「排队成功，开始生成…」（主人 2026-10-25 要求）：
+  提醒与模型的真思考同在思考块里，没有正文分隔时看不出排队已结束。补了之后渲染顺序是
+  `思考块(提醒) → 正文(排队成功) → 思考块(真思考) → 正文(回答)`；只在排队真的解除过时发。
 - 探测阶段已消费的帧**按原序补写**给客户端再续传剩余流，不丢前缀；探测用的**翻译器实例
   也一并与转发层共享**（它的行缓冲里可能还有半行）。
 
@@ -274,12 +277,24 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 | 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
 | 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（lobsterai·traecn·workbuddy·workbuddyai） |
 | 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn·lobsterai） |
+| 思考配置（未透出） | `thinking_config.enabled.efforts{}` | qoder·qodercn 上游下发但池层不读取（见下方说明） |
 
 - **`context_window` 报的是「最大上下文」**：qoder 的 `context_config` 是档位表
   （`{"1M":{token_count:1000000}, …}`），取**最大档**而非默认档 —— 客户端永远走最大上下文，
   报能力上限才对（否则 1M 模型会被按默认 200k 误判）。控制台该列因此叫「最大上下文」。
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
   回落兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）。
+
+- **思考档位归一**：`effortOf()`（`packages/core/gateway/src/pool/pool-targets.ts:266-301`）先试 `effort` 对象
+  （catpaw 的 `{supportedLevels[],defaultLevel}`），再试 `efforts` 数组 +
+  `defaultEffort`/`default_effort`/`default_effort_level` 默认档字段。
+  空数组 = 未声明 → `effort: null`（不编造）。
+  ⚠ **qoder/qodercn 的 `thinking_config` 不在归一名表里**：上游下发了
+  `thinking_config.enabled.efforts{}` + `is_default`，但渠道 catalog 不解析、
+  池层不读取 → `/v1/models` 里这些模型的 `effort` 为 null。
+  若要打通，需在渠道 catalog 里把 `thinking_config` 归一成
+  `effort:{supportedLevels[],defaultLevel}` 写进缓存，池层 `effortOf()` 无需改。
+  详见 [channels/qoder/PROTOCOL.md](./channels/qoder/PROTOCOL.md) §5.2.1。
 - **`effort` 可为 `null` = 渠道没声明**（⚠ 兜底**不许编档位**）：
   渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
   lobsterai（`efforts` 数组）有真值，其余渠道没有。旧版给所有模型都填了

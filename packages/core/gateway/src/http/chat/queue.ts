@@ -29,15 +29,16 @@ export const QUEUE_RETRY_MAX_DELAY_MS = 12_000;
  *
  * 超过就不再干等，直接把「劝主人换渠道」的文案作为**正常应答**返回 ——
  * 实测 qoder 排队能拖到 290s，而客户端 60s 就超时走人了，等下去只是白耗。
+ * 取 120 秒（主人 2026-10-25 定）：比客户端超时宽裕，又不会让一次请求挂太久。
  * 可用 `MODELMUX_QUEUE_BUDGET_MS` 覆盖（测试与运维调参用）。
  *
  * ⚠ 做成函数而不是常量：测试要能在运行时改这个上限，常量在模块加载时就定死了。
  */
 export function queueBudgetMs(): number {
   const raw = process.env["MODELMUX_QUEUE_BUDGET_MS"];
-  if (!raw) return 90_000;
+  if (!raw) return 120_000;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 90_000;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000;
 }
 
 /**
