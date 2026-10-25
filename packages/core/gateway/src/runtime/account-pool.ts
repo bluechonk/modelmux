@@ -25,8 +25,10 @@ import { writeJsonSecret } from "./secret-file.js";
  * 账号健康状态。
  *
  * - `ok` / `unknown` / `unauthorized`：见各自写入点（`unauthorized` 由网关在刷新失败时写入）。
- * - `error`：真故障（连败达 `FAIL_STREAK_LIMIT`），**凭证保留**，恢复靠切号/重登。
- * - `cooldown`：**额度耗尽**（不是故障）—— 等到 `cooldown_until` 上游窗口刷新后自动恢复。
+ * - `error`：真故障（连败达 `FAIL_STREAK_LIMIT`），**凭证保留**；恢复靠 Web 账号池页的
+ *   「解除」按钮（`clearAccountState`）/ 手动切号 / 重登。
+ * - `cooldown`：**额度耗尽**（不是故障）—— 等到 `cooldown_until` 上游窗口刷新后自动恢复，
+ *   也可以由用户在 Web 上提前解除（见 `clearAccountState`）。
  *   与 `error` 分开是因为额度耗尽会自然好转，把它当故障会让账号被永久跳过
  *   （2026-10-23 之前就是这样：workbuddyai 的 429/6004 被打了 `fail_streak` → 显示「不可用」）。
  */
@@ -368,15 +370,79 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
   }
   account.last_used_at = nowIso();
   // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error / cooldown 标记一并恢复
-  account.fail_streak = 0;
-  if (account.health === "error" || account.health === "cooldown") {
-    account.health = "ok";
-    account.health_at = nowIso();
-    account.cooldown_until = null;
-    account.cooldown_reason = undefined;
-  }
+  clearTrippedState(account);
   writeIndex({ version: 1, active: key, accounts: index.accounts }, cid);
   return account;
+}
+
+/**
+ * 清掉「被熔断」的标记：连败归零 + 冷却清空 + `error` / `cooldown` 恢复 `ok`。
+ *
+ * 两个调用点语义相同 —— 手动切号、Web 上的「解除」按钮，都是「给这份凭据第二次机会」：
+ * - 连败熔断（`error`）本可以等下一次成功自己清零，但账号被打上 `error` 后**路由会跳过它**，
+ *   于是永远等不到那一次成功（自锁）；
+ * - 额度冷却（`cooldown`）到期会惰性恢复，但用户可能知道额度已经刷新（换了套餐 / 手动充值），
+ *   不想等到 `cooldown_until`。
+ *
+ * ⚠ 不动 `unauthorized`：那是**凭据本身失效**（token 被撤销），清标记只会让 UI 假装正常，
+ * 下一次请求照样失败 —— 那种情况的正确动作是重新登录。
+ */
+function clearTrippedState(account: PoolAccount): boolean {
+  const tripped = account.health === "error" || account.health === "cooldown";
+  const hadStreak = (account.fail_streak ?? 0) > 0;
+  if (!tripped && !hadStreak) return false;
+  account.fail_streak = 0;
+  if (tripped) {
+    account.health = "ok";
+    account.health_at = nowIso();
+  }
+  account.cooldown_until = null;
+  account.cooldown_reason = undefined;
+  return true;
+}
+
+/** `clearAccountState` 的结果：`cleared` 为假时 `reason` 说明为什么没清。 */
+export interface ClearAccountStateResult {
+  /** 是否真的改了状态（账号不存在 / `unauthorized` / 本来就没标记 → false）。 */
+  cleared: boolean;
+  /** 改完之后（或保持不变时）的 health。 */
+  health: AccountHealth;
+  /** 没清掉的原因（人话，直接进 UI）。 */
+  reason?: string;
+}
+
+/**
+ * 手动解除某账号的熔断状态（Web 账号池页的「解除」按钮）。
+ *
+ * 清 `error` / `cooldown` 两种标记并清零连败（见 `clearTrippedState`），供用户
+ * 「我知道它好了，别跳过它」时用 —— 不再是只能切号/重登。
+ *
+ * ⚠ **只清标记，不动凭证**（与 `activateAccount` 的区别：那个还会把凭证切为生效）。
+ * 清的是池内那份 `accounts/<key>.json` 的状态字段，所以**非生效账号**也能清。
+ */
+export function clearAccountState(key: string, cid?: string): ClearAccountStateResult {
+  let scope: string | undefined;
+  try {
+    scope = channelDir(cid);
+  } catch {
+    scope = undefined; // 路径不可用（未注册）→ 下面读索引会抛错，交给调用方兜
+  }
+  const index = readIndex(cid);
+  const account = index.accounts.find((a) => a.key === key);
+  if (!account) return { cleared: false, health: "unknown", reason: `账号 ${key} 不在池里` };
+  if (account.health === "unauthorized") {
+    return {
+      cleared: false,
+      health: account.health,
+      reason: "该账号凭据已失效，需要重新登录（解除标记不会让它恢复可用）",
+    };
+  }
+  const changed = clearTrippedState(account);
+  if (changed) writeIndex(index, cid);
+  // 生效账号的状态缓存在进程里：清了盘不更新缓存的话，下一次 `markActiveHealth`
+  // 会拿旧值短路（它按「内存里的值 == 目标值」早退），状态会看起来没被清掉。
+  if (scope !== undefined && index.active === key) healthCache.set(scope, account.health);
+  return { cleared: changed, health: account.health };
 }
 
 /**

@@ -47,7 +47,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | 页面 | 内容 |
 | --- | --- |
 | 仪表盘 `/web/` | **composer 形态的接入盒**（base_url / chat_url / endpoints，逐行可复制）、一行内联统计（网关 / 模型 / 渠道 / 端点）、**模型区**（见下）。没有 hero 大标题 —— 常驻工作区不做空状态问候 |
-| 账号池 `/web/accounts` | 添加账号（**登录引导弹窗**）、总览条（正常/冷却/异常/未登录计数）、渠道卡片**两列网格**（小写 cid + 账号列表：可读昵称/用户名 + 各账号剩余额度进度条 + 切换/删除） |
+| 账号池 `/web/accounts` | 添加账号（**登录引导弹窗**）、总览条（正常/冷却/异常/未登录计数）、渠道卡片**两列网格**（小写 cid + 账号列表：可读昵称/用户名 + 各账号剩余额度进度条 + 切换/**解除**/删除） |
 
 ### 为什么仪表盘首屏是「接入盒」
 
@@ -183,6 +183,17 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 - 切换账号、开始删除（`busyKey !== null`）时清空确认态；
 - 「取消」不产生任何副作用。
 
+### 「解除」按钮：常显，不藏 hover、不做二次确认
+
+异常（`error`，连败熔断）与冷却（`cooldown`，额度耗尽）的账号行上有一个**常显**的
+「解除」按钮 —— 调 `resetAccount`，后端清零连败、清掉冷却标记并恢复 `ok`
+（语义见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4「额度耗尽 → 账号冷却」）。
+
+- **不藏在 hover 动作区里**：切换 / 删除是低频动作，藏起来没问题；「解除」是这类账号
+  唯一的出路（熔断后路由会一直跳过它），触屏与键盘也必须点得到。
+- **不做二次确认**：非破坏性 —— 清标记只是让它重新参与路由，失败了还会再被标回来。
+- 后端拒绝的情况（`unauthorized` 需重登 / 账号不在池里）**如实显示错误文案**，不假装成功。
+
 ## 技术栈与构建
 
 - React 19 + TypeScript + Vite 8（`base=/web/`）+ Tailwind CSS v4 + TanStack Query v5 +
@@ -210,8 +221,9 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 - `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点），
   外加模型池视图所需的 `models` / `model_info` / `channel_caps`（各渠道能力位）。
 - `POST /web/api/commands`：动作分发（login / status / **models** / billing / accounts /
-  activateAccount / removeAccount / syncPool / pasteCallback）。
+  activateAccount / **resetAccount** / removeAccount / syncPool / pasteCallback）。
   - `billing` 支持 `args.refresh: true`（真实重查各渠道账单）与 `cid` 过滤（单渠道刷新）。
+  - `resetAccount`：解除 `error` / `cooldown` 标记（不动凭证）；`unauthorized` 会被拒绝并给出原因。
   - `pasteCallback`：手工兜底通道，把用户粘回的回调链接喂给等待中的登录流程。
     raccoon 等授权码渠道现在优先走**本地 HTTP 回调自动完成**，不再需要粘贴。
 - `POST /web/api/theme`：切主题；`POST /web/api/retry-login`：重试登录。
