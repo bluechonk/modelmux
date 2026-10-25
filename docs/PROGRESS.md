@@ -59,7 +59,7 @@
 - 视觉：Codex/ChatGPT 近黑单色（`#171717` 侧栏 / `#212121` 主区 / `#2f2f2f` 输入盒），
   窄屏侧栏收 56px 图标栏、端点盒堆叠、表格横向滚动。
 - 数据：`/web/api/state` 的 `model_info`（共享层 `PoolModelMeta`），含倍率、最大上下文、
-  输出上限、输入模态、思考档位。
+  输出上限、输入模态、思考档位；跨渠道兜底来的值（`sources.* = "cross"`）在界面上标「推断」。
 
 详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)。
 

@@ -354,13 +354,21 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 
 ### 4.2 已识别的功能缺口（参考实现有、本渠道没有）
 
-1. **思考档位白名单归一化**：上游目录每模型带 `thinking_config.enabled.efforts`
-   （国内版逐模型不同：`gfmodel` 只 `high/max`、`dfmodel` `high/max/low`、
-   `qmodel_38max` 与 `qfmodel` `xhigh/low/medium`、`qmodel` / `q37fmodel` / `mmodel` 无档位），
-   但上游对**不支持的档位不报错、直接忽略**（回落默认档），客户端会以为「档位没生效」。
-   本渠道目前**原样透传** `reasoning_effort`
-   （`packages/core/channels/qodercn/src/upstream.ts:548-549`），
-   归一化实现见参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`（思考档位归一段）。[参考]
+1. **思考档位归一化**：分两半，**目录侧已做、请求侧未做**。
+   - **目录侧（已实现，2026-10-25）**：上游目录每模型带 `thinking_config.enabled.efforts`
+     （国内版逐模型不同：`gfmodel` 只 `high/max`、`dfmodel` `high/max/low`、
+     `qmodel_38max` 与 `qfmodel` `xhigh/low/medium`、`qmodel` / `q37fmodel` / `mmodel` 无档位），
+     `src/catalog.ts` 的 `wireEffort()` 把它归一成 `effort:{supportedLevels,defaultLevel}`
+     写进目录缓存（刷新时写、旧缓存读时补），池层据此在 `/v1/models` 报真档位。
+     实测覆盖 10 条里 8 条（`qwen3.8-max`/`qwen3.8-flash`/`deepseek-v4-pro`/`deepseek-flash`/
+     `glm-5.3`/`glm-5.3-flash`/`kimi-k3`/`kimi-k2.8-preview`）。
+     `thinking_config.disabled`（可关闭思考）**不映射**成 `off` 档 —— 那会让客户端发出
+     `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段。
+   - **请求侧（仍未做）**：上游对**不支持的档位不报错、直接忽略**（回落默认档），
+     客户端会以为「档位没生效」。本渠道目前**原样透传** `reasoning_effort`
+     （`packages/core/channels/qodercn/src/upstream.ts:548-549`），
+     按模型白名单的归一实现见参考实现 `shuishuipingan/qoder2api-hub` 的
+     `qoder_proxy.py`（思考档位归一段）。[参考]
 2. **`/sash/**` 的 `cosy-version` 取值未验证**：本渠道用 `1.1.64`
    （国内版客户端自身版本），参考实现给的是 `0.4.3`（hub）与 `0.4.4`（zheng）；
    该头的**存在性**是硬要求，**具体数值**尚无真机结论。

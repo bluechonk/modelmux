@@ -295,8 +295,10 @@ describe("3. A9 模型元数据：渠道 resolveModel 抛错不拖垮 /v1/models
     setChannel(makeChannel("alpha", { resolveThrows: true }));
     const { getPoolModelMeta } = await import("../dist/pool/pool-targets.js");
     const meta = getPoolModelMeta("alpha/deepseek-v4.1-flash");
-    assert.equal(meta.name, "Unknown", "查不到元数据时回落兜底值");
+    // 目录读不出来时 `name` 回落到**池 id**（旧版返回无信息的 "Unknown"）
+    assert.equal(meta.name, "alpha/deepseek-v4.1-flash", "查不到元数据时回落兜底值");
     assert.ok(meta.contextWindow > 0);
+    assert.equal(meta.sources.contextWindow, "default", "没有真值时必须标成占位值");
   });
 });
 

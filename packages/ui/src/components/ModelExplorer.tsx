@@ -26,6 +26,14 @@ import type { ReactElement } from "react";
 
 import { CopyButton } from "./CopyChip";
 
+/**
+ * 元数据取值的来源（与共享层 `MetaSource` 同形）。
+ *
+ * 只有 `cross` 会在界面上标出来（「推断」）—— 那是**兄弟渠道同 id** 的值，
+ * 不是本渠道上游说的，不能让它看起来像事实。
+ */
+export type MetaSource = "upstream" | "spec" | "cross" | "default";
+
 /** 单个模型的元数据（与共享层 `PoolModelMeta` 对齐）。 */
 export interface ModelMeta {
   multiplier: number | null;
@@ -40,6 +48,8 @@ export interface ModelMeta {
    * 否则「不知道」会被显示成「支持」。
    */
   effort?: { supportedLevels: string[]; defaultLevel: string } | null;
+  /** 窗口 / 输出 / 档位各自从哪来（缺省按「上游声明」呈现，兼容旧快照）。 */
+  sources?: { contextWindow: MetaSource; maxOutputTokens: MetaSource; effort: MetaSource };
 }
 
 /** 倍率格式化：最多 4 位小数并去掉尾随 0。 */
@@ -64,6 +74,12 @@ function compactNumber(value: number): string {
   }
   if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
   return String(value);
+}
+
+/** 推断标记：跨渠道兜底来的值必须看得见「这是推断」，否则会被当成上游声明。 */
+function InferredMark({ show }: { show: boolean }): ReactElement | null {
+  if (!show) return null;
+  return <span className="ml-1 text-[10px] text-ink-faint">推断</span>;
 }
 
 /** 一行模型（池 id 拆成渠道段与模型段）。 */
@@ -154,6 +170,22 @@ export function ModelExplorer({
   const total = rows.length;
   const channelIds = useMemo(() => [...new Set(rows.map((r) => r.cid))].sort(), [rows]);
 
+  /**
+   * 是否存在跨渠道推断值 —— 有就给一句直接可见的说明。
+   *
+   * ⚠ 铁律：控制台不许用 hover 气泡，信息要么写进正文、要么点开看（见 docs/WEB-CONSOLE.md）。
+   */
+  const anyInferred = useMemo(
+    () =>
+      rows.some(
+        (row) =>
+          row.meta?.sources?.contextWindow === "cross" ||
+          row.meta?.sources?.maxOutputTokens === "cross" ||
+          row.meta?.sources?.effort === "cross",
+      ),
+    [rows],
+  );
+
   const toggle = (cid: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -170,6 +202,11 @@ export function ModelExplorer({
           可用模型
           <span className="ml-2 text-xs font-normal text-ink-faint">渠道/模型</span>
         </h2>
+        {anyInferred && (
+          <span className="text-xs font-normal text-ink-faint">
+            标「推断」的值取自同 id 的其他渠道
+          </span>
+        )}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -354,13 +391,28 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 };
 
 /**
+ * 档位展示顺序：上游下发的顺序是随机的（实测 qoder 给的是 `xhigh/high/low/max/medium`），
+ * 按强度重排一遍才读得懂。表里没有的档名排在末尾，保持原相对顺序。
+ */
+const THINKING_LEVEL_ORDER = ["off", "none", "low", "medium", "high", "xhigh", "max"];
+
+function sortThinkingLevels(levels: readonly string[]): string[] {
+  const rank = (level: string): number => {
+    const i = THINKING_LEVEL_ORDER.indexOf(level.toLowerCase());
+    return i < 0 ? THINKING_LEVEL_ORDER.length : i;
+  };
+  return [...levels].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
  * 思考模式单元格：**渠道声明了档位才列出档位**，没声明就明确写「不支持」。
  *
  * ⚠ 不能给「不支持」的模型编档位：旧版共享层给所有模型都填了 `["low","high"]`，
  * 于是 200 个没声明过的模型都被显示成「支持 low/high」（主人 2026-10-24 反馈）。
- * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现。
+ * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现；
+ * 跨渠道兜底来的档位带「推断」标记（与上游声明分开）。
  *
- * 窄屏（< lg）整列隐藏 —— 与表头同一断点，否则会出现「列头没了、内容还在」。
+ * 窄屏（< md）整列隐藏 —— 与表头同一断点，否则会出现「列头没了、内容还在」。
  */
 function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
   const effort = row.meta?.effort ?? null;
@@ -371,12 +423,13 @@ function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
       </td>
     );
   }
-  const levels = effort.supportedLevels.map(
+  const levels = sortThinkingLevels(effort.supportedLevels).map(
     (level) => THINKING_LEVEL_LABELS[level.toLowerCase()] ?? level,
   );
   return (
     <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-ink-soft md:table-cell">
       {levels.join(" / ")}
+      <InferredMark show={row.meta?.sources?.effort === "cross"} />
     </td>
   );
 }
@@ -390,11 +443,18 @@ function ModelNameCell({ row }: { row: ModelRow }): ReactElement {
   );
 }
 
-/** 窗口/上限单元格。 */
-function SizeCell({ value }: { value: number | undefined }): ReactElement {
+/** 窗口/上限单元格（跨渠道推断来的值带「推断」标记）。 */
+function SizeCell({
+  value,
+  inferred,
+}: {
+  value: number | undefined;
+  inferred: boolean;
+}): ReactElement {
   return (
     <td className="hidden whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft md:table-cell">
       {value ? compactNumber(value) : "—"}
+      <InferredMark show={inferred} />
     </td>
   );
 }
@@ -476,8 +536,14 @@ function GroupedTable({
                   >
                     <ModelNameCell row={row} />
                     <MultiplierCell row={row} freePlanCids={freePlanCids} />
-                    <SizeCell value={row.meta?.contextWindow} />
-                    <SizeCell value={row.meta?.maxOutputTokens} />
+                    <SizeCell
+                      value={row.meta?.contextWindow}
+                      inferred={row.meta?.sources?.contextWindow === "cross"}
+                    />
+                    <SizeCell
+                      value={row.meta?.maxOutputTokens}
+                      inferred={row.meta?.sources?.maxOutputTokens === "cross"}
+                    />
                     <ThinkingCell row={row} />
                     <ModalityCell row={row} />
                     <CopyCell row={row} />
@@ -529,8 +595,14 @@ function FlatTable({
                 <span className="font-mono text-[11px] text-ink-soft">{row.cid}</span>
               </td>
               <MultiplierCell row={row} freePlanCids={freePlanCids} />
-              <SizeCell value={row.meta?.contextWindow} />
-              <SizeCell value={row.meta?.maxOutputTokens} />
+              <SizeCell
+                value={row.meta?.contextWindow}
+                inferred={row.meta?.sources?.contextWindow === "cross"}
+              />
+              <SizeCell
+                value={row.meta?.maxOutputTokens}
+                inferred={row.meta?.sources?.maxOutputTokens === "cross"}
+              />
               <ThinkingCell row={row} />
               <ModalityCell row={row} />
               <CopyCell row={row} />

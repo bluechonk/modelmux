@@ -413,7 +413,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 - **兜底表是数据、不是机制**：它随包发布、必然与上游脱节 —— 别指望它准，
   它只是「未登录 / 离线时不留空白」的兜底（跨渠道口径见
-  [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.7）。
+  [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.8）。
 - 拉取失败 / 未登录时**不要清空缓存**：旧的远端目录通常比随包快照新，继续用它显示。
 - 惰性读取：`catalog.ts` 在**首次被问**时读缓存、再决定是否拉远端，避免模块加载期就碰磁盘
  （模块加载可能发生在渠道上下文之外，那时 `paths.*` 不知道为谁解析）。
@@ -450,7 +450,11 @@ modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number 
   （倍率不走这里：倍率由目录条目的倍率字段汇聚成 `PoolModelMeta.multiplier`。）
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
-- **取值优先级：上游目录 > 渠道声明 > 兜底**（`packages/core/gateway/src/pool/pool-targets.ts:361-363`）——
+- **取值优先级：本渠道上游目录 > 本渠道声明（本钩子）> 跨渠道兜底 > 占位值**：
+  共享层对「本渠道两条路都答不上来」的字段，会拿**兄弟渠道同规范 model id** 的已知值补
+  （数值取 min / 档位取交集，只填缺值，且标 `sources: "cross"`）——
+  口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.7。所以这条钩子**依然值得实现**：
+  它比跨渠道推断更准（那是别的渠道被上游裁剪过的值）。
   三层来源与兜底值口径见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5。
 - 共享层**不许出现模型名** → 这张表必须放在**渠道包**里
   （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
