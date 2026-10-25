@@ -45,8 +45,6 @@ const DEMO_CHANNELS: DemoChannel[] = [
   { cid: "catpaw", display: "CatPaw", present: true, billing: true },
   { cid: "lobsterai", display: "LobsterAI", present: true, billing: true },
   { cid: "loomy", display: "Loomy", present: true, billing: true },
-  // 订阅制：没有积分/倍率概念（真实实现里 orcaterm 声明 capabilities.billing=false）
-  { cid: "orcaterm", display: "OrcaTerm", present: false, billing: false },
   { cid: "qoder", display: "Qoder", present: false, billing: true },
   { cid: "qodercn", display: "Qoder 国内版", present: true, billing: true },
   { cid: "raccoon", display: "Raccoon", present: true, billing: true },
@@ -60,8 +58,6 @@ const DEMO_MODELS: Record<string, string[]> = {
   catpaw: ["deepseek-v4-flash", "deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "longcat-2.0"],
   lobsterai: ["deepseek-v4-flash", "doubao-seed-2.1-pro", "glm-5", "glm-5.3", "kimi-k2.6", "minimax-m3", "qwen3.8-max"],
   loomy: ["deepseek-v4-flash", "glm-5.3-flash", "kimi-k2.6", "mimo-v2.5", "minimax-m3", "qwen3.8-flash", "spark-x"],
-  // 未登录渠道也留一份目录：登录后模型墙立刻多出这一组，演示「登录 → 模型可用」的因果。
-  orcaterm: ["deepseek-v4-flash", "glm-5.3-flash", "kimi-k2.6"],
   qoder: ["glm-5.3-flash"],
   qodercn: ["auto", "deepseek-flash", "deepseek-v4-pro", "glm-5.3", "kimi-k3", "qwen3.8-max"],
   raccoon: ["deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "sensenova-6.8-flash"],
@@ -112,7 +108,6 @@ const DEMO_LEDGER: Record<string, { used: number; unit: string; ok: number; fail
   catpaw: { used: 128, unit: "credits", ok: 96, fail: 2, cooling: false },
   lobsterai: { used: 0, unit: "credits", ok: 17, fail: 0, cooling: false },
   loomy: { used: 42, unit: "积分", ok: 30, fail: 0, cooling: false },
-  orcaterm: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   qoder: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   qodercn: { used: 672, unit: "credits", ok: 210, fail: 3, cooling: false },
   raccoon: { used: 0, unit: "", ok: 12, fail: 1, cooling: true },

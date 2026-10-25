@@ -108,8 +108,8 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 
 口径（重要）：
 
-- 这份表只给**没有目录端点**的渠道用（当前是 `orcaterm` 的内置快照）——
-  经 `catalog.modelSpec().effort` 交给池层，`/v1/models` 的 `meta_sources.effort` 标 **`spec`**。
+- 这份表只给**没有目录端点**的渠道用（渠道用内置快照时经 `catalog.modelSpec().effort`
+  交给池层，`/v1/models` 的 `meta_sources.effort` 标 **`spec`**）。
   ⚠ 它**不是**上游运行时声明，别把它当 `upstream`：渠道目录里下发的档位才算。
 - 有目录端点的渠道（catpaw / loomy / traecn / lobsterai / qoder / qodercn …）**一律以上游为准**，
   公开文档只用来核对，不覆盖。
@@ -142,7 +142,6 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 | `auto` / `efficient` / `performance` / `ultimate` / `cantus` / `sonus` | Qoder 的**策略档位**（按账号档位路由到不同底层模型），官方只公布 Credits 倍率 | [docs.qoder.com](https://docs.qoder.com) |
 | `default-model` / `fast-model` / `balanced-model` / `primary-model` | workbuddyai 的**档位别名**，非公开模型 | — |
 | `space-bunny` | WorkBuddy CN 的目录条目 | — |
-| `orcaterm-assistant` | 兼容别名 → 指向默认模型（`deepseek-v4-flash`，规格随默认模型） | `docs/channels/orcaterm/PROTOCOL.md` §1 |
 
 ### 4.1 输入模态：**只认渠道声明，不按公开资料推断**
 
@@ -151,7 +150,7 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 
 | 型号 | 公开资料 | 本仓库的处理 |
 | --- | --- | --- |
-| `kimi-k2.5` / `k2.6` / `k2.7-code` | 原生多模态（文本 + 图像，K2.7 还有视频） | 只有上游目录声明了才报「文本+图」；orcaterm 快照没声明 → 如实报纯文本 |
+| `kimi-k2.5` / `k2.6` / `k2.7-code` | 原生多模态（文本 + 图像，K2.7 还有视频） | 只有上游目录声明了才报「文本+图」；上游没声明就如实报纯文本 |
 | `glm-5.3-flash` | 官方称原生多模态（图像 / 视频 / 文件） | 同上（z.ai 系渠道的目录会声明 `is_vl` / `vision`） |
 | `qwen3.5-plus` | 百炼写 Text+Image+Video 输入 | 同上 |
 | catpaw 全系 | 上游目录不带图像字段（`supportsImages` 恒 false） | 如实报纯文本 —— **这是「上游没声明」，不是「不支持」**，见 §3 与 `docs/channels/catpaw/PROTOCOL.md` |

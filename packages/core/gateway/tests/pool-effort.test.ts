@@ -114,7 +114,7 @@ describe("思考档位（effort）：没声明就是没声明", () => {
 
 describe("档位来源：上游声明 > 渠道规格（官方文档）", () => {
   it("没有目录端点时用 modelSpec().effort，来源标 spec", () => {
-    // orcaterm 的形态：内置快照 + 官方文档档位，没有上游目录
+    // 渠道内置快照 + 官方文档档位，没有上游目录的形态
     useChannel({ effort: { supportedLevels: ["low", "high", "none"], defaultLevel: "high" } });
     writeCatalogCache([{ id: "m1" }], CID);
     const meta = metaOf();

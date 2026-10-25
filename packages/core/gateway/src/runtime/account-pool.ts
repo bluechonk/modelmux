@@ -80,8 +80,7 @@ const ACCOUNT_DIR = "accounts";
  *
  * 只放能代表「这是谁」的字段；`uid` / `key` 这类机器标识不进表 —— 它们是兜底，
  * 不是名字。各渠道实测：traecn/qoder/qodercn/raccoon 给 nickname，loomy 给
- * 已脱敏手机号，workbuddy/workbuddyai 给 nickname（可能为空），catpaw/orcaterm
- * 只有 uid。
+ * 已脱敏手机号，workbuddy/workbuddyai 给 nickname（可能为空），catpaw 只有 uid。
  */
 const NAME_FIELDS = [
   "nickname",

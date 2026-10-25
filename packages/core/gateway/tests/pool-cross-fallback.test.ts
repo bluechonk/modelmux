@@ -103,7 +103,7 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
     assert.equal(gamma.sources.maxOutputTokens, "cross");
   });
 
-  it("连目录缓存都没有的渠道也能兜底（orcaterm 那种没有上游目录的情形）", () => {
+  it("连目录缓存都没有的渠道也能兜底（没有上游目录的情形）", () => {
     use({ cid: "alpha" }, { cid: "gamma" });
     cache("alpha", [{ contextWindow: 192_000, maxOutput: 64_000 }]);
     const index = buildCrossModelIndex();

@@ -48,6 +48,7 @@ describe("仓库级模型池", () => {
     assert.deepEqual(cids, EXPECTED_CIDS, "注册清单与 packages/core/channels/ 目录不一致");
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
     assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
+    assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
   });
 
   it("服务身份是仓库级 modelmux（不是某个渠道）", async () => {
@@ -119,7 +120,7 @@ describe("仓库级模型池", () => {
 
   it("渠道一览：池 id 与渠道目录一一对应", () => {
     const rows = gw.channels().map((c) => {
-      // 与 CLI 同样的容错：桩渠道（orcaterm）抛错 → 视为空
+      // 与 CLI 同样的容错：目录读取抛错的渠道 → 视为空
       let exposed: string[] = [];
       try {
         exposed = gw.runInChannel(c.config.cid, () => c.catalog.exposedIds());

@@ -301,9 +301,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   （`{supportedLevels[],defaultLevel}`），再试 `efforts` 数组 +
   `defaultEffort`/`default_effort`/`default_effort_level` 默认档字段。
   空数组 = 未声明 → `effort: null`（不编造）。
-  - **没有目录端点的渠道走规格通道**：orcaterm 用内置快照，官方文档（TokenHub
-    「推理深度配置」）逐模型给了档位 → 经 `catalog.modelSpec().effort` 交给池层，
-    来源标 `spec`（不是 `upstream`）。表见 [MODEL-SPECS.md](./MODEL-SPECS.md) §3.2。
+  - **没有目录端点的渠道走规格通道**：渠道用内置快照、官方文档逐模型给了档位 →
+    经 `catalog.modelSpec().effort` 交给池层，来源标 `spec`（不是 `upstream`）。
+    表见 [MODEL-SPECS.md](./MODEL-SPECS.md) §3.2。
   - **上游形态与池层形态不一致时，由渠道在落盘前归一**：qoder / qodercn 上游下发的是
     `thinking_config.enabled.efforts{}`（对象 map，默认档由 `is_default` 标出），
     渠道 catalog 的 `wireEffort()` 把它归一成 `effort:{supportedLevels[],defaultLevel}`
@@ -347,10 +347,10 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
     traecn（Solo `model_detail_list[].max_tokens`）、workbuddy / workbuddyai（`maxOutputTokens`）。
   - **只发上下文、不发输出**：catpaw / lobsterai / qoder / qodercn（输出按公开规格补）。
-  - **完全无上游目录**：orcaterm（目录内置，只能按公开规格补）。
+  - **完全无上游目录**：目录由渠道内置快照提供，只能按公开规格补。
   缺字段的渠道用自己的 `MAX_OUTPUTS` / `MODEL_SPECS` 表按**公开规格**回答 —— 入口是**可选钩子**
   `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
-  当前**10 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
+  当前**9 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
   取值优先级：**上游目录声明 > 渠道公开规格 > 兜底**（见下面「上游声明优先」那条路）——
   钩子只在「上游没声明」或「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
   规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
@@ -372,7 +372,6 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 实测规模（2026-10-25，走真实注册链路取数）：207 个池 id / 117 个唯一规范名 /
 **29 个跨渠道重复名**；兜底能补的：窗口 4 条、输出上限 13 条、思考档位 45 条
 （另有 19 条档位是上游已下发、归一后即可用，见 §2.6）。
-缺口集中在 **orcaterm**（无上游目录，只剩内置快照 + 公开规格）。
 
 **取值口径**（`buildCrossModelIndex()`，`pool-targets.ts`）：
 
@@ -540,7 +539,7 @@ interface CredModule {
     见 `NAME_FIELDS`），渠道没给就是空串 —— Web 据此决定「显示名字」还是「显示脱敏 id」。
   - `label`：`name` 的兜底版本，取不到名称才退化成 `uid` / `key`；CLI 文本视图用它。
   - 渠道实测：traecn / qoder / qodercn / raccoon 给 nickname，loomy 给已脱敏手机号，
-    workbuddy / workbuddyai 的 nickname 可能为空，**catpaw / orcaterm 只有 uid**。
+    workbuddy / workbuddyai 的 nickname 可能为空，**catpaw 只有 uid**。
     读池子时（`refreshLabels`）若渠道补上了名称，两者会一起升级。
 - `health`：`ok` | `unauthorized` | `unknown` | `error` | `cooldown`。由**网关**在刷新失败时写
   `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
@@ -594,7 +593,7 @@ interface CredModule {
    必须放在 `buildHeaders()`；`buildChatBody()` 需要的判定输入（如上游模型 id）
    经**模块级 pending 槽**从 `buildChatBody` 传给 `buildHeaders()`。
 
-> 当前 10 个渠道都没有用到这类状态。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
+> 当前 9 个渠道都没有用到这类状态。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
 
 ## 4. 公共层设计
 

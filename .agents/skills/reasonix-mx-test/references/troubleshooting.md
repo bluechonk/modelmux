@@ -39,7 +39,7 @@ curl -s http://127.0.0.1:4412/health
 
 ## 慢与超时
 
-- 有些模型单轮很慢（实测 `orcaterm/hy3` 36–54 秒/轮），多轮 Agent 任务容易超过外部
+- 有些模型单轮很慢（慢的上游能到 60 秒/轮以上），多轮 Agent 任务容易超过外部
   `timeout` 命令；用更长的超时窗口或减少步数，不要误判为渠道故障。
 - 上游排队时 `ttfbMs` 会远大于 `upstreamMs`，网关会自动重试；此时看
   `mx log --kind access --outcome success` 里的耗时字段，而不是直接判失败。
