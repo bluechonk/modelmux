@@ -314,8 +314,10 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test
 | 任何改动 | `npm run gate`（含 `npm test`） |
 | `.github/workflows/**`（任意 workflow） | 必须本地先跑通再推 |
 
-> 本仓库**不再发布 GitHub Pages**（Pages 部署与其产物校验已移除 ✓）。
-> 控制台的演示构建只是本地预览手段，见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) 的「演示模式」。
+> **演示构建发布到 GitHub Pages**：https://bluechonk.github.io/modelmux/ ——
+> 由 `.github/workflows/demo-pages.yml` 在 push 到 main（命中 `packages/ui/**` 等路径）时
+> 构建 `DEMO=1` 的**虚构数据包**并部署；真实控制台仍是**本机工具**，不上公网。
+> 改了 workflow 必须先在本地跑通同一条命令（见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) 的「演示模式」）。
 
 ### 推送前检查
 

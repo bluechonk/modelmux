@@ -238,12 +238,28 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 （`ChannelLedger.accounts[key]`），控制台账号池卡片按「渠道 × 账号」展示；
 账本数字记在请求发生时的当前生效账号头上。
 
-## 演示模式（本地静态构建）
+## 演示模式（在线演示 + 本地静态构建）
 
 控制台的**演示构建**（`DEMO=1`）用一份**虚构数据**在浏览器里跑完整交互流程，
 不需要起网关、不碰任何真实账号。
 
-> ⚠ **控制台没有公网版本**：它是**本机工具**，想看界面就 `mx web` ✓。
+> **在线演示：<https://bluechonk.github.io/modelmux/>**（GitHub Pages，只发布演示构建）。
+> 真实控制台仍是**本机工具**（要读本机网关与账号池），不上公网 —— 看真机就 `mx web` ✓。
+
+### 发布（GitHub Pages）
+
+`.github/workflows/demo-pages.yml`：push 到 `main`（命中 `packages/ui/**` / 依赖清单 /
+workflow 自身）或手动 `workflow_dispatch` 时，`npm ci` → 构建演示包 → 部署到 Pages。
+
+两个**必须**记住的点（改 workflow 或 `vite.config.ts` 前先读）：
+
+| 点 | 为什么 |
+| --- | --- |
+| `DEMO_BASE=/<repo>/` | Pages 的**项目站点**挂在 `https://<owner>.github.io/<repo>/` 下。资源若用根路径 `/assets/…` 会 404、整页空白。构建时把前缀传给 `vite.config.ts`，`base` 与 `App.tsx` 的 `basename` 都从 `__DEMO_BASE__` 推导（两处各写一份必然漂移）。用户站点（`<owner>.github.io`）前缀是 `/`，workflow 里按仓库名判断。 |
+| `cp dist/index.html dist/404.html` | 纯静态托管没有 SPA 回退：直接访问 `/accounts` 会 404。Pages 用 `404.html` 兜底，客户端路由再把页面画出来（**状态码仍是 404，但页面正常渲染**；入口 `/` 是 200）。 |
+
+Pages 的源设为 **GitHub Actions**（`build_type: workflow`），不是 gh-pages 分支 ——
+产物由 `upload-pages-artifact` 直接交给 Pages，仓库里不留构建产物。
 
 ### 为什么需要「演示构建」
 
@@ -256,12 +272,13 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | --- | --- |
 | `src/lib/demo.ts` | 虚构数据源 + 内存状态机（渠道/模型/账号池/账本 + 登录流程） |
 | `src/lib/api.ts` | `IS_DEMO` 为真时用内存实现替换所有 fetch |
-| `vite.config.ts` | `DEMO=1` 时切换 base 并注入 `__DEMO_MODE__` |
-| `src/App.tsx` | `basename` 跟随同一个标志 |
-| `src/env.d.ts` | `__DEMO_MODE__` 的类型声明 |
+| `vite.config.ts` | `DEMO=1` 时切换 base（`DEMO_BASE`）并注入 `__DEMO_MODE__` / `__DEMO_BASE__` |
+| `src/App.tsx` | `basename` 从同一个 `__DEMO_BASE__` 推导 |
+| `src/env.d.ts` | 两个注入常量的类型声明 |
 
-构建：`DEMO=1 npm run build --workspace=packages/ui`，
-产物在 `packages/ui/dist/`（`base=/` ✓，直接用静态服务器打开即可 ✓）。
+构建：`DEMO=1 npm run build --workspace=packages/ui`（本地预览，`base=/`），
+产物在 `packages/ui/dist/`，直接用静态服务器打开即可；
+发布到 Pages 时加 `DEMO_BASE=/modelmux/`（见上表）。
 
 演示的是**交互流程**而非假死截图：添加账号真的会把渠道置为已登录、账号入池并设为生效，
 模型区与统计卡随之更新（登录/登出一个渠道会同时改变模型数与渠道数）。
