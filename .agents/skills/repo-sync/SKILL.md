@@ -101,8 +101,10 @@ gh pr checks <n>
   Windows 侧跑绿不代表 CI 会绿。`pre-push` 会对**所有推送**全量再跑一次 `npm test`，
   它是兜底拦截，不是提前发现，也不按文件范围分流。
 - **改了 `.github/workflows/**` 必须本地先跑通再推**：workflow 的失败模式通常只有真跑
-  产物才暴露。仓库已移除 GitHub Pages，没有 `verify:pages`；workflow 改动以 `npm run gate`
-  为准。本机 WSL 内没有 `act`，不要假设能用 act 复现。
+  产物才暴露。演示站点的 `demo-pages.yml` 要本地验三件事：`DEMO=1 DEMO_BASE=/<repo>/`
+  构建后资源引用带前缀、`index.html` 复制成 `404.html` 后深链能渲染、Pages 源为
+  `build_type: workflow`。workflow 改动仍以 `npm run gate` 为准；
+  本机 WSL 内没有 `act`，不要假设能用 act 复现。
 - 合并统一用 **`gh pr merge <n> --rebase`**（保持线性历史，禁止 merge commit）。
   rebase 保留分支内的各条提交信息；PR 标题只有在 squash 时才会变成提交信息
   （`merge_commit_title=PR_TITLE`）。`verify:commits` 校验的是提交，不是 PR 标题。

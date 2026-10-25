@@ -70,6 +70,8 @@ mx model list
 `mx web` 起一个本地看板（`http://127.0.0.1:4412/web/`）：网关状态、接入端点、
 全渠道模型池与各渠道账号池额度，都在同一页里。
 
+**在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
+
 ![仪表盘：网关状态、接入端点与按渠道分组的模型池](docs/images/web-dashboard.png)
 
 ![账号池：各渠道的凭据、账号与额度](docs/images/web-accounts.png)
@@ -83,7 +85,8 @@ mx model list
   被连败熔断（「不可用」）或因额度耗尽冷却（「冷却中」）的账号，行上有一个**「解除」按钮** ——
   点了就清零失败计数、清掉冷却标记，立刻重新参与路由（凭据失效的「需登录」不在此列，那只能重登）。
 
-> 上面的两张图取自控制台的**演示构建**（`DEMO=1`，数据全部虚构，不读本机任何真实账号）。
+> 上面的两张图取自控制台的**演示构建**（`DEMO=1`，数据全部虚构，不读本机任何真实账号），
+> 与在线演示是同一个构建（`.github/workflows/demo-pages.yml` 发布到 GitHub Pages）。
 
 页面结构、数据通道与设计令牌见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
 

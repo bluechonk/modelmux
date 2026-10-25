@@ -1,0 +1,81 @@
+# 演示站点：把**演示构建**（DEMO=1，数据全部虚构）发布到 GitHub Pages。
+#
+# 只发布演示构建 —— 真实控制台是本机工具（要读本机网关与账号池），不能也没有必要上公网。
+# README 的「Web 控制台」一节指向这里（Pages 的项目站点 URL）。
+#
+# ⚠ 关键点（改之前先读）：
+# 1. Pages 的**项目站点**挂在 `https://<owner>.github.io/<repo>/` 下，资源必须用
+#    `/<repo>/assets/…` 前缀 —— 所以构建要传 `DEMO_BASE=/<repo>/`，
+#    `vite.config.ts` 的 `base` 与 `App.tsx` 的 `basename` 都从它推导。
+#    用根路径会整页空白（资源 404）。
+# 2. SPA 深链（直接访问 `/accounts`）在纯静态托管上会 404 —— 把 `index.html` 复制成
+#    `404.html`，Pages 就会用 SPA 回退到 index，客户端路由再把页面画出来。
+# 3. 只在 push 到 main / 手动触发时部署；PR 不部署（避免未合并的界面被公开）。
+name: demo-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/ui/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/demo-pages.yml"
+  workflow_dispatch:
+
+# GITHUB_TOKEN 的最小权限：读仓库 + 写 Pages + 用 OIDC 部署
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 部署串行化：不取消正在进行的部署（否则可能留下半发布的站点）
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建演示站点
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: 安装依赖
+        run: npm ci
+      - name: 计算站点前缀
+        id: base
+        # 用户站点（<owner>.github.io）挂在根，项目站点挂在 /<repo>/
+        run: |
+          repo="${GITHUB_REPOSITORY#*/}"
+          if [ "$repo" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            echo "path=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/${repo}/" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 构建演示包（DEMO=1，虚构数据）
+        env:
+          DEMO: "1"
+          DEMO_BASE: ${{ steps.base.outputs.path }}
+        run: npm run build --workspace=packages/ui
+      - name: SPA 深链回退（/accounts 直接访问）
+        run: cp packages/ui/dist/index.html packages/ui/dist/404.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/ui/dist
+
+  deploy:
+    name: 发布到 Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
