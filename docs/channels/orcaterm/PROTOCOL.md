@@ -550,24 +550,45 @@ Authorization: Bearer <ot_session>
 `upstream.fetchModels()` 走的是**本地 token 时效检查**（`cred.ensureFresh()` 读 JWT 的 `exp`，
 过期就续期、续不到就抛 `NotLoggedInError`），启动探测不产生上游会话残留。
 
-## 6. 模型窗口规格
+## 6. 模型窗口规格与思考档位
 
 本渠道无上游模型列表端点（目录与客户端同源内置），**自然也没有窗口与输出上限** ——
-网关 `/v1/models` 只能给兜底值（窗口 200K / 输出 64K）。本渠道按**公开规格**补齐有公开值的部分：
+网关 `/v1/models` 只能给兜底值（窗口 200K / 输出 64K）。本渠道按**公开规格**补齐有公开值的部分
+（2026-10-25 用 Tavily 复查过一轮官方文档，见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §3/§4）：
 
-| 模型 | 上下文窗口 | 最大输出 |
-|---|---|---|
-| `deepseek-v4-flash` / `deepseek-v4-pro` | 1048576 | 393216 |
-| `glm-4.7` | 202752 | 131072 |
-| `glm-5.2` / `glm-5.3` / `glm-5.3-flash` | 1048576 | 131072 |
-| `kimi-k2` | 131072 | 无公开规格 |
-| `kimi-k2.5` | 262144 | 无公开规格 |
-| `kimi-k3` | 1048576 | 1048576（官方上限；默认 131072） |
-| `orcaterm-assistant`（兼容别名 → 默认模型） | 1048576 | 393216 |
-| `hunyuan-t1` / `hunyuan-turbos` / `hy3` / `hy4-preview` / `kimi-k2-thinking` / `kimi-k2.5-thinking` / `qwen3` / `deepseek-chat` | 无公开规格 | 无公开规格 |
+| 模型 | 上下文窗口 | 最大输出 | 依据 |
+|---|---|---|---|
+| `deepseek-v4-flash` / `deepseek-v4-pro` | 1048576 | 393216 | DeepSeek 官方定价页 |
+| `glm-4.7` | 202752 | 131072 | docs.z.ai |
+| `glm-5.2` / `glm-5.3` / `glm-5.3-flash` | 1048576 | 131072 | docs.z.ai |
+| `hy3` | 262144 | 131072 | TokenHub 混元指南（上下文 256K / 最大输入 192K / 最大输出 128K） |
+| `hy4-preview` | 1048576 | 无公开规格 | 混元官方发布页（上下文 1M；输出未公布） |
+| `hunyuan-turbos` | 262144 | 无公开规格 | 官方模型卡（API 侧另有输入 32K / 输出 16K 限制） |
+| `kimi-k2` | 131072 | 无公开规格 | 官方模型卡（K2-0905 已升 256K，但本渠道是 legacy id，保守取 0711 的 128K） |
+| `kimi-k2.5` | 262144 | 无公开规格 | 官方模型卡（该型号 2026-08-31 已下线） |
+| `kimi-k3` | 1048576 | 1048576（官方上限；默认 131072） | 官方 API 文档 |
+| `orcaterm-assistant`（兼容别名 → 默认模型） | 1048576 | 393216 | 随默认模型 |
+| `hunyuan-t1` / `kimi-k2-thinking` / `kimi-k2.5-thinking` / `qwen3` / `deepseek-chat` | 无公开规格 | 无公开规格 | 已下线 / 已撤页（见 MODEL-SPECS §4，第三方数字只作旁证不采用） |
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
 `src/catalog.ts` 的 `MODEL_SPECS`（**两个字段都返回**，否则上下文会回落兜底 200K）。
+
+### 6.1 思考档位（官方文档，经 `modelSpec().effort` 透出）
+
+TokenHub 官方「推理深度配置」逐模型给了 `reasoning_effort` 取值（[文档](https://cloud.tencent.com/document/product/1823/131208)），
+本渠道照抄进 `src/catalog.ts` 的 `MODEL_EFFORTS`：
+
+| 模型 | 默认档 | 支持档位 |
+|---|---|---|
+| `hy4-preview` | `high` | `high`、`none` |
+| `hy3` | `high` | `low`、`high`、`none` |
+| `deepseek-v4-flash` / `deepseek-v4-pro` | `high` | `low`、`high`、`max` |
+| `glm-5.3` / `glm-5.3-flash` | `max` | `low`、`high`、`max` |
+| `glm-5.2` | `max` | `max`、`xhigh`、`high`、`medium`、`low`、`minimal`、`none` |
+| `kimi-k3` | `max` | `low`、`high`、`max` |
+
+`none` = 关闭思考。⚠ 这是**官方文档**而非上游运行时声明，所以 `/v1/models` 的
+`meta_sources.effort` 标 **`spec`**；其余模型（旧型号）官方没给档位 → `effort: null`，不编造。
 
 ---
 

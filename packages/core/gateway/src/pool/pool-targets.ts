@@ -200,7 +200,7 @@ export interface PoolModelMeta {
  * 「占位值」在界面上分得开（跨渠道兜底不能冒充上游事实）。
  *
  * - `upstream`：本渠道目录（上游返回）里有这个字段；
- * - `spec`：本渠道按公开规格维护的 `catalog.modelSpec()`；
+ * - `spec`：本渠道按公开规格维护的 `catalog.modelSpec()`（窗口 / 输出 / **官方文档给的思考档位**）；
  * - `cross`：兄弟渠道同 model id 的已知值（数值取 min / 档位取交集）；
  * - `default`：谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`）。
  */
@@ -452,7 +452,19 @@ type CacheRow = Record<string, unknown> & { id: string };
  */
 interface ChannelFacts {
   entry: CacheRow | null;
-  spec: { contextWindow?: number; maxOutputTokens?: number } | undefined;
+  /**
+   * 渠道按**公开规格**维护的规格（`catalog.modelSpec()`）。
+   *
+   * 除窗口 / 输出外还可以带 `effort`：有些渠道没有目录端点（如 orcaterm 用内置快照），
+   * 但官方文档写明了思考档位 —— 那种情况走这条通道，来源标 `spec` 而不是 `upstream`。
+   */
+  spec:
+    | {
+        contextWindow?: number;
+        maxOutputTokens?: number;
+        effort?: { supportedLevels: string[]; defaultLevel: string };
+      }
+    | undefined;
   /** 上游目录声明的窗口（含 `context_config` 档位表取最大档）；null = 没声明。 */
   contextWindow: number | null;
   /** 上游目录声明的输出上限；null = 没声明。 */
@@ -592,9 +604,12 @@ export function buildCrossModelIndex(): CrossModelIndex {
       const bucket = acc.get(model) ?? { ctxs: [], outs: [], efforts: [] };
       const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? null;
       const out = facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? null;
+      // 档位同样收「上游声明」与「渠道规格」两种来源：只认上游会让没有目录端点的渠道
+      // （orcaterm 的官方档位在规格表里）在别的渠道缺档位时帮不上忙。
+      const effort = facts.effort ?? facts.spec?.effort ?? null;
       if (ctx !== null) bucket.ctxs.push(ctx);
       if (out !== null) bucket.outs.push(out);
-      if (facts.effort) bucket.efforts.push(facts.effort);
+      if (effort) bucket.efforts.push(effort);
       acc.set(model, bucket);
     }
   }
@@ -615,6 +630,7 @@ export function buildCrossModelIndex(): CrossModelIndex {
  *
  * ⚠ 顺序不能换：本渠道规格（渠道按公开规格维护，见 `docs/MODEL-SPECS.md`）比兄弟渠道
  * 被上游裁剪过的值更权威，所以跨渠道兜底**只替换占位值**，不会把已有真值改小。
+ * 思考档位同理：上游声明 > 渠道规格（官方文档给的档位）> 跨渠道交集。
  */
 function metaFromFacts(
   facts: ChannelFacts,
@@ -625,7 +641,7 @@ function metaFromFacts(
   const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? cross?.contextWindow ?? null;
   const out =
     facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? cross?.maxOutputTokens ?? null;
-  const effort = facts.effort ?? cross?.effort ?? null;
+  const effort = facts.effort ?? facts.spec?.effort ?? cross?.effort ?? null;
   const output = entry?.["outputModalities"] ?? entry?.["output_modalities"];
   return {
     name: entry && typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
@@ -655,7 +671,14 @@ function metaFromFacts(
             : facts.spec?.maxOutputTokens !== undefined
               ? "spec"
               : "cross",
-      effort: effort === null ? "default" : facts.effort !== null ? "upstream" : "cross",
+      effort:
+        effort === null
+          ? "default"
+          : facts.effort !== null
+            ? "upstream"
+            : facts.spec?.effort !== undefined
+              ? "spec"
+              : "cross",
     },
   };
 }
