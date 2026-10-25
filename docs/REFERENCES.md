@@ -53,14 +53,6 @@
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | MIT | 同上 |
 | [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | MIT（历史参照，微信登录已移除） | 同上 |
 
-### orcaterm
-
-| 仓库 | 许可证 | 落点 |
-|---|---|---|
-| [ZFXing-lite/orcaterm2api](https://github.com/ZFXing-lite/orcaterm2api) | MIT | `docs/channels/orcaterm/PROTOCOL.md` |
-| [hey7195/orcaterm_proxy](https://github.com/hey7195/orcaterm_proxy) | NOASSERTION | 同上 |
-| [JackieLiu1/orcaterminal-releases](https://github.com/JackieLiu1/orcaterminal-releases) | NOASSERTION | 同上（官方发布物，取值参考） |
-
 ### qoder / qodercn
 
 | 仓库 | 许可证 | 落点 |

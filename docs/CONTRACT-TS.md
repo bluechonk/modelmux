@@ -126,7 +126,7 @@ packages/core/channels/<cid>/
 
 | 约定 | 原因 |
 | --- | --- |
-| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + 10 个渠道包）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
+| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + 9 个渠道包）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
 | **版本号只记一遍** | `package.json` 的 `version` 是唯一真相；渠道 `src/channel.ts` 的 `ChannelConfig.version` 必须与之一致（那处会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。同一事实记两遍必然漂移 |
 | **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
 | **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
@@ -166,7 +166,7 @@ interface ChannelConfig {
 
 **能力声明**：`capabilities.billing` / `capabilities.signin` 为 `false` 表示该渠道没有额度 /
 签到概念。共享层据此直接显示 `-`，不调用对应模块；缺省视为支持，兼容所有现有渠道。
-无对应能力的渠道（如 orcaterm）在 `channel.ts` 显式声明，不靠抛错或空台账让上层猜。
+无对应能力的渠道在 `channel.ts` 显式声明，不靠抛错或空台账让上层猜。
 
 **落点不由渠道决定**：存储根、`<cid>` 分层、目录内文件名全部由共享层
 `paths.ts` 推导；渠道只给 `cid`，没有任何历史名清单。
@@ -256,7 +256,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 | **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | lobsterai、raccoon |
 | **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | qodercn、workbuddyai、qoder、workbuddy |
 
-不消费 `pasteCode` 的渠道：loomy（手机验证码两步）、catpaw、orcaterm、traecn。
+不消费 `pasteCode` 的渠道：loomy（手机验证码两步）、catpaw、traecn。
 
 形态 B 另有一条硬要求：**认出「授权被拒 / 出错」的措辞就立刻收尾报错**
 （不等轮询超时）—— 用户拒绝授权时看到的是白等几分钟。措辞集合是**渠道无关**的
@@ -286,7 +286,6 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   约定：**只在已过期时阻塞**续期；仍在续期窗口内则保持非阻塞，否则每个请求都要多等
   一次网络往返。钩子可就地改写传入的 credential（换上新 accessToken），使随后的
   `buildHeaders` 用上新 token。未声明时网关保持同步行为，不受影响。
-  参考实现见 `packages/core/channels/orcaterm/src/cred.ts`（`refreshIfExpired`）。
 - `isAuthFailure(status, body)`：对**任何非 200** 的响应都会调用；返回 true 时网关把它归一成
   401，走「刷新 token → 重试**本账号**」（不切号）。用于上游不用标准状态码表达凭据失效的渠道。
   完整链路见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
@@ -362,8 +361,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 **上游一轮响应里可能有多个 JSON 片段**：翻译器必须按**平衡花括号逐段扫描**
 （对字符串与转义感知），不能按「最外层花括号跨度」一刀切 —— 后者会把多个片段
-连成一坨，JSON 解析必然失败，整段只能当纯文本透传。参考实现见
-`packages/core/channels/orcaterm/src/upstream.ts:708-740`。
+连成一坨，JSON 解析必然失败，整段只能当纯文本透传。
 
 **`buildChatBody(req, upstreamModel)`** 把下游 OpenAI 请求改写成上游能接受的形状：
 
@@ -534,7 +532,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 | 类型 | 用法 | 渠道 |
 |---|---|---|
 | **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、lobsterai、raccoon |
-| **B. flow 轮询** | 拼授权 URL → 交给用户打开 → 轮询拿 token | workbuddyai、workbuddy、catpaw、orcaterm |
+| **B. flow 轮询** | 拼授权 URL → 交给用户打开 → 轮询拿 token | workbuddyai、workbuddy、catpaw |
 | **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | qoder、qodercn |
 | **D. 手机验证码两步** | 发码（返回 `msgid`）→ 带 `msgid` + 验证码换 token | loomy |
 

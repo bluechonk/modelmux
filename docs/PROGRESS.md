@@ -26,7 +26,6 @@
 | catpaw | CatPaw（美团妙手） | 是 | 是 | 9 |
 | lobsterai | LobsterAI（有道） | 是 | 是 | 30 |
 | loomy | Loomy（讯飞） | 是 | 是 | 10 |
-| orcaterm | OrcaTerm（腾讯云） | 否（订阅制） | 否 | 18 |
 | qoder | Qoder（国际版） | 是 | 是 | 14 |
 | qodercn | Qoder 国内版 | 是 | 是 | 10 |
 | raccoon | Raccoon（商汤） | 是 | 是 | 6 |
@@ -92,7 +91,6 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
 
 ## 已知边界
 
-- `orcaterm` 无额度/签到概念（订阅制），CLI 与 UI 均显示「订阅制 · 无额度概念」。
 - 上游目录**普遍不下发**思考档位，只有 catpaw / loomy / traecn / lobsterai 声明了档位；
   其余渠道无声明时控制台显示「不支持」，共享层兜底**不编造**档位。
 - 共享层**不解释渠道字段**，只按约定键名归一；渠道自己的字段名映射在渠道包内。

@@ -455,7 +455,7 @@ interface ChannelFacts {
   /**
    * 渠道按**公开规格**维护的规格（`catalog.modelSpec()`）。
    *
-   * 除窗口 / 输出外还可以带 `effort`：有些渠道没有目录端点（如 orcaterm 用内置快照），
+   * 除窗口 / 输出外还可以带 `effort`：有些渠道没有目录端点（只有内置快照），
    * 但官方文档写明了思考档位 —— 那种情况走这条通道，来源标 `spec` 而不是 `upstream`。
    */
   spec:
@@ -605,7 +605,7 @@ export function buildCrossModelIndex(): CrossModelIndex {
       const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? null;
       const out = facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? null;
       // 档位同样收「上游声明」与「渠道规格」两种来源：只认上游会让没有目录端点的渠道
-      // （orcaterm 的官方档位在规格表里）在别的渠道缺档位时帮不上忙。
+      // （官方档位在规格表里）在别的渠道缺档位时帮不上忙。
       const effort = facts.effort ?? facts.spec?.effort ?? null;
       if (ctx !== null) bucket.ctxs.push(ctx);
       if (out !== null) bucket.outs.push(out);

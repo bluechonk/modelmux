@@ -48,7 +48,6 @@ Reasonix v2.44 一次声明 **18 个**工具（版本快照，升级后请用回
   reasonix -p --model modelmux/<cid>/<模型> --allowed-tools "MCP(*)" "调用 MCP 工具 ..."
   ```
 - 技能测试把技能放到工作区 `.agents/skills/<name>/SKILL.md`；`reasonix run` 能发现并调用。
-- 渠道层的桥接实现见 `docs/channels/orcaterm/TOOL-CALLS.md` §6（`bridgeCapabilityCall`）。
 
 ## 历史坑与回归护栏
 
@@ -58,10 +57,8 @@ Reasonix v2.44 一次声明 **18 个**工具（版本快照，升级后请用回
 | 历史现象 | 修复落点 |
 | --- | --- |
 | traecn 文件写成功但读回失败，上游报 `code=4027` | 渠道 `toSoloToolCalls()` 把 assistant 工具调用统一成 `tool_calls` 数组（`packages/core/channels/traecn/src/upstream.ts`）；规则 4 禁止往消息顶层写 `function_call` |
-| orcaterm 工具调用完全不发生，模型输出 `{"action":"review",...}` | 渠道 `jsonSegments()` 逐段扫描平衡花括号，能拆「一轮连吐多个信封」（`packages/core/channels/orcaterm/src/upstream.ts`）；规则 5 强制逐段扫描 |
 | 客户端报 `cannot unmarshal number ... streamWireError.error.code` | 错误帧 `code` 一律字符串化（如 traecn、catpaw 的 `String(...)`）；规则 3 校验 |
 | 客户端报 `cannot unmarshal null ... streamWire...` | 纯工具调用消息的聚合体不设 `content` 键（`packages/core/gateway/src/http/wire/sse-stream.ts`），由 `packages/core/gateway/tests/sse-aggregate.test.ts` 断言 |
 | traecn 连续报 `4001 param is invalid`，会话此前一直正常 | 客户端把「纯思考无正文」的空壳 assistant 存进历史；共享层 `dropEmptyAssistantMessages()` 剔除（`packages/core/gateway/src/http/wire/openai-normalize.ts`，traecn 的 `buildChatBody` 接入） |
-| orcaterm 技能/MCP 调用不生效，输出 `[OrcaTerm 请求执行工具 xxx]` | 延迟能力未桥接；渠道 `bridgeCapabilityCall()` 把内部工具名折成 `use_capability`（`packages/core/channels/orcaterm/src/upstream.ts`） |
 
 > 引用只写「文件 + 函数名」，不写行号 —— 行号会随重构漂移，函数名稳定。

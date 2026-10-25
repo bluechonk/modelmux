@@ -11,9 +11,6 @@
       "path": "packages/core/channels/loomy"
     },
     {
-      "path": "packages/core/channels/orcaterm"
-    },
-    {
       "path": "packages/core/channels/qoder"
     },
     {

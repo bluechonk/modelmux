@@ -40,11 +40,9 @@ docs/channels/<cid>/
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：`PROTOCOL.md` 10 份（每个渠道一份）、`FINDINGS.md` 4 份
-（`catpaw` / `orcaterm` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
+当前落地：`PROTOCOL.md` 9 份（每个渠道一份）、`FINDINGS.md` 3 份
+（`catpaw` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
 后两者是**按需**的逆向结论层，不是每个渠道都有。
-另有专题文件：`orcaterm/TOOL-CALLS.md` 与 `orcaterm/REQUEST-BODY.md`
-（把 PROTOCOL 里过长的工具调用与请求体细节拆出来，主文档留指针）。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
 注释的三层分工见 [`MODULE-COMMENTS.md`](../MODULE-COMMENTS.md)。
@@ -73,7 +71,6 @@ docs/channels/<cid>/
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
-| `orcaterm` | OrcaTerm（腾讯云） | 工具调用走上游原生工具服务器桥接；无额度 / 签到 | [PROTOCOL](./orcaterm/PROTOCOL.md) + [FINDINGS](./orcaterm/FINDINGS.md) / [TOOL-CALLS](./orcaterm/TOOL-CALLS.md) / [REQUEST-BODY](./orcaterm/REQUEST-BODY.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | COSY 签名 + 请求体**自定义 Base64 编码**（直发字符串） | [PROTOCOL](./qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与 `qoder` **同一套协议**，仅域名 / 身份 / 模型目录不同 | [PROTOCOL](./qodercn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
@@ -94,7 +91,6 @@ docs/channels/<cid>/
 | `catpaw` | `longcat-2.0`（倍率 0） | 通过 | 首次失败是**被另一会话重启网关**打断，重试即过 |
 | `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费 3.54 credits（与倍率相符） |
 | `loomy` | `spark-x`（倍率 0） | 通过 | 2026-10-22 手机验证码入池后实测：工具往返通过、零扣费；冷启动首字 ~25s |
-| `orcaterm` | `deepseek-v4-flash` | 通过 | 订阅制，无倍率概念 |
 | `qoder` | `deepseek-flash`（倍率 0） | **受限** | 上游排队饱和：单请求 TTFB 220–290s，模型不再推进 |
 | `qodercn` | `qwen3.8-flash`（倍率 0） | 通过 | |
 | `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费 4 积分（与倍率相符） |

@@ -105,8 +105,8 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   `minimal`→最小、`none`/`off`→关闭），未知档名原样显示。
   档位按**强度重排**后展示（上游下发顺序是随机的，实测 qoder 给的是
   `xhigh/high/low/max/medium`），顺序表见 `THINKING_LEVEL_ORDER`。
-  档位来源分三种（`sources.effort`）：上游目录声明、渠道官方规格（`spec`，如 orcaterm 抄
-  TokenHub 的推理深度表）、跨渠道推断（`cross`，后面标「推断」）。
+  档位来源分三种（`sources.effort`）：上游目录声明、渠道官方规格（`spec`，渠道把官方
+  文档的档位抄进自己的规格表）、跨渠道推断（`cross`，后面标「推断」）。
 - **推断值必须看得见**：`model_info[id].sources` 里标 `cross` 的字段（窗口 / 输出 / 档位）
   是**兄弟渠道同 model id** 的值（见 POOL-ARCHITECTURE §2.7），界面上在该值后面加灰色
   「推断」二字，并在表头右侧给一句「标「推断」的值取自同 id 的其他渠道」——

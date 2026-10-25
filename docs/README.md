@@ -48,7 +48,6 @@
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
-| `orcaterm` | OrcaTerm（腾讯云） | [PROTOCOL](./channels/orcaterm/PROTOCOL.md) + [FINDINGS](./channels/orcaterm/FINDINGS.md) / [TOOL-CALLS](./channels/orcaterm/TOOL-CALLS.md) / [REQUEST-BODY](./channels/orcaterm/REQUEST-BODY.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./channels/qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
@@ -56,13 +55,7 @@
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表） |
 
-> `orcaterm` 是**渠道包**（7 文件齐备并已注册）：登录只走**腾讯云**一路
-> （`wechat` / `github` / 控制台态三路仅为协议事实，CLI 不提供入口）；
-> 文本对话与**工具调用**均已实现 —— `buildChatBody()` 会带上 `tools`（开上游原生
-> 工具服务器 + 提示词注入工具清单），翻译层把 `action:"review"` 信封还原成 OpenAI
-> `tool_calls`；但上游只认原生工具名、一次只产出一个调用，能否真的发起调用取决于
-> 客户端声明的工具与上游原生工具的匹配（详见其 PROTOCOL 的「已知限制 / 风险与待验证」）。
-> 额度 / 签到无此概念（`capabilities.billing` / `signin` 均为 false），CLI 与 UI 显示 `-`。
+> 跨渠道的规范（契约、池化、存储、进程、日志、注释）见下表。
 > GitHub 登录仅协议事实，未实现。
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：

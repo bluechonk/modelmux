@@ -493,7 +493,7 @@ export function AccountCard({
 
                 {/* 第三行：额度条独占整行。
                     **固定高度**：额度条有两种渲染分支 —— 正常分支返回块级 flex 行，
-                    「无额度概念」渠道（capabilities.billing=false，如 orcaterm）返回
+                    「无额度概念」渠道（capabilities.billing=false）返回
                     裸行内 span，行盒会更高（实测 24px vs 17px），导致账号块高度不一致、
                     卡片网格参差。统一成固定高度的 flex 行，两个分支同高。
 
@@ -544,7 +544,7 @@ export function AccountCard({
                     账单还没到 / 请求失败时**不写「未查到」**：那是等待态，不是结果。 */}
                 <div className="mt-1 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">
                   {(() => {
-                    // 没有额度概念的渠道（`capabilities.billing=false`，如 orcaterm 订阅制）
+                    // 没有额度概念的渠道（`capabilities.billing=false`）
                     // 不显示账单新鲜度：它永远不会刷新，只会一直累加「更新于 N 天前」，
                     // 看起来像故障（2026-10-24 主人反馈）。
                     if (billing?.unsupported === true) return null;

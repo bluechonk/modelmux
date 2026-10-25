@@ -1,7 +1,7 @@
 # modelmux
 
-**一个端点，接管 10 家 AI 客户端的额度。** 把 WorkBuddy、Qoder、Loomy、LobsterAI、Raccoon、
-TRAE、CatPaw、OrcaTerm 等渠道汇成**一个 OpenAI 兼容端点**，对外暴露各渠道目录里的
+**一个端点，接管 9 家 AI 客户端的额度。** 把 WorkBuddy、Qoder、Loomy、LobsterAI、Raccoon、
+TRAE、CatPaw 等渠道汇成**一个 OpenAI 兼容端点**，对外暴露各渠道目录里的
 真实模型（`<渠道>/<模型>` 池 id，渠道由请求方指定）。专注做一件事：`npx modelmux` 起网关，
 任何 OpenAI 兼容客户端指过来就能用 —— 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
 
@@ -10,7 +10,7 @@ TRAE、CatPaw、OrcaTerm 等渠道汇成**一个 OpenAI 兼容端点**，对外�
 - **一个网关**：监听 `127.0.0.1:4412`，提供 `/v1/chat/completions`、`/v1/models`、`/health`。
 - **动态模型池**：对外模型 id 为 `<cid>/<模型>`（如 `loomy/kimi-k2.6`），`/v1/models` 实时汇总
   全部渠道 `catalog` 的归一化结果。客户端用渠道前缀显式选渠道；同名模型在不同渠道是独立 id。
-- **10 个渠道**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下。
+- **9 个渠道**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下。
 - **按用量自动分流**：请求按各渠道账单已用量打分选路，崩溃/鉴权失败的渠道自动跳过；
   **额度耗尽的渠道进「冷却」**（等上游窗口刷新，不误判成故障账号）。
 - **运维全自动**：签名式登录（扫码 / 设备码 / 短信，按渠道）、**多账号池**（切换 / 移除 / 逐账号额度）、
