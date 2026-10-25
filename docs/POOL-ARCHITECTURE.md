@@ -301,6 +301,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   （`{supportedLevels[],defaultLevel}`），再试 `efforts` 数组 +
   `defaultEffort`/`default_effort`/`default_effort_level` 默认档字段。
   空数组 = 未声明 → `effort: null`（不编造）。
+  - **没有目录端点的渠道走规格通道**：orcaterm 用内置快照，官方文档（TokenHub
+    「推理深度配置」）逐模型给了档位 → 经 `catalog.modelSpec().effort` 交给池层，
+    来源标 `spec`（不是 `upstream`）。表见 [MODEL-SPECS.md](./MODEL-SPECS.md) §3.2。
   - **上游形态与池层形态不一致时，由渠道在落盘前归一**：qoder / qodercn 上游下发的是
     `thinking_config.enabled.efforts{}`（对象 map，默认档由 `is_default` 标出），
     渠道 catalog 的 `wireEffort()` 把它归一成 `effort:{supportedLevels[],defaultLevel}`
@@ -324,7 +327,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 | 来源 | 含义 |
 |---|---|
 | `upstream` | 本渠道目录（上游返回）里有这个字段 |
-| `spec` | 本渠道按公开规格维护的 `catalog.modelSpec()`（见 [MODEL-SPECS.md](./MODEL-SPECS.md)） |
+| `spec` | 本渠道按公开规格维护的 `catalog.modelSpec()`（窗口 / 输出 / **官方文档逐模型给出的思考档位**） |
 | `cross` | **兄弟渠道同 model id** 的已知值（跨渠道兜底，见 §2.7） |
 | `default` | 谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`） |
 

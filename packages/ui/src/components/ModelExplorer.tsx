@@ -383,6 +383,7 @@ function ModalityCell({ row }: { row: ModelRow }): ReactElement {
 const THINKING_LEVEL_LABELS: Record<string, string> = {
   none: "关闭",
   off: "关闭",
+  minimal: "最小",
   low: "低",
   medium: "中",
   high: "高",
@@ -394,7 +395,7 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
  * 档位展示顺序：上游下发的顺序是随机的（实测 qoder 给的是 `xhigh/high/low/max/medium`），
  * 按强度重排一遍才读得懂。表里没有的档名排在末尾，保持原相对顺序。
  */
-const THINKING_LEVEL_ORDER = ["off", "none", "low", "medium", "high", "xhigh", "max"];
+const THINKING_LEVEL_ORDER = ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 function sortThinkingLevels(levels: readonly string[]): string[] {
   const rank = (level: string): number => {

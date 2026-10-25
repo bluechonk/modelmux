@@ -25,8 +25,14 @@ process.env["MODELMUX_HOME"] = HOME;
 
 const CID = "effortchan";
 
-/** 合成渠道：catalog 只给一个模型名，其余全靠目录缓存。 */
-function useChannel(): void {
+/**
+ * 合成渠道：catalog 只给一个模型名，其余全靠目录缓存。
+ *
+ * `spec` 对应渠道的 `catalog.modelSpec()`（没有目录端点的渠道靠它报官方规格与档位）。
+ */
+function useChannel(
+  spec?: { contextWindow?: number; maxOutputTokens?: number; effort?: { supportedLevels: string[]; defaultLevel: string } },
+): void {
   const config: ChannelConfig = {
     cid: CID,
     display: "Effort Chan",
@@ -41,6 +47,7 @@ function useChannel(): void {
     catalog: {
       exposedIds: () => ["m1"],
       resolveModel: (n: string) => n,
+      ...(spec ? { modelSpec: () => spec } : {}),
     },
     billing: { CreditsError: class CreditsError extends Error {} },
   } as unknown as Channel);
@@ -102,6 +109,38 @@ describe("思考档位（effort）：没声明就是没声明", () => {
       CID,
     );
     assert.deepEqual(metaOf().effort, { supportedLevels: ["low", "high"], defaultLevel: "" });
+  });
+});
+
+describe("档位来源：上游声明 > 渠道规格（官方文档）", () => {
+  it("没有目录端点时用 modelSpec().effort，来源标 spec", () => {
+    // orcaterm 的形态：内置快照 + 官方文档档位，没有上游目录
+    useChannel({ effort: { supportedLevels: ["low", "high", "none"], defaultLevel: "high" } });
+    writeCatalogCache([{ id: "m1" }], CID);
+    const meta = metaOf();
+    assert.deepEqual(meta.effort, {
+      supportedLevels: ["low", "high", "none"],
+      defaultLevel: "high",
+    });
+    assert.equal(meta.sources.effort, "spec", "官方文档不是上游运行时声明，必须标 spec");
+  });
+
+  it("上游声明了档位就以它为准（规格只做兜底）", () => {
+    useChannel({ effort: { supportedLevels: ["low", "high"], defaultLevel: "low" } });
+    writeCatalogCache([{ id: "m1", efforts: ["high", "max"], defaultEffort: "max" }], CID);
+    const meta = metaOf();
+    assert.deepEqual(meta.effort, { supportedLevels: ["high", "max"], defaultLevel: "max" });
+    assert.equal(meta.sources.effort, "upstream");
+  });
+
+  it("规格里只有窗口没有档位 → 档位仍是 null（不编造）", () => {
+    useChannel({ contextWindow: 262_144, maxOutputTokens: 131_072 });
+    writeCatalogCache([{ id: "m1" }], CID);
+    const meta = metaOf();
+    assert.equal(meta.effort, null);
+    assert.equal(meta.sources.effort, "default");
+    assert.equal(meta.contextWindow, 262_144);
+    assert.equal(meta.sources.contextWindow, "spec");
   });
 });
 

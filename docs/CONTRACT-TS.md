@@ -442,7 +442,12 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 而兜底值不是任何模型的真实上限。这类渠道**可以**实现：
 
 ```ts
-modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined;
+modelSpec?(modelId: string): {
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  /** 官方文档逐模型给出的思考档位（目前只有 TokenHub 那种文档有，见 MODEL-SPECS §3.2）。 */
+  effort?: { supportedLevels: string[]; defaultLevel: string };
+} | undefined;
 ```
 
 - `modelId` 是池 id 里的**规范模型名**（`exposedIds()` 经归一化后的结果）——
@@ -450,6 +455,9 @@ modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number 
   （倍率不走这里：倍率由目录条目的倍率字段汇聚成 `PoolModelMeta.multiplier`。）
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
+- `effort` 只填**官方文档逐模型写明档位**的（`docs/MODEL-SPECS.md` §3.2）：
+  公开资料只写「支持思考 / 非思考」或「最大思维链」的，**不填**（池层给 `null`）。
+  走这条通道的档位来源标 `spec`，与上游运行时声明的 `upstream` 区分开。
 - **取值优先级：本渠道上游目录 > 本渠道声明（本钩子）> 跨渠道兜底 > 占位值**：
   共享层对「本渠道两条路都答不上来」的字段，会拿**兄弟渠道同规范 model id** 的已知值补
   （数值取 min / 档位取交集，只填缺值，且标 `sources: "cross"`）——
