@@ -10,7 +10,7 @@
  *   新鲜度/到期/失败次数收在最次行。
  */
 
-import { Plus, Trash2, UserCheck } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
@@ -289,6 +289,14 @@ const STATUS_META: Record<ChannelStatus, { text: string; pill: string; dot: stri
 };
 
 /**
+ * 卡内默认露出的账号数，其余折进「展开剩余 N 个账号」。
+ *
+ * 卡片高度因此有上界（卡头 + 4 行 + 折叠条），网格不会被账号多的渠道撑爆；
+ * 生效账号恒排首位（见下方 sort），永远不会被折掉。
+ */
+const PREVIEW_ACCOUNTS = 4;
+
+/**
  * 单渠道账号池卡片。
  *
  * 信息层级按「用户一眼要看什么」排：卡头是 cid + 渠道级状态；
@@ -340,6 +348,10 @@ export function AccountCard({
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
+  // 折叠态是卡内私有状态：页面不需要知道哪张卡展开了
+  const [expanded, setExpanded] = useState(false);
+  const visibleAccounts = expanded ? accounts : accounts.slice(0, PREVIEW_ACCOUNTS);
+  const hiddenAccounts = accounts.length - visibleAccounts.length;
 
   const status = classifyChannel(pool, present);
   const meta = STATUS_META[status];
@@ -394,7 +406,7 @@ export function AccountCard({
         </div>
       ) : (
         <ul className="border-t border-line">
-          {accounts.map((account) => {
+          {visibleAccounts.map((account) => {
             const active = account.key === pool.index.active;
             const bill = billingByKey.get(account.key);
             const health = healthText(account.health);
@@ -433,14 +445,12 @@ export function AccountCard({
                         <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
                       )}
                     </div>
-                    {/* UID 退到次行：不再和名称挤在同一行互相截断。
-                        名字行固定 22px 行高 + 这里留 6px 上间距：中文名（如「塞西莉亚4412」）
-                        字形下缘低，仅靠 leading 会看成与下一行叠字。 */}
-                    {showUid && (
-                      <div className="mt-1.5 truncate text-[11px] leading-none text-ink-faint">
-                        UID {maskMiddle(account.uid)}
-                      </div>
-                    )}
+                    {/* UID 退到次行：不与名称同行互截；**恒渲染**（无 UID 时空占位）——
+                        账号行高度不随「有没有标识次行」漂移（布局统一，2026-10-25 主人要求）。
+                        固定 16px 行盒 + 6px 上间距：中文名字形下缘低，紧贴会看成与下一行叠字。 */}
+                    <div className="mt-1.5 h-4 truncate text-[11px] leading-4 text-ink-faint">
+                      {showUid ? `UID ${maskMiddle(account.uid)}` : ""}
+                    </div>
                   </div>
                   {/* 解除：异常/冷却账号的**常显**动作 —— 不藏在 hover 里（触屏与键盘拿不到），
                       也不做二次确认（非破坏性：清了标记账号只是重新参与路由）。 */}
@@ -481,7 +491,7 @@ export function AccountCard({
                   </span>
                 </div>
 
-                {/* 第二行：额度条独占整行。
+                {/* 第三行：额度条独占整行。
                     **固定高度**：额度条有两种渲染分支 —— 正常分支返回块级 flex 行，
                     「无额度概念」渠道（capabilities.billing=false，如 orcaterm）返回
                     裸行内 span，行盒会更高（实测 24px vs 17px），导致账号块高度不一致、
@@ -529,9 +539,10 @@ export function AccountCard({
                   </div>
                 )}
 
-                {/* 第三行：时间与状态说明 —— 允许换行，绝不裁切。
+                {/* 第四行：时间与状态说明 —— 允许换行，绝不裁切；min-h 兜住空行
+                    （订阅制渠道此行全空时也保持行高）。偶发换两行由同行等高卡吸收。
                     账单还没到 / 请求失败时**不写「未查到」**：那是等待态，不是结果。 */}
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">
+                <div className="mt-1 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">
                   {(() => {
                     // 没有额度概念的渠道（`capabilities.billing=false`，如 orcaterm 订阅制）
                     // 不显示账单新鲜度：它永远不会刷新，只会一直累加「更新于 N 天前」，
@@ -565,6 +576,25 @@ export function AccountCard({
             );
           })}
         </ul>
+      )}
+      {/* 折叠条：账号数超过预览上限时出现（点击展开，不用 hover —— 触屏/键盘也要能到达） */}
+      {accounts.length > PREVIEW_ACCOUNTS && (
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-1 border-t border-line px-4 py-2 text-[11px] text-ink-faint transition-colors hover:bg-overlay/40 hover:text-ink"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {hiddenAccounts > 0 ? (
+            <>
+              展开剩余 {hiddenAccounts} 个账号 <ChevronDown className="h-3 w-3" />
+            </>
+          ) : (
+            <>
+              收起 <ChevronUp className="h-3 w-3" />
+            </>
+          )}
+        </button>
       )}
     </div>
   );
