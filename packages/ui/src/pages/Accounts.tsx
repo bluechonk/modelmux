@@ -169,6 +169,25 @@ export function Accounts(): ReactElement {
     onError: (err) => setError(String(err)),
     onSettled: () => setBusyKey(null),
   });
+  /**
+   * 解除：清掉连败熔断 / 额度冷却（后端 `clearAccountState`，不动凭证）。
+   *
+   * 失败信息直接展示 —— 最常见的两种是「凭据已失效需重登」与「账号不在池里」，
+   * 都只能由用户决定下一步，不该静默吞掉。
+   */
+  const reset = useMutation({
+    mutationFn: async ({ cid, key }: { cid: string; key: string }) => {
+      setBusyKey(`reset:${key}`);
+      return await api.commands.resetAccount(cid, key);
+    },
+    onSuccess: () => {
+      setError("");
+      setNotice("已解除标记，账号重新参与路由");
+      invalidateAll();
+    },
+    onError: (err) => setError(String(err)),
+    onSettled: () => setBusyKey(null),
+  });
   const submitCallback = useMutation({
     mutationFn: async (url: string) => await api.commands.pasteCallback(url),
     onSuccess: (res) => {
@@ -293,6 +312,7 @@ export function Accounts(): ReactElement {
                 billingError={billingError}
                 now={now}
                 onActivate={(cid, key) => activate.mutate({ cid, key })}
+                onReset={(cid, key) => reset.mutate({ cid, key })}
                 onRemove={(cid, key) => remove.mutate({ cid, key })}
                 onAdd={(cid) => setLoginChannel(cid)}
                 busyKey={busyKey}

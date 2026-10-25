@@ -13,7 +13,7 @@ import { channelCapabilities, channels, getChannel, hasChannel } from "../../run
 import { runInChannel } from "../../runtime/channel-context.js";
 import { POOL_MODELS, canonicalModelId, poolModelId, poolCandidates } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
-import { listAccounts, activateAccount, removeAccount, syncPool } from "../../runtime/account-pool.js";
+import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { renderChannelPool } from "./web-types.js";
 import type { WebCommandBody, WebCommandResult, WebChannelStatus } from "./web-types.js";
 
@@ -157,6 +157,19 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         if (!key) return err("参数 key 必填");
         const account = runInChannel(cid, () => activateAccount(key, cid));
         return ok({ active: account.key });
+      }
+      case "resetAccount": {
+        // 「解除」：清掉连败熔断（error）或额度冷却（cooldown），把账号放回可用状态。
+        // 与 activateAccount 的区别：**不动凭证**，所以池里任何账号都能清（不只是生效那个）。
+        if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");
+        const key = typeof args["key"] === "string" ? args["key"] : "";
+        if (!key) return err("参数 key 必填");
+        const result = runInChannel(cid, () => clearAccountState(key, cid));
+        if (!result.cleared) {
+          // 没改状态也要如实说明为什么（账号不在池里 / 凭据失效需重登 / 本来就没标记）
+          return { ok: false, error: result.reason ?? "该账号没有需要解除的标记", data: { key, health: result.health } };
+        }
+        return ok({ key, health: result.health });
       }
       case "removeAccount": {
         if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");

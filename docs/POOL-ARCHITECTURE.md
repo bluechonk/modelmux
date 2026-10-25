@@ -152,8 +152,21 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 
 | 情形 | 判据 | 账号状态 | 恢复方式 |
 |---|---|---|---|
-| 真故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error`（Web 显示「不可用」） | 手动切号 / 重登 |
-| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却中」） | **到期自动恢复**（惰性，无需定时器） |
+| 真故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error`（Web 显示「不可用」） | **Web 账号池页的「解除」按钮** / 手动切号 / 重登 |
+| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却中」） | **到期自动恢复**（惰性，无需定时器），也可用「解除」按钮**提前放行** |
+
+**「解除」按钮**（`clearAccountState(key, cid)` → Web 命令 `resetAccount`）：
+
+- 语义：清零 `fail_streak` + 清掉 `cooldown_until` / `cooldown_reason` + `error`/`cooldown`
+  恢复 `ok`；**不动凭证**，因此池里**任何账号**都能清（不只是生效那个），
+  与「切号」（`activateAccount`，会顺带把凭证切为生效）分开。
+- 为什么要它：`error` 是**自锁**的 —— 熔断后路由一直跳过它，永远等不到「下一次成功」
+  把连败清零；而 `cooldown` 虽然到期会好，用户可能已经知道额度刷新了（换套餐 / 充值）。
+- 同源校验与其它写命令一致（`/web/api/commands` 只收同源请求）；
+  生效账号解除后同时清进程内的 `healthCache`，避免下一次 `markActiveHealth` 拿旧值短路。
+- ⚠ **`unauthorized` 不允许解除**：那是凭据本身失效（token 被撤销），清标记只会让界面假装
+  正常、下一次请求照样失败 —— 该状态只能重新登录。命令会返回原因，Web 上如实显示。
+- 幂等：本来就没有标记时返回「没有需要解除的标记」，不改盘、不报错。
 
 - 写入：`noteAccountQuotaExhausted(cid, { until, reason })` —— **不动 `fail_streak`**
   （额度耗尽不是连败，计进去会被 3 连败熔断误标「不可用」）。
@@ -473,7 +486,10 @@ interface CredModule {
   `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts:80-86`）。
   账号池因此**没有自动切号的调用方**。
 - **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
-  **凭证一律保留**；成功清零连败，手动切号恢复 `error`。
+  **凭证一律保留**；成功清零连败；恢复途径是 **Web 账号池页的「解除」按钮**
+  （`clearAccountState`）、手动切号（`mx acct <cid> use <key>`）或重登。
+  「解除」是给 `error` 这种**自锁**状态准备的 —— 熔断后路由不再打它，
+  不手动放行就永远等不到那一次成功。
 - **未实现**：自动切号、按额度耗尽自动换号、轮询、最久未用。
 - **与 realm 共存**：workbuddy 的 intl/cn 账号由渠道自己解释；账号切换不改变渠道基址。
 

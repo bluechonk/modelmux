@@ -34,6 +34,11 @@ interface DemoAccount {
   health: string;
   /** 凭据到期：相对今天的天数（负数 = 已过期）；不填 = 渠道不给到期时间。 */
   expiresInDays?: number;
+  /** 连续失败次数（`health === "error"` 时展示，演示「连败熔断」）。 */
+  failStreak?: number;
+  /** 冷却截止：相对现在的分钟数（`health === "cooldown"` 时展示）。 */
+  cooldownInMinutes?: number;
+  cooldownReason?: string;
 }
 
 const DEMO_CHANNELS: DemoChannel[] = [
@@ -68,15 +73,17 @@ const DEMO_MODELS: Record<string, string[]> = {
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
 const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
   catpaw: [
-    // catpaw 真实只给 uid，演示「无名字 → 显示脱敏 id」
-    { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "ok", expiresInDays: 12 },
+    // 连败熔断：路由会跳过它，只能靠切号 / 重登 / 点「解除」
+    { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "error", failStreak: 3, expiresInDays: 12 },
     { key: "demo000000000000a2", uid: "demo-uid-catpaw-2", label: "demo-uid-catpaw-2", health: "ok", expiresInDays: 40 },
   ],
-  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "139****0003", name: "139****0003", health: "ok", expiresInDays: 25 }],
+  // 额度冷却：会自己好，但用户也可以点「解除」提前放行
+  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "139****0003", name: "139****0003", health: "cooldown", cooldownInMinutes: 180, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 25 }],
   loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "137****0004", name: "137****0004", health: "ok", expiresInDays: 8 }],
   qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", name: "demo-qoder-user", health: "ok", expiresInDays: 30 }],
   raccoon: [{ key: "demo000000000000f1", uid: "demo-uid-raccoon-1", label: "demo-raccoon-user", name: "demo-raccoon-user", health: "ok" }],
   traecn: [{ key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok", expiresInDays: 3 }],
+  // 凭据失效：只能重新登录，**不给**「解除」按钮
   workbuddyai: [{ key: "demo000000000000h1", uid: "demo-uid-wbai-1", label: "demo-uid-wbai-1", health: "unauthorized", expiresInDays: -2 }],
 };
 
@@ -369,6 +376,12 @@ export function demoAccountPools(state: DemoState): { channels: unknown[] } {
             a.expiresInDays === undefined ? null : Date.now() + a.expiresInDays * 86_400_000,
           health: a.health,
           health_at: "2026-10-18T00:00:00.000Z",
+          fail_streak: a.failStreak ?? 0,
+          cooldown_until:
+            a.cooldownInMinutes === undefined
+              ? null
+              : new Date(Date.now() + a.cooldownInMinutes * 60_000).toISOString(),
+          cooldown_reason: a.cooldownReason,
         })),
       },
     };
@@ -486,4 +499,31 @@ export function demoRemove(state: DemoState, cid: string, key: string): boolean 
   list.splice(idx, 1);
   if (state.active[cid] === key) state.active[cid] = list[0]?.key ?? "";
   return true;
+}
+
+/**
+ * `resetAccount`：清掉连败熔断 / 额度冷却（与后端 `clearAccountState` 同语义）。
+ *
+ * `unauthorized` 拒绝 —— 凭据本身失效，清标记只会让界面假装正常。
+ */
+export function demoReset(
+  state: DemoState,
+  cid: string,
+  key: string,
+): { cleared: boolean; health: string; reason?: string } {
+  const hit = (state.accounts[cid] ?? []).find((a) => a.key === key);
+  if (!hit) return { cleared: false, health: "unknown", reason: `账号 ${key} 不在池里` };
+  if (hit.health === "unauthorized") {
+    return {
+      cleared: false,
+      health: hit.health,
+      reason: "该账号凭据已失效，需要重新登录（解除标记不会让它恢复可用）",
+    };
+  }
+  const changed = hit.health === "error" || hit.health === "cooldown" || (hit.failStreak ?? 0) > 0;
+  hit.health = "ok";
+  hit.failStreak = 0;
+  hit.cooldownInMinutes = undefined;
+  hit.cooldownReason = undefined;
+  return { cleared: changed, health: hit.health };
 }

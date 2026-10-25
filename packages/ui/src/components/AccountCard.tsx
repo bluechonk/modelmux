@@ -306,6 +306,7 @@ export function AccountCard({
   billingError = false,
   now,
   onActivate,
+  onReset,
   onRemove,
   onAdd,
   busyKey,
@@ -320,6 +321,8 @@ export function AccountCard({
   /** 全局时钟（由页面每秒推一次）：新鲜度文案要随时间走。 */
   now?: number;
   onActivate: (cid: string, key: string) => void;
+  /** 解除连败熔断 / 额度冷却（后端清标记，不动凭证）。 */
+  onReset: (cid: string, key: string) => void;
   onRemove: (cid: string, key: string) => void;
   onAdd: (cid: string) => void;
   busyKey: string | null;
@@ -398,6 +401,13 @@ export function AccountCard({
             const expiry = expiryText(account.expires_at);
             const failStreak = Number(account.fail_streak ?? 0);
             const showUid = Boolean(account.name?.trim() && account.uid?.trim());
+            /**
+             * 被打上标记的状态（连败熔断 / 额度冷却）—— 这两种**可以由用户主动解除**：
+             * 熔断后路由会一直跳过它、永远等不到「下一次成功」自己清零；冷却虽会到期自动恢复，
+             * 但用户可能已经知道额度刷新了（换套餐 / 充值），不想干等。
+             * `unauthorized` 不在此列：凭据本身失效，只能重新登录。
+             */
+            const tripped = account.health === "error" || account.health === "cooldown";
             return (
               <li
                 key={account.key}
@@ -432,6 +442,23 @@ export function AccountCard({
                       </div>
                     )}
                   </div>
+                  {/* 解除：异常/冷却账号的**常显**动作 —— 不藏在 hover 里（触屏与键盘拿不到），
+                      也不做二次确认（非破坏性：清了标记账号只是重新参与路由）。 */}
+                  {tripped && (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded border border-warn/40 px-1.5 py-0.5 text-[11px] leading-none text-warn transition-colors hover:bg-warn/12 disabled:opacity-40"
+                      disabled={busyKey !== null}
+                      onClick={() => onReset(pool.cid, account.key)}
+                      aria-label={
+                        account.health === "cooldown"
+                          ? "解除额度冷却，立刻恢复参与路由"
+                          : "解除连败熔断，清零失败计数并恢复参与路由"
+                      }
+                    >
+                      解除
+                    </button>
+                  )}
                   <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {!active && (
                       <button

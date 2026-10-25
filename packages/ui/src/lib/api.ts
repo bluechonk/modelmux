@@ -22,6 +22,7 @@ import {
   demoLogin,
   demoModels,
   demoRemove,
+  demoReset,
   demoSettings,
   demoStatus,
   type DemoState,
@@ -112,6 +113,13 @@ export interface WebApi {
     billing(cid?: string, args?: { refresh?: boolean }): Promise<CommandData>;
     accounts(cid?: string): Promise<CommandData>;
     activateAccount(cid: string, key: string): Promise<CommandData>;
+    /**
+     * 解除某账号的熔断状态（连败 `error` / 额度 `cooldown`）。
+     *
+     * 与 `activateAccount` 的区别：**不动凭证**，所以池里任何账号都能清，不只是生效那个。
+     * 凭据失效（`unauthorized`）时后端拒绝并给出原因 —— 那只能重新登录。
+     */
+    resetAccount(cid: string, key: string): Promise<CommandData>;
     removeAccount(cid: string, key: string): Promise<CommandData>;
     syncPool(cid: string): Promise<CommandData>;
     /**
@@ -201,6 +209,13 @@ async function demoCommand(
       const ok = demoActivate(st, cid ?? "", key);
       return ok ? { active: key, ok: true } : { ok: false, error: `账号 ${key} 不在池中` };
     }
+    case "resetAccount": {
+      const key = typeof args["key"] === "string" ? args["key"] : "";
+      const res = demoReset(st, cid ?? "", key);
+      return res.cleared
+        ? { key, health: res.health, ok: true }
+        : { key, health: res.health, ok: false, error: res.reason ?? "该账号没有需要解除的标记" };
+    }
     case "removeAccount": {
       const key = typeof args["key"] === "string" ? args["key"] : "";
       const ok = demoRemove(st, cid ?? "", key);
@@ -234,6 +249,7 @@ export const api: WebApi = {
     billing: (cid, args) => command("billing", cid, args ?? {}),
     accounts: (cid) => command("accounts", cid),
     activateAccount: (cid, key) => command("activateAccount", cid, { key }),
+    resetAccount: (cid, key) => command("resetAccount", cid, { key }),
     removeAccount: (cid, key) => command("removeAccount", cid, { key }),
     syncPool: (cid) => command("syncPool", cid),
     pasteCallback: (url) => command("pasteCallback", undefined, { url }),
