@@ -578,7 +578,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 | original_price_factor | 原始倍率 |
 | tags | 标签 |
 
-**thinking_config 是上游思考档位的完整声明**，但本渠道当前**不解析**：
+**thinking_config 是上游思考档位的完整声明，本渠道在落盘前把它归一成池层认识的形态**：
 
 ```json
 {"enabled":{"efforts":{"xhigh":{},"high":{"is_default":true},"low":{},"max":{},"medium":{}},"is_default":true}}
@@ -586,17 +586,37 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 
 - `enabled.efforts` 的 key 是档位名（`xhigh`/`high`/`low`/`max`/`medium`），
   含 `is_default:true` 的档位是默认档
-- `disabled` 字段存在时表示可关闭思考（如 `dmodel`）
+- `disabled` 字段存在时表示可关闭思考（如 `dmodel`）——⚠ **不映射**成 `off` 档：
+  那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段，
+  不是档位取值。它只在本文记录，不进池元数据
 - 部分模型 `is_reasoning` 与 `thinking_config` 不同步
-  （如 `kmodel_latest` / `kmodel` `is_reasoning:false` 但有 thinking_config）
-- ⚠ **池层不读取 `thinking_config`**，`/v1/models` 的 `effort` 为 null（潜在改进点）
+  （如 `kmodel_latest` / `kmodel` `is_reasoning:false` 但有 thinking_config）——
+  如实透出上游下发的档位，不代替上游裁决这个矛盾
+
+**归一实现**：`src/catalog.ts` 的 `wireEffort()` → `effort:{supportedLevels[],defaultLevel}`。
+落盘时机两处，缺一不可（池层 `getPoolModelMeta` **直接读这份磁盘缓存**）：
+
+1. `refresh()` 写缓存时附带归一结果（新拉到的目录立刻可用）；
+2. `loadCatalog()` 读到**旧缓存**（没有 `effort` 字段）时补齐并回写 ——
+   不必等一次 `mx model qoder --refresh`。
+
+- 实测覆盖（2026-10-25）：14 条里 **11 条**带 `thinking_config`
+  （`ultimate`/`sonus`/`cantus`/`qwen3.8-max`/`qwen3.8-flash`/`kimi-k3`/`kimi-k2.8-preview`/
+  `glm-5.3`/`glm-5.3-flash`/`deepseek-v4-pro`/`deepseek-flash`），
+  另外 3 条（`auto`/`efficient`/`minimax-m3.1-flash`）上游确实没下发档位。
+- 归一后 `/v1/models` 里这些模型的 `effort` 有真值，`meta_sources.effort` 为 `upstream`
+  （与 `cross` 的跨渠道推断区分，见 [POOL-ARCHITECTURE.md](../../POOL-ARCHITECTURE.md) §2.6/§2.7）。
+- 档位**顺序**按上游下发原样保留（实测是 `xhigh/high/low/max/medium`），
+  展示层自己按强度重排（控制台的 `THINKING_LEVEL_ORDER`）。
 
 
 ### 5.3 档位与上下文口径
 
 - 档位白名单（asar 常量 `Qj`）：`['none','low','medium','high','xhigh','max']`，
  别名 `disabled→none`、`off→none`
-- 中文名：`none:关闭思考 / minimal:最小 / low:低 / medium:中 / high:高 / xhigh:极高 / max:最大`（档位表见参考实现 `qoder-product.ts`；**本仓尚未实现档位归一**，见 §9.2 G3）
+- 中文名：`none:关闭思考 / minimal:最小 / low:低 / medium:中 / high:高 / xhigh:极高 / max:最大`（档位表见参考实现 `qoder-product.ts`）。
+  **目录侧**的档位归一（`thinking_config` → `effort`）已实现（§5.2.1）；
+  **请求侧**的按模型白名单归一**仍未做**（上游对不支持的档位静默忽略，见 §9.2 G3）。
 -  **上下文口径**：对外报（`/v1/models` 的 `context_window`）取目录 `context_config` 档位表**最大档**，
  不是 `max_input_tokens`（两者经常矛盾，官方客户端只认档位表）。实测服务端上限因模型而异：
  `dfmodel` 999,991 通过、`qfmodel` 983,490 通过（越界报 `Range of input length should be [1, 983616]`）、
@@ -892,15 +912,16 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 
 ### 9.2 已知功能缺口（对照参考实现）
 
-**未做 16 条**（按优先级排）：
+**未做 15 条**（按优先级排）：
 
-> ⚠ **G2 / G3 / G5 / G7 / G8 的数据已经在动态目录里**（见 §5.0 的完整字段集），
+> ⚠ **G3 / G5 / G7 / G8 的数据已经在动态目录里**（见 §5.0 的完整字段集），
 > 直接解析即可补齐，不需要额外的数据来源。
+> （G2 的 `thinking_config` **已解析**，见 §5.2.1。）
 
 | # | 缺口 | 影响 | 证据 |
 | --- | --- | --- | --- |
-| G3 | 思考档位未按模型归一（上游对不支持的档位**静默忽略**） | 客户端以为档位没生效 | hub `qoder_proxy.py`（思考档位归一段） |
-| G2 | `thinking_config` 未解析（无 `reasoning_efforts` / `reasoning_default_effort` / `reasoning_can_disable`） | 目录信息不全 | hub `qoder_catalog.py`、`qoder_proxy.py`（`thinking_config` 解析段） |
+| G3 | **请求侧**思考档位白名单未按模型归一（上游对不支持的档位**静默忽略**） | 客户端以为档位没生效 | hub `qoder_proxy.py`（思考档位归一段） |
+| ~~G2~~ | ~~`thinking_config` 未解析~~ **已修**（2026-10-25）：目录侧归一成 `effort` 写进缓存，`/v1/models` 有真档位（§5.2.1） | — | — |
 | G7 | 峰谷价（`promotion`）未解析 | 只看得到当前倍率，看不到低谷时段 | hub `qoder_proxy.py`（`promotion` 解析段） |
 | G5 | 模型的 `enable` / `strategies` 禁用态未解析 | 看不到「需升级套餐」的官方原因 | hub `qoder_proxy.py`（禁用态解析段） |
 | G8 | 能力矩阵未透出（`capabilities` / `input_modalities` / `modalities`） | `/v1/models` 信息少 | hub `qoder_proxy.py`（能力矩阵段） |

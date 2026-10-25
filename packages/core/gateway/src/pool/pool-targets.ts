@@ -34,6 +34,18 @@
  * （见 `IMAGE_CAPABILITY_KEYS`）；字段全缺 → 回落 `["text"]`。
  * 少了这一步，`/v1/models` 的 `input_modalities` 会恒为纯文本 ——
  * 客户端（Reasonix / DSH 等）就永远按纯文本处理图片，多模态模型形同虚设。
+ *
+ * ## 跨渠道同 model id 兜底
+ *
+ * 同一规范模型名常被多个渠道提供（实测 207 池 id / 117 唯一名 / 29 个重复名），
+ * 而各渠道上游按**自己的上限**裁剪过同一个模型（同 id 的窗口能差一倍）。
+ * 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，用兄弟渠道同名的已知值兜底：
+ * 数值取**最小**、档位取**交集**（`buildCrossModelIndex()`）。
+ *
+ * 兜底**只填缺值**，取值顺序恒为：本渠道上游 > 本渠道公开规格 > 跨渠道 > 占位值，
+ * 每一档的来源记在 `PoolModelMeta.sources`（界面据此标「推断」）。
+ * 只在**枚举**路径生效（`/v1/models` / 控制台 state / `mx model list` 传索引进去），
+ * 单查（转发路径取倍率）不承担收集全池的成本 —— 见 `poolModelMetas()`。
  */
 
 import { channels, type Channel } from "../runtime/channel.js";
@@ -179,6 +191,26 @@ export interface PoolModelMeta {
   multiplier: number | null;
   /** 营销角标文案（如「限时免费」「新」）；空串表示无。 */
   marketing: string;
+  /** 窗口 / 输出 / 档位三个值**各自从哪来**（见 `MetaSource`）。 */
+  sources: ModelMetaSources;
+}
+
+/**
+ * 元数据取值的来源 —— 让「上游真说的」「渠道按公开规格补的」「兄弟渠道推断的」
+ * 「占位值」在界面上分得开（跨渠道兜底不能冒充上游事实）。
+ *
+ * - `upstream`：本渠道目录（上游返回）里有这个字段；
+ * - `spec`：本渠道按公开规格维护的 `catalog.modelSpec()`；
+ * - `cross`：兄弟渠道同 model id 的已知值（数值取 min / 档位取交集）；
+ * - `default`：谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`）。
+ */
+export type MetaSource = "upstream" | "spec" | "cross" | "default";
+
+/** `PoolModelMeta` 里三个带来源的字段。 */
+export interface ModelMetaSources {
+  contextWindow: MetaSource;
+  maxOutputTokens: MetaSource;
+  effort: MetaSource;
 }
 
 /**
@@ -197,6 +229,7 @@ const DEFAULT_META: PoolModelMeta = {
   effort: null,
   multiplier: null,
   marketing: "",
+  sources: { contextWindow: "default", maxOutputTokens: "default", effort: "default" },
 };
 
 /** 各渠道缓存条目里可能出现的倍率字段名 —— 渠道自己决定字段名，汇聚层逐个尝试。 */
@@ -408,26 +441,222 @@ export function inputModalitiesOf(entry: Record<string, unknown>): string[] {
   return DEFAULT_META.inputModalities;
 }
 
-/** 从缓存条目拼出对外元数据（窗口取不到时回落到 `DEFAULT_META`）。 */
-function metaFromEntry(
-  entry: Record<string, unknown>,
+/** 目录缓存条目：运行期带着渠道自己的字段，类型上只保证 `id`（见 `catalog-cache.ts`）。 */
+type CacheRow = Record<string, unknown> & { id: string };
+
+/**
+ * **本渠道**已知的事实（上游目录条目 + 渠道公开规格）—— 跨渠道兜底之前的状态。
+ *
+ * ⚠ 条目要按渠道自己的 `resolveModel()` 定位：缓存里的 `id` 可能是**上游 key**
+ * （qoder 存 `dmodel`），对外名与 key 不同。
+ */
+interface ChannelFacts {
+  entry: CacheRow | null;
+  spec: { contextWindow?: number; maxOutputTokens?: number } | undefined;
+  /** 上游目录声明的窗口（含 `context_config` 档位表取最大档）；null = 没声明。 */
+  contextWindow: number | null;
+  /** 上游目录声明的输出上限；null = 没声明。 */
+  maxOutputTokens: number | null;
+  effort: PoolModelMeta["effort"];
+}
+
+/** 空事实：本渠道什么都没说（目录读不出来时用它，语义等价于「没有目录」）。 */
+const EMPTY_FACTS: ChannelFacts = {
+  entry: null,
+  spec: undefined,
+  contextWindow: null,
+  maxOutputTokens: null,
+  effort: null,
+};
+
+/**
+ * 取「本渠道」对这个模型知道的一切。
+ *
+ * 每一步都兜异常：任一渠道的读盘 / `resolveModel` / `modelSpec` 抛错都不该让
+ * `/v1/models` 整页 500（控制台与 `mx model list` 都依赖这个端点）。
+ */
+function channelFacts(cid: string, channel: Channel, model: string): ChannelFacts {
+  return runInChannel(cid, () => {
+    let cache: CacheRow[] = [];
+    try {
+      cache = readCatalogCache<CacheRow>(cid) ?? [];
+    } catch {
+      cache = [];
+    }
+    let spec: ChannelFacts["spec"];
+    try {
+      spec = channel.catalog.modelSpec?.(model);
+    } catch {
+      spec = undefined;
+    }
+    let entry = cache.find((row) => canonicalModelId(row.id) === model) ?? null;
+    if (!entry) {
+      // 缓存 id 可能是上游 key（如 `qfmodel`），与对外名（如 `glm-5.3-flash`）不同 ——
+      // 用 resolveModel 将对外名解析为上游 key，再按 key 匹配
+      let upstreamKey: string | undefined;
+      try {
+        upstreamKey = channel.catalog.resolveModel(model);
+      } catch {
+        upstreamKey = undefined;
+      }
+      if (upstreamKey !== undefined) {
+        entry =
+          cache.find(
+            (row) => row["key"] === upstreamKey || canonicalModelId(row.id) === upstreamKey,
+          ) ?? null;
+      }
+    }
+    return {
+      entry,
+      spec,
+      contextWindow: entry ? contextWindowOf(entry) : null,
+      maxOutputTokens: entry ? firstPositive(entry, OUTPUT_KEYS) : null,
+      effort: entry ? effortOf(entry) : null,
+    };
+  });
+}
+
+/** 跨渠道兜底候选：兄弟渠道（同规范模型名）那里已知的缺值候补。 */
+export interface CrossModelFallback {
+  /** 兄弟渠道已知窗口的**最小值**（都没有则 null）。 */
+  contextWindow: number | null;
+  /** 兄弟渠道已知输出上限的**最小值**（都没有则 null）。 */
+  maxOutputTokens: number | null;
+  /** 兄弟渠道声明档位的**交集**（没有则 null）。 */
+  effort: PoolModelMeta["effort"];
+}
+
+/** 规范模型名 → 跨渠道兜底候选；由 `buildCrossModelIndex()` 构建。 */
+export type CrossModelIndex = ReadonlyMap<string, CrossModelFallback>;
+
+/**
+ * 档位交集：只留**兄弟渠道都声明**的档位 —— 「偏低」= 更少的承诺，
+ * 绝不报出某个兄弟渠道不支持、连自己也未必支持的档位。
+ *
+ * 交集为空 = 各家毫无共识，返回 null（不编档位）。
+ */
+function intersectEfforts(
+  list: readonly { supportedLevels: string[]; defaultLevel: string }[],
+): PoolModelMeta["effort"] {
+  const first = list[0];
+  if (!first) return null;
+  let levels = [...first.supportedLevels];
+  for (const item of list.slice(1)) {
+    levels = levels.filter((level) => item.supportedLevels.includes(level));
+  }
+  if (levels.length === 0) return null;
+  // 默认档：优先取兄弟渠道**真声明过**的默认档（且落在交集内）；都没有才取交集首项 ——
+  // 交集里的档位是各家都支持的，取首项不会凭空造出新能力，且能避免下发空档位。
+  const declared = list
+    .map((item) => item.defaultLevel)
+    .find((level) => level !== "" && levels.includes(level));
+  return { supportedLevels: levels, defaultLevel: declared ?? levels[0]! };
+}
+
+/**
+ * 构建跨渠道索引：把全部渠道的对外模型按**规范模型名**对齐，聚出缺值候补。
+ *
+ * 只读磁盘目录缓存 + 渠道表，不联网、不落盘，也**不缓存结果** —— 渠道目录会随
+ * 登录 / 刷新变化，与 `poolModels()` 同一口径（每次重新收集）。
+ * 调用方若要在一次枚举里反复用，应只建一次（见 `poolModelMetas()`）。
+ */
+export function buildCrossModelIndex(): CrossModelIndex {
+  interface Bucket {
+    ctxs: number[];
+    outs: number[];
+    efforts: { supportedLevels: string[]; defaultLevel: string }[];
+  }
+  const acc = new Map<string, Bucket>();
+  for (const channel of channels()) {
+    const cid = channel.config.cid;
+    const ids = runInChannel(cid, () => {
+      try {
+        return channel.catalog.exposedIds() as string[];
+      } catch {
+        return [] as string[];
+      }
+    });
+    const seen = new Set<string>();
+    for (const raw of ids) {
+      // 目录条目脏数据（非字符串 id）不该让整池枚举抛错 —— 与 `poolModels()` 同一底线
+      if (typeof raw !== "string" || raw.trim() === "") continue;
+      const model = canonicalModelId(raw);
+      if (seen.has(model)) continue; // 渠道内先按规范名去重
+      seen.add(model);
+      let facts: ChannelFacts;
+      try {
+        facts = channelFacts(cid, channel, model);
+      } catch {
+        continue; // 一个坏渠道只影响自己，不拖垮整池
+      }
+      const bucket = acc.get(model) ?? { ctxs: [], outs: [], efforts: [] };
+      const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? null;
+      const out = facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? null;
+      if (ctx !== null) bucket.ctxs.push(ctx);
+      if (out !== null) bucket.outs.push(out);
+      if (facts.effort) bucket.efforts.push(facts.effort);
+      acc.set(model, bucket);
+    }
+  }
+  const index = new Map<string, CrossModelFallback>();
+  for (const [model, bucket] of acc) {
+    index.set(model, {
+      contextWindow: bucket.ctxs.length > 0 ? Math.min(...bucket.ctxs) : null,
+      maxOutputTokens: bucket.outs.length > 0 ? Math.min(...bucket.outs) : null,
+      effort: intersectEfforts(bucket.efforts),
+    });
+  }
+  return index;
+}
+
+/**
+ * 拼装对外元数据：**本渠道上游 → 本渠道公开规格 → 跨渠道兜底 → 占位值**，
+ * 并逐项记下取值来源（`sources`）。
+ *
+ * ⚠ 顺序不能换：本渠道规格（渠道按公开规格维护，见 `docs/MODEL-SPECS.md`）比兄弟渠道
+ * 被上游裁剪过的值更权威，所以跨渠道兜底**只替换占位值**，不会把已有真值改小。
+ */
+function metaFromFacts(
+  facts: ChannelFacts,
   model: string,
-  spec?: { contextWindow?: number; maxOutputTokens?: number },
+  cross?: CrossModelFallback,
 ): PoolModelMeta {
-  const output = entry["outputModalities"] ?? entry["output_modalities"];
+  const entry = facts.entry;
+  const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? cross?.contextWindow ?? null;
+  const out =
+    facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? cross?.maxOutputTokens ?? null;
+  const effort = facts.effort ?? cross?.effort ?? null;
+  const output = entry?.["outputModalities"] ?? entry?.["output_modalities"];
   return {
-    name: typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
+    name: entry && typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
     // 目录里窗口 = 0 表示「上游未声明」——不能当有效值透给客户端
     // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
-    contextWindow: contextWindowOf(entry) ?? spec?.contextWindow ?? DEFAULT_META.contextWindow,
-    maxOutputTokens:
-      firstPositive(entry, OUTPUT_KEYS) ?? spec?.maxOutputTokens ?? DEFAULT_META.maxOutputTokens,
-    inputModalities: inputModalitiesOf(entry),
+    contextWindow: ctx ?? DEFAULT_META.contextWindow,
+    maxOutputTokens: out ?? DEFAULT_META.maxOutputTokens,
+    inputModalities: entry ? inputModalitiesOf(entry) : DEFAULT_META.inputModalities,
     outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
-    // 思考档位：渠道声明了才有（`effort` 对象 / `efforts` 数组），没声明就是 null
-    effort: effortOf(entry),
-    multiplier: firstNumber(entry, MULTIPLIER_KEYS),
-    marketing: firstString(entry, MARKETING_KEYS),
+    effort,
+    multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : null,
+    marketing: entry ? firstString(entry, MARKETING_KEYS) : "",
+    sources: {
+      contextWindow:
+        ctx === null
+          ? "default"
+          : facts.contextWindow !== null
+            ? "upstream"
+            : facts.spec?.contextWindow !== undefined
+              ? "spec"
+              : "cross",
+      maxOutputTokens:
+        out === null
+          ? "default"
+          : facts.maxOutputTokens !== null
+            ? "upstream"
+            : facts.spec?.maxOutputTokens !== undefined
+              ? "spec"
+              : "cross",
+      effort: effort === null ? "default" : facts.effort !== null ? "upstream" : "cross",
+    },
   };
 }
 
@@ -436,47 +665,35 @@ function metaFromEntry(
  *
  * ⚠ 上游目录**通常不下发**窗口与输出上限 → 缓存里没有 → 问渠道要「已知规格」
  * （`catalog.modelSpec()`，渠道按公开规格维护）。两者都拿不到才回落兜底值。
+ *
+ * `cross` 传 `buildCrossModelIndex()` 的结果时启用**跨渠道兜底**（只填缺值）。
+ * 不传 = 不做跨渠道兜底：单查（转发路径只取倍率）不值得为它扫全池 —— 见 `poolModelMetas()`。
  */
-export function getPoolModelMeta(model: string): PoolModelMeta {
+export function getPoolModelMeta(model: string, cross?: CrossModelIndex): PoolModelMeta {
   const parsed = parsePoolModel(model);
   if (!parsed) return DEFAULT_META;
   const channel = findChannel(parsed.cid);
   if (!channel) return DEFAULT_META;
-  const cache = runInChannel(channel.config.cid, () => {
-    try {
-      return readCatalogCache(channel.config.cid) ?? [];
-    } catch {
-      return [];
-    }
-  });
-  const spec = runInChannel(channel.config.cid, () => {
-    try {
-      return channel.catalog.modelSpec?.(parsed.model);
-    } catch {
-      return undefined;
-    }
-  });
-  const entry = cache.find((d: any) => canonicalModelId(d.id) === parsed.model) as any;
-  // 缓存 id 可能是上游 key（如 `qfmodel`），与对外名（如 `glm-5.3-flash`）不同 ——
-  // 用 resolveModel 将对外名解析为上游 key，再按 key 匹配
-  if (!entry) {
-    // ⚠ 渠道调用必须兜异常（同上两处）：任一渠道的 resolveModel 抛错都会让
-    // `/v1/models` 整页 500（控制台与 `mx model list` 都依赖这个端点）。
-    const upstreamKey = runInChannel(channel.config.cid, () => {
-      try {
-        return channel.catalog.resolveModel(parsed.model);
-      } catch {
-        return undefined;
-      }
-    });
-    if (upstreamKey !== undefined) {
-      const found = cache.find((d: any) => d.key === upstreamKey || canonicalModelId(d.id) === upstreamKey) as any;
-      if (found) return metaFromEntry(found, model, spec);
-    }
+  let facts: ChannelFacts;
+  try {
+    facts = channelFacts(channel.config.cid, channel, parsed.model);
+  } catch {
+    facts = EMPTY_FACTS;
   }
-  if (entry) return metaFromEntry(entry, model, spec);
-  if (spec) return { ...DEFAULT_META, ...spec, name: model };
-  return DEFAULT_META;
+  return metaFromFacts(facts, model, cross?.get(parsed.model));
+}
+
+/**
+ * 枚举池模型的元数据（`ids` 缺省 = 全池）—— **一次**构建跨渠道索引再逐条取值。
+ *
+ * 返回 `Map` 的迭代顺序即传入顺序（缺省时是 `poolModels()` 的排序结果），
+ * 调用方直接照它渲染即可，不必自己再收集一遍目录。
+ */
+export function poolModelMetas(ids?: readonly string[]): Map<string, PoolModelMeta> {
+  const index = buildCrossModelIndex();
+  const out = new Map<string, PoolModelMeta>();
+  for (const id of ids ?? poolModels()) out.set(id, getPoolModelMeta(id, index));
+  return out;
 }
 
 /** 按渠道 id（大小写不敏感）找已注册渠道（未注册返回 undefined）。 */

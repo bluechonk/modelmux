@@ -201,6 +201,50 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** 非数组对象取出来（否则 null）；用于安全地下钻上游嵌套字段。 */
+function objOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/** 归一后的思考档位（与共享层 `PoolModelMeta.effort` 同形）。 */
+type Effort = { supportedLevels: string[]; defaultLevel: string };
+
+/** 目录缓存条目：运行期带着上游原始字段，类型上只保证 `id`（见共享层 `catalog-cache.ts`）。 */
+type CacheRow = Record<string, unknown> & { id: string };
+
+/**
+ * 上游 `thinking_config` → 归一档位（`{supportedLevels[], defaultLevel}`）。
+ *
+ * 上游形态（实测见 docs/channels/qodercn/PROTOCOL.md）：档位是**对象 map**，
+ * 默认档由 `is_default` 标出；与 qoder 同一套字段。
+ *
+ * ⚠ 必须在**落盘前**归一：池层（`getPoolModelMeta`）直接读这份磁盘缓存，
+ * 只认 `effort: {supportedLevels, defaultLevel}` 这一种形态。
+ *
+ * ⚠ `disabled` **不映射**成 `off` 档：那会让客户端发出 `reasoning_effort: "off"`，
+ * 而上游关闭思考走的是另一套字段（不是档位取值）。只在文档里记录它存在。
+ */
+function wireEffort(raw: Record<string, unknown>): Effort | undefined {
+  const enabled = objOf(objOf(raw["thinking_config"])?.["enabled"]);
+  const efforts = objOf(enabled?.["efforts"]);
+  if (!efforts) return undefined;
+  const levels = Object.keys(efforts);
+  if (levels.length === 0) return undefined;
+  return {
+    supportedLevels: levels,
+    defaultLevel: levels.find((level) => objOf(efforts[level])?.["is_default"] === true) ?? "",
+  };
+}
+
+/** 缓存条目补齐 `effort`（已有则原样返回，便于调用方判断是否需要回写）。 */
+function withEffort(row: CacheRow): CacheRow {
+  if (row["effort"] !== undefined) return row;
+  const effort = wireEffort(row);
+  return effort === undefined ? row : { ...row, effort };
+}
+
 /** 展示名 → 对外 id（小写、空格与下划线转连字符）。 */
 function toPublicId(displayName: string, key: string): string {
   const base = displayName.trim() || key;
@@ -239,8 +283,13 @@ function loadCatalog(): ModelEntry[] {
     // 缓存条目运行期带着渠道自己的字段（key / display_name…），类型上只保证 `id`
     const cached = readCatalogCache();
     if (cached && cached.length > 0) {
-      const mapped = cached
-        .map((item) => toEntry(item as unknown as Record<string, unknown>))
+      // 旧缓存里的 `effort` 可能还没归一（本字段是后加的）—— 读时补上并回写，
+      // 不必等一次刷新：池层直接读这份缓存，不补的话 `/v1/models` 里这些型号的
+      // 思考档位会一直是空的，而上游其实早就下发了。
+      const rows = cached.map((item) => withEffort(item as unknown as CacheRow));
+      if (rows.some((row, i) => row !== cached[i])) writeCatalogCache(rows);
+      const mapped = rows
+        .map((item) => toEntry(item))
         .filter((entry): entry is ModelEntry => entry !== null);
       if (mapped.length > 0) return mapped;
     }
@@ -328,9 +377,16 @@ export async function refresh(): Promise<void> {
       const key = str(item["key"]);
       const displayName = str(item["display_name"]) || str(item["name"]) || key;
       const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
-      // 原始字段全留（不裁剪），另附**按公开规格补的**最大输出（上游不下发）。
+      // 原始字段全留（不裁剪），另附**按公开规格补的**最大输出（上游不下发），
+      // 以及归一后的思考档位（池层读的是这份缓存，只认 `effort` 那一种形态）。
       const spec = MAX_OUTPUTS[id.toLowerCase()];
-      return { ...item, id: key, ...(spec === undefined ? {} : { maxOutput: spec }) };
+      const effort = wireEffort(item);
+      return {
+        ...item,
+        id: key,
+        ...(spec === undefined ? {} : { maxOutput: spec }),
+        ...(effort === undefined ? {} : { effort }),
+      };
     })
     .filter((item) => str(item["id"]) !== "");
   if (entries.length === 0) throw new Error("upstream model list is empty");

@@ -15,7 +15,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { channelCount, channelFor, channels, getChannel, type Channel, type Credential, type StreamTranslator, type UpstreamConfig } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
-import { POOL_MODELS, getPoolModelMeta, poolCandidates } from "../pool/pool-targets.js";
+import { poolCandidates, poolModelMetas } from "../pool/pool-targets.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat } from "./chat/relay.js";
@@ -70,6 +70,9 @@ export interface GatewayOptions {
 
 
 function handleModels(res: ServerResponse): void {
+  // 一次枚举只建一次跨渠道索引（`poolModelMetas` 内部构建）；迭代顺序即
+  // `poolModels()` 的排序结果，与旧的 `POOL_MODELS.map` 逐条收集完全一致。
+  const metas = poolModelMetas();
   writeJson(res, {
     object: "list",
         // 字段结构对齐 DeepSeek 官方 `GET /models`（见 pool-targets.ts 的 PoolModelMeta）：
@@ -77,8 +80,9 @@ function handleModels(res: ServerResponse): void {
         // 并带上上下文 / 最大输出 / 模态 / 思考档位。
         // `owned_by` 即 id 前缀里的渠道（请求方照它选池子）。
         // `effort` 可为 **null**：渠道目录没声明思考档位（见 PoolModelMeta.effort 注释）。
-        data: POOL_MODELS.map((id) => {
-          const meta = getPoolModelMeta(id);
+        // `meta_sources` 是**我们的扩展**（官方没有）：逐项说明窗口 / 输出 / 档位是上游声明、
+        // 渠道规格、跨渠道推断还是占位值 —— 客户端据此区分真值与推断值。
+        data: [...metas].map(([id, meta]) => {
           return {
             id,
             object: "model",
@@ -95,6 +99,11 @@ function handleModels(res: ServerResponse): void {
                 }
               : null,
             multiplier: meta.multiplier,
+            meta_sources: {
+              context_window: meta.sources.contextWindow,
+              max_output_tokens: meta.sources.maxOutputTokens,
+              effort: meta.sources.effort,
+            },
           };
         }),
   });

@@ -9,7 +9,7 @@
 import { channelCapabilities, channels, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
-import { canonicalModelId, getPoolModelMeta, POOL_MODELS, poolCandidates, poolModelId } from "../../pool/pool-targets.js";
+import { canonicalModelId, POOL_MODELS, poolCandidates, poolModelId, poolModelMetas } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
 import * as daemon from "../lifecycle/daemon.js";
@@ -142,9 +142,10 @@ export async function listLocalModels(
   ].map((id) => ({ model: poolModelId(cid, id), exposed_id: id }));
 
   // 为每条模型附上倍率（price_factor）；无倍率时为 "-"
+  // 元数据一次枚举取齐（`poolModelMetas` 内部只建一次跨渠道索引）
+  const metas = poolModelMetas(contributed.map((row) => row.model));
   const rows = contributed.map((row) => {
-    const meta = getPoolModelMeta(row.model);
-    const rate = meta.multiplier;
+    const rate = metas.get(row.model)?.multiplier ?? null;
     return { ...row, rate: rate === null ? "-" : String(rate) };
   });
 

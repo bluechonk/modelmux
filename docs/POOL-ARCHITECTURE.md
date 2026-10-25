@@ -10,7 +10,7 @@
 | 维度 | 当前设计 | 说明 |
 |---|---|---|
 | 对外模型 id 形态 | `<cid>/<模型>` 动态池（见 §2） | 客户端用渠道前缀显式选池子 |
-| 模型目录来源 | 磁盘缓存 → 远端目录 → 渠道内置兜底表（见 §2.7） | 三级来源，兜底表在渠道包里 |
+| 模型目录来源 | 磁盘缓存 → 远端目录 → 渠道内置兜底表（见 §2.8） | 三级来源，兜底表在渠道包里 |
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
 | 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；切号一律手动 | 见 §3.3 |
 | 跨渠道自动选池 | 不做：渠道由请求前缀显式指定 | 见 §2.4 |
@@ -276,8 +276,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 |---|---|---|
 | 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
 | 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（lobsterai·traecn·workbuddy·workbuddyai） |
-| 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn·lobsterai） |
-| 思考配置（未透出） | `thinking_config.enabled.efforts{}` | qoder·qodercn 上游下发但池层不读取（见下方说明） |
+| 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn·lobsterai）、**渠道解析后写进来的同一形态**（qoder·qodercn，见下） |
 
 - **`context_window` 报的是「最大上下文」**：qoder 的 `context_config` 是档位表
   （`{"1M":{token_count:1000000}, …}`），取**最大档**而非默认档 —— 客户端永远走最大上下文，
@@ -285,21 +284,39 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
   回落兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）。
 
-- **思考档位归一**：`effortOf()`（`packages/core/gateway/src/pool/pool-targets.ts:266-301`）先试 `effort` 对象
-  （catpaw 的 `{supportedLevels[],defaultLevel}`），再试 `efforts` 数组 +
+- **思考档位归一**：`effortOf()`（`packages/core/gateway/src/pool/pool-targets.ts`）先试 `effort` 对象
+  （`{supportedLevels[],defaultLevel}`），再试 `efforts` 数组 +
   `defaultEffort`/`default_effort`/`default_effort_level` 默认档字段。
   空数组 = 未声明 → `effort: null`（不编造）。
-  ⚠ **qoder/qodercn 的 `thinking_config` 不在归一名表里**：上游下发了
-  `thinking_config.enabled.efforts{}` + `is_default`，但渠道 catalog 不解析、
-  池层不读取 → `/v1/models` 里这些模型的 `effort` 为 null。
-  若要打通，需在渠道 catalog 里把 `thinking_config` 归一成
-  `effort:{supportedLevels[],defaultLevel}` 写进缓存，池层 `effortOf()` 无需改。
-  详见 [channels/qoder/PROTOCOL.md](./channels/qoder/PROTOCOL.md) §5.2.1。
+  - **上游形态与池层形态不一致时，由渠道在落盘前归一**：qoder / qodercn 上游下发的是
+    `thinking_config.enabled.efforts{}`（对象 map，默认档由 `is_default` 标出），
+    渠道 catalog 的 `wireEffort()` 把它归一成 `effort:{supportedLevels[],defaultLevel}`
+    写进目录缓存（刷新时写、旧缓存读时补），池层 `effortOf()` 一行没改。
+    实测覆盖：qoder 11 条 + qodercn 8 条（2026-10-25）。
+  - 上游的 `thinking_config.disabled`（「可关闭思考」）**不映射**成 `off` 档 ——
+    那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段。
+    详见 [channels/qoder/PROTOCOL.md](./channels/qoder/PROTOCOL.md) 的「上游 model 字段与思考档位」。
 - **`effort` 可为 `null` = 渠道没声明**（⚠ 兜底**不许编档位**）：
   渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
-  lobsterai（`efforts` 数组）有真值，其余渠道没有。旧版给所有模型都填了
-  `["low","high"]`，等于把「不知道」说成「支持」（界面上 200 个模型都写着 low/high）。
+  lobsterai（`efforts` 数组）、qoder / qodercn（`thinking_config`，见上）有真值。
+  旧版给所有模型都填了 `["low","high"]`，等于把「不知道」说成「支持」
+  （界面上 200 个模型都写着 low/high）。
   空数组同样算未声明（traecn 全部模型都写 `[]`）。`effort` 为 `null` 时控制台显示「不支持」。
+
+#### 取值来源标注（`sources`）
+
+`PoolModelMeta.sources` 逐字段记下这个值是**从哪来的**，`/v1/models` 以 `meta_sources` 输出
+（我们的扩展字段，官方没有）：
+
+| 来源 | 含义 |
+|---|---|
+| `upstream` | 本渠道目录（上游返回）里有这个字段 |
+| `spec` | 本渠道按公开规格维护的 `catalog.modelSpec()`（见 [MODEL-SPECS.md](./MODEL-SPECS.md)） |
+| `cross` | **兄弟渠道同 model id** 的已知值（跨渠道兜底，见 §2.7） |
+| `default` | 谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`） |
+
+为什么要有它：兜底值不标出来源就会被当成上游事实。控制台对 `cross` 标「推断」，
+客户端也可以据此决定要不要信这个数字（详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)）。
 
 上游自己的字段名（lobsterai 的 `maxTokens`、workbuddyai 的 `maxOutputTokens` /
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
@@ -327,7 +344,48 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **上游声明优先**：渠道声明的值比公开规格更贴近「这条渠道实际能吃多少」，
   两者冲突时以上游为准（分歧记在 [MODEL-SPECS.md](./MODEL-SPECS.md) §6）。
 
-### 2.7 模型目录兜底表（跨渠道规则）
+### 2.7 跨渠道同 model id 兜底
+
+同一个规范模型名常被**多个渠道**同时提供，而各渠道上游按**自己的上限**裁剪过同一个模型 ——
+实测同一个 id 的窗口能差一倍（`deepseek-v4-pro`：catpaw 报 700000、lobsterai/traecn/workbuddy
+报 1000000；`minimax-m3`：workbuddy 报 512000、loomy 报 1048576）。
+某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，就用兄弟渠道同名的已知值兜底。
+
+⚠ 池 id **不跨渠道合并**（`catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 仍是两个池 id）。
+
+实测规模（2026-10-25，走真实注册链路取数）：207 个池 id / 117 个唯一规范名 /
+**29 个跨渠道重复名**；兜底能补的：窗口 4 条、输出上限 13 条、思考档位 45 条
+（另有 19 条档位是上游已下发、归一后即可用，见 §2.6）。
+缺口集中在 **orcaterm**（无上游目录，只剩内置快照 + 公开规格）。
+
+**取值口径**（`buildCrossModelIndex()`，`pool-targets.ts`）：
+
+| 字段 | 兄弟渠道之间怎么合 | 理由 |
+|---|---|---|
+| 最大上下文 | 已知值的**最小值** | 宁可报小不报大：报小了客户端只是提前截断，报大了会撞上游 400 |
+| 输出上限 | 已知值的**最小值** | 同上 |
+| 思考档位 | 各家声明档位的**交集**；默认档取兄弟真声明过且落在交集里的那个 | 「偏低」= 更少的承诺：绝不报出某个兄弟渠道不支持、自己也未必支持的档位。交集为空则不报档位（`null`） |
+
+**优先序（兜底只填缺值）**：
+
+```
+本渠道上游声明 > 本渠道公开规格 > 跨渠道兜底 > 占位值（200K / 64K）
+```
+
+⚠ 本渠道规格排在跨渠道**之前**：规格是渠道自己按公开规格维护的真值
+（[MODEL-SPECS.md](./MODEL-SPECS.md)），比兄弟渠道被上游裁剪过的值更权威 ——
+所以兜底**只替换占位值**，不会把 `traecn/deepseek-v4-pro` 从 1000000（规格）改成
+700000（catpaw 的上游值）。每个值从哪来记在 `sources` 里（见 §2.6），界面据此标「推断」。
+
+**只在枚举路径生效**：`/v1/models` / 控制台 state / `mx model list` 走 `poolModelMetas()`
+（一次枚举只建一次索引）；单查（转发路径只取倍率）**不传索引、不做兜底**，
+不为一个数字扫全池。索引不落盘、不缓存（渠道目录随登录/刷新变化，与 `poolModels()` 同一口径）。
+
+明确不做：**倍率不兜底**（各渠道定价不同，跨渠道没有可比性）；虚拟模型（`auto` / `fast-model`
+之类）不做特例黑名单（规则保持机械化，特例只会在文档里腐烂）；不把某渠道的窗口当成
+「模型的真实上限」对外公布。
+
+### 2.8 模型目录兜底表（跨渠道规则）
 
 目录来源顺序**所有渠道一致**（磁盘缓存 → 远端目录 → 渠道内置兜底表），契约见
 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3。此处只说跨渠道规则：
@@ -346,7 +404,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   （`packages/core/gateway/src/pool/pool-targets.ts:53`），空池意味着「所有渠道的目录都读不出来」，
   此时对外公布幻影模型只会让请求必然落空。
 
-### 2.8 目录元数据回灌上游请求体
+### 2.9 目录元数据回灌上游请求体
 
 有些上游要求请求体里带**目录的元数据**（展示名 / 是否推理模型 / 上下文上限），
 否则上游按默认值处理。这条链路与 §2.6 方向相反：§2.6 是「目录 → 池元数据」，

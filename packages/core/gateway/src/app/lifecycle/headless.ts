@@ -20,7 +20,7 @@ import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway } from "../../runtime/log-store.js";
 import { credentialsPath } from "../../runtime/paths.js";
-import { getPoolModelMeta } from "../../pool/pool-targets.js";
+import { poolModelMetas } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
@@ -247,7 +247,8 @@ class ServiceState {
       base_url: this.baseUrl,
       chat_url: this.chatUrl,
       models: [...this.modelsShown],
-      model_info: Object.fromEntries(this.modelsShown.map((id) => [id, getPoolModelMeta(id)])),
+      // 一次枚举只建一次跨渠道索引（`poolModelMetas` 内部构建）
+      model_info: Object.fromEntries(poolModelMetas(this.modelsShown)),
       channel_caps: Object.fromEntries(
         channels().map((channel) => [channel.config.cid, channelCapabilities(channel.config)]),
       ),

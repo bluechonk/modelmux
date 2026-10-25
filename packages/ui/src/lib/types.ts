@@ -32,6 +32,17 @@ export interface UiSnapshot {
        * 「不支持」而不是编造档位。
        */
       effort?: { supportedLevels: string[]; defaultLevel: string } | null;
+      /**
+       * 窗口 / 输出 / 档位各自从哪来（与共享层 `PoolModelMeta.sources` 同形）。
+       *
+       * `cross` = 兄弟渠道同 id 的推断值，界面标「推断」；缺省按上游声明呈现
+       * （兼容不带该字段的旧快照）。
+       */
+      sources?: {
+        contextWindow: "upstream" | "spec" | "cross" | "default";
+        maxOutputTokens: "upstream" | "spec" | "cross" | "default";
+        effort: "upstream" | "spec" | "cross" | "default";
+      };
     }
   >;
   /**
