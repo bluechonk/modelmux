@@ -19,7 +19,6 @@ import * as console_ from "../../http/console/console.js";
 import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway } from "../../runtime/log-store.js";
-import { credentialsPath } from "../../runtime/paths.js";
 import { poolModelMetas } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
@@ -300,14 +299,13 @@ export async function runLogin(options: {
   const { force = false, json = false, realm = "auto", cid, wechat = false, observer } = options;
   const target = getChannel(cid);
   const { cred } = target;
-  if (force) {
-    try {
-      const fs = await import("node:fs");
-      fs.unlinkSync(credentialsPath(cid));
-    } catch {
-      /* 本来就没有 */
-    }
-  }
+  // ⚠ 刻意**不**在重登前删 credentials.json（旧实现会先 unlink）。
+  // 「重新授权」要的是**拿到新凭据**，不是把旧的毁掉：授权流程要等人操作（扫码 / 粘回调），
+  // 期间渠道处于「登录中」，而旧凭据在这段时间里本来还能正常服务。先删的后果是
+  // **授权没走完（链接过期 / 没扫码 / 弹窗关掉）渠道就直接掉线**，账号池里的账号和
+  // 额度却都还在 —— 界面上就是「未登录 + 账号生效中」这种自相矛盾的状态
+  // （2026-10-24 workbuddy / raccoon / catpaw 三连掉线即由此引起）。
+  // 新凭据落盘走原子覆盖（`cred.save`），删旧文件没有任何收益，只留风险。
 
   // 微信路径：渠道自己声明了 loginWechat 才能走（共享层不含渠道知识）
   if (wechat) {

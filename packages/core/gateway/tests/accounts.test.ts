@@ -268,6 +268,18 @@ describe("5. login 幂等提示", () => {
       `应提示重登用 relogin（实际输出: ${lines.join(" | ")}）`,
     );
   }));
+
+  it("force 重登不毁掉现有凭据（授权没走完也要保住旧凭据）", withRoot(async () => {
+    seedCredential("user-4");
+    const before = readFileSync(paths.credentialsPath(CID), "utf8");
+    // 合成渠道的 `cred.login` 直接读现有凭据 —— 旧实现在 force 时先 unlink credentials.json，
+    // 于是这里会读到 NotLoggedInError、渠道当场掉线（2026-10-24 workbuddy / raccoon / catpaw
+    // 三连掉线就是这个原因）。重登的正确语义是「拿到新凭据」，不是「把旧的毁掉」。
+    const code = await runLogin({ cid: CID, force: true });
+    assert.equal(code, 0, "已有凭据的渠道重登应当直接成功");
+    assert.ok(existsSync(paths.credentialsPath(CID)), "授权流程没走完时旧凭据必须还在");
+    assert.equal(readFileSync(paths.credentialsPath(CID), "utf8"), before);
+  }));
 });
 
 describe("6. 展示名（name / label）", () => {

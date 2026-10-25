@@ -557,6 +557,11 @@ interface CredModule {
  那份（渠道 `refresh()` 只写 live 文件）；不同账号 → 收成新账号并设为 active。
  只看 mtime 回灌会在「换账号登录」时把旧账号的池内文件覆盖成别人的凭证。
 - **切换** = 把 `accounts/<key>.json` 复制回 `credentials.json` + 更新 `active`（不用重新授权）。
+- **重登（`mx relogin` / 控制台「+」添加账号）不删旧凭据**：授权流程要等人操作（扫码 / 粘回调），
+  期间渠道处于「登录中」，旧凭据本来还能正常服务。旧实现**先 `unlink(credentials.json)` 再授权**，
+  于是授权没走完（链接过期 / 没扫码 / 弹窗关掉）渠道就直接掉线，而账号池里的账号与额度都还在 ——
+  界面上就是「未登录 + 账号生效中」这种自相矛盾的状态（2026-10-24 workbuddy / raccoon / catpaw
+  三连掉线即由此引起）。新凭据落盘走原子覆盖，删旧文件没有收益、只留风险。
 - **删除生效账号 = 同时登出**（删 `credentials.json`），否则下次同步会把它又收回来；
  删除非生效账号不动 live 文件。
 - 权限：`accounts/` 0700、其中文件 0600（`enforcePermissions` 递归一层）。
