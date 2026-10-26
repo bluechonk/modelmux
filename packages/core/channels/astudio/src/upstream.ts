@@ -78,6 +78,11 @@ const SEND_VERIFY_CODE_PATH = "/login/mobile/send-verify-code";
 const PHONE_QUICK_LOGIN_PATH = "/login/phone-quick-login";
 const TENANT_INIT_PATH = "/tenant-app/v2/init-app";
 const POINTS_BALANCE_PATH = "/points/balance";
+const POINTS_SUMMARY_PATH = "/points/summary";
+const MEMBERSHIP_PATH = "/membership/me";
+const PENDING_POPUPS_PATH = "/client-popups/pending";
+const COMPLETE_POPUP_PATH = "/client-popups/complete";
+const DOWNLOAD_REWARD_PATH = "/client-download-reward/claim";
 
 /** 会话失效的业务码（云端账号 API 返回 `80000` 表示「登录异常，请重新登录」）。 */
 export const SESSION_INVALID_CODE = "80000";
@@ -590,6 +595,44 @@ export async function fetchTenantState(
 }
 
 /**
+ * 积分概览（`GET /points/summary`）—— 需要 Cookie。
+ *
+ * 实测返回 `{totalBalance, purchaseTarget, sparkTotalBalance}`。
+ */
+export async function fetchPointsSummary(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<Record<string, unknown>> {
+  const payload = await accountApi(
+    "GET",
+    POINTS_SUMMARY_PATH,
+    { cookie: cookieHeader(credential) },
+    cfgOverride,
+  );
+  const data = payload["data"];
+  return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+}
+
+/**
+ * 会员信息（`GET /membership/me`）—— 需要 Cookie。
+ *
+ * 实测返回 `{uid, active, planCode, planName, autoRenew, …}`。
+ */
+export async function fetchMembership(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<Record<string, unknown>> {
+  const payload = await accountApi(
+    "GET",
+    MEMBERSHIP_PATH,
+    { cookie: cookieHeader(credential) },
+    cfgOverride,
+  );
+  const data = payload["data"];
+  return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+}
+
+/**
  * 积分余额（`GET /points/balance`）—— 需要 Cookie。
  *
  * 返回结构实测含两个池（通用积分 / 星火积分），见 PROTOCOL §8.2。
@@ -606,6 +649,172 @@ export async function fetchPointsBalance(
   );
   const data = payload["data"];
   return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+}
+
+// ── 客户端头（弹窗类端点必需）─────────────────────────────────────────────────
+//
+// `client-popups/pending` 等端点会校验「客户端平台、版本或构建号」，
+// 缺了就回 `code=11001001 客户端平台、版本或构建号无效`（实测 2026-10-26）。
+// `clientType` 是**必需**的那一个（只给 `studioVersion` 仍 401/无效）。
+//
+// 取值来自参考实现 `internal/astron/{client,session}.go`：
+// - `clientType`：Windows 21 / 其它 22
+// - `studioVersion`：客户端版本（参考实现默认 3.4.4）
+
+/** 客户端平台标识（Windows 21 / 其它 22）。 */
+export function clientType(): string {
+  return process.platform === "win32" ? "21" : "22";
+}
+
+/** 客户端版本（上游用它做版本门槛校验）。 */
+const CLIENT_VERSION = "3.4.4";
+
+/** 弹窗类端点要带的客户端头。 */
+function clientHeaders(cookie: string): Record<string, string> {
+  return {
+    Accept: "application/json",
+    Cookie: cookie,
+    clientType: clientType(),
+    studioVersion: CLIENT_VERSION,
+    "User-Agent": `AStudio/${CLIENT_VERSION}`,
+  };
+}
+
+/** 待处理弹窗（`GET /client-popups/pending`）。 */
+export interface Popup {
+  popupId: number;
+  popupCode: string;
+  componentType: string;
+  instanceKey: string;
+  title: string;
+  content: string;
+}
+
+/** 可领取的弹窗类型（对齐官方客户端的 `SUPPORTED_COMPONENT_TYPES`）。 */
+const CLAIMABLE_POPUP_TYPES = new Set([
+  "DAILY_REWARD_DIALOG",
+  "NEW_USER_DIALOG",
+  "CLIENT_DOWNLOAD_REWARD_DIALOG",
+]);
+
+/**
+ * 取待处理弹窗（`GET /client-popups/pending`）。
+ *
+ * ⚠ **必须带客户端头**（`clientType` / `studioVersion` / `User-Agent`），
+ * 否则上游回 `code=11001001`（实测 2026-10-26）。
+ */
+export async function fetchPendingPopups(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<Popup[]> {
+  const url = `${trimSlash((cfgOverride ?? loadConfig()[0]).studioBaseUrl)}${PENDING_POPUPS_PATH}`;
+  const resp = await fetch(url, {
+    method: "GET",
+    headers: clientHeaders(cookieHeader(credential)),
+    signal: AbortSignal.timeout(cred.HTTP_TIMEOUT),
+  });
+  const text = await resp.text();
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`client-popups/pending response is not valid JSON: ${text.slice(0, 120)}`);
+  }
+  const code = codeText(payload["code"]);
+  if (code !== "0") {
+    const desc = str(payload["desc"]) || `HTTP ${resp.status}`;
+    throw new Error(`client-popups/pending rejected (code=${code || "?"}): ${desc}`);
+  }
+  const data = payload["data"];
+  if (!Array.isArray(data)) return [];
+  const out: Popup[] = [];
+  for (const item of data) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const payloadObj =
+      rec["payload"] && typeof rec["payload"] === "object"
+        ? (rec["payload"] as Record<string, unknown>)
+        : {};
+    out.push({
+      popupId: Number(rec["popupId"]) || 0,
+      popupCode: str(rec["popupCode"]).trim(),
+      componentType: str(rec["componentType"]).trim(),
+      instanceKey: str(rec["instanceKey"]).trim(),
+      title: str(payloadObj["title"]).trim(),
+      content: str(payloadObj["content"]).trim(),
+    });
+  }
+  return out;
+}
+
+/** 这个弹窗是不是「可领取」类型。 */
+export function isClaimablePopup(popup: Popup): boolean {
+  return CLAIMABLE_POPUP_TYPES.has(popup.componentType);
+}
+
+/**
+ * 关闭弹窗（`POST /client-popups/complete`）。
+ *
+ * ⚠ **只关弹窗、不发积分** —— 真正发奖的是 `init-app`（见 `fetchTenantState`）。
+ * 参考实现的注释说得很明确：「只 complete 弹窗不会发放积分」。
+ */
+export async function completePopup(
+  credential: AuthLike,
+  popup: Popup,
+  cfgOverride?: Config,
+): Promise<void> {
+  const url = `${trimSlash((cfgOverride ?? loadConfig()[0]).studioBaseUrl)}${COMPLETE_POPUP_PATH}`;
+  const body = JSON.stringify({ popupId: popup.popupId, instanceKey: popup.instanceKey });
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...clientHeaders(cookieHeader(credential)),
+      "Content-Type": "application/json",
+    },
+    body,
+    signal: AbortSignal.timeout(cred.HTTP_TIMEOUT),
+  });
+  const text = await resp.text();
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`client-popups/complete response is not valid JSON: ${text.slice(0, 120)}`);
+  }
+  const code = codeText(payload["code"]);
+  if (code !== "0") {
+    const desc = str(payload["desc"]) || `HTTP ${resp.status}`;
+    throw new Error(`client-popups/complete rejected (code=${code || "?"}): ${desc}`);
+  }
+}
+
+/**
+ * 领取客户端下载奖励（`POST /client-download-reward/claim`）。
+ *
+ * 一次性；已领过会回业务错误（属正常，不算失败）。
+ */
+export async function claimDownloadReward(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<void> {
+  const url = `${trimSlash((cfgOverride ?? loadConfig()[0]).studioBaseUrl)}${DOWNLOAD_REWARD_PATH}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: clientHeaders(cookieHeader(credential)),
+    signal: AbortSignal.timeout(cred.HTTP_TIMEOUT),
+  });
+  const text = await resp.text();
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`client-download-reward/claim response is not valid JSON: ${text.slice(0, 120)}`);
+  }
+  const code = codeText(payload["code"]);
+  if (code !== "0") {
+    const desc = str(payload["desc"]) || `HTTP ${resp.status}`;
+    throw new Error(`client-download-reward/claim rejected (code=${code || "?"}): ${desc}`);
+  }
 }
 
 /**
