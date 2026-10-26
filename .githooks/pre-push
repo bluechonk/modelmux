@@ -7,12 +7,22 @@
 # 紧急绕过：git push --no-verify（按 AGENTS.md 门禁规则，须先说明理由并获同意）。
 set -euo pipefail
 
+# git push 会把待推的 ref 逐行喂给 stdin（形如 "refs/heads/<branch> <sha>"）。
+# 门禁要测的是**待推的那个分支** —— 门禁脚本默认 clone 默认分支，
+# 不传分支名就会「推 A 分支却测了 B 分支的内容」（2026-10-26 修）。
+push_branch=""
+while read -r remote_ref local_sha _; do
+  case "$remote_ref" in
+    refs/heads/*) push_branch="${remote_ref#refs/heads/}"; break ;;
+  esac
+done || true
+
 # linked worktree 里 hook 仍来自主工作树的 .githooks；必须用当前工作树解析仓库根，
 # 否则门禁会去测主工作树而不是当前分支。
 repo_root=$(git rev-parse --show-toplevel)
 
 cd "$repo_root"
-if ! bash scripts/wsl-gate.sh; then
+if ! bash scripts/wsl-gate.sh --quiet "$push_branch"; then
   echo "[pre-push] 门禁未通过，推送已拦截（手动复现：npm run gate；绕过需先获同意：--no-verify）" >&2
   exit 1
 fi
