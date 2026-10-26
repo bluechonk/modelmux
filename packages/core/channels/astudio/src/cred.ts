@@ -75,8 +75,7 @@ const nowIso = sharedLogin.nowIso;
  * （拼 Cookie 打账号 API）。两者都来自 AStudio 的会话文件。
  *
  * ⚠ **契约字段必须齐**（共享层 `Credential`：`accessToken` / `uid` / `domain`）：
- * 缺 `domain` 会让 `accountKey` 退化成 `sha256(""\0uid)`，与其它渠道的 key 口径不一致
- * （2026-10-26 补，见 docs/channels/astudio/ROADMAP.md 第 3 项）。
+ * 缺 `domain` 会让 `accountKey` 退化成 `sha256(""\0uid)`，与其它渠道的 key 口径不一致。
  */
 export interface Credentials {
   /** 模型网关 Bearer（对话用）。 */
@@ -127,9 +126,9 @@ const EMPTY_CREDENTIALS: Credentials = {
  *
  * 上游 `nickname` 实测恒为 `null`（PROTOCOL §4.2），会话文件里也**根本没有这个键**。
  * 此前代码读出来是空串，再靠共享层 `NAME_FIELDS` 的顺序**碰巧**命中 `mobile` ——
- * 池层哪天调顺序，astudio 的显示名就变了（2026-10-26 修，见 ROADMAP 第 3 项缺陷 A）。
+ * 池层哪天调顺序，astudio 的显示名就变了。所以这里显式回落，不依赖池层巧合。
  *
- * ⚠ 按主人 2026-10-26 的决定：**不做脱敏**，渠道给什么就显示什么
+ * ⚠ **不做脱敏**，渠道给什么就显示什么
  * （`mobile` 是明文手机号，与 `packages/ui` 的 `displayName()` 口径一致）。
  */
 function displayName(raw: AstronSessionFile): string {
@@ -177,7 +176,7 @@ function readSessionFile(): AstronSessionFile {
  * 的取值顺序一致（见 PROTOCOL §2.1）。
  *
  * `banned: true` 直接抛错：账号已被上游封禁，继续用只会在每次请求上撞 401/403，
- * 且「封禁」这个事实必须在界面上看得见（2026-10-26，见 ROADMAP 第 3 项）。
+ * 且「封禁」这个事实必须在界面上看得见。
  */
 function fromSessionFile(raw: AstronSessionFile): Credentials {
   const modelBearerToken = str(raw["modelBearerToken"]).trim() || str(raw["token"]).trim();
@@ -311,8 +310,8 @@ interface LoginOptions {
    * 强制重读（`mx relogin astudio`）。
    *
    * ⚠ 默认行为是「已有凭据就复用」—— 那是 `login()` 的语义（幂等），
-   * 但 `relogin` 要的是**重新读一次会话文件**。此前两者没区分，
-   * 导致 `relogin` 在凭据还在时是**空操作**（2026-10-26 修死结，见 ROADMAP 第 4 项）。
+   * 但 `relogin` 要的是**重新读一次会话文件**。两者不区分的话，
+   * `relogin` 在凭据还在时是**空操作**。
    */
   force?: boolean;
   /**
@@ -361,24 +360,17 @@ function isProcessAlive(pid: number): boolean {
 /**
  * 登录：**两条路**，都通。
  *
- * ## 路 A：手机号 + 短信验证码（**云端直连，2026-10-26 新增**）
+ * ## 路 A：手机号 + 短信验证码（云端直连）
  *
- * ⚠⚠ 此前本文件断言「登录端点只存在于本地服务代理层、无法独立调用」——
- * **那是测错了路径**。`/api/astron-auth/*` 是桌面应用**本地服务代理层**的前缀；
- * 云端账号 API 的路径**没有这个前缀**，直接打 `https://agent.xfyun.cn/xingchen-studio/<path>`。
- *
- * 实测（2026-10-26，云端直连）：
- *
- * | 端点 | 结果 |
- * | --- | --- |
- * | `GET /chat/gee-captcha` | `200 code=0`，真实 GeeTest v3 配置 |
- * | `POST /login/mobile/send-verify-code` | `200 code=20009 geetest verify failed`（端点可达，captcha 未解） |
- * | `POST /login/phone-quick-login` | `200 code=10501002 验证码无效`（端点可达、参数正确，验证码是假的） |
+ * 云端账号 API 的路径**没有** `/api/astron-auth/` 前缀（那是桌面应用本地服务
+ * 代理层的前缀），直接打 `https://agent.xfyun.cn/xingchen-studio/<path>`。
+ * 带错前缀必然 404，会误判成「云端无登录端点」。
+ * 各端点的鉴权要求与实测见 docs/channels/astudio/PROTOCOL.md §5。
  *
  * 唯一拦路虎是 **GeeTest v3 滑块** —— 它本来就该由**浏览器**解，
  * 而 Web 控制台正是浏览器（`packages/ui` 的 Geetest 组件加载官方同款 `gt.js`）。
  *
- * 形态来自参考实现
+ * 请求形态来自参考实现
  * `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`。
  *
  * ## 路 B：读桌面应用落盘的会话文件（**兜底，不需要网络**）
@@ -584,7 +576,7 @@ async function loginFromSessionFile(options: LoginOptions): Promise<Credentials>
       const base = fromSessionFile(readSessionFile());
       // ⚠ 账号信息补全是**尽力而为**：`/userInfo` 拉失败（网络/上游抖动）时必须回落到
       // 会话文件的值，不能让整个登录失败 —— 否则会话文件明明是好的，却每 3 秒重试
-      // 一次直到 5 分钟超时（2026-10-26 实测）。
+      // 一次直到 5 分钟超时。
       let c = base;
       try {
         c = await enrichFromUserInfo(base);
@@ -625,10 +617,10 @@ async function fromPasted(text: string): Promise<Credentials> {
 /**
  * 登出：**销毁本渠道的本地凭据**。
  *
- * ⚠ 语义必须说清（2026-10-26，见 ROADMAP 第 5 项）：
+ * ⚠ 语义必须说清：
  * - 本函数只做**本地销毁** —— 删掉 `credentials.json`；
  * - **不吊销上游会话**：AStudio 的登出端点（`POST /api/astron-auth/logout`）同样只存在于
- *   本地服务代理层，外部拿不到（实测 401）。云端 `token` / `ssoSessionId` 会继续有效，
+ *   本地服务代理层，外部拿不到。云端 `token` / `ssoSessionId` 会继续有效，
  *   AStudio 桌面应用里也仍是登录态；
  * - 池里的账号由共享层清理（Web「删除生效账号」已会连带删 `credentials.json`）。
  *
@@ -643,9 +635,8 @@ export async function logout(): Promise<void> {
 /**
  * `refresh()`：**真刷新** —— 带 Cookie 打 `/bot/models/configs` 取新的 `api_key`。
  *
- * 实测（2026-10-26）：刷新拿到的 `api_key` 与磁盘 `modelBearerToken` **完全一致**，
- * 且该账号 9 个模型共用同一个 Bearer。故刷新是「确认凭据仍有效 + 取回最新值」，
- * 不是「换发新 token」。
+ * 刷新拿到的 `api_key` 与磁盘 `modelBearerToken` 一致，且该账号全部模型共用
+ * 同一个 Bearer —— 故刷新是「确认凭据仍有效 + 取回最新值」，不是「换发新 token」。
  *
  * Cookie 失效（上游 `code=80000` / HTTP 401）时抛 `NotLoggedInError` ——
  * 绝不假装刷新成功。

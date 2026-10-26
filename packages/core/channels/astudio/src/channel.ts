@@ -21,7 +21,7 @@ export const config: ChannelConfig = {
   uiPort: 8820,
   debugDumpEnv: "ASTUDIO_DEBUG_DUMP",
   /**
-   * 能力位（2026-10-26 修正）。
+   * 能力位。
    *
    * 此前声明 `billing: false, signin: false`，理由是「模型网关余额恒为 0（免费档），
    * 报成额度会被共享层冷却」。**理由选错了口径**：

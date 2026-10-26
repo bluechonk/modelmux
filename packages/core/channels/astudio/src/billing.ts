@@ -1,18 +1,10 @@
 /**
- * AStudio 额度：**积分余额**（通用积分 + 星火积分）+ 用量。
+ * AStudio 额度：积分余额（通用积分 + 星火积分）与消耗，含签到/领取与额度周期。
  *
- * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md）：
- *   - **积分余额**（`GET /points/balance`，Cookie 认证）：实测 `totalBalance: 6197` /
- *     `sparkTotalBalance: 35000`（2026-10-26），就是客户端「积分余额」面板显示的两个数。
- *   - **模型用量**（`GET {模型网关}/usage`，Bearer 认证）：实测 `mode: "unrestricted"`、
- *     `balance: 0`、`cost: 0` —— 这个 0 是**模型网关的余额**（免费档），
- *     与**积分余额**是两回事。
- *   - ⚠ 两者**不能混**：模型网关的 `balance: 0` 是永久状态（免费档），
- *     若把它当额度报给共享层，`markCooldownIfExhausted` 会因 `remain <= 0`
- *     **冷却账号** —— 而积分余额明明有 6197。所以额度口径取**积分余额**。
- *
- * 「已用」= `totalAmount − totalBalance`（发放−余额）；模型网关 `/usage` 实测 404，
- * 不能当消耗来源。上限取 `totalAmount`（活动发放总额），百分比与到期天数随之可算。
+ * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md §8）：
+ *   - 额度口径是**积分余额**（Cookie 认证的积分端点）；模型网关的 `balance` 恒为 0
+ *     （免费档永久状态），拿它报额度会把账号**冷却**掉 —— 两者绝不能混。
+ *   - 「已用」取**发放 − 余额**（积分端点无流水，这是唯一有源的消耗口径）。
  */
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
@@ -87,20 +79,13 @@ function parseToday(payload: Record<string, unknown>): TodayUsage | null {
 /**
  * 查询额度（**积分余额**）。
  *
- * 数据源：
- * - **积分余额**（`GET /points/balance`，Cookie 认证）—— 额度口径取这个；
- * - **模型用量**（`GET {模型网关}/usage`，Bearer 认证）—— 只用来报今日花费。
+ * 额度口径取积分端点（Cookie 认证），模型网关的 `balance` 是免费档的永久 0，
+ * 报给共享层会因 `remain <= 0` 把账号**冷却**掉 —— 这是此函数存在的核心 why
+ * （端点与响应字段见 docs/channels/astudio/PROTOCOL.md §8.1）。
  *
- * ⚠ **不能用模型网关的 `balance` 当额度**：那是免费档的 0（永久），
- * 共享层会因 `remain <= 0` 把账号**冷却**掉，而积分余额明明有 6197（2026-10-26 实测）。
- *
- * **「已用」口径 = `totalAmount − totalBalance`**（累计发放 − 当前余额，2026-10-26 实测）：
- * 模型网关 `/usage` 实测 **404**（maas-api 主机无该路由），`today.cost` 永远拿不到，
- * 用它报「已用 0」是假的（真实消耗 3 积分被显示成 0）。积分端点自身没有流水，
- * 发放−余额是唯一有源的消耗口径。同理星火池用 `sparkTotalAmount − sparkTotalBalance`。
- *
- * 上限有真实值（`totalAmount` 是活动发放的总额）→ `size` 报它，
- * `remain_percent` 与 `days_left`（体验积分 `activityNextExpireTime`）随之可算。
+ * 「已用」= 发放 − 余额：积分端点没有流水，模型网关 `/usage` 对本渠道不可用，
+ * 差值是唯一有源的消耗口径；发放总额同时充当进度条的上限。
+ * 星火池是独立计费的第二个池，同口径单独成包。
  */
 export async function fetchCredits(
   options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
@@ -219,35 +204,26 @@ export async function fetchCredits(
 import type { SigninModule } from "@modelmux/gateway";
 
 /**
- * 签到 / 领取：**AStudio 有真实的签到链路**（2026-10-26 实现，此前误判为「无端点」）。
+ * 签到 / 领取：AStudio 有真实的签到链路（此前误判为「无端点」，更正见 PROTOCOL §8.2）。
  *
- * ## 三个动作的真实含义
+ * ## 三个动作各自的真实含义（why 缺一不可）
  *
- * 1. **每日登录奖励**：`POST /tenant-app/v2/init-app` —— 官方客户端在**启动与登录**时
- *    都会调它，**当日首次调用时上游立即入账**（重复调用不重复发放）。
- *    这才是「每日福利 100 积分」的**发奖动作**。
+ * 1. **每日登录奖励**：`POST /tenant-app/v2/init-app` —— 官方客户端在启动与登录时
+ *    都调它，当日首次调用上游立即入账（重复调用不重复发放）。**这才是发奖动作**。
  * 2. **关闭奖励横幅**：`POST /client-popups/complete` —— 领奖后上游下发
- *    `DAILY_REWARD_DIALOG` 横幅（内容「今日登录积分已到账」）。
- *    ⚠ **只 complete 弹窗不会发积分**（参考实现 `internal/server/benefits.go` 注释明确）。
+ *    `DAILY_REWARD_DIALOG` 横幅；⚠ 只 complete 弹窗**不会发积分**，
+ *    它只是不再弹（参考实现 `internal/server/benefits.go` 注释明确）。
  * 3. **客户端下载奖励**：`POST /client-download-reward/claim` —— 一次性，
- *    已领过会回业务错误（属正常，不算失败）。
+ *    已领过回业务错误（属正常，不算失败）。
  *
- * ## 为什么这几个端点要客户端头
- *
- * `client-popups/*` 会校验「客户端平台、版本或构建号」，缺了回
- * `code=11001001 客户端平台、版本或构建号无效`（实测）。
- * `clientType` 是必需的那一个（只给 `studioVersion` 仍无效）。
+ * `client-popups/*` 会校验客户端平台/版本（`clientType` 是必需的那一个，
+ * 只给 `studioVersion` 仍无效），故走 `upstream` 的客户端头拼装。
  *
  * ## 判据
  *
- * - 「今天已领」看**上游余额是否已含今日奖励**不好判 → 改看
- *   **待处理弹窗里有没有 `DAILY_REWARD_DIALOG`**：领过的账号弹窗会被 complete 掉，
- *   没领的账号弹窗还在。
- *   ⚠ 实测例外：已领过的账号**仍会**返回 `DAILY_LOGIN_REWARD_V1` 横幅
- *   （`instanceKey: 20261026`），内容是「今日登录积分已到账」——
- *   说明这个横幅是**到账通知**不是待领奖单。故判据不能只看它。
- * - 因此 `claimedToday` 用**余额是否已变动**判：调用 `init-app` 前后的
- *   通用积分余额对比，变动了 = 今天领到了。
+ * 「今天已领」不用横幅判（已领账号仍会收到 `DAILY_LOGIN_REWARD_V1` 到账通知横幅，
+ * 它是通知不是待领单）—— 用 `claim()` 前后的余额差确认：变动了 = 今天领到了。
+ * 端点行为与横幅形态的实测见 docs/channels/astudio/PROTOCOL.md §8.2。
  */
 export const signin: SigninModule = {
   async status() {
