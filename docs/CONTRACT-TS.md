@@ -126,7 +126,7 @@ packages/core/channels/<cid>/
 
 | 约定 | 原因 |
 | --- | --- |
-| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + 9 个渠道包）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
+| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + **全部渠道包**）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
 | **版本号只记一遍** | `package.json` 的 `version` 是唯一真相；渠道 `src/channel.ts` 的 `ChannelConfig.version` 必须与之一致（那处会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。同一事实记两遍必然漂移 |
 | **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
 | **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
@@ -134,6 +134,24 @@ packages/core/channels/<cid>/
 
 发布前的自检：`cd packages/cli && npm publish --dry-run` —— 输出里除「需要登录」外**不应有任何
 `npm warn publish`**；有任何一条都先修掉再发。
+
+### 2.1 渠道**总数**不得写死在文档与注释里
+
+渠道数是 `readdirSync(packages/core/channels)` 的**派生量**。写死它的后果不是「不好看」，而是
+**增删渠道时必然漏改**：2026-10-26 加 `astudio` 后，`README.md` / `CONTRACT-TS.md` /
+`POOL-ARCHITECTURE.md` 三处仍写着旧数字，测试里的贡献渠道下界（`>= 8`）也随渠道数漂移。
+
+| 该写 | 不该写 |
+| --- | --- |
+| 「全部渠道」「各渠道」「每个注册渠道」 | 「共 N 个渠道」（N 为具体数字） |
+| 「渠道数由注册表决定，`mx model list` 看全量」 | 「N 个渠道包」 |
+| 结构性常量：「4 个渠道特有模块」「只注册 1 个渠道」 | 枚举总量：「N 个渠道全部实现了该钩子」 |
+
+`scripts/verify-contract.mjs` 已把这条钉住：扫 `README.md` / `AGENTS.md` / `docs/**` /
+技能文档里的「`<数字>` 个渠道（全部/都/包/里）」与「`<数字>` 家客户端」，命中即红。
+
+代码侧同理：**数量下界取「已注册渠道数」**（如 `packages/cli/tests/pool.test.ts` 的
+`EXPECTED_CIDS.length`），不要写死 `>= 8` 这种字面量 —— 写死就等于要求「每加一个渠道都回来改测试」。
 
 ---
 

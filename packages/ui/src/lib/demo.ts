@@ -42,6 +42,7 @@ interface DemoAccount {
 }
 
 const DEMO_CHANNELS: DemoChannel[] = [
+  { cid: "astudio", display: "AStudio", present: true, billing: false },
   { cid: "catpaw", display: "CatPaw", present: true, billing: true },
   { cid: "lobsterai", display: "LobsterAI", present: true, billing: true },
   { cid: "loomy", display: "Loomy", present: true, billing: true },
@@ -55,6 +56,7 @@ const DEMO_CHANNELS: DemoChannel[] = [
 
 /** 各渠道对外暴露的模型（虚构演示集，形态与真实一致：`<cid>/<模型名>`）。 */
 const DEMO_MODELS: Record<string, string[]> = {
+  astudio: ["auto", "deepseek-v4-flash", "deepseek-v4-pro", "glm-5.2", "spark-x2.5", "spark-x2.6", "spark-x2.6-lite"],
   catpaw: ["deepseek-v4-flash", "deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "longcat-2.0"],
   lobsterai: ["deepseek-v4-flash", "doubao-seed-2.1-pro", "glm-5", "glm-5.3", "kimi-k2.6", "minimax-m3", "qwen3.8-max"],
   loomy: ["deepseek-v4-flash", "glm-5.3-flash", "kimi-k2.6", "mimo-v2.5", "minimax-m3", "qwen3.8-flash", "spark-x"],
@@ -68,6 +70,8 @@ const DEMO_MODELS: Record<string, string[]> = {
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
 const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
+  // 无昵称（实测 nickname 为 null）→ 展示名回落手机号，演示脱敏形态
+  astudio: [{ key: "demo000000000000b1", uid: "demo-uid-astudio-1", label: "138****8000", name: "", health: "ok", expiresInDays: 120 }],
   catpaw: [
     // 连败熔断：路由会跳过它，只能靠切号 / 重登 / 点「解除」
     { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "error", failStreak: 3, expiresInDays: 12 },
@@ -105,6 +109,8 @@ const DEMO_QUOTA: Record<string, { size: number; remain: number; unit: string }>
 
 /** 池账本（虚构用量）。`accounts` 是按生效账号拆分的请求计数。 */
 const DEMO_LEDGER: Record<string, { used: number; unit: string; ok: number; fail: number; cooling: boolean }> = {
+  // 免费档（billing: false）→ 单位留空，额度条不渲染
+  astudio: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   catpaw: { used: 128, unit: "credits", ok: 96, fail: 2, cooling: false },
   lobsterai: { used: 0, unit: "credits", ok: 17, fail: 0, cooling: false },
   loomy: { used: 42, unit: "积分", ok: 30, fail: 0, cooling: false },

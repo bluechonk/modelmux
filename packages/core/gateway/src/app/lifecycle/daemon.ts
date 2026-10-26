@@ -58,7 +58,7 @@ export { gatewayHealthy, foreignServiceOnPort, pidAlive, killTree, cliEntry } fr
 /**
  * start 等待网关就绪的默认时长（毫秒）。
  *
- * ⚠ 冷启动实测 ~5s（10 个渠道初始化 + 启动探测），但某个渠道的登录探测偶发
+ * ⚠ 冷启动耗时随渠道数增长（每个渠道一次启动探测），而某个渠道的登录探测偶发
  * 超过 12s 时，supervisor 会在启动窗口内判定「从未就绪」并放弃，网关直接不可用
  * （2026-10-18 实测踩过）。默认放宽到 30s；`MODELMUX_START_WAIT_MS` 可覆盖，
  * hook 场景仍可用 `--wait` 自行调小。
