@@ -45,7 +45,7 @@ export async function ensureLogin(
     if (err instanceof cred.NotLoggedInError) {
       c = null;
     } else {
-      ui.setState("login", `failed to read credentials (${String(err)}); re-login required.`);
+      ui.setState("login", `读取出错（${String(err)}）；请重新登录。`);
       c = null;
     }
   }
@@ -55,17 +55,17 @@ export async function ensureLogin(
   // 渠道都会立刻报成功、拿不到链接 —— 2026-10-26 实测）。
   if (!c || force) {
     if (!interactive) {
-      ui.setState("login", "not logged in: run the login subcommand, open the printed authorization URL in a browser, then retry.");
+      ui.setState("login", "未登录：请先登录，打开授权链接完成授权后再试。");
       return false;
     }
-    ui.setState("login", "requesting authorization URL...");
+    ui.setState("login", "正在获取授权链接...");
     try {
       c = await cred.login(baseUrl ?? cred.DEFAULT_BASE_URL, {
         // ⚠ 只说「这个 URL 在哪」，**不**承诺「授权后自动完成」：渠道各有各的
         // 回调方式（本地回调服务器 / 设备码轮询 / 扫码长轮询），自动完成与否
         // 由渠道自己的 onStatus 指引说明。乱承诺会让用户在错误的入口扫码
         // （loomy 实测踩过：授权页每次加载都换 uuid，扫了这边永远等不到）。
-        onUrl: (url) => ui.setState("login", "authorization URL (open it in a browser if you need it)", url),
+        onUrl: (url) => ui.setState("login", "授权链接（在浏览器中打开以完成授权）", url),
         // 二维码图片：扫码必须用这张（授权页每次加载都会换一个新的二维码会话）
         onQr: (qr) => ui.setQr?.(qr),
         onStatus: (msg) => ui.setState("login", msg),
@@ -73,10 +73,10 @@ export async function ensureLogin(
         pasteCode: () => ui.takePastedCallback?.(),
       });
     } catch (err) {
-      ui.setState("error", `login failed: ${String(err)}`);
+      ui.setState("error", `登录失败：${String(err)}`);
       return false;
     }
-    ui.setState("login", "authorized; initializing...");
+    ui.setState("login", "授权成功，正在初始化...");
     try {
       // 拉一次模型载荷：既验证新凭据可用，也顺便把上游连接配置落盘
       const data = await upstream.fetchModels(c);

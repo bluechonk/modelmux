@@ -325,8 +325,8 @@ export async function runLogin(options: {
         loginWechat.call(cred, cred.resolveBaseUrl(realm), {
           // ⚠ auth_url 只是「授权页在哪」；扫码必须用 onQr 给的那张 —— 授权页每次
           // 加载都会新生成 uuid，扫那一张的码与本轮长轮询不是同一个会话。
-          onUrl: (url: string) => ui.setState("login", "open this URL if you need the authorization page", url),
-          onQr: (qr: string) => ui.setState("login", "scan the QR code with WeChat and confirm on your phone", "", qr),
+          onUrl: (url: string) => ui.setState("login", "授权链接（在浏览器中打开以完成授权）", url),
+          onQr: (qr: string) => ui.setState("login", "用微信扫这张二维码，在手机上确认登录", "", qr),
           onStatus: (msg: string) => ui.setState("login", msg),
           // 长轮询拿不到时的兜底：让界面能把用户粘回的回调链接喂进来。
           // ⚠ 走 `ui` 而不是直接摸 `observer`：CLI 下没有 observer，但 stdin
@@ -361,7 +361,7 @@ export async function runLogin(options: {
       }
       emit(done);
     } else if (ok) {
-      console.log("[login] done.");
+      console.log("[login] 登录成功，账号已入池。");
     }
     return ok ? 0 : 1;
   }
@@ -439,7 +439,7 @@ export async function runLogin(options: {
     }
     emit(done);
   } else if (ok) {
-    console.log("[login] done.");
+    console.log("[login] 登录成功，账号已入池。");
   }
   return ok ? 0 : 1;
 }
