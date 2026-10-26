@@ -11,12 +11,13 @@
  * 模型区在 `components/ModelExplorer.tsx`：渠道分组表 / 扁平表两种视图。
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { ModelExplorer } from "../components/ModelExplorer";
-import { type ReactElement, type ReactNode } from "react";
+import { useToast } from "../components/Toast";
+import { type ReactElement } from "react";
 import { api } from "../lib/api";
 
 /**
@@ -47,6 +48,32 @@ export function Dashboard(): ReactElement {
     queryFn: api.getState,
     refetchInterval: 3000,
   });
+  const toast = useToast();
+
+  // 提示统一走 toast（2026-10-26 主人要求）：查询失败与网关错误都弹错误提示，
+  // 页面本体不再渲染自绘的常驻错误横幅。两者都是轮询驱动的持续状态 ——
+  // 按**错误内容**去重（同一错误不反复弹），内容变化或恢复后再弹新的。
+  const lastToastedError = useRef("");
+  useEffect(() => {
+    if (error) {
+      const text = `加载失败：${String(error)}`;
+      if (text !== lastToastedError.current) {
+        lastToastedError.current = text;
+        toast.error(text);
+      }
+      return;
+    }
+    const gatewayError = state?.gateway_error ?? "";
+    if (!gatewayError) {
+      lastToastedError.current = "";
+      return;
+    }
+    const text = `网关错误：${gatewayError}`;
+    if (text !== lastToastedError.current) {
+      lastToastedError.current = text;
+      toast.error(text);
+    }
+  }, [error, state?.gateway_error, toast]);
 
   // 渠道数：池 id 的前缀去重（模型区自己的分组在 ModelExplorer 里）
   const groups = useMemo(() => {
@@ -59,7 +86,14 @@ export function Dashboard(): ReactElement {
   }, [state]);
 
   if (isLoading) return <Skeleton />;
-  if (error) return <Alert tone="error">加载失败：{String(error)}</Alert>;
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <Skeleton />
+        <div className="px-1 text-sm text-ink-faint">加载失败，正在自动重试…（详情见右下角提示）</div>
+      </div>
+    );
+  }
   if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
   const channelCount = groups.size;
@@ -68,12 +102,6 @@ export function Dashboard(): ReactElement {
 
   return (
     <div>
-      {state.gateway_error && (
-        <div className="mb-6">
-          <Alert tone="error">网关错误：{state.gateway_error}</Alert>
-        </div>
-      )}
-
       {/* composer 形态的接入区：一整块圆角盒，端点逐行可复制。
           窄屏只留 `base_url`：`chat_url` 是它的下游路径、`endpoints` 是它的拆分，
           都是派生信息 —— 宽度不够时先砍它们（2026-10-26 主人要求「窄屏做减法」）。 */}
@@ -205,21 +233,6 @@ function StatInline({
       </span>
     </span>
   );
-}
-
-/** 语义提示条：info 中性 / error 红。 */
-export function Alert({
-  tone,
-  children,
-}: {
-  tone: "info" | "error";
-  children: ReactNode;
-}): ReactElement {
-  const cls =
-    tone === "error"
-      ? "border-danger/30 bg-danger/10 text-danger"
-      : "border-line bg-raised text-ink-soft";
-  return <div className={`rounded-xl border p-3 text-[13px] ${cls}`}>{children}</div>;
 }
 
 /** 加载骨架：接入盒占位。 */
