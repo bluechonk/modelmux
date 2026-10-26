@@ -1,0 +1,42 @@
+{
+  "name": "@modelmux/astudio",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "description": "AStudio（讯飞桌面 Agent）的 OpenAI 兼容模型网关渠道（TypeScript，无窗口，modelmux 渠道）",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "bin": {
+    "astudio": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "astudio",
+    "iflytek",
+    "xfyun",
+    "gateway",
+    "openai",
+    "proxy",
+    "cli",
+    "typescript"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelmux/gateway": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.2"
+  }
+}

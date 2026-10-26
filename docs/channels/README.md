@@ -40,7 +40,7 @@ docs/channels/<cid>/
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：`PROTOCOL.md` 9 份（每个渠道一份）、`FINDINGS.md` 3 份
+当前落地：`PROTOCOL.md` 10 份（每个渠道一份）、`FINDINGS.md` 3 份
 （`catpaw` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
 后两者是**按需**的逆向结论层，不是每个渠道都有。
 
@@ -59,7 +59,8 @@ docs/channels/<cid>/
 - 「怎么测这个渠道」与「端到端测试覆盖」**每个渠道都必须成节存在**；前半段的渠道特有
   小节按需取舍。
 - 实测记录按**日期**分节（`2026-10-19` / `2026-10-20` …），同一天的多次实测合并成一节。
-- 尚无端到端实测记录的渠道**不写**这一节（当前 10 个渠道**全部**已有端到端实测记录）。
+- 尚无端到端实测记录的渠道**不写**这一节（当前 11 个渠道里 10 个已有端到端实测记录，
+  `astudio` 尚未按 `reasonix-mx-test` 跑完整回归）。
 
 **逆向研究代码不入库**：探针 / 解密脚本这类一次性研究代码（渠道目录下的 `research/`）
 用完即删，价值在结论，不在代码。结论必须落到本目录的 `PROTOCOL.md` / `FINDINGS.md`。
@@ -68,6 +69,7 @@ docs/channels/<cid>/
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
+| `astudio` | AStudio（讯飞桌面 Agent） | 登录被桌面应用握死（本地服务只认自己的活会话）；渠道读它落盘的 `modelBearerToken` 直连模型网关 | [PROTOCOL](./astudio/PROTOCOL.md) |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
