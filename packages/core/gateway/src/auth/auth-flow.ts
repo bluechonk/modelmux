@@ -74,6 +74,10 @@ export async function ensureLogin(
         // 两步登录的输入通道（如 loomy 短信验证码）：界面没有就不传，
         // 渠道自己回落到环境变量（CLI 用法不变）。
         ...(ui.requestInput ? { requestInput: (req: LoginInputRequest) => ui.requestInput!(req) } : {}),
+        // 强制重读（`mx relogin`）：渠道据此跳过「已有凭据就复用」的短路 ——
+        // astudio 这类「凭据来自外部会话文件」的渠道，不传就永远是空操作
+        // （2026-10-26 修死结，见 docs/channels/astudio/ROADMAP.md 第 4 项）。
+        ...(force ? { force: true } : {}),
       });
     } catch (err) {
       ui.setState("error", `登录失败：${String(err)}`);
