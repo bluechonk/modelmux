@@ -766,7 +766,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1 / §2.2）
@@ -778,16 +778,6 @@ mx bill traecn            # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model traecn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`traecn/glm-5.3-flash`，本渠道最低倍率 0.06）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 本渠道**没有倍率 0 的模型**：最低 0.06（`glm-5.3-flash` / `mimo-v2.6-flash` /
-  `doubao-seed-code`），测试须选这档；`kimi-k3` 倍率 1.83，禁用于自动化测试。
-- ⚠ 2001 `app config: record not found` 不是偶发抖动，是 `X-App-Id` 陈旧（§3.1.1）。
 
 ### 2026-10-20 端到端实测
 

@@ -477,7 +477,7 @@
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login workbuddy           # 登录入池（网页设备授权，规格见 §2.1）
@@ -492,25 +492,6 @@ mx bill workbuddy            # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddy/hy3`，倍率 0）：
-
-- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，落盘内容与要求一致，
-  同会话 `messageCount` 递增，说明多轮工具调用链路完整。
-- 倍率 0：测试前后 `mx bill workbuddy` 剩余额度无变化。
-
-### 2026-10-20 端到端实测
-
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`：
-
-- `workbuddy/hy3`（倍率 0）：冒烟通过，模型正常回话（网关 access 日志 `status: 200`、
-  `stream: true`）；结论与 2026-10-19 的记录一致。
-- `workbuddy/step-5-preview`（倍率 0）：工具往返（写文件 → 读回确认 → `bash` 执行
-  `pwd`/`ls` → 总结）通过；落盘文件内容与要求一致（`workbuddy/step-5-preview ok`）；
-  错误日志无该渠道新增条目；账单差值 0。
 
 ---
 

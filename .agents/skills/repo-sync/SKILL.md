@@ -130,7 +130,7 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
 
 - `mx` 命令用法与坑 → `mx-cli` 技能；
 - 日志与失败码 → `log-triage` 技能；
-- 渠道端到端验收（Reasonix）→ `reasonix-mx-test` 技能；
+- 渠道端到端验收 → `opencode-mx-test` 技能；
 - 跨会话核对进度 → `zcode-session-archaeology` 技能。
 
 - 涉及登录/凭据/上游的改动：必须 `mx login <cid>` → `mx status <cid>` → 真实对话。

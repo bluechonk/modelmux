@@ -33,7 +33,7 @@
  * 共 8 种写法，布尔与字符串数组两种形态混用），汇聚层按候选表逐个尝试
  * （见 `IMAGE_CAPABILITY_KEYS`）；字段全缺 → 回落 `["text"]`。
  * 少了这一步，`/v1/models` 的 `input_modalities` 会恒为纯文本 ——
- * 客户端（Reasonix / DSH 等）就永远按纯文本处理图片，多模态模型形同虚设。
+ * 客户端（opencode / DSH 等）就永远按纯文本处理图片，多模态模型形同虚设。
  *
  * ## 跨渠道同 model id 兜底
  *

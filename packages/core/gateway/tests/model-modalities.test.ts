@@ -6,7 +6,7 @@
  * 各渠道目录条目用的**字段名各不相同**（上游原样缓存下来，汇聚层只认候选表），
  * 布尔开关与字符串数组两种形态混用。早先汇聚层只认 `inputModalities` /
  * `input_modalities` 两个名字 —— 没有一个渠道写这两个 → 全部回落 `["text"]` →
- * `/v1/models` 的 `input_modalities` 恒为纯文本 → 客户端（Reasonix / DSH 等）
+ * `/v1/models` 的 `input_modalities` 恒为纯文本 → 客户端（opencode / DSH 等）
  * 永远按纯文本处理图片，多模态模型形同虚设。
  *
  * 这里锁的是**字段名 → 归一结果**这条约定：上游换个字段名，汇聚层仍要认；

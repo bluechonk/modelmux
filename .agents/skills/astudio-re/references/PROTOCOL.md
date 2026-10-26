@@ -379,4 +379,4 @@ node .agents/skills/astudio-re/scripts/asar-grep.mjs <asar> "/api/astron-[a-zA-Z
 node .agents/skills/astudio-re/scripts/asar-mine.mjs <asar> "createAstronAccountGateway" 200 4000
 ```
 
-端到端测试按 `reasonix-mx-test` skill 执行（渠道不写单测）。
+端到端测试按 `opencode-mx-test` skill 执行（渠道不写单测）。

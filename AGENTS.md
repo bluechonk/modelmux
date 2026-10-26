@@ -257,7 +257,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - 渠道包（`packages/core/channels/<cid>/`）**不写任何单元测试 / 集成测试 / selftest**；
      没有 `tests/` 目录，`package.json` 的 `scripts.test` 也不存在 —— 渠道测试唯一正确的形式是
      **端到端测试**（整个网关 + 真实客户端 + 真实账号直连上游）。
-   - 端到端测试由 **Agent 跑 `reasonix-mx-test` skill** 完成：该 skill 用 Reasonix CLI
+   - 端到端测试由 **Agent 跑 `opencode-mx-test` skill** 完成：该 skill 用 opencode CLI
      直连 `http://127.0.0.1:4412/v1`，走 `<渠道>/<模型>` 池 id 对每个渠道发起真实 Agent
      会话（文件读写、工具调用、多轮对话）—— 这才是用户视角下渠道是否跑得通的最终判据。
    - 契约依据：[docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7「渠道不做测试」。
@@ -281,9 +281,9 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
      `AGENTS.md` 测试规则。
    - 端到端测试覆盖（登录入池 / `mx model <cid> --refresh` / 最小对话 / 工具往返 / 流式 SSE）
      应在渠道 `docs/channels/<cid>/PROTOCOL.md` 的「使用与实测」小节列明，
-     供后续 Agent 按 `reasonix-mx-test` skill 复现。
+     供后续 Agent 按 `opencode-mx-test` skill 复现。
 4. **端到端测试要发正确形态的请求，严禁向上游发任何故意畸形/会触发风控的载荷**：
-   - Agent 跑 `reasonix-mx-test` skill、真机手动验收、扫码入池后验证、`.tmp/` 临时脚本，
+   - Agent 跑 `opencode-mx-test` skill、真机手动验收、扫码入池后验证、`.tmp/` 临时脚本，
      **一律只发符合上游规范的正确请求**（普通 user 文本、合法的 tool_calls 往返、流式/非流式等
      正常 OpenAI 兼容形态）。
    - **绝不拿真实账号去「故意发错、验证归一化是否会修」**—— 那是让畸形载荷撞上游风控，轻则
