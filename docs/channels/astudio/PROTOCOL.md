@@ -139,49 +139,87 @@ ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<accountId
 
 ---
 
-## 5. 登录链路：架构上无法独立调用
+## 5. 登录链路：**云端直连可独立完成**（结论于 2026-10-26 反转）
 
-### 5.1 三条路都堵死（B 级实测）
+> ⚠⚠ **本节结论已反转。** 此前（2026-10-26 上午）本节写的是
+> 「登录端点只存在于本地服务代理层，架构上无法独立调用」——
+> **那是测错了路径**：`/api/astron-auth/*` 是桌面应用**本地服务代理层**的前缀，
+> 而云端账号 API 的路径**没有这个前缀**，直接打
+> `https://agent.xfyun.cn/xingchen-studio/<path>` 即可。
+>
+> 反转的依据：参考实现
+> `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
+> （逆向自官方客户端 bundle 的 `createAstronAccountGateway`）+ 本仓实测（见 §5.1）。
+
+### 5.1 认证端点（云端直连，B 级实测 2026-10-26）
+
+| 端点 | 方法 | 形态 | 直连结果 |
+| --- | --- | --- | --- |
+| `/chat/gee-captcha` | GET | — | `200 code=0`，返回真实 GeeTest v3 配置（`gt` / `challenge` / `success=1`） |
+| `/login/mobile/send-verify-code` | POST | multipart | `200 code=20009 geetest verify failed`（**端点可达**，只是 captcha 未解） |
+| `/login/phone-quick-login` | POST | multipart | `200 code=10501002 验证码无效，请重新获取并验证`（**端点可达、参数形态正确**，验证码是假的） |
+| `/userInfo` | GET | Cookie | `200 code=0`（带 Cookie）/ `code=80000`（无 Cookie） |
+| `/points/balance` | GET | Cookie | `200`（带 Cookie） |
+| `/tenant-app/v2/init-app` | POST | Cookie | `200`（带 Cookie） |
+
+**唯一拦路虎是 GeeTest v3 滑块** —— 而它本来就该由**浏览器**解
+（官方客户端加载 `https://static.geetest.com/static/tools/gt.js`）。
+Web 控制台正是浏览器，故渠道走「界面解滑块 → 回传三字段 → 发码」这条路。
+
+### 5.2 multipart 字段（参考实现同）
+
+**发码** `POST /login/mobile/send-verify-code`：
+
+| 字段 | 值 | 备注 |
+| --- | --- | --- |
+| `geetest_challenge` | challenge | 浏览器解出 |
+| `geetest_validate` | validate | 浏览器解出 |
+| `geetest_seccode` | **base64(seccode)** | ⚠ 上游要 base64 编码过 |
+| `mobile` | 手机号 | 客户端校验 `^1[3-9]\d{9}$` |
+| `countryCode` | `86` | |
+
+⚠ 请求体**不含** `expire` 字段（带了会被判 `code=19901001 参数无效`，实测）。
+
+**换 session** `POST /login/phone-quick-login`：`mobile` / `verifyCode` / `countryCode`
+（同样不含 `expire`；**不需要** captcha）。
+
+### 5.3 响应字段
+
+`phone-quick-login` 的 `data`：`account_id` / `token` / `ssoSessionId` / `uid` /
+`mobile` / `nickname` / `avatar` / `isNew`。
+
+- ⚠ `uid` 可能是 `0`（占位，指「身份只能从 `/userInfo` 取」）→ 按官方客户端规则
+  归一化（`^[A-Za-z0-9._@-]+$`、长度上限 256、空/`0` 一律丢弃），否则会泄漏成上游头。
+- ⚠ `token` 缺失时回落 `ssoSessionId`。
+- 判成功：必须有 `account_id` **且**（`token` 或 `ssoSessionId`）。
+
+### 5.4 本地服务那条路（仍然堵死，但已不重要）
 
 | 尝试 | 结果 |
 | --- | --- |
 | 本地 `127.0.0.1:16051/api/astron-auth/login/sms` | `401 Authentication required.` |
 | 本地带 `?token=` / `Bearer` / `X-Token` / Cookie | 全部 401 |
-| 本地带 `X-Sso-Session-Id` / `ssoSessionId` / `Cookie: synara_session_<port>` / `Bearer <token>`（2026-10-26 复测，应用正在运行且已登录） | **全部 401** |
-| 云端 `agent.xfyun.cn/xingchen-studio/api/astron-auth/*` | `404` |
-| 云端裸 `agent.xfyun.cn/api/astron-auth/*` | SPA HTML（catch-all） |
+| 本地带 `X-Sso-Session-Id` / `ssoSessionId` / `Cookie: synara_session_<port>` / `Bearer <token>`（应用正在运行且已登录） | **全部 401** |
+| 云端 `agent.xfyun.cn/xingchen-studio/api/astron-auth/*` | `404` ← **路径错**（多了前缀） |
 | 云端 `astronstudio-api-volces-prod.xf-yun.com/api/astron-auth/*` | `401 HMAC signature cannot be verified` |
 
-⚠ 2026-10-26 复测补强了证据：**即使桌面应用正在运行、本地服务返回 200、
-会话文件里有 `ssoSessionId` 与 `token`**，外部请求仍然 401 ——
-本地服务认的是**应用进程内存里的活会话**，不是任何可以从磁盘读到的凭据。
+本地服务认的是**应用进程内存里的活会话**，不是任何能从磁盘读到的凭据 ——
+这一点仍然成立，但它**只影响本地服务**，不影响云端直连。
 
-### 5.2 根因
+### 5.5 渠道的实现（`packages/core/channels/astudio/src/cred.ts`）
 
-`/api/astron-auth/*` 这些路径**只存在于本地服务的代理层**，
-而本地服务是 `desktop-managed-local` 策略 —— 只认**应用自己持有的活会话**，
-活会话不落盘、不可外部获取。
+两条路，都通：
 
-### 5.3 渠道的应对
+- **路 A（手机号 + 短信验证码，云端直连）**：问手机号 → 取 GeeTest 配置 →
+  **界面在浏览器里解滑块** → 发码 → 问验证码 → 换 session → 补 `modelBearerToken` → 落盘。
+  走共享层的 `requestInput` 通道（新增 `kind: "captcha"`，
+  见 `docs/CONTRACT-TS.md` §5.1.1），前端用
+  `packages/ui/src/components/GeetestCaptcha.tsx`（官方同款 `gt.js`，
+  初始化参数严格对齐官方客户端：`{...cfg, https:true, offline:!cfg.success, product:'bind'}`）。
+- **路 B（读桌面应用落盘的会话文件，兜底）**：桌面应用里登过一次 → 读
+  `astron-session.json` → 转存本渠道凭据。**不需要网络**，也不需要应用保持在线。
 
-`cred.login()` **引导用户在 AStudio 桌面应用里登录一次**，然后读它落盘的会话文件，
-转存到本渠道自己的 `credentials.json`。代价是「要先手动登录一次」，
-比逆向云端 RPC 省事得多，且**不需要应用保持在线**。
-
-2026-10-26 实现细节（`packages/core/channels/astudio/src/cred.ts`）：
-
-1. **检测应用是否在跑**：读 `userdata/server-runtime.json` 的 `pid`，用 `process.kill(pid, 0)`
-   探活（`EPERM` 也算活着）。据此给**两种不同的指引**
-   （「请先启动 AStudio」vs「请确认已在应用里登录」）—— 不再一律甩一句「去桌面应用登录」。
-2. **不再传 `onUrl`**：此前传的是账号 API 基址（`agent.xfyun.cn/xingchen-studio`），
-   Web 端会把它当「授权链接」渲染，用户点开是个 API 地址而不是登录页。现在只给文字指引。
-3. **账号信息补全**：读到会话文件后打一次 `GET /xingchen-studio/userInfo`
-   （Cookie 认证，见 §4.2），拿权威的 `uid` / `mobile` / `nickname`。
-   **尽力而为** —— 补全失败只保留会话文件的值，不让登录失败。
-4. **`force` 重读**：`login({force: true})` 跳过「已有凭据就复用」的短路，
-   修掉 `mx relogin astudio` 在凭据还在时是空操作的问题（§7 死结）。
-5. **`pasteCode` 可用**：用户粘**会话文件路径**或**会话 JSON** 都能直接入池
-   （文件藏在 `%LOCALAPPDATA%` 下，让用户贴比让他翻目录省事）。
+CLI 没有界面 → 只有路 B（`requestInput` 不实现时渠道自动回落）。
 
 ---
 
@@ -350,11 +388,29 @@ AStudio 桌面应用里也仍是登录态。
 
 | 模块 | 实现 |
 | --- | --- |
-| `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` 引导桌面登录后落盘（`force` 重读、`/userInfo` 补全、`pasteCode` 支持粘贴会话）；`refresh()` 带 Cookie 打 `/bot/models/configs` 取 `api_key`；`logout()` 删本地凭据 |
-| `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort`；`fetchUserInfo()` 打 `/userInfo` 补全账号信息 |
+| `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` **两条路**：有界面走手机号+验证码（云端直连，`force` 重读、`/userInfo` 补全），无界面走会话文件（`pasteCode` 支持粘贴会话）；`refresh()` 带 Cookie 打 `/bot/models/configs` 取 `api_key`；`logout()` 删本地凭据 |
+| `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort`；`fetchUserInfo()` 打 `/userInfo` 补全账号信息；**认证链路**：`fetchGeetestConfig()` / `sendSmsCode()` / `loginWithSms()` / `fetchTenantState()` / `fetchPointsBalance()`（见 §5） |
 | `catalog.ts` | **静态内置表**（7 个模型）；`modelSpec()` 给 `contextWindow` / `maxOutputTokens` / `effort` / `multiplier`（倍率只填实测值）；**无 `refresh()`** |
 | `billing.ts` | `fetchCredits()` 打 `/usage`（契约要求，`billing: false` 时共享层不调）；`signin` 只报说明；**不实现 `quotaPeriod()`**（无额度墙可报） |
 | `channel.ts` | `capabilities: { billing: false, signin: false }` |
+
+---
+
+## 10.1 参考实现
+
+clone 到 `packages/core/channels/astudio/reference/` 的学习材料（**不入库**，
+由渠道级 `.gitignore` 的 `reference/` 条目忽略）；结论进本文件。
+下表与实际 clone 的目录逐条对应。
+
+| 仓库 | 关键文件 | 用途 |
+| --- | --- | --- |
+| [2951461586/AStudio2API](https://github.com/2951461586/AStudio2API) | `internal/astron/login.go`（手机号验证码登录 + GeeTest）、`internal/astron/client.go`（账号 API 封装 + `point_multiplier`）、`internal/astron/account.go`（multipart 构造 + 信封解析）、`internal/web/panel.go`（**浏览器里解 GeeTest 滑块**）、`README.md` | **主参照**：登录链路的确切形态（multipart 字段、`seccode` 要 base64、`uid` 归一化、账号 API 无前缀路径） |
+| [SilenceSik/astudio2api](https://github.com/SilenceSik/astudio2api) | `go/login.go`（讯飞 **SSO 统一登录**：`sso.xfyun.cn/SSOService` 的 `if-captcha` / `check-account`，**必须 GET**）、`go/upstream.go`（签到）、`README.md` | 协议补充参照：账号密码登录这条路（**不依赖本地服务**） |
+| [zhuchunshu/astudio2api](https://github.com/zhuchunshu/astudio2api) | `docs/PROTOCOL.md`、`src/server/astron/{client,session,types}.ts` | TypeScript 版协议整理，交叉校验字段命名 |
+
+⚠ 三份参考实现都**直连云端** `agent.xfyun.cn/xingchen-studio`，
+**没有一个**走桌面应用的本地服务代理层 —— 这与 §5.4 的实测一致：
+本地服务认的是应用进程内存里的活会话，外部进程根本进不去。
 
 ---
 
@@ -362,16 +418,22 @@ AStudio 桌面应用里也仍是登录态。
 
 ### 登录方式
 
-**只能用户在 AStudio 桌面应用里手动登录一次**（架构原因见 §5）：
+**两条路**（细节见 §5）：
 
 ```bash
+# 路 A（Web 控制台）：手机号 + 短信验证码
+#   控制台弹窗里：填手机号 → 完成滑块验证 → 填短信码 → 自动入池
+node packages/cli/dist/cli.js web    # 打开控制台，点 loomy/astudio 的「添加账号」
+
+# 路 B（CLI）：读桌面应用落盘的会话文件
 # 1) 打开 AStudio 桌面应用并登录（短信 / 密码 / 微信扫码）
 # 2) 渠道读它落盘的会话文件
 node packages/cli/dist/cli.js login astudio
 ```
 
-渠道的 `cred.login()` 会：先尝试复用已有凭据；没有则提示用户去桌面应用登录，
-轮询会话文件（最多 5 分钟）直到出现 `modelBearerToken`，再落盘到本渠道的 `credentials.json`。
+渠道的 `cred.login()`：有界面（Web 控制台）→ 走路 A（手机号 + 验证码）；
+CLI 没有界面 → 走路 B（轮询会话文件最多 5 分钟）；
+两条都失败时会明确报**下一步该做什么**。
 
 **与国际版的差异**：AStudio 只有国内版（讯飞），无国际版分支。
 

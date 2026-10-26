@@ -21,6 +21,7 @@ import {
   ensureDir,
   login as sharedLogin,
   writeJsonSecret,
+  type LoginInputRequest,
 } from "@modelmux/gateway";
 
 import * as upstream from "./upstream.js";
@@ -314,6 +315,13 @@ interface LoginOptions {
    * 导致 `relogin` 在凭据还在时是**空操作**（2026-10-26 修死结，见 ROADMAP 第 4 项）。
    */
   force?: boolean;
+  /**
+   * 向用户要一段输入（Web 控制台实现；CLI 不实现 → 渠道回落会话文件那条路）。
+   *
+   * `kind: "captcha"` 时界面会在**浏览器里**解滑块（GeeTest v3），解完把
+   * `{geetest_challenge, geetest_validate, geetest_seccode}` 作为 JSON 串回传。
+   */
+  requestInput?: (req: LoginInputRequest) => Promise<string | undefined>;
 }
 
 /**
@@ -351,33 +359,37 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * 登录：**引导用户在桌面应用里完成登录**，然后读它落盘的会话文件。
+ * 登录：**两条路**，都通。
  *
- * ## 为什么不能自己发短信验证码
+ * ## 路 A：手机号 + 短信验证码（**云端直连，2026-10-26 新增**）
  *
- * 登录端点（`chat/gee-captcha` → `login/mobile/send-verify-code` →
- * `login/phone-quick-login`）只存在于**本地服务的代理层**，而本地服务是
- * `desktop-managed-local` 策略 —— 只认应用自己持有的活会话（不落盘、外部拿不到）。
- * 实测（2026-10-26，应用正在运行且已登录）：
+ * ⚠⚠ 此前本文件断言「登录端点只存在于本地服务代理层、无法独立调用」——
+ * **那是测错了路径**。`/api/astron-auth/*` 是桌面应用**本地服务代理层**的前缀；
+ * 云端账号 API 的路径**没有这个前缀**，直接打 `https://agent.xfyun.cn/xingchen-studio/<path>`。
  *
- * | 尝试 | 结果 |
+ * 实测（2026-10-26，云端直连）：
+ *
+ * | 端点 | 结果 |
  * | --- | --- |
- * | `127.0.0.1:<port>/api/astron-auth/login/sms` | `401 Authentication required.` |
- * | 带 `X-Sso-Session-Id` / `ssoSessionId` / `Cookie` / `Bearer` | 全部 401 |
- * | 云端 `agent.xfyun.cn/xingchen-studio/api/astron-auth/*` | `404` |
- * | 云端 `astronstudio-api-volces-prod.xf-yun.com/api/astron-auth/*` | `401 HMAC signature cannot be verified` |
+ * | `GET /chat/gee-captcha` | `200 code=0`，真实 GeeTest v3 配置 |
+ * | `POST /login/mobile/send-verify-code` | `200 code=20009 geetest verify failed`（端点可达，captcha 未解） |
+ * | `POST /login/phone-quick-login` | `200 code=10501002 验证码无效`（端点可达、参数正确，验证码是假的） |
  *
- * 所以**手机号 + 验证码这条链路在本渠道无法独立闭环**（见 PROTOCOL §5）。
- * 能做的、也是现在做的：读应用落盘的会话文件 —— 用户只需在桌面应用里登一次。
+ * 唯一拦路虎是 **GeeTest v3 滑块** —— 它本来就该由**浏览器**解，
+ * 而 Web 控制台正是浏览器（`packages/ui` 的 Geetest 组件加载官方同款 `gt.js`）。
  *
- * ## 为什么不传 `onUrl`
+ * 形态来自参考实现
+ * `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`。
  *
- * 此前传的是 `DEFAULT_BASE_URL`（账号 API 基址），Web 端会把它当「授权链接」渲染 ——
- * 用户点开是个 API 地址，不是登录页（2026-10-26 修，见 ROADMAP 第 1 项）。
- * 现在**不给链接**，只给文字指引。
+ * ## 路 B：读桌面应用落盘的会话文件（**兜底，不需要网络**）
+ *
+ * 用户在 AStudio 桌面应用里登过一次 → 读 `astron-session.json` → 转存本渠道凭据。
+ * 桌面应用没开、或用户不想走短信时走这条。
+ *
+ * 两条路都失败时，错误信息要说清**用户下一步该做什么**。
  */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
-  const { onStatus, pasteCode, force = false } = options;
+  const { onStatus, pasteCode, requestInput, force = false } = options;
 
   // 非强制且已有凭据：复用（`login` 的语义是幂等的）
   if (!force) {
@@ -386,12 +398,159 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
       onStatus?.("复用已有的 AStudio 凭据");
       return existing;
     } catch {
-      /* 没有可复用的凭据 → 走下面的引导 */
+      /* 没有可复用的凭据 → 走下面的登录 */
     }
   } else {
-    onStatus?.("强制重读 AStudio 会话文件（relogin）");
+    onStatus?.("强制重读 AStudio 凭据（relogin）");
   }
 
+  // 有界面（Web 控制台）→ 优先走短信登录；CLI 没有界面 → 走会话文件
+  if (requestInput) {
+    try {
+      return await loginBySms(options);
+    } catch (err) {
+      if (err instanceof CancelledError) throw err;
+      onStatus?.(`短信登录未完成（${String(err)}），改用桌面应用的会话文件…`);
+    }
+  }
+  return loginFromSessionFile(options);
+}
+
+/** 用户主动取消（不是失败）。 */
+class CancelledError extends Error {
+  override name = "CancelledError";
+}
+
+/**
+ * 路 A：手机号 + 短信验证码。
+ *
+ * 流程（与参考实现同）：
+ * 1. 问用户手机号；
+ * 2. 取 GeeTest 配置 → **浏览器解滑块** → 拿到三字段；
+ * 3. 发短信验证码；
+ * 4. 问用户验证码；
+ * 5. 换 session → 补 `modelBearerToken` → 落盘。
+ *
+ * 步骤 2 的滑块由界面完成（`requestInput` 的 `kind: "captcha"` 会把 GeeTest 配置
+ * 交给前端，前端解完把三字段回传）。CLI 没有界面 → 直接抛「需要浏览器」。
+ */
+async function loginBySms(options: LoginOptions): Promise<Credentials> {
+  const { onStatus, requestInput } = options;
+  const ask = requestInput!;
+
+  const mobile = (await ask({ kind: "phone", prompt: "手机号（+86）" }))?.trim() ?? "";
+  if (!mobile) throw new CancelledError("已取消短信登录：没有填写手机号");
+  if (!/^1[3-9]\d{9}$/.test(mobile)) {
+    throw new Error(`手机号格式不正确（${mobile}）：需为 11 位中国大陆号码`);
+  }
+
+  // 步骤 2：GeeTest 配置 → 浏览器解滑块
+  onStatus?.("正在获取安全验证配置…");
+  const cfg = await upstream.fetchGeetestConfig();
+  const solution = await ask({
+    kind: "captcha",
+    prompt: "请完成安全验证（滑块）",
+    captcha: { gt: cfg.gt, challenge: cfg.challenge, success: cfg.success },
+  });
+  if (!solution) throw new CancelledError("已取消短信登录：安全验证未完成");
+  const parsed = parseCaptchaSolution(solution);
+  if (!parsed) throw new Error("安全验证结果无效（缺少 challenge / validate / seccode）");
+
+  // 步骤 3：发短信
+  onStatus?.(`正在向 ${mobile} 发送验证码…`);
+  await upstream.sendSmsCode(mobile, parsed);
+
+  // 步骤 4：问验证码
+  const code = (await ask({ kind: "code", prompt: `验证码已发送至 ${mobile}` }))?.trim() ?? "";
+  if (!code) throw new CancelledError("已取消短信登录：验证码未提交");
+
+  // 步骤 5：换 session
+  onStatus?.("正在校验验证码…");
+  const result = await upstream.loginWithSms(mobile, code);
+  const token = result.token || result.ssoSessionId;
+  if (!result.account_id || !token) {
+    throw new Error("登录响应不完整（缺少 account_id / token）");
+  }
+
+  const creds: Credentials = {
+    ...EMPTY_CREDENTIALS,
+    modelBearerToken: "",
+    sessionToken: result.token,
+    ssoSessionId: result.ssoSessionId || token,
+    uid: normalizeUid(result.uid) || result.account_id,
+    mobile: result.mobile || mobile,
+    nickname: result.nickname,
+    loginMethod: "sms",
+    banned: false,
+    loggedInAt: nowIso(),
+    obtainedAt: nowIso(),
+    source: "astudio-sms-login",
+    accessToken: "",
+    domain: sharedLogin.hostOf(DEFAULT_BASE_URL),
+  };
+
+  // 换模型网关 Bearer（`/bot/models/configs` 的 api_key）
+  let enriched = creds;
+  try {
+    enriched = await enrichFromUserInfo(creds);
+  } catch {
+    /* 账号信息补全失败不阻塞登录 */
+  }
+  try {
+    const bearer = await upstream.fetchModelBearerToken(enriched);
+    enriched = { ...enriched, modelBearerToken: bearer, accessToken: bearer };
+  } catch (err) {
+    onStatus?.(`取模型网关凭据失败（${String(err)}）；账号已登录，稍后重试刷新即可。`);
+  }
+  if (!enriched.modelBearerToken) {
+    throw new Error("登录成功但拿不到模型网关凭据（/bot/models/configs）");
+  }
+  await save(enriched);
+  onStatus?.(`已登录为 ${enriched.mobile || enriched.uid}（短信验证码）`);
+  return enriched;
+}
+
+/** 解析界面回传的 GeeTest 结果（可能是 JSON 串或对象）。 */
+function parseCaptchaSolution(raw: string): upstream.GeetestSolution | null {
+  let obj: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    obj = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    obj = null;
+  }
+  if (!obj) return null;
+  const challenge = str(obj["geetest_challenge"]).trim();
+  const validate = str(obj["geetest_validate"]).trim();
+  const seccode = str(obj["geetest_seccode"]).trim();
+  if (!challenge || !validate || !seccode) return null;
+  return { geetest_challenge: challenge, geetest_validate: validate, geetest_seccode: seccode };
+}
+
+/**
+ * uid 归一化：上游对「身份只能从 userInfo 取」的账号会回 `uid: 0`（占位）。
+ *
+ * 照抄会把它当成真 uid 泄漏成上游头，故按官方客户端的规则过滤
+ * （`^[A-Za-z0-9._@-]+$`、长度上限 256、空/`0` 一律丢弃）。
+ */
+function normalizeUid(value: string): string {
+  const v = value.trim();
+  if (!v || v === "0" || v.length > 256) return "";
+  return /^[A-Za-z0-9._@-]+$/.test(v) ? v : "";
+}
+
+/**
+ * 路 B：读桌面应用落盘的会话文件（不需要网络）。
+ *
+ * 流程：
+ * 1. 提示用户在 AStudio 桌面应用里登录（若未运行则给出精确指引）；
+ * 2. 轮询会话文件直到出现 `modelBearerToken`（用户可能还没登完）；
+ * 3. 落盘到本渠道的 `credentials.json`。
+ *
+ * 期间若用户粘回内容（CLI stdin / Web 粘贴框），优先用粘回来的。
+ */
+async function loginFromSessionFile(options: LoginOptions): Promise<Credentials> {
+  const { onStatus, pasteCode } = options;
   const sessionPath = sessionFilePath();
   const runtime = appRuntime();
   if (!runtime.running) {
@@ -405,14 +564,8 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
         "请确认已在应用里登录；本渠道会读它落盘的会话文件。",
     );
   }
-  onStatus?.(
-    "AStudio 的登录端点只存在于它自己的本地服务代理层，且该服务只认应用自己的活会话 —— " +
-      "外部进程拿不到（实测 401），所以这里无法代你发短信验证码。",
-  );
   onStatus?.(`会话文件：${sessionPath}`);
 
-  // 用户在桌面应用里完成登录（最多 5 分钟；每 3 秒看一次会话文件）。
-  // 期间若用户粘回内容（CLI stdin / Web 粘贴框），优先用粘回来的。
   const deadline = Date.now() + 5 * 60 * 1000;
   let lastErr: unknown;
   while (Date.now() < deadline) {
