@@ -380,7 +380,7 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
 /**
  * 声明本渠道的额度信号（`UpstreamModule.quotaSignal`）。
  *
- * 本渠道用量限流回 **HTTP 429 + 业务码 `6004`**，原文（真机，gateway.log）：
+ * 本渠道用量限流回 **HTTP 429 + 业务码 `6004`**，原文（2026-10-24 真机，gateway.log）：
  *
  * ```
  * {"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-10-24 23:54:22 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"…"}
@@ -388,7 +388,7 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
  *
  * 上报 `usage_limit`（**账户级**）：上游文案里「您也可以切换其他模型继续使用」是客套话，
  * 实测不可信 —— 国际版兄弟渠道 `workbuddyai` 的 429/6004 文案**同样**写着
- * 「alternatively, you can switch to the other models」，但真机实测证明
+ * 「alternatively, you can switch to the other models」，但 2026-10-23 真机实测证明
  * 连目录里标倍率 0 的 `deepseek-v4.1-flash` 也照样吃 6004
  * （`docs/channels/workbuddyai/PROTOCOL.md:569-573`）。两渠道同属腾讯 CodeBuddy、
  * 业务码与文案同族，故按账户级处理。
@@ -409,7 +409,7 @@ export function quotaSignal(status: number, body: string): QuotaSignal | null {
 /**
  * 从上游错误体里认「限流重置时刻」（`UpstreamModule.quotaResetAt`）。
  *
- * **上游把重置时间写在 msg 文本里，不是 JSON 字段**，形状（国内版真机）：
+ * **上游把重置时间写在 msg 文本里，不是 JSON 字段**，形状（2026-10-24 国内版真机）：
  *
  * ```
  * "您的使用量已超出频率限制，将在 2026-10-24 23:54:22 UTC+8 重置 …"
@@ -902,7 +902,7 @@ interface CatalogRow {
   /**
    * 输入模态数组（如 `["text","image"]`）。
    *
-   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（实测 `models[]` 只有
+   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（2026-10-20 实测：`models[]` 只有
    * `supportsImages`）；这里带着是为了上游哪天改用数组形态时不丢字段 ——
    * `catalog.parseRow` 判「能不能吃图」时数组形态优先于布尔开关。
    */

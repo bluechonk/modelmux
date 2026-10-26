@@ -395,7 +395,7 @@ async function createLoginState(
  * uid 仍可从 JWT `sub` 提取。
  *
  * 参考实现：hub `wb_accounts.py:3458-3468`、ckldy `cmd/login/main.go:151-163`。
- * ⚠ 国际版该端点**确实存在**（无有效令牌回 401，随手编的路径回 404 —— 实测）。
+ * ⚠ 国际版该端点**确实存在**（无有效令牌回 401，随手编的路径回 404 —— 2026-10-20 实测）。
  */
 async function fetchAccountProfile(
   baseUrl: string,

@@ -83,7 +83,8 @@ export function modelSpec(
 /**
  * 兜底静态模型表（6 个 `visible: true` 的模型）。
  *
- * 来源：真实实测 `GET /api/web/llm/v2/model_catalog`（见 docs/channels/raccoon/PROTOCOL.md）。
+ * 来源：2026-09-26 实测 `GET /api/web/llm/v2/model_catalog`
+ * （见 docs/channels/raccoon/PROTOCOL.md；上游改目录后需重拉）。
  * ⚠ 不含 `Raccoon-Auto`（发给 chat 会 404），也不含 3 个 `visible:false` 的内部模型。
  */
 const FALLBACK_MODELS: ModelEntry[] = [

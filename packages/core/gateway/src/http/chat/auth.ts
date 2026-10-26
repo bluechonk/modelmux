@@ -49,7 +49,7 @@ export async function callUpstream(
   // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）。
   // ⚠ 这是**真故障**（凭据坏了），连免费模型也救不了，故不区分模型。
   // ⚠ **不记账**：error 已是终态，短路再累加连败只会把 fail_streak 刷成无意义的大数
-  //   （实测 11 次 not_authenticated 把它刷到 11）。
+  //   （2026-10-24 实测 11 次 not_authenticated 把它刷到 11）。
   if (activeAccountIsError(cid)) {
     return {
       kind: "account_error",
@@ -58,11 +58,11 @@ export async function callUpstream(
   }
 
   // 额度耗尽的**冷却**只挡付费模型：倍率 0 的模型不吃额度，冷却期必须照常可路由
-  //（实测：loomy 冷却后连免费模型 spark-x 都被锁死）。
+  //（2026-10-23 实测：loomy 冷却后连免费模型 spark-x 都被锁死）。
   //
   // ⚠ 必须用独立的 `cooling` 类别，**不能**混进 `not_authenticated`：那个分支在
   // `attempt.ts` 里会记连败，冷却期内每来一个请求就 +1，3 次就把账号打成 `error`
-  //（实测 workbuddy：11 次短路 = fail_streak 11，从此免费模型也锁死且无自动恢复）。
+  //（2026-10-24 实测 workbuddy：11 次短路 = fail_streak 11，从此免费模型也锁死且无自动恢复）。
   if (options.freeModel !== true) {
     const cooling = activeAccountCooldown(cid);
     if (cooling) {

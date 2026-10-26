@@ -488,7 +488,7 @@ export async function attemptCandidate(
   // ⚠ 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入转发层，
   //    响应头已发给客户端，换渠道会变成两个响应。
   // 免费模型（倍率 0 / 渠道没有额度概念）不吃额度：既不受账号冷却限制，也不该**触发**冷却
-  // （实测：免费模型撞到上游 402 后把整个账号又打成冷却，免费模型被一起锁死）。
+  // （2026-10-23 实测：免费模型撞到上游 402 后把整个账号又打成冷却，免费模型被一起锁死）。
   const freeModel = isFreePoolModel(cid, candidate.exposedId);
   const outcome = await callUpstream(channel, sendBody, logger, { freeModel });
   if (outcome.kind === "ok") noteUpstreamReady(res);
@@ -509,7 +509,7 @@ export async function attemptCandidate(
   // 冷却中：本地短路，**未打上游**。额度耗尽不是故障（`account-pool.ts` 的
   // `noteAccountQuotaExhausted` 刻意不动 `fail_streak`），故这里也**不记任何连败** ——
   // 记了就会在冷却窗口内被 3 连败熔断打成 `error`，连免费模型一起锁死且无自动恢复
-  //（实测 workbuddy：11 次短路 → fail_streak 11 → health=error）。
+  //（2026-10-24 实测 workbuddy：11 次短路 → fail_streak 11 → health=error）。
   if (outcome.kind === "cooling") {
     logThrottled(
       logger,
@@ -525,7 +525,7 @@ export async function attemptCandidate(
       },
     };
   }
-  // error 终态短路：已标 error，再记连败只会虚增 fail_streak（实测被刷到 11）。
+  // error 终态短路：已标 error，再记连败只会虚增 fail_streak（2026-10-24 实测被刷到 11）。
   if (outcome.kind === "account_error") {
     logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
     return {
@@ -677,7 +677,7 @@ export async function attemptCandidate(
  * 该池模型是否**免费**（倍率 0，或渠道根本没有额度概念）。
  *
  * 免费模型不消耗额度，因此**不受「账号额度冷却」限制** —— 冷却只该挡付费用量。
- * 实测踩过：loomy 每日 5000 积分烧光进冷却后，连 spark-x（倍率 0）
+ * 2026-10-23 实测踩过：loomy 每日 5000 积分烧光进冷却后，连 spark-x（倍率 0）
  * 都被一起锁死。倍率查不到（null）按**付费**处理（宁可挡一下，也不放走可能计费的请求）。
  */
 function isFreePoolModel(cid: string, exposedId: string): boolean {

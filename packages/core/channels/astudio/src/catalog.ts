@@ -20,8 +20,8 @@ export interface ModelSpec {
   /**
    * 消耗倍率（云端 `point_multiplier` 实测值）；**`undefined` = 未知**。
    *
-   * ⚠ 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 9 行里
-   * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上）。给对不上的模型填 `1`
+   * ⚠ 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 2026-10-26：9 行里
+   * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上；云端改配置后需重测）。给对不上的模型填 `1`
    * 是**无源填 1**（客户端会按它算钱）—— 必须省略为 `undefined`
    * （倍率要么实测、要么未知，绝不编造）。
    */
