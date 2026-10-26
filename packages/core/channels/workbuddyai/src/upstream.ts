@@ -172,10 +172,7 @@ export const WIRE: "openai" | "custom" = "openai";
 /**
  * chat 端点（对话）。
  *
- * - 方法：**POST**
- * - 端点路径：`/v2/chat/completions`
- * - 完整 URL（国际版）：`https://www.workbuddy.ai/v2/chat/completions`
- * - 必需 query：**无**
+ * - 方法：**POST**，端点路径 `/v2/chat/completions`，必需 query **无**
  * - body 来源：下游 OpenAI 请求经 `buildChatBody()` 改写（恒 `stream:true`）
  *
  * [代码] 参考实现 `wb_proxy.py:336`（`CHAT_PATH`）、`:13171`、`:13577`；
@@ -187,10 +184,7 @@ const DEFAULT_CHAT_PATH = "/v2/chat/completions";
 /**
  * 连接配置 + 窄表端点（**不是**桌面端目录）。
  *
- * - 方法：**GET**
- * - 端点路径：`/v2/enterprises/personal/models`
- * - 完整 URL（国际版）：`https://www.workbuddy.ai/v2/enterprises/personal/models`
- * - 必需 query：**无**
+ * - 方法：**GET**，端点路径 `/v2/enterprises/personal/models`，必需 query **无**
  * - 响应：连接配置（`endpoint` / `authentication`）+ `data.models` 窄表
  *   （实测 18 条，以 `default-model` 这类前端路由别名开头）
  *
@@ -201,10 +195,7 @@ const MODELS_PATH = "/v2/enterprises/personal/models";
 /**
  * 桌面端选择器的**真实目录**端点。
  *
- * - 方法：**GET**
- * - 端点路径：`/v3/config`
- * - 完整 URL（国际版）：`https://www.workbuddy.ai/v3/config`
- * - 必需 query：**无**
+ * - 方法：**GET**，端点路径 `/v3/config`，必需 query **无**
  * - 响应：`agents[].models` 裸 id 列表 + `models[]` 元数据
  *   （实测 27 条，含 `deepseek-v4.1-flash`）
  * - ⚠ **UA 门禁**：只有三段式 CLI UA 能拿到完整目录，未知 UA 直接 `400 code=12403`
@@ -613,7 +604,7 @@ interface CatalogRow {
   /**
    * 输入模态数组（如 `["text","image"]`）。
    *
-   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（实测 2026-10-20：`models[]` 只有
+   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（实测 `models[]` 只有
    * `supportsImages`）；这里带着是为了上游哪天改用数组形态时不丢字段 ——
    * `catalog.parseRow` 判「能不能吃图」时数组形态优先于布尔开关。
    */
@@ -805,7 +796,7 @@ export function quotaSignal(status: number, body: string): QuotaSignal | null {
 /**
  * 从上游错误体里认「额度耗尽 + 下次刷新时刻」（`UpstreamModule.quotaResetAt`）。
  *
- * **上游把重置时间写在 msg 文本里，不是 JSON 字段**。2026-10-23 由参考实现
+ * **上游把重置时间写在 msg 文本里，不是 JSON 字段**。由参考实现
  * `ardeyouxipianyi/workbuddy2api-hub` 的 `wb_proxy.py::parse_rate_limit_reset` 确认，
  * 那个函数的注释给了两种真实形状：
  *

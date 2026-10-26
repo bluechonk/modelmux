@@ -16,8 +16,8 @@ export const DISPLAY_NAME = "Raccoon";
 
 // ── 端点表（渠道的「地址真相源」）────────────────────────────────────────────
 //
-// 每个常量旁注「方法 + 完整 URL + 端点路径 + query/body 来源」。
-// 完整 URL 一律由 `channelBaseUrl()` + 路径拼出，**别处不再拼第二次**。
+// 每个常量旁注「方法 + query/body 来源」（完整 URL = `channelBaseUrl()` + 路径，
+// **别处不再拼第二次**；端点与实测见 docs/channels/raccoon/PROTOCOL.md）。
 
 /** 接口基址。 */
 export const DEFAULT_BASE_URL = "https://xiaohuanxiong.com";
@@ -34,76 +34,46 @@ const DESKTOP_PREFIX = "/api/web/desktop/v1";
 const OFFICE_PREFIX = "/api/web/office/v3";
 
 /**
- * 授权码换凭证（网页登录第二步）。
- * - 方法：POST
- * - 完整 URL：`{基址}/api/web/auth/v1/login_with_authorization_code`
- * - 端点路径：`/api/web/auth/v1/login_with_authorization_code`
+ * 授权码换凭证（`POST`；网页登录第二步）。
  * - body：`{authorization_code}`；失败业务码 `200035`（码已失效/已消费，终态）
  */
 const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
 /**
- * 续期。
- * - 方法：POST
- * - 完整 URL：`{基址}/api/web/auth/v1/refresh`
- * - 端点路径：`/api/web/auth/v1/refresh`
+ * 续期（`POST`）。
  * - body：`{refresh_token}`；响应可能只给新的 access_token（此时**保留旧 refresh_token**）
  */
 const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
 /**
- * 用户信息（只用于昵称/手机号展示，失败不阻塞）。
- * - 方法：GET
- * - 完整 URL：`{基址}/api/web/auth/v1/user_info`
- * - 端点路径：`/api/web/auth/v1/user_info`
+ * 用户信息（`GET`；只用于昵称/手机号展示，失败不阻塞）。
  * - query：无
  */
 const USER_INFO_PATH = `${AUTH_PREFIX}/user_info`;
 /**
- * 对话。
- * - 方法：POST
- * - 完整 URL：`{基址}/api/web/llm/v2/chat/completions`
- * - 端点路径：`/api/web/llm/v2/chat/completions`
- * - 必需 query：无
+ * 对话（`POST`）。必需 query：无。
  */
 const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
 /**
- * 模型目录。
- * - 方法：GET
- * - 完整 URL：`{基址}/api/web/llm/v2/model_catalog`
- * - 端点路径：`/api/web/llm/v2/model_catalog`
- * - 必需 query：无
+ * 模型目录（`GET`）。必需 query：无。
  */
 const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
 /**
- * 积分余额（**只读**）。
- * - 方法：GET
- * - 完整 URL：`{基址}/api/web/points/v1/balance`
- * - 端点路径：`/api/web/points/v1/balance`
- * - query：无
+ * 积分余额（`GET`；**只读**，query 无）。
  */
 const BALANCE_PATH = `${POINTS_PREFIX}/balance`;
 /**
- * 积分账单。
- * - 方法：GET
- * - 完整 URL：`{基址}/api/web/points/v1/bills?paging.limit=<n>&paging.offset=0`
- * - 端点路径：`/api/web/points/v1/bills`
+ * 积分账单（`GET`）。
  * - query：`paging.limit` / `paging.offset`（分页；参考实现用 20，本仓用 50）
  */
 const BILLS_PATH = `${POINTS_PREFIX}/bills`;
 /** 账单分页条数（参考实现用 20，本仓用 50）。 */
 const BILLS_LIMIT = 50;
 /**
- * 桌面端登录奖励（**一次性幂等**，不是每日签到）。
- * - 方法：POST
- * - 完整 URL：`{基址}/api/web/desktop/v1/login/points/grant`
- * - 端点路径：`/api/web/desktop/v1/login/points/grant`
+ * 桌面端登录奖励（`POST`；**一次性幂等**，不是每日签到）。
  * - body：无；**需 `X-Client-Platform` 头**
  */
 const LOGIN_GRANT_PATH = `${DESKTOP_PREFIX}/login/points/grant`;
 /**
- * 每日积分触发器（**按天幂等**，发放由服务端完成；账单才是入账的权威判据）。
- * - 方法：GET
- * - 完整 URL：`{基址}/api/web/office/v3/setting_info`
- * - 端点路径：`/api/web/office/v3/setting_info`
+ * 每日积分触发器（`GET`；**按天幂等**，发放由服务端完成；账单才是入账的权威判据）。
  * - query：无；**需 `X-Client-Platform` 头**
  */
 const SETTING_INFO_PATH = `${OFFICE_PREFIX}/setting_info`;
@@ -175,8 +145,8 @@ export function loadConfig(): [Config, boolean] {
  *   3. 磁盘上游描述符里的 baseUrl
  *   4. `DEFAULT_BASE_URL`
  *
- * ⚠ 曾经鉴权域只认环境变量、推理域只读磁盘描述符 ⇒ 设了环境变量就会出现
- * 「登录在镜像、对话在官方」，镜像签发的 token 被官方拒（401）。
+ * ⚠ 鉴权域与推理域的解析必须一致：一边只认环境变量、另一边只读磁盘描述符的话，
+ * 设了环境变量就会出现「登录在镜像、对话在官方」，镜像签发的 token 被官方拒（401）。
  */
 export function channelBaseUrl(opts: { override?: string } = {}): string {
   const explicit = opts.override && opts.override !== DEFAULT_BASE_URL ? opts.override : "";
@@ -196,22 +166,14 @@ export async function saveConfig(cfg: Config): Promise<void> {
 // （显式 > 环境变量 > 磁盘描述符 > 默认值）。
 
 /**
- * 对话端点。
- * - 方法：POST
- * - 完整 URL：`https://xiaohuanxiong.com/api/web/llm/v2/chat/completions`
- * - 端点路径：`/api/web/llm/v2/chat/completions`
- * - 必需 query：无
+ * 对话端点（`POST`；必需 query 无）。URL = `channelBaseUrl()` + `CHAT_PATH`。
  */
 export function chatUrl(override?: string): string {
   return `${channelBaseUrl({ override })}${CHAT_PATH}`;
 }
 
 /**
- * 模型目录端点（**请求头内联，不含 platform**）。
- * - 方法：GET
- * - 完整 URL：`https://xiaohuanxiong.com/api/web/llm/v2/model_catalog`
- * - 端点路径：`/api/web/llm/v2/model_catalog`
- * - 必需 query：无
+ * 模型目录端点（`GET`；**请求头内联，不含 platform**，必需 query 无）。
  */
 export function modelsUrl(override?: string): string {
   return `${channelBaseUrl({ override })}${MODEL_CATALOG_PATH}`;
@@ -275,8 +237,8 @@ interface HeaderOptions {
  * `upstream header timeout after 120000ms`。
  *
  * ⚠ 那个超时还会被记成**账号连败**（`http/chat/attempt.ts`：`status <= 0` 计连败），
- * 两次就把健康账号打成 `error` 而锁死路由（2026-10-26 实测：RaccoonCharlotte
- * 「连续失败 2 次」）。放宽到 180s 后这类「只是慢」的请求不再被误杀。
+ * 两次就把健康账号打成 `error` 而锁死路由（实测「连续失败 2 次」即触发）。
+ * 放宽到 180s 后这类「只是慢」的请求不再被误杀。
  *
  * 只放宽「连接层静默容忍」，不改变任何协议语义。
  */

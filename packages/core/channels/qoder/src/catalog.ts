@@ -90,8 +90,8 @@ const FALLBACK: ModelEntry[] = [
 /**
  * 上游 key → 模型元数据的**静态兜底表**（请求体的 `model_config` 用）。
  *
- * 取自本机动态目录快照（2026-10-19 拉取的
- * `~/.modelmux/qoder/cache/models.json`），字段集与参考实现的官方目录快照
+ * 取自本机动态目录快照（`~/.modelmux/qoder/cache/models.json`），
+ * 字段集与参考实现的官方目录快照
  * （解密自官方客户端 `catalog-v6`）同构 `[参考]`。
  *
  * ⚠ **只作兜底**：快照会随上游演进而脱节 —— 动态目录

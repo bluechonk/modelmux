@@ -1,51 +1,17 @@
 /**
  * 公共模型池：对外暴露**全部渠道能提供的真实模型**，id 形态为 `<cid>/<模型>`。
  *
- * 客户端请求模型时**用渠道 id 选池子**：`loomy/kimi-k2.6` 走 loomy、
- * `qodercn/deepseek-flash` 走 qodercn —— 渠道由请求方显式指定，网关不再跨渠道
- * 改路由（见历史上「账本决定落到谁」的旧设计）；渠道内部的账号池轮换照旧。
+ * 客户端请求模型时**用渠道 id 选池子**（`loomy/kimi-k2.6` 走 loomy）—— 渠道由请求方
+ * 显式指定，网关不跨渠道改路由；渠道内部账号池轮换照旧。**不同渠道的同名模型
+ * 不互相去重**（`catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 是两个池 id）。
  *
- * ## 为什么要归一化（模型段）
- *
- * 各渠道目录里的写法完全不同（实测）：
- *
- * | 渠道 | exposedId | 归一化后 |
- * |---|---|---|
- * | catpaw | `deepseek-v4-flash` | `deepseek-v4-flash` |
- * | raccoon | `sn-deepseek-v4-1-flash` | `deepseek-v4.1-flash` |
- * | traecn | `DeepSeek-V4-Flash-Official` | `deepseek-v4-flash` |
- * | loomy | `deepseek-v4-flash-0731` | `deepseek-v4-flash` |
- *
- * 归一化只作用于 `/` 之后的模型段（渠道 id 本身原样），归一化后做**精确相等**比较
- * —— 这是 4.0 与 4.1 不互相串号的唯一保证（用包含匹配就会让 `deepseek-v4-flash`
- * 也命中 `deepseek-v4.1-flash`）。**不同渠道的同名模型不再互相去重**：
- * `catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 是两个池 id，各归各家。
- *
- * ## 全模型池
- *
- * 不再限制只暴露 `deepseek-v4.1-flash` / `glm-5.3-flash` 两个 flash 模型，
- * 而是**动态收集**全部渠道 `exposedIds()` 归一化后的结果。
- * 模型元数据从渠道 catalog 缓存中提取（contextWindow / name 等）。
- *
- * ## 图片能力（输入模态）
- *
- * 各渠道目录条目的「这个模型能不能吃图」用的**字段名各不相同**（实测多个渠道
- * 共 8 种写法，布尔与字符串数组两种形态混用），汇聚层按候选表逐个尝试
- * （见 `IMAGE_CAPABILITY_KEYS`）；字段全缺 → 回落 `["text"]`。
- * 少了这一步，`/v1/models` 的 `input_modalities` 会恒为纯文本 ——
- * 客户端（opencode / DSH 等）就永远按纯文本处理图片，多模态模型形同虚设。
- *
- * ## 跨渠道同 model id 兜底
- *
- * 同一规范模型名常被多个渠道提供（实测 207 池 id / 117 唯一名 / 29 个重复名），
- * 而各渠道上游按**自己的上限**裁剪过同一个模型（同 id 的窗口能差一倍）。
- * 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，用兄弟渠道同名的已知值兜底：
- * 数值取**最小**、档位取**交集**（`buildCrossModelIndex()`）。
- *
- * 兜底**只填缺值**，取值顺序恒为：本渠道上游 > 本渠道公开规格 > 跨渠道 > 占位值，
- * 每一档的来源记在 `PoolModelMeta.sources`（界面据此标「推断」）。
- * 只在**枚举**路径生效（`/v1/models` / 控制台 state / `mx model list` 传索引进去），
- * 单查（转发路径取倍率）不承担收集全池的成本 —— 见 `poolModelMetas()`。
+ * 关键约束（设计细节见 docs/POOL-ARCHITECTURE.md）：
+ *   - **模型段归一化**（恒小写）后做**精确相等**比较 —— 包含匹配会让
+ *     `deepseek-v4-flash` 误命中 `deepseek-v4.1-flash`。
+ *   - **图片能力**：各渠道目录条目的字段名各不相同（布尔与数组两种形态混用），
+ *     汇聚层按候选表逐个尝试（`IMAGE_CAPABILITY_KEYS`），全缺回落 `["text"]`。
+ *   - **跨渠道兜底**：某渠道取不到窗口/输出/档位时用兄弟渠道同名已知值兜底，
+ *     数值取最小、档位取交集（`buildCrossModelIndex()`），只填缺值且记录来源。
  */
 
 import { channels, type Channel } from "../runtime/channel.js";
@@ -655,7 +621,7 @@ function metaFromFacts(
     effort,
     // 倍率：上游目录声明 > 渠道公开规格（`spec`）> 未知。
     // ⚠ 没有「跨渠道兜底」这一层 —— 倍率是**渠道自己**的计费口径，
-    // 拿兄弟渠道的值去填等于编造（2026-10-26）。
+    // 拿兄弟渠道的值去填等于编造。
     multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : (facts.spec?.multiplier ?? null),
     marketing: entry ? firstString(entry, MARKETING_KEYS) : "",
     sources: {

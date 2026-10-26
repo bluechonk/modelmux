@@ -49,8 +49,7 @@ export interface CatalogEntry {
  *
  * 上下文档位是**请求参数**（body 的 `requestContext.modelParams.declarativeParams.context`），
  * 但上游 `/model-types` 的 `parameterDefinitions[id=context]` **逐型号声明了可选档位**
- * （实测 2026-10-23：`glm-5.3` 最大 800000、`deepseek-v4-pro` 最大 700000、
- * `deepseek-v4.1-flash` 最大 600000，其余到 1024000）。
+ * （各型号的上限实测值见 docs/channels/catpaw/PROTOCOL.md）。
  * 对外报**该型号的最大档**（能力上限）；上游没声明的型号（如 `auto`）才回落到本默认档。
  */
 export const DEFAULT_CONTEXT_WINDOW = 1_024_000;
@@ -195,8 +194,7 @@ const MODEL_TYPE_FALLBACK: Readonly<Record<string, number>> = {
 /**
  * 兜底表：上游模型目录不可用时仍可暴露的模型。
  *
- * ⚠ **内容取自一次真实的上游 `/model-types` 返回**（2026-10-08 实测，见
- * `docs/channels/catpaw/PROTOCOL.md`）。
+ * ⚠ **内容取自真实的上游 `/model-types` 返回**（见 `docs/channels/catpaw/PROTOCOL.md`）。
  *
  * ⚠ 曾被写成占位名 `catpaw-flash` —— 那个 id 上游**根本不存在**，
  * 这条兜底项在旧的「家族 + flash」白名单下会被过滤，全模型池下正常出现在池视图中。

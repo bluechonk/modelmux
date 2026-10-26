@@ -326,7 +326,7 @@ export const signin: SigninModule = {
  * 每日额度周期：**每天 5000 积分，本地 0 点刷新**。
  *
  * 依据（不是猜的）：
- * - `dailyQuota = 5000`：2026-10-22 真机调 `POST /points/first-login` 实测返回
+ * - `dailyQuota = 5000`：真机调 `POST /points/first-login` 实测返回
  *   （`dailyBalance=978 / dailyConsumed=4022`，见 `docs/channels/loomy/PROTOCOL.md` §6.3）；
  * - 0 点刷新：`points/records` 的 `dailyCycleDate` 是日期串，且实测跨天后额度回到满额。
  *

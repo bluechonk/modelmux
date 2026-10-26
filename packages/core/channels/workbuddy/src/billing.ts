@@ -260,7 +260,7 @@ interface CheckinResult {
 /**
  * 执行每日签到（`POST /v2/billing/meter/daily-checkin`，body `{}`）。
  *
- * 参考实现实测（2026-09-28，CN 与 global 同形）：已签到时上游业务码非 0，
+ * 参考实现实测（CN 与 global 同形）：已签到时上游业务码非 0，
  * 按「幂等成功」处理而不是报错；其余业务码如实抛 CreditsError。
  */
 async function dailyCheckin(): Promise<CheckinResult> {
@@ -316,8 +316,8 @@ import type { SigninModule } from "@modelmux/gateway";
 /**
  * 签到 / 领取能力（`<cid> checkin`）。
  *
- * 早期「国内版没有签到端点」的结论**有误**（参考实现 HanawaBanana 实测
- * `/v2/billing/meter/daily-checkin`，2026-09-28 CN 与 global 同形）——
+ * 国内版**有**签到端点（参考实现 HanawaBanana 实测
+ * `/v2/billing/meter/daily-checkin`，CN 与 global 同形）——
  * `claim()` 真实执行签到；上游幂等拒绝（今天已签）按成功回报。
  */
 export const signin: SigninModule = {

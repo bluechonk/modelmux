@@ -1,15 +1,12 @@
 /**
  * AStudio 模型目录：随包内置的静态表（倍率、上下文窗口、档位）。
  *
- * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md）：
- *   - 模型清单**随应用包内置**（`provider-model-catalog-v1.json`），不发网络请求；
- *     故本模块**不实现 `refresh()`**（无远端目录层可刷）。
- *   - **倍率来自云端配置**（`/bot/models/configs` 的 `point_multiplier`，实测 x0.5~x2.0），
- *     不来自模型名（与 loomy 相反）—— 故本表是实测快照，不是解析出来的。
- *   - **id 有两套**：应用内置目录用 `spark-x2.6-4b` 这类 slug，模型网关配置用
- *     `xopglm52` 这类 model 字段。网关**只接受后者那一族**（实测 `xopdsv4flash` 回 400
- *     `no category route found`）。本模块暴露**短名**（对齐内置目录的展示名），
- *     内部映射到网关接受的 id。
+ * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md §6）：
+ *   - 模型清单**随应用包内置**，不发网络请求；故本模块**不实现 `refresh()`**。
+ *   - **倍率来自云端配置**（`point_multiplier`），不来自模型名（与 loomy 相反）
+ *     —— 本表是实测快照，不是解析出来的；云端没给值的模型省略（不编造）。
+ *   - **id 有两套**：应用内置目录的 slug 与网关配置的 model 字段，网关只接受
+ *     后者那一族；本模块暴露短名、内部映射到网关 id。
  */
 
 /** 内置目录的展示名（与官方界面一致）。 */
@@ -24,8 +21,8 @@ export interface ModelSpec {
    * 消耗倍率（云端 `point_multiplier` 实测值）；**`undefined` = 未知**。
    *
    * ⚠ 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 9 行里
-   * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上）。此前给对不上的 5 个
-   * 模型一律填 `1`，那是**无源填 1**（客户端会按它算钱）—— 改为 `undefined`
+   * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上）。给对不上的模型填 `1`
+   * 是**无源填 1**（客户端会按它算钱）—— 必须省略为 `undefined`
    * （倍率要么实测、要么未知，绝不编造）。
    */
   multiplier: number | undefined;
@@ -159,9 +156,9 @@ export function resolveModel(name: string): string {
  *
  * 查表前先小写化；**查不到返回 `undefined`（不编造）**。
  *
- * ⚠ 思考档位此前**完全不透出**：`modelSpec()` 只返回窗口/输出，池层的四层回落
- * 拿不到 `effort`，于是 `/v1/models` 的 `effort` 恒 `null`、Web「思考模式」列
- * 全显示「不支持」。档位表本身是**内置目录实测**的（B 级），
+ * ⚠ 思考档位**必须透出**：池层的四层回落依赖 `modelSpec()` 的 `effort`，
+ * 缺了它 `/v1/models` 的 `effort` 恒 `null`、Web「思考模式」列全显示「不支持」。
+ * 档位表本身是**内置目录实测**的（B 级），
  * 在渠道内部一直生效（`upstream.buildChatBody` 用它校验 `reasoning_effort`），
  * 只是没对外说。
  *

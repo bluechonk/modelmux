@@ -116,7 +116,7 @@ export function Accounts(): ReactElement {
    *
    * 为什么需要显式区分：React Query 在没有数据时 `data` 是 undefined，
    * 卡片若按「没有额度」渲染，就会把「还在等 / 请求失败」显示成「未查到」，
-   * 用户看到的是稳定的「没数据」而不是「正在加载」（主人 2026-10-24 反馈）。
+   * 用户看到的是稳定的「没数据」而不是「正在加载」。
    */
   const billingLoading = billing.isPending;
   const billingError = billing.isError;
@@ -298,7 +298,7 @@ export function Accounts(): ReactElement {
           {/*
             渠道卡网格：**各卡按自身内容取高**（`items-start`，不再同行拉伸）。
 
-            为什么改回不等高（2026-10-26 主人反馈）：账号数差异大时（1 个 vs 5 个），
+            不等高的理由：账号数差异大时（1 个 vs 5 个），
             同行拉伸会让只有 1 个账号的卡被撑到与 5 个账号一样高，卡内出现大片空白，
             整页看起来「布局坏了」。改为自然高度后，每张卡都是紧凑的，代价是行尾参差
             —— 对「账号数本来就不齐」的列表，这个代价明显更小。

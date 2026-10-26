@@ -4,15 +4,12 @@
  * 进程模型见 docs/DAEMON-SUPERVISOR.md：监督者只管生命周期
  * —— spawn worker → 等健康 → 监听 exit → 按指数退避重生（参数照 CCR 3.1.3 实测行为）。
  *
- * 终止语义：
- * - worker 死前已通过健康探测 → 按退避重生；
- * - worker 启动窗口内死亡/超时未 healthy（如端口被占）→ 记 error 后退出，不无限重生；
- * - 监督者自身被杀 = 作废重生（杀监督者即 cancel，无进程内协议）；
- * - worker 侧 IPC 断开自退（监督者消失时 worker 干净离场）。
+ * 终止语义：worker 死前已通过健康探测 → 按退避重生；启动窗口内死亡/超时未
+ * healthy → 记 error 后退出，不无限重生；监督者自身被杀 = 作废重生（无进程内协议）；
+ * worker 侧 IPC 断开自退。
  *
- * ⚠ 落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发：scope 推导（渠道级 vs
- *   仓库级）是 daemon 的职责，监督者不重复推导 —— 多渠道路由下渠道级路径函数需要
- *   explicit cid，监督者贸然调 paths.* 会启动即崩（实测踩过）。
+ * ⚠ 落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发：scope 推导是 daemon
+ *   的职责，监督者不重复推导 —— 监督者贸然调 paths.* 会启动即崩（实测踩过）。
  */
 
 import { spawn } from "node:child_process";

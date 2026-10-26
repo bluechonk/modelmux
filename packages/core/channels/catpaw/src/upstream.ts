@@ -38,10 +38,8 @@ const DIRECT_HOST = "https://ai.catpaw.meituan.com";
 export const DEFAULT_BASE_URL = DIRECT_HOST;
 
 /**
- * 轮次提交端点（对话三段式 ①）。
+ * 轮次提交端点（`POST`；对话三段式 ①）。
  *
- * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/conversation/round`
- * - 端点路径：`/api/agent/conversation/round`
  * - query：无
  * - body：`{conversationId, source:"CatX", messages:[…], modelType, mode:"CATX_APP", toolVersion:"2.0.2", requestContext}`
  * - 鉴权：直连域头族（`buildHeaders`，此端点 `Accept: application/json`）
@@ -49,10 +47,8 @@ export const DEFAULT_BASE_URL = DIRECT_HOST;
 const ROUND_PATH = "/api/agent/conversation/round";
 
 /**
- * 轮次状态回报端点（对话三段式 ②）。
+ * 轮次状态回报端点（`POST`；对话三段式 ②）。
  *
- * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/conversation/event`
- * - 端点路径：`/api/agent/conversation/event`
  * - query：无
  * - body：`{conversationId, eventType:"conversation", data:{status}}`，status ∈ running / completed
  * - 鉴权：直连域头族（`buildHeaders`，`Accept: application/json`）
@@ -60,10 +56,8 @@ const ROUND_PATH = "/api/agent/conversation/round";
 const EVENT_PATH = "/api/agent/conversation/event";
 
 /**
- * 轮次执行端点（对话三段式 ③，SSE 直出）—— **网关实际 POST 的那一个**。
+ * 轮次执行端点（`POST`；对话三段式 ③，SSE 直出）—— **网关实际 POST 的那一个**。
  *
- * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/conversation/turn`
- * - 端点路径：`/api/agent/conversation/turn`
  * - query：无
  * - body：`{conversationId, turnRequestId, source:"CatX", action:"turn", message, modelType, mode:"CATX_APP", permissionMode, toolVersion, requestContext}`
  * - 鉴权：直连域头族（`buildHeaders`，此端点 `Accept: text/event-stream`）
@@ -71,10 +65,8 @@ const EVENT_PATH = "/api/agent/conversation/event";
 const TURN_PATH = "/api/agent/conversation/turn";
 
 /**
- * 模型目录端点。
+ * 模型目录端点（`POST`）。
  *
- * - 方法 / 完整 URL：`POST https://ai.catpaw.meituan.com/api/agent/maas/model-types`
- * - 端点路径：`/api/agent/maas/model-types`
  * - query：无
  * - body：`{tenant:"CatDesk", scene:"CATX_APP", env:"EXTERNAL"}` —— 三字段必填，缺失报 400（`[参考]`）
  * - 鉴权：直连域头族（`buildHeaders`，`Accept: application/json`）
@@ -575,7 +567,7 @@ export function buildChatBody(
 /**
  * 前置 round + event：**顺序执行且必须都成功**，`turn` 才被上游接受。
  *
- * 实测矩阵（真实账号）：只 round（缺 event）→ turn 报「会话未在执行中」；
+ * 行为矩阵（真实账号实测）：只 round（缺 event）→ turn 报「会话未在执行中」；
  * 只 turn → 500；两个都发、都用 JSON Accept、且在 turn 之前完成 → 200 出正文。
  *
  * 由网关经 `UpstreamModule.prepareChat` 钩子 `await`（`buildChatBody` 是同步契约，
@@ -583,7 +575,7 @@ export function buildChatBody(
  *
  * ⚠ 参数必须是**网关建好的同一个 body**（同一 conversationId）。绝不能在这里再调一次
  * `buildChatBody` —— 那会生成新 id，前置指向会话 A、对话指向 B，上游照样报
- * 「会话未在执行中」（实测踩过）。
+ * 「会话未在执行中」。
  */
 export async function prepareChat(body: Record<string, unknown>): Promise<void> {
   const conversationId = sharedLogin.str(body["__conversationId"]);
