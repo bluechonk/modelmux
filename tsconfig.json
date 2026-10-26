@@ -2,6 +2,9 @@
   "files": [],
   "references": [
     {
+      "path": "packages/core/channels/astudio"
+    },
+    {
       "path": "packages/core/channels/catpaw"
     },
     {

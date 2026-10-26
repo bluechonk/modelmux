@@ -9,6 +9,7 @@
  * 新增渠道时**只需在这里加一行 import**（外加仓库根 `workspaces`）。
  */
 
+import "@modelmux/astudio";
 import "@modelmux/catpaw";
 import "@modelmux/lobsterai";
 import "@modelmux/loomy";
