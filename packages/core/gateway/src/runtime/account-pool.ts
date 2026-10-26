@@ -239,7 +239,7 @@ function writeIndex(index: PoolIndex, cid?: string): void {
  */
 export function listAccounts(cid?: string): PoolIndex {
   syncPool(cid);
-  const index = readIndex(cid);
+  const index = pruneMissingFiles(readIndex(cid), cid);
   refreshLabels(index, cid);
   expireCooldown(index, cid);
   return index;
@@ -348,6 +348,39 @@ export function captureActive(
   const accounts = [...index.accounts.filter((a) => a.key !== key), account];
   writeIndex({ version: 1, active: key, accounts }, cid);
   return account;
+}
+
+/**
+ * 清掉池里**凭证文件已不存在**的条目。
+ *
+ * ## 为什么需要
+ *
+ * 账号 key 是**从凭据派生**的（`accountKey()`：有 uid 用 `sha256(domain\0uid)`，
+ * 没有就退化到 token 派生）。凭据里的字段一变（本次：astudio 补上了 `domain` 字段），
+ * **同一个账号会算出另一个 key** —— 旧条目指向的文件就没人再维护了。
+ *
+ * 旧条目的凭证文件被删（切账号、重新登录、清理）后，索引里还留着它 →
+ * 界面上出现「点切换就报 `account file missing`」的幽灵账号（2026-10-26 实测）。
+ *
+ * 这里在**每次读索引后**做一次体检：文件不在的条目直接剔除，
+ * 连带修好 `active` 指向已删文件的情况。
+ */
+function pruneMissingFiles(index: PoolIndex, cid?: string): PoolIndex {
+  const kept = index.accounts.filter((a) => existsSync(accountFile(a.key, cid)));
+  if (kept.length === index.accounts.length) {
+    // 条目都在，但 active 可能指向一个已被换掉的 key（key 变了的情形）
+    if (index.active && kept.some((a) => a.key === index.active)) return index;
+    if (!index.active) return index;
+  }
+  const active = index.active && kept.some((a) => a.key === index.active) ? index.active : null;
+  if (active === index.active && kept.length === index.accounts.length) return index;
+  const next: PoolIndex = { version: index.version, active, accounts: kept };
+  try {
+    writeIndex(next, cid);
+  } catch {
+    /* 写不动就只返回内存版本（本次调用仍正确） */
+  }
+  return next;
 }
 
 /** 切换当前生效账号：把池里的凭证复制回 `credentials.json`。 */
