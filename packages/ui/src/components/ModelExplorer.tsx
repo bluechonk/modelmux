@@ -22,7 +22,7 @@
  */
 
 import { ChevronDown, ChevronRight, Image as ImageIcon, LayoutList, Rows3, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import { CopyButton } from "./CopyChip";
@@ -308,16 +308,91 @@ export function ModelExplorer({
   );
 }
 
-/** 是否免费：倍率 0，或订阅制渠道（无倍率概念）。 */
+/**
+ * 是否免费：倍率 0，或订阅制渠道（无倍率概念）。
+ */
 function isFree(row: ModelRow, freePlanCids: ReadonlySet<string>): boolean {
   const m = row.meta?.multiplier;
   return m === 0 || (m == null && freePlanCids.has(row.cid));
 }
 
-/** 表头：列名 + 对齐方式。
+/**
+ * 列宽：**全渠道共用同一份**（固定宽度，不随内容变化）。
  *
- * 分组视图里**每个渠道各有一份**（每组是独立的滚动容器，共用一份表头会让
- * 横向滚过的那组列名与内容错位）；因此做得紧凑：`py-1.5` + 10px 字。 */
+ * ## 为什么必须固定
+ *
+ * 每个渠道是独立的 `<table>`（各自横向滚动），而 `table-layout: auto` 会**按内容**算列宽 ——
+ * 于是「上下文 1M」那列在 astudio 是 90px、在 catpaw 是 96px，跨渠道完全对不齐
+ * （2026-10-26 主人要求「每个 channel 应该都把各字段对齐」）。
+ * 固定宽度后所有 `<table>` 的每一列都落在同一像素上。
+ *
+ * 宽度含单元格内边距（`px-3` = 12px×2），故比内容宽。
+ */
+const COL_WIDTHS = {
+  /** 模型名：占满剩余空间（`auto`），其余列固定。 */
+  channel: "4.5rem",
+  multiplier: "4rem",
+  contextWindow: "6rem",
+  maxOutput: "5.5rem",
+  effort: "10rem",
+  modality: "5.5rem",
+  copy: "2.75rem",
+} as const;
+
+/**
+ * 分组视图的列定义（列宽 + 对齐 + 响应式隐藏）。
+ *
+ * 表头与每个渠道的表体**共用这一份**，改列只需改这里。
+ */
+const COLS: Array<{
+  key: keyof typeof COL_WIDTHS | "model" | "channel";
+  label: string;
+  align: "left" | "right";
+  /** `< md` 隐藏（与 `<td>` 的 `hidden md:table-cell` 必须一一对应）。 */
+  wide?: boolean;
+}> = [
+  { key: "model", label: "模型", align: "left" },
+  { key: "channel", label: "渠道", align: "left" },
+  { key: "multiplier", label: "倍率", align: "right" },
+  { key: "contextWindow", label: "最大上下文", align: "right", wide: true },
+  { key: "maxOutput", label: "输出上限", align: "right", wide: true },
+  { key: "effort", label: "思考模式", align: "left", wide: true },
+  { key: "modality", label: "输入", align: "left" },
+  { key: "copy", label: "", align: "left" },
+];
+
+/**
+ * 共享列宽声明：表头与每个渠道的表体都渲染它，保证列落在同一像素。
+ *
+ * ⚠ 必须用 `table-fixed` + `<colgroup>` —— 只在 CSS 里写宽度、不在 `<table>` 上
+ * 声明 `table-layout: fixed` 是无效的（`<table>` 默认 `auto`）。
+ *
+ * 列的顺序必须与 `<td>` 完全一致：**模型 / [渠道] / 倍率 / 上下文 / 输出 / 档位 / 输入 / 复制**。
+ */
+function ColGroup({ showChannel }: { showChannel: boolean }): ReactElement {
+  return (
+    <colgroup>
+      {/* 模型列：不给宽度 = 占满剩余空间（`table-fixed` 下 auto 列吃剩下的） */}
+      <col />
+      {/* 渠道列：仅扁平表有；`hidden` 后该列不占宽，其余列不变 */}
+      <col className={showChannel ? undefined : "hidden"} style={{ width: COL_WIDTHS.channel }} />
+      {COLS.filter((c) => c.key !== "model" && c.key !== "channel").map((c) => (
+        <col
+          key={c.key}
+          style={{ width: COL_WIDTHS[c.key as keyof typeof COL_WIDTHS] }}
+          className={c.wide ? "hidden md:table-column" : undefined}
+        />
+      ))}
+    </colgroup>
+  );
+}
+
+/** 表头：**整个模型区只渲染一次**，在最上方一行。
+ *
+ * 2026-10-26 之前每个渠道各带一份表头（`GroupedTable` 里每组一个 `<thead>`），
+ * 一屏看到 10 份重复的列名。现在提到最上方，渠道块只剩数据行。
+ * 列名与列宽都来自 `COLS` / `COL_WIDTHS`，与表体同源。
+ */
 function Head({
   showChannel,
 }: {
@@ -325,21 +400,22 @@ function Head({
 }): ReactElement {
   return (
     <thead className="bg-canvas/30">
-      <tr className="border-b border-line/70 text-[10px] text-ink-faint">
-        <th className="whitespace-nowrap px-4 py-1.5 text-left font-normal">模型</th>
-        {showChannel && <th className="whitespace-nowrap px-3 py-1.5 text-left font-normal">渠道</th>}
-        <th className="whitespace-nowrap px-3 py-1.5 text-right font-normal">倍率</th>
-        <th className="hidden whitespace-nowrap px-3 py-1.5 text-right font-normal md:table-cell">
-          最大上下文
-        </th>
-        <th className="hidden whitespace-nowrap px-3 py-1.5 text-right font-normal md:table-cell">
-          输出上限
-        </th>
-        <th className="hidden whitespace-nowrap px-3 py-1.5 text-left font-normal md:table-cell">
-          思考模式
-        </th>
-        <th className="whitespace-nowrap px-3 py-1.5 text-left font-normal">输入</th>
-        <th className="w-10 px-2 py-1.5" />
+      <tr className="border-b border-line/70 text-[11px] text-ink-faint">
+        {COLS.filter((c) => showChannel || c.key !== "channel").map((c) => (
+          <th
+            key={c.key}
+            scope="col"
+            className={[
+              // 左右内边距与表体一致（模型列 px-4，其余 px-3），否则列名会贴着数字
+              "whitespace-nowrap py-2 font-normal",
+              c.key === "model" ? "px-4" : "px-3",
+              c.align === "right" ? "text-right" : "text-left",
+              c.wide ? "hidden md:table-cell" : "",
+            ].join(" ")}
+          >
+            {c.label}
+          </th>
+        ))}
       </tr>
     </thead>
   );
@@ -473,11 +549,26 @@ function CopyCell({ row }: { row: ModelRow }): ReactElement {
   );
 }
 
-/** 分组表：每个渠道一个表块（band 行 + 模型行），全宽、不并排。
+/**
+ * 分组表：**表头一份在最上方** + 每个渠道一个表块（band 行 + 模型行），全宽、不并排。
  *
- * **每个渠道自带横向滚动容器**：整张表只有一个底部滑块时，得滚到页面最下方才够得着，
- * 而且一动就带着所有渠道一起滚（2026-10-26 主人反馈「滑块应该每个 channel 都有」）。
- * 现在每组独立滚动、独立列宽，band 行留在滚动容器外 —— 横向滚动时渠道名不会跑掉。
+ * ## 表头为什么只渲染一次
+ *
+ * 2026-10-26 之前每组自带 `<thead>`，一屏能看到 10 份一模一样的列名。
+ * 现在列名提到最上方一行，渠道块只剩数据行。
+ *
+ * ## 列为什么能跨渠道对齐
+ *
+ * 每组仍是**独立的滚动容器**（整表只有一个底部滑块时，得滚到页面最下方才够得着，
+ * 而且一动就带着所有渠道一起滚 —— 2026-10-26 主人反馈「滑块应该每个 channel 都有」）。
+ * 独立滚动容器 + `table-layout: auto` 会按内容算列宽 → 跨渠道对不齐，
+ * 所以每组都渲染**同一份固定宽度 `<colgroup>`**（见 `COL_WIDTHS`）。
+ *
+ * ## 表头与表体的横向滚动同步
+ *
+ * 表头不在任何一组的滚动容器里，但它必须跟着滚 —— 否则横向滚过的那组，
+ * 列名与内容会错位。故表头自己也放在 `overflow-x-auto` 里，
+ * 并由 `GroupedTable` 把任意一组的 `scrollLeft` 同步过去（双向）。
  */
 function GroupedTable({
   groups,
@@ -498,9 +589,40 @@ function GroupedTable({
   /** 有搜索/筛选时直接全展开：用户已经在缩小范围，再藏模型会挡住他要找的。 */
   previewAll: boolean;
 }): ReactElement {
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  /** 正在同步滚动，避免「A 改 B、B 又改 A」的来回抖动。 */
+  const syncing = useRef(false);
+
+  /** 把某个滚动容器的横向位置同步给其它容器（表头 + 各渠道表体）。 */
+  const syncScroll = (from: HTMLElement): void => {
+    if (syncing.current) return;
+    syncing.current = true;
+    const left = from.scrollLeft;
+    const all = [headerRef.current, ...bodyRefs.current];
+    for (const el of all) {
+      if (el && el !== from && el.scrollLeft !== left) el.scrollLeft = left;
+    }
+    // 同一帧内读完再解开，避免 React 重渲染期间的状态竞争
+    requestAnimationFrame(() => {
+      syncing.current = false;
+    });
+  };
+
+  const bodyRefs = useRef<Array<HTMLDivElement | null>>([]);
+  bodyRefs.current = [];
+
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-raised">
-      {[...groups.entries()].map(([cid, rows]) => {
+      {/* 表头：整个模型区只此一份，横向与各渠道表体同步（sticky 不生效 ——
+          外层 `overflow-hidden` 是它的滚动祖先，见文件头） */}
+      <div ref={headerRef} onScroll={(e) => syncScroll(e.currentTarget)} className="overflow-x-auto">
+        <table className="w-full min-w-[440px] table-fixed border-collapse">
+          <ColGroup showChannel={false} />
+          <Head showChannel={false} />
+        </table>
+      </div>
+
+      {[...groups.entries()].map(([cid, rows], gi) => {
         const isCollapsed = collapsed.has(cid);
         // 默认每组只露前 3 个：一个渠道几十个模型会把整页撑爆（见文件头布局说明）
         const showAll = previewAll || expanded.has(cid);
@@ -534,9 +656,15 @@ function GroupedTable({
               )}
             </div>
             {!isCollapsed && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[440px] border-collapse">
-                  <Head showChannel={false} />
+              <div
+                ref={(el) => {
+                  bodyRefs.current[gi] = el;
+                }}
+                onScroll={(e) => syncScroll(e.currentTarget)}
+                className="overflow-x-auto"
+              >
+                <table className="w-full min-w-[440px] table-fixed border-collapse">
+                  <ColGroup showChannel={false} />
                   <tbody>
                     {shown.map((row) => (
                       <tr
@@ -594,7 +722,8 @@ function FlatTable({
 }): ReactElement {
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-raised">
-      <table className="w-full min-w-[440px] border-collapse">
+      <table className="w-full min-w-[440px] table-fixed border-collapse">
+        <ColGroup showChannel={true} />
         <Head showChannel={true} />
         <tbody>
           {rows.map((row) => (
