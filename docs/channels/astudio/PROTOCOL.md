@@ -367,7 +367,7 @@ node packages/cli/dist/cli.js model astudio --refresh
 
 ### 端到端测试覆盖
 
-按 `AGENTS.md`「测试规则」第 1 条，渠道不写单测，只做端到端（`reasonix-mx-test` skill）。
+按 `AGENTS.md`「测试规则」第 1 条，渠道不写单测，只做端到端（`opencode-mx-test` skill）。
 本节列出**应当覆盖**的项，供后续 Agent 复现：
 
 | 覆盖项 | 判据 |
@@ -382,7 +382,7 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 错误传播 | 上游 503 时网关回 502/503 且日志含 `upstream returned non-200`，账号**不**进冷却 |
 
 > 成本红线：本渠道是免费档（`mode: "unrestricted"`、`cost: 0`），端到端测试不产生费用；
-> 仍按 `reasonix-mx-test` 的要求记录 `mx bill astudio` 前后差异（预期差 0）。
+> 仍按 `opencode-mx-test` 的要求记录 `mx bill astudio` 前后差异（预期差 0）。
 
 ### 2026-10-26 端到端实测
 
@@ -393,5 +393,6 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 最小对话 | ✅ `astudio/auto` / `astudio/glm-5.2` / `astudio/spark-x2.5` 均返回真实补全 + `usage` |
 | 模型 id 归一化 | ✅ `astudio/glm-5.2` → 响应 `model: "xopglm52"`；`astudio/auto` → `model: "spark-x2.6"` |
 | 错误传播 | ✅ 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（`billing: false` 生效） |
-| 工具 / 流式 / 档位 | ✅ 直连实测通过（见技能 `astudio-probe.mjs chat`）；经网关的 `reasonix-mx-test` 完整回归**待跑** |
+| 工具 / 流式 / 档位 | ✅ 直连实测通过（见技能 `astudio-probe.mjs chat`） |
+| **经网关的 Agent 工具往返** | ✅ 2026-10-26 用 `opencode-mx-test` 技能跑**全部 7 个模型**：每个都完成「写文件 → 读回 → bash `pwd`/`ls`」往返，落盘内容一致，访问日志 `messageCount` 递增（3→2→4→…→7/8）、`stream=true`、`status=200`，错误日志无 astudio 条目。倍率 `-`（未知，免费档）。 |
 

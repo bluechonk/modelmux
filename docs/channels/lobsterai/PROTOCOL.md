@@ -559,7 +559,7 @@ URL 粘回终端，兜底把它**转交同一个回调处理器**，走的仍是
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login lobsterai          # 登录入池
@@ -571,19 +571,6 @@ mx bill lobsterai           # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model lobsterai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-
-### 2026-10-20 端到端实测
-
-Reasonix CLI 直连网关（`lobsterai/deepseek-flash`，本渠道最低倍率 0.05）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`），模型正常回话；
-  原失败的 502 请求复测为 HTTP 200。
 
 ## 参考实现
 

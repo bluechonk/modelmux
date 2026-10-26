@@ -96,4 +96,4 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File $S/watch-astudio-conn.ps1 -Seconds
 
 渠道包在 `packages/core/channels/astudio/`（7 文件契约），实现要点见
 [references/PROTOCOL.md](references/PROTOCOL.md) §9。改渠道时遵守仓库 `AGENTS.md`：
-渠道不写单测，端到端按 `reasonix-mx-test` skill 跑。
+渠道不写单测，端到端按 `opencode-mx-test` skill 跑。

@@ -826,7 +826,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login qoder
@@ -841,43 +841,6 @@ mx bill qoder            # 看额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model qoder --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`qoder/qwen3.8-flash`，倍率 0）：
-
-- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill qoder` 剩余额度无变化。
-- 提醒：本渠道上游会回 SSE 内嵌业务错误帧（如排队 `10605`），测试偶发变慢属正常
-  排队重试机制（见 §4.3），不是故障。
-
-### 2026-10-20 端到端实测
-
-Reasonix CLI 直连网关（`qoder/deepseek-flash`）：
-
-- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回确认 → `bash` 执行 `pwd`/`ls` → 总结）通过；
-  落盘文件内容与要求完全一致（`qoder/deepseek-flash ok`）。
-- access 日志：`status: 200`、`stream: true`、`toolCount: 18`、
-  `messageCount` 2 → 6（随工具轮次递增）。
-- 错误日志无该渠道新增条目；账单差值 0。
-
-### 2026-10-24 端到端实测（双模型）
-
-Reasonix CLI 直连网关，`qoder/minimax-m3.1-flash` 与 `qoder/glm-5.3-flash`（倍率均 0.1）：
-
-| 模型 | 冒烟 | 工具往返 | 落盘 | 访问日志 |
-| --- | --- | --- | --- | --- |
-| `minimax-m3.1-flash` | 通过 | write_file → read_file → bash | `minimax-m3.1-flash ok` | msgs 2→2→2→6，全 200 |
-| `glm-5.3-flash` | 通过 | write_file → read_file → bash | `glm-5.3-flash ok` | msgs 2→4→6→9→11，全 200 |
-
-- 错误日志 `cid=qoder` 零新增条目；账单 400 → 383，消耗 17 credits（两轮完整 Agent，量级合理）。
-- **排队是主要耗时**：测试窗口内 `gateway.log` 有 135 + 64 条
-  `upstream queued (channel qoder), waiting 9-10s before retry`；`ttfbMs` 65–225 秒
-  远大于 `upstreamMs` 0.4–2.3 秒，说明时间花在等上游队列而非上游响应本身。
-  最极端一次冒烟 291 秒才返回但最终成功，全部请求无一条落 failure ——
-  排队自动重试机制工作正常（见 §4.3）。
 
 ## 参考实现
 

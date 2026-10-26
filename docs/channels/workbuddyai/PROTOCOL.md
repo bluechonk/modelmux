@@ -148,8 +148,8 @@
 - 上游约束（§2 头族、§4 错误码、§5 归一化管线）的正确性由**代码审查 +
   归一化结果人工核验**保障，不靠运行时发任何请求去「验证行为」——
   发畸形请求本身就是一次风控事件。
-- 渠道是否跑得通的**唯一判据**是端到端测试：由 Agent 跑 `reasonix-mx-test` skill，
-  通过 Reasonix CLI 直连 `http://127.0.0.1:4412/v1`，用 `<渠道>/<模型>` 池 id 发
+- 渠道是否跑得通的**唯一判据**是端到端测试：由 Agent 跑 `opencode-mx-test` skill，
+  通过 opencode CLI 直连 `http://127.0.0.1:4412/v1`，用 `<渠道>/<模型>` 池 id 发
   **正确的** OpenAI 兼容请求（普通文本对话、合法 tool_calls 往返、流式/非流式）。
 
 ---
@@ -523,7 +523,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login workbuddyai           # 登录入池（浏览器设备授权）
@@ -535,62 +535,6 @@ mx bill workbuddyai            # 额度与倍率（测试后核对是否扣费�
 ### 端到端测试覆盖
 
 登录入池 / `mx model workbuddyai --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）：
-
-- 冒烟通过，模型正常回话（网关 access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增，多轮链路完整。
-- 倍率 0：测试前后 `mx bill workbuddyai` 剩余额度无变化。
-- 注意：`workbuddyai` 免费档模型有 `hy3` / `step-5-preview` / `deepseek-v4.1-flash` 三个，
-  测例优先用倍率 0 的，其余模型倍率最高到 6.67（`gpt-6-astra`），勿用于自动化测试。
-
-### 2026-10-20 端到端实测
-
-Reasonix CLI 直连 `http://127.0.0.1:4412/v1`（`workbuddyai/hy3`，倍率 0）：
-
-- **失败**：上游回 **HTTP 429**，业务码 **`code=6004`（用量限额）**。
-- **不是协议回归**：本渠道 2026-10-20 未改代码；失败原因是**账号侧用量限额**打满，
-  不是端点 / 请求头 / 登录态问题。
-- **恢复办法**：等上游额度窗口重置，或换一个有额度的账号重新入池。
-- **429 / 6004 判为账号级冷却**：额度耗尽会自行恢复，故不记连败、不标 `error`，
-  而是置 `health: "cooldown"` + `cooldown_until`，Web 显示「冷却中」并写明等到什么时候，
-  到期自动恢复；实现见 `http/chat/attempt.ts` 的 `isQuotaExhausted` 分支 +
-  `runtime/account-pool.ts` 的 `noteAccountQuotaExhausted`。
-- **冷却截止时间：用上游给的滚动重置时间**（`upstream.quotaResetAt`），**不是**「次日 0 点」。
-  2026-10-23 真机原文（HTTP 429，重置时间随消费时刻滚动）：
-
-  ```
-  {"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will reset
-   at 2026-10-23 17:36:25 UTC+8, alternatively, you can switch to the other models to
-   continue using it.","requestId":"..."}
-  ```
-
-  实测网关据此冷却到 **17:36**（而不是 0 点），账号显示「冷却中 · 到 10-23 17:36」。
-- ⚠ **该限额对所有模型生效**：本渠道用量打满时，连目录里标成倍率 0 的
-  `deepseek-v4.1-flash` 也吃 6004（2026-10-23 实测）。故网关对**账户级用量限额**
-  （`isUsageLimit`）一律冷却，不再按模型倍率豁免。
-- 冷却截止时间：`upstream.quotaResetAt(bodySnippet)`（本文件 `src/upstream.ts`）从错误体里解析。
-  **2026-10-23 已核实**：上游把重置时间写在 **msg 文本**里，不是 JSON 字段 —— 参考实现
-  `ardeyouxipianyi/workbuddy2api-hub` 的 `wb_proxy.py::parse_rate_limit_reset` 给出两种真实形状：
-
-  ```
-  "... your usage will reset at 2026-09-19 18:29:03 UTC+8 ..."
-  "您的使用量已超出频率限制，将在 2026-10-02 16:00:34 UTC+8 重置 ..."
-  ```
-
-  时间戳是 **body 自己声明的 UTC 偏移**下的墙钟时间，故按 UTC 解释成 epoch 再**减去**该偏移
-  （参考实现特意用 `timegm` 而非 `mktime`，否则非 UTC+8 机器会差几小时）。措辞不认识时兜底认
-  「时间戳 + `UTC±N`」组合；都认不出返回 `null` → 共享层回落次日本地 0 点。
-  本地探针实测：EN / CN 两种形状分别还原成北京时间 18:29:03 / 16:00:34，
-  非额度错误（`11128`）与「有码无时间」都返回 `null`。
-- **额度口径**：账单 API 只回 credits（免费档 `CapacitySize = 100`）。主人说明免费档是
-  **每日 1 亿 token**；参考实现的 `daily_token_limit` 默认值是 **0（关闭）** —— 那是它自己
-  客户端侧的护栏，不是上游配额。上游**没有**端点回报「今日已用多少 token」，所以
-  `billing.quotaPeriod()` 只把 1 亿写进展示文案，数字仍用 credits（**不编造 token 余量**）。
-- 文档中该业务码的归类见国内版兄弟渠道 `workbuddy` 的 §4.1：`6004` 属
-  `model_rate`（日额度 / 模型繁忙）→ 处置是「换模型或换号」。
 
 ### 2026-10-20 下半日：上游会话失效（账号侧，非协议回归）
 

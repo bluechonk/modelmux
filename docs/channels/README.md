@@ -22,7 +22,7 @@ docs/channels/<cid>/
 | 接入客户端 | base url 指到 `http://127.0.0.1:4412/v1`，模型填 `<cid>/<模型>` 池 id（清单见 `GET /v1/models`） |
 | 单渠道调试 | `node packages/core/channels/<cid>/dist/cli.js --help` |
 | 额度 / 签到 | 额度查 `mx bill <cid>`；**签到由网关启动时自动执行**（`packages/core/gateway/src/auth/auto-signin.ts`，每 30 分钟补一次，跨天常驻也能补签），今天是否已签看 `mx status <cid>`；渠道不支持时 CLI / UI 显示 `-` |
-| 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「测试规则」第 1 条），用 `reasonix-mx-test` skill 走真实客户端 |
+| 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「测试规则」第 1 条），用 `opencode-mx-test` skill 走真实客户端 |
 
 > 渠道之间的**差异**（登录方式、推荐模型、已知限制、上游硬约束）都写在该渠道的
 > `PROTOCOL.md` 里 —— 本页只放**对所有渠道都成立**的部分；下方「渠道一览」的一句话说明
@@ -81,30 +81,31 @@ docs/channels/<cid>/
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 
-## 端到端测试现状（全渠道复测，最近 2026-10-22）
+## 端到端测试现状
 
-用 `reasonix-mx-test` 逐渠道跑「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，
+用 `opencode-mx-test` 逐渠道跑「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，
 只用**免费或倍率最低**的模型。判据：access 日志 `status 200` / `stream true` / `toolCount > 0` /
 `messageCount` 随工具轮次递增，错误日志无该渠道新增条目。
 
 | 渠道 | 测的模型 | 结果 | 备注 |
 | --- | --- | --- | --- |
-| `catpaw` | `longcat-2.0`（倍率 0） | 通过 | 首次失败是**被另一会话重启网关**打断，重试即过 |
-| `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费 3.54 credits（与倍率相符） |
-| `loomy` | `spark-x`（倍率 0） | 通过 | 2026-10-22 手机验证码入池后实测：工具往返通过、零扣费；冷启动首字 ~25s |
-| `qoder` | `deepseek-flash`（倍率 0） | **受限** | 上游排队饱和：单请求 TTFB 220–290s，模型不再推进 |
-| `qodercn` | `qwen3.8-flash`（倍率 0） | 通过 | |
-| `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费 4 积分（与倍率相符） |
-| `traecn` | `deepseek-v4.1-flash`（倍率 0.06） | 通过 | 扣费 1.49 credits（与倍率相符） |
+| `astudio` | 全部 7 个模型 | 通过 | 免费档（倍率 `-`）；7/7 落盘一致、`messageCount` 递增、无新增错误 |
+| `catpaw` | `longcat-2.0`（倍率 0） | 通过 | |
+| `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费与倍率相符 |
+| `loomy` | `spark-x`（倍率 0） | 通过 | 工具往返通过、零扣费；冷启动首字较慢 |
+| `qoder` | `qwen3.8-flash`（倍率 0） | **受限** | 上游排队饱和：单请求 TTFB 极长，模型不再推进 |
+| `qodercn` | `qwen3.8-flash`（倍率 0） | **受限** | 同 qoder（上游排队） |
+| `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费与倍率相符 |
+| `traecn` | `doubao-seed-code`（倍率 0.06） | 通过 | 扣费与倍率相符 |
 | `workbuddy` | `hy3`（倍率 0） | 通过 | |
-| `workbuddyai` | `deepseek-v4.1-flash`（倍率 0） | 功能通过，**错误日志有新增** | 上游 429「模型繁忙」，属账号侧限流 |
+| `workbuddyai` | `hy3`（倍率 0） | 功能通过，**错误日志有新增** | 上游 429「模型繁忙」，属账号侧限流 |
 
 **已知问题**（下一轮跟进）：
 
 1. **上游限流与账号侧风控**：workbuddyai 上游 429「模型繁忙」、raccoon / loomy 的
    `not_authenticated`（token 失效后需用户手动 `mx acct <cid> use <key>` 切号）——
    都是账号侧约束，不是协议缺陷。
-2. **qoder 上游排队饱和**：单请求 TTFB 220–290s 后模型不再推进（见上表「受限」）。
+2. **qoder / qodercn 上游排队饱和**：单请求 TTFB 极长后模型不再推进（见上表「受限」）。
 
 ## 新增渠道要动的文档
 

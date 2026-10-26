@@ -299,7 +299,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login qodercn
@@ -312,15 +312,6 @@ mx bill qodercn
 
 登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 签到与额度由网关启动时的自动签到链路执行（无独立命令），当天是否已领看 `mx status qodercn`。
-
-### 2026-10-20 端到端实测
-
-Reasonix CLI 直连网关（`qodercn/qwen3.8-flash`，倍率 0）：
-
-- 冒烟通过，模型正常回话（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回确认 → `bash` 执行 `pwd`/`ls` → 总结）通过；
-  落盘文件内容与要求完全一致（`qodercn/qwen3.8-flash ok`）。
-- 错误日志无该渠道新增条目；费用：免费模型，账单差值 0。
 
 ## 参考实现
 

@@ -641,13 +641,13 @@ spark-x 适合不在乎延迟的批量任务。
 | `loomy/deepseek-v4.1-flash` | **2** | 约 2500 单位 |
 | `loomy/qwen-3.8-max` | **12** | 约 417 单位（**禁用于测试**） |
 
-⚠ **交互式客户端（DSH / Reasonix）默认上下文很大**（带工具时可达 3.9 万 prompt token），
+⚠ **交互式客户端（DSH）默认上下文很大**（带工具时可达 3.9 万 prompt token），
 倍率 2 的模型几轮就能烧掉几千分 —— 2026-10-22 实测当天 `dailyConsumed=4022`（就是 DSH
 跑 `deepseek-v4.1-flash` 烧的）。**要免费就把交互式会话切到 `loomy/spark-x`。**
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `reasonix-mx-test` skill（Reasonix CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login loomy           # 登录入池（手机验证码两步，见上）
@@ -659,48 +659,6 @@ mx bill loomy            # 额度与倍率（测试后核对是否扣费）
 ### 端到端测试覆盖
 
 登录入池 / `mx model loomy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
-
-### 2026-10-19 端到端实测
-
-Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
-
-- 冒烟通过（access 日志 `status: 200`、`stream: true`）。
-- 工具往返（写文件 → 读回 → 执行命令）通过，同会话 `messageCount` 递增。
-- 倍率 0：测试前后 `mx bill loomy` 剩余额度无变化。
-
-### 2026-10-20 端到端实测
-
-Reasonix CLI 直连网关（`loomy/spark-x`，倍率 0）：
-
-- **失败**：账号被上游标为 `error`，网关直接回 503 `not_authenticated`
-  （日志记 `all pool candidates failed (loomy/spark-x, tried loomy)`），
-  与「已知限制」第 1 条的账号坑一致。
-- **不是协议回归**：本渠道 2026-10-20 未改代码；失败原因是**账号态**而非端点 / 请求头。
-- **恢复办法**：重新入池（`mx login loomy`，手机验证码两步，见 §2.1），
-  账号状态回到 `ok` 后再跑端到端；无法用脚本绕过。
-
-### 2026-10-22 端到端实测（手机验证码登录 + spark-x）
-
-**登录链路**（真机，两步协议，全程无浏览器）：
-
-| 步骤 | 结果 |
-|---|---|
-| `mx login loomy` + `LOOMY_PHONE` | 发码成功，返回 `msgid=5bd8836c29264f4ca2d26594a182104a` |
-| + `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` 重跑 | `[login] done: 登录成功，账号已入池。` |
-| 入池后额度 | **4999 / 4999 积分**（每日赠送） |
-
-**端到端测试**（`reasonix-mx-test` skill，`loomy/spark-x`，倍率 0）：
-
-| 检查项 | 实测 |
-|---|---|
-| 前置 | 网关 `ok: true` / Reasonix v2.44.0 / `credentials.present = true` |
-| 冒烟 | 返回文本（26s） |
-| Agent 工具往返 | `write_file` → `bash` → `read_file` 三类齐全；落盘 `spark-x ok` 一致 |
-| 访问日志 | `status=200` / `stream=true` / `toolCount=18` / `messageCount` 2→5→7 递增 |
-| 错误日志 | 测试窗口内该渠道**新增 0 条** |
-| 账单 | 4999 → 4999（**差值 0**，与倍率 0 相符） |
-
-结论：**手机验证码登录链路真机跑通，spark-x 可作免费测试模型长期使用**（延迟特性见「已知限制」上方）。
 
 ## 参考实现
 

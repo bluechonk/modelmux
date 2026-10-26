@@ -282,7 +282,7 @@ const DOC_FILES = [
   "docs/channels/README.md",
   "docs/MODULE-COMMENTS.md",
   ".agents/skills/mx-cli/SKILL.md",
-  ".agents/skills/reasonix-mx-test/SKILL.md",
+  ".agents/skills/opencode-mx-test/SKILL.md",
 ];
 const countHits = [];
 for (const rel of DOC_FILES) {

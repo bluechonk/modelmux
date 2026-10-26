@@ -86,7 +86,7 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
 ```
 
 - 共享层零第三方依赖；渠道层只允许 `@modelmux/gateway`（`verify:contract` 强制）。
-- 渠道**不写测试**，只做端到端（Agent 用 Reasonix CLI 直连网关跑真实会话）。
+- 渠道**不写测试**，只做端到端（Agent 用 opencode CLI 直连网关跑真实会话）。
 - 有活跃流时不要 `restart`（会切断客户端请求）。
 
 ## 已知边界
