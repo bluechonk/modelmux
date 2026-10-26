@@ -1,14 +1,21 @@
 /** 前端自己的 API 数据类型子集（与共享层快照字段对齐）。 */
 
 /**
- * 待回答的输入请求（渠道两步登录，如 loomy 的短信验证码）。
+ * 待回答的输入请求（渠道两步登录，如 loomy 短信验证码、astudio 滑块验证）。
  *
  * 与共享层 `LoginInputRequest` 同形：`kind` 只影响界面措辞与键盘类型，
  * 渠道名等知识不下发到前端。
  */
 export interface LoginInputRequest {
-  kind: "phone" | "code";
+  kind: "phone" | "code" | "captcha";
   prompt: string;
+  /**
+   * `kind: "captcha"` 的挑战参数（GeeTest v3：`gt` + `challenge`）。
+   *
+   * 界面在**浏览器里**解滑块（加载官方同款 `gt.js`），解完把
+   * `{geetest_challenge, geetest_validate, geetest_seccode}` 作为 JSON 串回传。
+   */
+  captcha?: { gt: string; challenge: string; success?: unknown };
 }
 
 export interface UiSnapshot {

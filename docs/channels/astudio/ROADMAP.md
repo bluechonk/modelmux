@@ -13,8 +13,8 @@
 
 | # | 需求 | 审计时 | 现状（2026-10-26 实现后） |
 | --- | --- | --- | --- |
-| 1 | 登录链接（手机号 + 验证码） | **未实现** | **仍不可实现**（架构所限，见下） |
-| 2 | 登录回调链接 + 成功判据 | **部分实现** | **已收敛**：无回调（读会话文件），判据统一 |
+| 1 | 登录链接（手机号 + 验证码） | **未实现** | **已实现**（结论反转，见 §0.1） |
+| 2 | 登录回调链接 + 成功判据 | **部分实现** | **已收敛**：无 OAuth 回调（手机号验证码 / 会话文件两条路），判据统一 |
 | 3 | 账号信息 + name 显示在 web 账号池 | **部分实现** | **已修复**：`/userInfo` 补全 + 显式回落 + 契约字段补齐 |
 | 4 | refresh / 重授权 URL | **部分实现** | **已修复**：`relogin` 死结已解（渠道侧 `force`） |
 | 5 | 登出 / 销毁凭证 | **未实现** | **已实现**：`cred.logout()` + `mx logout <cid>` |
@@ -22,31 +22,41 @@
 | 7 | 真实模型请求 chat url | **已实现** | 不变 |
 | 8 | 每日签到逻辑 | **已实现** | 不变 |
 
-### 0.1 第 1 项为什么「仍不可实现」（2026-10-26 实测确认）
+### 0.1 第 1 项：**结论已反转** —— 不是架构不可行，是**之前测错了路径**
 
-AStudio 的登录端点**只存在于它自己本地服务的代理层**，而本地服务是
-`desktop-managed-local` 策略 —— 只认应用自己持有的活会话。实测（应用正在运行、
-已登录、本地服务 200）：
+⚠ 本文档 2026-10-26 上午的版本写「登录端点只存在于本地服务代理层、
+架构上无法独立调用」。**那是错的**：`/api/astron-auth/*` 是桌面应用
+**本地服务代理层**的前缀，云端账号 API 的路径**没有这个前缀**。
 
-| 尝试 | 结果 |
+依据：参考实现
+`packages/core/channels/astudio/reference/2951461586/AStudio2API/internal/astron/login.go`
+（逆向自官方客户端 bundle 的 `createAstronAccountGateway`）+ 本仓实测：
+
+| 端点（**无前缀**） | 直连云端结果 |
 | --- | --- |
-| `127.0.0.1:16051/api/astron-auth/login/sms` | `401 Authentication required.` |
-| 带 `X-Sso-Session-Id` / `ssoSessionId` / `Cookie: synara_session_*` / `Bearer` | 全部 401 |
-| 云端 `agent.xfyun.cn/xingchen-studio/api/astron-auth/*` | `404` |
-| 云端 `astronstudio-api-volces-prod.xf-yun.com/api/astron-auth/*` | `401 HMAC signature cannot be verified` |
+| `GET /chat/gee-captcha` | `200 code=0` —— 真实 GeeTest v3 配置 |
+| `POST /login/mobile/send-verify-code` | `200 code=20009 geetest verify failed`（端点可达，captcha 未解） |
+| `POST /login/phone-quick-login` | `200 code=10501002 验证码无效，请重新获取并验证`（端点可达、参数正确，验证码是假的） |
 
-→ **手机号 + 验证码这条链路在本渠道无法独立闭环**。渠道现在做的是：检测桌面应用
-是否在跑（读 `server-runtime.json` 的 pid），给出精确指引，然后读它落盘的会话文件。
-这是当前架构下唯一可行的路径（详见 [PROTOCOL.md](./PROTOCOL.md) §5）。
+**唯一拦路虎是 GeeTest v3 滑块** —— 它本来就该由**浏览器**解，
+而 Web 控制台正是浏览器（加载官方同款 `gt.js`，初始化参数严格对齐官方客户端）。
+
+**实现**：走共享层新增的 `requestInput` 通道（`kind: "captcha"`），
+前端 `packages/ui/src/components/GeetestCaptcha.tsx` 解滑块 → 回传三字段 →
+渠道发码 → 问验证码 → 换 session → 补 `modelBearerToken` → 落盘。
+细节见 [PROTOCOL.md](./PROTOCOL.md) §5。
+
+**仍然堵死的只有本地服务那条路**（应用进程内存里的活会话，外部进不去），
+而它现在是**兜底**：CLI 没有界面 → 走「读桌面应用会话文件」那条路。
 
 ### 0.2 本次实现改了什么
 
 | 文件 | 改动 |
 | --- | --- |
-| `packages/core/channels/astudio/src/cred.ts` | 删假授权链接；`force` 重读（修 `relogin` 死结）；`/userInfo` 补全（尽力而为）；显式回落展示名；补 `domain`/`accessToken` 契约字段；`banned` 抛错；新增 `logout()`；支持 `pasteCode` |
-| `packages/core/channels/astudio/src/upstream.ts` | 新增 `userInfoUrl()` / `fetchUserInfo()` |
+| `packages/core/channels/astudio/src/cred.ts` | 删假授权链接；**新增手机号+验证码登录**（云端直连）；`force` 重读（修 `relogin` 死结）；`/userInfo` 补全（尽力而为）；显式回落展示名；补 `domain`/`accessToken` 契约字段；`banned` 抛错；新增 `logout()`；支持 `pasteCode` |
+| `packages/core/channels/astudio/src/upstream.ts` | 新增 `userInfoUrl()` / `fetchUserInfo()`；**新增认证链路**：`fetchGeetestConfig()` / `sendSmsCode()` / `loginWithSms()` / `fetchTenantState()` / `fetchPointsBalance()`（multipart 构造 + 信封解析 + `uid` 归一化） |
 | `packages/core/channels/astudio/src/catalog.ts` | `modelSpec()` 透出 `effort` 与 `multiplier`；倍率表改为**只填实测值**（5 个未知） |
-| `packages/core/gateway/src/runtime/channel.ts` | `LoginUi.requestInput` 已在；`CredModule` 增可选 `logout?()`；`modelSpec?` 契约增 `effort`/`multiplier` |
+| `packages/core/gateway/src/runtime/channel.ts` | `LoginUi.requestInput` 已在；`LoginInputRequest` 增 `kind: "captcha"` 与 `captcha` 参数；`CredModule` 增可选 `logout?()`；`modelSpec?` 契约增 `effort`/`multiplier`；`login()` options 增 `requestInput` / `force` |
 | `packages/core/gateway/src/pool/pool-targets.ts` | 倍率四层回落增 `spec` 层（**不走跨渠道** —— 那是渠道自己的计费口径） |
 | `packages/core/gateway/src/auth/auth-flow.ts` | `force` 透传给 `cred.login()` |
 | `packages/core/gateway/src/runtime/account-pool.ts` | `purgeCredentials` 探测顺序修正（先探后删，否则永远报「本来就没有」） |

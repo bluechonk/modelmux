@@ -87,9 +87,20 @@ export interface CreditsResult {
  * **不是**渠道知识 —— 渠道只负责在需要时发起请求，界面怎么渲染由界面决定。
  */
 export interface LoginInputRequest {
-  kind: "phone" | "code";
+  kind: "phone" | "code" | "captcha";
   /** 给用户看的一句话（如「手机号」「验证码已发送至 138****0001」）。 */
   prompt: string;
+  /**
+   * `kind: "captcha"` 时的挑战参数（GeeTest v3：`gt` + `challenge`）。
+   *
+   * 界面用它在**浏览器里**解滑块（加载官方同款 `gt.js`），解完把
+   * `{geetest_challenge, geetest_validate, geetest_seccode}` 作为输入值回传。
+   *
+   * ⚠ 这个字段是**通用**形态（不绑定任何厂商）：它只描述「一个需要浏览器
+   * 完成的挑战」，具体怎么解由界面决定。渠道拿不到解法时的兜底是
+   * 改走别的登录路（astudio：读桌面应用的会话文件）。
+   */
+  captcha?: { gt: string; challenge: string; success?: unknown };
 }
 
 /** 登录流程的界面能力（打到 stdout / 窗口状态机都可以满足）。 */
@@ -144,6 +155,20 @@ export interface CredModule {
       onQr?: (url: string) => void;
       /** 取走用户粘回的回调链接（回调页 404，code 只在地址栏里）。 */
       pasteCode?: () => string | undefined;
+      /**
+       * 向用户要一段输入（两步登录用；见 `LoginUi.requestInput`）。
+       *
+       * ⚠ **无界面时不要传**（CLI 的实现不提供它）——
+       * 渠道必须能回落到自己的输入来源（环境变量 / 读外部会话文件）。
+       */
+      requestInput?: (req: LoginInputRequest) => Promise<string | undefined>;
+      /**
+       * 强制重读（`mx relogin`）：跳过「已有凭据就复用」的短路。
+       *
+       * astudio 这类「凭据来自外部会话文件」的渠道不传就永远是空操作
+       * （2026-10-26 修死结，见 docs/channels/astudio/ROADMAP.md 第 4 项）。
+       */
+      force?: boolean;
     },
   ): Promise<any>;
   refresh(c: any): Promise<any>;

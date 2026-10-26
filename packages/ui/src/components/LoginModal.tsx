@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { LoginInputRequest } from "../lib/types";
+import { GeetestCaptcha } from "./GeetestCaptcha";
 
 /** 登录态快照（后端 `GET /web/api/state` 的 `ui_state` / `auth_url` / `qr_url` 等字段）。 */
 export interface LoginSnapshot {
@@ -307,6 +308,17 @@ export function LoginModal({
                 <div className="text-sm text-ink-soft">正在准备登录会话…</div>
                 <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
               </div>
+            ) : loginInput?.kind === "captcha" ? (
+              /* 安全验证（GeeTest v3 滑块）：在浏览器里解，解完把三字段回传。
+                 这段不能省 —— 上游的「发短信验证码」端点强制校验它。 */
+              <CaptchaCard
+                request={loginInput}
+                onSolved={(payload) => onSubmitInput(payload)}
+                onCancel={() => {
+                  onCancelInput();
+                  onClose();
+                }}
+              />
             ) : phoneForm ? (
               /* 手机验证码登录：三行表单（手机号 / 验证码 + 获取验证码 / 登录 + 取消）。
                  后端两次顺序的 `requestInput`（先手机号 → 发码 → 再验证码）映射到三行：
@@ -499,6 +511,52 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
         ) : (
           <Copy className="h-3.5 w-3.5" />
         )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 安全验证卡（GeeTest v3 滑块）。
+ *
+ * 渠道要「浏览器完成的挑战」时渲染这张卡：加载官方 SDK → 弹出滑块 →
+ * 解出三个字段回传。解完由渠道继续（发短信验证码）。
+ */
+function CaptchaCard({
+  request,
+  onSolved,
+  onCancel,
+}: {
+  request: LoginInputRequest;
+  onSolved: (payload: string) => void;
+  onCancel: () => void;
+}): ReactElement {
+  const captcha = request.captcha;
+  if (!captcha) {
+    return (
+      <div className="rounded-xl border border-line p-4 text-[13px] text-ink-soft">
+        安全验证参数缺失（gt / challenge 为空），请重新发起登录。
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <div className="text-[13px] font-medium text-ink">{request.prompt}</div>
+      <GeetestCaptcha
+        gt={captcha.gt}
+        challenge={captcha.challenge}
+        success={captcha.success}
+        onSolved={onSolved}
+        onFailed={() => {
+          /* 失败信息由组件内部显示；这里不关弹窗（用户可以「重新验证」） */
+        }}
+      />
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-full px-4 py-1.5 text-[13px] text-ink-soft transition-colors hover:bg-overlay hover:text-ink"
+      >
+        取消
       </button>
     </div>
   );
