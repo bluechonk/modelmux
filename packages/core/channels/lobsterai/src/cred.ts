@@ -139,17 +139,15 @@ function uidFromUser(user: Record<string, unknown>, accessToken: string): string
 }
 
 /**
- * 手机号脱敏归一化到只露末 2 位（幂等，且只对「像手机号」的输入生效）。
+ * 昵称归一化：**原样返回**（2026-10-26 主人决定：不做脱敏设计，该是什么就显示什么）。
  *
- * 服务端把手机号本身当昵称下发且只脱敏到「露末 4 位」（实测 `130****1100`），
- * 归一化后为 `130******00`；真实昵称（如 `用户00000000000`）原样返回。
+ * 此前这里会把上游下发的手机号昵称统一压成「露末 2 位」（`130******00`）：
+ * 上游只给到「露末 4 位」（实测 `130****1100`），渠道再脱一层。
+ * 那属于**二次加工** —— 页面上 astudio 显示明文手机号、lobsterai 显示密文，
+ * 同一页两套口径，看起来自相矛盾。现在直接透传上游给的值。
  */
 function normalizeNickname(value: string): string {
-  const trimmed = value.trim();
-  const masked = /^(\d{3})(\*+)(\d{2,4})$/.exec(trimmed);
-  if (masked) return `${masked[1]}${"*".repeat(trimmed.length - 5)}${trimmed.slice(-2)}`;
-  if (/^1\d{10}$/.test(trimmed)) return `${trimmed.slice(0, 3)}${"*".repeat(6)}${trimmed.slice(-2)}`;
-  return trimmed;
+  return value;
 }
 
 /**
