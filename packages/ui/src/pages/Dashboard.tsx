@@ -13,7 +13,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, RefreshCw } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { ModelExplorer } from "../components/ModelExplorer";
 import { type ReactElement, type ReactNode } from "react";
@@ -34,9 +34,15 @@ function freePlanCidsOf(caps: Record<string, { billing: boolean }> | undefined):
   return out;
 }
 
-/** 仪表盘页：接入端点 + 统计 + 模型区。 */
+/** 仪表盘页：接入端点 + 统计 + 模型区。
+ *
+ * ## 为什么没有手动刷新按钮
+ *
+ * 查询带 `refetchInterval: 3000`，数据每 3 秒自己更新 —— 手动刷新按钮是重复入口。
+ * 2026-10-26 主人反馈「刷新按钮完全是多余的」，已删除。
+ */
 export function Dashboard(): ReactElement {
-  const { data: state, isLoading, error, isFetching, refetch } = useQuery({
+  const { data: state, isLoading, error } = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
     refetchInterval: 3000,
@@ -68,48 +74,61 @@ export function Dashboard(): ReactElement {
         </div>
       )}
 
-      {/* composer 形态的接入区：一整块圆角盒，端点逐行可复制 */}
+      {/* composer 形态的接入区：一整块圆角盒，端点逐行可复制。
+          窄屏只留 `base_url`：`chat_url` 是它的下游路径、`endpoints` 是它的拆分，
+          都是派生信息 —— 宽度不够时先砍它们（2026-10-26 主人要求「窄屏做减法」）。 */}
       <section className="panel mb-7 overflow-hidden">
         <div className="space-y-1 p-4 sm:p-5">
           <EndpointRow label="base_url" value={state.base_url} />
-          <EndpointRow label="chat_url" value={state.chat_url} />
-          <div className="flex flex-col gap-1.5 pt-1 sm:flex-row sm:items-start sm:gap-4">
-            <span className="shrink-0 pt-0.5 text-[13px] text-ink-faint sm:pt-1 sm:w-24">endpoints</span>
-            <div className="flex flex-wrap gap-1.5">
-              {state.endpoints.map((e) => (
-                <span key={e} className="pill bg-overlay font-mono text-ink-soft">
-                  {e}
-                </span>
-              ))}
+          <div className="hidden sm:block">
+            <EndpointRow label="chat_url" value={state.chat_url} />
+          </div>
+          <div className="hidden md:block">
+            <div className="flex flex-col gap-1.5 pt-1 md:flex-row md:items-start md:gap-4">
+              <span className="shrink-0 pt-0.5 text-[13px] text-ink-faint md:pt-1 md:w-24">endpoints</span>
+              <div className="flex flex-wrap gap-1.5">
+                {state.endpoints.map((e) => (
+                  <span key={e} className="pill bg-overlay font-mono text-ink-soft">
+                    {e}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-5 py-3 text-[13px] text-ink-faint">
+        <div className="border-t border-line px-4 py-2.5 text-[13px] text-ink-faint sm:px-5">
           <span>
-            {channelCount} 个渠道 · {totalModels} 个模型 · 模型填
-            <span className="font-mono text-ink-soft"> 渠道/模型</span> 形态即可
+            {channelCount} 个渠道 · {totalModels} 个模型
+            {/* 填模型形态的说明是操作指引，窄屏让位给数据本身 */}
+            <span className="hidden sm:inline">
+              <span> · 模型填</span>
+              <span className="font-mono text-ink-soft"> 渠道/模型</span>
+              <span> 形态即可</span>
+            </span>
           </span>
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-          >
-            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-            刷新
-          </button>
         </div>
       </section>
 
-      {/* 统计：一行内联数据，不是四张卡 */}
-      <div className="mb-9 flex flex-wrap items-center gap-x-8 gap-y-3 px-1">
+      {/* 统计：一行内联数据，不是四张卡。
+          窄屏只留「网关」与「可用模型」——「供给渠道」「接入端点」是派生计数，
+          信息量低于宽度成本（2026-10-26 主人要求）。 */}
+      <div className="mb-9 flex flex-wrap items-center gap-x-6 gap-y-3 px-1 sm:gap-x-8">
         <StatInline
           label="网关"
           value={running ? "运行中" : state.ui_state}
           tone={running ? "free" : "muted"}
         />
         <StatInline label="可用模型" value={String(totalModels)} />
-        <StatInline label="供给渠道" value={String(channelCount)} />
-        <StatInline label="接入端点" value={String(state.endpoints.length)} />
+        <StatInline
+          label="供给渠道"
+          value={String(channelCount)}
+          className="hidden sm:flex"
+        />
+        <StatInline
+          label="接入端点"
+          value={String(state.endpoints.length)}
+          className="hidden md:flex"
+        />
       </div>
 
       {/* 模型区：渠道分组表 / 扁平表（见 ModelExplorer 的布局说明） */}
@@ -161,18 +180,21 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
   );
 }
 
-/** 统计项：标签 + 等宽数值（一行数据里的一格）。 */
+/** 统计项：标签 + 等宽数值（一行数据里的一格）。
+    `className` 用于窄屏隐藏派生计数（`hidden sm:flex`）。 */
 function StatInline({
   label,
   value,
   tone,
+  className = "",
 }: {
   label: string;
   value: string;
   tone?: "free" | "muted";
+  className?: string;
 }): ReactElement {
   return (
-    <span className="flex items-baseline gap-2">
+    <span className={`flex items-baseline gap-2 ${className}`}>
       <span className="text-xs text-ink-faint">{label}</span>
       <span
         className={`font-mono text-sm font-medium tabular-nums ${
