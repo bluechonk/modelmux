@@ -141,6 +141,18 @@ export function modelsUrl(cfg?: Config): string {
   return `${studio}${MODEL_CONFIGS_PATH}`;
 }
 
+/**
+ * 账号信息端点（`/xingchen-studio/userInfo`）。
+ *
+ * 会话文件里**没有 `nickname` 键**、`mobile` 也可能是旧的 —— 上游 `/userInfo` 才是
+ * 账号信息的权威来源（实测 `code=0`，含 `uid` / `mobile` / `nickname`，见 PROTOCOL §4.2）。
+ * 渠道登录时用它补全一次（2026-10-26，见 ROADMAP 第 3 项）。
+ */
+export function userInfoUrl(cfg?: Config): string {
+  const studio = trimSlash((cfg ?? loadConfig()[0]).studioBaseUrl);
+  return `${studio}/userInfo`;
+}
+
 // ── 认证头 ───────────────────────────────────────────────────────────────────
 
 /**
@@ -228,6 +240,52 @@ export async function fetchModelConfigs(
   } catch (err) {
     throw new Error(`model configs response is not valid JSON: ${String(err)}`);
   }
+}
+
+/**
+ * 取账号信息（`/xingchen-studio/userInfo`）。
+ *
+ * 返回**内层 `userInfo` 对象**（实测结构：`{login, uid, nickname, email, mobile,
+ * realName, avatarColor}`）。会话失效（`code=80000` / HTTP 401）抛 `UpstreamUnauthorized`。
+ *
+ * ⚠ **尽力而为**：调用方（`cred.enrichFromUserInfo`）失败时保留会话文件的值，
+ * 不让登录因为账号信息拉取失败而失败。
+ */
+export async function fetchUserInfo(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<Record<string, unknown>> {
+  let resp: Response;
+  try {
+    resp = await fetch(userInfoUrl(cfgOverride), {
+      method: "GET",
+      headers: { Accept: "application/json", Cookie: cookieHeader(credential) },
+      signal: AbortSignal.timeout(cred.HTTP_TIMEOUT),
+    });
+  } catch (err) {
+    throw new Error(`userInfo request failed: ${String(err)}`);
+  }
+  const text = await resp.text();
+  if (isAuthFailure(resp.status, text)) {
+    throw new UpstreamUnauthorized(
+      `AStudio rejected the session while fetching userInfo (HTTP ${resp.status})`,
+    );
+  }
+  if (resp.status !== 200) {
+    throw new Error(`userInfo request returned HTTP ${resp.status}`);
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch (err) {
+    throw new Error(`userInfo response is not valid JSON: ${String(err)}`);
+  }
+  // 外层信封：{code, msg, userInfo:{...}}；内层才是我们要的
+  const inner = payload["userInfo"];
+  if (!inner || typeof inner !== "object" || Array.isArray(inner)) {
+    throw new Error("userInfo response has no userInfo object");
+  }
+  return inner as Record<string, unknown>;
 }
 
 /**

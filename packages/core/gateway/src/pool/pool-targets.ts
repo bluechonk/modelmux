@@ -463,6 +463,7 @@ interface ChannelFacts {
         contextWindow?: number;
         maxOutputTokens?: number;
         effort?: { supportedLevels: string[]; defaultLevel: string };
+        multiplier?: number;
       }
     | undefined;
   /** 上游目录声明的窗口（含 `context_config` 档位表取最大档）；null = 没声明。 */
@@ -652,7 +653,10 @@ function metaFromFacts(
     inputModalities: entry ? inputModalitiesOf(entry) : DEFAULT_META.inputModalities,
     outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
     effort,
-    multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : null,
+    // 倍率：上游目录声明 > 渠道公开规格（`spec`）> 未知。
+    // ⚠ 没有「跨渠道兜底」这一层 —— 倍率是**渠道自己**的计费口径，
+    // 拿兄弟渠道的值去填等于编造（2026-10-26）。
+    multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : (facts.spec?.multiplier ?? null),
     marketing: entry ? firstString(entry, MARKETING_KEYS) : "",
     sources: {
       contextWindow:

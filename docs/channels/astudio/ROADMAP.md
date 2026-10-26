@@ -11,18 +11,47 @@
 
 ## 0. 总览
 
-| # | 需求 | 状态 | 缺口性质 |
+| # | 需求 | 审计时 | 现状（2026-10-26 实现后） |
 | --- | --- | --- | --- |
-| 1 | 登录链接（手机号 + 验证码） | **未实现** | 缺整条登录链路 |
-| 2 | 登录回调链接 + 成功判据 | **部分实现** | 缺回调机制与响应解析 |
-| 3 | 账号信息 + name 显示在 web 账号池 | **部分实现** | 缺账号信息拉取；name 不脱敏 |
-| 4 | refresh / 重授权 URL | **部分实现** | refresh 已有；重授权流程是死结 |
-| 5 | 登出 / 销毁凭证 | **未实现** | 缺登出链路 |
-| 6 | 模型列表 + 上下文/输出/档位/倍率 | **部分实现** | 档位与倍率对外不生效 |
-| 7 | 真实模型请求 chat url | **已实现** | 仅小缺口 |
-| 8 | 每日签到逻辑 | **已实现** | 上游无此能力，现状正确 |
+| 1 | 登录链接（手机号 + 验证码） | **未实现** | **仍不可实现**（架构所限，见下） |
+| 2 | 登录回调链接 + 成功判据 | **部分实现** | **已收敛**：无回调（读会话文件），判据统一 |
+| 3 | 账号信息 + name 显示在 web 账号池 | **部分实现** | **已修复**：`/userInfo` 补全 + 显式回落 + 契约字段补齐 |
+| 4 | refresh / 重授权 URL | **部分实现** | **已修复**：`relogin` 死结已解（渠道侧 `force`） |
+| 5 | 登出 / 销毁凭证 | **未实现** | **已实现**：`cred.logout()` + `mx logout <cid>` |
+| 6 | 模型列表 + 上下文/输出/档位/倍率 | **部分实现** | **已修复**：档位透出；倍率只给实测值 |
+| 7 | 真实模型请求 chat url | **已实现** | 不变 |
+| 8 | 每日签到逻辑 | **已实现** | 不变 |
 
-**完全实现 2 项（7、8）· 部分实现 4 项（2、3、4、6）· 未实现 2 项（1、5）**
+### 0.1 第 1 项为什么「仍不可实现」（2026-10-26 实测确认）
+
+AStudio 的登录端点**只存在于它自己本地服务的代理层**，而本地服务是
+`desktop-managed-local` 策略 —— 只认应用自己持有的活会话。实测（应用正在运行、
+已登录、本地服务 200）：
+
+| 尝试 | 结果 |
+| --- | --- |
+| `127.0.0.1:16051/api/astron-auth/login/sms` | `401 Authentication required.` |
+| 带 `X-Sso-Session-Id` / `ssoSessionId` / `Cookie: synara_session_*` / `Bearer` | 全部 401 |
+| 云端 `agent.xfyun.cn/xingchen-studio/api/astron-auth/*` | `404` |
+| 云端 `astronstudio-api-volces-prod.xf-yun.com/api/astron-auth/*` | `401 HMAC signature cannot be verified` |
+
+→ **手机号 + 验证码这条链路在本渠道无法独立闭环**。渠道现在做的是：检测桌面应用
+是否在跑（读 `server-runtime.json` 的 pid），给出精确指引，然后读它落盘的会话文件。
+这是当前架构下唯一可行的路径（详见 [PROTOCOL.md](./PROTOCOL.md) §5）。
+
+### 0.2 本次实现改了什么
+
+| 文件 | 改动 |
+| --- | --- |
+| `packages/core/channels/astudio/src/cred.ts` | 删假授权链接；`force` 重读（修 `relogin` 死结）；`/userInfo` 补全（尽力而为）；显式回落展示名；补 `domain`/`accessToken` 契约字段；`banned` 抛错；新增 `logout()`；支持 `pasteCode` |
+| `packages/core/channels/astudio/src/upstream.ts` | 新增 `userInfoUrl()` / `fetchUserInfo()` |
+| `packages/core/channels/astudio/src/catalog.ts` | `modelSpec()` 透出 `effort` 与 `multiplier`；倍率表改为**只填实测值**（5 个未知） |
+| `packages/core/gateway/src/runtime/channel.ts` | `LoginUi.requestInput` 已在；`CredModule` 增可选 `logout?()`；`modelSpec?` 契约增 `effort`/`multiplier` |
+| `packages/core/gateway/src/pool/pool-targets.ts` | 倍率四层回落增 `spec` 层（**不走跨渠道** —— 那是渠道自己的计费口径） |
+| `packages/core/gateway/src/auth/auth-flow.ts` | `force` 透传给 `cred.login()` |
+| `packages/core/gateway/src/runtime/account-pool.ts` | `purgeCredentials` 探测顺序修正（先探后删，否则永远报「本来就没有」） |
+| `packages/core/gateway/src/app/cli/channel.ts` | 新增 `logout` 动词（接上 `purgeCredentials`，此前是死代码） |
+| `docs/MODEL-SPECS.md` | 新增 §4.2 AStudio 章节 |
 
 ### ⚠️ 动手前必须先定的两个前提
 

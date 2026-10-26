@@ -45,7 +45,7 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（登录被桌面应用握死，渠道改读它落盘的会话凭据直连模型网关） + [ROADMAP](./channels/astudio/ROADMAP.md)（8 项功能的缺口清单与待办，交给后续实现） |
+| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（登录被桌面应用握死，渠道改读它落盘的会话凭据直连模型网关） + [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单；2026-10-26 已收敛，仅剩第 1 项架构不可行） |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |

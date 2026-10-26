@@ -145,11 +145,16 @@ ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<accountId
 
 | 尝试 | 结果 |
 | --- | --- |
-| 本地 `127.0.0.1:16051/api/astron-auth/login/sms` | `401 Unauthorized request.` |
+| 本地 `127.0.0.1:16051/api/astron-auth/login/sms` | `401 Authentication required.` |
 | 本地带 `?token=` / `Bearer` / `X-Token` / Cookie | 全部 401 |
+| 本地带 `X-Sso-Session-Id` / `ssoSessionId` / `Cookie: synara_session_<port>` / `Bearer <token>`（2026-10-26 复测，应用正在运行且已登录） | **全部 401** |
 | 云端 `agent.xfyun.cn/xingchen-studio/api/astron-auth/*` | `404` |
 | 云端裸 `agent.xfyun.cn/api/astron-auth/*` | SPA HTML（catch-all） |
 | 云端 `astronstudio-api-volces-prod.xf-yun.com/api/astron-auth/*` | `401 HMAC signature cannot be verified` |
+
+⚠ 2026-10-26 复测补强了证据：**即使桌面应用正在运行、本地服务返回 200、
+会话文件里有 `ssoSessionId` 与 `token`**，外部请求仍然 401 ——
+本地服务认的是**应用进程内存里的活会话**，不是任何可以从磁盘读到的凭据。
 
 ### 5.2 根因
 
@@ -162,6 +167,21 @@ ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<accountId
 `cred.login()` **引导用户在 AStudio 桌面应用里登录一次**，然后读它落盘的会话文件，
 转存到本渠道自己的 `credentials.json`。代价是「要先手动登录一次」，
 比逆向云端 RPC 省事得多，且**不需要应用保持在线**。
+
+2026-10-26 实现细节（`packages/core/channels/astudio/src/cred.ts`）：
+
+1. **检测应用是否在跑**：读 `userdata/server-runtime.json` 的 `pid`，用 `process.kill(pid, 0)`
+   探活（`EPERM` 也算活着）。据此给**两种不同的指引**
+   （「请先启动 AStudio」vs「请确认已在应用里登录」）—— 不再一律甩一句「去桌面应用登录」。
+2. **不再传 `onUrl`**：此前传的是账号 API 基址（`agent.xfyun.cn/xingchen-studio`），
+   Web 端会把它当「授权链接」渲染，用户点开是个 API 地址而不是登录页。现在只给文字指引。
+3. **账号信息补全**：读到会话文件后打一次 `GET /xingchen-studio/userInfo`
+   （Cookie 认证，见 §4.2），拿权威的 `uid` / `mobile` / `nickname`。
+   **尽力而为** —— 补全失败只保留会话文件的值，不让登录失败。
+4. **`force` 重读**：`login({force: true})` 跳过「已有凭据就复用」的短路，
+   修掉 `mx relogin astudio` 在凭据还在时是空操作的问题（§7 死结）。
+5. **`pasteCode` 可用**：用户粘**会话文件路径**或**会话 JSON** 都能直接入池
+   （文件藏在 `%LOCALAPPDATA%` 下，让用户贴比让他翻目录省事）。
 
 ---
 
@@ -188,13 +208,37 @@ Content-Type: application/json
 
 | 池内 id | 展示名 | 网关 id | 倍率 | 上下文 | 最大输出 | 档位 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `auto` | Auto | `astronclaw-auto` | — | 262144 | 100000 | none / high |
-| `spark-x2.6` | Spark-X2.6 | `spark-x2.6` | — | 262144 | 100000 | none / high |
-| `spark-x2.6-lite` | Spark-X2.6-Lite | `spark-x2.6-4b` | — | 1048576 | 110000 | none / high / max |
-| `spark-x2.5` | Spark-X2.5 | `spark-x2.5` | — | 262144 | 100000 | none / high |
-| `glm-5.2` | GLM-5.2 | `xopglm52` | x2.0 | 1048576 | 100000 | none / high / max |
-| `deepseek-v4-pro` | DeepSeek-V4-Pro | `xopdeepseekv4pro` | x2.0 | 1048576 | 100000 | none / high / max |
-| `deepseek-v4-flash` | DeepSeek-V4-Flash | `xopdsv4flash0731in` | — | 1048576 | 100000 | none / high / max |
+| `auto` | Auto | `astronclaw-auto` | **未知** | 262144 | 100000 | none / high |
+| `spark-x2.6` | Spark-X2.6 | `spark-x2.6` | **未知** | 262144 | 100000 | none / high |
+| `spark-x2.6-lite` | Spark-X2.6-Lite | `spark-x2.6-4b` | **未知** | 1048576 | 110000 | none / high / max |
+| `spark-x2.5` | Spark-X2.5 | `spark-x2.5` | **未知** | 262144 | 100000 | none / high |
+| `glm-5.2` | GLM-5.2 | `xopglm52` | **x2.0** | 1048576 | 100000 | none / high / max |
+| `deepseek-v4-pro` | DeepSeek-V4-Pro | `xopdeepseekv4pro` | **x2.0** | 1048576 | 100000 | none / high / max |
+| `deepseek-v4-flash` | DeepSeek-V4-Flash | `xopdsv4flash0731in` | **未知** | 1048576 | 100000 | none / high / max |
+
+**倍率来源与「未知」的含义**（B 级，2026-10-26 实测）：云端
+`GET /xingchen-studio/bot/models/configs` 返回 9 行，字段 `point_multiplier`。
+**只有 8 行有值**（`x2.0` / `x1.0` / `x0.5`），且**行 id 与上表 exposure 只有 2 个对得上**：
+
+| 云端行 id | `point_multiplier` | 对应本表？ |
+| --- | --- | --- |
+| `astronclaw-auto` | `null` | ✅ `auto` → **未知** |
+| `xsparkx2agent` | `x2.0` | ❌ 不是 `spark-x2.6` |
+| `spark-x` | `x0.5` | ❌ 不是 `spark-x2.5` / `spark-x2.6` |
+| `xopglm52` | `x2.0` | ✅ `glm-5.2` |
+| `xopglm51` | `x2.0` | ❌ 本表未暴露 |
+| `xminimaxm25` | `x1.0` | ❌ 本表未暴露 |
+| `xopkimik26` | `x2.0` | ❌ 本表未暴露 |
+| `xopqwen36v35b` | `x1.0` | ❌ 本表未暴露 |
+| `xopdeepseekv4pro` | `x2.0` | ✅ `deepseek-v4-pro` |
+
+→ `spark-x2.6` / `spark-x2.6-4b` / `spark-x2.5` / `xopdsv4flash0731in` 在云端**没有对应行**，
+`astronclaw-auto` 的值为 `null` —— 这 5 个一律**未知**（渠道省略该字段，
+池层回落 `null`，控制台按订阅制显示「免费」）。
+
+⚠ 此前渠道表给这 5 个一律填 `multiplier: 1`，那是**无源填 1**（客户端会按它算钱）。
+2026-10-26 改为省略。**倍率要么实测、要么未知，绝不编造。**
+规格表见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §4.2。
 
 **网关 id 实测接受度**：
 
@@ -285,7 +329,20 @@ POST /api/astron-auth/logout     （经本地服务代理）
 源码 `logoutAstron` → `persistAstronAuthState(stateDir, null, "logout-commit")`，
 即删除会话文件 + 清空 `config.toml` 里的 bearer。
 
-⚠ 该端点需活会话，渠道**不实现登出**；渠道侧「登出」= 删除自己的 `credentials.json`。
+⚠ 该端点需活会话 → **渠道无法从外部调用**（同 §5：本地服务只认应用自己的活会话，
+实测 401）。故**上游吊销做不到**，云端 `token` / `ssoSessionId` 在登出后仍然有效，
+AStudio 桌面应用里也仍是登录态。
+
+**渠道实现了本地销毁**（2026-10-26）：
+
+| 层 | 动作 |
+| --- | --- |
+| `cred.logout()` | 删本渠道 `credentials.json` |
+| `mx logout <cid>` | 先调 `cred.logout()`，再 `purgeCredentials(cid)`（连池内账号一起清） |
+| Web「删除生效账号」 | 共享层既有路径，删生效账号时连带删 `credentials.json` |
+
+⚠ 语义必须在界面上说清：这是「从 modelmux 移除」，**不是**「把 AStudio 踢下线」。
+要彻底登出需在桌面应用里操作。
 
 ---
 
@@ -293,9 +350,9 @@ POST /api/astron-auth/logout     （经本地服务代理）
 
 | 模块 | 实现 |
 | --- | --- |
-| `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` 引导桌面登录后落盘；`refresh()` 带 Cookie 打 `/bot/models/configs` 取 `api_key` |
-| `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort` |
-| `catalog.ts` | **静态内置表**（7 个模型）；`modelSpec()` 给 `contextWindow` / `maxOutputTokens`；**无 `refresh()`** |
+| `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` 引导桌面登录后落盘（`force` 重读、`/userInfo` 补全、`pasteCode` 支持粘贴会话）；`refresh()` 带 Cookie 打 `/bot/models/configs` 取 `api_key`；`logout()` 删本地凭据 |
+| `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort`；`fetchUserInfo()` 打 `/userInfo` 补全账号信息 |
+| `catalog.ts` | **静态内置表**（7 个模型）；`modelSpec()` 给 `contextWindow` / `maxOutputTokens` / `effort` / `multiplier`（倍率只填实测值）；**无 `refresh()`** |
 | `billing.ts` | `fetchCredits()` 打 `/usage`（契约要求，`billing: false` 时共享层不调）；`signin` 只报说明；**不实现 `quotaPeriod()`**（无额度墙可报） |
 | `channel.ts` | `capabilities: { billing: false, signin: false }` |
 

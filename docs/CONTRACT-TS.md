@@ -242,9 +242,23 @@ interface Channel {
 失效时抛错 —— **不要假装续期成功**（那会让 UI 显示「已续期」而请求仍 401）。
 `load()` 遇到「老凭据缺新字段」时，能补就补，而不是拒绝整条凭据。
 
+#### 5.1.0 `logout()`（**可选钩子**）与「登出」的语义
+
+`CredModule.logout?(): Promise<void>` —— 销毁**本渠道的本地凭据**。
+
+⚠ **契约只要求本地销毁**：各渠道的上游登出端点几乎都需要**活会话**
+（外部进程拿不到，实测 401），所以「吊销上游会话」不是契约要求。
+渠道若确实拿得到登出端点，在实现里说明它额外做了什么。
+
+- 共享层接线：`mx logout <cid>` → 先调 `cred.logout()`，再 `purgeCredentials(cid)`
+  （连池内账号一起清）。此前 `purgeCredentials` **全仓无调用方，是死代码**（2026-10-26 接上）。
+- 与「删除池里某个账号」（`mx acct <cid> remove <key>`）的区别：那是摘掉一个条目，
+  这是把整个渠道的登录态清掉。
+- 语义必须在界面上说清：这是「从 modelmux 移除」，**不是**「把官方客户端踢下线」。
+
 #### 5.1.1 登录回调（`login()` 的第二个参数）
 
-`cred.login(baseUrl, options?)` 的 `options` 是渠道与界面之间的回调面，五个成员
+`cred.login(baseUrl, options?)` 的 `options` 是渠道与界面之间的回调面，六个成员
 **全部可选**（类型见 `packages/core/gateway/src/runtime/channel.ts:115-145`）：
 
 | 回调 | 语义 | 共享层调用点 |
@@ -254,6 +268,17 @@ interface Channel {
 | `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts:59` |
 | `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts:62` |
 | `requestInput(req)` | 向用户要一段输入（两步登录，如 loomy 短信验证码） | `packages/core/gateway/src/auth/auth-flow.ts:73` |
+| `force` | **强制重读**（`mx relogin`）：跳过「已有凭据就复用」的短路 | `packages/core/gateway/src/auth/auth-flow.ts:77` |
+
+##### `force`：`relogin` 与 `login` 的分界
+
+`login()` 的语义是**幂等**的（已有凭据就复用），`relogin` 要的是**重新走一遍**。
+两者此前没区分，导致 astudio 这种「凭据来自外部会话文件」的渠道
+`mx relogin` 在凭据还在时是**空操作**（2026-10-26 修）。
+
+- 共享层 `ensureLogin({force})` → `cred.login(baseUrl, {force: true})`；
+- 渠道**必须先试 `force`**：为真时跳过复用短路，重新读自己的凭据来源
+  （astudio 重读会话文件；其它渠道重走授权）。
 
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
@@ -478,17 +503,23 @@ modelSpec?(modelId: string): {
   maxOutputTokens?: number;
   /** 官方文档逐模型给出的思考档位（目前只有 TokenHub 那种文档有，见 MODEL-SPECS §3.2）。 */
   effort?: { supportedLevels: string[]; defaultLevel: string };
+  /** 消耗倍率；**省略 = 未知**（池层回落 `null`）。倍率不走目录缓存那条路。 */
+  multiplier?: number;
 } | undefined;
 ```
 
 - `modelId` 是池 id 里的**规范模型名**（`exposedIds()` 经归一化后的结果）——
   渠道内部负责把它映射到自己的条目。
-  （倍率不走这里：倍率由目录条目的倍率字段汇聚成 `PoolModelMeta.multiplier`。）
 - 数值按**公开规格**填，来源与核实方法见 [MODEL-SPECS.md](./MODEL-SPECS.md)；
   **查不到返回 undefined**（表示「上游与公开资料都没有」，**不编造**）。
 - `effort` 只填**官方文档逐模型写明档位**的（`docs/MODEL-SPECS.md` §3.2）：
   公开资料只写「支持思考 / 非思考」或「最大思维链」的，**不填**（池层给 `null`）。
   走这条通道的档位来源标 `spec`，与上游运行时声明的 `upstream` 区分开。
+- **`multiplier` 只填实测值**：云端/上游没给的就是未知 ——
+  省略该字段，不要让池层填占位数字（客户端会按它算钱）。
+  实测案例见 [MODEL-SPECS.md](./MODEL-SPECS.md) §4.2（AStudio：7 个模型里只有 2 个有实测倍率）。
+  ⚠ **倍率不走「跨渠道兜底」那一层**：倍率是渠道自己的计费口径，
+  拿兄弟渠道的值去填等于编造（窗口/输出/档位可以，倍率不行）。
 - **取值优先级：本渠道上游目录 > 本渠道声明（本钩子）> 跨渠道兜底 > 占位值**：
   共享层对「本渠道两条路都答不上来」的字段，会拿**兄弟渠道同规范 model id** 的已知值补
   （数值取 min / 档位取交集，只填缺值，且标 `sources: "cross"`）——
