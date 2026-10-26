@@ -246,7 +246,8 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    目录分层见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §1；规则由 `scripts/verify-layering.mjs` 强制。
 7. 注释写作遵守 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md) 的三层分工：协议事实进
    `docs/channels/<cid>/PROTOCOL.md`、why 跟被治理的函数 docstring、
-   文件头只留导航 + 行为约束 + 铁律（≤12 行）。
+   文件头只留导航 + 行为约束 + 铁律（≤12 行）；
+   注释内容（写什么 / 不写什么 / 日期与署名判据）见 [`docs/CODE-COMMENTS.md`](docs/CODE-COMMENTS.md)。
 8. **Web 控制台禁止 hover 悬浮气泡**（`packages/ui/**` 硬规则，见
    [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md) §「交互铁律」）：
    - 不用原生 `title=` 属性、不自建 hover tooltip / popover；
