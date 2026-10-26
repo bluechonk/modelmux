@@ -120,8 +120,13 @@ export function LoginModal({
   // 扫码流 2 步、授权链接流 3 步；标题栏据此给步骤提示
   /** 既没有授权链接/二维码，也没有待回答的输入 = 正在处理（准备中或渠道在发码）。 */
   const busy = !authUrl && !qrUrl && !loginInput;
-  /** 本轮是手机验证码登录（渠道要过一次手机号）—— 用三行表单，不画步骤时间线。 */
-  const phoneForm = phoneStep && !authUrl && !qrUrl;
+  /** 本轮是手机验证码登录（渠道要过手机号/验证码）—— 用三行表单，不画步骤时间线。
+   *  ⚠ 判据里带上 `loginInput.kind`：`phoneStep` 是 effect 里置的，
+   *  首帧还没置上，只靠它会在第一次要输入时闪一下骨架。 */
+  const phoneForm =
+    (phoneStep || loginInput?.kind === "phone" || loginInput?.kind === "code") &&
+    !authUrl &&
+    !qrUrl;
   const failed = uiState === "error";
   const done = uiState === "done";
   const totalSteps = qrUrl ? 2 : 3;
@@ -285,56 +290,19 @@ export function LoginModal({
                 <div className="text-sm text-ink-soft">正在准备登录会话…</div>
                 <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
               </div>
-            ) : loginInput && loginInput.kind === "phone" ? (
+            ) : phoneForm ? (
               /* 手机验证码登录：三行表单（手机号 / 验证码 + 获取验证码 / 登录 + 取消）。
-                 只有第一次要输入时是手机号 —— 第二次（要验证码）沿用同一张表单，
-                 `phoneStep` 保证中途的「发码中」空窗也不会退回骨架。 */
+                 后端两次顺序的 `requestInput`（先手机号 → 发码 → 再验证码）映射到三行：
+                 要手机号那步「获取验证码」可点、验证码框与「登录」禁用；码发下来后二者解禁。
+                 「获取验证码」点完到后端接手之间的空窗也走这里（`phoneStep` 已置位），
+                 不退回骨架 —— 用户刚点了按钮，界面不能看起来没反应。 */
               <PhoneLoginForm
                 phone={phone}
                 code={code}
                 onPhone={setPhone}
                 onCode={setCode}
-                codePending={false}
-                sent={phoneSent}
-                sending={submitting}
-                onSubmitPhone={() => {
-                  setPhoneSent(true);
-                  onSubmitInput(phone);
-                }}
-                onSubmitCode={() => onSubmitInput(code)}
-                onCancel={() => {
-                  onCancelInput();
-                  onClose();
-                }}
-              />
-            ) : loginInput && loginInput.kind === "code" ? (
-              <PhoneLoginForm
-                phone={phone}
-                code={code}
-                onPhone={setPhone}
-                onCode={setCode}
-                codePending
-                sent
-                sending={submitting}
-                onSubmitPhone={() => {
-                  setPhoneSent(true);
-                  onSubmitInput(phone);
-                }}
-                onSubmitCode={() => onSubmitInput(code)}
-                onCancel={() => {
-                  onCancelInput();
-                  onClose();
-                }}
-              />
-            ) : phoneStep && busy ? (
-              /* 「获取验证码」点完、后端还在发码的空窗：保留表单，别退回骨架。 */
-              <PhoneLoginForm
-                phone={phone}
-                code={code}
-                onPhone={setPhone}
-                onCode={setCode}
-                codePending={false}
-                sent={phoneSent}
+                codePending={loginInput?.kind === "code"}
+                sent={phoneSent || loginInput?.kind === "code"}
                 sending={submitting}
                 onSubmitPhone={() => {
                   setPhoneSent(true);
@@ -351,9 +319,8 @@ export function LoginModal({
             ) : authUrl ? (
               <Steps items={authSteps} />
             ) : (
-              /* 两步登录里「已提交手机号、正在发码」的窗口也走这里：
-                 渠道还没发出下一个输入请求，但已有进度文案 —— 用文案而不是
-                 干巴巴的骨架，否则用户会以为点了没反应（2026-10-26 主人反馈）。 */
+              /* 渠道在做耗时动作（如发码）但还没给出下一步：把它的进度文案显示出来，
+                 而不是干巴巴的骨架 —— 否则用户会以为点了没反应（2026-10-26 主人反馈）。 */
               <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
                 <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
                 <div className="text-sm text-ink-soft">{message || "正在准备登录会话…"}</div>
