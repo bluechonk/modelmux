@@ -1,19 +1,4 @@
 /**
- * AStudio 额度：**本渠道没有额度概念**，本模块只提供契约要求的成员。
- *
- * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md）：
- *   - 账号是**免费档**：实测 `mode: "unrestricted"`、`balance: 0`、`cost: 0`。
- *     `/usage` 返回的 0 是**真实且永久**的状态，不是「查不到」。
- *   - 因此 `channel.ts` 声明 `billing: false` —— 共享层 `markCooldownIfExhausted`
- *     会把 `remain <= 0` 当成「额度耗尽」并**冷却账号**，而这里没有额度墙可等。
- *   - **没有签到端点**：每日登录积分由服务端按套餐配置自动发放（源码
- *     `AstronMembershipPlanConfig.dailyLoginEnabled`），故 `signin` 只报说明。
- *
- * `fetchCredits()` 保留是为了满足契约（`BillingModule` 要求它存在）；
- * 它仍然可以查 `/usage` 拿用量，但**调用方（共享层）在 `billing: false` 时不会调它**。
- */
-
-/**
  * AStudio 额度：**积分余额**（通用积分 + 星火积分）+ 用量。
  *
  * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md）：
@@ -26,8 +11,8 @@
  *     若把它当额度报给共享层，`markCooldownIfExhausted` 会因 `remain <= 0`
  *     **冷却账号** —— 而积分余额明明有 6197。所以额度口径取**积分余额**。
  *
- * 积分余额**没有上限概念**（`size` 未知）→ 报 `size = remain`，
- * `remain_percent` 给 0（UI 只在有基线时才画进度条）。
+ * 「已用」= `totalAmount − totalBalance`（发放−余额）；模型网关 `/usage` 实测 404，
+ * 不能当消耗来源。上限取 `totalAmount`（活动发放总额），百分比与到期天数随之可算。
  */
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
@@ -109,8 +94,13 @@ function parseToday(payload: Record<string, unknown>): TodayUsage | null {
  * ⚠ **不能用模型网关的 `balance` 当额度**：那是免费档的 0（永久），
  * 共享层会因 `remain <= 0` 把账号**冷却**掉，而积分余额明明有 6197（2026-10-26 实测）。
  *
- * 积分余额**没有上限**（上游不公布总额）→ `size` 报 `remain`，
- * `remain_percent` 给 0（UI 只在有基线时才画进度条）。
+ * **「已用」口径 = `totalAmount − totalBalance`**（累计发放 − 当前余额，2026-10-26 实测）：
+ * 模型网关 `/usage` 实测 **404**（maas-api 主机无该路由），`today.cost` 永远拿不到，
+ * 用它报「已用 0」是假的（真实消耗 3 积分被显示成 0）。积分端点自身没有流水，
+ * 发放−余额是唯一有源的消耗口径。同理星火池用 `sparkTotalAmount − sparkTotalBalance`。
+ *
+ * 上限有真实值（`totalAmount` 是活动发放的总额）→ `size` 报它，
+ * `remain_percent` 与 `days_left`（体验积分 `activityNextExpireTime`）随之可算。
  */
 export async function fetchCredits(
   options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
@@ -128,7 +118,10 @@ export async function fetchCredits(
   if (remain === null) {
     throw new CreditsError("points/balance 响应里没有 totalBalance（不编造数字）");
   }
+  const granted = numOrNull(points["totalAmount"]);
+  const used = granted !== null ? Math.max(granted - remain, 0) : null;
   const spark = numOrNull(points["sparkTotalBalance"]);
+  const sparkGranted = numOrNull(points["sparkTotalAmount"]);
 
   // 2) 会员套餐（用于给额度包起名）
   let planName = "通用积分";
@@ -141,7 +134,7 @@ export async function fetchCredits(
     /* 查不到套餐不影响余额上报 */
   }
 
-  // 3) 今日用量（**尽力而为**：拿不到不影响额度上报）
+  // 3) 今日用量（**尽力而为**：模型网关 /usage 实测 404，拿不到不影响额度上报）
   let today: TodayUsage | null = null;
   try {
     const resp = await fetch(`${upstream.DEFAULT_BASE_URL}/usage`, {
@@ -166,14 +159,24 @@ export async function fetchCredits(
     /* 用量查不到就只报余额 */
   }
 
+  // 体验积分到期日（activityNextExpireTime）→ 剩余天数
+  const expireRaw = points["activityNextExpireTime"];
+  const expireAt = typeof expireRaw === "string" ? expireRaw.trim() : "";
+  const daysLeft = expireAt
+    ? Math.max(
+        Math.ceil((Date.parse(expireAt) - Date.now()) / 86_400_000),
+        0,
+      )
+    : null;
+
   const packages: CreditPackage[] = [
     {
       name: planName,
       remain,
-      size: remain,
-      used: today?.cost ?? 0,
+      size: granted ?? remain,
+      ...(used !== null ? { used } : {}),
       unit: "积分",
-      days_left: null,
+      days_left: daysLeft,
       ...(today
         ? {
             today_requests: today.requests,
@@ -184,13 +187,13 @@ export async function fetchCredits(
         : {}),
     },
   ];
-  // 星火专属积分是第二个池（实测 35000）
+  // 星火专属积分是第二个池（实测 35000，有独立的发放总额）
   if (spark !== null) {
     packages.push({
       name: "星火专属积分",
       remain: spark,
-      size: spark,
-      used: 0,
+      size: sparkGranted ?? spark,
+      ...(sparkGranted !== null ? { used: Math.max(sparkGranted - spark, 0) } : {}),
       unit: "积分",
       days_left: null,
     });
@@ -200,11 +203,11 @@ export async function fetchCredits(
     ok: true,
     total: {
       remain,
-      size: remain,
-      used: today?.cost ?? 0,
+      size: granted ?? remain,
+      used: used ?? (today?.cost ?? 0),
       unit: "积分",
-      // 积分没有「上限」概念 → 百分比无意义，恒 0
-      remain_percent: 0,
+      // 有真实发放总额 → 百分比可算；没有时给 0（UI 只在有基线时才画进度条）
+      remain_percent: granted !== null && granted > 0 ? (remain / granted) * 100 : 0,
     },
     packages,
     claimable: [],

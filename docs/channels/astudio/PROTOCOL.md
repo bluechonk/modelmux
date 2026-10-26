@@ -389,6 +389,13 @@ Cookie: <buildAstronCookieHeader>
  "activityNextExpireTime":"2026-11-25T23:11:42"}
 ```
 
+**「已用」口径 = `totalAmount − totalBalance`**（发放 − 余额，B 级实测 2026-10-26）：
+积分端点**没有流水/明细**（`/points/records` 等全 404），模型网关 `/usage` 也 404，
+发放 − 余额是唯一有源的消耗口径（当时 6200 − 6197 = **已用 3**，来自两轮端到端测试）。
+`activityNextExpireTime` 是体验积分到期日 → `days_left`（实测 30 天）。
+计费粒度：单轮最小对话（~25k tokens）在 8 秒与 60 秒内均**未观测到即时扣减**，
+扣减疑似异步/批量结算 —— 对账以「前后 balance 差」为准，不假设逐请求实时扣。
+
 另两个只读端点（Cookie）：
 
 | 端点 | 实测 |
@@ -585,8 +592,9 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 模型 id 归一化 | 池内短名（`astudio/glm-5.2`）能路由到网关 id（`xopglm52`），响应 `model` 字段为后者 |
 | 错误传播 | 上游 503 时网关回 502/503 且日志含 `upstream returned non-200`，账号**不**进冷却 |
 
-> 成本红线：本渠道是免费档（`mode: "unrestricted"`、`cost: 0`），端到端测试不产生费用；
-> 仍按 `opencode-mx-test` 的要求记录 `mx bill astudio` 前后差异（预期差 0）。
+> 成本红线：本渠道**确实消耗积分**（2026-10-26 实测：两轮端到端测试累计扣 3 积分，
+> 见下方 deepseek-v4-flash 计费实测）—— 单量极小但不是 0。跑测试前先 `mx bill astudio`
+> 记基线、测后对账；倍率未知的模型只跑单轮最小对话。
 
 ### 2026-10-26 端到端实测
 
@@ -600,4 +608,5 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 工具 / 流式 / 档位 | ✅ 直连实测通过（见技能 `astudio-probe.mjs chat`） |
 | **opencode 单轮冒烟（7/7）** | ✅ 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
 | **经网关的 Agent 工具往返** | ✅ 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |
+| **deepseek-v4-flash 计费实测** | ✅ 2026-10-26 直打 `/points/balance` 对账：`totalAmount 6200 − totalBalance 6197` = **已用 3 积分**（两轮端到端测试的累计消耗；星火专属 35000 分未动）。单轮最小对话（~25k tokens）8s / 60s 内均无即时扣减（扣减疑似异步）。**顺带修掉渠道 bug**：`mx bill` 的「已用」此前取模型网关 `/usage` 的 `today.cost`（该端点 404，恒 0）→ 改为 `totalAmount − totalBalance` 口径，并补体验积分 `days_left`（30 天） |
 
