@@ -22,9 +22,13 @@ import * as cred from "./cred.js";
  * ⚠ 与 `cred.DEFAULT_BASE_URL`（账号 API 基址 `agent.xfyun.cn/xingchen-studio`）
  * **不是同一个域**：模型网关是 `astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1`。
  * 契约要求本模块导出 `DEFAULT_BASE_URL`，其语义是**对话侧**基址。
+ *
+ * ⚠ 2026-10-26 实测：**这个主机名对所有模型都 404**（`API endpoint not found`）——
+ * 真正的推理主机是**每个模型各带一个 `base_url`**（见 `chatUrlForModel`），
+ * 主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`。
+ * 故本常量只作**兜底**；实际对话走 `chatUrlForModel()`。
  */
-export const DEFAULT_BASE_URL =
-  "https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1";
+export const DEFAULT_BASE_URL = "https://maas-api.cn-huabei-1.xf-yun.com/v2";
 
 /**
  * 账号 API 基址（刷新凭据 / 账号信息用）。
@@ -152,6 +156,55 @@ export function chatUrl(cfg?: Config): string {
 }
 
 /**
+ * **按模型**决定对话端点。
+ *
+ * ## 为什么必须有这个
+ *
+ * AStudio 的云端模型配置里**每个模型各带一个 `base_url`**（实测 2026-10-26）：
+ *
+ * | model | base_url |
+ * | --- | --- |
+ * | `astronclaw-auto` / `xopglm52` / `xopdeepseekv4pro` / … | `https://maas-api.cn-huabei-1.xf-yun.com/v2` |
+ * | `spark-x` | `https://spark-api-open.xf-yun.com/agent/v1` |
+ *
+ * 硬编码一个 host 会对**不在那个 host 上的模型**回 `404 API endpoint not found`
+ * （实测：`astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
+ * 对所有模型都 404 —— 那是**错的**主机名，正确的见上表）。
+ *
+ * 参考实现也是这么做的：`internal/astron/client.go` 的 `InferenceURL(path)` 拼的是
+ * `c.Upstream`（每个模型各自的 base），不是全局固定值。
+ *
+ * ## 取不到时怎么办
+ *
+ * 用**已缓存的**模型配置（`/bot/models/configs` 的 `base_url`）；缓存里没有就退回
+ * 默认主机（`maas-api.cn-huabei-1.xf-yun.com/v2`）——
+ * 该主机覆盖了 9 个模型中的 8 个（只有 `spark-x` 走另一个）。
+ */
+export function chatUrlForModel(upstreamModel: string, cfg?: Config): string {
+  const model = upstreamModel.trim();
+  const cached = modelBaseUrl(model);
+  return `${cached ?? DEFAULT_INFERENCE_BASE}${CHAT_PATH}`;
+}
+
+/** 推理默认主机（覆盖 9 个模型中的 8 个）。 */
+const DEFAULT_INFERENCE_BASE = "https://maas-api.cn-huabei-1.xf-yun.com/v2";
+
+/**
+ * 模型 → 推理主机 的映射缓存（进程内）。
+ *
+ * ⚠ **进程内**而不是落盘：`chatUrlForModel` 是**同步**的（契约如此），
+ * 落盘也得到读文件；不如在 `fetchModelConfigs()` 拿到配置时顺手填进这张表，
+ * 命中即用。进程重启后首次请求会退回默认主机（覆盖 8/9 个模型），
+ * 下一次刷新配置就补齐。
+ */
+const modelBaseUrls = new Map<string, string>();
+
+/** 从缓存的模型配置里取该模型的 `base_url`。 */
+function modelBaseUrl(upstreamModel: string): string | undefined {
+  return modelBaseUrls.get(upstreamModel);
+}
+
+/**
  * 模型列表端点。
  *
  * AStudio 的模型清单**不是**从网关拉的（网关无 `/models`），而是随包内置 + 云端配置。
@@ -257,9 +310,29 @@ export async function fetchModelConfigs(
     throw new Error(`model configs request returned HTTP ${resp.status}`);
   }
   try {
-    return JSON.parse(text) as Record<string, unknown>;
+    const payload = JSON.parse(text) as Record<string, unknown>;
+    // 顺手记下「模型 → 推理主机」的映射（对话端点按模型取，见 chatUrlForModel）
+    rememberModelBaseUrls(payload);
+    return payload;
   } catch (err) {
     throw new Error(`model configs response is not valid JSON: ${String(err)}`);
+  }
+}
+
+/**
+ * 从模型配置响应里记住每个模型的推理主机（`base_url`）。
+ *
+ * 对话端点是**按模型**的（见 `chatUrlForModel`），所以这里把映射填进进程内的表。
+ */
+function rememberModelBaseUrls(payload: Record<string, unknown>): void {
+  const data = payload["data"];
+  if (!Array.isArray(data)) return;
+  for (const row of data) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as Record<string, unknown>;
+    const model = str(rec["model"]).trim();
+    const baseUrl = str(rec["base_url"]).trim();
+    if (model && baseUrl) modelBaseUrls.set(model, baseUrl.replace(/\/+$/, ""));
   }
 }
 
