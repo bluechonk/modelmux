@@ -3,7 +3,8 @@
 本文件是**可复用的工作流**：换一个 Agent 应用（桌面端 / 移动端 / 任何带私有协议的客户端），
 按同样的阶段走一遍，就能从「什么都不知道」到「能用脚本复现任意请求」。
 AStudio 的具体产物（端点、字段、坑）在 [PROTOCOL.md](PROTOCOL.md) —— 那是本方法论的**一次应用结果**，
-不是方法论本身。
+不是方法论本身。**方法论的完整实跑记录**（真实命令、脱敏输出、踩坑与推理现场）在
+[WALKTHROUGH.md](WALKTHROUGH.md) —— 读方法论觉得抽象时看它，每个 Stage 都有对应的实操小节。
 
 ## 0. 心法：四条证据链
 
@@ -64,6 +65,8 @@ grep -aob "https\?://[a-z0-9.-]*" app.asar | head -50
 
 **渐进策略**：grep 全貌 → mine 局部（命中行前后几百字符）→ extract 整段（关键函数全文）。
 一上来就整包 extract 会淹死在 bundle 里。
+（AStudio 实操：裸域名正则被 161 条许可证链接淹没 → 域名分组降噪 → authBaseUrl 三环境，
+见 [WALKTHROUGH.md](WALKTHROUGH.md) §1。）
 
 ### 非 Electron
 
@@ -118,6 +121,8 @@ Get-NetTCPConnection -OwningProcess <pid> | Select RemoteAddress, RemotePort
 
 操作应用的同时轮询，拿到真实对端 IP → 反向解析域名 → 与静态链挖出的域名比对。
 IP 对不上代码里的域名，说明还有没挖到的配置源（服务端下发、CDN、本地代理层）。
+（AStudio 实操：主进程诊断日志四条实拍与静态推导逐条对上；对话流量不在主进程 =
+渲染层直连，见 [WALKTHROUGH.md](WALKTHROUGH.md) §2。）
 
 ### 抓包纪律
 
@@ -158,6 +163,8 @@ IP 对不上代码里的域名，说明还有没挖到的配置源（服务端�
 ### 3.4 证据落级
 
 每条结论标 A / B / C；同一事实多来源时取**最低**等级（源码见过但实测 404 的端点，按 404 记）。
+（AStudio 实操：静态零命中的推理主机由「拉服务端配置」破案、probe 404 现场与修复，
+见 [WALKTHROUGH.md](WALKTHROUGH.md) §3。）
 
 ## 5. Stage 4 —— 沉淀
 
