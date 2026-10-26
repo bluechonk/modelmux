@@ -57,6 +57,19 @@
 
 ## 6. 与既有规则的关系
 
-- 全局 `~/.zcode/AGENTS.md`「代码与注释」：中文、简洁、不复述、随代码同步更新——本文件是其内容层细则。
+- 全局 `~/.zcode/AGENTS.md`「代码与注释」：内容层底线（why / 常青 / 四类禁写 / 时效地雷）已内联进该文件，
+  模型上下文默认可达；本文件是细则与正反例。
 - [MODULE-COMMENTS.md](./MODULE-COMMENTS.md)：文件头 / docstring / 文档的三层分工——本文件管「写什么」，它管「放哪里」。
 - 时间线与实测证据（何时测的、原始报文）落 `docs/channels/<cid>/PROTOCOL.md` 的证据等级体系，不落注释。
+
+## 7. 与业界实践的对照（2026-10-27 核验）
+
+| 本文件判据 | 业界出处 | 结论 |
+| --- | --- | --- |
+| 写 why 不写 what | Google Code Health「To Comment or Not to Comment」；Stack Overflow、Marmelab 的 agent 实践（对 agent doubly 适用） | 一致 |
+| 禁 changelog / 修订记录（必然过时） | Google Code Health 明确反例（"Edited by Bob on 3/2/07"），版本控制是归宿 | 一致 |
+| 过时注释比没有更糟 | 同上 | 一致 |
+| 署名 / 审批留痕归 git blame | Google 同篇（历史归 version control） | 一致 |
+| TODO(owner) 格式 | Google 风格指南 TODO 惯例 | 一致 |
+| **时效地雷例外**（日期绑事实上） | 业界少有成文；为逆向 / 外部依赖型项目所需（观测时点 = 结论新鲜度），且与「禁 changelog」不冲突——它不是修订记录 | 本仓增量 |
+| 注释标准内联进 AGENTS.md / 全局指令（模型上下文直达） | VS Code 官方 custom instructions、OpenAI Codex 社区、Anthropic（checkable 规则、≤200 行） | 已落地（全局 AGENTS 内联底线） |

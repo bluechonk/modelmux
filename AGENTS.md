@@ -244,10 +244,14 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - 极少数必要例外列在脚本的 `ALLOWLIST`（必须写理由）；新增例外要慎重，
      且条目失效时（不再向上）脚本会报错要求删除。
    目录分层见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §1；规则由 `scripts/verify-layering.mjs` 强制。
-7. 注释写作遵守 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md) 的三层分工：协议事实进
-   `docs/channels/<cid>/PROTOCOL.md`、why 跟被治理的函数 docstring、
-   文件头只留导航 + 行为约束 + 铁律（≤12 行）；
-   注释内容（写什么 / 不写什么 / 日期与署名判据）见 [`docs/CODE-COMMENTS.md`](docs/CODE-COMMENTS.md)。
+7. 注释两层规范（内容层底线见全局 `~/.zcode/AGENTS.md`「代码与注释」，此处是本项目特有分工）：
+   - **what 去文档**：协议事实（端点、字段、状态码、实测数字）只活在
+     `docs/channels/<cid>/PROTOCOL.md`；代码注释出现同一事实的副本 = 违规，删副本留指针。
+   - **why 跟函数**：设计取舍写在被治理函数的 docstring 上；实测时点绑在事实上写
+     （时效地雷，见全局规则第 4 条），修订记录与署名禁写。
+   - **文件头只做导航（≤12 行）**：一句话职责 + 关键约束 ≤3 条 + 铁律（如需要）+ 指针。
+   模板与细则见 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md)，
+   内容判据与正反例见 [`docs/CODE-COMMENTS.md`](docs/CODE-COMMENTS.md)。
 8. **Web 控制台禁止 hover 悬浮气泡**（`packages/ui/**` 硬规则，见
    [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md) §「交互铁律」）：
    - 不用原生 `title=` 属性、不自建 hover tooltip / popover；
