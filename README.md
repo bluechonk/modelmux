@@ -103,5 +103,12 @@ mx model list
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
+| 渠道端到端测试（Reasonix 直连网关） | 技能 `.agents/skills/reasonix-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
+| 收尾流程（文档同步 / commit / PR / CI / merge） | 技能 `.agents/skills/repo-sync/SKILL.md` |
 | 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |
+| AStudio 逆向（采矿 / 实测 / 渠道实现） | 技能 `.agents/skills/astudio-re/SKILL.md`（协议事实见其 `references/PROTOCOL.md`） |
+| 多会话并行改同一项目时的对齐与收尾 | 技能 `.agents/skills/zcode-session-archaeology/SKILL.md` |
+
+> 技能清单以 [docs/README.md](docs/README.md) §3 的表为准（`.agents/skills/` 下每个技能都登记在彼）；
+> `verify-docs` 会校验不漏登记。
