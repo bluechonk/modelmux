@@ -8,6 +8,7 @@
  *   异常/冷却只给状态点与文字着色，不给整卡铺彩色底（DeepSeek 不用彩色面板）。
  * - 账号行：**单行扁平结构** —— 状态点 + 名称 + 状态 pill + 额度（条/数字/百分比）+ 操作；
  *   不再保留第二行状态说明（2026-10-26 主人要求「内容保持尽量扁平」）。
+ * - 名称**渠道给什么就显示什么**，前端不做脱敏（见 `displayName`）。
  * - 操作按钮（切换 / 删除）默认隐藏，鼠标悬停该账号行才出现；触屏设备常显。
  */
 
@@ -138,46 +139,25 @@ function healthBadgeClass(health: string): string {
 }
 
 /**
- * 账号标识**脱敏**：保留头尾、中间统一换成 `****`（主人 2026-10-23 要求）。
+ * 账号展示名：**渠道给什么就显示什么**，不做脱敏。
  *
- * 页面上不出现任何完整账号 id / 昵称 / 邮箱 —— 看板可能被投屏、截图分享。
- * 头尾长度按总长比例取（短串也至少留 1 头 1 尾），保证同池两账号还能区分开。
- */
-function maskMiddle(raw: string): string {
-  const text = raw.trim();
-  if (text === "") return "";
-  if (text.length <= 2) return `${text.slice(0, 1)}****`;
-  if (text.length <= 6) return `${text.slice(0, 1)}****${text.slice(-1)}`;
-  const head = Math.min(4, Math.max(2, Math.floor(text.length * 0.3)));
-  const tail = Math.min(3, Math.max(1, Math.floor(text.length * 0.2)));
-  return `${text.slice(0, head)}****${text.slice(-tail)}`;
-}
-
-/**
- * 账号展示名：**有名称就显示名称，没有才脱敏 id**。
+ * 取用顺序：`name`（渠道给的可读标识：nickname / 用户名 / 邮箱 / 手机号）
+ * → `label` → `uid` → `key`，取到即原样返回。
  *
- * `account.name` 是渠道给的可读名称（nickname / 用户名 / 邮箱 / 手机号），直接展示
- * 才能区分同渠道的多个账号；`label` 可能退化成 uid / key，那种泛化值按标识脱敏
- * （手机号 / 纯数字 UID / 邮箱 / key）。
- *
- * 输出形态：`demo-user`（名称）、`138****0001`（手机号）、`UID 100****042`（纯数字）、
- * `账号 acc****1234`（key 兜底）。
+ * ⚠ 2026-10-26 主人决定：**不做脱敏设计**。此前前端会把「没有 name」的账号
+ * 统一打码（`138****0001`、`UID 100****042`），理由是看板可能被投屏、截图分享；
+ * 但那让同一页面出现两套口径 —— astudio 给的是明文手机号、lobsterai 上游只给
+ * 打码手机号，界面上看起来自相矛盾。**要不要脱敏由渠道/上游决定**
+ * （拿不到明文就别存），前端不再统一加工。
  */
 function displayName(account: PoolAccount): string {
   const name = account.name?.trim() ?? "";
   if (name) return name;
   const label = account.label?.trim() ?? "";
-  const raw = label || account.uid?.trim() || "";
-  if (raw === "") return `账号 ${maskMiddle(account.key)}`;
-  if (/^\d{11}$/.test(raw)) return `${raw.slice(0, 3)}****${raw.slice(-4)}`;
-  if (/^\d{7,}$/.test(raw)) return `UID ${maskMiddle(raw)}`;
-  const at = raw.indexOf("@");
-  if (at > 0) {
-    // 邮箱：本地部分脱敏 + 保留域名（域名不是账号标识）
-    return `${maskMiddle(raw.slice(0, at))}${raw.slice(at)}`;
-  }
-  if (raw === account.key) return `账号 ${maskMiddle(raw)}`;
-  return maskMiddle(raw);
+  if (label) return label;
+  const uid = account.uid?.trim() ?? "";
+  if (uid) return uid;
+  return account.key || "（无标识）";
 }
 
 /**
