@@ -82,9 +82,16 @@ describe("仓库级模型池", () => {
     const candsOf = (model: string) => gw.poolCandidates(model).map((c) => c.cid);
     assert.deepEqual(candsOf("workbuddyai/deepseek-v4.1-flash"), ["workbuddyai"]);
     assert.deepEqual(candsOf("catpaw/glm-5.3-flash"), ["catpaw"]);
-    // 不同渠道的同名模型是独立 id，各自只指回自己
+    // 不同渠道的同名模型是独立 id，各自只指回自己。
+    // ⚠ 阈值取「已注册渠道数」的一半（向上取整），**不写死数字** ——
+    //    写死会变成「每加一个渠道都要回来改测试」，而这里要断言的是
+    //    「同名模型确实分散在多个渠道」，不是某个具体数量。
     const four1 = [...gw.POOL_MODELS].filter((m) => m.endsWith("/deepseek-v4.1-flash"));
-    assert.ok(four1.length >= 3, `4.1 至少 3 个渠道各自暴露，实际 ${four1.join(", ")}`);
+    const minFour1 = Math.ceil(EXPECTED_CIDS.length / 2);
+    assert.ok(
+      four1.length >= minFour1,
+      `4.1-flash 至少 ${minFour1} 个渠道各自暴露，实际 ${four1.join(", ")}`,
+    );
   });
 
   it("裸模型名与未知渠道 → 400 unknown_model", async () => {
@@ -144,8 +151,13 @@ describe("仓库级模型池", () => {
       "qoder 应贡献 glm-5.3-flash",
     );
 
+    // ⚠ 阈值随已注册渠道数走，**不写死数字**（同 4.1-flash 那处的理由）：
+    //    每个注册渠道都该至少暴露一个模型，故下界就是渠道总数。
     const contributing = gw.channels().filter((c) => contributed(c.config.cid).length > 0);
-    assert.ok(contributing.length >= 8, `至少 8 个渠道有贡献，实际 ${contributing.length}`);
+    assert.ok(
+      contributing.length >= EXPECTED_CIDS.length,
+      `每个渠道都应有贡献（下界 ${EXPECTED_CIDS.length}），实际 ${contributing.length}`,
+    );
 
     // 每个目录条目都应出现在该渠道的对外池 id 里（规范名形态，不在这里重写归一化）
     for (const row of rows) {

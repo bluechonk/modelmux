@@ -253,6 +253,54 @@ check(
   "pool-targets.ts: 共享层不得硬编码厂商模型名（模型只由各渠道 exposedIds() 提供）",
 );
 
+// ── 渠道**总数**不得写死在文档与注释里 ────────────────────────────────────────
+//
+// 为什么查：渠道数是 `readdirSync(packages/core/channels)` 的派生量，写死就要
+// 「每加/减一个渠道都回来改一遍文档与测试」，漏改一处就是错的（2026-10-26 实测：
+// 加 astudio 后 README/CONTRACT-TS/POOL-ARCHITECTURE 三处仍写着旧数字）。
+//
+// 查法：`<数字> 个渠道…` / `<数字> 家…客户端` / `<数字> channels` 这类**枚举总量**的说法。
+// 放行：讲契约与模式的结构性表述（「4 个渠道特有模块」「只注册 1 个渠道」）——
+// 那些数字不随渠道增减变化，写死是对的。
+const COUNT_PATTERNS = [
+  /\d+\s*个渠道(?:全部|都|包|里|中有|里有)/,
+  /\d+\s*家\s*(?:AI\s*)?客户端/,
+  /\d+\s+channels\b/i,
+];
+/** 结构性表述的放行清单：这些数字是契约/模式常量，不随渠道数变化。 */
+const ALLOW_COUNT = [/4\s*个渠道特有模块/, /只注册\s*1\s*个渠道/, /恰好注册\s*1\s*个渠道/];
+
+const DOC_FILES = [
+  "README.md",
+  "AGENTS.md",
+  "docs/README.md",
+  "docs/POOL-ARCHITECTURE.md",
+  "docs/CONTRACT-TS.md",
+  "docs/STORAGE-CONVENTION.md",
+  "docs/WEB-CONSOLE.md",
+  "docs/LOGGING.md",
+  "docs/channels/README.md",
+  "docs/MODULE-COMMENTS.md",
+  ".agents/skills/mx-cli/SKILL.md",
+  ".agents/skills/reasonix-mx-test/SKILL.md",
+];
+const countHits = [];
+for (const rel of DOC_FILES) {
+  // `read()` 内部已拼 `repo`（见文件顶部），这里**不能**再 join 一次。
+  if (!existsSync(join(repo, rel))) continue;
+  const lines = read(rel).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!COUNT_PATTERNS.some((re) => re.test(line))) continue;
+    if (ALLOW_COUNT.some((re) => re.test(line))) continue;
+    countHits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 100)}`);
+  }
+}
+check(
+  countHits.length === 0,
+  `渠道总数不得写死在文档里（增删渠道时改文档必然漏）。命中 ${countHits.length} 处：\n      ${countHits.join("\n      ")}\n      改法：删掉数字，或改成「全部渠道」「各渠道」等不随数量变化的表述。`,
+);
+
 if (failures.length > 0) {
   console.error(`✗ 工程契约校验失败（${failures.length} 项，渠道 ${channelDirs.length} 个 / 注册 ${registeredImports} 个）：`);
   for (const f of failures) console.error(`  - ${f}`);

@@ -347,10 +347,11 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
     traecn（Solo `model_detail_list[].max_tokens`）、workbuddy / workbuddyai（`maxOutputTokens`）。
   - **只发上下文、不发输出**：catpaw / lobsterai / qoder / qodercn（输出按公开规格补）。
-  - **完全无上游目录**：目录由渠道内置快照提供，只能按公开规格补。
+  - **完全无上游目录**：**astudio**（清单随应用包内置，应用侧另有 `model-gateway/catalog-*.json`
+    下发窗口与输出上限）—— 只能按该内置目录补。
   缺字段的渠道用自己的 `MAX_OUTPUTS` / `MODEL_SPECS` 表按**公开规格**回答 —— 入口是**可选钩子**
   `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
-  当前**9 个渠道全部**实现了该钩子（各渠道包内一张按公开规格的表）。
+  当前**全部渠道**都实现了该钩子（各渠道包内一张按公开规格的表）。
   取值优先级：**上游目录声明 > 渠道公开规格 > 兜底**（见下面「上游声明优先」那条路）——
   钩子只在「上游没声明」或「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
   规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
@@ -593,7 +594,7 @@ interface CredModule {
    必须放在 `buildHeaders()`；`buildChatBody()` 需要的判定输入（如上游模型 id）
    经**模块级 pending 槽**从 `buildChatBody` 传给 `buildHeaders()`。
 
-> 当前 9 个渠道都没有用到这类状态。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
+> 当前**没有渠道**用到这类状态。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
 
 ## 4. 公共层设计
 
