@@ -10,7 +10,9 @@ description: 逆向 Agent 应用上游协议的完整方法论（解包 / 抓包
 **本技能是方法论的一次落地** —— 方法论本身（四条证据链、五阶段工作流、换应用怎么映射）
 在 [references/METHODOLOGY.md](references/METHODOLOGY.md)，**先读它**；换一个应用逆向时
 把 AStudio 的参数换成新应用的即可。AStudio 的协议事实（端点、字段、状态码、证据等级）
-在 [references/PROTOCOL.md](references/PROTOCOL.md)。
+在 [references/PROTOCOL.md](references/PROTOCOL.md)；
+**方法论的完整实跑记录**（从零推导上游 API 的真实命令与输出，含「推理主机不在安装包里」
+的破案过程）在 [references/WALKTHROUGH.md](references/WALKTHROUGH.md)。
 
 ## 铁律（完整版见方法论 §0）
 
