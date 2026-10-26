@@ -297,6 +297,29 @@ for (const name of readdirSync(skillsDir)) {
   }
 }
 
+// 4) 命令清单的唯一事实源是 AGENTS.md —— 已知重复点不得再内联
+//
+// 为什么查：同一组命令写两遍必然漂移（改一处忘另一处）。已修的那处是
+// `docs/LOGGING.md` 的「CLI 检索」：原先内联 12 条 `mx log` 命令，与
+// `log-triage` 技能的清单近乎逐字重复。事实源已定为 `AGENTS.md` 的
+// 「常见任务速查」表 + 各技能的判读流程，文档只保留独有规则。
+//
+// 判据刻意**收窄**：只查 `docs/LOGGING.md` 里的 `mx log` 行内命令。
+// 不做「所有文档命令都必须进 AGENTS.md」这种全量校验 —— 命令太多、形态太杂，
+// 会大量误报（例如各渠道 PROTOCOL 里的复现命令是该渠道独有的）。
+const LOGGING_MD = "docs/LOGGING.md";
+const loggingText = readText(join(workspaceRoot, ...LOGGING_MD.split("/")));
+const inlineLogCmd = loggingText
+  .split(/\r?\n/)
+  .filter((line) => /^\s*(mx log\b|`mx log\b)/.test(line));
+if (inlineLogCmd.length > 0) {
+  problems.push(
+    `${LOGGING_MD}: 不得内联 \`mx log\` 命令清单（与 log-triage 技能重复，会漂移）。\n` +
+      `     命中 ${inlineLogCmd.length} 行，例：${inlineLogCmd[0]?.trim().slice(0, 80) ?? ""}\n` +
+      `     改法：换成一行指向 \`log-triage\` 技能，只保留该文档独有的解析规则。`,
+  );
+}
+
 if (problems.length > 0) {
   console.error(`✗ 文档归属检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
