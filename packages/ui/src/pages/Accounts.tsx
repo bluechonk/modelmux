@@ -2,7 +2,8 @@
  * 账号池页：各渠道凭据、账号列表与额度，支持添加账号（登录弹窗）与账号切换。
  */
 
-import { type ReactElement, useEffect, useRef, useState } from "react";import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type ReactElement, useEffect, useRef, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
   AccountCard,
@@ -13,6 +14,7 @@ import {
 } from "../components/AccountCard";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
+import { useToast } from "../components/Toast";
 import { Alert, Skeleton } from "./Dashboard";
 
 interface StatusRow {
@@ -69,9 +71,15 @@ const SUMMARY_ORDER: Array<{ key: ChannelStatus; label: string; dot: string }> =
  */
 export function Accounts(): ReactElement {
   const qc = useQueryClient();
+  const toast = useToast();
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  /**
+   * 常驻错误横幅：**只有错误**。
+   *
+   * 瞬时反馈（登录成功 / 已解除标记）走右下角 toast（`useToast`）——
+   * 它们是用完即忘的事实，不该在页面顶部一直占一行。
+   */
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   /** 弹窗目标渠道；null = 关闭。 */
   const [loginChannel, setLoginChannel] = useState<string | null>(null);
   /** 本轮弹窗是否观察到过「非 done」状态：用于排除上一次登录残留的 done。 */
@@ -187,7 +195,7 @@ export function Accounts(): ReactElement {
     },
     onSuccess: () => {
       setError("");
-      setNotice("已解除标记，账号重新参与路由");
+      toast.success("已解除标记，账号重新参与路由");
       invalidateAll();
     },
     onError: (err) => setError(String(err)),
@@ -226,7 +234,7 @@ export function Accounts(): ReactElement {
     handledSuccessRef.current = true;
     setLoginChannel(null);
     setError("");
-    setNotice("登录成功，账号已入池。");
+    toast.success("登录成功，账号已入池。");
     invalidateAll();
   }, [loginChannel, state.data?.ui_state]);
 
@@ -280,8 +288,8 @@ export function Accounts(): ReactElement {
     <div className="space-y-5">
       <PageHeader title="账号池" description="各渠道的凭据、账号池与额度" />
 
+      {/* 只留错误横幅：瞬时反馈（登录成功 / 已解除标记）走右下角 toast */}
       {error && <Alert tone="error">{error}</Alert>}
-      {notice && !error && <Alert tone="info">{notice}</Alert>}
 
       {list.length === 0 ? (
         <div className="rounded-xl border border-line p-5 text-sm text-ink-faint">
@@ -353,7 +361,8 @@ export function Accounts(): ReactElement {
           }
           submitting={submitInput.isPending}
           onStartLogin={(cid) => {
-            setNotice("");
+            // 打开弹窗即清掉上一轮的错误横幅，别让旧错误压着新流程
+            setError("");
             startLogin.mutate(cid);
           }}
           onSubmitInput={(value) => submitInput.mutate(value)}
