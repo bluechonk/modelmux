@@ -9,9 +9,6 @@
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
 
-/** 用量单位（上游 `/usage` 的 `unit` 实测为 `USD`）。 */
-const UNIT = "USD";
-
 /** 额度查询失败。 */
 export class CreditsError extends Error {
   override name = "CreditsError";
@@ -97,6 +94,11 @@ export async function fetchCredits(
   try {
     points = await upstream.fetchPointsBalance(c);
   } catch (err) {
+    // 会话失效（401/403 或业务码 80000）要转类型化错误 —— 共享层靠它提示
+    // 「运行 mx login <cid>」，包成 CreditsError 会丢这个提示。
+    if (/code=80000|HTTP 40[13]/.test(String(err))) {
+      throw new cred.NotLoggedInError(String(err));
+    }
     throw new CreditsError(`积分余额查询失败：${String(err)}`);
   }
   const remain = numOrNull(points["totalBalance"]);
@@ -144,14 +146,14 @@ export async function fetchCredits(
     /* 用量查不到就只报余额 */
   }
 
-  // 体验积分到期日（activityNextExpireTime）→ 剩余天数
+  // 体验积分到期日（activityNextExpireTime）→ 剩余天数。
+  // 上游不带时区标记（北京时间）；按宿主本地时区解析在 UTC+8 宿主机上正确，
+  // 其它时区在日界附近可能偏差一天（可接受 —— 只有天数粒度）。
   const expireRaw = points["activityNextExpireTime"];
   const expireAt = typeof expireRaw === "string" ? expireRaw.trim() : "";
-  const daysLeft = expireAt
-    ? Math.max(
-        Math.ceil((Date.parse(expireAt) - Date.now()) / 86_400_000),
-        0,
-      )
+  const expireMs = expireAt ? Date.parse(expireAt) : Number.NaN;
+  const daysLeft = Number.isFinite(expireMs)
+    ? Math.max(Math.ceil((expireMs - Date.now()) / 86_400_000), 0)
     : null;
 
   const packages: CreditPackage[] = [
@@ -189,7 +191,8 @@ export async function fetchCredits(
     total: {
       remain,
       size: granted ?? remain,
-      used: used ?? (today?.cost ?? 0),
+      // 发放总额缺失时（纯防御分支，实测恒有）报 0：/usage 不可用，没有任何有源数字
+      used: used ?? 0,
       unit: "积分",
       // 有真实发放总额 → 百分比可算；没有时给 0（UI 只在有基线时才画进度条）
       remain_percent: granted !== null && granted > 0 ? (remain / granted) * 100 : 0,
@@ -230,13 +233,10 @@ export const signin: SigninModule = {
     const c = cred.load();
     let balance: number | null = null;
     let spark: number | null = null;
-    let plan = "";
     try {
       const pts = await upstream.fetchPointsBalance(c);
       balance = numOrNull(pts["totalBalance"]);
       spark = numOrNull(pts["sparkTotalBalance"]);
-      const member = await upstream.fetchMembership(c);
-      plan = typeof member["planName"] === "string" ? member["planName"] : "";
     } catch {
       return {
         claimable: null,
@@ -244,18 +244,30 @@ export const signin: SigninModule = {
         summary: "（查询 AStudio 积分状态失败：网络或上游异常，稍后自动重试）",
       };
     }
+    // 会员套餐是给 summary 拼名字用的：查得到就拼，查不到不否决整个状态
+    let plan = "";
+    try {
+      const member = await upstream.fetchMembership(c);
+      plan = typeof member["planName"] === "string" ? member["planName"] : "";
+    } catch {
+      /* 非关键端点，失败不影响余额与签到判定 */
+    }
 
-    const popups = await upstream.fetchPendingPopups(c).catch(() => []);
-    const claimablePopups = popups.filter((p) => upstream.isClaimablePopup(p));
-    const dailyPopup = claimablePopups.find((p) => p.componentType === "DAILY_REWARD_DIALOG");
+    // 弹窗查询失败要区分「明确没有」与「查不到」：吞成空数组会把查不到报成
+    // 明确无可领（claimable: false），自动签到就会永远跳过。故失败回落 null。
+    const popups = await upstream.fetchPendingPopups(c).catch(() => null);
+    const claimablePopups = (popups ?? []).filter((p) => upstream.isClaimablePopup(p));
 
     const pointsText = balance === null ? "积分未知" : `通用积分 ${balance}`;
     const sparkText = spark === null ? "" : ` · 星火积分 ${spark}`;
     const planText = plan ? ` · ${plan}` : "";
 
     return {
-      // 有每日奖励横幅 = 有可领的（banner 本身就是「今天有奖励」的信号）
-      claimable: claimablePopups.length > 0,
+      // ⚠ 不能用「有没有待领横幅」判 claimable：发奖动作（init-app）不发生就没有横幅，
+      // 报 false 会让自动签到跳过 → 无人调 init-app → 横幅永不出现（死锁）。
+      // 本渠道的 claim() 幂等（重复调 init-app 不重复发放、余额差判据防重复记账），
+      // 所以「不确定」一律报 null，让调度器照常走一轮幂等 claim。
+      claimable: popups === null ? null : claimablePopups.length > 0 ? true : null,
       // 领过的账号余额里已经含今天的奖励，但横幅还在（是到账通知）——
       // 故不能凭横幅判「今天没领」，交由 claim() 用余额变动确认。
       claimedToday: null,
@@ -266,7 +278,6 @@ export const signin: SigninModule = {
         title: p.title,
         content: p.content,
       })),
-      ...(dailyPopup ? { daily_popup: dailyPopup.popupCode } : {}),
     };
   },
 
@@ -338,8 +349,6 @@ export const signin: SigninModule = {
 };
 
 // ── 额度周期（`BillingModule.quotaPeriod`）────────────────────────────────────
-
-import type { QuotaPeriod } from "@modelmux/gateway";
 
 /**
  * **刻意不实现** `quotaPeriod()`。
