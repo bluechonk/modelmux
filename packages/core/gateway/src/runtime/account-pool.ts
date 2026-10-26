@@ -491,14 +491,21 @@ export function removeAccount(
  * 返回实际清掉的账号数与凭证文件是否被移除，供日志如实汇报。
  */
 export function purgeCredentials(cid?: string): { accounts: number; credential: boolean } {
+  // ⚠ 先探凭据在不在，再删账号：`removeAccount` 删**生效账号**时会连带
+  // `rmSync(credentialsPath)`，之后再探就永远是 false，汇报就成了「凭据本来就没有」
+  // （2026-10-26 实测：明明删掉了却报「本来就没有」）。
+  let credential = false;
+  try {
+    credential = existsSync(credentialsPath(cid));
+  } catch {
+    /* 路径不可用：按没有处理 */
+  }
   const index = readIndex(cid);
   let accounts = 0;
   for (const account of index.accounts) {
     if (removeAccount(account.key, cid).removed) accounts += 1;
   }
-  let credential = false;
   try {
-    credential = existsSync(credentialsPath(cid));
     rmSync(credentialsPath(cid), { force: true });
   } catch {
     /* 删不掉：如实报告（credential 保持探测值） */

@@ -30,7 +30,7 @@ npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道�
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
 node packages/cli/dist/cli.js model list    # 池视图：有哪些模型（按渠道分组）
 node packages/cli/dist/cli.js model usage   # 池账本：各渠道用得怎么样（每渠道一行）；--refresh 立刻重查
-node packages/cli/dist/cli.js <动词> [<cid>]  # 渠道动词：status / login / relogin / model / bill / acct / path / log
+node packages/cli/dist/cli.js <动词> [<cid>]  # 渠道动词：status / login / relogin / logout / model / bill / acct / path / log
 node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调试/回归用；只有它才用该渠道的 defaultAddr）
 ```
 
@@ -39,9 +39,11 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 2. 对齐 `git` / `docker` / `gh` / `kubectl` / `npm` 的心智（`<动词> [<对象>]`），也让 `mx login <TAB>`
    能直接补全渠道名 —— 补全器只需在位置 2 补「已注册渠道」这一个维度。
 3. **命令组**（名词在位置 1、子命令在位置 2）同样遵循「动词在前」：`mx model list` / `mx model usage`。
-4. **渠道动词**：`status` / `login` / `relogin` / `model` / `bill` / `acct` / `path` / `log`，可带 cid。
+4. **渠道动词**：`status` / `login` / `relogin` / `logout` / `model` / `bill` / `acct` / `path` / `log`，可带 cid。
    不带 cid 时各动词回落仓库级语义：`status` 聚合全部渠道、`bill` 全部渠道、`path` 全部渠道、
-   `log` 网关日志；`login` / `relogin` 在多渠道路由下必须给 cid。
+   `log` 网关日志；`login` / `relogin` / `logout` 在多渠道路由下必须给 cid。
+   ⚠ `logout` 是**本地登出**（删凭据 + 清空该渠道账号池）；它**不吊销上游会话** ——
+   各渠道的登出端点几乎都需要活会话（外部拿不到），要彻底登出得去官方客户端操作。
 5. **仓库级动词**：`start` / `stop` / `restart` / `serve` / `web`，不接受渠道 id。
 6. **反面写法 `mx <cid> <动词>` 一律不采用**：渠道名与动词共享位置 1 的命名空间会让两者二义
    （一旦某个渠道叫 `model` 会引起二义），且与主流 CLI 心智相悖。
