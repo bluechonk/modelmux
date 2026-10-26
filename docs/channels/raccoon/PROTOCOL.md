@@ -369,7 +369,15 @@ RACCOON_EFFORT_OFF = 'off'   → extra_body.thinking = { type: 'disabled' }
 
 **业务失败也可能以 HTTP 200 + SSE 内嵌错误帧返回**。
 
-空闲超时：首 token / chunk 间隔各 120_000 ms。
+空闲超时：首 token / chunk 间隔各 120_000 ms（上游协议值）。
+
+⚠ **网关侧的首帧等待放宽到 180_000 ms**（`upstream.idleTimeoutMs()`，
+`packages/core/channels/raccoon/src/upstream.ts`）：长上下文首字很慢 —— 实测
+313 条消息 / 19 万 prompt token 的请求首字 105 秒、1106 条 / 46 万 token 的
+99 秒，同期成功请求耗时 62–115 秒，**正好卡在共享层 120 秒线上**，慢几秒就被掐成
+`upstream header timeout after 120000ms`（2026-10-26 实测两次）。
+而且那个超时会被 `http/chat/attempt.ts` 记成**账号连败**（`status <= 0` 计连败），
+两次就把健康账号打成 `error` 而锁死路由 —— 实测 RaccoonCharlotte 累计到「连续失败 2 次」。
 
 ---
 

@@ -267,6 +267,24 @@ interface HeaderOptions {
 }
 
 /**
+ * 首帧静默上限：**180 秒**（共享层默认 120s）。
+ *
+ * Raccoon 的长上下文首字很慢：实测 313 条消息 / 19 万 prompt token 的请求首字
+ * 105 秒、1106 条消息 / 46 万 token 的请求 99 秒（见 `~/.modelmux/logs/access/`），
+ * 同期成功的请求耗时 62–115 秒 —— **正好卡在 120 秒线上**，慢几秒就被掐成
+ * `upstream header timeout after 120000ms`。
+ *
+ * ⚠ 那个超时还会被记成**账号连败**（`http/chat/attempt.ts`：`status <= 0` 计连败），
+ * 两次就把健康账号打成 `error` 而锁死路由（2026-10-26 实测：RaccoonCharlotte
+ * 「连续失败 2 次」）。放宽到 180s 后这类「只是慢」的请求不再被误杀。
+ *
+ * 只放宽「连接层静默容忍」，不改变任何协议语义。
+ */
+export function idleTimeoutMs(): number {
+  return 180_000;
+}
+
+/**
  * 构造上游请求头。
  *
  * ⚠ 对话形态**不含** `X-Client-Version` / `X-Client-Device-ID`（协议 §2.1 内联实测）；
