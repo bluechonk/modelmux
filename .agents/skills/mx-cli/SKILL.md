@@ -27,24 +27,18 @@ mx <组名> <子命令> [参数]        # 命令组
   `mx log catpaw --kind channel`（`--kind channel` 必须给 cid，否则报「日志不存在」）。
 - 不确定时先 `mx --help`；脚本里加 `--json`。
 
-## 1. 一页命令表
+## 1. 命令速查
 
-| 目标 | 命令 |
-| --- | --- |
-| 起网关（幂等） | `mx start`（超时也返回 0，脚本加 `--strict`） |
-| 停网关 / 重启 | `mx stop` / `mx restart` |
-| 前台调试运行 | `mx serve` |
-| 网关 / 渠道状态 | `mx status` / `mx status <cid>` / `mx status --json` |
-| 全池模型视图（有哪些模型） | `mx model list` |
-| 池账本（各渠道用得怎么样） | `mx model usage` / `mx model usage --refresh` |
-| 某渠道模型 | `mx model <cid>` / `mx model <cid> --refresh` |
-| 登录 | `mx login <cid>`；`mx login list` |
-| 强制重新授权 | `mx relogin <cid>`（**清掉主凭据后重新授权**，别当成刷新用） |
-| 账号池 | `mx acct <cid> list \| use <key> \| add \| remove <key>`（`add` 必须给 cid） |
-| 额度 / 账单 | `mx bill [<cid>]`（直连上游，不经网关） |
-| 存储落点 | `mx path [<cid>]` / `mx path --all` |
-| 日志 | `mx log ...`（排查流程见 log-triage 技能） |
-| Web 控制台 | `mx web`（确保网关在跑并打印 `/web/` 地址；加 `--open` 才打开浏览器） |
+**动作命令的唯一事实源在 `AGENTS.md` 的「常见任务速查」表**（仓库根，工具每次都读，不依赖本技能触发）：
+`mx start` / `stop` / `restart` / `serve` / `web`、`status`（含 `--json` 判 `stale_build`）、
+`model list|usage|<cid>`、`bill`、`acct list|use|add|remove`、`path`、`login` / `relogin`。
+
+本技能**不再重复那张表** —— 两份事实必然漂移（2026-10-26 实测该命令在 6+ 个文件里各写一份）。
+本技能只保留**别处没有的内容**：
+
+- `§0 语法铁律`（动词优先、为什么 `mx <cid> <动词>` 不可用）
+- `§2 常用工作流`（具体步骤、参数、坑）
+- `credentials.json` 不见了但账号池里还有货的处置（见下）
 
 > **`credentials.json` 不见了但账号池里还有货**：先 `mx acct <cid> list` 看池子。
 > 池里有状态正常的账号就 `mx acct <cid> use <key>` —— 它会把池里那份复制回主凭据文件，

@@ -76,6 +76,38 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    且 `scripts/verify-contract.mjs` 会检查**每个工作区包都有 `typecheck` 脚本** ——
    新增包漏写就直接红，不会重演「UI 类型错误长期无人拦截」。
 
+### 常见任务速查
+
+**动作命令的唯一事实源** —— 常驻本节，不依赖技能触发（技能可能不触发，这里一定读得到）。
+规则 / 契约 / 事实**不在此表**（那些在 `docs/`）；本表只回答「要做这件事，敲什么」。
+
+| 要做的事 | 命令 |
+| --- | --- |
+| 起网关（幂等） | `mx start`（脚本里加 `--strict` 让超时非零退出） |
+| 停 / 重启网关 | `mx stop` / `mx restart` |
+| 前台调试运行 | `mx serve`（无监督直跑，不落 PID） |
+| 看网关与全部渠道状态 | `mx status` |
+| 看某渠道状态 | `mx status <cid>` |
+| **确认没有陈旧构建** | `mx status --json` → `stale_build` 必须为 `false` |
+| 看池里有哪些模型 | `mx model list` |
+| 看各渠道用得怎么样 | `mx model usage` / `mx model usage --refresh` |
+| 看某渠道的模型与倍率 | `mx model <cid>` / `mx model <cid> --refresh` |
+| 看额度 / 账单 | `mx bill [<cid>]`（**直连上游**，不经网关） |
+| 登录 | `mx login <cid>`（已有凭据时幂等）；`mx login list` 看可登录渠道 |
+| 强制重新授权 | `mx relogin <cid>`（清主凭据后重走授权，**不是**刷新） |
+| 看账号池 | `mx acct <cid>` / `mx acct <cid> list` |
+| 切生效账号 | `mx acct <cid> use <key>` |
+| 加 / 删账号 | `mx acct <cid> add`（必须给 cid） / `mx acct <cid> remove <key>` |
+| 看存储落点 | `mx path [<cid>]` / `mx path --all` |
+| 打开 Web 控制台 | `mx web`（确保网关在跑并打印 `/web/`；加 `--open` 才开浏览器） |
+| **查日志 / 排查故障** | 走 `log-triage` 技能（`mx log` 的 `--kind` / `--outcome` / `--date` 组合与判读都在那儿） |
+
+命令形态的完整设计（动词优先、为什么 `mx <cid> <动词>` 不可用）见 `.agents/skills/mx-cli/SKILL.md` §0
+与 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §9。
+
+> 改动 `packages/core/**`、`packages/cli/**`、`packages/ui/**` 后**必须** `npm run build`
+> → `mx restart` → 确认 `stale_build=false`（见下方「改动后的执行顺序」）。
+
 ## 分支与重构
 
 **强制**。

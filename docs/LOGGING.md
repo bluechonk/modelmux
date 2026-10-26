@@ -155,26 +155,17 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 
 ## 7. CLI 检索
 
-```bash
-mx log                                   # 当天 system 日志（gateway.log 优先，其次 lifecycle.log）
-mx log --kind system --lines 100
-mx log --kind lifecycle                  # 生命周期事件
-mx log --kind worker                     # worker 原始输出
-mx log --kind access --outcome success   # 成功请求（结构化行）
-mx log --kind access --outcome failure   # 失败请求
-mx log --kind access --outcome other     # 没给出状态码的请求（应答前就断了）
-mx log --kind error                      # 错误详情（含 request_id）
-mx log catpaw --kind channel             # 渠道维度（cid 是**位置参数**，不是 --cid）
-mx log --date 2026-10-18 --kind access --outcome failure
-mx log --list                            # 全部日志文件 + 大小 + 修改时间
-mx log --kind access --outcome failure -f    # 持续跟随
-```
+**检索命令与排查流程见 `log-triage` 技能**（`mx log` 的 `--kind` / `--outcome` / `--date` /
+`--list` / `-f` 组合与判读都在那儿，含各 kind 该看什么字段）。本文只记该技能没有的**解析规则**：
 
-解析规则：未指定 `--date` 时取本地当天；当天无该文件时回落到**最新一个含该文件的日期**。
-`--kind access` 未指定 `--outcome` 时默认 `success`。
-`--kind channel` 必须配渠道 id（**位置参数**，如 `mx log catpaw --kind channel`）——
-渠道维度日志按 `<cid>` 分目录落盘，没有 cid 时该 kind 找不到文件。
-CLI 走 `parseArgs` 严格模式：**未知选项直接报错**（没有 `--cid` 这种写法）。
+| 规则 | 内容 |
+| --- | --- |
+| 默认日期 | 未指定 `--date` 时取本地当天；当天无该文件时回落到**最新一个含该文件的日期** |
+| 默认 outcome | `--kind access` 未指定 `--outcome` 时默认 `success` |
+| 渠道维度 | `--kind channel` 必须配渠道 id（**位置参数**，如 `mx log catpaw --kind channel`）—— 渠道维度日志按 `<cid>` 分目录落盘，没有 cid 时该 kind 找不到文件 |
+| 严格模式 | CLI 走 `parseArgs` 严格模式：**未知选项直接报错**（没有 `--cid` 这种写法） |
+
+⚠ 不要在本文件内联 `mx log` 命令清单 —— 那会与技能形成两份事实并漂移（`verify-docs` 拦这条）。
 
 ## 8. 安全边界
 
