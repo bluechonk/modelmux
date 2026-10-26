@@ -54,6 +54,27 @@ const CHAT_PATH = "/chat/completions";
  */
 const MODEL_CONFIGS_PATH = "/bot/models/configs";
 
+/**
+ * 认证端点（**云端直连**，不走本地服务代理层）。
+ *
+ * ⚠⚠ 2026-10-26 重要更正：这些路径**没有 `/api/astron-auth/` 前缀**。
+ * 那个前缀是 AStudio 桌面应用**本地服务代理层**的路径；云端账号 API 的路径就是
+ * `{studioBaseUrl}/<path>`。此前本仓库把「直连云端回 404」当成架构结论，
+ * 那是**测错了路径**（见 docs/channels/astudio/PROTOCOL.md §5）。
+ *
+ * 实测（2026-10-26，云端直连、无 Cookie）：
+ * - `GET  /chat/gee-captcha` → `200 code=0`，返回真实 GeeTest v3 配置；
+ * - `POST /login/mobile/send-verify-code` → `200 code=20009 geetest verify failed`
+ *   （端点可达，只是 captcha 没解）；
+ * - `POST /login/phone-quick-login` → `200 code=10501002 验证码无效，请重新获取并验证`
+ *   （端点可达、参数形态正确，验证码是假的）。
+ */
+const GEE_CAPTCHA_PATH = "/chat/gee-captcha";
+const SEND_VERIFY_CODE_PATH = "/login/mobile/send-verify-code";
+const PHONE_QUICK_LOGIN_PATH = "/login/phone-quick-login";
+const TENANT_INIT_PATH = "/tenant-app/v2/init-app";
+const POINTS_BALANCE_PATH = "/points/balance";
+
 /** 会话失效的业务码（云端账号 API 返回 `80000` 表示「登录异常，请重新登录」）。 */
 export const SESSION_INVALID_CODE = "80000";
 
@@ -288,14 +309,239 @@ export async function fetchUserInfo(
   return inner as Record<string, unknown>;
 }
 
+// ── 认证链路（云端直连，2026-10-26 新增）────────────────────────────────────
+//
+// 手机号验证码登录的三个端点 + 两个辅助端点。形态来自参考实现
+// `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
+// （逆向自官方客户端 bundle 的 `createAstronAccountGateway`）。
+//
+// ⚠ 全部是 **multipart/form-data**，不是 JSON —— 参考实现用 `multipartFields()`。
+
+/** GeeTest v3 配置（`GET /chat/gee-captcha`）。 */
+export interface GeetestConfig {
+  /** GeeTest 站点标识。 */
+  gt: string;
+  /** 本次挑战标识（后续 validate/seccode 与它配对）。 */
+  challenge: string;
+  /** 上游是否接受离线模式。 */
+  success?: unknown;
+  newCaptcha?: unknown;
+}
+
+/** 浏览器解出的 GeeTest 结果（三个字段缺一不可）。 */
+export interface GeetestSolution {
+  geetest_challenge: string;
+  geetest_validate: string;
+  geetest_seccode: string;
+}
+
+/** 短信登录的返回（`POST /login/phone-quick-login`）。 */
+export interface SmsLoginResult {
+  account_id: string;
+  token: string;
+  ssoSessionId: string;
+  uid: string;
+  mobile: string;
+  nickname: string;
+  avatar: string;
+}
+
+/** 拼 multipart 请求体（字段顺序按参考实现；`seccode` 由调用方先 base64）。 */
+function multipartBody(fields: Array<[string, string]>): { body: Buffer; contentType: string } {
+  const boundary = `----modelmux${randomHex(8)}`;
+  const parts: string[] = [];
+  for (const [name, value] of fields) {
+    parts.push(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
+        `${value}\r\n`,
+    );
+  }
+  const body = Buffer.from(`${parts.join("")}--${boundary}--\r\n`, "utf8");
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+/** 随机 hex（multipart 边界用）。 */
+function randomHex(bytes: number): string {
+  return Array.from({ length: bytes }, () =>
+    Math.floor(Math.random() * 256).toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/** 取值收窄（只接受 string，其它一律空串）。 */
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/** 发一个云端账号 API 请求，返回解析后的外层信封。 */
+async function accountApi(
+  method: string,
+  path: string,
+  opts: { body?: Buffer; contentType?: string; cookie?: string },
+  cfgOverride?: Config,
+): Promise<Record<string, unknown>> {
+  const url = `${trimSlash((cfgOverride ?? loadConfig()[0]).studioBaseUrl)}${path}`;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (opts.contentType) headers["Content-Type"] = opts.contentType;
+  if (opts.cookie) headers["Cookie"] = opts.cookie;
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method,
+      headers,
+      ...(opts.body ? { body: new Uint8Array(opts.body) } : {}),
+      signal: AbortSignal.timeout(cred.HTTP_TIMEOUT),
+    });
+  } catch (err) {
+    throw new Error(`${path} request failed: ${String(err)}`);
+  }
+  const text = await resp.text();
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `${path} response is not valid JSON (HTTP ${resp.status}): ${text.slice(0, 120)}`,
+    );
+  }
+  // 信封：{flag, code, desc, data, traceId}
+  // ⚠ `code` 是**数字**（实测 `0` / `80000` / `20009`），不是字符串 ——
+  // 用「只接受 string」的取值函数会把 0 变成空串，导致成功响应被判失败。
+  const code = codeText(payload["code"]);
+  const ok = resp.status >= 200 && resp.status < 300 && payload["flag"] === true && code === "0";
+  if (!ok) {
+    const desc = str(payload["desc"]) || `HTTP ${resp.status}`;
+    throw new Error(`${path} rejected (code=${code || "?"}): ${desc}`);
+  }
+  return payload;
+}
+
+/** 信封 `code` 归一：数字或字符串都取文本（实测是数字 `0`）。 */
+function codeText(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return str(value).trim();
+}
+
+/**
+ * 取 GeeTest v3 配置（`GET /chat/gee-captcha`）。
+ *
+ * 浏览器侧用它初始化滑块组件（官方客户端同款 `initGeetest`）。
+ */
+export async function fetchGeetestConfig(cfgOverride?: Config): Promise<GeetestConfig> {
+  const payload = await accountApi("GET", GEE_CAPTCHA_PATH, {}, cfgOverride);
+  const data = payload["data"];
+  const cfg = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+  const gt = str(cfg["gt"]).trim();
+  const challenge = str(cfg["challenge"]).trim();
+  if (!gt || !challenge) throw new Error("GeeTest 配置无效（gt / challenge 为空）");
+  return { gt, challenge, success: cfg["success"], newCaptcha: cfg["new_captcha"] };
+}
+
+/**
+ * 发短信验证码（`POST /login/mobile/send-verify-code`）。
+ *
+ * ⚠ `geetest_seccode` 必须是 **base64 编码后**的值（上游要求，参考实现同）。
+ * ⚠ 请求体**不含** `expire` 字段（带了的会被判「参数无效」，实测）。
+ */
+export async function sendSmsCode(
+  mobile: string,
+  solution: GeetestSolution,
+  cfgOverride?: Config,
+): Promise<void> {
+  const { body, contentType } = multipartBody([
+    ["geetest_challenge", solution.geetest_challenge],
+    ["geetest_validate", solution.geetest_validate],
+    ["geetest_seccode", Buffer.from(solution.geetest_seccode, "utf8").toString("base64")],
+    ["mobile", mobile.trim()],
+    ["countryCode", "86"],
+  ]);
+  await accountApi("POST", SEND_VERIFY_CODE_PATH, { body, contentType }, cfgOverride);
+}
+
+/**
+ * 短信验证码换 session（`POST /login/phone-quick-login`）。
+ *
+ * ⚠ 这个端点**不需要** captcha（`send-verify-code` 才需要）。
+ */
+export async function loginWithSms(
+  mobile: string,
+  verifyCode: string,
+  cfgOverride?: Config,
+): Promise<SmsLoginResult> {
+  const { body, contentType } = multipartBody([
+    ["mobile", mobile.trim()],
+    ["verifyCode", verifyCode.trim()],
+    ["countryCode", "86"],
+  ]);
+  const payload = await accountApi("POST", PHONE_QUICK_LOGIN_PATH, { body, contentType }, cfgOverride);
+  const data = (payload["data"] && typeof payload["data"] === "object"
+    ? payload["data"]
+    : {}) as Record<string, unknown>;
+  const first = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = str(data[k]).trim();
+      if (v) return v;
+    }
+    return "";
+  };
+  return {
+    account_id: first("account_id"),
+    token: first("token"),
+    ssoSessionId: first("ssoSessionId"),
+    uid: first("uid"),
+    mobile: first("mobile", "phoneNum", "phone"),
+    nickname: first("nickname", "displayName", "username", "userName", "nickName"),
+    avatar: first("avatar", "avatarUrl"),
+  };
+}
+
+/**
+ * 租户初始化（`POST /tenant-app/v2/init-app`）—— 返回封禁状态。
+ *
+ * 需要 Cookie（会话已建立才有意义）。
+ */
+export async function fetchTenantState(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<{ banned: boolean }> {
+  const payload = await accountApi(
+    "POST",
+    TENANT_INIT_PATH,
+    { cookie: cookieHeader(credential) },
+    cfgOverride,
+  );
+  const data = (payload["data"] && typeof payload["data"] === "object"
+    ? payload["data"]
+    : {}) as Record<string, unknown>;
+  return { banned: data["banned"] === true };
+}
+
+/**
+ * 积分余额（`GET /points/balance`）—— 需要 Cookie。
+ *
+ * 返回结构实测含两个池（通用积分 / 星火积分），见 PROTOCOL §8.2。
+ */
+export async function fetchPointsBalance(
+  credential: AuthLike,
+  cfgOverride?: Config,
+): Promise<Record<string, unknown>> {
+  const payload = await accountApi(
+    "GET",
+    POINTS_BALANCE_PATH,
+    { cookie: cookieHeader(credential) },
+    cfgOverride,
+  );
+  const data = payload["data"];
+  return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+}
+
 /**
  * 从模型配置响应里挑出模型网关 Bearer。
  *
  * 取法与 AStudio 源码一致（`fetchAstronModelCredential`）：
  * `is_current` → `is_default` → `data[0]`，取它的 `api_key`。
  */
-export function pickModelBearerToken(payload: unknown): string {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+export function pickModelBearerToken(payload: unknown): string {  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("model configs payload is malformed");
   }
   const data = (payload as Record<string, unknown>)["data"];
