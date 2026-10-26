@@ -256,7 +256,14 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 ## 技术栈与构建
 
 - React 19 + TypeScript + Vite 8（`base=/web/`）+ Tailwind CSS v4 + TanStack Query v5 +
-  react-router v8 + lucide-react 图标。
+  react-router v8 + lucide-react 图标 + **Radix UI（headless 原语）**。
+- **Radix 用在哪**（2026-10-26 引入）：`@radix-ui/react-toast`（轻提示）、
+  `@radix-ui/react-dialog`（登录弹窗）、`@radix-ui/react-alert-dialog`（删除确认）。
+  选它的理由是 **headless** —— 只给行为（焦点陷阱、焦点归还、滚动锁、aria 接线），
+  不给视觉，所以控制台的 Codex 近黑单色风格完全由 Tailwind 令牌决定，没被组件库带跑。
+  （antd / MUI 自带一整套设计系统，引进来要么覆盖它、要么推翻现有设计。）
+- **`packages/ui` 不受依赖白名单约束**：`scripts/verify-contract.mjs` 的 `DEP_ALLOW`
+  只管渠道包与 `packages/cli`；UI 包本来就有 6 个第三方包（React 全家桶 + Tailwind + Vite + lucide）。
 - `npm run build` 顺序：`tsc -b` → `vite build packages/ui` → cli bundle →
   `scripts/copy-ui.mjs` 把产物拷到 `packages/core/gateway/dist/ui` 与 `packages/cli/dist/ui`
   （**少拷一份，全局 `mx web` 就报「UI 未构建」**）。

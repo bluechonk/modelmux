@@ -14,9 +14,19 @@
  * ## 为什么只有右上角的关闭按钮能关闭
  *
  * 遮罩点击 / ESC 一律不关（登录进行中误触丢流程比关不掉更糟），关闭时调
- * `onCancelInput` 让等待输入的渠道收尾。
+ * `onCancelInput` 让等待输入的渠道收尾。这条**由 Radix 显式接线实现**：
+ * `onEscapeKeyDown` / `onPointerDownOutside` / `onInteractOutside` 全部
+ * `preventDefault()`，只留关闭键那一条路。
+ *
+ * ## 为什么用 Radix Dialog（2026-10-26 引入）
+ *
+ * 「模态」的行为部分是通用的：焦点陷阱、关闭后焦点归还、背景滚动锁、
+ * `aria-labelledby` 接线。手写版都没有 —— Tab 能跑到弹窗背后的侧栏导航上。
+ * Radix 无样式，两栏布局 / 步骤时间线 / 输入卡的 JSX **一行未改**，
+ * 只换了最外层容器。
  */
 
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   AlertCircle,
   Check,
@@ -237,30 +247,37 @@ export function LoginModal({
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`添加账号：${cid}`}
-      // 刻意不绑 onClick 关闭：登录进行中误触遮罩会丢流程（需求：仅关闭键可关）
-    >
-      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]">
-        {/* 标题栏：标题 + 关闭键（DeepSeek 设置弹窗的同构标题栏） */}
-        <div className="flex items-center justify-between px-6 py-4">
-          <h2 className="text-lg font-medium text-ink">添加账号</h2>
-          {/* 唯一的关闭入口：顺带通知后端别再等输入（否则渠道挂到超时） */}
-          <button
-            type="button"
-            aria-label="关闭"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-            onClick={() => {
-              onCancelInput();
-              onClose();
-            }}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    // 恒 open：本组件按条件渲染（挂载即打开），关闭只走右上角那个键（见文件头）。
+    <Dialog.Root open>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
+        <Dialog.Content
+          aria-label={`添加账号：${cid}`}
+          // ⚠ 与手写版逐条一致：ESC 与「点遮罩之外」都**不**关闭 ——
+          // 登录进行中误触会丢流程（需求：仅关闭键可关）。
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
+        >
+          {/* 标题栏：标题 + 关闭键（DeepSeek 设置弹窗的同构标题栏）
+              ⚠ 标题必须是 `Dialog.Title`：Radix 用它接 `aria-labelledby`，
+              少了它屏幕阅读器读不出这个对话框叫什么。视觉仍是原来那行。 */}
+          <div className="flex items-center justify-between px-6 py-4">
+            <Dialog.Title className="text-lg font-medium text-ink">添加账号</Dialog.Title>
+            {/* 唯一的关闭入口：顺带通知后端别再等输入（否则渠道挂到超时） */}
+            <button
+              type="button"
+              aria-label="关闭"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+              onClick={() => {
+                onCancelInput();
+                onClose();
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
         {/* 两栏：左侧渠道与步骤概览，右侧当前流程。
             窄屏**堆叠**（渠道行横排 + 底部描边）：左栏固定 224px 在 480px 下会把
@@ -376,8 +393,9 @@ export function LoginModal({
             )}
           </div>
         </div>
-      </div>
-    </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

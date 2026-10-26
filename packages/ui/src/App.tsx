@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router";
 import type { ReactElement } from "react";
 import { Layout } from "./components/Layout";
+import { ToastProvider } from "./components/Toast";
 import { Dashboard } from "./pages/Dashboard";
 import { Accounts } from "./pages/Accounts";
 
@@ -34,14 +35,17 @@ const BASENAME =
 export function App(): ReactElement {
   return (
     <QueryClientProvider client={qc}>
-      <BrowserRouter basename={BASENAME}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/accounts" element={<Accounts />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      {/* Toast 挂在这里：两个页面都要能用，且不受路由切换影响（见 components/Toast.tsx） */}
+      <ToastProvider>
+        <BrowserRouter basename={BASENAME}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/accounts" element={<Accounts />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }
