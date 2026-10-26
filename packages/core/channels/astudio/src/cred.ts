@@ -255,7 +255,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   // 已经登录过就直接复用（用户重跑 login 时不该被迫再登一次）。
   try {
     const existing = load();
-    onStatus?.("reusing the existing AStudio credentials");
+    onStatus?.("复用已有的 AStudio 凭据");
     return existing;
   } catch {
     /* 没有可复用的凭据 → 走下面的引导 */
@@ -279,7 +279,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
     try {
       const c = fromSessionFile(readSessionFile());
       await save(c);
-      onStatus?.(`signed in as ${c.mobile || c.uid} (method=${c.loginMethod || "unknown"})`);
+      onStatus?.(`已登录为 ${c.mobile || c.uid}（方式 ${c.loginMethod || "未知"}）`);
       return c;
     } catch (err) {
       lastErr = err;

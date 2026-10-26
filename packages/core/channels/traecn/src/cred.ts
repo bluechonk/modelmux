@@ -15,6 +15,7 @@ import {
   credentialsPath,
   ensureDir,
   login as sharedLogin,
+  loginFlow,
   prefsPath,
   writeSecretFile,
 } from "@modelmux/gateway";
@@ -401,10 +402,8 @@ interface CallbackServer {
   close(): void;
 }
 
-/** 回调页（用户授权后浏览器看到的静态页）。 */
-const CALLBACK_HTML =
-  "<!doctype html><meta charset=utf-8><title>TRAE 授权</title>" +
-  "<p>授权已完成，请回到网关窗口（此页面可以关闭）。</p>";
+/** 回调页：复用共享层（自动尝试自关 + 深色单页），不再各写一份。 */
+const CALLBACK_HTML = loginFlow.callbackPageHtml("ok");
 
 function listenOn(server: Server, port: number): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -519,7 +518,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
     // 授权页固定在 consoleHost（www.trae.cn）；共享层传入的 baseUrl 是 agentHost，误传会导致登录域名错误
     const authorizeUrl = buildAuthorizeUrl(callbackUrl, machineId, deviceId);
     onUrl?.(authorizeUrl); // 拿到 URL 立刻回调（命令行展示，用户自行打开）
-    onStatus?.(`Waiting for the authorization callback (local port ${callback.port})…`);
+    onStatus?.(`等待授权回调（本地端口 ${callback.port}）…`);
 
     const flat = await callback.wait(LOGIN_TIMEOUT_MS);
     const fields = parseCallback(flat);
@@ -530,7 +529,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
     let refreshToken = fields.refresh_token;
     let expiresAt = normalizeExpiresAt(undefined, accessToken);
     if (!accessToken && refreshToken) {
-      onStatus?.("Callback carries no access token, exchanging the refresh token…");
+      onStatus?.("回调里没有 access token，改用 refresh token 换取…");
       let pair: TokenPair;
       try {
         pair = await exchangeToken(refreshToken);
@@ -549,9 +548,9 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
     // 失败不阻塞登录：沿用回调里的 userInfo（与参考实现同口径）。
     const info = await fetchUserInfo(accessToken);
     if (info) {
-      onStatus?.("Account info refreshed via GetUserInfo.");
+      onStatus?.("已通过 GetUserInfo 刷新账号信息。");
     } else {
-      onStatus?.("GetUserInfo unavailable; keeping the account info from the callback.");
+      onStatus?.("GetUserInfo 不可用，沿用回调里的账号信息。");
     }
 
     const c: Credentials = {
@@ -571,7 +570,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
       obtainedAt: new Date().toISOString(),
     };
     await save(c);
-    onStatus?.("Authorization succeeded, credential saved.");
+    onStatus?.("授权成功，凭据已落盘。");
     return c;
   } finally {
     callback.close();

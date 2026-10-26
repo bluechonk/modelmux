@@ -89,6 +89,8 @@ class StdinPasteReader {
 /** `auth-flow.LoginUi` 协议的无界面实现：状态打到 stdout。 */
 class StdoutLoginUi implements authFlow.LoginUi {
   authUrl = "";
+  /** 最近一条状态消息（`runLogin` 据此判断渠道是否已把原因说清）。 */
+  lastMessage = "";
   /** 本轮二维码图片 URL（CLI 下要打印出来，否则用户根本扫不到码）。 */
   private qrUrl = "";
   /**
@@ -149,12 +151,23 @@ class StdoutLoginUi implements authFlow.LoginUi {
     return this.observer?.takePastedCallback?.() ?? this.stdinPaste?.take();
   }
 
+  /**
+   * 向用户要一段输入（渠道两步登录，如 loomy 的短信验证码）。
+   *
+   * 有观察者（控制台）时转给 `ServiceState` 弹输入卡；**CLI 没有界面，直接返回
+   * `undefined`** —— 渠道据此回落到环境变量，`mx login loomy` 的既有用法不受影响。
+   */
+  requestInput(req: authFlow.LoginInputRequest): Promise<string | undefined> {
+    return this.observer?.requestInput?.(req) ?? Promise.resolve(undefined);
+  }
+
   /** 登录结束后关掉 stdin 监听（否则进程挂着不退）。 */
   closePasteReader(): void {
     this.stdinPaste?.close();
   }
 
   setState(state: string, message = "", url = "", qr = ""): void {
+    this.lastMessage = message;
     if (url) this.authUrl = url;
     if (qr) {
       this.qrUrl = qr;
@@ -190,6 +203,17 @@ class ServiceState {
   private modelsShown: string[] = [];
   /** 用户粘回的回调链接（一次性消费，见 `takePastedCallback`）。 */
   private pastedCallback = "";
+  /**
+   * 等待用户输入的请求（渠道两步登录，如 loomy 的短信验证码）。
+   * `null` = 当前没有待回答的输入；超时/取消会 resolve 成 undefined。
+   */
+  private pendingInput: {
+    req: console_.LoginInputRequest;
+    resolve: (value: string | undefined) => void;
+  } | null = null;
+  private pendingInputTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 等输入的上限：不能让用户不填就把登录流程吊死。 */
+  private readonly pendingInputTimeoutMs = 10 * 60_000;
   retryRequested = false;
   quitting = false;
 
@@ -226,6 +250,60 @@ class ServiceState {
     return v || undefined;
   }
 
+  /**
+   * 新一轮登录开始：**清空上一轮的残留**，回到「准备中」。
+   *
+   * ⚠ 必须由 `triggerLogin` **同步**调用：`ServiceState` 的字段跨请求保留，
+   * 而控制台的 `triggerLogin` 走 `setImmediate` 异步启动 —— 不先清干净的话，
+   * 弹窗挂载后最长一个轮询周期（3s）里显示的还是上一轮的
+   * `done` / `error` / 旧授权链接（2026-10-26 主人反馈「一开始就显示登录成功」）。
+   */
+  beginLogin(): void {
+    this.uiState = "probing";
+    this.stateMessage = "";
+    this.authUrl = "";
+    this.qrUrl = "";
+    this.gatewayError = "";
+    this.cancelPendingInput();
+  }
+
+  /**
+   * 向用户要一段输入（渠道的两步登录用，如 loomy 的短信验证码）。
+   *
+   * 返回的 Promise 由 `submitInput`（用户填了）或 `cancelInput`（弹窗关掉）解决；
+   * 一直没回应时由 `pendingInputTimeoutMs` 兜底拒绝，避免把登录流程吊死。
+   */
+  requestInput(req: console_.LoginInputRequest): Promise<string | undefined> {
+    this.cancelPendingInput();
+    return new Promise<string | undefined>((resolve) => {
+      this.pendingInput = { req, resolve };
+      this.pendingInputTimer = setTimeout(() => {
+        if (this.pendingInput?.req !== req) return;
+        this.cancelPendingInput();
+        resolve(undefined);
+      }, this.pendingInputTimeoutMs);
+    });
+  }
+
+  /** 用户提交了输入：解决等待中的那个 Promise。 */
+  submitInput(value: string): void {
+    const pending = this.pendingInput;
+    if (!pending) return;
+    this.cancelPendingInput();
+    pending.resolve(value);
+  }
+
+  /** 没有待回答的输入请求（弹窗关闭 / 新一轮登录）时调，避免 Promise 悬挂。 */
+  cancelPendingInput(): void {
+    const pending = this.pendingInput;
+    this.pendingInput = null;
+    if (this.pendingInputTimer) {
+      clearTimeout(this.pendingInputTimer);
+      this.pendingInputTimer = undefined;
+    }
+    pending?.resolve(undefined);
+  }
+
   /** Web 端提交回调链接（用户在 404 页复制地址栏后粘进来）。 */
   submitPastedCallback(raw: string): void {
     this.pastedCallback = raw;
@@ -246,6 +324,8 @@ class ServiceState {
       base_url: this.baseUrl,
       chat_url: this.chatUrl,
       models: [...this.modelsShown],
+      // 待回答的输入请求（渠道两步登录）：null = 当前没有。
+      login_input: this.pendingInput?.req ?? null,
       // 一次枚举只建一次跨渠道索引（`poolModelMetas` 内部构建）
       model_info: Object.fromEntries(poolModelMetas(this.modelsShown)),
       channel_caps: Object.fromEntries(
@@ -415,10 +495,11 @@ export async function runLogin(options: {
     captureIntoPool(target.config.cid);
     ui.setState("done", "登录成功，账号已入池。", "", "");
   } else {
-    // ⚠ 用**中性**措辞，不要说「失败」：有些渠道的两步登录（如 loomy 的短信验证码）
-    // 第一步「发码」是**正常中间态**，渠道会在错误信息里给出下一步（msgid + 重跑命令）。
-    // 这里再盖一句「登录失败，请重试」会把「按提示做第二步」误导成「出错了」。
-    ui.setState("error", "登录未完成，请按上面的提示处理（两步登录需带上第二步参数重跑）。", "", "");
+    // ⚠ 不再盖一层通用文案：渠道的错误信息里**已经写了原因与下一步**
+    // （loomy 的「重跑时带上 msgid」、控制台两步登录的「已取消」）。
+    // 再盖一句「登录未完成，请按上面的提示处理」会把「按提示做第二步」
+    // 误导成「出错了」（2026-10-26 实测：loomy 弹窗底部就是这么一句）。
+    if (!ui.lastMessage) ui.setState("error", "登录未完成，请重试。");
   }
 
   if (json) {
@@ -511,10 +592,11 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // 控制台的「登录」按钮经此回调触发真实登录流程（本函数在 app 层，
     // 控制台层不认识它 —— 见 scripts/verify-layering.mjs）
     triggerLogin: (cid, force) => {
-      // ⚠ **同步**把状态切回 login：上一轮登录留下的 `done` 会一直挂在
-      // ServiceState 上（它是跨请求保留的字段），弹窗打开时先读到旧 `done`
-      // 就会直接显示「登录完成」而看不到新的授权链接（2026-10-26 实测）。
-      state.setState("login", "requesting authorization URL...");
+      // ⚠ **同步**清掉上一轮的残留（done / error / 旧授权链接 / 待回答输入）：
+      // 上一轮的状态会一直挂在 ServiceState 上（它是跨请求保留的字段），
+      // 弹窗打开时先读到旧 `done` 就会直接显示「登录完成」而看不到新的授权链接
+      // （2026-10-26 实测）。真实登录由下面的 setImmediate 之后才启动。
+      state.beginLogin();
       // 把 state 当观察者传给登录流程：控制台没有 stdout 可看，
       // 授权链接必须落到 `/web/api/state`，否则页面永远等不到 auth_url。
       void runLogin({ cid, force, json: true, realm: "auto", observer: state }).catch(() => {
@@ -523,6 +605,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
     },
     // 用户把回调链接粘回来 → 交给正在跑的那轮登录（一次性 code 的兜底通道）
     submitCallback: (raw) => state.submitPastedCallback(raw),
+    // 渠道两步登录（如 loomy 短信验证码）向用户要输入
+    submitInput: (value) => state.submitInput(value),
+    // 弹窗关掉 → 不再等输入，让等待中的渠道立刻收尾
+    cancelInput: () => state.cancelPendingInput(),
   };
   // 单端口模式：控制台 handler 挂载进网关的 /web 前缀（不再起独立 server）。
   // `consoleEnabled=false`（--no-console）时不注入，网关保持纯 API 行为。

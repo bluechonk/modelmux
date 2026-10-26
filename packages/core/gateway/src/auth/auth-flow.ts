@@ -11,10 +11,10 @@
 
 import { unlinkSync } from "node:fs";
 
-import { getChannel, type LoginUi } from "../runtime/channel.js";
+import { getChannel, type LoginInputRequest, type LoginUi } from "../runtime/channel.js";
 import { credentialsPath } from "../runtime/paths.js";
 
-export type { LoginUi };
+export type { LoginInputRequest, LoginUi };
 
 /**
  * 保证存在可用登录凭证；必要时引导登录。
@@ -71,6 +71,9 @@ export async function ensureLogin(
         onStatus: (msg) => ui.setState("login", msg),
         // 兜底：回调页线上是 404，code 只在地址栏里 —— 由用户粘回来
         pasteCode: () => ui.takePastedCallback?.(),
+        // 两步登录的输入通道（如 loomy 短信验证码）：界面没有就不传，
+        // 渠道自己回落到环境变量（CLI 用法不变）。
+        ...(ui.requestInput ? { requestInput: (req: LoginInputRequest) => ui.requestInput!(req) } : {}),
       });
     } catch (err) {
       ui.setState("error", `登录失败：${String(err)}`);

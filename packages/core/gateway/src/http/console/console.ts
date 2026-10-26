@@ -20,6 +20,9 @@ import { createServer, type Server } from "node:http";
 import { fileURLToPath } from "node:url";
 
 import { serviceName } from "../server.js";
+import type { LoginInputRequest } from "../../runtime/channel.js";
+
+export type { LoginInputRequest };
 
 export const DEFAULT_UI_HOST = "127.0.0.1";
 
@@ -102,6 +105,13 @@ export interface UiSnapshot {
   endpoints: string[];
   models: string[];
   /**
+   * 待回答的输入请求（渠道两步登录，如 loomy 的短信验证码）；`null` = 当前没有。
+   *
+   * 界面拿到它就把登录弹窗切成**输入卡**（提示 + 输入框 + 提交/取消），
+   * 提交走 `submitInput` 动作；界面关闭时也要调它，否则等待中的渠道会一直挂着。
+   */
+  login_input: LoginInputRequest | null;
+  /**
    * 每模型附加信息（键 = 池模型 id）：消耗倍率与营销角标。
    *
    * 倍率为 null 表示该渠道目录没有提供；前端据此不渲染倍率标签。
@@ -129,6 +139,7 @@ export function emptySnapshot(): UiSnapshot {
     chat_url: "",
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: [],
+    login_input: null,
     model_info: {},
     channel_caps: {},
     theme_mode: "system",
@@ -158,6 +169,19 @@ export interface ControlBridge {
    * 故没有浏览器的进程只能靠用户把地址栏那条链接粘回来。
    */
   submitCallback?: (raw: string) => void;
+  /**
+   * 提交用户在登录弹窗里输入的内容（渠道两步登录用，如 loomy 的短信验证码）。
+   *
+   * 与 `submitCallback` 同构：界面不认识登录流程，只把用户给的字符串转交上去。
+   */
+  submitInput?: (value: string) => void;
+  /**
+   * 用户关掉了登录弹窗（两步登录不再等输入）。
+   *
+   * 不取消的话，等待输入的渠道会一直挂到超时（10 分钟）—— 期间那次登录请求
+   * 既不算成功也不算失败，界面上也没法再回答它。
+   */
+  cancelInput?: () => void;
 }
 
 export interface ConsoleServer {

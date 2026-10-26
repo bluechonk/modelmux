@@ -1,11 +1,20 @@
 /**
- * 「添加账号」登录弹窗（模态）：渲染授权步骤时间线与二维码 / 授权链接。
+ * 「添加账号」登录弹窗（模态）：渲染授权步骤时间线、二维码，或两步登录的输入卡。
  *
- * 视觉参照 DeepSeek 的系统设置弹窗：一个居中的大圆角面板，左侧是渠道/步骤概览，
- * 右侧是当前步骤的正文；标题栏只有标题与关闭键。
+ * ## 三种形态
  *
- * ⚠ 只有右上角的关闭按钮能关闭 —— 遮罩点击 / ESC 一律不关（登录进行中误触
- * 丢流程比关不掉更糟）。授权页渲染成**按钮**而不是裸 URL。
+ * - **两步登录**（`login_input` 非空，如 loomy 短信验证码）：只渲染输入卡 ——
+ *   提示 + 输入框 + 提交/取消。**不渲染步骤时间线**：用户要的就是「填这个框」，
+ *   再摆一条用不上的授权步骤只会让人以为流程走错了。
+ * - **扫码**（`qr_url`）：二维码 + 确认步骤。
+ * - **授权链接**（`auth_url`）：复制链接 + 官方页完成 + 自动回调，**三步**
+ *   （第四步「手动粘贴回调链接」已删：控制台与网关同机，回调必然到得了本机端口，
+ *   粘贴框只是多余的入口 —— 2026-10-26 主人要求）。
+ *
+ * ## 为什么只有右上角的关闭按钮能关闭
+ *
+ * 遮罩点击 / ESC 一律不关（登录进行中误触丢流程比关不掉更糟），关闭时调
+ * `onCancelInput` 让等待输入的渠道收尾。
  */
 
 import {
@@ -18,7 +27,8 @@ import {
   QrCode,
   X,
 } from "lucide-react";
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import type { LoginInputRequest } from "../lib/types";
 
 /** 登录态快照（后端 `GET /web/api/state` 的 `ui_state` / `auth_url` / `qr_url` 等字段）。 */
 export interface LoginSnapshot {
@@ -26,10 +36,20 @@ export interface LoginSnapshot {
   message: string;
   auth_url: string;
   qr_url: string;
+  /** 待回答的输入请求（两步登录）；`null` = 没有。 */
+  login_input: LoginInputRequest | null;
 }
 
 /** 步骤状态：未开始 / 进行中 / 已完成 / 失败。 */
 type StepState = "todo" | "active" | "done" | "failed";
+
+/**
+ * 共享层在拿到授权链接前推的准备文案（`auth-flow.ts`）。
+ *
+ * 两步登录等输入时它还在状态机上，但用户此刻要做的不是「等链接」——
+ * 显示它只会误导，故在输入卡出现时把它藏掉。
+ */
+const PREPARING_MESSAGE = "正在获取授权链接...";
 
 export function LoginModal({
   cid,
@@ -37,7 +57,8 @@ export function LoginModal({
   snapshot,
   submitting,
   onStartLogin,
-  onSubmitCallback,
+  onSubmitInput,
+  onCancelInput,
   onClose,
 }: {
   cid: string;
@@ -46,7 +67,10 @@ export function LoginModal({
   submitting: boolean;
   /** 弹窗打开时触发一次（走一次授权流程）。 */
   onStartLogin: (cid: string) => void;
-  onSubmitCallback: (url: string) => void;
+  /** 两步登录：把用户填的内容交回后端。 */
+  onSubmitInput: (value: string) => void;
+  /** 关闭弹窗：让等待输入的渠道收尾（避免挂到超时）。 */
+  onCancelInput: () => void;
   onClose: () => void;
 }): ReactElement {
   // 打开即触发一轮登录（父组件负责防重入）
@@ -57,11 +81,54 @@ export function LoginModal({
 
   const authUrl = snapshot?.auth_url ?? "";
   const qrUrl = snapshot?.qr_url ?? "";
+  const loginInput = snapshot?.login_input ?? null;
   const message = snapshot?.message ?? "";
   const uiState = snapshot?.ui_state ?? "";
-  const preparing = !authUrl && !qrUrl;
+
+  /**
+   * **准备期骨架守卫**：弹窗挂载到「本轮第一个状态更新到达」之间，只画骨架。
+   *
+   * 不这么做的话，弹窗一打开就会闪出**上一轮**残留的 `done` / `error` /
+   * 旧授权链接（后端 `triggerLogin` 是异步启动的，最长一个轮询周期 3s 里
+   * 状态机里还是旧值 —— 2026-10-26 主人反馈「一开始就显示登录成功」）。
+   */
+  const mountState = useRef(uiState);
+  const [pristine, setPristine] = useState(true);
+  useEffect(() => {
+    if (!pristine) return;
+    if (uiState !== mountState.current || authUrl !== "" || qrUrl !== "" || loginInput) {
+      setPristine(false);
+    }
+  }, [pristine, uiState, authUrl, qrUrl, loginInput]);
+
+  // 扫码流 2 步、授权链接流 3 步；标题栏据此给步骤提示
+  const preparing = !authUrl && !qrUrl && !loginInput;
   const failed = uiState === "error";
   const done = uiState === "done";
+  const totalSteps = qrUrl ? 2 : 3;
+  // 两步登录没有「授权步骤」，侧栏不能写「步骤 1/3 · 浏览器授权」——那会让人
+  // 以为流程走错了（渠道此刻在等用户填手机号/验证码）。
+  const stepLabel = loginInput
+    ? "两步登录"
+    : failed
+      ? "登录失败"
+      : done
+        ? "登录完成"
+        : preparing
+          ? "准备中"
+          : `步骤 1 / ${totalSteps}`;
+  const stepHint = loginInput
+    ? "按提示填写手机号与验证码"
+    : failed
+      ? "查看原因后可重新发起"
+      : done
+        ? "账号已自动入池"
+        : preparing
+          ? "正在准备登录会话"
+          : qrUrl
+            ? "扫码授权"
+            : "浏览器授权";
+  const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
 
   /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口（主人 2026-10-23 要求）。 */
   const [authCopied, setAuthCopied] = useState(false);
@@ -75,26 +142,6 @@ export function LoginModal({
       // 剪贴板不可用（非安全上下文等）：静默失败，用户仍可手动复制下面那一行
     }
   };
-
-  // 扫码流 3 步、授权链接流 4 步；标题栏据此给步骤提示
-  const totalSteps = qrUrl ? 3 : 4;
-  const stepLabel = failed
-    ? "登录失败"
-    : done
-      ? "登录完成"
-      : preparing
-        ? "准备中"
-        : `步骤 1 / ${totalSteps}`;
-  const stepHint = failed
-    ? "查看原因后可重新发起"
-    : done
-      ? "账号已自动入池"
-      : preparing
-        ? "正在准备登录会话"
-        : qrUrl
-          ? "扫码授权"
-          : "浏览器授权";
-  const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
 
   // 扫码流：扫码 → 手机确认 → 自动入池
   const qrSteps: Array<{ title: string; body: ReactNode; state: StepState }> = [
@@ -153,22 +200,11 @@ export function LoginModal({
       body: (
         <span className="text-[11px] leading-relaxed text-ink-faint">
           授权成功后页面会<strong className="text-ink-soft">自动跳回本地回调</strong>
-          并完成登录。若浏览器拦截跳转，再复制地址栏链接到下一步。
+          并完成登录。控制台与网关在同一台机器上，回调必然到得了本机端口 ——
+          不需要手动粘贴任何链接。
         </span>
       ),
       state: done ? "done" : "todo",
-    },
-    {
-      title: "手动粘贴回调链接（仅自动跳转失败时）",
-      body: (
-        <CallbackForm
-          onSubmit={onSubmitCallback}
-          submitting={submitting}
-          placeholder="粘贴地址栏里的整条回调链接"
-        />
-      ),
-      // 失败时把「手动兜底」提为当前步骤
-      state: failed ? "active" : "todo",
     },
   ];
 
@@ -184,12 +220,15 @@ export function LoginModal({
         {/* 标题栏：标题 + 关闭键（DeepSeek 设置弹窗的同构标题栏） */}
         <div className="flex items-center justify-between px-6 py-4">
           <h2 className="text-lg font-medium text-ink">添加账号</h2>
-          {/* 唯一的关闭入口 */}
+          {/* 唯一的关闭入口：顺带通知后端别再等输入（否则渠道挂到超时） */}
           <button
             type="button"
             aria-label="关闭"
             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-            onClick={onClose}
+            onClick={() => {
+              onCancelInput();
+              onClose();
+            }}
           >
             <X className="h-4 w-4" />
           </button>
@@ -215,9 +254,28 @@ export function LoginModal({
             </div>
           </aside>
 
-          {/* 右侧：步骤区 */}
+          {/* 右侧：步骤区。准备期（含骨架守卫期间）画占位，不画上一轮的残留 */}
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-            {qrUrl ? (
+            {pristine ? (
+              <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
+                <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
+                <div className="text-sm text-ink-soft">正在准备登录会话…</div>
+                <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
+              </div>
+            ) : loginInput ? (
+              // `key` 必须带：手机号 → 验证码是同一个组件位置，不带 key 会复用
+              // 上一步的输入值（验证码框里预填着手机号）。
+              <InputCard
+                key={loginInput.kind}
+                request={loginInput}
+                submitting={submitting}
+                onSubmit={onSubmitInput}
+                onCancel={() => {
+                  onCancelInput();
+                  onClose();
+                }}
+              />
+            ) : qrUrl ? (
               <Steps items={qrSteps} />
             ) : authUrl ? (
               <Steps items={authSteps} />
@@ -225,7 +283,7 @@ export function LoginModal({
               <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
                 <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
                 <div className="text-sm text-ink-soft">正在准备登录会话…</div>
-                <div className="text-[11px] text-ink-faint">授权链接与二维码生成后会立刻出现在这里</div>
+                <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
               </div>
             )}
 
@@ -237,13 +295,17 @@ export function LoginModal({
               </div>
               <ul className="list-disc space-y-1 pl-4">
                 <li>授权链接只会复制到剪贴板，由你自己决定在哪个浏览器打开。</li>
-                <li>授权成功后会自动跳回本地回调完成登录；若跳转被拦截，复制地址栏链接粘贴。</li>
+                <li>授权成功后会自动跳回本地回调完成登录，不需要手动粘贴任何链接。</li>
                 <li>登录成功后账号自动入池并设为生效；失败时本弹窗会显示原因。</li>
               </ul>
             </div>
 
-            {/* 后端状态 / 错误 */}
-            {message && (
+            {/*
+              后端状态 / 错误。准备期不显示（那还是上一轮的残留文案）；
+              两步登录等待输入时也不显示 —— 此刻显示的是共享层的
+              「正在获取授权链接...」，与用户要做的事无关。
+            */}
+            {!pristine && !(loginInput && message === PREPARING_MESSAGE) && message && (
               <div
                 className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
                   failed
@@ -375,43 +437,67 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
   );
 }
 
-/** 回调链接粘贴表单。 */
-function CallbackForm({
-  onSubmit,
+/**
+ * 两步登录的输入卡（如 loomy 的手机号 → 短信验证码）。
+ *
+ * 渠道通过 `requestInput` 要输入，后端把 `{ kind, prompt }` 放进 `state.login_input`；
+ * 这张卡就把它渲染出来。提交走 `submitInput` 动作，取消 = 关弹窗 + 通知后端收尾。
+ */
+function InputCard({
+  request,
   submitting,
-  placeholder,
+  onSubmit,
+  onCancel,
 }: {
-  onSubmit: (url: string) => void;
+  request: LoginInputRequest;
   submitting: boolean;
-  placeholder: string;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
 }): ReactElement {
   const [value, setValue] = useState("");
+  const id = `login-input-${request.kind}`;
   return (
     <form
-      className="space-y-1.5"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (value.trim()) onSubmit(value.trim());
       }}
     >
-      <label htmlFor="login-callback-url" className="block text-[11px] text-ink-faint">
-        回调链接（整条 URL）
+      <label htmlFor={id} className="block text-[13px] font-medium text-ink">
+        {request.prompt}
       </label>
-      <div className="flex gap-2">
-        <input
-          id="login-callback-url"
-          spellCheck={false}
-          className="min-w-0 flex-1 rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
+      <input
+        id={id}
+        autoFocus
+        inputMode={request.kind === "phone" ? "tel" : "numeric"}
+        autoComplete={request.kind === "phone" ? "tel" : "one-time-code"}
+        spellCheck={false}
+        className="w-full rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+        placeholder={request.kind === "phone" ? "11 位手机号" : "6 位验证码"}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <p className="text-[11px] leading-relaxed text-ink-faint">
+        {request.kind === "phone"
+          ? "提交后上游会向这个号码发短信验证码，收到后会在下一步问你。"
+          : "填写短信里的验证码即可完成登录。"}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="submit"
-          className="shrink-0 rounded-full bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
+          className="rounded-full bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
           disabled={submitting || !value.trim()}
         >
-          完成登录
+          {submitting ? "提交中…" : request.kind === "phone" ? "发送验证码" : "完成登录"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={submitting}
+          className="rounded-full px-4 py-2 text-[13px] text-ink-soft transition-colors hover:bg-overlay hover:text-ink disabled:opacity-50"
+        >
+          取消
         </button>
       </div>
     </form>

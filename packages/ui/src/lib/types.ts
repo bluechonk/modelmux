@@ -1,5 +1,16 @@
 /** 前端自己的 API 数据类型子集（与共享层快照字段对齐）。 */
 
+/**
+ * 待回答的输入请求（渠道两步登录，如 loomy 的短信验证码）。
+ *
+ * 与共享层 `LoginInputRequest` 同形：`kind` 只影响界面措辞与键盘类型，
+ * 渠道名等知识不下发到前端。
+ */
+export interface LoginInputRequest {
+  kind: "phone" | "code";
+  prompt: string;
+}
+
 export interface UiSnapshot {
   ui_state: string;
   message: string;
@@ -7,6 +18,13 @@ export interface UiSnapshot {
   auth_url: string;
   /** 二维码图片 URL，扫码用这一张（对应登录流程本轮轮询的 uuid）。 */
   qr_url: string;
+  /**
+   * 待回答的输入请求；`null` = 当前没有。
+   *
+   * 非空时登录弹窗**只渲染输入卡**（提示 + 输入框 + 提交/取消），
+   * 不渲染授权步骤时间线 —— 两步登录里用户要的就是「填这个框」。
+   */
+  login_input: LoginInputRequest | null;
   base_url: string;
   chat_url: string;
   endpoints: string[];

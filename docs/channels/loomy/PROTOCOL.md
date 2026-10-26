@@ -7,12 +7,20 @@
 
 ## 登录路径：手机验证码（唯一）
 
-`mx login loomy` **只有手机验证码一条路**，两步协议、环境变量驱动：
+`mx login loomy` **只有手机验证码一条路**，两步协议。输入来源有两条，**都通**：
 
-| 步骤 | 触发条件 | 行为 |
+| 入口 | 手机号怎么来 | 验证码怎么来 |
+|---|---|---|
+| **Web 控制台**（登录弹窗） | 弹窗里的输入卡（渠道调 `options.requestInput({kind:"phone"})`） | 发码后再弹一张输入卡（`kind:"code"`），**一次走完** |
+| **CLI**（`mx login loomy`） | 环境变量 `LOOMY_PHONE` | 环境变量 `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID`（见下表） |
+
+| CLI 步骤 | 触发条件 | 行为 |
 |---|---|---|
 | 第一步 | `LOOMY_PHONE=<手机号>` | 发码，把 `msgid` 打进错误信息里 |
 | 第二步 | 再加 `LOOMY_SMS_CODE=<验证码>` + `LOOMY_SMS_MSGID=<上一步的 msgid>` | 换 14 天 session 并落盘 |
+
+> 契约要求（`docs/CONTRACT-TS.md` §5.1.1）：**先试 `requestInput`，拿不到再回落环境变量**。
+> 只做前者 → 终端用户卡在等一个永远不来的输入框；只做后者 → 控制台用户无处可填。
 
 ```
 1. POST https://account.xfinfr.com/login/phone/sendMsgCode
@@ -22,7 +30,9 @@
 ```
 
 ⚠ **`msgid` 是两步之间的强绑定**：`checkCode` 不带第一步的 `msgid` 必失败，
-所以发码结果必须回传给用户（本渠道打进错误信息里），不能吞掉。验证码有效期 300 秒。
+所以发码结果必须回传给用户（控制台走输入卡，CLI 打进错误信息里），不能吞掉。验证码有效期 300 秒。
+
+用户取消输入 / 关弹窗 → 渠道抛「已取消短信登录」，不再报「登录失败」。
 
 **为什么只留这一条**（历史判据见 [FINDINGS.md](./FINDINGS.md)）：
 
@@ -83,20 +93,20 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 
 ### 2.1 登录路径
 
-`login()` **只有手机验证码一条路**（两步，环境变量驱动）：
+`login()` **只有手机验证码一条路**（两步）：
 
 | 环节 | 端点 | 输入来源 | 状态 |
 |---|---|---|---|
-| **验证码发码** | `POST /login/phone/sendMsgCode` | `LOOMY_PHONE` | `[实测]` 2026-10-22 真机跑通（返回 `msgid`） |
-| **验证码换 session** | `POST /login/phone/checkCode` | + `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` | `[实测]` 2026-10-22 真机跑通（入池 + 额度 4999） |
+| **验证码发码** | `POST /login/phone/sendMsgCode` | 控制台输入卡 / `LOOMY_PHONE` | `[实测]` 2026-10-22 真机跑通（返回 `msgid`） |
+| **验证码换 session** | `POST /login/phone/checkCode` | 控制台输入卡 / `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` | `[实测]` 2026-10-22 真机跑通（入池 + 额度 4999） |
 
-**环境变量只有三个**（`packages/core/channels/loomy/src/cred.ts` 的 `PHONE_ENV` / `SMS_CODE_ENV` / `SMS_MSGID_ENV`）：
+输入来源两条路（渠道先试 `options.requestInput`，拿不到再回落环境变量）：
 
-| 变量 | 第一步 | 第二步 |
-|---|---|---|
-| `LOOMY_PHONE` | 必填 | 必填 |
-| `LOOMY_SMS_CODE` | — | 必填（6 位验证码） |
-| `LOOMY_SMS_MSGID` | — | 必填（第一步输出） |
+| 变量 | 第一步 | 第二步 | 说明 |
+|---|---|---|---|
+| `LOOMY_PHONE` | 必填 | 必填 | CLI 用；控制台从输入卡拿 |
+| `LOOMY_SMS_CODE` | — | 必填（6 位验证码） | CLI 用；控制台从输入卡拿 |
+| `LOOMY_SMS_MSGID` | — | 必填（第一步输出） | CLI 用；**控制台不需要** —— 同一次调用里 `msgid` 在内存里 |
 
 发码失败的常见原因：手机号格式不对（要 11 位大陆号）、发码过于频繁（上游限流）。
 `msgid` 有效期与验证码同步（300 秒），超时需重新发码。
