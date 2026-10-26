@@ -1,17 +1,11 @@
 /**
  * 控制台 API 服务：`/api/*` 提供只读状态快照与写动作；`/` 与 `/assets/*` 静态托管 UI。
  *
- * 与网关分开的原因有二：
- *  - 网关的 `/` 返回 JSON 是既有 API 契约，不能混入别的端点；
- *  - 控制台必须在**登录完成前**就可用，而此时网关还没启动。
+ * 与网关分开：网关的 `/` 返回 JSON 是既有契约不能混入别的端点；控制台必须在
+ * **登录完成前**就可用，而此时网关还没启动。
  *
- * 端点：
- *   GET  /                    静态 SPA 首页 (packages/core/gateway/dist/ui/index.html)
- *   GET  /assets/*            静态资产
- *   GET  /web/api/state       状态快照
- *   POST /api/theme           主题
- *   POST /api/retry-login     重试登录
- *   POST /api/commands        服务动作分发（web-command-handler.ts）
+ * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` ·
+ * `POST /api/theme` · `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -378,7 +372,7 @@ export function createConsoleHandler(
           }
           const { createWebCommandHandler } = await import("./web-command-handler.js");
           // ⚠ 桥里的每个写动作都要在这里显式转发 —— 漏一个，命令处理器就报
-          // 「未注入 xxx」（2026-10-26 实测：`submitInput` 漏转发，控制台点
+          // 「未注入 xxx」（实测踩过：`submitInput` 漏转发，控制台点
           // 「发送验证码」后端直接回「不支持登录输入」）。
           const handle = createWebCommandHandler({
             ...(bridge.triggerLogin ? { triggerLogin: bridge.triggerLogin } : {}),

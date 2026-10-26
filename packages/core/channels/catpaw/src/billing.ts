@@ -19,23 +19,20 @@ export class CreditsError extends Error {
 }
 
 /**
- * 额度查询端点。
+ * 额度查询端点（`GET`；鉴权 `X-Auth-Token` 网关域头）。
  *
- * - 方法 / 完整 URL：`GET https://catx.nocode.cn/api/gateway/credit/balance`
- * - 端点路径：`/api/gateway/credit/balance`
  * - query：无；body：无
- * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头）
  * - 响应：取 `data.availableCredits`（可用积分）
+ * - 端点与实测见 docs/channels/catpaw/PROTOCOL.md
  */
 const CREDIT_BALANCE_PATH = "/api/gateway/credit/balance";
 
 /**
- * 注册奖励申领端点（幂等：老用户回 `newUser:false`）。
+ * 注册奖励申领端点（`POST`；幂等：老用户回 `newUser:false`）。
  *
- * - 方法 / 完整 URL：`POST https://catx.nocode.cn/api/gateway/credit/register`
- * - 端点路径：`/api/gateway/credit/register`
  * - query：无；body：`{registerChannel:"CATPAW_PC"}`
  * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头）
+ * - 端点与实测见 docs/channels/catpaw/PROTOCOL.md
  */
 const CREDIT_REGISTER_PATH = "/api/gateway/credit/register";
 

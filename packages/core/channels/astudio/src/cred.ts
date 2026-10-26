@@ -4,10 +4,8 @@
  * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md §5-§7）：
  *   - 登录**双轨**：路 A 云端短信直连（Web 控制台解滑块；本地服务代理层不提供
  *     可独立调用的登录）；路 B 读桌面应用落盘的会话文件兜底。
- *   - 会话文件里有两个凭据：`token`（云端账号 API，Cookie 形态）与
- *     `modelBearerToken`（模型网关，Bearer 形态）。源码里后者优先。
- *   - `refresh()` 是**真刷新**：带 Cookie 打 `/bot/models/configs` 取 `api_key`
- *     （实测与磁盘 `modelBearerToken` 同一个）；Cookie 失效时上游回 `code=80000`。
+ *   - 两个凭据分工：`token` 打账号 API（Cookie 形态）、`modelBearerToken` 打
+ *     模型网关（Bearer 形态）；`refresh()` 真刷新，Cookie 失效上游回 `80000`。
  *
  * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
  */
@@ -124,8 +122,8 @@ const EMPTY_CREDENTIALS: Credentials = {
  * 展示名：**显式回落**，不靠池层字段表巧合命中。
  *
  * 上游 `nickname` 实测恒为 `null`（PROTOCOL §4.2），会话文件里也**根本没有这个键**。
- * 此前代码读出来是空串，再靠共享层 `NAME_FIELDS` 的顺序**碰巧**命中 `mobile` ——
- * 池层哪天调顺序，astudio 的显示名就变了。所以这里显式回落，不依赖池层巧合。
+ * 依赖共享层 `NAME_FIELDS` 的顺序「碰巧」命中 `mobile` 不可靠 —— 池层一调顺序，
+ * astudio 的显示名就变。所以这里显式回落，不靠池层巧合。
  *
  * ⚠ **不做脱敏**，渠道给什么就显示什么
  * （`mobile` 是明文手机号，与 `packages/ui` 的 `displayName()` 口径一致）。
@@ -207,11 +205,10 @@ function fromSessionFile(raw: AstronSessionFile): Credentials {
 }
 
 /**
- * 用账号 API 补全账号信息（`GET /xingchen-studio/userInfo`）。
+ * 用账号 API 补全账号信息（`/userInfo`）。
  *
  * 会话文件里没有 `nickname` 键、`mobile` 也可能是旧的 —— 上游 `/userInfo` 是权威来源
- * （PROTOCOL §4.2 实测 `code=0`，含 `uid` / `mobile` / `nickname`）。
- * **尽力而为**：失败只保留会话文件的值，不让登录因此失败。
+ * （字段见 PROTOCOL §4.2）。**尽力而为**：失败只保留会话文件的值，不让登录因此失败。
  */
 async function enrichFromUserInfo(c: Credentials): Promise<Credentials> {
   const info = await upstream.fetchUserInfo(c);
@@ -361,9 +358,9 @@ function isProcessAlive(pid: number): boolean {
  *
  * ## 路 A：手机号 + 短信验证码（云端直连）
  *
- * 云端账号 API 的路径**没有** `/api/astron-auth/` 前缀（那是桌面应用本地服务
- * 代理层的前缀），直接打 `https://agent.xfyun.cn/xingchen-studio/<path>`。
- * 带错前缀必然 404，会误判成「云端无登录端点」。
+ * 云端账号 API 的路径**没有** `/api/astron-auth/` 前缀 —— 那是桌面应用本地服务
+ * 代理层的前缀，云端路径就是 `{studioBaseUrl}/<path>`（PROTOCOL §5）。
+ * 带上代理层前缀直连必然 404，会让人误以为云端没有登录端点。
  * 各端点的鉴权要求与实测见 docs/channels/astudio/PROTOCOL.md §5。
  *
  * 唯一拦路虎是 **GeeTest v3 滑块** —— 它本来就该由**浏览器**解，
@@ -618,7 +615,7 @@ async function fromPasted(text: string): Promise<Credentials> {
  *
  * ⚠ 语义必须说清：
  * - 本函数只做**本地销毁** —— 删掉 `credentials.json`；
- * - **不吊销上游会话**：AStudio 的登出端点（`POST /api/astron-auth/logout`）同样只存在于
+ * - **不吊销上游会话**：AStudio 的登出端点（`/api/astron-auth/logout`）同样只存在于
  *   本地服务代理层，外部拿不到。云端 `token` / `ssoSessionId` 会继续有效，
  *   AStudio 桌面应用里也仍是登录态；
  * - 池里的账号由共享层清理（Web「删除生效账号」已会连带删 `credentials.json`）。

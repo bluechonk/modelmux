@@ -82,7 +82,7 @@ const POOL_KEY_MAP: Record<string, string> = {
  *
  * **数据来源**：国内版官方目录静态快照（14 条），抄自
  * `reference/shuishuipingan_qoder2api-hub/qoder_catalog_cn.json`
- * （上游仓库 `shuishuipingan/qoder2api-hub`；2026-10-20 随参考实现克隆时抄录）。
+ * （上游仓库 `shuishuipingan/qoder2api-hub`，随参考实现克隆时抄录）。
  * [参考]
  *
  * ⚠ **只抄数据**（`key` / `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`），

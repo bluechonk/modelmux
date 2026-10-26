@@ -41,15 +41,12 @@ export const DISPLAY_NAME = "AStudio";
 export const WIRE: "openai" | "custom" = "openai";
 
 /**
- * 对话端点路径。
- * - 方法 / 完整 URL：POST `…/model-gateway/v1/chat/completions`
- * - query：**无**（`model` / `messages` / `stream` 全在 body）
+ * 对话端点路径（`POST`；query **无**，`model` / `messages` / `stream` 全在 body）。
  */
 const CHAT_PATH = "/chat/completions";
 
 /**
- * 模型配置端点（**刷新凭据**用，不在模型网关上）。
- * - 方法 / 完整 URL：GET `https://agent.xfyun.cn/xingchen-studio/bot/models/configs`
+ * 模型配置端点（`GET`；**刷新凭据**用，不在模型网关上）。
  * - 鉴权：Cookie（`ssoSessionId` / `account_id` / `token`）
  */
 const MODEL_CONFIGS_PATH = "/bot/models/configs";
@@ -155,19 +152,12 @@ export function chatUrl(cfg?: Config): string {
  * ## 为什么必须有这个
  *
  * AStudio 的云端模型配置里**每个模型各带一个 `base_url`**
- * （完整映射表见 docs/channels/astudio/PROTOCOL.md §6.1）：
+ * （完整映射表见 docs/channels/astudio/PROTOCOL.md §6.1）。
  *
- * | model | base_url |
- * | --- | --- |
- * | `astronclaw-auto` / `xopglm52` / `xopdeepseekv4pro` / … | `https://maas-api.cn-huabei-1.xf-yun.com/v2` |
- * | `spark-x` | `https://spark-api-open.xf-yun.com/agent/v1` |
- *
- * 硬编码一个 host 会对**不在那个 host 上的模型**回 `404 API endpoint not found`
- * （实测：`astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
- * 对所有模型都 404 —— 那是**错的**主机名，正确的见上表）。
- *
- * 参考实现也是这么做的：`internal/astron/client.go` 的 `InferenceURL(path)` 拼的是
- * `c.Upstream`（每个模型各自的 base），不是全局固定值。
+ * 硬编码一个 host 会对**不在那个 host 上的模型**一律 404 ——
+ * 静态源码里出现的那台「默认网关」主机对 `chat/completions` 就是如此，
+ * 它是配置默认值不是推理主机。参考实现同理：`internal/astron/client.go` 的
+ * `InferenceURL(path)` 拼的是每个模型各自的 base，不是全局固定值。
  *
  * ## 取不到时怎么办
  *

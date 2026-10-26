@@ -22,7 +22,7 @@ export type { LoginInputRequest, LoginUi };
  * @param interactive 无窗口被动模式下传 false —— 缺凭证**不发起登录**，
  *   只报告状态并返回 false。
  * @param force 重新授权：**即使已有凭据也走一轮新的授权**（拿新的授权链接）。
- *   ⚠ 不删旧凭据 —— 授权没走完时旧凭据仍能服务（2026-10-24 事故：先删导致掉线）。
+ *   ⚠ 不删旧凭据 —— 授权没走完时旧凭据仍能服务（先删会导致掉线，实测事故）。
  * @returns true 表示可以启动网关
  */
 export async function ensureLogin(
@@ -52,7 +52,7 @@ export async function ensureLogin(
 
   // `force` 时即使已有凭据也走授权：控制台「添加账号」与 `mx relogin` 要的是
   // **一条新的授权链接**，而不是「探测一下旧凭据还能不能用」（那样点任何已登录
-  // 渠道都会立刻报成功、拿不到链接 —— 2026-10-26 实测）。
+  // 渠道都会立刻报成功、拿不到链接 —— 实测如此）。
   if (!c || force) {
     if (!interactive) {
       ui.setState("login", "未登录：请先登录，打开授权链接完成授权后再试。");
@@ -75,8 +75,7 @@ export async function ensureLogin(
         // 渠道自己回落到环境变量（CLI 用法不变）。
         ...(ui.requestInput ? { requestInput: (req: LoginInputRequest) => ui.requestInput!(req) } : {}),
         // 强制重读（`mx relogin`）：渠道据此跳过「已有凭据就复用」的短路 ——
-        // astudio 这类「凭据来自外部会话文件」的渠道，不传就永远是空操作
-        // （2026-10-26 修死结，见 docs/channels/astudio/ROADMAP.md 第 4 项）。
+        // astudio 这类「凭据来自外部会话文件」的渠道，不传就永远是空操作。
         ...(force ? { force: true } : {}),
       });
     } catch (err) {

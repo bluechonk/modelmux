@@ -81,7 +81,7 @@ function loadGeetestSdk(): Promise<void> {
  * （`@radix-ui/react-dismissable-layer` 的 `disableOutsidePointerEvents`），
  * 只让对话框内容可点。而 GeeTest 的滑块面板是 SDK **直接挂在 `body` 下**的
  * （不在 React 树里），于是它继承了 `none` → **滑块点不动、拖不动**
- * （2026-10-26 实测：`elementFromPoint` 命中的是对话框内容而不是滑块）。
+ * （实测：`elementFromPoint` 命中的是对话框内容而不是滑块）。
  *
  * 解法：面板显式设 `pointer-events: auto`（覆盖继承）。
  * Radix 只改 `body` 的**内联样式**、不动子节点的显式样式，所以不会被打回。
@@ -132,7 +132,7 @@ export function GeetestCaptcha({
    * ⚠ **必须这样**：父组件传的是内联箭头函数，每次渲染都是新身份。
    * 若把它们放进 `useCallback` / `useEffect` 的依赖，effect 会**每渲染重跑一次**
    * → 上一次的实例被 `destroy()` → GeeTest 立刻回调 `onError`，
-   * 表现为「安全验证异常，请重试」（2026-10-26 实测踩过：
+   * 表现为「安全验证异常，请重试」（实测踩过：
    * 手动在页面里 initGeetest 是好的，`onReady` 正常触发、`verify()` 正常调用）。
    */
   const onSolvedRef = useRef(onSolved);
