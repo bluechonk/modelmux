@@ -13,7 +13,7 @@
  */
 
 import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -287,6 +287,8 @@ export function AccountCard({
     name: string;
     active: boolean;
   } | null>(null);
+  /** 被点的那个垃圾桶 —— 取消确认后焦点要还给它（见 `ConfirmDialog.returnFocusTo`）。 */
+  const removeTriggerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (busyKey !== null) setPendingRemove(null);
   }, [busyKey]);
@@ -462,9 +464,11 @@ export function AccountCard({
                   <button
                     className="shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
                     disabled={busyKey !== null}
-                    onClick={() =>
-                      setPendingRemove({ key: account.key, name: displayName(account), active })
-                    }
+                    onClick={(e) => {
+                      // 记下触发键：取消确认时焦点要还到这里（见 ConfirmDialog 注释）
+                      removeTriggerRef.current = e.currentTarget;
+                      setPendingRemove({ key: account.key, name: displayName(account), active });
+                    }}
                     aria-label={active ? "删除生效账号（同时登出）" : "从池中删除"}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -534,6 +538,7 @@ export function AccountCard({
           title="删除账号"
           confirmLabel="删除账号"
           busy={busyKey !== null}
+          returnFocusTo={removeTriggerRef.current}
           onCancel={() => setPendingRemove(null)}
           onConfirm={() => {
             const target = pendingRemove;
