@@ -217,6 +217,17 @@ export interface UpstreamModule {
   loadConfig(): [any, boolean];
   saveConfig(cfg: any): Promise<void>;
   chatUrl(cfg?: any): string;
+  /**
+   * 可选：**按模型**决定对话端点。
+   *
+   * 有些上游**每个模型走不同的网关主机**（AStudio 实测：模型配置里每个 model
+   * 各带一个 `base_url`，如 `maas-api.cn-huabei-1.xf-yun.com/v2` 与
+   * `spark-api-open.xf-yun.com/agent/v1`）—— 硬编码一个 host 会对部分模型 404。
+   *
+   * 声明本钩子后，网关用**它**的结果而不是 `chatUrl()`。
+   * 入参是**上游模型名**（已经过 `catalog.resolveModel()`）。
+   */
+  chatUrlForModel?(upstreamModel: string, cfg?: any): string;
   modelsUrl(cfg?: any): string;
   buildHeaders(credential: any, cfg?: any): Record<string, string>;
   /**

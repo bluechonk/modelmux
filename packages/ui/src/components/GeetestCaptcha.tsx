@@ -72,6 +72,35 @@ function loadGeetestSdk(): Promise<void> {
   return sdkPromise;
 }
 
+/**
+ * 给 GeeTest 面板**单独**打开鼠标事件。
+ *
+ * ## 为什么必须这么做
+ *
+ * Radix `Dialog` 的**模态模式**会给 `document.body` 加 `pointer-events: none`
+ * （`@radix-ui/react-dismissable-layer` 的 `disableOutsidePointerEvents`），
+ * 只让对话框内容可点。而 GeeTest 的滑块面板是 SDK **直接挂在 `body` 下**的
+ * （不在 React 树里），于是它继承了 `none` → **滑块点不动、拖不动**
+ * （2026-10-26 实测：`elementFromPoint` 命中的是对话框内容而不是滑块）。
+ *
+ * 解法：面板显式设 `pointer-events: auto`（覆盖继承）。
+ * Radix 只改 `body` 的**内联样式**、不动子节点的显式样式，所以不会被打回。
+ *
+ * ⚠ 面板是 SDK 异步创建的，`initGeetest` 返回时还没进 DOM —— 故用
+ * `MutationObserver` 盯着 `body`，出现就补上。
+ */
+function enablePanelPointerEvents(): () => void {
+  const apply = (): void => {
+    for (const el of document.querySelectorAll<HTMLElement>(".geetest_panel, .geetest_slider_button")) {
+      if (el.style.pointerEvents !== "auto") el.style.pointerEvents = "auto";
+    }
+  };
+  apply();
+  const observer = new MutationObserver(apply);
+  observer.observe(document.body, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
 export function GeetestCaptcha({
   gt,
   challenge,
@@ -116,6 +145,9 @@ export function GeetestCaptcha({
   const run = useCallback(async () => {
     setBusy(true);
     setStatus("正在加载安全验证组件…");
+    // ⚠ 必须在 initGeetest **之前**挂上：面板是 SDK 异步创建的，
+    // 晚一步就会有一瞬间点不动。
+    const stopObserver = enablePanelPointerEvents();
     try {
       await loadGeetestSdk();
       const api = (window as unknown as GeeTestWindow).initGeetest;
@@ -185,6 +217,7 @@ export function GeetestCaptcha({
       onFailedRef.current(message);
     } finally {
       setBusy(false);
+      stopObserver();
     }
   }, [gt, challenge, success]);
 

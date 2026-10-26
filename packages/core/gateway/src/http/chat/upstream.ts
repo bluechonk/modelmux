@@ -10,7 +10,7 @@
  * 铁律：只发起请求与判定上游应答，不含任何渠道知识。
  */
 
-import { type Channel, type Credential } from "../../runtime/channel.js";
+import { type Channel, type Credential, type UpstreamModule } from "../../runtime/channel.js";
 
 const READ_TIMEOUT_MS = 120_000;
 /** 错误响应体的读取上限：上游「发一半 body 然后挂住」时不能把请求拖死。 */
@@ -132,6 +132,29 @@ export interface UpstreamCall {
  * 401/403 由调用方刷新后重试；连接阶段失败归 `connectFailed`（请求未发出，可安全重试）。
  */
 
+/**
+ * 取对话端点：优先用渠道的**按模型**钩子，否则退回 `chatUrl()`。
+ *
+ * 模型名从请求体里取（网关已在 `buildChatBody` 里把 `model` 换成上游 id）。
+ * 解析失败就用渠道默认端点 —— 不因为读不出模型名就发不出请求。
+ */
+function chatUrlOf(upstream: UpstreamModule, body: Buffer): string {
+  if (upstream.chatUrlForModel) {
+    try {
+      const parsed: unknown = JSON.parse(body.toString("utf8"));
+      const model =
+        parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>)["model"] : null;
+      if (typeof model === "string" && model) {
+        const url = upstream.chatUrlForModel(model);
+        if (url) return url;
+      }
+    } catch {
+      /* body 不是 JSON：走默认端点 */
+    }
+  }
+  return upstream.chatUrl();
+}
+
 export async function openStream(channel: Channel, c: Credential, body: Buffer): Promise<UpstreamCall> {
   const { upstream } = channel;
   // 渠道可在建头前异步确保凭据可用（如 token 已过期时阻塞续期）；
@@ -142,6 +165,14 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
   if (!Object.keys(headers).some((k) => k.toLowerCase() === "accept")) {
     headers["Accept"] = "text/event-stream";
   }
+
+  /**
+   * 端点：优先用**按模型**的钩子。
+   *
+   * 有些上游每个模型走不同网关主机（AStudio：模型配置里每行各带 `base_url`），
+   * 硬编码一个 host 会对部分模型 404。
+   */
+  const url = chatUrlOf(upstream, body);
 
   let resp: Response;
   const controller = new AbortController();
@@ -154,7 +185,7 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
   }, timeoutMs);
   headerTimer.unref?.();
   try {
-    resp = await fetch(upstream.chatUrl(), {
+    resp = await fetch(url, {
       method: "POST",
       body: new Uint8Array(body),
       headers,
