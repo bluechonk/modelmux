@@ -6,6 +6,10 @@
  */
 
 import { channels, getChannel, hasChannel } from "../../runtime/channel.js";
+import { purgeCredentials } from "../../runtime/account-pool.js";
+import { credentialsPath } from "../../runtime/paths.js";
+import { runInChannel } from "../../runtime/channel-context.js";
+import { existsSync } from "node:fs";
 
 import * as accountCli from "./accounts.js";
 import * as daemon from "../lifecycle/daemon.js";
@@ -34,6 +38,7 @@ export const CHANNEL_VERBS: readonly ChannelVerb[] = [
   { name: "status", usage: "status [<cid>]", summary: "状态（不带 = 全部渠道）", group: "渠道" },
   { name: "login", usage: "login <cid> | login list", summary: "登录（授权 URL 打到终端）", group: "渠道" },
   { name: "relogin", usage: "relogin <cid>", summary: "清凭据后重新授权", group: "渠道" },
+  { name: "logout", usage: "logout <cid>", summary: "登出（销毁本地凭据 + 清空账号池）", group: "渠道" },
   { name: "model", usage: "model <cid> [--refresh]", summary: "某渠道的模型目录", group: "模型" },
   { name: "bill", usage: "bill [<cid>]", summary: "额度 / 账单（只读）", group: "渠道" },
   {
@@ -108,6 +113,8 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
       return runLoginVerb(cid, ctx, false);
     case "relogin":
       return runLoginVerb(cid, ctx, true);
+    case "logout":
+      return runLogoutVerb(cid, ctx);
     case "model":
       return cid === undefined
         ? runModelGroup(rest, ctx)
@@ -144,5 +151,50 @@ function runLoginVerb(cid: string | undefined, ctx: CommandContext, force: boole
 
 function channelCountSafe(): number {
   return channels().length;
+}
+
+/**
+ * `logout`：**整渠道登出** —— 销毁本地凭据 + 清空池内账号。
+ *
+ * 与「删除池里某个账号」（`mx acct <cid> remove <key>`）的区别：
+ * 那是摘掉一个条目，这是把整个渠道的登录态清掉。
+ *
+ * ⚠ 渠道若声明了 `cred.logout()`（目前只有 astudio），先调它做上游侧的销毁；
+ * 渠道没声明就只做本地销毁（共享层契约里 `logout?` 是可选的）。
+ */
+async function runLogoutVerb(cid: string | undefined, ctx: CommandContext): Promise<number> {
+  if (cid === undefined) {
+    console.error("logout 需要指定目标：`mx logout <cid>`。");
+    return 2;
+  }
+  const channel = getChannel(cid);
+  const logout = channel.cred.logout;
+  // ⚠ 先探凭据在不在：渠道的 `logout()`（如 astudio）会**先删掉** `credentials.json`，
+  // 等 `purgeCredentials` 再探就永远是 false，汇报就成了「凭据本来就没有」
+  // （2026-10-26 实测）。
+  const hadCredential = runInChannel(cid, () => {
+    try {
+      return existsSync(credentialsPath(cid));
+    } catch {
+      return false;
+    }
+  });
+  if (logout) {
+    try {
+      await runInChannel(cid, () => logout.call(channel.cred));
+    } catch (err) {
+      console.error(`[logout] 渠道侧登出失败：${String(err)}（本地凭据仍会清除）`);
+    }
+  }
+  const result = runInChannel(cid, () => purgeCredentials(cid));
+  if (ctx.json) {
+    console.log(JSON.stringify({ event: "logout", cid, hadCredential, ...result }));
+  } else {
+    console.log(
+      `[logout] ${cid}：已清 ${result.accounts} 个账号` +
+        (hadCredential ? "，凭据已删除" : "，凭据本来就没有"),
+    );
+  }
+  return 0;
 }
 

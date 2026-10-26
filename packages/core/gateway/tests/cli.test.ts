@@ -240,9 +240,11 @@ describe("1. 常见命令与帮助", () => {
       assert.ok(r.out.includes("渠道:"), "有渠道命令一节");
       assert.ok(r.out.includes("示例:"), "有中文示例");
       assert.ok(r.out.includes("--json"), "选项有中文说明");
-      // 一眼能看完：帮助的行数有上限（改帮助时别让它膨胀回去）
+      // 一眼能看完：帮助的行数有上限（改帮助时别让它膨胀回去）。
+      // 上限随**用户可见动词数**走：渠道组每加一个动词就 +1 行。
+      // 2026-10-26 加 `logout` → 45 抬到 46；真要再涨，先想能不能把两个动词并到一行。
       const lines = r.out.split("\n").length;
-      assert.ok(lines <= 45, `帮助不超过 45 行（当前 ${lines} 行）`);
+      assert.ok(lines <= 46, `帮助不超过 46 行（当前 ${lines} 行）`);
     }
   });
 

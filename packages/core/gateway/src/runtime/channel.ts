@@ -149,6 +149,17 @@ export interface CredModule {
   refresh(c: any): Promise<any>;
   resolveBaseUrl(realm?: string): string;
   /**
+   * 可选：**登出** —— 销毁本渠道的本地凭据。
+   *
+   * 与「删除池里的某个账号」（`account-pool.ts` 的 `removeAccount`）不是一回事：
+   * 那是从池里摘掉一个条目，这是**整渠道登出**（凭据 + 池内账号一起清）。
+   * 渠道没声明本钩子时，CLI / 控制台只能退回 `removeAccount` 的等价效果。
+   *
+   * ⚠ 各渠道的「吊销上游会话」能力不同（多数拿不到登出端点），
+   * 故契约只要求「本地销毁」，上游是否真的失效由渠道在实现里说明。
+   */
+  logout?(): Promise<void>;
+  /**
    * 可选：渠道自带的**扫码登录**入口（与 `login` 并列的第二条登录路径）。
    *
    * 共享层只负责把界面回调（授权页 URL / 二维码图 / 状态 / 粘贴兜底）递进去，
@@ -361,7 +372,23 @@ export interface CatalogModule {
    * `modelId` 是对外暴露的 id（与 `exposedIds()` 返回值同形）；渠道内部负责把对外 id
    * 映射到自己的条目。**查不到返回 undefined**（= 上游与公开资料都没有，不编造）。
    */
-  modelSpec?(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined;
+  /**
+   * 可选：渠道按**公开规格**维护的模型规格（窗口 / 输出上限 / 思考档位 / 消耗倍率）。
+   *
+   * 用于没有目录端点、只有内置快照的渠道 —— 那种情况下上游目录读不出来，
+   * 池层的四层回落会拿不到任何值，只能靠本钩子（来源标 `spec`）。
+   *
+   * ⚠ **只填实测值**：查不到就整个字段省略（`undefined`），不要让池层填占位数字 ——
+   * 客户端会按它算钱。astudio 的倍率表此前给 5 个模型填了 `1`，而云端
+   * `/bot/models/configs` 对它们**根本没有行**，属「无源填 1」（2026-10-26 修）。
+   */
+  modelSpec?(modelId: string): {
+    contextWindow?: number;
+    maxOutputTokens?: number;
+    effort?: { supportedLevels: string[]; defaultLevel: string };
+    /** 消耗倍率（积分倍率）；省略 = 未知。 */
+    multiplier?: number;
+  } | undefined;
 }
 
 /** 签到 / 领取的**只读**状态。 */
