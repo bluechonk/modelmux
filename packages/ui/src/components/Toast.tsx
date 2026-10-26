@@ -7,8 +7,10 @@
  * 之前用常驻 `Alert` 横幅渲染，它会一直占着页面顶部一行，直到下一次操作才被替换
  * （2026-10-26 主人反馈「为什么不用 $message.success 那种轻提示」）。
  *
- * ⚠ **错误不用 toast**：错误需要用户看见并处理，自动消失会把问题藏起来。
- * 错误仍走常驻横幅（`pages/Dashboard.tsx` 的 `Alert tone="error"`）。
+ * **错误也走 toast**（2026-10-26 主人要求「web 中的提示都换成 toast，用 UI 组件」）：
+ * 页面里不再保留自绘的常驻横幅 —— 错误 toast 给更长的停留时长（6s），
+ * 且 Radix 的 swipe 关闭与手动关闭键都能提前收掉；持续性的状态错误
+ * （如网关错误）由调用方按内容去重，错误不变不重复弹。
  *
  * ## 为什么用 Radix 而不是自己写
  *
@@ -19,12 +21,12 @@
  */
 
 import * as ToastPrimitive from "@radix-ui/react-toast";
-import { Check, Info, X } from "lucide-react";
+import { AlertCircle, Check, Info, X } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 
-/** 提示语气：成功（绿点）/ 中性信息（灰点）。错误不走这里，见文件头。 */
-export type ToastTone = "success" | "info";
+/** 提示语气：成功（绿点）/ 中性信息（灰点）/ 错误（红点，停留更久）。 */
+export type ToastTone = "success" | "info" | "error";
 
 interface ToastItem {
   id: number;
@@ -35,12 +37,15 @@ interface ToastItem {
 interface ToastApi {
   success: (message: string) => void;
   info: (message: string) => void;
+  error: (message: string) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
 
 /** 自动消失时长（毫秒）。够读完一句「登录成功，账号已入池。」又不至于堵着视线。 */
 const DURATION_MS = 3500;
+/** 错误停留更久：需要读完原因再决定下一步。 */
+const ERROR_DURATION_MS = 6000;
 
 /**
  * 挂载点：包住整个应用，提供 `useToast()`。
@@ -61,6 +66,7 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactEleme
     () => ({
       success: (message) => push("success", message),
       info: (message) => push("info", message),
+      error: (message) => push("error", message),
     }),
     [push],
   );
@@ -97,9 +103,9 @@ export function useToast(): ToastApi {
   return ctx ?? SILENT_TOAST;
 }
 
-const SILENT_TOAST: ToastApi = { success: () => {}, info: () => {} };
+const SILENT_TOAST: ToastApi = { success: () => {}, info: () => {}, error: () => {} };
 
-/** 单条提示：Radix Root + 标题 + 关闭键。 */
+/** 单条提示：Radix Root + 标题 + 关闭键。错误级停留更久（Root 级覆盖全局时长）。 */
 function ToastItemView({
   item,
   onDone,
@@ -108,10 +114,12 @@ function ToastItemView({
   onDone: () => void;
 }): ReactElement {
   const success = item.tone === "success";
+  const failed = item.tone === "error";
   return (
     <ToastPrimitive.Root
       // 关闭动画结束后才真正移除节点（Radix 的 open 双向绑定）
       defaultOpen
+      duration={failed ? ERROR_DURATION_MS : undefined}
       onOpenChange={(open) => {
         if (!open) setTimeout(onDone, 200);
       }}
@@ -119,12 +127,24 @@ function ToastItemView({
     >
       <span
         className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full ${
-          success ? "bg-free/14 text-free" : "bg-overlay text-ink-soft"
+          success
+            ? "bg-free/14 text-free"
+            : failed
+              ? "bg-danger/14 text-danger"
+              : "bg-overlay text-ink-soft"
         }`}
       >
-        {success ? <Check className="h-2.5 w-2.5" /> : <Info className="h-2.5 w-2.5" />}
+        {success ? (
+          <Check className="h-2.5 w-2.5" />
+        ) : failed ? (
+          <AlertCircle className="h-2.5 w-2.5" />
+        ) : (
+          <Info className="h-2.5 w-2.5" />
+        )}
       </span>
-      <ToastPrimitive.Title className="min-w-0 flex-1 text-[13px] leading-relaxed text-ink">
+      <ToastPrimitive.Title
+        className={`min-w-0 flex-1 text-[13px] leading-relaxed ${failed ? "text-danger" : "text-ink"}`}
+      >
         {item.message}
       </ToastPrimitive.Title>
       <ToastPrimitive.Close

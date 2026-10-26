@@ -15,7 +15,7 @@ import {
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
-import { Alert, Skeleton } from "./Dashboard";
+import { Skeleton } from "./Dashboard";
 
 interface StatusRow {
   cid: string;
@@ -73,13 +73,6 @@ export function Accounts(): ReactElement {
   const qc = useQueryClient();
   const toast = useToast();
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  /**
-   * 常驻错误横幅：**只有错误**。
-   *
-   * 瞬时反馈（登录成功 / 已解除标记）走右下角 toast（`useToast`）——
-   * 它们是用完即忘的事实，不该在页面顶部一直占一行。
-   */
-  const [error, setError] = useState("");
   /** 弹窗目标渠道；null = 关闭。 */
   const [loginChannel, setLoginChannel] = useState<string | null>(null);
   /** 本轮弹窗是否观察到过「非 done」状态：用于排除上一次登录残留的 done。 */
@@ -151,7 +144,7 @@ export function Accounts(): ReactElement {
   const startLogin = useMutation({
     // 添加账号 = 强制新授权（已有凭据/被标记 error 时也要拿到新的授权链接）
     mutationFn: async (cid: string) => await api.commands.login(cid, true),
-    onError: (err) => setError(String(err)),
+    onError: (err) => toast.error(String(err)),
     // 立刻拉一次 state：后端的 triggerLogin 已同步清空旧状态，早拉早让弹窗
     // 看到干净的「准备中」，而不是等下一个 3 秒轮询周期。
     onSuccess: () => {
@@ -163,11 +156,8 @@ export function Accounts(): ReactElement {
       setBusyKey(`activate:${key}`);
       return await api.commands.activateAccount(cid, key);
     },
-    onSuccess: () => {
-      setError("");
-      invalidateAll();
-    },
-    onError: (err) => setError(String(err)),
+    onSuccess: () => invalidateAll(),
+    onError: (err) => toast.error(String(err)),
     onSettled: () => setBusyKey(null),
   });
   const remove = useMutation({
@@ -175,17 +165,14 @@ export function Accounts(): ReactElement {
       setBusyKey(`remove:${key}`);
       return await api.commands.removeAccount(cid, key);
     },
-    onSuccess: () => {
-      setError("");
-      invalidateAll();
-    },
-    onError: (err) => setError(String(err)),
+    onSuccess: () => invalidateAll(),
+    onError: (err) => toast.error(String(err)),
     onSettled: () => setBusyKey(null),
   });
   /**
    * 解除：清掉连败熔断 / 额度冷却（后端 `clearAccountState`，不动凭证）。
    *
-   * 失败信息直接展示 —— 最常见的两种是「凭据已失效需重登」与「账号不在池里」，
+   * 失败信息走错误 toast —— 最常见的两种是「凭据已失效需重登」与「账号不在池里」，
    * 都只能由用户决定下一步，不该静默吞掉。
    */
   const reset = useMutation({
@@ -194,11 +181,10 @@ export function Accounts(): ReactElement {
       return await api.commands.resetAccount(cid, key);
     },
     onSuccess: () => {
-      setError("");
       toast.success("已解除标记，账号重新参与路由");
       invalidateAll();
     },
-    onError: (err) => setError(String(err)),
+    onError: (err) => toast.error(String(err)),
     onSettled: () => setBusyKey(null),
   });
   /**
@@ -209,7 +195,7 @@ export function Accounts(): ReactElement {
    */
   const submitInput = useMutation({
     mutationFn: async (value: string) => await api.commands.submitInput(value),
-    onError: (err) => setError(String(err)),
+    onError: (err) => toast.error(String(err)),
   });
   /** 弹窗关闭：让后端别再等输入（否则渠道挂到超时）。 */
   const cancelInput = (): void => {
@@ -233,7 +219,6 @@ export function Accounts(): ReactElement {
     if (!sawProgressRef.current || handledSuccessRef.current) return;
     handledSuccessRef.current = true;
     setLoginChannel(null);
-    setError("");
     toast.success("登录成功，账号已入池。");
     invalidateAll();
   }, [loginChannel, state.data?.ui_state]);
@@ -287,9 +272,6 @@ export function Accounts(): ReactElement {
   return (
     <div className="space-y-5">
       <PageHeader title="账号池" description="各渠道的凭据、账号池与额度" />
-
-      {/* 只留错误横幅：瞬时反馈（登录成功 / 已解除标记）走右下角 toast */}
-      {error && <Alert tone="error">{error}</Alert>}
 
       {list.length === 0 ? (
         <div className="rounded-xl border border-line p-5 text-sm text-ink-faint">
@@ -361,8 +343,6 @@ export function Accounts(): ReactElement {
           }
           submitting={submitInput.isPending}
           onStartLogin={(cid) => {
-            // 打开弹窗即清掉上一轮的错误横幅，别让旧错误压着新流程
-            setError("");
             startLogin.mutate(cid);
           }}
           onSubmitInput={(value) => submitInput.mutate(value)}

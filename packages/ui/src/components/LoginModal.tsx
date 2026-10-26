@@ -11,6 +11,13 @@
  *   （第四步「手动粘贴回调链接」已删：控制台与网关同机，回调必然到得了本机端口，
  *   粘贴框只是多余的入口 —— 2026-10-26 主人要求）。
  *
+ * ## 为什么弹窗里没有「成功 / 失败」状态横幅
+ *
+ * 提示统一走 toast（2026-10-26 主人要求「web 中的提示都换成 toast」）：
+ * 成功 = 弹窗自动关闭 + 右下角 toast（父组件 `Accounts` 处理）；
+ * 失败 = 右下角错误 toast（本组件按内容去重后弹出），流程状态仍由侧栏
+ * 步骤标签（「登录失败」）与时间线红叉表达 —— 那是流程渲染，不是提示横幅。
+ *
  * ## 为什么只有右上角的关闭按钮能关闭
  *
  * 遮罩点击 / ESC 一律不关（登录进行中误触丢流程比关不掉更糟），关闭时调
@@ -27,18 +34,10 @@
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  AlertCircle,
-  Check,
-  CheckCircle2,
-  Copy,
-  Info,
-  Loader2,
-  QrCode,
-  X,
-} from "lucide-react";
+import { Check, Copy, Info, Loader2, QrCode, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { LoginInputRequest } from "../lib/types";
+import { useToast } from "./Toast";
 import { GeetestCaptcha } from "./GeetestCaptcha";
 
 /** 登录态快照（后端 `GET /web/api/state` 的 `ui_state` / `auth_url` / `qr_url` 等字段）。 */
@@ -127,6 +126,21 @@ export function LoginModal({
   useEffect(() => {
     if (uiState === "error") setPhoneSent(false);
   }, [uiState]);
+
+  // 失败提示走 toast（按内容去重：轮询 3s 会反复拿到同一条 message）。
+  // 离开错误态即重置 —— 下一轮同样的错误仍要能弹。
+  const toast = useToast();
+  const lastToastedError = useRef("");
+  useEffect(() => {
+    if (uiState !== "error") {
+      lastToastedError.current = "";
+      return;
+    }
+    const msg = message.trim();
+    if (!msg || msg === PREPARING_MESSAGE || msg === lastToastedError.current) return;
+    lastToastedError.current = msg;
+    toast.error(msg);
+  }, [uiState, message, toast]);
 
   // 扫码流 2 步、授权链接流 3 步；标题栏据此给步骤提示
   /** 既没有授权链接/二维码，也没有待回答的输入 = 正在处理（准备中或渠道在发码）。 */
@@ -368,41 +382,9 @@ export function LoginModal({
               <ul className="list-disc space-y-1 pl-4">
                 <li>授权链接只会复制到剪贴板，由你自己决定在哪个浏览器打开。</li>
                 <li>授权成功后会自动跳回本地回调完成登录，不需要手动粘贴任何链接。</li>
-                <li>登录成功后账号自动入池并设为生效；失败时本弹窗会显示原因。</li>
+                <li>登录成功后账号自动入池并设为生效；失败时会有右下角错误提示。</li>
               </ul>
             </div>
-
-            {/*
-              后端状态 / 错误。四种情况不显示：
-              - 准备期（那还是上一轮的残留文案）；
-              - 文案是共享层的「正在获取授权链接...」（与用户要做的事无关）；
-              - 手机表单自己已经把状态显示出来了（按钮「发送中…/已发送」）；
-              - 验证码那一步（此刻该看的是输入框，不是上一句「正在发送验证码...」）。
-            */}
-            {!pristine &&
-              message !== PREPARING_MESSAGE &&
-              loginInput?.kind !== "code" &&
-              (failed || !!loginInput || !phoneForm) &&
-              message && (
-              <div
-                className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
-                  failed
-                    ? "border-danger/30 bg-danger/10 text-danger"
-                    : done
-                      ? "border-free/25 bg-free/10 text-free"
-                      : "border-line text-ink-soft"
-                }`}
-              >
-                {failed ? (
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                ) : done ? (
-                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
-                )}
-                <span className="min-w-0 break-words">{message || (failed ? "登录失败" : "进行中…")}</span>
-              </div>
-            )}
           </div>
         </div>
         </Dialog.Content>
