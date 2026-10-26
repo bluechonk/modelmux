@@ -74,6 +74,11 @@ function scopeChannels(scope: Scope): Channel[] {
   return scope.cid !== undefined ? [getChannel(scope.cid)] : channels();
 }
 
+/** 额度百分比的报表格式化（两位小数；`--json` 仍输出渠道原始值）。 */
+function percentText(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
 /** 确保范围内的目录存在（渠道级 = 渠道层；仓库级 = 根）。 */
 function ensureScopeDir(scope: Scope): string {
   if (scope.cid !== undefined) return paths.ensureDir(scope.cid);
@@ -563,7 +568,7 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
       if (list.length > 1 && !options.json) {
         const t = info.total;
         console.log(
-          `[${label}] 剩余 ${t.remain} / ${t.size} ${t.unit}（${t.remain_percent}%）`,
+          `[${label}] 剩余 ${t.remain} / ${t.size} ${t.unit}（${percentText(t.remain_percent)}%）`,
         );
       }
     } catch (err) {
@@ -600,7 +605,7 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
     const t = only["total"] as CreditsResult["total"];
     console.log(
       `额度: 剩余 ${t.remain} / ${t.size} ${t.unit}` +
-        `（已用 ${t.used}，剩余 ${t.remain_percent}%）`,
+        `（已用 ${t.used}，剩余 ${percentText(t.remain_percent)}%）`,
     );
     for (const pkg of only["packages"] as CreditPackage[]) {
       if (pkg.remain <= 0) continue;
