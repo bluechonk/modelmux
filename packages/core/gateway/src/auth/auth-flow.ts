@@ -21,13 +21,21 @@ export type { LoginUi };
  *
  * @param interactive 无窗口被动模式下传 false —— 缺凭证**不发起登录**，
  *   只报告状态并返回 false。
+ * @param force 重新授权：**即使已有凭据也走一轮新的授权**（拿新的授权链接）。
+ *   ⚠ 不删旧凭据 —— 授权没走完时旧凭据仍能服务（2026-10-24 事故：先删导致掉线）。
  * @returns true 表示可以启动网关
  */
 export async function ensureLogin(
   ui: LoginUi,
-  options: { interactive?: boolean; baseUrl?: string; cid?: string; passiveNoProbe?: boolean } = {},
+  options: {
+    interactive?: boolean;
+    baseUrl?: string;
+    cid?: string;
+    passiveNoProbe?: boolean;
+    force?: boolean;
+  } = {},
 ): Promise<boolean> {
-  const { interactive = true, baseUrl, cid, passiveNoProbe = false } = options;
+  const { interactive = true, baseUrl, cid, passiveNoProbe = false, force = false } = options;
   const { cred, upstream } = getChannel(cid);
 
   let c: ReturnType<typeof cred.load> | null;
@@ -42,7 +50,10 @@ export async function ensureLogin(
     }
   }
 
-  if (!c) {
+  // `force` 时即使已有凭据也走授权：控制台「添加账号」与 `mx relogin` 要的是
+  // **一条新的授权链接**，而不是「探测一下旧凭据还能不能用」（那样点任何已登录
+  // 渠道都会立刻报成功、拿不到链接 —— 2026-10-26 实测）。
+  if (!c || force) {
     if (!interactive) {
       ui.setState("login", "not logged in: run the login subcommand, open the printed authorization URL in a browser, then retry.");
       return false;

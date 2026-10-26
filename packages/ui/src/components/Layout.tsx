@@ -103,7 +103,12 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">{children ?? <Outlet />}</div>
+        {/*
+          宽度：`max-w-4xl`（896px）在 1920 屏上两侧各空 500px+，数据密度低得离谱
+          （2026-10-26 主人反馈）。放宽到 1600px —— 宽屏用满、超宽屏仍有边距，
+          模型表的 7 列与账号卡两列都有足够横向空间。
+        */}
+        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">{children ?? <Outlet />}</div>
       </main>
     </div>
   );

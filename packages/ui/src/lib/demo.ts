@@ -76,7 +76,7 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
     // 连败熔断：路由会跳过它，只能靠切号 / 重登 / 点「解除」
     { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "error", failStreak: 3, expiresInDays: 12 },
     { key: "demo000000000000a2", uid: "demo-uid-catpaw-2", label: "demo-uid-catpaw-2", health: "ok", expiresInDays: 40 },
-    // 凑够 5 个：演示「默认最多露 4 个 + 展开剩余」的折叠（含冷却/解除的混合状态）
+    // 5 个账号：演示折叠（含冷却/解除的混合状态）
     { key: "demo000000000000a3", uid: "demo-uid-catpaw-3", label: "demo-uid-catpaw-3", health: "cooldown", cooldownInMinutes: 95, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 18 },
     { key: "demo000000000000a4", uid: "demo-uid-catpaw-4", label: "demo-uid-catpaw-4", health: "ok", expiresInDays: 60 },
     { key: "demo000000000000a5", uid: "demo-uid-catpaw-5", label: "demo-uid-catpaw-5", health: "ok" },
