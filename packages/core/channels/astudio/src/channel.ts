@@ -20,12 +20,19 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8819",
   uiPort: 8820,
   debugDumpEnv: "ASTUDIO_DEBUG_DUMP",
-  // AStudio 是**免费档**（实测 `mode: "unrestricted"`、`balance: 0`），**没有额度墙**。
-  // 声明 billing: false 是必须的：共享层 `markCooldownIfExhausted` 会把 `remain <= 0`
-  // 当成「额度耗尽」并冷却账号，而本渠道的 0 是**真实且永久**的状态 ——
-  // 声明额度能力会让账号每轮账单刷新都被打进冷却（2026-10-26 实测）。
-  // 用量数据（`GET /usage`）仍然存在，只是不构成额度概念。
-  capabilities: { billing: false, signin: false },
+  /**
+   * 能力位（2026-10-26 修正）。
+   *
+   * 此前声明 `billing: false, signin: false`，理由是「模型网关余额恒为 0（免费档），
+   * 报成额度会被共享层冷却」。**理由选错了口径**：
+   * - **额度**该报**积分余额**（`GET /points/balance`，实测 6197 + 35000），
+   *   那是客户端「积分余额」面板显示的两个数，真实且会变；
+   * - **模型网关的 `balance: 0`** 是免费档的永久状态，它是**用量**不是额度，
+   *   混进来才会触发冷却 —— 现在 `fetchCredits` 报的是积分余额，不会误冷却。
+   * - **签到**有真实链路（`tenant-app/v2/init-app` 发每日奖励 +
+   *   `client-popups/*` 关横幅），此前误判为「无端点」。
+   */
+  capabilities: { billing: true, signin: true },
 };
 
 export const channel: Channel = { config, cred, upstream, catalog, billing };

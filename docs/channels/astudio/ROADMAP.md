@@ -20,7 +20,7 @@
 | 5 | 登出 / 销毁凭证 | **未实现** | **已实现**：`cred.logout()` + `mx logout <cid>` |
 | 6 | 模型列表 + 上下文/输出/档位/倍率 | **部分实现** | **已修复**：档位透出；倍率只给实测值 |
 | 7 | 真实模型请求 chat url | **已实现** | 不变 |
-| 8 | 每日签到逻辑 | **已实现** | 不变 |
+| 8 | 每日签到逻辑 | **已实现**（但当时判成「无端点」是错的） | **已修复**：真签到（`init-app` 发奖 + 关横幅 + 下载奖励），`signin: true` |
 
 ### 0.1 第 1 项：**结论已反转** —— 不是架构不可行，是**之前测错了路径**
 
@@ -500,52 +500,52 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 ---
 
-## 8. 每日签到逻辑 — 已实现（口径正确）
+## 8. 每日签到逻辑 — 已实现（2026-10-26 修正：此前误判为「无端点」）
 
 ### 现状
 
-`packages/core/channels/astudio/src/billing.ts:187-202`：
+`packages/core/channels/astudio/src/billing.ts` 的 `signin` 是**真签到**：
 
 ```ts
-export const signin: SigninModule = {
-  async status() {
-    return { claimable: false, claimedToday: null,
-      summary: "（AStudio 无签到端点：每日登录积分由服务端按套餐配置自动发放，无需领取）" };
-  },
-  async claim() {
-    return { ok: true,
-      summary: "（AStudio 无签到端点：每日登录积分由服务端自动发放，无需领取）",
-      detail: { skipped: true, reason: "no-signin-endpoint" } };
-  },
-};
+status() → 积分余额摘要 + 套餐 + 待领弹窗明细
+claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
+           ② 关闭奖励横幅（client-popups/complete，只关不发）
+           ③ 领客户端下载奖励（一次性）
+           并用**余额差**报「+N 积分」
 ```
 
-`packages/core/gateway/src/runtime/channel.ts:28` `capabilities: { billing: false, signin: false }`。
+`packages/core/channels/astudio/src/channel.ts`：
+`capabilities: { billing: true, signin: true }`。
 
-**上游确实没有签到端点**（PROTOCOL §8.3，C 级推断 + A 级佐证）：
-- 源码 `AstronMembershipPlanConfig` 含 `dailyLoginEnabled` / `dailyLoginValidDays` /
-  `plans[].dailyLoginPoints` → 每日登录积分由**服务端按套餐配置自动发放**
-- UI 的 `DAILY_REWARD_DIALOG`（「每日积分」弹窗）调的是**只读**的
-  `GET /api/astron-client-popups/points-summary`，只是展示
+**为什么此前判成「无签到端点」**：又是**路径前缀**的坑 ——
+`/api/astron-auth/*` 与 `/api/astron-client-popups/*` 是**本地服务代理层**的路径，
+云端账号 API 的路径**没有这些前缀**（同 §5）。
 
-→ 声明 `signin: false` 是**文档与代码一致**的正确结论。
+云端直连实测（2026-10-26）：
+
+| 端点 | 结果 |
+| --- | --- |
+| `POST /tenant-app/v2/init-app` | `200 code=0`（`banned: false`）—— **这才是发奖动作** |
+| `GET /client-popups/pending` | `200 code=0`，返回 `DAILY_LOGIN_REWARD_V1` 横幅 |
+| `POST /client-popups/complete` | 关横幅（**不发积分**） |
+| `POST /client-download-reward/claim` | 一次性下载奖励 |
+
+⚠ 弹窗类端点**必须带客户端头**（`clientType: 21` / `studioVersion: 3.4.4` /
+`User-Agent: AStudio/3.4.4`），否则回 `code=11001001 客户端平台、版本或构建号无效`。
 
 ### 缺口
 
 1. **Web UI 完全没有签到展示**（非 astudio 独有，是全仓现状）：
-   `channel_caps`（`http/console/console.ts:82-87`）**只有 `billing` 字段，没有 `signin`**；
+   `channel_caps`（`http/console/console.ts`）**只有 `billing` 字段，没有 `signin`**；
    `packages/ui/src/` 搜 `signin` / `签到` **零命中**。
    → `signin: false` 在 UI 上**无任何呈现**（CLI 至少显示 `astudio-` / 「无签到功能」）。
    这属于**共享层 + UI 的问题**，不是 astudio 独有 —— 接手时要注意改动面。
-2. **每日自动发放的积分在 modelmux 侧完全不可见**：
-   云端积分池（通用 6100 / 星火 35000）只走 `/api/astron-client-popups/points-balance`
-   （**只能经本地服务代理**，直连 404）→ 渠道不用它。
-   `billing.ts` 的 `fetchCredits()` 打的是**模型网关**的 `/usage`（token/成本用量，不是积分余额），
-   而且因 `billing: false` 共享层**永不调用**它（`pool-usage.ts:439,504` 过滤）→ 死代码。
-   → 若要让用户看到积分余额，需走本地服务代理 + 改 `billing: true`，
-   但 `billing: true` 会触发 `markCooldownIfExhausted` 把 `balance=0` 的免费档**误判为额度耗尽**
-   （这正是当初设 `billing: false` 的原因，见 `packages/core/channels/astudio/src/billing.ts:1-14` 的模块头注释）。
-   → **这是个两难**，需要专门设计（例如给渠道加「不因余额为 0 冷却」的声明）。
+2. **「今天是否已领」的判据不够硬**：待处理弹窗 `DAILY_REWARD_DIALOG` 的内容是
+   「**今日登录积分已到账**」—— 它是**到账通知**不是待领奖单，
+   所以**不能**凭「有没有横幅」判今天领没领。
+   现在 `claim()` 用**余额变动**（`init-app` 前后对比）确认，`status()` 的
+   `claimedToday` 给 `null`（判不了就说不知道，不猜）。
+   → 想更准，得找一个上游的「今日已领」字段（暂未找到）。
 
 ---
 
