@@ -70,8 +70,8 @@ const DEMO_MODELS: Record<string, string[]> = {
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
 const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
-  // 无昵称（实测 nickname 为 null）→ 展示名回落手机号，演示脱敏形态
-  astudio: [{ key: "demo000000000000b1", uid: "demo-uid-astudio-1", label: "138****8000", name: "", health: "ok", expiresInDays: 120 }],
+  // 无昵称（实测 nickname 为 null）→ 展示名回落手机号（明文，前端不做脱敏）
+  astudio: [{ key: "demo000000000000b1", uid: "demo-uid-astudio-1", label: "13800138000", name: "", health: "ok", expiresInDays: 120 }],
   catpaw: [
     // 连败熔断：路由会跳过它，只能靠切号 / 重登 / 点「解除」
     { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "error", failStreak: 3, expiresInDays: 12 },
@@ -82,8 +82,8 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
     { key: "demo000000000000a5", uid: "demo-uid-catpaw-5", label: "demo-uid-catpaw-5", health: "ok" },
   ],
   // 额度冷却：会自己好，但用户也可以点「解除」提前放行
-  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "139****0003", name: "139****0003", health: "cooldown", cooldownInMinutes: 180, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 25 }],
-  loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "137****0004", name: "137****0004", health: "ok", expiresInDays: 8 }],
+  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "13912340003", name: "13912340003", health: "cooldown", cooldownInMinutes: 180, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 25 }],
+  loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "13712340004", name: "13712340004", health: "ok", expiresInDays: 8 }],
   qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", name: "demo-qoder-user", health: "ok", expiresInDays: 30 }],
   raccoon: [{ key: "demo000000000000f1", uid: "demo-uid-raccoon-1", label: "demo-raccoon-user", name: "demo-raccoon-user", health: "ok" }],
   traecn: [{ key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok", expiresInDays: 3 }],
