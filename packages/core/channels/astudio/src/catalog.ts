@@ -25,7 +25,8 @@ export interface ModelSpec {
    *
    * ⚠ 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 9 行里
    * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上）。此前给对不上的 5 个
-   * 模型一律填 `1`，那是**无源填 1**（客户端会按它算钱）—— 2026-10-26 改为 `undefined`。
+   * 模型一律填 `1`，那是**无源填 1**（客户端会按它算钱）—— 改为 `undefined`
+   * （倍率要么实测、要么未知，绝不编造）。
    */
   multiplier: number | undefined;
   contextWindow: number;
@@ -38,7 +39,7 @@ export interface ModelSpec {
 /**
  * 内置模型表（7 条）。
  *
- * 来源（实测 2026-10-26）：
+ * 来源：
  * - `id` / `name` / `efforts` / `defaultEffort`：应用内置目录 `provider-model-catalog-v1.json`；
  * - `upstreamId` / `multiplier`：云端 `GET /xingchen-studio/bot/models/configs`
  *   （`model` 与 `point_multiplier` 字段，9 行）；
@@ -50,8 +51,8 @@ export interface ModelSpec {
  * ⚠ **倍率只有 2 个模型有实测值**（`xopglm52` 与 `xopdeepseekv4pro`，均 `x2.0`）。
  *   其余 5 个在云端**没有对应行**（`spark-x2.6` / `spark-x2.6-4b` / `spark-x2.5` /
  *   `xopdsv4flash0731in` 都不在云端那 9 行里，`astronclaw-auto` 的
- *   `point_multiplier` 为 `null`）→ 一律 `undefined`，池层显示「免费」（订阅制，
- *   `capabilities.billing: false`）而不是编造的 `1`。
+ *   `point_multiplier` 为 `null`）→ 一律 `undefined`，池层显示「免费」（订阅制口径）
+ *   而不是编造的 `1`。
  */
 const MODELS: ModelSpec[] = [
   {
@@ -160,7 +161,7 @@ export function resolveModel(name: string): string {
  *
  * ⚠ 思考档位此前**完全不透出**：`modelSpec()` 只返回窗口/输出，池层的四层回落
  * 拿不到 `effort`，于是 `/v1/models` 的 `effort` 恒 `null`、Web「思考模式」列
- * 全显示「不支持」（2026-10-26 修）。档位表本身是**内置目录实测**的（B 级），
+ * 全显示「不支持」。档位表本身是**内置目录实测**的（B 级），
  * 在渠道内部一直生效（`upstream.buildChatBody` 用它校验 `reasoning_effort`），
  * 只是没对外说。
  *
@@ -209,7 +210,7 @@ export function modelDefaultEffort(upstreamModel: string): string {
  *
  * 查不到返回 `undefined`（池层显示 `-`，不猜）。
  *
- * ⚠ 2026-10-26 之前本函数**全仓无调用方**，倍率只能靠「目录缓存条目」透出，
+ * ⚠ 本函数曾长期**全仓无调用方**，倍率只能靠「目录缓存条目」透出，
  * 而 astudio 从不写目录缓存 → 对外恒 `null`。现在 `modelSpec()` 会带上它，
  * 本函数保留给需要单独取倍率的调用方。
  */

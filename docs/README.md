@@ -76,7 +76,7 @@
 | `.agents/skills/log-triage/SKILL.md` | 日志分诊：分层日志 + `upstreamMs/ttfbMs/durationMs` + 错误码速查 |
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/opencode-mx-test/SKILL.md` | 端到端测试：opencode CLI 直连网关跑真实 Agent 会话（覆盖每个渠道的模型）；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
-| `.agents/skills/astudio-re/SKILL.md` | AStudio 逆向：asar 采矿 + 端点实测 + 渠道包实现；协议事实在 [`references/PROTOCOL.md`](../.agents/skills/astudio-re/references/PROTOCOL.md)（标 A/B/C 证据等级） |
+| `.agents/skills/astudio-re/SKILL.md` | Agent 应用逆向方法论（解包/抓包/端点发现/鉴权链还原，可复用到其它应用）+ AStudio 案例：asar 采矿 + 端点实测 + 渠道包实现；协议事实在 [`references/PROTOCOL.md`](../.agents/skills/astudio-re/references/PROTOCOL.md)（标 A/B/C 证据等级） |
 | `.agents/skills/zcode-session-archaeology/SKILL.md` | 会话考古：按 `session_xxx` / `sess_xxx` 还原**另一个**会话做了什么，用于多会话并行改同一项目时的对齐与收尾 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。

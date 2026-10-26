@@ -1,12 +1,11 @@
 /**
- * AStudio 上游：模型网关端点、Bearer 头、请求体改写与凭据刷新。
+ * AStudio 上游：模型网关端点、Bearer 头、请求体改写、云端账号 API 与凭据刷新。
  *
  * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md）：
- *   - 对话是**标准 OpenAI 兼容**：`POST {gateway}/chat/completions` + `Authorization: Bearer`。
- *     非流式 / 流式 SSE / 工具调用 / 思考档位全部实测通过（WIRE = "openai"）。
- *   - 模型网关基址与账号 API 基址**是两个不同的域**，极易误改 —— 见下方常量注释。
- *   - 思考档位必须校验在该模型的档位表内（远端不认的值比不给更糟 → 静默删掉）。
- *   - 401/403 与业务码 `80000` 都表示会话失效，交给共享层触发 `cred.refresh()`。
+ *   - **两个基址是不同的域**（模型网关 vs 账号 API），极易误改 —— 见常量注释。
+ *   - 对话走**每模型各自的 `base_url`**（`chatUrlForModel`），本模块常量只作兜底。
+ *   - 思考档位必须校验在该模型的档位表内（远端不认的值比不给更糟 → 静默删掉）；
+ *     401/403 与业务码 `80000` 都表示会话失效，交给共享层触发 `cred.refresh()`。
  */
 
 import { readFileSync } from "node:fs";
@@ -20,13 +19,10 @@ import * as cred from "./cred.js";
  * 模型网关基址（对话端点）。
  *
  * ⚠ 与 `cred.DEFAULT_BASE_URL`（账号 API 基址 `agent.xfyun.cn/xingchen-studio`）
- * **不是同一个域**：模型网关是 `astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1`。
- * 契约要求本模块导出 `DEFAULT_BASE_URL`，其语义是**对话侧**基址。
+ * **不是同一个域**。契约要求本模块导出 `DEFAULT_BASE_URL`，其语义是**对话侧**基址。
  *
- * ⚠ 2026-10-26 实测：**这个主机名对所有模型都 404**（`API endpoint not found`）——
- * 真正的推理主机是**每个模型各带一个 `base_url`**（见 `chatUrlForModel`），
- * 主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`。
- * 故本常量只作**兜底**；实际对话走 `chatUrlForModel()`。
+ * ⚠ 这台主机对本渠道的模型**不可用** —— 真正的推理主机是**每个模型各带一个
+ * `base_url`**（见 `chatUrlForModel`）。本常量只作**兜底**；实际对话走 `chatUrlForModel()`。
  */
 export const DEFAULT_BASE_URL = "https://maas-api.cn-huabei-1.xf-yun.com/v2";
 
@@ -61,17 +57,10 @@ const MODEL_CONFIGS_PATH = "/bot/models/configs";
 /**
  * 认证端点（**云端直连**，不走本地服务代理层）。
  *
- * ⚠⚠ 2026-10-26 重要更正：这些路径**没有 `/api/astron-auth/` 前缀**。
- * 那个前缀是 AStudio 桌面应用**本地服务代理层**的路径；云端账号 API 的路径就是
- * `{studioBaseUrl}/<path>`。此前本仓库把「直连云端回 404」当成架构结论，
- * 那是**测错了路径**（见 docs/channels/astudio/PROTOCOL.md §5）。
- *
- * 实测（2026-10-26，云端直连、无 Cookie）：
- * - `GET  /chat/gee-captcha` → `200 code=0`，返回真实 GeeTest v3 配置；
- * - `POST /login/mobile/send-verify-code` → `200 code=20009 geetest verify failed`
- *   （端点可达，只是 captcha 没解）；
- * - `POST /login/phone-quick-login` → `200 code=10501002 验证码无效，请重新获取并验证`
- *   （端点可达、参数形态正确，验证码是假的）。
+ * ⚠ 这些路径**没有 `/api/astron-auth/` 前缀** —— 那个前缀是 AStudio 桌面应用
+ * **本地服务代理层**的路径，云端账号 API 的路径就是 `{studioBaseUrl}/<path>`。
+ * 直连时若带上该前缀必然 404，会被误判成「云端无此端点」。
+ * 各端点的鉴权要求与实测见 docs/channels/astudio/PROTOCOL.md §5。
  */
 const GEE_CAPTCHA_PATH = "/chat/gee-captcha";
 const SEND_VERIFY_CODE_PATH = "/login/mobile/send-verify-code";
@@ -165,7 +154,8 @@ export function chatUrl(cfg?: Config): string {
  *
  * ## 为什么必须有这个
  *
- * AStudio 的云端模型配置里**每个模型各带一个 `base_url`**（实测 2026-10-26）：
+ * AStudio 的云端模型配置里**每个模型各带一个 `base_url`**
+ * （完整映射表见 docs/channels/astudio/PROTOCOL.md §6.1）：
  *
  * | model | base_url |
  * | --- | --- |
@@ -224,8 +214,7 @@ export function modelsUrl(cfg?: Config): string {
  * 账号信息端点（`/xingchen-studio/userInfo`）。
  *
  * 会话文件里**没有 `nickname` 键**、`mobile` 也可能是旧的 —— 上游 `/userInfo` 才是
- * 账号信息的权威来源（实测 `code=0`，含 `uid` / `mobile` / `nickname`，见 PROTOCOL §4.2）。
- * 渠道登录时用它补全一次（2026-10-26，见 ROADMAP 第 3 项）。
+ * 账号信息的权威来源（字段见 PROTOCOL §4.2）。渠道登录时用它补全一次。
  */
 export function userInfoUrl(cfg?: Config): string {
   const studio = trimSlash((cfg ?? loadConfig()[0]).studioBaseUrl);
@@ -237,8 +226,8 @@ export function userInfoUrl(cfg?: Config): string {
 /**
  * 对话头：**只发 `Authorization: Bearer`**。
  *
- * 实测（2026-10-26）：只带 Bearer 即可，非流式/流式/工具调用全部通过。
- * 不发 `token` / Cookie —— 那是账号 API 的形态，模型网关不认。
+ * 不发 `token` / Cookie —— 那是账号 API 的形态，模型网关不认；
+ * Bearer 单独就够完成全部对话形态（流式/工具/档位）。
  */
 export function buildHeaders(credential: AuthLike): Record<string, string> {
   return {
@@ -387,7 +376,7 @@ export async function fetchUserInfo(
   return inner as Record<string, unknown>;
 }
 
-// ── 认证链路（云端直连，2026-10-26 新增）────────────────────────────────────
+// ── 认证链路（云端直连）──────────────────────────────────────────────────
 //
 // 手机号验证码登录的三个端点 + 两个辅助端点。形态来自参考实现
 // `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
@@ -654,8 +643,8 @@ export async function fetchPointsBalance(
 // ── 客户端头（弹窗类端点必需）─────────────────────────────────────────────────
 //
 // `client-popups/pending` 等端点会校验「客户端平台、版本或构建号」，
-// 缺了就回 `code=11001001 客户端平台、版本或构建号无效`（实测 2026-10-26）。
-// `clientType` 是**必需**的那一个（只给 `studioVersion` 仍 401/无效）。
+// 缺了就回 `code=11001001 客户端平台、版本或构建号无效`。
+// `clientType` 是**必需**的那一个（只给 `studioVersion` 仍无效）。
 //
 // 取值来自参考实现 `internal/astron/{client,session}.go`：
 // - `clientType`：Windows 21 / 其它 22
@@ -701,7 +690,7 @@ const CLAIMABLE_POPUP_TYPES = new Set([
  * 取待处理弹窗（`GET /client-popups/pending`）。
  *
  * ⚠ **必须带客户端头**（`clientType` / `studioVersion` / `User-Agent`），
- * 否则上游回 `code=11001001`（实测 2026-10-26）。
+ * 否则上游回 `code=11001001`。
  */
 export async function fetchPendingPopups(
   credential: AuthLike,
