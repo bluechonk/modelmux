@@ -82,16 +82,28 @@ describe("仓库级模型池", () => {
     const candsOf = (model: string) => gw.poolCandidates(model).map((c) => c.cid);
     assert.deepEqual(candsOf("workbuddyai/deepseek-v4.1-flash"), ["workbuddyai"]);
     assert.deepEqual(candsOf("catpaw/glm-5.3-flash"), ["catpaw"]);
-    // 不同渠道的同名模型是独立 id，各自只指回自己。
-    // ⚠ 阈值取「已注册渠道数」的一半（向上取整），**不写死数字** ——
-    //    写死会变成「每加一个渠道都要回来改测试」，而这里要断言的是
-    //    「同名模型确实分散在多个渠道」，不是某个具体数量。
-    const four1 = [...gw.POOL_MODELS].filter((m) => m.endsWith("/deepseek-v4.1-flash"));
-    const minFour1 = Math.ceil(EXPECTED_CIDS.length / 2);
-    assert.ok(
-      four1.length >= minFour1,
-      `4.1-flash 至少 ${minFour1} 个渠道各自暴露，实际 ${four1.join(", ")}`,
-    );
+
+    // 池 id 的前缀必须是**已注册渠道**，且候选恰好是它自己 —— 这是「渠道由请求方指定」
+    // 的判据，也是这段测试真正要守住的不变量。
+    //
+    // ⚠ 这里**只断言前缀契约**，不断言「池 id 集合 == 各渠道 exposedIds 的并集」：
+    //    后者要读两次目录（本地算一次、`POOL_MODELS` 的 Proxy 内部再算一次），
+    //    而 loomy / raccoon / lobsterai 的目录带**异步刷新**（首次访问触发后台拉取），
+    //    两次读之间目录可能已经变了 —— 那是测试自身的竞态，不是产品缺陷
+    //    （2026-10-26 实测：`lobsterai/MiniMax-M3.1-Flash-Preview` 在两次读之间进出）。
+    //    写死数量（「>= 3」「>= 渠道数的一半」）同样不可行：同一份代码在 Windows 侧
+    //    见 2 个渠道暴露 `deepseek-v4.1-flash`，WSL 干净克隆下是 4 个。
+    const known = new Set(EXPECTED_CIDS);
+    // POOL_MODELS 是 Proxy（每次属性访问都重建快照），先落一份本地快照再遍历
+    const pooled = [...gw.POOL_MODELS];
+    assert.ok(pooled.length > 0, "POOL_MODELS 不应为空");
+    for (const id of pooled) {
+      const sep = id.indexOf("/");
+      assert.ok(sep > 0, `池 id 不是 <cid>/<模型> 形态：${id}`);
+      const cid = id.slice(0, sep);
+      assert.ok(known.has(cid), `池 id 的前缀不是已注册渠道：${id}`);
+      assert.deepEqual(candsOf(id), [cid], `池 id 的候选渠道应恰好是它自己：${id}`);
+    }
   });
 
   it("裸模型名与未知渠道 → 400 unknown_model", async () => {
