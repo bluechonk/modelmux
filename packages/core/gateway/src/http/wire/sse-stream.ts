@@ -368,7 +368,7 @@ function isBenignDisconnect(err: unknown): boolean {
  * 两条转发路径共用：翻译器路径（`chat/stream.ts`）与 `openai` 线型的直通路径
  * （本文件的 `relay`）。直通路径**不采集 usage 的话**，workbuddy / lobsterai /
  * loomy / raccoon / workbuddyai 的流式请求访问日志会全部没有 usage 字段
- * （实测这几个渠道的流式请求当日 usage 采样全部为 0）。
+ * （2026-10-24 实测：这几个渠道当日流式请求 usage 采样全部为 0）。
  *
  * 快判：绝大多数帧不含 `"usage"`，只做一次子串扫描就返回，不给直通路径
  * 增加 JSON 解析开销。

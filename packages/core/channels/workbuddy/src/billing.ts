@@ -260,7 +260,7 @@ interface CheckinResult {
 /**
  * 执行每日签到（`POST /v2/billing/meter/daily-checkin`，body `{}`）。
  *
- * 参考实现实测（CN 与 global 同形）：已签到时上游业务码非 0，
+ * 参考实现实测（2026-09-28，CN 与 global 同形）：已签到时上游业务码非 0，
  * 按「幂等成功」处理而不是报错；其余业务码如实抛 CreditsError。
  */
 async function dailyCheckin(): Promise<CheckinResult> {

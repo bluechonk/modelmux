@@ -81,7 +81,7 @@ export interface AccountCount {
    * 口径：
    *   - 窗口键 `window` 取渠道声明的「下次刷新时刻」，渠道没声明才用本地日期。
    *     不能只用自然日 —— 多个渠道的日额度在本地 0 点之后才到账，按自然日抓基线
-   *     会让 `remain > 基线`，百分比被 clamp 成恒 100%（实测 traecn / qodercn / raccoon）。
+   *     会让 `remain > 基线`，百分比被 clamp 成恒 100%（2026-10-24 实测 traecn / qodercn / raccoon）。
    *   - 同一窗口内 `remain` **回升**（日奖励到账、额度恢复）时重设基线，
    *     否则回升后的消耗会被 clamp 掩盖。
    *
@@ -323,7 +323,7 @@ function noteBillingAttempt(cid: string, ok: boolean): void {
  * 额度窗口键：渠道声明了「下次刷新时刻」就用它（窗口滚动时值会变），否则本地日期。
  *
  * 不能只用自然日：多个渠道的日额度在本地 0 点之后才到账，按自然日抓基线会让
- * `remain > 基线`，百分比被 clamp 成恒 100%（实测 traecn / qodercn / raccoon）。
+ * `remain > 基线`，百分比被 clamp 成恒 100%（2026-10-24 实测 traecn / qodercn / raccoon）。
  */
 function windowKeyOf(cid: string): string {
   const channel = channels().find((c) => c.config.cid === cid);
@@ -381,7 +381,7 @@ export function writeAccountBilling(cid: string, key: string, credits: unknown):
  * 账单派生的冷却上限。
  *
  * 账单读到 0 就冻到「下一个额度窗口」并不可靠：窗口边界上的快照可能仍是旧值
- * （实测 lobsterai 在窗口边界读到 0，随后日奖励到账变成 100/100），
+ * （实测 lobsterai 2026-10-23T16:00:37Z 读到 0，随后日奖励到账变成 100/100），
  * 而冷却期内又不再查账单 → 账号被错误冻满一整天、Web 卡片停在 0。
  *
  * 因此账单派生的冷却最多持续这么久，到期必然重查一次；查到有额度即恢复。

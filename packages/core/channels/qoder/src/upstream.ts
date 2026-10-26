@@ -812,7 +812,8 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
  *
  * Qoder 排队/长思考时会收下请求（HTTP 200）后**长时间零字节**，既不回排队帧也不关连接：
  * 参考实现实测长上下文首字延迟 40–71 秒，排队时更久。共享层默认 120 秒会把它误判成
- * 上游超时（实测同样 52KB 请求时而 4.6s 成功、时而静默 120s 被掐）。
+ * 上游超时（实测 2026-10-19：同样 52KB 请求时而 4.6s 成功、时而静默 120s 被掐；
+ * 上游改排队/推理容量后需重测）。
  * 声明本上限后网关用 900 秒等待首帧，并在等待期向客户端补 `: ping` 心跳。
  */
 export function idleTimeoutMs(): number {

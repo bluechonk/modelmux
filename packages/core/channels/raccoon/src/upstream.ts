@@ -237,7 +237,7 @@ interface HeaderOptions {
  * `upstream header timeout after 120000ms`。
  *
  * ⚠ 那个超时还会被记成**账号连败**（`http/chat/attempt.ts`：`status <= 0` 计连败），
- * 两次就把健康账号打成 `error` 而锁死路由（实测「连续失败 2 次」即触发）。
+ * 两次就把健康账号打成 `error` 而锁死路由（2026-10-26 实测「连续失败 2 次」即触发）。
  * 放宽到 180s 后这类「只是慢」的请求不再被误杀。
  *
  * 只放宽「连接层静默容忍」，不改变任何协议语义。
