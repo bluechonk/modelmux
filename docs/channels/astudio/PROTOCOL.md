@@ -363,35 +363,83 @@ Cookie: <buildAstronCookieHeader>
 
 ---
 
-## 8. 额度与用量
+## 8. 额度、积分与签到
 
-### 8.1 模型网关用量（B 级，渠道数据源）
+> ⚠ 本节在 2026-10-26 **整段重写** —— 此前记的是「云端积分用不了（只能经本地服务代理）」
+> 与「没有签到端点」，**两条都是错的**（又是路径前缀的锅，见 §5）。
+> 现在积分与签到都能**云端直连**。
+
+### 8.1 两套「余额」，别混
+
+| 端点 | 鉴权 | 实测值 | 是什么 |
+| --- | --- | --- | --- |
+| `GET {模型网关}/usage` | Bearer | `mode: "unrestricted"`、`balance: 0`、`cost: 0` | **模型网关余额**（免费档，0 是永久状态） |
+| `GET /points/balance` | Cookie | `totalBalance: 6197`、`sparkTotalBalance: 35000` | **积分余额**（客户端「积分余额」面板显示的两个数） |
+
+⚠ **额度口径取积分余额**，不取模型网关的 `balance`：
+后者恒为 0，若当成额度报给共享层，`markCooldownIfExhausted` 会因 `remain <= 0`
+**冷却账号** —— 而积分余额明明有 6197（这正是此前声明 `billing: false` 的原因，
+当时选错了口径）。
+
+`GET /points/balance` 实测响应（节选）：
+
+```json
+{"totalAmount":6200,"totalBalance":6197,"activityBalance":6197,
+ "sparkTotalAmount":35000,"sparkTotalBalance":35000,
+ "activityNextExpireTime":"2026-11-25T23:11:42"}
+```
+
+另两个只读端点（Cookie）：
+
+| 端点 | 实测 |
+| --- | --- |
+| `GET /points/summary` | `{"totalBalance":6197,"purchaseTarget":"NONE","sparkTotalBalance":35000}` |
+| `GET /membership/me` | `{"uid":21350776130,"active":true,"planCode":"TRIAL","planName":"体验版","autoRenew":false}` |
+
+### 8.2 签到：**有真实链路**（B 级实测 2026-10-26）
+
+| 步骤 | 端点 | 作用 |
+| --- | --- | --- |
+| 1 | `POST /tenant-app/v2/init-app` | **发奖动作**：当日首次调用时上游立即入账（官方客户端在启动与登录时都调它） |
+| 2 | `GET /client-popups/pending` | 取待处理弹窗（领奖后下发的横幅） |
+| 3 | `POST /client-popups/complete` | **只关弹窗、不发积分** |
+| 4 | `POST /client-download-reward/claim` | 客户端下载奖励（一次性；已领过回业务错误，属正常） |
+
+⚠ **步骤 2/3/4 必须带客户端头**，否则上游回
+`code=11001001 客户端平台、版本或构建号无效`（实测）：
 
 ```
-GET {该模型的 base_url}/usage
-Authorization: Bearer <modelBearerToken>
+clientType: 21          （Windows 21 / 其它 22 —— 必需的那一个）
+studioVersion: 3.4.4
+User-Agent: AStudio/3.4.4
 ```
 
-（`base_url` 同 §6.1 —— 按模型取；实测 `maas-api.cn-huabei-1.xf-yun.com/v2` 可用。）
+（只给 `studioVersion` 仍无效；只给 `clientType` 即可通过 —— 实测。）
 
-实测 `mode: "unrestricted"`、`planName: "钱包余额"`、`balance: 0`、`cost: 0`（**免费档**）。
-响应含 `daily_usage[]` / `model_stats[]` / `usage.today` / `usage.total`。
+**待处理弹窗的实测形态**：
 
-### 8.2 云端积分（渠道不用）
+```json
+{"popupId":2,"popupCode":"DAILY_LOGIN_REWARD_V1","popupType":"BANNER",
+ "componentType":"DAILY_REWARD_DIALOG","priority":100,"instanceKey":"20261026",
+ "payload":{"confirmText":"知道了","title":"今日登录积分已到账",
+            "content":"每日登录积分已发放，可前往积分中心查看。"}}
+```
 
-`/api/astron-auth/points-balance` 返回两个池（通用积分 6100 / 星火积分 35000，2026-10-25 实测）。
-⚠ 该端点**只能经本地服务代理访问**（直连云端回 404），故渠道**不**用它。
+⚠ 这个横幅是**到账通知**（内容明写「今日登录积分已到账」），**不是待领奖单** ——
+所以**不能**凭「有没有横幅」判断「今天领没领」。
+「今天是否已领」的判据用**余额是否变动**（`init-app` 前后对比）。
 
-### 8.3 每日签到：没有端点（C 级推断，A 级佐证）
+可领取的弹窗类型（对齐官方客户端的 `SUPPORTED_COMPONENT_TYPES`）：
+`DAILY_REWARD_DIALOG` / `NEW_USER_DIALOG` / `CLIENT_DOWNLOAD_REWARD_DIALOG`。
 
-源码佐证：
+### 8.3 渠道实现
 
-- `AstronMembershipPlanConfig` 含 `dailyLoginEnabled` / `dailyLoginValidDays` /
-  `plans[].dailyLoginPoints` —— 每日登录积分由**服务端按套餐配置自动发放**；
-- UI 的 `DAILY_REWARD_DIALOG`（「每日积分」弹窗）调的是只读的
-  `GET /api/astron-client-popups/points-summary`，**只是展示**。
-
-→ **渠道声明 `signin: false`**（无签到能力）。
+- `capabilities: { billing: true, signin: true }`（此前误报 `false, false`）。
+- `fetchCredits()` 报**积分余额**（通用 + 星火两个包），模型网关用量只用来报今日花费。
+- `signin.status()` → 余额摘要 + 套餐 + 待领弹窗明细；`claim()` →
+  `init-app`（发奖）→ 关横幅 → 领下载奖励，并用余额差报「+N 积分」。
+- 共享层的自动签到调度器在**网关 ready 时**跑一轮（`startAutoSignin`）——
+  正好是 `init-app` 应该在「当日首次」调用的时机。
 
 ---
 
@@ -493,9 +541,9 @@ CLI 没有界面 → 走路 B（轮询会话文件最多 5 分钟）；
 1. **登录依赖桌面应用**：应用未登录时渠道无法自行完成授权（§5）。
 2. **凭据有效期未知**：`modelBearerToken` 无到期字段，失效表现为模型网关回 401/403
    或账号 API 回 `code=80000`；渠道收到后触发 `refresh()`，刷新失败则报「重新登录」。
-3. **无额度墙**：免费档 `mode: "unrestricted"`，渠道声明 `billing: false`（§8.1）。
-4. **无签到**：每日登录积分由服务端自动发放（§8.3），渠道声明 `signin: false`。
-5. **503 是上游容量问题**：`chat/completions` 回 503 时账号 API 仍正常（§6.4），
+3. **5 个模型倍率未知**：云端只有 `glm-5.2` / `deepseek-v4-pro`（x2.0）等 3 行有
+   `point_multiplier`，其余省略（§6.2）；控制台按「免费」展示，成本判断以实测账单为准。
+4. **503 是上游容量问题**：`chat/completions` 回 503 时账号 API 仍正常（§6.4），
    重试即可；渠道如实透传该错误，不误判成额度耗尽。
 
 ### 推荐模型
@@ -550,5 +598,6 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 模型 id 归一化 | ✅ `astudio/glm-5.2` → 响应 `model: "xopglm52"`；`astudio/auto` → `model: "spark-x2.6"` |
 | 错误传播 | ✅ 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（`billing: false` 生效） |
 | 工具 / 流式 / 档位 | ✅ 直连实测通过（见技能 `astudio-probe.mjs chat`） |
-| **经网关的 Agent 工具往返** | ✅ 2026-10-26 用 `opencode-mx-test` 技能跑**全部 7 个模型**：每个都完成「写文件 → 读回 → bash `pwd`/`ls`」往返，落盘内容一致，访问日志 `messageCount` 递增（3→2→4→…→7/8）、`stream=true`、`status=200`，错误日志无 astudio 条目。倍率 `-`（未知，免费档）。 |
+| **opencode 单轮冒烟（7/7）** | ✅ 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
+| **经网关的 Agent 工具往返** | ✅ 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |
 
