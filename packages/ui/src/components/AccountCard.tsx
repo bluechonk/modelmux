@@ -244,38 +244,6 @@ function quotaAmount(credits: AccountCredits | null | undefined, unsupported: bo
 }
 
 /**
- * 额度新鲜度：网关每 3 分钟后台并行重查一轮（`startBillingRefresher`），
- * 这里把「这条数字距现在多久」**精确**显示出来 —— 「刚刚更新 / N 分钟前」这种模糊说法
- * 看不出到底多久没刷了。零值单位不显示（`0天5小时` 只写 `5小时`），秒恒显示。
- *
- * 阈值与后端一致：>15 分钟算「偏旧」（正常应 ≤3 分钟，留 5 倍容差给慢查询/失败重试）。
- */
-function freshnessText(
-  billingAt: string | null | undefined,
-  now: number,
-): { text: string; stale: boolean } {
-  if (!billingAt) return { text: "未查到", stale: true };
-  const at = Date.parse(billingAt);
-  if (!Number.isFinite(at)) return { text: "未查到", stale: true };
-  const totalSeconds = Math.max(0, Math.floor((now - at) / 1000));
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  // 只印「最高非零单位 → 秒」这一段，避免出现「0天0小时0分钟30秒前」这种噪声；
-  // 分钟为 0 且天/时也为 0 时也跳过（就只剩 `30秒前`）。
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}天`);
-  if (hours > 0 || days > 0) parts.push(`${hours}小时`);
-  if (minutes > 0 || parts.length > 0) parts.push(`${minutes}分钟`);
-  parts.push(`${seconds}秒`);
-  return {
-    text: `更新于 ${parts.join("")}前`,
-    stale: totalSeconds > 15 * 60,
-  };
-}
-
-/**
  * 渠道级状态 pill 的配色与文案（与 `classifyChannel` 一一对应）。
  *
  * 正常态用中性底（DeepSeek 的徽标不铺彩色底）；只有需要人介入的异常才着色。
@@ -424,9 +392,7 @@ export function AccountCard({
           const active = account.key === pool.index.active;
           const bill = billingByKey.get(account.key);
           const health = healthText(account.health);
-          const expiry = expiryText(account.expires_at);
           const failStreak = Number(account.fail_streak ?? 0);
-          const showUid = Boolean(account.name?.trim() && account.uid?.trim());
             /**
              * 被打上标记的状态（连败熔断 / 额度冷却）—— 这两种**可以由用户主动解除**：
              * 熔断后路由会一直跳过它、永远等不到「下一次成功」自己清零；冷却虽会到期自动恢复，
@@ -443,88 +409,95 @@ export function AccountCard({
               >
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
-                {/* 第一行：脱敏账号名 + 状态徽标（动作按钮 hover 出现） */}
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
-                    aria-label={health || "正常"}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex h-[22px] items-center gap-2">
-                      <span className="truncate text-[13px] font-medium text-ink">
-                        {displayName(account)}
-                      </span>
-                      {active && <span className="pill shrink-0 bg-overlay text-ink-soft">生效中</span>}
-                      {health && (
-                        <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
+                {/*
+                  账号行 = **两行结构**，内容区固定 42px（2026-10-26 主人定稿）：
+                    行1 = 状态点 + 账号名 + 标签 | 额度条 + 数字 + 百分比 | 按钮组
+                    行2 = 状态说明（连续失败 / 冷却到）
+                  内容区固定高度 + 额度/按钮区**固定宽度**，保证「有账号」与「空位」
+                  两行的元素位置**逐列对齐** —— 早期额度区用百分比宽度，两行的实际起点不同，
+                  空位行的占位条与有账号行的进度条对不上（2026-10-26 主人反馈）。
+                */}
+                <div className="flex min-h-[42px] flex-col justify-center">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
+                      aria-label={health || "正常"}
+                    />
+                    {/* 名称区：弹性，超长截断 */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex h-[22px] items-center gap-2">
+                        <span className="truncate text-[13px] font-medium text-ink">
+                          {displayName(account)}
+                        </span>
+                        {active && <span className="pill shrink-0 bg-overlay text-ink-soft">生效中</span>}
+                        {health && (
+                          <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
+                        )}
+                      </div>
+                    </div>
+                    {/*
+                      额度区：**固定 180px**（不是百分比）—— 两行的起点与宽度完全一致，
+                      空位占位条与真实进度条逐像素对齐。
+                      ⚠ 账单还没拿到数据时画骨架条，不画 `-`：
+                      「-」与「未查到」看起来像「查过了但没有」，会把等待与失败伪装成结果。 */}
+                    <div className="flex w-[180px] shrink-0 items-center gap-1.5">
+                      {billingLoading || (billingError && !bill?.billing_at) ? (
+                        <span className="h-1 flex-1 animate-pulse rounded-full bg-overlay" />
+                      ) : (
+                        <QuotaMeter
+                          credits={bill?.credits}
+                          baseline={bill?.baseline}
+                          unsupported={billing?.unsupported === true}
+                        />
                       )}
                     </div>
-                    {/* UID 退到次行：不与名称同行互截；**恒渲染**（无 UID 时空占位）——
-                        账号行高度不随「有没有标识次行」漂移（布局统一，2026-10-25 主人要求）。
-                        固定 16px 行盒 + 6px 上间距：中文名字形下缘低，紧贴会看成与下一行叠字。 */}
-                    <div className="mt-1.5 h-4 truncate text-[11px] leading-4 text-ink-faint">
-                      {showUid ? `UID ${maskMiddle(account.uid)}` : ""}
+                    {/*
+                      按钮组：**固定 64px 靠右**（2026-10-26 主人要求「放在正确的位置」）。
+                      「解除」常显（不藏 hover：触屏与键盘拿不到），「切换 / 删除」仍按需出现。
+                      空位行必须预留同样的 64px，否则额度区位置会漂移。 */}
+                    <div className="flex w-[64px] shrink-0 items-center justify-end gap-0.5">
+                      {/* 解除：异常/冷却账号的**常显**动作 —— 不做二次确认（非破坏性：
+                          清了标记账号只是重新参与路由）。 */}
+                      {tripped && (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded border border-warn/40 px-1.5 py-0.5 text-[11px] leading-none text-warn transition-colors hover:bg-warn/12 disabled:opacity-40"
+                          disabled={busyKey !== null}
+                          onClick={() => onReset(pool.cid, account.key)}
+                          aria-label={
+                            account.health === "cooldown"
+                              ? "解除额度冷却，立刻恢复参与路由"
+                              : "解除连败熔断，清零失败计数并恢复参与路由"
+                          }
+                        >
+                          解除
+                        </button>
+                      )}
+                      {/*
+                        切换 / 删除：**常显**（2026-10-26 主人要求「按钮放在正确的位置」）。
+                        早期用 `opacity-0 group-hover:opacity-100` 藏进 hover —— 触屏、键盘、
+                        截图全都看不到它们，等于没有这两个操作。
+                        「切换」只对非生效账号显示（生效账号无需切换）。 */}
+                      {!active && (
+                        <button
+                          className="shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
+                          disabled={busyKey !== null}
+                          onClick={() => onActivate(pool.cid, account.key)}
+                          aria-label="切换为生效账号"
+                        >
+                          <UserCheck className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        className="shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
+                        disabled={busyKey !== null}
+                        onClick={() => setConfirmKey(account.key)}
+                        aria-label={active ? "删除生效账号（同时登出）" : "从池中删除"}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
-                  {/* 解除：异常/冷却账号的**常显**动作 —— 不藏在 hover 里（触屏与键盘拿不到），
-                      也不做二次确认（非破坏性：清了标记账号只是重新参与路由）。 */}
-                  {tripped && (
-                    <button
-                      type="button"
-                      className="shrink-0 rounded border border-warn/40 px-1.5 py-0.5 text-[11px] leading-none text-warn transition-colors hover:bg-warn/12 disabled:opacity-40"
-                      disabled={busyKey !== null}
-                      onClick={() => onReset(pool.cid, account.key)}
-                      aria-label={
-                        account.health === "cooldown"
-                          ? "解除额度冷却，立刻恢复参与路由"
-                          : "解除连败熔断，清零失败计数并恢复参与路由"
-                      }
-                    >
-                      解除
-                    </button>
-                  )}
-                  <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    {!active && (
-                      <button
-                        className="rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
-                        disabled={busyKey !== null}
-                        onClick={() => onActivate(pool.cid, account.key)}
-                        aria-label="切换为生效账号"
-                      >
-                        <UserCheck className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    <button
-                      className="rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
-                      disabled={busyKey !== null}
-                      onClick={() => setConfirmKey(account.key)}
-                      aria-label={active ? "删除生效账号（同时登出）" : "从池中删除"}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                </div>
-
-                {/* 第三行：额度条独占整行。
-                    **固定高度**：额度条有两种渲染分支 —— 正常分支返回块级 flex 行，
-                    「无额度概念」渠道（capabilities.billing=false）返回
-                    裸行内 span，行盒会更高（实测 24px vs 17px），导致账号块高度不一致、
-                    卡片网格参差。统一成固定高度的 flex 行，两个分支同高。
-
-                    ⚠ 账单**还没拿到数据**（加载中 / 失败且无可用数据）时画骨架条，
-                    不画 `-` —— 「-」与「未查到」看起来像「查过了但没有」，会把等待与
-                    失败伪装成结果（主人 2026-10-24 反馈）。 */}
-                <div className="mt-1.5 flex h-[17px] items-center pl-3.5">
-                  {billingLoading || (billingError && !bill?.billing_at) ? (
-                    <span className="h-1 w-2/5 animate-pulse rounded-full bg-overlay" />
-                  ) : (
-                    <QuotaMeter
-                      credits={bill?.credits}
-                      baseline={bill?.baseline}
-                      unsupported={billing?.unsupported === true}
-                    />
-                  )}
-                </div>
 
                 {/* 删除二次确认：真删是不可逆的（生效账号会同时登出），先问一次 */}
                 {confirmKey === account.key && (
@@ -553,44 +526,38 @@ export function AccountCard({
                   </div>
                 )}
 
-                {/* 第四行：时间与状态说明 —— 允许换行，绝不裁切；min-h 兜住空行
-                    （订阅制渠道此行全空时也保持行高）。偶发换两行由同行等高卡吸收。
+                {/* 第三行：状态说明 —— 只留**需要用户关注**的信息（连续失败 / 冷却到）。
+                    ⚠ 更新时间已上移到名称行右侧（2026-10-26 主人要求），
+                    「到期」不再显示（`expiry` 变量已移除），避免与额度条重复表达。
                     账单还没到 / 请求失败时**不写「未查到」**：那是等待态，不是结果。 */}
                 <div className="mt-1 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1 pl-3.5 text-[11px] text-ink-faint">
                   {(() => {
-                    // 没有额度概念的渠道（`capabilities.billing=false`）
-                    // 不显示账单新鲜度：它永远不会刷新，只会一直累加「更新于 N 天前」，
-                    // 看起来像故障（2026-10-24 主人反馈）。
+                    // 账单查询失败且没有可用数据：如实说失败，由下一次轮询自动重试
                     if (billing?.unsupported === true) return null;
-                    // 账单查询还没数据：画骨架（第三行与第二行同宽度的短条）
                     if (billingLoading) {
                       return <span className="h-2 w-1/3 animate-pulse rounded bg-overlay" />;
                     }
-                    // 账单查询失败且没有可用数据：如实说失败，由下一次轮询自动重试
                     if (billingError && !bill?.billing_at) {
                       return <span className="text-warn">账单获取失败，稍后自动重试</span>;
                     }
-                    const fresh = freshnessText(bill?.billing_at, clock);
-                    return (
-                      <span className={fresh.stale ? "text-warn" : "text-ink-faint/70"}>
-                        {fresh.text}
-                      </span>
-                    );
+                    return null;
                   })()}
-                  {expiry !== "" && <span className="text-ink-faint/60">· {expiry}</span>}
-                  {failStreak > 0 && <span className="text-warn">· 连续失败 {failStreak} 次</span>}
+                  {failStreak > 0 && <span className="text-warn">连续失败 {failStreak} 次</span>}
                   {/* 冷却中：把「等到什么时候」直接写出来（额度耗尽不是故障，会自己好） */}
                   {account.health === "cooldown" && cooldownUntilText(account.cooldown_until) !== "" && (
                     <span className="text-warn">
-                      · 冷却到 {cooldownUntilText(account.cooldown_until)}
+                      冷却到 {cooldownUntilText(account.cooldown_until)}
                     </span>
                   )}
+                  </div>
                 </div>
               </li>
             );
           })}
-          {/* 空位占位：真实账号不足 PREVIEW 个时补空行，让每张卡高度一致
-              （包括 0 账号的未登录渠道 —— 同样占满 2 行） */}
+          {/* 空位占位：真实账号不足 2 个时补空行，让每张卡**与有账号的卡同高**。
+              ⚠ 必须与真实账号行**逐列对齐**：额度区固定 180px、按钮区固定 64px，
+              内容区固定 42px（2026-10-26 实测：用百分比宽度时两行起点不同，
+              空位占位条与真实进度条对不上，主人反馈「空池子和有池子的布局不统一」）。 */}
           {emptySlots > 0 &&
             Array.from({ length: emptySlots }).map((_, i) => (
               <li
@@ -598,9 +565,19 @@ export function AccountCard({
                 className="border-b border-line/60 px-4 py-3 last:border-b-0"
                 aria-hidden="true"
               >
-                <div className="flex h-[22px] items-center gap-2 text-ink-faint/30">
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
-                  <span className="text-[13px] leading-none">—</span>
+                <div className="flex h-[42px] flex-col justify-center">
+                  <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block h-[22px]" />
+                    </span>
+                    {/* 额度区：固定 180px，与真实行同宽同起点 */}
+                    <span className="block h-1 w-[180px] shrink-0 rounded-full bg-line/60" />
+                    {/* 按钮区：固定 64px，占位保持位置 */}
+                    <span className="block w-[64px] shrink-0" />
+                  </div>
+                  {/* 第二行占位：与真实账号行的状态说明行等高（`mt-1` + min-h-4） */}
+                  <div className="mt-1 min-h-4" />
                 </div>
               </li>
             ))}
