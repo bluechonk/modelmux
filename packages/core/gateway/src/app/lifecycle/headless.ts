@@ -399,6 +399,8 @@ export async function runLogin(options: {
     authFlow.ensureLogin(ui, {
       interactive: true,
       baseUrl: cred.resolveBaseUrl(realm),
+      // 重新授权（`mx relogin` / 控制台「添加账号」）：有凭据也要拿新授权链接
+      force,
       ...(cid !== undefined ? { cid } : {}),
     }),
   ).finally(() => {
@@ -509,6 +511,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // 控制台的「登录」按钮经此回调触发真实登录流程（本函数在 app 层，
     // 控制台层不认识它 —— 见 scripts/verify-layering.mjs）
     triggerLogin: (cid, force) => {
+      // ⚠ **同步**把状态切回 login：上一轮登录留下的 `done` 会一直挂在
+      // ServiceState 上（它是跨请求保留的字段），弹窗打开时先读到旧 `done`
+      // 就会直接显示「登录完成」而看不到新的授权链接（2026-10-26 实测）。
+      state.setState("login", "requesting authorization URL...");
       // 把 state 当观察者传给登录流程：控制台没有 stdout 可看，
       // 授权链接必须落到 `/web/api/state`，否则页面永远等不到 auth_url。
       void runLogin({ cid, force, json: true, realm: "auto", observer: state }).catch(() => {

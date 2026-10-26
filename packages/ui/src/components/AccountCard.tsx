@@ -289,12 +289,20 @@ const STATUS_META: Record<ChannelStatus, { text: string; pill: string; dot: stri
 };
 
 /**
- * 卡内默认露出的账号数，其余折进「展开剩余 N 个账号」。
+ * 账号卡片的布局铁律（2026-10-26 主人定稿）：
  *
- * 卡片高度因此有上界（卡头 + 4 行 + 折叠条），网格不会被账号多的渠道撑爆；
- * 生效账号恒排首位（见下方 sort），永远不会被折掉。
+ * **每张卡固定显示 2 个账号位**，无论是否登录、有无账号 ——
+ *   - 未登录 / 0 账号 → 2 个空位占位
+ *   - 1 个账号       → 1 个真实账号 + 1 个空位
+ *   - 2 个账号       → 2 个真实账号（刚好填满，不折叠）
+ *   - > 2 个账号     → 2 个真实账号 + 折叠条（展开剩余 N 个）
+ *
+ * 这样每张卡的高度完全可预期（卡头 + 2 个账号行 + 可选折叠条），
+ * 账号多的渠道不再把页面撑参差，空卡也不再矮一截。
+ *
+ * demo.ts 只放数据，布局完全由本组件决定 —— 数据里放几个账号都不影响布局规则。
  */
-const PREVIEW_ACCOUNTS = 4;
+const PREVIEW_ACCOUNTS = 2;
 
 /**
  * 单渠道账号池卡片。
@@ -350,8 +358,14 @@ export function AccountCard({
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
   // 折叠态是卡内私有状态：页面不需要知道哪张卡展开了
   const [expanded, setExpanded] = useState(false);
-  const visibleAccounts = expanded ? accounts : accounts.slice(0, PREVIEW_ACCOUNTS);
-  const hiddenAccounts = accounts.length - visibleAccounts.length;
+  // 需要折叠：账号数超过固定位数（2）
+  const needsFold = accounts.length > PREVIEW_ACCOUNTS;
+  // 展开时显示全部，否则只显示前 2 个（不足 2 个时空位补满）
+  const shownAccounts = expanded && needsFold ? accounts : accounts.slice(0, PREVIEW_ACCOUNTS);
+  // 空位占位数：不足 2 个真实账号时补空行，让卡高一致
+  const emptySlots = needsFold ? 0 : PREVIEW_ACCOUNTS - shownAccounts.length;
+  // 折叠条文案：折叠态显示「展开剩余 N 个」
+  const hiddenCount = accounts.length - PREVIEW_ACCOUNTS;
 
   const status = classifyChannel(pool, present);
   const meta = STATUS_META[status];
@@ -399,20 +413,20 @@ export function AccountCard({
         </button>
       </div>
 
-      {accounts.length === 0 ? (
-        <div className="border-t border-line px-4 py-8 text-center">
-          <div className="text-xs text-ink-faint">还没有账号</div>
-          <div className="mt-1 text-[11px] text-ink-faint/70">点右上角 + 添加账号</div>
-        </div>
-      ) : (
-        <ul className="border-t border-line">
-          {visibleAccounts.map((account) => {
-            const active = account.key === pool.index.active;
-            const bill = billingByKey.get(account.key);
-            const health = healthText(account.health);
-            const expiry = expiryText(account.expires_at);
-            const failStreak = Number(account.fail_streak ?? 0);
-            const showUid = Boolean(account.name?.trim() && account.uid?.trim());
+      {/*
+        账号列表 —— 固定 2 个账号位：
+          - 真实账号超过 2 个 → 显示前 2 + 折叠条
+          - 真实账号不足 2 个 → 补空位占位，让每张卡高度一致
+          - 0 账号（未登录）→ 2 个空位占位
+      */}
+      <ul className="border-t border-line">
+        {accounts.slice(0, PREVIEW_ACCOUNTS).map((account) => {
+          const active = account.key === pool.index.active;
+          const bill = billingByKey.get(account.key);
+          const health = healthText(account.health);
+          const expiry = expiryText(account.expires_at);
+          const failStreak = Number(account.fail_streak ?? 0);
+          const showUid = Boolean(account.name?.trim() && account.uid?.trim());
             /**
              * 被打上标记的状态（连败熔断 / 额度冷却）—— 这两种**可以由用户主动解除**：
              * 熔断后路由会一直跳过它、永远等不到「下一次成功」自己清零；冷却虽会到期自动恢复，
@@ -575,23 +589,39 @@ export function AccountCard({
               </li>
             );
           })}
+          {/* 空位占位：真实账号不足 PREVIEW 个时补空行，让每张卡高度一致
+              （包括 0 账号的未登录渠道 —— 同样占满 2 行） */}
+          {emptySlots > 0 &&
+            Array.from({ length: emptySlots }).map((_, i) => (
+              <li
+                key={`empty-${i}`}
+                className="border-b border-line/60 px-4 py-3 last:border-b-0"
+                aria-hidden="true"
+              >
+                <div className="flex h-[22px] items-center gap-2 text-ink-faint/30">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
+                  <span className="text-[13px] leading-none">—</span>
+                </div>
+              </li>
+            ))}
         </ul>
-      )}
-      {/* 折叠条：账号数超过预览上限时出现（点击展开，不用 hover —— 触屏/键盘也要能到达） */}
-      {accounts.length > PREVIEW_ACCOUNTS && (
+      {/* 折叠条：账号数超过固定位数（2）时出现（点击展开 / 收起）
+          ⚠ 不要做成浅灰小字：主人实测「找不到折叠功能」（2026-10-26）。
+          底色 + 中等字重 + 明确箭头，让它在卡底一眼可见。 */}
+      {needsFold && (
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-1 border-t border-line px-4 py-2 text-[11px] text-ink-faint transition-colors hover:bg-overlay/40 hover:text-ink"
+          className="flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-soft transition-colors hover:bg-overlay/60 hover:text-ink"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
         >
-          {hiddenAccounts > 0 ? (
+          {expanded ? (
             <>
-              展开剩余 {hiddenAccounts} 个账号 <ChevronDown className="h-3 w-3" />
+              收起 <ChevronUp className="h-3.5 w-3.5" />
             </>
           ) : (
             <>
-              收起 <ChevronUp className="h-3 w-3" />
+              展开剩余 {hiddenCount} 个账号 <ChevronDown className="h-3.5 w-3.5" />
             </>
           )}
         </button>
