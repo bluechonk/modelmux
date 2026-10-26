@@ -29,50 +29,32 @@ export const BAD_REQUEST_CODE = "100001";
 // ── 端点常量表（完整 URL = 业务基址 + 端点路径）──────────────────────────────
 
 /**
- * 对话端点。
- * - 方法 / 完整 URL：POST `https://loomyad.xunfei.cn/api/v1/chat/completions`
- * - 端点路径：`/api/v1/chat/completions`
+ * 对话端点（`POST`）。
  * - query：**无**（`model` / `messages` / `stream` 全在 body；`stream` 恒 true，见 `buildChatBody`）
  */
 const CHAT_PATH = `${API_PREFIX}/chat/completions`;
 
-/**
- * 模型目录端点。
- * - 方法 / 完整 URL：GET `https://loomyad.xunfei.cn/api/v1/models`
- * - 端点路径：`/api/v1/models`
- * - query：**无**
- */
+/** 模型目录端点（`GET`，query 无）。 */
 const MODELS_PATH = `${API_PREFIX}/models`;
 
 /**
- * 积分明细端点（**只读**，最便宜的探测端点）。
- * - 方法 / 完整 URL：GET `https://loomyad.xunfei.cn/api/v1/points/records?pageNo=1&pageSize=1&recordType=all`
- * - 端点路径：`/api/v1/points/records`
+ * 积分明细端点（`GET`；**只读**，最便宜的探测端点）。
  * - query 来源：`POINTS_RECORDS_QUERY`
  */
 const POINTS_RECORDS_PATH = `${API_PREFIX}/points/records`;
 
 /**
- * 每日额度初始化端点（**写**，幂等）。
- * - 方法 / 完整 URL：POST `https://loomyad.xunfei.cn/api/v1/points/first-login`
- * - 端点路径：`/api/v1/points/first-login`
+ * 每日额度初始化端点（`POST`；**写**，幂等）。
  * - body：**固定 `{}`，无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现），
  *   本渠道未启用（PROTOCOL §1.1）
  */
 const FIRST_LOGIN_PATH = `${API_PREFIX}/points/first-login`;
 
-/**
- * 新手任务列表端点。
- * - 方法 / 完整 URL：GET `https://loomyad.xunfei.cn/api/v1/onboarding/tasks`
- * - 端点路径：`/api/v1/onboarding/tasks`
- * - query：**无**
- */
+/** 新手任务列表端点（`GET`，query 无）。 */
 const ONBOARDING_TASKS_PATH = `${API_PREFIX}/onboarding/tasks`;
 
 /**
- * 完成单个新手任务端点。
- * - 方法 / 完整 URL：POST `https://loomyad.xunfei.cn/api/v1/onboarding/tasks/complete`
- * - 端点路径：`/api/v1/onboarding/tasks/complete`
+ * 完成单个新手任务端点（`POST`）。
  * - body：`{key}`（**只有 key**；服务端不校验前置行为）
  */
 const ONBOARDING_COMPLETE_PATH = `${API_PREFIX}/onboarding/tasks/complete`;
@@ -202,7 +184,7 @@ function str(value: unknown): string {
  * 多发 `Authorization` 不会被采纳 —— 只认 `token`。
  *
  * ⚠ 不发 `traceparent` / `loomy-version`：这两个头是 `[参考]` 标注的**对话**必需头，
- * 业务端点在本仓 2026-10-19 实测（`mx model loomy --refresh`）不发也正常。
+ * 业务端点实测（`mx model loomy --refresh`）不发也正常。
  */
 function businessHeaders(credential: AuthLike): Record<string, string> {
   return { Accept: "application/json", token: credential.accessToken };
@@ -220,7 +202,7 @@ const CLIENT_VERSION = "0.9.38";
  * W3C traceparent（`00-<32 hex>-<16 hex>-01`），**每请求新生成**。
  *
  * `[参考]` 参考实现标注为**必需**（缺失会挂死到超时）；
- * 本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核**（PROTOCOL §2.2.1）。
+ * 本仓端到端**未发也跑通** → **待真机 A/B 复核**（PROTOCOL §2.2.1）。
  */
 function traceparent(): string {
   const trace = randomUUID().replace(/-/g, "");

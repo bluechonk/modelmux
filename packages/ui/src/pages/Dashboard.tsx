@@ -39,8 +39,7 @@ function freePlanCidsOf(caps: Record<string, { billing: boolean }> | undefined):
  *
  * ## 为什么没有手动刷新按钮
  *
- * 查询带 `refetchInterval: 3000`，数据每 3 秒自己更新 —— 手动刷新按钮是重复入口。
- * 2026-10-26 主人反馈「刷新按钮完全是多余的」，已删除。
+ * 查询带 `refetchInterval: 3000`，数据每 3 秒自己更新 —— 手动刷新按钮是重复入口，已删除。
  */
 export function Dashboard(): ReactElement {
   const { data: state, isLoading, error } = useQuery({
@@ -50,7 +49,7 @@ export function Dashboard(): ReactElement {
   });
   const toast = useToast();
 
-  // 提示统一走 toast（2026-10-26 主人要求）：查询失败与网关错误都弹错误提示，
+  // 提示统一走 toast：查询失败与网关错误都弹错误提示，
   // 页面本体不再渲染自绘的常驻错误横幅。两者都是轮询驱动的持续状态 ——
   // 按**错误内容**去重（同一错误不反复弹），内容变化或恢复后再弹新的。
   const lastToastedError = useRef("");
@@ -104,7 +103,7 @@ export function Dashboard(): ReactElement {
     <div>
       {/* composer 形态的接入区：一整块圆角盒，端点逐行可复制。
           窄屏只留 `base_url`：`chat_url` 是它的下游路径、`endpoints` 是它的拆分，
-          都是派生信息 —— 宽度不够时先砍它们（2026-10-26 主人要求「窄屏做减法」）。 */}
+          都是派生信息 —— 宽度不够时先砍它们（窄屏做减法）。 */}
       <section className="panel mb-7 overflow-hidden">
         <div className="space-y-1 p-4 sm:p-5">
           <EndpointRow label="base_url" value={state.base_url} />
@@ -139,7 +138,7 @@ export function Dashboard(): ReactElement {
 
       {/* 统计：一行内联数据，不是四张卡。
           窄屏只留「网关」与「可用模型」——「供给渠道」「接入端点」是派生计数，
-          信息量低于宽度成本（2026-10-26 主人要求）。 */}
+          信息量低于宽度成本。 */}
       <div className="mb-9 flex flex-wrap items-center gap-x-6 gap-y-3 px-1 sm:gap-x-8">
         <StatInline
           label="网关"

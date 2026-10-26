@@ -271,7 +271,7 @@ function newLoginState(): string {
  *   因此 CLI 用本地 HTTP 回调服务器即可自动收码。
  *
  * ⚠ 不要用 `/login/mp?code=…`：那条只给**官方手机 App 扫码**用，网页端没有该路由，
- * 浏览器打开是死链（真机踩过，见 docs/channels/raccoon/PROTOCOL.md §2.4）。
+ * 浏览器打开是死链（见 docs/channels/raccoon/PROTOCOL.md §2.4）。
  */
 function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
   const url = new URL(AUTHORIZE_PATH, channelBaseUrl({ override: baseOverride }));

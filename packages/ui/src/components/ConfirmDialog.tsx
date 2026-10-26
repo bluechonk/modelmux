@@ -4,14 +4,14 @@
  * ## 为什么是弹窗而不是行内确认条
  *
  * 行内确认条会把账号行撑高、打断列表的等高节奏，确认键还挤在行里容易被误点。
- * 弹窗把「确认」这个决定隔离出来（2026-10-26 主人要求）。
+ * 弹窗把「确认」这个决定隔离出来。
  *
  * ## 为什么用 Radix AlertDialog
  *
  * 「模态确认」属于**行为标准化、无业务差异**的一类：焦点陷阱、关闭后焦点归还、
  * 背景滚动锁、`role="alertdialog"` + `aria-modal` + 标题/描述的 aria 接线，
- * 都是通用问题（2026-10-26 引入 Radix，见 `docs/WEB-CONSOLE.md`）。
- * 此前手写版只做了 ESC 与遮罩点击，**没有焦点陷阱** —— Tab 能跑到弹窗背后的按钮上。
+ * 都是通用问题（选型见 `docs/WEB-CONSOLE.md`）。
+ * 手写的 ESC + 遮罩版**没有焦点陷阱** —— Tab 能跑到弹窗背后的按钮上。
  *
  * Radix 无样式，视觉仍由本仓 Tailwind 令牌写；`Portal` 默认挂 `document.body`，
  * 顺带解决「账号卡带 `@container`（隐含 `contain: layout`）会成为 fixed 后代的
@@ -73,7 +73,7 @@ export function ConfirmDialog({
           ⚠ 点遮罩 = 取消：走的是 Overlay 自己的 onClick。
           Radix 的 `AlertDialog` **刻意**把 `onPointerDownOutside` / `onInteractOutside`
           从 props 里去掉了（破坏性确认不该被误点关掉），所以要保留「点遮罩取消」
-          只能自己接 —— 需求是「与手写版逐条一致」（2026-10-26 主人要求）。
+          只能自己接 —— 需求是「与手写版逐条一致」。
         */}
         <AlertDialog.Overlay
           onClick={() => {

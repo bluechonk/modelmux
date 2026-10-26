@@ -18,7 +18,7 @@ interface ModelEntry {
   /**
    * 最大输出 token。
    *
-   * ⚠ 上游 `/api/models/available` **不下发**该字段（[实测] 2026-10-23：响应里没有 `maxTokens`），
+   * ⚠ 上游 `/api/models/available` **不下发**该字段（实测响应里没有 `maxTokens`），
    * 所以只能按公开规格补（`MAX_OUTPUTS`，来源见 `docs/MODEL-SPECS.md`）。
    */
   max_output?: number;
@@ -38,8 +38,8 @@ interface ModelEntry {
 /**
  * 兜底目录：**未登录 / 上游拉不到时**给用户看的那份。
  *
- * ⚠ 这是**快照**不是实时数据：内容来自 2026-10-08 的一次真实拉取
- * （`upstream.fetchModels()`，当时 30 条）。真机拉到远端后会用远端目录覆盖它，
+ * ⚠ 这是**快照**不是实时数据：内容来自一次真实拉取
+ * （`upstream.fetchModels()`）。真机拉到远端后会用远端目录覆盖它，
  * 并落盘到 `cache/models.json`（见共享层 `catalog-cache.ts`）——
  * 所以正常使用时看到的**不是**这张表。
  *

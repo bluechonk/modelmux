@@ -161,7 +161,7 @@ async function reopenForProbe(
   return next;
 }
 
-// ── 排队进度文案（主人 2026-10-24 钦定：每轮不同、要换行、超时就劝换渠道）────────
+// ── 排队进度文案（要求：每轮不同、要换行、超时就劝换渠道）────────
 
 /**
  * 排队进度文案：每轮一条，条条不同。
@@ -201,7 +201,7 @@ function queueNoticeText(round: number): string {
 /**
  * 向客户端发一条排队进度。
  *
- * ⚠ **走 `reasoning_content`，不走 `content`**（主人 2026-10-24 反馈「思考过程被输出在
+ * ⚠ **走 `reasoning_content`，不走 `content`**（否则「思考过程被输出在
  *   正文后面」）。原因：客户端（ZCode）按 chunk 到达顺序建行 —— 先到的 content
  *   建「正文行」，后到的 reasoning 建「思考行」，渲染顺序 = 建行顺序。提醒若用
  *   `content`，它先建出正文行，模型的思考就落到了正文后面。改用 `reasoning_content`
@@ -243,8 +243,7 @@ function writeQueueNotice(
  * 为什么需要这条分界：提醒走 `reasoning_content`（思考块），模型的真思考也走
  * `reasoning_content`，两者在同一个块里；中间没有正文分隔时，「排队中」和
  * 「模型在想什么」糊成一段，看不出排队已经结束。补一条正文后渲染顺序是
- * `思考块(提醒) → 正文(排队成功) → 思考块(真思考) → 正文(回答)`，分界清晰
- * （主人 2026-10-25 要求）。
+ * `思考块(提醒) → 正文(排队成功) → 思考块(真思考) → 正文(回答)`，分界清晰。
  *
  * 只在**排队真的解除过**时发（探测拿到非排队帧），没排过队的请求不受影响。
  */
@@ -270,7 +269,7 @@ function writeQueueCleared(
  *
  * ⚠ 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
  *   转发层必须**原序**交出这些帧，并**接着用同一个**翻译器实例（半行缓冲在里面）。
- * ⚠ 排队期间向客户端**分批发进度文案**（仅流式，主人 2026-10-24 要求）：
+ * ⚠ 排队期间向客户端**分批发进度文案**（仅流式）：
  *   每轮等待前发一条，文案随轮次升级；首条会顺带发出 SSE 响应头。
  * ⚠ 每轮开头检查客户端断连：排队可能长达数分钟，客户端（60s 超时）走人后
  *   继续轮询上游纯属浪费（实测断连后空转 4 分钟、白打 22 次上游请求）。
@@ -290,7 +289,7 @@ async function runQueueProbe(
   let queueRound = 0;
   // 客户端断连检测：客户端断开时 Node 触发 res 的 `close` 事件，但**不一定**置
   // `res.destroyed`（实测：要等一次写失败后才置位）—— 必须挂 close 监听，
-  // 否则探测会在客户端走后继续按预算空转（2026-10-24 实测白打 4 分钟上游）。
+  // 否则探测会在客户端走后继续按预算空转（实测白打 4 分钟上游）。
   let clientGone = res.destroyed || res.writableEnded;
   const clientClosed = new Promise<void>((resolve) => {
     if (clientGone) resolve();
@@ -370,7 +369,7 @@ async function runQueueProbe(
       break;
     }
     logger(`upstream queued (channel ${cid}), waiting ${Math.round(delayMs / 1000)}s before retry`);
-    // 排队进度（主人 2026-10-24 要求）：每轮等待前发一条文案，按当前等待秒数分批。
+    // 排队进度：每轮等待前发一条文案，按当前等待秒数分批。
     // 只对流式发；round 从 1 计，文案随轮次升级。写失败（客户端已断）不在此处理，
     // 下一轮循环顶部的断连检测会退出。
     if (ctx.wantStream) {
@@ -489,7 +488,7 @@ export async function attemptCandidate(
   // ⚠ 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入转发层，
   //    响应头已发给客户端，换渠道会变成两个响应。
   // 免费模型（倍率 0 / 渠道没有额度概念）不吃额度：既不受账号冷却限制，也不该**触发**冷却
-  // （2026-10-23 主人实测：免费模型撞到上游 402 后把整个账号又打成冷却，免费模型被一起锁死）。
+  // （实测：免费模型撞到上游 402 后把整个账号又打成冷却，免费模型被一起锁死）。
   const freeModel = isFreePoolModel(cid, candidate.exposedId);
   const outcome = await callUpstream(channel, sendBody, logger, { freeModel });
   if (outcome.kind === "ok") noteUpstreamReady(res);
@@ -510,7 +509,7 @@ export async function attemptCandidate(
   // 冷却中：本地短路，**未打上游**。额度耗尽不是故障（`account-pool.ts` 的
   // `noteAccountQuotaExhausted` 刻意不动 `fail_streak`），故这里也**不记任何连败** ——
   // 记了就会在冷却窗口内被 3 连败熔断打成 `error`，连免费模型一起锁死且无自动恢复
-  //（2026-10-24 实测 workbuddy：11 次短路 → fail_streak 11 → health=error）。
+  //（实测 workbuddy：11 次短路 → fail_streak 11 → health=error）。
   if (outcome.kind === "cooling") {
     logThrottled(
       logger,
@@ -526,7 +525,7 @@ export async function attemptCandidate(
       },
     };
   }
-  // error 终态短路：已标 error，再记连败只会虚增 fail_streak（2026-10-24 实测被刷到 11）。
+  // error 终态短路：已标 error，再记连败只会虚增 fail_streak（实测被刷到 11）。
   if (outcome.kind === "account_error") {
     logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
     return {
@@ -578,7 +577,7 @@ export async function attemptCandidate(
     // 额度耗尽：不是瞬时故障，继续打同一个账号只会重复失败 → **冷却**它（不是标 error）。
     // 冷却截止由渠道从错误体里认（`upstream.quotaResetAt`），认不出就兜底次日本地 0 点。
     // ⚠ 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
-    //   3 连败熔断打成「不可用」（2026-10-23 之前 workbuddyai 就是这样被误标的）。
+    //   3 连败熔断打成「不可用」（workbuddyai 就是这样被误标过的）。
     const bodySnippet = call.bodySnippet ?? "";
     // 额度信号 = 共享层**通用措辞** 或 渠道自己声明的业务码（`upstream.quotaSignal`）。
     // 渠道业务码属渠道知识，只能由渠道上报；共享层不硬编码任何厂商码（AGENTS.md 铁律）。
@@ -611,7 +610,7 @@ export async function attemptCandidate(
     }
     if (quotaOut && freeModel) {
       // 免费模型遇到余额类信号：不冷却账号（它不消耗额度），把上游错误如实透出
-      //（2026-10-23 主人实测：这个分支曾把免费模型一起锁死）。
+      //（实测：不特判的话这个分支会把免费模型一起锁死）。
       logThrottled(
         logger,
         `chat:quota-free:${cid}:${candidate.exposedId}`,
@@ -678,7 +677,7 @@ export async function attemptCandidate(
  * 该池模型是否**免费**（倍率 0，或渠道根本没有额度概念）。
  *
  * 免费模型不消耗额度，因此**不受「账号额度冷却」限制** —— 冷却只该挡付费用量。
- * 2026-10-23 主人实测踩过：loomy 每日 5000 积分烧光进冷却后，连 spark-x（倍率 0）
+ * 实测踩过：loomy 每日 5000 积分烧光进冷却后，连 spark-x（倍率 0）
  * 都被一起锁死。倍率查不到（null）按**付费**处理（宁可挡一下，也不放走可能计费的请求）。
  */
 function isFreePoolModel(cid: string, exposedId: string): boolean {

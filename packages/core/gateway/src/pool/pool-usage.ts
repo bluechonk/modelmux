@@ -78,7 +78,7 @@ export interface AccountCount {
   /**
    * **额度基线**：当前额度窗口内第一次账单的 `remain`，Web 百分比的分母。
    *
-   * 口径（主人 2026-10-24 确认）：
+   * 口径：
    *   - 窗口键 `window` 取渠道声明的「下次刷新时刻」，渠道没声明才用本地日期。
    *     不能只用自然日 —— 多个渠道的日额度在本地 0 点之后才到账，按自然日抓基线
    *     会让 `remain > 基线`，百分比被 clamp 成恒 100%（实测 traecn / qodercn / raccoon）。
@@ -323,7 +323,7 @@ function noteBillingAttempt(cid: string, ok: boolean): void {
  * 额度窗口键：渠道声明了「下次刷新时刻」就用它（窗口滚动时值会变），否则本地日期。
  *
  * 不能只用自然日：多个渠道的日额度在本地 0 点之后才到账，按自然日抓基线会让
- * `remain > 基线`，百分比被 clamp 成恒 100%（2026-10-24 实测 traecn / qodercn / raccoon）。
+ * `remain > 基线`，百分比被 clamp 成恒 100%（实测 traecn / qodercn / raccoon）。
  */
 function windowKeyOf(cid: string): string {
   const channel = channels().find((c) => c.config.cid === cid);
@@ -381,7 +381,7 @@ export function writeAccountBilling(cid: string, key: string, credits: unknown):
  * 账单派生的冷却上限。
  *
  * 账单读到 0 就冻到「下一个额度窗口」并不可靠：窗口边界上的快照可能仍是旧值
- * （实测 lobsterai 2026-10-23T16:00:37Z 读到 0，随后日奖励到账变成 100/100），
+ * （实测 lobsterai 在窗口边界读到 0，随后日奖励到账变成 100/100），
  * 而冷却期内又不再查账单 → 账号被错误冻满一整天、Web 卡片停在 0。
  *
  * 因此账单派生的冷却最多持续这么久，到期必然重查一次；查到有额度即恢复。
@@ -444,7 +444,7 @@ async function refreshAccountCredits(
   if (!channelCapabilities(channel.config).billing) return;
   const index = runInChannel(cid, () => listAccounts(cid));
   for (const account of index.accounts) {
-    // 冷却中的账号不查：额度要等窗口刷新才会变（2026-10-23 主人要求）
+    // 冷却中的账号不查：额度要等窗口刷新才会变
     if (isAccountCooling(account)) {
       logger(
         `account billing skipped (${cid}/${account.key.slice(0, 8)}…): cooling down until ${account.cooldown_until ?? "?"}`,
@@ -493,7 +493,7 @@ export interface RefreshResult {
   refreshed: string[];
   /** 查失败的渠道及原因。 */
   failed: Array<{ cid: string; error: string }>;
-  /** 因账号冷却跳过查询的渠道（2026-10-23：冷却账号不再执行 bill）。 */
+  /** 因账号冷却跳过查询的渠道（冷却账号不再执行 bill）。 */
   skipped: string[];
 }
 
@@ -586,7 +586,7 @@ export function maybeRefreshBilling(logger: (m: string) => void = () => {}): voi
  * 目的是不给每条请求加网络开销；而控制台的额度展示需要**分钟级**的新鲜度 ——
  * 用户改了额度/充了值，不该等 8 小时或手动 `mx bill` 才看到。
  *
- * 3 分钟是主人 2026-10-23 指定的节奏（原 5 分钟）。
+ * 3 分钟的节奏平衡新鲜度与查询量（原为 5 分钟）。
  * ⚠ 代价是**每个渠道每 3 分钟一次上游查询**（约 10 渠道 × 20 次/小时）。
  * 都是只读的积分查询端点（官方客户端也在轮），但若上游出现限流就调大这个值或设 0 关掉。
  */

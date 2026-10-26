@@ -207,17 +207,15 @@ export async function fetchCredits(
 import type { SigninModule } from "@modelmux/gateway";
 
 /**
- * 签到 / 领取：AStudio 有真实的签到链路（此前误判为「无端点」，更正见 PROTOCOL §8.2）。
+ * 签到 / 领取：AStudio 有真实的签到链路（端点与实测见 docs/channels/astudio/PROTOCOL.md §8.2）。
  *
  * ## 三个动作各自的真实含义（why 缺一不可）
  *
- * 1. **每日登录奖励**：`POST /tenant-app/v2/init-app` —— 官方客户端在启动与登录时
- *    都调它，当日首次调用上游立即入账（重复调用不重复发放）。**这才是发奖动作**。
- * 2. **关闭奖励横幅**：`POST /client-popups/complete` —— 领奖后上游下发
- *    `DAILY_REWARD_DIALOG` 横幅；⚠ 只 complete 弹窗**不会发积分**，
- *    它只是不再弹（参考实现 `internal/server/benefits.go` 注释明确）。
- * 3. **客户端下载奖励**：`POST /client-download-reward/claim` —— 一次性，
- *    已领过回业务错误（属正常，不算失败）。
+ * 1. **每日登录奖励**（`init-app`）—— 官方客户端在启动与登录时都调它，
+ *    当日首次调用上游立即入账（重复调用不重复发放）。**这才是发奖动作**。
+ * 2. **关闭奖励横幅**（popups complete）—— 领奖后上游下发 `DAILY_REWARD_DIALOG` 横幅；
+ *    ⚠ 只 complete 弹窗**不会发积分**，它只是不再弹（参考实现 `internal/server/benefits.go` 注释明确）。
+ * 3. **客户端下载奖励**（download-reward claim）—— 一次性，已领过回业务错误（属正常，不算失败）。
  *
  * `client-popups/*` 会校验客户端平台/版本（`clientType` 是必需的那一个，
  * 只给 `studioVersion` 仍无效），故走 `upstream` 的客户端头拼装。

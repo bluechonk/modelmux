@@ -256,7 +256,7 @@ class ServiceState {
    * ⚠ 必须由 `triggerLogin` **同步**调用：`ServiceState` 的字段跨请求保留，
    * 而控制台的 `triggerLogin` 走 `setImmediate` 异步启动 —— 不先清干净的话，
    * 弹窗挂载后最长一个轮询周期（3s）里显示的还是上一轮的
-   * `done` / `error` / 旧授权链接（2026-10-26 主人反馈「一开始就显示登录成功」）。
+   * `done` / `error` / 旧授权链接（用户看到的是「一开始就显示登录成功」）。
    */
   beginLogin(): void {
     this.uiState = "probing";
@@ -291,7 +291,7 @@ class ServiceState {
     if (!pending) return;
     // ⚠ 必须**自己**摘下来再清定时器，不能走 `cancelPendingInput()` ——
     // 那会把 Promise resolve 成 `undefined`，用户刚填的内容就丢了
-    // （2026-10-26 实测：点了「发送验证码」毫无反应，手机号被吞）。
+    // （症状：点了「发送验证码」毫无反应，手机号被吞）。
     this.pendingInput = null;
     if (this.pendingInputTimer) {
       clearTimeout(this.pendingInputTimer);
@@ -391,8 +391,7 @@ export async function runLogin(options: {
   // 期间渠道处于「登录中」，而旧凭据在这段时间里本来还能正常服务。先删的后果是
   // **授权没走完（链接过期 / 没扫码 / 弹窗关掉）渠道就直接掉线**，账号池里的账号和
   // 额度却都还在 —— 界面上就是「未登录 + 账号生效中」这种自相矛盾的状态
-  // （2026-10-24 workbuddy / raccoon / catpaw 三连掉线即由此引起）。
-  // 新凭据落盘走原子覆盖（`cred.save`），删旧文件没有任何收益，只留风险。
+  // （实测多个渠道连续中招）。新凭据落盘走原子覆盖（`cred.save`），删旧文件没有任何收益，只留风险。
 
   // 微信路径：渠道自己声明了 loginWechat 才能走（共享层不含渠道知识）
   if (wechat) {
@@ -505,7 +504,7 @@ export async function runLogin(options: {
     // ⚠ 不再盖一层通用文案：渠道的错误信息里**已经写了原因与下一步**
     // （loomy 的「重跑时带上 msgid」、控制台两步登录的「已取消」）。
     // 再盖一句「登录未完成，请按上面的提示处理」会把「按提示做第二步」
-    // 误导成「出错了」（2026-10-26 实测：loomy 弹窗底部就是这么一句）。
+    // 误导成「出错了」。
     if (!ui.lastMessage) ui.setState("error", "登录未完成，请重试。");
   }
 
@@ -601,8 +600,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
     triggerLogin: (cid, force) => {
       // ⚠ **同步**清掉上一轮的残留（done / error / 旧授权链接 / 待回答输入）：
       // 上一轮的状态会一直挂在 ServiceState 上（它是跨请求保留的字段），
-      // 弹窗打开时先读到旧 `done` 就会直接显示「登录完成」而看不到新的授权链接
-      // （2026-10-26 实测）。真实登录由下面的 setImmediate 之后才启动。
+      // 弹窗打开时先读到旧 `done` 就会直接显示「登录完成」而看不到新的授权链接。
+      // 真实登录由下面的 setImmediate 之后才启动。
       state.beginLogin();
       // 把 state 当观察者传给登录流程：控制台没有 stdout 可看，
       // 授权链接必须落到 `/web/api/state`，否则页面永远等不到 auth_url。

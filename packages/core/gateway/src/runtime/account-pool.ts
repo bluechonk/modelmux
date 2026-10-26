@@ -30,11 +30,11 @@ import { writeJsonSecret } from "./secret-file.js";
  * - `cooldown`：**额度耗尽**（不是故障）—— 等到 `cooldown_until` 上游窗口刷新后自动恢复，
  *   也可以由用户在 Web 上提前解除（见 `clearAccountState`）。
  *   与 `error` 分开是因为额度耗尽会自然好转，把它当故障会让账号被永久跳过
- *   （2026-10-23 之前就是这样：workbuddyai 的 429/6004 被打了 `fail_streak` → 显示「不可用」）。
+ *   （workbuddyai 的 429/6004 被打 `fail_streak` → 显示「不可用」，就是混判的后果）。
  */
 export type AccountHealth = "ok" | "unauthorized" | "unknown" | "error" | "cooldown";
 
-/** 连续请求失败达到该次数 → 凭据标记为 error，路由跳过（2026-10-18 决策）。 */
+/** 连续请求失败达到该次数 → 凭据标记为 error，路由跳过。 */
 export const FAIL_STREAK_LIMIT = 3;
 
 export interface PoolAccount {
@@ -234,7 +234,7 @@ function writeIndex(index: PoolIndex, cid?: string): void {
  *
  * ⚠ 这里要顺手做**冷却惰性过期**：聊天路径（`activeAccountCooldown`）读一次就恢复，
  * 但列表路径不读它，否则 Web 会一直显示已过期的「冷却中」而实际请求早就能打
- * （2026-10-23 实测踩到：写一个过去的 cooldown_until，UI 仍显示冷却中）。
+ * （实测踩到：写一个过去的 cooldown_until，UI 仍显示冷却中）。
  * 恢复只在真有变化时写盘（`expireCooldown` 内部判断），不会造成读放大。
  */
 export function listAccounts(cid?: string): PoolIndex {
@@ -360,7 +360,7 @@ export function captureActive(
  * **同一个账号会算出另一个 key** —— 旧条目指向的文件就没人再维护了。
  *
  * 旧条目的凭证文件被删（切账号、重新登录、清理）后，索引里还留着它 →
- * 界面上出现「点切换就报 `account file missing`」的幽灵账号（2026-10-26 实测）。
+ * 界面上出现「点切换就报 `account file missing`」的幽灵账号。
  *
  * 这里在**每次读索引后**做一次体检：文件不在的条目直接剔除，
  * 连带修好 `active` 指向已删文件的情况。
@@ -518,15 +518,14 @@ export function removeAccount(
  *
  * 调用场景：只用于**用户显式**的登出/删除动作（`accounts remove` 生效账号等）。
  * ⚠ 鉴权失败（401/403）**绝不**调用它 —— 上游拒绝可能是账号限制（11140）或
- * 临时风控，凭证是可恢复状态，删掉等于把可恢复变成不可恢复（2026-10-18 决策，
- * 见 chat/relay 的 auth 失败路径）。
+ * 临时风控，凭证是可恢复状态，删掉等于把可恢复变成不可恢复
+ * （见 chat/relay 的 auth 失败路径）。
  *
  * 返回实际清掉的账号数与凭证文件是否被移除，供日志如实汇报。
  */
 export function purgeCredentials(cid?: string): { accounts: number; credential: boolean } {
   // ⚠ 先探凭据在不在，再删账号：`removeAccount` 删**生效账号**时会连带
-  // `rmSync(credentialsPath)`，之后再探就永远是 false，汇报就成了「凭据本来就没有」
-  // （2026-10-26 实测：明明删掉了却报「本来就没有」）。
+  // `rmSync(credentialsPath)`，之后再探就永远是 false，汇报就成了「凭据本来就没有」。
   let credential = false;
   try {
     credential = existsSync(credentialsPath(cid));
@@ -602,7 +601,7 @@ function coolingDown(account: PoolAccount, now = Date.now()): boolean {
  * 该账号是否**正在冷却**（供共享层判断「这次别去查它的额度了」）。
  *
  * 额度要等上游窗口刷新才会变，冷却期内反复查它的账单既拿不到新数字、
- * 又白白打一次上游（2026-10-23 主人要求：冷却账号不再执行 bill）。
+ * 又白白打一次上游（冷却账号不再执行 bill）。
  */
 export function isAccountCooling(account: PoolAccount, now = Date.now()): boolean {
   return coolingDown(account, now);
@@ -623,9 +622,9 @@ export function activeAccountCooling(cid?: string, now = Date.now()): PoolAccoun
 /**
  * 额度耗尽：**把生效账号标 `cooldown`**（不是 `error`），并记下等到什么时候。
  *
- * 与 `error` 的分工（2026-10-23 修订）：
+ * 与 `error` 的分工：
  * - 额度耗尽不是故障 —— 上游窗口刷新后会自然好转，所以**不动 `fail_streak`**，
- *   否则「额度用满」会被连败熔断误判成「账号不可用」（主人截图里的 workbuddyai 就是受害者）；
+ *   否则「额度用满」会被连败熔断误判成「账号不可用」（workbuddyai 的 429/6004 就是受害者）；
  * - 真故障（连败、鉴权失效）仍走 `noteAccountFailure` / `markActiveHealth`。
  *
  * @param options.until  下次额度刷新时刻（epoch ms）。不给则回落**次日 0 点**。
@@ -782,8 +781,8 @@ export function noteAccountSuccess(cid?: string): void {
 /**
  * 生效账号是否已被标记 **`error`**（真故障：连败 / 鉴权失效）→ 任何模型都不该再打它。
  *
- * ⚠ **刻意不含 `cooldown`**（2026-10-23 修正）：额度耗尽的冷却必须**按模型**判断 ——
- * 倍率 0 的免费模型不消耗额度，冷却期照样能用（主人实测踩过：loomy 冷却后连
+ * ⚠ **刻意不含 `cooldown`**：额度耗尽的冷却必须**按模型**判断 ——
+ * 倍率 0 的免费模型不消耗额度，冷却期照样能用（实测踩过：loomy 冷却后连
  * `spark-x` 这种免费模型都被锁死）。「这个模型要不要受冷却限制」由调用方
  * （`http/chat/auth.ts`）按模型的倍率决定。
  */

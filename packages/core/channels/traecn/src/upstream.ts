@@ -46,11 +46,8 @@ export const DISPLAY_NAME = "TRAE";
 export const WIRE: "openai" | "custom" = "custom";
 
 /**
- * 对话端点（**solo / IDE 传输**，当前实现的 chat 走这条）。
+ * 对话端点（**POST**；**solo / IDE 传输**，当前实现的 chat 走这条）。
  *
- * - 方法：**POST**
- * - 端点路径：`/api/agent/v3/llm_utils_chat`
- * - 完整 URL：`https://trae-api-cn.mchost.guru/api/agent/v3/llm_utils_chat`
  * - query：**无**（请求体里也不存在 `query` 字段）
  * - 来源：参考实现 `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpChat`）、
  *   `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`IDE_ENDPOINTS[0]`）
@@ -58,11 +55,8 @@ export const WIRE: "openai" | "custom" = "custom";
 const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
 
 /**
- * 多通道模型目录（**solo / IDE 传输**，目录回落路径用；单通道的 `get_detail_param` 无调用方）。
+ * 多通道模型目录（**POST**；**solo / IDE 传输**，目录回落路径用；单通道的 `get_detail_param` 无调用方）。
  *
- * - 方法：**POST**
- * - 端点路径：`/api/ide/v1/batch_get_detail_param`
- * - 完整 URL：`https://trae-api-cn.mchost.guru/api/ide/v1/batch_get_detail_param`
  * - query：**无**（22 个 `functions` 通道等参数在 body 里）
  * - ⚠ 实测对新账号全线 `error_code=2001`（账号无 SOLO 权益）→ 目录主源已切到
  *   `REMOTE_MODELS_PATH`
@@ -70,11 +64,8 @@ const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
 const MODELS_PATH = "/api/ide/v1/batch_get_detail_param";
 
 /**
- * Remote 网页目录（**work / chat_sessions 传输**，目录主源走这条）。
+ * Remote 网页目录（**GET**；**work / chat_sessions 传输**，目录主源走这条）。
  *
- * - 方法：**GET**
- * - 端点路径：`/api/remote/v1/models`
- * - 完整 URL：`https://trae-api-cn.mchost.guru/api/remote/v1/models?functions=…&show_custom_model=true`
  * - 必需 query：
  *   - `functions` = `solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote`（三组，逗号分隔且 URL 编码）
  *   - `show_custom_model` = `true`

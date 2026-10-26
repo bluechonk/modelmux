@@ -9,11 +9,11 @@
  * - **扫码**（`qr_url`）：二维码 + 确认步骤。
  * - **授权链接**（`auth_url`）：复制链接 + 官方页完成 + 自动回调，**三步**
  *   （第四步「手动粘贴回调链接」已删：控制台与网关同机，回调必然到得了本机端口，
- *   粘贴框只是多余的入口 —— 2026-10-26 主人要求）。
+ *   粘贴框只是多余的入口）。
  *
  * ## 为什么弹窗里没有「成功 / 失败」状态横幅
  *
- * 提示统一走 toast（2026-10-26 主人要求「web 中的提示都换成 toast」）：
+ * 提示统一走 toast（web 中的提示都换成 toast，用 UI 组件不自绘）：
  * 成功 = 弹窗自动关闭 + 右下角 toast（父组件 `Accounts` 处理）；
  * 失败 = 右下角错误 toast（本组件按内容去重后弹出），流程状态仍由侧栏
  * 步骤标签（「登录失败」）与时间线红叉表达 —— 那是流程渲染，不是提示横幅。
@@ -25,7 +25,7 @@
  * `onEscapeKeyDown` / `onPointerDownOutside` / `onInteractOutside` 全部
  * `preventDefault()`，只留关闭键那一条路。
  *
- * ## 为什么用 Radix Dialog（2026-10-26 引入）
+ * ## 为什么用 Radix Dialog
  *
  * 「模态」的行为部分是通用的：焦点陷阱、关闭后焦点归还、背景滚动锁、
  * `aria-labelledby` 接线。手写版都没有 —— Tab 能跑到弹窗背后的侧栏导航上。
@@ -100,7 +100,7 @@ export function LoginModal({
    *
    * 不这么做的话，弹窗一打开就会闪出**上一轮**残留的 `done` / `error` /
    * 旧授权链接（后端 `triggerLogin` 是异步启动的，最长一个轮询周期 3s 里
-   * 状态机里还是旧值 —— 2026-10-26 主人反馈「一开始就显示登录成功」）。
+   * 状态机里还是旧值 —— 用户看到的是「一开始就显示登录成功」）。
    */
   const mountState = useRef(uiState);
   const [pristine, setPristine] = useState(true);
@@ -183,7 +183,7 @@ export function LoginModal({
               : "浏览器授权";
   const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
 
-  /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口（主人 2026-10-23 要求）。 */
+  /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口。 */
   const [authCopied, setAuthCopied] = useState(false);
   const copyAuthUrl = async (): Promise<void> => {
     if (authUrl === "") return;
@@ -225,7 +225,7 @@ export function LoginModal({
   ];
 
   // 授权链接流：**复制链接** → 自己粘到浏览器 → 登录授权 → 自动回调 → 手动兜底
-  // ⚠ 不再用 window.open / target=_blank 弹新窗口（主人 2026-10-23 要求）：
+  // ⚠ 不用 window.open / target=_blank 弹新窗口：
   //    点击只做「复制到剪贴板」，由用户自己决定在哪个浏览器/窗口打开。
   const authSteps: Array<{ title: string; body: ReactNode; state: StepState }> = [
     {
@@ -363,7 +363,7 @@ export function LoginModal({
               <Steps items={authSteps} />
             ) : (
               /* 渠道在做耗时动作（如发码）但还没给出下一步：把它的进度文案显示出来，
-                 而不是干巴巴的骨架 —— 否则用户会以为点了没反应（2026-10-26 主人反馈）。 */
+                 而不是干巴巴的骨架 —— 否则用户会以为点了没反应。 */
               <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
                 <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
                 <div className="text-sm text-ink-soft">{message || "正在准备登录会话…"}</div>

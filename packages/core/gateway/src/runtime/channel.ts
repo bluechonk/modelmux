@@ -165,8 +165,7 @@ export interface CredModule {
       /**
        * 强制重读（`mx relogin`）：跳过「已有凭据就复用」的短路。
        *
-       * astudio 这类「凭据来自外部会话文件」的渠道不传就永远是空操作
-       * （2026-10-26 修死结，见 docs/channels/astudio/ROADMAP.md 第 4 项）。
+       * astudio 这类「凭据来自外部会话文件」的渠道不传就永远是空操作。
        */
       force?: boolean;
     },
@@ -415,8 +414,7 @@ export interface CatalogModule {
    * 池层的四层回落会拿不到任何值，只能靠本钩子（来源标 `spec`）。
    *
    * ⚠ **只填实测值**：查不到就整个字段省略（`undefined`），不要让池层填占位数字 ——
-   * 客户端会按它算钱。astudio 的倍率表此前给 5 个模型填了 `1`，而云端
-   * `/bot/models/configs` 对它们**根本没有行**，属「无源填 1」（2026-10-26 修）。
+   * 客户端会按它算钱，无源填 1 与编造无异（云端目录没有对应行的模型就必须省略）。
    */
   modelSpec?(modelId: string): {
     contextWindow?: number;

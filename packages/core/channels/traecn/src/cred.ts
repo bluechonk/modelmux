@@ -34,10 +34,8 @@ const OAUTH_HOST = "https://api.trae.com.cn";
 /**
  * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken`
  *
- * - 端点路径：`/cloudide/api/v3/trae/oauth/ExchangeToken`
- * - 完整 URL：`https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken`
- *   （可用凭据的 `api_host` 覆盖，见 `Credentials.apiHost`）
  * - query：无；body `{ClientID, RefreshToken, ClientSecret:"-", UserID:""}`
+ *   （host 可用凭据的 `api_host` 覆盖，见 `Credentials.apiHost`）
  * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/auth.py`（`refresh_token`）、
  *   `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpExchange`）
  */
@@ -46,8 +44,6 @@ const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
 /**
  * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/GetUserInfo`
  *
- * - 端点路径：`/cloudide/api/v3/trae/GetUserInfo`
- * - 完整 URL：`https://api.trae.com.cn/cloudide/api/v3/trae/GetUserInfo`
  * - query：无；body `{ReqSource:"IDE", IDEVersion:<ideVersion>}`
  * - ⚠ 鉴权走 **`x-cloudide-token`**，**不能**用 `Authorization: Cloud-IDE-JWT`（会 401）。
  * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`fetch_user_info`）、

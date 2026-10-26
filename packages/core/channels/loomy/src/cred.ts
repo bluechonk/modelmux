@@ -445,7 +445,7 @@ async function initDailyQuota(c: Credentials, onStatus?: (message: string) => vo
  *
  * 第二步成功后顺手调一次 `points/first-login`（每日额度初始化，失败仅 warn）。
  *
- * 为什么只留这条路（主人决定，2026-10-22）：微信扫码在无浏览器环境下注定别扭 ——
+ * 为什么只支持短信这一条路：微信扫码在无浏览器环境下注定别扭 ——
  * 授权页每次加载都是新 uuid（扫错就永远等不到），回调页线上是 404 只能靠用户从地址栏
  * 把 `code` 粘回来；密码登录则要求用户先在讯飞账号中心设密码。短信是唯一**单一路径就能
  * 闭环**的方式。历史实现见 `docs/channels/loomy/FINDINGS.md`。

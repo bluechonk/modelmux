@@ -170,8 +170,7 @@ async function runLogoutVerb(cid: string | undefined, ctx: CommandContext): Prom
   const channel = getChannel(cid);
   const logout = channel.cred.logout;
   // ⚠ 先探凭据在不在：渠道的 `logout()`（如 astudio）会**先删掉** `credentials.json`，
-  // 等 `purgeCredentials` 再探就永远是 false，汇报就成了「凭据本来就没有」
-  // （2026-10-26 实测）。
+  // 等 `purgeCredentials` 再探就永远是 false，汇报就成了「凭据本来就没有」。
   const hadCredential = runInChannel(cid, () => {
     try {
       return existsSync(credentialsPath(cid));
