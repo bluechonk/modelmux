@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { clearChannels, setChannel, channelCount, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
 import { credentialsPath } from "../dist/runtime/paths.js";
 import { main } from "../dist/app/cli/index.js";
 import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
@@ -247,10 +247,13 @@ describe("1. 常见命令与帮助", () => {
   });
 
   it("--version / -v / version 三种写法等价，并带上渠道数与 node 版本", async () => {
+    // 渠道数取**夹具实际注册数**（`resetChannels()` 注册的那几个），不写死 ——
+    // 写死会变成「往夹具里加一个渠道就得回来改断言」。
+    const expected = channelCount();
     for (const argv of [["--version"], ["-v"], ["version"]]) {
       const r = await run(argv);
       assert.equal(r.code, 0, argv.join(" "));
-      assert.match(r.out, /^mx \S+（2 个渠道；node v/, r.out);
+      assert.match(r.out, new RegExp(`^mx \\S+（${expected} 个渠道；node v`), r.out);
     }
   });
 
@@ -518,7 +521,12 @@ describe("3. <动词> [<cid>] 路由", () => {
 
     const before = await run(["login", "list"]);
     assert.equal(before.code, 0);
-    assert.ok(before.out.includes("2 个渠道可登录（已登录 0 个，未登录 2 个）"), before.out);
+    // 渠道数取夹具实际注册数，不写死（同 --version 那处的理由）。
+    const total = channelCount();
+    assert.ok(
+      before.out.includes(`${total} 个渠道可登录（已登录 0 个，未登录 ${total} 个）`),
+      before.out,
+    );
     assert.ok(before.out.includes("alpha") && before.out.includes("beta"), before.out);
 
     // 登一个（假渠道的 login 会落盘）→ 列表应能反映
