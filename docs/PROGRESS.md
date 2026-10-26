@@ -23,6 +23,7 @@
 
 | cid | 产品 | 计费 | 签到 | 对外模型数 |
 | --- | --- | --- | --- | --- |
+| astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 7 |
 | catpaw | CatPaw（美团妙手） | 是 | 是 | 9 |
 | lobsterai | LobsterAI（有道） | 是 | 是 | 30 |
 | loomy | Loomy（讯飞） | 是 | 是 | 10 |
@@ -33,7 +34,10 @@
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 61 |
 | workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 28 |
 
-模型数随目录刷新变化，此处为 2026-10-25 快照。
+模型数随目录刷新变化，此处为 2026-10-25 快照（astudio 为静态内置表，恒 7 个）。
+
+**astudio 的功能缺口**：登录 / 回调 / 登出 / 思考档位与倍率透出等尚未实现，
+逐项清单与验收判据见 [channels/astudio/ROADMAP.md](./channels/astudio/ROADMAP.md)。
 
 ## 架构落点
 

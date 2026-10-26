@@ -181,6 +181,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    | 契约与规范 | `docs/*.md` | 改代码前必读；索引见 `docs/README.md` |
    | 渠道协议规格 | `docs/channels/<cid>/PROTOCOL.md` | 实测协议（实现的依据）+ 该渠道的使用与实测 + 参考实现清单 |
    | 逆向结论层 | `docs/channels/<cid>/FINDINGS.md` / `FLOW.md` | 结论汇总与端到端数据流（可选） |
+   | 渠道待实现项 | `docs/channels/<cid>/ROADMAP.md` | 该渠道的功能缺口清单与验收判据（**交接给后续 Agent 用**；可选） |
 
 3. `.md` **只允许**落在以下位置（以 `scripts/verify-docs.mjs` 的 `ALLOWED` 为准）：
    - `docs/` —— 契约与规范 + 文档总入口 `docs/README.md` + 渠道文档 `docs/channels/<cid>/`
