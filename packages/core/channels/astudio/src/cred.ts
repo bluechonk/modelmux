@@ -1,10 +1,9 @@
 /**
- * AStudio 凭据：读桌面应用落盘的会话、换模型网关 Bearer、持久化到本渠道自己的存储。
+ * AStudio 凭据：登录（云端短信直连 / 读桌面会话文件两条路）、刷新与持久化。
  *
- * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md）：
- *   - AStudio **没有可独立调用的登录**：本地服务是 `desktop-managed-local` 策略，
- *     只认应用自己的活会话（`synara_session_<port>` cookie，不落盘）。
- *     故 `login()` 只能引导用户在桌面应用里登录，再读它落盘的会话文件。
+ * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md §5-§7）：
+ *   - 登录**双轨**：路 A 云端短信直连（Web 控制台解滑块；本地服务代理层不提供
+ *     可独立调用的登录）；路 B 读桌面应用落盘的会话文件兜底。
  *   - 会话文件里有两个凭据：`token`（云端账号 API，Cookie 形态）与
  *     `modelBearerToken`（模型网关，Bearer 形态）。源码里后者优先。
  *   - `refresh()` 是**真刷新**：带 Cookie 打 `/bot/models/configs` 取 `api_key`
