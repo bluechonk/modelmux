@@ -94,15 +94,34 @@ export function LoginModal({
    */
   const mountState = useRef(uiState);
   const [pristine, setPristine] = useState(true);
+  /**
+   * 手机验证码登录的两个输入值挂在**弹窗**上：后端每换一次 `login_input`
+   * （phone → code）都会重渲染，挂在子组件上会被清掉。
+   */
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  /** 点过「获取验证码」：按钮转「已发送」，失败后解禁让用户重发。 */
+  const [phoneSent, setPhoneSent] = useState(false);
+  /** 本轮是否出现过「要手机号」的请求 —— 出现即按手机表单渲染，不再画骨架。 */
+  const [phoneStep, setPhoneStep] = useState(false);
   useEffect(() => {
-    if (!pristine) return;
     if (uiState !== mountState.current || authUrl !== "" || qrUrl !== "" || loginInput) {
       setPristine(false);
     }
-  }, [pristine, uiState, authUrl, qrUrl, loginInput]);
+  }, [uiState, authUrl, qrUrl, loginInput]);
+  useEffect(() => {
+    if (loginInput?.kind === "phone") setPhoneStep(true);
+  }, [loginInput?.kind]);
+  // 发码失败就让用户能重发（否则按钮卡在「已发送」，只能关掉弹窗重来）
+  useEffect(() => {
+    if (uiState === "error") setPhoneSent(false);
+  }, [uiState]);
 
   // 扫码流 2 步、授权链接流 3 步；标题栏据此给步骤提示
-  const preparing = !authUrl && !qrUrl && !loginInput;
+  /** 既没有授权链接/二维码，也没有待回答的输入 = 正在处理（准备中或渠道在发码）。 */
+  const busy = !authUrl && !qrUrl && !loginInput;
+  /** 本轮是手机验证码登录（渠道要过一次手机号）—— 用三行表单，不画步骤时间线。 */
+  const phoneForm = phoneStep && !authUrl && !qrUrl;
   const failed = uiState === "error";
   const done = uiState === "done";
   const totalSteps = qrUrl ? 2 : 3;
@@ -114,20 +133,24 @@ export function LoginModal({
       ? "登录失败"
       : done
         ? "登录完成"
-        : preparing
-          ? "准备中"
+        : busy
+          ? "处理中"
           : `步骤 1 / ${totalSteps}`;
+  // 渠道在做事时（如「正在发送验证码...」）把它直接写进侧栏 —— 别让侧栏说
+  // 「正在准备登录会话」，主区却在转圈说另一件事。
   const stepHint = loginInput
     ? "按提示填写手机号与验证码"
     : failed
       ? "查看原因后可重新发起"
       : done
         ? "账号已自动入池"
-        : preparing
-          ? "正在准备登录会话"
-          : qrUrl
-            ? "扫码授权"
-            : "浏览器授权";
+        : message
+          ? message
+          : busy
+            ? "正在准备登录会话"
+            : qrUrl
+              ? "扫码授权"
+              : "浏览器授权";
   const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
 
   /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口（主人 2026-10-23 要求）。 */
@@ -262,14 +285,62 @@ export function LoginModal({
                 <div className="text-sm text-ink-soft">正在准备登录会话…</div>
                 <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
               </div>
-            ) : loginInput ? (
-              // `key` 必须带：手机号 → 验证码是同一个组件位置，不带 key 会复用
-              // 上一步的输入值（验证码框里预填着手机号）。
-              <InputCard
-                key={loginInput.kind}
-                request={loginInput}
-                submitting={submitting}
-                onSubmit={onSubmitInput}
+            ) : loginInput && loginInput.kind === "phone" ? (
+              /* 手机验证码登录：三行表单（手机号 / 验证码 + 获取验证码 / 登录 + 取消）。
+                 只有第一次要输入时是手机号 —— 第二次（要验证码）沿用同一张表单，
+                 `phoneStep` 保证中途的「发码中」空窗也不会退回骨架。 */
+              <PhoneLoginForm
+                phone={phone}
+                code={code}
+                onPhone={setPhone}
+                onCode={setCode}
+                codePending={false}
+                sent={phoneSent}
+                sending={submitting}
+                onSubmitPhone={() => {
+                  setPhoneSent(true);
+                  onSubmitInput(phone);
+                }}
+                onSubmitCode={() => onSubmitInput(code)}
+                onCancel={() => {
+                  onCancelInput();
+                  onClose();
+                }}
+              />
+            ) : loginInput && loginInput.kind === "code" ? (
+              <PhoneLoginForm
+                phone={phone}
+                code={code}
+                onPhone={setPhone}
+                onCode={setCode}
+                codePending
+                sent
+                sending={submitting}
+                onSubmitPhone={() => {
+                  setPhoneSent(true);
+                  onSubmitInput(phone);
+                }}
+                onSubmitCode={() => onSubmitInput(code)}
+                onCancel={() => {
+                  onCancelInput();
+                  onClose();
+                }}
+              />
+            ) : phoneStep && busy ? (
+              /* 「获取验证码」点完、后端还在发码的空窗：保留表单，别退回骨架。 */
+              <PhoneLoginForm
+                phone={phone}
+                code={code}
+                onPhone={setPhone}
+                onCode={setCode}
+                codePending={false}
+                sent={phoneSent}
+                sending={submitting}
+                onSubmitPhone={() => {
+                  setPhoneSent(true);
+                  onSubmitInput(phone);
+                }}
+                onSubmitCode={() => onSubmitInput(code)}
                 onCancel={() => {
                   onCancelInput();
                   onClose();
@@ -280,10 +351,15 @@ export function LoginModal({
             ) : authUrl ? (
               <Steps items={authSteps} />
             ) : (
+              /* 两步登录里「已提交手机号、正在发码」的窗口也走这里：
+                 渠道还没发出下一个输入请求，但已有进度文案 —— 用文案而不是
+                 干巴巴的骨架，否则用户会以为点了没反应（2026-10-26 主人反馈）。 */
               <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
                 <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
-                <div className="text-sm text-ink-soft">正在准备登录会话…</div>
-                <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
+                <div className="text-sm text-ink-soft">{message || "正在准备登录会话…"}</div>
+                <div className="text-[11px] text-ink-faint">
+                  {message ? "这一步可能要几秒，请稍候" : "授权链接或二维码生成后会立刻出现在这里"}
+                </div>
               </div>
             )}
 
@@ -301,11 +377,17 @@ export function LoginModal({
             </div>
 
             {/*
-              后端状态 / 错误。准备期不显示（那还是上一轮的残留文案）；
-              两步登录等待输入时也不显示 —— 此刻显示的是共享层的
-              「正在获取授权链接...」，与用户要做的事无关。
+              后端状态 / 错误。四种情况不显示：
+              - 准备期（那还是上一轮的残留文案）；
+              - 文案是共享层的「正在获取授权链接...」（与用户要做的事无关）；
+              - 手机表单自己已经把状态显示出来了（按钮「发送中…/已发送」）；
+              - 验证码那一步（此刻该看的是输入框，不是上一句「正在发送验证码...」）。
             */}
-            {!pristine && !(loginInput && message === PREPARING_MESSAGE) && message && (
+            {!pristine &&
+              message !== PREPARING_MESSAGE &&
+              loginInput?.kind !== "code" &&
+              (failed || !!loginInput || !phoneForm) &&
+              message && (
               <div
                 className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
                   failed
@@ -438,63 +520,118 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
 }
 
 /**
- * 两步登录的输入卡（如 loomy 的手机号 → 短信验证码）。
+ * 手机验证码登录表单（如 loomy）：**一个三行表单**，不是分两步的两张卡。
  *
- * 渠道通过 `requestInput` 要输入，后端把 `{ kind, prompt }` 放进 `state.login_input`；
- * 这张卡就把它渲染出来。提交走 `submitInput` 动作，取消 = 关弹窗 + 通知后端收尾。
+ * ```
+ * 手机号 (+86）
+ * [________________________]
+ * 验证码
+ * [____________]  [获取验证码]
+ * [   登录   ]  [   取消   ]
+ * ```
+ *
+ * 后端仍是两次顺序的 `requestInput`（先要手机号 → 发码 → 再要验证码），
+ * 这里把它映射到表单的三行：
+ * - `codePending`（后端在等验证码）：验证码框与「登录」解禁；
+ * - `sent`（点过「获取验证码」）：按钮变「已发送」并禁用 —— 否则用户会再点一次。
+ *
+ * 两个输入的值都挂在**弹窗**上（不是卡片上），否则后端换一次输入请求
+ * 就会把用户刚填的内容清掉。
  */
-function InputCard({
-  request,
-  submitting,
-  onSubmit,
+function PhoneLoginForm({
+  phone,
+  code,
+  onPhone,
+  onCode,
+  codePending,
+  sent,
+  sending,
+  onSubmitPhone,
+  onSubmitCode,
   onCancel,
 }: {
-  request: LoginInputRequest;
-  submitting: boolean;
-  onSubmit: (value: string) => void;
+  phone: string;
+  code: string;
+  onPhone: (value: string) => void;
+  onCode: (value: string) => void;
+  /** 后端已发出验证码（`login_input.kind === "code"`）。 */
+  codePending: boolean;
+  /** 点过「获取验证码」：按钮显示「已发送」并禁用。 */
+  sent: boolean;
+  /** 正在把输入交给后端（点完按钮到后端接手之间）。 */
+  sending: boolean;
+  onSubmitPhone: () => void;
+  onSubmitCode: () => void;
   onCancel: () => void;
 }): ReactElement {
-  const [value, setValue] = useState("");
-  const id = `login-input-${request.kind}`;
+  const canSend = phone.trim().length > 0 && !sent && !sending;
+  const canLogin = codePending && code.trim().length > 0 && !sending;
   return (
     <form
       className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
-        if (value.trim()) onSubmit(value.trim());
+        if (canLogin) onSubmitCode();
       }}
     >
-      <label htmlFor={id} className="block text-[13px] font-medium text-ink">
-        {request.prompt}
-      </label>
-      <input
-        id={id}
-        autoFocus
-        inputMode={request.kind === "phone" ? "tel" : "numeric"}
-        autoComplete={request.kind === "phone" ? "tel" : "one-time-code"}
-        spellCheck={false}
-        className="w-full rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
-        placeholder={request.kind === "phone" ? "11 位手机号" : "6 位验证码"}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-      />
-      <p className="text-[11px] leading-relaxed text-ink-faint">
-        {request.kind === "phone"
-          ? "提交后上游会向这个号码发短信验证码，收到后会在下一步问你。"
-          : "填写短信里的验证码即可完成登录。"}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-1.5">
+        <label htmlFor="login-phone" className="block text-[13px] font-medium text-ink">
+          手机号 (+86)
+        </label>
+        <input
+          id="login-phone"
+          inputMode="tel"
+          autoComplete="tel"
+          autoFocus
+          spellCheck={false}
+          className="w-full rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+          placeholder="11 位手机号"
+          value={phone}
+          onChange={(e) => onPhone(e.target.value)}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="login-code" className="block text-[13px] font-medium text-ink">
+          验证码
+        </label>
+        {/* 第二行：左验证码输入框，右「获取验证码」 */}
+        <div className="flex items-center gap-2">
+          <input
+            id="login-code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            spellCheck={false}
+            disabled={!codePending}
+            className="min-w-0 flex-1 rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none disabled:opacity-50"
+            placeholder={codePending ? "6 位验证码" : "先获取验证码"}
+            value={code}
+            onChange={(e) => onCode(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={!canSend}
+            onClick={onSubmitPhone}
+            className="shrink-0 rounded-full bg-overlay px-4 py-2 text-[13px] font-medium text-ink-soft transition-colors hover:bg-overlay/70 hover:text-ink disabled:opacity-50"
+          >
+            {sending && !sent ? "发送中…" : sent ? "已发送" : "获取验证码"}
+          </button>
+        </div>
+      </div>
+
+      {/* 第三行：左「登录」，右「取消」 */}
+      <div className="flex items-center gap-2 pt-1">
         <button
           type="submit"
-          className="rounded-full bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
-          disabled={submitting || !value.trim()}
+          disabled={!canLogin}
+          className="rounded-full bg-brand px-5 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
         >
-          {submitting ? "提交中…" : request.kind === "phone" ? "发送验证码" : "完成登录"}
+          {sending && codePending ? "登录中…" : "登录"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          disabled={submitting}
+          disabled={sending}
           className="rounded-full px-4 py-2 text-[13px] text-ink-soft transition-colors hover:bg-overlay hover:text-ink disabled:opacity-50"
         >
           取消

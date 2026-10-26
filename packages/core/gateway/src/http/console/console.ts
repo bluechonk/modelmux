@@ -377,9 +377,14 @@ export function createConsoleHandler(
             return;
           }
           const { createWebCommandHandler } = await import("./web-command-handler.js");
+          // ⚠ 桥里的每个写动作都要在这里显式转发 —— 漏一个，命令处理器就报
+          // 「未注入 xxx」（2026-10-26 实测：`submitInput` 漏转发，控制台点
+          // 「发送验证码」后端直接回「不支持登录输入」）。
           const handle = createWebCommandHandler({
             ...(bridge.triggerLogin ? { triggerLogin: bridge.triggerLogin } : {}),
             ...(bridge.submitCallback ? { submitCallback: bridge.submitCallback } : {}),
+            ...(bridge.submitInput ? { submitInput: bridge.submitInput } : {}),
+            ...(bridge.cancelInput ? { cancelInput: bridge.cancelInput } : {}),
           });
           const result = await handle({
             action,

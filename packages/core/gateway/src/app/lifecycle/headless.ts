@@ -289,7 +289,14 @@ class ServiceState {
   submitInput(value: string): void {
     const pending = this.pendingInput;
     if (!pending) return;
-    this.cancelPendingInput();
+    // ⚠ 必须**自己**摘下来再清定时器，不能走 `cancelPendingInput()` ——
+    // 那会把 Promise resolve 成 `undefined`，用户刚填的内容就丢了
+    // （2026-10-26 实测：点了「发送验证码」毫无反应，手机号被吞）。
+    this.pendingInput = null;
+    if (this.pendingInputTimer) {
+      clearTimeout(this.pendingInputTimer);
+      this.pendingInputTimer = undefined;
+    }
     pending.resolve(value);
   }
 
