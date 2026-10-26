@@ -604,7 +604,7 @@ interface CatalogRow {
   /**
    * 输入模态数组（如 `["text","image"]`）。
    *
-   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（实测 `models[]` 只有
+   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（2026-10-20 实测：`models[]` 只有
    * `supportsImages`）；这里带着是为了上游哪天改用数组形态时不丢字段 ——
    * `catalog.parseRow` 判「能不能吃图」时数组形态优先于布尔开关。
    */
@@ -796,7 +796,7 @@ export function quotaSignal(status: number, body: string): QuotaSignal | null {
 /**
  * 从上游错误体里认「额度耗尽 + 下次刷新时刻」（`UpstreamModule.quotaResetAt`）。
  *
- * **上游把重置时间写在 msg 文本里，不是 JSON 字段**。由参考实现
+ * **上游把重置时间写在 msg 文本里，不是 JSON 字段**。2026-10-23 由参考实现
  * `ardeyouxipianyi/workbuddy2api-hub` 的 `wb_proxy.py::parse_rate_limit_reset` 确认，
  * 那个函数的注释给了两种真实形状：
  *

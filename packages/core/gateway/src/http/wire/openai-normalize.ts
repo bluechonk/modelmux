@@ -378,7 +378,7 @@ export function cleanupOrphanToolCalls(messages: unknown[]): boolean {
  * 客户端把这条「content 为空 + 无 tool_calls」的空壳 assistant 存进会话历史；
  * 下次重放时，对「空正文不带 content 键」的目标端（traecn 的 `toContentBlocks` 删键）
  * 会退化成 `{role:"assistant",reasoning_content:…}` 空壳，上游判 param invalid
- * （实测 traecn 4001：ZCode 会话 27 次成功后连续 3 次失败，
+ * （实测 traecn 4001：2026-10-23 ZCode 会话 27 次成功后连续 3 次失败，
  * 空壳数与成败零例外相关）。
  *
  * 删除是安全的：空壳不带 tool_calls，不影响工具配对；思考链本就不建议回传

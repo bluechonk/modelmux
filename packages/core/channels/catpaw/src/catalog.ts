@@ -49,7 +49,8 @@ export interface CatalogEntry {
  *
  * 上下文档位是**请求参数**（body 的 `requestContext.modelParams.declarativeParams.context`），
  * 但上游 `/model-types` 的 `parameterDefinitions[id=context]` **逐型号声明了可选档位**
- * （各型号的上限实测值见 docs/channels/catpaw/PROTOCOL.md）。
+ * （各型号的上限实测于 2026-10-23，值见 docs/channels/catpaw/PROTOCOL.md；
+ * 上游改档位表后需重测）。
  * 对外报**该型号的最大档**（能力上限）；上游没声明的型号（如 `auto`）才回落到本默认档。
  */
 export const DEFAULT_CONTEXT_WINDOW = 1_024_000;
