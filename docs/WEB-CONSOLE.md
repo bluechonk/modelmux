@@ -163,8 +163,17 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 - 深色是**唯一主题**，不留浅色分支与切换入口。
 - 授权链接 / 登录进度只在**登录弹窗**内渲染（遮罩与 ESC 不关），不出现在其他页面。
-- 登录弹窗按渠道形态渲染步骤：扫码渠道渲染二维码；授权码渠道渲染「打开授权页」按钮 +
-  回调链接粘贴框（raccoon 等已优先本地回调自动完成，粘贴框仅作手工兜底）。
+- 登录弹窗三种形态，由 `state` 决定：
+  - **两步登录**（`login_input` 非空，如 loomy 短信验证码）→ **只渲染输入卡**
+    （提示 + 输入框 + 提交/取消），不摆授权步骤时间线；
+  - **扫码**（`qr_url`）→ 二维码 + 确认步骤；
+  - **授权链接**（`auth_url`）→ 复制链接 + 官方页完成 + 自动回调，**三步**。
+    第四步「手动粘贴回调链接」已删：控制台与网关同机，回调必然到得了本机端口，
+    粘贴框对 Web 端是纯冗余（CLI 仍保留 `pasteCallback` 兜底）。
+- **准备期画骨架**：弹窗挂载到「本轮第一个状态更新到达」之间只显示骨架，
+  绝不渲染上一轮残留的 `done` / `error` / 旧授权链接。
+  后端 `triggerLogin` 也会**同步**清空旧状态（`beginLogin()`），
+  两边一起才封得住那个最长 3 秒的窗口（2026-10-26 主人反馈「一开始就显示登录成功」）。
 - **登录成功后弹窗自动关闭**：页面轮询 `/web/api/state`，一旦 `ui_state` 变成 `done`，
   立刻关闭弹窗、刷新账号池 / 登录态 / 账本，并主动重查该渠道额度（新账号额度与旧账号不同）。
   判据要求先观察到 `login` / `error` 等中间态，避免上一次登录残留的 `done` 误关新弹窗。
@@ -261,14 +270,20 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 ## 数据通道
 
-- `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / 端点），
+- `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / **login_input** / 端点），
   外加模型池视图所需的 `models` / `model_info` / `channel_caps`（各渠道能力位）。
+  - `login_input` 非空 = 渠道在等用户输入（两步登录，如 loomy 的短信验证码）。
+    界面据此把登录弹窗切成**输入卡**；`null` = 没有待回答的输入。
 - `POST /web/api/commands`：动作分发（login / status / **models** / billing / accounts /
-  activateAccount / **resetAccount** / removeAccount / syncPool / pasteCallback）。
+  activateAccount / **resetAccount** / removeAccount / syncPool / pasteCallback /
+  **submitInput** / **cancelInput**）。
   - `billing` 支持 `args.refresh: true`（真实重查各渠道账单）与 `cid` 过滤（单渠道刷新）。
   - `resetAccount`：解除 `error` / `cooldown` 标记（不动凭证）；`unauthorized` 会被拒绝并给出原因。
   - `pasteCallback`：手工兜底通道，把用户粘回的回调链接喂给等待中的登录流程。
-    raccoon 等授权码渠道现在优先走**本地 HTTP 回调自动完成**，不再需要粘贴。
+    raccoon 等授权码渠道现在优先走**本地 HTTP 回调自动完成**，Web UI 已不提供粘贴入口
+    （控制台与网关同机，回调必然到得了本机端口）；该动作保留给 CLI 与非本机场景。
+  - `submitInput`：把两步登录的输入交回给等待中的渠道；`cancelInput`：弹窗关闭时调用，
+    让等待输入的渠道立刻收尾（不调用会挂到 10 分钟超时）。
 - `POST /web/api/theme`：切主题；`POST /web/api/retry-login`：重试登录。
   两者在 `console.ts` 里已实现，但当前 UI **没有入口**（深色是唯一主题，也没有重试登录按钮）——
   前端 `lib/api.ts` 里的 `setTheme` / `retryLogin` 只是保留的调用面。

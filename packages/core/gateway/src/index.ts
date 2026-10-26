@@ -47,6 +47,7 @@ export {
   type CreditsResult,
   type CreditPackage,
   type LoginUi,
+  type LoginInputRequest,
   type StreamTranslator,
   type SigninModule,
   type SigninStatus,

@@ -453,7 +453,7 @@ async function pollToken(
       const reason = pasteDetect.pastedAuthFailureReason(pasted);
       if (reason) throw new Error(`browser authorization failed: ${reason}`);
       if (!pasteReported) {
-        options.onStatus?.("got the pasted callback, fetching the token now...");
+        options.onStatus?.("已收到粘回的回调，正在换取令牌...");
         pasteReported = true;
       }
     }
@@ -499,16 +499,15 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
     }
     onUrl?.(authUrl);
     onStatus?.(
-      `Round ${round}/${MAX_LOGIN_ROUNDS}: waiting for authorization ` +
-        `(open the URL above in a browser; up to ${LOGIN_WINDOW_MS / 60000} min)…` +
+      `第 ${round}/${MAX_LOGIN_ROUNDS} 轮：等待授权中（请在上面的浏览器里完成登录，本轮最长 ${LOGIN_WINDOW_MS / 60000} 分钟）…` +
         (options.pasteCode
-          ? " — after signing in you can paste the address bar back here to fetch the token immediately."
+          ? " 登录后也可以把地址栏链接粘回来，立刻换取令牌。"
           : ""),
     );
     const stateId = str(state["state"]);
     const token = await pollToken(base, stateId, options);
     if (!token) {
-      onStatus?.(`Round ${round} timed out, retrying…`);
+      onStatus?.(`第 ${round} 轮超时，正在重试…`);
       continue;
     }
     // 账号档案：登录链路内的最后一步（拿 uid / enterpriseId / nickname）。

@@ -143,23 +143,11 @@ export interface DemoState {
   login: { cid: string; snapshot: UiSnapshot } | null;
 }
 
-/** 演示登录流程：扫码形态（渲染二维码）与授权码形态（渲染粘贴框）。 */
-const DEMO_LOGIN_KIND: Record<string, "qr" | "code"> = {
-  loomy: "qr",
+/** 演示登录流程形态：两步输入（手机号 → 验证码）与授权码（打开授权页）。 */
+const DEMO_LOGIN_KIND: Record<string, "input" | "code"> = {
+  loomy: "input",
   raccoon: "code",
 };
-
-/** 一张 1x1 的占位二维码（演示用；不指向任何真实登录会话）。 */
-const DEMO_QR_PLACEHOLDER =
-  "data:image/svg+xml;charset=utf-8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" shape-rendering="crispEdges">` +
-      `<rect width="21" height="21" fill="#fff"/>` +
-      // 三个定位角 + 一组散点：视觉上像二维码，但不编码任何真实内容
-      `<path fill="#111" d="M1 1h7v7H1zM2 2h5v5H2zM13 1h7v7h-7zM14 2h5v5h-5zM1 13h7v7H1zM2 14h5v5H2z"/>` +
-      `<path fill="#111" d="M9 9h1v1H9zM11 9h1v1h-1zM13 9h1v1h-1zM15 9h1v1h-1zM10 10h1v1h-1zM12 10h1v1h-1zM14 10h1v1h-1zM16 10h1v1h-1zM9 11h1v1H9zM11 11h1v1h-1zM13 11h1v1h-1zM16 11h1v1h-1zM10 12h1v1h-1zM12 12h1v1h-1zM15 12h1v1h-1zM17 12h1v1h-1zM9 13h1v1H9zM14 13h1v1h-1zM16 13h1v1h-1zM11 14h1v1h-1zM13 14h1v1h-1zM15 14h1v1h-1zM17 14h1v1h-1zM10 15h1v1h-1zM12 15h1v1h-1zM16 15h1v1h-1zM9 16h1v1H9zM11 16h1v1h-1zM14 16h1v1h-1zM17 16h1v1h-1z"/>` +
-      `</svg>`,
-  );
 
 export function createDemoState(): DemoState {
   const active: Record<string, string> = {};
@@ -304,6 +292,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     message: "演示模式：数据均为虚构，未连接任何真实网关",
     auth_url: "",
     qr_url: "",
+    login_input: null,
     base_url: "http://127.0.0.1:4412/v1",
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
@@ -317,24 +306,24 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
 }
 
 /**
- * 开始一轮演示登录：写入状态机，让弹窗从「正在准备」推进到授权步骤。
+ * 开始一轮演示登录：写入状态机，让弹窗从「正在准备」推进到具体步骤。
  *
- * 参考真实行为分两种形态（与 `LoginModal` 的渲染分支一致）：
- * - `qr`：渲染二维码（`qr_url`）—— 如 loomy 的微信扫码；
- * - `code`：渲染「打开授权页」+ 回调链接粘贴框（`auth_url`）—— 如 raccoon。
+ * 与 `LoginModal` 的渲染分支一致：
+ * - `input`：两步输入卡（`login_input`）—— 如 loomy 的短信验证码；
+ * - `code`：授权页（`auth_url`）—— 如 raccoon 的浏览器授权。
  */
 export function demoStartLogin(state: DemoState, cid: string): void {
   const kind = DEMO_LOGIN_KIND[cid] ?? "code";
   const base = demoSettingsBase(state);
   state.login =
-    kind === "qr"
+    kind === "input"
       ? {
           cid,
           snapshot: {
             ...base,
             ui_state: "login",
-            message: "演示模式：请用微信扫码（二维码为占位图，不指向真实登录会话）",
-            qr_url: DEMO_QR_PLACEHOLDER,
+            message: "演示模式：loomy 走手机验证码，先在下面填手机号",
+            login_input: { kind: "phone", prompt: "手机号（+86）" },
           },
         }
       : {
@@ -342,10 +331,35 @@ export function demoStartLogin(state: DemoState, cid: string): void {
           snapshot: {
             ...base,
             ui_state: "login",
-            message: "演示模式：点「打开授权页」完成授权，再把回调链接粘回来",
+            message: "演示模式：点「复制授权链接」完成授权",
             auth_url: "https://example.com/oauth/authorize?demo=1&state=demo-state",
           },
         };
+}
+
+/**
+ * 提交两步登录的输入（演示）：第一次是手机号，第二次是验证码。
+ *
+ * 真实流程里这两步由渠道的 `requestInput` 驱动、输入直接发给上游；
+ * 演示只推进状态机，不访问任何真实上游。
+ */
+export function demoSubmitLoginInput(
+  state: DemoState,
+  value: string,
+): { message: string } {
+  const login = state.login;
+  if (!login) return { message: "当前没有进行中的登录" };
+  const base = demoSettingsBase(state);
+  if (login.snapshot.login_input?.kind === "phone") {
+    login.snapshot = {
+      ...base,
+      ui_state: "login",
+      message: "演示模式：验证码已发送（虚构），请输入",
+      login_input: { kind: "code", prompt: `验证码已发送至 ${value}` },
+    };
+    return { message: "演示模式：验证码已发送（虚构）" };
+  }
+  return demoCompleteLogin(state);
 }
 
 /** 结束演示登录（弹窗关闭或回调提交后）。 */
@@ -471,9 +485,11 @@ export function demoLogin(state: DemoState, cid: string): { started: boolean; me
 }
 
 /**
- * 提交回调链接：演示模式下视为授权完成 —— 标记渠道已登录并造一个虚构账号入池。
+ * 提交回调链接 / 两步登录的最后一步：演示模式下视为授权完成 —— 标记渠道已登录并造一个
+ * 虚构账号入池，然后把状态机推到 `done`（页面据此自动关弹窗）。
  *
- * 这样弹窗里的「完成登录」按钮能真的把流程走完，而不是点了没反应。
+ * ⚠ 不在这里清空 `state.login`：`done` 要留到页面关掉弹窗为止。
+ * 下一次 `demoStartLogin` 会覆盖它；取消走 `demoEndLogin`。
  */
 export function demoCompleteLogin(state: DemoState): { message: string } {
   const cid = state.login?.cid ?? "";
@@ -486,7 +502,17 @@ export function demoCompleteLogin(state: DemoState): { message: string } {
     state.accounts[cid] = list;
     state.active[cid] = key;
   }
-  demoEndLogin(state);
+  if (cid) {
+    const base = demoSettingsBase(state);
+    state.login = {
+      cid,
+      snapshot: {
+        ...base,
+        ui_state: "done",
+        message: "演示模式：登录成功，账号已入池（虚构数据）",
+      },
+    };
+  }
   return { message: "演示模式：已模拟完成登录并自动入池" };
 }
 

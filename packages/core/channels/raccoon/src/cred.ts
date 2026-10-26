@@ -15,6 +15,7 @@ import {
   credentialsPath,
   ensureDir,
   login as sharedLogin,
+  loginFlow,
   writeJsonSecret,
 } from "@modelmux/gateway";
 
@@ -392,17 +393,17 @@ function startLoginCallbackServer(
       const gotState = (url.searchParams.get("state") ?? "").trim();
       if (!code) {
         res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<h1>授权失败：回调缺少 authorization_code。</h1>");
+        res.end(loginFlow.callbackPageHtml("fail", "授权失败：回调缺少 authorization_code。"));
         return;
       }
       if (gotState !== state) {
         res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<h1>授权失败：state 校验不通过，请重新登录。</h1>");
+        res.end(loginFlow.callbackPageHtml("fail", "授权失败：state 校验不通过，请重新登录。"));
         return;
       }
       clearTimeout(timer);
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end("<h1>登录成功，可以关闭此窗口了</h1>");
+      res.end(loginFlow.callbackPageHtml("ok"));
       settle({ code, stateVerified: true });
     });
 
@@ -589,7 +590,7 @@ async function exchangeLogin(
   onStatus?: (message: string) => void,
 ): Promise<Credentials> {
   if (!parsed.stateVerified) {
-    onStatus?.("callback state not verified (missing state in callback); proceeding");
+    onStatus?.("回调里没有 state（无法校验），继续执行");
   }
 
   const result = await apiCall(exchangeCodeUrl(baseUrlOverride), {

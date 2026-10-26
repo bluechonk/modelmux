@@ -144,6 +144,11 @@ export function Accounts(): ReactElement {
     // 添加账号 = 强制新授权（已有凭据/被标记 error 时也要拿到新的授权链接）
     mutationFn: async (cid: string) => await api.commands.login(cid, true),
     onError: (err) => setError(String(err)),
+    // 立刻拉一次 state：后端的 triggerLogin 已同步清空旧状态，早拉早让弹窗
+    // 看到干净的「准备中」，而不是等下一个 3 秒轮询周期。
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["state"] });
+    },
   });
   const activate = useMutation({
     mutationFn: async ({ cid, key }: { cid: string; key: string }) => {
@@ -188,14 +193,20 @@ export function Accounts(): ReactElement {
     onError: (err) => setError(String(err)),
     onSettled: () => setBusyKey(null),
   });
-  const submitCallback = useMutation({
-    mutationFn: async (url: string) => await api.commands.pasteCallback(url),
-    onSuccess: (res) => {
-      setNotice(res.ok ? (res.message ?? "已提交回调链接") : (res.error ?? "提交失败"));
-      if (res.ok) invalidateAll();
-    },
+  /**
+   * 两步登录的输入（如 loomy 的短信验证码）。
+   *
+   * 后端把待回答的请求放在 `state.login_input` 里，弹窗只渲染一张输入卡；
+   * 这里把用户填的内容交回去。
+   */
+  const submitInput = useMutation({
+    mutationFn: async (value: string) => await api.commands.submitInput(value),
     onError: (err) => setError(String(err)),
   });
+  /** 弹窗关闭：让后端别再等输入（否则渠道挂到超时）。 */
+  const cancelInput = (): void => {
+    void api.commands.cancelInput().catch(() => {});
+  };
 
   // 登录成功即收尾：自动关闭弹窗并立刻刷新账号池 / 额度，不等下一轮轮询
   useEffect(() => {
@@ -337,14 +348,16 @@ export function Accounts(): ReactElement {
               message: snapshot.message,
               auth_url: snapshot.auth_url,
               qr_url: snapshot.qr_url,
+              login_input: snapshot.login_input ?? null,
             }
           }
-          submitting={submitCallback.isPending}
+          submitting={submitInput.isPending}
           onStartLogin={(cid) => {
             setNotice("");
             startLogin.mutate(cid);
           }}
-          onSubmitCallback={(url) => submitCallback.mutate(url)}
+          onSubmitInput={(value) => submitInput.mutate(value)}
+          onCancelInput={cancelInput}
           onClose={() => {
             // 手动关闭也同步一次：用户可能在成功提示出现前就关掉弹窗
             setLoginChannel(null);

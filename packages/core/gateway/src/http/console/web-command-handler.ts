@@ -33,6 +33,14 @@ export interface WebCommandDeps {
    * 拦跳转），所以没有浏览器的进程只能靠用户把地址栏那条链接粘回来。
    */
   submitCallback?: (raw: string) => void;
+  /**
+   * 提交用户在登录弹窗里输入的内容（渠道两步登录用，如 loomy 的短信验证码）。
+   *
+   * 与 `submitCallback` 同构：控制台层不认识登录流程，只把字符串转交上去。
+   */
+  submitInput?: (value: string) => void;
+  /** 用户关掉了登录弹窗：不再等两步登录的输入（见 `ControlBridge.cancelInput`）。 */
+  cancelInput?: () => void;
 }
 
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;
@@ -194,6 +202,25 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         }
         deps.submitCallback(raw);
         return ok({ submitted: true, message: "已收到回调链接，登录流程将继续" });
+      }
+      case "submitInput": {
+        // 两步登录（如 loomy 短信验证码）：渠道通过 `requestInput` 要输入，
+        // 界面拿到 `state.login_input` 后把用户填的内容走这个动作交回去。
+        const value = typeof args["value"] === "string" ? args["value"] : "";
+        if (!value.trim()) return err("参数 value 必填（用户在登录弹窗里输入的内容）");
+        if (!deps.submitInput) {
+          return err("当前运行形态不支持登录输入（未注入 submitInput）");
+        }
+        deps.submitInput(value);
+        return ok({ submitted: true, message: "已收到输入，登录流程将继续" });
+      }
+      case "cancelInput": {
+        // 弹窗关了：让等待输入的渠道立刻收尾，而不是挂到 10 分钟超时。
+        if (!deps.cancelInput) {
+          return err("当前运行形态不支持取消登录输入（未注入 cancelInput）");
+        }
+        deps.cancelInput();
+        return ok({ cancelled: true, message: "已取消登录输入" });
       }
       default:
         return err(`未知 action: ${String(action)}`);

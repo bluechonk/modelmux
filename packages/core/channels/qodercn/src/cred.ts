@@ -439,7 +439,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
           };
         }
         if (!pasteReported) {
-          options.onStatus?.("got the pasted callback, fetching the token now...");
+          options.onStatus?.("已收到粘回的回调，正在换取令牌...");
           pasteReported = true;
         }
       }
@@ -497,7 +497,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
     refreshExpireAt: token.refreshExpireAt,
   };
   await save(credential);
-  options.onStatus?.(`Logged in ${product.label}${nickname ? ` (${nickname})` : ""}`);
+  options.onStatus?.(`已登录 ${product.label}${nickname ? `（${nickname}）` : ""}`);
   return credential;
 }
 

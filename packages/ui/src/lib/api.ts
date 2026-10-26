@@ -19,12 +19,14 @@ import {
   demoActivate,
   demoBilling,
   demoCompleteLogin,
+  demoEndLogin,
   demoLogin,
   demoModels,
   demoRemove,
   demoReset,
   demoSettings,
   demoStatus,
+  demoSubmitLoginInput,
   type DemoState,
 } from "./demo";
 
@@ -128,6 +130,14 @@ export interface WebApi {
      * 回调页线上是 404，`code` 只在浏览器地址栏里；长轮询拿不到时靠这个完成登录。
      */
     pasteCallback(url: string): Promise<CommandData>;
+    /**
+     * 提交两步登录的输入（如 loomy 短信验证码）。
+     *
+     * 与 `pasteCallback` 同构：控制台只把字符串转交上去，不认识登录流程本身。
+     */
+    submitInput(value: string): Promise<CommandData>;
+    /** 用户关掉了登录弹窗：让等待输入的渠道收尾（见 `ControlBridge.cancelInput`）。 */
+    cancelInput(): Promise<CommandData>;
   };
 }
 
@@ -228,6 +238,15 @@ async function demoCommand(
       const res = demoCompleteLogin(st);
       return { submitted: true, message: res.message, ok: true };
     }
+    case "submitInput": {
+      // 两步登录的演示：第一次提交是手机号，第二次是验证码 —— 都走完才入池。
+      const res = demoSubmitLoginInput(st, String(args["value"] ?? ""));
+      return { submitted: true, message: res.message, ok: true };
+    }
+    case "cancelInput":
+      // 演示模式：直接结束这轮登录（不造账号）
+      demoEndLogin(st);
+      return { cancelled: true, ok: true };
     default:
       return { ok: false, error: `演示模式不支持动作 ${action}` };
   }
@@ -253,5 +272,9 @@ export const api: WebApi = {
     removeAccount: (cid, key) => command("removeAccount", cid, { key }),
     syncPool: (cid) => command("syncPool", cid),
     pasteCallback: (url) => command("pasteCallback", undefined, { url }),
+    /** 两步登录（如 loomy 短信验证码）：把用户在弹窗里填的内容交回去。 */
+    submitInput: (value) => command("submitInput", undefined, { value }),
+    /** 关闭登录弹窗：让等待输入的渠道立刻收尾，而不是挂到超时。 */
+    cancelInput: () => command("cancelInput", undefined),
   },
 };

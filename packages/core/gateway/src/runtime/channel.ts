@@ -80,6 +80,18 @@ export interface CreditsResult {
   claimable?: Array<Record<string, unknown>>;
 }
 
+/**
+ * 登录过程中需要用户提供的一段输入（两步登录用）。
+ *
+ * `kind` 只用于界面措辞与键盘类型（手机号 → 数字键盘，验证码 → 数字），
+ * **不是**渠道知识 —— 渠道只负责在需要时发起请求，界面怎么渲染由界面决定。
+ */
+export interface LoginInputRequest {
+  kind: "phone" | "code";
+  /** 给用户看的一句话（如「手机号」「验证码已发送至 138****0001」）。 */
+  prompt: string;
+}
+
 /** 登录流程的界面能力（打到 stdout / 窗口状态机都可以满足）。 */
 export interface LoginUi {
   setState(state: string, message?: string, url?: string): void;
@@ -98,6 +110,17 @@ export interface LoginUi {
    * （网关/CLI）只能靠用户把它粘回来 —— 故 CLI 侧要收 stdin 一行。
    */
   takePastedCallback?(): string | undefined;
+  /**
+   * 向用户要一段输入（可选，两步登录用，如 loomy 的短信验证码）。
+   *
+   * 返回用户填的内容；用户取消 / 界面关闭 / 无人应答 → 返回 `undefined`，
+   * 由渠道自己决定怎么办（一般是回落到环境变量或报「已取消」）。
+   *
+   * ⚠ **无界面实现不要实现它**（CLI 的 `StdoutLoginUi` 就不实现）：
+   * 渠道必须先试 `requestInput`，拿到 `undefined` 再回落到自己的输入来源
+   * （环境变量 / 文件），否则终端用户会卡在等一个永远不来的输入框。
+   */
+  requestInput?(req: LoginInputRequest): Promise<string | undefined>;
 }
 
 /*

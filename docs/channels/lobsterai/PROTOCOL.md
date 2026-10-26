@@ -142,7 +142,7 @@ Body: {
 | 3. 登录 URL | `{portalBase}/portal#/login?source=electron&redirect_uri=http%3A%2F%2F127.0.0.1%3A{port}%2Fauth%2Fcallback&state={state}` |
 | 4. 回调校验 | `code` 非空且 `state` 严格相等，否则 400 |
 | 5. exchange | 立即在进程内 POST `/api/auth/exchange` |
-| 6. 成功页 | `200 text/html`「登录成功，可以关闭此窗口了」；失败 `500` |
+| 6. 成功页 | `200 text/html`（共享层 `loginFlow.callbackPageHtml("ok")`：落地即尝试自关，关不掉时显示「登录成功 · 账号已入池」+「返回控制台」）；失败 `400` / `500` 走同页失败态 |
 | 7. 超时 | 10 分钟 |
 
 `redirect_uri` 必须是 `http://127.0.0.1:{port}/auth/callback` 形态（登录页会校验）；

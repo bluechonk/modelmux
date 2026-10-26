@@ -244,8 +244,8 @@ interface Channel {
 
 #### 5.1.1 登录回调（`login()` 的第二个参数）
 
-`cred.login(baseUrl, options?)` 的 `options` 是渠道与界面之间的回调面，四个成员
-**全部可选**（类型见 `packages/core/gateway/src/runtime/channel.ts:115-125`）：
+`cred.login(baseUrl, options?)` 的 `options` 是渠道与界面之间的回调面，五个成员
+**全部可选**（类型见 `packages/core/gateway/src/runtime/channel.ts:115-145`）：
 
 | 回调 | 语义 | 共享层调用点 |
 |---|---|---|
@@ -253,6 +253,7 @@ interface Channel {
 | `onStatus(msg)` | 进度提示 | `packages/core/gateway/src/auth/auth-flow.ts:60` |
 | `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts:59` |
 | `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts:62` |
+| `requestInput(req)` | 向用户要一段输入（两步登录，如 loomy 短信验证码） | `packages/core/gateway/src/auth/auth-flow.ts:73` |
 
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
@@ -263,6 +264,20 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 **渠道必须接住这个回调**：既不声明、也不消费 = 用户粘回的内容被静默丢弃。
 授权回调页线上是 404（授权码只出现在浏览器地址栏里），此时流程只能白等到超时。
+
+##### `requestInput`：两步登录的唯一输入通道
+
+`LoginUi.requestInput?`（`packages/core/gateway/src/runtime/channel.ts:102-113`）向用户
+要一段输入，返回用户填的内容；**取消 / 无人应答 → `undefined`**。
+
+- **无界面实现不要实现它**（CLI 的 `StdoutLoginUi` 就不实现，见
+  `packages/core/gateway/src/app/lifecycle/headless.ts:152-157`）；渠道**必须先试
+  `requestInput`，拿到 `undefined` 再回落到自己的输入来源**（环境变量 / 文件），
+  否则终端用户会卡在等一个永远不来的输入框（`mx login loomy` 的既有用法全靠环境变量）。
+- 控制台侧：`ServiceState.requestInput` 登记请求 → 快照的 `login_input`
+  下发到界面（`packages/core/gateway/src/http/console/console.ts` 的 `UiSnapshot`）→
+  用户提交经 `submitInput` 动作回来；界面关闭走 `cancelInput`。
+- 渠道名不下发到界面：请求体只有 `{ kind: "phone" | "code", prompt }`。
 
 #### 5.1.2 粘贴兜底的两种形态（**只有一条登录路径**）
 
@@ -567,6 +582,9 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 5. **接住 `options.pasteCode`**：共享层一直在传（`packages/core/gateway/src/auth/auth-flow.ts:62`），
    渠道不消费 = 用户粘回的内容被静默丢弃。粘贴是**兜底**、不是第二条登录路径，
    两种形态见 §5.1.2。
+6. **两步登录走 `options.requestInput`**（如 loomy 的短信验证码）：**先试它，
+   拿不到再回落到自己的输入来源**（环境变量 / 文件）。直接只读环境变量会让
+   控制台用户无处可填，只等输入框又会让终端用户永远卡住 —— 两条路都要通。
 
 ---
 

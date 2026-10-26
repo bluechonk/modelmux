@@ -17,6 +17,7 @@ import {
   credentialsPath,
   ensureDir,
   login as sharedLogin,
+  loginFlow,
   writeJsonSecret,
 } from "@modelmux/gateway";
 import * as upstream from "./upstream.js";
@@ -437,7 +438,8 @@ interface CallbackServer {
  * 启动本地回调服务器（127.0.0.1 随机空闲端口，路径 `/auth/callback`）。
  *
  * `code` 非空且 `state` **严格相等**才继续，否则 400（防 CSRF / 串号）。
- * 成功页文案逐字「登录成功，可以关闭此窗口了」；exchange 失败回 500。
+ * 成功/失败页都用共享层 `loginFlow.callbackPageHtml`（自动尝试自关 + 深色单页）；
+ * exchange 失败回 500。
  */
 function startCallbackServer(
   session: LoginSession,
@@ -470,20 +472,20 @@ function startCallbackServer(
       const state = url.searchParams.get("state") ?? "";
       if (!code || state !== session.state) {
         res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<h1>授权失败：state 校验不通过，请重新登录。</h1>");
+        res.end(loginFlow.callbackPageHtml("fail", "授权失败：state 校验不通过，请重新登录。"));
         return;
       }
       exchange(base, code, session).then(
         (c) => {
           clearTimeout(timer);
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          res.end("<h1>登录成功，可以关闭此窗口了</h1>");
+          res.end(loginFlow.callbackPageHtml("ok"));
           settle(c);
         },
         (err: unknown) => {
           clearTimeout(timer);
           res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
-          res.end("<h1>登录失败，请回到终端查看原因。</h1>");
+          res.end(loginFlow.callbackPageHtml("fail", String(err instanceof Error ? err.message : err)));
           fail(err instanceof Error ? err : new Error(String(err)));
         },
       );
@@ -618,14 +620,17 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   const url = buildLoginUrl(callback.port, session.state);
   // ⚠️ 拿到 URL 后**立刻**回调（命令行据此展示链接，用户自行在浏览器打开）
   options.onUrl?.(url);
-  options.onStatus?.(`waiting for authorization (open the URL above in a browser; up to ${LOGIN_TIMEOUT_MS / 60000} min)...`);
+  // 面向用户的文案一律中文（UI 与 CLI 报表都看它；运行时日志才用英文）
+  options.onStatus?.(
+    `等待授权中：请在上面的浏览器里完成登录（最长 ${LOGIN_TIMEOUT_MS / 60000} 分钟）...`,
+  );
   // 粘贴兜底：浏览器回跳失败时，用户把地址栏整条 URL 粘回来即可（同一路径）。
   let stopped = false;
   void watchPastedCallback(callback.port, session, options, () => stopped).catch(() => undefined);
   try {
     const c = await callback.result;
     await save(c);
-    options.onStatus?.("authorization succeeded; credentials saved.");
+    options.onStatus?.("授权成功，凭据已落盘。");
     return c;
   } finally {
     stopped = true;

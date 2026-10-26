@@ -175,7 +175,8 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 ② 用户在页面上用微信 / 验证码 / 密码登录成功
    → 页面自动跳转 redirect：
      http://127.0.0.1:<port>/callback?authorization_code=…&state=…
-   → 本地服务逐字校验 state，页面显示「登录成功，可以关闭此窗口了」
+   → 本地服务逐字校验 state，回共享层 `loginFlow.callbackPageHtml("ok")`
+     （落地即尝试自关，关不掉时显示「登录成功 · 账号已入池」+「返回控制台」）
 ③ 换凭证：
 POST https://xiaohuanxiong.com/api/web/auth/v1/login_with_authorization_code
 Content-Type: application/json

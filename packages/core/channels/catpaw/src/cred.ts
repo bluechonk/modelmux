@@ -381,7 +381,7 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
   const { onUrl, onStatus } = options;
   void baseUrl; // catpaw 只有一个登录域，参数仅作兼容保留
 
-  onStatus?.("Fetching login entry...");
+  onStatus?.("正在获取登录入口...");
   const loginEntryUrl = await fetchLoginEntryUrl();
 
   // redirect 是网关的**必填**参数（实测缺它直接 400），但只是形式要求：
@@ -394,13 +394,13 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
   onUrl?.(finalAuthUrl);
   onStatus?.('Open the URL above in your browser and complete the login (the page shows "登录成功" when done)');
 
-  onStatus?.("Waiting for authorization (up to 10 minutes)...");
+  onStatus?.("等待授权中（最长 10 分钟）...");
 
   const token = await pollToken(sid);
   if (!token) throw new Error("poll timeout: no login detected within 10 minutes");
 
   // 取 uid 与账号名：账号池靠 uid 认「同一个账号」（见 fetchCurrentUser）
-  onStatus?.("Login succeeded, fetching account info...");
+  onStatus?.("登录成功，正在拉取账号信息...");
   const { uid, nickname } = await fetchCurrentUser(token);
 
   const c = fromToken(token, "catpaw-login-poll", uid, nickname);

@@ -372,9 +372,19 @@ async function credentialsFromSession(
  * ⚠ 共享层还会传 `onUrl` / `onQr` / `pasteCode` / `timeoutSec` 等字段（扫码类渠道用），
  * 短信登录**不用**它们；这里只声明自己读的字段，其余按结构类型宽松忽略。
  */
+import type { LoginInputRequest } from "@modelmux/gateway";
+
 interface LoginOptions {
   /** 进度提示（打到 CLI/控制台）。 */
   onStatus?: (message: string) => void;
+  /**
+   * 向用户要一段输入（两步登录用）。
+   *
+   * **控制台实现了它**（弹输入卡），**CLI 没有界面、不实现** ——
+   * 这里必须先试它，拿不到再回落到环境变量，否则终端用户会卡在等一个
+   * 永远不来的输入框（`mx login loomy` 的既有用法全靠环境变量）。
+   */
+  requestInput?: (req: LoginInputRequest) => Promise<string | undefined>;
 }
 
 /**
@@ -422,15 +432,16 @@ async function initDailyQuota(c: Credentials, onStatus?: (message: string) => vo
   try {
     await upstream.triggerFirstLogin(c);
   } catch (err) {
-    onStatus?.(`daily quota init failed (does not affect login): ${String(err)}`);
+    onStatus?.(`每日额度初始化失败（不影响登录）：${String(err)}`);
   }
 }
 
 /**
- * 登录：**手机验证码，唯一路径**（两步协议，按环境变量驱动）。
+ * 登录：**手机验证码，唯一路径**（两步协议）。
  *
- * - 只给 `LOOMY_PHONE` → 发码，把 `msgid` 打进错误信息里（第一步）；
- * - 再给 `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` → 校验换 `session`（第二步）。
+ * - 有界面（控制台）：弹窗里问手机号 → 发码 → 弹窗里问验证码 → 一次走完；
+ * - 无界面（CLI）：问不到就回落环境变量 —— 只给 `LOOMY_PHONE` 时发码并在错误里
+ *   给出 `msgid`，再带 `LOOMY_SMS_CODE` + `LOOMY_SMS_MSGID` 重跑第二步。
  *
  * 第二步成功后顺手调一次 `points/first-login`（每日额度初始化，失败仅 warn）。
  *
@@ -440,27 +451,48 @@ async function initDailyQuota(c: Credentials, onStatus?: (message: string) => vo
  * 闭环**的方式。历史实现见 `docs/channels/loomy/FINDINGS.md`。
  */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
-  const { onStatus } = options;
-  const phone = (process.env[PHONE_ENV] ?? "").trim();
-  const mcode = (process.env[SMS_CODE_ENV] ?? "").trim();
-  const msgid = (process.env[SMS_MSGID_ENV] ?? "").trim();
+  const { onStatus, requestInput } = options;
+  const hasUi = typeof requestInput === "function";
+  const ask = (req: LoginInputRequest): Promise<string | undefined> =>
+    requestInput ? requestInput(req) : Promise.resolve(undefined);
 
+  // 第一步：手机号。界面优先，其次环境变量（CLI）。
+  const phone =
+    (await ask({ kind: "phone", prompt: "手机号（+86）" }))?.trim() ||
+    (process.env[PHONE_ENV] ?? "").trim();
   if (!phone) {
     throw new Error(
-      `SMS login needs a phone number: set ${PHONE_ENV}=<phone> and re-run (then ${SMS_CODE_ENV} + ${SMS_MSGID_ENV} with the code)`,
+      hasUi
+        ? "已取消短信登录：没有拿到手机号，请重新发起登录。"
+        : `SMS login needs a phone number: set ${PHONE_ENV}=<phone> and re-run (then ${SMS_CODE_ENV} + ${SMS_MSGID_ENV} with the code)`,
     );
   }
-  if (mcode && msgid) {
-    onStatus?.("verifying the phone code...");
-    const c = await loginByPhoneCode(phone, mcode, msgid, baseUrl);
+
+  // CLI 的老用法：一次性把手机号 + 验证码 + msgid 都给齐，直接换 session。
+  const envCode = (process.env[SMS_CODE_ENV] ?? "").trim();
+  const envMsgid = (process.env[SMS_MSGID_ENV] ?? "").trim();
+  if (envCode && envMsgid) {
+    onStatus?.("正在校验验证码...");
+    const c = await loginByPhoneCode(phone, envCode, envMsgid, baseUrl);
     await initDailyQuota(c, onStatus);
     return c;
   }
-  // 只有手机号：把码发出去，让用户带着验证码 + msgid 重跑第二步。
-  onStatus?.("sending the SMS code...");
+
+  onStatus?.("正在发送验证码...");
   const freshMsgid = await sendPhoneLoginCode(phone, baseUrl);
+
+  // 第二步：验证码。有界面就地问完；没界面就把 msgid 打进错误里让用户带参重跑。
+  const code = (await ask({ kind: "code", prompt: `验证码已发送至 ${phone}` }))?.trim() ?? "";
+  if (code) {
+    onStatus?.("正在校验验证码...");
+    const c = await loginByPhoneCode(phone, code, freshMsgid, baseUrl);
+    await initDailyQuota(c, onStatus);
+    return c;
+  }
   throw new Error(
-    `SMS code sent to ${phone}. Re-run with ${SMS_CODE_ENV}=<code> ${SMS_MSGID_ENV}=${freshMsgid} to finish login.`,
+    hasUi
+      ? "已取消短信登录：验证码未提交，请重新发起登录。"
+      : `SMS code sent to ${phone}. Re-run with ${SMS_CODE_ENV}=<code> ${SMS_MSGID_ENV}=${freshMsgid} to finish login.`,
   );
 }
 
