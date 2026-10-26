@@ -14,6 +14,7 @@
  * ## 两种视图
  *
  * - **分组**（默认）：按渠道分区，band 上写模型数 / 免费数 / 可吃图数 / 倍率区间。
+ *   每个渠道是**独立的滚动容器**（各自一份紧凑表头 + 各自的横向滑块）。
  * - **扁平**：全部模型按倍率升序排成一张表，渠道作为一列 —— 回答「最便宜的模型在哪」。
  *
  * 行里除了模型名与倍率，还给出**上下文窗口 / 单次输出上限 / 输入模态**：
@@ -313,29 +314,32 @@ function isFree(row: ModelRow, freePlanCids: ReadonlySet<string>): boolean {
   return m === 0 || (m == null && freePlanCids.has(row.cid));
 }
 
-/** 表头：列名 + 对齐方式。 */
+/** 表头：列名 + 对齐方式。
+ *
+ * 分组视图里**每个渠道各有一份**（每组是独立的滚动容器，共用一份表头会让
+ * 横向滚过的那组列名与内容错位）；因此做得紧凑：`py-1.5` + 10px 字。 */
 function Head({
   showChannel,
 }: {
   showChannel: boolean;
 }): ReactElement {
   return (
-    <thead className="sticky top-0 z-10 bg-raised">
-      <tr className="border-b border-line text-[11px] text-ink-faint">
-        <th className="whitespace-nowrap px-4 py-2 text-left font-normal">模型</th>
-        {showChannel && <th className="whitespace-nowrap px-3 py-2 text-left font-normal">渠道</th>}
-        <th className="whitespace-nowrap px-3 py-2 text-right font-normal">倍率</th>
-        <th className="hidden whitespace-nowrap px-3 py-2 text-right font-normal md:table-cell">
+    <thead className="bg-canvas/30">
+      <tr className="border-b border-line/70 text-[10px] text-ink-faint">
+        <th className="whitespace-nowrap px-4 py-1.5 text-left font-normal">模型</th>
+        {showChannel && <th className="whitespace-nowrap px-3 py-1.5 text-left font-normal">渠道</th>}
+        <th className="whitespace-nowrap px-3 py-1.5 text-right font-normal">倍率</th>
+        <th className="hidden whitespace-nowrap px-3 py-1.5 text-right font-normal md:table-cell">
           最大上下文
         </th>
-        <th className="hidden whitespace-nowrap px-3 py-2 text-right font-normal md:table-cell">
+        <th className="hidden whitespace-nowrap px-3 py-1.5 text-right font-normal md:table-cell">
           输出上限
         </th>
-        <th className="hidden whitespace-nowrap px-3 py-2 text-left font-normal md:table-cell">
+        <th className="hidden whitespace-nowrap px-3 py-1.5 text-left font-normal md:table-cell">
           思考模式
         </th>
-        <th className="whitespace-nowrap px-3 py-2 text-left font-normal">输入</th>
-        <th className="w-10 px-2 py-2" />
+        <th className="whitespace-nowrap px-3 py-1.5 text-left font-normal">输入</th>
+        <th className="w-10 px-2 py-1.5" />
       </tr>
     </thead>
   );
@@ -469,7 +473,12 @@ function CopyCell({ row }: { row: ModelRow }): ReactElement {
   );
 }
 
-/** 分组表：每个渠道一个表块（band 行 + 模型行），全宽、不并排。 */
+/** 分组表：每个渠道一个表块（band 行 + 模型行），全宽、不并排。
+ *
+ * **每个渠道自带横向滚动容器**：整张表只有一个底部滑块时，得滚到页面最下方才够得着，
+ * 而且一动就带着所有渠道一起滚（2026-10-26 主人反馈「滑块应该每个 channel 都有」）。
+ * 现在每组独立滚动、独立列宽，band 行留在滚动容器外 —— 横向滚动时渠道名不会跑掉。
+ */
 function GroupedTable({
   groups,
   freePlanCids,
@@ -490,85 +499,87 @@ function GroupedTable({
   previewAll: boolean;
 }): ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-line bg-raised">
-      <table className="w-full min-w-[440px] border-collapse">
-        <Head showChannel={false} />
-        {[...groups.entries()].map(([cid, rows]) => {
-          const isCollapsed = collapsed.has(cid);
-          // 默认每组只露前 3 个：一个渠道几十个模型会把整页撑爆（见文件头布局说明）
-          const showAll = previewAll || expanded.has(cid);
-          const shown = showAll ? rows : rows.slice(0, PREVIEW_COUNT);
-          const hidden = rows.length - shown.length;
-          const free = rows.filter((r) => isFree(r, freePlanCids)).length;
-          const vision = rows.filter((r) => (r.meta?.inputModalities ?? []).includes("image")).length;
-          const mults = rows
-            .map((r) => r.meta?.multiplier)
-            .filter((m): m is number => m != null && m > 0);
-          return (
-            <tbody key={cid}>
-              <tr>
-                <th colSpan={8} scope="rowgroup" className="border-b border-line bg-canvas/50 text-left">
-                  <div className="flex items-center gap-2.5 px-4 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => onToggle(cid)}
-                      className="grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:text-ink"
-                      aria-label={isCollapsed ? `展开 ${cid}` : `折叠 ${cid}`}
-                    >
-                      {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    </button>
-                    <span className="font-mono text-[13px] font-medium text-ink">{cid}</span>
-                    <span className="text-[11px] text-ink-faint">{rows.length} 个模型</span>
-                    {free > 0 && <span className="text-[11px] text-free">{free} 个免费</span>}
-                    {vision > 0 && <span className="text-[11px] text-ink-faint">{vision} 个可吃图</span>}
-                    {mults.length > 0 && (
-                      <span className="ml-auto font-mono text-[11px] text-ink-faint">
-                        ×{formatMultiplier(Math.min(...mults))}–×{formatMultiplier(Math.max(...mults))}
-                      </span>
-                    )}
-                  </div>
-                </th>
-              </tr>
-              {!isCollapsed &&
-                shown.map((row) => (
-                  <tr
-                    key={row.poolId}
-                    className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
-                  >
-                    <ModelNameCell row={row} />
-                    <MultiplierCell row={row} freePlanCids={freePlanCids} />
-                    <SizeCell
-                      value={row.meta?.contextWindow}
-                      inferred={row.meta?.sources?.contextWindow === "cross"}
-                    />
-                    <SizeCell
-                      value={row.meta?.maxOutputTokens}
-                      inferred={row.meta?.sources?.maxOutputTokens === "cross"}
-                    />
-                    <ThinkingCell row={row} />
-                    <ModalityCell row={row} />
-                    <CopyCell row={row} />
-                  </tr>
-                ))}
-              {/* 折叠隐藏的数量 + 展开/收起开关：只在「有隐藏项」或「已手动展开」时出现 */}
-              {!isCollapsed && (hidden > 0 || (!previewAll && expanded.has(cid) && rows.length > PREVIEW_COUNT)) && (
-                <tr className="border-b border-line/40 last:border-b-0">
-                  <td colSpan={8} className="px-4 py-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onToggleExpanded(cid)}
-                      className="text-[11px] text-ink-faint transition-colors hover:text-brand"
-                      aria-expanded={showAll}
-                    >
-                      {hidden > 0 ? `展开剩余 ${hidden} 个模型` : "收起"}
-                    </button>
-                  </td>
-                </tr>
+    <div className="overflow-hidden rounded-2xl border border-line bg-raised">
+      {[...groups.entries()].map(([cid, rows]) => {
+        const isCollapsed = collapsed.has(cid);
+        // 默认每组只露前 3 个：一个渠道几十个模型会把整页撑爆（见文件头布局说明）
+        const showAll = previewAll || expanded.has(cid);
+        const shown = showAll ? rows : rows.slice(0, PREVIEW_COUNT);
+        const hidden = rows.length - shown.length;
+        const free = rows.filter((r) => isFree(r, freePlanCids)).length;
+        const vision = rows.filter((r) => (r.meta?.inputModalities ?? []).includes("image")).length;
+        const mults = rows
+          .map((r) => r.meta?.multiplier)
+          .filter((m): m is number => m != null && m > 0);
+        return (
+          <div key={cid} className="border-b border-line last:border-b-0">
+            {/* band：渠道名 + 计数 + 倍率区间 + 折叠键（不随表格横向滚动） */}
+            <div className="flex items-center gap-2.5 bg-canvas/50 px-4 py-2.5">
+              <button
+                type="button"
+                onClick={() => onToggle(cid)}
+                className="grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:text-ink"
+                aria-label={isCollapsed ? `展开 ${cid}` : `折叠 ${cid}`}
+              >
+                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              <span className="font-mono text-[13px] font-medium text-ink">{cid}</span>
+              <span className="text-[11px] text-ink-faint">{rows.length} 个模型</span>
+              {free > 0 && <span className="text-[11px] text-free">{free} 个免费</span>}
+              {vision > 0 && <span className="text-[11px] text-ink-faint">{vision} 个可吃图</span>}
+              {mults.length > 0 && (
+                <span className="ml-auto font-mono text-[11px] text-ink-faint">
+                  ×{formatMultiplier(Math.min(...mults))}–×{formatMultiplier(Math.max(...mults))}
+                </span>
               )}
-            </tbody>
-          );
-        })}
-      </table>
+            </div>
+            {!isCollapsed && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[440px] border-collapse">
+                  <Head showChannel={false} />
+                  <tbody>
+                    {shown.map((row) => (
+                      <tr
+                        key={row.poolId}
+                        className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
+                      >
+                        <ModelNameCell row={row} />
+                        <MultiplierCell row={row} freePlanCids={freePlanCids} />
+                        <SizeCell
+                          value={row.meta?.contextWindow}
+                          inferred={row.meta?.sources?.contextWindow === "cross"}
+                        />
+                        <SizeCell
+                          value={row.meta?.maxOutputTokens}
+                          inferred={row.meta?.sources?.maxOutputTokens === "cross"}
+                        />
+                        <ThinkingCell row={row} />
+                        <ModalityCell row={row} />
+                        <CopyCell row={row} />
+                      </tr>
+                    ))}
+                    {/* 折叠隐藏的数量 + 展开/收起开关：只在「有隐藏项」或「已手动展开」时出现 */}
+                    {(hidden > 0 || (!previewAll && expanded.has(cid) && rows.length > PREVIEW_COUNT)) && (
+                      <tr className="border-b border-line/40 last:border-b-0">
+                        <td colSpan={7} className="px-4 py-1.5">
+                          <button
+                            type="button"
+                            onClick={() => onToggleExpanded(cid)}
+                            className="text-[11px] text-ink-faint transition-colors hover:text-brand"
+                            aria-expanded={showAll}
+                          >
+                            {hidden > 0 ? `展开剩余 ${hidden} 个模型` : "收起"}
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
