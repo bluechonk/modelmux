@@ -38,6 +38,7 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 | 改动落点 | 必须同步的文档 |
 | --- | --- |
 | 契约 / CLI 形态 / 模块边界 / 分层 | `docs/CONTRACT-TS.md`、根 `AGENTS.md` 的「代码约定」 |
+| **代码注释（渠道包 `src/` 与共享层模块的文件头 / docstring）** | **必须对照 [`docs/MODULE-COMMENTS.md`](../../../docs/MODULE-COMMENTS.md) 校验**（见下方「注释格式检查」） |
 | 池（模型池 / 账号池 / 账本 / 路由） | `docs/POOL-ARCHITECTURE.md` |
 | 存储落点 / 文件命名 / 权限 | `docs/STORAGE-CONVENTION.md` |
 | 进程模型 / 监督者 / 守护 | `docs/DAEMON-SUPERVISOR.md` |
@@ -47,6 +48,21 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 | 某渠道的协议 / 端点 / 头部 / 限制 / 实测 | `docs/channels/<cid>/PROTOCOL.md`（含「使用与实测」「参考实现」小节） |
 | 新增/改名/删除任何 `docs/*.md` | `docs/README.md` 索引（同步更新） |
 | 新增/改名/删除渠道目录 | `docs/README.md` 与 `docs/channels/README.md` 两张表都要登记 |
+
+### 注释格式检查（强制）
+
+**只要动了代码注释，收尾前逐条对照 [`docs/MODULE-COMMENTS.md`](../../../docs/MODULE-COMMENTS.md)
+的三层分工** —— 注释与文档出现双份事实源是最常见的腐化路径：
+
+1. **what 去文档**：协议事实（端点、字段、状态码、实测数字）只活在
+   `docs/channels/<cid>/PROTOCOL.md`。代码注释里出现同一事实的副本 = 违规 ——
+   删副本，留一行指针（如「端点/字段/实测见 docs/channels/<cid>/PROTOCOL.md」）。
+2. **why 跟函数**：设计取舍写在被治理函数的 docstring 上。
+   **不写日期、不写实验记录、不写「推翻了某结论」的时间线** —— 那些属于
+   PROTOCOL.md 的证据等级体系；docstring 只留影响代码行为的 why。
+3. **文件头只做导航（≤ 12 行）**：一句话职责 + 关键约束 ≤ 3 条 + 铁律一行（如需要）+
+   指引到 PROTOCOL.md。头部出现大段实测记录、多个日期 = 违规 —— 下放文档，头部瘦身。
+4. 口诀：**what 去文档、why 跟函数、头部只做导航**。
 
 落点约束（`scripts/verify-docs.mjs` 会拦）：`.md` 只允许落在 `docs/`（含
 `docs/channels/<cid>/`）、根 `README.md` / `AGENTS.md`、
@@ -121,6 +137,7 @@ npm test                       # build + typecheck + 全部 verify:* + 全部包
 node packages/cli/dist/cli.js restart   # 改了 packages/core/** / cli / ui 必须重启
 node packages/cli/dist/cli.js status    # 必须不含「网关在跑旧代码」
 # 真机验证：见下方分工
+# 注释格式：改过注释的文件，逐条对照 docs/MODULE-COMMENTS.md（见 §1「注释格式检查」）
 git status                     # 工作树干净（无未提交 tracked 文件）
 git fetch --prune && git branch -a      # 本地/远端只剩 main
 ls .tmp                        # 清理临时文件；截图与诊断产物不留仓库
