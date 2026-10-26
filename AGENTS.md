@@ -164,6 +164,10 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - **渠道文档不要散落进仓库级 `docs/` 根**（根层只放跨渠道的规范与契约）。
    - 新增 `docs/*.md` 必须同时登记到 `docs/README.md` 的文档表；新增渠道目录要登记到
      `docs/channels/README.md` 的渠道表。
+   - **新增技能必须登记到两张表**：`docs/README.md` 的「规则文件与项目技能」表
+     与**仓库根 `README.md`** 的「文档」表（后者是 GitHub 唯一渲染的门面，技能入口要在彼可达）。
+     技能是工具按目录发现的，但「有哪些技能、各自干什么」只有文档能回答 ——
+     **漏登记的技能等于不存在**（`verify-docs` 会拦，2026-10-26 实测：6 个技能里 2 个漏登记）。
    - markdown 链接用**相对路径**；源码注释里的引用用**仓库根相对路径**
      （如 `docs/channels/catpaw/PROTOCOL.md`）。
    - 跑 `npm test`：`scripts/verify-docs.mjs` 拦住落错位置的 md，`scripts/verify-storage.mjs` 校验落点规范。

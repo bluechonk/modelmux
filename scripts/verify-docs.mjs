@@ -272,6 +272,31 @@ for (const cid of channelIds) {
   }
 }
 
+// 3) `.agents/skills/<name>/` 每个技能都要在 docs/README.md 的「规则文件与项目技能」表里登记
+//
+// 为什么查：技能是**工具按目录发现**的（`.agents/skills/<name>/SKILL.md`），
+// 但「这个仓库有哪些技能、各自干什么」只有文档能回答 —— 漏登记的技能等于不存在：
+// 新人（与人）找不到它，也不知道什么时候该用（2026-10-26 实测：6 个技能里有 2 个没登记）。
+//
+// 只扫 `.agents/skills/`（本仓库的技能落点）；`.zcode/skills/` 是**覆盖位**，
+// 不是新技能的落点（见根 AGENTS.md 的「文档规则」第 3 条），故不要求登记。
+const skillsDir = join(workspaceRoot, ".agents", "skills");
+const readmeIndex = readText(join(workspaceRoot, "README.md"));
+for (const name of readdirSync(skillsDir)) {
+  if (!existsSync(join(skillsDir, name, "SKILL.md"))) continue; // 只有 SKILL.md 的目录才算技能
+  const needle = `.agents/skills/${name}/SKILL.md`;
+  if (!docsIndex.includes(needle)) {
+    problems.push(
+      `${needle} —— 未登记到 docs/README.md 的「规则文件与项目技能」表（漏登记的技能等于不存在）`,
+    );
+  }
+  if (!readmeIndex.includes(needle)) {
+    problems.push(
+      `${needle} —— 未登记到仓库根 README.md 的「文档」表（GitHub 只渲染根 README，技能入口要在此可达）`,
+    );
+  }
+}
+
 if (problems.length > 0) {
   console.error(`✗ 文档归属检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
