@@ -28,7 +28,7 @@ AStudio **没有可独立调用的登录**（本地服务只认桌面应用自�
 渲染层(acode://app) ──HTTP──▶ 127.0.0.1:<随机端口> ──▶ Electron 主进程
                                       │
                                       ├──HTTPS──▶ agent.xfyun.cn/xingchen-studio（账号 / 刷新）
-                                      └──HTTPS──▶ astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1（对话）
+                                      └──HTTPS──▶ {每个模型各自的 base_url}（对话，见 §6.1）
 ```
 
 **AStudio 主进程内置一个 HTTP 服务**（端口记录在 `userdata/server-runtime.json`，**每次启动可能变**）。
@@ -227,11 +227,38 @@ CLI 没有界面 → 只有路 B（`requestInput` 不实现时渠道自动回落
 
 ### 6.1 端点（B 级实测）
 
+⚠⚠ **推理主机是**按模型**取的**（2026-10-26 修正）—— 此前本节写的主机名
+`astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1` 实测**对所有模型都 404**
+（`API endpoint not found`）。
+
+真正的形态是：云端模型配置里**每行各带一个 `base_url`**，对话端点 = 该模型的
+`base_url` + `/chat/completions`：
+
 ```
-POST https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions
+POST {该模型的 base_url}/chat/completions
 Authorization: Bearer <modelBearerToken>
 Content-Type: application/json
 ```
+
+实测的 `base_url`（`GET /bot/models/configs`）：
+
+| model | base_url |
+| --- | --- |
+| `astronclaw-auto` | `https://maas-api.cn-huabei-1.xf-yun.com/v2` |
+| `xopglm52` / `xopglm51` / `xopdeepseekv4pro` / `xopkimik26` / `xminimaxm25` / `xopqwen36v35b` / `xsparkx2agent` | `https://maas-api.cn-huabei-1.xf-yun.com/v2` |
+| `spark-x` | `https://spark-api-open.xf-yun.com/agent/v1` |
+
+→ 9 个模型里 **8 个走 `maas-api.cn-huabei-1.xf-yun.com/v2`**，
+只有 `spark-x` 走另一个主机。
+
+渠道实现：共享层的**可选**钩子 `UpstreamModule.chatUrlForModel?(model, cfg)`
+（`packages/core/gateway/src/runtime/channel.ts`）——
+网关优先用它，没有就退回 `chatUrl()`（不影响其它渠道）。
+astudio 从模型配置取该模型的 `base_url`（进程内缓存，`fetchModelConfigs()` 时填），
+取不到用默认主机 `maas-api.cn-huabei-1.xf-yun.com/v2`。
+
+参考实现同款：`internal/astron/client.go` 的 `InferenceURL(path)` 拼 `c.Upstream`
+（每模型各自的 base），不是全局固定值。
 
 **完全 OpenAI 兼容**：
 
@@ -241,6 +268,14 @@ Content-Type: application/json
 | 流式 | ✅ `200 text/event-stream`，SSE 分帧正常 |
 | 工具调用 | ✅ `finish_reason:"tool_calls"`，`tool_calls[0].function.{name,arguments}` |
 | 思考档位 | ✅ `reasoning_effort` / `reasoning` / `thinking` 均被接受 |
+
+**2026-10-26 端到端复测**（走渠道代码，三个模型各一句）：
+
+```
+astudio/auto              200 ✅
+astudio/glm-5.2           200 ✅
+astudio/deepseek-v4-pro   200 ✅
+```
 
 ### 6.2 模型清单（B 级，2026-10-26 逐个实测）
 
@@ -333,9 +368,11 @@ Cookie: <buildAstronCookieHeader>
 ### 8.1 模型网关用量（B 级，渠道数据源）
 
 ```
-GET https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/usage
+GET {该模型的 base_url}/usage
 Authorization: Bearer <modelBearerToken>
 ```
+
+（`base_url` 同 §6.1 —— 按模型取；实测 `maas-api.cn-huabei-1.xf-yun.com/v2` 可用。）
 
 实测 `mode: "unrestricted"`、`planName: "钱包余额"`、`balance: 0`、`cost: 0`（**免费档**）。
 响应含 `daily_usage[]` / `model_stats[]` / `usage.today` / `usage.total`。
