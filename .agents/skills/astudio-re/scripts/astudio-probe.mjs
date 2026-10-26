@@ -54,6 +54,23 @@ function loadSession() {
   };
 }
 
+/**
+ * 对话网关基址：**按模型取服务端下发的 base_url**（`/bot/models/configs`）。
+ *
+ * ⚠ 不要用源码里静态出现的 volces-prod 主机打对话 —— 它对 chat/completions
+ * 一律 404（本脚本实测踩过）。真正的推理主机是每模型各带一个 `base_url`
+ * （多数 = `maas-api.cn-huabei-1.xf-yun.com/v2`；`spark-x` 走 `spark-api-open`），
+ * 这份配置静态挖不到（asar 里 `maas-api` 零命中），只能从该端点拉。
+ */
+async function chatGateway(model = "astronclaw-auto") {
+  const { status, text } = await get(`${STUDIO}/bot/models/configs`, { Cookie: cookie(s) });
+  if (status !== 200) throw new Error(`bot/models/configs HTTP ${status}`);
+  const rows = JSON.parse(text)?.data ?? [];
+  const hit = rows.find((r) => r.model === model) ?? rows[0];
+  if (!hit?.base_url) throw new Error("模型配置里没有 base_url");
+  return String(hit.base_url).replace(/\/+$/, "");
+}
+
 /** 短指纹：前 6 位 + 长度 + 弱哈希。**绝不返回原文**。 */
 function fp(value) {
   const t = String(value ?? "");
@@ -177,10 +194,11 @@ switch (cmd) {
   }
 
   case "usage": {
-    const { status, text } = await get(`${GATEWAY}/usage`, {
+    const gw = await chatGateway(rest[0]);
+    const { status, text } = await get(`${gw}/usage`, {
       Authorization: `Bearer ${s.modelBearerToken}`,
     });
-    console.log(`HTTP ${status}`);
+    console.log(`HTTP ${status} GET ${gw}/usage`);
     try {
       console.log(JSON.stringify(JSON.parse(text), null, 2));
     } catch {
@@ -190,10 +208,11 @@ switch (cmd) {
   }
 
   case "chat": {
+    const gw = await chatGateway("astronclaw-auto");
     const h = { Authorization: `Bearer ${s.modelBearerToken}` };
-    console.log("=== 流式 ===");
+    console.log(`=== 流式（${gw}/chat/completions）===`);
     {
-      const r = await fetch(`${GATEWAY}/chat/completions`, {
+      const r = await fetch(`${gw}/chat/completions`, {
         method: "POST",
         headers: { ...h, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -213,7 +232,7 @@ switch (cmd) {
     console.log("\n=== 工具调用 ===");
     {
       const { status, text } = await post(
-        `${GATEWAY}/chat/completions`,
+        `${gw}/chat/completions`,
         h,
         {
           model: "astronclaw-auto",
