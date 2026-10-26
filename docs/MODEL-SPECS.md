@@ -142,6 +142,34 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
 | `auto` / `efficient` / `performance` / `ultimate` / `cantus` / `sonus` | Qoder 的**策略档位**（按账号档位路由到不同底层模型），官方只公布 Credits 倍率 | [docs.qoder.com](https://docs.qoder.com) |
 | `default-model` / `fast-model` / `balanced-model` / `primary-model` | workbuddyai 的**档位别名**，非公开模型 | — |
 | `space-bunny` | WorkBuddy CN 的目录条目 | — |
+| AStudio 全系（`auto` / `spark-x2.5` / `spark-x2.6` / `spark-x2.6-lite` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash`） | **无公开规格**：AStudio 是讯飞桌面应用，型号与窗口都随**应用包内置**（`provider-model-catalog-v1.json` + `model-gateway/catalog-<hash>.json`），官方站不公布 | 见下方 §4.2 |
+
+### 4.2 AStudio：规格来自**应用内置目录**（不是公开资料）
+
+AStudio 的 7 个型号与窗口/输出/档位全部来自**应用包内置 JSON**（B 级实测，2026-10-26），
+官方站没有任何对应页面，所以既进不了 §3（无公开来源），也不是「查无」：
+
+| 型号 | 上下文 | 最大输出 | 思考档位 | 默认档 | 消耗倍率 |
+| --- | --- | --- | --- | --- | --- |
+| `auto` | 262144 | 100000 | `none` / `high` | `high` | **未知** |
+| `spark-x2.6` | 262144 | 100000 | `none` / `high` | `high` | **未知** |
+| `spark-x2.6-lite` | 1048576 | 110000 | `none` / `high` / `max` | `high` | **未知** |
+| `spark-x2.5` | 262144 | 100000 | `none` / `high` | `high` | **未知** |
+| `glm-5.2` | 1048576 | 100000 | `none` / `high` / `max` | `high` | **×2.0**（实测） |
+| `deepseek-v4-pro` | 1048576 | 100000 | `none` / `high` / `max` | `high` | **×2.0**（实测） |
+| `deepseek-v4-flash` | 1048576 | 100000 | `none` / `high` / `max` | `high` | **未知** |
+
+**倍率那列的「未知」是实测结论，不是漏填**：云端
+`GET /xingchen-studio/bot/models/configs` 返回 9 行，其中 `point_multiplier` 只有 8 行有值
+（`x2.0` / `x1.0` / `x0.5`），且**行 id 与本表 exposure 只有 2 个对得上**
+（`xopglm52`、`xopdeepseekv4pro`，均 `x2.0`）；`astronclaw-auto` 的 `point_multiplier` 为 `null`，
+`spark-x2.6` / `spark-x2.6-4b` / `spark-x2.5` / `xopdsv4flash0731in` 在云端**根本没有对应行**。
+
+⚠ 此前本表给那 5 个模型一律填 `multiplier: 1`，那是**无源填 1**（客户端会按它算钱）。
+2026-10-26 改为省略该字段 → 池层回落 `null` → 控制台按订阅制（`capabilities.billing: false`）
+显示「免费」。**倍率要么实测、要么未知，绝不编造。**
+
+⚠ 输入模态同理：AStudio 目录不带图像字段 → 如实报纯文本（见 §4.1 的口径）。
 
 ### 4.1 输入模态：**只认渠道声明，不按公开资料推断**
 
@@ -165,14 +193,18 @@ OpenAI 的 1050000 含输出配额，**922000 是第三方推导的可用输入�
    `effort`（字段名各不相同，汇聚层逐个尝试，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6）。
 2. **渠道已知规格表**（本文）—— 上游不发时，渠道用自己的表回答
    （`catalog.modelSpec()` 钩子，见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）：
-   窗口 / 输出按 §3，**思考档位按 §3.2**（只有 TokenHub 那种官方逐模型给档位的才有）。
+   窗口 / 输出按 §3，**思考档位按 §3.2**（只有 TokenHub 那种官方逐模型给档位的才有），
+   **倍率按 §4.2**（AStudio 这种内置目录的）。
    **表里的数值必须与本文一致**；改规格先改本文，再改渠道表。
+   ⚠ `modelSpec()` 的返回值**只能有实测值**：查不到就整个字段省略
+   （`undefined`）—— 池层据此回落到 `null`，UI 显示「免费」/「—」，**不猜数字**。
 3. **跨渠道兜底** —— 本渠道上游与规格表都答不上来时，拿**兄弟渠道同规范 model id** 的已知值
    （窗口 / 输出取**最小**、档位取**交集**，只填缺值，`sources` 标 `cross`）：
    比第 4 层可信、比第 1/2 层弱 —— 那是**别的渠道**被上游裁剪过的数字。
    口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.7。
+   ⚠ **倍率不走这一层**：倍率是渠道自己的计费口径，拿兄弟渠道的值去填等于编造。
 4. **兜底值** —— 前三条都没有时给 200000 / 65536，表示「未知」（不是真实上限）；
-   档位则给 `null`（**不编档位**）。
+   档位则给 `null`（**不编档位**），倍率给 `null`（**不编倍率**）。
 
 ⚠️ 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）——
 所以第 2 层的表**必须放在渠道包里**（`packages/core/channels/<cid>/src/catalog.ts`），
