@@ -467,22 +467,29 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 ---
 
-## 7. 真实模型请求 chat url — 已实现
+## 7. 真实模型请求 chat url — 已实现（2026-10-26 修过主机名）
 
-### 现状（这一项不用重做）
+### 现状
 
-- `chatUrl()`（`packages/core/channels/astudio/src/upstream.ts:129-131`）→
-  `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
-- `buildHeaders()`（`:152-158`）→ **只发** `Authorization: Bearer <modelBearerToken>`
+- `chatUrlForModel(model)`（`packages/core/channels/astudio/src/upstream.ts`）→
+  **按模型**取云端配置里那行的 `base_url` + `/chat/completions`
+  （共享层新增的可选钩子 `UpstreamModule.chatUrlForModel?`）。
+- ⚠ 此前硬编码 `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
+  —— **实测对所有模型 404**（`API endpoint not found`）。
+  真正的主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`（9 个模型里 8 个走它，
+  只有 `spark-x` 走 `spark-api-open.xf-yun.com/agent/v1`）。详见 PROTOCOL §6.1。
+- `buildHeaders()` → **只发** `Authorization: Bearer <modelBearerToken>`
   （不发 Cookie / `token` 头 —— 那是账号 API 的形态，模型网关不认）
-- `buildChatBody()`（`:307-324`）→ 换 `model`、校验 `reasoning_effort`、`stream` 恒 true
-- `WIRE = "openai"`（`:41`）→ 网关**纯透传不翻译**
-  （`http/chat/channel.ts:20-22` `isCustomWire()` 全 false；
-  `http/chat/stream.ts:115-118` 直接 `relay`；
-  `newTranslator()`（`:333-338`）是恒等翻译器且**不会被调用**）
+- `buildChatBody()` → 换 `model`、校验 `reasoning_effort`、`stream` 恒 true
+- `WIRE = "openai"` → 网关**纯透传不翻译**
+  （`http/chat/channel.ts` `isCustomWire()` 全 false；
+  `http/chat/stream.ts` 直接 `relay`；
+  `newTranslator()` 是恒等翻译器且**不会被调用**）
 
 实测已通过（PROTOCOL §6.1）：非流式 200、流式 SSE、工具调用 `finish_reason:"tool_calls"`、
 `reasoning_effort` / `reasoning` / `thinking` 都被接受。
+**2026-10-26 端到端复测**：`astudio/auto`、`astudio/glm-5.2`、`astudio/deepseek-v4-pro`
+三个模型各一句，全部 200。
 
 ### 小缺口
 

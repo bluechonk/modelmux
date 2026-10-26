@@ -344,6 +344,12 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   约定：**只在已过期时阻塞**续期；仍在续期窗口内则保持非阻塞，否则每个请求都要多等
   一次网络往返。钩子可就地改写传入的 credential（换上新 accessToken），使随后的
   `buildHeaders` 用上新 token。未声明时网关保持同步行为，不受影响。
+- `chatUrlForModel?(upstreamModel, cfg)`：按**上游模型名**决定对话端点。
+  适用场景：有些上游**每个模型走不同的网关主机**（AStudio 实测：云端模型配置里每行
+  各带一个 `base_url`，主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`，但 `spark-x` 走
+  `spark-api-open.xf-yun.com/agent/v1`）—— 硬编码一个 host 会对部分模型 404
+  （`API endpoint not found`）。声明后网关用它的结果，否则退回 `chatUrl()`。
+  入参是**已经过 `catalog.resolveModel()` 的上游模型名**。
 - `isAuthFailure(status, body)`：对**任何非 200** 的响应都会调用；返回 true 时网关把它归一成
   401，走「刷新 token → 重试**本账号**」（不切号）。用于上游不用标准状态码表达凭据失效的渠道。
   完整链路见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
