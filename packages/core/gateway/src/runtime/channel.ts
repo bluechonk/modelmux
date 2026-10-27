@@ -2,21 +2,12 @@
  * 渠道注册表：共享 gateway 层与渠道独有模块（cred / upstream / catalog / billing）之间
  * **唯一的接缝**。
  *
- * ## 为什么不直接 import
- *
- * 共享层（gateway / daemon / headless / auth-flow）不含渠道知识，但运行期要调用
- * 渠道独有的实现。现在共享模块只认这里的 `Channel` 接口；每个渠道包在入口处
- * 把自己的模块组装成一个 `Channel` 并用 `setChannel()` 注册，共享包不 import
- * 任何渠道模块。
- *
- * 渠道的**落点**（存储根、分层名、目录内文件名）不在这里决定：统一由共享层
- * `paths.ts` 按 `cid` 推导，见 docs/STORAGE-CONVENTION.md。
- *
- * ## 生命周期
- *
- * 渠道包的入口（`src/channel.ts`）在模块加载时调用 `setChannel()`；
- * 共享模块在**函数被调用时**（不是模块加载时）通过 `getChannel()` 取用，
- * 所以注册顺序只需早于第一次网络/路径操作即可。
+ * 共享层不含渠道知识但运行期要调用渠道实现 —— 共享模块只认这里的 `Channel` 接口，
+ * 每个渠道包在入口把模块组装成 `Channel` 并 `setChannel()` 注册，共享包不 import
+ * 任何渠道模块。落点（存储根 / 分层名 / 文件名）统一由 `paths.ts` 按 `cid` 推导
+ * （docs/STORAGE-CONVENTION.md）。生命周期：渠道包模块加载时 `setChannel()`，
+ * 共享模块在**函数被调用时** `getChannel()` 取用 —— 注册顺序只需早于第一次
+ * 网络/路径操作即可。
  */
 
 /** 凭据的最小契约（见 docs/CONTRACT-TS.md §3）。渠道可带更多字段。 */

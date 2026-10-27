@@ -1,10 +1,8 @@
 /**
  * 额度/用量信号识别（`http/chat/errors.ts`）。
  *
- * 词表全部来自**真机原文**，不是凭感觉写的 —— 2026-10-23 之前 `isQuotaExhausted`
- * 不认 workbuddyai 的真实 6004 消息，导致账号额度打满后既不冷却、也不告诉用户等到几点，
- * 只回一个普通 502（实测：请求 200ms 失败、账号始终 ok）。
- *
+ * 词表全部来自**真机原文**：`isQuotaExhausted` 若不认 workbuddyai 的真实 6004
+ * 消息，账号额度打满后既不冷却、也不告诉用户等到几点，只回普通 502。
  * 用例即原文片段：
  * - loomy：HTTP 402 `{"error":{"message":"积分余额不足，请获取积分后再试","type":"insufficient_quota"}}`
  * - workbuddyai：HTTP 429 `{"code":6004,"msg":"usage exceeds frequency limit, but don't

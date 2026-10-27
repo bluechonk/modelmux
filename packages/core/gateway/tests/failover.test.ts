@@ -4,17 +4,11 @@
  * 用文件背书的合成渠道（凭证真写在临时存储根的 `credentials.json`），
  * 假上游对 tok-A 回 400 + APIG.0602、对 tok-B 回 200 —— 于是「鉴权失败」这条链路能真验到。
  *
- * ⚠ 契约对照（**旧契约 → 新契约**）：
- * - 旧：鉴权失败后**自动切到池内另一个账号**（A 被拒 → 换 B → 客户端拿到 200）。
- * - 新：**不自动切号** —— 只「刷新 token → 用新 token 重试本账号」，仍失败则把该账号
- *   标 `unauthorized`、**凭证原样保留**，返回 502 `upstream_unauthenticated`，
- *   下一步由用户手动切号（`mx acct <cid> use <key>`）。
- *   依据：`src/http/chat/relay.ts:748-801`（`callUpstream` 的注释与分支）、
- *   `src/runtime/account-pool.ts`（`activeAccountIsError`：只短路当前账号，不挑下一个）、
- *   `docs/POOL-ARCHITECTURE.md:308-316`（§3.3 明确「不自动切号」）。
- *
- * ⚠ 池 id 形态：请求必须是 `<cid>/<模型>`（`solo/glm-5.3-flash`）——
- *   裸模型名一律 400（`src/pool/pool-targets.ts:473-477`）。
+ * ⚠ 现行契约**不自动切号**：只「刷新 token → 用新 token 重试本账号」，仍失败则标
+ * `unauthorized`、**凭证原样保留**，返回 502 `upstream_unauthenticated`，
+ * 下一步由用户手动切号（`mx acct <cid> use <key>`）。依据：`relay.ts` 的
+ * `callUpstream` 分支、`account-pool.ts` 的 `activeAccountIsError`、
+ * docs/POOL-ARCHITECTURE.md §3.3。⚠ 池 id 必须 `<cid>/<模型>`，裸名一律 400。
  */
 
 import assert from "node:assert/strict";

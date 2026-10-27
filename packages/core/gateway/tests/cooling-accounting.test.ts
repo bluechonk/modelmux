@@ -1,21 +1,12 @@
 /**
  * 账号额度冷却的**记账边界**：冷却短路不是鉴权失败，不得计连败。
  *
- * ## 为什么需要这个用例（2026-10-24 真实事故）
- *
- * 上游 workbuddy 回 `HTTP 429 + code=6004`（用量限额）后，网关正确地冷却了账号
- * （`health: "cooldown"`）。但冷却期间每个请求都在 `http/chat/auth.ts` 被短路成
- * `not_authenticated`，而 `attempt.ts` 对该 kind 一律 `noteAccountFailure()` ——
- * 于是每次短路都记一次连败，3 次即 `health = "error"`：
- *
- * - `fail_streak` 涨到 11（= 11 次短路），
- * - `error` 短路**不区分模型**，连倍率 0 的免费模型也一起锁死，
- * - `expireCooldown` 只处理 `cooldown`，`error` 没有自动恢复路径。
- *
- * 这与 `runtime/account-pool.ts` 的显式设计冲突（额度耗尽刻意不动 `fail_streak`）。
- * 本用例锁住该边界：**冷却短路无论来多少次，`fail_streak` 必须保持 0、`health` 保持 `cooldown`**。
- *
- * 全程离线：合成渠道 + 本机 http 上游 + 临时存储根，绝不碰真实账号与真实上游。
+ * 真实事故（2026-10-24）：workbuddy 回 `429 + code=6004` 后账号正确进入
+ * `cooldown`，但冷却期每个请求都被 `http/chat/auth.ts` 短路成 `not_authenticated`，
+ * 而 `attempt.ts` 对该 kind 一律记连败 —— 11 次短路即 `fail_streak=11` →
+ * `health="error"`（error 短路不分模型，免费模型一起锁死；`error` 又没有自动
+ * 恢复路径）。本用例锁住边界：**冷却短路无论多少次，`fail_streak` 保持 0、
+ * `health` 保持 `cooldown`**。全程离线：合成渠道 + 本机 http 上游 + 临时存储根。
  */
 
 import assert from "node:assert/strict";

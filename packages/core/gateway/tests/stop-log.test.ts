@@ -3,14 +3,9 @@
  * `{"event":"stop","pid":…}` —— 时间线平时只有 start/ready，
  * 不补这行就没有“下线”痕迹（手动停与崩溃分不出来）。
  *
- * 落点：旧行为是 scope 内的 `gateway.log`（`appendFileSync(scope.logPath(), …)`，
- *   见提交 e974042 之前的 daemon.ts）；新行为是**分层日志**里的生命周期文件
- *   `<root>/logs/system/<YYYY-MM-DD>/lifecycle.log`（`appendSystem("stop", { pid })`，
- *   见 src/app/lifecycle/daemon.ts:234-237 与 src/runtime/log-store.ts:308-311，
- *   契约见 docs/LOGGING.md §4「生命周期事件规范」）。
- *   start / ready 也写同一份文件，故「原有内容保留」在这里才真正说得通。
- *
- * 完全离线：只起一个本地 dummy 进程当“网关”，不碰网络与真实主目录。
+ * 落点是**分层日志**的生命周期文件 `<root>/logs/system/<日期>/lifecycle.log`
+ * （`appendSystem("stop", { pid })`，契约见 docs/LOGGING.md §4；
+ * start / ready 写同一份文件）。完全离线：只起一个本地 dummy 进程当“网关”。
  */
 
 import assert from "node:assert/strict";
