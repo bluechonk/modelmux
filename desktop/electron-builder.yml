@@ -10,6 +10,11 @@
 
 appId: cn.modelmux.desktop
 productName: modelmux
+# 打包二进制源（npmmirror 国内镜像）由 desktop/.npmrc 承载：
+#   electron_mirror                 → npm install 时下载 electron 二进制
+#   electron_builder_binaries_mirror → electron-builder 下载 7z/winCodeSign/nsis 等
+# electron-builder 26 起不接受 electronGet / env 根配置项，.npmrc 是唯一稳定载体；
+# 镜像在项目内自包含：队友拉下来直接 npm run pack，不依赖代理与本机 export。
 # electron-updater 的更新源（latest.yml 随产物生成；v1 不接 updater UI，配置先就位）
 publish:
   provider: github
@@ -38,7 +43,11 @@ win:
       arch: [x64]
 
 nsis:
-  oneClick: false
+  # 一键安装（electron-builder 推荐默认形态）：无向导页、无「所有用户」选项 ——
+  # 直接装到 %LOCALAPPDATA%\Programs\modelmux，全程无 UAC 提升。
+  # assisted 形态（oneClick: false）在 GUI 下会经 UAC 提权路径，实测本机写
+  # uninstallerIcon.ico 失败（报错「不能打开要写入的文件」）；一键安装绕开该路径。
+  oneClick: true
   perMachine: false
   allowToChangeInstallationDirectory: true
   unicode: true

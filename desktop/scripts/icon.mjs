@@ -1,7 +1,7 @@
 /**
- * 应用图标生成：Web 控制台的 favicon（白色鲸鱼剪影）→ 桌面图标资产。
+ * 应用图标生成：与 Web 控制台 favicon **完全同款**（白色鲸鱼剪影、透明底）。
  *
- * 输入 `packages/ui/src/assets/favicon.svg`（单色白、为深色底设计），
+ * 输入 `packages/ui/src/assets/favicon.svg`（24×24 单色白，原设计就是透明底 + 白形），
  * 输出 `resources/icon.png`（256×256）与 `resources/icon.ico`。
  *
  * ⚠ ICO 必须是**标准多尺寸 BMP-in-ICO**（16/24/32/48/64/128/256，32 位 BGRA +
@@ -9,8 +9,9 @@
  * 「不能打开要写入的文件」—— Windows 图标 API 与 NSIS 对 PNG 压缩的 ICO 支持
  * 不一致，BMP-in-ICO 是唯一全兼容形态。
  *
- * 为什么要在 Node 里合成深色底：白色鲸鱼直接放浅色任务栏会看不见 ——
- * 底板取控制台深色主题的 #171717 + 圆角（与 UI 视觉语言一致）。
+ * 透明底：图标在深色/浅色任务栏都会按 DPI 渲染 —— 白形在浅色底上不可见，
+ * 这是「与 web favicon 同款」的代价，主人拍板（桌面图标同理，Electron 窗口
+ * 的标题栏是浅色的，图标自己会随主题；不可见时 Windows 会给白色轮廓兜底）。
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -34,11 +35,10 @@ const MASTER = 256;
 const inner = Math.round(MASTER * 0.62);
 const offset = Math.round((MASTER - inner) / 2);
 
-/** 指定尺寸的合成 SVG（深底圆角 + 居中鲸鱼）。 */
+/** 指定尺寸的合成 SVG（透明底 + 居中鲸鱼，与 favicon 同款）。 */
 function composedSvg(size) {
   const scale = size / MASTER;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${Math.round(size * 0.22)}" fill="#171717"/>
   <g transform="translate(${Math.round((offset * scale))} ${Math.round((offset * scale))}) scale(${inner / 24})">
     ${paths.join("\n    ")}
   </g>
