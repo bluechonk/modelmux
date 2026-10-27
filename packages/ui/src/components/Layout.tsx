@@ -10,6 +10,7 @@
 import { NavLink, Outlet } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Boxes, Gauge } from "lucide-react";
+import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
 import { BrandMark } from "./BrandMark";
@@ -30,6 +31,8 @@ const IS_DEMO = typeof __DEMO_MODE__ !== "undefined" && __DEMO_MODE__;
  * 侧栏底部常驻网关状态行（3 秒轮询 /api/state，失败即灰）。
  */
 export function Layout({ children }: { children?: ReactNode }): ReactElement {
+  /** 侧栏折叠状态：点击品牌行切换，折叠时只留图标列（文案与底部状态区隐藏）。 */
+  const [collapsed, setCollapsed] = useState(false);
   const state = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
@@ -46,53 +49,72 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
   return (
     <div className="flex h-full">
       {/* 窄屏收成图标栏：宽度 56px，文案隐藏（见文件头「响应式」） */}
-      <aside className="flex w-14 shrink-0 flex-col bg-surface md:w-[260px]">
-        {/* 品牌：mark 常驻，名字只在宽屏显示 */}
-        <div className="flex items-center justify-center gap-2.5 px-2 pb-5 pt-4 md:justify-start md:px-4">
-          <BrandMark size={20} className="text-ink" />
-          <span className="hidden text-[15px] font-medium tracking-tight text-ink md:inline">
-            modelmux
-          </span>
-        </div>
+      <aside
+        className={`flex shrink-0 flex-col bg-surface transition-[width] duration-200 ${
+          collapsed ? "w-14" : "w-14 md:w-[260px]"
+        }`}
+      >
+          {/* 品牌兼折叠开关：mark 常驻，名字只在展开（宽屏）显示；点击收起/展开侧栏 */}
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+            className={`flex cursor-pointer items-center gap-2.5 px-2 pb-5 pt-4 md:px-4 ${
+              collapsed ? "justify-center" : "justify-center md:justify-start"
+            }`}
+          >
+            <BrandMark size={20} className="shrink-0 text-ink" />
+            {!collapsed && (
+              <span className="hidden text-[15px] font-medium tracking-tight text-ink md:inline">
+                modelmux
+              </span>
+            )}
+          </button>
 
-        {/* 导航：窄屏只留图标（居中），宽屏图标 + 文案 */}
-        <nav className="flex flex-col gap-0.5 px-2">
-          {NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              aria-label={label}
-              className={({ isActive }) =>
-                `nav-item justify-center md:justify-start ${
-                  isActive
-                    ? "bg-raised text-ink"
-                    : "text-ink-soft hover:bg-raised/60 hover:text-ink"
-                }`
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden min-w-0 truncate md:inline">{label}</span>
-            </NavLink>
-          ))}
-        </nav>
+          {/* 导航：折叠时只留图标（居中），展开时图标 + 文案 */}
+          <nav className="flex flex-col gap-0.5 px-2">
+            {NAV.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                aria-label={label}
+                className={({ isActive }) =>
+                  `nav-item ${
+                    collapsed ? "justify-center" : "justify-center md:justify-start"
+                  } ${
+                    isActive
+                      ? "bg-raised text-ink"
+                      : "text-ink-soft hover:bg-raised/60 hover:text-ink"
+                  }`
+                }
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {!collapsed && (
+                  <span className="hidden min-w-0 truncate md:inline">{label}</span>
+                )}
+              </NavLink>
+            ))}
+          </nav>
 
-        {/* 底部：演示提示 + 网关状态两行（窄屏只留状态点） */}
-        <div className="mt-auto space-y-2 px-3 pb-4">
-          {IS_DEMO && (
-            <div className="hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
-              <div className="font-medium">演示模式</div>
-              <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
+        {/* 底部：演示提示 + 网关状态两行（折叠时整块隐藏） */}
+        {!collapsed && (
+          <div className="mt-auto space-y-2 px-3 pb-4">
+            {IS_DEMO && (
+              <div className="hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
+                <div className="font-medium">演示模式</div>
+                <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
+              </div>
+            )}
+            <div className="flex items-center justify-center gap-2 py-1 md:justify-start">
+              <span className={`live-dot h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
+              <span className="hidden text-xs text-ink-soft md:inline">网关</span>
+              <span className="hidden text-xs text-ink md:ml-auto md:inline">{statusText}</span>
             </div>
-          )}
-          <div className="flex items-center justify-center gap-2 py-1 md:justify-start">
-            <span className={`live-dot h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
-            <span className="hidden text-xs text-ink-soft md:inline">网关</span>
-            <span className="hidden text-xs text-ink md:ml-auto md:inline">{statusText}</span>
+            <div className="hidden truncate px-1 font-mono text-[11px] text-ink-faint md:block">
+              {origin}
+            </div>
           </div>
-          <div className="hidden truncate px-1 font-mono text-[11px] text-ink-faint md:block">
-            {origin}
-          </div>
-        </div>
+        )}
       </aside>
 
       <main className="min-w-0 flex-1 overflow-auto">
