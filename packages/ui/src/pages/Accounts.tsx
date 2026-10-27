@@ -59,8 +59,7 @@ const SUMMARY_ORDER: Array<{ key: ChannelStatus; label: string; dot: string }> =
   { key: "ok", label: "正常", dot: "bg-free" },
   { key: "cooldown", label: "冷却", dot: "bg-warn" },
   { key: "down", label: "异常", dot: "bg-danger" },
-  { key: "offline", label: "未登录", dot: "bg-ink-faint" },
-  { key: "empty", label: "空池", dot: "bg-ink-faint" },
+  { key: "broke", label: "没钱了", dot: "bg-danger" },
 ];
 
 /**
@@ -257,12 +256,11 @@ export function Accounts(): ReactElement {
     ok: 0,
     cooldown: 0,
     down: 0,
-    offline: 0,
-    empty: 0,
+    broke: 0,
   };
   let totalAccounts = 0;
-  for (const { pool, present } of list) {
-    counts[classifyChannel(pool, present)] += 1;
+  for (const { pool, present, billing } of list) {
+    counts[classifyChannel(pool, present, billing)] += 1;
     totalAccounts += pool.index.accounts.length;
   }
 
@@ -279,7 +277,7 @@ export function Accounts(): ReactElement {
         </div>
       ) : (
         <>
-          {/* 总览条：一眼看清正常 / 冷却 / 异常 / 未登录各几个，不用逐张翻卡 */}
+          {/* 总览条：一眼看清正常 / 冷却 / 异常 / 没钱了几个，不用逐张翻卡 */}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1">
             <span className="text-xs text-ink-faint">
               共 <span className="font-mono font-medium text-ink">{list.length}</span> 渠道 ·{" "}
