@@ -14,7 +14,7 @@
 
 ```
 ~/.modelmux/                 ← 唯一存储根（MODELMUX_HOME 可覆盖）
-├── prefs.json                   ← （可选）跨渠道共享偏好
+├── prefs.json                   ← 根级运行时偏好（正文抓取开关等，见 LOGGING.md §9；runtime/root-prefs.ts）
 ├── gateway.pid                  ← 仓库级网关监督进程 PID（不属于任何渠道）
 ├── gateway-worker.pid           ← 仓库级网关 worker PID（监督进程维护）
 ├── watchdog.pid                 ← 外部守护 PID（scripts/mx-watchdog.mjs）

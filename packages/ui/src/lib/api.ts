@@ -29,6 +29,7 @@ import {
   demoModels,
   demoRemove,
   demoReset,
+  demoSetPayloadCapture,
   demoSettings,
   demoStatus,
   demoSubmitLoginInput,
@@ -116,6 +117,13 @@ export interface WebApi {
   logs(query?: LogQuery): Promise<AccessLogPage>;
   /** 某条请求的正文抓取记录（`enabled: false` = 抓取开关没开）。 */
   logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
+  /**
+   * 切换请求正文抓取（持久化到 `<root>/prefs.json`，不重启生效）。
+   *
+   * 开着时每次对话的请求体（含用户 prompt）都会落盘 `logs/payload/`，
+   * 关闭只停止新增，已落盘的记录在保留期内仍可读。
+   */
+  setPayloadCapture(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }>;
   readonly commands: {
     /** 各方法返回**已解包 data 的扁平对象**（含 ok / message / error）。 */
     login(cid: string, force: boolean): Promise<CommandData>;
@@ -287,7 +295,7 @@ export const api: WebApi = {
   retryLogin: () => (IS_DEMO ? demoNoop() : post("/api/retry-login")),
   logs: (query = {}) =>
     IS_DEMO
-      ? demoLater(demoLogs(query))
+      ? demoLater(demoLogs(demo(), query))
       : get(
           `/api/logs${queryString({
             date: query.date,
@@ -305,6 +313,10 @@ export const api: WebApi = {
     IS_DEMO
       ? demoLater(demoLogPayload(id))
       : get(`/api/logs/payload${queryString({ id, date })}`),
+  setPayloadCapture: (enabled) =>
+    IS_DEMO
+      ? demoLater(demoSetPayloadCapture(demo(), enabled))
+      : post("/api/logs/payload-capture", { enabled }),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),
