@@ -10,7 +10,7 @@
  * 上下文窗口 / 输出上限 / 输入模态（数据共享层 `PoolModelMeta` 本来就有）。
  */
 
-import { ChevronDown, ChevronRight, Image as ImageIcon, LayoutList, Rows3, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Image as ImageIcon, LayoutList, Rows3, Search, Type, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
@@ -431,18 +431,23 @@ function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: Re
   );
 }
 
-/** 输入模态单元格：能吃图才给标记，纯文本留白。 */
+/**
+ * 输入模态单元格：纯图标 —— 文本用 `Type`（T 字形）、图片用 `Image`，
+ * 能看图时 `T + 图`（列头已说明这列是输入能力，图标本身即语义，不再写文字）。
+ */
 function ModalityCell({ row }: { row: ModelRow }): ReactElement {
   const modes = row.meta?.inputModalities ?? [];
   const vision = modes.includes("image");
-  if (!vision) {
-    return <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-faint">文本</td>;
-  }
   return (
     <td className="whitespace-nowrap px-3 py-2">
-      <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft">
-        <ImageIcon className="h-3 w-3" />
-        文本+图
+      <span className="inline-flex items-center gap-1 text-ink-soft">
+        <Type className="h-3.5 w-3.5" aria-label="文本" />
+        {vision && (
+          <>
+            <span className="text-ink-faint">+</span>
+            <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
+          </>
+        )}
       </span>
     </td>
   );
