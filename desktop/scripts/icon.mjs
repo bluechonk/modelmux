@@ -33,7 +33,8 @@ const paths = [...favicon.matchAll(/<path[^>]*\/>/g)].map((m) => m[0]);
 if (paths.length === 0) throw new Error("favicon.svg 里没有 <path>");
 
 const MASTER = 256;
-const inner = Math.round(MASTER * 0.62);
+// 主体占比 82%（原 62% 留白过大），居中偏移相应缩小
+const inner = Math.round(MASTER * 0.82);
 const offset = Math.round((MASTER - inner) / 2);
 
 /** 指定尺寸的合成 SVG：`opaque=true` 加深底圆角（exe 资源用，rcedit 安全）。 */
