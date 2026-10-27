@@ -1,0 +1,21 @@
+{
+  "name": "@modelmux/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "modelmux 桌面壳：Electron 主进程 + 网关子进程管理",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bundle": "node scripts/bundle.mjs",
+    "pack": "npm run bundle && electron-builder --config electron-builder.yml",
+    "pack:dir": "npm run bundle && electron-builder --config electron-builder.yml --dir"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "sharp": "^0.35.5",
+    "typescript": "^5.9.3"
+  }
+}
