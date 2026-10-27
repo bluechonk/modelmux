@@ -27,7 +27,6 @@ packages/
 └── core/                     服务端运行时
     ├── gateway/              共享层（网关 / 守护 / 路径 / 渠道注册表）
     └── channels/<cid>/       一个渠道 = 一个池子（模型目录 + 凭据 + 上游协议）
-desktop/                      桌面壳（Windows exe，独立构建环境；见 docs/DESKTOP-APP.md）
 docs/                         全部文档（契约与规范 + 渠道文档 docs/channels/<cid>/）
 ```
 

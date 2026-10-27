@@ -8,8 +8,6 @@
 目录树见 [README.md](README.md)。本仓库的结构约束如下：
 
 1. `packages/` 只允许 `cli` / `ui` / `core` 三个直接子目录；新增包必须归入其中之一。
-   唯一例外：`desktop/`（Windows 桌面壳，**独立构建环境、不进 npm workspaces**，
-   Electron 工具链与主仓隔离；规范见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)）。
 2. `packages/core/gateway` 是共享层，**不许出现任何渠道知识**（厂商名、渠道特有字段、渠道模型名一律不得硬编码）。
 3. `packages/core/channels/<cid>` 是渠道包，只实现 4 个渠道特有模块（`cred` / `upstream` / `catalog` / `billing`）；
    加上通用入口 `channel` / `cli` / `index`，`src/` 共 7 个文件，其余一律复用共享层。
@@ -254,13 +252,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - **文件头只做导航（≤12 行）**：一句话职责 + 关键约束 ≤3 条 + 铁律（如需要）+ 指针。
    模板与细则见 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md)，
    内容判据与正反例见 [`docs/CODE-COMMENTS.md`](docs/CODE-COMMENTS.md)。
-8. **桌面壳（`desktop/`）的 Electron 边界**（规范见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)）：
-   - 壳是 loadURL 型：加载网关托管的控制台，**没有 preload、没有 IPC、渲染层不是自写代码**
-     —— 这是**设计选择**（最小攻击面），不是待补的缺口；
-   - 禁止为图方便往壳里加 `nodeIntegration` / `webSecurity: false` / 裸 `ipcRenderer` 暴露；
-     确需 IPC 时先补契约（命名空间 + 类型 + 主进程入参校验）并在此登记；
-   - 壳只允许**探活复用或 fork 自己拉起的网关**，绝不占用/杀掉不属于自己的网关进程。
-9. **Web 控制台禁止 hover 悬浮气泡**（`packages/ui/**` 硬规则，见
+8. **Web 控制台禁止 hover 悬浮气泡**（`packages/ui/**` 硬规则，见
    [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md) §「交互铁律」）：
    - 不用原生 `title=` 属性、不自建 hover tooltip / popover；
    - 信息要么直接可见（写进正文、允许换行不裁切），要么放进**点击后**出现的详情区；

@@ -57,7 +57,7 @@ function* walk(dir) {
   }
 }
 
-const roots = ["packages", "desktop/src"];
+const roots = ["packages"];
 const problems = [];
 const allowlistedUsed = new Set();
 
