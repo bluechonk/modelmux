@@ -21,7 +21,7 @@ import {
 import { resolvePoolModel } from "../../pool/model-pool.js";
 import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
-import { noteRequestError, noteUpstreamReady } from "../../runtime/log-store.js";
+import { noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { activeKeyOf } from "./candidates.js";
 import { isQuotaExhausted, isUsageLimit, writeJsonError } from "./errors.js";
@@ -92,6 +92,8 @@ export interface AttemptContext {
   payload: Record<string, unknown>;
   /** 客户端是否要流式。 */
   wantStream: boolean;
+  /** 本候选的尝试序号（0 起）：抓包据此把「第几次尝试发了什么」分开呈现。 */
+  attempt: number;
   /** 探测重试前换一次候选主机（渠道没有主机概念时为 undefined）。 */
   rotateHost?: () => boolean;
 }
@@ -484,6 +486,11 @@ export async function attemptCandidate(
     encodedBody !== null
       ? Buffer.from(encodedBody, "utf8")
       : Buffer.from(JSON.stringify(body), "utf8");
+
+  // 抓包（opt-in）必须在 fetch **之前**：超时/建连失败时，这条记录是唯一的
+  // 「我到底发了什么、多大」证据。此刻 `sendBody` 已过渠道翻译与 `prepareChat` 前置，
+  // 正是「构造完成的上下文」本身。
+  noteUpstreamPayload(res, { cid, model: resolvedModel, stream: ctx.wantStream, attempt: ctx.attempt }, sendBody);
 
   // ⚠ 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入转发层，
   //    响应头已发给客户端，换渠道会变成两个响应。

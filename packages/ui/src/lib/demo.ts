@@ -10,7 +10,15 @@
  * 不读取、不复制 `~/.modelmux/` 下的任何真实数据。
  */
 
-import type { UiSnapshot } from "./types";
+import type {
+  AccessLogEntry,
+  AccessLogPage,
+  AccessLogStats,
+  AccessOutcome,
+  LogQuery,
+  PayloadQueryResult,
+  UiSnapshot,
+} from "./types";
 
 /** 渠道：cid + 展示名 + 是否已登录 + 有没有额度概念（虚构）。 */
 interface DemoChannel {
@@ -554,4 +562,174 @@ export function demoReset(
   hit.cooldownInMinutes = undefined;
   hit.cooldownReason = undefined;
   return { cleared: changed, health: hit.health };
+}
+
+/**
+ * 演示日志的模板（虚构）。
+ *
+ * 刻意把每种情况都放一条：成功 / 失败 / 中断、慢请求、流式与非流式、
+ * 有 usage 与没有 usage、带工具调用与不带 —— 少一种，演示页就少展示一条该有的路径
+ * （比如「没有 tokens 时显示 -」这种边界就永远看不到）。
+ */
+const DEMO_LOG_SEED: Array<{
+  cid: string;
+  model: string;
+  stream: boolean;
+  outcome: AccessOutcome;
+  status: number;
+  durationMs: number;
+  upstreamMs: number;
+  ttfbMs: number;
+  tokens: { prompt: number; completion: number; total: number } | null;
+  error?: string;
+  message?: string;
+  toolCount?: number;
+  messageCount?: number;
+}> = [
+  { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, outcome: "success", status: 200, durationMs: 8420, upstreamMs: 610, ttfbMs: 1180, tokens: { prompt: 12480, completion: 1332, total: 13812 }, toolCount: 2, messageCount: 14 },
+  { cid: "catpaw", model: "catpaw/glm-5.3-flash", stream: true, outcome: "success", status: 200, durationMs: 3140, upstreamMs: 380, ttfbMs: 640, tokens: { prompt: 8120, completion: 402, total: 8522 }, messageCount: 9 },
+  { cid: "loomy", model: "loomy/qwen3.8-flash", stream: false, outcome: "success", status: 200, durationMs: 2210, upstreamMs: 1900, ttfbMs: 2210, tokens: { prompt: 4020, completion: 88, total: 4108 }, messageCount: 5 },
+  { cid: "traecn", model: "traecn/kimi-k2.6", stream: true, outcome: "failure", status: 502, durationMs: 61040, upstreamMs: 60020, ttfbMs: 60020, tokens: null, error: "upstream_timeout", message: "upstream stream timed out: The operation was aborted due to timeout", messageCount: 22 },
+  { cid: "raccoon", model: "raccoon/glm-5.3", stream: true, outcome: "failure", status: 503, durationMs: 980, upstreamMs: 940, ttfbMs: 980, tokens: null, error: "not_authenticated", message: "not logged in: credential expired", messageCount: 3 },
+  { cid: "qodercn", model: "qodercn/deepseek-v4-pro", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
+  { cid: "catpaw", model: "catpaw/glm-5.3-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
+  { cid: "workbuddyai", model: "workbuddyai/deepseek-v4.1-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
+  { cid: "loomy", model: "loomy/minimax-m3", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
+  { cid: "astudio", model: "astudio/spark-x2.6", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
+  { cid: "lobsterai", model: "lobsterai/glm-5.3", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
+  { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, outcome: "success", status: 200, durationMs: 1180, upstreamMs: 300, ttfbMs: 480, tokens: { prompt: 240, completion: 96, total: 336 }, messageCount: 1 },
+  { cid: "qodercn", model: "qodercn/kimi-k3", stream: true, outcome: "success", status: 200, durationMs: 40210, upstreamMs: 880, ttfbMs: 2600, tokens: { prompt: 20480, completion: 9140, total: 29620 }, toolCount: 9, messageCount: 44 },
+  { cid: "catpaw", model: "catpaw/longcat-2.0", stream: false, outcome: "success", status: 200, durationMs: 2620, upstreamMs: 2400, ttfbMs: 2620, tokens: { prompt: 1240, completion: 520, total: 1760 }, messageCount: 6 },
+];
+
+/** 演示的可用日期（今天起往前三天）。 */
+function demoLogDates(now: number): string[] {
+  return [0, 1, 2].map((i) => new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+}
+
+/** 日志查询（对应 `GET /web/api/logs`）；过滤与分页口径与后端保持一致。 */
+export function demoLogs(query: LogQuery = {}): AccessLogPage {
+  const now = Date.now();
+  const dates = demoLogDates(now);
+  const entries: AccessLogEntry[] = DEMO_LOG_SEED.map((seed, i) => ({
+    id: `req_demo${String(i).padStart(4, "0")}9f3c`,
+    ts: new Date(now - i * 47_000).toISOString(),
+    method: "POST",
+    path: "/v1/chat/completions",
+    cid: seed.cid,
+    model: seed.model,
+    stream: seed.stream,
+    status: seed.status,
+    outcome: seed.outcome,
+    ...(seed.error ? { error: seed.error } : {}),
+    ...(seed.message ? { message: seed.message } : {}),
+    durationMs: seed.durationMs,
+    upstreamMs: seed.upstreamMs,
+    ttfbMs: seed.ttfbMs,
+    requestBytes: 2400 + i * 137,
+    messageCount: seed.messageCount ?? 0,
+    systemChars: 1180,
+    toolCount: seed.toolCount ?? 0,
+    tokens: seed.tokens,
+    slow: seed.durationMs >= 30_000,
+  }));
+
+  const stats: AccessLogStats = {
+    requests: entries.length,
+    success: entries.filter((e) => e.outcome === "success").length,
+    failure: entries.filter((e) => e.outcome === "failure").length,
+    other: entries.filter((e) => e.outcome === "other").length,
+    slow: entries.filter((e) => e.slow).length,
+    avgDurationMs: Math.round(
+      entries.reduce((sum, e) => sum + (e.durationMs ?? 0), 0) / Math.max(1, entries.length),
+    ),
+    noUsage: entries.filter((e) => e.tokens === null).length,
+    tokens: entries.reduce(
+      (acc, e) => ({
+        prompt: acc.prompt + (e.tokens?.prompt ?? 0),
+        completion: acc.completion + (e.tokens?.completion ?? 0),
+        total: acc.total + (e.tokens?.total ?? 0),
+      }),
+      { prompt: 0, completion: 0, total: 0 },
+    ),
+  };
+
+  const needle = query.q?.toLowerCase();
+  const matched = entries.filter((e) => {
+    if (query.outcome !== undefined && e.outcome !== query.outcome) return false;
+    if (query.cid !== undefined && e.cid !== query.cid) return false;
+    if (query.stream !== undefined && e.stream !== query.stream) return false;
+    if (query.slow === true && !e.slow) return false;
+    if (query.model !== undefined && !(e.model ?? "").toLowerCase().includes(query.model.toLowerCase())) {
+      return false;
+    }
+    if (needle !== undefined && needle !== "") {
+      const hay = `${e.id} ${e.model ?? ""} ${e.error ?? ""} ${e.message ?? ""}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+
+  const limit = Math.min(Math.max(1, query.limit ?? 100), 500);
+  const offset = Math.max(0, query.offset ?? 0);
+  return {
+    ok: true,
+    date: query.date ?? dates[0] ?? "",
+    dates,
+    cids: [...new Set(entries.map((e) => e.cid ?? ""))].filter((c) => c !== "").sort(),
+    slowMs: 30_000,
+    scanned: entries.length,
+    truncated: false,
+    total: matched.length,
+    stats,
+    entries: matched.slice(offset, offset + limit),
+    payload_enabled: true,
+  };
+}
+
+/** 演示的请求上下文（虚构）：客户端原样体 + 两次尝试的上行体。 */
+export function demoLogPayload(id: string): PayloadQueryResult {
+  const messages = [
+    { role: "system", content: "你是一个演示用的助手，数据全部虚构。" },
+    { role: "user", content: "帮我看看这个仓库的日志页要怎么设计。" },
+  ];
+  const upstreamMessages = [
+    ...messages,
+    { role: "assistant", content: null, tool_calls: [{ id: "call_demo", type: "function", function: { name: "read_file", arguments: '{"path":"docs/LOGGING.md"}' } }] },
+    { role: "tool", tool_call_id: "call_demo", content: "…（演示用的假文档片段）…" },
+  ];
+  const meta = { model: "loomy/kimi-k2.6", stream: true, temperature: 0.7, tools: [] as unknown[] };
+  const now = Date.now();
+  return {
+    ok: true,
+    id,
+    date: null,
+    enabled: true,
+    records: [
+      {
+        ts: new Date(now - 60_000).toISOString(),
+        seq: 1,
+        id,
+        phase: "client",
+        model: "loomy/kimi-k2.6",
+        stream: true,
+        bytes: JSON.stringify({ ...meta, messages }).length,
+        truncated: false,
+        body: JSON.stringify({ ...meta, messages }),
+      },
+      {
+        ts: new Date(now - 59_500).toISOString(),
+        seq: 2,
+        id,
+        phase: "upstream",
+        attempt: 0,
+        cid: "loomy",
+        model: "kimi-k2.6",
+        stream: true,
+        bytes: JSON.stringify({ ...meta, model: "kimi-k2.6", messages: upstreamMessages }).length,
+        truncated: false,
+        body: JSON.stringify({ ...meta, model: "kimi-k2.6", messages: upstreamMessages }),
+      },
+    ],
+  };
 }
