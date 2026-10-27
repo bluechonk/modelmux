@@ -1,15 +1,12 @@
 /**
- * 演示模式的数据源（**本地预览**用：界面完整渲染，动作只改内存状态）。
+ * 演示模式的数据源（**本地预览**：界面完整渲染，动作只改内存状态）。
  *
- * 为什么需要它：控制台每个页面都要 `fetch('/web/api/*')` 读本机网关 ——
- * 网关不发 CORS 头、`console.ts` 的 `isSameOrigin` 拒绝跨源写命令、Chrome 的
- * Private Network Access 拦「公网页 → 127.0.0.1」。演示模式在 `api` 层用本模块
- * 替换 fetch。
+ * 控制台页面要 `fetch('/web/api/*')` 读本机网关，而演示构建没有网关（CORS /
+ * 同源写校验 / Private Network Access 三重拦截）—— 演示模式在 `api` 层用本模块
+ * 替换 fetch。⚠ 由**演示构建**（`DEMO=1`）使用，发布到 GitHub Pages
+ * （`.github/workflows/demo-pages.yml`；本地预览见 docs/WEB-CONSOLE.md）。
  *
- * ⚠ 本模块由**演示构建**（`DEMO=1`）使用：`.github/workflows/demo-pages.yml` 会把它发布到
- * GitHub Pages（只发演示构建）；本地预览见 `docs/WEB-CONSOLE.md` 的「演示模式」。
- *
- * 数据纪律：页面是**公开**的 —— 账号 uid / 手机号 / 域名一律用明显虚构的占位值，
+ * 数据纪律：页面**公开** —— 账号 uid / 手机号 / 域名一律用明显虚构的占位值，
  * 不读取、不复制 `~/.modelmux/` 下的任何真实数据。
  */
 

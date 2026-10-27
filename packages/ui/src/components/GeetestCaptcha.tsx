@@ -1,26 +1,11 @@
 /**
  * 安全验证（GeeTest v3 滑块）：在**浏览器里**解，然后回传三个字段。
  *
- * ## 为什么在浏览器里解
- *
- * AStudio 的发码端点 `POST /login/mobile/send-verify-code` 由服务端**强制**校验
- * GeeTest v3 —— 空 captcha 会回 `code=20009 geetest verify failed`（实测）。
- * 滑块本质是「证明你是人」，只能由浏览器里的组件完成。
- *
- * 官方客户端加载的 SDK 是 `https://static.geetest.com/static/tools/gt.js`，
- * 本组件用的是**同一个**（与参考实现
- * `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/web/panel.go` 一致）。
- *
- * ## 初始化参数严格对齐官方客户端
- *
- * `initGeetest({...cfg, https: true, offline: !cfg.success, product: 'bind', width: '100%'})`
- * —— `offline` 取 `!cfg.success`（服务端说这次必须联网验证就是 false），
- * `product: 'bind'` 是 AStudio 用到的产品标识。改这几个参数会导致校验失败。
- *
- * ## 通用性
- *
- * 组件只认「一个需要浏览器完成的挑战」，不绑定任何厂商：
- * 挑战参数由后端下发（`gt` + `challenge`），解完回传
+ * AStudio 的发码端点服务端**强制**校验 GeeTest v3（空 captcha 回
+ * `code=20009 geetest verify failed`）。SDK 与官方客户端同源
+ * （`static.geetest.com/static/tools/gt.js`）；`initGeetest` 参数严格对齐官方
+ * 客户端（`offline: !cfg.success`、`product: 'bind'`），改动会导致校验失败。
+ * 组件只认「一个需要浏览器完成的挑战」：参数后端下发，解完回传三字段
  * `{geetest_challenge, geetest_validate, geetest_seccode}`。
  */
 

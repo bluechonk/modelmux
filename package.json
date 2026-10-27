@@ -19,8 +19,9 @@
     "verify:topology": "node scripts/verify-topology.mjs",
     "verify:layering": "node scripts/verify-layering.mjs",
     "verify:wiring": "node scripts/verify-wiring.mjs",
+    "verify:comments": "node scripts/verify-comments.mjs",
     "gate": "bash scripts/wsl-gate.sh",
-    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:commits && npm run verify:topology && npm run verify:layering && npm run verify:wiring && npm run test --workspaces --if-present"
+    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:comments && npm run verify:commits && npm run verify:topology && npm run verify:layering && npm run verify:wiring && npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.6"
