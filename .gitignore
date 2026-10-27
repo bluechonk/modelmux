@@ -32,6 +32,7 @@ __pycache__/
 
 # ZCode 会话产物（计划/exec 缓存等），不入库
 .zcode/
+.claude/
 
 # 浏览器自动化产物（playwright MCP：截图 / 快照 / console 日志）
 .playwright-mcp/
