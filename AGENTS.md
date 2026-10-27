@@ -261,6 +261,11 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 
 ## 测试规则
 
+0. **Web / UI 改动必须用 `agent-browser` 技能做变化判断**：
+   - 改 `packages/ui/**`（布局、文案、状态、交互）后，**Agent 必须跑 `agent-browser` 技能**
+     在真实浏览器里打开 `http://127.0.0.1:4412/web/` 核验实际渲染结果（截图 / DOM 检查），
+     确认改动按预期呈现、没有破坏相邻页面 —— 结构上看不到的变化（如只改 data）无需走浏览器。
+   - 该技能不在仓库内（用户级 `~/.agents/skills/agent-browser/`），Agent 按名称调用即可。
 1. **渠道不写测试，只做端到端**：
    - 渠道包（`packages/core/channels/<cid>/`）**不写任何单元测试 / 集成测试 / selftest**；
      没有 `tests/` 目录，`package.json` 的 `scripts.test` 也不存在 —— 渠道测试唯一正确的形式是

@@ -2,9 +2,11 @@
  * 控制台布局：左侧栏导航 + 主内容区，侧栏底部常驻网关状态行。
  *
  * 视觉语言参照 Codex / ChatGPT：**深侧栏（#171717）+ 稍浅主区（#212121）**，
- * 单色系、无装饰；侧栏不放品牌卡与状态卡。响应式：`≥ md` 260px 全宽侧栏，
- * `< md` 收成 56px 图标栏（固定 260px 会把主区挤到不可用，实测 480px 端点 URL
- * 逐字换行）。状态灯 3 秒轮询 `/web/api/state`：运行中=绿、失败=红、其余=灰。
+ * 单色系、无装饰；侧栏不放品牌卡与状态卡。响应式：`≥ md` 按百分比取宽
+ * （15%，带 176~220px 收窄区间），`< md` 收成 56px 图标栏。
+ * 状态灯 3 秒轮询 `/web/api/state`：运行中=绿、异常=红、其余=灰；
+ * **网关异常（`error` / `down` / 查询失败）时正文整体用骨架图**，直到恢复
+ * （3 秒轮询自愈，无需刷新页面）。
  */
 
 import { NavLink, Outlet } from "react-router";
@@ -26,9 +28,38 @@ declare const __DEMO_MODE__: boolean;
 const IS_DEMO = typeof __DEMO_MODE__ !== "undefined" && __DEMO_MODE__;
 
 /**
+ * 网关异常时的正文骨架：替代所有页面内容（仪表盘 / 账号池）渲染，
+ * 形状贴近真实排版（标题 + 概览条 + 卡片网格），直到网关恢复。
+ */
+function GatewaySkeleton(): ReactElement {
+  return (
+    <div className="space-y-6" aria-hidden="true">
+      {/* 页面标题 */}
+      <div className="space-y-2.5">
+        <div className="h-6 w-40 animate-pulse rounded-md bg-raised" />
+        <div className="h-3.5 w-64 animate-pulse rounded bg-raised" />
+      </div>
+      {/* 概览条 */}
+      <div className="h-5 max-w-sm animate-pulse rounded bg-raised" />
+      {/* 卡片网格：与账号池两列布局同构 */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-44 animate-pulse rounded-2xl border border-line bg-raised"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * 左侧栏导航 + 主内容区布局（Codex 近黑单色）。
  *
  * 侧栏底部常驻网关状态行（3 秒轮询 /api/state，失败即灰）。
+ * 网关异常时正文整体骨架（见 `GatewaySkeleton`），侧栏仍可导航 ——
+ * 状态恢复后 3 秒内自动换回真实内容。
  */
 export function Layout({ children }: { children?: ReactNode }): ReactElement {
   /** 侧栏折叠状态：点击品牌行切换，折叠时只留图标列（文案与底部状态区隐藏）。 */
@@ -39,11 +70,15 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
     refetchInterval: 3000,
     retry: 1,
   });
-  const running = state.data?.ui_state === "running";
-  const offline = Boolean(state.isError);
-  // 状态灯配色：运行中=绿、离线=红、其余（未就绪/未知）=灰
-  const dotClass = running ? "bg-free" : offline ? "bg-danger" : "bg-ink-faint";
-  const statusText = running ? "运行中" : offline ? "离线" : "启动中";
+  // 注意顺序：isError 优先于 ui_state 缓存 —— 网关挂了之后 state.data 还是上次的
+  // 「running」，只看 ui_state 永远等不到异常（3 秒轮询一直失败也白搭）。
+  const uiState = state.data?.ui_state ?? "";
+  const queryFailed = Boolean(state.isError);
+  const abnormal = queryFailed || uiState === "error" || uiState === "down";
+  const running = !queryFailed && uiState === "running";
+  // 状态灯配色：运行中=绿、异常=红、其余（未就绪/未知）=灰
+  const dotClass = running ? "bg-free" : abnormal ? "bg-danger" : "bg-ink-faint";
+  const statusText = running ? "运行中" : abnormal ? "异常" : "启动中";
   const origin = (state.data?.base_url ?? "").replace(/\/v1\/?$/, "") || "127.0.0.1:4412";
 
   return (
@@ -51,7 +86,9 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
       {/* 窄屏收成图标栏：宽度 56px，文案隐藏（见文件头「响应式」） */}
       <aside
         className={`flex shrink-0 flex-col bg-surface transition-[width] duration-200 ${
-          collapsed ? "w-14" : "w-14 md:w-[260px]"
+          collapsed
+            ? "w-14"
+            : "w-14 md:w-[15%] md:min-w-[176px] md:max-w-[220px]"
         }`}
       >
           {/* 品牌兼折叠开关：mark 常驻，名字只在展开（宽屏）显示；点击收起/展开侧栏 */}
@@ -123,7 +160,9 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
           放宽到 1600px —— 宽屏用满、超宽屏仍有边距，
           模型表的 7 列与账号卡两列都有足够横向空间。
         */}
-        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">{children ?? <Outlet />}</div>
+        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
+          {abnormal ? <GatewaySkeleton /> : children ?? <Outlet />}
+        </div>
       </main>
     </div>
   );

@@ -91,23 +91,48 @@ function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
 }
 
 /**
- * 渠道级状态分类（页面总览条与卡片共用同一套判定，避免两处口径漂移）：
- * - `ok`：已登录且生效账号正常
- * - `cooldown`：生效账号额度冷却（会自己好，warn）
- * - `down`：已登录但生效账号故障/需登录（要人介入，danger）
- * - `offline`：凭据不存在（未登录）
- * - `empty`：已登录但池里没有账号
+ * 渠道级状态分类（页面总览条与卡片共用同一套判定，避免两处口径漂移）。
+ *
+ * 判定按「用户要做什么」排序，先命中先返回：
+ * - `down`：要人去处理凭据/账号 —— 凭据不存在、池里没账号、或生效账号
+ *   `health` 是 `error`（连败熔断）/ `unauthorized`（凭据失效）
+ * - `broke`：账单查到额度耗尽（`credits.remain <= 0`）—— 要人去充值/换账号。
+ *   排在 `cooldown` 之前：额度没了才是根因，冷却只是它的表现（否则卡片会
+ *   一直显示「冷却中」，看着像等一下就好，实际等不到）
+ * - `cooldown`：生效账号额度冷却，会自愈
+ * - `ok`：以上都不是
  */
-export type ChannelStatus = "ok" | "cooldown" | "down" | "offline" | "empty";
+export type ChannelStatus = "ok" | "cooldown" | "down" | "broke";
 
-export function classifyChannel(pool: AccountPool, present: boolean): ChannelStatus {
-  if (!present) return "offline";
+/**
+ * 生效账号的余额是否已耗尽。
+ *
+ * 只在**真查到了额度**时才算「没钱」：账单失败（`billing_ok === false`）、
+ * 渠道本身没有额度概念（`unsupported`）、或还没查到 `credits` 都返回 false ——
+ * 把「查不到」判成「没钱」会让用户去充一笔不需要充的钱。
+ */
+function activeBroke(pool: AccountPool, billing?: ChannelBilling): boolean {
+  if (!billing || billing.unsupported === true) return false;
+  const activeKey = pool.index.active;
+  if (!activeKey) return false;
+  const bill = (billing.accounts ?? []).find((a) => a.key === activeKey);
+  if (!bill || bill.billing_ok === false || !bill.credits) return false;
+  return Number(bill.credits.remain) <= 0;
+}
+
+export function classifyChannel(
+  pool: AccountPool,
+  present: boolean,
+  billing?: ChannelBilling,
+): ChannelStatus {
+  if (!present) return "down";
   const accounts = [...pool.index.accounts].map(rowOf);
-  if (accounts.length === 0) return "empty";
+  if (accounts.length === 0) return "down";
   const active = accounts.find((a) => a.key === pool.index.active);
   const health = active?.health ?? "ok";
-  if (health === "cooldown") return "cooldown";
   if (health === "error" || health === "unauthorized") return "down";
+  if (activeBroke(pool, billing)) return "broke";
+  if (health === "cooldown") return "cooldown";
   return "ok";
 }
 
@@ -212,8 +237,7 @@ const STATUS_META: Record<ChannelStatus, { text: string; pill: string; dot: stri
   ok: { text: "已登录", pill: "bg-overlay text-ink-soft", dot: "bg-free live-dot" },
   cooldown: { text: "冷却中", pill: "bg-warn/12 text-warn", dot: "bg-warn" },
   down: { text: "账号不可用", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
-  offline: { text: "未登录", pill: "bg-overlay text-ink-faint", dot: "bg-ink-faint" },
-  empty: { text: "空池", pill: "bg-overlay text-ink-faint", dot: "bg-ink-faint" },
+  broke: { text: "没钱了", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
 };
 
 /**
@@ -304,11 +328,11 @@ export function AccountCard({
   // 折叠条文案：折叠态显示「展开剩余 N 个」
   const hiddenCount = accounts.length - PREVIEW_ACCOUNTS;
 
-  const status = classifyChannel(pool, present);
+  const status = classifyChannel(pool, present, billing);
   const meta = STATUS_META[status];
-  // 异常/冷却只提亮描边，不铺彩色底 —— DeepSeek 的面板一律中性，语义靠点与文字
+  // 异常/没钱只提亮描边，不铺彩色底 —— DeepSeek 的面板一律中性，语义靠点与文字
   const cardClass =
-    status === "down"
+    status === "down" || status === "broke"
       ? "border-danger/30 hover:border-danger/50"
       : status === "cooldown"
         ? "border-warn/25 hover:border-warn/45"
@@ -329,7 +353,7 @@ export function AccountCard({
             <span className={`pill shrink-0 ${meta.pill}`}>{meta.text}</span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-ink-faint">
-            <span>{accounts.length > 0 ? `${accounts.length} 个账号` : "空池"}</span>
+            <span>{`${accounts.length} 个账号`}</span>
             {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
             {billing?.quota?.label && (
               <span className="text-ink-faint/70">· {billing.quota.label}</span>
