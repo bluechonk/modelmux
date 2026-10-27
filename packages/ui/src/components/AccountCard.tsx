@@ -91,73 +91,52 @@ function rowOf(account: PoolAccount | Record<string, unknown>): PoolAccount {
 }
 
 /**
- * 渠道级状态分类（页面总览条与卡片共用同一套判定，避免两处口径漂移）。
+ * 账号级状态分类（页面总览条与账号行共用同一套判定，避免两处口径漂移）。
  *
- * 判定按「用户要做什么」排序，先命中先返回：
- * - `down`：要人去处理凭据/账号 —— 凭据不存在、池里没账号、或生效账号
- *   `health` 是 `error`（连败熔断）/ `unauthorized`（凭据失效）
- * - `broke`：账单查到额度耗尽（`credits.remain <= 0`）—— 要人去充值/换账号。
- *   排在 `cooldown` 之前：额度没了才是根因，冷却只是它的表现（否则卡片会
- *   一直显示「冷却中」，看着像等一下就好，实际等不到）
- * - `cooldown`：生效账号额度冷却，会自愈
+ * 状态打在**每个账号**上，不是渠道上 —— 一个渠道池里的账号可能各自不同
+ * （既有有钱的也有耗尽的）。判定按「用户要做什么」排序，先命中先返回：
+ * - `down`：账号 `health` 是 `error`（连败熔断）/ `unauthorized`（凭据失效），
+ *   要人工介入
+ * - `broke`：账单查到该账号额度耗尽（`credits.remain <= 0`）—— 要充值/换账号。
+ *   排在 `cooldown` 之前：额度没了才是根因，冷却只是它的表现（显示「冷却」会
+ *   让人以为等一下就好，实际等不到）
+ * - `cooldown`：账号额度冷却，会自愈
  * - `ok`：以上都不是
  */
-export type ChannelStatus = "ok" | "cooldown" | "down" | "broke";
+export type AccountStatus = "ok" | "cooldown" | "down" | "broke";
 
 /**
- * 生效账号的余额是否已耗尽。
+ * 账号的余额是否已耗尽。
  *
  * 只在**真查到了额度**时才算「没钱」：账单失败（`billing_ok === false`）、
- * 渠道本身没有额度概念（`unsupported`）、或还没查到 `credits` 都返回 false ——
- * 把「查不到」判成「没钱」会让用户去充一笔不需要充的钱。
+ * 或还没查到 `credits` 都返回 false —— 把「查不到」判成「没钱」会让用户去充
+ * 一笔不需要充的钱。
  */
-function activeBroke(pool: AccountPool, billing?: ChannelBilling): boolean {
-  if (!billing || billing.unsupported === true) return false;
-  const activeKey = pool.index.active;
-  if (!activeKey) return false;
-  const bill = (billing.accounts ?? []).find((a) => a.key === activeKey);
+function accountBroke(account: PoolAccount, bill?: AccountBilling | null): boolean {
   if (!bill || bill.billing_ok === false || !bill.credits) return false;
   return Number(bill.credits.remain) <= 0;
 }
 
-export function classifyChannel(
-  pool: AccountPool,
-  present: boolean,
+export function classifyAccount(
+  account: PoolAccount | Record<string, unknown>,
   billing?: ChannelBilling,
-): ChannelStatus {
-  if (!present) return "down";
-  const accounts = [...pool.index.accounts].map(rowOf);
-  if (accounts.length === 0) return "down";
-  const active = accounts.find((a) => a.key === pool.index.active);
-  const health = active?.health ?? "ok";
-  if (health === "error" || health === "unauthorized") return "down";
-  if (activeBroke(pool, billing)) return "broke";
-  if (health === "cooldown") return "cooldown";
+): AccountStatus {
+  const row = rowOf(account);
+  if (row.health === "error" || row.health === "unauthorized") return "down";
+  if (billing?.unsupported !== true) {
+    const bill = (billing?.accounts ?? []).find((b) => b.key === row.key);
+    if (accountBroke(row, bill)) return "broke";
+  }
+  if (row.health === "cooldown") return "cooldown";
   return "ok";
 }
 
-/** 健康度圆点：正常=free / 不可用=danger / 冷却=warn / 其余=中性。 */
+/** 健康度圆点：正常=free / 异常=danger / 冷却=warn / 其余=中性。 */
 function healthDot(health: string): string {
   if (health === "ok") return "bg-free";
   if (health === "error" || health === "unauthorized") return "bg-danger";
   if (health === "cooldown") return "bg-warn";
   return "bg-ink-faint";
-}
-
-/** 健康度文案（空串 = 正常，不出徽标）。 */
-function healthText(health: string): string {
-  if (health === "error") return "不可用";
-  if (health === "cooldown") return "冷却中";
-  if (health === "unauthorized") return "需登录";
-  if (health === "unknown") return "未知";
-  return "";
-}
-
-/** 健康度徽标配色：错误=danger / 冷却=warn / 需登录=warn / 未知=中性。 */
-function healthBadgeClass(health: string): string {
-  if (health === "error") return "bg-danger/12 text-danger";
-  if (health === "cooldown" || health === "unauthorized") return "bg-warn/12 text-warn";
-  return "bg-overlay text-ink-faint";
 }
 
 /**
@@ -229,15 +208,15 @@ function quotaAmount(credits: AccountCredits | null | undefined, unsupported: bo
 }
 
 /**
- * 渠道级状态 pill 的配色与文案（与 `classifyChannel` 一一对应）。
+ * 账号级状态 pill 的配色与文案（与 `classifyAccount` 一一对应）。
  *
- * 正常态用中性底（DeepSeek 的徽标不铺彩色底）；只有需要人介入的异常才着色。
+ * 正常态用中性底（DeepSeek 的徽标不铺彩色底）；只有需要人介入的状态才着色。
  */
-const STATUS_META: Record<ChannelStatus, { text: string; pill: string; dot: string }> = {
-  ok: { text: "已登录", pill: "bg-overlay text-ink-soft", dot: "bg-free live-dot" },
-  cooldown: { text: "冷却中", pill: "bg-warn/12 text-warn", dot: "bg-warn" },
-  down: { text: "账号不可用", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
-  broke: { text: "没钱了", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
+const STATUS_META: Record<AccountStatus, { text: string; pill: string; dot: string }> = {
+  ok: { text: "正常", pill: "bg-overlay text-ink-soft", dot: "bg-free live-dot" },
+  cooldown: { text: "冷却", pill: "bg-warn/12 text-warn", dot: "bg-warn" },
+  down: { text: "异常", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
+  broke: { text: "没钱", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
 };
 
 /**
@@ -271,7 +250,6 @@ const PREVIEW_ACCOUNTS = 2;
  */
 export function AccountCard({
   pool,
-  present,
   billing,
   billingLoading = false,
   billingError = false,
@@ -283,7 +261,6 @@ export function AccountCard({
   busyKey,
 }: {
   pool: AccountPool;
-  present: boolean;
   billing?: ChannelBilling;
   /** 账单查询还没拿到数据（首次加载 / 缓存被回收）：卡片画骨架，不画「未查到」。 */
   billingLoading?: boolean;
@@ -328,29 +305,14 @@ export function AccountCard({
   // 折叠条文案：折叠态显示「展开剩余 N 个」
   const hiddenCount = accounts.length - PREVIEW_ACCOUNTS;
 
-  const status = classifyChannel(pool, present, billing);
-  const meta = STATUS_META[status];
-  // 异常/没钱只提亮描边，不铺彩色底 —— DeepSeek 的面板一律中性，语义靠点与文字
-  const cardClass =
-    status === "down" || status === "broke"
-      ? "border-danger/30 hover:border-danger/50"
-      : status === "cooldown"
-        ? "border-warn/25 hover:border-warn/45"
-        : "border-line hover:border-line-strong";
-
   return (
     // `@container`：账号行的额度区按**卡片宽度**（而非视口宽度）决定露出多少
-    <div className={`panel @container flex flex-col overflow-hidden transition-colors ${cardClass}`}>
-      {/* 卡头：状态点 + cid + 渠道状态 pill + 账号数 + 添加按钮 */}
+    <div className="panel @container flex flex-col overflow-hidden transition-colors">
+      {/* 卡头：cid + 账号数 + 添加按钮（状态在各自的账号行上，渠道不显示状态） */}
       <div className="flex items-center gap-3 px-4 py-3">
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
-          aria-label={meta.text}
-        />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="shrink-0 font-mono text-[13px] font-medium text-ink">{pool.cid}</span>
-            <span className={`pill shrink-0 ${meta.pill}`}>{meta.text}</span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-ink-faint">
             <span>{`${accounts.length} 个账号`}</span>
@@ -382,10 +344,12 @@ export function AccountCard({
           - 0 账号（未登录）→ 2 个空位占位
       */}
       <ul className="border-t border-line">
-        {shownAccounts.map((account) => {
+{shownAccounts.map((account) => {
           const active = account.key === pool.index.active;
           const bill = billingByKey.get(account.key);
-          const health = healthText(account.health);
+          const status = classifyAccount(account, billing);
+          const meta = STATUS_META[status];
+          const health = account.health;
           const failStreak = Number(account.fail_streak ?? 0);
             /**
              * 被打上标记的状态（连败熔断 / 额度冷却）—— 这两种**可以由用户主动解除**：
@@ -406,21 +370,18 @@ export function AccountCard({
                 {/*
                   账号行 = **单行扁平结构**：
                     状态点 + 名称 + 状态 pill + 解除 | 额度（条 / 数字 / 百分比）| 操作
-                  行高固定 44px。早期还有一条 16px 的状态说明行，即使没内容也占位，
-                  既撑高卡片又让信息显得零碎 —— 已删除，状态一律收进 pill。
+                  行高固定 44px。左上高亮条即「生效中」；状态 pill 是账号级状态
+                  （正常 / 冷却 / 异常 / 没钱），不额外显示「生效中」。
                 */}
                 <span
                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
-                  aria-label={health || "正常"}
+                  aria-label={meta.text}
                 />
                 {/* 名称区：弹性，超长截断；pill 与解除按钮不压缩 */}
                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
                   <span className="truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
-                  {active && <span className="pill shrink-0 bg-overlay text-ink-soft">生效中</span>}
-                  {health !== "" && (
-                    <span className={`pill shrink-0 ${healthBadgeClass(account.health)}`}>{health}</span>
-                  )}
-                  {failStreak > 0 && health === "" && (
+                  <span className={`pill shrink-0 ${meta.pill}`}>{meta.text}</span>
+                  {failStreak > 0 && (health === "ok" || health === "unknown") && (
                     <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
                   )}
                   {/* 解除：异常/冷却账号的恢复动作，常显（非破坏性，不做二次确认） */}
