@@ -21,7 +21,7 @@
  * 豁免：`ALLOWLIST`（文件路径前缀 + 理由）——沿用 verify-layering 的惯例：
  * 条目必须写理由；条目失效时（不再违规）脚本会要求删除。
  *
- * 范围：packages/** 与 desktop/src（全仓 .ts/.tsx；dist / node_modules / reference 除外）。
+ * 范围：packages/**（全仓 .ts/.tsx；dist / node_modules / reference 除外）。
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
