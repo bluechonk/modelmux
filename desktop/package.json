@@ -7,8 +7,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bundle": "node scripts/bundle.mjs",
-    "pack": "npm run bundle && electron-builder --config electron-builder.yml",
-    "pack:dir": "npm run bundle && electron-builder --config electron-builder.yml --dir"
+    "pack": "npm run bundle && node scripts/pack.mjs",
+    "pack:dir": "npm run bundle && node scripts/pack.mjs --dir"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
