@@ -1,10 +1,9 @@
 /**
  * 打包入口：注入国内镜像环境变量后调 electron-builder。
  *
- * 为什么不用 .npmrc 的 electron_mirror 键：npm 11+ 对非白名单键报
- * 「Unknown project config … This will stop working in the next major version」——
- * 警告不影响 @electron/get 读取（它认 npm_config_* 环境变量），但噪音没意义。
- * 这里显式导出两个镜像变量再 spawn，跨平台、无警告：
+ * 只产 x64 的 NSIS Setup.exe（主人指令：不要 zip / portable / arm64）。
+ *
+ * 镜像（一劳永逸，不依赖代理）：
  *
  *   ELECTRON_MIRROR                 electron 二进制（npm install 阶段）
  *   ELECTRON_BUILDER_BINARIES_MIRROR 7z / winCodeSign / nsis 等（打包阶段）
@@ -39,4 +38,5 @@ const r = spawnSync("electron-builder", ["--config", config], {
   env: { ...process.env, ...MIRROR },
   shell: process.platform === "win32",
 });
-process.exit(r.status ?? 1);
+if (r.status !== 0) process.exit(r.status ?? 1);
+console.log("[pack] Setup.exe 打包完成");

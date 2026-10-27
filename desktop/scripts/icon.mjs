@@ -1,17 +1,18 @@
 /**
- * 应用图标生成：与 Web 控制台 favicon **完全同款**（白色鲸鱼剪影、透明底）。
+ * 应用图标生成：两套产物，对应两个渲染路径。
  *
- * 输入 `packages/ui/src/assets/favicon.svg`（24×24 单色白，原设计就是透明底 + 白形），
- * 输出 `resources/icon.png`（256×256）与 `resources/icon.ico`。
+ * 产物：
+ * - `resources/icon.png`（256×256，**透明底 + 白鲸鱼**）—— Electron 应用图标
+ *   （`app.icon`）与托盘：Chromium 渲染，alpha 正确。
+ * - `resources/icon.ico`（多尺寸 **BMP-in-ICO 深底版**）—— exe 图标资源（rcedit 写入）。
+ *   ⚠ rcedit 写入 exe 时会**丢弃 alpha**（32 位 ICO 的透明区变黑）—— 所以 exe 资源
+ *   必须用**不透明深底**，丢 alpha 也无所谓；透明版只走 `app.icon` 那条路。
  *
  * ⚠ ICO 必须是**标准多尺寸 BMP-in-ICO**（16/24/32/48/64/128/256，32 位 BGRA +
- * AND mask）：曾用单尺寸 PNG-in-ICO，NSIS 安装时写 `uninstallerIcon.ico` 报
- * 「不能打开要写入的文件」—— Windows 图标 API 与 NSIS 对 PNG 压缩的 ICO 支持
- * 不一致，BMP-in-ICO 是唯一全兼容形态。
+ * AND mask）：单尺寸 PNG-in-ICO 会被 NSIS 图标链拒绝（安装时写 uninstallerIcon.ico 失败）。
  *
- * 透明底：图标在深色/浅色任务栏都会按 DPI 渲染 —— 白形在浅色底上不可见，
- * 这是「与 web favicon 同款」的代价，主人拍板（桌面图标同理，Electron 窗口
- * 的标题栏是浅色的，图标自己会随主题；不可见时 Windows 会给白色轮廓兜底）。
+ * 图标与 Web 控制台 favicon 同款（白鲸鱼剪影、透明底）—— 这是「不要黑底」的代价：
+ * 白形在**浅色标题栏**上不可见；深色任务栏/托盘（Win11 默认）上正常。
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -35,11 +36,15 @@ const MASTER = 256;
 const inner = Math.round(MASTER * 0.62);
 const offset = Math.round((MASTER - inner) / 2);
 
-/** 指定尺寸的合成 SVG（透明底 + 居中鲸鱼，与 favicon 同款）。 */
-function composedSvg(size) {
+/** 指定尺寸的合成 SVG：`opaque=true` 加深底圆角（exe 资源用，rcedit 安全）。 */
+function composedSvg(size, opaque) {
   const scale = size / MASTER;
+  const rect = opaque
+    ? `<rect width="${size}" height="${size}" rx="${Math.round(size * 0.22)}" fill="#171717"/>`
+    : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <g transform="translate(${Math.round((offset * scale))} ${Math.round((offset * scale))}) scale(${inner / 24})">
+  ${rect}
+  <g transform="translate(${Math.round(offset * scale)} ${Math.round(offset * scale)}) scale(${inner / 24})">
     ${paths.join("\n    ")}
   </g>
 </svg>`;
@@ -48,15 +53,15 @@ function composedSvg(size) {
 const outDir = path.join(desktopRoot, "resources");
 mkdirSync(outDir, { recursive: true });
 
-// 主 PNG（橱窗/托盘用）
+// 透明版 PNG（app.icon + 托盘）
 writeFileSync(
   path.join(outDir, "icon.png"),
-  await sharp(Buffer.from(composedSvg(MASTER))).png().toBuffer(),
+  await sharp(Buffer.from(composedSvg(MASTER, false))).png().toBuffer(),
 );
 
 /** 一个尺寸的 32 位 BGRA 像素（自下而上，BMP 行序）+ AND mask（全 0 = 全由 alpha 决定）。 */
-async function bmpImage(size) {
-  const { data } = await sharp(Buffer.from(composedSvg(size)))
+async function bmpImage(size, opaque) {
+  const { data } = await sharp(Buffer.from(composedSvg(size, opaque)))
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -90,7 +95,7 @@ async function bmpImage(size) {
 
 const entries = [];
 for (const size of [16, 24, 32, 48, 64, 128, 256]) {
-  entries.push(await bmpImage(size));
+  entries.push(await bmpImage(size, true)); // exe 资源：不透明深底
 }
 
 // ICONDIR(6) + ICONDIRENTRY(16 × n) + 各尺寸 BMP 数据
