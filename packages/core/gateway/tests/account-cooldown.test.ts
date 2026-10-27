@@ -1,17 +1,10 @@
 /**
- * 账号级冷却：**额度耗尽 ≠ 故障**（2026-10-23 新增语义）。
+ * 账号级冷却：**额度耗尽 ≠ 故障**。
  *
- * 背景（主人实测）：workbuddyai 的用量限额打满后上游回 429 + `code=6004`，旧实现把它
- * 和真故障一视同仁 —— 记连败、达 3 次标 `error`，Web 上显示「不可用」（截图里的
- * 「连续失败 12 次」）。可额度耗尽是**会自己好**的（上游窗口刷新），不该被永久跳过。
- *
- * 本用例覆盖四条判据：
- * 1. 额度耗尽 → `cooldown` + `cooldown_until`，**不动 `fail_streak`**；
- * 2. 冷却中 `activeAccountIsError()` 为 true（请求入口短路），但**不是** `error`；
- * 3. 冷却到期 → 惰性恢复 `ok` 并清零连败（放行）；
- * 4. 真故障（连败 3 次）仍照旧标 `error`，手动切号能同时清掉两种标记。
- *
- * 全程在 mkdtemp 的临时存储根下进行，绝不碰真实主目录。
+ * 背景：workbuddyai 用量限额打满后上游回 429 + `code=6004`，与真故障一视同仁
+ * 会把会自愈的账号永久跳过。四条判据：① 额度耗尽 → `cooldown` 且不动
+ * `fail_streak`；② 冷却中入口短路但非 `error`；③ 到期惰性恢复并清零连败；
+ * ④ 真故障照旧标 `error`。全程 mkdtemp 临时存储根，不碰真实主目录。
  */
 
 import assert from "node:assert/strict";
@@ -128,7 +121,7 @@ describe("账号级冷却（额度耗尽 ≠ 故障）", () => {
 
   it("冷却中：不算 error（按模型放行），冷却信息可读", () => {
     seedPool("cooldown", new Date(Date.now() + 600_000).toISOString());
-    // ⚠ 冷却**不算** error（2026-10-23 修正）：免费模型（倍率 0）冷却期必须照常可路由，
+    // ⚠ 冷却**不算** error：免费模型（倍率 0）冷却期必须照常可路由，
     // 「要不要挡」由调用方按模型倍率决定（见 http/chat/auth.ts 的 freeModel 参数）。
     assert.equal(activeAccountIsError(CID), false, "冷却不是真故障，不能整体短路");
     const info = activeAccountCooldown(CID);

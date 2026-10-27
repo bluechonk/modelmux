@@ -6,12 +6,9 @@
  *
  * 终止语义：worker 死前已通过健康探测 → 按退避重生；启动窗口内死亡/超时未
  * healthy → 记 error 后退出，不无限重生；监督者自身被杀 = 作废重生（无进程内协议）；
- * worker 侧 IPC 断开自退。
- *
- * ⚠ 落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发：scope 推导是 daemon
- *   的职责，监督者不重复推导 —— 监督者贸然调 paths.* 会启动即崩（实测踩过）。
+ * worker 侧 IPC 断开自退。⚠ 落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发
+ * —— scope 推导是 daemon 的职责，监督者贸然调 paths.* 会启动即崩（实测踩过）。
  */
-
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { closeSync, openSync, unlinkSync, writeFileSync } from "node:fs";
