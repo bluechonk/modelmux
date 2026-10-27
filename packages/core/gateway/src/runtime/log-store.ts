@@ -29,6 +29,7 @@ import type { ServerResponse } from "node:http";
 
 import * as paths from "./paths.js";
 import { enforcePermissions } from "./permissions.js";
+import { readRootPrefs, writeRootPrefs } from "./root-prefs.js";
 
 export type AccessOutcome = "success" | "failure" | "other";
 
@@ -814,10 +815,20 @@ export interface PayloadRecord {
 const DEFAULT_PAYLOAD_MAX_BYTES = 256 * 1024;
 const DEFAULT_PAYLOAD_DAYS = 3;
 
-/** 抓取开关：**每次调用现读**环境变量，不在模块加载期缓存（便于测试与将来热开关）。 */
+/**
+ * 正文抓取开关：读根级偏好（`<root>/prefs.json`），**默认开启**。
+ *
+ * 每次现读而不缓存 —— 控制台的开关必须不重启就生效（这是「落盘的偏好」相对
+ * 环境变量的全部意义）；文件只有几十字节，一次请求多两次读不值一提。
+ */
 export function payloadCaptureEnabled(): boolean {
-  const value = (process.env["MODELMUX_LOG_PAYLOAD"] ?? "").toLowerCase();
-  return value === "1" || value === "true";
+  return readRootPrefs().payload_capture;
+}
+
+/** 设置正文抓取开关（控制台的开关按钮）：写盘，重启保持。返回生效值。 */
+export function setPayloadCaptureEnabled(enabled: boolean): boolean {
+  writeRootPrefs({ ...readRootPrefs(), payload_capture: enabled });
+  return enabled;
 }
 
 function payloadDays(): number {
@@ -982,11 +993,14 @@ function parsePayloadLine(line: string): PayloadRecord | null {
  * 按请求 id 读回抓取记录（控制台展开行用）。
  *
  * `date` 未给时从最新日期往前找，命中即止 —— 用户点击触发一次，读量可接受。
- * `enabled=false` 表示抓取开关没开，界面据此给出开启指引而不是「没有数据」。
+ *
+ * ⚠ **读回不受开关门控**：关掉抓取只应停止**新增**，不该把已经落盘的记录一起藏起来
+ * （保留期内磁盘上还在，藏起来只会让人没法核对刚抓到的东西）。`enabled` 仍然返回，
+ * 供调用方在「没有任何记录」时措辞（是「没开抓取」还是「这条没抓到」）。
  */
 export function readPayloads(id: string, date?: string): { enabled: boolean; records: PayloadRecord[] } {
   const enabled = payloadCaptureEnabled();
-  if (!enabled || id === "") return { enabled, records: [] };
+  if (id === "") return { enabled, records: [] };
   const dates = date !== undefined && date !== "" ? [date] : payloadDates();
   for (const day of dates) {
     const found: PayloadRecord[] = [];
