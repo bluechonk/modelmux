@@ -48,6 +48,11 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | --- | --- |
 | 仪表盘 `/web/` | **composer 形态的接入盒**（base_url / chat_url / endpoints，逐行可复制）、一行内联统计（网关 / 模型 / 渠道 / 端点）、**模型区**（见下）。没有 hero 大标题 —— 常驻工作区不做空状态问候。数据每 3 秒自动轮询，**没有手动刷新按钮**（重复入口）；窄屏下先砍派生信息：`endpoints`（< md）、`chat_url`（< sm）、「供给渠道 / 接入端点」统计（< sm / < md） |
 | 账号池 `/web/accounts` | 添加账号（**登录引导弹窗**）、总览条（正常/冷却/异常/未登录计数）、渠道卡片**两列网格**（小写 cid + 账号列表：单行 = 状态点 + 可读昵称/用户名 + 状态 pill + 剩余额度 + 切换/**解除**/删除；**每卡固定 2 个账号位，超过 2 个折叠为「展开剩余 N 个」**） |
+| 日志 `/web/logs` | 请求级访问日志（数据源 `~/.modelmux/logs/access/<日期>/*.log`，字段见 [LOGGING.md](./LOGGING.md) §3）。三段：**统计条**（请求 / 成功率 / 成功·失败·中断 / 慢 / 平均耗时 / tokens）、**筛选栏**（结果分段 + 渠道 + 日期 + 关键词（模型名、request id、错误）+ 只看慢 / 只看流式）、**表格**（时间 / 结果 / 模型 / 流 / 耗时 / tokens 入·出）。点行**展开**详情：request id（可复制）、method+path、三段耗时（总 / 上游接单 / 首字节）、请求规模、错误码与说明、usage 原始对象；再往下是**请求上下文**（抓取关闭时给出开启办法）。5 秒轮询，展开或翻页时暂停 |
+
+> 日志页对网关 `error` 状态**豁免骨架**：控制台与网关同进程，能读到 `ui_state` 就说明进程还活着、
+> `/api/logs` 也就能用 —— 而排查异常恰恰最需要看日志。`down`（网关真不在）与状态查询失败时
+> 日志同样拿不到，仍走骨架（见 `components/Layout.tsx`）。
 
 ### 为什么仪表盘首屏是「接入盒」
 
@@ -298,6 +303,20 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
     （控制台与网关同机，回调必然到得了本机端口）；该动作保留给 CLI 与非本机场景。
   - `submitInput`：把两步登录的输入交回给等待中的渠道；`cancelInput`：弹窗关闭时调用，
     让等待输入的渠道立刻收尾（不调用会挂到 10 分钟超时）。
+- `GET /web/api/logs`：访问日志查询（只读）。参数 `date` / `outcome` / `cid` / `model` /
+  `stream` / `slow` / `q` / `limit`（上限 500，默认 100）/ `offset`。
+  返回实际日期（当天无日志时后端回落到最新日期）、可选日期与渠道、`stats`（基于**未过滤**读窗口的
+  当天概览）、`total`（命中筛选数）、`entries`、`payload_enabled`。
+  - 读窗口有界：每个 outcome 文件只读尾部 1MB、总扫描 2 万行；超出时 `truncated=true`，
+    界面据此把统计标注成「只覆盖最近 N 条」，而不是假装是全量。
+  - 只读 `success` / `failure` / `other` 三个分桶 —— `slow.log` 是它们的并行副本，
+    一起读会让慢请求在列表里出现两遍。
+- `GET /web/api/logs/payload`：按 `id`（+ 可选 `date`）读回请求正文抓取记录。
+  返回 `enabled`（false = 抓取开关没开，界面给开启指引，而不是显示成「没有数据」）与
+  `records`（`phase=client` 的客户端原样体 + `phase=upstream` 的各次上行体）。
+  抓取默认关闭，开启方式与安全边界见 [LOGGING.md](./LOGGING.md) §9。
+- 这两个端点**带同源校验**（与 `POST /api/commands` 同款）：日志含模型名与请求路径，
+  比 `/api/state` 更不该被跨源页面读到；无 `Origin` 头时放行，curl / 脚本不受影响。
 - `POST /web/api/theme`：切主题；`POST /web/api/retry-login`：重试登录。
   两者在 `console.ts` 里已实现，但当前 UI **没有入口**（深色是唯一主题，也没有重试登录按钮）——
   前端 `lib/api.ts` 里的 `setTheme` / `retryLogin` 只是保留的调用面。

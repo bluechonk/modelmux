@@ -62,7 +62,7 @@ export async function handleChat(
   // C 段：逐候选尝试（转发完成或已回错误即终局）
   const tried: string[] = [];
   let lastError: ChatError | null = null;
-  for (const candidate of route.attempts) {
+  for (const [attempt, candidate] of route.attempts.entries()) {
     tried.push(candidate.cid);
     const result = await attemptCandidate(
       {
@@ -70,6 +70,7 @@ export async function handleChat(
         logger: opts.logger,
         payload: parsed.payload,
         wantStream,
+        attempt,
         rotateHost: chatHostRotator(candidate.channel),
       },
       candidate,

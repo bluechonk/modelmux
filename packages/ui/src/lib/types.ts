@@ -162,3 +162,106 @@ export interface CommandResult {
   error?: string;
   data?: unknown;
 }
+
+/** 请求结果分桶；`other` = 应答前就断了（连状态码都没给出）。 */
+export type AccessOutcome = "success" | "failure" | "other";
+
+/**
+ * 一条访问日志（形状与共享层 `AccessEntry` 一致，字段语义见 docs/LOGGING.md §3.1）。
+ *
+ * 可选字段是真的可能缺席：400/404/405 这类请求校验没过，日志里没有 `model` 与统计量。
+ */
+export interface AccessLogEntry {
+  id: string;
+  /** 请求**开始**时刻的 ISO（UTC）—— 界面必须转本地时区再显示。 */
+  ts: string;
+  method?: string;
+  path?: string;
+  cid?: string;
+  model?: string;
+  stream?: boolean;
+  status?: number;
+  outcome: AccessOutcome;
+  error?: string;
+  message?: string;
+  durationMs?: number;
+  upstreamMs?: number;
+  ttfbMs?: number;
+  requestBytes?: number;
+  messageCount?: number;
+  systemChars?: number;
+  toolCount?: number;
+  /** 上游 usage 归一化结果；上游没给就是 null（失败请求通常没有）。 */
+  tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
+  slow: boolean;
+}
+
+export interface AccessLogStats {
+  requests: number;
+  success: number;
+  failure: number;
+  other: number;
+  slow: number;
+  avgDurationMs: number | null;
+  /** 窗口内没有 usage 的条数（不把缺失当 0）。 */
+  noUsage: number;
+  tokens: { prompt: number; completion: number; total: number };
+}
+
+/** 日志页的一次查询结果（对应 `GET /web/api/logs`）。 */
+export interface AccessLogPage {
+  ok: boolean;
+  /** 实际返回的日期（当天无数据时后端已回落）。 */
+  date: string;
+  /** 可选日期，倒序。 */
+  dates: string[];
+  /** 窗口内出现过的渠道（未过滤，供下拉用）。 */
+  cids: string[];
+  slowMs: number;
+  scanned: number;
+  /** true = 统计只代表读窗口，不代表全天。 */
+  truncated: boolean;
+  /** 命中筛选的条数（可能大于本次返回的条数）。 */
+  total: number;
+  stats: AccessLogStats;
+  entries: AccessLogEntry[];
+  /** 请求正文抓取开关；关时展开行给出开启指引。 */
+  payload_enabled: boolean;
+}
+
+/** 一条请求正文抓取记录（`phase`：client = 客户端原样体，upstream = 实际上行体）。 */
+export interface PayloadRecord {
+  ts: string;
+  seq: number;
+  id: string;
+  phase: string;
+  attempt?: number;
+  cid?: string;
+  model?: string;
+  stream?: boolean;
+  bytes: number;
+  truncated: boolean;
+  body: string;
+}
+
+export interface PayloadQueryResult {
+  ok: boolean;
+  id: string;
+  date: string | null;
+  /** false = 抓取开关没开（与「查到了但没有记录」区分开）。 */
+  enabled: boolean;
+  records: PayloadRecord[];
+}
+
+/** 日志查询参数（键名与 `/web/api/logs` 的 query 一致）。 */
+export interface LogQuery {
+  date?: string;
+  outcome?: AccessOutcome;
+  cid?: string;
+  model?: string;
+  stream?: boolean;
+  slow?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}

@@ -4,8 +4,9 @@
  * 与网关分开：网关的 `/` 返回 JSON 是既有契约不能混入别的端点；控制台必须在
  * **登录完成前**就可用，而此时网关还没启动。
  *
- * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` ·
- * `POST /api/theme` · `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
+ * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` · `GET /api/logs` ·
+ * `GET /api/logs/payload` · `POST /api/theme` · `POST /api/retry-login` ·
+ * `POST /api/commands`（web-command-handler.ts）
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -15,6 +16,12 @@ import { fileURLToPath } from "node:url";
 
 import { serviceName } from "../server.js";
 import type { LoginInputRequest } from "../../runtime/channel.js";
+import {
+  payloadCaptureEnabled,
+  queryAccessLogs,
+  readPayloads,
+  type AccessOutcome,
+} from "../../runtime/log-store.js";
 
 export type { LoginInputRequest };
 
@@ -194,6 +201,13 @@ function text(res: import("node:http").ServerResponse, status: number, body: str
   res.end(`${body}\n`);
 }
 
+/** 查询参数里的整数：缺失或非数字时回落默认值（分页参数由界面给，不值得为坏值报错）。 */
+function intParam(raw: string | null, fallback: number): number {
+  if (raw === null) return fallback;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 /** 静态文件服务（含路径穿越校验）。 */
 function serveStatic(res: import("node:http").ServerResponse, relPath: string): void {
   let decoded: string;
@@ -293,6 +307,56 @@ export function createConsoleHandler(
         snapshot = emptySnapshot();
       }
       json(res, snapshot);
+      return;
+    }
+
+    if (path === p("/api/logs")) {
+      if (req.method !== "GET") {
+        json(res, { ok: false, error: "use GET" }, 405);
+        return;
+      }
+      // 与 `/api/state` 不同，这里**加同源校验**：日志含模型名与请求路径，
+      // 比状态快照更不该被跨源页面读到（无 Origin 头时放行，curl / 脚本不受影响）。
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams;
+      const outcomeRaw = q.get("outcome");
+      const outcome: AccessOutcome | undefined =
+        outcomeRaw === "success" || outcomeRaw === "failure" || outcomeRaw === "other"
+          ? outcomeRaw
+          : undefined;
+      const streamRaw = q.get("stream");
+      const page = queryAccessLogs({
+        date: q.get("date") ?? undefined,
+        outcome,
+        cid: q.get("cid") ?? undefined,
+        model: q.get("model") ?? undefined,
+        stream: streamRaw === "true" ? true : streamRaw === "false" ? false : undefined,
+        slow: q.get("slow") === "1" ? true : undefined,
+        q: q.get("q") ?? undefined,
+        limit: intParam(q.get("limit"), 100),
+        offset: intParam(q.get("offset"), 0),
+      });
+      json(res, { ok: true, ...page, payload_enabled: payloadCaptureEnabled() });
+      return;
+    }
+
+    if (path === p("/api/logs/payload")) {
+      if (req.method !== "GET") {
+        json(res, { ok: false, error: "use GET" }, 405);
+        return;
+      }
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams;
+      const id = q.get("id") ?? "";
+      const date = q.get("date") ?? undefined;
+      const result = readPayloads(id, date);
+      json(res, { ok: true, id, date: date ?? null, ...result });
       return;
     }
 

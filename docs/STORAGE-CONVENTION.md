@@ -20,6 +20,11 @@
 ├── watchdog.pid                 ← 外部守护 PID（scripts/mx-watchdog.mjs）
 ├── watchdog.pause               ← 外部守护暂停标记（存在时只探测不拉起）
 ├── logs/                        ← 运行日志（类型/日期/结果分层，见 LOGGING.md）
+│   ├── access/<date>/           ← 请求元数据（success / failure / other / slow）
+│   ├── error/<date>/            ← 错误上下文
+│   ├── system/<date>/           ← 生命周期与网关自身输出
+│   ├── channels/<cid>/          ← 渠道维度文本日志
+│   ├── payload/<date>/          ← 请求正文抓取（opt-in，默认关闭，见 LOGGING.md §9）
 │   └── watchdog.log             ← 外部守护日志
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
 ├── workbuddyai/                 ← cid 层
@@ -95,10 +100,12 @@
   - `state/` 跨重启保持的**状态**：`state/signin.json`（签到台账：
     `{version, timezone, last_claim, history}`，由共享层在**领取成功**或自动签到回填时写入）、
     `state/auto-signin.json`（自动签到的当日失败计数，连败 3 次熔断）。
-  - `debug/` 抓包落盘默认位置（`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径）
+  - `debug/` 抓包落盘默认位置（`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径）。
+    它抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，`MODELMUX_LOG_PAYLOAD`，
+    默认关闭，见 [LOGGING.md](./LOGGING.md) §9）—— 两者互补，不要混用。
   - **禁止**写 `~/` 下任何其它目录（含 `~/.cache/`、`~/.config/`）
 6. **权限**：根 `0700`，各 cid 层 `0700`，`credentials.json` 等含密文件 `0600`。
-  渠道只能写自己的层。
+  `logs/payload/` 同样按 `0700` / `0600` 落盘（含用户 prompt）。渠道只能写自己的层。
 7. **命名细则**：全小写；单词用 `-` 连接；扩展名固定 `.json` / `.log` / `.pid`；
   临时文件同目录、名字**唯一**（`<目标名>.<pid>.<随机>.tmp`）——
   网关与 CLI 可能同时写同一个文件，固定 `.tmp` 名会互相抢；

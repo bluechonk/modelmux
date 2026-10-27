@@ -12,6 +12,7 @@ import { Layout } from "./components/Layout";
 import { ToastProvider } from "./components/Toast";
 import { Dashboard } from "./pages/Dashboard";
 import { Accounts } from "./pages/Accounts";
+import { Logs } from "./pages/Logs";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
 
@@ -42,6 +43,7 @@ export function App(): ReactElement {
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/accounts" element={<Accounts />} />
+              <Route path="/logs" element={<Logs />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -7,9 +7,12 @@
  */
 
 import type {
+  AccessLogPage,
   ChannelInfo,
   ChannelPool,
   CommandResult,
+  LogQuery,
+  PayloadQueryResult,
   PoolRow,
   UiSnapshot,
 } from "./types";
@@ -20,7 +23,9 @@ import {
   demoBilling,
   demoCompleteLogin,
   demoEndLogin,
+  demoLogPayload,
   demoLogin,
+  demoLogs,
   demoModels,
   demoRemove,
   demoReset,
@@ -103,6 +108,14 @@ export interface WebApi {
   getState(): Promise<UiSnapshot>;
   setTheme(mode: string): Promise<{ ok: boolean }>;
   retryLogin(): Promise<{ ok: boolean }>;
+  /**
+   * 访问日志查询（只读，`GET /web/api/logs`）。
+   *
+   * 分页由 `limit` / `offset` 驱动；返回里的 `total` 是命中筛选的总条数。
+   */
+  logs(query?: LogQuery): Promise<AccessLogPage>;
+  /** 某条请求的正文抓取记录（`enabled: false` = 抓取开关没开）。 */
+  logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
   readonly commands: {
     /** 各方法返回**已解包 data 的扁平对象**（含 ok / message / error）。 */
     login(cid: string, force: boolean): Promise<CommandData>;
@@ -257,10 +270,41 @@ async function demoNoop(): Promise<{ ok: boolean }> {
   return demoLater({ ok: true });
 }
 
+/** 拼查询串：空串与 `undefined` 一律不带上（服务端按缺省处理）。 */
+function queryString(params: Record<string, string | number | boolean | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "") continue;
+    sp.set(key, String(value));
+  }
+  const text = sp.toString();
+  return text === "" ? "" : `?${text}`;
+}
+
 export const api: WebApi = {
   getState: () => (IS_DEMO ? demoLater(demoGetState()) : get("/api/state")),
   setTheme: (mode) => (IS_DEMO ? demoNoop() : post("/api/theme", { mode })),
   retryLogin: () => (IS_DEMO ? demoNoop() : post("/api/retry-login")),
+  logs: (query = {}) =>
+    IS_DEMO
+      ? demoLater(demoLogs(query))
+      : get(
+          `/api/logs${queryString({
+            date: query.date,
+            outcome: query.outcome,
+            cid: query.cid,
+            model: query.model,
+            stream: query.stream,
+            slow: query.slow === true ? 1 : undefined,
+            q: query.q,
+            limit: query.limit,
+            offset: query.offset,
+          })}`,
+        ),
+  logPayload: (id, date) =>
+    IS_DEMO
+      ? demoLater(demoLogPayload(id))
+      : get(`/api/logs/payload${queryString({ id, date })}`),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),
