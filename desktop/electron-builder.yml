@@ -1,0 +1,49 @@
+# modelmux 桌面壳打包配置（electron-builder）
+#
+# 选型依据见 .planning/2026-10-26-desktop-app-selection/（Phase 4/5）：
+# - NSIS 主 + portable 辅，同一配置产出
+# - per-user 安装（免管理员）
+# - v1 不签名（signAndEditExecutable: false）：未签名首次运行走 SmartScreen
+#   「更多信息 → 仍要运行」；开放分发后再接 Azure Artifact Signing
+# - asar 关闭：网关静态文件服务（fs 流式读 ui/）对 asar 内路径支持有限，
+#   解包目录形态让网关代码零改动
+
+appId: cn.modelmux.desktop
+productName: modelmux
+# electron-updater 的更新源（latest.yml 随产物生成；v1 不接 updater UI，配置先就位）
+publish:
+  provider: github
+  owner: bluechonk
+  repo: modelmux
+asar: false
+directories:
+  output: release
+files:
+  - dist/main.cjs
+  - dist/gateway.cjs
+  - dist/ui/**/*
+  - dist/models/**/*
+  - dist/icon.png
+  - package.json
+
+win:
+  # 图标：由 scripts/icon.mjs 从 Web 控制台 favicon（白色鲸鱼）合成深底 256px 版本
+  icon: resources/icon.ico
+  # v1 不签名：只跳签名，保留图标与版本元数据写入（signAndEditExecutable 会连图标一起跳过）
+  signExecutable: false
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  unicode: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: modelmux
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
