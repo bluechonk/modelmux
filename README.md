@@ -114,6 +114,7 @@ mx model list
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |
 | 某个渠道还差什么没做 | `docs/channels/<cid>/ROADMAP.md`（如 astudio 的 [ROADMAP](docs/channels/astudio/ROADMAP.md)：8 项功能的缺口清单与验收判据） |
 | AStudio 逆向（方法论 + 采矿 / 实测 / 渠道实现） | 技能 `.agents/skills/astudio-re/SKILL.md`（通用工作流见其 `references/METHODOLOGY.md`，协议事实见 `references/PROTOCOL.md`） |
+| Comate 逆向（百度 AI 编程助手，dist 采矿 + Cloud API 实测 + kernel 管道抓外连） | 技能 `.agents/skills/comate-re/SKILL.md`（方法论见 `references/METHODOLOGY.md`，协议事实见 `references/PROTOCOL.md`） |
 | 多会话并行改同一项目时的对齐与收尾 | 技能 `.agents/skills/zcode-session-archaeology/SKILL.md` |
 
 > 技能清单以 [docs/README.md](docs/README.md) §3 的表为准（`.agents/skills/` 下每个技能都登记在彼）；
