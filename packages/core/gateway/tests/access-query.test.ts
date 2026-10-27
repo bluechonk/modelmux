@@ -20,6 +20,7 @@ import {
   payloadCaptureEnabled,
   queryAccessLogs,
   readPayloads,
+  setPayloadCaptureEnabled,
 } from "../dist/runtime/log-store.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -234,10 +235,9 @@ describe("访问日志读回", () => {
   });
 });
 
-describe("请求正文抓取（opt-in）", () => {
+describe("请求正文抓取（默认开启，偏好落盘）", () => {
   let root: string;
   let saved: string | undefined;
-  let savedFlag: string | undefined;
   let savedMax: string | undefined;
   let savedCids: string | undefined;
 
@@ -245,21 +245,19 @@ describe("请求正文抓取（opt-in）", () => {
     saved = process.env["MODELMUX_HOME"];
     root = mkdtempSync(join(tmpdir(), "modelmux-payload-"));
     process.env["MODELMUX_HOME"] = root;
-    savedFlag = process.env["MODELMUX_LOG_PAYLOAD"];
     savedMax = process.env["MODELMUX_LOG_PAYLOAD_MAX_BYTES"];
     savedCids = process.env["MODELMUX_LOG_PAYLOAD_CIDS"];
   });
   after(() => {
     if (saved === undefined) delete process.env["MODELMUX_HOME"];
     else process.env["MODELMUX_HOME"] = saved;
-    restoreEnv("MODELMUX_LOG_PAYLOAD", savedFlag);
     restoreEnv("MODELMUX_LOG_PAYLOAD_MAX_BYTES", savedMax);
     restoreEnv("MODELMUX_LOG_PAYLOAD_CIDS", savedCids);
     rmSync(root, { recursive: true, force: true });
   });
   beforeEach(() => {
-    // 开关必须在每个用例里显式设定：`payloadCaptureEnabled()` 每次现读环境变量。
-    delete process.env["MODELMUX_LOG_PAYLOAD"];
+    // 开关走**偏好文件**（不是环境变量）：每个用例先把开关与上限/白名单复位到默认。
+    setPayloadCaptureEnabled(true);
     delete process.env["MODELMUX_LOG_PAYLOAD_MAX_BYTES"];
     delete process.env["MODELMUX_LOG_PAYLOAD_CIDS"];
   });
@@ -269,17 +267,36 @@ describe("请求正文抓取（opt-in）", () => {
     else process.env[name] = value;
   }
 
-  it("默认关闭：不落盘，读回明确回报未开启", () => {
-    assert.equal(payloadCaptureEnabled(), false);
+  it("默认开启：不配置就抓，读回能拿到记录", () => {
+    assert.equal(payloadCaptureEnabled(), true, "默认开启");
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from('{"messages":[]}', "utf8"));
     const result = readPayloads(id);
-    assert.equal(result.enabled, false, "未开启要如实回报，而不是「没有数据」");
-    assert.deepEqual(result.records, []);
+    assert.equal(result.enabled, true);
+    assert.equal(result.records.length, 1);
+  });
+
+  it("开关落盘：写盘后重读一致（重启保持的前提）", () => {
+    setPayloadCaptureEnabled(false);
+    assert.equal(payloadCaptureEnabled(), false);
+    setPayloadCaptureEnabled(true);
+    assert.equal(payloadCaptureEnabled(), true);
+  });
+
+  it("关掉开关：不再新增，已落盘的记录仍能读回", () => {
+    const { res, id } = attach();
+    noteUpstreamPayload(res as never, { cid: "loomy", model: "m", stream: false, attempt: 0 }, "kept");
+    setPayloadCaptureEnabled(false);
+    const { res: resOff, id: idOff } = attach();
+    noteClientPayload(resOff as never, Buffer.from("{}", "utf8"));
+    assert.deepEqual(readPayloads(idOff).records, [], "关闭后不再新增");
+    const kept = readPayloads(id);
+    assert.equal(kept.enabled, false, "开关状态如实回报");
+    assert.deepEqual(kept.records.map((r) => r.body), ["kept"], "已落盘的记录不该被藏起来");
   });
 
   it("开启后按 id 读回客户端原样体与每次尝试的上行体，顺序稳定", () => {
-    process.env["MODELMUX_LOG_PAYLOAD"] = "1";
+    setPayloadCaptureEnabled(true);
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from('{"model":"loomy/kimi-k2.6","messages":[]}', "utf8"));
     noteUpstreamPayload(res as never, { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, attempt: 0 }, Buffer.from("{\"up\":1}", "utf8"));
@@ -294,7 +311,7 @@ describe("请求正文抓取（opt-in）", () => {
   });
 
   it("上游还没回就失败时，正文照样读得到（写盘在 fetch 之前）", () => {
-    process.env["MODELMUX_LOG_PAYLOAD"] = "1";
+    setPayloadCaptureEnabled(true);
     const { res, id } = attach();
     noteUpstreamPayload(res as never, { cid: "traecn", model: "traecn/kimi-k2.6", stream: false, attempt: 0 }, "encoded-body");
     const result = readPayloads(id);
@@ -303,7 +320,7 @@ describe("请求正文抓取（opt-in）", () => {
   });
 
   it("超出单条上限时截断并打标，bytes 仍是原始长度", () => {
-    process.env["MODELMUX_LOG_PAYLOAD"] = "1";
+    setPayloadCaptureEnabled(true);
     process.env["MODELMUX_LOG_PAYLOAD_MAX_BYTES"] = "16";
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from("0123456789abcdefghij", "utf8"));
@@ -314,7 +331,7 @@ describe("请求正文抓取（opt-in）", () => {
   });
 
   it("渠道白名单：未列入的渠道不落盘", () => {
-    process.env["MODELMUX_LOG_PAYLOAD"] = "1";
+    setPayloadCaptureEnabled(true);
     process.env["MODELMUX_LOG_PAYLOAD_CIDS"] = "loomy";
     const { res, id } = attach();
     noteUpstreamPayload(res as never, { cid: "catpaw", model: "m", stream: false, attempt: 0 }, "nope");
@@ -324,7 +341,7 @@ describe("请求正文抓取（opt-in）", () => {
   });
 
   it("未挂访问日志上下文的响应不会写（没有 id 就没有可对齐的钥匙）", () => {
-    process.env["MODELMUX_LOG_PAYLOAD"] = "1";
+    setPayloadCaptureEnabled(true);
     const bare = new FakeRes();
     noteClientPayload(bare as never, Buffer.from("{}", "utf8"));
     // 没有 id 时无从查询，只要不抛异常即可

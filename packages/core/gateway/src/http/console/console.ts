@@ -20,6 +20,7 @@ import {
   payloadCaptureEnabled,
   queryAccessLogs,
   readPayloads,
+  setPayloadCaptureEnabled,
   type AccessOutcome,
 } from "../../runtime/log-store.js";
 
@@ -357,6 +358,37 @@ export function createConsoleHandler(
       const date = q.get("date") ?? undefined;
       const result = readPayloads(id, date);
       json(res, { ok: true, id, date: date ?? null, ...result });
+      return;
+    }
+
+    // 切换请求正文抓取（写操作）：偏好落盘 `<root>/prefs.json`，不重启生效。
+    if (path === p("/api/logs/payload-capture")) {
+      if (req.method !== "POST") {
+        json(res, { ok: false, error: "use POST" }, 405);
+        return;
+      }
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        body += String(chunk);
+      });
+      req.on("end", () => {
+        let enabled: unknown;
+        try {
+          enabled = (JSON.parse(body || "{}") as Record<string, unknown>)["enabled"];
+        } catch {
+          json(res, { ok: false, error: "invalid json" }, 400);
+          return;
+        }
+        if (typeof enabled !== "boolean") {
+          json(res, { ok: false, error: "enabled 必须是布尔值" }, 400);
+          return;
+        }
+        json(res, { ok: true, enabled: setPayloadCaptureEnabled(enabled) });
+      });
       return;
     }
 
