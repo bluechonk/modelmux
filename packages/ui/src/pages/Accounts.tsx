@@ -7,10 +7,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
   AccountCard,
-  classifyChannel,
+  classifyAccount,
   type AccountPool,
   type ChannelBilling,
-  type ChannelStatus,
+  type AccountStatus,
 } from "../components/AccountCard";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
@@ -54,12 +54,12 @@ interface BillingRow {
   }>;
 }
 
-/** 总览条各状态的展示口径（与卡片 `STATUS_META` 同色，这里只做计数）。 */
-const SUMMARY_ORDER: Array<{ key: ChannelStatus; label: string; dot: string }> = [
+/** 总览条各状态的展示口径（与卡片 `STATUS_META` 同色，这里只做账号计数）。 */
+const SUMMARY_ORDER: Array<{ key: AccountStatus; label: string; dot: string }> = [
   { key: "ok", label: "正常", dot: "bg-free" },
   { key: "cooldown", label: "冷却", dot: "bg-warn" },
   { key: "down", label: "异常", dot: "bg-danger" },
-  { key: "broke", label: "没钱了", dot: "bg-danger" },
+  { key: "broke", label: "没钱", dot: "bg-danger" },
 ];
 
 /**
@@ -251,17 +251,20 @@ export function Accounts(): ReactElement {
     billing: billingMap.get(pool.cid),
   }));
 
-  // 总览计数：与卡片用同一个 classifyChannel，口径不会两边漂移
-  const counts: Record<ChannelStatus, number> = {
+  // 总览计数按**账号**（与账号行同一个 classifyAccount，口径不会两边漂移）；
+  // cid 不做状态 —— 同一渠道池里的账号状态可能各不相同。
+  const counts: Record<AccountStatus, number> = {
     ok: 0,
     cooldown: 0,
     down: 0,
     broke: 0,
   };
   let totalAccounts = 0;
-  for (const { pool, present, billing } of list) {
-    counts[classifyChannel(pool, present, billing)] += 1;
-    totalAccounts += pool.index.accounts.length;
+  for (const { pool, billing } of list) {
+    for (const raw of pool.index.accounts) {
+      counts[classifyAccount(raw, billing)] += 1;
+      totalAccounts += 1;
+    }
   }
 
   const loginChannels = logins.data ?? [];
@@ -305,11 +308,10 @@ export function Accounts(): ReactElement {
             （实测「塞西莉亚4412」被截断）。
           */}
           <div className="grid items-start gap-3 lg:grid-cols-2">
-            {list.map(({ pool, present, billing: bill }) => (
+            {list.map(({ pool, billing: bill }) => (
               <AccountCard
                 key={pool.cid}
                 pool={pool}
-                present={present}
                 billing={bill}
                 billingLoading={billingLoading}
                 billingError={billingError}
