@@ -542,19 +542,14 @@ export function AccountCard({
 }
 
 /**
- * 额度计量：进度条 + 数值 + 百分比，**横向一段**，跟着账号行同一行排。
+ * 额度区：两个带标签的数值 —— **剩余额度**（当前 remain）与**今日消耗**
+ * （当日基线 remain − 当前 remain，与旧百分比同口径）。
  *
- * 数值**不带单位**（积分 / credits 一律不显示），
- * 长数字用千分位。
+ * 进度条与百分比已移除：数字本身已是完整信息，条会随窗口刷新跳变反而误导。
+ * 消耗算不出（无基线）时显示 `-`，不猜。
  *
- * 三段按卡片宽度**逐级露出**（容器查询，父卡片带 `@container`）：
- * - < 380px：只留数字
- * - ≥ 380px：+ 进度条
- * - ≥ 460px：+ 百分比
- * 百分比是冗余表达（数字与条已经说明一切），压缩时最先砍掉。
- *
- * 进度条底色用 `bg-canvas`（比卡片更暗），填充色只在紧张/耗尽时着色 ——
- * 正常额度是中性灰，避免整屏绿条抢视线。
+ * 耗尽（remain ≤ 0）数值染 danger、紧张（< 10%）染 warn，其余中性 ——
+ * 与状态 pill 的「没钱」呼应。
  */
 function QuotaMeter({
   credits,
@@ -565,7 +560,6 @@ function QuotaMeter({
   baseline?: { window?: string; date: string; remain: number; at?: string } | null;
   unsupported: boolean;
 }): ReactElement {
-  const pct = quotaPercent(credits, baseline);
   const tone = quotaTone(credits, baseline);
   // 订阅制渠道：明确写「无额度概念」，而不是一个孤零零的 `-`
   if (unsupported) {
@@ -576,32 +570,28 @@ function QuotaMeter({
       </span>
     );
   }
-  // 没有基线 / 数值不可用：只显示数额，不画进度条也不显示百分比（不猜 100%）
-  if (!credits || pct === null) {
-    return (
-      <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">
-        {quotaAmount(credits, unsupported)}
-      </span>
-    );
-  }
-  // 正常额度用中性灰条：只有紧张（warn）与耗尽（danger）才着色
-  const barClass =
-    tone === "danger" ? "bg-danger" : tone === "warn" ? "bg-warn" : "bg-ink-faint";
-  const textClass =
+  const valueClass =
     tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : "text-ink-soft";
+  // 今日消耗 = 当日基线 remain − 当前 remain；没有基线就不猜
+  let used: number | null = null;
+  if (credits && baseline) {
+    const base = Number(baseline.remain);
+    const remain = Number(credits.remain);
+    if (Number.isFinite(base) && Number.isFinite(remain)) used = Math.max(0, base - remain);
+  }
+  const usedText =
+    used === null ? "-" : used.toLocaleString("en-US", { maximumFractionDigits: 2 });
   return (
     <>
-      <span className="hidden h-1 w-14 shrink-0 overflow-hidden rounded-full bg-canvas @min-[380px]:block">
-        <span
-          className={`block h-full rounded-full ${barClass}`}
-          style={{ width: `${pct}%` }}
-        />
+      <span className="flex items-center gap-1">
+        <span className="text-[10px] text-ink-faint">剩余额度</span>
+        <span className={`shrink-0 font-mono text-[11px] tabular-nums ${valueClass}`}>
+          {quotaAmount(credits, unsupported)}
+        </span>
       </span>
-      <span className={`shrink-0 font-mono text-[11px] tabular-nums ${textClass}`}>
-        {quotaAmount(credits, unsupported)}
-      </span>
-      <span className="hidden w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-faint @min-[460px]:block">
-        {Math.round(pct)}%
+      <span className="flex items-center gap-1">
+        <span className="text-[10px] text-ink-faint">今日消耗</span>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-soft">{usedText}</span>
       </span>
     </>
   );
