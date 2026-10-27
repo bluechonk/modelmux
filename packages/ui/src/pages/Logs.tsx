@@ -1,11 +1,11 @@
 /**
- * 日志页：网关请求级访问日志（时间 / 渠道·模型 / 流 / 耗时 / tokens / 结果）。
+ * 日志页：网关请求级访问日志（时间 / 渠道·模型 / 流 / 耗时 / tokens / 结果）；
+ * 字段语义、落点与读窗口见 docs/LOGGING.md §3。
  *
- * 关键约束：
- *  - 数据源是 `~/.modelmux/logs/access/<日期>/{success,failure,other}.log`（见 docs/LOGGING.md §3）
- *  - 行内 `ts` 是 **UTC**，目录按**本地**日期切分 —— 展示一律转本地时区
- *  - 数值列（耗时 / tokens）一律**右对齐 + 等宽数位**，与模型表的既有约定一致
- *  - 请求正文不进表格：最右侧「上下文」按钮开弹窗（见 `components/LogContextDialog.tsx`）
+ * 关键约束（docs/LOGGING.md §3）：
+ *   - 行内 `ts` 是 UTC、目录按**本地**日期切分 —— 展示一律转本地时区（UTC+8 凌晨两者差一天）
+ *   - 数值列（耗时 / tokens）右对齐 + 等宽数位，与模型表数值列同一约定
+ *   - 请求正文不进表格：最右侧「上下文」按钮开弹窗（components/LogContextDialog.tsx）
  */
 
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
