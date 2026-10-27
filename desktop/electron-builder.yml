@@ -1,9 +1,8 @@
 # modelmux 桌面壳打包配置（electron-builder）
 #
 # 选型依据见 .planning/2026-10-26-desktop-app-selection/（Phase 4/5）：
-# - NSIS 主 + portable 辅，同一配置产出
-# - per-user 安装（免管理员）
-# - v1 不签名（signAndEditExecutable: false）：未签名首次运行走 SmartScreen
+# - NSIS 安装器（per-user 免管理员）+ 绿色便携 zip（win-unpacked 目录打包）
+# - v1 不签名（signExecutable: false）：未签名首次运行走 SmartScreen
 #   「更多信息 → 仍要运行」；开放分发后再接 Azure Artifact Signing
 # - asar 关闭：网关静态文件服务（fs 流式读 ui/）对 asar 内路径支持有限，
 #   解包目录形态让网关代码零改动
@@ -32,27 +31,33 @@ files:
   - package.json
 
 win:
-  # 图标：由 scripts/icon.mjs 从 Web 控制台 favicon（白色鲸鱼）合成深底 256px 版本
+  # 图标：exe 资源用不透明深底版（rcedit 丢 alpha，透明版会变黑方块）；
+  # 应用图标（任务栏/标题栏）由 main.ts 的 BrowserWindow icon 用透明 PNG（Chromium 渲染）
   icon: resources/icon.ico
-  # v1 不签名：只跳签名，保留图标与版本元数据写入（signAndEditExecutable 会连图标一起跳过）
+  # v1 不签名：只跳签名，保留图标与版本元数据写入
   signExecutable: false
   target:
     - target: nsis
-      arch: [x64, arm64]
-    - target: portable
       arch: [x64]
+    # ⚠ 不做 electron-builder 的 portable target：那是「自解压单 exe」——
+    # 每次运行把整个目录解压到 %TEMP% 再启动（体积大、启动慢）。
+    # 便携形态改为【绿色便携】：scripts/pack.mjs 把 win-unpacked 目录打成
+    # modelmux portable <版本>.zip，解压即用（工业界常用方案）。
 
+# 产物文件名：安装器带 Setup（一眼区分）。
+# 顶层 artifactName 只接受字符串（26 起不支持按 target 的对象），按 target 配在这里。
 nsis:
+  artifactName: "modelmux Setup ${version}.${ext}"
   # 一键安装（electron-builder 推荐默认形态）：无向导页、无「所有用户」选项 ——
   # 直接装到 %LOCALAPPDATA%\Programs\modelmux，全程无 UAC 提升。
   # assisted 形态（oneClick: false）在 GUI 下会经 UAC 提权路径，实测本机写
   # uninstallerIcon.ico 失败（报错「不能打开要写入的文件」）；一键安装绕开该路径。
   oneClick: true
   perMachine: false
-  allowToChangeInstallationDirectory: true
   unicode: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: modelmux
-  installerIcon: resources/icon.ico
-  uninstallerIcon: resources/icon.ico
+  # ⚠ 已移除 installerIcon / uninstallerIcon 自定义图标：
+  # 一键安装(oneClick)下自定义 uninstallerIcon 会触发 NSIS「不能打开要写入的文件:
+  # ...uninstallerIcon.ico」写盘失败（实测）。不写则默认用 win.icon，绕开该坑。

@@ -28,7 +28,6 @@ import path from "node:path";
 const GATEWAY_ADDR = process.env["MODELMUX_DESKTOP_ADDR"] ?? "127.0.0.1:4412";
 const WEB_URL = `http://${GATEWAY_ADDR}/web/`;
 const HEALTH_URL = `http://${GATEWAY_ADDR}/health`;
-
 /** 等待自己拉起的网关就绪的窗口（毫秒）——与 `mx start` 默认等待一致。 */
 const START_WAIT_MS = 30_000;
 /** 探活单次请求超时。 */
@@ -109,6 +108,15 @@ function createWindow(): void {
     autoHideMenuBar: true,
     title: "modelmux",
     show: false,
+    // 标题栏隐藏：图标 + 文字禁止显示（窗口按钮保留在右上角）
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#212121", // 标题栏底色（与主区 bg-surface 一致）
+      symbolColor: "#ffffff", // 窗口按钮（最小化/最大化/关闭）颜色
+      height: 32,
+    },
+    // 窗口图标 = 应用图标（任务栏 + 标题栏；Chromium 渲染，alpha 正确）
+    ...(appIcon() ? { icon: appIcon() } : {}),
   });
 
   // 站点白名单：只允许加载本机网关；外部链接一律交系统浏览器（控制台页面不受影响）。
@@ -152,10 +160,17 @@ function createWindow(): void {
   });
 }
 
-/** 托盘图标：优先用打包进包的 `icon.png`（Web logo 深底版）；缺失时回落内嵌 16×16 PNG。 */
+/** 应用图标（透明 PNG，与 Web favicon 同款）：窗口图标用它 —— Windows 上窗口 hIcon
+ *  同时决定任务栏与标题栏图标（Chromium 渲染，alpha 正确）。 */
+function appIcon(): Electron.NativeImage | undefined {
+  const png = nativeImage.createFromPath(path.join(distDir, "icon.png"));
+  return png.isEmpty() ? undefined : png;
+}
+/** 托盘图标：用打包进包的透明 `icon.png`（Web logo 同款）；缺失时回落内嵌 16×16 PNG。
+ *  ⚠ 不 resize —— 16px 缩放会把鲸鱼的尾鳍细节抹掉（Windows 会自行按 DPI 缩放）。 */
 function trayIcon(): Electron.NativeImage {
   const bundled = nativeImage.createFromPath(path.join(distDir, "icon.png"));
-  if (!bundled.isEmpty()) return bundled.resize({ width: 16, height: 16 });
+  if (!bundled.isEmpty()) return bundled;
   const png =
     "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR4nGNkYPj/n4ECwESJ5lED" +
     "Rg0YNWDUgFEDRg0YNWDUgFEDRg0YNWAAAH//A0UT+22VAAAAAElFTkSuQmCC";
@@ -215,6 +230,9 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // 应用图标（任务栏 + 窗口标题栏）：走 Chromium 渲染透明 PNG。
+    // ⚠ 不能只依赖 exe 图标资源 —— rcedit 写入 exe 时会丢 alpha（透明区变黑），
+    // 任务栏在深色主题下就是全黑方块。exe 资源仍保留（不透明深底版）作兜底。
     createTray();
 
     const reused = await gatewayReady();
