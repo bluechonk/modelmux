@@ -132,6 +132,14 @@ export function LoginModal({
     !qrUrl;
   const failed = uiState === "error";
   const done = uiState === "done";
+  /**
+   * **链接未到手前始终骨架**：授权链接/二维码没拿到、也没有待回答的输入时，
+   * 一直画骨架占位（而不是转圈文案或空白）—— 用户明确要求「登录链接未获取到
+   * 之前始终显示骨架图」。`pristine` 是挂载守卫（防上一轮残留的 done/旧链接
+   * 闪现），并入同一条件。
+   */
+  const showSkeleton =
+    pristine || (!authUrl && !qrUrl && !loginInput && !failed && !done);
   const totalSteps = qrUrl ? 2 : 3;
   // 两步登录没有「授权步骤」，侧栏不能写「步骤 1/3 · 浏览器授权」——那会让人
   // 以为流程走错了（渠道此刻在等用户填手机号/验证码）。
@@ -144,21 +152,17 @@ export function LoginModal({
         : busy
           ? "处理中"
           : `步骤 1 / ${totalSteps}`;
-  // 渠道在做事时（如「正在发送验证码...」）把它直接写进侧栏 —— 别让侧栏说
-  // 「正在准备登录会话」，主区却在转圈说另一件事。
-  const stepHint = loginInput
-    ? "按提示填写手机号与验证码"
-    : failed
-      ? "查看原因后可重新发起"
-      : done
-        ? "账号已自动入池"
-        : message
-          ? message
-          : busy
-            ? "正在准备登录会话"
-            : qrUrl
-              ? "扫码授权"
-              : "浏览器授权";
+  // 状态行短词（图 2 布局：渠道行下方一行「步骤 1/3 · 等待授权」）。
+  // 失败/完成时留空 —— 避免「登录失败 · 登录失败」这种重复。
+  const statusWord = loginInput
+    ? "两步登录"
+    : failed || done
+      ? ""
+      : busy
+        ? "等待授权"
+        : qrUrl
+          ? "扫码授权"
+          : "浏览器授权";
   const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
 
   /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口。 */
@@ -253,11 +257,17 @@ export function LoginModal({
           onInteractOutside={(e) => e.preventDefault()}
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
         >
-          {/* 标题栏：标题 + 关闭键（DeepSeek 设置弹窗的同构标题栏）
+          {/* 渠道行（标题）：图标 + cid display + 关闭键（紧凑单栏布局，无左右分栏）。
               ⚠ 标题必须是 `Dialog.Title`：Radix 用它接 `aria-labelledby`，
-              少了它屏幕阅读器读不出这个对话框叫什么。视觉仍是原来那行。 */}
-          <div className="flex items-center justify-between px-6 py-4">
-            <Dialog.Title className="text-lg font-medium text-ink">添加账号</Dialog.Title>
+              少了它屏幕阅读器读不出这个对话框叫什么。 */}
+          <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-overlay text-ink-soft">
+              <QrCode className="h-4 w-4" />
+            </span>
+            <Dialog.Title className="min-w-0 flex-1 truncate text-sm">
+              <span className="font-mono font-medium text-ink">{cid}</span>
+              <span className="ml-2 text-[11px] font-normal text-ink-faint">{display ?? "渠道账号"}</span>
+            </Dialog.Title>
             {/* 唯一的关闭入口：顺带通知后端别再等输入（否则渠道挂到超时） */}
             <button
               type="button"
@@ -272,35 +282,20 @@ export function LoginModal({
             </button>
           </div>
 
-        {/* 两栏：左侧渠道与步骤概览，右侧当前流程。
-            窄屏**堆叠**（渠道行横排 + 底部描边）：左栏固定 224px 在 480px 下会把
-            右侧挤到 ~200px，步骤正文与输入框都不可用。 */}
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="flex w-full shrink-0 items-start gap-3 border-b border-line px-4 py-3 md:w-56 md:flex-col md:gap-1 md:border-b-0 md:border-r md:px-3 md:py-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg bg-overlay px-3 py-2.5 md:flex-none">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-overlay text-ink-soft">
-                <QrCode className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <div className="truncate font-mono text-[13px] font-medium text-ink">{cid}</div>
-                <div className="truncate text-[11px] text-ink-faint">{display ?? "渠道账号"}</div>
-              </div>
+          {/* 状态行 + 说明文本：一行「步骤 x/y · 状态」，下一行渠道给的说明 */}
+          <div className="px-5 pt-3">
+            <div className={`text-[11px] ${stepTone}`}>
+              {stepLabel}
+              {statusWord && ` · ${statusWord}`}
             </div>
-            <div className="mt-0 text-[11px] leading-relaxed text-ink-faint md:mt-2 md:px-3">
-              <div className={stepTone}>{stepLabel}</div>
-              <div className="mt-0.5 text-ink-faint/70">{stepHint}</div>
-            </div>
-          </aside>
+            {message.trim() !== "" && (
+              <div className="mt-1.5 text-xs leading-relaxed text-ink-faint">{message}</div>
+            )}
+          </div>
 
-          {/* 右侧：步骤区。准备期（含骨架守卫期间）画占位，不画上一轮的残留 */}
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-            {pristine ? (
-              <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
-                <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
-                <div className="text-sm text-ink-soft">正在准备登录会话…</div>
-                <div className="text-[11px] text-ink-faint">授权链接或二维码生成后会立刻出现在这里</div>
-              </div>
-            ) : loginInput?.kind === "captcha" ? (
+          {/* 步骤区：授权链接/二维码未到手前始终骨架（见 `showSkeleton`） */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {loginInput?.kind === "captcha" ? (
               /* 安全验证（GeeTest v3 滑块）：在浏览器里解，解完把三字段回传。
                  这段不能省 —— 上游的「发短信验证码」端点强制校验它。 */
               <CaptchaCard
@@ -335,23 +330,19 @@ export function LoginModal({
                   onClose();
                 }}
               />
-            ) : qrUrl ? (
-              <Steps items={qrSteps} />
-            ) : authUrl ? (
-              <Steps items={authSteps} />
+            ) : authUrl || qrUrl ? (
+              <Steps items={qrUrl ? qrSteps : authSteps} />
+            ) : failed ? (
+              <FailedCard message={message} />
+            ) : showSkeleton ? (
+              <LoginSkeleton />
             ) : (
-              /* 渠道在做耗时动作（如发码）但还没给出下一步：把它的进度文案显示出来，
-                 而不是干巴巴的骨架 —— 否则用户会以为点了没反应。 */
-              <div className="flex flex-col items-center gap-2.5 rounded-xl border border-line px-4 py-10 text-center">
-                <Loader2 className="h-5 w-5 animate-spin text-ink-soft" />
-                <div className="text-sm text-ink-soft">{message || "正在准备登录会话…"}</div>
-                <div className="text-[11px] text-ink-faint">
-                  {message ? "这一步可能要几秒，请稍候" : "授权链接或二维码生成后会立刻出现在这里"}
-                </div>
-              </div>
+              <DoneCard />
             )}
+          </div>
 
-            {/* 温馨提醒：中性底 + 细字，不用黄色警示块（这里不是错误） */}
+          {/* 温馨提醒：中性底 + 细字，不用黄色警示块（这里不是错误） */}
+          <div className="px-5 pb-5">
             <div className="rounded-xl bg-raised p-3.5 text-xs leading-relaxed text-ink-faint">
               <div className="mb-1.5 flex items-center gap-1.5 font-medium text-ink-soft">
                 <Info className="h-3.5 w-3.5" />
@@ -364,7 +355,6 @@ export function LoginModal({
               </ul>
             </div>
           </div>
-        </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -641,5 +631,64 @@ function PhoneLoginForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * 登录骨架占位：授权链接/二维码未到手前一直显示（`showSkeleton`）。
+ *
+ * 形状对齐步骤时间线（徽标 + 标题 + 按钮块 + 链接行），比转圈文案更贴近
+ * 「登录面板长什么样」，避免等待期间版面空荡。
+ */
+function LoginSkeleton(): ReactElement {
+  return (
+    <div className="space-y-1" aria-hidden="true">
+      <div className="flex gap-3">
+        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-overlay" />
+        <div className="min-w-0 flex-1">
+          <div className="h-4 w-24 animate-pulse rounded bg-overlay" />
+          <div className="mt-2.5 h-8 w-36 animate-pulse rounded-lg bg-overlay" />
+          <div className="mt-2 h-8 w-full animate-pulse rounded-lg bg-canvas/60" />
+        </div>
+      </div>
+      <div className="flex gap-3 pt-3">
+        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-line" />
+        <div className="h-4 w-40 animate-pulse rounded bg-line" />
+      </div>
+      <div className="flex gap-3 pt-3">
+        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-line" />
+        <div className="min-w-0 flex-1">
+          <div className="h-4 w-32 animate-pulse rounded bg-line" />
+          <div className="mt-2 h-3 w-full animate-pulse rounded bg-line" />
+          <div className="mt-1.5 h-3 w-2/3 animate-pulse rounded bg-line" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 登录失败卡：红色描边 + 原因（`message` 为空时只给标题）。 */
+function FailedCard({ message }: { message: string }): ReactElement {
+  const msg = message.trim();
+  return (
+    <div className="rounded-xl border border-danger/25 bg-danger/8 p-3.5">
+      <div className="text-[13px] font-medium text-danger">登录失败</div>
+      {msg !== "" && msg !== PREPARING_MESSAGE && (
+        <div className="mt-1 text-xs leading-relaxed text-ink-soft">{msg}</div>
+      )}
+    </div>
+  );
+}
+
+/** 登录完成卡：账号已入池（仅 `done` 且链接已清时出现）。 */
+function DoneCard(): ReactElement {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-line px-4 py-10 text-center">
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-free/12 text-free">
+        <Check className="h-5 w-5" />
+      </span>
+      <div className="text-sm text-ink-soft">账号已自动入池</div>
+      <div className="text-[11px] text-ink-faint">可关闭弹窗，账号已在账号池生效</div>
+    </div>
   );
 }
