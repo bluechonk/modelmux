@@ -47,8 +47,8 @@ mx log --list
 
 > **另有一条可视化入口**：Web 控制台「日志」页（`mx web` → `/web/logs`）按同一份
 > `access/*` 渲染成表格（筛选 / 分页 / 展开看全字段），排查时用鼠标翻比 tail 快。
-> 它还能显示**请求上下文**（客户端原样体与实际上行体），但需要先开 `MODELMUX_LOG_PAYLOAD=1`
-> （默认关闭，见 [LOGGING.md](../../../docs/LOGGING.md) §9）；`mx log` 没有 payload kind。
+> 它还能显示**请求上下文**（客户端原样体与实际上行体；正文抓取默认开启、控制台右上角可关，
+> 见 [LOGGING.md](../../../docs/LOGGING.md) §9）；`mx log` 没有 payload kind。
 > 本技能的命令仍然是**无 GUI 环境**（SSH / 脚本 / CI）下的唯一手段。
 
 ## 2. 耗时判定

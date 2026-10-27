@@ -1,11 +1,13 @@
 /**
- * 请求上下文弹窗：按请求 id 读回抓取的正文，把「这次请求到底构造了什么」完整摊开。
+ * 请求上下文弹窗：按请求 id 读回抓取的正文，把「这次请求到底构造了什么」完整摊开
+ * （抓取开关、字段与安全边界见 docs/LOGGING.md §9）。
  *
- * 关键约束：
- *  - 正文是**原样文本**：能解析就按 messages 逐条渲染，不能（截断 / 自编码体）就给原文
- *  - 上行体不一定是 OpenAI 形态（有的渠道是自有字段）→ 无 messages 时整段呈现并说明
- *  - 非文本片段（图片等）只给类型与长度，不铺 base64
- *  - 铁律：不用 hover 气泡；需要折叠的一律用可点的 `<details>`
+ * 关键约束（docs/LOGGING.md §9）：
+ *   - 正文是原样文本：能解析就按 messages 逐条渲染，不能（截断 / 自编码体）就给原文
+ *   - 上行体不一定是 OpenAI 形态（如 catpaw 的自有字段）→ 无 messages 时整段呈现并说明
+ *   - 非文本片段（图片等）只给类型与长度，不铺 base64
+ *
+ * 铁律：不用 hover 气泡；需要折叠的一律用可点的 `<details>`
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -319,24 +321,13 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
   );
 }
 
-/** 抓取开关关闭时的说明：给可执行的开启办法，而不是一句「没有数据」。 */
+/** 抓取开关关闭时的说明：右上角可重开；关闭只停止新增，已落盘的记录照样能看。 */
 function CaptureOffHint(): ReactElement {
   return (
     <div className="space-y-2 text-xs text-ink-soft">
       <p>
         请求正文抓取当前<strong className="font-medium text-ink">关闭</strong>
-        （默认关闭：正文含用户内容，不落盘）。
-      </p>
-      <p>
-        开启：设环境变量{" "}
-        <code className="rounded bg-canvas px-1.5 py-0.5 font-mono text-[11px] text-ink">
-          MODELMUX_LOG_PAYLOAD=1
-        </code>{" "}
-        后<strong className="font-medium text-ink">完整重启</strong>网关（
-        <code className="rounded bg-canvas px-1.5 py-0.5 font-mono text-[11px] text-ink">
-          mx stop &amp;&amp; mx start
-        </code>
-        ），之后的新请求才会记录。
+        （页头「正文抓取」可重新打开）。关闭只停止新增，已落盘的记录在保留期内仍可查看。
       </p>
       <p className="text-ink-faint">
         可用 <code className="font-mono">MODELMUX_LOG_PAYLOAD_CIDS</code> 限定渠道、

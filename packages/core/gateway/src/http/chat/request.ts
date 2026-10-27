@@ -119,7 +119,7 @@ export async function parseChatRequest(
     return null;
   }
   noteChatRequestStats(res, payload, model, messages, raw);
-  // 抓包（opt-in）在解析成功后就落盘，不等响应：上游失败/超时/断连时，
+  // 正文抓取在解析成功后就落盘，不等响应：上游失败/超时/断连时，
   // 「客户端到底发了什么」才留得住（而那几类最需要它）。
   noteClientPayload(res, raw);
   return { payload, model, messages, raw };

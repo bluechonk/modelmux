@@ -487,7 +487,7 @@ export async function attemptCandidate(
       ? Buffer.from(encodedBody, "utf8")
       : Buffer.from(JSON.stringify(body), "utf8");
 
-  // 抓包（opt-in）必须在 fetch **之前**：超时/建连失败时，这条记录是唯一的
+  // 正文抓取必须在 fetch **之前**：超时/建连失败时，这条记录是唯一的
   // 「我到底发了什么、多大」证据。此刻 `sendBody` 已过渠道翻译与 `prepareChat` 前置，
   // 正是「构造完成的上下文」本身。
   noteUpstreamPayload(res, { cid, model: resolvedModel, stream: ctx.wantStream, attempt: ctx.attempt }, sendBody);

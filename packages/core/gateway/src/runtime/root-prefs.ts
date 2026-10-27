@@ -1,8 +1,6 @@
 /**
- * 根级偏好（`<root>/prefs.json`）：跨渠道、跨进程的运行时设置。
- *
- * 这是该文件的第一个使用者（STORAGE-CONVENTION §3.9 的预留位）；字段按 `version` 演进，
- * 损坏时回落默认值 —— 偏好文件坏了不能让网关起不来，也不能让设置永远改不掉。
+ * 根级偏好（`<root>/prefs.json`）：跨渠道、跨进程的运行时设置
+ * （STORAGE-CONVENTION §3.9；正文抓取开关是第一个字段，见 docs/LOGGING.md §9）。
  * 写入走同目录临时文件 + rename（原子替换，STORAGE-CONVENTION §3.7）。
  */
 

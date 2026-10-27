@@ -225,7 +225,7 @@ export interface AccessLogPage {
   total: number;
   stats: AccessLogStats;
   entries: AccessLogEntry[];
-  /** 请求正文抓取开关；关时展开行给出开启指引。 */
+  /** 请求正文抓取开关的当前状态（持久化偏好，默认开）；弹窗在查不到记录时据此措辞。 */
   payload_enabled: boolean;
 }
 

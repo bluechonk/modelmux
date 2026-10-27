@@ -115,7 +115,7 @@ export interface WebApi {
    * 分页由 `limit` / `offset` 驱动；返回里的 `total` 是命中筛选的总条数。
    */
   logs(query?: LogQuery): Promise<AccessLogPage>;
-  /** 某条请求的正文抓取记录（`enabled: false` = 抓取开关没开）。 */
+  /** 某条请求的正文抓取记录（读回不受开关门控；`enabled` 是开关当前状态）。 */
   logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
   /**
    * 切换请求正文抓取（持久化到 `<root>/prefs.json`，不重启生效）。

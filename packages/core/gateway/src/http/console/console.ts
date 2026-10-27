@@ -5,8 +5,8 @@
  * **登录完成前**就可用，而此时网关还没启动。
  *
  * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` · `GET /api/logs` ·
- * `GET /api/logs/payload` · `POST /api/theme` · `POST /api/retry-login` ·
- * `POST /api/commands`（web-command-handler.ts）
+ * `GET /api/logs/payload` · `POST /api/logs/payload-capture` · `POST /api/theme` ·
+ * `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
