@@ -7,11 +7,12 @@
  * 状态灯 3 秒轮询 `/web/api/state`：运行中=绿、异常=红、其余=灰；
  * **网关异常（`error` / `down` / 查询失败）时正文整体用骨架图**，直到恢复
  * （3 秒轮询自愈，无需刷新页面）。
+ * 例外：日志页在 `error` 下豁免骨架 —— 排查异常时恰恰要看日志。
  */
 
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge } from "lucide-react";
+import { Boxes, Gauge, ScrollText } from "lucide-react";
 import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
@@ -21,6 +22,7 @@ import { BrandMark } from "./BrandMark";
 const NAV = [
   { to: "/", label: "仪表盘", icon: Gauge },
   { to: "/accounts", label: "账号池", icon: Boxes },
+  { to: "/logs", label: "日志", icon: ScrollText },
 ];
 
 /** 是否演示构建（由 `vite.config.ts` 的 define 注入；见 `lib/demo.ts`）。 */
@@ -72,10 +74,16 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
   });
   // 注意顺序：isError 优先于 ui_state 缓存 —— 网关挂了之后 state.data 还是上次的
   // 「running」，只看 ui_state 永远等不到异常（3 秒轮询一直失败也白搭）。
+  const { pathname } = useLocation();
   const uiState = state.data?.ui_state ?? "";
   const queryFailed = Boolean(state.isError);
   const abnormal = queryFailed || uiState === "error" || uiState === "down";
   const running = !queryFailed && uiState === "running";
+  // 日志页对 `error` 豁免骨架：控制台与网关同进程，能读到 `ui_state` 就说明它活着，
+  // `/api/logs` 也就能用 —— 而排查异常恰恰最需要看日志。`down`（网关真不在）与
+  // 查询失败时日志同样拿不到，骨架才是对的，故不豁免。
+  const onLogs = pathname.replace(/\/+$/, "").endsWith("/logs");
+  const skeleton = queryFailed || uiState === "down" || (uiState === "error" && !onLogs);
   // 状态灯配色：运行中=绿、异常=红、其余（未就绪/未知）=灰
   const dotClass = running ? "bg-free" : abnormal ? "bg-danger" : "bg-ink-faint";
   const statusText = running ? "运行中" : abnormal ? "异常" : "启动中";
@@ -161,7 +169,7 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
           模型表的 7 列与账号卡两列都有足够横向空间。
         */}
         <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
-          {abnormal ? <GatewaySkeleton /> : children ?? <Outlet />}
+          {skeleton ? <GatewaySkeleton /> : children ?? <Outlet />}
         </div>
       </main>
     </div>

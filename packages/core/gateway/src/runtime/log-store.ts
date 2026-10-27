@@ -1,19 +1,24 @@
 /**
- * 运行日志落盘：按「类型 / 日期 / 结果」分文件，绝不把所有日志堆进一个文件
+ * 运行日志落盘与读回：按「类型 / 日期 / 结果」分文件，绝不把所有日志堆进一个文件
  * （文件清单见 docs/LOGGING.md §2，轮转与保留见 §6）。
  *
  * 规则：
  *  - 每类文件独立大小上限（默认 10MB），超限轮转 `<name>.1.log` … 最多保留 3 份
  *  - 日期目录按本地时区切分，默认保留 14 天，过期目录在当日首次写入时清理
  *  - 所有写入 best-effort：日志失败绝不影响请求
+ *  - 控制台日志页经 `queryAccessLogs` 读回；请求正文抓取是可选类别（默认关闭）
  */
 
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
+  readFileSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -23,6 +28,7 @@ import { dirname, join } from "node:path";
 import type { ServerResponse } from "node:http";
 
 import * as paths from "./paths.js";
+import { enforcePermissions } from "./permissions.js";
 
 export type AccessOutcome = "success" | "failure" | "other";
 
@@ -137,51 +143,55 @@ function jsonLine(record: Record<string, unknown>): string {
   return JSON.stringify({ ts: new Date().toISOString(), ...record });
 }
 
-/** 删除超过保留期的日期目录/文件；每个进程每天只跑一次。 */
+/** 删除超过保留期的日期目录与 `<date>.log` 文件；`cutoff` 是 epoch 毫秒。 */
+function pruneDir(dir: string, cutoff: number): void {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(entry.name)) {
+        const at = new Date(`${entry.name}T00:00:00`).getTime();
+        if (Number.isFinite(at) && at < cutoff) {
+          try {
+            rmSync(full, { recursive: true, force: true });
+          } catch {
+            /* 被占用则下次再清 */
+          }
+        }
+      } else {
+        pruneDir(full, cutoff);
+      }
+    } else if (/^\d{4}-\d{2}-\d{2}\.log$/.test(entry.name)) {
+      const at = new Date(`${entry.name.slice(0, 10)}T00:00:00`).getTime();
+      if (Number.isFinite(at) && at < cutoff) {
+        try {
+          unlinkSync(full);
+        } catch {
+          /* 被占用则下次再清 */
+        }
+      }
+    }
+  }
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 清理过期日志；每个进程每天只跑一次。 */
 function pruneOnce(): void {
   const today = localDate();
   if (lastPruneDate === today) return;
   lastPruneDate = today;
   const root = logsRoot();
-  const cutoff = Date.now() - retentionDays() * 24 * 60 * 60 * 1000;
-
-  const pruneDir = (dir: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(entry.name)) {
-          const at = new Date(`${entry.name}T00:00:00`).getTime();
-          if (Number.isFinite(at) && at < cutoff) {
-            try {
-              rmSync(full, { recursive: true, force: true });
-            } catch {
-              /* 被占用则下次再清 */
-            }
-          }
-        } else {
-          pruneDir(full);
-        }
-      } else if (/^\d{4}-\d{2}-\d{2}\.log$/.test(entry.name)) {
-        const at = new Date(`${entry.name.slice(0, 10)}T00:00:00`).getTime();
-        if (Number.isFinite(at) && at < cutoff) {
-          try {
-            unlinkSync(full);
-          } catch {
-            /* 被占用则下次再清 */
-          }
-        }
-      }
-    }
-  };
-
   try {
-    pruneDir(root);
+    // 请求正文抓取含用户 prompt 且体积大，保留期比普通日志短 —— 必须先按它清一遍，
+    // 否则全局那遍（14 天）会把 payload 目录一起放过期。
+    pruneDir(join(root, "payload"), Date.now() - payloadDays() * DAY_MS);
+    pruneDir(root, Date.now() - retentionDays() * DAY_MS);
   } catch {
     /* 清理失败不影响日志 */
   }
@@ -436,4 +446,567 @@ export function resolveLogPath(options: {
     if (existsSync(todayLifecycle)) return todayLifecycle;
   }
   return pick("system", "gateway.log") ?? pick("system", "lifecycle.log");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 访问日志读回（控制台日志页）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 单条访问日志的可读形态（字段语义见 docs/LOGGING.md §3.1）。
+ *
+ * `outcome` 取自**它所在的文件**（`success.log` / `failure.log` / `other.log`）而不是行内字段：
+ * 文件归属是分桶的权威事实源，行内字段只作兜底。
+ */
+export interface AccessEntry {
+  id: string;
+  ts: string;
+  method?: string;
+  path?: string;
+  cid?: string;
+  model?: string;
+  stream?: boolean;
+  status?: number;
+  outcome: AccessOutcome;
+  error?: string;
+  message?: string;
+  durationMs?: number;
+  upstreamMs?: number;
+  ttfbMs?: number;
+  requestBytes?: number;
+  messageCount?: number;
+  systemChars?: number;
+  toolCount?: number;
+  /** 上游 usage 归一化出的三数；键名依上游而异，缺则 null（失败请求通常没有）。 */
+  tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
+  /** 耗时达慢阈值 —— 与 `slow.log` 同一判据，不另设标准。 */
+  slow: boolean;
+}
+
+export interface AccessQuery {
+  date?: string;
+  outcome?: AccessOutcome;
+  cid?: string;
+  model?: string;
+  stream?: boolean;
+  slow?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AccessStats {
+  requests: number;
+  success: number;
+  failure: number;
+  other: number;
+  slow: number;
+  avgDurationMs: number | null;
+  /** 窗口内没有 usage 的条数（失败请求通常没有），避免把缺失当成 0。 */
+  noUsage: number;
+  tokens: { prompt: number; completion: number; total: number };
+}
+
+export interface AccessPage {
+  /** 实际返回的日期（回落后的）；无任何日志时为空串。 */
+  date: string;
+  dates: string[];
+  /** 扫描窗口内出现过的渠道（**未过滤**，供筛选下拉用，不会随筛选消失）。 */
+  cids: string[];
+  slowMs: number;
+  scanned: number;
+  /** 尾部窗口是否被截断：true 时统计只代表窗口内，不代表全天。 */
+  truncated: boolean;
+  total: number;
+  stats: AccessStats;
+  entries: AccessEntry[];
+}
+
+/** 单文件尾部读取上限、总扫描行上限（都用于把一次查询的读盘量钉死）。 */
+const ACCESS_TAIL_BYTES = 1 << 20;
+const ACCESS_SCAN_LINES = 20_000;
+const ACCESS_DEFAULT_LIMIT = 100;
+const ACCESS_MAX_LIMIT = 500;
+/**
+ * 只读这三个文件。
+ *
+ * ⚠ 刻意**不读** `slow.log`：它是成功/失败行的**并行副本**（同一请求写两处），
+ * 一起读会让慢请求在列表里出现两遍。
+ */
+const ACCESS_OUTCOMES: AccessOutcome[] = ["success", "failure", "other"];
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+function num(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function bool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+/** 从上游 `usage` 里防御性提取 token 数（键名依上游而异，兼容 input/output 命名）。 */
+function tokensOf(usage: unknown): AccessEntry["tokens"] {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const pick = (...names: string[]): number | null => {
+    for (const name of names) {
+      const value = num(u[name]);
+      if (value !== undefined) return value;
+    }
+    return null;
+  };
+  const prompt = pick("prompt_tokens", "input_tokens");
+  const completion = pick("completion_tokens", "output_tokens");
+  const total =
+    pick("total_tokens") ??
+    (prompt !== null && completion !== null ? prompt + completion : null);
+  if (prompt === null && completion === null && total === null) return null;
+  return { prompt, completion, total };
+}
+
+/**
+ * 读文件**尾部**最多 `maxBytes` 字节。
+ *
+ * 起点落在行中间时丢掉残缺的首行（半行解析必然失败，留着只会污染结果）；
+ * 文件被并发轮转/删除时返回空 —— 读日志绝不能反过来影响主流程。
+ */
+function readTail(file: string, maxBytes: number): { text: string; truncated: boolean } {
+  let fd: number | null = null;
+  try {
+    const size = statSync(file).size;
+    const start = Math.max(0, size - maxBytes);
+    const length = size - start;
+    if (length <= 0) return { text: "", truncated: false };
+    fd = openSync(file, "r");
+    const buf = Buffer.alloc(length);
+    const read = readSync(fd, buf, 0, length, start);
+    let text = buf.subarray(0, read).toString("utf8");
+    if (start > 0) {
+      const nl = text.indexOf("\n");
+      if (nl < 0) return { text: "", truncated: true };
+      text = text.slice(nl + 1);
+      return { text, truncated: true };
+    }
+    return { text, truncated: false };
+  } catch {
+    return { text: "", truncated: false };
+  } finally {
+    if (fd !== null) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* 已关闭 */
+      }
+    }
+  }
+}
+
+/**
+ * 某 outcome 在指定日期要读的文件，按**时间正序**返回。
+ *
+ * ⚠ 必须带上轮转文件：单文件超 10MB 后当天早期的行被挤到 `.1.log`…`.3.log`，
+ * 只读 `<outcome>.log` 会丢掉当天的前半段。
+ */
+function accessFiles(date: string, outcome: AccessOutcome): string[] {
+  const base = join(logsRoot(), "access", date, `${outcome}.log`);
+  const out: string[] = [];
+  for (let i = MAX_ROTATED; i >= 1; i -= 1) {
+    const rotated = `${base}.${i}.log`;
+    if (existsSync(rotated)) out.push(rotated);
+  }
+  if (existsSync(base)) out.push(base);
+  return out;
+}
+
+/** `access/` 下真正有日志的日期，倒序（新的在前）。 */
+export function listAccessDates(): string[] {
+  const dir = join(logsRoot(), "access");
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(e.name))
+    .map((e) => e.name)
+    .filter((date) => ACCESS_OUTCOMES.some((o) => existsSync(join(dir, date, `${o}.log`))))
+    .sort()
+    .reverse();
+}
+
+function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | null {
+  let raw: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    raw = parsed as Record<string, unknown>;
+  } catch {
+    // 文件正在被追加：末行可能是半行。跳过它，不让整页失败。
+    return null;
+  }
+  const id = str(raw["id"]);
+  if (!id) return null;
+  const durationMs = num(raw["durationMs"]);
+  const entry: AccessEntry = {
+    id,
+    ts: str(raw["ts"]) ?? "",
+    outcome,
+    tokens: tokensOf(raw["usage"]),
+    slow: (durationMs ?? 0) >= slowMs(),
+  };
+  const cid = str(raw["cid"]);
+  if (cid !== undefined) entry.cid = cid;
+  const method = str(raw["method"]);
+  if (method !== undefined) entry.method = method;
+  const path = str(raw["path"]);
+  if (path !== undefined) entry.path = path;
+  const model = str(raw["model"]);
+  if (model !== undefined) entry.model = model;
+  const stream = bool(raw["stream"]);
+  if (stream !== undefined) entry.stream = stream;
+  const status = num(raw["status"]);
+  if (status !== undefined) entry.status = status;
+  const error = str(raw["error"]);
+  if (error !== undefined) entry.error = error;
+  const message = str(raw["message"]);
+  if (message !== undefined) entry.message = message;
+  if (durationMs !== undefined) entry.durationMs = durationMs;
+  const upstreamMs = num(raw["upstreamMs"]);
+  if (upstreamMs !== undefined) entry.upstreamMs = upstreamMs;
+  const ttfbMs = num(raw["ttfbMs"]);
+  if (ttfbMs !== undefined) entry.ttfbMs = ttfbMs;
+  const requestBytes = num(raw["requestBytes"]);
+  if (requestBytes !== undefined) entry.requestBytes = requestBytes;
+  const messageCount = num(raw["messageCount"]);
+  if (messageCount !== undefined) entry.messageCount = messageCount;
+  const systemChars = num(raw["systemChars"]);
+  if (systemChars !== undefined) entry.systemChars = systemChars;
+  const toolCount = num(raw["toolCount"]);
+  if (toolCount !== undefined) entry.toolCount = toolCount;
+  return entry;
+}
+
+/**
+ * 查询某天的访问日志。
+ *
+ * 读量有界：每个 outcome 文件只读尾部 1MB、总扫描行数上限 2 万 —— 超限时
+ * `truncated=true`，调用方据此把统计口径标注成「窗口内」，而不是假装是全量。
+ * 给出的 `stats` 基于**未过滤**的扫描窗口（当天概览），`total` 才是筛选后的条数。
+ */
+export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
+  const dates = listAccessDates();
+  const date = query.date !== undefined && dates.includes(query.date) ? query.date : (dates[0] ?? "");
+  const limit = Math.min(Math.max(1, query.limit ?? ACCESS_DEFAULT_LIMIT), ACCESS_MAX_LIMIT);
+  const offset = Math.max(0, query.offset ?? 0);
+  const stats: AccessStats = {
+    requests: 0,
+    success: 0,
+    failure: 0,
+    other: 0,
+    slow: 0,
+    avgDurationMs: null,
+    noUsage: 0,
+    tokens: { prompt: 0, completion: 0, total: 0 },
+  };
+  if (!date) {
+    return { date: "", dates, cids: [], slowMs: slowMs(), scanned: 0, truncated: false, total: 0, stats, entries: [] };
+  }
+
+  const scanned: AccessEntry[] = [];
+  let truncated = false;
+  let durationSum = 0;
+  let durationCount = 0;
+  scan: for (const outcome of ACCESS_OUTCOMES) {
+    for (const file of accessFiles(date, outcome)) {
+      const tail = readTail(file, ACCESS_TAIL_BYTES);
+      if (tail.truncated) truncated = true;
+      for (const line of tail.text.split("\n")) {
+        if (line.trim() === "") continue;
+        if (scanned.length >= ACCESS_SCAN_LINES) {
+          truncated = true;
+          break scan;
+        }
+        const entry = parseAccessLine(line, outcome);
+        if (!entry) continue;
+        scanned.push(entry);
+        stats.requests += 1;
+        stats[outcome] += 1;
+        if (entry.slow) stats.slow += 1;
+        if (entry.durationMs !== undefined) {
+          durationSum += entry.durationMs;
+          durationCount += 1;
+        }
+        if (entry.tokens === null) {
+          stats.noUsage += 1;
+        } else {
+          stats.tokens.prompt += entry.tokens.prompt ?? 0;
+          stats.tokens.completion += entry.tokens.completion ?? 0;
+          stats.tokens.total += entry.tokens.total ?? 0;
+        }
+      }
+    }
+  }
+  stats.avgDurationMs = durationCount > 0 ? Math.round(durationSum / durationCount) : null;
+
+  const cids = [...new Set(scanned.map((e) => e.cid).filter((c): c is string => c !== undefined))].sort();
+
+  const needle = query.q?.toLowerCase();
+  const matched = scanned.filter((e) => {
+    if (query.outcome !== undefined && e.outcome !== query.outcome) return false;
+    if (query.cid !== undefined && e.cid !== query.cid) return false;
+    if (query.stream !== undefined && e.stream !== query.stream) return false;
+    if (query.slow === true && !e.slow) return false;
+    if (query.model !== undefined && !(e.model ?? "").toLowerCase().includes(query.model.toLowerCase())) {
+      return false;
+    }
+    if (needle !== undefined && needle !== "") {
+      const hay = `${e.id} ${e.model ?? ""} ${e.error ?? ""} ${e.message ?? ""}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+
+  // 倒序：`ts` 是请求开始时刻；同毫秒内按 id 兜底，保证顺序稳定（分页不会抖）。
+  matched.sort((a, b) => (a.ts === b.ts ? (a.id < b.id ? 1 : -1) : a.ts < b.ts ? 1 : -1));
+
+  return {
+    date,
+    dates,
+    cids,
+    slowMs: slowMs(),
+    scanned: scanned.length,
+    truncated,
+    total: matched.length,
+    stats,
+    entries: matched.slice(offset, offset + limit),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 请求正文抓取（opt-in）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 一次请求的正文记录（形状与落盘行一致，`ts` / `seq` 由写入时补）。
+ *
+ * `body` 存**原样文本**（不解析成对象）：既忠实反映「构造了什么」，又让界面在能
+ * `JSON.parse` 时按消息渲染、截断时降级成原文。
+ */
+export interface PayloadRecord {
+  ts: string;
+  /** 进程内单调序号：`ts` 只到毫秒，同毫秒多条靠它稳定排序。 */
+  seq: number;
+  id: string;
+  phase: string;
+  attempt?: number;
+  cid?: string;
+  model?: string;
+  stream?: boolean;
+  bytes: number;
+  truncated: boolean;
+  body: string;
+}
+
+const DEFAULT_PAYLOAD_MAX_BYTES = 256 * 1024;
+const DEFAULT_PAYLOAD_DAYS = 3;
+
+/** 抓取开关：**每次调用现读**环境变量，不在模块加载期缓存（便于测试与将来热开关）。 */
+export function payloadCaptureEnabled(): boolean {
+  const value = (process.env["MODELMUX_LOG_PAYLOAD"] ?? "").toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function payloadDays(): number {
+  return envInt("MODELMUX_LOG_PAYLOAD_DAYS", DEFAULT_PAYLOAD_DAYS);
+}
+
+function payloadMaxBytes(): number {
+  return envInt("MODELMUX_LOG_PAYLOAD_MAX_BYTES", DEFAULT_PAYLOAD_MAX_BYTES);
+}
+
+/** 渠道白名单；未设置 = 全部渠道都抓。 */
+function payloadCids(): string[] | null {
+  const raw = process.env["MODELMUX_LOG_PAYLOAD_CIDS"];
+  if (!raw) return null;
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  return list.length > 0 ? list : null;
+}
+
+/**
+ * 截断到单条上限。
+ *
+ * 截断可能切在 UTF-8 中间（会产生替换字符）—— 这是刻意的取舍：抓包的价值在
+ * 「看到构造」，为了一个字符去做边界对齐不划算；`truncated` 已经如实标注。
+ */
+function clipPayload(body: Buffer | string): Pick<PayloadRecord, "body" | "bytes" | "truncated"> {
+  const buf = typeof body === "string" ? Buffer.from(body, "utf8") : body;
+  const max = payloadMaxBytes();
+  return {
+    body: buf.subarray(0, max).toString("utf8"),
+    bytes: buf.length,
+    truncated: buf.length > max,
+  };
+}
+
+let payloadSeq = 0;
+let payloadPermDate = "";
+
+function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
+  try {
+    const date = localDate();
+    const dir = join(logsRoot(), "payload", date);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (payloadPermDate !== date) {
+      payloadPermDate = date;
+      // 含用户 prompt，权限压到 0700/0600（POSIX 语义；Windows 上 chmod 作用有限）。
+      enforcePermissions(logsRoot(), dir);
+    }
+    pruneOnce();
+    const file = join(dir, "payload.log");
+    rotateIfNeeded(file);
+    payloadSeq += 1;
+    const line = JSON.stringify({ ts: new Date().toISOString(), seq: payloadSeq, ...record });
+    appendFileSync(file, `${line}\n`, "utf8");
+  } catch {
+    /* 抓包是旁路，写失败绝不影响请求 */
+  }
+}
+
+/**
+ * 记录**客户端发来的原始请求体**。
+ *
+ * 在请求校验通过后**立即**调用（不等响应）：上游失败、超时、客户端断连时，
+ * 上下文照样留得住 —— 而那几类恰恰最需要看「客户端到底发了什么」。
+ *
+ * 此刻路由还没解析出渠道，故 `cid` 可能缺席；`model` 已是客户端原样串。
+ */
+export function noteClientPayload(res: ServerResponse, raw: Buffer): void {
+  const log = getRequestLog(res);
+  if (!log || !payloadCaptureEnabled()) return;
+  appendPayload({ id: log.id, phase: "client", ...(log.model ? { model: log.model } : {}), ...clipPayload(raw) });
+}
+
+/**
+ * 记录**真正发往上游的请求体**（已过渠道归一化 / 翻译 / `prepareChat` 前置）。
+ *
+ * 在 fetch **之前**调用：超时与建连失败时这条记录就是唯一的「我发了什么」证据。
+ * 账号池重试会产生多条（`attempt` 递增），界面按尝试分组展示。
+ */
+export function noteUpstreamPayload(
+  res: ServerResponse,
+  info: { cid: string; model: string; stream: boolean; attempt: number },
+  body: Buffer | string,
+): void {
+  const log = getRequestLog(res);
+  if (!log || !payloadCaptureEnabled()) return;
+  const allow = payloadCids();
+  if (allow !== null && !allow.includes(info.cid)) return;
+  appendPayload({
+    id: log.id,
+    phase: "upstream",
+    attempt: info.attempt,
+    cid: info.cid,
+    model: info.model,
+    stream: info.stream,
+    ...clipPayload(body),
+  });
+}
+
+/** `logs/payload/` 下有内容的日期，倒序。 */
+function payloadDates(): string[] {
+  const dir = join(logsRoot(), "payload");
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(e.name))
+    .map((e) => e.name)
+    .filter((date) => existsSync(join(dir, date, "payload.log")))
+    .sort()
+    .reverse();
+}
+
+/** 某天的抓取文件，按时间正序（轮转文件在前）。 */
+function payloadFiles(date: string): string[] {
+  const base = join(logsRoot(), "payload", date, "payload.log");
+  const out: string[] = [];
+  for (let i = MAX_ROTATED; i >= 1; i -= 1) {
+    const rotated = `${base}.${i}.log`;
+    if (existsSync(rotated)) out.push(rotated);
+  }
+  if (existsSync(base)) out.push(base);
+  return out;
+}
+
+function parsePayloadLine(line: string): PayloadRecord | null {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const raw = parsed as Record<string, unknown>;
+    const id = str(raw["id"]);
+    if (!id) return null;
+    const rec: PayloadRecord = {
+      ts: str(raw["ts"]) ?? "",
+      seq: num(raw["seq"]) ?? 0,
+      id,
+      phase: str(raw["phase"]) ?? "unknown",
+      bytes: num(raw["bytes"]) ?? 0,
+      truncated: bool(raw["truncated"]) ?? false,
+      body: typeof raw["body"] === "string" ? raw["body"] : "",
+    };
+    const attempt = num(raw["attempt"]);
+    if (attempt !== undefined) rec.attempt = attempt;
+    const cid = str(raw["cid"]);
+    if (cid !== undefined) rec.cid = cid;
+    const model = str(raw["model"]);
+    if (model !== undefined) rec.model = model;
+    const stream = bool(raw["stream"]);
+    if (stream !== undefined) rec.stream = stream;
+    return rec;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 按请求 id 读回抓取记录（控制台展开行用）。
+ *
+ * `date` 未给时从最新日期往前找，命中即止 —— 用户点击触发一次，读量可接受。
+ * `enabled=false` 表示抓取开关没开，界面据此给出开启指引而不是「没有数据」。
+ */
+export function readPayloads(id: string, date?: string): { enabled: boolean; records: PayloadRecord[] } {
+  const enabled = payloadCaptureEnabled();
+  if (!enabled || id === "") return { enabled, records: [] };
+  const dates = date !== undefined && date !== "" ? [date] : payloadDates();
+  for (const day of dates) {
+    const found: PayloadRecord[] = [];
+    for (const file of payloadFiles(day)) {
+      let text: string;
+      try {
+        text = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      for (const line of text.split("\n")) {
+        if (line === "" || !line.includes(id)) continue;
+        const rec = parsePayloadLine(line);
+        if (rec && rec.id === id) found.push(rec);
+      }
+    }
+    if (found.length > 0) {
+      found.sort((a, b) => a.seq - b.seq || (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+      return { enabled, records: found };
+    }
+  }
+  return { enabled, records: [] };
 }

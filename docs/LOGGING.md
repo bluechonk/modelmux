@@ -8,7 +8,7 @@
 | 编号 | 规则 |
 | --- | --- |
 | G1 | 全部日志位于存储根的 `logs/` 下（存储根由 `MODELMUX_HOME` 覆盖，默认 `~/.modelmux`）。 |
-| G2 | 顶层按**用途**分四类：`access/`（请求）、`error/`（错误）、`system/`（进程与自身输出）、`channels/`（渠道维度）。这四类是**网关进程**的日志；外部守护 `scripts/mx-watchdog.mjs` 另有根级 `watchdog.log`（见 §2 文件清单）。 |
+| G2 | 顶层按**用途**分五类：`access/`（请求元数据）、`error/`（错误）、`system/`（进程与自身输出）、`channels/`（渠道维度）、`payload/`（请求正文，opt-in，见 §9）。前四类是**网关进程**的日志；外部守护 `scripts/mx-watchdog.mjs` 另有根级 `watchdog.log`（见 §2 文件清单）。 |
 | G3 | 按**本地时区**切分日期；`access/`、`error/`、`system/` 用 `YYYY-MM-DD/` 目录，`channels/` 用 `YYYY-MM-DD.log` 文件名。 |
 | G4 | 写入一律 **best-effort**：目录不可写、单文件写失败、轮转失败都只影响日志本身，不影响请求处理。 |
 | G5 | 每个文件独立大小上限（默认 10MB），超限轮转为 `<name>.1.log` … `<name>.3.log`，最多保留 3 份历史。 |
@@ -29,6 +29,7 @@
 | `system/<date>/gateway.log` | 网关与 worker 的自身输出 | 文本行 | `appendGateway()` | worker 的 stdout/stderr 转发（§5） |
 | `system/<date>/worker.log` | worker 进程的原始 stdout/stderr | 文本行 | 监督者按 fd 落盘 | worker 启动时打开 |
 | `channels/<cid>/<date>.log` | 渠道维度输出 | 文本行 | `appendChannel()` | §5 的路由规则 |
+| `payload/<date>/payload.log` | 请求正文抓取（客户端原样体 + 实际上行体）；**默认关闭** | 结构化行 | `appendPayload()` | `MODELMUX_LOG_PAYLOAD=1` 时，字段与约束见 §9 |
 | `watchdog.log` | 外部守护 `scripts/mx-watchdog.mjs` 的输出（开机拉起 + 挂了拉回） | 文本行 | 守护脚本自身 | 守护运行期（前台 / 开机脚本，按日不切分） |
 
 `channels/` 的 `<cid>` 必须匹配 `^[a-z0-9][a-z0-9.-]*$`，否则该行被丢弃（防止路径穿越）。
@@ -150,6 +151,8 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | 保留天数 | 14 | `MODELMUX_LOG_RETENTION_DAYS` | 每个进程每天首次写入时清理（`pruneOnce`） |
 | 慢请求阈值 | 30000ms | `MODELMUX_SLOW_MS` | 落盘时判定是否写 `slow.log` |
 | 上游空闲超时 | 120000ms | `MODELMUX_READ_TIMEOUT_MS` | 转发层读上游时 |
+| 抓取单条正文上限 | 256KB | `MODELMUX_LOG_PAYLOAD_MAX_BYTES` | 抓取落盘时（§9） |
+| 抓取保留天数 | 3 | `MODELMUX_LOG_PAYLOAD_DAYS` | `pruneOnce` **先**按它清 `payload/`，再走 14 天（§9） |
 
 环境变量取值规则：非数字、`<= 0` 或未设置时**回落到默认值**。
 
@@ -176,5 +179,45 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | **上游响应体片段会落盘**：上游非 2xx 时，网关取响应体前 2048 字符放入 Error 文本，经 `logger()` 写入 `system/<date>/gateway.log`；该行命中 §5 关键词规则时，同一文本另写入 `error/<date>/error.log` | 实现事实（`chat/upstream.ts` 的上游错误分支 + `chat/attempt.ts` 的错误日志 + `headless.ts` 的 `logLine` 路由） |
 | **上游响应体不脱敏**：若上游在错误响应里回显了凭据，该片段会被原样记录（受上述两级截断约束） | 调用方与渠道实现的约束：不得让上游错误体包含凭据 |
 | 渠道维度日志的 `<cid>` 必须匹配 `^[a-z0-9][a-z0-9.-]*$`，否则该行被丢弃 | 实现事实（`appendChannel`） |
+| **可选抓取会落用户正文**：`MODELMUX_LOG_PAYLOAD=1` 时请求体（含 prompt）写入 `payload/<date>/payload.log`；**默认关闭**、独立 3 天保留、文件 `0600`、只落 body 不落请求头 | 实现事实，字段与取舍见 §9 |
 | 日志只写在本机存储根下，不进入 git（`~/.modelmux` 不在仓库内） | 目录约定 |
+
+## 9. 请求正文抓取（opt-in，默认关闭）
+
+§3 的访问日志只记**元数据**（模型、耗时、tokens 等），不落 prompt 正文 —— 这是刻意的边界。
+要看「这次请求到底构造了什么」，需要显式开启抓取：
+
+| 项 | 值 |
+| --- | --- |
+| 开关 | `MODELMUX_LOG_PAYLOAD`（`1` / `true` 开启；未设置 = 关闭） |
+| 渠道白名单 | `MODELMUX_LOG_PAYLOAD_CIDS`（逗号分隔；未设置 = 全部渠道） |
+| 单条上限 | 256KB（`MODELMUX_LOG_PAYLOAD_MAX_BYTES`，超出截断并置 `truncated`） |
+| 保留天数 | 3（`MODELMUX_LOG_PAYLOAD_DAYS`，**独立**于 §6 的 14 天） |
+| 落点 | `payload/<date>/payload.log`（结构化行；轮转与命名规则同 §6） |
+| 权限 | 目录 `0700` / 文件 `0600`（含用户 prompt，比普通日志严一档；Windows 上 chmod 作用有限） |
+
+行字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `ts` / `seq` | 写入时刻与进程内单调序号（`ts` 只到毫秒，同毫秒靠 `seq` 稳定排序） |
+| `id` | 与访问日志**同一个请求标识**（两边的 join 键） |
+| `phase` | `client` = 客户端原样请求体；`upstream` = 实际发往上游的请求体（已过渠道翻译与 `prepareChat`） |
+| `attempt` | `phase=upstream` 时的尝试序号（账号池重试会产生多条；`client` 无此字段） |
+| `cid` / `model` / `stream` | 上下文；`phase=client` 时 `cid` 可能缺席（那一刻路由还没解析出渠道） |
+| `bytes` | **原始**长度（截断前） |
+| `truncated` | 是否被单条上限截断 |
+| `body` | **原样文本**（UTF-8）；超上限时截断，可能切在字符中间 |
+
+两条硬约束（实现见 `runtime/log-store.ts`）：
+
+1. **写盘前置**：`client` 记录在请求校验通过后**立即**写，`upstream` 记录在发 fetch **之前**写。
+   若等响应回来再写，超时与建连失败这类**最需要看上下文**的请求恰恰没有记录。
+2. **只落 body，不落请求头**：凭据在头里，从头就不抓。
+
+⚠ `body` 是**未脱敏**内容；个别渠道的请求体是自编码字符串（`encodedBody`），可能含会话 id。
+开启前请确认这些内容可以被落盘。
+
+读取入口：Web 控制台「日志」页的展开行按 `id` 读回（见 `docs/WEB-CONSOLE.md` 的数据通道）。
+命令行侧**不提供**正文检索：正文行动辄几十 KB，尾部输出没有意义（检索命令与判读见 `log-triage` 技能）。
 
