@@ -295,6 +295,44 @@ describe("请求正文抓取（默认开启，偏好落盘）", () => {
     assert.deepEqual(kept.records.map((r) => r.body), ["kept"], "已落盘的记录不该被藏起来");
   });
 
+  it("跨午夜的长请求：正文在前一天、访问行在当天，按访问行的日期也要能读全", () => {
+    // 抓取写在「写入时刻」的日期文件，访问行写在「响应结束」的日期文件 ——
+    // 23:59 开始的请求两者会分家；修复前只扫访问行当天，会漏掉前一晚的 client 记录。
+    const day2 = localDate();
+    const day1 = localDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const write = (day: string, record: Record<string, unknown>): void => {
+      const dir = join(paths.logsDir(), "payload", day);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "payload.log"), `${JSON.stringify(record)}\n`, "utf8");
+    };
+    // ts 用 UTC：本地 23:59 ≈ UTC 15:59（UTC+8），两行都在同一个 UTC 日期内、按 ts 排序正确
+    write(day1, {
+      ts: `${day1}T15:59:59.000Z`,
+      seq: 1,
+      id: "req_mid",
+      phase: "client",
+      bytes: 10,
+      truncated: false,
+      body: "client-part",
+    });
+    write(day2, {
+      ts: `${day1}T16:01:00.000Z`,
+      seq: 2,
+      id: "req_mid",
+      phase: "upstream",
+      attempt: 0,
+      cid: "loomy",
+      bytes: 12,
+      truncated: false,
+      body: "upstream-part",
+    });
+
+    const page = readPayloads("req_mid", day2);
+    assert.equal(page.records.length, 2, "只扫访问行当天会漏掉前一晚的 client 记录");
+    assert.deepEqual(page.records.map((r) => r.phase), ["client", "upstream"], "按写入时间排序");
+    assert.deepEqual(readPayloads("req_mid").records.length, 2, "不给日期也要能找全");
+  });
+
   it("开启后按 id 读回客户端原样体与每次尝试的上行体，顺序稳定", () => {
     setPayloadCaptureEnabled(true);
     const { res, id } = attach();
