@@ -99,7 +99,7 @@ git checkout main && git pull origin main
 git checkout -b fix/<模块>
 git add <files> && git commit -F .tmp/commit-msg.txt
 
-# 2) 【推送前必须】本地 WSL 门禁：与 CI 等价，全绿才推
+# 2) 【推送前必须】本地推送门禁：与 CI 等价，全绿才推
 npm run gate
 
 # 3) 推送（.githooks/pre-push 会自动再跑一次同一门禁）
@@ -112,15 +112,15 @@ gh pr create --title "fix(<scope>): 中文描述" --body-file .tmp/pr-body.md
 gh pr checks <n>
 ```
 
-- **推送前必须先 `npm run gate`**（WSL 里 clone + `npm ci` + `npm test`）：本机 Windows +
-  Git Bash 与 ubuntu-latest 有真实差异（git 历史深度、平台原生依赖、DrvFs 符号链接），
-  Windows 侧跑绿不代表 CI 会绿。`pre-push` 会对**所有推送**全量再跑一次 `npm test`，
+- **推送前必须先 `npm run gate`**（干净 clone 里 `npm ci` + `npm test`）：开发工作树与
+  ubuntu-latest 有真实差异（git 历史深度、平台原生依赖、未提交改动与陈旧产物），
+  在工作树上跑绿不代表 CI 会绿。`pre-push` 会对**所有推送**全量再跑一次 `npm test`，
   它是兜底拦截，不是提前发现，也不按文件范围分流。
 - **改了 `.github/workflows/**` 必须本地先跑通再推**：workflow 的失败模式通常只有真跑
   产物才暴露。演示站点的 `demo-pages.yml` 要本地验三件事：`DEMO=1 DEMO_BASE=/<repo>/`
   构建后资源引用带前缀、`index.html` 复制成 `404.html` 后深链能渲染、Pages 源为
   `build_type: workflow`。workflow 改动仍以 `npm run gate` 为准；
-  本机 WSL 内没有 `act`，不要假设能用 act 复现。
+  本机没有 `act`，不要假设能用 act 复现。
 - 合并统一用 **`gh pr merge <n> --rebase`**（保持线性历史，禁止 merge commit）。
   rebase 保留分支内的各条提交信息；PR 标题只有在 squash 时才会变成提交信息
   （`merge_commit_title=PR_TITLE`）。`verify:commits` 校验的是提交，不是 PR 标题。
@@ -167,7 +167,7 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
 | 未提交就继续做新任务 | 改动混批、历史难看 | 每轮收尾再开工 |
 | `git add -u` 漏掉新文件 | CI 构建失败（UNRESOLVED_IMPORT） | 新文件用 `git add <path>` |
 | 改了代码没 restart | 验证的是旧进程 | build → restart → status 无陈旧 |
-| 本地绿但 WSL 门禁红 | 平台/依赖差异（如漏提交新文件） | 用门禁同款命令在 WSL 复现 |
+| 本地绿但推送门禁红 | 平台/依赖差异（如漏提交新文件） | 用门禁同款命令在干净 clone 复现 |
 | `.tmp` 被删后重定向失败 | 测试没跑却以为绿了 | 先 `mkdir -p .tmp` |
 | 合并后本地 `git pull` 冲突 | rebase 重写了 SHA，同内容不同源 | `git fetch --prune` 后 `git reset --hard origin/main` |
 

@@ -605,4 +605,4 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 - 只发**正确形态**的请求；**绝不**拿真实账号去「故意发错、验证归一化是否会修」。
 - 实测结论要落 `docs/channels/astudio/PROTOCOL.md`。
 - 改完：`npm run build` → `mx restart` → `mx status --json` 确认 `stale_build=false`。
-- 推送前：`npm test` 全绿 + `npm run gate`（WSL 门禁）绿 + PR 走 CI 双绿后 rebase 合并。
+- 推送前：`npm test` 全绿 + `npm run gate`（推送门禁）绿 + PR 走 CI 双绿后 rebase 合并。

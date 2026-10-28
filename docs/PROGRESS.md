@@ -85,7 +85,7 @@
 ```bash
 npm install                    # 装依赖（含软链）
 npm test                       # build + typecheck + 全部 verify:* + 全部包测试
-npm run gate                   # 【推送前必须】WSL clone → npm ci → npm test
+npm run gate                   # 【推送前必须】干净 clone → npm ci → npm test
 node packages/cli/dist/cli.js status --json    # 网关状态（stale_build 必须为 false）
 node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
 ```
