@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# WSL 门禁：在真 Linux 环境（WSL ext4）复现 CI 全部命令，全绿才通过。
+# 推送门禁：在**真 Linux 环境**（ext4）复现 CI 全部命令，全绿才通过。
 #
-# 为什么必须有这一层：本机是 Windows + Git Bash，CI 跑在 ubuntu-latest ——
-# `verify:commits` 需要完整 git 历史（CI 用 fetch-depth: 0）、`npm ci` 装平台原生
-# 依赖、DrvFs（/mnt/c）有符号链接与大小写敏感性问题 ⇒ Windows 侧「跑绿了」不代表 CI 会绿。
-# 所以门禁在 WSL 里 clone 一份到 ext4 再跑，而不是直接在 /mnt/c 工作树上跑。
+# 为什么必须有这一层：CI 跑在 ubuntu-latest —— `verify:commits` 需要完整 git 历史
+# （CI 用 fetch-depth: 0）、`npm ci` 装平台原生依赖、DrvFs（/mnt/c）有符号链接与
+# 大小写敏感性问题 ⇒ Windows 侧「跑绿了」不代表 CI 会绿。
+# 故门禁总是 **clone 一份到干净目录** 再跑，不在开发工作树上直接跑。
+#
+# 执行环境按本机能力选：Windows + Git Bash 经 WSL 进 Linux；
+# 本机**已经在真 Linux**（服务器 / WSL 内）则直接跑，不绕一层。
 #
 # 用法：bash scripts/wsl-gate.sh [--quiet] [分支名]
 #   分支名：待测分支（默认 = 当前 HEAD 分支）。pre-push 会显式传入。
@@ -39,11 +42,19 @@ fi
 win_path=$(printf '%s' "$main_repo")
 lx_path=$(printf '%s' "$win_path" | sed -E 's#^([A-Za-z]):/#/mnt/\L\1/#')
 
+# 路径转换只匹配 `X:/...`；真 Linux 上 `$main_repo` 本就是 Linux 路径 → sed 不匹配 →
+# 原样保留，故 `$lx_path` 在两种环境下都正确。
+if command -v wsl.exe >/dev/null 2>&1; then
+  run_in_linux() { wsl.exe -e bash -lc "$1"; }
+else
+  run_in_linux() { bash -lc "$1"; }
+fi
+
 [ "$QUIET" = 0 ] && echo "[wsl-gate] clone $lx_path → $GATE → checkout $BRANCH → npm ci → npm test"
 
 # —— 第 1 步：CI 等价的完整测试 ——
-# 中文输出经 Git Bash ↔ WSL 管道会被判成二进制而看不清，故 WSL 内一律英文。
-if ! wsl.exe -e bash -lc "
+# 中文输出经 Windows ↔ Linux 管道会被判成二进制而看不清，故一律设英文 locale。
+if ! run_in_linux "
   set -e
   export LANG=C.UTF-8 LC_ALL=C.UTF-8
   rm -rf '$GATE'
