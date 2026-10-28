@@ -21,6 +21,8 @@ import {
   Brain,
   Wifi,
   ArrowRight,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useToast } from "../components/Toast";
@@ -111,9 +113,9 @@ function ChannelRow({
       />
       {/* 名称 */}
       <span className="min-w-0 flex-1 truncate text-sm text-ink">{display}</span>
-      {/* 成败计数 */}
-      <span className="shrink-0 text-xs tabular-nums text-free">{success}</span>
-      <span className="shrink-0 text-xs tabular-nums text-danger">{failure}</span>
+      {/* 成败计数：与表头同为 w-8 定宽，否则数字列会随位数漂移 */}
+      <span className="w-8 shrink-0 text-right text-xs tabular-nums text-free">{success}</span>
+      <span className="w-8 shrink-0 text-right text-xs tabular-nums text-danger">{failure}</span>
     </button>
   );
 }
@@ -259,6 +261,8 @@ export function Dashboard(): ReactElement {
 
   // 渠道列表（从 overview.channels 取：模型数 + 账号健康 + 今日成败）
   const channelList = overview?.channels ?? [];
+  const channelSuccessTotal = channelList.reduce((sum, ch) => sum + ch.requests.success, 0);
+  const channelFailureTotal = channelList.reduce((sum, ch) => sum + ch.requests.failure, 0);
   const totalModels = overview?.model_pool.total ?? state.models.length;
   const channelCount = channelList.length || new Set(
     state.models.map((full) => full.slice(0, Math.max(0, full.indexOf("/")))),
@@ -272,6 +276,10 @@ export function Dashboard(): ReactElement {
 
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
+
+  // ----- 渠道状态折叠：默认全部折叠，点展开才显示具体行 -----
+  const [channelsExpanded, setChannelsExpanded] = useState(false);
+  const toggleChannels = () => setChannelsExpanded((v) => !v);
 
   return (
     <div className="space-y-5 pb-10">
@@ -356,34 +364,70 @@ export function Dashboard(): ReactElement {
         <div className="space-y-5 lg:col-span-8">
           {/* ③ 渠道状态 */}
           <section className="panel p-4">
-            <div className="panel-title mb-3">
-              <Layers className="h-4 w-4 text-ink-faint" />
-              渠道状态
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-ink-faint" />
+                <span className="text-sm font-medium text-ink">渠道状态</span>
+              </div>
+              <button
+                type="button"
+                onClick={toggleChannels}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-faint transition-colors hover:bg-overlay/40"
+                aria-label={channelsExpanded ? "收起渠道状态" : "展开渠道状态"}
+              >
+                {channelsExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                <span className="text-[11px]">
+                  {channelsExpanded ? "收起" : "展开"}
+                </span>
+              </button>
             </div>
             {channelList.length === 0 ? (
               <div className="py-4 text-center text-xs text-ink-faint">暂无渠道</div>
             ) : (
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-3 px-2 pb-1.5 text-[11px] text-ink-faint">
-                  <span className="w-2 shrink-0" />
-                  <span className="min-w-0 flex-1">渠道</span>
-                  <span className="w-8 shrink-0 text-right">成</span>
-                  <span className="w-8 shrink-0 text-right">败</span>
+              <>
+                {/* 折叠时的摘要行：至少能看出规模与健康度 */}
+                {!channelsExpanded && (
+                  <button
+                    type="button"
+                    onClick={toggleChannels}
+                    className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-xs text-ink-faint transition-colors hover:bg-overlay/40"
+                  >
+                    <span className="min-w-0 flex-1">
+                      {channelList.length} 个渠道 · 今日{" "}
+                      <span className="text-free">{channelSuccessTotal}</span> 成 /{" "}
+                      <span className="text-danger">{channelFailureTotal}</span> 败
+                    </span>
+                    <span className="shrink-0 text-[11px]">点击展开</span>
+                  </button>
+                )}
+                <div
+                  className={`overflow-hidden transition-[max-height] duration-200 ${
+                    channelsExpanded ? "max-h-96" : "max-h-0"
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-3 px-2 pb-1.5 text-[11px] text-ink-faint">
+                      <span className="w-2 shrink-0" />
+                      <span className="min-w-0 flex-1">渠道</span>
+                      <span className="w-8 shrink-0 text-right">成</span>
+                      <span className="w-8 shrink-0 text-right">败</span>
+                    </div>
+                    {channelList.map((ch) => {
+                      const loggedIn = ch.statuses.ok > 0 || ch.statuses.cooldown > 0 || ch.statuses.error > 0;
+                      return (
+                        <ChannelRow
+                          key={ch.cid}
+                          cid={ch.cid}
+                          display={ch.cid}
+                          success={ch.requests.success}
+                          failure={ch.requests.failure}
+                          loggedIn={loggedIn}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
-                {channelList.map((ch) => {
-                  const loggedIn = ch.statuses.ok > 0 || ch.statuses.cooldown > 0 || ch.statuses.error > 0;
-                  return (
-                    <ChannelRow
-                      key={ch.cid}
-                      cid={ch.cid}
-                      display={ch.cid}
-                      success={ch.requests.success}
-                      failure={ch.requests.failure}
-                      loggedIn={loggedIn}
-                    />
-                  );
-                })}
-              </div>
+              </>
             )}
           </section>
 
