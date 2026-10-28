@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { accountKey, readIndex } from "../dist/runtime/account-pool.js";
-import { LOW_CREDIT_THRESHOLD, rotateExhaustedAccount } from "../dist/pool/account-rotate.js";
+import { LOW_CREDIT_THRESHOLD, rotateExhaustedAccount, switchOffCoolingAccount } from "../dist/pool/account-rotate.js";
 import { resetPoolLedgerForTest, writeAccountBilling } from "../dist/pool/pool-usage.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import * as paths from "../dist/runtime/paths.js";
@@ -201,6 +201,77 @@ describe("额度耗尽自动换号（决策）", () => {
     assert.ok(result.reason.includes("不像额度问题"), result.reason);
     assert.deepEqual(spec.calls, [], "本地快照足够下结论，不该联网");
     assert.equal(readIndex(CID).active, A, "生效账号不变");
+  });
+
+  it("错误码明确是额度问题（quota_exhausted）→ 快照不否决，联网重查后换号（2026-10-28 事故复现）", async () => {
+    // 事故现场：账本快照停在 117（滞后），实时已经打到 0 —— 旧逻辑被快照挡住，一直不换号
+    // 池内只留「耗尽的生效账号 + 一个满额备选」：避免受挑号排序影响
+    //（`pickAlternative` 会把「未知额度」排在「已知额度」之前，见 findings 记录）
+    scene({ "tok-ua": 0, "tok-ub": 20000 }, [
+      { key: A, uid: "ua", token: "tok-ua" },
+      { key: B, uid: "ub", token: "tok-ub" },
+    ]);
+    writeAccountBilling(CID, A, { total: { remain: 117, size: 20000, used: 19883, unit: "credits" } });
+    writeAccountBilling(CID, B, { total: { remain: 20000, size: 20000, used: 0, unit: "credits" } });
+
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    assert.equal(result.switched, true, `应换号，实际没换：${result.reason}`);
+    assert.deepEqual(spec.calls, ["tok-ua"], "跳过快照，直接联网重查生效账号");
+    assert.equal(readIndex(CID).active, B, "切到有额度的账号");
+  });
+
+  it("quota_exhausted 但实时重查仍 ≥100 → 不换号（上游误报时不乱换）", async () => {
+    scene({ "tok-ua": 800 }, threeAccounts);
+    writeAccountBilling(CID, A, { total: { remain: 117, size: 20000, used: 19883, unit: "credits" } });
+
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    assert.equal(result.switched, false);
+    assert.ok(result.reason.includes("不是额度问题"), result.reason);
+    assert.equal(readIndex(CID).active, A, "安全网：实时值说了算");
+  });
+
+  it("模糊错误（upstream_error）→ 快照 ≥100 仍兜底不换（防抖动误换保留）", async () => {
+    scene({ "tok-ua": 0 }, threeAccounts);
+    writeAccountBilling(CID, A, { total: { remain: 117, size: 20000, used: 19883, unit: "credits" } });
+
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "upstream_error" });
+    assert.equal(result.switched, false);
+    assert.ok(result.reason.includes("不像额度问题"), result.reason);
+    assert.deepEqual(spec.calls, [], "模糊错误由快照兜底，不联网");
+  });
+
+  it("生效账号冷却 + 池内有可用账号 → 请求发出前提前切走", () => {
+    scene({ "tok-ub": 20000 }, [
+      { key: A, uid: "ua", token: "tok-ua", health: "cooldown", cooldownUntil: new Date(Date.now() + 600_000).toISOString() },
+      { key: B, uid: "ub", token: "tok-ub" },
+    ]);
+    writeAccountBilling(CID, B, { total: { remain: 20000, size: 20000, used: 0, unit: "credits" } });
+
+    const result = switchOffCoolingAccount(CID);
+    assert.equal(result.switched, true, `应切走，实际：${result.reason}`);
+    assert.equal(readIndex(CID).active, B);
+    assert.deepEqual(spec.calls, [], "切号只读本地状态，不联网查额度");
+  });
+
+  it("生效账号冷却 + 池内其它账号也不可用 → 不切，如实短路", () => {
+    const cooldown = new Date(Date.now() + 600_000).toISOString();
+    scene({}, [
+      { key: A, uid: "ua", token: "tok-ua", health: "cooldown", cooldownUntil: cooldown },
+      { key: B, uid: "ub", token: "tok-ub", health: "cooldown", cooldownUntil: cooldown },
+      { key: C, uid: "uc", token: "tok-uc", health: "unauthorized" },
+    ]);
+
+    const result = switchOffCoolingAccount(CID);
+    assert.equal(result.switched, false);
+    assert.ok(result.reason.includes("都不可用"), result.reason);
+    assert.equal(readIndex(CID).active, A, "生效账号不变");
+  });
+
+  it("生效账号不在冷却 → 提前切号不动作", () => {
+    scene({}, threeAccounts);
+    const result = switchOffCoolingAccount(CID);
+    assert.equal(result.switched, false);
+    assert.ok(result.reason.includes("不在冷却中"), result.reason);
   });
 
   it("快照 <100 且实时重查 <100 → 换到池内额度最高的账号，旧账号标冷却", async () => {

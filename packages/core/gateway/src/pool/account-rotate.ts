@@ -1,12 +1,13 @@
 /**
- * 额度耗尽自动换号：请求失败后，按**账单证据**决定要不要切到池内还有额度的账号。
+ * 额度耗尽自动换号：请求失败后按账单证据切到池内还有额度的账号；生效账号已在冷却时提前切走。
  *
- * 判据（两段式，先本地后联网，见 docs/ACCOUNT-ROTATION.md §3.1）：
- *   1. 读最近一次账单（本地账本，零网络）——`≥ LOW_CREDIT_THRESHOLD` 就到此为止；
- *   2. `< 100` 或从未查过 → 立刻用该账号凭据**重查一次**；仍 `< 100` 才换号。
+ * 判据（两段式，见 docs/ACCOUNT-ROTATION.md §3.1）：①读本地账本快照，`≥100` 即止步；
+ * ②`<100` 或未查过 → 用该账号凭据重查一次，仍 `<100` 才换号。**例外**：错误码已是
+ * `quota_exhausted` 时①不参与否决（快照会滞后，2026-10-28 实测 loomy：快照 117 而实时 0/0），
+ * 直接进②用实时值定夺。
  *
- * 铁律：只在两次证据都指向「额度不足」时动账号；鉴权类失败不换号（那是凭据问题，
- * 换账号会把真问题掩盖成随机成功，见 docs/POOL-ARCHITECTURE.md §3.3）。
+ * 铁律：鉴权类失败不换号（凭据问题，换了会把真因掩盖成随机成功，见 POOL-ARCHITECTURE.md §3.3）；
+ * 冷却中的账号不作切换目标（`activateAccount` 会顺手清掉它的 `cooldown_until`）。
  */
 
 import { channelCapabilities, channels, type Channel } from "../runtime/channel.js";
@@ -95,6 +96,7 @@ function pickAlternative(accounts: PoolAccount[], excludeKey: string, cid: strin
 export async function rotateExhaustedAccount(
   cid: string,
   logger: (m: string) => void = () => {},
+  opts: { code?: string } = {},
 ): Promise<RotateResult> {
   const channel = channels().find((c) => c.config.cid === cid);
   if (!channel || !channelCapabilities(channel.config).billing) {
@@ -107,9 +109,10 @@ export async function rotateExhaustedAccount(
     return { switched: false, remain: null, reason: "池内只有一个账号，没有可切换的目标" };
   }
 
-  // ① 最近一次账单（本地快照，零网络开销）：还有额度就不该怀疑额度
+  // ① 最近一次账单（本地快照，零网络开销）：还有额度就不该怀疑额度。
+  // 例外见文件头：错误码已明确是额度问题时，缓存不参与否决。
   const cached = lastKnownRemain(cid, activeKey);
-  if (cached !== null && cached >= LOW_CREDIT_THRESHOLD) {
+  if (opts.code !== "quota_exhausted" && cached !== null && cached >= LOW_CREDIT_THRESHOLD) {
     return {
       switched: false,
       remain: cached,
@@ -167,5 +170,50 @@ export async function rotateExhaustedAccount(
     to: short(target.key),
     remain,
     reason: `额度不足（${remain} < ${LOW_CREDIT_THRESHOLD}），已切到 ${short(target.key)}`,
+  };
+}
+
+/**
+ * 生效账号正在冷却时**提前**切走（不在失败重试链里）。
+ *
+ * 与 `rotateExhaustedAccount` 的分工：
+ *   - 那个是「请求已失败，按账单证据决定换不换」——需要证据；
+ *   - 这个是「请求还没发，生效账号已知在冷却中」——冷却本身即本地权威信号，不需要账单，
+ *     省掉一次注定失败的请求与一次额度查询（2026-10-28 事故：冷却账号被反复短路却一直不换号）。
+ *
+ * 边界：只切**额度冷却**（窗口刷新会自己好）；凭据失效（`unauthorized`）绝不在此切 ——
+ * 那种情况的正确动作是用户重登，见 `auth.ts` 的立场与 docs/ACCOUNT-ROTATION.md §3.3。
+ */
+export function switchOffCoolingAccount(
+  cid: string,
+  logger: (m: string) => void = () => {},
+): RotateResult {
+  const channel = channels().find((c) => c.config.cid === cid);
+  if (!channel || !channelCapabilities(channel.config).billing) {
+    return { switched: false, remain: null, reason: "渠道没有额度能力，不按额度换号" };
+  }
+  const index = runInChannel(cid, () => readIndex(cid));
+  if (!index.active) return { switched: false, remain: null, reason: "当前没有生效账号" };
+  const activeKey = index.active;
+  const active = index.accounts.find((a) => a.key === activeKey);
+  if (!active || !isAccountCooling(active)) {
+    return { switched: false, remain: null, reason: "生效账号不在冷却中" };
+  }
+  const target = pickAlternative(index.accounts, activeKey, cid);
+  if (!target) {
+    return {
+      switched: false,
+      remain: lastKnownRemain(cid, activeKey),
+      reason: "生效账号冷却中，但池内其它账号都不可用（冷却/凭据失效）",
+    };
+  }
+  runInChannel(cid, () => activateAccount(target.key, cid));
+  logger(`account switched off cooling (${cid}): ${short(activeKey)} → ${short(target.key)}`);
+  return {
+    switched: true,
+    from: short(activeKey),
+    to: short(target.key),
+    remain: null,
+    reason: `生效账号冷却中，已切到 ${short(target.key)}`,
   };
 }
