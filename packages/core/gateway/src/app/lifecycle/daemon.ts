@@ -53,7 +53,7 @@ import {
   cliEntry,
 } from "./process.js";
 
-// 公开面兼容：这些工具原先定义在本文件，外部按 `@modelmux/gateway` 的 daemon 命名空间取用
+// 公开面兼容：外部按 `@modelmux/gateway` 的 daemon 命名空间取用这些工具（实现落在 process.js）
 export { gatewayHealthy, foreignServiceOnPort, pidAlive, killTree, cliEntry } from "./process.js";
 
 /**
@@ -385,7 +385,7 @@ export async function status(
   const addr = options.addr ?? defaultAddr(options.cid);
   const health = await probe(addr);
   const gatewayUp = health !== null;
-  // 端口上若有别的服务（同名的旧实现 / 别的项目的网关），明确报出来
+  // 端口上若有别的服务（同名服务的另一个进程 / 别的项目的网关），明确报出来
   const foreign = gatewayUp ? "" : await foreignServiceOnPort(addr);
 
   let consoleState: Record<string, unknown> | null = null;

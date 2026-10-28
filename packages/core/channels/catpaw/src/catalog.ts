@@ -136,7 +136,7 @@ function declaredEffort(
  * 而 4096 的兜底会让客户端把每次回答截到 4k。
  *
  * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ * 数值与来源见 `docs/channels/catpaw/PROTOCOL.md` 的「最大输出 token」节（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
   "deepseek-v4-flash": 393_216,
@@ -197,12 +197,11 @@ const MODEL_TYPE_FALLBACK: Readonly<Record<string, number>> = {
  *
  * ⚠ **内容取自真实的上游 `/model-types` 返回**（见 `docs/channels/catpaw/PROTOCOL.md`）。
  *
- * ⚠ 曾被写成占位名 `catpaw-flash` —— 那个 id 上游**根本不存在**，
- * 这条兜底项在旧的「家族 + flash」白名单下会被过滤，全模型池下正常出现在池视图中。
- * 兜底表要能真的兜住，就得用真实 id。
+ * ⚠ 兜底表必须用**真实 id**：占位名（如 `catpaw-flash`）上游**根本不存在**，
+ * 暴露到模型池也选不中任何模型 —— 兜底表要能真的兜住，就得用真实 id。
  *
  * ⚠ `modelType` 取自 `MODEL_TYPE_FALLBACK`（表里没有的模型回落 0 = auto）；
- * 早先这里一律写占位值 `1`，会让目录不可用时的 turn 请求被上游拒。
+ * 必须是真实数值：上游按 modelType 数字选型，占位值会让目录不可用时的 turn 请求被拒。
  */
 const FALLBACK_MODELS: CatalogEntry[] = [
   {

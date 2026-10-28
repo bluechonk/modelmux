@@ -68,7 +68,7 @@ docs/channels/<cid>/
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | 登录被桌面应用握死（本地服务只认自己的活会话）；渠道读它落盘的 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 | [PROTOCOL](./astudio/PROTOCOL.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单，2026-10-26 已收敛） |
+| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 | [PROTOCOL](./astudio/PROTOCOL.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单，2026-10-26 已收敛） |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |

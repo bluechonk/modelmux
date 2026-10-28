@@ -386,7 +386,7 @@ export async function runLogin(options: {
   const { force = false, json = false, realm = "auto", cid, wechat = false, observer } = options;
   const target = getChannel(cid);
   const { cred } = target;
-  // ⚠ 刻意**不**在重登前删 credentials.json（旧实现会先 unlink）。
+  // ⚠ 刻意**不**在重登前删 credentials.json。
   // 「重新授权」要的是**拿到新凭据**，不是把旧的毁掉：授权流程要等人操作（扫码 / 粘回调），
   // 期间渠道处于「登录中」，而旧凭据在这段时间里本来还能正常服务。先删的后果是
   // **授权没走完（链接过期 / 没扫码 / 弹窗关掉）渠道就直接掉线**，账号池里的账号和

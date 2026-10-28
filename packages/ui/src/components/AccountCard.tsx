@@ -392,15 +392,9 @@ export function AccountCard({
           const meta = STATUS_META[status];
           const health = account.health;
           const failStreak = Number(account.fail_streak ?? 0);
-            /**
-             * 被打上标记的状态（连败熔断 / 额度冷却）—— 这两种**可以由用户主动解除**：
-             * 熔断后路由会一直跳过它、永远等不到「下一次成功」自己清零；冷却虽会到期自动恢复，
-             * 但用户可能已经知道额度刷新了（换套餐 / 充值），不想干等。
-             * `unauthorized` 不在此列：凭据本身失效，只能重新登录。
-             */
             // 账号级状态详情（冷却原因 / 熔断退避）：挂在**该账号自己**的行下，
             // 不是卡头 —— 状态属于账号，多个账号可能各不相同。
-            // 熔断/冷却都会自动恢复（退避试探 / 到期惰性恢复），故不提供手动「解除」按钮。
+            // 熔断/冷却都会自动恢复（半开试探 / 到期惰性恢复），界面不设手动解除入口。
             const detail = tripDetailOf(account);
             const detailTone = account.health === "cooldown" ? "text-warn" : "text-danger";
             return (
@@ -414,7 +408,7 @@ export function AccountCard({
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
                 {/*
                   账号行 = 主行（44px）+ 可选的状态详情行：
-                    主行：状态点 + 名称 + 短状态 pill + 解除 | 额度 | 操作
+                    主行：状态点 + 名称 + 短状态 pill + 连败计数 | 额度 | 操作
                   详情行只在冷却 / 熔断 / 凭据失效时出现（原因 + 恢复时刻，可换行）。
                   主行保持 44px —— 空位行与它同高，卡片仍然对齐。
                 */}
@@ -423,7 +417,7 @@ export function AccountCard({
                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
                   aria-label={meta.text}
                 />
-                {/* 名称区：弹性，超长截断；pill 与解除按钮**不压缩**（它们在 44px 单行里必须完整可见） */}
+                {/* 名称区：弹性，超长截断；pill 与操作按钮**不压缩**（它们在 44px 单行里必须完整可见） */}
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   <span className="min-w-0 truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
                   <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</span>

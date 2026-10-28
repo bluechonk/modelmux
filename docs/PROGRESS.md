@@ -36,8 +36,8 @@
 
 模型数随目录刷新变化，此处为 2026-10-25 快照（astudio 为静态内置表，恒 7 个）。
 
-**astudio 的功能缺口**：登录 / 回调 / 登出 / 思考档位与倍率透出等尚未实现，
-逐项清单与验收判据见 [channels/astudio/ROADMAP.md](./channels/astudio/ROADMAP.md)。
+**astudio 的功能缺口**：登录（手机号 + 短信验证码，Web 控制台）/ 登出 / 思考档位与倍率透出等
+均已实现，审计时的缺口已收敛；余项与验收判据见 [channels/astudio/ROADMAP.md](./channels/astudio/ROADMAP.md)。
 
 ## 架构落点
 
@@ -58,7 +58,8 @@
 
 ## Web 控制台
 
-- 双页：**仪表盘**（接入端点、模型区）与 **账号池**（渠道卡、额度条、切号/解除/删除）。
+- 四页：**仪表盘**（接入端点、模型区）、**模型列表**（可用模型表）、
+  **账号池**（渠道卡、额度条、切号/删除）、**日志**（访问日志与上下文）。
 - 在线演示（演示构建，虚构数据）：<https://bluechonk.github.io/modelmux/> ——
   由 `.github/workflows/demo-pages.yml` 发布到 GitHub Pages；真实控制台仍是本机工具。
 - 视觉：Codex/ChatGPT 近黑单色（`#171717` 侧栏 / `#212121` 主区 / `#2f2f2f` 输入盒），

@@ -482,7 +482,7 @@ export function clearAccountState(key: string, cid?: string): ClearAccountStateR
     return {
       cleared: false,
       health: account.health,
-      reason: "该账号凭据已失效，需要重新登录（解除标记不会让它恢复可用）",
+      reason: "该账号凭据已失效，需要重新登录（清标记不会让它恢复可用）",
     };
   }
   const changed = clearTrippedState(account);
@@ -824,8 +824,8 @@ export function noteAccountSuccess(cid?: string): void {
 /**
  * 生效账号是否处于**熔断打开**状态（`error` 且未到试探时刻）→ 本次请求短路。
  *
- * 到期（或旧数据缺 `trip_until`）返回 false = 放行一次做半开试探 ——
- * 升级后此前卡死的账号会在下一次真实请求上自动自检，不需要人工解除。
+ * 到期（或旧数据缺 `trip_until`，视为早已到期）返回 false = 放行一次做半开试探 ——
+ * 因此卡死的账号会在下一次真实请求上自动自检，不需要人工介入。
  *
  * ⚠ **刻意不含 `cooldown`**：额度耗尽的冷却必须**按模型**判断 ——
  * 倍率 0 的免费模型不消耗额度，冷却期照样能用（实测踩过：loomy 冷却后连

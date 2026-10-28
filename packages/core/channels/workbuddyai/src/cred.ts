@@ -333,7 +333,7 @@ function durationToMs(value: unknown, nowMs: number, perUnitMs: number): number 
 /**
  * 令牌束的到期时刻（epoch 毫秒）。
  *
- * [代码] 口径对齐 hub `wb_accounts.py:540`：**绝对时刻优先 → JWT `exp` → 相对时长**。
+ * [代码] 口径对齐 `[参考]` ardeyouxipianyi/workbuddy2api-hub 的 `wb_accounts.py:540`：**绝对时刻优先 → JWT `exp` → 相对时长**。
  * - `expiresAt`（上游给的绝对时刻）：秒/毫秒都认；
  * - 访问令牌 JWT 的 `exp`：标准秒级 epoch（共享层 `login.ts` 的 `jwtExpMs`）；
  * - `expiresIn` / `refreshExpiresIn`（相对量）：单位由上面的绝对锚点反推。
@@ -394,7 +394,8 @@ async function createLoginState(
  * 账号身份（uid / enterpriseId / nickname），拿不到也不影响登录成功 ——
  * uid 仍可从 JWT `sub` 提取。
  *
- * 参考实现：hub `wb_accounts.py:3458-3468`、ckldy `cmd/login/main.go:151-163`。
+ * 参考实现：`[参考]` ardeyouxipianyi/workbuddy2api-hub 的 `wb_accounts.py:3458-3468`、
+ * ckldy/workbuddy2api 的 `cmd/login/main.go:151-163`。
  * ⚠ 国际版该端点**确实存在**（无有效令牌回 401，随手编的路径回 404 —— 2026-10-20 实测）。
  */
 async function fetchAccountProfile(
@@ -408,7 +409,8 @@ async function fetchAccountProfile(
     const resp = await fetchWithTimeout(url, {
       // ⚠ 这里**不能**带 `anonHeaders()`（X-No-Authorization 等「未鉴权」标记）——
       // 与 `Authorization` 自相矛盾，会被上游判成未鉴权。参考实现同样只带
-      // 公共头 + `Authorization`（hub `wb_accounts.py:3462`、ckldy `cmd/login/main.go:157-160`）。
+      // 公共头 + `Authorization`（`[参考]` ardeyouxipianyi/workbuddy2api-hub 的
+      // `wb_accounts.py:3462`、ckldy/workbuddy2api 的 `cmd/login/main.go:157-160`）。
       headers: {
         Accept: "application/json, text/plain, */*",
         Authorization: `Bearer ${accessToken}`,

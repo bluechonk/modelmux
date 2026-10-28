@@ -1,10 +1,10 @@
 /**
  * 直通转发路径的 usage 采集（`http/wire/sse-stream.ts` 的 `relay` / `noteFrameUsage`）。
  *
- * 修的是什么：`openai` 线型渠道（workbuddy / lobsterai / loomy / raccoon /
- * workbuddyai）走 `relay()` 纯字节直通，此前从不调用 `noteUsage`，导致这些渠道的
- * **流式请求访问日志全部没有 usage 字段**（2026-10-24 实测当日 0/385、0/211、
- * 0/474、0/16）—— 控制台与日志的 token 统计对它们全瞎。
+ * 锁住的不变量：`openai` 线型渠道（workbuddy / lobsterai / loomy / raccoon /
+ * workbuddyai）走 `relay()` 纯字节直通，也**必须采集 usage** —— 否则这些渠道的
+ * 流式请求访问日志全部没有 usage 字段，控制台与日志的 token 统计对它们全瞎。
+ * 证据：实测（2026-10-24）当日 usage 覆盖 0/385、0/211、0/474、0/16。
  *
  * 全程离线：构造 SSE 字节 + 假响应，不发任何请求、不写日志文件。
  */

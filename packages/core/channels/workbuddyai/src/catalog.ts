@@ -49,8 +49,8 @@ interface ModelEntry {
 /**
  * 已知模型规格（上下文窗口 / 单次回复上限）。
  *
- * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）—— 数值必须与那份表一致，
- * 改规格先改那份文档。
+ * 来源：`docs/channels/workbuddyai/PROTOCOL.md` 的「模型窗口规格」—— 本文件的 `MODEL_SPECS`
+ * 与那份表保持一致，改规格先改那份文档。
  *
  * ⚠ **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
  * 不是上游目录里的原始写法。
@@ -67,7 +67,7 @@ const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTok
   "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
   // 区域变体（`-sg`），与国内版同款模型
   "deepseek-v4.1-flash-sg": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  // Gemini 的 1048576 是**输入**上限，输出上限另算 65536（MODEL-SPECS §2）
+  // Gemini 的 1048576 是**输入**上限，输出上限另算 65536（规格见 docs/channels/workbuddyai/PROTOCOL.md「模型窗口规格」）
   "gemini-3.5-flash": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
   "gemini-3.8-flash": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
   "glm-5.2": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },

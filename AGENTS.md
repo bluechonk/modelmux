@@ -235,8 +235,8 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    `runtime(0) < pool(1) / auth(1) < http(2) < app(3)` —— **只能 import 层级 ≤ 自己的目录**，
    向上依赖一律失败。`index.ts` 是桶导出，不受限。
    - `runtime/` = 渠道 SDK（channel / channel-context / paths / permissions / account-pool /
-     secret-file / catalog-cache / cli-consts / credential-shape / snapshot / logger（日志节流）/
-     log-store（分层落盘））
+     secret-file / catalog-cache / model-specs（模型规格表落点）/ cli-consts / credential-shape /
+     snapshot / logger（日志节流）/ log-store（分层落盘））
    - `pool/` = 模型池与账本；`auth/` = 登录链路
    - `http/` = 网关与转发；`app/` = 顶层门面与进程编排（`app/cli/` = CLI 门面，
      `app/lifecycle/` = 守护 / worker / 监督者等进程生命周期）

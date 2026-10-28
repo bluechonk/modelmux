@@ -26,19 +26,19 @@
 | --- | --- |
 | [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
-| [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id、目录三级来源与兜底、目录元数据回灌上游，§2）+ 池元数据取值与**跨渠道同 id 兜底**（§2.6 / §2.7）+ 账号池（多账号 / 连败标记 / 手动切号 / 渠道侧的按账号状态，§3） |
+| [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id、目录三级来源与兜底、目录元数据回灌上游，§2）+ 池元数据取值与**跨渠道同 id 兜底**（§2.6 / §2.7）+ 账号池（多账号 / 连败标记 / 手动切号 / **额度耗尽自动换号** / 渠道侧的按账号状态，§3） |
 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退） |
 | [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
-| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 双页深色看板（仪表盘 + 账号池）的架构、构建与 API 面貌 |
+| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 四页深色看板（仪表盘 / 模型列表 / 账号池 / 日志）的架构、构建与 API 面貌 |
 | [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案（定稿）**：/web/ 首页运行视图的模块划分、布局与数据通道（实施后收敛进 WEB-CONSOLE.md） |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
 | [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录与署名不进注释（git 是唯一事实源）的判据与正反例 |
 | [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：三层取值链（上游 → 全局规格文件 → 兜底）、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程 |
-| [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复方案（草案）**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探（实施后收敛进 POOL-ARCHITECTURE.md） |
+| [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复（已实施）**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；规则已收敛进 POOL-ARCHITECTURE.md §2.4 / §3.3，本文留设计依据 |
 | [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
-| [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取方案（草案）**：单条上限 256KB → 10MB 完整落盘、超限双端兜底 + UI 提示（实施后收敛进 LOGGING.md） |
-| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：42 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
+| [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取（已实施）**：单条上限 256KB → 10MB 完整落盘、超限双端兜底；规则已收敛进 LOGGING.md §9，本文留设计依据 |
+| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：39 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 
 ## 2. 渠道文档 `docs/channels/<cid>/`
 
@@ -50,7 +50,7 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（登录被桌面应用握死，渠道改读它落盘的会话凭据直连模型网关） + [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单；2026-10-26 已收敛，仅剩第 1 项架构不可行） |
+| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单；2026-10-26 已收敛） |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
