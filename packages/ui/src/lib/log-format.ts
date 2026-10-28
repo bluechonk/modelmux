@@ -2,7 +2,7 @@
  * 日志页的展示口径：时间、耗时、字节、计数与 token 单位。
  *
  * 单独成模块是因为页面与上下文弹窗都要用同一套格式 —— 各写一份必然漂移。
- * token 换算按「百万 / 亿」给单位（大数不再是一长串数字）。
+ * token 换算按「万 / 亿」给单位（大数不再是一长串数字）。
  */
 
 import type { AccessLogEntry, AccessOutcome } from "./types";
@@ -14,7 +14,7 @@ export const OUTCOME_META: Record<AccessOutcome, { label: string; dot: string; t
   other: { label: "中断", dot: "bg-warn", text: "text-warn" },
 };
 
-const MILLION = 1_000_000;
+const TEN_THOUSAND = 10_000;
 const HUNDRED_MILLION = 100_000_000;
 
 /**
@@ -53,12 +53,12 @@ export function countOrDash(value: number | null): string {
 /**
  * token 数 → 带单位。
  *
- * `< 1e6` 走千分位原值；`≥ 1e6` 用「百万」；`≥ 1e8` 用「亿」。
- * 小数最多两位并去掉尾零（`121.00 百万` → `121 百万`）。
+ * `< 1e4` 走千分位原值；`≥ 1e4` 用「万」；`≥ 1e8` 用「亿」。
+ * 小数最多两位并去掉尾零（`121.00 万` → `121 万`）。
  */
 export function formatTokens(value: number): string {
   if (value >= HUNDRED_MILLION) return `${trimZeros(value / HUNDRED_MILLION)} 亿`;
-  if (value >= MILLION) return `${trimZeros(value / MILLION)} 百万`;
+  if (value >= TEN_THOUSAND) return `${trimZeros(value / TEN_THOUSAND)} 万`;
   return formatCount(value);
 }
 
@@ -66,7 +66,7 @@ function trimZeros(value: number): string {
   return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
-/** 表格 tokens 列：`入 / 出`，大数自动带单位（百万 / 亿）；上游没给 usage 时给 `-`。 */
+/** 表格 tokens 列：`入 / 出`，大数自动带单位（万 / 亿）；上游没给 usage 时给 `-`。 */
 export function tokensPairText(tokens: AccessLogEntry["tokens"]): string {
   if (!tokens) return "-";
   const { prompt, completion } = tokens;
@@ -85,16 +85,16 @@ export function formatBytes(value: number | undefined): string {
 /**
  * token/s（吞吐速率）：total tokens ÷ 耗时秒数。
  *
- * tokens 缺失或耗时 ≤ 0 时返回 `"—"`；小数取一位（如 `42.3 token/s`）。
+ * tokens 缺失或耗时 ≤ 0 时返回 `"—"`；小数取一位，带 `t/s` 单位（如 `42.3 t/s`）。
  */
 export function formatTokensPerSec(entry: AccessLogEntry): string {
   const total = entry.tokens?.total;
   const ms = entry.durationMs;
   if (total === null || total === undefined || ms === undefined || ms <= 0) return "—";
   const perSec = total / (ms / 1000);
-  if (perSec < 0.05) return "<0.1";
-  if (perSec < 10) return `${perSec.toFixed(1)}`;
-  return `${Math.round(perSec)}`;
+  if (perSec < 0.05) return "<0.1 t/s";
+  if (perSec < 10) return `${perSec.toFixed(1)} t/s`;
+  return `${Math.round(perSec)} t/s`;
 }
 
 /** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */

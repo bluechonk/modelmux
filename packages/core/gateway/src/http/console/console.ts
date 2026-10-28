@@ -458,6 +458,42 @@ export function createConsoleHandler(
       return;
     }
 
+    if (path === p("/api/gateway")) {
+      if (req.method !== "POST") {
+        json(res, { ok: false, error: "use POST" }, 405);
+        return;
+      }
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        body += String(chunk);
+      });
+      req.on("end", () => {
+        let action: unknown;
+        try {
+          action = (JSON.parse(body || "{}") as Record<string, unknown>)["action"];
+        } catch {
+          json(res, { ok: false, error: "invalid json" }, 400);
+          return;
+        }
+        if (action !== "restart" && action !== "stop") {
+          json(res, { ok: false, error: "action 必须是 restart 或 stop" }, 400);
+          return;
+        }
+        if (!bridge.gatewayControl) {
+          json(res, { ok: false, error: "not ready" }, 503);
+          return;
+        }
+        // 先回响应再动手：restart 会让本进程自断，晚回的响应到不了浏览器
+        json(res, { ok: true, action });
+        bridge.gatewayControl(action);
+      });
+      return;
+    }
+
     if (path === p("/api/overview")) {
       if (req.method !== "GET") {
         json(res, { ok: false, error: "use GET" }, 405);

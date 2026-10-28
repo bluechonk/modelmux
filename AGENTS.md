@@ -261,11 +261,22 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 
 ## 测试规则
 
-0. **Web / UI 改动必须用 `agent-browser` 技能做变化判断**：
-   - 改 `packages/ui/**`（布局、文案、状态、交互）后，**Agent 必须跑 `agent-browser` 技能**
-     在真实浏览器里打开 `http://127.0.0.1:4412/web/` 核验实际渲染结果（截图 / DOM 检查），
-     确认改动按预期呈现、没有破坏相邻页面 —— 结构上看不到的变化（如只改 data）无需走浏览器。
-   - 该技能不在仓库内（用户级 `~/.agents/skills/agent-browser/`），Agent 按名称调用即可。
+0. **Web / UI 改动必须做浏览器视觉校验（`agent-browser` 或 `control-browser` 技能）**：
+   - 改 `packages/ui/**`（布局、文案、状态、交互）后，**Agent 必须在真实浏览器里打开
+     `http://127.0.0.1:4412/web/` 逐页校验**，不能只看编译通过或 DOM 有内容就算完成。
+     只改数据（文案取值、状态枚举）且不影响几何布局时可免浏览器，其余一律要跑。
+   - 校验项（按专业术语逐条核对，而不是「看起来差不多」）：
+     1. **尺寸一致性**：同类卡片 / KPI 格 / 列表行在同一栅格下宽高相等（量化对比 `offsetWidth/offsetHeight`）；
+     2. **对齐（alignment）**：表头与单元格的列边界重合（逐列比对 `right` / `width`）；
+        左对齐列左边界一致、右对齐（数值）列右边界一致；多列面板底边对齐；
+     3. **栅格与间距（grid & spacing）**：列宽比例符合声明的栅格（如 8/4），列间距（gap）一致；
+     4. **内容适配（content fit）**：长文本截断（ellipsis）而非溢出/重叠；数字列用等宽数位（tabular-nums）；
+     5. **居中（centering）**：声明居中的列（如状态点、操作按钮）在列内水平居中；
+     6. **断点行为（responsive）**：至少核验 1280px 与更窄宽度下不破版（可折叠的默认折叠）。
+   - 报告结论时给出**实测数字**（如「10 张卡全部 509×240」「日志 8 列头/单元格右边缘逐一相同」），
+     不接受「已检查，正常」这类无证据结论。
+   - 两个技能都可用：仓库内无副本，按名称调用用户级 `agent-browser` 或
+     `control-browser`（browser-use 插件）；任一可用即可。
 1. **渠道不写测试，只做端到端**：
    - 渠道包（`packages/core/channels/<cid>/`）**不写任何单元测试 / 集成测试 / selftest**；
      没有 `tests/` 目录，`package.json` 的 `scripts.test` 也不存在 —— 渠道测试唯一正确的形式是
