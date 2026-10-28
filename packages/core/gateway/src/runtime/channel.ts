@@ -465,7 +465,23 @@ export interface SigninOutcome {
  */
 export interface SigninModule {
   status(): Promise<SigninStatus>;
-  claim(): Promise<SigninOutcome>;
+  /**
+   * 执行签到 / 领取。
+   *
+   * @param options.credential 指定**哪个账号**的凭据（形状已由共享层归一化）；
+   *   不传 = 渠道按自己的「当前生效凭证」执行（保持原行为）。
+   *   ⚠ 只有当渠道声明 `perAccount: true` 时共享层才会逐个账号传它。
+   */
+  claim(options?: { credential?: Record<string, unknown> }): Promise<SigninOutcome>;
+  /**
+   * 是否支持**按账号**签到 / 领取（默认 `false` = 只对当前生效账号）。
+   *
+   * 为什么需要这个能力位：账号池里每个账号的额度/奖励是**各自独立**的
+   * （实测 loomy 4 个账号各有自己的每日赠送与一次性新手任务），但绝大多数渠道的
+   * `claim()` 只能作用于生效凭证 —— 共享层若对它们逐个账号调用，只会重复打同一个账号
+   * （N 次无效请求）。故由渠道显式声明支持，调度器才逐账号循环。
+   */
+  perAccount?: boolean;
 }
 
 /**
