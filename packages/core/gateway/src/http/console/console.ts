@@ -5,7 +5,7 @@
  * **登录完成前**就可用，而此时网关还没启动。
  *
  * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` · `GET /api/logs` ·
- * `GET /api/logs/payload` · `POST /api/logs/payload-capture` · `POST /api/theme` ·
+ * `GET /api/logs/payload` · `POST /api/theme` ·
  * `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
  */
 
@@ -16,13 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { serviceName } from "../server.js";
 import type { LoginInputRequest } from "../../runtime/channel.js";
-import {
-  payloadCaptureEnabled,
-  queryAccessLogs,
-  readPayloads,
-  setPayloadCaptureEnabled,
-  type AccessOutcome,
-} from "../../runtime/log-store.js";
+import { queryAccessLogs, readPayloads, type AccessOutcome } from "../../runtime/log-store.js";
 
 export type { LoginInputRequest };
 
@@ -348,7 +342,7 @@ export function createConsoleHandler(
         limit: intParam(q.get("limit"), 100),
         offset: intParam(q.get("offset"), 0),
       });
-      json(res, { ok: true, ...page, payload_enabled: payloadCaptureEnabled() });
+      json(res, { ok: true, ...page });
       return;
     }
 
@@ -364,72 +358,8 @@ export function createConsoleHandler(
       const q = new URL(req.url ?? "/", "http://localhost").searchParams;
       const id = q.get("id") ?? "";
       const date = q.get("date") ?? undefined;
-      const result = readPayloads(id, date);
-      json(res, { ok: true, id, date: date ?? null, ...result });
-      return;
-    }
-
-    // 切换请求正文抓取（写操作）：偏好落盘 `<root>/prefs.json`，不重启生效。
-    if (path === p("/api/logs/payload-capture")) {
-      if (req.method !== "POST") {
-        json(res, { ok: false, error: "use POST" }, 405);
-        return;
-      }
-      if (!isSameOrigin(req, host)) {
-        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
-        return;
-      }
-      let body = "";
-      req.on("data", (chunk) => {
-        body += String(chunk);
-      });
-      req.on("end", () => {
-        let enabled: unknown;
-        try {
-          enabled = (JSON.parse(body || "{}") as Record<string, unknown>)["enabled"];
-        } catch {
-          json(res, { ok: false, error: "invalid json" }, 400);
-          return;
-        }
-        if (typeof enabled !== "boolean") {
-          json(res, { ok: false, error: "enabled 必须是布尔值" }, 400);
-          return;
-        }
-        json(res, { ok: true, enabled: setPayloadCaptureEnabled(enabled) });
-      });
-      return;
-    }
-
-    // 网关生命周期控制（重启 = worker 自断、监督者重生；停止 = 监督者永久退出）。
-    // ⚠ 响应必须**先于**动作返回：触发器延后一拍，否则动作立刻断链，响应还没写完。
-    if (path === p("/api/gateway")) {
-      if (req.method !== "POST") {
-        json(res, { ok: false, error: "use POST" }, 405);
-        return;
-      }
-      if (!isSameOrigin(req, host)) {
-        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
-        return;
-      }
-      let body = "";
-      req.on("data", (chunk) => {
-        body += String(chunk);
-      });
-      req.on("end", () => {
-        let action: unknown;
-        try {
-          action = (JSON.parse(body || "{}") as Record<string, unknown>)["action"];
-        } catch {
-          json(res, { ok: false, error: "invalid json" }, 400);
-          return;
-        }
-        if (action !== "restart" && action !== "stop") {
-          json(res, { ok: false, error: "action 必须是 restart 或 stop" }, 400);
-          return;
-        }
-        json(res, { ok: true, action });
-        setTimeout(() => bridge.gatewayControl?.(action), 100);
-      });
+      const records = readPayloads(id, date);
+      json(res, { ok: true, id, date: date ?? null, records });
       return;
     }
 

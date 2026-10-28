@@ -29,7 +29,6 @@ import type { ServerResponse } from "node:http";
 
 import * as paths from "./paths.js";
 import { enforcePermissions } from "./permissions.js";
-import { readRootPrefs, writeRootPrefs } from "./root-prefs.js";
 
 export type AccessOutcome = "success" | "failure" | "other";
 
@@ -815,22 +814,6 @@ export interface PayloadRecord {
 const DEFAULT_PAYLOAD_MAX_BYTES = 256 * 1024;
 const DEFAULT_PAYLOAD_DAYS = 3;
 
-/**
- * 正文抓取开关：读根级偏好（`<root>/prefs.json`），**默认开启**。
- *
- * 每次现读而不缓存 —— 控制台的开关必须不重启就生效（这是「落盘的偏好」相对
- * 环境变量的全部意义）；文件只有几十字节，一次请求多两次读不值一提。
- */
-export function payloadCaptureEnabled(): boolean {
-  return readRootPrefs().payload_capture;
-}
-
-/** 设置正文抓取开关（控制台的开关按钮）：写盘，重启保持。返回生效值。 */
-export function setPayloadCaptureEnabled(enabled: boolean): boolean {
-  writeRootPrefs({ ...readRootPrefs(), payload_capture: enabled });
-  return enabled;
-}
-
 function payloadDays(): number {
   return envInt("MODELMUX_LOG_PAYLOAD_DAYS", DEFAULT_PAYLOAD_DAYS);
 }
@@ -900,7 +883,7 @@ function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
  */
 export function noteClientPayload(res: ServerResponse, raw: Buffer): void {
   const log = getRequestLog(res);
-  if (!log || !payloadCaptureEnabled()) return;
+  if (!log) return;
   appendPayload({ id: log.id, phase: "client", ...(log.model ? { model: log.model } : {}), ...clipPayload(raw) });
 }
 
@@ -916,7 +899,7 @@ export function noteUpstreamPayload(
   body: Buffer | string,
 ): void {
   const log = getRequestLog(res);
-  if (!log || !payloadCaptureEnabled()) return;
+  if (!log) return;
   const allow = payloadCids();
   if (allow !== null && !allow.includes(info.cid)) return;
   appendPayload({
@@ -1009,9 +992,8 @@ function previousDay(date: string): string {
  * 读回不受开关门控：关闭只停止新增，已落盘的记录在保留期内仍可核对。`enabled` 仍然返回，
  * 供调用方在「没有任何记录」时措辞（是「没开抓取」还是「这条没抓到」）。
  */
-export function readPayloads(id: string, date?: string): { enabled: boolean; records: PayloadRecord[] } {
-  const enabled = payloadCaptureEnabled();
-  if (id === "") return { enabled, records: [] };
+export function readPayloads(id: string, date?: string): PayloadRecord[] {
+  if (id === "") return [];
   const days = date !== undefined && date !== "" ? [date, previousDay(date)] : payloadDates();
   const found: PayloadRecord[] = [];
   for (const day of days) {
@@ -1031,5 +1013,5 @@ export function readPayloads(id: string, date?: string): { enabled: boolean; rec
   }
   // client 记录恒先于 upstream 写入，`ts`（带毫秒）本身就是正确顺序；同毫秒再按 seq。
   found.sort((a, b) => (a.ts === b.ts ? a.seq - b.seq : a.ts < b.ts ? -1 : 1));
-  return { enabled, records: found };
+  return found;
 }
