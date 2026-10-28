@@ -98,7 +98,7 @@ export async function handleChat(
     // 换成了就用**同一候选**重试一次（凭据由 cred.load() 重读，自然拿到新账号）。
     // ⚠ 客户端已收到字节（排队进度帧发过 SSE 头）时不能再开一条上游流 —— 会变成两个响应。
     if (result.kind === "retry" && !res.headersSent && ROTATABLE_CODES.has(result.error.code)) {
-      const rotated = await rotateExhaustedAccount(candidate.cid, opts.logger);
+      const rotated = await rotateExhaustedAccount(candidate.cid, opts.logger, { code: result.error.code });
       if (rotated.switched) {
         opts.logger(`retrying ${candidate.cid} on account ${rotated.to} (${rotated.reason})`);
         result = await attemptCandidate(

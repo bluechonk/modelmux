@@ -9,6 +9,7 @@
  * 铁律：失败后保留凭据并如实报错，不替用户决定换哪个账号。
  */
 
+import { switchOffCoolingAccount } from "../../pool/account-rotate.js";
 import { type Channel, type Credential } from "../../runtime/channel.js";
 import { activeAccountCooldown, activeAccountIsError, activeAccountTrip, markActiveHealth } from "../../runtime/account-pool.js";
 import { logThrottled } from "../../runtime/logger.js";
@@ -68,7 +69,13 @@ export async function callUpstream(
   if (options.freeModel !== true) {
     const cooling = activeAccountCooldown(cid);
     if (cooling) {
-      return { kind: "cooling", until: cooling.until, reason: cooling.reason };
+      // 生效账号在冷却：池里还有可用账号就**提前**切走 —— 省掉一次注定失败的请求与
+      // 一次额度查询（2026-10-28 loomy 事故：冷却账号被反复短路却一直不换号）。
+      // 只切额度冷却；凭据失效（unauthorized）仍不自动切，见文件头的立场。
+      const moved = switchOffCoolingAccount(cid, logger);
+      if (!moved.switched) {
+        return { kind: "cooling", until: cooling.until, reason: cooling.reason };
+      }
     }
   }
 
