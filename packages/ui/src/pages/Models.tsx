@@ -58,7 +58,7 @@ export function Models(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="模型列表"
-        description={`${groups.size} 个渠道 · ${state.models.length} 个模型（id 形如 渠道/模型）`}
+        description={`${groups.size} 个渠道 · ${state.models.length} 个模型（格式：渠道/模型）`}
       />
       <ModelExplorer
         models={state.models}
