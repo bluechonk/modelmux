@@ -94,7 +94,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 | 看池里有哪些模型 | `mx model list` |
 | 看各渠道用得怎么样 | `mx model usage` / `mx model usage --refresh` |
 | 看某渠道的模型与倍率 | `mx model <cid>` / `mx model <cid> --refresh` |
-| 看额度 / 账单 | `mx bill [<cid>]`（**直连上游**，不经网关） |
+| 看额度 / 账单 | `mx bill [<cid>]`（**直连上游**，不经网关）；`--accounts` 逐账号列（池内 ≥2 个账号时默认列出） |
 | 登录 | `mx login <cid>`（已有凭据时幂等）；`mx login list` 看可登录渠道 |
 | 强制重新授权 | `mx relogin <cid>`（清主凭据后重走授权，**不是**刷新） |
 | 看账号池 | `mx acct <cid>` / `mx acct <cid> list` |

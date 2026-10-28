@@ -1,10 +1,10 @@
 /**
- * 聊天转发的编排层：请求解析 → 池路由 → 候选尝试 → 汇总错误。
+ * 聊天转发的编排层：请求解析 → 池路由 → 候选尝试 → 额度耗尽换号重试 → 汇总错误。
  *
  * 本文件只留**编排**；成块的逻辑都在专职模块里：
  * `request`（请求解析与校验）、`route`（池路由）、`attempt`（单候选尝试）、
  * `forward`（转发层），以及 `channel`/`candidates`/`errors`/
- * `stream`/`queue`/`upstream`/`auth`。
+ * `stream`/`queue`/`upstream`/`auth`；换号决策在 `pool/account-rotate.ts`。
  *
  * ⚠ 本文件不定义路由，只被 `server.ts` 的 `createHandler` 调用。
  */
@@ -13,6 +13,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Channel } from "../../runtime/channel.js";
 import { getRequestLog, noteRequestError } from "../../runtime/log-store.js";
+import { rotateExhaustedAccount } from "../../pool/account-rotate.js";
 import type { GatewayOptions } from "../server.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
 import { writeJsonError } from "./errors.js";
@@ -42,6 +43,24 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
 
 // ── 路由 ──────────────────────────────────────────────────────────────────────
 
+/**
+ * 失败后**允许**先查账单再换号的错误码（见 docs/ACCOUNT-ROTATION.md §3.4）。
+ *
+ * - `quota_exhausted`：额度耗尽（冷却短路或上游额度错误体）；
+ * - `upstream_error` / `upstream_timeout`：有些上游额度烧光后不回额度错误，
+ *   而回 5xx 或直接断流 —— 这类只有账单能证伪（换号前的两段式账单判定会挡住
+ *   「有额度就不换」的情形）。
+ *
+ * ⚠ 刻意不含鉴权类（`not_authenticated` / `upstream_unauthenticated`）：那是凭据
+ * 被撤销，换账号会把真问题掩盖成随机成功；也不含免费模型撞余额的
+ * `upstream_insufficient_quota`（倍率 0 不吃额度，与账号额度无关）。
+ */
+const ROTATABLE_CODES: ReadonlySet<string> = new Set([
+  "quota_exhausted",
+  "upstream_error",
+  "upstream_timeout",
+]);
+
 export async function handleChat(
   req: IncomingMessage,
   res: ServerResponse,
@@ -64,7 +83,7 @@ export async function handleChat(
   let lastError: ChatError | null = null;
   for (const [attempt, candidate] of route.attempts.entries()) {
     tried.push(candidate.cid);
-    const result = await attemptCandidate(
+    let result = await attemptCandidate(
       {
         res,
         logger: opts.logger,
@@ -75,6 +94,28 @@ export async function handleChat(
       },
       candidate,
     );
+    // 额度耗尽自动换号：失败且「可能是额度问题」时，先看账单再决定是否换账号，
+    // 换成了就用**同一候选**重试一次（凭据由 cred.load() 重读，自然拿到新账号）。
+    // ⚠ 客户端已收到字节（排队进度帧发过 SSE 头）时不能再开一条上游流 —— 会变成两个响应。
+    if (result.kind === "retry" && !res.headersSent && ROTATABLE_CODES.has(result.error.code)) {
+      const rotated = await rotateExhaustedAccount(candidate.cid, opts.logger);
+      if (rotated.switched) {
+        opts.logger(`retrying ${candidate.cid} on account ${rotated.to} (${rotated.reason})`);
+        result = await attemptCandidate(
+          {
+            res,
+            logger: opts.logger,
+            payload: parsed.payload,
+            wantStream,
+            attempt: attempt + 1,
+            rotateHost: chatHostRotator(candidate.channel),
+          },
+          candidate,
+        );
+      } else {
+        opts.logger(`account rotation skipped (${candidate.cid}): ${rotated.reason}`);
+      }
+    }
     if (result.kind === "done") return;
     lastError = result.error;
   }

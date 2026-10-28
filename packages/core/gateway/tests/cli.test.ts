@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, channelCount, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { captureActive } from "../dist/runtime/account-pool.js";
 import { credentialsPath } from "../dist/runtime/paths.js";
 import { main } from "../dist/app/cli/index.js";
 import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
@@ -608,5 +609,88 @@ describe("4. 账号池与落点（也走 CLI）", () => {
     const r = await run(["path", "--all", "--workspace", process.cwd()]);
     // 工作区里可能找不到（测试目录不是工作区）→ 报用法即可，不抛错
     assert.ok(r.code === 0 || r.code === 2, `退出码 ${r.code}`);
+  });
+
+  it("bill <cid> 池内 ≥2 个账号时逐账号列额度", async () => {
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    process.env["MODELMUX_HOME"] = root;
+    clearChannels();
+    setChannel(makeChannel("alpha", { signin: false }));
+    try {
+      // 铺两个账号：先写凭据让池子收进生效账号，再手工补一个（key 必须是合法文件名）
+      mkdirSync(join(root, "alpha"), { recursive: true });
+      writeFileSync(
+        credentialsPath("alpha"),
+        JSON.stringify({ accessToken: "tok-a", uid: "ua", domain: "d" }),
+        "utf8",
+      );
+      const first = captureActive("alpha")!;
+      const secondKey = "bbbbbbbbbbbbbbbb";
+      const indexFile = join(root, "alpha", "accounts.json");
+      const index = JSON.parse(readFileSync(indexFile, "utf8")) as {
+        accounts: Array<Record<string, unknown>>;
+      };
+      writeFileSync(
+        join(root, "alpha", "accounts", `${secondKey}.json`),
+        JSON.stringify({ accessToken: "tok-b", uid: "ub", domain: "d" }),
+        "utf8",
+      );
+      index.accounts.push({
+        key: secondKey,
+        uid: "ub",
+        domain: "d",
+        label: "第二个账号",
+        name: "",
+        added_at: "2026-10-28T00:00:00.000Z",
+        last_used_at: "2026-10-28T00:00:00.000Z",
+        expires_at: null,
+        health: "ok",
+        health_at: "2026-10-28T00:00:00.000Z",
+        fail_streak: 0,
+      });
+      writeFileSync(indexFile, JSON.stringify(index), "utf8");
+
+      // 默认（池内 ≥2 个账号）就该列出来 ——「渠道还剩多少」在池里不止一个账号时是不完整的
+      const auto = await run(["bill", "alpha"]);
+      assert.equal(auto.code, 0, auto.err);
+      assert.ok(auto.out.includes("账号（2）"), auto.out);
+      assert.ok(auto.out.includes(`* ${first.key.slice(0, 8)}…`), `生效账号要带 * 标记：${auto.out}`);
+
+      const json = await run(["bill", "alpha", "--json"]);
+      const parsed = JSON.parse(json.out) as {
+        accounts: Array<{ key: string; active: boolean; remain: number | null }>;
+      };
+      assert.equal(parsed.accounts.length, 2, "JSON 里要有两个账号");
+      assert.equal(parsed.accounts.filter((a) => a.active).length, 1, "只有一个生效账号");
+      assert.equal(parsed.accounts.find((a) => a.key === secondKey)!.remain, 12.5);
+    } finally {
+      resetChannels();
+    }
+  });
+
+  it("bill <cid> --accounts 对单账号池也列账号表（默认不列）", async () => {
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    process.env["MODELMUX_HOME"] = root;
+    clearChannels();
+    setChannel(makeChannel("alpha", { signin: false }));
+    try {
+      mkdirSync(join(root, "alpha"), { recursive: true });
+      writeFileSync(
+        credentialsPath("alpha"),
+        JSON.stringify({ accessToken: "tok-a", uid: "ua", domain: "d" }),
+        "utf8",
+      );
+      const plain = await run(["bill", "alpha"]);
+      assert.ok(!plain.out.includes("账号（"), "单账号池默认不重复列账号表");
+
+      const forced = await run(["bill", "alpha", "--accounts"]);
+      assert.equal(forced.code, 0, forced.err);
+      assert.ok(forced.out.includes("账号（1）"), forced.out);
+      assert.ok(forced.out.includes("生效中"), forced.out);
+    } finally {
+      resetChannels();
+    }
   });
 });

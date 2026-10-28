@@ -739,6 +739,10 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
  可调）；`mx log` 支持 `--kind access|error|system|lifecycle|worker|channel`、
  `--outcome success|failure|other`、`--date <YYYY-MM-DD>`、`--list`、`-f`（见
  [`LOGGING.md`](./LOGGING.md)）。
+- **`bill` 的 `--accounts`**：`mx bill [<cid>] [--accounts]` 除渠道级额度外还会**逐账号**
+  列额度（每个账号一次只读上游查询）。池内 **≥2 个账号时默认列出**（额度是账号级的，
+  只看渠道那行分不清谁还剩多少），`--accounts` 强制列出（单账号池也列）；
+  `--json` 里对应 `accounts[]`。见 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) §2。
 - **`--kind channel` 必须配渠道**：渠道维度日志按 `<cid>` 分目录落盘，cid 是**位置参数**
   （`mx log <cid> --kind channel`），**没有 `--cid` 这个选项**（CLI 走 `parseArgs` 严格模式，
   未知选项直接报错）。
