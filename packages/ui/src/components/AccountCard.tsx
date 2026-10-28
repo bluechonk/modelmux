@@ -227,34 +227,53 @@ function shortSpan(ms: number): string {
 }
 
 /**
- * 状态 pill 文案：熔断 / 冷却带上「多久后自动试探 / 恢复」，冷却带原因摘要。
+ * 状态 pill 文案：**只放短状态**，永远不溢出账号行。
  *
- * 熔断（error + trip_until）到期后路由会自动放行一次半开试探 —— 用户不必干等，
- * 也不必手动点「解除」；文案把这个自愈时间点说清楚。
+ * 完整原因（如「上游用量限额（所有模型都受限）」）走卡头第二行
+ * （`tripDetailOf` + 卡头渲染）—— 那里有整卡宽度，可以换行而不裁切。
  */
 function statusPillText(
   status: AccountStatus,
-  account: {
-    health: string;
-    trip_until?: string | null;
-    cooldown_until?: string | null;
-    cooldown_reason?: string;
-  },
+  account: { health: string; trip_until?: string | null; cooldown_until?: string | null },
 ): string {
-  const meta = STATUS_META[status];
   if (account.health === "error" && account.trip_until) {
     const left = Date.parse(account.trip_until) - Date.now();
-    return left > 0 ? `熔断 · ${shortSpan(left)} 后试探` : "熔断 · 即将试探";
+    return left > 0 ? `熔断 · ${shortSpan(left)}` : "熔断 · 即将试探";
   }
   if (account.health === "cooldown" && account.cooldown_until) {
     const left = Date.parse(account.cooldown_until) - Date.now();
-    // 原因摘要限 10 字：账号行是固定 44px 单行，长文本会把额度区挤走
-    const reason = account.cooldown_reason
-      ? ` · ${account.cooldown_reason.slice(0, 10)}${account.cooldown_reason.length > 10 ? "…" : ""}`
-      : "";
-    return `冷却${reason} · ${left > 0 ? `${shortSpan(left)} 后恢复` : "即将恢复"}`;
+    return left > 0 ? `冷却 · ${shortSpan(left)}` : "冷却 · 即将恢复";
   }
-  return meta.text;
+  return STATUS_META[status].text;
+}
+
+/**
+ * 生效账号的状态详情：原因 + 恢复/试探时刻（卡头第二行用）。
+ *
+ * 账号行只有 44px 且额度区要先占位，长文本塞不进去 —— 放卡头才有整卡宽度，
+ * 可以换行（WEB-CONSOLE 铁律：信息直接可见，不靠 hover、不裁切）。
+ */
+function tripDetailOf(account: PoolAccount): { label: string; detail: string } | null {
+  if (account.health === "cooldown") {
+    const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
+    const when = Number.isFinite(until)
+      ? ` ${shortSpan(until - Date.now())} 后自动恢复`
+      : "";
+    return { label: "冷却中", detail: `${account.cooldown_reason ?? "额度耗尽，等上游窗口刷新"}${when}` };
+  }
+  if (account.health === "error") {
+    const until = account.trip_until ? Date.parse(account.trip_until) : Number.NaN;
+    const when = Number.isFinite(until)
+      ? ` ${shortSpan(until - Date.now())} 后自动放行试探`
+      : " 即将自动放行试探";
+    const backoff = Number(account.trip_backoff_ms ?? 0);
+    const retry = backoff > 0 ? `（退避 ${shortSpan(backoff)}，失败则翻倍）` : "";
+    return { label: "熔断中", detail: `连续失败 ${Number(account.fail_streak ?? 0)} 次${retry}${when}` };
+  }
+  if (account.health === "unauthorized") {
+    return { label: "凭据失效", detail: "需要重新登录（自动重试不会成功）" };
+  }
+  return null;
 }
 
 /**
@@ -332,6 +351,19 @@ export function AccountCard({
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
+  // 生效账号的状态详情（冷却原因 / 熔断退避）—— 卡头第二行用，行内放不下
+  const tripDetail = activeAccount ? tripDetailOf(activeAccount) : null;
+  const activeTrip = tripDetail
+    ? {
+        ...tripDetail,
+        tone:
+          activeAccount?.health === "cooldown"
+            ? "text-warn"
+            : activeAccount?.health === "unauthorized"
+              ? "text-danger"
+              : "text-danger",
+      }
+    : null;
   // 折叠态是卡内私有状态：页面不需要知道哪张卡展开了
   const [expanded, setExpanded] = useState(false);
   // 需要折叠：账号数超过固定位数（2）
@@ -358,9 +390,20 @@ export function AccountCard({
             {billing?.quota?.label && (
               <span className="text-ink-faint/70">· {billing.quota.label}</span>
             )}
-            {/* 生效账号连续失败：提到卡头，不埋进行内弱色文字 */}
-            {activeAccount && Number(activeAccount.fail_streak ?? 0) > 0 && (
-              <span className="text-warn">· 连续失败 {Number(activeAccount.fail_streak)} 次</span>
+          </div>
+          {/*
+            生效账号的状态详情：原因 + 恢复/试探时刻。
+            ⚠ 放卡头而不是账号行 —— 行内只有 44px 且额度区要先占位，长文本会被裁切；
+            卡头有整卡宽度，可换行（WEB-CONSOLE 铁律：信息直接可见，不靠 hover）。
+            ⚠ **始终占位**（无状态时同高空白）：否则一卡有冷却、一卡正常就差一行，
+            auto-fill 网格里同一排卡片高度参差。
+          */}
+          <div className="mt-1.5 flex min-h-[16px] flex-wrap items-baseline gap-x-2 text-[11px]">
+            {activeTrip && (
+              <>
+                <span className={`font-medium ${activeTrip.tone}`}>{activeTrip.label}</span>
+                <span className="text-ink-faint">{activeTrip.detail}</span>
+              </>
             )}
           </div>
         </div>
@@ -415,10 +458,10 @@ export function AccountCard({
                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
                   aria-label={meta.text}
                 />
-                {/* 名称区：弹性，超长截断；pill 与解除按钮不压缩 */}
-                <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                  <span className="truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
-                  <span className={`pill shrink-0 ${meta.pill}`}>{statusPillText(status, account)}</span>
+                {/* 名称区：弹性，超长截断；pill 与解除按钮**不压缩**（它们在 44px 单行里必须完整可见） */}
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                  <span className="min-w-0 truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
+                  <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status, account)}</span>
                   {failStreak > 0 && (health === "ok" || health === "unknown") && (
                     <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
                   )}
