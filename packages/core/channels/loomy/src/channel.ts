@@ -16,7 +16,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "loomy",
   display: "Loomy",
-  version: "0.1.1",
+  version: "0.1.2",
   defaultAddr: "127.0.0.1:8813",
   uiPort: 8814,
   debugDumpEnv: "LOOMY_DEBUG_DUMP",

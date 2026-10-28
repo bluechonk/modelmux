@@ -18,7 +18,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "qoder",
   display: "Qoder",
-  version: "0.1.1",
+  version: "0.1.2",
   defaultAddr: "127.0.0.1:8801",
   uiPort: 8802,
   debugDumpEnv: "QODER_DEBUG_DUMP",
