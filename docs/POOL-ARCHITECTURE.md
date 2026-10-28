@@ -152,16 +152,23 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 
 | 情形 | 判据 | 账号状态 | 恢复方式 |
 |---|---|---|---|
-| 真故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error`（Web 显示「不可用」） | **Web 账号池页的「解除」按钮** / 手动切号 / 重登 |
-| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却中」） | **到期自动恢复**（惰性，无需定时器），也可用「解除」按钮**提前放行** |
+| 瞬时故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error` + `trip_until`（Web 显示「熔断 · X 后试探」） | **到期自动半开试探**：成功恢复 `ok`，再失败退避翻倍（30s → 1m → … 封顶 30min）；也可用「解除」按钮提前恢复 |
+| 凭据失效 | 401/403、刷新失败、`not_authenticated` | `unauthorized` | 只能重新登录（自动重试永远无效） |
+| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却 · 原因 · X 后恢复」） | **到期自动恢复**（惰性，无需定时器），也可用「解除」按钮**提前放行** |
+
+**熔断自动恢复（`trip_until`，2026-10-28 起）**：
+
+- `noteAccountFailure()` 写 `health=error` 时同时写 `trip_until = now + backoff`；
+- 请求入口 `activeAccountIsError()` 只在 `trip_until` **未到期**时短路；到期放行一次做半开试探；
+- 试探成功 → `markActiveHealth("ok")` / `noteAccountSuccess()` 清掉 `trip_until` / `trip_backoff_ms`；
+- 试探再失败 → 退避翻倍（上限 30 分钟）。旧数据缺 `trip_until` 视为「早已到期」，升级后自动自检一次。
 
 **「解除」按钮**（`clearAccountState(key, cid)` → Web 命令 `resetAccount`）：
 
-- 语义：清零 `fail_streak` + 清掉 `cooldown_until` / `cooldown_reason` + `error`/`cooldown`
-  恢复 `ok`；**不动凭证**，因此池里**任何账号**都能清（不只是生效那个），
-  与「切号」（`activateAccount`，会顺带把凭证切为生效）分开。
-- 为什么要它：`error` 是**自锁**的 —— 熔断后路由一直跳过它，永远等不到「下一次成功」
-  把连败清零；而 `cooldown` 虽然到期会好，用户可能已经知道额度刷新了（换套餐 / 充值）。
+- 语义：清零 `fail_streak` + 清掉 `cooldown_until` / `cooldown_reason` / `trip_until` /
+  `trip_backoff_ms` + `error`/`cooldown` 恢复 `ok`；**不动凭证**，因此池里**任何账号**都能清
+  （不只是生效那个），与「切号」（`activateAccount`，会顺带把凭证切为生效）分开。
+- 为什么要它：想跳过等待、立刻放行时使用；熔断本身已能自动恢复（见上），按钮是提前恢复手段。
 - 同源校验与其它写命令一致（`/web/api/commands` 只收同源请求）；
   生效账号解除后同时清进程内的 `healthCache`，避免下一次 `markActiveHealth` 拿旧值短路。
 - ⚠ **`unauthorized` 不允许解除**：那是凭据本身失效（token 被撤销），清标记只会让界面假装
@@ -177,9 +184,9 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 - 短路：`activeAccountIsError()` 只对 `error` 为真（请求入口不再打上游）；`cooldown` 由
   `activeAccountCooldown()` 按模型判定 —— 倍率 0 的免费模型不受冷却限制，照常打上游。
 - 展示：`activeAccountCooldown(cid)` 给出 `{ until, reason }` 供 CLI / Web 显示「冷却到几点」。
-- **error 终态短路也不记账**（`auth.ts` 的独立 `account_error` 类别）：error 已是终态，
-  短路再记连败只会把 `fail_streak` 刷成无意义的大数（2026-10-24 实测被 11 次
-  not_authenticated 刷到 11），不影响行为但污染账面与排障判断。
+- **熔断短路期间也不记账**（`auth.ts` 的独立 `account_error` 类别）：熔断期内再记连败只会把
+  `fail_streak` 刷成无意义的大数（2026-10-24 实测被 11 次 not_authenticated 刷到 11），
+  不影响行为但污染账面与排障判断。
 - **冷却中的账号不参与账单刷新**：额度要等窗口刷新才会变，
   冷却期反复查它的额度既拿不到新数字、又白打一次上游。实现见
   `runRefresh` / `refreshAccountCredits` —— 只跳**这个账号**（生效账号冷却时渠道级查询跳过，
@@ -480,19 +487,17 @@ interface CredModule {
 
 ### 3.3 策略
 
-- **选择**：当前生效账号（`accounts.json.active`）。生效账号被标 `error` 时，
-  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat/auth.ts:45`）。
+- **选择**：当前生效账号（`accounts.json.active`）。生效账号**熔断未到期**时，
+  `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat/auth.ts`）。
   账号池里的候选**不做自动挑选** —— `activeAccountIsError`（`packages/core/gateway/src/runtime/account-pool.ts`）
   只回答「当前账号还能不能用」。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
-  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts:80-86`）。
+  `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts`）。
   账号池因此**没有自动切号的调用方**。
-- **连败标记**：连续失败达 `FAIL_STREAK_LIMIT = 3` 次标 `error` 并跳过，
-  **凭证一律保留**；成功清零连败；恢复途径是 **Web 账号池页的「解除」按钮**
-  （`clearAccountState`）、手动切号（`mx acct <cid> use <key>`）或重登。
-  「解除」是给 `error` 这种**自锁**状态准备的 —— 熔断后路由不再打它，
-  不手动放行就永远等不到那一次成功。
+- **连败标记**：连续**瞬时**失败达 `FAIL_STREAK_LIMIT = 3` 次即熔断（`error` + `trip_until`），
+  **凭证一律保留**；到期自动放行一次半开试探（成功恢复、再失败退避翻倍）。
+  也可手动「解除」（`clearAccountState`）、切号（`mx acct <cid> use <key>`）或重登提前恢复。
 - **未实现**：自动切号、按额度耗尽自动换号、轮询、最久未用。
 - **与 realm 共存**：workbuddy 的 intl/cn 账号由渠道自己解释；账号切换不改变渠道基址。
 

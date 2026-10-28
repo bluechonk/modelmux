@@ -64,6 +64,14 @@ export interface PoolAccount {
   cooldown_until?: string | null;
   /** 冷却原因（人话，来自渠道判定，如「上游 429 用量限额」）。 */
   cooldown_reason?: string;
+  /**
+   * 熔断试探时刻（ISO8601）；`health === "error"` 时有意义。
+   *
+   * 到点后下一次请求放行一次（half-open）：成功恢复 `ok`，再失败退避翻倍。
+   */
+  trip_until?: string | null;
+  /** 当前熔断退避长度（ms，翻倍用；缺省 0 = 首次熔断）。 */
+  trip_backoff_ms?: number;
 }
 
 export interface PoolIndex {
@@ -210,6 +218,11 @@ export function readIndex(cid?: string): PoolIndex {
           : 0,
         cooldown_until: typeof a["cooldown_until"] === "string" ? a["cooldown_until"] : null,
         cooldown_reason: typeof a["cooldown_reason"] === "string" ? a["cooldown_reason"] : undefined,
+        trip_until: typeof a["trip_until"] === "string" ? a["trip_until"] : null,
+        trip_backoff_ms:
+          typeof a["trip_backoff_ms"] === "number" && Number.isFinite(a["trip_backoff_ms"])
+            ? Math.trunc(a["trip_backoff_ms"])
+            : 0,
       });
     }
     const active = typeof rec["active"] === "string" ? rec["active"] : null;
@@ -422,7 +435,8 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
 function clearTrippedState(account: PoolAccount): boolean {
   const tripped = account.health === "error" || account.health === "cooldown";
   const hadStreak = (account.fail_streak ?? 0) > 0;
-  if (!tripped && !hadStreak) return false;
+  const hadTrip = account.trip_until != null || (account.trip_backoff_ms ?? 0) > 0;
+  if (!tripped && !hadStreak && !hadTrip) return false;
   account.fail_streak = 0;
   if (tripped) {
     account.health = "ok";
@@ -430,6 +444,8 @@ function clearTrippedState(account: PoolAccount): boolean {
   }
   account.cooldown_until = null;
   account.cooldown_reason = undefined;
+  account.trip_until = null;
+  account.trip_backoff_ms = 0;
   return true;
 }
 
@@ -568,7 +584,17 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
   }
   const hit = index.accounts.find((a) => a.key === index.active);
   healthCache.set(scope, health);
-  if (!hit || hit.health === health) return;
+  if (!hit) return;
+  // 恢复 ok 时顺手清掉熔断退避（半开试探成功 / 人工恢复都走这里）。
+  const hadTrip = hit.trip_until != null || (hit.trip_backoff_ms ?? 0) > 0;
+  if (health === "ok" && hadTrip) {
+    hit.trip_until = null;
+    hit.trip_backoff_ms = 0;
+  }
+  if (hit.health === health) {
+    if (health === "ok" && hadTrip) writeIndex(index, cid);
+    return;
+  }
   hit.health = health;
   hit.health_at = nowIso();
   writeIndex(index, cid);
@@ -741,12 +767,18 @@ function loadLive(cid?: string): Record<string, unknown> | null {
   return loadCredentialOf(getChannel(cid));
 }
 
+/** 熔断首次退避：30s（上游瞬时抖动通常几十秒自愈）。 */
+const TRIP_BACKOFF_INITIAL_MS = 30_000;
+/** 退避封顶：30 分钟（持续故障时不无限拉长等待）。 */
+const TRIP_BACKOFF_MAX_MS = 30 * 60_000;
+
 /**
- * 一次请求失败：生效账号连续失败 +1；达到 FAIL_STREAK_LIMIT 即把 health 标为
- * `error`（路由侧 `activeAccountIsError` 会跳过它，**凭证保留**，恢复靠用户切号/重登）。
+ * 一次瞬时失败：生效账号连续失败 +1；达到 FAIL_STREAK_LIMIT 即**熔断**
+ * （health=error + trip_until）。到点后路由放行一次做半开试探：
+ * 成功恢复 `ok`，再失败退避翻倍。
  *
- * 与 markActiveHealth 的区别：那个按「最后一次结果」覆盖 health；这个是
- * **累计口径**，只升不降（成功由 noteAccountSuccess 清零连败）。
+ * ⚠ 只给**瞬时故障**（timeout / 5xx / 网络）调用；凭据失效走
+ * `markActiveHealth("unauthorized")` —— 那种重试永远无效，不能自动恢复。
  */
 export function noteAccountFailure(cid?: string): void {
   let scope: string;
@@ -760,26 +792,40 @@ export function noteAccountFailure(cid?: string): void {
   const hit = index.accounts.find((a) => a.key === index.active);
   if (!hit) return;
   hit.fail_streak = (hit.fail_streak ?? 0) + 1;
-  if (hit.fail_streak >= FAIL_STREAK_LIMIT && hit.health !== "error") {
+  if (hit.fail_streak >= FAIL_STREAK_LIMIT) {
+    // 首次熔断 30s；半开试探再失败则翻倍（30s → 1m → 2m … 封顶 30min）
+    const prev = hit.trip_backoff_ms ?? 0;
+    const backoff = prev <= 0
+      ? TRIP_BACKOFF_INITIAL_MS
+      : Math.min(prev * 2, TRIP_BACKOFF_MAX_MS);
     hit.health = "error";
     hit.health_at = nowIso();
+    hit.trip_until = new Date(Date.now() + backoff).toISOString();
+    hit.trip_backoff_ms = backoff;
     healthCache.set(scope, "error");
   }
   writeIndex(index, cid);
 }
 
-/** 一次请求成功：清零生效账号的连续失败计数。 */
+/** 一次请求成功：清零连败与熔断退避状态。 */
 export function noteAccountSuccess(cid?: string): void {
   const index = readIndex(cid);
   if (!index.active) return;
   const hit = index.accounts.find((a) => a.key === index.active);
-  if (!hit || (hit.fail_streak ?? 0) === 0) return;
+  if (!hit) return;
+  const dirty = (hit.fail_streak ?? 0) > 0 || hit.trip_until != null || (hit.trip_backoff_ms ?? 0) > 0;
+  if (!dirty) return;
   hit.fail_streak = 0;
+  hit.trip_until = null;
+  hit.trip_backoff_ms = 0;
   writeIndex(index, cid);
 }
 
 /**
- * 生效账号是否已被标记 **`error`**（真故障：连败 / 鉴权失效）→ 任何模型都不该再打它。
+ * 生效账号是否处于**熔断打开**状态（`error` 且未到试探时刻）→ 本次请求短路。
+ *
+ * 到期（或旧数据缺 `trip_until`）返回 false = 放行一次做半开试探 ——
+ * 升级后此前卡死的账号会在下一次真实请求上自动自检，不需要人工解除。
  *
  * ⚠ **刻意不含 `cooldown`**：额度耗尽的冷却必须**按模型**判断 ——
  * 倍率 0 的免费模型不消耗额度，冷却期照样能用（实测踩过：loomy 冷却后连
@@ -790,9 +836,27 @@ export function activeAccountIsError(cid?: string): boolean {
   try {
     const index = readIndex(cid);
     if (!index.active) return false;
-    return index.accounts.find((a) => a.key === index.active)?.health === "error";
+    const hit = index.accounts.find((a) => a.key === index.active);
+    if (!hit || hit.health !== "error") return false;
+    const until = hit.trip_until ? Date.parse(hit.trip_until) : Number.NaN;
+    return Number.isFinite(until) && until > Date.now();
   } catch {
     return false;
+  }
+}
+
+/** 熔断剩余信息（短路文案/界面用）；未熔断或已到试探时刻返回 null。 */
+export function activeAccountTrip(cid?: string): { until: string; remainingMs: number } | null {
+  try {
+    const index = readIndex(cid);
+    if (!index.active) return null;
+    const hit = index.accounts.find((a) => a.key === index.active);
+    if (!hit || hit.health !== "error" || !hit.trip_until) return null;
+    const until = Date.parse(hit.trip_until);
+    const remainingMs = until - Date.now();
+    return Number.isFinite(until) && remainingMs > 0 ? { until: hit.trip_until, remainingMs } : null;
+  } catch {
+    return null;
   }
 }
 
