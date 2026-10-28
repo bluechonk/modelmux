@@ -83,18 +83,51 @@ export function formatBytes(value: number | undefined): string {
 }
 
 /**
- * token/s（吞吐速率）：total tokens ÷ 耗时秒数。
+ * 生成速度（token/s）：**输出** tokens ÷ **纯生成耗时**。
  *
- * tokens 缺失或耗时 ≤ 0 时返回 `"—"`；小数取一位，带 `t/s` 单位（如 `42.3 t/s`）。
+ * 两个口径要点：
+ *   - 分子只算 `completion` —— prompt 是输入，prefill 阶段并行处理、吞吐极高；
+ *     算进分子会让长上下文请求虚高到几万 t/s（实测 prompt 721427 + completion 1751、
+ *     耗时 37.6s：按 total 算是 19235 t/s，而真实生成约 148 t/s）；
+ *   - 分母扣掉首帧（`ttfbMs`）或上游响应头（`upstreamMs`），只留实际吐字时间；
+ *     两者都缺时退化用总耗时（保守，仍比旧口径准）。
  */
-export function formatTokensPerSec(entry: AccessLogEntry): string {
-  const total = entry.tokens?.total;
-  const ms = entry.durationMs;
-  if (total === null || total === undefined || ms === undefined || ms <= 0) return "—";
-  const perSec = total / (ms / 1000);
+export function tokensPerSecOf(input: {
+  completion?: number | null | undefined;
+  durationMs?: number | null | undefined;
+  ttfbMs?: number | null | undefined;
+  upstreamMs?: number | null | undefined;
+}): number | null {
+  const { completion, durationMs } = input;
+  if (typeof completion !== "number" || !Number.isFinite(completion) || completion <= 0) return null;
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+  /** 可用的「非生成时间」基准：必须为正且小于总耗时，否则视为缺失。 */
+  const cut = (v: number | null | undefined): number =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
+  const base = cut(input.ttfbMs) || cut(input.upstreamMs);
+  const generateMs = durationMs - base;
+  if (generateMs <= 0) return null;
+  return completion / (generateMs / 1000);
+}
+
+/** 速率的展示格式：`<0.1 t/s` / 一位小数 / 整数；无数据显示 `—`。 */
+export function formatRate(perSec: number | null): string {
+  if (perSec === null) return "—";
   if (perSec < 0.05) return "<0.1 t/s";
   if (perSec < 10) return `${perSec.toFixed(1)} t/s`;
   return `${Math.round(perSec)} t/s`;
+}
+
+/** 访问日志条目的生成速度（token/s）；口径见 `tokensPerSecOf`。 */
+export function formatTokensPerSec(entry: AccessLogEntry): string {
+  return formatRate(
+    tokensPerSecOf({
+      completion: entry.tokens?.completion,
+      durationMs: entry.durationMs,
+      ttfbMs: entry.ttfbMs,
+      upstreamMs: entry.upstreamMs,
+    }),
+  );
 }
 
 /** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */
