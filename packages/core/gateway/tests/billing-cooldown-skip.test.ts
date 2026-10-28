@@ -28,6 +28,9 @@ let fetchCalls = 0;
 /** 账单返回的剩余额度（用例可改成 0 触发冷却）。 */
 let creditsRemain = 5;
 
+/** 账单返回的权益包明细（null = 不带 packages，用于测二次确认的两档）。 */
+let creditsPackages: Array<{ remain: number; size: number; used: number }> | null = null;
+
 /** 合成渠道：billing 只回一个固定额度并计数。 */
 function registerChannel(): void {
   const config: ChannelConfig = {
@@ -51,6 +54,7 @@ function registerChannel(): void {
         fetchCalls += 1;
         return {
           total: { remain: creditsRemain, size: 10, used: 10 - creditsRemain, unit: "credits", remain_percent: creditsRemain * 10 },
+          ...(creditsPackages ? { packages: creditsPackages } : {}),
         };
       },
       signin: {
@@ -114,6 +118,7 @@ describe("冷却账号不再执行 bill", () => {
   beforeEach(() => {
     fetchCalls = 0;
     creditsRemain = 5;
+    creditsPackages = null;
     poolUsage.resetPoolLedgerForTest();
   });
   after(() => {
@@ -160,5 +165,27 @@ describe("冷却账号不再执行 bill", () => {
     const delta = Date.parse(account.cooldown_until) - Date.now();
     assert.ok(delta > 25 * 60_000, `冷却应接近 30 分钟，实际 ${delta}ms`);
     assert.ok(delta <= 30 * 60_000 + 5_000, `冷却不得超过 30 分钟，实际 ${delta}ms`);
+  });
+
+  it("total=0 但权益包推导 > 0 → 不冷却（滞后快照的二次确认，2026-10-29 traecn 事故）", async () => {
+    creditsRemain = 0;
+    creditsPackages = [{ remain: 138.14, size: 200, used: 61.86 }];
+    seedPool("ok", null);
+    await poolUsage.refreshBilling();
+    const index = JSON.parse(
+      readFileSync(join(paths.channelDir(CID), "accounts.json"), "utf8"),
+    ) as { accounts: Array<{ health: string }> };
+    assert.equal(index.accounts[0]!.health, "ok", "权益包推导还有额度就不该冷却");
+  });
+
+  it("total=0 且权益包推导也为 0 → 正常冷却（不放过真耗尽）", async () => {
+    creditsRemain = 0;
+    creditsPackages = [{ remain: 0, size: 200, used: 200 }];
+    seedPool("ok", null);
+    await poolUsage.refreshBilling();
+    const index = JSON.parse(
+      readFileSync(join(paths.channelDir(CID), "accounts.json"), "utf8"),
+    ) as { accounts: Array<{ health: string }> };
+    assert.equal(index.accounts[0]!.health, "cooldown", "两处都为 0 才是真耗尽");
   });
 });

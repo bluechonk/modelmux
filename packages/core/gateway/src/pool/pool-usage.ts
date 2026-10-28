@@ -21,7 +21,7 @@ import {
   readAccountCredential,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
-import { poolUsagePath } from "../runtime/paths.js";
+import { noteOnce, poolUsagePath } from "../runtime/paths.js";
 import { localDate } from "../runtime/log-store.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 
@@ -402,6 +402,31 @@ function markCooldownIfExhausted(channel: Channel, cid: string, credits: unknown
   const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
   const raw = total["remain"];
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw > 0) return;
+
+  // 二次确认（2026-10-29 traecn 事故）：total.remain 可能被**滞后的对话流快照**覆盖成假 0
+  // （快照是上次对话的观测，可能远旧于当下权益）。packages 是逐账号的权益包明细，
+  // 推导出的剩余 > 0 说明账号其实还有额度 → 不冷却，只提示一次。
+  const packages = (credits as { packages?: unknown } | null)?.packages;
+  if (Array.isArray(packages) && packages.length > 0) {
+    const derived = (packages as Array<Record<string, unknown>>).reduce(
+      (sum: number, pack): number => {
+        const remain =
+          typeof pack["remain"] === "number"
+            ? pack["remain"]
+            : Number(pack["size"]) - Number(pack["used"]);
+        return Number.isFinite(remain) ? sum + Math.max(remain, 0) : sum;
+      },
+      0,
+    );
+    if (derived > 0) {
+      noteOnce(
+        `billing:${cid}:stale-snapshot`,
+        `[${cid}] 账单 total.remain=${raw} 但权益包推导剩余 ${derived}，疑似滞后快照，跳过冷却`,
+      );
+      return;
+    }
+  }
+
   const resetsAt = channel.billing.quotaPeriod?.()?.resets_at ?? null;
   // 冷却最多到「窗口重置」与「探测上限」中较早的那个（见 BILLING_COOLDOWN_PROBE_MS）
   const probeAt = Date.now() + BILLING_COOLDOWN_PROBE_MS;

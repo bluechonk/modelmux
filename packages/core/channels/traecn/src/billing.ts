@@ -2,7 +2,9 @@
  * TRAE 额度与签到：额度查询 + 每日签到领积分。
  *
  * 关键约束（端点/字段/实测见 docs/channels/traecn/PROTOCOL.md）：
- *   - `total` 只统计通用（SOLO）维度权益包；有对话流余额快照（`upstream.readUsageSnapshot()`）时以上游自算的 `ide_credits` 覆盖推导值。
+ *   - `total` 只统计通用（SOLO）维度权益包；有**新鲜**（≤ `USAGE_SNAPSHOT_TTL_MS`）的对话流
+ *     余额快照（`upstream.readUsageSnapshot()`）时以上游自算的 `ide_credits` 覆盖推导值，
+ *     过时快照不采信。
  *   - 「查不到」一律抛 `CreditsError`，不得显示成 0；未登录抛 `cred.NotLoggedInError`。
  *   - 签到领取后需补查一次 status 才能取到积分数（`signin` 内实现）。
  */
@@ -20,6 +22,9 @@ const CHECKIN_CLAIM_PATH = "/trae/api/v2/ug/checkin_credits/claim";
 const USAGE_PATH = "/trae/api/v2/pay/ide_user_ent_usage";
 
 const HTTP_TIMEOUT_MS = 30_000;
+/** 对话流余额快照的采信窗口：它是上次对话的观测，会随权益变化过时（2026-10-28 实测：
+ *  两天前的 `ide_credits=0` 快照压掉权益包推导的 138.14，误触发冷却并被 180s 账单刷新反复续期）。 */
+const USAGE_SNAPSHOT_TTL_MS = 30 * 60_000;
 /** 设备级限流码（签到人数过多）。 */
 const DEVICE_RATE_LIMIT_CODE = 9074;
 
@@ -313,10 +318,14 @@ export async function fetchCredits(
       days_left: daysLeft(expireSeconds),
     });
   }
-  // 对话流实测余额（notify_usage）是上游自己算的数，权威 → 覆盖推导值。
+  // 对话流实测余额（notify_usage）是上游自己算的数，**新鲜时**权威 → 覆盖推导值。
   // ⚠ 余额按账号归属：快照 uid 与当前账号不符（换过号）就不采信。
+  // ⚠ 快照有时效：超龄的不采信（过时观测会压掉当下权益包推导的余额，见 TTL 注释）。
   const snapshot = upstream.readUsageSnapshot();
-  const usable = snapshot && snapshot.uid === c.uid ? snapshot : null;
+  const observedAt = snapshot ? Date.parse(snapshot.observed_at) : Number.NaN;
+  const snapshotFresh =
+    Number.isFinite(observedAt) && Date.now() - observedAt <= USAGE_SNAPSHOT_TTL_MS;
+  const usable = snapshot && snapshotFresh && snapshot.uid === c.uid ? snapshot : null;
 
   // total 只算「对话能消耗的那一维」；明细仍是全量包（work 包也列出来）。
   let counted = countablePacks(packs);
