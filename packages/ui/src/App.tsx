@@ -11,6 +11,7 @@ import type { ReactElement } from "react";
 import { Layout } from "./components/Layout";
 import { ToastProvider } from "./components/Toast";
 import { Dashboard } from "./pages/Dashboard";
+import { Models } from "./pages/Models";
 import { Accounts } from "./pages/Accounts";
 import { Logs } from "./pages/Logs";
 
@@ -42,6 +43,7 @@ export function App(): ReactElement {
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/models" element={<Models />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/logs" element={<Logs />} />
             </Route>

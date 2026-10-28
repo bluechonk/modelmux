@@ -19,7 +19,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
-import { CopyButton } from "./CopyChip";
+import { CopyButton, CopyChip } from "./CopyChip";
 
 /** role 的中文名。未知 role 原样显示，不猜。 */
 const ROLE_LABEL: Record<string, string> = {
@@ -250,6 +250,9 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
         {toolCallId !== null && (
           <span className="break-all font-mono text-ink-faint">tool_call_id={toolCallId}</span>
         )}
+        <span className="ml-auto">
+          <CopyButton value={JSON.stringify(rec)} label="复制本条消息" />
+        </span>
       </div>
       <div className="space-y-2 px-3 py-2">
         {reasoning !== null && (
@@ -467,6 +470,14 @@ export function LogContextDialog({
           </header>
 
           <div className="min-h-0 flex-1 space-y-3 overflow-auto px-5 py-4">
+            {!payload.isPending && records.length > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-ink">
+                  全部内容（{records.length} 条记录）
+                </span>
+                <CopyChip value={records.map((r) => r.body).join("\n\n———\n\n")} display="复制全部内容" />
+              </div>
+            )}
             {payload.isPending ? (
               <p className="text-xs text-ink-faint">正在读取…</p>
             ) : payload.isError ? (

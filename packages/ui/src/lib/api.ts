@@ -124,6 +124,13 @@ export interface WebApi {
    * 关闭只停止新增，已落盘的记录在保留期内仍可读。
    */
   setPayloadCapture(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }>;
+  /**
+   * 网关生命周期（仪表盘的播放/暂停/重启）。
+   *
+   * `restart` = worker 自断、监督者重生，页面短暂断开后自动恢复；
+   * `stop` = 网关进程整体退出，**本页面随之不可达**（恢复需本机终端 `mx start`）。
+   */
+  gatewayControl(action: "restart" | "stop"): Promise<{ ok: boolean; action: string }>;
   readonly commands: {
     /** 各方法返回**已解包 data 的扁平对象**（含 ok / message / error）。 */
     login(cid: string, force: boolean): Promise<CommandData>;
@@ -317,6 +324,8 @@ export const api: WebApi = {
     IS_DEMO
       ? demoLater(demoSetPayloadCapture(demo(), enabled))
       : post("/api/logs/payload-capture", { enabled }),
+  gatewayControl: (action) =>
+    IS_DEMO ? demoLater({ ok: true, action }) : post("/api/gateway", { action }),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),

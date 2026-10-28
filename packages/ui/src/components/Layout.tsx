@@ -12,7 +12,7 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, ScrollText } from "lucide-react";
+import { Boxes, Gauge, List, ScrollText } from "lucide-react";
 import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
@@ -21,6 +21,7 @@ import { BrandMark } from "./BrandMark";
 /** 侧栏导航项：图标 + 文案。 */
 const NAV = [
   { to: "/", label: "仪表盘", icon: Gauge },
+  { to: "/models", label: "模型列表", icon: List },
   { to: "/accounts", label: "账号池", icon: Boxes },
   { to: "/logs", label: "日志", icon: ScrollText },
 ];
@@ -85,9 +86,6 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
   const onLogs = pathname.replace(/\/+$/, "").endsWith("/logs");
   const skeleton = queryFailed || uiState === "down" || (uiState === "error" && !onLogs);
   // 状态灯配色：运行中=绿、异常=红、其余（未就绪/未知）=灰
-  const dotClass = running ? "bg-free" : abnormal ? "bg-danger" : "bg-ink-faint";
-  const statusText = running ? "运行中" : abnormal ? "异常" : "启动中";
-  const origin = (state.data?.base_url ?? "").replace(/\/v1\/?$/, "") || "127.0.0.1:4412";
 
   return (
     <div className="flex h-full">
@@ -141,7 +139,7 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
             ))}
           </nav>
 
-        {/* 底部：演示提示 + 网关状态两行（折叠时整块隐藏） */}
+        {/* 底部：演示模式提示（网关状态已迁到仪表盘的网关面板） */}
         {!collapsed && (
           <div className="mt-auto space-y-2 px-3 pb-4">
             {IS_DEMO && (
@@ -150,14 +148,6 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
                 <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
               </div>
             )}
-            <div className="flex items-center justify-center gap-2 py-1 md:justify-start">
-              <span className={`live-dot h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
-              <span className="hidden text-xs text-ink-soft md:inline">网关</span>
-              <span className="hidden text-xs text-ink md:ml-auto md:inline">{statusText}</span>
-            </div>
-            <div className="hidden truncate px-1 font-mono text-[11px] text-ink-faint md:block">
-              {origin}
-            </div>
           </div>
         )}
       </aside>

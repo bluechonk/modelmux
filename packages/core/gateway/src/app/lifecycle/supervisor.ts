@@ -115,6 +115,17 @@ const PING_INTERVAL_MS = 2_000;
     writeWorkerPid(workerPidFile, child.pid ?? 0);
     superviseLog("worker_spawned", { pid: child.pid, attempt: attempts });
 
+    // Web 控制台的「暂停」：worker 经 IPC 请求监督者**永久**退出（不按退避重生）。
+    // 这是 worker → 监督者唯一的带内协议；反向（监督者 → worker）是下面的保活 ping。
+    child.on("message", (message: unknown) => {
+      const type = (message as { type?: string } | null)?.type;
+      if (type === "supervisor-stop") {
+        appendSystem("stop_requested_web", { pid: child.pid ?? null });
+        clearWorkerPid(workerPidFile);
+        process.exit(0);
+      }
+    });
+
     // 心跳：Windows 下父进程死亡不保证触发子端 disconnect（实测：父 exit 后子端
     // 收不到），故用应用层 ping 做父死感知 —— worker 8s 收不到即判定监督者消失。
     const pinger = setInterval(() => {

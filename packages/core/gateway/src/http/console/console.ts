@@ -184,6 +184,14 @@ export interface ControlBridge {
    * 既不算成功也不算失败，界面上也没法再回答它。
    */
   cancelInput?: () => void;
+  /**
+   * 控制台触发的网关生命周期操作（web 页面的播放/暂停/重启按钮）。
+   *
+   * `restart`：worker 主动自断，由监督者按退避**重生**（页面短暂失联后自愈）；
+   * `stop`：worker 经 IPC 让监督者**永久退出**并自断 —— 页面随之不可达，
+   * 恢复必须在本机终端 `mx start`（Web 控制台本身就是网关进程的一部分）。
+   */
+  gatewayControl?: (action: "restart" | "stop") => void;
 }
 
 export interface ConsoleServer {
@@ -388,6 +396,39 @@ export function createConsoleHandler(
           return;
         }
         json(res, { ok: true, enabled: setPayloadCaptureEnabled(enabled) });
+      });
+      return;
+    }
+
+    // 网关生命周期控制（重启 = worker 自断、监督者重生；停止 = 监督者永久退出）。
+    // ⚠ 响应必须**先于**动作返回：触发器延后一拍，否则动作立刻断链，响应还没写完。
+    if (path === p("/api/gateway")) {
+      if (req.method !== "POST") {
+        json(res, { ok: false, error: "use POST" }, 405);
+        return;
+      }
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        body += String(chunk);
+      });
+      req.on("end", () => {
+        let action: unknown;
+        try {
+          action = (JSON.parse(body || "{}") as Record<string, unknown>)["action"];
+        } catch {
+          json(res, { ok: false, error: "invalid json" }, 400);
+          return;
+        }
+        if (action !== "restart" && action !== "stop") {
+          json(res, { ok: false, error: "action 必须是 restart 或 stop" }, 400);
+          return;
+        }
+        json(res, { ok: true, action });
+        setTimeout(() => bridge.gatewayControl?.(action), 100);
       });
       return;
     }
