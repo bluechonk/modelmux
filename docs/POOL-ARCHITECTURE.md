@@ -14,7 +14,7 @@
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
 | 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；鉴权失效一律手动切号 | 见 §3.3 |
 | 跨渠道自动选池 | 不做：渠道由请求前缀显式指定 | 见 §2.4 |
-| 额度耗尽自动换号 | 已实现（两段式账单判据 + 冷却旧账号 + 本次请求重试一次） | 见 §2.4 与 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) |
+| 额度耗尽自动换号 | 已实现（明确额度信号直查实时账单 + 冷却旧账号 + 本次请求重试一次；生效账号已在冷却时请求前提前切走） | 见 §2.4 与 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) |
 | 轮询 / 最久未用 | 未实现 | 见 §3.4 |
 
 ## 1. 形态：一个 CLI，渠道即池子
@@ -154,6 +154,8 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    确认额度不足才把生效账号标冷却并**自动切到池内有额度的账号**，本次请求用新账号
    **重试一次**（同一候选，因为池 id 已钉死渠道）。判据、边界与理由见
    [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md)。
+   其中 `quota_exhausted` 已明确是额度问题，账本快照不参与否决（快照会滞后，见该文件 §3.1）；
+   另有**前置**路径：请求发出前发现生效账号在冷却，直接切走（同文件 §3.5）。
    ⚠ 鉴权类失败（`not_authenticated` / `upstream_unauthenticated`）**不在**此列 ——
    换账号会把「凭据被撤销」掩盖成随机成功，仍然只能手动处理。
 
@@ -520,7 +522,9 @@ interface CredModule {
 
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号**熔断未到期**时，
   `callUpstream` 入口**直接短路**，不再发上游请求（`packages/core/gateway/src/http/chat/auth.ts`）。
-  账号池里的候选**不做自动挑选** —— `activeAccountIsError`（`packages/core/gateway/src/runtime/account-pool.ts`）
+  生效账号**在额度冷却中**时，池内还有可用账号就**提前切走**再用新账号请求
+  （[ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) §3.5）；池内都不可用才如实短路。
+  除这两种情况外，候选**不做自动挑选** —— `activeAccountIsError`（`packages/core/gateway/src/runtime/account-pool.ts`）
   只回答「当前账号还能不能用」。
 - **失败转移**：401/403 → 先给**同一账号**刷新 token 再重试一次；仍失败则把该账号标
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
@@ -537,7 +541,9 @@ interface CredModule {
   也可用后端命令 `resetAccount` 提前恢复、切号（`mx acct <cid> use <key>`）或重登提前恢复。
 - **额度耗尽自动换号**：请求失败（错误码属「可能是额度问题」那类）后按**账单证据**
   决定是否换到池内有额度的账号，并在**同一请求**里重试一次；判据与边界见 §2.4。
-  这是**唯一**的自动切号路径 —— 鉴权失效仍然只能手动。
+  自动切号有**两条**路径（额度问题是可恢复的，故与凭据失效区别对待）：失败后的自动换号
+  （§3.3 上一条），以及生效账号已在冷却时的**请求前**提前切号
+  （[ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) §3.5）。鉴权失效仍然只能手动。
 - **未实现**：轮询、最久未用。
 - **与 realm 共存**：workbuddy 的 intl/cn 账号由渠道自己解释；账号切换不改变渠道基址。
 
