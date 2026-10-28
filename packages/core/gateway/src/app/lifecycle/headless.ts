@@ -18,7 +18,7 @@ import { channels, getChannel, hasChannel, channelCapabilities, type Channel } f
 import * as console_ from "../../http/console/console.js";
 import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
-import { appendChannel, appendError, appendGateway } from "../../runtime/log-store.js";
+import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
 import { poolModelMetas } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
@@ -590,12 +590,16 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const state = new ServiceState(addr);
   if (json) emit({ event: "start", mode: "serve", addr, ui_prefix: REPO_UI_PREFIX, ...(cid ? { cid } : {}) });
 
+  // 控制台的网关操作在下方 `shutdown` / `stopSignalled` 定义之后才真正接线（占位先挂进 bridge）。
+  let webGatewayControl: (action: "restart" | "stop") => void = () => {};
+
   const bridge: console_.ControlBridge = {
     provider: () => state.snapshot(),
     setTheme: () => {}, // 无窗口模式没有主题
     retryLogin: () => {
       state.retryRequested = true;
     },
+    gatewayControl: (action) => webGatewayControl(action),
     // 控制台的「登录」按钮经此回调触发真实登录流程（本函数在 app 层，
     // 控制台层不认识它 —— 见 scripts/verify-layering.mjs）
     triggerLogin: (cid, force) => {
@@ -641,6 +645,21 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const stopped = new Promise<void>((resolve) => {
     stopSignalled = resolve;
   });
+  // 网关操作（web 页面的按钮）：restart = 自断让监督者按退避重生（页面短时失联后自愈）；
+  // stop = 先经 IPC 请监督者**永久**退出，再走同一条优雅停机 —— 页面随之不可达。
+  webGatewayControl = (action) => {
+    if (action === "stop") {
+      appendSystem("stop_requested", { from: "web" });
+      try {
+        if (typeof process.send === "function") process.send({ type: "supervisor-stop" });
+      } catch {
+        /* 裸 mx serve 无 IPC：worker 退出即结束，不需要协议 */
+      }
+    } else {
+      appendSystem("restart_requested", { from: "web" });
+    }
+    stopSignalled();
+  };
   let stopReason: string | undefined;
   process.on("SIGINT", stopSignalled);
   process.on("SIGTERM", stopSignalled);

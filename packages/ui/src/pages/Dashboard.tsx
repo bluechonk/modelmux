@@ -11,13 +11,12 @@
  * 模型区在 `components/ModelExplorer.tsx`：渠道分组表 / 扁平表两种视图。
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, RotateCw } from "lucide-react";
-import { useState } from "react";
-import { ModelExplorer } from "../components/ModelExplorer";
+import { Check, Copy, Pause, Play, RotateCw } from "lucide-react";
+import { useState, type ReactElement } from "react";
 import { useToast } from "../components/Toast";
-import { type ReactElement } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api } from "../lib/api";
 
 /**
@@ -27,21 +26,13 @@ import { api } from "../lib/api";
  * （`billing=false` = 订阅制，没有积分/倍率字段）。前端据此把这些渠道的模型
  * 按「免费」显示 —— 再接一个订阅制渠道，前端不用改。
  */
-function freePlanCidsOf(caps: Record<string, { billing: boolean }> | undefined): ReadonlySet<string> {
-  const out = new Set<string>();
-  for (const [cid, cap] of Object.entries(caps ?? {})) {
-    if (cap?.billing === false) out.add(cid);
-  }
-  return out;
-}
 
-/** 仪表盘页：接入端点 + 统计 + 模型区。
+/** 仪表盘页：接入端点 + 网关控制 + 统计；模型列表已拆到 /models（见 Models.tsx）。
  *
- * ## 刷新按钮与轮询的关系
- *
- * 查询带 `refetchInterval: 3000`，数据每 3 秒自己更新，轮询仍是主通道；
- * 右上角的「刷新」用于**立即**拉一次（如刚在别处加完账号、不想等下一拍），
- * 两者不冲突 —— 按钮只是把下一次轮询提前到当下。
+ * 网关控制面板放「播放 / 暂停 / 重启」：重启 = worker 自断、监督者重生，
+ * 页面短暂断开后自动恢复；暂停 = 网关进程整体退出，本页随之不可达，
+ * 恢复只能在本机终端 `mx start` —— 这是架构使然，不是限制没做
+ * （Web 控制台本身就是网关进程托管的一部分）。
  */
 export function Dashboard(): ReactElement {
   const { data: state, isLoading, error, refetch, isRefetching } = useQuery({
@@ -50,6 +41,19 @@ export function Dashboard(): ReactElement {
     refetchInterval: 3000,
   });
   const toast = useToast();
+  /** 网关控制：正在执行的操作（按钮禁用 + 旋转），null = 空闲。 */
+  const [busyAction, setBusyAction] = useState<"restart" | "stop" | null>(null);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const control = (action: "restart" | "stop"): void => {
+    setBusyAction(action);
+    void api
+      .gatewayControl(action)
+      .then(() => {
+        if (action === "restart") toast.success("正在重启网关，页面将短暂断开后自动恢复…");
+      })
+      .catch((err: unknown) => toast.error(String(err)))
+      .finally(() => setBusyAction(null));
+  };
 
   // 提示统一走 toast：查询失败与网关错误都弹错误提示，
   // 页面本体不再渲染自绘的常驻错误横幅。两者都是轮询驱动的持续状态 ——
@@ -76,16 +80,6 @@ export function Dashboard(): ReactElement {
     }
   }, [error, state?.gateway_error, toast]);
 
-  // 渠道数：池 id 的前缀去重（模型区自己的分组在 ModelExplorer 里）
-  const groups = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const full of state?.models ?? []) {
-      const cid = full.slice(0, Math.max(0, full.indexOf("/")));
-      map.set(cid, (map.get(cid) ?? 0) + 1);
-    }
-    return map;
-  }, [state]);
-
   if (isLoading) return <Skeleton />;
   if (error) {
     return (
@@ -97,7 +91,10 @@ export function Dashboard(): ReactElement {
   }
   if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
-  const channelCount = groups.size;
+  // 渠道数：池 id 的前缀去重（细节视图在 /models 的 ModelExplorer 里）
+  const channelCount = new Set(
+    state.models.map((full) => full.slice(0, Math.max(0, full.indexOf("/")))),
+  ).size;
   const running = state.ui_state === "running";
   const totalModels = state.models.length;
 
@@ -168,12 +165,66 @@ export function Dashboard(): ReactElement {
         </button>
       </div>
 
-      {/* 模型区：渠道分组表 / 扁平表（见 ModelExplorer 的布局说明） */}
-      <ModelExplorer
-        models={state.models}
-        infoOf={(poolId) => state.model_info?.[poolId]}
-        freePlanCids={freePlanCidsOf(state.channel_caps)}
-      />
+      {/* 网关控制：常驻状态 + 播放/暂停/重启（原侧栏底部的「网关」行迁到这里） */}
+      <section className="panel space-y-3 p-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="pill bg-overlay text-ink">网关</span>
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${running ? "bg-free" : "bg-warn"}`} />
+          <span className="text-xs text-ink-soft">{running ? "运行中" : state.ui_state}</span>
+          <span className="break-all font-mono text-[11px] text-ink-faint">{state.base_url}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            className="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-faint"
+          >
+            <Play className="h-3.5 w-3.5" />
+            播放
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null}
+            onClick={() => setConfirmStop(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+          >
+            <Pause className="h-3.5 w-3.5" />
+            暂停
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null}
+            onClick={() => control("restart")}
+            className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+          >
+            <RotateCw className={`h-3.5 w-3.5 ${busyAction === "restart" ? "animate-spin" : ""}`} />
+            重启
+          </button>
+          {busyAction !== null && <span className="text-[11px] text-ink-faint">处理中…</span>}
+        </div>
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          启动与停止的对称性不在 web 侧：网关停止后本页面随即不可访问，
+          「播放」也就无处可点 —— 恢复需要在本机终端执行{" "}
+          <code className="font-mono text-ink-faint">mx start</code>。
+          重启会短暂断开页面，1 秒左右由监督进程拉起后自动恢复。
+        </p>
+      </section>
+
+      {confirmStop && (
+        <ConfirmDialog
+          title="暂停网关？"
+          body="暂停后网关进程将退出，本页面会立即不可访问；恢复需要在本机终端执行 mx start。确定要暂停吗？"
+          confirmLabel="暂停"
+          busy={busyAction === "stop"}
+          returnFocusTo={null}
+          onConfirm={() => {
+            setConfirmStop(false);
+            control("stop");
+          }}
+          onCancel={() => setConfirmStop(false)}
+        />
+      )}
     </div>
   );
 }
