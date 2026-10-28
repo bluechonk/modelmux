@@ -40,7 +40,12 @@ export const CHANNEL_VERBS: readonly ChannelVerb[] = [
   { name: "relogin", usage: "relogin <cid>", summary: "清凭据后重新授权", group: "渠道" },
   { name: "logout", usage: "logout <cid>", summary: "登出（销毁本地凭据 + 清空账号池）", group: "渠道" },
   { name: "model", usage: "model <cid> [--refresh]", summary: "某渠道的模型目录", group: "模型" },
-  { name: "bill", usage: "bill [<cid>]", summary: "额度 / 账单（只读）", group: "渠道" },
+  {
+    name: "bill",
+    usage: "bill [<cid>] [--accounts]",
+    summary: "额度 / 账单（只读；--accounts 逐账号）",
+    group: "渠道",
+  },
   {
     name: "acct",
     usage: "acct <cid> list|use|add|remove",
@@ -79,7 +84,11 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
         ...(cid !== undefined ? { cid } : {}),
       });
     case "bill":
-      return daemon.credits({ json: ctx.json, ...(cid !== undefined ? { cid } : {}) });
+      return daemon.credits({
+        json: ctx.json,
+        accounts: ctx.accounts,
+        ...(cid !== undefined ? { cid } : {}),
+      });
     case "path":
       return report.runPaths({
         json: ctx.json,
