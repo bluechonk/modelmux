@@ -151,7 +151,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | 保留天数 | 14 | `MODELMUX_LOG_RETENTION_DAYS` | 每个进程每天首次写入时清理（`pruneOnce`） |
 | 慢请求阈值 | 30000ms | `MODELMUX_SLOW_MS` | 落盘时判定是否写 `slow.log` |
 | 上游空闲超时 | 120000ms | `MODELMUX_READ_TIMEOUT_MS` | 转发层读上游时 |
-| 抓取单条正文上限 | 256KB | `MODELMUX_LOG_PAYLOAD_MAX_BYTES` | 抓取落盘时（§9） |
+| 抓取单条正文上限 | 10MB | `MODELMUX_LOG_PAYLOAD_MAX_BYTES` | 抓取落盘时（§9）；超限双端保留（头尾各半） |
 | 抓取保留天数 | 3 | `MODELMUX_LOG_PAYLOAD_DAYS` | `pruneOnce` **先**按它清 `payload/`，再走 14 天（§9） |
 
 环境变量取值规则：非数字、`<= 0` 或未设置时**回落到默认值**。
@@ -190,7 +190,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | 项 | 值 |
 | --- | --- |
 | 渠道白名单 | `MODELMUX_LOG_PAYLOAD_CIDS`（逗号分隔；未设置 = 全部渠道） |
-| 单条上限 | 256KB（`MODELMUX_LOG_PAYLOAD_MAX_BYTES`，超出截断并置 `truncated`） |
+| 单条上限 | 10MB（`MODELMUX_LOG_PAYLOAD_MAX_BYTES`）；超限**双端保留**（头尾各半，中间省略）并置 `truncated` |
 | 保留天数 | 3（`MODELMUX_LOG_PAYLOAD_DAYS`，**独立**于 §6 的 14 天） |
 | 落点 | `payload/<date>/payload.log`（结构化行；轮转与命名规则同 §6） |
 | 权限 | 目录 `0700` / 文件 `0600`（含用户 prompt，比普通日志严一档；Windows 上 chmod 作用有限） |
@@ -209,7 +209,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | `cid` / `model` / `stream` | 上下文；`phase=client` 时 `cid` 可能缺席（那一刻路由还没解析出渠道） |
 | `bytes` | **原始**长度（截断前） |
 | `truncated` | 是否被单条上限截断 |
-| `body` | **原样文本**（UTF-8）；超上限时截断，可能切在字符中间 |
+| `body` | **原样文本**（UTF-8）；超上限时双端保留，可能切在字符中间 |
 
 两条硬约束（实现见 `runtime/log-store.ts`）：
 

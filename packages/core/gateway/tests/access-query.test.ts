@@ -331,14 +331,15 @@ describe("请求正文抓取（恒开启，读回不受门控）", () => {
     assert.equal(result[0]?.bytes, 12);
   });
 
-  it("超出单条上限时截断并打标，bytes 仍是原始长度", () => {
+  it("超出单条上限时**双端**保留并打标，bytes 仍是原始长度", () => {
     process.env["MODELMUX_LOG_PAYLOAD_MAX_BYTES"] = "16";
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from("0123456789abcdefghij", "utf8"));
     const rec = readPayloads(id)[0];
     assert.equal(rec?.truncated, true);
     assert.equal(rec?.bytes, 20, "bytes 记录原始长度，不是截断后的长度");
-    assert.equal(rec?.body.length, 16);
+    assert.ok(rec?.body.startsWith("01234567"), "保留头段（model / system 开头）");
+    assert.ok(rec?.body.endsWith("cdefghij"), "保留尾段（最新的对话消息）");
   });
 
   it("渠道白名单：未列入的渠道不落盘", () => {
