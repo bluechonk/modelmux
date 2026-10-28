@@ -324,10 +324,9 @@ export function Accounts(): ReactElement {
             整页看起来「布局坏了」。改为自然高度后，每张卡都是紧凑的，代价是行尾参差
             —— 对「账号数本来就不齐」的列表，这个代价明显更小。
 
-            最多两列：三列时单卡仅 ~380px，中文账号名与额度条会互相挤压
-            （实测「塞西莉亚4412」被截断）。
+            自适应列数：卡片最小宽 340px，空间够就自然多列，不写死断点
           */}
-          <div className="grid items-start gap-3 lg:grid-cols-2">
+          <div className="grid items-start gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
             {list.map(({ pool, billing: bill }) => (
               <AccountCard
                 key={pool.cid}
