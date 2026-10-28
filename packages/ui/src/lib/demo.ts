@@ -146,8 +146,6 @@ export interface DemoState {
    * 这条状态机，否则弹窗会永远停在「正在准备登录会话…」（实测踩过）。
    */
   login: { cid: string; snapshot: UiSnapshot } | null;
-  /** 请求正文抓取开关（与真实偏好的默认值一致：开）。 */
-  payloadCapture: boolean;
 }
 
 /** 演示登录流程形态：两步输入（手机号 → 验证码）与授权码（打开授权页）。 */
@@ -165,7 +163,7 @@ export function createDemoState(): DemoState {
     const first = list[0];
     if (first) active[ch.cid] = first.key;
   }
-  return { channels: DEMO_CHANNELS.map((c) => ({ ...c })), active, accounts, login: null, payloadCapture: true };
+  return { channels: DEMO_CHANNELS.map((c) => ({ ...c })), active, accounts, login: null };
 }
 
 /** 全部对外模型 id（`<cid>/<模型>`），只含已登录渠道。 */
@@ -685,17 +683,7 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     total: matched.length,
     stats,
     entries: matched.slice(offset, offset + limit),
-    payload_enabled: state.payloadCapture,
   };
-}
-
-/** 切换请求正文抓取（演示）：只改内存状态，与真实偏好的语义一致。 */
-export function demoSetPayloadCapture(
-  state: DemoState,
-  enabled: boolean,
-): { ok: boolean; enabled: boolean } {
-  state.payloadCapture = enabled;
-  return { ok: true, enabled };
 }
 
 /** 演示的请求上下文（虚构）：客户端原样体 + 两次尝试的上行体。 */
@@ -715,7 +703,6 @@ export function demoLogPayload(id: string): PayloadQueryResult {
     ok: true,
     id,
     date: null,
-    enabled: true,
     records: [
       {
         ts: new Date(now - 60_000).toISOString(),

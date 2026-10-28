@@ -29,7 +29,6 @@ import {
   demoModels,
   demoRemove,
   demoReset,
-  demoSetPayloadCapture,
   demoSettings,
   demoStatus,
   demoSubmitLoginInput,
@@ -115,15 +114,8 @@ export interface WebApi {
    * 分页由 `limit` / `offset` 驱动；返回里的 `total` 是命中筛选的总条数。
    */
   logs(query?: LogQuery): Promise<AccessLogPage>;
-  /** 某条请求的正文抓取记录（读回不受开关门控；`enabled` 是开关当前状态）。 */
+  /** 某条请求的正文抓取记录（正文抓取恒开启，此接口只读）。 */
   logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
-  /**
-   * 切换请求正文抓取（持久化到 `<root>/prefs.json`，不重启生效）。
-   *
-   * 开着时每次对话的请求体（含用户 prompt）都会落盘 `logs/payload/`，
-   * 关闭只停止新增，已落盘的记录在保留期内仍可读。
-   */
-  setPayloadCapture(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }>;
   /**
    * 网关生命周期（仪表盘的播放/暂停/重启）。
    *
@@ -320,10 +312,6 @@ export const api: WebApi = {
     IS_DEMO
       ? demoLater(demoLogPayload(id))
       : get(`/api/logs/payload${queryString({ id, date })}`),
-  setPayloadCapture: (enabled) =>
-    IS_DEMO
-      ? demoLater(demoSetPayloadCapture(demo(), enabled))
-      : post("/api/logs/payload-capture", { enabled }),
   gatewayControl: (action) =>
     IS_DEMO ? demoLater({ ok: true, action }) : post("/api/gateway", { action }),
   commands: {

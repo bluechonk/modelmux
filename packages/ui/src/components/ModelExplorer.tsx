@@ -19,7 +19,7 @@ import { CopyButton } from "./CopyChip";
 /**
  * 元数据取值的来源（与共享层 `MetaSource` 同形）。
  *
- * 只有 `cross` 会在界面上标出来（「推断」）—— 那是**兄弟渠道同 id** 的值，
+ * `cross` 是兄弟渠道同 id 的兜底值（不做界面标注），
  * 不是本渠道上游说的，不能让它看起来像事实。
  */
 export type MetaSource = "upstream" | "spec" | "cross" | "default";

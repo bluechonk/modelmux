@@ -8,7 +8,7 @@
 | 编号 | 规则 |
 | --- | --- |
 | G1 | 全部日志位于存储根的 `logs/` 下（存储根由 `MODELMUX_HOME` 覆盖，默认 `~/.modelmux`）。 |
-| G2 | 顶层按**用途**分五类：`access/`（请求元数据）、`error/`（错误）、`system/`（进程与自身输出）、`channels/`（渠道维度）、`payload/`（请求正文，默认开启、可关，见 §9）。前四类是**网关进程**的日志；外部守护 `scripts/mx-watchdog.mjs` 另有根级 `watchdog.log`（见 §2 文件清单）。 |
+| G2 | 顶层按**用途**分五类：`access/`（请求元数据）、`error/`（错误）、`system/`（进程与自身输出）、`channels/`（渠道维度）、`payload/`（请求正文，恒开启，见 §9）。前四类是**网关进程**的日志；外部守护 `scripts/mx-watchdog.mjs` 另有根级 `watchdog.log`（见 §2 文件清单）。 |
 | G3 | 按**本地时区**切分日期；`access/`、`error/`、`system/` 用 `YYYY-MM-DD/` 目录，`channels/` 用 `YYYY-MM-DD.log` 文件名。 |
 | G4 | 写入一律 **best-effort**：目录不可写、单文件写失败、轮转失败都只影响日志本身，不影响请求处理。 |
 | G5 | 每个文件独立大小上限（默认 10MB），超限轮转为 `<name>.1.log` … `<name>.3.log`，最多保留 3 份历史。 |
@@ -29,7 +29,7 @@
 | `system/<date>/gateway.log` | 网关与 worker 的自身输出 | 文本行 | `appendGateway()` | worker 的 stdout/stderr 转发（§5） |
 | `system/<date>/worker.log` | worker 进程的原始 stdout/stderr | 文本行 | 监督者按 fd 落盘 | worker 启动时打开 |
 | `channels/<cid>/<date>.log` | 渠道维度输出 | 文本行 | `appendChannel()` | §5 的路由规则 |
-| `payload/<date>/payload.log` | 请求正文抓取（客户端原样体 + 实际上行体）；**默认开启** | 结构化行 | `appendPayload()` | 开关开启时（默认，控制台可关），字段与约束见 §9 |
+| `payload/<date>/payload.log` | 请求正文抓取（客户端原样体 + 实际上行体）；**恒开启** | 结构化行 | `appendPayload()` | 恒定开启（正文抓取为内置能力，不可关闭），字段与约束见 §9 |
 | `watchdog.log` | 外部守护 `scripts/mx-watchdog.mjs` 的输出（开机拉起 + 挂了拉回） | 文本行 | 守护脚本自身 | 守护运行期（前台 / 开机脚本，按日不切分） |
 
 `channels/` 的 `<cid>` 必须匹配 `^[a-z0-9][a-z0-9.-]*$`，否则该行被丢弃（防止路径穿越）。
@@ -179,26 +179,24 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | **上游响应体片段会落盘**：上游非 2xx 时，网关取响应体前 2048 字符放入 Error 文本，经 `logger()` 写入 `system/<date>/gateway.log`；该行命中 §5 关键词规则时，同一文本另写入 `error/<date>/error.log` | 实现事实（`chat/upstream.ts` 的上游错误分支 + `chat/attempt.ts` 的错误日志 + `headless.ts` 的 `logLine` 路由） |
 | **上游响应体不脱敏**：若上游在错误响应里回显了凭据，该片段会被原样记录（受上述两级截断约束） | 调用方与渠道实现的约束：不得让上游错误体包含凭据 |
 | 渠道维度日志的 `<cid>` 必须匹配 `^[a-z0-9][a-z0-9.-]*$`，否则该行被丢弃 | 实现事实（`appendChannel`） |
-| **正文抓取默认开启（主人的决定）**：请求体（含 prompt）写入 `payload/<date>/payload.log`；开关持久化在 `<root>/prefs.json`、控制台可切，独立 3 天保留、文件 `0600`、只落 body 不落请求头 | 实现事实，字段与取舍见 §9 |
+| **正文抓取恒开启（主人的决定）**：请求体（含 prompt）始终写入 `payload/<date>/payload.log`，无开关、无持久化偏好；独立 3 天保留、文件 `0600`、只落 body 不落请求头 | 实现事实，字段与取舍见 §9 |
 | 日志只写在本机存储根下，不进入 git（`~/.modelmux` 不在仓库内） | 目录约定 |
 
-## 9. 请求正文抓取（默认开启，控制台可关）
+## 9. 请求正文抓取（恒开启）
 
 §3 的访问日志只记**元数据**（模型、耗时、tokens 等）。要看「这次请求到底构造了什么」需要正文抓取，
-它**默认开启**（抓取是排查的主要手段，这是主人的明确决定），开关是**持久化偏好**：
+它**恒开启**（留底优先，这是主人的明确决定），不提供关闭入口，也不做偏好持久化：
 
 | 项 | 值 |
 | --- | --- |
-| 开关 | 根级偏好 `<root>/prefs.json` 的 `payload_capture`（**默认 `true`**）；Web 控制台「日志」页右上角可切，写盘后重启保持、不重启生效 |
 | 渠道白名单 | `MODELMUX_LOG_PAYLOAD_CIDS`（逗号分隔；未设置 = 全部渠道） |
 | 单条上限 | 256KB（`MODELMUX_LOG_PAYLOAD_MAX_BYTES`，超出截断并置 `truncated`） |
 | 保留天数 | 3（`MODELMUX_LOG_PAYLOAD_DAYS`，**独立**于 §6 的 14 天） |
 | 落点 | `payload/<date>/payload.log`（结构化行；轮转与命名规则同 §6） |
 | 权限 | 目录 `0700` / 文件 `0600`（含用户 prompt，比普通日志严一档；Windows 上 chmod 作用有限） |
 
-偏好由 `runtime/root-prefs.ts` 读写（损坏回落默认值），控制台经
-`POST /web/api/logs/payload-capture` 切换。**关掉只停止新增**：已落盘的记录在保留期内仍可读回
-（读回不受开关门控 —— 否则没法核对刚抓到的东西）。
+抓取**恒开启**且不提供关闭开关（主人的决定：正文留底优先，避免误关导致不可追溯）。
+`logs/payload/` 由保留期自动清理（默认 3 天）。
 
 行字段：
 
