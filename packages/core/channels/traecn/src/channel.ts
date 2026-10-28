@@ -18,7 +18,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "traecn",
   display: "TRAE",
-  version: "0.1.1",
+  version: "0.1.2",
   defaultAddr: "127.0.0.1:8805",
   uiPort: 8806,
   debugDumpEnv: "TRAECN_DEBUG_DUMP",
