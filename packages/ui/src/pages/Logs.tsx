@@ -230,8 +230,8 @@ function LogTable({
 }): ReactElement {
   const headClass = "px-3 py-2 font-normal";
   return (
-    <div className="panel">
-      <div className="overflow-x-auto">
+    <div className="panel flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
           <colgroup>
             <col style={{ width: COL_WIDTHS.toggle }} />
@@ -368,7 +368,7 @@ function Pager({
   const navCls = (disabled: boolean): string =>
     `grid h-7 w-7 place-items-center rounded-lg border border-line text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40`;
   return (
-    <div className="sticky bottom-0 z-10 border-t border-line/70 bg-canvas/95 px-3 py-2 backdrop-blur">
+    <div className="shrink-0 border-t border-line/70 bg-canvas/95 px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <span className="text-[11px] text-ink-faint">共 {formatCount(total)} 条</span>
         <label className="flex items-center gap-1.5 text-[11px] text-ink-faint">
@@ -622,7 +622,7 @@ export function Logs(): ReactElement {
   const expandedEntry = page?.entries.find((entry) => entry.id === expanded) ?? null;
 
   return (
-    <div className="space-y-5">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <PageHeader
         title="日志"
         description="网关每次请求的时间、渠道与模型、耗时、tokens 与结果"

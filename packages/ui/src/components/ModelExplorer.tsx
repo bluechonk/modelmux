@@ -66,12 +66,6 @@ function compactNumber(value: number): string {
   return String(value);
 }
 
-/** 推断标记：跨渠道兜底来的值必须看得见「这是推断」，否则会被当成上游声明。 */
-function InferredMark({ show }: { show: boolean }): ReactElement | null {
-  if (!show) return null;
-  return <span className="ml-1 text-[10px] text-ink-faint">推断</span>;
-}
-
 /** 一行模型（池 id 拆成渠道段与模型段）。 */
 interface ModelRow {
   cid: string;
@@ -160,22 +154,6 @@ export function ModelExplorer({
   const total = rows.length;
   const channelIds = useMemo(() => [...new Set(rows.map((r) => r.cid))].sort(), [rows]);
 
-  /**
-   * 是否存在跨渠道推断值 —— 有就给一句直接可见的说明。
-   *
-   * ⚠ 铁律：控制台不许用 hover 气泡，信息要么写进正文、要么点开看（见 docs/WEB-CONSOLE.md）。
-   */
-  const anyInferred = useMemo(
-    () =>
-      rows.some(
-        (row) =>
-          row.meta?.sources?.contextWindow === "cross" ||
-          row.meta?.sources?.maxOutputTokens === "cross" ||
-          row.meta?.sources?.effort === "cross",
-      ),
-    [rows],
-  );
-
   const toggle = (cid: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -192,12 +170,6 @@ export function ModelExplorer({
           可用模型
           <span className="ml-2 text-xs font-normal text-ink-faint">渠道/模型</span>
         </h2>
-        {anyInferred && (
-          <span className="text-xs font-normal text-ink-faint">
-            标「推断」的值取自同 id 的其他渠道
-          </span>
-        )}
-
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
@@ -504,7 +476,6 @@ function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
   return (
     <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-ink-soft md:table-cell">
       {levels.join(" / ")}
-      <InferredMark show={row.meta?.sources?.effort === "cross"} />
     </td>
   );
 }
@@ -521,15 +492,12 @@ function ModelNameCell({ row }: { row: ModelRow }): ReactElement {
 /** 窗口/上限单元格（跨渠道推断来的值带「推断」标记）。 */
 function SizeCell({
   value,
-  inferred,
 }: {
   value: number | undefined;
-  inferred: boolean;
 }): ReactElement {
   return (
     <td className="hidden whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft md:table-cell">
       {value ? compactNumber(value) : "—"}
-      <InferredMark show={inferred} />
     </td>
   );
 }
@@ -669,11 +637,9 @@ function GroupedTable({
                         <MultiplierCell row={row} freePlanCids={freePlanCids} />
                         <SizeCell
                           value={row.meta?.contextWindow}
-                          inferred={row.meta?.sources?.contextWindow === "cross"}
                         />
                         <SizeCell
                           value={row.meta?.maxOutputTokens}
-                          inferred={row.meta?.sources?.maxOutputTokens === "cross"}
                         />
                         <ThinkingCell row={row} />
                         <ModalityCell row={row} />
@@ -732,11 +698,9 @@ function FlatTable({
               <MultiplierCell row={row} freePlanCids={freePlanCids} />
               <SizeCell
                 value={row.meta?.contextWindow}
-                inferred={row.meta?.sources?.contextWindow === "cross"}
               />
               <SizeCell
                 value={row.meta?.maxOutputTokens}
-                inferred={row.meta?.sources?.maxOutputTokens === "cross"}
               />
               <ThinkingCell row={row} />
               <ModalityCell row={row} />
