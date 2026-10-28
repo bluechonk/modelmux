@@ -83,7 +83,10 @@
 账本（`pool-usage.json`）按渠道记录账单已用量与 ok / fail 计数；渠道由 `<cid>/` 前缀显式指定，
 账本用于：
 
-- `mx model list` / `mx model usage` / Web 控制台展示渠道健康度（已用量、冷却、连败）。
+- `mx model list` / `mx model usage` / Web 控制台展示渠道健康度（已用量、冷却、连败）；
+- **账号池的展示排序**（`mx acct` 与 Web 账号池页）：`ok + fail` 就是该渠道的**使用频率**，
+  频率降序、同频按 cid 字典序；两者都是 0（该渠道一次没被调用过）时是纯字母序。
+  实现见 `pool/pool-usage.ts::sortChannelsByUsage` —— 只影响展示，**路由仍由 `<cid>/` 前缀决定**。
 
 上游账单**没有「请求次数」**这种字段，只有额度（积分 / credits / 美元，各家单位不同）——
 账本数字只作健康度参考，不作路由依据。

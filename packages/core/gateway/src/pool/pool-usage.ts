@@ -535,6 +535,36 @@ export async function queryAccountCredits(cid: string): Promise<AccountCreditsRo
   return rows;
 }
 
+/**
+ * 渠道的**使用频率**：本地累计的转发次数（成功 + 失败）。
+ *
+ * 为什么把 fail 也算进去：失败的请求同样是「用过这个渠道」——只算成功会让一个
+ * 正在被反复尝试的渠道沉到列表底部，而它恰恰是用户当下最关心的那个。
+ * 计数由 `noteSuccess` / `noteFailure` 在请求路径上累加并落盘，重启不丢；读取是 O(1)。
+ */
+export function usageOf(cid: string): number {
+  const entry = load().channels[cid];
+  if (!entry) return 0;
+  return entry.ok + entry.fail;
+}
+
+/**
+ * 账号池的**展示排序**：使用频率降序，同频（含都没用过）按 cid 字典序。
+ *
+ * 为什么排序放在共享层：`mx acct` 与 Web 账号池页共用同一条规则，各写一份必然漂移。
+ * 为什么用码点序而不是 `localeCompare`：cid 是 ASCII 小写，码点序确定且不随运行环境的
+ * ICU / locale 变（`localeCompare` 会让 CI 与本机可能排出不同结果）。
+ *
+ * ⚠ 只影响展示 —— 路由仍由池 id 的 `<cid>/` 前缀决定（见 docs/POOL-ARCHITECTURE.md §2.2）。
+ */
+export function sortChannelsByUsage<T extends { cid: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const diff = usageOf(b.cid) - usageOf(a.cid);
+    if (diff !== 0) return diff;
+    return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
+  });
+}
+
 /** 只读快照（CLI / 诊断用）。 */
 export function ledgerSnapshot(): PoolLedger {
   return load();
