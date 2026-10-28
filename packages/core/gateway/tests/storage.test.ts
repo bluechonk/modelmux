@@ -63,8 +63,8 @@ describe("1. 分层：单根 + <cid>", () => {
     withRoot((root) => {
       useChannel("alpha");
       assert.equal(paths.rootDir(), root);
-      assert.equal(paths.channelDir(), join(root, "alpha"));
-      assert.equal(paths.channelDirFor(useChannel("beta")), join(root, "beta"));
+      assert.equal(paths.channelDir(), join(root, "channels", "alpha"));
+      assert.equal(paths.channelDirFor(useChannel("beta")), join(root, "channels", "beta"));
     });
   });
 
@@ -72,9 +72,9 @@ describe("1. 分层：单根 + <cid>", () => {
     withRoot((root) => {
       useChannel("alpha");
       assert.throws(() => paths.channelFile("Credential_Bad.json"), /invalid file name/);
-      assert.equal(paths.credentialsPath(), join(root, "alpha", "credentials.json"));
-      assert.equal(paths.pidPath(), join(root, "alpha", "gateway.pid"));
-      assert.equal(paths.cacheDir(), join(root, "alpha", "cache"));
+      assert.equal(paths.credentialsPath(), join(root, "channels", "alpha", "credentials.json"));
+      assert.equal(paths.pidPath(), join(root, "channels", "alpha", "gateway.pid"));
+      assert.equal(paths.cacheDir(), join(root, "channels", "alpha", "cache"));
     });
   });
 });

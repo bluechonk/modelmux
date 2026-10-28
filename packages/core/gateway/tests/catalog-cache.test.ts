@@ -52,7 +52,7 @@ describe("目录磁盘缓存", () => {
   it("落在渠道层内的 cache/models.json（不是根、也不是别的地方）", () => {
     withRoot((root) => {
       useChannel("alpha");
-      assert.equal(catalogCachePath(), join(root, "alpha", "cache", "models.json"));
+      assert.equal(catalogCachePath(), join(root, "channels", "alpha", "cache", "models.json"));
     });
   });
 
@@ -120,7 +120,7 @@ describe("目录磁盘缓存", () => {
       writeCatalogCache([{ id: "a" }]);
       useChannel("beta");
       assert.equal(readCatalogCache(), null, "beta 不该看到 alpha 的缓存");
-      assert.ok(existsSync(join(root, "alpha", "cache", "models.json")));
+      assert.ok(existsSync(join(root, "channels", "alpha", "cache", "models.json")));
     });
   });
 

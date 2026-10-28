@@ -515,8 +515,8 @@ describe("3. <动词> [<cid>] 路由", () => {
 
   it("login list：列出可登录的渠道与登录状态（只读，--json 给脚本）", async () => {
     // 清干净两个渠道的存储，保证起点是「都没登录」
-    rmSync(join(root, "alpha"), { recursive: true, force: true });
-    rmSync(join(root, "beta"), { recursive: true, force: true });
+    rmSync(join(root, "channels", "alpha"), { recursive: true, force: true });
+    rmSync(join(root, "channels", "beta"), { recursive: true, force: true });
 
     const before = await run(["login", "list"]);
     assert.equal(before.code, 0);
@@ -576,8 +576,8 @@ describe("4. 账号池与落点（也走 CLI）", () => {
     // 用它断言就永远看不出问题。
     // ⚠ 还要先清掉磁盘上的渠道层：套件里更早的用例（如 `accounts alpha`）会留下
     // `accounts.json`，不清的话断言读到的是**上一个用例的残留**，永远为真。
-    rmSync(join(root, "alpha"), { recursive: true, force: true });
-    rmSync(join(root, "beta"), { recursive: true, force: true });
+    rmSync(join(root, "channels", "alpha"), { recursive: true, force: true });
+    rmSync(join(root, "channels", "beta"), { recursive: true, force: true });
     clearChannels();
     setChannel(makeChannel("alpha", { signin: true }));
     setChannel(makeChannel("beta", { signin: false }));
@@ -585,7 +585,7 @@ describe("4. 账号池与落点（也走 CLI）", () => {
       const login = await run(["login", "alpha"]);
       assert.equal(login.code, 0);
 
-      const indexFile = join(root, "alpha", "accounts.json");
+      const indexFile = join(root, "channels", "alpha", "accounts.json");
       assert.ok(existsSync(indexFile), "登录后应写出账号池索引");
       const index = JSON.parse(readFileSync(indexFile, "utf8")) as {
         accounts: Array<{ key: string }>;
@@ -650,7 +650,7 @@ describe("4. 账号池与落点（也走 CLI）", () => {
     setChannel(makeChannel("alpha", { signin: false }));
     try {
       // 铺两个账号：先写凭据让池子收进生效账号，再手工补一个（key 必须是合法文件名）
-      mkdirSync(join(root, "alpha"), { recursive: true });
+      mkdirSync(join(root, "channels", "alpha"), { recursive: true });
       writeFileSync(
         credentialsPath("alpha"),
         JSON.stringify({ accessToken: "tok-a", uid: "ua", domain: "d" }),
@@ -658,12 +658,12 @@ describe("4. 账号池与落点（也走 CLI）", () => {
       );
       const first = captureActive("alpha")!;
       const secondKey = "bbbbbbbbbbbbbbbb";
-      const indexFile = join(root, "alpha", "accounts.json");
+      const indexFile = join(root, "channels", "alpha", "accounts.json");
       const index = JSON.parse(readFileSync(indexFile, "utf8")) as {
         accounts: Array<Record<string, unknown>>;
       };
       writeFileSync(
-        join(root, "alpha", "accounts", `${secondKey}.json`),
+        join(root, "channels", "alpha", "accounts", `${secondKey}.json`),
         JSON.stringify({ accessToken: "tok-b", uid: "ub", domain: "d" }),
         "utf8",
       );
@@ -707,7 +707,7 @@ describe("4. 账号池与落点（也走 CLI）", () => {
     clearChannels();
     setChannel(makeChannel("alpha", { signin: false }));
     try {
-      mkdirSync(join(root, "alpha"), { recursive: true });
+      mkdirSync(join(root, "channels", "alpha"), { recursive: true });
       writeFileSync(
         credentialsPath("alpha"),
         JSON.stringify({ accessToken: "tok-a", uid: "ua", domain: "d" }),

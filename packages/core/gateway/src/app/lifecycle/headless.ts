@@ -19,6 +19,8 @@ import * as console_ from "../../http/console/console.js";
 import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
+import { rootDir } from "../../runtime/paths.js";
+import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { poolModelMetas } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
@@ -565,6 +567,13 @@ export async function runServe(options: ServeOptions): Promise<number> {
     realm = "auto",
     cid,
   } = options;
+  // 旧布局迁移（幂等）：0.1.0/0.1.1 的 `<root>/<cid>/` 搬进 `channels/<cid>/` 并留软链，
+  // 旧版本可执行文件经软链继续可用。发生迁移才提示，否则静默。
+  const migration = migrateLegacyChannelDirs(rootDir());
+  if (migration.moved.length > 0) {
+    console.error(`[modelmux] 已把 ${migration.moved.length} 个渠道目录迁入 channels/（旧位置留软链兼容旧版本）`);
+  }
+
   const targets: Channel[] = cid !== undefined ? [getChannel(cid)] : channels();
   const multi = targets.length > 1;
   const prefix = `[${gateway.serviceName(cid)}]`;

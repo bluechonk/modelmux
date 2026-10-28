@@ -58,7 +58,7 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 | `gateway.pid` | **监督者** pid（纯数字单行，格式不变） | `mx start`（一次） |
 | `gateway-worker.pid` | 当前 worker pid | 监督者（spawn/重生时更新） |
 
-- 渠道级在 `<root>/<cid>/`，仓库级在 `<root>/`（与日志同层，见 STORAGE-CONVENTION）。
+- 渠道级在 `<root>/channels/<cid>/`，仓库级在 `<root>/`（与日志同层，见 STORAGE-CONVENTION）。
 - 陈旧构建判定读哪一份 pid 文件、如何避免误报，见 [CONTRACT-TS.md](./CONTRACT-TS.md) §8.1。
 
 ## 6. 实现落点

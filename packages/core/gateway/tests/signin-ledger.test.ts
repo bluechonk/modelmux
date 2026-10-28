@@ -66,7 +66,7 @@ describe("1. 落点与形状", () => {
 
     const at = new Date("2026-10-08T03:00:00.000Z");
     const record = recordClaim(CID, { now: at, via: "cli" });
-    const file = join(root, CID, "state", "signin.json");
+    const file = join(root, "channels", CID, "state", "signin.json");
     assert.ok(existsSync(file), "台账落在 state/ 子目录里");
     assert.equal(ledgerExists(CID), true);
 
@@ -125,7 +125,7 @@ describe("3. 同日去重与历史上限", () => {
 
 describe("4. 损坏容忍", () => {
   it("台账损坏/形状不对 → 当空台账，不抛错", withRoot((root) => {
-    const file = join(root, CID, "state", "signin.json");
+    const file = join(root, "channels", CID, "state", "signin.json");
     for (const bad of ["{ not json", "[]", '"字符串"', '{"history":"不是数组"}', "null"]) {
       rmSync(file, { force: true });
       paths.ensureStateDir(CID);
@@ -136,7 +136,7 @@ describe("4. 损坏容忍", () => {
   }));
 
   it("history 里的坏条目被跳过，好条目留下", withRoot((root) => {
-    const file = join(root, CID, "state", "signin.json");
+    const file = join(root, "channels", CID, "state", "signin.json");
     paths.ensureStateDir(CID);
     writeFileSync(
       file,
@@ -176,7 +176,7 @@ describe("5. 按账号记录（签到按账号调度的门禁）", () => {
   }));
 
   it("旧格式（无 accounts 字段）可读：账号级查询返回 false，写入后旧历史不丢", withRoot((root) => {
-    const file = join(root, CID, "state", "signin.json");
+    const file = join(root, "channels", CID, "state", "signin.json");
     paths.ensureStateDir(CID);
     writeFileSync(
       file,
