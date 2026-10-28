@@ -19,6 +19,7 @@ import {
   activeAccountIsError,
   noteAccountFailure,
   noteAccountQuotaExhausted,
+  noteAccountSuccess,
   readIndex,
 } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
@@ -44,7 +45,12 @@ function registerChannel(): void {
 }
 
 /** 铺一个「已登录 + 池里只有一个生效账号」的现场。 */
-function seedPool(health: string, cooldownUntil: string | null): void {
+function seedPool(
+  health: string,
+  cooldownUntil: string | null,
+  tripUntil: string | null = null,
+  failStreak = 0,
+): void {
   const dir = paths.channelDir(CID);
   mkdirSync(join(dir, "accounts"), { recursive: true });
   writeFileSync(
@@ -68,9 +74,10 @@ function seedPool(health: string, cooldownUntil: string | null): void {
           expires_at: null,
           health,
           health_at: "2026-10-23T00:00:00.000Z",
-          fail_streak: 0,
+          fail_streak: failStreak,
           cooldown_until: cooldownUntil,
           cooldown_reason: cooldownUntil ? "上游返回额度耗尽" : undefined,
+          trip_until: tripUntil,
         },
       ],
     }),
@@ -129,10 +136,42 @@ describe("账号级冷却（额度耗尽 ≠ 故障）", () => {
     assert.match(info.reason, /额度耗尽/);
   });
 
-  it("真故障 → error 短路（连免费模型也不该打）", () => {
-    seedPool("error", null);
-    assert.equal(activeAccountIsError(CID), true);
+  it("熔断未到期 → 短路；到期 → 放行一次（half-open）", () => {
+    seedPool("error", null, new Date(Date.now() + 60_000).toISOString());
+    assert.equal(activeAccountIsError(CID), true, "未到试探时刻必须短路");
     assert.equal(activeAccountCooldown(CID), null, "error 不是冷却");
+
+    seedPool("error", null, new Date(Date.now() - 1_000).toISOString());
+    assert.equal(activeAccountIsError(CID), false, "到期后应放行一次做半开试探");
+
+    // 旧数据没有 trip_until：视作早已到期（升级后自动自检，不再永久卡死）
+    seedPool("error", null);
+    assert.equal(activeAccountIsError(CID), false);
+  });
+
+  it("连败 3 次 → 熔断并写入退避；半开再失败则翻倍", () => {
+    seedPool("ok", null);
+    for (let i = 0; i < 2; i++) noteAccountFailure(CID);
+    assert.equal(active()["health"], "ok", "未达阈值不熔断");
+    noteAccountFailure(CID);
+    const hit = active();
+    assert.equal(hit["health"], "error");
+    const first = Date.parse(String(hit["trip_until"]));
+    assert.ok(first > Date.now(), "首次熔断应写入未来的试探时刻");
+    assert.equal(hit["trip_backoff_ms"], 30_000, "首次退避 30s");
+
+    // 模拟半开试探再失败：退避翻倍
+    noteAccountFailure(CID);
+    assert.ok(Number(active()["trip_backoff_ms"]) >= 60_000, "退避应翻倍");
+  });
+
+  it("熔断后成功 → 恢复 ok 并清掉退避字段", () => {
+    seedPool("error", null, new Date(Date.now() + 60_000).toISOString(), 3);
+    noteAccountSuccess(CID);
+    const hit = active();
+    assert.equal(hit["fail_streak"], 0);
+    assert.equal(hit["trip_until"], null);
+    assert.equal(hit["trip_backoff_ms"], 0);
   });
 
   it("冷却到期 → 惰性恢复 ok 并清零连败", () => {

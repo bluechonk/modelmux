@@ -219,6 +219,44 @@ const STATUS_META: Record<AccountStatus, { text: string; pill: string; dot: stri
   broke: { text: "没钱", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
 };
 
+/** 剩余时长（粗粒度）：`45s` / `3m` / `2h`。 */
+function shortSpan(ms: number): string {
+  if (ms < 60_000) return `${Math.ceil(ms / 1_000)}s`;
+  if (ms < 3_600_000) return `${Math.ceil(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
+/**
+ * 状态 pill 文案：熔断 / 冷却带上「多久后自动试探 / 恢复」，冷却带原因摘要。
+ *
+ * 熔断（error + trip_until）到期后路由会自动放行一次半开试探 —— 用户不必干等，
+ * 也不必手动点「解除」；文案把这个自愈时间点说清楚。
+ */
+function statusPillText(
+  status: AccountStatus,
+  account: {
+    health: string;
+    trip_until?: string | null;
+    cooldown_until?: string | null;
+    cooldown_reason?: string;
+  },
+): string {
+  const meta = STATUS_META[status];
+  if (account.health === "error" && account.trip_until) {
+    const left = Date.parse(account.trip_until) - Date.now();
+    return left > 0 ? `熔断 · ${shortSpan(left)} 后试探` : "熔断 · 即将试探";
+  }
+  if (account.health === "cooldown" && account.cooldown_until) {
+    const left = Date.parse(account.cooldown_until) - Date.now();
+    // 原因摘要限 10 字：账号行是固定 44px 单行，长文本会把额度区挤走
+    const reason = account.cooldown_reason
+      ? ` · ${account.cooldown_reason.slice(0, 10)}${account.cooldown_reason.length > 10 ? "…" : ""}`
+      : "";
+    return `冷却${reason} · ${left > 0 ? `${shortSpan(left)} 后恢复` : "即将恢复"}`;
+  }
+  return meta.text;
+}
+
 /**
  * 账号卡片的布局铁律：
  *
@@ -380,7 +418,7 @@ export function AccountCard({
                 {/* 名称区：弹性，超长截断；pill 与解除按钮不压缩 */}
                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
                   <span className="truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
-                  <span className={`pill shrink-0 ${meta.pill}`}>{meta.text}</span>
+                  <span className={`pill shrink-0 ${meta.pill}`}>{statusPillText(status, account)}</span>
                   {failStreak > 0 && (health === "ok" || health === "unknown") && (
                     <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
                   )}

@@ -502,7 +502,8 @@ export async function attemptCandidate(
   if (outcome.kind === "not_authenticated") {
     logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
     noteFailure(cid, activeKeyOf(cid));
-    noteAccountFailure(cid);
+    // 凭据失效是**终态**：走 unauthorized 而非瞬时熔断 —— 自动重试永远不会成功。
+    markActiveHealth("unauthorized", cid);
     return {
       kind: "retry",
       error: { status: 503, code: "not_authenticated", message: `not logged in: ${outcome.error}` },
@@ -510,7 +511,7 @@ export async function attemptCandidate(
   }
   if (outcome.kind === "auth_exhausted") {
     noteFailure(cid, activeKeyOf(cid));
-    noteAccountFailure(cid);
+    markActiveHealth("unauthorized", cid);
     return { kind: "retry", error: { status: 502, code: "upstream_unauthenticated", message: outcome.error } };
   }
   // 冷却中：本地短路，**未打上游**。额度耗尽不是故障（`account-pool.ts` 的
@@ -597,10 +598,8 @@ export async function attemptCandidate(
     if (quotaOut && (usageLimit || !freeModel)) {
       const resetAt =
         (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(bodySnippet) : null) ?? null;
-      const untilMs = noteAccountQuotaExhausted(cid, {
-        until: resetAt,
-        reason: usageLimit ? "上游用量限额（所有模型都受限）" : "上游返回额度耗尽（等额度窗口刷新）",
-      });
+      const reason = usageLimit ? "上游用量限额（所有模型都受限）" : "上游返回额度耗尽（等额度窗口刷新）";
+      const untilMs = noteAccountQuotaExhausted(cid, { until: resetAt, reason });
       logThrottled(
         logger,
         `chat:quota:${cid}`,
@@ -611,7 +610,7 @@ export async function attemptCandidate(
         error: {
           status: 503,
           code: "quota_exhausted",
-          message: `account quota exhausted (${cid}); cooling down until ${new Date(untilMs).toISOString()}, or switch account`,
+          message: `account quota exhausted (${cid}): ${reason}; cooling down until ${new Date(untilMs).toISOString()}, or switch account`,
         },
       };
     }
