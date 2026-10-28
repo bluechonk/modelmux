@@ -3,10 +3,11 @@
  * docs/STORAGE-CONVENTION.md §1，固定文件名见 §3 第 4 条）。
  *
  * 根目录名与分层规则是共享常量，渠道**不得**自行决定（也不得自行拼绝对路径）——
- * 渠道只能给 `cid`。只认 `<root>/<cid>/` 这一种布局，不做旧目录/旧名字迁移。
+ * 渠道只能给 `cid`。现行布局是 `<root>/channels/<cid>/`；`<root>/<cid>/` 是
+ * 0.1.0/0.1.1 的旧布局，**读取时回落兼容**（迁移见 runtime/storage-migrate.ts）。
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -29,6 +30,9 @@ export const FILES = {
   workerPid: "gateway-worker.pid",
   log: "gateway.log",
 } as const;
+
+/** 渠道层的父目录名（唯一渠道层，见 docs/STORAGE-CONVENTION.md §1）。 */
+export const CHANNELS_DIR = "channels";
 
 /** 渠道层内的固定子目录。 */
 export const SUBDIRS = {
@@ -56,9 +60,22 @@ export function rootDirFor(_config: ChannelConfig): string {
   return resolveRoot();
 }
 
+/**
+ * 渠道层目录解析：新布局（`channels/<cid>`）优先；不存在则回落旧布局（`<cid>`，
+ * 0.1.0/0.1.1 的落点，迁移后是软链）；两者皆无（全新安装）→ 直接用新布局。
+ * **写跟随解析结果** —— 读到哪写到哪，避免新旧两处都有数据（分裂）。
+ */
+function resolveChannelDir(root: string, cid: string): string {
+  const fresh = join(root, CHANNELS_DIR, cid);
+  if (existsSync(fresh)) return fresh;
+  const legacy = join(root, cid);
+  if (existsSync(legacy)) return legacy;
+  return fresh;
+}
+
 /** 渠道层目录（纯函数，**不触发迁移**，供巡检/统计用）。 */
 export function channelDirFor(config: ChannelConfig): string {
-  return join(rootDirFor(config), config.cid);
+  return resolveChannelDir(rootDirFor(config), config.cid);
 }
 
 /** 取渠道配置：显式 `cid` > 渠道上下文（`runInChannel`）> 单渠道模式。 */
@@ -74,10 +91,10 @@ export function rootDir(cid?: string): string {
   return resolveRoot();
 }
 
-/** 渠道层目录 `<root>/<cid>/`（唯一布局，无迁移）。 */
+/** 渠道层目录 `<root>/channels/<cid>/`（回落兼容旧布局 `<root>/<cid>/`）。 */
 export function channelDir(cid?: string): string {
   const config = configOf(cid);
-  return join(resolveRoot(), config.cid);
+  return resolveChannelDir(resolveRoot(), config.cid);
 }
 
 /** 渠道层目录，缺失时创建（并设权限基线）。 */

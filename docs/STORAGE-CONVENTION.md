@@ -10,7 +10,7 @@
 
 ## 1. 布局（一句话）
 
-**工作区只有一个存储根 `~/.modelmux/`，各渠道按 `cid` 分一层子目录。**
+**工作区只有一个存储根 `~/.modelmux/`；全部渠道收在 `channels/` 一层，与根级基础设施分离。**
 
 ```
 ~/.modelmux/                 ← 唯一存储根（MODELMUX_HOME 可覆盖）
@@ -23,28 +23,44 @@
 │   ├── access/<date>/           ← 请求元数据（success / failure / other / slow）
 │   ├── error/<date>/            ← 错误上下文
 │   ├── system/<date>/           ← 生命周期与网关自身输出
-│   ├── channels/<cid>/          ← 渠道维度文本日志
+│   ├── channels/<cid>/          ← 渠道维度文本日志（日志自己的维度，与存储的渠道层无关）
 │   ├── payload/<date>/          ← 请求正文抓取（恒开启，见 LOGGING.md §9）
 │   └── watchdog.log             ← 外部守护日志
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
-├── workbuddyai/                 ← cid 层
-│   ├── credentials.json         当前生效账号（兼容镜像）
-│   ├── accounts.json            账号池索引（active + 元信息）
-│   ├── accounts/<key>.json      单账号凭证
-│   ├── upstream.json
-│   ├── prefs.json
-│   ├── gateway.pid
-│   ├── gateway-worker.pid
-│   ├── cache/                   ← 可安全删除（含 cache/models.json）
-│   ├── state/                   ← 跨重启保持（签到台账等）
-│   └── debug/                   ← 抓包落盘（opt-in）
-├── catpaw/
-├── traecn/
-└── …（其余渠道同构）
+└── channels/                    ← 唯一渠道层（0.1.2 起）
+    ├── workbuddyai/             ← cid 层
+    │   ├── credentials.json         当前生效账号（兼容镜像）
+    │   ├── accounts.json            账号池索引（active + 元信息）
+    │   ├── accounts/<key>.json      单账号凭证
+    │   ├── upstream.json
+    │   ├── prefs.json
+    │   ├── gateway.pid
+    │   ├── gateway-worker.pid
+    │   ├── cache/                   ← 可安全删除（含 cache/models.json）
+    │   ├── state/                   ← 跨重启保持（签到台账等）
+    │   └── debug/                   ← 抓包落盘（opt-in）
+    ├── catpaw/
+    ├── traecn/
+    └── …（其余渠道同构）
 ```
 
-分层名 = `cid`（全小写、仅 `[a-z0-9-]`），**不带点、不带任何前缀后缀** —— 它已经是
-存储根下的一层，冗余前缀与隐藏前缀都没有意义。
+分层名 = `cid`（全小写、仅 `[a-z0-9-]`），**不带点、不带任何前缀后缀** —— 它已经在
+渠道层下的一层，冗余前缀与隐藏前缀都没有意义。
+
+### 兼容层（0.1.0 / 0.1.1）
+
+`<root>/channels/<cid>/` 是 0.1.2 起的布局；0.1.0/0.1.1 把渠道放在 `<root>/<cid>/`。
+为兼容**旧版本可执行文件**，迁移不删除旧位置，而是留**相对软链**：
+
+```
+~/.modelmux/<cid>  →  channels/<cid>
+```
+
+- **新代码**：`paths.channelDir` 解析时 `channels/<cid>` 存在就用它，不存在才回落旧位置；
+  **写跟随解析结果** —— 数据只有一份，不会分裂。
+- **旧版本可执行文件**：经软链继续读写同一份数据。
+- 软链由迁移逻辑生成（`runtime/storage-migrate.ts`，幂等）：`mx start` / `mx restart` /
+  `mx serve` 启动时自动触发，也可手动执行 `node scripts/migrate-storage.mjs`。
 
 ## 2. 渠道约定
 
@@ -61,7 +77,9 @@
 ## 3. 规范（条文）
 
 1. **单一存储根**：`~/.modelmux/`，由共享层唯一解析，渠道不得自行拼绝对路径。
-2. **按 cid 分层**：`<root>/<cid>/`。`cid` 全小写、仅 `[a-z0-9-]`、等于 `ChannelConfig.cid`。
+2. **按 cid 分层**：`<root>/channels/<cid>/`（0.1.2 起）。`cid` 全小写、仅 `[a-z0-9-]`、
+   等于 `ChannelConfig.cid`。0.1.0/0.1.1 的 `<root>/<cid>/` 旧布局由 `paths.channelDir`
+   回落兼容，迁移后以软链指向新位置 —— **两处指向同一份数据，不存在分裂**。
 3. **根目录覆盖变量**：`MODELMUX_HOME`（唯一覆盖变量）。
 4. **目录内固定文件名**（定义处：`packages/core/gateway/src/runtime/paths.ts` 的 `FILES`；`accounts.json` / `accounts/<key>.json` 另见 `runtime/account-pool.ts`）：
 

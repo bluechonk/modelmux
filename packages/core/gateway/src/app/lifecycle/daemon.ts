@@ -29,6 +29,7 @@ import { claimedTodayPerLedger, ledgerExists } from "../../auth/signin-ledger.js
 import { runInChannel } from "../../runtime/channel-context.js";
 import * as gateway from "../../http/server.js";
 import * as paths from "../../runtime/paths.js";
+import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 import { baseUrlOf, displayBase } from "../../http/portfree.js";
 import { detectStaleBuild, staleBuildHint } from "./stale-build.js";
@@ -133,6 +134,13 @@ export async function start(options: StartOptions = {}): Promise<number> {
   const log = (m: string): void => {
     if (!quiet) console.log(`[${name}] ${m}`);
   };
+
+  // 旧布局迁移（幂等）：0.1.0/0.1.1 的 `<root>/<cid>/` 搬进 `channels/<cid>/` 并留软链，
+  // 旧版本可执行文件经软链继续可用。发生迁移才提示，否则静默。
+  const migration = migrateLegacyChannelDirs(paths.rootDir());
+  if (migration.moved.length > 0) {
+    log(`已把 ${migration.moved.length} 个渠道目录迁入 channels/（旧位置留软链兼容旧版本）`);
+  }
 
   if (auto && !autoStartEnabled(options.cid)) {
     log("auto_start 已关闭，跳过自动挂载");

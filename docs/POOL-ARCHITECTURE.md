@@ -322,7 +322,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 
 `/v1/models` 每条除了 id，还带 `context_window` / `max_output_tokens` / `effort`（字段结构对齐
 DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。取值来自
-**渠道 catalog 缓存**（`<root>/<cid>/cache/models.json`）里那条目录条目。
+**渠道 catalog 缓存**（`<root>/channels/<cid>/cache/models.json`）里那条目录条目。
 
 **字段名由渠道自定，汇聚层逐个尝试**（与倍率字段 `MULTIPLIER_KEYS` 同一惯例 ——
 字段名只是约定，不算渠道知识，共享层不硬编码任何渠道特性）：
@@ -554,7 +554,7 @@ interface CredModule {
 ### 3.4 实际结构
 
 ```
-<root>/<cid>/
+<root>/channels/<cid>/
 ├── credentials.json          当前生效账号（渠道的 cred.load() / save() 语义不变）
 ├── accounts.json             索引：账号列表 + 当前选中 + 元信息
 └── accounts/<key>.json       单账号凭证（与 credentials.json 同构）
@@ -642,7 +642,7 @@ interface CredModule {
 1. **按账号键分桶落盘**：不能全局共用一份集合 —— 池里 A 账号有、B 账号没有时
    共用会互相污染（该带判定的少带报 404，多带报 unsupported）。
    账号键用渠道给的稳定标识（如 `cred.uid`），落点在**渠道层内**
-   （`<root>/<cid>/cache/`，见 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md)）。
+   （`<root>/channels/<cid>/cache/`，见 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md)）。
 2. **判定放在拿得到凭据的那一步**：共享网关的调用序列是
    `buildChatBody()` → `buildHeaders()`，**只有 `buildHeaders()` 拿到凭据**
    （契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.2）。所以依赖账号的判定
@@ -685,7 +685,7 @@ hasChannel(cid?: string): boolean;
 - **动词优先**：`mx <动词> [<cid>]`（见 [`CONTRACT-TS.md` §9](./CONTRACT-TS.md)）；
  不带渠道名时按「单渠道模式 / 仓库级」解析。
 - **守护进程的「范围」**：渠道级（显式 `cid` 或只注册 1 个渠道）用渠道层文件
- `<root>/<cid>/gateway.pid|prefs.json`；**仓库级**（多渠道路由、未指定 cid）
+ `<root>/channels/<cid>/gateway.pid|prefs.json`；**仓库级**（多渠道路由、未指定 cid）
  用根级 `<root>/gateway.pid|prefs.json` —— 一个服务多池的进程不属于任何单个渠道。
  日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 - **仓库级默认端口**：多渠道路由时用 `REPO_DEFAULT_ADDR = 127.0.0.1:4412` /
