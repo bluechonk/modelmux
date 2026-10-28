@@ -1,9 +1,10 @@
 /**
  * 流式聚合（`http/wire/sse-stream.ts` 的 `aggregateChatSse`）。
  *
- * 为什么要有它：共享层的 HTTP 归一化层此前**零单测**（20 个测试文件没有一处 import
- * `wire/sse-stream.js` / `chat/relay.js`），于是纯工具调用消息的聚合体带上了 `content: null`，
- * 严格客户端（Go 的 `Content string`）解 null 直接失败 —— 整帧报错，工具调用全废。
+ * 这个用例覆盖共享层 HTTP 归一化层的聚合行为：该层没有渠道知识，聚合一旦漂移上游也
+ * 看不出来，只能在此锁死 —— 纯工具调用消息的聚合体**不带 content 键**（不是
+ * `content: null`），否则严格客户端（Go 的 `Content string`）解 null 直接失败，
+ * 整帧报错、工具调用全废。
  *
  * 全程离线：纯字符串输入，不发任何请求。
  */

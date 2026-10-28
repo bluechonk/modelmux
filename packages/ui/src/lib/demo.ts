@@ -79,21 +79,21 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
   // 无昵称（实测 nickname 为 null）→ 展示名回落手机号（明文，前端不做脱敏）
   astudio: [{ key: "demo000000000000b1", uid: "demo-uid-astudio-1", label: "13800138000", name: "", health: "ok", expiresInDays: 120 }],
   catpaw: [
-    // 连败熔断：路由会跳过它，只能靠切号 / 重登 / 点「解除」
+    // 连败熔断：路由会跳过它，等退避到期半开试探（或切号 / 重登）
     { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "error", failStreak: 3, expiresInDays: 12 },
     { key: "demo000000000000a2", uid: "demo-uid-catpaw-2", label: "demo-uid-catpaw-2", health: "ok", expiresInDays: 40 },
-    // 5 个账号：演示折叠（含冷却/解除的混合状态）
+    // 5 个账号：演示折叠（含熔断 / 冷却的混合状态）
     { key: "demo000000000000a3", uid: "demo-uid-catpaw-3", label: "demo-uid-catpaw-3", health: "cooldown", cooldownInMinutes: 95, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 18 },
     { key: "demo000000000000a4", uid: "demo-uid-catpaw-4", label: "demo-uid-catpaw-4", health: "ok", expiresInDays: 60 },
     { key: "demo000000000000a5", uid: "demo-uid-catpaw-5", label: "demo-uid-catpaw-5", health: "ok" },
   ],
-  // 额度冷却：会自己好，但用户也可以点「解除」提前放行
+  // 额度冷却：到期惰性恢复
   lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "13912340003", name: "13912340003", health: "cooldown", cooldownInMinutes: 180, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 25 }],
   loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "13712340004", name: "13712340004", health: "ok", expiresInDays: 8 }],
   qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", name: "demo-qoder-user", health: "ok", expiresInDays: 30 }],
   raccoon: [{ key: "demo000000000000f1", uid: "demo-uid-raccoon-1", label: "demo-raccoon-user", name: "demo-raccoon-user", health: "ok" }],
   traecn: [{ key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok", expiresInDays: 3 }],
-  // 凭据失效：只能重新登录，**不给**「解除」按钮
+  // 凭据失效：只能重新登录（清标记也不会让它恢复可用）
   workbuddyai: [{ key: "demo000000000000h1", uid: "demo-uid-wbai-1", label: "demo-uid-wbai-1", health: "unauthorized", expiresInDays: -2 }],
 };
 
@@ -190,7 +190,7 @@ export function demoSettings(state: DemoState): UiSnapshot {
  *
  * ⚠ 字段必须与 `UiSnapshot.model_info` 的形状**逐字段对齐**（倍率 / 营销角标 /
  * 上下文窗口 / 单次输出上限 / 输入模态 / 思考档位 / **取值来源**）——
- * 少一个字段就是一处类型错误，而 UI 的类型检查此前不在 CI 链路里，这类缺口会长期潜伏。
+ * 少一个字段就是一处类型错误，而 `npm run typecheck` 覆盖本包，这类缺口会被当场拦住。
  */
 function demoModelInfo(models: string[]): UiSnapshot["model_info"] {
   const DEMO_MULTIPLIER: Record<string, number> = {
@@ -554,7 +554,7 @@ export function demoReset(
     return {
       cleared: false,
       health: hit.health,
-      reason: "该账号凭据已失效，需要重新登录（解除标记不会让它恢复可用）",
+      reason: "该账号凭据已失效，需要重新登录（清标记不会让它恢复可用）",
     };
   }
   const changed = hit.health === "error" || hit.health === "cooldown" || (hit.failStreak ?? 0) > 0;

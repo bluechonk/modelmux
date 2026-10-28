@@ -10,8 +10,8 @@ description: 百度 Comate（AI 编程助手）桌面客户端逆向工程。当
 用**可核验的证据**回答「Comate 这个应用的上游协议长什么样、哪些能直连、渠道该如何实现」。
 
 本技能是 [astudio-re](../astudio-re/SKILL.md) 方法论在 Comate 上的落地。
-**方法论本身**（四条证据链、五阶段工作流、换应用怎么映射）见 [references/PROTOCOL.md](references/PROTOCOL.md)。
-Comate 的协议事实（端点、字段、状态码、证据等级）也在 [references/PROTOCOL.md](references/PROTOCOL.md)。
+**方法论本身**（四条证据链、五阶段工作流、换应用怎么映射）见 [references/METHODOLOGY.md](references/METHODOLOGY.md)。
+Comate 的协议事实（端点、字段、状态码、证据等级）见 [references/PROTOCOL.md](references/PROTOCOL.md)。
 
 ## 铁律（完整版见 astudio-re 方法论 §0）
 
@@ -62,7 +62,7 @@ zulu包   = AI扩展\dist\zulu-cli\       (@comate/zulu v1.8.1)
 ### Stage 1 采矿（零依赖脚本）
 
 ```bash
-S=.agents/skills/comate_re/scripts
+S=.agents/skills/comate-re/scripts
 D="/c/Users/$USER/AppData/Local/Programs/Comate/resources/app/extensions/baiducomate.comate/dist"
 
 node $S/comate-grep.mjs "$D" "comate\.baidu\.com/api/[a-zA-Z0-9/_-]+" 120   # Cloud API 路由

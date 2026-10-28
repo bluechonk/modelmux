@@ -33,7 +33,7 @@ interface ModelEntry {
  * （按账号档位路由到不同底层模型），没有单一规格，故不列。
  *
  * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ * 数值与来源见 `docs/channels/qoder/PROTOCOL.md` §8「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
   "deepseek-flash": 393_216,

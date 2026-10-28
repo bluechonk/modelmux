@@ -84,9 +84,9 @@ interface ModelEntry {
  *
  * ⚠ **不列**官方未公开数值的型号（`doubao-seed-code` / `doubao-seed-2.0-code` /
  * `glm-5-turbo` / `sagitta` / `aquila` / 各 `custom_model_*` 等）——
- * 见 `docs/MODEL-SPECS.md` §4「没有公开规格的」；不编造数字。
+ * 见 `docs/channels/traecn/PROTOCOL.md` §5.4「留空」；不编造数字。
  *
- * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）。
+ * 来源：`docs/channels/traecn/PROTOCOL.md` §5.4（核对方法见 `docs/MODEL-SPECS.md` §0）。
  */
 const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens: number }>> = {
   "deepseek-v4-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
@@ -127,9 +127,9 @@ export const FALLBACK_CONTEXT_WINDOW = 200_000;
  *
  * 1. **目录**：`context_window` / `max_output` 是上游**真实声明**的值（Remote 目录的
  *    `context_window_tokens`、Solo 目录的 `model_detail_list`）—— 上游声明最权威
- *    （`docs/MODEL-SPECS.md` §5「上游声明优先」）。
+ *    （三层取值链见 `docs/MODEL-SPECS.md` §0：上游声明优先）。
  *    ⚠ **只认远端目录**：内置兜底表里没有声明（0），不算数。
- * 2. **规格表**：上游没声明的字段按**公开规格**补（`docs/MODEL-SPECS.md` §3）——
+ * 2. **规格表**：上游没声明的字段按**公开规格**补（`docs/channels/traecn/PROTOCOL.md` §5.4）——
  *    Remote 目录**不下发输出上限**，故绝大多数型号的输出上限来自这张表。
  * 3. 都没有 → 返回 undefined（= 未知，回落网关兜底值，不编造）。
  *

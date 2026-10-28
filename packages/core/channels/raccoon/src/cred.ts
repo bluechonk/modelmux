@@ -187,7 +187,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * 鉴权域请求头（换码 / 续期 / 用户信息）。
  *
  * ⚠ 不带 `X-Client-Platform` / `X-Client-Version` / `X-Client-Device-ID`：
- * 那三个头原先只随**已移除的短信登录**发出，全仓无其它发送方。
+ * 这三个头只在短信登录路径用过，该路径已不存在，全仓无构造方。
  * ⚠ `Authorization` 在未鉴权端点（换码 / 续期）也发（值为空串）—— 保持既有行为不变。
  */
 function headers(c: Credentials, opts: { jsonBody?: boolean } = {}): Record<string, string> {

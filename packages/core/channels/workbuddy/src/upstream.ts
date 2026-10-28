@@ -87,7 +87,7 @@ export class UpstreamUnauthorized extends Error {
  * 「语义具体优先」分层（秒/分/时级限流是账号级、日额度是账号×模型级、
  * 模型缺服务是确定性不可用）。
  *
- * `[参考]` 码表与分层表：`reference/xiaofan6ya_workbuddy2api/docs/protocol-reference.md:1904-1952`
+ * `[参考]` 码表与分层表：`xiaofan6ya/workbuddy2api` 的 `docs/protocol-reference.md:1904-1952`
  * （码表）、`:1869-1889`（分层表）。本表只抄「码 → 语义 → 处置」的对应关系。
  */
 type UpstreamErrorKind =
@@ -120,7 +120,7 @@ type UpstreamErrorKind =
  * 业务码 → 处置类别。
  *
  * ⚠ 这些码**不总是配 429**：上游会把限流包在 HTTP 200 或 400 里返回，只看状态码
- * 的实现会把它落到「不可重试」（`[参考]` hub docs/protocol-reference.md:1949-1952）。
+ * 的实现会把它落到「不可重试」（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1949-1952）。
  */
 const BUSINESS_CODE_KINDS: Record<number, UpstreamErrorKind> = {
   // 限流码族 6000-6008：6004/6008 是「每天」额度（客户端当日额度、不重试）
@@ -273,7 +273,7 @@ function parseUpstreamEnvelope(body: string): { code: number | null; message: st
  * 头序：`Retry-After`（整数秒，最权威；日期形态按官方行为忽略）→
  * `anthropic-ratelimit-unified-reset`（epoch 秒或 HTTP 日期）→
  * `x-ratelimit-reset`（epoch 秒或 HTTP 日期）。
- * `[参考]` hub docs/protocol-reference.md:1891-1902。
+ * `[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1891-1902。
  */
 function resetAtFromHeaders(headers: Headers | undefined): number | null {
   if (!headers) return null;
@@ -352,7 +352,7 @@ export function classifyUpstreamError(
  *
  * 上游删除会话（`12153` / `Offline user session not found`）时可能回 400 而不是
  * 401；归一成鉴权失败后，共享层会先刷新令牌重试一次、再把账号标为不可用 ——
- * 这正是「需要重登」的处置（`[参考]` hub docs/protocol-reference.md:1874、:2270-2300）。
+ * 这正是「需要重登」的处置（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1874、:2270-2300）。
  *
  * ⚠ 只对 4xx 且非 401/403 的响应调用；`11128`（指纹）**不**算鉴权失败 ——
  * 它要靠请求体改写解决，换令牌没用。
@@ -406,7 +406,7 @@ export function quotaSignal(status: number, body: string): QuotaSignal | null {
   if (/600[48]|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body)) return "usage_limit";
   // 14012/14013/14014/14018/14019 = hard_credit（余额耗尽，需购买加量包）；
   // 实测（2026-10-28）14018 的文案是「额度已用尽，请购买加量包」——
-  // 旧的 quotaSignal 只认 6004/6008，导致 14018 被当普通上游错误、账号不进冷却。
+  // 必须归 balance：否则被当普通上游错误、账号不进冷却。
   if (/1401[23489]|额度已用尽|购买加量包/i.test(body)) return "balance";
   return null;
 }
@@ -475,7 +475,7 @@ export interface Config {
    * 设备风控 token（`X-Device-Token`）。
    *
    * 腾讯 T-Sec TuringShield 原生 SDK 采集硬件指纹后换取的不透明串，**纯 HTTP 侧
-   * 无法复刻**（`[参考]` hub docs/protocol-reference.md:2328-2351）。官方自身
+   * 无法复刻**（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:2328-2351）。官方自身
    * 「拿不到就降级不带」，故缺失不算异常。手工填入 `upstream.json` 即可启用。
    */
   deviceToken: string;
@@ -734,8 +734,8 @@ export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string,
   }
 
   // 设备风控 token：Turing SDK 产出的不透明串，纯 HTTP 侧无法生成；
-  // 官方自己「拿不到就降级不带」，故缺失不算异常（hub
-  // docs/protocol-reference.md:2342-2345）。填在 `upstream.json` 的
+  // 官方自己「拿不到就降级不带」，故缺失不算异常（[参考]
+  // xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:2342-2345）。填在 `upstream.json` 的
   // `deviceToken` 里即可启用。
   if (resolved.deviceToken) {
     headers["X-Device-Token"] = resolved.deviceToken;

@@ -47,16 +47,16 @@ interface ModelEntry {
  *
  * ⚠ 上游目录**自带**这两个数（实测 `params.context_window` / `params.max_tokens`，
  * 见 docs/channels/raccoon/PROTOCOL.md §5.2）—— 有上游声明时以**上游为准**
- * （docs/MODEL-SPECS.md §5「三层取值：上游声明优先」）。
+ * （三层取值链见 docs/MODEL-SPECS.md §0：上游声明优先）。
  * 本表只在**上游没下发**时兜底（目录缓存缺失 / 新型号未声明）。
  *
  * ⚠ 键是**归一后的规范模型名**（`sn-glm-5-3-flash` → `glm-5.3-flash`），
  * 不是目录里的原始写法。
  *
  * ⚠ `sensenova-6.8-flash` / `sensenova-6.8-flash-lite` **不列**：官方未公开数值
- * （docs/MODEL-SPECS.md §4「没有公开规格的」）—— 不编造数字，让网关回落兜底值。
+ * （说明见 docs/channels/raccoon/PROTOCOL.md §5.7）—— 不编造数字，让网关回落兜底值。
  *
- * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）。
+ * 来源：`docs/channels/raccoon/PROTOCOL.md` §5.7（核对方法见 `docs/MODEL-SPECS.md` §0）。
  */
 const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens: number }>> = {
   "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },

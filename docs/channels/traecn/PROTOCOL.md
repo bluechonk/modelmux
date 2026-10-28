@@ -522,7 +522,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 透出到 `GET /v1/models` 的 `context_window` / `max_output_tokens`。
 
 **取值优先级：目录（上游声明）→ 规格表 → 网关兜底值**
-（三层，见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §5）：
+（三层，见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0）：
 
 1. **目录里的上游声明** —— 目录条目只写上游**真实声明**的值：
    - 上下文窗口：Remote 目录的 `context_window_tokens{dev,max}`（§5.0），
@@ -549,30 +549,33 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 
 | 规范模型名 | contextWindow | maxOutputTokens | 来源 |
 |---|---|---|---|
-| `deepseek-v4-flash` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
-| `deepseek-v4-pro` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
-| `deepseek-v4.1-flash` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
-| `doubao-seed-2.1-pro` | 1_048_576 | 262_144 | MODEL-SPECS §3 |
-| `doubao-seed-2.1-turbo` | 262_144 | 262_144 | MODEL-SPECS §3 |
-| `doubao-seed-evolving` | 1_048_576 | 262_144 | MODEL-SPECS §3 |
-| `glm-5` | 202_752 | 131_072 | MODEL-SPECS §3 |
-| `glm-5.2` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `glm-5.3` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `glm-5.3-flash` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `glm-5.3-flashx` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `kimi-k2.6` | 262_144 | 32_768 | MODEL-SPECS §3 |
-| `kimi-k2.7-code` | 262_144 | 32_768 | MODEL-SPECS §3 |
-| `kimi-k3` | 1_048_576 | 1_048_576 | MODEL-SPECS §3 |
-| `mimo-v2.6-flash` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `mimo-v2.6-pro` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `minimax-m3` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `minimax-m3.1-flash` | 1_000_000 | 524_288 | MODEL-SPECS §3 |
-| `qwen-3.7-plus` | 1_000_000 | 131_072 | MODEL-SPECS §3（本文写作 `qwen3.7-plus`） |
-| `qwen3.8-max` | 1_000_000 | 131_072 | MODEL-SPECS §3 |
-| `step-5-preview` | 1_048_576 | 65_536 | MODEL-SPECS §3 |
+| `deepseek-v4-flash` | 1_048_576 | 393_216 | 公开规格 |
+| `deepseek-v4-pro` | 1_048_576 | 393_216 | 公开规格 |
+| `deepseek-v4.1-flash` | 1_048_576 | 393_216 | 公开规格 |
+| `doubao-seed-2.1-pro` | 1_048_576 | 262_144 | 公开规格 |
+| `doubao-seed-2.1-turbo` | 262_144 | 262_144 | 公开规格 |
+| `doubao-seed-evolving` | 1_048_576 | 262_144 | 公开规格 |
+| `glm-5` | 202_752 | 131_072 | 公开规格 |
+| `glm-5.2` | 1_048_576 | 131_072 | 公开规格 |
+| `glm-5.3` | 1_048_576 | 131_072 | 公开规格 |
+| `glm-5.3-flash` | 1_048_576 | 131_072 | 公开规格 |
+| `glm-5.3-flashx` | 1_048_576 | 131_072 | 公开规格 |
+| `kimi-k2.6` | 262_144 | 32_768 | 公开规格 |
+| `kimi-k2.7-code` | 262_144 | 32_768 | 公开规格 |
+| `kimi-k3` | 1_048_576 | 1_048_576 | 公开规格 |
+| `mimo-v2.6-flash` | 1_048_576 | 131_072 | 公开规格 |
+| `mimo-v2.6-pro` | 1_048_576 | 131_072 | 公开规格 |
+| `minimax-m3` | 1_048_576 | 131_072 | 公开规格 |
+| `minimax-m3.1-flash` | 1_000_000 | 524_288 | 公开规格 |
+| `qwen-3.7-plus` | 1_000_000 | 131_072 | 公开规格（本文写作 `qwen3.7-plus`） |
+| `qwen3.8-max` | 1_000_000 | 131_072 | 公开规格 |
+| `step-5-preview` | 1_048_576 | 65_536 | 公开规格 |
+
+数值落点为渠道静态表 `packages/core/channels/traecn/src/catalog.ts` 的 `MODEL_SPECS`（与本文一致）；
+全局三层取值链见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0。
 
 **留空（官方无公开规格 / 非公开型号）**：
-`doubao-seed-code`（MODEL-SPECS §4：**该型号官方无公开输出规格**，方舟模型列表与价格页均无
+`doubao-seed-code`（**该型号官方无公开输出规格**，方舟模型列表与价格页均无
 该 id）、`doubao-seed-2.0-code`、`glm-5-turbo`、`seed-code-pro`、`sagitta`、
 `aquila`、各 `custom_model_*`、各 `*_subagent` / `summary`（TRAE 内部子代理）。
 一律不写数字，让 `/v1/models` 回落兜底值。
@@ -917,7 +920,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 |---|---|---|---|
 | V2 | 切到 `chat_sessions` 后账号绑定 / 事件流是否稳定 | Remote 传输本身已实测可用（建会话 200 + 事件流 200 + 正常作答），但**网关契约是一次上游请求一条流**，两段式需共享层支持 | 若实施缺口 2，需共享层配合两段式，再比首 token 延迟与事件类型 |
 | V3 | Remote 目录的 `Origin` / `Referer` / `User-Agent` 该用哪一套 | 参考用 `solo.trae.cn` + Chrome UA，当前用 `www.trae.cn` + `Trae/0.1.52`，且**实测能通** | 单变量 A/B：同一次请求只换 `Origin`，各拉一次比对条数 |
-| V4 | 签到 `device_id` 要 15 位还是 16 位、纯数字还是 hex | 当前 15 位 vs 参考 16 位；jeff 自述真实注册号是 16 位纯数字 | 真账号走一次 `mx signin traecn`；**一天只试一次**，避免触发 9074 |
+| V4 | 签到 `device_id` 要 15 位还是 16 位、纯数字还是 hex | 当前 15 位 vs 参考 16 位；jeff 自述真实注册号是 16 位纯数字 | 真账号触发一次**自动签到**（网关启动时跑，见 `packages/core/gateway/src/auth/auto-signin.ts`；结果看 `mx status traecn` 的签到摘要，CLI **没有** `signin` 动词）；**一天只试一次**，避免触发 9074 |
 | V5 | 对话流里到底有没有 `notify_usage`、能否拿到 `ide_credits` | 参考只给了结论（RESEARCH.md），本仓库无抓包 | 抓一次真实对话的原始 SSE（`TRAECN_DEBUG_DUMP`），看有无该事件 |
 | V6 | `ide_user_ent_usage` 的 `req_source=1` 是否返回不同数据 | 参考分两口径，当前只用 `req_source: 2` | 同账号各打一次，比对 `user_entitlement_pack_list` |
 | V7 | Remote 目录是否需要 `X-Trae-Client-Type` / `X-Preferenced-Language` / `x-user-region` | 参考发、当前不发且实测 200 | 单变量：加 / 不加各拉一次，比对返回条数 |

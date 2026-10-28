@@ -2,12 +2,12 @@
  * 网关监督进程（supervisor）：`mx start` spawn 的常驻看护者，`mx start` 自身随即退出。
  *
  * 进程模型见 docs/DAEMON-SUPERVISOR.md：监督者只管生命周期
- * —— spawn worker → 等健康 → 监听 exit → 按指数退避重生（参数照 CCR 3.1.3 实测行为）。
+ * —— spawn worker → 等健康 → 监听 exit → 按指数退避重生。
  *
  * 终止语义：worker 死前已通过健康探测 → 按退避重生；启动窗口内死亡/超时未
  * healthy → 记 error 后退出，不无限重生；监督者自身被杀 = 作废重生（无进程内协议）；
  * worker 侧 IPC 断开自退。⚠ 落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发
- * —— scope 推导是 daemon 的职责，监督者贸然调 paths.* 会启动即崩（实测踩过）。
+ * —— scope 推导是 daemon 的职责，监督者贸然调 paths.* 会启动即崩。
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";

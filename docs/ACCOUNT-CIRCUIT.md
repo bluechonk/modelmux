@@ -18,7 +18,9 @@ ok ◀──成功──────── noteAccountSuccess       // 只清 fa
 `error` 账号的所有请求直接回 `account_error`，**不打上游、不记账**。
 因此成功路径（`markActiveHealth("ok")`）永远没有机会执行 —— `error` 是终态。
 
-恢复只有三条人工路径：Web「解除」按钮（`clearAccountState`）/ `mx acct use` 切号 / 重新登录。
+恢复有两条人工路径：`mx acct <cid> use <key>` 切号 / 重新登录；熔断与冷却另有自动恢复路径
+（半开试探 / 冷却到期惰性恢复）。后端仍保留 `resetAccount` 命令（等价 `clearAccountState`）作为调用面，
+但 UI 已无入口。
 
 ### 1.2 触发源分析（为什么终态不合理）
 
@@ -96,7 +98,8 @@ ok ◀──成功──────── noteAccountSuccess       // 只清 fa
 - **Accounts 卡**：`health=error` 且 `trip_until` 未过期 → 显示「熔断中 · N 秒后自动试探」
   （数字取 `trip_until - now`，非实时倒计时、秒级粗粒度即可）；到点未放行显示「将自动试探」。
 - **`mx acct <cid> list`**：health 列输出 `error (30s后试)` / `error (1m后试)`。
-- 「解除」按钮保留 —— 手动提前恢复仍是 Valid（不需要等服务）。
+- 不提供手动解除按钮：三条自动恢复路径（半开试探 / 冷却到期 / 成功清零连败）已覆盖，
+  后端 `resetAccount` 仅作调用面保留。
 
 ## 4. 兼容与迁移
 
@@ -122,7 +125,7 @@ ok ◀──成功──────── noteAccountSuccess       // 只清 fa
 4. `cli/…`：`mx acct list` 的 error 附剩余时间。
 5. 文档：更新 `docs/POOL-ARCHITECTURE.md` §3 账号池状态表；本设计合入后收敛进该文档。
 
-## 6. 为什么不用别的方式
+## 7. 为什么不用别的方式
 
 - 定时器轮询探测：需要额外进程状态，本地网关无必要 —— 「惰性放行」用下一次真实请求当探测。
 - half-open 放行 N 个探针：单用户本地网关并发基本为 1，放行 1 次足够。

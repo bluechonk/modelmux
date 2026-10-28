@@ -134,8 +134,8 @@ function listenOn(server: Server, port: number): Promise<number> {
  * 2. **深色单页**：与 Web 控制台同一套令牌（近黑底 + 语义色），不是裸 `<h1>`；
  * 3. **给退路**：「返回控制台」直达 `/web/`，「关闭本页」再试一次自关。
  *
- * 为什么渠道不各写一份：lobsterai / raccoon / traecn 原来各写一行 `<h1>`，
- * 改一处（比如控制台地址变了）要改四处，且失败态文案三套口径。
+ * 为什么放在共享层而不是各渠道自写：落地页要与 Web 控制台同一套令牌与文案，
+ * 各写一份的话，改一处（比如控制台地址变了）要改四处，失败态文案还会有多套口径。
  */
 export type CallbackPageKind = "ok" | "fail";
 

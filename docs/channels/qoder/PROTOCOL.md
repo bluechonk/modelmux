@@ -792,8 +792,8 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 `ultimate` 是 Qoder 的**账号档位**（按档位路由到不同底层模型），官方只公布 Credits
 倍率 → 不给规格，回落兜底值（**不编造**）。
 
-数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`packages/core/channels/qoder/src/catalog.ts:51-63` 的 `MAX_OUTPUTS`（国内版 `qodercn` 同一套）。
+数值与来源见渠道表 `packages/core/channels/qoder/src/catalog.ts` 的 `MAX_OUTPUTS`
+（国内版 `qodercn` 同一套）；取值链与兜底口径见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0。
 
 ---
 

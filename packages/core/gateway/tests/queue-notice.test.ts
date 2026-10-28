@@ -5,7 +5,7 @@
  * 且客户端超时走人后探测循环不感知断连，继续按预算空转打上游（实测白打 22 次）。
  *
  * 覆盖：① 排队期间**不向客户端输出任何文本**（只发一次 SSE 头 + 空 role 帧；
- * 2026-10-28 起排队文案会回灌进下一轮上下文，已移除）；② 客户端断开后探测立即止损；
+ * 排队文案会回灌进下一轮模型上下文，故一律不发）；② 客户端断开后探测立即止损；
  * ③ 超预算（`MODELMUX_QUEUE_BUDGET_MS`）直接回正常应答，劝换渠道。
  */
 
@@ -230,7 +230,7 @@ describe("排队进度推送与断连止损", () => {
       const text = await resp.text();
       assert.equal(resp.status, 200, `日志: ${logs.join(" | ")}`);
       assert.equal(resp.headers.get("content-type") ?? "", "text/event-stream; charset=utf-8", "进度帧要求 SSE 头");
-      // 2026-10-28 主人要求：排队文案会回灌进下一轮模型上下文、影响效果 → 一律不发。
+      // 排队文案会回灌进下一轮模型上下文、影响效果 → 一律不发。
       assert.ok(!text.includes("正在排队"), "不该出现排队进度文案");
       assert.ok(!text.includes("排队成功"), "不该出现「排队成功」分界文案");
       assert.ok(!text.includes("10605"), "排队帧不能透传");

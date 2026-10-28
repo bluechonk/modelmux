@@ -311,7 +311,7 @@ astudio/deepseek-v4-pro   200 ✅
 
 ⚠ 此前渠道表给这 5 个一律填 `multiplier: 1`，那是**无源填 1**（客户端会按它算钱）。
 2026-10-26 改为省略。**倍率要么实测、要么未知，绝不编造。**
-规格表见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §4.2。
+规格表见本文 §6.2（渠道静态表）；全局三层取值链见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0。
 
 **网关 id 实测接受度**：
 
@@ -483,8 +483,8 @@ AStudio 桌面应用里也仍是登录态。
 | `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` **两条路**：有界面走手机号+验证码（云端直连，`force` 重读、`/userInfo` 补全），无界面走会话文件（`pasteCode` 支持粘贴会话）；`refresh()` 带 Cookie 打 `/bot/models/configs` 取 `api_key`；`logout()` 删本地凭据 |
 | `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort`；`fetchUserInfo()` 打 `/userInfo` 补全账号信息；**认证链路**：`fetchGeetestConfig()` / `sendSmsCode()` / `loginWithSms()` / `fetchTenantState()` / `fetchPointsBalance()`（见 §5） |
 | `catalog.ts` | **静态内置表**（7 个模型）；`modelSpec()` 给 `contextWindow` / `maxOutputTokens` / `effort` / `multiplier`（倍率只填实测值）；**无 `refresh()`** |
-| `billing.ts` | `fetchCredits()` 打 `/usage`（契约要求，`billing: false` 时共享层不调）；`signin` 只报说明；**不实现 `quotaPeriod()`**（无额度墙可报） |
-| `channel.ts` | `capabilities: { billing: false, signin: false }` |
+| `billing.ts` | `fetchCredits()` 报**积分余额**（积分端点），模型网关 `/usage` 只用来补今日花费（尽力而为）；`signin` 走 `init-app` 发奖 + 关横幅 + 领下载奖励；**不实现 `quotaPeriod()`**（无额度墙可报） |
+| `channel.ts` | `capabilities: { billing: true, signin: true }` |
 
 ---
 
@@ -545,7 +545,7 @@ CLI 没有界面 → 走路 B（轮询会话文件最多 5 分钟）；
 
 ### 已知限制
 
-1. **登录依赖桌面应用**：应用未登录时渠道无法自行完成授权（§5）。
+1. **CLI 登录依赖桌面应用**：CLI 无界面时回落读桌面应用的会话文件（§5.5 路 B）；Web 控制台可独立完成短信登录（§5.5 路 A）。
 2. **凭据有效期未知**：`modelBearerToken` 无到期字段，失效表现为模型网关回 401/403
    或账号 API 回 `code=80000`；渠道收到后触发 `refresh()`，刷新失败则报「重新登录」。
 3. **5 个模型倍率未知**：云端只有 `glm-5.2` / `deepseek-v4-pro`（x2.0）等 3 行有
@@ -604,7 +604,7 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 模型清单 | ✅ 7 个模型入池（`mx model list` 显示 `astudio 7 个模型`） |
 | 最小对话 | ✅ `astudio/auto` / `astudio/glm-5.2` / `astudio/spark-x2.5` 均返回真实补全 + `usage` |
 | 模型 id 归一化 | ✅ `astudio/glm-5.2` → 响应 `model: "xopglm52"`；`astudio/auto` → `model: "spark-x2.6"` |
-| 错误传播 | ✅ 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（`billing: false` 生效） |
+| 错误传播 | ✅ 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（额度口径取积分余额，不是模型网关的 `balance`） |
 | 工具 / 流式 / 档位 | ✅ 直连实测通过（见技能 `astudio-probe.mjs chat`） |
 | **opencode 单轮冒烟（7/7）** | ✅ 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
 | **经网关的 Agent 工具往返** | ✅ 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |

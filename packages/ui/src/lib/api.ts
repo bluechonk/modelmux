@@ -140,10 +140,12 @@ export interface WebApi {
     accounts(cid?: string): Promise<CommandData>;
     activateAccount(cid: string, key: string): Promise<CommandData>;
     /**
-     * 解除某账号的熔断状态（连败 `error` / 额度 `cooldown`）。
+     * 清除某账号的熔断 / 冷却标记（连败 `error` / 额度 `cooldown`）。
      *
      * 与 `activateAccount` 的区别：**不动凭证**，所以池里任何账号都能清，不只是生效那个。
      * 凭据失效（`unauthorized`）时后端拒绝并给出原因 —— 那只能重新登录。
+     *
+     * ⚠ 界面**没有**入口（熔断与冷却都会自动恢复，见 AccountCard）；这是后端保留的调用面。
      */
     resetAccount(cid: string, key: string): Promise<CommandData>;
     removeAccount(cid: string, key: string): Promise<CommandData>;

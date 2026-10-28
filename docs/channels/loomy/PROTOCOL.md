@@ -585,11 +585,11 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 渠道**刻意不采信**，见 `src/catalog.ts`）。
 
 ⚠ **已知分歧**：`spark-x` 的**上下文**上游声明 1048576，而讯飞官方规格是 262144 ——
-**以上游为准**（这条渠道实际能吃多少以它自己为准），分歧记在
-[MODEL-SPECS.md](../../MODEL-SPECS.md) §6。
+**以上游为准**（这条渠道实际能吃多少以它自己为准），分歧记在本文 §5.4 与
+`packages/core/channels/loomy/src/catalog.ts`。
 
-数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源）；上游没给字段的型号回落渠道表
-`src/catalog.ts` 的 `MAX_OUTPUTS`（公开规格）。
+数值与来源见 `packages/core/channels/loomy/src/catalog.ts` 的 `MAX_OUTPUTS`（公开规格）；
+全局规格与渠道表的关系见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §4。
 
 ---
 

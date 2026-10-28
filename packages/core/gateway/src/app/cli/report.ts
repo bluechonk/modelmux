@@ -181,7 +181,7 @@ export async function runPaths(options: PathsOptions = {}): Promise<number> {
     const config = await loadConfig(pkgDir);
     if (!config) {
       // 只有**渠道包**没构建出来才值得提醒；工作区里还有 cli / ui / 共享层等非渠道包，
-      // 它们没有 channel config 是正常的（早先会把这些也报成「跳过未构建的渠道包」，纯属噪声）。
+      // 它们没有 channel config 是正常的（报出来纯属噪声）。
       if (isChannelPackageDir(pkgDir)) {
         console.error(`[warn] 跳过未构建的渠道包: ${pkgDir}`);
       }

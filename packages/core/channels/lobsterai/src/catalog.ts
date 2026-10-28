@@ -19,7 +19,7 @@ interface ModelEntry {
    * 最大输出 token。
    *
    * ⚠ 上游 `/api/models/available` **不下发**该字段（实测 2026-10-23：响应里没有 `maxTokens`），
-   * 所以只能按公开规格补（`MAX_OUTPUTS`，来源见 `docs/MODEL-SPECS.md`）。
+   * 所以只能按公开规格补（`MAX_OUTPUTS`，来源见 `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」）。
    */
   max_output?: number;
   supports_image?: boolean;
@@ -86,7 +86,7 @@ const FALLBACK_CONTEXT_WINDOW = 131_072;
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
  * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ * 数值与来源见 `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
   "deepseek-flash": 393_216,

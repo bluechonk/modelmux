@@ -497,7 +497,7 @@ def raccoon_supports_image(model_id, tags):
 （契约见 [CONTRACT-TS.md](../../CONTRACT-TS.md) §5.3），
 供池层透出到 `GET /v1/models` 的 `context_window` / `max_output_tokens`。
 
-**取值优先级**（三层，见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §5）：
+**取值优先级**（三层，见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0）：
 
 1. **上游目录声明** —— 本渠道**自带**这两个数（`params.context_window` /
    `params.max_tokens`，见 §5.2），池层**优先**用它；
@@ -508,21 +508,22 @@ def raccoon_supports_image(model_id, tags):
 4 个型号（`glm-5.3` / `kimi-k3` / `glm-5.3-flash` / `deepseek-v4.1-flash`）
 一律是 `1_000_000` / `100_000`，只有 `sensenova-6.8-flash(-lite)` 是
 `256_000` / `63_999`。故 `/v1/models` 报的是**这条渠道实际能给的上限**
-（按 MODEL-SPECS §6「上游声明优先」），不是模型公开规格 —— 客户端据此
+（按 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0 的三层取值链，上游目录声明最优先），不是模型公开规格 —— 客户端据此
 请求不会被上游打回 4xx。
 
 **规格表（键是归一后的规范模型名，`sn-glm-5-3-flash` → `glm-5.3-flash`）**：
 
 | 规范模型名 | contextWindow | maxOutputTokens | 来源 |
 |---|---|---|---|
-| `glm-5.3` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `glm-5.3-flash` | 1_048_576 | 131_072 | MODEL-SPECS §3 |
-| `kimi-k3` | 1_048_576 | 1_048_576 | MODEL-SPECS §3 |
-| `deepseek-v4.1-flash` | 1_048_576 | 393_216 | MODEL-SPECS §3 |
-| `sensenova-6.8-flash` | （留空） | （留空） | 官方无公开规格（MODEL-SPECS §4） |
-| `sensenova-6.8-flash-lite` | （留空） | （留空） | 官方无公开规格（MODEL-SPECS §4） |
+| `glm-5.3` | 1_048_576 | 131_072 | 公开规格 |
+| `glm-5.3-flash` | 1_048_576 | 131_072 | 公开规格 |
+| `kimi-k3` | 1_048_576 | 1_048_576 | 公开规格 |
+| `deepseek-v4.1-flash` | 1_048_576 | 393_216 | 公开规格 |
+| `sensenova-6.8-flash` | （留空） | （留空） | 官方无公开规格 |
+| `sensenova-6.8-flash-lite` | （留空） | （留空） | 官方无公开规格 |
 
-来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）；
+来源：渠道静态规格表（`packages/core/channels/raccoon/src/catalog.ts` 的 `MODEL_SPECS`，联网核实的唯一事实源）；
+全局三层取值链见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0；
 **官方无公开规格的型号一律留空**（回落兜底值），不编造数字。
 
 ---

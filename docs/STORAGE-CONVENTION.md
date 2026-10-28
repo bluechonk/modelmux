@@ -111,7 +111,10 @@
   网关与 CLI 可能同时写同一个文件，固定 `.tmp` 名会互相抢；
   **不用**大写、下划线、渠道名前缀。
 8. **端口**：每渠道独占一组（见 §2），不与他渠道重复。
-9. **偏好文件**：渠道内 `prefs.json` 放本渠道设置（已实现）；根级 `<root>/prefs.json` 预留，当前未使用。
+9. **偏好文件**：渠道内 `prefs.json` 放本渠道设置（已实现）；根级 `<root>/prefs.json` 预留
+   （当前只被**仓库级 `auto_start` 开关**读取 —— `autoStartEnabled()` 经 `scopeOf(cid).prefsPath()`
+   读它，关闭时跳过自动挂载；网关自身**不写**它，见
+   `packages/core/gateway/src/app/lifecycle/daemon.ts`）。
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
    `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
    账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）、

@@ -49,8 +49,8 @@ interface ModelEntry {
 /**
  * 已知模型规格（上下文窗口 / 单次回复上限）。
  *
- * 来源：`docs/MODEL-SPECS.md` §3（联网核实的唯一事实源）—— 数值必须与那份表一致，
- * 改规格先改那份文档。
+ * 来源：`docs/channels/workbuddy/PROTOCOL.md` 的「模型窗口规格」—— 本文件的 `MODEL_SPECS`
+ * 与那份表保持一致，改规格先改那份文档。
  *
  * ⚠ **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
  * 不是上游目录里的原始写法（目录 `kimi-k3-1` → 池 id `kimi-k3.1`）。

@@ -1,5 +1,5 @@
 # 用途：抓 Comate 进程的网络对端（发消息时跑，看 Comate 真正连到哪里）
-# 运行：pwsh -NoProfile -ExecutionPolicy Bypass -File .agents/skills/comate_re/scripts/watch-comate-conn.ps1 -Seconds 40
+# 运行：pwsh -NoProfile -ExecutionPolicy Bypass -File .agents/skills/comate-re/scripts/watch-comate-conn.ps1 -Seconds 40
 # 依赖：netstat / Get-NetTCPConnection（Windows 自带）
 param(
     [int]$Seconds = 40

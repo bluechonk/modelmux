@@ -1,10 +1,15 @@
-# AStudio 协议规格（实测）
+# AStudio 协议规格（逆向快照）
+
+> ⚠ **本文是 2026-10 的逆向快照**，记录当时的方法与证据，其中若干结论**已被推翻**
+> （文中逐条标注「已反转 → 见 …」）。
+> **现役事实以 [`docs/channels/astudio/PROTOCOL.md`](../../../../docs/channels/astudio/PROTOCOL.md) 为准**，
+> 两者冲突时一律以后者为准；本文保留的价值在**方法论与推理过程**，不在事实。
 
 逆向对象：**AStudio 3.5.4**（科大讯飞，Electron 43.4.1 / Chrome 150）
 安装路径：`C:\Users\<用户>\AppData\Local\Programs\AStudio\AStudio.exe`
 asar 归档：`resources\app.asar`（约 131 MB）
 
-本文是 `packages/core/channels/astudio/` 的实现依据。**证据等级**：
+**证据等级**：
 
 | 等级 | 含义 |
 | --- | --- |
@@ -20,8 +25,13 @@ asar 归档：`resources\app.asar`（约 131 MB）
 渲染层(acode://app) ──HTTP──▶ 127.0.0.1:<随机端口> ──▶ Electron 主进程
                                       │
                                       └──HTTPS──▶ agent.xfyun.cn/xingchen-studio（账号/鉴权）
-                                                 astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1（对话）
+                                                 {每个模型各自的 base_url}（对话，见 §5.1 反转说明）
 ```
+
+> ⚠ **已反转（对话主机）**：图中最初的对话主机
+> `astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1` 实测**对所有模型都 404**，
+> 真实形态是**云端配置给每个模型各带一个 `base_url`**，对话端点 = `base_url` + `/chat/completions`
+> （见 §5.1 与现役 `docs/channels/astudio/PROTOCOL.md` §6.1）。
 
 **关键点：AStudio 主进程内置一个 HTTP 服务**（`server-runtime.json` 记录端口，如 `16051`），
 渲染层通过它拿登录态。**端口不固定**（重启会变），由应用自己发现。
@@ -50,7 +60,8 @@ asar 归档：`resources\app.asar`（约 131 MB）
 }
 ```
 
-**这就是「独立登录不可能」的根因**（见 §3）。
+**这是「本地服务无法被外部登录」的根因** —— 但它**只影响本地服务代理层**，
+不影响云端直连（云端可独立完成登录，见 §3 反转说明）。
 
 ---
 
@@ -97,7 +108,15 @@ return { accountId, token: typeof raw.token === "string" ? raw.token.trim() : nu
 
 ---
 
-## 3. 登录链路：架构上无法独立调用
+## 3. 登录链路：**云端可独立完成登录**（原标题「架构上无法独立调用」已反转）
+
+> ⚠ **已反转**：本节原标题写「架构上无法独立调用」、结论写「渠道无法自行完成登录」——
+> **那是测错了路径**。`/api/astron-auth/*` 是桌面应用**本地服务代理层**的前缀，
+> 云端账号 API 的路径**没有这个前缀**。
+> 现役结论：Web 控制台可用**手机号 + 短信验证码**云端直连登录
+> （渠道实现在 `packages/core/channels/astudio/src/cred.ts` 的 SMS 链路），
+> 完整端点与实测见现役 `docs/channels/astudio/PROTOCOL.md` §5。
+> §3.2 的实测表仍然成立，但它只说明**本地服务**堵死，**不**说明云端登录不可能。
 
 ### 3.1 登录端点（A 级，源码 `createAstronAccountGateway`）
 
@@ -115,7 +134,7 @@ return { accountId, token: typeof raw.token === "string" ? raw.token.trim() : nu
 **登录成功判据**（A 级，`completeLogin`）：响应必须同时有 `account_id` 与 `token`（或 `ssoSessionId`），
 否则抛 `Astron login response is incomplete`。
 
-### 3.2 为什么不能独立登录（B 级实测）
+### 3.2 为什么**本地服务**不能独立登录（B 级实测）
 
 | 尝试 | 结果 |
 | --- | --- |
@@ -129,7 +148,10 @@ return { accountId, token: typeof raw.token === "string" ? raw.token.trim() : nu
 而本地服务走 `desktop-managed-local` 策略 —— 只认**应用自己持有的活会话**
 （`synara_session_<port>` cookie，由主进程在渲染层登录后建立，**不落盘**）。
 
-→ **结论：渠道无法自行完成登录，必须由用户在 AStudio 桌面应用里登录一次。**
+→ **⚠ 已反转的结论**：这里最初写「渠道无法自行完成登录，必须由用户在 AStudio 桌面应用里登录一次」——
+> **错的**。云端账号 API 直连 `https://agent.xfyun.cn/xingchen-studio/<path>` 即可完成登录
+> （手机号 + 短信验证码，滑块由浏览器解），渠道已实现两条登录路。
+> 现役结论见 `docs/channels/astudio/PROTOCOL.md` §5 与 `src/cred.ts`。
 
 ### 3.3 但 Cookie 是活的（B 级，2026-10-26 重要发现）
 
@@ -173,8 +195,15 @@ Cookie: ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<a
 
 ### 5.1 端点（B 级实测）
 
+> ⚠ **已反转（对话主机）**：下面这个固定主机
+> `astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1` 实测**对所有模型都 404**
+> （`API endpoint not found`）—— 它是配置默认值，不是推理主机。
+> 真实形态是**云端模型配置给每个模型各带一个 `base_url`**，对话端点 = 该模型的
+> `base_url` + `/chat/completions`（渠道实现见 `src/upstream.ts` 的 `chatUrlForModel`，
+> 完整映射见现役 `docs/channels/astudio/PROTOCOL.md` §6.1）。
+
 ```
-POST https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions
+POST {该模型的 base_url}/chat/completions
 Authorization: Bearer <modelBearerToken>
 Content-Type: application/json
 ```
@@ -289,36 +318,49 @@ Cookie: <buildAstronCookieHeader>
 ### 7.1 模型网关用量（B 级）
 
 ```
-GET https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/usage
+GET {模型网关}/usage
 Authorization: Bearer <modelBearerToken>
 ```
+
+> ⚠ 上面原先写的固定主机 `astronstudio-api-volces-prod.xf-yun.com` 与 §5.1 同为一个
+> **已反转**的配置默认值（对所有模型 404）；`/usage` 挂在**模型网关**基址上
+> （现役 `docs/channels/astudio/PROTOCOL.md` §8.1）。
 
 响应含 `balance` / `daily_usage[]` / `isValid` / `mode` / `model_stats[]` / `planName` /
 `remaining` / `unit` / `usage{}`。实测 `mode: "unrestricted"`、`planName: "钱包余额"`、
 `balance: 0`、`cost: 0`（免费档）。
 
-### 7.2 云端积分（本地服务代理，B 级）
+### 7.2 云端积分（**云端直连可用**，B 级；原标题「只能经本地服务代理」已反转）
 
-`/api/astron-auth/points-balance` 实测（经本地服务）返回两个池：
+> ⚠ **已反转**：此前记「该端点只能经本地服务代理访问（直连云端回 404），故渠道不把它
+> 作为额度来源」—— **错的**（又是路径前缀的锅，见 §3）。`GET /points/balance`
+> **云端直连可用**，且渠道正是用它报额度（`src/billing.ts` 的 `fetchCredits()`）。
+> 端点与实测见现役 `docs/channels/astudio/PROTOCOL.md` §8.1。
+
+`GET /points/balance` 实测返回两个池：
 
 | 池 | 字段前缀 | 实测余额 |
 | --- | --- | --- |
 | 通用积分 | `total*` / `activity*` / `member*` / `buy*` | 6100 |
 | 星火积分 | `spark*` | 35000 |
 
-⚠ **该端点只能经本地服务代理访问**（直连云端回 404），故渠道**不**把它作为额度来源；
-额度以 `/usage` 为准（可直连）。
+**额度口径取积分余额，不取模型网关的 `/usage.balance`**：后者恒为 0（免费档永久状态），
+当成额度报给共享层会因 `remain <= 0` 把账号冷却（这正是此前误报 `billing: false` 的原因）。
 
-### 7.3 每日签到（C 级推断，A 级佐证）
+### 7.3 每日签到（**有真实链路**，B 级实测；原标题「没有独立的签到端点」已反转）
 
-**没有独立的「签到」端点**。源码佐证：
+> ⚠ **已反转**：此前推断「没有独立的『签到』端点 → 渠道不提供 signin 能力」—— **错的**。
+> 现役结论：`signin: true`，`POST /tenant-app/v2/init-app` **即发奖动作**
+> （当日首次调用上游立即入账），渠道实现见 `src/billing.ts` 的 `signin`，
+> 端点与横幅实测见现役 `docs/channels/astudio/PROTOCOL.md` §8.2。
+
+源码佐证（仍然成立的部分）：
 
 - `AstronMembershipPlanConfig` 含 `dailyLoginEnabled` / `dailyLoginValidDays` /
-  `plans[].dailyLoginPoints` —— 每日登录积分由**服务端按套餐配置自动发放**；
-- UI 的 `DAILY_REWARD_DIALOG`（「每日积分」弹窗）只是**展示**已发放的积分，
-  调的是 `GET /api/astron-client-popups/points-summary`（只读）。
+  `plans[].dailyLoginPoints` —— 每日登录积分由**服务端按套餐配置发放**；
+- UI 的 `DAILY_REWARD_DIALOG`（「每日积分」弹窗）只是**展示**已发放的积分。
 
-→ **渠道不提供 `signin` 能力**（`ChannelCapabilities.signin = false`）。
+→ 渠道提供 `signin` 能力（`ChannelCapabilities.signin = true`），`init-app` 负责发奖。
 
 ---
 
@@ -331,33 +373,46 @@ POST /api/astron-auth/logout     （经本地服务代理）
 源码 `logoutAstron` → `persistAstronAuthState(stateDir, null, "logout-commit")`，
 即**删除会话文件 + 清空 `config.toml` 里的 bearer**。
 
-⚠ 该端点经本地服务代理（需活会话），渠道**不实现登出**；
-渠道侧的「登出」= 删除自己的 `credentials.json`。
+⚠ 该端点经本地服务代理（需活会话）→ **上游吊销做不到**（云端 `token` / `ssoSessionId`
+登出后仍有效，桌面应用里仍是登录态）。
+> ⚠ **口径已更新（原写「渠道不实现登出」）**：渠道实现了「本地销毁」
+> `cred.logout()`（2026-10-26），但语义是「从 modelmux 移除」，**不是**「把 AStudio 踢下线」。
+> 详见现役 `docs/channels/astudio/PROTOCOL.md` §9。
 
 ---
 
 ## 9. 渠道实现要点（映射到 7 文件契约）
 
+> ⚠ 下表是**当初的快照**，其中 `cred.ts` 的登录方式与 `billing.ts` / `channel.ts` 的
+> 能力位**已反转**，按现役代码为准（`packages/core/channels/astudio/src/`）：
+> `capabilities: { billing: true, signin: true }`。
+
 | 模块 | 实现 |
 | --- | --- |
-| `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` 引导用户走桌面应用登录后落盘到自己的 `credentials.json`；`refresh()` 带 Cookie 打 `/bot/models/configs` 换 `api_key` |
-| `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort` 在档位表内 |
+| `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` **两条路**：有界面走手机号 + 短信验证码（云端直连），无界面读会话文件；`refresh()` 带 Cookie 打 `/bot/models/configs` 换 `api_key`；`logout()` 删本地凭据（**原句「只引导桌面应用登录」已反转**） |
+| `upstream.ts` | `WIRE: "openai"`；`chatUrlForModel()` = 每个模型各自 `base_url` + `/chat/completions`（**原句「chatUrl() = 固定模型网关」已反转**）；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort` 在档位表内 |
 | `catalog.ts` | **静态内置表**（7 个模型，见 §5.2）；`modelSpec()` 给 `contextWindow` / `maxOutputTokens`；**无 `refresh()`**（目录随包内置） |
-| `billing.ts` | `fetchCredits()` 打 `/usage`（契约要求，`billing: false` 时共享层不调）；`signin` 置 `claimable: false` + 说明；**不实现 `quotaPeriod()`** |
-| `channel.ts` | `capabilities: { billing: false, signin: false }` |
+| `billing.ts` | `fetchCredits()` 打 `/points/balance` 报**积分余额**（Cookie，云端直连）；`signin` 有真实链路（`init-app` 发奖）；**不实现 `quotaPeriod()`**（**原句「打 `/usage`、`billing: false` 时不调、`claimable: false`」已反转**） |
+| `channel.ts` | `capabilities: { billing: true, signin: true }`（**原写 `false, false`，已反转**） |
 
-### 9.1 为什么 `billing: false`（踩坑记录）
+### 9.1 「为什么 `billing: false`」的踩坑记录（**结论已反转**）
+
+> ⚠ **已反转**：下面这段推理的前提是「额度取模型网关 `/usage` 的 `balance: 0`」，
+> 而 `balance` 是**用量**不是**额度** —— 现役口径改成**积分余额**（`/points/balance`），
+> 既真实又会变，于是 `billing: true` 不再误冷却账号。
+> 保留下面的推理是**方法论价值**（「错选额度口径会误冷却账号」这个坑是真的），
+> 但结论（`billing: false`）已作废；现役见 `docs/channels/astudio/PROTOCOL.md` §8。
 
 共享层 `markCooldownIfExhausted`（`pool/pool-usage.ts`）的判据是
 **`remain <= 0` 即「额度耗尽」→ 冷却账号**。而 AStudio 免费档的 `/usage`
 **恒返回 `balance: 0`**（真实且永久的状态），于是每轮账单刷新都会把账号打进冷却，
 表现为「上游 503 → 账号冷却 → 之后一直回 `quota_exhausted`」。
 
-渠道侧的判据：**「没有额度墙」就不该声明额度能力**。故：
+正确的判据：**「额度」要取有源的会变的数**（积分余额），不是取恒为 0 的用量字段。
+故现役：
 
-- `capabilities.billing = false` → 共享层跳过账单刷新与冷却；
-- **不实现** `quotaPeriod()` → 契约明说「渠道不认识自己的周期就别实现，编一个假的周期比不实现更糟」；
-- `fetchCredits()` 保留以满足契约，但共享层不会调它。
+- `capabilities.billing = true`，`fetchCredits()` 报积分余额（`/points/balance`）；
+- **仍不实现** `quotaPeriod()`（AStudio 没有额度墙，编一个假的周期比不实现更糟）。
 
 ---
 

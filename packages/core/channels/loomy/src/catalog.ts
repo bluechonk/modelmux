@@ -86,7 +86,7 @@ interface CatalogEntry {
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
  * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/MODEL-SPECS.md`（唯一事实源；渠道表在本文件的 `MAX_OUTPUTS`）。
+ * 数值与来源见 `docs/channels/loomy/PROTOCOL.md` §8「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
   "deepseek-v4.1-flash": 393_216,

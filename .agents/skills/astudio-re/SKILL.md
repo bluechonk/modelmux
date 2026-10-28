@@ -9,8 +9,10 @@ description: 逆向 Agent 应用上游协议的完整方法论（解包 / 抓包
 
 **本技能是方法论的一次落地** —— 方法论本身（四条证据链、五阶段工作流、换应用怎么映射）
 在 [references/METHODOLOGY.md](references/METHODOLOGY.md)，**先读它**；换一个应用逆向时
-把 AStudio 的参数换成新应用的即可。AStudio 的协议事实（端点、字段、状态码、证据等级）
-在 [references/PROTOCOL.md](references/PROTOCOL.md)；
+把 AStudio 的参数换成新应用的即可。**现役协议事实**在
+[docs/channels/astudio/PROTOCOL.md](../../../docs/channels/astudio/PROTOCOL.md)；
+本技能的 [references/PROTOCOL.md](references/PROTOCOL.md) 是当初的**逆向快照**
+（若干结论已被推翻，文中逐条标注「已反转」）—— **方法论价值在此，事实以现役文档为准**。
 **方法论的完整实跑记录**（从零推导上游 API 的真实命令与输出，含「推理主机不在安装包里」
 的破案过程）在 [references/WALKTHROUGH.md](references/WALKTHROUGH.md)。
 
@@ -88,8 +90,9 @@ node $S/astudio-probe.mjs local      # 本地服务账号面
 
 ### Stage 4 落文档
 
-结论写进 [references/PROTOCOL.md](references/PROTOCOL.md)，并在
-`docs/channels/astudio/PROTOCOL.md` 同步（后者是渠道实现依据，前者是逆向过程与证据）。
+结论写进 **`docs/channels/astudio/PROTOCOL.md`**（现役渠道实现依据）；
+本技能 [references/PROTOCOL.md](references/PROTOCOL.md) 只保留**逆向过程与证据快照**
+（结论被推翻时在文中标注「已反转」，不再作为事实源）。
 
 ## AStudio 案例的坑（方法论走一遍后才知道的事）
 
@@ -111,5 +114,5 @@ node $S/astudio-probe.mjs local      # 本地服务账号面
 ## 与 modelmux 渠道的衔接
 
 渠道包在 `packages/core/channels/astudio/`（7 文件契约），实现要点见
-[references/PROTOCOL.md](references/PROTOCOL.md) §9。改渠道时遵守仓库 `AGENTS.md`：
+[docs/channels/astudio/PROTOCOL.md](../../../docs/channels/astudio/PROTOCOL.md) §10。改渠道时遵守仓库 `AGENTS.md`：
 渠道不写单测，端到端按 `opencode-mx-test` skill 跑。

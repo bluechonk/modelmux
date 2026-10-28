@@ -250,7 +250,7 @@ export function idleTimeoutMs(): number {
  * 构造上游请求头。
  *
  * ⚠ 对话形态**不含** `X-Client-Version` / `X-Client-Device-ID`（协议 §2.1 内联实测）；
- * 这两个头原先只随**已移除的短信登录**发出（全仓无其它发送方）⇒ 不再构造。
+ * 这两个头只在短信登录路径用过，该路径已不存在（全仓无构造方）⇒ 不构造。
  * ⚠ 对话形态也**不含** `User-Agent`（只有 `jsonHeaders` 那一族带）。
  */
 export function buildHeaders(credential: AuthLike, opts: HeaderOptions = {}): Record<string, string> {

@@ -190,7 +190,7 @@ describe("账号额度冷却：短路不计连败（2026-10-24 workbuddy 事故�
 
     const hitsBefore = upstream.hits();
     const statuses: number[] = [];
-    // 6 次 > FAIL_STREAK_LIMIT(3)：旧实现到第 3 次就会打成 error
+    // 6 次 > FAIL_STREAK_LIMIT(3)：冷却短路无论多少次都不得累加连败，否则会涨到上限被打成 error
     for (let i = 0; i < 6; i += 1) {
       const { status } = await chat(gw.addr);
       statuses.push(status);

@@ -459,8 +459,8 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
   `/v1/models` 显示的是**上游声明值**；规格表只在目录没声明（或目录缓存缺失）时兜底。
 - ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
   `maxOutputTokens` = **单次回复**上限。
-- 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：`docs/MODEL-SPECS.md` §3
-  （联网核实的唯一事实源）；键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。
+- 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：**公开规格**（联网核实；
+  取值链与兜底口径见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0）；键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。
 
 | 规范模型名 | 上下文 | 单次回复上限 |
 | --- | --- | --- |
@@ -492,13 +492,13 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 **目录写法与公开规格名不一致**（按上游展示名对应同一型号，值取公开规格表那一行）：
 `deepseek-v4.1-flash-sg` = `deepseek-v4.1-flash`（展示名 Deepseek-V4.1-Flash，
 `-sg` 是区域变体）。Gemini 的 1048576 是**输入**上限（输出上限另算 65536），
-见 `docs/MODEL-SPECS.md` §2。
+见 `src/catalog.ts` 的 `MODEL_SPECS`。
 
 **留空**（不写规格，回落兜底值）：
 
 | 规范模型名 | 原因 |
 | --- | --- |
-| `default-model` / `fast-model` / `balanced-model` / `primary-model` | 平台**档位别名**（按账号档位路由到不同底层模型），无单一规格（`docs/MODEL-SPECS.md` §4） |
+| `default-model` / `fast-model` / `balanced-model` / `primary-model` | 平台**档位别名**（按账号档位路由到不同底层模型），无单一规格（**不编造数字** ⇒ 留空） |
 
 ### 已知限制（实测）
 

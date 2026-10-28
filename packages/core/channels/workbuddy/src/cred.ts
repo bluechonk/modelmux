@@ -23,7 +23,7 @@ export const DEFAULT_BASE_URL = "https://copilot.tencent.com";
 /** 向插件端点标识本客户端。 */
 const PLATFORM_QS = "platform=workbuddy";
 
-/** 轮询窗口：官方客户端口径 300s（`[参考]` hub docs/protocol-reference.md:2164-2167）。 */
+/** 轮询窗口：官方客户端口径 300s（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:2164-2167）。 */
 const LOGIN_WINDOW_MS = 5 * 60 * 1000;
 /** 轮询间隔：官方客户端口径 1000ms（同上）。 */
 const POLL_INTERVAL_MS = 1000;
@@ -251,7 +251,7 @@ function commonHeaders(): Record<string, string> {
  * 把请求标记为匿名（未鉴权）的插件端点头。
  *
  * 官方客户端在授权完成前必须带这四个抑制头（值均为字符串 `"true"`），
- * 否则会被判成「未授权访问受保护接口」（`[参考]` hub
+ * 否则会被判成「未授权访问受保护接口」（`[参考]` xiaofan6ya/workbuddy2api 的
  * docs/protocol-reference.md:2165-2167）。
  */
 function anonHeaders(): Record<string, string> {

@@ -160,9 +160,9 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 
 | 情形 | 判据 | 账号状态 | 恢复方式 |
 |---|---|---|---|
-| 瞬时故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error` + `trip_until`（Web 显示「熔断 · X 后试探」） | **到期自动半开试探**：成功恢复 `ok`，再失败退避翻倍（30s → 1m → … 封顶 30min）；也可用「解除」按钮提前恢复 |
+| 瞬时故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error` + `trip_until`（Web 显示「熔断 · X 后试探」） | **到期自动恢复**（半开试探）：成功恢复 `ok`，再失败退避翻倍（30s → 1m → … 封顶 30min） |
 | 凭据失效 | 401/403、刷新失败、`not_authenticated` | `unauthorized` | 只能重新登录（自动重试永远无效） |
-| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却 · 原因 · X 后恢复」） | **到期自动恢复**（惰性，无需定时器），也可用「解除」按钮**提前放行** |
+| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却 · 原因 · X 后恢复」） | **到期自动恢复**（惰性，无需定时器，到期自动放行） |
 
 **熔断自动恢复（`trip_until`，2026-10-28 起）**：
 
@@ -171,16 +171,18 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 - 试探成功 → `markActiveHealth("ok")` / `noteAccountSuccess()` 清掉 `trip_until` / `trip_backoff_ms`；
 - 试探再失败 → 退避翻倍（上限 30 分钟）。旧数据缺 `trip_until` 视为「早已到期」，升级后自动自检一次。
 
-**「解除」按钮**（`clearAccountState(key, cid)` → Web 命令 `resetAccount`）：
+**手动解除（后端命令 `resetAccount` → `clearAccountState`）**：
 
 - 语义：清零 `fail_streak` + 清掉 `cooldown_until` / `cooldown_reason` / `trip_until` /
   `trip_backoff_ms` + `error`/`cooldown` 恢复 `ok`；**不动凭证**，因此池里**任何账号**都能清
   （不只是生效那个），与「切号」（`activateAccount`，会顺带把凭证切为生效）分开。
-- 为什么要它：想跳过等待、立刻放行时使用；熔断本身已能自动恢复（见上），按钮是提前恢复手段。
+- **Web 已不提供按钮**：熔断与冷却都有自动恢复路径（见上），手动提前恢复不再是必需，
+  故 UI 上不再设入口；`resetAccount` 仅作为调用面保留（`/web/api/commands` 仍接受），
+  供 CLI 与自动化在需要跳过等待时使用。
 - 同源校验与其它写命令一致（`/web/api/commands` 只收同源请求）；
   生效账号解除后同时清进程内的 `healthCache`，避免下一次 `markActiveHealth` 拿旧值短路。
 - ⚠ **`unauthorized` 不允许解除**：那是凭据本身失效（token 被撤销），清标记只会让界面假装
-  正常、下一次请求照样失败 —— 该状态只能重新登录。命令会返回原因，Web 上如实显示。
+  正常、下一次请求照样失败 —— 该状态只能重新登录。命令会返回原因并如实上报。
 - 幂等：本来就没有标记时返回「没有需要解除的标记」，不改盘、不报错。
 
 - 写入：`noteAccountQuotaExhausted(cid, { until, reason })` —— **不动 `fail_streak`**
@@ -529,7 +531,7 @@ interface CredModule {
   未声明该能力的渠道保持「只对当前生效凭证」的旧行为。
 - **连败标记**：连续**瞬时**失败达 `FAIL_STREAK_LIMIT = 3` 次即熔断（`error` + `trip_until`），
   **凭证一律保留**；到期自动放行一次半开试探（成功恢复、再失败退避翻倍）。
-  也可手动「解除」（`clearAccountState`）、切号（`mx acct <cid> use <key>`）或重登提前恢复。
+  也可用后端命令 `resetAccount` 提前恢复、切号（`mx acct <cid> use <key>`）或重登提前恢复。
 - **额度耗尽自动换号**：请求失败（错误码属「可能是额度问题」那类）后按**账单证据**
   决定是否换到池内有额度的账号，并在**同一请求**里重试一次；判据与边界见 §2.4。
   这是**唯一**的自动切号路径 —— 鉴权失效仍然只能手动。
@@ -612,8 +614,8 @@ interface CredModule {
 |---|---|
 | `mx acct`（`<cid>` / `--json`） | 列出池子；**首次查看会把已登录的凭证自动收进池子** |
 | `mx acct <cid> add` | 走渠道自己的登录流程（浏览器授权）→ 成功后入池并设为生效 |
-| `mx acct use <key>` | 切换生效账号 |
-| `mx acct remove <key>` | 从池子删除（生效账号 → 同时登出） |
+| `mx acct <cid> use <key>` | 切换生效账号 |
+| `mx acct <cid> remove <key>` | 从池子删除（生效账号 → 同时登出） |
 | `login` 成功后 / 守护 `start` 前 | 自动同步（登录即入池；刷新过的 token 回灌） |
 | `mx bill [<cid>] [--accounts]` | 额度：渠道级一行 + **逐账号**行（池内 ≥2 个账号时默认列出） |
 | 请求失败且账单证明额度耗尽 | **自动换号**并重试一次（§2.4；唯一自动切号路径） |
