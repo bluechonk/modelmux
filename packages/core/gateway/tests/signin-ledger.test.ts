@@ -2,7 +2,8 @@
  * 签到台账（`state/signin.json`）：本地记「我们最后一次实际领到是什么时候」。
  *
  * 重点验三件容易错的事：**时区/跨零点**（日期怎么算）、**同日去重与历史上限**、
- * **损坏容忍**（台账坏了不能让"今天签没签"变成崩溃）。
+ * **损坏容忍**（台账坏了不能让"今天签没签"变成崩溃）；
+ * 外加**按账号记录**（`accounts[key]`，签到按账号调度的门禁，见 auto-signin.ts）。
  */
 
 import assert from "node:assert/strict";
@@ -14,6 +15,7 @@ import { describe, it } from "node:test";
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
 import * as paths from "../dist/runtime/paths.js";
 import {
+  claimedTodayForAccount,
   claimedTodayPerLedger,
   currentTimezone,
   dateInTimezone,
@@ -149,5 +151,51 @@ describe("4. 损坏容忍", () => {
     assert.equal(ledger.history.length, 1);
     assert.equal(ledger.history[0]!.date, "2026-10-08");
     assert.equal(ledger.timezone, "Asia/Shanghai");
+  }));
+});
+
+describe("5. 按账号记录（签到按账号调度的门禁）", () => {
+  it("账号级记录互不影响，渠道级视图同步更新", withRoot(() => {
+    recordClaim(CID, { via: "auto", accountKey: "acct-1" });
+    assert.equal(claimedTodayForAccount(CID, "acct-1"), true);
+    assert.equal(claimedTodayForAccount(CID, "acct-2"), false, "没记过的账号不得为已签");
+    // 渠道级视图（mx status 摘要）跟着更新
+    assert.equal(claimedTodayPerLedger(CID), true);
+
+    recordClaim(CID, { via: "auto", accountKey: "acct-2" });
+    const ledger = readLedger(CID);
+    assert.equal(ledger.accounts?.["acct-1"]?.via, "auto");
+    assert.equal(ledger.accounts?.["acct-2"]?.via, "auto");
+    assert.equal(Object.keys(ledger.accounts ?? {}).length, 2, "两个账号各一条，不互相覆盖");
+  }));
+
+  it("不带账号的记录不破坏已有账号级记录", withRoot(() => {
+    recordClaim(CID, { via: "cli", accountKey: "acct-1" });
+    recordClaim(CID, { via: "cli" }); // 渠道级（如手动 CLI 领取）
+    assert.equal(claimedTodayForAccount(CID, "acct-1"), true, "账号级记录必须保留");
+  }));
+
+  it("旧格式（无 accounts 字段）可读：账号级查询返回 false，写入后旧历史不丢", withRoot((root) => {
+    const file = join(root, CID, "state", "signin.json");
+    paths.ensureStateDir(CID);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        timezone: "Asia/Shanghai",
+        last_claim: { date: "2000-01-01", at: "2000-01-01T00:00:00.000Z", via: "auto" },
+        history: [{ date: "2000-01-01", at: "2000-01-01T00:00:00.000Z", via: "auto" }],
+      }),
+      "utf8",
+    );
+    const before = readLedger(CID);
+    assert.equal(before.last_claim?.via, "auto", "旧字段仍可读");
+    assert.equal(before.accounts, undefined, "旧文件没有 accounts");
+    assert.equal(claimedTodayForAccount(CID, "acct-x"), false, "旧文件下账号级查询返回 false");
+
+    recordClaim(CID, { via: "auto", accountKey: "acct-x" });
+    const after = readLedger(CID);
+    assert.equal(after.history.length, 2, "历史保留（新记录 + 旧记录）");
+    assert.equal(claimedTodayForAccount(CID, "acct-x"), true);
   }));
 });

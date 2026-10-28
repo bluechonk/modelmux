@@ -34,6 +34,14 @@ export interface SigninLedger {
   last_claim?: ClaimRecord;
   /** 历史（新→旧，最多 `HISTORY_LIMIT` 条）。 */
   history: ClaimRecord[];
+  /**
+   * **按账号**的领取记录（键 = 账号 key）；支持按账号签到的渠道用它。
+   *
+   * 为什么和 `last_claim` 并存：`last_claim`/`history` 是**渠道级**视图（`mx status` 摘要、
+   * CLI 话术都用它），而按账号调度需要「这个账号今天领过没有」——
+   * 两者粒度不同，不能互相替代。
+   */
+  accounts?: Record<string, ClaimRecord>;
 }
 
 export const HISTORY_LIMIT = 30;
@@ -98,7 +106,28 @@ export function readLedger(cid?: string): SigninLedger {
         };
       }
     }
-    return { version: 1, timezone, history, ...(last ? { last_claim: last } : {}) };
+    const accountsRaw = rec["accounts"];
+    const accounts: Record<string, ClaimRecord> = {};
+    if (accountsRaw && typeof accountsRaw === "object" && !Array.isArray(accountsRaw)) {
+      for (const [key, item] of Object.entries(accountsRaw as Record<string, unknown>)) {
+        if (!key || !item || typeof item !== "object") continue;
+        const entry = item as Record<string, unknown>;
+        const date = typeof entry["date"] === "string" ? entry["date"] : "";
+        if (!date) continue;
+        accounts[key] = {
+          date,
+          at: typeof entry["at"] === "string" ? entry["at"] : "",
+          via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
+        };
+      }
+    }
+    return {
+      version: 1,
+      timezone,
+      history,
+      ...(last ? { last_claim: last } : {}),
+      ...(Object.keys(accounts).length > 0 ? { accounts } : {}),
+    };
   } catch {
     return empty;
   }
@@ -111,9 +140,9 @@ export function readLedger(cid?: string): SigninLedger {
  */
 export function recordClaim(
   cid?: string,
-  options: { via?: string; now?: Date; timezone?: string } = {},
+  options: { via?: string; now?: Date; timezone?: string; accountKey?: string } = {},
 ): ClaimRecord {
-  const { via = "cli", now = new Date(), timezone = currentTimezone() } = options;
+  const { via = "cli", now = new Date(), timezone = currentTimezone(), accountKey } = options;
   const record: ClaimRecord = {
     date: dateInTimezone(now, timezone),
     at: now.toISOString(),
@@ -127,6 +156,12 @@ export function recordClaim(
     // 同一天重复记只留一条（最新的那条）
     history: [record, ...ledger.history.filter((h) => h.date !== record.date)].slice(0, HISTORY_LIMIT),
   };
+  if (accountKey) {
+    // 账号级记录：只按该账号更新，不影响别的账号
+    next.accounts = { ...(ledger.accounts ?? {}), [accountKey]: record };
+  } else if (ledger.accounts) {
+    next.accounts = ledger.accounts;
+  }
   ensureStateDir(cid);
   writeJsonSecret(ledgerPath(cid), next);
   return record;
@@ -137,6 +172,19 @@ export function claimedTodayPerLedger(cid?: string, now: Date = new Date()): boo
   const ledger = readLedger(cid);
   const today = dateInTimezone(now, currentTimezone());
   return ledger.last_claim?.date === today;
+}
+
+/**
+ * **该账号**今天是否已领（按账号签到的调度器用它做门禁）。
+ *
+ * ⚠ 与 `claimedTodayPerLedger(cid)`（渠道级）的区别：渠道级只回答「本渠道今天有没有领过」，
+ * 拿它给多账号渠道做门禁会导致「一个账号领了 → 其余账号当天全被跳过」（实测踩过：loomy
+ * 新加 3 个账号的新手任务因此全部没领）。按账号调度必须用这个。
+ */
+export function claimedTodayForAccount(cid: string | undefined, accountKey: string, now: Date = new Date()): boolean {
+  const ledger = readLedger(cid);
+  const today = dateInTimezone(now, currentTimezone());
+  return ledger.accounts?.[accountKey]?.date === today;
 }
 
 /** 台账是否存在（用于区分"没有记录"和"记录说没领"）。 */
