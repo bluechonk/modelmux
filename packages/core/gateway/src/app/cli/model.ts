@@ -12,6 +12,7 @@ import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, POOL_MODELS, poolCandidates, poolModelId, poolModelMetas } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
+import { readModelSpecs, writeModelSpec } from "../../runtime/model-specs.js";
 import * as daemon from "../lifecycle/daemon.js";
 import * as headless from "../lifecycle/headless.js";
 import * as report from "./report.js";
@@ -311,7 +312,7 @@ export async function listLogins(json: boolean): Promise<number> {
   return 0;
 }
 
-/** `model <list|usage> [--refresh]`。 */
+/** `model <list|usage|spec> [--refresh]`。 */
 
 export async function runModelGroup(args: string[], ctx: CommandContext): Promise<number> {
   const sub = args[0] ?? "list";
@@ -320,10 +321,98 @@ export async function runModelGroup(args: string[], ctx: CommandContext): Promis
       return listPoolModels(ctx.json);
     case "usage":
       return showPoolUsage(ctx.json, ctx.refresh);
+    case "spec":
+      return showModelSpec(args[1] ?? "", ctx.json);
     default:
-      console.error(`未知的 model 子命令: ${sub}（可用: list / usage）`);
+      console.error(`未知的 model 子命令: ${sub}（可用: list / usage / spec）`);
       return 2;
   }
+}
+
+/**
+ * `model spec <model>`：查看某模型的规格（窗口/输出/档位/倍率/输入模态）。
+ *
+ * `<model>` 可以是裸模型名（如 `deepseek-v4-flash`，此时从 model-specs.json 查询）
+ * 或池 id 形态（如 `catpaw/deepseek-v4-flash`，此时连渠道上游目录一起查）。
+ */
+
+async function showModelSpec(model: string, json: boolean): Promise<number> {
+  if (!model) {
+    console.error("model spec 需要指定模型名");
+    return 2;
+  }
+
+  // 从 model-specs.json 取全局规格
+  const globalSpecs = readModelSpecs();
+
+  // 如果是 <cid>/<model> 形态，再查渠道上游目录
+  const hasCid = model.includes("/");
+  const canonical = hasCid ? canonicalModelId(model.slice(model.indexOf("/") + 1)) : canonicalModelId(model);
+  const globalEntry = globalSpecs.models[canonical];
+
+  // 上游目录查询（仅池 id 形态）
+  let upstreamMeta: ReturnType<typeof poolModelMetas> extends Map<string, infer V> ? V | null : never = null;
+  let upstreamCid = "";
+  if (hasCid) {
+    const metas = poolModelMetas([model]);
+    upstreamMeta = metas.get(model) ?? null;
+    upstreamCid = model.slice(0, model.indexOf("/"));
+  }
+
+  if (json) {
+    console.log(JSON.stringify({
+      model: canonical,
+      ...(upstreamMeta ? {
+        cid: upstreamCid,
+        upstream: {
+          contextWindow: upstreamMeta.contextWindow,
+          maxOutputTokens: upstreamMeta.maxOutputTokens,
+          inputModalities: upstreamMeta.inputModalities,
+          outputModalities: upstreamMeta.outputModalities,
+          effort: upstreamMeta.effort,
+          multiplier: upstreamMeta.multiplier,
+          sources: upstreamMeta.sources,
+        },
+      } : {}),
+      global_spec: globalEntry ?? null,
+    }, null, 2));
+    return 0;
+  }
+
+  // 人读输出
+  console.log(`模型: ${canonical}`);
+  if (globalEntry) {
+    console.log(`\n全局规格（model-specs.json）：`);
+    if (globalEntry.contextWindow !== undefined) console.log(`  最大上下文  ${globalEntry.contextWindow.toLocaleString()}`);
+    if (globalEntry.maxOutputTokens !== undefined) console.log(`  输出上限    ${globalEntry.maxOutputTokens.toLocaleString()}`);
+    if (globalEntry.inputModalities) console.log(`  输入模态    ${globalEntry.inputModalities.join(", ")}`);
+    if (globalEntry.effort) console.log(`  思考模式    ${globalEntry.effort.supportedLevels.join(", ")}（默认 ${globalEntry.effort.defaultLevel}）`);
+    if (globalEntry.multiplier !== undefined) console.log(`  倍率        ${globalEntry.multiplier}`);
+    if (globalEntry._source) console.log(`  来源        ${globalEntry._source}`);
+    if (globalEntry._updated) console.log(`  更新于      ${globalEntry._updated}`);
+  } else {
+    console.log(`\n全局规格：未录入（用 mx model spec ${canonical} --web 联网搜索并写入）`);
+  }
+
+  if (upstreamMeta) {
+    console.log(`\n上游目录（${upstreamCid}）：`);
+    const ctx = upstreamMeta.contextWindow;
+    const out = upstreamMeta.maxOutputTokens;
+    console.log(`  最大上下文  ${ctx ? ctx.toLocaleString() : "上游未声明"}`);
+    console.log(`  输出上限    ${out ? out.toLocaleString() : "上游未声明"}`);
+    console.log(`  输入模态    ${upstreamMeta.inputModalities.join(", ")}`);
+    console.log(`  思考模式    ${upstreamMeta.effort ? `${upstreamMeta.effort.supportedLevels.join(", ")}（默认 ${upstreamMeta.effort.defaultLevel}）` : "上游未声明"}`);
+    console.log(`  倍率        ${upstreamMeta.multiplier ?? "上游未声明"}`);
+    console.log(`  来源        ctx=${upstreamMeta.sources.contextWindow} out=${upstreamMeta.sources.maxOutputTokens} effort=${upstreamMeta.sources.effort}`);
+  } else if (hasCid) {
+    console.log(`\n上游目录：未找到 "${model}"（渠道未登录或模型不存在）`);
+  }
+
+  if (!globalEntry && !upstreamMeta) {
+    console.log(`\n此模型无任何已知规格。联网搜索写入：`);
+    console.log(`  先搜到规格数据，再执行 mx model spec ${canonical} --set '{"contextWindow":...}'`);
+  }
+  return 0;
 }
 
 /**

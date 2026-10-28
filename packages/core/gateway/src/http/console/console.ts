@@ -458,6 +458,121 @@ export function createConsoleHandler(
       return;
     }
 
+    if (path === p("/api/overview")) {
+      if (req.method !== "GET") {
+        json(res, { ok: false, error: "use GET" }, 405);
+        return;
+      }
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      void (async () => {
+        const [{ poolModels, poolModelMetas }, { listAccounts }, { channels }, { runInChannel }] =
+          await Promise.all([
+            import("../../pool/pool-targets.js"),
+            import("../../runtime/account-pool.js"),
+            import("../../runtime/channel.js"),
+            import("../../runtime/channel-context.js"),
+          ]);
+
+        let gateway: { ui_state: string; gateway_error: string };
+        try {
+          const snap = bridge.provider?.() ?? emptySnapshot();
+          gateway = { ui_state: snap.ui_state, gateway_error: snap.gateway_error };
+        } catch {
+          gateway = { ui_state: "unknown", gateway_error: "" };
+        }
+
+        const logPage = queryAccessLogs({ limit: 100 });
+        const usage = {
+          date: logPage.date,
+          requests: logPage.stats.requests,
+          success: logPage.stats.success,
+          failure: logPage.stats.failure,
+          other: logPage.stats.other,
+          slow: logPage.stats.slow,
+          avg_duration_ms: logPage.stats.avgDurationMs,
+          tokens: logPage.stats.tokens,
+        };
+
+        const perChannelLogs = new Map<string, { success: number; failure: number }>();
+        for (const entry of logPage.entries) {
+          if (!entry.cid) continue;
+          const cur = perChannelLogs.get(entry.cid) ?? { success: 0, failure: 0 };
+          if (entry.outcome === "success") cur.success++;
+          else if (entry.outcome === "failure") cur.failure++;
+          perChannelLogs.set(entry.cid, cur);
+        }
+
+        const channelMetas = poolModelMetas();
+        let total = 0;
+        let free = 0;
+        let vision = 0;
+        let thinking = 0;
+        for (const [, meta] of channelMetas) {
+          total++;
+          if (meta.multiplier === 0) free++;
+          if (meta.inputModalities.some((m) => m !== "text")) vision++;
+          if (meta.effort !== null && meta.effort !== undefined) thinking++;
+        }
+
+        const allModels = poolModels();
+        const cidModelCounts = new Map<string, number>();
+        for (const model of allModels) {
+          const cid = model.slice(0, model.indexOf("/"));
+          cidModelCounts.set(cid, (cidModelCounts.get(cid) ?? 0) + 1);
+        }
+
+        const channelList = await Promise.all(
+          channels().map(async (channel) => {
+            const cid = channel.config.cid;
+            const logCounts = perChannelLogs.get(cid) ?? { success: 0, failure: 0 };
+            const statuses = { ok: 0, cooldown: 0, error: 0, unauthenticated: 0 };
+            try {
+              const index = runInChannel(cid, () => listAccounts(cid));
+              for (const acc of index.accounts) {
+                if (acc.health === "ok") statuses.ok++;
+                else if (acc.health === "cooldown") statuses.cooldown++;
+                else if (acc.health === "error") statuses.error++;
+                else if (acc.health === "unauthorized") statuses.unauthenticated++;
+              }
+            } catch {
+              // 渠道未加载或无账号
+            }
+            return {
+              cid,
+              models: cidModelCounts.get(cid) ?? 0,
+              statuses,
+              requests: logCounts,
+            };
+          }),
+        );
+
+        const recent = logPage.entries.slice(0, 5).map((entry) => ({
+          id: entry.id,
+          ts: entry.ts,
+          cid: entry.cid,
+          model: entry.model,
+          outcome: entry.outcome,
+          status: entry.status,
+          duration_ms: entry.durationMs,
+          tokens: entry.tokens,
+        }));
+
+        json(res, {
+          ok: true,
+          date: logPage.date,
+          gateway,
+          usage,
+          channels: channelList,
+          model_pool: { total, free, vision, thinking },
+          recent,
+        });
+      })();
+      return;
+    }
+
     json(res, { ok: false, error: `unknown path ${path}` }, 404);
   };
 }

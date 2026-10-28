@@ -14,6 +14,7 @@
 import { channels, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
+import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { logRecovered, logThrottled } from "../runtime/logger.js";
 
 /**
@@ -600,26 +601,35 @@ function metaFromFacts(
   facts: ChannelFacts,
   model: string,
   cross?: CrossModelFallback,
+  modelSpecs?: ModelSpecEntry,
 ): PoolModelMeta {
   const entry = facts.entry;
-  const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? cross?.contextWindow ?? null;
+  // 取值链：上游 entry → 全局模型规格 → 渠道静态表 spec → 兄弟渠道 cross → 兜底 default
+  const ctx =
+    facts.contextWindow ?? modelSpecs?.contextWindow ?? facts.spec?.contextWindow ?? cross?.contextWindow ?? null;
   const out =
-    facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? cross?.maxOutputTokens ?? null;
-  const effort = facts.effort ?? facts.spec?.effort ?? cross?.effort ?? null;
+    facts.maxOutputTokens ?? modelSpecs?.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? cross?.maxOutputTokens ?? null;
+  const effort = facts.effort ?? modelSpecs?.effort ?? facts.spec?.effort ?? cross?.effort ?? null;
   const output = entry?.["outputModalities"] ?? entry?.["output_modalities"];
+  const inputMods =
+    entry
+      ? inputModalitiesOf(entry)
+      : modelSpecs?.inputModalities
+        ? modelSpecs.inputModalities
+        : DEFAULT_META.inputModalities;
+  // 倍率：上游目录 > 全局规格 > 渠道 spec > 未知（不跨渠道）
+  const multiplier =
+    entry
+      ? firstNumber(entry, MULTIPLIER_KEYS)
+      : modelSpecs?.multiplier ?? facts.spec?.multiplier ?? null;
   return {
     name: entry && typeof entry["name"] === "string" && entry["name"] !== "" ? entry["name"] : model,
-    // 目录里窗口 = 0 表示「上游未声明」——不能当有效值透给客户端
-    // （客户端会按 0/默认猜上下文，实际可用 1M 的模型会被判成 256k）
     contextWindow: ctx ?? DEFAULT_META.contextWindow,
     maxOutputTokens: out ?? DEFAULT_META.maxOutputTokens,
-    inputModalities: entry ? inputModalitiesOf(entry) : DEFAULT_META.inputModalities,
+    inputModalities: inputMods,
     outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
     effort,
-    // 倍率：上游目录声明 > 渠道公开规格（`spec`）> 未知。
-    // ⚠ 没有「跨渠道兜底」这一层 —— 倍率是**渠道自己**的计费口径，
-    // 拿兄弟渠道的值去填等于编造。
-    multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : (facts.spec?.multiplier ?? null),
+    multiplier,
     marketing: entry ? firstString(entry, MARKETING_KEYS) : "",
     sources: {
       contextWindow:
@@ -627,25 +637,31 @@ function metaFromFacts(
           ? "default"
           : facts.contextWindow !== null
             ? "upstream"
-            : facts.spec?.contextWindow !== undefined
+            : modelSpecs?.contextWindow !== undefined
               ? "spec"
-              : "cross",
+              : facts.spec?.contextWindow !== undefined
+                ? "spec"
+                : "cross",
       maxOutputTokens:
         out === null
           ? "default"
           : facts.maxOutputTokens !== null
             ? "upstream"
-            : facts.spec?.maxOutputTokens !== undefined
+            : modelSpecs?.maxOutputTokens !== undefined
               ? "spec"
-              : "cross",
+              : facts.spec?.maxOutputTokens !== undefined
+                ? "spec"
+                : "cross",
       effort:
         effort === null
           ? "default"
           : facts.effort !== null
             ? "upstream"
-            : facts.spec?.effort !== undefined
+            : modelSpecs?.effort !== undefined
               ? "spec"
-              : "cross",
+              : facts.spec?.effort !== undefined
+                ? "spec"
+                : "cross",
     },
   };
 }
@@ -659,7 +675,7 @@ function metaFromFacts(
  * `cross` 传 `buildCrossModelIndex()` 的结果时启用**跨渠道兜底**（只填缺值）。
  * 不传 = 不做跨渠道兜底：单查（转发路径只取倍率）不值得为它扫全池 —— 见 `poolModelMetas()`。
  */
-export function getPoolModelMeta(model: string, cross?: CrossModelIndex): PoolModelMeta {
+export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSpecs?: Record<string, ModelSpecEntry>): PoolModelMeta {
   const parsed = parsePoolModel(model);
   if (!parsed) return DEFAULT_META;
   const channel = findChannel(parsed.cid);
@@ -670,7 +686,7 @@ export function getPoolModelMeta(model: string, cross?: CrossModelIndex): PoolMo
   } catch {
     facts = EMPTY_FACTS;
   }
-  return metaFromFacts(facts, model, cross?.get(parsed.model));
+  return metaFromFacts(facts, model, cross?.get(parsed.model), modelSpecs?.[parsed.model]);
 }
 
 /**
@@ -681,8 +697,9 @@ export function getPoolModelMeta(model: string, cross?: CrossModelIndex): PoolMo
  */
 export function poolModelMetas(ids?: readonly string[]): Map<string, PoolModelMeta> {
   const index = buildCrossModelIndex();
+  const specs = readModelSpecs().models;
   const out = new Map<string, PoolModelMeta>();
-  for (const id of ids ?? poolModels()) out.set(id, getPoolModelMeta(id, index));
+  for (const id of ids ?? poolModels()) out.set(id, getPoolModelMeta(id, index, specs));
   return out;
 }
 

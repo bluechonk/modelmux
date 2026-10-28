@@ -16,6 +16,7 @@ import type {
   AccessLogStats,
   AccessOutcome,
   LogQuery,
+  OverviewResponse,
   PayloadQueryResult,
   UiSnapshot,
 } from "./types";
@@ -729,5 +730,87 @@ export function demoLogPayload(id: string): PayloadQueryResult {
         body: JSON.stringify({ ...meta, model: "kimi-k2.6", messages: upstreamMessages }),
       },
     ],
+  };
+}
+
+/** 演示仪表盘聚合视图（对应 `GET /web/api/overview`）。 */
+export function demoOverview(state: DemoState): OverviewResponse {
+  const logPage = demoLogs(state, { limit: 100 });
+  const date = new Date().toISOString().slice(0, 10);
+
+  // 每渠道今日成败（从 demo 日志条目聚合）
+  const perChannel = new Map<string, { success: number; failure: number }>();
+  for (const e of logPage.entries) {
+    if (!e.cid) continue;
+    const cur = perChannel.get(e.cid) ?? { success: 0, failure: 0 };
+    if (e.outcome === "success") cur.success++;
+    else if (e.outcome === "failure") cur.failure++;
+    perChannel.set(e.cid, cur);
+  }
+
+  // 每渠道模型数（从 demoModels 按 cid 前缀计数）
+  const modelCounts = new Map<string, number>();
+  for (const m of demoModels(state)) {
+    const cid = m.slice(0, m.indexOf("/"));
+    modelCounts.set(cid, (modelCounts.get(cid) ?? 0) + 1);
+  }
+
+  // 渠道列表：模型数 + 账号健康 + 今日成败
+  const channels = state.channels.map((ch) => {
+    const list = state.accounts[ch.cid] ?? [];
+    const statuses = { ok: 0, cooldown: 0, error: 0, unauthenticated: 0 };
+    for (const a of list) {
+      if (a.health === "ok") statuses.ok++;
+      else if (a.health === "cooldown") statuses.cooldown++;
+      else if (a.health === "error") statuses.error++;
+      else if (a.health === "unauthorized") statuses.unauthenticated++;
+    }
+    const logCounts = perChannel.get(ch.cid) ?? { success: 0, failure: 0 };
+    return {
+      cid: ch.cid,
+      models: modelCounts.get(ch.cid) ?? 0,
+      statuses,
+      requests: logCounts,
+    };
+  });
+
+  const info = demoModelInfo(demoModels(state)) ?? {};
+  let total = 0;
+  let free = 0;
+  let vision = 0;
+  let thinking = 0;
+  for (const [, meta] of Object.entries(info)) {
+    total++;
+    if (meta.multiplier === 0) free++;
+    if (meta.inputModalities.some((m) => m !== "text")) vision++;
+    if (meta.effort !== null && meta.effort !== undefined) thinking++;
+  }
+
+  return {
+    ok: true,
+    date,
+    gateway: { ui_state: "running", gateway_error: "" },
+    usage: {
+      date,
+      requests: logPage.stats.requests,
+      success: logPage.stats.success,
+      failure: logPage.stats.failure,
+      other: logPage.stats.other,
+      slow: logPage.stats.slow,
+      avg_duration_ms: logPage.stats.avgDurationMs,
+      tokens: logPage.stats.tokens,
+    },
+    channels,
+    model_pool: { total, free, vision, thinking },
+    recent: logPage.entries.slice(0, 5).map((e) => ({
+      id: e.id,
+      ts: e.ts,
+      cid: e.cid,
+      model: e.model,
+      outcome: e.outcome,
+      status: e.status,
+      duration_ms: e.durationMs,
+      tokens: e.tokens,
+    })),
   };
 }

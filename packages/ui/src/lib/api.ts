@@ -12,6 +12,7 @@ import type {
   ChannelPool,
   CommandResult,
   LogQuery,
+  OverviewResponse,
   PayloadQueryResult,
   PoolRow,
   UiSnapshot,
@@ -27,6 +28,7 @@ import {
   demoLogin,
   demoLogs,
   demoModels,
+  demoOverview,
   demoRemove,
   demoReset,
   demoSettings,
@@ -123,6 +125,8 @@ export interface WebApi {
    * `stop` = 网关进程整体退出，**本页面随之不可达**（恢复需本机终端 `mx start`）。
    */
   gatewayControl(action: "restart" | "stop"): Promise<{ ok: boolean; action: string }>;
+  /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
+  overview(): Promise<OverviewResponse>;
   readonly commands: {
     /** 各方法返回**已解包 data 的扁平对象**（含 ok / message / error）。 */
     login(cid: string, force: boolean): Promise<CommandData>;
@@ -314,6 +318,8 @@ export const api: WebApi = {
       : get(`/api/logs/payload${queryString({ id, date })}`),
   gatewayControl: (action) =>
     IS_DEMO ? demoLater({ ok: true, action }) : post("/api/gateway", { action }),
+  overview: () =>
+    IS_DEMO ? demoLater(demoOverview(demo())) : get("/api/overview"),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),
