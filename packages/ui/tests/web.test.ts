@@ -182,6 +182,8 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
       status: 200,
       outcome: "success",
       durationMs: 1_200,
+      ttfbMs: 200,
+      upstreamMs: 150,
       usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 },
       ...over,
     })}\n`;
@@ -250,6 +252,23 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
     // 倒序：05:00 的失败请求在前
     assert.deepEqual(page.entries.map((e) => e.id), ["req_e2e_bad", "req_e2e_ok"]);
     assert.equal(page.entries[1]?.tokens?.total, 12);
+    // 生成速度口径（completion ÷ 纯生成耗时）需要三段耗时透传，缺一段就只能退化
+    const ok = page.entries[1] as { ttfbMs?: number; upstreamMs?: number } | undefined;
+    assert.equal(ok?.ttfbMs, 200, "ttfbMs 必须透传给前端");
+    assert.equal(ok?.upstreamMs, 150, "upstreamMs 必须透传给前端");
+  });
+
+  it("/api/overview 的最近请求带三段耗时（仪表盘生成速度口径需要）", async () => {
+    const res = await fetch(`${server.url}api/overview`);
+    assert.equal(res.status, 200);
+    const payload = (await res.json()) as {
+      ok: boolean;
+      recent?: Array<{ duration_ms?: number; ttfb_ms?: number; upstream_ms?: number }>;
+    };
+    assert.equal(payload.ok, true);
+    const first = (payload.recent ?? [])[0];
+    assert.equal(typeof first?.duration_ms, "number", "recent 必须带 duration_ms");
+    assert.equal(typeof first?.ttfb_ms, "number", "recent 必须带 ttfb_ms（否则生成速度算不准）");
   });
 
   it("过滤参数生效（outcome / cid / 关键词）", async () => {
