@@ -253,12 +253,15 @@ function tripDetailOf(account: PoolAccount): { label: string; detail: string } |
   }
   if (account.health === "error") {
     const until = account.trip_until ? Date.parse(account.trip_until) : Number.NaN;
-    const when = Number.isFinite(until) ? shortSpan(until - Date.now()) : "?";
     const backoff = Number(account.trip_backoff_ms ?? 0);
     const retry = backoff > 0 ? `退避 ${shortSpan(backoff)}` : "退避中";
+    // trip_until 缺失（旧记录）时不渲染 "? 后"——试探时刻未知，但「下次请求会试探」的语义仍在
+    const probe = Number.isFinite(until)
+      ? `${shortSpan(until - Date.now())} 后自动试探 · `
+      : "下次请求自动试探 · ";
     return {
       label: "熔断中",
-      detail: `${when} 后自动试探 · 连续失败 ${Number(account.fail_streak ?? 0)} 次 · ${retry}`,
+      detail: `${probe}连续失败 ${Number(account.fail_streak ?? 0)} 次 · ${retry}`,
     };
   }
   if (account.health === "unauthorized") {
