@@ -811,7 +811,11 @@ export interface PayloadRecord {
   body: string;
 }
 
-const DEFAULT_PAYLOAD_MAX_BYTES = 256 * 1024;
+/**
+ * 单条抓取上限：10MB —— agent 会话上下文（系统提示 + 多轮 + 工具结果）实测 1-8MB 级，
+ * 256KB 老值几乎必然截断、最新对话全丢。超限走双端兜底（见 clipPayload）。
+ */
+const DEFAULT_PAYLOAD_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_PAYLOAD_DAYS = 3;
 
 function payloadDays(): number {
@@ -834,7 +838,8 @@ function payloadCids(): string[] | null {
 }
 
 /**
- * 截断到单条上限。
+ * 截断到单条上限：超过时**双端保留**（头尾各半），而不是保头弃尾 ——
+ * agent 会话的最新消息（排查重点）在尾部，截旧尾等于没截在点子上。
  *
  * 截断可能切在 UTF-8 中间（会产生替换字符）—— 这是刻意的取舍：抓包的价值在
  * 「看到构造」，为了一个字符去做边界对齐不划算；`truncated` 已经如实标注。
@@ -842,10 +847,16 @@ function payloadCids(): string[] | null {
 function clipPayload(body: Buffer | string): Pick<PayloadRecord, "body" | "bytes" | "truncated"> {
   const buf = typeof body === "string" ? Buffer.from(body, "utf8") : body;
   const max = payloadMaxBytes();
+  if (buf.length <= max) {
+    return { body: buf.toString("utf8"), bytes: buf.length, truncated: false };
+  }
+  const head = buf.subarray(0, Math.floor(max / 2)).toString("utf8");
+  const tail = buf.subarray(buf.length - Math.floor(max / 2)).toString("utf8");
+  const note = `\n\n…（请求体超 ${(max / 1024 / 1024).toFixed(0)}MB，仅保留首尾；共 ${buf.length} 字节）…\n\n`;
   return {
-    body: buf.subarray(0, max).toString("utf8"),
+    body: head + note + tail,
     bytes: buf.length,
-    truncated: buf.length > max,
+    truncated: true,
   };
 }
 
