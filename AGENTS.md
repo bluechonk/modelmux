@@ -102,6 +102,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 | 加 / 删账号 | `mx acct <cid> add`（必须给 cid） / `mx acct <cid> remove <key>` |
 | 看存储落点 | `mx path [<cid>]` / `mx path --all` |
 | 打开 Web 控制台 | `mx web`（确保网关在跑并打印 `/web/`；加 `--open` 才开浏览器） |
+| **发版（打 tag）** | 改全部版本号落点（各 `package.json` + 渠道 `channel.ts`）→ `chore(release): 发布 vX.Y.Z` 提交 → PR 合并 → 在 main 打 `vX.Y.Z` tag；**不建 Release**（见「版本与发版」） |
 | **查日志 / 排查故障** | 走 `log-triage` 技能（`mx log` 的 `--kind` / `--outcome` / `--date` 组合与判读都在那儿） |
 
 命令形态的完整设计（动词优先、为什么 `mx <cid> <动词>` 不可用）见 `.agents/skills/mx-cli/SKILL.md` §0
@@ -404,6 +405,35 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test
 - 本仓库的 WSL 门禁不允许以「改动很小」「只改了注释/文档/CI 配置」为由跳过。
 - **workflow 文件不许「改完直接推，看 CI 结果再说」** —— workflow 的失败模式通常只有真跑产物才暴露
   （如 CI 的 node 版本矩阵与本地不一致），推到云上再改要多一轮提交。
+
+## 版本与发版
+
+**强制**。全局 `~/.zcode/AGENTS.md`「标签与发布」规定「打 tag → 出 Release」，
+**本仓库只做前半步**：
+
+1. **发版 = 打 tag，到此为止。不要建 GitHub Release**（`gh release create`、`github:release`
+   技能一律不用）—— 本仓的发布物就是 tag 本身：仓库没有任何发布流程（无 `npm publish`、
+   无产物打包 workflow），Release 页面只承载一份版本说明，而那份说明的权威来源是 `git log`。
+   ⚠ 与全局规则的这一条冲突时**以本条为准**；`v0.1.0` 那个 draft Release 是历史遗留，不要动它。
+2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与各 `package.json` 的 `version`，
+   按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
+   不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。
+3. **版本号落点（下面每一处都要改；新增渠道时落点随之增加）**：
+   - 根 `package.json`，以及 `packages/cli` / `packages/ui` / `packages/core/gateway` /
+     **每个渠道包**的 `package.json`；
+   - **每个渠道包**的 `packages/core/channels/<cid>/src/channel.ts` 里的 `version` 字段
+     （`mx --version` 读它）；
+   - 根 `package-lock.json` 的两处（顶层 `version` 与 `packages[""].version`）；
+   - `docs/PROGRESS.md` 的「当前版本」。
+   提交信息 `chore(release): 发布 vX.Y.Z`，正文按类型归纳本版变更（体例对齐 v0.1.1 / v0.1.2）。
+   发版提交也走 PR（`main` 有分支保护），tag 打在**合并后的 main** 上。
+4. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒主人，**不要自己擅自发**）。
+   一轮工作结束时满足下列任一情形就提醒：
+   - 新渠道上线或渠道下线；
+   - 契约级行为变更（账号池、路由、日志、存储落点、CLI 命令形态）；
+   - 本轮 `feat` 类提交 ≥ 5 个，或改动跨 ≥ 2 个包；
+   - 距上一个 tag 已积累 ≥ 20 个提交。
+   提醒时一并给出：候选版本号（按第 2 条推）、自上个 tag 以来的提交数与 `feat` / `fix` 分布。
 
 ## 提交信息规范
 
