@@ -989,21 +989,32 @@ function parsePayloadLine(line: string): PayloadRecord | null {
   }
 }
 
+/** 本地日期 `date` 的前一天（payload 查找窗口用；正确处理跨月/跨年）。 */
+function previousDay(date: string): string {
+  const at = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(at.getTime())) return date;
+  at.setDate(at.getDate() - 1);
+  return localDate(at);
+}
+
 /**
  * 按请求 id 读回抓取记录（控制台「上下文」弹窗用）。
  *
- * `date` 未给时从最新日期往前找，命中即止 —— 用户点击触发一次，读量可接受。
+ * 查找窗口必须**跨两天**：抓取记录落在「写入时刻」的日期文件，访问日志行却落在
+ * 「响应结束」的日期文件 —— 跨午夜的长请求两边会分家（23:58 开始的流式请求，
+ * 正文在当晚、访问行在次日）。而抓取只发生在解析与发送时，必不晚于响应结束
+ * （请求生命周期受上游空闲超时约束，远短于一天），所以给定日期时连**前一天**一起扫即完备；
+ * 不给日期则在保留期内全查。
  *
- * ⚠ **读回不受开关门控**：关掉抓取只应停止**新增**，不该把已经落盘的记录一起藏起来
- * （保留期内磁盘上还在，藏起来只会让人没法核对刚抓到的东西）。`enabled` 仍然返回，
+ * 读回不受开关门控：关闭只停止新增，已落盘的记录在保留期内仍可核对。`enabled` 仍然返回，
  * 供调用方在「没有任何记录」时措辞（是「没开抓取」还是「这条没抓到」）。
  */
 export function readPayloads(id: string, date?: string): { enabled: boolean; records: PayloadRecord[] } {
   const enabled = payloadCaptureEnabled();
   if (id === "") return { enabled, records: [] };
-  const dates = date !== undefined && date !== "" ? [date] : payloadDates();
-  for (const day of dates) {
-    const found: PayloadRecord[] = [];
+  const days = date !== undefined && date !== "" ? [date, previousDay(date)] : payloadDates();
+  const found: PayloadRecord[] = [];
+  for (const day of days) {
     for (const file of payloadFiles(day)) {
       let text: string;
       try {
@@ -1017,10 +1028,8 @@ export function readPayloads(id: string, date?: string): { enabled: boolean; rec
         if (rec && rec.id === id) found.push(rec);
       }
     }
-    if (found.length > 0) {
-      found.sort((a, b) => a.seq - b.seq || (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
-      return { enabled, records: found };
-    }
   }
-  return { enabled, records: [] };
+  // client 记录恒先于 upstream 写入，`ts`（带毫秒）本身就是正确顺序；同毫秒再按 seq。
+  found.sort((a, b) => (a.ts === b.ts ? a.seq - b.seq : a.ts < b.ts ? -1 : 1));
+  return { enabled, records: found };
 }
