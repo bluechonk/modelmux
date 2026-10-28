@@ -163,24 +163,7 @@ async function reopenForProbe(
   return next;
 }
 
-// ── 排队进度文案（要求：每轮不同、要换行、超时就劝换渠道）────────
-
-/**
- * 排队进度文案：每轮一条，条条不同。
- *
- * 为什么每轮都要换：客户端把多轮文案拼在同一条消息里显示，同一个文案重复出现
- * 只会看到一堆一模一样的字；换着说才有「还在等」的实感。
- */
-const QUEUE_NOTICES = [
-  "正在排队…",
-  "怎么还在排队啊？！！！",
-  "还在排。我先怀疑一下人生。",
-  "这队伍排得比春运还长……",
-  "排队排得我尾巴都扁了。",
-  "我等到黄花菜都凉了……",
-  "腿都站麻了，它还在排。",
-  "这队排得我鳞片都蓝了。",
-] as const;
+// ── 排队进度（不向客户端输出任何排队文案）──────────────────────
 
 /**
  * 排队放弃文案：超过预算就不再干等，直接劝主人换渠道。
@@ -196,74 +179,31 @@ function queueGiveUpText(cid: string, round: number): string {
   return lines[(round - 1) % lines.length]!;
 }
 
-function queueNoticeText(round: number): string {
-  return QUEUE_NOTICES[(round - 1) % QUEUE_NOTICES.length]!;
-}
-
 /**
- * 向客户端发一条排队进度。
+ * 排队期间只发 SSE 响应头 + 空 role 帧，**不发任何可见文本**。
  *
- * ⚠ **走 `reasoning_content`，不走 `content`**（否则「思考过程被输出在
- *   正文后面」）。原因：客户端（ZCode）按 chunk 到达顺序建行 —— 先到的 content
- *   建「正文行」，后到的 reasoning 建「思考行」，渲染顺序 = 建行顺序。提醒若用
- *   `content`，它先建出正文行，模型的思考就落到了正文后面。改用 `reasoning_content`
- *   后思考行先建、正文行后建，渲染顺序才是「先思考、后正文」。
- *
- * 首条前先发 SSE 响应头 + role 帧（流式惯例）。**只对流式请求调用**：
- * 非流式没有 SSE 通道，排队期间保持沉默（探测层本身仍不写任何字节）。
- * 头一旦发出就不能再改状态码 —— 排队重试本来就发生在同一条候选上、注定 200 + SSE，
- * 后续所有失败都降级为流内 error 帧（`forward.ts` / `relay.ts` 按 `res.headersSent` 处理）。
- * 每条文案以 `\n\n` 收尾：客户端按 markdown 渲染，单个 `\n` 会被折叠成空格
- * （实测多条文案挤成一行），空行才换得动。
+ * 为什么不发排队文案（2026-10-28 主人要求）：agent 客户端会把上一轮 assistant
+ * 输出回灌进下一轮上下文，排队提示（「正在排队…」）会污染模型输入、影响效果。
+ * 空 role 帧只为尽早建立流（客户端按 SSE 语法解析），不产生任何可回灌内容。
+ * **只对流式请求调用**：非流式没有 SSE 通道，排队期间保持沉默（探测层不写字节）。
  */
-function writeQueueNotice(
-  res: ServerResponse,
-  payload: Record<string, unknown>,
-  round: number,
-  progressId: string,
-  created: number,
-): void {
-  const chunk = (delta: Record<string, unknown>): string =>
-    `data: ${JSON.stringify({
-      id: progressId,
-      object: "chat.completion.chunk",
-      created,
-      model: payload["model"],
-      choices: [{ index: 0, delta, finish_reason: null }],
-    })}\n\n`;
-  if (!res.headersSent) {
-    // 与转发层的 custom 线型输出同形（见 forward.ts）：恒为 OpenAI SSE
-    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-    res.write(chunk({ role: "assistant", content: "" }));
-  }
-  res.write(chunk({ reasoning_content: `${queueNoticeText(round)}\n\n` }));
-}
-
-/**
- * 排队解除后补一条**正文**：「排队成功，开始生成…」。
- *
- * 为什么需要这条分界：提醒走 `reasoning_content`（思考块），模型的真思考也走
- * `reasoning_content`，两者在同一个块里；中间没有正文分隔时，「排队中」和
- * 「模型在想什么」糊成一段，看不出排队已经结束。补一条正文后渲染顺序是
- * `思考块(提醒) → 正文(排队成功) → 思考块(真思考) → 正文(回答)`，分界清晰。
- *
- * 只在**排队真的解除过**时发（探测拿到非排队帧），没排过队的请求不受影响。
- */
-function writeQueueCleared(
+function writeQueueHeaders(
   res: ServerResponse,
   payload: Record<string, unknown>,
   progressId: string,
   created: number,
 ): void {
-  const chunk = (delta: Record<string, unknown>): string =>
+  if (res.headersSent) return;
+  res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
+  res.write(
     `data: ${JSON.stringify({
       id: progressId,
       object: "chat.completion.chunk",
       created,
       model: payload["model"],
-      choices: [{ index: 0, delta, finish_reason: null }],
-    })}\n\n`;
-  res.write(chunk({ content: "排队成功，开始生成…\n\n" }));
+      choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
+    })}\n\n`,
+  );
 }
 
 /**
@@ -353,12 +293,6 @@ async function runQueueProbe(
       // ⚠ 必须是**同一个**翻译器实例（半行缓冲在里面）：用探测返回的那个，
       //    转发层才接得上（换新实例会丢半行，残行整帧解析失败被丢弃）。
       state.translator = probe.translator;
-      // 排队真的解除了（拿到非排队帧）→ 补一条正文分界，再交回转发层。
-      // ⚠ 只在**真的排过队**时发：探测直接拿到帧（没排过）也走这个分支，
-      //    那种情况下发「排队成功」是无中生有（实测会凭空多一行）。
-      if (state.queuedAny && probe.frames.length > 0 && ctx.wantStream) {
-        writeQueueCleared(res, payload, progressId, progressCreated);
-      }
       break;
     }
     const elapsed = Date.now() - startedAt;
@@ -371,13 +305,12 @@ async function runQueueProbe(
       break;
     }
     logger(`upstream queued (channel ${cid}), waiting ${Math.round(delayMs / 1000)}s before retry`);
-    // 排队进度：每轮等待前发一条文案，按当前等待秒数分批。
-    // 只对流式发；round 从 1 计，文案随轮次升级。写失败（客户端已断）不在此处理，
-    // 下一轮循环顶部的断连检测会退出。
+    // 排队期间**不向客户端输出任何文本**（会回灌进下一轮模型上下文，污染效果）：
+    // 流式只发一次 SSE 响应头 + 空 role 帧建立流，后续静默等待。
     if (ctx.wantStream) {
       queueRound += 1;
       try {
-        writeQueueNotice(res, payload, queueRound, progressId, progressCreated);
+        writeQueueHeaders(res, payload, progressId, progressCreated);
       } catch {
         /* 客户端已断：交给循环顶部的断连检测 */
       }
