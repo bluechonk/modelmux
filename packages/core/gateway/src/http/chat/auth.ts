@@ -10,7 +10,7 @@
  */
 
 import { type Channel, type Credential } from "../../runtime/channel.js";
-import { activeAccountCooldown, activeAccountIsError, markActiveHealth } from "../../runtime/account-pool.js";
+import { activeAccountCooldown, activeAccountIsError, activeAccountTrip, markActiveHealth } from "../../runtime/account-pool.js";
 import { logThrottled } from "../../runtime/logger.js";
 import { inChannel } from "./channel.js";
 import { openStream, type UpstreamCall } from "./upstream.js";
@@ -46,14 +46,16 @@ export async function callUpstream(
   const cid = channel.config.cid;
   const { cred } = channel;
 
-  // 连续失败被标记 error 的凭据：直接短路，不再对上游发起请求（凭证保留，等用户处理）。
-  // ⚠ 这是**真故障**（凭据坏了），连免费模型也救不了，故不区分模型。
-  // ⚠ **不记账**：error 已是终态，短路再累加连败只会把 fail_streak 刷成无意义的大数
+  // 熔断打开（连败达阈值且未到试探时刻）：直接短路，不再对上游发起请求（凭证保留）。
+  // 到点后放行一次做半开试探：成功恢复 ok，再失败退避翻倍（见 account-pool）。
+  // ⚠ **不记账**：熔断期内短路再累加连败只会把 fail_streak 刷成无意义的大数
   //   （2026-10-24 实测 11 次 not_authenticated 把它刷到 11）。
   if (activeAccountIsError(cid)) {
+    const trip = activeAccountTrip(cid);
+    const wait = trip ? ` auto-probe in ${Math.max(1, Math.ceil(trip.remainingMs / 1000))}s;` : "";
     return {
       kind: "account_error",
-      error: `active account is marked error after repeated failures; switch account (mx acct use) or re-login (mx login ${cid})`,
+      error: `active account is tripped after repeated failures;${wait} or switch account (mx acct use) / re-login (mx login ${cid})`,
     };
   }
 

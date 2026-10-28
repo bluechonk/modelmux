@@ -105,6 +105,14 @@ export interface PoolAccount {
   cooldown_until?: string | null;
   /** 冷却原因（人话，渠道给的判定）。 */
   cooldown_reason?: string;
+  /**
+   * 熔断试探时刻（ISO8601）；`health === "error"` 时有意义。
+   *
+   * 到点后下一次请求自动放行做半开试探：成功恢复、再失败退避翻倍。
+   */
+  trip_until?: string | null;
+  /** 当前熔断退避长度（ms）。 */
+  trip_backoff_ms?: number;
 }
 
 export interface ChannelPool {

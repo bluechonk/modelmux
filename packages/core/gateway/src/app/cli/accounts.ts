@@ -61,6 +61,26 @@ function expiryText(account: PoolAccount): string {
   return `${stamp} 到期（${days} 天后）`;
 }
 
+/** 剩余时长（粗粒度）：`45s` / `3m` / `2h`。 */
+function shortSpan(ms: number): string {
+  if (ms < 60_000) return `${Math.ceil(ms / 1_000)}s`;
+  if (ms < 3_600_000) return `${Math.ceil(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
+/** health 展示：熔断带「X 后自动试探」、冷却带「X 后恢复」，比裸状态码可读。 */
+function healthText(account: PoolAccount): string {
+  if (account.health === "error" && account.trip_until) {
+    const left = Date.parse(account.trip_until) - Date.now();
+    return left > 0 ? `error(${shortSpan(left)}后试探)` : "error(将试探)";
+  }
+  if (account.health === "cooldown" && account.cooldown_until) {
+    const left = Date.parse(account.cooldown_until) - Date.now();
+    return left > 0 ? `cooldown(${shortSpan(left)}后恢复)` : "cooldown(即将恢复)";
+  }
+  return account.health;
+}
+
 function render(pool: ChannelPool): string {
   const lines = [`${pool.cid} (${pool.display}) —— 当前生效: ${pool.index.active ?? "（无）"}`];
   if (pool.index.accounts.length === 0) {
@@ -70,7 +90,7 @@ function render(pool: ChannelPool): string {
   for (const account of pool.index.accounts) {
     const mark = account.key === pool.index.active ? "*" : " ";
     const label = (account.label || "(无备注)").slice(0, 20).padEnd(20);
-    const health = account.health.padEnd(12);
+    const health = healthText(account).padEnd(20);
     const uid = account.uid ? `uid=${account.uid}` : "uid=(空)";
     const exp = expiryText(account);
     lines.push(`  ${mark} ${account.key}  ${label} ${health} ${uid}${exp ? `  ${exp}` : ""}`);
