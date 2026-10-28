@@ -167,8 +167,7 @@ export function ModelExplorer({
     <section className="mb-2">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-normal tracking-tight text-ink">
-          可用模型
-          <span className="ml-2 text-xs font-normal text-ink-faint">渠道/模型</span>
+          渠道 / 模型
         </h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
