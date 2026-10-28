@@ -227,48 +227,39 @@ function shortSpan(ms: number): string {
 }
 
 /**
- * 状态 pill 文案：**只放短状态**，永远不溢出账号行。
+ * 状态 pill 文案：**只有状态词本身**（正常 / 冷却 / 异常 / 没钱）。
  *
- * 完整原因（如「上游用量限额（所有模型都受限）」）走卡头第二行
- * （`tripDetailOf` + 卡头渲染）—— 那里有整卡宽度，可以换行而不裁切。
+ * 冷却剩余时间、熔断退避等具体信息一律放第二行（`tripDetailOf`）——
+ * 标签只回答「现在是什么状态」，不掺时间，避免 pill 变长、语义混杂。
  */
-function statusPillText(
-  status: AccountStatus,
-  account: { health: string; trip_until?: string | null; cooldown_until?: string | null },
-): string {
-  if (account.health === "error" && account.trip_until) {
-    const left = Date.parse(account.trip_until) - Date.now();
-    return left > 0 ? `熔断 · ${shortSpan(left)}` : "熔断 · 即将试探";
-  }
-  if (account.health === "cooldown" && account.cooldown_until) {
-    const left = Date.parse(account.cooldown_until) - Date.now();
-    return left > 0 ? `冷却 · ${shortSpan(left)}` : "冷却 · 即将恢复";
-  }
+function statusPillText(status: AccountStatus): string {
   return STATUS_META[status].text;
 }
 
 /**
- * 生效账号的状态详情：原因 + 恢复/试探时刻（卡头第二行用）。
+ * 账号的状态详情（第二行）：**时间在前、原因在后**。
  *
- * 账号行只有 44px 且额度区要先占位，长文本塞不进去 —— 放卡头才有整卡宽度，
- * 可以换行（WEB-CONSOLE 铁律：信息直接可见，不靠 hover、不裁切）。
+ * 单行渲染（超长截断）：卡片最小宽 340px，原因放后面即使被截也不丢「多久后恢复」
+ * 这个最有用的信息；固定行高也保证所有卡片逐像素等高。
  */
 function tripDetailOf(account: PoolAccount): { label: string; detail: string } | null {
   if (account.health === "cooldown") {
     const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
-    const when = Number.isFinite(until)
-      ? ` ${shortSpan(until - Date.now())} 后自动恢复`
-      : "";
-    return { label: "冷却中", detail: `${account.cooldown_reason ?? "额度耗尽，等上游窗口刷新"}${when}` };
+    const when = Number.isFinite(until) ? shortSpan(until - Date.now()) : "?";
+    return {
+      label: "冷却中",
+      detail: `${when} 后自动恢复 · ${account.cooldown_reason ?? "额度耗尽，等上游窗口刷新"}`,
+    };
   }
   if (account.health === "error") {
     const until = account.trip_until ? Date.parse(account.trip_until) : Number.NaN;
-    const when = Number.isFinite(until)
-      ? ` ${shortSpan(until - Date.now())} 后自动放行试探`
-      : " 即将自动放行试探";
+    const when = Number.isFinite(until) ? shortSpan(until - Date.now()) : "?";
     const backoff = Number(account.trip_backoff_ms ?? 0);
-    const retry = backoff > 0 ? `（退避 ${shortSpan(backoff)}，失败则翻倍）` : "";
-    return { label: "熔断中", detail: `连续失败 ${Number(account.fail_streak ?? 0)} 次${retry}${when}` };
+    const retry = backoff > 0 ? `退避 ${shortSpan(backoff)}` : "退避中";
+    return {
+      label: "熔断中",
+      detail: `${when} 后自动试探 · 连续失败 ${Number(account.fail_streak ?? 0)} 次 · ${retry}`,
+    };
   }
   if (account.health === "unauthorized") {
     return { label: "凭据失效", detail: "需要重新登录（自动重试不会成功）" };
@@ -312,7 +303,6 @@ export function AccountCard({
   billingError = false,
   now,
   onActivate,
-  onReset,
   onRemove,
   onAdd,
   busyKey,
@@ -326,8 +316,6 @@ export function AccountCard({
   /** 全局时钟（由页面每秒推一次）：新鲜度文案要随时间走。 */
   now?: number;
   onActivate: (cid: string, key: string) => void;
-  /** 解除连败熔断 / 额度冷却（后端清标记，不动凭证）。 */
-  onReset: (cid: string, key: string) => void;
   onRemove: (cid: string, key: string) => void;
   onAdd: (cid: string) => void;
   busyKey: string | null;
@@ -351,19 +339,6 @@ export function AccountCard({
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
-  // 生效账号的状态详情（冷却原因 / 熔断退避）—— 卡头第二行用，行内放不下
-  const tripDetail = activeAccount ? tripDetailOf(activeAccount) : null;
-  const activeTrip = tripDetail
-    ? {
-        ...tripDetail,
-        tone:
-          activeAccount?.health === "cooldown"
-            ? "text-warn"
-            : activeAccount?.health === "unauthorized"
-              ? "text-danger"
-              : "text-danger",
-      }
-    : null;
   // 折叠态是卡内私有状态：页面不需要知道哪张卡展开了
   const [expanded, setExpanded] = useState(false);
   // 需要折叠：账号数超过固定位数（2）
@@ -389,21 +364,6 @@ export function AccountCard({
             {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
             {billing?.quota?.label && (
               <span className="text-ink-faint/70">· {billing.quota.label}</span>
-            )}
-          </div>
-          {/*
-            生效账号的状态详情：原因 + 恢复/试探时刻。
-            ⚠ 放卡头而不是账号行 —— 行内只有 44px 且额度区要先占位，长文本会被裁切；
-            卡头有整卡宽度，可换行（WEB-CONSOLE 铁律：信息直接可见，不靠 hover）。
-            ⚠ **始终占位**（无状态时同高空白）：否则一卡有冷却、一卡正常就差一行，
-            auto-fill 网格里同一排卡片高度参差。
-          */}
-          <div className="mt-1.5 flex min-h-[16px] flex-wrap items-baseline gap-x-2 text-[11px]">
-            {activeTrip && (
-              <>
-                <span className={`font-medium ${activeTrip.tone}`}>{activeTrip.label}</span>
-                <span className="text-ink-faint">{activeTrip.detail}</span>
-              </>
             )}
           </div>
         </div>
@@ -438,22 +398,27 @@ export function AccountCard({
              * 但用户可能已经知道额度刷新了（换套餐 / 充值），不想干等。
              * `unauthorized` 不在此列：凭据本身失效，只能重新登录。
              */
-            const tripped = account.health === "error" || account.health === "cooldown";
+            // 账号级状态详情（冷却原因 / 熔断退避）：挂在**该账号自己**的行下，
+            // 不是卡头 —— 状态属于账号，多个账号可能各不相同。
+            // 熔断/冷却都会自动恢复（退避试探 / 到期惰性恢复），故不提供手动「解除」按钮。
+            const detail = tripDetailOf(account);
+            const detailTone = account.health === "cooldown" ? "text-warn" : "text-danger";
             return (
               <li
                 key={account.key}
-                className={`group relative flex h-11 items-center gap-2 border-b border-line/60 px-4 transition-colors last:border-b-0 hover:bg-overlay/40 ${
+                className={`group relative border-b border-line/60 transition-colors last:border-b-0 hover:bg-overlay/40 ${
                   active ? "bg-overlay/25" : ""
                 }`}
               >
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
                 {/*
-                  账号行 = **单行扁平结构**：
-                    状态点 + 名称 + 状态 pill + 解除 | 额度（条 / 数字 / 百分比）| 操作
-                  行高固定 44px。左上高亮条即「生效中」；状态 pill 是账号级状态
-                  （正常 / 冷却 / 异常 / 没钱），不额外显示「生效中」。
+                  账号行 = 主行（44px）+ 可选的状态详情行：
+                    主行：状态点 + 名称 + 短状态 pill + 解除 | 额度 | 操作
+                  详情行只在冷却 / 熔断 / 凭据失效时出现（原因 + 恢复时刻，可换行）。
+                  主行保持 44px —— 空位行与它同高，卡片仍然对齐。
                 */}
+                <div className="flex h-11 items-center gap-2 px-4">
                 <span
                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
                   aria-label={meta.text}
@@ -461,25 +426,9 @@ export function AccountCard({
                 {/* 名称区：弹性，超长截断；pill 与解除按钮**不压缩**（它们在 44px 单行里必须完整可见） */}
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   <span className="min-w-0 truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
-                  <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status, account)}</span>
+                  <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</span>
                   {failStreak > 0 && (health === "ok" || health === "unknown") && (
                     <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
-                  )}
-                  {/* 解除：异常/冷却账号的恢复动作，常显（非破坏性，不做二次确认） */}
-                  {tripped && (
-                    <button
-                      type="button"
-                      className="shrink-0 rounded border border-warn/40 px-1.5 py-0.5 text-[11px] leading-none text-warn transition-colors hover:bg-warn/12 disabled:opacity-40"
-                      disabled={busyKey !== null}
-                      onClick={() => onReset(pool.cid, account.key)}
-                      aria-label={
-                        account.health === "cooldown"
-                          ? "解除额度冷却，立刻恢复参与路由"
-                          : "解除连败熔断，清零失败计数并恢复参与路由"
-                      }
-                    >
-                      解除
-                    </button>
                   )}
                 </div>
                 {/*
@@ -537,6 +486,21 @@ export function AccountCard({
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
+                </div>
+                {/*
+                  状态详情行：**固定两行结构里的第二行**，恒占 h-6（无状态时留空）——
+                  行内只有 44px，长原因塞不进去；放这里直接可见（不靠 hover）。
+                  单行渲染（`truncate`）：卡片最小宽 340px 时换行会溢出固定行高，
+                  反而让卡片看起来不等高 —— 时间放最前，原因超长截断即可。
+                */}
+                <div className="flex h-6 min-w-0 items-center gap-x-1.5 px-4 pl-7 text-[11px] leading-snug">
+                  {detail && (
+                    <>
+                      <span className={`shrink-0 font-medium ${detailTone}`}>{detail.label}</span>
+                      <span className="min-w-0 truncate text-ink-faint">{detail.detail}</span>
+                    </>
+                  )}
+                </div>
               </li>
             );
           })}
@@ -548,12 +512,12 @@ export function AccountCard({
             Array.from({ length: emptySlots }).map((_, i) => (
               <li
                 key={`empty-${i}`}
-                className="h-11 border-b border-line/60 px-4 last:border-b-0"
+                className="border-b border-line/60 last:border-b-0"
                 aria-hidden="true"
               >
-                {/* `h-11` 必须在 li 上（与真实行同一层）：放在内层 div 上时
-                    li 会多出 1px 下边框，空位行 45px、真实行 44px，卡高差 1px。 */}
-                <div className="flex h-full items-center gap-2">
+                {/* 主行 `h-11` 与真实行一致；下面再留同高的状态详情占位行，
+                    空位卡才能和有账号的卡逐像素对齐（真实行恒为两行高）。 */}
+                <div className="flex h-11 items-center gap-2 px-4">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
                   <span className="min-w-0 flex-1" />
                   {/* 额度区：与真实行同一套容器查询断点 */}
@@ -565,6 +529,7 @@ export function AccountCard({
                   {/* 操作区：固定 52px，占位保持位置 */}
                   <span className="w-[52px] shrink-0" />
                 </div>
+                <div className="h-6 px-4 pl-7" />
               </li>
             ))}
         </ul>
