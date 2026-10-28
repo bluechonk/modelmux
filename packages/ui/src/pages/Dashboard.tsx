@@ -27,7 +27,7 @@ import {
 import { useNavigate } from "react-router";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
-import { formatTokens, formatDuration, formatDateTime, OUTCOME_META } from "../lib/log-format";
+import { formatTokens, formatDuration, formatDateTime, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, AccessOutcome } from "../lib/types";
 
 // ---------------------------------------------------------------------------
@@ -124,12 +124,19 @@ function ChannelRow({
 // 最近请求行
 // ---------------------------------------------------------------------------
 
-/** 单条最近请求：时间 / 模型 / 结果点 + 耗时 + token/s。 */
-function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; model?: string; outcome: AccessOutcome; status?: number; duration_ms?: number; tokens: { prompt: number | null; completion: number | null; total: number | null } | null } }): ReactElement {
+/** 单条最近请求：时间 / 模型 / 结果点 + 耗时 + 生成速度。 */
+function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; model?: string; outcome: AccessOutcome; status?: number; duration_ms?: number; ttfb_ms?: number; upstream_ms?: number; tokens: { prompt: number | null; completion: number | null; total: number | null } | null } }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
-  const total = entry.tokens?.total;
   const ms = entry.duration_ms;
-  const tps = (total != null && ms != null && ms > 0) ? `${Math.round(total / (ms / 1000))}` : "—";
+  // 生成速度 = completion ÷ 纯生成耗时（口径见 log-format.ts::tokensPerSecOf）
+  const tps = formatRate(
+    tokensPerSecOf({
+      completion: entry.tokens?.completion,
+      durationMs: entry.duration_ms,
+      ttfbMs: entry.ttfb_ms,
+      upstreamMs: entry.upstream_ms,
+    }),
+  );
   return (
     <div className="flex items-center gap-3 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30">
       <span className="shrink-0 w-[120px] tabular-nums text-ink-faint">
@@ -143,7 +150,7 @@ function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; m
         {ms != null ? formatDuration(ms) : "—"}
       </span>
       <span className="shrink-0 w-12 text-right tabular-nums text-ink-faint">
-        {tps !== "—" ? `${tps} t/s` : "—"}
+        {tps}
       </span>
     </div>
   );

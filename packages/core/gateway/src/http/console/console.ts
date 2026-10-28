@@ -593,6 +593,8 @@ export function createConsoleHandler(
           outcome: entry.outcome,
           status: entry.status,
           duration_ms: entry.durationMs,
+          ttfb_ms: entry.ttfbMs,
+          upstream_ms: entry.upstreamMs,
           tokens: entry.tokens,
         }));
 
