@@ -463,7 +463,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 #### 目录来源优先级（**所有渠道一致，按此顺序**）
 
-1. **磁盘缓存** `<root>/<cid>/cache/models.json` —— **常态来源**。上次真实拉到的目录，
+1. **磁盘缓存** `<root>/channels/<cid>/cache/models.json` —— **常态来源**。上次真实拉到的目录，
   由共享层 `readCatalogCache()` / `writeCatalogCache()` 读写（信封
   `{version, fetched_at, models}`，原子写入 + `0600`；落点见
   `STORAGE-CONVENTION.md` §3 第 5 条）。
