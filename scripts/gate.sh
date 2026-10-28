@@ -32,10 +32,10 @@ if [ -z "$BRANCH" ]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
 fi
 
-[ "$QUIET" = 0 ] && echo "[gate] clone $main_repo → $GATE → checkout $BRANCH → npm ci → npm test"
+[ "$QUIET" = 0 ] && echo "[gate] 克隆 $main_repo → $GATE，切到分支 $BRANCH，然后 npm ci → npm test"
 
 # —— 第 1 步：CI 等价的完整测试 ——
-# 中文输出经管道可能被判成二进制而看不清，故一律设英文 locale。
+# 固定 UTF-8 locale：clone 出来的子树里同样要能正确输出中文。
 if ! bash -lc "
   set -e
   export LANG=C.UTF-8 LC_ALL=C.UTF-8
