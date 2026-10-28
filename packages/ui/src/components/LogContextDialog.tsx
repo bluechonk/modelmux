@@ -13,9 +13,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Terminal, X } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
-import { brief, formatBytes, formatDateTime, OUTCOME_META } from "../lib/log-format";
+import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
 import { CopyButton } from "./CopyChip";
 
@@ -76,42 +78,100 @@ function JsonBlock({ value, maxHeight = "max-h-56" }: { value: unknown; maxHeigh
   );
 }
 
-/** 一条消息的正文：字符串直出；分片数组逐片渲染；其它按 JSON 预览。 */
-function MessageContent({ content }: { content: unknown }): ReactElement | null {
+/** 折叠阈值：正文超过这个字符数先收起（按钮展开，**不截断源文本**）。 */
+const COLLAPSE_CHARS = 1600;
+
+/**
+ * 超长内容折叠：超过阈值时用 max-height 裁切 + 按钮。
+ *
+ * 不做源文本截断 —— 把 Markdown 拦腰截断会产生残缺语法；max-height 对渲染前后的
+ * 任何内容（纯文本 / Markdown / JSON）都成立。
+ */
+function CollapseBox({ chars, children }: { chars: number; children: ReactNode }): ReactElement {
+  const [open, setOpen] = useState(false);
+  if (chars <= COLLAPSE_CHARS) return <>{children}</>;
+  return (
+    <div className="space-y-1">
+      <div className={`break-words ${open ? "" : "max-h-72 overflow-hidden"}`}>{children}</div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="text-[11px] text-ink-faint transition-colors hover:text-ink"
+      >
+        {open ? "收起" : `展开全部（${formatCount(chars)} 字符）`}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Markdown 渲染（仅 assistant 正文）：GFM 表格 / 代码块可用。
+ *
+ * 不开 `rehype-raw` —— 消息里的 HTML 一律转义为文本，绝不执行；
+ * system 与工具输出刻意不走这里（提示词里的 XML 标签会被渲染器吃掉，保真优先）。
+ */
+function MarkdownText({ text }: { text: string }): ReactElement {
+  return (
+    <div className="log-md text-xs leading-relaxed text-ink-soft [&_a]:text-ink [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-canvas [&_code]:px-1 [&_code]:font-mono [&_code]:text-[11px] [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_hr]:border-line [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-canvas [&_pre]:p-2 [&_pre]:font-mono [&_pre]:text-[11px] [&_strong]:text-ink [&_table]:w-full [&_td]:border [&_td]:border-line/60 [&_td]:px-1.5 [&_th]:border [&_th]:border-line/60 [&_th]:px-1.5 [&_ul]:list-disc">
+      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+    </div>
+  );
+}
+
+/**
+ * 一条消息的正文。
+ *
+ * Markdown 只给 **assistant**：它的回复普遍是 Markdown；用户与 system 内容可能带
+ * `<system-reminder>` 这类原生标签，走渲染器会把标签吃掉 —— 保真优先，纯文本呈现。
+ * 超长一律折叠（阈值见 `COLLAPSE_CHARS`）。
+ */
+function MessageBody({ role, content }: { role: string; content: unknown }): ReactElement | null {
   if (content === null || content === undefined) return null;
   if (typeof content === "string") {
     if (content === "") return null;
     return (
-      <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft">
-        {content}
-      </p>
+      <CollapseBox chars={content.length}>
+        {role === "assistant" ? (
+          <MarkdownText text={content} />
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft">
+            {content}
+          </p>
+        )}
+      </CollapseBox>
     );
   }
   if (Array.isArray(content)) {
+    const total = content.reduce((sum, part) => {
+      const rec = asRecord(part);
+      return sum + (typeof rec["text"] === "string" ? (rec["text"] as string).length : 20);
+    }, 0);
     return (
-      <div className="space-y-1">
-        {content.map((part, index) => {
-          const rec = asRecord(part);
-          if (rec["type"] === "text" && typeof rec["text"] === "string") {
+      <CollapseBox chars={total}>
+        <div className="space-y-1">
+          {content.map((part, index) => {
+            const rec = asRecord(part);
+            if (rec["type"] === "text" && typeof rec["text"] === "string") {
+              return (
+                <p
+                  key={index}
+                  className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft"
+                >
+                  {rec["text"]}
+                </p>
+              );
+            }
             return (
-              <p
+              <pre
                 key={index}
-                className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft"
+                className="whitespace-pre-wrap break-all font-mono text-[11px] text-ink-faint"
               >
-                {rec["text"]}
-              </p>
+                {brief(part)}
+              </pre>
             );
-          }
-          return (
-            <pre
-              key={index}
-              className="whitespace-pre-wrap break-all font-mono text-[11px] text-ink-faint"
-            >
-              {brief(part)}
-            </pre>
-          );
-        })}
-      </div>
+          })}
+        </div>
+      </CollapseBox>
     );
   }
   return <JsonBlock value={content} maxHeight="max-h-40" />;
@@ -202,7 +262,7 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
             </pre>
           </div>
         )}
-        <MessageContent content={rec["content"]} />
+        <MessageBody role={role} content={rec["content"]} />
         {toolCalls?.map((call, i) => (
           <ToolCallCard key={i} call={call} index={i} />
         ))}

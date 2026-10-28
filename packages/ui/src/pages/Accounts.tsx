@@ -4,6 +4,7 @@
 
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { RotateCw } from "lucide-react";
 import { api } from "../lib/api";
 import {
   AccountCard,
@@ -272,7 +273,26 @@ export function Accounts(): ReactElement {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="账号池" description="各渠道的凭据、账号池与额度" />
+      <PageHeader
+        title="账号池"
+        description="各渠道的凭据、账号池与额度"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              // 四路查询一起失效：卡片 / 登录态 / 额度 / 弹窗快照本来就是同一批事实
+              void qc.invalidateQueries({ queryKey: ["accounts"] });
+              void qc.invalidateQueries({ queryKey: ["logins"] });
+              void qc.invalidateQueries({ queryKey: ["billing"] });
+              void qc.invalidateQueries({ queryKey: ["state"] });
+            }}
+            className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          >
+            <RotateCw className="h-3.5 w-3.5" />
+            刷新
+          </button>
+        }
+      />
 
       {list.length === 0 ? (
         <div className="rounded-xl border border-line p-5 text-sm text-ink-faint">

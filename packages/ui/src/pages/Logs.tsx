@@ -207,16 +207,20 @@ function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
 
 function LogTable({
   page,
+  pageNum,
+  totalPages,
   expanded,
   onToggle,
-  onLoadMore,
+  onPageChange,
   onOpenContext,
   loading,
 }: {
   page: AccessLogPage;
+  pageNum: number;
+  totalPages: number;
   expanded: string | null;
   onToggle: (id: string) => void;
-  onLoadMore: () => void;
+  onPageChange: (page: number) => void;
   onOpenContext: (entry: AccessLogEntry) => void;
   loading: boolean;
 }): ReactElement {
@@ -323,18 +327,88 @@ function LogTable({
         </table>
       </div>
 
-      {page.entries.length < page.total && (
-        <div className="border-t border-line/60 px-3 py-2 text-center">
+      <Pager
+        pageNum={Math.min(pageNum, totalPages)}
+        totalPages={totalPages}
+        total={page.total}        onPageChange={onPageChange}
+        loading={loading}
+      />
+    </div>
+  );
+}
+
+/** 页码窗口：总页数 ≤7 全部列出，否则「1 … p-1 p p+1 … N」。 */
+function pagerWindow(pageNum: number, totalPages: number): Array<number | "…"> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+  const out: Array<number | "…"> = [1];
+  const lo = Math.max(2, pageNum - 1);
+  const hi = Math.min(totalPages - 1, pageNum + 1);
+  if (lo > 2) out.push("…");
+  for (let p = lo; p <= hi; p += 1) out.push(p);
+  if (hi < totalPages - 1) out.push("…");
+  out.push(totalPages);
+  return out;
+}
+
+/** 分页条：页码窗口 + 上一页/下一页 + 总数。 */
+function Pager({
+  pageNum,
+  totalPages,
+  total,
+  onPageChange,
+  loading,
+}: {
+  pageNum: number;
+  totalPages: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  loading: boolean;
+}): ReactElement {
+  const btn = (active: boolean): string =>
+    `min-w-8 rounded-lg border px-2 py-1 text-xs tabular transition-colors ${
+      active
+        ? "border-line-strong bg-overlay text-ink"
+        : "border-line text-ink-soft hover:border-line-strong hover:text-ink"
+    } disabled:opacity-40`;
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-line/60 px-3 py-2">
+      <button
+        type="button"
+        disabled={pageNum <= 1 || loading}
+        onClick={() => onPageChange(pageNum - 1)}
+        className={btn(false)}
+      >
+        上一页
+      </button>
+      {pagerWindow(pageNum, totalPages).map((entry, index) =>
+        entry === "…" ? (
+          <span key={`ellipsis-${index}`} className="px-1 text-xs text-ink-faint">
+            …
+          </span>
+        ) : (
           <button
+            key={entry}
             type="button"
-            onClick={onLoadMore}
             disabled={loading}
-            className="rounded-lg border border-line px-3 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+            aria-current={entry === pageNum ? "page" : undefined}
+            onClick={() => onPageChange(entry)}
+            className={btn(entry === pageNum)}
           >
-            {loading ? "加载中…" : `加载更多（已显示 ${page.entries.length} / ${page.total}）`}
+            {entry}
           </button>
-        </div>
+        ),
       )}
+      <button
+        type="button"
+        disabled={pageNum >= totalPages || loading}
+        onClick={() => onPageChange(pageNum + 1)}
+        className={btn(false)}
+      >
+        下一页
+      </button>
+      <span className="ml-3 text-[11px] text-ink-faint">
+        共 {formatCount(total)} 条 · 第 {pageNum}/{totalPages} 页
+      </span>
     </div>
   );
 }
@@ -488,7 +562,7 @@ export function Logs(): ReactElement {
   const search = useDebounced(rawSearch, 300);
   const [slowOnly, setSlowOnly] = useState(false);
   const [streamOnly, setStreamOnly] = useState(false);
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   /** 打开上下文弹窗的那一条；null = 关闭。 */
   const [contextTarget, setContextTarget] = useState<AccessLogEntry | null>(null);
@@ -515,7 +589,7 @@ export function Logs(): ReactElement {
   });
 
   const logs = useQuery({
-    queryKey: ["logs", date, outcome, cid, search, slowOnly, streamOnly, limit],
+    queryKey: ["logs", date, outcome, cid, search, slowOnly, streamOnly, pageNum],
     queryFn: () =>
       api.logs({
         date: date === "" ? undefined : date,
@@ -524,15 +598,23 @@ export function Logs(): ReactElement {
         q: search === "" ? undefined : search,
         slow: slowOnly ? true : undefined,
         stream: streamOnly ? true : undefined,
-        limit,
+        limit: PAGE_SIZE,
+        offset: (pageNum - 1) * PAGE_SIZE,
       }),
-    refetchInterval: expanded !== null || contextTarget !== null || limit > PAGE_SIZE ? false : 5_000,
+    refetchInterval: expanded !== null || contextTarget !== null || pageNum > 1 ? false : 5_000,
   });
 
   const page = logs.data;
+  const totalPages = page ? Math.max(1, Math.ceil(page.total / PAGE_SIZE)) : 1;
+  // 翻页后新数据变少（别的端清了日志、筛选命中变少）会把页码顶空 —— 收回到最后一页。
+  useEffect(() => {
+    if (pageNum > totalPages) setPageNum(totalPages);
+  }, [pageNum, totalPages]);
   const captureOn = page?.payload_enabled ?? true;
   const dirty =
     date !== "" || outcome !== "" || cid !== "" || search !== "" || slowOnly || streamOnly;
+  /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
+  const resetToFirstPage = (): void => setPageNum(1);
   /** 展开的条目可能已被新筛选挤走：找不到就不渲染详情。 */
   const expandedEntry = page?.entries.find((entry) => entry.id === expanded) ?? null;
 
@@ -583,16 +665,19 @@ export function Logs(): ReactElement {
           onDate={(value) => {
             setDate(value);
             setExpanded(null);
+            resetToFirstPage();
           }}
           outcome={outcome}
           onOutcome={(value) => {
             setOutcome(value);
             setExpanded(null);
+            resetToFirstPage();
           }}
           cid={cid}
           onCid={(value) => {
             setCid(value);
             setExpanded(null);
+            resetToFirstPage();
           }}
           search={rawSearch}
           onSearch={setRawSearch}
@@ -608,7 +693,7 @@ export function Logs(): ReactElement {
             setRawSearch("");
             setSlowOnly(false);
             setStreamOnly(false);
-            setLimit(PAGE_SIZE);
+            setPageNum(1);
             setExpanded(null);
           }}
         />
@@ -643,9 +728,14 @@ export function Logs(): ReactElement {
       ) : (
         <LogTable
           page={page}
+          pageNum={pageNum}
+          totalPages={totalPages}
           expanded={expandedEntry === null ? null : expandedEntry.id}
           onToggle={(id) => setExpanded((current) => (current === id ? null : id))}
-          onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
+          onPageChange={(next) => {
+            setPageNum(next);
+            setExpanded(null);
+          }}
           onOpenContext={setContextTarget}
           loading={logs.isFetching}
         />
