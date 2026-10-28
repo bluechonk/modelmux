@@ -11,7 +11,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Check,
   Copy,
-  Pause,
   RotateCw,
   Gauge,
   AlertTriangle,
@@ -25,7 +24,6 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useToast } from "../components/Toast";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api } from "../lib/api";
 import { formatTokens, formatDuration, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, AccessOutcome } from "../lib/types";
@@ -213,20 +211,6 @@ export function Dashboard(): ReactElement {
     refetchInterval: 5000,
   });
   const overview = overviewQuery.data;
-
-  // 网关控制
-  const [busyAction, setBusyAction] = useState<"restart" | "stop" | null>(null);
-  const [confirmStop, setConfirmStop] = useState(false);
-  const control = (action: "restart" | "stop"): void => {
-    setBusyAction(action);
-    void api
-      .gatewayControl(action)
-      .then(() => {
-        if (action === "restart") toast.success("正在重启网关，页面将短暂断开后自动恢复…");
-      })
-      .catch((err: unknown) => toast.error(String(err)))
-      .finally(() => setBusyAction(null));
-  };
 
   // 错误提示：按内容去重
   const lastToastedError = useRef("");
@@ -466,63 +450,9 @@ export function Dashboard(): ReactElement {
             </button>
           </section>
 
-          {/* ⑥ 网关控制 */}
-          <section className="panel space-y-3 p-4">
-            <div className="panel-title">
-              <Gauge className="h-4 w-4 text-ink-faint" />
-              网关
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${running ? "bg-free live-dot" : "bg-warn"}`} />
-              <span className="text-xs text-ink-soft">{running ? "运行中" : state.ui_state}</span>
-              <span className="break-all font-mono text-[11px] text-ink-faint">{state.base_url}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={busyAction !== null}
-                onClick={() => setConfirmStop(true)}
-                className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
-              >
-                <Pause className="h-3.5 w-3.5" />
-                暂停
-              </button>
-              <button
-                type="button"
-                disabled={busyAction !== null}
-                onClick={() => control("restart")}
-                className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
-              >
-                <RotateCw
-                  className={`h-3.5 w-3.5 ${busyAction === "restart" ? "animate-spin" : ""}`}
-                />
-                重启
-              </button>
-              {busyAction !== null && <span className="text-[11px] text-ink-faint">处理中…</span>}
-            </div>
-            <p className="text-[11px] leading-relaxed text-ink-faint">
-              暂停后网关退出、本页不可达；恢复需在本机终端执行{" "}
-              <code className="font-mono text-ink-faint">mx start</code>。
-              重启会短暂断开页面，1 秒左右自动恢复。
-            </p>
-          </section>
+          {/* ⑥ 网关控制已移到侧栏底部（Layout 的 GatewayControl）：全局操作不随页面布局跑 */}
         </div>
       </div>
-
-      {confirmStop && (
-        <ConfirmDialog
-          title="暂停网关？"
-          body="暂停后网关进程将退出，本页面会立即不可访问；恢复需要在本机终端执行 mx start。确定要暂停吗？"
-          confirmLabel="暂停"
-          busy={busyAction === "stop"}
-          returnFocusTo={null}
-          onConfirm={() => {
-            setConfirmStop(false);
-            control("stop");
-          }}
-          onCancel={() => setConfirmStop(false)}
-        />
-      )}
     </div>
   );
 }

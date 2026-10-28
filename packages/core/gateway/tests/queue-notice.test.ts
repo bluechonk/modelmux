@@ -1,12 +1,12 @@
 /**
- * 排队进度推送 + 断连止损 + 超预算直接回复。
+ * 排队探测：静默等待 + 断连止损 + 超预算直接回复。
  *
  * 背景（qoder 系实测）：上游过载时回 200 + 排队帧，客户端 30–60s 收不到任何字节；
  * 且客户端超时走人后探测循环不感知断连，继续按预算空转打上游（实测白打 22 次）。
  *
- * 覆盖：① 排队期间按轮次收到**各不相同**的进度文案（每条空行换行、SSE 头只发
- * 一次、排队帧不透传）；② 客户端断开后探测立即止损；③ 超预算
- * （`MODELMUX_QUEUE_BUDGET_MS`）直接回正常应答，劝换渠道。
+ * 覆盖：① 排队期间**不向客户端输出任何文本**（只发一次 SSE 头 + 空 role 帧；
+ * 2026-10-28 起排队文案会回灌进下一轮上下文，已移除）；② 客户端断开后探测立即止损；
+ * ③ 超预算（`MODELMUX_QUEUE_BUDGET_MS`）直接回正常应答，劝换渠道。
  */
 
 import assert from "node:assert/strict";
@@ -214,7 +214,7 @@ describe("排队进度推送与断连止损", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("排队两轮：客户端按轮次收到各不相同的进度文案，最终内容完整", async () => {
+  it("排队两轮：只发 SSE 头与空 role 帧，不向客户端输出任何排队文案", async () => {
     const upstream = await fakeUpstream("queue", 2); // 前 2 次排队，第 3 次成功
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
     try {
@@ -230,23 +230,19 @@ describe("排队进度推送与断连止损", () => {
       const text = await resp.text();
       assert.equal(resp.status, 200, `日志: ${logs.join(" | ")}`);
       assert.equal(resp.headers.get("content-type") ?? "", "text/event-stream; charset=utf-8", "进度帧要求 SSE 头");
-      // 文案按轮次出现，且都在最终内容之前
-      const firstNotice = text.indexOf("正在排队");
-      const secondNotice = text.indexOf("怎么还在排队啊");
-      const content = text.indexOf("queued-ok");
-      assert.ok(firstNotice >= 0, "第 1 轮应发「正在排队…」");
-      assert.ok(secondNotice > firstNotice, "第 2 轮应发「怎么还在排队啊？！！！」");
-      assert.ok(content > secondNotice, "真实内容在进度文案之后");
+      // 2026-10-28 主人要求：排队文案会回灌进下一轮模型上下文、影响效果 → 一律不发。
+      assert.ok(!text.includes("正在排队"), "不该出现排队进度文案");
+      assert.ok(!text.includes("排队成功"), "不该出现「排队成功」分界文案");
       assert.ok(!text.includes("10605"), "排队帧不能透传");
-      // 文案是 content delta（客户端可直接显示），以空行收尾才会换行（markdown 会折叠单个 \n）
+      // 真实内容完整到达
+      assert.ok(text.includes("queued-ok"), "真实内容必须完整")
+      // 空 role 帧建立流（无可见文本）
       assert.ok(
-        text.includes('"delta":{"reasoning_content":"正在排队…\\n\\n"}'),
-        "文案应作为 reasoning_content delta 下发（走 content 会让客户端先建正文行、思考落到后面），并以空行换行",
+        text.includes('"delta":{"role":"assistant","content":""}'),
+        "应发一次空 role 帧建立 SSE 流",
       );
-      // 排队解除后补一条正文分界，且必须排在所有提醒之后、真实内容之前
-      const cleared = text.indexOf("排队成功，开始生成…");
-      assert.ok(cleared > secondNotice, "「排队成功」应在提醒之后");
-      assert.ok(cleared < content, "「排队成功」应在真实内容之前（提醒与真思考同在思考块里，需要正文分界）");
+      // 空 role 帧只在最前出现一次（每轮不重复）
+      assert.equal(text.split('"delta":{"role":"assistant","content":""}').length - 1, 1);
     } finally {
       await new Promise<void>((r) => upstream.server.close(() => r()));
     }

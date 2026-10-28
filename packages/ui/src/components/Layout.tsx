@@ -17,6 +17,7 @@ import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
 import { BrandMark } from "./BrandMark";
+import { GatewayControl } from "./GatewayControl";
 
 /** 侧栏导航项：图标 + 文案。 */
 const NAV = [
@@ -139,15 +140,17 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
             ))}
           </nav>
 
-        {/* 底部：演示模式提示（网关状态已迁到仪表盘的网关面板） */}
+        {/* 底部：网关控制（常驻）+ 演示模式提示。
+            网关控制放侧栏而非页面内 —— 网关挂了 main 区是骨架，这里仍能操作。 */}
         {!collapsed && (
-          <div className="mt-auto space-y-2 px-3 pb-4">
+          <div className="mt-auto space-y-2 pb-2">
             {IS_DEMO && (
-              <div className="hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
+              <div className="mx-3 mb-2 hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
                 <div className="font-medium">演示模式</div>
                 <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
               </div>
             )}
+            <GatewayControl />
           </div>
         )}
       </aside>

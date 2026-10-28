@@ -790,7 +790,11 @@ export function newTranslator(): StreamTranslator {
 export function quotaSignal(status: number, body: string): QuotaSignal | null {
   const text = body ?? "";
   if (status !== 429) return null;
-  return /6004|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(text) ? "usage_limit" : null;
+  if (/6004|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(text)) return "usage_limit";
+  // 14012/14013/14014/14018/14019 = hard_credit（余额耗尽）；同族渠道 workbuddy
+  // 2026-10-28 实测 14018「额度已用尽，请购买加量包」曾漏判成普通上游错误。
+  if (/1401[23489]|额度已用尽|购买加量包/i.test(text)) return "balance";
+  return null;
 }
 
 /**

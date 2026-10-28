@@ -403,7 +403,12 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
 export function quotaSignal(status: number, body: string): QuotaSignal | null {
   if (status !== 429) return null;
   // 6004/6008 按 PROTOCOL §4.1 是「每天」额度；文案同族即频率限制
-  return /600[48]|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body) ? "usage_limit" : null;
+  if (/600[48]|frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body)) return "usage_limit";
+  // 14012/14013/14014/14018/14019 = hard_credit（余额耗尽，需购买加量包）；
+  // 实测（2026-10-28）14018 的文案是「额度已用尽，请购买加量包」——
+  // 旧的 quotaSignal 只认 6004/6008，导致 14018 被当普通上游错误、账号不进冷却。
+  if (/1401[23489]|额度已用尽|购买加量包/i.test(body)) return "balance";
+  return null;
 }
 
 /**
