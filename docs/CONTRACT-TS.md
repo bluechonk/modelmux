@@ -15,13 +15,14 @@
 modelmux/                     ← 仓库根 = 工作区根
 ├── packages/core/gateway/             ← **共享包** `@modelmux/gateway`
 │   └── src/
-│       ├── runtime/   渠道 SDK（12 个源文件）：channel（注册表）/ channel-context（runInChannel）/
+│       ├── runtime/   渠道 SDK（13 个源文件）：channel（注册表）/ channel-context（runInChannel）/
 │       │              paths（落点）/ permissions（权限基线）/ account-pool（账号池）/
 │       │              secret-file（原子写盘）/ catalog-cache（目录缓存）/ cli-consts（默认值）/
 │       │              credential-shape（凭据形状归一）/ snapshot（随包快照落点）/
-│       │              logger（日志节流）/ log-store（分层落盘）
+│       │              logger（日志节流）/ log-store（分层落盘）/ model-specs（模型规格）
 │       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
-│       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）
+│       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）/
+│       │              account-rotate（额度耗尽换号决策）
 │       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger /
 │       │              paste-detect（粘贴文本启发式）
 │       ├── http/      网关与转发（19 个源文件）：server（网关入口）/ portfree（端口自愈）/
@@ -36,7 +37,7 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              accounts 账号池 / report 落点巡检）
 │       │              lifecycle/（进程生命周期：daemon / headless / supervisor / process /
 │       │              stale-build / web）
-│       └── index.ts   对外的统一出口（53 个源文件合计）
+│       └── index.ts   对外的统一出口（55 个源文件合计）
 ├── packages/core/channels/                     ← 渠道（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
 │   └── <cid>/                    ← 结构见下
 ├── packages/cli/                 ← **CLI 入口**（bin `modelmux` / `mx`）
@@ -44,7 +45,9 @@ modelmux/                     ← 仓库根 = 工作区根
 │       ├── channels.ts           ← import 全部渠道包（副作用 = setChannel）
 │       └── cli.ts                ← bin 入口：注册全部渠道后调共享 `main()`
 ├── docs/                         ← **全部文档**：契约与规范 + 渠道文档（docs/channels/<cid>/）
-└── scripts/                        ← 仓库级校验器（verify-contract / verify-storage / verify-docs）
+└── scripts/                        ← 仓库级脚本与校验器（verify-contract / verify-storage / verify-docs /
+                                    verify-commits / verify-comments / verify-layering / verify-topology /
+                                    verify-wiring / copy-ui / mx-watchdog）
 ```
 
 `packages/core/channels/<cid>/` 内部（= 一个**池子**）：
@@ -135,7 +138,7 @@ packages/core/channels/<cid>/
 发布前的自检：`cd packages/cli && npm publish --dry-run` —— 输出里除「需要登录」外**不应有任何
 `npm warn publish`**；有任何一条都先修掉再发。
 
-### 2.1 渠道**总数**不得写死在文档与注释里
+### 2.2 渠道**总数**不得写死在文档与注释里
 
 渠道数是 `readdirSync(packages/core/channels)` 的**派生量**。写死它的后果不是「不好看」，而是
 **增删渠道时必然漏改**：2026-10-26 加 `astudio` 后，`README.md` / `CONTRACT-TS.md` /
@@ -259,16 +262,16 @@ interface Channel {
 #### 5.1.1 登录回调（`login()` 的第二个参数）
 
 `cred.login(baseUrl, options?)` 的 `options` 是渠道与界面之间的回调面，六个成员
-**全部可选**（类型见 `packages/core/gateway/src/runtime/channel.ts:115-145`）：
+**全部可选**（类型见 `packages/core/gateway/src/runtime/channel.ts` 的 `CredModule.login`）：
 
 | 回调 | 语义 | 共享层调用点 |
 |---|---|---|
-| `onUrl(url)` | 拿到授权 URL 后**立刻**回调（界面展示链接，**不**自动开浏览器） | `packages/core/gateway/src/auth/auth-flow.ts:57` |
-| `onStatus(msg)` | 进度提示 | `packages/core/gateway/src/auth/auth-flow.ts:60` |
-| `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts:59` |
-| `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts:62` |
-| `requestInput(req)` | 向用户要一段输入（两步登录，如 loomy 短信验证码） | `packages/core/gateway/src/auth/auth-flow.ts:73` |
-| `force` | **强制重读**（`mx relogin`）：跳过「已有凭据就复用」的短路 | `packages/core/gateway/src/auth/auth-flow.ts:77` |
+| `onUrl(url)` | 拿到授权 URL 后**立刻**回调（界面展示链接，**不**自动开浏览器） | `packages/core/gateway/src/auth/auth-flow.ts` 的 `onUrl` |
+| `onStatus(msg)` | 进度提示 | `packages/core/gateway/src/auth/auth-flow.ts` 的 `onStatus` |
+| `onQr(url)` | 二维码图片 URL（扫码**必须**用这一张：授权页每次加载都换新会话） | `packages/core/gateway/src/auth/auth-flow.ts` 的 `onQr` |
+| `pasteCode()` | 取走用户粘回的浏览器内容 | `packages/core/gateway/src/auth/auth-flow.ts` 的 `pasteCode` |
+| `requestInput(req)` | 向用户要一段输入（两步登录，如 loomy 短信验证码） | `packages/core/gateway/src/auth/auth-flow.ts` 的 `requestInput` |
+| `force` | **强制重读**（`mx relogin`）：跳过「已有凭据就复用」的短路 | `packages/core/gateway/src/auth/auth-flow.ts` 的 `force` |
 
 ##### `force`：`relogin` 与 `login` 的分界
 
@@ -281,11 +284,11 @@ interface Channel {
   （astudio 重读会话文件；其它渠道重走授权）。
 
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
-（`packages/core/gateway/src/runtime/channel.ts:100`）包成 `pasteCode()` 传给渠道 ——
-常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts:62` 包一次，
-扫码路径在 `packages/core/gateway/src/app/lifecycle/headless.ts:335` 包一次；
+（`packages/core/gateway/src/runtime/channel.ts`）包成 `pasteCode()` 传给渠道 ——
+常规登录路径在 `packages/core/gateway/src/auth/auth-flow.ts` 包一次，
+扫码路径在 `packages/core/gateway/src/app/lifecycle/headless.ts` 包一次；
 Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
-（`packages/core/gateway/src/app/lifecycle/headless.ts:223-232`）进来。
+（`packages/core/gateway/src/app/lifecycle/headless.ts`）进来。
 
 **渠道必须接住这个回调**：既不声明、也不消费 = 用户粘回的内容被静默丢弃。
 授权回调页线上是 404（授权码只出现在浏览器地址栏里），此时流程只能白等到超时。
@@ -747,21 +750,22 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
   （`mx log <cid> --kind channel`），**没有 `--cid` 这个选项**（CLI 走 `parseArgs` 严格模式，
   未知选项直接报错）。
 
-### 9.1 `model` 命令组的两个视图
+### 9.1 `model` 命令组的三个视图
 
 | 命令 | 回答的问题 | 输出形态 |
 | --- | --- | --- |
 | `mx model list` | **有哪些模型可用** | 按渠道分组：每渠道一行（模型数 + 账本状态）+ 该渠道的模型 id 列表 |
 | `mx model usage [--refresh]` | **各渠道用得怎么样** | 每渠道一行（已用量 / 单位 / ok / fail / 冷却）；`--refresh` 立刻重查各渠道账单 |
 | `mx model <cid> [--refresh]` | **某个渠道的目录** | 该渠道对外暴露的模型 + 倍率 + 目录来源（缓存 / 远端 / 内置） |
+| `mx model spec <模型名>` | **某个模型的规格** | 窗口 / 输出上限 / 思考档位 / 倍率 / 输入模态（见 [MODEL-SPECS.md](./MODEL-SPECS.md)） |
 
 `model list` 与 `model usage` 是**两个不同视图**：前者按渠道分组列模型，后者只按渠道列账本。
 账本数字**不决定路由**（渠道由池 id 前缀指定），两处都只作健康度观察。
 
 实现落点：`packages/core/gateway/src/app/cli/index.ts` 的分发（动词表在前、cid 作 operand）；
 `packages/core/gateway/src/app/cli/channel.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与
-`runVerb`（动词 + 可选 cid）；`packages/core/gateway/src/app/cli/model.ts` 的 `runModelGroup`（`list` / `usage`
-两个子命令各自渲染）。
+`runVerb`（动词 + 可选 cid）；`packages/core/gateway/src/app/cli/model.ts` 的 `runModelGroup`（`list` / `usage` /
+`spec` 三个子命令各自渲染）。
 
 ---
 

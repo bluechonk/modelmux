@@ -61,8 +61,8 @@ opencode 认哪些目录（2026-10-26 用 `opencode debug skill` 实测，openco
 | 外部技能（自动加载） | `~/.agents/skills/`、`~/.claude/skills/` | 固定 |
 | 额外路径 | 配置的 `skills`（字符串数组） | **cwd**（不是 worktree 根） |
 
-- **仓库的 `.agents/skills/` 默认就能被发现**（实测 6 个全在：`astudio-re` / `log-triage` /
-  `mx-cli` / `opencode-mx-test` / `repo-sync` / `zcode-session-archaeology`），
+- **仓库的 `.agents/skills/` 默认就能被发现**（实测 7 个全在：`astudio-re` / `comate-re` /
+  `log-triage` / `mx-cli` / `opencode-mx-test` / `repo-sync` / `zcode-session-archaeology`），
   不需要额外配置；从子目录跑也在（按 worktree 根解析）。
 - **`skills` 配置里的相对路径按 cwd 解析**，而 `opencode run --dir <dir>` 会改 cwd ——
   两者同时用会让该路径失效。实测：配 `.tmp/oc-skill-probe` 后，加 `--dir` 就报

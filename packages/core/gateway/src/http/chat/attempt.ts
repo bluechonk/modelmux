@@ -592,7 +592,7 @@ export async function attemptCandidate(
       // 被吞掉就等于「换主机持久化」静默失效（每次重启都从坏主机开始）。
       inChannel(channel, () => channel.upstream.rememberChatHost?.(host));
     } catch (err) {
-      // 回写失败不影响本次应答，但必须留痕（原来完全静默）
+      // 回写失败不影响本次应答，但必须留痕
       logThrottled(
         logger,
         `chat:remember-host:${cid}`,

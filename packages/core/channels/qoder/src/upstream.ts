@@ -362,7 +362,7 @@ export function chatUrl(): string {
  *
  * Qoder 的「200 后零字节 / 断流」是**主机级**瞬时故障（实测 api1 挂起而 api2
  * 正常），签名只覆盖 path 不含 host，所以换主机后同一签名仍然有效 —— 与
- * `fetchModels` 的多主机轮换同源（见 [PROTOCOL.md](../../../../docs/channels/qoder/PROTOCOL.md) §7.5）。
+ * `fetchModels` 的多主机轮换同源（见 docs/channels/qoder/PROTOCOL.md §7.5）。
  */
 let hostOverride: string | null = null;
 
@@ -397,7 +397,7 @@ export function rememberChatHost(): void {
  *
  * 顺序：当前 URL 在用的主机排第一，其后是区域表其余候选 —— 上游对「200 后零字节」这类
  * **主机级故障**只会自愈在换主机后（实测 api1 静默挂起而 api2 正常，见
- * [PROTOCOL.md](./docs/PROTOCOL.md) §7.5）。返回**副本**，调用方可安全修改。
+ * docs/channels/qoder/PROTOCOL.md §7.5）。返回**副本**，调用方可安全修改。
  */
 export function chatHostCandidates(): string[] {
   const current = currentChatHost();

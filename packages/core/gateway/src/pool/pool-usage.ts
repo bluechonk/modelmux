@@ -4,10 +4,9 @@
  * 关键约束：
  *  - 排序主键是「账单已用量」降序 —— 上游只暴露额度（`CreditsResult.total.used`），
  *    没有请求计数；各家单位不同，跨渠道横比只是近似（刻意取舍：零额外网络开销）
- *  - 账本**不再决定路由去向**（渠道由请求方的 `<cid>/` 前缀指定），只供观察健康度
- *  - 账单结果落盘 `<root>/pool-usage.json`，TTL 8 小时；到期由**后台**异步刷新，
- *    绝不阻塞请求（见 `maybeRefreshBilling`）
- *  - 冷却期内渠道得分**当 0**（`scoreOf`）；冷却渠道在路由侧被**硬剔除**（`isCooling`）
+ *  - 账本**不参与路由决策**（渠道由请求方的 `<cid>/` 前缀指定），只供观察健康度
+ *  - 落盘 `<root>/pool-usage.json`，TTL 8 小时、到期由**后台**异步刷新（绝不阻塞请求）；
+ *    冷却期内渠道得分**当 0**（`scoreOf`）且在路由侧被**硬剔除**（`isCooling`）
  */
 
 import { existsSync, readFileSync } from "node:fs";

@@ -272,9 +272,9 @@ describe("5. login 幂等提示", () => {
   it("force 重登不毁掉现有凭据（授权没走完也要保住旧凭据）", withRoot(async () => {
     seedCredential("user-4");
     const before = readFileSync(paths.credentialsPath(CID), "utf8");
-    // 合成渠道的 `cred.login` 直接读现有凭据 —— 旧实现在 force 时先 unlink credentials.json，
-    // 于是这里会读到 NotLoggedInError、渠道当场掉线（2026-10-24 workbuddy / raccoon / catpaw
-    // 三连掉线就是这个原因）。重登的正确语义是「拿到新凭据」，不是「把旧的毁掉」。
+    // 合成渠道的 `cred.login` 直接读现有凭据，模拟真实渠道的重登语义：「拿到新凭据」，
+    // 而不是「把旧凭据毁掉」。故 force 重登在授权没走完时旧凭据必须保留 —— 否则这里
+    // 读到 NotLoggedInError、渠道当场掉线（实测 2026-10-24 workbuddy / raccoon / catpaw 三连掉线）。
     const code = await runLogin({ cid: CID, force: true });
     assert.equal(code, 0, "已有凭据的渠道重登应当直接成功");
     assert.ok(existsSync(paths.credentialsPath(CID)), "授权流程没走完时旧凭据必须还在");

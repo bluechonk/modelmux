@@ -1,31 +1,25 @@
 /**
  * 额度耗尽自动换号（判据与边界见 docs/ACCOUNT-ROTATION.md）。
  *
- * 两个层次：
- *  - **决策层**：`rotateExhaustedAccount` 的两段式账单判据（本地快照 → 实时重查），
- *    以及「池内没有可用替代账号」等边界；全程只读临时存储根，不打网络。
- *  - **端到端**：真网关 + 假上游（对 tok-A 回 402 insufficient_quota、对 tok-B 放行），
- *    验证「失败 → 换号 → **同一条请求**用新账号重试成功」这条链路真能跑通。
+ * 只测**决策层**：`rotateExhaustedAccount` 的两段式账单判据（本地快照 → 实时重查）、
+ * 挑替代账号的取舍、以及各种「证据不足就不动账号」的边界。全程只读临时存储根，
+ * 不发起任何上游请求（额度查询是注入的测试替身）。
+ *
+ * ⚠ 刻意**不搭假上游**做 relay 级端到端：按仓库测试红线，测试不得把渠道的上游
+ * 地址指向本机假服务（那证明的不是真实行为，误配还会撞真上游触发风控）。
+ * relay 那层「失败 → 换号 → 同候选重试一次」的接线由**代码审查 + 真机请求**核验。
  */
 
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import {
-  accountKey,
-  activateAccount,
-  captureActive,
-  listAccounts,
-  readIndex,
-} from "../dist/runtime/account-pool.js";
+import { accountKey, readIndex } from "../dist/runtime/account-pool.js";
 import { LOW_CREDIT_THRESHOLD, rotateExhaustedAccount } from "../dist/pool/account-rotate.js";
 import { resetPoolLedgerForTest, writeAccountBilling } from "../dist/pool/pool-usage.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
-import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
 const CID = "synthrot";
@@ -288,102 +282,5 @@ describe("额度耗尽自动换号（决策）", () => {
 
   it("阈值是共享常量（100），不是散落魔数", () => {
     assert.equal(LOW_CREDIT_THRESHOLD, 100);
-  });
-});
-
-describe("额度耗尽自动换号（端到端：失败后换号重试成功）", () => {
-  let root = "";
-  let saved: string | undefined;
-  let upstream: { server: Server; url: string; captured: string[] };
-  let gw: gateway.RunningGateway;
-  const spec: BillingSpec = { live: {}, calls: [] };
-  const CID2 = "synthrot2";
-
-  before(async () => {
-    saved = process.env["MODELMUX_HOME"];
-    root = mkdtempSync(join(tmpdir(), "modelmux-rotate-e2e-"));
-    process.env["MODELMUX_HOME"] = root;
-    const captured: string[] = [];
-    const server = createServer((req, res) => {
-      let raw = "";
-      req.on("data", (c) => {
-        raw += String(c);
-      });
-      req.on("end", () => {
-        const token = String(req.headers["authorization"] ?? "");
-        captured.push(token);
-        if (token === "Bearer tok-A") {
-          // 余额不足：共享层通用措辞，不得用渠道专有码（铁律）
-          res.writeHead(402, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: { code: "insufficient_quota", message: "insufficient_quota" } }));
-          return;
-        }
-        res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(
-          `data: ${JSON.stringify({ id: "c", model: "m", created: 1, choices: [{ index: 0, delta: { content: "B 回答" }, finish_reason: null }] })}\n\n`,
-        );
-        res.write(
-          `data: ${JSON.stringify({ id: "c", model: "m", created: 1, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`,
-        );
-        res.write("data: [DONE]\n\n");
-        res.end();
-      });
-    });
-    const port = await new Promise<number>((resolve) => {
-      server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port));
-    });
-    upstream = { server, url: `http://127.0.0.1:${port}`, captured };
-    process.env["MB_ROTATE_UPSTREAM"] = upstream.url;
-
-    clearChannels();
-    setChannel(makeChannel(CID2, spec));
-    // 池里两个账号：A（生效，余额 0）、B（有额度）
-    const writeCreds = (uid: string, token: string): void => {
-      mkdirSync(paths.channelDir(CID2), { recursive: true });
-      writeFileSync(
-        paths.credentialsPath(CID2),
-        JSON.stringify({ accessToken: token, uid, domain: "d" }),
-        "utf8",
-      );
-    };
-    writeCreds("user-A", "tok-A");
-    const keyA = captureActive(CID2)!.key;
-    writeCreds("user-B", "tok-B");
-    const keyB = captureActive(CID2)!.key;
-    activateAccount(keyA, CID2);
-    spec.live = { "tok-A": 0, "tok-B": 5000 };
-    // 生效账号的最近账单 = 0（两段式判据的第一段）
-    writeAccountBilling(CID2, keyA, { total: { remain: 0, size: 5000, used: 5000, unit: "积分" } });
-    gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
-  });
-
-  after(async () => {
-    await gw?.close().catch(() => {});
-    await new Promise<void>((r) => upstream.server.close(() => r()));
-    delete process.env["MB_ROTATE_UPSTREAM"];
-    if (saved === undefined) delete process.env["MODELMUX_HOME"];
-    else process.env["MODELMUX_HOME"] = saved;
-    clearChannels();
-    resetPoolLedgerForTest();
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it("上游对 A 回余额不足 → 自动换到 B 并在同一请求里重试成功", async () => {
-    upstream.captured.length = 0;
-    const resp = await fetch(`http://${gw.addr}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: `${CID2}/glm-5.3-flash`,
-        messages: [{ role: "user", content: "hi" }],
-        stream: true,
-      }),
-    });
-    const text = await resp.text();
-    assert.equal(resp.status, 200, text);
-    assert.ok(text.includes("B 回答"), text);
-    assert.deepEqual(upstream.captured, ["Bearer tok-A", "Bearer tok-B"], "先用 A 失败，换号后用 B 成功");
-    const index = listAccounts(CID2);
-    assert.equal(index.accounts.find((a) => a.health === "cooldown") !== undefined, true, "A 被标冷却");
   });
 });

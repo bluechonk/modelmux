@@ -217,8 +217,7 @@ export function buildHeaders(credential: AuthLike): Record<string, string> {
  * 模型列表请求头。
  *
  * **这两个头在本端点是必需的**（不是可选元数据）：服务端按能力声明过滤模型
- * 集合，不带它 `kimi-k3` 不会出现。早先版本用只有 4 个基础头的形态请求本端点，
- * 于是即使解析正确也**永久缺少 `kimi-k3`**。
+ * 集合，不带它就**永久缺少 `kimi-k3`**（解析再正确也拿不到）。
  */
 function modelsHeaders(credential: AuthLike, version = clientVersion()): Record<string, string> {
   return {

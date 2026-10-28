@@ -29,7 +29,7 @@
 **本地服务代理层**的前缀，云端账号 API 的路径**没有这个前缀**。
 
 依据：参考实现
-`packages/core/channels/astudio/reference/2951461586/AStudio2API/internal/astron/login.go`
+`packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
 （逆向自官方客户端 bundle 的 `createAstronAccountGateway`）+ 本仓实测：
 
 | 端点（**无前缀**） | 直连云端结果 |
@@ -61,7 +61,7 @@
 | `packages/core/gateway/src/auth/auth-flow.ts` | `force` 透传给 `cred.login()` |
 | `packages/core/gateway/src/runtime/account-pool.ts` | `purgeCredentials` 探测顺序修正（先探后删，否则永远报「本来就没有」） |
 | `packages/core/gateway/src/app/cli/channel.ts` | 新增 `logout` 动词（接上 `purgeCredentials`，此前是死代码） |
-| `docs/MODEL-SPECS.md` | 新增 §4.2 AStudio 章节 |
+| `docs/MODEL-SPECS.md` | 不登记渠道章节 —— 该文件只描述全局规格文件（`model-specs.json`）与取值链；astudio 的逐型号规格落在 `catalog.modelSpec()` |
 
 ### ⚠️ 动手前必须先定的两个前提
 
@@ -89,7 +89,10 @@ AStudio 的本地服务（`127.0.0.1:<动态端口>`）是 `desktop-managed-loca
 
 ---
 
-## 1. 登录链接（手机号 + 验证码）— 未实现
+## 1. 登录链接（手机号 + 验证码）— 已实现（2026-10-26）
+
+> **状态（2026-10-26 实现后）**：已实现。以下「现状」保留的是**审计时（未实现）**的记录，
+> 实现细节见 [PROTOCOL.md](./PROTOCOL.md) §5 与本文 §0。
 
 ### 现状
 
@@ -323,26 +326,29 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 ---
 
-## 5. 登出 / 销毁凭证 — 未实现
+## 5. 登出 / 销毁凭证 — 已实现（2026-10-26）
 
 ### 现状
 
-**渠道无任何登出代码**：`packages/core/channels/astudio/src/` grep `logout` 零命中。
+**渠道有登出代码**：`packages/core/channels/astudio/src/cred.ts` 的 `logout()`（删本地
+`credentials.json`），并由 `channel.ts` 接线到共享层的 `mx logout <cid>`。
 
 **上游登出端点存在但不可用**（PROTOCOL §9）：`POST /api/astron-auth/logout`（经本地服务代理，需活会话）；
 源码 `logoutAstron` → 删除会话文件 + 清 `config.toml` 的 bearer。
 文档自己写明「该端点需活会话，渠道**不实现登出**；渠道侧『登出』= 删除自己的 `credentials.json`」。
 
-**共享层也没有 `logout` 命令**：
-`packages/core/gateway/src/app/cli/channel.ts:33-47` 的 `CHANNEL_VERBS` =
-`status/login/relogin/model/bill/acct/path/log`，**无 `logout` / `checkin` / `claim`**。
+**共享层有 `logout` 命令**：
+`packages/core/gateway/src/app/cli/channel.ts` 的 `CHANNEL_VERBS` =
+`status/login/relogin/logout/model/bill/acct/path/log`，**含 `logout`**
+（`bill` 现支持 `[--accounts]`）；仍**无 `checkin` / `claim`**
+（签到由网关启动时的自动签到链路执行，不经 CLI 动词）。
 
 **本地凭证销毁的实际路径**（`packages/core/gateway/src/runtime/account-pool.ts`）：
 
 | 函数 | 行为 | 是否被调用 |
 | --- | --- | --- |
 | `removeAccount()`（`:454-481`） | 删 `accounts/<key>.json`；**若删的是生效账号，同时 `rmSync(credentialsPath(cid))`**（`:470`）→ 事实上的「本地登出」 | ✅ Web「删除生效账号」按钮 → `http/console/web-command-handler.ts:174-178` |
-| `purgeCredentials()`（`:493-507`） | 清 `credentials.json` + 池内全部账号 | ❌ **全仓无调用点，是死代码** |
+| `purgeCredentials()`（`:493-507`） | 清 `credentials.json` + 池内全部账号 | ✅ `mx logout <cid>` 动词（`runLogoutVerb`） |
 | 鉴权失败路径 | `auth/auth-flow.ts:98-102` refresh 失败时 `unlinkSync(credentialsPath(cid))` | ✅ |
 
 **上游 token 不会被吊销**：删本地文件后，AStudio 桌面应用里的会话与云端
@@ -353,37 +359,39 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 1. **上游登出**：走本地服务代理 `POST /api/astron-auth/logout`（需前提 A 成立）。
    副作用：会同时删掉 AStudio 桌面应用的会话 —— 这是**期望行为**（用户要登出）。
    ⚠ 需实测：登出后能否再登录（会不会把应用也踢出登录态）。
-2. **本地凭证销毁**：渠道提供「销毁本渠道凭据」的能力，并让 `purgeCredentials()`
-   真正被接线（当前是死代码）。
-3. **共享层加 `logout` 动词**（可选）：如果别的渠道也需要，得在共享层加；
-   若只有 astudio 要，可先在渠道层提供（Web 端按钮走 `removeAccount` 已有等价效果）。
+2. **（已完成）本地凭证销毁**：渠道提供「销毁本渠道凭据」的能力（`cred.logout()`），
+   `purgeCredentials()` 已由 `mx logout <cid>` 接线（不再是死代码）。
+3. **（已完成）共享层加 `logout` 动词**：`CHANNEL_VERBS` 现含 `logout`，Web 端按钮走 `removeAccount` 仍有等价效果。
 4. **区分两种登出**：
    - 「只从 modelmux 移除这个账号」（现状：删 `accounts/<key>.json`）—— 不动上游
    - 「彻底登出这个渠道」（删除 + 吊销上游会话）—— 需要显式区分，别让用户误伤桌面应用
 
 ### 验收判据
 
-- 有一个明确的「登出」动作，且语义清晰（是否影响 AStudio 桌面应用）；
-- 登出后本地 `credentials.json` 与池账号都被清理；
-- （若实现上游吊销）上游 token 确实失效。
+- 有一个明确的「登出」动作（`mx logout <cid>`），且语义清晰（是否影响 AStudio 桌面应用）；**已达成**
+- 登出后本地 `credentials.json` 与池账号都被清理；**已达成**
+- （若实现上游吊销）上游 token 确实失效 —— 上游吊销**未实现**（§9：登出端点需活会话，外部拿不到）。
 
 ---
 
-## 6. 模型列表 + 上下文窗口 / 最大输出 / 思考档位 / 倍率 — 部分实现
+## 6. 模型列表 + 上下文窗口 / 最大输出 / 思考档位 / 倍率 — 已修复（2026-10-26）
 
-### 现状：静态表是对的，但两个字段对外不生效
+### 现状：静态表 + `modelSpec()` 已透出全部字段
 
 `packages/core/channels/astudio/src/catalog.ts:43-114` 的静态表 `MODELS`（7 条）：
 
 | id | upstreamId | multiplier | contextWindow | maxOutputTokens | efforts | defaultEffort |
 | --- | --- | --- | --- | --- | --- | --- |
-| `auto` | `astronclaw-auto` | 1 | 262144 | 100000 | none, high | high |
-| `spark-x2.6` | `spark-x2.6` | 1 | 262144 | 100000 | none, high | high |
-| `spark-x2.6-lite` | `spark-x2.6-4b` | 1 | 1048576 | 110000 | none, high, max | high |
-| `spark-x2.5` | `spark-x2.5` | 1 | 262144 | 100000 | none, high | high |
+| `auto` | `astronclaw-auto` | 未知 | 262144 | 100000 | none, high | high |
+| `spark-x2.6` | `spark-x2.6` | 未知 | 262144 | 100000 | none, high | high |
+| `spark-x2.6-lite` | `spark-x2.6-4b` | 未知 | 1048576 | 110000 | none, high, max | high |
+| `spark-x2.5` | `spark-x2.5` | 未知 | 262144 | 100000 | none, high | high |
 | `glm-5.2` | `xopglm52` | 2 | 1048576 | 100000 | none, high, max | high |
 | `deepseek-v4-pro` | `xopdeepseekv4pro` | 2 | 1048576 | 100000 | none, high, max | high |
-| `deepseek-v4-flash` | `xopdsv4flash0731in` | 1 | 1048576 | 100000 | none, high, max | high |
+| `deepseek-v4-flash` | `xopdsv4flash0731in` | 未知 | 1048576 | 100000 | none, high, max | high |
+
+（`multiplier` 为 `未知` = 云端没有对应行，渠道**省略该字段**（`undefined`），不编造 `1`；
+只有 `glm-5.2` / `deepseek-v4-pro` 云端实测 `point_multiplier` = x2.0。）
 
 来源（`packages/core/channels/astudio/src/catalog.ts:32-42` 注释 + PROTOCOL §6.2）：
 
@@ -393,14 +401,17 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 | 字段 | 对外是否生效 | 机制 |
 | --- | --- | --- |
-| contextWindow | ✅ | `packages/core/channels/astudio/src/catalog.ts:141-150` `modelSpec()` → 池层 `packages/core/gateway/src/pool/pool-targets.ts:500` → `/v1/models` 的 `context_window`，`meta_sources="spec"` |
+| contextWindow | ✅ | `packages/core/channels/astudio/src/catalog.ts` 的 `modelSpec()` → 池层 `facts.spec?.contextWindow` → `/v1/models` 的 `context_window`，`meta_sources="spec"` |
 | maxOutputTokens | ✅ | 同上 → `max_output_tokens` |
-| **思考档位** | ❌ | 见下 |
-| **倍率** | ❌ | 见下 |
+| **思考档位** | ✅ | `modelSpec()` 返回 `effort` → 池层 `facts.spec?.effort`（`packages/core/gateway/src/pool/pool-targets.ts` 读 `spec?.effort`） |
+| **倍率** | ✅ | `modelSpec()` 返回 `multiplier` → 池层 `facts.spec?.multiplier`（`packages/core/gateway/src/pool/pool-targets.ts` 读 `spec?.multiplier`） |
 
-### 缺口 1：思考档位对外恒 `null`
+### 缺口 1（已修，2026-10-26）：思考档位曾对外恒 `null`
 
-- `packages/core/channels/astudio/src/catalog.ts:141-150` 的 `modelSpec()` **只返回 `{contextWindow, maxOutputTokens}`，不返回 `effort`**
+**结论：已修。** `modelSpec()` 现在返回 `effort`，池层读 `facts.spec?.effort`，
+`/v1/models` 的 `effort` 已透出。以下保留当时的诊断：
+
+- `packages/core/channels/astudio/src/catalog.ts` 的 `modelSpec()` **当时只返回 `{contextWindow, maxOutputTokens}`，不返回 `effort`**
 - 共享层契约其实允许：`packages/core/gateway/src/pool/pool-targets.ts:461-466` 的 `ChannelFacts["spec"]` 类型是
   `effort?: { supportedLevels: string[]; defaultLevel: string }`，
   `pool-targets.ts:609,644` 也会读 `facts.spec?.effort`
@@ -414,56 +425,52 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 **档位在渠道内部是生效的**：`packages/core/channels/astudio/src/upstream.ts:307-324` `buildChatBody` 用
 `catalog.modelEffortLevels(upstreamModel)` 校验 `reasoning_effort`，
-非法则**静默删除**（避免上游回 400）。这条链路是通的 —— 只是**不对外透出**。
+非法则**静默删除**（避免上游回 400）。这条链路是通的 —— 当时只是**不对外透出**，现已透出。
 
-### 缺口 2：倍率对外恒 `null`（表里的 1/2 是死数据）
+### 缺口 2（已修，2026-10-26）：倍率曾对外恒 `null`
 
-- 池层 `packages/core/gateway/src/pool/pool-targets.ts:655`：`multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : null`
-  —— **只从目录缓存条目读**（`MULTIPLIER_KEYS` = `price_factor` / `multiplier` /
+**结论：已修。** `catalog.ts` 的 `modelSpec()` 现在返回 `multiplier`，池层
+`packages/core/gateway/src/pool/pool-targets.ts` 读 `facts.spec?.multiplier`，倍率已透出到
+`/v1/models`。以下保留当时的诊断依据：
+
+- 池层 `packages/core/gateway/src/pool/pool-targets.ts`：`multiplier: entry ? firstNumber(entry, MULTIPLIER_KEYS) : null`
+  —— 当时**只从目录缓存条目读**（`MULTIPLIER_KEYS` = `price_factor` / `multiplier` /
   `effective_multiplier` / `effectiveMultiplier` / `cost_multiplier`，是**目录缓存条目**的字段名约定）
 - astudio **从不 `writeCatalogCache`** → `entry` 恒 `null` → multiplier 恒 `null`
-- `packages/core/channels/astudio/src/catalog.ts:173-176` 的 `modelMultiplier()` **全仓库无调用方**（grep 只有定义处）
-  —— 同 `packages/core/channels/astudio/src/catalog.ts:163-166` 的 `modelDefaultEffort()` 也无调用方
-- **结果**：`/v1/models` 的 `multiplier` 恒 `null`；
-  `mx model astudio` 的倍率列恒 `-`（`app/cli/model.ts:148`）；
-  控制台 `model_info[...].multiplier` 恒 `null`；
-  UI 的 `MultiplierCell`（`packages/ui/src/components/ModelExplorer.tsx:345-355`）在 `m == null` 时显示 `—`，
-  但因 astudio 声明 `billing: false` → 走 `freePlanCids` 分支显示「**免费**」
-  → **1/2 两个数字被完全丢弃**
-- 文档自己也承认：`docs/channels/astudio/PROTOCOL.md:395` 写着「倍率 `-`（未知，免费档）」
+- `packages/core/channels/astudio/src/catalog.ts` 的 `modelMultiplier()` **全仓库无调用方**（grep 只有定义处）
+  —— 同 `modelDefaultEffort()` 也无调用方；两者保留给需要单独取值的调用方，倍率改由 `modelSpec()` 透出
+- **当时的结果**：`/v1/models` 的 `multiplier` 恒 `null`；
+  `mx model astudio` 的倍率列恒 `-`（`app/cli/model.ts`）；
+  控制台 `model_info[...].multiplier` 恒 `null` → **1/2 两个数字被完全丢弃**
+- 文档当时也承认：`docs/channels/astudio/PROTOCOL.md` 写着「倍率 `-`（未知，免费档）」
 
-### 缺口 3：`docs/MODEL-SPECS.md` 无 astudio 章节
+### 缺口 3（已消解）：规格事实源改为渠道代码
 
-`docs/MODEL-SPECS.md` §5 第 2 层要求「表里的数值必须与本文一致，改规格先改本文」，
-但该文件**全文没有 astudio**（grep 零命中）→ astudio 的规格表**游离在仓库的唯一事实源之外**。
+`docs/MODEL-SPECS.md` 现在只描述**全局规格文件**（`~/.modelmux/model-specs.json`）的设计与
+取值链（§0 三层取值链、§4 与渠道 spec 表的关系），**通篇不含任何渠道的逐型号规格表**。
+astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels/astudio/src/catalog.ts`），
+与其它渠道同级 —— 不再是「游离在唯一事实源之外」。
 
 ### 要做什么
 
-1. **让 effort 与 multiplier 透出到池层**。两条路：
-   - a) **扩 `modelSpec()` 契约**：`runtime/channel.ts:341` 的签名加 `effort?`，
-     `pool-targets.ts` 已经会读（`:461-466,609,644`）→ **改动最小，只改契约签名 + 渠道实现**。
-     multiplier 则要另想办法（它不在 `modelSpec()` 的返回里）。
-   - b) **让 astudio 写目录缓存**（`writeCatalogCache`）→ 池层的
-     `firstNumber(entry, MULTIPLIER_KEYS)` 就能读到。代价：多一份缓存文件，
-     且缓存语义是「上游目录」，而 astudio 的表是静态内置的 —— 语义上有点别扭。
-   - c) **给渠道加一个「目录元数据」钩子**（如 `catalog.directoryMeta?()`），
-     让池层在无缓存条目时问渠道要 multiplier。契约要新加，但语义最干净。
-   ⚠ **倍率那三个数字（1/1/1/1/2/2/1）本身也待核**：其中 4 个模型在云端
-   `/bot/models/configs` 里**没有对应行**（云端 9 行是 `lm_auto`/`lm_sparkx2agent`/`lm_sparkx2`/
-   `lm_glm52`/`lm_glm51`/`lm_minimax25`/`lm_kimi26`/`lm_qwen36`/`lm_deepseekv4pro`，
-   其中 `lm_sparkx2` = `spark-x` = x0.5，**不是** astudio 暴露的 `spark-x2.6`），
-   所以「云端无倍率行」被翻译成了 `multiplier: 1` —— **这是「无源填 1」，不是实测值**。
-   要么补实测，要么在 UI 上如实显示「未知」而不是假数字。
-2. **补 `docs/MODEL-SPECS.md` 的 astudio 章节**（仓库规则要求）。
+1. **（已完成）让 effort 与 multiplier 透出到池层**：走路线 a 的推广 ——
+   `runtime/channel.ts` 的 `modelSpec?` 契约同时带上 `effort?` 与 `multiplier?`，
+   池层 `packages/core/gateway/src/pool/pool-targets.ts` 读 `facts.spec?.effort` / `facts.spec?.multiplier`。
+   （路线 b「让 astudio 写目录缓存」与路线 c「新增目录元数据钩子」均未采纳。）
+   ⚠ **当时待核的倍率数字（1/1/1/1/2/2/1）已核实**：云端 `/bot/models/configs`
+   只有 `xopglm52` / `xopdeepseekv4pro` 两行有 `point_multiplier`（均 x2.0），
+   其余 5 个云端没有对应行 → 一律**省略**（`undefined`，不编造 1）。见 [PROTOCOL.md](./PROTOCOL.md) §6.2。
+2. **（已消解）补 `docs/MODEL-SPECS.md` 的 astudio 章节** —— 该文件已改为只描述全局规格
+   文件与取值链（§0 / §4），逐型号规格落在渠道 `catalog.modelSpec()`，不再要求在此登记。
 3. **`reasoning` / `thinking` 别名**：上游也接受这两个（PROTOCOL §6.1），
    但 `buildChatBody` 只校验 `reasoning_effort` → 客户端发这两个会**原样透传**，
    不受档位表约束（行为上大概率没问题，但不受控）。
 
 ### 验收判据
 
-- `GET /v1/models` 里 astudio 的 7 个模型，`effort` 不再是 `null`；
-- 倍率要么是实测值、要么如实显示「未知」，**不能是编造的 1**；
-- `docs/MODEL-SPECS.md` 有 astudio 章节。
+- `GET /v1/models` 里 astudio 的 7 个模型，`effort` 不再是 `null`；**已达成**
+- 倍率要么是实测值、要么如实显示「未知」，**不能是编造的 1**；**已达成**（5 个省略、2 个实测 x2.0）
+- `docs/MODEL-SPECS.md` 有 astudio 章节 → **已消解**（规格落点改为渠道代码，无需登记）
 
 ---
 
@@ -538,7 +545,7 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 1. **Web UI 完全没有签到展示**（非 astudio 独有，是全仓现状）：
    `channel_caps`（`http/console/console.ts`）**只有 `billing` 字段，没有 `signin`**；
    `packages/ui/src/` 搜 `signin` / `签到` **零命中**。
-   → `signin: false` 在 UI 上**无任何呈现**（CLI 至少显示 `astudio-` / 「无签到功能」）。
+   → 签到状态在 UI 上**无任何呈现**（`mx status <cid>` 的签到摘要可见，UI 侧不可见）。
    这属于**共享层 + UI 的问题**，不是 astudio 独有 —— 接手时要注意改动面。
 2. **「今天是否已领」的判据不够硬**：待处理弹窗 `DAILY_REWARD_DIALOG` 的内容是
    「**今日登录积分已到账**」—— 它是**到账通知**不是待领奖单，
@@ -546,16 +553,6 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
    现在 `claim()` 用**余额变动**（`init-app` 前后对比）确认，`status()` 的
    `claimedToday` 给 `null`（判不了就说不知道，不猜）。
    → 想更准，得找一个上游的「今日已领」字段（暂未找到）。
-
----
-
-## 附：文档与代码的三处矛盾（接手时顺手修）
-
-| # | 文档说法 | 代码实际 |
-| --- | --- | --- |
-| 1 | `PROTOCOL.md:110-118` + 技能 `references/PROTOCOL.md:105-118`：登录端点表（发码 / 短信登录 / 密码登录） | `cred.ts` / `upstream.ts` **零实现** |
-| 2 | `PROTOCOL.md:114`：登录成功判据 = 响应含 `account_id` 与 `token` | 代码不解析任何登录响应；实际判据是「会话文件有 `modelBearerToken`」 |
-| 3 | `PROTOCOL.md:131-138`：展示名回落 mobile（label 优先级 nickname → email → phone → uid） | 实际是 `NAME_FIELDS` 命中 `mobile` → **`name`**，UI 显示 `name`（**明文手机号**）而非被脱敏的 `label` |
 
 ---
 
@@ -603,9 +600,9 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 ## 附：动手时的纪律
 
 - 渠道**不写单元测试**（`AGENTS.md`「测试规则」第 1 条），只做端到端
-  （`reasonix-mx-test` / `opencode-mx-test` 技能）。
+  （`opencode-mx-test` 技能）。
 - 探测脚本放项目根 `.tmp/`，**默认保留复用**（`AGENTS.md`「测试规则」第 2 条）。
-- 只发**正确形态**的请求；**绝不**拿真实账号去「故意发错验证归一化会���」。
+- 只发**正确形态**的请求；**绝不**拿真实账号去「故意发错、验证归一化是否会修」。
 - 实测结论要落 `docs/channels/astudio/PROTOCOL.md`。
 - 改完：`npm run build` → `mx restart` → `mx status --json` 确认 `stale_build=false`。
 - 推送前：`npm test` 全绿 + `npm run gate`（WSL 门禁）绿 + PR 走 CI 双绿后 rebase 合并。

@@ -152,8 +152,9 @@
 - `GET` 同路径返回 404（上游只挂 POST），不要改方法。
 - ⚠ **签到活动状态端点**（`/v2/billing/meter/checkin-activity-status`，回
   `today_checked_in` / `streak_days` / `end_time`）**当前未实现** —— 它是上游
-  「今天还能不能领 / 活动到哪天结束」的权威依据，缺它意味着 `mx signin workbuddy`
-  只能靠 `daily-checkin` 的幂等拒绝来猜。列入 §7.2 缺口 8，**不写进规格**。
+  「今天还能不能领 / 活动到哪天结束」的权威依据，缺它意味着只能靠 `daily-checkin`
+  的幂等拒绝来猜（签到由网关启动时的自动签到链路执行，CLI **没有** `signin` 动词，
+  结果见 `mx status workbuddy` 的签到摘要）。列入 §7.2 缺口 8，**不写进规格**。
 
 ## 4. 错误码与处置分类
 
@@ -382,8 +383,8 @@
   `/v1/models` 显示的是**上游声明值**；规格表只在目录没声明（或目录缓存缺失）时兜底。
 - ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
   `maxOutputTokens` = **单次回复**上限。
-- 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：`docs/MODEL-SPECS.md` §3
-  （联网核实的唯一事实源）；键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。
+- 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：**公开规格**（联网核实的唯一事实源）；
+  键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。
 
 | 规范模型名 | 上下文 | 单次回复上限 |
 | --- | --- | --- |
@@ -418,17 +419,17 @@
 
 | 规范模型名 | 原因 |
 | --- | --- |
-| `auto` / `default` | 平台**档位别名**（按账号档位路由到不同底层模型），无单一规格（`docs/MODEL-SPECS.md` §4） |
-| `hy3-x` | 官方无公开规格（§4：无此仓库 / 无第三方登记） |
-| `space-bunny` | 目录条目，官方无公开规格（§4） |
-| `kimi-k2.7` | 官方无公开规格（§4：无此独立型号，公开规格表只有 `kimi-k2.7-code`） |
-| `kimi-k3.1` | 官方无公开规格（§4：官方未发布；目录 id 是 `kimi-k3-1`，展示名 Kimi-K3） |
-| `glm-4.6` / `glm-4.6v` | 不在 `docs/MODEL-SPECS.md` §3 规格表内 |
-| `minimax-m2.5` | 不在 §3 规格表内（§3 只有 `minimax-m2.7`） |
-| `kimi-k2-thinking` | 思考变体，不在 §3 规格表内 |
-| `deepseek-v3.2-volc` | 不在 §3 规格表内 |
-| `hunyuan-2.0-thinking` | 不在 §3 规格表内 |
-| `hunyuan-image-alpha` | 图片条目，不在 §3 规格表内 |
+| `auto` / `default` | 平台**档位别名**（按账号档位路由到不同底层模型），无单一规格 |
+| `hy3-x` | 官方无公开规格（无此仓库 / 无第三方登记） |
+| `space-bunny` | 目录条目，官方无公开规格 |
+| `kimi-k2.7` | 官方无公开规格（无此独立型号，公开规格表只有 `kimi-k2.7-code`） |
+| `kimi-k3.1` | 官方无公开规格（官方未发布；目录 id 是 `kimi-k3-1`，展示名 Kimi-K3） |
+| `glm-4.6` / `glm-4.6v` | 不在渠道规格表 `src/catalog.ts` 的 `MODEL_SPECS` 内 |
+| `minimax-m2.5` | 不在渠道规格表内（该表只有 `minimax-m2.7`） |
+| `kimi-k2-thinking` | 思考变体，不在渠道规格表内 |
+| `deepseek-v3.2-volc` | 不在渠道规格表内 |
+| `hunyuan-2.0-thinking` | 不在渠道规格表内 |
+| `hunyuan-image-alpha` | 图片条目，不在渠道规格表内 |
 
 ### 2026-10-24 用量限额（429 / 6004）与冷却记账实测
 

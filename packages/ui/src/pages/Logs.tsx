@@ -190,7 +190,7 @@ const COL_WIDTHS = {
   context: "88px",
 } as const;
 
-/** 结果单元格：与同行其它列一样 `align-top`（此前漏写，导致纵向对齐与其余列不一致）。 */
+/** 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。 */
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
