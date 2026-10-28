@@ -12,7 +12,7 @@
 import { channelCapabilities, channels, getChannel, hasChannel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { POOL_MODELS, canonicalModelId, poolModelId, poolCandidates } from "../../pool/pool-targets.js";
-import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
+import { ledgerSnapshot, refreshBilling, scoreOf, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { renderChannelPool } from "./web-types.js";
 import type { WebCommandBody, WebCommandResult, WebChannelStatus } from "./web-types.js";
@@ -157,7 +157,8 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
           const index = runInChannel(poolCid, () => listAccounts(poolCid));
           return renderChannelPool(channel.config.cid, channel.upstream.DISPLAY_NAME, index);
         });
-        return ok({ channels: pools });
+        // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
+        return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
       }
       case "activateAccount": {
         if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");

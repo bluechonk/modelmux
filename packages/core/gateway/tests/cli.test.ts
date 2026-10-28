@@ -15,6 +15,7 @@ import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, channelCount, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
 import { captureActive } from "../dist/runtime/account-pool.js";
+import { noteSuccess, resetPoolLedgerForTest } from "../dist/pool/pool-usage.js";
 import { credentialsPath } from "../dist/runtime/paths.js";
 import { main } from "../dist/app/cli/index.js";
 import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
@@ -594,6 +595,36 @@ describe("4. 账号池与落点（也走 CLI）", () => {
       assert.ok(index.active, "新登录的账号应成为当前生效账号");
     } finally {
       resetChannels();
+    }
+  });
+
+  it("acct 列表顺序：用得多在前，同频按 cid（与 Web 账号池页同一规则）", async () => {
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    process.env["MODELMUX_HOME"] = root;
+    resetPoolLedgerForTest();
+    clearChannels();
+    // 故意**逆字母序**注册：输出若仍是字母序，才说明排序真生效（而不是跟随注册顺序）
+    setChannel(makeChannel("zeta", { signin: false }));
+    setChannel(makeChannel("alpha", { signin: false }));
+    try {
+      const listed = (out: string): string[] =>
+        out
+          .split("\n")
+          .filter((line) => /^(alpha|zeta) \(/.test(line))
+          .map((line) => line.split(" ")[0]!);
+
+      const fresh = await run(["acct"]);
+      assert.equal(fresh.code, 0, fresh.err);
+      assert.deepEqual(listed(fresh.out), ["alpha", "zeta"], "都没用过 → 字母序");
+
+      // 给 zeta 攒使用频率（真实路径上由请求成败累加，这里直接写账本）
+      for (let i = 0; i < 3; i += 1) noteSuccess("zeta");
+      const used = await run(["acct"]);
+      assert.deepEqual(listed(used.out), ["zeta", "alpha"], "用过 3 次的 zeta 置顶");
+    } finally {
+      resetChannels();
+      resetPoolLedgerForTest();
     }
   });
 

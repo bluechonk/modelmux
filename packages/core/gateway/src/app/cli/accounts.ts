@@ -17,6 +17,7 @@ import {
   type PoolIndex,
 } from "../../runtime/account-pool.js";
 import * as headless from "../lifecycle/headless.js";
+import { sortChannelsByUsage } from "../../pool/pool-usage.js";
 
 export interface AccountsOptions {
   /** list（默认）/ use / add / remove。 */
@@ -122,7 +123,8 @@ export async function runAccounts(options: AccountsOptions = {}): Promise<number
 
   switch (verb) {
     case "list": {
-      const pools = targets.map(poolOf);
+      // 展示顺序与 Web 账号池页一致：用得多在前，同频按 cid（见 pool-usage 的 sortChannelsByUsage）
+      const pools = sortChannelsByUsage(targets.map(poolOf));
       if (json) {
         console.log(JSON.stringify({ channels: pools }, null, 2));
         return 0;
