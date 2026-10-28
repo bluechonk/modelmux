@@ -25,7 +25,7 @@ npm install                       # 装工作区依赖（含软链）
 npm run build                     # 全仓编译（tsc -b 增量 + cli 单文件 bundle + copy-ui）
 npm test                          # build + typecheck + 全部 verify:* + 全部包的测试（Windows 侧快速反馈）
 npm run typecheck                 # 全工作区类型检查（UI 也在内；新增包必须带 typecheck 脚本）
-npm run gate                      # 【推送前必须】WSL 门禁：clone → npm ci → npm test
+npm run gate                      # 【推送前必须】推送门禁：干净 clone → npm ci → npm test
 npm run build --workspace=packages/core/channels/<cid>    # 只编一个渠道（也走引用链）
 node packages/cli/dist/cli.js --help        # 仓库级 CLI：多渠道路由，唯一网关端口 4412（REPO_DEFAULT_ADDR）
 node packages/cli/dist/cli.js model list    # 池视图：有哪些模型（按渠道分组）
@@ -138,7 +138,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 ⚠ 无论哪种节奏，**推送前**的约束都一样，不因改动小而放宽：
 
 1. `npm test` 全绿（含 typecheck 与全部 `verify:*`）；
-2. `npm run gate`（WSL 门禁）全绿 —— `.githooks/pre-push` 会自动再跑一次，禁止 `--no-verify`；
+2. `npm run gate`（推送门禁）全绿 —— `.githooks/pre-push` 会自动再跑一次，禁止 `--no-verify`；
 3. 提交信息符合 `type(scope): 中文描述`（`verify:commits` 在 `npm test` 里校验）；
 4. 文档与代码**同一个 commit** 更新。
 
@@ -351,28 +351,26 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 
 实现见 `packages/core/gateway/src/app/lifecycle/stale-build.ts`；事故记录见 `docs/CONTRACT-TS.md` 第 8 节「陈旧构建」。
 
-### 本地 WSL 门禁
+### 推送门禁
 
-**强制**。本机是 Windows + Git Bash，CI 跑在 ubuntu-latest；Windows 侧「跑绿了」不代表 CI 会绿。
-推送前必须在 **WSL（真 Linux / ext4）** 里跑与 CI 等价的命令；这是独立的一步，不是 `npm test` 的附加选项。
+**强制**。推送前必须跑与 CI 等价的命令；这是独立的一步，不是 `npm test` 的附加选项。
 
 ```bash
-npm run gate          # 完整门禁：WSL clone → npm ci → npm test
+npm run gate          # 完整门禁：干净 clone → npm ci → npm test
 ```
 
-`.githooks/pre-push` 会自动调用同一条命令；手动跑的意义是提前发现。实现见 `scripts/wsl-gate.sh`
+`.githooks/pre-push` 会自动调用同一条命令；手动跑的意义是提前发现。实现见 `scripts/gate.sh`
 （`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
-#### 为什么必须在 WSL 而不是 Windows 侧
+#### 为什么必须 clone 到干净目录
 
 | 差异 | 后果 |
 | --- | --- |
-| `verify:commits` 需要完整 git 历史（CI 用 `fetch-depth: 0`） | 浅克隆会漏，Windows 侧假绿 |
-| `npm ci` 装**平台原生依赖**（esbuild 等） | Windows 能装不代表 Linux 能装 |
-| DrvFS（`/mnt/c`）有符号链接与大小写敏感性问题 | ext4 上才与 CI 一致 |
+| `verify:commits` 需要完整 git 历史（CI 用 `fetch-depth: 0`） | 浅克隆会漏 |
+| `npm ci` 装**平台原生依赖**（esbuild 等） | 开发机上的残留依赖不代表 CI 能装 |
+| 开发工作树自带未提交改动与陈旧产物（`dist/`） | 在工作树上跑，测的不是待推的那个提交 |
 
-门禁因此在 WSL 里 **clone 一份到 ext4**（默认 `/tmp/modelmux-gate`）再跑，而不是直接在
-`/mnt/c` 工作树上跑。
+门禁因此总是 **clone 一份到干净目录**（默认 `/tmp/modelmux-gate`）再跑。
 
 #### 各阶段的强制范围
 
@@ -393,7 +391,7 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test
    `packages/core/gateway/tests/`）。
 2. 测试链读的是各包 `dist/`（不是 `src/`），所以编译必须在链首：`npm test` 已内置 `npm run build`；
    单独跑 `npm run verify:*` 或 `npm test --workspace=packages/core/channels/<cid>` 前必须先 `npm run build`。
-3. 本地 WSL 门禁全绿后才允许推送。
+3. 本地推送门禁全绿后才允许推送。
 4. 文档与代码**同一个 commit** 更新。
 5. 仓库内不要出现运行时数据；运行时目录在 `~/.modelmux/`，构建产物 `dist/` 与依赖 `node_modules/` 不入库。
 6. 推送后核对 CI 必须是 `completed / success`；用 `gh pr checks <n>` / `gh run view <id>` 查看。
@@ -402,7 +400,7 @@ npm run gate          # 完整门禁：WSL clone → npm ci → npm test
 
 ### 禁止事项
 
-- 本仓库的 WSL 门禁不允许以「改动很小」「只改了注释/文档/CI 配置」为由跳过。
+- 本仓库的推送门禁不允许以「改动很小」「只改了注释/文档/CI 配置」为由跳过。
 - **workflow 文件不许「改完直接推，看 CI 结果再说」** —— workflow 的失败模式通常只有真跑产物才暴露
   （如 CI 的 node 版本矩阵与本地不一致），推到云上再改要多一轮提交。
 

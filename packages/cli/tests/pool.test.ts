@@ -91,8 +91,8 @@ describe("仓库级模型池", () => {
     //    而 loomy / raccoon / lobsterai 的目录带**异步刷新**（首次访问触发后台拉取），
     //    两次读之间目录可能已经变了 —— 那是测试自身的竞态，不是产品缺陷
     //    （2026-10-26 实测：`lobsterai/MiniMax-M3.1-Flash-Preview` 在两次读之间进出）。
-    //    写死数量（「>= 3」「>= 渠道数的一半」）同样不可行：同一份代码在 Windows 侧
-    //    见 2 个渠道暴露 `deepseek-v4.1-flash`，WSL 干净克隆下是 4 个。
+    //    写死数量（「>= 3」「>= 渠道数的一半」）同样不可行：同一份代码在不同环境下
+    //    看到的渠道数可能不同（2026-10-26 实测：本机 2 个渠道，干净克隆下 4 个）。
     const known = new Set(EXPECTED_CIDS);
     // POOL_MODELS 是 Proxy（每次属性访问都重建快照），先落一份本地快照再遍历
     const pooled = [...gw.POOL_MODELS];
