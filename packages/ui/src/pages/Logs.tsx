@@ -29,8 +29,8 @@ import { LogContextDialog } from "../components/LogContextDialog";
 import { PageHeader } from "../components/PageHeader";
 import { Skeleton } from "./Dashboard";
 
-/** 一页返回多少条（点「加载更多」按这个步长累加）。 */
-const PAGE_SIZE = 100;
+/** 每页条数默认值（可切换 10 / 20 / 50）。 */
+const PAGE_SIZE = 20;
 
 /** 输入防抖：不防的话每敲一个字符都发一次查询。 */
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -385,7 +385,7 @@ function Pager({
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
             className="rounded border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-ink-soft"
           >
-            {[50, 100, 200, 500].map((n) => (
+            {[10, 20, 50].map((n) => (
               <option key={n} value={n}>
                 {n}
               </option>
