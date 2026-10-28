@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 推送门禁：调用 scripts/wsl-gate.sh（在 WSL 里跑与 CI 等价的全部门禁）。
+# 推送门禁：调用 scripts/gate.sh（在干净 clone 里跑与 CI 等价的全部门禁）。
 #
-# 门禁逻辑都在 scripts/wsl-gate.sh —— 这里只做一件事：拦住推送。
-# 手动提前跑同一条命令：`npm run gate`（或 bash scripts/wsl-gate.sh）。
+# 门禁逻辑都在 scripts/gate.sh —— 这里只做一件事：拦住推送。
+# 手动提前跑同一条命令：`npm run gate`（或 bash scripts/gate.sh）。
 #
 # 紧急绕过：git push --no-verify（按 AGENTS.md 门禁规则，须先说明理由并获同意）。
 set -euo pipefail
@@ -22,7 +22,7 @@ done || true
 repo_root=$(git rev-parse --show-toplevel)
 
 cd "$repo_root"
-if ! bash scripts/wsl-gate.sh --quiet "$push_branch"; then
+if ! bash scripts/gate.sh --quiet "$push_branch"; then
   echo "[pre-push] 门禁未通过，推送已拦截（手动复现：npm run gate；绕过需先获同意：--no-verify）" >&2
   exit 1
 fi
