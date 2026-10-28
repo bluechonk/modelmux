@@ -170,24 +170,6 @@ export function Accounts(): ReactElement {
     onSettled: () => setBusyKey(null),
   });
   /**
-   * 解除：清掉连败熔断 / 额度冷却（后端 `clearAccountState`，不动凭证）。
-   *
-   * 失败信息走错误 toast —— 最常见的两种是「凭据已失效需重登」与「账号不在池里」，
-   * 都只能由用户决定下一步，不该静默吞掉。
-   */
-  const reset = useMutation({
-    mutationFn: async ({ cid, key }: { cid: string; key: string }) => {
-      setBusyKey(`reset:${key}`);
-      return await api.commands.resetAccount(cid, key);
-    },
-    onSuccess: () => {
-      toast.success("已解除标记，账号重新参与路由");
-      invalidateAll();
-    },
-    onError: (err) => toast.error(String(err)),
-    onSettled: () => setBusyKey(null),
-  });
-  /**
    * 两步登录的输入（如 loomy 的短信验证码）。
    *
    * 后端把待回答的请求放在 `state.login_input` 里，弹窗只渲染一张输入卡；
@@ -336,7 +318,6 @@ export function Accounts(): ReactElement {
                 billingError={billingError}
                 now={now}
                 onActivate={(cid, key) => activate.mutate({ cid, key })}
-                onReset={(cid, key) => reset.mutate({ cid, key })}
                 onRemove={(cid, key) => remove.mutate({ cid, key })}
                 onAdd={(cid) => setLoginChannel(cid)}
                 busyKey={busyKey}
