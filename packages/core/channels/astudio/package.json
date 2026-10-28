@@ -1,6 +1,6 @@
 {
   "name": "@modelmux/astudio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "AStudio（讯飞桌面 Agent）的 OpenAI 兼容模型网关渠道（TypeScript，无窗口，modelmux 渠道）",

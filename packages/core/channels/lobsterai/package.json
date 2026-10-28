@@ -1,6 +1,6 @@
 {
   "name": "@modelmux/lobsterai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "LobsterAI 的本地 OpenAI Chat Completion 透明代理网关（TypeScript，无窗口，modelmux 渠道）",

@@ -16,7 +16,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "astudio",
   display: "AStudio",
-  version: "0.1.1",
+  version: "0.1.2",
   defaultAddr: "127.0.0.1:8819",
   uiPort: 8820,
   debugDumpEnv: "ASTUDIO_DEBUG_DUMP",
