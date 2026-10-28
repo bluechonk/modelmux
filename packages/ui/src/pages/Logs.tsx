@@ -1,5 +1,5 @@
 /**
- * 日志页：网关请求级访问日志（时间 / 渠道·模型 / 流 / 耗时 / tokens / 结果）；
+ * 日志页：网关请求级访问日志（时间 / 结果 / 模型 / 耗时 / TPS / tokens）；
  * 字段语义、落点与读窗口见 docs/LOGGING.md §3。
  *
  * 关键约束（docs/LOGGING.md §3）：
@@ -184,9 +184,8 @@ const COL_WIDTHS = {
   toggle: "44px",
   time: "168px",
   result: "124px",
-  stream: "56px",
   duration: "84px",
-  tokensPerSec: "72px",
+  tokensPerSec: "88px",
   tokens: "172px",
   context: "88px",
 } as const;
@@ -239,7 +238,6 @@ function LogTable({
             <col style={{ width: COL_WIDTHS.time }} />
             <col style={{ width: COL_WIDTHS.result }} />
             <col />
-            <col style={{ width: COL_WIDTHS.stream }} className="hidden md:table-column" />
             <col style={{ width: COL_WIDTHS.duration }} />
             <col style={{ width: COL_WIDTHS.tokensPerSec }} />
             <col style={{ width: COL_WIDTHS.tokens }} />
@@ -251,9 +249,8 @@ function LogTable({
               <th className={headClass}>时间</th>
               <th className={headClass}>结果</th>
               <th className={headClass}>模型</th>
-              <th className={`hidden text-center md:table-cell ${headClass}`}>流</th>
               <th className={`text-right ${headClass}`}>耗时</th>
-              <th className={`text-right ${headClass}`}>token/s</th>
+              <th className={`text-right ${headClass}`}>TPS</th>
               <th className={`text-right ${headClass}`}>tokens（入/出）</th>
               <th className={headClass}>上下文</th>
             </tr>
@@ -296,9 +293,6 @@ function LogTable({
                         <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>
                       )}
                     </td>
-                    <td className="hidden whitespace-nowrap px-3 py-2 align-top text-center text-xs text-ink-soft md:table-cell">
-                      {entry.stream === undefined ? "-" : entry.stream ? "流式" : "单次"}
-                    </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
                       {formatDuration(entry.durationMs)}
                     </td>
@@ -325,7 +319,7 @@ function LogTable({
                   </tr>
                   {open && (
                     <tr className="border-b border-line/40">
-                      <td colSpan={9} className="p-0">
+                      <td colSpan={8} className="p-0">
                         <LogDetail entry={entry} />
                       </td>
                     </tr>

@@ -143,7 +143,7 @@ function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; m
         {ms != null ? formatDuration(ms) : "—"}
       </span>
       <span className="shrink-0 w-12 text-right tabular-nums text-ink-faint">
-        {tps !== "—" ? `${tps}/s` : "—"}
+        {tps !== "—" ? `${tps} t/s` : "—"}
       </span>
     </div>
   );
@@ -238,6 +238,11 @@ export function Dashboard(): ReactElement {
     }
   }, [stateQuery.error, overviewQuery.error, overview?.gateway.gateway_error, state?.gateway_error, toast]);
 
+  // ----- 渠道状态折叠：默认全部折叠，点展开才显示具体行 -----
+  // ⚠ 必须在早期返回之前调用 useState，否则 Hooks 顺序不固定 → React #310
+  const [channelsExpanded, setChannelsExpanded] = useState(false);
+  const toggleChannels = () => setChannelsExpanded((v) => !v);
+
   // ----- 加载态 -----
   if (stateQuery.isLoading) return <DashboardSkeleton />;
   if (stateQuery.error && !overview) {
@@ -277,12 +282,41 @@ export function Dashboard(): ReactElement {
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
 
-  // ----- 渠道状态折叠：默认全部折叠，点展开才显示具体行 -----
-  const [channelsExpanded, setChannelsExpanded] = useState(false);
-  const toggleChannels = () => setChannelsExpanded((v) => !v);
-
   return (
     <div className="space-y-5 pb-10">
+      {/* ② KPI 行：四格，sm+ 单行，窄屏 2×2（放在接入盒上方，先看运行概况再看接入信息） */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          icon={Wifi}
+          label="今日请求 · 成功率"
+          value={String(totalReq)}
+          sub={usage ? `${usage.success} 成功 · ${successRate}` : undefined}
+          tone={totalReq > 0 ? "free" : "muted"}
+        />
+        <KpiCard
+          icon={AlertTriangle}
+          label="失败 · 其中慢"
+          value={String(usage?.failure ?? 0)}
+          sub={usage ? `慢请求 ${usage.slow} 次` : undefined}
+          tone={(usage?.failure ?? 0) > 0 ? "danger" : "muted"}
+        />
+        <KpiCard
+          icon={Clock}
+          label="平均耗时"
+          value={avgDur}
+        />
+        <KpiCard
+          icon={Coins}
+          label="今日 tokens"
+          value={totalTokens}
+          sub={
+            usage && usage.tokens.total > 0
+              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}`
+              : undefined
+          }
+        />
+      </div>
+
       {/* ① 接入盒 */}
       <section className="panel overflow-hidden">
         <div className="space-y-1 p-4 sm:p-5">
@@ -324,39 +358,6 @@ export function Dashboard(): ReactElement {
           </button>
         </div>
       </section>
-
-      {/* ② KPI 行：四格，sm+ 单行，窄屏 2×2 */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard
-          icon={Wifi}
-          label="今日请求 · 成功率"
-          value={String(totalReq)}
-          sub={usage ? `${usage.success} 成功 · ${successRate}` : undefined}
-          tone={totalReq > 0 ? "free" : "muted"}
-        />
-        <KpiCard
-          icon={AlertTriangle}
-          label="失败 · 其中慢"
-          value={String(usage?.failure ?? 0)}
-          sub={usage ? `慢请求 ${usage.slow} 次` : undefined}
-          tone={(usage?.failure ?? 0) > 0 ? "danger" : "muted"}
-        />
-        <KpiCard
-          icon={Clock}
-          label="平均耗时"
-          value={avgDur}
-        />
-        <KpiCard
-          icon={Coins}
-          label="今日 tokens"
-          value={totalTokens}
-          sub={
-            usage && usage.tokens.total > 0
-              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}`
-              : undefined
-          }
-        />
-      </div>
 
       {/* ③④⑤⑥ 双列区 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
@@ -458,9 +459,9 @@ export function Dashboard(): ReactElement {
         </div>
 
         {/* 右列：模型池概览 + 网关控制 */}
-        <div className="space-y-5 lg:col-span-4">
-          {/* ④ 模型池概览 */}
-          <section className="panel p-4">
+        <div className="flex flex-col gap-5 lg:col-span-4">
+          {/* ④ 模型池概览（flex-1：向下拉伸到与左列同高，两列底边对齐） */}
+          <section className="panel flex-1 p-4">
             <div className="panel-title mb-3">
               <Eye className="h-4 w-4 text-ink-faint" />
               模型池

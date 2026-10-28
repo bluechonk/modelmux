@@ -793,5 +793,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
   await shutdown();
   if (json) emit({ event: "stopped", ...(stopReason ? { reason: stopReason } : {}) });
+  // ⚠ 有监督者时 IPC 通道是活跃 handle：不主动断开，进程会一直不退出，
+  //    监督者等不到 exit 就永远不重生（实测：Web 点「重启」后网关卡死、不再服务）。
+  if (typeof process.disconnect === "function" && process.connected) {
+    process.disconnect();
+  }
   return 0;
 }
