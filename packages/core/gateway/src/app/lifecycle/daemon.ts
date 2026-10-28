@@ -24,11 +24,12 @@ import {
   type CreditsResult,
 } from "../../runtime/channel.js";
 import { defaultAddr, defaultUiPort, REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
-import { syncPool } from "../../runtime/account-pool.js";
+import { syncPool, listAccounts } from "../../runtime/account-pool.js";
 import { claimedTodayPerLedger, ledgerExists } from "../../auth/signin-ledger.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import * as gateway from "../../http/server.js";
 import * as paths from "../../runtime/paths.js";
+import * as poolUsage from "../../pool/pool-usage.js";
 import { baseUrlOf, displayBase } from "../../http/portfree.js";
 import { detectStaleBuild, staleBuildHint } from "./stale-build.js";
 import {
@@ -544,8 +545,11 @@ export async function models(
  * 查询账号剩余额度（直接走上游 billing，不经本地网关）。
  *
  * 仓库级（多渠道）时逐渠道查询：某个渠道没有额度端点或未登录只影响它自己。
+ *
+ * `--accounts`（或单渠道池内 ≥2 个账号）时**逐账号**再查一遍，一个人读的额度
+ * 必须能分辨「哪个账号还剩多少」—— 额度是账号级的（见 docs/ACCOUNT-ROTATION.md §1）。
  */
-export async function credits(options: { json?: boolean; cid?: string } = {}): Promise<number> {
+export async function credits(options: { json?: boolean; cid?: string; accounts?: boolean } = {}): Promise<number> {
   const scope = scopeOf(options.cid);
   const list = scopeChannels(scope);
   const name = scope.name;
@@ -586,9 +590,22 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
     }
   }
 
+  // 逐账号额度：显式 `--accounts`，或单渠道时池内本来就有多个账号（默认给出来 ——
+  // 「渠道还剩多少」这句话在池里不止一个账号时是不完整的）。
+  const accountRows = new Map<string, poolUsage.AccountCreditsRow[]>();
+  for (const channel of list) {
+    const cid = channel.config.cid;
+    if (!channelCapabilities(channel.config).billing) continue;
+    const want =
+      options.accounts === true || (list.length === 1 && runInChannel(cid, () => listAccounts(cid)).accounts.length > 1);
+    if (!want) continue;
+    accountRows.set(cid, await poolUsage.queryAccountCredits(cid));
+  }
+
   // 单一渠道：保持既有输出形状（直接打印额度明细）
   if (list.length === 1) {
     const only = results[0]!;
+    const rows = accountRows.get(list[0]!.config.cid) ?? [];
     if (only["ok"] !== true) return 1;
     if (only["unsupported"] === true) {
       if (options.json) {
@@ -599,7 +616,7 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
       return 0;
     }
     if (options.json) {
-      console.log(JSON.stringify(only, null, 2));
+      console.log(JSON.stringify({ ...only, accounts: rows }, null, 2));
       return 0;
     }
     const t = only["total"] as CreditsResult["total"];
@@ -615,14 +632,53 @@ export async function credits(options: { json?: boolean; cid?: string } = {}): P
           : "";
       console.log(`  · ${pkg.name}: ${pkg.remain}/${pkg.size}${tail}`);
     }
+    printAccountRows(rows);
     return 0;
   }
 
   if (options.json) {
-    console.log(JSON.stringify({ ok: failures === 0, channels: results }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ok: failures === 0,
+          channels: results.map((r) => {
+            const cid = String(r["cid"] ?? "");
+            const rows = accountRows.get(cid);
+            return rows ? { ...r, accounts: rows } : r;
+          }),
+        },
+        null,
+        2,
+      ),
+    );
     return failures === 0 ? 0 : 1;
   }
+  for (const [cid, rows] of accountRows) {
+    console.log(`[${cid}] 账号额度：`);
+    printAccountRows(rows, "  ");
+  }
   return failures === 0 ? 0 : 1;
+}
+
+/** 逐账号额度表（`mx bill --accounts` 的输出；`rows` 为空时什么都不打）。 */
+function printAccountRows(rows: poolUsage.AccountCreditsRow[], indent = ""): void {
+  if (rows.length === 0) return;
+  console.log(`${indent}账号（${rows.length}）：`);
+  for (const row of rows) {
+    const mark = row.active ? "*" : " ";
+    const who = `${row.key.slice(0, 8)}…  ${row.label}`;
+    if (!row.ok) {
+      console.log(`${indent}  ${mark} ${who}  查询失败：${row.error ?? "未知原因"}`);
+      continue;
+    }
+    const amount =
+      row.remain === null || row.size === null
+        ? "-"
+        : `${row.remain} / ${row.size}${row.unit ? ` ${row.unit}` : ""}`;
+    const percent = row.remain_percent === null ? "-" : percentText(row.remain_percent);
+    const tail = row.active ? "  生效中" : "";
+    console.log(`${indent}  ${mark} ${who}  剩余 ${amount}（${percent}%）${tail}`);
+  }
 }
 
 /** 查看网关日志尾部（守护进程的 stdout/stderr 都落在这里）。 */

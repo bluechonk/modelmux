@@ -36,6 +36,7 @@
 | [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录与署名不进注释（git 是唯一事实源）的判据与正反例 |
 | [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：三层取值链（上游 → 全局规格文件 → 兜底）、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程 |
 | [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复方案（草案）**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探（实施后收敛进 POOL-ARCHITECTURE.md） |
+| [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
 | [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取方案（草案）**：单条上限 256KB → 10MB 完整落盘、超限双端兜底 + UI 提示（实施后收敛进 LOGGING.md） |
 | [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：42 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 

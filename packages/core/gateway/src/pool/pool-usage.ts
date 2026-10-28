@@ -466,9 +466,91 @@ async function refreshAccountCredits(
   }
 }
 
+/** 逐账号的额度行（`mx bill --accounts` 的展示口径）。 */
+export interface AccountCreditsRow {
+  key: string;
+  /** 展示名（账号池的 `label`；取不到就是 key）。 */
+  label: string;
+  /** 是否当前生效账号。 */
+  active: boolean;
+  health: string;
+  /** 本次查询是否成功。 */
+  ok: boolean;
+  remain: number | null;
+  size: number | null;
+  used: number | null;
+  unit: string;
+  remain_percent: number | null;
+  /** 查询失败原因（人话，直接进 CLI）。 */
+  error?: string;
+}
+
+function numOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 逐账号**实时**查额度（`mx bill` 用）。
+ *
+ * 与 `refreshAccountCredits` 的区别：那个是后台刷新（写账本、跳过冷却账号），
+ * 这里是**用户显式要看当下的数字** —— 所以不写盘、不跳账号、失败如实回报，
+ * 由 CLI 决定怎么展示。用账号自己的凭据查询，不切生效账号、不写回凭证文件。
+ */
+export async function queryAccountCredits(cid: string): Promise<AccountCreditsRow[]> {
+  const channel = channels().find((c) => c.config.cid === cid);
+  if (!channel || !channelCapabilities(channel.config).billing) return [];
+  const index = runInChannel(cid, () => listAccounts(cid));
+  const rows: AccountCreditsRow[] = [];
+  for (const account of index.accounts) {
+    const base = {
+      key: account.key,
+      label: account.label || account.key,
+      active: index.active === account.key,
+      health: account.health,
+    };
+    const empty = { remain: null, size: null, used: null, unit: "", remain_percent: null };
+    const raw = runInChannel(cid, () => readAccountCredential(account.key, cid));
+    const credential = normalizeCredentialShape(raw);
+    if (Object.keys(credential).length === 0) {
+      rows.push({ ...base, ok: false, ...empty, error: "账号凭据文件读不出内容" });
+      continue;
+    }
+    try {
+      const credits: unknown = await runInChannel(cid, () =>
+        channel.billing.fetchCredits({ refreshOn401: false, credential }),
+      );
+      const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
+      rows.push({
+        ...base,
+        ok: true,
+        remain: numOrNull(total["remain"]),
+        size: numOrNull(total["size"]),
+        used: numOrNull(total["used"]),
+        unit: str(total["unit"]),
+        remain_percent: numOrNull(total["remain_percent"]),
+      });
+    } catch (err) {
+      rows.push({ ...base, ok: false, ...empty, error: String(err) });
+    }
+  }
+  return rows;
+}
+
 /** 只读快照（CLI / 诊断用）。 */
 export function ledgerSnapshot(): PoolLedger {
   return load();
+}
+
+/**
+ * 某账号**最近一次**查到的额度余额（本地快照，零网络开销）。
+ *
+ * `null` = 从来没查过（**不等于 0**）—— 自动换号的判据要区分这两种情况
+ * （见 `pool/account-rotate.ts`）。
+ */
+export function lastKnownRemain(cid: string, key: string): number | null {
+  const entry = load().channels[cid]?.accounts[key];
+  const value = entry?.credits?.remain;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /** 是否需要刷新账单（任一渠道从没查过，或已过 TTL）。 */

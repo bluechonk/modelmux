@@ -31,6 +31,8 @@ export interface CommandContext {
   lines: number;
   /** `paths`：统计工作区内全部渠道。 */
   all: boolean;
+  /** `bill --accounts`：强制逐账号列额度（池内单账号时也列）。 */
+  accounts: boolean;
   /** `logs`：持续输出新增日志。 */
   follow: boolean;
   /** `logs --kind`：access / error / system / lifecycle / worker / channel。 */
