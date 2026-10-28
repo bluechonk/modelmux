@@ -10,7 +10,7 @@
 
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessagesSquare, RotateCw } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, MessagesSquare, RotateCw } from "lucide-react";
 import { api } from "../lib/api";
 import {
   countOrDash,
@@ -209,6 +209,8 @@ function LogTable({
   page,
   pageNum,
   totalPages,
+  pageSize,
+  onPageSizeChange,
   expanded,
   onToggle,
   onPageChange,
@@ -218,6 +220,8 @@ function LogTable({
   page: AccessLogPage;
   pageNum: number;
   totalPages: number;
+  pageSize: number;
+  onPageSizeChange: (size: number) => void;
   expanded: string | null;
   onToggle: (id: string) => void;
   onPageChange: (page: number) => void;
@@ -226,7 +230,7 @@ function LogTable({
 }): ReactElement {
   const headClass = "px-3 py-2 font-normal";
   return (
-    <div className="panel overflow-hidden">
+    <div className="panel">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
           <colgroup>
@@ -330,85 +334,83 @@ function LogTable({
       <Pager
         pageNum={Math.min(pageNum, totalPages)}
         totalPages={totalPages}
-        total={page.total}        onPageChange={onPageChange}
+        total={page.total}
+        pageSize={pageSize}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
         loading={loading}
       />
     </div>
   );
 }
 
-/** 页码窗口：总页数 ≤7 全部列出，否则「1 … p-1 p p+1 … N」。 */
-function pagerWindow(pageNum: number, totalPages: number): Array<number | "…"> {
-  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-  const out: Array<number | "…"> = [1];
-  const lo = Math.max(2, pageNum - 1);
-  const hi = Math.min(totalPages - 1, pageNum + 1);
-  if (lo > 2) out.push("…");
-  for (let p = lo; p <= hi; p += 1) out.push(p);
-  if (hi < totalPages - 1) out.push("…");
-  out.push(totalPages);
-  return out;
-}
-
-/** 分页条：页码窗口 + 上一页/下一页 + 总数。 */
+/** 分页条：**黏在视口右下**（sticky），翻页不用滚回表格底端。
+ *
+ * 左侧：总条数 + 每页条数；右侧：上一页 / 页码 / 下一页。背景淡化盖住滚过的行。
+ */
 function Pager({
   pageNum,
   totalPages,
   total,
+  pageSize,
   onPageChange,
+  onPageSizeChange,
   loading,
 }: {
   pageNum: number;
   totalPages: number;
   total: number;
+  pageSize: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
   loading: boolean;
 }): ReactElement {
-  const btn = (active: boolean): string =>
-    `min-w-8 rounded-lg border px-2 py-1 text-xs tabular transition-colors ${
-      active
-        ? "border-line-strong bg-overlay text-ink"
-        : "border-line text-ink-soft hover:border-line-strong hover:text-ink"
-    } disabled:opacity-40`;
+  const navCls = (disabled: boolean): string =>
+    `grid h-7 w-7 place-items-center rounded-lg border border-line text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40`;
   return (
-    <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-line/60 px-3 py-2">
-      <button
-        type="button"
-        disabled={pageNum <= 1 || loading}
-        onClick={() => onPageChange(pageNum - 1)}
-        className={btn(false)}
-      >
-        上一页
-      </button>
-      {pagerWindow(pageNum, totalPages).map((entry, index) =>
-        entry === "…" ? (
-          <span key={`ellipsis-${index}`} className="px-1 text-xs text-ink-faint">
-            …
-          </span>
-        ) : (
-          <button
-            key={entry}
-            type="button"
+    <div className="sticky bottom-0 z-10 border-t border-line/70 bg-canvas/95 px-3 py-2 backdrop-blur">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <span className="text-[11px] text-ink-faint">共 {formatCount(total)} 条</span>
+        <label className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+          每页
+          <select
+            value={pageSize}
             disabled={loading}
-            aria-current={entry === pageNum ? "page" : undefined}
-            onClick={() => onPageChange(entry)}
-            className={btn(entry === pageNum)}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            className="rounded border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-ink-soft"
           >
-            {entry}
+            {[50, 100, 200, 500].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          条
+        </label>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="上一页"
+            disabled={pageNum <= 1 || loading}
+            onClick={() => onPageChange(pageNum - 1)}
+            className={navCls(pageNum <= 1 || loading)}
+          >
+            <ChevronLeft className="h-4 w-4" />
           </button>
-        ),
-      )}
-      <button
-        type="button"
-        disabled={pageNum >= totalPages || loading}
-        onClick={() => onPageChange(pageNum + 1)}
-        className={btn(false)}
-      >
-        下一页
-      </button>
-      <span className="ml-3 text-[11px] text-ink-faint">
-        共 {formatCount(total)} 条 · 第 {pageNum}/{totalPages} 页
-      </span>
+          <span className="min-w-16 text-center text-[11px] tabular text-ink-soft">
+            {pageNum} / {totalPages}
+          </span>
+          <button
+            type="button"
+            aria-label="下一页"
+            disabled={pageNum >= totalPages || loading}
+            onClick={() => onPageChange(pageNum + 1)}
+            className={navCls(pageNum >= totalPages || loading)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -562,6 +564,7 @@ export function Logs(): ReactElement {
   const search = useDebounced(rawSearch, 300);
   const [slowOnly, setSlowOnly] = useState(false);
   const [streamOnly, setStreamOnly] = useState(false);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   /** 打开上下文弹窗的那一条；null = 关闭。 */
@@ -598,14 +601,14 @@ export function Logs(): ReactElement {
         q: search === "" ? undefined : search,
         slow: slowOnly ? true : undefined,
         stream: streamOnly ? true : undefined,
-        limit: PAGE_SIZE,
-        offset: (pageNum - 1) * PAGE_SIZE,
+        limit: pageSize,
+        offset: (pageNum - 1) * pageSize,
       }),
     refetchInterval: expanded !== null || contextTarget !== null || pageNum > 1 ? false : 5_000,
   });
 
   const page = logs.data;
-  const totalPages = page ? Math.max(1, Math.ceil(page.total / PAGE_SIZE)) : 1;
+  const totalPages = page ? Math.max(1, Math.ceil(page.total / pageSize)) : 1;
   // 翻页后新数据变少（别的端清了日志、筛选命中变少）会把页码顶空 —— 收回到最后一页。
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
@@ -730,6 +733,11 @@ export function Logs(): ReactElement {
           page={page}
           pageNum={pageNum}
           totalPages={totalPages}
+          pageSize={pageSize}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPageNum(1);
+          }}
           expanded={expandedEntry === null ? null : expandedEntry.id}
           onToggle={(id) => setExpanded((current) => (current === id ? null : id))}
           onPageChange={(next) => {
