@@ -274,6 +274,39 @@ describe("额度耗尽自动换号（决策）", () => {
     assert.ok(result.reason.includes("不在冷却中"), result.reason);
   });
 
+  it("挑替代账号：已知够用 > 未知（2026-10-28 排序修正）", async () => {
+    // A 耗尽，B 已知还有 20000，C 从没查过 → 应切到 B，而不是「更未知」的 C
+    scene({ "tok-ua": 0 }, threeAccounts);
+    writeAccountBilling(CID, A, { total: { remain: 0, size: 20000, used: 20000, unit: "credits" } });
+    writeAccountBilling(CID, B, { total: { remain: 20000, size: 20000, used: 0, unit: "credits" } });
+    // C 刻意不写账本：known = null（未知）
+
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    assert.equal(result.switched, true, result.reason);
+    assert.equal(readIndex(CID).active, B, "已知够用的 B 应优先于未知的 C");
+  });
+
+  it("挑替代账号：未知 > 已知不够用（保留原意图）", async () => {
+    // A 耗尽，B 已知只剩 20（不够用），C 从未查过 → 选 C
+    scene({ "tok-ua": 0 }, threeAccounts);
+    writeAccountBilling(CID, A, { total: { remain: 0, size: 20000, used: 20000, unit: "credits" } });
+    writeAccountBilling(CID, B, { total: { remain: 20, size: 20000, used: 19980, unit: "credits" } });
+
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    assert.equal(result.switched, true, result.reason);
+    assert.equal(readIndex(CID).active, C, "未知的 C 应优先于已知不够用的 B");
+  });
+
+  it("挑替代账号：全未知时稳定取一个，不抛错", async () => {
+    scene({ "tok-ua": 0 }, threeAccounts);
+    writeAccountBilling(CID, A, { total: { remain: 0, size: 20000, used: 20000, unit: "credits" } });
+
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    assert.equal(result.switched, true, result.reason);
+    const active = readIndex(CID).active;
+    assert.ok(active === B || active === C, `应切到池内某个账号，实际 ${active}`);
+  });
+
   it("快照 <100 且实时重查 <100 → 换到池内额度最高的账号，旧账号标冷却", async () => {
     scene({ "tok-ua": 0, "tok-ub": 300, "tok-uc": 900 }, threeAccounts);
     writeAccountBilling(CID, A, { total: { remain: 0, size: 1000, used: 1000, unit: "credits" } });

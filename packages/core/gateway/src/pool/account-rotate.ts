@@ -67,8 +67,10 @@ async function refreshOne(channel: Channel, cid: string, key: string): Promise<n
  *
  * 排除正在冷却的（额度没刷新，换过去一样失败；而且 `activateAccount` 会顺手清掉
  * `cooldown_until` —— 等于假装它有额度）与凭据失效的（重试永远无效）。
- * 排序：已知额度降序 → 未知额度 → 已知低额度（未知的排在已知低额度前面，
- * 因为「没查过」比「查过很少」更有希望）。
+ *
+ * 排序分三档、档内按额度降序：① **已知够用**（`≥ LOW_CREDIT_THRESHOLD`）最可靠；
+ * ② **未知额度** —— 「没查过」比「查过很少」有希望；③ **已知不够用**，凑数用。
+ * ①必须压过②：换到一个已经确认没钱的账号会立刻再撞额度耗尽，比「可能有钱」更糟。
  */
 function pickAlternative(accounts: PoolAccount[], excludeKey: string, cid: string): PoolAccount | null {
   const usable = accounts.filter(
@@ -76,12 +78,13 @@ function pickAlternative(accounts: PoolAccount[], excludeKey: string, cid: strin
   );
   if (usable.length === 0) return null;
   const known = (a: PoolAccount): number | null => lastKnownRemain(cid, a.key);
+  const tier = (remain: number | null): number =>
+    remain === null ? 1 : remain >= LOW_CREDIT_THRESHOLD ? 0 : 2;
   return usable.sort((a, b) => {
     const ra = known(a);
     const rb = known(b);
-    if (ra === null && rb === null) return 0;
-    if (ra === null) return -1;
-    if (rb === null) return 1;
+    if (tier(ra) !== tier(rb)) return tier(ra) - tier(rb);
+    if (ra === null || rb === null) return 0; // 同档且未知：并列（sort 稳定，保持原序）
     return rb - ra;
   })[0]!;
 }
