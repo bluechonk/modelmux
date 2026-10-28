@@ -66,12 +66,12 @@ function trimZeros(value: number): string {
   return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
-/** 表格 tokens 列：`入 / 出`；上游没给 usage 时给 `-`。 */
+/** 表格 tokens 列：`入 / 出`，大数自动带单位（百万 / 亿）；上游没给 usage 时给 `-`。 */
 export function tokensPairText(tokens: AccessLogEntry["tokens"]): string {
   if (!tokens) return "-";
   const { prompt, completion } = tokens;
   if (prompt === null && completion === null) return "-";
-  return `${countOrDash(prompt)} / ${countOrDash(completion)}`;
+  return `${prompt === null ? "-" : formatTokens(prompt)} / ${completion === null ? "-" : formatTokens(completion)}`;
 }
 
 /** 字节数 → `112 B` / `2.3 KB` / `1.24 MB`。 */
@@ -80,6 +80,21 @@ export function formatBytes(value: number | undefined): string {
   if (value < 1_024) return `${value} B`;
   if (value < 1_024 * 1_024) return `${(value / 1_024).toFixed(1)} KB`;
   return `${(value / (1_024 * 1_024)).toFixed(2)} MB`;
+}
+
+/**
+ * token/s（吞吐速率）：total tokens ÷ 耗时秒数。
+ *
+ * tokens 缺失或耗时 ≤ 0 时返回 `"—"`；小数取一位（如 `42.3 token/s`）。
+ */
+export function formatTokensPerSec(entry: AccessLogEntry): string {
+  const total = entry.tokens?.total;
+  const ms = entry.durationMs;
+  if (total === null || total === undefined || ms === undefined || ms <= 0) return "—";
+  const perSec = total / (ms / 1000);
+  if (perSec < 0.05) return "<0.1";
+  if (perSec < 10) return `${perSec.toFixed(1)}`;
+  return `${Math.round(perSec)}`;
 }
 
 /** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */

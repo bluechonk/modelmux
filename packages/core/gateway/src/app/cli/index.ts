@@ -42,6 +42,7 @@ export function usage(): string {
     if (group === "模型") {
       lines.push("  " + pad("model list") + "池视图：模型 → 候选渠道 + 已用量 + 冷却");
       lines.push("  " + pad("model usage [--refresh]") + "池账本；--refresh 立刻重查额度");
+      lines.push("  " + pad("model spec <模型名>") + "查看模型的规格（窗口/输出/档位/倍率/模态）");
     }
     for (const v of CHANNEL_VERBS) {
       if (v.group === group) lines.push("  " + pad(v.usage) + v.summary);

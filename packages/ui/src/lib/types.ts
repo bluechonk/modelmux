@@ -263,3 +263,38 @@ export interface LogQuery {
   limit?: number;
   offset?: number;
 }
+
+/** `GET /web/api/overview` 返回的仪表盘聚合视图。 */
+export interface OverviewResponse {
+  ok: boolean;
+  /** 日志扫描的日期。 */
+  date: string;
+  gateway: { ui_state: string; gateway_error: string };
+  usage: {
+    date: string;
+    requests: number;
+    success: number;
+    failure: number;
+    other: number;
+    slow: number;
+    avg_duration_ms: number | null;
+    tokens: { prompt: number; completion: number; total: number };
+  };
+  channels: Array<{
+    cid: string;
+    models: number;
+    statuses: { ok: number; cooldown: number; error: number; unauthenticated: number };
+    requests: { success: number; failure: number };
+  }>;
+  model_pool: { total: number; free: number; vision: number; thinking: number };
+  recent: Array<{
+    id: string;
+    ts: string;
+    cid?: string;
+    model?: string;
+    outcome: AccessOutcome;
+    status?: number;
+    duration_ms?: number;
+    tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
+  }>;
+}
