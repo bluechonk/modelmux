@@ -9,7 +9,7 @@
  */
 
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronLeft, ChevronRight, MessagesSquare, RotateCw } from "lucide-react";
 import { api } from "../lib/api";
 import {
@@ -26,7 +26,6 @@ import type { AccessLogEntry, AccessLogPage, AccessOutcome } from "../lib/types"
 import { CopyButton } from "../components/CopyChip";
 import { LogContextDialog } from "../components/LogContextDialog";
 import { PageHeader } from "../components/PageHeader";
-import { useToast } from "../components/Toast";
 import { Skeleton } from "./Dashboard";
 
 /** 一页返回多少条（点「加载更多」按这个步长累加）。 */
@@ -570,27 +569,6 @@ export function Logs(): ReactElement {
   /** 打开上下文弹窗的那一条；null = 关闭。 */
   const [contextTarget, setContextTarget] = useState<AccessLogEntry | null>(null);
 
-  const qc = useQueryClient();
-  const toast = useToast();
-  /** 正文抓取开关：写根级偏好（`<root>/prefs.json`），不重启生效。 */
-  const capture = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      const res = await api.setPayloadCapture(enabled);
-      if (res.ok === false) throw new Error("切换失败");
-      return res;
-    },
-    onSuccess: (res) => {
-      toast.success(
-        res.enabled
-          ? "已开启请求正文抓取：之后的新请求会落盘（保留 3 天）"
-          : "已关闭请求正文抓取：不再新增记录，已落盘的在保留期内仍可查看",
-      );
-      void qc.invalidateQueries({ queryKey: ["logs"] });
-      void qc.invalidateQueries({ queryKey: ["logPayload"] });
-    },
-    onError: (err) => toast.error(String(err)),
-  });
-
   const logs = useQuery({
     queryKey: ["logs", date, outcome, cid, search, slowOnly, streamOnly, pageNum],
     queryFn: () =>
@@ -613,7 +591,6 @@ export function Logs(): ReactElement {
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
-  const captureOn = page?.payload_enabled ?? true;
   const dirty =
     date !== "" || outcome !== "" || cid !== "" || search !== "" || slowOnly || streamOnly;
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
@@ -628,22 +605,6 @@ export function Logs(): ReactElement {
         description="网关每次请求的时间、渠道与模型、耗时、tokens 与结果"
         actions={
           <>
-            <button
-              type="button"
-              aria-pressed={captureOn}
-              disabled={capture.isPending}
-              onClick={() => capture.mutate(!captureOn)}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
-                captureOn
-                  ? "border-line-strong bg-overlay text-ink"
-                  : "border-line text-ink-soft hover:border-line-strong hover:text-ink"
-              } disabled:opacity-50`}
-            >
-              <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${captureOn ? "bg-free" : "bg-ink-faint"}`}
-              />
-              正文抓取 · {captureOn ? "开" : "关"}
-            </button>
             <button
               type="button"
               onClick={() => void logs.refetch()}
@@ -753,7 +714,6 @@ export function Logs(): ReactElement {
         <LogContextDialog
           entry={contextTarget}
           date={date === "" ? (page?.date ?? "") : date}
-          payloadEnabled={page?.payload_enabled ?? false}
           onClose={() => setContextTarget(null)}
         />
       )}

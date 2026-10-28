@@ -236,7 +236,6 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
       stats: { requests: number; success: number; failure: number; slow: number; tokens: { total: number }; noUsage: number };
       entries: Array<{ id: string; outcome: string; slow: boolean; tokens: { total: number } | null; cid?: string }>;
       cids: string[];
-      payload_enabled: boolean;
     };
     assert.equal(page.ok, true);
     assert.equal(page.date, DATE);
@@ -248,7 +247,6 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
     assert.equal(page.stats.noUsage, 1, "失败请求没有 usage，必须如实计数");
     assert.equal(page.stats.tokens.total, 12);
     assert.deepEqual(page.cids, ["webchan"]);
-    assert.equal(page.payload_enabled, true, "正文抓取默认开启（偏好缺省值）");
     // 倒序：05:00 的失败请求在前
     assert.deepEqual(page.entries.map((e) => e.id), ["req_e2e_bad", "req_e2e_ok"]);
     assert.equal(page.entries[1]?.tokens?.total, 12);
@@ -268,57 +266,13 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
     assert.equal(res.status, 403);
   });
 
-  it("默认开启：读回记录 enabled=true", async () => {
-    const res = await fetch(`${server.url}api/logs/payload?id=req_e2e_ok`);
-    assert.equal(res.status, 200);
-    const body = (await res.json()) as { enabled: boolean; records: Array<{ body: string }> };
-    assert.equal(body.enabled, true, "正文抓取默认开启（偏好缺省值）");
-    assert.equal(body.records.length, 1);
-    assert.equal(body.records[0]?.body, '{"messages":[{"role":"user"}]}');
-  });
-
-  it("POST 切换开关：写盘生效并反映到 /api/logs；查不到的 id 给空数组", async () => {
-    const off = await fetch(`${server.url}api/logs/payload-capture`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ enabled: false }),
-    });
-    assert.equal(off.status, 200);
-    assert.equal(((await off.json()) as { enabled: boolean }).enabled, false);
-
-    const logs = (await (await fetch(`${server.url}api/logs?limit=1`)).json()) as {
-      payload_enabled: boolean;
-    };
-    assert.equal(logs.payload_enabled, false, "列表接口要同步反映开关");
-
+  it("正文抓取恒开启：读回落盘的记录；查不到的 id 给空数组", async () => {
+    const hit = await fetch(`${server.url}api/logs/payload?id=req_e2e_ok`);
+    assert.equal(hit.status, 200);
+    const found = (await hit.json()) as { records: unknown[] };
+    assert.equal(found.records.length, 1, "恒开启：夹具记录必然可读回");
     const miss = await fetch(`${server.url}api/logs/payload?id=req_absent&date=${DATE}`);
-    const empty = (await miss.json()) as { enabled: boolean; records: unknown[] };
-    assert.equal(empty.enabled, false);
+    const empty = (await miss.json()) as { records: unknown[] };
     assert.deepEqual(empty.records, []);
-
-    const on = await fetch(`${server.url}api/logs/payload-capture`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ enabled: true }),
-    });
-    assert.equal(((await on.json()) as { enabled: boolean }).enabled, true);
-  });
-
-  it("跨源切换开关拒绝 403", async () => {
-    const res = await fetch(`${server.url}api/logs/payload-capture`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "http://example.com" },
-      body: JSON.stringify({ enabled: true }),
-    });
-    assert.equal(res.status, 403);
-  });
-
-  it("enabled 非布尔时 400", async () => {
-    const res = await fetch(`${server.url}api/logs/payload-capture`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ enabled: "yes" }),
-    });
-    assert.equal(res.status, 400);
   });
 });

@@ -384,23 +384,6 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
   );
 }
 
-/** 抓取开关关闭时的说明：右上角可重开；关闭只停止新增，已落盘的记录照样能看。 */
-function CaptureOffHint(): ReactElement {
-  return (
-    <div className="space-y-2 text-xs text-ink-soft">
-      <p>
-        请求正文抓取当前<strong className="font-medium text-ink">关闭</strong>
-        （页头「正文抓取」可重新打开）。关闭只停止新增，已落盘的记录在保留期内仍可查看。
-      </p>
-      <p className="text-ink-faint">
-        可用 <code className="font-mono">MODELMUX_LOG_PAYLOAD_CIDS</code> 限定渠道、
-        <code className="font-mono">MODELMUX_LOG_PAYLOAD_MAX_BYTES</code> 改单条上限；
-        正文保留期默认 3 天（<code className="font-mono">MODELMUX_LOG_PAYLOAD_DAYS</code>）。
-      </p>
-    </div>
-  );
-}
-
 /**
  * 请求上下文弹窗（模态）。
  *
@@ -410,14 +393,11 @@ function CaptureOffHint(): ReactElement {
 export function LogContextDialog({
   entry,
   date,
-  payloadEnabled,
   onClose,
 }: {
   entry: AccessLogEntry;
   /** 日志所在日期：抓取记录按日分目录，带上能少走一轮查找。 */
   date: string;
-  /** 抓取开关（列表接口下发）；仅在「查不到记录」时决定措辞（是否给开启办法）。 */
-  payloadEnabled: boolean;
   onClose: () => void;
 }): ReactElement {
   const payload = useQuery({
@@ -428,9 +408,6 @@ export function LogContextDialog({
   });
   const meta = OUTCOME_META[entry.outcome];
   const records = payload.data?.records ?? [];
-  const noRecordHint = payloadEnabled
-    ? "该请求没有抓取记录（早于开启时间，或已被保留期清理）。"
-    : null;
 
   return (
     <Dialog.Root
@@ -487,7 +464,9 @@ export function LogContextDialog({
                 <PayloadBlock key={`${record.phase}-${record.seq}`} record={record} />
               ))
             ) : (
-              noRecordHint ?? <CaptureOffHint />
+              <p className="text-xs text-ink-faint">
+                该请求没有抓取记录（可能是请求未进入转发，或已过保留期清理）。
+              </p>
             )}
           </div>
 

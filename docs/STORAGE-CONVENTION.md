@@ -14,7 +14,7 @@
 
 ```
 ~/.modelmux/                 ← 唯一存储根（MODELMUX_HOME 可覆盖）
-├── prefs.json                   ← 根级运行时偏好（正文抓取开关等，见 LOGGING.md §9；runtime/root-prefs.ts）
+├── prefs.json                   ← 预留（曾用于正文抓取开关，已改为恒开启，当前无写入方）
 ├── gateway.pid                  ← 仓库级网关监督进程 PID（不属于任何渠道）
 ├── gateway-worker.pid           ← 仓库级网关 worker PID（监督进程维护）
 ├── watchdog.pid                 ← 外部守护 PID（scripts/mx-watchdog.mjs）
@@ -24,7 +24,7 @@
 │   ├── error/<date>/            ← 错误上下文
 │   ├── system/<date>/           ← 生命周期与网关自身输出
 │   ├── channels/<cid>/          ← 渠道维度文本日志
-│   ├── payload/<date>/          ← 请求正文抓取（默认开启、控制台可关，见 LOGGING.md §9）
+│   ├── payload/<date>/          ← 请求正文抓取（恒开启，见 LOGGING.md §9）
 │   └── watchdog.log             ← 外部守护日志
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
 ├── workbuddyai/                 ← cid 层
@@ -101,7 +101,7 @@
     `{version, timezone, last_claim, history}`，由共享层在**领取成功**或自动签到回填时写入）、
     `state/auto-signin.json`（自动签到的当日失败计数，连败 3 次熔断）。
   - `debug/` 抓包落盘默认位置（`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径）。
-    它抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，默认开启、控制台可关，
+    它抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，恒开启，
     见 [LOGGING.md](./LOGGING.md) §9）—— 两者互补，不要混用。
   - **禁止**写 `~/` 下任何其它目录（含 `~/.cache/`、`~/.config/`）
 6. **权限**：根 `0700`，各 cid 层 `0700`，`credentials.json` 等含密文件 `0600`。
@@ -111,8 +111,7 @@
   网关与 CLI 可能同时写同一个文件，固定 `.tmp` 名会互相抢；
   **不用**大写、下划线、渠道名前缀。
 8. **端口**：每渠道独占一组（见 §2），不与他渠道重复。
-9. **偏好文件**：渠道内 `prefs.json` 放本渠道设置（已实现）；根级 `<root>/prefs.json`
-   放跨渠道运行时偏好（正文抓取开关等，`runtime/root-prefs.ts` 读写，见 [LOGGING.md](./LOGGING.md) §9）。
+9. **偏好文件**：渠道内 `prefs.json` 放本渠道设置（已实现）；根级 `<root>/prefs.json` 预留，当前未使用。
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
    `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
    账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）、

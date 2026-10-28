@@ -17,10 +17,8 @@ import {
   localDate,
   noteClientPayload,
   noteUpstreamPayload,
-  payloadCaptureEnabled,
   queryAccessLogs,
   readPayloads,
-  setPayloadCaptureEnabled,
 } from "../dist/runtime/log-store.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -235,7 +233,7 @@ describe("访问日志读回", () => {
   });
 });
 
-describe("请求正文抓取（默认开启，偏好落盘）", () => {
+describe("请求正文抓取（恒开启，读回不受门控）", () => {
   let root: string;
   let saved: string | undefined;
   let savedMax: string | undefined;
@@ -256,8 +254,6 @@ describe("请求正文抓取（默认开启，偏好落盘）", () => {
     rmSync(root, { recursive: true, force: true });
   });
   beforeEach(() => {
-    // 开关走**偏好文件**（不是环境变量）：每个用例先把开关与上限/白名单复位到默认。
-    setPayloadCaptureEnabled(true);
     delete process.env["MODELMUX_LOG_PAYLOAD_MAX_BYTES"];
     delete process.env["MODELMUX_LOG_PAYLOAD_CIDS"];
   });
@@ -267,32 +263,13 @@ describe("请求正文抓取（默认开启，偏好落盘）", () => {
     else process.env[name] = value;
   }
 
-  it("默认开启：不配置就抓，读回能拿到记录", () => {
-    assert.equal(payloadCaptureEnabled(), true, "默认开启");
+  it("恒开启：客户端与上游体都会落盘，按 id 读回", () => {
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from('{"messages":[]}', "utf8"));
-    const result = readPayloads(id);
-    assert.equal(result.enabled, true);
-    assert.equal(result.records.length, 1);
-  });
-
-  it("开关落盘：写盘后重读一致（重启保持的前提）", () => {
-    setPayloadCaptureEnabled(false);
-    assert.equal(payloadCaptureEnabled(), false);
-    setPayloadCaptureEnabled(true);
-    assert.equal(payloadCaptureEnabled(), true);
-  });
-
-  it("关掉开关：不再新增，已落盘的记录仍能读回", () => {
-    const { res, id } = attach();
-    noteUpstreamPayload(res as never, { cid: "loomy", model: "m", stream: false, attempt: 0 }, "kept");
-    setPayloadCaptureEnabled(false);
-    const { res: resOff, id: idOff } = attach();
-    noteClientPayload(resOff as never, Buffer.from("{}", "utf8"));
-    assert.deepEqual(readPayloads(idOff).records, [], "关闭后不再新增");
-    const kept = readPayloads(id);
-    assert.equal(kept.enabled, false, "开关状态如实回报");
-    assert.deepEqual(kept.records.map((r) => r.body), ["kept"], "已落盘的记录不该被藏起来");
+    noteUpstreamPayload(res as never, { cid: "loomy", model: "m", stream: false, attempt: 0 }, "{}");
+    const records = readPayloads(id);
+    assert.equal(records.length, 2, "client + upstream 恒写入");
+    assert.deepEqual(records.map((r) => r.phase), ["client", "upstream"], "按写入顺序");
   });
 
   it("跨午夜的长请求：正文在前一天、访问行在当天，按访问行的日期也要能读全", () => {
@@ -328,61 +305,55 @@ describe("请求正文抓取（默认开启，偏好落盘）", () => {
     });
 
     const page = readPayloads("req_mid", day2);
-    assert.equal(page.records.length, 2, "只扫访问行当天会漏掉前一晚的 client 记录");
-    assert.deepEqual(page.records.map((r) => r.phase), ["client", "upstream"], "按写入时间排序");
-    assert.deepEqual(readPayloads("req_mid").records.length, 2, "不给日期也要能找全");
+    assert.equal(page.length, 2, "只扫访问行当天会漏掉前一晚的 client 记录");
+    assert.deepEqual(page.map((r) => r.phase), ["client", "upstream"], "按写入时间排序");
+    assert.deepEqual(readPayloads("req_mid").length, 2, "不给日期也要能找全");
   });
 
   it("开启后按 id 读回客户端原样体与每次尝试的上行体，顺序稳定", () => {
-    setPayloadCaptureEnabled(true);
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from('{"model":"loomy/kimi-k2.6","messages":[]}', "utf8"));
     noteUpstreamPayload(res as never, { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, attempt: 0 }, Buffer.from("{\"up\":1}", "utf8"));
     noteUpstreamPayload(res as never, { cid: "catpaw", model: "catpaw/glm-5.3-flash", stream: true, attempt: 1 }, Buffer.from("{\"up\":2}", "utf8"));
     const result = readPayloads(id);
-    assert.equal(result.enabled, true);
-    assert.equal(result.records.length, 3);
-    assert.deepEqual(result.records.map((r) => r.phase), ["client", "upstream", "upstream"]);
-    assert.deepEqual(result.records.map((r) => r.attempt), [undefined, 0, 1]);
-    assert.equal(result.records[0]?.body, '{"model":"loomy/kimi-k2.6","messages":[]}');
-    assert.equal(result.records[2]?.cid, "catpaw");
+        assert.equal(result.length, 3);
+    assert.deepEqual(result.map((r) => r.phase), ["client", "upstream", "upstream"]);
+    assert.deepEqual(result.map((r) => r.attempt), [undefined, 0, 1]);
+    assert.equal(result[0]?.body, '{"model":"loomy/kimi-k2.6","messages":[]}');
+    assert.equal(result[2]?.cid, "catpaw");
   });
 
   it("上游还没回就失败时，正文照样读得到（写盘在 fetch 之前）", () => {
-    setPayloadCaptureEnabled(true);
     const { res, id } = attach();
     noteUpstreamPayload(res as never, { cid: "traecn", model: "traecn/kimi-k2.6", stream: false, attempt: 0 }, "encoded-body");
     const result = readPayloads(id);
-    assert.equal(result.records[0]?.body, "encoded-body", "字符串体（自编码渠道）原样可读");
-    assert.equal(result.records[0]?.bytes, 12);
+    assert.equal(result[0]?.body, "encoded-body", "字符串体（自编码渠道）原样可读");
+    assert.equal(result[0]?.bytes, 12);
   });
 
   it("超出单条上限时截断并打标，bytes 仍是原始长度", () => {
-    setPayloadCaptureEnabled(true);
     process.env["MODELMUX_LOG_PAYLOAD_MAX_BYTES"] = "16";
     const { res, id } = attach();
     noteClientPayload(res as never, Buffer.from("0123456789abcdefghij", "utf8"));
-    const rec = readPayloads(id).records[0];
+    const rec = readPayloads(id)[0];
     assert.equal(rec?.truncated, true);
     assert.equal(rec?.bytes, 20, "bytes 记录原始长度，不是截断后的长度");
     assert.equal(rec?.body.length, 16);
   });
 
   it("渠道白名单：未列入的渠道不落盘", () => {
-    setPayloadCaptureEnabled(true);
     process.env["MODELMUX_LOG_PAYLOAD_CIDS"] = "loomy";
     const { res, id } = attach();
     noteUpstreamPayload(res as never, { cid: "catpaw", model: "m", stream: false, attempt: 0 }, "nope");
-    assert.deepEqual(readPayloads(id).records, []);
+    assert.deepEqual(readPayloads(id), []);
     noteUpstreamPayload(res as never, { cid: "loomy", model: "m", stream: false, attempt: 0 }, "yes");
-    assert.deepEqual(readPayloads(id).records.map((r) => r.body), ["yes"]);
+    assert.deepEqual(readPayloads(id).map((r) => r.body), ["yes"]);
   });
 
   it("未挂访问日志上下文的响应不会写（没有 id 就没有可对齐的钥匙）", () => {
-    setPayloadCaptureEnabled(true);
     const bare = new FakeRes();
     noteClientPayload(bare as never, Buffer.from("{}", "utf8"));
     // 没有 id 时无从查询，只要不抛异常即可
-    assert.deepEqual(readPayloads("req_missing").records, []);
+    assert.deepEqual(readPayloads("req_missing"), []);
   });
 });

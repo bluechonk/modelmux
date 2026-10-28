@@ -225,8 +225,6 @@ export interface AccessLogPage {
   total: number;
   stats: AccessLogStats;
   entries: AccessLogEntry[];
-  /** 请求正文抓取开关的当前状态（持久化偏好，默认开）；弹窗在查不到记录时据此措辞。 */
-  payload_enabled: boolean;
 }
 
 /** 一条请求正文抓取记录（`phase`：client = 客户端原样体，upstream = 实际上行体）。 */
@@ -247,9 +245,9 @@ export interface PayloadRecord {
 export interface PayloadQueryResult {
   ok: boolean;
   id: string;
+  /** 请求发生的日期（与列表接口的 `date` 同源）。 */
   date: string | null;
-  /** false = 抓取开关没开（与「查到了但没有记录」区分开）。 */
-  enabled: boolean;
+  /** 命中该请求的抓取记录（按写入时间排序；正文抓取恒开启，读回不受门控）。 */
   records: PayloadRecord[];
 }
 
