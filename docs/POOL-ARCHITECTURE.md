@@ -495,6 +495,10 @@ interface CredModule {
   `unauthorized` 并返回鉴权错误，**不自动切号** —— 下一步由用户
   `mx acct <cid> use <key>` 手动决定（`packages/core/gateway/src/http/chat/auth.ts`）。
   账号池因此**没有自动切号的调用方**。
+- **签到 / 奖励领取按账号**：渠道声明 `signin.perAccount` 时，调度器对池内**每个账号**
+  用各自凭据领取（门禁是账号级台账 `state/signin.json` 的 `accounts[key]`，熔断也按
+  `cid:key` 计数）—— 奖励是按账号独立的，只对生效账号执行会让其余账号白丢每日/一次性奖励。
+  未声明该能力的渠道保持「只对当前生效凭证」的旧行为。
 - **连败标记**：连续**瞬时**失败达 `FAIL_STREAK_LIMIT = 3` 次即熔断（`error` + `trip_until`），
   **凭证一律保留**；到期自动放行一次半开试探（成功恢复、再失败退避翻倍）。
   也可手动「解除」（`clearAccountState`）、切号（`mx acct <cid> use <key>`）或重登提前恢复。

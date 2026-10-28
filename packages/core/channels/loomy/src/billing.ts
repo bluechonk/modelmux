@@ -32,6 +32,17 @@ const ONBOARDING_TASKS: Array<{ key: string; amount: number; label: string }> = 
 
 const TASK_AMOUNT = new Map(ONBOARDING_TASKS.map((t) => [t.key, t.amount]));
 
+/**
+ * 共享层按账号调度时传进来的是**归一化后的普通对象**（snake_case → camelCase 的只读副本），
+ * 形状与 `cred.load()` 一致；这里只做一次「是对象就用」的宽进，不做字段解释。
+ */
+function toCredentials(value: Record<string, unknown> | undefined): cred.Credentials | null {
+  if (!value || typeof value !== "object") return null;
+  const session = (value as { session?: unknown }).session;
+  if (typeof session !== "string" || session === "") return null;
+  return value as unknown as cred.Credentials;
+}
+
 interface CreditPackage {
   name: string;
   remain: number;
@@ -175,6 +186,7 @@ interface ClaimResult {
  *
  * ⚠ 上报 body **只有 `key`**。未知 key → `100001` → `CreditsError`；
  * 登录失效 → `100002` → `NotLoggedInError`（调用方应立即终止后续请求）。
+ * `c` 不传时用当前生效凭证（共享层按账号调度时会显式传入）。
  */
 async function claim(key: string, c?: cred.Credentials): Promise<ClaimResult> {
   const credential = c ?? cred.load();
@@ -214,8 +226,8 @@ interface ClaimAllResult {
  * - **不采信服务端 `earned`**，按本地表算
  * - 任一任务收到 `100002`（登录失效）时**立即抛出**，不再对后续任务发请求
  */
-async function claimAll(): Promise<ClaimAllResult> {
-  const c = cred.load();
+async function claimAll(cOverride?: cred.Credentials): Promise<ClaimAllResult> {
+  const c = cOverride ?? cred.load();
   let completed: Record<string, unknown> = {};
   try {
     const data = await upstream.fetchTasks(c);
@@ -268,29 +280,33 @@ async function triggerDailyReset(c: cred.Credentials): Promise<DailyResetResult>
  * 签到 / 领取能力（**全自动**，共享层 `auth/auto-signin.ts` 调度，无 CLI 动词）。
  *
  * 本渠道的「签到」由两件事组成，顺序固定：
- * 1. **每日额度重置**（`first-login`，写）—— 主判据，`ok` 只看它；
- * 2. **新手任务直领**（`claimAll()`，写）—— 一次性 10000 分，失败不影响签到结论但如实报出。
+ * 1. **每日额度重置**（`first-login`，写）；
+ * 2. **新手任务直领**（`claimAll()`，写）—— 一次性 10000 分。
+ * `ok` = 两件都成（任一失败即 ok=false → 调度器不记账、下一轮重试）。
  *
  * 状态查询返回 `claimable: null`：上游**没有**独立的签到状态端点，
  * `null` 是「不知道」（不是「没有」），故调度器每天都会走到 `claim()`，
  * 由 `alreadyProcessed` 保证幂等；调度器的台账（`state/signin.json`）保证**一天只打一次**。
  */
 export const signin: SigninModule = {
+  // 奖励按**账号**独立（每日赠送、一次性新手任务都是每个账号各自一份）→ 支持逐账号领取
+  perAccount: true,
   async status() {
     return {
       claimable: null,
       summary: "（该渠道没有独立的签到状态端点；claim 会触发每日额度重置并领新手任务）",
     };
   },
-  async claim() {
-    const c = cred.load();
+  async claim(options) {
+    // 共享层按账号调度时传入该账号的凭据（已归一化）；不传则用当前生效凭证
+    const c = toCredentials(options?.credential) ?? cred.load();
     const reset = await triggerDailyReset(c);
 
     // 新手任务是一次性的：失败/登录失效都不改变「签到」结论，但要如实报出
     let tasks: ClaimAllResult | null = null;
     let tasksError = "";
     try {
-      tasks = await claimAll();
+      tasks = await claimAll(c);
     } catch (err) {
       tasksError = String(err);
     }
@@ -312,8 +328,14 @@ export const signin: SigninModule = {
       );
     }
 
+    // `ok` 必须**两件事都成**才算完成：
+    // 每日重置失败、或新手任务那步抛错（如上游瞬时 429 / session 抖动）→ ok=false，
+    // 让调度器**不写台账**、下一轮重试。
+    // ⚠ 早期版本 `ok` 只看每日重置 → 新手任务失败也被记成「今天已处理」，
+    //   当天不再重试，白丢一次性 10000 分（2026-10-28 实测踩过：4 个账号里
+    //   有 1 个因此没领到，探针单独重跑立刻成功，证明是瞬时失败而非永久拒绝）。
     return {
-      ok: reset.status !== "failed",
+      ok: reset.status !== "failed" && tasksError === "",
       summary: parts.join("；"),
       detail: { first_login: reset, tasks },
     };
