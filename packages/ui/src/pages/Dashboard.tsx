@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { ModelExplorer } from "../components/ModelExplorer";
 import { useToast } from "../components/Toast";
@@ -37,12 +37,14 @@ function freePlanCidsOf(caps: Record<string, { billing: boolean }> | undefined):
 
 /** 仪表盘页：接入端点 + 统计 + 模型区。
  *
- * ## 为什么没有手动刷新按钮
+ * ## 刷新按钮与轮询的关系
  *
- * 查询带 `refetchInterval: 3000`，数据每 3 秒自己更新 —— 手动刷新按钮是重复入口，已删除。
+ * 查询带 `refetchInterval: 3000`，数据每 3 秒自己更新，轮询仍是主通道；
+ * 右上角的「刷新」用于**立即**拉一次（如刚在别处加完账号、不想等下一拍），
+ * 两者不冲突 —— 按钮只是把下一次轮询提前到当下。
  */
 export function Dashboard(): ReactElement {
-  const { data: state, isLoading, error } = useQuery({
+  const { data: state, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
     refetchInterval: 3000,
@@ -156,6 +158,14 @@ export function Dashboard(): ReactElement {
           value={String(state.endpoints.length)}
           className="hidden md:flex"
         />
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        >
+          <RotateCw className={`h-3.5 w-3.5 ${isRefetching ? "animate-spin" : ""}`} />
+          刷新
+        </button>
       </div>
 
       {/* 模型区：渠道分组表 / 扁平表（见 ModelExplorer 的布局说明） */}
