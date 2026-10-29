@@ -49,7 +49,7 @@ function KpiCard({
   tone?: "free" | "danger" | "warn" | "muted";
 }): ReactElement {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-line bg-raised px-4 py-3.5">
+    <div className="flex items-start gap-2 rounded-xl border border-line bg-raised px-3 py-3.5 sm:gap-3 sm:px-4">
       <Icon
         className={`mt-0.5 h-4 w-4 shrink-0 ${
           tone === "free"
@@ -62,9 +62,9 @@ function KpiCard({
         }`}
       />
       <div className="min-w-0">
-        <div className="text-[11px] text-ink-faint">{label}</div>
+        <div className="text-[11px] leading-snug text-ink-faint">{label}</div>
         <div
-          className={`text-lg font-semibold tabular-nums ${
+          className={`text-lg font-semibold whitespace-nowrap tabular-nums ${
             tone === "free"
               ? "text-free"
               : tone === "danger"
@@ -139,7 +139,7 @@ function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; m
   );
   return (
     <div className="flex items-center gap-3 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30">
-      <span className="shrink-0 w-[120px] tabular-nums text-ink-faint">
+      <span className="shrink-0 w-16 tabular-nums text-ink-faint sm:w-[120px]">
         {formatDateTime(entry.ts).slice(-8)}
       </span>
       <span className="min-w-0 flex-1 truncate text-ink-soft">
@@ -149,7 +149,7 @@ function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; m
       <span className="shrink-0 w-10 text-right tabular-nums text-ink-soft">
         {ms != null ? formatDuration(ms) : "—"}
       </span>
-      <span className="shrink-0 w-12 text-right tabular-nums text-ink-faint">
+      <span className="shrink-0 w-16 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-12">
         {tps}
       </span>
     </div>
