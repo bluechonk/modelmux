@@ -625,6 +625,10 @@ export function createConsoleHandler(
           model: entry.model,
           outcome: entry.outcome,
           status: entry.status,
+          // `stream` 与 `generate_ms` 是 TPS 口径的输入：前者决定基准怎么取，
+          // 后者是纯生成窗口（缺省 = 测不到，前端显示 `—`）
+          stream: entry.stream,
+          generate_ms: entry.generateMs,
           duration_ms: entry.durationMs,
           ttfb_ms: entry.ttfbMs,
           upstream_ms: entry.upstreamMs,

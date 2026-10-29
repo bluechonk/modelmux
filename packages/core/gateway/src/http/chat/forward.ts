@@ -12,7 +12,7 @@
 import type { ServerResponse } from "node:http";
 
 import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
-import { noteFirstByte, noteRequestError, noteUsage } from "../../runtime/log-store.js";
+import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { writeJson, writeJsonError } from "./errors.js";
 import { collectAsOpenAiSse, relayStream } from "./stream.js";
@@ -166,7 +166,14 @@ export async function relayUpstream(
       // 错误帧）与流剩余部分拼起来聚合。
       const buf = Buffer.concat([
         ...pendingFrames,
-        await inChannel(channel, () => collectAsOpenAiSse(streamBody, channel, cid, probeTranslator, request)),
+        await inChannel(channel, () =>
+          collectAsOpenAiSse(streamBody, channel, cid, probeTranslator, request, () => {
+            // 每帧一次：`noteFirstFrame` 内部只记首次，`noteLastFrame` 覆盖式取最后一次。
+            // 两者之差 = 纯生成窗口，供 TPS 用（非流式下 `ttfbMs` 记的是聚合完成时刻，不能当分母）。
+            noteFirstFrame(res);
+            noteLastFrame(res);
+          }),
+        ),
       ]);
       const aggregated = sseStream.aggregateChatSse(buf);
       noteUsage(res, aggregated.usage);

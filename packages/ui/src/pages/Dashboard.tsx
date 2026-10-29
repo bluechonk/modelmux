@@ -94,16 +94,18 @@ function Segmented<T extends string>({
 // ---------------------------------------------------------------------------
 
 /** 单条最近请求：时间 / 模型 / 结果点 + 耗时 + 生成速度。 */
-function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; model?: string; outcome: AccessOutcome; status?: number; duration_ms?: number; ttfb_ms?: number; upstream_ms?: number; tokens: { prompt: number | null; completion: number | null; total: number | null } | null } }): ReactElement {
+function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; model?: string; outcome: AccessOutcome; status?: number; stream?: boolean; generate_ms?: number; duration_ms?: number; ttfb_ms?: number; upstream_ms?: number; tokens: { prompt: number | null; completion: number | null; total: number | null } | null } }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   const ms = entry.duration_ms;
-  // 生成速度 = completion ÷ 纯生成耗时（口径见 log-format.ts::tokensPerSecOf）
+  // 生成速度 = completion ÷ 纯生成窗口（口径与护栏见 log-format.ts::tokensPerSecOf）
   const tps = formatRate(
     tokensPerSecOf({
       completion: entry.tokens?.completion,
       durationMs: entry.duration_ms,
       ttfbMs: entry.ttfb_ms,
       upstreamMs: entry.upstream_ms,
+      generateMs: entry.generate_ms,
+      stream: entry.stream,
     }),
   );
   return (

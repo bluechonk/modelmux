@@ -391,6 +391,13 @@ export function noteFrameUsage(out: ServerResponse, frame: Buffer | string): voi
 export async function readAll(
   upstreamBody: ReadableStream<Uint8Array>,
   cid?: string,
+  /**
+   * 每读到一个上游 chunk 回调一次（首个 chunk = 上游开始吐字）。
+   *
+   * 给「生成窗口」打点用：非流式路径同样需要知道**上游什么时候开始吐**，
+   * 而不只是「我们什么时候聚完」——后者等于总耗时，做不出 TPS（见 docs/LOGGING.md §3.1）。
+   */
+  onChunk?: () => void,
 ): Promise<Buffer> {
   const capture: Buffer[] | null = captureEnabled(cid) ? [] : null;
   const chunks: Buffer[] = [];
@@ -402,6 +409,7 @@ export async function readAll(
       const buf = Buffer.from(value);
       chunks.push(buf);
       if (capture) capture.push(buf);
+      onChunk?.();
     }
   } catch (err) {
     throw new StreamError(String(err));

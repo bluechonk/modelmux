@@ -54,7 +54,8 @@
 | `systemChars` | number | 消息中 system 角色的字符总数 | 读入请求体后 |
 | `toolCount` | number | 请求携带的工具数量 | 读入请求体后 |
 | `upstreamMs` | number | 请求开始到**上游响应头到达**的毫秒数 | 上游响应头到达时 |
-| `ttfbMs` | number | 请求开始到**首个响应字节**的毫秒数 | 首帧写出时（仅记一次） |
+| `ttfbMs` | number | 请求开始到**我们写出首个响应字节**的毫秒数 | 首帧写出时（仅记一次） |
+| `generateMs` | number | **纯生成窗口**：上游首帧到达 → 末帧到达的毫秒数。两个内部时刻（`firstFrameAt` / `lastFrameAt`）不落盘，只留这个差值 | 末帧到达时；只有一个内容帧则不写该字段（= 测不到，不是 0） |
 | `durationMs` | number | 请求总耗时（响应 finish/close 时计） | 响应结束时 |
 | `status` | number | 最终 HTTP 状态码 | 响应结束时 |
 | `outcome` | string | 结果分类，见 §3.2 | 响应结束时 |
@@ -62,6 +63,11 @@
 | `message` | string | 错误说明（**截断到 800 字符**） | 出错时 |
 | `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
 
+> `ttfbMs` 的语义是「**我们**什么时候开始回字节」，不是「上游什么时候开始吐字」：
+> 流式下两者几乎相同（收到首帧即转发），但**非流式下我们收完才写** —— 该值于是 ≈ `durationMs`，
+> 属正常现象，**不可当上游首帧耗时用**。要测生成速度用 `generateMs`（2026-10-30 修正：
+> 此前 TPS 用 `durationMs - ttfbMs`，非流式下分母趋 0，把 76 tokens/1309ms 算成 76000 t/s）。
+>
 > `usage` 在**两条转发路径**上都会采集：渠道翻译器路径与 `openai` 线型的直通路径
 > （`http/wire/sse-stream.ts` 的 `relay`）。直通路径此前漏采集，导致 openai 线型渠道
 > （workbuddy / lobsterai / loomy / raccoon / workbuddyai）的流式请求没有该字段
@@ -104,6 +110,7 @@
 | `durationMs` | `duration_ms` | — |
 | `upstreamMs` | `upstream_ms` | — |
 | `ttfbMs` | `ttfb_ms` | — |
+| `generateMs` | `generate_ms` | — |
 | `message` | `message` | 内容一致 |
 | `error` / `status` / `model` / `cid` | 同名 | — |
 
@@ -116,6 +123,9 @@
 | 大 | 大 | — | 耗时在**建立上游连接**（建连 / 上游接单） |
 | 正常 | 大或缺失 | 正常 | 耗时在**上游首帧** |
 | 正常 | 正常 | 大 | 耗时在**流式输出 / 工具循环 / 客户端读取**（结合 `usage`、`toolCount` 判断） |
+
+> 读这张表时注意 `ttfbMs` 的流式 / 非流式差异（见 §3.1）：非流式下它 ≈ `durationMs`，
+> 第二行「首帧慢」因此对流式请求才有判别力；非流式要看生成速度请用 `generateMs`。
 
 `error=upstream_timeout` 表示上游在 `MODELMUX_READ_TIMEOUT_MS`（默认 120000ms）内**未产生任何
 数据**。该超时是**空闲**超时：每读到一块数据即重置计时，因此持续出字的流不会因总时长被切断。

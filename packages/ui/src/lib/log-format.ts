@@ -99,32 +99,73 @@ export function formatBytes(value: number | undefined): string {
   return `${(value / (1_024 * 1_024)).toFixed(2)} MB`;
 }
 
+/** 生成窗口下限（毫秒）：比它更短的窗口算不出可信速率，一律判「不可测」。 */
+const GENERATE_FLOOR_MS = 50;
+
 /**
- * 生成速度（token/s）：**输出** tokens ÷ **纯生成耗时**。
+ * 速率上限（token/s）：超过它基本是测量假象 —— 云端 API 单请求极少破千。
  *
- * 两个口径要点：
- *   - 分子只算 `completion` —— prompt 是输入，prefill 阶段并行处理、吞吐极高；
- *     算进分子会让长上下文请求虚高到几万 t/s（实测 prompt 721427 + completion 1751、
- *     耗时 37.6s：按 total 算是 19235 t/s，而真实生成约 148 t/s）；
- *   - 分母扣掉首帧（`ttfbMs`）或上游响应头（`upstreamMs`），只留实际吐字时间；
- *     两者都缺时退化用总耗时（保守，仍比旧口径准）。
+ * ⚠ 超限时**返回 null（显示 `—`）而不是截断**：截断把「测不准」伪装成「测得准」，
+ * 而 `—` 是诚实的「不知道」。
+ */
+const MEASURE_CEILING_TPS = 1000;
+
+/**
+ * 生成速度（token/s）：**输出** tokens ÷ **纯生成窗口**。
+ *
+ * 分子只算 `completion` —— prompt 是输入，prefill 并行处理、吞吐极高；算进去会让长上下文
+ * 请求虚高几个数量级（实测 prompt 721427 + completion 1751、耗时 37.6s：按 total 算 19235 t/s，
+ * 真实生成约 148 t/s）。
+ *
+ * 分母按优先级取（口径见 docs/LOGGING.md §3.1）：
+ *   1. `generateMs`（上游首帧→末帧，打点直出，最准）；
+ *   2. 按 `stream` 分派：
+ *      - `true` → `ttfbMs`（首帧写出）→ 退回 `upstreamMs`；
+ *      - `false` → **只取 `upstreamMs`**。非流式下 `ttfbMs` 记的是「聚合完成」时刻，与
+ *        `durationMs` 只差几毫秒，拿它做减法会把分母压到 0（2026-10-30 实测 76000 t/s）；
+ *      - 未知 → 取两者中**较小**的（非生成时间越小 → 生成窗口越大 → 速率越低，偏保守）；
+ *   3. 都没有 → 总耗时（保守口径，仍比不显示有用）。
+ *
+ * 两道护栏：窗口 < `GENERATE_FLOOR_MS`，或速率 > `MEASURE_CEILING_TPS` → 返回 null。
  */
 export function tokensPerSecOf(input: {
   completion?: number | null | undefined;
   durationMs?: number | null | undefined;
   ttfbMs?: number | null | undefined;
   upstreamMs?: number | null | undefined;
+  generateMs?: number | null | undefined;
+  stream?: boolean | null | undefined;
 }): number | null {
   const { completion, durationMs } = input;
   if (typeof completion !== "number" || !Number.isFinite(completion) || completion <= 0) return null;
   if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) return null;
-  /** 可用的「非生成时间」基准：必须为正且小于总耗时，否则视为缺失。 */
+
+  /** 可用的绝对耗时字段：必须为正且小于总耗时，否则视为缺失。 */
   const cut = (v: number | null | undefined): number =>
     typeof v === "number" && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
-  const base = cut(input.ttfbMs) || cut(input.upstreamMs);
-  const generateMs = durationMs - base;
-  if (generateMs <= 0) return null;
-  return completion / (generateMs / 1000);
+
+  const direct = cut(input.generateMs);
+  let generateMs: number;
+  if (direct > 0) {
+    generateMs = direct;
+  } else {
+    const ttfb = cut(input.ttfbMs);
+    const upstream = cut(input.upstreamMs);
+    // `stream` 未知时取较小的非生成时间（窗口更大 → 速率更低）；`a || b` 兜住其中一个为 0
+    const base =
+      input.stream === true
+        ? ttfb || upstream
+        : input.stream === false
+          ? upstream
+          : ttfb > 0 && upstream > 0
+            ? Math.min(ttfb, upstream)
+            : ttfb || upstream;
+    generateMs = base > 0 ? durationMs - base : durationMs;
+  }
+
+  if (generateMs < GENERATE_FLOOR_MS) return null;
+  const perSec = completion / (generateMs / 1000);
+  return perSec > MEASURE_CEILING_TPS ? null : perSec;
 }
 
 /** 速率的展示格式：`<0.1 t/s` / 一位小数 / 整数；无数据显示 `—`。 */
@@ -143,6 +184,8 @@ export function formatTokensPerSec(entry: AccessLogEntry): string {
       durationMs: entry.durationMs,
       ttfbMs: entry.ttfbMs,
       upstreamMs: entry.upstreamMs,
+      generateMs: entry.generateMs,
+      stream: entry.stream,
     }),
   );
 }
