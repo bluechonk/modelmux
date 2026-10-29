@@ -32,6 +32,20 @@
   --color-free: #86d9a8;
   --color-warn: #dcbd6b;
   --color-danger: #ee7062;
+
+  /*
+   * 图表分类色：数据可视化专用，**不是品牌色**。
+   *
+   * 单色系能表达层级，表达不了「第 3 条序列是谁」—— 多序列折线与环形图必须有可区分的
+   * 分类色。这里沿用与语义色同族的低饱和色相，只出现在图表里（其余界面仍是纯单色）。
+   */
+  --color-series-1: #7aa2f7;
+  --color-series-2: #86d9a8;
+  --color-series-3: #bb9af7;
+  --color-series-4: #e0af68;
+  --color-series-5: #7dcfff;
+  --color-series-6: #f7768e;
+  --color-series-7: #9d7cd8;
 }
 
 @layer base {

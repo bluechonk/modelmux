@@ -64,9 +64,6 @@ export function GatewayControl(): ReactElement {
           重启
         </button>
       </div>
-      {snapshot?.base_url && (
-        <div className="break-all font-mono text-xs text-ink-faint">{snapshot.base_url}</div>
-      )}
       {busy && <div className="text-xs text-ink-faint">处理中…</div>}
       {confirmStop && (
         <ConfirmDialog

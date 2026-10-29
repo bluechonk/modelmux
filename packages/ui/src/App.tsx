@@ -14,6 +14,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Models } from "./pages/Models";
 import { Accounts } from "./pages/Accounts";
 import { Logs } from "./pages/Logs";
+import { Usage } from "./pages/Usage";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
 
@@ -46,6 +47,7 @@ export function App(): ReactElement {
               <Route path="/models" element={<Models />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/logs" element={<Logs />} />
+              <Route path="/usage" element={<Usage />} />
             </Route>
           </Routes>
         </BrowserRouter>

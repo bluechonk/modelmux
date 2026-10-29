@@ -280,6 +280,66 @@ export interface LogQuery {
   offset?: number;
 }
 
+/** 用量统计的区间（对应 `GET /web/api/usage?range=`）。 */
+export type UsageRange = "7d" | "30d" | "90d";
+
+/** 某一天的用量（趋势图与热力图的数据点）。 */
+export interface UsageDaily {
+  date: string;
+  tokens: number;
+  tokensIn: number;
+  tokensOut: number;
+  requests: number;
+  messages: number;
+  /** 该日各模型 tokens（键 = `<cid>/<模型>`，空串 = 未知模型）。 */
+  byModel: Record<string, number>;
+}
+
+/** 一个模型在区间内的用量。 */
+export interface UsageModelRow {
+  /** 池 id（`<cid>/<模型>`）；空串表示「未知模型」。 */
+  id: string;
+  tokens: number;
+  input: number;
+  output: number;
+  cache: number;
+  /** 占区间总 tokens 的比例（0–1）。 */
+  share: number;
+}
+
+/**
+ * `GET /web/api/usage` 的返回（形状与共享层 `UsageStats` 一致）。
+ *
+ * 口径与指标公式见 docs/USAGE-STATS.md —— 统计只覆盖**模型请求**
+ * （`/v1/chat/completions`），且只覆盖日志保留期内的日期。
+ */
+export interface UsageStats {
+  range: UsageRange;
+  /** 区间端点（本地日期 `YYYY-MM-DD`，含端点）。 */
+  from: string;
+  to: string;
+  totals: {
+    tokens: number;
+    tokensIn: number;
+    tokensOut: number;
+    requests: number;
+    messages: number;
+    durationMs: number;
+    /** 加权命中率；区间内无一条带缓存字段时为 null（显示 `—`）。 */
+    cacheHitRate: number | null;
+    /** 区间内单请求最长耗时。 */
+    longestRequestMs: number | null;
+  };
+  /** 升序（趋势图从左到右）；只含有模型请求的日期。 */
+  daily: UsageDaily[];
+  /** 按 tokens 降序。 */
+  models: UsageModelRow[];
+  /** 「有请求」的连续天数，今天没请求时 `current` 算到昨天为止。 */
+  streak: { current: number; longest: number };
+  peak: { date: string; tokens: number; hour: number; hourTokens: number } | null;
+  favorite: { id: string; share: number } | null;
+}
+
 /** `GET /web/api/overview` 返回的仪表盘聚合视图。 */
 export interface OverviewResponse {
   ok: boolean;

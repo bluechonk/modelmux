@@ -19,6 +19,10 @@ import type {
   OverviewResponse,
   PayloadQueryResult,
   UiSnapshot,
+  UsageDaily,
+  UsageModelRow,
+  UsageRange,
+  UsageStats,
 } from "./types";
 
 /** 渠道：cid + 展示名 + 是否已登录 + 有没有额度概念（虚构）。 */
@@ -712,6 +716,104 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
 }
 
 /** 演示的请求上下文（虚构）：客户端原样体 + 两次尝试的上行体。 */
+/** 本地日期 `YYYY-MM-DD`（与日志目录的切分口径一致）。 */
+function localDate(d: Date): string {
+  const pad = (v: number): string => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** 演示用的模型权重（池 id 形态与真实一致，权重让环形图有主次）。 */
+const DEMO_USAGE_MODELS: Array<{ id: string; weight: number }> = [
+  { id: "loomy/kimi-k2.6", weight: 0.34 },
+  { id: "catpaw/glm-5.3-flash", weight: 0.22 },
+  { id: "traecn/kimi-k2.6", weight: 0.15 },
+  { id: "qodercn/deepseek-v4-pro", weight: 0.12 },
+  { id: "astudio/spark-x2.5", weight: 0.09 },
+  { id: "raccoon/glm-5.3", weight: 0.05 },
+  { id: "workbuddyai/deepseek-v4.1-flash", weight: 0.03 },
+];
+
+/**
+ * 用量统计的虚构数据。
+ *
+ * 数值**确定性生成**（只用日期与索引推导，不取随机数）—— 演示时同一区间每次渲染
+ * 都一样，数字不会自己乱跳（与 `demoLogs` 同一考虑）。形态与真实聚合完全一致。
+ */
+export function demoUsage(range: UsageRange): UsageStats {
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+  const today = new Date();
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
+  const daily: UsageDaily[] = [];
+  const modelTotals = new Map<string, number>();
+  let totalTokens = 0;
+
+  for (let i = 0; i < days; i += 1) {
+    const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+    const weekend = day.getDay() === 0 || day.getDay() === 6;
+    const wave = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(i / 2.7));
+    const scale = (weekend ? 0.35 : 1) * wave;
+    const byModel: Record<string, number> = {};
+    let dayTokens = 0;
+    for (const m of DEMO_USAGE_MODELS) {
+      const t = Math.round(m.weight * scale * 3.6e8);
+      byModel[m.id] = t;
+      modelTotals.set(m.id, (modelTotals.get(m.id) ?? 0) + t);
+      dayTokens += t;
+    }
+    daily.push({
+      date: localDate(day),
+      tokens: dayTokens,
+      tokensIn: Math.round(dayTokens * 0.72),
+      tokensOut: Math.round(dayTokens * 0.28),
+      requests: 40 + Math.round(scale * 260),
+      messages: 120 + Math.round(scale * 900),
+      byModel,
+    });
+    totalTokens += dayTokens;
+  }
+
+  const models: UsageModelRow[] = [...modelTotals.entries()]
+    .map(([id, tokens]) => ({
+      id,
+      tokens,
+      input: Math.round(tokens * 0.72),
+      output: Math.round(tokens * 0.28),
+      cache: Math.round(tokens * 0.55),
+      share: totalTokens > 0 ? tokens / totalTokens : 0,
+    }))
+    .sort((a, b) => b.tokens - a.tokens);
+
+  const peakDay = daily.reduce((best, d) => (d.tokens > best.tokens ? d : best), daily[0]!);
+  const requests = daily.reduce((sum, d) => sum + d.requests, 0);
+  const messages = daily.reduce((sum, d) => sum + d.messages, 0);
+
+  return {
+    range,
+    from: localDate(from),
+    to: localDate(today),
+    totals: {
+      tokens: totalTokens,
+      tokensIn: Math.round(totalTokens * 0.72),
+      tokensOut: Math.round(totalTokens * 0.28),
+      requests,
+      messages,
+      durationMs: requests * 8200,
+      cacheHitRate: 0.74,
+      longestRequestMs: 42_000,
+    },
+    daily,
+    models,
+    streak: { current: Math.min(days, 12), longest: Math.min(days, 19) },
+    peak: {
+      date: peakDay.date,
+      tokens: peakDay.tokens,
+      hour: 15,
+      hourTokens: Math.round(peakDay.tokens * 0.14),
+    },
+    favorite: models[0] === undefined ? null : { id: models[0].id, share: models[0].share },
+  };
+}
+
 export function demoLogPayload(id: string): PayloadQueryResult {
   const messages = [
     { role: "system", content: "你是一个演示用的助手，数据全部虚构。" },

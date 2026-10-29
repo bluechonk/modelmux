@@ -21,104 +21,13 @@ import {
   Brain,
   Wifi,
   ArrowRight,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { useNavigate } from "react-router";
+import { KpiCard } from "../components/KpiCard";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
 import { formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, AccessOutcome } from "../lib/types";
-
-// ---------------------------------------------------------------------------
-// KPI 卡
-// ---------------------------------------------------------------------------
-
-/** KPI 单格：图标 + 标签 + 主值 + 副行（可选）。 */
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "free" | "danger" | "warn" | "muted";
-}): ReactElement {
-  return (
-    <div className="flex items-start gap-2 rounded-xl border border-line bg-raised px-3 py-3.5 sm:gap-3 sm:px-4">
-      <Icon
-        className={`mt-0.5 h-4 w-4 shrink-0 ${
-          tone === "free"
-            ? "text-free"
-            : tone === "danger"
-              ? "text-danger"
-              : tone === "warn"
-                ? "text-warn"
-                : "text-ink-faint"
-        }`}
-      />
-      <div className="min-w-0">
-        <div className="text-xs leading-snug text-ink-faint">{label}</div>
-        <div
-          className={`text-lg font-semibold whitespace-nowrap tabular-nums ${
-            tone === "free"
-              ? "text-free"
-              : tone === "danger"
-                ? "text-danger"
-                : tone === "warn"
-                  ? "text-warn"
-                  : "text-ink"
-          }`}
-        >
-          {value}
-        </div>
-        {sub !== undefined && <div className="mt-0.5 text-xs text-ink-faint">{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 渠道状态行
-// ---------------------------------------------------------------------------
-
-/** 渠道状态单行：cid 展示名 + 今日成败 + 点击跳账号池。 */
-function ChannelRow({
-  cid,
-  display,
-  success,
-  failure,
-  loggedIn,
-}: {
-  cid: string;
-  display: string;
-  success: number;
-  failure: number;
-  loggedIn: boolean;
-}): ReactElement {
-  const navigate = useNavigate();
-  return (
-    <button
-      type="button"
-      onClick={() => void navigate("/accounts")}
-      className="tap flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-overlay/40 focus-visible:bg-overlay/40"
-    >
-      {/* 状态灯 */}
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${loggedIn ? "bg-free" : "bg-ink-faint"}`}
-      />
-      {/* 名称 */}
-      <span className="min-w-0 flex-1 truncate text-sm text-ink">{display}</span>
-      {/* 成败计数：与表头同为 w-8 定宽，否则数字列会随位数漂移 */}
-      <span className="w-8 shrink-0 text-right text-xs tabular-nums text-free">{success}</span>
-      <span className="w-8 shrink-0 text-right text-xs tabular-nums text-danger">{failure}</span>
-    </button>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // 最近请求行
@@ -245,11 +154,6 @@ export function Dashboard(): ReactElement {
     }
   }, [stateQuery.error, overviewQuery.error, overview?.gateway.gateway_error, state?.gateway_error, toast]);
 
-  // ----- 渠道状态折叠：默认全部折叠，点展开才显示具体行 -----
-  // ⚠ 必须在早期返回之前调用 useState，否则 Hooks 顺序不固定 → React #310
-  const [channelsExpanded, setChannelsExpanded] = useState(false);
-  const toggleChannels = () => setChannelsExpanded((v) => !v);
-
   // ----- 加载态 -----
   if (stateQuery.isLoading) return <DashboardSkeleton />;
   if (stateQuery.error && !overview) {
@@ -271,14 +175,11 @@ export function Dashboard(): ReactElement {
   const avgDur = usage?.avg_duration_ms != null ? formatDuration(usage.avg_duration_ms) : "—";
   const totalTokens = usage ? formatTokens(usage.tokens.total) : "0";
 
-  // 渠道列表（从 overview.channels 取：模型数 + 账号健康 + 今日成败）
-  const channelList = overview?.channels ?? [];
-  const channelSuccessTotal = channelList.reduce((sum, ch) => sum + ch.requests.success, 0);
-  const channelFailureTotal = channelList.reduce((sum, ch) => sum + ch.requests.failure, 0);
+  // 渠道计数（模型池概览用：供给渠道数）
   const totalModels = overview?.model_pool.total ?? state.models.length;
-  const channelCount = channelList.length || new Set(
-    state.models.map((full) => full.slice(0, Math.max(0, full.indexOf("/")))),
-  ).size;
+  const channelCount =
+    (overview?.channels.length ?? 0) ||
+    new Set(state.models.map((full) => full.slice(0, Math.max(0, full.indexOf("/"))))).size;
 
   // 模型池概览（直接从 overview 取）
   const pool = overview?.model_pool;
@@ -372,77 +273,8 @@ export function Dashboard(): ReactElement {
 
       {/* ③④⑤⑥ 双列区 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* 左列：渠道状态 + 最近请求 */}
+        {/* 左列：最近请求 */}
         <div className="space-y-5 lg:col-span-8">
-          {/* ③ 渠道状态 */}
-          <section className="panel p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Layers className="h-4 w-4 text-ink-faint" />
-                <span className="text-sm font-medium text-ink">渠道状态</span>
-              </div>
-              <button
-                type="button"
-                onClick={toggleChannels}
-                className="tap flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-faint transition-colors hover:bg-overlay/40"
-                aria-label={channelsExpanded ? "收起渠道状态" : "展开渠道状态"}
-              >
-                {channelsExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                <span className="text-xs">
-                  {channelsExpanded ? "收起" : "展开"}
-                </span>
-              </button>
-            </div>
-            {channelList.length === 0 ? (
-              <div className="py-4 text-center text-xs text-ink-faint">暂无渠道</div>
-            ) : (
-              <>
-                {/* 折叠时的摘要行：至少能看出规模与健康度 */}
-                {!channelsExpanded && (
-                  <button
-                    type="button"
-                    onClick={toggleChannels}
-                    className="tap flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-xs text-ink-faint transition-colors hover:bg-overlay/40"
-                  >
-                    <span className="min-w-0 flex-1">
-                      {channelList.length} 个渠道 · 今日{" "}
-                      <span className="text-free">{channelSuccessTotal}</span> 成 /{" "}
-                      <span className="text-danger">{channelFailureTotal}</span> 败
-                    </span>
-                    <span className="shrink-0 text-xs">点击展开</span>
-                  </button>
-                )}
-                <div
-                  className={`overflow-hidden transition-[max-height] duration-200 ${
-                    channelsExpanded ? "max-h-96" : "max-h-0"
-                  }`}
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-3 px-2 pb-1.5 text-xs text-ink-faint">
-                      <span className="w-2 shrink-0" />
-                      <span className="min-w-0 flex-1">渠道</span>
-                      <span className="w-8 shrink-0 text-right">成</span>
-                      <span className="w-8 shrink-0 text-right">败</span>
-                    </div>
-                    {channelList.map((ch) => {
-                      const loggedIn = ch.statuses.ok > 0 || ch.statuses.cooldown > 0 || ch.statuses.error > 0;
-                      return (
-                        <ChannelRow
-                          key={ch.cid}
-                          cid={ch.cid}
-                          display={ch.cid}
-                          success={ch.requests.success}
-                          failure={ch.requests.failure}
-                          loggedIn={loggedIn}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-
           {/* ⑤ 最近请求 */}
           <section className="panel p-4">
             <div className="panel-title mb-3">
