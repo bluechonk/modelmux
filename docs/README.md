@@ -38,6 +38,7 @@
 | [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复（已实施）**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；规则已收敛进 POOL-ARCHITECTURE.md §2.4 / §3.3，本文留设计依据 |
 | [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
 | [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取（已实施）**：单条上限 256KB → 10MB 完整落盘、超限双端兜底；规则已收敛进 LOGGING.md §9，本文留设计依据 |
+| [STORAGE-OPTIMIZATION.md](./STORAGE-OPTIMIZATION.md) | **存储优化（借鉴 dsh）**：dsh 的日志/会话落盘机制调研（逐批 zstd、内容寻址去重、无轮转无删除）、可迁移性与明确不移植项、本项目 payload 去重+压缩与轮转段压缩方案 |
 | [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) | **缓存命中率口径**：DeepSeek 官方字段与加和关系、命中率公式（官方无明文，业界推导）、各渠道 usage 形态差异与归一化规则、展示方案 |
 | [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：39 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 
