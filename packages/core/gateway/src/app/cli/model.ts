@@ -43,6 +43,8 @@ export interface CommandContext {
   logDate?: string;
   /** `logs --list`：列出日志文件。 */
   logList: boolean;
+  /** `logs --compact`：就地压缩已封存的抓取正文（存量明文 → 压缩）。 */
+  logCompact: boolean;
   workspace?: string;
 }
 

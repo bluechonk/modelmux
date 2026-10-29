@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -342,6 +342,49 @@ describe("请求正文抓取（恒开启，读回不受门控）", () => {
     const records = readPayloads(id);
     assert.equal(records.length, 2, "client + upstream 恒写入");
     assert.deepEqual(records.map((r) => r.phase), ["client", "upstream"], "按写入顺序");
+  });
+
+  it("大正文压缩落盘、按 id 读回后逐字节还原（超过阈值才压）", () => {
+    const { res, id } = attach();
+    // 构造可压缩的大正文（超 4KB 阈值）；内容重复度高，压缩后必然远小于原文
+    const big = JSON.stringify({ messages: Array.from({ length: 400 }, (_, i) => ({ role: "user", content: `第 ${i} 轮内容`.repeat(20) })) });
+    assert.ok(big.length > 4096, "夹具必须超过压缩阈值");
+    noteClientPayload(res as never, Buffer.from(big, "utf8"));
+    // 小正文走 plain（压缩后还要 base64，可能反而变大）
+    noteUpstreamPayload(res as never, { cid: "loomy", model: "m", stream: false, attempt: 0 }, "{}");
+
+    const onDisk = readFileSync(join(paths.logsDir(), "payload", localDate(), "payload.log"), "utf8");
+    assert.ok(!onDisk.includes(big), "正文不应以明文落盘");
+    assert.ok(onDisk.includes('"bodyEnc":"zstd"') || onDisk.includes('"bodyEnc":"gzip"'), "压缩行要带形态标记");
+
+    const records = readPayloads(id);
+    assert.equal(records[0]?.body, big, "读回必须与原文逐字节一致");
+    assert.equal(records[0]?.bytes, Buffer.byteLength(big), "bytes 仍是**原始**字节数");
+    assert.equal(records[1]?.body, "{}", "小正文保持明文");
+  });
+
+  it("改造前的明文行仍可读（向后兼容）", () => {
+    const dir = join(paths.logsDir(), "payload", localDate());
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "payload.log"),
+      `${JSON.stringify({ ts: "2026-10-29T00:00:00.000Z", seq: 1, id: "req_old", phase: "client", bytes: 7, truncated: false, body: "legacy" })}\n`,
+      "utf8",
+    );
+    assert.equal(readPayloads("req_old")[0]?.body, "legacy", "旧行（只有 body 字符串）必须照旧可读");
+  });
+
+  it("压缩行损坏时不抛异常（读日志不能反过来影响接口）", () => {
+    const dir = join(paths.logsDir(), "payload", localDate());
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "payload.log"),
+      `${JSON.stringify({ ts: "2026-10-29T00:00:00.000Z", seq: 9, id: "req_broken", phase: "client", bytes: 10, truncated: false, bodyEnc: "zstd", bodyB64: "bm90LXpk" })}\n`,
+      "utf8",
+    );
+    const rec = readPayloads("req_broken")[0];
+    assert.equal(rec?.id, "req_broken", "记录本身仍可读");
+    assert.equal(rec?.body, "", "解不开的正文退化为空串，而不是抛错");
   });
 
   it("跨午夜的长请求：正文在前一天、访问行在当天，按访问行的日期也要能读全", () => {
