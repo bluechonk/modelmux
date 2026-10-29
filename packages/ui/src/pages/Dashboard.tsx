@@ -27,7 +27,7 @@ import {
 import { useNavigate } from "react-router";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
-import { formatTokens, formatDuration, formatDateTime, formatCacheRate, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
+import { formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, AccessOutcome } from "../lib/types";
 
 // ---------------------------------------------------------------------------
@@ -289,11 +289,8 @@ export function Dashboard(): ReactElement {
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
 
-  // 缓存命中率（加权 Σhit/Σprompt）；窗口内无缓存字段时不追加（不显示 0% 误导）
-  const cacheRate = formatCacheRate(
-    { hit: usage?.cache.hit ?? 0, miss: usage?.cache.miss ?? 0 },
-    usage?.cache.prompt ?? 0,
-  );
+  // 缓存命中率（服务端按上游形态加权算好）；窗口内无缓存字段时 `hitRate` 为 null → 不追加
+  const cacheRate = formatPercent(usage?.cache.hitRate);
   const cacheText = cacheRate === "—" ? "" : ` · 缓存 ${cacheRate}`;
 
   return (

@@ -663,20 +663,19 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
       }),
       { prompt: 0, completion: 0, total: 0 },
     ),
-    // 加权命中率（口径与后端一致：Σhit / Σprompt，见 docs/CACHE-HIT-RATE.md）
+    // 加权命中率（口径与后端一致：Σhit / Σ(hit+miss)，见 docs/CACHE-HIT-RATE.md）
     cache: (() => {
       const t = entries.reduce(
         (acc, e) => {
           const c = e.tokens?.cache;
-          if (c?.hit === null || c?.hit === undefined) return acc;
+          if (c?.hit === null || c?.hit === undefined || c.miss === null) return acc;
           acc.hit += c.hit;
-          acc.miss += c.miss ?? 0;
-          acc.prompt += e.tokens?.prompt ?? c.hit + (c.miss ?? 0);
+          acc.total += c.hit + c.miss;
           return acc;
         },
-        { hit: 0, miss: 0, prompt: 0 },
+        { hit: 0, total: 0 },
       );
-      return { ...t, hitRate: t.prompt > 0 ? t.hit / t.prompt : null };
+      return { ...t, hitRate: t.total > 0 ? t.hit / t.total : null };
     })(),
   };
 
