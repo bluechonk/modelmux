@@ -5,7 +5,7 @@
  * **登录完成前**就可用，而此时网关还没启动。
  *
  * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` · `GET /api/logs` ·
- * `GET /api/logs/payload` · `POST /api/theme` ·
+ * `GET /api/logs/payload` · `GET /api/usage` · `POST /api/theme` ·
  * `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
  */
 
@@ -16,7 +16,8 @@ import { fileURLToPath } from "node:url";
 
 import { serviceName } from "../server.js";
 import type { LoginInputRequest } from "../../runtime/channel.js";
-import { queryAccessLogs, readPayloads, type AccessOutcome } from "../../runtime/log-store.js";
+import { MODEL_REQUEST_PATH, queryAccessLogs, readPayloads, type AccessOutcome } from "../../runtime/log-store.js";
+import { computeUsageStats, type UsageRange } from "../../runtime/usage-stats.js";
 
 export type { LoginInputRequest };
 
@@ -341,6 +342,9 @@ export function createConsoleHandler(
           : undefined;
       const streamRaw = q.get("stream");
       const page = queryAccessLogs({
+        // 日志页只展示**模型请求**：`/health` 等非模型请求也在 access 日志里，
+        // 但主人要的是「请求日志」，混进来只会稀释列表。
+        path: MODEL_REQUEST_PATH,
         date: q.get("date") ?? undefined,
         outcome,
         cid: q.get("cid") ?? undefined,
@@ -369,6 +373,23 @@ export function createConsoleHandler(
       const date = q.get("date") ?? undefined;
       const records = readPayloads(id, date);
       json(res, { ok: true, id, date: date ?? null, records });
+      return;
+    }
+
+    if (path === p("/api/usage")) {
+      if (req.method !== "GET") {
+        json(res, { ok: false, error: "use GET" }, 405);
+        return;
+      }
+      // 与 `/api/logs` 同策略：用量含模型名与渠道，加同源校验（无 Origin 头时放行）
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams;
+      const raw = q.get("range");
+      const range: UsageRange = raw === "7d" || raw === "30d" || raw === "90d" ? raw : "30d";
+      json(res, { ok: true, ...computeUsageStats(range) });
       return;
     }
 
