@@ -28,13 +28,15 @@
        = hit / (hit + miss)
 ```
 
-两种写法**数值恒等**（因为 `prompt_tokens = hit + miss` 是官方明文）。本仓库取 `hit / prompt_tokens`。
+两种写法对 DeepSeek **数值恒等**（因为 `prompt_tokens = hit + miss` 是官方明文）；
+但对 Anthropic 形态不成立 —— 那里 `prompt_tokens`（= `input_tokens`）不含缓存读。
+本仓库统一取 `hit / (hit + miss)`，`miss` 按上游形态归一化（见 §6）。
 
 ### 窗口聚合必须加权
 
 ```
-窗口命中率 = Σhit / Σprompt        ← 正确
-窗口命中率 ≠ mean(每条请求的命中率) ← 错误：长请求的权重被抹平
+窗口命中率 = Σhit / Σ(hit + miss)        ← 正确
+窗口命中率 ≠ mean(每条请求的命中率)      ← 错误：长请求的权重被抹平
 ```
 
 ## 3. 计费（这个指标为什么值得看）
@@ -72,36 +74,68 @@
 | **astudio / catpaw / traecn / orcaterm** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens`（**无任何缓存字段**） |
 
 > 结论：命中率**不可能对所有渠道统一显示** —— 无缓存字段的渠道必须显示 `—`，而不是 0%。
+> 同一渠道**不同模型**形态也可能不同：实测（2026-10-29）`loomy/spark-x2.6` 的 usage
+> 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` + `points_consumed`，
+> 没有缓存字段（该模型倍率 0、`points_consumed: 0`，属免费模型）。
 
 ## 6. 归一化规则（本仓库口径）
 
+**只读上游返回的字段，绝不用本地会话 / prompt 自行推算** —— 这是模型侧 KV cache 的命中量，
+只有上游知道（官方 / 自部署推理框架在服务端统计），本地拿不到等价信息，自行估算得到的
+不是这个指标。
+
+缓存字段有**两套互斥语义**，归一化必须**按字段形态分派**，不能把它们串成一条优先级链：
+
+| 形态 | 命中 | 分母（总输入） | 依据 |
+|---|---|---|---|
+| ① DeepSeek | `prompt_cache_hit_tokens` | `prompt_cache_hit_tokens` + `prompt_cache_miss_tokens`（= `prompt_tokens`） | 官方明文等式 |
+| ② OpenAI / Azure | `prompt_tokens_details.cached_tokens`（或顶层 `cached_tokens`） | `prompt_tokens` | `cached_tokens` 是 `prompt_tokens` 的**子集**（含内） |
+| ③ Anthropic | `cache_read_input_tokens` | `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens` | 官方明文：`input_tokens` **不含**缓存读/写（独占） |
+
 ```
-hit  = prompt_cache_hit_tokens
-     ?? prompt_tokens_details.cached_tokens
-     ?? cached_tokens
-     ?? cache_read_input_tokens            ← Anthropic 风格「读缓存」
-miss = prompt_cache_miss_tokens ?? (prompt_tokens - hit)     ← 用官方等式兜底
-命中率 = hit / prompt_tokens
+命中率 = hit / (hit + miss)     ← miss 由形态推出，两种写法只有这一种是安全的
 ```
 
-- **`cache_creation_input_tokens` / `prompt_cache_write_tokens` / `cache_write_*_tokens`
-  不计入 hit** —— 它们语义是**写缓存**（为后续命中做准备），不是本次命中；
-  Anthropic 的 `input_tokens` 通常也**不含**缓存读部分，口径与 DeepSeek 不同，不要混算
+⚠ **为什么不能用 `hit / prompt_tokens` 统一算**：③ 的 `input_tokens` 不含缓存读，
+若沿用 `prompt_tokens`（= `input_tokens`）当分母，而 `cache_read` 又接近输入量，
+命中率会被算成接近 100% —— 这正是「满屏 100%」的成因。
+仅当上游只给 `prompt_tokens`、没有 `input_tokens` 时，才退回 `miss = prompt_tokens - hit`
+（此时该字段自洽，无法与含内区分）。
+
+- **写缓存不计入命中**：`cache_creation_input_tokens` / `prompt_cache_write_tokens` /
+  `cache_write_*_tokens` 语义是**为后续命中做写入**；在形态 ③ 里它是**分母**的一部分。
 - **三种「没有」要分开**，不可混为一谈：
   | 情况 | 展示 |
   |---|---|
   | 无 usage（失败/未采集） | `—`（且不计入分母） |
   | 有 usage 但无缓存字段（如 traecn） | `—` |
   | 有缓存字段且 `hit = 0` | `0%`（这是**真实**的零命中） |
+  | 有 `hit` 但推不出分母 | `—`（只给绝对值，不给比率） |
 - **缺失不补 0** —— 把「没采集到」显示成「完全没命中」是错误信息
+- 窗口聚合只收**分母可推**的记录（`Σhit / Σ(hit+miss)`）；无缓存字段的渠道不进分母
+
+### 显示精度：99.6% 不许显示成 100%
+
+| 比率 | 显示 |
+|---|---|
+| `< 1%` | `<1%` |
+| `1% ~ 98.9%` | 整数百分比 |
+| `99% ~ 99.94%` | **一位小数**（如 `99.6%`） |
+| `99.95% ~ <100%` | `>99.9%` |
+| `= 100%` | `100%` |
+
+> 依据：前缀缓存下大量请求的命中率天然在 99% 上下，若四舍五入成 `100%`，日志页会出现
+> 满屏 100%（本机 12 天 8233 条中有 3717 条 ≥99.5%），既看不出差异，又像数据出错。
+> 真正的满命中（上游明确 `hit == 分母`）与「近似满命中」必须可区分。
 
 ## 7. 展示方案
 
 | 位置 | 内容 |
 |---|---|
-| 日志页表格 | 「缓存」列：命中率（`0%`–`100%`），无数据 `—` |
-| 日志页展开详情 | `命中 X / 输入 Y`（+ 未命中 tokens），便于核对绝对值 |
-| 仪表盘 KPI | 「缓存命中率」（今日，**加权** `Σhit/Σprompt`）+ 副行命中 tokens 绝对值 |
+| 日志页表格 | 「缓存」列：命中率（`0%`–`100%`，99% 以上一位小数），无数据 `—` |
+| 日志页展开详情 | `命中 X · 未命中 Y · 比率`（便于核对绝对值） |
+| 日志页统计条 | 缓存命中（今日**加权** `Σhit/Σ(hit+miss)`）+ 命中/总输入绝对值 |
+| 仪表盘 KPI | 「今日 tokens」副行追加命中率（不加第 5 格，避免破四格栅格与手机端） |
 | 仪表盘最近请求 | 行内命中率；无数据显示 `—` |
 
 > 同时给比率与绝对值：64-token 下限与 best-effort 会让纯比率在小样本下剧烈波动。

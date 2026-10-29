@@ -19,6 +19,7 @@ import {
   formatCount,
   formatDateTime,
   formatDuration,
+  formatPercent,
   formatTokens,
   formatTokensPerSec,
   OUTCOME_META,
@@ -83,12 +84,10 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       </span>
       <span>
         缓存命中{" "}
-        <span className="tabular text-ink">
-          {formatCacheRate({ hit: stats.cache.hit, miss: stats.cache.miss }, stats.cache.prompt)}
-        </span>
-        {stats.cache.prompt > 0 && (
+        <span className="tabular text-ink">{formatPercent(stats.cache.hitRate)}</span>
+        {stats.cache.total > 0 && (
           <span className="text-ink-faint">
-            （{formatTokens(stats.cache.hit)} / {formatTokens(stats.cache.prompt)}）
+            （{formatTokens(stats.cache.hit)} / {formatTokens(stats.cache.total)}）
           </span>
         )}
       </span>
@@ -172,7 +171,7 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
             <span className="tabular">
               命中 {countOrDash(entry.tokens.cache.hit)} · 未命中{" "}
               {countOrDash(entry.tokens.cache.miss)} ·{" "}
-              {formatCacheRate(entry.tokens.cache, entry.tokens.prompt)}
+              {formatCacheRate(entry.tokens.cache)}
             </span>
           ) : (
             "该上游无缓存字段"
@@ -326,7 +325,7 @@ function LogTable({
                       {formatTokensPerSec(entry)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
-                      {formatCacheRate(entry.tokens?.cache, entry.tokens?.prompt)}
+                      {formatCacheRate(entry.tokens?.cache)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
                       {tokensPairText(entry.tokens)}
