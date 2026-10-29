@@ -6,7 +6,7 @@
  * 都能引用它而不互相 import。
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { channelCount, getChannel } from "./channel.js";
@@ -16,17 +16,32 @@ import { channelCount, getChannel } from "./channel.js";
  *
  * 多渠道路由下没有"渠道版本"可言，`--version` 该报**仓库级 CLI**（bin `modelmux` / `mx`）的版本；
  * 而共享层不知道自己在哪个入口下被跑，故从入口脚本的位置反推它的 package.json。
+ *
+ * ⚠ `argv[1]` 可能是**无扩展名的 bin shim**（`/usr/local/bin/mx` 符号链接，npm 安装形态），
+ * 此时它的目录根本没有 package.json —— 必须先 `realpath` 回到真实入口文件再反推，
+ * 否则 `--version` 会静默退化成 `0.0.0`。
  */
 function entryVersion(): string {
+  const entry = process.argv[1];
+  if (!entry) return "0.0.0";
+  let real = entry;
   try {
-    const entry = process.argv[1];
-    if (!entry) return "0.0.0";
-    const parsed: unknown = JSON.parse(readFileSync(join(dirname(entry), "..", "package.json"), "utf8"));
-    const version = (parsed as { version?: unknown })?.version;
-    return typeof version === "string" ? version : "0.0.0";
+    real = realpathSync(entry);
   } catch {
-    return "0.0.0";
+    /* 链接目标不存在：按原路径尝试 */
   }
+  // 产物落在包内 dist/（上一级是包根）；也兼容入口直接放在包根的情形
+  for (const base of [join(dirname(real), ".."), dirname(real)]) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(base, "package.json"), "utf8")) as {
+        version?: unknown;
+      };
+      if (typeof parsed.version === "string") return parsed.version;
+    } catch {
+      /* 换下一个候选目录 */
+    }
+  }
+  return "0.0.0";
 }
 
 /**

@@ -7,7 +7,8 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { channelCount, channels, getChannel, type Channel } from "../../runtime/channel.js";
@@ -196,9 +197,25 @@ export async function killTree(pid: number): Promise<boolean> {
  * 由调用方接受失败。
  * 注意 bundle 形态下该回退同样失效（bundle 里没有独立 cli.js）——但回退只在异常启动方式
  * （非文件入口）下触发，属已知限制。
+ *
+ * ⚠ 全局安装的 `mx` 是**无扩展名的符号链接**（`npm bin` shim），此时 Node 给出的
+ * `argv[1]` 是 `"/usr/local/bin/mx"` 原样，既没有 `.js` 后缀、本身也不是 JS 文件。
+ * 因此判据必须落到**真实路径**上：先 `realpath` 解析链接目标，再看同目录的兄弟入口。
+ * 另：返回值必须是**绝对路径** —— 子进程 cwd 是存储根（`--cwd`），相对路径会解析失败。
  */
 export function cliEntry(): string {
-  const entry = process.argv[1];
-  if (entry && /\.(m?js|cjs)$/i.test(entry) && existsSync(entry)) return entry;
+  const argv = process.argv[1];
+  if (argv) {
+    const candidates = [resolve(argv)];
+    try {
+      candidates.push(realpathSync(argv));
+    } catch {
+      /* 链接目标不存在：交给后面的兄弟入口候选 */
+    }
+    // bin shim 形态（`mx` → `cli.bundle.js`）：真实文件与 shim 同目录
+    candidates.push(resolve(dirname(argv), "cli.js"), resolve(dirname(argv), "cli.bundle.js"));
+    const hit = candidates.find((p) => /\.(m?js|cjs)$/i.test(p) && existsSync(p));
+    if (hit) return hit;
+  }
   return fileURLToPath(new URL("../cli/index.js", import.meta.url));
 }
