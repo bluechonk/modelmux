@@ -288,7 +288,7 @@ export interface LogQuery {
 }
 
 /** 用量统计的区间（对应 `GET /web/api/usage?range=`）。 */
-export type UsageRange = "7d" | "30d" | "90d";
+export type UsageRange = "7d" | "30d" | "90d" | "365d";
 
 /** 某一天的用量（趋势图与热力图的数据点）。 */
 export interface UsageDaily {

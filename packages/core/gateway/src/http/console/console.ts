@@ -388,7 +388,8 @@ export function createConsoleHandler(
       }
       const q = new URL(req.url ?? "/", "http://localhost").searchParams;
       const raw = q.get("range");
-      const range: UsageRange = raw === "7d" || raw === "30d" || raw === "90d" ? raw : "30d";
+      // `365d` 供热力图用（52 周一年）；实际有数据的天数受日志保留期限制
+      const range: UsageRange = raw === "7d" || raw === "30d" || raw === "90d" || raw === "365d" ? raw : "30d";
       json(res, { ok: true, ...computeUsageStats(range) });
       return;
     }
