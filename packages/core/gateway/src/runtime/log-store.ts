@@ -23,8 +23,12 @@ import {
   rmSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+// 命名空间导入 + 运行时探测：zstd 是 Node ≥ 22.15 才有的绑定，直接具名导入会让老版本
+// 在 **模块链接期** 就报错（ESM 缺失导出是硬错误），一条日志旁路不值得拖垮进程启动。
+import * as zlib from "node:zlib";
 import type { ServerResponse } from "node:http";
 
 import * as paths from "./paths.js";
@@ -945,6 +949,54 @@ function clipPayload(body: Buffer | string): Pick<PayloadRecord, "body" | "bytes
 let payloadSeq = 0;
 let payloadPermDate = "";
 
+/**
+ * 正文压缩的形态标记（落盘用；读回时按它解码）。
+ *
+ * `plain` 是**向后兼容**的那一支：改造前落盘的行走的也是它（那些行连标记都没有，
+ * 只有 `body` 字符串）。
+ */
+type BodyEncoding = "zstd" | "gzip" | "plain";
+
+/** 小于这个长度不值得压缩：压缩后还要 base64，体积可能反而变大。 */
+const PAYLOAD_COMPRESS_MIN_BYTES = 4096;
+
+const hasZstd = (): boolean => typeof zlib.zstdCompressSync === "function";
+
+/**
+ * 把正文压成可内联进 JSON 行的形态。
+ *
+ * 为什么不学 dsh 做「内容寻址 blob + 去重」：实测本仓库 payload 的重复率是 **0**
+ * （2 天 114 条正文，唯一 114 条；client 与 upstream 正文也无一字节相同），
+ * 去重只多出一层目录与必须配套的 GC，收益为零。压缩才是这里的真实杠杆
+ * （实测 agent 上下文正文 2.9x，见 docs/STORAGE-OPTIMIZATION.md）。
+ */
+function packBody(body: string): { body?: string; bodyEnc?: BodyEncoding; bodyB64?: string } {
+  const buf = Buffer.from(body, "utf8");
+  if (buf.length < PAYLOAD_COMPRESS_MIN_BYTES) return { body, bodyEnc: "plain" };
+  try {
+    const enc: BodyEncoding = hasZstd() ? "zstd" : "gzip";
+    const packed = enc === "zstd" ? zlib.zstdCompressSync(buf) : zlib.gzipSync(buf);
+    return { bodyEnc: enc, bodyB64: packed.toString("base64") };
+  } catch {
+    // 压缩失败（内存/编码异常）就存原文：抓包的价值在「看得到」，压缩只是省空间
+    return { body, bodyEnc: "plain" };
+  }
+}
+
+/** 解码 `packBody` 的产物；旧行的纯 `body` 由调用方直接取用。 */
+function unpackBody(enc: unknown, b64: unknown): string | null {
+  if (typeof b64 !== "string") return null;
+  try {
+    const buf = Buffer.from(b64, "base64");
+    if (enc === "zstd") return (hasZstd() ? zlib.zstdDecompressSync(buf) : null)?.toString("utf8") ?? null;
+    if (enc === "gzip") return zlib.gunzipSync(buf).toString("utf8");
+    return null;
+  } catch {
+    // 解不开（外因截断/损坏）→ 交给调用方当作「无正文」，绝不让读日志把接口打挂
+    return null;
+  }
+}
+
 function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
   try {
     const date = localDate();
@@ -959,7 +1011,13 @@ function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
     const file = join(dir, "payload.log");
     rotateIfNeeded(file);
     payloadSeq += 1;
-    const line = JSON.stringify({ ts: new Date().toISOString(), seq: payloadSeq, ...record });
+    const { body, ...rest } = record;
+    const line = JSON.stringify({
+      ts: new Date().toISOString(),
+      seq: payloadSeq,
+      ...rest,
+      ...packBody(body),
+    });
     appendFileSync(file, `${line}\n`, "utf8");
   } catch {
     /* 抓包是旁路，写失败绝不影响请求 */
@@ -1006,6 +1064,76 @@ export function noteUpstreamPayload(
   });
 }
 
+/**
+ * 就地压缩**已封存**的抓取轮转段（`payload.log.1.log`…`.3.log`）里仍是明文的正文。
+ *
+ * 只动封存段：活跃段随时可能被并发追加，而本项目**没有文件锁**，
+ * 重写它有丢记录的窗口。新写入的正文本就走压缩（见 `packBody`），
+ * 这里的价值全在**改造前落盘的存量**（实测 82MB 里约 76MB 在封存段）。
+ *
+ * 写临时文件再 `rename`（同目录内原子替换）；任何一步失败都保留原文件。
+ */
+export function compactPayloads(): { files: number; before: number; after: number } {
+  const result = { files: 0, before: 0, after: 0 };
+  for (const date of payloadDates()) {
+    const base = join(logsRoot(), "payload", date, "payload.log");
+    for (let i = MAX_ROTATED; i >= 1; i -= 1) {
+      const file = `${base}.${i}.log`;
+      if (!existsSync(file)) continue;
+      const saved = compactPayloadFile(file);
+      if (saved === null) continue;
+      result.files += 1;
+      result.before += saved.before;
+      result.after += saved.after;
+    }
+  }
+  return result;
+}
+
+/** 压缩单个封存段；无可压缩内容或失败返回 null。 */
+function compactPayloadFile(file: string): { before: number; after: number } | null {
+  try {
+    const before = statSync(file).size;
+    const text = readFileSync(file, "utf8");
+    const out: string[] = [];
+    for (const line of text.split("\n")) {
+      if (line === "") continue;
+      let raw: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          out.push(line);
+          continue;
+        }
+        raw = parsed as Record<string, unknown>;
+      } catch {
+        // 半行（写入时被打断）原样留着：不猜、不丢
+        out.push(line);
+        continue;
+      }
+      const body =
+        typeof raw["body"] === "string"
+          ? raw["body"]
+          : unpackBody(raw["bodyEnc"], raw["bodyB64"]);
+      if (body === null) {
+        out.push(line);
+        continue;
+      }
+      const { body: _b, bodyEnc: _e, bodyB64: _x, ...rest } = raw;
+      out.push(JSON.stringify({ ...rest, ...packBody(body) }));
+    }
+    const next = Buffer.from(`${out.join("\n")}\n`, "utf8");
+    // 没变小就别动（重写本身有风险，收益为零时不该冒险）
+    if (next.length >= before) return null;
+    const tmp = `${file}.compact`;
+    writeFileSync(tmp, next, "utf8");
+    renameSync(tmp, file);
+    return { before, after: next.length };
+  } catch {
+    return null;
+  }
+}
+
 /** `logs/payload/` 下有内容的日期，倒序。 */
 function payloadDates(): string[] {
   const dir = join(logsRoot(), "payload");
@@ -1049,7 +1177,9 @@ function parsePayloadLine(line: string): PayloadRecord | null {
       phase: str(raw["phase"]) ?? "unknown",
       bytes: num(raw["bytes"]) ?? 0,
       truncated: bool(raw["truncated"]) ?? false,
-      body: typeof raw["body"] === "string" ? raw["body"] : "",
+      // 新行把正文压进 bodyB64（按 bodyEnc 解码）；旧行直接是 body 字符串。
+      // 两者都要能读 —— 已落盘的正文按保留期陪着老版本一起走完。
+      body: str(raw["body"]) ?? unpackBody(raw["bodyEnc"], raw["bodyB64"]) ?? "",
     };
     const attempt = num(raw["attempt"]);
     if (attempt !== undefined) rec.attempt = attempt;

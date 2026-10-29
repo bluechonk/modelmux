@@ -98,6 +98,7 @@ export async function runVerb(verb: string, args: string[], ctx: CommandContext)
       });
     case "log": {
       if (ctx.logList) return daemon.listLogs(ctx.json);
+      if (ctx.logCompact) return daemon.compactLogs(ctx.json);
       const filter: daemon.LogFilter = {
         ...(ctx.logKind !== undefined ? { kind: ctx.logKind } : {}),
         ...(ctx.logOutcome !== undefined ? { outcome: ctx.logOutcome } : {}),

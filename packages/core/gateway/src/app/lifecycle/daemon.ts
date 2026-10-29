@@ -35,6 +35,7 @@ import { baseUrlOf, displayBase } from "../../http/portfree.js";
 import { detectStaleBuild, staleBuildHint } from "./stale-build.js";
 import {
   appendSystem,
+  compactPayloads,
   listLogFiles,
   localDate,
   logsRoot,
@@ -756,6 +757,29 @@ export function logs(lines = 40, json = false, cid?: string, filter: LogFilter =
     console.log(tail.join("\n"));
     console.log(`日志目录: ${logsRoot()}`);
   }
+  return 0;
+}
+
+/**
+ * 压缩已封存的抓取正文（`mx log --compact`）。
+ *
+ * 只压轮转段、不动活跃段（并发追加 + 无文件锁 = 重写会丢记录，见 `compactPayloads`）。
+ */
+export function compactLogs(json = false): number {
+  const { files, before, after } = compactPayloads();
+  const saved = before - after;
+  const ratio = before > 0 ? (before / Math.max(after, 1)).toFixed(1) : "—";
+  if (json) {
+    console.log(
+      JSON.stringify({ ok: true, files, before_bytes: before, after_bytes: after, saved_bytes: saved }, null, 2),
+    );
+    return 0;
+  }
+  if (files === 0) {
+    console.log("没有可压缩的封存段（轮转段已是压缩态，或活跃段不在范围内）");
+    return 0;
+  }
+  console.log(`压缩 ${files} 个封存段：${formatBytes(before)} → ${formatBytes(after)}（${ratio}x，省 ${formatBytes(saved)}）`);
   return 0;
 }
 

@@ -70,7 +70,7 @@ ${groupLines("渠道").join("\n")}
   model   --refresh 强制重拉目录 / 重查账单
   log     --kind <名> access|error|system|lifecycle|worker|channel
          --outcome <名> success|failure|other（--kind access）  --date <YYYY-MM-DD>
-         --lines <n> 行数（默认 40）  -f, --follow 持续输出  --list 列出日志文件
+         --lines <n> 行数  -f, --follow 持续输出  --list 列文件  --compact 压存量正文
   login   --realm <名> 登录域（单域渠道忽略）  --wechat 微信扫码
   start   --force 已在跑也重启  --wait <s> 健康等待秒数（默认 30）
   serve   --ensure-login 未登录时引导  --force-login 忽略凭据重登
@@ -145,6 +145,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         outcome: { type: "string" },
         date: { type: "string" },
         list: { type: "boolean" },
+        compact: { type: "boolean" },
         realm: { type: "string" },
         workspace: { type: "string" },
         json: { type: "boolean" },
@@ -218,6 +219,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     ...(logOutcome !== undefined ? { logOutcome } : {}),
     ...(logDate !== undefined ? { logDate } : {}),
     logList: boolOpt(o, "list"),
+    logCompact: boolOpt(o, "compact"),
     ...(strOpt(o, "workspace") !== undefined ? { workspace: strOpt(o, "workspace")! } : {}),
   };
 
