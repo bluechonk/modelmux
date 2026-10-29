@@ -184,7 +184,13 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
           放宽到 1600px —— 宽屏用满、超宽屏仍有边距，
           模型表的 7 列与账号卡两列都有足够横向空间。
         */}
-        <div className="mx-auto flex h-full min-h-0 max-w-[1600px] flex-col px-4 py-6 sm:px-6 sm:py-8">
+        {/*
+          高度：宽屏 `md:h-full` 钉住一屏，页内面板用 `flex-1` 占满剩余高度（表格内部滚）。
+          窄屏**不能**钉 —— 统计卡与筛选控件折行后总高常超一屏，钉死会把 `flex-1` 的
+          表格容器压到几十像素（实测 390×844 下日志表容器只剩 130px、表格本身 1278px）。
+          故窄屏用 `min-h-full`：至少一屏，内容超出则自然撑开、由 `main` 滚动。
+        */}
+        <div className="mx-auto flex min-h-full max-w-[1600px] flex-col px-4 py-6 sm:px-6 sm:py-8 md:h-full">
           {/* 手机：抽屉开关（**流内**而非 fixed，避免遮挡内容与滚动条错位） */}
           <div className="mb-3 md:hidden">
             <button

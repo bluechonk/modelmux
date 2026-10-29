@@ -23,14 +23,31 @@ const HUNDRED_MILLION = 100_000_000;
  * 手拼而不走 `toLocaleString`：行内 `ts` 是 UTC、日志目录按本地日期切分，展示必须转本地；
  * 而 `toLocaleString` 的排版随运行环境（locale / ICU）变，表格里会漂。
  */
+/** 两位补零（时间格式化共用）。 */
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
 export function formatDateTime(ts: string): string {
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return "-";
-  const pad = (value: number): string => String(value).padStart(2, "0");
   return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ` +
+    `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
   );
+}
+
+/**
+ * 时间列的**窄屏**形态：只有 `HH:MM:SS`。
+ *
+ * 为什么不干脆裁掉时间列：它是判断「刚才发生了什么」的主线索，不能丢；
+ * 而完整日期（`formatDateTime`）在窄屏会把时间列撑到 168px、把模型列挤没。
+ * 日志页默认按「最新日期」筛选，列表基本同一天，省掉日期段没有歧义。
+ */
+export function formatClock(ts: string): string {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
 /** 毫秒 → `845ms` / `2.9s` / `1m1s`（三段耗时与统计条共用）。 */
