@@ -229,7 +229,7 @@ export async function fetchCredits(options: { refreshOn401?: boolean; credential
   };
 }
 
-// ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；契约要求**每个渠道都提供**）──────
+// ── 签到 / 领取能力（自动签到调度器 auth/auto-signin.ts 调用；契约见 docs/CONTRACT-TS.md §5.4）──
 
 import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
 
@@ -245,11 +245,11 @@ import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
  *   → 轮询到 `completed`（`wb_accounts.py:34-37`、`:1452-1666`、
  *   `wb_webagent.py:221`）。**本渠道未实现**那条路。
  *
- * ⚠ 故这里**不再**声明签到端点、也**不**去打 `/billing/meter/daily-checkin`：
- *   那两个候选路径在国际版都只会 404，若照旧宣称「存在签到端点」，
- *   `mx checkin workbuddyai` 就会恒定失败却显得像有能力。
- *   共享层对「无端点渠道」的约定见 `runtime/channel.ts:300-304`：
- *   `status()` 给 `claimable: false` + 说明，`claim()` 给 `ok: true` + 同句说明。
+ * ⚠ 故这里**不**去打 `/billing/meter/daily-checkin`（国际版只会 404），
+ *   渠道的真实签到能力改由 `channel.ts` 的 `capabilities.signin: false` 声明：
+ *   共享层据此显示 `-`、跳过本模块，自动签到也不再来问。
+ *   本模块保留只为满足 `SigninModule` 契约（共享层不特判渠道），
+ *   返回的说明仅作**直接调用**时的解释。
  */
 const NO_CHECKIN_SUMMARY =
   "国际版没有每日签到端点（参考实现实测 intl has_checkin=false，该端点只在国内版）；" +
