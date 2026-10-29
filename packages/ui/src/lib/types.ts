@@ -195,6 +195,13 @@ export interface AccessLogEntry {
   durationMs?: number;
   upstreamMs?: number;
   ttfbMs?: number;
+  /**
+   * 纯生成窗口（首帧→末帧，毫秒）；缺省 = 测不到。
+   *
+   * TPS 的首选分母。旧的 `durationMs - ttfbMs` 减法在非流式下把分母压到 0（实测 76000 t/s），
+   * 口径见 docs/LOGGING.md §3.1 与 docs/USAGE-STATS.md。
+   */
+  generateMs?: number;
   requestBytes?: number;
   messageCount?: number;
   systemChars?: number;
@@ -372,7 +379,13 @@ export interface OverviewResponse {
     model?: string;
     outcome: AccessOutcome;
     status?: number;
+    /** 是否流式 —— TPS 口径要按它取基准（见 `tokensPerSecOf`）。 */
+    stream?: boolean;
+    /** 纯生成窗口（首帧→末帧）；缺省 = 测不到。 */
+    generate_ms?: number;
     duration_ms?: number;
+    ttfb_ms?: number;
+    upstream_ms?: number;
     tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
   }>;
 }

@@ -41,6 +41,10 @@ Web 控制台**仪表盘**里那层「区间用量」的口径与设计依据。
 「缺失不补零」是贯穿全表的约定：上游没给 usage 的请求（失败请求通常没有）不计入 tokens，
 也不当成 0 参与分母。
 
+> 日志页与仪表盘的**生成速度（TPS）**不在这张表里 —— 它是**单请求**指标（输出 tokens ÷
+> 纯生成窗口 `generateMs`），带窗口下限与速率上限两道护栏，超限显示 `—`。口径见
+> [LOGGING.md](./LOGGING.md) §3.1 与 `packages/ui/src/lib/log-format.ts::tokensPerSecOf`。
+
 ## 3. 接口与实现
 
 `GET /web/api/usage?range=7d|30d|90d`（默认 30d，非法值回落 30d），与 `/api/logs` 同策略

@@ -55,6 +55,23 @@ export interface RequestLog {
   upstreamMs?: number;
   /** 请求总耗时（响应 finish/close 时写入）。 */
   durationMs?: number;
+  /**
+   * 上游**首个内容帧**到达的时刻（相对 `startAt` 的毫秒数）。
+   *
+   * 与 `ttfbMs` 的区别：`ttfbMs` 记的是**我们写出首个字节**的时刻 —— 流式下两者几乎相同，
+   * 非流式下我们收完才写，`ttfbMs` 于是等于总耗时、完全测不到生成速度。本字段两边都记
+   * 「上游什么时候开始吐」。
+   */
+  firstFrameAt?: number;
+  /** 上游**末个内容帧**到达的时刻（相对 `startAt`）；与 `firstFrameAt` 之差即纯生成窗口。 */
+  lastFrameAt?: number;
+  /**
+   * 纯生成窗口 = `lastFrameAt - firstFrameAt`（毫秒）。TPS 的唯一可信分母。
+   *
+   * 为什么不复用 `durationMs - ttfbMs`：见 `firstFrameAt` 的说明 —— 那个减法在非流式下分母趋 0，
+   * 会把几十 t/s 算成几万 t/s（2026-10-30 实测 76000 t/s）。
+   */
+  generateMs?: number;
   usage?: Record<string, unknown>;
   requestBytes?: number;
   messageCount?: number;
@@ -205,7 +222,9 @@ function appendAccessFile(outcome: AccessOutcome, record: RequestLog): void {
   pruneOnce();
   const date = localDate();
   const dir = join(logsRoot(), "access", date);
-  const { written: _written, ...payload } = record;
+  // `firstFrameAt` / `lastFrameAt` 是生成窗口的**中间量**，落盘只保留算好的 `generateMs`，
+  // 免得日志多两个没人读的绝对时刻（口径见 docs/LOGGING.md §3.1）。
+  const { written: _written, firstFrameAt: _first, lastFrameAt: _last, ...payload } = record;
   appendLine(join(dir, `${outcome}.log`), JSON.stringify({ ts: new Date(record.startAt).toISOString(), ...payload }));
   if ((record.durationMs ?? 0) >= slowMs()) {
     appendLine(join(dir, "slow.log"), JSON.stringify({ ts: new Date(record.startAt).toISOString(), ...payload }));
@@ -230,6 +249,11 @@ export function finishRequestLog(log: RequestLog, status: number): void {
   log.written = true;
   log.status = status;
   log.durationMs = Date.now() - log.startAt;
+  // 生成窗口（首帧→末帧）：TPS 的分母。只有一个内容帧时为 0 → 不落该字段（口径上是「测不到」，
+  // 不是「0 毫秒生成完」，前端据此显示 `—`）。
+  if (log.firstFrameAt !== undefined && log.lastFrameAt !== undefined && log.lastFrameAt > log.firstFrameAt) {
+    log.generateMs = log.lastFrameAt - log.firstFrameAt;
+  }
   if (!log.outcome) {
     log.outcome = status >= 400 ? "failure" : status >= 200 ? "success" : "other";
   }
@@ -300,6 +324,25 @@ export function noteFirstByte(res: ServerResponse): void {
   const log = getRequestLog(res);
   if (!log || log.ttfbMs !== undefined) return;
   log.ttfbMs = Date.now() - log.startAt;
+}
+
+/**
+ * 记「上游第一个内容帧到达」（仅记一次）。
+ *
+ * 与 `noteFirstByte` 分开是刻意的：那个记的是我们**写出**首字节的时刻，非流式下要等聚合完，
+ * 拿它当生成窗口的起点会把分母压到 0。本函数只回答「上游什么时候开始吐字」。
+ */
+export function noteFirstFrame(res: ServerResponse): void {
+  const log = getRequestLog(res);
+  if (!log || log.firstFrameAt !== undefined) return;
+  log.firstFrameAt = Date.now() - log.startAt;
+}
+
+/** 记「上游最后一个内容帧到达」（覆盖式：取最后一次）。 */
+export function noteLastFrame(res: ServerResponse): void {
+  const log = getRequestLog(res);
+  if (!log) return;
+  log.lastFrameAt = Date.now() - log.startAt;
 }
 
 /** 记录上游响应头到达耗时。 */
@@ -477,6 +520,13 @@ export interface AccessEntry {
   durationMs?: number;
   upstreamMs?: number;
   ttfbMs?: number;
+  /**
+   * 纯生成窗口（首帧→末帧，毫秒）；缺省 = 测不到（不是 0）。
+   *
+   * TPS 的分母只认它（见 `usage-stats` 之外的 `tokensPerSecOf`）——`durationMs - ttfbMs`
+   * 那套减法在非流式下分母趋 0，会把几十 t/s 算成几万 t/s。
+   */
+  generateMs?: number;
   requestBytes?: number;
   messageCount?: number;
   systemChars?: number;
@@ -790,6 +840,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (upstreamMs !== undefined) entry.upstreamMs = upstreamMs;
   const ttfbMs = num(raw["ttfbMs"]);
   if (ttfbMs !== undefined) entry.ttfbMs = ttfbMs;
+  const generateMs = num(raw["generateMs"]);
+  if (generateMs !== undefined) entry.generateMs = generateMs;
   const requestBytes = num(raw["requestBytes"]);
   if (requestBytes !== undefined) entry.requestBytes = requestBytes;
   const messageCount = num(raw["messageCount"]);

@@ -148,7 +148,8 @@
 
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
-| P0 布局骨架 | 12 栅格 + 四卡；数据用 `/api/logs` stats + `/api/state` 快照拼；渠道名直接用 cid | ✅ 已完成：Dashboard.tsx 重写，接入盒 → KPI 四格 → 双列四卡，TPS（每秒 token 数）展示 → 2026-10-29 修正为**生成速度**（输出 tokens ÷ 纯生成耗时，口径见 `log-format.ts::tokensPerSecOf`），全站三档断点，demo 兼容 |
+| P0 布局骨架 | 12 栅格 + 四卡；数据用 `/api/logs` stats + `/api/state` 快照拼；渠道名直接用 cid | ✅ 已完成：Dashboard.tsx 重写，全站三档断点，demo 兼容 |
+| 生成速度口径 | TPS（每秒 token 数）→ 2026-10-29 修正为**生成速度**（输出 tokens ÷ 纯生成窗口） | ✅ 口径在 `log-format.ts::tokensPerSecOf`；**2026-10-30 再修**：分母优先用日志新字段 `generateMs`（首帧→末帧），非流式不再借 `ttfbMs`（它记的是聚合完成时刻，旧减法实测算出 76000 t/s），并加窗口下限与速率上限护栏（超限显示 `—`）。见 [LOGGING.md](./LOGGING.md) §3.1 |
 | P1 真数据 | 网关层加 `/overview` + api.ts + 接入；Dashboard 切换为单端点 | ✅ 已完成：`GET /web/api/overview` 聚合 logs+pool+accounts，Dashboard 从双查询收敛为 overview+state，per-channel 成败从 5 条改为 100 条扫描 |
 | P2 打磨 | 合并进 WEB-CONSOLE 页面结构表；引擎 6 楼修正部分 | 首页与详情页无口径不一致 |
 
