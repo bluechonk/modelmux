@@ -53,6 +53,7 @@
 | `messageCount` | number | 请求消息条数 | 读入请求体后 |
 | `systemChars` | number | 消息中 system 角色的字符总数 | 读入请求体后 |
 | `toolCount` | number | 请求携带的工具数量 | 读入请求体后 |
+| `jailbreak` | boolean | 本次请求的上下文被 `/jailbreak` 裁剪过（见 [JAILBREAK.md](./JAILBREAK.md)） | 请求体解析后；未裁剪则不写该字段 |
 | `upstreamMs` | number | 请求开始到**上游响应头到达**的毫秒数 | 上游响应头到达时 |
 | `ttfbMs` | number | 请求开始到**我们写出首个响应字节**的毫秒数 | 首帧写出时（仅记一次） |
 | `generateMs` | number | **纯生成窗口**：上游首帧到达 → 末帧到达的毫秒数。两个内部时刻（`firstFrameAt` / `lastFrameAt`）不落盘，只留这个差值 | 末帧到达时；只有一个内容帧则不写该字段（= 测不到，不是 0） |

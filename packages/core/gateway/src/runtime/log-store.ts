@@ -77,6 +77,13 @@ export interface RequestLog {
   messageCount?: number;
   systemChars?: number;
   toolCount?: number;
+  /**
+   * 本次请求的上下文被 `/jailbreak` 裁剪过（客户端要求丢掉前面全部上下文）。
+   *
+   * 只记事实、不记丢了多少条 —— 排查时先要知道「看到的上下文是裁剪后的」，
+   * 具体丢了几条可从正文抓取（`payload/`）里的原始请求对比出来。
+   */
+  jailbreak?: boolean;
   written?: boolean;
 }
 
@@ -531,6 +538,8 @@ export interface AccessEntry {
   messageCount?: number;
   systemChars?: number;
   toolCount?: number;
+  /** 本次请求的上下文被 `/jailbreak` 裁剪过（见 `RequestLog.jailbreak`）。 */
+  jailbreak?: boolean;
   /**
    * 上游 usage 归一化出的三数 + 缓存命中情况；键名依上游而异，缺则 null（失败请求通常没有）。
    * `cache` 为 null 表示**上游没给缓存字段**（与「命中 0」不同，见 docs/CACHE-HIT-RATE.md §6）；
@@ -850,6 +859,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (systemChars !== undefined) entry.systemChars = systemChars;
   const toolCount = num(raw["toolCount"]);
   if (toolCount !== undefined) entry.toolCount = toolCount;
+  const jailbreak = bool(raw["jailbreak"]);
+  if (jailbreak !== undefined) entry.jailbreak = jailbreak;
   return entry;
 }
 
