@@ -113,6 +113,13 @@ class StdoutLoginUi implements authFlow.LoginUi {
      * 页面承诺「授权链接通过轮询获取」却永远等不到。
      */
     private readonly observer?: authFlow.LoginUi,
+    /**
+     * 静默：不往 stdout 打状态行（`json` 模式的 emit 照旧）。
+     *
+     * 启动期的**被动探测**用静默实例 —— 未登录不是异常，满屏「未登录：请先登录」纯噪音
+     * （2026-10-29 主人要求去掉）；交互式登录（`mx login` / 控制台按钮）仍走正常实例。
+     */
+    private readonly quiet = false,
   ) {}
 
   /**
@@ -184,7 +191,7 @@ class StdoutLoginUi implements authFlow.LoginUi {
       if (url) event["auth_url"] = url;
       if (qr) event["qr_url"] = qr;
       emit(event);
-    } else {
+    } else if (!this.quiet) {
       console.log(`[login] ${tag}${state}: ${message}`);
       // 裸 URL 单独成行：终端里可 Ctrl+点击直接打开，也可整行复制（带前缀会被一起复制走）
       if (url) console.log(url);
@@ -697,17 +704,20 @@ export async function runServe(options: ServeOptions): Promise<number> {
     watchdog.unref(); // 不阻碍 shutdown 后的事件循环清空退出
   }
 
-  // 登录 + 网关：成功前按 retry 循环（未登录时控制台仍可用）
+  // 登录探测 + 网关启动。
+  //
+  // ⚠ **登录不是启动网关的前置条件**：控制台是 Web 端唯一的登录入口，而它就挂在网关
+  //   同一个端口上 —— 「没登录就不监听」会形成「没登录 → 起不来 → 也没法登录」的死锁
+  //   （2026-10-29 实测：全新机器 10 个渠道全未登录时 `mx start` 30s 超时、`mx web` 打不开）。
+  //   未登录的渠道由请求路径按 not_authenticated(503) 处理，不影响网关与控制台。
+  //   登录态改由**后台**探测循环补：控制台「登录」按钮或 CLI 会置 `retryRequested`。
   const worker = async (): Promise<void> => {
-    for (;;) {
-      let anyOk = false;
-      // 并行探测所有渠道登录态：单渠道卡网络/授权不再阻塞其余渠道与端口监听，
-      // 把最慢启动从「串行累加」压到「单路最慢」（实测 30s → ~5s）。
-      // 各路在 runInChannel(cid) 内独立运行（AsyncLocalStorage 上下文隔离），无共享可变状态。
-      await Promise.all(
+    /** 并行探测全部渠道登录态，返回「是否至少一路可用」。失败一律静默 —— 启动期不打扰。 */
+    const probeLogin = async (): Promise<boolean> => {
+      const results = await Promise.all(
         targets.map((channel) => {
           const { cred } = channel;
-          const ui = new StdoutLoginUi(json, multi ? channel.config.cid : cid);
+          const ui = new StdoutLoginUi(json, multi ? channel.config.cid : cid, undefined, true);
           return runInChannel(channel.config.cid, () =>
             authFlow.ensureLogin(ui, {
               interactive: ensureLogin || forceLogin,
@@ -715,24 +725,30 @@ export async function runServe(options: ServeOptions): Promise<number> {
               ...(ensureLogin || forceLogin ? { baseUrl: cred.resolveBaseUrl(realm) } : {}),
               cid: channel.config.cid,
             }),
-          ).then((ok) => {
-            if (ok) anyOk = true;
-            if (multi && !json) {
-              console.log(`${prefix} [${channel.config.cid}] ${ok ? "logged in" : "not logged in"}`);
-            }
-          });
+          ).then(
+            (ok) => ok,
+            () => false, // 探测失败（网络/凭据形态异常）不该拖住启动
+          );
         }),
       );
-      if (state.quitting) return;
-      if (anyOk) break;
-      // 等「重试登录」意图（或进程被终止）
-      while (!state.retryRequested && !state.quitting) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      state.retryRequested = false;
-      if (state.quitting) return;
-    }
+      return results.some(Boolean);
+    };
+
+    await probeLogin();
     if (state.quitting) return;
+
+    // 后台补登录：用户点控制台「登录」或 CLI 触发时再探一轮，成功即收工（失败继续等）。
+    void (async () => {
+      for (;;) {
+        while (!state.retryRequested && !state.quitting) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (state.quitting) return;
+        state.retryRequested = false;
+        if (await probeLogin()) return;
+      }
+    })();
+
     try {
       running = await gateway.start(addr, {
         verbose,
