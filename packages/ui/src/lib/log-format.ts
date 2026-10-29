@@ -130,8 +130,25 @@ export function formatTokensPerSec(entry: AccessLogEntry): string {
   );
 }
 
+/**
+ * 缓存命中率展示：`42%` / `<1%` / `0%`；**无缓存字段时返回 `—`**
+ * （与「命中 0」区分 —— 把「没采集到」显示成「0%」是错误信息，见 docs/CACHE-HIT-RATE.md §6）。
+ * 分母优先用 `prompt`，缺失时退回 `hit + miss`（官方等式下等价）。
+ */
+export function formatCacheRate(
+  cache: { hit: number | null; miss: number | null } | null | undefined,
+  prompt: number | null | undefined,
+): string {
+  if (!cache || cache.hit === null || cache.hit === undefined) return "—";
+  const denom = typeof prompt === "number" && prompt > 0 ? prompt : cache.hit + (cache.miss ?? 0);
+  if (denom <= 0) return "—";
+  const rate = cache.hit / denom;
+  if (rate <= 0) return "0%";
+  if (rate < 0.01) return "<1%";
+  return `${Math.round(rate * 100)}%`;
+}
+
 /** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */
-export function brief(value: unknown, max = 300): string {
-  const text = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
+export function brief(value: unknown, max = 300): string {  const text = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
   return text.length > max ? `${text.slice(0, max)}…（共 ${text.length} 字符）` : text;
 }

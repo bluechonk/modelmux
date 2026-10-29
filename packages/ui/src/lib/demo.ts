@@ -631,7 +631,17 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     messageCount: seed.messageCount ?? 0,
     systemChars: 1180,
     toolCount: seed.toolCount ?? 0,
-    tokens: seed.tokens,
+    // 演示数据：按 prompt 的 ~70% 命中合成（虚构值，但字段形态与真实归一化结果一致）
+    tokens:
+      seed.tokens === null
+        ? null
+        : {
+            ...seed.tokens,
+            cache: {
+              hit: Math.round(seed.tokens.prompt * 0.7),
+              miss: Math.round(seed.tokens.prompt * 0.3),
+            },
+          },
     slow: seed.durationMs >= 30_000,
   }));
 
@@ -653,6 +663,21 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
       }),
       { prompt: 0, completion: 0, total: 0 },
     ),
+    // 加权命中率（口径与后端一致：Σhit / Σprompt，见 docs/CACHE-HIT-RATE.md）
+    cache: (() => {
+      const t = entries.reduce(
+        (acc, e) => {
+          const c = e.tokens?.cache;
+          if (c?.hit === null || c?.hit === undefined) return acc;
+          acc.hit += c.hit;
+          acc.miss += c.miss ?? 0;
+          acc.prompt += e.tokens?.prompt ?? c.hit + (c.miss ?? 0);
+          return acc;
+        },
+        { hit: 0, miss: 0, prompt: 0 },
+      );
+      return { ...t, hitRate: t.prompt > 0 ? t.hit / t.prompt : null };
+    })(),
   };
 
   const needle = query.q?.toLowerCase();
@@ -799,6 +824,7 @@ export function demoOverview(state: DemoState): OverviewResponse {
       slow: logPage.stats.slow,
       avg_duration_ms: logPage.stats.avgDurationMs,
       tokens: logPage.stats.tokens,
+      cache: logPage.stats.cache,
     },
     channels,
     model_pool: { total, free, vision, thinking },

@@ -60,11 +60,15 @@
 | `outcome` | string | 结果分类，见 §3.2 | 响应结束时 |
 | `error` | string | 错误码（如 `upstream_error`、`upstream_timeout`） | 出错时 |
 | `message` | string | 错误说明（**截断到 800 字符**） | 出错时 |
-| `usage` | object | 上游返回的 token 用量 | 收到 usage 帧（非流式为聚合后） |
+| `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
 
 > `usage` 在**两条转发路径**上都会采集：渠道翻译器路径与 `openai` 线型的直通路径
 > （`http/wire/sse-stream.ts` 的 `relay`）。直通路径此前漏采集，导致 openai 线型渠道
 > （workbuddy / lobsterai / loomy / raccoon / workbuddyai）的流式请求没有该字段
+>
+> 读回时 `usage` 被归一化为 `tokens: { prompt, completion, total, cache }`，其中
+> `cache.{hit,miss}` 是**缓存命中**的归一化结果（各家字段名差异极大，规则见
+> [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) §6）。
 > （2026-10-24 修复）。
 
 ### 3.2 `outcome` 判定
