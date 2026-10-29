@@ -145,7 +145,7 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
                 to={to}
                 aria-label={label}
                 className={({ isActive }) =>
-                  `nav-item ${
+                  `nav-item tap ${
                     collapsed ? "justify-center" : "justify-center md:justify-start"
                   } ${
                     isActive
@@ -169,7 +169,7 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
             手机抽屉里必须可见（窄屏没有别处能操作网关），故折叠态用 `md:hidden` 只藏桌面。 */}
         <div className={`mt-auto space-y-2 pb-2 ${collapsed ? "md:hidden" : ""}`}>
           {IS_DEMO && (
-            <div className="mx-3 mb-2 hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
+            <div className="mx-3 mb-2 hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-xs leading-relaxed text-warn/90 md:block">
               <div className="font-medium">演示模式</div>
               <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
             </div>
@@ -191,7 +191,7 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
               type="button"
               onClick={() => setDrawerOpen(true)}
               aria-label="打开导航"
-              className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-raised text-ink"
+              className="tap-square grid h-9 w-9 place-items-center rounded-lg border border-line bg-raised text-ink"
             >
               <Menu className="h-4 w-4" />
             </button>

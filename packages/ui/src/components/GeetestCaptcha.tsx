@@ -224,7 +224,7 @@ export function GeetestCaptcha({
     <div className="space-y-3">
       <div className="rounded-xl border border-line bg-canvas/60 p-3">
         <div ref={hostRef} className="min-h-[52px]" />
-        <p className="mt-2 text-[11px] text-ink-faint">
+        <p className="mt-2 text-xs text-ink-faint">
           {status}
           {busy ? "（滑块会自动弹出，请完成验证）" : ""}
         </p>

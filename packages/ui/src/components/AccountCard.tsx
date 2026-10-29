@@ -362,7 +362,7 @@ export function AccountCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="shrink-0 font-mono text-[13px] font-medium text-ink">{pool.cid}</span>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-ink-faint">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink-faint">
             <span>{`${accounts.length} 个账号`}</span>
             {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
             {billing?.quota?.label && (
@@ -373,7 +373,7 @@ export function AccountCard({
         <button
           type="button"
           aria-label={`为 ${pool.cid} 添加账号`}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-50"
+          className="tap-square grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-50"
           disabled={busyKey !== null}
           onClick={() => onAdd(pool.cid)}
         >
@@ -415,7 +415,7 @@ export function AccountCard({
                   详情行只在冷却 / 熔断 / 凭据失效时出现（原因 + 恢复时刻，可换行）。
                   主行保持 44px —— 空位行与它同高，卡片仍然对齐。
                 */}
-                <div className="flex h-11 items-center gap-2 px-4">
+                <div className="flex h-11 items-center gap-2 px-4 max-md:gap-1.5 max-md:px-3">
                 <span
                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(account.health)}`}
                   aria-label={meta.text}
@@ -437,13 +437,13 @@ export function AccountCard({
                 <div className="flex shrink-0 items-center gap-2">
                   {billingLoading ? (
                     <>
-                      <span className="hidden h-1 w-14 animate-pulse rounded-full bg-overlay @min-[380px]:block" />
+                      <span className="hidden h-1 w-14 animate-pulse rounded-full bg-overlay @min-[420px]:block" />
                       <span className="h-2 w-8 animate-pulse rounded bg-overlay" />
                     </>
                   ) : billingError && !bill?.billing_at ? (
                     <>
-                      <span className="font-mono text-[11px] tabular-nums text-warn">—</span>
-                      <span className="hidden text-[10px] text-warn @min-[420px]:inline">账单失败</span>
+                      <span className="font-mono text-xs tabular-nums text-warn">—</span>
+                      <span className="hidden text-xs text-warn @min-[420px]:inline">账单失败</span>
                     </>
                   ) : (
                     <QuotaMeter
@@ -454,15 +454,16 @@ export function AccountCard({
                   )}
                 </div>
                 {/*
-                  操作区：固定 52px（切换 + 删除两个图标键）。
+                  操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 92px ——
+                  两个键各自撑到 44px 的触控下限后，52px 装不下。
                   **默认隐藏，鼠标悬停该账号行才出现**（删除/切换不常使用）；
                   键盘聚焦（`group-focus-within`）时也出现；触屏设备（`pointer-coarse`）常显 ——
-                  触屏没有悬停。空位行预留同样的 52px，保证额度区起点一致。
+                  触屏没有悬停。空位行预留同样的宽度，保证额度区起点一致。
                 */}
-                <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
+                <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity max-md:w-[92px] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
                   {!active && (
                     <button
-                      className="shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
+                      className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
                       disabled={busyKey !== null}
                       onClick={() => onActivate(pool.cid, account.key)}
                       aria-label="切换为生效账号"
@@ -471,7 +472,7 @@ export function AccountCard({
                     </button>
                   )}
                   <button
-                    className="shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
+                    className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
                     disabled={busyKey !== null}
                     onClick={(e) => {
                       // 记下触发键：取消确认时焦点要还到这里（见 ConfirmDialog 注释）
@@ -490,7 +491,7 @@ export function AccountCard({
                   单行渲染（`truncate`）：卡片最小宽 340px 时换行会溢出固定行高，
                   反而让卡片看起来不等高 —— 时间放最前，原因超长截断即可。
                 */}
-                <div className="flex h-6 min-w-0 items-center gap-x-1.5 px-4 pl-7 text-[11px] leading-snug">
+                <div className="flex h-6 min-w-0 items-center gap-x-1.5 px-4 pl-7 text-xs leading-snug max-md:px-3 max-md:pl-6">
                   {detail && (
                     <>
                       <span className={`shrink-0 font-medium ${detailTone}`}>{detail.label}</span>
@@ -514,19 +515,19 @@ export function AccountCard({
               >
                 {/* 主行 `h-11` 与真实行一致；下面再留同高的状态详情占位行，
                     空位卡才能和有账号的卡逐像素对齐（真实行恒为两行高）。 */}
-                <div className="flex h-11 items-center gap-2 px-4">
+                <div className="flex h-11 items-center gap-2 px-4 max-md:gap-1.5 max-md:px-3">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
                   <span className="min-w-0 flex-1" />
                   {/* 额度区：与真实行同一套容器查询断点 */}
                   <span className="flex shrink-0 items-center gap-2">
-                    <span className="hidden h-1 w-14 rounded-full bg-line/60 @min-[380px]:block" />
+                    <span className="hidden h-1 w-14 rounded-full bg-line/60 @min-[420px]:block" />
                     <span className="block h-2 w-8 rounded bg-line/60" />
-                    <span className="hidden w-9 @min-[460px]:block" />
+                    <span className="hidden w-9 @min-[480px]:block" />
                   </span>
-                  {/* 操作区：固定 52px，占位保持位置 */}
-                  <span className="w-[52px] shrink-0" />
+                  {/* 操作区：与真实行的 52px / < md 92px 同宽，占位保持位置 */}
+                  <span className="w-[52px] shrink-0 max-md:w-[92px]" />
                 </div>
-                <div className="h-6 px-4 pl-7" />
+                <div className="h-6 px-4 pl-7 max-md:px-3 max-md:pl-6" />
               </li>
             ))}
         </ul>
@@ -537,7 +538,7 @@ export function AccountCard({
       {needsFold ? (
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-soft transition-colors hover:bg-overlay/60 hover:text-ink"
+          className="tap flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-soft transition-colors hover:bg-overlay/60 hover:text-ink"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
         >
@@ -552,7 +553,7 @@ export function AccountCard({
           )}
         </button>
       ) : (
-        <div className="flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-faint">
+        <div className="tap flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-faint">
           {accounts.length === 0 ? "暂无账号" : "已全部显示"}
         </div>
       )}
@@ -593,6 +594,13 @@ export function AccountCard({
  *
  * 耗尽（remain ≤ 0）数值染 danger、紧张（< 10%）染 warn，其余中性 ——
  * 与状态 pill 的「没钱」呼应。
+ *
+ * ## 窄卡片下的取舍（容器查询，不是视口断点）
+ *
+ * `< md` 的账号行要同时装下「账号标识 + 状态 pill + 额度 + 两个 44px 操作键」，
+ * 一行放不下；此时**只留剩余额度数值**（标签与今日消耗先砍）——
+ * 占比最小、最该保住的是账号标识本身（折叠后只剩 3 个字符就没法认人了）。
+ * 卡片宽度回到 ~420px 以上，标签与今日消耗逐级恢复。
  */
 function QuotaMeter({
   credits,
@@ -607,7 +615,7 @@ function QuotaMeter({
   // 订阅制渠道：明确写「无额度概念」，而不是一个孤零零的 `-`
   if (unsupported) {
     return (
-      <span className="shrink-0 text-[11px] text-ink-faint/70">
+      <span className="shrink-0 text-xs text-ink-faint/70">
         订阅制
         <span className="hidden @min-[440px]:inline"> · 无额度概念</span>
       </span>
@@ -627,14 +635,14 @@ function QuotaMeter({
   return (
     <>
       <span className="flex items-center gap-1">
-        <span className="text-[10px] text-ink-faint">剩余额度</span>
-        <span className={`shrink-0 font-mono text-[11px] tabular-nums ${valueClass}`}>
+        <span className="hidden shrink-0 text-xs text-ink-faint @min-[420px]:inline">剩余额度</span>
+        <span className={`shrink-0 font-mono text-xs tabular-nums ${valueClass}`}>
           {quotaAmount(credits, unsupported)}
         </span>
       </span>
-      <span className="flex items-center gap-1">
-        <span className="text-[10px] text-ink-faint">今日消耗</span>
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-soft">{usedText}</span>
+      <span className="hidden items-center gap-1 @min-[480px]:flex">
+        <span className="shrink-0 text-xs text-ink-faint">今日消耗</span>
+        <span className="shrink-0 font-mono text-xs tabular-nums text-ink-soft">{usedText}</span>
       </span>
     </>
   );

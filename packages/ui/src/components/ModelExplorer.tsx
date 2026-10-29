@@ -10,10 +10,11 @@
  */
 
 import { ChevronDown, ChevronRight, Image as ImageIcon, LayoutList, Rows3, Search, Type, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import { CopyButton } from "./CopyChip";
+import { ScrollFade } from "./ScrollFade";
 
 /**
  * 元数据取值的来源（与共享层 `MetaSource` 同形）。
@@ -99,6 +100,11 @@ export function ModelExplorer({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   /** 组内展开：默认每组只露前 `PREVIEW_COUNT` 个，其余点「展开」才出现。 */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  /** 窄屏只保留核心列（见 `useNarrow` 的取舍说明）。渠道列只有扁平表有 ——
+      分组表由渠道分块，不需要再来一列重复的 cid。 */
+  const narrow = useNarrow();
+  const cols = colsFor(narrow);
+  const groupedCols = cols.filter((c) => c.key !== "channel");
 
   const toggleExpanded = (cid: string): void => {
     setExpanded((prev) => {
@@ -175,13 +181,13 @@ export function ModelExplorer({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索模型或渠道…"
-              className="w-52 rounded-lg border border-line bg-raised py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+              className="tap w-52 rounded-lg border border-line bg-raised py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint transition-colors hover:text-ink"
+                className="tap-square absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint transition-colors hover:text-ink"
                 aria-label="清除搜索"
               >
                 <X className="h-3.5 w-3.5" />
@@ -192,7 +198,7 @@ export function ModelExplorer({
           <select
             value={cidFilter}
             onChange={(e) => setCidFilter(e.target.value)}
-            className="rounded-lg border border-line bg-raised px-2 py-1.5 text-xs text-ink-soft focus:border-line-strong focus:outline-none"
+            className="tap rounded-lg border border-line bg-raised px-2 py-1.5 text-xs text-ink-soft focus:border-line-strong focus:outline-none"
             aria-label="按渠道筛选"
           >
             <option value="all">全部渠道（{channelIds.length}）</option>
@@ -206,7 +212,7 @@ export function ModelExplorer({
           <button
             type="button"
             onClick={() => setFreeOnly((v) => !v)}
-            className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+            className={`tap rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
               freeOnly
                 ? "border-free/40 bg-free/10 text-free"
                 : "border-line bg-raised text-ink-soft hover:border-line-strong hover:text-ink"
@@ -219,7 +225,7 @@ export function ModelExplorer({
             <button
               type="button"
               onClick={() => setFlat(false)}
-              className={`px-2.5 py-1.5 text-xs transition-colors ${
+              className={`tap-square px-2.5 py-1.5 text-xs transition-colors ${
                 flat ? "text-ink-faint hover:text-ink" : "bg-overlay text-ink"
               }`}
               aria-label="按渠道分组"
@@ -229,7 +235,7 @@ export function ModelExplorer({
             <button
               type="button"
               onClick={() => setFlat(true)}
-              className={`px-2.5 py-1.5 text-xs transition-colors ${
+              className={`tap-square px-2.5 py-1.5 text-xs transition-colors ${
                 flat ? "bg-overlay text-ink" : "text-ink-faint hover:text-ink"
               }`}
               aria-label="全部按倍率排平"
@@ -238,7 +244,7 @@ export function ModelExplorer({
             </button>
           </div>
 
-          <span className="font-mono text-[11px] text-ink-faint">
+          <span className="font-mono text-xs text-ink-faint">
             {keyword || cidFilter !== "all" || freeOnly
               ? `${visible.length} / ${total}`
               : `${total} 个`}
@@ -251,9 +257,10 @@ export function ModelExplorer({
       ) : visible.length === 0 ? (
         <div className="panel p-5 text-sm text-ink-faint">没有匹配的模型</div>
       ) : flat ? (
-        <FlatTable rows={visible} freePlanCids={freePlanCids} />
+        <FlatTable cols={cols} rows={visible} freePlanCids={freePlanCids} />
       ) : (
         <GroupedTable
+          cols={groupedCols}
           groups={groups}
           freePlanCids={freePlanCids}
           collapsed={collapsed}
@@ -299,17 +306,31 @@ const COL_WIDTHS = {
 } as const;
 
 /**
- * 分组视图的列定义（列宽 + 对齐 + 响应式隐藏）。
+ * 表格最小宽度（表头 / 每个渠道表体 / 扁平表**必须共用同一个值**，否则列会错位）。
+ *
+ * `≥ md` 取 640px：其余六列是固定宽（合计 540px），最小宽只给 440 时，视口刚好落在
+ * `md` 断点上（实测 768×1024：面板内容区 544px）模型列会被挤成 0px ——
+ * 留 640 保证模型列恒有 100px，放不下就横向滚动（右缘渐隐提示它）。
+ *
+ * `< md` 取 300px：只露「模型 / 倍率 / 复制」三列，440px 会把模型列白白挤出约 90px 的
+ * 滚动量，降到 300px 让这三列在 360 宽的视口里一次看全（模型列实测 390 视口 238px）。
+ */
+const TABLE_MIN_W = "min-w-[300px] md:min-w-[640px]";
+
+/**
+ * 分组视图的列定义（列宽 + 对齐 + 窄屏是否保留）。
  *
  * 表头与每个渠道的表体**共用这一份**，改列只需改这里。
  */
-const COLS: Array<{
+interface ColDef {
   key: keyof typeof COL_WIDTHS | "model" | "channel";
   label: string;
   align: "left" | "right";
-  /** `< md` 隐藏（与 `<td>` 的 `hidden md:table-cell` 必须一一对应）。 */
+  /** `< md` 丢弃（取舍说明见 `useNarrow`）。 */
   wide?: boolean;
-}> = [
+}
+
+const COLS: ColDef[] = [
   { key: "model", label: "模型", align: "left" },
   { key: "channel", label: "渠道", align: "left" },
   { key: "multiplier", label: "倍率", align: "right" },
@@ -320,12 +341,40 @@ const COLS: Array<{
     key: "modality",
     label: "输入",
     align: "left",
-    // `< md` 也隐藏：手机上固定宽列挤掉的正是模型列的宽度 ——
+    // `< md` 也丢弃：手机上固定宽列挤掉的正是模型列的宽度 ——
     // 实测（390 视口）模型名会被压到只剩 3 个字符（`lon…`），核心信息不可读。
     wide: true,
   },
   { key: "copy", label: "", align: "left" },
 ];
+
+/** 当前视口该保留的列（宽屏一份不丢）。 */
+function colsFor(narrow: boolean): ColDef[] {
+  return narrow ? COLS.filter((col) => !col.wide) : COLS;
+}
+
+/**
+ * 是否窄屏（`< md` = 768px，与 Tailwind 的 `md:` 同一口径）。
+ *
+ * ## 为什么这里必须用 JS 判断，而不是 `hidden md:table-cell`
+ *
+ * `display: none` 的 `<td>` / `<col>` 在 `table-layout: fixed` 下**仍占列槽位**：
+ * 实测（390 视口）隐藏四列后，模型列只拿到 48px（表头那行却拿到 238px，
+ * 表头与表体各按自己的算法分列 → 两边还错位）。
+ * 要在窄屏真正少几列，只能**少渲染这几个 `<td>`**，让单元格数量与列数量恒等。
+ */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const onChange = (): void => setNarrow(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
 
 /**
  * 共享列宽声明：表头与每个渠道的表体都渲染它，保证列落在同一像素。
@@ -333,20 +382,17 @@ const COLS: Array<{
  * ⚠ 必须用 `table-fixed` + `<colgroup>` —— 只在 CSS 里写宽度、不在 `<table>` 上
  * 声明 `table-layout: fixed` 是无效的（`<table>` 默认 `auto`）。
  *
- * 列的顺序必须与 `<td>` 完全一致：**模型 / [渠道] / 倍率 / 上下文 / 输出 / 档位 / 输入 / 复制**。
+ * `<col>` 的数量与顺序**完全等于传入的 `cols`**（与表体的 `<td>` 同源）——
+ * 少一列就少一个槽位，不留任何「列头没了、内容还在」的缝。
  */
-function ColGroup({ showChannel }: { showChannel: boolean }): ReactElement {
+function ColGroup({ cols }: { cols: readonly ColDef[] }): ReactElement {
   return (
     <colgroup>
-      {/* 模型列：不给宽度 = 占满剩余空间（`table-fixed` 下 auto 列吃剩下的） */}
-      <col />
-      {/* 渠道列：仅扁平表有；`hidden` 后该列不占宽，其余列不变 */}
-      <col className={showChannel ? undefined : "hidden"} style={{ width: COL_WIDTHS.channel }} />
-      {COLS.filter((c) => c.key !== "model" && c.key !== "channel").map((c) => (
+      {cols.map((c) => (
+        // 模型列不给宽度 = 占满剩余空间（`table-fixed` 下 auto 列吃剩下的）
         <col
           key={c.key}
-          style={{ width: COL_WIDTHS[c.key as keyof typeof COL_WIDTHS] }}
-          className={c.wide ? "hidden md:table-column" : undefined}
+          style={c.key === "model" ? undefined : { width: COL_WIDTHS[c.key as keyof typeof COL_WIDTHS] }}
         />
       ))}
     </colgroup>
@@ -357,17 +403,13 @@ function ColGroup({ showChannel }: { showChannel: boolean }): ReactElement {
  *
  * 表头若每组各带一份（`GroupedTable` 里每组一个 `<thead>`），
  * 一屏会看到 10 份重复的列名。提到最上方后渠道块只剩数据行。
- * 列名与列宽都来自 `COLS` / `COL_WIDTHS`，与表体同源。
+ * 列名与列宽都来自同一份 `cols` / `COL_WIDTHS`，与表体同源。
  */
-function Head({
-  showChannel,
-}: {
-  showChannel: boolean;
-}): ReactElement {
+function Head({ cols }: { cols: readonly ColDef[] }): ReactElement {
   return (
     <thead className="bg-canvas/30">
-      <tr className="border-b border-line/70 text-[11px] text-ink-faint">
-        {COLS.filter((c) => showChannel || c.key !== "channel").map((c) => (
+      <tr className="border-b border-line/70 text-xs text-ink-faint">
+        {cols.map((c) => (
           <th
             key={c.key}
             scope="col"
@@ -376,7 +418,6 @@ function Head({
               "whitespace-nowrap py-2 font-normal",
               c.key === "model" ? "px-4" : "px-3",
               c.align === "right" ? "text-right" : "text-left",
-              c.wide ? "hidden md:table-cell" : "",
             ].join(" ")}
           >
             {c.label}
@@ -394,7 +435,7 @@ function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: Re
   if (m === 0 || (m == null && freePlan)) {
     return (
       <td className="whitespace-nowrap px-3 py-2 text-right">
-        <span className="font-mono text-[11px] text-free">免费</span>
+        <span className="font-mono text-xs text-free">免费</span>
       </td>
     );
   }
@@ -411,6 +452,8 @@ function MultiplierCell({ row, freePlanCids }: { row: ModelRow; freePlanCids: Re
 /**
  * 输入模态单元格：纯图标 —— 文本用 `Type`（T 字形）、图片用 `Image`，
  * 能看图时 `T + 图`（列头已说明这列是输入能力，图标本身即语义，不再写文字）。
+ *
+ * `< md` 该列由 `colsFor` 直接丢弃（连 `<td>` 都不渲染），这里不带任何响应式类。
  */
 function ModalityCell({ row }: { row: ModelRow }): ReactElement {
   const modes = row.meta?.inputModalities ?? [];
@@ -464,13 +507,13 @@ function sortThinkingLevels(levels: readonly string[]): string[] {
  * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现；
  * 跨渠道兜底来的档位带「推断」标记（与上游声明分开）。
  *
- * 窄屏（< md）整列隐藏 —— 与表头同一断点，否则会出现「列头没了、内容还在」。
+ * 窄屏（< md）整列由 `colsFor` 丢弃，这里不再带响应式类。
  */
 function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
   const effort = row.meta?.effort ?? null;
   if (effort === null || effort.supportedLevels.length === 0) {
     return (
-      <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-ink-faint md:table-cell">
+      <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-faint">
         不支持
       </td>
     );
@@ -479,7 +522,7 @@ function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
     (level) => THINKING_LEVEL_LABELS[level.toLowerCase()] ?? level,
   );
   return (
-    <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-ink-soft md:table-cell">
+    <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-soft">
       {levels.join(" / ")}
     </td>
   );
@@ -494,26 +537,64 @@ function ModelNameCell({ row }: { row: ModelRow }): ReactElement {
   );
 }
 
-/** 窗口/上限单元格（跨渠道推断来的值带「推断」标记）。 */
+/** 窗口/上限单元格。 */
 function SizeCell({
   value,
 }: {
   value: number | undefined;
 }): ReactElement {
   return (
-    <td className="hidden whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft md:table-cell">
+    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-xs text-ink-soft">
       {value ? compactNumber(value) : "—"}
     </td>
   );
 }
 
-/** 复制按钮单元格。 */
+/** 复制按钮单元格。`< md` 去掉左右内边距，44px 的按钮正好落在 44px 的列里。 */
 function CopyCell({ row }: { row: ModelRow }): ReactElement {
   return (
-    <td className="px-2 py-1.5 text-right">
+    <td className="px-2 py-1.5 text-right max-md:px-0">
       <CopyButton value={row.poolId} label={`复制 ${row.poolId}`} />
     </td>
   );
+}
+
+/**
+ * 按列定义渲染一行的单元格。
+ *
+ * 单元格的数量与顺序由**同一份 `cols`** 决定（`ColGroup` 也吃它），
+ * 所以「列头与内容错位」在结构上不可能发生 —— 这是上面 `useNarrow` 换掉
+ * `hidden md:table-cell` 的全部意义。
+ */
+function cellsOf(
+  row: ModelRow,
+  cols: readonly ColDef[],
+  freePlanCids: ReadonlySet<string>,
+): ReactElement[] {
+  return cols.map((col) => {
+    switch (col.key) {
+      case "model":
+        return <ModelNameCell key={col.key} row={row} />;
+      case "channel":
+        return (
+          <td key={col.key} className="px-3 py-2">
+            <span className="font-mono text-xs text-ink-soft">{row.cid}</span>
+          </td>
+        );
+      case "multiplier":
+        return <MultiplierCell key={col.key} row={row} freePlanCids={freePlanCids} />;
+      case "contextWindow":
+        return <SizeCell key={col.key} value={row.meta?.contextWindow} />;
+      case "maxOutput":
+        return <SizeCell key={col.key} value={row.meta?.maxOutputTokens} />;
+      case "effort":
+        return <ThinkingCell key={col.key} row={row} />;
+      case "modality":
+        return <ModalityCell key={col.key} row={row} />;
+      default:
+        return <CopyCell key={col.key} row={row} />;
+    }
+  });
 }
 
 /**
@@ -538,6 +619,7 @@ function CopyCell({ row }: { row: ModelRow }): ReactElement {
  * 并由 `GroupedTable` 把任意一组的 `scrollLeft` 同步过去（双向）。
  */
 function GroupedTable({
+  cols,
   groups,
   freePlanCids,
   collapsed,
@@ -546,6 +628,7 @@ function GroupedTable({
   onToggleExpanded,
   previewAll,
 }: {
+  cols: readonly ColDef[];
   groups: Map<string, ModelRow[]>;
   freePlanCids: ReadonlySet<string>;
   collapsed: ReadonlySet<string>;
@@ -582,12 +665,18 @@ function GroupedTable({
     <div className="overflow-hidden rounded-2xl border border-line bg-raised">
       {/* 表头：整个模型区只此一份，横向与各渠道表体同步（sticky 不生效 ——
           外层 `overflow-hidden` 是它的滚动祖先，见文件头） */}
-      <div ref={headerRef} onScroll={(e) => syncScroll(e.currentTarget)} className="overflow-x-auto">
-        <table className="w-full min-w-[440px] table-fixed border-collapse">
-          <ColGroup showChannel={false} />
-          <Head showChannel={false} />
+      <ScrollFade
+        containerRef={(el) => {
+          headerRef.current = el;
+        }}
+        onScroll={syncScroll}
+        className="overflow-x-auto"
+      >
+        <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
+          <ColGroup cols={cols} />
+          <Head cols={cols} />
         </table>
-      </div>
+      </ScrollFade>
 
       {[...groups.entries()].map(([cid, rows], gi) => {
         const isCollapsed = collapsed.has(cid);
@@ -607,58 +696,52 @@ function GroupedTable({
               <button
                 type="button"
                 onClick={() => onToggle(cid)}
-                className="grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:text-ink"
+                className="tap-square grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:text-ink"
                 aria-label={isCollapsed ? `展开 ${cid}` : `折叠 ${cid}`}
               >
                 {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
               <span className="font-mono text-[13px] font-medium text-ink">{cid}</span>
-              <span className="text-[11px] text-ink-faint">{rows.length} 个模型</span>
-              {free > 0 && <span className="text-[11px] text-free">{free} 个免费</span>}
-              {vision > 0 && <span className="text-[11px] text-ink-faint">{vision} 个可吃图</span>}
+              <span className="text-xs text-ink-faint">{rows.length} 个模型</span>
+              {free > 0 && <span className="text-xs text-free">{free} 个免费</span>}
+              {/* 可吃图数在窄屏收起：44px 的折叠键 + 模型数 + 免费数已经把这一行占满，
+                  再放一条会把 band 顶出面板宽度（实测 360 视口溢出 2px）。 */}
+              {vision > 0 && (
+                <span className="hidden text-xs text-ink-faint md:inline">{vision} 个可吃图</span>
+              )}
               {mults.length > 0 && (
-                <span className="ml-auto font-mono text-[11px] text-ink-faint">
+                <span className="ml-auto font-mono text-xs text-ink-faint">
                   ×{formatMultiplier(Math.min(...mults))}–×{formatMultiplier(Math.max(...mults))}
                 </span>
               )}
             </div>
             {!isCollapsed && (
-              <div
-                ref={(el) => {
+              <ScrollFade
+                containerRef={(el) => {
                   bodyRefs.current[gi] = el;
                 }}
-                onScroll={(e) => syncScroll(e.currentTarget)}
+                onScroll={syncScroll}
                 className="overflow-x-auto"
               >
-                <table className="w-full min-w-[440px] table-fixed border-collapse">
-                  <ColGroup showChannel={false} />
+                <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
+                  <ColGroup cols={cols} />
                   <tbody>
                     {shown.map((row) => (
                       <tr
                         key={row.poolId}
                         className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
                       >
-                        <ModelNameCell row={row} />
-                        <MultiplierCell row={row} freePlanCids={freePlanCids} />
-                        <SizeCell
-                          value={row.meta?.contextWindow}
-                        />
-                        <SizeCell
-                          value={row.meta?.maxOutputTokens}
-                        />
-                        <ThinkingCell row={row} />
-                        <ModalityCell row={row} />
-                        <CopyCell row={row} />
+                        {cellsOf(row, cols, freePlanCids)}
                       </tr>
                     ))}
                     {/* 折叠隐藏的数量 + 展开/收起开关：只在「有隐藏项」或「已手动展开」时出现 */}
                     {(hidden > 0 || (!previewAll && expanded.has(cid) && rows.length > PREVIEW_COUNT)) && (
                       <tr className="border-b border-line/40 last:border-b-0">
-                        <td colSpan={7} className="px-4 py-1.5">
+                        <td colSpan={cols.length} className="px-4 py-1.5">
                           <button
                             type="button"
                             onClick={() => onToggleExpanded(cid)}
-                            className="text-[11px] text-ink-faint transition-colors hover:text-brand"
+                            className="tap inline-flex items-center text-xs text-ink-faint transition-colors hover:text-brand"
                             aria-expanded={showAll}
                           >
                             {hidden > 0 ? `展开剩余 ${hidden} 个模型` : "收起"}
@@ -668,7 +751,7 @@ function GroupedTable({
                     )}
                   </tbody>
                 </table>
-              </div>
+              </ScrollFade>
             )}
           </div>
         );
@@ -679,41 +762,30 @@ function GroupedTable({
 
 /** 扁平表：全部模型按倍率升序，渠道作为一列。 */
 function FlatTable({
+  cols,
   rows,
   freePlanCids,
 }: {
+  cols: readonly ColDef[];
   rows: ModelRow[];
   freePlanCids: ReadonlySet<string>;
 }): ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-line bg-raised">
-      <table className="w-full min-w-[440px] table-fixed border-collapse">
-        <ColGroup showChannel={true} />
-        <Head showChannel={true} />
+    <ScrollFade className="overflow-x-auto rounded-2xl border border-line bg-raised">
+      <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
+        <ColGroup cols={cols} />
+        <Head cols={cols} />
         <tbody>
           {rows.map((row) => (
             <tr
               key={row.poolId}
               className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
             >
-              <ModelNameCell row={row} />
-              <td className="px-3 py-2">
-                <span className="font-mono text-[11px] text-ink-soft">{row.cid}</span>
-              </td>
-              <MultiplierCell row={row} freePlanCids={freePlanCids} />
-              <SizeCell
-                value={row.meta?.contextWindow}
-              />
-              <SizeCell
-                value={row.meta?.maxOutputTokens}
-              />
-              <ThinkingCell row={row} />
-              <ModalityCell row={row} />
-              <CopyCell row={row} />
+              {cellsOf(row, cols, freePlanCids)}
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollFade>
   );
 }

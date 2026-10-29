@@ -193,7 +193,7 @@ export function LoginModal({
     {
       title: "等待自动完成",
       body: (
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-faint">
+        <span className="inline-flex items-center gap-1.5 text-xs text-ink-faint">
           {done ? (
             <Check className="h-3.5 w-3.5 text-free" />
           ) : (
@@ -233,7 +233,7 @@ export function LoginModal({
     {
       title: "自动回调（无需手动）",
       body: (
-        <span className="text-[11px] leading-relaxed text-ink-faint">
+        <span className="text-xs leading-relaxed text-ink-faint">
           授权成功后页面会<strong className="text-ink-soft">自动跳回本地回调</strong>
           并完成登录。控制台与网关在同一台机器上，回调必然到得了本机端口 ——
           不需要手动粘贴任何链接。
@@ -266,7 +266,7 @@ export function LoginModal({
             </span>
             <Dialog.Title className="min-w-0 flex-1 truncate text-sm">
               <span className="font-mono font-medium text-ink">{cid}</span>
-              <span className="ml-2 text-[11px] font-normal text-ink-faint">{display ?? "渠道账号"}</span>
+              <span className="ml-2 text-xs font-normal text-ink-faint">{display ?? "渠道账号"}</span>
             </Dialog.Title>
             {/* 唯一的关闭入口：顺带通知后端别再等输入（否则渠道挂到超时） */}
             <button
@@ -284,7 +284,7 @@ export function LoginModal({
 
           {/* 状态行 + 说明文本：一行「步骤 x/y · 状态」，下一行渠道给的说明 */}
           <div className="px-5 pt-3">
-            <div className={`text-[11px] ${stepTone}`}>
+            <div className={`text-xs ${stepTone}`}>
               {stepLabel}
               {statusWord && ` · ${statusWord}`}
             </div>
@@ -448,8 +448,8 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
   };
   return (
     <div className="flex items-center gap-2 rounded-lg bg-canvas/60 px-2.5 py-1.5">
-      <span className="shrink-0 text-[11px] text-ink-faint">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-soft">{url}</span>
+      <span className="shrink-0 text-xs text-ink-faint">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-soft">{url}</span>
       <button
         type="button"
         onClick={() => void copy()}
@@ -688,7 +688,7 @@ function DoneCard(): ReactElement {
         <Check className="h-5 w-5" />
       </span>
       <div className="text-sm text-ink-soft">账号已自动入池</div>
-      <div className="text-[11px] text-ink-faint">可关闭弹窗，账号已在账号池生效</div>
+      <div className="text-xs text-ink-faint">可关闭弹窗，账号已在账号池生效</div>
     </div>
   );
 }
