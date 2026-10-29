@@ -124,6 +124,9 @@ const send = async (userText: string): Promise<{ status: number; body: string }>
         { role: "assistant", content: "（上一轮回答）" },
         { role: "user", content: userText },
       ],
+      // 工具声明随请求一起发：带标记时应随上下文一起被裁掉
+      tools: [{ type: "function", function: { name: "read_file", parameters: {} } }],
+      tool_choice: "auto",
       stream: false,
     }),
   });
@@ -167,6 +170,9 @@ describe("/jailbreak 全链路（relay → buildChatBody → 上游 body）", ()
     assert.ok(!JSON.stringify(messages).includes(SYSTEM), "system 不得出现在上游收到的 body 里");
     assert.ok(!JSON.stringify(messages).includes("（上一轮回答）"), "历史不得出现");
     assert.ok(!JSON.stringify(messages).includes("/jailbreak"), "标记本身也不发上游");
+    // tools 等前置能力声明随上下文一起裁掉
+    assert.equal("tools" in lastUpstreamBody!, false, "tools 应被裁剪");
+    assert.equal("tool_choice" in lastUpstreamBody!, false, "tool_choice 应被裁剪");
 
     const row = accessRows().find((r) => r["path"] === "/v1/chat/completions" && r["jailbreak"] === true);
     assert.ok(row, "access 日志应带 jailbreak: true");
