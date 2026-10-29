@@ -550,7 +550,9 @@ export function createConsoleHandler(
           gateway = { ui_state: "unknown", gateway_error: "" };
         }
 
-        const logPage = queryAccessLogs({ limit: 100 });
+        // 只算**模型请求**：控制台里「请求」恒指 `/v1/chat/completions`，
+        // 与请求日志页、用量区块同一口径（`/health` 等混进来会让成功率与 tokens 失真）。
+        const logPage = queryAccessLogs({ path: MODEL_REQUEST_PATH, limit: 100 });
         const usage = {
           date: logPage.date,
           requests: logPage.stats.requests,
