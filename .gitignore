@@ -68,3 +68,6 @@ coverage/
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# 外部工具在 cwd 留下的标记（video2code 插件会写 .v2c/plugin_root）
+.v2c/
