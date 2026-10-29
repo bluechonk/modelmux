@@ -268,7 +268,7 @@ export function Accounts(): ReactElement {
               void qc.invalidateQueries({ queryKey: ["billing"] });
               void qc.invalidateQueries({ queryKey: ["state"] });
             }}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            className="tap flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
           >
             <RotateCw className="h-3.5 w-3.5" />
             刷新
@@ -282,15 +282,20 @@ export function Accounts(): ReactElement {
         </div>
       ) : (
         <>
-          {/* 总览条：一眼看清正常 / 冷却 / 异常 / 没钱了几个，不用逐张翻卡 */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1">
-            <span className="text-xs text-ink-faint">
+          {/* 总览条：一眼看清正常 / 冷却 / 异常 / 没钱了几个，不用逐张翻卡。
+              每个统计都是一个 chip（中性底 + 圆角 + `whitespace-nowrap`）——
+              纯文字加竖线分隔在窄屏折行后像是「错位的两行」，chip 换行时逐行对齐，
+              且标签与数字永远在同一个视觉单元里。 */}
+          <div className="flex flex-wrap items-center gap-1.5 px-1">
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1 text-xs text-ink-soft">
               共 <span className="font-mono font-medium text-ink">{list.length}</span> 渠道 ·{" "}
               <span className="font-mono font-medium text-ink">{totalAccounts}</span> 账号
             </span>
-            <span className="h-3 w-px bg-line" aria-hidden />
             {SUMMARY_ORDER.map(({ key, label, dot }) => (
-              <span key={key} className="flex items-center gap-1.5 text-xs text-ink-soft">
+              <span
+                key={key}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1 text-xs text-ink-soft"
+              >
                 <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
                 {label}
                 <span className="font-mono tabular-nums text-ink">{counts[key]}</span>
@@ -306,9 +311,11 @@ export function Accounts(): ReactElement {
             整页看起来「布局坏了」。改为自然高度后，每张卡都是紧凑的，代价是行尾参差
             —— 对「账号数本来就不齐」的列表，这个代价明显更小。
 
-            自适应列数：卡片最小宽 340px，空间够就自然多列，不写死断点
+            自适应列数：卡片最小宽 340px，空间够就自然多列，不写死断点。
+            `min(340px, 100%)` 是必要的收口：视口比 340px + 内边距还窄时（实测 360 视口），
+            写死 340px 的轨道会把 `main` 顶出 6px 横向滚动。
           */}
-          <div className="grid items-start gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
+          <div className="grid items-start gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))" }}>
             {list.map(({ pool, billing: bill }) => (
               <AccountCard
                 key={pool.cid}
