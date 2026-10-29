@@ -496,9 +496,19 @@ export interface AccessEntry {
   slow: boolean;
 }
 
+/**
+ * 模型请求的路径。
+ *
+ * 日志页与用量统计都只认它 —— `/health` 之类的非模型请求同样会落进 access 日志
+ * （`http/server.ts` 只跳过 console 路径），混进来会让「调用次数 / 累计 tokens」失真。
+ */
+export const MODEL_REQUEST_PATH = "/v1/chat/completions";
+
 export interface AccessQuery {
   date?: string;
   outcome?: AccessOutcome;
+  /** 精确匹配请求路径（日志页固定传 `MODEL_REQUEST_PATH`）。 */
+  path?: string;
   cid?: string;
   model?: string;
   stream?: boolean;
@@ -714,6 +724,31 @@ export function listAccessDates(): string[] {
     .reverse();
 }
 
+/**
+ * **全量**逐条访问日志（不走 `queryAccessLogs` 的扫描字节 / 行数上限）。
+ *
+ * 与 `queryAccessLogs` 的分工：那个服务交互式分页（要快、允许截断），本函数服务
+ * **统计聚合**（要全、宁慢）—— 截断会让「累计 tokens」这类数字直接错。
+ * 调用方自己负责节流与缓存（见 `usage-stats.ts`）。
+ */
+export function scanAccessDate(date: string, visit: (entry: AccessEntry) => void): void {
+  for (const outcome of ACCESS_OUTCOMES) {
+    for (const file of accessFiles(date, outcome)) {
+      let text: string;
+      try {
+        text = readFileSync(file, "utf8");
+      } catch {
+        continue; // 正在轮转 / 被删：跳过这个文件，不让整次统计失败
+      }
+      for (const line of text.split("\n")) {
+        if (line.trim() === "") continue;
+        const entry = parseAccessLine(line, outcome);
+        if (entry) visit(entry);
+      }
+    }
+  }
+}
+
 function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | null {
   let raw: Record<string, unknown>;
   try {
@@ -843,6 +878,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   const needle = query.q?.toLowerCase();
   const matched = scanned.filter((e) => {
     if (query.outcome !== undefined && e.outcome !== query.outcome) return false;
+    if (query.path !== undefined && e.path !== query.path) return false;
     if (query.cid !== undefined && e.cid !== query.cid) return false;
     if (query.stream !== undefined && e.stream !== query.stream) return false;
     if (query.slow === true && !e.slow) return false;

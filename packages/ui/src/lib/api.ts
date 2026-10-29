@@ -16,6 +16,8 @@ import type {
   PayloadQueryResult,
   PoolRow,
   UiSnapshot,
+  UsageRange,
+  UsageStats,
 } from "./types";
 import {
   createDemoState,
@@ -34,6 +36,7 @@ import {
   demoSettings,
   demoStatus,
   demoSubmitLoginInput,
+  demoUsage,
   type DemoState,
 } from "./demo";
 
@@ -116,6 +119,12 @@ export interface WebApi {
    * 分页由 `limit` / `offset` 驱动；返回里的 `total` 是命中筛选的总条数。
    */
   logs(query?: LogQuery): Promise<AccessLogPage>;
+  /**
+   * 用量统计聚合（只读，`GET /web/api/usage`）。
+   *
+   * 服务端逐日聚合 access 日志并缓存历史日期，前端只负责展示；区间见 `UsageRange`。
+   */
+  usage(range: UsageRange): Promise<UsageStats>;
   /** 某条请求的正文抓取记录（正文抓取恒开启，此接口只读）。 */
   logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
   /**
@@ -318,6 +327,7 @@ export const api: WebApi = {
     IS_DEMO
       ? demoLater(demoLogPayload(id))
       : get(`/api/logs/payload${queryString({ id, date })}`),
+  usage: (range) => (IS_DEMO ? demoLater(demoUsage(range)) : get(`/api/usage${queryString({ range })}`)),
   gatewayControl: (action) =>
     IS_DEMO ? demoLater({ ok: true, action }) : post("/api/gateway", { action }),
   overview: () =>

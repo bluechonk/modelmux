@@ -12,7 +12,7 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, List, Menu, ScrollText } from "lucide-react";
+import { Boxes, ChartLine, Gauge, List, Menu, ScrollText } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
@@ -24,7 +24,8 @@ const NAV = [
   { to: "/", label: "仪表盘", icon: Gauge },
   { to: "/models", label: "模型列表", icon: List },
   { to: "/accounts", label: "账号池", icon: Boxes },
-  { to: "/logs", label: "日志", icon: ScrollText },
+  { to: "/logs", label: "请求日志", icon: ScrollText },
+  { to: "/usage", label: "使用统计", icon: ChartLine },
 ];
 
 /** 是否演示构建（由 `vite.config.ts` 的 define 注入；见 `lib/demo.ts`）。 */
