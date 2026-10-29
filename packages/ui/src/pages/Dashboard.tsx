@@ -62,7 +62,7 @@ function KpiCard({
         }`}
       />
       <div className="min-w-0">
-        <div className="text-[11px] leading-snug text-ink-faint">{label}</div>
+        <div className="text-xs leading-snug text-ink-faint">{label}</div>
         <div
           className={`text-lg font-semibold whitespace-nowrap tabular-nums ${
             tone === "free"
@@ -76,7 +76,7 @@ function KpiCard({
         >
           {value}
         </div>
-        {sub !== undefined && <div className="mt-0.5 text-[11px] text-ink-faint">{sub}</div>}
+        {sub !== undefined && <div className="mt-0.5 text-xs text-ink-faint">{sub}</div>}
       </div>
     </div>
   );
@@ -105,7 +105,7 @@ function ChannelRow({
     <button
       type="button"
       onClick={() => void navigate("/accounts")}
-      className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-overlay/40 focus-visible:bg-overlay/40"
+      className="tap flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-overlay/40 focus-visible:bg-overlay/40"
     >
       {/* 状态灯 */}
       <span
@@ -190,7 +190,7 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
       aria-label={label}
       disabled={!value}
       onClick={() => void copy()}
-      className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-30"
+      className="tap-square grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-30"
     >
       {copied ? <Check className="h-3 w-3 text-free" /> : <Copy className="h-3 w-3" />}
     </button>
@@ -360,7 +360,7 @@ export function Dashboard(): ReactElement {
               void stateQuery.refetch();
               void overviewQuery.refetch();
             }}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            className="tap flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
           >
             <RotateCw
               className={`h-3.5 w-3.5 ${stateQuery.isRefetching || overviewQuery.isFetching ? "animate-spin" : ""}`}
@@ -384,11 +384,11 @@ export function Dashboard(): ReactElement {
               <button
                 type="button"
                 onClick={toggleChannels}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-faint transition-colors hover:bg-overlay/40"
+                className="tap flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-faint transition-colors hover:bg-overlay/40"
                 aria-label={channelsExpanded ? "收起渠道状态" : "展开渠道状态"}
               >
                 {channelsExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                <span className="text-[11px]">
+                <span className="text-xs">
                   {channelsExpanded ? "收起" : "展开"}
                 </span>
               </button>
@@ -402,14 +402,14 @@ export function Dashboard(): ReactElement {
                   <button
                     type="button"
                     onClick={toggleChannels}
-                    className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-xs text-ink-faint transition-colors hover:bg-overlay/40"
+                    className="tap flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-xs text-ink-faint transition-colors hover:bg-overlay/40"
                   >
                     <span className="min-w-0 flex-1">
                       {channelList.length} 个渠道 · 今日{" "}
                       <span className="text-free">{channelSuccessTotal}</span> 成 /{" "}
                       <span className="text-danger">{channelFailureTotal}</span> 败
                     </span>
-                    <span className="shrink-0 text-[11px]">点击展开</span>
+                    <span className="shrink-0 text-xs">点击展开</span>
                   </button>
                 )}
                 <div
@@ -418,7 +418,7 @@ export function Dashboard(): ReactElement {
                   }`}
                 >
                   <div className="space-y-0.5">
-                    <div className="flex items-center gap-3 px-2 pb-1.5 text-[11px] text-ink-faint">
+                    <div className="flex items-center gap-3 px-2 pb-1.5 text-xs text-ink-faint">
                       <span className="w-2 shrink-0" />
                       <span className="min-w-0 flex-1">渠道</span>
                       <span className="w-8 shrink-0 text-right">成</span>
@@ -461,7 +461,7 @@ export function Dashboard(): ReactElement {
             <button
               type="button"
               onClick={() => void navigate("/logs")}
-              className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
+              className="tap mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
             >
               查看全部日志
               <ArrowRight className="h-3 w-3" />
@@ -499,7 +499,7 @@ export function Dashboard(): ReactElement {
             <button
               type="button"
               onClick={() => void navigate("/models")}
-              className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
+              className="tap mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
             >
               查看全部模型
               <ArrowRight className="h-3 w-3" />

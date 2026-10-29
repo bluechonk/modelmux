@@ -103,12 +103,30 @@
 
   /* 徽标：状态 / 计数。中性底 + 细字，不带彩色底 */
   .pill {
-    @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium;
+    @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium;
   }
 
   /* 侧栏导航项：纯文本 + 圆角 hover 底；选中态用浅底 */
   .nav-item {
     @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors;
+  }
+
+  /*
+   * 触控目标下限：窄屏以手指为主，可交互元素至少 44×44（WCAG 2.5.5 Target Size）。
+   *
+   * 只在小屏生效 —— 桌面是鼠标、指针精度远高于手指，放大到 44px 只会白白浪费
+   * 信息密度（本控制台一屏要装 KPI、模型表、账号行）。
+   * `min-width`/`min-height` 天然压过 `h-*`/`w-*`，所以直接加在既有定尺寸按钮上即可，
+   * 不必逐个改它们的尺寸类。
+   */
+  @media (max-width: 767px) {
+    .tap {
+      min-height: 2.75rem;
+    }
+    .tap-square {
+      min-height: 2.75rem;
+      min-width: 2.75rem;
+    }
   }
 }
 

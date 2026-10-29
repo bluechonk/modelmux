@@ -29,6 +29,7 @@ import type { AccessLogEntry, AccessLogPage, AccessOutcome } from "../lib/types"
 import { CopyButton } from "../components/CopyChip";
 import { LogContextDialog } from "../components/LogContextDialog";
 import { PageHeader } from "../components/PageHeader";
+import { ScrollFade } from "../components/ScrollFade";
 import { Skeleton } from "./Dashboard";
 
 /** 每页条数默认值（可切换 10 / 20 / 50）。 */
@@ -95,7 +96,7 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
         <span className="text-ink-faint">{formatCount(stats.noUsage)} 条无 usage</span>
       )}
       {page.truncated && (
-        <span className="rounded-md bg-warn/15 px-1.5 py-0.5 text-[11px] text-warn">
+        <span className="rounded-md bg-warn/15 px-1.5 py-0.5 text-xs text-warn">
           统计只覆盖最近 {formatCount(page.scanned)} 条（读窗口上限）
         </span>
       )}
@@ -254,7 +255,7 @@ function LogTable({
   const headClass = "px-3 py-2 font-normal";
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
         <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
           <colgroup>
             <col style={{ width: COL_WIDTHS.toggle }} />
@@ -268,7 +269,7 @@ function LogTable({
             <col style={{ width: COL_WIDTHS.context }} />
           </colgroup>
           <thead>
-            <tr className="border-b border-line text-left text-[11px] text-ink-faint">
+            <tr className="border-b border-line text-left text-xs text-ink-faint">
               <th className={headClass} />
               <th className={headClass}>时间</th>
               <th className={headClass}>结果</th>
@@ -291,7 +292,7 @@ function LogTable({
                       open ? "bg-overlay/30" : ""
                     }`}
                   >
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top max-md:px-0">
                       <button
                         type="button"
                         aria-expanded={open}
@@ -300,7 +301,7 @@ function LogTable({
                           event.stopPropagation();
                           onToggle(entry.id);
                         }}
-                        className="grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                        className="tap-square grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
                       >
                         {open ? (
                           <ChevronDown className="h-3.5 w-3.5" />
@@ -338,7 +339,7 @@ function LogTable({
                           event.stopPropagation();
                           onOpenContext(entry);
                         }}
-                        className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+                        className="tap inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
                       >
                         <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
                         上下文
@@ -357,7 +358,7 @@ function LogTable({
             })}
           </tbody>
         </table>
-      </div>
+      </ScrollFade>
 
       <Pager
         pageNum={Math.min(pageNum, totalPages)}
@@ -394,18 +395,18 @@ function Pager({
   loading: boolean;
 }): ReactElement {
   const navCls = (disabled: boolean): string =>
-    `grid h-7 w-7 place-items-center rounded-lg border border-line text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40`;
+    `tap-square grid h-7 w-7 place-items-center rounded-lg border border-line text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40`;
   return (
     <div className="shrink-0 border-t border-line/70 bg-canvas/95 px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        <span className="text-[11px] text-ink-faint">共 {formatCount(total)} 条</span>
-        <label className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+        <span className="text-xs text-ink-faint">共 {formatCount(total)} 条</span>
+        <label className="flex items-center gap-1.5 text-xs text-ink-faint">
           每页
           <select
             value={pageSize}
             disabled={loading}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            className="rounded border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-ink-soft"
+            className="tap rounded border border-line bg-canvas px-1.5 py-0.5 text-xs text-ink-soft"
           >
             {[10, 20, 50].map((n) => (
               <option key={n} value={n}>
@@ -425,7 +426,7 @@ function Pager({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="min-w-16 text-center text-[11px] tabular text-ink-soft">
+          <span className="min-w-16 text-center text-xs tabular text-ink-soft">
             {pageNum} / {totalPages}
           </span>
           <button
@@ -485,9 +486,9 @@ function Filters({
     { key: "other", label: "中断", count: stats?.other },
   ];
   const selectClass =
-    "rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong";
+    "tap rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong";
   const toggleClass = (active: boolean): string =>
-    `rounded-lg border px-2 py-1 text-xs transition-colors ${
+    `tap rounded-lg border px-2 py-1 text-xs transition-colors ${
       active
         ? "border-line-strong bg-overlay text-ink"
         : "border-line text-ink-soft hover:border-line-strong hover:text-ink"
@@ -502,7 +503,7 @@ function Filters({
             type="button"
             aria-pressed={outcome === segment.key}
             onClick={() => onOutcome(segment.key)}
-            className={`px-2.5 py-1 text-xs transition-colors ${
+            className={`tap px-2.5 py-1 text-xs transition-colors ${
               outcome === segment.key
                 ? "bg-overlay text-ink"
                 : "text-ink-soft hover:bg-overlay/50 hover:text-ink"
@@ -540,7 +541,7 @@ function Filters({
         onChange={(e) => onSearch(e.target.value)}
         placeholder="搜索模型名 / request id / 错误"
         aria-label="搜索模型名、request id 或错误信息"
-        className="w-56 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink placeholder:text-ink-faint"
+        className="tap w-56 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink placeholder:text-ink-faint"
       />
 
       <button
@@ -568,7 +569,7 @@ function Filters({
           <button
             type="button"
             onClick={onReset}
-            className="rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            className="tap rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
           >
             清除筛选
           </button>
@@ -637,7 +638,7 @@ export function Logs(): ReactElement {
             <button
               type="button"
               onClick={() => void logs.refetch()}
-              className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+              className="tap flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
             >
               <RotateCw className={`h-3.5 w-3.5 ${logs.isFetching ? "animate-spin" : ""}`} />
               刷新
@@ -705,7 +706,7 @@ export function Logs(): ReactElement {
           <button
             type="button"
             onClick={() => void logs.refetch()}
-            className="rounded-lg border border-line px-3 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            className="tap rounded-lg border border-line px-3 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
           >
             重试
           </button>

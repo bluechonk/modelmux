@@ -60,7 +60,7 @@ function Disclosure({
 }): ReactElement {
   return (
     <details className="rounded-md border border-line/50 bg-canvas/40">
-      <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] text-ink-soft">
+      <summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs text-ink-soft">
         {summary}
       </summary>
       <div className="border-t border-line/40 px-2.5 py-2">{children}</div>
@@ -71,7 +71,7 @@ function Disclosure({
 function JsonBlock({ value, maxHeight = "max-h-56" }: { value: unknown; maxHeight?: string }): ReactElement {
   return (
     <pre
-      className={`${maxHeight} overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-ink-soft`}
+      className={`${maxHeight} overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-ink-soft`}
     >
       {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
     </pre>
@@ -96,7 +96,7 @@ function CollapseBox({ chars, children }: { chars: number; children: ReactNode }
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="text-[11px] text-ink-faint transition-colors hover:text-ink"
+        className="text-xs text-ink-faint transition-colors hover:text-ink"
       >
         {open ? "收起" : `展开全部（${formatCount(chars)} 字符）`}
       </button>
@@ -112,7 +112,7 @@ function CollapseBox({ chars, children }: { chars: number; children: ReactNode }
  */
 function MarkdownText({ text }: { text: string }): ReactElement {
   return (
-    <div className="log-md text-xs leading-relaxed text-ink-soft [&_a]:text-ink [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-canvas [&_code]:px-1 [&_code]:font-mono [&_code]:text-[11px] [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_hr]:border-line [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-canvas [&_pre]:p-2 [&_pre]:font-mono [&_pre]:text-[11px] [&_strong]:text-ink [&_table]:w-full [&_td]:border [&_td]:border-line/60 [&_td]:px-1.5 [&_th]:border [&_th]:border-line/60 [&_th]:px-1.5 [&_ul]:list-disc">
+    <div className="log-md text-xs leading-relaxed text-ink-soft [&_a]:text-ink [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-canvas [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_hr]:border-line [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-canvas [&_pre]:p-2 [&_pre]:font-mono [&_pre]:text-xs [&_strong]:text-ink [&_table]:w-full [&_td]:border [&_td]:border-line/60 [&_td]:px-1.5 [&_th]:border [&_th]:border-line/60 [&_th]:px-1.5 [&_ul]:list-disc">
       <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
     </div>
   );
@@ -164,7 +164,7 @@ function MessageBody({ role, content }: { role: string; content: unknown }): Rea
             return (
               <pre
                 key={index}
-                className="whitespace-pre-wrap break-all font-mono text-[11px] text-ink-faint"
+                className="whitespace-pre-wrap break-all font-mono text-xs text-ink-faint"
               >
                 {brief(part)}
               </pre>
@@ -200,7 +200,7 @@ function ToolCallCard({ call, index }: { call: unknown; index: number }): ReactE
 
   return (
     <div className="rounded-md border border-line/60 bg-canvas/70">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line/50 px-2.5 py-1 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line/50 px-2.5 py-1 text-xs">
         <Terminal className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
         <span className="text-ink-faint">工具调用 #{index + 1}</span>
         <span className="font-mono text-ink">{name}</span>
@@ -214,8 +214,8 @@ function ToolCallCard({ call, index }: { call: unknown; index: number }): ReactE
         ) : (
           <>
             <div>
-              <div className="mb-1 text-[11px] text-ink-faint">命令（bash）</div>
-              <pre className="whitespace-pre-wrap break-all rounded-md bg-surface px-2 py-1.5 font-mono text-[11px] text-ink">
+              <div className="mb-1 text-xs text-ink-faint">命令（bash）</div>
+              <pre className="whitespace-pre-wrap break-all rounded-md bg-surface px-2 py-1.5 font-mono text-xs text-ink">
                 {command}
               </pre>
             </div>
@@ -242,7 +242,7 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
 
   return (
     <div className="rounded-lg border border-line/70 bg-canvas/50">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line/60 px-3 py-1.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line/60 px-3 py-1.5 text-xs">
         <span className="pill bg-overlay text-ink-soft">{ROLE_LABEL[role] ?? role}</span>
         <span className="font-mono text-ink-faint">{role}</span>
         <span className="text-ink-faint">#{index + 1}</span>
@@ -257,10 +257,10 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
       <div className="space-y-2 px-3 py-2">
         {reasoning !== null && (
           <div className="rounded-md border border-line/50 bg-canvas/60 px-2 py-1.5">
-            <div className="mb-1 text-[11px] text-ink-faint">
+            <div className="mb-1 text-xs text-ink-faint">
               思考（reasoning_content）—— 网关会把它随上下文一起发给上游
             </div>
-            <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-ink-soft">
+            <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-ink-soft">
               {reasoning}
             </pre>
           </div>
@@ -270,7 +270,7 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
           <ToolCallCard key={i} call={call} index={i} />
         ))}
         {!hasBody && toolCalls === null && reasoning === null && (
-          <p className="text-[11px] text-ink-faint">（本条消息没有正文）</p>
+          <p className="text-xs text-ink-faint">（本条消息没有正文）</p>
         )}
       </div>
     </div>
@@ -289,20 +289,20 @@ function ToolDefinitions({ tools }: { tools: unknown[] }): ReactElement {
           const description = typeof fn["description"] === "string" ? fn["description"] : "";
           return (
             <div key={index} className="rounded border border-line/40 px-2 py-1.5">
-              <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
+              <div className="flex flex-wrap items-baseline gap-2 text-xs">
                 <span className="font-mono text-ink">{name}</span>
                 {typeof rec["type"] === "string" && (
                   <span className="text-ink-faint">{rec["type"]}</span>
                 )}
               </div>
               {description !== "" && (
-                <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-ink-faint">
+                <p className="mt-1 whitespace-pre-wrap break-words text-xs text-ink-faint">
                   {brief(description, 400)}
                 </p>
               )}
               {fn["parameters"] !== undefined && (
                 <details className="mt-1">
-                  <summary className="cursor-pointer select-none text-[11px] text-ink-faint">
+                  <summary className="cursor-pointer select-none text-xs text-ink-faint">
                     参数结构
                   </summary>
                   <JsonBlock value={fn["parameters"]} maxHeight="max-h-52" />
@@ -338,7 +338,7 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
 
   return (
     <section className="rounded-xl border border-line/70 bg-raised/40">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line/60 px-3.5 py-2 text-[11px]">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line/60 px-3.5 py-2 text-xs">
         <span className="text-xs font-medium text-ink">{title}</span>
         {record.cid !== undefined && <span className="font-mono text-ink-soft">{record.cid}</span>}
         {record.model !== undefined && (
@@ -354,7 +354,7 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
       <div className="space-y-2 px-3.5 py-3">
         {parsed === null ? (
           <>
-            <p className="text-[11px] text-ink-faint">
+            <p className="text-xs text-ink-faint">
               {record.truncated
                 ? "正文超出单条上限已被截断，按原文呈现（不再尝试解析）。"
                 : "正文不是 JSON 对象（自编码请求体），按原文呈现。"}
@@ -364,7 +364,7 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
         ) : (
           <>
             {messages === null && (
-              <p className="text-[11px] text-ink-faint">
+              <p className="text-xs text-ink-faint">
                 这份请求体不是 OpenAI `messages` 形态（渠道自有字段），已按原样逐字段呈现。
               </p>
             )}
@@ -423,7 +423,7 @@ export function LogContextDialog({
             <div className="min-w-0">
               <Dialog.Title className="text-sm font-medium text-ink">请求上下文</Dialog.Title>
               <Dialog.Description asChild>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-faint">
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
                   <span className="break-all font-mono text-ink-soft">{entry.id}</span>
                   <span className="tabular">{formatDateTime(entry.ts)}</span>
                   <span className="break-all font-mono">{entry.model ?? entry.path ?? "-"}</span>
@@ -471,7 +471,7 @@ export function LogContextDialog({
           </div>
 
           {records.length > 0 && (
-            <footer className="shrink-0 border-t border-line px-5 py-2 text-[11px] text-ink-faint">
+            <footer className="shrink-0 border-t border-line px-5 py-2 text-xs text-ink-faint">
               正文按原样落盘、未做脱敏；上游响应正文本页不展示。
             </footer>
           )}

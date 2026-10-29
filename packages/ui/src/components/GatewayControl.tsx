@@ -49,7 +49,7 @@ export function GatewayControl(): ReactElement {
           type="button"
           disabled={busy}
           onClick={() => setConfirmStop(true)}
-          className="flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+          className="tap flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
         >
           <Pause className="h-3 w-3" />
           暂停
@@ -58,16 +58,16 @@ export function GatewayControl(): ReactElement {
           type="button"
           disabled={busy}
           onClick={() => control("restart")}
-          className="flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+          className="tap flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
         >
           <RotateCw className={`h-3 w-3 ${busyAction === "restart" ? "animate-spin" : ""}`} />
           重启
         </button>
       </div>
       {snapshot?.base_url && (
-        <div className="break-all font-mono text-[10px] text-ink-faint">{snapshot.base_url}</div>
+        <div className="break-all font-mono text-xs text-ink-faint">{snapshot.base_url}</div>
       )}
-      {busy && <div className="text-[10px] text-ink-faint">处理中…</div>}
+      {busy && <div className="text-xs text-ink-faint">处理中…</div>}
       {confirmStop && (
         <ConfirmDialog
           title="暂停网关？"

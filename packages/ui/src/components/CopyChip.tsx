@@ -92,7 +92,7 @@ export function CopyButton({
       type="button"
       aria-label={label}
       onClick={() => void copy()}
-      className="grid h-7 w-7 place-items-center rounded-md text-ink-faint/70 transition-colors hover:bg-overlay hover:text-ink"
+      className="tap-square grid h-7 w-7 place-items-center rounded-md text-ink-faint/70 transition-colors hover:bg-overlay hover:text-ink"
     >
       {copied ? <Check className="h-3.5 w-3.5 text-free" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
