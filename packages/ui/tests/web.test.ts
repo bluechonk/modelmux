@@ -143,6 +143,14 @@ describe("console 静态托管与命令 API", () => {
     assert.equal(candidate?.unsupported, true, "无额度能力必须标记 unsupported");
   });
 
+  it("SPA 深链回落 index.html；缺失的静态资源仍 404", async () => {
+    const deep = await fetch(`${server.url}models`);
+    assert.equal(deep.status, 200, "深链必须回落 index.html（否则刷新 / 分享 / 书签会 404）");
+    assert.ok((await deep.text()).includes('<div id="root">'), "回落的必须是 index.html");
+    const missing = await fetch(`${server.url}missing.js`);
+    assert.equal(missing.status, 404, "带扩展名的缺失资源不能变成 200（会掩盖部署问题）");
+  });
+
   it("静态路径穿越拒绝 403", async () => {
     const status = await new Promise<number>((resolveRequest, rejectRequest) => {
       // fetch 会把 .. 规范化掉，这里用原生请求保住原始路径，真正打到服务端守卫。
