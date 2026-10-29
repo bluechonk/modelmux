@@ -192,14 +192,16 @@ export function Dashboard(): ReactElement {
   });
   const overview = overviewQuery.data;
 
-  // 区间用量（Token 活动 / 每日趋势 / 模型用量）。与上面的快照**分开轮询**：
+  // 区间用量（每日趋势 / 模型用量 / KPI 的区间格）。与上面的快照**分开轮询**：
   // 它按日志逐日聚合、比快照重得多，只在切区间或手动刷新时重取。
   const [range, setRange] = useState<UsageRange>("30d");
-  const [grain, setGrain] = useState<HeatGranularity>("daily");
-  const [day, setDay] = useState<string | null>(null);
-  const [model, setModel] = useState<string | null>(null);
   const usageQuery = useQuery({ queryKey: ["usage", range], queryFn: () => api.usage(range) });
   const rangeStats = usageQuery.data;
+
+  // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
+  const [grain, setGrain] = useState<HeatGranularity>("daily");
+  const yearQuery = useQuery({ queryKey: ["usage", "365d"], queryFn: () => api.usage("365d") });
+  const yearStats = yearQuery.data;
 
   // 错误提示：按内容去重
   const lastToastedError = useRef("");
@@ -265,8 +267,7 @@ export function Dashboard(): ReactElement {
   const cacheRate = formatPercent(usage?.cache.hitRate);
   const cacheText = cacheRate === "—" ? "" : ` · 缓存 ${cacheRate}`;
 
-  // 区间用量的派生：热力图选中日、趋势序列、连续天数
-  const selectedDay = day === null ? null : (rangeStats?.daily.find((d) => d.date === day) ?? null);
+  // 区间用量的派生：趋势序列、连续天数
   const series = (rangeStats?.models ?? []).slice(0, MAX_SERIES).map((m) => m.id);
   const streakDays = rangeStats?.streak.current ?? 0;
 
@@ -391,21 +392,7 @@ export function Dashboard(): ReactElement {
           </div>
           <Segmented items={GRAINS} value={grain} onChange={setGrain} label="热力图粒度" />
         </div>
-        <Heatmap
-          daily={rangeStats?.daily ?? []}
-          granularity={grain}
-          selected={day}
-          onSelect={setDay}
-        />
-        {selectedDay !== null && (
-          <div className="mt-3 rounded-lg border border-line bg-canvas/50 px-3 py-2 text-xs text-ink-soft">
-            <span className="font-mono text-ink">{selectedDay.date}</span>
-            {" · "}
-            {formatTokens(selectedDay.tokens)} tokens · 入 {formatTokens(selectedDay.tokensIn)} · 出{" "}
-            {formatTokens(selectedDay.tokensOut)} · {selectedDay.requests} 次请求 ·{" "}
-            {selectedDay.messages} 条消息
-          </div>
-        )}
+        <Heatmap daily={yearStats?.daily ?? []} granularity={grain} />
         {rangeStats?.peak != null && (
           <p className="mt-2 text-xs text-ink-faint">
             最活跃的一天是 {rangeStats.peak.date}，约 {formatTokens(rangeStats.peak.tokens)} tokens；
@@ -420,12 +407,7 @@ export function Dashboard(): ReactElement {
           <Activity className="h-4 w-4 text-ink-faint" />
           每日 Token 趋势
         </div>
-        <TrendChart
-          daily={rangeStats?.daily ?? []}
-          series={series}
-          selected={day}
-          onSelect={setDay}
-        />
+        <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
 
       {/* ③④⑤⑥ 双列区 */}
@@ -437,7 +419,7 @@ export function Dashboard(): ReactElement {
               <Layers className="h-4 w-4 text-ink-faint" />
               模型用量
             </div>
-            <ModelDonut models={rangeStats?.models ?? []} selected={model} onSelect={setModel} />
+            <ModelDonut models={rangeStats?.models ?? []} />
             {rangeStats?.favorite != null && (
               <p className="mt-3 text-xs text-ink-faint">
                 {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}

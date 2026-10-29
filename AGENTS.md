@@ -254,12 +254,15 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
    - **文件头只做导航（≤12 行）**：一句话职责 + 关键约束 ≤3 条 + 铁律（如需要）+ 指针。
    模板与细则见 [`docs/MODULE-COMMENTS.md`](docs/MODULE-COMMENTS.md)，
    内容判据与正反例见 [`docs/CODE-COMMENTS.md`](docs/CODE-COMMENTS.md)。
-8. **Web 控制台禁止 hover 悬浮气泡**（`packages/ui/**` 硬规则，见
-   [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md) §「交互铁律」）：
-   - 不用原生 `title=` 属性、不自建 hover tooltip / popover；
-   - 信息要么直接可见（写进正文、允许换行不裁切），要么放进**点击后**出现的详情区；
-   - 按钮的无障碍名称用 `aria-label`（不产生可见气泡），不要用 `title` 兼职；
-   - 原因：截图 / 投屏 / 触屏 / 键盘都拿不到 hover 内容，依赖悬停等于让信息只对鼠标可见。
+8. **Web 控制台的 hover 规则**（`packages/ui/**`，见
+   [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md) §「交互铁律」；2026-10-30 按主人要求放宽——
+   图表数据详情允许 hover，正文可见性底线不变）：
+   - **正文信息不得只靠 hover 才能看到**（截图 / 投屏 / 触屏 / 键盘拿不到悬停内容）——
+     要么直接可见（写进正文、允许换行不裁切），要么放进点击后的详情区；
+   - **图表数据详情例外**：数据点密度高、点击不合适，用自绘 hover 浮层
+     （`components/usage/ChartTooltip.tsx`：跟随鼠标、portal 到 body、`pointer-events-none`）；
+   - 原生 `title=` 属性仍然禁用（样式不可控 + 无障碍差），按钮的无障碍名称用 `aria-label`；
+   - 新增悬停交互先确认属于「图表数据详情」这一类，其余场景仍不得依赖 hover。
 
 ## 测试规则
 

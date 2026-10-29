@@ -8,9 +8,9 @@
 
 import { listAccessDates, MODEL_REQUEST_PATH, scanAccessDate } from "./log-store.js";
 
-export type UsageRange = "7d" | "30d" | "90d";
+export type UsageRange = "7d" | "30d" | "90d" | "365d";
 
-const RANGE_DAYS: Record<UsageRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
+const RANGE_DAYS: Record<UsageRange, number> = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
 
 /** 未知模型（日志里没有 model 字段的模型请求，如解析前就失败的）在统计里的占位 id。 */
 export const UNKNOWN_MODEL = "";

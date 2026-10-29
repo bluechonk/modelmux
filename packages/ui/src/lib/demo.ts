@@ -740,7 +740,8 @@ const DEMO_USAGE_MODELS: Array<{ id: string; weight: number }> = [
  * 都一样，数字不会自己乱跳（与 `demoLogs` 同一考虑）。形态与真实聚合完全一致。
  */
 export function demoUsage(range: UsageRange): UsageStats {
-  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+  // 365d（热力图的年度视图）在演示里给 90 天的量 —— 保留期之外的格子本来就是空的
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : 90;
   const today = new Date();
   const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
   const daily: UsageDaily[] = [];
