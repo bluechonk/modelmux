@@ -35,7 +35,7 @@ const NOT_LOGGED_IN_MSG = "no credentials found; start the gateway to log in";
 /**
  * epoch 毫秒阈值（秒/毫秒判据）。
  *
- * [代码] 与共享层账号池一致（`runtime/account-pool.ts:120-137` 的 `parseExpiry`）：
+ * [代码] 与共享层账号池一致（`runtime/account-pool.ts` 的 `parseExpiry`）：
  * 数值 `> 1e12` 视为**毫秒**（2001-09 之后的 epoch 毫秒），否则视为**秒**。
  */
 const EPOCH_MS_THRESHOLD = 1e12;
@@ -62,7 +62,7 @@ export class NotLoggedInError extends Error {
  *
  * `expiresAt` / `refreshExpiresAt` 统一存 **epoch 毫秒**（取不到为 null）。
  * 共享层账号池的 `parseExpiry` 认得这两种形态（毫秒会换算成秒），
- * 见 `runtime/account-pool.ts:120-137`。
+ * 见 `runtime/account-pool.ts` 的 `parseExpiry`。
  */
 export interface Credentials {
   accessToken: string;
@@ -281,7 +281,7 @@ function numOf(value: unknown): number | null {
 /**
  * **绝对时刻** → epoch 毫秒（秒/毫秒都认）。
  *
- * [代码] 判据与共享层账号池一致（`runtime/account-pool.ts:125`）：
+ * [代码] 判据与共享层账号池一致（`runtime/account-pool.ts` 的 `parseExpiry`）：
  * 数值 `> 1e12` 视为毫秒，否则视为秒。
  */
 function epochToMs(value: unknown): number | null {

@@ -24,6 +24,9 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8787",
   uiPort: 8788,
   debugDumpEnv: "WORKBUDDYAI_DEBUG_DUMP",
+  // 国际版没有每日签到端点（`billing.ts` 的 signin 是恒 no-op 的声明模块）。
+  // 必须显式声明：缺省视为支持，摘要与调度器都会把它当成能签到的渠道（见 CONTRACT-TS.md §5.4）。
+  capabilities: { billing: true, signin: false },
 };
 
 export const channel: Channel = { config, cred, upstream, catalog, billing };
