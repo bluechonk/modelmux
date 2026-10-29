@@ -29,7 +29,7 @@ dsh 是同类本地 Agent 工具，且同样把「会话如何落盘」当核心
 | 维度 | dsh 的做法 | 证据 |
 |---|---|---|
 | 有没有日志器 | **没有**（全库无 pino/winston/bunyan）—— 日志 = 会话 append-only 事件流 JSONL | 全库 grep 为空 |
-| 目录组织 | 按**会话**（`<root>/--<encoded-cwd>--/<encoded-id>/session.vN.jsonl[.zstd]`） | `dsh-session-persistence-jsonl/lib/index.js:886-920` |
+| 目录组织 | 按**会话**（`<root>/--<encoded-cwd>--/<encoded-id>/session.vN.jsonl[.zstd]`） | `dsh-session-persistence-jsonl/lib/index.js` L886-920 |
 | 写入 | **追加单文件**；头部一帧 + 每批一帧；**写后不合并** | `:3269-3282`、`appendLines` `:3299-3326` |
 | 持久性 | 每批 `handle.sync()`（fsync）；失败 `rollbackAppend()` 截断回原长 | `:3313`、`:3327-3335` |
 | 批处理窗口 | live 事件先入 `buffered`，`setTimeout(200)` 后 drain（per-handle promise chain） | `:190-193`、`:200-221` |
@@ -39,7 +39,7 @@ dsh 是同类本地 Agent 工具，且同样把「会话如何落盘」当核心
 | **压缩触发时机** | **逐批压**（每个 append batch 一帧）—— 不是逐条、不是定时、不是退出时；无压缩级别旋钮 | `encodeEventBatch` `:3279-3281` |
 | 读取 | 多帧扫描 `scanZstdFrames()`；**全量读需解压所有帧**；只读头部只解第一帧；被截断的尾帧可只解前缀 | `:1305-1314`、`:2981-3024`、`:3378`、`:1400` |
 | 单条结构 | **一行一个 JSON**（`JSON.stringify` + `\n`）；存储层**无字段裁剪/截断上限** | `eventLine()` `:959-961` |
-| 值级压缩 | 连续序号（≥3）压成 `[start,end]` 对（无损游程） | `dsh-session/lib/index.js:985-996`、`lib/types/seq-ranges.js:11-27` |
+| 值级压缩 | 连续序号（≥3）压成 `[start,end]` 对（无损游程） | `dsh-session/lib/index.js` L985-996、`dsh-session/lib/types/seq-ranges.js` L11-27 |
 
 ## 3. dsh 的会话上下文落盘
 
@@ -47,7 +47,7 @@ dsh 是同类本地 Agent 工具，且同样把「会话如何落盘」当核心
    不是按 turn 分段；`SessionLogScanner` 顺序扫描。
 2. **大内容不内联**（关键）：长消息 / 工具输出 / 附件走**独立内容寻址 blob**，事件只引用 id。
    - 图片：`<DSH_HOME>/attachments/v1/objects/<sha256 前 2 位>/<sha256>`，id 形如 `sha256:<64hex>`
-     （`dsh-attachment-local/lib/index.js:275-298`）。
+     （`dsh-attachment-local/lib/index.js` L275-298）。
    - 通用文件：唯一对象 + 只读**硬链接**发布（`file-objects/<prefix>/<digest>` + `files/<prefix>/<digest>/<name>`，`:659`）。
    - README 明确：*"Durable session events exclude browser paths, provider URLs, local storage paths, and base64"*。
 3. **去重与压缩**：
@@ -65,12 +65,12 @@ dsh 是同类本地 Agent 工具，且同样把「会话如何落盘」当核心
 | 原子写 temp+rename | 防半行/损坏 | 低 | **本项目已有**（`runtime/secret-file.ts`） |
 | 按会话/按域分文件 | 防单文件膨胀 | 低 | 本项目已按「类型/日期/结果」分层，无需改 |
 | 值级游程编码 | 对「序号数组」省字节 | 低 | 对本项目日志增量价值小 |
-| **轮转与保留** | dsh **没有** —— 这条反倒是本项目更强（10MB 轮转 ×3 / 14 天 / payload 3 天，`log-store.ts:66-68`） | — | 反向结论：dsh 该学本项目 |
+| **轮转与保留** | dsh **没有** —— 这条反倒是本项目更强（10MB 轮转 ×3 / 14 天 / payload 3 天，`runtime/log-store.ts:66-68`） | — | 反向结论：dsh 该学本项目 |
 
 ### 明确**不**移植
 - **原生 flock / koffi / `node-addon-system`**（dsh 的跨进程写锁）→ 违反「零第三方运行依赖」；
   本项目单机单进程，不需要跨进程锁。
-- **每行 fsync 的持久性等级** → 本项目日志是 best-effort 旁路（`log-store.ts:8`），每行 fsync 会拖垮吞吐。
+- **每行 fsync 的持久性等级** → 本项目日志是 best-effort 旁路（`runtime/log-store.ts:8`），每行 fsync 会拖垮吞吐。
 - **格式代 + 迁移链（v0→v4）** → 无此兼容需求。
 - **「永不删除」**（dsh README:167）→ 与本项目保留策略冲突，**不要学**。
 - **按会话单文件 + 头部/批次帧边界** → 本项目是代理网关，无「会话」语义。
@@ -89,7 +89,7 @@ dsh 是同类本地 Agent 工具，且同样把「会话如何落盘」当核心
 - `payload.log` 的 `body` 改为**引用行**：`{ sha256, bytes, truncated, compression }`；
 - 压缩用 **`node:zlib`**：优先 `zstdCompress`（22.15+/23.8+，`typeof` 探测），否则 `gzipSync`；
 - 读取路径（`readPayloads`）先解析引用、再按需解压；
-- **不改变既有约束**：日志失败不影响主流程（`log-store.ts:138`）、单条上限 10MB、`0600` 权限。
+- **不改变既有约束**：日志失败不影响主流程（`runtime/log-store.ts:138`）、单条上限 10MB、`0600` 权限。
 
 ### 5.3 轮转段压缩（设计）
 - 只压**已封存**的轮转段（`.1.log` / `.2.log`），活跃段保持裸文本（保留 tail 零解压快路径）；
