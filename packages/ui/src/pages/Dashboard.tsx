@@ -1,33 +1,93 @@
 /**
- * 仪表盘页（/web/ 首页 · 运行视图），布局：接入盒 → KPI 四格 → 双列（8+4）。
+ * 仪表盘页（`/web/` 首页）：**当下快照 + 区间用量**两层。
  *
- * P0 用 `/api/logs` stats + `/api/state` 拼数据；P1 换 `/web/api/overview`。
- * 设计方案见 docs/DASHBOARD-DESIGN.md。
- * 约束：无 hover 信息，lg 双列 / md 单列 / sm KPI 2×2，不新增依赖。
+ * 快照（今日 KPI / 接入盒 / 模型池 / 最近请求）走 `/api/overview`，3-5 秒轮询；
+ * 用量（Token 活动 / 每日趋势 / 模型用量）走 `/api/usage`，只在切区间或手动刷新时重取。
+ * ⚠ 口径：控制台里「请求」恒指模型请求（`/v1/chat/completions`）——请求日志、用量区块、
+ *   今日 KPI 三处同源，见 docs/USAGE-STATS.md。
+ * ⚠ 无 hover 信息：详情一律点击后落固定区域；lg 双列 / md 单列，不新增依赖。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Check,
-  Copy,
-  RotateCw,
-  Gauge,
+  Activity,
   AlertTriangle,
-  Clock,
-  Coins,
-  Layers,
-  Eye,
-  Brain,
-  Wifi,
   ArrowRight,
+  Brain,
+  CalendarCheck,
+  Check,
+  Coins,
+  Copy,
+  Eye,
+  Flame,
+  Gauge,
+  Layers,
+  RotateCw,
+  Timer,
+  Wifi,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { KpiCard } from "../components/KpiCard";
+import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
+import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
+import { ModelDonut } from "../components/usage/ModelDonut";
+import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
 import { formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
-import type { AccessLogEntry, AccessOutcome } from "../lib/types";
+import type { AccessLogEntry, AccessOutcome, UsageRange } from "../lib/types";
+
+/** 区间选项（驱动下方「用量」三块，不影响今日快照）。 */
+const RANGES: ReadonlyArray<{ key: UsageRange; label: string }> = [
+  { key: "7d", label: "近 7 日" },
+  { key: "30d", label: "近 30 日" },
+  { key: "90d", label: "近 90 日" },
+];
+
+const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
+  { key: "daily", label: "每日" },
+  { key: "weekly", label: "每周" },
+  { key: "cumulative", label: "累计" },
+];
+
+/** 趋势图最多画几条序列（更多模型会撞色）。 */
+const MAX_SERIES = 6;
+
+/** 分段控件（区间 / 热力图粒度共用）。 */
+function Segmented<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+}: {
+  items: ReadonlyArray<{ key: T; label: string }>;
+  value: T;
+  onChange: (next: T) => void;
+  label: string;
+}): ReactElement {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="inline-flex overflow-hidden rounded-lg border border-line"
+    >
+      {items.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          aria-pressed={value === item.key}
+          onClick={() => onChange(item.key)}
+          className={`tap px-3 py-1.5 text-xs transition-colors ${
+            value === item.key ? "bg-brand text-canvas" : "text-ink-soft hover:bg-overlay/40"
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // 最近请求行
@@ -130,6 +190,15 @@ export function Dashboard(): ReactElement {
   });
   const overview = overviewQuery.data;
 
+  // 区间用量（Token 活动 / 每日趋势 / 模型用量）。与上面的快照**分开轮询**：
+  // 它按日志逐日聚合、比快照重得多，只在切区间或手动刷新时重取。
+  const [range, setRange] = useState<UsageRange>("30d");
+  const [grain, setGrain] = useState<HeatGranularity>("daily");
+  const [day, setDay] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const usageQuery = useQuery({ queryKey: ["usage", range], queryFn: () => api.usage(range) });
+  const rangeStats = usageQuery.data;
+
   // 错误提示：按内容去重
   const lastToastedError = useRef("");
   useEffect(() => {
@@ -194,10 +263,21 @@ export function Dashboard(): ReactElement {
   const cacheRate = formatPercent(usage?.cache.hitRate);
   const cacheText = cacheRate === "—" ? "" : ` · 缓存 ${cacheRate}`;
 
+  // 区间用量的派生：热力图选中日、趋势序列、连续天数
+  const selectedDay = day === null ? null : (rangeStats?.daily.find((d) => d.date === day) ?? null);
+  const series = (rangeStats?.models ?? []).slice(0, MAX_SERIES).map((m) => m.id);
+  const streakDays = rangeStats?.streak.current ?? 0;
+
   return (
     <div className="space-y-5 pb-10">
-      {/* ② KPI 行：四格，sm+ 单行，窄屏 2×2（放在接入盒上方，先看运行概况再看接入信息） */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <PageHeader
+        title="仪表盘"
+        description="今日快照 + 区间用量（区间只作用于 Token 活动 / 每日趋势 / 模型用量三块）"
+        actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
+      />
+
+      {/* ① KPI：今日三格 + 区间四格，同一栅格（窄屏 2 列 / lg 4 列 / xl 7 列） */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
         <KpiCard
           icon={Wifi}
           label="今日请求 · 成功率"
@@ -209,13 +289,8 @@ export function Dashboard(): ReactElement {
           icon={AlertTriangle}
           label="失败 · 其中慢"
           value={String(usage?.failure ?? 0)}
-          sub={usage ? `慢请求 ${usage.slow} 次` : undefined}
+          sub={usage ? `慢 ${usage.slow} 次 · 平均 ${avgDur}` : undefined}
           tone={(usage?.failure ?? 0) > 0 ? "danger" : "muted"}
-        />
-        <KpiCard
-          icon={Clock}
-          label="平均耗时"
-          value={avgDur}
         />
         <KpiCard
           icon={Coins}
@@ -226,6 +301,40 @@ export function Dashboard(): ReactElement {
               ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}${cacheText}`
               : undefined
           }
+        />
+        <KpiCard
+          icon={Layers}
+          label="累计 Token"
+          value={rangeStats ? formatTokens(rangeStats.totals.tokens) : "—"}
+          sub={
+            rangeStats && rangeStats.totals.tokens > 0
+              ? `入 ${formatTokens(rangeStats.totals.tokensIn)} · 出 ${formatTokens(rangeStats.totals.tokensOut)}`
+              : undefined
+          }
+        />
+        <KpiCard
+          icon={Flame}
+          label="峰值 Token"
+          value={rangeStats?.peak == null ? "—" : formatTokens(rangeStats.peak.tokens)}
+          sub={rangeStats?.peak == null ? undefined : `最活跃 ${rangeStats.peak.date}`}
+          tone="warn"
+        />
+        <KpiCard
+          icon={Timer}
+          label="最长单请求"
+          value={formatDuration(rangeStats?.totals.longestRequestMs ?? undefined)}
+          sub={
+            rangeStats && rangeStats.totals.requests > 0
+              ? `平均 ${formatDuration(Math.round(rangeStats.totals.durationMs / rangeStats.totals.requests))}`
+              : undefined
+          }
+        />
+        <KpiCard
+          icon={CalendarCheck}
+          label="当前连续"
+          value={`${streakDays} 天`}
+          sub={rangeStats ? `最长 ${rangeStats.streak.longest} 天` : undefined}
+          tone={streakDays > 0 ? "free" : "muted"}
         />
       </div>
 
@@ -271,33 +380,68 @@ export function Dashboard(): ReactElement {
         </div>
       </section>
 
+      {/* ② Token 活动：日历热力图（每日 / 每周 / 累计）；点击格子 → 详情落下方固定区（不用 hover） */}
+      <section className="panel p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="panel-title">
+            <Activity className="h-4 w-4 text-ink-faint" />
+            Token 活动
+          </div>
+          <Segmented items={GRAINS} value={grain} onChange={setGrain} label="热力图粒度" />
+        </div>
+        <Heatmap
+          daily={rangeStats?.daily ?? []}
+          granularity={grain}
+          selected={day}
+          onSelect={setDay}
+        />
+        {selectedDay !== null && (
+          <div className="mt-3 rounded-lg border border-line bg-canvas/50 px-3 py-2 text-xs text-ink-soft">
+            <span className="font-mono text-ink">{selectedDay.date}</span>
+            {" · "}
+            {formatTokens(selectedDay.tokens)} tokens · 入 {formatTokens(selectedDay.tokensIn)} · 出{" "}
+            {formatTokens(selectedDay.tokensOut)} · {selectedDay.requests} 次请求 ·{" "}
+            {selectedDay.messages} 条消息
+          </div>
+        )}
+        {rangeStats?.peak != null && (
+          <p className="mt-2 text-xs text-ink-faint">
+            最活跃的一天是 {rangeStats.peak.date}，约 {formatTokens(rangeStats.peak.tokens)} tokens；
+            峰值时段 {String(rangeStats.peak.hour).padStart(2, "0")}:00 前后。
+          </p>
+        )}
+      </section>
+
+      {/* ③ 每日 Token 趋势：按模型分色；与热力图共享「选中日」 */}
+      <section className="panel p-4">
+        <div className="panel-title mb-3">
+          <Activity className="h-4 w-4 text-ink-faint" />
+          每日 Token 趋势
+        </div>
+        <TrendChart
+          daily={rangeStats?.daily ?? []}
+          series={series}
+          selected={day}
+          onSelect={setDay}
+        />
+      </section>
+
       {/* ③④⑤⑥ 双列区 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* 左列：最近请求 */}
+        {/* 左列：模型用量（区间聚合，8 列宽够放下环形 + 图例列表） */}
         <div className="space-y-5 lg:col-span-8">
-          {/* ⑤ 最近请求 */}
           <section className="panel p-4">
             <div className="panel-title mb-3">
-              <Gauge className="h-4 w-4 text-ink-faint" />
-              最近请求
+              <Layers className="h-4 w-4 text-ink-faint" />
+              模型用量
             </div>
-            {recent.length === 0 ? (
-              <div className="py-4 text-center text-xs text-ink-faint">今日暂无请求</div>
-            ) : (
-              <div className="space-y-0.5">
-                {recent.map((entry) => (
-                  <RecentRow key={entry.id} entry={entry} />
-                ))}
-              </div>
+            <ModelDonut models={rangeStats?.models ?? []} selected={model} onSelect={setModel} />
+            {rangeStats?.favorite != null && (
+              <p className="mt-3 text-xs text-ink-faint">
+                {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}
+                {formatPercent(rangeStats.favorite.share)}。
+              </p>
             )}
-            <button
-              type="button"
-              onClick={() => void navigate("/logs")}
-              className="tap mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
-            >
-              查看全部日志
-              <ArrowRight className="h-3 w-3" />
-            </button>
           </section>
         </div>
 
@@ -341,6 +485,31 @@ export function Dashboard(): ReactElement {
           {/* ⑥ 网关控制已移到侧栏底部（Layout 的 GatewayControl）：全局操作不随页面布局跑 */}
         </div>
       </div>
+
+      {/* ⑦ 最近请求（全宽：池 id 较长，给足横向空间） */}
+      <section className="panel p-4">
+        <div className="panel-title mb-3">
+          <Gauge className="h-4 w-4 text-ink-faint" />
+          最近请求
+        </div>
+        {recent.length === 0 ? (
+          <div className="py-4 text-center text-xs text-ink-faint">今日暂无请求</div>
+        ) : (
+          <div className="space-y-0.5">
+            {recent.map((entry) => (
+              <RecentRow key={entry.id} entry={entry} />
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => void navigate("/logs")}
+          className="tap mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
+        >
+          查看全部请求日志
+          <ArrowRight className="h-3 w-3" />
+        </button>
+      </section>
     </div>
   );
 }
