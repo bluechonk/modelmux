@@ -1,20 +1,18 @@
 /**
- * Token 活动热力图（日历格子）。
+ * Token 活动热力图：**52 周 × 7 天**的年度日历，横轴按月份标注（学 ZCode 的「Token 活动」）。
  *
- * 形态学 ZCode 的「Token 活动」，但交互**不照搬**：ZCode 用 hover 悬浮气泡，
- * 而仓库硬规则禁止 hover tooltip（触屏 / 截图 / 投屏 / 键盘都拿不到悬停内容）。
- * 这里的做法是**点击格子 → 选中态上抛**，由页面渲染固定详情区。
+ * 三档粒度（daily / weekly / cumulative）只改颜色映射与浮层文案，格子布局恒定。
+ * 交互是 **hover**（主人明确要求对齐 ZCode）：格子放大 + 自绘浮层；**点击不触发任何逻辑**。
  *
- * 三档粒度（与 ZCode 同口径）只改变**颜色映射**，格子布局恒为「一周一列、一天一格」：
- *   - `daily`：按当天 tokens
- *   - `weekly`：按该周合计（同周格子同色）
- *   - `cumulative`：按截至该天的累计
+ * ⚠ 一年里只有日志保留期内（默认 14 天）的格子有数据 —— 空格是保留策略的必然结果，
+ *   不是渲染 bug（docs/USAGE-STATS.md §「日志保留期」）。
  */
 
-import { useMemo, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 
 import { formatTokens } from "../../lib/log-format";
 import type { UsageDaily } from "../../lib/types";
+import { ChartTooltip } from "./ChartTooltip";
 
 export type HeatGranularity = "daily" | "weekly" | "cumulative";
 
@@ -27,28 +25,35 @@ const LEVEL_CLASS = [
   "bg-brand/85",
 ] as const;
 
-const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
-
+const WEEKDAY_LABELS = ["一", "", "三", "", "五", "", ""] as const;
+const WEEKS = 52;
 const MS_PER_DAY = 86_400_000;
 
-/** `YYYY-MM-DD` → UTC 零点的时间戳（只做日期运算，避免时区把天数算歪）。 */
+const MONTH_NAMES = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+
+interface HoverInfo {
+  date: string;
+  tokens: number;
+  requests: number;
+  x: number;
+  y: number;
+}
+
+/** `YYYY-MM-DD` → UTC 零点时间戳（只做日期运算，避免时区把天数算歪）。 */
 function dayKey(date: string): number {
   const [y, m, d] = date.split("-").map((v) => Number(v));
   return Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
 }
 
-/** 周一为一周之首（与 `WEEKDAY_LABELS` 对齐）。 */
+function isoOf(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+/** 周一为一周之首（对齐 `WEEKDAY_LABELS`）。 */
 function weekdayIndex(ts: number): number {
   return (new Date(ts).getUTCDay() + 6) % 7;
 }
 
-interface Cell {
-  date: string;
-  tokens: number;
-  level: number;
-}
-
-/** 按档位把值映射到 0–4。 */
 function levelOf(value: number, max: number): number {
   if (value <= 0 || max <= 0) return 0;
   const ratio = value / max;
@@ -61,36 +66,33 @@ function levelOf(value: number, max: number): number {
 export function Heatmap({
   daily,
   granularity,
-  selected,
-  onSelect,
 }: {
-  /** 升序的每日用量（只含有请求的日期）。 */
+  /** 升序的每日用量（取 365d 区间；只含有请求的日期）。 */
   daily: UsageDaily[];
   granularity: HeatGranularity;
-  selected: string | null;
-  onSelect: (date: string) => void;
 }): ReactElement {
-  const { columns, max } = useMemo(() => {
-    const byDate = new Map(daily.map((d) => [d.date, d]));
-    if (daily.length === 0) return { columns: [] as Cell[][], max: 0 };
-    const first = dayKey(daily[0]!.date);
-    const last = dayKey(daily[daily.length - 1]!.date);
+  const [hover, setHover] = useState<HoverInfo | null>(null);
 
-    // 先按日算「值」，再按粒度换成颜色映射所用的量
+  const { columns, max, monthMarks } = useMemo(() => {
+    if (daily.length === 0) return { columns: [] as Array<Array<{ date: string; tokens: number; level: number } | null>>, max: 0, monthMarks: [] as Array<{ col: number; label: string }> };
+    const byDate = new Map(daily.map((d) => [d.date, d]));
+    // 以「今天」为日历末端，向前铺满 52 周（周一为首列）——与 ZCode 的年度视图同构
+    const today = dayKey(isoOf(Date.now()));
+    const todayWeekday = weekdayIndex(today);
+    const lastWeekStart = today - todayWeekday * MS_PER_DAY;
+    const firstWeekStart = lastWeekStart - (WEEKS - 1) * 7 * MS_PER_DAY;
+
     const perDay: number[] = [];
-    for (let ts = first; ts <= last; ts += MS_PER_DAY) {
+    for (let ts = firstWeekStart; ts <= lastWeekStart + 6 * MS_PER_DAY; ts += MS_PER_DAY) {
       perDay.push(byDate.get(isoOf(ts))?.tokens ?? 0);
     }
     const values = perDay.map((tokens, i) => {
       if (granularity === "daily") return tokens;
-      const ts = first + i * MS_PER_DAY;
+      const ts = firstWeekStart + i * MS_PER_DAY;
       const weekStart = ts - weekdayIndex(ts) * MS_PER_DAY;
       if (granularity === "weekly") {
         let sum = 0;
-        for (let w = 0; w < 7; w += 1) {
-          const idx = (weekStart - first) / MS_PER_DAY + w;
-          sum += perDay[idx] ?? 0;
-        }
+        for (let w = 0; w < 7; w += 1) sum += perDay[(weekStart - firstWeekStart) / MS_PER_DAY + w] ?? 0;
         return sum;
       }
       let sum = 0;
@@ -99,54 +101,100 @@ export function Heatmap({
     });
     const max = values.reduce((m, v) => (v > m ? v : m), 0);
 
-    const cells: Cell[] = perDay.map((_, i) => {
-      const ts = first + i * MS_PER_DAY;
+    const cells = perDay.map((_, i) => {
+      const ts = firstWeekStart + i * MS_PER_DAY;
       const date = isoOf(ts);
       return { date, tokens: byDate.get(date)?.tokens ?? 0, level: levelOf(values[i] ?? 0, max) };
     });
-    // 首列前面空掉，让「周一」永远在第一行
-    const pad = weekdayIndex(first);
-    const padded: Array<Cell | null> = [...new Array<null>(pad).fill(null), ...cells];
-    const columns: Cell[][] = [];
-    for (let i = 0; i < padded.length; i += 7) {
-      columns.push(padded.slice(i, i + 7).filter((c): c is Cell => c !== null));
+    const pad = weekdayIndex(firstWeekStart);
+    const padded: Array<{ date: string; tokens: number; level: number } | null> = [
+      ...new Array<null>(pad).fill(null),
+      ...cells,
+    ];
+    const columns: Array<Array<{ date: string; tokens: number; level: number } | null>> = [];
+    for (let i = 0; i < padded.length; i += 7) columns.push(padded.slice(i, i + 7));
+
+    // 月份标签：每列取首日的月份，月份变化的那一列挂标签（列 index 与格子网格同宽）
+    const monthMarks: Array<{ col: number; label: string }> = [];
+    let prevMonth = -1;
+    for (let c = 0; c < columns.length; c += 1) {
+      const firstCell = columns[c]?.find((cell) => cell !== null);
+      if (!firstCell) continue;
+      const month = Number(firstCell.date.slice(5, 7)) - 1;
+      if (month !== prevMonth) {
+        monthMarks.push({ col: c, label: MONTH_NAMES[month] ?? "" });
+        prevMonth = month;
+      }
     }
-    return { columns, max };
+    return { columns, max, monthMarks };
   }, [daily, granularity]);
+
+  const tooltipText = (date: string, tokens: number, requests: number): string => {
+    const zhDate = `${Number(date.slice(0, 4))}年${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
+    const suffix = granularity === "weekly" ? "当周" : granularity === "cumulative" ? "累计" : "";
+    const turns = granularity === "daily" ? ` · ${requests} 轮消息` : "";
+    return `${zhDate}${suffix ? " " + suffix : ""}：${formatTokens(tokens)} tokens${turns}`;
+  };
 
   if (daily.length === 0) {
     return <p className="px-1 py-6 text-xs text-ink-faint">区间内还没有模型请求。</p>;
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
+      {/* 月份行：与格子网格同列数，标签挂在「月份第一周」的列上 */}
       <div className="overflow-x-auto pb-1">
-        <div className="flex gap-3">
-          <div className="flex shrink-0 flex-col gap-[3px] pt-[18px]" aria-hidden="true">
-            {WEEKDAY_LABELS.map((label) => (
-              <span key={label} className="h-4 text-xs leading-4 text-ink-faint">
-                {label}
-              </span>
-            ))}
+        <div className="min-w-[720px]">
+          <div
+            className="mb-1 grid h-4"
+            style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
+            aria-hidden="true"
+          >
+            {Array.from({ length: columns.length }, (_, col) => {
+              const mark = monthMarks.find((m) => m.col === col);
+              return (
+                <span key={col} className="relative text-xs text-ink-faint">
+                  {mark !== undefined && <span className="absolute left-0 whitespace-nowrap">{mark.label}</span>}
+                </span>
+              );
+            })}
           </div>
-          <div className="flex gap-[3px]">
-            {columns.map((column, ci) => (
-              <div key={ci} className="flex flex-col gap-[3px]">
-                {column.map((cell) => (
-                  <button
-                    key={cell.date}
-                    type="button"
-                    data-viz-target=""
-                    onClick={() => onSelect(cell.date)}
-                    aria-label={`${cell.date}，${formatTokens(cell.tokens)} tokens`}
-                    aria-pressed={selected === cell.date}
-                    className={`h-4 w-4 rounded-[3px] transition-[outline] md:h-3 md:w-3 ${LEVEL_CLASS[cell.level]} ${
-                      selected === cell.date ? "outline-2 outline-offset-1 outline-brand" : ""
-                    }`}
-                  />
-                ))}
-              </div>
-            ))}
+          <div className="flex gap-2">
+            <div className="flex shrink-0 flex-col gap-[3px]" aria-hidden="true">
+              {WEEKDAY_LABELS.map((label, i) => (
+                <span key={i} className="h-3 text-xs leading-3 text-ink-faint">
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div
+              className="grid flex-1 gap-[3px]"
+              style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
+            >
+              {Array.from({ length: columns.length }, (_, col) => (
+                <div key={col} className="flex flex-col gap-[3px]">
+                  {columns[col]!.map((cell) =>
+                    cell === null ? (
+                      <span key={`pad-${col}`} className="h-3 w-full" />
+                    ) : (
+                      <span
+                        key={cell.date}
+                        data-heat-cell={cell.date}
+                        onMouseEnter={(event) => {
+                          const req = daily.find((d) => d.date === cell.date)?.requests ?? 0;
+                          setHover({ date: cell.date, tokens: cell.tokens, requests: req, x: event.clientX, y: event.clientY });
+                        }}
+                        onMouseMove={(event) =>
+                          setHover((prev) => (prev === null || prev.date !== cell.date ? prev : { ...prev, x: event.clientX, y: event.clientY }))
+                        }
+                        onMouseLeave={() => setHover(null)}
+                        className={`aspect-square w-full rounded-[3px] border border-transparent transition-transform hover:scale-125 hover:border-line ${LEVEL_CLASS[cell.level]}`}
+                      />
+                    ),
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -158,11 +206,11 @@ export function Heatmap({
         <span>多</span>
         <span className="ml-2">峰值 {formatTokens(max)} tokens</span>
       </div>
-      <p className="sr-only">点击方格查看该日详情</p>
+      <ChartTooltip show={hover !== null} x={hover?.x ?? 0} y={hover?.y ?? 0}>
+        {hover !== null && (
+          <span className="font-mono text-ink">{tooltipText(hover.date, hover.tokens, hover.requests)}</span>
+        )}
+      </ChartTooltip>
     </div>
   );
-}
-
-function isoOf(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 10);
 }
