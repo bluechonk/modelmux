@@ -263,6 +263,25 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 
 ## 测试规则
 
+### 已知隐患：`--test-force-exit` 会静默丢结果（待修，别把「绿」当全跑）
+
+`packages/core/gateway` 的测试命令带 `--test-force-exit`，为的是绕过「用例都过了、进程却退不出去」。
+代价是**子进程被杀之前的结果会丢**：同一命令连跑，用例数在 378 ~ 419 之间波动（稳定值 **422**）。
+
+实测事实（2026-10-29）：
+
+- `node --test --test-timeout=20000 tests/*.test.ts`（去掉该标志）稳定报
+  `# tests 422 / # pass 419 / # fail 0 / # cancelled 3`、**退出码 1** —— 因为
+  `accounts.test.ts` / `chat-route.test.ts` / `cli.test.ts` **跑完不退进程**，
+  文件级用例被超时中止（用例本身全部通过）；带该标志时这次中止**不会被上报**，于是退出码 0。
+- 单个文件单独跑也一样：`--test-timeout=3000/6000/20000` 分别正好耗时 3.05s/6.06s/20.06s
+  —— 说明时间全花在「等进程退出」，不是用例慢。
+
+**修法**：查清这 3 个文件为何跑完不退（探针 `.tmp/probe-leak.mjs` / `probe-leak2.mjs`；
+已排除 import 侧效应与测试内的 `child_process`/`cluster`），修掉后去掉 `--test-force-exit`，
+并把 `# pass` 恒等于 422 作为回归判据。**在此之前**：怀疑「测试没跑到」时用
+`node --test --test-timeout=20000 tests/*.test.ts` 手工复跑一遍（会如实报出被中止的文件）。
+
 0. **Web / UI 改动必须做浏览器视觉校验（`agent-browser` 或 `control-browser` 技能）**：
    - 改 `packages/ui/**`（布局、文案、状态、交互）后，**Agent 必须在真实浏览器里打开
      `http://127.0.0.1:4412/web/` 逐页校验**，不能只看编译通过或 DOM 有内容就算完成。
