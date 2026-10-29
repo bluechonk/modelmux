@@ -12,8 +12,8 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, List, ScrollText } from "lucide-react";
-import { useState } from "react";
+import { Boxes, Gauge, List, Menu, ScrollText } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
 import { BrandMark } from "./BrandMark";
@@ -66,8 +66,14 @@ function GatewaySkeleton(): ReactElement {
  * 状态恢复后 3 秒内自动换回真实内容。
  */
 export function Layout({ children }: { children?: ReactNode }): ReactElement {
-  /** 侧栏折叠状态：点击品牌行切换，折叠时只留图标列（文案与底部状态区隐藏）。 */
+  /**
+   * 侧栏两种形态，互不干扰：
+   *   - `collapsed`：**桌面**（≥ md）的图标栏 / 展开态，点品牌行切换；
+   *   - `drawerOpen`：**手机**（< md）的 overlay 抽屉 —— 窄屏放不下 56px 常驻栏
+   *     （底部 base_url 会被压成每字一行），故改为点汉堡按钮浮出、点遮罩或换页收起。
+   */
   const [collapsed, setCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const state = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
@@ -77,6 +83,10 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
   // 注意顺序：isError 优先于 ui_state 缓存 —— 网关挂了之后 state.data 还是上次的
   // 「running」，只看 ui_state 永远等不到异常（3 秒轮询一直失败也白搭）。
   const { pathname } = useLocation();
+  // 换页即收抽屉：手机点完导航应当直接看到内容，不该再手动收一次
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
   const uiState = state.data?.ui_state ?? "";
   const queryFailed = Boolean(state.isError);
   const abnormal = queryFailed || uiState === "error" || uiState === "down";
@@ -90,13 +100,22 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
 
   return (
     <div className="flex h-full">
-      {/* 窄屏收成图标栏：宽度 56px，文案隐藏（见文件头「响应式」） */}
+      {/* 手机抽屉的遮罩（`≥ md` 不渲染）：点它收起抽屉 */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setDrawerOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* 侧栏：`≥ md` 是常驻栏（折叠 56px / 展开 15%）；`< md` 改为 overlay 抽屉
+          （w-64、默认移出屏幕）—— 窄屏放不下常驻栏，底部 base_url 会被压成每字一行。 */}
       <aside
-        className={`flex shrink-0 flex-col bg-surface transition-[width] duration-200 ${
-          collapsed
-            ? "w-14"
-            : "w-14 md:w-[15%] md:min-w-[176px] md:max-w-[220px]"
-        }`}
+        className={`flex shrink-0 flex-col bg-surface
+          fixed inset-y-0 left-0 z-50 w-64 md:static md:z-auto
+          transition-transform duration-200 md:transition-[width]
+          ${drawerOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0
+          ${collapsed ? "md:w-14" : "md:w-[15%] md:min-w-[176px] md:max-w-[220px]"}`}
       >
           {/* 品牌兼折叠开关：mark 常驻，名字只在展开（宽屏）显示；点击收起/展开侧栏 */}
           <button
@@ -108,11 +127,14 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
             }`}
           >
             <BrandMark size={20} className="shrink-0 text-ink" />
-            {!collapsed && (
-              <span className="hidden text-[15px] font-medium tracking-tight text-ink md:inline">
-                modelmux
-              </span>
-            )}
+            {/* 手机抽屉里始终可见；桌面折叠态由 `md:hidden` 藏掉（该前缀只在 ≥md 生效） */}
+            <span
+              className={`text-[15px] font-medium tracking-tight text-ink md:inline ${
+                collapsed ? "md:hidden" : ""
+              }`}
+            >
+              modelmux
+            </span>
           </button>
 
           {/* 导航：折叠时只留图标（居中），展开时图标 + 文案 */}
@@ -133,26 +155,27 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
                 }
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && (
-                  <span className="hidden min-w-0 truncate md:inline">{label}</span>
-                )}
+                <span
+                  className={`min-w-0 truncate md:inline ${collapsed ? "md:hidden" : ""}`}
+                >
+                  {label}
+                </span>
               </NavLink>
             ))}
           </nav>
 
         {/* 底部：网关控制（常驻）+ 演示模式提示。
-            网关控制放侧栏而非页面内 —— 网关挂了 main 区是骨架，这里仍能操作。 */}
-        {!collapsed && (
-          <div className="mt-auto space-y-2 pb-2">
-            {IS_DEMO && (
-              <div className="mx-3 mb-2 hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
-                <div className="font-medium">演示模式</div>
-                <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
-              </div>
-            )}
-            <GatewayControl />
-          </div>
-        )}
+            网关控制放侧栏而非页面内 —— 网关挂了 main 区是骨架，这里仍能操作。
+            手机抽屉里必须可见（窄屏没有别处能操作网关），故折叠态用 `md:hidden` 只藏桌面。 */}
+        <div className={`mt-auto space-y-2 pb-2 ${collapsed ? "md:hidden" : ""}`}>
+          {IS_DEMO && (
+            <div className="mx-3 mb-2 hidden rounded-lg border border-warn/25 bg-warn/8 px-3 py-2 text-[11px] leading-relaxed text-warn/90 md:block">
+              <div className="font-medium">演示模式</div>
+              <div className="mt-0.5 text-warn/70">数据均为虚构，未连接真实网关</div>
+            </div>
+          )}
+          <GatewayControl />
+        </div>
       </aside>
 
       <main className="min-h-0 min-w-0 flex-1 overflow-auto">
@@ -162,6 +185,17 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
           模型表的 7 列与账号卡两列都有足够横向空间。
         */}
         <div className="mx-auto flex h-full min-h-0 max-w-[1600px] flex-col px-4 py-6 sm:px-6 sm:py-8">
+          {/* 手机：抽屉开关（**流内**而非 fixed，避免遮挡内容与滚动条错位） */}
+          <div className="mb-3 md:hidden">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="打开导航"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-raised text-ink"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+          </div>
           {skeleton ? <GatewaySkeleton /> : children ?? <Outlet />}
         </div>
       </main>
