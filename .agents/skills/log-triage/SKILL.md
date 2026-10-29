@@ -38,6 +38,10 @@ mx log --list
 | worker 原始输出 | `mx log --kind worker --lines 100` |
 | 某渠道 | `mx log catpaw --kind channel --lines 50`（`--kind channel` **必须**给 cid，否则报「日志不存在」） |
 | 指定日期 | `mx log --date YYYY-MM-DD --kind access --outcome failure` |
+| **压缩存量正文**（维护，非检索） | `mx log --compact` 就地压**已封存**的抓取轮转段（新写入的正文本就已压缩）；不动活跃段，`--json` 出机器可读统计 |
+
+> `--compact` 是唯一与检索无关的选项：用于消化改造前落盘的明文正文（正文落盘形态见
+> [LOGGING.md](../../../docs/LOGGING.md) §9）。**别拿它当日常动作** —— 新数据自动压缩。
 
 - `mx log` 默认是 system 日志；查请求必须加 `--kind access`。
 - 未指定 `--date` 时取本地当天；当天无该文件时回落到最新含该文件的日期。

@@ -174,6 +174,11 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 
 ⚠ 不要在本文件内联 `mx log` 命令清单 —— 那会与技能形成两份事实并漂移（`verify-docs` 拦这条）。
 
+`log` 动词还有一个**维护**选项 `--compact`（检索之外的唯一入口；用法见 `--help` 与
+`log-triage` 技能）：它把**已封存**的抓取轮转段（`payload.log.1.log`…`.3.log`）里
+仍是明文的正文就地压成压缩态，用于消化改造前的存量。
+只动封存段 —— 活跃段可能被并发追加，而本项目没有文件锁，重写它有丢记录的窗口。
+
 ## 8. 安全边界
 
 | 边界 | 事实 |
@@ -213,7 +218,18 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | `cid` / `model` / `stream` | 上下文；`phase=client` 时 `cid` 可能缺席（那一刻路由还没解析出渠道） |
 | `bytes` | **原始**长度（截断前） |
 | `truncated` | 是否被单条上限截断 |
-| `body` | **原样文本**（UTF-8）；超上限时双端保留，可能切在字符中间 |
+| `bodyEnc` | 正文形态：`plain`（明文）/ `zstd` / `gzip`；**旧行的行里没有这个字段**，等价于 `plain` |
+| `body` | `bodyEnc=plain` 时的**原样文本**（UTF-8）；超上限时双端保留，可能切在字符中间 |
+| `bodyB64` | `zstd` / `gzip` 时正文的 base64（Base64 是 JSON 行里放二进制文本的唯一安全形态） |
+
+**正文压缩**（2026-10-29 起）：正文 ≥ 4KB 就压（zstd 优先，Node < 22.15 回落 gzip），
+压缩结果 base64 后内联进行；小于 4KB 保持明文（压完还要 base64，可能反而变大）。
+读回时按 `bodyEnc` 透明解码，**老行（只有 `body`）照旧可读**。压缩实测约 2.3–2.9x
+（agent 上下文正文，见 `docs/STORAGE-OPTIMIZATION.md`）。
+
+⚠ 之所以不做「内容寻址去重（blob）」，是因为**实测重复率为 0**：2 天 114 条正文
+全部唯一，`client` 与 `upstream` 正文也无一字节相同。去重会多出一层目录与必须配套的 GC，
+收益为零 —— 详见 `docs/STORAGE-OPTIMIZATION.md`。
 
 两条硬约束（实现见 `runtime/log-store.ts`）：
 
