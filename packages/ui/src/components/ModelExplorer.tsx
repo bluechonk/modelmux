@@ -316,7 +316,14 @@ const COLS: Array<{
   { key: "contextWindow", label: "最大上下文", align: "right", wide: true },
   { key: "maxOutput", label: "输出上限", align: "right", wide: true },
   { key: "effort", label: "思考模式", align: "left", wide: true },
-  { key: "modality", label: "输入", align: "left" },
+  {
+    key: "modality",
+    label: "输入",
+    align: "left",
+    // `< md` 也隐藏：手机上固定宽列挤掉的正是模型列的宽度 ——
+    // 实测（390 视口）模型名会被压到只剩 3 个字符（`lon…`），核心信息不可读。
+    wide: true,
+  },
   { key: "copy", label: "", align: "left" },
 ];
 
