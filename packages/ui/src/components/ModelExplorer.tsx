@@ -10,9 +10,10 @@
  */
 
 import { ChevronDown, ChevronRight, Image as ImageIcon, LayoutList, Rows3, Search, Type, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
+import { useNarrow } from "../lib/use-narrow";
 import { CopyButton } from "./CopyChip";
 import { ScrollFade } from "./ScrollFade";
 
@@ -351,29 +352,6 @@ const COLS: ColDef[] = [
 /** 当前视口该保留的列（宽屏一份不丢）。 */
 function colsFor(narrow: boolean): ColDef[] {
   return narrow ? COLS.filter((col) => !col.wide) : COLS;
-}
-
-/**
- * 是否窄屏（`< md` = 768px，与 Tailwind 的 `md:` 同一口径）。
- *
- * ## 为什么这里必须用 JS 判断，而不是 `hidden md:table-cell`
- *
- * `display: none` 的 `<td>` / `<col>` 在 `table-layout: fixed` 下**仍占列槽位**：
- * 实测（390 视口）隐藏四列后，模型列只拿到 48px（表头那行却拿到 238px，
- * 表头与表体各按自己的算法分列 → 两边还错位）。
- * 要在窄屏真正少几列，只能**少渲染这几个 `<td>`**，让单元格数量与列数量恒等。
- */
-function useNarrow(): boolean {
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const onChange = (): void => setNarrow(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return narrow;
 }
 
 /**
