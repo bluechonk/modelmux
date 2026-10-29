@@ -429,10 +429,12 @@ npm run gate          # 完整门禁：干净 clone → npm ci → npm test
 **强制**。全局 `~/.zcode/AGENTS.md`「标签与发布」规定「打 tag → 出 Release」，
 **本仓库只做前半步**：
 
-1. **发版 = 打 tag，到此为止。不要建 GitHub Release**（`gh release create`、`github:release`
-   技能一律不用）—— 本仓的发布物就是 tag 本身：仓库没有任何发布流程（无 `npm publish`、
-   无产物打包 workflow），Release 页面只承载一份版本说明，而那份说明的权威来源是 `git log`。
-   ⚠ 与全局规则的这一条冲突时**以本条为准**；`v0.1.0` 那个 draft Release 是历史遗留，不要动它。
+1. **发版 = 打 tag，到此为止。不要建 GitHub Release**（`gh release create` / `gh release edit`
+   一律不用，`github:release` 技能与网页「Draft a new release」同样不用）——
+   本仓的发布物就是 tag 本身：仓库没有任何发布流程（无 `npm publish`、无产物打包 workflow、
+   不做 exe/安装包，只有 web 控制台与 CLI），Release 页面只承载一份版本说明，
+   而那份说明的权威来源是 `git log`。
+   ⚠ 与全局规则的这一条冲突时**以本条为准**；**Releases 页必须保持为空**（`gh release list` 无输出）。
 2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与各 `package.json` 的 `version`，
    按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。
