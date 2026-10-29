@@ -16,6 +16,7 @@ import {
   countOrDash,
   formatBytes,
   formatCacheRate,
+  formatClock,
   formatCount,
   formatDateTime,
   formatDuration,
@@ -26,6 +27,7 @@ import {
   tokensPairText,
 } from "../lib/log-format";
 import type { AccessLogEntry, AccessLogPage, AccessOutcome } from "../lib/types";
+import { useNarrow } from "../lib/use-narrow";
 import { CopyButton } from "../components/CopyChip";
 import { LogContextDialog } from "../components/LogContextDialog";
 import { PageHeader } from "../components/PageHeader";
@@ -207,12 +209,58 @@ const COL_WIDTHS = {
   toggle: "44px",
   time: "168px",
   result: "124px",
+  model: "",
   duration: "84px",
   tokensPerSec: "88px",
   cache: "76px",
   tokens: "172px",
   context: "88px",
 } as const;
+
+/**
+ * 窄屏（`< md`）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 88px。
+ *
+ * 窄屏只留「时间 / 结果 / 模型」三列，固定列合计 88 + 104 = 192px，
+ * 故 300px 最小宽下模型列仍有 ~100px（模型表同理，见 `ModelExplorer` 的 `TABLE_MIN_W`）。
+ */
+const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
+  toggle: "44px",
+  time: "88px",
+  result: "104px",
+  model: "",
+  duration: "84px",
+  tokensPerSec: "88px",
+  cache: "76px",
+  tokens: "172px",
+  context: "88px",
+};
+
+/**
+ * 列定义（列宽 + 对齐 + 窄屏是否保留）。
+ *
+ * 表头与表体**共用这一份**，改列只改这里；`< md` 丢弃 `wide` 列时是**少渲染
+ * `<td>`**，不是 `hidden md:table-cell`（`display:none` 的 `<td>` 在
+ * `table-layout: fixed` 下仍占列槽位、表头表体还会错位 —— 见 lib/use-narrow.ts）。
+ */
+interface LogCol {
+  key: keyof typeof COL_WIDTHS;
+  label: string;
+  align?: "right";
+  /** `< md` 丢弃。窄屏只留「时间 / 结果 / 模型」，其余信息在展开行（整行可点）里。 */
+  wide?: boolean;
+}
+
+const LOG_COLS: LogCol[] = [
+  { key: "toggle", label: "", wide: true },
+  { key: "time", label: "时间" },
+  { key: "result", label: "结果" },
+  { key: "model", label: "模型" },
+  { key: "duration", label: "耗时", align: "right", wide: true },
+  { key: "tokensPerSec", label: "TPS", align: "right", wide: true },
+  { key: "cache", label: "缓存", align: "right", wide: true },
+  { key: "tokens", label: "tokens（入/出）", align: "right", wide: true },
+  { key: "context", label: "上下文", wide: true },
+];
 
 /** 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。 */
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
@@ -227,6 +275,92 @@ function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
       </span>
     </td>
   );
+}
+
+/**
+ * 按列 key 渲染单元格。
+ *
+ * 窄屏少渲染列时 `cols` 少了谁这里就少谁 —— 单元格数量与列数量恒等，列宽才可能对齐。
+ */
+function LogCell({
+  col,
+  entry,
+  open,
+  narrow,
+  onToggle,
+  onOpenContext,
+}: {
+  col: LogCol;
+  entry: AccessLogEntry;
+  open: boolean;
+  narrow: boolean;
+  onToggle: () => void;
+  onOpenContext: () => void;
+}): ReactElement {
+  const numClass =
+    "whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft";
+  switch (col.key) {
+    case "toggle":
+      return (
+        <td className="px-3 py-2 align-top max-md:px-0">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={open ? "收起详情" : "展开详情"}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle();
+            }}
+            className="tap-square grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+          >
+            {open ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </td>
+      );
+    case "time":
+      return (
+        <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs tabular text-ink-soft">
+          {narrow ? formatClock(entry.ts) : formatDateTime(entry.ts)}
+        </td>
+      );
+    case "result":
+      return <ResultCell entry={entry} />;
+    case "model":
+      return (
+        <td className="break-all px-3 py-2 align-top text-xs text-ink-soft">
+          {entry.model ?? <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>}
+        </td>
+      );
+    case "duration":
+      return <td className={numClass}>{formatDuration(entry.durationMs)}</td>;
+    case "tokensPerSec":
+      return <td className={numClass}>{formatTokensPerSec(entry)}</td>;
+    case "cache":
+      return <td className={numClass}>{formatCacheRate(entry.tokens?.cache)}</td>;
+    case "tokens":
+      return <td className={numClass}>{tokensPairText(entry.tokens)}</td>;
+    case "context":
+      return (
+        <td className="whitespace-nowrap px-3 py-2 align-top">
+          <button
+            type="button"
+            aria-label="查看请求上下文"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenContext();
+            }}
+            className="tap inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          >
+            <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
+            上下文
+          </button>
+        </td>
+      );
+  }
 }
 
 function LogTable({
@@ -252,33 +386,29 @@ function LogTable({
   onOpenContext: (entry: AccessLogEntry) => void;
   loading: boolean;
 }): ReactElement {
+  const narrow = useNarrow();
+  const cols = narrow ? LOG_COLS.filter((col) => !col.wide) : LOG_COLS;
+  const widths: Record<keyof typeof COL_WIDTHS, string> = narrow ? NARROW_COL_WIDTHS : COL_WIDTHS;
   const headClass = "px-3 py-2 font-normal";
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
+        <table className="w-full table-fixed border-collapse text-sm min-w-[300px] md:min-w-[900px]">
           <colgroup>
-            <col style={{ width: COL_WIDTHS.toggle }} />
-            <col style={{ width: COL_WIDTHS.time }} />
-            <col style={{ width: COL_WIDTHS.result }} />
-            <col />
-            <col style={{ width: COL_WIDTHS.duration }} />
-            <col style={{ width: COL_WIDTHS.tokensPerSec }} />
-            <col style={{ width: COL_WIDTHS.cache }} />
-            <col style={{ width: COL_WIDTHS.tokens }} />
-            <col style={{ width: COL_WIDTHS.context }} />
+            {cols.map((col) => (
+              <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />
+            ))}
           </colgroup>
           <thead>
             <tr className="border-b border-line text-left text-xs text-ink-faint">
-              <th className={headClass} />
-              <th className={headClass}>时间</th>
-              <th className={headClass}>结果</th>
-              <th className={headClass}>模型</th>
-              <th className={`text-right ${headClass}`}>耗时</th>
-              <th className={`text-right ${headClass}`}>TPS</th>
-              <th className={`text-right ${headClass}`}>缓存</th>
-              <th className={`text-right ${headClass}`}>tokens（入/出）</th>
-              <th className={headClass}>上下文</th>
+              {cols.map((col) => (
+                <th
+                  key={col.key}
+                  className={col.align === "right" ? `text-right ${headClass}` : headClass}
+                >
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -292,63 +422,21 @@ function LogTable({
                       open ? "bg-overlay/30" : ""
                     }`}
                   >
-                    <td className="px-3 py-2 align-top max-md:px-0">
-                      <button
-                        type="button"
-                        aria-expanded={open}
-                        aria-label={open ? "收起详情" : "展开详情"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onToggle(entry.id);
-                        }}
-                        className="tap-square grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-                      >
-                        {open ? (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs tabular text-ink-soft">
-                      {formatDateTime(entry.ts)}
-                    </td>
-                    <ResultCell entry={entry} />
-                    <td className="break-all px-3 py-2 align-top text-xs text-ink-soft">
-                      {entry.model ?? (
-                        <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
-                      {formatDuration(entry.durationMs)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
-                      {formatTokensPerSec(entry)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
-                      {formatCacheRate(entry.tokens?.cache)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
-                      {tokensPairText(entry.tokens)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-top">
-                      <button
-                        type="button"
-                        aria-label="查看请求上下文"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenContext(entry);
-                        }}
-                        className="tap inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-                      >
-                        <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
-                        上下文
-                      </button>
-                    </td>
+                    {cols.map((col) => (
+                      <LogCell
+                        key={col.key}
+                        col={col}
+                        entry={entry}
+                        open={open}
+                        narrow={narrow}
+                        onToggle={() => onToggle(entry.id)}
+                        onOpenContext={() => onOpenContext(entry)}
+                      />
+                    ))}
                   </tr>
                   {open && (
                     <tr className="border-b border-line/40">
-                      <td colSpan={9} className="p-0">
+                      <td colSpan={cols.length} className="p-0">
                         <LogDetail entry={entry} />
                       </td>
                     </tr>
