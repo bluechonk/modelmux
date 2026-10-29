@@ -104,6 +104,7 @@ node packages/core/channels/<cid>/dist/cli.js --help      # 单渠道 CLI（调�
 | 打开 Web 控制台 | `mx web`（确保网关在跑并打印 `/web/`；加 `--open` 才开浏览器） |
 | **发版（打 tag）** | 改全部版本号落点（各 `package.json` + 渠道 `channel.ts`）→ `chore(release): 发布 vX.Y.Z` 提交 → PR 合并 → 在 main 打 `vX.Y.Z` tag；**不建 Release**（见「版本与发版」） |
 | **查日志 / 排查故障** | 走 `log-triage` 技能（`mx log` 的 `--kind` / `--outcome` / `--date` 组合与判读都在那儿） |
+| **压缩存量日志正文**（维护，非日常） | `mx log --compact`（把已封存轮转段里仍是明文的抓取正文压成压缩态；新写入本就压缩，见 [docs/LOGGING.md](docs/LOGGING.md) §9） |
 
 命令形态的完整设计（动词优先、为什么 `mx <cid> <动词>` 不可用）见 `.agents/skills/mx-cli/SKILL.md` §0
 与 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §9。
