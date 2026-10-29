@@ -479,7 +479,8 @@ export interface AccessEntry {
   toolCount?: number;
   /**
    * 上游 usage 归一化出的三数 + 缓存命中情况；键名依上游而异，缺则 null（失败请求通常没有）。
-   * `cache` 为 null 表示**上游没给缓存字段**（与「命中 0」不同，见 docs/CACHE-HIT-RATE.md §6）。
+   * `cache` 为 null 表示**上游没给缓存字段**（与「命中 0」不同，见 docs/CACHE-HIT-RATE.md §6）；
+   * `cache.miss` 按上游形态推出（`hit + miss` 即命中率分母），推不出时为 null。
    */
   tokens: {
     prompt: number | null;
@@ -514,12 +515,15 @@ export interface AccessStats {
   noUsage: number;
   tokens: { prompt: number; completion: number; total: number };
   /**
-   * 缓存命中（口径见 docs/CACHE-HIT-RATE.md）：`hitRate = hit / prompt`，且是**加权**
-   * （`Σhit / Σprompt`，不是各请求命中率的平均 —— 平均会让长请求的权重被抹平）。
+   * 缓存命中（口径见 docs/CACHE-HIT-RATE.md §6）：`hitRate = hit / total`，且是**加权**
+   * （`Σhit / Σ(hit+miss)`，不是各请求命中率的平均 —— 平均会让长请求的权重被抹平）。
+   *
+   * `total` = 参与计算的总输入 token（命中分母），由各上游形态归一化而来
+   * （见 `cacheOf`）—— 不用 `tokens.prompt`，因为 Anthropic 风格下它不含缓存读/写。
    * 只累加**有缓存字段**的记录：上游没给字段的渠道不进分母。
-   * 窗口内一条都没采集到缓存字段时 `prompt === 0` → `hitRate` 为 null（显示 `—`，不是 0%）。
+   * 窗口内一条都没采集到缓存字段时 `total === 0` → `hitRate` 为 null（显示 `—`，不是 0%）。
    */
-  cache: { hit: number; miss: number; prompt: number; hitRate: number | null };
+  cache: { hit: number; total: number; hitRate: number | null };
 }
 
 export interface AccessPage {
@@ -565,27 +569,54 @@ function bool(value: unknown): boolean | undefined {
 /**
  * 从上游 `usage` 里提取**缓存命中**情况（口径见 docs/CACHE-HIT-RATE.md §6）。
  *
- * 各渠道形态差异极大（实测 4 类）：DeepSeek 双字段、OpenAI 风格 `prompt_tokens_details`、
- * Anthropic 风格 `cache_read_input_tokens`、以及**完全没有缓存字段**的渠道。
- * ⚠ 写缓存字段（`cache_creation_input_tokens` / `prompt_cache_write_tokens` / `cache_write_*`）
- * 语义是「为后续命中做写入」，**不算命中**；`hit` 无法判定时返回 null（不补 0 ——
- * 否则会把「没采集到」显示成「完全没命中」）。
+ * ⚠ 必须**按字段形态分派**，不能把各家的别名串成一条链：缓存字段有两套互斥语义 ——
+ * 「含在总输入内」（DeepSeek `prompt_cache_hit_tokens`、OpenAI `cached_tokens`）
+ * 与「不含在总输入内」（Anthropic `cache_read_input_tokens`，其 `input_tokens` 明确
+ * 不含缓存读/写）。混用会让后者算出接近 100% 的假命中率。
+ *
+ * 因此命中值取「有哪类字段」，**未命中值由该类的语义推出**，命中率恒等于
+ * `hit / (hit + miss)`，无需外部再给分母：
+ * ① DeepSeek：`hit` 与 `miss` 上游都给了（缺失时按 `prompt_tokens = hit + miss` 兜底）
+ * ② OpenAI 风格：`cached_tokens` 是 `prompt_tokens` 的子集 → `miss = prompt_tokens - hit`
+ * ③ Anthropic 风格：`cache_read_input_tokens` 是唯一命中来源，`miss = input_tokens +
+ *    cache_creation_input_tokens`（写缓存不算命中；仅当没有 `input_tokens`、只有
+ *    `prompt_tokens` 时才退回 `prompt - hit`）
+ *
+ * 写缓存字段（`cache_creation_input_tokens` / `prompt_cache_write_tokens`）语义是
+ * 「为后续命中做写入」，**不算命中**；一类字段都没有时返回 null —— 不补 0，
+ * 否则会把「上游没给」显示成「完全没命中」。
  */
 function cacheOf(
   usage: Record<string, unknown>,
   prompt: number | null,
 ): { hit: number | null; miss: number | null } | null {
   const details = (usage["prompt_tokens_details"] ?? {}) as Record<string, unknown>;
-  const hit =
-    num(usage["prompt_cache_hit_tokens"]) ??
-    num(details["cached_tokens"]) ??
-    num(usage["cached_tokens"]) ??
-    num(usage["cache_read_input_tokens"]) ??
-    null;
-  if (hit === null) return null;
-  // miss 优先取上游明确字段，缺失时用官方等式兜底（prompt_tokens = hit + miss）
-  const miss = num(usage["prompt_cache_miss_tokens"]) ?? (prompt !== null ? Math.max(prompt - hit, 0) : null);
-  return { hit, miss };
+  // ① DeepSeek：唯一有官方加和关系的形态，信度最高
+  const dsHit = num(usage["prompt_cache_hit_tokens"]);
+  if (dsHit !== undefined) {
+    const miss = num(usage["prompt_cache_miss_tokens"]) ?? (prompt !== null ? Math.max(prompt - dsHit, 0) : null);
+    return { hit: dsHit, miss };
+  }
+  // ② OpenAI / Azure：cached_tokens ⊆ prompt_tokens
+  const oaHit = num(details["cached_tokens"]) ?? num(usage["cached_tokens"]);
+  if (oaHit !== undefined) {
+    return { hit: oaHit, miss: prompt !== null ? Math.max(prompt - oaHit, 0) : null };
+  }
+  // ③ Anthropic 风格：`input_tokens` **不含**缓存读/写（官方口径：总输入 = 三者之和）
+  const anRead = num(usage["cache_read_input_tokens"]);
+  const anWrite = num(usage["cache_creation_input_tokens"]);
+  if (anRead !== undefined || anWrite !== undefined) {
+    const hit = anRead ?? 0;
+    const input = num(usage["input_tokens"]);
+    if (input !== undefined) {
+      // 写缓存不算命中，但它是总输入的一部分
+      return { hit, miss: input + (anWrite ?? 0) };
+    }
+    // 只有 `prompt_tokens`（代理把独占的输入塞进了这个名字）：无法与「含在总输入内」区分，
+    // 按该字段自洽解释（miss = prompt - hit），免得凭空放大分母
+    return { hit, miss: prompt !== null ? Math.max(prompt - hit, 0) : null };
+  }
+  return null;
 }
 
 /** 从上游 `usage` 里防御性提取 token 数（键名依上游而异，兼容 input/output 命名）。 */
@@ -752,7 +783,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     avgDurationMs: null,
     noUsage: 0,
     tokens: { prompt: 0, completion: 0, total: 0 },
-    cache: { hit: 0, miss: 0, prompt: 0, hitRate: null },
+    cache: { hit: 0, total: 0, hitRate: null },
   };
   if (!date) {
     return { date: "", dates, cids: [], slowMs: slowMs(), scanned: 0, truncated: false, total: 0, stats, entries: [] };
@@ -790,18 +821,18 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
           stats.tokens.total += entry.tokens.total ?? 0;
           // 缓存命中只统计**有字段**的记录（无字段的渠道不该拉低整体命中率）
           const cache = entry.tokens.cache;
-          if (cache?.hit !== null && cache?.hit !== undefined) {
+          // miss 缺失说明这条连分母都推不出来（上游既没给 prompt_tokens 也没给 miss 字段）
+          // → 不进分母，避免把「只剩命中」当成 100%
+          if (cache?.hit !== null && cache?.hit !== undefined && cache.miss !== null) {
             stats.cache.hit += cache.hit;
-            stats.cache.miss += cache.miss ?? 0;
-            // 分母优先用该条的 prompt_tokens，缺失时用 hit + miss 兜底（官方等式下等价）
-            stats.cache.prompt += entry.tokens.prompt ?? cache.hit + (cache.miss ?? 0);
+            stats.cache.total += cache.hit + cache.miss;
           }
         }
       }
     }
   }
   stats.avgDurationMs = durationCount > 0 ? Math.round(durationSum / durationCount) : null;
-  stats.cache.hitRate = stats.cache.prompt > 0 ? stats.cache.hit / stats.cache.prompt : null;
+  stats.cache.hitRate = stats.cache.total > 0 ? stats.cache.hit / stats.cache.total : null;
 
   const cids = [...new Set(scanned.map((e) => e.cid).filter((c): c is string => c !== undefined))].sort();
 

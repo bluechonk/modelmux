@@ -249,6 +249,16 @@ describe("访问日志读回", () => {
         id: "req_c3",
         usage: { prompt_tokens: 100, cache_read_input_tokens: 20, cache_creation_input_tokens: 50 },
       }),
+      // ⑤ 真 Anthropic 形态：`input_tokens` 不含缓存读写 → 分母 = input + read + write
+      entry({
+        id: "req_c5",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 5,
+          cache_read_input_tokens: 900,
+          cache_creation_input_tokens: 50,
+        },
+      }),
       // ④ 无缓存字段的上游（traecn 一类）→ null（不是「命中 0」）
       entry({
         id: "req_c4",
@@ -258,11 +268,20 @@ describe("访问日志读回", () => {
     const byId = new Map(queryAccessLogs().entries.map((e) => [e.id, e]));
     assert.deepEqual(byId.get("req_c1")?.tokens?.cache, { hit: 60, miss: 40 });
     assert.deepEqual(byId.get("req_c2")?.tokens?.cache, { hit: 30, miss: 70 }, "miss 用等式兜底");
-    assert.deepEqual(byId.get("req_c3")?.tokens?.cache, { hit: 20, miss: 80 }, "只认读缓存");
+    assert.deepEqual(
+      byId.get("req_c3")?.tokens?.cache,
+      { hit: 20, miss: 80 },
+      "只有 prompt_tokens 时按它自洽解释",
+    );
+    assert.deepEqual(
+      byId.get("req_c5")?.tokens?.cache,
+      { hit: 900, miss: 150 },
+      "独占口径：分母 = input_tokens + 写缓存（若沿用 prompt_tokens 会算出 900/901 的假命中）",
+    );
     assert.equal(byId.get("req_c4")?.tokens?.cache, null, "无字段必须 null，不能当成 0 命中");
   });
 
-  it("缓存命中率是加权的（Σhit / Σprompt），且无字段的记录不进分母", () => {
+  it("缓存命中率是加权的（Σhit / Σ(hit+miss)），且无字段的记录不进分母", () => {
     writeAccess("success", [
       // 短请求全命中、长请求全未命中：算术平均会得到 50%，加权只有 10%
       entry({
@@ -281,8 +300,7 @@ describe("访问日志读回", () => {
     ]);
     const stats = queryAccessLogs().stats;
     assert.equal(stats.cache.hit, 100);
-    assert.equal(stats.cache.miss, 900);
-    assert.equal(stats.cache.prompt, 1000, "只算有缓存字段的两条（100 + 900）");
+    assert.equal(stats.cache.total, 1000, "只算有缓存字段的两条（100 + 900）");
     assert.equal(stats.cache.hitRate, 0.1, "加权 100/1000；算术平均会是 0.5");
   });
 });

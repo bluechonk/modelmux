@@ -131,21 +131,37 @@ export function formatTokensPerSec(entry: AccessLogEntry): string {
 }
 
 /**
- * 缓存命中率展示：`42%` / `<1%` / `0%`；**无缓存字段时返回 `—`**
- * （与「命中 0」区分 —— 把「没采集到」显示成「0%」是错误信息，见 docs/CACHE-HIT-RATE.md §6）。
- * 分母优先用 `prompt`，缺失时退回 `hit + miss`（官方等式下等价）。
+ * 比率（0~1）的展示：`42%` / `<1%` / `0%`；`null` = 无数据 → `—`。
+ *
+ * ⚠ 99.95% 以上**不四舍五入成 `100%`**：上游给的近似满命中（如 99.96%）与真正的
+ * 满命中（100%）是两件事，混在一起会让人以为数据坏了（见 docs/CACHE-HIT-RATE.md §6）。
+ */
+export function formatPercent(rate: number | null | undefined): string {
+  if (typeof rate !== "number" || !Number.isFinite(rate)) return "—";
+  if (rate <= 0) return "0%";
+  if (rate < 0.01) return "<1%";
+  if (rate >= 1) return "100%";
+  // 99% 以上留一位小数：否则 99.6% 会被显示成 100%
+  if (rate >= 0.99) {
+    const shown = Number((rate * 100).toFixed(1));
+    return shown >= 100 ? ">99.9%" : `${shown}%`;
+  }
+  return `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * 缓存命中率展示；**无缓存字段时返回 `—`**（与「命中 0」区分 —— 把「没采集到」显示成
+ * 「0%」是错误信息，见 docs/CACHE-HIT-RATE.md §6）。
+ *
+ * 分母恒为 `hit + miss`：`miss` 已由共享层按上游形态归一化
+ * （Anthropic 风格下 `input_tokens` 不含缓存读写，用 `prompt_tokens` 当分母会算出假命中率）。
  */
 export function formatCacheRate(
   cache: { hit: number | null; miss: number | null } | null | undefined,
-  prompt: number | null | undefined,
 ): string {
   if (!cache || cache.hit === null || cache.hit === undefined) return "—";
-  const denom = typeof prompt === "number" && prompt > 0 ? prompt : cache.hit + (cache.miss ?? 0);
-  if (denom <= 0) return "—";
-  const rate = cache.hit / denom;
-  if (rate <= 0) return "0%";
-  if (rate < 0.01) return "<1%";
-  return `${Math.round(rate * 100)}%`;
+  if (cache.miss === null || cache.miss === undefined) return "—";
+  return formatPercent(cache.hit / (cache.hit + cache.miss));
 }
 
 /** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */

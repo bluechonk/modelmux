@@ -274,15 +274,40 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
 
     // 缓存命中归一化与**加权**聚合（口径见 docs/CACHE-HIT-RATE.md）
     const stats = page.stats as unknown as {
-      cache: { hit: number; miss: number; prompt: number; hitRate: number | null };
+      cache: { hit: number; total: number; hitRate: number | null };
     };
     assert.equal(stats.cache.hit, 3, "DeepSeek 双字段应归一化为 hit");
-    assert.equal(stats.cache.prompt, 5, "分母取 prompt_tokens");
-    assert.equal(stats.cache.hitRate, 3 / 5, "命中率 = Σhit / Σprompt（加权，非平均）");
+    assert.equal(stats.cache.total, 5, "分母 = Σ(hit + miss)（不含写缓存）");
+    assert.equal(stats.cache.hitRate, 3 / 5, "命中率 = Σhit / Σ(hit+miss)（加权，非平均）");
     const withCache = page.entries[1] as
       | { tokens?: { cache?: { hit: number; miss: number } | null } | null }
       | undefined;
     assert.deepEqual(withCache?.tokens?.cache, { hit: 3, miss: 2 }, "entry 也要带 cache 明细");
+  });
+
+  it("Anthropic 风格缓存字段按独占口径归一化（分母含输入与写缓存）", async () => {
+    // Anthropic 官方口径：input_tokens 不含缓存读写，总输入 = input + read + write
+    writeFileSync(
+      join(ACCESS_DIR, "other.log"),
+      accessLine({
+        id: "req_e2e_anthropic",
+        ts: "2026-10-28T05:30:00.000Z",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 20,
+          cache_read_input_tokens: 900,
+          cache_creation_input_tokens: 50,
+        },
+      }),
+      "utf8",
+    );
+    const res = await fetch(`${server.url}api/logs`);
+    const page = (await res.json()) as {
+      entries: Array<{ id: string; tokens?: { cache?: { hit: number; miss: number } | null } | null }>;
+    };
+    const entry = page.entries.find((e) => e.id === "req_e2e_anthropic");
+    // 命中 = 读缓存；未命中 = 输入 + 写缓存（写缓存不是命中）
+    assert.deepEqual(entry?.tokens?.cache, { hit: 900, miss: 150 }, "独占口径：miss 含 input 与写缓存");
   });
 
   it("/api/overview 的最近请求带三段耗时（仪表盘生成速度口径需要）", async () => {
