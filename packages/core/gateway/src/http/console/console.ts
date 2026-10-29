@@ -530,6 +530,7 @@ export function createConsoleHandler(
           slow: logPage.stats.slow,
           avg_duration_ms: logPage.stats.avgDurationMs,
           tokens: logPage.stats.tokens,
+          cache: logPage.stats.cache,
         };
 
         const perChannelLogs = new Map<string, { success: number; failure: number }>();
