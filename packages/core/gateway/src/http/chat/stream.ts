@@ -17,6 +17,8 @@ import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
   noteClientDisconnect,
   noteFirstByte,
+  noteFirstFrame,
+  noteLastFrame,
   noteRequestError,
 } from "../../runtime/log-store.js";
 import { isCustomWire } from "./channel.js";
@@ -157,9 +159,12 @@ export async function relayStream(
       for (const frame of translator.feed(Buffer.from(value))) {
         if (first) {
           noteFirstByte(res);
+          noteFirstFrame(res);
           first = false;
           sawContent = true;
         }
+        // 覆盖式打点：循环走完留下的就是「末帧到达」时刻，与首帧之差即纯生成窗口
+        noteLastFrame(res);
         const buf = asBuffer(frame);
         sseStream.noteFrameUsage(res, buf);
         res.write(buf);
@@ -220,8 +225,10 @@ export async function collectAsOpenAiSse(
   cid?: string,
   resumeTranslator?: StreamTranslator,
   request?: Record<string, unknown>,
+  /** 每产出一帧回调一次（首帧 = 上游开始吐字，末帧 = 吐完）——给生成窗口打点用。 */
+  onFrame?: () => void,
 ): Promise<Buffer> {
-  if (!isCustomWire(channel)) return sseStream.readAll(upstreamBody, cid);
+  if (!isCustomWire(channel)) return sseStream.readAll(upstreamBody, cid, onFrame);
 
   const { upstream } = channel;
   // 首帧静默上限与流式路径同源（见 relayStream；非流式聚合同样受慢首字影响）
@@ -255,6 +262,7 @@ export async function collectAsOpenAiSse(
       for (const frame of translator.feed(Buffer.from(value))) {
         out.push(asBuffer(frame));
         sawContent = true;
+        onFrame?.();
       }
       if (translator.isDone?.()) break;
     }
