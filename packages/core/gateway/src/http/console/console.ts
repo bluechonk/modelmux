@@ -295,9 +295,18 @@ export function createConsoleHandler(
       return;
     }
 
-    // SPA 回退：React Router 在客户端负责路由（非 API 路径都回 index.html）
-    if (!path.startsWith(p("/api/")) && (req.method === "GET" || req.method === "HEAD")) {
-      serveStatic(res, WEB_UI_INDEX);
+    // SPA 回退：React Router 在客户端负责路由（无扩展名的路由路径都回 index.html）。
+    // ⚠ 两条约束，各自都踩过坑：
+    //   1. 必须传**相对路径** —— serveStatic 会先剥前导斜杠再 `resolve(WEB_UI_ROOT, …)`，
+    //      传绝对路径会拼成 `<UI 根>/home/.../index.html`，深链刷新/分享曾因此全挂；
+    //   2. **带扩展名的路径不回退** —— 否则部署缺失的 js/css 会拿到 200 + HTML，
+    //      浏览器当脚本解析报语法错，比 404 更难定位（未匹配的会落到末尾的 404 兜底）。
+    if (
+      !path.startsWith(p("/api/")) &&
+      extname(path) === "" &&
+      (req.method === "GET" || req.method === "HEAD")
+    ) {
+      serveStatic(res, "index.html");
       return;
     }
 
