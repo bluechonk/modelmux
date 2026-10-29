@@ -29,8 +29,8 @@
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id、目录三级来源与兜底、目录元数据回灌上游，§2）+ 池元数据取值与**跨渠道同 id 兜底**（§2.6 / §2.7）+ 账号池（多账号 / 连败标记 / 手动切号 / **额度耗尽自动换号** / 渠道侧的按账号状态，§3） |
 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退） |
 | [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
-| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 五页深色看板（仪表盘 / 模型列表 / 账号池 / 请求日志 / 使用统计）的架构、构建与 API 面貌 |
-| [USAGE-STATS.md](./USAGE-STATS.md) | **使用统计**：`/web/usage` 的数据源、指标口径（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
+| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 四页深色看板（仪表盘 / 模型列表 / 账号池 / 请求日志）的架构、构建与 API 面貌 |
+| [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：仪表盘用量区块的数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
 | [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案（定稿）**：/web/ 首页运行视图的模块划分、布局与数据通道（实施后收敛进 WEB-CONSOLE.md） |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
