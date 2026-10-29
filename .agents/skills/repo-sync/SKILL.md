@@ -129,6 +129,22 @@ gh pr checks <n>
   `git fetch --prune`、`git checkout main`、`git reset --hard origin/main`（rebase 会重写 SHA，
   本地与远端分叉属正常）、删本地分支，再确认 main 的 CI 双绿。
 
+### 4.1 发版：**只打 tag，绝不建 Release**（主人明确要求，违反即返工）
+
+```
+发版 = 改版本号落点 → chore(release) 提交 → PR 合并 → 在 main 打 vX.Y.Z tag → 停。
+```
+
+- **禁止** `gh release create` / `gh release edit` / `gh release upload`，
+  **禁止**用全局 `github:release` 技能，**禁止**点 GitHub 网页的「Draft a new release」。
+  与全局 `~/.zcode/AGENTS.md`「标签与发布」里「打 tag → 出 Release」冲突时**以本仓规则为准**。
+- 为什么：本仓没有发布物 —— 没有 `npm publish`、没有产物打包 workflow、没有 exe/安装包，
+  发布物只有 **web 控制台 + CLI 源码**。Release 页面承载的「版本说明」的权威来源是 `git log`，
+  多一个页面就多一份会漂移的事实源（主人原话：「我又不做 exe，我只做 web 和 cli」）。
+- 打 tag 前先过推送门禁；tag 只打在**合并后的 main** 上，不打开发分支。
+- `v0.1.0` 那个 **draft** Release 是历史遗留（从未发布、公网不可见），别去动它，
+  更不要把它 publish 出去。
+
 ## 5. 收尾检查清单（一条都不能漏）
 
 ```bash
@@ -140,6 +156,8 @@ node packages/cli/dist/cli.js status    # 必须不含「网关在跑旧代码�
 # 注释格式：改过注释的文件，逐条对照 docs/MODULE-COMMENTS.md（见 §1「注释格式检查」）
 git status                     # 工作树干净（无未提交 tracked 文件）
 git fetch --prune && git branch -a      # 本地/远端只剩 main
+gh release list --repo bluechonk/modelmux   # 除 v0.1.0 那个遗留 draft 外必须为空（§4.1）
+git tag -l                      # tag 才是发布物，必须都在
 ls .tmp                        # 清理临时文件；截图与诊断产物不留仓库
 ```
 
@@ -167,6 +185,7 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
 | 未提交就继续做新任务 | 改动混批、历史难看 | 每轮收尾再开工 |
 | `git add -u` 漏掉新文件 | CI 构建失败（UNRESOLVED_IMPORT） | 新文件用 `git add <path>` |
 | 改了代码没 restart | 验证的是旧进程 | build → restart → status 无陈旧 |
+| **给本仓建了 GitHub Release**（`gh release create` / `github:release` 技能 / 网页 Draft） | 主人明确禁止：本仓发布物只有 tag，Release 页是多余事实源 | 只打 tag（§4.1）；已建的要删掉并保留 tag：`gh release delete <tag> --yes` |
 | 本地绿但推送门禁红 | 平台/依赖差异（如漏提交新文件） | 用门禁同款命令在干净 clone 复现 |
 | `.tmp` 被删后重定向失败 | 测试没跑却以为绿了 | 先 `mkdir -p .tmp` |
 | 合并后本地 `git pull` 冲突 | rebase 重写了 SHA，同内容不同源 | `git fetch --prune` 后 `git reset --hard origin/main` |
