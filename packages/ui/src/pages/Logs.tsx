@@ -1,5 +1,5 @@
 /**
- * 日志页：网关请求级访问日志（时间 / 结果 / 模型 / 耗时 / TPS / tokens）；
+ * 日志页：网关请求级访问日志（时间 / 结果 / 模型 / 耗时 / TPS / 缓存 / tokens）；
  * 字段语义、落点与读窗口见 docs/LOGGING.md §3。
  *
  * 关键约束（docs/LOGGING.md §3）：
@@ -15,6 +15,7 @@ import { api } from "../lib/api";
 import {
   countOrDash,
   formatBytes,
+  formatCacheRate,
   formatCount,
   formatDateTime,
   formatDuration,
@@ -79,6 +80,17 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
         <span className="text-ink-faint">
           （入 {formatTokens(stats.tokens.prompt)} · 出 {formatTokens(stats.tokens.completion)}）
         </span>
+      </span>
+      <span>
+        缓存命中{" "}
+        <span className="tabular text-ink">
+          {formatCacheRate({ hit: stats.cache.hit, miss: stats.cache.miss }, stats.cache.prompt)}
+        </span>
+        {stats.cache.prompt > 0 && (
+          <span className="text-ink-faint">
+            （{formatTokens(stats.cache.hit)} / {formatTokens(stats.cache.prompt)}）
+          </span>
+        )}
       </span>
       {stats.noUsage > 0 && (
         <span className="text-ink-faint">{formatCount(stats.noUsage)} 条无 usage</span>
@@ -155,6 +167,17 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
             </span>
           )}
         </Field>
+        <Field label="缓存">
+          {entry.tokens?.cache ? (
+            <span className="tabular">
+              命中 {countOrDash(entry.tokens.cache.hit)} · 未命中{" "}
+              {countOrDash(entry.tokens.cache.miss)} ·{" "}
+              {formatCacheRate(entry.tokens.cache, entry.tokens.prompt)}
+            </span>
+          ) : (
+            "该上游无缓存字段"
+          )}
+        </Field>
         {entry.error !== undefined && (
           <Field label="错误码">
             <span className="font-mono">{entry.error}</span>
@@ -186,6 +209,7 @@ const COL_WIDTHS = {
   result: "124px",
   duration: "84px",
   tokensPerSec: "88px",
+  cache: "76px",
   tokens: "172px",
   context: "88px",
 } as const;
@@ -240,6 +264,7 @@ function LogTable({
             <col />
             <col style={{ width: COL_WIDTHS.duration }} />
             <col style={{ width: COL_WIDTHS.tokensPerSec }} />
+            <col style={{ width: COL_WIDTHS.cache }} />
             <col style={{ width: COL_WIDTHS.tokens }} />
             <col style={{ width: COL_WIDTHS.context }} />
           </colgroup>
@@ -251,6 +276,7 @@ function LogTable({
               <th className={headClass}>模型</th>
               <th className={`text-right ${headClass}`}>耗时</th>
               <th className={`text-right ${headClass}`}>TPS</th>
+              <th className={`text-right ${headClass}`}>缓存</th>
               <th className={`text-right ${headClass}`}>tokens（入/出）</th>
               <th className={headClass}>上下文</th>
             </tr>
@@ -300,6 +326,9 @@ function LogTable({
                       {formatTokensPerSec(entry)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
+                      {formatCacheRate(entry.tokens?.cache, entry.tokens?.prompt)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft">
                       {tokensPairText(entry.tokens)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 align-top">
@@ -319,7 +348,7 @@ function LogTable({
                   </tr>
                   {open && (
                     <tr className="border-b border-line/40">
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <LogDetail entry={entry} />
                       </td>
                     </tr>

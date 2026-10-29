@@ -27,7 +27,7 @@ import {
 import { useNavigate } from "react-router";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
-import { formatTokens, formatDuration, formatDateTime, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
+import { formatTokens, formatDuration, formatDateTime, formatCacheRate, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, AccessOutcome } from "../lib/types";
 
 // ---------------------------------------------------------------------------
@@ -289,6 +289,13 @@ export function Dashboard(): ReactElement {
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
 
+  // 缓存命中率（加权 Σhit/Σprompt）；窗口内无缓存字段时不追加（不显示 0% 误导）
+  const cacheRate = formatCacheRate(
+    { hit: usage?.cache.hit ?? 0, miss: usage?.cache.miss ?? 0 },
+    usage?.cache.prompt ?? 0,
+  );
+  const cacheText = cacheRate === "—" ? "" : ` · 缓存 ${cacheRate}`;
+
   return (
     <div className="space-y-5 pb-10">
       {/* ② KPI 行：四格，sm+ 单行，窄屏 2×2（放在接入盒上方，先看运行概况再看接入信息） */}
@@ -318,7 +325,7 @@ export function Dashboard(): ReactElement {
           value={totalTokens}
           sub={
             usage && usage.tokens.total > 0
-              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}`
+              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}${cacheText}`
               : undefined
           }
         />

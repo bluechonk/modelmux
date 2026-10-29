@@ -200,7 +200,13 @@ export interface AccessLogEntry {
   systemChars?: number;
   toolCount?: number;
   /** 上游 usage 归一化结果；上游没给就是 null（失败请求通常没有）。 */
-  tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
+  tokens: {
+    prompt: number | null;
+    completion: number | null;
+    total: number | null;
+    /** 缓存命中；null = 该上游**没有缓存字段**（与「命中 0」不同，见 docs/CACHE-HIT-RATE.md）。 */
+    cache: { hit: number | null; miss: number | null } | null;
+  } | null;
   slow: boolean;
 }
 
@@ -214,6 +220,8 @@ export interface AccessLogStats {
   /** 窗口内没有 usage 的条数（不把缺失当 0）。 */
   noUsage: number;
   tokens: { prompt: number; completion: number; total: number };
+  /** 缓存命中（加权 `Σhit / Σprompt`）；`hitRate` 为 null = 窗口内无一条带缓存字段。 */
+  cache: { hit: number; miss: number; prompt: number; hitRate: number | null };
 }
 
 /** 日志页的一次查询结果（对应 `GET /web/api/logs`）。 */
@@ -287,6 +295,8 @@ export interface OverviewResponse {
     slow: number;
     avg_duration_ms: number | null;
     tokens: { prompt: number; completion: number; total: number };
+  /** 缓存命中（加权 `Σhit / Σprompt`）；`hitRate` 为 null = 窗口内无一条带缓存字段。 */
+  cache: { hit: number; miss: number; prompt: number; hitRate: number | null };
   };
   channels: Array<{
     cid: string;

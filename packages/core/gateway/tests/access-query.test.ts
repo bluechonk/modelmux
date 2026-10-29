@@ -220,7 +220,7 @@ describe("访问日志读回", () => {
       entry({ id: "req_alt", usage: { input_tokens: 7, output_tokens: 3 } }),
     ]);
     const tokens = queryAccessLogs().entries[0]?.tokens;
-    assert.deepEqual(tokens, { prompt: 7, completion: 3, total: 10 });
+    assert.deepEqual(tokens, { prompt: 7, completion: 3, total: 10, cache: null });
   });
 
   it("单文件超出尾部字节上限时回报 truncated", () => {
@@ -230,6 +230,60 @@ describe("访问日志读回", () => {
     const page = queryAccessLogs({ limit: 1 });
     assert.equal(page.truncated, true, "超出窗口必须如实标注，不能假装是全量");
     assert.equal(page.entries.length, 1);
+  });
+
+  it("缓存命中归一化：四类上游形态（口径见 docs/CACHE-HIT-RATE.md §6）", () => {
+    writeAccess("success", [
+      // ① DeepSeek 原生双字段
+      entry({
+        id: "req_c1",
+        usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40 },
+      }),
+      // ② OpenAI 风格别名（miss 缺失 → 用官方等式 prompt - hit 兜底）
+      entry({
+        id: "req_c2",
+        usage: { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 30 } },
+      }),
+      // ③ Anthropic 风格：读缓存才算命中；cache_creation 是**写缓存**，不入 hit
+      entry({
+        id: "req_c3",
+        usage: { prompt_tokens: 100, cache_read_input_tokens: 20, cache_creation_input_tokens: 50 },
+      }),
+      // ④ 无缓存字段的上游（traecn 一类）→ null（不是「命中 0」）
+      entry({
+        id: "req_c4",
+        usage: { prompt_tokens: 100, completion_tokens: 1, total_tokens: 101 },
+      }),
+    ]);
+    const byId = new Map(queryAccessLogs().entries.map((e) => [e.id, e]));
+    assert.deepEqual(byId.get("req_c1")?.tokens?.cache, { hit: 60, miss: 40 });
+    assert.deepEqual(byId.get("req_c2")?.tokens?.cache, { hit: 30, miss: 70 }, "miss 用等式兜底");
+    assert.deepEqual(byId.get("req_c3")?.tokens?.cache, { hit: 20, miss: 80 }, "只认读缓存");
+    assert.equal(byId.get("req_c4")?.tokens?.cache, null, "无字段必须 null，不能当成 0 命中");
+  });
+
+  it("缓存命中率是加权的（Σhit / Σprompt），且无字段的记录不进分母", () => {
+    writeAccess("success", [
+      // 短请求全命中、长请求全未命中：算术平均会得到 50%，加权只有 10%
+      entry({
+        id: "req_w1",
+        usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 100, prompt_cache_miss_tokens: 0 },
+      }),
+      entry({
+        id: "req_w2",
+        usage: { prompt_tokens: 900, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 900 },
+      }),
+      // 无缓存字段且 prompt 极大 —— 若误入分母会把命中率稀释到接近 0
+      entry({
+        id: "req_w3",
+        usage: { prompt_tokens: 100000, completion_tokens: 1, total_tokens: 100001 },
+      }),
+    ]);
+    const stats = queryAccessLogs().stats;
+    assert.equal(stats.cache.hit, 100);
+    assert.equal(stats.cache.miss, 900);
+    assert.equal(stats.cache.prompt, 1000, "只算有缓存字段的两条（100 + 900）");
+    assert.equal(stats.cache.hitRate, 0.1, "加权 100/1000；算术平均会是 0.5");
   });
 });
 

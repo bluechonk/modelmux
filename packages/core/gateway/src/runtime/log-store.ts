@@ -477,8 +477,16 @@ export interface AccessEntry {
   messageCount?: number;
   systemChars?: number;
   toolCount?: number;
-  /** 上游 usage 归一化出的三数；键名依上游而异，缺则 null（失败请求通常没有）。 */
-  tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
+  /**
+   * 上游 usage 归一化出的三数 + 缓存命中情况；键名依上游而异，缺则 null（失败请求通常没有）。
+   * `cache` 为 null 表示**上游没给缓存字段**（与「命中 0」不同，见 docs/CACHE-HIT-RATE.md §6）。
+   */
+  tokens: {
+    prompt: number | null;
+    completion: number | null;
+    total: number | null;
+    cache: { hit: number | null; miss: number | null } | null;
+  } | null;
   /** 耗时达慢阈值 —— 与 `slow.log` 同一判据，不另设标准。 */
   slow: boolean;
 }
@@ -505,6 +513,13 @@ export interface AccessStats {
   /** 窗口内没有 usage 的条数（失败请求通常没有），避免把缺失当成 0。 */
   noUsage: number;
   tokens: { prompt: number; completion: number; total: number };
+  /**
+   * 缓存命中（口径见 docs/CACHE-HIT-RATE.md）：`hitRate = hit / prompt`，且是**加权**
+   * （`Σhit / Σprompt`，不是各请求命中率的平均 —— 平均会让长请求的权重被抹平）。
+   * 只累加**有缓存字段**的记录：上游没给字段的渠道不进分母。
+   * 窗口内一条都没采集到缓存字段时 `prompt === 0` → `hitRate` 为 null（显示 `—`，不是 0%）。
+   */
+  cache: { hit: number; miss: number; prompt: number; hitRate: number | null };
 }
 
 export interface AccessPage {
@@ -547,6 +562,32 @@ function bool(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * 从上游 `usage` 里提取**缓存命中**情况（口径见 docs/CACHE-HIT-RATE.md §6）。
+ *
+ * 各渠道形态差异极大（实测 4 类）：DeepSeek 双字段、OpenAI 风格 `prompt_tokens_details`、
+ * Anthropic 风格 `cache_read_input_tokens`、以及**完全没有缓存字段**的渠道。
+ * ⚠ 写缓存字段（`cache_creation_input_tokens` / `prompt_cache_write_tokens` / `cache_write_*`）
+ * 语义是「为后续命中做写入」，**不算命中**；`hit` 无法判定时返回 null（不补 0 ——
+ * 否则会把「没采集到」显示成「完全没命中」）。
+ */
+function cacheOf(
+  usage: Record<string, unknown>,
+  prompt: number | null,
+): { hit: number | null; miss: number | null } | null {
+  const details = (usage["prompt_tokens_details"] ?? {}) as Record<string, unknown>;
+  const hit =
+    num(usage["prompt_cache_hit_tokens"]) ??
+    num(details["cached_tokens"]) ??
+    num(usage["cached_tokens"]) ??
+    num(usage["cache_read_input_tokens"]) ??
+    null;
+  if (hit === null) return null;
+  // miss 优先取上游明确字段，缺失时用官方等式兜底（prompt_tokens = hit + miss）
+  const miss = num(usage["prompt_cache_miss_tokens"]) ?? (prompt !== null ? Math.max(prompt - hit, 0) : null);
+  return { hit, miss };
+}
+
 /** 从上游 `usage` 里防御性提取 token 数（键名依上游而异，兼容 input/output 命名）。 */
 function tokensOf(usage: unknown): AccessEntry["tokens"] {
   if (!usage || typeof usage !== "object") return null;
@@ -564,7 +605,7 @@ function tokensOf(usage: unknown): AccessEntry["tokens"] {
     pick("total_tokens") ??
     (prompt !== null && completion !== null ? prompt + completion : null);
   if (prompt === null && completion === null && total === null) return null;
-  return { prompt, completion, total };
+  return { prompt, completion, total, cache: cacheOf(u, prompt) };
 }
 
 /**
@@ -711,6 +752,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     avgDurationMs: null,
     noUsage: 0,
     tokens: { prompt: 0, completion: 0, total: 0 },
+    cache: { hit: 0, miss: 0, prompt: 0, hitRate: null },
   };
   if (!date) {
     return { date: "", dates, cids: [], slowMs: slowMs(), scanned: 0, truncated: false, total: 0, stats, entries: [] };
@@ -746,11 +788,20 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
           stats.tokens.prompt += entry.tokens.prompt ?? 0;
           stats.tokens.completion += entry.tokens.completion ?? 0;
           stats.tokens.total += entry.tokens.total ?? 0;
+          // 缓存命中只统计**有字段**的记录（无字段的渠道不该拉低整体命中率）
+          const cache = entry.tokens.cache;
+          if (cache?.hit !== null && cache?.hit !== undefined) {
+            stats.cache.hit += cache.hit;
+            stats.cache.miss += cache.miss ?? 0;
+            // 分母优先用该条的 prompt_tokens，缺失时用 hit + miss 兜底（官方等式下等价）
+            stats.cache.prompt += entry.tokens.prompt ?? cache.hit + (cache.miss ?? 0);
+          }
         }
       }
     }
   }
   stats.avgDurationMs = durationCount > 0 ? Math.round(durationSum / durationCount) : null;
+  stats.cache.hitRate = stats.cache.prompt > 0 ? stats.cache.hit / stats.cache.prompt : null;
 
   const cids = [...new Set(scanned.map((e) => e.cid).filter((c): c is string => c !== undefined))].sort();
 

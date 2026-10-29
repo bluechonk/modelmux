@@ -184,7 +184,14 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
       durationMs: 1_200,
       ttfbMs: 200,
       upstreamMs: 150,
-      usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 },
+      // DeepSeek 风格缓存字段（命中 3 / 未命中 2，满足官方等式 prompt_tokens = hit + miss）
+      usage: {
+        prompt_tokens: 5,
+        completion_tokens: 7,
+        total_tokens: 12,
+        prompt_cache_hit_tokens: 3,
+        prompt_cache_miss_tokens: 2,
+      },
       ...over,
     })}\n`;
   }
@@ -256,6 +263,18 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
     const ok = page.entries[1] as { ttfbMs?: number; upstreamMs?: number } | undefined;
     assert.equal(ok?.ttfbMs, 200, "ttfbMs 必须透传给前端");
     assert.equal(ok?.upstreamMs, 150, "upstreamMs 必须透传给前端");
+
+    // 缓存命中归一化与**加权**聚合（口径见 docs/CACHE-HIT-RATE.md）
+    const stats = page.stats as unknown as {
+      cache: { hit: number; miss: number; prompt: number; hitRate: number | null };
+    };
+    assert.equal(stats.cache.hit, 3, "DeepSeek 双字段应归一化为 hit");
+    assert.equal(stats.cache.prompt, 5, "分母取 prompt_tokens");
+    assert.equal(stats.cache.hitRate, 3 / 5, "命中率 = Σhit / Σprompt（加权，非平均）");
+    const withCache = page.entries[1] as
+      | { tokens?: { cache?: { hit: number; miss: number } | null } | null }
+      | undefined;
+    assert.deepEqual(withCache?.tokens?.cache, { hit: 3, miss: 2 }, "entry 也要带 cache 明细");
   });
 
   it("/api/overview 的最近请求带三段耗时（仪表盘生成速度口径需要）", async () => {
