@@ -142,8 +142,10 @@ gh pr checks <n>
   发布物只有 **web 控制台 + CLI 源码**。Release 页面承载的「版本说明」的权威来源是 `git log`，
   多一个页面就多一份会漂移的事实源（主人原话：「我又不做 exe，我只做 web 和 cli」）。
 - 打 tag 前先过推送门禁；tag 只打在**合并后的 main** 上，不打开发分支。
-- `v0.1.0` 那个 **draft** Release 是历史遗留（从未发布、公网不可见），别去动它，
-  更不要把它 publish 出去。
+- **Releases 页必须保持为空**（含 draft）：`gh release list --repo bluechonk/modelmux` 要**没有输出**，
+  `gh api repos/bluechonk/modelmux/releases` 要是 `[]`。若发现残留（历史遗留也算），
+  删掉并**保留 tag**：`gh release delete <tag> --yes`（⚠ 别加 `--cleanup-tag`，那会连 tag 一起删）。
+- 删除 Release 与「发布」无关，不影响 tag、不影响任何产物 —— 本仓本就没有发布物。
 
 ## 5. 收尾检查清单（一条都不能漏）
 
@@ -156,7 +158,7 @@ node packages/cli/dist/cli.js status    # 必须不含「网关在跑旧代码�
 # 注释格式：改过注释的文件，逐条对照 docs/MODULE-COMMENTS.md（见 §1「注释格式检查」）
 git status                     # 工作树干净（无未提交 tracked 文件）
 git fetch --prune && git branch -a      # 本地/远端只剩 main
-gh release list --repo bluechonk/modelmux   # 除 v0.1.0 那个遗留 draft 外必须为空（§4.1）
+gh release list --repo bluechonk/modelmux   # 必须没有任何输出（含 draft；§4.1）
 git tag -l                      # tag 才是发布物，必须都在
 ls .tmp                        # 清理临时文件；截图与诊断产物不留仓库
 ```
