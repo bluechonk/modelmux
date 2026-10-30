@@ -1,17 +1,20 @@
 /**
  * `/jailbreak` 上下文裁剪：客户端要求「丢掉前面全部上下文」时的快捷方式（规则见 docs/JAILBREAK.md）。
  *
- * ⚠ 裁剪范围是**整包**：messages 之外，`tools` / `tool_choice` / `functions` / `function_call` /
- *   `parallel_tool_calls` 这些「前置能力声明」一并删除 —— 它们描述的是被丢弃的那段会话能用的
- *   工具，留着会让上游按旧会话的工具面回答（本功能为提示词注入 / 破甲服务）。
- * ⚠ 只在 **user** 消息里找精确小写的 `/jailbreak`；出现多次取**最后一次**；丢弃它之前的一切
- *   （system / assistant / user 一视同仁），只保留标记后面的内容。
+ * ⚠ 只在 **user** 消息里找精确小写的 `/jailbreak`，出现多次取**最后一次**；丢弃它之前的一切
+ *   （system / assistant / user 一视同仁），只留标记后面的内容；标记之后的部分原样保留。
+ * ⚠ 整包裁剪：`tools` 等前置能力声明一并删除（留着会让上游按旧会话的工具面回答）；
+ *   例外是 user 消息里的 `<system-reminder>` 块 —— 客户端附着的环境信息，救回并入保留消息。
  * ⚠ 放在转发层：上下文怎么组装是转发层的职责，各渠道翻译器不该各实现一遍。
  * ⚠ `MODELMUX_JAILBREAK=0` 可整体关闭；网关只监听 127.0.0.1，不构成越权面。
  */
 
 /** 触发标记。精确匹配小写 —— 大小写变体不触发，避免误伤正文里的同形词。 */
 export const JAILBREAK_MARKER = "/jailbreak";
+
+/** 客户端（ZCode 等）往 user 消息里内联环境信息用的标签对。 */
+export const REMINDER_OPEN = "<system-reminder>";
+export const REMINDER_CLOSE = "</system-reminder>";
 
 /** 触发裁剪时随 messages 一并删除的顶层字段（工具与函数调用声明）。 */
 export const JAILBREAK_DROP_FIELDS: ReadonlyArray<string> = [
@@ -31,6 +34,8 @@ export interface JailbreakResult {
   applied: boolean;
   /** 被丢弃的消息条数（供日志与排查用）。 */
   dropped: number;
+  /** 从被裁剪部分救回并并入保留消息的 `<system-reminder>` 块数（去重后）。 */
+  rescued: number;
   /** 随裁剪删除的顶层字段名。 */
   droppedFields: string[];
   /** 触发标记在哪条消息上（原数组下标）。 */
@@ -72,11 +77,40 @@ function lastMarkerOffset(content: unknown): number {
 }
 
 /**
+ * 提取一段文本里**完整闭合**的 `<system-reminder>…</system-reminder>` 块（含标签本身，原样）。
+ *
+ * 未闭合的开标签不算块 —— 半截标签若被救回，会把标记之后的对话正文一并吞进
+ * 「客户端元数据」区，破坏裁剪语义。
+ */
+export function extractReminderBlocks(text: string): string[] {
+  const out: string[] = [];
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf(REMINDER_OPEN, from);
+    if (open < 0) break;
+    const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length);
+    if (close < 0) break;
+    out.push(text.slice(open, close + REMINDER_CLOSE.length));
+    from = close + REMINDER_CLOSE.length;
+  }
+  return out;
+}
+
+/** 把救回的 reminder 块拼成前缀并接在被裁剪后的 content 上（数组形态前置一个 text part）。 */
+function mergeRescued(prefix: string, stripped: unknown): unknown {
+  if (prefix === "") return stripped;
+  if (typeof stripped === "string") return stripped === "" ? prefix : `${prefix}\n\n${stripped}`;
+  if (Array.isArray(stripped)) return [{ type: "text", text: prefix }, ...stripped];
+  return stripped;
+}
+
+/**
  * 剥掉标记及其之前的全部内容，返回新的 content。
  *
  * - 字符串形态：直接切掉前缀并去掉前导空白；
  * - 数组形态：丢掉含标记那个 part **之前**的所有 parts，并把该 part 的文本切掉前缀
- *   （切完为空则不产出这个 part —— 「只保留标记后面的内容」在空的情况下就是没有内容）。
+ *   （切完为空则不产出这个 part —— 「只保留标记后面的内容」在空的情况下就是没有内容）；
+ *   标记所在 part **之后**的 parts 属于「标记后面的内容」，原样保留。
  */
 function stripThrough(content: unknown, offset: number): unknown {
   const markerEnd = offset + JAILBREAK_MARKER.length;
@@ -85,15 +119,21 @@ function stripThrough(content: unknown, offset: number): unknown {
 
   const out: unknown[] = [];
   let acc = 0;
+  let passed = false;
   for (const part of content) {
     const text = partText(part);
     const next = acc + text.length;
+    if (passed) {
+      out.push(part);
+      continue;
+    }
     if (offset < next) {
+      passed = true;
       const sliced = text.slice(markerEnd - acc).trimStart();
       if (sliced !== "") {
         out.push(typeof part === "string" ? sliced : { ...(part as Record<string, unknown>), text: sliced });
       }
-      return out;
+      continue;
     }
     acc = next;
   }
@@ -105,12 +145,20 @@ function stripThrough(content: unknown, offset: number): unknown {
  *
  * 只在 user 消息里找；**取最后一次**出现 —— 标记出现多次时以最后一次为准，
  * 之前的（含更早的标记本身）全部丢弃；工具与函数调用声明一并删除。
+ * 被裁剪部分里 user 消息的 `<system-reminder>` 块救回并入第一条保留消息（见文件头）。
  */
 export function applyJailbreak(
   payload: Record<string, unknown>,
   enabled: boolean = jailbreakEnabled(),
 ): JailbreakResult {
-  const empty: JailbreakResult = { payload, messages: [], applied: false, dropped: 0, droppedFields: [] };
+  const empty: JailbreakResult = {
+    payload,
+    messages: [],
+    applied: false,
+    dropped: 0,
+    rescued: 0,
+    droppedFields: [],
+  };
   if (!enabled) return { ...empty, messages: payload["messages"] as unknown[] ?? [] };
 
   const messagesRaw = payload["messages"];
@@ -127,7 +175,26 @@ export function applyJailbreak(
   }
   if (hit === null) return { ...empty, messages };
 
-  const stripped = stripThrough(hit.content, hit.offset);
+  // 救回被裁剪部分里的 reminder 块：更早的 user 消息整条 + 触发消息里标记之前的片段。
+  // 保时间线顺序（触发消息自己的排最后、离指令最近），同文重复块只留一份。
+  const rescuedBlocks: string[] = [];
+  const seen = new Set<string>();
+  const take = (blocks: string[]): void => {
+    for (const block of blocks) {
+      if (seen.has(block)) continue;
+      seen.add(block);
+      rescuedBlocks.push(block);
+    }
+  };
+  for (let i = 0; i < hit.index; i += 1) {
+    const message = messages[i];
+    if (!isUser(message)) continue;
+    take(extractReminderBlocks(flatten((message as Record<string, unknown>)["content"])));
+  }
+  take(extractReminderBlocks(flatten(hit.content).slice(0, hit.offset)));
+
+  const prefix = rescuedBlocks.join("\n\n");
+  const stripped = mergeRescued(prefix, stripThrough(hit.content, hit.offset));
   const head = { ...(messages[hit.index] as Record<string, unknown>), content: stripped };
   const newMessages = [head, ...messages.slice(hit.index + 1)];
 
@@ -150,6 +217,7 @@ export function applyJailbreak(
     messages: newMessages,
     applied: true,
     dropped: hit.index,
+    rescued: rescuedBlocks.length,
     droppedFields,
     at: hit.index,
   };
