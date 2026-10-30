@@ -15,6 +15,12 @@
    这些「前置能力声明」一并删除 —— 它们描述的是被丢弃的那段会话能用的工具，留着会让上游
    按旧会话的工具面回答（本功能为提示词注入 / 破甲服务）。采样参数（`temperature` /
    `max_tokens` 等）不属于「前面的信息」，保留。
+8. **`<system-reminder>` 例外**：user 消息里的 `<system-reminder>…</system-reminder>` 块是
+   客户端（ZCode 等）附着的环境信息（会话续传摘要、代码库指令、git 状态等），不是对话内容
+   —— 被裁剪部分里的块**提取保留**：按时间线顺序、含标签原样、同文重复只留一份，
+   用空行连接后并入第一条保留消息的开头。system / assistant 消息里的块属于对话与护甲本体，
+   照丢不救；标记**之后**出现的块天然保留，不去动。未闭合的 `<system-reminder>`（没有
+   对应闭标签）不算块、不保留 —— 防止半截标签把后文吞进「元数据」区。
 
 一条请求最多裁剪一次，裁剪在**池路由之前**完成：后续所有环节（渠道翻译器、`buildChatBody`、
 上游）拿到的都是裁剪后的整包。
@@ -41,6 +47,16 @@
         ← tools / tool_choice 随旧上下文一起删除；temperature 保留
 ```
 
+带 `<system-reminder>`（ZCode 会话续传摘要挂在首条 user 消息上的情形）：
+
+```
+输入:  [user "<system-reminder>会话摘要…</system-reminder>早期的问题"]
+       [assistant 早期回答]
+       [user "/jailbreak 新问题"]
+输出:  [user "<system-reminder>会话摘要…</system-reminder>\n\n新问题"]
+        ← 摘要块救回并入保留消息；「早期的问题」「早期回答」照丢
+```
+
 ## 3. 开关
 
 `MODELMUX_JAILBREAK=0` 整体关闭（其余值或未设 = 启用）。
@@ -60,7 +76,10 @@
   便于排查「为什么这次回答没有上下文」。
 - 标记后面为空（例如正文就是裸的 `/jailbreak`）时，该条消息的正文变为空串 ——
   「只保留标记后面的内容」在空的情况下就是没有内容。上游可能因此报 `invalid_request`，
-  这是客户端写法问题，网关不做兜底替换。
+  这是客户端写法问题，网关不做兜底替换。（有 reminder 块被救回时，正文就是块本身，不空。）
+- 救回的块里可能包含逐轮重复的客户端状态提醒（todo 变更等），去重只对**同文**块生效，
+  不同文的 stale 提醒会一并保留 —— 这是「保留用户信息」的直接后果；要整体关闭仍走
+  `MODELMUX_JAILBREAK=0`。
 - **渠道自注入的 system 不受本裁剪影响**：部分渠道（lobsterai / workbuddyai 等）会在
   `buildChatBody` 时注入自己的固定 system 预设 —— 那是渠道协议的一部分，发生在裁剪之后，
   与被丢弃的对话历史无关。
@@ -69,8 +88,8 @@
 
 - 实现：`packages/core/gateway/src/http/chat/jailbreak.ts`（纯函数）；
   接入点 `http/chat/relay.ts` 的 A2 段（解析校验之后、池路由之前）。
-- 测试：`packages/core/gateway/tests/jailbreak.test.ts`（11 个用例：最后一次生效、只认 user、
-  大小写、多模态数组 content、**整包裁剪 tools 等**、开关关闭、剥空等边界）与
-  `tests/jailbreak-e2e.test.ts`（全链路：relay → buildChatBody → 假上游收到的 body，
-  断言 tools 也被裁掉、access 留痕）。
+- 测试：`packages/core/gateway/tests/jailbreak.test.ts`（20 个用例：最后一次生效、只认 user、
+  大小写、多模态数组 content、**整包裁剪 tools 等**、**reminder 救回 / 去重 / 不救面**、
+  开关关闭、剥空等边界）与 `tests/jailbreak-e2e.test.ts`（全链路：relay → buildChatBody →
+  假上游收到的 body，断言 tools 被裁掉、reminder 块到达上游、access 留痕）。
 

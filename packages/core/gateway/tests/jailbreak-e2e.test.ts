@@ -112,6 +112,8 @@ after(async () => {
 });
 
 const SYSTEM = "你是测试助手，回答保持简短。";
+/** 模拟客户端（ZCode 等）附着在 user 消息里的环境信息。 */
+const REMINDER = "<system-reminder>客户端附着的环境信息：今天是 2026-10-30。</system-reminder>";
 
 const send = async (userText: string): Promise<{ status: number; body: string }> => {
   const res = await fetch(`http://${gw!.addr}/v1/chat/completions`, {
@@ -122,7 +124,7 @@ const send = async (userText: string): Promise<{ status: number; body: string }>
       messages: [
         { role: "system", content: SYSTEM },
         { role: "assistant", content: "（上一轮回答）" },
-        { role: "user", content: userText },
+        { role: "user", content: `${REMINDER}\n${userText}` },
       ],
       // 工具声明随请求一起发：带标记时应随上下文一起被裁掉
       tools: [{ type: "function", function: { name: "read_file", parameters: {} } }],
@@ -166,7 +168,11 @@ describe("/jailbreak 全链路（relay → buildChatBody → 上游 body）", ()
     const messages = lastUpstreamBody!["messages"] as Array<Record<string, unknown>>;
     assert.equal(messages.length, 1, `应只剩 1 条，实得 ${JSON.stringify(messages)}`);
     assert.equal(messages[0]!["role"], "user");
-    assert.equal(messages[0]!["content"], "请只回复：OK", "第一条 = 标记后面的内容");
+    assert.equal(
+      messages[0]!["content"],
+      `${REMINDER}\n\n请只回复：OK`,
+      "第一条 = 标记后面的内容，客户端附着的 reminder 块保留在前",
+    );
     assert.ok(!JSON.stringify(messages).includes(SYSTEM), "system 不得出现在上游收到的 body 里");
     assert.ok(!JSON.stringify(messages).includes("（上一轮回答）"), "历史不得出现");
     assert.ok(!JSON.stringify(messages).includes("/jailbreak"), "标记本身也不发上游");
