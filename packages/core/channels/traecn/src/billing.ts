@@ -51,7 +51,7 @@ interface CreditsResult {
   /**
    * **对话可用**额度（通用 / SOLO 维度）。
    *
-   * ⚠ 与 `packages` 的全量明细口径不同：`total` 只算 SOLO 通道消耗的那一维。
+   * 与 `packages` 的全量明细口径不同：`total` 只算 SOLO 通道消耗的那一维。
    */
   total: {
     remain: number;
@@ -204,7 +204,7 @@ async function checkinStatus(c?: cred.Credentials): Promise<CheckinState> {
 /**
  * 领取每日签到。
  *
- * ⚠ claim 的 body 是 **`{}`**（不是 `{"req_source":2}`）；响应**不含积分数**，
+ * claim 的 body 是 **`{}`**（不是 `{"req_source":2}`）；响应**不含积分数**，
  * 故领取后必须补查一次 `status` 才能拿到 `credits`。
  */
 async function claimDaily(c?: cred.Credentials): Promise<{
@@ -314,13 +314,13 @@ export async function fetchCredits(
       used: Math.round(used * 100) / 100,
       unit: "credits",
       expire_at: expireSeconds === null ? "" : String(Math.trunc(expireSeconds * 1000)),
-      // ⚠ expire_time 是秒级 Unix（×1000 才是毫秒）
+      // expire_time 是秒级 Unix（×1000 才是毫秒）
       days_left: daysLeft(expireSeconds),
     });
   }
   // 对话流实测余额（notify_usage）是上游自己算的数，**新鲜时**权威 → 覆盖推导值。
-  // ⚠ 余额按账号归属：快照 uid 与当前账号不符（换过号）就不采信。
-  // ⚠ 快照有时效：超龄的不采信（过时观测会压掉当下权益包推导的余额，见 TTL 注释）。
+  // 余额按账号归属：快照 uid 与当前账号不符（换过号）就不采信。
+  // 快照有时效：超龄的不采信（过时观测会压掉当下权益包推导的余额，见 TTL 注释）。
   const snapshot = upstream.readUsageSnapshot();
   const observedAt = snapshot ? Date.parse(snapshot.observed_at) : Number.NaN;
   const snapshotFresh =

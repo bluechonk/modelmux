@@ -3,9 +3,9 @@
  *
  * 快照（今日 KPI / 接入盒 / 模型池 / 最近请求）走 `/api/overview`，3-5 秒轮询；
  * 用量（Token 活动 / 每日趋势 / 模型用量）走 `/api/usage`，只在切区间或手动刷新时重取。
- * ⚠ 口径：控制台里「请求」恒指模型请求（`/v1/chat/completions`）——请求日志、用量区块、
+ * 口径：控制台里「请求」恒指模型请求（`/v1/chat/completions`）——请求日志、用量区块、
  *   今日 KPI 三处同源，见 docs/USAGE-STATS.md。
- * ⚠ 无 hover 信息：详情一律点击后落固定区域；lg 双列 / md 单列，不新增依赖。
+ * 无 hover 信息：详情一律点击后落固定区域；lg 双列 / md 单列，不新增依赖。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from "react";

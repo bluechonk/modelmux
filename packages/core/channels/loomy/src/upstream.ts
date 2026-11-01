@@ -88,7 +88,7 @@ interface Config {
 }
 
 /**
- * 凭据的最小面（避免 upstream ↔ cred 循环依赖）。
+ * 凭据的最小面（避免 upstream <-> cred 循环依赖）。
  */
 interface AuthLike {
   accessToken: string;
@@ -183,7 +183,7 @@ function str(value: unknown): string {
  * 业务端点头：**只发 `token`**（`/models`、`/points/*`、`/onboarding/*`）。
  * 多发 `Authorization` 不会被采纳 —— 只认 `token`。
  *
- * ⚠ 不发 `traceparent` / `loomy-version`：这两个头是 `[参考]` 标注的**对话**必需头，
+ * 不发 `traceparent` / `loomy-version`：这两个头是 `[参考]` 标注的**对话**必需头，
  * 业务端点实测（`mx model loomy --refresh`）不发也正常。
  */
 function businessHeaders(credential: AuthLike): Record<string, string> {
@@ -287,7 +287,7 @@ async function businessCall(
     throw new Error(`business response is not valid JSON: ${String(err)}`);
   }
   const env = parseEnvelope(payload);
-  // ⚠ 业务失败**恒 HTTP 200**：只能说 code
+  // 业务失败**恒 HTTP 200**：只能说 code
   if (env.code !== OK_CODE) {
     if (isAuthError(env.code)) {
       throw new UpstreamUnauthorized(`Loomy session is invalid (code=${env.code} ${env.desc})`);
@@ -339,7 +339,7 @@ export function parseModelsResponse(payload: unknown): {
 /**
  * 拉模型目录（**必须用 `token` 头**，带错会得到 100002）。
  *
- * ⚠ **不走 `businessCall`**：新格式 `/models` 返回 OpenAI 兼容的
+ * **不走 `businessCall`**：新格式 `/models` 返回 OpenAI 兼容的
  * `{object:"list", data:[...]}`，顶层无 `code`。`businessCall` 判
  * `code !== OK_CODE` 会把新格式的合法响应误抛为「business failure: code=」，
  * 表现为「永远停在兜底表」。本函数只负责 HTTP 层 + JSON 解析，格式判断交给
@@ -390,7 +390,7 @@ export async function fetchPointsRecords(
 /**
  * 触发每日额度初始化（**写**，幂等）。
  *
- * ⚠ 语义是「触发每日额度重置」，**不是「+5000 积分」**：`dailyBalance = dailyQuota - dailyConsumed`，
+ * 语义是「触发每日额度重置」，**不是「+5000 积分」**：`dailyBalance = dailyQuota - dailyConsumed`，
  * 消耗后不回补。故**不能**在「打开面板」这类高频路径上调用它。
  *
  * body 固定 `{}`：**无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现，
@@ -418,8 +418,8 @@ export async function fetchTasks(
 /**
  * 完成单个新手任务。
  *
- * ⚠ 上报 body **只有 `key`** —— 无设备指纹、无版本号、无渠道号；
- * ⚠ **服务端不校验前置行为**（实测 8 个任务逐个直领全部成功，余额 0 → 10000，
+ * 上报 body **只有 `key`** —— 无设备指纹、无版本号、无渠道号；
+ * **服务端不校验前置行为**（实测 8 个任务逐个直领全部成功，余额 0 → 10000，
  * 没有真的发对话/生成 PPT/装技能）：完成条件全在客户端本地判定，服务端只做
  * 「幂等置位 + 加分」。故本实现是**纯 API 直领**。
  */
@@ -443,7 +443,7 @@ export function resolveConfig(_data: Record<string, unknown>, fallback?: Config)
   return { ...(fallback ?? defaultConfig()) };
 }
 
-// ── 档位注册表（避免 upstream ↔ catalog 循环依赖）──────────────────────────────
+// ── 档位注册表（避免 upstream <-> catalog 循环依赖）──────────────────────────────
 
 interface ModelEfforts {
   efforts: string[];

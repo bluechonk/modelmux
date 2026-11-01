@@ -285,7 +285,7 @@ export function attachRequestLog(method: string, path: string, res: ServerRespon
   });
   res.once("close", () => {
     if (finished) return;
-    // ⚠ 这里**不写 outcome**：outcome 表达的是**服务端这次请求的结果**，
+    // 这里**不写 outcome**：outcome 表达的是**服务端这次请求的结果**，
     // 由 `finishRequestLog` 按状态码统一分类（2xx → success ✓）。
     // 客户端先关连接只说明「客户端不等了」—— 上游该回的已经回了（200 ✓），
     // 把它记成 other 会让「按 success.log 统计成功率」失真
@@ -613,7 +613,7 @@ const ACCESS_MAX_LIMIT = 500;
 /**
  * 只读这三个文件。
  *
- * ⚠ 刻意**不读** `slow.log`：它是成功/失败行的**并行副本**（同一请求写两处），
+ * 刻意**不读** `slow.log`：它是成功/失败行的**并行副本**（同一请求写两处），
  * 一起读会让慢请求在列表里出现两遍。
  */
 const ACCESS_OUTCOMES: AccessOutcome[] = ["success", "failure", "other"];
@@ -633,7 +633,7 @@ function bool(value: unknown): boolean | undefined {
 /**
  * 从上游 `usage` 里提取**缓存命中**情况（口径见 docs/CACHE-HIT-RATE.md §6）。
  *
- * ⚠ 必须**按字段形态分派**，不能把各家的别名串成一条链：缓存字段有两套互斥语义 ——
+ * 必须**按字段形态分派**，不能把各家的别名串成一条链：缓存字段有两套互斥语义 ——
  * 「含在总输入内」（DeepSeek `prompt_cache_hit_tokens`、OpenAI `cached_tokens`）
  * 与「不含在总输入内」（Anthropic `cache_read_input_tokens`，其 `input_tokens` 明确
  * 不含缓存读/写）。混用会让后者算出接近 100% 的假命中率。
@@ -743,7 +743,7 @@ function readTail(file: string, maxBytes: number): { text: string; truncated: bo
 /**
  * 某 outcome 在指定日期要读的文件，按**时间正序**返回。
  *
- * ⚠ 必须带上轮转文件：单文件超 10MB 后当天早期的行被挤到 `.1.log`…`.3.log`，
+ * 必须带上轮转文件：单文件超 10MB 后当天早期的行被挤到 `.1.log`…`.3.log`，
  * 只读 `<outcome>.log` 会丢掉当天的前半段。
  */
 function accessFiles(date: string, outcome: AccessOutcome): string[] {

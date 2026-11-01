@@ -71,7 +71,7 @@ const nowIso = sharedLogin.nowIso;
  * `modelBearerToken` 是对话用的 Bearer；`sessionToken` / `ssoSessionId` 只用于刷新
  * （拼 Cookie 打账号 API）。两者都来自 AStudio 的会话文件。
  *
- * ⚠ **契约字段必须齐**（共享层 `Credential`：`accessToken` / `uid` / `domain`）：
+ * **契约字段必须齐**（共享层 `Credential`：`accessToken` / `uid` / `domain`）：
  * 缺 `domain` 会让 `accountKey` 退化成 `sha256(""\0uid)`，与其它渠道的 key 口径不一致。
  */
 export interface Credentials {
@@ -125,7 +125,7 @@ const EMPTY_CREDENTIALS: Credentials = {
  * 依赖共享层 `NAME_FIELDS` 的顺序「碰巧」命中 `mobile` 不可靠 —— 池层一调顺序，
  * astudio 的显示名就变。所以这里显式回落，不靠池层巧合。
  *
- * ⚠ **不做脱敏**，渠道给什么就显示什么
+ * **不做脱敏**，渠道给什么就显示什么
  * （`mobile` 是明文手机号，与 `packages/ui` 的 `displayName()` 口径一致）。
  */
 function displayName(raw: AstronSessionFile): string {
@@ -305,7 +305,7 @@ interface LoginOptions {
   /**
    * 强制重读（`mx relogin astudio`）。
    *
-   * ⚠ 默认行为是「已有凭据就复用」—— 那是 `login()` 的语义（幂等），
+   * 默认行为是「已有凭据就复用」—— 那是 `login()` 的语义（幂等），
    * 但 `relogin` 要的是**重新读一次会话文件**。两者不区分的话，
    * `relogin` 在凭据还在时是**空操作**。
    */
@@ -570,7 +570,7 @@ async function loginFromSessionFile(options: LoginOptions): Promise<Credentials>
     }
     try {
       const base = fromSessionFile(readSessionFile());
-      // ⚠ 账号信息补全是**尽力而为**：`/userInfo` 拉失败（网络/上游抖动）时必须回落到
+      // 账号信息补全是**尽力而为**：`/userInfo` 拉失败（网络/上游抖动）时必须回落到
       // 会话文件的值，不能让整个登录失败 —— 否则会话文件明明是好的，却每 3 秒重试
       // 一次直到 5 分钟超时。
       let c = base;
@@ -613,7 +613,7 @@ async function fromPasted(text: string): Promise<Credentials> {
 /**
  * 登出：**销毁本渠道的本地凭据**。
  *
- * ⚠ 语义必须说清：
+ * 语义必须说清：
  * - 本函数只做**本地销毁** —— 删掉 `credentials.json`；
  * - **不吊销上游会话**：AStudio 的登出端点（`/api/astron-auth/logout`）同样只存在于
  *   本地服务代理层，外部拿不到。云端 `token` / `ssoSessionId` 会继续有效，
@@ -637,7 +637,7 @@ export async function logout(): Promise<void> {
  * Cookie 失效（上游 `code=80000` / HTTP 401）时抛 `NotLoggedInError` ——
  * 绝不假装刷新成功。
  *
- * ⚠ 前置条件是 `sessionToken` **或** `ssoSessionId` 至少有一个，不能只认前者：
+ * 前置条件是 `sessionToken` **或** `ssoSessionId` 至少有一个，不能只认前者：
  * 短信登录（`astudio-sms-login`）的上游响应实测**不带 `token`**（只给 `ssoSessionId`），
  * 若写死 `!c.sessionToken` 就抛错，这类账号的刷新链路**永久不可用** ——
  * 症状是「上游回 403 后只能等桌面应用重登」，凭据本身其实完全够用。

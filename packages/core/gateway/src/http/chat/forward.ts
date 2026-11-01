@@ -114,12 +114,12 @@ function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wan
 /**
  * 把胜出候选的上游响应交给客户端：非流式聚合、流式透传。
  *
- * ⚠ 一旦开始写响应头就**不能再转移渠道** —— 所以它只在池路由的最后一跳调用，
+ * 一旦开始写响应头就**不能再转移渠道** —— 所以它只在池路由的最后一跳调用，
  *   池路由的尝试循环里不许出现它。
  *
- * ⚠ `pendingFrames` 是**探测层消费掉的帧**（内容帧 + 非排队错误帧）：
+ * `pendingFrames` 是**探测层消费掉的帧**（内容帧 + 非排队错误帧）：
  *   一个都不能丢，必须按原序先写给客户端（见 `ProbeFrames`）。
- * ⚠ `probeTranslator` 必须与探测层是**同一个**翻译器实例（半行缓冲在里面）。
+ * `probeTranslator` 必须与探测层是**同一个**翻译器实例（半行缓冲在里面）。
  */
 export async function relayUpstream(
   res: ServerResponse,
@@ -147,7 +147,7 @@ export async function relayUpstream(
   // custom 线型且渠道声明了 isQueueError 时，**响应头还没发**——排队帧可以触发
   // 等待 + 重开上游重试（与流式路径同一套预算）。
   if (!wantStream) {
-    // ⚠ 排队预算耗尽的判定必须**排在读流之前**（与流式路径同一口径、同一顺序）：
+    // 排队预算耗尽的判定必须**排在读流之前**（与流式路径同一口径、同一顺序）：
     //   排队耗尽时上游是「收下请求后彻底静默」，先读流会把客户端拖到静默超时
     //   （实测 900s）才拿到 503。判据与流式路径一致：探测层没拿到任何内容帧。
     if (queuedOut && pendingFrames.length === 0) {
@@ -162,7 +162,7 @@ export async function relayUpstream(
       return;
     }
     try {
-      // ⚠ 这里**不再二次探测**：尝试层已用同一条件探测过这条流并推进了它的位置，
+      // 这里**不再二次探测**：尝试层已用同一条件探测过这条流并推进了它的位置，
       // 再探测会丢掉第一次消费掉的帧（非流式空响应的元凶）。此处只把探测结果（前缀内容帧 /
       // 错误帧）与流剩余部分拼起来聚合。
       const upstreamBuf = Buffer.concat([
@@ -189,7 +189,7 @@ export async function relayUpstream(
       // ② 一个可解析帧都没有 —— 上游抽风，连内容/用量帧都没发（aggregateChatSse 的
       //    id/model/usage 全落空值）→ 回 200 等于告诉客户端「成功但什么都没有」，
       //    且 model 为空、usage 全 0，客户端无从判断。
-      //    ⚠ 实测 2026-11-01 loomy 非流式：200 + `model:""` + usage 全 0 就是这条路径
+      //    实测 2026-11-01 loomy 非流式：200 + `model:""` + usage 全 0 就是这条路径
       //    （当时上游正处于 502 抖动期）。
       if (isEmptyCompletion(aggregated)) {
         const sseError = sseStream.firstSseError(buf);
@@ -217,7 +217,7 @@ export async function relayUpstream(
   }
 
   // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传。
-  // ⚠ 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 writeQueueNotice）：
+  // 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 writeQueueNotice）：
   //   此时不能再 writeHead（会抛 ERR_HTTP_HEADERS_SENT），后续帧直接续写。
   const outHeaders: Record<string, string> = {};
   if (isCustomWire(channel)) {

@@ -69,7 +69,7 @@
 - **判据优先级**：数组形态 `input_modalities`（含 `image` 即为真）→ 布尔形态
   `supportsImages` / `supports_image`；取不到 → 条目不填该字段，由汇聚层回落
   `["text"]`（宁可少报）。实现见 `src/catalog.ts` 的 `supportsImageOf`。
-- ⚠ **不要拿 `supports_image_detail_original` 当判据**：
+- **不要拿 `supports_image_detail_original` 当判据**：
   同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
   的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）会被报成纯文本 →
   客户端不再给它发图片。
@@ -84,7 +84,7 @@
   与抓包结论一致；`X-Conversation-ID` **恒发**（上游渠道校验要求，缺头判非官方拒收）。
 - **11128 的内容侧缓解**（`internal/prompt/prompt.go`）：上游内容审核按逐字精确匹配误杀
   system 里的指纹样板文本 → 改写为最小中性表述后重试一次；与头族修复互补，不可互替。
-  ⚠ 本渠道**只实现了头族修复 + 文本改写**，没有「网关自有系统提示词」那一层 ——
+  本渠道**只实现了头族修复 + 文本改写**，没有「网关自有系统提示词」那一层 ——
   见 §7.2 缺口 17。
 
 ### 2.0.1 指纹触发面的实测边界（B 级，2026-11-02）
@@ -104,8 +104,8 @@
 
 | # | 最小复现 | 结果 |
 | --- | --- | --- |
-| 1 | `You are an AI agent powered by DeepSeek Harness.` | ❌ 400 `11128` |
-| 2 | `Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root.` | ❌ 400 `11128` |
+| 1 | `You are an AI agent powered by DeepSeek Harness.` | 400 `11128` |
+| 2 | `Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root.` | 400 `11128` |
 
 两条的判据细节：
 
@@ -116,7 +116,7 @@
   去掉 `root` **通过**；但两句**各自单独发都通过**。即它是一条**跨句的固定串**，
   不是「两个短语同时出现」的与关系。
 
-⚠ **必须记住的结论**：触发面**远大于 `FINGERPRINT_RULES` 这种字面表**，靠逐条补串收敛不了
+**必须记住的结论**：触发面**远大于 `FINGERPRINT_RULES` 这种字面表**，靠逐条补串收敛不了
 （本渠道目前只覆盖 #1 这一族）。DSH 的真实 system 在补完 #1 之后**仍被拒**（见下表），
 正说明 #2 以及可能更多条还没有覆盖。
 
@@ -124,14 +124,14 @@
 
 | 环节 | 结果 |
 | --- | --- |
-| 最小文本含 `DeepSeek Harness`（未改写） | ❌ 400 `11128` |
-| 同一文本经渠道改写（上行体 3 处 → 0 处） | ✅ 200 |
-| **真实 DSH system（8860 字符，已覆盖 #1）** | ❌ 仍 400 `11128`（#2 未覆盖） |
+| 最小文本含 `DeepSeek Harness`（未改写） | 400 `11128` |
+| 同一文本经渠道改写（上行体 3 处 → 0 处） | 200 |
+| **真实 DSH system（8860 字符，已覆盖 #1）** | 仍 400 `11128`（#2 未覆盖） |
 
 → 要让 DSH 这类会话真正可用，走的是 §7.2 **缺口 17**（网关自有系统提示词层：
 Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续往字面表里补串。
 
-⚠ 本渠道的清洗**只走正文 / 思考链 / 工具实参**，**不覆盖工具名与工具描述**。
+本渠道的清洗**只走正文 / 思考链 / 工具实参**，**不覆盖工具名与工具描述**。
 
 ## 2.1 唯一登录路径（网页设备授权）
 
@@ -185,7 +185,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:338`） | **声明**该回调（每轮轮询前取一次） |
 | `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:300`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-⚠ 与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
+与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 
@@ -196,7 +196,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - 已签到时上游业务码非 0（幂等，按成功回报）。
 - 活动起止时间非 RFC3339（形如 `2026-09-29 23:59:59`，按 CST 解释）。
 - `GET` 同路径返回 404（上游只挂 POST），不要改方法。
-- ⚠ **签到活动状态端点**（`/v2/billing/meter/checkin-activity-status`，回
+- **签到活动状态端点**（`/v2/billing/meter/checkin-activity-status`，回
   `today_checked_in` / `streak_days` / `end_time`）**当前未实现** —— 它是上游
   「今天还能不能领 / 活动到哪天结束」的权威依据，缺它意味着只能靠 `daily-checkin`
   的幂等拒绝来猜（签到由网关启动时的自动签到链路执行，CLI **没有** `signin` 动词，
@@ -232,7 +232,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - **HTTP 200 但体内是错误信封**要按错误处理：上游会把内部故障塞进 200 的响应体
   （如 `{"code":-32603,"message":"Internal error","data":{"category":"internal"}}`），
   只看状态码的实现会把它当成功（hub `docs/protocol-reference.md:2011-2038`）。`[参考]`
-  ⚠ 对话路径**尚无拦截点**：共享层没有「发完再判响应体」的渠道钩子（`isAuthFailure`
+  对话路径**尚无拦截点**：共享层没有「发完再判响应体」的渠道钩子（`isAuthFailure`
   只对 4xx 调用、`isQueueError` 只对 `WIRE === "custom"` 生效）→ 列入 §7.2 缺口 5。
 
 ### 4.2 令牌续期
@@ -269,9 +269,9 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | `/v2/billing/meter/get-user-resource` | 无 query；body 带 `PageNumber` / `PageSize` / `ProductCode` / `Status` / `PackageEndTimeRange*` |
 | 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | `/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
 
-- ⚠ `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
+- `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
   chat 路径加它实测 **404**（`POST /v2/chat/completions` 才是 200）。`[实测]`
-- ⚠ **计费域没有与 chat base 分离**：三家参考实现都把计费放在**另一个 host**
+- **计费域没有与 chat base 分离**：三家参考实现都把计费放在**另一个 host**
   （CN = `https://www.codebuddy.cn`，go `internal/upstream/client.go:875`、
   panel `internal/upstream/client.go:841-846`、dsh `packages/core/channels/workbuddy/src/upstream.ts:424-426`），
   本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本渠道不改**，
@@ -336,7 +336,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `X-Conversation-Message-ID` | 每条新生（32 位 hex，UUIDv7 形态） | |
 | `X-Request-ID` | **与 `X-Conversation-Message-ID` 同值** | |
 
-⚠ 当前实现**每轮都新生成**（一次 user send 内的多个 tool call 轮次各拿一个新 ID）；
+当前实现**每轮都新生成**（一次 user send 内的多个 tool call 轮次各拿一个新 ID）；
 参考实现是「一次 user send 内所有尝试复用同一个」→ §7.2 缺口 18。
 
 ### 6.5 链路族 6
@@ -350,7 +350,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `X-B3-SpanId` | 8 位 hex | |
 | `X-B3-Sampled` | `1` | `X-B3-ParentSpanId` **刻意不发**（官方只在有父 span 时带） |
 
-⚠ `X-Trace-ID` 与 `X-B3-TraceId` 当前**不同值**（hub 口径要求同一份，「发得不一致
+`X-Trace-ID` 与 `X-B3-TraceId` 当前**不同值**（hub 口径要求同一份，「发得不一致
 比不发更糟」）→ §7.3 V5。
 
 ### 6.6 登录 / 刷新 / 计费三组头
@@ -424,10 +424,10 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 `context_window` / `max_output_tokens`。取值优先级：**上游目录声明 > 渠道规格表 >
 兜底值**（200000 / 65536）。
 
-- ⚠ 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
+- 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
   `maxOutputTokens`，落盘成 `context_window` / `max_output`），所以正常情况下
   `/v1/models` 显示的是**上游声明值**；规格表只在目录没声明（或目录缓存缺失）时兜底。
-- ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
+- 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
   `maxOutputTokens` = **单次回复**上限。
 - 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：**公开规格**（联网核实的唯一事实源）；
   键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。

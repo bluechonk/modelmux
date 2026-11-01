@@ -132,7 +132,7 @@ export async function fetchCredits(
   }
   const dailyBalance = numOrNull(data["dailyBalance"]) ?? 0;
   const available = numOrNull(data["availableBalance"]) ?? balance + dailyBalance;
-  // ⚠ dailyQuota 只在 first-login 的响应里；未签到时缺省，不要硬编码
+  // dailyQuota 只在 first-login 的响应里；未签到时缺省，不要硬编码
   const dailyQuota = numOrNull(data["dailyQuota"]);
   const dailyConsumed = numOrNull(data["dailyConsumed"]) ?? 0;
 
@@ -184,7 +184,7 @@ interface ClaimResult {
 /**
  * 直领一个新手任务（服务端只做「幂等置位 + 加分」，不校验前置行为）。
  *
- * ⚠ 上报 body **只有 `key`**。未知 key → `100001` → `CreditsError`；
+ * 上报 body **只有 `key`**。未知 key → `100001` → `CreditsError`；
  * 登录失效 → `100002` → `NotLoggedInError`（调用方应立即终止后续请求）。
  * `c` 不传时用当前生效凭证（共享层按账号调度时会显式传入）。
  */
@@ -331,7 +331,7 @@ export const signin: SigninModule = {
     // `ok` 必须**两件事都成**才算完成：
     // 每日重置失败、或新手任务那步抛错（如上游瞬时 429 / session 抖动）→ ok=false，
     // 让调度器**不写台账**、下一轮重试。
-    // ⚠ 早期版本 `ok` 只看每日重置 → 新手任务失败也被记成「今天已处理」，
+    // 早期版本 `ok` 只看每日重置 → 新手任务失败也被记成「今天已处理」，
     //   当天不再重试，白丢一次性 10000 分（2026-10-28 实测踩过：4 个账号里
     //   有 1 个因此没领到，探针单独重跑立刻成功，证明是瞬时失败而非永久拒绝）。
     return {
@@ -352,7 +352,7 @@ export const signin: SigninModule = {
  *   （`dailyBalance=978 / dailyConsumed=4022`，见 `docs/channels/loomy/PROTOCOL.md` §6.3）；
  * - 0 点刷新：`points/records` 的 `dailyCycleDate` 是日期串，且实测跨天后额度回到满额。
  *
- * ⚠ `points/records` **不返回** `dailyQuota`（只有 first-login 响应里有），所以这里用
+ * `points/records` **不返回** `dailyQuota`（只有 first-login 响应里有），所以这里用
  * 实测常量而不是去查上游 —— 本函数是**纯本地**的（共享层可能在展示路径高频调用）。
  */
 export function quotaPeriod(): QuotaPeriod {

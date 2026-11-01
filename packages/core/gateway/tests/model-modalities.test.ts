@@ -6,7 +6,7 @@
  * 纯文本，多模态模型形同虚设。这里锁**字段名 → 归一结果**这条约定：
  * 上游换字段名仍要认，归一规则（大小写、别名）不能被悄悄改掉。
  *
- * ⚠ 本文件只列**字段名**，不列渠道、不列厂商、不列模型名（共享层无渠道知识）。
+ * 本文件只列**字段名**，不列渠道、不列厂商、不列模型名（共享层无渠道知识）。
  */
 
 import assert from "node:assert/strict";
@@ -17,7 +17,7 @@ import { inputModalitiesOf } from "../dist/pool/pool-targets.js";
 /**
  * 布尔形态的候选字段名（上游/目录实测用过的全部写法）。
  *
- * ⚠ **不含** `supports_image_detail_original`：它的语义是「支持原图细节」，
+ * **不含** `supports_image_detail_original`：它的语义是「支持原图细节」，
  * 不是「支持图片」—— 收进来会把真能吃图、但不支持原图的型号判成纯文本
  * （实测 workbuddy 随包快照里 `deepseek-v4.1-flash` 就是这个组合）。
  */

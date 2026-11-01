@@ -249,7 +249,7 @@ interface Channel {
 
 `CredModule.logout?(): Promise<void>` —— 销毁**本渠道的本地凭据**。
 
-⚠ **契约只要求本地销毁**：各渠道的上游登出端点几乎都需要**活会话**
+**契约只要求本地销毁**：各渠道的上游登出端点几乎都需要**活会话**
 （外部进程拿不到，实测 401），所以「吊销上游会话」不是契约要求。
 渠道若确实拿得到登出端点，在实现里说明它额外做了什么。
 
@@ -323,7 +323,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 （不等轮询超时）—— 用户拒绝授权时看到的是白等几分钟。措辞集合是**渠道无关**的
 通用启发式，见共享层 `packages/core/gateway/src/auth/paste-detect.ts`（`AUTH_ERROR_MARKERS`）。
 
-⚠ `pasteCode()` **一次性消费**：调用方取出一次即清空
+`pasteCode()` **一次性消费**：调用方取出一次即清空
 （`packages/core/gateway/src/app/lifecycle/headless.ts:76-80`、`223-227`），
 渠道必须按「可能返回 `undefined`」处理，不能假设一定有值。
 
@@ -371,7 +371,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   （`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）。已吐过内容帧则不重试（避免重复内容）。
   未声明的渠道照旧把错误帧透传给客户端。
   排队等待期间网关向**流式**客户端按轮次分批发进度文案（**`reasoning_content` delta**，
-  每条以空行收尾）；⚠ 刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒若走
+  每条以空行收尾）；刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒若走
   `content` 会先建出正文行，模型的思考就落到正文后面了（主人 2026-10-24 反馈）；
   **排队解除后补一条正文**「排队成功，开始生成…」作为分界（主人 2026-10-25 要求）。
   超预算仍无内容时**直接回正常应答**劝主人换渠道（文案带真实渠道 id），不再回错误帧。
@@ -387,7 +387,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   多主机上游里个别主机对「200 后零字节 / 断流」是坏的，网关在探测层重试前换下一候选，
   成功后回写记忆。仅 custom 线型且签名不覆盖 host 的渠道适用（如 Qoder，见
   `docs/channels/qoder/PROTOCOL.md` §7.5）；标准 OpenAI 兼容渠道没有这个概念。
-  ⚠ `rememberChatHost` 的**实现是零参**（渠道自己取当前主机）；声明写成
+  `rememberChatHost` 的**实现是零参**（渠道自己取当前主机）；声明写成
   `rememberChatHost?(host?: string)` 是为了兼容「零参实现」与「共享层带 host 传参」两种形态。
 
 **`WIRE` 怎么选**：
@@ -527,7 +527,7 @@ modelSpec?(modelId: string): {
 - **`multiplier` 只填实测值**：云端/上游没给的就是未知 ——
   省略该字段，不要让池层填占位数字（客户端会按它算钱）。
   实测案例见 [MODEL-SPECS.md](./MODEL-SPECS.md) §4.2（AStudio：7 个模型里只有 2 个有实测倍率）。
-  ⚠ **倍率不走「跨渠道兜底」那一层**：倍率是渠道自己的计费口径，
+  **倍率不走「跨渠道兜底」那一层**：倍率是渠道自己的计费口径，
   拿兄弟渠道的值去填等于编造（窗口/输出/档位可以，倍率不行）。
 - **取值优先级：本渠道上游目录 > 本渠道声明（本钩子）> 跨渠道兜底 > 占位值**：
   共享层对「本渠道两条路都答不上来」的字段，会拿**兄弟渠道同规范 model id** 的已知值补
@@ -671,7 +671,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 - 仓库级多渠道路由下跑的是**仓库级**网关 → pid 文件在**根**（`~/.modelmux/gateway.pid`）；
 - 单渠道独立运行 → pid 文件在**渠道目录**（`~/.modelmux/<cid>/gateway.pid`）。
 
-⚠ 取错的后果：`status <cid>` 若按**渠道级** pid 文件判定，仓库级模式下
+取错的后果：`status <cid>` 若按**渠道级** pid 文件判定，仓库级模式下
 那个文件往往是历史遗留（某次单渠道调试留下的）→ **误报**「网关在跑旧代码」，
 报出来的 `daemon_pid` / `worker_pid` 也不是在跑的进程。
 判定依据是 `/health` 的 `service` 字段（`modelmux` = 仓库级，`<cid>` = 单渠道），
@@ -713,7 +713,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
   cid 取自**渠道上下文**（`activeCid()`）—— 不用 `getChannel()`：多渠道路由下注册表里
   有多个渠道，无参 `getChannel()` 会抛错。
 
-⚠ **不要用 esbuild 插件内联快照**：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
+**不要用 esbuild 插件内联快照**：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
 而渠道是**运行时** `readFileSync` 读盘 —— 插件永远没有命中点（曾经就这么错过：
 插件从未触发，bundle 里的快照特征字段计数为 0）。
 

@@ -122,7 +122,7 @@ function jwtExpMs(token: string): number {
  *
  * 与 Go 的 `fmt.Sprintf("%x", sha256.Sum256(...))[:16]` 逐字节一致 ——
  * 这是与 `lobsterai2api` 生成的凭据文件对照的前提。
- * ⚠️ 刻意**不在 yid 与哈希之间插 JWT `sub`**：Go 没有这一级，
+ * 刻意**不在 yid 与哈希之间插 JWT `sub`**：Go 没有这一级，
  * 插进去会让同一账号在两边得到不同 uid（见 PROTOCOL §2.4）。
  */
 function uidFallbackHash(accessToken: string): string {
@@ -152,7 +152,7 @@ function normalizeNickname(value: string): string {
 /**
  * 过期时刻：`expiresIn`（相对秒，基准 **当前时刻**）→ JWT `exp` → 空串。
  *
- * ⚠️ 基准取当前时刻而非 JWT `iat`（Go 用 `time.Now()`）；无法解析时留空，
+ * 基准取当前时刻而非 JWT `iat`（Go 用 `time.Now()`）；无法解析时留空，
  * 调用方据此**不判定过期**。
  */
 function expiresAtFrom(
@@ -353,7 +353,7 @@ function portalBase(): string {
 /**
  * 构造登录 URL。
  *
- * ⚠️ hash 段 `#/login` **必须显式拼装**（不能用 `URL.searchParams` —— 那会把
+ * hash 段 `#/login` **必须显式拼装**（不能用 `URL.searchParams` —— 那会把
  * 查询串放在 `#` 之前，portal 拿不到参数）；`redirect_uri` 必须是
  * `http://127.0.0.1:{port}/auth/callback` 形态（portal 会校验）。
  */
@@ -615,7 +615,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
   const session = newLoginSession();
   const callback = await startCallbackServer(session, base);
   const url = buildLoginUrl(callback.port, session.state);
-  // ⚠️ 拿到 URL 后**立刻**回调（命令行据此展示链接，用户自行在浏览器打开）
+  // 拿到 URL 后**立刻**回调（命令行据此展示链接，用户自行在浏览器打开）
   options.onUrl?.(url);
   // 面向用户的文案一律中文（UI 与 CLI 报表都看它；运行时日志才用英文）
   options.onStatus?.(
@@ -654,7 +654,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
 
   const body: Record<string, unknown> = {
     firstKeyfrom: c.firstKeyfrom ?? "",
-    // ⚠️ 用**存储值**：对齐 Go —— `RefreshToken` 只改 token 与过期时间，
+    // 用**存储值**：对齐 Go —— `RefreshToken` 只改 token 与过期时间，
     // `LatestKeyfrom` 永久停在登录那一刻，续期时原样回发。
     latestKeyfrom: c.latestKeyfrom ?? "",
     version,
@@ -711,7 +711,7 @@ export async function refresh(c: Credentials): Promise<Credentials> {
   const next: Credentials = {
     ...c,
     accessToken,
-    // ⚠️ 不返回新 refreshToken 时保留旧值（覆盖成空串会让下次续期必然失败）。
+    // 不返回新 refreshToken 时保留旧值（覆盖成空串会让下次续期必然失败）。
     refreshToken: str(data["refreshToken"]) || c.refreshToken,
     expiresAt: expiresAtFrom(data, accessToken),
     // 身份字段一律沿用旧值：refresh 响应只带令牌，不含稳定的 account 对象。

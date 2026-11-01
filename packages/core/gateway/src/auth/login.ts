@@ -37,7 +37,7 @@ export function nowIso(): string {
 /**
  * 解析 JWT 的 payload（**不验签** —— 只读声明，不用于信任判断）。
  *
- * ⚠ `prefix` 用于带令牌前缀的渠道（如 Cline 的 `token-` 前缀），解析前先剥掉。
+ * `prefix` 用于带令牌前缀的渠道（如 Cline 的 `token-` 前缀），解析前先剥掉。
  * 无法解析时返回 `{}`（调用方按「缺字段」处理，不抛错）。
  */
 export function decodeJwtPayload(token: string, prefix = ""): Record<string, unknown> {
@@ -94,7 +94,7 @@ export function parseExpireTime(value: unknown): number | null {
 /**
  * 从「显式过期字段 → JWT exp」推导到期时刻（**毫秒**）；都没有返回 null。
  *
- * ⚠ 覆盖「字段是秒、字段是日期串、字段缺失只有 JWT」三种形态 ——
+ * 覆盖「字段是秒、字段是日期串、字段缺失只有 JWT」三种形态 ——
  * 各渠道凭据的字段名不同，故显式值由调用方先取出再传入。
  */
 export function resolveExpiresAtMs(explicit: unknown, token = ""): number | null {
@@ -108,7 +108,7 @@ export function resolveExpiresAtMs(explicit: unknown, token = ""): number | null
  * 到期判据：`expiresAtMs` 为空（null / 非正数）时视为**未过期** ——
  * 无从判断时不冒充「已失效」（否则会把可用凭据误判成过期）。
  *
- * ⚠ 各渠道 `Credentials` 形态不同，故这里只接受**毫秒数**；
+ * 各渠道 `Credentials` 形态不同，故这里只接受**毫秒数**；
  * 渠道保留自己的 `isExpired(c)` 薄包装做字段提取。
  */
 export function isExpiredAt(expiresAtMs: number | null | undefined, leadMs = 0): boolean {
@@ -128,7 +128,7 @@ export function isExpiredAt(expiresAtMs: number | null | undefined, leadMs = 0):
 /**
  * 带超时的 `fetch`。
  *
- * ⚠ 超时用 `AbortSignal.timeout`（**不是** fetch 默认的无超时）——
+ * 超时用 `AbortSignal.timeout`（**不是** fetch 默认的无超时）——
  * 上游 hang 住时登录轮询会一直挂着，用户看不到任何反馈。
  * 调用方若自行传入 `signal` 则以传入的为准。
  */

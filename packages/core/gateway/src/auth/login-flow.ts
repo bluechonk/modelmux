@@ -4,7 +4,7 @@
  * 边界：骨架只负责**流程控制**（起本地端口、按间隔轮询、判终态、超时、退避）；
  * 请求怎么发、URL 怎么拼、响应怎么解析、token 怎么换都是渠道知识，由调用方回调注入。
  *
- * ⚠ 各渠道保留自己的 `login()` 与导出签名（如带本地回调服务器的渠道的
+ * 各渠道保留自己的 `login()` 与导出签名（如带本地回调服务器的渠道的
  * `startCallbackServer({pkce,keyPair,ticketId})`），薄包装转发到这里的骨架，
  * 以免破坏已有 import 站点与测试引用。
  */
@@ -166,7 +166,7 @@ function escapeHtml(value: string): string {
 /**
  * 拼回调落地页。`detail` 只在失败态用（上游/渠道给的失败原因）。
  *
- * ⚠ 控制台地址取**仓库级默认**（`REPO_DEFAULT_ADDR`）：单渠道独立运行时端口可能不同，
+ * 控制台地址取**仓库级默认**（`REPO_DEFAULT_ADDR`）：单渠道独立运行时端口可能不同，
  *    那时这个链接只是「指个方向」，点不动也不影响登录本身（登录早已完成）。
  */
 export function callbackPageHtml(kind: CallbackPageKind, detail = ""): string {
@@ -235,7 +235,7 @@ export interface PollFlowOptions<T> {
 /**
  * 通用轮询循环：按 `intervalMs` 反复调用 `attempt`，直到 `done` / `fatal` / 超时。
  *
- * ⚠ 终态判据由 `attempt` 决定（各渠道不同：ZCode 把非 408/429 的 4xx 当 fatal，
+ * 终态判据由 `attempt` 决定（各渠道不同：ZCode 把非 408/429 的 4xx 当 fatal，
  * WorkBuddy 把「200 但还没 token」当 pending），骨架只负责循环与超时。
  * `attempt` 抛出的异常按 `retry` 处理（网络抖动不该终止登录）。
  */

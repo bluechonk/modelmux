@@ -3,7 +3,7 @@
 # 只发布演示构建 —— 真实控制台是本机工具（要读本机网关与账号池），不能也没有必要上公网。
 # README 的「Web 控制台」一节指向这里（Pages 的项目站点 URL）。
 #
-# ⚠ 关键点（改之前先读）：
+# 关键点（改之前先读）：
 # 1. Pages 的**项目站点**挂在 `https://<owner>.github.io/<repo>/` 下，资源必须用
 #    `/<repo>/assets/…` 前缀 —— 所以构建要传 `DEMO_BASE=/<repo>/`，
 #    `vite.config.ts` 的 `base` 与 `App.tsx` 的 `basename` 都从它推导。

@@ -51,10 +51,10 @@ const CAMPAIGN_REFRESH_HOUR_UTC8 = 10;
  * 0.4.x 系列，**不是**推理那套 CLI 的 `1.1.64`（参考实现
  * `shuishuipingan/qoder2api-hub/qoder_accounts.py:112` 的 `DESKTOP_CLIENT_VERSION`）`[参考]`。
  *
- * ⚠ **为什么必须发**：主参照实测「缺 UA / `cosy-clienttype` / `cosy-version` 三个头
+ * **为什么必须发**：主参照实测「缺 UA / `cosy-clienttype` / `cosy-version` 三个头
  * 里的任意一个 → 服务端不报错，但活动列表返回**空**」
  * （`qoder_accounts.py:1733-1735`）`[参考]`。
- * ⚠ 版本号本身待真机验证（可用 `QODER_DESKTOP_VERSION` 覆盖）。
+ * 版本号本身待真机验证（可用 `QODER_DESKTOP_VERSION` 覆盖）。
  */
 function desktopVersion(): string {
   return process.env["QODER_DESKTOP_VERSION"] ?? "0.4.3";
@@ -232,7 +232,7 @@ async function claimCampaign(
   const base = cred.productOf(credential.realm).openapi;
   const resp = await fetch(`${base}${CAMPAIGNS_PATH}/${encodeURIComponent(campaignId)}/claim`, {
     method: "POST",
-    // ⚠ body 必须是**空串**（不是 `{}`）—— 官方如此，实测参考实现
+    // body 必须是**空串**（不是 `{}`）—— 官方如此，实测参考实现
     body: "",
     headers: { ...sashHeaders(credential), "Content-Type": "application/json" },
     signal: AbortSignal.timeout(20_000),
@@ -275,7 +275,7 @@ export const signin: SigninModule = {
           daily: true,
         };
       }
-      // ⚠ 没有可领的**不等于**"今天已领"：该账号此刻可能压根没有每日签到活动
+      // 没有可领的**不等于**"今天已领"：该账号此刻可能压根没有每日签到活动
       // （实测国际版只有一条 `VIEW_DETAILS` 的 Pro 推广），报"未签到"会让人
       // 以为"还能签"。这里用上游顶层的 `claimable` 作权威判据。
       const topClaimable = payload["claimable"] === true;
@@ -290,7 +290,7 @@ export const signin: SigninModule = {
         summary: done
           ? "今天已领"
           : "上游今天没有可领的奖励（当前没有可领取的签到活动）",
-        // ⚠ 没有活动时是「不适用」而不是「未签」—— 返回 null 才会让 CLI 显示上面
+        // 没有活动时是「不适用」而不是「未签」—— 返回 null 才会让 CLI 显示上面
         // 那句渠道自己的说明，而不是通用模板「今天未签到（依据：上游）」
         claimedToday: done ? true : null,
         daily: true,

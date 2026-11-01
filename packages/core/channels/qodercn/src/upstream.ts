@@ -80,7 +80,7 @@ const MODELS_PATH = "/algo/api/v2/model/list";
 
 /**
  * 模型目录端点的**必需 query**：`Encode=1`（同样表示自定义编码体）。
- * ⚠ 该端点是 **GET**，但**必须真的带 body**（`qoder_encode("{}")`）参与签名，
+ * 该端点是 **GET**，但**必须真的带 body**（`qoder_encode("{}")`）参与签名，
  * 否则服务端校验签名与 body 不一致 → 403。
  * 证据：`reference/shuishuipingan_qoder2api-hub/qoder_proxy.py:2045-2046`。[参考]
  */
@@ -138,7 +138,7 @@ function qoderEncode(plain: string | Buffer): string {
 /**
  * 键排序 + 无空白的紧凑 JSON。
  *
- * ⚠ 服务端按同一套字节算签名/解密，所以**不能**用 `JSON.stringify(obj)` 直接产出
+ * 服务端按同一套字节算签名/解密，所以**不能**用 `JSON.stringify(obj)` 直接产出
  * （它保持插入顺序）；必须按键排序，且 `null` 视作空串。
  */
 function sortedCompactJson(mapping: Record<string, unknown>): string {
@@ -200,7 +200,7 @@ class CosySession {
 
   constructor(identity: Identity) {
     this.uid = identity.uid;
-    // ⚠ 必须与官方一致：16 个十六进制字符当 AES-128 的 key 与 IV。
+    // 必须与官方一致：16 个十六进制字符当 AES-128 的 key 与 IV。
     // 熵偏低（≈64 bit）是刻意的 —— 服务端按同一字节串解开 info，改了直接失败。
     const tempKey = randomUUID().replace(/-/g, "").slice(0, 16);
     const keyBytes = Buffer.from(tempKey, "utf8");
@@ -308,7 +308,7 @@ interface PendingChat {
 /**
  * 待签名槽：**跟着本次请求的异步上下文走**，不是模块级变量。
  *
- * ⚠ 为什么不能放模块级变量：共享网关重试时会隔着一个 await 再调 `buildHeaders()`
+ * 为什么不能放模块级变量：共享网关重试时会隔着一个 await 再调 `buildHeaders()`
  * （连接失败重试 / token 刷新后重试 / 排队等待后重开），同一渠道的并发请求共用一个
  * 模块级变量 → 后一个请求覆盖前一个的待签名 body → 前一个请求重开时**按别人的 body
  * 签名** → 上游 403 / 内容错配。
@@ -629,7 +629,7 @@ export interface ModelMeta {
 /**
  * 「上游 key → 模型元数据」查询器（由 `catalog.ts` 在装配时注入）。
  *
- * ⚠ **为什么用注入而不是直接 import**：`catalog.ts` 需要 `upstream.fetchModels()`
+ * **为什么用注入而不是直接 import**：`catalog.ts` 需要 `upstream.fetchModels()`
  * 拉目录，`upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。
  * 由 `channel.ts` 装配时接上（`upstream.setModelMetaLookup(catalog.metaOfKey)`），
  * 两个模块保持单向依赖。
@@ -733,7 +733,7 @@ function getWithBody(
 /**
  * 上游模型目录（原始响应，由 catalog.ts 归一化）。
  *
- * ⚠ **必须遍历主机候选**：国际版有 `api1/api2/api3` 三个域名（官方故障切换），
+ * **必须遍历主机候选**：国际版有 `api1/api2/api3` 三个域名（官方故障切换），
  * 实测 `api1` 会对部分账号回 403 而 `api2` 正常。签名只覆盖 path（不含 host），
  * 所以换主机后签名依然有效，不用重算。
  */
@@ -923,7 +923,7 @@ export function newTranslator(): StreamTranslator {
         `data: ${JSON.stringify({ error: { code: err.code ?? "upstream_error", message: err.message ?? "upstream error" } })}\n\n`,
       ];
     }
-    // ⚠ **只透传真正的 chunk**：判据 = 有 `choices` 数组或 `usage`（含 `choices: []`）。
+    // **只透传真正的 chunk**：判据 = 有 `choices` 数组或 `usage`（含 `choices: []`）。
     //
     // Qoder 的流里还会混进**统计帧**（实测 `{"firstTokenDuration":185,"totalDuration":926,
     // "serverDuration":296}`）—— 它既没有 choices 也没有 error，原样透传会让 OpenAI 客户端

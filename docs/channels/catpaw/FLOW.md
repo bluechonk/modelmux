@@ -10,13 +10,13 @@
 ```text
                     ┌──────────────────────── 妙手桌面端（Electron, catpaw-moon） ────────────────────────┐
                     │                                                                                    │
-   用户扫码/登录 ──▶ │  passport 登录 → 拿到 SSO access_token（152 字符）                                  │
+   用户扫码/登录 ──> │  passport 登录 → 拿到 SSO access_token（152 字符）                                  │
                     │        │                                                                           │
-                    │        ├─▶ StorageService.Oe(payload)  ← key = SHA256(machineId + 盐)              │
-                    │        │        └─▶ %APPDATA%\catpaw-moon\catx-credential.json                     │
+                    │        ├─> StorageService.Oe(payload)  ← key = SHA256(machineId + 盐)              │
+                    │        │        └─> %APPDATA%\catpaw-moon\catx-credential.json                     │
                     │        │                 { "ssoTokenEnc": "<base64(iv‖tag‖ct)>" }   ← 加密            │
                     │        │                                                                           │
-                    │        └─▶ catx-auth-provider.json / catx-scope-pointer.json / catpaw-uuid         │
+                    │        └─> catx-auth-provider.json / catx-scope-pointer.json / catpaw-uuid         │
                     │                 （通道名、存储 scope、设备 UUID —— 都不是秘密）                      │
                     └────────────────────────────────────────────────────────────────────────────────────┘
                                                      │
@@ -45,7 +45,7 @@ raw : 227 字节
    ├─ raw[12..28)  → authTag (16 B)
    └─ raw[28..)    → ciphertext (199 B)
                        ▲
-machineId ──▶ SHA-256(`${machineId}:catpaw-desk-token-v2`) ──▶ key (32 B)
+machineId ──> SHA-256(`${machineId}:catpaw-desk-token-v2`) ──> key (32 B)
                        │
                        ▼
         createDecipheriv('aes-256-gcm', key, IV).setAuthTag(authTag)

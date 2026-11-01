@@ -29,7 +29,7 @@ export interface CatalogEntry {
   /**
    * 是否支持图片输入 —— **恒 false**。
    *
-   * ⚠ 上游模型目录的 `supportImage` 是**模型自身**的能力声明，本渠道的 conversation
+   * 上游模型目录的 `supportImage` 是**模型自身**的能力声明，本渠道的 conversation
    * 协议没有图片传输路径（见文件头「图片能力」）；照抄上游会对外误报能吃图。
    */
   supportsImages: boolean;
@@ -132,10 +132,10 @@ function declaredEffort(
 /**
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
- * ⚠ 上游 `/model-types` 不带输出上限（[实测]），网关 `/v1/models` 只能给兜底值 ——
+ * 上游 `/model-types` 不带输出上限（[实测]），网关 `/v1/models` 只能给兜底值 ——
  * 而 4096 的兜底会让客户端把每次回答截到 4k。
  *
- * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
  * 数值与来源见 `docs/channels/catpaw/PROTOCOL.md` 的「最大输出 token」节（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
@@ -172,7 +172,7 @@ export function modelSpec(
 /**
  * modelType 数值兜底表（上游目录不可用时用）。
  *
- * ⚠ 数值来源：参考实现 `reference/icebears111_catpaw2api/internal/upstream/const.go:83-90`
+ * 数值来源：参考实现 `reference/icebears111_catpaw2api/internal/upstream/const.go:83-90`
  *   （`[参考]`；逆向自 app.asar 的 modelType 编号，与目录返回的 `catPawModelType` 同一套编号）。
  *
  * 用途：turn / round 的 body 要的是**数字** modelType（不是模型名）。上游目录拉不到时
@@ -195,12 +195,12 @@ const MODEL_TYPE_FALLBACK: Readonly<Record<string, number>> = {
 /**
  * 兜底表：上游模型目录不可用时仍可暴露的模型。
  *
- * ⚠ **内容取自真实的上游 `/model-types` 返回**（见 `docs/channels/catpaw/PROTOCOL.md`）。
+ * **内容取自真实的上游 `/model-types` 返回**（见 `docs/channels/catpaw/PROTOCOL.md`）。
  *
- * ⚠ 兜底表必须用**真实 id**：占位名（如 `catpaw-flash`）上游**根本不存在**，
+ * 兜底表必须用**真实 id**：占位名（如 `catpaw-flash`）上游**根本不存在**，
  * 暴露到模型池也选不中任何模型 —— 兜底表要能真的兜住，就得用真实 id。
  *
- * ⚠ `modelType` 取自 `MODEL_TYPE_FALLBACK`（表里没有的模型回落 0 = auto）；
+ * `modelType` 取自 `MODEL_TYPE_FALLBACK`（表里没有的模型回落 0 = auto）；
  * 必须是真实数值：上游按 modelType 数字选型，占位值会让目录不可用时的 turn 请求被拒。
  */
 const FALLBACK_MODELS: CatalogEntry[] = [
@@ -299,7 +299,7 @@ function loadCatalog(): CatalogEntry[] {
  * 这里只负责「要一次真实的拉取，并且失败要抛出去」。
  */
 export async function refresh(): Promise<void> {
-  // 动态 import：避免 catalog ↔ upstream/cred 的静态环
+  // 动态 import：避免 catalog <-> upstream/cred 的静态环
   const [upstream, cred] = await Promise.all([import("./upstream.js"), import("./cred.js")]);
   const c = cred.load();
   const data = await upstream.fetchModels(c);
@@ -426,7 +426,7 @@ export function contextWindowOf(id: string): number {
  *
  * 解析顺序：上游目录条目 → `MODEL_TYPE_FALLBACK` 数值表 → 抛错。
  *
- * ⚠ 目录取不到时若没有那张表，兜底目录里的 modelType 只能是占位值，
+ * 目录取不到时若没有那张表，兜底目录里的 modelType 只能是占位值，
  * 请求会被上游拒 —— 即「未登录 / 目录未拉取时全部模型不可用」。
  *
  * 注：目录条目的 modelType 恒 > 0（上游返回 0 的条目在 `toModelInfo` 就被丢弃）；

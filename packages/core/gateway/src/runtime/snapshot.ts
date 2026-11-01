@@ -6,7 +6,7 @@
  * 共用同一个模块目录，快照按 cid 分文件放在 `<bundleDir>/models/<cid>.json`
  * —— bundle 步骤（`packages/cli/scripts/bundle.mjs`）负责复制。
  *
- * ⚠ 路径按**本模块的 `import.meta.url`** 推导：bundle 里它就是 bundle 所在目录；
+ * 路径按**本模块的 `import.meta.url`** 推导：bundle 里它就是 bundle 所在目录；
  * 渠道自建时它是共享层的 dist 目录（那里没有快照 → 探测落空，属正常）。
  */
 

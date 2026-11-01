@@ -49,7 +49,7 @@ describe("访问日志 outcome 分桶", () => {
     return existsSync(file) ? readFileSync(file, "utf8") : "";
   }
 
-  // ⚠ 日期必须用 log-store 导出的 `localDate()`（**本地时区**），不要自己用
+  // 日期必须用 log-store 导出的 `localDate()`（**本地时区**），不要自己用
   // `toISOString().slice(0,10)`（那是 UTC）：在 UTC+8 的 00:00–08:00 之间两者差一天，
   // 测试会去读**前一天的目录**而误报「没落进 success.log」（2026-10-23 早 07:5x 实测踩到）。
 

@@ -21,7 +21,7 @@ BASE_REF="${GATE_BASE:-origin/main}"
 
 # —— 定位「主工作树」——
 #
-# ⚠ **不能直接 clone 当前目录**：linked worktree 的 `.git` 是**文件**（指向共享 git 目录），
+# **不能直接 clone 当前目录**：linked worktree 的 `.git` 是**文件**（指向共享 git 目录），
 #   clone 它得不到可用仓库；主工作树的 `.git` 才是**目录**。
 #   `--git-common-dir` 指向所有 worktree 共享的 git 目录，其**上级目录**即主工作树根
 #   （比 `git worktree list | head -1` 更稳 —— 不依赖列表顺序）。

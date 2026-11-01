@@ -155,7 +155,7 @@
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 | --- | --- | --- | --- | --- |
-| `M-TRACEID` | 运行时生成：`randomUUID()` 去横线 → 32 位无横线 hex | 否（链路追踪） | **每请求重生成** | ⚠ 格式与参考实现不一致，见「已知边界」 |
+| `M-TRACEID` | 运行时生成：`randomUUID()` 去横线 → 32 位无横线 hex | 否（链路追踪） | **每请求重生成** | 格式与参考实现不一致，见「已知边界」 |
 | `M-APPKEY` | 常量 `fe_com.sankuai.catpaw.external.front` | 否（应用标识） | 不变 | 与参考实现逐字一致（`[参考]` `internal/upstream/const.go:43`） |
 | `gray-set` | 常量 `new-agent-sdk` | 否（灰度分组） | 不变 | 同上（`const.go:45`） |
 | `X-Agent-Version` | 常量 `1.0.1` | 否（客户端版本） | 不变 | 同上（`const.go:44`） |
@@ -164,7 +164,7 @@
 | `enableHeartBeat` | 常量 `true` | 否 | 不变 | 长连接保活（`[参考]` `internal/upstream/conversation.go:53`） |
 | `Content-Type` | 常量 `application/json` | 否 | 不变 | — |
 | `Accept` | **按端点区分**：turn → `text/event-stream`；round / event / model-types → `application/json` | 否 | 不变 | **不能一刀切**：turn 缺 SSE 会 406，round 发 SSE 会 500 |
-| `user-uid` | 凭据 `uid`，**非空才带** | 半（用户标识） | 随凭据 | ⚠ 见「已知边界」的 `user-mis-id` 说明 |
+| `user-uid` | 凭据 `uid`，**非空才带** | 半（用户标识） | 随凭据 | 见「已知边界」的 `user-mis-id` 说明 |
 
 ### 网关域
 
@@ -203,7 +203,7 @@
   渠道把工具名、描述、参数 schema 注入 prompt，要求模型用 ```tool_call 代码块表达调用；
   同时解析上游原生 `tool_use` 块（结构化调用优先）。
 - **名字归一化**：上游调用的工具名按客户端工具表做大小写、下划线、连字符归一
-  （`web_fetch` ↔ `WebFetch`、`bash` ↔ `Bash`）；匹配不上的调用丢弃，
+  （`web_fetch` <-> `WebFetch`、`bash` <-> `Bash`）；匹配不上的调用丢弃，
   否则客户端会报 `Tool not found`。
 - **下发格式**：所有工具调用在流末尾一次性下发；每个调用带独立 `index`、
   `finish_reason="tool_calls"`，参数必须是合法 JSON（非法则丢弃）。
@@ -288,7 +288,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
   | `deepseek-v4.1-flash` | **600000** |
   | `longcat-2.0` / `glm-5.3-flashx` / `glm-5.3-flash` / `minimax-m3` / `minimax-m3.1-flash` / `kimi-k3` | 1024000 |
 
-  ⚠ 发不在该型号档位里的值，上游**可能不接受**（未实测）—— 所以不能像早先那样一律发 1M。
+  发不在该型号档位里的值，上游**可能不接受**（未实测）—— 所以不能像早先那样一律发 1M。
 - 上游没声明档位的型号（如 `auto`）才回落渠道默认档 `1024000`（`DEFAULT_CONTEXT_WINDOW`）。
   档位候选（`204800` / `512000` / `1024000`）来源：`reference/icebears111_catpaw2api/internal/upstream/const.go`。
 - 请求侧 `buildChatBody` 按**该型号**的档位发 `context`（与落盘值同源）；折叠 prompt
@@ -319,7 +319,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 | `minimax-m3` | 131072 |
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `MAX_OUTPUTS`。⚠ 公开规格是**模型上限**，上游可能更严
+`src/catalog.ts` 的 `MAX_OUTPUTS`。公开规格是**模型上限**，上游可能更严
 （超限回 400）—— 客户端应能降档重试。
 
 ## 图片能力：**本渠道不对外声明**
@@ -331,7 +331,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 |---|---|---|
 | 上游模型目录**逐模型声明** `supportImage`（布尔）：`LongCat-2.0` / `glm-5.2` / `MiniMax-M3` / `kimi-k3` 为 true，`deepseek-v4-flash` / `deepseek-v4-pro` / `auto` 为 false | `[参考]` | `reference/HITZY2002_catpaw2api/internal/upstream/client.go:386`（`SupportImage bool` / `json:"supportImage"`）、`docs/reverse-engineering.md:129-142` 的真实模型表；`reference/icebears111_catpaw2api/internal/upstream/client.go:346` 同构 |
 | 本机实测：上游 `/api/agent/maas/model-types` 确实带该标志（本仓目录缓存里 `LongCat-2.0` / `glm-5.3-flash` / `glm-5.3-flashx` 为 true，`glm-5.3` 为 false） | `[实测]` | 2026-10-20 `~/.modelmux/catpaw/cache/models.json` |
-| ⚠ 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事 | `[推断]` | 见下两条 |
+| 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事 | `[推断]` | 见下两条 |
 | 本渠道走的 conversation 协议（`/api/agent/conversation/{round,event,turn}`）请求体的消息内容只有 `{type:"text",text}` 分片，**没有图片字段**；`src/upstream.ts` 的 `textOfContent` 把多段 content 拍平成纯文本，`image_url` 分片直接丢弃 | `[代码]` | `packages/core/channels/catpaw/src/upstream.ts:255-259`（`UpstreamMessage.content` 的类型）、`packages/core/channels/catpaw/src/upstream.ts:291-305`（`textOfContent`） |
 | 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片 | `[参考]` | `reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76` |
 
@@ -353,7 +353,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
    与 `requestContext` 里要不要额外的声明位？
 3. 真机带图实测通过后，再把 `supportsImages` 接回上游的 `supportImage`。
 
-⚠ 在这三条落定之前，**不要**因为上游目录写了 `supportImage: true` 就对外声明能吃图。
+在这三条落定之前，**不要**因为上游目录写了 `supportImage: true` 就对外声明能吃图。
 
 ## 边界与伦理
 
@@ -417,7 +417,7 @@ mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
-⚠ 这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**
+这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**
 （`ai.catpaw.meituan.com` 的 conversation 协议）与本渠道协议同源，家族 B
 （`catpaw.meituan.com/api/gpt/*` 的 IDE 侧协议）**只作对照，不照抄**。
 

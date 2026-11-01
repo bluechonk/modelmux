@@ -22,7 +22,7 @@ export type { LoginInputRequest, LoginUi };
  * @param interactive 无窗口被动模式下传 false —— 缺凭证**不发起登录**，
  *   只报告状态并返回 false。
  * @param force 重新授权：**即使已有凭据也走一轮新的授权**（拿新的授权链接）。
- *   ⚠ 不删旧凭据 —— 授权没走完时旧凭据仍能服务（先删会导致掉线，实测事故）。
+ *   不删旧凭据 —— 授权没走完时旧凭据仍能服务（先删会导致掉线，实测事故）。
  * @returns true 表示可以启动网关
  */
 export async function ensureLogin(
@@ -61,7 +61,7 @@ export async function ensureLogin(
     ui.setState("login", "正在获取授权链接...");
     try {
       c = await cred.login(baseUrl ?? cred.DEFAULT_BASE_URL, {
-        // ⚠ 只说「这个 URL 在哪」，**不**承诺「授权后自动完成」：渠道各有各的
+        // 只说「这个 URL 在哪」，**不**承诺「授权后自动完成」：渠道各有各的
         // 回调方式（本地回调服务器 / 设备码轮询 / 扫码长轮询），自动完成与否
         // 由渠道自己的 onStatus 指引说明。乱承诺会让用户在错误的入口扫码
         // （loomy 实测踩过：授权页每次加载都换 uuid，扫了这边永远等不到）。

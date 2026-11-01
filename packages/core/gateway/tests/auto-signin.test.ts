@@ -4,7 +4,7 @@
  * 熔断；上游已签回填台账不重复领；上游无可领跳过且不计失败；
  * **声明 perAccount 的渠道逐个账号领取**（账号级台账门禁 + 账号级熔断）。
  *
- * ⚠ setChannel 的注册表跨测试共享（模块级单例）：每个测试用**唯一 cid**，
+ * setChannel 的注册表跨测试共享（模块级单例）：每个测试用**唯一 cid**，
  * 断言只看自己渠道的计数器，避免相互污染。
  */
 
@@ -214,7 +214,7 @@ test("auto signin: 无签到能力不调用 signin.status()", async () => {
  * 1. 先只写生效凭据（模拟已登录）→ `listAccounts` 把它收进池并设为 active；
  * 2. 再把第二个账号写进 `accounts.json` + 它的凭据文件。
  *
- * ⚠ 账号 key 必须小写（`accountFile` 校验 `^[a-z0-9][a-z0-9.-]*$`），大写会抛错。
+ * 账号 key 必须小写（`accountFile` 校验 `^[a-z0-9][a-z0-9.-]*$`），大写会抛错。
  * @returns 两个账号各自的 key（第一个是生效账号，凭据 accessToken=`tok-A`）
  */
 function seedTwoAccounts(cid: string, secondKey: string): { keyA: string; keyB: string } {
@@ -255,7 +255,7 @@ test("auto signin: perAccount 渠道逐个账号领取，各自记账且第二�
     const { keyA, keyB } = seedTwoAccounts(cid, "acct-b");
 
     await autoSignin.runOnce();
-    // ⚠ 只断言本渠道私有计数：runOnce() 会遍历注册表里所有 mock 渠道，
+    // 只断言本渠道私有计数：runOnce() 会遍历注册表里所有 mock 渠道，
     //   全局 claimed 会被同文件其他用例的渠道计入。
     assert.deepEqual(
       [...(behavior.seenCredentials ?? [])].sort(),

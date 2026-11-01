@@ -9,7 +9,7 @@
 mx start（短命命令，spawn 后退出，落 PID 文件）
   └─ supervise  监督进程（detached + unref + windowsHide，常驻）
        └─ serve  网关 worker（stdio: [ignore, logFd, logFd, ipc]，stdout/stderr 进 worker.log）
-                 ↕ IPC：父进程断开 → worker 优雅自退
+                 | IPC：父进程断开 → worker 优雅自退
 ```
 
 - **监督者**只做生命周期管理：spawn worker、维护 worker PID 文件、监听 worker 退出、

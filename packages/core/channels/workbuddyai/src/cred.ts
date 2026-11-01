@@ -396,7 +396,7 @@ async function createLoginState(
  *
  * 参考实现：`[参考]` ardeyouxipianyi/workbuddy2api-hub 的 `wb_accounts.py:3458-3468`、
  * ckldy/workbuddy2api 的 `cmd/login/main.go:151-163`。
- * ⚠ 国际版该端点**确实存在**（无有效令牌回 401，随手编的路径回 404 —— 2026-10-20 实测）。
+ * 国际版该端点**确实存在**（无有效令牌回 401，随手编的路径回 404 —— 2026-10-20 实测）。
  */
 async function fetchAccountProfile(
   baseUrl: string,
@@ -407,7 +407,7 @@ async function fetchAccountProfile(
   const url = `${baseUrl}/v2/plugin/login/account?state=${encodeURIComponent(state)}`;
   try {
     const resp = await fetchWithTimeout(url, {
-      // ⚠ 这里**不能**带 `anonHeaders()`（X-No-Authorization 等「未鉴权」标记）——
+      // 这里**不能**带 `anonHeaders()`（X-No-Authorization 等「未鉴权」标记）——
       // 与 `Authorization` 自相矛盾，会被上游判成未鉴权。参考实现同样只带
       // 公共头 + `Authorization`（`[参考]` ardeyouxipianyi/workbuddy2api-hub 的
       // `wb_accounts.py:3462`、ckldy/workbuddy2api 的 `cmd/login/main.go:157-160`）。

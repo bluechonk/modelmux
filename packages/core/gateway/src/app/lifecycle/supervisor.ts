@@ -6,7 +6,7 @@
  *
  * 终止语义：worker 死前已通过健康探测 → 按退避重生；启动窗口内死亡/超时未
  * healthy → 记 error 后退出，不无限重生；监督者自身被杀 = 作废重生（无进程内协议）；
- * worker 侧 IPC 断开自退。⚠ 落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发
+ * worker 侧 IPC 断开自退。落点（pid/日志/cwd）全部由 `mx start` 以**显式路径**下发
  * —— scope 推导是 daemon 的职责，监督者贸然调 paths.* 会启动即崩。
  */
 import { spawn } from "node:child_process";
@@ -85,7 +85,7 @@ export async function runSupervise(options: SuperviseOptions): Promise<number> {
   const { addr, uiPort, workerPid: workerPidFile, log: logPath, cwd } = options;
   // worker 参数与 daemon.start 旧格式一致；worker 的渠道身份由其入口自带
   // （渠道级 start 时 cliEntry() 就是该渠道包的 cli.js，单渠道特例自动生效）。
-  // ⚠ 首位必须是入口脚本：spawn(process.execPath, [entry, "serve", ...])，
+  // 首位必须是入口脚本：spawn(process.execPath, [entry, "serve", ...])，
   //   漏了它 worker 起不来（实测踩过：直接 ["serve", ...] 导致 worker 崩）。
   // IPC fd（stdio 第 4 项）给 worker 的自退钩子（headless.runServe）。
   const workerArgs = [

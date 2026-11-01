@@ -76,7 +76,7 @@ for (const cid of channelDirs) {
 
 // 仓库级入口：bin 双名 + 注册清单与渠道目录一致
 const cliPkg = JSON.parse(read("packages/cli/package.json"));
-// ⚠ bin 路径**不带** `./` 前缀 —— 这是 npm 11 的发布归一化规则，不是笔误：
+// bin 路径**不带** `./` 前缀 —— 这是 npm 11 的发布归一化规则，不是笔误：
 // npm 的 `secureAndUnixifyPath`（@npmcli/package-json/lib/normalize.js）会把
 // `path.join('.', '/dist/cli.bundle.js')` 归一成 `./dist/...`，而它**以 './' 开头就判为
 // 无效并整条删除** —— 结果是发布出去的包没有 `mx` / `modelmux` 命令，且 npm 只打一句
@@ -157,7 +157,7 @@ check(
 // 为什么需要白名单：`tsconfig.json` 的 solution 是 **emit 图**（谁产 JS 谁在里面）。
 // `packages/ui` 是 Vite SPA —— 产物由 `vite build` 出，`tsc` 对它只做类型检查
 // （`noEmit`），把它塞进 solution 只会逼出假的声明产物。
-// ⚠ 但**类型检查不能因此缺席**：`npm test` 的链里有 `npm run typecheck`（全工作区），
+// 但**类型检查不能因此缺席**：`npm test` 的链里有 `npm run typecheck`（全工作区），
 // 且下面会检查每个包都有 typecheck 脚本 —— 类型缺口仍然会被 CI 拦住。
 const NO_EMIT_PACKAGES = ["packages/ui"]; // Vite 产 JS，tsc 只查类型
 

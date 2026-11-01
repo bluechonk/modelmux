@@ -13,7 +13,7 @@
  *
  * 用法：`node scripts/verify-topology.mjs [<range>]`。
  *
- * ⚠ **默认范围是「全部可达的 merge」而非 `origin/main..HEAD`** —— 这一条是踩坑后的修正：
+ * **默认范围是「全部可达的 merge」而非 `origin/main..HEAD`** —— 这一条是踩坑后的修正：
  * GitHub 在 PR 合并时生成的 merge commit **从不经过本地校验**（它诞生在服务端、直接进 main），
  * 用「领先 origin/main 的提交」作范围会永远漏掉它。全历史范围则能在下一次 push 的
  * 推送门禁里把它抓住。

@@ -43,7 +43,7 @@
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/qodercn/src/cred.ts`） | **声明**该回调（每次轮询前取一次） |
 | 轮询的 `attempt` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-⚠ 与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
+与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
 被**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 
@@ -82,7 +82,7 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 **保留条件**：真机若证明 `dt-` 续期链路上游已判死（连续 401/403），
 才重新评估；即便引入 PAT，也应定位成「凭据导入」而非第二套登录流程。
 
-⚠ **`machine_id` 的分歧结论**（见 §1.1.2）：带它的两家带的是**官方客户端真机身份**，
+**`machine_id` 的分歧结论**（见 §1.1.2）：带它的两家带的是**官方客户端真机身份**，
 本渠道没有官方客户端（自己的 `machineId` 是给 COSY 头用的派生值），故**不带**
 （对齐 Zhengyuuuui，与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1 的记载一致）。
 
@@ -120,7 +120,7 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 实现见 `packages/core/channels/qodercn/src/upstream.ts:78-110`（路径常量与必需 query 表）、
 `packages/core/channels/qodercn/src/billing.ts:67-68`（sash 端点）。
 
-⚠ **模型目录是 GET，但必须真的带 body**（`qoder_encode("{}")`）参与签名，否则服务端
+**模型目录是 GET，但必须真的带 body**（`qoder_encode("{}")`）参与签名，否则服务端
 校验签名与 body 不一致 → 403。WHATWG fetch 禁止 GET 带 body，故走 `node:https`
 （`packages/core/channels/qodercn/src/upstream.ts:690-717`）。[代码]
 
@@ -177,12 +177,12 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | --- | --- | --- | --- | --- |
 | `authorization` | `Bearer {access_token}` | 是 | 换 token 时 | |
 | `cosy-clienttype` | 常量 `"10"`（桌面 App 身份） | 是（身份分流） | 常量 | 用 `5`（CLI）查活动会拿到**空列表**（不报错） |
-| `cosy-version` | 常量 `1.1.64` | 否 | 常量 | ⚠ **缺这个 → 静默返回空活动列表**（不报错），见「已知边界」待验证项 |
+| `cosy-version` | 常量 `1.1.64` | 否 | 常量 | **缺这个 → 静默返回空活动列表**（不报错），见「已知边界」待验证项 |
 | `user-agent` | `QoderWork/1.1.64` | 否 | 常量 | |
 | `accept` | `application/json` | 否 | 常量 | |
 | `content-type` | 领取请求 `application/json` | 否 | 仅领取 | |
 
-⚠ **国内版刻意不发 `cosy-machine*` 机器指纹头**（与国际版不同，勿照搬）：
+**国内版刻意不发 `cosy-machine*` 机器指纹头**（与国际版不同，勿照搬）：
 
 - 服务端按设备指纹过滤活动，**自造的派生指纹**会被判成「非官方客户端」，把
   `CLAIMABLE` 的「每日领取 100 Credits」**整条过滤**（列表里直接不显示，且不是报错）。
@@ -214,7 +214,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
    抄自参考实现 `shuishuipingan/qoder2api-hub` 的 `qoder_catalog_cn.json`）`[参考]`
 3. 都查不到 → `display_name = key`、`is_vl = false`、`is_reasoning = false`、`max_input_tokens = 180000`
 
-⚠ **接线方式**（与国际版 `qoder` 同）：`catalog.ts` 需要 `upstream.fetchModels()` 拉目录，
+**接线方式**（与国际版 `qoder` 同）：`catalog.ts` 需要 `upstream.fetchModels()` 拉目录，
 `upstream` 再 import `catalog` 就成环 —— 由 `channel.ts` 装配时注入查询器
 （`upstream.setModelMetaLookup(catalog.metaOfKey)`），两个模块保持单向依赖 `[代码]`。
 
@@ -341,7 +341,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 | `GET {openapi}/api/v2/user/plan`（套餐名） | hub `qoder_accounts.py`（套餐名段） | 套餐名可从额度接口的 `displayMode` 间接看出 |
 | `GET {openapi}/api/v2/quota/usage`（额度第二口径） | hub `qoder_accounts.py`（额度端点段） | 三个参考实现只用这一支，但本渠道的实测口径是 `/sash/api/v2/me/usage`；两者关系未查清（见待验证项 V3），不并行维护 |
 | 旧 sash 签到兜底（`/sash/api/v1/me/daily-check-in/*`） | hub `qoder_accounts.py`（daily-check-in 段）、hub `README.md` | 国内版实测 `status=DISABLED`，该接口已不开放 |
-| 工具调用**语义**修复（结构化工具历史 / 回声还原） | hub `qoder_proxy.py`、hub `README.md` | 协议形状已满足（顶层 `tools` 必须真发、无工具给空数组）；语义修复属网关层议题。⚠ 形状层的两项归一（`tools[]` 嵌套化、`reasoning_content` 回填）**已实现**（见 §3.6），与国际版同口径 |
+| 工具调用**语义**修复（结构化工具历史 / 回声还原） | hub `qoder_proxy.py`、hub `README.md` | 协议形状已满足（顶层 `tools` 必须真发、无工具给空数组）；语义修复属网关层议题。形状层的两项归一（`tools[]` 嵌套化、`reasoning_content` 回填）**已实现**（见 §3.6），与国际版同口径 |
 
 ### 4.2 已识别的功能缺口（参考实现有、本渠道没有）
 
@@ -379,7 +379,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 
 ### 4.3 待真机验证项
 
-⚠ 验证一律用**真账号 + 真实上游 + 正常形态请求**，不得向上游发故意畸形载荷。
+验证一律用**真账号 + 真实上游 + 正常形态请求**，不得向上游发故意畸形载荷。
 
 | # | 待验证 | 验证方式 |
 | --- | --- | --- |

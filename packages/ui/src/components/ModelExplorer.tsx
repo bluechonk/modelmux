@@ -357,7 +357,7 @@ function colsFor(narrow: boolean): ColDef[] {
 /**
  * 共享列宽声明：表头与每个渠道的表体都渲染它，保证列落在同一像素。
  *
- * ⚠ 必须用 `table-fixed` + `<colgroup>` —— 只在 CSS 里写宽度、不在 `<table>` 上
+ * 必须用 `table-fixed` + `<colgroup>` —— 只在 CSS 里写宽度、不在 `<table>` 上
  * 声明 `table-layout: fixed` 是无效的（`<table>` 默认 `auto`）。
  *
  * `<col>` 的数量与顺序**完全等于传入的 `cols`**（与表体的 `<td>` 同源）——
@@ -480,7 +480,7 @@ function sortThinkingLevels(levels: readonly string[]): string[] {
 /**
  * 思考模式单元格：**渠道声明了档位才列出档位**，没声明就明确写「不支持」。
  *
- * ⚠ 不能给「不支持」的模型编档位：共享层若给所有模型都填 `["low","high"]`，
+ * 不能给「不支持」的模型编档位：共享层若给所有模型都填 `["low","high"]`，
  * 200 个没声明过的模型都会被显示成「支持 low/high」。
  * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现；
  * 跨渠道兜底来的档位带「推断」标记（与上游声明分开）。

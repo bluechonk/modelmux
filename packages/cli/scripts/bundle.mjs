@@ -11,7 +11,7 @@
  * `dist/models/<cid>.json` —— 渠道侧通过共享层的 `bundledSnapshotPath()`
  * （`@modelmux/gateway/snapshot`）找到它。
  *
- * ⚠ 这里**不用** esbuild 插件内联：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
+ * 这里**不用** esbuild 插件内联：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
  * 而渠道是**运行时** `readFileSync` 读盘，插件永远没有命中点（实测 bundle 里快照特征字段
  * 计数为 0）。详见 docs/CONTRACT-TS.md §8.4。
  */

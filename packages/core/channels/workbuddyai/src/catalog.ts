@@ -36,7 +36,7 @@ interface ModelEntry {
   /**
    * 这个模型**能不能吃图**（判据见 `supportsImageOf`）。
    *
-   * ⚠ 与上游的 `supports_image_detail_original`（**原图细节**）无关，别混用。
+   * 与上游的 `supports_image_detail_original`（**原图细节**）无关，别混用。
    */
   supports_image?: boolean;
   /** 倍率展示文案（如 `"x0.34"`）；上游 `credits` 字段为空时缺省。 */
@@ -52,14 +52,14 @@ interface ModelEntry {
  * 来源：`docs/channels/workbuddyai/PROTOCOL.md` 的「模型窗口规格」—— 本文件的 `MODEL_SPECS`
  * 与那份表保持一致，改规格先改那份文档。
  *
- * ⚠ **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
+ * **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
  * 不是上游目录里的原始写法。
  *
- * ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
+ * 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
  * `maxOutputTokens` = **单次回复**上限。官方没公布输出上限的型号只填 `contextWindow`，
  * 输出留空 → 网关回落兜底值（不猜数字）。
  *
- * ⚠ 只列公开规格表里有的型号：档位别名（`default-model` / `fast-model` /
+ * 只列公开规格表里有的型号：档位别名（`default-model` / `fast-model` /
  * `balanced-model` / `primary-model`）不列，逐条理由见
  * `docs/channels/workbuddyai/PROTOCOL.md` 的「模型窗口规格」。
  */
@@ -187,7 +187,7 @@ const IMAGE_MODALITY_ALIASES = new Set(["image", "images", "img", "vision"]);
  * 2. **布尔形态** `supportsImages` / `supportsImage` / `supports_image`
  *    （`/v3/config` 与企业窄表走的就是这种形态）。
  *
- * ⚠ `supports_image_detail_original` **不作判据**：它的语义是「支不支持**原图细节**」，
+ * `supports_image_detail_original` **不作判据**：它的语义是「支不支持**原图细节**」，
  * 与「支不支持图片」是两回事。把它当判据，会把同时下发
  * `input_modalities:["text","image"]` 与 `supports_image_detail_original:false` 的型号
  * （随包快照的 `deepseek-v4.1-flash` 就是这样）报成纯文本 → 客户端不再给它发图片。

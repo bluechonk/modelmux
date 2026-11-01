@@ -30,7 +30,7 @@ export function writeJsonError(res: ServerResponse, status: number, code: string
  * 额度类错误必须与普通 4xx 区分：后者（模型参数、tool 消息序列等）是请求级问题，
  * 换账号也会失败；前者继续打同一个账号只会重复失败，应把账号**冷却**起来。
  *
- * ⚠ **这里只放通用措辞**（任何上游都可能用的说法）。渠道自己的业务码与专有措辞走
+ * **这里只放通用措辞**（任何上游都可能用的说法）。渠道自己的业务码与专有措辞走
  * `upstream.quotaSignal()` 钩子上报 —— 共享层不许硬编码渠道知识
  * （AGENTS.md：共享层不许出现任何渠道知识）。实测出处：loomy `HTTP 402` +
  * `insufficient_quota`「积分余额不足」。

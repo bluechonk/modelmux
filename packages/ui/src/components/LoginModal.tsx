@@ -124,7 +124,7 @@ export function LoginModal({
   /** 既没有授权链接/二维码，也没有待回答的输入 = 正在处理（准备中或渠道在发码）。 */
   const busy = !authUrl && !qrUrl && !loginInput;
   /** 本轮是手机验证码登录（渠道要过手机号/验证码）—— 用三行表单，不画步骤时间线。
-   *  ⚠ 判据里带上 `loginInput.kind`：`phoneStep` 是 effect 里置的，
+   *  判据里带上 `loginInput.kind`：`phoneStep` 是 effect 里置的，
    *  首帧还没置上，只靠它会在第一次要输入时闪一下骨架。 */
   const phoneForm =
     (phoneStep || loginInput?.kind === "phone" || loginInput?.kind === "code") &&
@@ -207,7 +207,7 @@ export function LoginModal({
   ];
 
   // 授权链接流：**复制链接** → 自己粘到浏览器 → 登录授权 → 自动回调 → 手动兜底
-  // ⚠ 不用 window.open / target=_blank 弹新窗口：
+  // 不用 window.open / target=_blank 弹新窗口：
   //    点击只做「复制到剪贴板」，由用户自己决定在哪个浏览器/窗口打开。
   const authSteps: Array<{ title: string; body: ReactNode; state: StepState }> = [
     {
@@ -250,7 +250,7 @@ export function LoginModal({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
         <Dialog.Content
           aria-label={`添加账号：${cid}`}
-          // ⚠ 与手写版逐条一致：ESC 与「点遮罩之外」都**不**关闭 ——
+          // 与手写版逐条一致：ESC 与「点遮罩之外」都**不**关闭 ——
           // 登录进行中误触会丢流程（需求：仅关闭键可关）。
           onEscapeKeyDown={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
@@ -258,7 +258,7 @@ export function LoginModal({
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
         >
           {/* 渠道行（标题）：图标 + cid display + 关闭键（紧凑单栏布局，无左右分栏）。
-              ⚠ 标题必须是 `Dialog.Title`：Radix 用它接 `aria-labelledby`，
+              标题必须是 `Dialog.Title`：Radix 用它接 `aria-labelledby`，
               少了它屏幕阅读器读不出这个对话框叫什么。 */}
           <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-overlay text-ink-soft">

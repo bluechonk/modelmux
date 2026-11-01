@@ -424,7 +424,7 @@ export interface ToolChoiceOptions {
  * - `{"type":"function","function":{"name":"x"}}` → `"x"`；
  * - 其余对象 / 非标量 → 删字段（无法表达就不表达）。
  *
- * ⚠ `"none"` 原样保留且**不删 tools**：删了模型拿不到函数签名，会把调用降级成
+ * `"none"` 原样保留且**不删 tools**：删了模型拿不到函数签名，会把调用降级成
  * 文本塞进 content。
  */
 export function normalizeToolChoice(body: OpenAiRecord, options: ToolChoiceOptions): void {

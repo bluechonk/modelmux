@@ -45,15 +45,15 @@ interface ModelEntry {
 /**
  * 已知模型规格（上下文窗口 / 单次回复最大输出）。
  *
- * ⚠ 上游目录**自带**这两个数（实测 `params.context_window` / `params.max_tokens`，
+ * 上游目录**自带**这两个数（实测 `params.context_window` / `params.max_tokens`，
  * 见 docs/channels/raccoon/PROTOCOL.md §5.2）—— 有上游声明时以**上游为准**
  * （三层取值链见 docs/MODEL-SPECS.md §0：上游声明优先）。
  * 本表只在**上游没下发**时兜底（目录缓存缺失 / 新型号未声明）。
  *
- * ⚠ 键是**归一后的规范模型名**（`sn-glm-5-3-flash` → `glm-5.3-flash`），
+ * 键是**归一后的规范模型名**（`sn-glm-5-3-flash` → `glm-5.3-flash`），
  * 不是目录里的原始写法。
  *
- * ⚠ `sensenova-6.8-flash` / `sensenova-6.8-flash-lite` **不列**：官方未公开数值
+ * `sensenova-6.8-flash` / `sensenova-6.8-flash-lite` **不列**：官方未公开数值
  * （说明见 docs/channels/raccoon/PROTOCOL.md §5.7）—— 不编造数字，让网关回落兜底值。
  *
  * 来源：`docs/channels/raccoon/PROTOCOL.md` §5.7（核对方法见 `docs/MODEL-SPECS.md` §0）。
@@ -85,7 +85,7 @@ export function modelSpec(
  *
  * 来源：2026-09-26 实测 `GET /api/web/llm/v2/model_catalog`
  * （见 docs/channels/raccoon/PROTOCOL.md；上游改目录后需重拉）。
- * ⚠ 不含 `Raccoon-Auto`（发给 chat 会 404），也不含 3 个 `visible:false` 的内部模型。
+ * 不含 `Raccoon-Auto`（发给 chat 会 404），也不含 3 个 `visible:false` 的内部模型。
  */
 const FALLBACK_MODELS: ModelEntry[] = [
   {
@@ -193,7 +193,7 @@ function num(value: unknown): number | null {
 /**
  * 图片能力判定（见文件头注释 2）。
  *
- * ⚠ 用**显式白名单**而不是「恒 true」：只覆盖**实测确认**的个案。
+ * 用**显式白名单**而不是「恒 true」：只覆盖**实测确认**的个案。
  */
 function supportsImage(modelId: string, tags: unknown): boolean {
   if (IMAGE_CAPABILITY_OVERRIDES.has(modelId)) return true;
@@ -228,7 +228,7 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
     for (const item of models) {
       if (!isRecord(item)) continue;
       if (item["visible"] === false) continue; // 缺省视为可见
-      const id = str(item["name"]); // ⚠ 模型 id 在 name 字段里，不是 id
+      const id = str(item["name"]); // 模型 id 在 name 字段里，不是 id
       if (!id || seen.has(id) || EXCLUDED_IDS.has(id)) continue;
       seen.add(id);
       const params = isRecord(item["params"]) ? item["params"] : {};
@@ -240,7 +240,7 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
         name: str(item["description"]) || fallback?.name || id,
         contextWindow: num(params["context_window"]) ?? num(item["context_window"]) ?? fallback?.contextWindow ?? 0,
         maxOutput: num(params["max_tokens"]) ?? fallback?.maxOutput ?? 0,
-        // ⚠ tags 不是能力契约：白名单 + tags 特征词（见文件头注释 2）
+        // tags 不是能力契约：白名单 + tags 特征词（见文件头注释 2）
         supportsImage: supportsImage(id, item["tags"]),
         effectiveMultiplier,
         multiplier,

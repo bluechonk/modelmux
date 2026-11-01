@@ -46,7 +46,7 @@ const CAMPAIGNS_PATH = "/sash/api/v1/me/campaigns";
  *
  * 取国内版官方客户端自身的版本号（`QoderWork/1.1.64`，见 `cred.PRODUCTS.cn.userAgent`），
  * 与本渠道推理侧的 COSY 协议版本同源。
- * ⚠ 参考实现给的是另一套号：hub 用桌面 App 版 `0.4.3`
+ * 参考实现给的是另一套号：hub 用桌面 App 版 `0.4.3`
  * （`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:112`），
  * zheng 用 `0.4.4`（`reference/Zhengyuuuui_qoder2api/checkin.go:99`）——
  * 该头的**存在性**是硬要求（缺失 → 空活动列表），**具体数值**未见真机结论，
@@ -73,7 +73,7 @@ function str(value: unknown): string {
 /**
  * `/sash/**` 的请求头：桌面身份 + 版本头。
  *
- * ⚠ **刻意不发 `cosy-machine*` 机器指纹头**（国内版策略，理由见文件头）。
+ * **刻意不发 `cosy-machine*` 机器指纹头**（国内版策略，理由见文件头）。
  * 自造指纹会被服务端判成非官方客户端，把可领取的活动整条过滤掉。
  */
 function sashHeaders(credential: cred.Credentials): Record<string, string> {
@@ -227,7 +227,7 @@ async function listClaimable(credential: cred.Credentials): Promise<Array<Record
 /**
  * 领取结果的业务分类。
  *
- * ⚠ **不能只看 HTTP 状态**：服务端对「领不到」大多回 **HTTP 200 + 业务码**，
+ * **不能只看 HTTP 状态**：服务端对「领不到」大多回 **HTTP 200 + 业务码**，
  * 按「人」去重、任务未完成、名额发完、风控拦截都**不是**错误响应。
  * 语义对齐 `reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2153-2223`。[参考]
  */
@@ -281,7 +281,7 @@ function classifyClaim(payload: Record<string, unknown>): ClaimResult {
     return { kind: "unavailable", reason: CLAIM_FAILURE_TEXT[failure]! };
   }
   // 领到了：上游回 `status` ∈ {CLAIMED, GRANTED, SUCCESS}。
-  // ⚠ **不把「字段全空」当成功** —— 宁可报「无法识别」，也不谎报「领取成功」。
+  // **不把「字段全空」当成功** —— 宁可报「无法识别」，也不谎报「领取成功」。
   if (CLAIM_OK_STATUS.has(status) || (status === "" && payload["success"] === true)) {
     return { kind: "claimed", amount, replayed };
   }
@@ -295,9 +295,9 @@ function classifyClaim(payload: Record<string, unknown>): ClaimResult {
 /**
  * 领取一个活动。
  *
- * ⚠ body 必须是**空串**（不是 `{}`）—— 官方如此，实测参考实现
+ * body 必须是**空串**（不是 `{}`）—— 官方如此，实测参考实现
  * （`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2166`）。
- * ⚠ 重复领取上游回 HTTP 200 + `replayed: true`（**不重复发放**），
+ * 重复领取上游回 HTTP 200 + `replayed: true`（**不重复发放**），
  * 并发重复领取可能回 HTTP 409 + `errorCode: ALREADY_CLAIMED` —— 同样按「已领」处理
  * （`reference/shuishuipingan_qoder2api-hub/qoder_accounts.py:2178-2180`）。
  */
@@ -362,7 +362,7 @@ export const signin: SigninModule = {
           daily: true,
         };
       }
-      // ⚠ 没有可领的**不等于**"今天已领"：该账号此刻可能压根没有每日签到活动
+      // 没有可领的**不等于**"今天已领"：该账号此刻可能压根没有每日签到活动
       // （实测国际版只有一条 `VIEW_DETAILS` 的 Pro 推广），报"未签到"会让人
       // 以为"还能签"。这里用上游顶层的 `claimable` 作权威判据。
       const topClaimable = payload["claimable"] === true;
@@ -377,7 +377,7 @@ export const signin: SigninModule = {
         summary: done
           ? "今天已领"
           : "上游今天没有可领的奖励（当前没有可领取的签到活动）",
-        // ⚠ 没有活动时是「不适用」而不是「未签」—— 返回 null 才会让 CLI 显示上面
+        // 没有活动时是「不适用」而不是「未签」—— 返回 null 才会让 CLI 显示上面
         // 那句渠道自己的说明，而不是通用模板「今天未签到（依据：上游）」
         claimedToday: done ? true : null,
         daily: true,
@@ -438,7 +438,7 @@ export const signin: SigninModule = {
           break;
       }
     }
-    // ⚠ 汇报口径：**领到了几个**与**为什么没领到**分开说。
+    // 汇报口径：**领到了几个**与**为什么没领到**分开说。
     // 「同人已领」不是本账号已领过（服务端按「人」去重），不能报成「今天已领」。
     const parts: string[] = [];
     if (claimed > 0) parts.push(`领取成功 ${claimed} 项`);

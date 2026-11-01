@@ -5,7 +5,7 @@
  * 进冷却；冷却中的 `alpha` 再被请求时**仍会被尝试**（候选集由池 id 前缀决定）；
  * 冷却期不硬 503，回退兜底仍能成功。
  *
- * ⚠ 契约对照：对外模型 id 是 `<cid>/<模型>`（渠道由请求方指定）→ 候选**至多一条**
+ * 契约对照：对外模型 id 是 `<cid>/<模型>`（渠道由请求方指定）→ 候选**至多一条**
  * （`pool-targets.ts`），冷却不再改候选集，只在「多候选排序」里起作用，全池都在
  * 冷却时回退完整候选（`relay.ts`）。账号级语义见 `failover.test.ts`。
  */
@@ -103,7 +103,7 @@ function makeChannel(cid: string, token: string, upstreamUrl: string): Channel {
 /**
  * 发一次对话请求。
  *
- * ⚠ 旧契约：model 是裸模型名 "glm-5.3-flash"（网关自己挑落点）；
+ * 旧契约：model 是裸模型名 "glm-5.3-flash"（网关自己挑落点）；
  *   新契约：池 id 必须带渠道前缀（`alpha/glm-5.3-flash`），裸名一律 400
  *   （`src/pool/pool-targets.ts:473-477`）。
  */
@@ -156,7 +156,7 @@ describe("渠道级冷却：失败的渠道进冷却（候选由池 id 前缀指
   it("第一次请求：指定渠道 alpha 失败（500）→ 502（不跨渠道转移），alpha 进冷却", async () => {
     upstream.captured.length = 0;
     const { status } = await chat(gw.addr, "alpha");
-    // ⚠ 旧契约：alpha 失败 → 自动转移到 beta → 200（"beta 回答"）；
+    // 旧契约：alpha 失败 → 自动转移到 beta → 200（"beta 回答"）；
     //   新契约：池 id 前缀已指定渠道 → 候选至多一条，失败即如实报错
     //   （`src/pool/pool-targets.ts:498-513`；尝试循环见
     //     `src/http/chat/relay.ts:933-1203`）。
@@ -183,7 +183,7 @@ describe("渠道级冷却：失败的渠道进冷却（候选由池 id 前缀指
     upstream.captured.length = 0;
     logs.length = 0;
     const { status } = await chat(gw.addr, "alpha");
-    // ⚠ 旧契约：冷却中的 alpha 被**硬排除** → 只打 beta；
+    // 旧契约：冷却中的 alpha 被**硬排除** → 只打 beta；
     //   新契约：冷却只影响"多候选排序"，候选集由池 id 前缀决定（至多一条），
     //   全池都在冷却时回退到完整候选 → 仍会试这条冷却中的唯一候选
     //   （`src/http/chat/relay.ts:920-927`）。
