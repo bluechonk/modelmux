@@ -3,7 +3,7 @@
 > 本文档描述全局模型规格文件的设计、取值链与 CLI 命令；
 > 配合 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2 的模型池元数据部分阅读。
 
-## 0. 三层取值链
+## 0. 取值链
 
 模型表六列（模型 / 倍率 / 最大上下文 / 输出上限 / 思考模式 / 输入）的取值顺序为：
 
@@ -12,10 +12,15 @@
         │ 字段缺失 ↓
 2. 全局模型规格（~/.modelmux/model-specs.json，本文档的主角）
         │ 字段缺失 ↓
-3. 兜底：渠道静态表 spec → 跨渠道 cross 推断 → 内置 default
+3. 渠道静态表 spec（catalog.modelSpec()）
+        │ 字段缺失 ↓
+4. 跨渠道同 id 推断（buildCrossModelIndex）
+        │ 字段缺失 ↓
+5. 内置默认（DEFAULT_META；effort 保持 null，不编造档位）
 ```
 
 每列**独立判定**：一个模型可能上下文来自上游、输出上限来自本文件、档位来自兜底。
+完整口径、来源标记与 `/v1/models` 快照见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)。
 
 ## 1. 文件格式
 

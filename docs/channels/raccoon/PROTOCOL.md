@@ -508,7 +508,7 @@ def raccoon_supports_image(model_id, tags):
 4 个型号（`glm-5.3` / `kimi-k3` / `glm-5.3-flash` / `deepseek-v4.1-flash`）
 一律是 `1_000_000` / `100_000`，只有 `sensenova-6.8-flash(-lite)` 是
 `256_000` / `63_999`。故 `/v1/models` 报的是**这条渠道实际能给的上限**
-（按 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0 的三层取值链，上游目录声明最优先），不是模型公开规格 —— 客户端据此
+（按 [MODEL-CATALOG.md](../../MODEL-CATALOG.md) 的五级取值链，上游目录声明最优先），不是模型公开规格 —— 客户端据此
 请求不会被上游打回 4xx。
 
 **规格表（键是归一后的规范模型名，`sn-glm-5-3-flash` → `glm-5.3-flash`）**：
@@ -523,7 +523,7 @@ def raccoon_supports_image(model_id, tags):
 | `sensenova-6.8-flash-lite` | （留空） | （留空） | 官方无公开规格 |
 
 来源：渠道静态规格表（`packages/core/channels/raccoon/src/catalog.ts` 的 `MODEL_SPECS`，联网核实的唯一事实源）；
-全局三层取值链见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0；
+全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)；
 **官方无公开规格的型号一律留空**（回落兜底值），不编造数字。
 
 ---
