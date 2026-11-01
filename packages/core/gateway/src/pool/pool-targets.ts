@@ -168,7 +168,7 @@ export interface PoolModelMeta {
  * - `cross`：兄弟渠道同 model id 的已知值（数值取 min / 档位取交集）；
  * - `default`：谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`）。
  */
-export type MetaSource = "upstream" | "spec" | "cross" | "default";
+export type MetaSource = "upstream" | "spec" | "web_search" | "cross" | "default";
 
 /** `PoolModelMeta` 里三个带来源的字段。 */
 export interface ModelMetaSources {
@@ -610,6 +610,8 @@ function metaFromFacts(
   const out =
     facts.maxOutputTokens ?? modelSpecs?.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? cross?.maxOutputTokens ?? null;
   const effort = facts.effort ?? modelSpecs?.effort ?? facts.spec?.effort ?? cross?.effort ?? null;
+  // `model-specs.json` 里由联网补全写入的条目，来源标 web_search，与人工规格区分
+  const specSource: MetaSource = modelSpecs?._source?.startsWith("web_search") ? "web_search" : "spec";
   const output = entry?.["outputModalities"] ?? entry?.["output_modalities"];
   const inputMods =
     entry
@@ -638,7 +640,7 @@ function metaFromFacts(
           : facts.contextWindow !== null
             ? "upstream"
             : modelSpecs?.contextWindow !== undefined
-              ? "spec"
+              ? specSource
               : facts.spec?.contextWindow !== undefined
                 ? "spec"
                 : "cross",
@@ -648,7 +650,7 @@ function metaFromFacts(
           : facts.maxOutputTokens !== null
             ? "upstream"
             : modelSpecs?.maxOutputTokens !== undefined
-              ? "spec"
+              ? specSource
               : facts.spec?.maxOutputTokens !== undefined
                 ? "spec"
                 : "cross",
@@ -658,7 +660,7 @@ function metaFromFacts(
           : facts.effort !== null
             ? "upstream"
             : modelSpecs?.effort !== undefined
-              ? "spec"
+              ? specSource
               : facts.spec?.effort !== undefined
                 ? "spec"
                 : "cross",

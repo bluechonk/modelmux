@@ -13,6 +13,10 @@ import { canonicalModelId, POOL_MODELS, poolCandidates, poolModelId, poolModelMe
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
 import { readModelSpecs, writeModelSpec } from "../../runtime/model-specs.js";
+import {
+  catalogSourceStats,
+  refreshCatalog as refreshPoolCatalog,
+} from "../../pool/catalog-snapshot.js";
 import * as daemon from "../lifecycle/daemon.js";
 import * as headless from "../lifecycle/headless.js";
 import * as report from "./report.js";
@@ -327,10 +331,33 @@ export async function runModelGroup(args: string[], ctx: CommandContext): Promis
       return showPoolUsage(ctx.json, ctx.refresh);
     case "spec":
       return showModelSpec(args[1] ?? "", ctx.json);
+    case "refresh":
+      return refreshModelCatalog(ctx.json);
     default:
-      console.error(`未知的 model 子命令: ${sub}（可用: list / usage / spec）`);
+      console.error(`未知的 model 子命令: ${sub}（可用: list / usage / spec / refresh）`);
       return 2;
   }
+}
+
+/**
+ * `model refresh`：用当前渠道目录与 `model-specs.json` 重建统一快照。
+ *
+ * 快照落点 `<root>/model-catalog.json`，`/v1/models` 直接读它（见 docs/MODEL-CATALOG.md）。
+ */
+
+async function refreshModelCatalog(json: boolean): Promise<number> {
+  const catalog = refreshPoolCatalog();
+  const count = Object.keys(catalog.models).length;
+  const stats = catalogSourceStats(catalog);
+  if (json) {
+    console.log(JSON.stringify({ generated_at: catalog.generated_at, models: count, sources: stats }, null, 2));
+    return 0;
+  }
+  console.log(`模型目录已刷新：${count} 个模型（${catalog.generated_at}）`);
+  for (const [source, n] of Object.entries(stats).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${source.padEnd(12)} ${n}`);
+  }
+  return 0;
 }
 
 /**

@@ -15,7 +15,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { channelCount, channelFor, channels, getChannel, type Channel, type Credential, type StreamTranslator, type UpstreamConfig } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
-import { poolCandidates, poolModelMetas } from "../pool/pool-targets.js";
+import { poolCandidates } from "../pool/pool-targets.js";
+import { ensureCatalog } from "../pool/catalog-snapshot.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat } from "./chat/relay.js";
@@ -70,42 +71,19 @@ export interface GatewayOptions {
 
 
 function handleModels(res: ServerResponse): void {
-  // 一次枚举只建一次跨渠道索引（`poolModelMetas` 内部构建）；迭代顺序即
-  // `poolModels()` 的排序结果，与旧的 `POOL_MODELS.map` 逐条收集完全一致。
-  const metas = poolModelMetas();
+  // 数据源是统一快照（docs/MODEL-CATALOG.md）：读文件而非每次实时聚合；
+  // 快照缺失时 ensureCatalog() 生成一次并落盘。
+  const catalog = ensureCatalog();
   writeJson(res, {
     object: "list",
-        // 字段结构对齐 DeepSeek 官方 `GET /models`（见 pool-targets.ts 的 PoolModelMeta）：
-        // **没有 `created`**，`name` 与 `id` 一致（同为 `<cid>/<模型>` 池形态），
-        // 并带上上下文 / 最大输出 / 模态 / 思考档位。
-        // `owned_by` 即 id 前缀里的渠道（请求方照它选池子）。
-        // `effort` 可为 **null**：渠道目录没声明思考档位（见 PoolModelMeta.effort 注释）。
-        // `meta_sources` 是**我们的扩展**（官方没有）：逐项说明窗口 / 输出 / 档位是上游声明、
-        // 渠道规格、跨渠道推断还是占位值 —— 客户端据此区分真值与推断值。
-        data: [...metas].map(([id, meta]) => {
-          return {
-            id,
-            object: "model",
-            owned_by: id.split("/")[0] ?? "modelmux",
-            name: id,
-            context_window: meta.contextWindow,
-            max_output_tokens: meta.maxOutputTokens,
-            input_modalities: meta.inputModalities,
-            output_modalities: meta.outputModalities,
-            effort: meta.effort
-              ? {
-                  supported_levels: meta.effort.supportedLevels,
-                  default_level: meta.effort.defaultLevel,
-                }
-              : null,
-            multiplier: meta.multiplier,
-            meta_sources: {
-              context_window: meta.sources.contextWindow,
-              max_output_tokens: meta.sources.maxOutputTokens,
-              effort: meta.sources.effort,
-            },
-          };
-        }),
+    // 扩展字段：客户端据此判断目录新鲜度（官方 GET /models 没有）
+    generated_at: catalog.generated_at,
+    // 字段结构对齐 DeepSeek 官方 `GET /models`：
+    // 没有 `created`，`name` 与 `id` 一致（同为 `<cid>/<模型>` 池形态），
+    // 并带上上下文 / 最大输出 / 模态 / 思考档位。
+    // `effort` 可为 null：渠道目录没声明思考档位。
+    // `meta_sources` 是扩展字段：逐项说明真值来自上游 / 规格文件 / 联网搜索 / 跨渠道 / 占位值。
+    data: Object.values(catalog.models).map((entry) => ({ ...entry, object: "model" })),
   });
 }
 
