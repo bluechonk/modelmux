@@ -168,14 +168,20 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .tmp/link-claude-skills.ps1 -Remov
 
 ## 推送门禁
 
-**强制**。推送前必须跑与 CI 等价的命令；这是独立的一步，不是 `npm test` 的附加选项。
+**由钩子自动执行，不需要手动跑**。`.githooks/pre-push` 在**推送发出之前**跑完与 CI 等价的
+命令，不通过就拦下推送。手动跑只剩「提前发现」这一个意义（commit 之后、push 之前就知道红没红）：
 
 ```bash
-npm run gate          # 完整门禁：干净 clone → npm ci → npm test
+npm run gate          # 提前跑：干净 clone → npm ci → npm test
 ```
 
-`.githooks/pre-push` 会自动调用同一条命令；手动跑的意义是提前发现。实现见 `scripts/gate.sh`
-（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
+实现见 `scripts/gate.sh`（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
+
+⚠ **真正不可绕过的是 CI**：钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意），
+CI 不能 —— `main` 有分支保护，合并前 `test (node 22)` / `test (node 24)` 必须双绿。
+
+> 为什么不挂 `pre-commit`：门禁要干净 clone + `npm ci` + 全链测试（约 3 分钟），挂在每次提交上
+> 会让所有人开始 `--no-verify` —— **自动挡挂错位置比手动更糟**。`pre-push` 是成本与拦截力的平衡点。
 
 **钩子怎么接上的**：git 默认只读 `.git/hooks/`，不认 `.githooks/`，所以根 `package.json` 的
 `prepare` 在 `npm install` 之后自动执行 `scripts/setup-git-hooks.mjs`，把 `core.hooksPath`

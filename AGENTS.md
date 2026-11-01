@@ -59,8 +59,10 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 - 对外 API 或模型 id 形态变更
 - 预计改动 >20 个文件
 
-小改动先本地 commit 攒着，攒够一批再走 PR。无论规模，推送前 `npm test` 和 `npm run gate` 必须全绿。
-禁止 `--no-verify`。PR 用 rebase 合并，禁止 merge commit。
+小改动先本地 commit 攒着，攒够一批再走 PR。**推送门禁由 `.githooks/pre-push` 自动执行**
+（`npm install` 经 `prepare` 接线），跑不过就拦下推送，不需要手动跑；禁止 `--no-verify`。
+真正不可绕过的是 CI —— `main` 有分支保护，合并前双检查必须绿。
+PR 用 rebase 合并，禁止 merge commit。
 完整分支流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
 ## 代码约定
@@ -109,7 +111,8 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 
 ## 推送与发版
 
-推送前 `npm run gate` 全绿。文档与代码同一个 commit。发版 = 打 tag，不建 GitHub Release。
+推送门禁由 `pre-push` 钩子自动执行（细节见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「推送门禁」）。
+文档与代码同一个 commit。发版 = 打 tag，不建 GitHub Release。
 版本号 `0.1.x` 连续递增不跳号。tag 打在合并后的 main 上。
 大面积功能或重构后提醒主人发版，不擅自操作。
 完整发版流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
