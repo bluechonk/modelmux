@@ -23,7 +23,7 @@ import { ScrollFade } from "./ScrollFade";
  * `cross` 是兄弟渠道同 id 的兜底值（不做界面标注），
  * 不是本渠道上游说的，不能让它看起来像事实。
  */
-export type MetaSource = "upstream" | "spec" | "cross" | "default";
+export type MetaSource = "upstream" | "spec" | "web_search" | "cross" | "default";
 
 /** 单个模型的元数据（与共享层 `PoolModelMeta` 对齐）。 */
 export interface ModelMeta {
@@ -483,7 +483,7 @@ function sortThinkingLevels(levels: readonly string[]): string[] {
  * 不能给「不支持」的模型编档位：共享层若给所有模型都填 `["low","high"]`，
  * 200 个没声明过的模型都会被显示成「支持 low/high」。
  * 现在 `meta.effort` 为 null 就是「渠道没说」，如实呈现；
- * 跨渠道兜底来的档位带「推断」标记（与上游声明分开）。
+ * 来源标记（sources）随数据下发，当前表格不展示。
  *
  * 窄屏（< md）整列由 `colsFor` 丢弃，这里不再带响应式类。
  */

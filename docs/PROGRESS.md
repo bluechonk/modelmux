@@ -13,7 +13,7 @@
 | 网关 | `127.0.0.1:4412`，唯一端口 |
 | Web 控制台 | 挂 `/web`（网关同端口，非独立进程） |
 | 对外协议 | OpenAI 兼容 `/v1`，模型为池 id 形态 `<cid>/<模型名>` |
-| 对外模型 | 207 个（随目录刷新变化，2026-10-25 快照；按渠道拆分见下表） |
+| 对外模型 | 191 个（随目录刷新变化，2026-11-02 快照；按渠道拆分见下表） |
 | 工作区包 | `packages/cli` / `packages/ui` / `packages/core/gateway` / `packages/core/channels/<cid>` |
 
 ## 渠道状态
@@ -25,16 +25,16 @@
 | --- | --- | --- | --- | --- |
 | astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 7 |
 | catpaw | CatPaw（美团妙手） | 是 | 是 | 9 |
-| lobsterai | LobsterAI（有道） | 是 | 是 | 30 |
-| loomy | Loomy（讯飞） | 是 | 是 | 10 |
+| lobsterai | LobsterAI（有道） | 是 | 是 | 32 |
+| loomy | Loomy（讯飞） | 是 | 是 | 9 |
 | qoder | Qoder（国际版） | 是 | 是 | 14 |
 | qodercn | Qoder 国内版 | 是 | 是 | 10 |
 | raccoon | Raccoon（商汤） | 是 | 是 | 6 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 21 |
-| workbuddy | WorkBuddy（国内版） | 是 | 是 | 61 |
-| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 28 |
+| workbuddy | WorkBuddy（国内版） | 是 | 是 | 60 |
+| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 23 |
 
-模型数随目录刷新变化，此处为 2026-10-25 快照（astudio 为静态内置表，恒 7 个）。
+模型数随目录刷新变化，此处为 2026-11-02 快照（astudio 为静态内置表，恒 7 个）。
 
 **astudio 的功能缺口**：登录（手机号 + 短信验证码，Web 控制台）/ 登出 / 思考档位与倍率透出等
 均已实现，审计时的缺口已收敛；余项与验收判据见 [channels/astudio/ROADMAP.md](./channels/astudio/ROADMAP.md)。
@@ -65,7 +65,7 @@
 - 视觉：Codex/ChatGPT 近黑单色（`#171717` 侧栏 / `#212121` 主区 / `#2f2f2f` 输入盒），
   窄屏侧栏收 56px 图标栏、端点盒堆叠、表格横向滚动。
 - 数据：`/web/api/state` 的 `model_info`（共享层 `PoolModelMeta`），含倍率、最大上下文、
-  输出上限、输入模态、思考档位；跨渠道兜底来的值（`sources.* = "cross"`）在界面上标「推断」。
+  输出上限、输入模态、思考档位与来源标记（`sources`，当前表格不展示）。
 
 详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)。
 
@@ -99,4 +99,4 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
 - 上游目录**普遍不下发**思考档位，只有 catpaw / loomy / traecn / lobsterai 声明了档位；
   其余渠道无声明时控制台显示「不支持」，共享层兜底**不编造**档位。
 - 共享层**不解释渠道字段**，只按约定键名归一；渠道自己的字段名映射在渠道包内。
-- 窗口/输出上限等规格以 [MODEL-SPECS.md](./MODEL-SPECS.md) 为唯一事实源。
+- 窗口/输出上限等规格以 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的统一目录快照为唯一事实源。

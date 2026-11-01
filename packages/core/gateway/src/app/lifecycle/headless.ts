@@ -117,7 +117,7 @@ class StdoutLoginUi implements authFlow.LoginUi {
      * 静默：不往 stdout 打状态行（`json` 模式的 emit 照旧）。
      *
      * 启动期的**被动探测**用静默实例 —— 未登录不是异常，满屏「未登录：请先登录」纯噪音
-     * （2026-10-29 主人要求去掉）；交互式登录（`mx login` / 控制台按钮）仍走正常实例。
+     * （2026-10-29 起）；交互式登录（`mx login` / 控制台按钮）仍走正常实例。
      */
     private readonly quiet = false,
   ) {}
