@@ -357,9 +357,21 @@ Cookie: <buildAstronCookieHeader>
 | 刷新拿到的 `api_key` | 与磁盘 `modelBearerToken` **完全一致** |
 | 9 个模型的 `api_key` | **全部相同**（一个账号一个 Bearer） |
 | Cookie 失效时 | 上游回 `code=80000`（渠道抛 `NotLoggedInError`） |
+| `sessionToken` 为空、仅 `ssoSessionId` | ✅ **200**，正常给出 `api_key`（2026-11-01 实测，9 个模型 / 65 字符 key） |
+
+**Cookie 只需 `ssoSessionId` 即可完成刷新**（2026-11-01 实测）：短信登录的
+`phone-quick-login` 响应**不带 `token`**（见 §4），落盘后 `sessionToken` 恒为空。
+故 `refresh()` 的可用判据是「`sessionToken` 或 `ssoSessionId` 至少有一个」，
+**不是**只认 `sessionToken` —— 后者会让短信登录账号的刷新链路永久不可用。
 
 → 渠道实现了**真 `refresh()`**（不是 loomy 那种「探测」）：
 带 Cookie 打 `/bot/models/configs`，取回 `api_key` 写回凭据。
+
+**`11200` 与凭据失效是两件事**（2026-11-01 实测）：模型网关回
+`403 {"code":11200,"message":"no valid authorization: the account lacks an active order,
+has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**，
+不是凭据过期 —— 此刻 Cookie 打 `/bot/models/configs` 仍正常。把它当凭据失效去
+`refresh()` 救不回来，应直接提示用户去官方客户端确认订单与额度。
 
 ---
 
