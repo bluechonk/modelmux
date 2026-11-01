@@ -446,7 +446,7 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 ### 缺口 3（已消解）：规格事实源改为渠道代码
 
 `docs/MODEL-SPECS.md` 现在只描述**全局规格文件**（`~/.modelmux/model-specs.json`）的设计与
-取值链（§0 三层取值链、§4 与渠道 spec 表的关系），**通篇不含任何渠道的逐型号规格表**。
+取值链（§0 五级取值链、§4 与渠道 spec 表的关系），**通篇不含任何渠道的逐型号规格表**。
 astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels/astudio/src/catalog.ts`），
 与其它渠道同级 —— 不再是「游离在唯一事实源之外」。
 

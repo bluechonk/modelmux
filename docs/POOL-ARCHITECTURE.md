@@ -273,10 +273,10 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 - 排队帧 → 按 `retryAfterSeconds`（封顶 12s）等待后**重开上游**（同一请求体、重新取凭据）；
 - 排队期间向**流式**客户端按轮次发进度文案（**`reasoning_content` delta**，每条以空行收尾才会换行）。
   刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒走 `content` 会先建出正文行，
-  模型的思考就落到正文后面了（主人 2026-10-24 反馈）；
+  模型的思考就落到正文后面了（2026-10-24 实测）；
 - 总时长上限 **120 秒**（含首次尝试与所有等待，`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）；
   耗尽仍无内容 → **直接回正常应答**劝主人换渠道（文案带真实渠道 id），不再干等；
-- **排队解除后补一条正文分界**「排队成功，开始生成…」（主人 2026-10-25 要求）：
+- **排队解除后补一条正文分界**「排队成功，开始生成…」：
   提醒与模型的真思考同在思考块里，没有正文分隔时看不出排队已结束。补了之后渲染顺序是
   `思考块(提醒) → 正文(排队成功) → 思考块(真思考) → 正文(回答)`；只在排队真的解除过时发。
 - 探测阶段已消费的帧**按原序补写**给客户端再续传剩余流，不丢前缀；探测用的**翻译器实例
@@ -370,11 +370,13 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 |---|---|
 | `upstream` | 本渠道目录（上游返回）里有这个字段 |
 | `spec` | 本渠道按公开规格维护的 `catalog.modelSpec()`（窗口 / 输出 / **官方文档逐模型给出的思考档位**） |
+| `web_search` | 联网补全写入 `model-specs.json`（`_source` 带来源 URL） |
 | `cross` | **兄弟渠道同 model id** 的已知值（跨渠道兜底，见 §2.7） |
 | `default` | 谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`） |
 
-为什么要有它：兜底值不标出来源就会被当成上游事实。控制台对 `cross` 标「推断」，
-客户端也可以据此决定要不要信这个数字（详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)）。
+为什么要有它：兜底值不标出来源就会被当成上游事实。`sources` 随 `/v1/models` 与
+`/web/api/state` 下发，客户端据此决定要不要信这个数字；控制台表格当前不展示来源标记
+（详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)）。
 
 上游自己的字段名（lobsterai 的 `maxTokens`、workbuddyai 的 `maxOutputTokens` /
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
@@ -433,7 +435,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 本渠道规格排在跨渠道**之前**：规格是渠道自己按公开规格维护的真值
 （[MODEL-SPECS.md](./MODEL-SPECS.md)），比兄弟渠道被上游裁剪过的值更权威 ——
 所以兜底**只替换占位值**，不会把 `traecn/deepseek-v4-pro` 从 1000000（规格）改成
-700000（catpaw 的上游值）。每个值从哪来记在 `sources` 里（见 §2.6），界面据此标「推断」。
+700000（catpaw 的上游值）。每个值从哪来记在 `sources` 里（见 §2.6），随接口下发。
 
 **只在枚举路径生效**：`/v1/models` / 控制台 state / `mx model list` 走 `poolModelMetas()`
 （一次枚举只建一次索引）；单查（转发路径只取倍率）**不传索引、不做兜底**，
@@ -673,7 +675,8 @@ hasChannel(cid?: string): boolean;
 ### 4.2 路由层
 
 - `/v1/chat/completions`：**池路由** —— 客户端用 `<cid>/<模型>` 显式指定渠道（见 §2.4）。
-- `/v1/models`：动态全池，id 挂渠道前缀（见 §2）。
+- `/v1/models`：读统一快照 `~/.modelmux/model-catalog.json`，缺失或渠道集合变化时重建
+  （见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）。
 - `/health`：报告**整体**状态 + 每个渠道一行（登录/池子/是否上架），而不是单个渠道。
 
 ### 4.3 进程与入口

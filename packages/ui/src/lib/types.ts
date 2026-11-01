@@ -60,13 +60,13 @@ export interface UiSnapshot {
       /**
        * 窗口 / 输出 / 档位各自从哪来（与共享层 `PoolModelMeta.sources` 同形）。
        *
-       * `cross` = 兄弟渠道同 id 的推断值，界面标「推断」；缺省按上游声明呈现
-       * （兼容不带该字段的旧快照）。
+       * `web_search` = 联网补全写入，`cross` = 兄弟渠道同 id 的推断值。
+       * 当前表格不渲染来源标记，字段保留给后续界面与排障使用。
        */
       sources?: {
-        contextWindow: "upstream" | "spec" | "cross" | "default";
-        maxOutputTokens: "upstream" | "spec" | "cross" | "default";
-        effort: "upstream" | "spec" | "cross" | "default";
+        contextWindow: "upstream" | "spec" | "web_search" | "cross" | "default";
+        maxOutputTokens: "upstream" | "spec" | "web_search" | "cross" | "default";
+        effort: "upstream" | "spec" | "web_search" | "cross" | "default";
       };
     }
   >;

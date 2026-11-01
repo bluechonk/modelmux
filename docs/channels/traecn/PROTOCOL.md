@@ -572,7 +572,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 | `step-5-preview` | 1_048_576 | 65_536 | 公开规格 |
 
 数值落点为渠道静态表 `packages/core/channels/traecn/src/catalog.ts` 的 `MODEL_SPECS`（与本文一致）；
-全局三层取值链见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0。
+全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
 
 **留空（官方无公开规格 / 非公开型号）**：
 `doubao-seed-code`（**该型号官方无公开输出规格**，方舟模型列表与价格页均无
