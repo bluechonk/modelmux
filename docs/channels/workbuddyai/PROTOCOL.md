@@ -113,8 +113,11 @@
 - 完整块（开始 + 至少一个 `invoke` + 闭合）→ 合成 `delta.tool_calls`，`finish_reason` 改
   `tool_calls`；
 - 请求未声明 `tools` → 只剥离标记，不合成；
+- DSML 落在 `content` / `reasoning_content` / `reasoning` 时都处理（实测长会话主要落在
+  思考链，正文为空）；
 - 块跨 chunk 分片、UTF-8 多字节被切开 → 字节级状态机处理；
-- 流结束仍未闭合 → 原样吐出，不吞正文。
+- 流结束仍未闭合 → 原样吐出，不吞正文；
+- 流式响应一律过过滤器，不依赖上游 `content-type`（该头实测不可靠）。
 
 流式与非流式两条路径共用同一过滤器；`WIRE === "custom"` 的渠道（qoder / qodercn / catpaw /
 traecn）走各自 translator，不经过该兜底。

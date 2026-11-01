@@ -126,13 +126,25 @@ function parseInvocations(block: string): ParsedInvoke[] {
  *
  * 状态机只有「块外 / 块内」两态：块外做前缀扣留，块内等闭合标记。
  */
+/** 单调递增的 tool_calls index 分配器（content / reasoning 两个提取器共享）。 */
+export function createToolCallIndexAllocator(): () => number {
+  let next = 0;
+  return () => {
+    const index = next;
+    next += 1;
+    return index;
+  };
+}
+
 export class DsmlTextExtractor {
   private pending = "";
   private inBlock = false;
-  private nextIndex = 0;
   private sawToolCall = false;
 
-  constructor(private readonly hasTools: boolean) {}
+  constructor(
+    private readonly hasTools: boolean,
+    private readonly allocateIndex: () => number = createToolCallIndexAllocator(),
+  ) {}
 
   /** 已经合成过至少一个调用（上层据此把 finish_reason 改成 tool_calls）。 */
   get sawAnyToolCall(): boolean {
@@ -212,8 +224,7 @@ export class DsmlTextExtractor {
   }
 
   private makeCall(invoke: ParsedInvoke): DsmlToolCall {
-    const index = this.nextIndex;
-    this.nextIndex += 1;
+    const index = this.allocateIndex();
     this.sawToolCall = true;
     return {
       index,
@@ -224,13 +235,27 @@ export class DsmlTextExtractor {
   }
 }
 
-/** SSE 事件级的 DSML 过滤器：只改写 `data:` 行里的 delta，其余字节不动。 */
+/**
+ * SSE 事件级的 DSML 过滤器：只改写 `data:` 行里的 delta，其余字节不动。
+ *
+ * ⚠ 上游会把工具调用写进 `reasoning_content`（DeepSeek 思考链）而不是 `content`——
+ * 实测（2026-11-02）1.2MB 长会话：completion 4237 token 里 3927 是 reasoning、
+ * 正文为空，DSML 全在思考链里。两个字段各自用独立状态机，共享 index 分配器。
+ */
 export class DsmlSseFilter {
-  private readonly extractor: DsmlTextExtractor;
+  private readonly contentExtractor: DsmlTextExtractor;
+  private readonly reasoningExtractor: DsmlTextExtractor;
+  private readonly allocateIndex = createToolCallIndexAllocator();
   private template: { id?: string; model?: string; created?: number } = {};
 
   constructor(hasTools: boolean) {
-    this.extractor = new DsmlTextExtractor(hasTools);
+    this.contentExtractor = new DsmlTextExtractor(hasTools, this.allocateIndex);
+    this.reasoningExtractor = new DsmlTextExtractor(hasTools, this.allocateIndex);
+  }
+
+  /** 任一字段合成过调用（上层据此改写 finish_reason）。 */
+  private get sawToolCall(): boolean {
+    return this.contentExtractor.sawAnyToolCall || this.reasoningExtractor.sawAnyToolCall;
   }
 
   /** 输入一个 SSE 事件块（不含结尾空行），返回要下发的帧。 */
@@ -265,20 +290,23 @@ export class DsmlSseFilter {
         if (!choice) continue;
 
         const delta = asRecord(choice["delta"]);
-        const content = delta?.["content"];
-        if (delta && typeof content === "string" && content.length > 0) {
-          const result = this.extractor.push(content);
-          if (result.text.length > 0) delta["content"] = result.text;
-          else delete delta["content"];
-          if (result.toolCalls.length > 0) {
-            const existing = Array.isArray(delta["tool_calls"]) ? delta["tool_calls"] : [];
-            delta["tool_calls"] = [...existing, ...result.toolCalls];
+        if (delta) {
+          const content = delta["content"];
+          if (typeof content === "string" && content.length > 0) {
+            this.applyExtracted(delta, "content", this.contentExtractor.push(content));
+            touched = true;
           }
-          touched = true;
+          // `reasoning_content` 与 `reasoning` 是同一段思考链的两种字段名
+          for (const field of ["reasoning_content", "reasoning"] as const) {
+            const reasoning = delta[field];
+            if (typeof reasoning !== "string" || reasoning.length === 0) continue;
+            this.applyExtracted(delta, field, this.reasoningExtractor.push(reasoning));
+            touched = true;
+          }
         }
 
         const finishReason = choice["finish_reason"];
-        if (typeof finishReason === "string" && finishReason && this.extractor.sawAnyToolCall) {
+        if (typeof finishReason === "string" && finishReason && this.sawToolCall) {
           choice["finish_reason"] = "tool_calls";
           touched = true;
         }
@@ -293,9 +321,22 @@ export class DsmlSseFilter {
     return changed ? [lines.join("\n")] : [event];
   }
 
-  /** 流结束：吐出被扣留的正文或未闭合块里的调用。 */
+  /** 把提取结果写回 delta：正文/思考链只留非标记部分，调用并入 `tool_calls`。 */
+  private applyExtracted(
+    delta: Record<string, unknown>,
+    field: "content" | "reasoning_content" | "reasoning",
+    result: DsmlPushResult,
+  ): void {
+    if (result.text.length > 0) delta[field] = result.text;
+    else delete delta[field];
+    if (result.toolCalls.length > 0) {
+      const existing = Array.isArray(delta["tool_calls"]) ? delta["tool_calls"] : [];
+      delta["tool_calls"] = [...existing, ...result.toolCalls];
+    }
+  }
+
+  /** 流结束：吐出被扣留的正文、思考链或未闭合块里的调用。 */
   finish(): string[] {
-    const result = this.extractor.finish();
     const frames: string[] = [];
     const base = {
       id: this.template.id ?? `chatcmpl-${randomBytes(8).toString("hex")}`,
@@ -303,23 +344,31 @@ export class DsmlSseFilter {
       created: this.template.created ?? Math.floor(Date.now() / 1000),
       model: this.template.model ?? "",
     };
+    const pushText = (field: "content" | "reasoning_content", text: string): void => {
+      frames.push(
+        `data: ${JSON.stringify({
+          ...base,
+          choices: [{ index: 0, delta: { [field]: text }, finish_reason: null }],
+        })}`,
+      );
+    };
+    const pushCalls = (calls: DsmlToolCall[]): void => {
+      frames.push(
+        `data: ${JSON.stringify({
+          ...base,
+          choices: [{ index: 0, delta: { tool_calls: calls }, finish_reason: "tool_calls" }],
+        })}`,
+      );
+    };
 
-    if (result.text.length > 0) {
-      frames.push(
-        `data: ${JSON.stringify({
-          ...base,
-          choices: [{ index: 0, delta: { content: result.text }, finish_reason: null }],
-        })}`,
-      );
-    }
-    if (result.toolCalls.length > 0) {
-      frames.push(
-        `data: ${JSON.stringify({
-          ...base,
-          choices: [{ index: 0, delta: { tool_calls: result.toolCalls }, finish_reason: "tool_calls" }],
-        })}`,
-      );
-    }
+    const content = this.contentExtractor.finish();
+    if (content.text.length > 0) pushText("content", content.text);
+    if (content.toolCalls.length > 0) pushCalls(content.toolCalls);
+
+    const reasoning = this.reasoningExtractor.finish();
+    if (reasoning.text.length > 0) pushText("reasoning_content", reasoning.text);
+    if (reasoning.toolCalls.length > 0) pushCalls(reasoning.toolCalls);
+
     return frames;
   }
 }

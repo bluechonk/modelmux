@@ -304,7 +304,8 @@ export async function relay(
   opts: RelayOptions = {},
 ): Promise<void> {
   const isSse = contentType.toLowerCase().includes("text/event-stream");
-  const dsml = isSse ? opts.dsml : undefined;
+  // 只要上层给了过滤器就启用：openai 线型的响应语义是 SSE，content-type 可能不准
+  const dsml = opts.dsml;
   const capture: Buffer[] | null = captureEnabled(cid) ? [] : null;
   const reader = upstreamBody.getReader();
   const decoder = new TextDecoder("utf-8");

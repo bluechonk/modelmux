@@ -117,10 +117,10 @@ export async function relayStream(
   pendingFrames: Buffer[] = [],
 ): Promise<void> {
   if (!isCustomWire(channel)) {
-    const isSse = contentType.toLowerCase().includes("text/event-stream");
     await sseStream.relay(res, upstreamBody, contentType, cid, {
-      // DSML 兜底只对 SSE 有意义：非 SSE 响应没有 delta.content 可改
-      dsml: isSse ? new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)) : undefined,
+      // 上游是 openai 线型时响应语义一定是 SSE；content-type 常被上游写错，
+      // 不能拿它决定要不要兜底，否则 DSML 会原样漏给客户端。
+      dsml: new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)),
       prefix: pendingFrames,
     });
     return;

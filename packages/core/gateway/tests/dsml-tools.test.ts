@@ -202,6 +202,41 @@ describe("DsmlSseFilter", () => {
     const event = sseChunk({ content: "普通回答" });
     assert.deepEqual(filter.transformEvent(event), [event]);
   });
+
+  it("思考链里的块也能还原，且不残留标记", () => {
+    const filter = new DsmlSseFilter(true);
+    const frames = filter.transformEvent(sseChunk({ reasoning_content: BASH_BLOCK }));
+    const delta = firstDelta(frames[0] ?? "");
+    assert.equal(delta["reasoning_content"], undefined);
+    const calls = delta["tool_calls"] as Array<Record<string, unknown>>;
+    assert.equal(calls.length, 1);
+  });
+
+  it("reasoning 字段名同样处理", () => {
+    const filter = new DsmlSseFilter(true);
+    const frames = filter.transformEvent(sseChunk({ reasoning: BASH_BLOCK }));
+    const delta = firstDelta(frames[0] ?? "");
+    assert.equal(delta["reasoning"], undefined);
+    assert.equal((delta["tool_calls"] as unknown[]).length, 1);
+  });
+
+  it("content 与 reasoning 的调用共享 index", () => {
+    const filter = new DsmlSseFilter(true);
+    const first = filter.transformEvent(sseChunk({ content: BASH_BLOCK }));
+    const second = filter.transformEvent(sseChunk({ reasoning_content: BASH_BLOCK }));
+    const callA = (firstDelta(first[0] ?? "")["tool_calls"] as Array<Record<string, unknown>>)[0];
+    const callB = (firstDelta(second[0] ?? "")["tool_calls"] as Array<Record<string, unknown>>)[0];
+    assert.equal(callA?.["index"], 0);
+    assert.equal(callB?.["index"], 1);
+  });
+
+  it("思考链里合成调用后 finish_reason 也改写", () => {
+    const filter = new DsmlSseFilter(true);
+    filter.transformEvent(sseChunk({ reasoning_content: BASH_BLOCK }));
+    const done = parseFrame(filter.transformEvent(sseChunk({}, "stop"))[0] ?? "");
+    const choices = done["choices"] as Array<Record<string, unknown>>;
+    assert.equal(choices[0]?.["finish_reason"], "tool_calls");
+  });
 });
 
 describe("DsmlByteFilter / filterDsmlBytes", () => {
