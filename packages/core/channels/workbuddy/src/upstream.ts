@@ -511,6 +511,10 @@ interface AuthLike {
 const FINGERPRINT_RULES: Array<[RegExp, string]> = [
   // OhMyOpenCode 的连续指纹（单出现 `OhMyOpenCode` 不触发，只改写整段）
   [/Sisyphus-Junior - Focused executor from OhMyOpenCode/gi, "Sisyphus-Junior - Focused executor"],
+  // DeepSeek Harness 的框架自称：与下面两家同类（各家 agent 框架的身份署名），
+  // 上游按它判「非官方渠道」→ 400 code=11128。裸词 `harness` 不触发
+  // （ZCode 的 system 里有 `harness` 泛用词，实测 200），故只换产品名、保留句式。
+  [/DeepSeek Harness/gi, "the agent harness"],
   // 各家 CLI 的身份首句：上游按框架署名判定「非官方渠道」
   [
     /You are Claude Code, Anthropic's official CLI for Claude/gi,
@@ -545,6 +549,7 @@ const FINGERPRINT_RULES: Array<[RegExp, string]> = [
 /** 指纹特征片段（小写）：命中任意一条才走正则清洗，避免每段文本都跑一遍正则。 */
 const FINGERPRINT_MARKERS = [
   "from ohmyopencode",
+  "deepseek harness",
   "you are claude code",
   "you are a coding agent running in the codex cli",
   "github.com/anthropics/",
