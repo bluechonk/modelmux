@@ -137,7 +137,8 @@ gh pr checks <n>
 
 - **禁止** `gh release create` / `gh release edit` / `gh release upload`，
   **禁止**用全局 `github:release` 技能，**禁止**点 GitHub 网页的「Draft a new release」。
-  与全局 `~/.zcode/AGENTS.md`「标签与发布」里「打 tag → 出 Release」冲突时**以本仓规则为准**。
+  与全局 `~/.agents/AGENTS.md`「标签与发布」里「打 tag → 出 Release」冲突时**以本仓规则为准**
+  （本仓细则见 [docs/WORKFLOW.md](../../../docs/WORKFLOW.md) 的「版本与发版」）。
 - 为什么：本仓没有发布物 —— 没有 `npm publish`、没有产物打包 workflow、没有 exe/安装包，
   发布物只有 **web 控制台 + CLI 源码**。Release 页面承载的「版本说明」的权威来源是 `git log`，
   多一个页面就多一份会漂移的事实源（主人原话：「我又不做 exe，我只做 web 和 cli」）。
