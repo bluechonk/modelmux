@@ -18,7 +18,6 @@ import type { GatewayOptions } from "../server.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
 import { writeJsonError } from "./errors.js";
 import { parseChatRequest } from "./request.js";
-import { applyJailbreak } from "./jailbreak.js";
 import { resolvePoolRoute } from "./route.js";
 
 /**
@@ -70,23 +69,6 @@ export async function handleChat(
   // A 段：请求解析与校验（已应答则直接返回）
   const parsed = await parseChatRequest(req, res);
   if (!parsed) return;
-
-  // A2 段：`/jailbreak` 上下文裁剪 —— 客户端在前面的消息里写了标记时，
-  // 丢掉它之前的一切、只留标记后面的内容；tools 等前置能力声明一并删除；
-  // user 消息里的 <system-reminder> 块是客户端附着的环境信息，救回并入保留消息。
-  // 放在路由与转发之前：后续所有环节（翻译器、buildChatBody、上游）拿到的都是裁剪后的整包。
-  const jailbroken = applyJailbreak(parsed.payload);
-  if (jailbroken.applied) {
-    parsed.payload = jailbroken.payload;
-    parsed.messages = jailbroken.messages;
-    const reqLog0 = getRequestLog(res);
-    if (reqLog0) reqLog0.jailbreak = true;
-    opts.logger(
-      `jailbreak: kept messages from #${jailbroken.at ?? 0}, dropped ${jailbroken.dropped}` +
-        (jailbroken.rescued > 0 ? `, rescued ${jailbroken.rescued} system-reminder block(s)` : "") +
-        (jailbroken.droppedFields.length > 0 ? `, dropped fields: ${jailbroken.droppedFields.join(",")}` : ""),
-    );
-  }
 
   // B 段：池路由解析（已应答则直接返回）
   const route = resolvePoolRoute(parsed.model, res, opts.logger);
