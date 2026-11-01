@@ -35,6 +35,7 @@
 | [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案（定稿）**：/web/ 首页运行视图的模块划分、布局与数据通道（实施后收敛进 WEB-CONSOLE.md） |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
+| [WORKFLOW.md](./WORKFLOW.md) | **工作流细则**：worktree 约束、浏览器视觉校验、临时探测脚本、测试红线与已知隐患、构建模型、推送门禁、版本与发版、提交信息规范（根 `AGENTS.md` 只留摘要，细则在此） |
 | [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录与署名不进注释（git 是唯一事实源）的判据与正反例 |
 | [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：三层取值链（上游 → 全局规格文件 → 兜底）、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程 |
 | [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复（已实施）**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；规则已收敛进 POOL-ARCHITECTURE.md §2.4 / §3.3，本文留设计依据 |
