@@ -18,6 +18,7 @@ import { writeJson, writeJsonError } from "./errors.js";
 import { collectAsOpenAiSse, relayStream } from "./stream.js";
 import type { ProbeFrames } from "./queue.js";
 import type { UpstreamCall } from "./upstream.js";
+import * as dsmlTools from "../wire/dsml-tools.js";
 import * as sseStream from "../wire/sse-stream.js";
 
 /**
@@ -164,7 +165,7 @@ export async function relayUpstream(
       // ⚠ 这里**不再二次探测**：尝试层已用同一条件探测过这条流并推进了它的位置，
       // 再探测会丢掉第一次消费掉的帧（非流式空响应的元凶）。此处只把探测结果（前缀内容帧 /
       // 错误帧）与流剩余部分拼起来聚合。
-      const buf = Buffer.concat([
+      const upstreamBuf = Buffer.concat([
         ...pendingFrames,
         await inChannel(channel, () =>
           collectAsOpenAiSse(streamBody, channel, cid, probeTranslator, request, () => {
@@ -175,15 +176,34 @@ export async function relayUpstream(
           }),
         ),
       ]);
+      // 上游可能把工具调用写成 DSML 文本：聚合前先还原，否则非流式客户端同样看到标记。
+      // 只对 SSE 响应过滤：普通 JSON 体没有 delta 可改，套事件切分会破坏原文。
+      const upstreamType = call.headers.get("content-type") ?? "";
+      const buf = upstreamType.toLowerCase().includes("text/event-stream")
+        ? dsmlTools.filterDsmlBytes(upstreamBuf, dsmlTools.hasToolDeclarations(request))
+        : upstreamBuf;
       const aggregated = sseStream.aggregateChatSse(buf);
       noteUsage(res, aggregated.usage);
-      // 流内业务错误（上游 HTTP 200 + error 帧）且没有任何内容 → 报错误，别回空 completion
+      // 空聚合一律报错，绝不以 200 回一个空 completion。两种成因分开给码：
+      // ① 流内有 error 帧 —— 上游 HTTP 200 却投递业务错误（排队/限流等）→ 用它的码与文案；
+      // ② 一个可解析帧都没有 —— 上游抽风，连内容/用量帧都没发（aggregateChatSse 的
+      //    id/model/usage 全落空值）→ 回 200 等于告诉客户端「成功但什么都没有」，
+      //    且 model 为空、usage 全 0，客户端无从判断。
+      //    ⚠ 实测 2026-11-01 loomy 非流式：200 + `model:""` + usage 全 0 就是这条路径
+      //    （当时上游正处于 502 抖动期）。
       if (isEmptyCompletion(aggregated)) {
         const sseError = sseStream.firstSseError(buf);
         if (sseError) {
           writeJsonError(res, 502, sseError.code ?? "upstream_error", sseError.message ?? "upstream error");
           return;
         }
+        noteRequestError(
+          res,
+          "upstream_stream_failed",
+          "aggregated upstream stream had no content, tool calls, reasoning or token usage",
+        );
+        writeJsonError(res, 502, "upstream_stream_failed", "upstream returned an empty stream");
+        return;
       }
       noteFirstByte(res);
       writeJson(res, aggregated);
@@ -210,8 +230,6 @@ export async function relayUpstream(
     }
   }
   if (!res.headersSent) res.writeHead(call.status, outHeaders);
-  // 排队探测阶段已经消费掉的内容帧先补写给客户端（它们属于这次响应的前缀）
-  for (const frame of pendingFrames) res.write(frame);
   if (queuedOut && pendingFrames.length === 0) {
     // 排队预算耗尽且没有任何内容：给出明确应答后结束
     // （与非流式路径同一顺序：先判预算，不再读那条已静默的上游流）
@@ -238,6 +256,7 @@ export async function relayUpstream(
           probeTranslator,
           request,
           pendingFrames.length > 0,
+          pendingFrames,
         ),
   );
 }
