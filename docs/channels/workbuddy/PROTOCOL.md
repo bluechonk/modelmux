@@ -508,9 +508,14 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
   （原因与结论见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md) 的「使用与实测」）。
 - **上游偶发把工具调用写成 DSML 文本**（`<｜｜DSML｜｜ calls>` 包住 `invoke` / `parameter`），
-  落在 `delta.content` 而不是 `tool_calls`。网关对所有 `WIRE === "openai"` 渠道做了响应侧兜底
-  （`http/wire/dsml-tools.ts`）：完整块还原为 `tool_calls` 并把 `finish_reason` 改为
-  `tool_calls`；请求未带 `tools` 时只剥离标记；残缺块原样保留，不吞正文。
+  落在 `delta.content` 或 `delta.reasoning_content` 而不是 `tool_calls`。网关对所有
+  `WIRE === "openai"` 渠道做了响应侧兜底（`http/wire/dsml-tools.ts`）：完整块还原为
+  `tool_calls` 并把 `finish_reason` 改为 `tool_calls`；请求未带 `tools` 时只剥离标记；
+  残缺块原样保留，不吞正文。
+  - 实测（2026-11-02）1.3MB 长会话：DSML 几乎全在 `reasoning_content`（completion 4237
+    token 里 3927 是 reasoning，正文为空），故过滤器对 `content` / `reasoning_content` /
+    `reasoning` 三处都生效。
+  - 流式响应一律过过滤器，不依赖上游 `content-type`（该头实测不可靠）。
 - **上游按「业务码优先于状态码」归一**：限流 / 额度码不总是配 429，只看状态码的实现
   会把可换号的失败当成不可重试的客户端错误（§4.1）。
 - **HTTP 200 也可能是错误信封**（上游把内部故障塞进 200 的响应体），但**对话路径尚无拦截点**
