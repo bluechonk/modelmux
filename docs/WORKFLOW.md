@@ -177,6 +177,19 @@ npm run gate          # 完整门禁：干净 clone → npm ci → npm test
 `.githooks/pre-push` 会自动调用同一条命令；手动跑的意义是提前发现。实现见 `scripts/gate.sh`
 （`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
+**钩子怎么接上的**：git 默认只读 `.git/hooks/`，不认 `.githooks/`，所以根 `package.json` 的
+`prepare` 在 `npm install` 之后自动执行 `scripts/setup-git-hooks.mjs`，把 `core.hooksPath`
+指过来（幂等；非 git 环境只打印提示，不让安装失败）。**新克隆装完依赖即生效，不需要手动配置**。
+确认没接上时手动补一条：
+
+```bash
+git config core.hooksPath .githooks     # 幂等，与 prepare 等效
+git config --get core.hooksPath         # 应为 .githooks
+```
+
+⚠ 一旦接上，**每次 `git push` 都会先跑一遍完整门禁**（干净 clone → `npm ci` → `npm test`，
+约数分钟）。这是本仓的刻意设计：门禁要拦住推送，而不是等 CI 事后发现。
+
 ### 为什么必须 clone 到干净目录
 
 | 差异 | 后果 |
