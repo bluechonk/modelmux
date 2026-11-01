@@ -104,6 +104,21 @@
 - `{"type":"function","function":{"name":"x"}}` → `"x"`；
 - 其他对象一律删除该字段（宁可当自动，也不要 400）。
 
+### 5.1 响应侧兜底：DSML 文本 → `tool_calls`
+
+上游偶发把工具调用写成 `<｜｜DSML｜｜ calls>` 文本（落在 `delta.content`），而不是结构化
+`tool_calls` —— 常见于 `tools` 缺失/被清空的会话。网关对 `WIRE === "openai"` 的渠道统一做了
+响应侧还原（`packages/core/gateway/src/http/wire/dsml-tools.ts`）：
+
+- 完整块（开始 + 至少一个 `invoke` + 闭合）→ 合成 `delta.tool_calls`，`finish_reason` 改
+  `tool_calls`；
+- 请求未声明 `tools` → 只剥离标记，不合成；
+- 块跨 chunk 分片、UTF-8 多字节被切开 → 字节级状态机处理；
+- 流结束仍未闭合 → 原样吐出，不吞正文。
+
+流式与非流式两条路径共用同一过滤器；`WIRE === "custom"` 的渠道（qoder / qodercn / catpaw /
+traecn）走各自 translator，不经过该兜底。
+
 ## 6. 模型目录端点（`/v3/config`，不是窄表）
 
 | 端点 | 内容 | 实测 |

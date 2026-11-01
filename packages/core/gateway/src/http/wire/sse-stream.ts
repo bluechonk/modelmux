@@ -17,6 +17,7 @@ import type { ServerResponse } from "node:http";
 import { getChannel } from "../../runtime/channel.js";
 import { noteUsage } from "../../runtime/log-store.js";
 import { debugDir, noteOnce } from "../../runtime/paths.js";
+import type { DsmlByteFilter } from "./dsml-tools.js";
 
 const READ_CHUNK = 8192;
 
@@ -288,18 +289,52 @@ function processEvent(event: string): string | null {
  * 兼容 `\n\n` 与 `\r\n\r\n` 两种事件分隔符，取最先出现者；
  * 统一规范化为标准 SSE 帧（`\n\n` 结尾），避免 `\r` 残留。
  */
+export interface RelayOptions {
+  /** 响应侧 DSML 过滤器：传入时字节先过它再写出（仅 SSE 生效）。 */
+  dsml?: DsmlByteFilter;
+  /** 探测层已消费的前缀帧：必须按原序先写客户端。 */
+  prefix?: Buffer[];
+}
+
 export async function relay(
   out: ServerResponse,
   upstreamBody: ReadableStream<Uint8Array>,
   contentType: string,
   cid?: string,
+  opts: RelayOptions = {},
 ): Promise<void> {
   const isSse = contentType.toLowerCase().includes("text/event-stream");
+  const dsml = isSse ? opts.dsml : undefined;
   const capture: Buffer[] | null = captureEnabled(cid) ? [] : null;
   const reader = upstreamBody.getReader();
   const decoder = new TextDecoder("utf-8");
 
   try {
+    // 探测层消费掉的前缀帧先写：它们属于同一次响应，顺序不能倒
+    for (const frame of opts.prefix ?? []) {
+      for (const outFrame of dsml ? dsml.push(frame) : [frame]) {
+        noteFrameUsage(out, outFrame);
+        out.write(outFrame);
+      }
+    }
+
+    if (dsml) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (capture) capture.push(Buffer.from(value));
+        for (const outFrame of dsml.push(value)) {
+          noteFrameUsage(out, outFrame);
+          out.write(outFrame);
+        }
+      }
+      for (const outFrame of dsml.finish()) {
+        noteFrameUsage(out, outFrame);
+        out.write(outFrame);
+      }
+      return;
+    }
+
     let buffer = "";
     for (;;) {
       const { done, value } = await reader.read();
