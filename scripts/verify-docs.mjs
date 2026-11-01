@@ -320,6 +320,26 @@ if (inlineLogCmd.length > 0) {
   );
 }
 
+// 5) 根 AGENTS.md 的注入字节上限 —— Codex 默认只读前 32768 字节
+//
+// 为什么查：Codex 的 `project_doc_max_bytes` 默认为 32768，超了会**静默截断**
+// （实测 2026-11-01：37606 字节的文件只注入 32769 字节，末尾的「版本与发版」与
+// 「提交信息规范」两节完全没进上下文，且没有任何提示）。ZCode / dsh / Claude Code
+// 都读全文，所以这个上限只在 Codex 上暴露，靠人眼看行数发现不了。
+//
+// 门限取 30000 而非 32768：留约 2.7 KiB 余量，正常增补不必立刻顶到截断线。
+const AGENTS_MD = "AGENTS.md";
+const AGENTS_MD_MAX_BYTES = 30000;
+const agentsMdBytes = readFileSync(join(workspaceRoot, AGENTS_MD)).length;
+if (agentsMdBytes > AGENTS_MD_MAX_BYTES) {
+  problems.push(
+    `${AGENTS_MD}: ${agentsMdBytes} 字节 > ${AGENTS_MD_MAX_BYTES} 字节上限。\n` +
+      `     超出部分会被 Codex 静默丢弃（其 project_doc_max_bytes 默认 32768，不报错、无提示）。\n` +
+      `     改法：把低频细则下沉到 docs/ 或 .agents/skills/，根文件只留摘要与指针 —— ` +
+      `拆分先例见 docs/WORKFLOW.md。`,
+  );
+}
+
 if (problems.length > 0) {
   console.error(`✗ 文档归属检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
@@ -328,5 +348,5 @@ if (problems.length > 0) {
 
 console.log(
   `✓ 文档归属检查通过：${checked} 份 md，落点全部合规（${channelIds.length} 个渠道），` +
-    `相对链接全部可达`,
+    `相对链接全部可达，AGENTS.md ${agentsMdBytes}/${AGENTS_MD_MAX_BYTES} 字节`,
 );

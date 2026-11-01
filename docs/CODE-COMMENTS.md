@@ -57,7 +57,7 @@
 
 ## 6. 与既有规则的关系
 
-- 全局 `~/.zcode/AGENTS.md`「代码与注释」：内容层底线（why / 常青 / 四类禁写 / 时效地雷）已内联进该文件，
+- 全局 `~/.agents/AGENTS.md`「代码与注释」：内容层底线（why / 常青 / 四类禁写 / 时效地雷）已内联进该文件，
   模型上下文默认可达；本文件是细则与正反例。
 - [MODULE-COMMENTS.md](./MODULE-COMMENTS.md)：文件头 / docstring / 文档的三层分工——本文件管「写什么」，它管「放哪里」。
 - 时间线与实测证据（何时测的、原始报文）落 `docs/channels/<cid>/PROTOCOL.md` 的证据等级体系，不落注释。
