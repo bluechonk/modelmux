@@ -216,7 +216,7 @@ describe("账号额度冷却：短路不计连败（2026-10-24 workbuddy 事故�
 
   it("冷却到期后惰性恢复 ok，且能正常打上游", async () => {
     seedCoolingPool();
-    // ⚠ 不能传过去的 `until`：`noteAccountQuotaExhausted` 会把「非未来时刻」回落成
+    // 不能传过去的 `until`：`noteAccountQuotaExhausted` 会把「非未来时刻」回落成
     // 次日本地 0 点（防编造时间）。要造「已到期」现场，直接写账本。
     const dir = paths.channelDir(CID);
     const expired = new Date(Date.now() - 60_000).toISOString();

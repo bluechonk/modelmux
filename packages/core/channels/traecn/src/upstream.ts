@@ -31,7 +31,7 @@ import {
 /**
  * agentHost：对话 + 模型列表。
  *
- * ⚠ 契约要求 `upstream` 模块也导出 `DEFAULT_BASE_URL`；值统一取 `cred.ts` 那份，
+ * 契约要求 `upstream` 模块也导出 `DEFAULT_BASE_URL`；值统一取 `cred.ts` 那份，
  * 免得两处同值不同源、漂移后排查不到。
  */
 export const DEFAULT_BASE_URL = AGENT_HOST;
@@ -58,7 +58,7 @@ const CHAT_PATH = "/api/agent/v3/llm_utils_chat";
  * 多通道模型目录（**POST**；**solo / IDE 传输**，目录回落路径用；单通道的 `get_detail_param` 无调用方）。
  *
  * - query：**无**（22 个 `functions` 通道等参数在 body 里）
- * - ⚠ 实测对新账号全线 `error_code=2001`（账号无 SOLO 权益）→ 目录主源已切到
+ * - 实测对新账号全线 `error_code=2001`（账号无 SOLO 权益）→ 目录主源已切到
  *   `REMOTE_MODELS_PATH`
  */
 const MODELS_PATH = "/api/ide/v1/batch_get_detail_param";
@@ -126,7 +126,7 @@ interface Config {
   modelsPath: string;
 }
 
-/** 凭据的最小面（避免 upstream ↔ cred 循环依赖）。 */
+/** 凭据的最小面（避免 upstream <-> cred 循环依赖）。 */
 interface AuthLike {
   accessToken: string;
   uid: string;
@@ -211,13 +211,13 @@ export function buildHeaders(
     "Content-Type": "application/json",
     Accept: options.accept ?? "text/event-stream",
     "User-Agent": USER_AGENT,
-    // ⚠ 同一 token 设三处：缺任一个都可能被拒
+    // 同一 token 设三处：缺任一个都可能被拒
     Authorization: `Cloud-IDE-JWT ${token}`,
     "X-Cloudide-Token": token,
     "X-Ide-Token": token,
     "X-App-Id": APP_ID,
     "X-App-Version": "default",
-    // ⚠ 版本头是模型准入条件（版本过低 → glm-5.3 报 4001）
+    // 版本头是模型准入条件（版本过低 → glm-5.3 报 4001）
     "X-Ide-Version": IDE_VERSION,
     "X-Ide-Version-Code": IDE_VERSION_CODE,
     "X-App-Version-Code": IDE_VERSION_CODE,
@@ -248,7 +248,7 @@ type TraeErrorKind =
 /**
  * 按报文 + 状态码分类错误。
  *
- * ⚠ 判定顺序有讲究：**`4008` 必须先于 `4011`**（报文里两个码都有时按配额耗尽
+ * 判定顺序有讲究：**`4008` 必须先于 `4011`**（报文里两个码都有时按配额耗尽
  * 处理 → 换号，而不是按频率超限等 60s）。
  */
 export function classifyError(status: number, body: string): TraeErrorKind {
@@ -291,7 +291,7 @@ function toContentBlocks(content: unknown): Array<Record<string, unknown>> {
 /**
  * assistant 的工具调用 → SOLO 的 `tool_calls` **数组**。
  *
- * ⚠ 形态要点：SOLO 按「前序消息带 `tool_calls`」校验工具结果，
+ * 形态要点：SOLO 按「前序消息带 `tool_calls`」校验工具结果，
  * 发单个 `function_call` 对象不被认 —— 上游直接回
  * `tool call failed: Messages with role 'tool' must be a response to a
  * preceding message with 'tool_calls'`。
@@ -391,7 +391,7 @@ function catalogHint(model: string): EntryHint {
     function: entry.function,
     max_mode: entry.max_mode,
     max_context:
-      // ⚠ 目录条目里的窗口是**上游声明**（没声明时是 0）——
+      // 目录条目里的窗口是**上游声明**（没声明时是 0）——
       // Max 模式必须成套下发 `context_window_size`，故未知时用渠道估值兜底。
       entry.context_window > 0 ? entry.context_window : catalog.FALLBACK_CONTEXT_WINDOW,
     max_max_tokens: entry.max_max_tokens,
@@ -420,11 +420,11 @@ export function buildChatBody(
   const body: Record<string, unknown> = {
     stream: true, // 强制流式
     function: fn,
-    // ⚠ model 与 config_name 双字段同值
+    // model 与 config_name 双字段同值
     model,
     config_name: model,
   };
-  // ⚠ 请求体不存在 query 字段
+  // 请求体不存在 query 字段
 
   // 消息序列归一（共享层通用形状修复，在改写前先跑）：
   // 空壳 assistant（纯思考无正文无调用）重放到本渠道会因「空正文删 content 键」
@@ -611,7 +611,7 @@ export async function fetchRemoteModels(
 /**
  * 对话流 `event:notify_usage` 下发的**通道余额**快照。
  *
- * ⚠ `ide_user_ent_usage` 聚合的是**权益包**（含 work 包），
+ * `ide_user_ent_usage` 聚合的是**权益包**（含 work 包），
  * 所以「权益包剩余」≠「SOLO 通道真余额」——真余额只有对话流的下发才是权威
  * （见 `docs/channels/traecn/PROTOCOL.md` §「已知边界」）。
  */
@@ -700,7 +700,7 @@ function parseUsageRemain(
 /**
  * 记一次对话流观测到的通道余额。
  *
- * ⚠ 余额**按账号归属**：不知道是哪个账号的观测值就不记（否则换号后会串）。
+ * 余额**按账号归属**：不知道是哪个账号的观测值就不记（否则换号后会串）。
  */
 function recordUsage(payload: Record<string, unknown>): void {
   const remain = parseUsageRemain(payload);
@@ -777,9 +777,9 @@ function cleanToolCalls(value: unknown): Array<Record<string, unknown>> | null {
 /**
  * TRAE event 流 → OpenAI delta 的**增量**翻译器。
  *
- * ⚠ 不能「读完再翻」（流式会失去意义）；必须跨 chunk 保留半帧
+ * 不能「读完再翻」（流式会失去意义）；必须跨 chunk 保留半帧
  * （`TextDecoder("utf-8")` 流式解码 + 字符串缓冲，不能逐 chunk `toString()`）。
- * ⚠ `done` 事件是结束标志（不是 `[DONE]`）；`error` 事件必须显式产出 error 帧。
+ * `done` 事件是结束标志（不是 `[DONE]`）；`error` 事件必须显式产出 error 帧。
  */
 export function newTranslator(): StreamTranslator {
   const decoder = new TextDecoder("utf-8");
@@ -878,7 +878,7 @@ export function newTranslator(): StreamTranslator {
         break;
       }
       case "error": {
-        // ⚠ 必须显式产出 error 帧：静默当成正常结束会让 UI「干净地停止、无报错」。
+        // 必须显式产出 error 帧：静默当成正常结束会让 UI「干净地停止、无报错」。
         if (!errorSent) {
           errorSent = true;
           out.push(
@@ -886,7 +886,7 @@ export function newTranslator(): StreamTranslator {
               error: {
                 type: "upstream_error",
                 message: nonEmpty(payload["message"]) ?? "upstream emitted an error event",
-                // ⚠ code 一律转字符串：客户端按 `error.code` 是字符串解析，
+                // code 一律转字符串：客户端按 `error.code` 是字符串解析，
                 // 上游给的是数字（实测 4027）时会让客户端解码失败。
                 ...(payload["code"] === undefined ? {} : { code: String(payload["code"]) }),
               },

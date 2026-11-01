@@ -2,8 +2,8 @@
  * 「使用统计」聚合（Web 控制台 `GET /web/api/usage` 的数据源）。
  *
  * 只读 `access/<date>/{success,failure,other}.log`，不为统计另建账本（口径见 docs/USAGE-STATS.md）。
- * ⚠ 只统计**模型请求**（`/v1/chat/completions`）—— `/health` 等也落盘，计入会让调用次数失真。
- * ⚠ 缓存：已过去的日期永久缓存、今天每次重算；不按 mtime 失效（追加写入不改目录 mtime）。
+ * 只统计**模型请求**（`/v1/chat/completions`）—— `/health` 等也落盘，计入会让调用次数失真。
+ * 缓存：已过去的日期永久缓存、今天每次重算；不按 mtime 失效（追加写入不改目录 mtime）。
  */
 
 import { listAccessDates, MODEL_REQUEST_PATH, scanAccessDate } from "./log-store.js";

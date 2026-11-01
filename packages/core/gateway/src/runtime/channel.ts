@@ -87,7 +87,7 @@ export interface LoginInputRequest {
    * 界面用它在**浏览器里**解滑块（加载官方同款 `gt.js`），解完把
    * `{geetest_challenge, geetest_validate, geetest_seccode}` 作为输入值回传。
    *
-   * ⚠ 这个字段是**通用**形态（不绑定任何厂商）：它只描述「一个需要浏览器
+   * 这个字段是**通用**形态（不绑定任何厂商）：它只描述「一个需要浏览器
    * 完成的挑战」，具体怎么解由界面决定。渠道拿不到解法时的兜底是
    * 改走别的登录路（astudio：读桌面应用的会话文件）。
    */
@@ -101,7 +101,7 @@ export interface LoginUi {
    * 二维码图片 URL（可选）。扫码必须用这一张：它对应本轮长轮询的 uuid，
    * 而授权页每次加载都会生成新的 uuid。
    *
-   * ⚠ 实现**不能**把它丢掉：CLI 没有观察者，丢掉就等于没给用户扫码入口
+   * 实现**不能**把它丢掉：CLI 没有观察者，丢掉就等于没给用户扫码入口
    * （终端里得把这条 URL 打出来，让用户打开图片扫码）。
    */
   setQr?(url: string): void;
@@ -118,7 +118,7 @@ export interface LoginUi {
    * 返回用户填的内容；用户取消 / 界面关闭 / 无人应答 → 返回 `undefined`，
    * 由渠道自己决定怎么办（一般是回落到环境变量或报「已取消」）。
    *
-   * ⚠ **无界面实现不要实现它**（CLI 的 `StdoutLoginUi` 就不实现）：
+   * **无界面实现不要实现它**（CLI 的 `StdoutLoginUi` 就不实现）：
    * 渠道必须先试 `requestInput`，拿到 `undefined` 再回落到自己的输入来源
    * （环境变量 / 文件），否则终端用户会卡在等一个永远不来的输入框。
    */
@@ -149,7 +149,7 @@ export interface CredModule {
       /**
        * 向用户要一段输入（两步登录用；见 `LoginUi.requestInput`）。
        *
-       * ⚠ **无界面时不要传**（CLI 的实现不提供它）——
+       * **无界面时不要传**（CLI 的实现不提供它）——
        * 渠道必须能回落到自己的输入来源（环境变量 / 读外部会话文件）。
        */
       requestInput?: (req: LoginInputRequest) => Promise<string | undefined>;
@@ -170,7 +170,7 @@ export interface CredModule {
    * 那是从池里摘掉一个条目，这是**整渠道登出**（凭据 + 池内账号一起清）。
    * 渠道没声明本钩子时，CLI / 控制台只能退回 `removeAccount` 的等价效果。
    *
-   * ⚠ 各渠道的「吊销上游会话」能力不同（多数拿不到登出端点），
+   * 各渠道的「吊销上游会话」能力不同（多数拿不到登出端点），
    * 故契约只要求「本地销毁」，上游是否真的失效由渠道在实现里说明。
    */
   logout?(): Promise<void>;
@@ -248,7 +248,7 @@ export interface UpstreamModule {
    * 回 `HTTP 400 + {"error_code":"APIG.0602"}`。共享层默认只认 401/403，这类渠道
    * 声明本钩子后，其「body 里的鉴权措辞」也能走完整的刷新/转移链路。
    *
-   * ⚠ 只对 **4xx 且非 401/403** 的响应调用；返回 true 时网关按 401/403 同路径处理。
+   * 只对 **4xx 且非 401/403** 的响应调用；返回 true 时网关按 401/403 同路径处理。
    */
   isAuthFailure?(status: number, body: string): boolean;
   /**
@@ -283,7 +283,7 @@ export interface UpstreamModule {
    * 发心跳或排队错误帧 —— 固定 120s 会把还活着的上游误杀成超时。
    * 实测 Qoder 长上下文首字延迟 40–71s，排队时静默可超过 120s（见 docs/channels/qoder/PROTOCOL.md）。
    *
-   * ⚠ 只放宽「连接层静默容忍」，不改变任何协议语义；声明后网关的首帧等待、
+   * 只放宽「连接层静默容忍」，不改变任何协议语义；声明后网关的首帧等待、
    * 空闲守卫与探测层统一用这个上限。
    */
   idleTimeoutMs?(): number;
@@ -294,7 +294,7 @@ export interface UpstreamModule {
    * 返回**字符串**时，网关**按字符串直发**（一个字节都不再包装）—— 供「请求体本身
    * 要经过渠道自己的编码」的上游使用（如 qoder 的 COSY 自定义 Base64 变体）。
    *
-   * ⚠ 返回字符串的渠道不能用 `prepareChat` 钩子（那个钩子接的是对象形态的 body）。
+   * 返回字符串的渠道不能用 `prepareChat` 钩子（那个钩子接的是对象形态的 body）。
    */
   buildChatBody(
     req: Record<string, unknown>,
@@ -308,7 +308,7 @@ export interface UpstreamModule {
    * 错一步就被拒。若从 `buildChatBody` 里 fire-and-forget 发起，会与对话请求
    * 竞争（实测 catpaw：round/event 未完成时 turn 已发出，上游回「会话未在执行中」）。
    *
-   * ⚠ 参数是**网关已经建好的 body**（不是 `req`）：渠道必须基于同一个 body 做前置，
+   * 参数是**网关已经建好的 body**（不是 `req`）：渠道必须基于同一个 body 做前置，
    * 否则再调一次 `buildChatBody` 会生成新的会话 id，前置与对话就指向两个会话。
    *
    * 未实现时网关直接跳过（绝大多数渠道不需要）。
@@ -331,7 +331,7 @@ export interface UpstreamModule {
    * **尚未向客户端写出任何字节**时收到这类帧会等待并重开上游重试；声明本钩子的
    * 渠道才能触发该行为，未声明的渠道照旧把错误帧透传给客户端。
    *
-   * ⚠ 只在响应头发出前调用；返回 true 且已吐过字节时不会重试（避免重复内容）。
+   * 只在响应头发出前调用；返回 true 且已吐过字节时不会重试（避免重复内容）。
    */
   isQueueError?(frame: Record<string, unknown>): boolean;
   /**
@@ -366,7 +366,7 @@ export interface UpstreamModule {
 /**
  * 渠道 `catalog.ts` 需要提供的接口。
  *
- * ⚠ **倍率不在这里**：消耗倍率统一走池层的 `PoolModelMeta.multiplier`
+ * **倍率不在这里**：消耗倍率统一走池层的 `PoolModelMeta.multiplier`
  * （由各渠道目录里的倍率字段汇聚而来），目录模块不承担倍率文案职责。
  */
 export interface CatalogModule {
@@ -404,7 +404,7 @@ export interface CatalogModule {
    * 用于没有目录端点、只有内置快照的渠道 —— 那种情况下上游目录读不出来，
    * 池层的四层回落会拿不到任何值，只能靠本钩子（来源标 `spec`）。
    *
-   * ⚠ **只填实测值**：查不到就整个字段省略（`undefined`），不要让池层填占位数字 ——
+   * **只填实测值**：查不到就整个字段省略（`undefined`），不要让池层填占位数字 ——
    * 客户端会按它算钱，无源填 1 与编造无异（云端目录没有对应行的模型就必须省略）。
    */
   modelSpec?(modelId: string): {
@@ -455,13 +455,13 @@ export interface SigninOutcome {
  * 还有的**根本没有端点**（奖励由上游自动发）。统一收敛成这两个动作，CLI 的
  * 签到已自动化（auto-signin.ts），网关运行期对**所有**渠道一视同仁地调用它们。
  *
- * ⚠ **共享层不做能力探测、也不特判任何渠道**：
+ * **共享层不做能力探测、也不特判任何渠道**：
  * - 有端点的渠道 → 真的查 / 真的领；
  * - 没有端点的渠道 → 由**渠道自己**返回一句人读说明
  *   （`status()` 给 `claimable: false` + 说明；`claim()` 给 `ok: true` + 同句说明），
  *   不是错误、也不影响退出码。
  *
- * ⚠ `claim()` 是**写**操作（会真的领掉），实现方要保证幂等或至少可安全重复调用。
+ * `claim()` 是**写**操作（会真的领掉），实现方要保证幂等或至少可安全重复调用。
  */
 export interface SigninModule {
   status(): Promise<SigninStatus>;
@@ -470,7 +470,7 @@ export interface SigninModule {
    *
    * @param options.credential 指定**哪个账号**的凭据（形状已由共享层归一化）；
    *   不传 = 渠道按自己的「当前生效凭证」执行（保持原行为）。
-   *   ⚠ 只有当渠道声明 `perAccount: true` 时共享层才会逐个账号传它。
+   *   只有当渠道声明 `perAccount: true` 时共享层才会逐个账号传它。
    */
   claim(options?: { credential?: Record<string, unknown> }): Promise<SigninOutcome>;
   /**
@@ -554,7 +554,7 @@ export interface ChannelConfig {
   /**
    * **单渠道独立运行**时的网关默认监听地址，如 `127.0.0.1:8803`。
    *
-   * ⚠ 仓库级（多渠道路由）网关注册多个渠道，**不看这个字段** —— 它固定用
+   * 仓库级（多渠道路由）网关注册多个渠道，**不看这个字段** —— 它固定用
    * `REPO_DEFAULT_ADDR`（`127.0.0.1:8787`）。本字段只在
    * `channels/<cid>/dist/cli.js start|serve` 这类单渠道入口里生效。
    */

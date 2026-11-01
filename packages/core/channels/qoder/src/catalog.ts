@@ -29,10 +29,10 @@ interface ModelEntry {
 /**
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
- * ⚠ 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
+ * 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
  * （按账号档位路由到不同底层模型），没有单一规格，故不列。
  *
- * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
  * 数值与来源见 `docs/channels/qoder/PROTOCOL.md` §8「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
@@ -94,9 +94,9 @@ const FALLBACK: ModelEntry[] = [
  * 字段集与参考实现的官方目录快照
  * （解密自官方客户端 `catalog-v6`）同构 `[参考]`。
  *
- * ⚠ **只作兜底**：快照会随上游演进而脱节 —— 动态目录
+ * **只作兜底**：快照会随上游演进而脱节 —— 动态目录
  * （`GET /algo/api/v2/model/list?Encode=1`，即官方「此刻」的目录）里有就以动态为准。
- * ⚠ `max_input_tokens` 与目录的 `context_config` 档位表**经常矛盾**（官方客户端
+ * `max_input_tokens` 与目录的 `context_config` 档位表**经常矛盾**（官方客户端
  * 只认档位表）；这里取 `max_input_tokens` 是因为上游请求体用它
  * （参考实现 `qoder2api-hub/qoder_proxy.py:3925`）。
  */
@@ -149,10 +149,10 @@ type CacheRow = Record<string, unknown> & { id: string };
  * 默认档由 `is_default` 标出 ——
  * `{"enabled":{"efforts":{"high":{"is_default":true},"low":{},...}},"disabled":{...}}`。
  *
- * ⚠ 必须在**落盘前**归一：池层（`getPoolModelMeta`）直接读这份磁盘缓存，
+ * 必须在**落盘前**归一：池层（`getPoolModelMeta`）直接读这份磁盘缓存，
  * 只认 `effort: {supportedLevels, defaultLevel}` 这一种形态。
  *
- * ⚠ `disabled` **不映射**成 `off` 档：那会让客户端发出 `reasoning_effort: "off"`，
+ * `disabled` **不映射**成 `off` 档：那会让客户端发出 `reasoning_effort: "off"`，
  * 而上游关闭思考走的是另一套字段（不是档位取值）。只在文档里记录它存在。
  */
 function wireEffort(raw: Record<string, unknown>): Effort | undefined {
@@ -249,7 +249,7 @@ function entryOf(name: string): ModelEntry | null {
 /**
  * 按**上游 key** 取模型元数据（请求体的 `model_config` 用）。
  *
- * ⚠ 与 `entryOf()` 的区别：`entryOf()` 按**对外 id** 查（池内视图），
+ * 与 `entryOf()` 的区别：`entryOf()` 按**对外 id** 查（池内视图），
  * 这里按**上游 key** 查 —— `upstream.buildChatBody` 只拿到 key。
  *
  * 优先级：动态目录（磁盘缓存，来自上游 `model/list`）→ 静态兜底表（官方目录快照）。

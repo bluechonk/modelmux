@@ -18,7 +18,7 @@ interface ModelEntry {
   /**
    * 最大输出 token。
    *
-   * ⚠ 上游 `/api/models/available` **不下发**该字段（实测 2026-10-23：响应里没有 `maxTokens`），
+   * 上游 `/api/models/available` **不下发**该字段（实测 2026-10-23：响应里没有 `maxTokens`），
    * 所以只能按公开规格补（`MAX_OUTPUTS`，来源见 `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」）。
    */
   max_output?: number;
@@ -38,7 +38,7 @@ interface ModelEntry {
 /**
  * 兜底目录：**未登录 / 上游拉不到时**给用户看的那份。
  *
- * ⚠ 这是**快照**不是实时数据：内容来自 2026-10-08 的一次真实拉取
+ * 这是**快照**不是实时数据：内容来自 2026-10-08 的一次真实拉取
  * （`upstream.fetchModels()`）。真机拉到远端后会用远端目录覆盖它，
  * 并落盘到 `cache/models.json`（见共享层 `catalog-cache.ts`）——
  * 所以正常使用时看到的**不是**这张表。
@@ -85,7 +85,7 @@ const FALLBACK_CONTEXT_WINDOW = 131_072;
 /**
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
- * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
  * 数值与来源见 `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
@@ -123,7 +123,7 @@ const MAX_OUTPUTS: Readonly<Record<string, number>> = {
 /**
  * 取已知最大输出：按**归一化 id** 查表，再剥掉发布日后缀试一次。
  *
- * ⚠ 上游 id 与池 id 写法不同（上游 `doubao-seed-2-1-pro-260915` / 池 `doubao-seed-2.1-pro-260915`），
+ * 上游 id 与池 id 写法不同（上游 `doubao-seed-2-1-pro-260915` / 池 `doubao-seed-2.1-pro-260915`），
  * 故先过一遍 `canonicalModelId` 再查表；发布日（`-260915` / `-2026-04-20`）再剥一层。
  */
 function maxOutputOf(id: string): number | undefined {
@@ -240,7 +240,7 @@ function parseThinkingConfig(raw: unknown): {
  * `description` / `costMultiplier`）；**刻意不取** `provider` / `apiFormat` /
  * `runtimeProfile`（那是 IDE 内部的运行时画像，桥接层用不到）。
  *
- * ⚠️ `costMultiplier` 是**裸数字**（实测 0.05 / 1.08 / 20）——
+ * `costMultiplier` 是**裸数字**（实测 0.05 / 1.08 / 20）——
  * 与 buddy 的字符串 `"x0.05"` 形态不同，这里两种都容忍。
  */
 export function parseRemoteModels(rows: readonly unknown[]): ModelEntry[] {

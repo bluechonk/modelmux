@@ -150,7 +150,7 @@ interface SignInput {
 /**
  * 9 段签名字符串（`\n` 连接）。
  *
- * ⚠ 后两段恒为空串 ⇒ 结果**以两个换行结尾**，这是协议要求，不是笔误。
+ * 后两段恒为空串 ⇒ 结果**以两个换行结尾**，这是协议要求，不是笔误。
  */
 function buildStringToSign(method: string, path: string, input: SignInput): string {
   return [
@@ -205,7 +205,7 @@ function signHeaders(method: string, path: string, input: SignHeaderInput = {}):
 /**
  * 通用请求体信封：`{base: {…客户端身份…}, param: {...}}`。
  *
- * ⚠ `ua` 硬编码 `Loomy|Desktop|Electron|macOS` —— 客户端在 Windows 上发的也是这个值，
+ * `ua` 硬编码 `Loomy|Desktop|Electron|macOS` —— 客户端在 Windows 上发的也是这个值，
  * **照抄不要改**；`traceid` 每次调用重新生成（32 位 hex）。
  */
 function accountBody(param: Record<string, unknown>): Record<string, unknown> {
@@ -257,7 +257,7 @@ async function accountPost(
     resp = await fetch(`${accountBase(baseOverride)}${path}`, {
       method: "POST",
       headers,
-      // ⚠ 发送的就是签名时的字符串：不要让 fetch 重新序列化
+      // 发送的就是签名时的字符串：不要让 fetch 重新序列化
       body,
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
@@ -369,7 +369,7 @@ async function credentialsFromSession(
 /**
  * 登录选项。
  *
- * ⚠ 共享层还会传 `onUrl` / `onQr` / `pasteCode` / `timeoutSec` 等字段（扫码类渠道用），
+ * 共享层还会传 `onUrl` / `onQr` / `pasteCode` / `timeoutSec` 等字段（扫码类渠道用），
  * 短信登录**不用**它们；这里只声明自己读的字段，其余按结构类型宽松忽略。
  */
 import type { LoginInputRequest } from "@modelmux/gateway";

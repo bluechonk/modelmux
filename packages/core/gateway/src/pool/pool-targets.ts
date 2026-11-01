@@ -20,7 +20,7 @@ import { logRecovered, logThrottled } from "../runtime/logger.js";
 /**
  * 对外暴露的模型池（动态收集：各渠道 `exposedIds()` 归一化后挂上 `<cid>/` 前缀）。
  *
- * ⚠ 不做进程内缓存：渠道目录可随登录/刷新变化，每次调用重新收集是刻意的
+ * 不做进程内缓存：渠道目录可随登录/刷新变化，每次调用重新收集是刻意的
  * （调用方若需在同一表达式里保持一致快照，应先取一次局部变量）。
  *
  * 空池返回 `[]`（**不硬编码兜底模型**）——共享层不持有任何渠道知识（`AGENTS.md` 的「仓库结构与约束」）；
@@ -70,7 +70,7 @@ export function poolModelId(cid: string, exposedId: string): string {
  * （可剥**模型段内部**的厂商路径段：`loomy/deepseek/deepseek-v4.1-flash` →
  * `loomy/deepseek-v4.1-flash`）。格式不合法（无 `/`、段为空）返回 null。
  *
- * ⚠ 只按**第一个** `/` 切：渠道 id 本身不含 `/`，模型段内部的 `/` 属于厂商路径。
+ * 只按**第一个** `/` 切：渠道 id 本身不含 `/`，模型段内部的 `/` 属于厂商路径。
  */
 export function parsePoolModel(id: string): { cid: string; model: string } | null {
   const slash = id.indexOf("/");
@@ -145,7 +145,7 @@ export interface PoolModelMeta {
   /**
    * **思考模式（reasoning effort）档位**；`null` = 渠道**没有声明**。
    *
-   * ⚠ 刻意可空：渠道目录**普遍不下发**思考档位（实测只有 catpaw 的 `effort`、
+   * 刻意可空：渠道目录**普遍不下发**思考档位（实测只有 catpaw 的 `effort`、
    * loomy / traecn / lobsterai 的 `efforts` 数组有真值）。
    * 兜底**不许编档位**（旧版给所有模型都填了 `["low","high"]`，等于把「不知道」
    * 说成「支持」）——没有声明就是「不支持 / 未知」，由调用方如实呈现。
@@ -301,7 +301,7 @@ function effortOf(entry: Record<string, unknown>): PoolModelMeta["effort"] {
  * 各渠道缓存条目里可能出现的**图片能力**字段名 —— 渠道自己决定字段名，汇聚层逐个尝试
  * （与 `MULTIPLIER_KEYS` / `CONTEXT_KEYS` 同一惯例：字段名只是约定，不算渠道知识）。
  *
- * ⚠ 这里收的是「上游/渠道**可能**用的字段名」，**不是**任何一家的私有协议：
+ * 这里收的是「上游/渠道**可能**用的字段名」，**不是**任何一家的私有协议：
  *   目录条目会把上游的原始字段名原样缓存下来，汇聚层照单全收；某个名字看着像
  *   某家的私有缩写也一样收 —— 汇聚层只认识「字段名 → 归一能力」这一张约定表，
  *   不认识渠道（渠道知识只允许出现在各渠道包内）。
@@ -319,7 +319,7 @@ const IMAGE_CAPABILITY_KEYS = [
   "is_vl",
   "isVl",
   "multimodal",
-  // ⚠ **不收** `supports_image_detail_original`：它的语义是「支持原图细节」，
+  // **不收** `supports_image_detail_original`：它的语义是「支持原图细节」，
   // 不是「支持图片」—— 收进来会把真能吃图、但不支持原图的型号判成纯文本
   // （实测 workbuddy 随包快照里 `deepseek-v4.1-flash` 就是这个组合）。
 ];
@@ -411,7 +411,7 @@ type CacheRow = Record<string, unknown> & { id: string };
 /**
  * **本渠道**已知的事实（上游目录条目 + 渠道公开规格）—— 跨渠道兜底之前的状态。
  *
- * ⚠ 条目要按渠道自己的 `resolveModel()` 定位：缓存里的 `id` 可能是**上游 key**
+ * 条目要按渠道自己的 `resolveModel()` 定位：缓存里的 `id` 可能是**上游 key**
  * （qoder 存 `dmodel`），对外名与 key 不同。
  */
 interface ChannelFacts {
@@ -593,7 +593,7 @@ export function buildCrossModelIndex(): CrossModelIndex {
  * 拼装对外元数据：**本渠道上游 → 本渠道公开规格 → 跨渠道兜底 → 占位值**，
  * 并逐项记下取值来源（`sources`）。
  *
- * ⚠ 顺序不能换：本渠道规格（渠道按公开规格维护，见 `docs/MODEL-SPECS.md`）比兄弟渠道
+ * 顺序不能换：本渠道规格（渠道按公开规格维护，见 `docs/MODEL-SPECS.md`）比兄弟渠道
  * 被上游裁剪过的值更权威，所以跨渠道兜底**只替换占位值**，不会把已有真值改小。
  * 思考档位同理：上游声明 > 渠道规格（官方文档给的档位）> 跨渠道交集。
  */
@@ -669,7 +669,7 @@ function metaFromFacts(
 /**
  * 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。
  *
- * ⚠ 上游目录**通常不下发**窗口与输出上限 → 缓存里没有 → 问渠道要「已知规格」
+ * 上游目录**通常不下发**窗口与输出上限 → 缓存里没有 → 问渠道要「已知规格」
  * （`catalog.modelSpec()`，渠道按公开规格维护）。两者都拿不到才回落兜底值。
  *
  * `cross` 传 `buildCrossModelIndex()` 的结果时启用**跨渠道兜底**（只填缺值）。
@@ -722,13 +722,13 @@ const WRAPPER_PREFIXES = ["sn-", "z-ai-", "bytedance-"];
 /**
  * 归一化的共用实现。
  *
- * ⚠ `stripPath` 只控制**模型段内部**的厂商路径：
+ * `stripPath` 只控制**模型段内部**的厂商路径：
  * - 渠道目录里的 id 可能带厂商路径段（如 `deepseek/deepseek-v4.1-flash`），
  *   所以规范名要取最后一段；
  * - 客户端请求的模型段同样允许带厂商路径（`loomy/deepseek/deepseek-v4.1-flash`
  *   也认）—— 渠道归属已由第一个 `/` 显式声明，模型段再剥一层不会串渠道。
  *
- * ⚠ 其余步骤顺序也有讲究：先小写，再转版本号写法，最后去尾部修饰 ——
+ * 其余步骤顺序也有讲究：先小写，再转版本号写法，最后去尾部修饰 ——
  * 反过来会把 `deepseek-v4-flash-0731` 里的版本段误当成修饰。
  */
 function normalize(raw: string, stripPath: boolean): string {
@@ -788,7 +788,7 @@ export interface PoolCandidate {
  * （渠道自己排的优先级）。渠道未注册 / 目录里没有这个模型 / 目录读不出来
  * （缓存损坏等）都返回空 —— 一个坏渠道只影响指向它的请求。
  *
- * ⚠ 匹配用**目录里的原始写法**（不预先小写）：`exposedId` 要原样带回去给
+ * 匹配用**目录里的原始写法**（不预先小写）：`exposedId` 要原样带回去给
  * 渠道自己的 `resolveModel()`，而上游 slug 可能大小写敏感（TRAE 认
  * `DeepSeek-V4-Flash`，不认全小写）。
  */

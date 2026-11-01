@@ -45,7 +45,7 @@ interface FallbackModel {
  * 兜底静态模型表（9 条，源：2026-10-19 实测 `GET /api/v1/models` 的 `type === 'chat'`，
  * 新增 `DeepSeek-V4.1-Flash`；`spark-x` 倍率从 x0.1 改为 x0.0 免费）。
  *
- * ⚠ `spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
+ * `spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
  * `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144
  * —— 该符号是**客户端的**，本仓没有。
  * 本表**先采信远端**；若实测长上下文被拒，改为 262144。
@@ -85,7 +85,7 @@ interface CatalogEntry {
 /**
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
- * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
  * 数值与来源见 `docs/channels/loomy/PROTOCOL.md` §8「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
@@ -198,7 +198,7 @@ function pickDefaultEffort(efforts: string[]): string {
 /**
  * 解析模型数组：**只保留 `type === 'chat'`**，过滤脏数据。
  *
- * ⚠ 图片能力来自 `capabilities.input_modalities` 含 `image`；`capabilities.reasoning`
+ * 图片能力来自 `capabilities.input_modalities` 含 `image`；`capabilities.reasoning`
  * 必须**严格 `=== true`**（字符串 `'yes'` 不算）；兜底表不声明图片能力（宁可少报）。
  *
  * 上游新旧格式由 `parseModelsResponse()` 统一收敛：旧格式读 `data.models`（包在信封里），
@@ -210,7 +210,7 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
 
   for (const item of models) {
     if (!isRecord(item)) continue;
-    // ⚠ 过滤判据是 type === 'chat'，不能看 input_modalities
+    // 过滤判据是 type === 'chat'，不能看 input_modalities
     if (item["type"] !== "chat") continue;
     const id = str(item["id"]);
     if (!id) continue;
@@ -272,7 +272,7 @@ function fallbackEntries(): CatalogEntry[] {
   });
 }
 
-/** 把档位登记进 upstream（避免 upstream ↔ catalog 循环依赖）。 */
+/** 把档位登记进 upstream（避免 upstream <-> catalog 循环依赖）。 */
 function publish(entries: CatalogEntry[]): void {
   for (const entry of entries) {
     upstream.setModelEfforts(entry.id, entry.efforts, entry.defaultEffort);

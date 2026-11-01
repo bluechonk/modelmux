@@ -198,7 +198,7 @@ const MODELS_PATH = "/v2/enterprises/personal/models";
  * - 方法：**GET**，端点路径 `/v3/config`，必需 query **无**
  * - 响应：`agents[].models` 裸 id 列表 + `models[]` 元数据
  *   （实测 27 条，含 `deepseek-v4.1-flash`）
- * - ⚠ **UA 门禁**：只有三段式 CLI UA 能拿到完整目录，未知 UA 直接 `400 code=12403`
+ * - **UA 门禁**：只有三段式 CLI UA 能拿到完整目录，未知 UA 直接 `400 code=12403`
  *   —— 故本端点用 `buildChatHeaders()` 那套桌面端身分去请求。
  *
  * [代码] 参考实现 `wb_proxy.py:10661-10691`（`REMOTE_CONFIG_PATH` +
@@ -224,7 +224,7 @@ export interface Config {
  * 凭据的最小面。
  *
  * 刻意只声明这几个字段而不是 import `cred.Credentials` —— 那会形成
- * upstream ↔ cred 的循环依赖。
+ * upstream <-> cred 的循环依赖。
  */
 interface AuthLike {
   accessToken: string;
@@ -378,7 +378,7 @@ export function hostOf(baseUrl: string): string {
  *   解析器返回 0.0.0.1 沉洞，国际版 CLI 身分因此改走 `www.workbuddy.ai` 边缘。
  * [实测] 本仓库同样观测到该域名解析到 0.0.0.1（见 PROTOCOL.md §1）。
  *
- * ⚠ **chat / 目录 / 额度 / 续期四条路径都要过这里** —— 只兜一处会漏
+ * **chat / 目录 / 额度 / 续期四条路径都要过这里** —— 只兜一处会漏
  * （请求打到解析到 0.0.0.1 的地址，表现为必然超时）。
  */
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -604,7 +604,7 @@ interface CatalogRow {
   /**
    * 输入模态数组（如 `["text","image"]`）。
    *
-   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（2026-10-20 实测：`models[]` 只有
+   * 上游 `/v3/config` 目前**不下发**这个字段（2026-10-20 实测：`models[]` 只有
    * `supportsImages`）；这里带着是为了上游哪天改用数组形态时不丢字段 ——
    * `catalog.parseRow` 判「能不能吃图」时数组形态优先于布尔开关。
    */
@@ -784,7 +784,7 @@ export function newTranslator(): StreamTranslator {
  * **滚动窗口**（随消费时刻，不是每日 0 点）—— 故上报 `usage_limit`，具体截止由
  * `quotaResetAt()` 从同一条消息里解析。
  *
- * ⚠ 业务码 `6004` 只能出现在**渠道包**里；共享层只认通用措辞
+ * 业务码 `6004` 只能出现在**渠道包**里；共享层只认通用措辞
  * （见 `packages/core/gateway/src/http/chat/errors.ts`）。
  */
 export function quotaSignal(status: number, body: string): QuotaSignal | null {

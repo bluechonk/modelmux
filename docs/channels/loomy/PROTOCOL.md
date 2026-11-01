@@ -29,7 +29,7 @@
    body { ccode, phone, mcode, msgid, expire: 1209600 } → { session, userid, phone }
 ```
 
-⚠ **`msgid` 是两步之间的强绑定**：`checkCode` 不带第一步的 `msgid` 必失败，
+**`msgid` 是两步之间的强绑定**：`checkCode` 不带第一步的 `msgid` 必失败，
 所以发码结果必须回传给用户（控制台走输入卡，CLI 打进错误信息里），不能吞掉。验证码有效期 300 秒。
 
 用户取消输入 / 关弹窗 → 渠道抛「已取消短信登录」，不再报「登录失败」。
@@ -246,7 +246,7 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
    - Python：`email.utils.formatdate(usegmt=True)` → `Wed, 08 Oct 2026 12:34:56 GMT`
 8. **`Nonce`**：**UUID** —— 带连字符的 `str(uuid.uuid4())`
 9. **`SignedHeaders` / `CanonicalizedHeaders`**：本项目**恒 `''`**
-   - ⚠ 这只在「账号端点**不发任何 `x-*` 自定义头**」时成立。
+   - 这只在「账号端点**不发任何 `x-*` 自定义头**」时成立。
      参考实现是**通用**的：收集全部 `x-` 前缀头 → 小写排序 → `SignedHeaders` 用 `;` 连接，
      `CanonicalizedHeaders` 拼成 `k:v\n` 行并去掉尾部换行。
      **将来给账号端点加 `x-*` 头时，必须同步实现 canonical 化，否则签名失配。**
@@ -430,7 +430,7 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 
 `spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
 `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144
-—— ⚠ 该符号是**客户端**的，**本仓没有** `[参考]`。
+—— 该符号是**客户端**的，**本仓没有** `[参考]`。
 本表**先采信远端**；若实测长上下文被拒，改为 262144。
 倍率以**远端为准**，本表只作离线兜底。
 
@@ -507,7 +507,7 @@ body: {}
 **按账号执行**（2026-10-28 起）：本渠道声明 `signin.perAccount = true` —— 奖励是**按账号**
 独立的（每日赠送、一次性新手任务各自一份），故调度器会**逐个账号**用各自的凭据调用
 `claim({ credential })`，门禁用**账号级**台账、熔断也按账号计数。
-⚠ 早期只对「当前生效账号」执行、台账按渠道记 → 一旦某账号领过就把同渠道其余账号当天
+早期只对「当前生效账号」执行、台账按渠道记 → 一旦某账号领过就把同渠道其余账号当天
 全部跳过（实测：4 个账号里 3 个的新手任务一直没领）。
 
 **`ok` 判据 = 两件事都成**：每日额度重置成功**且**新手任务那步没抛错。
@@ -584,7 +584,7 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 思考强度：上游 `reasoning_efforts` = `[none,low,medium,high,xhigh]`（远端 `default_reasoning_effort=low`，
 渠道**刻意不采信**，见 `src/catalog.ts`）。
 
-⚠ **已知分歧**：`spark-x` 的**上下文**上游声明 1048576，而讯飞官方规格是 262144 ——
+**已知分歧**：`spark-x` 的**上下文**上游声明 1048576，而讯飞官方规格是 262144 ——
 **以上游为准**（这条渠道实际能吃多少以它自己为准），分歧记在本文 §5.4 与
 `packages/core/channels/loomy/src/catalog.ts`。
 
@@ -623,7 +623,7 @@ mx login loomy
 | `loomy/qwen3.8-flash` / `loomy/GLM-5.3-Flash` | 倍率 0.8 | `[实测]` |
 | `loomy/qwen-3.8-max` | 倍率 12.0 —— **禁用于自动化测试** | `[实测]` |
 
-### ⚠ spark-x 的延迟构成（2026-10-22 实测）
+### spark-x 的延迟构成（2026-10-22 实测）
 
 `spark-x` 是思考型模型，`upstreamMs`（= **上游首字耗时**）差异极大：
 
@@ -661,7 +661,7 @@ spark-x 适合不在乎延迟的批量任务。
 | `loomy/deepseek-v4.1-flash` | **2** | 约 2500 单位 |
 | `loomy/qwen-3.8-max` | **12** | 约 417 单位（**禁用于测试**） |
 
-⚠ **交互式客户端（DSH）默认上下文很大**（带工具时可达 3.9 万 prompt token），
+**交互式客户端（DSH）默认上下文很大**（带工具时可达 3.9 万 prompt token），
 倍率 2 的模型几轮就能烧掉几千分 —— 2026-10-22 实测当天 `dailyConsumed=4022`（就是 DSH
 跑 `deepseek-v4.1-flash` 烧的）。**要免费就把交互式会话切到 `loomy/spark-x`。**
 

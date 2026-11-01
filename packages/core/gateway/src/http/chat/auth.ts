@@ -49,7 +49,7 @@ export async function callUpstream(
 
   // 熔断打开（连败达阈值且未到试探时刻）：直接短路，不再对上游发起请求（凭证保留）。
   // 到点后放行一次做半开试探：成功恢复 ok，再失败退避翻倍（见 account-pool）。
-  // ⚠ **不记账**：熔断期内短路再累加连败只会把 fail_streak 刷成无意义的大数
+  // **不记账**：熔断期内短路再累加连败只会把 fail_streak 刷成无意义的大数
   //   （2026-10-24 实测 11 次 not_authenticated 把它刷到 11）。
   if (activeAccountIsError(cid)) {
     const trip = activeAccountTrip(cid);
@@ -63,7 +63,7 @@ export async function callUpstream(
   // 额度耗尽的**冷却**只挡付费模型：倍率 0 的模型不吃额度，冷却期必须照常可路由
   //（2026-10-23 实测：loomy 冷却后连免费模型 spark-x 都被锁死）。
   //
-  // ⚠ 必须用独立的 `cooling` 类别，**不能**混进 `not_authenticated`：那个分支在
+  // 必须用独立的 `cooling` 类别，**不能**混进 `not_authenticated`：那个分支在
   // `attempt.ts` 里会记连败，冷却期内每来一个请求就 +1，3 次就把账号打成 `error`
   //（2026-10-24 实测 workbuddy：11 次短路 = fail_streak 11，从此免费模型也锁死且无自动恢复）。
   if (options.freeModel !== true) {
@@ -101,7 +101,7 @@ export async function callUpstream(
     const retry = await inChannel(channel, () => openStream(channel, refreshed, sendBody));
     if (retry.ok || (retry.status !== 401 && retry.status !== 403)) return { kind: "ok", call: retry };
   } catch (err) {
-    // ⚠ 这里**不记账**：本次失败会由上层 `handleChat` 的 `auth_exhausted` 分支统一记一次。
+    // 这里**不记账**：本次失败会由上层 `handleChat` 的 `auth_exhausted` 分支统一记一次。
     // 两处都记会让「一次鉴权失败」算成两次连败 → 两次请求就打到 FAIL_STREAK_LIMIT，
     // 账号被提前标成 `error`（下次直接短路，连上游都不打）。
     logger(`refresh failed: ${String(err)}`);

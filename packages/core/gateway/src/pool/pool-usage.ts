@@ -255,7 +255,7 @@ function scheduleSave(): void {
 /**
  * 渠道的排序得分：冷却期内**当 0**，否则是账单已用量。
  *
- * ⚠ 冷却渠道的正常路径是**被路由剔除**（`isCooling`）；本函数只在
+ * 冷却渠道的正常路径是**被路由剔除**（`isCooling`）；本函数只在
  * 「全池都在冷却 → 回退兜底」时决定谁先试。得分本身不做剔除。
  */
 export function scoreOf(cid: string, now = Date.now()): number {
@@ -395,7 +395,7 @@ const BILLING_COOLDOWN_PROBE_MS = 30 * 60_000;
  * 比如 loomy 的每日 5000 积分烧光后，`points/records` 直接给出 `dailyBalance = 0`，
  * 请求要等到下一次才失败。账单是更早的信号，用它提前冷却，避免打一轮必失败的请求。
  *
- * ⚠ 只认**真正的数字 0**：`remain` 缺失（上游没给这个字段）不算耗尽，
+ * 只认**真正的数字 0**：`remain` 缺失（上游没给这个字段）不算耗尽，
  * 否则会把「查不到」误判成「用完了」。
  */
 function markCooldownIfExhausted(channel: Channel, cid: string, credits: unknown): void {
@@ -580,7 +580,7 @@ export function usageOf(cid: string): number {
  * 为什么用码点序而不是 `localeCompare`：cid 是 ASCII 小写，码点序确定且不随运行环境的
  * ICU / locale 变（`localeCompare` 会让 CI 与本机可能排出不同结果）。
  *
- * ⚠ 只影响展示 —— 路由仍由池 id 的 `<cid>/` 前缀决定（见 docs/POOL-ARCHITECTURE.md §2.2）。
+ * 只影响展示 —— 路由仍由池 id 的 `<cid>/` 前缀决定（见 docs/POOL-ARCHITECTURE.md §2.2）。
  */
 export function sortChannelsByUsage<T extends { cid: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
@@ -723,7 +723,7 @@ export function maybeRefreshBilling(logger: (m: string) => void = () => {}): voi
  * 用户改了额度/充了值，不该等 8 小时或手动 `mx bill` 才看到。
  *
  * 3 分钟的节奏平衡新鲜度与查询量（原为 5 分钟）。
- * ⚠ 代价是**每个渠道每 3 分钟一次上游查询**（约 10 渠道 × 20 次/小时）。
+ * 代价是**每个渠道每 3 分钟一次上游查询**（约 10 渠道 × 20 次/小时）。
  * 都是只读的积分查询端点（官方客户端也在轮），但若上游出现限流就调大这个值或设 0 关掉。
  */
 export const BILLING_REFRESH_INTERVAL_MS = 3 * 60 * 1000;

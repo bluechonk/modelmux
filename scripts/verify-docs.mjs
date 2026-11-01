@@ -214,7 +214,7 @@ function checkSourceRefs(rel) {
   let m;
   while ((m = SRC_REF_RE.exec(text)) !== null) {
     const file = m[1];
-    // ⚠ `reference/` 前缀的引用**按约定指向不入库的参考实现 clone**
+    // `reference/` 前缀的引用**按约定指向不入库的参考实现 clone**
     //（仓库里没有这些文件，clone 是本机 gitignore 的工作副本）→ 不查。
     if (/(^|\/)reference\//.test(file)) continue;
     const from = Number(m[2]);

@@ -41,7 +41,7 @@ function attach(path = "/v1/chat/completions"): { res: FakeRes; id: string } {
 /**
  * 写一条访问日志夹具。
  *
- * ⚠ 日期必须取 log-store 导出的 `localDate()`（**本地时区**）：用
+ * 日期必须取 log-store 导出的 `localDate()`（**本地时区**）：用
  * `toISOString().slice(0,10)`（UTC）会在 UTC+8 的凌晨差一天，测试去读前一天的目录。
  */
 function writeAccess(

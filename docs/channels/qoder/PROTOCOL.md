@@ -65,7 +65,7 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 `cosy-clienttype: 5` 承担（`packages/core/channels/qoder/src/upstream.ts:274`）。
 推理请求头全集见 §2.5.1（那里逐个列出本仓真发的头，可反证没有 `clientMetadata`）。
 
-> ⚠ **别名**：`openApiBase` / `inferBase` / `encryptedInferBase` 来自
+> **别名**：`openApiBase` / `inferBase` / `encryptedInferBase` 来自
 > `dsh-our-free-model/vendor/channel-pack/src/` 的快照，**该 vendor 目录不在本仓**——
 > 那三个名字只是**别名**，不是本仓代码里的标识符。本仓代码只有
 > `website` / `openapi` / `gateway` 三套（`packages/core/channels/qoder/src/cred.ts:68-98` 的 `PRODUCTS`）。
@@ -80,11 +80,11 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 | **`gateway`**（推理主机） | **chat** 与**模型目录**（`/algo/**`） | **要** | `Authorization: Bearer COSY.<载荷>.<签名>` |
 | **第三套**（公开 OpenAI 兼容端点 + jobToken 中心） | `api2-v2.qoder.sh` / `api2.qoder.sh`（公开 chat）、`center.qoder.sh`（jobToken 交换） | 不用 | — |
 
-⚠ **第三套当前无调用方**：公开 chat 端点只认通用模型名（`qwen-flash` 等）、不认目录 key，
+**第三套当前无调用方**：公开 chat 端点只认通用模型名（`qwen-flash` 等）、不认目录 key，
 拿不到 Qwen3.8 系列（见 §7.1）；`center.qoder.sh` 是参考实现专用的 PAT/jobToken 端点
 （见 §2.2「为何不采纳」）。**本仓不接**。
 
-⚠ **模型目录挂在 `gateway` 上，不在 `openapi` 上** —— 拉目录用的是 COSY 签名。
+**模型目录挂在 `gateway` 上，不在 `openapi` 上** —— 拉目录用的是 COSY 签名。
 
 ### 1.3 chat / 模型请求的确切 URL
 
@@ -103,7 +103,7 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 | `AgentId` | `agent_common` | 固定 agent 标识（请求体 `agent_id` 同值） |
 | `Encode` | `1` | 请求体走自定义 Base64 编码（对应 `qoderEncode`） |
 
-> ⚠ Node 的 `fetch` 规范禁止 GET 带 body，所以目录请求走 `node:https` 直发
+> Node 的 `fetch` 规范禁止 GET 带 body，所以目录请求走 `node:https` 直发
 > （`src/upstream.ts` 的 `getWithBody`）`[代码]`。
 
 **业务端点（openapi 基址）**
@@ -182,7 +182,7 @@ COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?E
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/qoder/src/cred.ts:350`） | **声明**该回调（每次轮询前取一次） |
 | 轮询的 `attempt`（`packages/core/channels/qoder/src/cred.ts:454`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-⚠ 与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
+与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容
 被**转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 
@@ -298,9 +298,9 @@ Authorization = "Bearer COSY." + payloadB64 + "." + md5_hex
 | `authorization` | `Bearer <access_token>`（普通 Bearer） | **是** | token 续期后 | |
 | `accept` | `application/json` | 否 | 常量 | |
 | `cosy-clienttype` | `10`（**桌面 App 身份**） | 否 | 常量 | 用 `5` 会拿到**空活动列表**且不报错 `[实测]` |
-| `cosy-version` | 桌面端版本（默认 `0.4.3`，`QODER_DESKTOP_VERSION` 可覆盖） | 否 | 常量 | ⚠ **必须发**：缺 UA / `cosy-clienttype` / `cosy-version` 任一个 → 活动列表返回空 `[参考]`；⚠ 版本号本身待真机验证 |
-| `cosy-machinetoken` | `cred.machineTokenOf(uid)`（**派生值**） | 否 | 账号稳定 | ⚠ 见 §9「已知边界」 |
-| `cosy-machinetype` | `cred.machineTypeOf(uid)`（**派生值**） | 否 | 账号稳定 | ⚠ 见 §9「已知边界」 |
+| `cosy-version` | 桌面端版本（默认 `0.4.3`，`QODER_DESKTOP_VERSION` 可覆盖） | 否 | 常量 | **必须发**：缺 UA / `cosy-clienttype` / `cosy-version` 任一个 → 活动列表返回空 `[参考]`；版本号本身待真机验证 |
+| `cosy-machinetoken` | `cred.machineTokenOf(uid)`（**派生值**） | 否 | 账号稳定 | 见 §9「已知边界」 |
+| `cosy-machinetype` | `cred.machineTypeOf(uid)`（**派生值**） | 否 | 账号稳定 | 见 §9「已知边界」 |
 | `user-agent` | `Qoder/1.1.64`（国际）/ `QoderWork/1.1.64`（CN） | 否 | 常量 | |
 
 #### 2.5.3 `openapi` 业务端点请求头 —— 3~6 个
@@ -474,7 +474,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 ## 5. 模型目录
 
-目录以**动态拉取**为准（`GET {gateway}/algo/api/v2/model/list?Encode=1`，COSY 签名，⚠ GET 也要带 body）；
+目录以**动态拉取**为准（`GET {gateway}/algo/api/v2/model/list?Encode=1`，COSY 签名，GET 也要带 body）；
 拉不到时回落到静态兜底表。
 
 ### 5.0 元数据来源与接线
@@ -489,7 +489,7 @@ data:{"headers":{...},"body":"{\"choices\":[{\"delta\":{\"content\":\"Q\"}}]}","
 
 **上游动态目录的完整字段集**（`[实测]`，2026-10-19 拉取的目录缓存，17 条）：
 
-> ⚠ **目录是活数据**：上游 `model/list` 的 `chat` 数组会随时间变化（增删模型、改倍率/档位）。
+> **目录是活数据**：上游 `model/list` 的 `chat` 数组会随时间变化（增删模型、改倍率/档位）。
 > 池内磁盘缓存（`<root>/qoder/cache/models.json`）可能是**旧条目**，只有 `mx model qoder --refresh`
 > 才会重新拉取并落盘。
 
@@ -510,11 +510,11 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 ⇒ §9.2 的 G2 / G3 / G5 / G7 / G8 **都可以直接从动态接口补齐**，不需要额外的数据来源。
 （G6 `context_config` 的多窗口解析**共享层已经做了**，见 §9.2 与 §5.3。）
 
-⚠ **接线方式**：`catalog.ts` 需要 `upstream.fetchModels()` 拉目录，`upstream` 再 import `catalog`
+**接线方式**：`catalog.ts` 需要 `upstream.fetchModels()` 拉目录，`upstream` 再 import `catalog`
 就成环 —— 所以由 `channel.ts` 装配时注入查询器（`upstream.setModelMetaLookup(catalog.metaOfKey)`），
 两个模块保持单向依赖 `[代码]`。
 
-⚠ 静态表里的 `max_input_tokens` 与 §5.3 的上下文口径**是两回事**（见下）。
+静态表里的 `max_input_tokens` 与 §5.3 的上下文口径**是两回事**（见下）。
 
 ### 5.1 国际版 17 条（快照：上下文取目录 `context_config` 最大档、倍率取 `price_factor`；静态兜底表 `STATIC_META` 见 `packages/core/channels/qoder/src/catalog.ts:116-135`）
 
@@ -586,7 +586,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 
 - `enabled.efforts` 的 key 是档位名（`xhigh`/`high`/`low`/`max`/`medium`），
   含 `is_default:true` 的档位是默认档
-- `disabled` 字段存在时表示可关闭思考（如 `dmodel`）——⚠ **不映射**成 `off` 档：
+- `disabled` 字段存在时表示可关闭思考（如 `dmodel`）——**不映射**成 `off` 档：
   那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段，
   不是档位取值。它只在本文记录，不进池元数据
 - 部分模型 `is_reasoning` 与 `thinking_config` 不同步
@@ -621,7 +621,7 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
  不是 `max_input_tokens`（两者经常矛盾，官方客户端只认档位表）。实测服务端上限因模型而异：
  `dfmodel` 999,991 通过、`qfmodel` 983,490 通过（越界报 `Range of input length should be [1, 983616]`）、
  `dmodel` 852,951 通过（实测见参考实现 `qoder-product.ts`）
- ⚠ 但**请求体的 `model_config.max_input_tokens` 用的是目录 `max_input_tokens` 的原值**
+ 但**请求体的 `model_config.max_input_tokens` 用的是目录 `max_input_tokens` 的原值**
  （上游请求体用它；本仓取值见 `packages/core/channels/qoder/src/upstream.ts:677` 与 `packages/core/channels/qoder/src/catalog.ts:116-135`，参考实现见 `shuishuipingan/qoder2api-hub` 的 `qoder_proxy.py`）`[参考]` ——
  两个口径本来就不同，不要混用。
 
@@ -720,7 +720,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 
 环境变量覆盖：`QODER_MACHINE_TOKEN_PATH`、`QODER_RUNTIME_INFO`。
 
-> ⚠ **本仓不实现 UMID / `runtime-info` 桥**：国际版改用**按 uid 稳定派生**的成对机器头
+> **本仓不实现 UMID / `runtime-info` 桥**：国际版改用**按 uid 稳定派生**的成对机器头
 > （`packages/core/channels/qoder/src/cred.ts:179-199` 的 `machineIdOf` / `machineTokenOf` / `machineTypeOf`，
 > 实际发头见 `packages/core/channels/qoder/src/billing.ts:90-100` 的 `sashHeaders` 与 `packages/core/channels/qoder/src/upstream.ts:262-289`）；
 > 国内版干脆不发这两个头（见 [qodercn 的 PROTOCOL](../qodercn/PROTOCOL.md) §3.2）。
@@ -735,7 +735,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 - 排队 `10605` 与额度 `110` 与认证 `105` 是**三个独立码**，不能合并
 - `Cosy-ClientType` 两个身份不可合并：推理请求头的 `cosy-clienttype=5`（CLI，
   `packages/core/channels/qoder/src/upstream.ts:274`）与 `/sash/` 的 `Cosy-ClientType=10`（桌面 app，`packages/core/channels/qoder/src/billing.ts:94`）
-  —— ⚠ 参考实现把前一个放在**请求体**的 `clientMetadata.client_type` 里 `[参考]`，
+  —— 参考实现把前一个放在**请求体**的 `clientMetadata.client_type` 里 `[参考]`，
   **本仓请求体里没有 `clientMetadata` 字段**（只发 §2.5.1 列出的头）
 - 续期请求体缺 `machine_id` 会破坏设备绑定；续期后必须保留 `machine_id`/`uid`/`nickname`
 
@@ -788,7 +788,7 @@ qodercontext_prepareInferRequest(host, body, modelKey, source)
 | `minimax-m3` / `qwen3.7-max` / `qwen3.7-plus` / `qwen3.8-flash` / `qwen3.8-max` | 131072 |
 | `minimax-m3.1-flash` | 524288（官方 maximum；recommended 131072） |
 
-⚠ **策略档位没有单一规格**：`auto` / `cantus` / `efficient` / `performance` / `sonus` /
+**策略档位没有单一规格**：`auto` / `cantus` / `efficient` / `performance` / `sonus` /
 `ultimate` 是 Qoder 的**账号档位**（按档位路由到不同底层模型），官方只公布 Credits
 倍率 → 不给规格，回落兜底值（**不编造**）。
 
@@ -877,7 +877,7 @@ clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不�
 
 **未做 15 条**（按优先级排）：
 
-> ⚠ **G3 / G5 / G7 / G8 的数据已经在动态目录里**（见 §5.0 的完整字段集），
+> **G3 / G5 / G7 / G8 的数据已经在动态目录里**（见 §5.0 的完整字段集），
 > 直接解析即可补齐，不需要额外的数据来源。
 > （G2 的 `thinking_config` **已解析**，见 §5.2.1。）
 

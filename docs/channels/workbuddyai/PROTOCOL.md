@@ -149,7 +149,7 @@ traecn）走各自 translator，不经过该兜底。
 - **判据优先级**：数组形态 `input_modalities`（含 `image` 即为真）→ 布尔形态
   `supportsImages` / `supports_image`；取不到 → 条目不填该字段，由汇聚层回落
   `["text"]`（宁可少报）。实现见 `src/catalog.ts` 的 `supportsImageOf`。
-- ⚠ **不要拿 `supports_image_detail_original` 当判据**：
+- **不要拿 `supports_image_detail_original` 当判据**：
   同时下发 `input_modalities:["text","image"]` 与 `supports_image_detail_original:false`
   的型号（随包快照的 `deepseek-v4.1-flash` 就是这样）会被报成纯文本 →
   客户端不再给它发图片。
@@ -212,7 +212,7 @@ traecn）走各自 translator，不经过该兜底。
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddyai/src/cred.ts`） | **声明**该回调（每轮轮询前取一次） |
 | `pollToken` | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-⚠ 与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
+与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 
@@ -472,10 +472,10 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 `context_window` / `max_output_tokens`。取值优先级：**上游目录声明 > 渠道规格表 >
 兜底值**（200000 / 65536）。
 
-- ⚠ 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
+- 本渠道上游目录**自带**这两个数（`/v3/config` 的 `maxInputTokens` /
   `maxOutputTokens`，落盘成 `context_window` / `max_output`），所以正常情况下
   `/v1/models` 显示的是**上游声明值**；规格表只在目录没声明（或目录缓存缺失）时兜底。
-- ⚠ 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
+- 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
   `maxOutputTokens` = **单次回复**上限。
 - 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：**公开规格**（联网核实；
   取值链与兜底口径见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0）；键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。

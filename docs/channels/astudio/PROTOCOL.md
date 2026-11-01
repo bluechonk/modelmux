@@ -25,10 +25,10 @@ AStudio **没有可独立调用的登录**（本地服务只认桌面应用自�
 ## 2. 应用架构
 
 ```
-渲染层(acode://app) ──HTTP──▶ 127.0.0.1:<随机端口> ──▶ Electron 主进程
+渲染层(acode://app) ──HTTP──> 127.0.0.1:<随机端口> ──> Electron 主进程
                                       │
-                                      ├──HTTPS──▶ agent.xfyun.cn/xingchen-studio（账号 / 刷新）
-                                      └──HTTPS──▶ {每个模型各自的 base_url}（对话，见 §6.1）
+                                      ├──HTTPS──> agent.xfyun.cn/xingchen-studio（账号 / 刷新）
+                                      └──HTTPS──> {每个模型各自的 base_url}（对话，见 §6.1）
 ```
 
 **AStudio 主进程内置一个 HTTP 服务**（端口记录在 `userdata/server-runtime.json`，**每次启动可能变**）。
@@ -80,8 +80,8 @@ AStudio **没有可独立调用的登录**（本地服务只认桌面应用自�
 
 | 凭据 | 打谁 | 形态 | 实测 |
 | --- | --- | --- | --- |
-| `token` + `ssoSessionId` | 云端账号 API | Cookie | ✅ 有效（见 §4） |
-| `modelBearerToken` | 模型网关 | `Authorization: Bearer` | ✅ 有效（见 §5） |
+| `token` + `ssoSessionId` | 云端账号 API | Cookie | 有效（见 §4） |
+| `modelBearerToken` | 模型网关 | `Authorization: Bearer` | 有效（见 §5） |
 
 **源码证据**（A 级，`readAstronUpdateCredentials`）：
 
@@ -117,7 +117,7 @@ ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<accountId
 | 短信登录 | POST | `login/phone-quick-login` | FormData |
 | 密码登录 | POST | `login/check-account` | FormData |
 
-⚠ 上表中 `login/*`、`chat/gee-captcha`、`tenant-app/*` **只能经本地服务代理访问**
+上表中 `login/*`、`chat/gee-captcha`、`tenant-app/*` **只能经本地服务代理访问**
 （本地服务路径前缀 `/api/astron-auth/*`），**直连云端回 404**（B 级）。
 只有 `/userInfo` 与 `/bot/models/configs` 是**云端直连**可达的。
 
@@ -141,7 +141,7 @@ ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<accountId
 
 ## 5. 登录链路：**云端直连可独立完成**（结论于 2026-10-26 反转）
 
-> ⚠⚠ **本节结论已反转。** 此前（2026-10-26 上午）本节写的是
+> **本节结论已反转。** 此前（2026-10-26 上午）本节写的是
 > 「登录端点只存在于本地服务代理层，架构上无法独立调用」——
 > **那是测错了路径**：`/api/astron-auth/*` 是桌面应用**本地服务代理层**的前缀，
 > 而云端账号 API 的路径**没有这个前缀**，直接打
@@ -174,11 +174,11 @@ Web 控制台正是浏览器，故渠道走「界面解滑块 → 回传三字�
 | --- | --- | --- |
 | `geetest_challenge` | challenge | 浏览器解出 |
 | `geetest_validate` | validate | 浏览器解出 |
-| `geetest_seccode` | **base64(seccode)** | ⚠ 上游要 base64 编码过 |
+| `geetest_seccode` | **base64(seccode)** | 上游要 base64 编码过 |
 | `mobile` | 手机号 | 客户端校验 `^1[3-9]\d{9}$` |
 | `countryCode` | `86` | |
 
-⚠ 请求体**不含** `expire` 字段（带了会被判 `code=19901001 参数无效`，实测）。
+请求体**不含** `expire` 字段（带了会被判 `code=19901001 参数无效`，实测）。
 
 **换 session** `POST /login/phone-quick-login`：`mobile` / `verifyCode` / `countryCode`
 （同样不含 `expire`；**不需要** captcha）。
@@ -188,9 +188,9 @@ Web 控制台正是浏览器，故渠道走「界面解滑块 → 回传三字�
 `phone-quick-login` 的 `data`：`account_id` / `token` / `ssoSessionId` / `uid` /
 `mobile` / `nickname` / `avatar` / `isNew`。
 
-- ⚠ `uid` 可能是 `0`（占位，指「身份只能从 `/userInfo` 取」）→ 按官方客户端规则
+- `uid` 可能是 `0`（占位，指「身份只能从 `/userInfo` 取」）→ 按官方客户端规则
   归一化（`^[A-Za-z0-9._@-]+$`、长度上限 256、空/`0` 一律丢弃），否则会泄漏成上游头。
-- ⚠ `token` 缺失时回落 `ssoSessionId`。
+- `token` 缺失时回落 `ssoSessionId`。
 - 判成功：必须有 `account_id` **且**（`token` 或 `ssoSessionId`）。
 
 ### 5.4 本地服务那条路（仍然堵死，但已不重要）
@@ -227,7 +227,7 @@ CLI 没有界面 → 只有路 B（`requestInput` 不实现时渠道自动回落
 
 ### 6.1 端点（B 级实测）
 
-⚠⚠ **推理主机是**按模型**取的**（2026-10-26 修正）—— 此前本节写的主机名
+**推理主机是**按模型**取的**（2026-10-26 修正）—— 此前本节写的主机名
 `astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1` 实测**对所有模型都 404**
 （`API endpoint not found`）。
 
@@ -264,18 +264,15 @@ astudio 从模型配置取该模型的 `base_url`（进程内缓存，`fetchMode
 
 | 项 | 结果 |
 | --- | --- |
-| 非流式 | ✅ `200`，标准 OpenAI 结构 + `reasoning_content` + `usage` |
-| 流式 | ✅ `200 text/event-stream`，SSE 分帧正常 |
-| 工具调用 | ✅ `finish_reason:"tool_calls"`，`tool_calls[0].function.{name,arguments}` |
-| 思考档位 | ✅ `reasoning_effort` / `reasoning` / `thinking` 均被接受 |
+| 非流式 | `200`，标准 OpenAI 结构 + `reasoning_content` + `usage` |
+| 流式 | `200 text/event-stream`，SSE 分帧正常 |
+| 工具调用 | `finish_reason:"tool_calls"`，`tool_calls[0].function.{name,arguments}` |
+| 思考档位 | `reasoning_effort` / `reasoning` / `thinking` 均被接受 |
 
 **2026-10-26 端到端复测**（走渠道代码，三个模型各一句）：
 
 ```
-astudio/auto              200 ✅
-astudio/glm-5.2           200 ✅
-astudio/deepseek-v4-pro   200 ✅
-```
+astudio/auto              200 astudio/glm-5.2           200 astudio/deepseek-v4-pro   200 ```
 
 ### 6.2 模型清单（B 级，2026-10-26 逐个实测）
 
@@ -295,21 +292,21 @@ astudio/deepseek-v4-pro   200 ✅
 
 | 云端行 id | `point_multiplier` | 对应本表？ |
 | --- | --- | --- |
-| `astronclaw-auto` | `null` | ✅ `auto` → **未知** |
-| `xsparkx2agent` | `x2.0` | ❌ 不是 `spark-x2.6` |
-| `spark-x` | `x0.5` | ❌ 不是 `spark-x2.5` / `spark-x2.6` |
-| `xopglm52` | `x2.0` | ✅ `glm-5.2` |
-| `xopglm51` | `x2.0` | ❌ 本表未暴露 |
-| `xminimaxm25` | `x1.0` | ❌ 本表未暴露 |
-| `xopkimik26` | `x2.0` | ❌ 本表未暴露 |
-| `xopqwen36v35b` | `x1.0` | ❌ 本表未暴露 |
-| `xopdeepseekv4pro` | `x2.0` | ✅ `deepseek-v4-pro` |
+| `astronclaw-auto` | `null` | `auto` → **未知** |
+| `xsparkx2agent` | `x2.0` | 不是 `spark-x2.6` |
+| `spark-x` | `x0.5` | 不是 `spark-x2.5` / `spark-x2.6` |
+| `xopglm52` | `x2.0` | `glm-5.2` |
+| `xopglm51` | `x2.0` | 本表未暴露 |
+| `xminimaxm25` | `x1.0` | 本表未暴露 |
+| `xopkimik26` | `x2.0` | 本表未暴露 |
+| `xopqwen36v35b` | `x1.0` | 本表未暴露 |
+| `xopdeepseekv4pro` | `x2.0` | `deepseek-v4-pro` |
 
 → `spark-x2.6` / `spark-x2.6-4b` / `spark-x2.5` / `xopdsv4flash0731in` 在云端**没有对应行**，
 `astronclaw-auto` 的值为 `null` —— 这 5 个一律**未知**（渠道省略该字段，
 池层回落 `null`，控制台按订阅制显示「免费」）。
 
-⚠ 此前渠道表给这 5 个一律填 `multiplier: 1`，那是**无源填 1**（客户端会按它算钱）。
+此前渠道表给这 5 个一律填 `multiplier: 1`，那是**无源填 1**（客户端会按它算钱）。
 2026-10-26 改为省略。**倍率要么实测、要么未知，绝不编造。**
 规格表见本文 §6.2（渠道静态表）；全局三层取值链见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §0。
 
@@ -317,11 +314,11 @@ astudio/deepseek-v4-pro   200 ✅
 
 | model id | 结果 |
 | --- | --- |
-| 上表 7 个 | ✅ 200 |
-| `xopdeepseekv4pro0813` / `xopdsv4flash0731` | ✅ 200（同模型的另一写法，未采用） |
-| `xopdsv4flash` | ❌ 400 `no category route found` |
-| `xsparkx2agent` | ❌ 403 `no valid authorization: the account lacks an …` |
-| `spark-x` / `xopglm51` / `xminimaxm25` / `xopkimik26` / `xopqwen36v35b` | ❌ 503 `Service temporarily unavailable` |
+| 上表 7 个 | 200 |
+| `xopdeepseekv4pro0813` / `xopdsv4flash0731` | 200（同模型的另一写法，未采用） |
+| `xopdsv4flash` | 400 `no category route found` |
+| `xsparkx2agent` | 403 `no valid authorization: the account lacks an …` |
+| `spark-x` / `xopglm51` / `xminimaxm25` / `xopkimik26` / `xopqwen36v35b` | 503 `Service temporarily unavailable` |
 
 ### 6.3 两个 id 体系的坑（重要）
 
@@ -357,7 +354,7 @@ Cookie: <buildAstronCookieHeader>
 | 刷新拿到的 `api_key` | 与磁盘 `modelBearerToken` **完全一致** |
 | 9 个模型的 `api_key` | **全部相同**（一个账号一个 Bearer） |
 | Cookie 失效时 | 上游回 `code=80000`（渠道抛 `NotLoggedInError`） |
-| `sessionToken` 为空、仅 `ssoSessionId` | ✅ **200**，正常给出 `api_key`（2026-11-01 实测，9 个模型 / 65 字符 key） |
+| `sessionToken` 为空、仅 `ssoSessionId` | **200**，正常给出 `api_key`（2026-11-01 实测，9 个模型 / 65 字符 key） |
 
 **Cookie 只需 `ssoSessionId` 即可完成刷新**（2026-11-01 实测）：短信登录的
 `phone-quick-login` 响应**不带 `token`**（见 §4），落盘后 `sessionToken` 恒为空。
@@ -376,7 +373,7 @@ has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**
 当作凭据失效会有三重误伤（实测连续 23 次 502）：白跑一次 refresh；账号被打成**终态**
 `unauthorized`（后续请求一律 503，需人工介入）；并提示「换账号 / 重新登录」而真实原因是权益。
 
-⚠ 匹配按**字段形态** `"code":11200` 而非裸子串 —— 错误体里还带 `requestId`
+匹配按**字段形态** `"code":11200` 而非裸子串 —— 错误体里还带 `requestId`
 （形如 `01a19782a49d29c4503`），裸子串会误命中它里面的数字。
 
 **已知限制**：共享层刻意不回传上游错误体（可能含内部信息），故客户端只会看到通用
@@ -386,7 +383,7 @@ has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**
 
 ## 8. 额度、积分与签到
 
-> ⚠ 本节在 2026-10-26 **整段重写** —— 此前记的是「云端积分用不了（只能经本地服务代理）」
+> 本节在 2026-10-26 **整段重写** —— 此前记的是「云端积分用不了（只能经本地服务代理）」
 > 与「没有签到端点」，**两条都是错的**（又是路径前缀的锅，见 §5）。
 > 现在积分与签到都能**云端直连**。
 
@@ -397,7 +394,7 @@ has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**
 | `GET {模型网关}/usage` | Bearer | `mode: "unrestricted"`、`balance: 0`、`cost: 0` | **模型网关余额**（免费档，0 是永久状态） |
 | `GET /points/balance` | Cookie | `totalBalance: 6197`、`sparkTotalBalance: 35000` | **积分余额**（客户端「积分余额」面板显示的两个数） |
 
-⚠ **额度口径取积分余额**，不取模型网关的 `balance`：
+**额度口径取积分余额**，不取模型网关的 `balance`：
 后者恒为 0，若当成额度报给共享层，`markCooldownIfExhausted` 会因 `remain <= 0`
 **冷却账号** —— 而积分余额明明有 6197（这正是此前声明 `billing: false` 的原因，
 当时选错了口径）。
@@ -433,7 +430,7 @@ has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**
 | 3 | `POST /client-popups/complete` | **只关弹窗、不发积分** |
 | 4 | `POST /client-download-reward/claim` | 客户端下载奖励（一次性；已领过回业务错误，属正常） |
 
-⚠ **步骤 2/3/4 必须带客户端头**，否则上游回
+**步骤 2/3/4 必须带客户端头**，否则上游回
 `code=11001001 客户端平台、版本或构建号无效`（实测）：
 
 ```
@@ -453,7 +450,7 @@ User-Agent: AStudio/3.4.4
             "content":"每日登录积分已发放，可前往积分中心查看。"}}
 ```
 
-⚠ 这个横幅是**到账通知**（内容明写「今日登录积分已到账」），**不是待领奖单** ——
+这个横幅是**到账通知**（内容明写「今日登录积分已到账」），**不是待领奖单** ——
 所以**不能**凭「有没有横幅」判断「今天领没领」。
 「今天是否已领」的判据用**余额是否变动**（`init-app` 前后对比）。
 
@@ -480,7 +477,7 @@ POST /api/astron-auth/logout     （经本地服务代理）
 源码 `logoutAstron` → `persistAstronAuthState(stateDir, null, "logout-commit")`，
 即删除会话文件 + 清空 `config.toml` 里的 bearer。
 
-⚠ 该端点需活会话 → **渠道无法从外部调用**（同 §5：本地服务只认应用自己的活会话，
+该端点需活会话 → **渠道无法从外部调用**（同 §5：本地服务只认应用自己的活会话，
 实测 401）。故**上游吊销做不到**，云端 `token` / `ssoSessionId` 在登出后仍然有效，
 AStudio 桌面应用里也仍是登录态。
 
@@ -492,7 +489,7 @@ AStudio 桌面应用里也仍是登录态。
 | `mx logout <cid>` | 先调 `cred.logout()`，再 `purgeCredentials(cid)`（连池内账号一起清） |
 | Web「删除生效账号」 | 共享层既有路径，删生效账号时连带删 `credentials.json` |
 
-⚠ 语义必须在界面上说清：这是「从 modelmux 移除」，**不是**「把 AStudio 踢下线」。
+语义必须在界面上说清：这是「从 modelmux 移除」，**不是**「把 AStudio 踢下线」。
 要彻底登出需在桌面应用里操作。
 
 ---
@@ -521,7 +518,7 @@ clone 到 `packages/core/channels/astudio/reference/` 的学习材料（**不入
 | [SilenceSik/astudio2api](https://github.com/SilenceSik/astudio2api) | `go/login.go`（讯飞 **SSO 统一登录**：`sso.xfyun.cn/SSOService` 的 `if-captcha` / `check-account`，**必须 GET**）、`go/upstream.go`（签到）、`README.md` | 协议补充参照：账号密码登录这条路（**不依赖本地服务**） |
 | [zhuchunshu/astudio2api](https://github.com/zhuchunshu/astudio2api) | `docs/PROTOCOL.md`、`src/server/astron/{client,session,types}.ts` | TypeScript 版协议整理，交叉校验字段命名 |
 
-⚠ 三份参考实现都**直连云端** `agent.xfyun.cn/xingchen-studio`，
+三份参考实现都**直连云端** `agent.xfyun.cn/xingchen-studio`，
 **没有一个**走桌面应用的本地服务代理层 —— 这与 §5.4 的实测一致：
 本地服务认的是应用进程内存里的活会话，外部进程根本进不去。
 
@@ -621,14 +618,14 @@ node packages/cli/dist/cli.js model astudio --refresh
 
 | 项 | 结果 |
 | --- | --- |
-| 登录入池 | ✅ `mx relogin astudio` → `source: astudio-session-file`，uid 与 label 均为 11 位数字串（脱敏） |
-| 模型清单 | ✅ 7 个模型入池（`mx model list` 显示 `astudio 7 个模型`） |
-| 最小对话 | ✅ `astudio/auto` / `astudio/glm-5.2` / `astudio/spark-x2.5` 均返回真实补全 + `usage` |
-| 模型 id 归一化 | ✅ `astudio/glm-5.2` → 响应 `model: "xopglm52"`；`astudio/auto` → `model: "spark-x2.6"` |
-| 错误传播 | ✅ 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（额度口径取积分余额，不是模型网关的 `balance`） |
-| 工具 / 流式 / 档位 | ✅ 直连实测通过（见技能 `astudio-probe.mjs chat`） |
-| **opencode 单轮冒烟（7/7）** | ✅ 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
-| **经网关的 Agent 工具往返** | ✅ 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |
-| **deepseek-v4-flash 计费实测** | ✅ 2026-10-26 直连 `/points/balance` 对账：`totalAmount 6200 − totalBalance 6197` = **已用 3 积分**（两轮端到端测试的累计消耗；星火专属 35000 分未动）。单轮最小对话（~25k tokens）8s / 60s 内均无即时扣减（扣减疑似异步）。**顺带修掉渠道 bug**：`mx bill` 的「已用」此前取模型网关 `/usage` 的 `today.cost`（该端点 404，恒 0）→ 改为 `totalAmount − totalBalance` 口径，并补体验积分 `days_left`（30 天） |
-| **除 auto 全模型单轮冒烟（6/6）+ 计费复核** | ✅ 2026-10-28 `opencode run --model modelmux/astudio/<模型> --auto` 对 `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` 逐个发「只回答：1+1=？」，**全部 200 + 正确回复**，opencode 侧 `cost: 0`（`input` 均 ~25k tokens 系系统提示，`output` 2-38）。每个模型跑完隔 8s 查 `mx bill astudio --json`，最终 30s 复查：体验版 `used` 恒为 **3**（与 10-26 口径一致，本轮零新增）、剩余 6397 不变，星火专属 35000 分未动 —— **6 个模型（含倍率 x2.0 的 `glm-5.2` / `deepseek-v4-pro`）全部免费，未扣任何积分**；访问日志 `stream=true`、`status=200`，错误日志无 astudio 条目 |
+| 登录入池 | `mx relogin astudio` → `source: astudio-session-file`，uid 与 label 均为 11 位数字串（脱敏） |
+| 模型清单 | 7 个模型入池（`mx model list` 显示 `astudio 7 个模型`） |
+| 最小对话 | `astudio/auto` / `astudio/glm-5.2` / `astudio/spark-x2.5` 均返回真实补全 + `usage` |
+| 模型 id 归一化 | `astudio/glm-5.2` → 响应 `model: "xopglm52"`；`astudio/auto` → `model: "spark-x2.6"` |
+| 错误传播 | 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（额度口径取积分余额，不是模型网关的 `balance`） |
+| 工具 / 流式 / 档位 | 直连实测通过（见技能 `astudio-probe.mjs chat`） |
+| **opencode 单轮冒烟（7/7）** | 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
+| **经网关的 Agent 工具往返** | 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |
+| **deepseek-v4-flash 计费实测** | 2026-10-26 直连 `/points/balance` 对账：`totalAmount 6200 − totalBalance 6197` = **已用 3 积分**（两轮端到端测试的累计消耗；星火专属 35000 分未动）。单轮最小对话（~25k tokens）8s / 60s 内均无即时扣减（扣减疑似异步）。**顺带修掉渠道 bug**：`mx bill` 的「已用」此前取模型网关 `/usage` 的 `today.cost`（该端点 404，恒 0）→ 改为 `totalAmount − totalBalance` 口径，并补体验积分 `days_left`（30 天） |
+| **除 auto 全模型单轮冒烟（6/6）+ 计费复核** | 2026-10-28 `opencode run --model modelmux/astudio/<模型> --auto` 对 `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` 逐个发「只回答：1+1=？」，**全部 200 + 正确回复**，opencode 侧 `cost: 0`（`input` 均 ~25k tokens 系系统提示，`output` 2-38）。每个模型跑完隔 8s 查 `mx bill astudio --json`，最终 30s 复查：体验版 `used` 恒为 **3**（与 10-26 口径一致，本轮零新增）、剩余 6397 不变，星火专属 35000 分未动 —— **6 个模型（含倍率 x2.0 的 `glm-5.2` / `deepseek-v4-pro`）全部免费，未扣任何积分**；访问日志 `stream=true`、`status=200`，错误日志无 astudio 条目 |
 

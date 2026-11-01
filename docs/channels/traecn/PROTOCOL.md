@@ -65,7 +65,7 @@
 | 事件流 | `metadata` / `output` / `token_usage` / `notify_usage` / `done` / `error` | `metadata` / `plan_item` / `output` / `token_usage` / `done` |
 | 当前实现 | **chat 走这套** | **chat 未实现**；模型目录主源走这套的 `/models` |
 
-> ⚠ 两套不能混用 base：IDE/SOLO 路由的 base 若带上 `/api/remote/v1`，
+> 两套不能混用 base：IDE/SOLO 路由的 base 若带上 `/api/remote/v1`，
 > 会拼出 `/api/remote/v1/api/agent/...` 拿到误导性 404/502
 > （参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py` 明确警告）。
 
@@ -178,7 +178,7 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 体 `{"ReqSource":"IDE","IDEVersion":"0.1.52"}`；
 响应 `Result.{UserID, ScreenName, EnterpriseID, NonPlainTextMobile, NonPlainTextEmail}`。失败不阻塞登录。
 
-> ⚠ **鉴权头必须是 `x-cloudide-token`**：用 `Authorization: Cloud-IDE-JWT` 会被 401
+> **鉴权头必须是 `x-cloudide-token`**：用 `Authorization: Cloud-IDE-JWT` 会被 401
 > （参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py` 明确记录）。`[参考]`
 >
 > 当前实现**已接入**这一步（`packages/core/channels/traecn/src/cred.ts` 的 `fetchUserInfo()`）：登录拿到 access token 后
@@ -291,7 +291,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `X-Preferenced-Language` | **不发** | `zh-CN` | **缺**（参考：`trae_client.py`）`[参考]` |
 | `x-user-region` | **不发** | `CN` | **缺**（参考：`trae_client.py`）`[参考]` |
 
-> ⚠ **本渠道不补这 3 个头、也不改 `Origin` 值** —— 当前实现实测能取到目录（§5.0），
+> **本渠道不补这 3 个头、也不改 `Origin` 值** —— 当前实现实测能取到目录（§5.0），
 > 差异是否必要**未验证**，见「已知边界」的待验证项。`[推断]`
 
 #### 3.1.3 签到 / 额度（`api.trae.cn`，21 个）
@@ -306,7 +306,7 @@ event:done   | data:{"finish_reason":"stop"}
 `X-Tt-Trace-Id: 00-<randomHex16>-01`、`Vscode-Sessionid: <派生 64 hex>`、
 `X-Request-Id: <uuidV4>`、`Sec-Fetch-Dest/Mode/Site: empty/no-cors/none`。
 
-> ⚠ **同名不同值**：签到头的 `X-Device-Id` 是**签到专用派生值**（`packages/core/channels/traecn/src/cred.ts:272-283` 的
+> **同名不同值**：签到头的 `X-Device-Id` 是**签到专用派生值**（`packages/core/channels/traecn/src/cred.ts:272-283` 的
 > `deriveCheckinDeviceId`），对话头的 `X-Device-Id` 是**账号级 32 hex**。
 > 参考实现同样把这两个场景分开（`trae_client.py` 的签到头与对话头是两处）。别「统一」。`[代码]`
 >
@@ -331,7 +331,7 @@ event:done   | data:{"finish_reason":"stop"}
    内容为空（null / 空串 / 空数组）时**不带 `content` 键**（不塞空文本块）
 5. assistant 的工具调用保持 **`tool_calls` 数组**形态，元素为
    `{id, type:"function", function_call:{name, arguments}}`；无 `function_call.name` 的调用被剔除。
-   ⚠ **不能**改写成单个 `function_call` 对象：上游按「前序消息带 `tool_calls`」校验工具结果，
+   **不能**改写成单个 `function_call` 对象：上游按「前序消息带 `tool_calls`」校验工具结果，
    改写后客户端回传的 `role:'tool'` 消息会被直接拒收
    （`code=4027 Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`）
    （[参考] `autumnsentiment_Trae2api-cn/src/raw_client.py` 的 `_traecode_tool_calls`）
@@ -396,7 +396,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `1005` | Plan 权益不足 → 分类 `hard-plan` | 如实报错；**网关不自动换号**（换号由用户手动执行，见本节末注）；渠道层无冷却表，冷却由共享层 `noteFailure()` 统一给（默认 60s，见 §6.3） | `packages/core/channels/traecn/src/upstream.ts:275` |
 | `4008` | 配额耗尽 → 分类 `quota-exceeded`（**判定必须先于 4011**） | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:276` |
 | `4011` | 频率超限 → 分类 `soft-rate` | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:277` |
-| `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓**没有** `4001` 专门分支：`classifyError` 里没有这一项，落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:124`。⚠ 除版本准入外，**空壳 assistant 消息**（无正文且无 tool_calls）也触发 4001 —— 已由消息序列归一化挡在网关侧（§3.2 第 10 条，实测见「使用与实测」2026-10-23） |
+| `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓**没有** `4001` 专门分支：`classifyError` 里没有这一项，落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:124`。除版本准入外，**空壳 assistant 消息**（无正文且无 tool_calls）也触发 4001 —— 已由消息序列归一化挡在网关侧（§3.2 第 10 条，实测见「使用与实测」2026-10-23） |
 | `4027` | tool 消息顺序错误 | 直接失败 | 本仓**没有** `4027` 专门分支：同样落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`） |
 | `4023` | `the model is unknown`（不可调用通道） | 通道白名单已挡 | `packages/core/channels/traecn/src/catalog.ts:43-59` |
 | `3003` | `model service is unavailable`（`inline_chat`） | 同上 | `packages/core/channels/traecn/src/catalog.ts:43-59` |
@@ -440,11 +440,11 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
 - **上下文窗口在 `context_window_tokens{dev,max}`**（实测三组都有该字段）：
   `dev` 是默认档（多在 200000 / 232768 / 256000），`max` 是 Max 档
   （多数型号 1000000，`mimo-v2.6-*` 是 981504，部分型号为 0 = 无该档）。
-  ⚠ **Remote 目录不下发输出上限**（只有 Solo 目录的 `model_detail_list` 有），
+  **Remote 目录不下发输出上限**（只有 Solo 目录的 `model_detail_list` 有），
   故 `/v1/models` 的 `max_output_tokens` 按公开规格给（见 §5.4）。
-- ⚠ 三组的窗口档位**不一致**（同一型号三个值）⇒ 取**各组最大值**报能力上限；
+- 三组的窗口档位**不一致**（同一型号三个值）⇒ 取**各组最大值**报能力上限；
   通道（`function`）仍取**先出现**的那组（改动会改变请求路由）。
-  ⚠ 实测载荷的组序是 **`solo_design_remote` → `solo_work_remote` → `solo_agent_remote`**
+  实测载荷的组序是 **`solo_design_remote` → `solo_work_remote` → `solo_agent_remote`**
   （`agent_remote` 排**最后**，不是最先 —— 代码里的旧注释写反了），
   故只取先出现那组会丢掉 `agent_remote` 的 1M 档
 
@@ -529,11 +529,11 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
      取**两档的较大者**（能力上限）；
    - 输出上限：只有 Solo 目录的 `model_detail_list[].max_tokens`（§5.1）会声明；
      **Remote 目录根本不下发输出上限** ⇒ 绝大多数型号走第 2 层。
-   - ⚠ **只认远端目录**：内置兜底表（§5.3）里的数值不是上游声明。
+   - **只认远端目录**：内置兜底表（§5.3）里的数值不是上游声明。
 2. **规格表**（本节）—— 上游没声明的字段按**公开规格**补。
 3. 都没有 → 回落网关兜底值（200000 / 65536），不编造数字。
 
-⚠ 目录条目里只写上游声明（未声明 = 0），估值只留在**请求体**一侧
+目录条目里只写上游声明（未声明 = 0），估值只留在**请求体**一侧
 （Max 模式成套下发需要 `context_window_size`，见 §3.2）。
 
 **实测的上下文窗口声明**（2026-10-20，Remote 目录）：
@@ -580,7 +580,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 `aquila`、各 `custom_model_*`、各 `*_subagent` / `summary`（TRAE 内部子代理）。
 一律不写数字，让 `/v1/models` 回落兜底值。
 
-⚠ **`max_output_tokens` 是模型上限，不是本渠道的请求上限**：
+**`max_output_tokens` 是模型上限，不是本渠道的请求上限**：
 本渠道请求体里的 `max_tokens` 仍收敛到 **64000**（实测索要 131072 会被上游打成 4xx，
 见 §3.2）—— 公开规格可能比上游宽松，客户端应能降档重试。
 
@@ -660,7 +660,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 （`{uid, ide_credits, work_credits, observed_at}`）。
 余额**按账号归属** —— 快照 `uid` 与当前账号不符（换过号）就不采信。`[代码]`
 
-> ⚠ `available_endpoint` 的取值语义（`0` = 通用 IDE / `1` = work 专属）来自参考实现
+> `available_endpoint` 的取值语义（`0` = 通用 IDE / `1` = work 专属）来自参考实现
 > `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`，**本仓库未复验**。`[参考]`
 > 真机确认前，若该字段不存在则自动回落旧口径，不会显示错数。`[推断]`
 
@@ -685,12 +685,12 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 | 9 | 状态码 ≥ 400 | `client` |
 | 10 | 其余 | `none` |
 
-- ⚠ **配额只看 `4008`**：本仓**没有** `quota` / `exceeded the quota` 这类文案判据
+- **配额只看 `4008`**：本仓**没有** `quota` / `exceeded the quota` 这类文案判据
   （那是**参考实现** `trae-errors.ts` 的标记数组口径）。
-- ⚠ **`4008` 必须先于 `4011`**：报文里两个码都有时按配额耗尽处理（顺序不可颠倒）。
-- ⚠ `session-dead` 的兜底措辞里含 `login` 子串 —— 报文出现 `login` 也会被判成会话失效。
+- **`4008` 必须先于 `4011`**：报文里两个码都有时按配额耗尽处理（顺序不可颠倒）。
+- `session-dead` 的兜底措辞里含 `login` 子串 —— 报文出现 `login` 也会被判成会话失效。
 
-**冷却秒数**：⚠ **渠道层没有冷却表**。
+**冷却秒数**：**渠道层没有冷却表**。
 **对话链路上真正生效的冷却来自共享层**
 `packages/core/gateway/src/pool/pool-usage.ts:253` 的 `noteFailure()`
 （默认 `FAIL_COOLDOWN_MS = 60s`，`packages/core/gateway/src/pool/pool-usage.ts:26`）。
@@ -704,7 +704,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
   之后只读不改 —— 缺失时补齐的分支也保持「同一账号恒定」
   （`packages/core/channels/traecn/src/cred.ts:693-697`），请求头恒发该值
   （`packages/core/channels/traecn/src/upstream.ts:248`）。`[代码]`
-  ⚠ `DSH_TRAE_ROTATE_MACHINE_ID=1`「每 4 次请求派生一代」是**参考实现**的开关与行为，
+  `DSH_TRAE_ROTATE_MACHINE_ID=1`「每 4 次请求派生一代」是**参考实现**的开关与行为，
   **本仓没有这个环境变量、也不轮换 machine_id**。`[参考]`
 - **签到设备轮换代次**：`deriveCheckinDeviceId` = `sha256(base#genN)` 前 32 hex；
  9074 是 **device_id 级**限流
@@ -793,7 +793,7 @@ mx bill traecn            # 额度与倍率（测试后核对是否扣费）
 | 流式 | HTTP **200**，34 帧增量 SSE，`finish_reason: stop` + `[DONE]` |
 | `traecn/glm-5.3-flash` | HTTP **200**，正文 `收到` |
 
-⚠ 复测中偶见「HTTP 200 但 `content` 为空、只有 `reasoning_content`」——那是**上游模型
+复测中偶见「HTTP 200 但 `content` 为空、只有 `reasoning_content`」——那是**上游模型
 行为**（原始 SSE 里就没有 content 帧），不是翻译丢帧，见 §7。`[实测]`
 
 同时实测：AppID 改正后 `batch_get_detail_param`（Solo 目录）22 个通道**全部**返回

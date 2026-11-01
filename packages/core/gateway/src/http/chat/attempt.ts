@@ -119,7 +119,7 @@ function probeFallbackError(): ChatError {
 /**
  * 探测层瞬时失败的**同渠道重试**：重开一条上游流，把新流交给调用方。
  *
- * ⚠ **返回新流**而不是就地改写调用方的 `call`：闭包改写外层变量会让本模块
+ * **返回新流**而不是就地改写调用方的 `call`：闭包改写外层变量会让本模块
  *   无法被独立搬走（谁持有这条流只有函数自己知道）。调用方接住新流继续用。
  *
  * 返回 null 表示重试机会用尽 / 重开失败（调用方按失败收尾）。
@@ -209,11 +209,11 @@ function writeQueueHeaders(
 /**
  * 排队探测子循环：响应头发出前把「排队帧」等掉，直到出内容或预算耗尽。
  *
- * ⚠ 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
+ * 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
  *   转发层必须**原序**交出这些帧，并**接着用同一个**翻译器实例（半行缓冲在里面）。
- * ⚠ 排队期间向客户端**分批发进度文案**（仅流式）：
+ * 排队期间向客户端**分批发进度文案**（仅流式）：
  *   每轮等待前发一条，文案随轮次升级；首条会顺带发出 SSE 响应头。
- * ⚠ 每轮开头检查客户端断连：排队可能长达数分钟，客户端（60s 超时）走人后
+ * 每轮开头检查客户端断连：排队可能长达数分钟，客户端（60s 超时）走人后
  *   继续轮询上游纯属浪费（实测断连后空转 4 分钟、白打 22 次上游请求）。
  *
  * @returns 探测结束后实际在用的上游流（失败时也是它，调用方负责释放）。
@@ -290,7 +290,7 @@ async function runQueueProbe(
       }
       // 探测消费掉的帧一个都不能丢：按原序交回转发
       state.frames.push(...probe.frames);
-      // ⚠ 必须是**同一个**翻译器实例（半行缓冲在里面）：用探测返回的那个，
+      // 必须是**同一个**翻译器实例（半行缓冲在里面）：用探测返回的那个，
       //    转发层才接得上（换新实例会丢半行，残行整帧解析失败被丢弃）。
       state.translator = probe.translator;
       break;
@@ -393,7 +393,7 @@ export async function attemptCandidate(
 
   // 可选的异步前置（渠道声明了才有）：必须在发上游**之前完成**。
   // 例如有些渠道要求「建会话 → 标记 running → 再发对话」的顺序，错一步上游就拒。
-  // ⚠ 传入**同一个 body**：渠道不能再调一次 buildChatBody（会生成新会话 id）。
+  // 传入**同一个 body**：渠道不能再调一次 buildChatBody（会生成新会话 id）。
   // 返回字符串（自编码请求体）的渠道不走这个钩子。
   if (upstream.prepareChat && body) {
     try {
@@ -425,7 +425,7 @@ export async function attemptCandidate(
   // 正是「构造完成的上下文」本身。
   noteUpstreamPayload(res, { cid, model: resolvedModel, stream: ctx.wantStream, attempt: ctx.attempt }, sendBody);
 
-  // ⚠ 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入转发层，
+  // 只有**上游响应头到达之前**的失败才能转移 —— 一旦进入转发层，
   //    响应头已发给客户端，换渠道会变成两个响应。
   // 免费模型（倍率 0 / 渠道没有额度概念）不吃额度：既不受账号冷却限制，也不该**触发**冷却
   // （2026-10-23 实测：免费模型撞到上游 402 后把整个账号又打成冷却，免费模型被一起锁死）。
@@ -478,7 +478,7 @@ export async function attemptCandidate(
 
   // 排队重试：渠道声明了 isQueueError 且上游回了排队帧（HTTP 200 + 流内业务错误）
   // → 按 retryAfterSeconds 退避后重开上游，直到出内容或预算耗尽。
-  // ⚠ 只在**响应头发出前**做：一旦开始向客户端写字节就不能再换请求。
+  // 只在**响应头发出前**做：一旦开始向客户端写字节就不能再换请求。
   const state: ProbeState = {
     frames: [],
     queuedOut: false,
@@ -517,7 +517,7 @@ export async function attemptCandidate(
 
     // 额度耗尽：不是瞬时故障，继续打同一个账号只会重复失败 → **冷却**它（不是标 error）。
     // 冷却截止由渠道从错误体里认（`upstream.quotaResetAt`），认不出就兜底次日本地 0 点。
-    // ⚠ 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
+    // 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
     //   3 连败熔断打成「不可用」（workbuddyai 就是这样被误标过的）。
     const bodySnippet = call.bodySnippet ?? "";
     // 额度信号 = 共享层**通用措辞** 或 渠道自己声明的业务码（`upstream.quotaSignal`）。
@@ -587,7 +587,7 @@ export async function attemptCandidate(
   if (state.host) {
     const host = state.host;
     try {
-      // ⚠ 必须包渠道上下文：渠道的实现会写凭据文件（内部用无参 `paths.*` 解析落点），
+      // 必须包渠道上下文：渠道的实现会写凭据文件（内部用无参 `paths.*` 解析落点），
       // 裸调在仓库级多渠道路由下会抛「multi-channel routing requires an explicit cid」，
       // 被吞掉就等于「换主机持久化」静默失效（每次重启都从坏主机开始）。
       inChannel(channel, () => channel.upstream.rememberChatHost?.(host));

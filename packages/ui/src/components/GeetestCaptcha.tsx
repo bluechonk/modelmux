@@ -71,7 +71,7 @@ function loadGeetestSdk(): Promise<void> {
  * 解法：面板显式设 `pointer-events: auto`（覆盖继承）。
  * Radix 只改 `body` 的**内联样式**、不动子节点的显式样式，所以不会被打回。
  *
- * ⚠ 面板是 SDK 异步创建的，`initGeetest` 返回时还没进 DOM —— 故用
+ * 面板是 SDK 异步创建的，`initGeetest` 返回时还没进 DOM —— 故用
  * `MutationObserver` 盯着 `body`，出现就补上。
  */
 function enablePanelPointerEvents(): () => void {
@@ -99,7 +99,7 @@ export function GeetestCaptcha({
   /**
    * 上游给的 `success` 标志（实测是数字 `1`）。
    *
-   * ⚠ 官方客户端用它决定 `offline`：`offline = !cfg.success`。
+   * 官方客户端用它决定 `offline`：`offline = !cfg.success`。
    * 服务端说「这次必须联网验证」时 `success` 为 0/false → `offline: true`（走离线兜底）。
    */
   success?: unknown;
@@ -114,7 +114,7 @@ export function GeetestCaptcha({
   /**
    * 回调存进 ref。
    *
-   * ⚠ **必须这样**：父组件传的是内联箭头函数，每次渲染都是新身份。
+   * **必须这样**：父组件传的是内联箭头函数，每次渲染都是新身份。
    * 若把它们放进 `useCallback` / `useEffect` 的依赖，effect 会**每渲染重跑一次**
    * → 上一次的实例被 `destroy()` → GeeTest 立刻回调 `onError`，
    * 表现为「安全验证异常，请重试」（实测踩过：
@@ -130,7 +130,7 @@ export function GeetestCaptcha({
   const run = useCallback(async () => {
     setBusy(true);
     setStatus("正在加载安全验证组件…");
-    // ⚠ 必须在 initGeetest **之前**挂上：面板是 SDK 异步创建的，
+    // 必须在 initGeetest **之前**挂上：面板是 SDK 异步创建的，
     // 晚一步就会有一瞬间点不动。
     const stopObserver = enablePanelPointerEvents();
     try {
@@ -146,7 +146,7 @@ export function GeetestCaptcha({
           {
             gt,
             challenge,
-            // ⚠ `success` 必须**原样透传**上游给的值（实测是数字 `1`）——
+            // `success` 必须**原样透传**上游给的值（实测是数字 `1`）——
             // 覆盖成 `true` 会让 SDK 走错分支。
             success,
             https: true,

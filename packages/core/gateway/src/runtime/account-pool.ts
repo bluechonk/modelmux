@@ -245,7 +245,7 @@ function writeIndex(index: PoolIndex, cid?: string): void {
 /**
  * 池子摘要（供 CLI / Web）：先与"现实"同步，再读索引。
  *
- * ⚠ 这里要顺手做**冷却惰性过期**：聊天路径（`activeAccountCooldown`）读一次就恢复，
+ * 这里要顺手做**冷却惰性过期**：聊天路径（`activeAccountCooldown`）读一次就恢复，
  * 但列表路径不读它，否则 Web 会一直显示已过期的「冷却中」而实际请求早就能打
  * （实测踩到：写一个过去的 cooldown_until，UI 仍显示冷却中）。
  * 恢复只在真有变化时写盘（`expireCooldown` 内部判断），不会造成读放大。
@@ -295,7 +295,7 @@ function isNotLoggedIn(channel: Channel, err: unknown): boolean {
 /**
  * 调渠道的 `cred.load()` 读当前生效凭据（**必须**在渠道上下文里）。
  *
- * ⚠ 渠道内部一律用无参 `paths.*` 解析落点，裸调在仓库级多渠道路由下会抛
+ * 渠道内部一律用无参 `paths.*` 解析落点，裸调在仓库级多渠道路由下会抛
  * 「multi-channel routing requires an explicit cid」—— 症状是「登录了但池子是空的」。
  *
  * 未登录（渠道抛 `NotLoggedInError`）返回 null；**其它异常抛出去**：静默 null 会把
@@ -429,7 +429,7 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
  * - 额度冷却（`cooldown`）到期会惰性恢复，但用户可能知道额度已经刷新（换了套餐 / 手动充值），
  *   不想等到 `cooldown_until`。
  *
- * ⚠ 不动 `unauthorized`：那是**凭据本身失效**（token 被撤销），清标记只会让 UI 假装正常，
+ * 不动 `unauthorized`：那是**凭据本身失效**（token 被撤销），清标记只会让 UI 假装正常，
  * 下一次请求照样失败 —— 那种情况的正确动作是重新登录。
  */
 function clearTrippedState(account: PoolAccount): boolean {
@@ -465,7 +465,7 @@ export interface ClearAccountStateResult {
  * 清 `error` / `cooldown` 两种标记并清零连败（见 `clearTrippedState`），供用户
  * 「我知道它好了，别跳过它」时用 —— 不再是只能切号/重登。
  *
- * ⚠ **只清标记，不动凭证**（与 `activateAccount` 的区别：那个还会把凭证切为生效）。
+ * **只清标记，不动凭证**（与 `activateAccount` 的区别：那个还会把凭证切为生效）。
  * 清的是池内那份 `accounts/<key>.json` 的状态字段，所以**非生效账号**也能清。
  */
 export function clearAccountState(key: string, cid?: string): ClearAccountStateResult {
@@ -533,14 +533,14 @@ export function removeAccount(
  * 清掉某渠道的**全部**凭据（显式登出）：`credentials.json` + 池内全部账号。
  *
  * 调用场景：只用于**用户显式**的登出/删除动作（`accounts remove` 生效账号等）。
- * ⚠ 鉴权失败（401/403）**绝不**调用它 —— 上游拒绝可能是账号限制（11140）或
+ * 鉴权失败（401/403）**绝不**调用它 —— 上游拒绝可能是账号限制（11140）或
  * 临时风控，凭证是可恢复状态，删掉等于把可恢复变成不可恢复
  * （见 chat/relay 的 auth 失败路径）。
  *
  * 返回实际清掉的账号数与凭证文件是否被移除，供日志如实汇报。
  */
 export function purgeCredentials(cid?: string): { accounts: number; credential: boolean } {
-  // ⚠ 先探凭据在不在，再删账号：`removeAccount` 删**生效账号**时会连带
+  // 先探凭据在不在，再删账号：`removeAccount` 删**生效账号**时会连带
   // `rmSync(credentialsPath)`，之后再探就永远是 false，汇报就成了「凭据本来就没有」。
   let credential = false;
   try {
@@ -679,7 +679,7 @@ export function noteAccountQuotaExhausted(
   hit.health_at = nowIso();
   hit.cooldown_until = new Date(untilMs).toISOString();
   hit.cooldown_reason = options.reason ?? "额度耗尽，等上游窗口刷新";
-  // ⚠ 刻意**不动 fail_streak**：额度耗尽不是连败，不该累积到熔断
+  // 刻意**不动 fail_streak**：额度耗尽不是连败，不该累积到熔断
   healthCache.set(scope, "cooldown");
   writeIndex(index, cid);
   return untilMs;
@@ -777,7 +777,7 @@ const TRIP_BACKOFF_MAX_MS = 30 * 60_000;
  * （health=error + trip_until）。到点后路由放行一次做半开试探：
  * 成功恢复 `ok`，再失败退避翻倍。
  *
- * ⚠ 只给**瞬时故障**（timeout / 5xx / 网络）调用；凭据失效走
+ * 只给**瞬时故障**（timeout / 5xx / 网络）调用；凭据失效走
  * `markActiveHealth("unauthorized")` —— 那种重试永远无效，不能自动恢复。
  */
 export function noteAccountFailure(cid?: string): void {
@@ -827,7 +827,7 @@ export function noteAccountSuccess(cid?: string): void {
  * 到期（或旧数据缺 `trip_until`，视为早已到期）返回 false = 放行一次做半开试探 ——
  * 因此卡死的账号会在下一次真实请求上自动自检，不需要人工介入。
  *
- * ⚠ **刻意不含 `cooldown`**：额度耗尽的冷却必须**按模型**判断 ——
+ * **刻意不含 `cooldown`**：额度耗尽的冷却必须**按模型**判断 ——
  * 倍率 0 的免费模型不消耗额度，冷却期照样能用（实测踩过：loomy 冷却后连
  * `spark-x` 这种免费模型都被锁死）。「这个模型要不要受冷却限制」由调用方
  * （`http/chat/auth.ts`）按模型的倍率决定。
@@ -881,7 +881,7 @@ export function activeAccountCooldown(cid?: string): { until: string; reason: st
 /**
  * 把"现实"同步进池子（登录成功后、守护启动前、查看池子时调用；幂等且不抛错）。
  *
- * ⚠ **必须先比账号身份，再决定怎么同步** —— 只看 mtime 是错的：换了账号登录时，
+ * **必须先比账号身份，再决定怎么同步** —— 只看 mtime 是错的：换了账号登录时，
  * `credentials.json` 也变新了，但它**不是** active 那份的刷新，而是另一个账号，
  * 按 mtime 回灌会把 active 账号的池内文件写成别人的凭证。
  */

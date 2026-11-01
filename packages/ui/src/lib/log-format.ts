@@ -105,7 +105,7 @@ const GENERATE_FLOOR_MS = 50;
 /**
  * 速率上限（token/s）：超过它基本是测量假象 —— 云端 API 单请求极少破千。
  *
- * ⚠ 超限时**返回 null（显示 `—`）而不是截断**：截断把「测不准」伪装成「测得准」，
+ * 超限时**返回 null（显示 `—`）而不是截断**：截断把「测不准」伪装成「测得准」，
  * 而 `—` 是诚实的「不知道」。
  */
 const MEASURE_CEILING_TPS = 1000;
@@ -193,7 +193,7 @@ export function formatTokensPerSec(entry: AccessLogEntry): string {
 /**
  * 比率（0~1）的展示：`42%` / `<1%` / `0%`；`null` = 无数据 → `—`。
  *
- * ⚠ 99.95% 以上**不四舍五入成 `100%`**：上游给的近似满命中（如 99.96%）与真正的
+ * 99.95% 以上**不四舍五入成 `100%`**：上游给的近似满命中（如 99.96%）与真正的
  * 满命中（100%）是两件事，混在一起会让人以为数据坏了（见 docs/CACHE-HIT-RATE.md §6）。
  */
 export function formatPercent(rate: number | null | undefined): string {

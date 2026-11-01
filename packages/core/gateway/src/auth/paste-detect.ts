@@ -78,7 +78,7 @@ function paramSlice(text: string, at: number): string {
  * 接受四种形态：整条回调 URL、`?code=…&state=…` 查询串、`#code=…&state=…` 片段、
  * 裸 `code=…&state=…` 或裸码。
  *
- * ⚠ **不猜**：认不出来就返回空串（垃圾输入宁可当没粘到，也不要换出一个假 code）。
+ * **不猜**：认不出来就返回空串（垃圾输入宁可当没粘到，也不要换出一个假 code）。
  * 授权失败页里没有授权码 —— 直接返回空。
  */
 export function extractPastedCallback(raw: string): PastedCallback {

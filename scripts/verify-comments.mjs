@@ -11,7 +11,7 @@
  *       —— CODE-COMMENTS §3：谁拍板 git blame 一眼可见，注释该写的是 why。
  *   R3  修订记录：日期紧跟「修 / 修正 / 修死结 / 改为 / 修复」
  *       —— CODE-COMMENTS §3：git log 是修改历史的唯一事实源。
- *       ⚠ 与「时效地雷」区分：日期后跟「实测 / 真机 / 拉取 / 抄录」等**事实观测**
+ *       与「时效地雷」区分：日期后跟「实测 / 真机 / 拉取 / 抄录」等**事实观测**
  *       是合法的（CODE-COMMENTS §2 第 3 类），不拦。
  *   R4  TODO / FIXME 与 @deprecated 的条件缺失
  *       —— CODE-COMMENTS §5：TODO/FIXME 必须带清理条件（`// TODO(...)` 或正文含
@@ -111,7 +111,7 @@ for (const a of ALLOWLIST) {
 
 if (problems.length > 0) {
   console.error(`verify-comments: ${problems.length} 处违规：\n`);
-  for (const p of problems) console.error(`  ✖ ${p}`);
+  for (const p of problems) console.error(`  × ${p}`);
   process.exit(1);
 }
 console.log(`✓ 注释内容校验通过（R1 文件头 ≤${HEADER_MAX} 行；R2 无署名留痕；R3 无修订记录；R4 TODO/@deprecated 条件齐备）`);

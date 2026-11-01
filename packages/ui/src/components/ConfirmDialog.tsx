@@ -31,7 +31,7 @@ export function ConfirmDialog({
   /**
    * 关闭后把焦点还给谁（通常是打开弹窗的那个键）。
    *
-   * ⚠ 必须由调用方传：本组件由父组件按条件渲染，取消时父组件立刻卸载它，
+   * 必须由调用方传：本组件由父组件按条件渲染，取消时父组件立刻卸载它，
    * Radix 的 `onCloseAutoFocus` 来不及跑；而「挂载时读 `document.activeElement`」
    * 也不可靠（实测归还到了 `BODY`）。
    * 聚焦会让账号行命中 `group-focus-within`，那些默认隐藏的按钮跟着显示出来。
@@ -43,7 +43,7 @@ export function ConfirmDialog({
   // 取消是唯一「弹窗关掉但触发键还在」的路径（确认会删掉那一行），故只在这里还焦点。
   const cancel = useCallback((): void => {
     onCancel();
-    // ⚠ 必须**延到下一帧**：Radix 的 FocusScope 在卸载时会把焦点收回它挂载时捕获的
+    // 必须**延到下一帧**：Radix 的 FocusScope 在卸载时会把焦点收回它挂载时捕获的
     // 元素（实测是 `BODY`），同步调用 `focus()` 会被它覆盖掉。
     requestAnimationFrame(() => returnFocusTo?.focus?.());
   }, [returnFocusTo, onCancel]);
@@ -54,7 +54,7 @@ export function ConfirmDialog({
     <AlertDialog.Root open>
       <AlertDialog.Portal>
         {/*
-          ⚠ 点遮罩 = 取消：走的是 Overlay 自己的 onClick。
+          点遮罩 = 取消：走的是 Overlay 自己的 onClick。
           Radix 的 `AlertDialog` **刻意**把 `onPointerDownOutside` / `onInteractOutside`
           从 props 里去掉了（破坏性确认不该被误点关掉），所以要保留「点遮罩取消」
           只能自己接 —— 需求是「与手写版逐条一致」。

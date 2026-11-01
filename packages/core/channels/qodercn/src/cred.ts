@@ -79,7 +79,7 @@ const PRODUCTS: Record<Realm, ProductConfig> = {
 /**
  * 本渠道**固定绑定**的区域。
  *
- * ⚠ 域是渠道身份的一部分，写死在配置里 —— 国际版 `qoder`（`qoder.com`）与国内版
+ * 域是渠道身份的一部分，写死在配置里 —— 国际版 `qoder`（`qoder.com`）与国内版
  * `qodercn`（`qoder.com.cn`）是**两个独立渠道**（同 `workbuddy` / `workbuddyai` 的拆法）：
  * 账号在哪个域就得用哪个渠道登录。这样登录链路与凭据落点不会随 `--realm` 漂移，
  * 也不会出现"用国内版渠道登了国际版账号"这种串区。
@@ -177,7 +177,7 @@ const PKCE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234567
 /**
  * 生成 PKCE 对。
  *
- * ⚠ challenge = base64url(sha256(verifier)) 且**不带 `=` padding** ——
+ * challenge = base64url(sha256(verifier)) 且**不带 `=` padding** ——
  * 带 padding 会被服务端判为校验失败。
  */
 function makePkce(): { verifier: string; challenge: string } {
@@ -395,7 +395,7 @@ async function fetchUserProfile(
 /**
  * 完整设备授权登录：构造授权 URL → 用户浏览器授权 → 轮询取 token → 补账号档案 → 落盘。
  *
- * ⚠ 轮询的 HTTP 404 是**正常中间态**（官方语义：用户还没点同意），必须继续轮询；
+ * 轮询的 HTTP 404 是**正常中间态**（官方语义：用户还没点同意），必须继续轮询；
  * 其它非 2xx 才是错误（实测参考实现）。
  */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
@@ -508,7 +508,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
  * - 200 但无 token → 同样终态
  * - 其余（5xx/429/网络）→ 普通 Error，共享层会当作可重试
  *
- * ⚠ 续期响应**不含** `machine_id` / `uid` / `nickname`，必须从旧凭据保留 ——
+ * 续期响应**不含** `machine_id` / `uid` / `nickname`，必须从旧凭据保留 ——
  * 丢了 `machine_id` 会破坏服务端设备绑定。
  */
 export async function refresh(credential: Credentials): Promise<Credentials> {

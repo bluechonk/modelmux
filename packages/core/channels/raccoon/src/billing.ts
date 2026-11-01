@@ -132,7 +132,7 @@ export async function fetchCredits(
 
   const available = num(result.data["available_points"]);
   if (available === null) {
-    // ⚠ 形状不对 → 抛错，绝不显示成 0
+    // 形状不对 → 抛错，绝不显示成 0
     throw new CreditsError("Balance response has no available_points field (bad shape; not shown as 0)");
   }
 
@@ -188,10 +188,10 @@ export async function fetchCredits(
  *
  * 判据：存在 `biz_type === 'reward_grant'` **且** `event_name === '桌面端登录奖励'` 的记录。
  *
- * ⚠ **不能靠 `balance` 推断** —— 余额是多个来源的合计；
- * ⚠ **不能只按 `biz_type === 'reward_grant'` 判定** —— 「新人注册礼包」也是 `reward_grant`；
- * ⚠ 服务端没有单独的奖励状态端点，故只能查账单明细；
- * ⚠ 查询失败时**保守返回 `claimed: false`**（宁可多显示一次领取按钮）。
+ * **不能靠 `balance` 推断** —— 余额是多个来源的合计；
+ * **不能只按 `biz_type === 'reward_grant'` 判定** —— 「新人注册礼包」也是 `reward_grant`；
+ * 服务端没有单独的奖励状态端点，故只能查账单明细；
+ * 查询失败时**保守返回 `claimed: false`**（宁可多显示一次领取按钮）。
  */
 async function loginRewardClaimed(c?: cred.Credentials): Promise<boolean> {
   let credential: cred.Credentials;
@@ -232,7 +232,7 @@ interface DailyGrant {
 /**
  * 账单里**今天（北京时间）**入账的积分发放（`points > 0`）。
  *
- * ⚠ 账单接口是慢接口（实测约 9 秒），用独立超时；失败**抛错**
+ * 账单接口是慢接口（实测约 9 秒），用独立超时；失败**抛错**
  * （由调用方决定怎么显示 —— 「查不到」不能显示成「没领」）。
  */
 async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
@@ -240,7 +240,7 @@ async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
   if (result.status === 401 || result.status === 403 || result.code === 200003) {
     throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
   }
-  // ⚠ HTTP 状态也是判据：网关错误页可能带 `code: 0`（不能只看业务码）
+  // HTTP 状态也是判据：网关错误页可能带 `code: 0`（不能只看业务码）
   if (result.status >= 400 || result.code !== 0) {
     throw new CreditsError(`Bills query failed: HTTP ${result.status} code=${result.code} ${result.message}`);
   }

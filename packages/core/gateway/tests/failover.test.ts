@@ -4,11 +4,11 @@
  * 用文件背书的合成渠道（凭证真写在临时存储根的 `credentials.json`），
  * 假上游对 tok-A 回 400 + APIG.0602、对 tok-B 回 200 —— 于是「鉴权失败」这条链路能真验到。
  *
- * ⚠ 现行契约**不自动切号**：只「刷新 token → 用新 token 重试本账号」，仍失败则标
+ * 现行契约**不自动切号**：只「刷新 token → 用新 token 重试本账号」，仍失败则标
  * `unauthorized`、**凭证原样保留**，返回 502 `upstream_unauthenticated`，
  * 下一步由用户手动切号（`mx acct <cid> use <key>`）。依据：`relay.ts` 的
  * `callUpstream` 分支、`account-pool.ts` 的 `activeAccountIsError`、
- * docs/POOL-ARCHITECTURE.md §3.3。⚠ 池 id 必须 `<cid>/<模型>`，裸名一律 400。
+ * docs/POOL-ARCHITECTURE.md §3.3。池 id 必须 `<cid>/<模型>`，裸名一律 400。
  */
 
 import assert from "node:assert/strict";
@@ -145,7 +145,7 @@ async function chat(addr: string): Promise<{ status: number; text: string }> {
   const resp = await fetch(`http://${addr}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // ⚠ 旧契约：裸模型名 "glm-5.3-flash"；新契约：池 id 必须带渠道前缀
+    // 旧契约：裸模型名 "glm-5.3-flash"；新契约：池 id 必须带渠道前缀
     //   （`src/pool/pool-targets.ts:473-477`，裸名判 null → 400 unknown_model）。
     body: JSON.stringify({
       model: `${CID}/glm-5.3-flash`,
@@ -192,7 +192,7 @@ describe("账号池失败转移", () => {
   it("生效账号 A 被拒（400 + APIG.0602，非标准状态码）→ isAuthFailure 钩子归一成 401，刷新失败后不自动切号", async () => {
     upstream.captured.length = 0;
     const { status, text } = await chat(gw.addr);
-    // ⚠ 旧契约：换账号后应当成功（200 + "B 回答"）；
+    // 旧契约：换账号后应当成功（200 + "B 回答"）；
     //   新契约：**不自动切号** → 502 upstream_unauthenticated
     //   （`src/http/chat/relay.ts:791-801`）。
     assert.equal(status, 502, "不自动切号 → 如实报错");
@@ -218,7 +218,7 @@ describe("账号池失败转移", () => {
   it("下一个请求仍打 A（不自动切号），A 保持不可用，凭证保留", async () => {
     upstream.captured.length = 0;
     const { status, text } = await chat(gw.addr);
-    // ⚠ 旧契约：下一个请求直接用 B（A 已被跳过，不重复踩坑）；
+    // 旧契约：下一个请求直接用 B（A 已被跳过，不重复踩坑）；
     //   新契约：账号切换一律手动 —— 下一个请求仍打 A 并再次失败
     //   （`docs/POOL-ARCHITECTURE.md:310-313`）。
     assert.equal(status, 502);
@@ -233,7 +233,7 @@ describe("账号池失败转移", () => {
     );
     const index = listAccounts(CID);
     assert.equal(index.active, keyA, "生效账号仍是 A");
-    // ⚠ 连败口径：**一次鉴权失败记一次**连败（记账只在 `handleChat` 的 `auth_exhausted` 分支，
+    // 连败口径：**一次鉴权失败记一次**连败（记账只在 `handleChat` 的 `auth_exhausted` 分支，
     //   `src/http/chat/relay.ts` 的 `callUpstream` catch 里**不再重复记**）。
     //   第 2 次请求后 fail_streak=2 < `FAIL_STREAK_LIMIT=3`（`src/runtime/account-pool.ts:42`）
     //   → 仍是 `unauthorized`（**不是** `error`）；到第 3 次才标 `error`。

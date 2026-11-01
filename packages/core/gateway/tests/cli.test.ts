@@ -64,7 +64,7 @@ function makeChannel(cid: string, opts: FakeSigninSpec): Channel {
     debugDumpEnv: `${cid.toUpperCase()}_DEBUG_DUMP`,
     ...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
   };
-  // ⚠ 必须像真实渠道那样用 **`credentialsPath()`（不带 cid）**：它内部走
+  // 必须像真实渠道那样用 **`credentialsPath()`（不带 cid）**：它内部走
   // `configOf(undefined)` → `activeCid()`，即依赖 ALS 上下文。若传 cid（或自己
   // 拼路径）就绕开了这个要求 —— 而「有没有上下文」正是「裸 syncPool 收不到账号」
   // 的关键，绕开它这个回归测试就永远抓不到 bug。
@@ -115,7 +115,7 @@ function makeChannel(cid: string, opts: FakeSigninSpec): Channel {
       NotLoggedInError: class NotLoggedInError extends Error {},
       load: () => {
         // 没有凭据文件就抛 —— 真实渠道的 `cred.load()` 就是这样（`NotLoggedInError`）。
-        // ⚠ 不能「有就返回、没有也给」：账号池的 `loadLive` 靠这个异常判断
+        // 不能「有就返回、没有也给」：账号池的 `loadLive` 靠这个异常判断
         // 「没东西可收」，而裸 `syncPool`（无渠道上下文）走的正是这条错误路径 ——
         // 假渠道太宽容就测不出「登录即入池」失效。
         if (!existsSync(credPath())) {
@@ -569,12 +569,12 @@ describe("4. 账号池与落点（也走 CLI）", () => {
     // 断言目标：`runLogin` 里的 `syncPool(cid)` 必须在 `runInChannel` 上下文内调用。
     // `syncPool` → `cred.load()` → `paths.*` 靠 ALS 上下文解析；缺上下文时异常被
     // catch 吞掉，表现为「登录成功但池子是空的」。
-    // ⚠ 必须注册**两个以上**渠道才暴露：单渠道时 `getChannel(undefined)` 仍能解析
+    // 必须注册**两个以上**渠道才暴露：单渠道时 `getChannel(undefined)` 仍能解析
     // （单渠道特例），裸 `syncPool` 照样成功。仓库级 CLI 注册全部渠道。
-    // ⚠ 断言必须**直接读磁盘**，不能借 `accounts <cid>` 去看：那个命令自己会
+    // 断言必须**直接读磁盘**，不能借 `accounts <cid>` 去看：那个命令自己会
     // 包着 `runInChannel` 再 syncPool 一次，等于把裸调用漏掉的账号补回来 ——
     // 用它断言就永远看不出问题。
-    // ⚠ 还要先清掉磁盘上的渠道层：套件里更早的用例（如 `accounts alpha`）会留下
+    // 还要先清掉磁盘上的渠道层：套件里更早的用例（如 `accounts alpha`）会留下
     // `accounts.json`，不清的话断言读到的是**上一个用例的残留**，永远为真。
     rmSync(join(root, "channels", "alpha"), { recursive: true, force: true });
     rmSync(join(root, "channels", "beta"), { recursive: true, force: true });

@@ -1,5 +1,5 @@
 /**
- * CatPaw 上游客户端：OpenAI 兼容请求 ↔ 妙手 conversation 三段式协议互译。
+ * CatPaw 上游客户端：OpenAI 兼容请求 <-> 妙手 conversation 三段式协议互译。
  *
  * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
  *   - 上游是 round → event → turn 三段式；round + event 由 prepareChat 顺序 await，必须用网关建好的同一 body。
@@ -23,7 +23,7 @@ import * as cred from "./cred.js";
 /**
  * 直连域（对话 / 模型目录）。
  *
- * ⚠ 与 `cred.ts` 的 `GATEWAY_HOST`（网关域）**不是同一侧**：
+ * 与 `cred.ts` 的 `GATEWAY_HOST`（网关域）**不是同一侧**：
  * 直连域鉴权用 `X-Passport-Token` + Cookie；网关域鉴权用 `X-Auth-Token`。
  * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
  */
@@ -32,7 +32,7 @@ const DIRECT_HOST = "https://ai.catpaw.meituan.com";
 /**
  * 默认上游基址（契约要求 `upstream` 模块导出 `DEFAULT_BASE_URL`）。
  *
- * ⚠ 语义是**直连域**；网关域（登录 / 额度）在 `cred.ts` 的 `GATEWAY_HOST`，
+ * 语义是**直连域**；网关域（登录 / 额度）在 `cred.ts` 的 `GATEWAY_HOST`，
  * 两者**同名不同值**，极易误改 —— 引用时务必写清是哪一侧。
  */
 export const DEFAULT_BASE_URL = DIRECT_HOST;
@@ -192,7 +192,7 @@ export interface HeaderOptions {
 /**
  * 从凭据构建上游请求头。
  *
- * ⚠ **`Accept` 按端点区分，不能一刀切**：`turn`（流式对话）必须 `text/event-stream`
+ * **`Accept` 按端点区分，不能一刀切**：`turn`（流式对话）必须 `text/event-stream`
  * （缺了被 406 拒绝）；`round` / `event` / 模型目录必须 `application/json`
  * （发 SSE 会被 500 拒绝）。早期一刀切发 SSE 导致 `round` 直接 500，故参数化
  * 由调用方声明形态。
@@ -494,7 +494,7 @@ function extractEffort(payload: Record<string, unknown>): string {
  * 消息按参考实现折叠成**一条 user 文本**（见文件头「消息折叠」）；工具说明
  * 作为 prompt 尾块注入，上游不认识 OpenAI 的 `tools` / `toolConfigs`。
  *
- * ⚠ 上游是**三段式协议**（round → event → turn），而共享 gateway 层只 POST 一次
+ * 上游是**三段式协议**（round → event → turn），而共享 gateway 层只 POST 一次
  * 到 `chatUrl()`（turn URL）。round + event 由 `prepareChat` 钩子按序 await。
  */
 export function buildChatBody(
@@ -526,7 +526,7 @@ export function buildChatBody(
   // 上下文档位走 declarativeParams.context（body 字段）：优先用目录里**该型号**声明的最大档
   // （上游 `parameterDefinitions[id=context]`，如 glm-5.3 是 800000、deepseek-v4-pro 是 700000），
   // 目录没声明才按渠道默认档位 1M 请求（reference: 204800 / 512000 / 1024000）。
-  // ⚠ 发超过该型号档位的值会被上游拒，所以必须逐型号取。
+  // 发超过该型号档位的值会被上游拒，所以必须逐型号取。
   const context = catalog.contextWindowOf(upstreamModel) || catalog.DEFAULT_CONTEXT_WINDOW;
 
   const conversationId = randomUUID();
@@ -573,7 +573,7 @@ export function buildChatBody(
  * 由网关经 `UpstreamModule.prepareChat` 钩子 `await`（`buildChatBody` 是同步契约，
  * 放不下这段异步顺序；fire-and-forget 又会与 turn 竞争）。
  *
- * ⚠ 参数必须是**网关建好的同一个 body**（同一 conversationId）。绝不能在这里再调一次
+ * 参数必须是**网关建好的同一个 body**（同一 conversationId）。绝不能在这里再调一次
  * `buildChatBody` —— 那会生成新 id，前置指向会话 A、对话指向 B，上游照样报
  * 「会话未在执行中」。
  */
@@ -978,7 +978,7 @@ function eventToSseFrame(event: RawEvent): Buffer {
     case "reasoning":
       return deltaFrame({ reasoning_content: event.text });
     case "usage":
-      // ⚠ OpenAI 的 SSE chunk 里 `choices` 恒为数组；usage-only 帧也必须带空的
+      // OpenAI 的 SSE chunk 里 `choices` 恒为数组；usage-only 帧也必须带空的
       // `choices: []` —— 缺了这个字段，严格校验的客户端（ZCode 等）会整块拒收
       // （实测 `Type validation failed ... choices expected array`）
       return frame({
@@ -990,7 +990,7 @@ function eventToSseFrame(event: RawEvent): Buffer {
         },
       });
     case "error":
-      // ⚠ code 一律转字符串：客户端按 `error.code` 是字符串解析，
+      // code 一律转字符串：客户端按 `error.code` 是字符串解析，
       // 上游给数字时会让客户端解码失败。
       return frame({ error: { message: event.message, code: String(event.code ?? "upstream_error") } });
   }
@@ -1001,7 +1001,7 @@ function frame(payload: Record<string, unknown>): Buffer {
   return Buffer.from(`data: ${JSON.stringify(payload)}\n\n`, "utf8");
 }
 
-/** 工具名归一化：大小写、下划线、连字符都抹平（web_fetch ↔ WebFetch）。 */
+/** 工具名归一化：大小写、下划线、连字符都抹平（web_fetch <-> WebFetch）。 */
 function normalizeToolName(name: string): string {
   return name.toLowerCase().replace(/[_-]/g, "");
 }

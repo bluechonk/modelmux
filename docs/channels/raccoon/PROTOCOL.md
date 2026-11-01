@@ -110,7 +110,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 | `X-Client-Platform` | 固定 `desktop-windows` | 否 | — | 对 `desktop/v1/login/points/grant` **必需**（依据主进程 `desktopDeviceIdentity.js` 的 `resolveDesktopClientPlatform`，`win32` → `desktop-windows`），猜错会被拒 |
 | `X-Client-Version` | ~~固定 `v1.0.35`~~ | 否 | — | **本仓不发**：只随短信登录发出（全仓无其它发送方）；参考实现在签到/grant 链路上带 `v1.0.0` `[参考]`，是否该补待真机验证（见 §8） |
 | `X-Client-Device-ID` | ~~32 位 hex 设备指纹~~ | 否 | — | **本仓不发**：同上，只随短信登录发出；`device_id` 字段随之不再落盘（老凭据里的该字段读到即忽略） |
-| `User-Agent` | 固定 `Raccoon Work/1.0.35 (Windows)` | 否 | — | ⚠ **对话请求实际不带**（只有鉴权端点与模型目录/user_info 带）；参考实现把 UA 做成可配 `[参考]` |
+| `User-Agent` | 固定 `Raccoon Work/1.0.35 (Windows)` | 否 | — | **对话请求实际不带**（只有鉴权端点与模型目录/user_info 带）；参考实现把 UA 做成可配 `[参考]` |
 
 **三种请求形态**（`src/upstream.ts` 的 `buildHeaders` / `jsonHeaders`）：
 
@@ -121,7 +121,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 - **鉴权端点（换码 / 续期）**：`Accept` + `Authorization`（空值）+ `X-Org-Code` +
   `X-Raccoon-Language` + `User-Agent`（+ `Content-Type`）
 
-⚠ 本仓的对话形态比两份参考实现**多发 3 个头**（`X-Org-Code` / `X-Raccoon-Language` /
+本仓的对话形态比两份参考实现**多发 3 个头**（`X-Org-Code` / `X-Raccoon-Language` /
 `X-Client-Platform`）：参考实现各只发 3 个（`Content-Type` / `Accept` / `Authorization`）`[参考]`
 （`reference/agent2api/.../providers/raccoon/mod.rs:122-127`、
 `reference/xiaohuanxiong2api/src/internal/upstream/client.go:103-108`）。
@@ -149,7 +149,7 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 | agent2api | `sid`(hex→十进制) → `iss`(hex→十进制) → `sub`/`id`/`user_id`；其本机实测记录明确说 **`sid` 不是纯 hex（带 `w` 前缀与 `-`），真正命中的是 `iss`** | `reference/agent2api/.../providers/raccoon/jwt.rs:53-78` `[参考]` |
 | xiaohuanxiong2api | `user_id` / `userId` / `uid` / `userID` | `reference/xiaohuanxiong2api/src/internal/upstream/jwt.go:41-78` `[参考]` |
 
-⚠ 本仓**只取原值**、不做 hex→十进制换算（换错了比空值更难排查）`[推断]`；
+本仓**只取原值**、不做 hex→十进制换算（换错了比空值更难排查）`[推断]`；
 真机确认哪个字段才是用户 id 之前不下定论（见 §8）。
 
 **过期时间取值优先级**（`packages/core/channels/raccoon/src/cred.ts:177-190`）：
@@ -192,7 +192,7 @@ body: { "authorization_code": "<回调里的 authorization_code>" }
 **测试 / 脚本注入**：`RACCOON_LOGIN_CALLBACK` 或 login options 的 `callback`；
 本地 HTTP 回调和 `office-raccoon://` 两种 URL 都能解析。
 
-⚠ 旧的「从地址栏复制整条回调 URL 再粘贴」不再是主流程；本地回调自动完成。
+旧的「从地址栏复制整条回调 URL 再粘贴」不再是主流程；本地回调自动完成。
 
 **为什么不用 `/login/mp?code=…`**：那条是**官方手机 App 扫码**专用（官方桌面端的
 二维码、网站自己的微信登录二维码都用它），但网页端**没有该路由** —— 真实浏览器
@@ -215,7 +215,7 @@ body: { "refresh_token": "<refresh_token>" }
 **单飞 + 比较写回**（`src/cred.ts` 的 `refresh`）：
 
 - **单飞**：同一 `refresh_token` 的并发续期**只发一次**上游请求，其余等待同一结果。
-  ⚠ 上游的 refresh_token **会轮换**，两次并发里后到的会把先到的作废 ⇒ 账号变不可续期
+  上游的 refresh_token **会轮换**，两次并发里后到的会把先到的作废 ⇒ 账号变不可续期
   `[参考]`（`reference/agent2api/.../providers/raccoon/credentials.rs:504-545`）。
   单飞 key 是 refresh_token 的 SHA-256 指纹（截断 16 hex）——**明文不进 key、不打印**。
 - **比较写回**：写回前先读磁盘；盘上的 refresh_token 已不是刷新前那份（用户重登 /
@@ -282,7 +282,7 @@ X-Raccoon-Language: zh
 X-Client-Platform: desktop-windows
 ```
 
-⚠ 对话请求**不带** `User-Agent`（只有鉴权端点与模型目录/user_info 带），
+对话请求**不带** `User-Agent`（只有鉴权端点与模型目录/user_info 带），
 也**不带** `X-Client-Version` / `X-Client-Device-ID`（后者随短信路径移除）。
 
 ### 3.3  思考控制的完整实测结论（upstream.ts 的 buildChatBody）
@@ -371,7 +371,7 @@ RACCOON_EFFORT_OFF = 'off'   → extra_body.thinking = { type: 'disabled' }
 
 空闲超时：首 token / chunk 间隔各 120_000 ms（上游协议值）。
 
-⚠ **网关侧的首帧等待放宽到 180_000 ms**（`upstream.idleTimeoutMs()`，
+**网关侧的首帧等待放宽到 180_000 ms**（`upstream.idleTimeoutMs()`，
 `packages/core/channels/raccoon/src/upstream.ts`）：长上下文首字很慢 —— 实测
 313 条消息 / 19 万 prompt token 的请求首字 105 秒、1106 条 / 46 万 token 的
 99 秒，同期成功请求耗时 62–115 秒，**正好卡在共享层 120 秒线上**，慢几秒就被掐成
@@ -504,7 +504,7 @@ def raccoon_supports_image(model_id, tags):
 2. **渠道已知规格表**（本节）—— 上游**没下发**时兜底；
 3. **网关兜底值**（200000 / 65536）—— 两者都没有。
 
-⚠ **上游声明的其实是「平台配额」而非逐型号规格**（2026-10-20 实测）：
+**上游声明的其实是「平台配额」而非逐型号规格**（2026-10-20 实测）：
 4 个型号（`glm-5.3` / `kimi-k3` / `glm-5.3-flash` / `deepseek-v4.1-flash`）
 一律是 `1_000_000` / `100_000`，只有 `sensenova-6.8-flash(-lite)` 是
 `256_000` / `63_999`。故 `/v1/models` 报的是**这条渠道实际能给的上限**
@@ -652,7 +652,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 | --- | --- | --- |
 | `raccoon/sn-glm-5-3-flash`（文档中亦记作 `glm-5.3-flash`） | **本渠道倍率最低**（原价 0.2 → 生效 0.1），自动化测试首选 | `[实测]` |
 | `raccoon/sn-sensenova-6-8-flash` / `sn-sensenova-6-8-flash-lite` | 原价 0.5 → **生效 0（免费）**，可作免费档备选 | `[实测]` |
-| `raccoon/sn-glm-5-3` | 倍率 0.75；⚠ 上游**节点不一致**（3 次里只对 1 次），见「已知边界」V10 | `[实测]` |
+| `raccoon/sn-glm-5-3` | 倍率 0.75；上游**节点不一致**（3 次里只对 1 次），见「已知边界」V10 | `[实测]` |
 
 ### 已知限制与账号坑
 

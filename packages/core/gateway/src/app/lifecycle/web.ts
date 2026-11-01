@@ -35,7 +35,7 @@ export async function runWeb(options: WebOptions = {}): Promise<number> {
 
   // 复用 `start` 的幂等语义：未跑则拉起（受 auto_start 约束），已跑则直接返回。
   //
-  // ⚠ **网关起没起来都照样把地址给出来**：`mx web` 的职责是「给一个能访问的控制台地址」，
+  // **网关起没起来都照样把地址给出来**：`mx web` 的职责是「给一个能访问的控制台地址」，
   //   不是「保证网关健康」—— 未登录、worker 启动失败、健康检查超时都可能发生，
   //   而页面本身会显示控制台自己的骨架与状态，比让命令直接失败有用得多（2026-10-29 主人要求）。
   await daemon.start({ addr, quiet: options.quiet ?? false, auto: false });

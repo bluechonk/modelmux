@@ -19,7 +19,7 @@ const DEFAULT_FUNCTION = "solo_work_lite";
 /**
  * 通道白名单（15 个，顺序即优先级）。
  *
- * ⚠ 可用 `TRAE_CHANNELS`（逗号分隔）覆盖整张表 —— 上游调整通道时不必改代码。
+ * 可用 `TRAE_CHANNELS`（逗号分隔）覆盖整张表 —— 上游调整通道时不必改代码。
  */
 const DEFAULT_CHANNEL_WHITELIST: string[] = [
   "solo_agent",
@@ -78,11 +78,11 @@ interface ModelEntry {
 /**
  * 已知模型规格（上下文窗口 / 单次回复最大输出）。
  *
- * ⚠ 键是**归一后的规范模型名**（`DeepSeek-V4-Flash-Official` → `deepseek-v4-flash`、
+ * 键是**归一后的规范模型名**（`DeepSeek-V4-Flash-Official` → `deepseek-v4-flash`、
  * `Doubao-Seed-2.1-Pro` → `doubao-seed-2.1-pro`）。
- * ⚠ `qwen-3.7-plus` 在本文写作 `qwen3.7-plus`（同一个模型，键按本渠道的规范名）。
+ * `qwen-3.7-plus` 在本文写作 `qwen3.7-plus`（同一个模型，键按本渠道的规范名）。
  *
- * ⚠ **不列**官方未公开数值的型号（`doubao-seed-code` / `doubao-seed-2.0-code` /
+ * **不列**官方未公开数值的型号（`doubao-seed-code` / `doubao-seed-2.0-code` /
  * `glm-5-turbo` / `sagitta` / `aquila` / 各 `custom_model_*` 等）——
  * 见 `docs/channels/traecn/PROTOCOL.md` §5.4「留空」；不编造数字。
  *
@@ -115,8 +115,8 @@ const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTok
 /**
  * Max 模式（1M 上下文）成套下发时的**窗口兜底**。
  *
- * ⚠ 上游目录没声明窗口时用它（`context_window_size` 必须成套下发，见 upstream.ts）。
- * ⚠ **只给请求体用** —— 目录条目里的 `context_window` 只写上游声明，不写这个估值。
+ * 上游目录没声明窗口时用它（`context_window_size` 必须成套下发，见 upstream.ts）。
+ * **只给请求体用** —— 目录条目里的 `context_window` 只写上游声明，不写这个估值。
  */
 export const FALLBACK_CONTEXT_WINDOW = 200_000;
 
@@ -128,12 +128,12 @@ export const FALLBACK_CONTEXT_WINDOW = 200_000;
  * 1. **目录**：`context_window` / `max_output` 是上游**真实声明**的值（Remote 目录的
  *    `context_window_tokens`、Solo 目录的 `model_detail_list`）—— 上游声明最权威
  *    （三层取值链见 `docs/MODEL-SPECS.md` §0：上游声明优先）。
- *    ⚠ **只认远端目录**：内置兜底表里没有声明（0），不算数。
+ *    **只认远端目录**：内置兜底表里没有声明（0），不算数。
  * 2. **规格表**：上游没声明的字段按**公开规格**补（`docs/channels/traecn/PROTOCOL.md` §5.4）——
  *    Remote 目录**不下发输出上限**，故绝大多数型号的输出上限来自这张表。
  * 3. 都没有 → 返回 undefined（= 未知，回落网关兜底值，不编造）。
  *
- * ⚠ **查不到返回 undefined**（不编造数字）。
+ * **查不到返回 undefined**（不编造数字）。
  */
 export function modelSpec(
   modelId: string,
@@ -193,7 +193,7 @@ const FALLBACK_NAMES: Array<[string, boolean]> = [
 /**
  * 内置兜底模型表（**只有 id**，不带窗口 / 输出上限）。
  *
- * ⚠ 窗口与输出上限**不写估值**：内置表不是上游声明，写了就会挡住公开规格
+ * 窗口与输出上限**不写估值**：内置表不是上游声明，写了就会挡住公开规格
  * （`modelSpec` 钩子）—— 数值一律由 `modelSpec` 按公开规格给。
  */
 const FALLBACK_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
@@ -230,9 +230,9 @@ function numberOr(value: unknown, fallback: number): number {
 /**
  * 目录里**上游声明**的上下文窗口（`context_window_tokens{dev,max}`）。
  *
- * ⚠ 取两档的**较大者**：档位表报的是**能力上限**（与共享层「档位表取上限」一致）——
+ * 取两档的**较大者**：档位表报的是**能力上限**（与共享层「档位表取上限」一致）——
  * 只报 `dev`（默认档）会把 1M 档的模型误判成 200k。
- * ⚠ 上游没声明 → 0（= 未声明），不写渠道估值。
+ * 上游没声明 → 0（= 未声明），不写渠道估值。
  */
 function declaredContextWindow(value: unknown): number {
   const windows = isRecord(value) ? value : {};
@@ -308,7 +308,7 @@ function parseConfigEntry(functionName: string, raw: unknown): ModelEntry | null
   const contextWindow = declaredContextWindow(raw["context_window_tokens"]);
 
   // model_detail_list 的 __dev / __max 后缀区分档位明细
-  // ⚠ 上游没给 __dev 明细时输出上限算**未声明**（0）—— 不写渠道估值，
+  // 上游没给 __dev 明细时输出上限算**未声明**（0）—— 不写渠道估值，
   // 否则估值会挡住公开规格（见 modelSpec）。
   let maxOutput = 0;
   let maxMaxTokens: number | undefined;
@@ -330,7 +330,7 @@ function parseConfigEntry(functionName: string, raw: unknown): ModelEntry | null
     ? reasoning["options"].filter((o): o is string => typeof o === "string" && o.length > 0)
     : [];
   const defaultLevel = nonEmpty(reasoning["default_level"]);
-  // ⚠ 默认档采信上游 default_level，但它可能不在 options 里（实测下发 'max'）——
+  // 默认档采信上游 default_level，但它可能不在 options 里（实测下发 'max'）——
   // 此时必须退到最强档（options 末位，键序即强度序），不能照抄。
   const defaultEffort = efforts.length
     ? efforts.includes(defaultLevel)
@@ -460,14 +460,14 @@ function rateFromFeatures(features: unknown): number | undefined {
  * `{data:{list:[{function, models:[{name,…}]}]}}` —— 三组模型按载荷里的组序合并，
  * 同名后不覆盖前（**先出现的组胜出**；实测载荷顺序是 design → work → agent）。
  *
- * ⚠ **上下文窗口取各组声明的最大值**：同一个模型在三组里的窗口档位不同
+ * **上下文窗口取各组声明的最大值**：同一个模型在三组里的窗口档位不同
  * （实测 `Doubao-Seed-2.1-Pro`：`solo_design_remote` 232768 / `solo_work_remote`
  * 256000 / `solo_agent_remote` 256000 **+ max 档 1000000**），
  * 只取先出现的那组会丢掉 1M 档 —— 对客户端报**能力上限**更准
  * （与共享层「档位表取上限」一致）。
- * ⚠ 通道（`function`）等其余字段仍取**先出现**的那组（改动会改变请求路由）。
+ * 通道（`function`）等其余字段仍取**先出现**的那组（改动会改变请求路由）。
  *
- * ⚠ Remote 目录**不下发输出上限** ⇒ `max_output` = 0（未声明），
+ * Remote 目录**不下发输出上限** ⇒ `max_output` = 0（未声明），
  * 数值由 `modelSpec` 按公开规格补。
  */
 function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
@@ -524,7 +524,7 @@ function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
  * 对新账号通常已 2001，仅对老账号兜底）。
  */
 export async function refresh(): Promise<void> {
-  // 动态 import：避免 catalog ↔ upstream/cred 的静态环
+  // 动态 import：避免 catalog <-> upstream/cred 的静态环
   const [upstream, cred] = await Promise.all([import("./upstream.js"), import("./cred.js")]);
   const c = cred.load();
   try {
@@ -628,7 +628,7 @@ function loadCatalog(): ModelEntry[] {
 /**
  * **远端**目录条目（磁盘缓存 / `mergeRemote` 灌入的那份）。
  *
- * ⚠ **不含**内置兜底表与 models.json 快照 —— 那两份不是上游声明，
+ * **不含**内置兜底表与 models.json 快照 —— 那两份不是上游声明，
  * 里面的数值只是估值，不能当「上游声明」用（见 `modelSpec` 的优先级）。
  */
 function remoteEntries(): ModelEntry[] {
@@ -686,7 +686,7 @@ export function entryFor(name: string): ModelEntry | null {
 /**
  * 供状态页/UI 使用的目录详情。
  *
- * ⚠ 窗口 / 输出上限报**生效值**：上游声明优先，其次公开规格（`modelSpec`）——
+ * 窗口 / 输出上限报**生效值**：上游声明优先，其次公开规格（`modelSpec`）——
  * 与 `/v1/models` 的口径一致（上游没声明时目录条目里是 0）。
  */
 function details(): Array<Record<string, unknown>> {

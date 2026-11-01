@@ -177,7 +177,7 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 
 实现见 `scripts/gate.sh`（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
-⚠ **真正不可绕过的是 CI**：钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意），
+**真正不可绕过的是 CI**：钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意），
 CI 不能 —— `main` 有分支保护，合并前 `test (node 22)` / `test (node 24)` 必须双绿。
 
 > 为什么不挂 `pre-commit`：门禁要干净 clone + `npm ci` + 全链测试（约 3 分钟），挂在每次提交上
@@ -193,7 +193,7 @@ git config core.hooksPath .githooks     # 幂等，与 prepare 等效
 git config --get core.hooksPath         # 应为 .githooks
 ```
 
-⚠ 一旦接上，**每次 `git push` 都会先跑一遍完整门禁**（干净 clone → `npm ci` → `npm test`，
+一旦接上，**每次 `git push` 都会先跑一遍完整门禁**（干净 clone → `npm ci` → `npm test`，
 约数分钟）。这是本仓的刻意设计：门禁要拦住推送，而不是等 CI 事后发现。
 
 ### 为什么必须 clone 到干净目录

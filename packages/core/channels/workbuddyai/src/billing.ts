@@ -245,7 +245,7 @@ import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
  *   → 轮询到 `completed`（`wb_accounts.py:34-37`、`:1452-1666`、
  *   `wb_webagent.py:221`）。**本渠道未实现**那条路。
  *
- * ⚠ 故这里**不**去打 `/billing/meter/daily-checkin`（国际版只会 404），
+ * 故这里**不**去打 `/billing/meter/daily-checkin`（国际版只会 404），
  *   渠道的真实签到能力改由 `channel.ts` 的 `capabilities.signin: false` 声明：
  *   共享层据此显示 `-`、跳过本模块，自动签到也不再来问。
  *   本模块保留只为满足 `SigninModule` 契约（共享层不特判渠道），

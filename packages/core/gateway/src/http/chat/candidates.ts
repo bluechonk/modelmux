@@ -23,7 +23,7 @@ export function activeKeyOf(cid: string): string | undefined {
 /**
  * 池路由一次请求最多尝试几个候选渠道。
  *
- * ⚠ 现行池 id 形态是 `<cid>/<规范模型名>`：**渠道由请求方在 id 前缀里显式指定**，
+ * 现行池 id 形态是 `<cid>/<规范模型名>`：**渠道由请求方在 id 前缀里显式指定**，
  * `poolCandidates()` 因此**最多返回 1 条**候选（见 `pool/pool-targets.ts`），
  * 这个上限当下不会成为约束 —— 保留它是为了将来「同模型多渠道」形态回归时仍有兜底。
  * `MODELMUX_POOL_MAX_TRIES` 可覆盖。
@@ -42,7 +42,7 @@ export function maxPoolAttempts(): number {
  * `poolCandidates()` 已按注册顺序返回，而 `Array.prototype.sort` 稳定，
  * 所以并列时天然保持注册顺序 —— 不需要额外的 tie-break 字段。
  *
- * ⚠ 现行池 id 钉死渠道后候选**至多一条**，排序实际是空操作；
+ * 现行池 id 钉死渠道后候选**至多一条**，排序实际是空操作；
  * 账本用量现在只用于**池视图展示排序**（`mx model list` / 控制台），不决定路由去向。
  */
 export function rankCandidates<T extends { cid: string }>(candidates: T[]): T[] {
