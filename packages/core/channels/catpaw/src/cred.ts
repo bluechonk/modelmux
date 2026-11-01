@@ -26,7 +26,7 @@ const {
 /**
  * 个人版网关域（登录 / 额度）。
  *
- * ⚠ 与 `upstream.ts` 的 `DIRECT_HOST`（直连域）**不是同一侧**：
+ * 与 `upstream.ts` 的 `DIRECT_HOST`（直连域）**不是同一侧**：
  * 网关域鉴权用 `X-Auth-Token`，直连域鉴权用 `X-Passport-Token` + Cookie。
  * 两侧共用同一个 access_token（都出自 passport poll-token），但**头语义不同**。
  */
@@ -78,7 +78,7 @@ function authPingUrl(): string {
 /**
  * `redirect` 参数里用的回调路径。
  *
- * ⚠ 我们**不再监听**这个端口：它只是网关的必填参数（实测缺了 400），
+ * 我们**不再监听**这个端口：它只是网关的必填参数（实测缺了 400），
  * token 一律从 `poll-token` 取。留着常量是为了 URL 形态与桌面端一致。
  */
 const CALLBACK_PATH = "/callback";
@@ -151,7 +151,7 @@ const EMPTY_CREDENTIALS: Credentials = {
 /**
  * 默认登录基址（catpaw 无独立登录域，登录走 passport 网关）。
  *
- * ⚠ 契约要求 `cred` 模块导出 `DEFAULT_BASE_URL`（共享层 `auth/auth-flow.ts` 读它做登录），
+ * 契约要求 `cred` 模块导出 `DEFAULT_BASE_URL`（共享层 `auth/auth-flow.ts` 读它做登录），
  * 语义固定为**网关域**。直连域在 `upstream.ts` 的 `DIRECT_HOST` —— 两者**同名不同值**，
  * 引用时务必写清是哪一侧。
  */
@@ -310,7 +310,7 @@ async function fetchCurrentUser(token: string): Promise<{ uid: string; nickname:
     let uid = "";
     // 字段名以参考实现为准（userId）；其余为历史/变体写法。
     //
-    // ⚠ 不能直接用共享的 `str()`：它只认字符串，而上游实测返回的是**数字**
+    // 不能直接用共享的 `str()`：它只认字符串，而上游实测返回的是**数字**
     //   （`"userId": 1234567890`，数字形态）—— 用 `str()` 会把 uid 静默丢成空串，
     //   账号池随即退化成按 token 建键（同一账号登录两次记成两条）。
     for (const key of ["userId", "uid", "user_id", "id"]) {
@@ -411,7 +411,7 @@ export async function login(baseUrl: string, options: LoginOptions = {}): Promis
  * - `2xx/3xx` → 仍有效，原样返回
  * - 其它（5xx / 网络错误）→ **临时故障**，也返回原凭据
  *
- * ⚠ 早期实现无条件抛错，等于把「上游抖了一下」也判成「需要重新登录」，
+ * 早期实现无条件抛错，等于把「上游抖了一下」也判成「需要重新登录」，
  * 网关的 401 失败转移（failover）会因此把好账号踢出轮换。区分依据来自参考实现
  * （`catpaw2api` 的 `Ping()`：只有 401/403 才算失效）。
  */

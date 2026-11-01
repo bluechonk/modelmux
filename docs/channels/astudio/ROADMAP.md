@@ -24,7 +24,7 @@
 
 ### 0.1 第 1 项：**结论已反转** —— 不是架构不可行，是**之前测错了路径**
 
-⚠ 本文档 2026-10-26 上午的版本写「登录端点只存在于本地服务代理层、
+本文档 2026-10-26 上午的版本写「登录端点只存在于本地服务代理层、
 架构上无法独立调用」。**那是错的**：`/api/astron-auth/*` 是桌面应用
 **本地服务代理层**的前缀，云端账号 API 的路径**没有这个前缀**。
 
@@ -63,7 +63,7 @@
 | `packages/core/gateway/src/app/cli/channel.ts` | 新增 `logout` 动词（接上 `purgeCredentials`，此前是死代码） |
 | `docs/MODEL-SPECS.md` | 不登记渠道章节 —— 该文件只描述全局规格文件（`model-specs.json`）与取值链；astudio 的逐型号规格落在 `catalog.modelSpec()` |
 
-### ⚠️ 动手前必须先定的两个前提
+### 动手前必须先定的两个前提
 
 **前提 A：渠道允许依赖 AStudio 桌面应用常驻吗？**
 
@@ -248,7 +248,7 @@ const label = account.label?.trim() ?? "";
 2. **脱敏**：确认 UI 该显示什么。建议 `name` 字段**存脱敏后的值**
    （如 `138****0000`），让 `displayName()` 命中 `name` 分支时也是脱敏的 ——
    这样才与 `packages/ui/src/components/AccountCard.tsx:151` 的承诺一致。
-   ⚠ 注意别和池层 `label` 的既有语义打架（label 本来就是脱敏形态）。
+   注意别和池层 `label` 的既有语义打架（label 本来就是脱敏形态）。
 3. **拉账号信息**：调用 `GET /xingchen-studio/userInfo`（Cookie 认证，PROTOCOL §4.2），
    拿 `uid` / `mobile` / `nickname`（实测为 null）/ `avatarColor` 等，落进 `Credentials`。
    —— 顺带解决「会话文件没有 nickname 键」的问题。
@@ -295,8 +295,7 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 **astudio 没实现 `upstream.refreshIfExpired`** → 无「到期前主动续期」。
 
-### 现状：重授权流程实际是死结 ⚠️
-
+### 现状：重授权流程实际是死结
 - `packages/core/channels/astudio/src/cred.ts:255-262` `login()` 第一步就 `load()`，成功则
   `onStatus?.("reusing the existing AStudio credentials")` 并**直接返回旧凭据**
 - 共享层 `packages/core/gateway/src/app/lifecycle/headless.ts:374-400`：
@@ -312,7 +311,7 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
      `relogin()`），由共享层在 `force=true` 时调用；
    - b) 共享层侧：`ensureLogin` 在 `force=true` 且渠道声明「可重读外部凭据」时，跳过
      `cred.load()` 短路直接调 `cred.login()`。
-   ⚠ 共享层改动影响所有渠道，**优先选 a**。
+   共享层改动影响所有渠道，**优先选 a**。
 2. **实现 `upstream.refreshIfExpired`**：让凭据在到期前主动续期
    （`cred.ts` 的 `expiresAt` 目前恒 `null` —— 会话文件没有到期字段，
    只能靠「定期探测 /usage 或 models/configs 是否 401」判断）。
@@ -347,9 +346,9 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 | 函数 | 行为 | 是否被调用 |
 | --- | --- | --- |
-| `removeAccount()`（`:454-481`） | 删 `accounts/<key>.json`；**若删的是生效账号，同时 `rmSync(credentialsPath(cid))`**（`:470`）→ 事实上的「本地登出」 | ✅ Web「删除生效账号」按钮 → `http/console/web-command-handler.ts:174-178` |
-| `purgeCredentials()`（`:493-507`） | 清 `credentials.json` + 池内全部账号 | ✅ `mx logout <cid>` 动词（`runLogoutVerb`） |
-| 鉴权失败路径 | `auth/auth-flow.ts:98-102` refresh 失败时 `unlinkSync(credentialsPath(cid))` | ✅ |
+| `removeAccount()`（`:454-481`） | 删 `accounts/<key>.json`；**若删的是生效账号，同时 `rmSync(credentialsPath(cid))`**（`:470`）→ 事实上的「本地登出」 | Web「删除生效账号」按钮 → `http/console/web-command-handler.ts:174-178` |
+| `purgeCredentials()`（`:493-507`） | 清 `credentials.json` + 池内全部账号 | `mx logout <cid>` 动词（`runLogoutVerb`） |
+| 鉴权失败路径 | `auth/auth-flow.ts:98-102` refresh 失败时 `unlinkSync(credentialsPath(cid))` | |
 
 **上游 token 不会被吊销**：删本地文件后，AStudio 桌面应用里的会话与云端
 `token` / `ssoSessionId` 仍然有效（桌面应用自己会继续用它），`modelBearerToken` 也未在上游注销。
@@ -358,7 +357,7 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 1. **上游登出**：走本地服务代理 `POST /api/astron-auth/logout`（需前提 A 成立）。
    副作用：会同时删掉 AStudio 桌面应用的会话 —— 这是**期望行为**（用户要登出）。
-   ⚠ 需实测：登出后能否再登录（会不会把应用也踢出登录态）。
+   需实测：登出后能否再登录（会不会把应用也踢出登录态）。
 2. **（已完成）本地凭证销毁**：渠道提供「销毁本渠道凭据」的能力（`cred.logout()`），
    `purgeCredentials()` 已由 `mx logout <cid>` 接线（不再是死代码）。
 3. **（已完成）共享层加 `logout` 动词**：`CHANNEL_VERBS` 现含 `logout`，Web 端按钮走 `removeAccount` 仍有等价效果。
@@ -401,10 +400,10 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
 
 | 字段 | 对外是否生效 | 机制 |
 | --- | --- | --- |
-| contextWindow | ✅ | `packages/core/channels/astudio/src/catalog.ts` 的 `modelSpec()` → 池层 `facts.spec?.contextWindow` → `/v1/models` 的 `context_window`，`meta_sources="spec"` |
-| maxOutputTokens | ✅ | 同上 → `max_output_tokens` |
-| **思考档位** | ✅ | `modelSpec()` 返回 `effort` → 池层 `facts.spec?.effort`（`packages/core/gateway/src/pool/pool-targets.ts` 读 `spec?.effort`） |
-| **倍率** | ✅ | `modelSpec()` 返回 `multiplier` → 池层 `facts.spec?.multiplier`（`packages/core/gateway/src/pool/pool-targets.ts` 读 `spec?.multiplier`） |
+| contextWindow | | `packages/core/channels/astudio/src/catalog.ts` 的 `modelSpec()` → 池层 `facts.spec?.contextWindow` → `/v1/models` 的 `context_window`，`meta_sources="spec"` |
+| maxOutputTokens | | 同上 → `max_output_tokens` |
+| **思考档位** | | `modelSpec()` 返回 `effort` → 池层 `facts.spec?.effort`（`packages/core/gateway/src/pool/pool-targets.ts` 读 `spec?.effort`） |
+| **倍率** | | `modelSpec()` 返回 `multiplier` → 池层 `facts.spec?.multiplier`（`packages/core/gateway/src/pool/pool-targets.ts` 读 `spec?.multiplier`） |
 
 ### 缺口 1（已修，2026-10-26）：思考档位曾对外恒 `null`
 
@@ -457,7 +456,7 @@ astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels
    `runtime/channel.ts` 的 `modelSpec?` 契约同时带上 `effort?` 与 `multiplier?`，
    池层 `packages/core/gateway/src/pool/pool-targets.ts` 读 `facts.spec?.effort` / `facts.spec?.multiplier`。
    （路线 b「让 astudio 写目录缓存」与路线 c「新增目录元数据钩子」均未采纳。）
-   ⚠ **当时待核的倍率数字（1/1/1/1/2/2/1）已核实**：云端 `/bot/models/configs`
+   **当时待核的倍率数字（1/1/1/1/2/2/1）已核实**：云端 `/bot/models/configs`
    只有 `xopglm52` / `xopdeepseekv4pro` 两行有 `point_multiplier`（均 x2.0），
    其余 5 个云端没有对应行 → 一律**省略**（`undefined`，不编造 1）。见 [PROTOCOL.md](./PROTOCOL.md) §6.2。
 2. **（已消解）补 `docs/MODEL-SPECS.md` 的 astudio 章节** —— 该文件已改为只描述全局规格
@@ -481,7 +480,7 @@ astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels
 - `chatUrlForModel(model)`（`packages/core/channels/astudio/src/upstream.ts`）→
   **按模型**取云端配置里那行的 `base_url` + `/chat/completions`
   （共享层新增的可选钩子 `UpstreamModule.chatUrlForModel?`）。
-- ⚠ 此前硬编码 `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
+- 此前硬编码 `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
   —— **实测对所有模型 404**（`API endpoint not found`）。
   真正的主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`（9 个模型里 8 个走它，
   只有 `spark-x` 走 `spark-api-open.xf-yun.com/agent/v1`）。详见 PROTOCOL §6.1。
@@ -537,7 +536,7 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 | `POST /client-popups/complete` | 关横幅（**不发积分**） |
 | `POST /client-download-reward/claim` | 一次性下载奖励 |
 
-⚠ 弹窗类端点**必须带客户端头**（`clientType: 21` / `studioVersion: 3.4.4` /
+弹窗类端点**必须带客户端头**（`clientType: 21` / `studioVersion: 3.4.4` /
 `User-Agent: AStudio/3.4.4`），否则回 `code=11001001 客户端平台、版本或构建号无效`。
 
 ### 缺口

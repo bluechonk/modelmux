@@ -119,7 +119,7 @@ type UpstreamErrorKind =
 /**
  * 业务码 → 处置类别。
  *
- * ⚠ 这些码**不总是配 429**：上游会把限流包在 HTTP 200 或 400 里返回，只看状态码
+ * 这些码**不总是配 429**：上游会把限流包在 HTTP 200 或 400 里返回，只看状态码
  * 的实现会把它落到「不可重试」（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1949-1952）。
  */
 const BUSINESS_CODE_KINDS: Record<number, UpstreamErrorKind> = {
@@ -354,7 +354,7 @@ export function classifyUpstreamError(
  * 401；归一成鉴权失败后，共享层会先刷新令牌重试一次、再把账号标为不可用 ——
  * 这正是「需要重登」的处置（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1874、:2270-2300）。
  *
- * ⚠ 只对 4xx 且非 401/403 的响应调用；`11128`（指纹）**不**算鉴权失败 ——
+ * 只对 4xx 且非 401/403 的响应调用；`11128`（指纹）**不**算鉴权失败 ——
  * 它要靠请求体改写解决，换令牌没用。
  */
 export function isAuthFailure(status: number, body: string): boolean {
@@ -367,7 +367,7 @@ export function isAuthFailure(status: number, body: string): boolean {
  * 上游在 HTTP 200 的流里投一条业务错误帧表示「模型在排队」（码 6020-6022），
  * 帧里带 `retryAfterSeconds`。
  *
- * ⚠ 共享层目前只对 `WIRE === "custom"` 的渠道查这个钩子；本渠道是 `openai` 线型，
+ * 共享层目前只对 `WIRE === "custom"` 的渠道查这个钩子；本渠道是 `openai` 线型，
  * 故该钩子**当前不会被调用**（保留接口，等共享层放开）。
  */
 export function isQueueError(frame: Record<string, unknown>): boolean {
@@ -393,11 +393,11 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
  * （`docs/channels/workbuddyai/PROTOCOL.md:569-573`）。两渠道同属腾讯 CodeBuddy、
  * 业务码与文案同族，故按账户级处理。
  *
- * ⚠ 若按「模型级」只冷却单个模型，用户换一个模型会立刻再撞同一个限额，且账号级冷却
+ * 若按「模型级」只冷却单个模型，用户换一个模型会立刻再撞同一个限额，且账号级冷却
  * 会被反复触发 —— 比误冷却更糟。共享层对 `usage_limit` 一律冷却账号、**不计连败**
  * （额度耗尽不是故障，窗口刷新自然恢复）。
  *
- * ⚠ 业务码 `6004` / `6008` 只能出现在**渠道包**里；共享层只认通用措辞
+ * 业务码 `6004` / `6008` 只能出现在**渠道包**里；共享层只认通用措辞
  * （见 `packages/core/gateway/src/http/chat/errors.ts`）。
  */
 export function quotaSignal(status: number, body: string): QuotaSignal | null {
@@ -485,7 +485,7 @@ export interface Config {
  * 凭据的最小面。
  *
  * 刻意只声明这几个字段而不是 import `cred.Credentials` —— 那会形成
- * upstream ↔ cred 的循环依赖。
+ * upstream <-> cred 的循环依赖。
  */
 interface AuthLike {
   accessToken: string;
@@ -632,9 +632,9 @@ function ensureSlash(value: string): string {
  * | 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | 无 query；body 带分页与 `ProductCode` |
  * | 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
  *
- * ⚠ `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
+ * `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
  * chat 路径加它实测 404（见文件头注释）。
- * ⚠ 计费域在参考实现里是**另一个 host**（`www.codebuddy.cn`，go
+ * 计费域在参考实现里是**另一个 host**（`www.codebuddy.cn`，go
  * `internal/upstream/client.go:875`）；本渠道实测复用 chat base 可通，**未分离**
  * —— 登记在 `docs/channels/workbuddy/PROTOCOL.md`「已知边界」。
  */
@@ -711,7 +711,7 @@ export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string,
   headers[headerName] = `Bearer ${credential.accessToken}`;
 
   // 账号域：有域发 X-Domain，没域发 X-No-Department-Info（两者互斥）。
-  // ⚠ 正常登录的凭据恒带域（`cred.login` 落盘时已兜底成 chat 上游 host），
+  // 正常登录的凭据恒带域（`cred.login` 落盘时已兜底成 chat 上游 host），
   // 只有手写的旧凭据才会落到 X-No-Department-Info 分支。
   const domain = credential.domain;
   if (domain) {
@@ -912,7 +912,7 @@ interface CatalogRow {
   /**
    * 输入模态数组（如 `["text","image"]`）。
    *
-   * ⚠ 上游 `/v3/config` 目前**不下发**这个字段（2026-10-20 实测：`models[]` 只有
+   * 上游 `/v3/config` 目前**不下发**这个字段（2026-10-20 实测：`models[]` 只有
    * `supportsImages`）；这里带着是为了上游哪天改用数组形态时不丢字段 ——
    * `catalog.parseRow` 判「能不能吃图」时数组形态优先于布尔开关。
    */
@@ -1145,7 +1145,7 @@ function parseCatalogPayload(payload: unknown): CatalogRow[] {
   pool.sort((a, b) => b.ids.length - a.ids.length);
 
   // 排序基准：cli/最长 agent 的裸 id 列表；**型号集合取 `models[]` 全量**。
-  // ⚠ agent 列表只能当排序基准，不能当白名单 —— 否则 `models[]` 里不在 agent 列表的型号
+  // agent 列表只能当排序基准，不能当白名单 —— 否则 `models[]` 里不在 agent 列表的型号
   // 会被整条丢掉，让窄表的旧值补位（实测：池内 `kimi-k2.5` 报 164000 而真目录是 256000）。
   const ordered: string[] = [];
   const orderedSeen = new Set<string>();

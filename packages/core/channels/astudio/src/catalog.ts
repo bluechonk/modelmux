@@ -20,7 +20,7 @@ export interface ModelSpec {
   /**
    * 消耗倍率（云端 `point_multiplier` 实测值）；**`undefined` = 未知**。
    *
-   * ⚠ 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 2026-10-26：9 行里
+   * 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 2026-10-26：9 行里
    * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上；云端改配置后需重测）。给对不上的模型填 `1`
    * 是**无源填 1**（客户端会按它算钱）—— 必须省略为 `undefined`
    * （倍率要么实测、要么未知，绝不编造）。
@@ -42,10 +42,10 @@ export interface ModelSpec {
  *   （`model` 与 `point_multiplier` 字段，9 行）；
  * - `contextWindow` / `maxOutputTokens`：应用内置 `model-gateway/catalog-<hash>.json`。
  *
- * ⚠ `xopdeepseekv4pro` 与 `xopdeepseekv4pro0813` 网关**都接受**（实测 200），
+ * `xopdeepseekv4pro` 与 `xopdeepseekv4pro0813` 网关**都接受**（实测 200），
  *   本表取无日期后缀的那个（与云端配置的 `model` 字段一致）。
  *
- * ⚠ **倍率只有 2 个模型有实测值**（`xopglm52` 与 `xopdeepseekv4pro`，均 `x2.0`）。
+ * **倍率只有 2 个模型有实测值**（`xopglm52` 与 `xopdeepseekv4pro`，均 `x2.0`）。
  *   其余 5 个在云端**没有对应行**（`spark-x2.6` / `spark-x2.6-4b` / `spark-x2.5` /
  *   `xopdsv4flash0731in` 都不在云端那 9 行里，`astronclaw-auto` 的
  *   `point_multiplier` 为 `null`）→ 一律 `undefined`，池层显示「免费」（订阅制口径）
@@ -156,13 +156,13 @@ export function resolveModel(name: string): string {
  *
  * 查表前先小写化；**查不到返回 `undefined`（不编造）**。
  *
- * ⚠ 思考档位**必须透出**：池层的四层回落依赖 `modelSpec()` 的 `effort`，
+ * 思考档位**必须透出**：池层的四层回落依赖 `modelSpec()` 的 `effort`，
  * 缺了它 `/v1/models` 的 `effort` 恒 `null`、Web「思考模式」列全显示「不支持」。
  * 档位表本身是**内置目录实测**的（B 级），
  * 在渠道内部一直生效（`upstream.buildChatBody` 用它校验 `reasoning_effort`），
  * 只是没对外说。
  *
- * ⚠ 倍率只填**云端实测**的那 2 个（`xopglm52` / `xopdeepseekv4pro` = x2.0），
+ * 倍率只填**云端实测**的那 2 个（`xopglm52` / `xopdeepseekv4pro` = x2.0），
  * 其余 5 个云端没有对应行 → 省略（`undefined`），池层显示「免费」而不是编造的 `1`。
  */
 export function modelSpec(
@@ -207,7 +207,7 @@ export function modelDefaultEffort(upstreamModel: string): string {
  *
  * 查不到返回 `undefined`（池层显示 `-`，不猜）。
  *
- * ⚠ 本函数曾长期**全仓无调用方**，倍率只能靠「目录缓存条目」透出，
+ * 本函数曾长期**全仓无调用方**，倍率只能靠「目录缓存条目」透出，
  * 而 astudio 从不写目录缓存 → 对外恒 `null`。现在 `modelSpec()` 会带上它，
  * 本函数保留给需要单独取倍率的调用方。
  */

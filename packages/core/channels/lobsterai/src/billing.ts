@@ -218,7 +218,7 @@ async function activitySlot(
 /**
  * 活动上下文：今天是否已签、有哪些动作可用。
  *
- * ⚠️ `data.actions` 是**字符串数组**（实测 `["check_in"]`）—— 三份参考实现都按
+ * `data.actions` 是**字符串数组**（实测 `["check_in"]`）—— 三份参考实现都按
  * 字符串读（Go `Actions []string` / Python `"check_in" not in ctx["actions"]`）。
  * 早期本实现只认对象形态 `{action:"check_in"}`，于是 actions 恒为空 →
  * `claimable` 恒 false → **每日签到永远领不到积分** → 免费额度耗尽后对话全挂

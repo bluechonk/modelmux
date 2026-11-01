@@ -156,7 +156,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md)。
    其中 `quota_exhausted` 已明确是额度问题，账本快照不参与否决（快照会滞后，见该文件 §3.1）；
    另有**前置**路径：请求发出前发现生效账号在冷却，直接切走（同文件 §3.5）。
-   ⚠ 鉴权类失败（`not_authenticated` / `upstream_unauthenticated`）**不在**此列 ——
+   鉴权类失败（`not_authenticated` / `upstream_unauthenticated`）**不在**此列 ——
    换账号会把「凭据被撤销」掩盖成随机成功，仍然只能手动处理。
 
 #### 额度耗尽 → 账号**冷却**（不是故障）
@@ -186,7 +186,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
   供 CLI 与自动化在需要跳过等待时使用。
 - 同源校验与其它写命令一致（`/web/api/commands` 只收同源请求）；
   生效账号解除后同时清进程内的 `healthCache`，避免下一次 `markActiveHealth` 拿旧值短路。
-- ⚠ **`unauthorized` 不允许解除**：那是凭据本身失效（token 被撤销），清标记只会让界面假装
+- **`unauthorized` 不允许解除**：那是凭据本身失效（token 被撤销），清标记只会让界面假装
   正常、下一次请求照样失败 —— 该状态只能重新登录。命令会返回原因并如实上报。
 - 幂等：本来就没有标记时返回「没有需要解除的标记」，不改盘、不报错。
 
@@ -208,16 +208,16 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
   池里其余健康账号照查），跳过的渠道记在 `RefreshResult.skipped` 里可观测。
 - 反向补充：**账单查到 0 也会进冷却**（`markCooldownIfExhausted`）—— 有的渠道额度用完不会
   立刻回 4xx（如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
-  账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。- ⚠ **账单派生的冷却有 30 分钟上限**（`BILLING_COOLDOWN_PROBE_MS`）：账单快照在额度窗口
+  账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。- **账单派生的冷却有 30 分钟上限**（`BILLING_COOLDOWN_PROBE_MS`）：账单快照在额度窗口
   边界上可能是旧值（实测 lobsterai 2026-10-24 本地 00:00:37 读到 0，随后日奖励到账变 100/100），
   而冷却期又不再查账单 —— 不设上限会把账号错误冻满一整天、Web 卡片停在 0。到期必然重查一次，
   查到有额度即随 `expireCooldown` 恢复。真正的上游 4xx 额度错误不受此限（仍按渠道窗口冷却）。
-- ⚠ **余额类信号只冷却付费模型**：倍率 0 的模型不吃额度，冷却期必须照常
+- **余额类信号只冷却付费模型**：倍率 0 的模型不吃额度，冷却期必须照常
   可路由；而且它自己撞到**余额类**错误时**不许**反过来把账号打成冷却（否则免费模型被一起锁死）。
   判定见 `http/chat/attempt.ts::isFreePoolModel` 与 `http/chat/auth.ts`
   的 `freeModel` 参数：免费模型 → 跳过冷却闸门、跳过冷却写入，上游错误如实透出为
   `402 upstream_insufficient_quota`。真故障（`error`）仍**不分模型**一律短路。
-- ⚠ **两类额度信号要分开**：
+- **两类额度信号要分开**：
 
   | 信号 | 原文样例 | 作用范围 | 处置 |
   |---|---|---|---|
@@ -227,7 +227,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
   识别见 `http/chat/errors.ts` 的 `isQuotaExhausted`（是否额度类）与 `isUsageLimit`（是否账户级
   用量限额）；词表只按真机原文维护（见 `tests/quota-signal.test.ts`）。
 
-> ⚠ 两个层级的「冷却」不要混：
+> 两个层级的「冷却」不要混：
 >
 > | 层级 | 落点 | 作用 |
 > |---|---|---|
@@ -272,7 +272,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
   错误帧 → 问 `isQueueError`：是排队就记下延迟继续等，否则**记下来交回转发/回报**（不能吞）；
 - 排队帧 → 按 `retryAfterSeconds`（封顶 12s）等待后**重开上游**（同一请求体、重新取凭据）；
 - 排队期间向**流式**客户端按轮次发进度文案（**`reasoning_content` delta**，每条以空行收尾才会换行）。
-  ⚠ 刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒走 `content` 会先建出正文行，
+  刻意不走 `content`：客户端按 chunk 到达顺序建行，提醒走 `content` 会先建出正文行，
   模型的思考就落到正文后面了（主人 2026-10-24 反馈）；
 - 总时长上限 **120 秒**（含首次尝试与所有等待，`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）；
   耗尽仍无内容 → **直接回正常应答**劝主人换渠道（文案带真实渠道 id），不再干等；
@@ -354,7 +354,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   - 上游的 `thinking_config.disabled`（「可关闭思考」）**不映射**成 `off` 档 ——
     那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段。
     详见 [channels/qoder/PROTOCOL.md](./channels/qoder/PROTOCOL.md) 的「上游 model 字段与思考档位」。
-- **`effort` 可为 `null` = 渠道没声明**（⚠ 兜底**不许编档位**）：
+- **`effort` 可为 `null` = 渠道没声明**（兜底**不许编档位**）：
   渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
   lobsterai（`efforts` 数组）、qoder / qodercn（`thinking_config`，见上）有真值。
   旧版给所有模型都填了 `["low","high"]`，等于把「不知道」说成「支持」
@@ -410,7 +410,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 报 1000000；`minimax-m3`：workbuddy 报 512000、loomy 报 1048576）。
 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，就用兄弟渠道同名的已知值兜底。
 
-⚠ 池 id **不跨渠道合并**（`catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 仍是两个池 id）。
+池 id **不跨渠道合并**（`catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 仍是两个池 id）。
 
 实测规模（2026-10-25，走真实注册链路取数）：207 个池 id / 117 个唯一规范名 /
 **29 个跨渠道重复名**；兜底能补的：窗口 4 条、输出上限 13 条、思考档位 45 条
@@ -430,7 +430,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 本渠道上游声明 > 本渠道公开规格 > 跨渠道兜底 > 占位值（200K / 64K）
 ```
 
-⚠ 本渠道规格排在跨渠道**之前**：规格是渠道自己按公开规格维护的真值
+本渠道规格排在跨渠道**之前**：规格是渠道自己按公开规格维护的真值
 （[MODEL-SPECS.md](./MODEL-SPECS.md)），比兄弟渠道被上游裁剪过的值更权威 ——
 所以兜底**只替换占位值**，不会把 `traecn/deepseek-v4-pro` 从 1000000（规格）改成
 700000（catpaw 的上游值）。每个值从哪来记在 `sources` 里（见 §2.6），界面据此标「推断」。

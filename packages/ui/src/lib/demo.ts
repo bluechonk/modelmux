@@ -3,7 +3,7 @@
  *
  * 控制台页面要 `fetch('/web/api/*')` 读本机网关，而演示构建没有网关（CORS /
  * 同源写校验 / Private Network Access 三重拦截）—— 演示模式在 `api` 层用本模块
- * 替换 fetch。⚠ 由**演示构建**（`DEMO=1`）使用，发布到 GitHub Pages
+ * 替换 fetch。由**演示构建**（`DEMO=1`）使用，发布到 GitHub Pages
  * （`.github/workflows/demo-pages.yml`；本地预览见 docs/WEB-CONSOLE.md）。
  *
  * 数据纪律：页面**公开** —— 账号 uid / 手机号 / 域名一律用明显虚构的占位值，
@@ -192,7 +192,7 @@ export function demoSettings(state: DemoState): UiSnapshot {
 /**
  * 演示用的模型元数据（键 = 池模型 id）。
  *
- * ⚠ 字段必须与 `UiSnapshot.model_info` 的形状**逐字段对齐**（倍率 / 营销角标 /
+ * 字段必须与 `UiSnapshot.model_info` 的形状**逐字段对齐**（倍率 / 营销角标 /
  * 上下文窗口 / 单次输出上限 / 输入模态 / 思考档位 / **取值来源**）——
  * 少一个字段就是一处类型错误，而 `npm run typecheck` 覆盖本包，这类缺口会被当场拦住。
  */
@@ -498,7 +498,7 @@ export function demoLogin(state: DemoState, cid: string): { started: boolean; me
  * 提交回调链接 / 两步登录的最后一步：演示模式下视为授权完成 —— 标记渠道已登录并造一个
  * 虚构账号入池，然后把状态机推到 `done`（页面据此自动关弹窗）。
  *
- * ⚠ 不在这里清空 `state.login`：`done` 要留到页面关掉弹窗为止。
+ * 不在这里清空 `state.login`：`done` 要留到页面关掉弹窗为止。
  * 下一次 `demoStartLogin` 会覆盖它；取消走 `demoEndLogin`。
  */
 export function demoCompleteLogin(state: DemoState): { message: string } {

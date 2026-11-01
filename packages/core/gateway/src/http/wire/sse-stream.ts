@@ -232,7 +232,7 @@ export function firstSseError(buf: Buffer): { code?: string; message?: string } 
 /**
  * 剔除 data 块里语义为空的字段（目前只有空数组 `tool_calls`）。
  *
- * ⚠ 上游每个 delta 都带 `"tool_calls": []`，而客户端判定
+ * 上游每个 delta 都带 `"tool_calls": []`，而客户端判定
  * `delta.tool_calls != null` 就结束当前思考块 —— 空数组导致每个 reasoning token
  * 都被切成独立的「思考」块。删除它（无任何信息量）即修复。
  * 解析失败或无需改动的行原样返回。

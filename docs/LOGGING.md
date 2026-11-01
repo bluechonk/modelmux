@@ -182,7 +182,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | 渠道维度 | `--kind channel` 必须配渠道 id（**位置参数**，如 `mx log catpaw --kind channel`）—— 渠道维度日志按 `<cid>` 分目录落盘，没有 cid 时该 kind 找不到文件 |
 | 严格模式 | CLI 走 `parseArgs` 严格模式：**未知选项直接报错**（没有 `--cid` 这种写法） |
 
-⚠ 不要在本文件内联 `mx log` 命令清单 —— 那会与技能形成两份事实并漂移（`verify-docs` 拦这条）。
+不要在本文件内联 `mx log` 命令清单 —— 那会与技能形成两份事实并漂移（`verify-docs` 拦这条）。
 
 `log` 动词还有一个**维护**选项 `--compact`（检索之外的唯一入口；用法见 `--help` 与
 `log-triage` 技能）：它把**已封存**的抓取轮转段（`payload.log.1.log`…`.3.log`）里
@@ -237,7 +237,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 读回时按 `bodyEnc` 透明解码，**老行（只有 `body`）照旧可读**。压缩实测约 2.3–2.9x
 （agent 上下文正文，见 `docs/STORAGE-OPTIMIZATION.md`）。
 
-⚠ 之所以不做「内容寻址去重（blob）」，是因为**实测重复率为 0**：2 天 114 条正文
+之所以不做「内容寻址去重（blob）」，是因为**实测重复率为 0**：2 天 114 条正文
 全部唯一，`client` 与 `upstream` 正文也无一字节相同。去重会多出一层目录与必须配套的 GC，
 收益为零 —— 详见 `docs/STORAGE-OPTIMIZATION.md`。
 
@@ -247,7 +247,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
    若等响应回来再写，超时与建连失败这类**最需要看上下文**的请求恰恰没有记录。
 2. **只落 body，不落请求头**：凭据在头里，从头就不抓。
 
-⚠ `body` 是**未脱敏**内容；个别渠道的请求体是自编码字符串（`encodedBody`），可能含会话 id。
+`body` 是**未脱敏**内容；个别渠道的请求体是自编码字符串（`encodedBody`），可能含会话 id。
 开启前请确认这些内容可以被落盘。
 
 读取入口：Web 控制台「日志」页最右侧的「上下文」按钮（弹窗按 `id` 读回，见 `docs/WEB-CONSOLE.md` 的数据通道）。

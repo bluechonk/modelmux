@@ -56,7 +56,7 @@ type IdleRead = { idle: true };
  * 累计静默仍达 `idleMs` 才判空闲 —— 长首字上游（实测 40–71s）不会因
  * 客户端/中间代理空闲超时而断连。
  *
- * ⚠ 铁律：**任何时刻只有一个 read 在飞**。待决 read 的 Promise 被复用
+ * 铁律：**任何时刻只有一个 read 在飞**。待决 read 的 Promise 被复用
  *   （超时后不新建 read）—— 被丢弃的 read 仍排在 reader 的请求队列里，
  *   上游来数据时先满足那个没人消费的 read，**上游帧被静默吃掉**。
  */
@@ -98,10 +98,10 @@ async function readWithIdle(
 /**
  * 流式转发：`openai` 线型走规范化透传，`custom` 线型走增量翻译。
  *
- * ⚠ 翻译异常**不能穿透成 500**（响应头已发出）：产出 error 帧并正常结束，
+ * 翻译异常**不能穿透成 500**（响应头已发出）：产出 error 帧并正常结束，
  *   否则客户端只看到一个断掉的连接，拿不到任何原因。
  *
- * ⚠ `resumeTranslator` 必须是**探测层用过的同一个实例**：它的行缓冲里可能还剩
+ * `resumeTranslator` 必须是**探测层用过的同一个实例**：它的行缓冲里可能还剩
  *   半行（跨 TCP 块的帧前缀），换新实例会把半行丢掉，残行整帧解析失败被丢弃。
  */
 export async function relayStream(
@@ -132,7 +132,7 @@ export async function relayStream(
   const { upstream } = channel;
   // 首帧静默上限：渠道可放宽（某些上游排队时 200 后零字节超 120s）
   const firstTokenIdleMs = channel.upstream.idleTimeoutMs?.() ?? FIRST_TOKEN_IDLE_MS;
-  // ⚠ 排队探测可能已用同一实例读了一段：必须接着用同一个。换新实例会把
+  // 排队探测可能已用同一实例读了一段：必须接着用同一个。换新实例会把
   //   旧实例缓冲里的**半行**丢掉，残行收尾时整帧解析失败被丢弃（实测：tool_call 参数损坏）。
   const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
@@ -226,7 +226,7 @@ export async function relayStream(
 /**
  * 把上游流聚合成 OpenAI SSE 字节（非流式路径用）。
  *
- * ⚠ `resumeTranslator` 必须是**探测层用过的同一个实例**（半行缓冲在里面，
+ * `resumeTranslator` 必须是**探测层用过的同一个实例**（半行缓冲在里面，
  *   换新实例会丢半行，残行整帧解析失败）。
  */
 export async function collectAsOpenAiSse(
@@ -243,7 +243,7 @@ export async function collectAsOpenAiSse(
   const { upstream } = channel;
   // 首帧静默上限与流式路径同源（见 relayStream；非流式聚合同样受慢首字影响）
   const firstTokenIdleMs = channel.upstream.idleTimeoutMs?.() ?? FIRST_TOKEN_IDLE_MS;
-  // ⚠ 与 relayStream 同理：探测用过的实例必须接着用，半行缓冲不能丢。
+  // 与 relayStream 同理：探测用过的实例必须接着用，半行缓冲不能丢。
   const translator = resumeTranslator ?? upstream.newTranslator(request);
   const reader = upstreamBody.getReader();
   const out: Buffer[] = [];

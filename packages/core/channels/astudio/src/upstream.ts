@@ -18,10 +18,10 @@ import * as cred from "./cred.js";
 /**
  * 模型网关基址（对话端点）。
  *
- * ⚠ 与 `cred.DEFAULT_BASE_URL`（账号 API 基址 `agent.xfyun.cn/xingchen-studio`）
+ * 与 `cred.DEFAULT_BASE_URL`（账号 API 基址 `agent.xfyun.cn/xingchen-studio`）
  * **不是同一个域**。契约要求本模块导出 `DEFAULT_BASE_URL`，其语义是**对话侧**基址。
  *
- * ⚠ 这台主机对本渠道的模型**不可用** —— 真正的推理主机是**每个模型各带一个
+ * 这台主机对本渠道的模型**不可用** —— 真正的推理主机是**每个模型各带一个
  * `base_url`**（见 `chatUrlForModel`）。本常量只作**兜底**；实际对话走 `chatUrlForModel()`。
  */
 export const DEFAULT_BASE_URL = "https://maas-api.cn-huabei-1.xf-yun.com/v2";
@@ -54,7 +54,7 @@ const MODEL_CONFIGS_PATH = "/bot/models/configs";
 /**
  * 认证端点（**云端直连**，不走本地服务代理层）。
  *
- * ⚠ 这些路径**没有 `/api/astron-auth/` 前缀** —— 那个前缀是 AStudio 桌面应用
+ * 这些路径**没有 `/api/astron-auth/` 前缀** —— 那个前缀是 AStudio 桌面应用
  * **本地服务代理层**的路径，云端账号 API 的路径就是 `{studioBaseUrl}/<path>`。
  * 直连时若带上该前缀必然 404，会被误判成「云端无此端点」。
  * 各端点的鉴权要求与实测见 docs/channels/astudio/PROTOCOL.md §5。
@@ -79,7 +79,7 @@ export const SESSION_INVALID_CODE = "80000";
  * 上游原文：`no valid authorization: the account lacks an active order, has insufficient
  * quota, or the order is invalid` —— 属**账号权益**问题，不是凭据问题。
  *
- * ⚠ 匹配用字段形态而非裸子串 `11200`：错误体里还带 `requestId`（形如
+ * 匹配用字段形态而非裸子串 `11200`：错误体里还带 `requestId`（形如
  * `01a19782a49d29c4503`），裸子串会把它里面的数字误判成业务码。
  */
 const ORDER_REJECTED_RE = /"code"\s*:\s*11200\b/;
@@ -98,7 +98,7 @@ interface Config {
 }
 
 /**
- * 凭据的最小面（避免 upstream ↔ cred 循环依赖）。
+ * 凭据的最小面（避免 upstream <-> cred 循环依赖）。
  *
  * `sessionToken` / `ssoSessionId` 供刷新用；`uid` 用于拼 `account_id` Cookie。
  */
@@ -188,7 +188,7 @@ const DEFAULT_INFERENCE_BASE = "https://maas-api.cn-huabei-1.xf-yun.com/v2";
 /**
  * 模型 → 推理主机 的映射缓存（进程内）。
  *
- * ⚠ **进程内**而不是落盘：`chatUrlForModel` 是**同步**的（契约如此），
+ * **进程内**而不是落盘：`chatUrlForModel` 是**同步**的（契约如此），
  * 落盘也得到读文件；不如在 `fetchModelConfigs()` 拿到配置时顺手填进这张表，
  * 命中即用。进程重启后首次请求会退回默认主机（覆盖 8/9 个模型），
  * 下一次刷新配置就补齐。
@@ -343,7 +343,7 @@ function rememberModelBaseUrls(payload: Record<string, unknown>): void {
  * 返回**内层 `userInfo` 对象**（实测结构：`{login, uid, nickname, email, mobile,
  * realName, avatarColor}`）。会话失效（`code=80000` / HTTP 401）抛 `UpstreamUnauthorized`。
  *
- * ⚠ **尽力而为**：调用方（`cred.enrichFromUserInfo`）失败时保留会话文件的值，
+ * **尽力而为**：调用方（`cred.enrichFromUserInfo`）失败时保留会话文件的值，
  * 不让登录因为账号信息拉取失败而失败。
  */
 export async function fetchUserInfo(
@@ -389,7 +389,7 @@ export async function fetchUserInfo(
 // `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
 // （逆向自官方客户端 bundle 的 `createAstronAccountGateway`）。
 //
-// ⚠ 全部是 **multipart/form-data**，不是 JSON —— 参考实现用 `multipartFields()`。
+// 全部是 **multipart/form-data**，不是 JSON —— 参考实现用 `multipartFields()`。
 
 /** GeeTest v3 配置（`GET /chat/gee-captcha`）。 */
 export interface GeetestConfig {
@@ -479,7 +479,7 @@ async function accountApi(
     );
   }
   // 信封：{flag, code, desc, data, traceId}
-  // ⚠ `code` 是**数字**（实测 `0` / `80000` / `20009`），不是字符串 ——
+  // `code` 是**数字**（实测 `0` / `80000` / `20009`），不是字符串 ——
   // 用「只接受 string」的取值函数会把 0 变成空串，导致成功响应被判失败。
   const code = codeText(payload["code"]);
   const ok = resp.status >= 200 && resp.status < 300 && payload["flag"] === true && code === "0";
@@ -514,8 +514,8 @@ export async function fetchGeetestConfig(cfgOverride?: Config): Promise<GeetestC
 /**
  * 发短信验证码（`POST /login/mobile/send-verify-code`）。
  *
- * ⚠ `geetest_seccode` 必须是 **base64 编码后**的值（上游要求，参考实现同）。
- * ⚠ 请求体**不含** `expire` 字段（带了的会被判「参数无效」，实测）。
+ * `geetest_seccode` 必须是 **base64 编码后**的值（上游要求，参考实现同）。
+ * 请求体**不含** `expire` 字段（带了的会被判「参数无效」，实测）。
  */
 export async function sendSmsCode(
   mobile: string,
@@ -535,7 +535,7 @@ export async function sendSmsCode(
 /**
  * 短信验证码换 session（`POST /login/phone-quick-login`）。
  *
- * ⚠ 这个端点**不需要** captcha（`send-verify-code` 才需要）。
+ * 这个端点**不需要** captcha（`send-verify-code` 才需要）。
  */
 export async function loginWithSms(
   mobile: string,
@@ -696,7 +696,7 @@ const CLAIMABLE_POPUP_TYPES = new Set([
 /**
  * 取待处理弹窗（`GET /client-popups/pending`）。
  *
- * ⚠ **必须带客户端头**（`clientType` / `studioVersion` / `User-Agent`），
+ * **必须带客户端头**（`clientType` / `studioVersion` / `User-Agent`），
  * 否则上游回 `code=11001001`。
  */
 export async function fetchPendingPopups(
@@ -751,7 +751,7 @@ export function isClaimablePopup(popup: Popup): boolean {
 /**
  * 关闭弹窗（`POST /client-popups/complete`）。
  *
- * ⚠ **只关弹窗、不发积分** —— 真正发奖的是 `init-app`（见 `fetchTenantState`）。
+ * **只关弹窗、不发积分** —— 真正发奖的是 `init-app`（见 `fetchTenantState`）。
  * 参考实现的注释说得很明确：「只 complete 弹窗不会发放积分」。
  */
 export async function completePopup(

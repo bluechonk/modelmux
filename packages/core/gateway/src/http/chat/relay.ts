@@ -6,7 +6,7 @@
  * `forward`（转发层），以及 `channel`/`candidates`/`errors`/
  * `stream`/`queue`/`upstream`/`auth`；换号决策在 `pool/account-rotate.ts`。
  *
- * ⚠ 本文件不定义路由，只被 `server.ts` 的 `createHandler` 调用。
+ * 本文件不定义路由，只被 `server.ts` 的 `createHandler` 调用。
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -51,7 +51,7 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
  *   而回 5xx 或直接断流 —— 这类只有账单能证伪（换号前的两段式账单判定会挡住
  *   「有额度就不换」的情形）。
  *
- * ⚠ 刻意不含鉴权类（`not_authenticated` / `upstream_unauthenticated`）：那是凭据
+ * 刻意不含鉴权类（`not_authenticated` / `upstream_unauthenticated`）：那是凭据
  * 被撤销，换账号会把真问题掩盖成随机成功；也不含免费模型撞余额的
  * `upstream_insufficient_quota`（倍率 0 不吃额度，与账号额度无关）。
  */
@@ -96,7 +96,7 @@ export async function handleChat(
     );
     // 额度耗尽自动换号：失败且「可能是额度问题」时，先看账单再决定是否换账号，
     // 换成了就用**同一候选**重试一次（凭据由 cred.load() 重读，自然拿到新账号）。
-    // ⚠ 客户端已收到字节（排队进度帧发过 SSE 头）时不能再开一条上游流 —— 会变成两个响应。
+    // 客户端已收到字节（排队进度帧发过 SSE 头）时不能再开一条上游流 —— 会变成两个响应。
     if (result.kind === "retry" && !res.headersSent && ROTATABLE_CODES.has(result.error.code)) {
       const rotated = await rotateExhaustedAccount(candidate.cid, opts.logger, { code: result.error.code });
       if (rotated.switched) {

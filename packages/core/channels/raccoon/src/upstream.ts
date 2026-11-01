@@ -100,7 +100,7 @@ interface Config {
   baseUrl: string;
 }
 
-/** 凭据的最小面（避免 upstream ↔ cred 循环依赖）。 */
+/** 凭据的最小面（避免 upstream <-> cred 循环依赖）。 */
 interface AuthLike {
   accessToken: string;
   officeIdentity: string;
@@ -145,7 +145,7 @@ export function loadConfig(): [Config, boolean] {
  *   3. 磁盘上游描述符里的 baseUrl
  *   4. `DEFAULT_BASE_URL`
  *
- * ⚠ 鉴权域与推理域的解析必须一致：一边只认环境变量、另一边只读磁盘描述符的话，
+ * 鉴权域与推理域的解析必须一致：一边只认环境变量、另一边只读磁盘描述符的话，
  * 设了环境变量就会出现「登录在镜像、对话在官方」，镜像签发的 token 被官方拒（401）。
  */
 export function channelBaseUrl(opts: { override?: string } = {}): string {
@@ -236,7 +236,7 @@ interface HeaderOptions {
  * 同期成功的请求耗时 62–115 秒 —— **正好卡在 120 秒线上**，慢几秒就被掐成
  * `upstream header timeout after 120000ms`。
  *
- * ⚠ 那个超时还会被记成**账号连败**（`http/chat/attempt.ts`：`status <= 0` 计连败），
+ * 那个超时还会被记成**账号连败**（`http/chat/attempt.ts`：`status <= 0` 计连败），
  * 两次就把健康账号打成 `error` 而锁死路由（2026-10-26 实测「连续失败 2 次」即触发）。
  * 放宽到 180s 后这类「只是慢」的请求不再被误杀。
  *
@@ -249,9 +249,9 @@ export function idleTimeoutMs(): number {
 /**
  * 构造上游请求头。
  *
- * ⚠ 对话形态**不含** `X-Client-Version` / `X-Client-Device-ID`（协议 §2.1 内联实测）；
+ * 对话形态**不含** `X-Client-Version` / `X-Client-Device-ID`（协议 §2.1 内联实测）；
  * 这两个头只在短信登录路径用过，该路径已不存在（全仓无构造方）⇒ 不构造。
- * ⚠ 对话形态也**不含** `User-Agent`（只有 `jsonHeaders` 那一族带）。
+ * 对话形态也**不含** `User-Agent`（只有 `jsonHeaders` 那一族带）。
  */
 export function buildHeaders(credential: AuthLike, opts: HeaderOptions = {}): Record<string, string> {
   const chat = opts.jsonBody ?? true;
@@ -333,7 +333,7 @@ function resolveThinkingType(req: Record<string, unknown>): string {
     return OFF_VALUES.has(effort.toLowerCase()) ? "disabled" : "enabled";
   }
   if (effort === false) return "disabled";
-  // ⚠ 未知档位一律按开启处理（只有明确的「关闭」才关）
+  // 未知档位一律按开启处理（只有明确的「关闭」才关）
   return "enabled";
 }
 

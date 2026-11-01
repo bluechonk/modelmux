@@ -302,7 +302,7 @@ describe("3. A9 模型元数据：渠道 resolveModel 抛错不拖垮 /v1/models
 
 describe("4. A6 login --json：收尾读凭据带 uid/domain（仓库级多渠道模式）", () => {
   it("done 事件里带 uid / domain / obtained_at", async () => {
-    // ⚠ 必须注册**两个以上**渠道：无上下文时 `credentialsPath()` 走
+    // 必须注册**两个以上**渠道：无上下文时 `credentialsPath()` 走
     // `getChannel()`，单渠道能兜住、多渠道必抛「multi-channel routing requires
     // an explicit cid」—— 那个异常被吞掉后，--json 事件里就永远没有 uid/domain。
     setChannel(

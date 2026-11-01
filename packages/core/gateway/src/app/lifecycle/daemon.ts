@@ -61,7 +61,7 @@ export { gatewayHealthy, foreignServiceOnPort, pidAlive, killTree, cliEntry } fr
 /**
  * start 等待网关就绪的默认时长（毫秒）。
  *
- * ⚠ 冷启动耗时随渠道数增长（每个渠道一次启动探测），而某个渠道的登录探测偶发
+ * 冷启动耗时随渠道数增长（每个渠道一次启动探测），而某个渠道的登录探测偶发
  * 超过 12s 时，supervisor 会在启动窗口内判定「从未就绪」并放弃，网关直接不可用
  * （实测踩过）。默认放宽到 30s；`MODELMUX_START_WAIT_MS` 可覆盖，
  * hook 场景仍可用 `--wait` 自行调小。
@@ -200,7 +200,7 @@ export async function start(options: StartOptions = {}): Promise<number> {
     "--cwd",
     workerDir,
   ];
-  // ⚠ stdio 全部重定向到日志文件：监督进程没有控制台可继承，
+  // stdio 全部重定向到日志文件：监督进程没有控制台可继承，
   //   继承父进程的 stdout 会在父进程退出后写入失败（EPIPE 重复报错）
   const logFd = openSync(workerLog, "a");
   const child = spawn(process.execPath, superviseArgs, {
@@ -355,7 +355,7 @@ function readWorkerPidValue(scope: Scope): number | null {
 /**
  * **真正在跑的那个网关**的 scope —— pid 文件与陈旧构建判定都要对着它。
  *
- * ⚠ 仓库级多渠道路由下跑的是**仓库级**网关（根 pid 文件），而 `status <cid>` 的
+ * 仓库级多渠道路由下跑的是**仓库级**网关（根 pid 文件），而 `status <cid>` 的
  * scope 是**渠道级**的：渠道级 pid 文件只在「该渠道独立运行」时才有意义，多渠道
  * 模式下它常常是历史遗留（某次单渠道调试留下的）。拿它判陈旧构建会**误报**
  * 「网关在跑旧代码」，报出来的 daemon_pid / worker_pid 也不是在跑的进程。
@@ -425,7 +425,7 @@ export async function status(
   const credentialsPresent = perChannel.some((c) => c.present);
 
   // 守护进程是否在跑旧代码（改完 build 没 restart）—— 见 stale-build.ts 的事故说明
-  // ⚠ 判定要对准**真正在跑的那个网关**的 pid 文件（仓库级 vs 渠道级，见 runningScopeOf）
+  // 判定要对准**真正在跑的那个网关**的 pid 文件（仓库级 vs 渠道级，见 runningScopeOf）
   const running = runningScopeOf(scope, health);
   const stale = gatewayUp ? detectStaleBuild(running.pidPath()) : { stale: false, buildMs: null, pidMs: null };
 

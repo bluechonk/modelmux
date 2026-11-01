@@ -238,7 +238,7 @@ export class DsmlTextExtractor {
 /**
  * SSE 事件级的 DSML 过滤器：只改写 `data:` 行里的 delta，其余字节不动。
  *
- * ⚠ 上游会把工具调用写进 `reasoning_content`（DeepSeek 思考链）而不是 `content`——
+ * 上游会把工具调用写进 `reasoning_content`（DeepSeek 思考链）而不是 `content`——
  * 实测（2026-11-02）1.2MB 长会话：completion 4237 token 里 3927 是 reasoning、
  * 正文为空，DSML 全在思考链里。两个字段各自用独立状态机，共享 index 分配器。
  */

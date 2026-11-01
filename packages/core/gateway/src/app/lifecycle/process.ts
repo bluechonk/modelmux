@@ -71,7 +71,7 @@ export function scopeOf(cid?: string): Scope {
 /**
  * 探测端口上的健康载荷；不是本服务时返回 null。
  *
- * ⚠ 必须核对 `service` 字段：同一端口上可能跑着**别的**网关（它们同样返回
+ * 必须核对 `service` 字段：同一端口上可能跑着**别的**网关（它们同样返回
  * `{"ok":true}`）。只按 `ok` 判定会把别人的进程报成自己的「OK」，
  * 而请求实际发去了另一个程序。缺失 `service` 字段的历史实现也按「他人占用」处理。
  */
@@ -149,7 +149,7 @@ export function readPid(scope: Scope): number {
 /**
  * 结束进程及其子进程（node 的孙进程一并处理）。
  *
- * ⚠ win32 的 taskkill 是**异步**的：发出去就返回会让紧随其后的 `start()` 探到
+ * win32 的 taskkill 是**异步**的：发出去就返回会让紧随其后的 `start()` 探到
  *   「还活着的旧进程」→ 报「已在运行」却不换代码（实测踩过：`restart` 报告成功，
  *   端口上跑的还是旧进程）。所以这里必须**等进程真的死掉**再返回。
  *
@@ -188,7 +188,7 @@ export async function killTree(pid: number): Promise<boolean> {
 /**
  * 守护进程要重新执行的入口脚本。
  *
- * ⚠ 必须是**当前进程的入口**（`process.argv[1]`），不能是共享包内的 `cli.js`：
+ * 必须是**当前进程的入口**（`process.argv[1]`），不能是共享包内的 `cli.js`：
  * 仓库级 bin 与各渠道包的 bin 都是「先注册渠道，再调 `main()`」，而共享包的
  * `cli.js` 只是一组导出、没有自带入口调用 —— 重跑它会立刻退出（守护进程永远起不来）。
  * 重跑自己才能带上与父进程一致的渠道集合。
@@ -198,7 +198,7 @@ export async function killTree(pid: number): Promise<boolean> {
  * 注意 bundle 形态下该回退同样失效（bundle 里没有独立 cli.js）——但回退只在异常启动方式
  * （非文件入口）下触发，属已知限制。
  *
- * ⚠ 全局安装的 `mx` 是**无扩展名的符号链接**（`npm bin` shim），此时 Node 给出的
+ * 全局安装的 `mx` 是**无扩展名的符号链接**（`npm bin` shim），此时 Node 给出的
  * `argv[1]` 是 `"/usr/local/bin/mx"` 原样，既没有 `.js` 后缀、本身也不是 JS 文件。
  * 因此判据必须落到**真实路径**上：先 `realpath` 解析链接目标，再看同目录的兄弟入口。
  * 另：返回值必须是**绝对路径** —— 子进程 cwd 是存储根（`--cwd`），相对路径会解析失败。

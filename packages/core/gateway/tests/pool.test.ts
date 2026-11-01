@@ -216,7 +216,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     assert.equal(resp.status, 200);
     const payload = (await resp.json()) as { data: Array<{ id: string; owned_by: string }> };
     // 全模型池：alpha 提供 3 个 + beta 提供 1 个，去重后 4 个
-    // ⚠ 旧契约：id 是裸模型名（["deepseek-v4-flash", "glm-5.3-flash", …]）；
+    // 旧契约：id 是裸模型名（["deepseek-v4-flash", "glm-5.3-flash", …]）；
     //   新契约：id 是 `<cid>/<模型>`（渠道内去重、跨渠道不合并 —— 见
     //   `src/pool/pool-targets.ts:73-83` 的 `out.push(`${cid}/${canonical}`)`）。
     const ids = payload.data.map((m) => m.id).sort();
@@ -226,7 +226,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
       "alpha/glm-5.3-flashx",
       "beta/deepseek-v4.1-flash",
     ]);
-    // ⚠ 旧契约：`owned_by` 恒为 "modelmux"（池身份，不泄露候选渠道）；
+    // 旧契约：`owned_by` 恒为 "modelmux"（池身份，不泄露候选渠道）；
     //   新契约：`owned_by` 就是 id 前缀里的渠道（请求方照它选池子）——
     //   见 `src/http/server.ts:65-72`。
     assert.equal(payload.data[0]!.owned_by, "alpha", "owned_by 即 id 前缀里的渠道");
@@ -235,7 +235,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
   it("请求 alpha/glm-5.3-flash → 打到 alpha（池 id 前缀指定渠道），且用目录里的原始 slug", async () => {
     deep.captured.length = 0;
     four.captured.length = 0;
-    // ⚠ 旧契约：请求裸名 "glm-5.3-flash"，网关跨渠道挑落点；
+    // 旧契约：请求裸名 "glm-5.3-flash"，网关跨渠道挑落点；
     //   新契约：必须带渠道前缀，候选至多一条（`src/pool/pool-targets.ts:498-513`）。
     const { status } = await chat(gw, "alpha/glm-5.3-flash");
     assert.equal(status, 200);
@@ -252,7 +252,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
 
   it("大小写不敏感：alpha/GLM-5.3-Flash 同样命中", async () => {
     deep.captured.length = 0;
-    // ⚠ 旧契约：大小写不敏感只作用于裸模型名；
+    // 旧契约：大小写不敏感只作用于裸模型名；
     //   新契约：渠道段与模型段都归一化（`src/pool/pool-targets.ts:99-106`）。
     const { status } = await chat(gw, "alpha/GLM-5.3-Flash");
     assert.equal(status, 200);
@@ -262,7 +262,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
   it("4.0 与 4.1 不串号：beta/deepseek-v4.1-flash 只打到 beta", async () => {
     deep.captured.length = 0;
     four.captured.length = 0;
-    // ⚠ 旧契约：靠"候选集合里只有一家有货"来区分 4.0/4.1；
+    // 旧契约：靠"候选集合里只有一家有货"来区分 4.0/4.1；
     //   新契约：渠道由前缀指定，模型段归一化后**精确相等**才命中
     //   （`src/pool/pool-targets.ts:511`）。
     const { status } = await chat(gw, "beta/deepseek-v4.1-flash");
@@ -286,7 +286,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     const keep = channels();
     clearChannels();
     try {
-      // ⚠ 旧契约：没有任何渠道提供该模型 → 503 not_authenticated（可用性问题）；
+      // 旧契约：没有任何渠道提供该模型 → 503 not_authenticated（可用性问题）；
       //   新契约：渠道段写错是**请求问题** → 400 unknown_model
       //   （`src/http/chat/relay.ts:881-890`）。
       const { status, text } = await chat(gw, "alpha/glm-5.3-flash");
@@ -298,7 +298,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
   });
 
   it("渠道已注册但目录里没有该模型 → 400 unknown_model", async () => {
-    // ⚠ 旧契约：裸名 "gpt-4o" 无渠道可提供 → 503 not_authenticated；
+    // 旧契约：裸名 "gpt-4o" 无渠道可提供 → 503 not_authenticated；
     //   新契约：渠道没货也是 400 unknown_model（换渠道是客户端的决定）——
     //   见 `src/http/chat/relay.ts:891-902`（候选为空 → 400）。
     const { status, text } = await chat(gw, "alpha/gpt-4o");
@@ -308,7 +308,7 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
   });
 
   it("裸模型名已失效（破坏性更新：池 id 统一为 `<cid>/<模型>`，裸模型名一律 400）", async () => {
-    // ⚠ 旧契约（这条用例当年断言的正是反面）：`<cid>/<模型>` 形态应当失效、裸名可用；
+    // 旧契约（这条用例当年断言的正是反面）：`<cid>/<模型>` 形态应当失效、裸名可用；
     //   新契约**恰好相反** —— 池 id 统一为 `<cid>/<模型>`，裸模型名一律 400
     //   （`src/pool/pool-targets.ts:473-477` 的 `asPoolModel` 判 null，
     //     `src/http/chat/relay.ts:867-876` 回 400 unknown_model）。
@@ -373,7 +373,7 @@ describe("2. 账本记录成败与冷却；落点由池 id 前缀决定", () => 
   it("池 id 的前缀决定落点；账单用量高低不再影响路由", async () => {
     first.captured.length = 0;
     second.captured.length = 0;
-    // ⚠ 旧契约：两渠道都提供 `deepseek-v4.1-flash`，网关按**账单已用量**排序，
+    // 旧契约：两渠道都提供 `deepseek-v4.1-flash`，网关按**账单已用量**排序，
     //   用量高的（first=100）先走；新契约：渠道由池 id 前缀指定，账本只记成败，
     //   不参与选路（`src/pool/pool-targets.ts:498-513` 候选至多一条，
     //   `docs/POOL-ARCHITECTURE.md:170` 亦述"账本状态不表示路由顺序"）。
@@ -393,7 +393,7 @@ describe("2. 账本记录成败与冷却；落点由池 id 前缀决定", () => 
     first.fail = true;
     try {
       const { status } = await chat(gw, "first/deepseek-v4.1-flash");
-      // ⚠ 旧契约：首选失败 → 落到次选（second）并拿到 200；
+      // 旧契约：首选失败 → 落到次选（second）并拿到 200；
       //   新契约：候选至多一条，没有"次选"可落 → 直接报错
       //   （`src/http/chat/relay.ts:933-1203` 的尝试循环只遍历这一条候选）。
       assert.equal(status, 502, "候选只有 first 一条，失败即如实报错");
@@ -415,7 +415,7 @@ describe("2. 账本记录成败与冷却；落点由池 id 前缀决定", () => 
     assert.equal(poolUsage.scoreOf("first"), 0, "冷却中得分当 0");
     assert.equal(poolUsage.isCooling("first"), true, "失败过的渠道在冷却期");
 
-    // ⚠ 旧契约：冷却中的渠道被**硬排除**，请求改打另一家；
+    // 旧契约：冷却中的渠道被**硬排除**，请求改打另一家；
     //   新契约：候选由池 id 前缀指定（至多一条），冷却只影响"多候选排序"，
     //   全池都在冷却时回退到完整候选（`src/http/chat/relay.ts:920-927`）——
     //   也就是**仍会试**这条冷却中的唯一候选。
@@ -490,7 +490,7 @@ describe("4. 单渠道模式也走池（不再暴露裸短名）", () => {
       data: Array<{ id: string; owned_by: string }>;
     };
     // 全模型池：单渠道只返回它能提供的模型
-    // ⚠ 旧契约：id 是裸模型名 "deepseek-v4.1-flash"；
+    // 旧契约：id 是裸模型名 "deepseek-v4.1-flash"；
     //   新契约：单渠道模式**也走池**，id 同样是 `<cid>/<模型>`
     //   （`docs/POOL-ARCHITECTURE.md:174-175`）。
     assert.deepEqual(models.data.map((m) => m.id), ["solo/deepseek-v4.1-flash"]);
@@ -505,14 +505,14 @@ describe("4. 单渠道模式也走池（不再暴露裸短名）", () => {
   });
 
   it("池内模型可用", async () => {
-    // ⚠ 旧契约：请求裸名 "deepseek-v4.1-flash"；
+    // 旧契约：请求裸名 "deepseek-v4.1-flash"；
     //   新契约：必须带渠道前缀（`solo/deepseek-v4.1-flash`）。
     const { status } = await chat(gw, "solo/deepseek-v4.1-flash");
     assert.equal(status, 200);
   });
 
   it("该渠道提供不了的池模型 → 400 unknown_model", async () => {
-    // ⚠ 旧契约：裸名 "glm-5.3-flash" → 503 not_authenticated；
+    // 旧契约：裸名 "glm-5.3-flash" → 503 not_authenticated；
     //   新契约：渠道已注册但目录里没这个模型 → 400 unknown_model
     //   （`src/http/chat/relay.ts:891-902`）。
     const { status } = await chat(gw, "solo/glm-5.3-flash");

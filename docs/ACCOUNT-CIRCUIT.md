@@ -9,8 +9,8 @@
 ### 1.1 现状状态机（`account-pool.ts`）
 
 ```
-ok ──连续失败×3──▶ error（终态）            // noteAccountFailure，fail_streak 累计
-ok ◀──成功──────── noteAccountSuccess       // 只清 fail_streak，不碰 health
+ok ──连续失败×3──> error（终态）            // noteAccountFailure，fail_streak 累计
+ok <──成功──────── noteAccountSuccess       // 只清 fail_streak，不碰 health
                     markActiveHealth("ok")  // 无条件覆盖 health —— 但永远触发不到
 ```
 
@@ -49,14 +49,14 @@ ok ◀──成功──────── noteAccountSuccess       // 只清 fa
 ```
         ┌────────────── 成功（markActiveHealth ok / noteAccountSuccess）────────┐
         ▼                                                                     │
-       ok ──瞬时失败×3──▶ tripped（error + trip_until）                          │
+       ok ──瞬时失败×3──> tripped（error + trip_until）                          │
                            │                                                    │
                            │ 到达 trip_until（惰性判断，下次请求进来时）          │
                            ▼                                                    │
                       half-open（放行一次，不短路）                              │
                            │                                                    │
                            ├── 成功 ────────────────────────────────────────────┘
-                           └── 失败 ──▶ tripped（trip_until 指数退避翻倍）
+                           └── 失败 ──> tripped（trip_until 指数退避翻倍）
 ```
 
 要点：

@@ -128,7 +128,7 @@ describe("账号级冷却（额度耗尽 ≠ 故障）", () => {
 
   it("冷却中：不算 error（按模型放行），冷却信息可读", () => {
     seedPool("cooldown", new Date(Date.now() + 600_000).toISOString());
-    // ⚠ 冷却**不算** error：免费模型（倍率 0）冷却期必须照常可路由，
+    // 冷却**不算** error：免费模型（倍率 0）冷却期必须照常可路由，
     // 「要不要挡」由调用方按模型倍率决定（见 http/chat/auth.ts 的 freeModel 参数）。
     assert.equal(activeAccountIsError(CID), false, "冷却不是真故障，不能整体短路");
     const info = activeAccountCooldown(CID);

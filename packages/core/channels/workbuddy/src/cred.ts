@@ -233,7 +233,7 @@ function fromToken(
 /**
  * 插件端点的通用头（Origin / Referer / UA 等）。
  *
- * ⚠ 登录期 UA 用的是桌面三段式，与参考实现的 CLI 形态不一致 —— 未验证，
+ * 登录期 UA 用的是桌面三段式，与参考实现的 CLI 形态不一致 —— 未验证，
  * 登记在 `docs/channels/workbuddy/PROTOCOL.md`「已知边界」，**本轮不改**。
  */
 function commonHeaders(): Record<string, string> {

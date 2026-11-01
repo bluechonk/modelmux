@@ -29,10 +29,10 @@ interface ModelEntry {
 /**
  * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
  *
- * ⚠ 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
+ * 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
  * （按账号档位路由到不同底层模型），没有单一规格，故不列。
  *
- * ⚠ 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
+ * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
  * 数值与来源见 `docs/channels/qoder/PROTOCOL.md` §8「模型窗口规格」（国内版同一套；渠道表在本文件的 `MAX_OUTPUTS`）。
  */
 const MAX_OUTPUTS: Readonly<Record<string, number>> = {
@@ -85,16 +85,16 @@ const POOL_KEY_MAP: Record<string, string> = {
  * （上游仓库 `shuishuipingan/qoder2api-hub`；2026-10-20 随参考实现克隆时抄录）。
  * [参考]
  *
- * ⚠ **只抄数据**（`key` / `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`），
+ * **只抄数据**（`key` / `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`），
  * 不抄参考实现的任何逻辑；归一化仍走本文件的 `toEntry`，
  * 保证兜底表与动态目录产出**完全同形**的对外 id。
  *
- * ⚠ `context_config`（1M / 200K / 400K 多窗口）与 `price_factor` **不抄**：
+ * `context_config`（1M / 200K / 400K 多窗口）与 `price_factor` **不抄**：
  * 池层是从**磁盘缓存**的原始条目读档位表与倍率的
  * （`packages/core/gateway/src/pool/pool-targets.ts:249-264`、`:287`），
  * 兜底表不落缓存、进不了那条路径，抄进来只是死数据。
  *
- * ⚠ `auto` 是平台的**策略档位**（按账号档位路由到不同底层模型），
+ * `auto` 是平台的**策略档位**（按账号档位路由到不同底层模型），
  * 没有单一规格，故 `MAX_OUTPUTS` 不列它 —— 但上游目录里有它，兜底表也要有，
  * 否则兜底态的池子比刷新态少一条。
  */
@@ -220,10 +220,10 @@ type CacheRow = Record<string, unknown> & { id: string };
  * 上游形态（实测见 docs/channels/qodercn/PROTOCOL.md）：档位是**对象 map**，
  * 默认档由 `is_default` 标出；与 qoder 同一套字段。
  *
- * ⚠ 必须在**落盘前**归一：池层（`getPoolModelMeta`）直接读这份磁盘缓存，
+ * 必须在**落盘前**归一：池层（`getPoolModelMeta`）直接读这份磁盘缓存，
  * 只认 `effort: {supportedLevels, defaultLevel}` 这一种形态。
  *
- * ⚠ `disabled` **不映射**成 `off` 档：那会让客户端发出 `reasoning_effort: "off"`，
+ * `disabled` **不映射**成 `off` 档：那会让客户端发出 `reasoning_effort: "off"`，
  * 而上游关闭思考走的是另一套字段（不是档位取值）。只在文档里记录它存在。
  */
 function wireEffort(raw: Record<string, unknown>): Effort | undefined {
@@ -324,7 +324,7 @@ function entryOf(name: string): ModelEntry | null {
 /**
  * 按**上游 key** 取模型元数据（请求体的 `model_config` 用）。
  *
- * ⚠ 与 `entryOf()` 的区别：`entryOf()` 按**对外 id** 查（池内视图），
+ * 与 `entryOf()` 的区别：`entryOf()` 按**对外 id** 查（池内视图），
  * 这里按**上游 key** 查 —— `upstream.buildChatBody` 只拿到 key。
  *
  * 优先级：动态目录（磁盘缓存，来自上游 `model/list`）→ 静态兜底表（官方目录快照）。

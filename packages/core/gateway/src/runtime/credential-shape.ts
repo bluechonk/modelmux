@@ -5,7 +5,7 @@
  * `first_keyfrom`），而渠道 billing 只认自己 `cred.load()` 的形状 —— 这里做一次
  * 通用「snake_case → camelCase」深度转换（落点在池层 `refreshAccountCredits`）。
  *
- * ⚠ 只做形状转换，不解释语义、不派生字段；转换结果是**只读副本**，不回写磁盘。
+ * 只做形状转换，不解释语义、不派生字段；转换结果是**只读副本**，不回写磁盘。
  */
 
 function camelKey(key: string): string {

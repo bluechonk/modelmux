@@ -359,7 +359,7 @@ interface KeyfromLike {
 /**
  * 构造模型列表的 query（keyfrom 身份载荷）。
  *
- * ⚠️ **不含 `refreshToken`** —— 放 query 既是信息泄露（会进服务端访问日志），
+ * **不含 `refreshToken`** —— 放 query 既是信息泄露（会进服务端访问日志），
  * 也不是该端点的预期输入。空值字段**删键**而不是写空串（Go 的 `if != ""` 语义）。
  */
 function modelsQuery(
@@ -662,7 +662,7 @@ export function buildChatBody(
  * 响应**两种形状都必须认**（见 docs/channels/lobsterai/PROTOCOL.md §5.1）：
  * 单层 `{code:0, message:'success', data:[...]}`（实测真实形态）
  * 或双层 `{code:0, msg:'OK', data:{data:[...]}}`。
- * ⚠️ 不能复用「`data` 必须是对象」的信封校验 —— 此端点 `data` 恰恰是数组，
+ * 不能复用「`data` 必须是对象」的信封校验 —— 此端点 `data` 恰恰是数组，
  * 复用会让列表恒为空并静默回退兜底表。
  *
  * 401/403 抛 `UpstreamUnauthorized`（用于探测凭据有效性）。
@@ -745,7 +745,7 @@ type ErrorKind =
  * 余额不足关键词（对齐 Go `classify.go` 的 `hardMarkers`）。
  *
  * 中英双通道是必需的：同一后端在不同场景下会返回中文或英文文案。
- * ⚠️ 2026-09 补充的 `额度已用完` / `升级套餐` 等 6 个中文 + 4 个英文来自
+ * 2026-09 补充的 `额度已用完` / `升级套餐` 等 6 个中文 + 4 个英文来自
  * **真实缺陷**：额度耗尽的**实际文案**是「免费额度已用完，请升级套餐」，
  * 而早期表里只有「额度用尽」「积分用完」——「已用完」与「用尽」字面不同，
  * 于是这个**最主要的失败模式**判成 `none`（不换号、不记徽章）。
@@ -801,10 +801,10 @@ const SESSION_DEAD_MARKERS: readonly string[] = [
  * | 7 | `status >= 400` | `client` |
  * | 8 | 其它 | `none` |
  *
- * ⚠️ **body 关键词排在状态码之前**（除 402）：实测上游用 **400 + 中文「积分不足」**
+ * **body 关键词排在状态码之前**（除 402）：实测上游用 **400 + 中文「积分不足」**
  * 表达余额耗尽，只按状态码会误判成 `client`（可重试），于是反复重试一个
  * 永远不会成功的账号。
- * ⚠️ **session-dead 排在 429/404 之前**：`40100`/`40101` 可能与 4xx 同时出现，
+ * **session-dead 排在 429/404 之前**：`40100`/`40101` 可能与 4xx 同时出现，
  * 会话已死时任何换号重试都没意义。
  */
 export function classifyError(status: number, body: string): ErrorKind {

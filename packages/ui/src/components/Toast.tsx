@@ -61,7 +61,7 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactEleme
   return (
     <ToastContext.Provider value={api}>
       {/* 同时只挂一个 Viewport：Radix 要求 Provider 包住 Root，Viewport 只出现一次。
-          ⚠ Toast 项必须是 Viewport 的**子节点**（Radix 用 Collection 把 Item 收进
+          Toast 项必须是 Viewport 的**子节点**（Radix 用 Collection 把 Item 收进
           Viewport）；放在 Viewport 外面不会被收集，也不参与焦点/ESC 语义。 */}
       <ToastPrimitive.Provider duration={DURATION_MS} swipeDirection="right">
         {children}

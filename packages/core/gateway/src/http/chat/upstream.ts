@@ -38,7 +38,7 @@ function errorBodyTimeoutMs(budgetMs: number): number {
 /**
  * 读上游的错误响应体（401/403 与其它非 200 共用）：**带超时**。
  *
- * ⚠ 首包定时器在 `fetch` 返回时就清掉了；此处若不设上限，上游「发一半 body 然后
+ * 首包定时器在 `fetch` 返回时就清掉了；此处若不设上限，上游「发一半 body 然后
  *   挂住」会让请求永远不结束（客户端超时、网关侧连接不释放）。
  * 超时用**同一个 AbortController** 中止（fetch 的 signal 管着响应体）。
  */
@@ -216,7 +216,7 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
   if (resp.status === 401 || resp.status === 403) {
     // 鉴权类失败也**读响应体**：有的上游用 403 表示「账号被限制」，
     // 不读 body 就永远分不清「令牌过期」和「账号被封」
-    // ⚠ 读错误体也有超时（上游可能只发一半 body 就挂住）
+    // 读错误体也有超时（上游可能只发一半 body 就挂住）
     const snippet = await readErrorBody(resp, controller, timeoutMs);
     return {
       ok: false,
@@ -228,7 +228,7 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
     };
   }
   if (resp.status !== 200) {
-    // ⚠ 读错误体也有超时（上游可能只发一半 body 就挂住）
+    // 读错误体也有超时（上游可能只发一半 body 就挂住）
     const snippet = await readErrorBody(resp, controller, timeoutMs);
     // 渠道可声明「非标准状态码的鉴权失败」（如 400 + 渠道特有错误码）：
     // 归一成 401，让调用方走刷新/换账号链路

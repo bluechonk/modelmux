@@ -4,7 +4,7 @@
  * 独立模式下进程就在手边，直接调函数，不走进程外 CLI 探测。
  * 所有 handler 输出 JSON 对象（不是 `console.log`），与 CLI 的进程退出码语义解耦。
  *
- * ⚠ **登录的触发经 `WebCommandDeps.triggerLogin` 注入**，不在本层 import app 层的
+ * **登录的触发经 `WebCommandDeps.triggerLogin` 注入**，不在本层 import app 层的
  * `headless`（那会造成 http → app 的层级违例，见 `scripts/verify-layering.mjs`）。
  * 调用方（headless 的 bridge）负责提供实现。
  */

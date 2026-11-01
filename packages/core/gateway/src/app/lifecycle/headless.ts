@@ -40,7 +40,7 @@ function emit(event: Record<string, unknown>): void {
  * - TTY：用 `readline` 的 `line` 事件（按行交付，用户粘一整条 URL 回车即可）；
  * - 非 TTY（管道 / 重定向）：用 `data` 事件自己按行切分。
  *
- * ⚠ 非 TTY 也要能收：`mx relogin loomy < callback.txt` 这种用法很常见，
+ * 非 TTY 也要能收：`mx relogin loomy < callback.txt` 这种用法很常见，
  * 只在 TTY 下生效等于把管道场景整个废掉。
  */
 class StdinPasteReader {
@@ -98,7 +98,7 @@ class StdoutLoginUi implements authFlow.LoginUi {
   /**
    * CLI 端的粘贴通道（标准输入）。
    *
-   * ⚠ **必须显式开启**（`enableStdinPaste`）：`serve` 模式也是无观察者的，
+   * **必须显式开启**（`enableStdinPaste`）：`serve` 模式也是无观察者的，
    * 若在构造时就接管 stdin，长驻守护进程会吃掉终端输入（用户没法再敲命令）。
    * 只有 `login` / `relogin` 这种「前台等人操作」的流程才该开。
    */
@@ -135,7 +135,7 @@ class StdoutLoginUi implements authFlow.LoginUi {
   /**
    * 二维码图片 URL。
    *
-   * ⚠ **CLI 下必须真的打印出来**：只转发给 observer 的话，终端里就永远拿不到
+   * **CLI 下必须真的打印出来**：只转发给 observer 的话，终端里就永远拿不到
    * 扫码入口（控制台有 observer 会渲染 `<img>`，CLI 没有）。
    * 「扫码必须用这一张」——它对应本轮长轮询的 uuid，授权页每次加载都会换 uuid。
    */
@@ -262,7 +262,7 @@ class ServiceState {
   /**
    * 新一轮登录开始：**清空上一轮的残留**，回到「准备中」。
    *
-   * ⚠ 必须由 `triggerLogin` **同步**调用：`ServiceState` 的字段跨请求保留，
+   * 必须由 `triggerLogin` **同步**调用：`ServiceState` 的字段跨请求保留，
    * 而控制台的 `triggerLogin` 走 `setImmediate` 异步启动 —— 不先清干净的话，
    * 弹窗挂载后最长一个轮询周期（3s）里显示的还是上一轮的
    * `done` / `error` / 旧授权链接（用户看到的是「一开始就显示登录成功」）。
@@ -298,7 +298,7 @@ class ServiceState {
   submitInput(value: string): void {
     const pending = this.pendingInput;
     if (!pending) return;
-    // ⚠ 必须**自己**摘下来再清定时器，不能走 `cancelPendingInput()` ——
+    // 必须**自己**摘下来再清定时器，不能走 `cancelPendingInput()` ——
     // 那会把 Promise resolve 成 `undefined`，用户刚填的内容就丢了
     // （症状：点了「发送验证码」毫无反应，手机号被吞）。
     this.pendingInput = null;
@@ -359,7 +359,7 @@ class ServiceState {
 /**
  * 登录后入池（幂等）。
  *
- * ⚠ 必须包 `runInChannel`：`captureActive` / `syncPool` 内部走 `cred.load()` →
+ * 必须包 `runInChannel`：`captureActive` / `syncPool` 内部走 `cred.load()` →
  * `paths.*`，而这些在多渠道模式下靠 ALS 上下文才知道为谁解析。
  *
  * 入池失败**不影响登录结果**（登录本身已成功），但必须留痕：静默吞掉时症状是
@@ -395,7 +395,7 @@ export async function runLogin(options: {
   const { force = false, json = false, realm = "auto", cid, wechat = false, observer } = options;
   const target = getChannel(cid);
   const { cred } = target;
-  // ⚠ 刻意**不**在重登前删 credentials.json。
+  // 刻意**不**在重登前删 credentials.json。
   // 「重新授权」要的是**拿到新凭据**，不是把旧的毁掉：授权流程要等人操作（扫码 / 粘回调），
   // 期间渠道处于「登录中」，而旧凭据在这段时间里本来还能正常服务。先删的后果是
   // **授权没走完（链接过期 / 没扫码 / 弹窗关掉）渠道就直接掉线**，账号池里的账号和
@@ -419,13 +419,13 @@ export async function runLogin(options: {
     try {
       await runInChannel(target.config.cid, () =>
         loginWechat.call(cred, cred.resolveBaseUrl(realm), {
-          // ⚠ auth_url 只是「授权页在哪」；扫码必须用 onQr 给的那张 —— 授权页每次
+          // auth_url 只是「授权页在哪」；扫码必须用 onQr 给的那张 —— 授权页每次
           // 加载都会新生成 uuid，扫那一张的码与本轮长轮询不是同一个会话。
           onUrl: (url: string) => ui.setState("login", "授权链接（在浏览器中打开以完成授权）", url),
           onQr: (qr: string) => ui.setState("login", "用微信扫这张二维码，在手机上确认登录", "", qr),
           onStatus: (msg: string) => ui.setState("login", msg),
           // 长轮询拿不到时的兜底：让界面能把用户粘回的回调链接喂进来。
-          // ⚠ 走 `ui` 而不是直接摸 `observer`：CLI 下没有 observer，但 stdin
+          // 走 `ui` 而不是直接摸 `observer`：CLI 下没有 observer，但 stdin
           // 也是一条能用的粘贴通道（否则终端用户根本无处可贴）。
           pasteCode: () => ui.takePastedCallback?.(),
         }),
@@ -445,7 +445,7 @@ export async function runLogin(options: {
       if (ui.authUrl) done["auth_url"] = ui.authUrl;
       if (ok) {
         try {
-          // ⚠ 必须包渠道上下文：渠道的 `cred.load()` 内部用无参 `paths.*` 解析落点，
+          // 必须包渠道上下文：渠道的 `cred.load()` 内部用无参 `paths.*` 解析落点，
           // 裸调在仓库级多渠道模式下会抛错 → uid/domain/obtained_at **永远缺失**。
           const c = runInChannel(target.config.cid, () => cred.load());
           done["uid"] = c.uid;
@@ -505,13 +505,13 @@ export async function runLogin(options: {
   });
 
   // 登录即入池：把刚拿到的凭证收进账号池（幂等；失败不影响登录结果）。
-  // ⚠ 必须包 `runInChannel`：`syncPool` 内部走 `cred.load()` → `paths.*`，
+  // 必须包 `runInChannel`：`syncPool` 内部走 `cred.load()` → `paths.*`，
   // 而这些在多渠道模式下靠 ALS 上下文才知道为谁解析。
   if (ok && target) {
     captureIntoPool(target.config.cid);
     ui.setState("done", "登录成功，账号已入池。", "", "");
   } else {
-    // ⚠ 不再盖一层通用文案：渠道的错误信息里**已经写了原因与下一步**
+    // 不再盖一层通用文案：渠道的错误信息里**已经写了原因与下一步**
     // （loomy 的「重跑时带上 msgid」、控制台两步登录的「已取消」）。
     // 再盖一句「登录未完成，请按上面的提示处理」会把「按提示做第二步」
     // 误导成「出错了」。
@@ -523,7 +523,7 @@ export async function runLogin(options: {
     if (ui.authUrl) done["auth_url"] = ui.authUrl;
     if (ok) {
       try {
-        // ⚠ 必须包渠道上下文：渠道的 `cred.load()` 内部用无参 `paths.*` 解析落点，
+        // 必须包渠道上下文：渠道的 `cred.load()` 内部用无参 `paths.*` 解析落点，
         // 裸调在仓库级多渠道模式下会抛错 → uid/domain/obtained_at **永远缺失**。
         const c = runInChannel(target.config.cid, () => cred.load());
         done["uid"] = c.uid;
@@ -619,7 +619,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // 控制台的「登录」按钮经此回调触发真实登录流程（本函数在 app 层，
     // 控制台层不认识它 —— 见 scripts/verify-layering.mjs）
     triggerLogin: (cid, force) => {
-      // ⚠ **同步**清掉上一轮的残留（done / error / 旧授权链接 / 待回答输入）：
+      // **同步**清掉上一轮的残留（done / error / 旧授权链接 / 待回答输入）：
       // 上一轮的状态会一直挂在 ServiceState 上（它是跨请求保留的字段），
       // 弹窗打开时先读到旧 `done` 就会直接显示「登录完成」而看不到新的授权链接。
       // 真实登录由下面的 setImmediate 之后才启动。
@@ -706,7 +706,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
   // 登录探测 + 网关启动。
   //
-  // ⚠ **登录不是启动网关的前置条件**：控制台是 Web 端唯一的登录入口，而它就挂在网关
+  // **登录不是启动网关的前置条件**：控制台是 Web 端唯一的登录入口，而它就挂在网关
   //   同一个端口上 —— 「没登录就不监听」会形成「没登录 → 起不来 → 也没法登录」的死锁
   //   （2026-10-29 实测：全新机器 10 个渠道全未登录时 `mx start` 30s 超时、`mx web` 打不开）。
   //   未登录的渠道由请求路径按 not_authenticated(503) 处理，不影响网关与控制台。
@@ -818,7 +818,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
   await shutdown();
   if (json) emit({ event: "stopped", ...(stopReason ? { reason: stopReason } : {}) });
-  // ⚠ 有监督者时 IPC 通道是活跃 handle：不主动断开，进程会一直不退出，
+  // 有监督者时 IPC 通道是活跃 handle：不主动断开，进程会一直不退出，
   //    监督者等不到 exit 就永远不重生（实测：Web 点「重启」后网关卡死、不再服务）。
   if (typeof process.disconnect === "function" && process.connected) {
     process.disconnect();

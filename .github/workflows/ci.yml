@@ -1,6 +1,6 @@
 # CI：与本地推送门禁同一条命令（npm test = build + 全部校验器 + 全部测试）。
 #
-# ⚠ 推送前**必须**先在本地跑通同一命令（`npm run gate`，见 AGENTS.md「推送门禁」）——
+# 推送前**必须**先在本地跑通同一命令（`npm run gate`，见 AGENTS.md「推送门禁」）——
 # 它会在**干净 clone** 里复现本 workflow 的全部步骤，避开开发工作树的残留状态。
 # 这里跑在 ubuntu-latest：verify:commits 需要完整 git 历史（故下方 fetch-depth: 0）、
 # npm ci 装的是平台原生依赖 —— 开发机上的残留状态不代表这里会绿。

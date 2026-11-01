@@ -32,7 +32,7 @@ export const QUEUE_RETRY_MAX_DELAY_MS = 12_000;
  * 取 120 秒：比客户端超时宽裕，又不会让一次请求挂太久。
  * 可用 `MODELMUX_QUEUE_BUDGET_MS` 覆盖（测试与运维调参用）。
  *
- * ⚠ 做成函数而不是常量：测试要能在运行时改这个上限，常量在模块加载时就定死了。
+ * 做成函数而不是常量：测试要能在运行时改这个上限，常量在模块加载时就定死了。
  */
 export function queueBudgetMs(): number {
   const raw = process.env["MODELMUX_QUEUE_BUDGET_MS"];
@@ -96,9 +96,9 @@ export interface QueueProbe {
  *   否则记入 `frames` 后停止探测（交回调用方，不能吞）
  * - 流结束仍无内容也无排队 → `queued: false`（正常完成或普通错误）
  *
- * ⚠ 只在 `relayUpstream` **之前**调用：一旦开始向客户端写字节，本函数就没意义了。
- * ⚠ 返回的 `translator` 必须交给转发层接着用（半行缓冲在里面）。
- * ⚠ 返回的 `frames` 一个都不能丢：按原序交给转发层（见 `ProbeFrames`）。
+ * 只在 `relayUpstream` **之前**调用：一旦开始向客户端写字节，本函数就没意义了。
+ * 返回的 `translator` 必须交给转发层接着用（半行缓冲在里面）。
+ * 返回的 `frames` 一个都不能丢：按原序交给转发层（见 `ProbeFrames`）。
  *
  * @param translator 探测用的翻译器实例；**必须与转发层复用同一个**（半行缓冲在里面）。
  */
@@ -146,7 +146,7 @@ export async function consumeQueueProbe(
         probe.rawDelaySec = sec;
         probe.delayMs = Math.max(1_000, sec * 1000);
       }
-      // ⚠ 排队帧**就是这条流的最后一帧**（实测：发出排队帧后连接保持但彻底静默，
+      // 排队帧**就是这条流的最后一帧**（实测：发出排队帧后连接保持但彻底静默，
       // 上游期望客户端按 retryAfterSeconds 等待后重开新请求）。继续读 = 死锁到空闲
       // abort（undici 报 terminated）；立即返回，交调用方的「等待 → 重开」重试循环接管。
       stopped = true;
@@ -167,7 +167,7 @@ export async function consumeQueueProbe(
     }
     for (const frame of activeTranslator.finish()) take(frame);
   } finally {
-    // ⚠ 必须 releaseLock（不是 cancel）：流可能还没读完就提前返回（发现内容/普通错误），
+    // 必须 releaseLock（不是 cancel）：流可能还没读完就提前返回（发现内容/普通错误），
     // 此时 cancel 会抛「ReadableStream is locked」；releaseLock 后调用方才能安全地
     // cancel 或重新 getReader。
     reader.releaseLock();

@@ -25,7 +25,7 @@ import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
 /**
  * 服务标识：出现在 `/health` 应答里。
  *
- * ⚠ 为什么需要它：同一端口上可能跑着**其它实现或其它项目的网关**，
+ * 为什么需要它：同一端口上可能跑着**其它实现或其它项目的网关**，
  * 它们同样返回 `{"ok":true}`。只按 `ok` 判定会让 `status` 把别人的进程
  * 报成「自己的网关 OK」，而请求实际发去了另一个程序。
  * 故 `daemon.gatewayHealthy()` 会核对 `service` 字段。

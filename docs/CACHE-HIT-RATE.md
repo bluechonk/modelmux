@@ -110,7 +110,7 @@
 命中率 = hit / (hit + miss)     ← miss 由形态推出，两种写法只有这一种是安全的
 ```
 
-⚠ **为什么不能用 `hit / prompt_tokens` 统一算**：③ 的 `input_tokens` 不含缓存读，
+**为什么不能用 `hit / prompt_tokens` 统一算**：③ 的 `input_tokens` 不含缓存读，
 若沿用 `prompt_tokens`（= `input_tokens`）当分母，而 `cache_read` 又接近输入量，
 命中率会被算成接近 100% —— 这正是「满屏 100%」的成因。
 仅当上游只给 `prompt_tokens`、没有 `input_tokens` 时，才退回 `miss = prompt_tokens - hit`

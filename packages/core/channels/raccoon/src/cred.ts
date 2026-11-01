@@ -120,7 +120,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
  *
  * 取值顺序：`sub` → `iss` → `user_id` / `userId` / `uid`，第一个非空者胜。
  *
- * ⚠ 三份来源的口径互不相同，故本仓不采信任何一方为定论：
+ * 三份来源的口径互不相同，故本仓不采信任何一方为定论：
  * - 本仓原实现**只取** `sub`；
  * - agent2api 取 `sid`(hex→十进制) → `iss`(hex→十进制) → `sub`/`id`/`user_id`，
  *   它的本机实测记录明确说 **`sid` 不是纯 hex（带 `w` 前缀与 `-`），真正命中的是 `iss`**
@@ -128,7 +128,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
  * - xiaohuanxiong2api 取 `user_id` / `userId` / `uid` / `userID`
  *   （`reference/xiaohuanxiong2api/src/internal/upstream/jwt.go:41-78`）`[参考]`。
  *
- * ⚠ agent2api 对 `iss` 还做 hex→十进制换算；本仓**只取原值** —— 真机确认哪个字段
+ * agent2api 对 `iss` 还做 hex→十进制换算；本仓**只取原值** —— 真机确认哪个字段
  * 才是用户 id 之前不做换算（换错了比空值更难排查）`[推断]`。
  * 真机确认见 PROTOCOL.md「已知边界」的待验证项。
  */
@@ -160,7 +160,7 @@ function expiresAtMs(c: Credentials): number | null {
  * 业务信封判据（raccoon-oauth.ts:62-73）：
  * `code = record.code if isinstance(record.code, int) else (status if status >= 400 else 0)`。
  *
- * ⚠ 失败可能带 HTTP 400/401，也可能 HTTP 200 + 非 0 code。
+ * 失败可能带 HTTP 400/401，也可能 HTTP 200 + 非 0 code。
  */
 function envelopeCode(payload: unknown, status: number): number {
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
@@ -186,9 +186,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * 鉴权域请求头（换码 / 续期 / 用户信息）。
  *
- * ⚠ 不带 `X-Client-Platform` / `X-Client-Version` / `X-Client-Device-ID`：
+ * 不带 `X-Client-Platform` / `X-Client-Version` / `X-Client-Device-ID`：
  * 这三个头只在短信登录路径用过，该路径已不存在，全仓无构造方。
- * ⚠ `Authorization` 在未鉴权端点（换码 / 续期）也发（值为空串）—— 保持既有行为不变。
+ * `Authorization` 在未鉴权端点（换码 / 续期）也发（值为空串）—— 保持既有行为不变。
  */
 function headers(c: Credentials, opts: { jsonBody?: boolean } = {}): Record<string, string> {
   const out: Record<string, string> = {
@@ -270,7 +270,7 @@ function newLoginState(): string {
  *   redirect 上。页面校验器只允许 `http://127.0.0.1|localhost|[::1]:<port>`，
  *   因此 CLI 用本地 HTTP 回调服务器即可自动收码。
  *
- * ⚠ 不要用 `/login/mp?code=…`：那条只给**官方手机 App 扫码**用，网页端没有该路由，
+ * 不要用 `/login/mp?code=…`：那条只给**官方手机 App 扫码**用，网页端没有该路由，
  * 浏览器打开是死链（见 docs/channels/raccoon/PROTOCOL.md §2.4）。
  */
 function authorizeUrl(state: string, baseOverride?: string, redirectUri?: string): string {
@@ -492,7 +492,7 @@ async function resolveCallback(options: LoginOptions, timeoutMs: number): Promis
     );
   }
   if (process.stdin.isTTY || !process.stdin.readableEnded) {
-    // ⚠ 空输入**重问**而不是报错：用户常见动作是「回车看看会发生什么」（真机踩过）。
+    // 空输入**重问**而不是报错：用户常见动作是「回车看看会发生什么」（真机踩过）。
     // 提示文案压成单行：源码里不出现换行转义（校验器与编辑器都更稳）。
     tasks.push(
       (async (): Promise<string> => {
@@ -572,7 +572,7 @@ export async function login(baseUrlOverride?: string, options: LoginOptions = {}
   try {
     const redirect = `http://127.0.0.1:${callback.port}${LOCAL_CALLBACK_PATH}`;
     const url = authorizeUrl(state, baseUrlOverride, redirect);
-    // ⚠ onUrl 只发**纯 URL**：Web 快照把 auth_url 渲染成可点链接，混入指引文本会让链接
+    // onUrl 只发**纯 URL**：Web 快照把 auth_url 渲染成可点链接，混入指引文本会让链接
     // 打不开；渠道特有指引走 onStatus 的 message（CLI 与 Web 共用 RACCOON_LOGIN_GUIDE）。
     onUrl?.(url);
     onStatus?.(RACCOON_LOGIN_GUIDE);
@@ -652,7 +652,7 @@ function credentialsFromLogin(
 /**
  * 续期单飞表：同一 `refresh_token` 的并发刷新**只发一次**上游请求，其余等待同一结果。
  *
- * ⚠ 为什么要单飞：上游的 refresh_token **会轮换**，两次并发刷新里后到的会把先到的
+ * 为什么要单飞：上游的 refresh_token **会轮换**，两次并发刷新里后到的会把先到的
  *   结果作废 ⇒ 账号变不可续期（参考实现 agent2api 有同样的单飞表：
  *   `reference/agent2api/.../providers/raccoon/credentials.rs:504-545`）`[参考]`。
  *
@@ -763,7 +763,7 @@ async function fetchUserInfo(
  *
  * - 文件缺失 / JSON 损坏 / 缺 `access_token` → `NotLoggedInError`
  * - `expires_at` 缺失 → 由 JWT `exp` 推算（静默失效的根源，见文件头注释 3）
- * - ⚠ 旧凭据里的 `device_id` **读到了就忽略**（该字段已随短信路径移除，不再落盘也不再上行）
+ * - 旧凭据里的 `device_id` **读到了就忽略**（该字段已随短信路径移除，不再落盘也不再上行）
  */
 export function load(): Credentials {
   let raw: string;

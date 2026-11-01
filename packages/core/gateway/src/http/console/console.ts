@@ -88,12 +88,12 @@ export interface ChannelCaps {
 export interface UiSnapshot {
   ui_state: string;
   message: string;
-  /** 授权页 URL。⚠ **不要在这里扫码**（每次加载都是新的二维码会话）。 */
+  /** 授权页 URL。**不要在这里扫码**（每次加载都是新的二维码会话）。 */
   auth_url: string;
   /**
    * 二维码图片 URL（`<img src>` 直接内嵌）。
    *
-   * ⚠ 扫码**必须**用这张：它对应登录流程本轮长轮询的 uuid。用 `auth_url`
+   * 扫码**必须**用这张：它对应登录流程本轮长轮询的 uuid。用 `auth_url`
    * 那个页面上显示的二维码属于另一次会话，轮询永远等不到「已确认」。
    */
   qr_url: string;
@@ -146,7 +146,7 @@ export function emptySnapshot(): UiSnapshot {
 }
 
 /**
- * HTTP 层 ↔ 运行层之间的桥。
+ * HTTP 层 <-> 运行层之间的桥。
  */
 export interface ControlBridge {
   provider?: () => UiSnapshot;
@@ -297,7 +297,7 @@ export function createConsoleHandler(
     }
 
     // SPA 回退：React Router 在客户端负责路由（无扩展名的路由路径都回 index.html）。
-    // ⚠ 两条约束，各自都踩过坑：
+    // 两条约束，各自都踩过坑：
     //   1. 必须传**相对路径** —— serveStatic 会先剥前导斜杠再 `resolve(WEB_UI_ROOT, …)`，
     //      传绝对路径会拼成 `<UI 根>/home/.../index.html`，深链刷新/分享曾因此全挂；
     //   2. **带扩展名的路径不回退** —— 否则部署缺失的 js/css 会拿到 200 + HTML，
@@ -469,7 +469,7 @@ export function createConsoleHandler(
             return;
           }
           const { createWebCommandHandler } = await import("./web-command-handler.js");
-          // ⚠ 桥里的每个写动作都要在这里显式转发 —— 漏一个，命令处理器就报
+          // 桥里的每个写动作都要在这里显式转发 —— 漏一个，命令处理器就报
           // 「未注入 xxx」（实测踩过：`submitInput` 漏转发，控制台点
           // 「发送验证码」后端直接回「不支持登录输入」）。
           const handle = createWebCommandHandler({

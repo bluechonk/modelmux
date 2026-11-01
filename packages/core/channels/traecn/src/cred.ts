@@ -23,7 +23,7 @@ import {
 /**
  * agentHost（对话 + 模型列表）。
  *
- * ⚠ 契约要求 `cred` 与 `upstream` **都**导出 `DEFAULT_BASE_URL`；
+ * 契约要求 `cred` 与 `upstream` **都**导出 `DEFAULT_BASE_URL`；
  * 两处同值不同源迟早漂移，故只在这里定义一次，`upstream.ts` 直接转出这一份。
  */
 export const DEFAULT_BASE_URL = "https://trae-api-cn.mchost.guru";
@@ -45,7 +45,7 @@ const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
  * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/GetUserInfo`
  *
  * - query：无；body `{ReqSource:"IDE", IDEVersion:<ideVersion>}`
- * - ⚠ 鉴权走 **`x-cloudide-token`**，**不能**用 `Authorization: Cloud-IDE-JWT`（会 401）。
+ * - 鉴权走 **`x-cloudide-token`**，**不能**用 `Authorization: Cloud-IDE-JWT`（会 401）。
  * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`fetch_user_info`）、
  *   `reference/JeffHu0912_trae2api/login.sh`（`GetUserInfo` 段）
  */
@@ -60,14 +60,14 @@ const CONSOLE_HOST = "https://www.trae.cn";
 /**
  * 网页授权门户的 client_id（tr 兆 web 端身份）。
  *
- * ⚠ 与 IDE 客户端 ID（对话链路用）不同：授权页只认 web 端 ID，
+ * 与 IDE 客户端 ID（对话链路用）不同：授权页只认 web 端 ID，
  * 传 IDE ID 会直接 404（对齐 trae2api 实测）。
  */
 const CLIENT_ID = "ono9krqynydwx5";
 /**
  * SOLO/IDE 应用的 AppID（对话与 Solo 目录的 `X-App-Id`）。
  *
- * ⚠ **上游按 AppID 查「app config」记录**：AppID 不对就直接
+ * **上游按 AppID 查「app config」记录**：AppID 不对就直接
  * `2001 failed to get app config: record not found`（HTTP 200，流内 error 帧）。
  * 本值必须是 `…01c…` —— 旧的 `…01a…` 记录已被上游撤下。
  * 参考实现逐字一致：`autumnsentiment_Trae2api-cn/src/trae_client.py:47`、
@@ -266,9 +266,9 @@ function fixNickname(raw: string, uid = ""): string {
 /**
  * 构造登录 URL（网页授权门户形态，20 个参数；对齐 trae2api 实测）。
  *
- * ⚠ 参数名必须是 `auth_callback_url`；没有 `callback_url`/`redirect_uri` ——
+ * 参数名必须是 `auth_callback_url`；没有 `callback_url`/`redirect_uri` ——
  * 写错登录页永远停在授权中。
- * ⚠ client_id 必须是网页端 `ono9krqynydwx5`（IDE 客户端 ID 会被门户 404）；
+ * client_id 必须是网页端 `ono9krqynydwx5`（IDE 客户端 ID 会被门户 404）；
  * ExchangeToken/GetUserInfo 也用同一 client_id，保证 token 与兑换域一致。
  */
 function buildAuthorizeUrl(
@@ -339,9 +339,9 @@ function pick(value: unknown): string {
 /**
  * 解析登录回调参数。
  *
- * ⚠ 回调**直接回传 token**（query 里的 `refreshToken`、`userJwt.Token`），
+ * 回调**直接回传 token**（query 里的 `refreshToken`、`userJwt.Token`），
  * 不是 OAuth `?code=`；PKCE 变体（`code`/`authCode`/`authCodeInfo`）明确报错。
- * ⚠ TenantID 才是租户标识（不是 EnterpriseID）。
+ * TenantID 才是租户标识（不是 EnterpriseID）。
  */
 function parseCallback(flat: Record<string, unknown>): CallbackFields {
   const userInfo = parseJsonObject(flat["userInfo"] ?? flat["user_info"]);
@@ -728,7 +728,7 @@ interface TokenPair {
 /**
  * 调 `ExchangeToken` 用 refresh token 换新 token（**不落盘**）。
  *
- * ⚠ **access 与 refresh 都轮换**，调用方必须把两个都写回。
+ * **access 与 refresh 都轮换**，调用方必须把两个都写回。
  * 终态（需重新登录）三条任一：HTTP 401/403、响应非 JSON（HTML 错误页）、
  * **2xx 且响应是 JSON 却没有 accessToken**。
  */
@@ -764,7 +764,7 @@ async function exchangeToken(refreshToken: string, host?: string): Promise<Token
     throw new Error(`ExchangeToken returned HTTP ${resp.status}`);
   }
 
-  // ⚠ 凭据失效时上游回 HTML 错误页：必须先 text() 再试 JSON.parse（不能直接 .json()）
+  // 凭据失效时上游回 HTML 错误页：必须先 text() 再试 JSON.parse（不能直接 .json()）
   const text = await resp.text();
   let env: Record<string, unknown> | null = null;
   try {
@@ -810,9 +810,9 @@ interface UserInfo {
 /**
  * 取账号信息（uid / 昵称 / 脱敏手机号 / 脱敏邮箱 / 企业 id）。
  *
- * ⚠ 鉴权头**必须**是 `x-cloudide-token`：用 `Authorization: Cloud-IDE-JWT` 会被 401
+ * 鉴权头**必须**是 `x-cloudide-token`：用 `Authorization: Cloud-IDE-JWT` 会被 401
  * （参考实现实测，见 `docs/channels/traecn/PROTOCOL.md`）。
- * ⚠ 失败**不阻塞登录**（返回 null，调用方沿用回调里的 `userInfo`）。
+ * 失败**不阻塞登录**（返回 null，调用方沿用回调里的 `userInfo`）。
  */
 async function fetchUserInfo(accessToken: string, host?: string): Promise<UserInfo | null> {
   if (!accessToken) return null;
@@ -856,7 +856,7 @@ async function fetchUserInfo(accessToken: string, host?: string): Promise<UserIn
 /**
  * 用 refresh token 换新 token 并落盘。
  *
- * ⚠ **access 与 refresh 都轮换**，续期后必须回写；
+ * **access 与 refresh 都轮换**，续期后必须回写；
  * 设备指纹字段完全不动。设备指纹之外只有 token/过期时间被更新。
  */
 export async function refresh(c: Credentials): Promise<Credentials> {

@@ -17,7 +17,7 @@ import { channelCount, getChannel } from "./channel.js";
  * 多渠道路由下没有"渠道版本"可言，`--version` 该报**仓库级 CLI**（bin `modelmux` / `mx`）的版本；
  * 而共享层不知道自己在哪个入口下被跑，故从入口脚本的位置反推它的 package.json。
  *
- * ⚠ `argv[1]` 可能是**无扩展名的 bin shim**（`/usr/local/bin/mx` 符号链接，npm 安装形态），
+ * `argv[1]` 可能是**无扩展名的 bin shim**（`/usr/local/bin/mx` 符号链接，npm 安装形态），
  * 此时它的目录根本没有 package.json —— 必须先 `realpath` 回到真实入口文件再反推，
  * 否则 `--version` 会静默退化成 `0.0.0`。
  */

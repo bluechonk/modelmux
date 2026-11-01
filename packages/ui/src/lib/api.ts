@@ -154,7 +154,7 @@ export interface WebApi {
      * 与 `activateAccount` 的区别：**不动凭证**，所以池里任何账号都能清，不只是生效那个。
      * 凭据失效（`unauthorized`）时后端拒绝并给出原因 —— 那只能重新登录。
      *
-     * ⚠ 界面**没有**入口（熔断与冷却都会自动恢复，见 AccountCard）；这是后端保留的调用面。
+     * 界面**没有**入口（熔断与冷却都会自动恢复，见 AccountCard）；这是后端保留的调用面。
      */
     resetAccount(cid: string, key: string): Promise<CommandData>;
     removeAccount(cid: string, key: string): Promise<CommandData>;
@@ -186,10 +186,10 @@ export interface CommandData extends Record<string, unknown> {
 /**
  * 统一命令载荷：`{ action, cid?, args }`。
  *
- * ⚠ `args` 必须是**独立字段** —— 后端 `console.ts` 只取顶层的 `action` / `cid` / `args`，
+ * `args` 必须是**独立字段** —— 后端 `console.ts` 只取顶层的 `action` / `cid` / `args`，
  * 把参数字段扁平拼到顶层会被静默丢弃（登录 force、账号 key 都传不到）。
  *
- * ⚠ **返回值会自动解包 `data`** —— 后端统一信封是 `{ ok, data?, message?, error? }`，
+ * **返回值会自动解包 `data`** —— 后端统一信封是 `{ ok, data?, message?, error? }`，
  * 调用方拿到的就是 `data`。早期版本把整个信封返回，导致各页面按 `res.channels` 读取
  * 而实际在 `res.data.channels`，表现为「（无渠道）」「（无数据）」（实测踩过）。
  */

@@ -8,7 +8,7 @@
  *   max(dist/**\/*.js 的 mtime) > pid 文件 mtime  →  进程比代码旧 → 需要 restart
  *
  * 用 pid 文件 mtime 而非「进程启动时间」：后者要平台相关调用，pid 文件是
- * `start` 亲手写的，时刻等价且零依赖。⚠ 只读、不重启：报告事实，重启由调用方决定。
+ * `start` 亲手写的，时刻等价且零依赖。只读、不重启：报告事实，重启由调用方决定。
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -148,7 +148,7 @@ export function staleBuildHint(report: StaleBuildReport): string {
   const at = (ms: number | null): string =>
     ms === null ? "?" : new Date(ms).toLocaleString("zh-CN", { hour12: false });
   return (
-    `⚠ 网关在跑旧代码：构建产物 ${at(report.buildMs)} 比进程启动 ${at(report.pidMs)} 新。` +
+    `网关在跑旧代码：构建产物 ${at(report.buildMs)} 比进程启动 ${at(report.pidMs)} 新。` +
     `跑 \`mx restart\` 让修复生效（否则测到的还是旧行为）。`
   );
 }
