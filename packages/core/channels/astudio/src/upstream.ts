@@ -73,6 +73,17 @@ const DOWNLOAD_REWARD_PATH = "/client-download-reward/claim";
 /** 会话失效的业务码（云端账号 API 返回 `80000` 表示「登录异常，请重新登录」）。 */
 export const SESSION_INVALID_CODE = "80000";
 
+/**
+ * 授权/订单被拒的业务码（模型网关返回 `11200`）。
+ *
+ * 上游原文：`no valid authorization: the account lacks an active order, has insufficient
+ * quota, or the order is invalid` —— 属**账号权益**问题，不是凭据问题。
+ *
+ * ⚠ 匹配用字段形态而非裸子串 `11200`：错误体里还带 `requestId`（形如
+ * `01a19782a49d29c4503`），裸子串会把它里面的数字误判成业务码。
+ */
+const ORDER_REJECTED_RE = /"code"\s*:\s*11200\b/;
+
 /** 上游认为凭据失效（HTTP 401/403 或业务码 80000）。 */
 export class UpstreamUnauthorized extends Error {
   override name = "UpstreamUnauthorized";
@@ -245,11 +256,17 @@ function cookieHeader(credential: AuthLike): string {
 /**
  * 判断是否为鉴权失败。
  *
- * 模型网关侧：HTTP 401/403。
+ * 模型网关侧：HTTP 401，以及**排掉 `11200` 之后的** 403。
  * 账号 API 侧：HTTP 401/403 **或**业务码 `80000`（「登录异常，请重新登录」）。
+ *
+ * 为什么 403 要排掉 `11200`：那个码是授权/订单判定，凭据本身有效、refresh 也救不回来。
+ * 当成凭据失效有**三重误伤**（实测 2026-11-01：连续 23 次 502）——
+ * ① 白跑一次 refresh；② 账号被打成终态 `unauthorized`（后续请求一律 503，要人工介入）；
+ * ③ 提示用户「换账号 / 重新登录」，而真实原因是权益，重登无用。
  */
 export function isAuthFailure(status: number, bodySnippet: string): boolean {
-  if (status === 401 || status === 403) return true;
+  if (status === 401) return true;
+  if (status === 403 && !ORDER_REJECTED_RE.test(bodySnippet)) return true;
   return bodySnippet.includes(SESSION_INVALID_CODE);
 }
 

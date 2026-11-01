@@ -370,8 +370,17 @@ Cookie: <buildAstronCookieHeader>
 **`11200` 与凭据失效是两件事**（2026-11-01 实测）：模型网关回
 `403 {"code":11200,"message":"no valid authorization: the account lacks an active order,
 has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**，
-不是凭据过期 —— 此刻 Cookie 打 `/bot/models/configs` 仍正常。把它当凭据失效去
-`refresh()` 救不回来，应直接提示用户去官方客户端确认订单与额度。
+不是凭据过期 —— 此刻 Cookie 打 `/bot/models/configs` 仍正常，`refresh()` 救不回来。
+
+**因此它不计入 `isAuthFailure`**（`src/upstream.ts`）：`403` 里排掉 `11200` 之后才算鉴权失败。
+当作凭据失效会有三重误伤（实测连续 23 次 502）：白跑一次 refresh；账号被打成**终态**
+`unauthorized`（后续请求一律 503，需人工介入）；并提示「换账号 / 重新登录」而真实原因是权益。
+
+⚠ 匹配按**字段形态** `"code":11200` 而非裸子串 —— 错误体里还带 `requestId`
+（形如 `01a19782a49d29c4503`），裸子串会误命中它里面的数字。
+
+**已知限制**：共享层刻意不回传上游错误体（可能含内部信息），故客户端只会看到通用
+502，`11200` 的原文只在网关日志里。要让它对用户可见是更大的改动，本渠道不做。
 
 ---
 
