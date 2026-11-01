@@ -636,11 +636,18 @@ export async function logout(): Promise<void> {
  *
  * Cookie 失效（上游 `code=80000` / HTTP 401）时抛 `NotLoggedInError` ——
  * 绝不假装刷新成功。
+ *
+ * ⚠ 前置条件是 `sessionToken` **或** `ssoSessionId` 至少有一个，不能只认前者：
+ * 短信登录（`astudio-sms-login`）的上游响应实测**不带 `token`**（只给 `ssoSessionId`），
+ * 若写死 `!c.sessionToken` 就抛错，这类账号的刷新链路**永久不可用** ——
+ * 症状是「上游回 403 后只能等桌面应用重登」，凭据本身其实完全够用。
+ * 刷新走的是 `Cookie`（`cookieHeader()` 已按 `ssoSessionId` 拼），不需要 `token` 字段；
+ * 实测（2026-11-01）`sessionToken` 为空时 `/bot/models/configs` 仍回 200 并给出 `api_key`。
  */
 export async function refresh(c: Credentials): Promise<Credentials> {
-  if (!c.sessionToken) {
+  if (!c.sessionToken && !c.ssoSessionId) {
     throw new NotLoggedInError(
-      "no session token available; sign in again in the AStudio desktop app",
+      "no session credential available (neither token nor ssoSessionId); sign in again in the AStudio desktop app",
     );
   }
   let fresh: string;
