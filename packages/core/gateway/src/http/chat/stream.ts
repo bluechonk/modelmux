@@ -22,6 +22,7 @@ import {
   noteRequestError,
 } from "../../runtime/log-store.js";
 import { isCustomWire } from "./channel.js";
+import * as dsmlTools from "../wire/dsml-tools.js";
 import * as sseStream from "../wire/sse-stream.js";
 
 /** 把翻译器产出的帧统一成 Buffer。 */
@@ -113,11 +114,20 @@ export async function relayStream(
   resumeTranslator?: StreamTranslator,
   request?: Record<string, unknown>,
   initialContent = false,
+  pendingFrames: Buffer[] = [],
 ): Promise<void> {
   if (!isCustomWire(channel)) {
-    await sseStream.relay(res, upstreamBody, contentType, cid);
+    const isSse = contentType.toLowerCase().includes("text/event-stream");
+    await sseStream.relay(res, upstreamBody, contentType, cid, {
+      // DSML 兜底只对 SSE 有意义：非 SSE 响应没有 delta.content 可改
+      dsml: isSse ? new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)) : undefined,
+      prefix: pendingFrames,
+    });
     return;
   }
+
+  // custom 线型不走上面的过滤器，探测层帧仍按老路直接写出
+  for (const frame of pendingFrames) res.write(frame);
 
   const { upstream } = channel;
   // 首帧静默上限：渠道可放宽（某些上游排队时 200 后零字节超 120s）
