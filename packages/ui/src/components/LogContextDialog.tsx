@@ -323,9 +323,37 @@ function ToolDefinitions({ tools }: { tools: unknown[] }): ReactElement {
  * `phase=upstream` 是真正发出去的体 —— 有的渠道不是 OpenAI 形态（catpaw 用
  * `requestContext` / `message` 自有字段），此时整段呈现并明确说明，别让人以为丢数据。
  */
-function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
+/** 首屏取多少正文（与服务端分片默认值一致）。 */
+const PAYLOAD_SLICE = 64 * 1024;
+
+/**
+ * 单条记录：元数据 + 按需加载的正文。
+ *
+ * 正文不随首屏一起到达（`record.body` 默认是空串）——整段解压后可达 MB 级，
+ * 一次塞进首屏会让弹窗卡住。首屏只取一片，「加载更多」按片推进（`offset` 递增）。
+ */
+function PayloadBlock({
+  record,
+  id,
+  date,
+}: {
+  record: PayloadRecord;
+  id: string;
+  date: string;
+}): ReactElement {
   const title = record.phase === "client" ? "客户端原始请求" : `上行 #${(record.attempt ?? 0) + 1}`;
-  const parsed = record.truncated ? null : parseJsonObject(record.body);
+  const [offset, setOffset] = useState(0);
+  const [loaded, setLoaded] = useState("");
+  const slice = useQuery({
+    queryKey: ["logPayloadBody", id, date, record.phase, offset],
+    queryFn: () => api.logPayloadBody(id, date, record.phase, offset, PAYLOAD_SLICE),
+    enabled: record.body === "",
+    staleTime: 60_000,
+  });
+  const body = record.body !== "" ? record.body : loaded;
+  const total = slice.data?.total ?? record.bytes;
+  const more = record.body === "" && offset + PAYLOAD_SLICE < total;
+  const parsed = record.truncated ? null : parseJsonObject(body);
   const messages = parsed !== null && Array.isArray(parsed["messages"]) ? parsed["messages"] : null;
   const tools = parsed !== null && Array.isArray(parsed["tools"]) ? parsed["tools"] : null;
   const rest =
@@ -348,7 +376,7 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
         <span className="text-ink-faint">{formatDateTime(record.ts)}</span>
         {record.truncated && <span className="pill bg-warn/15 text-warn">已截断</span>}
         <span className="ml-auto">
-          <CopyButton value={record.body} label={`复制${title}的 JSON`} />
+          <CopyButton value={body} label={`复制${title}的 JSON`} />
         </span>
       </header>
       <div className="space-y-2 px-3.5 py-3">
@@ -359,7 +387,7 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
                 ? "正文超出单条上限已被截断，按原文呈现（不再尝试解析）。"
                 : "正文不是 JSON 对象（自编码请求体），按原文呈现。"}
             </p>
-            <JsonBlock value={record.body} maxHeight="max-h-[50vh]" />
+            <JsonBlock value={body} maxHeight="max-h-[50vh]" />
           </>
         ) : (
           <>
@@ -378,6 +406,26 @@ function PayloadBlock({ record }: { record: PayloadRecord }): ReactElement {
               </Disclosure>
             )}
           </>
+        )}
+        {record.body === "" && (
+          <div className="flex items-center gap-3 border-t border-line/60 px-3.5 py-2 text-xs">
+            <span className="text-ink-faint">
+              已加载 {formatCount(Math.min(offset + PAYLOAD_SLICE, total))} / {formatCount(total)}{" "}
+              字符 · 压缩存储，按需解压
+            </span>
+            {more && (
+              <button
+                type="button"
+                className="ml-auto rounded-md border border-line px-2 py-0.5 text-ink-soft hover:bg-overlay hover:text-ink"
+                onClick={() => {
+                  setLoaded(body + (slice.data?.body ?? ""));
+                  setOffset(offset + PAYLOAD_SLICE);
+                }}
+              >
+                加载更多（+{formatBytes(PAYLOAD_SLICE)}）
+              </button>
+            )}
+          </div>
         )}
       </div>
     </section>
@@ -461,7 +509,12 @@ export function LogContextDialog({
               <p className="text-xs text-danger">请求上下文读取失败，请重试。</p>
             ) : records.length > 0 ? (
               records.map((record) => (
-                <PayloadBlock key={`${record.phase}-${record.seq}`} record={record} />
+                <PayloadBlock
+                  key={`${record.phase}-${record.seq}`}
+                  record={record}
+                  id={entry.id}
+                  date={date}
+                />
               ))
             ) : (
               <p className="text-xs text-ink-faint">
