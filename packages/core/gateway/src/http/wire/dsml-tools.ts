@@ -303,6 +303,13 @@ export class DsmlSseFilter {
             this.applyExtracted(delta, field, this.reasoningExtractor.push(reasoning));
             touched = true;
           }
+          // 空 `tool_calls: []` 必须剔除：客户端看到 tool_calls != null 就结束当前
+          // 思考块，空数组会把思考逐 token 切碎（与 sse-stream.ts::normalizeDataLine 同规则）。
+          // 走 DSML 过滤器的请求不再经过那条路径，这条规则要在这里补一次。
+          if (Array.isArray(delta["tool_calls"]) && delta["tool_calls"].length === 0) {
+            delete delta["tool_calls"];
+            touched = true;
+          }
         }
 
         const finishReason = choice["finish_reason"];
