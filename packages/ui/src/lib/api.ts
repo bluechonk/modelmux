@@ -19,7 +19,7 @@ import type {
   UiSnapshot,
   UsageRange,
   UsageStats,
-} from "./types";
+} from "./types.ts";
 import {
   createDemoState,
   demoAccountPools,
@@ -40,7 +40,7 @@ import {
   demoSubmitLoginInput,
   demoUsage,
   type DemoState,
-} from "./demo";
+} from "./demo.ts";
 
 /**
  * 后端基地址：单端口模式下 UI 挂在网关的 `/web` 前缀下，
