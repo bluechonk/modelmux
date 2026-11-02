@@ -52,7 +52,7 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 | 新增/改名/删除任何 `docs/*.md` | `docs/README.md` 索引（同步更新） |
 | 新增/改名/删除渠道目录 | `docs/README.md` 与 `docs/channels/README.md` 两张表都要登记 |
 
-### 注释格式检查（强制）
+### 代码注释整改（强制）
 
 **只要动了代码注释，收尾前逐条对照 [`docs/MODULE-COMMENTS.md`](../../../docs/MODULE-COMMENTS.md)
 的三层分工** —— 注释与文档出现双份事实源是最常见的腐化路径：
@@ -66,6 +66,27 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 3. **文件头只做导航（≤ 12 行）**：一句话职责 + 关键约束 ≤ 3 条 + 铁律一行（如需要）+
    指引到 PROTOCOL.md。头部出现大段实测记录、多个日期 = 违规 —— 下放文档，头部瘦身。
 4. 口诀：**what 去文档、why 跟函数、头部只做导航**。
+
+机械下限由 `npm run verify:comments` 守（R1 文件头 ≤ 12 行、R2 署名与审批留痕、R3 修订记录、
+R4 TODO/@deprecated 条件）；它只拦零误报的硬违规，语义层（协议事实副本、指向已删文件的过时指针）
+仍需按上面三条人工过一遍。
+
+### md 文档整改（强制，每轮收尾）
+
+`.md` 只描述**当前状态**：自指变更史、实施状态注解、变更箭头与 TODO 标记都属于历史，归 git。
+每轮收尾先扫一遍、再逐条判断：
+
+```bash
+grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反转|本次实现|已落地|已实施|已完成|待实施|部分实现|<!--' \
+  docs README.md AGENTS.md packages/core/channels/*/AGENTS.md --include='*.md'
+```
+
+- **改**：「此前是 X，现在改成 Y」写成当前规则本身；「已实现 / 已完成」从正文与标题去掉；
+  指向已改名章节的引用（如 `AGENTS.md` 的「命令与构建」）改成实际章节名。
+- **留**：外部事实的实测证据（上游行为、限流、真机数字 —— 日期必须留）、影响行为的 why、
+  `docs/AGENTS.md` / `CODE-COMMENTS.md` 里作为反例的词、设计依据文档顶部的一行状态、
+  `PROGRESS.md` 与渠道 `ROADMAP.md` 的状态表、`WALKTHROUGH` 类过程记录。
+- 改完必须 `node scripts/verify-docs.mjs` 通过（相对链接与索引登记会拦）。
 
 落点约束（`scripts/verify-docs.mjs` 会拦）：`.md` 只允许落在 `docs/`（含
 `docs/channels/<cid>/`）、根 `README.md` / `AGENTS.md`、
@@ -159,7 +180,8 @@ npm test                       # build + typecheck + 全部 verify:* + 全部包
 node packages/cli/dist/cli.js restart   # 改了 packages/core/** / cli / ui 必须重启
 node packages/cli/dist/cli.js status    # 必须不含「网关在跑旧代码」
 # 真机验证：见下方分工
-# 注释格式：改过注释的文件，逐条对照 docs/MODULE-COMMENTS.md（见 §1「注释格式检查」）
+node scripts/verify-docs.mjs            # 文档整改复查：落点 + 链接 + 索引登记（§1「md 文档整改」）
+npm run verify:comments                 # 代码注释整改下限：文件头 / 署名 / 修订记录 / TODO 条件（§1）
 git status                     # 工作树干净（无未提交 tracked 文件）
 git fetch --prune && git branch -a      # 本地/远端只剩 main
 gh release list --repo bluechonk/modelmux   # 必须没有任何输出（含 draft；§4.1）
@@ -189,6 +211,7 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
 | PR 标题写英文/无 scope | squash 时提交信息不合规 | 标题必须是 `type(scope): 中文` |
 | 一次提交后立刻开 PR | 历史碎片化 | 小改动先本地攒批次 |
 | 未提交就继续做新任务 | 改动混批、历史难看 | 每轮收尾再开工 |
+| 文档里写自身变更史 / 实施状态（「此前…」「已落地」） | 越写越像流水账，与 git 重复 | 按 §1「md 文档整改」清掉，只留当前状态与外部证据 |
 | `git add -u` 漏掉新文件 | CI 构建失败（UNRESOLVED_IMPORT） | 新文件用 `git add <path>` |
 | 改了代码没 restart | 验证的是旧进程 | build → restart → status 无陈旧 |
 | **给本仓建了 GitHub Release**（`gh release create` / `github:release` 技能 / 网页 Draft） | 主人明确禁止：本仓发布物只有 tag，Release 页是多余事实源 | 只打 tag（§4.1）；已建的要删掉并保留 tag：`gh release delete <tag> --yes` |
