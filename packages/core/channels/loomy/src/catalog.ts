@@ -13,8 +13,8 @@ import { fileURLToPath } from "node:url";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
-import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
+import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
 const EFFORT_VOCABULARY = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -25,8 +25,6 @@ const DEFAULT_EFFORT = "high";
 /** 档位排序（用于挑「最接近 high」的档位）。 */
 const EFFORT_RANK: string[] = [...EFFORT_VOCABULARY];
 
-/** 兜底表的档位（8 条全部相同）。 */
-const FALLBACK_EFFORTS = ["none", "low", "medium", "high", "xhigh"];
 
 /** 远端目录成功结果的缓存时长。 */
 const REMOTE_TTL_MS = 5 * 60 * 1000;
@@ -41,29 +39,7 @@ interface FallbackModel {
   defaultEffort: string;
 }
 
-/**
- * 兜底静态模型表（9 条，源：2026-10-19 实测 `GET /api/v1/models` 的 `type === 'chat'`，
- * 新增 `DeepSeek-V4.1-Flash`；`spark-x` 倍率从 x0.1 改为 x0.0 免费）。
- *
- * `spark-x` 是**已知分歧**：远端声明 1048576，而 **Loomy 客户端**用本地表
- * `MODEL_CONTEXT_OVERRIDES = { 'spark-x': 262144 }` 强制降到 262144
- * —— 该符号是**客户端的**，本仓没有。
- * 本表**先采信远端**；若实测长上下文被拒，改为 262144。
- */
-const SEED_MODELS: FallbackModel[] = [
-  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash · x2.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731 · x3.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "MiniMax-M3", name: "MiniMax M3 · x4.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "Kimi-k2.6", name: "Kimi k2.6 · x6.5", contextWindow: 262_144, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "qwen-3.8-max", name: "Qwen 3.8 Max · x12.0", contextWindow: 1_000_000, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash · x0.8", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "qwen3.8-flash", name: "qwen 3.8 flash · x0.8", contextWindow: 1_000_000, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "spark-x", name: "Spark-X2.5 · x0.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-  { id: "mimo-v2.5", name: "MiMo V2.5 · x3.3", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
-];
-
-const SEED_BY_ID = new Map(SEED_MODELS.map((m) => [m.id, m]));
-
+/** 一条目录条目。 */
 interface CatalogEntry {
   id: string;
   name: string;
@@ -71,7 +47,7 @@ interface CatalogEntry {
   /** 消耗倍率数值（由 `rate` 字符串解析，失败为 undefined）。供 `model_info.multiplier` 使用。 */
   multiplier?: number;
   contextWindow: number;
-  /** 最大输出 token（远端不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  /** 最大输出 token（远端不下发，按用户目录模型表补）。 */
   maxOutput?: number;
   reasoning: boolean;
   vision: boolean;
@@ -83,22 +59,26 @@ interface CatalogEntry {
 }
 
 /**
- * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ * 用户目录模型表（`channels/loomy/models.json`，首启由随包种子浇种）。
  *
- * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/channels/loomy/PROTOCOL.md` §8「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
+ * 清单、窗口、输出上限、档位**都是数据**；代码只做「读 + 归一化」。
  */
-const MAX_OUTPUTS: Readonly<Record<string, number>> = {
-  "deepseek-v4.1-flash": 393_216,
-  "deepseek-v4-flash": 393_216,
-  "minimax-m3": 131_072,
-  "kimi-k2.6": 32_768,
-  "qwen-3.8-max": 131_072,
-  "glm-5.3-flash": 131_072,
-  "qwen3.8-flash": 131_072,
-  "spark-x": 262_144,
-  "mimo-v2.5": 131_072,
-};
+let seedCache: CatalogEntry[] | undefined;
+function seedTable(): CatalogEntry[] {
+  if (!seedCache) {
+    seedCache =
+      ensureChannelModels<CatalogEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+  }
+  return seedCache.map((e) => ({ ...e, efforts: [...e.efforts] }));
+}
+
+/** 按 id 取表内条目（小写比较）。 */
+function rowOf(id: string): CatalogEntry | undefined {
+  return seedTable().find((e) => e.id.toLowerCase() === id.toLowerCase());
+}
 
 /**
  * 已知模型规格（供池层 `/v1/models` 透出）。
@@ -109,9 +89,9 @@ const MAX_OUTPUTS: Readonly<Record<string, number>> = {
 export function modelSpec(
   modelId: string,
 ): { contextWindow?: number; maxOutputTokens?: number } | undefined {
-  const maxOutputTokens = MAX_OUTPUTS[modelId.toLowerCase()];
-  if (maxOutputTokens === undefined) return undefined;
-  return { maxOutputTokens };
+  const row = rowOf(modelId);
+  if (!row || row.maxOutput === undefined) return undefined;
+  return { maxOutputTokens: row.maxOutput };
 }
 
 interface Snapshot {
@@ -220,7 +200,7 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
       Array.isArray(modalities) &&
       modalities.some((m) => String(m).toLowerCase() === "image");
     const remoteEfforts = cleanEfforts(item["reasoning_efforts"]);
-    const fallback = SEED_BY_ID.get(id);
+    const fallback = rowOf(id);
     const efforts = remoteEfforts.length > 0 ? remoteEfforts : (fallback?.efforts ?? []);
     // 最大输出：上游 `max_output_tokens` 优先（实测 2026-10-23：spark-x2.6 131072、
     // MiniMax-M3 512000、DeepSeek-V4.1-Flash 384000），上游没给才回落公开规格表
@@ -234,8 +214,8 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
       rate,
       ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
       contextWindow: num(item["context_length"]) || fallback?.contextWindow || 0,
-      ...(remoteMaxOutput || MAX_OUTPUTS[id.toLowerCase()]
-        ? { maxOutput: remoteMaxOutput || MAX_OUTPUTS[id.toLowerCase()] }
+      ...((remoteMaxOutput || rowOf(id)?.maxOutput) !== undefined
+        ? { maxOutput: remoteMaxOutput || rowOf(id)?.maxOutput }
         : {}),
       reasoning: capabilities["reasoning"] === true,
       vision,
@@ -251,15 +231,10 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
 /**
  * 兜底条目（每次现算一份拷贝，永不被当成「已加载的远端目录」）。
  *
- * 数据以 `<root>/channels/loomy/models.json` 为准（首启用代码内种子浇一次），
- * 之后由用户文件支配 —— 代码只保留下面的 `SEED_MODELS` 作浇种源。
+ * 数据在 `<root>/channels/loomy/models.json`（首启由随包种子浇种），代码里不留。
  */
-let seeded: CatalogEntry[] | null = null;
 function fallbackEntries(): CatalogEntry[] {
-  if (!seeded) {
-    seeded = seedChannelModels(SEED_MODELS.map(toCatalogEntry), undefined) ?? SEED_MODELS.map(toCatalogEntry);
-  }
-  return seeded.map((entry) => ({ ...entry, efforts: [...entry.efforts] }));
+  return seedTable();
 }
 
 /** 代码内种子 → 目录条目的固定换算（倍率从展示名里的 `xN.N` 取）。 */
@@ -272,8 +247,8 @@ function toCatalogEntry(m: FallbackModel): CatalogEntry {
     rate,
     ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
     contextWindow: m.contextWindow,
-    ...(MAX_OUTPUTS[m.id.toLowerCase()] !== undefined
-      ? { maxOutput: MAX_OUTPUTS[m.id.toLowerCase()] }
+    ...(rowOf(m.id)?.maxOutput !== undefined
+      ? { maxOutput: rowOf(m.id)?.maxOutput }
       : {}),
     reasoning: true,
     vision: false, // 兜底不声明图片能力（宁可少报）
@@ -339,7 +314,7 @@ function seedFromDiskCache(): void {
       // 旧缓存没有 maxOutput（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
       const entries = cached.map((entry) => {
         if (entry.maxOutput !== undefined) return entry;
-        const maxOutput = MAX_OUTPUTS[entry.id.toLowerCase()];
+        const maxOutput = rowOf(entry.id)?.maxOutput;
         return maxOutput === undefined ? entry : { ...entry, maxOutput };
       });
       snapshot = { entries, catalogVersion: "" };

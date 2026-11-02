@@ -1,13 +1,21 @@
 /**
- * LobsterAI 模型目录：远端模型列表的解析、缓存与兜底表。
+ * LobsterAI 模型目录：远端模型列表的解析、缓存与用户目录模型表。
  *
  * 关键约束（端点/字段/实测见 docs/channels/lobsterai/PROTOCOL.md）：
- *   - 兜底表是快照、不能替代远端；远端权威，拉到后写磁盘缓存供新进程直接读（setRemoteModels）。
+ *   - 模型数据（清单 / 窗口 / 输出上限）**在 `models.json`**，代码里不留；首启浇种到
+ *     `<root>/channels/lobsterai/models.json`，之后以用户文件为准。
+ *   - 远端权威：拉到后写磁盘缓存供新进程直接读（`setRemoteModels`）。
  *   - 产品档位名与服务端 wire 档位不可混用（含 max 的档位需换算），映射缺失时按既定规则兜底（见 reasoningEffortWire）。
  *   - 读取惰性：模块加载期读盘会踩空（channelFile 要求渠道已注册）。
  */
 
-import { canonicalModelId, readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
+import {
+  canonicalModelId,
+  ensureChannelModels,
+  readCatalogCache,
+  writeCatalogCache,
+} from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 一条目录条目。 */
 interface ModelEntry {
@@ -35,130 +43,38 @@ interface ModelEntry {
   source: "fallback" | "remote";
 }
 
-/**
- * 兜底目录：**未登录 / 上游拉不到时**给用户看的那份。
- *
- * 这是**快照**不是实时数据：内容来自 2026-10-08 的一次真实拉取
- * （`upstream.fetchModels()`）。真机拉到远端后会用远端目录覆盖它，
- * 并落盘到 `cache/models.json`（见共享层 `catalog-cache.ts`）——
- * 所以正常使用时看到的**不是**这张表。
- *
- * 顺序照抄上游返回顺序，不重排 —— 重排会让「与上游对比」失去可比性。
- * 不含 `costMultiplier`：编译期快照，价格会变，不猜。
- */
-const FALLBACK: readonly string[] = [
-  "deepseek-flash",
-  "deepseek-v4-pro",
-  "glm-5.3-flashx",
-  "glm-5.3-flash",
-  "glm-5.3",
-  "MiniMax-M3.1-Flash-Preview",
-  "MiniMax-M3",
-  "qwen3.8-max",
-  "qwen3.8-flash",
-  "qwen3.8-omni-flash",
-  "kimi-k3",
-  "kimi-k2.8-preview",
-  "kimi-k2.7-code",
-  "doubao-seed-2-1-pro-260915",
-  "deepseek-v4-flash-vision-exp",
-  "deepseek-v4-flash",
-  "MiniMax-M2.7",
-  "qwen3.7-max",
-  "qwen3.7-plus",
-  "qwen3.6-plus",
-  "qwen3.5-plus-2026-04-20",
-  "kimi-k2.7-code-highspeed",
-  "kimi-k2.6",
-  "kimi-k2.5",
-  "glm-5.2",
-  "glm-5.1",
-  "glm-5v-turbo",
-  "glm-5",
-  "doubao-seed-2-1-turbo-260628",
-  "doubao-seed-2-0-code-preview-260215",
-];
-
-/** 兜底上下文窗口估计值（统一填，非逐个实测）。 */
-const FALLBACK_CONTEXT_WINDOW = 131_072;
-
-/**
- * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
- *
- * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
- */
-const MAX_OUTPUTS: Readonly<Record<string, number>> = {
-  "deepseek-flash": 393_216,
-  "deepseek-v4-flash": 393_216,
-  "deepseek-v4-flash-vision-exp": 393_216,
-  "deepseek-v4-pro": 393_216,
-  "doubao-seed-2.0-code-preview": 131_072,
-  "doubao-seed-2.1-pro": 262_144,
-  "doubao-seed-2.1-turbo": 262_144,
-  "glm-4.7": 131_072,
-  "glm-5": 131_072,
-  "glm-5.1": 131_072,
-  "glm-5.2": 131_072,
-  "glm-5.3": 131_072,
-  "glm-5.3-flash": 131_072,
-  "glm-5.3-flashx": 131_072,
-  "glm-5v-turbo": 131_072,
-  "kimi-k2.6": 32_768,
-  "kimi-k2.7-code": 32_768,
-  "kimi-k2.7-code-highspeed": 32_768,
-  "kimi-k3": 1_048_576,
-  "minimax-m2.7": 131_072,
-  "minimax-m3": 131_072,
-  "minimax-m3.1-flash": 524_288,
-  "qwen3.5-plus": 65_536,
-  "qwen3.6-plus": 65_536,
-  "qwen3.7-max": 131_072,
-  "qwen3.7-plus": 131_072,
-  "qwen3.8-flash": 131_072,
-  "qwen3.8-max": 131_072,
-  "qwen3.8-omni-flash": 131_072,
-};
-
-/**
- * 取已知最大输出：按**归一化 id** 查表，再剥掉发布日后缀试一次。
- *
- * 上游 id 与池 id 写法不同（上游 `doubao-seed-2-1-pro-260915` / 池 `doubao-seed-2.1-pro-260915`），
- * 故先过一遍 `canonicalModelId` 再查表；发布日（`-260915` / `-2026-04-20`）再剥一层。
- */
-function maxOutputOf(id: string): number | undefined {
-  const key = canonicalModelId(id);
-  const exact = MAX_OUTPUTS[key];
-  if (exact !== undefined) return exact;
-  return MAX_OUTPUTS[key.replace(/-\d{6}$/, "").replace(/-\d{4}[-.]\d{2}[-.]\d{2}$/, "")];
-}
-
-/**
- * 已知模型规格（供池层 `/v1/models` 透出）。
- *
- * `modelId` 是池内的**归一化 id**（上游 `doubao-seed-2-1-pro-260915` → 池
- * `doubao-seed-2.1-pro-260915`），故按归一化形态 + 去发布日后缀查表。
- * **查不到返回 undefined**（不编造）。
- */
-export function modelSpec(
-  modelId: string,
-): { contextWindow?: number; maxOutputTokens?: number } | undefined {
-  const maxOutputTokens = maxOutputOf(modelId);
-  if (maxOutputTokens === undefined) return undefined;
-  return { maxOutputTokens };
-}
-
-/** 首启种子条目（id 与展示名相同）；数据落用户目录后以那份为准。 */
-const SEED_MODELS: readonly ModelEntry[] = FALLBACK.map((id) => ({
-  id,
-  name: id,
-  context_window: FALLBACK_CONTEXT_WINDOW,
-  ...(maxOutputOf(id) !== undefined ? { max_output: maxOutputOf(id) } : {}),
-  source: "fallback" as const,
-}));
-
 let remoteCache: ModelEntry[] | null = null;
 let cacheLoaded = false;
+
+/**
+ * 用户目录模型表（`channels/lobsterai/models.json`，首启由随包种子浇种）。
+ *
+ * 模型清单、上下文窗口与最大输出**都是数据**，代码里不保留；这里只做「读 + 归一化」。
+ */
+let seeded: ModelEntry[] | null = null;
+function seedEntries(): ModelEntry[] {
+  if (!seeded) {
+    seeded =
+      ensureChannelModels<ModelEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+  }
+  return seeded;
+}
+
+/** 按归一化 id 取表内条目（上游写法与池写法不同，先归一）。 */
+function entryOf(id: string): ModelEntry | undefined {
+  const key = canonicalModelId(id);
+  return seedEntries().find(
+    (e) => canonicalModelId(e.id) === key || canonicalModelId(e.name) === key,
+  );
+}
+
+/** 兜底条目：表内数据的拷贝（调用方改了不污染缓存）。 */
+function fallbackEntries(): ModelEntry[] {
+  return seedEntries().map((e) => ({ ...e }));
+}
 
 /**
  * 首次使用时把**磁盘缓存**（`cache/models.json`）读进来。
@@ -175,7 +91,7 @@ function ensureCachedModels(): void {
     if (cached) {
       remoteCache = cached.map((entry) => {
         if (entry.max_output !== undefined) return entry;
-        const maxOutput = maxOutputOf(entry.id);
+        const maxOutput = entryOf(entry.id)?.max_output;
         return maxOutput === undefined ? entry : { ...entry, max_output: maxOutput };
       });
     }
@@ -256,10 +172,10 @@ export function parseRemoteModels(rows: readonly unknown[]): ModelEntry[] {
       id,
       name: str(rec["modelName"]) || id,
       // 远端没给窗口时用兜底估计值（列表里恒有窗口，比留 0 更有用）。
-      context_window: num(rec["contextWindow"]) ?? FALLBACK_CONTEXT_WINDOW,
+      context_window: num(rec["contextWindow"]) ?? entryOf(id)?.context_window ?? 0,
       source: "remote",
     };
-    const maxOutput = num(rec["maxTokens"]) ?? maxOutputOf(id);
+    const maxOutput = num(rec["maxTokens"]) ?? entryOf(id)?.max_output;
     if (maxOutput !== undefined) entry.max_output = maxOutput;
     if (typeof rec["supportsImage"] === "boolean") entry.supports_image = rec["supportsImage"];
     if (typeof rec["supportsThinking"] === "boolean") entry.supports_thinking = rec["supportsThinking"];
@@ -319,11 +235,23 @@ function entries(): ModelEntry[] {
   return remoteCache && remoteCache.length > 0 ? [...remoteCache] : fallbackEntries();
 }
 
-/** 兜底条目：数据以 `<root>/channels/lobsterai/models.json` 为准，种子只作首启浇种源。 */
-let seeded: ModelEntry[] | null = null;
-function fallbackEntries(): ModelEntry[] {
-  if (!seeded) seeded = seedChannelModels(SEED_MODELS, undefined) ?? [...SEED_MODELS];
-  return [...seeded];
+/**
+ * 已知模型规格（供池层 `/v1/models` 透出）。
+ *
+ * 规格**是数据**，落在 `models.json` 的 `contextWindow` / `maxOutput`；本函数只做查表。
+ * `modelId` 是池内的归一化 id，查表前再归一一次（上游与池写法不同）。查不到返回 undefined。
+ */
+export function modelSpec(
+  modelId: string,
+):
+  | { contextWindow?: number; maxOutputTokens?: number }
+  | undefined {
+  const entry = entryOf(modelId);
+  if (!entry) return undefined;
+  return {
+    ...(entry.context_window !== undefined ? { contextWindow: entry.context_window } : {}),
+    ...(entry.max_output !== undefined ? { maxOutputTokens: entry.max_output } : {}),
+  };
 }
 
 /** 按 id 取条目；不存在返回 null（不编造）。 */

@@ -12,8 +12,8 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalModelId, readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
-import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
+import { canonicalModelId, ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /**
  * 历史短名 → 上游 slug（**仅输入兼容**，不作为对外名）。
@@ -47,49 +47,7 @@ interface ModelEntry {
   source: "fallback" | "snapshot" | "remote";
 }
 
-/**
- * 已知模型规格（上下文窗口 / 单次回复上限）。
- *
- * 来源：`docs/channels/workbuddy/PROTOCOL.md` 的「模型窗口规格」—— 本文件的 `MODEL_SPECS`
- * 与那份表保持一致，改规格先改那份文档。
- *
- * **键是池 id 里的规范模型名**（`canonicalModelId()` 归一后的结果），
- * 不是上游目录里的原始写法（目录 `kimi-k3-1` → 池 id `kimi-k3.1`）。
- *
- * 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
- * `maxOutputTokens` = **单次回复**上限。官方没公布输出上限的型号只填 `contextWindow`，
- * 输出留空 → 网关回落兜底值（不猜数字）。
- *
- * 只列公开规格表里有的型号：档位别名（`auto` / `default`）与官方无公开规格的型号
- * （`hy3-x` / `space-bunny` / `kimi-k2.7` / `kimi-k3.1`）一律不列，
- * 逐条理由见 `docs/channels/workbuddy/PROTOCOL.md` 的「模型窗口规格」。
- */
-const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens?: number }>> = {
-  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "deepseek-v4-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "deepseek-v4-pro": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.2": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.1": { contextWindow: 202_752, maxOutputTokens: 131_072 },
-  // 目录里叫 `glm-5.0`（展示名 GLM-5.0），公开规格表记作 `glm-5`
-  "glm-5.0": { contextWindow: 202_752, maxOutputTokens: 131_072 },
-  "glm-4.7": { contextWindow: 202_752, maxOutputTokens: 131_072 },
-  "glm-5v-turbo": { contextWindow: 202_752, maxOutputTokens: 131_072 },
-  "hy3": { contextWindow: 262_144 },
-  "hy4-preview": { contextWindow: 1_048_576 },
-  // 目录里带 `-x` 后缀（路由变体），展示名同 `hy4-preview`
-  "hy4-preview-x": { contextWindow: 1_048_576 },
-  "kimi-k2.5": { contextWindow: 262_144 },
-  "kimi-k2.6": { contextWindow: 262_144, maxOutputTokens: 32_768 },
-  "kimi-k2.8-preview": { contextWindow: 1_048_576 },
-  "minimax-m3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "minimax-m3.1-flash": { contextWindow: 1_000_000, maxOutputTokens: 524_288 },
-  "mimo-v2.6-pro": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "step-5-preview": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
-  // 目录里叫 `hunyuan-chat`，展示名是 Hunyuan-Turbos（公开规格表记作 `hunyuan-turbos`）
-  "hunyuan-chat": { contextWindow: 262_144 },
-};
+
 
 /**
  * 已知模型规格（供池层 `/v1/models` 透出）。
@@ -105,7 +63,7 @@ const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTok
 export function modelSpec(
   modelId: string,
 ): { contextWindow?: number; maxOutputTokens?: number } | undefined {
-  const spec = MODEL_SPECS[canonicalModelId(modelId)];
+  const spec = specOf(canonicalModelId(modelId));
   if (!spec) return undefined;
   return {
     contextWindow: spec.contextWindow,
@@ -338,8 +296,30 @@ function ensureRemoteLoaded(): void {
 function entries(): ModelEntry[] {
   ensureRemoteLoaded();
   if (remote && remote.length > 0) return [...remote];
-  const table = seedChannelModels(snapshotEntries(), undefined);
-  return table ? [...table] : [];
+  return seedTable();
+}
+
+/** 用户目录模型表（，首启由随包种子浇种）。 */
+let seedCache: ModelEntry[] | null = null;
+function seedTable(): ModelEntry[] {
+  if (!seedCache) {
+    seedCache =
+      ensureChannelModels<ModelEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+  }
+  return seedCache.map((e) => ({ ...e }));
+}
+
+/** 按归一化 id 查规格（规格是数据，落在 models.json）。 */
+function specOf(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+  const row = seedTable().find((e) => canonicalModelId(e.id) === canonicalModelId(modelId));
+  if (!row) return undefined;
+  return {
+    ...(row.context_window !== undefined ? { contextWindow: row.context_window } : {}),
+    ...(row.max_output !== undefined ? { maxOutputTokens: row.max_output } : {}),
+  };
 }
 
 /** 灌入远端目录并落盘（由 `upstream.fetchModels()` 在拉到列表后调用）。 */

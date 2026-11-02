@@ -8,7 +8,8 @@
  *   - 目录未登录/不可达时走兜底表；exposedIds/resolveModel 必须同步返回。
  */
 
-import { readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
+import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 一条模型目录条目。 */
 export interface CatalogEntry {
@@ -129,30 +130,11 @@ function declaredEffort(
   return undefined;
 }
 
-/**
- * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
- *
- * 上游 `/model-types` 不带输出上限（[实测]），网关 `/v1/models` 只能给兜底值 ——
- * 而 4096 的兜底会让客户端把每次回答截到 4k。
- *
- * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/channels/catpaw/PROTOCOL.md` 的「最大输出 token」节（渠道表在本文件的 `MAX_OUTPUTS`）。
- */
-const MAX_OUTPUTS: Readonly<Record<string, number>> = {
-  "deepseek-v4-flash": 393_216,
-  "deepseek-v4-pro": 393_216,
-  "deepseek-v4.1-flash": 393_216,
-  "glm-5.3": 131_072,
-  "glm-5.3-flash": 131_072,
-  "glm-5.3-flashx": 131_072,
-  "kimi-k3": 1_048_576,
-  "longcat-2.0": 262_144,
-  "minimax-m3": 131_072,
-};
 
-/** 取已知最大输出（按 id 小写匹配；查不到返回 undefined）。 */
+
+/** 取已知最大输出（按 id 小写匹配；查不到返回 undefined）。规格是数据，落在 models.json。 */
 function maxOutputOf(id: string): number | undefined {
-  return MAX_OUTPUTS[id.toLowerCase()];
+  return seedTable().find((e) => e.id.toLowerCase() === id.toLowerCase())?.maxOutput;
 }
 
 /**
@@ -169,78 +151,9 @@ export function modelSpec(
   return { contextWindow: DEFAULT_CONTEXT_WINDOW, maxOutputTokens };
 }
 
-/**
- * modelType 数值兜底表（上游目录不可用时用）。
- *
- * 数值来源：参考实现 `reference/icebears111_catpaw2api/internal/upstream/const.go:83-90`
- *   （`[参考]`；逆向自 app.asar 的 modelType 编号，与目录返回的 `catPawModelType` 同一套编号）。
- *
- * 用途：turn / round 的 body 要的是**数字** modelType（不是模型名）。上游目录拉不到时
- * （未登录 / 上游不可达）只剩兜底目录，若兜底目录的 modelType 只能填占位值，
- * 请求会被上游拒 —— 有了这张表就能按模型名解析出真值。
- *
- * `0` = auto（由上游自行选型），是「表里没有该模型」时的合法回落。
- */
-const MODEL_TYPE_FALLBACK: Readonly<Record<string, number>> = {
-  "auto": 0,
-  "longcat-2.0": 77,
-  "deepseek-v4-flash": 63,
-  "deepseek-v4-pro": 64,
-  "glm-5.2": 75,
-  "glm-5.3-flash": 91,
-  "minimax-m3": 70,
-  "kimi-k3": 83,
-};
 
-/**
- * 兜底表：上游模型目录不可用时仍可暴露的模型。
- *
- * **内容取自真实的上游 `/model-types` 返回**（见 `docs/channels/catpaw/PROTOCOL.md`）。
- *
- * 兜底表必须用**真实 id**：占位名（如 `catpaw-flash`）上游**根本不存在**，
- * 暴露到模型池也选不中任何模型 —— 兜底表要能真的兜住，就得用真实 id。
- *
- * `modelType` 取自 `MODEL_TYPE_FALLBACK`（表里没有的模型回落 0 = auto）；
- * 必须是真实数值：上游按 modelType 数字选型，占位值会让目录不可用时的 turn 请求被拒。
- */
-const SEED_MODELS: CatalogEntry[] = [
-  {
-    id: "glm-5.3-flashx",
-    name: "GLM-5.3-FlashX",
-    modelType: MODEL_TYPE_FALLBACK["glm-5.3-flashx"] ?? 0,
-    reasoning: true,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxOutput: 131_072,
-    description: "fallback (upstream unavailable)",
-    supportsImages: false,
-    multiplier: null,
-    marketing: "",
-  },
-  {
-    id: "glm-5.3-flash",
-    name: "GLM-5.3-Flash",
-    modelType: MODEL_TYPE_FALLBACK["glm-5.3-flash"] ?? 0,
-    reasoning: true,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxOutput: 131_072,
-    description: "fallback (upstream unavailable)",
-    supportsImages: false,
-    multiplier: null,
-    marketing: "",
-  },
-  {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek-V4-Flash",
-    modelType: MODEL_TYPE_FALLBACK["deepseek-v4-flash"] ?? 0,
-    reasoning: true,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxOutput: 393_216,
-    description: "fallback (upstream unavailable)",
-    supportsImages: false,
-    multiplier: null,
-    marketing: "",
-  },
-];
+
+
 
 /** 上游目录缓存（由 upstream.fetchModels() 成功时回填）。 */
 let _remote: CatalogEntry[] | null = null;
@@ -298,8 +211,20 @@ function loadCatalog(): CatalogEntry[] {
 /** 兜底条目：数据以用户目录文件为准，代码内种子只作首次浇种源。 */
 let seeded: CatalogEntry[] | null = null;
 function fallbackEntries(): CatalogEntry[] {
-  if (!seeded) seeded = seedChannelModels(SEED_MODELS, undefined) ?? SEED_MODELS;
-  return seeded.map((e) => ({ ...e }));
+  return seedTable();
+}
+
+/** 用户目录模型表（首启由随包 models.json 浇种）。 */
+let seedCache: CatalogEntry[] | undefined;
+function seedTable(): CatalogEntry[] {
+  if (!seedCache) {
+    seedCache =
+      ensureChannelModels<CatalogEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+  }
+  return seedCache.map((e) => ({ ...e }));
 }
 
 /**
@@ -434,9 +359,9 @@ export function contextWindowOf(id: string): number {
 /**
  * 模型 id → turn / round body 必需的**数字** modelType。
  *
- * 解析顺序：上游目录条目 → `MODEL_TYPE_FALLBACK` 数值表 → 抛错。
+ * 解析顺序：上游目录条目 → 用户目录模型表的 `modelType` → 抛错。
  *
- * 目录取不到时若没有那张表，兜底目录里的 modelType 只能是占位值，
+ * 目录取不到时若表里没有该 id，兜底目录里的 modelType 只能是占位值，
  * 请求会被上游拒 —— 即「未登录 / 目录未拉取时全部模型不可用」。
  *
  * 注：目录条目的 modelType 恒 > 0（上游返回 0 的条目在 `toModelInfo` 就被丢弃）；
@@ -446,7 +371,7 @@ export function modelTypeOf(id: string): number {
   for (const entry of loadCatalog()) {
     if (entry.id === id) return entry.modelType;
   }
-  const fallback = MODEL_TYPE_FALLBACK[id.toLowerCase()];
-  if (fallback !== undefined) return fallback;
+  const row = seedTable().find((e) => e.id.toLowerCase() === id.toLowerCase());
+  if (row) return row.modelType;
   throw new Error(`unknown model id: ${id}`);
 }
