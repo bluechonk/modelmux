@@ -237,6 +237,13 @@ describe("DsmlSseFilter", () => {
     const choices = done["choices"] as Array<Record<string, unknown>>;
     assert.equal(choices[0]?.["finish_reason"], "tool_calls");
   });
+
+  it("剔除空 tool_calls 数组，避免思考块被逐 token 切碎", () => {
+    const filter = new DsmlSseFilter(true);
+    const delta = firstDelta(filter.transformEvent(sseChunk({ reasoning_content: "思考", tool_calls: [] }))[0] ?? "");
+    assert.equal(delta["tool_calls"], undefined);
+    assert.equal(delta["reasoning_content"], "思考");
+  });
 });
 
 describe("DsmlByteFilter / filterDsmlBytes", () => {
