@@ -11,10 +11,12 @@
  */
 
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const home = process.env["MODELMUX_HOME"] ?? join(process.env["USERPROFILE"] ?? process.env["HOME"] ?? ".", ".modelmux");
+// 与共享层 paths.ts 同一口径：`MODELMUX_HOME` > `~/.modelmux`。
+const home = process.env["MODELMUX_HOME"] ?? join(homedir(), ".modelmux");
 const catalogPath = join(home, "model-catalog.json");
 const specsPath = join(home, "model-specs.json");
 
