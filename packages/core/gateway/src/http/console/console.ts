@@ -19,6 +19,7 @@ import type { LoginInputRequest } from "../../runtime/channel.js";
 import {
   MODEL_REQUEST_PATH,
   PAYLOAD_SLICE_BYTES,
+  appendGateway,
   queryAccessLogs,
   readPayloads,
   readPayloadSlice,
@@ -506,7 +507,12 @@ export function createConsoleHandler(
             args: typeof args === "object" && args !== null ? args as Record<string, unknown> : {},
           });
           json(res, result, result.ok ? 200 : 400);
-        })();
+        })().catch((err) => {
+          // 动态 import / 处理器组装的意外 rejection 不能放任成 unhandledRejection
+          //（Node 默认杀 worker = 网关瞬断、在途流全断）
+          appendGateway(`console /api/commands failed: ${String(err)}`);
+          if (!res.headersSent) json(res, { ok: false, error: `command failed: ${String(err)}` }, 500);
+        });
       });
       return;
     }
@@ -667,7 +673,11 @@ export function createConsoleHandler(
           model_pool: { total, free, vision, thinking },
           recent,
         });
-      })();
+      })().catch((err) => {
+        // 同 /api/commands：IIFE rejection 不能变成 unhandledRejection（会杀 worker）
+        appendGateway(`console /api/overview failed: ${String(err)}`);
+        if (!res.headersSent) json(res, { ok: false, error: `overview failed: ${String(err)}` }, 500);
+      });
       return;
     }
 
