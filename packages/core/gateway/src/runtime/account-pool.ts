@@ -860,6 +860,29 @@ export function activeAccountTrip(cid?: string): { until: string; remainingMs: n
   }
 }
 
+/**
+ * 池内是否还有**可用**账号（`ok` / 冷却已到期 / 未标终态）。
+ *
+ * 用来区分「当前账号耗尽但还能换」与「整池都没钱」—— 后者应当直接告诉客户端
+ * 额度用尽，而不是提示它去换号（换也换不出来）。
+ */
+export function hasUsableAccount(cid?: string): boolean {
+  try {
+    const index = readIndex(cid);
+    const now = Date.now();
+    return index.accounts.some((a) => {
+      if (a.health === "ok" || a.health === "unknown") return true;
+      if (a.health === "cooldown") {
+        const until = a.cooldown_until ? Date.parse(a.cooldown_until) : Number.NaN;
+        return Number.isFinite(until) && until <= now; // 冷却已到期
+      }
+      return false; // unauthorized / error 是终态
+    });
+  } catch {
+    return false;
+  }
+}
+
 /** 生效账号的冷却信息（未被冷却 / 已到期返回 null，顺带做惰性过期）。 */
 export function activeAccountCooldown(cid?: string): { until: string; reason: string } | null {
   try {
