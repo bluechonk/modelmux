@@ -112,13 +112,6 @@ export function modelEffortLevels(upstreamModel: string): string[] {
   return spec ? [...spec.efforts] : [];
 }
 
-/** 该模型的默认思考档位（供池层透出）。 */
-export function modelDefaultEffort(upstreamModel: string): string {
-  const { byId, byUpstream } = indexOf();
-  const spec = byUpstream.get(upstreamModel) ?? byId.get(upstreamModel.toLowerCase());
-  return spec ? spec.defaultEffort : "high";
-}
-
 /** 消耗倍率（供池层 `model_info.multiplier`）；查不到返回 `undefined`（显示 `-`，不猜）。 */
 export function modelMultiplier(upstreamModel: string): number | undefined {
   const { byId, byUpstream } = indexOf();

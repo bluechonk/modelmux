@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { channelCount, channels, getChannel, type Channel } from "../../runtime/channel.js";
 import { defaultAddr } from "../../runtime/cli-consts.js";
+import { appendGateway } from "../../runtime/log-store.js";
 import * as gateway from "../../http/server.js";
 import * as paths from "../../runtime/paths.js";
 import { baseUrlOf } from "../../http/portfree.js";
@@ -166,7 +167,11 @@ export async function killTree(pid: number): Promise<boolean> {
   };
 
   if (process.platform === "win32") {
-    execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => {});
+    // taskkill 失败（拒绝访问等）必须留痕：waitDead 只知道「还活着」，
+    // 不知道为什么杀不掉 —— 用户排障需要 stderr。
+    execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err, _stdout, stderr) => {
+      if (err) appendGateway(`taskkill /PID ${pid} failed: ${stderr || String(err)}`);
+    });
     return waitDead();
   }
   try {

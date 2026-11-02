@@ -324,8 +324,11 @@ export function createConsoleHandler(
       let snapshot: UiSnapshot;
       try {
         snapshot = bridge.provider?.() ?? emptySnapshot();
-      } catch {
-        snapshot = emptySnapshot();
+      } catch (err) {
+        // provider 抛错不能伪装成「正常初始状态」：控制台会把桥接 bug 显示成空白快照、
+        // 无任何日志可查。留痕 + 标 unknown，前端按异常态渲染而非静默空数据。
+        appendGateway(`console state provider failed: ${String(err)}`);
+        snapshot = { ...emptySnapshot(), ui_state: "unknown" };
       }
       json(res, snapshot);
       return;

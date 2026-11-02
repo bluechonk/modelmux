@@ -138,10 +138,15 @@ export async function listLocalModels(
     return 1;
   }
   // 匹配用目录里的**原始写法**（见 pool-targets.ts 的说明）；展示与去重分开处理
+  let catalogBroken = false;
   const catalogIds = runInChannel(cid, () => {
     try {
       return channel.catalog.exposedIds();
-    } catch {
+    } catch (err) {
+      // 目录读失败 ≠ 渠道没有模型：静默回落空数组会把「读错误」伪装成
+      // 「该渠道没有可对外暴露的模型」的事实陈述。留痕并标注。
+      console.error(`[model] 目录读取失败（${cid}）：${String(err)}`);
+      catalogBroken = true;
       return [] as string[];
     }
   });
@@ -169,6 +174,7 @@ export async function listLocalModels(
             ? { fetched_at: origin.fetchedAt }
             : {}),
           ...(origin.kind === "failed" ? { reason: origin.reason } : {}),
+          ...(catalogBroken ? { catalog_error: "exposedIds() threw; see stderr" } : {}),
           pool_models: rows,
           out_of_pool_count: 0,
         },
@@ -182,7 +188,7 @@ export async function listLocalModels(
   // 其余情形（刚拉取 / 拉取失败 / 内置表）用户需要知道自己在看哪份数据。
   if (origin.kind !== "cache") console.error(`${cid}: ${originNote(origin)}`);
   if (rows.length === 0) {
-    console.log(`${cid}: 该渠道没有可对外暴露的模型`);
+    console.log(catalogBroken ? `${cid}: 目录读取失败，模型列表不可用（见上方错误）` : `${cid}: 该渠道没有可对外暴露的模型`);
   } else {
     console.log(`${cid} 对外的模型：「渠道/模型」形态，客户端用它指定渠道：`);
     for (const row of rows) {

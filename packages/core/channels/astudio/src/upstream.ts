@@ -819,7 +819,8 @@ export async function claimDownloadReward(
  * 取法与 AStudio 源码一致（`fetchAstronModelCredential`）：
  * `is_current` → `is_default` → `data[0]`，取它的 `api_key`。
  */
-export function pickModelBearerToken(payload: unknown): string {  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+export function pickModelBearerToken(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("model configs payload is malformed");
   }
   const data = (payload as Record<string, unknown>)["data"];
