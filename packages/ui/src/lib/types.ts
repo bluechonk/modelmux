@@ -274,6 +274,20 @@ export interface PayloadQueryResult {
   records: PayloadRecord[];
 }
 
+/** 正文分片（按字节窗口读取；首屏只取一片，其余按需推进）。 */
+export interface PayloadSliceResult {
+  ok: boolean;
+  id: string;
+  date: string | null;
+  /** 本片在正文中的起始偏移。 */
+  offset: number;
+  /** 本片实际长度（到末尾时可能小于请求的 limit）。 */
+  length: number;
+  /** 正文总长度（字符数），用于「已加载 X / Y」。 */
+  total: number;
+  body: string;
+}
+
 /** 日志查询参数（键名与 `/web/api/logs` 的 query 一致）。 */
 export interface LogQuery {
   date?: string;

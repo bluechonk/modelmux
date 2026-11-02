@@ -16,7 +16,14 @@ import { fileURLToPath } from "node:url";
 
 import { serviceName } from "../server.js";
 import type { LoginInputRequest } from "../../runtime/channel.js";
-import { MODEL_REQUEST_PATH, queryAccessLogs, readPayloads, type AccessOutcome } from "../../runtime/log-store.js";
+import {
+  MODEL_REQUEST_PATH,
+  PAYLOAD_SLICE_BYTES,
+  queryAccessLogs,
+  readPayloads,
+  readPayloadSlice,
+  type AccessOutcome,
+} from "../../runtime/log-store.js";
 import { computeUsageStats, type UsageRange } from "../../runtime/usage-stats.js";
 
 export type { LoginInputRequest };
@@ -371,7 +378,22 @@ export function createConsoleHandler(
       const q = new URL(req.url ?? "/", "http://localhost").searchParams;
       const id = q.get("id") ?? "";
       const date = q.get("date") ?? undefined;
-      const records = readPayloads(id, date);
+      // 分片读取：弹窗首屏只要元数据，正文按片取（整段返回会把 MB 级明文塞进首屏）。
+      const part = q.get("part");
+      if (part === "body") {
+        const offset = intParam(q.get("offset"), 0);
+        const limit = intParam(q.get("limit"), PAYLOAD_SLICE_BYTES);
+        const slice = readPayloadSlice(id, date, q.get("phase") ?? undefined, offset, limit);
+        if (!slice) {
+          json(res, { ok: false, error: "payload not found", id }, 404);
+          return;
+        }
+        json(res, { ok: true, id, date: date ?? null, ...slice });
+        return;
+      }
+      // 默认只回元数据；`full=1` 才带整段正文（兼容旧前端与排障，受上限保护）。
+      const withBody = q.get("full") === "1";
+      const records = readPayloads(id, date, { withBody });
       json(res, { ok: true, id, date: date ?? null, records });
       return;
     }

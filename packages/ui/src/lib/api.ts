@@ -14,6 +14,7 @@ import type {
   LogQuery,
   OverviewResponse,
   PayloadQueryResult,
+  PayloadSliceResult,
   PoolRow,
   UiSnapshot,
   UsageRange,
@@ -27,6 +28,7 @@ import {
   demoCompleteLogin,
   demoEndLogin,
   demoLogPayload,
+  demoPayloadSlice,
   demoLogin,
   demoLogs,
   demoModels,
@@ -125,8 +127,16 @@ export interface WebApi {
    * 服务端逐日聚合 access 日志并缓存历史日期，前端只负责展示；区间见 `UsageRange`。
    */
   usage(range: UsageRange): Promise<UsageStats>;
-  /** 某条请求的正文抓取记录（正文抓取恒开启，此接口只读）。 */
+  /** 某条请求的正文抓取记录（正文抓取恒开启，此接口只读；默认只回元数据）。 */
   logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
+  /** 按字节窗口取正文分片（首屏只取一片，避免整段 MB 级明文进首屏）。 */
+  logPayloadBody(
+    id: string,
+    date: string | undefined,
+    phase: string,
+    offset: number,
+    limit: number,
+  ): Promise<PayloadSliceResult>;
   /**
    * 网关生命周期（仪表盘的播放/暂停/重启）。
    *
@@ -327,6 +337,13 @@ export const api: WebApi = {
     IS_DEMO
       ? demoLater(demoLogPayload(id))
       : get(`/api/logs/payload${queryString({ id, date })}`),
+  /** 按字节窗口取某条记录的正文分片（首屏只取一片，避免 MB 级明文整段进首屏）。 */
+  logPayloadBody: (id: string, date: string | undefined, phase: string, offset: number, limit: number) =>
+    IS_DEMO
+      ? demoLater( demoPayloadSlice(id, date, phase, offset, limit) )
+      : get(
+          `/api/logs/payload${queryString({ id, date, part: "body", phase, offset, limit })}`,
+        ),
   usage: (range) => (IS_DEMO ? demoLater(demoUsage(range)) : get(`/api/usage${queryString({ range })}`)),
   gatewayControl: (action) =>
     IS_DEMO ? demoLater({ ok: true, action }) : post("/api/gateway", { action }),
