@@ -127,10 +127,12 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
             }`}
           >
             <BrandMark size={20} className="shrink-0 text-ink" />
-            {/* 手机抽屉里始终可见；桌面折叠态由 `md:hidden` 藏掉（该前缀只在 ≥md 生效） */}
+            {/* 手机抽屉里始终可见；桌面折叠态隐藏。注意 `md:inline` 与 `md:hidden`
+                不能同时挂（原子类同特异性，胜者取决于产物里的源码顺序而非书写顺序，
+                实测 hidden 恰好排前而失效）—— 用「条件互斥」表达：折叠只挂 hidden。 */}
             <span
-              className={`text-[15px] font-medium tracking-tight text-ink md:inline ${
-                collapsed ? "md:hidden" : ""
+              className={`text-[15px] font-medium tracking-tight text-ink max-md:inline ${
+                collapsed ? "md:hidden" : "md:inline"
               }`}
             >
               modelmux
@@ -155,8 +157,11 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
                 }
               >
                 <Icon className="h-4 w-4 shrink-0" />
+                {/* 同品牌行：展开/折叠互斥挂类，不叠 md:inline + md:hidden */}
                 <span
-                  className={`min-w-0 truncate md:inline ${collapsed ? "md:hidden" : ""}`}
+                  className={`min-w-0 truncate max-md:inline ${
+                    collapsed ? "md:hidden" : "md:inline"
+                  }`}
                 >
                   {label}
                 </span>
