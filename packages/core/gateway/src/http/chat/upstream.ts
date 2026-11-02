@@ -124,12 +124,20 @@ export interface UpstreamCall {
   timeout?: boolean;
   /** 非 200 时的上游响应体片段（判断额度类错误用；不回传客户端）。 */
   bodySnippet?: string;
+  /**
+   * 该响应是否按**凭据失效**处理（调用方据此决定刷新/重试）。
+   *
+   * 401 与「默认的 403」为 true；渠道用 `isAuthFailure` 排掉的 403（如 AStudio 的
+   * 11200 权益拒绝）为 false —— 那种失败刷新令牌没有用。
+   */
+  authRejected?: boolean;
 }
 
 /**
  * 向上游发起流式请求。
  *
- * 401/403 由调用方刷新后重试；连接阶段失败归 `connectFailed`（请求未发出，可安全重试）。
+ * 401 由调用方刷新后重试；403 默认同路径，渠道可用 `isAuthFailure` 排掉（如权益类拒绝）。
+ * 连接阶段失败归 `connectFailed`（请求未发出，可安全重试）。
  */
 
 /**
@@ -210,38 +218,32 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
       error: new Error(`upstream request failed: ${String(err)}`),
       connectFailed,
       timeout: /timeout/i.test(String(err)) || (err as { name?: string }).name === "TimeoutError",
+      authRejected: false,
     };
   }
 
-  if (resp.status === 401 || resp.status === 403) {
-    // 鉴权类失败也**读响应体**：有的上游用 403 表示「账号被限制」，
-    // 不读 body 就永远分不清「令牌过期」和「账号被封」
-    // 读错误体也有超时（上游可能只发一半 body 就挂住）
-    const snippet = await readErrorBody(resp, controller, timeoutMs);
-    return {
-      ok: false,
-      status: resp.status,
-      headers: resp.headers,
-      body: null,
-      error: new Error(`upstream returned HTTP ${resp.status}: ${snippet.slice(0, 2048)}`),
-      bodySnippet: snippet,
-    };
-  }
   if (resp.status !== 200) {
     // 读错误体也有超时（上游可能只发一半 body 就挂住）
     const snippet = await readErrorBody(resp, controller, timeoutMs);
-    // 渠道可声明「非标准状态码的鉴权失败」（如 400 + 渠道特有错误码）：
-    // 归一成 401，让调用方走刷新/换账号链路
-    if (upstream.isAuthFailure && upstream.isAuthFailure(resp.status, snippet)) {
-      return { ok: false, status: 401, headers: resp.headers, body: null };
-    }
+    // 鉴权类失败也**读响应体**：有的上游用 403 表示「账号被限制」，
+    // 不读 body 就永远分不清「令牌过期」和「账号被封」。
+    //
+    // 401 恒为鉴权失败；403 默认也算，但渠道可用 `isAuthFailure` 覆盖 ——
+    // AStudio 用 403 + 业务码 11200 表示「无有效订单 / 额度不足」，那是权益问题，
+    // 刷新令牌没有用（实测 2026-11-02：误判会白刷一次 token 并把账号标成 unauthorized）。
+    const hook = upstream.isAuthFailure;
+    const authRejected =
+      resp.status === 401 || (hook ? hook(resp.status, snippet) : resp.status === 403);
+    // 非标准状态码归一成 401，让调用方走刷新链路
+    const status = resp.status === 401 || resp.status === 403 ? resp.status : 401;
     return {
       ok: false,
-      status: resp.status,
+      status: authRejected ? status : resp.status,
       headers: resp.headers,
       body: null,
       error: new Error(`upstream returned HTTP ${resp.status}: ${snippet.slice(0, 2048)}`),
       bodySnippet: snippet,
+      authRejected,
     };
   }
   return {
@@ -249,5 +251,6 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
     status: resp.status,
     headers: resp.headers,
     body: resp.body ? idleGuardedBody(resp.body, controller, timeoutMs) : null,
+    authRejected: false,
   };
 }

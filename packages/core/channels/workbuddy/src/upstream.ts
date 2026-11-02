@@ -350,14 +350,17 @@ export function classifyUpstreamError(
 /**
  * 非标准状态码的鉴权失败判定（共享层钩子 `isAuthFailure`）。
  *
- * 上游删除会话（`12153` / `Offline user session not found`）时可能回 400 而不是
- * 401；归一成鉴权失败后，共享层会先刷新令牌重试一次、再把账号标为不可用 ——
- * 这正是「需要重登」的处置（`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1874、:2270-2300）。
+ * 共享层对 401 直接判定，对 403 也默认如此；声明本钩子后 403 改由钩子决定。
+ * 本渠道**保留 403 = 鉴权失败**（`account_fault` 的处置是换号，与共享层旧行为一致），
+ * 只把「非 401/403 的 4xx」交给分类器：上游删除会话（`12153` /
+ * `Offline user session not found`）时可能回 400 而不是 401；归一成鉴权失败后，
+ * 共享层会先刷新令牌重试一次、再把账号标为不可用 —— 这正是「需要重登」的处置
+ * （`[参考]` xiaofan6ya/workbuddy2api 的 docs/protocol-reference.md:1874、:2270-2300）。
  *
- * 只对 4xx 且非 401/403 的响应调用；`11128`（指纹）**不**算鉴权失败 ——
- * 它要靠请求体改写解决，换令牌没用。
+ * `11128`（指纹）**不**算鉴权失败 —— 它要靠请求体改写解决，换令牌没用。
  */
 export function isAuthFailure(status: number, body: string): boolean {
+  if (status === 403) return true;
   return classifyUpstreamError(status, body).needsRelogin;
 }
 
