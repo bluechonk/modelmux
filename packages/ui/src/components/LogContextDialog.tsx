@@ -13,7 +13,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Terminal, X } from "lucide-react";
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
@@ -333,10 +333,12 @@ function ToolDefinitions({ tools }: { tools: unknown[] }): ReactElement {
 const PAYLOAD_SLICE = 64 * 1024;
 
 /**
- * 单条记录：元数据 + 按需加载的正文。
+ * 单条记录：元数据 + 按需加载的正文（**滚动懒加载**）。
  *
  * 正文不随首屏一起到达（`record.body` 默认是空串）——整段解压后可达 MB 级，
- * 一次塞进首屏会让弹窗卡住。首屏只取一片，「加载更多」按片推进（`offset` 递增）。
+ * 一次塞进首屏会让弹窗卡住。首屏只取一片；用户把弹窗滚到这条记录的底部时
+ * **自动**续取下一片（`IntersectionObserver` 观察哨兵元素），不再要人点按钮。
+ * 每片到达都重跑 `parseLenient`，已完整闭合的新消息随之追加成卡片。
  */
 function PayloadBlock({
   record,
@@ -348,20 +350,49 @@ function PayloadBlock({
   date: string;
 }): ReactElement {
   const title = record.phase === "client" ? "客户端原始请求" : `上行 #${(record.attempt ?? 0) + 1}`;
-  const [offset, setOffset] = useState(0);
+  // `offset` 恒等于已加载字符数：首片 64 KiB，其后每片 +64 KiB。
+  // 单一事实源，杜绝「loaded 与 offset 不同步」的拼接错位（旧实现点击路径会把首片拼两遍）。
   const [loaded, setLoaded] = useState("");
+  const [offset, setOffset] = useState(0);
+  const sentinel = useRef<HTMLDivElement | null>(null);
   const slice = useQuery({
     queryKey: ["logPayloadBody", id, date, record.phase, offset],
     queryFn: () => api.logPayloadBody(id, date, record.phase, offset, PAYLOAD_SLICE),
+    enabled: record.body === "" && offset > 0,
+    staleTime: 60_000,
+  });
+  // 首片（offset=0）独立取：不受「滚动到底才触发」约束 —— 首屏就要拆出前 64K 的消息。
+  const firstSliceQuery = useQuery({
+    queryKey: ["logPayloadBody", id, date, record.phase, 0],
+    queryFn: () => api.logPayloadBody(id, date, record.phase, 0, PAYLOAD_SLICE),
     enabled: record.body === "",
     staleTime: 60_000,
   });
-  // 首片自动进正文：slice.data 到达即视为已加载。旧实现只在点「加载更多」时拼接，
-  // 首屏 loaded 恒为空串 → parseLenient 拿到空文本 → 永远走 raw 兜底（拆分从不生效）。
-  const firstSlice = slice.data?.body ?? "";
-  const body = record.body !== "" ? record.body : loaded === "" ? firstSlice : loaded;
-  const total = slice.data?.total ?? record.bytes;
-  const more = record.body === "" && (loaded === "" ? PAYLOAD_SLICE : offset + PAYLOAD_SLICE) < total;
+  const body =
+    record.body !== ""
+      ? record.body
+      : loaded + (offset === 0 ? (firstSliceQuery.data?.body ?? "") : (slice.data?.body ?? ""));
+  const total = (offset === 0 ? firstSliceQuery.data?.total : slice.data?.total) ?? record.bytes;
+  const fetching =
+    record.body === "" && (offset === 0 ? firstSliceQuery.isPending : slice.isPending);
+  const more = record.body === "" && offset < total;
+  // 滚动懒加载：哨兵进入视口且还有剩余 → 取下一片。`fetching` 期间不重复触发。
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !more || fetching) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          const next = Math.min(offset + PAYLOAD_SLICE, total);
+          setLoaded(body);
+          setOffset(next);
+        }
+      },
+      { rootMargin: "200px 0px" }, // 略提前于视口底部就开始取，滚动不顿挫
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [more, fetching, offset, total, body]);
   // 宽松解析：完整 JSON 走严格路径；截断前缀抢救已完整的消息（信封也在此剥开）。
   // truncated 记录不再尝试解析（双端截断的正文拼不出真实消息序）。
   const lenient = record.truncated ? null : parseLenient(body);
@@ -414,8 +445,8 @@ function PayloadBlock({
             ))}
             {partial && (
               <p className="text-xs text-ink-faint">
-                正文较长，已显示前 {formatCount(offset + PAYLOAD_SLICE)} 字符内的完整消息 ——
-                用下方「加载更多」继续读取。
+                正文较长，已显示前 {formatCount(body.length)} 字符内的完整消息 ——
+                继续向下滚动会自动加载后续内容。
               </p>
             )}
             {tools !== null && <ToolDefinitions tools={tools} />}
@@ -427,22 +458,19 @@ function PayloadBlock({
           </>
         )}
         {record.body === "" && (
-          <div className="flex items-center gap-3 border-t border-line/60 px-3.5 py-2 text-xs">
-            <span className="text-ink-faint">
-              已加载 {formatCount(Math.min(offset + PAYLOAD_SLICE, total))} / {formatCount(total)}{" "}
-              字符 · 压缩存储，按需解压
-            </span>
-            {more && (
-              <button
-                type="button"
-                className="ml-auto rounded-md border border-line px-2 py-0.5 text-ink-soft hover:bg-overlay hover:text-ink"
-                onClick={() => {
-                  setLoaded(body + (slice.data?.body ?? ""));
-                  setOffset(loaded === "" ? PAYLOAD_SLICE : offset + PAYLOAD_SLICE);
-                }}
-              >
-                加载更多（+{formatBytes(PAYLOAD_SLICE)}）
-              </button>
+          <div className="border-t border-line/60 px-3.5 py-2 text-xs text-ink-faint">
+            {more ? (
+              <div ref={sentinel} className="flex items-center gap-2 py-1">
+                {fetching ? (
+                  <span>正在读取下一片…</span>
+                ) : (
+                  <span>继续向下滚动加载（已读 {formatCount(body.length)} / {formatCount(total)} 字符）</span>
+                )}
+              </div>
+            ) : (
+              <span>
+                已读完整正文（{formatCount(total)} 字符）· 压缩存储，按需解压
+              </span>
             )}
           </div>
         )}
