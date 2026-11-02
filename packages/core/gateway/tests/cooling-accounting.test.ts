@@ -208,9 +208,11 @@ describe("账号额度冷却：短路不计连败（2026-10-24 workbuddy 事故�
       hitsBefore,
       "冷却期内必须本地短路，一次都不该打上游（旧实现在冷却短路时也不打，此处锁住不回退）",
     );
+    // 额度耗尽不是服务器故障：按 OpenAI 惯例回 429 `insufficient_quota`
+    // （503 会让客户端当成故障反复重试，而重试永远不会成功）。
     assert.ok(
-      statuses.every((s) => s === 503),
-      `冷却期应回 503（quota_exhausted），实际 ${statuses.join(",")}`,
+      statuses.every((s) => s === 429),
+      `冷却期应回 429（insufficient_quota），实际 ${statuses.join(",")}`,
     );
   });
 

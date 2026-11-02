@@ -13,6 +13,7 @@ import type { ServerResponse } from "node:http";
 
 import { getChannel, hasChannel, channelCapabilities, type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
+  hasUsableAccount,
   markActiveHealth,
   noteAccountFailure,
   noteAccountQuotaExhausted,
@@ -457,12 +458,18 @@ export async function attemptCandidate(
       `chat:cooling:${cid}`,
       `account cooling down (channel ${cid}); short-circuiting until ${outcome.until} (${outcome.reason})`,
     );
+    // 额度耗尽**不是服务器故障**，用 429 + `insufficient_quota`（OpenAI 惯例）：
+    // 客户端据此提示用户充值，而不是按 503 反复重试。整池都没可用账号时文案直说，
+    // 不再误导用户「换个账号」（换也换不出来）。
+    const others = hasUsableAccount(cid);
     return {
       kind: "retry",
       error: {
-        status: 503,
-        code: "quota_exhausted",
-        message: `account quota exhausted (${cid}); cooling down until ${outcome.until} (${outcome.reason}), or switch account`,
+        status: 429,
+        code: "insufficient_quota",
+        message: others
+          ? `quota exhausted for the active account (${cid}); cooling down until ${outcome.until} (${outcome.reason}); switch account with \`mx acct ${cid} use <key>\``
+          : `quota exhausted for all accounts (${cid}); no account has remaining quota until ${outcome.until} — top up or add another account`,
       },
     };
   }
@@ -541,9 +548,11 @@ export async function attemptCandidate(
       return {
         kind: "retry",
         error: {
-          status: 503,
-          code: "quota_exhausted",
-          message: `account quota exhausted (${cid}): ${reason}; cooling down until ${new Date(untilMs).toISOString()}, or switch account`,
+          status: 429,
+          code: "insufficient_quota",
+          message: hasUsableAccount(cid)
+            ? `upstream quota exhausted (${cid}): ${reason}; cooling down until ${new Date(untilMs).toISOString()}; switch account with \`mx acct ${cid} use <key>\``
+            : `upstream quota exhausted for all accounts (${cid}): ${reason}; no account has remaining quota until ${new Date(untilMs).toISOString()} — top up or add another account`,
         },
       };
     }
