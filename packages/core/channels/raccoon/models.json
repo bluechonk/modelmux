@@ -1,3 +1,79 @@
 {
-  "models": []
+  "version": 1,
+  "source": "seed",
+  "fetched_at": null,
+  "models": [
+    {
+      "id": "sn-sensenova-6-8-flash",
+      "exposed": "sensenova-6.8-flash",
+      "name": "SenseNova-6.8-Flash",
+      "contextWindow": 256000,
+      "maxOutput": 63999,
+      "supportsImage": true,
+      "effectiveMultiplier": 0,
+      "multiplier": 0.5,
+      "billingStatus": "limited_free",
+      "source": "fallback"
+    },
+    {
+      "id": "sn-sensenova-6-8-flash-lite",
+      "exposed": "sensenova-6.8-flash-lite",
+      "name": "SenseNova-6.8-Flash-Lite",
+      "contextWindow": 256000,
+      "maxOutput": 63999,
+      "supportsImage": true,
+      "effectiveMultiplier": 0,
+      "multiplier": 0.5,
+      "billingStatus": "limited_free",
+      "source": "fallback"
+    },
+    {
+      "id": "sn-glm-5-3",
+      "exposed": "glm-5.3",
+      "name": "GLM-5-3",
+      "contextWindow": 1000000,
+      "maxOutput": 100000,
+      "supportsImage": true,
+      "effectiveMultiplier": 0.75,
+      "multiplier": 0.75,
+      "billingStatus": "normal",
+      "source": "fallback"
+    },
+    {
+      "id": "sn-kimi-k3",
+      "exposed": "kimi-k3",
+      "name": "Kimi-K3",
+      "contextWindow": 1000000,
+      "maxOutput": 100000,
+      "supportsImage": true,
+      "effectiveMultiplier": 1,
+      "multiplier": 1,
+      "billingStatus": "normal",
+      "source": "fallback"
+    },
+    {
+      "id": "sn-glm-5-3-flash",
+      "exposed": "glm-5.3-flash",
+      "name": "GLM-5-3-Flash",
+      "contextWindow": 1000000,
+      "maxOutput": 100000,
+      "supportsImage": true,
+      "effectiveMultiplier": 0.1,
+      "multiplier": 0.2,
+      "billingStatus": "discount",
+      "source": "fallback"
+    },
+    {
+      "id": "sn-deepseek-v4-1-flash",
+      "exposed": "deepseek-v4.1-flash",
+      "name": "DeepSeek-V4.1-Flash",
+      "contextWindow": 1000000,
+      "maxOutput": 100000,
+      "supportsImage": true,
+      "effectiveMultiplier": 0.25,
+      "multiplier": 0.25,
+      "billingStatus": "normal",
+      "source": "fallback"
+    }
+  ]
 }

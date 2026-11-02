@@ -9,16 +9,24 @@
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
-/** 实测确认能读图、但远端未声明 vision 的个案（显式白名单，不是「恒 true」）。 */
-const IMAGE_CAPABILITY_OVERRIDES: ReadonlySet<string> = new Set([
-  "sn-deepseek-v4-1-flash",
-  "sn-glm-5-3-flash",
-]);
-
-/** 远端 tags 的图片特征词。 */
+/** 远端 tags 的图片特征词（上游字段词表，属解析规则不是模型数据）。 */
 const IMAGE_TAGS = ["vision", "image", "image-understanding"];
+
+/**
+ * 图片能力判定（见文件头注释 2）。
+ *
+ * 白名单个案（实测能读图但远端未声明 vision）**是数据**，落在 `models.json` 的
+ * `supportsImage` 字段；本函数只负责「已声明就用它，未声明再看远端 tags」的判定顺序。
+ */
+function supportsImage(modelId: string, tags: unknown, declared?: boolean): boolean {
+  void modelId; // 入参保留：调用方按模型定位条目，判定本身不看 id
+  if (declared === true) return true;
+  if (!Array.isArray(tags)) return false;
+  return tags.some((tag) => IMAGE_TAGS.includes(String(tag).toLowerCase()));
+}
 
 /** 远端目录成功结果的缓存时长。 */
 const REMOTE_TTL_MS = 5 * 60 * 1000;
@@ -27,6 +35,8 @@ const REMOTE_FAIL_COOLDOWN_MS = 30 * 1000;
 
 interface ModelEntry {
   id: string;
+  /** 对外名（池 id 的 `<模型>` 段）；数据给了就用它，缺省由 `canonicalModelId(id)` 推导。 */
+  exposed?: string;
   name: string;
   /** 上下文窗口（**远端声明**：`params.context_window`）。 */
   contextWindow: number;
@@ -42,125 +52,47 @@ interface ModelEntry {
   source: "remote" | "fallback";
 }
 
-/**
- * 已知模型规格（上下文窗口 / 单次回复最大输出）。
- *
- * 上游目录**自带**这两个数（实测 `params.context_window` / `params.max_tokens`，
- * 见 docs/channels/raccoon/PROTOCOL.md §5.2）—— 有上游声明时以**上游为准**
- * （三层取值链见 docs/MODEL-SPECS.md §0：上游声明优先）。
- * 本表只在**上游没下发**时兜底（目录缓存缺失 / 新型号未声明）。
- *
- * 键是**归一后的规范模型名**（`sn-glm-5-3-flash` → `glm-5.3-flash`），
- * 不是目录里的原始写法。
- *
- * `sensenova-6.8-flash` / `sensenova-6.8-flash-lite` **不列**：官方未公开数值
- * （说明见 docs/channels/raccoon/PROTOCOL.md §5.7）—— 不编造数字，让网关回落兜底值。
- *
- * 来源：`docs/channels/raccoon/PROTOCOL.md` §5.7（核对方法见 `docs/MODEL-SPECS.md` §0）。
- */
-const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens: number }>> = {
-  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "kimi-k3": { contextWindow: 1_048_576, maxOutputTokens: 1_048_576 },
-};
+/** 条目的对外名：数据里声明了就用它，否则按规范名推导（上游 slug → 规范名）。 */
+function entryExposed(entry: ModelEntry): string {
+  return entry.exposed ?? canonicalModelId(entry.id);
+}
 
 /**
  * 已知模型规格（供池层 `/v1/models` 透出）。
  *
- * `modelId` 是池内的**规范模型名**（`canonicalModelId` 归一后的结果）；
- * 这里再归一一次，保证目录里的原始写法（`sn-glm-5-3-flash`）也命中同一张表。
- * **查不到返回 undefined**（= 上游与公开资料都没有，不编造）。
+ * 规格**是数据**，落在 `models.json` 的 `contextWindow` / `maxOutput` 字段；
+ * 本函数只做「规范名归一 → 查表 → 取规格」。
+ * `modelId` 是池内的规范模型名（`canonicalModelId` 归一后的结果），这里再归一一次，
+ * 保证目录里的原始写法（上游 slug）也命中同一条目。**查不到返回 undefined**（不编造）。
  */
 export function modelSpec(
   modelId: string,
 ): { contextWindow?: number; maxOutputTokens?: number } | undefined {
-  const spec = MODEL_SPECS[canonicalModelId(modelId)];
-  if (!spec) return undefined;
-  return { contextWindow: spec.contextWindow, maxOutputTokens: spec.maxOutputTokens };
+  const key = canonicalModelId(modelId);
+  const entry = fallbackEntries().find(
+    (m) => canonicalModelId(m.id) === key || canonicalModelId(entryExposed(m)) === key,
+  );
+  if (!entry) return undefined;
+  return { contextWindow: entry.contextWindow, maxOutputTokens: entry.maxOutput };
 }
 
 /**
- * 兜底静态模型表（6 个 `visible: true` 的模型）。
- *
- * 来源：2026-09-26 实测 `GET /api/web/llm/v2/model_catalog`
- * （见 docs/channels/raccoon/PROTOCOL.md；上游改目录后需重拉）。
- * 不含 `Raccoon-Auto`（发给 chat 会 404），也不含 3 个 `visible:false` 的内部模型。
+ * 兜底表：数据在渠道包的 `models.json`（首启由共享层浇种到
+ * `<root>/channels/raccoon/models.json`），本模块只负责读与合并。
+ * 表内不含 `Raccoon-Auto`（发给 chat 会 404）与 `visible:false` 的内部模型；
+ * 上游目录的事实见 docs/channels/raccoon/PROTOCOL.md。
  */
-const FALLBACK_MODELS: ModelEntry[] = [
-  {
-    id: "sn-sensenova-6-8-flash",
-    name: "SenseNova-6.8-Flash",
-    contextWindow: 256_000,
-    maxOutput: 63_999,
-    supportsImage: true,
-    effectiveMultiplier: 0,
-    multiplier: 0.5,
-    billingStatus: "limited_free",
-    billingStatusNote: "",
-    source: "fallback",
-  },
-  {
-    id: "sn-sensenova-6-8-flash-lite",
-    name: "SenseNova-6.8-Flash-Lite",
-    contextWindow: 256_000,
-    maxOutput: 63_999,
-    supportsImage: true,
-    effectiveMultiplier: 0,
-    multiplier: 0.5,
-    billingStatus: "limited_free",
-    billingStatusNote: "",
-    source: "fallback",
-  },
-  {
-    id: "sn-glm-5-3",
-    name: "GLM-5-3",
-    contextWindow: 1_000_000,
-    maxOutput: 100_000,
-    supportsImage: true,
-    effectiveMultiplier: 0.75,
-    multiplier: 0.75,
-    billingStatus: "normal",
-    billingStatusNote: "",
-    source: "fallback",
-  },
-  {
-    id: "sn-kimi-k3",
-    name: "Kimi-K3",
-    contextWindow: 1_000_000,
-    maxOutput: 100_000,
-    supportsImage: true,
-    effectiveMultiplier: 1,
-    multiplier: 1,
-    billingStatus: "normal",
-    billingStatusNote: "",
-    source: "fallback",
-  },
-  {
-    id: "sn-glm-5-3-flash",
-    name: "GLM-5-3-Flash",
-    contextWindow: 1_000_000,
-    maxOutput: 100_000,
-    supportsImage: true,
-    effectiveMultiplier: 0.1,
-    multiplier: 0.2,
-    billingStatus: "discount",
-    billingStatusNote: "",
-    source: "fallback",
-  },
-  {
-    id: "sn-deepseek-v4-1-flash",
-    name: "DeepSeek-V4.1-Flash",
-    contextWindow: 1_000_000,
-    maxOutput: 100_000,
-    supportsImage: true,
-    effectiveMultiplier: 0.25,
-    multiplier: 0.25,
-    billingStatus: "normal",
-    billingStatusNote: "",
-    source: "fallback",
-  },
-];
+let fallback: ModelEntry[] | null = null;
+function fallbackEntries(): ModelEntry[] {
+  if (!fallback) {
+    fallback =
+      ensureChannelModels<ModelEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+  }
+  return fallback.map((m) => ({ ...m }));
+}
 
 /** 内部模型 / 自动选模入口：即使远端下发也不暴露。 */
 const EXCLUDED_IDS = new Set(["Raccoon-Auto"]);
@@ -189,17 +121,6 @@ function num(value: unknown): number | null {
 }
 
 // ── 图片能力 ──────────────────────────────────────────────────────────────────
-
-/**
- * 图片能力判定（见文件头注释 2）。
- *
- * 用**显式白名单**而不是「恒 true」：只覆盖**实测确认**的个案。
- */
-function supportsImage(modelId: string, tags: unknown): boolean {
-  if (IMAGE_CAPABILITY_OVERRIDES.has(modelId)) return true;
-  if (!Array.isArray(tags)) return false;
-  return tags.some((tag) => IMAGE_TAGS.includes(String(tag).toLowerCase()));
-}
 
 // ── 远端解析 ──────────────────────────────────────────────────────────────────
 
@@ -234,14 +155,14 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
       const params = isRecord(item["params"]) ? item["params"] : {};
       const effectiveMultiplier = num(item["billing_effective_multiplier"]);
       const multiplier = num(item["billing_multiplier"]);
-      const fallback = FALLBACK_MODELS.find((m) => m.id === id);
+      const fallback = fallbackEntries().find((m) => m.id === id);
       out.push({
         id,
         name: str(item["description"]) || fallback?.name || id,
         contextWindow: num(params["context_window"]) ?? num(item["context_window"]) ?? fallback?.contextWindow ?? 0,
         maxOutput: num(params["max_tokens"]) ?? fallback?.maxOutput ?? 0,
-        // tags 不是能力契约：白名单 + tags 特征词（见文件头注释 2）
-        supportsImage: supportsImage(id, item["tags"]),
+        // tags 不是能力契约：表里声明的 supportsImage 优先，其次看 tags 特征词
+        supportsImage: supportsImage(id, item["tags"], fallback?.supportsImage),
         effectiveMultiplier,
         multiplier,
         billingStatus: mapBillingStatus(item["billing_status"]),
@@ -251,11 +172,6 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
     }
   }
   return out;
-}
-
-/** 兜底表（每次现算）。 */
-function fallbackEntries(): ModelEntry[] {
-  return FALLBACK_MODELS.map((m) => ({ ...m }));
 }
 
 /**

@@ -464,15 +464,31 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 #### 目录来源优先级（**所有渠道一致，按此顺序**）
 
 1. **磁盘缓存** `<root>/channels/<cid>/cache/models.json` —— **常态来源**。上次真实拉到的目录，
-  由共享层 `readCatalogCache()` / `writeCatalogCache()` 读写（信封
-  `{version, fetched_at, models}`，原子写入 + `0600`；落点见
-  `STORAGE-CONVENTION.md` §3 第 5 条）。
+   由共享层 `readCatalogCache()` / `writeCatalogCache()` 读写（信封
+   `{version, fetched_at, models}`，原子写入 + `0600`；落点见
+   `STORAGE-CONVENTION.md` §3 第 5 条）。
 2. **远端目录**（`upstream.fetchModels()`）—— **只在本地没有缓存时才拉**（首次使用），
-  拉到后**必须立刻写一次缓存**，否则下一个进程拿不到它。
-3. **随包快照**（渠道内的 `models.json` / 内置兜底表）—— 拉不到时的最后兜底。
+   拉到后**必须立刻写一次缓存**，否则下一个进程拿不到它。
+3. **用户目录模型表** `<root>/channels/<cid>/models.json` —— 渠道自己的模型数据（清单 + 规格），
+   首启由**随包种子**（渠道包根 `models.json`，bundle 后落在 `dist/models/<cid>.json`）浇种一次，
+   之后以用户文件为准（可手改，也可由 `refresh()` 覆写）。读写走共享层
+   `readChannelModels()` / `writeChannelModels()` / `ensureChannelModels()`。
+4. **gateway 兜底**：表里没写的字段（窗口 / 输出 / 模态 / 档位）由
+   `pool/pool-targets.ts` 的 `DEFAULT_META` 统一回落一次 —— **渠道不再自带兜底数字**。
 
 一句话：**第一次 `model list` 把真实目录记到本地，之后一直用那个文件**；
 要更新就 `model <cid> --refresh`。
+
+#### 模型数据必须外置（硬规则）
+
+`catalog.ts` **不得出现任何模型数据**：模型名、上下文窗口、输出上限、输入/输出模态、
+思考档位、倍率、隐藏标记一律写在渠道包的 `models.json`。`catalog.ts` 只保留三类逻辑：
+
+1. **怎么取** —— 读缓存 / 拉远端 / 浇种用户表 / 按 cid 解析落点；
+2. **怎么归一化** —— 字段清洗、去重、过滤非对话模型、`hidden` 过滤；
+3. **id ↔ upstreamId 映射** —— 别名表（`LEGACY_ALIASES` / `POOL_KEY_MAP` 等）留在代码。
+
+判据是机械可查的：`catalog.ts` 里出现模型名或四位以上的规格数字即违规。
 
 规则：
 
