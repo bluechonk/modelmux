@@ -1,5 +1,6 @@
 /**
- * WorkBuddy 渠道装配（**国内版**：腾讯 CodeBuddy，`codebuddy.ai`）。
+ * WorkBuddy 渠道装配（**国内版**：腾讯 CodeBuddy；chat 上游 `copilot.tencent.com`，
+ * 前台/计费域 `codebuddy.cn` —— 注意不是 `.ai`，那个域 DNS 已沉洞，见 upstream.ts）。
  *
  * 本文件是**共享层与渠道层的唯一边界**：`@modelmux/gateway` 里的 gateway / daemon /
  * headless / auth-flow 都通过这里注册的 `Channel` 拿到 cred / upstream / catalog / billing。

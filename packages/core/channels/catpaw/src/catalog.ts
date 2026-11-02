@@ -23,7 +23,7 @@ export interface CatalogEntry {
   reasoning: boolean;
   /** 上下文窗口。 */
   contextWindow: number;
-  /** 最大输出 token（上游不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  /** 最大输出 token（上游不下发，按公开规格补；数据在 models.json，见 `maxOutputOf`）。 */
   maxOutput?: number;
   /** 描述。 */
   description: string;
@@ -130,8 +130,6 @@ function declaredEffort(
   return undefined;
 }
 
-
-
 /** 取已知最大输出（按 id 小写匹配；查不到返回 undefined）。规格是数据，落在 models.json。 */
 function maxOutputOf(id: string): number | undefined {
   return seedTable().find((e) => e.id.toLowerCase() === id.toLowerCase())?.maxOutput;
@@ -141,7 +139,7 @@ function maxOutputOf(id: string): number | undefined {
  * 已知模型规格（供池层 `/v1/models` 透出）。
  *
  * 上下文：上游目录不下发，渠道按默认档位 1M 请求（见 `DEFAULT_CONTEXT_WINDOW`）；
- * 最大输出：按公开规格（见 `MAX_OUTPUTS`）。**查不到返回 undefined**（不编造）。
+ * 最大输出：按公开规格（数据在 models.json，经 `maxOutputOf` 查）。**查不到返回 undefined**（不编造）。
  */
 export function modelSpec(
   modelId: string,
@@ -150,10 +148,6 @@ export function modelSpec(
   if (maxOutputTokens === undefined) return undefined;
   return { contextWindow: DEFAULT_CONTEXT_WINDOW, maxOutputTokens };
 }
-
-
-
-
 
 /** 上游目录缓存（由 upstream.fetchModels() 成功时回填）。 */
 let _remote: CatalogEntry[] | null = null;
@@ -200,7 +194,7 @@ function ensureCachedModels(): void {
 
 /**
  * 当前目录（上游缓存优先，缺则读用户目录的模型表 `channels/catpaw/models.json`；
- * 表不存在时用下面的 `SEED_MODELS` 浇一次）。
+ * 表不存在时用随包种子浇种（`ensureChannelModels`）。
  */
 function loadCatalog(): CatalogEntry[] {
   ensureCachedModels();

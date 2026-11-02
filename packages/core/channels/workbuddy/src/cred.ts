@@ -4,7 +4,8 @@
  * 关键约束（端点/字段/实测见 docs/channels/workbuddy/PROTOCOL.md）：
  *   - 登录只有 `login()` 一条路径（网页设备授权），不提供第二种登录方式（手机号 OneID / 桌面端 `.info` 路线均不采纳）。
  *   - 设备授权无本机回环：`pasteCode` 只作「浏览器已完成」信号，转交同一轮询处理器再取一次令牌。
- *   - 本渠道只有一个域（国内版 `codebuddy.ai`），账号属于哪个域就用哪个渠道登录。
+ *   - 本渠道只有一个域（国内版，前台 `codebuddy.cn`；`.ai` 域已沉洞，见 upstream.ts），
+ *     账号属于哪个域就用哪个渠道登录。
  */
 
 import { readFileSync } from "node:fs";

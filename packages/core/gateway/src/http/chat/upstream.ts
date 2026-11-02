@@ -165,11 +165,24 @@ function chatUrlOf(upstream: UpstreamModule, body: Buffer): string {
 
 export async function openStream(channel: Channel, c: Credential, body: Buffer): Promise<UpstreamCall> {
   const { upstream } = channel;
-  // 渠道可在建头前异步确保凭据可用（如 token 已过期时阻塞续期）；
-  // 未声明钩子的渠道保持同步行为，不受影响。
-  await upstream.refreshIfExpired?.(c);
-  // 渠道声明了对话专用头族就用它，否则回退基础头
-  const headers = upstream.buildChatHeaders ? upstream.buildChatHeaders(c) : upstream.buildHeaders(c);
+  // 渠道可在建头前异步确保凭据可用（如 token 已过期时阻塞续期）；未声明钩子的渠道
+  // 保持同步行为。钩子抛错按 connectFailed 形态返回（交上层重试/换号），不能裸穿：
+  // auth.ts 的刷新重试链会把同型异常吞成「refresh failed」并把账号误标 unauthorized 终态。
+  let headers: Record<string, string>;
+  try {
+    await upstream.refreshIfExpired?.(c);
+    // 渠道声明了对话专用头族就用它，否则回退基础头
+    headers = upstream.buildChatHeaders ? upstream.buildChatHeaders(c) : upstream.buildHeaders(c);
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      headers: new Headers(),
+      body: null,
+      error: new Error(`channel hook failed: ${String(err)}`),
+      connectFailed: true,
+    };
+  }
   if (!Object.keys(headers).some((k) => k.toLowerCase() === "accept")) {
     headers["Accept"] = "text/event-stream";
   }

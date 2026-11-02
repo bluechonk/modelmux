@@ -47,8 +47,6 @@ interface ModelEntry {
   source: "fallback" | "snapshot" | "remote";
 }
 
-
-
 /**
  * 已知模型规格（供池层 `/v1/models` 透出）。
  *
@@ -299,7 +297,7 @@ function entries(): ModelEntry[] {
   return seedTable();
 }
 
-/** 用户目录模型表（，首启由随包种子浇种）。 */
+/** 用户目录模型表（首启由随包种子浇种）。 */
 let seedCache: ModelEntry[] | null = null;
 function seedTable(): ModelEntry[] {
   if (!seedCache) {

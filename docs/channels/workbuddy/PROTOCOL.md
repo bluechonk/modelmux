@@ -429,8 +429,8 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
   `/v1/models` 显示的是**上游声明值**；规格表只在目录没声明（或目录缓存缺失）时兜底。
 - 两个数不是一回事：`contextWindow` = 上下文（输入 + 输出），
   `maxOutputTokens` = **单次回复**上限。
-- 规格表在 `src/catalog.ts` 的 `MODEL_SPECS`，来源：**公开规格**（联网核实的唯一事实源）；
-  键是**池 id 里的规范模型名**（`canonicalModelId` 归一后）。
+- 规格数据在渠道包根的 `models.json`（`catalog.specOf` 按**池 id 规范模型名**查，
+  `canonicalModelId` 归一后）；来源：**公开规格**（联网核实的唯一事实源）。
 
 | 规范模型名 | 上下文 | 单次回复上限 |
 | --- | --- | --- |
@@ -470,7 +470,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `space-bunny` | 目录条目，官方无公开规格 |
 | `kimi-k2.7` | 官方无公开规格（无此独立型号，公开规格表只有 `kimi-k2.7-code`） |
 | `kimi-k3.1` | 官方无公开规格（官方未发布；目录 id 是 `kimi-k3-1`，展示名 Kimi-K3） |
-| `glm-4.6` / `glm-4.6v` | 不在渠道规格表 `src/catalog.ts` 的 `MODEL_SPECS` 内 |
+| `glm-4.6` / `glm-4.6v` | 不在渠道规格表（`models.json`）内 |
 | `minimax-m2.5` | 不在渠道规格表内（该表只有 `minimax-m2.7`） |
 | `kimi-k2-thinking` | 思考变体，不在渠道规格表内 |
 | `deepseek-v3.2-volc` | 不在渠道规格表内 |

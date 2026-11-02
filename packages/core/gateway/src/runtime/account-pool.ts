@@ -785,6 +785,8 @@ export function noteAccountFailure(cid?: string): void {
   try {
     scope = channelDir(cid);
   } catch {
+    // 渠道目录解析失败时记账整体不可行（没有落点）；连败统计是有意忽略的
+    // best-effort 旁路 —— 不能让记账失败反过来影响正在报告的错误本身。
     return;
   }
   const index = readIndex(cid);
