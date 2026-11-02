@@ -11,10 +11,11 @@
  * 铁律：读失败回 `null`（不抛错，调用方回落）；写走共享层原子写 + `0600`。
  */
 
-import { readFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import { bundledSnapshotPath } from "./snapshot.js";
-import { channelFile, ensureDir } from "./paths.js";
+import { channelDir, channelFile, ensureDir } from "./paths.js";
 import { writeAtomicFile } from "./secret-file.js";
 
 /** 渠道模型表文件名（落在渠道层根，见 docs/STORAGE-CONVENTION.md §3）。 */
@@ -89,6 +90,9 @@ export function readSeedFrom<T extends ChannelModelEntry>(paths: ReadonlyArray<s
 /**
  * 写渠道模型表（原子替换 + `0600`）。
  *
+ * **写前先做快照**：覆盖会把旧表抹掉，而上游偶尔会返回空表 / 残缺表；
+ * 没有快照就无从回退（用户会看到模型全消失）。快照失败不阻断写入 —— 它只是保险。
+ *
  * @param source 这份表从哪来（`seed` / `upstream` / `manual`），写进信封供排查。
  * @returns 是否写成功
  */
@@ -106,11 +110,104 @@ export function writeChannelModels<T extends ChannelModelEntry>(
   };
   try {
     ensureDir(cid);
+    snapshotChannelModels(cid);
     writeAtomicFile(channelModelsPath(cid), `${JSON.stringify(envelope, null, 2)}\n`, 0o600);
     return true;
   } catch {
     return false;
   }
+}
+
+/** 快照文件的保留份数（每份几十 KB，留 3 份足够跨越一次坏刷新）。 */
+export const CHANNEL_MODELS_SNAPSHOTS = 3;
+
+/** 快照文件名（与被保护文件同目录、同前缀，回退只需改后缀）。 */
+function snapshotName(stamp: string, cid?: string): string {
+  return `${channelModelsPath(cid)}.bak.${stamp}`;
+}
+
+/**
+ * 把当前模型表复制成快照（覆盖前调用）。
+ *
+ * 时间戳精确到秒；**同一秒内重复快照时加序号后缀**（`-2`、`-3`…）——
+ * 否则同秒的连续刷新会互相覆盖，只剩 1 份快照（单测逮到过）。
+ *
+ * @returns 快照路径；源文件不存在或复制失败 → `null`（不阻断主流程）
+ */
+export function snapshotChannelModels(cid?: string, at: Date = new Date()): string | null {
+  const src = channelModelsPath(cid);
+  if (!existsSync(src)) return null;
+  const stamp = at.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  let dest = snapshotName(stamp, cid);
+  let seq = 2;
+  while (existsSync(dest)) {
+    dest = snapshotName(`${stamp}-${seq}`, cid);
+    seq += 1;
+    if (seq > 99) return null; // 异常防护：同一秒上百次刷新不是正常使用
+  }
+  try {
+    copyFileSync(src, dest);
+    pruneChannelModelsSnapshots(cid, CHANNEL_MODELS_SNAPSHOTS);
+    return dest;
+  } catch {
+    return null;
+  }
+}
+
+/** 只保留最近 `keep` 份快照（按文件名里的时间戳排序，删更旧的）。 */
+export function pruneChannelModelsSnapshots(cid?: string, keep = CHANNEL_MODELS_SNAPSHOTS): void {
+  const dir = channelDir(cid);
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.startsWith(`${CHANNEL_MODELS_FILE}.bak.`));
+  } catch {
+    return;
+  }
+  names.sort();
+  for (const name of names.slice(0, Math.max(0, names.length - keep))) {
+    try {
+      rmSync(join(dir, name), { force: true });
+    } catch {
+      /* 删不掉不影响主流程 */
+    }
+  }
+}
+
+/** 所有快照（按时间从新到旧）。 */
+export function listChannelModelsSnapshots(cid?: string): string[] {
+  try {
+    return readdirSync(channelDir(cid))
+      .filter((n) => n.startsWith(`${CHANNEL_MODELS_FILE}.bak.`))
+      .sort()
+      .reverse()
+      .map((n) => join(channelDir(cid), n));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 回退到最近一份**可用**快照（跳过空表 / 损坏文件）。
+ *
+ * @returns 回退用的快照路径；没有可用快照 → `null`
+ */
+export function rollbackChannelModels(cid?: string): string | null {
+  for (const path of listChannelModelsSnapshots(cid)) {
+    let entries: ChannelModelEntry[] | null = null;
+    try {
+      entries = parseModels<ChannelModelEntry>(readFileSync(path, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!entries) continue;
+    try {
+      copyFileSync(path, channelModelsPath(cid));
+      return path;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 /**
