@@ -1056,7 +1056,7 @@ const hasZstd = (): boolean => typeof zlib.zstdCompressSync === "function";
  * 为什么不学 dsh 做「内容寻址 blob + 去重」：实测本仓库 payload 的重复率是 **0**
  * （2 天 114 条正文，唯一 114 条；client 与 upstream 正文也无一字节相同），
  * 去重只多出一层目录与必须配套的 GC，收益为零。压缩才是这里的真实杠杆
- * （实测 agent 上下文正文 2.9x，见 docs/STORAGE-OPTIMIZATION.md）。
+ * （实测 agent 上下文正文 2.9x，见 docs/LOGGING.md §9）。
  */
 function packBody(body: string): { body?: string; bodyEnc?: BodyEncoding; bodyB64?: string } {
   const buf = Buffer.from(body, "utf8");

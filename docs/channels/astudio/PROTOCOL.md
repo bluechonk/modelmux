@@ -1,7 +1,7 @@
 # AStudio 协议规格
 
 > 状态：**已落地**（2026-10-26 实测 + 渠道已实现）。证据等级见 §1。
-> 逆向过程与可复现命令见 `.agents/skills/astudio-re/`（技能）与其 `references/PROTOCOL.md`。
+> 逆向方法与一次完整实跑记录见 [METHODOLOGY.md](./METHODOLOGY.md) 与 [WALKTHROUGH.md](./WALKTHROUGH.md)。
 
 本文是 `packages/core/channels/astudio/` 的实现依据。逆向对象：`AStudio 3.5.4`
 （`C:\Users\bluechonk\AppData\Local\Programs\AStudio\AStudio.exe`，Electron 43.4.1 / Chrome 150）。
@@ -579,15 +579,10 @@ CLI 没有界面 → 走路 B（轮询会话文件最多 5 分钟）；
 
 ### 怎么测这个渠道
 
-```bash
-# 逆向技能（零依赖脚本，真实账号直连）
-node .agents/skills/astudio-re/scripts/astudio-probe.mjs session    # 会话文件结构（脱敏）
-node .agents/skills/astudio-re/scripts/astudio-probe.mjs account    # /userInfo + /bot/models/configs
-node .agents/skills/astudio-re/scripts/astudio-probe.mjs models     # 逐个模型探网关
-node .agents/skills/astudio-re/scripts/astudio-probe.mjs usage      # /usage 用量
-node .agents/skills/astudio-re/scripts/astudio-probe.mjs chat       # 流式 / 工具 / 思考档位
+历史探针脚本按仓库规则不入库；需要复现上游请求时，按 [METHODOLOGY.md](./METHODOLOGY.md)
+的方法重写。渠道侧的常用命令：
 
-# 渠道侧
+```bash
 node packages/cli/dist/cli.js login astudio
 node packages/cli/dist/cli.js status astudio
 node packages/cli/dist/cli.js model astudio
@@ -623,7 +618,7 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 最小对话 | `astudio/auto` / `astudio/glm-5.2` / `astudio/spark-x2.5` 均返回真实补全 + `usage` |
 | 模型 id 归一化 | `astudio/glm-5.2` → 响应 `model: "xopglm52"`；`astudio/auto` → `model: "spark-x2.6"` |
 | 错误传播 | 上游 503 时网关如实回 502 并记日志；**账号未进冷却**（额度口径取积分余额，不是模型网关的 `balance`） |
-| 工具 / 流式 / 档位 | 直连实测通过（见技能 `astudio-probe.mjs chat`） |
+| 工具 / 流式 / 档位 | 直连实测通过（复现思路见 [WALKTHROUGH.md](./WALKTHROUGH.md) §3） |
 | **opencode 单轮冒烟（7/7）** | 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
 | **经网关的 Agent 工具往返** | 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |
 | **deepseek-v4-flash 计费实测** | 2026-10-26 直连 `/points/balance` 对账：`totalAmount 6200 − totalBalance 6197` = **已用 3 积分**（两轮端到端测试的累计消耗；星火专属 35000 分未动）。单轮最小对话（~25k tokens）8s / 60s 内均无即时扣减（扣减疑似异步）。**顺带修掉渠道 bug**：`mx bill` 的「已用」此前取模型网关 `/usage` 的 `today.cost`（该端点 404，恒 0）→ 改为 `totalAmount − totalBalance` 口径，并补体验积分 `days_left`（30 天） |

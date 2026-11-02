@@ -8,8 +8,8 @@
 | 渠道文档 | `docs/channels/<cid>/` | 每个渠道自己的协议规格与实测（[索引](./channels/README.md)） |
 | 门面与规则 | 仓库根 `README.md` / `AGENTS.md`、`.agents/skills/<name>/` | 门面与工具 / agent 的行为约束（按固定路径读，不能搬） |
 
-> 规则本身写在根 [`AGENTS.md`](../AGENTS.md) 的「文档规则」：**所有文档集中在 `docs/`**，
-> 渠道文档在 `docs/channels/<cid>/`。由 `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
+> 落点与登记红线见根 [`AGENTS.md`](../AGENTS.md) 的「文档」；分层、事实归属与写作规则见
+> [docs/AGENTS.md](./AGENTS.md)。`scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
 
 > 渠道包目录（`packages/core/channels/<cid>/`）只放**实现**（`src/` 的 7 个文件）与包配置，
 > **不再带 `docs/`**；唯一例外是目录级工具指令 `packages/core/channels/catpaw/AGENTS.md`
@@ -24,6 +24,7 @@
 
 | 文档 | 一句话 |
 | --- | --- |
+| [AGENTS.md](./AGENTS.md) | **文档标准**：分层与事实归属、写作规则、预算、审稿清单与明确不采用项 |
 | [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：动态模型池（`<cid>/<模型>` 池 id、目录三级来源与兜底、目录元数据回灌上游，§2）+ 池元数据取值与**跨渠道同 id 兜底**（§2.6 / §2.7）+ 账号池（多账号 / 连败标记 / 手动切号 / **额度耗尽自动换号** / 渠道侧的按账号状态，§3） |
@@ -31,17 +32,16 @@
 | [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
 | [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 四页深色看板（仪表盘 / 模型列表 / 账号池 / 请求日志）的架构、构建与 API 面貌 |
 | [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：仪表盘用量区块的数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
-| [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案（定稿）**：/web/ 首页运行视图的模块划分、布局与数据通道（实施后收敛进 WEB-CONSOLE.md） |
+| [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案**：/web/ 首页运行视图的模块划分、布局与数据通道；现行规则见 WEB-CONSOLE.md |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
 | [WORKFLOW.md](./WORKFLOW.md) | **工作流细则**：worktree 约束、浏览器视觉校验、临时探测脚本、测试红线与已知隐患、构建模型、推送门禁、版本与发版、提交信息规范（根 `AGENTS.md` 只留摘要，细则在此） |
 | [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录与署名不进注释（git 是唯一事实源）的判据与正反例 |
 | [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：五级取值链、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程 |
 | [MODEL-CATALOG.md](./MODEL-CATALOG.md) | **统一模型目录（`model-catalog.json`）**：`/v1/models` 的快照数据源、字段模型、五级补全链、联网补全与刷新机制 |
-| [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复（已实施）**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；规则已收敛进 POOL-ARCHITECTURE.md §2.4 / §3.3，本文留设计依据 |
+| [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复的设计依据**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；现行规则见 POOL-ARCHITECTURE.md §2.4 / §3.3 |
 | [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
-| [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取（已实施）**：单条上限 256KB → 10MB 完整落盘、超限双端兜底；规则已收敛进 LOGGING.md §9，本文留设计依据 |
-| [STORAGE-OPTIMIZATION.md](./STORAGE-OPTIMIZATION.md) | **存储优化（借鉴 dsh）**：dsh 的日志/会话落盘机制调研（逐批 zstd、内容寻址去重、无轮转无删除）、可迁移性与明确不移植项、12 天全量实测（重复率 0 → 不做去重，只做压缩）、正文压缩与存量压缩的实现与实测数字 |
+| [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取的设计依据**：单条上限 10MB、超限双端兜底；现行规则见 LOGGING.md §9 |
 | [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) | **缓存命中率口径**：DeepSeek 官方字段与加和关系、命中率公式（官方无明文，业界推导）、12 天实测的各渠道字段形态表、三类形态的分派归一化规则、展示精度规则 |
 | [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：39 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 
@@ -55,7 +55,7 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单；2026-10-26 已收敛） |
+| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单） |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
@@ -68,6 +68,13 @@
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）见下表。
 > GitHub 登录仅协议事实，未实现。
+
+`astudio` 的逆向记录与协议规格分开放：
+
+- [PROTOCOL.md](./channels/astudio/PROTOCOL.md) —— 现役协议事实
+- [METHODOLOGY.md](./channels/astudio/METHODOLOGY.md) —— 通用逆向方法论 + AStudio 参数映射
+- [WALKTHROUGH.md](./channels/astudio/WALKTHROUGH.md) —— 一次完整实跑记录
+- [ROADMAP.md](./channels/astudio/ROADMAP.md) —— 缺口清单
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 
@@ -86,8 +93,6 @@
 | `.agents/skills/log-triage/SKILL.md` | 日志分诊：分层日志 + `upstreamMs/ttfbMs/durationMs` + 错误码速查 |
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/opencode-mx-test/SKILL.md` | 端到端测试：opencode CLI 直连网关跑真实 Agent 会话（覆盖每个渠道的模型）；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
-| `.agents/skills/astudio-re/SKILL.md` | Agent 应用逆向方法论（解包/抓包/端点发现/鉴权链还原，可复用到其它应用）+ AStudio 案例：asar 采矿 + 端点实测 + 渠道包实现；协议事实在 `references/PROTOCOL.md`（标 A/B/C 证据等级） |
-| `.agents/skills/comate-re/SKILL.md` | 百度 Comate（AI 编程助手，VS Code fork）逆向：dist 采矿（`comate-grep.mjs`）+ Cloud API 实测（`comate-probe.mjs`）+ kernel 管道 IPC 抓外连（`watch-comate-conn.ps1`）；协议事实在 `references/PROTOCOL.md`（标 A/B/C 证据等级） |
 | `.agents/skills/zcode-session-archaeology/SKILL.md` | 会话考古：按 `session_xxx` / `sess_xxx` 还原**另一个**会话做了什么，用于多会话并行改同一项目时的对齐与收尾 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。

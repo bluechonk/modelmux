@@ -89,7 +89,7 @@
 
 ## 项目级技能入口软链（本机）
 
-Claude Code 只扫 `.claude/skills/`，而本仓技能实体在 `.agents/skills/`（7 个，随仓库分发）。
+Claude Code 只扫 `.claude/skills/`，而本仓技能实体在 `.agents/skills/`（5 个，随仓库分发）。
 为了「一份技能、多工具共用、不复制」，在本机把前者建成指向后者的**符号链接**。
 参照 deepseek-harness 的做法（其 git 内 `.claude/skills -> ../.agents/skills`，mode `120000`）。
 
