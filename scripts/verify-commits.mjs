@@ -1,7 +1,7 @@
 /**
  * 提交信息规范校验：`type(scope): 中文描述`。
  *
- * 规范遵循 Conventional Commits 并改中文（见 `AGENTS.md` 的「提交信息规范」），与 github 插件的
+ * 规范遵循 Conventional Commits 并改中文（见 `docs/WORKFLOW.md` 的「提交信息规范」），与 github 插件的
  * `$commit` 技能一致：
  * - type 允许 feat / fix / docs / style / refactor / perf / test / chore / merge
  *   （`merge` 专供 merge commit）；
@@ -11,7 +11,7 @@
  *
  * **merge commit 一并校验**：GitHub 默认生成的 `Merge pull request #N from …`
  * 不含 type/scope/中文，属违规。仓库设置已改为 `merge_commit_title=PR_TITLE`
- * （见 `AGENTS.md` 的「提交信息规范」），确需本地合并时写 `git merge --no-ff -m "merge(repo): 中文描述"`。
+ * （见 `docs/WORKFLOW.md` 的「提交信息规范」），确需本地合并时写 `git merge --no-ff -m "merge(repo): 中文描述"`。
  *
  * **跳过 GitHub 的合成提交**：GitHub Actions 在 `pull_request` 事件里会构造一个
  * 临时合并提交（标题形如 `Merge <sha> into <sha>`），它不在任何人的 git 历史里、
@@ -100,7 +100,7 @@ for (const line of lines) {
     continue;
   }
   const [, type, scopeGroup, scope, , desc] = m;
-  if (!TYPES.has(type)) problems.push(`${hash}  type 不在白名单（feat/fix/docs/style/refactor/perf/test/chore）：${subject}`);
+  if (!TYPES.has(type)) problems.push(`${hash}  type 不在白名单（feat/fix/docs/style/refactor/perf/test/chore/merge）：${subject}`);
   if (!scopeGroup || scope.trim() === "") problems.push(`${hash}  缺少 scope（type(模块): …）：${subject}`);
   if (!CJK.test(desc)) problems.push(`${hash}  描述应为简体中文：${subject}`);
   if (/[.。]$/.test(desc)) problems.push(`${hash}  描述结尾不应加句号：${subject}`);
