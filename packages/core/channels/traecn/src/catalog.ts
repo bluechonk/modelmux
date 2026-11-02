@@ -10,7 +10,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 缺省通道（`function` 字段）。 */
@@ -196,7 +196,7 @@ const FALLBACK_NAMES: Array<[string, boolean]> = [
  * 窗口与输出上限**不写估值**：内置表不是上游声明，写了就会挡住公开规格
  * （`modelSpec` 钩子）—— 数值一律由 `modelSpec` 按公开规格给。
  */
-const FALLBACK_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
+const SEED_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
   id,
   model: id,
   name: id,
@@ -622,7 +622,14 @@ function loadCatalog(): ModelEntry[] {
       return entries.map((e) => ({ ...e }));
     }
   }
-  return FALLBACK_MODELS.map((e) => ({ ...e }));
+  return fallbackEntries();
+}
+
+/** 兜底条目：数据以用户目录文件为准，代码内种子只作首次浇种源。 */
+let seeded: ModelEntry[] | null = null;
+function fallbackEntries(): ModelEntry[] {
+  if (!seeded) seeded = seedChannelModels(SEED_MODELS, undefined) ?? SEED_MODELS;
+  return seeded.map((e) => ({ ...e }));
 }
 
 /**

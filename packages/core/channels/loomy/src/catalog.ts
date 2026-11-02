@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
@@ -50,7 +50,7 @@ interface FallbackModel {
  * —— 该符号是**客户端的**，本仓没有。
  * 本表**先采信远端**；若实测长上下文被拒，改为 262144。
  */
-const FALLBACK_MODELS: FallbackModel[] = [
+const SEED_MODELS: FallbackModel[] = [
   { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash · x2.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731 · x3.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
   { id: "MiniMax-M3", name: "MiniMax M3 · x4.0", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
@@ -62,7 +62,7 @@ const FALLBACK_MODELS: FallbackModel[] = [
   { id: "mimo-v2.5", name: "MiMo V2.5 · x3.3", contextWindow: 1_048_576, efforts: FALLBACK_EFFORTS, defaultEffort: DEFAULT_EFFORT },
 ];
 
-const FALLBACK_BY_ID = new Map(FALLBACK_MODELS.map((m) => [m.id, m]));
+const SEED_BY_ID = new Map(SEED_MODELS.map((m) => [m.id, m]));
 
 interface CatalogEntry {
   id: string;
@@ -220,7 +220,7 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
       Array.isArray(modalities) &&
       modalities.some((m) => String(m).toLowerCase() === "image");
     const remoteEfforts = cleanEfforts(item["reasoning_efforts"]);
-    const fallback = FALLBACK_BY_ID.get(id);
+    const fallback = SEED_BY_ID.get(id);
     const efforts = remoteEfforts.length > 0 ? remoteEfforts : (fallback?.efforts ?? []);
     // 最大输出：上游 `max_output_tokens` 优先（实测 2026-10-23：spark-x2.6 131072、
     // MiniMax-M3 512000、DeepSeek-V4.1-Flash 384000），上游没给才回落公开规格表
@@ -248,28 +248,40 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
   return entries;
 }
 
-/** 兜底条目（每次现算，永不被当成「已加载的远端目录」）。 */
+/**
+ * 兜底条目（每次现算一份拷贝，永不被当成「已加载的远端目录」）。
+ *
+ * 数据以 `<root>/channels/loomy/models.json` 为准（首启用代码内种子浇一次），
+ * 之后由用户文件支配 —— 代码只保留下面的 `SEED_MODELS` 作浇种源。
+ */
+let seeded: CatalogEntry[] | null = null;
 function fallbackEntries(): CatalogEntry[] {
-  return FALLBACK_MODELS.map((m) => {
-    const rate = splitRate(m.name)[1];
-    const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
-    return {
-      id: m.id,
-      name: m.name,
-      rate,
-      ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
-      contextWindow: m.contextWindow,
-      ...(MAX_OUTPUTS[m.id.toLowerCase()] !== undefined
-        ? { maxOutput: MAX_OUTPUTS[m.id.toLowerCase()] }
-        : {}),
-      reasoning: true,
-      vision: false, // 兜底表不声明图片能力（宁可少报）
-      efforts: [...m.efforts],
-      defaultEffort: m.defaultEffort,
-      remoteDefaultEffort: "",
-      source: "fallback" as const,
-    };
-  });
+  if (!seeded) {
+    seeded = seedChannelModels(SEED_MODELS.map(toCatalogEntry), undefined) ?? SEED_MODELS.map(toCatalogEntry);
+  }
+  return seeded.map((entry) => ({ ...entry, efforts: [...entry.efforts] }));
+}
+
+/** 代码内种子 → 目录条目的固定换算（倍率从展示名里的 `xN.N` 取）。 */
+function toCatalogEntry(m: FallbackModel): CatalogEntry {
+  const rate = splitRate(m.name)[1];
+  const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
+  return {
+    id: m.id,
+    name: m.name,
+    rate,
+    ...(multiplier !== undefined && Number.isFinite(multiplier) ? { multiplier } : {}),
+    contextWindow: m.contextWindow,
+    ...(MAX_OUTPUTS[m.id.toLowerCase()] !== undefined
+      ? { maxOutput: MAX_OUTPUTS[m.id.toLowerCase()] }
+      : {}),
+    reasoning: true,
+    vision: false, // 兜底不声明图片能力（宁可少报）
+    efforts: [...m.efforts],
+    defaultEffort: m.defaultEffort,
+    remoteDefaultEffort: "",
+    source: "fallback" as const,
+  };
 }
 
 /** 把档位登记进 upstream（避免 upstream <-> catalog 循环依赖）。 */

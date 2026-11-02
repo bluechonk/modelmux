@@ -7,7 +7,8 @@
  *   - 目录按 动态 → 磁盘缓存 → 内置兜底 三源优先级解析；缓存保证未登录/上游不可达时仍能列出模型。
  */
 
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
@@ -74,18 +75,6 @@ export function modelSpec(
 const POOL_KEY_MAP: Record<string, string> = {
   gfmodel: "glm-5.3-flash",
 };
-
-/** 兜底表：连磁盘缓存都没有时用（元数据取自官方目录快照）。 */
-const FALLBACK: ModelEntry[] = [
-  {
-    key: "gfmodel",
-    id: "glm-5.3-flash",
-    displayName: "GLM-5.3-Flash",
-    isReasoning: true,
-    isVl: true,
-    maxInputTokens: 1_000_000,
-  },
-];
 
 /**
  * 上游 key → 模型元数据的**静态兜底表**（请求体的 `model_config` 用）。
@@ -225,7 +214,20 @@ function loadCatalog(): ModelEntry[] {
   } catch {
     /* 缓存读不出来就用兜底表 —— 目录不可用不该让整个渠道消失 */
   }
-  return [...FALLBACK];
+  return fallbackEntries();
+}
+
+/** 兜底条目：数据在随包 `models.json`（首启浇种到用户目录），代码不留模型数据。 */
+let seeded: ModelEntry[] | null = null;
+function fallbackEntries(): ModelEntry[] {
+  if (!seeded) {
+    seeded =
+      ensureChannelModels<ModelEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+  }
+  return [...seeded];
 }
 
 /** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */

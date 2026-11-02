@@ -97,6 +97,12 @@
   运行日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 
 5. **渠道特有文件必须落在自己的 cid 层内**：
+  - `models.json` —— **渠道模型表**（清单 + 规格：窗口 / 输出上限 / 模态 / 档位 / 倍率 / 隐藏标记）。
+    - **首启浇种**：文件不存在时由共享层从**随包种子**（渠道包根 `models.json`，
+      bundle 后为 `dist/models/<cid>.json`）复制一次，来源记 `"seed"`。
+    - **之后以用户文件为准**：可手改；渠道的 `refresh()` 拉到真实目录后覆写（来源记 `"upstream"`）。
+    - **可安全删除**：删掉后下次启动重新浇种，回到随包种子。
+    - **代码里不得再写同一份数据**（`catalog.ts` 零模型名、零规格数字，见 CONTRACT-TS §5.3）。
   - `cache/` 可安全删除、可重建（缓存，丢了只是变慢/回落兜底表）
     - `cache/models.json` —— **远端模型目录缓存**：各渠道 `upstream.fetchModels()`
       拉到的真实目录，由共享层 `catalog-cache.ts` 原子写入（信封

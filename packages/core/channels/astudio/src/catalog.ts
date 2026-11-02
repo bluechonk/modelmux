@@ -1,15 +1,19 @@
 /**
- * AStudio 模型目录：随包内置的静态表（倍率、上下文窗口、档位）。
+ * AStudio 模型目录：**数据在 `models.json`，本模块只做取 / 归一化 / id 映射**。
  *
  * 关键约束（端点/字段/实测见 docs/channels/astudio/PROTOCOL.md §6）：
- *   - 模型清单**随应用包内置**，不发网络请求；故本模块**不实现 `refresh()`**。
- *   - **倍率来自云端配置**（`point_multiplier`），不来自模型名（与 loomy 相反）
- *     —— 本表是**手工维护的公开规格快照**，云端没给值的模型省略（不编造）。
- *   - **id 有两套**：应用内置目录的 slug 与网关配置的 model 字段，网关只接受
- *     后者那一族；本模块暴露短名、内部映射到网关 id。
+ *   - 上游应用**内置目录、不发网络请求** → 本模块**不实现 `refresh()`**（契约要求）；
+ *   - 模型表由共享层读 `<root>/channels/astudio/models.json`（首启用随包 `models.json` 浇种），
+ *     代码里不留模型数据、不拼存储路径；
+ *   - **id 有两套**：池内短名与网关 `model` 字段；本模块暴露短名、内部映射到上游 id。
+ *
+ * 查不到一律返回「未知」（`undefined` / 空数组），**绝不编造**。
  */
 
-/** 内置目录的展示名（与官方界面一致）。 */
+import { ensureChannelModels } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
+
+/** 表条目形态（落在 `models.json`；倍率未知时该字段省略）。 */
 export interface ModelSpec {
   /** 池内暴露的模型 id（短名，对齐应用内置目录的展示名）。 */
   id: string;
@@ -18,14 +22,12 @@ export interface ModelSpec {
   /** 模型网关接受的 model id（`/bot/models/configs` 的 `model` 字段）。 */
   upstreamId: string;
   /**
-   * 消耗倍率（云端 `point_multiplier` 实测值）；**`undefined` = 未知**。
+   * 消耗倍率（云端 `point_multiplier` 实测值）；**缺省 = 未知**。
    *
-   * 云端 `/bot/models/configs` 只对**部分**模型给 `point_multiplier`（实测 2026-10-26：9 行里
-   * 只有 8 行有值，且 id 与本表 exposure 只有 2 个对得上；云端改配置后需重测）。给对不上的模型填 `1`
-   * 是**无源填 1**（客户端会按它算钱）—— 必须省略为 `undefined`
-   * （倍率要么实测、要么未知，绝不编造）。
+   * 给云端没给值的模型填 `1` 是**无源填 1**（客户端会按它算钱）—— 必须省略，
+   * 池层据此显示「免费」（订阅制口径）而不是编造的 `1`。
    */
-  multiplier: number | undefined;
+  multiplier?: number;
   contextWindow: number;
   maxOutputTokens: number;
   /** 该模型支持的思考档位（实测自内置目录）。 */
@@ -33,137 +35,49 @@ export interface ModelSpec {
   defaultEffort: string;
 }
 
-/**
- * 内置模型表（7 条）。
- *
- * 来源：
- * - `id` / `name` / `efforts` / `defaultEffort`：应用内置目录 `provider-model-catalog-v1.json`；
- * - `upstreamId` / `multiplier`：云端 `GET /xingchen-studio/bot/models/configs`
- *   （`model` 与 `point_multiplier` 字段，9 行）；
- * - `contextWindow` / `maxOutputTokens`：应用内置 `model-gateway/catalog-<hash>.json`。
- *
- * `xopdeepseekv4pro` 与 `xopdeepseekv4pro0813` 网关**都接受**（实测 200），
- *   本表取无日期后缀的那个（与云端配置的 `model` 字段一致）。
- *
- * **倍率只有 2 个模型有实测值**（`xopglm52` 与 `xopdeepseekv4pro`，均 `x2.0`）。
- *   其余 5 个在云端**没有对应行**（`spark-x2.6` / `spark-x2.6-4b` / `spark-x2.5` /
- *   `xopdsv4flash0731in` 都不在云端那 9 行里，`astronclaw-auto` 的
- *   `point_multiplier` 为 `null`）→ 一律 `undefined`，池层显示「免费」（订阅制口径）
- *   而不是编造的 `1`。
- */
-const MODELS: ModelSpec[] = [
-  {
-    id: "auto",
-    name: "Auto",
-    upstreamId: "astronclaw-auto",
-    // 云端 point_multiplier = null（自动路由，无固定倍率）
-    multiplier: undefined,
-    contextWindow: 262_144,
-    maxOutputTokens: 100_000,
-    efforts: ["none", "high"],
-    defaultEffort: "high",
-  },
-  {
-    id: "spark-x2.6",
-    name: "Spark-X2.6",
-    upstreamId: "spark-x2.6",
-    // 云端无此行（云端是 xsparkx2agent=x2.0 与 spark-x=x0.5，都不是它）
-    multiplier: undefined,
-    contextWindow: 262_144,
-    maxOutputTokens: 100_000,
-    efforts: ["none", "high"],
-    defaultEffort: "high",
-  },
-  {
-    id: "spark-x2.6-lite",
-    name: "Spark-X2.6-Lite",
-    upstreamId: "spark-x2.6-4b",
-    // 云端无此行
-    multiplier: undefined,
-    contextWindow: 1_048_576,
-    maxOutputTokens: 110_000,
-    efforts: ["none", "high", "max"],
-    defaultEffort: "high",
-  },
-  {
-    id: "spark-x2.5",
-    name: "Spark-X2.5",
-    upstreamId: "spark-x2.5",
-    // 云端无此行
-    multiplier: undefined,
-    contextWindow: 262_144,
-    maxOutputTokens: 100_000,
-    efforts: ["none", "high"],
-    defaultEffort: "high",
-  },
-  {
-    id: "glm-5.2",
-    name: "GLM-5.2",
-    upstreamId: "xopglm52",
-    // 云端实测 point_multiplier = "x2.0"
-    multiplier: 2,
-    contextWindow: 1_048_576,
-    maxOutputTokens: 100_000,
-    efforts: ["none", "high", "max"],
-    defaultEffort: "high",
-  },
-  {
-    id: "deepseek-v4-pro",
-    name: "DeepSeek-V4-Pro",
-    upstreamId: "xopdeepseekv4pro",
-    // 云端实测 point_multiplier = "x2.0"
-    multiplier: 2,
-    contextWindow: 1_048_576,
-    maxOutputTokens: 100_000,
-    efforts: ["none", "high", "max"],
-    defaultEffort: "high",
-  },
-  {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek-V4-Flash",
-    upstreamId: "xopdsv4flash0731in",
-    // 云端无此行
-    multiplier: undefined,
-    contextWindow: 1_048_576,
-    maxOutputTokens: 100_000,
-    efforts: ["none", "high", "max"],
-    defaultEffort: "high",
-  },
-];
+/** 惰性索引：首次被问时才读盘（模块加载期可能不在渠道上下文里，那时解析不出落点）。 */
+let index: { rows: ModelSpec[]; byId: Map<string, ModelSpec>; byUpstream: Map<string, ModelSpec> } | null = null;
 
-const BY_ID = new Map(MODELS.map((m) => [m.id, m]));
-const BY_UPSTREAM = new Map(MODELS.map((m) => [m.upstreamId, m]));
+function indexOf(): NonNullable<typeof index> {
+  if (!index) {
+    // 两个种子候选：bundle 布局（dist/models/<cid>.json）与非 bundle 的包根 models.json
+    const rows =
+      ensureChannelModels<ModelSpec>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+    index = {
+      rows,
+      byId: new Map(rows.map((r) => [r.id, r])),
+      byUpstream: new Map(rows.map((r) => [r.upstreamId, r])),
+    };
+  }
+  return index;
+}
 
-/** 对外暴露的模型 id（恒小写，按内置目录的展示顺序）。 */
+/** 对外暴露的模型 id（恒小写，按表内顺序）。 */
 export function exposedIds(): string[] {
-  return MODELS.map((m) => m.id);
+  return indexOf().rows.map((m) => m.id);
 }
 
 /**
  * 池内 id → 上游 model id。
  *
- * 接受三种写法：短名（`spark-x2.6`）、内置目录 slug（`xopglm52`）、
- * 网关 model 字段（`xopglm52`）。认不出来时**原样返回**（与 loomy 同语义）。
+ * 接受短名与上游 id 两种写法；认不出来时**原样返回**（与 loomy 同语义）。
  */
 export function resolveModel(name: string): string {
-  const direct = BY_ID.get(name) ?? BY_UPSTREAM.get(name);
-  if (direct) return direct.upstreamId;
-  return name;
+  const { byId, byUpstream } = indexOf();
+  const hit = byId.get(name) ?? byUpstream.get(name);
+  return hit ? hit.upstreamId : name;
 }
 
 /**
- * 模型规格（供池层 `/v1/models` 透出上下文窗口、最大输出、**思考档位**与**消耗倍率**）。
+ * 模型规格（供池层透出上下文窗口、最大输出、思考档位与消耗倍率）。
  *
  * 查表前先小写化；**查不到返回 `undefined`（不编造）**。
  *
- * 思考档位**必须透出**：池层的四层回落依赖 `modelSpec()` 的 `effort`，
- * 缺了它 `/v1/models` 的 `effort` 恒 `null`、Web「思考模式」列全显示「不支持」。
- * 档位表本身是**内置目录实测**的（B 级），
- * 在渠道内部一直生效（`upstream.buildChatBody` 用它校验 `reasoning_effort`），
- * 只是没对外说。
- *
- * 倍率只填**云端实测**的那 2 个（`xopglm52` / `xopdeepseekv4pro` = x2.0），
- * 其余 5 个云端没有对应行 → 省略（`undefined`），池层显示「免费」而不是编造的 `1`。
+ * 思考档位**必须透出**：池层的四层回落依赖它，缺了 `/v1/models` 的 `effort` 恒 `null`、
+ * Web「思考模式」列全显示「不支持」。
  */
 export function modelSpec(
   modelId: string,
@@ -175,7 +89,8 @@ export function modelSpec(
       multiplier?: number;
     }
   | undefined {
-  const spec = BY_ID.get(modelId.toLowerCase()) ?? BY_UPSTREAM.get(modelId.toLowerCase());
+  const { byId, byUpstream } = indexOf();
+  const spec = byId.get(modelId.toLowerCase()) ?? byUpstream.get(modelId.toLowerCase());
   if (!spec) return undefined;
   return {
     contextWindow: spec.contextWindow,
@@ -189,29 +104,24 @@ export function modelSpec(
 /**
  * 该模型支持的思考档位（供 `upstream.buildChatBody` 校验 `reasoning_effort`）。
  *
- * 查不到返回空数组 → 调用方会静默删掉 `reasoning_effort`（退回服务端默认档）。
+ * 查不到返回空数组 → 调用方静默删掉 `reasoning_effort`（退回服务端默认档）。
  */
 export function modelEffortLevels(upstreamModel: string): string[] {
-  const spec = BY_UPSTREAM.get(upstreamModel) ?? BY_ID.get(upstreamModel.toLowerCase());
+  const { byId, byUpstream } = indexOf();
+  const spec = byUpstream.get(upstreamModel) ?? byId.get(upstreamModel.toLowerCase());
   return spec ? [...spec.efforts] : [];
 }
 
 /** 该模型的默认思考档位（供池层透出）。 */
 export function modelDefaultEffort(upstreamModel: string): string {
-  const spec = BY_UPSTREAM.get(upstreamModel) ?? BY_ID.get(upstreamModel.toLowerCase());
+  const { byId, byUpstream } = indexOf();
+  const spec = byUpstream.get(upstreamModel) ?? byId.get(upstreamModel.toLowerCase());
   return spec ? spec.defaultEffort : "high";
 }
 
-/**
- * 消耗倍率（供池层 `model_info.multiplier` 使用）。
- *
- * 查不到返回 `undefined`（池层显示 `-`，不猜）。
- *
- * 本函数曾长期**全仓无调用方**，倍率只能靠「目录缓存条目」透出，
- * 而 astudio 从不写目录缓存 → 对外恒 `null`。现在 `modelSpec()` 会带上它，
- * 本函数保留给需要单独取倍率的调用方。
- */
+/** 消耗倍率（供池层 `model_info.multiplier`）；查不到返回 `undefined`（显示 `-`，不猜）。 */
 export function modelMultiplier(upstreamModel: string): number | undefined {
-  const spec = BY_UPSTREAM.get(upstreamModel) ?? BY_ID.get(upstreamModel.toLowerCase());
+  const { byId, byUpstream } = indexOf();
+  const spec = byUpstream.get(upstreamModel) ?? byId.get(upstreamModel.toLowerCase());
   return spec?.multiplier;
 }
