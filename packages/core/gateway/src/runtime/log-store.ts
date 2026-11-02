@@ -983,6 +983,8 @@ export interface PayloadRecord {
   bytes: number;
   truncated: boolean;
   body: string;
+  /** 正文存储形态（`plain` / `zstd` / `gzip`）；空串 = 旧行（等价 plain）。 */
+  bodyEnc?: string;
 }
 
 /**
@@ -1251,7 +1253,7 @@ function payloadFiles(date: string): string[] {
   return out;
 }
 
-function parsePayloadLine(line: string): PayloadRecord | null {
+function parsePayloadLine(line: string, withBody = true): PayloadRecord | null {
   try {
     const parsed: unknown = JSON.parse(line);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
@@ -1267,7 +1269,11 @@ function parsePayloadLine(line: string): PayloadRecord | null {
       truncated: bool(raw["truncated"]) ?? false,
       // 新行把正文压进 bodyB64（按 bodyEnc 解码）；旧行直接是 body 字符串。
       // 两者都要能读 —— 已落盘的正文按保留期陪着老版本一起走完。
-      body: str(raw["body"]) ?? unpackBody(raw["bodyEnc"], raw["bodyB64"]) ?? "",
+      //
+      // `withBody=false` 时**跳过解压**：解压是这条读路径上唯一的重量级操作
+      // （实测单行 1.2 MB 压缩 → 2.7x 明文），而列表与首屏只需要元数据。
+      body: withBody ? str(raw["body"]) ?? unpackBody(raw["bodyEnc"], raw["bodyB64"]) ?? "" : "",
+      bodyEnc: str(raw["bodyEnc"]) || (str(raw["body"]) ? "plain" : ""),
     };
     const attempt = num(raw["attempt"]);
     if (attempt !== undefined) rec.attempt = attempt;
@@ -1303,8 +1309,13 @@ function previousDay(date: string): string {
  * 读回不受开关门控：关闭只停止新增，已落盘的记录在保留期内仍可核对。`enabled` 仍然返回，
  * 供调用方在「没有任何记录」时措辞（是「没开抓取」还是「这条没抓到」）。
  */
-export function readPayloads(id: string, date?: string): PayloadRecord[] {
+export function readPayloads(
+  id: string,
+  date?: string,
+  options: { withBody?: boolean } = {},
+): PayloadRecord[] {
   if (id === "") return [];
+  const withBody = options.withBody ?? true;
   const days = date !== undefined && date !== "" ? [date, previousDay(date)] : payloadDates();
   const found: PayloadRecord[] = [];
   for (const day of days) {
@@ -1317,7 +1328,7 @@ export function readPayloads(id: string, date?: string): PayloadRecord[] {
       }
       for (const line of text.split("\n")) {
         if (line === "" || !line.includes(id)) continue;
-        const rec = parsePayloadLine(line);
+        const rec = parsePayloadLine(line, withBody);
         if (rec && rec.id === id) found.push(rec);
       }
     }
@@ -1325,4 +1336,34 @@ export function readPayloads(id: string, date?: string): PayloadRecord[] {
   // client 记录恒先于 upstream 写入，`ts`（带毫秒）本身就是正确顺序；同毫秒再按 seq。
   found.sort((a, b) => (a.ts === b.ts ? a.seq - b.seq : a.ts < b.ts ? -1 : 1));
   return found;
+}
+
+/** 分片读取的默认片大小（64 KiB：一帧内可渲染，且不足以拖慢首屏）。 */
+export const PAYLOAD_SLICE_BYTES = 64 * 1024;
+
+/**
+ * 按字节窗口读取某条记录的正文分片。
+ *
+ * 为什么需要它：单条正文解压后可达 MB 级，首屏塞整段会把弹窗拖到秒级。
+ * 调用方先取元数据（`withBody: false`），再按 `offset`/`limit` 逐片取正文。
+ *
+ * @param phase 指定取哪一份（`client` / `upstream`）；不指定则取第一条有正文的记录。
+ * @returns `{ offset, length, total, body }`；未命中返回 `null`
+ */
+export function readPayloadSlice(
+  id: string,
+  date: string | undefined,
+  phase: string | undefined,
+  offset = 0,
+  limit = PAYLOAD_SLICE_BYTES,
+): { offset: number; length: number; total: number; body: string } | null {
+  const records = readPayloads(id, date, { withBody: true }).filter(
+    (r) => phase === undefined || r.phase === phase,
+  );
+  const rec = records.find((r) => r.body !== "") ?? records[0];
+  if (!rec) return null;
+  const total = rec.body.length;
+  const start = Math.max(0, Math.min(offset, total));
+  const end = Math.max(start, Math.min(start + limit, total));
+  return { offset: start, length: end - start, total, body: rec.body.slice(start, end) };
 }

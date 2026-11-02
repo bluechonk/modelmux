@@ -18,6 +18,7 @@ import type {
   LogQuery,
   OverviewResponse,
   PayloadQueryResult,
+  PayloadSliceResult,
   UiSnapshot,
   UsageDaily,
   UsageModelRow,
@@ -857,6 +858,31 @@ export function demoLogPayload(id: string): PayloadQueryResult {
         body: JSON.stringify({ ...meta, model: "kimi-k2.6", messages: upstreamMessages }),
       },
     ],
+  };
+}
+
+/** 演示用的正文分片（与真实接口同形：元数据先到、正文按窗口取）。 */
+export function demoPayloadSlice(
+  id: string,
+  date: string | undefined,
+  phase: string,
+  offset: number,
+  limit: number,
+): PayloadSliceResult {
+  void date;
+  const full = demoLogPayload(id);
+  const record = full.records.find((r) => r.phase === phase) ?? full.records[0];
+  const body = record?.body ?? "";
+  const start = Math.max(0, Math.min(offset, body.length));
+  const end = Math.max(start, Math.min(start + limit, body.length));
+  return {
+    ok: true,
+    id,
+    date: null,
+    offset: start,
+    length: end - start,
+    total: body.length,
+    body: body.slice(start, end),
   };
 }
 
