@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { parseLenient } from "../lib/lenient-json";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
+import { assembledBody, hasMore, nextOffset, PAYLOAD_SLICE } from "../lib/payload-slices";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
 import { CopyButton, CopyChip } from "./CopyChip";
 
@@ -327,10 +328,8 @@ function ToolDefinitions({ tools }: { tools: unknown[] }): ReactElement {
  *
  * 正文是**分片**到达的：首屏前缀不是合法 JSON，`JSON.parse` 必然失败 ——
  * 那不是「自编码体」，宽松解析（`parseLenient`）能把前缀里已完整的消息抢救成卡片，
- * 「加载更多」每片推进都会多拆出一批。
+ * 滚动续片时新消息随之追加。
  */
-/** 首屏取多少正文（与服务端分片默认值一致）。 */
-const PAYLOAD_SLICE = 64 * 1024;
 
 /**
  * 单条记录：元数据 + 按需加载的正文（**滚动懒加载**）。
@@ -368,14 +367,17 @@ function PayloadBlock({
     enabled: record.body === "",
     staleTime: 60_000,
   });
-  const body =
-    record.body !== ""
-      ? record.body
-      : loaded + (offset === 0 ? (firstSliceQuery.data?.body ?? "") : (slice.data?.body ?? ""));
+  const body = assembledBody({
+    recordBody: record.body,
+    loaded,
+    offset,
+    firstSlice: firstSliceQuery.data,
+    nextSlice: slice.data,
+  });
   const total = (offset === 0 ? firstSliceQuery.data?.total : slice.data?.total) ?? record.bytes;
   const fetching =
     record.body === "" && (offset === 0 ? firstSliceQuery.isPending : slice.isPending);
-  const more = record.body === "" && offset < total;
+  const more = hasMore({ recordBody: record.body, offset, total });
   // 滚动懒加载：哨兵进入视口且还有剩余 → 取下一片。`fetching` 期间不重复触发。
   useEffect(() => {
     const el = sentinel.current;
@@ -383,9 +385,8 @@ function PayloadBlock({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          const next = Math.min(offset + PAYLOAD_SLICE, total);
           setLoaded(body);
-          setOffset(next);
+          setOffset(nextOffset(offset, total));
         }
       },
       { rootMargin: "200px 0px" }, // 略提前于视口底部就开始取，滚动不顿挫
