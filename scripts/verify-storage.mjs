@@ -11,14 +11,17 @@
  * 前置：先 `npm run build --workspaces`（本脚本读各包的 dist/channel.js）。
  */
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // ── 安全网：把存储根指向临时目录 ──────────────────────────────────────────────
 // 本脚本只读 config，但渠道模块的 import 可能触碰路径层；显式隔离，绝不碰真实数据。
-process.env["MODELMUX_HOME"] = mkdtempSync(join(tmpdir(), "modelmux-verify-"));
+// 退出时删掉，否则每跑一次就留一个空临时目录。
+const isolatedHome = mkdtempSync(join(tmpdir(), "modelmux-verify-"));
+process.env["MODELMUX_HOME"] = isolatedHome;
+process.on("exit", () => rmSync(isolatedHome, { recursive: true, force: true }));
 
 const workspaceRoot = dirname(import.meta.dirname);
 const FILENAME_RE = /^[a-z0-9][a-z0-9.-]*$/;

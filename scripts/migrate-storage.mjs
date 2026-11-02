@@ -11,9 +11,12 @@
  * 依赖什么：dist 已构建（import packages/core/gateway/dist/runtime/storage-migrate.js）；
  *           遵循 `MODELMUX_HOME`（与网关/CLI 同一覆盖变量）。
  */
+import { homedir } from "node:os";
 import { migrateLegacyChannelDirs } from "../packages/core/gateway/dist/runtime/storage-migrate.js";
 
-const root = process.env["MODELMUX_HOME"] || `${process.env["HOME"]}/.modelmux`;
+// 与共享层 paths.ts 同一口径：`MODELMUX_HOME` > `~/.modelmux`。
+// 不要用 `process.env.HOME`：Windows 原生 shell（cmd / pwsh）不保证有 HOME。
+const root = process.env["MODELMUX_HOME"] || `${homedir()}/.modelmux`;
 const result = migrateLegacyChannelDirs(root);
 
 if (result.moved.length === 0 && result.skipped.length === 0) {
