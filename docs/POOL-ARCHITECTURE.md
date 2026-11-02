@@ -14,7 +14,7 @@
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
 | 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；鉴权失效一律手动切号 | 见 §3.3 |
 | 跨渠道自动选池 | 不做：渠道由请求前缀显式指定 | 见 §2.4 |
-| 额度耗尽自动换号 | 已实现（明确额度信号直查实时账单 + 冷却旧账号 + 本次请求重试一次；生效账号已在冷却时请求前提前切走） | 见 §2.4 与 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) |
+| 额度耗尽自动换号 | 明确额度信号直查实时账单 + 冷却旧账号 + 本次请求重试一次；生效账号已在冷却时请求前提前切走 | 见 §2.4 与 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) |
 | 轮询 / 最久未用 | 未实现 | 见 §3.4 |
 
 ## 1. 形态：一个 CLI，渠道即池子
@@ -357,9 +357,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **`effort` 可为 `null` = 渠道没声明**（兜底**不许编档位**）：
   渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
   lobsterai（`efforts` 数组）、qoder / qodercn（`thinking_config`，见上）有真值。
-  旧版给所有模型都填了 `["low","high"]`，等于把「不知道」说成「支持」
-  （界面上 200 个模型都写着 low/high）。
-  空数组同样算未声明（traecn 全部模型都写 `[]`）。`effort` 为 `null` 时控制台显示「不支持」。
+  **不许给所有模型都填 `["low","high"]`** —— 那是把「不知道」说成「支持」（界面上 200 个
+  模型都会显示 low/high）。空数组同样算未声明（traecn 全部模型都写 `[]`）。`effort` 为
+  `null` 时控制台显示「不支持」。
 
 #### 取值来源标注（`sources`）
 

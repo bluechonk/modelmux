@@ -1,7 +1,7 @@
 # 统一模型目录（`model-catalog.json`）
 
 > 本文档描述模型目录的数据源、字段模型、五级补全链与刷新机制。
-> 运行时取值链的旧版说明见 [MODEL-SPECS.md](./MODEL-SPECS.md)，本文档是其上位设计。
+> 运行时取值链的说明见 [MODEL-SPECS.md](./MODEL-SPECS.md)，本文档是其上位设计。
 
 ## 1. 目标
 
@@ -17,7 +17,7 @@
 ~/.modelmux/
 ├── channels/<cid>/cache/models.json   # 渠道原始目录（上游返回，已有）
 ├── model-specs.json                   # 补全规格（人工或联网搜索写入，已有结构）
-└── model-catalog.json                 # 统一快照（本次新增，/v1/models 的数据源）
+└── model-catalog.json                 # 统一快照（/v1/models 的数据源）
 ```
 
 | 文件 | 写者 | 读者 | 说明 |
@@ -105,7 +105,7 @@ writeCatalog()                 # 原子写 model-catalog.json（tmp + rename）
 }
 ```
 
-字段与旧版一致，仅新增顶层 `generated_at`；旧客户端忽略即可。
+字段形态不变，仅新增顶层 `generated_at`；旧客户端忽略即可。
 
 ## 6. 联网补全（`mx model enrich`）
 

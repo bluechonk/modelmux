@@ -827,8 +827,8 @@ ZCode 会话（session `d2b4c141`，30 次请求）调 `traecn/deepseek-v4.1-fla
    —— 上游 HTTP 200 + 流内 `event:error`（4001），网关按既有路径原样转发。
 
 修复：共享层新增 `dropEmptyAssistantMessages()`（剔除空壳 assistant，§3.2 第 10 条），
-本渠道 `buildChatBody` 接入消息归一化管线；顺带接入 `translateMaxCompletionTokens`
-（`max_completion_tokens: 384000` 此前未换算，上游侧 `max_tokens` 缺失）。
+本渠道 `buildChatBody` 接入消息归一化管线；并接入 `translateMaxCompletionTokens`
+（把 `max_completion_tokens` 换算成上游侧的 `max_tokens`）。
 真机重放该失败请求验证通过。`[实测]`
 
 ---

@@ -254,7 +254,7 @@ interface Channel {
 渠道若确实拿得到登出端点，在实现里说明它额外做了什么。
 
 - 共享层接线：`mx logout <cid>` → 先调 `cred.logout()`，再 `purgeCredentials(cid)`
-  （连池内账号一起清）。此前 `purgeCredentials` **全仓无调用方，是死代码**（2026-10-26 接上）。
+  （连池内账号一起清）。
 - 与「删除池里某个账号」（`mx acct <cid> remove <key>`）的区别：那是摘掉一个条目，
   这是把整个渠道的登录态清掉。
 - 语义必须在界面上说清：这是「从 modelmux 移除」，**不是**「把官方客户端踢下线」。
@@ -276,8 +276,8 @@ interface Channel {
 ##### `force`：`relogin` 与 `login` 的分界
 
 `login()` 的语义是**幂等**的（已有凭据就复用），`relogin` 要的是**重新走一遍**。
-两者此前没区分，导致 astudio 这种「凭据来自外部会话文件」的渠道
-`mx relogin` 在凭据还在时是**空操作**（2026-10-26 修）。
+两者必须区分：astudio 这种「凭据来自外部会话文件」的渠道，若不区分，
+`mx relogin` 在凭据还在时会是**空操作**。
 
 - 共享层 `ensureLogin({force})` → `cred.login(baseUrl, {force: true})`；
 - 渠道**必须先试 `force`**：为真时跳过复用短路，重新读自己的凭据来源
@@ -376,8 +376,8 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   **排队解除后补一条正文**「排队成功，开始生成…」作为分界。
   超预算仍无内容时**直接回正常应答**劝主人换渠道（文案带真实渠道 id），不再回错误帧。
   客户端断开（res `close` 事件，比 `res.destroyed` 可靠）后探测立即止损，
-  不再打上游 —— 2026-10-24 修订：早先只查 `res.destroyed`，客户端 60s 超时走人后
-  仍会多打一次上游并滞留一个等待轮次。
+  不再打上游 —— 只查 `res.destroyed` 不够：客户端 60s 超时走人后仍会多打一次上游
+  并滞留一个等待轮次（2026-10-24 实测），故探测以 `close` 事件为准。
 - `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒）；默认值与心跳口径见
   [LOGGING.md](./LOGGING.md) §6。声明后首帧等待、空闲守卫与排队探测统一放宽。
 
@@ -714,8 +714,7 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
   有多个渠道，无参 `getChannel()` 会抛错。
 
 **不要用 esbuild 插件内联快照**：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
-而渠道是**运行时** `readFileSync` 读盘 —— 插件永远没有命中点（曾经就这么错过：
-插件从未触发，bundle 里的快照特征字段计数为 0）。
+而渠道是**运行时** `readFileSync` 读盘 —— 插件不会触发，bundle 里的快照特征字段计数为 0。
 
 ---
 

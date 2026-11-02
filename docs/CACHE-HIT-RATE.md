@@ -12,8 +12,8 @@
 | 字段 | 定义 |
 |---|---|
 | `prompt_tokens` | 输入 token 总数；官方明文 **等于** `prompt_cache_hit_tokens + prompt_cache_miss_tokens` |
-| `prompt_cache_hit_tokens` | 本次输入**命中缓存**的 token 数 |
-| `prompt_cache_miss_tokens` | 本次输入**未命中缓存**的 token 数 |
+| `prompt_cache_hit_tokens` | 单次请求输入**命中缓存**的 token 数 |
+| `prompt_cache_miss_tokens` | 单次请求输入**未命中缓存**的 token 数 |
 | `prompt_tokens_details.cached_tokens` | 与 `prompt_cache_hit_tokens` **同值**（OpenAI 风格别名，官方明文） |
 
 流式请求：usage 只在**最后一个 content chunk** 上返回（官方明文）。
