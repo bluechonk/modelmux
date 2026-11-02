@@ -70,29 +70,17 @@ mx model list
 
 `mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**四个路由页**：
 仪表盘 `/`、模型列表 `/models`、账号池 `/accounts`、请求日志 `/logs`。
-本节讲仪表盘与账号池，其余两页见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
 
 **在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
 （截图不放仓库：界面与文案改得快，图必然过时 —— 要看实际形态就看在线演示或 `mx web`。）
 
-- **仪表盘**：**当下快照 + 区间用量**两层。快照层是 KPI 七格（今日请求·成功率、失败·慢、
-  今日 tokens、累计 Token、峰值 Token、最长单请求、当前连续）、接入端点面板、模型池概览
-  与最近请求。用量层由页头的**区间选择器**（近 7 / 30 / 90 日）驱动，含 Token 活动日历热力图
-  （每日 / 每周 / 累计）、按模型分色的每日 Token 趋势、模型用量环形图。
-  模型区（按渠道分组的表，**每个渠道自带横向滚动**，列出每个模型的**倍率、最大上下文、
-  输出上限、思考模式档位与输入模态**，可按渠道筛选、只看免费、切「分组 / 扁平」两种视图）。
-  某渠道取不到窗口 / 输出 / 档位时，值取自**同 id 的其他渠道**并在其后标「推断」——
-  上游真说的与推断的分得开。快照每 3-5 秒自动刷新，用量只在切区间或手动刷新时重取；
-  窄屏下 `chat_url` / `endpoints` 与派生统计先让位，只留 `base_url` 与核心数据。
-  用量口径见 [docs/USAGE-STATS.md](docs/USAGE-STATS.md)。
-- **账号池**：每个渠道的登录状态、账号列表与剩余额度，支持切换 / 删除 / 新增。
-  每个账号占**一行**（状态点、名称、状态、额度、操作），每张卡固定两个账号位，
-  账号更多时折叠；额度条与百分比按卡片宽度逐级隐藏，窄屏只留数字。
-  切换与删除默认隐藏，鼠标移到该账号行才出现（触屏设备常显），删除走**确认弹窗**。
-  被连败熔断（「不可用」）或因额度耗尽冷却（「冷却中」）的账号都会**自动恢复**：熔断到期半开试探
-  （失败指数退避），额度冷却到期惰性恢复；凭据失效的「需登录」不在此列，那只能重新登录。
+- **仪表盘**：当下快照（KPI、接入端点、模型池概览、最近请求）+ 区间用量（热力图、趋势、
+  模型环形图）；模型区可按渠道筛选、只看免费，并标出跨渠道推断的元数据。
+- **账号池**：每个渠道的登录状态、账号列表与剩余额度，支持切换 / 删除 / 新增；
+  熔断与额度冷却的账号都会自动恢复。
 
-页面结构、数据通道与设计令牌见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
+页面结构、交互铁律、数据通道与设计令牌见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)；
+用量口径见 [docs/USAGE-STATS.md](docs/USAGE-STATS.md)。
 
 ## 文档
 
@@ -101,6 +89,7 @@ mx model list
 | 想看什么 | 去哪 |
 | --- | --- |
 | 项目规则（开发 / 提交 / 测试） | [AGENTS.md](AGENTS.md) |
+| 文档标准（分层 / 写作 / 审稿） | [docs/AGENTS.md](docs/AGENTS.md) |
 | 契约与规范 | [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) |
 | 公共模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
@@ -111,8 +100,7 @@ mx model list
 | 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |
 | 某个渠道还差什么没做 | `docs/channels/<cid>/ROADMAP.md`（如 astudio 的 [ROADMAP](docs/channels/astudio/ROADMAP.md)：8 项功能的缺口清单与验收判据） |
-| AStudio 逆向（方法论 + 采矿 / 实测 / 渠道实现） | 技能 `.agents/skills/astudio-re/SKILL.md`（通用工作流见其 `references/METHODOLOGY.md`，协议事实见 `references/PROTOCOL.md`） |
-| Comate 逆向（百度 AI 编程助手，dist 采矿 + Cloud API 实测 + kernel 管道抓外连） | 技能 `.agents/skills/comate-re/SKILL.md`（方法论见 `references/METHODOLOGY.md`，协议事实见 `references/PROTOCOL.md`） |
+| AStudio 逆向方法与实跑记录 | [docs/channels/astudio/METHODOLOGY.md](docs/channels/astudio/METHODOLOGY.md) · [WALKTHROUGH.md](docs/channels/astudio/WALKTHROUGH.md) |
 | 多会话并行改同一项目时的对齐与收尾 | 技能 `.agents/skills/zcode-session-archaeology/SKILL.md` |
 
 > 技能清单以 [docs/README.md](docs/README.md) §3 的表为准（`.agents/skills/` 下每个技能都登记在彼）；

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 文档归属检查（规则见根 `AGENTS.md` 的「文档规则」）。
+ * 文档归属检查（规则见 `docs/AGENTS.md`）。
  *
  * **`.md` 只有五类落点**：
  *   1. `docs/`                       —— 契约与规范（仓库级唯一文档层）
@@ -109,8 +109,8 @@ for (const rel of candidates) {
   const stray = /^packages\/core\/channels\/[a-z0-9-]+\/docs\//.test(rel);
   problems.push(
     stray
-      ? `${rel} —— 渠道文档不在包内（改放 docs/channels/<cid>/，规则见 AGENTS.md 的「文档规则」）`
-      : `${rel} —— md 落点不合法（规则见 AGENTS.md 的「文档规则」）`,
+      ? `${rel} —— 渠道文档不在包内（改放 docs/channels/<cid>/，规则见 docs/AGENTS.md）`
+      : `${rel} —— md 落点不合法（规则见 docs/AGENTS.md）`,
   );
 }
 
@@ -123,7 +123,7 @@ if (existsSync(CHANNELS_DIR)) {
     const doc = join(CHANNEL_DOCS_DIR, entry.name, "PROTOCOL.md");
     if (!existsSync(doc)) {
       problems.push(
-        `docs/channels/${entry.name}/PROTOCOL.md —— 缺渠道协议规格（渠道文档统一在 docs/channels/，规则见 AGENTS.md 的「文档规则」）`,
+        `docs/channels/${entry.name}/PROTOCOL.md —— 缺渠道协议规格（渠道文档统一在 docs/channels/，规则见 docs/AGENTS.md）`,
       );
     }
   }
@@ -254,7 +254,7 @@ const channelIndex = readText(join(CHANNEL_DOCS_DIR, "README.md"));
 for (const name of readdirSync(join(workspaceRoot, "docs"))) {
   if (!name.toLowerCase().endsWith(".md") || name === "README.md") continue;
   if (!docsIndex.includes(name)) {
-    problems.push(`docs/${name} —— 未登记到 docs/README.md 的文档表（规则见 AGENTS.md 的「文档规则」）`);
+    problems.push(`docs/${name} —— 未登记到 docs/README.md 的文档表（规则见 docs/AGENTS.md）`);
   }
 }
 
@@ -262,12 +262,12 @@ for (const name of readdirSync(join(workspaceRoot, "docs"))) {
 for (const cid of channelIds) {
   if (!docsIndex.includes(`channels/${cid}/`)) {
     problems.push(
-      `docs/channels/${cid}/ —— 未登记到 docs/README.md 的渠道表（规则见 AGENTS.md 的「文档规则」）`,
+      `docs/channels/${cid}/ —— 未登记到 docs/README.md 的渠道表（规则见 docs/AGENTS.md）`,
     );
   }
   if (!channelIndex.includes(`/${cid}/`)) {
     problems.push(
-      `docs/channels/${cid}/ —— 未登记到 docs/channels/README.md 的渠道一览（规则见 AGENTS.md 的「文档规则」）`,
+      `docs/channels/${cid}/ —— 未登记到 docs/channels/README.md 的渠道一览（规则见 docs/AGENTS.md）`,
     );
   }
 }
@@ -279,7 +279,7 @@ for (const cid of channelIds) {
 // 新人（与人）找不到它，也不知道什么时候该用（2026-10-26 实测：6 个技能里有 2 个没登记）。
 //
 // 只扫 `.agents/skills/`（本仓库的技能落点）；`.zcode/skills/` 是**覆盖位**，
-// 不是新技能的落点（见根 AGENTS.md 的「文档规则」第 3 条），故不要求登记。
+// 不是新技能的落点（见根 AGENTS.md 的「文档」第 3 条），故不要求登记。
 const skillsDir = join(workspaceRoot, ".agents", "skills");
 const readmeIndex = readText(join(workspaceRoot, "README.md"));
 for (const name of readdirSync(skillsDir)) {

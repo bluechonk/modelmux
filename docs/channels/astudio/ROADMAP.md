@@ -2,7 +2,7 @@
 
 > **给下一个接手的 Agent**：本文是 AStudio 渠道的功能缺口清单。
 > 协议事实（端点、字段、状态码）见 [PROTOCOL.md](./PROTOCOL.md)；
-> 逆向过程与可复现命令见技能 `.agents/skills/astudio-re/`。
+> 逆向方法与完整实跑记录见 [METHODOLOGY.md](./METHODOLOGY.md) 与 [WALKTHROUGH.md](./WALKTHROUGH.md)。
 > **动手前先读 `AGENTS.md`**（尤其「测试规则」：渠道不写单测，只做端到端）。
 >
 > 审计时间：2026-10-26 · 审计方式：只读代码审计（`packages/core/channels/astudio/` + 共享层消费链路 + UI 显示链路）
@@ -197,7 +197,7 @@ if (!modelBearerToken) throw new NotLoggedInError("AStudio session file has no u
 - 而 `str()` 只接受 string（`packages/core/gateway/src/auth/login.ts:26-28`），null → `""`
 - 实测会话文件**根本没有 nickname 键**（只有 `accountId,uid,token,ssoSessionId,banned,modelBearerToken,loginMethod,loggedInAt,mobile`）
 - 唯一能拿到 nickname 的 `GET /userInfo`（PROTOCOL §4.2，实测 `nickname: null`）**渠道代码从不调用**
-  （只在逆向技能脚本 `.agents/skills/astudio-re/scripts/astudio-probe.mjs:156` 里被调）
+  （只在历史探针脚本里被调；脚本按仓库规则不入库）
 
 **池层 name/label 怎么来的**（`packages/core/gateway/src/runtime/account-pool.ts`）：
 
@@ -589,10 +589,9 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 - `packages/ui/src/lib/demo.ts`（`:44-92` 演示渠道/模型/账号）
 - `packages/ui/src/lib/types.ts`（`:20-47` `model_info` 类型）
 
-**逆向技能**
-- `.agents/skills/astudio-re/SKILL.md` —— 流程与铁律
-- `.agents/skills/astudio-re/references/PROTOCOL.md` —— 协议事实（标 A/B/C 证据等级）
-- `.agents/skills/astudio-re/scripts/astudio-probe.mjs` —— 实测脚本（`session`/`account`/`models`/`usage`/`chat`/`local`）
+**逆向记录**
+- [METHODOLOGY.md](./METHODOLOGY.md) —— 通用方法论与 AStudio 参数映射
+- [WALKTHROUGH.md](./WALKTHROUGH.md) —— 一次完整实跑记录
 
 ---
 

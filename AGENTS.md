@@ -32,7 +32,7 @@ packages/
 ## 命令
 
 ```sh
-npm install        # pnpm workspaces
+npm install        # npm workspaces
 npm run build      # tsc -b + esbuild cli + copy-ui
 npm test           # build + typecheck + 全部 verify:* + 全部包测试
 npm run typecheck  # 全工作区类型检查（含 UI）
@@ -82,7 +82,7 @@ PR 用 rebase 合并，禁止 merge commit。
 - 临时探测脚本落 `.tmp/`，保留复用。禁止虚构凭证与请求头——虚构载荷撞上游风控。
 - 测试模型选最低倍率，禁止高倍率旗舰（`*-pro` / `*-max` / `kimi-k3` 等）。
 - 禁止占用或杀掉 4412 网关；独立实例用 `--addr` 其他端口。
-- 已知隐患：`--test-force-exit` 静默丢结果（稳定值 422，波动 378~419）。怀疑时手工复跑。
+- 已知隐患：`--test-force-exit` 会静默丢结果；怀疑漏跑时按 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「测试已知隐患」手工复跑。
 - 端到端只发正确形态请求；归一化管线覆盖由代码审查核验，不靠运行时发错误载荷。
 - Web/UI 改动必须浏览器视觉校验（6 项量化核对，不接受「已检查，正常」）。
 
@@ -102,11 +102,12 @@ PR 用 rebase 合并，禁止 merge commit。
 ## 文档
 
 - `.md` 只允许在 `docs/`、仓库根（`README.md` / `AGENTS.md`）、`packages/core/channels/<cid>/AGENTS.md`、`.agents/skills/`。
-- 渠道文档落 `docs/channels/<cid>/PROTOCOL.md`；渠道目录不留 `README.md`。
+  渠道文档落 `docs/channels/<cid>/PROTOCOL.md`；渠道目录不留 `README.md`。
 - 新增 `docs/*.md` 登记到 `docs/README.md`；新增技能登记到 `docs/README.md` 和仓库根 `README.md`。
-- 逆向研究代码不入库；结论落 `docs/channels/<cid>/`，标注证据等级。
-- 参考实现 clone 到 `packages/core/channels/<cid>/reference/`（`--depth 1`），由渠道 `.gitignore` 忽略。
-- markdown 链接用相对路径；源码注释里的引用用仓库根相对路径。
+- 逆向研究代码不入库；结论落 `docs/channels/<cid>/`，标注证据等级。参考实现 clone 到
+  `packages/core/channels/<cid>/reference/`（`--depth 1`），由渠道 `.gitignore` 忽略。
+- 文档只写当前设计；历史进 git / PR，设计取舍进设计依据文档。分层、事实归属、写作规则与审稿清单见
+  [docs/AGENTS.md](docs/AGENTS.md)。
 - `scripts/verify-docs.mjs` 和 `scripts/verify-storage.mjs` 在 `npm test` 里强制。
 
 ## 推送与发版
