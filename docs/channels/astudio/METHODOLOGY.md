@@ -1,10 +1,13 @@
-# 逆向 Agent 应用的上游协议 —— 通用方法论
+# AStudio 逆向方法论
+
+> 状态：方法论记录。协议事实以 [PROTOCOL.md](./PROTOCOL.md) 为准；
+> 一次完整实跑记录见 [WALKTHROUGH.md](./WALKTHROUGH.md)。
 
 本文件是**可复用的工作流**：换一个 Agent 应用（桌面端 / 移动端 / 任何带私有协议的客户端），
 按同样的阶段走一遍，就能从「什么都不知道」到「能用脚本复现任意请求」。
-AStudio 的具体产物（端点、字段、坑）在 [PROTOCOL.md](PROTOCOL.md) —— 那是本方法论的**一次应用结果**，
+AStudio 的具体产物（端点、字段、坑）在 [PROTOCOL.md](./PROTOCOL.md) —— 那是本方法论的**一次应用结果**，
 不是方法论本身。**方法论的完整实跑记录**（真实命令、脱敏输出、踩坑与推理现场）在
-[WALKTHROUGH.md](WALKTHROUGH.md) —— 读方法论觉得抽象时看它，每个 Stage 都有对应的实操小节。
+[WALKTHROUGH.md](./WALKTHROUGH.md) —— 读方法论觉得抽象时看它，每个 Stage 都有对应的实操小节。
 
 ## 0. 心法：四条证据链
 
@@ -66,7 +69,7 @@ grep -aob "https\?://[a-z0-9.-]*" app.asar | head -50
 **渐进策略**：grep 全貌 → mine 局部（命中行前后几百字符）→ extract 整段（关键函数全文）。
 一上来就整包 extract 会淹死在 bundle 里。
 （AStudio 实操：裸域名正则被 161 条许可证链接淹没 → 域名分组降噪 → authBaseUrl 三环境，
-见 [WALKTHROUGH.md](WALKTHROUGH.md) §1。）
+见 [WALKTHROUGH.md](./WALKTHROUGH.md) §1。）
 
 ### 非 Electron
 
@@ -122,7 +125,7 @@ Get-NetTCPConnection -OwningProcess <pid> | Select RemoteAddress, RemotePort
 操作应用的同时轮询，拿到真实对端 IP → 反向解析域名 → 与静态链挖出的域名比对。
 IP 对不上代码里的域名，说明还有没挖到的配置源（服务端下发、CDN、本地代理层）。
 （AStudio 实操：主进程诊断日志四条实拍与静态推导逐条对上；对话流量不在主进程 =
-渲染层直连，见 [WALKTHROUGH.md](WALKTHROUGH.md) §2。）
+渲染层直连，见 [WALKTHROUGH.md](./WALKTHROUGH.md) §2。）
 
 ### 抓包纪律
 
@@ -138,15 +141,16 @@ IP 对不上代码里的域名，说明还有没挖到的配置源（服务端�
 
 | 端点（静态候选） | 抓包实拍？ | 结论 |
 | --- | --- | --- |
-| 有且实拍过 | ✅ | 高置信，直接进复现队列 |
-| 有但没实拍 | ⚠️ | 可能是死代码/懒加载 —— **触发对应 UI 动作再抓**（点签到按钮、切模型、开新会话） |
-| 实拍过但静态没搜到 | ⚠️ | 服务端下发配置或动态拼 URL —— 回静态链找拼装函数 |
+| 有且实拍过 | 是 | 高置信，直接进复现队列 |
+| 有但没实拍 | 待确认 | 可能是死代码/懒加载 —— **触发对应 UI 动作再抓**（点签到按钮、切模型、开新会话） |
+| 实拍过但静态没搜到 | 待确认 | 服务端下发配置或动态拼 URL —— 回静态链找拼装函数 |
 
 ### 3.2 probe 脚本复现
 
 每个端点写最小复现：**读凭据 → 自拼鉴权头 → 发正确形态请求 → 脱敏打印响应**。
 
-- 脚本放技能 `scripts/`，命名说清用途（`xxx-probe.mjs`），头部写「干什么/怎么跑/依赖什么」；
+- 探针脚本按仓库规则**不入库**，放项目根 `.tmp/` 并保留复用；命名说清用途（`xxx-probe.mjs`），
+  头部写「干什么 / 怎么跑 / 依赖什么」；
 - 一个脚本管一族端点（会话 / 模型 / 对话 / 运营面），不要每个端点一个脚本；
 - 复现顺序：**只读端点先打**（查询类，零风险），变更类端点最后打、且只打一次成功。
 
@@ -164,21 +168,68 @@ IP 对不上代码里的域名，说明还有没挖到的配置源（服务端�
 
 每条结论标 A / B / C；同一事实多来源时取**最低**等级（源码见过但实测 404 的端点，按 404 记）。
 （AStudio 实操：静态零命中的推理主机由「拉服务端配置」破案、probe 404 现场与修复，
-见 [WALKTHROUGH.md](WALKTHROUGH.md) §3。）
+见 [WALKTHROUGH.md](./WALKTHROUGH.md) §3。）
 
 ## 5. Stage 4 —— 沉淀
 
 - **结论** → 渠道 `PROTOCOL.md`（证据等级 + 实测表）—— 文档是资产，脚本只是工具；
-- **脚本** → 技能 `scripts/`（下次同类问题改改就能用）；
+- **探针脚本** → 项目根 `.tmp/`（不入库，保留复用，下次同类问题改改就能用）；
 - **方法论修正** → 回写本文件（走了一遍发现步骤缺项/顺序不对，改的是这里）。
 
-## 6. 换一个应用时的映射表
+## 6. AStudio 参数映射
 
-| 阶段 | 要替换的参数 | 检查项 |
-| --- | --- | --- |
-| Stage 1 | asar/资源路径、bundle 结构、字符串特征 | 应用框架（Electron/Tauri/原生）？本地落盘在哪？ |
-| Stage 2 | 代理挂法（旗标/系统/Proxifier）、证书信任链、日志位置 | devtools 能开吗？固定了吗？ |
-| Stage 3 | 凭据字段名、鉴权头形态、前缀规则 | 几种凭据？哪面用哪个？登录链的前置条件？ |
-| Stage 4 | 文档落点（`docs/channels/<cid>/`）、脚本命名 | 渠道 id 是什么？ |
+方法论五阶段在 AStudio 上的已验证参数（新应用逆向时逐格替换）：
 
-一句话：**方法论不变，变的只是参数**。把新应用的参数填进同一套阶段，走完就能落一份新的 PROTOCOL.md。
+| 阶段 | AStudio 的参数 |
+| --- | --- |
+| Stage 0 目标 | 登录（短信+滑块）/ 对话（OpenAI 兼容）/ 模型清单与倍率 / 积分与签到 |
+| Stage 1 解包 | `resources/app.asar`（~131MB 明文）；userdata 下有会话文件与内置目录（见下表） |
+| Stage 2 抓包 | devtools 可用；本地服务日志在 `userdata/logs/`；TCP 对端用流量层观察 |
+| Stage 3 复现 | 探针脚本六个子命令（`session` / `account` / `models` / `usage` / `chat` / `local`）；凭据两种（Cookie 打账号 API、Bearer 打模型网关） |
+| Stage 4 沉淀 | 结论 → [PROTOCOL.md](./PROTOCOL.md)；过程 → [WALKTHROUGH.md](./WALKTHROUGH.md) |
+
+### 6.1 落点
+
+```bash
+ls "/c/Users/$USER/AppData/Local/Programs/AStudio/resources/app.asar"
+ls "/c/Users/$USER/AppData/Local/Programs/AStudio Data/userdata/"
+```
+
+| 位置 | 内容 |
+| --- | --- |
+| `resources/app.asar` | 主进程 + 渲染层 bundle（明文可搜） |
+| `userdata/astron-session.json` | 会话与凭据（`token` / `modelBearerToken`） |
+| `userdata/server-runtime.json` | 本地服务端口 |
+| `userdata/provider-model-catalog-v1.json` | 应用内置模型目录（档位） |
+| `userdata/model-gateway/catalog-<hash>.json` | 模型规格（上下文窗口 / 最大输出） |
+| `userdata/logs/` | 主进程日志（`server-child.log` 有 upstream 诊断） |
+
+### 6.2 采矿与实测
+
+**先 grep 全貌，再 mine 局部，最后 extract 整段** —— 不要一上来就 extract（会淹没有效信息）。
+
+历史探针脚本按仓库规则不入库；需要复现时按本文件 Stage 1–3 重写，或从本机保留的
+历史探针脚本取用。脚本自己读会话文件、自己拼 Cookie、自己脱敏，**不要另写脚本重复这些**。
+
+### 6.3 已知的坑
+
+1. **本地服务端口会变**（`38051` → `16051/16083/16084`）。永远从
+   `userdata/server-runtime.json` 读当前端口，不要硬编码。
+2. **本地服务不提供可独立调用的登录**：策略是 `desktop-managed-local`，
+   只认应用自己的活会话（`synara_session_<port>` cookie，不落盘）。
+   登录只能由用户在桌面应用里完成 —— **或走云端直连**（见坑 3）。
+3. **`/api/astron-auth/*` 只在本地服务代理层**，直连云端回 404；
+   云端真正的账号 API 是 `{studioBaseUrl}/<path>`（带 Cookie）。
+   这是方法论「分清代理层路径与云端真实路径」的典型样本：端点没变，变的是前缀。
+4. **两个凭据分工不同**：`token` 打账号 API（Cookie 形态），
+   `modelBearerToken` 打模型网关（Bearer 形态）。源码里 `modelBearerToken` 优先。
+5. **503 不等于账号问题**。`chat/completions` 回 503 时先看
+   `/userInfo` / `/bot/models/configs` / `/usage` 是否还正常 —— 正常则说明是上游容量问题。
+6. **模型 id 有两套**：应用内置目录的 slug（`spark-x2.6-4b`）与网关配置里的
+   `model` 字段（`xopglm52`）。网关实测只接受后者那一族，接入前逐个探。
+
+## 7. 与 modelmux 渠道的衔接
+
+渠道包在 `packages/core/channels/astudio/`（7 文件契约），实现要点见
+[PROTOCOL.md](./PROTOCOL.md) §10。改渠道时遵守仓库 `AGENTS.md`：
+渠道不写单测，端到端按 `opencode-mx-test` 技能跑。

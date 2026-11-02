@@ -6,8 +6,8 @@ description: modelmux 仓库的收尾与同步流程：把一轮代码改动同�
 # repo-sync —— 仓库收尾与同步
 
 本技能覆盖 modelmux 仓库的**一轮工作如何收尾**：代码改完 ≠ 完成。必须同步 docs、
-规划与 commit 历史；需要推送到远端时再走 PR 闭环。规则源头是根 `AGENTS.md`，
-本技能是**可执行的操作手册**；冲突时以 `AGENTS.md` 为准。
+规划与 commit 历史；需要推送到远端时再走 PR 闭环。规则源头是根 `AGENTS.md` 与
+[docs/AGENTS.md](../../../docs/AGENTS.md)，本技能是**可执行的操作手册**；冲突时以前两者为准。
 
 ## 0. 事实基线（动手前必须先跑）
 
@@ -34,6 +34,9 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 开一个 PR。
 
 ## 1. 文档同步矩阵（代码改了哪些地方 → 哪些文档必须跟着改）
+
+文档分层、事实归属与写作规则以 [docs/AGENTS.md](../../../docs/AGENTS.md) 为准；本表只列
+代码改动对应的文档落点。
 
 | 改动落点 | 必须同步的文档 |
 | --- | --- |

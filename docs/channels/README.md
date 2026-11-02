@@ -9,9 +9,9 @@ docs/channels/<cid>/
   FLOW.md         端到端数据流（可选）：登录态怎么落盘、怎么加密、怎么被解出来
 ```
 
-> 规则见根 [`AGENTS.md`](../../AGENTS.md) 的「文档规则」：**所有文档集中在 `docs/`**，
-> 渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，**不再带 `docs/`**。
-> 落点由 `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
+> 落点与登记红线见根 [`AGENTS.md`](../../AGENTS.md) 的「文档」；分层与写作规则见
+> [docs/AGENTS.md](../AGENTS.md)。渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，
+> **不再带 `docs/`**；落点由 `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
 
 ## 怎么用（所有渠道一致）
 
@@ -68,7 +68,7 @@ docs/channels/<cid>/
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 | [PROTOCOL](./astudio/PROTOCOL.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单，2026-10-26 已收敛） |
+| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 | [PROTOCOL](./astudio/PROTOCOL.md) + [METHODOLOGY](./astudio/METHODOLOGY.md) / [WALKTHROUGH](./astudio/WALKTHROUGH.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单） |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |

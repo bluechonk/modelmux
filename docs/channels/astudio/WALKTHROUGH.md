@@ -1,10 +1,13 @@
 # AStudio 逆向实操记录 —— 方法论的一次完整执行
 
-本文是 [METHODOLOGY.md](METHODOLOGY.md) 五阶段工作流的**实跑记录**：目标是在
+> 归档说明：本文是 2026-10-26/27 的实跑记录。协议事实以 [PROTOCOL.md](./PROTOCOL.md) 为准；
+> 文中出现的采矿 / 探针脚本按仓库规则不入库（研究代码），命令仅作过程记录。
+
+本文是 [METHODOLOGY.md](./METHODOLOGY.md) 五阶段工作流的**实跑记录**：目标是在
 **不参考任何反代项目**的前提下，只靠「解包 + 日志 + 实测」三条链，从零推导出
 AStudio 的上游 API。每一步都是真实执行过的命令与输出（令牌已脱敏）。
-执行日期：2026-10-26/27（协议事实的权威版见 [PROTOCOL.md](PROTOCOL.md) 与
-`docs/channels/astudio/PROTOCOL.md`，本文只回答「这些结论是怎么来的」）。
+执行日期：2026-10-26/27（协议事实的权威版见 [PROTOCOL.md](./PROTOCOL.md)，
+本文只回答「这些结论是怎么来的」）。
 
 ## 0. 出发点：要回答的问题
 
@@ -156,12 +159,12 @@ HTTP 200
 
 | 结论 | 静态（A） | 动态（B） | 行为（B） |
 | --- | --- | --- | --- |
-| 账号 API 基址 = `agent.xfyun.cn/xingchen-studio/` | ✅ authBaseUrl 常量 | ✅ 日志 upstreamHost | ✅ probe 200 |
-| 业务路径无 `/api/astron-*` 前缀 | ✅ `new URL(path, authBaseUrl)` | ✅ 日志 upstreamPath | ✅ probe 200 |
-| Cookie 四键形态 | ✅ 拼装函数 | —（日志不打头） | ✅ probe 200 |
-| 凭据两种（Cookie / Bearer） | ✅ 字段 + Bearer 头构造 | — | ✅ 对话 200 |
-| **推理主机 = 服务端下发 base_url** | ❌ 零命中（本身即证据） | ⚠️ 对话不经主进程 | ✅ configs 响应 + chat 200 |
-| 对话端点形态（OpenAI 兼容 SSE / tools） | ✅ WIRE 常量 | — | ✅ 9 帧 SSE + tool_calls |
+| 账号 API 基址 = `agent.xfyun.cn/xingchen-studio/` | 是（authBaseUrl 常量） | 是（日志 upstreamHost） | 是（probe 200） |
+| 业务路径无 `/api/astron-*` 前缀 | 是（`new URL(path, authBaseUrl)`） | 是（日志 upstreamPath） | 是（probe 200） |
+| Cookie 四键形态 | 是（拼装函数） | 未记录（日志不打头） | 是（probe 200） |
+| 凭据两种（Cookie / Bearer） | 是（字段 + Bearer 头构造） | — | 是（对话 200） |
+| **推理主机 = 服务端下发 base_url** | 零命中（本身即证据） | 待确认（对话不经主进程） | 是（configs 响应 + chat 200） |
+| 对话端点形态（OpenAI 兼容 SSE / tools） | 是（WIRE 常量） | — | 是（9 帧 SSE + tool_calls） |
 
 方法论的核心论断在这张表里兑现：**参考实现能给的，三条链全都能独立推导出来；
 而三条链给出的「为什么」（服务端下发、代理层前缀、渲染层直连），参考实现给不了。**
