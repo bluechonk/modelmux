@@ -21,12 +21,26 @@ import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
 import { rootDir } from "../../runtime/paths.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
+import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { poolModelMetas } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
 function emit(event: Record<string, unknown>): void {
   console.log(JSON.stringify(event));
+}
+
+/**
+ * 目录对账周期（默认 3 天）。
+ *
+ * 上游会下线或改名模型，而本地目录缓存不会自己变 —— 对账就是发现失效 id 的唯一途径。
+ * 3 天是「上游变更通常以周为单位」与「请求成本」之间的折中；`MODELMUX_CATALOG_REFRESH_MS`
+ * 可覆盖（测试与调试用，单位毫秒，非正数回落默认值）。
+ */
+function catalogRefreshIntervalMs(): number {
+  const raw = process.env["MODELMUX_CATALOG_REFRESH_MS"];
+  const value = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(value) && value > 0 ? value : 3 * 24 * 60 * 60 * 1000;
 }
 
 /**
@@ -776,19 +790,43 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // 不再依赖 8 小时的 TTL 或用户手动 `mx bill`）。间隔见 BILLING_REFRESH_INTERVAL_MS。
     poolUsage.startBillingRefresher(logLine);
 
-    // 目录保鲜：每天后台重拉一次各渠道模型目录（实现了 catalog.refresh 的渠道才拉），
-    // 渠道上游加了新模型时无需手动 `--refresh`。失败静默保留旧表（下次再试）。
-    const CATALOG_REFRESH_MS = 24 * 60 * 60 * 1000;
+    // 目录对账：定期对每个渠道重拉真实模型目录（实现了 catalog.refresh 的渠道才拉）。
+    // 上游模型会下线/改名，旧缓存会让用户点到已失效的 id —— 对账是发现这件事的唯一途径。
+    // 写前由共享层做快照；失败或空结果回退到上一份可用目录（见 runtime/channel-models.ts）。
     const catalogTimer = setInterval(() => {
       if (state.quitting) return;
       for (const channel of targets) {
         const refresh = channel.catalog.refresh;
         if (!refresh) continue; // 内置表渠道没有远端目录层
-        void runInChannel(channel.config.cid, () => refresh.call(channel.catalog)).catch(() => {
-          /* 拉取失败：旧表继续用，下个周期再试 */
+        const cid = channel.config.cid;
+        void runInChannel(cid, async () => {
+          const before = readChannelModels(cid) ?? [];
+          try {
+            await refresh.call(channel.catalog);
+          } catch (err) {
+            // 刷新失败：回退到最近一份可用快照，并留下可查的痕迹
+            const restored = rollbackChannelModels(cid);
+            logLine(
+              `[catalog] refresh failed (${cid}): ${String(err)}` +
+                (restored ? `; rolled back to ${restored}` : "; no snapshot to roll back to"),
+            );
+            return;
+          }
+          const after = readChannelModels(cid) ?? [];
+          const gone = before.filter((m) => !after.some((a) => a.id === m.id)).map((m) => m.id);
+          const added = after.filter((m) => !before.some((b) => b.id === m.id)).map((m) => m.id);
+          if (gone.length > 0 || added.length > 0) {
+            logLine(
+              `[catalog] reconciled (${cid}): ${after.length} models` +
+                (added.length > 0 ? `, +${added.length} (${added.slice(0, 5).join(", ")})` : "") +
+                (gone.length > 0 ? `, -${gone.length} stale (${gone.slice(0, 5).join(", ")})` : ""),
+            );
+          }
+        }).catch(() => {
+          /* 对账整体失败：旧表继续用，下个周期再试 */
         });
       }
-    }, CATALOG_REFRESH_MS);
+    }, catalogRefreshIntervalMs());
     catalogTimer.unref?.(); // 不阻止进程退出
     // 运行态轮询本地 /v1/models 把可用模型喂给控制台
     for (;;) {
