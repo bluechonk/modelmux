@@ -52,12 +52,22 @@ export function queueBudgetMs(): number {
 export const PROBE_RETRY_MAX = 2;
 export const PROBE_RETRY_BASE_MS = 15_000;
 
-/** `cred.load()` 的安全包装：未登录返回 null（排队重开上游时用）。 */
+/**
+ * `cred.load()` 的安全包装：**未登录**返回 null（排队重开上游时用）。
+ *
+ * 口径必须与 `account-pool.loadCredentialOf` 一致：只有渠道约定的
+ * `NotLoggedInError` 才算「未登录」；文件损坏 / EACCES / JSON 解析失败等真实
+ * 故障要抛出去 —— 静默 null 会把渠道从候选里剔掉（route.ts 过滤），客户端被
+ * 误导去 `mx login`，而真正该看的错误消失。
+ */
 export function loadCredentialSafe(channel: Channel): Credential | null {
   try {
     return inChannel(channel, () => channel.cred.load());
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof channel.cred.NotLoggedInError) return null;
+    // 兜底：按类名识别（有的渠道/替身抛的是另一个同名类），与 account-pool 同式
+    if (err instanceof Error && err.constructor?.name === "NotLoggedInError") return null;
+    throw err;
   }
 }
 
