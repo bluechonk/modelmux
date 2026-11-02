@@ -10,8 +10,13 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalModelId, readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
-import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
+import {
+  canonicalModelId,
+  ensureChannelModels,
+  readCatalogCache,
+  writeCatalogCache,
+} from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 缺省通道（`function` 字段）。 */
 const DEFAULT_FUNCTION = "solo_work_lite";
@@ -75,42 +80,7 @@ interface ModelEntry {
   hidden: boolean;
 }
 
-/**
- * 已知模型规格（上下文窗口 / 单次回复最大输出）。
- *
- * 键是**归一后的规范模型名**（`DeepSeek-V4-Flash-Official` → `deepseek-v4-flash`、
- * `Doubao-Seed-2.1-Pro` → `doubao-seed-2.1-pro`）。
- * `qwen-3.7-plus` 在本文写作 `qwen3.7-plus`（同一个模型，键按本渠道的规范名）。
- *
- * **不列**官方未公开数值的型号（`doubao-seed-code` / `doubao-seed-2.0-code` /
- * `glm-5-turbo` / `sagitta` / `aquila` / 各 `custom_model_*` 等）——
- * 见 `docs/channels/traecn/PROTOCOL.md` §5.4「留空」；不编造数字。
- *
- * 来源：`docs/channels/traecn/PROTOCOL.md` §5.4（核对方法见 `docs/MODEL-SPECS.md` §0）。
- */
-const MODEL_SPECS: Readonly<Record<string, { contextWindow: number; maxOutputTokens: number }>> = {
-  "deepseek-v4-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "deepseek-v4-pro": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216 },
-  "doubao-seed-2.1-pro": { contextWindow: 1_048_576, maxOutputTokens: 262_144 },
-  "doubao-seed-2.1-turbo": { contextWindow: 262_144, maxOutputTokens: 262_144 },
-  "doubao-seed-evolving": { contextWindow: 1_048_576, maxOutputTokens: 262_144 },
-  "glm-5": { contextWindow: 202_752, maxOutputTokens: 131_072 },
-  "glm-5.2": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "glm-5.3-flashx": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "kimi-k2.6": { contextWindow: 262_144, maxOutputTokens: 32_768 },
-  "kimi-k2.7-code": { contextWindow: 262_144, maxOutputTokens: 32_768 },
-  "kimi-k3": { contextWindow: 1_048_576, maxOutputTokens: 1_048_576 },
-  "mimo-v2.6-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "mimo-v2.6-pro": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "minimax-m3": { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
-  "minimax-m3.1-flash": { contextWindow: 1_000_000, maxOutputTokens: 524_288 },
-  "qwen-3.7-plus": { contextWindow: 1_000_000, maxOutputTokens: 131_072 },
-  "qwen3.8-max": { contextWindow: 1_000_000, maxOutputTokens: 131_072 },
-  "step-5-preview": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
-};
+
 
 /**
  * Max 模式（1M 上下文）成套下发时的**窗口兜底**。
@@ -143,10 +113,12 @@ export function modelSpec(
   const entry = remoteEntries().find((e) => canonicalModelId(e.id) === wanted);
   const dirContext = entry && entry.context_window > 0 ? entry.context_window : undefined;
   const dirMaxOutput = entry && entry.max_output > 0 ? entry.max_output : undefined;
-  // ② 公开规格表（上游没声明的字段用它补）
-  const spec = MODEL_SPECS[wanted];
-  const contextWindow = dirContext ?? spec?.contextWindow;
-  const maxOutputTokens = dirMaxOutput ?? spec?.maxOutputTokens;
+  // ② 用户目录模型表（上游没声明的字段用它补）；规格是数据，代码里不留
+  const seeded = seedEntries().find((e) => canonicalModelId(e.id) === wanted);
+  const seedContext = seeded && seeded.context_window > 0 ? seeded.context_window : undefined;
+  const seedMaxOutput = seeded && seeded.max_output > 0 ? seeded.max_output : undefined;
+  const contextWindow = dirContext ?? seedContext;
+  const maxOutputTokens = dirMaxOutput ?? seedMaxOutput;
   if (contextWindow === undefined && maxOutputTokens === undefined) return undefined;
   return {
     ...(contextWindow === undefined ? {} : { contextWindow }),
@@ -154,62 +126,34 @@ export function modelSpec(
   };
 }
 
-/** 32 条兜底模型（含 4 条官方隐藏 —— 隐藏条目不在 exposedIds 里）。 */
-const FALLBACK_NAMES: Array<[string, boolean]> = [
-  ["DeepSeek-V4-Flash-Official", false],
-  ["Doubao-Seed-2.1-Pro", false],
-  ["seed-code-pro-0430", false],
-  ["Doubao-Seed-2.1-Turbo", false],
-  ["Doubao-Seed-2.0-Code", false],
-  ["browser_use_subagent", true],
-  ["glm-5.2", false],
-  ["glm-5-turbo", false],
-  ["glm-5", false],
-  ["DeepSeek-V4-Pro", false],
-  ["DeepSeek-V4-Flash", false],
-  ["kimi-k3", false],
-  ["kimi-k2.7-code", false],
-  ["kimi-k2.6", false],
-  ["minimax-m3", false],
-  ["qwen-3.7-plus", false],
-  ["sagitta", false],
-  ["aquila", false],
-  ["custom_model_gemini", false],
-  ["custom_model_placeholder", false],
-  ["custom_model_1M_text", false],
-  ["custom_model_1M", false],
-  ["custom_model_kimi", false],
-  ["custom_model_claude", false],
-  ["custom_model_gpt-5", false],
-  ["custom_model_no-fc", false],
-  ["custom_model_deepseek_chat", false],
-  ["custom_model_deepseek_reasoner", false],
-  ["custom_model_deepseek_v4", false],
-  ["explore_sub_agent_v13", true],
-  ["explore_sub_agent_v2", true],
-  ["summary", true],
-];
+
 
 /**
- * 内置兜底模型表（**只有 id**，不带窗口 / 输出上限）。
+ * 用户目录模型表（首启由随包 `models.json` 浇种）。
  *
- * 窗口与输出上限**不写估值**：内置表不是上游声明，写了就会挡住公开规格
- * （`modelSpec` 钩子）—— 数值一律由 `modelSpec` 按公开规格给。
+ * 模型清单与 `hidden` 标记都是**数据**，落在 `models.json`；本函数只补平台默认值
+ * （`DEFAULT_FUNCTION` 与各布尔/档位的初值）。
  */
-const SEED_MODELS: ModelEntry[] = FALLBACK_NAMES.map(([id, hidden]) => ({
-  id,
-  model: id,
-  name: id,
-  function: DEFAULT_FUNCTION,
-  context_window: 0, // 上游未声明（内置表不是声明源）
-  max_output: 0, // 上游未声明
-  max_mode: false,
-  multimodal: false,
-  tiered: false,
-  efforts: [],
-  default_effort: "",
-  hidden,
-}));
+let seeded: ModelEntry[] | null = null;
+function seedEntries(): ModelEntry[] {
+  if (!seeded) {
+    const rows =
+      ensureChannelModels<ModelEntry>(undefined, [
+        bundledSnapshotPath(),
+        packageSnapshotPath(import.meta.url),
+      ]) ?? [];
+    seeded = rows.map((e) => ({
+      ...e,
+      function: e.function ?? DEFAULT_FUNCTION,
+      max_mode: e.max_mode ?? false,
+      multimodal: e.multimodal ?? false,
+      tiered: e.tiered ?? false,
+      efforts: e.efforts ?? [],
+      default_effort: e.default_effort ?? "",
+    }));
+  }
+  return seeded;
+}
 
 // ── 远端目录解析 ─────────────────────────────────────────────────────────────
 
@@ -625,11 +569,9 @@ function loadCatalog(): ModelEntry[] {
   return fallbackEntries();
 }
 
-/** 兜底条目：数据以用户目录文件为准，代码内种子只作首次浇种源。 */
-let seeded: ModelEntry[] | null = null;
+/** 兜底条目：表内数据的拷贝（一次性浇种，之后以用户文件为准）。 */
 function fallbackEntries(): ModelEntry[] {
-  if (!seeded) seeded = seedChannelModels(SEED_MODELS, undefined) ?? SEED_MODELS;
-  return seeded.map((e) => ({ ...e }));
+  return seedEntries().map((e) => ({ ...e }));
 }
 
 /**

@@ -7,7 +7,8 @@
  *   - 目录按 动态 → 磁盘缓存 → 内置兜底 三源优先级解析；缓存保证未登录/上游不可达时仍能列出模型。
  */
 
-import { readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
+import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
@@ -22,34 +23,23 @@ interface ModelEntry {
   isReasoning: boolean;
   isVl: boolean;
   maxInputTokens: number;
-  /** 最大输出 token（上游不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  /** 最大输出 token（上游不下发，按用户目录模型表补；见 `models.json`）。 */
   maxOutput?: number;
 }
 
 /**
- * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
+ * 按 id 查用户目录模型表里的最大输出。
  *
- * 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
- * （按账号档位路由到不同底层模型），没有单一规格，故不列。
- *
- * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/channels/qoder/PROTOCOL.md` §8「模型窗口规格」（国内版同一套；渠道表在本文件的 `MAX_OUTPUTS`）。
+ * 规格**是数据**，落在 `models.json` 的 `maxOutputTokens`；本函数只做查表，
+ * 查不到返回 `undefined`（不编造 —— 公开规格见 `docs/channels/qoder/PROTOCOL.md` §8）。
  */
-const MAX_OUTPUTS: Readonly<Record<string, number>> = {
-  "deepseek-flash": 393_216,
-  "deepseek-v4-pro": 393_216,
-  "glm-5.2": 131_072,
-  "glm-5.3": 131_072,
-  "glm-5.3-flash": 131_072,
-  "kimi-k3": 1_048_576,
-  "minimax-m2.7": 131_072,
-  "minimax-m3": 131_072,
-  "qwen3.7-flash": 131_072,
-  "qwen3.7-max": 131_072,
-  "qwen3.7-plus": 131_072,
-  "qwen3.8-flash": 131_072,
-  "qwen3.8-max": 131_072,
-};
+function specOf(modelId: string): { maxOutputTokens?: number } | undefined {
+  const k = modelId.toLowerCase();
+  const row = ensureChannelModels<ModelEntry>(undefined, [bundledSnapshotPath(), packageSnapshotPath(import.meta.url)])?.find(
+    (e) => e.id.toLowerCase() === k,
+  );
+  return row?.maxOutput === undefined ? undefined : { maxOutputTokens: row.maxOutput };
+}
 
 /**
  * 已知模型规格（供池层 `/v1/models` 透出）。
@@ -60,7 +50,7 @@ const MAX_OUTPUTS: Readonly<Record<string, number>> = {
 export function modelSpec(
   modelId: string,
 ): { contextWindow?: number; maxOutputTokens?: number } | undefined {
-  const maxOutputTokens = MAX_OUTPUTS[modelId.toLowerCase()];
+  const maxOutputTokens = specOf(modelId)?.maxOutputTokens;
   if (maxOutputTokens === undefined) return undefined;
   return { maxOutputTokens };
 }
@@ -77,121 +67,7 @@ const POOL_KEY_MAP: Record<string, string> = {
   gfmodel: "glm-5.3-flash",
 };
 
-/**
- * 兜底表：连磁盘缓存都没有时用（未登录 / 上游不可达时的离线目录）。
- *
- * **数据来源**：国内版官方目录静态快照（14 条），抄自
- * `reference/shuishuipingan_qoder2api-hub/qoder_catalog_cn.json`
- * （上游仓库 `shuishuipingan/qoder2api-hub`；2026-10-20 随参考实现克隆时抄录）。
- * [参考]
- *
- * **只抄数据**（`key` / `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`），
- * 不抄参考实现的任何逻辑；归一化仍走本文件的 `toEntry`，
- * 保证兜底表与动态目录产出**完全同形**的对外 id。
- *
- * `context_config`（1M / 200K / 400K 多窗口）与 `price_factor` **不抄**：
- * 池层是从**磁盘缓存**的原始条目读档位表与倍率的
- * （`packages/core/gateway/src/pool/pool-targets.ts:249-264`、`:287`），
- * 兜底表不落缓存、进不了那条路径，抄进来只是死数据。
- *
- * `auto` 是平台的**策略档位**（按账号档位路由到不同底层模型），
- * 没有单一规格，故 `MAX_OUTPUTS` 不列它 —— 但上游目录里有它，兜底表也要有，
- * 否则兜底态的池子比刷新态少一条。
- */
-const SEED_RAW: ReadonlyArray<Record<string, unknown>> = [
-  { key: "auto", display_name: "Auto", is_vl: true, is_reasoning: true, max_input_tokens: 200_000 },
-  {
-    key: "qmodel_38max",
-    display_name: "Qwen3.8-Max",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "qfmodel",
-    display_name: "Qwen3.8-Flash",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "qmodel_latest",
-    display_name: "Qwen3.7-Max",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "qmodel",
-    display_name: "Qwen3.7-Plus",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "q37fmodel",
-    display_name: "Qwen3.7-Flash",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "dmodel",
-    display_name: "DeepSeek-V4-Pro",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 96_000,
-  },
-  {
-    key: "dfmodel",
-    display_name: "DeepSeek-Flash",
-    is_vl: true,
-    is_reasoning: false,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "gmodel",
-    display_name: "GLM-5.3",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "gfmodel",
-    display_name: "GLM-5.3-Flash",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 1_000_000,
-  },
-  {
-    key: "gm51model",
-    display_name: "GLM-5.2",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "kmodel_latest",
-    display_name: "Kimi-K3",
-    is_vl: true,
-    is_reasoning: false,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "kmodel",
-    display_name: "Kimi-K2.8-Preview",
-    is_vl: true,
-    is_reasoning: true,
-    max_input_tokens: 180_000,
-  },
-  {
-    key: "mmodel",
-    display_name: "MiniMax-M2.7",
-    is_vl: false,
-    is_reasoning: false,
-    max_input_tokens: 180_000,
-  },
-];
+
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -262,8 +138,8 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   if (!key) return null;
   const displayName = str(raw["display_name"]) || str(raw["name"]) || key;
   const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
-  // 规格表优先；缓存行里已带 maxOutput 的（刷新时写入的）也认。
-  const spec = MAX_OUTPUTS[id.toLowerCase()];
+  // 用户目录表优先；缓存行里已带 maxOutput 的（刷新时写入的）也认。
+  const spec = specOf(id)?.maxOutputTokens;
   const cached = num(raw["maxOutput"], 0);
   const maxOutput = spec ?? (cached > 0 ? cached : undefined);
   return {
@@ -296,11 +172,13 @@ function loadCatalog(): ModelEntry[] {
   } catch {
     /* 缓存读不出来就用兜底表 —— 目录不可用不该让整个渠道消失 */
   }
-  // 兜底走同一条 `toEntry` 归一化：对外 id 与动态目录完全一致；数据以用户目录文件为准
-  const seeded = seedChannelModels(SEED_RAW.map((raw) => toEntry(raw)).filter(
-    (entry): entry is ModelEntry => entry !== null,
-  ), undefined);
-  return seeded ?? [];
+  // 兜底走用户目录模型表（首启由随包 models.json 浇种）：条目已是归一化产物，直接读
+  return (
+    ensureChannelModels<ModelEntry>(undefined, [
+      bundledSnapshotPath(),
+      packageSnapshotPath(import.meta.url),
+    ]) ?? []
+  );
 }
 
 /** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */
@@ -377,9 +255,9 @@ export async function refresh(): Promise<void> {
       const key = str(item["key"]);
       const displayName = str(item["display_name"]) || str(item["name"]) || key;
       const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
-      // 原始字段全留（不裁剪），另附**按公开规格补的**最大输出（上游不下发），
+      // 原始字段全留（不裁剪），另附**按用户目录表补的**最大输出（上游不下发），
       // 以及归一后的思考档位（池层读的是这份缓存，只认 `effort` 那一种形态）。
-      const spec = MAX_OUTPUTS[id.toLowerCase()];
+      const spec = specOf(id)?.maxOutputTokens;
       const effort = wireEffort(item);
       return {
         ...item,

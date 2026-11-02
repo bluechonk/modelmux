@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "source": "seed",
+  "fetched_at": null,
+  "models": [
+    {
+      "id": "glm-5.3-flashx",
+      "name": "GLM-5.3-FlashX",
+      "modelType": 0,
+      "reasoning": true,
+      "contextWindow": 1024000,
+      "maxOutput": 131072,
+      "description": "fallback (upstream unavailable)",
+      "supportsImages": false,
+      "multiplier": null,
+      "marketing": "",
+      "source": "fallback"
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "modelType": 91,
+      "reasoning": true,
+      "contextWindow": 1024000,
+      "maxOutput": 131072,
+      "description": "fallback (upstream unavailable)",
+      "supportsImages": false,
+      "multiplier": null,
+      "marketing": "",
+      "source": "fallback"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek-V4-Flash",
+      "modelType": 63,
+      "reasoning": true,
+      "contextWindow": 1024000,
+      "maxOutput": 393216,
+      "description": "fallback (upstream unavailable)",
+      "supportsImages": false,
+      "multiplier": null,
+      "marketing": "",
+      "source": "fallback"
+    }
+  ]
+}
