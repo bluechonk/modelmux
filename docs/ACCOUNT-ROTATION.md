@@ -1,7 +1,7 @@
 # 按账号账单与额度耗尽自动换号（`modelmux`）
 
 本文件是**设计 + 实施说明**：为什么账单要按账号看、什么条件下自动换号、换号时守哪些边界。
-实施已收敛进代码：决策在 `packages/core/gateway/src/pool/account-rotate.ts`，
+实现落点：决策在 `packages/core/gateway/src/pool/account-rotate.ts`，
 重试编排在 `packages/core/gateway/src/http/chat/relay.ts`，
 CLI 出口在 `packages/core/gateway/src/app/lifecycle/daemon.ts`。
 规则层的权威描述见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4 与 §3.3。
@@ -17,7 +17,7 @@ CLI 出口在 `packages/core/gateway/src/app/lifecycle/daemon.ts`。
 | 生效账号 ≠ 池里唯一账号 | 池里 3 个账号各有额度，但只有一个在服务 |
 
 因此「渠道还剩多少额度」这句话本身是不完整的 —— 它只描述**当前生效的那个账号**。
-`mx bill loomy` 原本只查生效账号，池里另外两个账号有多少额度只能去 Web 账号池页看。
+`mx bill` 只列渠道级汇总，池里其他账号的额度只能在 Web 账号池页看。
 按账号查询的**能力早就有**（`pool/pool-usage.ts::refreshAccountCredits` 每 3 分钟
 逐个账号查一次并写进账本 `accounts[key].credits`，Web 账号卡片看的就是它），
 缺的是 **CLI 出口**。
@@ -75,17 +75,17 @@ mx bill [<cid>] [--accounts]
 > 落到另一个账号上（额度、配额、IP 风控各算一份），排障时也看不出究竟谁在服务。
 > 但缓存的职责是**证伪模糊错误**，不是否决明确的额度信号 —— 见下。
 
-#### 缓存为什么不否决明确的额度信号（2026-10-28 事故修复）
+#### 缓存为什么不否决明确的额度信号
 
-原判据里第 1 步是无条件的一票否决：缓存 `≥ 100` 就直接判「不是额度问题」收工。问题是
-**账本快照会滞后** —— 它由后台每 3 分钟刷新一次，而额度可以在两次刷新之间被打到 0。
+账本快照会**滞后** —— 它由后台每 3 分钟刷新一次，而额度可以在两次刷新之间被打到 0。
+若第 1 步无条件一票否决，旧快照就会挡住换号判定。
 
 2026-10-28 实测（loomy）：请求失败时快照还停在 `117`，`mx bill` 实时查已经是 `0/0`。
-于是连续 6 次换号判定全被旧快照挡住（日志原文
+换号判定连续 6 次被旧快照挡住（日志原文
 `account rotation skipped (loomy): 最近一次账单还剩 117（≥100），不像额度问题`），
 账号进了冷却却始终不换号，后续请求反复撞冷却短路，直到人工换号才恢复。
 
-现在的分工：
+因此现在的分工是：
 
 | 错误类型 | 第 1 步（缓存）的作用 |
 |---|---|
@@ -132,8 +132,8 @@ mx bill [<cid>] [--accounts]
 §3.1–§3.3 讲的都是「请求**失败之后**怎么办」。还有一条更早的路径：请求还没发出去，
 生效账号就已经在冷却窗口里（`auth.ts` 的 `callUpstream` 入口检查 `activeAccountCooldown`）。
 
-原行为是直接短路返回 `cooling` → 请求失败（`quota_exhausted`）→ 再回到 §3.1 的换号判定。
-修复后改为**先试切号**：池里还有可用账号就直接切走，本次请求用新账号继续
+请求还没发出去，生效账号就已经在冷却窗口里（`auth.ts` 的 `callUpstream` 入口检查 `activeAccountCooldown`）时，
+**先试切号**：池里还有可用账号就直接切走，本次请求用新账号继续
 （`switchOffCoolingAccount`，`packages/core/gateway/src/pool/account-rotate.ts`）；
 切不动（池内都不可用）才如实短路。
 

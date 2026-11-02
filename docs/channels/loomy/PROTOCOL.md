@@ -504,14 +504,14 @@ body: {}
 签到**没有 CLI 动词**：它是内置能力，`mx start` 起来就自动跑；台账（`state/signin.json`）
 保证一天只打一次，结果在 `mx status` 的「签到（本地记录）」一行可见。
 
-**按账号执行**（2026-10-28 起）：本渠道声明 `signin.perAccount = true` —— 奖励是**按账号**
+**按账号执行**：本渠道声明 `signin.perAccount = true` —— 奖励是**按账号**
 独立的（每日赠送、一次性新手任务各自一份），故调度器会**逐个账号**用各自的凭据调用
 `claim({ credential })`，门禁用**账号级**台账、熔断也按账号计数。
-早期只对「当前生效账号」执行、台账按渠道记 → 一旦某账号领过就把同渠道其余账号当天
+若只对「当前生效账号」执行、台账按渠道记，一旦某账号领过就会把同渠道其余账号当天
 全部跳过（实测：4 个账号里 3 个的新手任务一直没领）。
 
 **`ok` 判据 = 两件事都成**：每日额度重置成功**且**新手任务那步没抛错。
-早期 `ok` 只看每日重置 → 新手任务瞬时失败也被记成「今天已处理」，当天不再重试、
+若 `ok` 只看每日重置，新手任务瞬时失败也会被记成「今天已处理」，当天不再重试、
 白丢一次性 10000 分（2026-10-28 实测：4 个账号里有 1 个这样漏掉，单独重跑立刻成功）。
 
 ### 6.4 新手任务（`packages/core/channels/loomy/src/billing.ts:35-46`）
@@ -688,7 +688,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 仓库 | 关键文件 | 用途 |
 | --- | --- | --- |
 | [Patrick130306/loomy2api](https://github.com/Patrick130306/loomy2api) | `loomy2api/account.py`、`loomy2api/signer.py`、`docs/PROTOCOL.md` | 主参照（31★）：额度转 OpenAI 兼容 API；**本渠道手机验证码登录（`/login/phone/*`）的端点与签名依据** |
-| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | `loomy2api/account.py`、`loomy2api/wechat.py`、`docs/CLIENT-LOGIN.md` | **历史参照**：多账号池 + Web 面板 + 防风控；其 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓）曾是微信扫码登录的对照源 —— 微信路已于 2026-10-22 移除，此仓库现仅作逆向结论存档 |
+| [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | `loomy2api/account.py`、`loomy2api/wechat.py`、`docs/CLIENT-LOGIN.md` | **历史参照**：多账号池 + Web 面板 + 防风控；其 `docs/CLIENT-LOGIN.md`（客户端 asar 实抓）是微信扫码登录的对照源，现仅作逆向结论存档（本渠道已无微信路） |
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | `README.md` | 接口结构参考：端点、鉴权形状、请求/响应结构 |
 | [wangliangdong/loomy2api](https://github.com/wangliangdong/loomy2api) | `auth_browser.py`、`credit.py` | 反面对照样本（13★）：容器内 Chromium + noVNC 走**网页**登录（手机号 + 短信），抓 `loomy_web_session` **Cookie** —— 是**另一族凭据**（Cookie 而非 account API 的 session），本渠道不采纳；其「Loomy 不签发 refresh token、失效只能重登」的结论与本渠道 §2.3 一致 |
 
