@@ -118,8 +118,18 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
   );
 }
 
-/** 展开行：请求全字段（正文不在这里，见最右侧「上下文」按钮）。 */
-function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
+/** 展开行：请求全字段（正文不内联；宽屏走「上下文」列，窄屏走本行内的按钮）。 */
+function LogDetail({
+  entry,
+  onOpenContext,
+  showContext,
+}: {
+  entry: AccessLogEntry;
+  onOpenContext: () => void;
+  /** 窄屏（<768px）没有「上下文」列 —— 固定列合计超过表格最小宽，模型列会被挤成零
+   *  宽，所以窄屏砍列保正文可读性优先；此时入口挪到这里，否则手机上打不开正文弹窗。 */
+  showContext: boolean;
+}): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
     <div className="space-y-3 bg-canvas/40 px-4 py-3">
@@ -186,6 +196,22 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
           </Field>
         )}
       </dl>
+
+      {/* 窄屏专属：表格砍掉了「上下文」列（固定列合计超过表格最小宽，加列会把模型列
+          挤成零宽），入口挪到展开行，否则手机上打不开正文弹窗。 */}
+      {showContext && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenContext();
+          }}
+          className="tap inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        >
+          <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
+          查看请求上下文
+        </button>
+      )}
 
       {entry.message !== undefined && (
         <div className="space-y-1">
@@ -437,7 +463,11 @@ function LogTable({
                   {open && (
                     <tr className="border-b border-line/40">
                       <td colSpan={cols.length} className="p-0">
-                        <LogDetail entry={entry} />
+                        <LogDetail
+                          entry={entry}
+                          showContext={narrow}
+                          onOpenContext={() => onOpenContext(entry)}
+                        />
                       </td>
                     </tr>
                   )}
