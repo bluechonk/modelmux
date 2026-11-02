@@ -77,6 +77,19 @@ export {
 } from "./runtime/catalog-cache.js";
 export type { CachedModel } from "./runtime/catalog-cache.js";
 
+// 渠道模型表（用户目录的 models.json：首启由随包种子浇种，之后以用户文件为准）
+export {
+  CHANNEL_MODELS_FILE,
+  channelModelsPath,
+  channelModelsMeta,
+  ensureChannelModels,
+  readChannelModels,
+  readSeedFrom,
+  seedChannelModels,
+  writeChannelModels,
+} from "./runtime/channel-models.js";
+export type { ChannelModelEntry, ChannelModelsSource } from "./runtime/channel-models.js";
+
 // 渠道目录里的名字 → 上游 slug
 export { resolvePoolModel } from "./pool/model-pool.js";
 

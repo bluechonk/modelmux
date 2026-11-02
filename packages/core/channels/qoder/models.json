@@ -1,3 +1,15 @@
 {
-  "models": []
+  "version": 1,
+  "source": "seed",
+  "fetched_at": null,
+  "models": [
+    {
+      "key": "gfmodel",
+      "id": "glm-5.3-flash",
+      "displayName": "GLM-5.3-Flash",
+      "isReasoning": true,
+      "isVl": true,
+      "maxInputTokens": 1000000
+    }
+  ]
 }

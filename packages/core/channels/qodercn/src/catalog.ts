@@ -7,7 +7,7 @@
  *   - 目录按 动态 → 磁盘缓存 → 内置兜底 三源优先级解析；缓存保证未登录/上游不可达时仍能列出模型。
  */
 
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
@@ -98,7 +98,7 @@ const POOL_KEY_MAP: Record<string, string> = {
  * 没有单一规格，故 `MAX_OUTPUTS` 不列它 —— 但上游目录里有它，兜底表也要有，
  * 否则兜底态的池子比刷新态少一条。
  */
-const FALLBACK_RAW: ReadonlyArray<Record<string, unknown>> = [
+const SEED_RAW: ReadonlyArray<Record<string, unknown>> = [
   { key: "auto", display_name: "Auto", is_vl: true, is_reasoning: true, max_input_tokens: 200_000 },
   {
     key: "qmodel_38max",
@@ -296,11 +296,11 @@ function loadCatalog(): ModelEntry[] {
   } catch {
     /* 缓存读不出来就用兜底表 —— 目录不可用不该让整个渠道消失 */
   }
-  // 兜底表走同一条 `toEntry` 归一化：对外 id 与动态目录完全一致
-  const fallback = FALLBACK_RAW.map((raw) => toEntry(raw)).filter(
+  // 兜底走同一条 `toEntry` 归一化：对外 id 与动态目录完全一致；数据以用户目录文件为准
+  const seeded = seedChannelModels(SEED_RAW.map((raw) => toEntry(raw)).filter(
     (entry): entry is ModelEntry => entry !== null,
-  );
-  return fallback;
+  ), undefined);
+  return seeded ?? [];
 }
 
 /** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */

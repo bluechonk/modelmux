@@ -7,7 +7,7 @@
  *   - 读取惰性：模块加载期读盘会踩空（channelFile 要求渠道已注册）。
  */
 
-import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
 
 /** 一条目录条目。 */
 interface ModelEntry {
@@ -148,8 +148,8 @@ export function modelSpec(
   return { maxOutputTokens };
 }
 
-/** 兜底条目（id 与展示名相同）。 */
-const FALLBACK_MODELS: readonly ModelEntry[] = FALLBACK.map((id) => ({
+/** 首启种子条目（id 与展示名相同）；数据落用户目录后以那份为准。 */
+const SEED_MODELS: readonly ModelEntry[] = FALLBACK.map((id) => ({
   id,
   name: id,
   context_window: FALLBACK_CONTEXT_WINDOW,
@@ -313,10 +313,17 @@ export async function refresh(): Promise<void> {
   }
 }
 
-/** 当前生效的目录：远端优先，未拉到时用兜底表。 */
+/** 当前生效的目录：远端优先，未拉到时用用户目录模型表（缺失则用代码内种子浇种）。 */
 function entries(): ModelEntry[] {
   ensureCachedModels();
-  return remoteCache && remoteCache.length > 0 ? [...remoteCache] : [...FALLBACK_MODELS];
+  return remoteCache && remoteCache.length > 0 ? [...remoteCache] : fallbackEntries();
+}
+
+/** 兜底条目：数据以 `<root>/channels/lobsterai/models.json` 为准，种子只作首启浇种源。 */
+let seeded: ModelEntry[] | null = null;
+function fallbackEntries(): ModelEntry[] {
+  if (!seeded) seeded = seedChannelModels(SEED_MODELS, undefined) ?? [...SEED_MODELS];
+  return [...seeded];
 }
 
 /** 按 id 取条目；不存在返回 null（不编造）。 */

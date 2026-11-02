@@ -1,5 +1,5 @@
 /**
- * CatPaw 模型目录：上游模型表解析、缓存与兜底表（对外 id = 上游 id，不做短名映射）。
+ * CatPaw 模型目录：上游模型表解析、缓存与首启种子（对外 id = 上游 id，不做短名映射）。
  *
  * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
  *   - 图片能力恒不对外声明（supportsImages=false）：上游逐模型声明的是模型自身能力，
@@ -8,7 +8,7 @@
  *   - 目录未登录/不可达时走兜底表；exposedIds/resolveModel 必须同步返回。
  */
 
-import { readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
 
 /** 一条模型目录条目。 */
 export interface CatalogEntry {
@@ -203,7 +203,7 @@ const MODEL_TYPE_FALLBACK: Readonly<Record<string, number>> = {
  * `modelType` 取自 `MODEL_TYPE_FALLBACK`（表里没有的模型回落 0 = auto）；
  * 必须是真实数值：上游按 modelType 数字选型，占位值会让目录不可用时的 turn 请求被拒。
  */
-const FALLBACK_MODELS: CatalogEntry[] = [
+const SEED_MODELS: CatalogEntry[] = [
   {
     id: "glm-5.3-flashx",
     name: "GLM-5.3-FlashX",
@@ -285,11 +285,21 @@ function ensureCachedModels(): void {
   }
 }
 
-/** 当前目录（上游缓存优先，缺则兜底）。 */
+/**
+ * 当前目录（上游缓存优先，缺则读用户目录的模型表 `channels/catpaw/models.json`；
+ * 表不存在时用下面的 `SEED_MODELS` 浇一次）。
+ */
 function loadCatalog(): CatalogEntry[] {
   ensureCachedModels();
   if (_remote && _remote.length > 0) return [..._remote];
-  return FALLBACK_MODELS.map((e) => ({ ...e }));
+  return fallbackEntries();
+}
+
+/** 兜底条目：数据以用户目录文件为准，代码内种子只作首次浇种源。 */
+let seeded: CatalogEntry[] | null = null;
+function fallbackEntries(): CatalogEntry[] {
+  if (!seeded) seeded = seedChannelModels(SEED_MODELS, undefined) ?? SEED_MODELS;
+  return seeded.map((e) => ({ ...e }));
 }
 
 /**

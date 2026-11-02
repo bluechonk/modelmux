@@ -4,14 +4,15 @@
  * 关键约束（端点/字段/实测见 docs/channels/workbuddyai/PROTOCOL.md）：
  *   - 对外暴露 id 就是上游模型名 `slug`（条目显式给了 alias/short/shortName/exposed_id 时用该字段），不做短名花活。
  *   - `LEGACY_ALIASES` 只用于输入兼容（老客户端短名仍能解析），不会出现在 `/v1/models`。
- *   - 目录按 远端缓存 → 随包快照 → 内置兜底 三源解析；远端目录必须落盘，否则新进程只剩快照。
+ *   - 目录按 远端缓存 → 用户目录模型表（`channels/workbuddyai/models.json`，随包快照浇种）解析；
+ *     远端目录必须落盘，否则新进程只剩快照。
  */
 
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalModelId, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, readCatalogCache, seedChannelModels, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /**
@@ -115,12 +116,8 @@ export function modelSpec(
   };
 }
 
-/** 内置兜底表（快照与远端都拿不到时用）：对外名 = 上游名。 */
-const FALLBACK_MODELS: readonly ModelEntry[] = [...new Set(Object.values(LEGACY_ALIASES))].map(
-  (slug) => ({ id: slug, exposed: slug, name: slug, source: "fallback" as const }),
-);
-
-/** `models` 载荷中可用的对外名字段名（按优先级；都不给就用 slug）。 */
+/**
+ * `models` 载荷中可用的对外名字段名（按优先级；都不给就用 slug）。 */
 const EXPOSED_FIELDS = ["alias", "short", "shortName", "exposed_id"] as const;
 
 interface SnapshotCache {
@@ -317,13 +314,12 @@ function ensureRemoteLoaded(): void {
   }
 }
 
-/** 当前生效的目录：远端 → 快照 → 内置兜底。 */
+/** 当前生效的目录：远端 → 用户目录模型表（首启由随包 `models.json` 浇种）。 */
 function entries(): ModelEntry[] {
   ensureRemoteLoaded();
   if (remote && remote.length > 0) return [...remote];
-  const snap = snapshotEntries();
-  if (snap.length > 0) return [...snap];
-  return [...FALLBACK_MODELS];
+  const table = seedChannelModels(snapshotEntries(), undefined);
+  return table ? [...table] : [];
 }
 
 /** 灌入远端目录并落盘（由 `upstream.fetchModels()` 在拉到列表后调用）。 */
