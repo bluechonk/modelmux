@@ -27,28 +27,7 @@ interface ModelEntry {
   maxOutput?: number;
 }
 
-/**
- * 已知模型的**最大输出 token**（上游目录不下发，按公开规格补）。
- *
- * 只列**真实模型**：`auto` / `efficient` / `ultimate` 等是平台的**策略档位**
- * （按账号档位路由到不同底层模型），没有单一规格，故不列。
- *
- * 公开规格是**模型上限**，上游可能更严（超限回 400）—— 客户端应能降档重试。
- * 数值与来源见 `docs/channels/qoder/PROTOCOL.md` §8「模型窗口规格」（渠道表在本文件的 `MAX_OUTPUTS`）。
- */
-const MAX_OUTPUTS: Readonly<Record<string, number>> = {
-  "deepseek-flash": 393_216,
-  "deepseek-v4-pro": 393_216,
-  "glm-5.3": 131_072,
-  "glm-5.3-flash": 131_072,
-  "kimi-k3": 1_048_576,
-  "minimax-m3": 131_072,
-  "minimax-m3.1-flash": 524_288,
-  "qwen3.7-max": 131_072,
-  "qwen3.7-plus": 131_072,
-  "qwen3.8-flash": 131_072,
-  "qwen3.8-max": 131_072,
-};
+
 
 /**
  * 已知模型规格（供池层 `/v1/models` 透出）。
@@ -56,10 +35,17 @@ const MAX_OUTPUTS: Readonly<Record<string, number>> = {
  * `modelId` 是池内的**归一化 id**（与 `exposedIds()` 同形），故直接查表。
  * **查不到返回 undefined**（不编造）。
  */
+/** 按 id 查用户目录模型表（规格是数据，落在 models.json）。 */
+function specOf(modelId: string): { maxOutputTokens?: number } | undefined {
+  const k = modelId.toLowerCase();
+  const row = seedTable().find((e) => e.id.toLowerCase() === k);
+  return row?.maxOutput === undefined ? undefined : { maxOutputTokens: row.maxOutput };
+}
+
 export function modelSpec(
   modelId: string,
 ): { contextWindow?: number; maxOutputTokens?: number } | undefined {
-  const maxOutputTokens = MAX_OUTPUTS[modelId.toLowerCase()];
+  const maxOutputTokens = specOf(modelId)?.maxOutputTokens;
   if (maxOutputTokens === undefined) return undefined;
   return { maxOutputTokens };
 }
@@ -76,39 +62,7 @@ const POOL_KEY_MAP: Record<string, string> = {
   gfmodel: "glm-5.3-flash",
 };
 
-/**
- * 上游 key → 模型元数据的**静态兜底表**（请求体的 `model_config` 用）。
- *
- * 取自本机动态目录快照（`~/.modelmux/qoder/cache/models.json`），
- * 字段集与参考实现的官方目录快照
- * （解密自官方客户端 `catalog-v6`）同构 `[参考]`。
- *
- * **只作兜底**：快照会随上游演进而脱节 —— 动态目录
- * （`GET /algo/api/v2/model/list?Encode=1`，即官方「此刻」的目录）里有就以动态为准。
- * `max_input_tokens` 与目录的 `context_config` 档位表**经常矛盾**（官方客户端
- * 只认档位表）；这里取 `max_input_tokens` 是因为上游请求体用它
- * （参考实现 `qoder2api-hub/qoder_proxy.py:3925`）。
- */
-const STATIC_META: Record<string, upstream.ModelMeta> = {
-  auto: { displayName: "Auto", isVl: true, isReasoning: false, maxInputTokens: 200_000 },
-  ultimate: { displayName: "Ultimate", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
-  performance: { displayName: "Performance", isVl: true, isReasoning: false, maxInputTokens: 1_000_000 },
-  efficient: { displayName: "Efficient", isVl: true, isReasoning: false, maxInputTokens: 200_000 },
-  smodel: { displayName: "Sonus", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
-  cmodel: { displayName: "Cantus", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
-  qmodel_38max: { displayName: "Qwen3.8-Max", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
-  qfmodel: { displayName: "Qwen3.8-Flash", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
-  qmodel_latest: { displayName: "Qwen3.7-Max", isVl: true, isReasoning: false, maxInputTokens: 1_000_000 },
-  qmodel: { displayName: "Qwen3.7-Plus", isVl: true, isReasoning: false, maxInputTokens: 1_000_000 },
-  kmodel_latest: { displayName: "Kimi-K3", isVl: true, isReasoning: false, maxInputTokens: 180_000 },
-  // 快照里 `kmodel` 的 max_input_tokens 为空 → 参考实现回落 180000
-  kmodel: { displayName: "Kimi-K2.8-Preview", isVl: true, isReasoning: false, maxInputTokens: 180_000 },
-  gmodel: { displayName: "GLM-5.3", isVl: true, isReasoning: true, maxInputTokens: 180_000 },
-  gfmodel: { displayName: "GLM-5.3-Flash", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
-  dmodel: { displayName: "DeepSeek-V4-Pro", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
-  dfmodel: { displayName: "DeepSeek-Flash", isVl: true, isReasoning: true, maxInputTokens: 1_000_000 },
-  mmodel: { displayName: "MiniMax-M3.1-Flash", isVl: true, isReasoning: false, maxInputTokens: 180_000 },
-};
+
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -181,7 +135,7 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   const displayName = str(raw["display_name"]) || str(raw["name"]) || key;
   const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
   // 规格表优先；缓存行里已带 maxOutput 的（刷新时写入的）也认。
-  const spec = MAX_OUTPUTS[id.toLowerCase()];
+  const spec = specOf(id)?.maxOutputTokens;
   const cached = num(raw["maxOutput"], 0);
   const maxOutput = spec ?? (cached > 0 ? cached : undefined);
   return {
@@ -220,14 +174,20 @@ function loadCatalog(): ModelEntry[] {
 /** 兜底条目：数据在随包 `models.json`（首启浇种到用户目录），代码不留模型数据。 */
 let seeded: ModelEntry[] | null = null;
 function fallbackEntries(): ModelEntry[] {
-  if (!seeded) {
-    seeded =
+  return seedTable();
+}
+
+/** 用户目录模型表（首启由随包种子浇种）。 */
+let seedCache: ModelEntry[] | null = null;
+function seedTable(): ModelEntry[] {
+  if (!seedCache) {
+    seedCache =
       ensureChannelModels<ModelEntry>(undefined, [
         bundledSnapshotPath(),
         packageSnapshotPath(import.meta.url),
       ]) ?? [];
   }
-  return [...seeded];
+  return seedCache.map((e) => ({ ...e }));
 }
 
 /** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */
@@ -268,7 +228,15 @@ export function metaOfKey(key: string): upstream.ModelMeta | undefined {
       maxInputTokens: entry.maxInputTokens,
     };
   }
-  return STATIC_META[wanted];
+  // 兜底：用户目录模型表（首启由随包 models.json 浇种）；规格是数据，代码里不留
+  const row = seedTable().find((e) => (e.key ?? e.id).toLowerCase() === wanted);
+  if (!row) return undefined;
+  return {
+    displayName: row.displayName,
+    isVl: row.isVl,
+    isReasoning: row.isReasoning,
+    maxInputTokens: row.maxInputTokens,
+  };
 }
 
 /**
@@ -306,7 +274,7 @@ export async function refresh(): Promise<void> {
       const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
       // 原始字段全留（不裁剪），另附**按公开规格补的**最大输出（上游不下发），
       // 以及归一后的思考档位（池层读的是这份缓存，只认 `effort` 那一种形态）。
-      const spec = MAX_OUTPUTS[id.toLowerCase()];
+      const spec = specOf(id)?.maxOutputTokens;
       const effort = wireEffort(item);
       return {
         ...item,

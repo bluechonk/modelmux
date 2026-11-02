@@ -1,47 +1,148 @@
 {
+  "version": 1,
+  "source": "seed",
+  "fetched_at": null,
   "models": [
     {
-      "additional_speed_tiers": [],
-      "availability_nux": null,
-      "base_instructions": "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals.",
+      "id": "deepseek-v4.1-flash",
+      "exposed": "deepseek-v4.1-flash",
+      "name": "deepseek-v4.1-flash",
+      "context_window": 1048576,
+      "max_output": 393216
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "exposed": "deepseek-v4-flash",
+      "name": "deepseek-v4-flash",
+      "context_window": 1048576,
+      "max_output": 393216
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "exposed": "deepseek-v4-pro",
+      "name": "deepseek-v4-pro",
+      "context_window": 1048576,
+      "max_output": 393216
+    },
+    {
+      "id": "glm-5.3",
+      "exposed": "glm-5.3",
+      "name": "glm-5.3",
+      "context_window": 1048576,
+      "max_output": 131072
+    },
+    {
+      "id": "glm-5.3-flash",
+      "exposed": "glm-5.3-flash",
+      "name": "glm-5.3-flash",
+      "context_window": 1048576,
+      "max_output": 131072
+    },
+    {
+      "id": "glm-5.2",
+      "exposed": "glm-5.2",
+      "name": "glm-5.2",
+      "context_window": 1048576,
+      "max_output": 131072
+    },
+    {
+      "id": "glm-5.1",
+      "exposed": "glm-5.1",
+      "name": "glm-5.1",
+      "context_window": 202752,
+      "max_output": 131072
+    },
+    {
+      "id": "glm-5.0",
+      "exposed": "glm-5.0",
+      "name": "glm-5.0",
+      "context_window": 202752,
+      "max_output": 131072
+    },
+    {
+      "id": "glm-4.7",
+      "exposed": "glm-4.7",
+      "name": "glm-4.7",
+      "context_window": 202752,
+      "max_output": 131072
+    },
+    {
+      "id": "glm-5v-turbo",
+      "exposed": "glm-5v-turbo",
+      "name": "glm-5v-turbo",
+      "context_window": 202752,
+      "max_output": 131072
+    },
+    {
+      "id": "hy3",
+      "exposed": "hy3",
+      "name": "hy3",
+      "context_window": 262144
+    },
+    {
+      "id": "hy4-preview",
+      "exposed": "hy4-preview",
+      "name": "hy4-preview",
+      "context_window": 1048576
+    },
+    {
+      "id": "hy4-preview-x",
+      "exposed": "hy4-preview-x",
+      "name": "hy4-preview-x",
+      "context_window": 1048576
+    },
+    {
+      "id": "kimi-k2.5",
+      "exposed": "kimi-k2.5",
+      "name": "kimi-k2.5",
+      "context_window": 262144
+    },
+    {
+      "id": "kimi-k2.6",
+      "exposed": "kimi-k2.6",
+      "name": "kimi-k2.6",
+      "context_window": 262144,
+      "max_output": 32768
+    },
+    {
+      "id": "kimi-k2.8-preview",
+      "exposed": "kimi-k2.8-preview",
+      "name": "kimi-k2.8-preview",
+      "context_window": 1048576
+    },
+    {
+      "id": "minimax-m3",
+      "exposed": "minimax-m3",
+      "name": "minimax-m3",
+      "context_window": 1048576,
+      "max_output": 131072
+    },
+    {
+      "id": "minimax-m3.1-flash",
+      "exposed": "minimax-m3.1-flash",
+      "name": "minimax-m3.1-flash",
       "context_window": 1000000,
-      "default_reasoning_level": "high",
-      "default_reasoning_summary": "none",
-      "description": "DeepSeek flagship model, supporting 1M context window, native multimodal model",
-      "display_name": "Deepseek-V4.1-Flash",
-      "effective_context_window_percent": 95,
-      "experimental_supported_tools": [],
-      "input_modalities": [
-        "text",
-        "image"
-      ],
-      "max_context_window": 1000000,
-      "priority": 1001,
-      "service_tiers": [],
-      "shell_type": "shell_command",
-      "slug": "deepseek-v4.1-flash",
-      "support_verbosity": false,
-      "supported_in_api": true,
-      "supported_reasoning_levels": [
-        {
-          "description": "Disable Thinking",
-          "effort": "none"
-        },
-        {
-          "description": "Enabled Thinking",
-          "effort": "high"
-        }
-      ],
-      "supports_image_detail_original": false,
-      "supports_parallel_tool_calls": true,
-      "supports_reasoning_summaries": true,
-      "supports_search_tool": false,
-      "truncation_policy": {
-        "limit": 10000,
-        "mode": "bytes"
-      },
-      "upgrade": null,
-      "visibility": "list"
+      "max_output": 524288
+    },
+    {
+      "id": "mimo-v2.6-pro",
+      "exposed": "mimo-v2.6-pro",
+      "name": "mimo-v2.6-pro",
+      "context_window": 1048576,
+      "max_output": 131072
+    },
+    {
+      "id": "step-5-preview",
+      "exposed": "step-5-preview",
+      "name": "step-5-preview",
+      "context_window": 1048576,
+      "max_output": 65536
+    },
+    {
+      "id": "hunyuan-chat",
+      "exposed": "hunyuan-chat",
+      "name": "hunyuan-chat",
+      "context_window": 262144
     }
   ]
 }
