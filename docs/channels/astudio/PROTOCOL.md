@@ -1,6 +1,6 @@
 # AStudio 协议规格
 
-> 状态：**已落地**（2026-10-26 实测 + 渠道已实现）。证据等级见 §1。
+> 实测时间 2026-10-26；证据等级见 §1。
 > 逆向方法与一次完整实跑记录见 [METHODOLOGY.md](./METHODOLOGY.md) 与 [WALKTHROUGH.md](./WALKTHROUGH.md)。
 
 本文是 `packages/core/channels/astudio/` 的实现依据。逆向对象：`AStudio 3.5.4`
@@ -139,17 +139,15 @@ ssoSessionId=<ssoSessionId>; sso_sessionid=<ssoSessionId>; account_id=<accountId
 
 ---
 
-## 5. 登录链路：**云端直连可独立完成**（结论于 2026-10-26 反转）
+## 5. 登录链路：**云端直连可独立完成**
 
-> **本节结论已反转。** 此前（2026-10-26 上午）本节写的是
-> 「登录端点只存在于本地服务代理层，架构上无法独立调用」——
-> **那是测错了路径**：`/api/astron-auth/*` 是桌面应用**本地服务代理层**的前缀，
-> 而云端账号 API 的路径**没有这个前缀**，直接打
+> 云端账号 API 的路径**不带** `/api/astron-auth/` 前缀 —— 那是桌面应用
+> **本地服务代理层**的前缀；直接打
 > `https://agent.xfyun.cn/xingchen-studio/<path>` 即可。
 >
-> 反转的依据：参考实现
+> 依据：参考实现
 > `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
-> （逆向自官方客户端 bundle 的 `createAstronAccountGateway`）+ 本仓实测（见 §5.1）。
+> （逆向自官方客户端 bundle 的 `createAstronAccountGateway`）+ 本仓实测（见 §5.1，2026-10-26）。
 
 ### 5.1 认证端点（云端直连，B 级实测 2026-10-26）
 
@@ -227,9 +225,9 @@ CLI 没有界面 → 只有路 B（`requestInput` 不实现时渠道自动回落
 
 ### 6.1 端点（B 级实测）
 
-**推理主机是**按模型**取的**（2026-10-26 修正）—— 此前本节写的主机名
+**推理主机按模型取** —— 固定主机名
 `astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1` 实测**对所有模型都 404**
-（`API endpoint not found`）。
+（`API endpoint not found`，2026-10-26 实测）。
 
 真正的形态是：云端模型配置里**每行各带一个 `base_url`**，对话端点 = 该模型的
 `base_url` + `/chat/completions`：
@@ -306,8 +304,8 @@ astudio/auto              200 astudio/glm-5.2           200 astudio/deepseek-v4-
 `astronclaw-auto` 的值为 `null` —— 这 5 个一律**未知**（渠道省略该字段，
 池层回落 `null`，控制台按订阅制显示「免费」）。
 
-此前渠道表给这 5 个一律填 `multiplier: 1`，那是**无源填 1**（客户端会按它算钱）。
-2026-10-26 改为省略。**倍率要么实测、要么未知，绝不编造。**
+给它们填 `multiplier: 1` 是**无源填 1**（客户端会按它算钱）。
+**倍率要么实测、要么未知，绝不编造。**
 规格表见本文 §6.2（渠道静态表）；全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
 
 **网关 id 实测接受度**：
@@ -383,9 +381,9 @@ has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**
 
 ## 8. 额度、积分与签到
 
-> 本节在 2026-10-26 **整段重写** —— 此前记的是「云端积分用不了（只能经本地服务代理）」
-> 与「没有签到端点」，**两条都是错的**（又是路径前缀的锅，见 §5）。
-> 现在积分与签到都能**云端直连**。
+> 积分与签到都能**云端直连**。注意路径前缀陷阱（见 §5）：
+> `/api/astron-auth/*`、`/api/astron-client-popups/*` 是**本地服务代理层**的路径，
+> 云端账号 API 的路径**没有这些前缀**，按带前缀的路径探测会误判为「端点不存在」。
 
 ### 8.1 两套「余额」，别混
 
@@ -396,8 +394,7 @@ has insufficient quota, or the order is invalid"}` 属于**授权/订单判定**
 
 **额度口径取积分余额**，不取模型网关的 `balance`：
 后者恒为 0，若当成额度报给共享层，`markCooldownIfExhausted` 会因 `remain <= 0`
-**冷却账号** —— 而积分余额明明有 6197（这正是此前声明 `billing: false` 的原因，
-当时选错了口径）。
+**冷却账号**（而积分余额明明有 6197）。
 
 `GET /points/balance` 实测响应（节选）：
 
@@ -459,7 +456,7 @@ User-Agent: AStudio/3.4.4
 
 ### 8.3 渠道实现
 
-- `capabilities: { billing: true, signin: true }`（此前误报 `false, false`）。
+- `capabilities: { billing: true, signin: true }`。
 - `fetchCredits()` 报**积分余额**（通用 + 星火两个包），模型网关用量只用来报今日花费。
 - `signin.status()` → 余额摘要 + 套餐 + 待领弹窗明细；`claim()` →
   `init-app`（发奖）→ 关横幅 → 领下载奖励，并用余额差报「+N 积分」。
@@ -621,6 +618,6 @@ node packages/cli/dist/cli.js model astudio --refresh
 | 工具 / 流式 / 档位 | 直连实测通过（复现思路见 [WALKTHROUGH.md](./WALKTHROUGH.md) §3） |
 | **opencode 单轮冒烟（7/7）** | 2026-10-26 `opencode run --model modelmux/astudio/<模型>` 逐个发「Reply with exactly: OK」：`auto` / `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` **全部 200 + 精确回复 OK**；访问日志全部 `stream=true`、`status=200`，错误日志无 astudio 条目 |
 | **经网关的 Agent 工具往返** | 2026-10-26 选 `spark-x2.6-lite`（倍率未知，按最低档原则）跑完整 Agent 会话：「写文件 → 读回 → bash `pwd`/`ls` → 总结」，落盘内容一致（`spark-x2.6-lite ok`）；访问日志 `messageCount` 2→4→6→8 递增、`stream=true`、`status=200`。`mx bill astudio` 前后不变（积分 6197 / 星火专属 35000，已用 0）—— 含倍率 x2.0 的两个模型本轮也未扣积分 |
-| **deepseek-v4-flash 计费实测** | 2026-10-26 直连 `/points/balance` 对账：`totalAmount 6200 − totalBalance 6197` = **已用 3 积分**（两轮端到端测试的累计消耗；星火专属 35000 分未动）。单轮最小对话（~25k tokens）8s / 60s 内均无即时扣减（扣减疑似异步）。**顺带修掉渠道 bug**：`mx bill` 的「已用」此前取模型网关 `/usage` 的 `today.cost`（该端点 404，恒 0）→ 改为 `totalAmount − totalBalance` 口径，并补体验积分 `days_left`（30 天） |
+| **deepseek-v4-flash 计费实测** | 2026-10-26 直连 `/points/balance` 对账：`totalAmount 6200 − totalBalance 6197` = **已用 3 积分**（两轮端到端测试的累计消耗；星火专属 35000 分未动）。单轮最小对话（~25k tokens）8s / 60s 内均无即时扣减（扣减疑似异步）。**顺带发现**：模型网关 `/usage` 的 `today.cost` 端点 404、恒 0，故 `mx bill` 的「已用」口径取 `totalAmount − totalBalance`，并补体验积分 `days_left`（30 天） |
 | **除 auto 全模型单轮冒烟（6/6）+ 计费复核** | 2026-10-28 `opencode run --model modelmux/astudio/<模型> --auto` 对 `spark-x2.6` / `spark-x2.6-lite` / `spark-x2.5` / `glm-5.2` / `deepseek-v4-pro` / `deepseek-v4-flash` 逐个发「只回答：1+1=？」，**全部 200 + 正确回复**，opencode 侧 `cost: 0`（`input` 均 ~25k tokens 系系统提示，`output` 2-38）。每个模型跑完隔 8s 查 `mx bill astudio --json`，最终 30s 复查：体验版 `used` 恒为 **3**（与 10-26 口径一致，本轮零新增）、剩余 6397 不变，星火专属 35000 分未动 —— **6 个模型（含倍率 x2.0 的 `glm-5.2` / `deepseek-v4-pro`）全部免费，未扣任何积分**；访问日志 `stream=true`、`status=200`，错误日志无 astudio 条目 |
 

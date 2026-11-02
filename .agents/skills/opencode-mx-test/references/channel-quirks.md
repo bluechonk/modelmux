@@ -92,15 +92,15 @@ opencode 的 MCP 工具名形如 `<server>_<tool>`，桥接方式与内置工具
 
 ## 历史坑与回归护栏
 
-下表六条都**曾经真实发生过**，当前实现已修复，并由 `npm run verify:wiring`
-（在 `npm test` 链里）做静态校验。`verify:wiring` 失败时先按规则 3/4/5 回查：
+下表六条都由 `npm run verify:wiring`
+（在 `npm test` 链里）做静态校验，是这些坑的回归护栏。`verify:wiring` 失败时先按规则 3/4/5 回查：
 
 | 历史现象 | 修复落点 |
 | --- | --- |
 | traecn 文件写成功但读回失败，上游报 `code=4027` | 渠道 `toSoloToolCalls()` 把 assistant 工具调用统一成 `tool_calls` 数组（`packages/core/channels/traecn/src/upstream.ts`）；规则 4 禁止往消息顶层写 `function_call` |
 | 客户端报 `cannot unmarshal number ... streamWireError.error.code` | 错误帧 `code` 一律字符串化（如 traecn、catpaw 的 `String(...)`）；规则 3 校验 |
 | 客户端报 `cannot unmarshal null ... streamWire...` | 纯工具调用消息的聚合体不设 `content` 键（`packages/core/gateway/src/http/wire/sse-stream.ts`），由 `packages/core/gateway/tests/sse-aggregate.test.ts` 断言 |
-| traecn 连续报 `4001 param is invalid`，会话此前一直正常 | 客户端把「纯思考无正文」的空壳 assistant 存进历史；共享层 `dropEmptyAssistantMessages()` 剔除（`packages/core/gateway/src/http/wire/openai-normalize.ts`，traecn 的 `buildChatBody` 接入） |
+| traecn 连续报 `4001 param is invalid`，会话前段一直正常 | 客户端把「纯思考无正文」的空壳 assistant 存进历史；共享层 `dropEmptyAssistantMessages()` 剔除（`packages/core/gateway/src/http/wire/openai-normalize.ts`，traecn 的 `buildChatBody` 接入） |
 
 > 引用只写「文件 + 函数名」，不写行号 —— 行号会随重构漂移，函数名稳定。
 

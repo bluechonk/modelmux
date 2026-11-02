@@ -65,17 +65,16 @@
 
 > `ttfbMs` 的语义是「**我们**什么时候开始回字节」，不是「上游什么时候开始吐字」：
 > 流式下两者几乎相同（收到首帧即转发），但**非流式下我们收完才写** —— 该值于是 ≈ `durationMs`，
-> 属正常现象，**不可当上游首帧耗时用**。要测生成速度用 `generateMs`（2026-10-30 修正：
-> 此前 TPS 用 `durationMs - ttfbMs`，非流式下分母趋 0，把 76 tokens/1309ms 算成 76000 t/s）。
+> 属正常现象，**不可当上游首帧耗时用**。要测生成速度用 `generateMs` ——
+> `durationMs - ttfbMs` 在非流式下分母趋 0（会把 76 tokens/1309ms 算成 76000 t/s），不可用作 TPS。
 >
 > `usage` 在**两条转发路径**上都会采集：渠道翻译器路径与 `openai` 线型的直通路径
-> （`http/wire/sse-stream.ts` 的 `relay`）。直通路径此前漏采集，导致 openai 线型渠道
-> （workbuddy / lobsterai / loomy / raccoon / workbuddyai）的流式请求没有该字段
+> （`http/wire/sse-stream.ts` 的 `relay`）。因此 openai 线型渠道
+> （workbuddy / lobsterai / loomy / raccoon / workbuddyai）的流式请求也有该字段。
 >
 > 读回时 `usage` 被归一化为 `tokens: { prompt, completion, total, cache }`，其中
 > `cache.{hit,miss}` 是**缓存命中**的归一化结果（各家字段名差异极大，规则见
 > [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) §6）。
-> （2026-10-24 修复）。
 
 ### 3.2 `outcome` 判定
 
@@ -186,7 +185,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 
 `log` 动词还有一个**维护**选项 `--compact`（检索之外的唯一入口；用法见 `--help` 与
 `log-triage` 技能）：它把**已封存**的抓取轮转段（`payload.log.1.log`…`.3.log`）里
-仍是明文的正文逐行重编码后原子替换，用于消化改造前的存量；压缩后没有变小就保持原文件。
+仍是明文的正文逐行重编码后原子替换，用于消化已落盘的明文正文存量；压缩后没有变小就保持原文件。
 只动封存段 —— 活跃段可能被并发追加，而本项目没有文件锁，重写它有丢记录的窗口。
 
 ## 8. 安全边界

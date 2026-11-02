@@ -72,4 +72,4 @@
 | 署名 / 审批留痕归 git blame | Google 同篇（历史归 version control） | 一致 |
 | TODO(owner) 格式 | Google 风格指南 TODO 惯例 | 一致 |
 | **时效地雷例外**（日期绑事实上） | 业界少有成文；为逆向 / 外部依赖型项目所需（观测时点 = 结论新鲜度），且与「禁 changelog」不冲突——它不是修订记录 | 本仓增量 |
-| 注释标准内联进 AGENTS.md / 全局指令（模型上下文直达） | VS Code 官方 custom instructions、OpenAI Codex 社区、Anthropic（checkable 规则、≤200 行） | 已落地（全局 AGENTS 内联底线） |
+| 注释标准内联进 AGENTS.md / 全局指令（模型上下文直达） | VS Code 官方 custom instructions、OpenAI Codex 社区、Anthropic（checkable 规则、≤200 行） | 全局 AGENTS 内联底线 |

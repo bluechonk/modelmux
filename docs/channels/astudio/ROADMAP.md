@@ -22,11 +22,10 @@
 | 7 | 真实模型请求 chat url | **已实现** | 不变 |
 | 8 | 每日签到逻辑 | **已实现**（但当时判成「无端点」是错的） | **已修复**：真签到（`init-app` 发奖 + 关横幅 + 下载奖励），`signin: true` |
 
-### 0.1 第 1 项：**结论已反转** —— 不是架构不可行，是**之前测错了路径**
+### 0.1 第 1 项：登录端点可以**云端直连**
 
-本文档 2026-10-26 上午的版本写「登录端点只存在于本地服务代理层、
-架构上无法独立调用」。**那是错的**：`/api/astron-auth/*` 是桌面应用
-**本地服务代理层**的前缀，云端账号 API 的路径**没有这个前缀**。
+云端账号 API 的路径**不带** `/api/astron-auth/*` 前缀 —— 那是桌面应用
+**本地服务代理层**的前缀。按带前缀的路径探测，就会误判成「架构上无法独立调用」。
 
 依据：参考实现
 `packages/core/channels/astudio/reference/2951461586_AStudio2API/internal/astron/login.go`
@@ -49,18 +48,18 @@
 **仍然堵死的只有本地服务那条路**（应用进程内存里的活会话，外部进不去），
 而它现在是**兜底**：CLI 没有界面 → 走「读桌面应用会话文件」那条路。
 
-### 0.2 本次实现改了什么
+### 0.2 实现落点（按文件）
 
-| 文件 | 改动 |
+| 文件 | 内容 |
 | --- | --- |
-| `packages/core/channels/astudio/src/cred.ts` | 删假授权链接；**新增手机号+验证码登录**（云端直连）；`force` 重读（修 `relogin` 死结）；`/userInfo` 补全（尽力而为）；显式回落展示名；补 `domain`/`accessToken` 契约字段；`banned` 抛错；新增 `logout()`；支持 `pasteCode` |
+| `packages/core/channels/astudio/src/cred.ts` | 手机号+验证码登录（云端直连）；`force` 重读（解 `relogin` 死结）；`/userInfo` 补全（尽力而为）；显式回落展示名；补 `domain`/`accessToken` 契约字段；`banned` 抛错；`logout()`；支持 `pasteCode` |
 | `packages/core/channels/astudio/src/upstream.ts` | 新增 `userInfoUrl()` / `fetchUserInfo()`；**新增认证链路**：`fetchGeetestConfig()` / `sendSmsCode()` / `loginWithSms()` / `fetchTenantState()` / `fetchPointsBalance()`（multipart 构造 + 信封解析 + `uid` 归一化） |
 | `packages/core/channels/astudio/src/catalog.ts` | `modelSpec()` 透出 `effort` 与 `multiplier`；倍率表改为**只填实测值**（5 个未知） |
 | `packages/core/gateway/src/runtime/channel.ts` | `LoginUi.requestInput` 已在；`LoginInputRequest` 增 `kind: "captcha"` 与 `captcha` 参数；`CredModule` 增可选 `logout?()`；`modelSpec?` 契约增 `effort`/`multiplier`；`login()` options 增 `requestInput` / `force` |
 | `packages/core/gateway/src/pool/pool-targets.ts` | 倍率四层回落增 `spec` 层（**不走跨渠道** —— 那是渠道自己的计费口径） |
 | `packages/core/gateway/src/auth/auth-flow.ts` | `force` 透传给 `cred.login()` |
 | `packages/core/gateway/src/runtime/account-pool.ts` | `purgeCredentials` 探测顺序修正（先探后删，否则永远报「本来就没有」） |
-| `packages/core/gateway/src/app/cli/channel.ts` | 新增 `logout` 动词（接上 `purgeCredentials`，此前是死代码） |
+| `packages/core/gateway/src/app/cli/channel.ts` | `logout` 动词（接上 `purgeCredentials`） |
 | `docs/MODEL-SPECS.md` | 不登记渠道章节 —— 该文件只描述全局规格文件（`model-specs.json`）与取值链；astudio 的逐型号规格落在 `catalog.modelSpec()` |
 
 ### 动手前必须先定的两个前提
@@ -456,11 +455,11 @@ astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels
    `runtime/channel.ts` 的 `modelSpec?` 契约同时带上 `effort?` 与 `multiplier?`，
    池层 `packages/core/gateway/src/pool/pool-targets.ts` 读 `facts.spec?.effort` / `facts.spec?.multiplier`。
    （路线 b「让 astudio 写目录缓存」与路线 c「新增目录元数据钩子」均未采纳。）
-   **当时待核的倍率数字（1/1/1/1/2/2/1）已核实**：云端 `/bot/models/configs`
+   **倍率已核实**：云端 `/bot/models/configs`
    只有 `xopglm52` / `xopdeepseekv4pro` 两行有 `point_multiplier`（均 x2.0），
    其余 5 个云端没有对应行 → 一律**省略**（`undefined`，不编造 1）。见 [PROTOCOL.md](./PROTOCOL.md) §6.2。
-2. **（已消解）补 `docs/MODEL-SPECS.md` 的 astudio 章节** —— 该文件已改为只描述全局规格
-   文件与取值链（§0 / §4），逐型号规格落在渠道 `catalog.modelSpec()`，不再要求在此登记。
+2. **（已消解）补 `docs/MODEL-SPECS.md` 的 astudio 章节** —— 该文件只描述全局规格
+   文件与取值链（§0 / §4），逐型号规格落在渠道 `catalog.modelSpec()`，无需在此登记。
 3. **`reasoning` / `thinking` 别名**：上游也接受这两个（PROTOCOL §6.1），
    但 `buildChatBody` 只校验 `reasoning_effort` → 客户端发这两个会**原样透传**，
    不受档位表约束（行为上大概率没问题，但不受控）。
@@ -469,19 +468,19 @@ astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels
 
 - `GET /v1/models` 里 astudio 的 7 个模型，`effort` 不再是 `null`；**已达成**
 - 倍率要么是实测值、要么如实显示「未知」，**不能是编造的 1**；**已达成**（5 个省略、2 个实测 x2.0）
-- `docs/MODEL-SPECS.md` 有 astudio 章节 → **已消解**（规格落点改为渠道代码，无需登记）
+- `docs/MODEL-SPECS.md` 不登记 astudio 章节 —— 规格落点在渠道代码，无需登记
 
 ---
 
-## 7. 真实模型请求 chat url — 已实现（2026-10-26 修过主机名）
+## 7. 真实模型请求 chat url
 
 ### 现状
 
 - `chatUrlForModel(model)`（`packages/core/channels/astudio/src/upstream.ts`）→
   **按模型**取云端配置里那行的 `base_url` + `/chat/completions`
   （共享层新增的可选钩子 `UpstreamModule.chatUrlForModel?`）。
-- 此前硬编码 `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
-  —— **实测对所有模型 404**（`API endpoint not found`）。
+- 固定主机名 `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/chat/completions`
+  实测**对所有模型 404**（`API endpoint not found`）。
   真正的主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`（9 个模型里 8 个走它，
   只有 `spark-x` 走 `spark-api-open.xf-yun.com/agent/v1`）。详见 PROTOCOL §6.1。
 - `buildHeaders()` → **只发** `Authorization: Bearer <modelBearerToken>`
@@ -506,7 +505,7 @@ astudio 的规格落在自己的 `catalog.modelSpec()`（`packages/core/channels
 
 ---
 
-## 8. 每日签到逻辑 — 已实现（2026-10-26 修正：此前误判为「无端点」）
+## 8. 每日签到逻辑
 
 ### 现状
 
@@ -523,7 +522,7 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 `packages/core/channels/astudio/src/channel.ts`：
 `capabilities: { billing: true, signin: true }`。
 
-**为什么此前判成「无签到端点」**：又是**路径前缀**的坑 ——
+**为什么容易判成「无签到端点」**：路径前缀的坑 ——
 `/api/astron-auth/*` 与 `/api/astron-client-popups/*` 是**本地服务代理层**的路径，
 云端账号 API 的路径**没有这些前缀**（同 §5）。
 

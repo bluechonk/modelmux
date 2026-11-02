@@ -40,7 +40,7 @@ mx log --list
 | 指定日期 | `mx log --date YYYY-MM-DD --kind access --outcome failure` |
 | **压缩存量正文**（维护，非检索） | `mx log --compact` 就地压**已封存**的抓取轮转段（新写入的正文本就已压缩）；不动活跃段，`--json` 出机器可读统计 |
 
-> `--compact` 是唯一与检索无关的选项：用于消化改造前落盘的明文正文（正文落盘形态见
+> `--compact` 是唯一与检索无关的选项：用于消化已落盘的明文正文（正文落盘形态见
 > [LOGGING.md](../../../docs/LOGGING.md) §9）。**别拿它当日常动作** —— 新数据自动压缩。
 
 - `mx log` 默认是 system 日志；查请求必须加 `--kind access`。
