@@ -17,6 +17,7 @@ import { useState, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
+import { parseLenient } from "../lib/lenient-json";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
 import { CopyButton, CopyChip } from "./CopyChip";
@@ -320,8 +321,13 @@ function ToolDefinitions({ tools }: { tools: unknown[] }): ReactElement {
  * 一份抓取记录。
  *
  * `phase=client` 是客户端原样体（messages 形态，逐条渲染的主战场）；
- * `phase=upstream` 是真正发出去的体 —— 有的渠道不是 OpenAI 形态（catpaw 用
- * `requestContext` / `message` 自有字段），此时整段呈现并明确说明，别让人以为丢数据。
+ * `phase=upstream` 是真正发出去的体 —— 大多数渠道也是 OpenAI 形态（含 astudio /
+ * workbuddy / loomy 等的 MB 级 agent 上下文）；真正解不开的（qodercn 的编码体、
+ * catpaw 的自有字段）才整段原文呈现并明确说明，别让人以为丢数据。
+ *
+ * 正文是**分片**到达的：首屏前缀不是合法 JSON，`JSON.parse` 必然失败 ——
+ * 那不是「自编码体」，宽松解析（`parseLenient`）能把前缀里已完整的消息抢救成卡片，
+ * 「加载更多」每片推进都会多拆出一批。
  */
 /** 首屏取多少正文（与服务端分片默认值一致）。 */
 const PAYLOAD_SLICE = 64 * 1024;
@@ -350,10 +356,17 @@ function PayloadBlock({
     enabled: record.body === "",
     staleTime: 60_000,
   });
-  const body = record.body !== "" ? record.body : loaded;
+  // 首片自动进正文：slice.data 到达即视为已加载。旧实现只在点「加载更多」时拼接，
+  // 首屏 loaded 恒为空串 → parseLenient 拿到空文本 → 永远走 raw 兜底（拆分从不生效）。
+  const firstSlice = slice.data?.body ?? "";
+  const body = record.body !== "" ? record.body : loaded === "" ? firstSlice : loaded;
   const total = slice.data?.total ?? record.bytes;
-  const more = record.body === "" && offset + PAYLOAD_SLICE < total;
-  const parsed = record.truncated ? null : parseJsonObject(body);
+  const more = record.body === "" && (loaded === "" ? PAYLOAD_SLICE : offset + PAYLOAD_SLICE) < total;
+  // 宽松解析：完整 JSON 走严格路径；截断前缀抢救已完整的消息（信封也在此剥开）。
+  // truncated 记录不再尝试解析（双端截断的正文拼不出真实消息序）。
+  const lenient = record.truncated ? null : parseLenient(body);
+  const parsed = lenient?.top ?? null;
+  const partial = lenient?.truncated ?? false;
   const messages = parsed !== null && Array.isArray(parsed["messages"]) ? parsed["messages"] : null;
   const tools = parsed !== null && Array.isArray(parsed["tools"]) ? parsed["tools"] : null;
   const rest =
@@ -385,7 +398,7 @@ function PayloadBlock({
             <p className="text-xs text-ink-faint">
               {record.truncated
                 ? "正文超出单条上限已被截断，按原文呈现（不再尝试解析）。"
-                : "正文不是 JSON 对象（自编码请求体），按原文呈现。"}
+                : "正文不是可解析的请求体（编码或渠道自有格式），按原文呈现。"}
             </p>
             <JsonBlock value={body} maxHeight="max-h-[50vh]" />
           </>
@@ -399,6 +412,12 @@ function PayloadBlock({
             {messages?.map((message, index) => (
               <MessageCard key={index} message={message} index={index} />
             ))}
+            {partial && (
+              <p className="text-xs text-ink-faint">
+                正文较长，已显示前 {formatCount(offset + PAYLOAD_SLICE)} 字符内的完整消息 ——
+                用下方「加载更多」继续读取。
+              </p>
+            )}
             {tools !== null && <ToolDefinitions tools={tools} />}
             {restKeys.length > 0 && (
               <Disclosure summary={`其余参数（${restKeys.join("、")}）`}>
@@ -419,7 +438,7 @@ function PayloadBlock({
                 className="ml-auto rounded-md border border-line px-2 py-0.5 text-ink-soft hover:bg-overlay hover:text-ink"
                 onClick={() => {
                   setLoaded(body + (slice.data?.body ?? ""));
-                  setOffset(offset + PAYLOAD_SLICE);
+                  setOffset(loaded === "" ? PAYLOAD_SLICE : offset + PAYLOAD_SLICE);
                 }}
               >
                 加载更多（+{formatBytes(PAYLOAD_SLICE)}）
