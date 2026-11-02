@@ -640,8 +640,12 @@ export async function runServe(options: ServeOptions): Promise<number> {
       state.beginLogin();
       // 把 state 当观察者传给登录流程：控制台没有 stdout 可看，
       // 授权链接必须落到 `/web/api/state`，否则页面永远等不到 auth_url。
-      void runLogin({ cid, force, json: true, realm: "auto", observer: state }).catch(() => {
-        // 登录失败会反映在后续 /web/api/state 的 auth_url 或 gateway_error 上
+      void runLogin({ cid, force, json: true, realm: "auto", observer: state }).catch((err) => {
+        // 正常失败（拒绝授权/上游 4xx）会经 observer.setState("error") 反映到 /api/state；
+        // 走到这里的只能是在**任何 setState 之前**就抛的错（渠道装配、baseUrl 解析等）
+        // —— 不留痕的话控制台永远停在 probing，无任何可查线索。
+        appendError(`web login failed before first state update (channel ${cid}): ${String(err)}`);
+        state.setState("error", `login failed: ${String(err)}`);
       });
     },
     // 用户把回调链接粘回来 → 交给正在跑的那轮登录（一次性 code 的兜底通道）

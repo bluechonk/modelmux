@@ -618,28 +618,14 @@ function ensureSlash(value: string): string {
 }
 
 /**
- * 端点与常量（显式化）。
+ * 端点与常量。全表（方法 / URL / query / body 来源）见
+ * docs/channels/workbuddy/PROTOCOL.md §5 —— 协议事实不在代码里维护副本。
  *
- * 国内版（`copilot.tencent.com`）与国际版（`www.workbuddy.ai`）**共用同一套路径**，
- * 只有 host 不同。下表逐条给出「方法 + 完整 URL + 端点路径 + query/body 来源」：
- *
- * | 用途 | 方法 | 完整 URL（国内版） | query / body |
- * | --- | --- | --- | --- |
- * | chat（流式） | POST | `https://copilot.tencent.com/v2/chat/completions` | 无 query；body 由 `buildChatBody` 归一化 |
- * | 真目录 | GET | `https://copilot.tencent.com/v3/config` | 无 query |
- * | 窄表（企业） | GET | `https://copilot.tencent.com/v2/enterprises/personal/models`（兜底 `/console/…`） | 无 query |
- * | 令牌刷新 | POST | `https://copilot.tencent.com/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 |
- * | 登录 state | POST | `https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy` | `platform`（见 `cred.ts`） |
- * | 登录轮询 | GET | `https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | `state` |
- * | 账号档案 | GET | `https://copilot.tencent.com/v2/plugin/login/account?state=<state>` | `state`；带 `Authorization` |
- * | 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | 无 query；body 带分页与 `ProductCode` |
- * | 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
- *
- * `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
- * chat 路径加它实测 404（见文件头注释）。
- * 计费域在参考实现里是**另一个 host**（`www.codebuddy.cn`，go
- * `internal/upstream/client.go:875`）；本渠道实测复用 chat base 可通，**未分离**
- * —— 登记在 `docs/channels/workbuddy/PROTOCOL.md`「已知边界」。
+ * 实现侧取舍只留两条：
+ * - `/plugin` 前缀**只用于 auth 族**（官方 `product.json` 的 `prefixPath`）：
+ *   chat 路径加它实测 404（见文件头注释）；
+ * - 计费域在参考实现里是另一个 host（`www.codebuddy.cn`）；本渠道实测复用
+ *   chat base 可通，**未分离** —— 登记在 PROTOCOL「已知边界」。
  */
 
 /** 完整限定的 chat-completions URL。 */
