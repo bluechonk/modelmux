@@ -1050,7 +1050,24 @@ type BodyEncoding = "zstd" | "gzip" | "plain";
 /** 小于这个长度不值得压缩：压缩后还要 base64，体积可能反而变大。 */
 const PAYLOAD_COMPRESS_MIN_BYTES = 4096;
 
+/**
+ * 分块压缩的块大小（明文字节）。
+ *
+ * 为什么是 1 MiB：块越小存储开销越大 —— 实测（3.77 MB 真实正文）256K 块比整条压缩
+ * 多 15.5%、512K 多 10.5%、1M 只多 5.4%；而读取路径按块解压，1 MiB 的块解一次
+ * 仍是毫秒级。dsh 的会话日志按「每个 append batch 一帧」，本仓的 batch 就是整条正文，
+ * 单帧会把「取一片 64 KiB」逼成「解压全量」，所以这里把一条正文切成多帧。
+ */
+const PAYLOAD_CHUNK_BYTES = 1024 * 1024;
+
 const hasZstd = (): boolean => typeof zlib.zstdCompressSync === "function";
+
+interface PackedBody {
+  body?: string;
+  bodyEnc?: BodyEncoding;
+  bodyB64?: string;
+  bodyChunks?: string[];
+}
 
 /**
  * 把正文压成可内联进 JSON 行的形态。
@@ -1059,32 +1076,54 @@ const hasZstd = (): boolean => typeof zlib.zstdCompressSync === "function";
  * （2 天 114 条正文，唯一 114 条；client 与 upstream 正文也无一字节相同），
  * 去重只多出一层目录与必须配套的 GC，收益为零。压缩才是这里的真实杠杆
  * （实测 agent 上下文正文 2.9x，见 docs/LOGGING.md §9）。
+ *
+ * 大正文按 `PAYLOAD_CHUNK_BYTES` 切成多帧（dsh 式）：读取按块局部解码，
+ * 取一片不必解全量 —— 这是「上下文弹窗分片读取」的后端前提。
  */
-function packBody(body: string): { body?: string; bodyEnc?: BodyEncoding; bodyB64?: string } {
+function packBody(body: string): PackedBody {
   const buf = Buffer.from(body, "utf8");
   if (buf.length < PAYLOAD_COMPRESS_MIN_BYTES) return { body, bodyEnc: "plain" };
-  try {
-    const enc: BodyEncoding = hasZstd() ? "zstd" : "gzip";
-    const packed = enc === "zstd" ? zlib.zstdCompressSync(buf) : zlib.gzipSync(buf);
-    return { bodyEnc: enc, bodyB64: packed.toString("base64") };
-  } catch {
-    // 压缩失败（内存/编码异常）就存原文：抓包的价值在「看得到」，压缩只是省空间
-    return { body, bodyEnc: "plain" };
+  const enc: BodyEncoding = hasZstd() ? "zstd" : "gzip";
+  const pack = (chunk: Buffer): Buffer =>
+    enc === "zstd" ? zlib.zstdCompressSync(chunk) : zlib.gzipSync(chunk);
+  const chunks: Buffer[] = [];
+  for (let off = 0; off < buf.length; off += PAYLOAD_CHUNK_BYTES) {
+    chunks.push(pack(buf.subarray(off, Math.min(off + PAYLOAD_CHUNK_BYTES, buf.length))));
   }
+  // 单块时直接落整帧（与旧行形态一致，省一层字段）；多块才走 bodyChunks
+  if (chunks.length === 1) return { bodyEnc: enc, bodyB64: chunks[0]!.toString("base64") };
+  return { bodyEnc: enc, bodyChunks: chunks.map((c) => c.toString("base64")) };
 }
 
 /** 解码 `packBody` 的产物；旧行的纯 `body` 由调用方直接取用。 */
-function unpackBody(enc: unknown, b64: unknown): string | null {
-  if (typeof b64 !== "string") return null;
-  try {
-    const buf = Buffer.from(b64, "base64");
-    if (enc === "zstd") return (hasZstd() ? zlib.zstdDecompressSync(buf) : null)?.toString("utf8") ?? null;
-    if (enc === "gzip") return zlib.gunzipSync(buf).toString("utf8");
-    return null;
-  } catch {
-    // 解不开（外因截断/损坏）→ 交给调用方当作「无正文」，绝不让读日志把接口打挂
+function unpackBody(rec: PackedBody): string | null {
+  const decode = (b64: string): Buffer | null => {
+    try {
+      const buf = Buffer.from(b64, "base64");
+      if (rec.bodyEnc === "zstd") return (hasZstd() ? zlib.zstdDecompressSync(buf) : null);
+      if (rec.bodyEnc === "gzip") return zlib.gunzipSync(buf);
+      return null;
+    } catch {
+      // 解不开（外因截断/损坏）→ 交给调用方当作「无正文」，绝不让读日志把接口打挂
+      return null;
+    }
+  };
+  const parts: Buffer[] = [];
+  if (rec.bodyChunks) {
+    for (const b64 of rec.bodyChunks) {
+      const part = typeof b64 === "string" ? decode(b64) : null;
+      // 任一块损坏就整条作废：拼接出的正文会比真实内容「看起来完整实则缺段」，更坑
+      if (!part) return null;
+      parts.push(part);
+    }
+  } else if (rec.bodyB64) {
+    const part = decode(rec.bodyB64);
+    if (!part) return null;
+    parts.push(part);
+  } else {
     return null;
   }
+  return Buffer.concat(parts).toString("utf8");
 }
 
 function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
@@ -1155,11 +1194,14 @@ export function noteUpstreamPayload(
 }
 
 /**
- * 就地压缩**已封存**的抓取轮转段（`payload.log.1.log`…`.3.log`）里仍是明文的正文。
+ * 就地压缩**已封存**的抓取轮转段（`payload.log.1.log`…`.3.log`）。
  *
  * 只动封存段：活跃段随时可能被并发追加，而本项目**没有文件锁**，
  * 重写它有丢记录的窗口。新写入的正文本就走压缩（见 `packBody`），
  * 这里的价值全在**改造前落盘的存量**（实测 82MB 里约 76MB 在封存段）。
+ *
+ * 重编码是**全形态**的：明文压成块、单帧旧行重切成分块 —— 让存量也吃到
+ * 「读取按块局部解码」的红利（dsh 的帧结构天生如此，存量该重写到同一形态）。
  *
  * 写临时文件再 `rename`（同目录内原子替换）；任何一步失败都保留原文件。
  */
@@ -1186,6 +1228,7 @@ function compactPayloadFile(file: string): { before: number; after: number } | n
     const before = statSync(file).size;
     const text = readFileSync(file, "utf8");
     const out: string[] = [];
+    let migrated = 0; // 单帧 → 分块的重编码数：零迁移说明该段没有改写价值
     for (const line of text.split("\n")) {
       if (line === "") continue;
       let raw: Record<string, unknown>;
@@ -1204,17 +1247,26 @@ function compactPayloadFile(file: string): { before: number; after: number } | n
       const body =
         typeof raw["body"] === "string"
           ? raw["body"]
-          : unpackBody(raw["bodyEnc"], raw["bodyB64"]);
+          : unpackBody(raw as PackedBody);
       if (body === null) {
         out.push(line);
         continue;
       }
-      const { body: _b, bodyEnc: _e, bodyB64: _x, ...rest } = raw;
-      out.push(JSON.stringify({ ...rest, ...packBody(body) }));
+      // 单帧行重编码为分块；重压后仍是单帧（不足两块）就原样保留（无收益不冒险）
+      const repacked = packBody(body);
+      if (repacked.bodyChunks === undefined) {
+        out.push(line);
+        continue;
+      }
+      const { body: _b, bodyEnc: _e, bodyB64: _x, bodyChunks: _c, ...rest } = raw;
+      migrated += 1;
+      out.push(JSON.stringify({ ...rest, ...repacked }));
     }
     const next = Buffer.from(`${out.join("\n")}\n`, "utf8");
-    // 没变小就别动（重写本身有风险，收益为零时不该冒险）
-    if (next.length >= before) return null;
+    // 重编码的目标是「读取按块局部解码」，体积略涨（实测 +3.5%，分块压缩率损失）
+    // 是接受的成本 —— 与明文压缩那次不同，这里的判据是**形态迁移完成**而非变小；
+    // 零迁移（该段没有单帧行可转）时没有改写价值，别动文件。
+    if (migrated === 0) return null;
     const tmp = `${file}.compact`;
     writeFileSync(tmp, next, "utf8");
     renameSync(tmp, file);
@@ -1267,12 +1319,12 @@ function parsePayloadLine(line: string, withBody = true): PayloadRecord | null {
       phase: str(raw["phase"]) ?? "unknown",
       bytes: num(raw["bytes"]) ?? 0,
       truncated: bool(raw["truncated"]) ?? false,
-      // 新行把正文压进 bodyB64（按 bodyEnc 解码）；旧行直接是 body 字符串。
-      // 两者都要能读 —— 已落盘的正文按保留期陪着老版本一起走完。
+      // 新行把正文压进 bodyChunks / bodyB64（按 bodyEnc 解码）；旧行直接是 body 字符串。
+      // 三种形态都要能读 —— 已落盘的正文按保留期陪着老版本一起走完。
       //
       // `withBody=false` 时**跳过解压**：解压是这条读路径上唯一的重量级操作
-      // （实测单行 1.2 MB 压缩 → 2.7x 明文），而列表与首屏只需要元数据。
-      body: withBody ? str(raw["body"]) ?? unpackBody(raw["bodyEnc"], raw["bodyB64"]) ?? "" : "",
+      // （实测单行 1.2 MB 压缩 → 数 MB 明文），而列表与首屏只需要元数据。
+      body: withBody ? str(raw["body"]) ?? unpackBody(raw as PackedBody) ?? "" : "",
       bodyEnc: str(raw["bodyEnc"]) || (str(raw["body"]) ? "plain" : ""),
     };
     const attempt = num(raw["attempt"]);
@@ -1342,10 +1394,66 @@ export function readPayloads(
 export const PAYLOAD_SLICE_BYTES = 64 * 1024;
 
 /**
+ * 找到目标记录并返回**原始压缩块**（不解压）。
+ *
+ * 供分片读取按块局部解码：`offset` 落在第几块，就只解第几块。
+ * 三种落盘形态统一成块序列：明文 `body` 视作一块未压缩、单帧 `bodyB64` 一块、
+ * 分块 `bodyChunks` 多块。找不到记录返回 `null`。
+ */
+function locatePayloadChunks(
+  id: string,
+  date: string | undefined,
+  phase: string | undefined,
+): { enc: string; chunks: string[]; plain: boolean } | null {
+  for (const day of date !== undefined && date !== "" ? [date, previousDay(date)] : payloadDates()) {
+    for (const file of payloadFiles(day)) {
+      let text: string;
+      try {
+        text = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      for (const line of text.split("\n")) {
+        if (line === "" || !line.includes(id)) continue;
+        const rec = parsePayloadLine(line, false);
+        if (!rec || rec.id !== id) continue;
+        if (phase !== undefined && rec.phase !== phase) continue;
+        let raw: Record<string, unknown>;
+        try {
+          const parsed: unknown = JSON.parse(line);
+          raw = (parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed
+            : {}) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        // 明文行（旧格式）：`parsePayloadLine(…, false)` 会把 body 置空，这里从原始行取
+        if (typeof raw["body"] === "string") {
+          if (raw["body"] === "") continue;
+          return { enc: "plain", chunks: [raw["body"]], plain: true };
+        }
+        const chunks = Array.isArray(raw["bodyChunks"])
+          ? raw["bodyChunks"].filter((c): c is string => typeof c === "string")
+          : typeof raw["bodyB64"] === "string"
+            ? [raw["bodyB64"] as string]
+            : [];
+        if (chunks.length === 0) continue;
+        return { enc: rec.bodyEnc ?? "zstd", chunks, plain: false };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * 按字节窗口读取某条记录的正文分片。
  *
  * 为什么需要它：单条正文解压后可达 MB 级，首屏塞整段会把弹窗拖到秒级。
  * 调用方先取元数据（`withBody: false`），再按 `offset`/`limit` 逐片取正文。
+ *
+ * 落盘是**分块的**（dsh 式多帧，`PAYLOAD_CHUNK_BYTES` 一块），所以本函数只解压
+ * `offset` 命中的那一块 —— 旧版这里会整条解压，单条 9 MB 正文取 64 KiB 也要先
+ * 花几十毫秒解全量。
  *
  * @param phase 指定取哪一份（`client` / `upstream`）；不指定则取第一条有正文的记录。
  * @returns `{ offset, length, total, body }`；未命中返回 `null`
@@ -1357,13 +1465,47 @@ export function readPayloadSlice(
   offset = 0,
   limit = PAYLOAD_SLICE_BYTES,
 ): { offset: number; length: number; total: number; body: string } | null {
-  const records = readPayloads(id, date, { withBody: true }).filter(
-    (r) => phase === undefined || r.phase === phase,
-  );
-  const rec = records.find((r) => r.body !== "") ?? records[0];
-  if (!rec) return null;
-  const total = rec.body.length;
+  const located = locatePayloadChunks(id, date, phase);
+  if (!located) return null;
+  // 明文块：字符语义与压缩块的字节语义在切片上是同一回事（UTF-8 直读）
+  if (located.plain) {
+    const raw = located.chunks[0] ?? "";
+    const start = Math.max(0, Math.min(offset, raw.length));
+    const end = Math.max(start, Math.min(start + limit, raw.length));
+    return { offset: start, length: end - start, total: raw.length, body: raw.slice(start, end) };
+  }
+  const decode = (b64: string): Buffer | null => {
+    try {
+      const buf = Buffer.from(b64, "base64");
+      if (located.enc === "zstd") return hasZstd() ? zlib.zstdDecompressSync(buf) : null;
+      if (located.enc === "gzip") return zlib.gunzipSync(buf);
+      return null;
+    } catch {
+      // 解不开（外因截断/损坏）→ 当作无正文，绝不让读日志把接口打挂
+      return null;
+    }
+  };
+  // 逐块解到命中区间为止：`offset`/`limit` 落在前几块时，后面的块根本不解 ——
+  // 这是分块存储对读取路径的全部意义。命中的片段拼在 accumulated 之上。
+  let total = 0;
+  let accumulated = Buffer.alloc(0);
+  let hit = false;
+  for (const b64 of located.chunks) {
+    const part = decode(b64);
+    if (!part) return null;
+    const chunkStart = total;
+    total += part.length;
+    const hitStart = Math.max(offset, chunkStart);
+    const hitEnd = Math.min(offset + limit, total);
+    if (hitEnd > hitStart) {
+      accumulated = Buffer.concat([
+        accumulated,
+        part.subarray(hitStart - chunkStart, hitEnd - chunkStart),
+      ]);
+      hit = true;
+    }
+  }
+  if (!hit) return null;
   const start = Math.max(0, Math.min(offset, total));
-  const end = Math.max(start, Math.min(start + limit, total));
-  return { offset: start, length: end - start, total, body: rec.body.slice(start, end) };
+  return { offset: start, length: Math.min(limit, total - start), total, body: accumulated.toString("utf8") };
 }
