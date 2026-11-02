@@ -101,7 +101,16 @@ export function resolvePoolRoute(
   // 最多试 maxPoolAttempts() 个。全池都在冷却时回退到完整候选——冷却只是短暂
   // 状态，服务不能因此不可用。
   const ranked = rankCandidates(candidates);
-  const authed = ranked.filter((c) => loadCredentialSafe(c.channel) !== null);
+  // 凭据读取的「真实故障」（文件损坏等，非未登录）逐渠道记日志并剔除 ——
+  // 不能静默当未登录（误导用户去 login），也不该整条请求 500（其他渠道可能还健康）
+  const authed = ranked.filter((c) => {
+    try {
+      return loadCredentialSafe(c.channel) !== null;
+    } catch (err) {
+      logger(`pool: credential load failed (channel ${c.cid}): ${String(err)}`);
+      return false;
+    }
+  });
   if (authed.length === 0) {
     writeJsonError(
       res,

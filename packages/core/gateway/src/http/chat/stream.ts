@@ -38,6 +38,40 @@ const FIRST_TOKEN_IDLE_MS = 120_000;
 /** 首帧等待期的心跳间隔：上游零字节时向客户端补 SSE 注释帧（`: ping`）防空闲断开。 */
 const FIRST_BYTE_HEARTBEAT_MS = 5_000;
 
+/**
+ * 流中继错误的统一收尾：按 custom 分支的同一套分类记账并向客户端写 SSE 错误帧。
+ *
+ * 两条线型（openai / custom）必须同口径 —— 否则同一个上游故障，换条线型客户端
+ * 就从「收到结构化错误」变成「连接被静默掐断」。
+ */
+function relayError(res: ServerResponse, logger: (m: string) => void, err: unknown): void {
+  const code = (err as { code?: string } | null)?.code;
+  const name = (err as { name?: string } | null)?.name;
+  if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE") {
+    // 客户端提前断开（如主动取消请求）属正常情况
+    noteClientDisconnect(res);
+    logger("client disconnected, stopping relay");
+    return;
+  }
+  if (name === "TimeoutError" || /timeout/i.test(String(err))) {
+    noteRequestError(res, "upstream_timeout", `upstream stream timed out: ${String(err)}`);
+    logger(`upstream stream timed out: ${String(err)}`);
+    if (!res.writableEnded) {
+      res.write(
+        `data: ${JSON.stringify({ error: { code: "upstream_timeout", message: `upstream stream timed out: ${String(err)}` } })}\n\n`,
+      );
+    }
+    return;
+  }
+  noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
+  logger(`upstream stream failed: ${String(err)}`);
+  if (!res.writableEnded) {
+    res.write(
+      `data: ${JSON.stringify({ error: { message: `upstream stream failed: ${String(err)}` } })}\n\n`,
+    );
+  }
+}
+
 /** 心跳间隔可用环境变量覆盖（测试与长部署按需调整）。 */
 function heartbeatMs(): number {
   const raw = process.env["MODELMUX_HEARTBEAT_MS"];
@@ -117,12 +151,19 @@ export async function relayStream(
   pendingFrames: Buffer[] = [],
 ): Promise<void> {
   if (!isCustomWire(channel)) {
-    await sseStream.relay(res, upstreamBody, contentType, cid, {
-      // 上游是 openai 线型时响应语义一定是 SSE；content-type 常被上游写错，
-      // 不能拿它决定要不要兜底，否则 DSML 会原样漏给客户端。
-      dsml: new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)),
-      prefix: pendingFrames,
-    });
+    // openai 线型的流中途错误也必须以 SSE 错误帧收尾 —— 与下方 custom 分支同一套
+    // 分类（断连 / 超时 / 其他）。放任重抛会穿到 server.ts 顶层：headers 已发时只能
+    // 静默 res.end()，客户端只见 SSE 截断（无错误帧、无 [DONE]，tool_call 参数可能截坏）。
+    try {
+      await sseStream.relay(res, upstreamBody, contentType, cid, {
+        // 上游是 openai 线型时响应语义一定是 SSE；content-type 常被上游写错，
+        // 不能拿它决定要不要兜底，否则 DSML 会原样漏给客户端。
+        dsml: new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)),
+        prefix: pendingFrames,
+      });
+    } catch (err) {
+      relayError(res, logger, err);
+    }
     return;
   }
 
@@ -188,29 +229,7 @@ export async function relayStream(
       res.write(buf);
     }
   } catch (err) {
-    const code = (err as { code?: string } | null)?.code;
-    const name = (err as { name?: string } | null)?.name;
-    if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE") {
-      // 客户端提前断开（如主动取消请求）属正常情况
-      noteClientDisconnect(res);
-      logger("client disconnected, stopping relay");
-    } else if (name === "TimeoutError" || /timeout/i.test(String(err))) {
-      noteRequestError(res, "upstream_timeout", `upstream stream timed out: ${String(err)}`);
-      logger(`upstream stream timed out: ${String(err)}`);
-      if (!res.writableEnded) {
-        res.write(
-          `data: ${JSON.stringify({ error: { code: "upstream_timeout", message: `upstream stream timed out: ${String(err)}` } })}\n\n`,
-        );
-      }
-    } else {
-      noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
-      logger(`upstream stream failed: ${String(err)}`);
-      if (!res.writableEnded) {
-        res.write(
-          `data: ${JSON.stringify({ error: { message: `upstream stream failed: ${String(err)}` } })}\n\n`,
-        );
-      }
-    }
+    relayError(res, logger, err);
   } finally {
     // 客户端断开或上游异常时也要触发翻译器收尾（渠道可在 finish 里回报会话完成）
     try {

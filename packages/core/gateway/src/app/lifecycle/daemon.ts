@@ -231,12 +231,21 @@ export async function start(options: StartOptions = {}): Promise<number> {
     log(`网关已启动: ${baseUrlOf(addr)} (PID ${child.pid})`);
     return 0;
   }
+  if (child.exitCode !== null) {
+    // 守护进程**启动即退**（端口被占、代码抛错）：真实退出码比「超时」诚实得多 ——
+    // 「可能仍在启动中」对已死的进程是撒谎，脚本会白等满 waitMs。
+    appendSystem("start_exited", { addr, pid: child.pid ?? null, exit_code: child.exitCode });
+    log(`网关启动即退（exit ${child.exitCode}，PID ${child.pid}，日志 ${scope.logPath()}）`);
+    return strict ? 1 : 0;
+  }
   appendSystem("start_timeout", { addr, pid: child.pid ?? null, wait_ms: waitMs });
   log(
     `启动等待 ${waitMs / 1000}s 超时（PID ${child.pid}，日志 ${scope.logPath()}）；` +
       `可能仍在启动中 —— 用 ${name} status 确认`,
   );
-  return strict ? 1 : 0;
+  // 默认非零：`mx start && 下一步` 的脚本拿到退出 0 的「假成功」比失败更糟（hook 场景
+  // 显式传 --strict 的历史语义保留，但不再替交互调用撒谎）。
+  return strict || auto ? 0 : 1;
 }
 
 /**

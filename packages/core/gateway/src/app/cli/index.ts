@@ -77,7 +77,7 @@ ${groupLines("渠道").join("\n")}
          --verbose 打印每个上游请求  --no-console 不起控制台 API
   path    --all 全部渠道  --workspace <dir> 工作区根
   其它    --ui-port <port> 控制台端口  --auto 受 auto_start 约束
-         --strict 启动失败非零退出
+         --strict 兼容保留（启动失败现在恒非零退出，无需再显式传）
          help | version 显示帮助 / 版本（-h --help / -v --version）
 
 示例:
