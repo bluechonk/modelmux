@@ -665,6 +665,13 @@ spark-x 适合不在乎延迟的批量任务。
 倍率 2 的模型几轮就能烧掉几千分 —— 2026-10-22 实测当天 `dailyConsumed=4022`（就是 DSH
 跑 `deepseek-v4.1-flash` 烧的）。**要免费就把交互式会话切到 `loomy/spark-x`。**
 
+### 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `LOOMY_ACCOUNT_BASE_URL` | 覆盖**账号域**基址（镜像 / 测试），未设用 `https://account.xfinfr.com`；业务域（`loomyad.xunfei.cn`）无覆盖入口 |
+| `LOOMY_MODELS_FILE` | 模型表文件注入：作为候选路径的第一位（缺失再回落 cwd / 包内 / 随包快照，见 §5.4） |
+
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：

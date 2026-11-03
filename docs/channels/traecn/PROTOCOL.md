@@ -767,6 +767,14 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 - **模型 id 大小写混排**（`deepseek-v4.1-flash` 与 `DeepSeek-V4-Flash-Official` 并存），
   池白名单在共享层做 case-insensitive 匹配（§5.0）。
 
+### 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `TRAE_OAUTH_HOST` | 覆盖上游 OAuth host（离线自检用） |
+| `TRAE_UG_HOST` | 覆盖签到 host（离线自检用） |
+| `TRAE_MODELS_FILE` | 模型表文件注入：作为候选路径的第一位（缺失再回落 cwd / 包内 / 随包快照） |
+
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
