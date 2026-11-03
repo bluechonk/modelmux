@@ -522,7 +522,7 @@ def raccoon_supports_image(model_id, tags):
 | `sensenova-6.8-flash` | （留空） | （留空） | 官方无公开规格 |
 | `sensenova-6.8-flash-lite` | （留空） | （留空） | 官方无公开规格 |
 
-来源：渠道静态规格表（`packages/core/channels/raccoon/src/catalog.ts` 的 `MODEL_SPECS`，联网核实的唯一事实源）；
+来源：渠道包根的 `models.json`（联网核实的唯一事实源）；
 全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)；
 **官方无公开规格的型号一律留空**（回落兜底值），不编造数字。
 

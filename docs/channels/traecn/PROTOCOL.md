@@ -571,7 +571,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 | `qwen3.8-max` | 1_000_000 | 131_072 | 公开规格 |
 | `step-5-preview` | 1_048_576 | 65_536 | 公开规格 |
 
-数值落点为渠道静态表 `packages/core/channels/traecn/src/catalog.ts` 的 `MODEL_SPECS`（与本文一致）；
+数值落点为渠道包根的 `models.json`（与本文一致）；
 全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
 
 **留空（官方无公开规格 / 非公开型号）**：
