@@ -123,14 +123,16 @@ export interface StartOptions {
  * 守护式启动网关：幂等；返回 0 表示「在跑或已交由后台处理」。
  *
  * `auto`（hook 场景）时受 prefs 的 auto_start 开关约束；
- * `strict` 时失败以非零码退出（默认只报告，不阻塞调用方 —— hook 不能卡会话）。
+ * 退出码语义：**启动失败恒非零**（脚本 `mx start && 下一步` 不该拿到假成功），
+ * 只有 `auto`（hook 场景）才吞掉失败 —— hook 不能卡住会话。`--strict` 仍被接受但
+ * 已是幂等选项（默认即严格），保留以免旧脚本报「未知选项」。
  */
 export async function start(options: StartOptions = {}): Promise<number> {
   const scope = scopeOf(options.cid);
   const addr = options.addr ?? defaultAddr(options.cid);
   const uiPort = options.uiPort ?? defaultUiPort(options.cid);
   const waitMs = options.waitMs ?? DEFAULT_WAIT_MS;
-  const { quiet = false, auto = false, force = false, strict = false } = options;
+  const { quiet = false, auto = false, force = false } = options;
   const name = scope.name;
   const log = (m: string): void => {
     if (!quiet) console.log(`[${name}] ${m}`);
@@ -232,20 +234,20 @@ export async function start(options: StartOptions = {}): Promise<number> {
     return 0;
   }
   if (child.exitCode !== null) {
-    // 守护进程**启动即退**（端口被占、代码抛错）：真实退出码比「超时」诚实得多 ——
+    // 守护进程**启动即退**（端口被占、代码抛错）：这是确定失败，必须非零退出 ——
     // 「可能仍在启动中」对已死的进程是撒谎，脚本会白等满 waitMs。
     appendSystem("start_exited", { addr, pid: child.pid ?? null, exit_code: child.exitCode });
     log(`网关启动即退（exit ${child.exitCode}，PID ${child.pid}，日志 ${scope.logPath()}）`);
-    return strict ? 1 : 0;
+    return auto ? 0 : 1;
   }
   appendSystem("start_timeout", { addr, pid: child.pid ?? null, wait_ms: waitMs });
   log(
     `启动等待 ${waitMs / 1000}s 超时（PID ${child.pid}，日志 ${scope.logPath()}）；` +
       `可能仍在启动中 —— 用 ${name} status 确认`,
   );
-  // 默认非零：`mx start && 下一步` 的脚本拿到退出 0 的「假成功」比失败更糟（hook 场景
-  // 显式传 --strict 的历史语义保留，但不再替交互调用撒谎）。
-  return strict || auto ? 0 : 1;
+  // 同早期退出口径：默认非零（`mx start && 下一步` 的脚本拿到退出 0 的「假成功」
+  // 比失败更糟），只有 hook 的 auto 模式吞掉。
+  return auto ? 0 : 1;
 }
 
 /**

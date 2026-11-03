@@ -3,7 +3,7 @@
  *
  * 判据（两段式，见 docs/ACCOUNT-ROTATION.md §3.1）：①读本地账本快照，`≥100` 即止步；
  * ②`<100` 或未查过 → 用该账号凭据重查一次，仍 `<100` 才换号。**例外**：错误码已是
- * `quota_exhausted` 时①不参与否决（快照会滞后，2026-10-28 实测 loomy：快照 117 而实时 0/0），
+ * `QUOTA_EXHAUSTED_CODE` 时①不参与否决（快照会滞后，2026-10-28 实测 loomy：快照 117 而实时 0/0），
  * 直接进②用实时值定夺。
  *
  * 铁律：鉴权类失败不换号（凭据问题，换了会把真因掩盖成随机成功，见 POOL-ARCHITECTURE.md §3.3）；
@@ -24,14 +24,40 @@ import {
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { lastKnownRemain, writeAccountBilling } from "./pool-usage.js";
 
-/**
- * 视为「额度耗尽」的余额上限。
+/** 视为「额度耗尽」的余额上限。
  *
  * 为什么不是 0：上游的额度结算有延迟（实时余额可能停在 0 而请求已经能跑），
  * 且各家单位不同（积分 / credits）。<100 是主人给的实测口径，留一点余量避免
  * 「余额 3 但已经打不动」的边缘账号继续吃掉请求。
  */
 export const LOW_CREDIT_THRESHOLD = 100;
+
+/**
+ * 额度耗尽的**对外错误码**（429，OpenAI 惯例）。
+ *
+ * 产出点在上层（`http/chat/attempt.ts` 的冷却短路与上游额度错误体两处），消费点在这里
+ * 与 `http/chat/relay.ts` 的可换号码集合 —— 三方共用这一个字面量。
+ * 教训（2026-11-02）：改名时只改了产出点，消费点仍留着旧码 `quota_exhausted`，
+ * 「额度耗尽自动换号」静默失效一整天，而测试因为是手写字符串没能拦住。
+ */
+export const QUOTA_EXHAUSTED_CODE = "insufficient_quota";
+
+/**
+ * 失败后**允许**先查账单再换号的错误码（见 docs/ACCOUNT-ROTATION.md §3.4）。
+ *
+ * - 额度耗尽码：冷却短路或上游额度错误体；
+ * - `upstream_error` / `upstream_timeout`：有些上游额度烧光后不回额度错误，
+ *   而回 5xx 或直接断流 —— 这类只有账单能证伪（两段式判定会挡住「有额度就不换」）。
+ *
+ * 刻意不含鉴权类（`not_authenticated` / `upstream_unauthenticated`）：那是凭据被撤销，
+ * 换账号会把真问题掩盖成随机成功；也不含免费模型撞余额的 `upstream_insufficient_quota`
+ * （倍率 0 不吃额度，与账号额度无关）。
+ */
+export const ROTATABLE_CODES: ReadonlySet<string> = new Set([
+  QUOTA_EXHAUSTED_CODE,
+  "upstream_error",
+  "upstream_timeout",
+]);
 
 /** 换号结果（`switched` 为假时 `reason` 说明为什么没换 —— 直接进日志）。 */
 export interface RotateResult {
@@ -115,7 +141,7 @@ export async function rotateExhaustedAccount(
   // ① 最近一次账单（本地快照，零网络开销）：还有额度就不该怀疑额度。
   // 例外见文件头：错误码已明确是额度问题时，缓存不参与否决。
   const cached = lastKnownRemain(cid, activeKey);
-  if (opts.code !== "quota_exhausted" && cached !== null && cached >= LOW_CREDIT_THRESHOLD) {
+  if (opts.code !== QUOTA_EXHAUSTED_CODE && cached !== null && cached >= LOW_CREDIT_THRESHOLD) {
     return {
       switched: false,
       remain: cached,
