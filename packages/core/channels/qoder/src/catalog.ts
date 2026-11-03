@@ -23,7 +23,7 @@ interface ModelEntry {
   isReasoning: boolean;
   isVl: boolean;
   maxInputTokens: number;
-  /** 最大输出 token（上游不下发，按公开规格补；见 `MAX_OUTPUTS`）。 */
+  /** 最大输出 token（上游不下发，按用户目录模型表补；见 `models.json`）。 */
   maxOutput?: number;
 }
 

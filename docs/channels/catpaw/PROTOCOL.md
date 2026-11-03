@@ -319,7 +319,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 | `minimax-m3` | 131072 |
 
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `MAX_OUTPUTS`。公开规格是**模型上限**，上游可能更严
+`models.json` 的 `maxOutput`。公开规格是**模型上限**，上游可能更严
 （超限回 400）—— 客户端应能降档重试。
 
 ## 图片能力：**本渠道不对外声明**

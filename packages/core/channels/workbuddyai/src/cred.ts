@@ -108,7 +108,7 @@ const str = sharedLogin.str;
  * 解析登录基址。
  *
  * 国际版**只有一个域**（workbuddy.ai），`realm` 参数仅作兼容保留（共享层 CLI 会传进来）。
- * 国内版是**独立渠道** `workbuddy`（codebuddy.ai）—— 域是渠道身份的一部分，
+ * 国内版是**独立渠道** `workbuddy`（前台域 codebuddy.cn；`.ai` 域已沉洞）—— 域是渠道身份的一部分，
  * 不在这里按参数分流（那会让登录链路与凭证落点随 `--realm` 漂移）。
  */
 export function resolveBaseUrl(_realm = "auto"): string {
