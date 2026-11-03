@@ -398,6 +398,13 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 | `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
 | `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关 | `[实测]` |
 
+### 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `CATPAW_BASE_URL` | 覆盖**直连域**基址（测试注入 / 镜像），未设用 `https://ai.catpaw.meituan.com`；网关域不受它影响（`cred.ts` 的 `GATEWAY_HOST` 固定为 `https://catx.nocode.cn`） |
+| `CATPAW_AUTH_PING_URL` | 覆盖令牌有效性探测端点（测试 / 便携）—— 否则「离线自检」会因一次探测变成出网测试 |
+
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：

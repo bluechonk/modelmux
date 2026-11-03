@@ -540,6 +540,12 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 | `workbuddyai/deepseek-v4.1-flash` | 倍率 0（免费） | `[实测]` |
 | `workbuddyai/gpt-6-astra` 等高档 | 倍率最高到 **6.67** —— **禁用于自动化测试** | `[实测]` |
 
+### 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `WBAI_MODELS_FILE` | 模型表文件注入：作为候选路径的第一位（缺失再回落 cwd / 包内 / 随包快照） |
+
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：

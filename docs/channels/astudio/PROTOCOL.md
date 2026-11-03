@@ -574,6 +574,12 @@ CLI 没有界面 → 走路 B（轮询会话文件最多 5 分钟）；
 （倍率未标注、上下文 262144）。`glm-5.2` 与 `deepseek-v4-pro` 实测倍率 **x2.0**，
 按最低倍率原则应排在后面。
 
+### 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `ASTUDIO_DATA_DIR` | 覆盖 AStudio 桌面数据根（默认 `%LOCALAPPDATA%\Programs\AStudio Data`），测试与多装机用；会话文件在其下 `userdata/astron-session.json` |
+
 ### 怎么测这个渠道
 
 历史探针脚本按仓库规则不入库；需要复现上游请求时，按 [METHODOLOGY.md](./METHODOLOGY.md)
