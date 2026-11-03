@@ -578,8 +578,11 @@ export function createConsoleHandler(
         try {
           const snap = bridge.provider?.() ?? emptySnapshot();
           gateway = { ui_state: snap.ui_state, gateway_error: snap.gateway_error };
-        } catch {
-          gateway = { ui_state: "unknown", gateway_error: "" };
+        } catch (err) {
+          // 与 `/api/state` 同口径：桥接层抛错必须留痕并如实标 unknown，
+          // 不能伪装成「正常初始状态」（总览页会显示成一切正常）。
+          appendGateway(`console overview state provider failed: ${String(err)}`);
+          gateway = { ui_state: "unknown", gateway_error: String(err) };
         }
 
         // 只算**模型请求**：控制台里「请求」恒指 `/v1/chat/completions`，
