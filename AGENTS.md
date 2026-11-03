@@ -43,7 +43,7 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 仓库级动词（`start/stop/restart/serve/web`）不接受 cid。完整命令手册见 `mx-cli` 技能，
 设计见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §9。
 
-网关只监听 `127.0.0.1:4412`，Web 控制台与网关共用该端口，挂在 `/web`。`mx web` = 确保网关在跑 → 打开 `/web/`。
+网关只监听 `127.0.0.1:4412`，Web 控制台与网关共用该端口，挂在 `/web`。`mx web` = 确保网关在跑 → 打印 `/web/` 地址（禁止自动打开浏览器，用户自行复制打开）。
 `ChannelConfig.defaultAddr` 只在单渠道独立运行时生效。
 
 构建：根 `tsconfig.json` 是 solution（`files: []` + `references`），`tsc -b` 调度整个依赖图。
@@ -97,6 +97,7 @@ PR 用 rebase 合并，禁止 merge commit。
 4. 涉及 login/cred/upstream 时走一轮真机验证
 
 禁止跳过 restart、禁止在陈旧构建时宣称生效。
+以上三步可用一条 `npm run after-change` 完成（`scripts/after-change.mjs`，stale 即非零退出）。
 实现见 `packages/core/gateway/src/app/lifecycle/stale-build.ts`，事故记录见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §8。
 
 ## 文档
