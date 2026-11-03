@@ -231,6 +231,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | `body` | `bodyEnc=plain` 时的**原样文本**（UTF-8）；超上限时双端保留，可能切在字符中间 |
 | `bodyB64` | `zstd` / `gzip` 时的**单帧**正文 base64（Base64 是 JSON 行里放二进制文本的唯一安全形态） |
 | `bodyChunks` | 分块形态：每块 1 MiB 明文独立压缩后 base64，数组顺序即正文顺序 |
+| `bodyChunkLens` | 与 `bodyChunks` 一一对应的**明文字节数**；读取侧据此只解命中块（缺省=旧行，退回全解） |
 
 **正文压缩与分块**：正文 ≥ 4KB 就压（zstd 优先，Node < 22.15 回落 gzip），
 小于 4KB 保持明文（压完还要 base64，可能反而变大）；超过 1 MiB 的正文按 1 MiB 一块
@@ -260,8 +261,10 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 不给日期则在保留期内全查。
 
 **读取按需分片**：正文分块压缩存储，单条解压后可达 MB 级（实测 3.5 MB 压缩 → 9.4 MB 明文）。
-接口因此分两级，且分片**只解压 `offset` 命中的那一块**（9.5 MiB 正文整条解压 140 ms、
-单块局部解码 15.6 ms；首屏传输与解码都不再随正文总长增长）：
+行内带 `bodyChunkLens`（各块明文长度，新写入的多块行），分片读取据此直接定位块号、
+**只解压命中窗口覆盖的那几块**（实测 4.2 MB / 5 块：2.3 ms，解全部块则 10.5 ms）；
+旧行没有这个数组时退回「解全部块」的慢路径（结果相同，仅解码量不同）。
+接口分两级：
 
 - `GET /api/logs/payload?id=X&date=Y` 默认**只回元数据**（`bytes` / `phase` / `model` / `truncated` / `bodyEnc`）；
 - `&part=body&phase=<client|upstream>&offset=N&limit=M` 取正文分片（默认片 64 KiB）；
