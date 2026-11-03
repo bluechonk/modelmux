@@ -36,10 +36,10 @@ const ACTIVITY_SLOT_PATH = "/api/client-activities/slot";
 const ACTIVITY_CONTEXT_PATH = "/api/client-activities/{activityCode}/context";
 
 /**
- * 签到动作端点（模板）。
+ * 签到动作端点（模板）。端点与请求体字段见 PROTOCOL。
  *
- * `POST {base}/api/client-activities/{activityCode}/actions/check_in`
- * body：`{configRevision, idempotencyKey(uuid4), payload:{}}`。
+ * 实现侧：`{activityCode}` 由目录返回的活动码填入；`idempotencyKey` 每次现生成 uuid4
+ * （上游据此去重，重放不会重复领）。
  */
 const CHECKIN_ACTION_PATH = "/api/client-activities/{activityCode}/actions/check_in";
 
