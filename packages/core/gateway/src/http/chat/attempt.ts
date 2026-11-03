@@ -61,8 +61,6 @@ export interface ProbeState {
   frames: ProbeFrames;
   /** 排队等待预算耗尽（转发层据此给明确错误）。 */
   queuedOut: boolean;
-  /** 探测过程中**真的见到过排队帧**：只有它才该发「排队成功」分界。 */
-  queuedAny: boolean;
   /** 排队放弃文案：预算耗尽时由探测层填，转发层据此回**正常应答**而不是错误帧。 */
   giveUpText: string | null;
   /** 探测层失败（这条流已死，不能进转发层）。 */
@@ -226,8 +224,8 @@ function writeQueueHeaders(
  *
  * 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
  *   转发层必须**原序**交出这些帧，并**接着用同一个**翻译器实例（半行缓冲在里面）。
- * 排队期间向客户端**分批发进度文案**（仅流式）：
- *   每轮等待前发一条，文案随轮次升级；首条会顺带发出 SSE 响应头。
+ * 排队期间**不发任何可见文案**（只发一次 SSE 响应头 + 空 role 帧建立流，见
+ *   `writeQueueHeaders`）—— 排队进度文案已按主人要求移除。
  * 每轮开头检查客户端断连：排队可能长达数分钟，客户端（60s 超时）走人后
  *   继续轮询上游纯属浪费（实测断连后空转 4 分钟、白打 22 次上游请求）。
  *
@@ -293,8 +291,9 @@ async function runQueueProbe(
       };
       return call;
     }
-    // 记下「真的排过队」：只有它才该发「排队成功」分界
-    if (probe.queued) state.queuedAny = true;
+    // 排队帧的消费与「是否有内容」判定都在下面完成：`probe.queued` 只影响本函数的
+    // 重试分支，不再向外记状态（历史上那个 `queuedAny` 已随「排队成功分界」文案
+    // 一起移除，留着只是没有人读的死字段）。
     if (!probe.queued || probe.hasContent) {      // 上游 200 但流**空着结束**（零帧、无排队帧）同样是瞬时故障：重试一次再认输
       if (!probe.queued && !probe.hasContent && probe.frames.length === 0) {
         const next = await reopenForProbe(env, state, call, "upstream stream ended with no frames");
@@ -513,7 +512,6 @@ export async function attemptCandidate(
   const state: ProbeState = {
     frames: [],
     queuedOut: false,
-    queuedAny: false,
     giveUpText: null,
     failed: false,
     error: probeFallbackError(),

@@ -119,6 +119,8 @@ describe("分块存储读回：局部解码与兼容", () => {
     writeRecord("req_chunked", {
       ts: "2026-11-02T00:00:01.000Z", seq: 1, id: "req_chunked", phase: "client",
       bytes: bigBody.length, truncated: false, bodyEnc: "zstd", bodyChunks: chunked,
+      // 新写入的多块行带块长数组：读取侧据此只解命中块（快路径）
+      bodyChunkLens: [1024 * 1024, 1024 * 1024, Math.ceil(0.5 * 1024 * 1024)],
     });
     const whole = zlib.zstdCompressSync(Buffer.from(bigBody, "utf8")).toString("base64");
     writeRecord("req_whole", {
@@ -129,6 +131,13 @@ describe("分块存储读回：局部解码与兼容", () => {
       ts: "2026-11-02T00:00:03.000Z", seq: 3, id: "req_broken", phase: "client",
       bytes: bigBody.length, truncated: false, bodyEnc: "zstd",
       bodyChunks: [chunked[0], "not-a-valid-zstd-frame", chunked[2]],
+    });
+    // 同一条坏数据，但带上块长数组 → 走快路径（只解命中块）
+    writeRecord("req_broken_lens", {
+      ts: "2026-11-02T00:00:03.500Z", seq: 3, id: "req_broken_lens", phase: "client",
+      bytes: bigBody.length, truncated: false, bodyEnc: "zstd",
+      bodyChunks: [chunked[0], "not-a-valid-zstd-frame", chunked[2]],
+      bodyChunkLens: [1024 * 1024, 1024 * 1024, Math.ceil(0.5 * 1024 * 1024)],
     });
     writeRecord("req_old_gzip", {
       ts: "2026-11-02T00:00:04.000Z", seq: 4, id: "req_old_gzip", phase: "client",
@@ -176,9 +185,27 @@ describe("分块存储读回：局部解码与兼容", () => {
     assert.equal(slice.body, bigBody.slice(0, 256));
   });
 
-  it("损坏块：该记录正文作废（返回 null），不影响其他记录", () => {
+  it("损坏块（无块长数组，慢路径）：该记录正文作废（返回 null），不影响其他记录", () => {
     assert.equal(readPayloadSlice("req_broken", DAY, "client", 0, 256), null);
     assert.ok(readPayloadSlice("req_chunked", DAY, "client", 0, 256));
+  });
+
+  it("快路径（带块长数组）：窗口不覆盖的坏块不影响读取 —— 证据是只解了命中块", () => {
+    // req_broken_lens 的第 2 块是坏数据，但请求的是第 1 块内的窗口：
+    // 若实现仍解全部块（慢路径），这里必然是 null；只有真正「只解命中块」才会成功。
+    const slice = readPayloadSlice("req_broken_lens", DAY, "client", 0, 256);
+    assert.ok(slice, "命中块完好时应当可读");
+    assert.equal(slice.body, bigBody.slice(0, 256));
+    // 窗口落进坏块 → 整片作废（不做「看起来完整实则缺段」的拼接）
+    assert.equal(readPayloadSlice("req_broken_lens", DAY, "client", 1024 * 1024 + 10, 64), null);
+  });
+
+  it("快路径：total 由块长数组累加，与慢路径一致；跨块窗口内容正确", () => {
+    const fast = readPayloadSlice("req_chunked", DAY, "client", 1024 * 1024 - 100, 200);
+    const slow = readPayloadSlice("req_whole", DAY, "client", 1024 * 1024 - 100, 200);
+    assert.ok(fast && slow);
+    assert.equal(fast.total, bigBody.length, "块长累加 = 真实长度");
+    assert.equal(fast.body, slow.body, "跨块窗口与单帧路径逐字节一致");
   });
 
   it("元数据读取对分块行零解压（body 为空、bodyEnc 标注编码）", () => {
