@@ -120,7 +120,6 @@ mx log --list
 mx log --kind access --outcome failure --lines 50
 mx log --kind lifecycle --lines 30
 mx web                     # 确保网关在跑 -> 打印 http://127.0.0.1:4412/web/
-mx web --open              # 额外拉起浏览器
 ```
 
 排查「为什么慢 / 为什么失败 / 网关挂了」时加载 `log-triage` 技能，

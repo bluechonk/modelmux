@@ -1,5 +1,5 @@
 /**
- * `mx web` 实现：**单端口模式** —— 确保网关在跑，然后打开 Web 控制台。
+ * `mx web` 实现：**单端口模式** —— 确保网关在跑，然后给出 Web 控制台地址。
  *
  * 控制台不再起独立进程/端口：UI 挂载在网关的 `/web` 前缀下（见 `REPO_UI_PREFIX`），
  * 控制台 API 位于 `/web/api/*`。因此 Web 页面看到的状态永远来自真实网关进程。
@@ -11,20 +11,7 @@ import * as daemon from "./daemon.js";
 export interface WebOptions {
   host?: string;
   port?: number;
-  open?: boolean;
   quiet?: boolean;
-}
-
-/** 跨平台打开浏览器（最小实现）。 */
-async function openBrowser(url: string): Promise<void> {
-  const { spawn } = await import("node:child_process");
-  if (process.platform === "win32") {
-    spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
-  } else if (process.platform === "darwin") {
-    spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-  } else {
-    spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
-  }
 }
 
 export async function runWeb(options: WebOptions = {}): Promise<number> {
@@ -40,7 +27,7 @@ export async function runWeb(options: WebOptions = {}): Promise<number> {
   //   而页面本身会显示控制台自己的骨架与状态，比让命令直接失败有用得多（2026-10-29 起）。
   await daemon.start({ addr, quiet: options.quiet ?? false, auto: false });
 
+  // 不自动打开浏览器（CONTRACT-TS §6 全仓约定）：地址交给用户复制 / Ctrl+点击。
   console.log(`[web] ${url}`);
-  if (options.open === true) await openBrowser(url);
   return 0;
 }

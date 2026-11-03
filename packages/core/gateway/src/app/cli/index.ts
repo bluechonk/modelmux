@@ -163,8 +163,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         "no-console": { type: "boolean" },
         host: { type: "string" },
         port: { type: "string" },
-        open: { type: "boolean" },
-        "no-open": { type: "boolean" },
         // supervise（内部命令）的落点参数 —— 由 `start` 以显式路径下发
         "worker-pid": { type: "string" },
         log: { type: "string" },
@@ -254,7 +252,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return runWeb({
         host: strOpt(o, "host") || undefined,
         port: numOpt(o, "port") ?? undefined,
-        open: boolOpt(o, "open") && !boolOpt(o, "no-open"),
       });
 
     case "serve":
