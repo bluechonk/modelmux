@@ -176,11 +176,11 @@ export function Dashboard(): ReactElement {
   const toast = useToast();
   const navigate = useNavigate();
 
-  // 状态快照（端点盒：base_url / chat_url / endpoints）
+  // 状态快照（端点盒：base_url / chat_url / endpoints）——
+  // 读 `["state"]` 的共享缓存，轮询归 `Layout` 所有
   const stateQuery = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
-    refetchInterval: 3000,
   });
   const state = stateQuery.data;
 

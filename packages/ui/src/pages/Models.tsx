@@ -25,10 +25,10 @@ function freePlanCidsOf(
 
 /** 模型列表页：全部可用模型（渠道分组 / 扁平两种视图）。 */
 export function Models(): ReactElement {
+  // 读 `["state"]` 的共享缓存：轮询归 `Layout` 所有，页面不自挂定时器
   const { data: state, isLoading, error } = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
-    refetchInterval: 3000,
   });
 
   /** 渠道数：池 id 的前缀去重（模型区自己的分组在 ModelExplorer 里）。 */
