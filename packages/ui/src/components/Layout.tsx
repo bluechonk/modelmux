@@ -2,9 +2,10 @@
  * 控制台布局：左侧栏导航 + 主内容区，侧栏底部常驻网关状态行。
  *
  * 视觉语言参照 Codex / ChatGPT：**深侧栏（#171717）+ 稍浅主区（#212121）**，
- * 单色系、无装饰；侧栏不放品牌卡与状态卡。响应式：`≥ md` 按百分比取宽
- * （15%，带 176~220px 收窄区间），`< md` 收成 56px 图标栏。
- * 状态灯 3 秒轮询 `/web/api/state`：运行中=绿、异常=红、其余=灰；
+ * 单色系、无装饰；侧栏不放品牌卡与状态卡。响应式：`≥ md` 常驻（展开按百分比取宽
+ * 15%，带 176~220px 收窄区间；折叠成 56px 图标栏），`< md` 收成 overlay 抽屉
+ * （汉堡按钮浮出、点遮罩或换页收起）—— 窄屏放不下常驻栏。
+ * 网关状态 3 秒轮询 `/web/api/state`（状态灯在 `GatewayControl`：运行中绿、其余灰）；
  * **网关异常（`error` / `down` / 查询失败）时正文整体用骨架图**，直到恢复
  * （3 秒轮询自愈，无需刷新页面）。
  * 例外：日志页在 `error` 下豁免骨架 —— 排查异常时恰恰要看日志。
@@ -89,14 +90,11 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
   }, [pathname]);
   const uiState = state.data?.ui_state ?? "";
   const queryFailed = Boolean(state.isError);
-  const abnormal = queryFailed || uiState === "error" || uiState === "down";
-  const running = !queryFailed && uiState === "running";
   // 日志页对 `error` 豁免骨架：控制台与网关同进程，能读到 `ui_state` 就说明它活着，
   // `/api/logs` 也就能用 —— 而排查异常恰恰最需要看日志。`down`（网关真不在）与
   // 查询失败时日志同样拿不到，骨架才是对的，故不豁免。
   const onLogs = pathname.replace(/\/+$/, "").endsWith("/logs");
   const skeleton = queryFailed || uiState === "down" || (uiState === "error" && !onLogs);
-  // 状态灯配色：运行中=绿、异常=红、其余（未就绪/未知）=灰
 
   return (
     <div className="flex h-full">
