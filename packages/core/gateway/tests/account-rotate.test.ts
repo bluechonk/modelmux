@@ -17,7 +17,13 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { accountKey, readIndex } from "../dist/runtime/account-pool.js";
-import { LOW_CREDIT_THRESHOLD, rotateExhaustedAccount, switchOffCoolingAccount } from "../dist/pool/account-rotate.js";
+import {
+  LOW_CREDIT_THRESHOLD,
+  QUOTA_EXHAUSTED_CODE,
+  ROTATABLE_CODES,
+  rotateExhaustedAccount,
+  switchOffCoolingAccount,
+} from "../dist/pool/account-rotate.js";
 import { resetPoolLedgerForTest, writeAccountBilling } from "../dist/pool/pool-usage.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import * as paths from "../dist/runtime/paths.js";
@@ -159,6 +165,19 @@ describe("额度耗尽自动换号（决策）", () => {
   const B = keyOf("ub");
   const C = keyOf("uc");
 
+  it("接线：产出点用的额度码必须落在可换号码集合里（2026-11-02 事故：改名后换号静默失效）", () => {
+    // 事故成因：`attempt.ts` 两处产出点从 `quota_exhausted` 改成 `insufficient_quota`，
+    // 而 relay 的可换号码集合没跟 → 额度失败永不触发换号（用户被要求手动 `mx acct use`）。
+    // 这断言把「产出点 ↔ 消费点」钉在一起：任何一侧改名而另一侧没跟，测试立刻红。
+    assert.equal(QUOTA_EXHAUSTED_CODE, "insufficient_quota", "对外错误码是公开契约（OpenAI 惯例）");
+    assert.ok(
+      ROTATABLE_CODES.has(QUOTA_EXHAUSTED_CODE),
+      `可换号码集合缺少额度码 ${QUOTA_EXHAUSTED_CODE} → 额度耗尽将不再自动换号`,
+    );
+    assert.ok(ROTATABLE_CODES.has("upstream_error"), "上游 5xx 也要能触发账单核查");
+    assert.ok(ROTATABLE_CODES.has("upstream_timeout"), "上游超时也要能触发账单核查");
+  });
+
   before(() => {
     saved = process.env["MODELMUX_HOME"];
     root = mkdtempSync(join(tmpdir(), "modelmux-rotate-"));
@@ -203,7 +222,7 @@ describe("额度耗尽自动换号（决策）", () => {
     assert.equal(readIndex(CID).active, A, "生效账号不变");
   });
 
-  it("错误码明确是额度问题（quota_exhausted）→ 快照不否决，联网重查后换号（2026-10-28 事故复现）", async () => {
+  it("错误码明确是额度问题（额度耗尽码）→ 快照不否决，联网重查后换号（2026-10-28 事故复现）", async () => {
     // 事故现场：账本快照停在 117（滞后），实时已经打到 0 —— 旧逻辑被快照挡住，一直不换号
     // 池内只留「耗尽的生效账号 + 一个满额备选」：避免受挑号排序影响
     //（`pickAlternative` 会把「未知额度」排在「已知额度」之前，见 findings 记录）
@@ -214,7 +233,7 @@ describe("额度耗尽自动换号（决策）", () => {
     writeAccountBilling(CID, A, { total: { remain: 117, size: 20000, used: 19883, unit: "credits" } });
     writeAccountBilling(CID, B, { total: { remain: 20000, size: 20000, used: 0, unit: "credits" } });
 
-    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    const result = await rotateExhaustedAccount(CID, undefined, { code: QUOTA_EXHAUSTED_CODE });
     assert.equal(result.switched, true, `应换号，实际没换：${result.reason}`);
     assert.deepEqual(spec.calls, ["tok-ua"], "跳过快照，直接联网重查生效账号");
     assert.equal(readIndex(CID).active, B, "切到有额度的账号");
@@ -224,7 +243,7 @@ describe("额度耗尽自动换号（决策）", () => {
     scene({ "tok-ua": 800 }, threeAccounts);
     writeAccountBilling(CID, A, { total: { remain: 117, size: 20000, used: 19883, unit: "credits" } });
 
-    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    const result = await rotateExhaustedAccount(CID, undefined, { code: QUOTA_EXHAUSTED_CODE });
     assert.equal(result.switched, false);
     assert.ok(result.reason.includes("不是额度问题"), result.reason);
     assert.equal(readIndex(CID).active, A, "安全网：实时值说了算");
@@ -281,7 +300,7 @@ describe("额度耗尽自动换号（决策）", () => {
     writeAccountBilling(CID, B, { total: { remain: 20000, size: 20000, used: 0, unit: "credits" } });
     // C 刻意不写账本：known = null（未知）
 
-    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    const result = await rotateExhaustedAccount(CID, undefined, { code: QUOTA_EXHAUSTED_CODE });
     assert.equal(result.switched, true, result.reason);
     assert.equal(readIndex(CID).active, B, "已知够用的 B 应优先于未知的 C");
   });
@@ -292,7 +311,7 @@ describe("额度耗尽自动换号（决策）", () => {
     writeAccountBilling(CID, A, { total: { remain: 0, size: 20000, used: 20000, unit: "credits" } });
     writeAccountBilling(CID, B, { total: { remain: 20, size: 20000, used: 19980, unit: "credits" } });
 
-    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    const result = await rotateExhaustedAccount(CID, undefined, { code: QUOTA_EXHAUSTED_CODE });
     assert.equal(result.switched, true, result.reason);
     assert.equal(readIndex(CID).active, C, "未知的 C 应优先于已知不够用的 B");
   });
@@ -301,7 +320,7 @@ describe("额度耗尽自动换号（决策）", () => {
     scene({ "tok-ua": 0 }, threeAccounts);
     writeAccountBilling(CID, A, { total: { remain: 0, size: 20000, used: 20000, unit: "credits" } });
 
-    const result = await rotateExhaustedAccount(CID, undefined, { code: "quota_exhausted" });
+    const result = await rotateExhaustedAccount(CID, undefined, { code: QUOTA_EXHAUSTED_CODE });
     assert.equal(result.switched, true, result.reason);
     const active = readIndex(CID).active;
     assert.ok(active === B || active === C, `应切到池内某个账号，实际 ${active}`);

@@ -65,10 +65,10 @@ interface ModelEntry {
   name: string;
   /** 该模型所属通道（请求体 function）。 */
   function: string;
-  /** 上下文窗口（**上游声明**；0 = 上游未声明，按公开规格表补）。 */
-  context_window: number;
-  /** 单次回复最大输出（**上游声明**；0 = 上游未声明，按公开规格表补）。 */
-  max_output: number;
+  /** 上下文窗口（**上游声明**；0 = 上游未声明，按 models.json 规格补）。 */
+  contextWindow: number;
+  /** 单次回复最大输出（**上游声明**；0 = 上游未声明，按 models.json 规格补）。 */
+  maxOutput: number;
   max_max_tokens?: number;
   /** 消耗倍率（features.consumption_rate；活动期取 activity_discount 折后值）。 */
   multiplier?: number;
@@ -86,7 +86,7 @@ interface ModelEntry {
  * Max 模式（1M 上下文）成套下发时的**窗口兜底**。
  *
  * 上游目录没声明窗口时用它（`context_window_size` 必须成套下发，见 upstream.ts）。
- * **只给请求体用** —— 目录条目里的 `context_window` 只写上游声明，不写这个估值。
+ * **只给请求体用** —— 目录条目里的 `contextWindow` 只写上游声明，不写这个估值。
  */
 export const FALLBACK_CONTEXT_WINDOW = 200_000;
 
@@ -95,7 +95,7 @@ export const FALLBACK_CONTEXT_WINDOW = 200_000;
  *
  * ## 优先级：目录（上游声明）→ 规格表
  *
- * 1. **目录**：`context_window` / `max_output` 是上游**真实声明**的值（Remote 目录的
+ * 1. **目录**：`contextWindow` / `maxOutput` 是上游**真实声明**的值（Remote 目录的
  *    `context_window_tokens`、Solo 目录的 `model_detail_list`）—— 上游声明最权威
  *    （三层取值链见 `docs/MODEL-SPECS.md` §0：上游声明优先）。
  *    **只认远端目录**：内置兜底表里没有声明（0），不算数。
@@ -111,12 +111,12 @@ export function modelSpec(
   const wanted = canonicalModelId(modelId);
   // ① 远端目录里的上游声明（磁盘缓存 / mergeRemote 灌入的那份）
   const entry = remoteEntries().find((e) => canonicalModelId(e.id) === wanted);
-  const dirContext = entry && entry.context_window > 0 ? entry.context_window : undefined;
-  const dirMaxOutput = entry && entry.max_output > 0 ? entry.max_output : undefined;
+  const dirContext = entry && entry.contextWindow > 0 ? entry.contextWindow : undefined;
+  const dirMaxOutput = entry && entry.maxOutput > 0 ? entry.maxOutput : undefined;
   // ② 用户目录模型表（上游没声明的字段用它补）；规格是数据，代码里不留
   const seeded = seedEntries().find((e) => canonicalModelId(e.id) === wanted);
-  const seedContext = seeded && seeded.context_window > 0 ? seeded.context_window : undefined;
-  const seedMaxOutput = seeded && seeded.max_output > 0 ? seeded.max_output : undefined;
+  const seedContext = seeded && seeded.contextWindow > 0 ? seeded.contextWindow : undefined;
+  const seedMaxOutput = seeded && seeded.maxOutput > 0 ? seeded.maxOutput : undefined;
   const contextWindow = dirContext ?? seedContext;
   const maxOutputTokens = dirMaxOutput ?? seedMaxOutput;
   if (contextWindow === undefined && maxOutputTokens === undefined) return undefined;
@@ -288,8 +288,8 @@ function parseConfigEntry(functionName: string, raw: unknown): ModelEntry | null
     model,
     name: decorateName(baseName, parseContactConfig(raw["display_contact_config"])),
     function: functionName,
-    context_window: contextWindow,
-    max_output: maxOutput,
+    contextWindow,
+    maxOutput,
     max_max_tokens: maxMaxTokens,
     max_mode: display["max_mode"] === true,
     multimodal: display["multimodal"] === true,
@@ -411,8 +411,8 @@ function rateFromFeatures(features: unknown): number | undefined {
  * （与共享层「档位表取上限」一致）。
  * 通道（`function`）等其余字段仍取**先出现**的那组（改动会改变请求路由）。
  *
- * Remote 目录**不下发输出上限** ⇒ `max_output` = 0（未声明），
- * 数值由 `modelSpec` 按公开规格补。
+ * Remote 目录**不下发输出上限** ⇒ `maxOutput` = 0（未声明），
+ * 数值由 `modelSpec` 按 `models.json` 规格补。
  */
 function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
   const list = (payload["data"] as Record<string, unknown> | undefined)?.["list"];
@@ -430,7 +430,7 @@ function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
       const declared = declaredContextWindow(raw["context_window_tokens"]);
       const existing = byName.get(name);
       if (existing) {
-        if (declared > existing.context_window) existing.context_window = declared;
+        if (declared > existing.contextWindow) existing.contextWindow = declared;
         // 同名模型可能出现在多个 function 组里，任一组声明多模态即为多模态
         if (raw["multimodal"] === true) existing.multimodal = true;
         continue;
@@ -440,8 +440,8 @@ function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
         model: name,
         name,
         function: nonEmpty(group["function"]) ?? nonEmpty(group["agent_type"]) ?? "solo_agent_remote",
-        context_window: declared,
-        max_output: 0, // Remote 目录不下发输出上限 → 未声明
+        contextWindow: declared,
+        maxOutput: 0, // Remote 目录不下发输出上限 → 未声明
         multiplier: rateFromFeatures(raw["features"]),
         max_mode: false,
         // Remote 目录逐型号下发 multimodal（如 Doubao-Seed-2.1-Turbo / deepseek-v4.1-flash 为 true）
@@ -534,8 +534,10 @@ function parseCatalogFile(path: string): ModelEntry[] {
       model: slug,
       name: nonEmpty(model["name"]) || slug,
       function: nonEmpty(model["function"]) || nonEmpty(model["channel"]) || DEFAULT_FUNCTION,
-      context_window: numberOr(model["context_window"], 0),
-      max_output: numberOr(model["max_output"], 0),
+      // 右侧括号里是**上游 Solo 配置**的字段名（snake_case），与本仓 ModelEntry 的
+      // camelCase 字段无关 —— 两边都改会解析不到上游数据。
+      contextWindow: numberOr(model["context_window"], 0),
+      maxOutput: numberOr(model["max_output"], 0),
       max_mode: model["max_mode"] === true,
       multimodal: model["multimodal"] === true,
       tiered: false,
@@ -630,31 +632,4 @@ export function entryFor(name: string): ModelEntry | null {
     entries.find((e) => e.model.toLowerCase() === name.toLowerCase()) ??
     null
   );
-}
-
-/**
- * 供状态页/UI 使用的目录详情。
- *
- * 窗口 / 输出上限报**生效值**：上游声明优先，其次公开规格（`modelSpec`）——
- * 与 `/v1/models` 的口径一致（上游没声明时目录条目里是 0）。
- */
-function details(): Array<Record<string, unknown>> {
-  return loadCatalog()
-    .filter((e) => !e.hidden)
-    .map((e) => {
-      const spec = modelSpec(e.id);
-      return {
-        id: e.id,
-        name: e.name,
-        model: e.model,
-        function: e.function,
-        context_window: e.context_window > 0 ? e.context_window : (spec?.contextWindow ?? 0),
-        max_output: e.max_output > 0 ? e.max_output : (spec?.maxOutputTokens ?? 0),
-        max_max_tokens: e.max_max_tokens ?? null,
-        max_mode: e.max_mode,
-        tiered: e.tiered,
-        efforts: e.efforts,
-        default_effort: e.default_effort,
-      };
-    });
 }
