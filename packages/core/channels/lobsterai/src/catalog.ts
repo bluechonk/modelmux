@@ -21,15 +21,16 @@ import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snap
 interface ModelEntry {
   id: string;
   name: string;
-  /** 上下文窗口；兜底表统一填 131072（**桥接层估计值，非逐个实测**）。 */
-  context_window: number;
+  /** 上下文窗口；随包 `models.json` 统一填 131072（**桥接层估计值，非逐个实测**）。 */
+  contextWindow: number;
   /**
    * 最大输出 token。
    *
    * 上游 `/api/models/available` **不下发**该字段（实测 2026-10-23：响应里没有 `maxTokens`），
-   * 所以只能按公开规格补（`MAX_OUTPUTS`，来源见 `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」）。
+   * 所以按公开规格补（数据在 `models.json` 的 `maxOutput`，来源见
+   * `docs/channels/lobsterai/PROTOCOL.md` §9「模型窗口规格」）。
    */
-  max_output?: number;
+  maxOutput?: number;
   supports_image?: boolean;
   supports_thinking?: boolean;
   /** 产品侧档位名（含 `max`），仅展示用。 */
@@ -87,12 +88,12 @@ function ensureCachedModels(): void {
   cacheLoaded = true;
   try {
     const cached = readCatalogCache<ModelEntry>();
-    // 旧缓存没有 max_output（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
+    // 旧缓存没有 maxOutput（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
     if (cached) {
       remoteCache = cached.map((entry) => {
-        if (entry.max_output !== undefined) return entry;
-        const maxOutput = entryOf(entry.id)?.max_output;
-        return maxOutput === undefined ? entry : { ...entry, max_output: maxOutput };
+        if (entry.maxOutput !== undefined) return entry;
+        const maxOutput = entryOf(entry.id)?.maxOutput;
+        return maxOutput === undefined ? entry : { ...entry, maxOutput };
       });
     }
   } catch {
@@ -172,11 +173,13 @@ export function parseRemoteModels(rows: readonly unknown[]): ModelEntry[] {
       id,
       name: str(rec["modelName"]) || id,
       // 远端没给窗口时用兜底估计值（列表里恒有窗口，比留 0 更有用）。
-      context_window: num(rec["contextWindow"]) ?? entryOf(id)?.context_window ?? 0,
+      // 括号里 `rec["contextWindow"]` 是**上游响应**的字段（camelCase 恰好与我们同名），
+      // 后面 `entryOf(id)?.contextWindow` 才是本仓 models.json 的字段。
+      contextWindow: num(rec["contextWindow"]) ?? entryOf(id)?.contextWindow ?? 0,
       source: "remote",
     };
-    const maxOutput = num(rec["maxTokens"]) ?? entryOf(id)?.max_output;
-    if (maxOutput !== undefined) entry.max_output = maxOutput;
+    const maxOutput = num(rec["maxTokens"]) ?? entryOf(id)?.maxOutput;
+    if (maxOutput !== undefined) entry.maxOutput = maxOutput;
     if (typeof rec["supportsImage"] === "boolean") entry.supports_image = rec["supportsImage"];
     if (typeof rec["supportsThinking"] === "boolean") entry.supports_thinking = rec["supportsThinking"];
     const thinking = parseThinkingConfig(rec["thinkingConfig"]);
@@ -249,8 +252,8 @@ export function modelSpec(
   const entry = entryOf(modelId);
   if (!entry) return undefined;
   return {
-    ...(entry.context_window !== undefined ? { contextWindow: entry.context_window } : {}),
-    ...(entry.max_output !== undefined ? { maxOutputTokens: entry.max_output } : {}),
+    ...(entry.contextWindow !== undefined ? { contextWindow: entry.contextWindow } : {}),
+    ...(entry.maxOutput !== undefined ? { maxOutputTokens: entry.maxOutput } : {}),
   };
 }
 

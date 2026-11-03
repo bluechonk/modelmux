@@ -13,7 +13,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Channel } from "../../runtime/channel.js";
 import { getRequestLog, noteRequestError } from "../../runtime/log-store.js";
-import { rotateExhaustedAccount } from "../../pool/account-rotate.js";
+import { ROTATABLE_CODES, rotateExhaustedAccount } from "../../pool/account-rotate.js";
 import type { GatewayOptions } from "../server.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
 import { writeJsonError } from "./errors.js";
@@ -44,22 +44,12 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
 // ── 路由 ──────────────────────────────────────────────────────────────────────
 
 /**
- * 失败后**允许**先查账单再换号的错误码（见 docs/ACCOUNT-ROTATION.md §3.4）。
+ * 失败后**允许**先查账单再换号的错误码。
  *
- * - `quota_exhausted`：额度耗尽（冷却短路或上游额度错误体）；
- * - `upstream_error` / `upstream_timeout`：有些上游额度烧光后不回额度错误，
- *   而回 5xx 或直接断流 —— 这类只有账单能证伪（换号前的两段式账单判定会挡住
- *   「有额度就不换」的情形）。
- *
- * 刻意不含鉴权类（`not_authenticated` / `upstream_unauthenticated`）：那是凭据
- * 被撤销，换账号会把真问题掩盖成随机成功；也不含免费模型撞余额的
- * `upstream_insufficient_quota`（倍率 0 不吃额度，与账号额度无关）。
+ * 集合本体在 `pool/account-rotate.ts` —— 产出点（`attempt.ts` 的额度短路与上游额度
+ * 错误体）、判据（那里的快照例外）、这里三处必须共用同一份定义。
+ * 2026-11-02 的教训：改名只改了产出点，这里留旧码，自动换号静默失效。
  */
-const ROTATABLE_CODES: ReadonlySet<string> = new Set([
-  "quota_exhausted",
-  "upstream_error",
-  "upstream_timeout",
-]);
 
 export async function handleChat(
   req: IncomingMessage,
