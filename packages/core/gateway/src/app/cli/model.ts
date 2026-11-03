@@ -12,7 +12,7 @@ import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, POOL_MODELS, poolCandidates, poolModelId, poolModelMetas } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
-import { readModelSpecs, writeModelSpec } from "../../runtime/model-specs.js";
+import { readModelSpecs } from "../../runtime/model-specs.js";
 import {
   catalogSourceStats,
   refreshCatalog as refreshPoolCatalog,
@@ -428,7 +428,7 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
     if (globalEntry._source) console.log(`  来源        ${globalEntry._source}`);
     if (globalEntry._updated) console.log(`  更新于      ${globalEntry._updated}`);
   } else {
-    console.log(`\n全局规格：未录入（用 mx model spec ${canonical} --web 联网搜索并写入）`);
+    console.log(`\n全局规格：未录入（手工补规格见 docs/MODEL-SPECS.md：写入 ~/.modelmux/model-specs.json）`);
   }
 
   if (upstreamMeta) {
@@ -446,8 +446,8 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
   }
 
   if (!globalEntry && !upstreamMeta) {
-    console.log(`\n此模型无任何已知规格。联网搜索写入：`);
-    console.log(`  先搜到规格数据，再执行 mx model spec ${canonical} --set '{"contextWindow":...}'`);
+    console.log(`\n此模型无任何已知规格。补录方式见 docs/MODEL-SPECS.md：`);
+    console.log(`  把规格写进 ~/.modelmux/model-specs.json 的 ${canonical} 条目后重跑本命令。`);
   }
   return 0;
 }
