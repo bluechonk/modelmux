@@ -530,7 +530,7 @@ free quota, quota used up, upgrade your plan, upgrade to continue,
 
 上游 id 带发布日（如 `doubao-seed-2-1-pro-260915`），查表前先归一化并剥发布日期。
 数值与来源见 [MODEL-SPECS.md](../../MODEL-SPECS.md)（唯一事实源），渠道表在
-`src/catalog.ts` 的 `MAX_OUTPUTS`。
+`models.json` 的 `maxOutput`（经 `catalog.modelSpec()` 透出）。
 
 ---
 

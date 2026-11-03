@@ -569,7 +569,7 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 ## 8. 模型窗口规格
 
 上游 `/api/v1/models` **逐型号下发** `context_length` 与 `max_output_tokens`（[实测] 2026-10-23）——
-渠道两个都读上游；上游没给的字段才回落公开规格表 `MAX_OUTPUTS`。
+渠道两个都读上游；上游没给的字段才回落 `models.json` 的规格表。
 
 | 型号 | 上游上下文 | 上游最大输出 |
 |---|---|---|
@@ -588,7 +588,7 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 **以上游为准**（这条渠道实际能吃多少以它自己为准），分歧记在本文 §5.4 与
 `packages/core/channels/loomy/src/catalog.ts`。
 
-数值与来源见 `packages/core/channels/loomy/src/catalog.ts` 的 `MAX_OUTPUTS`（公开规格）；
+数值与来源见 `packages/core/channels/loomy/models.json` 的 `maxOutput`（公开规格）；
 全局规格与渠道表的关系见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §4。
 
 ---
