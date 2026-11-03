@@ -125,6 +125,13 @@ if (existsSync(CHANNELS_DIR)) {
       problems.push(
         `docs/channels/${entry.name}/PROTOCOL.md —— 缺渠道协议规格（渠道文档统一在 docs/channels/，规则见 docs/AGENTS.md）`,
       );
+      continue;
+    }
+    // 两个必备节（docs/channels/README.md「写作分工」：每渠道必须成节存在，便于横向对照）
+    for (const section of ["### 怎么测这个渠道", "### 端到端测试覆盖"]) {
+      if (!readText(doc).includes(section)) {
+        problems.push(`docs/channels/${entry.name}/PROTOCOL.md —— 缺必备节「${section}」`);
+      }
     }
   }
 }
@@ -340,6 +347,42 @@ if (agentsMdBytes > AGENTS_MD_MAX_BYTES) {
   );
 }
 
+// ── 6) 渠道环境变量口径：渠道 src 读的 env 必须在文档里有提及 ────────────────
+// 渠道运维面变量（镜像基址 / 测试注入 / 数据目录覆盖）统一写进各渠道 PROTOCOL
+//（先例：raccoon 的基址解析、astudio 的数据根）。改了代码忘文档口径是高频漂移
+// —— 变成会失败的检查。范围只到渠道 src：共享层内部调优旋钮（超时 / 重试次数等）
+// 属实现细节，语义由代码注释回答，不强制进文档。动态键（process.env[常量]）
+// 静态解析不了，不查（漏报方向，可接受）。
+const ENV_NAME_RE = /process\.env(?:\[\s*["']([A-Z][A-Z0-9_]+)["']\s*\]|\.([A-Z][A-Z0-9_]+)\b)/g;
+const envUsages = new Map();
+for (const entry of readdirSync(CHANNELS_DIR, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const srcDir = join(CHANNELS_DIR, entry.name, "src");
+  if (!existsSync(srcDir)) continue;
+  for (const f of readdirSync(srcDir)) {
+    if (!f.endsWith(".ts")) continue;
+    const srcLines = readFileSync(join(srcDir, f), "utf8").split("\n");
+    for (const [i, line] of srcLines.entries()) {
+      const t = line.trim();
+      if (t.startsWith("*") || t.startsWith("//") || t.startsWith("/*")) continue;
+      for (const m of line.matchAll(ENV_NAME_RE)) {
+        const name = m[1] ?? m[2];
+        if (!envUsages.has(name)) {
+          envUsages.set(name, `packages/core/channels/${entry.name}/src/${f}:${i + 1}`);
+        }
+      }
+    }
+  }
+}
+const docsText = candidates.map((rel) => readText(join(workspaceRoot, rel))).join("\n");
+for (const [name, loc] of envUsages) {
+  if (!docsText.includes(name)) {
+    problems.push(
+      `${loc} —— 渠道环境变量 ${name} 未见于任何文档（运维面变量统一进 docs/channels/<cid>/PROTOCOL.md 的「环境变量」）`,
+    );
+  }
+}
+
 if (problems.length > 0) {
   console.error(`✗ 文档归属检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
@@ -348,5 +391,6 @@ if (problems.length > 0) {
 
 console.log(
   `✓ 文档归属检查通过：${checked} 份 md，落点全部合规（${channelIds.length} 个渠道），` +
-    `相对链接全部可达，AGENTS.md ${agentsMdBytes}/${AGENTS_MD_MAX_BYTES} 字节`,
+    `相对链接全部可达，AGENTS.md ${agentsMdBytes}/${AGENTS_MD_MAX_BYTES} 字节，` +
+    `渠道环境变量 ${envUsages.size} 个口径齐备`,
 );

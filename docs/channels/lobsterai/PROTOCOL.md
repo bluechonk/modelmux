@@ -558,6 +558,13 @@ URL 粘回终端，兜底把它**转交同一个回调处理器**，走的仍是
 - **本渠道没有倍率 0 的模型**：最低是 `deepseek-flash` 0.05，测试须选它；
   `kimi-k3` 倍率 20，禁用于自动化测试。
 
+### 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `LOBSTERAI_PORTAL_BASE` | 覆盖登录门户基址（自托管 / 测试） |
+| `LOBSTERAI_VERSION_URL` | 覆盖版本号端点（自托管 / 离线测试）；版本号是签到接口的必填 query 参数 |
+
 ### 怎么测这个渠道
 
 端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
