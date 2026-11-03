@@ -181,6 +181,8 @@ export function Accounts(): ReactElement {
   });
   /** 弹窗关闭：让后端别再等输入（否则渠道挂到超时）。 */
   const cancelInput = (): void => {
+    // 取消本身是「别再等了」的尽力而为：失败无补救动作（弹窗已关、用户不再关心），
+    // 后端也会走到自己的超时收尾 —— 有意忽略。
     void api.commands.cancelInput().catch(() => {});
   };
 

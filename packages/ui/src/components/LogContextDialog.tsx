@@ -377,7 +377,11 @@ function PayloadBlock({
   const total = (offset === 0 ? firstSliceQuery.data?.total : slice.data?.total) ?? record.bytes;
   const fetching =
     record.body === "" && (offset === 0 ? firstSliceQuery.isPending : slice.isPending);
-  const more = hasMore({ recordBody: record.body, offset, total });
+  // 取片失败（网关抖动 / 500）必须显式成为错误态：静默下去的话 `body` 是空串，
+  // `parseLenient("")` 返回 null → 渲染成「正文不是可解析的请求体（编码或渠道自有格式）」
+  // 这个**错误结论**，而哨兵还会把 offset 推到 64K，首片内容再也不会被取回。
+  const sliceFailed = record.body === "" && (offset === 0 ? firstSliceQuery.isError : slice.isError);
+  const more = !sliceFailed && hasMore({ recordBody: record.body, offset, total });
   // 滚动懒加载：哨兵进入视口且还有剩余 → 取下一片。`fetching` 期间不重复触发。
   useEffect(() => {
     const el = sentinel.current;
@@ -425,7 +429,11 @@ function PayloadBlock({
         </span>
       </header>
       <div className="space-y-2 px-3.5 py-3">
-        {parsed === null ? (
+        {sliceFailed ? (
+          <p className="text-xs text-danger">
+            正文读取失败（网关或网络抖动）—— 这不是格式问题；重开本弹窗会重新尝试读取。
+          </p>
+        ) : parsed === null ? (
           <>
             <p className="text-xs text-ink-faint">
               {record.truncated
