@@ -718,7 +718,10 @@ export function Logs(): ReactElement {
   const [contextTarget, setContextTarget] = useState<AccessLogEntry | null>(null);
 
   const logs = useQuery({
-    queryKey: ["logs", date, outcome, cid, search, slowOnly, streamOnly, pageNum],
+    // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
+    // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
+    // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测踩过）。
+    queryKey: ["logs", date, outcome, cid, search, slowOnly, streamOnly, pageNum, pageSize],
     queryFn: () =>
       api.logs({
         date: date === "" ? undefined : date,

@@ -161,10 +161,15 @@ function statusPillText(status: AccountStatus): string {
  * 单行渲染（超长截断）：卡片最小宽 340px，原因放后面即使被截也不丢「多久后恢复」
  * 这个最有用的信息；固定行高也保证所有卡片逐像素等高。
  */
-function tripDetailOf(account: PoolAccount): { label: string; detail: string } | null {
+function tripDetailOf(
+  account: PoolAccount,
+  /** 当前时刻。由页面的 1s 时钟传入（不传则取当下）—— 这样倒计时会自己走，
+   *  而「多久后恢复」不必等下一次数据轮询才更新。 */
+  now: number = Date.now(),
+): { label: string; detail: string } | null {
   if (account.health === "cooldown") {
     const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
-    const when = Number.isFinite(until) ? shortSpan(until - Date.now()) : "?";
+    const when = Number.isFinite(until) ? shortSpan(until - now) : "?";
     return {
       label: "冷却中",
       detail: `${when} 后自动恢复 · ${account.cooldown_reason ?? "额度耗尽，等上游窗口刷新"}`,
@@ -176,7 +181,7 @@ function tripDetailOf(account: PoolAccount): { label: string; detail: string } |
     const retry = backoff > 0 ? `退避 ${shortSpan(backoff)}` : "退避中";
     // trip_until 缺失（旧记录）时不渲染 "? 后"——试探时刻未知，但「下次请求会试探」的语义仍在
     const probe = Number.isFinite(until)
-      ? `${shortSpan(until - Date.now())} 后自动试探 · `
+      ? `${shortSpan(until - now)} 后自动试探 · `
       : "下次请求自动试探 · ";
     return {
       label: "熔断中",
@@ -243,7 +248,7 @@ export function AccountCard({
   busyKey: string | null;
 }): ReactElement {
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
-  // 新鲜度只在渲染时算一次（不挂定时器）：秒数不自己跳，用户刷新页面/数据轮询时才更新
+  // 倒计时基准：页面每秒喂一个 `now`（数据轮询是 5s 级，靠它跳秒）；缺省取当下。
   const clock = now ?? Date.now();
   // 删除确认：点垃圾桶弹确认框（行内展开会撑高账号行）。
   // 同时只允许一个账号处于待确认态；切换账号/忙碌时清空。
@@ -317,7 +322,7 @@ export function AccountCard({
             // 账号级状态详情（冷却原因 / 熔断退避）：挂在**该账号自己**的行下，
             // 不是卡头 —— 状态属于账号，多个账号可能各不相同。
             // 熔断/冷却都会自动恢复（半开试探 / 到期惰性恢复），界面不设手动解除入口。
-            const detail = tripDetailOf(account);
+            const detail = tripDetailOf(account, clock);
             const detailTone = account.health === "cooldown" ? "text-warn" : "text-danger";
             return (
               <li
@@ -350,7 +355,7 @@ export function AccountCard({
                 {/*
                   额度区：**按卡片宽度逐级露出**（容器查询，不用视口断点 ——
                   同一视口下卡片可能整行、也可能只是两列里的半行）：
-                    窄 → 只留数字；中 → + 进度条；宽 → + 百分比。
+                    窄 → 只留剩余额度数值；`@min-[420px]` → + 标签；`@min-[480px]` → + 今日消耗。
                   账单还没拿到数据时画骨架条，不画 `-`：
                   「-」与「未查到」看起来像「查过了但没有」，会把等待与失败伪装成结果。 */}
                 <div className="flex shrink-0 items-center gap-2">
