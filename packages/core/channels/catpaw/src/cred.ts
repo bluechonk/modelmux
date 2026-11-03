@@ -33,35 +33,32 @@ const {
 export const GATEWAY_HOST = "https://catx.nocode.cn";
 
 /**
- * 登录配置端点（`GET`）。
+ * 登录配置端点（`GET`）。端点与响应字段见 PROTOCOL。
  *
- * - query：无；body：无
- * - 响应：取 `data.loginEntryUrl`（见 `fetchLoginEntryUrl`）
+ * 实现侧：取 `data.loginEntryUrl`（见 `fetchLoginEntryUrl`）。
  */
 const LOGIN_CONFIG_URL = `${GATEWAY_HOST}/api/gateway/passport/login-config`;
 
 /**
- * 令牌轮询端点（`GET`；**取 token 的唯一通道**）。
+ * 令牌轮询端点（`GET`；**取 token 的唯一通道**）。端点与 query 见 PROTOCOL。
  *
- * - query：`sid` —— 本地生成的会话 id（`randomHex(16)`，见 `login`）；上游按它认本次登录会话
- * - body：无；响应：取 `data`（不透明 SSO token，非 JWT；见 `pollToken`）
+ * 实现侧：`sid` 是本地生成的会话 id（`randomHex(16)`，见 `login`）；响应里是不透明
+ * SSO token（非 JWT），由 `pollToken` 消费。
  */
 const POLL_TOKEN_URL = `${GATEWAY_HOST}/api/gateway/passport/poll-token`;
 
 /**
  * 当前用户端点（`GET`；登录后取 uid，见 `fetchCurrentUserId`）。
  *
- * - query：无；body：无
- * - 鉴权：`X-Auth-Token: <accessToken>`（网关域头，与直连域的 `X-Passport-Token` 不是同一套）
+ * 实现侧：走**网关域**头 `X-Auth-Token`（与直连域的 `X-Passport-Token` 不是同一套）。
  */
 const CURRENT_USER_URL = `${GATEWAY_HOST}/api/gateway/passport/current-user`;
 
 /**
- * 令牌有效性探测端点（`GET`；`refresh()` 用；401/403 = 确定失效）。
+ * 令牌有效性探测端点（`GET`；`refresh()` 用）。
  *
- * - query：无；body：无
- * - 鉴权：`X-Auth-Token: <accessToken>`
- * - 判据：只有 401/403 算失效；5xx 与网络错误算临时故障（`[参考]` 参考实现的 `Ping()`）
+ * 实现侧判据：只有 401/403 算失效；5xx 与网络错误算临时故障
+ * （对照参考实现的 `Ping()`）——这是本渠道「什么算凭据失效」的口径来源。
  */
 const AUTH_PING_URL = `${GATEWAY_HOST}/api/gateway/auth/ping`;
 

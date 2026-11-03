@@ -21,10 +21,9 @@ export const DEFAULT_BASE_URL = "https://lobsterai-server.youdao.com";
 // 全部上游端点集中在本节：`cred.ts`（控制面）与 `billing.ts`（额度面）都引用这里。
 
 /**
- * 对话端点（OpenAI 兼容，**仅支持 SSE**）。
+ * 对话端点（OpenAI 兼容，**仅支持 SSE**）。端点与请求体字段见 PROTOCOL。
  *
- * `POST {base}/api/proxy/v1/chat/completions` —— **无 query**。
- * body：OpenAI 兼容请求（`model` / `messages` / `stream` 恒 true / …），改写见 `buildChatBody()`。
+ * 实现侧：请求体改写见 `buildChatBody()`（`stream` 恒 true）。
  */
 const CHAT_PATH = "/api/proxy/v1/chat/completions";
 
@@ -38,19 +37,15 @@ const CHAT_PATH = "/api/proxy/v1/chat/completions";
 const MODELS_PATH = "/api/models/available";
 
 /**
- * 授权码换 token（控制面；**匿名**，不带 `Authorization`）。
- *
- * `POST {base}/api/auth/exchange`
- * body：`authCode`（回调里的 code）/ `firstKeyfrom` / `latestKeyfrom` / `uuid` / `version`。
+ * 授权码换 token（控制面；**匿名**，不带 `Authorization`）。端点与请求体字段见 PROTOCOL。
  */
 export const EXCHANGE_PATH = "/api/auth/exchange";
 
 /**
  * 静默续期（控制面；**匿名**，不带 `Authorization`）。
  *
- * `POST {base}/api/auth/refresh`
- * body：`firstKeyfrom` / `latestKeyfrom`（**用存储值**）/ `version` / `refreshToken`，
- * 另带 `uuid?` / `userId?`（仅非空时带该键）。
+ * 实现侧：`firstKeyfrom` / `latestKeyfrom` **用存储值**；`uuid` / `userId` 仅非空时带该键
+ * （请求体字段清单见 PROTOCOL）。
  */
 export const REFRESH_PATH = "/api/auth/refresh";
 
