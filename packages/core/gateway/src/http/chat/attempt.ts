@@ -146,7 +146,20 @@ async function reopenForProbe(
       `${rotated ? " after host rotation" : ""}: ${reason}`,
   );
   await new Promise((r) => setTimeout(r, delayMs));
-  const credential = loadCredentialSafe(channel);
+  // 凭据读取的**真故障**（文件损坏 / EACCES）不能穿透：本函数在 catch 块里被调用，
+  // 抛出去会一路穿到 server 顶层 —— headers 已发时客户端只看到 SSE 被掐断。
+  // 留痕后返回 null（= 放弃本轮重试），交给调用方既有的 502 分类路径收尾。
+  let credential: ReturnType<typeof loadCredentialSafe>;
+  try {
+    credential = loadCredentialSafe(channel);
+  } catch (err) {
+    logThrottled(
+      ctx.logger,
+      `chat:cred-load-failed:${cid}`,
+      `credential read failed (channel ${cid}), aborting probe retry: ${String(err)}`,
+    );
+    return null;
+  }
   if (!credential) return null;
   const next = await inChannel(channel, () => openStream(channel, credential, sendBody));
   if (!next.ok) {
@@ -325,7 +338,16 @@ async function runQueueProbe(
       }),
       clientClosed,
     ]);
-    const credential = loadCredentialSafe(channel);
+    // 同 reopenForProbe：凭据真故障留痕并放弃本轮重开，不能让异常穿透
+    //（runQueueProbe 的调用点没有 try，抛出去就是网关 500 / SSE 截断）。
+    let credential: ReturnType<typeof loadCredentialSafe>;
+    try {
+      credential = loadCredentialSafe(channel);
+    } catch (err) {
+      logger(`queue retry aborted: credential read failed (channel ${cid}): ${String(err)}`);
+      state.queuedOut = true;
+      break;
+    }
     if (!credential) {
       logger(`queue retry aborted: no credential available (channel ${cid})`);
       state.queuedOut = true;

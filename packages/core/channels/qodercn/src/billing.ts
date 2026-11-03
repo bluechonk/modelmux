@@ -97,7 +97,9 @@ async function sashGet(
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (resp.status === 401 || resp.status === 403) {
-    throw new CreditsError("Credential rejected, please log in again");
+    // 契约 §5.4：凭据被拒即「未登录」语义（抛 CreditsError 会让共享层的 instanceof
+    // 分支形同虚设，也掩盖了「该重新登录」这个唯一正确的处置）。
+    throw new cred.NotLoggedInError("Credential rejected, please log in again");
   }
   if (resp.status === 404) throw new CreditsError(`Upstream has no such endpoint (HTTP 404): ${path}`);
   if (!resp.ok) throw new CreditsError(`Upstream returned HTTP ${resp.status}`);
@@ -188,21 +190,31 @@ function summarize(usage: Record<string, unknown>): { total: CreditsResult["tota
   };
 }
 
-/** 查余额 + 可领活动。 */
+/**
+ * 查余额 + 可领活动。
+ *
+ * 凭据口径与兄弟渠道一致（见 `lobsterai/billing.ts`）：
+ *   - **未登录**抛 `cred.NotLoggedInError` —— 共享层据此提示「运行 mx login」；
+ *   - `refreshOn401` 为真且上游拒绝凭据时，`cred.refresh()` 续期后**重试一次**；
+ *   - 其余失败抛 `CreditsError`。
+ *
+ * 旧实现把 `NotLoggedInError` 一律包成 `CreditsError`，且「401 刷新重试」写成两个
+ * 分支抛同一个错（恒真 no-op）—— token 过期可续期的账号永远续不了。
+ */
 export async function fetchCredits(options: { refreshOn401?: boolean; credential?: cred.Credentials } = {}): Promise<CreditsResult> {
-  let credential: cred.Credentials;
-  try {
-    credential = options.credential ?? cred.load();
-  } catch (err) {
-    throw new CreditsError(String(err));
-  }
-
-  const usage = await sashGet(credential, USAGE_PATH).catch((err: unknown) => {
-    if (options.refreshOn401 && err instanceof CreditsError && String(err).includes("log in again")) {
-      throw err;
+  const { refreshOn401 = true } = options;
+  let credential: cred.Credentials = options.credential ?? cred.load();
+  const load = async (): Promise<Record<string, unknown>> => {
+    try {
+      return await sashGet(credential, USAGE_PATH);
+    } catch (err) {
+      if (!(err instanceof cred.NotLoggedInError) || !refreshOn401) throw err;
+      credential = await cred.refresh(credential);
+      return sashGet(credential, USAGE_PATH);
     }
-    throw err instanceof CreditsError ? err : new CreditsError(String(err));
-  });
+  };
+
+  const usage = await load();
 
   const { total, packages } = summarize(usage);
   const claimable = await listClaimable(credential).catch(() => []);

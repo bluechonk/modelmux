@@ -668,6 +668,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
     if (shuttingDown) return;
     shuttingDown = true;
     state.quitting = true;
+    // 停机阶段关网关失败没有补救动作可做：进程立刻要退，端口随进程释放；
+    // 此时再抛错只会打断退出流程（有意忽略）。
     await running?.close().catch(() => {});
   };
 

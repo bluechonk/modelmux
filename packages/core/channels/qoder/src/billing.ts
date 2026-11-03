@@ -97,7 +97,10 @@ async function sashGet(
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (resp.status === 401 || resp.status === 403) {
-    throw new CreditsError("Credential rejected, please log in again");
+    // 契约 §5.4：凭据被拒就是**未登录**语义，抛 `NotLoggedInError` 让共享层
+    // 与调用方能区分「该重新登录」与「上游出错」（此前一律 CreditsError，
+    // 共享层的 `instanceof` 分支在本渠道形同虚设）。
+    throw new cred.NotLoggedInError("Credential rejected, please log in again");
   }
   if (resp.status === 404) throw new CreditsError(`Upstream has no such endpoint (HTTP 404): ${path}`);
   if (!resp.ok) throw new CreditsError(`Upstream returned HTTP ${resp.status}`);
@@ -188,21 +191,35 @@ function summarize(usage: Record<string, unknown>): { total: CreditsResult["tota
   };
 }
 
-/** 查余额 + 可领活动。 */
+/**
+ * 查余额 + 可领活动。
+ *
+ * 凭据口径与兄弟渠道一致（见 `lobsterai/billing.ts`）：
+ *   - **未登录**抛 `cred.NotLoggedInError` —— 共享层据此提示「运行 mx login」；
+ *   - `refreshOn401` 为真且上游拒绝凭据时，`cred.refresh()` 续期后**重试一次**；
+ *   - 其余失败抛 `CreditsError`。
+ *
+ * 之前这里把 `NotLoggedInError` 一律包成 `CreditsError`，且「401 刷新重试」写成了
+ * 两个分支抛同一个错（恒真 no-op）—— token 过期可续期的账号永远续不了，
+ * 账单直接报「please log in again」，而 `refreshOn401: true` 正是共享层在生效账号上
+ * 传的值。
+ */
 export async function fetchCredits(options: { refreshOn401?: boolean; credential?: cred.Credentials } = {}): Promise<CreditsResult> {
-  let credential: cred.Credentials;
-  try {
-    credential = options.credential ?? cred.load();
-  } catch (err) {
-    throw new CreditsError(String(err));
-  }
-
-  const usage = await sashGet(credential, USAGE_PATH).catch((err: unknown) => {
-    if (options.refreshOn401 && err instanceof CreditsError && String(err).includes("log in again")) {
-      throw err;
+  const { refreshOn401 = true } = options;
+  let credential: cred.Credentials = options.credential ?? cred.load();
+  // `sashGet` 命中 401/403 抛的 `NotLoggedInError` 是**可刷新**信号（token 可能只是过期）；
+  // 续期本身失败会抛出，交由调用方按凭据失效提示用户重新登录。
+  const load = async (): Promise<Record<string, unknown>> => {
+    try {
+      return await sashGet(credential, USAGE_PATH);
+    } catch (err) {
+      if (!(err instanceof cred.NotLoggedInError) || !refreshOn401) throw err;
+      credential = await cred.refresh(credential);
+      return sashGet(credential, USAGE_PATH);
     }
-    throw err instanceof CreditsError ? err : new CreditsError(String(err));
-  });
+  };
+
+  const usage = await load();
 
   const { total, packages } = summarize(usage);
   const claimable = await listClaimable(credential).catch(() => []);

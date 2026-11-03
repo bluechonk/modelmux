@@ -390,17 +390,6 @@ export interface CatalogModule {
    */
   refresh?(): Promise<void>;
   /**
-   * 已知模型规格（上下文窗口 / 最大输出 token）。
-   *
-   * 上游目录**通常不下发**这两个数（实测：catpaw / lobsterai / loomy /
-   * qoder / qodercn 都不发）—— 网关 `/v1/models` 只能给兜底值（窗口 200K / 输出 64K），
-   * 而兜底值不是任何模型的真实上限。渠道按**公开规格**维护这张表（数值与来源见
-   * `docs/channels/<cid>/PROTOCOL.md`），供池层透出。
-   *
-   * `modelId` 是对外暴露的 id（与 `exposedIds()` 返回值同形）；渠道内部负责把对外 id
-   * 映射到自己的条目。**查不到返回 undefined**（= 上游与公开资料都没有，不编造）。
-   */
-  /**
    * 可选：渠道按**公开规格**维护的模型规格（窗口 / 输出上限 / 思考档位 / 消耗倍率）。
    *
    * 用于没有目录端点、只有内置快照的渠道 —— 那种情况下上游目录读不出来，
