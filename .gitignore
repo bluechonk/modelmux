@@ -8,6 +8,8 @@ packages/cli/LICENSE
 .box-agent/
 .box-agent-scratch/
 .commandcode/
+# mimosa 安全扫描的钩子状态与封印产物（138MB 级，本机私有）
+.mimosa/
 
 # 逆向研究残留目录（catpaw 的本机数据目录副本；研究代码不入库，结论入 docs）
 .meituan-catpaw/
