@@ -21,7 +21,9 @@ export function GatewayControl(): ReactElement {
   const toast = useToast();
   const [busyAction, setBusyAction] = useState<"restart" | "stop" | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
-  const state = useQuery({ queryKey: ["state"], queryFn: api.getState, refetchInterval: 3000 });
+  // 不挂 `refetchInterval`：`Layout` 是 `["state"]` 的唯一轮询所有者，
+  // 这里订阅同一份缓存即可（同一 queryKey 会自动收到刷新通知）。
+  const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
   const snapshot = state.data;
   const running = snapshot?.ui_state === "running";
   const label = snapshot ? (running ? "运行中" : snapshot.ui_state || "不可达") : "加载中…";

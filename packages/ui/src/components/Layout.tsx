@@ -78,6 +78,9 @@ export function Layout({ children }: { children?: ReactNode }): ReactElement {
   const state = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
+    // **唯一轮询所有者**：`GatewayControl` 与各页面都读同一个 queryKey，
+    // 靠这份缓存拿数据（不再各挂定时器 —— 四个 3s 定时器各走各的节拍，
+    // 最多每 3 秒打 3–4 次同一接口，还会让整棵树重复渲染）。
     refetchInterval: 3000,
     retry: 1,
   });
