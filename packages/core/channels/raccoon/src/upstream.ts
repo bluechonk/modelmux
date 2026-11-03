@@ -34,47 +34,53 @@ const DESKTOP_PREFIX = "/api/web/desktop/v1";
 const OFFICE_PREFIX = "/api/web/office/v3";
 
 /**
- * 授权码换凭证（`POST`；网页登录第二步）。
- * - body：`{authorization_code}`；失败业务码 `200035`（码已失效/已消费，终态）
+ * 授权码换凭证（`POST`；网页登录第二步）。端点与请求体字段见 PROTOCOL。
+ *
+ * 实现侧：失败业务码 `AUTHORIZATION_CODE_NOT_FOUND` 是**终态**（码已失效/已消费）——
+ * 不要重试同一码。
  */
 const EXCHANGE_PATH = `${AUTH_PREFIX}/login_with_authorization_code`;
 /**
- * 续期（`POST`）。
- * - body：`{refresh_token}`；响应可能只给新的 access_token（此时**保留旧 refresh_token**）
+ * 续期（`POST`）。端点与请求体字段见 PROTOCOL。
+ *
+ * 实现侧：响应可能只给新的 `access_token`（此时**保留旧 `refresh_token`**）——
+ * 覆盖会把下次续期搞挂。
  */
 const REFRESH_PATH = `${AUTH_PREFIX}/refresh`;
 /**
  * 用户信息（`GET`；只用于昵称/手机号展示，失败不阻塞）。
- * - query：无
  */
 const USER_INFO_PATH = `${AUTH_PREFIX}/user_info`;
 /**
- * 对话（`POST`）。必需 query：无。
+ * 对话（`POST`）。
  */
 const CHAT_PATH = `${LLM_PREFIX}/chat/completions`;
 /**
- * 模型目录（`GET`）。必需 query：无。
+ * 模型目录（`GET`）。
  */
 const MODEL_CATALOG_PATH = `${LLM_PREFIX}/model_catalog`;
 /**
- * 积分余额（`GET`；**只读**，query 无）。
+ * 积分余额（`GET`；**只读**）。
  */
 const BALANCE_PATH = `${POINTS_PREFIX}/balance`;
 /**
  * 积分账单（`GET`）。
- * - query：`paging.limit` / `paging.offset`（分页；参考实现用 20，本仓用 50）
+ *
+ * 实现侧：分页条数取 50（参考实现用 20）—— 见下面的 `BILLS_LIMIT`。
  */
 const BILLS_PATH = `${POINTS_PREFIX}/bills`;
 /** 账单分页条数（参考实现用 20，本仓用 50）。 */
 const BILLS_LIMIT = 50;
 /**
  * 桌面端登录奖励（`POST`；**一次性幂等**，不是每日签到）。
- * - body：无；**需 `X-Client-Platform` 头**
+ *
+ * 实现侧：**需 `X-Client-Platform` 头**（缺了算不到这笔）。
  */
 const LOGIN_GRANT_PATH = `${DESKTOP_PREFIX}/login/points/grant`;
 /**
  * 每日积分触发器（`GET`；**按天幂等**，发放由服务端完成；账单才是入账的权威判据）。
- * - query：无；**需 `X-Client-Platform` 头**
+ *
+ * 实现侧：**需 `X-Client-Platform` 头**。
  */
 const SETTING_INFO_PATH = `${OFFICE_PREFIX}/setting_info`;
 

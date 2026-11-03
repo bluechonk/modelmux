@@ -32,21 +32,20 @@ export const DEFAULT_BASE_URL = "https://trae-api-cn.mchost.guru";
 const OAUTH_HOST = "https://api.trae.com.cn";
 
 /**
- * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken`
+ * OAuth 端点：`POST {oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken`。
+ * 请求体字段见 PROTOCOL。
  *
- * - query：无；body `{ClientID, RefreshToken, ClientSecret:"-", UserID:""}`
- *   （host 可用凭据的 `api_host` 覆盖，见 `Credentials.apiHost`）
- * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/auth.py`（`refresh_token`）、
+ * 实现侧：host 可用凭据的 `api_host` 覆盖（见 `Credentials.apiHost`）。
+ * 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/auth.py`（`refresh_token`）、
  *   `reference/JeffHu0912_trae2api/internal/upstream/constants.go`（`EpExchange`）
  */
 const OAUTH_EXCHANGE_PATH = "/cloudide/api/v3/trae/oauth/ExchangeToken";
 
 /**
- * OAuth 端点：**POST** `{oauthHost}/cloudide/api/v3/trae/GetUserInfo`
+ * OAuth 端点：`POST {oauthHost}/cloudide/api/v3/trae/GetUserInfo`。请求体字段见 PROTOCOL。
  *
- * - query：无；body `{ReqSource:"IDE", IDEVersion:<ideVersion>}`
- * - 鉴权走 **`x-cloudide-token`**，**不能**用 `Authorization: Cloud-IDE-JWT`（会 401）。
- * - 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`fetch_user_info`）、
+ * 实现侧：鉴权走 **`x-cloudide-token`**，**不能**用 `Authorization: Cloud-IDE-JWT`（会 401）。
+ * 来源：参考实现 `reference/autumnsentiment_Trae2api-cn/src/trae_client.py`（`fetch_user_info`）、
  *   `reference/JeffHu0912_trae2api/login.sh`（`GetUserInfo` 段）
  */
 const OAUTH_USER_INFO_PATH = "/cloudide/api/v3/trae/GetUserInfo";

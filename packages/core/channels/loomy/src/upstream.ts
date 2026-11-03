@@ -29,33 +29,37 @@ export const BAD_REQUEST_CODE = "100001";
 // ── 端点常量表（完整 URL = 业务基址 + 端点路径）──────────────────────────────
 
 /**
- * 对话端点（`POST`）。
- * - query：**无**（`model` / `messages` / `stream` 全在 body；`stream` 恒 true，见 `buildChatBody`）
+ * 对话端点（`POST`）。端点与请求体字段见 PROTOCOL。
+ *
+ * 实现侧：`stream` 恒 true（见 `buildChatBody`）—— 本渠道没有非流式入口。
  */
 const CHAT_PATH = `${API_PREFIX}/chat/completions`;
 
-/** 模型目录端点（`GET`，query 无）。 */
+/** 模型目录端点（`GET`）。 */
 const MODELS_PATH = `${API_PREFIX}/models`;
 
 /**
  * 积分明细端点（`GET`；**只读**，最便宜的探测端点）。
- * - query 来源：`POINTS_RECORDS_QUERY`
+ *
+ * 实现侧：query 由下面的 `POINTS_RECORDS_QUERY` 拼装。
  */
 const POINTS_RECORDS_PATH = `${API_PREFIX}/points/records`;
 
 /**
  * 每日额度初始化端点（`POST`；**写**，幂等）。
- * - body：**固定 `{}`，无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现），
- *   本渠道未启用（PROTOCOL §1.1）
+ *
+ * 实现侧：body **固定 `{}`，无参数** —— 参考实现可带 `inviteCode` + `deviceId`
+ * （成对出现），本渠道未启用（PROTOCOL §1.1）。
  */
 const FIRST_LOGIN_PATH = `${API_PREFIX}/points/first-login`;
 
-/** 新手任务列表端点（`GET`，query 无）。 */
+/** 新手任务列表端点（`GET`）。 */
 const ONBOARDING_TASKS_PATH = `${API_PREFIX}/onboarding/tasks`;
 
 /**
- * 完成单个新手任务端点（`POST`）。
- * - body：`{key}`（**只有 key**；服务端不校验前置行为）
+ * 完成单个新手任务端点（`POST`）。请求体字段见 PROTOCOL。
+ *
+ * 实现侧：只发 `{key}`；服务端**不校验**前置行为（不必先做任务再领）。
  */
 const ONBOARDING_COMPLETE_PATH = `${API_PREFIX}/onboarding/tasks/complete`;
 

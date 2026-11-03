@@ -38,38 +38,27 @@ const DIRECT_HOST = "https://ai.catpaw.meituan.com";
 export const DEFAULT_BASE_URL = DIRECT_HOST;
 
 /**
- * 轮次提交端点（`POST`；对话三段式 ①）。
+ * 轮次提交端点（`POST`；对话三段式 ①）。端点与请求体字段见 PROTOCOL。
  *
- * - query：无
- * - body：`{conversationId, source:"CatX", messages:[…], modelType, mode:"CATX_APP", toolVersion:"2.0.2", requestContext}`
- * - 鉴权：直连域头族（`buildHeaders`，此端点 `Accept: application/json`）
+ * 实现侧：走直连域头族（`buildHeaders`），此端点 `Accept: application/json`。
  */
 const ROUND_PATH = "/api/agent/conversation/round";
 
 /**
- * 轮次状态回报端点（`POST`；对话三段式 ②）。
- *
- * - query：无
- * - body：`{conversationId, eventType:"conversation", data:{status}}`，status ∈ running / completed
- * - 鉴权：直连域头族（`buildHeaders`，`Accept: application/json`）
+ * 轮次状态回报端点（`POST`；对话三段式 ②）。端点与请求体字段见 PROTOCOL。
  */
 const EVENT_PATH = "/api/agent/conversation/event";
 
 /**
  * 轮次执行端点（`POST`；对话三段式 ③，SSE 直出）—— **网关实际 POST 的那一个**。
- *
- * - query：无
- * - body：`{conversationId, turnRequestId, source:"CatX", action:"turn", message, modelType, mode:"CATX_APP", permissionMode, toolVersion, requestContext}`
- * - 鉴权：直连域头族（`buildHeaders`，此端点 `Accept: text/event-stream`）
+ * 端点与请求体字段见 PROTOCOL。
  */
 const TURN_PATH = "/api/agent/conversation/turn";
 
 /**
- * 模型目录端点（`POST`）。
+ * 模型目录端点（`POST`）。端点与请求体字段见 PROTOCOL。
  *
- * - query：无
- * - body：`{tenant:"CatDesk", scene:"CATX_APP", env:"EXTERNAL"}` —— 三字段必填，缺失报 400（`[参考]`）
- * - 鉴权：直连域头族（`buildHeaders`，`Accept: application/json`）
+ * 实现侧：body 三字段由下面的常量给出，缺一即 400（对照参考实现）。
  */
 const MODEL_LIST_PATH = "/api/agent/maas/model-types";
 
