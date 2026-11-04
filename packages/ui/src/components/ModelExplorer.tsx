@@ -74,7 +74,7 @@ export { classifyModel, HEALTH_RANGE, SLOW_TPS, type ModelHealth, type ModelVerd
 /**
  * 状态标签的文案与配色。
  *
- * 「无调用记录」不挂标签（没数据 ≠ 不可用，2026-11-05 主人改定）：红黄只留给
+ * 「无调用记录」不挂标签（没数据 ≠ 不可用）：红黄只留给
  * 「调用过但结果不好」的模型，页面才不至于一片告警色。
  */
 const VERDICT_PILL: Record<NonNullable<ModelVerdict["status"]>, { text: string; cls: string }> = {
