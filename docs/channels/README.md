@@ -22,7 +22,7 @@ docs/channels/<cid>/
 | 接入客户端 | base url 指到 `http://127.0.0.1:4412/v1`，模型填 `<cid>/<模型>` 池 id（清单见 `GET /v1/models`） |
 | 单渠道调试 | `node packages/core/channels/<cid>/dist/cli.js --help` |
 | 额度 / 签到 | 额度查 `mx bill <cid>`；**签到由网关启动时自动执行**（`packages/core/gateway/src/auth/auto-signin.ts`，每 30 分钟补一次，跨天常驻也能补签），今天是否已签看 `mx status <cid>`；渠道不支持时 CLI / UI 显示 `-` |
-| 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「测试规则」第 1 条），用 `opencode-mx-test` skill 走真实客户端 |
+| 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「测试规则」第 1 条），用 `dsh-mx-test` skill 走真实客户端 |
 
 > 渠道之间的**差异**（登录方式、推荐模型、已知限制、上游硬约束）都写在该渠道的
 > `PROTOCOL.md` 里 —— 本页只放**对所有渠道都成立**的部分；下方「渠道一览」的一句话说明
@@ -83,9 +83,10 @@ docs/channels/<cid>/
 
 ## 端到端测试现状
 
-用 `opencode-mx-test` 逐渠道跑「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，
-只用**免费或倍率最低**的模型。判据：access 日志 `status 200` / `stream true` / `toolCount > 0` /
-`messageCount` 随工具轮次递增，错误日志无该渠道新增条目。
+下表为 2026-10-26 用 opencode 侧逐渠道实测（该技能已退役，现行端到端用 `dsh-mx-test` 技能）：
+「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，只用**免费或倍率最低**的模型。
+判据：access 日志 `status 200` / `stream true` / 客户端侧工具调用可见（`toolCount` 只是请求
+工具数，不是调用判据）/ `messageCount` 随工具轮次递增，错误日志无该渠道新增条目。
 
 | 渠道 | 测的模型 | 结果 | 备注 |
 | --- | --- | --- | --- |

@@ -668,7 +668,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login raccoon

@@ -166,8 +166,8 @@ traecn）走各自 translator，不经过该兜底。
 - 上游约束（§2 头族、§4 错误码、§5 归一化管线）的正确性由**代码审查 +
   归一化结果人工核验**保障，不靠运行时发任何请求去「验证行为」——
   发畸形请求本身就是一次风控事件。
-- 渠道是否跑得通的**唯一判据**是端到端测试：由 Agent 跑 `opencode-mx-test` skill，
-  通过 opencode CLI 直连 `http://127.0.0.1:4412/v1`，用 `<渠道>/<模型>` 池 id 发
+- 渠道是否跑得通的**唯一判据**是端到端测试：由 Agent 跑 `dsh-mx-test` skill，
+  通过 dsh ACP 直连 `http://127.0.0.1:4412/v1`，用 `<渠道>/<模型>` 池 id 发
   **正确的** OpenAI 兼容请求（普通文本对话、合法 tool_calls 往返、流式/非流式）。
 
 ---
@@ -548,7 +548,7 @@ ckldy `internal/server/handler.go:187-199` 请求前 `RefreshSkew=10min` 先刷�
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login workbuddyai           # 登录入池（浏览器设备授权）
