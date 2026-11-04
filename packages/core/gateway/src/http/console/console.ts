@@ -26,6 +26,18 @@ import {
   type AccessOutcome,
 } from "../../runtime/log-store.js";
 import { computeUsageStats, type UsageRange } from "../../runtime/usage-stats.js";
+import { refreshCatalog } from "../../pool/catalog-snapshot.js";
+import {
+  fetchCustomModels,
+  findCustomProvider,
+  maskKey,
+  readCustomProviders,
+  removeCustomProvider,
+  saveCustomProvider,
+  validateProvider,
+  type CustomModel,
+  type CustomProvider,
+} from "../../runtime/custom-providers.js";
 
 export type { LoginInputRequest };
 
@@ -322,6 +334,23 @@ async function pingModel(
   }
 }
 
+/** 读一次 JSON 请求体（供 /api/providers 的 POST 用；超限按截断处理）。 */
+function readBody(req: import("node:http").IncomingMessage, onBody: (body: Record<string, unknown>) => void): void {
+  let body = "";
+  req.on("data", (chunk) => {
+    body += String(chunk);
+  });
+  req.on("end", () => {
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = JSON.parse(body || "{}") as Record<string, unknown>;
+    } catch {
+      appendGateway("console body parse failed");
+    }
+    onBody(parsed);
+  });
+}
+
 /**
  * 把 console 路由体抽成**可挂载的 handler**，供两种形态复用：
  * - 独立进程（`mx web` / 单渠道调试）：`prefix = ""`，自带 server
@@ -509,6 +538,86 @@ export function createConsoleHandler(
           if (!res.headersSent) json(res, { ok: false, error: `ping failed: ${String(err)}` }, 500);
         });
       });
+      return;
+    }
+
+    if (path === p("/api/providers") || path === p("/api/providers/fetch-models")) {
+      // 自定义提供商（运行时渠道）的注册表 CRUD —— 与 commands 同策略加同源校验。
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      if (path === p("/api/providers/fetch-models")) {
+        if (req.method !== "POST") {
+          json(res, { ok: false, error: "use POST" }, 405);
+          return;
+        }
+        void readBody(req, (body) => {
+          const { baseUrl, apiKey } = body as { baseUrl?: unknown; apiKey?: unknown };
+          if (typeof baseUrl !== "string" || typeof apiKey !== "string") {
+            json(res, { ok: false, error: "参数 baseUrl / apiKey 必填" }, 400);
+            return;
+          }
+          fetchCustomModels(baseUrl, apiKey)
+            .then((models) => json(res, { ok: true, models }))
+            .catch((err) => json(res, { ok: false, error: String(err) }, 400));
+        });
+        return;
+      }
+      if (req.method === "GET") {
+        const providers = readCustomProviders().map((p) => ({ ...p, apiKeyMasked: maskKey(p.apiKey), apiKey: "" }));
+        json(res, { ok: true, providers });
+        return;
+      }
+      if (req.method === "POST") {
+        void readBody(req, (body) => {
+          const input = body as Record<string, unknown>;
+          const existing = typeof input["id"] === "string" ? findCustomProvider(input["id"]) : undefined;
+          const apiKey =
+            typeof input["apiKey"] === "string" && input["apiKey"].trim()
+              ? input["apiKey"].trim()
+              : (existing?.apiKey ?? "");
+          const provider: CustomProvider = {
+            id: typeof input["id"] === "string" ? input["id"] : "",
+            display: typeof input["display"] === "string" ? input["display"] : "",
+            baseUrl: typeof input["baseUrl"] === "string" ? input["baseUrl"] : "",
+            protocol: "openai",
+            apiKey,
+            models: Array.isArray(input["models"])
+              ? (input["models"] as unknown[]).filter(
+                  (m): m is CustomModel =>
+                    !!m &&
+                    typeof m === "object" &&
+                    typeof (m as Record<string, unknown>)["id"] === "string",
+                )
+              : [],
+            createdAt: existing?.createdAt ?? new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          const problem = validateProvider(provider);
+          if (problem) {
+            json(res, { ok: false, error: problem }, 400);
+            return;
+          }
+          saveCustomProvider(provider);
+          // 快照文件重建：新增/改模型后 `/v1/models` 不能还是旧清单
+          refreshCatalog();
+          json(res, { ok: true, provider: { ...provider, apiKey: "", apiKeyMasked: maskKey(provider.apiKey) } });
+        });
+        return;
+      }
+      if (req.method === "DELETE") {
+        const id = new URL(req.url ?? "/", "http://localhost").searchParams.get("id") ?? "";
+        if (!id) {
+          json(res, { ok: false, error: "参数 id 必填" }, 400);
+          return;
+        }
+        removeCustomProvider(id);
+        refreshCatalog();
+        json(res, { ok: true });
+        return;
+      }
+      json(res, { ok: false, error: "method not allowed" }, 405);
       return;
     }
 

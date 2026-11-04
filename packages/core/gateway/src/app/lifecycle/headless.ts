@@ -12,6 +12,8 @@ import { createInterface, type Interface } from "node:readline";
 
 import * as authFlow from "../../auth/auth-flow.js";
 import { startAutoSignin } from "../../auth/auto-signin.js";
+import { readCustomProviders, registerCustomProviders } from "../../runtime/custom-providers.js";
+import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { channels, getChannel, hasChannel, channelCapabilities, type Channel } from "../../runtime/channel.js";
@@ -778,6 +780,13 @@ export async function runServe(options: ServeOptions): Promise<number> {
         console: consoleEnabled ? `http://${state.base}${REPO_UI_PREFIX}/` : "",
       });
     }
+    // 自定义提供商：注册进运行时渠道表（注册表见 runtime/custom-providers.ts）。
+    // 必须在启动路径上，且要在自动签到/账单刷新之前 —— 它们会遍历全部渠道。
+    registerCustomProviders();
+    // `/v1/models` 读目录快照文件：注册完自定义渠道必须重建一次，否则清单还是旧的
+    refreshCatalog();
+    logLine(`custom providers registered (${readCustomProviders().length})`);
+
     // 网关 ready 即挂自动签到：逐渠道（未登录跳过 / 台账已签跳过 / 连败 3 次当日熔断）
     startAutoSignin(logLine);
 
