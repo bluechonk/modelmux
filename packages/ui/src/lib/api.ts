@@ -137,13 +137,6 @@ export interface WebApi {
     offset: number,
     limit: number,
   ): Promise<PayloadSliceResult>;
-  /**
-   * 网关生命周期（仪表盘的播放/暂停/重启）。
-   *
-   * `restart` = worker 自断、监督者重生，页面短暂断开后自动恢复；
-   * `stop` = 网关进程整体退出，**本页面随之不可达**（恢复需本机终端 `mx start`）。
-   */
-  gatewayControl(action: "restart" | "stop"): Promise<{ ok: boolean; action: string }>;
   /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
   overview(): Promise<OverviewResponse>;
   readonly commands: {
@@ -345,8 +338,6 @@ export const api: WebApi = {
           `/api/logs/payload${queryString({ id, date, part: "body", phase, offset, limit })}`,
         ),
   usage: (range) => (IS_DEMO ? demoLater(demoUsage(range)) : get(`/api/usage${queryString({ range })}`)),
-  gatewayControl: (action) =>
-    IS_DEMO ? demoLater({ ok: true, action }) : post("/api/gateway", { action }),
   overview: () =>
     IS_DEMO ? demoLater(demoOverview(demo())) : get("/api/overview"),
   commands: {

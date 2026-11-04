@@ -171,7 +171,8 @@ export function ModelExplorer({
 
   return (
     <section className="mb-2">
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      {/* 工具条吸顶：模型多、表长，滚动时搜索/筛选/计数始终可及（背景铺满容器宽，内容不透出） */}
+      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 bg-canvas px-4 py-2 sm:-mx-6 sm:px-6">
         <h2 className="text-lg font-normal tracking-tight text-ink">
           渠道 / 模型
         </h2>

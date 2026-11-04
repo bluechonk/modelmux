@@ -426,34 +426,6 @@ export function AccountCard({
               </li>
             );
           })}
-          {/* 空位占位：真实账号不足 2 个时补空行，让每张卡**与有账号的卡同高**。
-              必须与真实账号行**逐列对齐**：同样 `h-11`、同样的额度区与 52px 操作区，
-              额度区的响应式断点也必须一致（实测：用百分比宽度时两行起点不同，
-              空位占位条与真实进度条对不上，布局不统一）。 */}
-          {emptySlots > 0 &&
-            Array.from({ length: emptySlots }).map((_, i) => (
-              <li
-                key={`empty-${i}`}
-                className="border-b border-line/60 last:border-b-0"
-                aria-hidden="true"
-              >
-                {/* 主行 `h-11` 与真实行一致；下面再留同高的状态详情占位行，
-                    空位卡才能和有账号的卡逐像素对齐（真实行恒为两行高）。 */}
-                <div className="flex h-11 items-center gap-2 px-4 max-md:gap-1.5 max-md:px-3">
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
-                  <span className="min-w-0 flex-1" />
-                  {/* 额度区：与真实行同一套容器查询断点 */}
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className="hidden h-1 w-14 rounded-full bg-line/60 @min-[420px]:block" />
-                    <span className="block h-2 w-8 rounded bg-line/60" />
-                    <span className="hidden w-9 @min-[480px]:block" />
-                  </span>
-                  {/* 操作区：与真实行的 52px / < md 92px 同宽，占位保持位置 */}
-                  <span className="w-[52px] shrink-0 max-md:w-[92px]" />
-                </div>
-                <div className="h-6 px-4 pl-7 max-md:px-3 max-md:pl-6" />
-              </li>
-            ))}
         </ul>
       {/* 卡底条：**每张卡恒渲染**，高度固定 ——
           只在 > 2 个账号时出现折叠条的话，多账号的卡比 1-2 个账号的高出一整条，

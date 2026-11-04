@@ -8,7 +8,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router";
 import type { ReactElement } from "react";
-import { Layout } from "./components/Layout";
+import { LayoutSingle } from "./components/LayoutSingle";
 import { ToastProvider } from "./components/Toast";
 import { Dashboard } from "./pages/Dashboard";
 import { Models } from "./pages/Models";
@@ -41,7 +41,9 @@ export function App(): ReactElement {
       <ToastProvider>
         <BrowserRouter basename={BASENAME}>
           <Routes>
-            <Route element={<Layout />}>
+            {/* 布局重构（Strangler）：单栏 LayoutSingle 已切换；旧 Layout 保留可回退，
+                阶段 3 删侧栏时一并移除 */}
+            <Route element={<LayoutSingle />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/models" element={<Models />} />
               <Route path="/accounts" element={<Accounts />} />
