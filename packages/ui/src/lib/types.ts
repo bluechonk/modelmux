@@ -349,6 +349,42 @@ export interface PingResult {
   avgTps: number | null;
 }
 
+/**
+ * 自定义提供商的模型条目（用户在控制台填的内置表）。
+ *
+ * `contextWindow` / `maxOutputTokens` 查不到就省略 —— 池层会回落到共享兜底值，
+ * 界面不编造数字。
+ */
+export interface CustomModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputModalities?: string[];
+}
+
+/** 控制台里的自定义提供商（apiKey 只回指纹，原文不下发）。 */
+export interface CustomProvider extends CustomModel {
+  id: string;
+  display: string;
+  baseUrl: string;
+  protocol: "openai";
+  apiKeyMasked?: string;
+  models: CustomModel[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 保存自定义提供商的入参（apiKey 留空 = 保持原值）。 */
+export interface CustomProviderInput {
+  id: string;
+  display: string;
+  baseUrl: string;
+  protocol: "openai";
+  apiKey?: string;
+  models: CustomModel[];
+}
+
 /** 一个账号**今日**的 token 消耗（账号池账号行用，与「今日消耗」同口径）。 */
 export interface UsageAccountRow {
   key: string;

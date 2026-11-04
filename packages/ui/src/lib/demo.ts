@@ -11,6 +11,7 @@
  */
 
 import type {
+  CustomProvider,
   AccessLogEntry,
   AccessLogPage,
   AccessLogStats,
@@ -740,6 +741,25 @@ const DEMO_USAGE_MODELS: Array<{ id: string; weight: number }> = [
  * 数值**确定性生成**（只用日期与索引推导，不取随机数）—— 演示时同一区间每次渲染
  * 都一样，数字不会自己乱跳（与 `demoLogs` 同一考虑）。形态与真实聚合完全一致。
  */
+/** 演示用的自定义提供商注册表（控制台「自定义提供商」区块）。 */
+export function demoProviders(): CustomProvider[] {
+  return [
+    {
+      id: "acme-gateway",
+      display: "Acme Gateway",
+      baseUrl: "https://api.example.com/v1",
+      protocol: "openai",
+      apiKeyMasked: "ak_12...abcd",
+      models: [
+        { id: "acme-chat", name: "Acme Chat", contextWindow: 128_000, maxOutputTokens: 8192 },
+        { id: "acme-mini", contextWindow: 32_000, maxOutputTokens: 4096 },
+      ],
+      createdAt: "2026-10-20T10:00:00.000Z",
+      updatedAt: "2026-11-01T10:00:00.000Z",
+    },
+  ];
+}
+
 export function demoUsage(range: UsageRange): UsageStats {
   // 365d（热力图的年度视图）在演示里给 90 天的量 —— 保留期之外的格子本来就是空的
   const days = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : 90;

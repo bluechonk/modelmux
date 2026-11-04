@@ -13,6 +13,7 @@ import {
   type ChannelBilling,
   type AccountStatus,
 } from "../components/AccountCard";
+import { CustomProviders } from "../components/CustomProviders";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
@@ -364,6 +365,9 @@ export function Accounts(): ReactElement {
           </div>
         </>
       )}
+
+      {/* 自定义提供商：任意 OpenAI 兼容端点（与内置渠道并列参与路由） */}
+      <CustomProviders />
 
       {/* 登录弹窗（仅右上角关闭键可关） */}
       {loginChannel !== null && (

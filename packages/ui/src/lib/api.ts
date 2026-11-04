@@ -16,6 +16,9 @@ import type {
   PayloadQueryResult,
   PayloadSliceResult,
   PingResult,
+  CustomModel,
+  CustomProvider,
+  CustomProviderInput,
   PoolRow,
   UiSnapshot,
   UsageRange,
@@ -34,6 +37,7 @@ import {
   demoLogs,
   demoModels,
   demoOverview,
+  demoProviders,
   demoRemove,
   demoReset,
   demoSettings,
@@ -82,6 +86,12 @@ async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json() as T;
+}
+
+/** `DELETE` 请求（自定义提供商删除用）。 */
+async function del<T>(path: string): Promise<T> {
+  const resp = await fetch(path, { method: "DELETE" });
+  return (await resp.json()) as T;
 }
 
 async function post<T>(path: string, body: unknown = {}): Promise<T> {
@@ -140,6 +150,14 @@ export interface WebApi {
   ): Promise<PayloadSliceResult>;
   /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
   overview(): Promise<OverviewResponse>;
+  /** 自定义提供商注册表（`GET /web/api/providers`）；apiKey 只回指纹，不回原文。 */
+  providers(): Promise<CustomProvider[]>;
+  /** 新增/保存一个自定义提供商（apiKey 留空 = 保持原值）。 */
+  saveProvider(provider: CustomProviderInput): Promise<CustomProvider>;
+  /** 删除一个自定义提供商。 */
+  removeProvider(id: string): Promise<{ ok: boolean }>;
+  /** 拉取某个基址的可用模型（OpenAI 兼容 `GET {base}/models`）。 */
+  fetchProviderModels(baseUrl: string, apiKey: string): Promise<CustomModel[]>;
   /**
    * ping 一个模型（`POST /web/api/ping`）：向网关自身发一次最小 chat 请求并回耗时。
    *
@@ -345,6 +363,22 @@ export const api: WebApi = {
           `/api/logs/payload${queryString({ id, date, part: "body", phase, offset, limit })}`,
         ),
   usage: (range) => (IS_DEMO ? demoLater(demoUsage(range)) : get(`/api/usage${queryString({ range })}`)),
+  providers: async () => {
+    if (IS_DEMO) return demoProviders();
+    const res = (await get("/api/providers")) as { providers?: CustomProvider[] };
+    return res.providers ?? [];
+  },
+  saveProvider: (provider) =>
+    IS_DEMO ? demoLater({ ...provider, createdAt: "", updatedAt: "" }) : post("/api/providers", provider),
+  removeProvider: (id) =>
+    IS_DEMO ? demoLater({ ok: true }) : del(`/api/providers${queryString({ id })}`),
+  fetchProviderModels: async (baseUrl, apiKey) => {
+    if (IS_DEMO) return [{ id: "demo-model-a" }, { id: "demo-model-b" }];
+    const res = (await post("/api/providers/fetch-models", { baseUrl, apiKey })) as {
+      models?: CustomModel[];
+    };
+    return res.models ?? [];
+  },
   ping: (model) =>
     IS_DEMO
       ? demoLater({ ok: true, model, ms: 1_200, status: 200, error: "" })
