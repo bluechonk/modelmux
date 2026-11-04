@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ModelMux 面板</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: #141417; color: #e8e8ec; padding: 18px; line-height: 1.5;
+  }
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  h1 { font-size: 19px; font-weight: 600; }
+  h1 span { color: #7aa2ff; }
+  .badge { font-size: 12px; border-radius: 999px; padding: 3px 10px; border: 1px solid #2c2c34; }
+  .badge.ok { color: #7ee787; border-color: #2c4a34; }
+  .badge.bad { color: #ff7b72; border-color: #4a2c2c; }
+  .badge.dim { color: #8f8fa3; }
+  .spacer { flex: 1; }
+  button {
+    background: #1e1e24; color: #c8c8d4; border: 1px solid #2c2c34; border-radius: 6px;
+    padding: 5px 12px; font-size: 12px; cursor: pointer;
+  }
+  button:hover { border-color: #7aa2ff; color: #fff; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 14px 0; }
+  .card { background: #1a1a20; border: 1px solid #26262e; border-radius: 8px; padding: 10px 12px; }
+  .card .k { font-size: 11px; color: #8f8fa3; letter-spacing: .04em; }
+  .card .v { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 13px; color: #9a9aae; font-weight: 600; margin: 16px 0 8px; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #22222a; }
+  th { color: #8f8fa3; font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ok { color: #7ee787; }
+  .bad { color: #ff7b72; }
+  .dim { color: #8f8fa3; }
+  .chip { display: inline-block; min-width: 18px; text-align: center; border-radius: 4px; padding: 0 5px; font-size: 11px; margin-right: 4px; }
+  .chip.ok { background: #16281c; }
+  .chip.cooldown { background: #2a2410; color: #d2a8ff; }
+  .chip.error, .chip.unauthenticated { background: #2a1616; }
+  input[type=search] {
+    width: 100%; background: #1a1a20; border: 1px solid #2c2c34; color: #e8e8ec;
+    border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 8px;
+  }
+  .scroll { max-height: 260px; overflow: auto; }
+  #state { font-size: 12px; margin-top: 10px; min-height: 18px; }
+  #state.bad { color: #ff7b72; }
+  #state.busy { color: #d2a8ff; }
+  code { background: #1e1e24; border: 1px solid #2c2c34; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>ModelMux <span>面板</span></h1>
+    <span id="gw" class="badge dim">连接中…</span>
+    <span class="spacer"></span>
+    <button id="refresh">刷新</button>
+  </div>
+  <div id="state" class="busy">正在与宿主握手…</div>
+
+  <div class="cards" id="kpis"></div>
+
+  <h2>渠道健康</h2>
+  <table>
+    <thead><tr><th>渠道</th><th class="num">模型</th><th>状态分布</th><th>登录</th><th class="num">成功/失败</th></tr></thead>
+    <tbody id="channels"></tbody>
+  </table>
+
+  <h2>模型清单</h2>
+  <input type="search" id="q" placeholder="搜索模型 id…">
+  <div class="scroll">
+    <table>
+      <thead><tr><th>池 id</th><th class="num">上下文</th><th class="num">最大输出</th><th>思考档位</th></tr></thead>
+      <tbody id="models"></tbody>
+    </table>
+  </div>
+
+  <h2>最近请求</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>时间</th><th>渠道</th><th>模型</th><th>结果</th><th class="num">耗时</th><th class="num">token</th></tr></thead>
+      <tbody id="logs"></tbody>
+    </table>
+  </div>
+
+<script>
+  const PROTOCOL = "2025-11-21";
+  let nextId = 1;
+  const pending = new Map();
+
+  function send(msg) { window.parent.postMessage(msg, "*"); }
+  function request(method, params) {
+    const id = nextId++;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      send({ jsonrpc: "2.0", id, method, params });
+      setTimeout(() => {
+        if (pending.has(id)) { pending.delete(id); reject(new Error(method + " 超时")); }
+      }, 10000);
+    });
+  }
+  window.addEventListener("message", (ev) => {
+    const m = ev.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    const p = pending.get(m.id);
+    if (!p) return;
+    pending.delete(m.id);
+    m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
+  });
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmtNum = (n) => (n == null ? "-" : Number(n).toLocaleString("zh-CN"));
+  const fmtTokens = (n) => (n == null ? "-" : n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+  const fmtMs = (ms) => (ms == null ? "-" : ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : ms + "ms");
+  const pct = (a, b) => (b ? ((a / b) * 100).toFixed(1) + "%" : "-");
+
+  function setState(text, cls) { const el = $("state"); el.textContent = text; el.className = cls ?? ""; }
+
+  // 工具调用:经宿主桥转发到 MCP server,回包是 { content: [{type:"text",text:"<json>"}], isError }
+  async function tool(name, args = {}) {
+    const res = await request("tools/call", { name, arguments: args });
+    if (res?.isError) throw new Error(JSON.parse(res.content?.[0]?.text ?? "{}").error ?? "工具返回错误");
+    return JSON.parse(res?.content?.[0]?.text ?? "null");
+  }
+
+  function renderStatus(s) {
+    const gw = s?.gateway ?? {};
+    const badge = $("gw");
+    const running = gw.ui_state === "running";
+    badge.textContent = running ? "运行中" : (gw.ui_state ?? "未知");
+    badge.className = "badge " + (running ? "ok" : "bad");
+    if (gw.error) setState("网关错误: " + gw.error, "bad");
+
+    const u = s?.usage;
+    const cards = [
+      ["今日请求", fmtNum(u?.requests), ""],
+      ["成功率", u ? pct(u.success, u.requests) : "-", ""],
+      ["token", u ? fmtTokens(u.tokens?.total) : "-", ""],
+      ["缓存命中", u?.cache ? pct(u.cache.hit, u.cache.total) : "-", ""],
+      ["平均耗时", u ? fmtMs(u.avg_duration_ms) : "-", ""],
+      ["慢请求", fmtNum(u?.slow), u?.slow ? "bad" : ""],
+    ];
+    $("kpis").innerHTML = cards
+      .map(([k, v, cls]) => `<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`)
+      .join("");
+
+    const rows = (s?.channels ?? []).map((c) => {
+      const st = c.statuses ?? {};
+      const dist = ["ok", "cooldown", "error", "unauthenticated"]
+        .filter((k) => st[k])
+        .map((k) => `<span class="chip ${k}">${k}=${st[k]}</span>`)
+        .join("") || '<span class="dim">-</span>';
+      const login = c.logged_in == null ? '<span class="dim">-</span>' : c.logged_in ? '<span class="ok">已登录</span>' : '<span class="bad">未登录</span>';
+      const req = c.requests ?? {};
+      return `<tr><td>${esc(c.cid)}</td><td class="num">${fmtNum(c.models)}</td><td>${dist}</td><td>${login}</td><td class="num"><span class="ok">${fmtNum(req.success)}</span> / <span class="bad">${fmtNum(req.failure)}</span></td></tr>`;
+    });
+    $("channels").innerHTML = rows.join("") || '<tr><td colspan="5" class="dim">无数据</td></tr>';
+  }
+
+  let allModels = [];
+  function renderModels() {
+    const q = $("q").value.trim().toLowerCase();
+    const rows = allModels
+      .filter((m) => !q || m.id.toLowerCase().includes(q))
+      .map((m) => `<tr><td>${esc(m.id)}</td><td class="num">${fmtNum(m.context_window)}</td><td class="num">${fmtNum(m.max_output_tokens)}</td><td class="dim">${esc((m.effort ?? []).join(" / "))}</td></tr>`);
+    $("models").innerHTML = rows.join("") || '<tr><td colspan="4" class="dim">无匹配</td></tr>';
+  }
+
+  function renderLogs(l) {
+    const rows = (l?.entries ?? []).map((e) => {
+      const t = e.ts ? new Date(e.ts).toLocaleTimeString("zh-CN", { hour12: false }) : "-";
+      return `<tr><td class="dim">${t}</td><td>${esc(e.cid)}</td><td>${esc(e.model)}</td><td class="${e.outcome === "success" ? "ok" : "bad"}">${esc(e.outcome)}</td><td class="num">${fmtMs(e.durationMs)}</td><td class="num">${fmtNum(e.tokens)}</td></tr>`;
+    });
+    $("logs").innerHTML = rows.join("") || '<tr><td colspan="6" class="dim">无数据</td></tr>';
+  }
+
+  async function load() {
+    setState("刷新中…", "busy");
+    try {
+      const [s, m, l] = await Promise.all([tool("mx_status"), tool("mx_models"), tool("mx_logs", { limit: 10 })]);
+      allModels = m?.models ?? [];
+      renderStatus(s);
+      renderModels();
+      renderLogs(l);
+      setState("已连接 · " + new Date().toLocaleTimeString("zh-CN", { hour12: false }), "");
+    } catch (err) {
+      setState("失败: " + err.message, "bad");
+    }
+  }
+
+  (async () => {
+    try {
+      await request("ui/initialize", {
+        appInfo: { name: "mx-panel", version: "0.1.0" },
+        appCapabilities: {},
+        protocolVersion: PROTOCOL,
+      });
+      send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+      await load();
+      setInterval(load, 15000);
+    } catch (err) {
+      setState("握手失败: " + err.message, "bad");
+    }
+  })();
+
+  $("refresh").addEventListener("click", load);
+  $("q").addEventListener("input", renderModels);
+</script>
+</body>
+</html>
