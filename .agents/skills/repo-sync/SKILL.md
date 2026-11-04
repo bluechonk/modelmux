@@ -190,8 +190,8 @@ git status                     # 工作树干净（无未提交 tracked 文件�
 git fetch --prune && git branch -a      # 本地/远端只剩 main
 gh release list --repo bluechonk/modelmux   # 必须没有任何输出（含 draft；§4.1）
 git tag -l                      # tag 才是发布物，必须都在
-ls .tmp                        # 只清真正的一次性产物（提交信息 / PR 正文 / 抓包 dump / 截图）；
-                                # 诊断脚本默认保留复用（全局 AGENTS「临时文件」节为准，与它冲突时按它改本条）
+ls .tmp                        # **只看不动**：.tmp 一切内容禁止删除（全局 AGENTS「临时文件」节，
+                                # 2026-11-05 主人改定），收尾不把它当清理待办项
 ```
 
 验证分工（不要在本技能里重复展开细节）：
