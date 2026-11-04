@@ -13,6 +13,8 @@ import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
+import { useNarrow } from "../lib/use-narrow";
+import { EXPANDED_COLUMNS, gridLayoutOf } from "../lib/account-layout";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 /**
@@ -216,6 +218,11 @@ function tripDetailOf(
 const PREVIEW_ACCOUNTS = 1;
 
 /**
+ * 展开态的栅格口径在 `lib/account-layout.ts`（纯逻辑，表驱动测试钉死）——
+ * 它决定「哪些行画下边框」，列数与账号个数交织，写错只会静默少一条分隔线。
+ */
+
+/**
  * 单渠道账号池卡片。
  *
  * 信息层级按「用户一眼要看什么」排：卡头是 cid + 渠道级状态；
@@ -257,6 +264,8 @@ export function AccountCard({
   };
   // 倒计时基准：页面每秒喂一个 `now`（数据轮询是 5s 级，靠它跳秒）；缺省取当下。
   const clock = now ?? Date.now();
+  /** 窄屏判定（与 Tailwind `md` 同口径）：展开态是否分两列跟着它走。 */
+  const narrow = useNarrow();
   // 删除确认：点垃圾桶弹确认框（行内展开会撑高账号行）。
   // 同时只允许一个账号处于待确认态；切换账号/忙碌时清空。
   const [pendingRemove, setPendingRemove] = useState<{
@@ -299,6 +308,9 @@ export function AccountCard({
   const empty = accounts.length === 0;
   /** 有可折叠内容且已展开 —— 卡底条的左键这时是「收起」。 */
   const collapsedBack = expanded && hiddenCount > 0;
+  /** 展开态且不窄屏：两列铺账号（判定与 CSS 的 `md:grid-cols-2` 同源）。 */
+  const twoCol = collapsedBack && !narrow;
+  const { lastRowStart, spanLast } = gridLayoutOf(shownAccounts.length, twoCol ? EXPANDED_COLUMNS : 1);
 
   return (
     // `@container`：账号行的额度区按**卡片宽度**（而非视口宽度）决定露出多少。
@@ -337,8 +349,9 @@ export function AccountCard({
       {/*
         账号列表：只铺 `shownAccounts`（默认 1 个，口径见上方「账号卡片的布局铁律」）；
         空池铺一个空位行，卡片高度与有账号的卡一致。
+        展开态在 `≥ md` 改两列（见 `EXPANDED_COLUMNS`）：行仍是行优先，读序与折叠态一致。
       */}
-      <ul className="border-t border-line">
+      <ul className={`grid border-t border-line ${twoCol ? "md:grid-cols-2" : ""}`}>
         {empty && (
           // 空位行：结构与真实账号行同高（44px 主行 + 24px 详情行），内容留空 ——
           // 「暂无账号」由卡底条说明，这里只负责把卡撑到与别的卡一样高。
@@ -348,7 +361,7 @@ export function AccountCard({
             <div className="h-6" />
           </li>
         )}
-        {shownAccounts.map((account) => {
+        {shownAccounts.map((account, index) => {
           const active = account.key === pool.index.active;
           const bill = billingByKey.get(account.key);
           const status = classifyAccount(account, billing);
@@ -360,10 +373,13 @@ export function AccountCard({
           // 熔断/冷却都会自动恢复（半开试探 / 到期惰性恢复），界面不设手动解除入口。
           const detail = tripDetailOf(account, clock);
           const detailTone = account.health === "cooldown" ? "text-warn" : "text-danger";
+          // 最后一行不画下边框（否则与卡底条的上边框叠成双线）；两列时按下标判定，见 `gridLayoutOf`
+          const rowBorder = index >= lastRowStart ? "" : "border-b border-line/60";
+          const span = twoCol && spanLast && index === shownAccounts.length - 1 ? "md:col-span-2" : "";
             return (
               <li
                 key={account.key}
-                className={`group relative border-b border-line/60 transition-colors last:border-b-0 hover:bg-overlay/40 ${
+                className={`group relative transition-colors hover:bg-overlay/40 ${rowBorder} ${span} ${
                   active ? "bg-overlay/25" : ""
                 }`}
               >
