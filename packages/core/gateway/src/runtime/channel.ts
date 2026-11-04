@@ -585,6 +585,16 @@ export function setChannel(channel: Channel): void {
   registry.set(channel.config.cid, channel);
 }
 
+/**
+ * 摘掉一个渠道（目前只用于**自定义提供商**的删除）。
+ *
+ * 内置渠道是编译期注册的，不提供删除；自定义渠道的生命周期由注册表管理，
+ * 删掉后模型池、账号池、日志里的引用会自然消失（历史日志仍在磁盘上）。
+ */
+export function deleteChannel(cid: string): void {
+  registry.delete(cid);
+}
+
 /** 全部已注册渠道（按注册顺序）。 */
 export function channels(): Channel[] {
   return [...registry.values()];
