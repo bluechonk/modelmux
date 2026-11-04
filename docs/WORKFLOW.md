@@ -250,12 +250,12 @@ git config --get core.hooksPath         # 应为 .githooks
 1. `type` 额外允许 `merge`，专供合并提交。
 2. 校验器 `scripts/verify-commits.mjs` 已接入 `npm test`。
 3. **合并方式**：
-   - PR 统一用 rebase 合并：`gh pr merge <n> --rebase`；需要压缩时用 `--squash`。
+   - PR 统一用 squash 合并：`gh pr merge <n> --squash`（与全局规则一致）。
    - **禁止 merge commit**：仓库已关闭 merge commit；`verify:topology` 会拦截 tree 与任一父提交
      相同的冗余 merge。
-   - PR 标题必须是 `type(scope): 中文描述` —— squash 会直接用它作为提交信息；rebase 保留
-     分支里的提交信息。
+   - PR 标题必须是 `type(scope): 中文描述` —— squash 后它就是 main 上那条 commit 的标题
+     （全局红线，禁止「更新代码」这类无 type 标题）。
    - 极少数长生命周期分支确需本地 `git merge --no-ff` 时，必须先确认 merge 的 tree 与两个父提交
-     都不同，并写 `merge(scope): 中文描述`；否则一律用 rebase。
+     都不同，并写 `merge(scope): 中文描述`；否则一律用 squash。
    - GitHub Actions 在 `pull_request` 事件里构造的临时合并提交（`Merge <sha> into <sha>`）
      不由人编写、也不可修改，校验器会**自动跳过**，无需处理。
