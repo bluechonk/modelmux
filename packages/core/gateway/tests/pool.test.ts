@@ -307,14 +307,12 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     assert.equal(err.error.code, "unknown_model");
   });
 
-  it("裸模型名已失效（破坏性更新：池 id 统一为 `<cid>/<模型>`，裸模型名一律 400）", async () => {
-    // 旧契约（这条用例当年断言的正是反面）：`<cid>/<模型>` 形态应当失效、裸名可用；
-    //   新契约**恰好相反** —— 池 id 统一为 `<cid>/<模型>`，裸模型名一律 400
-    //   （`src/pool/pool-targets.ts:473-477` 的 `asPoolModel` 判 null，
-    //     `src/http/chat/relay.ts:867-876` 回 400 unknown_model）。
-    const { status, text } = await chat(gw, "glm-5.3-flash");
-    assert.equal(status, 400);
-    assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");
+  it("裸模型名按目录索引路由（新契约：接入路由层，见 docs/CLIENT-INTEGRATION.md）", async () => {
+    // 旧契约：池 id 统一 `<cid>/<模型>`，裸名一律 400。
+    //   接入 Claude Code / Codex 后裸名重新可用 —— 它们只会发厂商默认名，
+    //   裸名按跨渠道索引精确命中（多渠道取 cid 序第一个），未命中再走别名/默认模型。
+    const { status } = await chat(gw, "glm-5.3-flash");
+    assert.equal(status, 200);
   });
 
   it("带前缀的 `<cid>/<模型>` 形态可用（现行契约的正例）", async () => {

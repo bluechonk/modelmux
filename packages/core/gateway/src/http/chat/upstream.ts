@@ -122,7 +122,7 @@ export interface UpstreamCall {
   connectFailed?: boolean;
   /** 连接/首字节阶段超时（区别于普通上游错误）。 */
   timeout?: boolean;
-  /** 非 200 时的上游响应体片段（判断额度类错误用；不回传客户端）。 */
+  /** 非 200 时的上游响应体片段（判断额度类错误用；也随错误透传给客户端，见 attempt.ts）。 */
   bodySnippet?: string;
   /**
    * 该响应是否按**凭据失效**处理（调用方据此决定刷新/重试）。

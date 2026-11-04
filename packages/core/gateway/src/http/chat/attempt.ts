@@ -25,6 +25,7 @@ import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
 import { getRequestLog, noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
+import { sinkOf } from "../protocol/types.js";
 import { activeKeyOf } from "./candidates.js";
 import { isQuotaExhausted, isUsageLimit, writeJsonError } from "./errors.js";
 import {
@@ -107,12 +108,37 @@ interface ProbeEnv {
   sendBody: Buffer;
 }
 
+/**
+ * 透传给客户端的上游错误文案上限。
+ *
+ * 上游错误体可能很大（HTML 错误页、超长 JSON）；客户端需要的是**可行动的原因**，
+ * 不是整个响应体 —— 截断到 300 字符，完整原文仍在本地日志里。
+ */
+const PASSTHROUGH_SNIPPET_MAX = 300;
+
+function snippetOf(text: string): string {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  return trimmed.length > PASSTHROUGH_SNIPPET_MAX ? `${trimmed.slice(0, PASSTHROUGH_SNIPPET_MAX)}…` : trimmed;
+}
+
+/**
+ * 上游错误透传文案（2026-11-05 主人改定：有上游报错就透传上游的，禁止只回
+ * 「see gateway logs」—— 那对客户端等于没说；没有上游信息才用网关描述）。
+ *
+ * 素材在 `upstream.ts` 已备好：非 200 时 `call.error.message` = 「HTTP <status>: <错误体>」，
+ * 连接失败时 = 原始网络错误。一律带渠道前缀，客户端才知道该修哪一家。
+ */
+function upstreamDetail(cid: string, call: UpstreamCall): string {
+  const detail = snippetOf(call.error?.message ?? "");
+  return detail ? `[${cid}] ${detail}` : `[${cid}] upstream request failed (no upstream error body)`;
+}
+
 /** 探测失败时的兜底错误三元组（探测层没给出更具体的错误时用）。 */
-function probeFallbackError(): ChatError {
+function probeFallbackError(cid: string): ChatError {
   return {
     status: 502,
     code: "upstream_error",
-    message: "upstream request failed; see gateway logs",
+    message: `upstream request failed (channel ${cid})`,
   };
 }
 
@@ -208,15 +234,18 @@ function writeQueueHeaders(
 ): void {
   if (res.headersSent) return;
   res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-  res.write(
-    `data: ${JSON.stringify({
-      id: progressId,
-      object: "chat.completion.chunk",
-      created,
-      model: payload["model"],
-      choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
-    })}\n\n`,
-  );
+  const frame = `data: ${JSON.stringify({
+    id: progressId,
+    object: "chat.completion.chunk",
+    created,
+    model: payload["model"],
+    choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
+  })}\n\n`;
+  // 入站协议编码器在场时走转译（anthropic message_start / responses created），
+  // 否则空 role 帧会以 OpenAI 形漏给协议客户端
+  const sink = sinkOf(res);
+  if (sink) sink.writeOpenAiFrame(frame);
+  else res.write(frame);
 }
 
 /**
@@ -287,7 +316,7 @@ async function runQueueProbe(
       state.error = {
         status: 502,
         code: timedOut ? "upstream_timeout" : "upstream_error",
-        message: "upstream request failed; see gateway logs",
+        message: `upstream stream failed during queue probe [${cid}]: ${snippetOf(String(err))}`,
       };
       return call;
     }
@@ -521,7 +550,7 @@ export async function attemptCandidate(
     queuedOut: false,
     giveUpText: null,
     failed: false,
-    error: probeFallbackError(),
+    error: probeFallbackError(cid),
     translator: undefined,
     attempts: 0,
     host: null,
@@ -540,7 +569,7 @@ export async function attemptCandidate(
   }
 
   if (!call.ok) {
-    // 上游错误体只进本地日志，不回传客户端（可能含内部信息）
+    // 本地日志留完整原文；客户端拿截断透传（见下文 upstreamDetail）
     if (call.connectFailed) logger(`upstream request failed (channel ${cid}): ${String(call.error)}`);
     else {
       logThrottled(
@@ -598,7 +627,7 @@ export async function attemptCandidate(
         error: {
           status: 402,
           code: "upstream_insufficient_quota",
-          message: "upstream says insufficient quota for this model; see gateway logs",
+          message: `upstream says insufficient quota for this model: ${snippetOf(call.error?.message ?? bodySnippet ?? "")}`,
         },
       };
     }
@@ -607,12 +636,16 @@ export async function attemptCandidate(
     // 仅「上游不可用/网络」计账号连败；4xx 业务错（模型/参数/内容）属请求级，
     // 计进去会把健康账号误标 error（tool 消息序列实测踩过）
     if (call.status <= 0 || call.status >= 500) noteAccountFailure(cid);
+    // 上游 4xx 业务错（上下文超限、参数不识别等）原样透传状态码：客户端（claude code /
+    // codex）对 4xx 不重试、对 502 会重试 —— 转成 502 会让客户端对着一个改不了参数的
+    // 请求反复撞墙。5xx/网络错误仍归一 502。
+    const status = call.status >= 400 && call.status < 500 ? call.status : 502;
     return {
       kind: "retry",
       error: {
-        status: 502,
+        status,
         code: call.timeout ? "upstream_timeout" : "upstream_error",
-        message: "upstream request failed; see gateway logs",
+        message: upstreamDetail(cid, call),
       },
     };
   }

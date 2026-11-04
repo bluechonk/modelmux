@@ -7,7 +7,9 @@ TRAE、CatPaw 等渠道汇成**一个 OpenAI 兼容端点**，对外暴露各渠
 
 ## 这是什么
 
-- **一个网关**：监听 `127.0.0.1:4412`，提供 `/v1/chat/completions`、`/v1/models`、`/health`。
+- **一个网关**：监听 `127.0.0.1:4412`，三种入站协议 —— OpenAI 兼容 `/v1/chat/completions`、
+  Anthropic `/v1/messages`（Claude Code 原生）、OpenAI Responses `/v1/responses`（Codex 原生），
+  另有 `/v1/models` 与 `/health`。
 - **动态模型池**：对外模型 id 为 `<cid>/<模型>`（如 `loomy/kimi-k2.6`），`/v1/models` 实时汇总
   全部渠道 `catalog` 的归一化结果。客户端用渠道前缀显式选渠道；同名模型在不同渠道是独立 id。
 - **多渠道路由**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下；
@@ -68,10 +70,17 @@ mx model list
 指到 `http://127.0.0.1:4412/v1`，模型填 `<渠道>/<模型>` 形态的池 id
 （清单看 `GET /v1/models`，如 `loomy/kimi-k2.6`；API key 任意非空）即可。
 
+**Claude Code 与 Codex 直连**：Claude Code 设 `ANTHROPIC_BASE_URL=http://127.0.0.1:4412`
+（Anthropic 协议原生支持），Codex 配 `wire_api = "responses"`（Responses 协议原生支持）；
+模型名不写池 id 时由**接入路由**兜底（别名表 + 默认模型，控制台「接入路由」页可视化配置）。
+四个 CLI（Claude Code / Codex / dsh / zcode）的完整接入配置与真机验证矩阵见
+[docs/CLIENT-INTEGRATION.md](docs/CLIENT-INTEGRATION.md)。
+
 ## Web 控制台
 
-`mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**四个路由页**：
-仪表盘 `/`、模型列表 `/models`、账号池 `/accounts`、请求日志 `/logs`。
+`mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**六个路由页**：
+仪表盘 `/`、模型列表 `/models`、账号池 `/accounts`、请求日志 `/logs`、接入路由 `/router`、
+接入指南 `/integration`。
 
 **在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
 （截图不放仓库：界面与文案改得快，图必然过时 —— 要看实际形态就看在线演示或 `mx web`。）

@@ -1,9 +1,10 @@
 /**
  * 模型健康度判定的优先级矩阵（classifyModel）。
  *
- * 三条口径不是随意的：
- *   - 「一条成功都没有」与「有请求但全失败」必须分开：前者是没测过、后者是测过不行，
- *     但两者都不该给出 TPS 数字（没有成功样本就没有速率可算）；
+ * 三条口径不是随意的（2026-11-05 主人改定：零调用记录不再挂「不可用」——
+ * ping 一发就成功的模型被标「不可用」是误导，没数据 ≠ 不可用）：
+ *   - 零成功零失败（没调用过）不挂标签；「有请求但全失败」才挂异常：前者是没测过、
+ *     后者是测过不行，两者都不能给 TPS 数字（没有成功样本就没有速率可算）；
  *   - 「排队」压过「慢」：排队是**上游随时会拖住一次请求**，比一个偏低的速率更需要人知道；
  *   - 标签只出一个：一行只回答「现在能不能用」，堆两个标签反而看不清。
  */
@@ -17,9 +18,9 @@ function health(partial: Partial<ModelHealth>): ModelHealth {
 }
 
 describe("classifyModel", () => {
-  it("没有健康度数据（这段时间一次没成功）判不可用，且 tps 为 null", () => {
+  it("没有健康度数据（这段时间没调用过）→ 不挂标签（没数据 ≠ 不可用），tps 为 null", () => {
     const verdict = classifyModel(undefined);
-    assert.equal(verdict.status, "down");
+    assert.equal(verdict.status, null);
     assert.equal(verdict.tps, null);
   });
 
@@ -51,7 +52,7 @@ describe("classifyModel", () => {
     assert.equal(verdict.tps, 10);
   });
 
-  it("排队压过「不可用」：有成功记录 + 排队帧", () => {
+  it("排队压过异常：有成功记录 + 排队帧", () => {
     assert.equal(classifyModel(health({ ok: 1, fail: 9, queued: 1, avgTps: 300 })).status, "queued");
   });
 
@@ -61,8 +62,8 @@ describe("classifyModel", () => {
     assert.equal(verdict.tps, null);
   });
 
-  it("全失败优先于排队：ok 为 0 时按异常 / 不可用判，不给排队", () => {
+  it("全失败优先于排队：ok 为 0 且有失败时按异常判，不给排队；纯排队无结果是不可能态（照不挂标签处理）", () => {
     assert.equal(classifyModel(health({ ok: 0, fail: 3, queued: 1 })).status, "error");
-    assert.equal(classifyModel(health({ ok: 0, fail: 0, queued: 1 })).status, "down");
+    assert.equal(classifyModel(health({ ok: 0, fail: 0, queued: 1 })).status, null);
   });
 });

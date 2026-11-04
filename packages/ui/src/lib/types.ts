@@ -189,6 +189,8 @@ export interface AccessLogEntry {
   model?: string;
   stream?: boolean;
   status?: number;
+  /** 入站协议（`anthropic` / `responses`；缺省 = OpenAI chat completions）。 */
+  protocol?: string;
   outcome: AccessOutcome;
   error?: string;
   message?: string;
@@ -383,6 +385,19 @@ export interface CustomProviderInput {
   protocol: "openai";
   apiKey?: string;
   models: CustomModel[];
+}
+
+/**
+ * 入站路由注册表（`~/.modelmux/router.json`，控制台「接入路由」页编辑）。
+ *
+ * Claude Code / Codex 发来的裸模型名（厂商默认名等）靠别名表与默认模型
+ * 兜底成池 id，见 docs/CLIENT-INTEGRATION.md。
+ */
+export interface RouterSettings {
+  /** 裸名未命中时的兜底池 id（`<cid>/<模型>`）。 */
+  default?: string;
+  /** 别名 → 池 id。 */
+  aliases?: Record<string, string>;
 }
 
 /** 一个账号**今日**的 token 消耗（账号池账号行用，与「今日消耗」同口径）。 */

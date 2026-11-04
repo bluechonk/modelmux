@@ -6,7 +6,7 @@
  * 缓存：已过去的日期永久缓存、今天每次重算；不按 mtime 失效（追加写入不改目录 mtime）。
  */
 
-import { listAccessDates, MODEL_REQUEST_PATH, scanAccessDate } from "./log-store.js";
+import { listAccessDates, isModelRequestPath, scanAccessDate } from "./log-store.js";
 
 export type UsageRange = "7d" | "30d" | "90d" | "365d";
 
@@ -223,7 +223,7 @@ function aggregateDay(date: string): DayAgg {
 /** 把某日的模型请求逐条累加进聚合体（与 `aggregateDay` 分开只为让缓存分支读起来更直）。 */
 function scanInto(date: string, agg: DayAgg): void {
   scanAccessDate(date, (entry) => {
-    if (entry.path !== MODEL_REQUEST_PATH) return;
+    if (!isModelRequestPath(entry.path)) return;
     const tokens = entry.tokens;
     const total = tokens?.total ?? 0;
     const input = tokens?.prompt ?? 0;

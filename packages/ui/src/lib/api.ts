@@ -20,6 +20,7 @@ import type {
   CustomProvider,
   CustomProviderInput,
   PoolRow,
+  RouterSettings,
   UiSnapshot,
   UsageRange,
   UsageStats,
@@ -113,6 +114,26 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
   return await res.json() as T;
 }
 
+/** `PUT` 请求（路由注册表整体写用；错误处理与 post 同口径）。 */
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const payload = (await res.json()) as { error?: string };
+      if (payload.error) msg = payload.error;
+    } catch {
+      // 非 JSON 响应体就按状态码处理
+    }
+    throw new Error(msg);
+  }
+  return await res.json() as T;
+}
+
 /**
  * 演示模式下的状态快照。
  *
@@ -121,6 +142,12 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
 function demoGetState(): UiSnapshot {
   return demoSettings(demo());
 }
+
+/** 演示模式下的路由注册表（内存副本，仅页面预览用）。 */
+let demoRouter: RouterSettings = {
+  default: "demo/longcat-2.0",
+  aliases: { "claude-sonnet-4-5": "demo/longcat-2.0" },
+};
 
 export interface WebApi {
   getState(): Promise<UiSnapshot>;
@@ -158,6 +185,10 @@ export interface WebApi {
   removeProvider(id: string): Promise<{ ok: boolean }>;
   /** 拉取某个基址的可用模型（OpenAI 兼容 `GET {base}/models`）。 */
   fetchProviderModels(baseUrl: string, apiKey: string): Promise<CustomModel[]>;
+  /** 入站路由注册表（`GET /web/api/router`）：默认模型 + 别名表。 */
+  router(): Promise<RouterSettings>;
+  /** 整体写路由注册表（`PUT /web/api/router`）。 */
+  saveRouter(config: RouterSettings): Promise<RouterSettings>;
   /**
    * ping 一个模型（`POST /web/api/ping`）：向网关自身发一次最小 chat 请求并回耗时。
    *
@@ -383,6 +414,20 @@ export const api: WebApi = {
     IS_DEMO
       ? demoLater({ ok: true, model, ms: 1_200, status: 200, error: "" })
       : post("/api/ping", { model }),
+  router: async () => {
+    if (IS_DEMO) return demoRouter;
+    // 服务端信封是 {ok, router}，页面要的是里面的注册表
+    const res = (await get("/api/router")) as { router?: RouterSettings };
+    return res.router ?? {};
+  },
+  saveRouter: async (config) => {
+    if (IS_DEMO) {
+      demoRouter = { ...config };
+      return demoRouter;
+    }
+    const res = (await put("/api/router", config)) as { router?: RouterSettings };
+    return res.router ?? {};
+  },
   overview: () =>
     IS_DEMO ? demoLater(demoOverview(demo())) : get("/api/overview"),
   commands: {

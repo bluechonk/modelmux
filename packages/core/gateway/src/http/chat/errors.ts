@@ -4,13 +4,15 @@
  * 关键约束：
  *   - 错误信封固定为 `{"error":{"type","code","message"}}`
  *   - 额度耗尽要与普通 4xx 分开：后者（参数、内容）是请求级问题，前者换账号也会失败
- *
- * 铁律：上游错误正文只进本地日志，不回传客户端。
+ *   - 上游报错**透传**给客户端（2026-11-05 主人改定，旧口径「只进本地日志」作废）：
+ *     有上游错误就带渠道前缀透传原文（截断），没有上游信息才用网关描述
  */
 
 import type { ServerResponse } from "node:http";
 
 import { noteRequestError } from "../../runtime/log-store.js";
+import { protocolOf } from "../protocol/types.js";
+import { anthropicErrorBody } from "../protocol/anthropic.js";
 
 /** 统一 JSON 应答（`/health`、`/v1/models` 等）。 */
 export function writeJson(res: ServerResponse, data: unknown, status = 200): void {
@@ -22,6 +24,21 @@ export function writeJson(res: ServerResponse, data: unknown, status = 200): voi
 export function writeJsonError(res: ServerResponse, status: number, code: string, message: string): void {
   noteRequestError(res, code, message);
   writeJson(res, { error: { type: "error", code, message } }, status);
+}
+
+/**
+ * 协议感知的错误应答：入站协议在场时用该协议的错误形态
+ * （anthropic `{type:"error",error:{type,message}}`；responses 沿用 OpenAI 信封），
+ * 否则是既有 OpenAI 信封。Claude Code 只解析 Anthropic 形态的信封。
+ */
+export function writeProtocolError(res: ServerResponse, status: number, code: string, message: string): void {
+  const protocol = protocolOf(res);
+  if (protocol?.protocol.name === "anthropic") {
+    noteRequestError(res, code, message);
+    writeJson(res, anthropicErrorBody(code, message), status);
+    return;
+  }
+  writeJsonError(res, status, code, message);
 }
 
 /**
