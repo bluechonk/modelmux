@@ -11,7 +11,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PANEL_HTML = join(HERE, "ui", "panel.html");
 const MX_BASE = process.env.MODELMUX_BASE_URL ?? "http://127.0.0.1:4412";
 
-const SERVER_INFO = { name: "mx-panel", version: "0.1.0" };
+const SERVER_INFO = { name: "mx-panel", version: "0.2.0" };
 
 // 宿主按 mimeType 的 profile 识别 MCP App(纯 text/html 不建桥,握手必超时)
 const HTML_MIME = "text/html;profile=mcp-app";
@@ -23,6 +23,20 @@ async function mxFetch(path) {
   return resp.json();
 }
 
+// 写操作白名单:与网关 web-command-handler 支持的 action 一一对应,不在表内的直接拒绝
+const COMMAND_ACTIONS = new Set([
+  "login",
+  "accounts",
+  "activateAccount",
+  "resetAccount",
+  "removeAccount",
+  "syncPool",
+  "billing",
+  "submitInput",
+  "pasteCallback",
+  "cancelInput",
+]);
+
 const TOOLS = [
   {
     name: "mx_status",
@@ -31,8 +45,25 @@ const TOOLS = [
   },
   {
     name: "mx_models",
-    description: "模型清单:每个池 id 的上下文窗口 / 最大输出 token / 支持的思考档位",
+    description: "模型清单:每个池 id 的上下文窗口 / 最大输出 token / 思考档位 / 文本·视觉模态",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "mx_command",
+    description:
+      "网关写操作与账号读(经网关 /web/api/commands 代发):action ∈ login / accounts / activateAccount / " +
+      "resetAccount / removeAccount / syncPool / billing / submitInput / pasteCallback / cancelInput;" +
+      "账号操作需 cid + args.key,登录输入需 args.value,粘贴回调需 args.url",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", description: "动作名(见工具描述白名单)" },
+        cid: { type: "string", description: "渠道 id(账号/登录类必填;accounts/billing 可不填=全部渠道)" },
+        args: { type: "object", description: "动作参数(如 key/value/url/force)", additionalProperties: true },
+      },
+      required: ["action"],
+      additionalProperties: false,
+    },
   },
   {
     name: "mx_logs",
@@ -52,12 +83,21 @@ const TOOLS = [
 async function callTool(name, args) {
   switch (name) {
     case "mx_status": {
-      const [overview, health] = await Promise.all([mxFetch("/web/api/overview"), mxFetch("/health")]);
+      const [overview, health, state] = await Promise.all([
+        mxFetch("/web/api/overview"),
+        mxFetch("/health"),
+        mxFetch("/web/api/state"),
+      ]);
       const login = new Map((health.channels ?? []).map((c) => [c.cid, c.logged_in]));
+      // 登录流程的完成态在 state 上(授权链接/二维码/两步输入),有值才带出
+      const auth = state.auth_url || state.qr_url || state.login_input
+        ? { auth_url: state.auth_url ?? "", qr_url: state.qr_url ?? "", login_input: state.login_input ?? null }
+        : null;
       return {
         gateway: { ui_state: overview.gateway?.ui_state ?? "unknown", error: overview.gateway?.gateway_error ?? "" },
         usage: overview.usage ?? null,
         channels: (overview.channels ?? []).map((c) => ({ ...c, logged_in: login.get(c.cid) ?? null })),
+        auth,
       };
     }
     case "mx_models": {
@@ -68,8 +108,24 @@ async function callTool(name, args) {
           context_window: m.context_window ?? null,
           max_output_tokens: m.max_output_tokens ?? null,
           effort: m.effort?.supported_levels ?? null,
+          input_modalities: m.input_modalities ?? null,
+          output_modalities: m.output_modalities ?? null,
         })),
       };
+    }
+    case "mx_command": {
+      const action = typeof args?.action === "string" ? args.action : "";
+      if (!COMMAND_ACTIONS.has(action)) throw new Error(`不支持的 action: ${action || "(空)"}`);
+      const cid = typeof args?.cid === "string" && args.cid ? args.cid : null;
+      const cmdArgs = args?.args && typeof args.args === "object" ? args.args : {};
+      const resp = await fetch(`${MX_BASE}/web/api/commands`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, cid, args: cmdArgs }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!resp.ok) throw new Error(`gateway /web/api/commands → HTTP ${resp.status}`);
+      return resp.json(); // { ok, data } 或 { ok:false, error } —— 原样回给面板,不吞错
     }
     case "mx_logs": {
       const limit = Math.min(Math.max(Number(args?.limit ?? 20), 1), 200);
