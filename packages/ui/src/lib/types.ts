@@ -349,6 +349,13 @@ export interface PingResult {
   avgTps: number | null;
 }
 
+/** 一个账号**今日**的 token 消耗（账号池账号行用，与「今日消耗」同口径）。 */
+export interface UsageAccountRow {
+  key: string;
+  tokens: number;
+  requests: number;
+}
+
 /**
  * `GET /web/api/usage` 的返回（形状与共享层 `UsageStats` 一致）。
  *
@@ -381,6 +388,8 @@ export interface UsageStats {
   daily: UsageDaily[];
   /** 按 tokens 降序。 */
   models: UsageModelRow[];
+  /** 每个账号**今日**的 token 消耗（降序）；当天无请求时为空数组。 */
+  accounts: UsageAccountRow[];
   /** 「有请求」的连续天数，今天没请求时 `current` 算到昨天为止。 */
   streak: { current: number; longest: number };
   peak: { date: string; tokens: number; hour: number; hourTokens: number } | null;

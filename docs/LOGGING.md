@@ -48,6 +48,7 @@
 | `startAt` | number | 请求开始的 epoch 毫秒 | 请求进入时 |
 | `model` | string | 请求使用的池 id（`<cid>/<模型>`） | 解析出模型后 |
 | `cid` | string | 承接请求的渠道 | 解析出模型后 |
+| `key` | string | 承接请求的**账号 key**（池内账号标识，账号池按它归集「今日 tokens」） | 候选尝试时（`attemptCandidate`） |
 | `stream` | boolean | 是否流式 | 解析出模型后 |
 | `requestBytes` | number | 请求体字节数 | 读入请求体后 |
 | `messageCount` | number | 请求消息条数 | 读入请求体后 |

@@ -188,6 +188,32 @@ describe("computeUsageStats", () => {
    *   2. 平均 TPS 只算**成功且算得出速率**的样本：算不出的（生成窗口低于下限）不进分母；
    *   3. `noUsage` 按 `tokens === null` 数，与日志页同一判据。
    */
+  it("账号维度：今日 tokens 按访问日志的 key 归集（账本没有 tokens，只能从日志来）", () => {
+    resetUsageCache();
+    const today = dateOffset(0);
+    writeDay(today, [
+      modelEntry(today, "loomy/a", { prompt: 100, completion: 50 }, { key: "acc-1" }),
+      modelEntry(today, "loomy/a", { prompt: 200, completion: 100 }, { key: "acc-1" }),
+      modelEntry(today, "qodercn/b", { prompt: 10, completion: 5 }, { key: "acc-2" }),
+      // 没有 key 的请求（登录前 / 健康检查）不进账号汇总
+      modelEntry(today, "loomy/a", { prompt: 999, completion: 999 }),
+    ]);
+    const stats = computeUsageStats("7d");
+    assert.deepEqual(
+      stats.accounts.map((a) => [a.key, a.tokens, a.requests]).sort(),
+      [
+        ["acc-1", 450, 2],
+        ["acc-2", 15, 1],
+      ],
+    );
+  });
+
+  it("当天没有请求时账号维度是空数组（没消耗就是没消耗）", () => {
+    resetUsageCache();
+    const stats = computeUsageStats("7d");
+    assert.deepEqual(stats.accounts, []);
+  });
+
   it("逐模型健康度：成功 / 失败分桶、排队计数、平均 TPS 只取可信样本", () => {
     resetUsageCache();
     const today = dateOffset(0);

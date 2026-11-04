@@ -4,15 +4,15 @@
     {
       "name": "mx-panel",
       "source": "./plugins/mx-panel",
-      "version": "0.3.0",
-      "description": "ModelMux gateway status panel: overview, searchable models, recent logs.",
+      "version": "0.4.0",
+      "description": "ModelMux console: the gateway /web/ UI embedded in the ZCode sidebar.",
       "displayName": "ModelMux Panel",
       "displayName_i18n": {
         "zh-CN": "模型网关"
       },
       "description_i18n": {
         "en": "ModelMux gateway status panel.",
-        "zh-CN": "ModelMux 网关状态面板：概览 / 模型清单 / 最近日志。"
+        "zh-CN": "ModelMux 控制台：把网关 /web/ 完整内嵌进 ZCode 侧栏。"
       },
       "category": "developer-tools"
     }

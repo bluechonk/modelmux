@@ -2,7 +2,7 @@
  * 账号池页：各渠道凭据、账号列表与额度，支持添加账号（登录弹窗）与账号切换。
  */
 
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { RotateCw } from "lucide-react";
 import { api } from "../lib/api";
@@ -127,6 +127,21 @@ export function Accounts(): ReactElement {
    */
   const billingLoading = billing.isPending;
   const billingError = billing.isError;
+  /**
+   * 账号维度用量（今日 tokens）：`usage?range=7d` 的 `accounts[]` 只含**今天**，
+   * 与账号行的「今日消耗」同口径。60 秒一轮（日志逐日聚合，历史日有缓存）。
+   */
+  const usageQuery = useQuery({
+    queryKey: ["usage", "7d"],
+    queryFn: () => api.usage("7d"),
+    refetchInterval: 60_000,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+  });
+  const tokensByKey = useMemo(
+    () => new Map((usageQuery.data?.accounts ?? []).map((row) => [row.key, row.tokens])),
+    [usageQuery.data],
+  );
   /** 全局时钟：新鲜度文案要随时间走（否则数据不变时秒数永远停在第一次渲染）。 */
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -334,6 +349,12 @@ export function Accounts(): ReactElement {
                 billingLoading={billingLoading}
                 billingError={billingError}
                 now={now}
+                tokensOf={(key) => {
+                  // 数据还没到时返回 undefined（不渲染，避免把「没取到」显示成 0）；
+                  // 取到之后没有记录 = 今天确实没消耗，如实显示 0
+                  if (usageQuery.data === undefined) return undefined;
+                  return tokensByKey.get(key) ?? 0;
+                }}
                 onActivate={(cid, key) => activate.mutate({ cid, key })}
                 onRemove={(cid, key) => remove.mutate({ cid, key })}
                 onAdd={(cid) => setLoginChannel(cid)}
