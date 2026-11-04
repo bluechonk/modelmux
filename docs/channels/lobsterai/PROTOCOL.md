@@ -567,7 +567,7 @@ URL 粘回终端，兜底把它**转交同一个回调处理器**，走的仍是
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login lobsterai          # 登录入池

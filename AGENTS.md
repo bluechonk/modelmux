@@ -78,7 +78,7 @@ PR 用 rebase 合并，禁止 merge commit。
 
 ## 测试
 
-- 渠道不写测试，只做端到端（`opencode-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
+- 渠道不写测试，只做端到端（`dsh-mx-test` 技能；zcode 侧用 `zcode-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
 - 临时探测脚本落 `.tmp/`，保留复用。禁止虚构凭证与请求头——虚构载荷撞上游风控。
 - 测试模型选最低倍率，禁止高倍率旗舰（`*-pro` / `*-max` / `kimi-k3` 等）。
 - 禁止占用或杀掉 4412 网关；独立实例用 `--addr` 其他端口。

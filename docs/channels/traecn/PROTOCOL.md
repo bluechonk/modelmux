@@ -777,7 +777,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 ### 怎么测这个渠道
 
-端到端由 Agent 跑 `opencode-mx-test` skill（opencode CLI 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
 ```bash
 mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1 / §2.2）

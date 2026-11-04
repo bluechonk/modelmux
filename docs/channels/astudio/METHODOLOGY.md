@@ -232,4 +232,4 @@ ls "/c/Users/$USER/AppData/Local/Programs/AStudio Data/userdata/"
 
 渠道包在 `packages/core/channels/astudio/`（7 文件契约），实现要点见
 [PROTOCOL.md](./PROTOCOL.md) §10。改渠道时遵守仓库 `AGENTS.md`：
-渠道不写单测，端到端按 `opencode-mx-test` 技能跑。
+渠道不写单测，端到端按 `dsh-mx-test` 技能跑。
