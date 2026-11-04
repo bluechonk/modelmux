@@ -1,6 +1,8 @@
 # 依赖与构建产物
 node_modules/
 dist/
+# 例外：plugins/ 下的 dist 是插件手写源码（无构建步骤），随包分发，不是构建产物
+!plugins/*/dist/
 # 发布包里的许可证副本（由 packages/cli 的 prepack 从仓库根复制，属构建产物）
 packages/cli/LICENSE
 

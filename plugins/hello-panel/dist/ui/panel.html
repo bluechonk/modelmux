@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hello Panel</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: #141417; color: #e8e8ec;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; padding: 24px;
+  }
+  .badge {
+    font-size: 12px; letter-spacing: .12em; color: #8f8fa3;
+    border: 1px solid #2c2c34; border-radius: 999px; padding: 4px 12px;
+  }
+  h1 { font-size: 22px; font-weight: 600; }
+  h1 span { color: #7aa2ff; }
+  #clock { font-size: 30px; font-variant-numeric: tabular-nums; color: #a8d8a8; }
+  #state { font-size: 13px; min-height: 20px; }
+  #state.ok { color: #7ee787; }
+  #state.bad { color: #ff7b72; }
+  #state.busy { color: #d2a8ff; }
+  p { font-size: 13px; color: #9a9aae; text-align: center; line-height: 1.7; max-width: 40em; }
+  code { background: #1e1e24; border: 1px solid #2c2c34; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="badge">ZCODE UI SURFACE</div>
+  <h1>Hello <span>Panel</span></h1>
+  <div id="clock">--:--:--</div>
+  <div id="state" class="busy">正在与宿主握手…</div>
+  <p>
+    MCP Apps 握手(<code>ui/initialize</code>)成功后,页面经宿主桥调用
+    <code>panel_greet</code>,验证 页面 → 宿主 → MCP server → 页面 全回路。
+  </p>
+  <script>
+    const clockEl = document.getElementById("clock");
+    const stateEl = document.getElementById("state");
+
+    function setState(text, cls) {
+      stateEl.textContent = text;
+      stateEl.className = cls;
+    }
+    function tick() {
+      clockEl.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    // MCP Apps 握手:裸 JSON-RPC 经 postMessage 发往父窗口,origin 用 "*"
+    const PROTOCOL = "2025-11-21";
+    let nextId = 1;
+    const pending = new Map();
+
+    function send(msg) { window.parent.postMessage(msg, "*"); }
+
+    function request(method, params) {
+      const id = nextId++;
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        send({ jsonrpc: "2.0", id, method, params });
+        setTimeout(() => {
+          if (pending.has(id)) { pending.delete(id); reject(new Error(method + " 超时")); }
+        }, 8000);
+      });
+    }
+
+    window.addEventListener("message", (ev) => {
+      const m = ev.data;
+      if (!m || m.jsonrpc !== "2.0") return;
+      const p = pending.get(m.id);
+      if (!p) return;
+      pending.delete(m.id);
+      m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
+    });
+
+    (async () => {
+      try {
+        const result = await request("ui/initialize", {
+          appInfo: { name: "hello-panel", version: "0.1.3" },
+          appCapabilities: {},
+          protocolVersion: PROTOCOL,
+        });
+        send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+        setState("已连接宿主 " + (result?.hostInfo?.name ?? "?"), "ok");
+
+        // 全回路验证:经宿主桥调插件 MCP server 的工具
+        const call = await request("tools/call", { name: "panel_greet", arguments: {} });
+        setState("server 回应:" + (call?.content?.[0]?.text ?? "空"), "ok");
+      } catch (err) {
+        setState("失败:" + err.message, "bad");
+      }
+    })();
+  </script>
+</body>
+</html>
