@@ -466,7 +466,7 @@ export function Dashboard(): ReactElement {
             </button>
           </section>
 
-          {/* ⑥ 网关控制已移到侧栏底部（Layout 的 GatewayControl）：全局操作不随页面布局跑 */}
+          {/* ⑥ 网关状态只在顶部导航（LayoutSingle 的 GatewayStatus）—— Web 不提供启停网关 */}
         </div>
       </div>
 

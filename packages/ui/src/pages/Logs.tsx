@@ -768,7 +768,8 @@ export function Logs(): ReactElement {
         }
       />
 
-      <div className="panel space-y-3 p-3">
+      {/* 统计条 + 筛选栏整块吸顶：长列表滚动时筛选条件与命中计数始终可见（`.panel` 不透明，内容不会透出） */}
+      <div className="panel sticky top-0 z-20 space-y-3 p-3">
         {page ? (
           <StatBar page={page} />
         ) : (
