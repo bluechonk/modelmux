@@ -13,11 +13,12 @@ import type { ServerResponse } from "node:http";
 
 import { hasChannel } from "../../runtime/channel.js";
 import { getRequestLog } from "../../runtime/log-store.js";
-import { asPoolModel, parsePoolModel, poolCandidates, type PoolCandidate } from "../../pool/pool-targets.js";
+import { parsePoolModel, poolCandidates, type PoolCandidate } from "../../pool/pool-targets.js";
+import { resolveInboundModel } from "../../pool/inbound-model.js";
 import { isCooling, maybeRefreshBilling } from "../../pool/pool-usage.js";
 import { maxPoolAttempts, rankCandidates } from "./candidates.js";
 import { loadCredentialSafe } from "./queue.js";
-import { writeJsonError } from "./errors.js";
+import { writeJsonError, writeProtocolError } from "./errors.js";
 
 /** 一次请求的路由结果。 */
 export interface PoolRoute {
@@ -33,7 +34,8 @@ export interface PoolRoute {
  * 解析模型名 → 候选渠道序列；**已应答**（400 / 503）时返回 null。
  *
  * 口径：
- * - 模型名不是池 id 形态 → 400（客户端该用 `<cid>/<模型>`）
+ * - 模型名先过入站路由层（`resolveInboundModel`：池 id 直认、剥 `modelmux/` 前缀与
+ *   `[1m]` 后缀、别名 → 裸名索引 → 默认模型兜底），解析不出 → 400
  * - 渠道段没注册 → 400（渠道名写错是**请求问题**，与未登录的 503 分开）
  * - 渠道目录里没有这个模型 → 400（渠道没货，换渠道是客户端的决定）
  * - 候选渠道全都读不出凭据 → 503（**可用性问题**：没登录）
@@ -47,16 +49,12 @@ export function resolvePoolRoute(
   // 渠道内部的账号池轮换与冷却账本照旧（pool-usage.ts）。
   maybeRefreshBilling(logger); // 账单额度到期就在后台刷，不阻塞本次请求
 
-  const target = asPoolModel(model);
-  if (!target) {
-    writeJsonError(
-      res,
-      400,
-      "unknown_model",
-      `unknown model ${model}; 请用 <渠道>/<模型> 形态（模型清单见 GET /v1/models）`,
-    );
+  const resolved = resolveInboundModel(model);
+  if (!resolved.target) {
+    writeProtocolError(res, 400, "unknown_model", resolved.error ?? `unknown model ${model}`);
     return null;
   }
+  const target = resolved.target;
   // 拆出渠道段与模型段：`asPoolModel` 已归一过，parsePoolModel 这里必成功，仅作类型收窄
   const targetParts = parsePoolModel(target);
   if (!targetParts) {

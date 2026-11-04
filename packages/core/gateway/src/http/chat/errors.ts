@@ -11,6 +11,8 @@
 import type { ServerResponse } from "node:http";
 
 import { noteRequestError } from "../../runtime/log-store.js";
+import { protocolOf } from "../protocol/types.js";
+import { anthropicErrorBody } from "../protocol/anthropic.js";
 
 /** 统一 JSON 应答（`/health`、`/v1/models` 等）。 */
 export function writeJson(res: ServerResponse, data: unknown, status = 200): void {
@@ -22,6 +24,21 @@ export function writeJson(res: ServerResponse, data: unknown, status = 200): voi
 export function writeJsonError(res: ServerResponse, status: number, code: string, message: string): void {
   noteRequestError(res, code, message);
   writeJson(res, { error: { type: "error", code, message } }, status);
+}
+
+/**
+ * 协议感知的错误应答：入站协议在场时用该协议的错误形态
+ * （anthropic `{type:"error",error:{type,message}}`；responses 沿用 OpenAI 信封），
+ * 否则是既有 OpenAI 信封。Claude Code 只解析 Anthropic 形态的信封。
+ */
+export function writeProtocolError(res: ServerResponse, status: number, code: string, message: string): void {
+  const protocol = protocolOf(res);
+  if (protocol?.protocol.name === "anthropic") {
+    noteRequestError(res, code, message);
+    writeJson(res, anthropicErrorBody(code, message), status);
+    return;
+  }
+  writeJsonError(res, status, code, message);
 }
 
 /**

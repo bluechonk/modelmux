@@ -160,6 +160,9 @@ function LogDetail({
         <Field label="流式">
           {entry.stream === undefined ? "-" : entry.stream ? "是" : "否"}
         </Field>
+        <Field label="协议">
+          {entry.protocol ?? "openai-chat"}
+        </Field>
         <Field label="渠道">
           <span className="font-mono">{entry.cid ?? "-"}</span>
         </Field>

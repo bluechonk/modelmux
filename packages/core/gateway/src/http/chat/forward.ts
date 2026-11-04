@@ -14,6 +14,7 @@ import type { ServerResponse } from "node:http";
 import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
+import { protocolOf, sinkOf } from "../protocol/types.js";
 import { writeJson, writeJsonError } from "./errors.js";
 import { collectAsOpenAiSse, relayStream } from "./stream.js";
 import type { ProbeFrames } from "./queue.js";
@@ -77,6 +78,7 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
  * 为什么不回错误帧：排队耗尽时客户端早已等不及，回一个 `upstream_queued` 错误
  * 只会让它显示「上游排队」这种没用的信息；直接告诉主人「别用这家了」才有用。
  * 流式与非流式各按自己的形态给出完整应答（含 `finish_reason` 与 `[DONE]`）。
+ * 入站协议在场时经协议编码器转译（anthropic message / responses response）。
  */
 function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wantStream: boolean): void {
   const id = `chatcmpl-queue-${Date.now().toString(36)}`;
@@ -89,22 +91,37 @@ function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wan
       model,
       choices: [{ index: 0, delta, finish_reason: finishReason }],
     })}\n\n`;
+  const protocol = protocolOf(res);
   if (!wantStream) {
-    writeJson(res, {
+    const completion = {
       id,
-      object: "chat.completion",
+      object: "chat.completion" as const,
       created,
-      model,
+      model: typeof model === "string" ? model : "",
       choices: [
         { index: 0, message: { role: "assistant", content: `${text}\n\n` }, finish_reason: "stop" },
       ],
-    });
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    };
+    writeJson(
+      res,
+      protocol ? protocol.protocol.encodeCompletion(completion, protocol.requestModel) : completion,
+    );
     return;
   }
   if (!res.headersSent) {
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-    res.write(chunk({ role: "assistant", content: "" }, null));
   }
+  const sink = sinkOf(res);
+  if (sink) {
+    sink.writeOpenAiFrame(chunk({ role: "assistant", content: "" }, null));
+    sink.writeOpenAiFrame(chunk({ content: `${text}\n\n` }, null));
+    sink.writeOpenAiFrame(chunk({}, "stop"));
+    sink.finish();
+    res.end();
+    return;
+  }
+  res.write(chunk({ role: "assistant", content: "" }, null));
   res.write(chunk({ content: `${text}\n\n` }, null));
   res.write(chunk({}, "stop"));
   res.write("data: [DONE]\n\n");
@@ -206,7 +223,11 @@ export async function relayUpstream(
         return;
       }
       noteFirstByte(res);
-      writeJson(res, aggregated);
+      // 入站协议在场：聚合的 OpenAI completion 转成协议应答 JSON（anthropic message /
+      // responses response）；usage 记账用的仍是 aggregated.usage，不受影响
+      const protocol = protocolOf(res);
+      if (protocol) writeJson(res, protocol.protocol.encodeCompletion(aggregated, protocol.requestModel));
+      else writeJson(res, aggregated);
     } catch (err) {
       logger(`reading upstream response interrupted: ${String(err)}`);
       const timedOut = /timeout/i.test(String(err));
@@ -239,9 +260,15 @@ export async function relayUpstream(
       writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
       return;
     }
-    res.write(
-      `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
-    );
+    const queuedSink = sinkOf(res);
+    if (queuedSink) {
+      queuedSink.writeError("upstream_queued", "upstream is queued and the wait budget was exhausted");
+      queuedSink.finish();
+    } else {
+      res.write(
+        `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
+      );
+    }
     res.end();
     return;
   }

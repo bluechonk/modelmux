@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { serviceName } from "../server.js";
 import type { LoginInputRequest } from "../../runtime/channel.js";
 import {
-  MODEL_REQUEST_PATH,
+  MODEL_REQUEST_PATHS,
   PAYLOAD_SLICE_BYTES,
   appendGateway,
   queryAccessLogs,
@@ -38,6 +38,12 @@ import {
   type CustomModel,
   type CustomProvider,
 } from "../../runtime/custom-providers.js";
+import {
+  readRouterConfig,
+  validateRouterConfig,
+  writeRouterConfig,
+  type RouterConfig,
+} from "../../runtime/model-router.js";
 
 export type { LoginInputRequest };
 
@@ -435,9 +441,9 @@ export function createConsoleHandler(
           : undefined;
       const streamRaw = q.get("stream");
       const page = queryAccessLogs({
-        // 日志页只展示**模型请求**：`/health` 等非模型请求也在 access 日志里，
-        // 但主人要的是「请求日志」，混进来只会稀释列表。
-        path: MODEL_REQUEST_PATH,
+        // 日志页只展示**模型请求**（三种入站协议）：`/health` 等非模型请求也在
+        // access 日志里，但主人要的是「请求日志」，混进来只会稀释列表。
+        paths: MODEL_REQUEST_PATHS,
         date: q.get("date") ?? undefined,
         outcome,
         cid: q.get("cid") ?? undefined,
@@ -621,6 +627,42 @@ export function createConsoleHandler(
       return;
     }
 
+    // 入站路由注册表（默认模型 + 别名表）：GET 读、PUT 整体写。
+    // 别名/默认模型服务 Claude Code / Codex 发来的裸模型名 —— 见 docs/CLIENT-INTEGRATION.md。
+    if (path === p("/api/router")) {
+      if (req.method === "GET") {
+        json(res, { ok: true, router: readRouterConfig() });
+        return;
+      }
+      if (req.method === "PUT") {
+        if (!isSameOrigin(req, host)) {
+          json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+          return;
+        }
+        void readBody(req, (body) => {
+          const config: RouterConfig = {};
+          if (typeof body["default"] === "string") config.default = body["default"].trim() || undefined;
+          if (body["aliases"] && typeof body["aliases"] === "object" && !Array.isArray(body["aliases"])) {
+            const aliases: Record<string, string> = {};
+            for (const [alias, target] of Object.entries(body["aliases"] as Record<string, unknown>)) {
+              if (typeof target === "string" && target.trim()) aliases[alias.trim()] = target.trim();
+            }
+            config.aliases = aliases;
+          }
+          const problem = validateRouterConfig(config);
+          if (problem) {
+            json(res, { ok: false, error: problem }, 400);
+            return;
+          }
+          writeRouterConfig(config);
+          json(res, { ok: true, router: readRouterConfig() });
+        });
+        return;
+      }
+      json(res, { ok: false, error: "use GET / PUT" }, 405);
+      return;
+    }
+
     if (path === p("/api/theme")) {
       if (req.method !== "POST") {
         json(res, { ok: false, error: "use POST" }, 405);
@@ -750,9 +792,9 @@ export function createConsoleHandler(
           gateway = { ui_state: "unknown", gateway_error: String(err) };
         }
 
-        // 只算**模型请求**：控制台里「请求」恒指 `/v1/chat/completions`，
+        // 只算**模型请求**（三种入站协议）：控制台里「请求」恒指模型调用，
         // 与请求日志页、用量区块同一口径（`/health` 等混进来会让成功率与 tokens 失真）。
-        const logPage = queryAccessLogs({ path: MODEL_REQUEST_PATH, limit: 100 });
+        const logPage = queryAccessLogs({ paths: MODEL_REQUEST_PATHS, limit: 100 });
         const usage = {
           date: logPage.date,
           requests: logPage.stats.requests,
