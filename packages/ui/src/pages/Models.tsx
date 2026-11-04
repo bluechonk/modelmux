@@ -3,13 +3,16 @@
  *
  * 数据与仪表盘同源（同一份 `/web/api/state` 快照，每 3 秒轮询一次），
  * 模型区不设分页 —— 分组表本身带「展开剩余 N 个」的折叠。
+ *
+ * 健康度（平均 TPS / 慢 / 不可用 / 排队）另取 `GET /web/api/usage?range=7d`：
+ * 它按 access 日志逐日聚合（历史日服务端有缓存），与 3 秒级的快照轮询分开，60 秒一次足够。
  */
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { api } from "../lib/api";
-import { ModelExplorer } from "../components/ModelExplorer";
+import { HEALTH_RANGE, ModelExplorer, type ModelHealth } from "../components/ModelExplorer";
 import { PageHeader } from "../components/PageHeader";
 import { Skeleton } from "./Dashboard";
 
@@ -30,6 +33,21 @@ export function Models(): ReactElement {
     queryKey: ["state"],
     queryFn: api.getState,
   });
+
+  const health = useQuery({
+    queryKey: ["usage", HEALTH_RANGE],
+    queryFn: () => api.usage(HEALTH_RANGE),
+    refetchInterval: 60_000,
+  });
+  /** 池 id → 健康度；没有条目 = 这段窗口里一次都没成功过（`classifyModel` 会判「不可用」）。 */
+  const healthOf = useMemo(() => {
+    const map = new Map<string, ModelHealth>();
+    for (const row of health.data?.models ?? []) {
+      map.set(row.id, { ok: row.ok, fail: row.fail, queued: row.queued, avgTps: row.avgTps });
+    }
+    return (poolId: string): ModelHealth | undefined => map.get(poolId);
+    // 依赖只取 data：query 对象每次渲染都是新的，依赖它会让 healthOf 每次都变
+  }, [health.data]);
 
   /** 渠道数：池 id 的前缀去重（模型区自己的分组在 ModelExplorer 里）。 */
   const groups = useMemo(() => {
@@ -58,12 +76,13 @@ export function Models(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="模型列表"
-        description={`${groups.size} 个渠道 · ${state.models.length} 个模型（格式：渠道/模型）`}
+        description={`${groups.size} 个渠道 · ${state.models.length} 个模型（格式：渠道/模型；状态与平均 TPS 取近 7 天本地请求记录）`}
       />
       <ModelExplorer
         models={state.models}
         infoOf={(poolId) => state.model_info?.[poolId]}
         freePlanCids={freePlanCidsOf(state.channel_caps)}
+        healthOf={healthOf}
       />
     </div>
   );

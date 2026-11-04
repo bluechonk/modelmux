@@ -261,6 +261,67 @@ function isSameOrigin(req: import("node:http").IncomingMessage, host: string): b
   }
 }
 
+/** ping 的等待上限（毫秒）：比客户端常见的 60s 超时早一步收手，好把「超时」当结果返回。 */
+const PING_TIMEOUT_MS = 45_000;
+
+/** 回环地址名单：ping 只能打回本机，Host 头是客户端给的，不校验就是 SSRF 跳板。 */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+/**
+ * ping 一个模型：向**本进程**发一次最小 chat 请求并计时。
+ *
+ * 为什么走 HTTP 自请求、不做内部直调：只有走完整链路才算 ping —— 候选选择、自动换号、
+ * 排队重试、响应归一化、护栏都在链路上，绕过它们测出的「成功」不代表客户端会成功。
+ *
+ * 请求形态取最小：单条 user 消息 + `max_tokens: 1` + 非流式 —— 计费最小；非流式还能拿到
+ * 确定的状态码（流式要读完流才知道成败）。`ms` 量到**响应体读完**为止，不是只到响应头。
+ */
+async function pingModel(
+  req: import("node:http").IncomingMessage,
+  model: string,
+): Promise<{ ok: boolean; model: string; ms: number; status: number; error: string }> {
+  const target = new URL(`http://${req.headers.host ?? ""}/v1/chat/completions`);
+  if (!LOOPBACK_HOSTS.has(target.hostname)) {
+    return { ok: false, model, ms: 0, status: 0, error: "ping 只能发往本机回环地址" };
+  }
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(target, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const status = upstream.status;
+    const text = await upstream.text().catch(() => "");
+    const ms = Date.now() - started;
+    if (!upstream.ok) {
+      // 错误体是网关自己的 JSON（`{error:{message}}`），截断后原样回给界面，别自己编原因
+      return { ok: false, model, ms, status, error: text.slice(0, 300) || `HTTP ${status}` };
+    }
+    return { ok: true, model, ms, status, error: "" };
+  } catch (err) {
+    const ms = Date.now() - started;
+    const aborted = err instanceof Error && err.name === "AbortError";
+    return {
+      ok: false,
+      model,
+      ms,
+      status: 0,
+      error: aborted ? `超时（> ${Math.round(PING_TIMEOUT_MS / 1000)}s）` : String(err),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * 把 console 路由体抽成**可挂载的 handler**，供两种形态复用：
  * - 独立进程（`mx web` / 单渠道调试）：`prefix = ""`，自带 server
@@ -409,6 +470,45 @@ export function createConsoleHandler(
       // `365d` 供热力图用（52 周一年）；实际有数据的天数受日志保留期限制
       const range: UsageRange = raw === "7d" || raw === "30d" || raw === "90d" || raw === "365d" ? raw : "30d";
       json(res, { ok: true, ...computeUsageStats(range) });
+      return;
+    }
+
+    if (path === p("/api/ping")) {
+      if (req.method !== "POST") {
+        json(res, { ok: false, error: "use POST" }, 405);
+        return;
+      }
+      // 会真的花掉一次上游请求（1 个输出 token），按写操作对待：必须同源。
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        body += String(chunk);
+      });
+      req.on("end", () => {
+        void (async () => {
+          let parsed: { model?: unknown };
+          try {
+            parsed = JSON.parse(body || "{}") as { model?: unknown };
+          } catch {
+            json(res, { ok: false, error: "invalid json" }, 400);
+            return;
+          }
+          const model = typeof parsed.model === "string" ? parsed.model.trim() : "";
+          if (!model) {
+            json(res, { ok: false, error: "参数 model 必填" }, 400);
+            return;
+          }
+          const result = await pingModel(req, model);
+          json(res, result, 200);
+        })().catch((err) => {
+          // 与 `/api/commands` 同待遇：意外 rejection 不能变成 unhandledRejection
+          appendGateway(`console /api/ping failed: ${String(err)}`);
+          if (!res.headersSent) json(res, { ok: false, error: `ping failed: ${String(err)}` }, 500);
+        });
+      });
       return;
     }
 

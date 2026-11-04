@@ -316,8 +316,21 @@ export interface UsageDaily {
   byModel: Record<string, number>;
 }
 
-/** 一个模型在区间内的用量。 */
-export interface UsageModelRow {
+/**
+ * `POST /web/api/ping` 的返回：一次最小 chat 请求的实测结果。
+ *
+ * `ms` 量到**响应体读完**；`status` 为 0 表示请求压根没发出去（超时 / 连接失败），
+ * 此时 `error` 是原因。`ok` 只看 HTTP 是否 2xx，不看内容。
+ */
+export interface PingResult {
+  ok: boolean;
+  model: string;
+  ms: number;
+  status: number;
+  error: string;
+}
+
+/** 一个模型在区间内的用量与健康度。 */export interface UsageModelRow {
   /** 池 id（`<cid>/<模型>`）；空串表示「未知模型」。 */
   id: string;
   tokens: number;
@@ -326,6 +339,14 @@ export interface UsageModelRow {
   cache: number;
   /** 占区间总 tokens 的比例（0–1）。 */
   share: number;
+  /** 成功请求数（`success.log` 里该模型的条数）。 */
+  ok: number;
+  /** 失败请求数（含中断）。 */
+  fail: number;
+  /** 进过上游排队的请求数；> 0 时模型列表打「排队」标签。 */
+  queued: number;
+  /** 成功请求的平均生成速率（tokens/s）；一条都算不出时为 null。 */
+  avgTps: number | null;
 }
 
 /**
@@ -348,8 +369,13 @@ export interface UsageStats {
     durationMs: number;
     /** 加权命中率；区间内无一条带缓存字段时为 null（显示 `—`）。 */
     cacheHitRate: number | null;
+    /** 命中率分子 / 分母的绝对值。 */
+    cacheHit: number;
+    cacheTotal: number;
     /** 区间内单请求最长耗时。 */
     longestRequestMs: number | null;
+    /** 上游没回 usage 的请求数（仪表盘用量明细里要露出来）。 */
+    noUsage: number;
   };
   /** 升序（趋势图从左到右）；只含有模型请求的日期。 */
   daily: UsageDaily[];
