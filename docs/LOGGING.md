@@ -62,6 +62,7 @@
 | `error` | string | 错误码（如 `upstream_error`、`upstream_timeout`） | 出错时 |
 | `message` | string | 错误说明（**截断到 800 字符**） | 出错时 |
 | `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
+| `queued` | boolean | **进过上游排队**（收到排队帧并等待重试）。只在为真时写，缺省 = 没收到排队帧 | 排队帧到达时（`noteQueued`） |
 
 > `ttfbMs` 的语义是「**我们**什么时候开始回字节」，不是「上游什么时候开始吐字」：
 > 流式下两者几乎相同（收到首帧即转发），但**非流式下我们收完才写** —— 该值于是 ≈ `durationMs`，

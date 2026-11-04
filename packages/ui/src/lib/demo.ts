@@ -782,6 +782,11 @@ export function demoUsage(range: UsageRange): UsageStats {
       output: Math.round(tokens * 0.28),
       cache: Math.round(tokens * 0.55),
       share: totalTokens > 0 ? tokens / totalTokens : 0,
+      // 演示数据给一组能覆盖四种标签的样本：快 / 慢（< 100）/ 失败比例高 / 进过排队
+      ok: Math.max(1, Math.round(tokens / 40_000)),
+      fail: Math.max(0, Math.round(tokens / 900_000)),
+      queued: tokens > 40_000_000 ? 2 : 0,
+      avgTps: tokens > 60_000_000 ? 210 : 72,
     }))
     .sort((a, b) => b.tokens - a.tokens);
 
@@ -801,7 +806,10 @@ export function demoUsage(range: UsageRange): UsageStats {
       messages,
       durationMs: requests * 8200,
       cacheHitRate: 0.74,
+      cacheHit: Math.round(totalTokens * 0.55),
+      cacheTotal: Math.round(totalTokens * 0.74),
       longestRequestMs: 42_000,
+      noUsage: Math.round(requests * 0.01),
     },
     daily,
     models,

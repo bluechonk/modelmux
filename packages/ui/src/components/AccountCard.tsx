@@ -244,6 +244,11 @@ export function AccountCard({
   busyKey: string | null;
 }): ReactElement {
   const billingByKey = new Map((billing?.accounts ?? []).map((a) => [a.key, a]));
+  /** 该账号的剩余额度；拿不到（没账单行 / 字段非数）返回 null = 未知，不是 0。 */
+  const creditsOf = (key: string): number | null => {
+    const remain = billingByKey.get(key)?.credits?.remain;
+    return typeof remain === "number" && Number.isFinite(remain) ? remain : null;
+  };
   // 倒计时基准：页面每秒喂一个 `now`（数据轮询是 5s 级，靠它跳秒）；缺省取当下。
   const clock = now ?? Date.now();
   // 删除确认：点垃圾桶弹确认框（行内展开会撑高账号行）。
@@ -260,7 +265,20 @@ export function AccountCard({
   }, [busyKey]);
   const accounts = [...pool.index.accounts]
     .map(rowOf)
-    .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
+    .sort((a, b) => {
+      // 生效账号恒在首位（它回答的是「现在用的是谁」，与额度无关）
+      const byActive = Number(b.key === pool.index.active) - Number(a.key === pool.index.active);
+      if (byActive !== 0) return byActive;
+      // 其余按**剩余额度降序**：优先把还撑得住的号摆在眼前，快没钱的沉底。
+      // 没有额度数据的（订阅制 / 账单还没取到）算「未知」，排在已知额度之后，
+      // 同类之间保持后端给的顺序 —— 把未知当 0 会让「没用过」的号看起来像「没钱了」。
+      const ra = creditsOf(a.key);
+      const rb = creditsOf(b.key);
+      if (ra === null && rb === null) return 0;
+      if (ra === null) return 1;
+      if (rb === null) return -1;
+      return rb - ra;
+    });
   /**
    * 折叠态：默认只露 `PREVIEW_ACCOUNTS` 个。
    *

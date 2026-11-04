@@ -37,9 +37,27 @@ Web 控制台**仪表盘**里那层「区间用量」的口径与设计依据。
 | 缓存命中率 | `Σhit / Σ(hit+miss)`，**只累加有缓存字段的记录**；区间内一条都没有时为 `null`（显示 `—`，不是 0%）——与日志页、[CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) 同一口径 |
 | 峰值时段 | 按**本地小时** `Σ tokens.total` 的 argmax |
 | 最常用模型 | 区间内 `Σ tokens` 最大的模型及其占比 |
+| 无 usage 条数 | `count(tokens === null)`（上游没回用量）。这些请求既不进 tokens 也不进命中率分母，单独露出来 —— 否则「tokens 少」看起来像「用的人少」 |
 
 「缺失不补零」是贯穿全表的约定：上游没给 usage 的请求（失败请求通常没有）不计入 tokens，
 也不当成 0 参与分母。
+
+### 2.1 逐模型健康度（模型列表的「一眼判据」）
+
+`models[]` 除用量外还带一组**健康度**字段，供 `/web/models` 打「慢 / 不可用 / 排队」标签：
+
+| 字段 | 含义 |
+| --- | --- |
+| `ok` / `fail` | 该模型的成功 / 失败请求条数（按 access 日志的**文件归属**分桶，与日志页同一口径） |
+| `queued` | 该模型进过上游排队的请求条数（来自访问日志的 `queued` 字段，见 [LOGGING.md](./LOGGING.md) §3.1） |
+| `avgTps` | **成功请求**的平均生成速率；一条都算不出时为 `null` |
+
+平均 TPS 的窗口由调用方决定（模型列表用 `range=7d`）；判定优先级（排队 > 不可用 > 慢）
+与阈值（`SLOW_TPS = 100`）在 `packages/ui/src/lib/model-health.ts`，表驱动测试钉死。
+
+> 服务端为实现 `avgTps` 在 `runtime/usage-stats.ts` 里放了 `tokensPerSecOf` 的第二份实现：
+> UI 包不依赖 `@modelmux/gateway`，两边各自构建。**两份必须同公式同护栏**，改一处就要改另一处
+> （`packages/ui/src/lib/log-format.ts` 是另一份）。
 
 > 日志页与仪表盘的**生成速度（TPS）**不在这张表里 —— 它是**单请求**指标（输出 tokens ÷
 > 纯生成窗口 `generateMs`），带窗口下限与速率上限两道护栏，超限显示 `—`。口径见
@@ -47,7 +65,7 @@ Web 控制台**仪表盘**里那层「区间用量」的口径与设计依据。
 
 ## 3. 接口与实现
 
-`GET /web/api/usage?range=7d|30d|90d`（默认 30d，非法值回落 30d），与 `/api/logs` 同策略
+`GET /web/api/usage?range=7d|30d|90d|365d`（默认 30d，非法值回落 30d），与 `/api/logs` 同策略
 加同源校验。返回形状见 `runtime/usage-stats.ts` 的 `UsageStats`。
 
 - 聚合在 `runtime/usage-stats.ts`（`runtime/` 层的读日志能力）；console 层只做路由与校验。

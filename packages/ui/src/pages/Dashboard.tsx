@@ -265,6 +265,8 @@ export function Dashboard(): ReactElement {
 
   // 缓存命中率（服务端按上游形态加权算好）；窗口内无缓存字段时 `hitRate` 为 null → 不追加
   const cacheRate = formatPercent(usage?.cache.hitRate);
+  /** 区间标签（「近 30 日」）：用量明细条上要写明这些数字覆盖多长。 */
+  const rangeLabel = RANGES.find((r) => r.key === range)?.label ?? "";
   const cacheText = cacheRate === "—" ? "" : ` · 缓存 ${cacheRate}`;
 
   // 区间用量的派生：趋势序列、连续天数
@@ -339,6 +341,28 @@ export function Dashboard(): ReactElement {
           sub={rangeStats ? `最长 ${rangeStats.streak.longest} 天` : undefined}
           tone={streakDays > 0 ? "free" : "muted"}
         />
+      </div>
+
+      {/*
+        ② 区间用量明细：缓存命中（含分子 / 分母）与「无 usage」条数 —— 从请求日志页挪过来。
+        tokens 的入 / 出已经在上面「累计 Token」格里，这里不重复铺第二遍。
+      */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-ink-soft">
+        <span className="text-ink-faint">{rangeLabel}</span>
+        <span>
+          缓存命中{" "}
+          <span className="tabular text-ink">{formatPercent(rangeStats?.totals.cacheHitRate)}</span>
+          {(rangeStats?.totals.cacheTotal ?? 0) > 0 && rangeStats && (
+            <span className="text-ink-faint">
+              （{formatTokens(rangeStats.totals.cacheHit)} / {formatTokens(rangeStats.totals.cacheTotal)}）
+            </span>
+          )}
+        </span>
+        {(rangeStats?.totals.noUsage ?? 0) > 0 && rangeStats && (
+          <span className="text-ink-faint">
+            {rangeStats.totals.noUsage} 条无 usage（上游没回用量，不计入 tokens 与命中率）
+          </span>
+        )}
       </div>
 
       {/* ① 接入盒 */}
@@ -419,8 +443,10 @@ export function Dashboard(): ReactElement {
               <Layers className="h-4 w-4 text-ink-faint" />
               模型用量
             </div>
-            <ModelDonut models={rangeStats?.models ?? []} />
-            {rangeStats?.favorite != null && (
+            {/* 只画有 tokens 的模型：`models` 里现在还包含「只有失败请求」的（它们 tokens 为 0），
+                那是模型列表健康度要的，画进环形图会多出一堆 0% 图例。 */}
+            <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
+            {rangeStats?.favorite != null && rangeStats.favorite.share > 0 && (
               <p className="mt-3 text-xs text-ink-faint">
                 {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}
                 {formatPercent(rangeStats.favorite.share)}。

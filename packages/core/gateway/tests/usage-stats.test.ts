@@ -40,11 +40,15 @@ function dateOffset(daysAgo: number): string {
   return localDateOf(d);
 }
 
-/** 写某天的 access 日志（只写 success.log 够用；outcome 不影响聚合）。 */
-function writeDay(date: string, records: Array<Record<string, unknown>>): void {
+/** 写某天的 access 日志；`file` 决定 outcome（解析以**文件归属**为准，不看行内字段）。 */
+function writeDay(
+  date: string,
+  records: Array<Record<string, unknown>>,
+  file = "success.log",
+): void {
   const target = join(paths.logsDir(), "access", date);
   mkdirSync(target, { recursive: true });
-  writeFileSync(join(target, "success.log"), records.map((r) => `${JSON.stringify(r)}\n`).join(""), "utf8");
+  writeFileSync(join(target, file), records.map((r) => `${JSON.stringify(r)}\n`).join(""), "utf8");
 }
 
 let seq = 0;
@@ -173,5 +177,59 @@ describe("computeUsageStats", () => {
     assert.equal(stats.peak, null);
     assert.equal(stats.favorite, null);
     assert.equal(stats.totals.cacheHitRate, null);
+  });
+
+  /**
+   * 逐模型健康度：模型列表的「慢 / 不可用 / 排队」全靠这一组数，口径必须钉死。
+   *
+   * 三条容易写错的：
+   *   1. 只有失败请求的模型**必须出现在 models 里**（它 tokens 为 0）—— 否则「全挂」
+   *      会被界面显示成「没被用过」，正好反过来；
+   *   2. 平均 TPS 只算**成功且算得出速率**的样本：算不出的（生成窗口低于下限）不进分母；
+   *   3. `noUsage` 按 `tokens === null` 数，与日志页同一判据。
+   */
+  it("逐模型健康度：成功 / 失败分桶、排队计数、平均 TPS 只取可信样本", () => {
+    resetUsageCache();
+    const today = dateOffset(0);
+    writeDay(today, [
+      // 100 tokens / 1s 生成窗口 = 100 t/s
+      modelEntry(today, "loomy/a", { prompt: 10, completion: 100 }, { generateMs: 1000, durationMs: 2000 }),
+      // 40 tokens / 0.5s = 80 t/s
+      modelEntry(today, "loomy/a", { prompt: 10, completion: 40 }, { generateMs: 500, durationMs: 1000 }),
+      // 生成窗口低于下限（50ms）→ 速率算不出，**不进**均值分母
+      modelEntry(today, "loomy/a", { prompt: 10, completion: 100 }, { generateMs: 20, durationMs: 1000 }),
+      // 进过上游排队
+      modelEntry(today, "loomy/a", { prompt: 5, completion: 50 }, { generateMs: 1000, durationMs: 2000, queued: true }),
+    ]);
+    // 只有失败请求的模型：走 failure.log（outcome 以文件归属为准）
+    writeDay(
+      today,
+      [
+        {
+          id: "req_testfail1",
+          ts: `${today}T03:00:00.000Z`,
+          method: "POST",
+          path: "/v1/chat/completions",
+          model: "loomy/b",
+          status: 502,
+          durationMs: 300,
+        },
+      ],
+      "failure.log",
+    );
+
+    const stats = computeUsageStats("7d");
+    const a = stats.models.find((m) => m.id === "loomy/a");
+    const b = stats.models.find((m) => m.id === "loomy/b");
+    assert.equal(a?.ok, 4, "四条成功");
+    assert.equal(a?.fail, 0);
+    assert.equal(a?.queued, 1, "只有一条进过排队");
+    // 三个可算样本：100 t/s、80 t/s、50 t/s（排队那条也有生成窗口）→ 均值 76.67；
+    // 生成窗口 20ms 那条低于下限，**不进分母** —— 若进了均值会被拉到 57.5。
+    assert.equal(Math.round(a?.avgTps ?? 0), 77, "只按算得出的样本求均值");
+    assert.equal(b?.ok, 0);
+    assert.equal(b?.fail, 1, "全失败的模型也要出现在 models 里");
+    assert.equal(b?.avgTps, null, "没有成功样本就没有速率");
+    assert.equal(stats.totals.noUsage, 1, "失败那条没有 usage");
   });
 });

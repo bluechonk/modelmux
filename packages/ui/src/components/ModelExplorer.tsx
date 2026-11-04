@@ -9,13 +9,15 @@
  * 上下文窗口 / 输出上限 / 输入模态（数据共享层 `PoolModelMeta` 本来就有）。
  */
 
-import { ChevronDown, ChevronRight, ChevronUp, Image as ImageIcon, LayoutList, Rows3, Search, Type, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Image as ImageIcon, LayoutList, Rows3, Search, Type, X, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
+import { api } from "../lib/api";
 import { useNarrow } from "../lib/use-narrow";
 import { CopyButton } from "./CopyChip";
 import { ScrollFade } from "./ScrollFade";
+import { useToast } from "./Toast";
 
 /**
  * 元数据取值的来源（与共享层 `MetaSource` 同形）。
@@ -26,8 +28,7 @@ import { ScrollFade } from "./ScrollFade";
 export type MetaSource = "upstream" | "spec" | "web_search" | "cross" | "default";
 
 /** 单个模型的元数据（与共享层 `PoolModelMeta` 对齐）。 */
-export interface ModelMeta {
-  multiplier: number | null;
+export interface ModelMeta {  multiplier: number | null;
   marketing: string;
   contextWindow: number;
   maxOutputTokens: number;
@@ -56,6 +57,32 @@ export function formatMultiplier(value: number): string {
  * 就直接全展开（见 `GroupedTable` 的 `previewAll`）——用户在找东西时不该被藏。
  */
 const PREVIEW_COUNT = 3;
+
+/**
+ * 健康度窗口口径与判定在 `lib/model-health.ts`（纯逻辑，表驱动测试钉死）；
+ * 这里 import + re-export 保持既有导入路径（页面从组件取这些名字）。
+ */
+import {
+  classifyModel,
+  HEALTH_RANGE,
+  SLOW_TPS,
+  type ModelHealth,
+  type ModelVerdict,
+} from "../lib/model-health";
+export { classifyModel, HEALTH_RANGE, SLOW_TPS, type ModelHealth, type ModelVerdict } from "../lib/model-health";
+
+/**
+ * 状态标签的文案与配色。
+ *
+ * 「不可用」用**中性底**而不是红底：绝大多数模型从没被本地调用过，红底会让页面变成
+ * 一片告警色，真正该看的「慢 / 排队」反而被淹没。红黄只留给「调用过但结果不好」。
+ */
+const VERDICT_PILL: Record<NonNullable<ModelVerdict["status"]>, { text: string; cls: string }> = {
+  queued: { text: "排队", cls: "bg-warn/15 text-warn" },
+  slow: { text: "慢", cls: "bg-warn/15 text-warn" },
+  error: { text: "异常", cls: "bg-danger/12 text-danger" },
+  down: { text: "不可用", cls: "bg-overlay text-ink-faint" },
+};
 
 /** 窗口/上限的紧凑写法：128000 → 128k，1000000 → 1M，981504 → 0.98M。 */
 function compactNumber(value: number): string {
@@ -86,6 +113,7 @@ export function ModelExplorer({
   models,
   infoOf,
   freePlanCids,
+  healthOf,
 }: {
   /** 池里的全部模型 id（`<cid>/<模型>`）。 */
   models: string[];
@@ -93,6 +121,8 @@ export function ModelExplorer({
   infoOf: (poolId: string) => ModelMeta | undefined;
   /** 无倍率概念（订阅制）的渠道：其模型按「免费」计。 */
   freePlanCids: ReadonlySet<string>;
+  /** 取模型健康度（近 7 天的本地请求聚合）；没有行 = 这段窗口里没成功过。 */
+  healthOf: (poolId: string) => ModelHealth | undefined;
 }): ReactElement {
   const [query, setQuery] = useState("");
   const [cidFilter, setCidFilter] = useState("all");
@@ -101,6 +131,11 @@ export function ModelExplorer({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   /** 组内展开：默认每组只露前 `PREVIEW_COUNT` 个，其余点「展开」才出现。 */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  /** 正在 ping 的模型（同时只允许一个：ping 会真花上游请求，别让手快连点打出一串）。 */
+  const [pinging, setPinging] = useState<string | null>(null);
+  /** 各模型最近一次 ping 的结果（就地留秒数，换模型对比时有用）。 */
+  const [pingResults, setPingResults] = useState<ReadonlyMap<string, PingOutcome>>(new Map());
+  const toast = useToast();
   /** 窄屏只保留核心列（见 `useNarrow` 的取舍说明）。渠道列只有扁平表有 ——
       分组表由渠道分块，不需要再来一列重复的 cid。 */
   const narrow = useNarrow();
@@ -114,6 +149,29 @@ export function ModelExplorer({
       else next.add(cid);
       return next;
     });
+  };
+
+  /**
+   * ping 一个模型：真发一次最小 chat 请求，结果同时**弹层 + 就地留秒数**。
+   *
+   * 失败不抛错到 React Query（这里不用 mutation）：一次 ping 失败不是「页面出错了」，
+   * 它就是被测对象的状态，用 toast 说清原因即可。
+   */
+  const ping = async (poolId: string): Promise<void> => {
+    setPinging(poolId);
+    try {
+      const result = await api.ping(poolId);
+      const outcome: PingOutcome = { ok: result.ok, ms: result.ms, error: result.error };
+      setPingResults((prev) => new Map(prev).set(poolId, outcome));
+      const seconds = (result.ms / 1000).toFixed(1);
+      if (result.ok) toast.success(`ping 成功 · ${poolId} · ${seconds}s`);
+      else toast.error(`ping 失败 · ${poolId} · ${seconds}s · ${result.error || `HTTP ${result.status}`}`);
+    } catch (err) {
+      setPingResults((prev) => new Map(prev).set(poolId, { ok: false, ms: 0, error: String(err) }));
+      toast.error(`ping 失败 · ${poolId} · ${String(err)}`);
+    } finally {
+      setPinging(null);
+    }
   };
 
   /**
@@ -203,6 +261,15 @@ export function ModelExplorer({
   const previewAll = keyword !== "" || cidFilter !== "all" || freeOnly;
   const showExpandAll = !flat && !previewAll && foldableCids.length > 1;
 
+  /** 行渲染上下文：健康度 + ping 状态与动作（两张表共用，避免逐层透传七八个参数）。 */
+  const cellCtx: CellCtx = {
+    freePlanCids,
+    healthOf,
+    pinging,
+    pingResults,
+    onPing: (poolId) => void ping(poolId),
+  };
+
   return (
     <section className="mb-2" ref={sectionRef}>
       {/* 工具条吸顶：模型多、表长，滚动时搜索/筛选/计数始终可及（背景铺满容器宽，内容不透出）。
@@ -212,10 +279,9 @@ export function ModelExplorer({
         ref={toolbarRef}
         className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center gap-2 bg-canvas px-4 pb-4 pt-2 sm:-mx-6 sm:px-6"
       >
-        <h2 className="text-lg font-normal tracking-tight text-ink">
-          渠道 / 模型
-        </h2>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        {/* 工具条不再有「渠道 / 模型」标题（页面标题已说明这一页是什么），
+            所以整组控件贴左排 —— 留着 `ml-auto` 会在左边空出一大片。 */}
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
             <input
@@ -306,12 +372,12 @@ export function ModelExplorer({
       ) : visible.length === 0 ? (
         <div className="panel p-5 text-sm text-ink-faint">没有匹配的模型</div>
       ) : flat ? (
-        <FlatTable cols={cols} rows={visible} freePlanCids={freePlanCids} />
+        <FlatTable cols={cols} rows={visible} ctx={cellCtx} />
       ) : (
         <GroupedTable
           cols={groupedCols}
           groups={groups}
-          freePlanCids={freePlanCids}
+          ctx={cellCtx}
           collapsed={collapsed}
           onToggle={toggle}
           expanded={expanded}
@@ -354,8 +420,10 @@ function isFree(row: ModelRow, freePlanCids: ReadonlySet<string>): boolean {
 const COL_WIDTHS = {
   channel: "4.5rem",
   multiplier: "4rem",
+  avgTps: "6rem",
   contextWindow: "6rem",
   maxOutput: "5.5rem",
+  ping: "5.5rem",
   copy: "2.75rem",
 } as const;
 
@@ -389,6 +457,7 @@ const COLS: ColDef[] = [
   { key: "model", label: "模型", align: "left" },
   { key: "channel", label: "渠道", align: "left" },
   { key: "multiplier", label: "倍率", align: "right" },
+  { key: "avgTps", label: "平均 TPS", align: "right", wide: true },
   { key: "contextWindow", label: "最大上下文", align: "right", wide: true },
   { key: "maxOutput", label: "输出上限", align: "right", wide: true },
   { key: "effort", label: "思考模式", align: "left", wide: true },
@@ -400,6 +469,8 @@ const COLS: ColDef[] = [
     // 实测（390 视口）模型名会被压到只剩 3 个字符（`lon…`），核心信息不可读。
     wide: true,
   },
+  // ping 不做 `wide`：它是**动作**，窄屏更需要它（手机上没法复制去别处测）
+  { key: "ping", label: "", align: "left" },
   { key: "copy", label: "", align: "left" },
 ];
 
@@ -559,11 +630,81 @@ function ThinkingCell({ row }: { row: ModelRow }): ReactElement {
   );
 }
 
-/** 模型名单元格：等宽字体，超长截断（全名可用旁边的复制按钮取）。 */
-function ModelNameCell({ row }: { row: ModelRow }): ReactElement {
+/**
+ * 模型名单元格：等宽字体，超长截断（全名可用旁边的复制按钮取）；后面挂健康度标签。
+ *
+ * 标签挂在**名字旁边**而不是单开一列：一行里最先被读到的就是模型名，
+ * 判断「这个模型现在能不能用」跟名字是同一个动作。
+ */
+function ModelNameCell({
+  row,
+  verdict,
+}: {
+  row: ModelRow;
+  verdict: ModelVerdict;
+}): ReactElement {
+  const pill = verdict.status === null ? null : VERDICT_PILL[verdict.status];
   return (
-    <td className="max-w-[22rem] truncate px-4 py-2 font-mono text-xs text-ink">
-      {row.id}
+    <td className="max-w-[22rem] px-4 py-2">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate font-mono text-xs text-ink">{row.id}</span>
+        {pill && <span className={`pill shrink-0 whitespace-nowrap ${pill.cls}`}>{pill.text}</span>}
+      </span>
+    </td>
+  );
+}
+
+/**
+ * 平均 TPS 单元格：只显示数值，窗口见页面副标题（近 7 天）。
+ *
+ * `-` 的两种含义都在 `classifyModel` 里定死了：没有成功记录、或成功请求算不出速率
+ * （只有一个内容帧 / 上游没回 usage）。不写 0 —— 0 是「跑得极慢」而不是「测不到」。
+ */
+function TpsCell({ verdict }: { verdict: ModelVerdict }): ReactElement {
+  return (
+    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-xs tabular text-ink-soft">
+      {verdict.tps === null ? "-" : verdict.tps.toFixed(verdict.tps >= 100 ? 0 : 1)}
+    </td>
+  );
+}
+
+/**
+ * ping 按钮单元格：点一下真发一次最小 chat 请求，结果用浮层报出，并把秒数留在原地。
+ *
+ * 就地留秒数（不只是弹一下）：弹层几秒就没了，而「刚才那次是多少秒」往往正是接下来
+ * 要拿来对比的数 —— 留在格子里，换一个模型 ping 之后还能横向比。
+ */
+function PingCell({
+  row,
+  pending,
+  result,
+  onPing,
+}: {
+  row: ModelRow;
+  pending: boolean;
+  result: PingOutcome | undefined;
+  onPing: (poolId: string) => void;
+}): ReactElement {
+  return (
+    <td className="px-2 py-1.5 max-md:px-0">
+      <span className="flex items-center justify-end gap-1.5">
+        {result && (
+          <span
+            className={`font-mono text-xs tabular ${result.ok ? "text-free" : "text-danger"}`}
+          >
+            {result.ok ? `${(result.ms / 1000).toFixed(1)}s` : "失败"}
+          </span>
+        )}
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onPing(row.poolId)}
+          aria-label={`ping ${row.poolId}`}
+          className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
+        >
+          <Zap className={`h-3.5 w-3.5 ${pending ? "animate-pulse text-brand" : ""}`} />
+        </button>
+      </span>
     </td>
   );
 }
@@ -600,12 +741,14 @@ function CopyCell({ row }: { row: ModelRow }): ReactElement {
 function cellsOf(
   row: ModelRow,
   cols: readonly ColDef[],
-  freePlanCids: ReadonlySet<string>,
+  ctx: CellCtx,
 ): ReactElement[] {
   return cols.map((col) => {
     switch (col.key) {
       case "model":
-        return <ModelNameCell key={col.key} row={row} />;
+        return (
+          <ModelNameCell key={col.key} row={row} verdict={classifyModel(ctx.healthOf(row.poolId))} />
+        );
       case "channel":
         return (
           <td key={col.key} className="px-3 py-2">
@@ -613,7 +756,19 @@ function cellsOf(
           </td>
         );
       case "multiplier":
-        return <MultiplierCell key={col.key} row={row} freePlanCids={freePlanCids} />;
+        return <MultiplierCell key={col.key} row={row} freePlanCids={ctx.freePlanCids} />;
+      case "avgTps":
+        return <TpsCell key={col.key} verdict={classifyModel(ctx.healthOf(row.poolId))} />;
+      case "ping":
+        return (
+          <PingCell
+            key={col.key}
+            row={row}
+            pending={ctx.pinging === row.poolId}
+            result={ctx.pingResults.get(row.poolId)}
+            onPing={ctx.onPing}
+          />
+        );
       case "contextWindow":
         return <SizeCell key={col.key} value={row.meta?.contextWindow} />;
       case "maxOutput":
@@ -626,6 +781,29 @@ function cellsOf(
         return <CopyCell key={col.key} row={row} />;
     }
   });
+}
+
+/**
+ * 一次 ping 的结果（`PingResult` 的界面侧裁剪）。
+ *
+ * `error` 保留原文：失败原因（额度不足 / 上游 502 / 超时）界面上要原样说，不自编。
+ */
+export interface PingOutcome {
+  ok: boolean;
+  ms: number;
+  error: string;
+}
+
+/** 渲染一行单元格要的外部上下文：免得到处透传七八个参数。 */
+interface CellCtx {
+  freePlanCids: ReadonlySet<string>;
+  /** 模型健康度（近 7 天聚合）；没有行 = 这段时间一次都没成功过。 */
+  healthOf: (poolId: string) => ModelHealth | undefined;
+  /** 正在 ping 的模型（按钮转圈 + 禁用）。 */
+  pinging: string | null;
+  /** 已经 ping 过的结果，按池 id 存。 */
+  pingResults: ReadonlyMap<string, PingOutcome>;
+  onPing: (poolId: string) => void;
 }
 
 /**
@@ -690,7 +868,7 @@ function useScrollSync(): {
 function GroupedTable({
   cols,
   groups,
-  freePlanCids,
+  ctx,
   collapsed,
   onToggle,
   expanded,
@@ -699,7 +877,7 @@ function GroupedTable({
 }: {
   cols: readonly ColDef[];
   groups: Map<string, ModelRow[]>;
-  freePlanCids: ReadonlySet<string>;
+  ctx: CellCtx;
   collapsed: ReadonlySet<string>;
   onToggle: (cid: string) => void;
   /** 组内「已展开全部」的渠道集合。 */
@@ -740,7 +918,7 @@ function GroupedTable({
         const showAll = previewAll || expanded.has(cid);
         const shown = showAll ? rows : rows.slice(0, PREVIEW_COUNT);
         const hidden = rows.length - shown.length;
-        const free = rows.filter((r) => isFree(r, freePlanCids)).length;
+        const free = rows.filter((r) => isFree(r, ctx.freePlanCids)).length;
         const vision = rows.filter((r) => (r.meta?.inputModalities ?? []).includes("image")).length;
         const mults = rows
           .map((r) => r.meta?.multiplier)
@@ -785,7 +963,7 @@ function GroupedTable({
                         key={row.poolId}
                         className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
                       >
-                        {cellsOf(row, cols, freePlanCids)}
+                        {cellsOf(row, cols, ctx)}
                       </tr>
                     ))}
                     {/* 折叠条：**整行可点**（与账号卡底条同一套做法）—— 只让文字可点的话，
@@ -827,11 +1005,11 @@ function GroupedTable({
 function FlatTable({
   cols,
   rows,
-  freePlanCids,
+  ctx,
 }: {
   cols: readonly ColDef[];
   rows: ModelRow[];
-  freePlanCids: ReadonlySet<string>;
+  ctx: CellCtx;
 }): ReactElement {
   const { register, onScroll } = useScrollSync();
   return (
@@ -856,7 +1034,7 @@ function FlatTable({
                 key={row.poolId}
                 className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
               >
-                {cellsOf(row, cols, freePlanCids)}
+                {cellsOf(row, cols, ctx)}
               </tr>
             ))}
           </tbody>

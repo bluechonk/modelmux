@@ -77,6 +77,13 @@ export interface RequestLog {
   messageCount?: number;
   systemChars?: number;
   toolCount?: number;
+  /**
+   * 这次请求**进过上游排队**（收到了排队帧、等待后重试）。
+   *
+   * 为什么单独记：耗时区分不了「上游慢」与「上游在排队」（实测 qoder 排队能拖到 290s，
+   * 只看耗时会把它混进「慢」里），而控制台的模型列表要按它打「排队」标签。见 `noteQueued`。
+   */
+  queued?: boolean;
   written?: boolean;
 }
 
@@ -359,6 +366,18 @@ export function noteUsage(res: ServerResponse, usage: unknown): void {
   log.usage = usage as Record<string, unknown>;
 }
 
+/**
+ * 记「这次请求进过上游排队」（置位式：一次就够）。
+ *
+ * 由排队探测在**收到排队帧**时调用（`http/chat/attempt.ts::runQueueProbe`）——
+ * 那是「上游明确说还在排队」的唯一事实点；用耗时反推会把慢请求误标成排队。
+ */
+export function noteQueued(res: ServerResponse): void {
+  const log = getRequestLog(res);
+  if (!log) return;
+  log.queued = true;
+}
+
 /** 系统层事件（start/stop/worker spawn/restart）。 */
 export function appendSystem(event: string, fields: Record<string, unknown> = {}): void {
   pruneOnce();
@@ -544,6 +563,8 @@ export interface AccessEntry {
   } | null;
   /** 耗时达慢阈值 —— 与 `slow.log` 同一判据，不另设标准。 */
   slow: boolean;
+  /** 进过上游排队（收到过排队帧）。缺省 = 没有排队帧，不代表「没等过」。 */
+  queued?: boolean;
 }
 
 /**
@@ -850,6 +871,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (systemChars !== undefined) entry.systemChars = systemChars;
   const toolCount = num(raw["toolCount"]);
   if (toolCount !== undefined) entry.toolCount = toolCount;
+  const queued = bool(raw["queued"]);
+  if (queued !== undefined) entry.queued = queued;
   return entry;
 }
 
