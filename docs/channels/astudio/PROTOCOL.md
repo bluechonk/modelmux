@@ -594,7 +594,7 @@ node packages/cli/dist/cli.js model astudio --refresh
 
 ### 端到端测试覆盖
 
-按 `AGENTS.md`「测试规则」第 1 条，渠道不写单测，只做端到端（`opencode-mx-test` skill）。
+按 `AGENTS.md`「测试规则」第 1 条，渠道不写单测，只做端到端（`dsh-mx-test` skill）。
 本节列出**应当覆盖**的项，供后续 Agent 复现：
 
 | 覆盖项 | 判据 |
