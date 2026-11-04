@@ -54,14 +54,16 @@ export function Overview() {
         <tbody>
           {(data?.channels ?? []).map((c) => {
             const st = c.statuses ?? {};
-            const dist = ["ok", "cooldown", "error", "unauthenticated"]
-              .filter((k) => st[k])
-              .map((k) => (
+            const distKeys = ["ok", "cooldown", "error", "unauthenticated"].filter((k) => st[k]);
+            const dist = distKeys.length ? (
+              distKeys.map((k) => (
                 <span className={`chip ${k}`} key={k}>
                   {k}={st[k]}
                 </span>
               ))
-              .join("") || <span className="dim">-</span>;
+            ) : (
+              <span className="dim">-</span>
+            );
             const login =
               c.logged_in == null ? <span className="dim">-</span> : c.logged_in ? <span className="ok">已登录</span> : <span className="bad">未登录</span>;
             return (

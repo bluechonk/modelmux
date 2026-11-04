@@ -1,6 +1,6 @@
 {
   "name": "mx-panel",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ModelMux 网关面板：概览 / 账号管理(登录·切换·解除·删除)/ 模型清单(按渠道分组)/ 最近请求。",
   "description_i18n": {
     "en": "ModelMux gateway status panel: overview, searchable models, recent logs.",
