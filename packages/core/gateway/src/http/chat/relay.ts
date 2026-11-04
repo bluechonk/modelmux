@@ -253,7 +253,8 @@ async function dispatchChat(
   const final = lastError ?? {
     status: 502,
     code: "upstream_error",
-    message: "upstream request failed; see gateway logs",
+    // 只有 lastError 为 null（不可能走到）才落到这条兜底；文案带候选渠道列表
+    message: `all pool candidates failed, tried: ${tried.join(", ")}`,
   };
   if (res.headersSent) {
     // 排队进度帧已把 SSE 头发出（状态码定死 200 + text/event-stream）：

@@ -42,7 +42,7 @@ export function Models(): ReactElement {
     // 再进页面先出上一次的健康度（60 秒一轮，骨架闪烁比旧数字更干扰判断）
     placeholderData: (prev) => prev,
   });
-  /** 池 id → 健康度；没有条目 = 这段窗口里一次都没成功过（`classifyModel` 会判「不可用」）。 */
+  /** 池 id → 健康度；没有条目 = 这段窗口没有调用记录（`classifyModel` 不挂标签）。 */
   const healthOf = useMemo(() => {
     const map = new Map<string, ModelHealth>();
     for (const row of health.data?.models ?? []) {

@@ -74,14 +74,13 @@ export { classifyModel, HEALTH_RANGE, SLOW_TPS, type ModelHealth, type ModelVerd
 /**
  * 状态标签的文案与配色。
  *
- * 「不可用」用**中性底**而不是红底：绝大多数模型从没被本地调用过，红底会让页面变成
- * 一片告警色，真正该看的「慢 / 排队」反而被淹没。红黄只留给「调用过但结果不好」。
+ * 「无调用记录」不挂标签（没数据 ≠ 不可用，2026-11-05 主人改定）：红黄只留给
+ * 「调用过但结果不好」的模型，页面才不至于一片告警色。
  */
 const VERDICT_PILL: Record<NonNullable<ModelVerdict["status"]>, { text: string; cls: string }> = {
   queued: { text: "排队", cls: "bg-warn/15 text-warn" },
   slow: { text: "慢", cls: "bg-warn/15 text-warn" },
   error: { text: "异常", cls: "bg-danger/12 text-danger" },
-  down: { text: "不可用", cls: "bg-overlay text-ink-faint" },
 };
 
 /** 窗口/上限的紧凑写法：128000 → 128k，1000000 → 1M，981504 → 0.98M。 */

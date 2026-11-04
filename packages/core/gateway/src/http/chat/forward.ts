@@ -231,7 +231,14 @@ export async function relayUpstream(
     } catch (err) {
       logger(`reading upstream response interrupted: ${String(err)}`);
       const timedOut = /timeout/i.test(String(err));
-      writeJsonError(res, 502, timedOut ? "upstream_timeout" : "upstream_error", "upstream request failed; see gateway logs");
+      // 上游读流中断的原因透传给客户端（截断），完整原文仍在本地日志
+      const detail = String(err).replace(/\s+/g, " ").trim().slice(0, 300);
+      writeJsonError(
+        res,
+        502,
+        timedOut ? "upstream_timeout" : "upstream_error",
+        `upstream stream interrupted [${cid}]: ${detail || "no upstream error details"}`,
+      );
       noteRequestError(res, timedOut ? "upstream_timeout" : "upstream_read_failed", String(err));
     }
     return;
