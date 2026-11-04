@@ -11,7 +11,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PANEL_HTML = join(HERE, "ui", "panel.html");
 const MX_BASE = process.env.MODELMUX_BASE_URL ?? "http://127.0.0.1:4412";
 
-const SERVER_INFO = { name: "mx-panel", version: "0.2.0" };
+const SERVER_INFO = { name: "mx-panel", version: "0.2.1" };
 
 // 宿主按 mimeType 的 profile 识别 MCP App(纯 text/html 不建桥,握手必超时)
 const HTML_MIME = "text/html;profile=mcp-app";
