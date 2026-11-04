@@ -232,7 +232,11 @@ git config --get core.hooksPath         # 应为 .githooks
    - **每个渠道包**的 `packages/core/channels/<cid>/src/channel.ts` 里的 `version` 字段
      （`mx --version` 读它）；
    - 根 `package-lock.json` 的两处（顶层 `version` 与 `packages[""].version`）；
-   - `docs/PROGRESS.md` 的「当前版本」。
+   - `docs/PROGRESS.md` 的「当前版本」；
+   - **插件版本号跟 tag 走**：`plugins/<name>/.zcode-plugin/plugin.json` 的 `version` 与
+     根 `marketplace.json` 里对应条目的 `version`，都要等于根 `package.json` 的 `version`
+     （插件不自己编版本号，否则发布页与 tag 对不上，用户无从判断装的是哪一版）。
+     由 `npm run verify:plugin-version` 机械校验，`npm test` 链上跑。
    提交信息 `chore(release): 发布 vX.Y.Z`，正文按类型归纳本版变更（体例对齐 v0.1.1 / v0.1.2）。
    发版提交也走 PR（`main` 有分支保护），tag 打在**合并后的 main** 上。
 4. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒主人，**不要自己擅自发**）。

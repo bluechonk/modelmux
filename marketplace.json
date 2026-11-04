@@ -4,7 +4,7 @@
     {
       "name": "mx-panel",
       "source": "./plugins/mx-panel",
-      "version": "0.4.0",
+      "version": "0.1.2",
       "description": "ModelMux console: the gateway /web/ UI embedded in the ZCode sidebar.",
       "displayName": "ModelMux Panel",
       "displayName_i18n": {
