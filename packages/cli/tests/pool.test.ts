@@ -113,8 +113,11 @@ describe("仓库级模型池", () => {
         body: JSON.stringify({ model, messages: [{ role: "user", content: "hi" }] }),
         headers: { "Content-Type": "application/json" },
       });
-    // 裸模型名（无渠道前缀）：渠道必须由请求方指定
-    const bare = await post("deepseek-v4.1-flash");
+    // 裸模型名：接入路由层（pool/inbound-model.ts）会按目录索引解析裸名 ——
+    // 命中与否取决于当时渠道目录的状态（400 或 503，跨环境不稳定），所以这里
+    // 只用**必不命中**的裸名断言 400；「裸名命中 → 正常路由」由 gateway 包的
+    // chat-route.test 与 protocol-adapters.test 覆盖。
+    const bare = await post("no-such-model-anywhere-xyz");
     assert.equal(bare.status, 400);
     assert.equal(((await bare.json()) as { error: { code: string } }).error.code, "unknown_model");
     // 未注册的渠道前缀
