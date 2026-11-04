@@ -11,11 +11,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PANEL_HTML = join(HERE, "ui", "panel.html");
 const MX_BASE = process.env.MODELMUX_BASE_URL ?? "http://127.0.0.1:4412";
 
-const SERVER_INFO = { name: "mx-panel", version: "0.2.1" };
+const SERVER_INFO = { name: "mx-panel", version: "0.3.0" };
 
 // 宿主按 mimeType 的 profile 识别 MCP App(纯 text/html 不建桥,握手必超时)
 const HTML_MIME = "text/html;profile=mcp-app";
-const PANEL_META = { "zcode/csp": { wasmUnsafeEval: true } };
+// frameDomains: 面板要 iframe 内嵌完整控制台(http://127.0.0.1:4412/web/),
+// 省略时 CSP frame-src='none' 会直接拦掉嵌套 iframe(官方 schema 实测)
+const PANEL_META = { "zcode/csp": { wasmUnsafeEval: true, frameDomains: [new URL(MX_BASE).origin] } };
 
 async function mxFetch(path) {
   const resp = await fetch(`${MX_BASE}${path}`, { signal: AbortSignal.timeout(5000) });
@@ -98,6 +100,7 @@ async function callTool(name, args) {
         usage: overview.usage ?? null,
         channels: (overview.channels ?? []).map((c) => ({ ...c, logged_in: login.get(c.cid) ?? null })),
         auth,
+        consoleUrl: `${MX_BASE}/web/`,
       };
     }
     case "mx_models": {
