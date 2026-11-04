@@ -28,6 +28,7 @@ packages/
     ├── gateway/              共享层（网关 / 守护 / 路径 / 渠道注册表）
     └── channels/<cid>/       一个渠道 = 一个池子（模型目录 + 凭据 + 上游协议）
 docs/                         全部文档（契约与规范 + 渠道文档 docs/channels/<cid>/）
+plugins/                      ZCode 插件源码与本地 dev 市场（hello-panel 为最小示例；marketplace.json 即市场目录）
 ```
 
 ## 快速开始

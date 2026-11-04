@@ -1,0 +1,34 @@
+{
+  "name": "hello-panel",
+  "version": "0.1.3",
+  "description": "Minimal sidebar panel test plugin: verify ui.surfaces + MCP ui:// resource channel.",
+  "description_i18n": {
+    "en": "Minimal sidebar panel test plugin.",
+    "zh-CN": "最小侧边栏面板测试插件：验证 ui.surfaces 与 MCP ui:// 资源通道。"
+  },
+  "author": { "name": "bluechonk" },
+  "license": "MIT",
+  "mcpServers": {
+    "hello-panel": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${ZCODE_PLUGIN_ROOT}/dist/server.mjs"],
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "env": {
+        "ZCODE_WORKSPACE_ROOT": "${ZCODE_PROJECT_DIR}"
+      }
+    }
+  },
+  "ui": {
+    "surfaces": [
+      {
+        "id": "hello-panel",
+        "title": { "zh-CN": "Hello 面板", "en-US": "Hello Panel" },
+        "icon": "sparkles",
+        "server": "hello-panel",
+        "resourceUri": "ui://hello-panel/panel.html",
+        "availability": "session"
+      }
+    ]
+  }
+}

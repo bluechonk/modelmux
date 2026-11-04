@@ -1,0 +1,18 @@
+{
+  "name": "dev-modelmux-plugins",
+  "plugins": [
+    {
+      "name": "hello-panel",
+      "source": "./hello-panel",
+      "version": "0.1.3",
+      "description": "Minimal sidebar panel test plugin: verify ui.surfaces + MCP ui:// resource channel.",
+      "displayName": "Hello Panel",
+      "displayName_i18n": { "zh-CN": "Hello 面板" },
+      "description_i18n": {
+        "en": "Minimal sidebar panel test plugin.",
+        "zh-CN": "最小侧边栏面板测试插件：验证 ui.surfaces 与 MCP ui:// 资源通道。"
+      },
+      "category": "utilities"
+    }
+  ]
+}
