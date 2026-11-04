@@ -12,7 +12,7 @@ import {
   type CatalogFile,
 } from "../runtime/model-catalog.js";
 import { channels } from "../runtime/channel.js";
-import { poolModelMetas, type MetaSource, type PoolModelMeta } from "./pool-targets.js";
+import { invalidateCrossModelIndex, poolModelMetas, type MetaSource, type PoolModelMeta } from "./pool-targets.js";
 
 /** 把一条池元数据转成快照条目。 */
 function toEntry(id: string, meta: PoolModelMeta): CatalogEntry {
@@ -51,6 +51,9 @@ export function buildCatalog(): CatalogFile {
 export function refreshCatalog(): CatalogFile {
   const catalog = buildCatalog();
   if (Object.keys(catalog.models).length > 0) writeCatalogFile(catalog);
+  // 快照换了内容 → 跨渠道索引失效（本进程内的调用方，如 CLI 路径；运行中的网关由它自己的
+  // 目录对账定时器检测文件变化后失效，最迟 30s 的 TTL 也会兜住）
+  invalidateCrossModelIndex();
   return catalog;
 }
 

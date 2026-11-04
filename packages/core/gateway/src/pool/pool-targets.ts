@@ -501,6 +501,11 @@ export interface CrossModelFallback {
   maxOutputTokens: number | null;
   /** 兄弟渠道声明档位的**交集**（没有则 null）。 */
   effort: PoolModelMeta["effort"];
+  /**
+   * 声明过该模型的渠道及其**原始写法**（上游 slug 大小写敏感，必须原样带回去给
+   * `resolveModel()`）。`poolCandidates()` 用它直接定位候选，省掉再扫一遍目录。
+   */
+  exposed: ReadonlyArray<{ cid: string; exposedId: string }>;
 }
 
 /** 规范模型名 → 跨渠道兜底候选；由 `buildCrossModelIndex()` 构建。 */
@@ -531,17 +536,46 @@ function intersectEfforts(
 }
 
 /**
+ * 跨渠道索引的缓存时长。
+ *
+ * 30s 是**兜底**：目录变化都有显式失效（池集合变化 / 目录刷新 / 登录入池），
+ * TTL 只防「进程外改目录」这种没有失效信号的情况。控制台轮询是 3 秒一次，
+ * 没有这层缓存时每次都要重建（实测 392–398ms 的同步阻塞，把同页面的
+ * accounts / logs 请求全挤到后面 —— 症状是「进入账号池要等很久」）。
+ */
+const CROSS_INDEX_TTL_MS = 30_000;
+
+/** 最近一次构建的跨渠道索引（`null` = 已失效或还没建过）。 */
+let crossIndexCache: { at: number; index: CrossModelIndex } | null = null;
+
+/**
+ * 让跨渠道索引失效。
+ *
+ * 调用点必须覆盖「目录内容可能变了」的全部入口：池集合变化（`state.setModels`）、
+ * 渠道目录刷新（`mx model --refresh`）、登录入池（账号变多可能带回新模型）。
+ */
+export function invalidateCrossModelIndex(): void {
+  crossIndexCache = null;
+}
+
+/**
  * 构建跨渠道索引：把全部渠道的对外模型按**规范模型名**对齐，聚出缺值候补。
  *
- * 只读磁盘目录缓存 + 渠道表，不联网、不落盘，也**不缓存结果** —— 渠道目录会随
- * 登录 / 刷新变化，与 `poolModels()` 同一口径（每次重新收集）。
- * 调用方若要在一次枚举里反复用，应只建一次（见 `poolModelMetas()`）。
+ * 只读磁盘目录缓存 + 渠道表，不联网、不落盘。**进程内缓存 30 秒**（见
+ * `CROSS_INDEX_TTL_MS`）：建一次要枚举 10 个渠道目录 × 每模型查规格，实测约 400ms
+ * 且是同步阻塞 —— 控制台 3 秒轮一次会把事件循环占掉 15%，同页面的其他请求全在排队。
+ * 调用方若要在一次枚举里反复用，仍应只取一次（见 `poolModelMetas()`）。
  */
 export function buildCrossModelIndex(): CrossModelIndex {
+  const now = Date.now();
+  const hit = crossIndexCache;
+  if (hit !== null && now - hit.at < CROSS_INDEX_TTL_MS) return hit.index;
   interface Bucket {
     ctxs: number[];
     outs: number[];
     efforts: { supportedLevels: string[]; defaultLevel: string }[];
+    /** 声明过该模型的渠道及其**原始写法**（`poolCandidates` 直接用它，省掉再扫一遍目录）。 */
+    exposed: Array<{ cid: string; exposedId: string }>;
   }
   const acc = new Map<string, Bucket>();
   for (const channel of channels()) {
@@ -566,7 +600,7 @@ export function buildCrossModelIndex(): CrossModelIndex {
       } catch {
         continue; // 一个坏渠道只影响自己，不拖垮整池
       }
-      const bucket = acc.get(model) ?? { ctxs: [], outs: [], efforts: [] };
+      const bucket = acc.get(model) ?? { ctxs: [], outs: [], efforts: [], exposed: [] };
       const ctx = facts.contextWindow ?? facts.spec?.contextWindow ?? null;
       const out = facts.maxOutputTokens ?? facts.spec?.maxOutputTokens ?? null;
       // 档位同样收「上游声明」与「渠道规格」两种来源：只认上游会让没有目录端点的渠道
@@ -575,6 +609,7 @@ export function buildCrossModelIndex(): CrossModelIndex {
       if (ctx !== null) bucket.ctxs.push(ctx);
       if (out !== null) bucket.outs.push(out);
       if (effort) bucket.efforts.push(effort);
+      bucket.exposed.push({ cid, exposedId: raw });
       acc.set(model, bucket);
     }
   }
@@ -584,8 +619,10 @@ export function buildCrossModelIndex(): CrossModelIndex {
       contextWindow: bucket.ctxs.length > 0 ? Math.min(...bucket.ctxs) : null,
       maxOutputTokens: bucket.outs.length > 0 ? Math.min(...bucket.outs) : null,
       effort: intersectEfforts(bucket.efforts),
+      exposed: bucket.exposed,
     });
   }
+  crossIndexCache = { at: now, index };
   return index;
 }
 
@@ -692,16 +729,41 @@ export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSp
 }
 
 /**
+ * `poolModelMetas` 的结果缓存（**按入参数组的身份**记忆）。
+ *
+ * 控制台每 3 秒调一次 `poolModelMetas(this.modelsShown)`，而每次都要为 191 个模型
+ * 逐条走一遍 `getPoolModelMeta`（读目录缓存 + 查规格 + 四层回落），实测约 200ms 的
+ * **同步阻塞** —— 事件循环被占住，同页面的 accounts / logs 请求只能排队。
+ *
+ * 三个失效信号任一变化即重建：入参数组换了（池集合变）、跨渠道索引换了（目录变）、
+ * 规格表换了（mtime 变）。都走身份比较，命中成本是一次指针比对。
+ */
+let metaCache: {
+  ids: readonly string[];
+  index: CrossModelIndex;
+  specs: Record<string, ModelSpecEntry>;
+  out: Map<string, PoolModelMeta>;
+} | null = null;
+
+/**
  * 枚举池模型的元数据（`ids` 缺省 = 全池）—— **一次**构建跨渠道索引再逐条取值。
  *
  * 返回 `Map` 的迭代顺序即传入顺序（缺省时是 `poolModels()` 的排序结果），
  * 调用方直接照它渲染即可，不必自己再收集一遍目录。
+ *
+ * 传**同一个数组引用**重复调用时直接返回上次结果（见 `metaCache`）：池集合没变、
+ * 目录没变，元数据就不会变。缺省入参（全池）不缓存 —— 它每次都要重新收集池集合。
  */
 export function poolModelMetas(ids?: readonly string[]): Map<string, PoolModelMeta> {
   const index = buildCrossModelIndex();
   const specs = readModelSpecs().models;
+  if (ids !== undefined && metaCache !== null &&
+      metaCache.ids === ids && metaCache.index === index && metaCache.specs === specs) {
+    return metaCache.out;
+  }
   const out = new Map<string, PoolModelMeta>();
   for (const id of ids ?? poolModels()) out.set(id, getPoolModelMeta(id, index, specs));
+  if (ids !== undefined) metaCache = { ids, index, specs, out };
   return out;
 }
 
@@ -800,6 +862,13 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const channel = findChannel(parsed.cid);
   if (!channel) return [];
   const cid = channel.config.cid;
+  // 先查跨渠道索引（30s 缓存）：它已经枚举过全部渠道目录，命中就不必再扫一遍 ——
+  // 控制台 billing 命令对 191 个模型各调一次本函数，逐次扫目录是它 ~87ms 的主要来源。
+  const exposed = buildCrossModelIndex()
+    .get(parsed.model)
+    ?.exposed.find((item) => item.cid === cid);
+  if (exposed !== undefined) return [{ cid, channel, exposedId: exposed.exposedId }];
+  // 索引没命中：回落到直扫（目录在 TTL 内被改过时，索引可能还没跟上），语义与之前一致
   const ids = runInChannel(cid, () => {
     try {
       return channel.catalog.exposedIds();

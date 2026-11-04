@@ -339,6 +339,15 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   外加模型池视图所需的 `models` / `model_info` / `channel_caps`（各渠道能力位）。
   - `login_input` 非空 = 渠道在等用户输入（两步登录，如 loomy 的短信验证码）。
     界面据此把登录弹窗切成**输入卡**；`null` = 没有待回答的输入。
+  - **`model_info` 走进程内缓存**（跨渠道索引 `buildCrossModelIndex`，30 秒 TTL +
+    目录变化/池集合变化时显式失效）：建一次要枚举全部渠道目录 × 每模型查规格，实测约 400ms
+    且**同步阻塞** —— 控制台 3 秒轮一次，不缓存就会把事件循环占住约 15%，同页面的
+    accounts / logs 请求全在排队（症状：进入账号池要等很久）。缓存命中后 `/api/state`
+    稳定在几十毫秒。
+- 前端对所有轮询查询用 **`staleTime` = 轮询间隔** + `placeholderData: (prev) => prev`：
+  间隔内再进页面**直接用缓存**（不发网络请求，也不清空成骨架）；首访没有旧数据时仍走骨架。
+  轮询间隔见各页：state 3s、overview 5s、logs 5s、accounts 15s / logins 10s / billing 60s、
+  模型健康度 60s。
 - `POST /web/api/commands`：动作分发（login / status / **models** / billing / accounts /
   activateAccount / **resetAccount** / removeAccount / syncPool / pasteCallback /
   **submitInput** / **cancelInput**）。

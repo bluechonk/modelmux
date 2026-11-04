@@ -38,6 +38,9 @@ export function Models(): ReactElement {
     queryKey: ["usage", HEALTH_RANGE],
     queryFn: () => api.usage(HEALTH_RANGE),
     refetchInterval: 60_000,
+    staleTime: 60_000,
+    // 再进页面先出上一次的健康度（60 秒一轮，骨架闪烁比旧数字更干扰判断）
+    placeholderData: (prev) => prev,
   });
   /** 池 id → 健康度；没有条目 = 这段窗口里一次都没成功过（`classifyModel` 会判「不可用」）。 */
   const healthOf = useMemo(() => {

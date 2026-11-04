@@ -87,6 +87,9 @@ export function Accounts(): ReactElement {
       return res.channels ?? [];
     },
     refetchInterval: 15_000,
+    staleTime: 15_000,
+    // 再进页面先出上一次的数据（轮询间隔内数据没变的话，等一轮没有意义）
+    placeholderData: (prev) => prev,
   });
   const logins = useQuery({
     queryKey: ["logins"],
@@ -95,6 +98,8 @@ export function Accounts(): ReactElement {
       return res.channels ?? [];
     },
     refetchInterval: 10_000,
+    staleTime: 10_000,
+    placeholderData: (prev) => prev,
   });
   const billing = useQuery({
     queryKey: ["billing"],
@@ -110,6 +115,8 @@ export function Accounts(): ReactElement {
       return res.rows ?? [];
     },
     refetchInterval: 60_000,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   });
   /**
    * 账单的加载 / 失败态：卡片据此渲染**骨架**而不是「未查到」。
