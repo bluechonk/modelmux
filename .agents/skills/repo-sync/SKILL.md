@@ -116,10 +116,12 @@ grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反�
    .env）绝不入库。
 5. **PR body 与 commit message 用中性客观笔触（持久记录禁止对话式内容）**：档案里不写
    人称（主人 / 你 / 我）、互动过程（批复 / 拍板 / 反馈 / 指正 / 等你确认 / 需要你配合）、
-   一次性动作（重载窗口 / 刷新页面）、待办口吻（另起任务 / 后续我处理）—— 一律改写成
-   事实本身（「问题：…」「选型：…」「未实现项：…」）；决策依据写结论，不写沟通过程。
+   一次性动作（重载窗口 / 刷新页面）、待办口吻（另起任务 / 后续我处理）、emoji 与图形
+   状态符（✅ ❌ ⚠ 等，引用命令真实输出的除外）—— 一律改写成事实本身（「问题：…」
+   「选型：…」「未实现项：…」）；决策依据写结论，不写沟通过程。
    **squash merge 会把 PR body 写进 main 的 commit body**，所以 PR body 要按 commit
    message 的标准写；§7 的「需要用户配合的事项」只属于**对话回复**，绝不搬进 PR body。
+   commit message 侧由 `scripts/verify-commits.mjs` 机械拦截（对话词 + emoji）；
    历史 PR 出现同类表述时一并清理（`gh pr edit` 对已合并 PR 有效）。
 
 ## 4. 分支 → PR → CI → merge（需要推送时执行）
@@ -195,6 +197,11 @@ gh release list --repo bluechonk/modelmux   # 必须没有任何输出（含 dra
 git tag -l                      # tag 才是发布物，必须都在
 ls .tmp                        # **只看不动**：.tmp 一切内容禁止删除（全局 AGENTS「临时文件」节），
                                 # 收尾不把它当清理待办项
+# PR body 体检（push 前逐条跑）：对话式内容与 emoji 在 archive 里零容忍
+# （换分支重建 PR 时同样适用；已合并 PR 用 gh pr edit 清理）
+gh pr list --state all --limit 40 --json number --jq '.[].number' | while read n; do
+  gh pr view "$n" --json body --jq .body | grep -nE "主人|拍板|批复|需要你|需要用户|等你|另起任务" && echo "PR $n 违规，见 §3 第 5 条"
+done
 ```
 
 验证分工（不要在本技能里重复展开细节）：
