@@ -3,11 +3,13 @@
   "plugins": [
     {
       "name": "hello-panel",
-      "source": "./hello-panel",
+      "source": "./plugins/hello-panel",
       "version": "0.1.3",
       "description": "Minimal sidebar panel test plugin: verify ui.surfaces + MCP ui:// resource channel.",
       "displayName": "Hello Panel",
-      "displayName_i18n": { "zh-CN": "Hello 面板" },
+      "displayName_i18n": {
+        "zh-CN": "Hello 面板"
+      },
       "description_i18n": {
         "en": "Minimal sidebar panel test plugin.",
         "zh-CN": "最小侧边栏面板测试插件：验证 ui.surfaces 与 MCP ui:// 资源通道。"
@@ -16,11 +18,13 @@
     },
     {
       "name": "mx-panel",
-      "source": "./mx-panel",
+      "source": "./plugins/mx-panel",
       "version": "0.1.0",
       "description": "ModelMux gateway status panel: overview, searchable models, recent logs.",
       "displayName": "ModelMux Panel",
-      "displayName_i18n": { "zh-CN": "模型网关" },
+      "displayName_i18n": {
+        "zh-CN": "模型网关"
+      },
       "description_i18n": {
         "en": "ModelMux gateway status panel.",
         "zh-CN": "ModelMux 网关状态面板：概览 / 模型清单 / 最近日志。"
