@@ -195,11 +195,17 @@ function tripDetailOf(
 }
 
 /**
- * 账号卡片的布局铁律：**默认只露 1 个账号，其余折进卡底条**。
+ * 账号卡片的布局铁律：**默认只露 1 个账号，卡底条恒渲染**（四态见下）。
  *
- *   - ≤ 1 个账号 → 只铺真实账号行，**没有卡底条**（无可折叠内容 = 零信息占位）
- *   - N 个账号   → 生效账号 + 卡底「展开剩余 N-1 个账号」；展开后全部铺开、可再「收起」
- *   - 展开态整卡跨满一行（`col-span-full`）：见组件内注释
+ *   - 0 个账号 → 铺**一个空位行**占位 + 卡底「暂无账号」
+ *   - 1 个账号 → 1 行 + 卡底「已展示全部」
+ *   - N 个账号 → 生效账号 + 卡底「展开剩余 N-1 个账号」；展开后卡底变「收起」
+ *
+ * 为什么空池也要占一行：账号池是**横向等高**的卡片列，没登录的渠道矮一截，
+ * 整片网格就参差（主人要求「必须要保持账号池的账号布局一致」）。
+ *
+ * 为什么卡底条恒渲染：它是卡片高度的收口（0 / 1 / N 个账号三种卡都把底边压在
+ * 同一条线上），同时承担「还有几个没露」与「收起」两个动作。
  *
  * 只露 1 个的理由：渠道池动辄 4-6 个账号，全铺开会把「同屏能看几个渠道」压到 1-2 个，
  * 而账号池页要先回答的是「这个渠道还能不能用」。生效账号恒排首位（见 `sort`），
@@ -285,9 +291,14 @@ export function AccountCard({
    * 状态留在组件里，数据轮询刷新时保持当前开合 —— 正在排查时被下一轮结果折回去很烦。
    */
   const [expanded, setExpanded] = useState(false);
-  const hiddenCount = accounts.length - PREVIEW_ACCOUNTS;
+  /** 没露出来的账号条数（0 = 全露或本来就没得折；空池也归 0，用 `empty` 单独判）。 */
+  const hiddenCount = Math.max(0, accounts.length - PREVIEW_ACCOUNTS);
   const needsFold = !expanded && hiddenCount > 0;
   const shownAccounts = needsFold ? accounts.slice(0, PREVIEW_ACCOUNTS) : accounts;
+  /** 空池：铺一个空位行占位，卡高与「有 1 个账号」的卡一致（布局一致性要求）。 */
+  const empty = accounts.length === 0;
+  /** 有可折叠内容且已展开 —— 卡底条的左键这时是「收起」。 */
+  const collapsedBack = expanded && hiddenCount > 0;
 
   return (
     // `@container`：账号行的额度区按**卡片宽度**（而非视口宽度）决定露出多少。
@@ -324,10 +335,19 @@ export function AccountCard({
       </div>
 
       {/*
-        账号列表：只铺 `shownAccounts`（默认 1 个，口径见上方「账号卡片的布局铁律」）。
-        `empty:hidden`：0 账号时整块收起 —— 空 `<ul>` 的 `border-t` 会与卡底条叠成双线。
+        账号列表：只铺 `shownAccounts`（默认 1 个，口径见上方「账号卡片的布局铁律」）；
+        空池铺一个空位行，卡片高度与有账号的卡一致。
       */}
-      <ul className="border-t border-line empty:hidden">
+      <ul className="border-t border-line">
+        {empty && (
+          // 空位行：结构与真实账号行同高（44px 主行 + 24px 详情行），内容留空 ——
+          // 「暂无账号」由卡底条说明，这里只负责把卡撑到与别的卡一样高。
+          // 不加 `border-b`：它是唯一的行，多一条边会让空卡比单账号卡高 1px（实测）。
+          <li className="list-none" aria-hidden="true">
+            <div className="h-11 px-4 max-md:px-3" />
+            <div className="h-6" />
+          </li>
+        )}
         {shownAccounts.map((account) => {
           const active = account.key === pool.index.active;
           const bill = billingByKey.get(account.key);
@@ -444,30 +464,39 @@ export function AccountCard({
         </ul>
 
       {/*
-        卡底条：折叠态与展开态**同一个按钮双向切换**：展开后原地给出「收起」，
-        免得展开后回不去（要还原只能刷新页面）。
+        卡底条：**恒渲染**，四个状态（口径见上方「账号卡片的布局铁律」）——
 
-        没有可折叠内容（单账号 / 空池）时**整条不渲染** —— 「已全部显示」在 10 张卡里
-        有 9 张是零信息（实测每条 29px），而它原本要解决的「卡高一致」并不靠它：
-        折叠态下每张卡都是 164px（`grid` 行内按内容取高，行高由最高的卡决定）。
+          - 空池     → 静态「暂无账号」（空位占位行已把卡撑到同高）
+          - 还有隐藏 → 整条可点，「展开剩余 N 个账号」
+          - 已展开   → 整条可点，「收起」——动作写在**左下角**（与「展开」同一位置，
+                       手不用在卡片里左右找；右下角放个「收起」是错位的）
+          - 全露     → 静态「已展示全部」
+
+        恒渲染的理由是卡片高度收口：0 / 1 / N 个账号三种卡都要把底边压在同一条线上，
+        整片网格才不参差（主人要求「必须要保持账号池的账号布局一致」）。
       */}
-      {hiddenCount > 0 && (
+      {empty ? (
+        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint/70">
+          暂无账号
+        </div>
+      ) : hiddenCount > 0 ? (
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((open) => !open)}
-          className="tap flex items-center justify-between gap-2 border-t border-line px-4 py-1.5 text-xs text-ink-faint transition-colors hover:text-brand"
+          className="tap flex items-center gap-1 border-t border-line px-4 py-1.5 text-xs text-ink-faint transition-colors hover:text-brand"
         >
-          <span className="inline-flex items-center gap-1">
-            {expanded ? (
-              <ChevronUp className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
-            )}
-            {expanded ? "已全部显示" : `展开剩余 ${hiddenCount} 个账号`}
-          </span>
-          {expanded && <span className="shrink-0 text-ink-soft">收起</span>}
+          {collapsedBack ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+          {collapsedBack ? "收起" : `展开剩余 ${hiddenCount} 个账号`}
         </button>
+      ) : (
+        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint/70">
+          已展示全部
+        </div>
       )}
 
       {/* 删除确认：真删不可逆（生效账号会同时登出），用弹窗把决定隔离出来 */}
