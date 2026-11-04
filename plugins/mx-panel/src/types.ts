@@ -20,6 +20,8 @@ export interface StatusData {
     requests: { success: number; failure: number };
   }>;
   auth: { auth_url: string; qr_url: string; login_input: unknown } | null;
+  /** 完整控制台地址（网关 /web/，供「控制台」页签 iframe 内嵌） */
+  consoleUrl: string;
 }
 
 export interface ModelEntry {
