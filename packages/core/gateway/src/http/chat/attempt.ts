@@ -23,7 +23,7 @@ import { QUOTA_EXHAUSTED_CODE } from "../../pool/account-rotate.js";
 import { resolvePoolModel } from "../../pool/model-pool.js";
 import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
-import { noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
+import { noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { activeKeyOf } from "./candidates.js";
 import { isQuotaExhausted, isUsageLimit, writeJsonError } from "./errors.js";
@@ -292,8 +292,9 @@ async function runQueueProbe(
       return call;
     }
     // 排队帧的消费与「是否有内容」判定都在下面完成：`probe.queued` 只影响本函数的
-    // 重试分支，不再向外记状态（历史上那个 `queuedAny` 已随「排队成功分界」文案
-    // 一起移除，留着只是没有人读的死字段）。
+    // 重试分支，不再向外记状态。但它**要落一笔日志**：控制台靠这个字段给模型打「排队」标签，
+    // 而耗时反推区分不了「上游慢」和「上游排队」（见 `noteQueued`）。
+    if (probe.queued) noteQueued(res);
     if (!probe.queued || probe.hasContent) {      // 上游 200 但流**空着结束**（零帧、无排队帧）同样是瞬时故障：重试一次再认输
       if (!probe.queued && !probe.hasContent && probe.frames.length === 0) {
         const next = await reopenForProbe(env, state, call, "upstream stream ended with no frames");

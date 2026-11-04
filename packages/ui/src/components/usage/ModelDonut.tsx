@@ -81,7 +81,12 @@ export function ModelDonut({ models }: { models: UsageModelRow[] }): ReactElemen
           data-donut-svg=""
           aria-label="模型用量占比"
           onMouseMove={(event) => setMouse({ x: event.clientX, y: event.clientY })}
-          onMouseLeave={() => setMouse(null)}
+          // 移出整张图要把**高亮一起复位**：扇形只挂了 `onMouseEnter`，没人负责清 `hoverId`，
+          // 鼠标离开后上一次悬停的扇区会一直亮着、其余一直淡着（看起来像选中态卡死）。
+          onMouseLeave={() => {
+            setMouse(null);
+            setHoverId(null);
+          }}
         >
           <circle r={R} fill="none" strokeWidth={22} className="stroke-overlay/40" />
           {arcs.map((a) => (

@@ -1,5 +1,6 @@
 /**
  * Token 活动热力图：**52 周 × 7 天**的年度日历，横轴按月份标注（学 ZCode 的「Token 活动」）。
+ * 为什么窗口恒为一年、不按数据裁剪：见 `WEEKS`。
  *
  * 三档粒度（daily / weekly / cumulative）只改颜色映射与浮层文案，格子布局恒定。
  * 交互是 **hover**（主人明确要求对齐 ZCode）：格子放大 + 自绘浮层；**点击不触发任何逻辑**。
@@ -26,6 +27,13 @@ const LEVEL_CLASS = [
 ] as const;
 
 const WEEKDAY_LABELS = ["一", "", "三", "", "五", "", ""] as const;
+/**
+ * 恒铺 52 周（一年）。
+ *
+ * **不按数据裁剪窗口**：格子是 `aspect-square` + `1fr`，宽度摊满面板 —— 窗口裁到 12 周时
+ * 每格会被拉到 112px（实测 1440 视口），热力图变成 7 行巨块，比「左侧空网格」难看得多。
+ * 格子的合理尺寸与列数耦合，而列数要摊满面板宽，所以窗口只能是固定的一年。
+ */
 const WEEKS = 52;
 const MS_PER_DAY = 86_400_000;
 
@@ -76,7 +84,8 @@ export function Heatmap({
   const { columns, max, monthMarks } = useMemo(() => {
     if (daily.length === 0) return { columns: [] as Array<Array<{ date: string; tokens: number; level: number } | null>>, max: 0, monthMarks: [] as Array<{ col: number; label: string }> };
     const byDate = new Map(daily.map((d) => [d.date, d]));
-    // 以「今天」为日历末端，向前铺满 52 周（周一为首列）——与 ZCode 的年度视图同构
+    // 以「今天」为日历末端，向前铺满 52 周（周一为首列）——与 ZCode 的年度视图同构；
+    // 为什么不能按数据裁剪窗口，见 `WEEKS`。
     const today = dayKey(isoOf(Date.now()));
     const todayWeekday = weekdayIndex(today);
     const lastWeekStart = today - todayWeekday * MS_PER_DAY;

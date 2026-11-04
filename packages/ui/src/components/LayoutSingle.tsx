@@ -98,7 +98,13 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
               }
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="whitespace-nowrap">{label}</span>
+              {/*
+                标签只在 `≥ md` 出现。四个标签 + 品牌 + 网关状态在 390px 下要 678px，
+                横向滚动又没有任何提示，滚不动的用户只看到被切掉半个字的「账」，
+                还会以为「请求日志」这个页面不存在 —— 图标 + `aria-label` 是窄屏唯一
+                既放得下、又不丢页面的载体。`md` 与全站的窄屏取舍断点一致。
+              */}
+              <span className="hidden whitespace-nowrap md:inline">{label}</span>
             </NavLink>
           ))}
         </nav>

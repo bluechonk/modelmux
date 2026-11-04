@@ -47,7 +47,14 @@ function useDebounced<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-/** 统计条：描述**当天读窗口**（不随筛选变化；筛选命中数由「共 N 条」表达）。 */
+/**
+ * 统计条：描述**当天读窗口**（不随筛选变化；筛选命中数由「共 N 条」表达）。
+ *
+ * 只留筛选栏给不出的量：成功率、慢、平均耗时、读窗口截断。成功 / 失败 / 中断三个绝对条数
+ * 就在下面筛选栏的结果分段里（同一组数字、同一份口径），一屏说两遍反而让人怀疑两处算的
+ * 不是一回事；tokens / 缓存命中 / 无 usage 三条是**全局用量**（不是这份日志列表的性质），
+ * 已挪到仪表盘（见 `pages/Dashboard.tsx` 的用量明细条）。
+ */
 function StatBar({ page }: { page: AccessLogPage }): ReactElement {
   const stats = page.stats;
   const rate = stats.requests > 0 ? Math.round((stats.success / stats.requests) * 100) : null;
@@ -59,18 +66,6 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       <span>
         成功率 <span className="tabular text-ink">{rate === null ? "-" : `${rate}%`}</span>
       </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-free" />
-        成功 <span className="tabular text-ink">{formatCount(stats.success)}</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-danger" />
-        失败 <span className="tabular text-ink">{formatCount(stats.failure)}</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-        中断 <span className="tabular text-ink">{formatCount(stats.other)}</span>
-      </span>
       <span>
         慢（≥{Math.round(page.slowMs / 1000)}s）{" "}
         <span className="tabular text-ink">{formatCount(stats.slow)}</span>
@@ -79,24 +74,6 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
         平均耗时{" "}
         <span className="tabular text-ink">{formatDuration(stats.avgDurationMs ?? undefined)}</span>
       </span>
-      <span>
-        tokens <span className="tabular text-ink">{formatTokens(stats.tokens.total)}</span>
-        <span className="text-ink-faint">
-          （入 {formatTokens(stats.tokens.prompt)} · 出 {formatTokens(stats.tokens.completion)}）
-        </span>
-      </span>
-      <span>
-        缓存命中{" "}
-        <span className="tabular text-ink">{formatPercent(stats.cache.hitRate)}</span>
-        {stats.cache.total > 0 && (
-          <span className="text-ink-faint">
-            （{formatTokens(stats.cache.hit)} / {formatTokens(stats.cache.total)}）
-          </span>
-        )}
-      </span>
-      {stats.noUsage > 0 && (
-        <span className="text-ink-faint">{formatCount(stats.noUsage)} 条无 usage</span>
-      )}
       {page.truncated && (
         <span className="rounded-md bg-warn/15 px-1.5 py-0.5 text-xs text-warn">
           统计只覆盖最近 {formatCount(page.scanned)} 条（读窗口上限）
@@ -118,13 +95,33 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
   );
 }
 
+/**
+ * 长 id 的可折行渲染（模型名在窄屏列里只有约 108px）。
+ *
+ * 只允许在 `-` `/` `.` 之后折行（`<wbr>`）：`break-all` 会把 `flash` 劈成 `fl`/`ash`
+ * （实测 390 视口），而默认不折行又会溢出单元格。两者之间取中点 —— 折行点落在
+ * 分隔符后，语义仍是一个完整词；真遇到没有分隔符的超长段，外层 `break-words` 兜底。
+ */
+function BreakableId({ value }: { value: string }): ReactElement {
+  const parts = value.split(/(?<=[-/.])/);
+  return (
+    <span className="font-mono">
+      {parts.map((part, i) => (
+        <Fragment key={`${i}-${part}`}>
+          {part}
+          {i < parts.length - 1 && <wbr />}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
 /** 展开行：请求全字段（正文不内联；宽屏走「上下文」列，窄屏走本行内的按钮）。 */
 function LogDetail({
   entry,
   onOpenContext,
   showContext,
-}: {
-  entry: AccessLogEntry;
+}: {  entry: AccessLogEntry;
   onOpenContext: () => void;
   /** 窄屏（<768px）没有「上下文」列 —— 固定列合计超过表格最小宽，模型列会被挤成零
    *  宽，所以窄屏砍列保正文可读性优先；此时入口挪到这里，否则手机上打不开正文弹窗。 */
@@ -357,8 +354,12 @@ function LogCell({
       return <ResultCell entry={entry} />;
     case "model":
       return (
-        <td className="break-all px-3 py-2 align-top text-xs text-ink-soft">
-          {entry.model ?? <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>}
+        <td className="break-words px-3 py-2 align-top text-xs text-ink-soft">
+          {entry.model ? (
+            <BreakableId value={entry.model} />
+          ) : (
+            <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>
+          )}
         </td>
       );
     case "duration":
@@ -575,8 +576,6 @@ function Filters({
   onSearch,
   slowOnly,
   onSlowOnly,
-  streamOnly,
-  onStreamOnly,
   dirty,
   onReset,
 }: {
@@ -591,8 +590,6 @@ function Filters({
   onSearch: (value: string) => void;
   slowOnly: boolean;
   onSlowOnly: (value: boolean) => void;
-  streamOnly: boolean;
-  onStreamOnly: (value: boolean) => void;
   dirty: boolean;
   onReset: () => void;
 }): ReactElement {
@@ -670,14 +667,6 @@ function Filters({
       >
         只看慢
       </button>
-      <button
-        type="button"
-        aria-pressed={streamOnly}
-        onClick={() => onStreamOnly(!streamOnly)}
-        className={toggleClass(streamOnly)}
-      >
-        只看流式
-      </button>
 
       <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
         <span>
@@ -710,7 +699,6 @@ export function Logs(): ReactElement {
   const [rawSearch, setRawSearch] = useState("");
   const search = useDebounced(rawSearch, 300);
   const [slowOnly, setSlowOnly] = useState(false);
-  const [streamOnly, setStreamOnly] = useState(false);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -721,7 +709,7 @@ export function Logs(): ReactElement {
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
     // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
     // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测踩过）。
-    queryKey: ["logs", date, outcome, cid, search, slowOnly, streamOnly, pageNum, pageSize],
+    queryKey: ["logs", date, outcome, cid, search, slowOnly, pageNum, pageSize],
     queryFn: () =>
       api.logs({
         date: date === "" ? undefined : date,
@@ -729,7 +717,6 @@ export function Logs(): ReactElement {
         cid: cid === "" ? undefined : cid,
         q: search === "" ? undefined : search,
         slow: slowOnly ? true : undefined,
-        stream: streamOnly ? true : undefined,
         limit: pageSize,
         offset: (pageNum - 1) * pageSize,
       }),
@@ -742,8 +729,7 @@ export function Logs(): ReactElement {
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
-  const dirty =
-    date !== "" || outcome !== "" || cid !== "" || search !== "" || slowOnly || streamOnly;
+  const dirty = date !== "" || outcome !== "" || cid !== "" || search !== "" || slowOnly;
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
   const resetToFirstPage = (): void => setPageNum(1);
   /** 展开的条目可能已被新筛选挤走：找不到就不渲染详情。 */
@@ -799,8 +785,6 @@ export function Logs(): ReactElement {
           onSearch={setRawSearch}
           slowOnly={slowOnly}
           onSlowOnly={setSlowOnly}
-          streamOnly={streamOnly}
-          onStreamOnly={setStreamOnly}
           dirty={dirty}
           onReset={() => {
             setDate("");
@@ -808,7 +792,6 @@ export function Logs(): ReactElement {
             setCid("");
             setRawSearch("");
             setSlowOnly(false);
-            setStreamOnly(false);
             setPageNum(1);
             setExpanded(null);
           }}
