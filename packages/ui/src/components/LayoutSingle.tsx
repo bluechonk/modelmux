@@ -58,7 +58,13 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
     queryFn: api.getState,
     // **唯一轮询所有者**：各页面都读同一个 queryKey，靠这份缓存拿数据
     refetchInterval: 3000,
+    // 与轮询同长：间隔内再进页面直接用缓存，不再打一次网络
+    staleTime: 3000,
     retry: 1,
+    // 再进页面（或切回这一页）时**先渲染上一次的数据**，别用骨架把屏幕清空 ——
+    // 「每次进入账号池都要等很久」的体感主要来自这里：轮询间隔内数据本来就在客户端，
+    // 只是被骨架盖住了。首访没有旧数据，仍走骨架（那时它也只剩几十毫秒）。
+    placeholderData: (prev) => prev,
   });
   // 顺序即优先级：查询失败先于缓存 ui_state —— 网关挂了之后 data 还是上次的
   // 「running」，只看缓存永远等不到异常。

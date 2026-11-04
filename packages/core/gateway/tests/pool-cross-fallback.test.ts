@@ -14,12 +14,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, describe, it } from "node:test";
+import { after, beforeEach, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
 import {
   buildCrossModelIndex,
+  invalidateCrossModelIndex,
   getPoolModelMeta,
   poolModelMetas,
 } from "../dist/pool/pool-targets.js";
@@ -70,6 +71,10 @@ function cache(cid: string, rows: Array<Record<string, unknown>>): void {
 }
 
 describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () => {
+  // 每个用例都会重排渠道注册表 / 重写目录缓存 —— 索引缓存必须跟着失效，
+  // 否则会读到上一个用例的索引（生产里对应「目录变化 → 显式失效」那一步）
+  beforeEach(() => invalidateCrossModelIndex());
+
   it("本渠道声明的值优先于兄弟渠道（不被更小的值改小）", () => {
     use({ cid: "alpha" }, { cid: "beta" });
     cache("alpha", [{ contextWindow: 1_000_000, maxOutput: 300_000 }]);
@@ -127,6 +132,8 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
 });
 
 describe("档位口径：兄弟渠道声明集合的交集", () => {
+  // 渠道注册表 / 目录缓存每个用例都会重写 —— 索引缓存必须跟着失效
+  beforeEach(() => invalidateCrossModelIndex());
   it("取交集，默认档用兄弟真声明过的那个", () => {
     use({ cid: "alpha" }, { cid: "beta" }, { cid: "gamma" });
     cache("alpha", [{ efforts: ["low", "high", "max"], defaultEffort: "high" }]);
@@ -179,6 +186,8 @@ describe("档位口径：兄弟渠道声明集合的交集", () => {
 });
 
 describe("优先序：本渠道上游 > 本渠道规格 > 跨渠道 > 占位值", () => {
+  // 渠道注册表 / 目录缓存每个用例都会重写 —— 索引缓存必须跟着失效
+  beforeEach(() => invalidateCrossModelIndex());
   it("只有规格表时用规格，不去拿兄弟渠道的值", () => {
     use({ cid: "alpha", spec: { contextWindow: 700_000 } }, { cid: "beta" });
     cache("beta", [{ contextWindow: 1_000_000 }]);
@@ -201,6 +210,8 @@ describe("优先序：本渠道上游 > 本渠道规格 > 跨渠道 > 占位值"
 });
 
 describe("不传索引：单查不做兜底（转发路径只取倍率）", () => {
+  // 渠道注册表 / 目录缓存每个用例都会重写 —— 索引缓存必须跟着失效
+  beforeEach(() => invalidateCrossModelIndex());
   it("同一个模型，传索引有兜底、不传就是占位值", () => {
     use({ cid: "alpha" }, { cid: "gamma" });
     cache("alpha", [{ contextWindow: 400_000, multiplier: 0.5 }]);
@@ -218,6 +229,8 @@ describe("不传索引：单查不做兜底（转发路径只取倍率）", () =
 });
 
 describe("坏渠道隔离与枚举入口", () => {
+  // 渠道注册表 / 目录缓存每个用例都会重写 —— 索引缓存必须跟着失效
+  beforeEach(() => invalidateCrossModelIndex());
   it("某个渠道目录抛错不影响整池聚合", () => {
     use({ cid: "broken", broken: true }, { cid: "alpha" });
     cache("alpha", [{ contextWindow: 400_000 }]);
