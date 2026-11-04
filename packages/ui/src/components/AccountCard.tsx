@@ -13,6 +13,7 @@ import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
+import { formatTokens } from "../lib/log-format";
 import { useNarrow } from "../lib/use-narrow";
 import { EXPANDED_COLUMNS, gridLayoutOf } from "../lib/account-layout";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -238,6 +239,7 @@ export function AccountCard({
   billingLoading = false,
   billingError = false,
   now,
+  tokensOf,
   onActivate,
   onRemove,
   onAdd,
@@ -251,6 +253,8 @@ export function AccountCard({
   billingError?: boolean;
   /** 全局时钟（由页面每秒推一次）：新鲜度文案要随时间走。 */
   now?: number;
+  /** 账号 key → 今日 tokens（`usage.accounts[]`）；没有该账号的记录时返回 undefined。 */
+  tokensOf?: (key: string) => number | undefined;
   onActivate: (cid: string, key: string) => void;
   onRemove: (cid: string, key: string) => void;
   onAdd: (cid: string) => void;
@@ -425,6 +429,7 @@ export function AccountCard({
                         credits={bill?.credits}
                         baseline={bill?.baseline}
                         unsupported={billing?.unsupported === true}
+                        tokens={tokensOf?.(account.key)}
                       />
                     )}
                   </div>
@@ -563,10 +568,13 @@ function QuotaMeter({
   credits,
   baseline,
   unsupported,
+  tokens,
 }: {
   credits: AccountCredits | null | undefined;
   baseline?: { window?: string; date: string; remain: number; at?: string } | null;
   unsupported: boolean;
+  /** 该账号今日消耗的 tokens（`usage.accounts[]`）；undefined = 还没取到。 */
+  tokens: number | undefined;
 }): ReactElement {
   const tone = quotaTone(credits, baseline);
   // 订阅制渠道：明确写「无额度概念」，而不是一个孤零零的 `-`
@@ -601,6 +609,16 @@ function QuotaMeter({
         <span className="shrink-0 text-xs text-ink-faint">今日消耗</span>
         <span className="shrink-0 font-mono text-xs tabular-nums text-ink-soft">{usedText}</span>
       </span>
+      {/*
+        今日 tokens：与「今日消耗」同口径（都只看今天）。阈值放到 560px ——
+        480px 档再塞第三个数会把账号名挤没；展开态的两列布局（每格约 660px）正好放得下。
+      */}
+      {tokens !== undefined && (
+        <span className="hidden items-center gap-1 @min-[560px]:flex">
+          <span className="shrink-0 text-xs text-ink-faint">今日 tokens</span>
+          <span className="shrink-0 font-mono text-xs tabular-nums text-ink-soft">{formatTokens(tokens)}</span>
+        </span>
+      )}
     </>
   );
 }

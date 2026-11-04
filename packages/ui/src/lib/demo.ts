@@ -813,6 +813,11 @@ export function demoUsage(range: UsageRange): UsageStats {
     },
     daily,
     models,
+    // 账号维度（今日）：只给演示账号里前两个，值与 models 的总量同一量级
+    accounts: [
+      { key: "demo000000000000d1", tokens: Math.round(totalTokens * 0.62), requests: Math.round(requests * 0.6) },
+      { key: "demo000000000000a2", tokens: Math.round(totalTokens * 0.21), requests: Math.round(requests * 0.2) },
+    ],
     streak: { current: Math.min(days, 12), longest: Math.min(days, 19) },
     peak: {
       date: peakDay.date,

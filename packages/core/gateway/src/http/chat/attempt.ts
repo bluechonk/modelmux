@@ -23,7 +23,7 @@ import { QUOTA_EXHAUSTED_CODE } from "../../pool/account-rotate.js";
 import { resolvePoolModel } from "../../pool/model-pool.js";
 import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
-import { noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
+import { getRequestLog, noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { activeKeyOf } from "./candidates.js";
 import { isQuotaExhausted, isUsageLimit, writeJsonError } from "./errors.js";
@@ -381,6 +381,12 @@ export async function attemptCandidate(
   const { upstream } = channel;
   const cid = candidate.cid;
   const { res, logger, payload } = ctx;
+
+  // 账号维度落日志：访问日志带上「哪个账号承接的」—— 账号池要按账号汇总今日 tokens，
+  // 而账本只记 ok/fail/credits。这里能拿到渠道，账号取该渠道当前生效的那个
+  // （自动换号后重试会再走一次本函数，键自然更新）。
+  const reqLog = getRequestLog(res);
+  if (reqLog) reqLog.key = activeKeyOf(cid);
 
   // 模型名解析：**渠道说了算**（目录里查不到 → 这个候选不可用，换下一家）。
   let resolvedModel: string;

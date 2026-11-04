@@ -44,6 +44,13 @@ export interface RequestLog {
   startAt: number;
   model?: string;
   cid?: string;
+  /**
+   * 承接请求的**账号 key**（池内账号标识，控制台的账号行按它归集 token）。
+   *
+   * 为什么必须有：账号池要按账号展示「今日 tokens」，而账本只记 ok/fail/credits，
+   * 逐请求的 token 只在访问日志里 —— 不落这个字段就只能按渠道汇总。
+   */
+  key?: string;
   stream?: boolean;
   status?: number;
   outcome?: AccessOutcome;
@@ -531,6 +538,8 @@ export interface AccessEntry {
   path?: string;
   cid?: string;
   model?: string;
+  /** 承接请求的账号 key（与 `cid` 一对：渠道 + 账号才能定位到具体凭据）。 */
+  key?: string;
   stream?: boolean;
   status?: number;
   outcome: AccessOutcome;
@@ -848,6 +857,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (path !== undefined) entry.path = path;
   const model = str(raw["model"]);
   if (model !== undefined) entry.model = model;
+  const key = str(raw["key"]);
+  if (key !== undefined) entry.key = key;
   const stream = bool(raw["stream"]);
   if (stream !== undefined) entry.stream = stream;
   const status = num(raw["status"]);

@@ -3,10 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ModelMux 面板</title>
+  <title>ModelMux 控制台</title>
+  <style>
+    /* 面板 = 网关控制台的完整内嵌（iframe 由服务端的 frameDomains 放行）。
+       不加自己的页签 / 工具栏：控制台本身就是全部内容。 */
+    html, body { height: 100%; margin: 0; background: #1b1b1b; }
+    body { display: flex; }
+    iframe { flex: 1; width: 100%; border: 0; display: block; }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="module" src="/src/main.tsx"></script>
+  <!-- __MX_CONSOLE_URL__ 由 mx-panel 的 MCP server 在 resources/read 时注入：
+       面板 HTML 是 MCP 资源，网关地址只有服务端知道 -->
+  <iframe title="ModelMux 控制台" src="__MX_CONSOLE_URL__"></iframe>
 </body>
 </html>
