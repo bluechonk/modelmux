@@ -203,12 +203,23 @@ describe("1. A3 池路由：池 id 解析失败要写应答（不挂死）", () 
     }
   });
 
-  it("裸模型名（无渠道前缀）同样 400（解析失败的另一条入口）", () => {
+  it("裸模型名命中目录 → 解析为提供渠道的池 id（新契约：接入 Claude Code / Codex 的前提）", () => {
+    setChannel(makeChannel("alpha"));
+    seedCredential("alpha", { accessToken: "tok-1", uid: "u1", domain: "example.com" });
+    poolUsage.writeBilling("alpha", { total: { used: 0 } });
+
+    const { res } = fakeRes();
+    const route = resolvePoolRoute("deepseek-v4.1-flash", res, () => {});
+    assert.ok(route, "裸名按跨渠道索引命中后应成功解析（别名/默认模型见 inbound-model.ts）");
+    assert.equal(route.target, "alpha/deepseek-v4.1-flash");
+  });
+
+  it("裸模型名目录未命中且无别名/默认模型 → 仍 400（解析失败的另一条入口）", () => {
     setChannel(makeChannel("alpha"));
     poolUsage.writeBilling("alpha", { total: { used: 0 } });
 
     const { res, status, body } = fakeRes();
-    const route = resolvePoolRoute("deepseek-v4.1-flash", res, () => {});
+    const route = resolvePoolRoute("no-such-model-xyz", res, () => {});
     assert.equal(route, null);
     assert.equal(status(), 400);
     assert.equal((JSON.parse(body()) as { error: { code: string } }).error.code, "unknown_model");

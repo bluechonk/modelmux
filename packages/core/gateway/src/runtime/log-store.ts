@@ -91,6 +91,13 @@ export interface RequestLog {
    * 只看耗时会把它混进「慢」里），而控制台的模型列表要按它打「排队」标签。见 `noteQueued`。
    */
   queued?: boolean;
+  /**
+   * 入站协议（`openai-chat` / `anthropic` / `responses`）。
+   *
+   * 同一模型可能被四种 harness 经不同协议调用：分协议看健康度与 TPS 才不失真
+   * （claude code 的上下文体量与 dsh 的单轮体量完全不可比）。
+   */
+  protocol?: string;
   written?: boolean;
 }
 
@@ -574,21 +581,33 @@ export interface AccessEntry {
   slow: boolean;
   /** 进过上游排队（收到过排队帧）。缺省 = 没有排队帧，不代表「没等过」。 */
   queued?: boolean;
+  /** 入站协议（`anthropic` / `responses`；缺省 = OpenAI chat completions）。 */
+  protocol?: string;
 }
 
 /**
- * 模型请求的路径。
+ * 模型请求的路径集合（三种入站协议）。
  *
- * 日志页与用量统计都只认它 —— `/health` 之类的非模型请求同样会落进 access 日志
+ * 日志页与用量统计都只认它们 —— `/health` 之类的非模型请求同样会落进 access 日志
  * （`http/server.ts` 只跳过 console 路径），混进来会让「调用次数 / 累计 tokens」失真。
  */
-export const MODEL_REQUEST_PATH = "/v1/chat/completions";
+export const MODEL_REQUEST_PATHS = ["/v1/chat/completions", "/v1/messages", "/v1/responses"] as const;
+
+/** 旧常量（OpenAI 路径）；统计口径已换成 `isModelRequestPath`。 */
+export const MODEL_REQUEST_PATH = MODEL_REQUEST_PATHS[0];
+
+/** 是否为模型请求路径（三种入站协议都算 —— 统计不分协议，只看是不是模型调用）。 */
+export function isModelRequestPath(path: string | undefined): boolean {
+  return path !== undefined && (MODEL_REQUEST_PATHS as readonly string[]).includes(path);
+}
 
 export interface AccessQuery {
   date?: string;
   outcome?: AccessOutcome;
-  /** 精确匹配请求路径（日志页固定传 `MODEL_REQUEST_PATH`）。 */
+  /** 精确匹配请求路径（与 `paths` 二选一）。 */
   path?: string;
+  /** 精确匹配多个请求路径（日志页固定传 `MODEL_REQUEST_PATHS`，三协议一起查）。 */
+  paths?: readonly string[];
   cid?: string;
   model?: string;
   stream?: boolean;
@@ -884,6 +903,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (toolCount !== undefined) entry.toolCount = toolCount;
   const queued = bool(raw["queued"]);
   if (queued !== undefined) entry.queued = queued;
+  const protocol = str(raw["protocol"]);
+  if (protocol !== undefined) entry.protocol = protocol;
   return entry;
 }
 
@@ -965,6 +986,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   const matched = scanned.filter((e) => {
     if (query.outcome !== undefined && e.outcome !== query.outcome) return false;
     if (query.path !== undefined && e.path !== query.path) return false;
+    if (query.paths !== undefined && !query.paths.includes(e.path ?? "")) return false;
     if (query.cid !== undefined && e.cid !== query.cid) return false;
     if (query.stream !== undefined && e.stream !== query.stream) return false;
     if (query.slow === true && !e.slow) return false;

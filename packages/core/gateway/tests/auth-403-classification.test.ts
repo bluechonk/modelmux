@@ -160,7 +160,9 @@ describe("上游 403 的鉴权归类", () => {
   it("渠道钩子排掉 403 + 11200（权益拒绝）→ upstream_error，不刷新、账号保持 ok", async () => {
     refreshCalls[HOOKED] = 0;
     const { status, code } = await chat(gw.addr, HOOKED);
-    assert.equal(status, 502);
+    // 上游 4xx 业务错原样透传状态码（2026-11-05 透传口径）：权益拒绝不是凭据失效，
+    // 客户端对 4xx 不重试 —— 比归一 502 让它反复撞墙更合理
+    assert.equal(status, 403);
     assert.equal(code, "upstream_error", "权益拒绝不是凭据失效");
     assert.equal(refreshCalls[HOOKED], 0, "不该白刷一次 token");
     const idx = listAccounts(HOOKED);
