@@ -1,18 +1,22 @@
 {
   "name": "mx-panel",
-  "version": "0.1.0",
-  "description": "ModelMux 网关状态面板：概览（运行状态 / 今日用量 KPI / 渠道健康）+ 可搜索模型清单 + 最近请求日志。",
+  "version": "0.2.0",
+  "description": "ModelMux 网关面板：概览 / 账号管理(登录·切换·解除·删除)/ 模型清单(按渠道分组)/ 最近请求。",
   "description_i18n": {
     "en": "ModelMux gateway status panel: overview, searchable models, recent logs.",
     "zh-CN": "ModelMux 网关状态面板：概览 / 模型清单 / 最近日志。"
   },
-  "author": { "name": "bluechonk" },
+  "author": {
+    "name": "bluechonk"
+  },
   "license": "MIT",
   "mcpServers": {
     "mx-panel": {
       "type": "stdio",
       "command": "node",
-      "args": ["${ZCODE_PLUGIN_ROOT}/dist/server.mjs"],
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/dist/server.mjs"
+      ],
       "cwd": "${ZCODE_PROJECT_DIR}",
       "env": {
         "ZCODE_WORKSPACE_ROOT": "${ZCODE_PROJECT_DIR}"
@@ -23,7 +27,10 @@
     "surfaces": [
       {
         "id": "mx-panel",
-        "title": { "zh-CN": "模型网关", "en-US": "ModelMux" },
+        "title": {
+          "zh-CN": "模型网关",
+          "en-US": "ModelMux"
+        },
         "icon": "sparkles",
         "server": "mx-panel",
         "resourceUri": "ui://mx-panel/panel.html",
