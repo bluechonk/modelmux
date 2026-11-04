@@ -198,7 +198,7 @@ export function Dashboard(): ReactElement {
   const usageQuery = useQuery({ queryKey: ["usage", range], queryFn: () => api.usage(range) });
   const rangeStats = usageQuery.data;
 
-  // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
+    // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
   const [grain, setGrain] = useState<HeatGranularity>("daily");
   const yearQuery = useQuery({ queryKey: ["usage", "365d"], queryFn: () => api.usage("365d") });
   const yearStats = yearQuery.data;
@@ -275,7 +275,7 @@ export function Dashboard(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="仪表盘"
-        description="今日快照 + 区间用量（区间只作用于 Token 活动 / 每日趋势 / 模型用量三块）"
+        description="今日快照 + 区间用量（区间作用于每日趋势与模型用量；Token 活动恒看一年）"
         actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
       />
 

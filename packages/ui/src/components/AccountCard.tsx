@@ -197,16 +197,13 @@ function tripDetailOf(
 /**
  * 账号卡片的布局铁律：**默认只露 1 个账号，其余折进卡底条**。
  *
- *   - 0 个账号 → 无账号行，卡底「暂无账号」
- *   - 1 个账号 → 1 行，卡底「已全部显示」
- *   - N 个账号 → 生效账号 + 卡底「展开剩余 N-1 个账号」；展开后全部铺开、可再「收起」
+ *   - ≤ 1 个账号 → 只铺真实账号行，**没有卡底条**（无可折叠内容 = 零信息占位）
+ *   - N 个账号   → 生效账号 + 卡底「展开剩余 N-1 个账号」；展开后全部铺开、可再「收起」
+ *   - 展开态整卡跨满一行（`col-span-full`）：见组件内注释
  *
  * 只露 1 个的理由：渠道池动辄 4-6 个账号，全铺开会把「同屏能看几个渠道」压到 1-2 个，
  * 而账号池页要先回答的是「这个渠道还能不能用」。生效账号恒排首位（见 `sort`），
  * 所以默认露出的那行就是最该看的那个。
- *
- * 卡底条**恒渲染**（同高同底色）：只在需要折叠时出现的话，多账号卡会比单账号卡
- * 高一整条，网格里卡底参差。
  *
  * demo.ts 只放数据，布局完全由本组件决定 —— 数据里放几个账号都不影响布局规则。
  */
@@ -275,8 +272,14 @@ export function AccountCard({
   const shownAccounts = needsFold ? accounts.slice(0, PREVIEW_ACCOUNTS) : accounts;
 
   return (
-    // `@container`：账号行的额度区按**卡片宽度**（而非视口宽度）决定露出多少
-    <div className="panel @container flex flex-col overflow-hidden transition-colors">
+    // `@container`：账号行的额度区按**卡片宽度**（而非视口宽度）决定露出多少。
+    // 展开态 `col-span-full`：网格行高取行内最高的卡，展开的卡会把同行两个单账号卡
+    // 下方各留出 200px 空白（实测 371 vs 164）—— 让展开的卡独占一行，其余卡片顺延。
+    <div
+      className={`panel @container flex flex-col overflow-hidden transition-colors ${
+        expanded && hiddenCount > 0 ? "col-span-full" : ""
+      }`}
+    >
       {/* 卡头：cid + 账号数 + 添加按钮（状态在各自的账号行上，渠道不显示状态） */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -423,12 +426,14 @@ export function AccountCard({
         </ul>
 
       {/*
-        卡底条：**恒渲染**（同高同底色）—— 只在需要折叠时出现的话，
-        多账号卡会比单账号卡高一整条，网格里卡底参差。
-        折叠态与展开态**同一个按钮双向切换**：展开后原地给出「收起」，
+        卡底条：折叠态与展开态**同一个按钮双向切换**：展开后原地给出「收起」，
         免得展开后回不去（要还原只能刷新页面）。
+
+        没有可折叠内容（单账号 / 空池）时**整条不渲染** —— 「已全部显示」在 10 张卡里
+        有 9 张是零信息（实测每条 29px），而它原本要解决的「卡高一致」并不靠它：
+        折叠态下每张卡都是 164px（`grid` 行内按内容取高，行高由最高的卡决定）。
       */}
-      {hiddenCount > 0 ? (
+      {hiddenCount > 0 && (
         <button
           type="button"
           aria-expanded={expanded}
@@ -445,10 +450,6 @@ export function AccountCard({
           </span>
           {expanded && <span className="shrink-0 text-ink-soft">收起</span>}
         </button>
-      ) : (
-        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint/70">
-          {accounts.length === 0 ? "暂无账号" : "已全部显示"}
-        </div>
       )}
 
       {/* 删除确认：真删不可逆（生效账号会同时登出），用弹窗把决定隔离出来 */}

@@ -9,8 +9,8 @@
  * 上下文窗口 / 输出上限 / 输入模态（数据共享层 `PoolModelMeta` 本来就有）。
  */
 
-import { ChevronDown, ChevronRight, Image as ImageIcon, LayoutList, Rows3, Search, Type, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, ChevronUp, Image as ImageIcon, LayoutList, Rows3, Search, Type, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import { useNarrow } from "../lib/use-narrow";
@@ -116,8 +116,29 @@ export function ModelExplorer({
     });
   };
 
-  const rows = useMemo<ModelRow[]>(() => {
-    const out: ModelRow[] = [];
+  /**
+   * 工具条实测高度 → `--mx-sticky-top`：表头吸顶要让开这一段。
+   *
+   * 写死像素不行：工具条在窄屏会折行（搜索框、渠道下拉、开关各占一行），高度 50 → 90
+   * 都出现过；让表头或工具条任一方猜高度，结果都是重叠或漏出下面滚动的内容。
+   */
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const host = sectionRef.current;
+    const bar = toolbarRef.current;
+    if (!host || !bar) return;
+    const apply = (): void => {
+      host.style.setProperty("--mx-sticky-top", `${bar.offsetHeight}px`);
+    };
+    apply();
+    // 折行随宽度变化，`ResizeObserver` 比窗口 resize 事件更贴近事实（字体/缩放也会触发）
+    const observer = new ResizeObserver(apply);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
+
+  const rows = useMemo<ModelRow[]>(() => {    const out: ModelRow[] = [];
     for (const poolId of models) {
       const slash = poolId.indexOf("/");
       const cid = slash < 0 ? poolId : poolId.slice(0, slash);
@@ -169,10 +190,28 @@ export function ModelExplorer({
     });
   };
 
+  /**
+   * 会折叠的渠道（模型数 > `PREVIEW_COUNT`）：工具条的「全部展开 / 收起」只对它们生效。
+   * 数量 ≤ 1 时不给按钮 —— 一个渠道自己的折叠条已经够了。
+   */
+  const foldableCids = useMemo(
+    () => [...groups.entries()].filter(([, list]) => list.length > PREVIEW_COUNT).map(([cid]) => cid),
+    [groups],
+  );
+  const allExpanded = foldableCids.length > 0 && foldableCids.every((cid) => expanded.has(cid));
+  /** 有搜索/筛选时表格本来就全展开（见 `previewAll`），此时不给「全部展开」。 */
+  const previewAll = keyword !== "" || cidFilter !== "all" || freeOnly;
+  const showExpandAll = !flat && !previewAll && foldableCids.length > 1;
+
   return (
-    <section className="mb-2">
-      {/* 工具条吸顶：模型多、表长，滚动时搜索/筛选/计数始终可及（背景铺满容器宽，内容不透出） */}
-      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 bg-canvas px-4 py-2 sm:-mx-6 sm:px-6">
+    <section className="mb-2" ref={sectionRef}>
+      {/* 工具条吸顶：模型多、表长，滚动时搜索/筛选/计数始终可及（背景铺满容器宽，内容不透出）。
+          `pb-4` 而不是 `mb-4`：表头要在工具条正下方吸顶，边距若留在盒外，滚起来会露出
+          一条能看见内容的缝；放进盒内后这段背景色不透明，量出来的高度也自动含它。 */}
+      <div
+        ref={toolbarRef}
+        className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center gap-2 bg-canvas px-4 pb-4 pt-2 sm:-mx-6 sm:px-6"
+      >
         <h2 className="text-lg font-normal tracking-tight text-ink">
           渠道 / 模型
         </h2>
@@ -246,10 +285,18 @@ export function ModelExplorer({
             </button>
           </div>
 
+          {showExpandAll && (
+            <button
+              type="button"
+              onClick={() => setExpanded(allExpanded ? new Set() : new Set(foldableCids))}
+              className="tap rounded-lg border border-line bg-raised px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            >
+              {allExpanded ? "全部收起" : "全部展开"}
+            </button>
+          )}
+
           <span className="font-mono text-xs text-ink-faint">
-            {keyword || cidFilter !== "all" || freeOnly
-              ? `${visible.length} / ${total}`
-              : `${total} 个`}
+            {previewAll ? `${visible.length} / ${total}` : `${total} 个`}
           </span>
         </div>
       </div>
@@ -269,7 +316,7 @@ export function ModelExplorer({
           onToggle={toggle}
           expanded={expanded}
           onToggleExpanded={toggleExpanded}
-          previewAll={keyword !== "" || cidFilter !== "all" || freeOnly}
+          previewAll={previewAll}
         />
       )}
     </section>
@@ -294,28 +341,33 @@ function isFree(row: ModelRow, freePlanCids: ReadonlySet<string>): boolean {
  * （要求「每个 channel 应该都把各字段对齐」）。
  * 固定宽度后所有 `<table>` 的每一列都落在同一像素上。
  *
+ * ## 为什么只有一半的列有宽度
+ *
+ * 表里没写宽度的列（模型 / 思考模式 / 输入）在 `table-layout: fixed` 下**平分剩余宽度**。
+ * 只让模型列吃剩余宽度不行：留白会全部堆在模型名与倍率之间 —— 1440 视口实测模型列
+ * 810px、最长内容 `longcat-2.0` 约 90px，倍率被推到 x≈890，读一行要横跨半屏；
+ * 三列平分后模型列 353px、倍率右边界前移到 417，留白摊成三段均匀间隔。
+ * 被平分的三列都是文字列，多出来的宽度不会像数字列那样把「右对齐」拉散。
+ *
  * 宽度含单元格内边距（`px-3` = 12px×2），故比内容宽。
  */
 const COL_WIDTHS = {
-  /** 模型名：占满剩余空间（`auto`），其余列固定。 */
   channel: "4.5rem",
   multiplier: "4rem",
   contextWindow: "6rem",
   maxOutput: "5.5rem",
-  effort: "10rem",
-  modality: "5.5rem",
   copy: "2.75rem",
 } as const;
 
 /**
  * 表格最小宽度（表头 / 每个渠道表体 / 扁平表**必须共用同一个值**，否则列会错位）。
  *
- * `≥ md` 取 640px：其余六列是固定宽（合计 540px），最小宽只给 440 时，视口刚好落在
+ * `≥ md` 取 640px：固定列合计 292px（`≥ md` 的列集），最小宽只给 440 时，视口刚好落在
  * `md` 断点上（实测 768×1024：面板内容区 544px）模型列会被挤成 0px ——
- * 留 640 保证模型列恒有 100px，放不下就横向滚动（右缘渐隐提示它）。
+ * 留 640 保证三列平分列（含模型列）恒有约 110px，放不下就横向滚动（右缘渐隐提示它）。
  *
  * `< md` 取 300px：只露「模型 / 倍率 / 复制」三列，440px 会把模型列白白挤出约 90px 的
- * 滚动量，降到 300px 让这三列在 360 宽的视口里一次看全（模型列实测 390 视口 238px）。
+ * 滚动量，降到 300px 让这三列在 360 宽的视口里一次看全（模型列实测 390 视口 190px）。
  */
 const TABLE_MIN_W = "min-w-[300px] md:min-w-[640px]";
 
@@ -325,7 +377,8 @@ const TABLE_MIN_W = "min-w-[300px] md:min-w-[640px]";
  * 表头与每个渠道的表体**共用这一份**，改列只需改这里。
  */
 interface ColDef {
-  key: keyof typeof COL_WIDTHS | "model" | "channel";
+  /** 有固定宽度的列取 `COL_WIDTHS` 的键；其余（模型 / 思考模式 / 输入）平分剩余宽度。 */
+  key: keyof typeof COL_WIDTHS | "model" | "effort" | "modality";
   label: string;
   align: "left" | "right";
   /** `< md` 丢弃（取舍说明见 `useNarrow`）。 */
@@ -367,13 +420,12 @@ function colsFor(narrow: boolean): ColDef[] {
 function ColGroup({ cols }: { cols: readonly ColDef[] }): ReactElement {
   return (
     <colgroup>
-      {cols.map((c) => (
-        // 模型列不给宽度 = 占满剩余空间（`table-fixed` 下 auto 列吃剩下的）
-        <col
-          key={c.key}
-          style={c.key === "model" ? undefined : { width: COL_WIDTHS[c.key as keyof typeof COL_WIDTHS] }}
-        />
-      ))}
+      {cols.map((c) => {
+        // 没在 `COL_WIDTHS` 里的列（模型 / 思考模式 / 输入）不给宽度：
+        // `table-fixed` 下它们平分剩余宽度，理由见 `COL_WIDTHS` 的文件内说明。
+        const width = COL_WIDTHS[c.key as keyof typeof COL_WIDTHS];
+        return <col key={c.key} style={width ? { width } : undefined} />;
+      })}
     </colgroup>
   );
 }
@@ -577,12 +629,50 @@ function cellsOf(
 }
 
 /**
+ * 横向滚动同步：表头与各表体是**各自独立的滚动容器**（滑块应该每个渠道都有），
+ * 任一容器横向滚动都要带着其余的走，否则列名与内容错位。
+ *
+ * 用 `register(key)` 生成回调 ref、`onScroll(from)` 广播位置；在 `requestAnimationFrame`
+ * 里解锁，避免「A 改 B、B 又改 A」的来回抖动。
+ */
+function useScrollSync(): {
+  register: (key: string) => (el: HTMLDivElement | null) => void;
+  onScroll: (from: HTMLDivElement) => void;
+} {
+  const els = useRef(new Map<string, HTMLDivElement>());
+  const syncing = useRef(false);
+  const register = (key: string) => (el: HTMLDivElement | null) => {
+    if (el) els.current.set(key, el);
+    else els.current.delete(key);
+  };
+  const onScroll = (from: HTMLDivElement): void => {
+    if (syncing.current) return;
+    syncing.current = true;
+    const left = from.scrollLeft;
+    for (const el of els.current.values()) {
+      if (el !== from && el.scrollLeft !== left) el.scrollLeft = left;
+    }
+    requestAnimationFrame(() => {
+      syncing.current = false;
+    });
+  };
+  return { register, onScroll };
+}
+
+/**
  * 分组表：**表头一份在最上方** + 每个渠道一个表块（band 行 + 模型行），全宽、不并排。
  *
  * ## 表头为什么只渲染一次
  *
  * 每组自带 `<thead>` 的话，一屏能看到 10 份一模一样的列名。
  * 列名提到最上方一行，渠道块只剩数据行。
+ *
+ * ## 表头为什么吸顶
+ *
+ * 十个渠道块合计两千多像素，表头只挂在最上方的话，滚到第 5 个渠道时列名早已离开
+ * 视口（实测 `scrollTop=1470` 时表头 `top=-1236`），而表体里全是 `1M` / `131k` /
+ * `低 / 中 / 超高` 这类**离开列名就不可判读**的裸值。故表头在工具条下方吸顶：
+ * 让位的距离由工具条自己量（窄屏会折行，高度不是常量，见 `--mx-sticky-top`）。
  *
  * ## 列为什么能跨渠道对齐
  *
@@ -618,46 +708,33 @@ function GroupedTable({
   /** 有搜索/筛选时直接全展开：用户已经在缩小范围，再藏模型会挡住他要找的。 */
   previewAll: boolean;
 }): ReactElement {
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  /** 正在同步滚动，避免「A 改 B、B 又改 A」的来回抖动。 */
-  const syncing = useRef(false);
-
-  /** 把某个滚动容器的横向位置同步给其它容器（表头 + 各渠道表体）。 */
-  const syncScroll = (from: HTMLElement): void => {
-    if (syncing.current) return;
-    syncing.current = true;
-    const left = from.scrollLeft;
-    const all = [headerRef.current, ...bodyRefs.current];
-    for (const el of all) {
-      if (el && el !== from && el.scrollLeft !== left) el.scrollLeft = left;
-    }
-    // 同一帧内读完再解开，避免 React 重渲染期间的状态竞争
-    requestAnimationFrame(() => {
-      syncing.current = false;
-    });
-  };
-
-  const bodyRefs = useRef<Array<HTMLDivElement | null>>([]);
-  bodyRefs.current = [];
+  const { register, onScroll } = useScrollSync();
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-raised">
-      {/* 表头：整个模型区只此一份，横向与各渠道表体同步（sticky 不生效 ——
-          外层 `overflow-hidden` 是它的滚动祖先，见文件头） */}
-      <ScrollFade
-        containerRef={(el) => {
-          headerRef.current = el;
-        }}
-        onScroll={syncScroll}
-        className="overflow-x-auto"
+    // `overflow-clip` 而不是 `overflow-hidden`：`hidden` 会把自己变成滚动容器，
+    // 表头的 `sticky` 会被它困住（相对一个永不滚动的滚动口 = 永不吸顶）。
+    // `clip` 只裁剪不建滚动容器，圆角收边与吸顶两件事都保住。
+    <div className="overflow-clip rounded-2xl border border-line bg-raised">
+      {/* 表头：整个模型区只此一份，横向与各渠道表体同步。
+          吸顶的 `top` 由工具条实测高度给出（`--mx-sticky-top`）：工具条窄屏会折行，
+          高度不是常量，写死会与它重叠或留缝。 */}
+      <div
+        className="sticky z-10 rounded-t-2xl bg-raised"
+        style={{ top: "var(--mx-sticky-top, 0px)" }}
       >
-        <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
-          <ColGroup cols={cols} />
-          <Head cols={cols} />
-        </table>
-      </ScrollFade>
+        <ScrollFade
+          containerRef={register("header")}
+          onScroll={onScroll}
+          className="overflow-x-auto"
+        >
+          <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
+            <ColGroup cols={cols} />
+            <Head cols={cols} />
+          </table>
+        </ScrollFade>
+      </div>
 
-      {[...groups.entries()].map(([cid, rows], gi) => {
+      {[...groups.entries()].map(([cid, rows]) => {
         const isCollapsed = collapsed.has(cid);
         // 默认每组只露前 3 个：一个渠道几十个模型会把整页撑爆（见文件头布局说明）
         const showAll = previewAll || expanded.has(cid);
@@ -696,10 +773,8 @@ function GroupedTable({
             </div>
             {!isCollapsed && (
               <ScrollFade
-                containerRef={(el) => {
-                  bodyRefs.current[gi] = el;
-                }}
-                onScroll={syncScroll}
+                containerRef={register(`${cid}-body`)}
+                onScroll={onScroll}
                 className="overflow-x-auto"
               >
                 <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
@@ -713,17 +788,26 @@ function GroupedTable({
                         {cellsOf(row, cols, freePlanCids)}
                       </tr>
                     ))}
-                    {/* 折叠隐藏的数量 + 展开/收起开关：只在「有隐藏项」或「已手动展开」时出现 */}
+                    {/* 折叠条：**整行可点**（与账号卡底条同一套做法）—— 只让文字可点的话，
+                        可点区域只有约 110px，整行剩下的一千多像素是死区，用户点行内空白没反应。 */}
                     {(hidden > 0 || (!previewAll && expanded.has(cid) && rows.length > PREVIEW_COUNT)) && (
                       <tr className="border-b border-line/40 last:border-b-0">
-                        <td colSpan={cols.length} className="px-4 py-1.5">
+                        <td colSpan={cols.length} className="p-0">
                           <button
                             type="button"
                             onClick={() => onToggleExpanded(cid)}
-                            className="tap inline-flex items-center text-xs text-ink-faint transition-colors hover:text-brand"
+                            className="tap flex w-full items-center justify-between gap-2 px-4 py-1.5 text-xs text-ink-faint transition-colors hover:text-brand"
                             aria-expanded={showAll}
                           >
-                            {hidden > 0 ? `展开剩余 ${hidden} 个模型` : "收起"}
+                            <span className="inline-flex items-center gap-1">
+                              {hidden > 0 ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              )}
+                              {hidden > 0 ? `展开剩余 ${hidden} 个模型` : "已全部显示"}
+                            </span>
+                            {hidden === 0 && <span className="shrink-0 text-ink-soft">收起</span>}
                           </button>
                         </td>
                       </tr>
@@ -739,7 +823,7 @@ function GroupedTable({
   );
 }
 
-/** 扁平表：全部模型按倍率升序，渠道作为一列。 */
+/** 扁平表：全部模型按倍率升序，渠道作为一列。表头同样吸顶（做法与 `GroupedTable` 一致）。 */
 function FlatTable({
   cols,
   rows,
@@ -749,22 +833,35 @@ function FlatTable({
   rows: ModelRow[];
   freePlanCids: ReadonlySet<string>;
 }): ReactElement {
+  const { register, onScroll } = useScrollSync();
   return (
-    <ScrollFade className="overflow-x-auto rounded-2xl border border-line bg-raised">
-      <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
-        <ColGroup cols={cols} />
-        <Head cols={cols} />
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.poolId}
-              className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
-            >
-              {cellsOf(row, cols, freePlanCids)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </ScrollFade>
+    <div className="overflow-clip rounded-2xl border border-line bg-raised">
+      <div
+        className="sticky z-10 rounded-t-2xl bg-raised"
+        style={{ top: "var(--mx-sticky-top, 0px)" }}
+      >
+        <ScrollFade containerRef={register("header")} onScroll={onScroll} className="overflow-x-auto">
+          <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
+            <ColGroup cols={cols} />
+            <Head cols={cols} />
+          </table>
+        </ScrollFade>
+      </div>
+      <ScrollFade containerRef={register("body")} onScroll={onScroll} className="overflow-x-auto">
+        <table className={`w-full ${TABLE_MIN_W} table-fixed border-collapse`}>
+          <ColGroup cols={cols} />
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.poolId}
+                className="border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40"
+              >
+                {cellsOf(row, cols, freePlanCids)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </ScrollFade>
+    </div>
   );
 }

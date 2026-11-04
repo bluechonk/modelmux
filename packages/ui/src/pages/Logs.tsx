@@ -47,7 +47,14 @@ function useDebounced<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-/** 统计条：描述**当天读窗口**（不随筛选变化；筛选命中数由「共 N 条」表达）。 */
+/**
+ * 统计条：描述**当天读窗口**（不随筛选变化；筛选命中数由「共 N 条」表达）。
+ *
+ * 成功 / 失败 / 中断三个**绝对条数**不在这里 —— 它们只隔 60px 就出现在下方筛选栏的
+ * 结果分段里（`全部 250 / 成功 241 / 失败 9 / 中断 0`，同一组数字、同一份口径），
+ * 一屏内说两遍反而让人怀疑两处算的不是一回事。这里只留筛选栏给不出的派生量：
+ * 成功率、慢、平均耗时、tokens、缓存、读窗口截断。
+ */
 function StatBar({ page }: { page: AccessLogPage }): ReactElement {
   const stats = page.stats;
   const rate = stats.requests > 0 ? Math.round((stats.success / stats.requests) * 100) : null;
@@ -58,18 +65,6 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       </span>
       <span>
         成功率 <span className="tabular text-ink">{rate === null ? "-" : `${rate}%`}</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-free" />
-        成功 <span className="tabular text-ink">{formatCount(stats.success)}</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-danger" />
-        失败 <span className="tabular text-ink">{formatCount(stats.failure)}</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-        中断 <span className="tabular text-ink">{formatCount(stats.other)}</span>
       </span>
       <span>
         慢（≥{Math.round(page.slowMs / 1000)}s）{" "}
@@ -118,13 +113,33 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
   );
 }
 
+/**
+ * 长 id 的可折行渲染（模型名在窄屏列里只有约 108px）。
+ *
+ * 只允许在 `-` `/` `.` 之后折行（`<wbr>`）：`break-all` 会把 `flash` 劈成 `fl`/`ash`
+ * （实测 390 视口），而默认不折行又会溢出单元格。两者之间取中点 —— 折行点落在
+ * 分隔符后，语义仍是一个完整词；真遇到没有分隔符的超长段，外层 `break-words` 兜底。
+ */
+function BreakableId({ value }: { value: string }): ReactElement {
+  const parts = value.split(/(?<=[-/.])/);
+  return (
+    <span className="font-mono">
+      {parts.map((part, i) => (
+        <Fragment key={`${i}-${part}`}>
+          {part}
+          {i < parts.length - 1 && <wbr />}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
 /** 展开行：请求全字段（正文不内联；宽屏走「上下文」列，窄屏走本行内的按钮）。 */
 function LogDetail({
   entry,
   onOpenContext,
   showContext,
-}: {
-  entry: AccessLogEntry;
+}: {  entry: AccessLogEntry;
   onOpenContext: () => void;
   /** 窄屏（<768px）没有「上下文」列 —— 固定列合计超过表格最小宽，模型列会被挤成零
    *  宽，所以窄屏砍列保正文可读性优先；此时入口挪到这里，否则手机上打不开正文弹窗。 */
@@ -357,8 +372,12 @@ function LogCell({
       return <ResultCell entry={entry} />;
     case "model":
       return (
-        <td className="break-all px-3 py-2 align-top text-xs text-ink-soft">
-          {entry.model ?? <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>}
+        <td className="break-words px-3 py-2 align-top text-xs text-ink-soft">
+          {entry.model ? (
+            <BreakableId value={entry.model} />
+          ) : (
+            <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>
+          )}
         </td>
       );
     case "duration":
