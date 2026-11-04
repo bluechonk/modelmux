@@ -710,6 +710,8 @@ export function Logs(): ReactElement {
     // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
     // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测踩过）。
     queryKey: ["logs", date, outcome, cid, search, slowOnly, pageNum, pageSize],
+    // 再进页面 / 切筛选时先出上一次的数据（列表页最怕被清空成骨架）
+    placeholderData: (prev) => prev,
     queryFn: () =>
       api.logs({
         date: date === "" ? undefined : date,
@@ -721,6 +723,8 @@ export function Logs(): ReactElement {
         offset: (pageNum - 1) * pageSize,
       }),
     refetchInterval: expanded !== null || contextTarget !== null || pageNum > 1 ? false : 5_000,
+    // 与轮询同长：间隔内再进页面直接用缓存（列表页最怕被清空成骨架）
+    staleTime: 5_000,
   });
 
   const page = logs.data;

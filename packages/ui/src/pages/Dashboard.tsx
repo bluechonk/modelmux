@@ -189,6 +189,9 @@ export function Dashboard(): ReactElement {
     queryKey: ["overview"],
     queryFn: api.overview,
     refetchInterval: 5000,
+    staleTime: 5000,
+    // 再进页面先出上一次的数据（5 秒一轮，清空成骨架的代价远大于显示稍旧的数字）
+    placeholderData: (prev) => prev,
   });
   const overview = overviewQuery.data;
 

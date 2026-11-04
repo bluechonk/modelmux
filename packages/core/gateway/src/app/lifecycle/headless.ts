@@ -22,7 +22,7 @@ import { appendChannel, appendError, appendGateway, appendSystem } from "../../r
 import { rootDir } from "../../runtime/paths.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
-import { poolModelMetas } from "../../pool/pool-targets.js";
+import { invalidateCrossModelIndex, poolModelMetas } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
@@ -366,7 +366,15 @@ class ServiceState {
   }
 
   setModels(ids: string[]): void {
+    // 集合没变就不动（这个 worker 每 5 秒调一次，无脑失效会让 30s 的索引缓存永远命不中）
+    const next = [...ids].sort();
+    const prev = [...this.modelsShown].sort();
+    const unchanged =
+      next.length === prev.length && next.every((id, i) => id === prev[i]);
+    if (unchanged) return;
     this.modelsShown = ids;
+    // 池集合变了 → 跨渠道索引失效（新增/下线模型要立刻反映到控制台）
+    invalidateCrossModelIndex();
   }
 }
 
@@ -803,6 +811,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
           const gone = before.filter((m) => !after.some((a) => a.id === m.id)).map((m) => m.id);
           const added = after.filter((m) => !before.some((b) => b.id === m.id)).map((m) => m.id);
           if (gone.length > 0 || added.length > 0) {
+            // 目录真的变了 → 跨渠道索引必须失效（它缓存了 30s，见 `CROSS_INDEX_TTL_MS`）
+            invalidateCrossModelIndex();
             logLine(
               `[catalog] reconciled (${cid}): ${after.length} models` +
                 (added.length > 0 ? `, +${added.length} (${added.slice(0, 5).join(", ")})` : "") +
