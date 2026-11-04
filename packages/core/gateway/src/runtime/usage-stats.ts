@@ -109,6 +109,14 @@ export interface UsageModelRow {
   avgTps: number | null;
 }
 
+/** 一个账号**今日**的 token 消耗（账号池账号行用，与「今日消耗」同口径）。 */
+export interface UsageAccountRow {
+  /** 账号 key（池内标识，与账本 / 控制台的账号行同一套）。 */
+  key: string;
+  tokens: number;
+  requests: number;
+}
+
 export interface UsageStats {
   range: UsageRange;
   /** 区间端点（本地日期 `YYYY-MM-DD`，含端点）。 */
@@ -135,6 +143,13 @@ export interface UsageStats {
   daily: UsageDaily[];
   /** 按 tokens 降序；`id` 为空串表示「未知模型」。 */
   models: UsageModelRow[];
+  /**
+   * 每个账号**今日**的 token 消耗（降序）；当天没有请求时为空数组。
+   *
+   * 只给今日：账号行已经显示「今日消耗」（额度），tokens 与之同口径才有可比性；
+   * 逐日明细会让账号维度迅速膨胀（账号数 × 天数），账号行也用不上。
+   */
+  accounts: UsageAccountRow[];
   /** 「有请求」的连续天数。今天没请求时 `current` 算到昨天为止。 */
   streak: { current: number; longest: number };
   peak: { date: string; tokens: number; hour: number; hourTokens: number } | null;
@@ -159,6 +174,9 @@ interface DayAgg extends UsageDaily {
   /** 该模型成功请求的速率之和与样本数（`tpsCount` 只算算得出速率的）。 */
   byModelTpsSum: Record<string, number>;
   byModelTpsCount: Record<string, number>;
+  /** 账号维度（今日 token）：访问日志的 `key` 字段，渠道 + 账号才能定位到具体凭据。 */
+  byAccountTokens: Record<string, number>;
+  byAccountRequests: Record<string, number>;
   /** 24 项（**本地**小时）；`ts` 是 UTC，必须转本地。 */
   byHour: number[];
 }
@@ -194,6 +212,8 @@ function aggregateDay(date: string): DayAgg {
     byModelQueued: {},
     byModelTpsSum: {},
     byModelTpsCount: {},
+    byAccountTokens: {},
+    byAccountRequests: {},
     byHour: new Array<number>(24).fill(0),
   };
   scanInto(date, agg);
@@ -228,6 +248,11 @@ function scanInto(date: string, agg: DayAgg): void {
     // 上游没回 usage（`tokens === null`）单独计数：这些请求既不进 tokens 也不进命中率分母，
     // 仪表盘要把这个数露出来，否则「tokens 少」看起来像「用的人少」而不是「上游没报」。
     if (tokens === null) agg.noUsage += 1;
+    // 账号维度：日志没带 `key` 的请求（登录前 / 健康检查）不进账号汇总
+    if (entry.key) {
+      agg.byAccountTokens[entry.key] = (agg.byAccountTokens[entry.key] ?? 0) + total;
+      agg.byAccountRequests[entry.key] = (agg.byAccountRequests[entry.key] ?? 0) + 1;
+    }
     agg.byModel[id] = (agg.byModel[id] ?? 0) + total;
     agg.byModelIn[id] = (agg.byModelIn[id] ?? 0) + input;
     agg.byModelOut[id] = (agg.byModelOut[id] ?? 0) + output;
@@ -437,6 +462,15 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
 
   const streak = computeStreak(new Set(daily.map((d) => d.date)), today);
 
+  // 今日账号维度：只取「今天」这一天（账号行与「今日消耗」同口径）。
+  // 当天没有请求时 inRange 不含今天 → 空数组（没消耗就是没消耗）。
+  const todayAgg = inRange.includes(today) ? dayAgg(today, today) : null;
+  const accounts: UsageAccountRow[] = todayAgg
+    ? Object.entries(todayAgg.byAccountTokens)
+        .map(([key, tokens]) => ({ key, tokens, requests: todayAgg.byAccountRequests[key] ?? 0 }))
+        .sort((a, b) => b.tokens - a.tokens)
+    : [];
+
   return {
     range,
     from,
@@ -444,6 +478,7 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     totals,
     daily,
     models,
+    accounts,
     streak,
     peak: peakDate === null ? null : { date: peakDate, tokens: peakTokens, hour: peakHour, hourTokens: peakHourTokens },
     favorite: models[0] === undefined ? null : { id: models[0].id, share: models[0].share },

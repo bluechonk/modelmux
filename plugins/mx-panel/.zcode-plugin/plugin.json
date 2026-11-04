@@ -1,10 +1,10 @@
 {
   "name": "mx-panel",
-  "version": "0.3.0",
-  "description": "ModelMux 网关面板：概览 / 账号管理(登录·切换·解除·删除)/ 模型清单(按渠道分组)/ 最近请求。",
+  "version": "0.4.0",
+  "description": "ModelMux 控制台：把网关的 /web/ 完整内嵌进 ZCode 侧栏。",
   "description_i18n": {
-    "en": "ModelMux gateway status panel: overview, searchable models, recent logs.",
-    "zh-CN": "ModelMux 网关状态面板：概览 / 模型清单 / 最近日志。"
+    "en": "ModelMux console: the gateway /web/ UI embedded in the ZCode sidebar.",
+    "zh-CN": "ModelMux 控制台：把网关 /web/ 完整内嵌进 ZCode 侧栏。"
   },
   "author": {
     "name": "bluechonk"
