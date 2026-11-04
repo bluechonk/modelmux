@@ -17,6 +17,11 @@
   margin: 0;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   background: var(--bg);
@@ -26,7 +31,47 @@ body {
   line-height: 1.5;
 }
 
+/* 头部固定 + 内容区滚动；控制台页签整幅 iframe 不滚动 */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.app.no-scroll main {
+  overflow: hidden;
+}
+
+.console-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.console-tab iframe {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--bg);
+}
+
+.console-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
 header {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;

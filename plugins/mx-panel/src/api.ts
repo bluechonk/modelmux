@@ -37,7 +37,7 @@ window.addEventListener("message", (ev) => {
 
 export async function handshake(): Promise<void> {
   await request("ui/initialize", {
-    appInfo: { name: "mx-panel", version: "0.2.1" },
+    appInfo: { name: "mx-panel", version: "0.3.0" },
     appCapabilities: {},
     protocolVersion: PROTOCOL,
   });

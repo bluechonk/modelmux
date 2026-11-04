@@ -4,7 +4,7 @@
     {
       "name": "mx-panel",
       "source": "./plugins/mx-panel",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "description": "ModelMux gateway status panel: overview, searchable models, recent logs.",
       "displayName": "ModelMux Panel",
       "displayName_i18n": {
