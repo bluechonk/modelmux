@@ -288,7 +288,8 @@ export function Accounts(): ReactElement {
               每个统计都是一个 chip（中性底 + 圆角 + `whitespace-nowrap`）——
               纯文字加竖线分隔在窄屏折行后像是「错位的两行」，chip 换行时逐行对齐，
               且标签与数字永远在同一个视觉单元里。 */}
-          <div className="flex flex-wrap items-center gap-1.5 px-1">
+          {/* 吸顶：账号多时向下滚动仍能看到计数与筛选结果（背景铺满容器宽，内容不透出） */}
+          <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center gap-1.5 bg-canvas px-4 py-2 sm:-mx-6 sm:px-6">
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1 text-xs text-ink-soft">
               共 <span className="font-mono font-medium text-ink">{list.length}</span> 渠道 ·{" "}
               <span className="font-mono font-medium text-ink">{totalAccounts}</span> 账号
