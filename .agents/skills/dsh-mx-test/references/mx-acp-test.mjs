@@ -5,7 +5,9 @@
 //   node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "<任务文本>" [--model <cid>/<模型>] [--cwd <目录>] [--timeout <毫秒>]
 //   --model 给定时生成临时 overlay（完整 provider + acp 路由）覆盖默认 catpaw/longcat-2.0；
 //   环境变量：MODELMUX_API_KEY 必须非空（网关不校验，占位 test 即可）；
-//             DSH_ACP_CMD 可覆盖启动命令（默认用 DeepSeek Harness.exe + cli.js 直调，Git Bash 里别用 dsh.cmd——引号会被吃）。
+//             DSH_ACP_CMD 可覆盖启动命令（覆盖后按 `<cmd> --profile acp --patch <overlay>` 调用，
+//             命令需自行包好 Electron 与 cli.js；默认用 DeepSeek Harness.exe + cli.js 直调，
+//             Git Bash 里别用 dsh.cmd——引号会被吃）。
 // 依赖什么：无 npm 依赖；ACP 用 ndjson over stdio（newline-delimited JSON-RPC）；
 //   默认 overlay：本目录 acp-modelmux-overlay.yml（完整 modelmux provider + acp 默认路由）；
 //   生成的临时 overlay 落 <仓库根>/.tmp/dsh-mx-overlays/generated-acp-overlay.yml。
@@ -17,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const args = process.argv.slice(2);
 const taskParts = [];
 let cwd = resolve(".tmp/dsh-acp-e2e");
-let timeoutMs = 120000;
+let timeoutMs = 180000; // 默认与 SKILL.md 示例一致：catpaw 等慢上游单轮可超 90s，120s 太紧
 let model = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--cwd") cwd = resolve(args[++i]);
@@ -72,8 +74,10 @@ if (model) {
   console.log(`[harness] overlay generated for ${model}`);
 }
 
-const DSH_EXE = process.env.DSH_ACP_CMD ?? "C:\\Users\\bluechonk\\AppData\\Local\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe";
-const CLI_JS = "C:\\Users\\bluechonk\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js";
+// 桌面版路径从 LOCALAPPDATA 推导（换机 / 换用户不坏）；DSH_ACP_CMD 覆盖为已包好的启动命令
+const DSH_ROOT = join(process.env.LOCALAPPDATA ?? "", "Programs", "DeepSeek Harness");
+const DSH_EXE = join(DSH_ROOT, "DeepSeek Harness.exe");
+const CLI_JS = join(DSH_ROOT, "resources", "app.asar", "dsh", "node_modules", "@deepseek-ai", "dsh-desktop-host", "lib", "cli.js");
 
 // ── ACP ndjson 帧协议 ──
 let nextId = 1;
@@ -125,11 +129,10 @@ function onData(chunk) {
 // ── 启动 dsh acp 服务器 ──
 mkdirSync(cwd, { recursive: true });
 console.log(`[harness] spawning dsh --profile acp (overlay: ${OVERLAY})`);
-const child = spawn(process.env.DSH_ACP_CMD ?? DSH_EXE, [
-  "--expose-internals", CLI_JS,
-  "--profile", "acp",
-  "--patch", OVERLAY,
-], {
+const customCmd = process.env.DSH_ACP_CMD;
+const child = spawn(customCmd ?? DSH_EXE, customCmd
+  ? ["--profile", "acp", "--patch", OVERLAY]
+  : ["--expose-internals", CLI_JS, "--profile", "acp", "--patch", OVERLAY], {
   env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", MODELMUX_API_KEY: process.env.MODELMUX_API_KEY ?? "test" },
   stdio: ["pipe", "pipe", "pipe"],
 });

@@ -19,14 +19,22 @@ const flag = (name) => {
   return i >= 0 ? args[i + 1] : null;
 };
 const has = (name) => args.includes(name);
-const modelId = args.find((a) => !a.startsWith("--"));
+// 位置参数解析：先跳过带值 flag 的值，再取第一个非 -- 项（否则 `--level low` 会把 low 当模型）
+const valueFlags = new Set(["--level", "--timeout", "--workspace"]);
+const positional = [];
+for (let i = 0; i < args.length; i++) {
+  if (valueFlags.has(args[i])) i++;
+  else if (!args[i].startsWith("--")) positional.push(args[i]);
+}
+const modelId = positional[0];
 if (!modelId || !modelId.includes("/")) {
   console.error("用法: node scripts/zcode-e2e.mjs <cid>/<模型> [--level <档位>] [--smoke] [--timeout <秒>] [--workspace <目录>]");
   process.exit(2);
 }
 const cid = modelId.split("/")[0];
 const smoke = has("--smoke");
-const timeoutSec = Number(flag("--timeout") ?? (smoke ? 180 : 600));
+// 默认 600s：catpaw 等慢上游单轮流可超 170s（技能坑 6），180s 默认会误杀
+const timeoutSec = Number(flag("--timeout") ?? 600);
 const ZC = path.join(process.env.LOCALAPPDATA, "Programs", "ZCode", "resources", "glm", "zcode.cjs");
 if (!fs.existsSync(ZC)) {
   console.error(`找不到 zcode.cjs: ${ZC}`);
