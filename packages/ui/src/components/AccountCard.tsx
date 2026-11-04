@@ -9,7 +9,7 @@
  * 默认隐藏、悬停账号行才出现，触屏常显。
  */
 
-import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
+import { Plus, Trash2, UserCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement } from "react";
@@ -195,23 +195,14 @@ function tripDetailOf(
 }
 
 /**
- * 账号卡片的布局铁律：
+ * 账号卡片的布局铁律：**池里几个账号就铺几行，不折叠、不补空位**。
  *
- * **每张卡固定显示 2 个账号位**，无论是否登录、有无账号 ——
- *   - 未登录 / 0 账号 → 2 个空位占位
- *   - 1 个账号       → 1 个真实账号 + 1 个空位
- *   - 2 个账号       → 2 个真实账号（刚好填满，不折叠）
- *   - > 2 个账号     → 2 个真实账号 + 折叠条（展开剩余 N 个）
- *
- * 这样每张卡的高度完全可预期（卡头 + 2 个账号行 + **恒渲染的卡底条**），
- * 账号多的渠道不再把页面撑参差，空卡也不再矮一截。
- *
- * 卡底条不能只在 > 2 个账号时出现：那样多账号的卡比 1-2 个账号的高一整条，
- * 两列并排时卡底参差。不需要折叠时用同高的静态说明占位。
+ * 2026-11-04 起取消折叠（原「默认露 2 个 + 展开剩余 N 个」）与恒渲染卡底条：
+ * 卡片高度随内容走（`items-start` 网格下各行自洽），账号不再被藏在折叠条后面。
+ * 曾为「卡高一致」补的空位占位一并移除 —— 单列流里它只制造大片留白。
  *
  * demo.ts 只放数据，布局完全由本组件决定 —— 数据里放几个账号都不影响布局规则。
  */
-const PREVIEW_ACCOUNTS = 2;
 
 /**
  * 单渠道账号池卡片。
@@ -266,16 +257,6 @@ export function AccountCard({
     .map(rowOf)
     .sort((a, b) => Number(b.key === pool.index.active) - Number(a.key === pool.index.active));
   const activeAccount = accounts.find((a) => a.key === pool.index.active);
-  // 折叠态是卡内私有状态：页面不需要知道哪张卡展开了
-  const [expanded, setExpanded] = useState(false);
-  // 需要折叠：账号数超过固定位数（2）
-  const needsFold = accounts.length > PREVIEW_ACCOUNTS;
-  // 展开时显示全部，否则只显示前 2 个（不足 2 个时空位补满）
-  const shownAccounts = expanded && needsFold ? accounts : accounts.slice(0, PREVIEW_ACCOUNTS);
-  // 空位占位数：不足 2 个真实账号时补空行，让卡高一致
-  const emptySlots = needsFold ? 0 : PREVIEW_ACCOUNTS - shownAccounts.length;
-  // 折叠条文案：折叠态显示「展开剩余 N 个」
-  const hiddenCount = accounts.length - PREVIEW_ACCOUNTS;
 
   return (
     // `@container`：账号行的额度区按**卡片宽度**（而非视口宽度）决定露出多少
@@ -312,7 +293,7 @@ export function AccountCard({
           - 0 账号（未登录）→ 2 个空位占位
       */}
       <ul className="border-t border-line">
-{shownAccounts.map((account) => {
+        {accounts.map((account) => {
           const active = account.key === pool.index.active;
           const bill = billingByKey.get(account.key);
           const status = classifyAccount(account, billing);
@@ -427,32 +408,6 @@ export function AccountCard({
             );
           })}
         </ul>
-      {/* 卡底条：**每张卡恒渲染**，高度固定 ——
-          只在 > 2 个账号时出现折叠条的话，多账号的卡比 1-2 个账号的高出一整条，
-          两列并排时卡底参差。
-          不需要折叠时用同高同底色的静态说明占位，卡高才完全一致。 */}
-      {needsFold ? (
-        <button
-          type="button"
-          className="tap flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-soft transition-colors hover:bg-overlay/60 hover:text-ink"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-        >
-          {expanded ? (
-            <>
-              收起 <ChevronUp className="h-3.5 w-3.5" />
-            </>
-          ) : (
-            <>
-              展开剩余 {hiddenCount} 个账号 <ChevronDown className="h-3.5 w-3.5" />
-            </>
-          )}
-        </button>
-      ) : (
-        <div className="tap flex w-full items-center justify-center gap-1.5 border-t border-line bg-overlay/30 px-4 py-2.5 text-xs font-medium text-ink-faint">
-          {accounts.length === 0 ? "暂无账号" : "已全部显示"}
-        </div>
-      )}
 
       {/* 删除确认：真删不可逆（生效账号会同时登出），用弹窗把决定隔离出来 */}
       {pendingRemove && (
