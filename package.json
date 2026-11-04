@@ -19,11 +19,12 @@
     "verify:topology": "node scripts/verify-topology.mjs",
     "verify:layering": "node scripts/verify-layering.mjs",
     "verify:wiring": "node scripts/verify-wiring.mjs",
+    "verify:plugin-version": "node scripts/verify-plugin-version.mjs",
     "verify:comments": "node scripts/verify-comments.mjs",
     "gate": "bash scripts/gate.sh",
     "after-change": "node scripts/after-change.mjs",
     "prepare": "node scripts/setup-git-hooks.mjs",
-    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:comments && npm run verify:commits && npm run verify:topology && npm run verify:layering && npm run verify:wiring && npm run test --workspaces --if-present"
+    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:comments && npm run verify:commits && npm run verify:topology && npm run verify:layering && npm run verify:wiring && npm run verify:plugin-version && npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.6"

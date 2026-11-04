@@ -37,6 +37,10 @@ function dispatch(method, params) {
   switch (method) {
     case "ping":
       return {};
+    case "tools/list":
+      // 面板只是内嵌控制台，没有任何工具；但宿主会例行调 tools/list,
+      // 不实现会直接报 "method not found: tools/list" 并在侧栏显示连接失败。
+      return { tools: [] };
     case "resources/list":
       return { resources: [panelResource()] };
     case "resources/read": {
