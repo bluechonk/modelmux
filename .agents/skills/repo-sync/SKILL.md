@@ -1,6 +1,6 @@
 ---
 name: repo-sync
-description: modelmux 仓库的收尾与同步流程：把一轮代码改动同步到 docs 文档、规划进度与 commit 历史，并在需要上线时走完分支 → PR → CI → rebase merge → 删分支的闭环。用户说「收尾」「同步文档」「更新 plan/进度」「做好 commit/PR/merge」「整理提交历史」「结项」时必须使用本技能，即使没有明确点名。
+description: modelmux 仓库的收尾与同步流程：把一轮代码改动同步到 docs 文档、规划进度与 commit 历史，并在需要上线时走完分支 → PR → CI → squash merge → 删分支的闭环。用户说「收尾」「同步文档」「更新 plan/进度」「做好 commit/PR/merge」「整理提交历史」「结项」时必须使用本技能，即使没有明确点名。
 ---
 
 # repo-sync —— 仓库收尾与同步
@@ -145,12 +145,12 @@ gh pr checks <n>
   构建后资源引用带前缀、`index.html` 复制成 `404.html` 后深链能渲染、Pages 源为
   `build_type: workflow`。workflow 改动仍以 `npm run gate` 为准；
   本机没有 `act`，不要假设能用 act 复现。
-- 合并统一用 **`gh pr merge <n> --rebase`**（保持线性历史，禁止 merge commit）。
-  rebase 保留分支内的各条提交信息；PR 标题只有在 squash 时才会变成提交信息
-  （`merge_commit_title=PR_TITLE`）。`verify:commits` 校验的是提交，不是 PR 标题。
+- 合并统一用 **`gh pr merge <n> --squash`**（与全局规则一致；保持线性历史，禁止 merge commit）。
+  squash 后 **PR 标题就是 main 上那条 commit 的标题**，所以开 PR 时标题必须
+  `type(scope): 中文描述`（全局红线）；分支内的多条提交会被压缩成一条。
 - **禁止** `--no-verify` 绕过 pre-push；CI 红着时禁止继续推送新提交。
 - 合并后：删远端分支（`gh api -X DELETE repos/bluechonk/modelmux/git/refs/heads/<branch>`）、
-  `git fetch --prune`、`git checkout main`、`git reset --hard origin/main`（rebase 会重写 SHA，
+  `git fetch --prune`、`git checkout main`、`git reset --hard origin/main`（squash 会重写 SHA，
   本地与远端分叉属正常）、删本地分支，再确认 main 的 CI 双绿。
 
 ### 4.1 发版：**只打 tag，绝不建 Release**（主人明确要求，违反即返工）
@@ -208,7 +208,7 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
 | 错误 | 后果 | 正确处理 |
 | --- | --- | --- |
 | 只 push 不建 PR / 合并后不删分支 | 分支残留、历史碎 | 走完 §4 全流程 |
-| PR 标题写英文/无 scope | squash 时提交信息不合规 | 标题必须是 `type(scope): 中文` |
+| PR 标题写英文/无 scope | squash 后 main 上的 commit 标题不合规（`verify:commits` 拦） | 标题必须是 `type(scope): 中文` |
 | 一次提交后立刻开 PR | 历史碎片化 | 小改动先本地攒批次 |
 | 未提交就继续做新任务 | 改动混批、历史难看 | 每轮收尾再开工 |
 | 文档里写自身变更史 / 实施状态（「此前…」「已落地」） | 越写越像流水账，与 git 重复 | 按 §1「md 文档整改」清掉，只留当前状态与外部证据 |
@@ -217,7 +217,7 @@ ls .tmp                        # 清理临时文件；截图与诊断产物不�
 | **给本仓建了 GitHub Release**（`gh release create` / `github:release` 技能 / 网页 Draft） | 主人明确禁止：本仓发布物只有 tag，Release 页是多余事实源 | 只打 tag（§4.1）；已建的要删掉并保留 tag：`gh release delete <tag> --yes` |
 | 本地绿但推送门禁红 | 平台/依赖差异（如漏提交新文件） | 用门禁同款命令在干净 clone 复现 |
 | `.tmp` 被删后重定向失败 | 测试没跑却以为绿了 | 先 `mkdir -p .tmp` |
-| 合并后本地 `git pull` 冲突 | rebase 重写了 SHA，同内容不同源 | `git fetch --prune` 后 `git reset --hard origin/main` |
+| 合并后本地 `git pull` 冲突 | squash 重写了 SHA，同内容不同源 | `git fetch --prune` 后 `git reset --hard origin/main` |
 
 ## 7. 输出要求
 

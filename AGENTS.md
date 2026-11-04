@@ -62,7 +62,7 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 小改动先本地 commit 攒着，攒够一批再走 PR。**推送门禁由 `.githooks/pre-push` 自动执行**
 （`npm install` 经 `prepare` 接线），跑不过就拦下推送，不需要手动跑；禁止 `--no-verify`。
 真正不可绕过的是 CI —— `main` 有分支保护，合并前双检查必须绿。
-PR 用 rebase 合并，禁止 merge commit。
+PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `type(scope): 中文`）；禁止 merge commit。
 完整分支流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
 ## 代码约定
