@@ -598,7 +598,7 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 
 - 渠道**不写单元测试**（`AGENTS.md`「测试规则」第 1 条），只做端到端
   （`dsh-mx-test` 技能）。
-- 探测脚本放项目根 `.tmp/`，**默认保留复用**（`AGENTS.md`「测试规则」第 2 条）。
+- 探测脚本放项目根 `.tmp/` 并保留复用（全局规则「临时文件」）。
 - 只发**正确形态**的请求；**绝不**拿真实账号去「故意发错、验证归一化是否会修」。
 - 实测结论要落 `docs/channels/astudio/PROTOCOL.md`。
 - 改完：`npm run build` → `mx restart` → `mx status --json` 确认 `stale_build=false`。

@@ -52,7 +52,7 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 
 ## 分支与 PR
 
-`main` 有分支保护，禁止直推。大规模改动判定（命中任一即开分支）：
+`main` 有分支保护（直推与合并红线见全局规则 / `git-workflow` 技能）。大规模改动判定（命中任一即开分支）：
 - 跨 `packages/` 两个及以上包
 - 目录结构 / 包边界 / workspaces / tsconfig references 调整
 - 契约变更（`docs/CONTRACT-TS.md` / `docs/STORAGE-CONVENTION.md` / `docs/POOL-ARCHITECTURE.md`）
@@ -71,15 +71,13 @@ PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `ty
 - 注释：what 去文档（协议事实只活在 `docs/channels/<cid>/PROTOCOL.md`），why 跟函数（docstring）。
   文件头 ≤12 行：一句话职责 + 关键约束 ≤3 条 + 指针。细则见 [docs/MODULE-COMMENTS.md](docs/MODULE-COMMENTS.md)
   和 [docs/CODE-COMMENTS.md](docs/CODE-COMMENTS.md)。
-- catch 块不空吞异常；空 catch 必须注释说明原因。
-- `@ts-ignore` / `@ts-expect-error` 同行写理由。禁止 `any` 图省事。
 - Web 控制台：正文信息不依赖 hover；图表数据详情例外（自绘浮层，`pointer-events-none`）。原生 `title=` 禁用。
   交互铁律见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
 
 ## 测试
 
 - 渠道不写测试，只做端到端（`dsh-mx-test` 技能；zcode 侧用 `zcode-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
-- 临时探测脚本落 `.tmp/`，保留复用。禁止虚构凭证与请求头——虚构载荷撞上游风控。
+- 临时探测脚本禁止虚构凭证与请求头——虚构载荷撞上游风控（脚本落 `.tmp/`、保留复用见全局规则）。
 - 测试模型选最低倍率，禁止高倍率旗舰（`*-pro` / `*-max` / `kimi-k3` 等）。
 - 禁止占用或杀掉 4412 网关；独立实例用 `--addr` 其他端口。
 - 已知隐患：`--test-force-exit` 会静默丢结果；怀疑漏跑时按 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「测试已知隐患」手工复跑。
