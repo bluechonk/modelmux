@@ -199,8 +199,8 @@ describe("3. 与渠道写盘对账", () => {
     const account = captureActive(CID)!;
     const before = readAccountCredential(account.key, CID);
 
-    // 模拟渠道 refresh()：只写 credentials.json
-    const refreshed = { ...before, accessToken: "tok-1-refreshed" };
+    // 模拟渠道 refresh()：只写 credentials.json（令牌用派生值，凭据位不留字面量）
+    const refreshed = { ...before, accessToken: `${before.accessToken}-refreshed` };
     writeFileSync(paths.credentialsPath(CID), `${JSON.stringify(refreshed, null, 2)}\n`, "utf8");
 
     listAccounts(CID); // 触发对账
