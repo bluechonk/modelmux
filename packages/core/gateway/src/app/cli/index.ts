@@ -11,10 +11,7 @@
 import { parseArgs } from "node:util";
 
 import { channelCount, channels, getChannel, hasChannel } from "../../runtime/channel.js";
-import { writeCodexCatalog } from "../../pool/codex-catalog.js";
-import { checkZcode, connectClaude, connectCodex, restoreClient } from "../../runtime/client-config.js";
 import { rootDir } from "../../runtime/paths.js";
-import { homedir } from "node:os";
 import { CHANNEL_VERBS, isChannelVerb, runVerb } from "./channel.js";
 import * as groups from "./model.js";
 import { defaultAddr, defaultUiPort, version } from "../../runtime/cli-consts.js";
@@ -47,8 +44,6 @@ export function usage(): string {
       lines.push("  " + pad("model list") + "池视图：模型 → 候选渠道 + 已用量 + 冷却");
       lines.push("  " + pad("model usage [--refresh]") + "池账本；--refresh 立刻重查额度");
       lines.push("  " + pad("model spec <模型名>") + "查看模型的规格（窗口/输出/档位/倍率/模态）");
-      lines.push("  " + pad("catalog [--out <路径>]") + "生成 Codex 模型目录（config.toml 的 model_catalog_json）");
-      lines.push("  " + pad("connect <客户端>") + "一键接入 claude/codex（写配置+备份）；zcode 只读指引；--restore 回滚");
     }
     for (const v of CHANNEL_VERBS) {
       if (v.group === group) lines.push("  " + pad(v.usage) + v.summary);
@@ -259,59 +254,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         host: strOpt(o, "host") || undefined,
         port: numOpt(o, "port") ?? undefined,
       });
-
-    case "catalog": {
-      const { path, count } = writeCodexCatalog(strOpt(o, "out"));
-      if (ctx.json) {
-        console.log(JSON.stringify({ ok: true, path, models: count }));
-      } else {
-        console.log(`Codex 模型目录已生成（${count} 个模型）: ${path}`);
-        console.log("在 ~/.codex/config.toml 里配置:");
-        console.log('  model_catalog_json = "' + path.replaceAll("\\", "\\\\") + '"');
-      }
-      return 0;
-    }
-
-    case "connect": {
-      const client = positionals[1];
-      if (client !== "claude" && client !== "codex" && client !== "zcode") {
-        console.error("用法: mx connect <claude|codex|zcode> [--model <cid>/<模型>] [--restore]");
-        return 2;
-      }
-      const home = homedir();
-      const baseUrl = `http://${addr}`;
-      if (boolOpt(o, "restore")) {
-        const done = client === "zcode" ? null : restoreClient(client, rootDir(), home);
-        if (!done) {
-          console.error(`${client} 没有可恢复的备份（backups/connect/ 下无记录）`);
-          return 1;
-        }
-        console.log(`已从 ${done.restored} 恢复 ${done.target}`);
-        return 0;
-      }
-      let outcome;
-      try {
-        if (client === "claude") {
-          outcome = connectClaude({ home, baseUrl, model: strOpt(o, "model"), root: rootDir() });
-        } else if (client === "codex") {
-          const catalog = writeCodexCatalog();
-          outcome = connectCodex({ home, baseUrl, model: strOpt(o, "model"), catalogPath: catalog.path, root: rootDir() });
-        } else {
-          outcome = checkZcode(home, baseUrl);
-        }
-      } catch (err) {
-        console.error(`connect ${client} 失败: ${String(err)}`);
-        return 1;
-      }
-      console.log(`== ${client} 接入完成（网关 ${baseUrl}）==`);
-      if (outcome.backupPath) console.log(`原配置已备份: ${outcome.backupPath}`);
-      for (const change of outcome.changes) {
-        console.log(`  ${change.key}: ${change.from ?? "(新增)"} → ${change.to ?? "(删除)"}`);
-      }
-      if (outcome.changes.length === 0) console.log("  （配置已是最新，无改动）");
-      for (const line of outcome.guide) console.log(line);
-      return 0;
-    }
 
     case "serve":
       return headless.runServe({

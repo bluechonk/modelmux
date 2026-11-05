@@ -133,7 +133,7 @@ export async function rotateExhaustedAccount(
     return { switched: false, remain: null, reason: "渠道未注册" };
   }
   const hasBilling = channelCapabilities(channel.config).billing;
-  // 无额度能力的渠道（自定义提供商）：只认「凭据失效」类换号（key 失效切下一个 key），
+  // 无额度能力的渠道：只认「凭据失效」类换号（账号被上游拒绝就切下一个健康账号），
   // 额度换号无意义 —— 判据不能走账单核查（fetchCredits 对这类渠道直接抛错）
   const authSwap = !hasBilling && opts.code === "upstream_unauthenticated";
   if (!hasBilling && !authSwap) {
@@ -215,7 +215,7 @@ export async function rotateExhaustedAccount(
 }
 
 /**
- * 无额度能力渠道（自定义提供商）的凭据失效换号：key 被上游拒绝时切到下一个健康账号。
+ * 无额度能力渠道的凭据失效换号：账号被上游拒绝时切到下一个健康账号。
  *
  * 不查账单（这类渠道没有 fetchCredits）；旧账号的 unauthorized 标记由调用链
  * （attempt 的 auth 失败分支 `markActiveHealth`）写入，这里只负责选下一个并切换。

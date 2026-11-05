@@ -14,7 +14,6 @@ import type { ServerResponse } from "node:http";
 import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
-import { protocolOf, sinkOf } from "../protocol/types.js";
 import { writeJson, writeJsonError } from "./errors.js";
 import { collectAsOpenAiSse, relayStream } from "./stream.js";
 import type { ProbeFrames } from "./queue.js";
@@ -91,7 +90,6 @@ function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wan
       model,
       choices: [{ index: 0, delta, finish_reason: finishReason }],
     })}\n\n`;
-  const protocol = protocolOf(res);
   if (!wantStream) {
     const completion = {
       id,
@@ -103,23 +101,11 @@ function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wan
       ],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     };
-    writeJson(
-      res,
-      protocol ? protocol.protocol.encodeCompletion(completion, protocol.requestModel) : completion,
-    );
+    writeJson(res, completion);
     return;
   }
   if (!res.headersSent) {
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-  }
-  const sink = sinkOf(res);
-  if (sink) {
-    sink.writeOpenAiFrame(chunk({ role: "assistant", content: "" }, null));
-    sink.writeOpenAiFrame(chunk({ content: `${text}\n\n` }, null));
-    sink.writeOpenAiFrame(chunk({}, "stop"));
-    sink.finish();
-    res.end();
-    return;
   }
   res.write(chunk({ role: "assistant", content: "" }, null));
   res.write(chunk({ content: `${text}\n\n` }, null));
@@ -223,11 +209,7 @@ export async function relayUpstream(
         return;
       }
       noteFirstByte(res);
-      // 入站协议在场：聚合的 OpenAI completion 转成协议应答 JSON（anthropic message /
-      // responses response）；usage 记账用的仍是 aggregated.usage，不受影响
-      const protocol = protocolOf(res);
-      if (protocol) writeJson(res, protocol.protocol.encodeCompletion(aggregated, protocol.requestModel));
-      else writeJson(res, aggregated);
+      writeJson(res, aggregated);
     } catch (err) {
       logger(`reading upstream response interrupted: ${String(err)}`);
       const timedOut = /timeout/i.test(String(err));
@@ -267,15 +249,9 @@ export async function relayUpstream(
       writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
       return;
     }
-    const queuedSink = sinkOf(res);
-    if (queuedSink) {
-      queuedSink.writeError("upstream_queued", "upstream is queued and the wait budget was exhausted");
-      queuedSink.finish();
-    } else {
-      res.write(
-        `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
-      );
-    }
+    res.write(
+      `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
+    );
     res.end();
     return;
   }

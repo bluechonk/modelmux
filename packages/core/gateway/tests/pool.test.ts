@@ -307,12 +307,11 @@ describe("1. /v1/models 动态返回全模型池（`<cid>/<模型>`），请求�
     assert.equal(err.error.code, "unknown_model");
   });
 
-  it("裸模型名按目录索引路由（新契约：接入路由层，见 docs/CLIENT-INTEGRATION.md）", async () => {
-    // 旧契约：池 id 统一 `<cid>/<模型>`，裸名一律 400。
-    //   接入 Claude Code / Codex 后裸名重新可用 —— 它们只会发厂商默认名，
-    //   裸名按跨渠道索引精确命中（多渠道取 cid 序第一个），未命中再走别名/默认模型。
-    const { status } = await chat(gw, "glm-5.3-flash");
-    assert.equal(status, 200);
+  it("裸模型名 → 400 unknown_model（对外 id 恒为 <cid>/<模型>）", async () => {
+    // 别名/默认模型/裸名索引已随客户端接入层移除：裸名一律 400（根 AGENTS.md「代码约定」）。
+    const { status, text } = await chat(gw, "glm-5.3-flash");
+    assert.equal(status, 400);
+    assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");
   });
 
   it("带前缀的 `<cid>/<模型>` 形态可用（现行契约的正例）", async () => {

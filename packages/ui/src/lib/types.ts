@@ -351,65 +351,6 @@ export interface PingResult {
   avgTps: number | null;
 }
 
-/**
- * 自定义提供商的模型条目（用户在控制台填的内置表）。
- *
- * `contextWindow` / `maxOutputTokens` 查不到就省略 —— 池层会回落到共享兜底值，
- * 界面不编造数字。
- */
-export interface CustomModel {
-  id: string;
-  name?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  inputModalities?: string[];
-}
-
-/** 一个 key（= 账号池里一个账号）：原文不下发，回显用 masked 指纹。 */
-export interface ProviderKey {
-  /** key 原文（编辑已有行时留空，靠 masked 找回原文）。 */
-  key: string;
-  /** 服务端下发的指纹（`ak_25f…2j7h` 形态）。 */
-  masked?: string;
-  /** 可选备注名（账号行显示它）。 */
-  label?: string;
-}
-
-/** 控制台里的自定义提供商（apiKeys 只回指纹，原文不下发）。 */
-export interface CustomProvider extends CustomModel {
-  id: string;
-  display: string;
-  baseUrl: string;
-  protocol: "openai";
-  apiKeys: ProviderKey[];
-  models: CustomModel[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** 保存自定义提供商的入参（已有 key 行留空 = 保持原值）。 */
-export interface CustomProviderInput {
-  id: string;
-  display: string;
-  baseUrl: string;
-  protocol: "openai";
-  apiKeys: ProviderKey[];
-  models: CustomModel[];
-}
-
-/**
- * 入站路由注册表（`~/.modelmux/router.json`，控制台「接入路由」页编辑）。
- *
- * Claude Code / Codex 发来的裸模型名（厂商默认名等）靠别名表与默认模型
- * 兜底成池 id，见 docs/CLIENT-INTEGRATION.md。
- */
-export interface RouterSettings {
-  /** 裸名未命中时的兜底池 id（`<cid>/<模型>`）。 */
-  default?: string;
-  /** 别名 → 池 id。 */
-  aliases?: Record<string, string>;
-}
-
 /** 一个账号**今日**的 token 消耗（账号池账号行用，与「今日消耗」同口径）。 */
 export interface UsageAccountRow {
   key: string;
