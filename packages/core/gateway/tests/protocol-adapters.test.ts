@@ -189,6 +189,63 @@ describe("anthropic response encoding", () => {
     assert.equal(usage["output_tokens"], 22);
   });
 
+  it("非流式 thinking：上游 reasoning_content → content 首位的 thinking 块", () => {
+    const aggregated: AggregatedCompletion = {
+      ...AGG,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "答案", reasoning_content: "先想想…" },
+          finish_reason: "stop",
+        },
+      ],
+    };
+    const body = anthropicProtocol.encodeCompletion(aggregated, "m") as Record<string, unknown>;
+    const content = body["content"] as Array<Record<string, unknown>>;
+    assert.equal(content[0]?.["type"], "thinking");
+    assert.equal(content[0]?.["thinking"], "先想想…");
+    assert.equal(content[1]?.["type"], "text");
+    assert.equal(content[1]?.["text"], "答案");
+  });
+
+  it("流式 thinking：thinking 块先开先关，随后 text 块（块顺序符合 anthropic 约束）", () => {
+    const { res, writes } = stubResponse();
+    const sink = anthropicProtocol.openEncoder(res, "m");
+    const frame = (delta: Record<string, unknown>, finish: string | null = null): string =>
+      `data: ${JSON.stringify({
+        id: "c1",
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      })}\n\n`;
+    sink.writeOpenAiFrame(frame({ role: "assistant", content: "", reasoning_content: "推理一" }));
+    sink.writeOpenAiFrame(frame({ reasoning_content: "推理二" }));
+    sink.writeOpenAiFrame(frame({ content: "正文" }));
+    sink.writeOpenAiFrame(frame({}, "stop"));
+    sink.finish();
+
+    const starts = writes
+      .filter((w) => w.includes("content_block_start"))
+      .map((w) => (JSON.parse(w.split("\n").find((l) => l.startsWith("data: "))!.slice(6)) as Record<string, unknown>));
+    const kinds = starts.map((s) => (s["content_block"] as Record<string, unknown>)["type"]);
+    assert.deepEqual(kinds, ["thinking", "text"]);
+    const deltas = writes.filter((w) => w.includes("thinking_delta"));
+    assert.equal(deltas.length, 2, "两条推理增量都应映射为 thinking_delta");
+    // 事件顺序：thinking 块先开先关，随后才是 text 块（anthropic 块顺序约束）
+    const events = writes.map((w) => /^event: ([a-z_]+)/m.exec(w)?.[1] ?? "");
+    assert.deepEqual(events, [
+      "message_start",
+      "content_block_start",
+      "content_block_delta",
+      "content_block_delta",
+      "content_block_stop",
+      "content_block_start",
+      "content_block_delta",
+      "content_block_stop",
+      "message_delta",
+      "message_stop",
+    ]);
+  });
+
   it("流式：message_start → text 块 → tool_use 块 → message_delta/message_stop", () => {
     const { res, writes } = stubResponse();
     const sink = anthropicProtocol.openEncoder(res, "claude-4");
@@ -339,6 +396,58 @@ describe("responses response encoding", () => {
     const usage = body["usage"] as Record<string, unknown>;
     assert.equal(usage["input_tokens"], 11);
     assert.equal(usage["total_tokens"], 33);
+  });
+
+  it("非流式 reasoning：上游 reasoning_content → output 首位的 reasoning item", () => {
+    const aggregated: AggregatedCompletion = {
+      ...AGG,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "答案", reasoning_content: "先想想…" },
+          finish_reason: "stop",
+        },
+      ],
+    };
+    const body = responsesProtocol.encodeCompletion(aggregated, "m") as Record<string, unknown>;
+    const output = body["output"] as Array<Record<string, unknown>>;
+    assert.equal(output[0]?.["type"], "reasoning");
+    assert.equal(output[1]?.["type"], "message");
+    const msgContent = (output[1] as Record<string, unknown>)["content"] as Array<Record<string, unknown>>;
+    assert.equal(msgContent[0]?.["text"], "答案");
+  });
+
+  it("流式 reasoning：reasoning item 先开先关，事件族完整", () => {
+    const { res, writes } = stubResponse();
+    const sink = responsesProtocol.openEncoder(res, "m");
+    const frame = (delta: Record<string, unknown>, finish: string | null = null): string =>
+      `data: ${JSON.stringify({
+        id: "c1",
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      })}\n\n`;
+    sink.writeOpenAiFrame(frame({ role: "assistant", content: "", reasoning_content: "推理" }));
+    sink.writeOpenAiFrame(frame({ content: "正文" }));
+    sink.writeOpenAiFrame(frame({}, "stop"));
+    sink.finish();
+
+    const events = writes.map((w) => /^event: ([a-z_.]+)/m.exec(w)?.[1] ?? "");
+    assert.deepEqual(events, [
+      "response.created",
+      "response.output_item.added", // reasoning item
+      "response.reasoning_text.delta",
+      "response.reasoning_text.done",
+      "response.output_item.done", // reasoning item 收口
+      "response.output_item.added", // message item
+      "response.content_part.added",
+      "response.output_text.delta",
+      "response.output_text.done",
+      "response.content_part.done",
+      "response.output_item.done",
+      "response.completed",
+    ]);
+    const reasoningAdded = writes[1]!;
+    assert.match(reasoningAdded, /"type":"reasoning"/);
   });
 
   it("流式：created → output_item.added → output_text.delta → completed（usage 在 completed）", () => {
