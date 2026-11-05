@@ -16,11 +16,7 @@ import type {
   PayloadQueryResult,
   PayloadSliceResult,
   PingResult,
-  CustomModel,
-  CustomProvider,
-  CustomProviderInput,
   PoolRow,
-  RouterSettings,
   UiSnapshot,
   UsageRange,
   UsageStats,
@@ -38,7 +34,6 @@ import {
   demoLogs,
   demoModels,
   demoOverview,
-  demoProviders,
   demoRemove,
   demoReset,
   demoSettings,
@@ -89,12 +84,6 @@ async function get<T>(path: string): Promise<T> {
   return await res.json() as T;
 }
 
-/** `DELETE` 请求（自定义提供商删除用）。 */
-async function del<T>(path: string): Promise<T> {
-  const resp = await fetch(path, { method: "DELETE" });
-  return (await resp.json()) as T;
-}
-
 async function post<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -143,12 +132,6 @@ function demoGetState(): UiSnapshot {
   return demoSettings(demo());
 }
 
-/** 演示模式下的路由注册表（内存副本，仅页面预览用）。 */
-let demoRouter: RouterSettings = {
-  default: "demo/longcat-2.0",
-  aliases: { "claude-sonnet-4-5": "demo/longcat-2.0" },
-};
-
 export interface WebApi {
   getState(): Promise<UiSnapshot>;
   setTheme(mode: string): Promise<{ ok: boolean }>;
@@ -177,22 +160,6 @@ export interface WebApi {
   ): Promise<PayloadSliceResult>;
   /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
   overview(): Promise<OverviewResponse>;
-  /** 自定义提供商注册表（`GET /web/api/providers`）；apiKey 只回指纹，不回原文。 */
-  providers(): Promise<CustomProvider[]>;
-  /** 新增/保存一个自定义提供商（apiKey 留空 = 保持原值）。 */
-  saveProvider(provider: CustomProviderInput): Promise<CustomProvider>;
-  /** 删除一个自定义提供商。 */
-  removeProvider(id: string): Promise<{ ok: boolean }>;
-  /**
-   * 拉取某个基址的可用模型（OpenAI 兼容 `GET {base}/models`）。
-   *
-   * `id` 为已保存 provider 时可用服务端手里的 key（apiKey 留空）—— 编辑表单不回显原文。
-   */
-  fetchProviderModels(baseUrl: string, apiKey: string, id?: string): Promise<CustomModel[]>;
-  /** 入站路由注册表（`GET /web/api/router`）：默认模型 + 别名表。 */
-  router(): Promise<RouterSettings>;
-  /** 整体写路由注册表（`PUT /web/api/router`）。 */
-  saveRouter(config: RouterSettings): Promise<RouterSettings>;
   /**
    * ping 一个模型（`POST /web/api/ping`）：向网关自身发一次最小 chat 请求并回耗时。
    *
@@ -398,40 +365,10 @@ export const api: WebApi = {
           `/api/logs/payload${queryString({ id, date, part: "body", phase, offset, limit })}`,
         ),
   usage: (range) => (IS_DEMO ? demoLater(demoUsage(range)) : get(`/api/usage${queryString({ range })}`)),
-  providers: async () => {
-    if (IS_DEMO) return demoProviders();
-    const res = (await get("/api/providers")) as { providers?: CustomProvider[] };
-    return res.providers ?? [];
-  },
-  saveProvider: (provider) =>
-    IS_DEMO ? demoLater({ ...provider, createdAt: "", updatedAt: "" }) : post("/api/providers", provider),
-  removeProvider: (id) =>
-    IS_DEMO ? demoLater({ ok: true }) : del(`/api/providers${queryString({ id })}`),
-  fetchProviderModels: async (baseUrl, apiKey, id) => {
-    if (IS_DEMO) return [{ id: "demo-model-a" }, { id: "demo-model-b" }];
-    const res = (await post("/api/providers/fetch-models", { baseUrl, apiKey, ...(id ? { id } : {}) })) as {
-      models?: CustomModel[];
-    };
-    return res.models ?? [];
-  },
   ping: (model) =>
     IS_DEMO
       ? demoLater({ ok: true, model, ms: 1_200, status: 200, error: "" })
       : post("/api/ping", { model }),
-  router: async () => {
-    if (IS_DEMO) return demoRouter;
-    // 服务端信封是 {ok, router}，页面要的是里面的注册表
-    const res = (await get("/api/router")) as { router?: RouterSettings };
-    return res.router ?? {};
-  },
-  saveRouter: async (config) => {
-    if (IS_DEMO) {
-      demoRouter = { ...config };
-      return demoRouter;
-    }
-    const res = (await put("/api/router", config)) as { router?: RouterSettings };
-    return res.router ?? {};
-  },
   overview: () =>
     IS_DEMO ? demoLater(demoOverview(demo())) : get("/api/overview"),
   commands: {
