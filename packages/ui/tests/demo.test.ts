@@ -148,8 +148,11 @@ describe("日志与用量（演示种子数据的读路径）", () => {
     assert.ok(failures.total <= page.total);
   });
 
-  it("种子里的慢判定与后端口径一致（首字慢 / 速率慢独立成立）", () => {
+  it("种子里的慢判定与后端口径一致（首字慢 / 速率慢两个归因都有样本）", () => {
     const entries = demoLogs(createDemoState(), { slow: true }).entries;
+    assert.ok(entries.length >= 2, "两个归因维度各至少一条，否则演示页像没有这个功能");
+    assert.ok(entries.some((e) => e.slowTtfb), "必须有首字慢样本");
+    assert.ok(entries.some((e) => e.slowTps), "必须有速率慢样本");
     for (const entry of entries) {
       assert.equal(entry.slow, true);
       assert.ok(entry.slowTtfb || entry.slowTps, "慢行必须能归因到至少一个维度");

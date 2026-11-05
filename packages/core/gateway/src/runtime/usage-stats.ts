@@ -159,6 +159,8 @@ interface DayAgg extends UsageDaily {
   byAccountRequests: Record<string, number>;
   /** 24 项（**本地**小时）；`ts` 是 UTC，必须转本地。 */
   byHour: number[];
+  /** 本次扫描有日志文件读失败被跳过：结果残缺，不得写进历史缓存。 */
+  partial: boolean;
 }
 
 /** 历史日期（已过去）的聚合缓存；今天不缓存。 */
@@ -195,6 +197,7 @@ function aggregateDay(date: string): DayAgg {
     byAccountTokens: {},
     byAccountRequests: {},
     byHour: new Array<number>(24).fill(0),
+    partial: false,
   };
   scanInto(date, agg);
   return agg;
@@ -202,7 +205,7 @@ function aggregateDay(date: string): DayAgg {
 
 /** 把某日的模型请求逐条累加进聚合体（与 `aggregateDay` 分开只为让缓存分支读起来更直）。 */
 function scanInto(date: string, agg: DayAgg): void {
-  scanAccessDate(date, (entry) => {
+  const skipped = scanAccessDate(date, (entry) => {
     if (!isModelRequestPath(entry.path)) return;
     const tokens = entry.tokens;
     const total = tokens?.total ?? 0;
@@ -256,15 +259,18 @@ function scanInto(date: string, agg: DayAgg): void {
       agg.byHour[hour] = (agg.byHour[hour] ?? 0) + total;
     }
   });
+  // 有文件读失败（轮转窗口 / 文件锁）→ 数字残缺。宁可下次重算，也不把「少算的
+  // 累计」固化进缓存 —— 那会让某一天的 tokens 从此偏低且无任何痕迹。
+  agg.partial = skipped > 0;
 }
 
-/** 取某日聚合（历史日期走缓存，今天每次重算）。 */
+/** 取某日聚合（历史日期走缓存，今天每次重算；残缺结果不进缓存，见 `partial`）。 */
 function dayAgg(date: string, today: string): DayAgg {
   if (date >= today) return aggregateDay(date);
   const hit = dayCache.get(date);
   if (hit !== undefined) return hit;
   const agg = aggregateDay(date);
-  dayCache.set(date, agg);
+  if (!agg.partial) dayCache.set(date, agg);
   return agg;
 }
 

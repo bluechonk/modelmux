@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { after, afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   attachRequestLog,
@@ -71,6 +71,10 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(accessDir(), { recursive: true, force: true });
+});
+
+after(() => {
+  rmSync(HOME, { recursive: true, force: true });
 });
 
 describe("attachRequestLog：上下文与请求头", () => {
@@ -215,5 +219,43 @@ describe("慢请求并行副本", () => {
     assert.equal(page.entries[0]?.slow, true);
     assert.equal(page.entries[0]?.slowTtfb, true);
     assert.equal(page.entries[0]?.slowTps, false, "40 tokens / 1s ≈ 40 t/s，速率维度不慢");
+  });
+
+  it("速率慢也进 slow.log（写路径必须从 usage 提取 completion，与读路径同一口径）", () => {
+    const res = fakeRes(200);
+    const log = attachRequestLog("POST", "/v1/chat/completions", res);
+    log["stream"] = true;
+    log["model"] = "deepseek-v4.1-flash";
+    log["cid"] = "lifecycle";
+    log["ttfbMs"] = 500;
+    // durationMs 由 finish 时钟算出 —— 把 startAt 前移出 3s 的假窗口
+    log["startAt"] = Date.now() - 3_000;
+    // 60 tokens / 2.5s = 24 t/s < 30（生成量 60 ≥ 20，可信窗口）
+    log["usage"] = { prompt_tokens: 900, completion_tokens: 60, total_tokens: 960 };
+    res.emit("finish");
+    const slowPath = join(accessDir(), "slow.log");
+    assert.ok(existsSync(slowPath), "24 t/s < 30，必须进 slow.log");
+    assert.equal(logLine(slowPath).length, 1);
+    const page = queryAccessLogs({ paths: MODEL_REQUEST_PATHS, limit: 10 });
+    assert.equal(page.entries[0]?.slow, true);
+    assert.equal(page.entries[0]?.slowTtfb, false, "首字 500ms 正常");
+    assert.equal(page.entries[0]?.slowTps, true, "速率维度单独成立");
+  });
+
+  it("读路径重算走新口径：总时长 60s 但速率 154 t/s → 不判慢（旧口径必误判）", () => {
+    const res = fakeRes(200);
+    const log = attachRequestLog("POST", "/v1/chat/completions", res);
+    log["stream"] = true;
+    log["model"] = "deepseek-v4.1-flash";
+    log["cid"] = "lifecycle";
+    log["ttfbMs"] = 1_500;
+    log["startAt"] = Date.now() - 60_000;
+    log["usage"] = { prompt_tokens: 1000, completion_tokens: 9000, total_tokens: 10000 };
+    res.emit("finish");
+    assert.equal(existsSync(join(accessDir(), "slow.log")), false, "长输出但快，不进 slow.log");
+    const page = queryAccessLogs({ paths: MODEL_REQUEST_PATHS, limit: 10 });
+    assert.equal(page.entries[0]?.slow, false);
+    assert.equal(page.entries[0]?.slowTtfb, false);
+    assert.equal(page.entries[0]?.slowTps, false);
   });
 });

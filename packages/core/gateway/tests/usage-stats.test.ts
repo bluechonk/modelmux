@@ -176,6 +176,26 @@ describe("computeUsageStats", () => {
     assert.equal(stats.totals.tokens, 100, "第 8 天在区间外");
   });
 
+  it("all 窗口覆盖保留期内全部日期（20 天都在 daily 里，7d 只裁 7 天）", () => {
+    resetUsageCache();
+    // 20 天每天都有请求（今天 + 往前 19 天）
+    for (let daysAgo = 0; daysAgo < 20; daysAgo += 1) {
+      const date = dateOffset(daysAgo);
+      writeDay(date, [modelEntry(date, "a/b", { prompt: 10, completion: 0 })]);
+    }
+    const all = computeUsageStats("all");
+    assert.equal(all.range, "all");
+    assert.equal(all.daily.length, 20, "all 必须覆盖全部 20 天，不做窗口裁剪");
+    assert.deepEqual(
+      all.daily.map((d) => d.date),
+      [...all.daily.map((d) => d.date)].sort(),
+      "daily 必须按日期升序",
+    );
+    assert.equal(all.totals.tokens, 200, "20 天 × 10 tokens 全计入");
+    const seven = computeUsageStats("7d");
+    assert.equal(seven.daily.length, 7, "同数据下 7d 只裁 7 天");
+  });
+
   it("缓存命中率：无缓存字段的请求不进分母（全无字段时为 null）", () => {
     resetUsageCache();
     const today = dateOffset(0);

@@ -263,6 +263,36 @@ function childIndentOf(lines: string[], refsIdx: number): string {
 }
 
 /**
+ * 多行 flow（`refs: {` … `}`）的收尾行下标：按**净花括号深度**走，而不是「第一个含
+ * `}` 的行」—— 子条目自身是内联 flow（`A: { x: 1 }`）时该行净贡献为 0，按行找会把
+ * 内层的 `}` 误判成收尾，把新条目拼进内层 map 并留下无效 YAML。值含引号包裹的
+ * `{`/`}` 的场景不存在（本函数只写模型名与 env 引用名）。
+ */
+function flowCloseLine(lines: string[], refsIdx: number): number {
+  let depth = 0;
+  for (let i = refsIdx; i < lines.length; i += 1) {
+    for (const ch of lines[i]!) {
+      if (ch === "{") depth += 1;
+      else if (ch === "}") depth -= 1;
+    }
+    if (depth <= 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * 拆行尾注释（第一个 ` #` 起）；没有返回 `[原行, ""]`。
+ * 追加条目前必须拆 —— 否则 `A: 1 # note` 会被拼成 `A: 1 # note, B: 2`，
+ * 条目落进注释里静默丢失。值本身含「空格 + #」的 YAML 不由本函数处理
+ * （机器管理的凭据 / patch 文件里不会出现）。
+ */
+function splitTrailingComment(line: string): [string, string] {
+  const at = line.indexOf(" #");
+  if (at < 0) return [line, ""];
+  return [line.slice(0, at).replace(/[ \t]+$/, ""), line.slice(at)];
+}
+
+/**
  * 确保 dsh 凭据引用存在：补丁里的 `apiKeyEnv: MODELMUX_API_KEY` 只是个引用名，
  * 真正的密钥在 `~/.dsh/.credentials.yaml` 的 `refs` 里；名字不在 refs 中时 dsh 的
  * Models 页判定该 provider 不可用（具名凭据未配置），请求发不出去。
@@ -300,7 +330,7 @@ function ensureDshCredential(): { file: string; changed: boolean; notes: string[
     const close = refsLine.includes("{")
       ? refsLine.includes("}")
         ? refsIdx
-        : next.findIndex((l, i) => i > refsIdx && l.includes("}"))
+        : flowCloseLine(next, refsIdx)
       : -1;
     if (close < 0) {
       // block map：插到 `refs:` 之后，缩进跟着第一个子条目走
@@ -308,21 +338,28 @@ function ensureDshCredential(): { file: string; changed: boolean; notes: string[
     } else if (close === refsIdx) {
       // 单行 flow：`refs: { A: 1 }` → `refs: { A: 1, B: 2 }`
       const line = next[refsIdx]!;
-      const at = line.lastIndexOf("}");
-      const head = line.slice(0, at).replace(/[ \t]+$/, "");
-      next[refsIdx] = `${head}${head.endsWith("{") ? " " : ", "}${entry}}`;
+      const [bare, comment] = splitTrailingComment(line);
+      const at = bare.lastIndexOf("}");
+      const head = bare.slice(0, at).replace(/[ \t]+$/, "");
+      next[refsIdx] = `${head}${head.endsWith("{") ? " " : ", "}${entry}}${comment}`;
     } else {
       // 多行 flow：`refs: {` … `}` —— 追加到 `}` 前最后一个条目行（flow 靠逗号分隔）
       const closeLine = next[close]!;
-      const at = closeLine.lastIndexOf("}");
-      const closeHead = closeLine.slice(0, at).replace(/[ \t]+$/, "");
+      const [closeBare, closeComment] = splitTrailingComment(closeLine);
+      const at = closeBare.lastIndexOf("}");
+      const closeHead = closeBare.slice(0, at).replace(/[ \t]+$/, "");
       if (closeHead !== "") {
-        next[close] = `${closeHead}, ${entry}}`;
+        // 条目与收尾同行（`A: 1 }` / `A: 1 # 注 }`）：注释挪到 `}` 之后
+        next[close] = `${closeHead}, ${entry}}${closeComment}`;
       } else {
         let prev = close - 1;
         while (prev > refsIdx && isBlank(next[prev]!)) prev -= 1;
         if (prev === refsIdx) next.splice(refsIdx + 1, 0, `${childIndentOf(next, refsIdx)}${entry}`);
-        else next[prev] = `${next[prev]!.replace(/[ \t]+$/, "")}, ${entry}`;
+        else {
+          // 条目拼进行尾：先拆行尾注释再接 —— 否则新条目会被拼进注释里静默丢失
+          const [bare, comment] = splitTrailingComment(next[prev]!);
+          next[prev] = `${bare}, ${entry}${comment}`;
+        }
       }
     }
     text = next.join(nl);
@@ -358,9 +395,14 @@ function integrateDsh(models: string[]): IntegrationResult {
   if (cred.changed) result.changed.push(cred.file);
   else result.unchanged.push(cred.file);
 
+  // 「有没有接入成功」只看 profile 本身：凭据引用被新建不能把「一个 profile 都没改」
+  // 说成已接入 —— 那比报错更具误导性（界面 toast「已接入」，实际什么都没接）。
+  let profileSeen = 0;
+  let profileChanged = 0;
   for (const profile of DSH_PROFILES) {
     const file = join(profilesDir, profile, "cordis.patch.yml");
     if (!existsSync(file)) continue;
+    profileSeen += 1;
     const original = readFileSync(file, "utf8");
     const next = upsertDshPatch(original, profile, models);
     if (next === original) {
@@ -371,13 +413,14 @@ function integrateDsh(models: string[]): IntegrationResult {
     backupFile(dir, file);
     writeFileSync(file, next, "utf8");
     result.changed.push(file);
+    profileChanged += 1;
     result.notes.push(`${profile}：模型清单改为 ${models.join(" / ")}`);
   }
 
-  if (result.changed.length === 0) {
+  if (profileChanged === 0) {
     result.ok = true;
     result.backupDir = dir;
-    if (result.unchanged.length === 0) result.error = `${profilesDir} 下没有可改的 profile（${DSH_PROFILES.join(" / ")}）`;
+    if (profileSeen === 0) result.error = `${profilesDir} 下没有可改的 profile（${DSH_PROFILES.join(" / ")}）`;
     return result;
   }
   result.backupDir = dir;

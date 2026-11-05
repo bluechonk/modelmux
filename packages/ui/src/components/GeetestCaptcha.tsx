@@ -117,7 +117,7 @@ export function GeetestCaptcha({
    * **必须这样**：父组件传的是内联箭头函数，每次渲染都是新身份。
    * 若把它们放进 `useCallback` / `useEffect` 的依赖，effect 会**每渲染重跑一次**
    * → 上一次的实例被 `destroy()` → GeeTest 立刻回调 `onError`，
-   * 表现为「安全验证异常，请重试」（实测踩过：
+   * 表现为「安全验证异常，请重试」（实测出现过：
    * 手动在页面里 initGeetest 是好的，`onReady` 正常触发、`verify()` 正常调用）。
    */
   const onSolvedRef = useRef(onSolved);
