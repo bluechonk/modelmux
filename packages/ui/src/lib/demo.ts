@@ -55,28 +55,24 @@ interface DemoAccount {
 const DEMO_CHANNELS: DemoChannel[] = [
   { cid: "astudio", display: "AStudio", present: true, billing: false },
   { cid: "catpaw", display: "CatPaw", present: true, billing: true },
-  { cid: "lobsterai", display: "LobsterAI", present: true, billing: true },
   { cid: "loomy", display: "Loomy", present: true, billing: true },
   { cid: "qoder", display: "Qoder", present: false, billing: true },
   { cid: "qodercn", display: "Qoder 国内版", present: true, billing: true },
   { cid: "raccoon", display: "Raccoon", present: true, billing: true },
   { cid: "traecn", display: "TRAE", present: true, billing: true },
   { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
-  { cid: "workbuddyai", display: "WorkBuddyAI", present: true, billing: true },
 ];
 
 /** 各渠道对外暴露的模型（虚构演示集，形态与真实一致：`<cid>/<模型名>`）。 */
 const DEMO_MODELS: Record<string, string[]> = {
   astudio: ["auto", "deepseek-v4-flash", "deepseek-v4-pro", "glm-5.2", "spark-x2.5", "spark-x2.6", "spark-x2.6-lite"],
   catpaw: ["deepseek-v4-flash", "deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "longcat-2.0"],
-  lobsterai: ["deepseek-v4-flash", "doubao-seed-2.1-pro", "glm-5", "glm-5.3", "kimi-k2.6", "minimax-m3", "qwen3.8-max"],
   loomy: ["deepseek-v4-flash", "glm-5.3-flash", "kimi-k2.6", "mimo-v2.5", "minimax-m3", "qwen3.8-flash", "spark-x"],
   qoder: ["glm-5.3-flash"],
   qodercn: ["auto", "deepseek-flash", "deepseek-v4-pro", "glm-5.3", "kimi-k3", "qwen3.8-max"],
   raccoon: ["deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "sensenova-6.8-flash"],
   traecn: ["deepseek-v4-flash", "deepseek-v4-pro", "doubao-seed-2.1-pro", "glm-5.3", "kimi-k2.6", "minimax-m3"],
   workbuddy: ["deepseek-v4.1-flash"],
-  workbuddyai: ["deepseek-v4.1-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -93,13 +89,14 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
     { key: "demo000000000000a5", uid: "demo-uid-catpaw-5", label: "demo-uid-catpaw-5", health: "ok" },
   ],
   // 额度冷却：到期惰性恢复
-  lobsterai: [{ key: "demo000000000000c1", uid: "demo-uid-lobster-1", label: "13912340003", name: "13912340003", health: "cooldown", cooldownInMinutes: 180, cooldownReason: "上游 429 用量限额，等额度窗口刷新", expiresInDays: 25 }],
   loomy: [{ key: "demo000000000000d1", uid: "demo-uid-loomy-1", label: "13712340004", name: "13712340004", health: "ok", expiresInDays: 8 }],
   qodercn: [{ key: "demo000000000000e1", uid: "demo-uid-qodercn-1", label: "demo-qoder-user", name: "demo-qoder-user", health: "ok", expiresInDays: 30 }],
   raccoon: [{ key: "demo000000000000f1", uid: "demo-uid-raccoon-1", label: "demo-raccoon-user", name: "demo-raccoon-user", health: "ok" }],
-  traecn: [{ key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok", expiresInDays: 3 }],
-  // 凭据失效：只能重新登录（清标记也不会让它恢复可用）
-  workbuddyai: [{ key: "demo000000000000h1", uid: "demo-uid-wbai-1", label: "demo-uid-wbai-1", health: "unauthorized", expiresInDays: -2 }],
+  traecn: [
+    { key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok", expiresInDays: 3 },
+    // 凭据失效：只能重新登录（清标记也不会让它恢复可用）
+    { key: "demo000000000000g2", uid: "demo-uid-trae-2", label: "demo-uid-trae-2", health: "unauthorized", expiresInDays: -2 },
+  ],
 };
 
 /**
@@ -110,12 +107,10 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
  */
 const DEMO_QUOTA: Record<string, { size: number; remain: number; unit: string }> = {
   catpaw: { size: 500, remain: 486, unit: "积分" },
-  lobsterai: { size: 2000, remain: 1974, unit: "credits" },
   loomy: { size: 5000, remain: 4820, unit: "积分" },
   qodercn: { size: 600, remain: 228, unit: "credits" },
   raccoon: { size: 800, remain: 610, unit: "积分" },
   traecn: { size: 2000, remain: 797, unit: "credits" },
-  workbuddyai: { size: 200, remain: 66, unit: "credits" },
 };
 
 /** 池账本（虚构用量）。`accounts` 是按生效账号拆分的请求计数。 */
@@ -123,14 +118,12 @@ const DEMO_LEDGER: Record<string, { used: number; unit: string; ok: number; fail
   // 免费档（billing: false）→ 单位留空，额度条不渲染
   astudio: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   catpaw: { used: 128, unit: "credits", ok: 96, fail: 2, cooling: false },
-  lobsterai: { used: 0, unit: "credits", ok: 17, fail: 0, cooling: false },
   loomy: { used: 42, unit: "积分", ok: 30, fail: 0, cooling: false },
   qoder: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   qodercn: { used: 672, unit: "credits", ok: 210, fail: 3, cooling: false },
   raccoon: { used: 0, unit: "", ok: 12, fail: 1, cooling: true },
   traecn: { used: 1450, unit: "credits", ok: 88, fail: 4, cooling: false },
   workbuddy: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
-  workbuddyai: { used: 216, unit: "credits", ok: 5, fail: 9, cooling: true },
 };
 
 /**
@@ -599,10 +592,10 @@ const DEMO_LOG_SEED: Array<{
   { cid: "raccoon", model: "raccoon/glm-5.3", stream: true, outcome: "failure", status: 503, durationMs: 980, upstreamMs: 940, ttfbMs: 980, tokens: null, error: "not_authenticated", message: "not logged in: credential expired", messageCount: 3 },
   { cid: "qodercn", model: "qodercn/deepseek-v4-pro", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
   { cid: "catpaw", model: "catpaw/glm-5.3-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
-  { cid: "workbuddyai", model: "workbuddyai/deepseek-v4.1-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
+  { cid: "catpaw", model: "catpaw/deepseek-v4.1-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
   { cid: "loomy", model: "loomy/minimax-m3", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
   { cid: "astudio", model: "astudio/spark-x2.6", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
-  { cid: "lobsterai", model: "lobsterai/glm-5.3", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
+  { cid: "workbuddy", model: "workbuddy/deepseek-v4.1-flash", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
   { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, outcome: "success", status: 200, durationMs: 1180, upstreamMs: 300, ttfbMs: 480, tokens: { prompt: 240, completion: 96, total: 336 }, messageCount: 1 },
   { cid: "qodercn", model: "qodercn/kimi-k3", stream: true, outcome: "success", status: 200, durationMs: 40210, upstreamMs: 880, ttfbMs: 2600, tokens: { prompt: 20480, completion: 9140, total: 29620 }, toolCount: 9, messageCount: 44 },
   { cid: "catpaw", model: "catpaw/longcat-2.0", stream: false, outcome: "success", status: 200, durationMs: 2620, upstreamMs: 2400, ttfbMs: 2620, tokens: { prompt: 1240, completion: 520, total: 1760 }, messageCount: 6 },
@@ -725,13 +718,12 @@ function localDate(d: Date): string {
 
 /** 演示用的模型权重（池 id 形态与真实一致，权重让环形图有主次）。 */
 const DEMO_USAGE_MODELS: Array<{ id: string; weight: number }> = [
-  { id: "loomy/kimi-k2.6", weight: 0.34 },
+  { id: "loomy/kimi-k2.6", weight: 0.37 },
   { id: "catpaw/glm-5.3-flash", weight: 0.22 },
   { id: "traecn/kimi-k2.6", weight: 0.15 },
   { id: "qodercn/deepseek-v4-pro", weight: 0.12 },
   { id: "astudio/spark-x2.5", weight: 0.09 },
   { id: "raccoon/glm-5.3", weight: 0.05 },
-  { id: "workbuddyai/deepseek-v4.1-flash", weight: 0.03 },
 ];
 
 /**

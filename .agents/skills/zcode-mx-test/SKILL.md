@@ -138,8 +138,8 @@ mx bill <cid>          # 后；差值用 remain 相减
    也可能挂 177s 才关；回合等待窗口给 600s 起，判断「卡死」前先看 `mx log` 的 `messageCount`
    是否还在递增。回合结束判据用会话库 `last_outcome`（权威），事件流形态多样不要依赖。
 7. **`-p` 的 `--cwd` 改变项目分组**：传 `.tmp` 会让会话落到独立项目组，web remote 的 modelmux 组里看不到。
-8. **免费模型也可能不可用**：实测（2026-11-04）`workbuddyai` 倍率 0 但上游凭证被拒
-   （`upstream_unauthenticated` 502），zcode 侧会静默重试多次。倍率健康 ≠ 渠道健康，
+8. **免费模型也可能不可用**：实测（2026-11-04）`workbuddyai`（该渠道后因账号封停已下架）倍率 0
+   但上游凭证被拒（`upstream_unauthenticated` 502），zcode 侧会静默重试多次。倍率健康 ≠ 渠道健康，
    渠道全失败先查 `mx log --kind error` 的凭据类条目，再用 `mx login <cid>` / `mx acct <cid> use` 修复。
 
 ## References 索引（按需读取）

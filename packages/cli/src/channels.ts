@@ -6,16 +6,19 @@
  * 全部渠道。共享包本身不 import 任何渠道（见 `@modelmux/gateway` 的 `channel.ts`），
  * 所以这一层必须独立存在。
  *
- * 新增渠道时**只需在这里加一行 import**（外加仓库根 `workspaces`）。
+ * 新增渠道：在这里加一行 import（外加仓库根 `workspaces`）。
+ * 下架渠道：去掉 import 并登记进 `RETIRED_CIDS`（包与文档保留作参考实现）——
+ * 目录 == 注册 ∪ 下架 由 `packages/cli/tests/pool.test.ts` 与 `verify-contract` 机械校验。
  */
 
 import "@modelmux/astudio";
 import "@modelmux/catpaw";
-import "@modelmux/lobsterai";
 import "@modelmux/loomy";
 import "@modelmux/qoder";
 import "@modelmux/qodercn";
 import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
-import "@modelmux/workbuddyai";
+
+/** 已下架渠道：账号被上游封停，包保留作参考实现，不再注册。 */
+export const RETIRED_CIDS = ["lobsterai", "workbuddyai"];
