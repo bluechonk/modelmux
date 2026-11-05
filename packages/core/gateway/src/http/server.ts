@@ -79,7 +79,7 @@ function handleModels(res: ServerResponse): void {
     // 扩展字段：客户端据此判断目录新鲜度（官方 GET /models 没有）
     generated_at: catalog.generated_at,
     // 字段结构对齐 DeepSeek 官方 `GET /models`：
-    // 没有 `created`，`name` 与 `id` 一致（同为 `<cid>/<模型>` 池形态），
+    // 没有 `created`，`name` 是展示名（`id` 是 deepseek 裸模型名），
     // 并带上上下文 / 最大输出 / 模态 / 思考档位。
     // `effort` 可为 null：渠道目录没声明思考档位。
     // `meta_sources` 是扩展字段：逐项说明真值来自上游 / 规格文件 / 联网搜索 / 跨渠道 / 占位值。

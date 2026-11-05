@@ -70,7 +70,8 @@ function makeChannel(): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
     },
     catalog: {
-      exposedIds: () => ["glm-5.3-flash", "deepseek-v4.1-flash"],
+      // 对外模型池只收 deepseek 家族；这里给两个，纯非家族名不进快照
+      exposedIds: () => ["glm-5.3-flash", "deepseek-v4.1-flash", "deepseek-v4-flash"],
       resolveModel: (name: string) => name,
     },
     billing: {
@@ -96,13 +97,13 @@ describe("统一模型目录快照", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("生成快照：每个池 id 一条，缺字段标 default", () => {
+  it("生成快照：每个对外模型一条（非家族模型不进池），缺字段标 default", () => {
     const catalog = buildCatalog();
-    assert.equal(Object.keys(catalog.models).length, 2);
-    const entry = catalog.models[`${CID}/glm-5.3-flash`];
+    assert.equal(Object.keys(catalog.models).length, 2, "只有 deepseek 家族进对外池");
+    const entry = catalog.models["deepseek-v4.1-flash"];
     assert.ok(entry);
-    assert.equal(entry.id, `${CID}/glm-5.3-flash`);
-    assert.equal(entry.owned_by, CID);
+    assert.equal(entry.id, "deepseek-v4.1-flash");
+    assert.equal(entry.owned_by, "deepseek", "对外模型统一归 deepseek 家族");
     assert.equal(entry.meta_sources.context_window, "default");
     assert.equal(entry.meta_sources.max_output_tokens, "default");
     assert.equal(entry.effort, null);
@@ -130,23 +131,25 @@ describe("统一模型目录快照", () => {
   });
 
   it("model-specs 里的联网补全标记为 web_search", () => {
+    const spec = (window: number, output: number): Record<string, unknown> => ({
+      contextWindow: window,
+      maxOutputTokens: output,
+      _source: "web_search:https://example.com/doc",
+      _updated: "2026-11-02T00:00:00.000Z",
+    });
     writeFileSync(
       paths.rootFile("model-specs.json"),
       JSON.stringify({
         version: 1,
         models: {
-          "glm-5.3-flash": {
-            contextWindow: 128000,
-            maxOutputTokens: 16384,
-            _source: "web_search:https://example.com/doc",
-            _updated: "2026-11-02T00:00:00.000Z",
-          },
+          "deepseek-v4.1-flash": spec(128000, 16384),
+          "deepseek-v4-flash": spec(1048576, 393216),
         },
       }),
       "utf8",
     );
     const catalog = refreshCatalog();
-    const entry = catalog.models[`${CID}/glm-5.3-flash`];
+    const entry = catalog.models["deepseek-v4.1-flash"];
     assert.ok(entry);
     assert.equal(entry.context_window, 128000);
     assert.equal(entry.meta_sources.context_window, "web_search");

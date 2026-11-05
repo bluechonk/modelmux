@@ -90,7 +90,7 @@ let server: Awaited<ReturnType<typeof start>>;
 before(async () => {
   setChannel(makeChannel("webchan"));
   // 无额度能力的合成渠道：billing 命令必须标记 unsupported
-  setChannel(makeChannel("nobill", { capabilities: { billing: false }, models: ["test-model"] }));
+  setChannel(makeChannel("nobill", { capabilities: { billing: false }, models: ["deepseek-v4.1-flash"] }));
   server = await start(0, bridge, "127.0.0.1");
 });
 
@@ -185,7 +185,7 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
       method: "POST",
       path: "/v1/chat/completions",
       cid: "webchan",
-      model: "webchan/test-model",
+      model: "deepseek-v4.1-flash",
       stream: true,
       status: 200,
       outcome: "success",
@@ -232,7 +232,7 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
         phase: "upstream",
         attempt: 0,
         cid: "webchan",
-        model: "test-model",
+        model: "deepseek-v4.1-flash",
         stream: true,
         bytes: 24,
         truncated: false,

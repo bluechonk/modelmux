@@ -2,25 +2,24 @@
 //   流程：spawn `dsh --profile acp` → initialize → session/new（固定 cwd）
 //         → session/prompt（发任务）→ 收敛 session/update → session/close。
 // 怎么跑：从仓库根执行
-//   node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "<任务文本>" [--model <cid>/<模型>] [--cwd <目录>] [--timeout <毫秒>]
-//   --model 给定时生成临时 overlay（完整 provider + acp 路由）覆盖默认 catpaw/longcat-2.0；
+//   node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "<任务文本>" [--model <deepseek 模型名>] [--cwd <目录>] [--timeout <毫秒>]
+//   overlay **每次都现生成**（默认 deepseek-v4.1-flash）；**不按渠道选模型** ——
+//   网关只对外暴露 deepseek 家族裸名，落点渠道由网关按账号池剩余额度自动挑。
 //   环境变量：MODELMUX_API_KEY 必须非空（网关不校验，占位 test 即可）；
 //             DSH_ACP_CMD 可覆盖启动命令（覆盖后按 `<cmd> --profile acp --patch <overlay>` 调用，
 //             命令需自行包好 Electron 与 cli.js；默认用 DeepSeek Harness.exe + cli.js 直调，
 //             Git Bash 里别用 dsh.cmd——引号会被吃）。
 // 依赖什么：无 npm 依赖；ACP 用 ndjson over stdio（newline-delimited JSON-RPC）；
-//   默认 overlay：本目录 acp-modelmux-overlay.yml（完整 modelmux provider + acp 默认路由）；
 //   生成的临时 overlay 落 <仓库根>/.tmp/dsh-mx-overlays/generated-acp-overlay.yml。
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const taskParts = [];
 let cwd = resolve(".tmp/dsh-acp-e2e");
-let timeoutMs = 180000; // 默认与 SKILL.md 示例一致：catpaw 等慢上游单轮可超 90s，120s 太紧
-let model = null;
+let timeoutMs = 180000; // 默认与 SKILL.md 示例一致：慢上游单轮可超 90s，120s 太紧
+let model = "deepseek-v4.1-flash"; // 网关对外只做 deepseek 家族裸名
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--cwd") cwd = resolve(args[++i]);
   else if (args[i] === "--timeout") timeoutMs = Number(args[++i]);
@@ -29,16 +28,14 @@ for (let i = 0; i < args.length; i++) {
 }
 const task = taskParts.join(" ").trim();
 if (!task) {
-  console.error("usage: node mx-acp-test.mjs \"<任务>\" [--model <cid>/<模型>] [--cwd <dir>] [--timeout ms]");
+  console.error("usage: node mx-acp-test.mjs \"<任务>\" [--model <deepseek 模型名>] [--cwd <dir>] [--timeout ms]");
   process.exit(1);
 }
 
-const SKILL_DIR = dirname(fileURLToPath(import.meta.url));
 const OVERLAY_DIR = resolve(".tmp/dsh-mx-overlays");
-let OVERLAY = join(SKILL_DIR, "acp-modelmux-overlay.yml");
-if (model) {
-  mkdirSync(OVERLAY_DIR, { recursive: true });
-  OVERLAY = join(OVERLAY_DIR, "generated-acp-overlay.yml");
+mkdirSync(OVERLAY_DIR, { recursive: true });
+const OVERLAY = join(OVERLAY_DIR, "generated-acp-overlay.yml");
+{
   // 模型条目省略 contextWindow，走路由级 defaultContextWindow 兜底（llm-pi-ai 契约）
   writeFileSync(OVERLAY, `# 由 mx-acp-test.mjs 生成：acp 路由 → ${model}
 - id: llm-pi-ai
@@ -71,8 +68,8 @@ if (model) {
     provider: modelmux
     model: ${model}
 `, "utf8");
-  console.log(`[harness] overlay generated for ${model}`);
 }
+console.log(`[harness] overlay generated for ${model}`);
 
 // 桌面版路径从 LOCALAPPDATA 推导（换机 / 换用户不坏）；DSH_ACP_CMD 覆盖为已包好的启动命令
 const DSH_ROOT = join(process.env.LOCALAPPDATA ?? "", "Programs", "DeepSeek Harness");

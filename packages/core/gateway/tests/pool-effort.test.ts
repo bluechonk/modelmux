@@ -18,7 +18,7 @@ import { after, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
-import { getPoolModelMeta } from "../dist/pool/pool-targets.js";
+import { getChannelModelMeta } from "../dist/pool/pool-targets.js";
 
 const HOME = mkdtempSync(join(tmpdir(), "modelmux-effort-"));
 process.env["MODELMUX_HOME"] = HOME;
@@ -53,8 +53,9 @@ function useChannel(
   } as unknown as Channel);
 }
 
-function metaOf(): ReturnType<typeof getPoolModelMeta> {
-  return getPoolModelMeta(`${CID}/m1`);
+function metaOf(): ReturnType<typeof getChannelModelMeta> {
+  // 单渠道视角：档位按**这一家**上游声明原样呈现（聚合视角由 `getPoolModelMeta` 取交集）
+  return getChannelModelMeta(CID, "m1");
 }
 
 describe("思考档位（effort）：没声明就是没声明", () => {

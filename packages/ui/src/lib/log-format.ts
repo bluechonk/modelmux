@@ -18,7 +18,8 @@ const TEN_THOUSAND = 10_000;
 const HUNDRED_MILLION = 100_000_000;
 
 /**
- * 请求时刻 → **本地**时区 `YYYY-MM-DD HH:mm:ss`。
+ * 请求时刻 → **本地**时区 `MM-DD HH:mm:ss`（去年份：列表按「最新日期」筛选，
+ * 年份是冗余信息，窄列里不如把空间让给数字）。
  *
  * 手拼而不走 `toLocaleString`：行内 `ts` 是 UTC、日志目录按本地日期切分，展示必须转本地；
  * 而 `toLocaleString` 的排版随运行环境（locale / ICU）变，表格里会漂。
@@ -32,7 +33,7 @@ export function formatDateTime(ts: string): string {
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return "-";
   return (
-    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ` +
+    `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ` +
     `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
   );
 }

@@ -1,20 +1,22 @@
 # modelmux
 
-**一个端点，接管多家 AI 客户端的额度。** 把 AStudio、WorkBuddy、Qoder、Loomy、Raccoon、
-TRAE、CatPaw 等渠道汇成**一个 OpenAI 兼容端点**，对外暴露各渠道目录里的
-真实模型（`<渠道>/<模型>` 池 id，渠道由请求方指定）。专注做一件事：`npx modelmux` 起网关，
-任何 OpenAI 兼容客户端指过来就能用 —— 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
+**一个端点，只做 DeepSeek。** 把 AStudio、WorkBuddy、Qoder、Loomy、Raccoon、
+TRAE、CatPaw 等渠道的 DeepSeek 额度汇成**一个 OpenAI 兼容端点**，
+对外只有几个 deepseek 模型名（`deepseek-v4.1-flash` / `deepseek-v4-flash` / `deepseek-v4-pro`）。
+专注做一件事：`npx modelmux` 起网关，任何 OpenAI 兼容客户端指过来就能用 ——
+登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
 
 ## 这是什么
 
 - **一个网关**：监听 `127.0.0.1:4412`，OpenAI 兼容 `/v1/chat/completions`，
   另有 `/v1/models` 与 `/health`。
-- **动态模型池**：对外模型 id 为 `<cid>/<模型>`（如 `loomy/kimi-k2.6`），`/v1/models` 实时汇总
-  全部渠道 `catalog` 的归一化结果。客户端用渠道前缀显式选渠道；同名模型在不同渠道是独立 id。
+- **DeepSeek 统一模型池**：对外只有 deepseek 家族的**裸模型名**，`/v1/models` 只列
+  「至少一个渠道能供给」的那几个；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名。
 - **多渠道路由**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下；
   渠道数由**注册表**决定（`mx model list` 看全量），文档不写死数字。
-- **渠道由请求前缀显式指定**：池 id 的 `<cid>/` 段决定走哪个渠道，候选至多一条；账本只作**健康度观察**，
-  不决定路由。额度耗尽的账号进「冷却」（到期自动恢复），连败账号熔断后自动半开试探（失败指数退避）。
+- **渠道对客户端透明，网关按额度自动挑**：同一模型的候选渠道按**账号池剩余额度之和降序**，
+  先出额度最多的那家；渠道内账号额度耗尽自动换号，整家烧光则**顺延下一家**，直到全部试完。
+  额度耗尽的账号进「冷却」（到期自动恢复），连败账号熔断后自动半开试探（失败指数退避）。
 - **运维全自动**：签名式登录（扫码 / 设备码 / 短信，按渠道）、**多账号池**（切换 / 移除 / 逐账号额度）、
   **自动签到**（每个渠道各自的每日奖励）、**每 3 分钟并行刷新全渠道额度**、目录每日保鲜。
 - **零第三方运行依赖**：TypeScript 实现，共享层 `dependencies` 为空；Web 看板由 `mx web` 托管。
@@ -66,8 +68,9 @@ mx model list
 ## 接入任意客户端
 
 网关不绑定任何宿主工具：任何 OpenAI 兼容客户端（CLI、IDE、桌面应用）把 base url
-指到 `http://127.0.0.1:4412/v1`，模型填 `<渠道>/<模型>` 形态的池 id
-（清单看 `GET /v1/models`，如 `loomy/kimi-k2.6`；API key 任意非空）即可。
+指到 `http://127.0.0.1:4412/v1`，模型填 **deepseek 模型名**
+（清单看 `GET /v1/models`，如 `deepseek-v4.1-flash`；API key 任意非空）即可 ——
+哪家渠道出由网关按额度自动挑。
 
 ## Web 控制台
 

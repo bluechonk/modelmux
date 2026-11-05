@@ -35,41 +35,13 @@ export interface UiSnapshot {
   base_url: string;
   chat_url: string;
   endpoints: string[];
-  models: string[];
   /**
-   * 每模型附加信息（键 = 池模型 id）。
+   * 对外模型池的**「模型 × 渠道」矩阵**：一个 deepseek 模型可能由多个渠道供给。
    *
-   * 字段对齐共享层的 `PoolModelMeta`：消耗倍率、营销角标、上下文窗口、
-   * 单次输出上限、输入模态（多模态能力）。建模为可选是因为上游目录可能不带这些字段。
+   * 模型 id 是裸名（不再有 `<cid>/` 前缀）；`meta` 是**该渠道**的元数据
+   * （同一模型在不同渠道倍率/规格可能不同）。
    */
-  model_info?: Record<
-    string,
-    {
-      multiplier: number | null;
-      marketing: string;
-      contextWindow: number;
-      maxOutputTokens: number;
-      inputModalities: string[];
-      /**
-       * 思考模式（reasoning effort）档位；`null` = 渠道未声明。
-       *
-       * 与共享层 `PoolModelMeta.effort` 同形：**刻意可空**，界面据此显示
-       * 「不支持」而不是编造档位。
-       */
-      effort?: { supportedLevels: string[]; defaultLevel: string } | null;
-      /**
-       * 窗口 / 输出 / 档位各自从哪来（与共享层 `PoolModelMeta.sources` 同形）。
-       *
-       * `web_search` = 联网补全写入，`cross` = 兄弟渠道同 id 的推断值。
-       * 当前表格不渲染来源标记，字段保留给后续界面与排障使用。
-       */
-      sources?: {
-        contextWindow: "upstream" | "spec" | "web_search" | "cross" | "default";
-        maxOutputTokens: "upstream" | "spec" | "web_search" | "cross" | "default";
-        effort: "upstream" | "spec" | "web_search" | "cross" | "default";
-      };
-    }
-  >;
+  models: Array<{ model: string; cid: string; meta: ModelInfo }>;
   /**
    * 各渠道的能力位（键 = cid）。
    *
@@ -80,6 +52,31 @@ export interface UiSnapshot {
   theme_mode: string;
   resolved_theme: string;
   gateway_error: string;
+}
+
+/**
+ * 单个模型的元数据（与共享层 `PoolModelMeta` 对齐）。
+ *
+ * 建模为可选字段是因为上游目录可能不带这些字段；`effort` 为 `null` 表示**渠道未声明**
+ * （界面据此显示「不支持」，而不是编造档位）。
+ */
+export interface ModelInfo {
+  multiplier: number | null;
+  marketing: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  inputModalities: string[];
+  effort?: { supportedLevels: string[]; defaultLevel: string } | null;
+  /**
+   * 窗口 / 输出 / 档位各自从哪来（与共享层 `PoolModelMeta.sources` 同形）。
+   *
+   * `web_search` = 联网补全写入，`cross` = 兄弟渠道同 id 的推断值。
+   */
+  sources?: {
+    contextWindow: "upstream" | "spec" | "web_search" | "cross" | "default";
+    maxOutputTokens: "upstream" | "spec" | "web_search" | "cross" | "default";
+    effort: "upstream" | "spec" | "web_search" | "cross" | "default";
+  };
 }
 
 export interface PoolAccount {
@@ -189,8 +186,6 @@ export interface AccessLogEntry {
   model?: string;
   stream?: boolean;
   status?: number;
-  /** 入站协议（`anthropic` / `responses`；缺省 = OpenAI chat completions）。 */
-  protocol?: string;
   outcome: AccessOutcome;
   error?: string;
   message?: string;
@@ -314,7 +309,7 @@ export interface UsageDaily {
   tokensOut: number;
   requests: number;
   messages: number;
-  /** 该日各模型 tokens（键 = `<cid>/<模型>`，空串 = 未知模型）。 */
+  /** 该日各（渠道 × 模型）tokens（键 = `<cid>/<模型>`，空串 = 未知）。 */
   byModel: Record<string, number>;
 }
 
@@ -332,16 +327,21 @@ export interface PingResult {
   error: string;
 }
 
-/** 一个模型在区间内的用量与健康度。 */export interface UsageModelRow {
-  /** 池 id（`<cid>/<模型>`）；空串表示「未知模型」。 */
+/** 一个（渠道 × 模型）在区间内的用量与健康度。 */
+export interface UsageModelRow {
+  /** 聚合键 `<cid>/<模型>`（趋势图按它分序列）。 */
   id: string;
+  /** 纯模型名（对外 deepseek id；空串 = 未知模型）。 */
+  model: string;
+  /** 承接该模型的渠道（空串 = 日志没记渠道）。 */
+  cid: string;
   tokens: number;
   input: number;
   output: number;
   cache: number;
   /** 占区间总 tokens 的比例（0–1）。 */
   share: number;
-  /** 成功请求数（`success.log` 里该模型的条数）。 */
+  /** 成功请求数（`success.log` 里该模型 × 渠道的条数）。 */
   ok: number;
   /** 失败请求数（含中断）。 */
   fail: number;

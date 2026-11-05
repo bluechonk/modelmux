@@ -63,16 +63,16 @@ const DEMO_CHANNELS: DemoChannel[] = [
   { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
 ];
 
-/** 各渠道对外暴露的模型（虚构演示集，形态与真实一致：`<cid>/<模型名>`）。 */
+/** 各渠道对外暴露的模型（虚构演示集；网关只对外卖 deepseek 系列，形态与真实一致）。 */
 const DEMO_MODELS: Record<string, string[]> = {
-  astudio: ["auto", "deepseek-v4-flash", "deepseek-v4-pro", "glm-5.2", "spark-x2.5", "spark-x2.6", "spark-x2.6-lite"],
-  catpaw: ["deepseek-v4-flash", "deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "longcat-2.0"],
-  loomy: ["deepseek-v4-flash", "glm-5.3-flash", "kimi-k2.6", "mimo-v2.5", "minimax-m3", "qwen3.8-flash", "spark-x"],
-  qoder: ["glm-5.3-flash"],
-  qodercn: ["auto", "deepseek-flash", "deepseek-v4-pro", "glm-5.3", "kimi-k3", "qwen3.8-max"],
-  raccoon: ["deepseek-v4.1-flash", "glm-5.3", "glm-5.3-flash", "kimi-k3", "sensenova-6.8-flash"],
-  traecn: ["deepseek-v4-flash", "deepseek-v4-pro", "doubao-seed-2.1-pro", "glm-5.3", "kimi-k2.6", "minimax-m3"],
-  workbuddy: ["deepseek-v4.1-flash"],
+  astudio: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  catpaw: ["deepseek-v4-flash"],
+  loomy: ["deepseek-v4.1-flash", "deepseek-v4-flash"],
+  qoder: ["deepseek-v4-flash"],
+  qodercn: ["deepseek-flash", "deepseek-v4-pro"],
+  raccoon: ["deepseek-v4.1-flash"],
+  traecn: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  workbuddy: ["deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -165,14 +165,19 @@ export function createDemoState(): DemoState {
   return { channels: DEMO_CHANNELS.map((c) => ({ ...c })), active, accounts, login: null };
 }
 
-/** 全部对外模型 id（`<cid>/<模型>`），只含已登录渠道。 */
-export function demoModels(state: DemoState): string[] {
-  const out: string[] = [];
+/** 对外模型池的「模型 × 渠道」行，只含已登录渠道。 */
+export function demoModels(state: DemoState): Array<{ model: string; cid: string }> {
+  const out: Array<{ model: string; cid: string }> = [];
   for (const ch of state.channels) {
     if (!ch.present) continue;
-    for (const m of DEMO_MODELS[ch.cid] ?? []) out.push(`${ch.cid}/${m}`);
+    for (const model of DEMO_MODELS[ch.cid] ?? []) out.push({ model, cid: ch.cid });
   }
   return out;
+}
+
+/** 去重后的对外模型 id（用量 / 概览用）。 */
+export function demoModelIds(state: DemoState): string[] {
+  return [...new Set(demoModels(state).map((row) => row.model))];
 }
 
 /** 状态快照（对应 `GET /web/api/state`）。 */
@@ -184,110 +189,71 @@ export function demoSettings(state: DemoState): UiSnapshot {
 }
 
 /**
- * 演示用的模型元数据（键 = 池模型 id）。
+ * 演示用的模型元数据：「模型 × 渠道」行，`meta` 是**该渠道**的值。
  *
- * 字段必须与 `UiSnapshot.model_info` 的形状**逐字段对齐**（倍率 / 营销角标 /
+ * 字段必须与 `UiSnapshot.models[].meta`（`ModelInfo`）逐字段对齐（倍率 / 营销角标 /
  * 上下文窗口 / 单次输出上限 / 输入模态 / 思考档位 / **取值来源**）——
  * 少一个字段就是一处类型错误，而 `npm run typecheck` 覆盖本包，这类缺口会被当场拦住。
  */
-function demoModelInfo(models: string[]): UiSnapshot["model_info"] {
+function demoModelRows(state: DemoState): UiSnapshot["models"] {
+  /** 倍率（虚构）：同一模型在不同渠道给不同档，演示「按渠道比较」。 */
   const DEMO_MULTIPLIER: Record<string, number> = {
-    "deepseek-v4-flash": 0.03,
     "deepseek-v4.1-flash": 0.06,
+    "deepseek-v4-flash": 0.03,
     "deepseek-v4-pro": 0.48,
-    "glm-5.3": 0.44,
-    "glm-5.3-flash": 0.06,
-    "glm-5.3-flashx": 0.16,
-    "kimi-k3": 0.94,
-    "kimi-k2.6": 0.94,
-    "longcat-2.0": 0,
-    "minimax-m3": 0.22,
-    "deepseek-flash": 0.03,
-    "doubao-seed-2.1-pro": 0.4,
-    "mimo-v2.5": 0.3,
-    "qwen3.8-max": 0.6,
-    "qwen3.8-flash": 0.05,
-    "spark-x": 0.1,
-    "glm-5": 0.35,
-    "sensenova-6.8-flash": 0.12,
-    "doubao-seed-2.0-code-preview-260215": 0.54,
-    "doubao-seed-2.1-pro-260915": 0.68,
-    "doubao-seed-2.1-turbo-260628": 0.34,
+    "deepseek-flash": 0.06,
   };
   const DEMO_MARKETING: Record<string, string> = {
-    "longcat-2.0": "限时免费",
     "deepseek-v4.1-flash": "新",
   };
   // 演示思考档位（虚构）：只给一部分模型声明，其余为 null（=「不支持」）——
   // 刻意与真实数据同形，避免演示页把「没声明」显示成「支持」。
-  // `qwen3.8-flash` 故意按上游那种乱序写（xhigh/low/medium），用来演示界面会按强度重排。
   const DEMO_EFFORT: Record<string, { supportedLevels: string[]; defaultLevel: string }> = {
-    "deepseek-v4-flash": { supportedLevels: ["high", "max"], defaultLevel: "high" },
     "deepseek-v4.1-flash": { supportedLevels: ["low", "high", "max"], defaultLevel: "high" },
+    "deepseek-v4-flash": { supportedLevels: ["high", "max"], defaultLevel: "high" },
     "deepseek-v4-pro": { supportedLevels: ["high", "max"], defaultLevel: "high" },
-    "glm-5.3": { supportedLevels: ["low", "high", "max"], defaultLevel: "high" },
-    "glm-5.3-flash": { supportedLevels: ["low", "high", "max"], defaultLevel: "high" },
-    "kimi-k3": { supportedLevels: ["none", "low", "medium", "high"], defaultLevel: "high" },
-    "minimax-m3": { supportedLevels: ["low", "medium", "high", "xhigh", "max"], defaultLevel: "low" },
-    "qwen3.8-flash": { supportedLevels: ["xhigh", "low", "medium"], defaultLevel: "medium" },
   };
   /**
    * 演示窗口 / 输出上限（虚构，只取常见量级）。
    *
-   * 给每个模型一组不同数值是**刻意的**：全填 128k / 8k 时「最大上下文」「输出上限」
+   * 每个模型一组不同数值是**刻意的**：全填同一个值时「最大上下文」「输出上限」
    * 两列看不出在比什么，多模态那列也永远只有「文本」。
    */
   const DEMO_SIZE: Record<string, { contextWindow: number; maxOutputTokens: number; vision?: boolean }> = {
-    "auto": { contextWindow: 1_000_000, maxOutputTokens: 131_072, vision: true },
-    "deepseek-v4-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216 },
     "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216, vision: true },
+    "deepseek-v4-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216 },
     "deepseek-v4-pro": { contextWindow: 1_048_576, maxOutputTokens: 393_216, vision: true },
     "deepseek-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216, vision: true },
-    "glm-5": { contextWindow: 131_072, maxOutputTokens: 131_072 },
-    "glm-5.3": { contextWindow: 1_000_000, maxOutputTokens: 131_072, vision: true },
-    "glm-5.3-flash": { contextWindow: 1_048_576, maxOutputTokens: 131_072, vision: true },
-    "glm-5.3-flashx": { contextWindow: 1_024_000, maxOutputTokens: 131_072 },
-    "kimi-k2.6": { contextWindow: 262_144, maxOutputTokens: 65_536, vision: true },
-    "kimi-k3": { contextWindow: 1_048_576, maxOutputTokens: 1_048_576, vision: true },
-    "longcat-2.0": { contextWindow: 1_024_000, maxOutputTokens: 262_144 },
-    "mimo-v2.5": { contextWindow: 262_144, maxOutputTokens: 65_536 },
-    "minimax-m3": { contextWindow: 1_048_576, maxOutputTokens: 512_000, vision: true },
-    "qwen3.8-flash": { contextWindow: 1_000_000, maxOutputTokens: 131_072, vision: true },
-    "qwen3.8-max": { contextWindow: 1_000_000, maxOutputTokens: 131_072, vision: true },
-    "sensenova-6.8-flash": { contextWindow: 256_000, maxOutputTokens: 63_999 },
-    "spark-x": { contextWindow: 1_048_576, maxOutputTokens: 65_536 },
   };
   /**
-   * 演示「跨渠道推断」的模型（真实口径见 POOL-ARCHITECTURE §2.7）：
-   * 本渠道拿不到窗口 / 输出 / 档位时取自同 id 的兄弟渠道，界面在该值后标「推断」。
-   * 不给一两个例子的话，README 截图里看不到这个标记。
+   * 演示「跨渠道推断」的渠道（真实口径见 POOL-ARCHITECTURE §2.7）：
+   * 本渠道拿不到窗口 / 输出 / 档位时取自同 id 的兄弟渠道，来源标 `cross`。
+   * 不给几个例子的话，README 截图里看不到这个标记。
    */
-  const DEMO_CROSS = new Set(["minimax-m3", "sensenova-6.8-flash"]);
-  return Object.fromEntries(
-    models.map((model) => {
-      const name = model.slice(model.indexOf("/") + 1);
-      const size = DEMO_SIZE[name];
-      const cross = DEMO_CROSS.has(name);
-      const effort = DEMO_EFFORT[name] ?? null;
-      return [
-        model,
-        {
-          multiplier: DEMO_MULTIPLIER[name] ?? null,
-          marketing: DEMO_MARKETING[name] ?? "",
-          // 演示值（虚构）：量级取自常见的窗口 / 输出档位
-          contextWindow: size?.contextWindow ?? 128_000,
-          maxOutputTokens: size?.maxOutputTokens ?? 8192,
-          inputModalities: size?.vision ? ["text", "image"] : ["text"],
-          effort,
-          sources: {
-            contextWindow: size ? (cross ? "cross" : "upstream") : "default",
-            maxOutputTokens: size ? (cross ? "cross" : "upstream") : "default",
-            effort: effort ? (cross ? "cross" : "upstream") : "default",
-          },
+  const crossCids = new Set(["workbuddy", "qodercn"]);
+  return demoModels(state).map(({ model, cid }) => {
+    const size = DEMO_SIZE[model];
+    const cross = crossCids.has(cid);
+    const effort = DEMO_EFFORT[model] ?? null;
+    return {
+      model,
+      cid,
+      meta: {
+        multiplier: DEMO_MULTIPLIER[model] ?? null,
+        marketing: DEMO_MARKETING[model] ?? "",
+        // 演示值（虚构）：量级取自常见的窗口 / 输出档位
+        contextWindow: size?.contextWindow ?? 128_000,
+        maxOutputTokens: size?.maxOutputTokens ?? 8192,
+        inputModalities: size?.vision ? ["text", "image"] : ["text"],
+        effort,
+        sources: {
+          contextWindow: size ? (cross ? "cross" : "upstream") : "default",
+          maxOutputTokens: size ? (cross ? "cross" : "upstream") : "default",
+          effort: effort ? (cross ? "cross" : "upstream") : "default",
         },
-      ];
-    }),
-  );
+      },
+    };
+  });
 }
 
 function demoSettingsBase(state: DemoState): UiSnapshot {
@@ -300,8 +266,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     base_url: "http://127.0.0.1:4412/v1",
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
-    models: demoModels(state),
-    model_info: demoModelInfo(demoModels(state)),
+    models: demoModelRows(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),
     theme_mode: "dark",
     resolved_theme: "dark",
@@ -412,71 +377,70 @@ export function demoAccountPools(state: DemoState): { channels: unknown[] } {
   return { channels };
 }
 
-/** `billing` 命令的返回（每模型一条 + 候选渠道）。 */
+/** `billing` 命令的返回（每模型一条 + 供给它的候选渠道）。 */
 export function demoBilling(state: DemoState): { rows: unknown[]; models: string[] } {
-  const models = demoModels(state);
-  const rows = models.map((model) => {
-    const slash = model.indexOf("/");
-    const cid = slash < 0 ? model : model.slice(0, slash);
-    const ledger = DEMO_LEDGER[cid];
-    const totalOk = ledger?.ok ?? 0;
-    const totalFail = ledger?.fail ?? 0;
-    // 把渠道级 ok/fail 按账号**均分到底**（末位吃掉余数），
-    // 保证「按账号拆分」各项之和恒等于渠道合计 —— 否则演示数据自相矛盾。
-    const list = state.accounts[cid] ?? [];
-    // 额度（虚构）：有额度概念的渠道按 DEMO_QUOTA 给「总量 / 剩余」，
-    // 账号卡片据此画额度条与百分比；没数据的渠道如实给 null（卡片显示「未查到」）。
-    const quota = DEMO_QUOTA[cid];
-    // 账单时刻取「刚刚」：写死日期会让卡片上的新鲜度显示成「更新于 7 天前」，
-    // 看起来像演示数据放坏了
-    const billingAt = quota ? new Date(Date.now() - 90_000).toISOString() : null;
-    const accounts = list.map((a, i) => {
-      const n = list.length;
-      const base = Math.floor(totalOk / n);
-      const extra = totalOk - base * n;
-      const fbase = Math.floor(totalFail / n);
-      const fextra = totalFail - fbase * n;
-      return {
-        key: a.key,
-        ok: base + (i < extra ? 1 : 0),
-        fail: fbase + (i < fextra ? 1 : 0),
-        credits: quota
-          ? {
-              remain: quota.remain,
-              size: quota.size,
-              used: quota.size - quota.remain,
-              unit: quota.unit,
-              remain_percent: Math.round((quota.remain / quota.size) * 100),
-            }
-          : null,
-        // 额度基线 = 当前窗口第一次账单的剩余量（百分比的分母，见 POOL-ARCHITECTURE §2.3）
-        baseline: quota
-          ? { window: "24h", date: "2026-10-18", remain: quota.size, at: "2026-10-18T00:00:00.000Z" }
-          : null,
-        billing_at: billingAt,
-        billing_ok: quota !== undefined,
-      };
-    });
-    return {
-      model,
-      candidates: [
-        {
+  const pairs = demoModels(state);
+  const models = [...new Set(pairs.map((row) => row.model))];
+  const rows = models.map((model) => ({
+    model,
+    candidates: pairs
+      .filter((row) => row.model === model)
+      .map(({ cid }) => {
+        const channel = state.channels.find((c) => c.cid === cid);
+        const ledger = DEMO_LEDGER[cid];
+        const totalOk = ledger?.ok ?? 0;
+        const totalFail = ledger?.fail ?? 0;
+        // 把渠道级 ok/fail 按账号**均分到底**（末位吃掉余数），
+        // 保证「按账号拆分」各项之和恒等于渠道合计 —— 否则演示数据自相矛盾。
+        const list = state.accounts[cid] ?? [];
+        // 额度（虚构）：有额度概念的渠道按 DEMO_QUOTA 给「总量 / 剩余」，
+        // 账号卡片据此画额度条与百分比；没数据的渠道如实给 null（卡片显示「未查到」）。
+        const quota = DEMO_QUOTA[cid];
+        // 账单时刻取「刚刚」：写死日期会让卡片上的新鲜度显示成「更新于 7 天前」，
+        // 看起来像演示数据放坏了
+        const billingAt = quota ? new Date(Date.now() - 90_000).toISOString() : null;
+        const accounts = list.map((a, i) => {
+          const n = list.length;
+          const base = Math.floor(totalOk / n);
+          const extra = totalOk - base * n;
+          const fbase = Math.floor(totalFail / n);
+          const fextra = totalFail - fbase * n;
+          return {
+            key: a.key,
+            ok: base + (i < extra ? 1 : 0),
+            fail: fbase + (i < fextra ? 1 : 0),
+            credits: quota
+              ? {
+                  remain: quota.remain,
+                  size: quota.size,
+                  used: quota.size - quota.remain,
+                  unit: quota.unit,
+                  remain_percent: Math.round((quota.remain / quota.size) * 100),
+                }
+              : null,
+            // 额度基线 = 当前窗口第一次账单的剩余量（百分比的分母，见 POOL-ARCHITECTURE §2.3）
+            baseline: quota
+              ? { window: "24h", date: "2026-10-18", remain: quota.size, at: "2026-10-18T00:00:00.000Z" }
+              : null,
+            billing_at: billingAt,
+            billing_ok: quota !== undefined,
+          };
+        });
+        return {
           cid,
-          display: state.channels.find((c) => c.cid === cid)?.display ?? cid,
+          display: channel?.display ?? cid,
           exposed_id: model,
-          score: ledger?.used ?? 0,
           used: ledger?.used ?? 0,
           unit: ledger?.unit ?? "",
           cooling: ledger?.cooling ?? false,
-          unsupported: false,
+          unsupported: channel?.billing === false,
           ok: totalOk,
           fail: totalFail,
-          billing_at: "2026-10-18T00:00:00.000Z",
+          billing_at: billingAt,
           accounts,
-        },
-      ],
-    };
-  });
+        };
+      }),
+  }));
   return { rows, models };
 }
 
@@ -585,20 +549,20 @@ const DEMO_LOG_SEED: Array<{
   toolCount?: number;
   messageCount?: number;
 }> = [
-  { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, outcome: "success", status: 200, durationMs: 8420, upstreamMs: 610, ttfbMs: 1180, tokens: { prompt: 12480, completion: 1332, total: 13812 }, toolCount: 2, messageCount: 14 },
-  { cid: "catpaw", model: "catpaw/glm-5.3-flash", stream: true, outcome: "success", status: 200, durationMs: 3140, upstreamMs: 380, ttfbMs: 640, tokens: { prompt: 8120, completion: 402, total: 8522 }, messageCount: 9 },
-  { cid: "loomy", model: "loomy/qwen3.8-flash", stream: false, outcome: "success", status: 200, durationMs: 2210, upstreamMs: 1900, ttfbMs: 2210, tokens: { prompt: 4020, completion: 88, total: 4108 }, messageCount: 5 },
-  { cid: "traecn", model: "traecn/kimi-k2.6", stream: true, outcome: "failure", status: 502, durationMs: 61040, upstreamMs: 60020, ttfbMs: 60020, tokens: null, error: "upstream_timeout", message: "upstream stream timed out: The operation was aborted due to timeout", messageCount: 22 },
-  { cid: "raccoon", model: "raccoon/glm-5.3", stream: true, outcome: "failure", status: 503, durationMs: 980, upstreamMs: 940, ttfbMs: 980, tokens: null, error: "not_authenticated", message: "not logged in: credential expired", messageCount: 3 },
-  { cid: "qodercn", model: "qodercn/deepseek-v4-pro", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
-  { cid: "catpaw", model: "catpaw/glm-5.3-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
-  { cid: "catpaw", model: "catpaw/deepseek-v4.1-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
-  { cid: "loomy", model: "loomy/minimax-m3", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
-  { cid: "astudio", model: "astudio/spark-x2.6", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
-  { cid: "workbuddy", model: "workbuddy/deepseek-v4.1-flash", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
-  { cid: "loomy", model: "loomy/kimi-k2.6", stream: true, outcome: "success", status: 200, durationMs: 1180, upstreamMs: 300, ttfbMs: 480, tokens: { prompt: 240, completion: 96, total: 336 }, messageCount: 1 },
-  { cid: "qodercn", model: "qodercn/kimi-k3", stream: true, outcome: "success", status: 200, durationMs: 40210, upstreamMs: 880, ttfbMs: 2600, tokens: { prompt: 20480, completion: 9140, total: 29620 }, toolCount: 9, messageCount: 44 },
-  { cid: "catpaw", model: "catpaw/longcat-2.0", stream: false, outcome: "success", status: 200, durationMs: 2620, upstreamMs: 2400, ttfbMs: 2620, tokens: { prompt: 1240, completion: 520, total: 1760 }, messageCount: 6 },
+  { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 8420, upstreamMs: 610, ttfbMs: 1180, tokens: { prompt: 12480, completion: 1332, total: 13812 }, toolCount: 2, messageCount: 14 },
+  { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "success", status: 200, durationMs: 3140, upstreamMs: 380, ttfbMs: 640, tokens: { prompt: 8120, completion: 402, total: 8522 }, messageCount: 9 },
+  { cid: "loomy", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 2210, upstreamMs: 1900, ttfbMs: 2210, tokens: { prompt: 4020, completion: 88, total: 4108 }, messageCount: 5 },
+  { cid: "traecn", model: "deepseek-v4-pro", stream: true, outcome: "failure", status: 502, durationMs: 61040, upstreamMs: 60020, ttfbMs: 60020, tokens: null, error: "upstream_timeout", message: "upstream stream timed out: The operation was aborted due to timeout", messageCount: 22 },
+  { cid: "raccoon", model: "deepseek-v4.1-flash", stream: true, outcome: "failure", status: 503, durationMs: 980, upstreamMs: 940, ttfbMs: 980, tokens: null, error: "not_authenticated", message: "not logged in: credential expired", messageCount: 3 },
+  { cid: "qodercn", model: "deepseek-v4-pro", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
+  { cid: "catpaw", model: "deepseek-v4-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
+  { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
+  { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
+  { cid: "astudio", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
+  { cid: "workbuddy", model: "deepseek-v4-pro", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
+  { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 1180, upstreamMs: 300, ttfbMs: 480, tokens: { prompt: 240, completion: 96, total: 336 }, messageCount: 1 },
+  { cid: "qodercn", model: "deepseek-flash", stream: true, outcome: "success", status: 200, durationMs: 40210, upstreamMs: 880, ttfbMs: 2600, tokens: { prompt: 20480, completion: 9140, total: 29620 }, toolCount: 9, messageCount: 44 },
+  { cid: "catpaw", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 2620, upstreamMs: 2400, ttfbMs: 2620, tokens: { prompt: 1240, completion: 520, total: 1760 }, messageCount: 6 },
 ];
 
 /** 演示的可用日期（今天起往前三天）。 */
@@ -716,14 +680,14 @@ function localDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** 演示用的模型权重（池 id 形态与真实一致，权重让环形图有主次）。 */
+/** 演示用的（渠道 × 模型）权重（聚合键形态与真实一致，权重让环形图有主次）。 */
 const DEMO_USAGE_MODELS: Array<{ id: string; weight: number }> = [
-  { id: "loomy/kimi-k2.6", weight: 0.37 },
-  { id: "catpaw/glm-5.3-flash", weight: 0.22 },
-  { id: "traecn/kimi-k2.6", weight: 0.15 },
-  { id: "qodercn/deepseek-v4-pro", weight: 0.12 },
-  { id: "astudio/spark-x2.5", weight: 0.09 },
-  { id: "raccoon/glm-5.3", weight: 0.05 },
+  { id: "loomy/deepseek-v4.1-flash", weight: 0.37 },
+  { id: "catpaw/deepseek-v4-flash", weight: 0.22 },
+  { id: "traecn/deepseek-v4-pro", weight: 0.15 },
+  { id: "qodercn/deepseek-flash", weight: 0.12 },
+  { id: "astudio/deepseek-v4-flash", weight: 0.09 },
+  { id: "raccoon/deepseek-v4.1-flash", weight: 0.05 },
 ];
 
 /**
@@ -767,8 +731,15 @@ export function demoUsage(range: UsageRange): UsageStats {
   }
 
   const models: UsageModelRow[] = [...modelTotals.entries()]
-    .map(([id, tokens]) => ({
+    .map(([id, tokens]) => {
+      // 聚合键 `cid/model` 拆回两列（cid 与模型名都不含 `/`）
+      const slash = id.indexOf("/");
+      const cid = slash < 0 ? "" : id.slice(0, slash);
+      const model = slash < 0 ? id : id.slice(slash + 1);
+      return {
       id,
+      model,
+      cid,
       tokens,
       input: Math.round(tokens * 0.72),
       output: Math.round(tokens * 0.28),
@@ -779,7 +750,8 @@ export function demoUsage(range: UsageRange): UsageStats {
       fail: Math.max(0, Math.round(tokens / 900_000)),
       queued: tokens > 40_000_000 ? 2 : 0,
       avgTps: tokens > 60_000_000 ? 210 : 72,
-    }))
+      };
+    })
     .sort((a, b) => b.tokens - a.tokens);
 
   const peakDay = daily.reduce((best, d) => (d.tokens > best.tokens ? d : best), daily[0]!);
@@ -906,10 +878,9 @@ export function demoOverview(state: DemoState): OverviewResponse {
     perChannel.set(e.cid, cur);
   }
 
-  // 每渠道模型数（从 demoModels 按 cid 前缀计数）
+  // 每渠道供给的对外模型数
   const modelCounts = new Map<string, number>();
-  for (const m of demoModels(state)) {
-    const cid = m.slice(0, m.indexOf("/"));
+  for (const { cid } of demoModels(state)) {
     modelCounts.set(cid, (modelCounts.get(cid) ?? 0) + 1);
   }
 
@@ -932,12 +903,16 @@ export function demoOverview(state: DemoState): OverviewResponse {
     };
   });
 
-  const info = demoModelInfo(demoModels(state)) ?? {};
+  // 模型池统计：按**去重后的模型**算（跨渠道同一模型算一个）
+  const infoByName = new Map<string, { multiplier: number | null; inputModalities: string[]; effort?: { supportedLevels: string[] } | null }>();
+  for (const row of demoModelRows(state)) {
+    if (!infoByName.has(row.model)) infoByName.set(row.model, row.meta);
+  }
   let total = 0;
   let free = 0;
   let vision = 0;
   let thinking = 0;
-  for (const [, meta] of Object.entries(info)) {
+  for (const [, meta] of infoByName) {
     total++;
     if (meta.multiplier === 0) free++;
     if (meta.inputModalities.some((m) => m !== "text")) vision++;

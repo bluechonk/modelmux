@@ -42,7 +42,9 @@ export interface RequestLog {
   method: string;
   path: string;
   startAt: number;
+  /** 客户端请求的模型 —— **规范 deepseek 名**（如 `deepseek-v4.1-flash`；别名已归并）。 */
   model?: string;
+  /** **承接**这次请求的渠道（跨渠道选路后由 `http/chat/attempt.ts` 逐次尝试写入）。 */
   cid?: string;
   /**
    * 承接请求的**账号 key**（池内账号标识，控制台的账号行按它归集 token）。

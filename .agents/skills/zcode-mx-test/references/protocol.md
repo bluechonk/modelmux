@@ -44,18 +44,18 @@ zcode 的程序化入口。全部结论实测于 zcode 0.17.1（2026-11-04），
 ```json
 { "method": "session/setModel",
   "params": { "sessionId": "sess_…",
-              "model": { "providerId": "new-provider", "modelId": "<cid>/<模型>",
+              "model": { "providerId": "new-provider", "modelId": "deepseek-v4.1-flash",
                          "options": { "reasoningLevel": "low" } } } }
 ```
 
 - **`reasoningLevel` 必填**：缺档位 → `ensureReady` 报 "Reasoning level is required for <providerId>/<modelId>"
   并 unload；档位不合法 → `Reasoning effort "X" is not supported by …`。
 - **档位表只在 `setModel` 成功后的 `state.updated` 事件里广播**（`patch.model.available[].reasoning.levels`，
-  catpaw/deepseek-v4.1-flash 实测 `disabled/low/high/max`），失败路径拿不到 ——
+  `deepseek-v4.1-flash` 实测 `disabled/low/high/max`），失败路径拿不到 ——
   程序化选档按候选序列（disabled → low → high → …）向服务端逐个探测，服务端校验是本地操作，零网关成本。
 - 档位与模型绑定：同供应商不同模型的档位表可能不同（LongCat-2.5 实测是 `enabled` 这类开关值）。
-- 供应商 id 是 `provider_config.json` 里的 `providerId`（当前 modelmux 为 `new-provider`），
-  `modelId` 是网关池 id `<cid>/<模型>`。
+- `modelId` 是**网关的对外模型名**（deepseek 家族裸名，如 `deepseek-v4.1-flash`）——
+  不带渠道前缀，落点渠道由网关按账号池剩余额度自动挑。
 
 ## 发消息与收事件
 
@@ -93,10 +93,9 @@ node zcode.cjs -p "<提示>" --cwd <目录> --json
 
 - 每次 `-p` = 全新会话；`--json` 输出 `{sessionId, traceId, turnId, response, usage, eventCount, projection}`，
   其中 `usage.contextUsed` 与网关访问日志 `usage.total_tokens` 可互相对账。
-- **无 `--model` 标志**（15MB bundle 选项表核实）。模型选择：
-  1. `~/.zcode/v2/provider_config.json` 的 `config.defaultModelSelection`（`{providerId, modelId, options?}`）；
-  2. 为 null 时回退 `providerOrder` 第一个「有启用模型」的供应商的第一个启用模型
-     （实测当前回退到 modelmux 的 `loomy/deepseek-v4.1-flash`）。
+- **无 `--model` 标志**（15MB bundle 选项表核实）。模型选择走 zcode 自己的回退链
+  （`defaultModelSelection` → `providerOrder` 第一个供应商的第一个启用模型）；
+  定向测试请用通路 B 显式 `setModel`。
 - 会话落库、`project_id` 按 `--cwd` 路径生成 —— 传 `.tmp` 会落独立项目组。
 
 ## 底座脚本
@@ -106,10 +105,11 @@ node zcode.cjs -p "<提示>" --cwd <目录> --json
 - `scripts/zcode-e2e.mjs` —— 单渠道端到端。`--smoke` 单轮文本；默认工具往返（写文件/读回/bash）。
   档位缺省自动选（disabled > low > 档位表第一项）。末尾打一行 `RESULT` JSON 供脚本汇总。
 - `scripts/zcode-sweep.mjs` —— 全渠道批量回归，候选集 = zcode 供应商清单 ∩ 网关倍率，
-  `--dry` 先看选型，明细落 `.tmp/zcode-sweep/<cid>.json`。
+  `--dry` 先看清单，明细落 `.tmp/zcode-sweep/<模型>.json`。
 
 ```bash
-node .agents/skills/zcode-mx-test/scripts/zcode-e2e.mjs <cid>/<模型> [--level <档位>] [--smoke]
+node .agents/skills/zcode-mx-test/scripts/zcode-e2e.mjs deepseek-v4.1-flash [--level <档位>] [--smoke]
 ```
 
-跑完核对：`.tmp/zcode-e2e/<cid>/<cid>-e2e.txt` 落盘、`mx log` messageCount 递增、`mx bill` 差值。
+跑完核对：`.tmp/zcode-e2e/<模型>/<模型>-e2e.txt` 落盘、`mx log` messageCount 递增、
+`mx bill <访问日志里的 cid>` 差值。

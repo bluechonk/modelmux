@@ -68,8 +68,8 @@ packages/core/channels/<cid>/
 > [`docs/channels/<cid>/`](./channels/README.md)（`PROTOCOL.md` 协议规格 + 使用与实测 +
 > 参考实现清单，另有可选的 `FINDINGS.md` / `FLOW.md`）。
 
-> **一个渠道 = 一个池子**：渠道 `catalog` 提供模型，共享层的**公共模型池**把它们以
-> `<cid>/<模型>` 池 id 对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
+> **一个渠道 = 一个池子**：渠道 `catalog` 提供模型，共享层的**公共模型池**只把
+> **deepseek 家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
 > 账号池见同文档 §3。
 
 **每个 `packages/core/channels/<cid>/` 的 `src/` 只有 7 个文件。** 任何不在上表里的 `src/*.ts`
@@ -211,16 +211,22 @@ interface Channel {
 
 ## 4. 模型池策略
 
-### 4.1 对外 id：动态模型池（`pool-targets.ts`）
+### 4.1 对外 id：deepseek 家族裸模型名（`model-family.ts` + `pool-targets.ts`）
 
-网关对外是**动态模型池**，id 形态为 `<cid>/<规范模型名>`（如 `loomy/kimi-k2.6`）——
-渠道由请求方通过前缀**显式指定**；模型段是各渠道 `catalog` 归一化后的结果，
-**渠道内去重、跨渠道不合并**。匹配是「归一化 + **精确相等**」；裸模型名（无 `/`）
-与未注册渠道前缀一律 `400 unknown_model`。
-完整规则、账本落点与刷新节奏见 [`POOL-ARCHITECTURE.md` §2](./POOL-ARCHITECTURE.md)。
+网关对外只做 **deepseek 家族**，id 形态是**裸模型名**（`deepseek-v4.1-flash` /
+`deepseek-v4-flash` / `deepseek-v4-pro`；`deepseek-flash` 是第一个的别名）。
+家族表（对外 id、canonical 归并、别名组）声明在
+`packages/core/gateway/src/pool/model-family.ts` —— 共享层**唯一**允许出现模型名的地方
+（由 `scripts/verify-contract.mjs` 强制）。
 
->  请求名按**第一个 `/`** 切出渠道段，模型段走归一化路径（剥厂商路径段）——
-> 渠道归属已由前缀声明，模型段再剥不会串渠道。
+- **渠道由网关挑**：同一模型的候选是**多家**渠道，按账号池剩余额度之和降序（见
+  [POOL-ARCHITECTURE.md §2.4](./POOL-ARCHITECTURE.md)）；客户端请求里不带渠道前缀。
+- **匹配**：渠道目录里的等价写法（大小写 / 连字符版本号 / `sn-` 包装 / `-official` /
+  日期后缀）归一后**精确相等**；别名组内互相命中。
+- **拒绝**：家族外的名字、家族内但没有任何渠道供给的 → `400 unknown_model`；
+  候选渠道全都没登录 → `503 not_authenticated`。
+
+> 渠道不再由请求方指定 —— 「哪家出」是网关的调度决策（剩余额度 → 冷却 → 顺延）。
 
 ---
 
@@ -785,13 +791,13 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 
 | 命令 | 回答的问题 | 输出形态 |
 | --- | --- | --- |
-| `mx model list` | **有哪些模型可用** | 按渠道分组：每渠道一行（模型数 + 账本状态）+ 该渠道的模型 id 列表 |
+| `mx model list` | **有哪些模型可用** | 按模型分组：每个 deepseek 模型一行（渠道数）+ 逐渠道的剩余额度 / 账本状态 / 目录原始写法 |
 | `mx model usage [--refresh]` | **各渠道用得怎么样** | 每渠道一行（已用量 / 单位 / ok / fail / 冷却）；`--refresh` 立刻重查各渠道账单 |
-| `mx model <cid> [--refresh]` | **某个渠道的目录** | 该渠道对外暴露的模型 + 倍率 + 目录来源（缓存 / 远端 / 内置） |
-| `mx model spec <模型名>` | **某个模型的规格** | 窗口 / 输出上限 / 思考档位 / 倍率 / 输入模态（见 [MODEL-SPECS.md](./MODEL-SPECS.md)） |
+| `mx model <cid> [--refresh]` | **某个渠道能供哪些对外模型** | 该渠道贡献的 deepseek 模型 + 倍率 + 目录原始写法 + 目录来源（缓存 / 远端 / 内置） |
+| `mx model spec <模型名>` | **某个模型的规格** | 聚合规格（跨渠道取最小/交集）+ 逐渠道倍率与上游目录值（见 [MODEL-SPECS.md](./MODEL-SPECS.md)） |
 
-`model list` 与 `model usage` 是**两个不同视图**：前者按渠道分组列模型，后者只按渠道列账本。
-账本数字**不决定路由**（渠道由池 id 前缀指定），两处都只作健康度观察。
+`model list` 与 `model usage` 是**两个不同视图**：前者按**模型**分组回答「从哪几家出」，
+后者按**渠道**列账本。账本的「剩余额度之和」是**选路主键**（其余数字只作健康度观察）。
 
 实现落点：`packages/core/gateway/src/app/cli/index.ts` 的分发（动词表在前、cid 作 operand）；
 `packages/core/gateway/src/app/cli/channel.ts` 的 `CHANNEL_VERBS`（`{ name, usage, summary, group }` 对象表）与

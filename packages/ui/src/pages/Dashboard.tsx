@@ -252,10 +252,9 @@ export function Dashboard(): ReactElement {
   const totalTokens = usage ? formatTokens(usage.tokens.total) : "0";
 
   // 渠道计数（模型池概览用：供给渠道数）
-  const totalModels = overview?.model_pool.total ?? state.models.length;
+  const totalModels = overview?.model_pool.total ?? new Set(state.models.map((m) => m.model)).size;
   const channelCount =
-    (overview?.channels.length ?? 0) ||
-    new Set(state.models.map((full) => full.slice(0, Math.max(0, full.indexOf("/"))))).size;
+    (overview?.channels.length ?? 0) || new Set(state.models.map((m) => m.cid)).size;
 
   // 模型池概览（直接从 overview 取）
   const pool = overview?.model_pool;

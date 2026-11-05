@@ -154,6 +154,9 @@ for (const cid of channelDirs) {
 
 const CHANNEL_ID_RE = new RegExp(`["'\`](${channelDirs.join("|")})["'\`]`);
 const MODEL_NAME_RE = /["'`](?:deepseek|glm|qwen|kimi|doubao|hunyuan|minimax|sensenova)-[a-z0-9.-]+["'`]/i;
+// 例外：`pool/model-family.ts` 是**对外模型家族**的唯一声明点 —— 网关只做 deepseek，
+// 家族名是产品面（`AGENTS.md` 的「代码约定」）；其余共享层文件仍不得持有模型名。
+const FAMILY_FILE_REL = "packages/core/gateway/src/pool/model-family.ts";
 
 const gatewaySrc = join(repo, "packages", "core", "gateway", "src");
 function walk(dir, out = []) {
@@ -172,6 +175,7 @@ for (const file of walk(gatewaySrc)) {
     !idHit,
     `${rel}: 共享层不得硬编码渠道 id（出现 "${idHit?.[0]}"）—— 渠道知识只允许出现在各渠道包内`,
   );
+  if (rel === FAMILY_FILE_REL) continue;
   const modelHit = code.match(MODEL_NAME_RE);
   check(
     !modelHit,

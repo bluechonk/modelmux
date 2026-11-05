@@ -178,7 +178,7 @@ function makeChannel(): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
       newTranslator: translator,
     },
-    catalog: { exposedIds: () => ["glm-5.3-flash"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -222,7 +222,7 @@ describe("排队进度推送与断连止损", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: `${CID}/glm-5.3-flash`,
+          model: "deepseek-v4.1-flash",
           messages: [{ role: "user", content: "hi" }],
           stream: true,
         }),
@@ -257,7 +257,7 @@ describe("排队进度推送与断连止损", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: `${CID}/glm-5.3-flash`,
+          model: "deepseek-v4.1-flash",
           messages: [{ role: "user", content: "hi" }],
           stream: true,
         }),
@@ -290,7 +290,7 @@ describe("排队进度推送与断连止损", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: `${CID}/glm-5.3-flash`,
+          model: "deepseek-v4.1-flash",
           messages: [{ role: "user", content: "hi" }],
           stream: true,
         }),

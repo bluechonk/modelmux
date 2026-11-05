@@ -77,7 +77,7 @@ function makeChannel(cid: string): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
       newTranslator: () => ({ feed: (c: Buffer) => [c], finish: () => [] }),
     },
-    catalog: { exposedIds: () => ["glm-5.3-flash"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -100,7 +100,7 @@ async function chat(addr: string, path = "/v1/chat/completions", body?: unknown)
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(
       body ?? {
-        model: `${CID}/glm-5.3-flash`,
+        model: "deepseek-v4.1-flash",
         messages: [{ role: "user", content: "hi" }],
         stream: false,
       },

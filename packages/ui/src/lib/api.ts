@@ -263,10 +263,9 @@ async function demoCommand(
       return { ...demoStatus(st), ok: true };
     case "models": {
       const channels = st.channels.map((ch) => {
-        const ids = demoModels(st)
-          .filter((m) => m.startsWith(`${ch.cid}/`))
-          .map((m) => m.slice(ch.cid.length + 1));
-        return { cid: ch.cid, display: ch.display, catalog: ids, pool: ids, out_of_pool: 0 };
+        // 演示里渠道目录 == 对外模型池（真实实现里目录更大，只有 deepseek 家族对外）
+        const pool = demoModels(st).filter((row) => row.cid === ch.cid).map((row) => row.model);
+        return { cid: ch.cid, display: ch.display, catalog: pool, pool, out_of_pool: 0 };
       });
       return { channels, ok: true };
     }
