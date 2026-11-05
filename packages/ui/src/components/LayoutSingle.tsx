@@ -14,8 +14,9 @@
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Boxes, Gauge, ScrollText } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import { useRef, type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
+import { BackToTop } from "./BackToTop";
 import { BrandMark } from "./BrandMark";
 import { GatewayStatus } from "./GatewayStatus";
 
@@ -68,6 +69,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
   // 顺序即优先级：查询失败先于缓存 ui_state —— 网关挂了之后 data 还是上次的
   // 「running」，只看缓存永远等不到异常。
   const { pathname } = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
   const uiState = state.data?.ui_state ?? "";
   const queryFailed = Boolean(state.isError);
   const onLogs = pathname.replace(/\/+$/, "").endsWith("/logs");
@@ -127,11 +129,12 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         内容区：单列纵向流，最大宽度居中；页面级滚动（取消旧版「宽屏钉一屏 +
         页内面板滚动」的双层嵌套）。表格类区块内部仍保留横向滚动。
       */}
-      <main className="min-h-0 flex-1 overflow-auto">
+      <main ref={mainRef} className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto min-h-full w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
           {skeleton ? <GatewaySkeleton /> : children ?? <Outlet />}
         </div>
       </main>
+      <BackToTop target={mainRef} />
     </div>
   );
 }

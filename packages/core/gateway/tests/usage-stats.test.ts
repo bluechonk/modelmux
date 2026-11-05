@@ -113,6 +113,18 @@ describe("computeUsageStats", () => {
     assert.equal(stats.totals.tokens, 150);
   });
 
+  it("旧日志的模型名自带渠道前缀时，聚合键不会变成 cid/cid/模型", () => {
+    resetUsageCache();
+    const today = dateOffset(0);
+    // 池 id 时代：cid=loomy，日志的 model 自己也写成 loomy/deepseek-v4.1-flash
+    writeDay(today, [modelEntry(today, "loomy/loomy/deepseek-v4.1-flash", { prompt: 100, completion: 50 })]);
+    const stats = computeUsageStats("7d");
+    const row = stats.models[0]!;
+    assert.equal(row.id, "loomy/deepseek-v4.1-flash");
+    assert.equal(row.model, "deepseek-v4.1-flash");
+    assert.equal(row.cid, "loomy");
+  });
+
   it("累计 / 输入输出 / 模型占比 / 图例排序", () => {
     resetUsageCache();
     const today = dateOffset(0);

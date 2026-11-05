@@ -8,7 +8,22 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { formatCacheRate, formatPercent, formatRate, tokensPerSecOf } from "../src/lib/log-format.ts";
+import {
+  brief,
+  countOrDash,
+  formatBytes,
+  formatClock,
+  formatCount,
+  formatDateTime,
+  formatDuration,
+  formatCacheRate,
+  formatPercent,
+  formatRate,
+  formatTokens,
+  formatTokensPerSec,
+  tokensPairText,
+  tokensPerSecOf,
+} from "../src/lib/log-format.ts";
 
 describe("formatPercent", () => {
   it("无数据 / 极值分别显示 —、0%、<1%", () => {
@@ -31,19 +46,8 @@ describe("formatPercent", () => {
 });
 
 describe("formatCacheRate", () => {
-  it("分母恒为 hit + miss（独占口径的上游也正确）", () => {
-    assert.equal(formatCacheRate({ hit: 3, miss: 2 }), "60%");
-    // Anthropic 独占口径：hit=900（读缓存）、miss=150（输入 + 写缓存）
-    assert.equal(formatCacheRate({ hit: 900, miss: 150 }), "86%");
-  });
-
-  it("缺字段时显示 — 而不是 0%（「没采集到」与「完全没命中」是两件事）", () => {
-    assert.equal(formatCacheRate(null), "—");
-    assert.equal(formatCacheRate(undefined), "—");
-    assert.equal(formatCacheRate({ hit: null, miss: null }), "—");
-    // 命中数已知但分母推不出 → 同样不给百分比
-    assert.equal(formatCacheRate({ hit: 100, miss: null }), "—");
-    assert.equal(formatCacheRate({ hit: 0, miss: 100 }), "0%");
+  it("恒为 —：没有上游返回命中率字段，不自己相除（计数在展开详情里原样展示）", () => {
+    assert.equal(formatCacheRate(), "—");
   });
 });
 
@@ -118,5 +122,85 @@ describe("formatRate", () => {
     assert.equal(formatRate(0.01), "<0.1 t/s");
     assert.equal(formatRate(9.44), "9.4 t/s");
     assert.equal(formatRate(158.9), "159 t/s");
+  });
+});
+
+describe("时间与耗时格式", () => {
+  it("formatDateTime：UTC 输入转本地 MM-DD HH:mm:ss；非法输入给 -", () => {
+    // 本地 2026-11-06 00:05:09 的 UTC 串（日志行存 UTC，展示必须转本地）
+    const ts = new Date(2026, 10, 6, 0, 5, 9);
+    assert.equal(formatDateTime(ts.toISOString()), "11-06 00:05:09");
+    assert.equal(formatDateTime("not-a-date"), "-");
+  });
+
+  it("formatClock：只取时分秒；非法输入给 -", () => {
+    const ts = new Date(2026, 10, 6, 9, 7, 3);
+    assert.equal(formatClock(ts.toISOString()), "09:07:03");
+    assert.equal(formatClock("garbage"), "-");
+  });
+
+  it("formatDuration 三档：ms / s（一位小数）/ 分秒", () => {
+    assert.equal(formatDuration(undefined), "-");
+    assert.equal(formatDuration(845), "845ms");
+    assert.equal(formatDuration(2_940), "2.9s");
+    assert.equal(formatDuration(61_400), "1m1s");
+  });
+});
+
+describe("计数与字节", () => {
+  it("formatCount 千分位；countOrDash 对 null 给 -", () => {
+    assert.equal(formatCount(12_345), "12,345");
+    assert.equal(countOrDash(null), "-");
+    assert.equal(countOrDash(1_200), "1,200");
+  });
+
+  it("formatTokens：千分位 / 万 / 亿，尾零收敛", () => {
+    assert.equal(formatTokens(9_999), "9,999");
+    assert.equal(formatTokens(12_100), "1.21 万");
+    assert.equal(formatTokens(120_000_000), "1.2 亿");
+    assert.equal(formatTokens(100_000_000), "1 亿");
+  });
+
+  it("formatBytes 三档与缺失值", () => {
+    assert.equal(formatBytes(undefined), "-");
+    assert.equal(formatBytes(112), "112 B");
+    assert.equal(formatBytes(2_355), "2.3 KB");
+    assert.equal(formatBytes(1_300_000), "1.24 MB");
+  });
+
+  it("tokensPairText：入 / 出，缺失一半给 -；无 usage 给 -", () => {
+    assert.equal(tokensPairText(undefined), "-");
+    assert.equal(tokensPairText({ prompt: null, completion: null, total: null, cache: null }), "-");
+    const pair = tokensPairText({ prompt: 12_100, completion: 7, total: 12_107, cache: null });
+    assert.equal(pair, "1.21 万 / 7");
+  });
+});
+
+describe("brief 与 formatTokensPerSec", () => {
+  it("brief：超长截断并带总长标注；对象转 JSON", () => {
+    assert.equal(brief("short"), "short");
+    const long = "x".repeat(400);
+    const shown = brief(long, 300);
+    assert.ok(shown.startsWith("x".repeat(300)));
+    assert.match(shown, /…（共 400 字符）$/);
+    assert.equal(brief({ a: 1 }), '{"a":1}');
+  });
+
+  it("formatTokensPerSec：复用 tokensPerSecOf 口径，无数据显示 —", () => {
+    assert.equal(
+      formatTokensPerSec({
+        tokens: { completion: 900, prompt: 0, total: 900, cache: null },
+        durationMs: 3_000,
+        stream: true,
+        ttfbMs: 2_000,
+        upstreamMs: 1_000,
+      } as never),
+      "900 t/s",
+    );
+    assert.equal(
+      formatTokensPerSec({ tokens: null, durationMs: 100 } as never),
+      "—",
+      "无 usage 的请求（如失败行）显示 —",
+    );
   });
 });

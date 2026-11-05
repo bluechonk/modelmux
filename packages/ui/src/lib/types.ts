@@ -212,6 +212,10 @@ export interface AccessLogEntry {
     cache: { hit: number | null; miss: number | null } | null;
   } | null;
   slow: boolean;
+  /** 首字 token 延迟超标（仅流式参与判定，阈值见 `AccessLogPage.slowThresholds`）。 */
+  slowTtfb: boolean;
+  /** 生成速率超标（阈值见 `AccessLogPage.slowThresholds`）。 */
+  slowTps: boolean;
 }
 
 export interface AccessLogStats {
@@ -219,7 +223,12 @@ export interface AccessLogStats {
   success: number;
   failure: number;
   other: number;
+  /** 判定为慢的条数（首字延迟或生成速率，口径见 docs/LOGGING.md §3.5）。 */
   slow: number;
+  /** 其中首字延迟超标的条数。 */
+  slowTtfb: number;
+  /** 其中生成速率超标的条数。 */
+  slowTps: number;
   avgDurationMs: number | null;
   /** 窗口内没有 usage 的条数（不把缺失当 0）。 */
   noUsage: number;
@@ -237,7 +246,8 @@ export interface AccessLogPage {
   dates: string[];
   /** 窗口内出现过的渠道（未过滤，供下拉用）。 */
   cids: string[];
-  slowMs: number;
+  /** 「慢」判定的两个阈值（展示归因用，与后端 `slowVerdictOf` 同源）。 */
+  slowThresholds: { ttfbMs: number; tps: number };
   scanned: number;
   /** true = 统计只代表读窗口，不代表全天。 */
   truncated: boolean;
@@ -298,8 +308,12 @@ export interface LogQuery {
   offset?: number;
 }
 
-/** 用量统计的区间（对应 `GET /web/api/usage?range=`）。 */
-export type UsageRange = "7d" | "30d" | "90d" | "365d";
+/**
+ * 用量统计的区间（对应 `GET /web/api/usage?range=`）。
+ *
+ * `365d` 只供热力图（日历恒看一年）；`all` = 累计（日志保留期内全量）。
+ */
+export type UsageRange = "today" | "7d" | "30d" | "90d" | "365d" | "all";
 
 /** 某一天的用量（趋势图与热力图的数据点）。 */
 export interface UsageDaily {
@@ -438,5 +452,9 @@ export interface OverviewResponse {
     ttfb_ms?: number;
     upstream_ms?: number;
     tokens: { prompt: number | null; completion: number | null; total: number | null } | null;
+    /** 失败 / 中断的错误码（如 `upstream_timeout`）；成功行缺省。 */
+    error?: string;
+    /** 失败 / 中断的说明文案（控制台直接展示，超长由行内截断）。 */
+    message?: string;
   }>;
 }
