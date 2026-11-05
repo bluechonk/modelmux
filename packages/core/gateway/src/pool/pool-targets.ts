@@ -1,14 +1,12 @@
 /**
- * 公共模型池：对外暴露**全部渠道能提供的真实模型**，id 形态为 `<cid>/<模型>`。
- * 客户端用渠道 id 选池子，网关不跨渠道改路由；**不同渠道的同名模型不互相去重**。
+ * 公共模型池：对外只暴露 deepseek 系列（见 `model-family.ts`），客户端用**裸模型名**请求。
  *
- * 关键约束（设计细节见 docs/POOL-ARCHITECTURE.md）：
- *   - **模型段归一化**（恒小写）后做**精确相等**比较 —— 包含匹配会让
- *     `deepseek-v4-flash` 误命中 `deepseek-v4.1-flash`。
- *   - **图片能力**：各渠道字段名各异，按候选表逐个尝试（`IMAGE_CAPABILITY_KEYS`），
- *     全缺回落 `["text"]`。
- *   - **跨渠道兜底**：取不到窗口/输出/档位时用兄弟渠道同名值兜底
- *     （数值取最小、档位取交集），只填缺值且记录来源。
+ * 渠道归属由网关按「账号池剩余额度之和」自动选择（`poolCandidates`），渠道内再走既有的
+ * 账号轮换（`pool/account-rotate.ts`）；设计细节见 docs/POOL-ARCHITECTURE.md。
+ *
+ * 约束：① 别名双向匹配（`deepseek-flash` ↔ `deepseek-v4.1-flash`）；
+ * ② 归一化后**精确相等**（包含匹配会让 `deepseek-v4-flash` 误命中 `deepseek-v4.1-flash`）；
+ * ③ 取不到窗口/输出/档位时用兄弟渠道同名值兜底（数值取最小、档位取交集，只填缺值）。
  */
 
 import { channels, type Channel } from "../runtime/channel.js";
@@ -16,107 +14,22 @@ import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { logRecovered, logThrottled } from "../runtime/logger.js";
+import { aliasGroupOf, canonicalOf, DEEPSEEK_EXPOSED_IDS } from "./model-family.js";
+import { totalRemainOf } from "./pool-usage.js";
 
 /**
- * 对外暴露的模型池（动态收集：各渠道 `exposedIds()` 归一化后挂上 `<cid>/` 前缀）。
+ * 对外暴露的模型池（deepseek 家族中**至少有一个渠道能供给**的 id，按展示顺序）。
  *
  * 不做进程内缓存：渠道目录可随登录/刷新变化，每次调用重新收集是刻意的
  * （调用方若需在同一表达式里保持一致快照，应先取一次局部变量）。
  *
- * 空池返回 `[]`（**不硬编码兜底模型**）——共享层不持有任何渠道知识（`AGENTS.md` 的「仓库结构与约束」）；
- * 空池意味着所有渠道目录都读不出来，此时对外公布幻影模型只会让请求必然落空。
+ * 只公布**有货**的模型：没有渠道供给的 id 公布出去只会让请求必然落空
+ * （共享层不持有渠道知识，`AGENTS.md` 的「仓库结构与约束」）。
  */
 export function poolModels(): string[] {
-  const out: string[] = [];
-  for (const channel of channels()) {
-    const cid = channel.config.cid;
-    const ids = runInChannel(cid, () => {
-      try {
-        const exposed = channel.catalog.exposedIds() as string[];
-        // 恢复时输出一条状态变化记录（含静默期间的重复次数）
-        logRecovered(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} exposedIds recovered`);
-        return exposed;
-      } catch (err) {
-        // 单个渠道的目录异常不影响整池收集；输出走节流器，避免高频重复占满日志
-        logThrottled(
-          console.warn,
-          `pool:exposedIds:${cid}`,
-          `[pool] channel ${cid} exposedIds failed: ${String(err)}`,
-        );
-        return [] as string[];
-      }
-    });
-    // 渠道内先按规范名去重：同一渠道的不同原始写法收敛到同一个对外 id
-    const seen = new Set<string>();
-    for (const id of ids) {
-      const canonical = canonicalModelId(id);
-      if (seen.has(canonical)) continue;
-      seen.add(canonical);
-      out.push(`${cid}/${canonical}`);
-    }
-  }
-  return out.sort();
+  const index = buildCrossModelIndex();
+  return DEEPSEEK_EXPOSED_IDS.filter((id) => candidatesOf(canonicalOf(id)!, index).length > 0);
 }
-
-/** 池模型 id 的拼装（`<cid>/<规范模型名>`）：渠道目录 → 对外 id 的唯一写法。 */
-export function poolModelId(cid: string, exposedId: string): string {
-  return `${cid}/${canonicalModelId(exposedId)}`;
-}
-
-/**
- * 拆解池模型 id：第一个 `/` 之前是渠道 id，其余是模型段。
- *
- * 渠道段**小写化**（cid 全为小写，请求方大小写笔误照收）；模型段按规范路径归一化
- * （可剥**模型段内部**的厂商路径段：`loomy/deepseek/deepseek-v4.1-flash` →
- * `loomy/deepseek-v4.1-flash`）。格式不合法（无 `/`、段为空）返回 null。
- *
- * 只按**第一个** `/` 切：渠道 id 本身不含 `/`，模型段内部的 `/` 属于厂商路径。
- */
-export function parsePoolModel(id: string): { cid: string; model: string } | null {
-  const slash = id.indexOf("/");
-  if (slash <= 0 || slash === id.length - 1) return null;
-  const cid = id.slice(0, slash).trim().toLowerCase();
-  const model = normalize(id.slice(slash + 1), true);
-  if (!cid || !model) return null;
-  return { cid, model };
-}
-
-/**
- * 池模型的只读快照（兼容旧调用形态）。
- *
- * 底层是**真实数组**：每次读属性时按当前渠道目录重建，因此 `Object.keys` /
- * `JSON.stringify` / 展开 / 迭代 / 数字索引天然一致（早期用空数组 + Proxy
- * 只会让 `keys` 与 `length` 互相矛盾，序列化时会静默丢内容）。
- */
-export const POOL_MODELS: readonly string[] = new Proxy([] as string[], {
-  get(_target, prop, receiver) {
-    const models = poolModels();
-    if (prop === "length") return models.length;
-    if (typeof prop === "string" && /^\d+$/.test(prop)) return models[Number(prop)];
-    const value = (models as unknown as Record<string | symbol, unknown>)[prop];
-    // 函数一律绑定到本次快照：避免 this 落到 Proxy 上导致 sort/push 之类静默失效
-    return typeof value === "function" ? value.bind(models) : value;
-  },
-  has(_target, prop) {
-    const models = poolModels();
-    if (typeof prop === "string" && /^\d+$/.test(prop)) return Number(prop) < models.length;
-    return prop in (models as unknown as object);
-  },
-  ownKeys() {
-    // 让 Object.keys / JSON.stringify / spread 看到真实索引
-    return poolModels().map((_, i) => String(i));
-  },
-  getOwnPropertyDescriptor(_target, prop) {
-    const models = poolModels();
-    if (typeof prop === "string" && /^\d+$/.test(prop)) {
-      const i = Number(prop);
-      if (i < models.length) {
-        return { value: models[i], writable: false, enumerable: true, configurable: true };
-      }
-    }
-    return undefined;
-  },
-});
 
 export type PoolModel = string;
 
@@ -146,7 +59,7 @@ export interface PoolModelMeta {
    * **思考模式（reasoning effort）档位**；`null` = 渠道**没有声明**。
    *
    * 刻意可空：渠道目录**普遍不下发**思考档位（实测只有 catpaw 的 `effort`、
-   * loomy / traecn / lobsterai 的 `efforts` 数组有真值）。
+   * loomy / traecn 的 `efforts` 数组有真值）。
    * 兜底**不许编档位**（旧版给所有模型都填了 `["low","high"]`，等于把「不知道」
    * 说成「支持」）——没有声明就是「不支持 / 未知」，由调用方如实呈现。
    */
@@ -163,8 +76,8 @@ export interface PoolModelMeta {
  * 元数据取值的来源 —— 让「上游真说的」「渠道按公开规格补的」「兄弟渠道推断的」
  * 「占位值」在界面上分得开（跨渠道兜底不能冒充上游事实）。
  *
- * - `upstream`：本渠道目录（上游返回）里有这个字段；
- * - `spec`：本渠道按公开规格维护的 `catalog.modelSpec()`（窗口 / 输出 / **官方文档给的思考档位**）；
+ * - `upstream`：渠道目录（上游返回）里有这个字段；
+ * - `spec`：渠道按公开规格维护的 `catalog.modelSpec()` 或全局 `model-specs.json`；
  * - `cross`：兄弟渠道同 model id 的已知值（数值取 min / 档位取交集）；
  * - `default`：谁都没有 → 占位值（`effort` 为 `null` 时也记 `default`）。
  */
@@ -255,7 +168,7 @@ const OUTPUT_KEYS = [
  *
  * 两种形态（实测）：
  * - `effort`：对象，catpaw 写 `{supportedLevels:[…], defaultLevel:"high"}`；
- * - `efforts`：字符串数组，loomy / traecn / lobsterai 写 `["none","low","medium","high"]`，
+ * - `efforts`：字符串数组，loomy / traecn 写 `["none","low","medium","high"]`，
  *   默认档另放在 `defaultEffort` / `default_effort`。
  *
  * **空数组 = 未声明**（traecn 全部模型都写 `[]`），不能当成「支持但档位为空」。
@@ -281,7 +194,7 @@ function effortOf(entry: Record<string, unknown>): PoolModelMeta["effort"] {
       return { supportedLevels: levels, defaultLevel: firstString(rec, ["defaultLevel", "default_level"]) };
     }
   }
-  // 形态二：数组 + 默认档字段（loomy / traecn / lobsterai）
+  // 形态二：数组 + 默认档字段（loomy / traecn）
   for (const key of EFFORT_LIST_KEYS) {
     const list = entry[key];
     if (!Array.isArray(list)) continue;
@@ -706,79 +619,46 @@ function metaFromFacts(
 }
 
 /**
- * 动态元数据：从池模型 id 指向的渠道 catalog 缓存（models.json）中提取。
+ * 聚合元数据：一个模型家族跨多个渠道时的合并值。
  *
- * 上游目录**通常不下发**窗口与输出上限 → 缓存里没有 → 问渠道要「已知规格」
- * （`catalog.modelSpec()`，渠道按公开规格维护）。两者都拿不到才回落兜底值。
- *
- * `cross` 传 `buildCrossModelIndex()` 的结果时启用**跨渠道兜底**（只填缺值）。
- * 不传 = 不做跨渠道兜底：单查（转发路径只取倍率）不值得为它扫全池 —— 见 `poolModelMetas()`。
+ * 窗口 / 输出取**各渠道最小值**（与跨渠道兜底同一口径：报能力上限中的保守值），
+ * 档位取**交集**，倍率与展示名取首个声明渠道（同代模型这些字段本应一致）。
+ * 任一渠道上游声明过的字段，来源就标 `upstream`。
  */
-export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSpecs?: Record<string, ModelSpecEntry>): PoolModelMeta {
-  const parsed = parsePoolModel(model);
-  if (!parsed) return DEFAULT_META;
-  const channel = findChannel(parsed.cid);
-  if (!channel) return DEFAULT_META;
-  let facts: ChannelFacts;
-  try {
-    facts = channelFacts(channel.config.cid, channel, parsed.model);
-  } catch {
-    facts = EMPTY_FACTS;
-  }
-  return metaFromFacts(facts, model, cross?.get(parsed.model), modelSpecs?.[parsed.model]);
+function mergeFacts(list: readonly ChannelFacts[], model: string, spec?: ModelSpecEntry): PoolModelMeta {
+  const ctxs = list.map((f) => f.contextWindow).filter((v): v is number => v !== null);
+  const outs = list.map((f) => f.maxOutputTokens).filter((v): v is number => v !== null);
+  const efforts = list
+    .map((f) => f.effort)
+    .filter((v): v is { supportedLevels: string[]; defaultLevel: string } => v !== null);
+  const ctx = ctxs.length > 0 ? Math.min(...ctxs) : null;
+  const out = outs.length > 0 ? Math.min(...outs) : null;
+  const effort = intersectEfforts(efforts);
+  const specSource: MetaSource = spec?._source?.startsWith("web_search") ? "web_search" : "spec";
+  const first = list.find((f) => f.entry) ?? list[0];
+  const ctxValue = ctx ?? spec?.contextWindow ?? null;
+  const outValue = out ?? spec?.maxOutputTokens ?? null;
+  const effortValue = effort ?? spec?.effort ?? null;
+  const output = first?.entry?.["outputModalities"] ?? first?.entry?.["output_modalities"];
+  return {
+    name:
+      first?.entry && typeof first.entry["name"] === "string" && first.entry["name"] !== ""
+        ? first.entry["name"]
+        : model,
+    contextWindow: ctxValue ?? DEFAULT_META.contextWindow,
+    maxOutputTokens: outValue ?? DEFAULT_META.maxOutputTokens,
+    inputModalities: first?.entry ? inputModalitiesOf(first.entry) : DEFAULT_META.inputModalities,
+    outputModalities: Array.isArray(output) ? (output as string[]) : DEFAULT_META.outputModalities,
+    effort: effortValue,
+    multiplier: first?.entry ? firstNumber(first.entry, MULTIPLIER_KEYS) : (spec?.multiplier ?? null),
+    marketing: first?.entry ? firstString(first.entry, MARKETING_KEYS) : "",
+    sources: {
+      contextWindow: ctxValue === null ? "default" : ctx !== null ? "upstream" : specSource,
+      maxOutputTokens: outValue === null ? "default" : out !== null ? "upstream" : specSource,
+      effort: effortValue === null ? "default" : effort !== null ? "upstream" : specSource,
+    },
+  };
 }
-
-/**
- * `poolModelMetas` 的结果缓存（**按入参数组的身份**记忆）。
- *
- * 控制台每 3 秒调一次 `poolModelMetas(this.modelsShown)`，而每次都要为 191 个模型
- * 逐条走一遍 `getPoolModelMeta`（读目录缓存 + 查规格 + 四层回落），实测约 200ms 的
- * **同步阻塞** —— 事件循环被占住，同页面的 accounts / logs 请求只能排队。
- *
- * 三个失效信号任一变化即重建：入参数组换了（池集合变）、跨渠道索引换了（目录变）、
- * 规格表换了（mtime 变）。都走身份比较，命中成本是一次指针比对。
- */
-let metaCache: {
-  ids: readonly string[];
-  index: CrossModelIndex;
-  specs: Record<string, ModelSpecEntry>;
-  out: Map<string, PoolModelMeta>;
-} | null = null;
-
-/**
- * 枚举池模型的元数据（`ids` 缺省 = 全池）—— **一次**构建跨渠道索引再逐条取值。
- *
- * 返回 `Map` 的迭代顺序即传入顺序（缺省时是 `poolModels()` 的排序结果），
- * 调用方直接照它渲染即可，不必自己再收集一遍目录。
- *
- * 传**同一个数组引用**重复调用时直接返回上次结果（见 `metaCache`）：池集合没变、
- * 目录没变，元数据就不会变。缺省入参（全池）不缓存 —— 它每次都要重新收集池集合。
- */
-export function poolModelMetas(ids?: readonly string[]): Map<string, PoolModelMeta> {
-  const index = buildCrossModelIndex();
-  const specs = readModelSpecs().models;
-  if (ids !== undefined && metaCache !== null &&
-      metaCache.ids === ids && metaCache.index === index && metaCache.specs === specs) {
-    return metaCache.out;
-  }
-  const out = new Map<string, PoolModelMeta>();
-  for (const id of ids ?? poolModels()) out.set(id, getPoolModelMeta(id, index, specs));
-  if (ids !== undefined) metaCache = { ids, index, specs, out };
-  return out;
-}
-
-/** 按渠道 id（大小写不敏感）找已注册渠道（未注册返回 undefined）。 */
-function findChannel(cid: string): Channel | undefined {
-  const wanted = cid.toLowerCase();
-  return channels().find((c) => c.config.cid.toLowerCase() === wanted);
-}
-
-/** 兼容旧代码的常量形式。 */
-export const POOL_MODEL_META: Record<string, PoolModelMeta> = new Proxy({} as Record<string, PoolModelMeta>, {
-  get(_target, prop: string) {
-    return getPoolModelMeta(prop);
-  },
-});
 
 /** 渠道包装前缀（去掉后才可能命中池内模型）。 */
 const WRAPPER_PREFIXES = ["sn-", "z-ai-", "bytedance-"];
@@ -822,22 +702,7 @@ export function canonicalModelId(exposedId: string): string {
   return normalize(exposedId, true);
 }
 
-/**
- * 客户端请求的模型名归一化；**必须**是 `<cid>/<模型>` 形态，否则返回 null。
- *
- * 渠道段改小写、模型段走归一化路径（见上）。裸模型名（不带渠道前缀）判 null
- * —— 这是「渠道由请求方指定」的一面：网关不知道裸名该去哪家。
- *
- * 全模型池：不再限制只匹配固定 2 个 flash，而是动态匹配渠道目录里的一切。
- * 渠道未注册 / 目录未命中由 poolCandidates 的空检查兜底。
- */
-export function asPoolModel(name: string): PoolModel | null {
-  const parsed = parsePoolModel(name);
-  if (!parsed) return null;
-  return `${parsed.cid}/${parsed.model}`;
-}
-
-/** 一个候选：某渠道能提供该池模型（带渠道目录里的原始 exposedId）。 */
+/** 一个候选：某渠道能提供该模型（带渠道目录里的原始 exposedId）。 */
 export interface PoolCandidate {
   cid: string;
   channel: Channel;
@@ -846,36 +711,202 @@ export interface PoolCandidate {
 }
 
 /**
- * 收集某池模型 id（`<cid>/<模型>`）的候选渠道 —— **最多一条**：渠道已由请求方指定。
+ * 收集某模型（对外 id 或规范名）的**全部候选渠道** —— 按账号池剩余额度降序。
  *
- * 渠道按 id 大小写不敏感匹配；该渠道目录里第一条规范名命中的就是对外名
- * （渠道自己排的优先级）。渠道未注册 / 目录里没有这个模型 / 目录读不出来
- * （缓存损坏等）都返回空 —— 一个坏渠道只影响指向它的请求。
+ * 渠道归属由网关决定：客户端只说「我要 deepseek-v4-flash」，哪家有货、哪家额度多
+ * 由这里排。渠道未注册 / 目录里没有这个模型 / 目录读不出来（缓存损坏等）都返回空
+ * —— 一个坏渠道只影响自己，不拖垮整池。
  *
  * 匹配用**目录里的原始写法**（不预先小写）：`exposedId` 要原样带回去给
  * 渠道自己的 `resolveModel()`，而上游 slug 可能大小写敏感（TRAE 认
  * `DeepSeek-V4-Flash`，不认全小写）。
  */
 export function poolCandidates(model: PoolModel): PoolCandidate[] {
-  const parsed = parsePoolModel(model);
-  if (!parsed) return [];
-  const channel = findChannel(parsed.cid);
-  if (!channel) return [];
-  const cid = channel.config.cid;
-  // 先查跨渠道索引（30s 缓存）：它已经枚举过全部渠道目录，命中就不必再扫一遍 ——
-  // 控制台 billing 命令对 191 个模型各调一次本函数，逐次扫目录是它 ~87ms 的主要来源。
-  const exposed = buildCrossModelIndex()
-    .get(parsed.model)
-    ?.exposed.find((item) => item.cid === cid);
-  if (exposed !== undefined) return [{ cid, channel, exposedId: exposed.exposedId }];
-  // 索引没命中：回落到直扫（目录在 TTL 内被改过时，索引可能还没跟上），语义与之前一致
-  const ids = runInChannel(cid, () => {
-    try {
-      return channel.catalog.exposedIds();
-    } catch {
-      return [] as string[];
-    }
-  });
-  const hit = ids.find((id) => canonicalModelId(id) === parsed.model);
-  return hit === undefined ? [] : [{ cid, channel, exposedId: hit }];
+  const canonical = canonicalOf(model);
+  if (!canonical) return [];
+  return sortByRemain(candidatesOf(canonical, buildCrossModelIndex()));
 }
+
+/**
+ * 某规范模型的候选渠道（未经额度排序）。
+ *
+ * 别名组内的每个名字都查一遍：`deepseek-flash` 与 `deepseek-v4.1-flash` 互为别名，
+ * 渠道目录里写哪个都应命中。同一渠道同时暴露两个名字时取先命中的那个。
+ */
+function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[] {
+  const group = aliasGroupOf(canonical);
+  const out: PoolCandidate[] = [];
+  for (const channel of channels()) {
+    const cid = channel.config.cid;
+    let exposedId: string | undefined;
+    // 先查跨渠道索引（30s 缓存）：它已经枚举过全部渠道目录，命中就不必再扫一遍
+    for (const name of group) {
+      exposedId = index.get(name)?.exposed.find((item) => item.cid === cid)?.exposedId;
+      if (exposedId !== undefined) break;
+    }
+    // 索引没命中：回落到直扫（目录在 TTL 内被改过时，索引可能还没跟上），语义与之前一致
+    if (exposedId === undefined) {
+      const ids = runInChannel(cid, () => {
+        try {
+          return channel.catalog.exposedIds() as string[];
+        } catch {
+          return [] as string[];
+        }
+      });
+      exposedId = ids.find((id) => group.includes(canonicalModelId(id)));
+    }
+    if (exposedId !== undefined) out.push({ cid, channel, exposedId });
+  }
+  return out;
+}
+
+/**
+ * 跨渠道排序：**账号池剩余额度之和降序**，无额度数据的排最后，同分按 cid 码点序。
+ *
+ * 为什么不用 `scoreOf`（账单已用量）：那是「用得多的优先」，与「谁还有货谁先出」相反；
+ * 现在渠道由网关心挑，额度才是路由主键（见 `pool-usage.totalRemainOf`）。
+ */
+function sortByRemain(candidates: readonly PoolCandidate[]): PoolCandidate[] {
+  return [...candidates].sort((a, b) => {
+    const ra = totalRemainOf(a.cid);
+    const rb = totalRemainOf(b.cid);
+    if (ra === null && rb === null) return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
+    if (ra === null) return 1;
+    if (rb === null) return -1;
+    if (rb !== ra) return rb - ra;
+    return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
+  });
+}
+
+/**
+ * 动态元数据：从池模型指向的渠道 catalog 缓存（models.json）中提取。
+ *
+ * 上游目录**通常不下发**窗口与输出上限 → 缓存里没有 → 问渠道要「已知规格」
+ * （`catalog.modelSpec()`，渠道按公开规格维护）。两者都拿不到才回落兜底值。
+ *
+ * `cross` 传 `buildCrossModelIndex()` 的结果时启用**跨渠道兜底**（只填缺值）。
+ * 不传 = 不做跨渠道兜底：单查（转发路径只取倍率）不值得为它扫全池 —— 见 `poolModelMetas()`。
+ */
+export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSpecs?: Record<string, ModelSpecEntry>): PoolModelMeta {
+  const canonical = canonicalOf(model) ?? model;
+  const index = cross ?? buildCrossModelIndex();
+  const specs = modelSpecs ?? readModelSpecs().models;
+  const group = aliasGroupOf(canonical);
+  const factsList: ChannelFacts[] = [];
+  for (const channel of channels()) {
+    const cid = channel.config.cid;
+    for (const name of group) {
+      if (!index.get(name)?.exposed.some((item) => item.cid === cid)) continue;
+      try {
+        factsList.push(channelFacts(cid, channel, name));
+      } catch {
+        // 一个坏渠道只影响自己，不拖垮整池
+      }
+      break;
+    }
+  }
+  return mergeFacts(factsList, canonical, specs[canonical]);
+}
+
+/**
+ * 单渠道元数据：控制台的「模型 × 渠道」行用 —— 每行要显示**该渠道**的倍率与规格，
+ * 不能用跨渠道聚合值（那会把 loomy 的倍率显示到 raccoon 行上）。
+ *
+ * `cross` 传 `buildCrossModelIndex()` 的结果时启用跨渠道兜底（该渠道没声明窗口/档位时
+ * 取兄弟渠道的保守值，来源标 `cross`）。
+ */
+export function getChannelModelMeta(cid: string, exposedId: string, cross?: CrossModelIndex): PoolModelMeta {
+  const channel = channels().find((c) => c.config.cid === cid);
+  if (!channel) return DEFAULT_META;
+  const name = canonicalModelId(exposedId);
+  let facts: ChannelFacts;
+  try {
+    facts = channelFacts(cid, channel, name);
+  } catch {
+    return DEFAULT_META;
+  }
+  return metaFromFacts(facts, name, cross?.get(name), readModelSpecs().models[name]);
+}
+
+/**
+ * `poolModelMetas` 的结果缓存（**按入参数组的身份**记忆）。
+ *
+ * 控制台每 3 秒调一次 `poolModelMetas(this.modelsShown)`，而每次都要为模型
+ * 逐条走一遍 `getPoolModelMeta`（读目录缓存 + 查规格 + 四层回落），是实打实的
+ * **同步阻塞** —— 事件循环被占住，同页面的 accounts / logs 请求只能排队。
+ *
+ * 三个失效信号任一变化即重建：入参数组换了（池集合变）、跨渠道索引换了（目录变）、
+ * 规格表换了（mtime 变）。都走身份比较，命中成本是一次指针比对。
+ */
+let metaCache: {
+  ids: readonly string[];
+  index: CrossModelIndex;
+  specs: Record<string, ModelSpecEntry>;
+  out: Map<string, PoolModelMeta>;
+} | null = null;
+
+/**
+ * 枚举池模型的元数据（`ids` 缺省 = 全池）—— **一次**构建跨渠道索引再逐条取值。
+ *
+ * 返回 `Map` 的迭代顺序即传入顺序（缺省时是 `poolModels()` 的排序结果），
+ * 调用方直接照它渲染即可，不必自己再收集一遍目录。
+ *
+ * 传**同一个数组引用**重复调用时直接返回上次结果（见 `metaCache`）：池集合没变、
+ * 目录没变，元数据就不会变。缺省入参（全池）不缓存 —— 它每次都要重新收集池集合。
+ */
+export function poolModelMetas(ids?: readonly string[]): Map<string, PoolModelMeta> {
+  const index = buildCrossModelIndex();
+  const specs = readModelSpecs().models;
+  if (ids !== undefined && metaCache !== null &&
+      metaCache.ids === ids && metaCache.index === index && metaCache.specs === specs) {
+    return metaCache.out;
+  }
+  const out = new Map<string, PoolModelMeta>();
+  for (const id of ids ?? poolModels()) out.set(id, getPoolModelMeta(id, index, specs));
+  if (ids !== undefined) metaCache = { ids, index, specs, out };
+  return out;
+}
+
+/** 兼容旧代码的常量形式。 */
+export const POOL_MODEL_META: Record<string, PoolModelMeta> = new Proxy({} as Record<string, PoolModelMeta>, {
+  get(_target, prop: string) {
+    return getPoolModelMeta(prop);
+  },
+});
+
+/**
+ * 池模型的只读快照（兼容旧调用形态）。
+ *
+ * 底层是**真实数组**：每次读属性时按当前渠道目录重建，因此 `Object.keys` /
+ * `JSON.stringify` / 展开 / 迭代 / 数字索引天然一致（早期用空数组 + Proxy
+ * 只会让 `keys` 与 `length` 互相矛盾，序列化时会静默丢内容）。
+ */
+export const POOL_MODELS: readonly string[] = new Proxy([] as string[], {
+  get(_target, prop, receiver) {
+    const models = poolModels();
+    if (prop === "length") return models.length;
+    if (typeof prop === "string" && /^\d+$/.test(prop)) return models[Number(prop)];
+    const value = (models as unknown as Record<string | symbol, unknown>)[prop];
+    // 函数一律绑定到本次快照：避免 this 落到 Proxy 上导致 sort/push 之类静默失效
+    return typeof value === "function" ? value.bind(models) : value;
+  },
+  has(_target, prop) {
+    const models = poolModels();
+    if (typeof prop === "string" && /^\d+$/.test(prop)) return Number(prop) < models.length;
+    return prop in (models as unknown as object);
+  },
+  ownKeys() {
+    // 让 Object.keys / JSON.stringify / spread 看到真实索引
+    return poolModels().map((_, i) => String(i));
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const models = poolModels();
+    if (typeof prop === "string" && /^\d+$/.test(prop)) {
+      const i = Number(prop);
+      if (i < models.length) {
+        return { value: models[i], writable: false, enumerable: true, configurable: true };
+      }
+    }
+    return undefined;
+  },
+});

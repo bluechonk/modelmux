@@ -93,17 +93,24 @@ export type { ChannelModelEntry, ChannelModelsSource } from "./runtime/channel-m
 // 渠道目录里的名字 → 上游 slug
 export { resolvePoolModel } from "./pool/model-pool.js";
 
-// 公共模型池：`<cid>/<模型>` 池 id + 归一化匹配
+// 公共模型池：deepseek 裸模型名 + 跨渠道候选（按账号池剩余额度排序）
 export {
   POOL_MODELS,
   canonicalModelId,
-  asPoolModel,
-  parsePoolModel,
-  poolModelId,
   poolCandidates,
+  getChannelModelMeta,
   type PoolModel,
   type PoolCandidate,
 } from "./pool/pool-targets.js";
+
+// 对外模型家族（deepseek 系列 + 别名归并）
+export {
+  DEEPSEEK_MODEL_IDS,
+  DEEPSEEK_EXPOSED_IDS,
+  aliasGroupOf,
+  canonicalOf,
+  isDeepseekModel,
+} from "./pool/model-family.js";
 
 // 公共模型池的账本（账单已用量 + 失败冷却；落 <root>/pool-usage.json）
 export * as poolUsage from "./pool/pool-usage.js";

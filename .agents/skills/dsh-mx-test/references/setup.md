@@ -22,12 +22,6 @@
 - `models` 列表是**整表替换**（不是追加）；模型条目省略 `contextWindow` 时走路由级 `defaultContextWindow` 兜底。
 - 验证手段：`--dump-config` 打印组合后的树（不挂载、零副作用），先 dump 再跑。
 
-## 本机 modelmux provider 写法（完整样板）
-
-见 [acp-modelmux-overlay.yml](acp-modelmux-overlay.yml)。要点：
-`api: openai-completions`（线协议必须显式声明）+ `apiKeyEnv: MODELMUX_API_KEY`（headless/acp 禁用凭据存储，走环境变量；
-网关不校验 key，占位 `test` 即可）+ `baseURL: http://127.0.0.1:4412/v1` + 非空 `models`。
-
 ## dsh 会话编程 API（学自 tencent-connect/dsh-qqbot 源码）
 
 dsh-qqbot 是跑在 dsh 宿主内的 cordis 插件，驱动面等于 dsh 的内部 API；ACP 是同一能力对进程外客户端的投影。

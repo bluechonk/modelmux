@@ -9,8 +9,9 @@
 import { channelCapabilities, channels, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
-import { canonicalModelId, POOL_MODELS, poolCandidates, poolModelId, poolModelMetas } from "../../pool/pool-targets.js";
-import { ledgerSnapshot, refreshBilling, scoreOf } from "../../pool/pool-usage.js";
+import { canonicalModelId, getChannelModelMeta, getPoolModelMeta, poolCandidates, poolModels } from "../../pool/pool-targets.js";
+import { DEEPSEEK_MODEL_IDS, canonicalOf, isDeepseekModel } from "../../pool/model-family.js";
+import { ledgerSnapshot, refreshBilling, totalRemainOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
 import { readModelSpecs } from "../../runtime/model-specs.js";
 import {
@@ -120,9 +121,9 @@ function originNote(origin: CatalogOrigin): string {
 }
 
 /**
- * `model <cid>`：该渠道能提供哪些模型（对外 id 形态 `<cid>/<模型>`）。
+ * `model <cid>`：该渠道能供给哪些**对外模型**（deepseek 家族，裸模型名）。
  *
- * 渠道目录里不能对外暴露的条目只报数量（可能几十条，全列是噪音）。
+ * 渠道目录里不属于家族、或不能对外暴露的条目只报数量（可能几十条，全列是噪音）。
  */
 
 export async function listLocalModels(
@@ -150,17 +151,15 @@ export async function listLocalModels(
       return [] as string[];
     }
   });
-  // 渠道内先按规范名去重：同一渠道的不同原始写法收敛为同一个对外 id
-  const contributed = [
-    ...new Map(catalogIds.map((id) => [canonicalModelId(id), id])).values(),
-  ].map((id) => ({ model: poolModelId(cid, id), exposed_id: id }));
+  // 只列 deepseek 家族：网关对外只提供这几个，渠道目录里的其余条目不属于对外模型池
+  const family = catalogIds.filter((id) => isDeepseekModel(id));
+  // 渠道内先按规范名去重：同一渠道的不同原始写法收敛为同一个对外模型名
+  const contributed = [...new Map(family.map((id) => [canonicalModelId(id), id])).values()];
 
-  // 为每条模型附上倍率（price_factor）；无倍率时为 "-"
-  // 元数据一次枚举取齐（`poolModelMetas` 内部只建一次跨渠道索引）
-  const metas = poolModelMetas(contributed.map((row) => row.model));
-  const rows = contributed.map((row) => {
-    const rate = metas.get(row.model)?.multiplier ?? null;
-    return { ...row, rate: rate === null ? "-" : String(rate) };
+  // 倍率取**本渠道**的值（同一模型在不同渠道倍率可能不同），无倍率时为 "-"
+  const rows = contributed.map((exposedId) => {
+    const rate = getChannelModelMeta(cid, exposedId).multiplier;
+    return { model: canonicalModelId(exposedId), exposed_id: exposedId, rate: rate === null ? "-" : String(rate) };
   });
 
   if (json) {
@@ -188,50 +187,47 @@ export async function listLocalModels(
   // 其余情形（刚拉取 / 拉取失败 / 内置表）用户需要知道自己在看哪份数据。
   if (origin.kind !== "cache") console.error(`${cid}: ${originNote(origin)}`);
   if (rows.length === 0) {
-    console.log(catalogBroken ? `${cid}: 目录读取失败，模型列表不可用（见上方错误）` : `${cid}: 该渠道没有可对外暴露的模型`);
+    console.log(catalogBroken ? `${cid}: 目录读取失败，模型列表不可用（见上方错误）` : `${cid}: 该渠道没有可对外的 deepseek 模型`);
   } else {
-    console.log(`${cid} 对外的模型：「渠道/模型」形态，客户端用它指定渠道：`);
+    console.log(`${cid} 的 deepseek 模型（客户端用裸模型名请求，网关按额度挑渠道）：`);
     for (const row of rows) {
-      console.log(`  ${row.model.padEnd(22)} ${row.rate.padStart(6)} ← ${row.exposed_id}`);
+      console.log(`  ${row.model.padEnd(22)} ×${row.rate.padStart(5)} ← ${row.exposed_id}`);
     }
   }
   return 0;
 }
 
 /**
- * `model list`：**公共模型池视图** —— 对外模型（`<cid>/<模型>`）与各渠道账本状态。
+ * `model list`：**公共模型池视图** —— 每个对外模型（deepseek 裸名）与能供给它的渠道。
  *
- * 渠道由请求方通过 id 前缀指定，这里按渠道列出各自的对外模型；账本数据
- * （已用量 / 冷却 / ok / fail）供观察渠道健康度，不再决定路由去向。
+ * 渠道由网关按账号池剩余额度自动挑（`poolCandidates` 已排好序），这里按模型分组，
+ * 逐渠道列出剩余额度 / 账本状态，回答「这个模型现在能从哪几家出、谁还有货」。
  */
 
 export async function listPoolModels(json: boolean): Promise<number> {
-  const list = channels();
-  if (list.length === 0) {
+  if (channels().length === 0) {
     console.error("没有渠道被注册（入口忘了 import 渠道包？）");
     return 2;
   }
   const now = Date.now();
   const ledger = ledgerSnapshot();
-  const rows = POOL_MODELS.map((model) => ({
+  const rows = poolModels().map((model) => ({
     model,
-    candidates: poolCandidates(model)
-      .map((candidate) => {
-        const entry = ledger.channels[candidate.cid];
-        return {
-          cid: candidate.cid,
-          display: candidate.channel.upstream.DISPLAY_NAME,
-          exposed_id: candidate.exposedId,
-          score: scoreOf(candidate.cid, now),
-          used: entry?.used ?? 0,
-          unit: entry?.unit ?? "",
-          cooling: (entry?.cooldown_until ?? 0) > now,
-          ok: entry?.ok ?? 0,
-          fail: entry?.fail ?? 0,
-          billing_at: entry?.billing_at ?? null,
-          unsupported: !channelCapabilities(candidate.channel.config).billing,
-        };
-      }),
+    candidates: poolCandidates(model).map((candidate) => {
+      const entry = ledger.channels[candidate.cid];
+      return {
+        cid: candidate.cid,
+        display: candidate.channel.upstream.DISPLAY_NAME,
+        exposed_id: candidate.exposedId,
+        remain: totalRemainOf(candidate.cid),
+        used: entry?.used ?? 0,
+        unit: entry?.unit ?? "",
+        cooling: (entry?.cooldown_until ?? 0) > now,
+        ok: entry?.ok ?? 0,
+        fail: entry?.fail ?? 0,
+        billing_at: entry?.billing_at ?? null,
+      };
+    }),
   }));
 
   if (json) {
@@ -239,40 +235,27 @@ export async function listPoolModels(json: boolean): Promise<number> {
     return 0;
   }
 
-  // 按渠道分组输出：**渠道级账本状态只出现一次**（旧版每个模型都重复一遍
-  // `used=… ok=… fail=…`，30 个模型的渠道要重复 30 行同样的数字）。
-  const byCid = new Map<string, { models: string[]; stat: (typeof rows)[number]["candidates"][number] | null }>();
-  for (const row of rows) {
-    const cid = row.model.split("/")[0] ?? row.model;
-    const group = byCid.get(cid) ?? { models: [], stat: null };
-    group.models.push(row.model);
-    // 同渠道的账本状态一致，取第一条候选的即可
-    if (!group.stat && row.candidates.length > 0) group.stat = row.candidates[0]!;
-    byCid.set(cid, group);
-  }
-
   console.log(
-    `公共模型池  ${rows.length} 个模型 / ${byCid.size} 个渠道（id 形如 渠道/模型，由请求方指定渠道）\n`,
+    `公共模型池  ${rows.length} 个模型（客户端用裸模型名请求，网关按账号池剩余额度挑渠道）\n`,
   );
-  for (const [cid, group] of byCid) {
-    const stat = group.stat;
-    const used = stat
-      ? stat.unsupported
-        ? "-"
-        : `${stat.used}${stat.unit ? ` ${stat.unit}` : ""}`
-      : "-";
-    const marks = [
-      stat?.cooling ? "冷却中" : "",
-      stat && stat.ok > 0 ? `ok=${stat.ok}` : "",
-      stat && stat.fail > 0 ? `fail=${stat.fail}` : "",
-    ]
-      .filter(Boolean)
-      .join("  ");
-    console.log(`${cid}  ${group.models.length} 个模型  used=${used}${marks ? `  ${marks}` : ""}`);
-    for (const model of group.models) console.log(`  ${model}`);
+  for (const row of rows) {
+    console.log(`${row.model}  ${row.candidates.length} 个渠道`);
+    for (const candidate of row.candidates) {
+      const remain = candidate.remain === null ? "-" : `${candidate.remain}${candidate.unit ? ` ${candidate.unit}` : ""}`;
+      const marks = [
+        candidate.cooling ? "冷却中" : "",
+        candidate.ok > 0 ? `ok=${candidate.ok}` : "",
+        candidate.fail > 0 ? `fail=${candidate.fail}` : "",
+      ]
+        .filter(Boolean)
+        .join("  ");
+      console.log(
+        `  ${candidate.cid.padEnd(12)} remain=${remain.padEnd(16)} ← ${candidate.exposed_id}${marks ? `  ${marks}` : ""}`,
+      );
+    }
     console.log();
   }
-  console.log(`账本: ${poolUsagePath()}（账单额度每 8 小时自动刷一次）`);
+  console.log(`账本: ${poolUsagePath()}（账单额度每 8 小时自动刷一次；--refresh 立刻重查）`);
   return 0;
 }
 
@@ -367,10 +350,10 @@ async function refreshModelCatalog(json: boolean): Promise<number> {
 }
 
 /**
- * `model spec <model>`：查看某模型的规格（窗口/输出/档位/倍率/输入模态）。
+ * `model spec <model>`：查看某 deepseek 模型的规格（窗口/输出/档位/倍率/输入模态）。
  *
- * `<model>` 可以是裸模型名（如 `deepseek-v4-flash`，此时从 model-specs.json 查询）
- * 或池 id 形态（如 `catpaw/deepseek-v4-flash`，此时连渠道上游目录一起查）。
+ * `<model>` 是裸模型名（如 `deepseek-v4-flash`）。同时给出**聚合值**（跨渠道合并，
+ * 供客户端声明能力）与**逐渠道值**（各渠道上游目录的真值，倍率可能不同）。
  */
 
 async function showModelSpec(model: string, json: boolean): Promise<number> {
@@ -378,46 +361,62 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
     console.error("model spec 需要指定模型名");
     return 2;
   }
-
-  // 从 model-specs.json 取全局规格
-  const globalSpecs = readModelSpecs();
-
-  // 如果是 <cid>/<model> 形态，再查渠道上游目录
-  const hasCid = model.includes("/");
-  const canonical = hasCid ? canonicalModelId(model.slice(model.indexOf("/") + 1)) : canonicalModelId(model);
-  const globalEntry = globalSpecs.models[canonical];
-
-  // 上游目录查询（仅池 id 形态）
-  let upstreamMeta: ReturnType<typeof poolModelMetas> extends Map<string, infer V> ? V | null : never = null;
-  let upstreamCid = "";
-  if (hasCid) {
-    const metas = poolModelMetas([model]);
-    upstreamMeta = metas.get(model) ?? null;
-    upstreamCid = model.slice(0, model.indexOf("/"));
+  const canonical = canonicalOf(model);
+  if (!canonical) {
+    console.error(`未知模型：${model}（可用：${DEEPSEEK_MODEL_IDS.join(" / ")}）`);
+    return 2;
   }
 
+  const globalSpecs = readModelSpecs();
+  const globalEntry = globalSpecs.models[canonical];
+  const meta = getPoolModelMeta(canonical);
+  const candidates = poolCandidates(canonical).map((candidate) => {
+    const channelMeta = getChannelModelMeta(candidate.cid, candidate.exposedId);
+    return {
+      cid: candidate.cid,
+      exposed_id: candidate.exposedId,
+      contextWindow: channelMeta.contextWindow,
+      maxOutputTokens: channelMeta.maxOutputTokens,
+      inputModalities: channelMeta.inputModalities,
+      outputModalities: channelMeta.outputModalities,
+      effort: channelMeta.effort,
+      multiplier: channelMeta.multiplier,
+      sources: channelMeta.sources,
+    };
+  });
+
   if (json) {
-    console.log(JSON.stringify({
-      model: canonical,
-      ...(upstreamMeta ? {
-        cid: upstreamCid,
-        upstream: {
-          contextWindow: upstreamMeta.contextWindow,
-          maxOutputTokens: upstreamMeta.maxOutputTokens,
-          inputModalities: upstreamMeta.inputModalities,
-          outputModalities: upstreamMeta.outputModalities,
-          effort: upstreamMeta.effort,
-          multiplier: upstreamMeta.multiplier,
-          sources: upstreamMeta.sources,
+    console.log(
+      JSON.stringify(
+        {
+          model: canonical,
+          aggregate: {
+            contextWindow: meta.contextWindow,
+            maxOutputTokens: meta.maxOutputTokens,
+            inputModalities: meta.inputModalities,
+            outputModalities: meta.outputModalities,
+            effort: meta.effort,
+            multiplier: meta.multiplier,
+            sources: meta.sources,
+          },
+          channels: candidates,
+          global_spec: globalEntry ?? null,
         },
-      } : {}),
-      global_spec: globalEntry ?? null,
-    }, null, 2));
+        null,
+        2,
+      ),
+    );
     return 0;
   }
 
-  // 人读输出
   console.log(`模型: ${canonical}`);
+  console.log(`\n聚合规格（跨渠道合并；窗口/输出取最小，档位取交集）：`);
+  console.log(`  最大上下文  ${meta.contextWindow.toLocaleString()}`);
+  console.log(`  输出上限    ${meta.maxOutputTokens.toLocaleString()}`);
+  console.log(`  输入模态    ${meta.inputModalities.join(", ")}`);
+  console.log(`  思考模式    ${meta.effort ? `${meta.effort.supportedLevels.join(", ")}（默认 ${meta.effort.defaultLevel}）` : "未声明"}`);
+  console.log(`  来源        ctx=${meta.sources.contextWindow} out=${meta.sources.maxOutputTokens} effort=${meta.sources.effort}`);
+
   if (globalEntry) {
     console.log(`\n全局规格（model-specs.json）：`);
     if (globalEntry.contextWindow !== undefined) console.log(`  最大上下文  ${globalEntry.contextWindow.toLocaleString()}`);
@@ -427,27 +426,18 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
     if (globalEntry.multiplier !== undefined) console.log(`  倍率        ${globalEntry.multiplier}`);
     if (globalEntry._source) console.log(`  来源        ${globalEntry._source}`);
     if (globalEntry._updated) console.log(`  更新于      ${globalEntry._updated}`);
+  }
+
+  if (candidates.length === 0) {
+    console.log(`\n渠道：当前没有渠道供给这个模型（未登录 / 目录未就绪，见 mx model list）`);
   } else {
-    console.log(`\n全局规格：未录入（手工补规格见 docs/MODEL-SPECS.md：写入 ~/.modelmux/model-specs.json）`);
-  }
-
-  if (upstreamMeta) {
-    console.log(`\n上游目录（${upstreamCid}）：`);
-    const ctx = upstreamMeta.contextWindow;
-    const out = upstreamMeta.maxOutputTokens;
-    console.log(`  最大上下文  ${ctx ? ctx.toLocaleString() : "上游未声明"}`);
-    console.log(`  输出上限    ${out ? out.toLocaleString() : "上游未声明"}`);
-    console.log(`  输入模态    ${upstreamMeta.inputModalities.join(", ")}`);
-    console.log(`  思考模式    ${upstreamMeta.effort ? `${upstreamMeta.effort.supportedLevels.join(", ")}（默认 ${upstreamMeta.effort.defaultLevel}）` : "上游未声明"}`);
-    console.log(`  倍率        ${upstreamMeta.multiplier ?? "上游未声明"}`);
-    console.log(`  来源        ctx=${upstreamMeta.sources.contextWindow} out=${upstreamMeta.sources.maxOutputTokens} effort=${upstreamMeta.sources.effort}`);
-  } else if (hasCid) {
-    console.log(`\n上游目录：未找到 "${model}"（渠道未登录或模型不存在）`);
-  }
-
-  if (!globalEntry && !upstreamMeta) {
-    console.log(`\n此模型无任何已知规格。补录方式见 docs/MODEL-SPECS.md：`);
-    console.log(`  把规格写进 ~/.modelmux/model-specs.json 的 ${canonical} 条目后重跑本命令。`);
+    console.log(`\n渠道（按账号池剩余额度降序）：`);
+    for (const candidate of candidates) {
+      console.log(
+        `  ${candidate.cid.padEnd(12)} ×${candidate.multiplier ?? "-"}  ← ${candidate.exposed_id}` +
+          `  ctx=${candidate.contextWindow.toLocaleString()} out=${candidate.maxOutputTokens.toLocaleString()}`,
+      );
+    }
   }
   return 0;
 }

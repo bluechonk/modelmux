@@ -160,9 +160,6 @@ function LogDetail({
         <Field label="流式">
           {entry.stream === undefined ? "-" : entry.stream ? "是" : "否"}
         </Field>
-        <Field label="协议">
-          {entry.protocol ?? "openai-chat"}
-        </Field>
         <Field label="渠道">
           <span className="font-mono">{entry.cid ?? "-"}</span>
         </Field>
@@ -233,8 +230,9 @@ function LogDetail({
  */
 const COL_WIDTHS = {
   toggle: "44px",
-  time: "168px",
+  time: "120px",
   result: "124px",
+  channel: "104px",
   model: "",
   duration: "84px",
   tokensPerSec: "88px",
@@ -253,6 +251,7 @@ const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
   toggle: "44px",
   time: "88px",
   result: "104px",
+  channel: "104px",
   model: "",
   duration: "84px",
   tokensPerSec: "88px",
@@ -280,6 +279,7 @@ const LOG_COLS: LogCol[] = [
   { key: "toggle", label: "", wide: true },
   { key: "time", label: "时间" },
   { key: "result", label: "结果" },
+  { key: "channel", label: "渠道", wide: true },
   { key: "model", label: "模型" },
   { key: "duration", label: "耗时", align: "right", wide: true },
   { key: "tokensPerSec", label: "TPS", align: "right", wide: true },
@@ -355,6 +355,12 @@ function LogCell({
       );
     case "result":
       return <ResultCell entry={entry} />;
+    case "channel":
+      return (
+        <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs text-ink-soft">
+          {entry.cid ?? <span className="text-ink-faint">-</span>}
+        </td>
+      );
     case "model":
       return (
         <td className="break-words px-3 py-2 align-top text-xs text-ink-soft">

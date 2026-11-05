@@ -11,15 +11,15 @@ import {
   type CatalogEntry,
   type CatalogFile,
 } from "../runtime/model-catalog.js";
-import { channels } from "../runtime/channel.js";
-import { invalidateCrossModelIndex, poolModelMetas, type MetaSource, type PoolModelMeta } from "./pool-targets.js";
+import { invalidateCrossModelIndex, poolModels, poolModelMetas, type MetaSource, type PoolModelMeta } from "./pool-targets.js";
 
 /** 把一条池元数据转成快照条目。 */
 function toEntry(id: string, meta: PoolModelMeta): CatalogEntry {
   return {
     id,
     name: meta.name,
-    owned_by: id.split("/")[0] ?? "modelmux",
+    // 对外模型统一归 deepseek 家族（不再按渠道归属；渠道在请求日志里另记）
+    owned_by: "deepseek",
     context_window: meta.contextWindow,
     max_output_tokens: meta.maxOutputTokens,
     input_modalities: meta.inputModalities,
@@ -58,27 +58,25 @@ export function refreshCatalog(): CatalogFile {
 }
 
 /**
- * 读快照；缺失、损坏或与当前渠道集合不一致时重建并落盘。
+ * 读快照；缺失、损坏或与当前池不一致时重建并落盘。
  *
- * 渠道集合比对是必要的：登录新渠道 / 测试里切换注册渠道后，旧快照会把
- * 已不存在的渠道模型继续暴露出去。存在且覆盖一致时不比对目录 mtime —— 目录刷新
+ * 模型集合比对是必要的：登录/登出渠道后「有货的 deepseek 模型」会变，旧快照会把
+ * 已经没有渠道供给的模型继续暴露出去。存在且覆盖一致时不比对目录 mtime —— 目录刷新
  * 后由 `mx model refresh` 显式重建，避免每次 `/v1/models` 都做全量聚合。
  */
 export function ensureCatalog(): CatalogFile {
   const existing = readCatalogFile();
-  if (existing && catalogMatchesChannels(existing)) return existing;
+  if (existing && catalogMatchesPool(existing)) return existing;
   return refreshCatalog();
 }
 
-/** 快照里的 `owned_by` 集合是否与当前注册渠道一致。 */
-function catalogMatchesChannels(catalog: CatalogFile): boolean {
-  const owned = new Set(Object.values(catalog.models).map((entry) => entry.owned_by));
-  const current = new Set(channels().map((channel) => channel.config.cid));
-  if (owned.size !== current.size) return false;
-  for (const cid of current) {
-    if (!owned.has(cid)) return false;
-  }
-  return true;
+/** 快照里的模型集合是否与当前池（`poolModels()`）一致。 */
+function catalogMatchesPool(catalog: CatalogFile): boolean {
+  const ids = Object.keys(catalog.models);
+  const current = poolModels();
+  if (ids.length !== current.length) return false;
+  const set = new Set(ids);
+  return current.every((id) => set.has(id));
 }
 
 /** 按来源统计各字段的条数（`mx model refresh` 的输出用）。 */

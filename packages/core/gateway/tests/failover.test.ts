@@ -8,7 +8,7 @@
  * `unauthorized`、**凭证原样保留**，返回 502 `upstream_unauthenticated`，
  * 下一步由用户手动切号（`mx acct <cid> use <key>`）。依据：`relay.ts` 的
  * `callUpstream` 分支、`account-pool.ts` 的 `activeAccountIsError`、
- * docs/POOL-ARCHITECTURE.md §3.3。池 id 必须 `<cid>/<模型>`，裸名一律 400。
+ * docs/POOL-ARCHITECTURE.md §3.3。对外模型是 deepseek 裸名（不再带渠道前缀）。
  */
 
 import assert from "node:assert/strict";
@@ -123,7 +123,7 @@ function makeChannel(cid: string): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
       newTranslator: () => ({ feed: (c: Buffer) => [c], finish: () => [] }),
     },
-    catalog: { exposedIds: () => ["glm-5.3-flash"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -145,10 +145,9 @@ async function chat(addr: string): Promise<{ status: number; text: string }> {
   const resp = await fetch(`http://${addr}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // 旧契约：裸模型名 "glm-5.3-flash"；新契约：池 id 必须带渠道前缀
-    //   （`src/pool/pool-targets.ts:473-477`，裸名判 null → 400 unknown_model）。
+    // 对外模型是 deepseek 裸名（渠道由网关按剩余额度挑）
     body: JSON.stringify({
-      model: `${CID}/glm-5.3-flash`,
+      model: "deepseek-v4.1-flash",
       messages: [{ role: "user", content: "hi" }],
       stream: true,
     }),

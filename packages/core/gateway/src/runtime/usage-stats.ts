@@ -73,8 +73,22 @@ export function tokensPerSecOf(entry: {
   return perSec > MEASURE_CEILING_TPS ? null : perSec;
 }
 
-/** 未知模型（日志里没有 model 字段的模型请求，如解析前就失败的）在统计里的占位 id。 */
+/**
+ * 未知模型（日志里没有 model 字段的模型请求，如解析前就失败的）在统计里的占位 id。
+ *
+ * 渠道未知（没有 cid）时同理为空串 —— 两者合成聚合键 `"<cid>/<model>"`。
+ */
 export const UNKNOWN_MODEL = "";
+
+/**
+ * 聚合键：`<cid>/<模型>` —— **模型 + 渠道**双维度。
+ *
+ * 为什么按渠道拆：对外模型只剩 deepseek 几个名字，同一个名字可能由多个渠道承接，
+ * 合成一个数会把「哪家慢」抹平（用户要的正是这个）。趋势图按这个键分序列。
+ */
+export function usageKeyOf(cid: string | undefined, model: string | undefined): string {
+  return `${cid ?? ""}/${model ?? UNKNOWN_MODEL}`;
+}
 
 export interface UsageDaily {
   date: string;
@@ -83,19 +97,24 @@ export interface UsageDaily {
   tokensOut: number;
   requests: number;
   messages: number;
-  /** 该日各模型 tokens（键 = `<cid>/<模型>`）；趋势图按它分序列。 */
+  /** 该日各（渠道 × 模型）tokens（键 = `<cid>/<模型>`）；趋势图按它分序列。 */
   byModel: Record<string, number>;
 }
 
 export interface UsageModelRow {
+  /** 聚合键 `<cid>/<模型>`（趋势图分序列用）。 */
   id: string;
+  /** 纯模型名（对外 deepseek id；空串 = 未知模型）。 */
+  model: string;
+  /** 承接该模型的渠道（空串 = 日志没记渠道）。 */
+  cid: string;
   tokens: number;
   input: number;
   output: number;
   cache: number;
   /** 占区间总 tokens 的比例（0–1；总数为 0 时为 0）。 */
   share: number;
-  /** 成功请求数（`success.log` 里该模型的条数）。 */
+  /** 成功请求数（`success.log` 里该模型 × 渠道的条数）。 */
   ok: number;
   /** 失败请求数（`failure.log` + `other.log`）。 */
   fail: number;
@@ -228,7 +247,9 @@ function scanInto(date: string, agg: DayAgg): void {
     const total = tokens?.total ?? 0;
     const input = tokens?.prompt ?? 0;
     const output = tokens?.completion ?? 0;
-    const id = entry.model ?? UNKNOWN_MODEL;
+    const model = entry.model ?? UNKNOWN_MODEL;
+    const cid = entry.cid ?? "";
+    const id = usageKeyOf(cid, model);
     agg.requests += 1;
     agg.tokens += total;
     agg.tokensIn += input;
@@ -443,18 +464,26 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
   }
 
   const models: UsageModelRow[] = [...modelTotals.entries()]
-    .map(([id, row]) => ({
-      id,
-      tokens: row.tokens,
-      input: row.input,
-      output: row.output,
-      cache: row.cache,
-      share: totals.tokens > 0 ? row.tokens / totals.tokens : 0,
-      ok: row.ok,
-      fail: row.fail,
-      queued: row.queued,
-      avgTps: row.tpsCount > 0 ? row.tpsSum / row.tpsCount : null,
-    }))
+    .map(([id, row]) => {
+      // 聚合键 `cid/model` 拆回两列（cid 与 deepseek 模型名都不含 `/`，按首个 `/` 切即可）
+      const slash = id.indexOf("/");
+      const cid = slash < 0 ? "" : id.slice(0, slash);
+      const model = slash < 0 ? id : id.slice(slash + 1);
+      return {
+        id,
+        model,
+        cid,
+        tokens: row.tokens,
+        input: row.input,
+        output: row.output,
+        cache: row.cache,
+        share: totals.tokens > 0 ? row.tokens / totals.tokens : 0,
+        ok: row.ok,
+        fail: row.fail,
+        queued: row.queued,
+        avgTps: row.tpsCount > 0 ? row.tpsSum / row.tpsCount : null,
+      };
+    })
     .sort((a, b) => b.tokens - a.tokens);
 
   totals.cacheHitRate = cacheTotal > 0 ? cacheHit / cacheTotal : null;

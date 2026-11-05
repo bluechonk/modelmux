@@ -255,19 +255,37 @@ for (const pkgPath of NO_EMIT_PACKAGES) {
 const gwDeps = Object.keys(JSON.parse(read("packages/core/gateway/package.json")).dependencies ?? {});
 check(gwDeps.length === 0, `packages/core/gateway: 共享包必须零运行依赖，当前 ${gwDeps.join(", ")}`);
 
-// 公共池模型动态化（全模型池）：不再断言固定 2 个 flash，改为检查动态收集函数存在
+// 对外模型池：网关只做 deepseek 家族，客户端用**裸模型名**请求（渠道由网关按额度挑）。
+// 家族名是**产品面**，允许且只允许在 `pool/model-family.ts` 里声明 —— 其余共享层文件
+// 仍不得硬编码厂商模型名（渠道知识只活在渠道包内，`AGENTS.md` 的「仓库结构」）。
 const poolTargets = read("packages/core/gateway/src/pool/pool-targets.ts");
-check(/export function poolModels\(\)/.test(poolTargets), "pool-targets.ts: 缺 poolModels()（全模型池动态收集）");
-check(/function asPoolModel\(/.test(poolTargets), "pool-targets.ts: 缺 asPoolModel()（动态匹配）");
-// 共享层代码不得硬编码厂商模型名（`AGENTS.md` 的「仓库结构」：共享层不许出现渠道知识）。
-// 剥离注释后再查 —— JSDoc 里的示例 id 是文档，不是共享层持有的模型知识。
-const poolCode = poolTargets
-  .replace(/\/\*[\s\S]*?\*\//g, "") // 块注释
-  .replace(/^\s*\/\/.*$/gm, ""); // 行注释
-check(
-  !/"(deepseek|glm|qwen|kimi|doubao)-[a-z0-9.-]+"/i.test(poolCode),
-  "pool-targets.ts: 共享层不得硬编码厂商模型名（模型只由各渠道 exposedIds() 提供）",
-);
+check(/export function poolModels\(\)/.test(poolTargets), "pool-targets.ts: 缺 poolModels()（对外模型池收集）");
+check(/export function poolCandidates\(/.test(poolTargets), "pool-targets.ts: 缺 poolCandidates()（跨渠道候选收集）");
+
+const FAMILY_FILE = "packages/core/gateway/src/pool/model-family.ts";
+const modelFamily = read(FAMILY_FILE);
+check(/export const DEEPSEEK_MODEL_IDS/.test(modelFamily), "model-family.ts: 缺 DEEPSEEK_MODEL_IDS（对外模型家族）");
+check(/export function canonicalOf\(/.test(modelFamily), "model-family.ts: 缺 canonicalOf()（canonical / 别名归并）");
+
+/** 剥掉注释后再查字面量（JSDoc 里的示例 id 是文档，不是代码持有的模型知识）。 */
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+// 只认**引号包起来的**模型名字面量：路由/家族表里出现它们才是持有模型知识。
+const VENDOR_MODEL_RE = /"(?:deepseek|glm|qwen|kimi|doubao)-[a-z0-9.-]+"/i;
+const gatewaySrc = join(repo, "packages", "core", "gateway", "src");
+const walkSrc = (dir) =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) return walkSrc(full);
+    return full.endsWith(".ts") ? [full] : [];
+  });
+for (const file of walkSrc(gatewaySrc)) {
+  const rel = file.slice(repo.length + 1).split("\\").join("/");
+  if (rel === FAMILY_FILE) continue;
+  check(
+    !VENDOR_MODEL_RE.test(stripComments(readFileSync(file, "utf8"))),
+    `${rel}: 共享层不得硬编码厂商模型名（唯一落点是 pool/model-family.ts）`,
+  );
+}
 
 // ── 渠道**总数**不得写死在文档与注释里 ────────────────────────────────────────
 //

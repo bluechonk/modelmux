@@ -19,6 +19,7 @@ import {
   listAccounts,
   noteAccountQuotaExhausted,
   readAccountCredential,
+  readIndex,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { noteOnce, poolUsagePath } from "../runtime/paths.js";
@@ -605,6 +606,48 @@ export function lastKnownRemain(cid: string, key: string): number | null {
   const entry = load().channels[cid]?.accounts[key];
   const value = entry?.credits?.remain;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 渠道**账号池**的剩余额度之和 —— 跨渠道选路的排序主键（见 `pool-targets.poolCandidates`）。
+ *
+ * 为什么按「剩余」而不是「总额度」：要的是「谁还有货谁先出」，总额度大但已烧光的渠道
+ * 不该排在前面。为什么能跨渠道相加：各家单位不同（积分 / credits / USD），这个和只是
+ * **近似**的优先级信号 —— 真正的额度判据仍在渠道内（`account-rotate.ts` 的账单核查）。
+ *
+ * 冷却中的账号按 0 计：账本里的 `remain` 是上次账单的快照，额度耗尽时不会立刻改写
+ * （`noteAccountQuotaExhausted` 只标 `cooldown`），直接用会把已烧光的账号算成还有货。
+ *
+ * `null` = 这个渠道没有任何账号查过额度（新登录 / 无额度能力）—— 排序时排最后，
+ * 但**不被剔除**：没查过不等于没货。
+ */
+export function totalRemainOf(cid: string): number | null {
+  const entry = load().channels[cid];
+  if (!entry) return null;
+  let cooling: Set<string> | null = null;
+  let sum = 0;
+  let known = false;
+  for (const [key, account] of Object.entries(entry.accounts)) {
+    const remain = account.credits?.remain;
+    if (typeof remain !== "number" || !Number.isFinite(remain)) continue;
+    known = true;
+    if (cooling === null) {
+      cooling = new Set<string>();
+      try {
+        for (const account of readIndex(cid).accounts) {
+          if (isAccountCooling(account)) cooling.add(account.key);
+        }
+      } catch {
+        // 账号池读不出来（未注册 / 文件损坏）时不过滤，按账本原值算
+      }
+    }
+    sum += cooling.has(key) ? 0 : remain;
+  }
+  if (known) return sum;
+  // 没查过按账号的余额（新登录 / 只刷过渠道级账单）时回落到**渠道级 remain** ——
+  // 渠道级查询查的就是生效账号的额度，量纲一致，可当近似值用。
+  const channelRemain = entry.remain;
+  return Number.isFinite(channelRemain) && channelRemain > 0 ? channelRemain : null;
 }
 
 /** 是否需要刷新账单（任一渠道从没查过，或已过 TTL）。 */

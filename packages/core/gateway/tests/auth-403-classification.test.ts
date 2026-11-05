@@ -96,7 +96,7 @@ function makeChannel(cid: string, withHook: boolean): Channel {
     upstream: withHook
       ? { ...upstreamBase, isAuthFailure: (_status: number, body: string) => !body.includes("11200") }
       : upstreamBase,
-    catalog: { exposedIds: () => ["glm-5.3-flash"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -114,12 +114,12 @@ function seed(cid: string, token: string): string {
   return captureActive(cid)!.key;
 }
 
-async function chat(addr: string, cid: string): Promise<{ status: number; code: string }> {
+async function chat(addr: string): Promise<{ status: number; code: string }> {
   const resp = await fetch(`http://${addr}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: `${cid}/glm-5.3-flash`,
+      model: "deepseek-v4.1-flash",
       messages: [{ role: "user", content: "hi" }],
       stream: true,
     }),
@@ -141,6 +141,7 @@ describe("上游 403 的鉴权归类", () => {
     upstream = await fakeUpstream();
     process.env["MB_TEST_403_UPSTREAM"] = upstream.url;
     clearChannels();
+    // 先注册两个渠道好让 seed() 能解析落点；每个用例再按需缩小到单一渠道
     setChannel(makeChannel(HOOKED, true));
     setChannel(makeChannel(PLAIN, false));
     seed(HOOKED, "tok-hooked");
@@ -158,8 +159,11 @@ describe("上游 403 的鉴权归类", () => {
   });
 
   it("渠道钩子排掉 403 + 11200（权益拒绝）→ upstream_error，不刷新、账号保持 ok", async () => {
+    // 渠道由网关挑：只注册被测渠道，保证请求落点确定
+    clearChannels();
+    setChannel(makeChannel(HOOKED, true));
     refreshCalls[HOOKED] = 0;
-    const { status, code } = await chat(gw.addr, HOOKED);
+    const { status, code } = await chat(gw.addr);
     // 上游 4xx 业务错原样透传状态码（透传口径）：权益拒绝不是凭据失效，
     // 客户端对 4xx 不重试 —— 比归一 502 让它反复撞墙更合理
     assert.equal(status, 403);
@@ -171,8 +175,10 @@ describe("上游 403 的鉴权归类", () => {
   });
 
   it("无钩子的渠道：403 仍按凭据失效处理（旧语义保留）", async () => {
+    clearChannels();
+    setChannel(makeChannel(PLAIN, false));
     refreshCalls[PLAIN] = 0;
-    const { status, code } = await chat(gw.addr, PLAIN);
+    const { status, code } = await chat(gw.addr);
     assert.equal(status, 502);
     assert.equal(code, "upstream_unauthenticated");
     assert.equal(refreshCalls[PLAIN], 1, "先刷新一次再报错");

@@ -2,7 +2,7 @@
  * 共享层回归：池路由解析（A3）、账号池/登录收尾的渠道上下文（A5/A6）、
  * 模型元数据兜异常（A9）。全程离线：合成渠道 + 临时存储根 + 本机 http server。
  *
- * - **A3**：池 id 解析失败必须**写应答**（返回 null 在调用方眼里是「已应答」，
+ * - **A3**：池路由解析失败必须**写应答**（返回 null 在调用方眼里是「已应答」，
  *   不写就是连接挂死到超时）。
  * - **A5/A6**：账号池 `cred.load()` 与 `login --json` 收尾读凭据都必须包渠道上下文；
  *   前者失败不能静默 null（症状是「登录了但池子是空的」），后者漏包则 uid/domain 永远缺失。
@@ -155,24 +155,17 @@ function fakeRes(): { res: ServerResponse; status: () => number | null; body: ()
 
 // ── A3：池 id 解析失败必须写应答 ─────────────────────────────────────────────
 
-describe("1. A3 池路由：池 id 解析失败要写应答（不挂死）", () => {
-  // 归一化只剥**一层**包装前缀：`alpha/sn-sn-` 归一化成 `alpha/sn-`，
-  // 再解析时模型段被剥空 → 解析失败。这条分支以前直接 return null（不写应答），
-  // 调用方（chat-relay）按「已应答」收尾 → 连接挂死。
-  const BROKEN_POOL_ID = "alpha/sn-sn-";
+describe("1. A3 池路由：解析失败要写应答（不挂死）", () => {
+  // 非 deepseek 家族的名字一律解析不出来（`resolveInboundModel` → canonicalOf = null）。
+  // 这条分支以前直接 return null（不写应答），调用方（chat-relay）按「已应答」收尾 → 挂死。
+  const UNKNOWN_MODEL = "alpha/sn-sn-";
 
   it("解析失败 → 400 unknown_model（响应确实写出来了）", async () => {
     setChannel(makeChannel("alpha"));
     poolUsage.writeBilling("alpha", { total: { used: 0 } });
 
-    // 用例前提：这个 id 必须走「归一化成功、再解析失败」那条分支（不是裸名那条）。
-    const { asPoolModel, parsePoolModel } = await import("../dist/pool/pool-targets.js");
-    const normalized = asPoolModel(BROKEN_POOL_ID);
-    assert.ok(normalized, "归一化本身要成功（否则走的是另一条分支）");
-    assert.equal(parsePoolModel(normalized), null, "归一化后再解析必须失败（否则测不到目标分支）");
-
     const { res, status, body } = fakeRes();
-    const route = resolvePoolRoute(BROKEN_POOL_ID, res, () => {});
+    const route = resolvePoolRoute(UNKNOWN_MODEL, res, () => {});
 
     assert.equal(route, null, "解析失败：路由不给候选");
     assert.equal(status(), 400, "必须写 400 —— 不写就是连接挂死");
@@ -189,7 +182,7 @@ describe("1. A3 池路由：池 id 解析失败要写应答（不挂死）", () 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: BROKEN_POOL_ID,
+          model: UNKNOWN_MODEL,
           messages: [{ role: "user", content: "hi" }],
         }),
         // 挂死时立刻失败，而不是干等测试超时
@@ -203,19 +196,23 @@ describe("1. A3 池路由：池 id 解析失败要写应答（不挂死）", () 
     }
   });
 
-  it("裸模型名 → 400（对外 id 恒为 <cid>/<模型>，别名/默认模型解析已移除）", () => {
+  it("deepseek 裸名直认 → 200（对外模型就是裸模型名）", async () => {
     setChannel(makeChannel("alpha"));
     seedCredential("alpha", { accessToken: "tok-1", uid: "u1", domain: "example.com" });
     poolUsage.writeBilling("alpha", { total: { used: 0 } });
 
-    const { res, status, body } = fakeRes();
-    const route = resolvePoolRoute("deepseek-v4.1-flash", res, () => {});
-    assert.equal(route, null, "裸名不得再解析成池 id");
-    assert.equal(status(), 400);
-    assert.equal((JSON.parse(body()) as { error: { code: string } }).error.code, "unknown_model");
+    const gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
+    try {
+      const resp = await fetch(`http://${gw.addr}/v1/models`);
+      assert.equal(resp.status, 200);
+      const payload = (await resp.json()) as { data: Array<{ id: string }> };
+      assert.ok(payload.data.some((m) => m.id === "deepseek-v4.1-flash"));
+    } finally {
+      await gw.close().catch(() => {});
+    }
   });
 
-  it("裸模型名目录未命中且无别名/默认模型 → 仍 400（解析失败的另一条入口）", () => {
+  it("家族外模型名 → 400（解析失败的另一条入口）", () => {
     setChannel(makeChannel("alpha"));
     poolUsage.writeBilling("alpha", { total: { used: 0 } });
 
@@ -291,7 +288,7 @@ describe("3. A9 模型元数据：渠道 resolveModel 抛错不拖垮 /v1/models
       const payload = (await resp.json()) as { data: Array<{ id: string }> };
       assert.ok(payload.data.length > 0, "模型列表照常返回");
       assert.ok(
-        payload.data.some((m) => m.id.startsWith("alpha/")),
+        payload.data.some((m) => m.id === "deepseek-v4.1-flash"),
         `alpha 的模型应在列表里（实际: ${payload.data.map((m) => m.id).join(", ")}）`,
       );
     } finally {
@@ -299,12 +296,12 @@ describe("3. A9 模型元数据：渠道 resolveModel 抛错不拖垮 /v1/models
     }
   });
 
-  it("getPoolModelMeta 本身不抛错（兜底值照常给出）", async () => {
+  it("getChannelModelMeta 本身不抛错（兜底值照常给出）", async () => {
     setChannel(makeChannel("alpha", { resolveThrows: true }));
-    const { getPoolModelMeta } = await import("../dist/pool/pool-targets.js");
-    const meta = getPoolModelMeta("alpha/deepseek-v4.1-flash");
-    // 目录读不出来时 `name` 回落到**池 id**（旧版返回无信息的 "Unknown"）
-    assert.equal(meta.name, "alpha/deepseek-v4.1-flash", "查不到元数据时回落兜底值");
+    const { getChannelModelMeta } = await import("../dist/pool/pool-targets.js");
+    const meta = getChannelModelMeta("alpha", "deepseek-v4.1-flash");
+    // 目录读不出来时 `name` 回落到**规范模型名**（旧版返回无信息的 "Unknown"）
+    assert.equal(meta.name, "deepseek-v4.1-flash", "查不到元数据时回落兜底值");
     assert.ok(meta.contextWindow > 0);
     assert.equal(meta.sources.contextWindow, "default", "没有真值时必须标成占位值");
   });

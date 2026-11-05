@@ -109,7 +109,17 @@ export interface UiSnapshot {
   base_url: string;
   chat_url: string;
   endpoints: string[];
-  models: string[];
+  /**
+   * 对外模型池的**「模型 × 渠道」矩阵**：一个模型可能由多个渠道供给。
+   *
+   * 模型 id 是 deepseek 裸名（不再有 `<cid>/` 前缀）；渠道凭 `cid` 列展示，
+   * 元数据取**该渠道**的值（同一模型在不同渠道倍率/规格可能不同）。
+   */
+  models: Array<{
+    model: string;
+    cid: string;
+    meta: import("../../pool/pool-targets.js").PoolModelMeta;
+  }>;
   /**
    * 待回答的输入请求（渠道两步登录，如 loomy 的短信验证码）；`null` = 当前没有。
    *
@@ -117,12 +127,6 @@ export interface UiSnapshot {
    * 提交走 `submitInput` 动作；界面关闭时也要调它，否则等待中的渠道会一直挂着。
    */
   login_input: LoginInputRequest | null;
-  /**
-   * 每模型附加信息（键 = 池模型 id）：消耗倍率与营销角标。
-   *
-   * 倍率为 null 表示该渠道目录没有提供；前端据此不渲染倍率标签。
-   */
-  model_info: Record<string, import("../../pool/pool-targets.js").PoolModelMeta>;
   /**
    * 各渠道的能力位（键 = cid）。
    *
@@ -146,7 +150,6 @@ export function emptySnapshot(): UiSnapshot {
     endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
     models: [],
     login_input: null,
-    model_info: {},
     channel_caps: {},
     theme_mode: "system",
     resolved_theme: "dark",
@@ -640,7 +643,7 @@ export function createConsoleHandler(
         return;
       }
       void (async () => {
-        const [{ poolModels, poolModelMetas }, { listAccounts }, { channels }, { runInChannel }] =
+        const [{ poolModels, poolModelMetas, poolCandidates }, { listAccounts }, { channels }, { runInChannel }] =
           await Promise.all([
             import("../../pool/pool-targets.js"),
             import("../../runtime/account-pool.js"),
@@ -695,11 +698,12 @@ export function createConsoleHandler(
           if (meta.effort !== null && meta.effort !== undefined) thinking++;
         }
 
-        const allModels = poolModels();
+        // 每个渠道供给几个对外模型（控制台的渠道卡用）
         const cidModelCounts = new Map<string, number>();
-        for (const model of allModels) {
-          const cid = model.slice(0, model.indexOf("/"));
-          cidModelCounts.set(cid, (cidModelCounts.get(cid) ?? 0) + 1);
+        for (const model of poolModels()) {
+          for (const candidate of poolCandidates(model)) {
+            cidModelCounts.set(candidate.cid, (cidModelCounts.get(candidate.cid) ?? 0) + 1);
+          }
         }
 
         const channelList = await Promise.all(

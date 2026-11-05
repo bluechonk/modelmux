@@ -23,7 +23,7 @@ import { appendChannel, appendError, appendGateway, appendSystem } from "../../r
 import { rootDir } from "../../runtime/paths.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
-import { invalidateCrossModelIndex, poolModelMetas } from "../../pool/pool-targets.js";
+import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates } from "../../pool/pool-targets.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
@@ -354,11 +354,15 @@ class ServiceState {
       qr_url: this.qrUrl,
       base_url: this.baseUrl,
       chat_url: this.chatUrl,
-      models: [...this.modelsShown],
+      models: this.modelsShown.flatMap((model) =>
+        poolCandidates(model).map((candidate) => ({
+          model,
+          cid: candidate.cid,
+          meta: getChannelModelMeta(candidate.cid, candidate.exposedId),
+        })),
+      ),
       // 待回答的输入请求（渠道两步登录）：null = 当前没有。
       login_input: this.pendingInput?.req ?? null,
-      // 一次枚举只建一次跨渠道索引（`poolModelMetas` 内部构建）
-      model_info: Object.fromEntries(poolModelMetas(this.modelsShown)),
       channel_caps: Object.fromEntries(
         channels().map((channel) => [channel.config.cid, channelCapabilities(channel.config)]),
       ),

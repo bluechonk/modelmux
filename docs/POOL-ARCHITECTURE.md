@@ -9,11 +9,11 @@
 
 | 维度 | 当前设计 | 说明 |
 |---|---|---|
-| 对外模型 id 形态 | `<cid>/<模型>` 动态池（见 §2） | 客户端用渠道前缀显式选池子 |
+| 对外模型 id 形态 | **deepseek 家族裸模型名**（`deepseek-v4.1-flash`；见 §2） | 渠道由网关自动挑，客户端不指定 |
 | 模型目录来源 | 磁盘缓存 → 远端目录 → 渠道内置兜底表（见 §2.8） | 三级来源，兜底表在渠道包里 |
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
 | 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；鉴权失效一律手动切号 | 见 §3.3 |
-| 跨渠道自动选池 | 不做：渠道由请求前缀显式指定 | 见 §2.4 |
+| 跨渠道自动选池 | **按渠道账号池剩余额度之和降序**，失败顺延下一家（见 §2.4） | 渠道对客户端透明 |
 | 额度耗尽自动换号 | 明确额度信号直查实时账单 + 冷却旧账号 + 本次请求重试一次；生效账号已在冷却时请求前提前切走 | 见 §2.4 与 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) |
 | 轮询 / 最久未用 | 未实现 | 见 §3.4 |
 
@@ -23,80 +23,78 @@
 - **渠道的新角色**：不是「一个网关」，而是**一个池子**。
  - **模型池**：该渠道 `catalog` 对外暴露的全部可用模型（共享层不做家族白名单，见 `CONTRACT-TS.md` §4.1）。
  - **账号池**：该渠道的多个账号；`credentials.json` 只是当前生效账号的兼容镜像（见 §3.4）。
-- **对外形态**：一个 base URL（`http://127.0.0.1:4412/v1`）+ **`<cid>/<模型>` 池 id**
- （`loomy/kimi-k2.6` 这种）。客户端用渠道前缀显式指定渠道；
- 渠道内部的账号池轮换照旧 —— 见 §2。
+- **对外形态**：一个 base URL（`http://127.0.0.1:4412/v1`）+ **deepseek 家族的裸模型名**
+ （`deepseek-v4.1-flash` / `deepseek-v4-flash` / `deepseek-v4-pro`；`deepseek-flash` 是
+ `deepseek-v4.1-flash` 的别名）。客户端只说要哪个模型，**哪家渠道出**由网关按账号池
+ 剩余额度自动挑，失败顺延下一家 —— 见 §2。
 
-> 裸模型名（不带渠道前缀）一律 `400 unknown_model` —— 渠道选择权在请求方手里。
+> 渠道对客户端**透明**：请求里不带渠道前缀；家族外的模型名（哪怕是别家真实存在的模型）
+> 一律 `400 unknown_model`。模型家族是网关的**产品面**，声明在
+> `packages/core/gateway/src/pool/model-family.ts`（共享层唯一允许出现模型名的地方）。
 
 ---
 
-## 2. 公共模型池：`<cid>/<模型>` 池 id（全渠道模型并集）
+## 2. 公共模型池：deepseek 家族裸模型名
 
-网关对外暴露**全部渠道 `catalog` 归一化后的模型**，每个 id 挂上渠道前缀：
+网关对外只暴露 **deepseek 家族**，客户端用**裸模型名**请求：
 
 ```
-/v1/models = ⋃ 各渠道 exposedIds()  →  归一化（小写、版本号点号、去 `-official`/日期/`-latest`、剥厂商路径段）  →  渠道内去重  →  <cid>/<模型>  →  排序
+/v1/models = deepseek 家族中「至少一个渠道能供给」的 canonical 名  →  排序
+                 ↑ 渠道目录里的等价写法（大小写 / 连字符版本号 / sn- 包装 / -official / 日期后缀）归一后匹配
 ```
 
-上游目录里有什么就对外暴露什么（各渠道的 kimi / qwen / MiniMax / 豆包 / 盘古 等型号同样进池）。
-
-**归一化只作用于前缀之后的模型段**（渠道 id 原样；模型段收敛各渠道的不同写法）：
-
-| 渠道 | 目录里的原始写法（实测） | 对外池 id |
+| 对外模型 id | 别名 | 本机供给渠道（实测） |
 |---|---|---|
-| raccoon | `sn-deepseek-v4-1-flash` | `raccoon/deepseek-v4.1-flash` |
-| traecn | `DeepSeek-V4-Flash-Official` | `traecn/deepseek-v4-flash` |
-| loomy | `deepseek-v4-flash-0731` | `loomy/deepseek-v4-flash` |
-| qoder / qodercn | `gfmodel`（按展示名归一） | `qoder/glm-5.3-flash` |
+| `deepseek-v4.1-flash` | `deepseek-flash` | loomy（目录写 `DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
+| `deepseek-v4-flash` | — | astudio、catpaw、loomy、traecn |
+| `deepseek-v4-pro` | — | astudio、qodercn、traecn、workbuddy |
 
-**跨渠道不合并**：`catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 是两个独立 id ——
-同名模型用哪家渠道，由请求方写前缀决定。
+**只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
+出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
 
 > 过滤只由**渠道自己的目录**决定：隐藏条目（`hidden` / `visible === false`）、
 > 官方「自定义模型」占位（`custom_model_*`）、上游标记不可用的通道会被各渠道排除，
-> 共享层不做家族闸门。`traecn` 的隐藏条目与 `custom_model_*` 同样不出现在 `/v1/models`。
+> 共享层不做闸门。非 deepseek 家族的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）
+> **不进对外池** —— 网关只做 deepseek。
 
-来源：`packages/core/gateway/src/pool/pool-targets.ts`（池 id 与匹配）、`pool-usage.ts`（账本与健康度）。
+来源：`pool/model-family.ts`（家族与别名）、`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
 
-### 2.1 匹配 = 归一化 + 精确相等
+### 2.1 匹配 = 归一化 + 精确相等 + 别名组
 
-各渠道目录的命名完全不同，所以池层先归一化（`canonicalModelId`）：
+各渠道目录的命名完全不同，所以先归一化（`canonicalModelId`）：
 
 1. 取 `/` 最后一段（去 `deepseek/`、`z-ai/` 这类厂商前缀）
 2. 全小写
-3. 去渠道包装前缀（`sn-`）
+3. 去渠道包装前缀（`sn-` 等）
 4. 「数字-数字」的连字符转点：`v4-1` → `v4.1`、`5-3` → `5.3`
 5. 去尾部修饰：`-official`、`-<4位数字>`、`-latest`
 
-然后做**精确相等**匹配 —— 用包含匹配的话，`glm-5.3-flash` 会把
-`glm-5.3-flashx` 一起捞进来，精确相等是唯一的隔离保证。
+然后做**精确相等**匹配 —— 用包含匹配的话，`deepseek-v4-flash` 会把
+`deepseek-v4.1-flash` 一起捞进来，精确相等是唯一的隔离保证。
 
-客户端请求名走同一条归一化路径（渠道归属由**第一个 `/`** 显式声明，模型段再剥厂商路径
-不会串渠道）；裸模型名（无 `/`）判为格式错误，一律 `400 unknown_model`。
+客户端请求名走 `canonicalOf`（家族表 + 同一套宽松归一化）：命中家族即归并到 canonical，
+并按**别名组**收集候选 —— `deepseek-flash` 与 `deepseek-v4.1-flash` 互相命中
+（qodercn 只暴露 `deepseek-flash`，请求 `deepseek-v4.1-flash` 也能打过去）。
+家族外的名字一律 `400 unknown_model`；家族内但**没有任何渠道供给**的也是 `400`（没货），
+「渠道都没登录」才是 `503`。
 
-渠道目录里的一切条目都对外暴露（全池）；请求时该渠道目录里没有的模型回
-`400 unknown_model`（渠道没货，换渠道是客户端的决定），登录态问题回 `503`。
+### 2.2 账本：路由主键（剩余额度）＋ 健康度观察
 
-### 2.2 账本：观察渠道健康度
+账本（`pool-usage.json`）按渠道记录**账号池剩余额度之和**（逐账号 `credits.remain` 累加，
+没有逐账号快照时回落渠道级 `remain`）与 ok / fail 计数。它有两个用途：
 
-账本（`pool-usage.json`）按渠道记录账单已用量与 ok / fail 计数；渠道由 `<cid>/` 前缀显式指定，
-账本用于：
-
-- `mx model list` / `mx model usage` / Web 控制台展示渠道健康度（已用量、冷却、连败）；
-- **账号池的展示排序**（`mx acct` 与 Web 账号池页）：`ok + fail` 就是该渠道的**使用频率**，
-  频率降序、同频按 cid 字典序；两者都是 0（该渠道一次没被调用过）时是纯字母序。
-  实现见 `pool/pool-usage.ts::sortChannelsByUsage` —— 只影响展示，**路由仍由 `<cid>/` 前缀决定**。
+- **跨渠道选路的排序主键**：剩余额度之和降序，无额度数据的排最后（见 §2.4）；
+- `mx model list` / `mx model usage` / Web 控制台展示渠道健康度（已用量、冷却、连败），
+  以及**账号池的展示排序**（`pool/pool-usage.ts::sortChannelsByUsage`，只影响展示）。
 
 上游账单**没有「请求次数」**这种字段，只有额度（积分 / credits / 美元，各家单位不同）——
-账本数字只作健康度参考，不作路由依据。
+跨渠道相加只是**近似**的优先级信号，真正的额度判据仍在渠道内（`ACCOUNT-ROTATION.md` 的账单核查）。
 
-> **失败冷却只标记、不剔除请求**：冷却期（`FAIL_COOLDOWN_MS = 60s`，
-> `packages/core/gateway/src/pool/pool-usage.ts:33`）内该渠道在账本里被标「冷却中」，
-> 供视图观察。但路由侧「剔除冷却渠道 → 全冷却时回退完整候选」这条逻辑在现行
-> `<cid>/<模型>` 形态下**没有实际效果** —— 候选至多一条，剔除后必然回退到它自己
-> （`packages/core/gateway/src/http/chat/route.ts:114-121`）。
-> 也就是说：**冷却不会让请求失败，也换不到别的渠道**，只是账本上的一个观察标记。
+> **失败冷却同时影响候选集与观察**：冷却期（`FAIL_COOLDOWN_MS = 60s`，
+> `packages/core/gateway/src/pool/pool-usage.ts`）内该渠道被**硬排除**出候选；
+> 全池都在冷却时回退到完整候选（冷却只是短暂状态，服务不能因此不可用）。
+> 额度耗尽的**账号**冷却由 `runtime/account-pool.ts` 管（窗口刷新自动恢复），
+> 逐账号冷却的账号在 `totalRemainOf` 里按 0 计。
 
 ### 2.3 账本落点与刷新节奏
 
@@ -138,26 +136,32 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 前端只认基线：没有基线或 `remain` 不是有限数字时不画进度条、不显示百分比
 （不回退 `remain_percent`）。
 
-### 2.4 路由与失败转移
+### 2.4 路由与失败转移（跨渠道）
 
-1. **解析**：`<cid>/<模型>` → 渠道段（大小写不敏感）+ 模型段（归一化）；
-   渠道未注册 / 目录未命中 → `400 unknown_model`。
-2. **单候选尝试**：渠道已由请求方指定，候选**至多一条**；请求体由该渠道单独构建
-   —— 上游 slug 与渠道一一对应（TRAE 认 `DeepSeek-V4-Flash`，不认全小写），
-   且 `catpaw` 的 `prepareChat` 有建会话副作用，只能在轮到它时才执行。
-3. **只在「上游响应头到达之前」重试**：一旦开始转发就不能换请求（响应头已发给客户端）。
-4. **渠道内部**先做一次「刷新 token → 用新 token 重试本账号」；仍失败则标记该账号
+1. **解析**：家族名 → canonical（别名归并），家族外 → `400 unknown_model`；
+   家族内但没有任何渠道供给 → `400`（没货）。日志的 `model` 写 canonical 名。
+2. **候选收集**：把所有能供给该模型的渠道**按账号池剩余额度之和降序**排好
+   （`pool/pool-targets.ts::poolCandidates`）—— 客户端不指定渠道。
+3. **候选过滤**：凭据读不出的渠道直接退出路由（不可能成功，白耗尝试预算）；
+   冷却中的渠道硬排除（全冷却时回退完整候选）。全被过滤掉 → `503 not_authenticated`。
+4. **逐候选尝试**：请求体由**该候选渠道**单独构建（上游 slug 与渠道一一对应，
+   TRAE 认 `DeepSeek-V4-Flash` 不认全小写；`catpaw` 的 `prepareChat` 有建会话副作用，
+   只在轮到它时才执行）。**只在上游响应头到达之前**重试，一旦开始转发就换不动。
+5. **渠道内部**先做一次「刷新 token → 用新 token 重试本账号」；仍失败则标记该账号
    不可用并返回鉴权错误，**由用户手动切换账号**（`mx acct <cid> use <key>` /
    Web 账号池），不自动切号。
-5. **额度耗尽例外**：失败错误码属于「可能是额度问题」那一类（`quota_exhausted` /
-   `upstream_error` / `upstream_timeout`）时，先按**账单证据**判断（见下），
-   确认额度不足才把生效账号标冷却并**自动切到池内有额度的账号**，本次请求用新账号
-   **重试一次**（同一候选，因为池 id 已钉死渠道）。判据、边界与理由见
-   [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md)。
-   其中 `quota_exhausted` 已明确是额度问题，账本快照不参与否决（快照会滞后，见该文件 §3.1）；
-   另有**前置**路径：请求发出前发现生效账号在冷却，直接切走（同文件 §3.5）。
-   鉴权类失败（`not_authenticated` / `upstream_unauthenticated`）**不在**此列 ——
-   换账号会把「凭据被撤销」掩盖成随机成功，仍然只能手动处理。
+6. **额度耗尽例外**：失败错误码属于「可能是额度问题」那一类（`insufficient_quota` /
+   `upstream_error` / `upstream_timeout`）时，先按**账单证据**判断，确认额度不足才把
+   生效账号标冷却并**自动切到池内有额度的账号**，本次请求用新账号重试一次；
+   判据、边界与理由见 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md)。
+7. **跨渠道顺延**：某个候选的账号全部耗尽 / 该渠道失败时，试**下一个候选渠道** ——
+   「第一家全烧光 → 遍历下一家」，直到全部试完才回最终错误。
+   尝试上限默认不设（候选渠道数），`MODELMUX_POOL_MAX_TRIES` 可作安全阀。
+8. **客户端日志**：访问日志的 `model` 是 canonical 模型名、`cid` 是**实际接管**本次请求的
+   渠道（逐次尝试写入，最后一条即服务方）—— 用来定位「哪个渠道的 deepseek 偏慢」。
+
+鉴权类失败（`not_authenticated` / `upstream_unauthenticated`）**不在**换号之列 ——
+换账号会把「凭据被撤销」掩盖成随机成功，仍然只能手动处理。
 
 #### 额度耗尽 → 账号**冷却**（不是故障）
 
@@ -307,16 +311,16 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 
 | 命令 | 看什么 |
 |---|---|
-| `mx model list` | **池视图**：有哪些模型 —— 按渠道分组，每渠道一行（模型数 + 账本状态）+ 该渠道的模型 id 列表 |
-| `mx model <cid>` | **渠道视角**：该渠道对外暴露哪些模型（`--refresh` 重拉上游目录） |
+| `mx model list` | **池视图**：有哪些模型 —— 按**模型**分组，每个 deepseek 模型一行（渠道数）+ 逐渠道的剩余额度 / 账本状态 / 目录原始写法 |
+| `mx model <cid>` | **渠道视角**：该渠道能供给哪些对外模型（`--refresh` 重拉上游目录） |
 | `mx model usage [--refresh]` | **池账本**：各渠道用得怎么样 —— 每渠道一行（已用量 / 单位 / ok / fail / 冷却）；`--refresh` 立刻重查各渠道账单 |
 | `mx bill [<cid>] [--accounts]` | **额度**（直连上游，不经网关）：渠道级一行 + **按账号**逐行（池内 ≥2 个账号时默认列出，`--accounts` 强制列出）—— 额度是账号级的，只看渠道那行分不清谁还剩多少（见 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) §2） |
 
-> `model list` 与 `model usage` 是**两个不同视图**（前者按渠道分组列模型，后者只按渠道列账本），
-> 两者都**不表示路由顺序** —— 渠道由池 id 前缀指定，账本只作健康度观察。
+> `model list` 与 `model usage` 是**两个不同视图**（前者按模型分组，后者按渠道列账本）；
+> 账本的「账号池剩余额度之和」是**选路主键**（§2.4），其余数字只作健康度观察。
 
 > 单渠道独立运行（`packages/core/channels/<cid>/dist/cli.js start`）**也走池**：
-> `/v1/models` 同样是 `<cid>/<模型>` 形态，只是候选渠道只有一个。
+> `/v1/models` 同样是 deepseek 裸模型名，只是候选渠道只有一个。
 
 ### 2.6 池元数据：最大上下文、最大输出与思考档位
 
@@ -409,15 +413,16 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 ### 2.7 跨渠道同 model id 兜底
 
 同一个规范模型名常被**多个渠道**同时提供，而各渠道上游按**自己的上限**裁剪过同一个模型 ——
-实测同一个 id 的窗口能差一倍（`deepseek-v4-pro`：catpaw 报 700000、lobsterai/traecn/workbuddy
-报 1000000；`minimax-m3`：workbuddy 报 512000、loomy 报 1048576）。
+实测同一个 id 的窗口能差一倍（`deepseek-v4-pro`：catpaw 报 700000、traecn/workbuddy
+报 1000000）。
 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，就用兄弟渠道同名的已知值兜底。
 
-池 id **不跨渠道合并**（`catpaw/glm-5.3-flash` 与 `raccoon/glm-5.3-flash` 仍是两个池 id）。
+对外**只列 canonical 的 deepseek 模型**（别名 `deepseek-flash` 不单独出现）；同一个模型的
+多家渠道在「模型 × 渠道」视图里逐行展开（渠道各有自己的倍率与上游写法）。
 
-实测规模（2026-10-25，走真实注册链路取数）：207 个池 id / 117 个唯一规范名 /
-**29 个跨渠道重复名**；兜底能补的：窗口 4 条、输出上限 13 条、思考档位 45 条
-（另有 19 条档位是上游已下发、归一后即可用，见 §2.6）。
+实测口径（2026-10-25，走真实注册链路取数）：跨渠道重复名 29 个（当时是全池 207 个 id）；
+兜底能补窗口 4 条、输出上限 13 条、思考档位 45 条（另有 19 条档位是上游已下发，
+归一后即可用，见 §2.6）。
 
 **取值口径**（`buildCrossModelIndex()`，`pool-targets.ts`）：
 
@@ -678,8 +683,9 @@ hasChannel(cid?: string): boolean;
 
 ### 4.2 路由层
 
-- `/v1/chat/completions`：**池路由** —— 客户端用 `<cid>/<模型>` 显式指定渠道（见 §2.4）。
-  模型名先过**入站模型解析**（剥 `[1m]` 后缀与 `modelmux/` 前缀）；不含 `/` 的裸名一律 400。
+- `/v1/chat/completions`：**池路由** —— 客户端用 **deepseek 裸模型名**请求，渠道由网关按
+  账号池剩余额度自动挑（见 §2.4）。模型名先过**入站模型解析**（剥 `[1m]` 后缀与
+  `modelmux/` 前缀、别名归并到 canonical）；家族外的名字一律 400。
 - `/v1/models`：读统一快照 `~/.modelmux/model-catalog.json`，缺失或渠道集合变化时重建
   （见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）。
 - `/health`：报告**整体**状态 + 每个渠道一行（登录/池子/是否上架），而不是单个渠道。

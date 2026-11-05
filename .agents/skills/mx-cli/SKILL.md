@@ -66,14 +66,15 @@ JSON 里**没有**顶层 `status` 字段（人读输出里的 `状态:` 对应 `
 ### 2.2 看模型：两个命令别混
 
 ```bash
-mx model list                 # 池视图：有哪些模型（按渠道分组）
+mx model list                 # 池视图：有哪些对外模型（按模型分组，逐渠道列剩余额度）
 mx model usage                # 池账本：各渠道用得怎么样（每渠道一行）
-mx model catpaw              # 渠道视角：catpaw 目录里的模型（缓存优先，首次会拉一次）
+mx model catpaw              # 渠道视角：catpaw 能供哪些对外模型（缓存优先，首次会拉一次）
 mx model catpaw --refresh    # 强制重拉上游目录（失败 exit 1）
 curl -s http://127.0.0.1:4412/v1/models   # 客户端实际看到的 id
 ```
 
-对外 id 恒为 `<cid>/<model>`（如 `catpaw/deepseek-v4.1-flash`）；裸模型名会被网关 400。
+对外 id 是 **deepseek 家族裸模型名**（如 `deepseek-v4.1-flash`）；家族外的名字一律 400。
+渠道由网关按账号池剩余额度**自动挑**，请求里不带渠道前缀。
 
 `--refresh` 的退出语义不同：`mx model <cid> --refresh` 失败非零退出；
 `mx model usage --refresh` 失败只打印一行（`--json` 下连这行都没有），函数始终返回 0 ——
@@ -106,7 +107,8 @@ mx model usage --refresh    # 立刻重查各渠道账单
 ```
 
 `mx bill` 是上游额度；`mx model usage` 是本地池账本，两者不是一回事。
-两个视图都**不决定路由** —— 渠道由池 id 前缀（`<cid>/<模型>`）指定，账本只作健康度观察。
+`model list` 与 `model usage` 是**两个不同视图**：前者按模型分组回答「从哪几家出」，
+后者按渠道列账本。账本的「账号池剩余额度之和」是**选路主键**（其余数字只作健康度观察）。
 
 额度是**账号级**的：同一渠道下每个账号各有自己的余额（loomy 实测 4 个账号各自 5000/日
 + 各自一次性新手奖励）。`mx bill <cid>` 因此会逐账号列一遍（池内 ≥2 个账号时默认列），
