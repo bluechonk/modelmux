@@ -1,10 +1,11 @@
 // 干什么：zcode app-server 端到端测试底座 —— 建会话 → setModel(按会话选 modelmux 模型) →
 //        （工具模式再 setMode yolo）→ 发任务 → 等回合结束 → 核对落盘，末尾打一行 RESULT JSON 供脚本汇总。
-// 怎么跑：node scripts/zcode-e2e.mjs <cid>/<模型> [--level <档位>] [--smoke] [--timeout <秒>] [--workspace <目录>]
+// 怎么跑：node scripts/zcode-e2e.mjs <deepseek 模型名> [--level <档位>] [--smoke] [--timeout <秒>] [--workspace <目录>]
 //        --smoke 只跑单轮文本回复（最省）；默认跑多步工具任务（写文件/读回/bash）。
 //        档位缺省时自动选：优先 disabled，其次 low，再取模型档位表第一项（成本最省口径）。
-// 依赖什么：node >=18；modelmux 网关 127.0.0.1:4412；目标模型已在 zcode 供应商清单里；
-//          网关侧证据用 mx log / mx bill 另行核对；工具模式产物落 .tmp/zcode-e2e/<cid>/。
+//        网关只对外暴露 deepseek 家族**裸名**，落点渠道由网关按额度自动挑（请求里不带渠道前缀）。
+// 依赖什么：node >=18；modelmux 网关 127.0.0.1:4412；模型已在 zcode 供应商清单里；
+//          网关侧证据用 mx log / mx bill 另行核对；工具模式产物落 .tmp/zcode-e2e/<模型>/。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -27,11 +28,16 @@ for (let i = 0; i < args.length; i++) {
   else if (!args[i].startsWith("--")) positional.push(args[i]);
 }
 const modelId = positional[0];
-if (!modelId || !modelId.includes("/")) {
-  console.error("用法: node scripts/zcode-e2e.mjs <cid>/<模型> [--level <档位>] [--smoke] [--timeout <秒>] [--workspace <目录>]");
+if (!modelId) {
+  console.error("用法: node scripts/zcode-e2e.mjs <deepseek 模型名> [--level <档位>] [--smoke] [--timeout <秒>] [--workspace <目录>]");
   process.exit(2);
 }
-const cid = modelId.split("/")[0];
+if (modelId.includes("/")) {
+  console.error(`模型名不要带渠道前缀：网关只对外暴露 deepseek 裸名（收到 "${modelId}"）—— 落点渠道由网关按额度自动挑`);
+  process.exit(2);
+}
+/** 产物目录名（模型名本身即可作目录名：deepseek 家族名里没有路径分隔符）。 */
+const slug = modelId;
 const smoke = has("--smoke");
 // 默认 600s：catpaw 等慢上游单轮流可超 170s（技能坑 6），180s 默认会误杀
 const timeoutSec = Number(flag("--timeout") ?? 600);
@@ -40,10 +46,10 @@ if (!fs.existsSync(ZC)) {
   console.error(`找不到 zcode.cjs: ${ZC}`);
   process.exit(2);
 }
-// 工作区默认落仓库 .tmp/zcode-e2e/<cid>/（从仓库任意位置跑都对：用脚本自身定位仓库根）
+// 工作区默认落仓库 .tmp/zcode-e2e/<模型>/（从仓库任意位置跑都对：用脚本自身定位仓库根）
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..", "..", "..", "..");
-const workspace = flag("--workspace") ?? path.join(repoRoot, ".tmp", "zcode-e2e", cid);
+const workspace = flag("--workspace") ?? path.join(repoRoot, ".tmp", "zcode-e2e", slug);
 fs.mkdirSync(workspace, { recursive: true });
 
 console.log(`== 目标: model=${modelId} 模式=${smoke ? "smoke" : "tool"} 超时=${timeoutSec}s 工作区=${workspace}`);
@@ -221,10 +227,10 @@ try {
   }
 
   // 4. 发任务
-  const sentinel = path.join(workspace, `${cid}-e2e.txt`);
+  const sentinel = path.join(workspace, `${slug}-e2e.txt`);
   const content = smoke
     ? "Reply with exactly: OK"
-    : `在当前目录创建 ${cid}-e2e.txt，写入内容 ${modelId.split("/")[1]} ok；然后读取该文件确认内容；再用 bash 执行 pwd 和 ls；最后用一句话总结你执行了哪些操作。`;
+    : `在当前目录创建 ${slug}-e2e.txt，写入内容 ${modelId} ok；然后读取该文件确认内容；再用 bash 执行 pwd 和 ls；最后用一句话总结你执行了哪些操作。`;
   const done = new Promise((r) => { turnEnd = r; });
   const sent = await call("session/send", { sessionId, content }, 30000);
   if (sent.error || sent.timeout) throw new Error("session/send 失败: " + JSON.stringify(sent.error ?? "timeout").slice(0, 150));
@@ -245,7 +251,7 @@ try {
   if (!smoke) {
     try {
       result.fileContent = fs.readFileSync(sentinel, "utf8").trim();
-      result.fileOk = result.fileContent === `${modelId.split("/")[1]} ok`;
+      result.fileOk = result.fileContent === `${modelId} ok`;
     } catch {
       result.fileOk = false;
     }

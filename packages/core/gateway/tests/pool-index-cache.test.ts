@@ -72,7 +72,7 @@ describe("跨渠道索引缓存", () => {
   it("poolCandidates 从索引拿原始写法（大小写敏感，原样交给渠道 resolveModel）", () => {
     // 目录里是上游的真实写法 `DeepSeek-V4-Flash`，对外规范名是全小写
     use("alpha", ["DeepSeek-V4-Flash"]);
-    const candidates = poolCandidates("alpha/deepseek-v4-flash");
+    const candidates = poolCandidates("deepseek-v4-flash");
     assert.equal(candidates.length, 1);
     assert.equal(candidates[0]?.exposedId, "DeepSeek-V4-Flash", "原始写法不能被小写化");
   });
@@ -80,11 +80,11 @@ describe("跨渠道索引缓存", () => {
   it("索引没命中时 poolCandidates 回落直扫（目录在 TTL 内被改过的情形）", () => {
     use("alpha", ["m1"]);
     invalidateCrossModelIndex();
-    buildCrossModelIndex(); // 建好旧索引
-    use("alpha", ["m1", "m9"]); // 目录变化但没失效
-    const candidates = poolCandidates("alpha/m9");
+    buildCrossModelIndex(); // 建好旧索引（此时还没有 deepseek 模型）
+    use("alpha", ["deepseek-v4.1-flash"]); // 目录变化但没失效
+    const candidates = poolCandidates("deepseek-v4.1-flash");
     assert.equal(candidates.length, 1, "回落直扫仍能拿到新模型");
-    assert.equal(candidates[0]?.exposedId, "m9");
+    assert.equal(candidates[0]?.exposedId, "deepseek-v4.1-flash");
   });
 });
 
@@ -93,7 +93,7 @@ describe("poolModelMetas 记忆", () => {
 
   it("同一个入参数组重复调用直接返回上次结果（池集合没变时不重算）", () => {
     use("alpha", ["m1"]);
-    const ids = ["alpha/m1"];
+    const ids = ["m1"];
     const first = poolModelMetas(ids);
     const second = poolModelMetas(ids);
     assert.equal(first, second, "同一数组引用必须命中缓存");
@@ -101,15 +101,15 @@ describe("poolModelMetas 记忆", () => {
 
   it("入参数组换了（池集合变）→ 重新计算", () => {
     use("alpha", ["m1", "m2"]);
-    const before = poolModelMetas(["alpha/m1"]);
-    const after = poolModelMetas(["alpha/m1", "alpha/m2"]);
+    const before = poolModelMetas(["m1"]);
+    const after = poolModelMetas(["m1", "m2"]);
     assert.notEqual(before, after);
     assert.equal(after.size, 2);
   });
 
   it("索引失效后重新计算（目录变化的信号）", () => {
     use("alpha", ["m1"]);
-    const ids = ["alpha/m1"];
+    const ids = ["m1"];
     const before = poolModelMetas(ids);
     invalidateCrossModelIndex();
     const after = poolModelMetas(ids);

@@ -32,9 +32,9 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | string | 池 id，形态 `<cid>/<模型>` |
-| `name` | string | 展示名，缺省与 `id` 一致 |
-| `owned_by` | string | id 前缀里的渠道 |
+| `id` | string | 对外模型名（deepseek 家族的**裸模型名**，如 `deepseek-v4.1-flash`） |
+| `name` | string | 展示名（取首个声明渠道的上游名，缺省为 `id`） |
+| `owned_by` | string | 恒为 `deepseek`（对外模型统一归家族；承接渠道在请求日志的 `cid` 里） |
 | `context_window` | number | 上下文窗口 |
 | `max_output_tokens` | number | 最大输出 |
 | `input_modalities` | string[] | 输入模态，缺省 `["text"]` |

@@ -110,7 +110,7 @@ function makeChannel(cid: string): Channel {
       idleTimeoutMs: () => 5_000,
       newTranslator: translator,
     },
-    catalog: { exposedIds: () => ["test-model"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -320,7 +320,7 @@ describe("A8 上游错误响应体：读一半挂住时请求必须在超时内�
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: `${CID}/test-model`,
+        model: "deepseek-v4.1-flash",
         messages: [{ role: "user", content: "hi" }],
       }),
       signal: AbortSignal.timeout(5_000),
@@ -371,7 +371,7 @@ function makeOpenAiChannel(cid: string): Channel {
       fetchModels: async () => ({}),
       resolveConfig: () => ({ baseUrl: base }),
     },
-    catalog: { exposedIds: () => ["test-model"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),

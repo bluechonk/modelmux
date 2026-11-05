@@ -11,8 +11,9 @@
 
 import { channelCapabilities, channels, getChannel, hasChannel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
-import { POOL_MODELS, canonicalModelId, poolModelId, poolCandidates } from "../../pool/pool-targets.js";
-import { ledgerSnapshot, refreshBilling, scoreOf, sortChannelsByUsage } from "../../pool/pool-usage.js";
+import { canonicalModelId, poolCandidates, poolModels } from "../../pool/pool-targets.js";
+import { isDeepseekModel } from "../../pool/model-family.js";
+import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { renderChannelPool } from "./web-types.js";
 import type { WebCommandBody, WebCommandResult, WebChannelStatus } from "./web-types.js";
@@ -84,16 +85,14 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
               return [] as string[];
             }
           });
-          // 渠道内先按规范名去重：同一渠道的不同原始写法收敛为同一个对外 id
-          const pool = [
-            ...new Map(catalogIds.map((id) => [canonicalModelId(id), id])).values(),
-          ].map((id) => poolModelId(cidInner, id));
+          // 对外模型池 = 渠道目录里属于 deepseek 家族的部分（其余条目不属于对外模型池）
+          const pool = [...new Set(catalogIds.filter((id) => isDeepseekModel(id)).map((id) => canonicalModelId(id)))];
           return {
             cid: cidInner,
             display: channel.upstream.DISPLAY_NAME,
             catalog: catalogIds,
             pool,
-            out_of_pool: 0,
+            out_of_pool: catalogIds.length - pool.length,
           };
         });
         return ok({ channels: rows });
@@ -110,43 +109,43 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         const wanted = cid !== undefined && hasChannel(cid) ? [getChannel(cid)] : channels();
         const wantedSet = new Set(wanted.map((channel) => channel.config.cid));
         const ledger = ledgerSnapshot();
-        const rows = POOL_MODELS.filter((model) => {
-          const prefix = model.split("/")[0] ?? "";
-          return wantedSet.has(prefix);
-        }).map((model) => ({
-          model,
-          candidates: poolCandidates(model).map((candidate) => {
-            const entry = ledger.channels[candidate.cid];
-            return {
-              cid: candidate.cid,
-              display: candidate.channel.upstream.DISPLAY_NAME,
-              exposed_id: candidate.exposedId,
-              score: scoreOf(candidate.cid, now),
-              used: entry?.used ?? 0,
-              unit: entry?.unit ?? "",
-              cooling: (entry?.cooldown_until ?? 0) > now,
-              billing_at: entry?.billing_at ?? null,
-              billing_ok: entry?.billing_ok ?? false,
-              unsupported: !channelCapabilities(candidate.channel.config).billing,
-              // 额度周期（渠道声明；没声明就 null，前端回落到通用说明）
-              quota: candidate.channel.billing.quotaPeriod?.() ?? null,
-              ok: entry?.ok ?? 0,
-              fail: entry?.fail ?? 0,
-              // 渠道 × 账号拆分：每个账号的 ok / fail 计数与额度快照
-              accounts: Object.entries(entry?.accounts ?? {}).map(([key, count]) => ({
-                key,
-                ok: count.ok,
-                fail: count.fail,
-                credits: count.credits ?? null,
-                billing_at: count.billing_at ?? null,
-                billing_ok: count.billing_ok ?? false,
-                // 当日基线（当天首个 bill 的 remain）：前端拿它当 100% 分母
-                baseline: count.baseline ?? null,
-              })),
-            };
-          }),
-        }));
-        return ok({ rows, models: POOL_MODELS });
+        const rows = poolModels()
+          .map((model) => ({
+            model,
+            candidates: poolCandidates(model)
+              .filter((candidate) => wantedSet.has(candidate.cid))
+              .map((candidate) => {
+                const entry = ledger.channels[candidate.cid];
+                return {
+                  cid: candidate.cid,
+                  display: candidate.channel.upstream.DISPLAY_NAME,
+                  exposed_id: candidate.exposedId,
+                  used: entry?.used ?? 0,
+                  unit: entry?.unit ?? "",
+                  cooling: (entry?.cooldown_until ?? 0) > now,
+                  billing_at: entry?.billing_at ?? null,
+                  billing_ok: entry?.billing_ok ?? false,
+                  unsupported: !channelCapabilities(candidate.channel.config).billing,
+                  // 额度周期（渠道声明；没声明就 null，前端回落到通用说明）
+                  quota: candidate.channel.billing.quotaPeriod?.() ?? null,
+                  ok: entry?.ok ?? 0,
+                  fail: entry?.fail ?? 0,
+                  // 渠道 × 账号拆分：每个账号的 ok / fail 计数与额度快照
+                  accounts: Object.entries(entry?.accounts ?? {}).map(([key, count]) => ({
+                    key,
+                    ok: count.ok,
+                    fail: count.fail,
+                    credits: count.credits ?? null,
+                    billing_at: count.billing_at ?? null,
+                    billing_ok: count.billing_ok ?? false,
+                    // 当日基线（当天首个 bill 的 remain）：前端拿它当 100% 分母
+                    baseline: count.baseline ?? null,
+                  })),
+                };
+              }),
+          }))
+          .filter((row) => row.candidates.length > 0);
+        return ok({ rows, models: poolModels() });
       }
       case "accounts": {
         const targets = cid !== undefined && hasChannel(cid) ? [getChannel(cid)] : channels();

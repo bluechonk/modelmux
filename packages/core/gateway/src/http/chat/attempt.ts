@@ -41,7 +41,7 @@ import { callUpstream } from "./auth.js";
 import { openStream, type UpstreamCall } from "./upstream.js";
 import { relayUpstream } from "./forward.js";
 import type { PoolCandidate } from "../../pool/pool-targets.js";
-import { getPoolModelMeta } from "../../pool/pool-targets.js";
+import { getChannelModelMeta } from "../../pool/pool-targets.js";
 
 /** 一次失败的错误三元组：状态码 + 错误码 + 文案（回给客户端的信封内容）。 */
 export interface ChatError {
@@ -409,9 +409,14 @@ export async function attemptCandidate(
 
   // 账号维度落日志：访问日志带上「哪个账号承接的」—— 账号池要按账号汇总今日 tokens，
   // 而账本只记 ok/fail/credits。这里能拿到渠道，账号取该渠道当前生效的那个
-  // （自动换号后重试会再走一次本函数，键自然更新）。
+  //（自动换号后重试会再走一次本函数，键自然更新）。
+  // 渠道也是**每次尝试**都写：跨渠道顺延时，日志里的 cid 要落在真正接管请求的那条渠道上
+  //（失败尝试也会留下自己那条，便于排查「刚才试了哪几家」）。
   const reqLog = getRequestLog(res);
-  if (reqLog) reqLog.key = activeKeyOf(cid);
+  if (reqLog) {
+    reqLog.key = activeKeyOf(cid);
+    reqLog.cid = cid;
+  }
 
   // 模型名解析：**渠道说了算**（目录里查不到 → 这个候选不可用，换下一家）。
   let resolvedModel: string;
@@ -688,5 +693,5 @@ export async function attemptCandidate(
  */
 function isFreePoolModel(cid: string, exposedId: string): boolean {
   if (hasChannel(cid) && !channelCapabilities(getChannel(cid).config).billing) return true;
-  return getPoolModelMeta(`${cid}/${exposedId}`).multiplier === 0;
+  return getChannelModelMeta(cid, exposedId).multiplier === 0;
 }

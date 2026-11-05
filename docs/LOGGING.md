@@ -46,8 +46,8 @@
 | `id` | string | 请求标识 `req_` + 16 位十六进制；同时写入 `X-Request-Id` 响应头 | 请求进入时 |
 | `method` / `path` | string | HTTP 方法与路径 | 请求进入时 |
 | `startAt` | number | 请求开始的 epoch 毫秒 | 请求进入时 |
-| `model` | string | 请求使用的池 id（`<cid>/<模型>`） | 解析出模型后 |
-| `cid` | string | 承接请求的渠道 | 解析出模型后 |
+| `model` | string | 请求的模型（**规范 deepseek 名**，如 `deepseek-v4.1-flash`；别名已归并） | 解析出模型后 |
+| `cid` | string | **承接**本次请求的渠道（跨渠道选路后逐次尝试写入，最后一条即服务方） | 候选尝试时（`attemptCandidate`） |
 | `key` | string | 承接请求的**账号 key**（池内账号标识，账号池按它归集「今日 tokens」） | 候选尝试时（`attemptCandidate`） |
 | `stream` | boolean | 是否流式 | 解析出模型后 |
 | `requestBytes` | number | 请求体字节数 | 读入请求体后 |

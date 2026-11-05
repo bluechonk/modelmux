@@ -52,7 +52,12 @@ function writeDay(
 }
 
 let seq = 0;
-/** 一条模型请求；`usage` 传 null 表示上游没给用量。 */
+/**
+ * 一条模型请求；`usage` 传 null 表示上游没给用量。
+ *
+ * `model` 参数是 `<cid>/<模型>` 复合串：拆成日志里的两列（`cid` 与**纯模型名**）——
+ * 聚合键仍由两者合成，测试断言的 id 形态与真实日志一致。
+ */
 function modelEntry(
   date: string,
   model: string,
@@ -60,13 +65,14 @@ function modelEntry(
   over: Record<string, unknown> = {},
 ): Record<string, unknown> {
   seq += 1;
+  const slash = model.indexOf("/");
   return {
     id: `req_test${String(seq).padStart(4, "0")}`,
     ts: `${date}T02:00:00.000Z`,
     method: "POST",
     path: "/v1/chat/completions",
-    cid: model.split("/")[0],
-    model,
+    cid: slash < 0 ? "" : model.slice(0, slash),
+    model: slash < 0 ? model : model.slice(slash + 1),
     messageCount: 2,
     durationMs: 1000,
     outcome: "success",
@@ -236,7 +242,8 @@ describe("computeUsageStats", () => {
           ts: `${today}T03:00:00.000Z`,
           method: "POST",
           path: "/v1/chat/completions",
-          model: "loomy/b",
+          cid: "loomy",
+          model: "b",
           status: 502,
           durationMs: 300,
         },

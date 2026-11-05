@@ -165,7 +165,7 @@ let savedRoot: string | undefined;
 const refreshState = {
   calls: 0,
   /** 下一次 `refresh()` 会从上游拿到的内容（写成**能进池**的形态）。 */
-  upstream: ["glm-5.3-flash-0731"] as string[],
+  upstream: ["deepseek-v4.1-flash-0731"] as string[],
   /** 设了就让 `refresh()` 抛这个错（模拟未登录 / 上游拒绝）。 */
   failWith: null as string | null,
   /**
@@ -193,7 +193,7 @@ function makeRemoteChannel(cid: string): Channel {
       const cached = readCatalogCache<{ id: string }>(cid);
       refreshState.current = cached ? cached.map((m) => m.id) : [];
     }
-    return refreshState.current.length > 0 ? [...refreshState.current] : ["glm-5.3-flash"];
+    return refreshState.current.length > 0 ? [...refreshState.current] : ["deepseek-v4.1-flash"];
   };
   (ch.catalog as { refresh?: () => Promise<void> }).refresh = async () => {
     refreshState.calls += 1;
@@ -292,18 +292,15 @@ describe("2. 模型池（model 分组）", () => {
       model: string;
       candidates: Array<{ cid: string; exposed_id: string }>;
     }>;
-    // alpha 提供 2 个 (deepseek-v4.1-flash / glm-5.3-flash) +
-    // beta 提供 1 个 (deepseek-v4.1-flash) = 3 个池条目（不跨渠道去重）
-    assert.equal(parsed.length, 3, `应 3 个池条目，实际 ${parsed.length}`);
-    const alpha_ds = parsed.find((x) => x.model === "alpha/deepseek-v4.1-flash");
-    const alpha_glm = parsed.find((x) => x.model === "alpha/glm-5.3-flash");
-    const beta_ds = parsed.find((x) => x.model === "beta/deepseek-v4.1-flash");
-    assert.ok(alpha_ds, "应包含 alpha/deepseek-v4.1-flash");
-    assert.ok(alpha_glm, "应包含 alpha/glm-5.3-flash");
-    assert.ok(beta_ds, "应包含 beta/deepseek-v4.1-flash");
-    assert.deepEqual(alpha_ds!.candidates.map((c) => c.cid), ["alpha"]);
-    assert.deepEqual(alpha_glm!.candidates.map((c) => c.cid), ["alpha"]);
-    assert.deepEqual(beta_ds!.candidates.map((c) => c.cid), ["beta"]);
+    // alpha 只贡献 deepseek 家族（glm-5.3-flash 不进对外池），beta 也贡献同一款 → 1 个池条目
+    assert.equal(parsed.length, 1, `只列 deepseek 家族，实际 ${parsed.length}`);
+    const ds = parsed.find((x) => x.model === "deepseek-v4.1-flash");
+    assert.ok(ds, "应包含 deepseek-v4.1-flash");
+    assert.deepEqual(
+      ds!.candidates.map((c) => c.cid).sort(),
+      ["alpha", "beta"],
+      "两家都有货（不跨渠道去重）",
+    );
   });
 
   it("未知 model 子命令 → 2", async () => {
@@ -324,7 +321,7 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
   function useRemoteOnly(): void {
     clearChannels();
     refreshState.calls = 0;
-    refreshState.upstream = ["glm-5.3-flash-0731"];
+    refreshState.upstream = ["deepseek-v4.1-flash-0731"];
     refreshState.failWith = null;
     refreshState.current = null; // 新进程：内存缓存为空，靠磁盘缓存种子
     setChannel(makeRemoteChannel("remote"));
@@ -337,14 +334,14 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     const first = await run(["model", "remote"]);
     assert.equal(first.code, 0);
     assert.equal(refreshState.calls, 1, "首次没有缓存，应该拉一次");
-    assert.match(first.out, /glm-5.3-flash-0731/);
+    assert.match(first.out, /deepseek-v4.1-flash-0731/);
     assert.ok(first.err.includes("刚从上游拉取"), "要告诉用户这次是现拉的");
 
     const second = await run(["model", "remote"]);
     assert.equal(second.code, 0);
     assert.equal(refreshState.calls, 1, "第二次应命中缓存，不再拉");
     assert.ok(!second.err.includes("刚从上游拉取"), "命中缓存不必打扰用户");
-    assert.match(second.out, /glm-5.3-flash-0731/);
+    assert.match(second.out, /deepseek-v4.1-flash-0731/);
 
     resetChannels();
   });
@@ -353,18 +350,18 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     withFreshRoot();
     useRemoteOnly();
 
-    await run(["model", "remote"]); // 写入缓存（glm-5.3-flash-0731）
-    refreshState.upstream = ["GLM-5.3-Flash-Official"]; // 上游变了
+    await run(["model", "remote"]); // 写入缓存（deepseek-v4.1-flash-0731）
+    refreshState.upstream = ["DeepSeek-V4-Flash-Official"]; // 上游变了
 
     const cached = await run(["model", "remote"]);
     assert.equal(refreshState.calls, 1, "仍不该打网络");
-    assert.match(cached.out, /glm-5.3-flash-0731/, "用的是本地记录的那份");
+    assert.match(cached.out, /deepseek-v4.1-flash-0731/, "用的是本地记录的那份");
     assert.ok(!cached.out.includes("Official"));
 
     const forced = await run(["model", "remote", "--refresh"]);
     assert.equal(forced.code, 0);
     assert.equal(refreshState.calls, 2, "--refresh 必须真的重拉");
-    assert.match(forced.out, /GLM-5.3-Flash-Official/, "重拉后是新内容");
+    assert.match(forced.out, /DeepSeek-V4-Flash-Official/, "重拉后是新内容");
     assert.ok(forced.err.includes("刚从上游拉取"));
 
     resetChannels();
@@ -435,11 +432,11 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
 });
 
 describe("3. <动词> [<cid>] 路由", () => {
-  it("model <cid> 只列该渠道贡献的池模型（不需要网关）", async () => {
+  it("model <cid> 只列该渠道贡献的对外模型（不需要网关）", async () => {
     const r = await run(["model", "alpha"]);
     assert.equal(r.code, 0);
     assert.ok(r.out.includes("deepseek-v4.1-flash"), r.out);
-    assert.ok(r.out.includes("glm-5.3-flash"), r.out);
+    assert.ok(!r.out.includes("glm-5.3-flash"), "非 deepseek 家族不进对外池");
     assert.ok(r.out.includes("← DeepSeek-V4.1-Flash"), "要能看出目录里的原始写法");
   });
 

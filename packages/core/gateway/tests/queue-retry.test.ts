@@ -184,7 +184,7 @@ function makeChannel(): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
       newTranslator: translator,
     },
-    catalog: { exposedIds: () => ["glm-5.3-flash"], resolveModel: (n: string) => n },
+    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -196,12 +196,9 @@ async function chat(addr: string, stream: boolean): Promise<{ status: number; te
   const resp = await fetch(`http://${addr}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // 旧行为：裸模型名 `glm-5.3-flash`（网关跨渠道匹配候选）。
-    // 新行为：池 id 必须是 `<cid>/<模型>` 形态，渠道由请求方显式指定 ——
-    //   裸名一律 400 unknown_model（见 src/pool/pool-targets.ts:473 asPoolModel
-    //   与 src/http/chat/relay.ts:867 的 400 分支）。
+    // 对外模型是 deepseek 裸名；渠道由网关按账号池剩余额度挑
     body: JSON.stringify({
-      model: `${CID}/glm-5.3-flash`,
+      model: "deepseek-v4.1-flash",
       messages: [{ role: "user", content: "hi" }],
       stream,
     }),

@@ -21,6 +21,7 @@ import { writeCatalogCache } from "../dist/runtime/catalog-cache.js";
 import {
   buildCrossModelIndex,
   invalidateCrossModelIndex,
+  getChannelModelMeta,
   getPoolModelMeta,
   poolModelMetas,
 } from "../dist/pool/pool-targets.js";
@@ -36,8 +37,8 @@ interface StubOptions {
 }
 
 /**
- * 注册若干合成渠道，每个只暴露同名模型 `m1` —— 跨渠道对齐才会命中同一个规范名。
- * 目录内容全部由测试自己写进目录缓存。
+ * 注册若干合成渠道，每个只暴露同名模型 `deepseek-v4.1-flash` —— 跨渠道对齐才会命中
+ * 同一个规范名。目录内容全部由测试自己写进目录缓存。
  */
 function use(...specs: Array<{ cid: string } & StubOptions>): void {
   clearChannels();
@@ -55,7 +56,7 @@ function use(...specs: Array<{ cid: string } & StubOptions>): void {
       catalog: {
         exposedIds: () => {
           if (broken) throw new Error("catalog unavailable");
-          return ["m1"];
+          return ["deepseek-v4.1-flash"];
         },
         resolveModel: (name: string) => name,
         ...(spec ? { modelSpec: () => spec } : {}),
@@ -67,7 +68,7 @@ function use(...specs: Array<{ cid: string } & StubOptions>): void {
 
 /** 写某渠道的目录缓存（`rows` 就是「上游返回的字段原样」）。 */
 function cache(cid: string, rows: Array<Record<string, unknown>>): void {
-  writeCatalogCache(rows.map((row) => ({ id: "m1", ...row })), cid);
+  writeCatalogCache(rows.map((row) => ({ id: "deepseek-v4.1-flash", ...row })), cid);
 }
 
 describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () => {
@@ -81,15 +82,15 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
     cache("beta", [{ contextWindow: 400_000, maxOutput: 100_000 }]);
     const index = buildCrossModelIndex();
 
-    assert.equal(index.get("m1")?.contextWindow, 400_000, "索引里的窗口取兄弟最小值");
-    assert.equal(index.get("m1")?.maxOutputTokens, 100_000, "索引里的输出上限取兄弟最小值");
+    assert.equal(index.get("deepseek-v4.1-flash")?.contextWindow, 400_000, "索引里的窗口取兄弟最小值");
+    assert.equal(index.get("deepseek-v4.1-flash")?.maxOutputTokens, 100_000, "索引里的输出上限取兄弟最小值");
 
-    const alpha = getPoolModelMeta("alpha/m1", index);
+    const alpha = getChannelModelMeta("alpha", "deepseek-v4.1-flash", index);
     assert.equal(alpha.contextWindow, 1_000_000, "本渠道声明的 1M 不能被兄弟的 400k 改小");
     assert.equal(alpha.maxOutputTokens, 300_000);
     assert.equal(alpha.sources.contextWindow, "upstream");
 
-    const beta = getPoolModelMeta("beta/m1", index);
+    const beta = getChannelModelMeta("beta", "deepseek-v4.1-flash", index);
     assert.equal(beta.contextWindow, 400_000);
     assert.equal(beta.sources.contextWindow, "upstream");
   });
@@ -101,7 +102,7 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
     cache("gamma", [{}]); // 上游什么也没下发
     const index = buildCrossModelIndex();
 
-    const gamma = getPoolModelMeta("gamma/m1", index);
+    const gamma = getChannelModelMeta("gamma", "deepseek-v4.1-flash", index);
     assert.equal(gamma.contextWindow, 400_000);
     assert.equal(gamma.maxOutputTokens, 100_000);
     assert.equal(gamma.sources.contextWindow, "cross", "推断值必须标出来源，不能冒充上游声明");
@@ -113,7 +114,7 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
     cache("alpha", [{ contextWindow: 192_000, maxOutput: 64_000 }]);
     const index = buildCrossModelIndex();
 
-    const gamma = getPoolModelMeta("gamma/m1", index);
+    const gamma = getChannelModelMeta("gamma", "deepseek-v4.1-flash", index);
     assert.equal(gamma.contextWindow, 192_000);
     assert.equal(gamma.sources.contextWindow, "cross");
   });
@@ -124,7 +125,7 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
     cache("gamma", [{}]);
     const index = buildCrossModelIndex();
 
-    const gamma = getPoolModelMeta("gamma/m1", index);
+    const gamma = getChannelModelMeta("gamma", "deepseek-v4.1-flash", index);
     assert.equal(gamma.contextWindow, 200_000, "谁都没声明时仍是占位值");
     assert.equal(gamma.sources.contextWindow, "default");
     assert.equal(gamma.sources.effort, "default");
@@ -141,7 +142,7 @@ describe("档位口径：兄弟渠道声明集合的交集", () => {
     cache("gamma", [{}]);
     const index = buildCrossModelIndex();
 
-    const gamma = getPoolModelMeta("gamma/m1", index);
+    const gamma = getChannelModelMeta("gamma", "deepseek-v4.1-flash", index);
     assert.deepEqual(
       gamma.effort,
       { supportedLevels: ["high", "max"], defaultLevel: "high" },
@@ -157,8 +158,8 @@ describe("档位口径：兄弟渠道声明集合的交集", () => {
     cache("gamma", [{}]);
     const index = buildCrossModelIndex();
 
-    assert.equal(index.get("m1")?.effort, null, "各家毫无共识时不报档位");
-    assert.equal(getPoolModelMeta("gamma/m1", index).effort, null);
+    assert.equal(index.get("deepseek-v4.1-flash")?.effort, null, "各家毫无共识时不报档位");
+    assert.equal(getChannelModelMeta("gamma", "deepseek-v4.1-flash", index).effort, null);
   });
 
   it("没有兄弟默认档落在交集里 → 取交集首项（避免下发空档位）", () => {
@@ -167,7 +168,7 @@ describe("档位口径：兄弟渠道声明集合的交集", () => {
     cache("beta", [{ efforts: ["low", "high", "max"], defaultEffort: "max" }]);
     cache("gamma", [{}]);
 
-    assert.deepEqual(getPoolModelMeta("gamma/m1", buildCrossModelIndex()).effort, {
+    assert.deepEqual(getChannelModelMeta("gamma", "deepseek-v4.1-flash", buildCrossModelIndex()).effort, {
       supportedLevels: ["high"],
       defaultLevel: "high",
     });
@@ -179,7 +180,7 @@ describe("档位口径：兄弟渠道声明集合的交集", () => {
     cache("beta", [{ efforts: ["xhigh"] }]);
     const index = buildCrossModelIndex();
 
-    const alpha = getPoolModelMeta("alpha/m1", index);
+    const alpha = getChannelModelMeta("alpha", "deepseek-v4.1-flash", index);
     assert.deepEqual(alpha.effort, { supportedLevels: ["low", "high"], defaultLevel: "low" });
     assert.equal(alpha.sources.effort, "upstream");
   });
@@ -193,7 +194,7 @@ describe("优先序：本渠道上游 > 本渠道规格 > 跨渠道 > 占位值"
     cache("beta", [{ contextWindow: 1_000_000 }]);
     const index = buildCrossModelIndex();
 
-    const alpha = getPoolModelMeta("alpha/m1", index);
+    const alpha = getChannelModelMeta("alpha", "deepseek-v4.1-flash", index);
     assert.equal(alpha.contextWindow, 700_000, "规格是渠道自己维护的真值，比兄弟渠道的裁剪值可信");
     assert.equal(alpha.sources.contextWindow, "spec");
   });
@@ -204,8 +205,8 @@ describe("优先序：本渠道上游 > 本渠道规格 > 跨渠道 > 占位值"
     cache("beta", [{ contextWindow: 1_000_000 }]);
     const index = buildCrossModelIndex();
 
-    assert.equal(getPoolModelMeta("alpha/m1", index).contextWindow, 500_000);
-    assert.equal(getPoolModelMeta("alpha/m1", index).sources.contextWindow, "upstream");
+    assert.equal(getChannelModelMeta("alpha", "deepseek-v4.1-flash", index).contextWindow, 500_000);
+    assert.equal(getChannelModelMeta("alpha", "deepseek-v4.1-flash", index).sources.contextWindow, "upstream");
   });
 });
 
@@ -217,12 +218,12 @@ describe("不传索引：单查不做兜底（转发路径只取倍率）", () =
     cache("alpha", [{ contextWindow: 400_000, multiplier: 0.5 }]);
     cache("gamma", [{ multiplier: 0.25 }]);
 
-    const bare = getPoolModelMeta("gamma/m1");
+    const bare = getChannelModelMeta("gamma", "deepseek-v4.1-flash");
     assert.equal(bare.contextWindow, 200_000, "单查不为兜底扫全池");
     assert.equal(bare.sources.contextWindow, "default");
     assert.equal(bare.multiplier, 0.25, "倍率照常取本渠道的值");
 
-    const withIndex = getPoolModelMeta("gamma/m1", buildCrossModelIndex());
+    const withIndex = getChannelModelMeta("gamma", "deepseek-v4.1-flash", buildCrossModelIndex());
     assert.equal(withIndex.contextWindow, 400_000);
     assert.equal(withIndex.multiplier, 0.25);
   });
@@ -236,8 +237,8 @@ describe("坏渠道隔离与枚举入口", () => {
     cache("alpha", [{ contextWindow: 400_000 }]);
 
     const index = buildCrossModelIndex();
-    assert.equal(index.get("m1")?.contextWindow, 400_000, "坏渠道不参与聚合，但别拖垮别的渠道");
-    assert.equal(getPoolModelMeta("broken/m1", index).contextWindow, 400_000);
+    assert.equal(index.get("deepseek-v4.1-flash")?.contextWindow, 400_000, "坏渠道不参与聚合，但别拖垮别的渠道");
+    assert.equal(getChannelModelMeta("broken", "deepseek-v4.1-flash", index).contextWindow, 400_000);
   });
 
   it("poolModelMetas() 按传入顺序返回、并带上跨渠道兜底", () => {
@@ -245,10 +246,15 @@ describe("坏渠道隔离与枚举入口", () => {
     cache("alpha", [{ contextWindow: 400_000 }]);
     cache("gamma", [{}]);
 
-    const metas = poolModelMetas(["gamma/m1", "alpha/m1"]);
-    assert.deepEqual([...metas.keys()], ["gamma/m1", "alpha/m1"], "枚举顺序 = 传入顺序");
-    assert.equal(metas.get("gamma/m1")?.contextWindow, 400_000);
-    assert.equal(metas.get("alpha/m1")?.contextWindow, 400_000);
+    const metas = poolModelMetas(["deepseek-v4-flash", "deepseek-v4.1-flash"]);
+    assert.deepEqual(
+      [...metas.keys()],
+      ["deepseek-v4-flash", "deepseek-v4.1-flash"],
+      "枚举顺序 = 传入顺序",
+    );
+    assert.equal(metas.get("deepseek-v4.1-flash")?.contextWindow, 400_000, "有货的模型拿到聚合值");
+    // deepseek-v4-flash 没有渠道供给 → 聚合为空，回落默认窗口
+    assert.equal(metas.get("deepseek-v4-flash")?.contextWindow, 200_000);
   });
 
   it("poolModelMetas() 缺省枚举全池", () => {
@@ -257,7 +263,7 @@ describe("坏渠道隔离与枚举入口", () => {
     cache("gamma", [{}]);
 
     const metas = poolModelMetas();
-    assert.deepEqual([...metas.keys()].sort(), ["alpha/m1", "gamma/m1"]);
+    assert.deepEqual([...metas.keys()], ["deepseek-v4.1-flash"], "全池只有这一款 deepseek 模型");
   });
 });
 

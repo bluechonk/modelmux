@@ -1,15 +1,14 @@
 /**
- * 模型列表页：可用模型区（从仪表盘拆分出来，导航在仪表盘下方）。
+ * 模型列表页：**「模型 × 渠道」矩阵**（对外只有 deepseek 系列几个模型，同一个模型
+ * 可能由多个渠道供给）。
  *
  * 数据与仪表盘同源（同一份 `/web/api/state` 快照，每 3 秒轮询一次），
- * 模型区不设分页 —— 分组表本身带「展开剩余 N 个」的折叠。
- *
  * 健康度（平均 TPS / 慢 / 不可用 / 排队）另取 `GET /web/api/usage?range=7d`：
  * 它按 access 日志逐日聚合（历史日服务端有缓存），与 3 秒级的快照轮询分开，60 秒一次足够。
  */
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { api } from "../lib/api";
 import { HEALTH_RANGE, ModelExplorer, type ModelHealth } from "../components/ModelExplorer";
@@ -26,8 +25,9 @@ function freePlanCidsOf(
   return out;
 }
 
-/** 模型列表页：全部可用模型（渠道分组 / 扁平两种视图）。 */
+/** 模型列表页：模型 × 渠道矩阵（含健康度与 ping）。 */
 export function Models(): ReactElement {
+  const qc = useQueryClient();
   // 读 `["state"]` 的共享缓存：轮询归 `Layout` 所有，页面不自挂定时器
   const { data: state, isLoading, error } = useQuery({
     queryKey: ["state"],
@@ -42,25 +42,15 @@ export function Models(): ReactElement {
     // 再进页面先出上一次的健康度（60 秒一轮，骨架闪烁比旧数字更干扰判断）
     placeholderData: (prev) => prev,
   });
-  /** 池 id → 健康度；没有条目 = 这段窗口没有调用记录（`classifyModel` 不挂标签）。 */
+  /** （渠道，模型）→ 健康度；没有条目 = 这段窗口没有调用记录（`classifyModel` 不挂标签）。 */
   const healthOf = useMemo(() => {
     const map = new Map<string, ModelHealth>();
     for (const row of health.data?.models ?? []) {
-      map.set(row.id, { ok: row.ok, fail: row.fail, queued: row.queued, avgTps: row.avgTps });
+      map.set(`${row.cid}\u0000${row.model}`, { ok: row.ok, fail: row.fail, queued: row.queued, avgTps: row.avgTps });
     }
-    return (poolId: string): ModelHealth | undefined => map.get(poolId);
+    return (cid: string, model: string): ModelHealth | undefined => map.get(`${cid}\u0000${model}`);
     // 依赖只取 data：query 对象每次渲染都是新的，依赖它会让 healthOf 每次都变
   }, [health.data]);
-
-  /** 渠道数：池 id 的前缀去重（模型区自己的分组在 ModelExplorer 里）。 */
-  const groups = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const full of state?.models ?? []) {
-      const cid = full.slice(0, Math.max(0, full.indexOf("/")));
-      map.set(cid, (map.get(cid) ?? 0) + 1);
-    }
-    return map;
-  }, [state]);
 
   if (isLoading) return <Skeleton />;
   if (error || !state) {
@@ -75,17 +65,25 @@ export function Models(): ReactElement {
     );
   }
 
+  const rows = (state.models ?? []).map((entry) => ({ model: entry.model, cid: entry.cid, meta: entry.meta }));
+  const models = new Set(rows.map((r) => r.model)).size;
+  const channels = new Set(rows.map((r) => r.cid)).size;
+
   return (
     <div className="space-y-5 pb-10">
       <PageHeader
         title="模型列表"
-        description={`${groups.size} 个渠道 · ${state.models.length} 个模型（格式：渠道/模型；状态与平均 TPS 取近 7 天本地请求记录）`}
+        description={`${models} 个模型 · ${channels} 个渠道（模型 × 渠道；状态与平均 TPS 取近 7 天本地请求记录）`}
       />
       <ModelExplorer
-        models={state.models}
-        infoOf={(poolId) => state.model_info?.[poolId]}
-        freePlanCids={freePlanCidsOf(state.channel_caps)}
+        rows={rows}
         healthOf={healthOf}
+        freePlanCids={freePlanCidsOf(state.channel_caps)}
+        onRefresh={() => {
+          void qc.invalidateQueries({ queryKey: ["state"] });
+          void health.refetch();
+        }}
+        refreshing={health.isFetching}
       />
     </div>
   );
