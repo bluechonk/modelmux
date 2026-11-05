@@ -39,7 +39,21 @@
 池 id 之外的一切形态都靠这一层消化 —— Claude Code / Codex 发厂商默认模型名
 （`claude-sonnet-4-5` 等）也能直接用。
 
-## 3. 四 CLI 接入配置
+## 3. 四 CLI 接入（`mx connect` 一键接入）
+
+接入的主路径是 **`mx connect <客户端>`**——网关直接改写客户端配置（CCR 的 profile
+能力平替），原配置自动备份到 `~/.modelmux/backups/connect/`，`--restore` 一键回滚：
+
+```bash
+mx connect claude            # ~/.claude/settings.json：URL 三处 + AUTH_TOKEN 占位 + 清 CCR 残留
+mx connect codex             # ~/.codex/config.toml：provider 切换 + 自动刷新并指向 model catalog
+mx connect zcode             # 只读检查 + 桌面端操作指引（桌面端持配置内存副本，脚本写会互相覆盖）
+mx connect claude --model catpaw/longcat-2.0   # 显式指定 ANTHROPIC_MODEL
+mx connect claude --restore  # 从最近备份回滚
+```
+
+重复执行幂等（零改动不重复备份）；配置不存在时报错而非静默创建。以下手动配置
+仅作原理说明（与 connect 写入的内容一致）：
 
 ### Claude Code（Anthropic Messages）
 

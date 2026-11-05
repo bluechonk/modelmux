@@ -239,9 +239,9 @@ describe("1. 常见命令与帮助", () => {
       assert.ok(r.out.includes("--json"), "选项有中文说明");
       // 一眼能看完：帮助的行数有上限（改帮助时别让它膨胀回去）。
       // 上限随**用户可见动词数**走：渠道组每加一个动词就 +1 行，模型组同理。
-      // 加 `logout` → 45 抬到 46；加 `model spec` → 46 抬到 47；加 `catalog` → 47 抬到 48。
+      // 加 `logout` → 45→46；加 `model spec` → 46→47；加 `catalog` → 47→48；加 `connect` → 48→49。
       const lines = r.out.split("\n").length;
-      assert.ok(lines <= 48, `帮助不超过 48 行（当前 ${lines} 行）`);
+      assert.ok(lines <= 49, `帮助不超过 49 行（当前 ${lines} 行）`);
     }
   });
 
