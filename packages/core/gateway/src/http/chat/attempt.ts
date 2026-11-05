@@ -122,7 +122,7 @@ function snippetOf(text: string): string {
 }
 
 /**
- * 上游错误透传文案（2026-11-05 主人改定：有上游报错就透传上游的，禁止只回
+ * 上游错误透传文案（有上游报错就透传上游的，禁止只回
  * 「see gateway logs」—— 那对客户端等于没说；没有上游信息才用网关描述）。
  *
  * 素材在 `upstream.ts` 已备好：非 200 时 `call.error.message` = 「HTTP <status>: <错误体>」，

@@ -119,4 +119,7 @@ PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `ty
 大面积功能或重构后提醒主人发版，不擅自操作。
 完整发版流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
-提交信息 `type(scope): 中文描述`，`type` 额外允许 `merge`。`scripts/verify-commits.mjs` 在 `npm test` 里校验。
+提交信息 `type(scope): 中文描述`，`type` 额外允许 `merge`。`scripts/verify-commits.mjs` 在 `npm test` 里校验
+（对话式内容与 emoji 由它机械拦截）。PR body 与 commit message 同守全局「持久记录禁止对话式内容」：
+只写事实、方案与验证结果；人称、互动过程、一次性动作、配合事项与 emoji 不进档案。
+repo-sync 收尾时按此复核 PR body（squash 会把 body 写进 main 的 commit）。

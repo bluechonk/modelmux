@@ -20,6 +20,7 @@ import { ensureCatalog } from "../pool/catalog-snapshot.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat, handleCountTokens, handleMessages, handleResponses } from "./chat/relay.js";
+import { anthropicModelsResponse, bootstrapResponse, isClaudeUserAgent } from "./protocol/model-discovery.js";
 import { writeJson, writeJsonError } from "./chat/errors.js";
 import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
 
@@ -135,6 +136,7 @@ export const ENDPOINTS = [
   "/v1/messages/count_tokens",
   "/v1/responses",
   "/v1/models",
+  "/api/claude_cli/bootstrap",
   "/health",
 ];
 
@@ -207,7 +209,22 @@ export function createHandler(opts: GatewayOptions = {}) {
           writeJsonError(res, 405, "method_not_allowed", "use GET");
           return;
         }
+        // UA 分流：claude 系客户端（claude code）解析 anthropic 风格清单（含 capabilities），
+        // 其余客户端维持 OpenAI 风格 —— 同一端点按调用方语义回包
+        if (isClaudeUserAgent(req.headers)) {
+          writeJson(res, anthropicModelsResponse());
+          return;
+        }
         handleModels(res);
+        return;
+      }
+      // Claude Code 模型发现引导面（CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 时调用）
+      if (path === "/api/claude_cli/bootstrap") {
+        if (req.method !== "GET") {
+          writeJsonError(res, 405, "method_not_allowed", "use GET");
+          return;
+        }
+        writeJson(res, bootstrapResponse());
         return;
       }
       if (path === "/health") {

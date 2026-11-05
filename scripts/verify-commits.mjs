@@ -30,14 +30,26 @@ const SUBJECT = /^([a-z]+)(\(([^)]*)\))?(!)?: (.+)$/;
 const CJK = /[\u3400-\u9fff]/;
 
 /**
+ * 持久记录禁止对话式内容（AGENTS「版本控制」第 5 条）：commit message 是档案，不是聊天记录。
+ *
+ * 拦**互动动词短语**（「主人要求 / 等你拍板 / 需要你配合」这类把沟通过程写进档案的）；
+ * 单独的「主人」不拦 —— 它可以是产品行为语义（如「劝主人换渠道」是 giveUpText 文案的
+ * 准确描述），机械规则只拦强信号的互动短语，语义判断交给评审。
+ */
+const CONVERSATIONAL = /主人(要求|批复|拍板|指出|反馈|指正|报|说)|等你(拍板|确认|回复)|需要你配合|需要用户配合|老板(说|要求|拍板)/;
+/** emoji 与图形状态符：档案里用文字（通过 / 失败 / 注意），不靠符号装点。 */
+const EMOJI = /[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/u;
+
+/**
  * GitHub 生成的合成合并提交：`Merge <40位sha> into <40位sha>`。
  * 仅此模式跳过 —— 人工写的 `Merge pull request #N from xxx` 仍会被拦下。
  */
 const SYNTHETIC_MERGE = /^Merge [0-9a-f]{40} into [0-9a-f]{40}$/;
 
 const range = process.argv[2] ?? defaultRange();
-// 不过滤 merge（--no-merges 会让 GitHub 生成的英文 merge 标题漏网）
-const args = ["log", "--pretty=format:%h%x09%s", ...(range ? [range] : [])];
+// 不过滤 merge（--no-merges 会让 GitHub 生成的英文 merge 标题漏网）；
+// %B 取完整 message（body 里同样要拦对话式内容与 emoji），\x1e 分隔各条提交
+const args = ["log", "--pretty=format:%h%x09%s%x09%b%x1e", ...(range ? [range] : [])];
 
 /**
  * 默认校验范围：**本地领先远端 main 的提交**（即「本次要推的」）。
@@ -81,14 +93,15 @@ try {
   process.exit(1);
 }
 
-const lines = out.split("\n").filter((l) => l.trim() !== "");
+const lines = out.split("\x1e").filter((l) => l.trim() !== "");
 const problems = [];
 let skipped = 0;
 
 for (const line of lines) {
-  const tab = line.indexOf("\t");
-  const hash = tab === -1 ? line : line.slice(0, tab);
-  const subject = tab === -1 ? "" : line.slice(tab + 1);
+  const parts = line.split("\t");
+  const hash = parts[0]?.trim() ?? "";
+  const subject = parts[1] ?? "";
+  const body = parts.slice(2).join("\t");
   // GitHub Actions 构造的临时合并提交：不在任何人历史里、不可修改，跳过
   if (SYNTHETIC_MERGE.test(subject)) {
     skipped++;
@@ -104,6 +117,11 @@ for (const line of lines) {
   if (!scopeGroup || scope.trim() === "") problems.push(`${hash}  缺少 scope（type(模块): …）：${subject}`);
   if (!CJK.test(desc)) problems.push(`${hash}  描述应为简体中文：${subject}`);
   if (/[.。]$/.test(desc)) problems.push(`${hash}  描述结尾不应加句号：${subject}`);
+  // 对话式内容与 emoji 在标题与 body 里都拦（squash 会把 PR body 并进 commit body）
+  const conv = CONVERSATIONAL.exec(subject) ?? CONVERSATIONAL.exec(body);
+  if (conv) problems.push(`${hash}  疑似对话式内容「${conv[0]}」——档案只写事实与结论（AGENTS 版本控制第 5 条）：${subject}`);
+  const emo = EMOJI.exec(subject) ?? EMOJI.exec(body);
+  if (emo) problems.push(`${hash}  含 emoji/图形状态符「${emo[0]}」——用文字表达（通过 / 失败 / 注意）：${subject}`);
 }
 
 if (problems.length > 0) {

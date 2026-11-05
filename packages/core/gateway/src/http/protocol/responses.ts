@@ -221,6 +221,11 @@ function responsesUsage(usage: Rec): Rec {
 /** 重建 output 数组（非流式整体编码与流式收尾共用）。 */
 function outputItems(message: AggregatedCompletion["choices"][number] | undefined, ids: ItemIds): Rec[] {
   const items: Rec[] = [];
+  // reasoning item 在最前（output 数组顺序即语义顺序：思考 → 正文 → 工具调用）
+  const reasoning = message?.message.reasoning_content;
+  if (typeof reasoning === "string" && reasoning) {
+    items.push({ type: "reasoning", id: ids.callId().replace("call_", "rs_"), summary: [] });
+  }
   const text = typeof message?.message.content === "string" ? message!.message.content : "";
   if (text || (message?.message.tool_calls?.length ?? 0) === 0) {
     items.push({
@@ -310,6 +315,11 @@ class ResponsesSink implements ProtocolSink {
   /** 文本 item 是否已打开（added 事件已发）。 */
   private textOpened = false;
   private textParts: string[] = [];
+  /** 推理 item（上游 reasoning_content 映射；必须在 message 之前）。 */
+  private reasoningOpened = false;
+  private reasoningId = "";
+  private reasoningParts: string[] = [];
+  private reasoningOutputIndex = 0;
   private tools = new Map<number, StreamTool>();
   private finishReason: unknown = null;
   private usage: Rec = {};
@@ -369,6 +379,20 @@ class ResponsesSink implements ProtocolSink {
   }
 
   private handleDelta(delta: Rec): void {
+    // 推理流（DeepSeek 风格 reasoning_content）→ reasoning item：上游推理先于正文，
+    // 恰好满足 Responses「reasoning 在 message 之前」的顺序约束
+    const reasoning = delta["reasoning_content"] ?? delta["reasoning"];
+    if (typeof reasoning === "string" && reasoning) {
+      if (!this.reasoningOpened) this.openReasoning();
+      this.reasoningParts.push(reasoning);
+      emit(this.res, "response.reasoning_text.delta", {
+        type: "response.reasoning_text.delta",
+        sequence_number: this.nextSeq(),
+        item_id: this.reasoningId,
+        output_index: this.reasoningOutputIndex,
+        delta: reasoning,
+      });
+    }
     if (typeof delta["content"] === "string" && delta["content"]) {
       if (!this.textOpened) this.openText();
       this.textParts.push(delta["content"]);
@@ -391,6 +415,7 @@ class ResponsesSink implements ProtocolSink {
         : this.tools.size;
       let tool = this.tools.get(index);
       if (!tool) {
+        this.closeReasoning();
         this.closeText();
         tool = {
           callId: typeof call["id"] === "string" && call["id"] ? call["id"] : `call_${index + 1}`,
@@ -433,7 +458,39 @@ class ResponsesSink implements ProtocolSink {
     }
   }
 
+  /** 推理 item：reasoning 在 message 之前（output 数组顺序即语义顺序）。 */
+  private openReasoning(): void {
+    this.reasoningOpened = true;
+    this.reasoningId = `rs_${Date.now().toString(36)}`;
+    this.reasoningOutputIndex = this.outputIndex++;
+    emit(this.res, "response.output_item.added", {
+      type: "response.output_item.added",
+      sequence_number: this.nextSeq(),
+      output_index: this.reasoningOutputIndex,
+      item: { type: "reasoning", id: this.reasoningId, summary: [] },
+    });
+  }
+
+  private closeReasoning(): void {
+    if (!this.reasoningOpened) return;
+    this.reasoningOpened = false;
+    emit(this.res, "response.reasoning_text.done", {
+      type: "response.reasoning_text.done",
+      sequence_number: this.nextSeq(),
+      item_id: this.reasoningId,
+      output_index: this.reasoningOutputIndex,
+      text: this.reasoningParts.join(""),
+    });
+    emit(this.res, "response.output_item.done", {
+      type: "response.output_item.done",
+      sequence_number: this.nextSeq(),
+      output_index: this.reasoningOutputIndex,
+      item: { type: "reasoning", id: this.reasoningId, summary: [] },
+    });
+  }
+
   private openText(): void {
+    this.closeReasoning();
     this.textOpened = true;
     this.messageId = `msg_${Date.now().toString(36)}`;
     emit(this.res, "response.output_item.added", {
@@ -537,6 +594,7 @@ class ResponsesSink implements ProtocolSink {
         response: this.responseEnvelope("in_progress"),
       });
     }
+    this.closeReasoning();
     this.closeText();
     this.closeTools();
     const items = this.collectItems();
@@ -558,6 +616,9 @@ class ResponsesSink implements ProtocolSink {
   /** 回放已产出的 output items（completed 信封里的 output 要与已发事件一致）。 */
   private collectItems(): Rec[] {
     const items: Rec[] = [];
+    if (this.reasoningParts.length > 0) {
+      items.push({ type: "reasoning", id: this.reasoningId || `rs_${Date.now().toString(36)}`, summary: [] });
+    }
     if (this.textParts.length > 0 || this.tools.size === 0) {
       const text = this.textParts.join("");
       items.push({

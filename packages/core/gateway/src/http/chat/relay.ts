@@ -11,7 +11,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { type Channel } from "../../runtime/channel.js";
+import { channelCapabilities, type Channel } from "../../runtime/channel.js";
 import { getRequestLog, noteClientPayload, noteRequestError } from "../../runtime/log-store.js";
 import { ROTATABLE_CODES, rotateExhaustedAccount } from "../../pool/account-rotate.js";
 import type { GatewayOptions } from "../server.js";
@@ -225,8 +225,14 @@ async function dispatchChat(
     );
     // 额度耗尽自动换号：失败且「可能是额度问题」时，先看账单再决定是否换账号，
     // 换成了就用**同一候选**重试一次（凭据由 cred.load() 重读，自然拿到新账号）。
+    // 无额度能力的渠道（自定义提供商）额外支持**凭据失效换号**：一个 key 一个账号，
+    // key 被上游拒绝（401）切下一个 key —— 这类渠道不查账单，直接选下一个健康账号。
     // 客户端已收到字节（排队进度帧发过 SSE 头）时不能再开一条上游流 —— 会变成两个响应。
-    if (result.kind === "retry" && !res.headersSent && ROTATABLE_CODES.has(result.error.code)) {
+    const noBillingAuthSwap =
+      result.kind === "retry" &&
+      result.error.code === "upstream_unauthenticated" &&
+      !channelCapabilities(candidate.channel.config).billing;
+    if (result.kind === "retry" && !res.headersSent && (ROTATABLE_CODES.has(result.error.code) || noBillingAuthSwap)) {
       const rotated = await rotateExhaustedAccount(candidate.cid, opts.logger, { code: result.error.code });
       if (rotated.switched) {
         opts.logger(`retrying ${candidate.cid} on account ${rotated.to} (${rotated.reason})`);

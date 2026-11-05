@@ -20,6 +20,7 @@ import {
   readAccountCredential,
   readIndex,
   type PoolAccount,
+  type PoolIndex,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { lastKnownRemain, writeAccountBilling } from "./pool-usage.js";
@@ -128,7 +129,14 @@ export async function rotateExhaustedAccount(
   opts: { code?: string } = {},
 ): Promise<RotateResult> {
   const channel = channels().find((c) => c.config.cid === cid);
-  if (!channel || !channelCapabilities(channel.config).billing) {
+  if (!channel) {
+    return { switched: false, remain: null, reason: "渠道未注册" };
+  }
+  const hasBilling = channelCapabilities(channel.config).billing;
+  // 无额度能力的渠道（自定义提供商）：只认「凭据失效」类换号（key 失效切下一个 key），
+  // 额度换号无意义 —— 判据不能走账单核查（fetchCredits 对这类渠道直接抛错）
+  const authSwap = !hasBilling && opts.code === "upstream_unauthenticated";
+  if (!hasBilling && !authSwap) {
     return { switched: false, remain: null, reason: "渠道没有额度能力，不按额度换号" };
   }
   const index = runInChannel(cid, () => readIndex(cid));
@@ -136,6 +144,10 @@ export async function rotateExhaustedAccount(
   const activeKey = index.active;
   if (index.accounts.length < 2) {
     return { switched: false, remain: null, reason: "池内只有一个账号，没有可切换的目标" };
+  }
+
+  if (authSwap) {
+    return swapWithoutBilling(cid, index, activeKey, logger);
   }
 
   // ① 最近一次账单（本地快照，零网络开销）：还有额度就不该怀疑额度。
@@ -199,6 +211,33 @@ export async function rotateExhaustedAccount(
     to: short(target.key),
     remain,
     reason: `额度不足（${remain} < ${LOW_CREDIT_THRESHOLD}），已切到 ${short(target.key)}`,
+  };
+}
+
+/**
+ * 无额度能力渠道（自定义提供商）的凭据失效换号：key 被上游拒绝时切到下一个健康账号。
+ *
+ * 不查账单（这类渠道没有 fetchCredits）；旧账号的 unauthorized 标记由调用链
+ * （attempt 的 auth 失败分支 `markActiveHealth`）写入，这里只负责选下一个并切换。
+ */
+function swapWithoutBilling(
+  cid: string,
+  index: PoolIndex,
+  activeKey: string,
+  logger: (m: string) => void,
+): RotateResult {
+  const target = pickAlternative(index.accounts, activeKey, cid);
+  if (!target) {
+    return { switched: false, remain: null, reason: "池内其它账号都不可用（凭据失效/冷却）" };
+  }
+  runInChannel(cid, () => activateAccount(target.key, cid));
+  logger(`account rotated (${cid}): ${short(activeKey)} → ${short(target.key)} (credential rejected)`);
+  return {
+    switched: true,
+    from: short(activeKey),
+    to: short(target.key),
+    remain: null,
+    reason: `凭据被上游拒绝，已切到 ${short(target.key)}`,
   };
 }
 

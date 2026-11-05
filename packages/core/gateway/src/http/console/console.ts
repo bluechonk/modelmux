@@ -28,6 +28,7 @@ import {
 import { computeUsageStats, type UsageRange } from "../../runtime/usage-stats.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import {
+  activeKeyOfProvider,
   fetchCustomModels,
   findCustomProvider,
   maskKey,
@@ -37,6 +38,7 @@ import {
   validateProvider,
   type CustomModel,
   type CustomProvider,
+  type ProviderKey,
 } from "../../runtime/custom-providers.js";
 import {
   readRouterConfig,
@@ -559,19 +561,32 @@ export function createConsoleHandler(
           return;
         }
         void readBody(req, (body) => {
-          const { baseUrl, apiKey } = body as { baseUrl?: unknown; apiKey?: unknown };
+          const { baseUrl, apiKey, id } = body as { baseUrl?: unknown; apiKey?: unknown; id?: unknown };
           if (typeof baseUrl !== "string" || typeof apiKey !== "string") {
             json(res, { ok: false, error: "参数 baseUrl / apiKey 必填" }, 400);
             return;
           }
-          fetchCustomModels(baseUrl, apiKey)
+          // 已保存的 provider：key 原文不回显，用服务端注册表里的生效 key 拉（编辑表单不必重贴）
+          let key = apiKey.trim();
+          if (!key && typeof id === "string" && id.trim()) {
+            key = activeKeyOfProvider(id.trim());
+          }
+          if (!key) {
+            json(res, { ok: false, error: "没有可用 API Key（请填写 key 原文）" }, 400);
+            return;
+          }
+          fetchCustomModels(baseUrl, key)
             .then((models) => json(res, { ok: true, models }))
             .catch((err) => json(res, { ok: false, error: String(err) }, 400));
         });
         return;
       }
       if (req.method === "GET") {
-        const providers = readCustomProviders().map((p) => ({ ...p, apiKeyMasked: maskKey(p.apiKey), apiKey: "" }));
+        // key 原文永不回显：回 masked，编辑表单按 masked 保持未改动的行
+        const providers = readCustomProviders().map((p) => ({
+          ...p,
+          apiKeys: p.apiKeys.map((k) => ({ key: "", masked: maskKey(k.key), ...(k.label ? { label: k.label } : {}) })),
+        }));
         json(res, { ok: true, providers });
         return;
       }
@@ -579,16 +594,30 @@ export function createConsoleHandler(
         void readBody(req, (body) => {
           const input = body as Record<string, unknown>;
           const existing = typeof input["id"] === "string" ? findCustomProvider(input["id"]) : undefined;
-          const apiKey =
-            typeof input["apiKey"] === "string" && input["apiKey"].trim()
-              ? input["apiKey"].trim()
-              : (existing?.apiKey ?? "");
+          // 每行：有 key 原文 → 用原文（新增/替换）；只有 masked → 按指纹找回现有原文（仅改备注）；
+          // 两者皆无 → 空行丢弃
+          const apiKeys: ProviderKey[] = [];
+          if (Array.isArray(input["apiKeys"])) {
+            for (const raw of input["apiKeys"]) {
+              if (!raw || typeof raw !== "object") continue;
+              const item = raw as Record<string, unknown>;
+              const key = typeof item["key"] === "string" ? item["key"].trim() : "";
+              const masked = typeof item["masked"] === "string" ? item["masked"].trim() : "";
+              const label = typeof item["label"] === "string" ? item["label"].trim() : "";
+              let resolved = key;
+              if (!resolved && masked) {
+                resolved = existing?.apiKeys.find((k) => maskKey(k.key) === masked)?.key ?? "";
+              }
+              if (!resolved) continue;
+              apiKeys.push({ key: resolved, ...(label ? { label } : {}) });
+            }
+          }
           const provider: CustomProvider = {
             id: typeof input["id"] === "string" ? input["id"] : "",
             display: typeof input["display"] === "string" ? input["display"] : "",
             baseUrl: typeof input["baseUrl"] === "string" ? input["baseUrl"] : "",
             protocol: "openai",
-            apiKey,
+            apiKeys,
             models: Array.isArray(input["models"])
               ? (input["models"] as unknown[]).filter(
                   (m): m is CustomModel =>
@@ -608,7 +637,13 @@ export function createConsoleHandler(
           saveCustomProvider(provider);
           // 快照文件重建：新增/改模型后 `/v1/models` 不能还是旧清单
           refreshCatalog();
-          json(res, { ok: true, provider: { ...provider, apiKey: "", apiKeyMasked: maskKey(provider.apiKey) } });
+          json(res, {
+            ok: true,
+            provider: {
+              ...provider,
+              apiKeys: provider.apiKeys.map((k) => ({ key: "", masked: maskKey(k.key), ...(k.label ? { label: k.label } : {}) })),
+            },
+          });
         });
         return;
       }
