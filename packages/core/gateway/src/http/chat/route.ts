@@ -18,7 +18,7 @@ import { resolveInboundModel } from "../../pool/inbound-model.js";
 import { isCooling, maybeRefreshBilling } from "../../pool/pool-usage.js";
 import { maxPoolAttempts, rankCandidates } from "./candidates.js";
 import { loadCredentialSafe } from "./queue.js";
-import { writeJsonError, writeProtocolError } from "./errors.js";
+import { writeJsonError } from "./errors.js";
 
 /** 一次请求的路由结果。 */
 export interface PoolRoute {
@@ -51,7 +51,7 @@ export function resolvePoolRoute(
 
   const resolved = resolveInboundModel(model);
   if (!resolved.target) {
-    writeProtocolError(res, 400, "unknown_model", resolved.error ?? `unknown model ${model}`);
+    writeJsonError(res, 400, "unknown_model", resolved.error ?? `unknown model ${model}`);
     return null;
   }
   const target = resolved.target;

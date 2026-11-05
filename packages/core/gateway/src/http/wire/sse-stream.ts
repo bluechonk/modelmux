@@ -294,13 +294,6 @@ export interface RelayOptions {
   dsml?: DsmlByteFilter;
   /** 探测层已消费的前缀帧：必须按原序先写客户端。 */
   prefix?: Buffer[];
-  /**
-   * 入站协议回程编码器（结构化最小接口，见 protocol/types.ts 的 ProtocolSink）。
-   *
-   * 传入时规范化后的帧不再直写 `out`，改交编码器转译成协议事件字节；
-   * 结尾也不再 `out.end()`（编码器的 finish() + 调用方收尾负责）。
-   */
-  sink?: { writeOpenAiFrame(frame: Buffer | string): void };
 }
 
 export async function relay(
@@ -317,11 +310,8 @@ export async function relay(
   const reader = upstreamBody.getReader();
   const decoder = new TextDecoder("utf-8");
 
-  const sink = opts.sink;
-  /** 有编码器时不直写 out：帧交编码器转译（收尾与 end 也归调用方）。 */
   const writeOut = (frame: Buffer | string): void => {
-    if (sink) sink.writeOpenAiFrame(frame);
-    else out.write(frame);
+    out.write(frame);
   };
 
   try {
@@ -356,13 +346,7 @@ export async function relay(
       if (done) break;
       if (capture) capture.push(Buffer.from(value));
       if (!isSse) {
-        // 上游没按 SSE 回（错误 JSON 直落正文）：有编码器时转成协议错误事件，
-        // 否则协议客户端会收到一段无法解析的字节
-        if (sink) {
-          const text = Buffer.concat([...(capture ?? [])]).toString("utf8").trim();
-          sink.writeOpenAiFrame(`data: ${JSON.stringify({ error: { code: "upstream_error", message: text.slice(0, 500) || "upstream returned a non-SSE body" } })}\n\n`);
-          return;
-        }
+        // 上游没按 SSE 回（错误 JSON 直落正文）：原样透给客户端
         out.write(Buffer.from(value));
         continue;
       }
@@ -403,7 +387,7 @@ export async function relay(
   } finally {
     await reader.cancel().catch(() => {});
     if (capture) debugDump("resp", "sse", Buffer.concat(capture), cid);
-    if (!sink) out.end();
+    out.end();
   }
 }
 

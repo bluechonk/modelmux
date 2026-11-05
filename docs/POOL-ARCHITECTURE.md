@@ -522,17 +522,9 @@ interface CredModule {
 
 共享层的 `account-pool.ts` 用「复制文件 + `cred.load()` 契约字段（uid/domain）」实现，
 当前全部渠道经 `channel.ts` 注册后都走同一套账号池，无需各自实现这段接口。
-
-**自定义提供商：key 即账号。** 自定义提供商没有登录流程，注册表
-（`~/.modelmux/custom/providers.json`）里的 `apiKeys` 列表就是它的账号源：
-每个 key 由 `syncKeyAccounts()`（`account-pool.ts`）映射成池内一个账号 ——
-账号文件内容 `{accessToken: key, uid, domain}` 与真实渠道同构（`uid` 用 key 的哈希派生，
-改备注名不改账号身份），生效凭据仍是 `credentials.json`（切换 = 换文件内容，
-与真实渠道同一套 `mx acct use` / 控制台按钮）。注册表每次保存 / 进程启动都会幂等重同步：
-新 key 入池、删掉的 key 连账号一起移除、生效 key 被删时自动改指第一个。
-`cred.load()` 同时返回 `accessToken/uid/domain` 契约字段（缺了会让池派生出幽灵账号）。
-key 被上游拒绝（401 / 连败）走 §3.3 的凭据失效换号：标 `unauthorized` 并自动切下一个
-健康 key（额度类换号对无额度概念的渠道不适用，`account-rotate.ts` 按能力分流）。
+`cred.load()` 必须返回 `accessToken/uid/domain` 契约字段（缺了会让池派生出幽灵账号）。
+账号被上游拒绝（401 / 连败）走 §3.3 的凭据失效换号：标 `unauthorized` 并自动切下一个
+健康账号（额度类换号对无额度概念的渠道不适用，`account-rotate.ts` 按能力分流）。
 
 ### 3.3 策略
 
@@ -687,13 +679,7 @@ hasChannel(cid?: string): boolean;
 ### 4.2 路由层
 
 - `/v1/chat/completions`：**池路由** —— 客户端用 `<cid>/<模型>` 显式指定渠道（见 §2.4）。
-- `/v1/messages` + `/v1/messages/count_tokens`：**Anthropic Messages**（Claude Code 原生协议）；
-  `/v1/responses`：**OpenAI Responses**（Codex 原生协议）。三种入站协议共用同一条池路由与
-  转发链路：入站 adapter 把请求翻译成 OpenAI chat payload，回程编码器把 OpenAI SSE 帧转成
-  协议事件 —— 池层 / 排队 / 账号轮换对入站协议无感知。模型名先过**入站模型解析**
-  （剥 `[1m]` / `modelmux/` 前缀 → 池 id 直认 → 别名 → 裸名 → 默认模型兜底，
-  注册表 `~/.modelmux/router.json`）。接入配置与验证矩阵见
-  [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md)。
+  模型名先过**入站模型解析**（剥 `[1m]` 后缀与 `modelmux/` 前缀）；不含 `/` 的裸名一律 400。
 - `/v1/models`：读统一快照 `~/.modelmux/model-catalog.json`，缺失或渠道集合变化时重建
   （见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）。
 - `/health`：报告**整体**状态 + 每个渠道一行（登录/池子/是否上架），而不是单个渠道。

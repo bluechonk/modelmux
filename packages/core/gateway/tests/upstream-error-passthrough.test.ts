@@ -3,8 +3,7 @@
  *
  *   - 有上游报错就透传上游的（带渠道前缀），禁止只回「see gateway logs」；
  *   - 上游 4xx 业务错（上下文超限等）原样透传状态码 —— 客户端对 4xx 不重试，
- *     转成 502 会让它对着改不了的请求反复撞墙；
- *   - 三种入站协议共享同一透传（anthropic 路径用 Anthropic 错误信封包同一文案）。
+ *     转成 502 会让它对着改不了的请求反复撞墙。
  *
  * 用文件背书的合成渠道 + 假上游（可按需切换 400 / 500），全程离线真链路。
  */
@@ -167,21 +166,5 @@ describe("上游错误透传", () => {
     const err = (JSON.parse(text) as { error: { message: string } }).error;
     assert.match(err.message, /^\[solo\] upstream returned HTTP 503/);
     assert.match(err.message, /plain text gateway outage/);
-  });
-
-  it("anthropic 入站路径：同一透传文案 + Anthropic 错误信封", async () => {
-    upstreamError = {
-      status: 500,
-      body: { error: { message: "upstream exploded", type: "server_error" } },
-    };
-    const { status, text } = await chat(gw.addr, "/v1/messages", {
-      model: `${CID}/glm-5.3-flash`,
-      max_tokens: 32,
-      messages: [{ role: "user", content: "hi" }],
-    });
-    assert.equal(status, 502);
-    const body = JSON.parse(text) as { type: string; error: { type: string; message: string } };
-    assert.equal(body.type, "error");
-    assert.match(body.error.message, /upstream exploded/);
   });
 });
