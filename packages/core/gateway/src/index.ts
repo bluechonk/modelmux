@@ -67,6 +67,24 @@ export type { SigninLedger, ClaimRecord } from "./auth/signin-ledger.js";
 export * as accounts from "./runtime/account-pool.js";
 export type { PoolAccount, PoolIndex, AccountHealth } from "./runtime/account-pool.js";
 
+// 自定义提供商（运行时渠道）：注册表读写 + 渠道装配 + key（= 池内账号）管理
+export {
+  readCustomProviders,
+  registerCustomProviders,
+  reloadCustomProviders,
+  findCustomProvider,
+  saveCustomProvider,
+  removeCustomProvider,
+  activeKeyOfProvider,
+  maskKey,
+  keyFingerprint,
+  validateProvider,
+  fetchCustomModels,
+  type CustomProvider,
+  type CustomModel,
+  type ProviderKey,
+} from "./runtime/custom-providers.js";
+
 // 远端目录的磁盘缓存（渠道层内 cache/models.json）
 export {
   CATALOG_CACHE_FILE,

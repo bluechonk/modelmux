@@ -749,7 +749,10 @@ export function demoProviders(): CustomProvider[] {
       display: "Acme Gateway",
       baseUrl: "https://api.example.com/v1",
       protocol: "openai",
-      apiKeyMasked: "ak_12...abcd",
+      apiKeys: [
+        { key: "", masked: "ak_12...abcd", label: "主号" },
+        { key: "", masked: "ak_99...wxyz" },
+      ],
       models: [
         { id: "acme-chat", name: "Acme Chat", contextWindow: 128_000, maxOutputTokens: 8192 },
         { id: "acme-mini", contextWindow: 32_000, maxOutputTokens: 4096 },

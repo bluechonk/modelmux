@@ -1,7 +1,7 @@
 /**
  * 模型健康度判定（模型列表的「一眼判据」）：纯逻辑，表驱动测试钉死。
  *
- * 口径（2026-11-05 主人改定）：零调用记录不挂标签（没数据 ≠ 不可用）；
+ * 口径：零调用记录不挂标签（没数据 ≠ 不可用）；
  * 有请求全失败 → 异常；进过排队 → 排队；平均速率 < `SLOW_TPS` → 慢。
  * 数据源是 `GET /web/api/usage` 的 `models[]`（窗口口径见 HEALTH_RANGE）。
  */
@@ -49,7 +49,7 @@ export function classifyModel(health: ModelHealth | undefined): ModelVerdict {
   const ok = health?.ok ?? 0;
   const fail = health?.fail ?? 0;
   // 零成功 + 零失败 = 这段窗口根本没调用过：不挂标签（ping 能成功的模型被标
-  // 「不可用」就是这条分支的锅，2026-11-05 主人报的 bug）
+  // 「不可用」就是这条分支的锅）
   if (ok === 0 && fail === 0) return { status: null, tps: null };
   if (ok === 0) return { status: "error", tps: null };
   const tps = health?.avgTps ?? null;

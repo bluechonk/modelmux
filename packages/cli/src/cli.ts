@@ -10,7 +10,11 @@
  */
 
 import "./channels.js"; // 副作用：注册全部渠道
-import { main } from "@modelmux/gateway";
+import { main, registerCustomProviders } from "@modelmux/gateway";
+
+// 自定义提供商同样要注册（并把 key 同步进账号池）：否则 CLI 命令
+// （`mx acct list` / `mx model list`）看不到这些渠道
+registerCustomProviders();
 
 main()
   .then((code) => {

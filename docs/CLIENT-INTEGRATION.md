@@ -14,11 +14,16 @@
 | `POST /v1/messages` | Anthropic Messages | Claude Code |
 | `POST /v1/messages/count_tokens` | Anthropic（本地启发式估算，不打上游） | Claude Code |
 | `POST /v1/responses` | OpenAI Responses | Codex（`wire_api="responses"`） |
-| `GET /v1/models` | OpenAI 模型清单 | 所有客户端 |
+| `GET /v1/models` | 模型清单，**按 UA 分流**：claude 系 UA 得 anthropic 风格（`display_name` / `max_input_tokens` / capabilities），其余得 OpenAI 风格 | 所有客户端 |
+| `GET /api/claude_cli/bootstrap` | Claude Code 模型发现引导面（`auto_compact_windows` + `additional_model_options` + `client_data`） | Claude Code |
 
 - 入站**无鉴权**（网关只绑 127.0.0.1）；`apiKey` 字段任意非空值即可。
 - 访问日志记 `protocol` 字段（`anthropic` / `responses`；缺省 = OpenAI chat），
   日志上下文弹窗可见。
+- **推理流映射**：上游 `reasoning_content`（DeepSeek 风格推理流）在 Anthropic 协议下映射为
+  thinking 块（`thinking_delta`）、在 Responses 协议下映射为 reasoning item
+  （`response.reasoning_text.delta`）—— Claude Code / Codex 能实时看到模型思考过程；
+  两类块在下一轮回灌时被网关剥掉，不污染 chat 上游的上下文。
 
 ## 2. 模型名路由（入站模型解析）
 
@@ -34,7 +39,21 @@
 池 id 之外的一切形态都靠这一层消化 —— Claude Code / Codex 发厂商默认模型名
 （`claude-sonnet-4-5` 等）也能直接用。
 
-## 3. 四 CLI 接入配置
+## 3. 四 CLI 接入（`mx connect` 一键接入）
+
+接入的主路径是 **`mx connect <客户端>`**——网关直接改写客户端配置（CCR 的 profile
+能力平替），原配置自动备份到 `~/.modelmux/backups/connect/`，`--restore` 一键回滚：
+
+```bash
+mx connect claude            # ~/.claude/settings.json：URL 三处 + AUTH_TOKEN 占位 + 清 CCR 残留
+mx connect codex             # ~/.codex/config.toml：provider 切换 + 自动刷新并指向 model catalog
+mx connect zcode             # 只读检查 + 桌面端操作指引（桌面端持配置内存副本，脚本写会互相覆盖）
+mx connect claude --model catpaw/longcat-2.0   # 显式指定 ANTHROPIC_MODEL
+mx connect claude --restore  # 从最近备份回滚
+```
+
+重复执行幂等（零改动不重复备份）；配置不存在时报错而非静默创建。以下手动配置
+仅作原理说明（与 connect 写入的内容一致）：
 
 ### Claude Code（Anthropic Messages）
 
@@ -66,7 +85,14 @@ wire_api = "responses"
 
 - Codex 的 apply_patch 是 freeform custom tool：网关把它桥接成单 `input` 参数的
   function tool 发给模型，模型调用后还原回 `custom_tool_call`（CCR 同款桥接）。
-- 上下文窗口等元数据可配 `model_catalog_json`（目录文件）；未配置时 Codex 用默认值。
+- **模型目录**：`mx catalog` 生成 `~/.modelmux/codex-model-catalog.json`（池内全部模型，
+  含窗口 / 模态 / reasoning 档位 / freeform apply_patch），在 config.toml 里配置：
+
+  ```toml
+  model_catalog_json = "C:\\Users\\<用户>\\.modelmux\\codex-model-catalog.json"
+  ```
+
+  生成命令的输出会直接打印这行配置。池变化后重跑 `mx catalog` 刷新。
 
 ### dsh（OpenAI 兼容）
 
@@ -92,22 +118,26 @@ provider:
   count-tokens.ts / types.ts）。内部 canonical 协议是 OpenAI chat completions ——
   入站 adapter 只做请求翻译与回程编码，池层 / 排队 / 账号轮换零改动。
 - 编码器经 res 上的 Symbol 挂载（`sinkOf`）：排队进度帧、流中错误、探测前缀帧都按协议转译。
-- 回归测试：`packages/core/gateway/tests/protocol-adapters.test.ts`（17 用例）。
+- 模型发现适配：`http/protocol/model-discovery.ts`（UA 分流 / bootstrap / capabilities）；
+  Codex 目录生成：`pool/codex-catalog.ts`。
+- 回归测试：`protocol-adapters.test.ts`（21 用例）、`model-discovery.test.ts`（7 用例）、
+  `upstream-error-passthrough.test.ts`（4 用例）。
 
 真机验证矩阵（2026-11-05，全过）：
 
 | 客户端 | 协议 | 场景 | 证据 |
 | --- | --- | --- | --- |
-| curl | anthropic | 非流式 / 流式 / count_tokens / 400 信封 | message JSON、完整事件族 |
-| curl | responses | 流式文本 / function_call 流式 | call_id 回传正确 |
+| curl | anthropic | 非流式 / 流式 / count_tokens / 400 信封 / thinking 流 | message JSON、完整事件族、`thinking_delta` 逐字透传 |
+| curl | responses | 流式文本 / function_call / reasoning item 流 | call_id 回传、`response.reasoning_text.delta` |
 | Claude Code | anthropic | 单轮 + 工具往返落盘 | `claude-e2e.txt` = modelmux-ok |
-| Codex | responses | 单轮 + function_call + apply_patch 落盘 | `patch-e2e.txt` = patch-ok |
+| Codex | responses | 单轮 + function_call + apply_patch 落盘 + **带生成 catalog** | `patch-e2e.txt` = patch-ok；catalog 被 Codex 解析并跑通 |
 | zcode | openai | smoke（回合 db:completed） | 回复 OK |
 | dsh | openai | ACP smoke | `stopReason=end_turn`，回复 pong |
 
 ## 5. 已知边界
 
-- thinking 映射：上游 `reasoning_content`（DeepSeek 推理流）暂不映射成 Anthropic
-  thinking 块 / Responses reasoning item，推理内容不透传（规划中的 P1）。
-- `/v1/models` 只回 OpenAI 形态（Claude Code 的模型发现与 anthropic 形态分流是 P1）。
 - 入站无鉴权：网关只绑回环地址；如需暴露给局域网先加反代与鉴权。
+- Codex catalog 的 `base_instructions` 内嵌 Codex 官方提示（CCR 同款做法），Codex 升级
+  改写该提示时需要同步更新（无自动同步通道）。
+- reasoning 档位只映射 low/medium/high 三个 Codex 认识的值；渠道声明的其他档位
+  （disabled / max 等）不进 catalog，Codex 侧选项为兜底三档。

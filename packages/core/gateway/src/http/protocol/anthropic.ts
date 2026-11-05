@@ -206,6 +206,11 @@ function encodeCompletion(aggregated: AggregatedCompletion, requestModel: string
   const choice = aggregated.choices[0];
   const message = choice?.message;
   const content: Rec[] = [];
+  // thinking 块排在最前（anthropic 语义顺序：思考先于回答；流式路径同序）
+  const reasoning = message?.reasoning_content;
+  if (typeof reasoning === "string" && reasoning) {
+    content.push({ type: "thinking", thinking: reasoning });
+  }
   if (message && typeof message.content === "string" && message.content) {
     content.push({ type: "text", text: message.content });
   }
@@ -284,6 +289,7 @@ class AnthropicSink implements ProtocolSink {
   private closed = false;
   private blockIndex = 0;
   private textBlockIndex = -1;
+  private thinkingBlockIndex = -1;
   private tools = new Map<number, PendingTool>();
   private finishReason: unknown = null;
   private inputTokens = 0;
@@ -339,6 +345,17 @@ class AnthropicSink implements ProtocolSink {
   }
 
   private handleDelta(delta: Rec): void {
+    // 推理流（DeepSeek 风格 reasoning_content）→ thinking 块：上游推理先于正文到达，
+    // 恰好满足 anthropic「thinking 块在 text 之前」的顺序约束
+    const reasoning = delta["reasoning_content"] ?? delta["reasoning"];
+    if (typeof reasoning === "string" && reasoning) {
+      this.openThinkingBlock();
+      emit(this.res, "content_block_delta", {
+        type: "content_block_delta",
+        index: this.thinkingBlockIndex,
+        delta: { type: "thinking_delta", thinking: reasoning },
+      });
+    }
     if (typeof delta["content"] === "string" && delta["content"]) {
       this.openTextBlock();
       emit(this.res, "content_block_delta", {
@@ -347,7 +364,6 @@ class AnthropicSink implements ProtocolSink {
         delta: { type: "text_delta", text: delta["content"] },
       });
     }
-    // reasoning_content：P1 映射 thinking 块，当前丢弃
     const rawCalls = delta["tool_calls"];
     if (!Array.isArray(rawCalls)) return;
     for (const raw of rawCalls) {
@@ -358,6 +374,7 @@ class AnthropicSink implements ProtocolSink {
         : this.tools.size;
       let tool = this.tools.get(index);
       if (!tool) {
+        this.closeThinkingBlock();
         this.closeTextBlock();
         tool = {
           id: typeof call["id"] === "string" && call["id"] ? call["id"] : `toolu_gateway_${index + 1}`,
@@ -412,7 +429,19 @@ class AnthropicSink implements ProtocolSink {
     });
   }
 
+  private openThinkingBlock(): void {
+    if (this.thinkingBlockIndex >= 0) return;
+    this.thinkingBlockIndex = this.blockIndex++;
+    emit(this.res, "content_block_start", {
+      type: "content_block_start",
+      index: this.thinkingBlockIndex,
+      content_block: { type: "thinking", thinking: "" },
+    });
+  }
+
   private openTextBlock(): void {
+    // anthropic 语义顺序：thinking 块必须先于 text 块出现 —— 开 text 前先关 thinking
+    this.closeThinkingBlock();
     if (this.textBlockIndex >= 0) return;
     this.textBlockIndex = this.blockIndex++;
     emit(this.res, "content_block_start", {
@@ -428,10 +457,18 @@ class AnthropicSink implements ProtocolSink {
     this.textBlockIndex = -1;
   }
 
+  /** 关 thinking 块（若有）。 */
+  private closeThinkingBlock(): void {
+    if (this.thinkingBlockIndex < 0) return;
+    emit(this.res, "content_block_stop", { type: "content_block_stop", index: this.thinkingBlockIndex });
+    this.thinkingBlockIndex = -1;
+  }
+
   finish(): void {
     if (this.closed) return;
     this.closed = true;
     if (!this.started) this.messageStart();
+    this.closeThinkingBlock();
     this.closeTextBlock();
     for (const tool of this.tools.values()) {
       if (tool.opened) emit(this.res, "content_block_stop", { type: "content_block_stop", index: tool.blockIndex });
