@@ -161,6 +161,12 @@ export interface WebApi {
   /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
   overview(): Promise<OverviewResponse>;
   /**
+   * 把一批文本译成中文（`POST /web/api/translate`，网关代发到公开翻译端点）。
+   *
+   * 只服务请求上下文弹窗的「翻译」按钮；演示模式没有网关，直接拒绝。
+   */
+  translate(texts: string[]): Promise<string[]>;
+  /**
    * ping 一个模型（`POST /web/api/ping`）：向网关自身发一次最小 chat 请求并回耗时。
    *
    * 服务端只允许回环地址，会真的花掉一次上游请求（约 1 个输出 token），并落一条访问日志。
@@ -381,6 +387,17 @@ export const api: WebApi = {
       : post("/api/ping", { model }),
   overview: () =>
     IS_DEMO ? demoLater(demoOverview(demo())) : get("/api/overview"),
+  translate: (texts) =>
+    IS_DEMO
+      ? Promise.reject(new Error("演示模式不支持翻译（没有网关代发）"))
+      : post<{ ok?: boolean; texts?: string[]; error?: string }>("/api/translate", { texts }).then(
+          (payload) => {
+            if (payload?.ok !== true || !Array.isArray(payload.texts)) {
+              throw new Error(payload?.error ?? "翻译失败");
+            }
+            return payload.texts;
+          },
+        ),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),

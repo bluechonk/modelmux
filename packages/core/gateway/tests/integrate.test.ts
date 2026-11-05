@@ -4,7 +4,8 @@
  * 全程在**临时 HOME** 里操作副本（真实配置绝不碰），锁三件事：
  *  1. 只改目标块 —— zcode 的其它供应商规则、dsh 的其它 provider 必须逐字节不变；
  *  2. 幂等 —— 二次运行为 no-op（内容一致、不重复写）；
- *  3. 缺失场景 —— 配置文件不存在时如实报错，不静默创建。
+ *  3. 缺失场景 —— zcode 配置 / dsh profile 补丁不存在时如实报错，不静默创建
+ *     （dsh 凭据文件例外：它正是本功能要补齐的接线，缺失时新建）。
  */
 
 import assert from "node:assert/strict";
@@ -82,6 +83,26 @@ function seedZcode(): string {
   return file;
 }
 
+/** 旧版写入器留下的规则：有 api / 模型清单，但缺 group 与 access。 */
+function seedZcodeWithoutRequired(): string {
+  const file = seedZcode();
+  const root = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
+  root.config.providerConfigRules.providerRules = root.config.providerConfigRules.providerRules.map((r) =>
+    r.providerId === "new-provider"
+      ? { ...r, config: { api: r.config.api, personalModelIds: r.config.personalModelIds, modelOrder: r.config.modelOrder } }
+      : r,
+  );
+  writeFileSync(file, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+  return file;
+}
+
+/** 写一份 dsh 凭据文件到临时 HOME，返回路径。 */
+function seedDshCredentials(text = "version: 1\nrefs: { LONGCAT_API_KEY: ak_test }\n"): string {
+  const file = join(home, ".dsh", ".credentials.yaml");
+  writeFileSync(file, text, "utf8");
+  return file;
+}
+
 /** dsh 桌面 profile 的 patch（含 modelmux + longcat 两个 provider）。 */
 const DSH_DESKTOP = `# 头部注释（必须保留）
 - id: ui-chat
@@ -124,8 +145,31 @@ const DSH_ACP = `# Your patch layer for this dsh profile, applied after every bu
 []
 `;
 
+/** dsh web profile 的 patch（比 desktop 多一段 retryPolicy，models 块结构相同）。 */
+const DSH_WEB = `- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      modelmux:
+        displayName: modelmux
+        apiKeyEnv: MODELMUX_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:4412/v1
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+        models:
+          - id: workbuddyai/deepseek-v4.1-flash
+            name: WorkBuddyAI DeepSeek V4.1 Flash
+            input:
+              - text
+`;
+
 function seedDsh(): string {
   const dir = join(home, ".dsh", "profiles");
+  // 隔离：清掉上一次测试留下的凭据文件与 web profile（desktop / acp 走下面的覆写）
+  rmSync(join(home, ".dsh", ".credentials.yaml"), { force: true });
+  rmSync(join(dir, "web"), { recursive: true, force: true });
   for (const [profile, text] of [["desktop", DSH_DESKTOP], ["acp", DSH_ACP]] as const) {
     mkdirSync(join(dir, profile), { recursive: true });
     writeFileSync(join(dir, profile, "cordis.patch.yml"), text, "utf8");
@@ -167,6 +211,23 @@ describe("一键接入 zcode", () => {
     const mine = rules.filter((r) => r.providerId === "new-provider");
     assert.deepEqual(mine.map((r) => r.modelId).sort(), [...MODELS].sort());
     assert.ok(mine.every((r) => r.config["enabled"] === true));
+  });
+
+  it("补齐 group / access：缺任一项 zcode 就不注册该供应商", () => {
+    const file = seedZcodeWithoutRequired();
+    integrateClient("zcode", MODELS);
+    const after = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
+    const rule = after.config.providerConfigRules.providerRules.find((r) => r.providerId === "new-provider")!;
+    assert.equal(rule.config["group"], "standard-personal");
+    assert.deepEqual(rule.config["access"], { type: "api-key", apiKey: "modelmux-local" });
+  });
+
+  it("保留用户已配的 access.apiKey", () => {
+    const file = seedZcode();
+    integrateClient("zcode", MODELS);
+    const after = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
+    const rule = after.config.providerConfigRules.providerRules.find((r) => r.providerId === "new-provider")!;
+    assert.deepEqual(rule.config["access"], { type: "api-key", apiKey: "u" });
   });
 
   it("幂等：二次运行无改动", () => {
@@ -229,14 +290,114 @@ describe("一键接入 dsh", () => {
     assert.ok(after.includes("baseURL: http://127.0.0.1:4412/v1"), "baseURL 没写");
   });
 
+  it("web profile 也改写（含 retryPolicy，同样只换 models 块）", () => {
+    seedDsh();
+    const web = join(home, ".dsh", "profiles", "web", "cordis.patch.yml");
+    mkdirSync(join(home, ".dsh", "profiles", "web"), { recursive: true });
+    writeFileSync(web, DSH_WEB, "utf8");
+    const result = integrateClient("dsh", MODELS);
+    assert.ok(result.changed.includes(web));
+    const after = readFileSync(web, "utf8");
+    for (const model of MODELS) assert.ok(after.includes(`- id: ${model}`), `缺少 ${model}`);
+    assert.ok(after.includes("apiKeyEnv: MODELMUX_API_KEY"), "apiKeyEnv 被改动");
+    assert.ok(after.includes("retryPolicy:"), "retryPolicy 被改动");
+    assert.ok(!after.includes("workbuddyai/deepseek-v4.1-flash"), "旧模型残留");
+  });
+
+  it("flow refs：写入凭据引用 MODELMUX_API_KEY（apiKeyEnv 指向的名字必须存在）", () => {
+    seedDsh();
+    const cred = seedDshCredentials();
+    const result = integrateClient("dsh", MODELS);
+    const after = readFileSync(cred, "utf8");
+    assert.match(after, /MODELMUX_API_KEY:\s*\S+/, "缺 MODELMUX_API_KEY");
+    assert.match(after, /LONGCAT_API_KEY/, "其它凭据条目被改动");
+    assert.ok(result.changed.includes(cred), "凭据文件没进 changed");
+  });
+
+  it("block refs：缩进跟着已有子条目走（写坏会让 dsh 凭据服务起不来）", () => {
+    seedDsh();
+    const text = "version: 1\nrecords: {}\nrefs:\n    LONGCAT_API_KEY: ak_test\n";
+    const cred = seedDshCredentials(text);
+    integrateClient("dsh", MODELS);
+    const after = readFileSync(cred, "utf8");
+    assert.match(after, /^    MODELMUX_API_KEY: modelmux-local$/m, "缩进没跟随已有子条目");
+    assert.match(after, /^    LONGCAT_API_KEY: ak_test$/m, "已有子条目被改动");
+  });
+
+  it("跨行 flow refs：插到收尾的 `}` 前", () => {
+    seedDsh();
+    const text = "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test\n}\n";
+    const cred = seedDshCredentials(text);
+    integrateClient("dsh", MODELS);
+    assert.equal(readFileSync(cred, "utf8"), "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: modelmux-local\n}\n");
+  });
+
+  it("空的多行 flow refs：新建一行", () => {
+    seedDsh();
+    const cred = seedDshCredentials("version: 1\nrefs: {\n}\n");
+    integrateClient("dsh", MODELS);
+    assert.equal(readFileSync(cred, "utf8"), "version: 1\nrefs: {\n  MODELMUX_API_KEY: modelmux-local\n}\n");
+  });
+
+  it("凭据文件缺失时新建", () => {
+    seedDsh();
+    const cred = join(home, ".dsh", ".credentials.yaml");
+    const result = integrateClient("dsh", MODELS);
+    assert.ok(existsSync(cred), "没新建凭据文件");
+    assert.match(readFileSync(cred, "utf8"), /MODELMUX_API_KEY/);
+    assert.ok(result.changed.includes(cred));
+  });
+
+  it("没有 refs 段时追加", () => {
+    seedDsh();
+    const cred = seedDshCredentials("version: 1\nrecords: {}\n");
+    integrateClient("dsh", MODELS);
+    assert.equal(readFileSync(cred, "utf8"), "version: 1\nrecords: {}\nrefs: { MODELMUX_API_KEY: modelmux-local }\n");
+  });
+
+  it("CRLF 凭据文件保持 CRLF", () => {
+    seedDsh();
+    const cred = seedDshCredentials("version: 1\r\nrefs: { LONGCAT_API_KEY: ak_test }\r\n");
+    integrateClient("dsh", MODELS);
+    assert.equal(readFileSync(cred, "utf8"), "version: 1\r\nrefs: { LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: modelmux-local}\r\n");
+  });
+
+  it("凭据引用已存在时不重复写（block / flow / 带引号都算）", () => {
+    seedDsh();
+    const cases = [
+      "version: 1\nrefs: { MODELMUX_API_KEY: custom }\n",
+      "version: 1\nrefs:\n  MODELMUX_API_KEY: custom\n",
+      'version: 1\nrefs: { "MODELMUX_API_KEY": custom }\n',
+    ];
+    for (const text of cases) {
+      const cred = seedDshCredentials(text);
+      const result = integrateClient("dsh", MODELS);
+      assert.equal(readFileSync(cred, "utf8"), text, `被改动了：${text}`);
+      assert.ok(!result.changed.includes(cred), `不该进 changed：${text}`);
+    }
+  });
+
+  it("注释里的名字不算已存在（否则会静默漏写）", () => {
+    seedDsh();
+    const cred = seedDshCredentials("# MODELMUX_API_KEY: legacy\nversion: 1\nrefs: { LONGCAT_API_KEY: ak_test }\n");
+    integrateClient("dsh", MODELS);
+    const after = readFileSync(cred, "utf8");
+    assert.match(after, /refs: \{[^}]*MODELMUX_API_KEY/);
+    assert.ok(after.startsWith("# MODELMUX_API_KEY: legacy"), "注释被改动");
+  });
+
   it("幂等：二次运行无改动", () => {
     seedDsh();
     integrateClient("dsh", MODELS);
     const desktop = join(home, ".dsh", "profiles", "desktop", "cordis.patch.yml");
+    const cred = join(home, ".dsh", ".credentials.yaml");
     const once = readFileSync(desktop, "utf8");
+    const credOnce = readFileSync(cred, "utf8");
     const second = integrateClient("dsh", MODELS);
     assert.equal(second.changed.length, 0, "二次运行不该再改文件");
     assert.equal(readFileSync(desktop, "utf8"), once, "二次运行后内容变化");
+    assert.equal(readFileSync(cred, "utf8"), credOnce, "二次运行后凭据文件变化");
+    assert.ok(second.unchanged.includes(cred), "凭据文件没进 unchanged");
   });
 
   it("profiles 目录不存在时报错", () => {

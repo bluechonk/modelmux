@@ -1,13 +1,13 @@
 /**
  * 一键接入：把本机 harness 的模型配置改写成网关的 deepseek 裸模型名。
  *
- * 只改**模型清单**，不动 baseURL / apiKeyEnv / retryPolicy —— 现有接线通常已正确，
- * 越少改动越安全；写前备份到 `<root>/backups/integrate/`（误改可回滚）。
- * 幂等：内容与目标一致时不落盘（控制台据此显示「已是最新」）。
+ * 只改**模型清单**，不动 baseURL / apiKeyEnv / retryPolicy；写前备份到
+ * `<root>/backups/integrate/`，幂等。两处例外：zcode 个人供应商规则必须带齐
+ * group / access / api（缺则整个供应商不进注册表）；dsh 的 `apiKeyEnv` 引用名必须
+ * 在 `~/.dsh/.credentials.yaml` 的 refs 里有条目。
  *
- * 为什么在 app 层：写的是**客户端**配置文件（`~/.zcode` / `~/.dsh`），不是网关运行时；
- * 控制台（http 层）经 `ControlBridge.integrate` 注入调用，避免 http → app 的反向依赖
- * （见 `scripts/verify-layering.mjs`）。
+ * 为什么在 app 层：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），不是网关运行时；
+ * 控制台经 `ControlBridge.integrate` 注入调用，避免 http → app 的反向依赖。
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { DEEPSEEK_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModels } from "../pool/pool-targets.js";
 import { rootDir } from "../runtime/paths.js";
+import { writeAtomicFile } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
 export type IntegrationTarget = "zcode" | "dsh";
@@ -45,7 +46,14 @@ const ZCODE_PROVIDER_NAME = "modelmux";
 /** dsh 里承载网关配置的 provider / 插件 id。 */
 const DSH_PROVIDER = "modelmux";
 const DSH_PLUGIN_ID = "llm-pi-ai";
-const DSH_PROFILES = ["acp", "desktop", "headless"] as const;
+const DSH_PROFILES = ["acp", "desktop", "headless", "web"] as const;
+/**
+ * 本机回环网关不校验入站密钥，这里只放占位值：zcode 的供应商完整校验要求
+ * `access.apiKey` 非空，dsh 要求 `apiKeyEnv` 指向的凭据已配置 —— 两者都只校验「有值」。
+ */
+const LOCAL_API_KEY = "modelmux-local";
+/** dsh 凭据引用名（`apiKeyEnv` 指向它，由 `~/.dsh/.credentials.yaml` 的 `refs` 解析）。 */
+const DSH_CREDENTIAL_REF = "MODELMUX_API_KEY";
 
 /** 对外模型名：取当前模型池；池为空（渠道未注册）时回落家族常量。 */
 function exposedModels(): string[] {
@@ -76,19 +84,31 @@ function backupDirFor(target: IntegrationTarget): string {
   return dir;
 }
 
-/** 原样备份一个待改文件（同名）。返回备份路径。 */
+/** 原样备份一个待改文件（同名，0600 —— 备份源可能是凭据文件）。返回备份路径。 */
 function backupFile(dir: string, file: string): string {
   const dest = join(dir, file.split(/[\\/]/).pop() ?? "config");
-  writeFileSync(dest, readFileSync(file), "utf8");
+  writeAtomicFile(dest, readFileSync(file, "utf8"), 0o600);
   return dest;
 }
 
 // ── zcode ───────────────────────────────────────────────────────────────────
 
+/** `access` 是否已满足 zcode 的完整校验（api-key 系类型 + 非空 apiKey）。 */
+function hasUsableAccessKey(access: unknown): boolean {
+  if (typeof access !== "object" || access === null) return false;
+  const rec = access as Record<string, unknown>;
+  // zhipu-account 是另一套完整形态，不在本功能职责内，原样保留
+  if (rec["type"] === "zhipu-account") return true;
+  if (rec["type"] !== "api-key" && rec["type"] !== "zhipu-coding-plan-api-key") return false;
+  const key = rec["apiKey"];
+  return typeof key === "string" && key.trim().length > 0;
+}
+
 /**
  * zcode：`~/.zcode/v2/provider_config.json`（JSON，直接读写）。
  *
- * 改三处：provider 规则的 `api`（baseUrl）与 `personalModelIds` / `modelOrder`（3 个模型名）；
+ * 改三处：provider 规则的 `api`（baseUrl）与 `personalModelIds` / `modelOrder`（3 个模型名），
+ * 并补齐 `group` / `access`（zcode 完整校验的必填项，缺则供应商不进注册表）；
  * `modelConfigRules.providerModelRules` 里给这 3 个模型补 `enabled: true`，并清掉该供应商
  * 下**已不在清单里**的旧模型规则（例如改造前的 `<cid>/<模型>`）。
  */
@@ -124,6 +144,12 @@ function integrateZcode(models: string[]): IntegrationResult {
   ruleConfig["api"] = { type: "openai-chat-completions", baseUrl: GATEWAY_BASE_URL };
   ruleConfig["personalModelIds"] = [...models];
   ruleConfig["modelOrder"] = [...models];
+  // zcode 对个人供应商规则做完整校验（group / access / api 缺一不可），缺任一项就整个
+  // 供应商不进注册表 —— 模型清单写得再对，setModel 也报「Provider Registry 中不存在 Model」。
+  ruleConfig["group"] = "standard-personal";
+  if (!hasUsableAccessKey(ruleConfig["access"])) {
+    ruleConfig["access"] = { type: "api-key", apiKey: LOCAL_API_KEY };
+  }
   if (JSON.stringify(ruleConfig) !== before) {
     result.notes.push(`供应商 ${ZCODE_PROVIDER_NAME}：baseUrl=${GATEWAY_BASE_URL}，模型=${models.join(" / ")}`);
   }
@@ -201,7 +227,7 @@ function renderDshProviderEntry(models: string[]): string[] {
     `    providers:`,
     `      ${DSH_PROVIDER}:`,
     `        displayName: ${DSH_PROVIDER}`,
-    `        apiKeyEnv: MODELMUX_API_KEY`,
+    `        apiKeyEnv: ${DSH_CREDENTIAL_REF}`,
     `        api: openai-completions`,
     `        baseURL: ${GATEWAY_BASE_URL}`,
     `        models:`,
@@ -213,6 +239,100 @@ function renderDshProviderEntry(models: string[]): string[] {
 /** 渲染 `acp` 路由条目（ACP 会话的默认 provider/model）。 */
 function renderDshAcpEntry(model: string): string[] {
   return ["- id: acp", "  config:", `    provider: ${DSH_PROVIDER}`, `    model: ${model}`];
+}
+
+/** `refs` 里是否已有该引用：跳过注释行，block（行首即 key）与 flow（`{` / `,` 之后）都认。 */
+function hasCredentialRef(lines: string[]): boolean {
+  return lines.some((l) => {
+    const code = l.replace(/#.*$/, "");
+    return (
+      new RegExp(`^\\s*["']?${DSH_CREDENTIAL_REF}["']?\\s*:`).test(code) ||
+      new RegExp(`(?:\\{|,)\\s*["']?${DSH_CREDENTIAL_REF}["']?\\s*:`).test(code)
+    );
+  });
+}
+
+/** `refs` 子条目缩进：取 `refs:` 之后第一个真实条目的缩进；没有则按 refs 缩进 +2。 */
+function childIndentOf(lines: string[], refsIdx: number): string {
+  for (let i = refsIdx + 1; i < lines.length; i += 1) {
+    const l = lines[i]!;
+    if (isBlank(l) || /^\s*}/.test(l)) continue; // 空行 / flow 的收尾括号都不是条目
+    return " ".repeat(indentOf(l));
+  }
+  return `${" ".repeat(indentOf(lines[refsIdx]!))}  `;
+}
+
+/**
+ * 确保 dsh 凭据引用存在：补丁里的 `apiKeyEnv: MODELMUX_API_KEY` 只是个引用名，
+ * 真正的密钥在 `~/.dsh/.credentials.yaml` 的 `refs` 里；名字不在 refs 中时 dsh 的
+ * Models 页判定该 provider 不可用（具名凭据未配置），请求发不出去。
+ *
+ * 文本级改写：只往 `refs` 里补一行，其余条目、注释与格式原样保留（该文件由 dsh 的
+ * 凭据提供方管理，整文件重写会丢格式）。已存在该引用时不动。
+ *
+ * 并发：dsh 自己写这个文件走跨进程锁 + 原子替换（共享层引不进它的锁工具），这里
+ * 只能做到原子替换，做不到互斥 —— 窗口极小，且写前备份可回滚。
+ */
+function ensureDshCredential(): { file: string; changed: boolean; notes: string[]; backupDir?: string } {
+  const notes: string[] = [];
+  const file = join(homedir(), ".dsh", ".credentials.yaml");
+  const entry = `${DSH_CREDENTIAL_REF}: ${LOCAL_API_KEY}`;
+
+  if (!existsSync(file)) {
+    writeAtomicFile(file, `version: 1\nrefs: { ${entry} }\n`, 0o600);
+    notes.push(`新建凭据文件并写入 ${DSH_CREDENTIAL_REF}`);
+    return { file, changed: true, notes };
+  }
+
+  const original = readFileSync(file, "utf8");
+  const nl = original.includes("\r\n") ? "\r\n" : "\n";
+  const lines = original.split(/\r?\n/);
+  if (hasCredentialRef(lines)) return { file, changed: false, notes };
+
+  let text: string;
+  const refsIdx = lines.findIndex((l) => /^\s*refs:\s*/.test(l));
+  if (refsIdx < 0) {
+    const head = original.replace(/[ \t]+$/, "").replace(/(?:\r?\n)+$/, "");
+    text = `${head}${nl}refs: { ${entry} }${nl}`;
+  } else {
+    const next = [...lines];
+    const refsLine = next[refsIdx]!;
+    const close = refsLine.includes("{")
+      ? refsLine.includes("}")
+        ? refsIdx
+        : next.findIndex((l, i) => i > refsIdx && l.includes("}"))
+      : -1;
+    if (close < 0) {
+      // block map：插到 `refs:` 之后，缩进跟着第一个子条目走
+      next.splice(refsIdx + 1, 0, `${childIndentOf(next, refsIdx)}${entry}`);
+    } else if (close === refsIdx) {
+      // 单行 flow：`refs: { A: 1 }` → `refs: { A: 1, B: 2 }`
+      const line = next[refsIdx]!;
+      const at = line.lastIndexOf("}");
+      const head = line.slice(0, at).replace(/[ \t]+$/, "");
+      next[refsIdx] = `${head}${head.endsWith("{") ? " " : ", "}${entry}}`;
+    } else {
+      // 多行 flow：`refs: {` … `}` —— 追加到 `}` 前最后一个条目行（flow 靠逗号分隔）
+      const closeLine = next[close]!;
+      const at = closeLine.lastIndexOf("}");
+      const closeHead = closeLine.slice(0, at).replace(/[ \t]+$/, "");
+      if (closeHead !== "") {
+        next[close] = `${closeHead}, ${entry}}`;
+      } else {
+        let prev = close - 1;
+        while (prev > refsIdx && isBlank(next[prev]!)) prev -= 1;
+        if (prev === refsIdx) next.splice(refsIdx + 1, 0, `${childIndentOf(next, refsIdx)}${entry}`);
+        else next[prev] = `${next[prev]!.replace(/[ \t]+$/, "")}, ${entry}`;
+      }
+    }
+    text = next.join(nl);
+  }
+
+  const dir = backupDirFor("dsh");
+  backupFile(dir, file);
+  writeAtomicFile(file, text, 0o600);
+  notes.push(`凭据文件写入 ${DSH_CREDENTIAL_REF}（备份 ${dir}）`);
+  return { file, changed: true, notes, backupDir: dir };
 }
 
 /**
@@ -230,6 +350,13 @@ function integrateDsh(models: string[]): IntegrationResult {
     return result;
   }
   let dir: string | undefined;
+
+  // 凭据引用与补丁分开落：补丁写模型清单，凭据文件写 `apiKeyEnv` 指向的名字。
+  const cred = ensureDshCredential();
+  result.notes.push(...cred.notes);
+  dir = cred.backupDir;
+  if (cred.changed) result.changed.push(cred.file);
+  else result.unchanged.push(cred.file);
 
   for (const profile of DSH_PROFILES) {
     const file = join(profilesDir, profile, "cordis.patch.yml");
@@ -249,6 +376,7 @@ function integrateDsh(models: string[]): IntegrationResult {
 
   if (result.changed.length === 0) {
     result.ok = true;
+    result.backupDir = dir;
     if (result.unchanged.length === 0) result.error = `${profilesDir} 下没有可改的 profile（${DSH_PROFILES.join(" / ")}）`;
     return result;
   }

@@ -12,7 +12,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { Terminal, X } from "lucide-react";
+import { Check, Copy, Languages, Loader2, Terminal, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -20,8 +20,9 @@ import { api } from "../lib/api";
 import { parseLenient } from "../lib/lenient-json";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import { assembledBody, hasMore, nextOffset, PAYLOAD_SLICE } from "../lib/payload-slices";
+import { shouldOfferTranslation, translateText } from "../lib/translate";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
-import { CopyButton, CopyChip } from "./CopyChip";
+import { CopyButton } from "./CopyButton";
 
 /** role 的中文名。未知 role 原样显示，不猜。 */
 const ROLE_LABEL: Record<string, string> = {
@@ -82,6 +83,85 @@ function JsonBlock({ value, maxHeight = "max-h-56" }: { value: unknown; maxHeigh
 
 /** 折叠阈值：正文超过这个字符数先收起（按钮展开，**不截断源文本**）。 */
 const COLLAPSE_CHARS = 1600;
+
+/**
+ * 「翻译 / 原文」切换按钮（受控）：译文与「正在看译文」都挂在调用方。
+ *
+ * 只在 `shouldOfferTranslation()` 判定为「大量英文」的正文上出现（判据见
+ * docs/TRANSLATION.md §3）；译文只存在内存里，按钮再点一次回原文。
+ * 失败**可见不吞**：按钮变成「翻译失败」并带上错误码，再点一次重试。
+ */
+function TranslateButton({
+  text,
+  translated,
+  showing,
+  onTranslated,
+  onToggle,
+}: {
+  text: string;
+  /** 已译好的正文；null = 还没翻。 */
+  translated: { text: string; truncated: boolean } | null;
+  /** 当前正文区展示的是译文（true）还是原文（false）。 */
+  showing: boolean;
+  onTranslated: (translated: { text: string; truncated: boolean }) => void;
+  onToggle: (showing: boolean) => void;
+}): ReactElement {
+  const [state, setState] = useState<{ loading: boolean; error: string }>({
+    loading: false,
+    error: "",
+  });
+
+  const run = async (): Promise<void> => {
+    if (translated !== null) {
+      onToggle(!showing);
+      return;
+    }
+    setState({ loading: true, error: "" });
+    try {
+      const result = await translateText(text);
+      onTranslated(result);
+      onToggle(true);
+      setState({ loading: false, error: "" });
+    } catch (err) {
+      setState({ loading: false, error: String(err instanceof Error ? err.message : err) });
+    }
+  };
+
+  const label = state.loading
+    ? "翻译中…"
+    : state.error !== ""
+      ? "翻译失败"
+      : translated === null
+        ? "翻译"
+        : showing
+          ? "原文"
+          : "译文";
+
+  return (
+    <button
+      type="button"
+      aria-label={state.error !== "" ? `翻译失败：${state.error}（点击重试）` : label}
+      aria-pressed={translated !== null && showing}
+      disabled={state.loading}
+      onClick={() => void run()}
+      className={`tap inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-xs transition-colors ${
+        state.error !== ""
+          ? "border-danger/40 text-danger hover:bg-danger/10"
+          : translated !== null && showing
+            ? "border-line-strong bg-overlay text-ink"
+            : "border-line text-ink-soft hover:border-line-strong hover:text-ink"
+      }`}
+      data-translate-toggle
+    >
+      {state.loading ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      ) : (
+        <Languages className="h-3.5 w-3.5 shrink-0" />
+      )}
+      {label}
+    </button>
+  );
+}
 
 /**
  * 超长内容折叠：超过阈值时用 max-height 裁切 + 按钮。
@@ -241,6 +321,15 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
   const name = typeof rec["name"] === "string" ? rec["name"] : null;
   const toolCallId = typeof rec["tool_call_id"] === "string" ? rec["tool_call_id"] : null;
   const hasBody = rec["content"] !== null && rec["content"] !== undefined;
+  /**
+   * 只看字符串正文：数组形态（多模态 parts）与工具结果的结构差异太大，
+   * 逐段翻译会把图文重排，收益远小于风险。
+   */
+  const plain = typeof rec["content"] === "string" ? rec["content"] : null;
+  const translatable = plain !== null && shouldOfferTranslation(plain);
+  const [translated, setTranslated] = useState<{ text: string; truncated: boolean } | null>(null);
+  const [showing, setShowing] = useState(false);
+  const body = translated !== null && showing ? translated.text : rec["content"];
 
   return (
     <div className="rounded-lg border border-line/70 bg-canvas/50">
@@ -252,7 +341,16 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
         {toolCallId !== null && (
           <span className="break-all font-mono text-ink-faint">tool_call_id={toolCallId}</span>
         )}
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-1.5">
+          {translatable && plain !== null && (
+            <TranslateButton
+              text={plain}
+              translated={translated}
+              showing={showing}
+              onTranslated={setTranslated}
+              onToggle={setShowing}
+            />
+          )}
           <CopyButton value={JSON.stringify(rec)} label="复制本条消息" />
         </span>
       </div>
@@ -267,7 +365,13 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
             </pre>
           </div>
         )}
-        <MessageBody role={role} content={rec["content"]} />
+        <MessageBody role={role} content={body} />
+        {translated !== null && showing && (
+          <p className="text-xs text-ink-faint">
+            机器翻译 · 点「原文」看原样正文
+            {translated.truncated && " · 正文过长，只翻了开头的部分"}
+          </p>
+        )}
         {toolCalls?.map((call, i) => (
           <ToolCallCard key={i} call={call} index={i} />
         ))}
@@ -319,17 +423,92 @@ function ToolDefinitions({ tools }: { tools: unknown[] }): ReactElement {
 }
 
 /**
- * 一份抓取记录。
+ * 复制该记录的**完整** JSON。
  *
- * `phase=client` 是客户端原样体（messages 形态，逐条渲染的主战场）；
- * `phase=upstream` 是真正发出去的体 —— 大多数渠道也是 OpenAI 形态（含 astudio /
- * workbuddy / loomy 等的 MB 级 agent 上下文）；真正解不开的（qodercn 的编码体、
- * catpaw 的自有字段）才整段原文呈现并明确说明，别让人以为丢数据。
- *
- * 正文是**分片**到达的：首屏前缀不是合法 JSON，`JSON.parse` 必然失败 ——
- * 那不是「自编码体」，宽松解析（`parseLenient`）能把前缀里已完整的消息抢救成卡片，
- * 滚动续片时新消息随之追加。
+ * 正文是懒加载的：`loaded` 只是已经滚动加载出来的前缀。直接复制它会把半截
+ * JSON 塞进剪贴板（用户看不出来，拿去解析才报错）。所以完整时直接复制，
+ * 还有剩余就先按 `total` 一次取全再复制 —— 复制是显式动作，多等一下可以接受。
  */
+function CopyFullBody({
+  id,
+  date,
+  phase,
+  loaded,
+  complete,
+  total,
+  title,
+}: {
+  id: string;
+  date: string;
+  phase: string;
+  loaded: string;
+  complete: boolean;
+  total: number;
+  title: string;
+}): ReactElement {
+  const [state, setState] = useState<{ busy: boolean; copied: boolean; error: string }>({
+    busy: false,
+    copied: false,
+    error: "",
+  });
+  // 失败态留一会儿自动收回：剪贴板被拒时图标会一直红着，看起来像坏了
+  useEffect(() => {
+    if (state.error === "") return;
+    const timer = setTimeout(() => setState((cur) => ({ ...cur, error: "" })), 6000);
+    return () => clearTimeout(timer);
+  }, [state.error]);
+
+  const run = async (): Promise<void> => {
+    if (state.busy) return;
+    let text = loaded;
+    if (!complete) {
+      setState({ busy: true, copied: false, error: "" });
+      try {
+        const slice = await api.logPayloadBody(id, date, phase, 0, Math.max(total, 1));
+        text = slice.body;
+      } catch (err) {
+        setState({ busy: false, copied: false, error: String(err) });
+        return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setState({ busy: false, copied: true, error: "" });
+      setTimeout(() => setState((cur) => ({ ...cur, copied: false })), 1200);
+    } catch (err) {
+      // 剪贴板不可用（非安全上下文）与取正文失败分开报：两者处置不同
+      setState({ busy: false, copied: false, error: String(err) });
+    }
+  };
+
+  const label =
+    state.error !== ""
+      ? `复制失败：${state.error}`
+      : complete
+        ? `复制${title}的完整 JSON`
+        : `复制${title}的完整 JSON（需先读取全文）`;
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={state.busy}
+      onClick={() => void run()}
+      className="tap-square grid h-7 w-7 place-items-center rounded-md text-ink-faint/70 transition-colors hover:bg-overlay hover:text-ink disabled:opacity-50"
+      data-copy-payload
+    >
+      {state.busy ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : state.copied ? (
+        <Check className="h-3.5 w-3.5 text-free" />
+      ) : state.error !== "" ? (
+        <Copy className="h-3.5 w-3.5 text-danger" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
 
 /**
  * 单条记录：元数据 + 按需加载的正文（**滚动懒加载**）。
@@ -425,7 +604,15 @@ function PayloadBlock({
         <span className="text-ink-faint">{formatDateTime(record.ts)}</span>
         {record.truncated && <span className="pill bg-warn/15 text-warn">已截断</span>}
         <span className="ml-auto">
-          <CopyButton value={body} label={`复制${title}的 JSON`} />
+          <CopyFullBody
+            id={id}
+            date={date}
+            phase={record.phase}
+            loaded={body}
+            complete={!more}
+            total={total}
+            title={title}
+          />
         </span>
       </header>
       <div className="space-y-2 px-3.5 py-3">
@@ -556,7 +743,10 @@ export function LogContextDialog({
                 <span className="text-xs font-medium text-ink">
                   全部内容（{records.length} 条记录）
                 </span>
-                <CopyChip value={records.map((r) => r.body).join("\n\n———\n\n")} display="复制全部内容" />
+                {/*
+                  弹窗顶部不做全局复制按钮：正文懒加载，`records[].body` 在元数据查询里
+                  恒是空串，聚合按钮拼不出全文；逐条「复制完整 JSON」（按需取全文）才可靠。
+                */}
               </div>
             )}
             {payload.isPending ? (

@@ -36,8 +36,13 @@ const VIEW_W = 1000;
 const VIEW_H = 260;
 const PAD_TOP = 16;
 const PAD_BOTTOM = 26;
-const PAD_LEFT = 8;
-const PAD_RIGHT = 8;
+/**
+ * 左右留白必须容得下半个 x 轴标签（`textAnchor="middle"`）：标签是 `MM-DD`，
+ * 12px 字号约 33 个 viewBox 单位宽，半宽 ~17。留 8 时首尾日期各被裁掉一半
+ * （2026-11-05 实测，`10-23` 显示成 `0-23`）。
+ */
+const PAD_LEFT = 24;
+const PAD_RIGHT = 24;
 
 /** 趋势图最多画几条序列（更多模型会撞色）。 */
 const MAX_SERIES = 6;

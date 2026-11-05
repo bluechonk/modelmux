@@ -6,7 +6,7 @@
  *
  * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` · `GET /api/logs` ·
  * `GET /api/logs/payload` · `GET /api/usage` · `POST /api/theme` ·
- * `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
+ * `POST /api/retry-login` · `POST /api/translate` · `POST /api/commands`（web-command-handler.ts）
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -27,6 +27,7 @@ import {
 } from "../../runtime/log-store.js";
 import { computeUsageStats, type UsageRange } from "../../runtime/usage-stats.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
+import { translateTexts, validateTexts } from "./translate-proxy.js";
 
 export type { LoginInputRequest };
 
@@ -495,9 +496,63 @@ export function createConsoleHandler(
       }
       const q = new URL(req.url ?? "/", "http://localhost").searchParams;
       const raw = q.get("range");
-      // `365d` 供热力图用（52 周一年）；实际有数据的天数受日志保留期限制
-      const range: UsageRange = raw === "7d" || raw === "30d" || raw === "90d" || raw === "365d" ? raw : "30d";
+      // `365d` 供热力图用（52 周一年）；`all` = 累计（保留期内全量）；其余为区间天数
+      const range: UsageRange =
+        raw === "today" || raw === "7d" || raw === "30d" || raw === "90d" || raw === "365d" || raw === "all"
+          ? raw
+          : "30d";
       json(res, { ok: true, ...computeUsageStats(range) });
+      return;
+    }
+
+    if (path === p("/api/translate")) {
+      if (req.method !== "POST") {
+        json(res, { ok: false, error: "use POST" }, 405);
+        return;
+      }
+      // 会把请求正文发给外部公开翻译端点（微软），按写操作要求同源。
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        // 上限与 MAX_TOTAL_CHARS 同量级：正文块只在界面上被切到 3000 字符，
+        // 这里留出整批余量即可；超限直接断开，别把内存耗在无意义的负载上。
+        if (body.length > 120_000) {
+          req.destroy();
+          return;
+        }
+        body += String(chunk);
+      });
+      req.on("end", () => {
+        if (res.writableEnded) return;
+        void (async () => {
+          let parsed: { texts?: unknown; to?: unknown };
+          try {
+            parsed = JSON.parse(body || "{}") as { texts?: unknown; to?: unknown };
+          } catch {
+            json(res, { ok: false, error: "invalid json" }, 400);
+            return;
+          }
+          const checked = validateTexts(parsed.texts);
+          if (!checked.ok) {
+            json(res, { ok: false, code: checked.code, error: checked.error }, 400);
+            return;
+          }
+          // 目标语言固定中文：控制台界面语言恒定，放开只会多一条被滥用的通路。
+          const result = await translateTexts(checked.texts, "zh-Hans");
+          if (!result.ok) {
+            json(res, { ok: false, code: result.code, error: result.error }, 502);
+            return;
+          }
+          json(res, { ok: true, texts: result.texts });
+        })().catch((err) => {
+          // 与 `/api/ping` 同待遇：意外 rejection 不能变成 unhandledRejection
+          appendGateway(`console /api/translate failed: ${String(err)}`);
+          if (!res.headersSent) json(res, { ok: false, error: `translate failed: ${String(err)}` }, 500);
+        });
+      });
       return;
     }
 
@@ -754,6 +809,9 @@ export function createConsoleHandler(
           ttfb_ms: entry.ttfbMs,
           upstream_ms: entry.upstreamMs,
           tokens: entry.tokens,
+          // 失败 / 中断的原因：控制台「最近请求」的非成功行直接显示（排障第一入口）
+          error: entry.error,
+          message: entry.message,
         }));
 
         json(res, {

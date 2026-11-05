@@ -543,6 +543,8 @@ const DEMO_LOG_SEED: Array<{
   durationMs: number;
   upstreamMs: number;
   ttfbMs: number;
+  /** 纯生成窗口（毫秒）；缺省 = 该行没记（演示数据大多不写，速率走减法兜底）。 */
+  generateMs?: number;
   tokens: { prompt: number; completion: number; total: number } | null;
   error?: string;
   message?: string;
@@ -570,10 +572,57 @@ function demoLogDates(now: number): string[] {
   return [0, 1, 2].map((i) => new Date(now - i * 86_400_000).toISOString().slice(0, 10));
 }
 
+/** 演示用的生成速率（与 `log-store.tokensPerSecOf` 同公式；仅演示数据合成用）。 */
+function tokensPerSecOfDemo(entry: {
+  completion: number;
+  durationMs?: number;
+  ttfbMs?: number;
+  upstreamMs?: number;
+  generateMs?: number;
+  stream?: boolean;
+}): number | null {
+  const durationMs = entry.durationMs;
+  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+  const cut = (v: number | undefined): number =>
+    v !== undefined && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
+  const direct = cut(entry.generateMs);
+  let generateMs: number;
+  if (direct > 0) {
+    generateMs = direct;
+  } else {
+    const ttfb = cut(entry.ttfbMs);
+    const upstream = cut(entry.upstreamMs);
+    const base =
+      entry.stream === true
+        ? ttfb || upstream
+        : entry.stream === false
+          ? upstream
+          : ttfb > 0 && upstream > 0
+            ? Math.min(ttfb, upstream)
+            : ttfb || upstream;
+    generateMs = base > 0 ? durationMs - base : durationMs;
+  }
+  if (generateMs < 50) return null;
+  const perSec = entry.completion / (generateMs / 1000);
+  return perSec > 1000 ? null : perSec;
+}
+
 /** 日志查询（对应 `GET /web/api/logs`）；过滤与分页口径与后端保持一致。 */
 export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage {
   const now = Date.now();
   const dates = demoLogDates(now);
+  // 「慢」判定与后端 `log-store.slowVerdictOf` 同口径（首字延迟 + 生成速率，总时长不参与）。
+  // UI 包不依赖 @modelmux/gateway，这里按同一公式内联 —— 改阈值两处同步（docs/LOGGING.md §3.5）。
+  const slowOf = (seed: (typeof DEMO_LOG_SEED)[number]): Pick<AccessLogEntry, "slow" | "slowTtfb" | "slowTps"> => {
+    const slowTtfb = seed.stream === true && (seed.ttfbMs ?? 0) >= 10_000;
+    const completion = seed.tokens?.completion ?? null;
+    const tps =
+      completion != null && completion >= 20
+        ? tokensPerSecOfDemo({ completion, durationMs: seed.durationMs, ttfbMs: seed.ttfbMs, upstreamMs: seed.upstreamMs, generateMs: seed.generateMs, stream: seed.stream })
+        : null;
+    const slowTps = tps !== null && tps < 30;
+    return { slow: slowTtfb || slowTps, slowTtfb, slowTps };
+  };
   const entries: AccessLogEntry[] = DEMO_LOG_SEED.map((seed, i) => ({
     id: `req_demo${String(i).padStart(4, "0")}9f3c`,
     ts: new Date(now - i * 47_000).toISOString(),
@@ -604,7 +653,7 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
               miss: Math.round(seed.tokens.prompt * 0.3),
             },
           },
-    slow: seed.durationMs >= 30_000,
+    ...slowOf(seed),
   }));
 
   const stats: AccessLogStats = {
@@ -613,6 +662,8 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     failure: entries.filter((e) => e.outcome === "failure").length,
     other: entries.filter((e) => e.outcome === "other").length,
     slow: entries.filter((e) => e.slow).length,
+    slowTtfb: entries.filter((e) => e.slowTtfb).length,
+    slowTps: entries.filter((e) => e.slowTps).length,
     avgDurationMs: Math.round(
       entries.reduce((sum, e) => sum + (e.durationMs ?? 0), 0) / Math.max(1, entries.length),
     ),
@@ -664,7 +715,7 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     date: query.date ?? dates[0] ?? "",
     dates,
     cids: [...new Set(entries.map((e) => e.cid ?? ""))].filter((c) => c !== "").sort(),
-    slowMs: 30_000,
+    slowThresholds: { ttfbMs: 10_000, tps: 30 },
     scanned: entries.length,
     truncated: false,
     total: matched.length,

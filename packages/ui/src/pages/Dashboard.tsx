@@ -20,10 +20,11 @@ import {
   Copy,
   Flame,
   Gauge,
+  Image as ImageIcon,
   Layers,
   PlugZap,
-  RotateCw,
   Timer,
+  Type,
   Wifi,
 } from "lucide-react";
 import { useNavigate } from "react-router";
@@ -36,13 +37,18 @@ import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
 import { classifyModel } from "../lib/model-health";
 import { formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
-import type { AccessLogEntry, AccessOutcome, ModelInfo, UsageRange } from "../lib/types";
+import type { OverviewResponse, UsageRange } from "../lib/types";
 
-/** 区间选项（驱动下方「用量」三块，不影响今日快照）。 */
+/** 区间选项（驱动下方「用量」三块，不影响今日快照）。
+ *
+ * 「累计」= 日志保留期内的全量（不是全历史，保留期之外没有日志可读）；
+ * 「今天」只算当天，用于对齐「今日」口径。
+ */
 const RANGES: ReadonlyArray<{ key: UsageRange; label: string }> = [
+  { key: "today", label: "今天" },
   { key: "7d", label: "近 7 日" },
   { key: "30d", label: "近 30 日" },
-  { key: "90d", label: "近 90 日" },
+  { key: "all", label: "累计" },
 ];
 
 const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
@@ -104,8 +110,8 @@ function Segmented<T extends string>({
 // 最近请求行
 // ---------------------------------------------------------------------------
 
-/** 单条最近请求：时间 / 模型 / 结果点 + 耗时 + 生成速度。 */
-function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; model?: string; outcome: AccessOutcome; status?: number; stream?: boolean; generate_ms?: number; duration_ms?: number; ttfb_ms?: number; upstream_ms?: number; tokens: { prompt: number | null; completion: number | null; total: number | null } | null } }): ReactElement {
+/** 单条最近请求：时间 / 模型 / 结果 / [错误原因] / 耗时 / tokens / 生成速度。 */
+function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   const ms = entry.duration_ms;
   // 生成速度 = completion ÷ 纯生成窗口（口径与护栏见 log-format.ts::tokensPerSecOf）
@@ -119,21 +125,32 @@ function RecentRow({ entry }: { entry: { id: string; ts: string; cid?: string; m
       stream: entry.stream,
     }),
   );
+  const tokens = entry.tokens?.total != null ? formatTokens(entry.tokens.total) : "—";
+  // 非成功行（失败 / 中断）：把状态码 + 原因摊在同一行。状态码只在非 200 时写 ——
+  // 流式请求可能「头已 200、随后超时」，这种情况错误码本身（upstream_timeout）更有信息量。
+  const bad = entry.outcome !== "success";
+  const reason = [entry.status != null && entry.status !== 200 ? `HTTP ${entry.status}` : entry.error, entry.message]
+    .filter((part): part is string => typeof part === "string" && part !== "")
+    .join(" · ");
   return (
-    <div className="flex items-center gap-3 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30">
-      <span className="shrink-0 w-16 tabular-nums text-ink-faint sm:w-[120px]">
+    <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30 sm:gap-3">
+      <span className="w-14 shrink-0 tabular-nums text-ink-faint sm:w-[120px]">
         {formatDateTime(entry.ts).slice(-8)}
       </span>
-      <span className="min-w-0 flex-1 truncate text-ink-soft">
-        {entry.model ?? entry.cid ?? "—"}
+      {/* 渠道窄屏让位（tokens / TPS 是主信息）；宽屏渠道与模型分列，与请求日志页同序 */}
+      <span className="hidden w-16 shrink-0 truncate font-mono text-ink-faint sm:block">
+        {entry.cid ?? "—"}
       </span>
+      <span className="w-[120px] shrink-0 truncate text-ink-soft sm:w-44">{entry.model ?? "—"}</span>
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
-      <span className="shrink-0 w-10 text-right tabular-nums text-ink-soft">
+      {/* 失败 / 中断：原因占满中间，成功行留空把右侧数值顶到行尾 */}
+      <span className={`min-w-0 flex-1 truncate ${bad ? meta.text : ""}`}>{bad ? reason || meta.label : ""}</span>
+      {/* 窄屏先让出耗时列：tokens 与 TPS 是主信息，耗时仍在请求日志里可查 */}
+      <span className="hidden w-10 shrink-0 text-right tabular-nums text-ink-soft sm:block">
         {ms != null ? formatDuration(ms) : "—"}
       </span>
-      <span className="shrink-0 w-16 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-12">
-        {tps}
-      </span>
+      <span className="w-11 shrink-0 text-right tabular-nums text-ink-faint sm:w-16">{tokens}</span>
+      <span className="w-11 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-12">{tps}</span>
     </div>
   );
 }
@@ -217,11 +234,13 @@ export function Dashboard(): ReactElement {
    *
    * 健康度按模型合并（各渠道的 ok/fail/queued 累加、TPS 取均值）—— 仪表盘回答的是
    * 「这个模型现在能不能用、快不快」，落点渠道是网关的调度细节，不摆上来。
+   * 输入模态同样按模型合并，但取**并集**：同一模型的不同渠道能力不同（如 v4-flash
+   * astudio 只收文本、workbuddy 收图片），取并集才答得了「这个模型能不能收图」。
    */
   const modelRows = useMemo(() => {
     const byModel = new Map<string, {
       model: string;
-      meta: ModelInfo | undefined;
+      modalities: Set<string>;
       ok: number;
       fail: number;
       queued: number;
@@ -231,14 +250,14 @@ export function Dashboard(): ReactElement {
     for (const row of state?.models ?? []) {
       const cur = byModel.get(row.model) ?? {
         model: row.model,
-        meta: row.meta,
+        modalities: new Set<string>(),
         ok: 0,
         fail: 0,
         queued: 0,
         tpsSum: 0,
         tpsCount: 0,
       };
-      if (!cur.meta) cur.meta = row.meta;
+      for (const m of row.meta?.inputModalities ?? []) cur.modalities.add(m);
       byModel.set(row.model, cur);
     }
     for (const row of rangeStats?.models ?? []) {
@@ -254,7 +273,7 @@ export function Dashboard(): ReactElement {
     }
     return [...byModel.values()].map((row) => ({
       model: row.model,
-      meta: row.meta,
+      modalities: [...row.modalities],
       verdict: classifyModel({
         ok: row.ok,
         fail: row.fail,
@@ -264,15 +283,12 @@ export function Dashboard(): ReactElement {
     }));
   }, [state, rangeStats]);
 
-  /** 一键接入结果（展示用）：最近一次点的是哪个 harness、改了什么。 */
-  const [integration, setIntegration] = useState<{ target: string; message: string } | null>(null);
+  // 结果只走右下角 toast：卡片里再贴一条会和 toast 重复，还让区块高度跳动。
   const integrateMutation = useMutation({
     mutationFn: (target: "zcode" | "dsh") => api.commands.integrate(target),
     onSuccess: (data) => {
       const target = String(data.target ?? "");
       const models = Array.isArray(data.models) ? data.models.map(String).join(" / ") : "";
-      const message = data.message ?? "已接入";
-      setIntegration({ target, message: models ? `${message}：${models}` : message });
       toast.success(`已接入 ${target || "客户端"}${models ? `（${models}）` : ""}`);
     },
     onError: (err) => toast.error(`接入失败：${String(err)}`),
@@ -320,26 +336,18 @@ export function Dashboard(): ReactElement {
   if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
   // ----- 派生数据 -----
-  const running = (overview?.gateway.ui_state ?? state.ui_state) === "running";
   const usage = overview?.usage;
-  const totalReq = usage?.requests ?? 0;  const successRate =
+  const totalReq = usage?.requests ?? 0;
+  const successRate =
     totalReq > 0 && usage ? `${Math.round((usage.success / totalReq) * 100)}%` : "—";
   const avgDur = usage?.avg_duration_ms != null ? formatDuration(usage.avg_duration_ms) : "—";
   const totalTokens = usage ? formatTokens(usage.tokens.total) : "0";
 
-  // 渠道数（KPI 副标题用：供给渠道数）
-  const totalModels = overview?.model_pool.total ?? new Set(state.models.map((m) => m.model)).size;
-  const channelCount =
-    (overview?.channels.length ?? 0) || new Set(state.models.map((m) => m.cid)).size;
-
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
 
-  // 缓存命中率（服务端按上游形态加权算好）；窗口内无缓存字段时 `hitRate` 为 null → 不追加
-  const cacheRate = formatPercent(usage?.cache.hitRate);
   /** 区间标签（「近 30 日」）：用量明细条上要写明这些数字覆盖多长。 */
   const rangeLabel = RANGES.find((r) => r.key === range)?.label ?? "";
-  const cacheText = cacheRate === "—" ? "" : ` · 缓存 ${cacheRate}`;
 
   // 区间用量的派生：趋势序列、连续天数
   const series = (rangeStats?.models ?? []).slice(0, MAX_SERIES).map((m) => m.id);
@@ -375,7 +383,7 @@ export function Dashboard(): ReactElement {
           value={totalTokens}
           sub={
             usage && usage.tokens.total > 0
-              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}${cacheText}`
+              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}`
               : undefined
           }
         />
@@ -421,18 +429,16 @@ export function Dashboard(): ReactElement {
       */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-ink-soft">
         <span className="text-ink-faint">{rangeLabel}</span>
+        {/* 缓存只报上游返回的命中 token 数：没有任何渠道回命中率字段，比率不自己算 */}
         <span>
           缓存命中{" "}
-          <span className="tabular text-ink">{formatPercent(rangeStats?.totals.cacheHitRate)}</span>
-          {(rangeStats?.totals.cacheTotal ?? 0) > 0 && rangeStats && (
-            <span className="text-ink-faint">
-              （{formatTokens(rangeStats.totals.cacheHit)} / {formatTokens(rangeStats.totals.cacheTotal)}）
-            </span>
-          )}
+          <span className="tabular text-ink">
+            {rangeStats && rangeStats.totals.cacheTotal > 0 ? `${formatTokens(rangeStats.totals.cacheHit)} tokens` : "—"}
+          </span>
         </span>
         {(rangeStats?.totals.noUsage ?? 0) > 0 && rangeStats && (
           <span className="text-ink-faint">
-            {rangeStats.totals.noUsage} 条无 usage（上游没回用量，不计入 tokens 与命中率）
+            {rangeStats.totals.noUsage} 条无 usage（上游没回用量，不计入 tokens）
           </span>
         )}
       </div>
@@ -458,24 +464,6 @@ export function Dashboard(): ReactElement {
               </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center justify-between border-t border-line px-4 py-2.5 text-[13px] text-ink-faint sm:px-5">
-          <span>
-            {channelCount} 个渠道 · {totalModels} 个模型
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              void stateQuery.refetch();
-              void overviewQuery.refetch();
-            }}
-            className="tap flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          >
-            <RotateCw
-              className={`h-3.5 w-3.5 ${stateQuery.isRefetching || overviewQuery.isFetching ? "animate-spin" : ""}`}
-            />
-            刷新
-          </button>
         </div>
       </section>
 
@@ -545,13 +533,23 @@ export function Dashboard(): ReactElement {
                   const pill = row.verdict.status === null ? null : VERDICT_PILL[row.verdict.status];
                   return (
                     <div key={row.model} className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{row.model}</span>
-                      {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
+                      {/* 模型名与健康度标签贴在一起；TPS / 模态靠右对齐 */}
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="truncate font-mono text-xs text-ink">{row.model}</span>
+                        {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
+                      </span>
                       <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
                         {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
                       </span>
-                      <span className="shrink-0 font-mono text-xs text-ink-faint">
-                        {row.meta?.multiplier == null ? "" : `×${row.meta.multiplier}`}
+                      {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
+                      <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
+                        <Type className="h-3.5 w-3.5" aria-label="文本" />
+                        {row.modalities.includes("image") && (
+                          <>
+                            <span className="text-ink-faint">+</span>
+                            <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
+                          </>
+                        )}
                       </span>
                     </div>
                   );
@@ -562,36 +560,28 @@ export function Dashboard(): ReactElement {
 
           {/* ⑤ 一键接入：把本机 harness 的模型清单改成网关的对外模型名 */}
           <section className="panel p-4">
-            <div className="panel-title mb-2">
+            <div className="panel-title mb-3">
               <PlugZap className="h-4 w-4 text-ink-faint" />
               一键接入
             </div>
-            <p className="mb-3 text-xs text-ink-faint">
-              把本机 harness 的模型清单改成上面这几个 deepseek 模型名（写前备份到
-              ~/.modelmux/backups/integrate/，可随时对比回滚）。
-            </p>
             <div className="flex gap-2">
               <button
                 type="button"
                 disabled={integrateMutation.isPending}
                 onClick={() => integrateMutation.mutate("zcode")}
-                className="tap flex-1 rounded-lg border border-line py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40"
+                className="tap flex-1 rounded-lg border border-line-strong bg-overlay py-2 text-xs font-medium text-ink transition-colors hover:border-brand/50 disabled:opacity-40"
               >
-                接入 zcode
+                {integrateMutation.isPending && integrateMutation.variables === "zcode" ? "写入中…" : "接入 zcode"}
               </button>
               <button
                 type="button"
                 disabled={integrateMutation.isPending}
                 onClick={() => integrateMutation.mutate("dsh")}
-                className="tap flex-1 rounded-lg border border-line py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40"
+                className="tap flex-1 rounded-lg border border-line-strong bg-overlay py-2 text-xs font-medium text-ink transition-colors hover:border-brand/50 disabled:opacity-40"
               >
-                接入 dsh
+                {integrateMutation.isPending && integrateMutation.variables === "dsh" ? "写入中…" : "接入 dsh"}
               </button>
             </div>
-            {integrateMutation.isPending && <p className="mt-2 text-xs text-ink-faint">正在写入客户端配置…</p>}
-            {integration && !integrateMutation.isPending && (
-              <p className="mt-2 text-xs text-ink-faint">{integration.message}</p>
-            )}
           </section>
 
           {/* ⑥ 网关状态只在顶部导航（LayoutSingle 的 GatewayStatus）—— Web 不提供启停网关 */}

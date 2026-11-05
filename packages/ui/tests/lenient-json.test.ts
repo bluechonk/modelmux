@@ -103,4 +103,30 @@ describe("parseLenient：非 JSON 体", () => {
     // 不是 JSON 但以 { 开头（PLAIN 形态的渠道自有字段）
     assert.equal(parseLenient("{requestContext: something raw}"), null);
   });
+
+  it("末条消息截断在字符串值中间：残段丢弃（宁可少一条不造假数据）", () => {
+    const text = '{"messages":[{"a":1},{"role":"user","content":"partial str';
+    const parsed = parseLenient(text);
+    assert.ok(parsed, "有完整首条消息时不能整体放弃");
+    assert.equal(parsed.truncated, true);
+    assert.equal((parsed.top.messages as unknown[]).length, 1, "没有可回退的 } 边界，半条直接丢");
+  });
+
+  it("末条消息截断在含 } 的字符串里：coercePartial 补齐引号与括号后抢救", () => {
+    const text = '{"messages":[{"a":1},{"role":"user","content":"a}b';
+    const parsed = parseLenient(text);
+    assert.ok(parsed);
+    assert.equal((parsed.top.messages as unknown[]).length, 2, "能平衡出的最长前缀保留");
+  });
+
+  it("末条消息截断在悬空的键值处：coercePartial 丢弃无法平衡的残段", () => {
+    const text = '{"messages":[{"a":1},{"role":"assistant","content":{"nested":';
+    const parsed = parseLenient(text);
+    assert.ok(parsed);
+    assert.equal((parsed.top.messages as unknown[]).length, 1, "残段回退失败就丢这条，不造假数据");
+  });
+
+  it("messages 是空前缀：没有消息可救 → null", () => {
+    assert.equal(parseLenient('{"messages":[]'), null);
+  });
 });
