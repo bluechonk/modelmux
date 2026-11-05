@@ -34,8 +34,8 @@ import { PageHeader } from "../components/PageHeader";
 import { ScrollFade } from "../components/ScrollFade";
 import { Skeleton } from "./Dashboard";
 
-/** 每页条数默认值（可切换 10 / 20 / 50）。 */
-const PAGE_SIZE = 20;
+/** 每页条数默认值（可切换 10 / 20 / 50）。默认取最小档：日志按时间倒序，先看最近的就够。 */
+const PAGE_SIZE = 10;
 
 /** 输入防抖：不防的话每敲一个字符都发一次查询。 */
 function useDebounced<T>(value: T, delayMs: number): T {
