@@ -383,6 +383,36 @@ for (const [name, loc] of envUsages) {
   }
 }
 
+// ── 7) 仓库根只放工程入口与门面文件 ────────────────────────────────────────
+// 为什么查：验收 / 探测脚本跑在仓库根时，产出的文件会被 `git add -A` 一并提交
+//（发生过：客户端验收写的 `cc-e2e.txt` 进了 main）。根目录只留工具按固定路径读的
+// 门面与工程配置；临时与验收产物写 `.tmp/`（全局规则「临时文件」）。
+const ROOT_FILES_ALLOWED = new Set([
+  "AGENTS.md",
+  "LICENSE",
+  "README.md",
+  "marketplace.json",
+  "package.json",
+  "package-lock.json",
+  "tsconfig.json",
+  "tsconfig.base.json",
+  ".gitattributes",
+  ".gitignore",
+]);
+const rootFiles = readdirSync(workspaceRoot, { withFileTypes: true })
+  .filter((entry) => entry.isFile())
+  .map((entry) => entry.name)
+  .filter((name) => !ROOT_FILES_ALLOWED.has(name));
+const rootIgnored = gitIgnored(rootFiles); // 本机私有（.env / .zcodeignore 等）：不归仓库管
+for (const name of rootFiles) {
+  if (rootIgnored.has(name)) continue;
+  problems.push(
+    `${name} —— 仓库根不放这类文件。允许的根文件：${[...ROOT_FILES_ALLOWED].join(" / ")}。\n` +
+      `     临时与验收产物写 .tmp/（全局规则「临时文件」），别让 \`git add -A\` 顺手提交；\n` +
+      `     刻意新增的工程文件请加进 scripts/verify-docs.mjs 的 ROOT_FILES_ALLOWED。`,
+  );
+}
+
 if (problems.length > 0) {
   console.error(`✗ 文档归属检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);

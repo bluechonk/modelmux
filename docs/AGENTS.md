@@ -77,8 +77,9 @@
 
 ## 7. 机械门禁
 
-`scripts/verify-docs.mjs` 在 `npm test` 中检查：md 落点、渠道 `PROTOCOL.md` 存在性、相对链接
-可达、`file:line` 源码引用有效、索引登记、技能登记、根 `AGENTS.md` 字节上限。
+`scripts/verify-docs.mjs` 在 `npm test` 中检查：md 落点、仓库根文件白名单（只放门面与工程
+配置文件）、渠道 `PROTOCOL.md` 存在性、相对链接可达、`file:line` 源码引用有效、索引登记、
+技能登记、根 `AGENTS.md` 字节上限。
 `scripts/verify-comments.mjs` 在 `npm test` 中检查注释的机器可判部分：文件头 ≤ 12 行、无署名 /
 修订留痕、TODO 与 @deprecated 条件、空 catch 说明、`@ts-ignore` 同行理由、显式 `any`（契约面
 刻意宽松走脚本内 ALLOWLIST 并写明理由）。
