@@ -30,14 +30,14 @@ const { clearChannels, setChannel } = await import("../dist/runtime/channel.js")
 const { noteFailure, noteSuccess, resetPoolLedgerForTest, writeAccountBilling, writeBilling } = await import("../dist/pool/pool-usage.js");
 
 /** 合成渠道：不碰网络（与 web.test.ts 同构的最小桩）。 */
-function makeChannel(cid: string): Channel {
+function makeChannel(cid: string, opts: { billing?: boolean } = {}): Channel {
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,
     version: "0.0.0",
     defaultAddr: "127.0.0.1:1",
     uiPort: 2,
-    capabilities: { billing: true },
+    capabilities: { billing: opts.billing ?? true },
   };
   return {
     config,
@@ -133,6 +133,8 @@ async function json(res: Response): Promise<Record<string, unknown>> {
 
 before(() => {
   setChannel(makeChannel("routes"));
+  // 无额度能力的合成渠道：billing 渠道维度行必须被能力过滤拦下
+  setChannel(makeChannel("nobill", { billing: false }));
   // 落一条访问日志，供 payload / usage / overview 的读路径有数据可读
   const DATE = localDate();
   mkdirSync(join(HOME, "logs", "access", DATE), { recursive: true });
@@ -291,17 +293,29 @@ describe("/api/usage", () => {
     assert.ok(!("error" in stats), "未知区间按默认处理而不是报错");
   });
 
-  it("today 与 all 都是合法区间", async () => {
+  it("today 与 all 都按请求的区间返回（回显 range，防白名单回退成默认值）", async () => {
     for (const range of ["today", "all"]) {
       const res = await fetch(`${server.url}api/usage?range=${range}`);
       assert.equal(res.status, 200);
-      assert.equal(((await res.json()) as { ok: boolean }).ok, true);
+      const stats = (await res.json()) as { ok: boolean; range?: string };
+      assert.equal(stats.ok, true);
+      assert.equal(stats.range, range, `区间 ${range} 必须原样生效，不能回落成默认`);
     }
   });
 });
 
 describe("/api/translate", () => {
-  it("GET 405；坏 JSON 400；texts 形状非法 400", async () => {
+  it("GET 405；跨源 403（这是唯一把正文转发给外部的端点，守卫必须有测试）", async () => {
+    assert.equal((await fetch(`${server.url}api/translate`)).status, 405);
+    const blocked = await fetch(`${server.url}api/translate`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, origin: "http://evil.example" },
+      body: JSON.stringify({ texts: ["hi"] }),
+    });
+    assert.equal(blocked.status, 403);
+  });
+
+  it("坏 JSON 400；texts 形状非法 400", async () => {
     assert.equal((await fetch(`${server.url}api/translate`)).status, 405);
     const bad = await fetch(`${server.url}api/translate`, { method: "POST", headers: JSON_HEADERS, body: "{oops" });
     assert.equal(bad.status, 400);
@@ -309,12 +323,14 @@ describe("/api/translate", () => {
     assert.equal(shape.status, 400);
   });
 
-  it("上游 200 时按序返回译文（fetch 桩，不出网）", async () => {
+  it("上游 200 时按序返回译文，且目标语言钉死中文（fetch 桩，不出网）", async () => {
     const originalFetch = globalThis.fetch;
+    const upstreamUrls: string[] = [];
     // init 必须透传：只留首参会把 POST 打成 GET（实测 405）
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("edge.microsoft.com")) {
+        upstreamUrls.push(url);
         // 上游真实形态：每条原文一个元素，译文在 translations[0].text
         return new Response(JSON.stringify([{ translations: [{ text: "你好" }] }, { translations: [{ text: "世界" }] }]), { status: 200 });
       }
@@ -329,6 +345,10 @@ describe("/api/translate", () => {
       assert.equal(res.status, 200);
       const payload = (await res.json()) as { ok: boolean; texts: string[] };
       assert.deepEqual(payload.texts, ["你好", "世界"]);
+      assert.ok(
+        upstreamUrls.every((u) => /[?&]to=zh-Hans(&|$)/.test(u)),
+        `上游 URL 必须固定 to=zh-Hans：${upstreamUrls.join(" , ")}`,
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -356,13 +376,27 @@ describe("/api/translate", () => {
     }
   });
 
-  it("请求体超限被拒（断流保护 + validateTexts 双层防线）", async () => {
+  it("请求体小幅超限：断流与校验双层防线必有其一拦下", async () => {
     const huge = JSON.stringify({ texts: ["x".repeat(125_000)] });
-    const { status, body } = await rawRequest("/api/translate", "POST", { ...JSON_HEADERS }, huge);
-    // 单 chunk 场景 end 已排队，断流拦不住但校验兜底：返回 400 text-limit
-    assert.equal(status, 400);
-    const payload = JSON.parse(body) as { code?: string };
-    assert.equal(payload.code, "translate-text-limit");
+    try {
+      // destroy 输了竞态（'end' 已排队）→ 走 validateTexts 兜底：400 text-limit
+      const { status, body } = await rawRequest("/api/translate", "POST", { ...JSON_HEADERS }, huge);
+      assert.equal(status, 400);
+      const payload = JSON.parse(body) as { code?: string };
+      assert.equal(payload.code, "translate-text-limit");
+    } catch (err) {
+      // destroy 赢得竞态 → 连接重置，断流保护直接生效
+      assert.match(String(err), /ECONNRESET|socket hang up|aborted|terminated/i);
+    }
+  });
+
+  it("请求体大幅超限（>2 个 TCP 段）：断流保护直接重置连接，不再回 JSON", async () => {
+    // 260KB = 4 个 64KB 段：第二段追加后越限 → req.destroy() → 客户端收到连接重置
+    const huge = JSON.stringify({ texts: ["x".repeat(260_000)] });
+    await assert.rejects(
+      rawRequest("/api/translate", "POST", { ...JSON_HEADERS }, huge),
+      /ECONNRESET|socket hang up|aborted|terminated/i,
+    );
   });
 });
 
@@ -514,6 +548,10 @@ describe("/api/commands 分发", () => {
       };
       assert.equal(payload.ok, true);
       const row = payload.data?.rows.find((r) => r.candidates.some((c) => c.cid === "routes"));
+      assert.ok(
+        !(payload.data?.rows ?? []).some((r) => r.candidates.some((c) => c.cid === "nobill")),
+        "无额度能力的渠道必须被能力过滤拦下，不出账单行",
+      );
       assert.ok(row, "无池内模型的渠道也必须有账单行");
       assert.equal(row.model, "", "渠道维度行的 model 段为空");
       const candidate = row.candidates[0]!;

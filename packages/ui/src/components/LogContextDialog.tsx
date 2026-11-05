@@ -123,7 +123,8 @@ function TranslateButton({
       onToggle(true);
       setState({ loading: false, error: "" });
     } catch (err) {
-      setState({ loading: false, error: String(err instanceof Error ? err.message : err) });
+      // 空串 error 会让失败态隐身（label 回退成「翻译」），兜底一个可读文案
+      setState({ loading: false, error: String(err instanceof Error ? err.message : err) || "未知翻译错误" });
     }
   };
 
@@ -752,7 +753,16 @@ export function LogContextDialog({
             {payload.isPending ? (
               <p className="text-xs text-ink-faint">正在读取…</p>
             ) : payload.isError ? (
-              <p className="text-xs text-danger">请求上下文读取失败，请重试。</p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-danger">请求上下文读取失败</p>
+                <button
+                  type="button"
+                  onClick={() => void payload.refetch()}
+                  className="tap rounded-md border border-line px-1.5 py-0.5 text-xs text-ink-soft hover:border-line-strong hover:text-ink"
+                >
+                  重试
+                </button>
+              </div>
             ) : records.length > 0 ? (
               records.map((record) => (
                 <PayloadBlock

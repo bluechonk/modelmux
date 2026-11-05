@@ -10,6 +10,7 @@
  * 不读取、不复制 `~/.modelmux/` 下的任何真实数据。
  */
 
+import { tokensPerSecOf } from "./log-format.ts";
 import type {
   AccessLogEntry,
   AccessLogPage,
@@ -142,7 +143,7 @@ export interface DemoState {
    * 正在演示登录的渠道（`null` = 无）。
    *
    * 登录弹窗靠轮询 `ui_state / auth_url / qr_url` 推进步骤；演示模式必须也走
-   * 这条状态机，否则弹窗会永远停在「正在准备登录会话…」（实测踩过）。
+   * 这条状态机，否则弹窗会永远停在「正在准备登录会话…」（实测出现过）。
    */
   login: { cid: string; snapshot: UiSnapshot } | null;
 }
@@ -560,6 +561,10 @@ const DEMO_LOG_SEED: Array<{
   { cid: "catpaw", model: "deepseek-v4-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
   { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
   { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
+  // 慢判定的两个归因维度各给一条：首字慢（速率正常）/ 速率慢（首字正常）——
+  // 演示页的「慢」标签与两维归因要有可展示的样本，种子全是快行会让功能像不存在
+  { cid: "raccoon", model: "deepseek-v4-flash", stream: true, outcome: "success", status: 200, durationMs: 14200, upstreamMs: 12400, ttfbMs: 12500, tokens: { prompt: 3200, completion: 520, total: 3720 }, messageCount: 6 },
+  { cid: "workbuddy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 12600, upstreamMs: 11500, ttfbMs: 1200, tokens: { prompt: 8400, completion: 120, total: 8520 }, messageCount: 2 },
   { cid: "astudio", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
   { cid: "workbuddy", model: "deepseek-v4-pro", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
   { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 1180, upstreamMs: 300, ttfbMs: 480, tokens: { prompt: 240, completion: 96, total: 336 }, messageCount: 1 },
@@ -572,53 +577,20 @@ function demoLogDates(now: number): string[] {
   return [0, 1, 2].map((i) => new Date(now - i * 86_400_000).toISOString().slice(0, 10));
 }
 
-/** 演示用的生成速率（与 `log-store.tokensPerSecOf` 同公式；仅演示数据合成用）。 */
-function tokensPerSecOfDemo(entry: {
-  completion: number;
-  durationMs?: number;
-  ttfbMs?: number;
-  upstreamMs?: number;
-  generateMs?: number;
-  stream?: boolean;
-}): number | null {
-  const durationMs = entry.durationMs;
-  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return null;
-  const cut = (v: number | undefined): number =>
-    v !== undefined && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
-  const direct = cut(entry.generateMs);
-  let generateMs: number;
-  if (direct > 0) {
-    generateMs = direct;
-  } else {
-    const ttfb = cut(entry.ttfbMs);
-    const upstream = cut(entry.upstreamMs);
-    const base =
-      entry.stream === true
-        ? ttfb || upstream
-        : entry.stream === false
-          ? upstream
-          : ttfb > 0 && upstream > 0
-            ? Math.min(ttfb, upstream)
-            : ttfb || upstream;
-    generateMs = base > 0 ? durationMs - base : durationMs;
-  }
-  if (generateMs < 50) return null;
-  const perSec = entry.completion / (generateMs / 1000);
-  return perSec > 1000 ? null : perSec;
-}
-
 /** 日志查询（对应 `GET /web/api/logs`）；过滤与分页口径与后端保持一致。 */
 export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage {
   const now = Date.now();
   const dates = demoLogDates(now);
-  // 「慢」判定与后端 `log-store.slowVerdictOf` 同口径（首字延迟 + 生成速率，总时长不参与）。
-  // UI 包不依赖 @modelmux/gateway，这里按同一公式内联 —— 改阈值两处同步（docs/LOGGING.md §3.5）。
+  // 「慢」判定与后端 `log-store.slowVerdictOf` 同口径（首字延迟 + 生成速率）。
+  // 速率公式复用本包 `log-format.tokensPerSecOf`（与网关同值的唯一 UI 侧实现），
+  // 不再内联第三份；两阈值是网关常量的同值副本，改阈值与 log-store 两处同步
+  //（docs/LOGGING.md §3.5 / §6）。
   const slowOf = (seed: (typeof DEMO_LOG_SEED)[number]): Pick<AccessLogEntry, "slow" | "slowTtfb" | "slowTps"> => {
     const slowTtfb = seed.stream === true && (seed.ttfbMs ?? 0) >= 10_000;
     const completion = seed.tokens?.completion ?? null;
     const tps =
       completion != null && completion >= 20
-        ? tokensPerSecOfDemo({ completion, durationMs: seed.durationMs, ttfbMs: seed.ttfbMs, upstreamMs: seed.upstreamMs, generateMs: seed.generateMs, stream: seed.stream })
+        ? tokensPerSecOf({ completion, durationMs: seed.durationMs, ttfbMs: seed.ttfbMs, upstreamMs: seed.upstreamMs, generateMs: seed.generateMs, stream: seed.stream })
         : null;
     const slowTps = tps !== null && tps < 30;
     return { slow: slowTtfb || slowTps, slowTtfb, slowTps };

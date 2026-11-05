@@ -215,7 +215,7 @@ export function formatPercent(rate: number | null | undefined): string {
  *
  * 实测（2026-11-05，逐条扫全部渠道 usage 叶子字段）没有任何上游回比率，只回命中 /
  * 未命中的 token 计数 —— 按「不自己算比率」的口径，这里恒为 `—`；上游计数在展开详情里
- * 原样展示（`命中 X · 未命中 Y`）。
+ * 原样展示（`命中 X · 未命中 Y`）。口径出处：docs/CACHE-HIT-RATE.md §7。
  */
 export function formatCacheRate(): string {
   return "—";

@@ -156,7 +156,7 @@ export function tokensPerSecOf(entry: {
   const durationMs = entry.durationMs;
   if (completion === null || !Number.isFinite(completion) || completion <= 0) return null;
   if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return null;
-  /** 可用的绝对耗时：必须为正且小于总耗时，否则视为缺失。 */
+  /** 可用的绝对耗时：必须为正且小于总耗时（非流式 ttfbMs ≈ durationMs，不裁掉分母会趋 0，口径见 docs/LOGGING.md §3.1）。 */
   const cut = (v: number | undefined): number =>
     v !== undefined && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
 
@@ -183,7 +183,7 @@ export function tokensPerSecOf(entry: {
 }
 
 // ---------------------------------------------------------------------------
-// 慢请求判定（首字延迟 + 生成速率，总时长不再参与）
+// 慢请求判定（首字延迟 + 生成速率；总时长不作为判据）
 // ---------------------------------------------------------------------------
 
 /**
@@ -198,13 +198,13 @@ export const SLOW_TTFB_MS = envInt("MODELMUX_SLOW_TTFB_MS", 10_000);
 /**
  * 生成速率阈值（tokens/s）：可信速率低于它即判「速率慢」。
  *
- * 实测分布：p05 = 54 t/s —— 30 落在正常分布之外，抓的是真龟速；
+ * 实测（2026-11-05，1816 条）分布：p05 = 54 t/s —— 30 落在正常分布之外，抓的是真龟速；
  * 模型清单的「慢」标签另有口径（`model-health.ts` 的 `SLOW_TPS = 100`，长期平均），
  * 请求级用更宽的值避免把慢渠道的每条请求都标满。
  */
 export const SLOW_TPS = envInt("MODELMUX_SLOW_TPS", 30);
 
-/** 生成量下限（tokens）：少于它不判速率慢 —— 1-3 个 token 的窗口太小，速率数值天然不可信（实测 tps<30 的命中里 p50 completion=3，全是 ping 类短请求）。 */
+/** 生成量下限（tokens）：少于它不判速率慢 —— 1-3 个 token 的窗口太小，速率数值天然不可信（实测 2026-11-05：tps<30 的命中里 p50 completion=3，全是 ping 类短请求）。 */
 export const SLOW_MIN_COMPLETION = 20;
 
 /** 单条请求的「慢」判定结果（两个维度独立成立，任一命中即慢）。 */
@@ -218,8 +218,8 @@ export interface SlowVerdict {
 }
 
 /**
- * 单条请求的「慢」判定：**首字 token 延迟 + 生成速率**，总时长不再参与
- * （30s 的总时长可能只是输出长，2026-11-05 实测旧口径 94 条里 89 条是长输出）。
+ * 单条请求的「慢」判定：**首字 token 延迟 + 生成速率**；总时长不作为判据 ——
+ * 输出长同样会拉长总时长（2026-11-05 实测：总时长 ≥30s 的 94 条里 89 条只是长输出）。
  *
  * 写路径（`slow.log` 副本）与读路径（历史行重算）共用这一份 —— 历史日志没有
  * 重写机会，但读出来时按当前口径重算，展示与统计自动统一。
@@ -357,6 +357,17 @@ function pruneOnce(): void {
   }
 }
 
+/**
+ * 写路径的慢判定（读路径 `parseAccessLine` 同一份口径）。
+ *
+ * `RequestLog` 的 token 数只存在 `usage` 原始对象里（`completion_tokens` / `output_tokens`），
+ * 不提取成顶层 `completion` 就喂给 `slowVerdictOf` 的话，「速率慢」维度恒判不出 ——
+ * `slow.log` 只剩首字慢，与读路径重算的结果分叉。
+ */
+function slowVerdictOfLog(log: RequestLog): SlowVerdict {
+  return slowVerdictOf({ ...log, completion: tokensOf(log.usage)?.completion ?? null });
+}
+
 function appendAccessFile(outcome: AccessOutcome, record: RequestLog): void {
   pruneOnce();
   const date = localDate();
@@ -365,7 +376,7 @@ function appendAccessFile(outcome: AccessOutcome, record: RequestLog): void {
   // 免得日志多两个没人读的绝对时刻（口径见 docs/LOGGING.md §3.1）。
   const { written: _written, firstFrameAt: _first, lastFrameAt: _last, ...payload } = record;
   appendLine(join(dir, `${outcome}.log`), JSON.stringify({ ts: new Date(record.startAt).toISOString(), ...payload }));
-  if (slowVerdictOf(record).slow) {
+  if (slowVerdictOfLog(record).slow) {
     appendLine(join(dir, "slow.log"), JSON.stringify({ ts: new Date(record.startAt).toISOString(), ...payload }));
   }
   if (outcome === "failure") {
@@ -399,7 +410,7 @@ export function finishRequestLog(log: RequestLog, status: number): void {
   // 成功的健康检查 / 模型轮询不记访问日志：Web 控制台每 5 秒拉一次 /v1/models，
   // 记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
   const routine = log.path === "/health" || log.path === "/v1/models";
-  if (routine && log.outcome === "success" && !slowVerdictOf(log).slow) return;
+  if (routine && log.outcome === "success" && !slowVerdictOfLog(log).slow) return;
   appendAccessFile(log.outcome, log);
 }
 
@@ -956,15 +967,20 @@ export function listAccessDates(): string[] {
  * 与 `queryAccessLogs` 的分工：那个服务交互式分页（要快、允许截断），本函数服务
  * **统计聚合**（要全、宁慢）—— 截断会让「累计 tokens」这类数字直接错。
  * 调用方自己负责节流与缓存（见 `usage-stats.ts`）。
+ *
+ * 返回**读失败被跳过**的文件数：调用方（统计聚合）据此避免把残缺结果缓存成
+ * 「该日的真实累计」—— 文件被锁 / 正在轮转只是暂时的，缓存却是进程级的。
  */
-export function scanAccessDate(date: string, visit: (entry: AccessEntry) => void): void {
+export function scanAccessDate(date: string, visit: (entry: AccessEntry) => void): number {
+  let skipped = 0;
   for (const outcome of ACCESS_OUTCOMES) {
     for (const file of accessFiles(date, outcome)) {
       let text: string;
       try {
         text = readFileSync(file, "utf8");
       } catch {
-        continue; // 正在轮转 / 被删：跳过这个文件，不让整次统计失败
+        skipped += 1; // 正在轮转 / 被删 / 被杀毒软件短暂锁定：跳过，不让整次统计失败
+        continue;
       }
       for (const line of text.split("\n")) {
         if (line.trim() === "") continue;
@@ -973,6 +989,7 @@ export function scanAccessDate(date: string, visit: (entry: AccessEntry) => void
       }
     }
   }
+  return skipped;
 }
 
 function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | null {

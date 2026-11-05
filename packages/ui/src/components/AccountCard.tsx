@@ -157,7 +157,7 @@ function statusPillText(status: AccountStatus): string {
  * 这类长文案全部收进悬停面板，`null` = 状态正常。
  *
  * 判据必须与 pill 同一套（`classifyAccount` 的 status）—— 只读 `health` 会让
- * 「账单已耗尽但 health 仍是 ok」的账号显示成「额度充足」（2026-11-05 实测踩过）。
+ * 「账单已耗尽但 health 仍是 ok」的账号显示成「额度充足」（2026-11-05 实测出现过）。
  */
 function statusNoteOf(
   account: PoolAccount,

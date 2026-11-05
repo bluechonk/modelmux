@@ -292,14 +292,15 @@ async function pingModel(
   req: import("node:http").IncomingMessage,
   model: string,
 ): Promise<{ ok: boolean; model: string; ms: number; status: number; error: string }> {
-  const target = new URL(`http://${req.headers.host ?? ""}/v1/chat/completions`);
-  if (!LOOPBACK_HOSTS.has(target.hostname)) {
-    return { ok: false, model, ms: 0, status: 0, error: "ping 只能发往本机回环地址" };
-  }
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
   try {
+    // Host 头是客户端给的，畸形值会让 new URL 抛 TypeError —— 放 try 里按失败处理
+    const target = new URL(`http://${req.headers.host ?? ""}/v1/chat/completions`);
+    if (!LOOPBACK_HOSTS.has(target.hostname)) {
+      return { ok: false, model, ms: 0, status: 0, error: "ping 只能发往本机回环地址" };
+    }
     const upstream = await fetch(target, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -314,6 +315,10 @@ async function pingModel(
     const status = upstream.status;
     const text = await upstream.text().catch(() => "");
     const ms = Date.now() - started;
+    // 200 头之后、体读完之前被 abort：实际是超时，不能因为 ok 头就报成功
+    if (controller.signal.aborted) {
+      return { ok: false, model, ms, status: 0, error: `超时（> ${Math.round(PING_TIMEOUT_MS / 1000)}s）` };
+    }
     if (!upstream.ok) {
       // 错误体是网关自己的 JSON（`{error:{message}}`），截断后原样回给界面，别自己编原因
       return { ok: false, model, ms, status, error: text.slice(0, 300) || `HTTP ${status}` };
@@ -518,12 +523,12 @@ export function createConsoleHandler(
       let body = "";
       req.on("data", (chunk) => {
         // 上限与 MAX_TOTAL_CHARS 同量级：正文块只在界面上被切到 3000 字符，
-        // 这里留出整批余量即可；超限直接断开，别把内存耗在无意义的负载上。
+        // 这里留出整批余量即可。先追加再判（单块也可能超限），超限直接断开，
+        // 别把内存耗在无意义的负载上；destroy 后流不再发 'end'，不会回写响应。
+        body += String(chunk);
         if (body.length > 120_000) {
           req.destroy();
-          return;
         }
-        body += String(chunk);
       });
       req.on("end", () => {
         if (res.writableEnded) return;
@@ -540,9 +545,12 @@ export function createConsoleHandler(
             json(res, { ok: false, code: checked.code, error: checked.error }, 400);
             return;
           }
-          // 目标语言固定中文：控制台界面语言恒定，放开只会多一条被滥用的通路。
+          // 目标语言固定中文（取舍见 translateTexts / docs/TRANSLATION.md §5）。
           const result = await translateTexts(checked.texts, "zh-Hans");
           if (!result.ok) {
+            // 上游失败（超时 / 被网络环境拦截）是高概率事件，必须留痕：
+            // 前端错误串转瞬即逝，排障时 gateway.log 要能独立还原这次失败
+            appendGateway(`translate upstream failed: ${result.code}: ${result.error}`);
             json(res, { ok: false, code: result.code, error: result.error }, 502);
             return;
           }
@@ -738,6 +746,9 @@ export function createConsoleHandler(
           avg_duration_ms: logPage.stats.avgDurationMs,
           tokens: logPage.stats.tokens,
           cache: logPage.stats.cache,
+          // 扫描窗口元数据：极端量级下统计只代表窗口内，前端与排障都要能看出来
+          truncated: logPage.truncated,
+          scanned: logPage.scanned,
         };
 
         const perChannelLogs = new Map<string, { success: number; failure: number }>();
@@ -782,8 +793,10 @@ export function createConsoleHandler(
                 else if (acc.health === "error") statuses.error++;
                 else if (acc.health === "unauthorized") statuses.unauthenticated++;
               }
-            } catch {
-              // 渠道未加载或无账号
+            } catch (err) {
+              // 渠道未加载或无账号：单渠道失败不拖垮总览，但「读不到」不能和
+              // 「真的是零」在 UI 上混同 —— 留痕让排障能分辨
+              appendGateway(`console overview: channel ${cid} accounts failed: ${String(err)}`);
             }
             return {
               cid,
