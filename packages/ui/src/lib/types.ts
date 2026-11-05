@@ -365,25 +365,35 @@ export interface CustomModel {
   inputModalities?: string[];
 }
 
-/** 控制台里的自定义提供商（apiKey 只回指纹，原文不下发）。 */
+/** 一个 key（= 账号池里一个账号）：原文不下发，回显用 masked 指纹。 */
+export interface ProviderKey {
+  /** key 原文（编辑已有行时留空，靠 masked 找回原文）。 */
+  key: string;
+  /** 服务端下发的指纹（`ak_25f…2j7h` 形态）。 */
+  masked?: string;
+  /** 可选备注名（账号行显示它）。 */
+  label?: string;
+}
+
+/** 控制台里的自定义提供商（apiKeys 只回指纹，原文不下发）。 */
 export interface CustomProvider extends CustomModel {
   id: string;
   display: string;
   baseUrl: string;
   protocol: "openai";
-  apiKeyMasked?: string;
+  apiKeys: ProviderKey[];
   models: CustomModel[];
   createdAt: string;
   updatedAt: string;
 }
 
-/** 保存自定义提供商的入参（apiKey 留空 = 保持原值）。 */
+/** 保存自定义提供商的入参（已有 key 行留空 = 保持原值）。 */
 export interface CustomProviderInput {
   id: string;
   display: string;
   baseUrl: string;
   protocol: "openai";
-  apiKey?: string;
+  apiKeys: ProviderKey[];
   models: CustomModel[];
 }
 

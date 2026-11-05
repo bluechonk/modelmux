@@ -16,7 +16,7 @@ import { useState, type ReactElement } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
-import type { CustomModel, CustomProvider, CustomProviderInput } from "../lib/types";
+import type { CustomModel, CustomProvider, CustomProviderInput, ProviderKey } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "./Toast";
 
@@ -25,9 +25,22 @@ const EMPTY_FORM: CustomProviderInput = {
   display: "",
   baseUrl: "",
   protocol: "openai",
-  apiKey: "",
+  apiKeys: [{ key: "", label: "" }],
   models: [],
 };
+
+/**
+ * 多行粘贴拆分：粘贴内容按行拆成多个 key（每行一个），并入现有行列表。
+ *
+ * 输入框是单行的（粘贴多行会被浏览器合并成一行，凭据就废了），
+ * 所以在 onPaste 里 preventDefault 手动拆。
+ */
+function splitPastedKeys(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
 
 export function CustomProviders(): ReactElement {
   const qc = useQueryClient();
@@ -45,11 +58,15 @@ export function CustomProviders(): ReactElement {
   });
 
   const save = useMutation({
-    mutationFn: (provider: CustomProviderInput) => api.saveProvider(provider),
+    mutationFn: (provider: CustomProviderInput) =>
+      // 空行（既无原文也无指纹）保存前丢弃
+      api.saveProvider({ ...provider, apiKeys: provider.apiKeys.filter((k) => k.key.trim() || k.masked) }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
+      // 账号池的 key 账号随保存同步（后端 syncKeyAccounts），刷新池页
+      void qc.invalidateQueries({ queryKey: ["pool-accounts"] });
       setForm(null);
-      toast.success("提供商已保存，模型已进入模型池");
+      toast.success("提供商已保存，模型与 key 账号已同步");
     },
     onError: (err) => toast.error(String(err)),
   });
@@ -68,14 +85,15 @@ export function CustomProviders(): ReactElement {
   const fetchModels = async (): Promise<void> => {
     if (!form) return;
     setTargetId("fetch");
-    const apiKey = form.apiKey?.trim() ?? "";
-    if (!apiKey) {
+    const literalKey = form.apiKeys.find((k) => k.key.trim())?.key.trim() ?? "";
+    if (!literalKey && !form.id) {
       toast.error("请先填写 API Key");
       setTargetId(null);
       return;
     }
     try {
-      const models = await api.fetchProviderModels(form.baseUrl, apiKey);
+      // 已保存的 provider 用服务端手里的 key 拉（编辑时不回显原文，不必重贴）
+      const models = await api.fetchProviderModels(form.baseUrl, literalKey, form.id || undefined);
       const known = new Set(form.models.map((m) => m.id));
       const added = models.filter((m) => !known.has(m.id));
       setForm({ ...form, models: [...form.models, ...added] });
@@ -85,6 +103,19 @@ export function CustomProviders(): ReactElement {
     } finally {
       setTargetId(null);
     }
+  };
+
+  /** 表单 key 行编辑（增删改）。 */
+  const setKeyRow = (index: number, patch: Partial<ProviderKey>): void => {
+    if (!form) return;
+    setForm({ ...form, apiKeys: form.apiKeys.map((k, i) => (i === index ? { ...k, ...patch } : k)) });
+  };
+  const addKeyRows = (keys: string[]): void => {
+    if (!form) return;
+    const rows: ProviderKey[] = keys.map((key) => ({ key, label: "" }));
+    // 去掉尾部空行再追加，避免留一堆空行
+    const cleaned = form.apiKeys.filter((k) => k.key.trim() || k.masked);
+    setForm({ ...form, apiKeys: [...cleaned, ...rows] });
   };
 
   const providers = list.data ?? [];
@@ -125,7 +156,12 @@ export function CustomProviders(): ReactElement {
                 <div className="mt-0.5 truncate font-mono text-xs text-ink-faint">{provider.baseUrl}</div>
               </div>
               <span className="text-xs text-ink-faint">
-                {provider.models.length} 个模型 · key {provider.apiKeyMasked ?? "未填"}
+                {provider.models.length} 个模型 ·{" "}
+                {provider.apiKeys.length === 0
+                  ? "key 未填"
+                  : provider.apiKeys.length <= 2
+                    ? provider.apiKeys.map((k) => k.masked ?? "****").join("、")
+                    : `${provider.apiKeys.slice(0, 2).map((k) => k.masked ?? "****").join("、")} 等 ${provider.apiKeys.length} 个 key`}
               </span>
               <button
                 type="button"
@@ -135,7 +171,8 @@ export function CustomProviders(): ReactElement {
                     display: provider.display,
                     baseUrl: provider.baseUrl,
                     protocol: "openai",
-                    apiKey: "",
+                    // key 原文不回显：行里只带 masked 指纹，留空 = 保持原值
+                    apiKeys: provider.apiKeys.map((k) => ({ key: "", masked: k.masked ?? "", label: k.label ?? "" })),
                     models: provider.models.map((m) => ({ ...m })),
                   })
                 }
@@ -189,19 +226,65 @@ export function CustomProviders(): ReactElement {
                 className="tap w-full rounded-lg border border-line bg-raised px-2.5 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
               />
             </label>
-            <label className="block sm:col-span-2">
-              <span className="mb-1 block text-xs text-ink-faint">API Key</span>
-              <input
-                type="password"
-                value={form.apiKey}
-                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                placeholder={form.id ? "留空 = 保持原值" : "ak_…"}
-                className="tap w-full rounded-lg border border-line bg-raised px-2.5 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
-              />
+            <div className="block sm:col-span-2">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-ink-faint">
+                  API Keys（{form.apiKeys.length}）— 一个 key 在账号池里就是一个账号
+                </span>
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => addKeyRows([""])}
+                  className="tap flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  添加 Key
+                </button>
+              </div>
+              {form.apiKeys.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-line px-3 py-2 text-xs text-ink-faint">
+                  还没有 key —— 点「添加 Key」，或直接粘贴多行（自动按行拆成多个 key）。
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {form.apiKeys.map((item, index) => (
+                    <li key={index} className="flex flex-wrap items-center gap-1.5">
+                      <input
+                        value={item.label ?? ""}
+                        onChange={(e) => setKeyRow(index, { label: e.target.value })}
+                        placeholder="备注（可选）"
+                        className="tap w-32 shrink-0 rounded-lg border border-line bg-raised px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+                      />
+                      <input
+                        type="password"
+                        value={item.key}
+                        onChange={(e) => setKeyRow(index, { key: e.target.value })}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData("text");
+                          if (text.includes("\n")) {
+                            e.preventDefault();
+                            addKeyRows(splitPastedKeys(text));
+                          }
+                        }}
+                        placeholder={item.masked ? `已存 ${item.masked}（留空不改）` : "ak_…"}
+                        className="tap min-w-0 flex-1 rounded-lg border border-line bg-raised px-2 py-1 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, apiKeys: form.apiKeys.filter((_, i) => i !== index) })}
+                        className="tap rounded-lg border border-line p-1 text-ink-faint transition-colors hover:border-danger/40 hover:text-danger"
+                        aria-label={`删除第 ${index + 1} 个 key`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <span className="mt-1 block text-xs text-ink-faint">
-                编辑时留空表示不修改；原文不下发、不落日志
+                可整段粘贴多个 key（自动按行拆）；原文不下发、不落日志。保存后每个 key 进入账号池，可切换 / 失效自动换下一个。
               </span>
-            </label>
+            </div>
           </div>
 
           <div>

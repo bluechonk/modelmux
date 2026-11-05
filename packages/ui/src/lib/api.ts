@@ -183,8 +183,12 @@ export interface WebApi {
   saveProvider(provider: CustomProviderInput): Promise<CustomProvider>;
   /** 删除一个自定义提供商。 */
   removeProvider(id: string): Promise<{ ok: boolean }>;
-  /** 拉取某个基址的可用模型（OpenAI 兼容 `GET {base}/models`）。 */
-  fetchProviderModels(baseUrl: string, apiKey: string): Promise<CustomModel[]>;
+  /**
+   * 拉取某个基址的可用模型（OpenAI 兼容 `GET {base}/models`）。
+   *
+   * `id` 为已保存 provider 时可用服务端手里的 key（apiKey 留空）—— 编辑表单不回显原文。
+   */
+  fetchProviderModels(baseUrl: string, apiKey: string, id?: string): Promise<CustomModel[]>;
   /** 入站路由注册表（`GET /web/api/router`）：默认模型 + 别名表。 */
   router(): Promise<RouterSettings>;
   /** 整体写路由注册表（`PUT /web/api/router`）。 */
@@ -403,9 +407,9 @@ export const api: WebApi = {
     IS_DEMO ? demoLater({ ...provider, createdAt: "", updatedAt: "" }) : post("/api/providers", provider),
   removeProvider: (id) =>
     IS_DEMO ? demoLater({ ok: true }) : del(`/api/providers${queryString({ id })}`),
-  fetchProviderModels: async (baseUrl, apiKey) => {
+  fetchProviderModels: async (baseUrl, apiKey, id) => {
     if (IS_DEMO) return [{ id: "demo-model-a" }, { id: "demo-model-b" }];
-    const res = (await post("/api/providers/fetch-models", { baseUrl, apiKey })) as {
+    const res = (await post("/api/providers/fetch-models", { baseUrl, apiKey, ...(id ? { id } : {}) })) as {
       models?: CustomModel[];
     };
     return res.models ?? [];

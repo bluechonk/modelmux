@@ -8,10 +8,11 @@
  * 文档：docs/CONTRACT-TS.md、docs/STORAGE-CONVENTION.md
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { writeJsonSecret } from "./secret-file.js";
-import { rootDir } from "./paths.js";
+import { credentialsPath, rootDir } from "./paths.js";
+import { keyUid, syncKeyAccounts } from "./account-pool.js";
 import {
   channels as registryChannels,
   deleteChannel,
@@ -38,6 +39,13 @@ export interface CustomModel {
   inputModalities?: string[];
 }
 
+/** 自定义提供商的一个 API key（= 账号池里的一个账号）。 */
+export interface ProviderKey {
+  key: string;
+  /** 可选备注名（账号行显示它，缺省显示 key 指纹）。 */
+  label?: string;
+}
+
 /** 一个自定义提供商（= 一个运行时渠道实例）。 */
 export interface CustomProvider {
   /** 渠道 id（用户自定，规则同内置 cid：小写字母开头，`[a-z0-9-]`）。 */
@@ -46,10 +54,40 @@ export interface CustomProvider {
   /** OpenAI 兼容基址，如 `https://api.longcat.chat/openai`。 */
   baseUrl: string;
   protocol: "openai";
-  apiKey: string;
+  /** 多 API key：一个 key = 账号池一个账号（读时兼容旧单值 apiKey）。 */
+  apiKeys: ProviderKey[];
   models: CustomModel[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** key 指纹（账号行显示用；不回显原文）。 */
+export function keyFingerprint(key: string): string {
+  const trimmed = key.trim();
+  if (trimmed.length <= 12) return "****";
+  return `${trimmed.slice(0, 6)}…${trimmed.slice(-4)}`;
+}
+
+/** 兼容旧注册表：单值 `apiKey` 自动迁移成 `apiKeys` 一项。 */
+function normalizeProvider(p: CustomProvider | (Record<string, unknown> & { apiKey?: unknown })): CustomProvider {
+  const raw = p as Record<string, unknown>;
+  if (!Array.isArray(raw["apiKeys"])) {
+    const legacy = typeof raw["apiKey"] === "string" && raw["apiKey"].trim() !== "" ? [{ key: raw["apiKey"] as string }] : [];
+    raw["apiKeys"] = legacy;
+  }
+  delete raw["apiKey"];
+  return p as CustomProvider;
+}
+
+/**
+ * 池同步用的 key 列表：label 缺省回落**指纹**（永不把 key 原文当展示名 ——
+ * 账号行会把它整条显示出来，既是泄露也是噪声）。
+ */
+function labeledKeys(provider: CustomProvider): Array<{ key: string; label: string }> {
+  return provider.apiKeys.map((k) => ({
+    key: k.key,
+    label: k.label?.trim() || keyFingerprint(k.key),
+  }));
 }
 
 /** 读注册表：缺失 / 损坏一律当空（首次使用或手改坏时不应让网关起不来）。 */
@@ -57,7 +95,7 @@ export function readCustomProviders(): CustomProvider[] {
   try {
     const raw: unknown = JSON.parse(readFileSync(providersPath(), "utf8"));
     if (!Array.isArray(raw)) return [];
-    return raw.filter(isCustomProvider);
+    return raw.filter(isCustomProvider).map(normalizeProvider);
   } catch {
     return [];
   }
@@ -66,12 +104,16 @@ export function readCustomProviders(): CustomProvider[] {
 function isCustomProvider(value: unknown): value is CustomProvider {
   if (!value || typeof value !== "object") return false;
   const p = value as Record<string, unknown>;
+  // apiKeys 数组（新）或 apiKey 单值（旧）至少认一种；两者都缺视为未填 key（合法，登录时补）
+  const keysShape = p["apiKeys"] === undefined || Array.isArray(p["apiKeys"]);
+  const legacyShape = p["apiKey"] === undefined || typeof p["apiKey"] === "string";
   return (
     typeof p["id"] === "string" &&
     typeof p["display"] === "string" &&
     typeof p["baseUrl"] === "string" &&
     p["protocol"] === "openai" &&
-    typeof p["apiKey"] === "string" &&
+    keysShape &&
+    legacyShape &&
     Array.isArray(p["models"])
   );
 }
@@ -101,6 +143,38 @@ export function maskKey(apiKey: string): string {
 }
 
 /**
+ * 生效 key：`credentials.json`（与真实渠道同构的生效凭据，账号池切换就改它）
+ * → 回退注册表第一个 key（尚未同步入池时也能用）。
+ */
+export function activeKeyOfProvider(providerId: string): string {
+  const record = findCustomProvider(providerId);
+  if (!record) return "";
+  try {
+    const cred = JSON.parse(readFileSync(credentialsPath(providerId), "utf8")) as Record<string, unknown>;
+    const active = typeof cred["accessToken"] === "string" ? cred["accessToken"] : "";
+    if (active && record.apiKeys.some((k) => k.key === active)) return active;
+  } catch {
+    /* 无生效凭据文件 / 损坏：回退注册表第一个 */
+  }
+  return record.apiKeys[0]?.key ?? "";
+}
+
+/**
+ * 把「生效 key 写进 credentials.json」——账号池 activateAccount 的复制语义之外的程序化写法。
+ *
+ * `uid` 必须用与账号文件相同的派生（`keyUid`）：两处不一致时 syncPool 会从凭据
+ * 派生出池里不存在的幽灵账号。
+ */
+export function writeActiveKeyProvider(providerId: string, key: string): void {
+  mkdirSync(dirname(credentialsPath(providerId)), { recursive: true });
+  writeJsonSecret(credentialsPath(providerId), {
+    accessToken: key,
+    uid: keyUid(key),
+    domain: providerId,
+  });
+}
+
+/**
  * 新建/编辑表单的服务端校验。
  *
  * 返回 null = 通过；否则是给人看的错误文案（直接进 400 响应）。
@@ -112,8 +186,14 @@ export function validateProvider(p: CustomProvider): string | null {
   }
   if (!p.display.trim()) return "显示名称必填";
   if (!/^https?:\/\//.test(p.baseUrl)) return "API 地址需以 http(s):// 开头";
-  if (!p.apiKey.trim()) return "API Key 必填";
   if (p.protocol !== "openai") return "当前仅支持 OpenAI 兼容协议";
+  const keys = new Set<string>();
+  for (const item of p.apiKeys) {
+    const key = item.key.trim();
+    if (!key) return "存在空 API Key";
+    if (keys.has(key)) return `API Key 重复：${keyFingerprint(key)}`;
+    keys.add(key);
+  }
   const ids = new Set<string>();
   for (const m of p.models) {
     if (!m.id.trim()) return "存在空模型 ID";
@@ -146,6 +226,8 @@ export function registerCustomProviders(): void {
     }
     setChannel(customChannelFor(provider));
     registeredCustomCids.add(provider.id);
+    // 启动 / 重挂时同步 key→账号池（幂等）：注册表是事实源，池只是投影
+    syncKeyAccounts(provider.id, labeledKeys(provider));
   }
   // 注意：`/v1/models` 读的是目录快照**文件**，注册后需要在上层（app/http）
   // 显式 `refreshCatalog()` —— 本模块在最底层，不能反向依赖 pool 层。
@@ -179,17 +261,24 @@ function isCustomCid(cid: string): boolean {
 export function saveCustomProvider(provider: CustomProvider): void {
   const list = readCustomProviders();
   const now = new Date().toISOString();
-  const next: CustomProvider = { ...provider, updatedAt: now, createdAt: provider.createdAt || now };
+  // 统一落 apiKeys 形态（旧单值 apiKey 字段不写盘）
+  const raw = { ...provider, apiKeys: provider.apiKeys ?? [], updatedAt: now, createdAt: provider.createdAt || now } as CustomProvider & { apiKey?: unknown };
+  delete raw.apiKey;
+  const next = raw as CustomProvider;
   const index = list.findIndex((p) => p.id === next.id);
   if (index >= 0) list[index] = next;
   else list.push(next);
   writeCustomProviders(list);
   reloadCustomProviders();
+  // 一个 key = 池里一个账号：注册表是事实源，保存即同步（新增/移除/换生效 key）
+  syncKeyAccounts(next.id, labeledKeys(next));
 }
 
 export function removeCustomProvider(id: string): void {
   writeCustomProviders(readCustomProviders().filter((p) => p.id !== id));
   reloadCustomProviders();
+  // 渠道没了：清空该 cid 的池账号与生效凭据（同步空列表即全清）
+  syncKeyAccounts(id, []);
 }
 
 /** 单个提供商的当前记录（编辑表单回显用）。 */
@@ -273,17 +362,21 @@ export function customChannelFor(provider: CustomProvider): Channel {
     DEFAULT_BASE_URL: provider.baseUrl,
     NotLoggedInError,
     load: () => {
-      const record = findCustomProvider(cid);
-      if (!record || !record.apiKey) throw new NotLoggedInError();
-      return { apiKey: record.apiKey, source: "custom-provider", obtainedAt: record.updatedAt };
+      const key = activeKeyOfProvider(cid);
+      if (!key) throw new NotLoggedInError();
+      // 除 apiKey 外还回**账号池契约字段**（accessToken / uid / domain）：
+      // 池机制按它们派生账号身份（sha256(domain\0uid)）；只回 apiKey 会让
+      // syncPool 派生出常量 key，在池里长出幽灵账号（实测踩过）
+      return { apiKey: key, accessToken: key, uid: keyUid(key), domain: cid, source: "custom-provider", obtainedAt: nowIso() };
     },
     save: async (c) => {
-      const record = findCustomProvider(cid);
-      if (!record) throw new NotLoggedInError();
-      saveCustomProvider({ ...record, apiKey: String(c.apiKey ?? "") });
+      // 生效凭据落 credentials.json（与真实渠道同构）：账号池的切换/入池都认这个文件
+      const key = String(c.apiKey ?? "");
+      if (!key) throw new NotLoggedInError();
+      writeActiveKeyProvider(cid, key);
     },
     login: async (_baseUrl, options) => {
-      // 幂等：非 force 且已有 key 时直接复用
+      // 幂等：非 force 且已有可用 key 时直接复用
       if (!options?.force) {
         try {
           return cred.load();
@@ -300,15 +393,15 @@ export function customChannelFor(provider: CustomProvider): Channel {
         }));
       const apiKey = String(input ?? "").trim();
       if (!apiKey) throw new NotLoggedInError("未填写 API Key");
-      const record = findCustomProvider(cid);
-      const next: CustomProvider = {
-        ...(record ?? emptyProvider(cid, provider)),
-        apiKey,
-        updatedAt: nowIso(),
-        createdAt: record?.createdAt || nowIso(),
-      };
+      // 追加进注册表（一个 key = 池里一个账号）并让它立即生效：
+      // saveCustomProvider 内部会 syncKeyAccounts，preferredActive 保证新 key 是生效账号
+      const record = findCustomProvider(cid) ?? emptyProvider(cid, provider);
+      const next: CustomProvider = record.apiKeys.some((k) => k.key === apiKey)
+        ? record
+        : { ...record, apiKeys: [...record.apiKeys, { key: apiKey }], updatedAt: nowIso() };
       saveCustomProvider(next);
-      return { apiKey: next.apiKey, source: "custom-provider", obtainedAt: next.updatedAt };
+      syncKeyAccounts(cid, labeledKeys(next), apiKey);
+      return { apiKey, source: "custom-provider", obtainedAt: next.updatedAt };
     },
     refresh: async (c) => {
       // 有效性探测：带 key 拉模型列表；只有 401/403 算失效
@@ -335,15 +428,16 @@ export function customChannelFor(provider: CustomProvider): Channel {
     chatUrl: () => `${base}/chat/completions`,
     modelsUrl: () => `${base}/models`,
     buildHeaders: () => {
-      const record = findCustomProvider(cid);
-      const apiKey = record?.apiKey ?? "";
+      // 每次现读生效 key：账号池切换（credentials.json 改写）立即对上游生效
+      const apiKey = activeKeyOfProvider(cid);
       return { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
     },
     fetchModels: async () => {
       const record = findCustomProvider(cid);
-      if (!record?.apiKey) throw new NotLoggedInError();
+      const apiKey = activeKeyOfProvider(cid);
+      if (!record || !apiKey) throw new NotLoggedInError();
       const resp = await fetch(`${baseOf(record)}/models`, {
-        headers: { Authorization: `Bearer ${record.apiKey}`, Accept: "application/json" },
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
         signal: AbortSignal.timeout(15_000),
       });
       if (!resp.ok) throw new Error(`模型列表请求失败：HTTP ${resp.status}`);
@@ -384,7 +478,7 @@ export function customChannelFor(provider: CustomProvider): Channel {
     },
     refresh: async (): Promise<void> => {
       // 有远端目录：真实拉一次并写缓存（供离线时兜底）；失败抛错（显式刷新必须可见）
-      const remote = await fetchCustomModels(provider.baseUrl, provider.apiKey);
+      const remote = await fetchCustomModels(provider.baseUrl, activeKeyOfProvider(cid));
       const { writeCatalogCache } = await import("./catalog-cache.js");
       writeCatalogCache(
         remote.map((m) => ({ ...m })),
@@ -425,7 +519,7 @@ function emptyProvider(id: string, like: CustomProvider): CustomProvider {
     display: like.display || id,
     baseUrl: like.baseUrl,
     protocol: "openai",
-    apiKey: "",
+    apiKeys: [],
     models: [],
     createdAt: nowIso(),
     updatedAt: nowIso(),

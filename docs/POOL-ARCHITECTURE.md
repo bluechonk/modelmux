@@ -523,6 +523,17 @@ interface CredModule {
 共享层的 `account-pool.ts` 用「复制文件 + `cred.load()` 契约字段（uid/domain）」实现，
 当前全部渠道经 `channel.ts` 注册后都走同一套账号池，无需各自实现这段接口。
 
+**自定义提供商：key 即账号。** 自定义提供商没有登录流程，注册表
+（`~/.modelmux/custom/providers.json`）里的 `apiKeys` 列表就是它的账号源：
+每个 key 由 `syncKeyAccounts()`（`account-pool.ts`）映射成池内一个账号 ——
+账号文件内容 `{accessToken: key, uid, domain}` 与真实渠道同构（`uid` 用 key 的哈希派生，
+改备注名不改账号身份），生效凭据仍是 `credentials.json`（切换 = 换文件内容，
+与真实渠道同一套 `mx acct use` / 控制台按钮）。注册表每次保存 / 进程启动都会幂等重同步：
+新 key 入池、删掉的 key 连账号一起移除、生效 key 被删时自动改指第一个。
+`cred.load()` 同时返回 `accessToken/uid/domain` 契约字段（缺了会让池派生出幽灵账号）。
+key 被上游拒绝（401 / 连败）走 §3.3 的凭据失效换号：标 `unauthorized` 并自动切下一个
+健康 key（额度类换号对无额度概念的渠道不适用，`account-rotate.ts` 按能力分流）。
+
 ### 3.3 策略
 
 - **选择**：当前生效账号（`accounts.json.active`）。生效账号**熔断未到期**时，

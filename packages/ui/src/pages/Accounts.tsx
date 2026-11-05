@@ -92,6 +92,16 @@ export function Accounts(): ReactElement {
     // 再进页面先出上一次的数据（轮询间隔内数据没变的话，等一轮没有意义）
     placeholderData: (prev) => prev,
   });
+  // 自定义提供商 id 集合：这些渠道的「添加账号」= 加 key（在下方提供商编辑器里做）
+  const providersQuery = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api.providers(),
+    staleTime: 30_000,
+  });
+  const customIds = useMemo(
+    () => new Set((providersQuery.data ?? []).map((p) => p.id)),
+    [providersQuery.data],
+  );
   const logins = useQuery({
     queryKey: ["logins"],
     queryFn: async () => {
@@ -358,7 +368,15 @@ export function Accounts(): ReactElement {
                 }}
                 onActivate={(cid, key) => activate.mutate({ cid, key })}
                 onRemove={(cid, key) => remove.mutate({ cid, key })}
-                onAdd={(cid) => setLoginChannel(cid)}
+                onAdd={(cid) => {
+                  // 自定义提供商的「账号」就是 key：不走登录流程，跳到下方编辑器加 key
+                  if (customIds.has(cid)) {
+                    toast.info("自定义提供商的账号 = API Key：在下方「自定义提供商」里给该提供商添加 Key");
+                    document.getElementById("custom-providers")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    return;
+                  }
+                  setLoginChannel(cid);
+                }}
                 busyKey={busyKey}
               />
             ))}
@@ -367,7 +385,9 @@ export function Accounts(): ReactElement {
       )}
 
       {/* 自定义提供商：任意 OpenAI 兼容端点（与内置渠道并列参与路由） */}
-      <CustomProviders />
+      <div id="custom-providers" className="scroll-mt-20">
+        <CustomProviders />
+      </div>
 
       {/* 登录弹窗（仅右上角关闭键可关） */}
       {loginChannel !== null && (

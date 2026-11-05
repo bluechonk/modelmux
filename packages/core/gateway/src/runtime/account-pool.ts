@@ -183,6 +183,124 @@ export function accountKey(credential: { uid?: unknown; domain?: unknown; access
   return createHash("sha256").update(basis, "utf8").digest("hex").slice(0, 16);
 }
 
+/**
+ * key 的稳定身份（改备注名不影响账号身份）。
+ *
+ * 身份必须绑定 key 本体而不是显示名 —— 用 label 当身份时改一次备注就会
+ * 被当成新账号（旧账号成孤儿再被裁掉），凭据/健康历史全丢。
+ *
+ * 生效凭据（credentials.json）与账号文件必须用**同一个派生**：两处 uid 不一致时
+ * `syncPool` 会从凭据派生出一个池里不存在的「幽灵账号」（实测踩过），
+ * 所以 writeActiveKeyProvider 也调用本函数。
+ */
+export function keyUid(key: string): string {
+  return createHash("sha256").update(`key\u0000${key}`, "utf8").digest("hex").slice(0, 12);
+}
+
+/**
+ * 「凭据即 key」渠道的池同步：一组 key → 池内账号（一个 key = 一个账号）。
+ *
+ * 与真实渠道完全同构：账号文件内容 `{accessToken: key, uid, domain: cid}` 落
+ * `accounts/<accountKey>.json`，生效凭据 = `credentials.json`（账号池切换即改它）。
+ * 不在列表里的 key 连账号一起移除；生效 key 被删时自动改指第一个；列表为空则
+ * 清空池并删生效凭据。幂等，可反复调用（注册表每次变动 / 启动时同步）。
+ */
+export function syncKeyAccounts(
+  cid: string,
+  entries: Array<{ key: string; label?: string }>,
+  /** 指定生效 key（登录/新增 key 时让它立即生效）；缺省保留原 active 或取第一个。 */
+  preferredActive?: string,
+): void {
+  const index = readIndex(cid);
+  const stamp = nowIso();
+  const wanted = new Map<string, { credential: Record<string, unknown>; label: string }>();
+  for (const entry of entries) {
+    const key = entry.key.trim();
+    if (!key) continue;
+    const credential = { accessToken: key, uid: keyUid(key), domain: cid };
+    wanted.set(accountKey(credential), { credential, label: entry.label?.trim() || key });
+  }
+
+  const kept: PoolAccount[] = [];
+  for (const account of index.accounts) {
+    // 裁掉「从注册表移除的 key」与「domain 为空的脏账号」：本函数只服务
+    // 凭据即 key 的渠道，其账号一定带 domain=cid —— domain 空项是旧路径残留，
+    // 留着会以幽灵账号身份被显示/被选中
+    const stale = !wanted.has(account.key) && (account.domain === cid || account.domain === "");
+    if (stale) {
+      try {
+        rmSync(accountFile(account.key, cid), { force: true });
+      } catch {
+        /* 账号文件删不掉不阻塞索引裁剪（它是权威事实源） */
+      }
+      continue;
+    }
+    kept.push(account);
+  }
+
+  for (const [key, item] of wanted) {
+    const existing = kept.find((a) => a.key === key);
+    const account: PoolAccount = {
+      key,
+      uid: String(item.credential["uid"] ?? ""),
+      domain: cid,
+      name: existing?.name ?? "",
+      label: item.label,
+      added_at: existing?.added_at ?? stamp,
+      last_used_at: existing?.last_used_at ?? stamp,
+      expires_at: null,
+      health: existing?.health ?? "ok",
+      health_at: existing?.health_at ?? stamp,
+      fail_streak: existing?.fail_streak ?? 0,
+      // 健康状态与冷却/熔断原样保留：重同步不该清掉失败历史
+      ...(existing?.cooldown_until ? { cooldown_until: existing.cooldown_until } : {}),
+      ...(existing?.cooldown_reason ? { cooldown_reason: existing.cooldown_reason } : {}),
+      ...(existing?.trip_until ? { trip_until: existing.trip_until } : {}),
+      ...(existing?.trip_backoff_ms ? { trip_backoff_ms: existing.trip_backoff_ms } : {}),
+    };
+    const at = kept.findIndex((a) => a.key === key);
+    if (at >= 0) kept[at] = account;
+    else kept.push(account);
+    mkdirSync(accountDir(cid), { recursive: true });
+    writeJsonSecret(accountFile(key, cid), item.credential);
+  }
+
+  // 生效账号必须落在本次同步的 key 集合里：首选 preferredActive（登录/新加 key），
+  // 否则保留旧 active（若仍有效），最后回退第一个
+  const preferredKey = preferredActive
+    ? [...wanted.entries()].find(([, item]) => item.credential["accessToken"] === preferredActive)?.[0]
+    : undefined;
+  const active =
+    preferredKey ??
+    (kept.some((a) => a.key === index.active && wanted.has(a.key)) ? index.active : (kept[0]?.key ?? null));
+  writeIndex({ version: 1, active, accounts: kept }, cid);
+
+  // 生效凭据：与 active 对齐（缺失 / 指向已删 key / 内容不一致时改写；无 key 则清理）
+  const target = active ? wanted.get(active) : undefined;
+  const credPath = credentialsPath(cid);
+  if (!target) {
+    try {
+      rmSync(credPath, { force: true });
+    } catch {
+      /* 清理失败不影响池状态 */
+    }
+    return;
+  }
+  let current = "";
+  let currentUid = "";
+  try {
+    const parsed = JSON.parse(readFileSync(credPath, "utf8")) as Record<string, unknown>;
+    current = typeof parsed["accessToken"] === "string" ? parsed["accessToken"] : "";
+    currentUid = typeof parsed["uid"] === "string" ? parsed["uid"] : "";
+  } catch {
+    /* 无文件 / 损坏：下面重写 */
+  }
+  // uid 也要比对：旧版本写的凭据 uid 派生不同，仅凭 token 相同跳过会把不一致形态留在盘上
+  if (current === String(target.credential["accessToken"]) && currentUid === String(target.credential["uid"])) return;
+  mkdirSync(channelDir(cid), { recursive: true });
+  writeJsonSecret(credPath, target.credential);
+}
+
 /** 读索引；文件缺失/损坏时返回空池（不抛错）。 */
 export function readIndex(cid?: string): PoolIndex {
   try {
