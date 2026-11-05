@@ -3,8 +3,8 @@
  *
  * 三件独立的事，各自可测：
  *   1. `shouldOfferTranslation()` —— 这段正文值不值得翻（算法见 docs/TRANSLATION.md）
- *   2. `splitForTranslation()` —— 保护代码块、按空行切块、超长硬切
- *   3. `translateText()` —— 查缓存 → 单次批量请求 → 拼回
+ *   2. `splitCodeSegments()` + `chunkProse()` —— 保护代码块、按空行切块、超长硬切
+ *   3. `translateText()` —— 查缓存 → 按服务端单批上限分批请求 → 拼回
  *
  * 译文只活在内存里（模块级 Map，刷新即失效），**绝不回写日志正文** ——
  * 正文是排查事实源，机器翻译写回去就再也分不清原文与译文。
@@ -15,7 +15,7 @@ import { api } from "./api.ts";
 /** 目标语言：控制台界面是中文，只做中译。 */
 const TARGET = "zh-Hans";
 
-/** 单块字符上限：服务端 4000 的余量（Bing 上限按整批算，见 docs）。 */
+/** 单块字符上限：服务端 4000 留余量（上游上限按整批算，见 docs/TRANSLATION.md §5.1）。 */
 const CHUNK_CHARS = 3000;
 
 /** 单条消息最多翻这么多字符：再长就不是「读一段话」而是「翻一份文档」了。 */
@@ -264,18 +264,32 @@ function cacheSet(text: string, translated: string): void {
   cache.set(`${TARGET}\n${text}`, translated);
 }
 
-/** 翻译结果：`text` 是拼回的完整正文（代码块原样），`truncated` 表示只翻了前一段。 */
+/** 翻译结果：`text` 是拼回的完整正文（代码块原样），`truncated` = 超出预算、只翻了开头的部分。 */
 export interface TranslationResult {
   text: string;
   truncated: boolean;
 }
 
+/**
+ * 服务端单批条数上限：与网关 `translate-proxy.ts` 的 `MAX_TEXTS`（12）同值。
+ * 块 ≤3000 字符（`chunkProse` 的上限），12 块 = 36000，天然在单批 40000 字符限内，
+ * 所以按条数分批就够，不必再按字符数二次切。
+ */
+const MAX_BATCH_TEXTS = 12;
+
 async function requestChunks(chunks: string[]): Promise<string[]> {
-  const texts = await api.translate(chunks);
-  if (texts.length !== chunks.length) {
-    throw new Error("译文数量与原文块不一致");
+  // 分批是必须的：块按**段**切出、段间不合并，「代码块 + 一行解说」交替的正文
+  // 很容易凑出 13+ 个散文段 —— 一把梭会被服务端按条数上限整批拒绝，重试也无解。
+  const out: string[] = [];
+  for (let i = 0; i < chunks.length; i += MAX_BATCH_TEXTS) {
+    const batch = chunks.slice(i, i + MAX_BATCH_TEXTS);
+    const texts = await api.translate(batch);
+    if (texts.length !== batch.length) {
+      throw new Error("译文数量与原文块不一致");
+    }
+    out.push(...texts);
   }
-  return texts;
+  return out;
 }
 
 /**

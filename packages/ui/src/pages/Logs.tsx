@@ -243,10 +243,10 @@ function LogDetail({
 /**
  * 列宽表。
  *
- * 模型列**吃剩余空间**（表宽通常远大于固定列之和），但整表设了 `md:min-w-[960px]`：
- * 其余 9 列固定宽合计 780，最小宽时模型列仍有 180px。此前表格最小宽 = 固定列之和，
- * 模型列在 900px 表宽下被挤成 0，`<wbr>` 断点让模型名逐字符竖排
- * （2026-11-05 实测：行高 321px）。宁可整表横向滚动，也不压垮某一列。
+ * 模型列**吃剩余空间**，但整表设了 `md:min-w-[960px]`：其余 9 列固定宽合计 780，
+ * 最小宽时模型列仍有 180px —— 列宽合计等于表最小宽时，剩余空间列会被压到 0，
+ * `<wbr>` 断点让模型名逐字符竖排（2026-11-05 实测：行高 321px）。
+ * 宁可整表横向滚动，也不压垮某一列。
  * 数值列（耗时 / tokens）右对齐，位数不同也能对齐（全站同一约定）。
  */
 const COL_WIDTHS = {
@@ -622,8 +622,10 @@ function Filters({
     other: { idle: "text-warn hover:bg-warn/10", active: "bg-warn/15 text-warn" },
   };
   const today = localToday();
+  // 空值 = 后端回落到「最近一个有日志的日期」：今天还没有请求时回落的是昨天，
+  // 标签写死「今天」名不副实 —— 跟随实际返回的日期展示
   const dateOptions: SelectOption[] = [
-    { value: "", label: "今天" },
+    { value: "", label: page?.date && page.date !== today ? `最新（${page.date}）` : "今天" },
     ...(page?.dates ?? []).filter((value) => value !== today).map((value) => ({ value, label: value })),
   ];
   const cidOptions: SelectOption[] = [
@@ -731,7 +733,7 @@ export function Logs(): ReactElement {
   const logs = useQuery({
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
     // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
-    // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测踩过）。
+    // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测出现过）。
     queryKey: ["logs", date, outcome, cid, search, slowOnly, pageNum, pageSize],
     // 再进页面 / 切筛选时先出上一次的数据（列表页最怕被清空成骨架）
     placeholderData: (prev) => prev,

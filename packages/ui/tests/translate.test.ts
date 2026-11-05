@@ -193,4 +193,22 @@ describe("translateText（api.translate 打桩，不出网）", () => {
     const sent = calls.flat().reduce((n, t) => n + t.length, 0);
     assert.ok(sent <= 12_000 + 3_000, `发出 ${sent} 字符，必须受预算约束（单块余量内）`);
   });
+
+  it("13+ 个散文段按服务端单批上限分批，不被条数上限整批拒绝", async () => {
+    stubTranslate();
+    // 「一行解说 + 代码块」交替是 agent 回复的常态形态：每行散文是独立段、各产一个块，
+    // 13 段就超过服务端 MAX_TEXTS=12 —— 旧实现一把梭必然 400，按钮恒「翻译失败」
+    const text = Array.from(
+      { length: 13 },
+      (_, i) => `Sentence ${i} explains a short but useful idea.\n\n\`\`\`\nconst keep${i} = 1;\n\`\`\``,
+    ).join("\n\n");
+    const result = await translateText(text);
+    assert.equal(result.truncated, false);
+    assert.ok(calls.length >= 2, `必须分批发出（实际 ${calls.length} 次请求）`);
+    for (const batch of calls) {
+      assert.ok(batch.length <= 12, `单批 ${batch.length} 条超过服务端上限 12`);
+    }
+    assert.equal(calls.flat().length, 13, "13 个散文块全部发出且各批一次");
+    assert.ok(result.text.includes("const keep12 = 1;"), "代码块仍然原样保留");
+  });
 });

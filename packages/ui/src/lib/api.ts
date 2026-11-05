@@ -78,9 +78,22 @@ function demoLater<T>(value: T): Promise<T> {
 }
 
 
+/** 非 2xx 的报错文案：优先取响应体里的 `error`（服务端给的具体原因），退化到状态码。 */
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const payload = (await res.json()) as { error?: string };
+    if (payload.error) return payload.error;
+  } catch {
+    // 非 JSON 响应体就按状态码处理
+  }
+  return `HTTP ${res.status}`;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  // GET 的错误体同样要透传：payload not found / decode-failed 这类具体原因
+  // 比「HTTP 404」对排障有用得多，不能只让 POST/PUT 独享
+  if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json() as T;
 }
 
@@ -90,16 +103,7 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      const payload = (await res.json()) as { error?: string };
-      if (payload.error) msg = payload.error;
-    } catch {
-      // 非 JSON 响应体就按状态码处理
-    }
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json() as T;
 }
 
@@ -110,16 +114,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      const payload = (await res.json()) as { error?: string };
-      if (payload.error) msg = payload.error;
-    } catch {
-      // 非 JSON 响应体就按状态码处理
-    }
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json() as T;
 }
 
@@ -232,7 +227,7 @@ export interface CommandData extends Record<string, unknown> {
  *
  * **返回值会自动解包 `data`** —— 后端统一信封是 `{ ok, data?, message?, error? }`，
  * 调用方拿到的就是 `data`。早期版本把整个信封返回，导致各页面按 `res.channels` 读取
- * 而实际在 `res.data.channels`，表现为「（无渠道）」「（无数据）」（实测踩过）。
+ * 而实际在 `res.data.channels`，表现为「（无渠道）」「（无数据）」（实测出现过）。
  */
 async function command(
   action: string,

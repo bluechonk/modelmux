@@ -21,7 +21,7 @@ const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
  *
  * 单端口模式下 UI 挂在网关的 `/web` 下（见 `vite.config.ts` 的 `base`）。
  * `basename` 必须与之一致 —— 只设 Vite 的 `base` 只影响**资源引用**，
- * Router 仍按 `/` 匹配路径，访问 `/web/` 会没有任何路由命中而**整页空白**（实测踩过）。
+ * Router 仍按 `/` 匹配路径，访问 `/web/` 会没有任何路由命中而**整页空白**（实测出现过）。
  *
  * 演示构建用 `__DEMO_BASE__`（Pages 项目站点是 `/modelmux/`，本地预览是 `/`）：
  * 与 `vite.config.ts` 的 `base` 同一个值，两处必须一起变。

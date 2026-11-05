@@ -37,7 +37,7 @@ export type TranslateOutcome =
   | { ok: true; texts: string[] }
   | { ok: false; code: TranslateErrorCode; error: string };
 
-/** 校验一批文本；不合法时返回错误码，合法返回 null。 */
+/** 校验一批文本：合法返回 `{ ok: true, texts }`（原样透传），不合法返回 `{ ok: false, code, error }`。 */
 export function validateTexts(
   texts: unknown,
 ): { ok: true; texts: string[] } | { ok: false; code: TranslateErrorCode; error: string } {
@@ -107,6 +107,14 @@ export async function translateTexts(texts: string[], to = "zh-Hans"): Promise<T
     clearTimeout(timer);
   }
   const raw = await res.text().catch(() => "");
+  // 体读取阶段 abort（连接中断 / 信号触发）不能被误判成「响应不合法」——超时就是超时
+  if (controller.signal.aborted) {
+    return {
+      ok: false,
+      code: "translate-timeout",
+      error: `翻译超时（> ${TIMEOUT_MS / 1000}s）`,
+    };
+  }
   if (!res.ok) {
     return {
       ok: false,
@@ -118,7 +126,12 @@ export async function translateTexts(texts: string[], to = "zh-Hans"): Promise<T
   try {
     payload = JSON.parse(raw);
   } catch {
-    return { ok: false, code: "translate-invalid-response", error: raw.slice(0, 120) };
+    // 空串与解析失败必须给出非空 error：空串传到前端会让失败态静默复原成「翻译」按钮
+    return {
+      ok: false,
+      code: "translate-invalid-response",
+      error: raw === "" ? "上游返回空响应体（或读取失败）" : raw.slice(0, 120),
+    };
   }
   if (!Array.isArray(payload) || payload.length !== texts.length) {
     return {

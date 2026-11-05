@@ -125,7 +125,10 @@ describe("probe / foreignServiceOnPort", () => {
 describe("killTree", () => {
   it("结束真实子进程并等到它死透", async () => {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-    await new Promise((r) => setTimeout(r, 300));
+    // 轮询等启动：固定 sleep 在冷启动 / 高负载机器上会假失败
+    for (let i = 0; i < 50 && !pidAlive(child.pid!); i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
     assert.equal(pidAlive(child.pid!), true, "子进程应已启动");
     const dead = await killTree(child.pid!);
     assert.equal(dead, true);
