@@ -24,6 +24,10 @@ zcode 是主用 harness：真实 Agent 工作流 + 全套 MCP（实测 11 个 se
 
 ## 前置条件
 
+> **模型配置由控制台「一键接入」改写**（仪表盘 → 一键接入 → 接入 zcode，后端写
+> `~/.zcode/v2/provider_config.json` 并把模型清单换成网关的 3 个 deepseek 裸名，写前备份）。
+> 本技能不再描述手写配置的写法。
+
 | 条件 | 验证 |
 | --- | --- |
 | 网关在跑 | `curl -s http://127.0.0.1:4412/health` 同时含 `"ok":true` 与 `"service":"modelmux"` |

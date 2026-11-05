@@ -226,7 +226,7 @@ function LogDetail({
  * 列宽表。
  *
  * 模型列**不给宽度**（吃掉剩余空间）—— 否则整表会比面板窄，右侧露出空白。
- * 数值列（耗时 / tokens）右对齐，位数不同也能对齐：见 `ModelExplorer` 的同一约定。
+ * 数值列（耗时 / tokens）右对齐，位数不同也能对齐（全站同一约定）。
  */
 const COL_WIDTHS = {
   toggle: "44px",
@@ -245,7 +245,7 @@ const COL_WIDTHS = {
  * 窄屏（`< md`）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 88px。
  *
  * 窄屏只留「时间 / 结果 / 模型」三列，固定列合计 88 + 104 = 192px，
- * 故 300px 最小宽下模型列仍有 ~100px（模型表同理，见 `ModelExplorer` 的 `TABLE_MIN_W`）。
+ * 故 300px 最小宽下模型列仍有 ~100px（模型表同理，见仪表盘模型清单的窄屏取舍）。
  */
 const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
   toggle: "44px",

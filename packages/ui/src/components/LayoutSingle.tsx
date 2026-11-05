@@ -13,7 +13,7 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, List, ScrollText } from "lucide-react";
+import { Boxes, Gauge, ScrollText } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { api } from "../lib/api";
 import { BrandMark } from "./BrandMark";
@@ -22,7 +22,6 @@ import { GatewayStatus } from "./GatewayStatus";
 /** 顶部标签导航项（路由不变，仅视觉载体从侧栏移到头部）。 */
 const NAV = [
   { to: "/", label: "仪表盘", icon: Gauge },
-  { to: "/models", label: "模型列表", icon: List },
   { to: "/accounts", label: "账号池", icon: Boxes },
   { to: "/logs", label: "请求日志", icon: ScrollText },
 ];

@@ -415,7 +415,8 @@ Cookie = `ssoSessionId; sso_sessionid; account_id; token`（`packages/core/chann
   `pool-targets.ts:609,644` 也会读 `facts.spec?.effort`
 - 但 astudio **又没有目录缓存条目**（从不 `writeCatalogCache`）→ `entry = null` → `facts.effort = null`
 - **结果**：`/v1/models` 的 `effort` 恒 `null`、`meta_sources.effort = "default"`，
-  Web 控制台「思考模式」列**全部显示「不支持」**（`packages/ui/src/components/ModelExplorer.tsx:419-425`）
+  Web 控制台**没有「思考模式」列**（仪表盘模型清单只显示模型名 / 健康度 / 平均 TPS / 倍率，
+  见 `packages/ui/src/pages/Dashboard.tsx` 的 `modelRows`）
 - 跨渠道兜底也救不了：`packages/core/gateway/src/pool/pool-targets.ts:604-613` 的 `buildCrossModelIndex()` 按规范模型名聚合，
   但**档位取交集**需要兄弟渠道的 `effort` 也非空 → traecn 的 `efforts` 来自上游
   `reasoning_effort_config`（`packages/core/channels/traecn/src/catalog.ts:329-338`），未登录/无端点时为空 → 交集 null。
@@ -582,8 +583,7 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 **UI 显示链路**
 - `packages/ui/src/components/AccountCard.tsx`（`:151` 脱敏承诺、`:174-189` `displayName()`、
   `:440-442` 渲染）
-- `packages/ui/src/components/ModelExplorer.tsx`（`:345-363` 倍率、`:366-380` 输入模态、
-  `:418-436` 思考档位、`:473-574` 分组表）
+- `packages/ui/src/pages/Dashboard.tsx` 的 `modelRows`（模型清单：模型名 / 健康度 / 平均 TPS / 倍率）
 - `packages/ui/src/components/LoginModal.tsx`（`:58,130-150` 授权链接渲染）
 - `packages/ui/src/lib/demo.ts`（`:44-92` 演示渠道/模型/账号）
 - `packages/ui/src/lib/types.ts`（`:20-47` `model_info` 类型）
