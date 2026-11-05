@@ -211,18 +211,14 @@ export function formatPercent(rate: number | null | undefined): string {
 }
 
 /**
- * 缓存命中率展示；**无缓存字段时返回 `—`**（与「命中 0」区分 —— 把「没采集到」显示成
- * 「0%」是错误信息，见 docs/CACHE-HIT-RATE.md §6）。
+ * 缓存命中率展示：**只认上游返回的命中率字段**。
  *
- * 分母恒为 `hit + miss`：`miss` 已由共享层按上游形态归一化
- * （Anthropic 风格下 `input_tokens` 不含缓存读写，用 `prompt_tokens` 当分母会算出假命中率）。
+ * 实测（2026-11-05，逐条扫全部渠道 usage 叶子字段）没有任何上游回比率，只回命中 /
+ * 未命中的 token 计数 —— 按「不自己算比率」的口径，这里恒为 `—`；上游计数在展开详情里
+ * 原样展示（`命中 X · 未命中 Y`）。
  */
-export function formatCacheRate(
-  cache: { hit: number | null; miss: number | null } | null | undefined,
-): string {
-  if (!cache || cache.hit === null || cache.hit === undefined) return "—";
-  if (cache.miss === null || cache.miss === undefined) return "—";
-  return formatPercent(cache.hit / (cache.hit + cache.miss));
+export function formatCacheRate(): string {
+  return "—";
 }
 
 /** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */

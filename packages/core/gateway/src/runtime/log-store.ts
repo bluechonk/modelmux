@@ -103,7 +103,6 @@ type WithRequestLog = ServerResponse & { [REQUEST_LOG]?: RequestLog };
 const MAX_ROTATED = 3;
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS = 14;
-const DEFAULT_SLOW_MS = 30_000;
 
 let lastPruneDate = "";
 
@@ -122,8 +121,132 @@ function retentionDays(): number {
   return envInt("MODELMUX_LOG_RETENTION_DAYS", DEFAULT_RETENTION_DAYS);
 }
 
-function slowMs(): number {
-  return envInt("MODELMUX_SLOW_MS", DEFAULT_SLOW_MS);
+/**
+ * 生成窗口下限（毫秒）：小于它算不出可信速率（首末帧同毫秒 = 测不到）。
+ *
+ * 与 UI 侧 `packages/ui/src/lib/log-format.ts` 的 `GENERATE_FLOOR_MS` **必须同值** ——
+ * 两边算的是同一个 TPS，只是服务端用于聚合与「慢」判定、前端用于单条展示。改一处就要改两处。
+ */
+const GENERATE_FLOOR_MS = 50;
+
+/**
+ * 速率上限（tokens/s）：超过它说明分母算错了（非流式把 ttfb 当生成时间等）。
+ *
+ * 与 UI 侧 `MEASURE_CEILING_TPS` 同值，理由同上。
+ */
+const MEASURE_CEILING_TPS = 1000;
+
+/**
+ * 单个请求的生成速率（tokens/s）；算不出可信值时返回 null。
+ *
+ * 算法逐行对齐 UI 的 `tokensPerSecOf`：分母优先用**纯生成窗口** `generateMs`，
+ * 缺失时按 `durationMs` 减掉首字节 / 上游接单时间兜底；流式与非流式的兜底基准不同
+ * （非流式 `ttfbMs` 等于总耗时，减它会把分母压到 0）。
+ * 为什么服务端要再实现一遍：UI 包不依赖 `@modelmux/gateway`，两边各自构建。
+ */
+export function tokensPerSecOf(entry: {
+  tokens: { completion: number | null } | null;
+  durationMs?: number;
+  ttfbMs?: number;
+  upstreamMs?: number;
+  generateMs?: number;
+  stream?: boolean;
+}): number | null {
+  const completion = entry.tokens?.completion ?? null;
+  const durationMs = entry.durationMs;
+  if (completion === null || !Number.isFinite(completion) || completion <= 0) return null;
+  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+  /** 可用的绝对耗时：必须为正且小于总耗时，否则视为缺失。 */
+  const cut = (v: number | undefined): number =>
+    v !== undefined && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
+
+  const direct = cut(entry.generateMs);
+  let generateMs: number;
+  if (direct > 0) {
+    generateMs = direct;
+  } else {
+    const ttfb = cut(entry.ttfbMs);
+    const upstream = cut(entry.upstreamMs);
+    const base =
+      entry.stream === true
+        ? ttfb || upstream
+        : entry.stream === false
+          ? upstream
+          : ttfb > 0 && upstream > 0
+            ? Math.min(ttfb, upstream)
+            : ttfb || upstream;
+    generateMs = base > 0 ? durationMs - base : durationMs;
+  }
+  if (generateMs < GENERATE_FLOOR_MS) return null;
+  const perSec = completion / (generateMs / 1000);
+  return perSec > MEASURE_CEILING_TPS ? null : perSec;
+}
+
+// ---------------------------------------------------------------------------
+// 慢请求判定（首字延迟 + 生成速率，总时长不再参与）
+// ---------------------------------------------------------------------------
+
+/**
+ * 首字 token 延迟阈值（毫秒）：**流式**请求的 `ttfbMs` 达到它即判「首字慢」。
+ *
+ * 实测（2026-11-05，1816 条）：流式 ttfb p95 = 4.5s、p99 = 34.5s —— 10s 落在两档之间，
+ * 能抓住真异常（排队 / 上游接单卡住）又不滥发。非流式的 `ttfbMs` ≈ `durationMs`
+ * （见 docs/LOGGING.md §3.1），没有判别力，不参与该判定。
+ */
+export const SLOW_TTFB_MS = envInt("MODELMUX_SLOW_TTFB_MS", 10_000);
+
+/**
+ * 生成速率阈值（tokens/s）：可信速率低于它即判「速率慢」。
+ *
+ * 实测分布：p05 = 54 t/s —— 30 落在正常分布之外，抓的是真龟速；
+ * 模型清单的「慢」标签另有口径（`model-health.ts` 的 `SLOW_TPS = 100`，长期平均），
+ * 请求级用更宽的值避免把慢渠道的每条请求都标满。
+ */
+export const SLOW_TPS = envInt("MODELMUX_SLOW_TPS", 30);
+
+/** 生成量下限（tokens）：少于它不判速率慢 —— 1-3 个 token 的窗口太小，速率数值天然不可信（实测 tps<30 的命中里 p50 completion=3，全是 ping 类短请求）。 */
+export const SLOW_MIN_COMPLETION = 20;
+
+/** 单条请求的「慢」判定结果（两个维度独立成立，任一命中即慢）。 */
+export interface SlowVerdict {
+  /** 首 token 延迟超标（仅流式参与判定）。 */
+  slowTtfb: boolean;
+  /** 生成速率超标（可信速率 < `SLOW_TPS` 且生成量 ≥ `SLOW_MIN_COMPLETION`）。 */
+  slowTps: boolean;
+  /** slowTtfb 或 slowTps。 */
+  slow: boolean;
+}
+
+/**
+ * 单条请求的「慢」判定：**首字 token 延迟 + 生成速率**，总时长不再参与
+ * （30s 的总时长可能只是输出长，2026-11-05 实测旧口径 94 条里 89 条是长输出）。
+ *
+ * 写路径（`slow.log` 副本）与读路径（历史行重算）共用这一份 —— 历史日志没有
+ * 重写机会，但读出来时按当前口径重算，展示与统计自动统一。
+ */
+export function slowVerdictOf(input: {
+  stream?: boolean;
+  ttfbMs?: number;
+  durationMs?: number;
+  upstreamMs?: number;
+  generateMs?: number;
+  completion?: number | null;
+}): SlowVerdict {
+  // 首字慢只对流式有判别力：非流式 ttfbMs ≈ durationMs，减它没有意义
+  const slowTtfb = input.stream === true && (input.ttfbMs ?? 0) >= SLOW_TTFB_MS;
+  const tps =
+    input.completion != null && input.completion >= SLOW_MIN_COMPLETION
+      ? tokensPerSecOf({
+          tokens: { completion: input.completion },
+          durationMs: input.durationMs,
+          ttfbMs: input.ttfbMs,
+          upstreamMs: input.upstreamMs,
+          generateMs: input.generateMs,
+          stream: input.stream,
+        })
+      : null;
+  const slowTps = tps !== null && tps < SLOW_TPS;
+  return { slow: slowTtfb || slowTps, slowTtfb, slowTps };
 }
 
 /** 本地日期 `YYYY-MM-DD`（用户按本地时间看日志，不用 UTC）。 */
@@ -242,7 +365,7 @@ function appendAccessFile(outcome: AccessOutcome, record: RequestLog): void {
   // 免得日志多两个没人读的绝对时刻（口径见 docs/LOGGING.md §3.1）。
   const { written: _written, firstFrameAt: _first, lastFrameAt: _last, ...payload } = record;
   appendLine(join(dir, `${outcome}.log`), JSON.stringify({ ts: new Date(record.startAt).toISOString(), ...payload }));
-  if ((record.durationMs ?? 0) >= slowMs()) {
+  if (slowVerdictOf(record).slow) {
     appendLine(join(dir, "slow.log"), JSON.stringify({ ts: new Date(record.startAt).toISOString(), ...payload }));
   }
   if (outcome === "failure") {
@@ -276,7 +399,7 @@ export function finishRequestLog(log: RequestLog, status: number): void {
   // 成功的健康检查 / 模型轮询不记访问日志：Web 控制台每 5 秒拉一次 /v1/models，
   // 记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
   const routine = log.path === "/health" || log.path === "/v1/models";
-  if (routine && log.outcome === "success" && (log.durationMs ?? 0) < slowMs()) return;
+  if (routine && log.outcome === "success" && !slowVerdictOf(log).slow) return;
   appendAccessFile(log.outcome, log);
 }
 
@@ -572,10 +695,15 @@ export interface AccessEntry {
     total: number | null;
     cache: { hit: number | null; miss: number | null } | null;
   } | null;
-  /** 耗时达慢阈值 —— 与 `slow.log` 同一判据，不另设标准。 */
-  slow: boolean;
   /** 进过上游排队（收到过排队帧）。缺省 = 没有排队帧，不代表「没等过」。 */
   queued?: boolean;
+  /**
+   * 「慢」判定（读路径按当前口径重算，历史行自动跟随，见 `slowVerdictOf`）。
+   * 两个维度独立成立：`slowTtfb` 首字延迟超标（仅流式）、`slowTps` 生成速率超标。
+   */
+  slow: boolean;
+  slowTtfb: boolean;
+  slowTps: boolean;
 }
 
 /**
@@ -615,7 +743,12 @@ export interface AccessStats {
   success: number;
   failure: number;
   other: number;
+  /** 判定为慢的条数（口径见 `slowVerdictOf`）。 */
   slow: number;
+  /** 其中首字延迟超标的条数（仅流式参与判定）。 */
+  slowTtfb: number;
+  /** 其中生成速率超标的条数。 */
+  slowTps: number;
   avgDurationMs: number | null;
   /** 窗口内没有 usage 的条数（失败请求通常没有），避免把缺失当成 0。 */
   noUsage: number;
@@ -638,7 +771,8 @@ export interface AccessPage {
   dates: string[];
   /** 扫描窗口内出现过的渠道（**未过滤**，供筛选下拉用，不会随筛选消失）。 */
   cids: string[];
-  slowMs: number;
+  /** 「慢」判定的两个阈值（前端展示归因用；阈值定义见 `SLOW_TTFB_MS` / `SLOW_TPS`）。 */
+  slowThresholds: { ttfbMs: number; tps: number };
   scanned: number;
   /** 尾部窗口是否被截断：true 时统计只代表窗口内，不代表全天。 */
   truncated: boolean;
@@ -854,12 +988,27 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   const id = str(raw["id"]);
   if (!id) return null;
   const durationMs = num(raw["durationMs"]);
+  const stream = bool(raw["stream"]);
+  const ttfbMs = num(raw["ttfbMs"]);
+  const upstreamMs = num(raw["upstreamMs"]);
+  const generateMs = num(raw["generateMs"]);
+  const tokens = tokensOf(raw["usage"]);
+  // 「慢」在**读路径重算**：行内的历史口径不回改，展示与统计恒按当前判据（首字延迟 + 生成速率）。
+  // 历史行因此自动跟随新口径，不需要迁移。
+  const verdict = slowVerdictOf({
+    stream,
+    ttfbMs,
+    upstreamMs,
+    generateMs,
+    durationMs,
+    completion: tokens?.completion ?? null,
+  });
   const entry: AccessEntry = {
     id,
     ts: str(raw["ts"]) ?? "",
     outcome,
-    tokens: tokensOf(raw["usage"]),
-    slow: (durationMs ?? 0) >= slowMs(),
+    tokens,
+    ...verdict,
   };
   const cid = str(raw["cid"]);
   if (cid !== undefined) entry.cid = cid;
@@ -871,7 +1020,6 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (model !== undefined) entry.model = model;
   const key = str(raw["key"]);
   if (key !== undefined) entry.key = key;
-  const stream = bool(raw["stream"]);
   if (stream !== undefined) entry.stream = stream;
   const status = num(raw["status"]);
   if (status !== undefined) entry.status = status;
@@ -880,11 +1028,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   const message = str(raw["message"]);
   if (message !== undefined) entry.message = message;
   if (durationMs !== undefined) entry.durationMs = durationMs;
-  const upstreamMs = num(raw["upstreamMs"]);
   if (upstreamMs !== undefined) entry.upstreamMs = upstreamMs;
-  const ttfbMs = num(raw["ttfbMs"]);
   if (ttfbMs !== undefined) entry.ttfbMs = ttfbMs;
-  const generateMs = num(raw["generateMs"]);
   if (generateMs !== undefined) entry.generateMs = generateMs;
   const requestBytes = num(raw["requestBytes"]);
   if (requestBytes !== undefined) entry.requestBytes = requestBytes;
@@ -917,13 +1062,16 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     failure: 0,
     other: 0,
     slow: 0,
+    slowTtfb: 0,
+    slowTps: 0,
     avgDurationMs: null,
     noUsage: 0,
     tokens: { prompt: 0, completion: 0, total: 0 },
     cache: { hit: 0, total: 0, hitRate: null },
   };
+  const slowThresholds = { ttfbMs: SLOW_TTFB_MS, tps: SLOW_TPS };
   if (!date) {
-    return { date: "", dates, cids: [], slowMs: slowMs(), scanned: 0, truncated: false, total: 0, stats, entries: [] };
+    return { date: "", dates, cids: [], slowThresholds, scanned: 0, truncated: false, total: 0, stats, entries: [] };
   }
 
   const scanned: AccessEntry[] = [];
@@ -946,6 +1094,8 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
         stats.requests += 1;
         stats[outcome] += 1;
         if (entry.slow) stats.slow += 1;
+        if (entry.slowTtfb) stats.slowTtfb += 1;
+        if (entry.slowTps) stats.slowTps += 1;
         if (entry.durationMs !== undefined) {
           durationSum += entry.durationMs;
           durationCount += 1;
@@ -998,7 +1148,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     date,
     dates,
     cids,
-    slowMs: slowMs(),
+    slowThresholds,
     scanned: scanned.length,
     truncated,
     total: matched.length,

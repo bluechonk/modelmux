@@ -1,7 +1,6 @@
 # workbuddyai 协议规格（国际版 WorkBuddy 桌面端）
 
-> **已下架**：账号被上游封停，渠道不再注册（下架声明见 `packages/cli/src/channels.ts` 的
-> `RETIRED_CIDS`）；包与本文件保留作参考实现。
+> 注册清单（账号 2026-11-05 重新登录验证有效）。
 
 > 结论来源：`reference/ardeyouxipianyi_workbuddy2api-hub`（1576★）。
 > 其中 `wb_identity.py` / `wb_fingerprint.py` 标注为 **2026-10-16 mitmproxy 对官方 5.8.4

@@ -32,6 +32,7 @@
 | [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
 | [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 三页深色看板（仪表盘 / 账号池 / 请求日志；模型清单与一键接入在仪表盘）的架构、构建与 API 面貌 |
 | [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：仪表盘用量区块的数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
+| [TRANSLATION.md](./TRANSLATION.md) | **请求上下文翻译**：英译中的判定算法（功能词占比，不用 n-gram 语言识别）、代码块保护与分块策略、`/web/api/translate` 契约与上游实测边界、译文不落盘 |
 | [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案**：/web/ 首页运行视图的模块划分、布局与数据通道；现行规则见 WEB-CONSOLE.md |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
@@ -64,7 +65,7 @@
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
-| `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表）—— **已下架**（账号被上游封停，包与文档保留作参考实现） |
+| `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表；账号 2026-11-05 重新登录验证有效） |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）见下表。
 > GitHub 登录仅协议事实，未实现。

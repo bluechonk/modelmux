@@ -6,72 +6,27 @@
  * 缓存：已过去的日期永久缓存、今天每次重算；不按 mtime 失效（追加写入不改目录 mtime）。
  */
 
-import { listAccessDates, isModelRequestPath, scanAccessDate } from "./log-store.js";
+import { listAccessDates, isModelRequestPath, scanAccessDate, tokensPerSecOf } from "./log-store.js";
 
-export type UsageRange = "7d" | "30d" | "90d" | "365d";
-
-const RANGE_DAYS: Record<UsageRange, number> = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
-
-/**
- * 生成窗口下限（毫秒）：小于它算不出可信速率（首末帧同毫秒 = 测不到）。
- *
- * 与 UI 侧 `packages/ui/src/lib/log-format.ts` 的 `GENERATE_FLOOR_MS` **必须同值** ——
- * 两边算的是同一个 TPS，只是服务端用于聚合、前端用于单条展示。改一处就要改两处。
- */
-const GENERATE_FLOOR_MS = 50;
+// 单请求生成速率的公式与护栏在 `log-store.ts`（读路径重算「慢」也要用同一份）；
+// 这里 re-export 保持既有导入面（tests / probe 走这里取）。
+export { tokensPerSecOf };
 
 /**
- * 速率上限（tokens/s）：超过它说明分母算错了（非流式把 ttfb 当生成时间等）。
+ * 用量区间。
  *
- * 与 UI 侧 `MEASURE_CEILING_TPS` 同值，理由同上。
+ * `365d` 只供热力图（52 周日历恒看一年，不随区间选择器变化），不出现在区间选择器里。
+ * `all` = 累计：按日志保留期内**实际存在**的日期聚合，不设天数上限。
  */
-const MEASURE_CEILING_TPS = 1000;
+export type UsageRange = "today" | "7d" | "30d" | "90d" | "365d" | "all";
 
-/**
- * 单个请求的生成速率（tokens/s）；算不出可信值时返回 null。
- *
- * 算法逐行对齐 UI 的 `tokensPerSecOf`：分母优先用**纯生成窗口** `generateMs`，
- * 缺失时按 `durationMs` 减掉首字节 / 上游接单时间兜底；流式与非流式的兜底基准不同
- * （非流式 `ttfbMs` 等于总耗时，减它会把分母压到 0）。
- * 为什么服务端要再实现一遍：UI 包不依赖 `@modelmux/gateway`，两边各自构建。
- */
-export function tokensPerSecOf(entry: {
-  tokens: { completion: number | null } | null;
-  durationMs?: number;
-  ttfbMs?: number;
-  upstreamMs?: number;
-  generateMs?: number;
-  stream?: boolean;
-}): number | null {
-  const completion = entry.tokens?.completion ?? null;
-  const durationMs = entry.durationMs;
-  if (completion === null || !Number.isFinite(completion) || completion <= 0) return null;
-  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return null;
-  /** 可用的绝对耗时：必须为正且小于总耗时，否则视为缺失。 */
-  const cut = (v: number | undefined): number =>
-    v !== undefined && Number.isFinite(v) && v > 0 && v < durationMs ? v : 0;
-
-  const direct = cut(entry.generateMs);
-  let generateMs: number;
-  if (direct > 0) {
-    generateMs = direct;
-  } else {
-    const ttfb = cut(entry.ttfbMs);
-    const upstream = cut(entry.upstreamMs);
-    const base =
-      entry.stream === true
-        ? ttfb || upstream
-        : entry.stream === false
-          ? upstream
-          : ttfb > 0 && upstream > 0
-            ? Math.min(ttfb, upstream)
-            : ttfb || upstream;
-    generateMs = base > 0 ? durationMs - base : durationMs;
-  }
-  if (generateMs < GENERATE_FLOOR_MS) return null;
-  const perSec = completion / (generateMs / 1000);
-  return perSec > MEASURE_CEILING_TPS ? null : perSec;
-}
+const RANGE_DAYS: Record<Exclude<UsageRange, "all">, number> = {
+  today: 1,
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  "365d": 365,
+};
 
 /**
  * 未知模型（日志里没有 model 字段的模型请求，如解析前就失败的）在统计里的占位 id。
@@ -85,9 +40,15 @@ export const UNKNOWN_MODEL = "";
  *
  * 为什么按渠道拆：对外模型只剩 deepseek 几个名字，同一个名字可能由多个渠道承接，
  * 合成一个数会把「哪家慢」抹平（用户要的正是这个）。趋势图按这个键分序列。
+ *
+ * 旧日志的模型名自带渠道前缀（池 id 时代写的是 `<cid>/<模型>`），这里先剥掉同名前缀，
+ * 否则聚合键会变成 `cid/cid/模型`（实测 `loomy/loomy/deepseek-v4.1-flash`）。
  */
 export function usageKeyOf(cid: string | undefined, model: string | undefined): string {
-  return `${cid ?? ""}/${model ?? UNKNOWN_MODEL}`;
+  const c = cid ?? "";
+  let m = model ?? UNKNOWN_MODEL;
+  if (c !== "" && m.startsWith(`${c}/`)) m = m.slice(c.length + 1);
+  return `${c}/${m}`;
 }
 
 export interface UsageDaily {
@@ -348,21 +309,28 @@ const prevDay = (value: string): string => shiftDay(value, -1);
 const isNextDay = (a: string, b: string): boolean => shiftDay(a, 1) === b;
 
 /**
- * 聚合最近 N 天的模型请求用量。
+ * 聚合用量（区间由 `range` 决定）。
  *
  * `now` 可注入（测试用）；默认取当前时刻。只聚合**实际存在日志**的日期
- * （`listAccessDates()`），所以日志保留期（默认 14 天）之外不会有数据。
+ * （`listAccessDates()`），所以日志保留期（默认 14 天）之外不会有数据 ——
+ * 「累计」也是保留期内的累计，不是全历史。
  */
 export function computeUsageStats(range: UsageRange, now: Date = new Date()): UsageStats {
-  const days = RANGE_DAYS[range];
   const today = localDateOf(now);
-  const from = shiftDay(today, -(days - 1));
   const available = new Set(listAccessDates());
+  // 「累计」= 保留期内所有有日志的日期，不设窗口；其余按区间天数回推
   const inRange: string[] = [];
-  for (let i = 0; i < days; i += 1) {
-    const date = shiftDay(from, i);
-    if (available.has(date)) inRange.push(date);
+  if (range === "all") {
+    inRange.push(...[...available].sort());
+  } else {
+    const days = RANGE_DAYS[range];
+    const from = shiftDay(today, -(days - 1));
+    for (let i = 0; i < days; i += 1) {
+      const date = shiftDay(from, i);
+      if (available.has(date)) inRange.push(date);
+    }
   }
+  const from = inRange[0] ?? today;
 
   const daily: UsageDaily[] = [];
   const totals = {
@@ -465,7 +433,7 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
 
   const models: UsageModelRow[] = [...modelTotals.entries()]
     .map(([id, row]) => {
-      // 聚合键 `cid/model` 拆回两列（cid 与 deepseek 模型名都不含 `/`，按首个 `/` 切即可）
+      // 聚合键 `cid/model` 拆回两列（cid 不含 `/`，按首个 `/` 切即可）
       const slash = id.indexOf("/");
       const cid = slash < 0 ? "" : id.slice(0, slash);
       const model = slash < 0 ? id : id.slice(slash + 1);

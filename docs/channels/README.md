@@ -77,7 +77,7 @@ docs/channels/<cid>/
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
-| `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名 —— **已下架** | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
+| `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名（账号 2026-11-05 重新登录验证有效） | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 
@@ -99,7 +99,7 @@ docs/channels/<cid>/
 | `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费与倍率相符 |
 | `traecn` | `doubao-seed-code`（倍率 0.06） | 通过 | 扣费与倍率相符 |
 | `workbuddy` | `hy3`（倍率 0） | 通过 | |
-| `workbuddyai` | `hy3`（倍率 0） | 功能通过，**错误日志有新增** | 上游 429「模型繁忙」，属账号侧限流（**已下架**，账号被上游封停） |
+| `workbuddyai` | `hy3`（倍率 0） | 功能通过，**错误日志有新增** | 上游 429「模型繁忙」，属账号侧限流（当时账号已封停；2026-11-05 渠道重新上架） |
 
 **已知问题**（下一轮跟进）：
 

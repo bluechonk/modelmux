@@ -215,8 +215,11 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
         ts: "2026-10-28T05:00:00.000Z",
         status: 502,
         outcome: "failure",
-        stream: false,
+        // 慢的归因口径（首字延迟 + 生成速率，见 docs/LOGGING.md §3.5）：
+        // 失败请求没有 usage（速率测不出），打慢标靠「90s 才来首字」
+        stream: true,
         durationMs: 90_000,
+        ttfbMs: 90_000,
         usage: undefined,
         error: "upstream_error",
       }),
@@ -250,8 +253,9 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
       date: string;
       total: number;
       truncated: boolean;
-      stats: { requests: number; success: number; failure: number; slow: number; tokens: { total: number }; noUsage: number };
-      entries: Array<{ id: string; outcome: string; slow: boolean; tokens: { total: number } | null; cid?: string }>;
+      slowThresholds: { ttfbMs: number; tps: number };
+      stats: { requests: number; success: number; failure: number; slow: number; slowTtfb: number; slowTps: number; tokens: { total: number }; noUsage: number };
+      entries: Array<{ id: string; outcome: string; slow: boolean; slowTtfb: boolean; slowTps: boolean; tokens: { total: number } | null; cid?: string }>;
       cids: string[];
     };
     assert.equal(page.ok, true);
@@ -260,7 +264,10 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
     assert.equal(page.stats.requests, 2);
     assert.equal(page.stats.success, 1);
     assert.equal(page.stats.failure, 1);
-    assert.equal(page.stats.slow, 1, "90s 的失败请求要按慢阈值打标");
+    assert.equal(page.stats.slow, 1, "90s 才来首字的失败请求要按「首字慢」打标");
+    assert.equal(page.stats.slowTtfb, 1);
+    assert.equal(page.stats.slowTps, 0, "失败请求没有 usage，速率维度不参与");
+    assert.ok(page.slowThresholds.ttfbMs > 0 && page.slowThresholds.tps > 0);
     assert.equal(page.stats.noUsage, 1, "失败请求没有 usage，必须如实计数");
     assert.equal(page.stats.tokens.total, 12);
     assert.deepEqual(page.cids, ["webchan"]);

@@ -19,6 +19,7 @@ import "@modelmux/qodercn";
 import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
+import "@modelmux/workbuddyai";
 
 /** 已下架渠道：账号被上游封停，包保留作参考实现，不再注册。 */
-export const RETIRED_CIDS = ["lobsterai", "workbuddyai"];
+export const RETIRED_CIDS = ["lobsterai"];

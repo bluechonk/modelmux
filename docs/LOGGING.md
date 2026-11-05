@@ -23,7 +23,7 @@
 | `access/<date>/success.log` | 判定为成功的请求 | 结构化行 | `log-store.ts` | 响应结束时 `outcome=success`（§3.2、§3.3 的例外除外） |
 | `access/<date>/failure.log` | 判定为失败的请求 | 结构化行 | 同上 | `outcome=failure` |
 | `access/<date>/other.log` | **没给出状态码**的请求（连接在应答前就断了） | 结构化行 | 同上 | `outcome=other` |
-| `access/<date>/slow.log` | 耗时达到慢阈值的请求（与结果分类并行写入） | 结构化行 | 同上 | `durationMs >= MODELMUX_SLOW_MS`（默认 30000） |
+| `access/<date>/slow.log` | 判定为「慢」的请求（与结果分类并行写入；口径见 §3.5） | 结构化行 | 同上 | 首字延迟 ≥ `MODELMUX_SLOW_TTFB_MS`（默认 10000，仅流式）或 生成速率 < `MODELMUX_SLOW_TPS`（默认 30 t/s，且生成量 ≥ 20 tokens） |
 | `error/<date>/error.log` | 错误上下文 | 结构化行 | `appendError()` | 失败请求镜像（§3.4）+ worker 错误行 + 监督者错误事件 |
 | `system/<date>/lifecycle.log` | 进程生命周期事件 | 结构化行 | `appendSystem()` | §4 的事件名单 |
 | `system/<date>/gateway.log` | 网关与 worker 的自身输出 | 文本行 | `appendGateway()` | worker 的 stdout/stderr 转发（§5） |
@@ -115,18 +115,32 @@
 | `message` | `message` | 内容一致 |
 | `error` / `status` / `model` / `cid` | 同名 | — |
 
-### 3.5 慢请求定位
+### 3.5 慢请求判定与定位
 
-判定：同时读取 `slow.log` 与 `access/<date>/failure.log`，按三个耗时字段的组合定位：
+**判定**（`log-store.ts` 的 `slowVerdictOf`，写路径与读路径同一份 —— 读路径按当前口径
+重算，历史行自动跟随）：两个维度独立成立，任一命中即「慢」，**总时长不参与**
+（2026-11-05 实测 1816 条：旧口径「总时长 ≥ 30s」的 94 条里 89 条是「输出长但快」，
+长输出不等于慢）：
+
+| 维度 | 条件 | 阈值 |
+| --- | --- | --- |
+| 首字慢 | `stream === true` 且 `ttfbMs` ≥ 阈值 | `MODELMUX_SLOW_TTFB_MS`（默认 10000ms；实测流式 ttfb p95 = 4.5s、p99 = 34.5s） |
+| 速率慢 | 可信速率 < 阈值，且生成量 ≥ 20 tokens（少于它窗口太小，速率数值不可信——实测 tps<30 的命中里 p50 completion=3，全是 ping 类短请求） | `MODELMUX_SLOW_TPS`（默认 30 t/s；实测分布 p05 = 54 t/s） |
+
+速率复用 `tokensPerSecOf`（护栏同 TPS 展示：窗口 < 50ms 或速率 > 1000 t/s 算不可测，
+不可测不判慢）。模型清单的「慢」标签是另一口径（`model-health.ts` 的 `SLOW_TPS = 100`，
+看的是长期平均），两者故意不同。
+
+**定位**：命中后按三个耗时字段的组合找原因：
 
 | `upstreamMs` | `ttfbMs` | `durationMs` | 结论 |
 | --- | --- | --- | --- |
 | 大 | 大 | — | 耗时在**建立上游连接**（建连 / 上游接单） |
-| 正常 | 大或缺失 | 正常 | 耗时在**上游首帧** |
-| 正常 | 正常 | 大 | 耗时在**流式输出 / 工具循环 / 客户端读取**（结合 `usage`、`toolCount` 判断） |
+| 正常 | 大或缺失 | 正常 | 耗时在**上游首帧**（即「首字慢」） |
+| 正常 | 正常 | 大 | **生成速率慢**（结合 `usage.completion` 算 tps 复核） |
 
 > 读这张表时注意 `ttfbMs` 的流式 / 非流式差异（见 §3.1）：非流式下它 ≈ `durationMs`，
-> 第二行「首帧慢」因此对流式请求才有判别力；非流式要看生成速度请用 `generateMs`。
+> 「首帧慢」因此对流式请求才有判别力；非流式看生成速度请用 `generateMs`。
 
 `error=upstream_timeout` 表示上游在 `MODELMUX_READ_TIMEOUT_MS`（默认 120000ms）内**未产生任何
 数据**。该超时是**空闲**超时：每读到一块数据即重置计时，因此持续出字的流不会因总时长被切断。
@@ -164,10 +178,11 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | --- | --- | --- | --- |
 | 单文件大小上限 | 10MB | `MODELMUX_LOG_MAX_BYTES` | 每次追加前检查（`rotateIfNeeded`） |
 | 保留天数 | 14 | `MODELMUX_LOG_RETENTION_DAYS` | 每个进程每天首次写入时清理（`pruneOnce`） |
-| 慢请求阈值 | 30000ms | `MODELMUX_SLOW_MS` | 落盘时判定是否写 `slow.log` |
+| 首字慢阈值 | 10000ms（仅流式） | `MODELMUX_SLOW_TTFB_MS` | 写 `slow.log` 与读路径重算（§3.5） |
+| 速率慢阈值 | 30 t/s（生成量 ≥ 20 tokens） | `MODELMUX_SLOW_TPS` | 同上（`MODELMUX_SLOW_MS` 总时长口径已退役） |
 | 上游空闲超时 | 120000ms | `MODELMUX_READ_TIMEOUT_MS` | 转发层读上游时 |
 | 抓取单条正文上限 | 10MB | `MODELMUX_LOG_PAYLOAD_MAX_BYTES` | 抓取落盘时（§9）；超限双端保留（头尾各半） |
-| 抓取保留天数 | 3 | `MODELMUX_LOG_PAYLOAD_DAYS` | `pruneOnce` **先**按它清 `payload/`，再走 14 天（§9） |
+| 抓取保留天数 | 3 | `MODELMUX_LOG_PAYLOAD_DAYS` | `pruneOnce` **先**按它清 `payload/`，再走保留期（§9） |
 
 环境变量取值规则：非数字、`<= 0` 或未设置时**回落到默认值**。
 
