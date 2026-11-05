@@ -1,5 +1,8 @@
 # LobsterAI 协议规格（有道）
 
+> **已下架**：账号被上游封停，渠道不再注册（下架声明见 `packages/cli/src/channels.ts` 的
+> `RETIRED_CIDS`）；包与本文件保留作参考实现。
+
 提取自 `dsh-our-free-model/vendor/channel-pack/src/lobsterai*.ts`。
 
 ---

@@ -21,6 +21,9 @@ process.env["MODELMUX_HOME"] = HOME;
  *
  * 刻意**不写死数量** —— 写死就要求「每加一个渠道都回来改测试」，而这里真正要
  * 断言的是「目录里的渠道都注册上了」，数量本身不是被测对象。
+ *
+ * 下架渠道（包保留、不再注册，见 `channels.ts` 的 `RETIRED_CIDS`）要从这条等式里减去：
+ * 等式升级成「渠道目录 == 注册清单 ∪ 下架声明」，下架必须显式声明，不能悄悄不注册。
  */
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const CHANNELS_DIR = join(REPO_ROOT, "packages", "core", "channels");
@@ -29,7 +32,10 @@ const EXPECTED_CIDS = readdirSync(CHANNELS_DIR)
   .sort();
 
 const gw = await import("@modelmux/gateway");
-await import("../dist/channels.js");
+const { RETIRED_CIDS } = await import("../dist/channels.js");
+
+/** 目录里有包、且**在注册清单里**的渠道（下架的那些从等式里减去）。 */
+const ACTIVE_CIDS = EXPECTED_CIDS.filter((cid) => !RETIRED_CIDS.includes(cid));
 
 describe("仓库级模型池", () => {
   let running: Awaited<ReturnType<typeof gw.gateway.start>>;
@@ -43,9 +49,19 @@ describe("仓库级模型池", () => {
     rmSync(HOME, { recursive: true, force: true });
   });
 
-  it("注册了 packages/core/channels/ 下的全部渠道（数量由目录推导）", () => {
+  it("注册清单 == 渠道目录减去下架声明（下架必须显式登记）", () => {
     const cids = gw.channels().map((c) => c.config.cid).sort();
-    assert.deepEqual(cids, EXPECTED_CIDS, "注册清单与 packages/core/channels/ 目录不一致");
+    assert.deepEqual(cids, ACTIVE_CIDS, "注册清单与 packages/core/channels/ 目录不一致");
+    assert.deepEqual(
+      RETIRED_CIDS.filter((cid) => !EXPECTED_CIDS.includes(cid)),
+      [],
+      "下架声明必须对应真实存在的渠道包（包删了就该从 RETIRED_CIDS 划掉）",
+    );
+    assert.deepEqual(
+      RETIRED_CIDS.filter((cid) => cids.includes(cid)),
+      [],
+      "下架渠道不得仍在注册清单里",
+    );
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
     assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
@@ -56,7 +72,7 @@ describe("仓库级模型池", () => {
     assert.equal(health["ok"], true);
     assert.equal(health["service"], "modelmux");
     const per = health["channels"] as Array<{ cid: string }>;
-    assert.equal(per.length, EXPECTED_CIDS.length, "逐渠道报告");
+    assert.equal(per.length, ACTIVE_CIDS.length, "逐渠道报告");
   });
 
   it("/v1/models 动态返回全模型池，id 为 <cid>/<模型> 形态", async () => {
@@ -65,7 +81,7 @@ describe("仓库级模型池", () => {
     const payload = (await resp.json()) as { data: Array<{ id: string; owned_by: string }> };
     const ids = payload.data.map((m) => m.id).sort();
     // 全模型池：各渠道能提供的全部模型，按渠道挂前缀（同名模型各归各家）
-    assert.ok(ids.includes("workbuddyai/deepseek-v4.1-flash"), "应包含 workbuddyai/deepseek-v4.1-flash");
+    assert.ok(ids.includes("workbuddy/deepseek-v4.1-flash"), "应包含 workbuddy/deepseek-v4.1-flash");
     assert.ok(ids.includes("catpaw/glm-5.3-flash"), "应包含 catpaw/glm-5.3-flash");
     assert.ok(ids.length > 2, `应多于 2 个模型，实际 ${ids.length}`);
     assert.ok(
@@ -80,7 +96,7 @@ describe("仓库级模型池", () => {
 
   it("每个池 id 的候选渠道就是它的前缀（渠道由请求方指定）", () => {
     const candsOf = (model: string) => gw.poolCandidates(model).map((c) => c.cid);
-    assert.deepEqual(candsOf("workbuddyai/deepseek-v4.1-flash"), ["workbuddyai"]);
+    assert.deepEqual(candsOf("workbuddy/deepseek-v4.1-flash"), ["workbuddy"]);
     assert.deepEqual(candsOf("catpaw/glm-5.3-flash"), ["catpaw"]);
 
     // 池 id 的前缀必须是**已注册渠道**，且候选恰好是它自己 —— 这是「渠道由请求方指定」
@@ -93,7 +109,7 @@ describe("仓库级模型池", () => {
     //    （2026-10-26 实测：`lobsterai/MiniMax-M3.1-Flash-Preview` 在两次读之间进出）。
     //    写死数量（「>= 3」「>= 渠道数的一半」）同样不可行：同一份代码在不同环境下
     //    看到的渠道数可能不同（2026-10-26 实测：本机 2 个渠道，干净克隆下 4 个）。
-    const known = new Set(EXPECTED_CIDS);
+    const known = new Set(ACTIVE_CIDS);
     // POOL_MODELS 是 Proxy（每次属性访问都重建快照），先落一份本地快照再遍历
     const pooled = [...gw.POOL_MODELS];
     assert.ok(pooled.length > 0, "POOL_MODELS 不应为空");
@@ -148,14 +164,14 @@ describe("仓库级模型池", () => {
       }
       return { cid: c.config.cid, exposed };
     });
-    assert.equal(rows.length, EXPECTED_CIDS.length);
+    assert.equal(rows.length, ACTIVE_CIDS.length);
 
     const contributed = (cid: string) =>
       [...gw.POOL_MODELS].filter((model) => model.split("/")[0] === cid);
 
     assert.ok(
-      contributed("workbuddyai").includes("workbuddyai/deepseek-v4.1-flash"),
-      "workbuddyai 应贡献 deepseek-v4.1-flash",
+      contributed("workbuddy").includes("workbuddy/deepseek-v4.1-flash"),
+      "workbuddy 应贡献 deepseek-v4.1-flash",
     );
     // qoder 的上游 key 是短名（gfmodel），由渠道自己映射成池内名
     assert.ok(
@@ -167,8 +183,8 @@ describe("仓库级模型池", () => {
     //    每个注册渠道都该至少暴露一个模型，故下界就是渠道总数。
     const contributing = gw.channels().filter((c) => contributed(c.config.cid).length > 0);
     assert.ok(
-      contributing.length >= EXPECTED_CIDS.length,
-      `每个渠道都应有贡献（下界 ${EXPECTED_CIDS.length}），实际 ${contributing.length}`,
+      contributing.length >= ACTIVE_CIDS.length,
+      `每个渠道都应有贡献（下界 ${ACTIVE_CIDS.length}），实际 ${contributing.length}`,
     );
 
     // 每个目录条目都应出现在该渠道的对外池 id 里（规范名形态，不在这里重写归一化）

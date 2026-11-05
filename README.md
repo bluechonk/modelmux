@@ -1,6 +1,6 @@
 # modelmux
 
-**一个端点，接管多家 AI 客户端的额度。** 把 AStudio、WorkBuddy、Qoder、Loomy、LobsterAI、Raccoon、
+**一个端点，接管多家 AI 客户端的额度。** 把 AStudio、WorkBuddy、Qoder、Loomy、Raccoon、
 TRAE、CatPaw 等渠道汇成**一个 OpenAI 兼容端点**，对外暴露各渠道目录里的
 真实模型（`<渠道>/<模型>` 池 id，渠道由请求方指定）。专注做一件事：`npx modelmux` 起网关，
 任何 OpenAI 兼容客户端指过来就能用 —— 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。

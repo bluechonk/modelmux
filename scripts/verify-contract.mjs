@@ -100,14 +100,30 @@ check(
   (cliPkg.files ?? []).includes("dist/cli.bundle.js"),
   "packages/cli: files 必须包含 dist/cli.bundle.js（bin 指向它）",
 );
-const registered = [...read("packages/cli/src/channels.ts").matchAll(/import\s+"(@modelmux\/[a-z0-9-]+)"/g)].map((m) => m[1]);
+const channelsSrc = read("packages/cli/src/channels.ts");
+const registered = [...channelsSrc.matchAll(/import\s+"(@modelmux\/[a-z0-9-]+)"/g)].map((m) => m[1]);
 registeredImports = registered.length;
+// 下架声明：包保留作参考实现、但不再注册的渠道（如账号被上游封停的）。
+// 文本级解析与上面的 import 解析同风格；目录 == 注册 ∪ 下架 仍由本检查机械守住。
+const retiredMatch = /RETIRED_CIDS\s*=\s*\[([^\]]*)\]/.exec(channelsSrc);
+const retired = retiredMatch ? [...retiredMatch[1].matchAll(/["']([a-z0-9-]+)["']/g)].map((m) => m[1]) : [];
 for (const cid of channelDirs) {
-  check(registered.includes(`@modelmux/${cid}`), `packages/core/channels/${cid}: 未在 packages/cli/src/channels.ts 注册`);
+  check(
+    registered.includes(`@modelmux/${cid}`) || retired.includes(cid),
+    `packages/core/channels/${cid}: 未在 packages/cli/src/channels.ts 注册（要么加 import，要么登记进 RETIRED_CIDS）`,
+  );
 }
 check(
-  registered.length === channelDirs.length,
-  `注册清单（${registered.length}）与渠道目录数（${channelDirs.length}）不一致`,
+  retired.every((cid) => !registered.includes(`@modelmux/${cid}`)),
+  `RETIRED_CIDS 里的渠道不得同时注册：${retired.filter((cid) => registered.includes(`@modelmux/${cid}`)).join(", ")}`,
+);
+check(
+  retired.every((cid) => channelDirs.includes(cid)),
+  `RETIRED_CIDS 必须对应真实存在的渠道包：${retired.filter((cid) => !channelDirs.includes(cid)).join(", ")}`,
+);
+check(
+  registered.length === channelDirs.length - retired.length,
+  `注册清单（${registered.length}）+ 下架（${retired.length}）应等于渠道目录数（${channelDirs.length}）`,
 );
 
 // 工程引用对齐（`AGENTS.md` 的「命令」：根 tsconfig 是 solution 文件，references 列出全部包）。
