@@ -8,21 +8,20 @@
  * 无 hover 信息：详情一律点击后落固定区域；lg 双列 / md 单列，不新增依赖。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  Brain,
   CalendarCheck,
   Check,
   Coins,
   Copy,
-  Eye,
   Flame,
   Gauge,
   Layers,
+  PlugZap,
   RotateCw,
   Timer,
   Wifi,
@@ -35,8 +34,9 @@ import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
 import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
+import { classifyModel } from "../lib/model-health";
 import { formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
-import type { AccessLogEntry, AccessOutcome, UsageRange } from "../lib/types";
+import type { AccessLogEntry, AccessOutcome, ModelInfo, UsageRange } from "../lib/types";
 
 /** 区间选项（驱动下方「用量」三块，不影响今日快照）。 */
 const RANGES: ReadonlyArray<{ key: UsageRange; label: string }> = [
@@ -53,6 +53,17 @@ const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
 
 /** 趋势图最多画几条序列（更多模型会撞色）。 */
 const MAX_SERIES = 6;
+
+/**
+ * 模型健康度标签的文案与配色（判据同源，见 `lib/model-health.ts`）。
+ *
+ * 「无调用记录」不挂标签（没数据 ≠ 不可用）；优先级 排队 > 异常 > 慢，一行只出一个。
+ */
+const VERDICT_PILL: Record<"queued" | "slow" | "error", { text: string; cls: string }> = {
+  queued: { text: "排队", cls: "bg-warn/15 text-warn" },
+  slow: { text: "慢", cls: "bg-warn/15 text-warn" },
+  error: { text: "异常", cls: "bg-danger/12 text-danger" },
+};
 
 /** 分段控件（区间 / 热力图粒度共用）。 */
 function Segmented<T extends string>({
@@ -201,6 +212,72 @@ export function Dashboard(): ReactElement {
   const usageQuery = useQuery({ queryKey: ["usage", range], queryFn: () => api.usage(range) });
   const rangeStats = usageQuery.data;
 
+  /**
+   * 对外模型清单（**不显示渠道**）：模型名 + 跨渠道合并的健康度。
+   *
+   * 健康度按模型合并（各渠道的 ok/fail/queued 累加、TPS 取均值）—— 仪表盘回答的是
+   * 「这个模型现在能不能用、快不快」，落点渠道是网关的调度细节，不摆上来。
+   */
+  const modelRows = useMemo(() => {
+    const byModel = new Map<string, {
+      model: string;
+      meta: ModelInfo | undefined;
+      ok: number;
+      fail: number;
+      queued: number;
+      tpsSum: number;
+      tpsCount: number;
+    }>();
+    for (const row of state?.models ?? []) {
+      const cur = byModel.get(row.model) ?? {
+        model: row.model,
+        meta: row.meta,
+        ok: 0,
+        fail: 0,
+        queued: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+      };
+      if (!cur.meta) cur.meta = row.meta;
+      byModel.set(row.model, cur);
+    }
+    for (const row of rangeStats?.models ?? []) {
+      const cur = byModel.get(row.model);
+      if (!cur) continue;
+      cur.ok += row.ok;
+      cur.fail += row.fail;
+      cur.queued += row.queued;
+      if (row.avgTps !== null) {
+        cur.tpsSum += row.avgTps;
+        cur.tpsCount += 1;
+      }
+    }
+    return [...byModel.values()].map((row) => ({
+      model: row.model,
+      meta: row.meta,
+      verdict: classifyModel({
+        ok: row.ok,
+        fail: row.fail,
+        queued: row.queued,
+        avgTps: row.tpsCount > 0 ? row.tpsSum / row.tpsCount : null,
+      }),
+    }));
+  }, [state, rangeStats]);
+
+  /** 一键接入结果（展示用）：最近一次点的是哪个 harness、改了什么。 */
+  const [integration, setIntegration] = useState<{ target: string; message: string } | null>(null);
+  const integrateMutation = useMutation({
+    mutationFn: (target: "zcode" | "dsh") => api.commands.integrate(target),
+    onSuccess: (data) => {
+      const target = String(data.target ?? "");
+      const models = Array.isArray(data.models) ? data.models.map(String).join(" / ") : "";
+      const message = data.message ?? "已接入";
+      setIntegration({ target, message: models ? `${message}：${models}` : message });
+      toast.success(`已接入 ${target || "客户端"}${models ? `（${models}）` : ""}`);
+    },
+    onError: (err) => toast.error(`接入失败：${String(err)}`),
+  });
+
     // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
   const [grain, setGrain] = useState<HeatGranularity>("daily");
   const yearQuery = useQuery({ queryKey: ["usage", "365d"], queryFn: () => api.usage("365d") });
@@ -245,22 +322,15 @@ export function Dashboard(): ReactElement {
   // ----- 派生数据 -----
   const running = (overview?.gateway.ui_state ?? state.ui_state) === "running";
   const usage = overview?.usage;
-  const totalReq = usage?.requests ?? 0;
-  const successRate =
+  const totalReq = usage?.requests ?? 0;  const successRate =
     totalReq > 0 && usage ? `${Math.round((usage.success / totalReq) * 100)}%` : "—";
   const avgDur = usage?.avg_duration_ms != null ? formatDuration(usage.avg_duration_ms) : "—";
   const totalTokens = usage ? formatTokens(usage.tokens.total) : "0";
 
-  // 渠道计数（模型池概览用：供给渠道数）
+  // 渠道数（KPI 副标题用：供给渠道数）
   const totalModels = overview?.model_pool.total ?? new Set(state.models.map((m) => m.model)).size;
   const channelCount =
     (overview?.channels.length ?? 0) || new Set(state.models.map((m) => m.cid)).size;
-
-  // 模型池概览（直接从 overview 取）
-  const pool = overview?.model_pool;
-  const freeCount = pool?.free ?? 0;
-  const visionCount = pool?.vision ?? 0;
-  const thinkingCount = pool?.thinking ?? 0;
 
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
@@ -457,41 +527,71 @@ export function Dashboard(): ReactElement {
           </section>
         </div>
 
-        {/* 右列：模型池概览 + 网关控制 */}
+        {/* 右列：对外模型清单 + 一键接入 */}
         <div className="flex flex-col gap-5 lg:col-span-4">
-          {/* ④ 模型池概览（flex-1：向下拉伸到与左列同高，两列底边对齐） */}
-          <section className="panel flex-1 p-4">
+          {/* ④ 对外模型（不显示渠道：落点由网关按额度自动挑） */}
+          <section className="panel p-4">
             <div className="panel-title mb-3">
-              <Eye className="h-4 w-4 text-ink-faint" />
-              模型池
+              <Layers className="h-4 w-4 text-ink-faint" />
+              模型
             </div>
-            <div className="space-y-3">
-              <PoolStat icon={Layers} label="模型总数" value={String(totalModels)} />
-              <PoolStat
-                icon={Coins}
-                label="免费模型"
-                value={String(freeCount)}
-                tone="free"
-              />
-              <PoolStat
-                icon={Eye}
-                label="支持多模态"
-                value={String(visionCount)}
-              />
-              <PoolStat
-                icon={Brain}
-                label="支持思考"
-                value={String(thinkingCount)}
-              />
+            {modelRows.length === 0 ? (
+              <div className="py-3 text-center text-xs text-ink-faint">
+                还没有可对外提供的模型（先在账号池完成渠道授权）
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {modelRows.map((row) => {
+                  const pill = row.verdict.status === null ? null : VERDICT_PILL[row.verdict.status];
+                  return (
+                    <div key={row.model} className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{row.model}</span>
+                      {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
+                      <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
+                        {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
+                      </span>
+                      <span className="shrink-0 font-mono text-xs text-ink-faint">
+                        {row.meta?.multiplier == null ? "" : `×${row.meta.multiplier}`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* ⑤ 一键接入：把本机 harness 的模型清单改成网关的对外模型名 */}
+          <section className="panel p-4">
+            <div className="panel-title mb-2">
+              <PlugZap className="h-4 w-4 text-ink-faint" />
+              一键接入
             </div>
-            <button
-              type="button"
-              onClick={() => void navigate("/models")}
-              className="tap mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
-            >
-              查看全部模型
-              <ArrowRight className="h-3 w-3" />
-            </button>
+            <p className="mb-3 text-xs text-ink-faint">
+              把本机 harness 的模型清单改成上面这几个 deepseek 模型名（写前备份到
+              ~/.modelmux/backups/integrate/，可随时对比回滚）。
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={integrateMutation.isPending}
+                onClick={() => integrateMutation.mutate("zcode")}
+                className="tap flex-1 rounded-lg border border-line py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40"
+              >
+                接入 zcode
+              </button>
+              <button
+                type="button"
+                disabled={integrateMutation.isPending}
+                onClick={() => integrateMutation.mutate("dsh")}
+                className="tap flex-1 rounded-lg border border-line py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40"
+              >
+                接入 dsh
+              </button>
+            </div>
+            {integrateMutation.isPending && <p className="mt-2 text-xs text-ink-faint">正在写入客户端配置…</p>}
+            {integration && !integrateMutation.isPending && (
+              <p className="mt-2 text-xs text-ink-faint">{integration.message}</p>
+            )}
           </section>
 
           {/* ⑥ 网关状态只在顶部导航（LayoutSingle 的 GatewayStatus）—— Web 不提供启停网关 */}
@@ -529,35 +629,6 @@ export function Dashboard(): ReactElement {
 // ---------------------------------------------------------------------------
 // 辅助组件
 // ---------------------------------------------------------------------------
-
-/** 模型池概览行：图标 + 标签 + 数值。 */
-function PoolStat({
-  icon: Icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  tone?: "free" | "muted";
-}): ReactElement {
-  return (
-    <div className="flex items-center gap-3">
-      <Icon
-        className={`h-4 w-4 shrink-0 ${tone === "free" ? "text-free" : "text-ink-faint"}`}
-      />
-      <span className="flex-1 text-xs text-ink-soft">{label}</span>
-      <span
-        className={`text-sm font-semibold tabular-nums ${
-          tone === "free" ? "text-free" : "text-ink"
-        }`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // 骨架

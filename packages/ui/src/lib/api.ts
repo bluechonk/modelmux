@@ -170,7 +170,6 @@ export interface WebApi {
     /** 各方法返回**已解包 data 的扁平对象**（含 ok / message / error）。 */
     login(cid: string, force: boolean): Promise<CommandData>;
     status(cid?: string): Promise<CommandData>;
-    models(cid?: string): Promise<CommandData>;
     /**
      * 渠道账单快照；`args.refresh = true` 时后端会先重查一遍各渠道账单
      * （控制台「刷新」按钮用）。`cid` 限定单渠道。
@@ -203,6 +202,12 @@ export interface WebApi {
     submitInput(value: string): Promise<CommandData>;
     /** 用户关掉了登录弹窗：让等待输入的渠道收尾（见 `ControlBridge.cancelInput`）。 */
     cancelInput(): Promise<CommandData>;
+    /**
+     * 一键接入：把本机 harness（zcode / dsh）的模型配置改写成网关的对外模型名。
+     *
+     * 后端写的是 `~/.zcode` / `~/.dsh`（写前备份），返回变更说明。
+     */
+    integrate(target: "zcode" | "dsh"): Promise<CommandData>;
   };
 }
 
@@ -261,14 +266,6 @@ async function demoCommand(
   switch (action) {
     case "status":
       return { ...demoStatus(st), ok: true };
-    case "models": {
-      const channels = st.channels.map((ch) => {
-        // 演示里渠道目录 == 对外模型池（真实实现里目录更大，只有 deepseek 家族对外）
-        const pool = demoModels(st).filter((row) => row.cid === ch.cid).map((row) => row.model);
-        return { cid: ch.cid, display: ch.display, catalog: pool, pool, out_of_pool: 0 };
-      });
-      return { channels, ok: true };
-    }
     case "accounts":
       return { ...demoAccountPools(st), ok: true };
     case "billing":
@@ -311,6 +308,20 @@ async function demoCommand(
       // 演示模式：直接结束这轮登录（不造账号）
       demoEndLogin(st);
       return { cancelled: true, ok: true };
+    case "integrate": {
+      const target = String(args["target"] ?? "");
+      if (target !== "zcode" && target !== "dsh") {
+        return { ok: false, error: "参数 target 只能是 zcode 或 dsh" };
+      }
+      // 演示数据里模型清单与真实快照同形（`state.models` 的 model 段去重）
+      const models = [...new Set(demoModels(st).map((row) => row.model))];
+      return {
+        ok: true,
+        target,
+        models,
+        message: `演示模式：${target} 的模型清单已改为 ${models.join(" / ")}（未写真实文件）`,
+      };
+    }
     default:
       return { ok: false, error: `演示模式不支持动作 ${action}` };
   }
@@ -373,7 +384,6 @@ export const api: WebApi = {
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),
-    models: (cid) => command("models", cid),
     billing: (cid, args) => command("billing", cid, args ?? {}),
     accounts: (cid) => command("accounts", cid),
     activateAccount: (cid, key) => command("activateAccount", cid, { key }),
@@ -385,5 +395,6 @@ export const api: WebApi = {
     submitInput: (value) => command("submitInput", undefined, { value }),
     /** 关闭登录弹窗：让等待输入的渠道立刻收尾，而不是挂到超时。 */
     cancelInput: () => command("cancelInput", undefined),
+    integrate: (target) => command("integrate", undefined, { target }),
   },
 };

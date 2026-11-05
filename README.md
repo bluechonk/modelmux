@@ -74,8 +74,9 @@ mx model list
 
 ## Web 控制台
 
-`mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**四个路由页**：
-仪表盘 `/`、模型列表 `/models`、账号池 `/accounts`、请求日志 `/logs`。
+`mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**三个路由页**：
+仪表盘 `/`、账号池 `/accounts`、请求日志 `/logs`。对外模型清单（3 个 deepseek 模型）与
+「一键接入 zcode / dsh」都在仪表盘上。
 
 **在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
 （截图不放仓库：界面与文案改得快，图必然过时 —— 要看实际形态就看在线演示或 `mx web`。）
