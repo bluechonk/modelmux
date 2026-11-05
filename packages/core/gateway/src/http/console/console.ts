@@ -191,6 +191,13 @@ export interface ControlBridge {
    * 既不算成功也不算失败，界面上也没法再回答它。
    */
   cancelInput?: () => void;
+  /**
+   * 一键接入：把本机 harness 的模型配置改写成网关的对外模型名。
+   *
+   * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
+   * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
+   */
+  integrate?: (target: "zcode" | "dsh") => { ok: boolean; error?: string; notes?: string[] };
 }
 
 export interface ConsoleServer {
@@ -616,6 +623,7 @@ export function createConsoleHandler(
             ...(bridge.submitCallback ? { submitCallback: bridge.submitCallback } : {}),
             ...(bridge.submitInput ? { submitInput: bridge.submitInput } : {}),
             ...(bridge.cancelInput ? { cancelInput: bridge.cancelInput } : {}),
+            ...(bridge.integrate ? { integrate: bridge.integrate } : {}),
           });
           const result = await handle({
             action,

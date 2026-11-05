@@ -11,8 +11,7 @@
 
 import { channelCapabilities, channels, getChannel, hasChannel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
-import { canonicalModelId, poolCandidates, poolModels } from "../../pool/pool-targets.js";
-import { isDeepseekModel } from "../../pool/model-family.js";
+import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { renderChannelPool } from "./web-types.js";
@@ -42,6 +41,13 @@ export interface WebCommandDeps {
   submitInput?: (value: string) => void;
   /** 用户关掉了登录弹窗：不再等两步登录的输入（见 `ControlBridge.cancelInput`）。 */
   cancelInput?: () => void;
+  /**
+   * 一键接入：把本机 harness 的模型配置改写成网关的对外模型名。
+   *
+   * 实现由 app 层注入（写的是 `~/.zcode` / `~/.dsh`，不是网关运行时），
+   * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
+   */
+  integrate?: (target: "zcode" | "dsh") => { ok: boolean; error?: string; notes?: string[] };
 }
 
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;
@@ -71,29 +77,6 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
             present = false;
           }
           return { cid: cidInner, display: channel.upstream.DISPLAY_NAME, present };
-        });
-        return ok({ channels: rows });
-      }
-      case "models": {
-        const wanted = cid !== undefined && hasChannel(cid) ? [getChannel(cid)] : channels();
-        const rows = wanted.map((channel) => {
-          const cidInner = channel.config.cid;
-          const catalogIds = runInChannel(cidInner, () => {
-            try {
-              return channel.catalog.exposedIds();
-            } catch {
-              return [] as string[];
-            }
-          });
-          // 对外模型池 = 渠道目录里属于 deepseek 家族的部分（其余条目不属于对外模型池）
-          const pool = [...new Set(catalogIds.filter((id) => isDeepseekModel(id)).map((id) => canonicalModelId(id)))];
-          return {
-            cid: cidInner,
-            display: channel.upstream.DISPLAY_NAME,
-            catalog: catalogIds,
-            pool,
-            out_of_pool: catalogIds.length - pool.length,
-          };
         });
         return ok({ channels: rows });
       }
@@ -221,6 +204,24 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         }
         deps.cancelInput();
         return ok({ cancelled: true, message: "已取消登录输入" });
+      }
+      case "integrate": {
+        // 一键接入：把本机 harness 的模型配置改成网关的对外模型名。
+        const target = args["target"];
+        if (target !== "zcode" && target !== "dsh") {
+          return err("参数 target 只能是 zcode 或 dsh");
+        }
+        if (!deps.integrate) {
+          return err("当前运行形态不支持一键接入（未注入 integrate）");
+        }
+        const result = deps.integrate(target);
+        return result.ok
+          ? ok({
+              target,
+              models: result.notes ?? [],
+              message: result.notes?.[0] ?? "已接入",
+            })
+          : err(result.error ?? "接入失败");
       }
       default:
         return err(`未知 action: ${String(action)}`);
