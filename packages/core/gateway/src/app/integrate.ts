@@ -20,7 +20,7 @@ import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
-export type IntegrationTarget = "zcode" | "dsh";
+export type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "codex";
 
 export interface IntegrationResult {
   ok: boolean;
@@ -40,6 +40,8 @@ export interface IntegrationResult {
 
 /** 网关对外端点（客户端 baseURL 指向它）。 */
 const GATEWAY_BASE_URL = "http://127.0.0.1:4412/v1";
+/** Anthropic 客户端的 baseURL（Claude Code 自己拼 `/v1/messages`，**不带** /v1）。 */
+const GATEWAY_ANTHROPIC_URL = "http://127.0.0.1:4412";
 /** zcode 供应商在 provider_config.json 里的标识。 */
 const ZCODE_PROVIDER_ID = "new-provider";
 const ZCODE_PROVIDER_NAME = "modelmux";
@@ -63,7 +65,16 @@ function exposedModels(): string[] {
 
 /** 本次接入的对外模型名（供调用方/测试注入）。 */
 export function integrateClient(target: IntegrationTarget, models: string[] = exposedModels()): IntegrationResult {
-  return target === "zcode" ? integrateZcode(models) : integrateDsh(models);
+  switch (target) {
+    case "zcode":
+      return integrateZcode(models);
+    case "dsh":
+      return integrateDsh(models);
+    case "claude-code":
+      return integrateClaudeCode(models);
+    case "codex":
+      return integrateCodex(models);
+  }
 }
 
 // ── 备份 ────────────────────────────────────────────────────────────────────
@@ -518,4 +529,177 @@ function renderDshModelItems(indent: number, models: string[]): string[] {
   const out: string[] = [];
   for (const model of models) out.push(...renderDshModel(indent, model));
   return out;
+}
+
+// ── claude code ─────────────────────────────────────────────────────────────
+
+/**
+ * Claude Code：`~/.claude/settings.json` 的 `env` patch（形态同 cc-switch 的供应商写入）。
+ *
+ * 只写 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / 模型三件，**绝不写
+ * `ANTHROPIC_API_KEY`** —— 两者并存会触发 Claude Code 的「Both ANTHROPIC_API_KEY and
+ * ANTHROPIC_AUTH_TOKEN are set」警告并拒绝生效（cc-switch #4919 同款坑）；env 里已有的
+ * ANTHROPIC_API_KEY 也一并移除。其余用户键（hooks / 权限等）原样保留。
+ */
+function integrateClaudeCode(models: string[]): IntegrationResult {
+  const result: IntegrationResult = { ok: false, target: "claude-code", models, changed: [], unchanged: [], notes: [] };
+  const dir = join(homedir(), ".claude");
+  const file = join(dir, "settings.json");
+  if (!existsSync(dir)) {
+    result.error = `找不到 Claude Code 配置目录：${dir}（Claude Code 装了吗？）`;
+    return result;
+  }
+  let root: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try {
+      root = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    } catch (err) {
+      result.error = `Claude Code 配置不是合法 JSON：${String(err)}`;
+      return result;
+    }
+  } else {
+    result.notes.push("settings.json 不存在，新建");
+  }
+  const env = ((root["env"] ??= {}) as Record<string, unknown>);
+  const primary = models[0]!;
+  const before = JSON.stringify(env);
+  env["ANTHROPIC_BASE_URL"] = GATEWAY_ANTHROPIC_URL;
+  env["ANTHROPIC_AUTH_TOKEN"] = LOCAL_API_KEY;
+  delete env["ANTHROPIC_API_KEY"];
+  // 模型族全指向池主模型：Claude Code 的 haiku/sonnet/opus 三档请求都会进网关
+  env["ANTHROPIC_MODEL"] = primary;
+  env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = primary;
+  env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = primary;
+  env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = primary;
+  if (JSON.stringify(env) === before) {
+    result.unchanged.push(file);
+    result.ok = true;
+    return result;
+  }
+  const backup = backupDirFor("claude-code");
+  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）
+  if (existsSync(file)) backupFile(backup, file);
+  writeAtomicFile(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
+  result.changed.push(file);
+  result.backupDir = backup;
+  result.notes.push(`baseUrl=${GATEWAY_ANTHROPIC_URL}，模型=${primary}（haiku/sonnet/opus 同指）`);
+  result.ok = true;
+  return result;
+}
+
+// ── codex ───────────────────────────────────────────────────────────────────
+
+/** `[model_providers.modelmux]` 段（TOML；Codex 的 Responses 入口，见 cc-switch 的第三方模板）。 */
+function renderCodexProviderBlock(): string[] {
+  return [
+    "[model_providers.modelmux]",
+    `name = "modelmux"`,
+    `base_url = "${GATEWAY_BASE_URL}"`,
+    `wire_api = "responses"`,
+    `experimental_bearer_token = "${LOCAL_API_KEY}"`,
+    `requires_openai_auth = false`,
+  ];
+}
+
+/**
+ * 标出 TOML 多行字符串（`"""` / `'''`）区间内的行下标（含开闭行）；开合不配对返回 null。
+ *
+ * 文本级编辑认不出字符串上下文 —— 字符串里行首的 `[` 会被当成表头，把顶层键注进
+ * 字符串内部（Codex 照常启动但配置静默失效）。掩码用于表头与顶层键注入点判定。
+ */
+function maskTomlMultilineStrings(lines: string[]): Set<number> | null {
+  const masked = new Set<number>();
+  let open: string | null = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (open === null) {
+      const at = /("""|''')/.exec(line);
+      if (!at) continue;
+      // 同行自闭合（"""x"""）：不构成区间
+      if (line.slice((at.index ?? 0) + 3).includes(at[1]!)) continue;
+      open = at[1]!;
+      masked.add(i);
+    } else {
+      masked.add(i);
+      if (line.includes(open)) open = null;
+    }
+  }
+  return open === null ? masked : null;
+}
+
+/**
+ * Codex：`~/.codex/config.toml` 的**文本级** TOML 改写（共享层零依赖，与 dsh 的
+ * YAML 文本级改写同理由）。
+ *
+ * 三件事：顶层 `model_provider` / `model` 键替换或插入（**必须落在任何 `[` 表头之前**
+ * —— TOML 顶层键的硬约束）；`[model_providers.modelmux]` 段整段替换或追加。凭据走
+ * 段内 `experimental_bearer_token`（优先级高于 auth.json），`~/.codex/auth.json` 不碰
+ * —— 不破坏 ChatGPT 登录态（cc-switch 的同款取舍）。
+ *
+ * 表头识别先做**多行字符串掩码**（`"""` / `'''` 区间内的行首 `[` 不是表头）：文本级
+ * 编辑认不出字符串上下文，掩码失败（开合不配对）宁可放弃写入并报错 —— 写坏一份
+ * Codex 配置还报成功，比不写更糟（dsh 凭据文件的同款取舍）。
+ */
+function integrateCodex(models: string[]): IntegrationResult {
+  const result: IntegrationResult = { ok: false, target: "codex", models, changed: [], unchanged: [], notes: [] };
+  const dir = join(homedir(), ".codex");
+  const file = join(dir, "config.toml");
+  if (!existsSync(dir)) {
+    result.error = `找不到 Codex 配置目录：${dir}（Codex 装了吗？）`;
+    return result;
+  }
+  const original = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const eol = original.includes("\r\n") ? "\r\n" : "\n";
+  const lines = original.split(/\r?\n/);
+  const masked = maskTomlMultilineStrings(lines);
+  if (masked === null) {
+    result.error = "config.toml 的多行字符串（\"\"\" / '''）开合不配对，文本级改写无法安全进行；已跳过写入";
+    return result;
+  }
+
+  // 表头行（行尾可带注释）；掩码表 = 该行不在多行字符串区间内
+  const isTableHeader = (line: string, i: number): boolean =>
+    /^\s*\[.*\]\s*(#.*)?$/.test(line) && !masked.has(i);
+
+  // 1. [model_providers.modelmux] 段：替换到下一个表头，缺失则追加到文件尾
+  const providerIdx = lines.findIndex((l, i) => /^\s*\[model_providers\.modelmux\]\s*(#.*)?$/.test(l) && !masked.has(i));
+  let next: string[];
+  if (providerIdx >= 0) {
+    let end = lines.length;
+    for (let i = providerIdx + 1; i < lines.length; i += 1) {
+      if (isTableHeader(lines[i]!, i)) {
+        end = i;
+        break;
+      }
+    }
+    next = [...lines.slice(0, providerIdx), ...renderCodexProviderBlock(), ...lines.slice(end)];
+  } else {
+    next = [...lines, "", ...renderCodexProviderBlock()];
+  }
+
+  // 2. 顶层 model_provider / model：只清**首个表头之前**的旧键行（TOML 顶层键的硬约束：
+  //    必须在任何 `[` 表头之前），再统一插到那里 —— 段内同名键不受影响
+  const nextMask = maskTomlMultilineStrings(next) ?? new Set<number>();
+  const firstTable = next.findIndex((l, i) => /^\s*\[.*\]\s*(#.*)?$/.test(l) && !nextMask.has(i));
+  const headEnd = firstTable < 0 ? next.length : firstTable;
+  const head = next.slice(0, headEnd).filter((l) => !/^\s*(model_provider|model)\s*=/.test(l));
+  const tail = firstTable < 0 ? [] : next.slice(firstTable);
+  const topKeys = [`model_provider = "modelmux"`, `model = "${models[0]!}"`];
+  const withKeys = [...head, ...topKeys, ...tail];
+
+  const text = `${withKeys.join(eol).replace(/\s+$/, "")}${eol}`;
+  if (text === original) {
+    result.unchanged.push(file);
+    result.ok = true;
+    return result;
+  }
+  const backup = backupDirFor("codex");
+  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）
+  if (existsSync(file)) backupFile(backup, file);
+  writeAtomicFile(file, text, 0o600);
+  result.changed.push(file);
+  result.backupDir = backup;
+  result.notes.push(`base_url=${GATEWAY_BASE_URL}（wire_api=responses），模型=${models[0]}`);
+  result.ok = true;
+  return result;
 }

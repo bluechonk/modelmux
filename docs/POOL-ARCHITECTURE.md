@@ -30,6 +30,12 @@
 > 渠道对客户端**透明**：请求里不带渠道前缀；家族外的模型名（哪怕是别家真实存在的模型）
 > 一律 `400 unknown_model`。模型家族是网关的**产品面**，声明在
 > `packages/core/gateway/src/pool/model-family.ts`（共享层唯一允许出现模型名的地方）。
+>
+> **入站协议**：除 OpenAI chat（`/v1/chat/completions`）外，网关原生服务 Anthropic
+> Messages（`/v1/messages`，Claude Code 直连）与 OpenAI Responses（`/v1/responses`，
+> Codex 直连）—— 请求翻译成内部 chat 形态后走**同一条**池转发管线，回程按协议编码；
+> 这两条路径上家族外的模型名（`claude-*` / `gpt-*`）落**池主模型**而不是 400。
+> 端点、解析与四 CLI 配置见 [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md)。
 
 ---
 

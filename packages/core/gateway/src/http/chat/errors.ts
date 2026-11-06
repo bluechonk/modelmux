@@ -11,6 +11,8 @@
 import type { ServerResponse } from "node:http";
 
 import { noteRequestError } from "../../runtime/log-store.js";
+import { anthropicErrorBody } from "../protocol/anthropic.js";
+import { protocolOf } from "../protocol/types.js";
 
 /** 统一 JSON 应答（`/health`、`/v1/models` 等）。 */
 export function writeJson(res: ServerResponse, data: unknown, status = 200): void {
@@ -18,10 +20,35 @@ export function writeJson(res: ServerResponse, data: unknown, status = 200): voi
   res.end(JSON.stringify(data));
 }
 
-/** 错误响应 JSON 结构：`{"error":{"type","code","message"}}`。 */
+/**
+ * 错误响应 JSON 结构：`{"error":{"type","code","message"}}`。
+ *
+ * **统一协议收口**：res 上挂了入站协议时按该协议的信封回 —— 解析失败 / 池路由 400 /
+ * 未登录 503 这些派发前的错误也都经过这里，逐调用点替换必然漏（评审抓到三条漏网路径）。
+ */
 export function writeJsonError(res: ServerResponse, status: number, code: string, message: string): void {
   noteRequestError(res, code, message);
+  const protocol = protocolOf(res);
+  if (protocol?.protocol.name === "anthropic") {
+    writeJson(res, anthropicErrorBody(code, message), status);
+    return;
+  }
   writeJson(res, { error: { type: "error", code, message } }, status);
+}
+
+/**
+ * 协议感知的错误应答：res 上挂了入站协议时按该协议的信封回
+ * （Anthropic `{type:"error",error:{type,message}}`），否则是既有 OpenAI 信封。
+ * Claude Code 只解析 Anthropic 形态的信封。
+ */
+export function writeProtocolError(res: ServerResponse, status: number, code: string, message: string): void {
+  const protocol = protocolOf(res);
+  if (protocol?.protocol.name === "anthropic") {
+    noteRequestError(res, code, message);
+    writeJson(res, anthropicErrorBody(code, message), status);
+    return;
+  }
+  writeJsonError(res, status, code, message);
 }
 
 /**

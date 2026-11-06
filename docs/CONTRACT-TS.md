@@ -21,8 +21,7 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              credential-shape（凭据形状归一）/ snapshot（随包快照落点）/
 │       │              logger（日志节流）/ log-store（分层落盘）/ model-specs（模型规格）
 │       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
-│       │              model-pool（渠道内解析）/ model-policy（全模型池策略常量）/
-│       │              account-rotate（额度耗尽换号决策）
+│       │              model-pool（渠道内解析）/ account-rotate（额度耗尽换号决策）
 │       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger /
 │       │              paste-detect（粘贴文本启发式）
 │       ├── http/      网关与转发（19 个源文件）：server（网关入口）/ portfree（端口自愈）/
@@ -31,6 +30,8 @@ modelmux/                     ← 仓库根 = 工作区根
 │       │              queue（排队探测）/ auth（鉴权链路）/ upstream（建连与空闲守卫）/
 │       │              candidates / errors / channel
 │       │              wire/（协议线）：sse-stream（SSE 规范化）/ openai-normalize（通用 OpenAI 归一化）
+│       │              protocol/（入站协议）：anthropic / responses / count-tokens / types（翻译与回程编码，
+│       │              复用 chat/ 转发管线，见 CLIENT-INTEGRATION.md）
 │       │              console/（控制台）：console / web-command-handler / web-types（控制台类型）
 │       ├── app/       顶层门面与进程编排，两个子目录分工明确：
 │       │              cli/（CLI 门面：index 命令入口 / model 模型组 / channel 渠道动词 /

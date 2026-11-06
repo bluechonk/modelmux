@@ -14,7 +14,8 @@ import type { ServerResponse } from "node:http";
 import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
-import { writeJson, writeJsonError } from "./errors.js";
+import { writeJson, writeProtocolError } from "./errors.js";
+import { protocolOf, sinkOf } from "../protocol/types.js";
 import { collectAsOpenAiSse, relayStream } from "./stream.js";
 import type { ProbeFrames } from "./queue.js";
 import type { UpstreamCall } from "./upstream.js";
@@ -101,7 +102,22 @@ function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wan
       ],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     };
-    writeJson(res, completion);
+    // 协议入站在场时按协议形态回（anthropic message / responses response）
+    const protocol = protocolOf(res);
+    writeJson(res, protocol ? protocol.protocol.encodeCompletion(completion, protocol.requestModel) : completion);
+    return;
+  }
+  const sink = sinkOf(res);
+  if (sink) {
+    // 第 0 轮探测就耗尽预算时排队帧还没写过：响应头要在这里补
+    if (!res.headersSent) res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
+    // 排队帧可能已把协议开始事件发出（message_start / response.created）：
+    // 文案作为 content 增量续写，收尾交给 sink.finish()
+    sink.writeOpenAiFrame(chunk({ role: "assistant", content: "" }, null));
+    sink.writeOpenAiFrame(chunk({ content: `${text}\n\n` }, null));
+    sink.writeOpenAiFrame(chunk({}, "stop"));
+    sink.finish();
+    res.end();
     return;
   }
   if (!res.headersSent) {
@@ -142,7 +158,7 @@ export async function relayUpstream(
   } = opts;
   const streamBody = call.body;
   if (!streamBody) {
-    writeJsonError(res, 502, "upstream_error", "upstream returned an empty response body");
+    writeProtocolError(res, 502, "upstream_error", "upstream returned an empty response body");
     return;
   }
 
@@ -161,7 +177,7 @@ export async function relayUpstream(
         writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
         return;
       }
-      writeJsonError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
+      writeProtocolError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
       return;
     }
     try {
@@ -197,7 +213,7 @@ export async function relayUpstream(
       if (isEmptyCompletion(aggregated)) {
         const sseError = sseStream.firstSseError(buf);
         if (sseError) {
-          writeJsonError(res, 502, sseError.code ?? "upstream_error", sseError.message ?? "upstream error");
+          writeProtocolError(res, 502, sseError.code ?? "upstream_error", sseError.message ?? "upstream error");
           return;
         }
         noteRequestError(
@@ -205,17 +221,19 @@ export async function relayUpstream(
           "upstream_stream_failed",
           "aggregated upstream stream had no content, tool calls, reasoning or token usage",
         );
-        writeJsonError(res, 502, "upstream_stream_failed", "upstream returned an empty stream");
+        writeProtocolError(res, 502, "upstream_stream_failed", "upstream returned an empty stream");
         return;
       }
       noteFirstByte(res);
-      writeJson(res, aggregated);
+      // 协议入站在场：聚合体按协议形态回（anthropic message / responses response）
+      const protocol = protocolOf(res);
+      writeJson(res, protocol ? protocol.protocol.encodeCompletion(aggregated, protocol.requestModel) : aggregated);
     } catch (err) {
       logger(`reading upstream response interrupted: ${String(err)}`);
       const timedOut = /timeout/i.test(String(err));
       // 上游读流中断的原因透传给客户端（截断），完整原文仍在本地日志
       const detail = String(err).replace(/\s+/g, " ").trim().slice(0, 300);
-      writeJsonError(
+      writeProtocolError(
         res,
         502,
         timedOut ? "upstream_timeout" : "upstream_error",
@@ -249,9 +267,15 @@ export async function relayUpstream(
       writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
       return;
     }
-    res.write(
-      `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
-    );
+    const queuedSink = sinkOf(res);
+    if (queuedSink) {
+      queuedSink.writeError("upstream_queued", "upstream is queued and the wait budget was exhausted");
+      queuedSink.finish();
+    } else {
+      res.write(
+        `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
+      );
+    }
     res.end();
     return;
   }

@@ -9,7 +9,8 @@ TRAE、CatPaw、Qoder 国内版等渠道的额度汇成**一个 OpenAI 兼容端
 ## 这是什么
 
 - **一个网关**：监听 `127.0.0.1:4412`，OpenAI 兼容 `/v1/chat/completions`，
-  另有 `/v1/models` 与 `/health`。
+  另有 Anthropic Messages（`/v1/messages`，Claude Code 直连）、OpenAI Responses
+  （`/v1/responses`，Codex 直连）、`/v1/models` 与 `/health`。
 - **统一模型池**：对外只有家族表里的**裸模型名**，`/v1/models` 只列
   「至少一个渠道能供给」的那几个；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名。
 - **多渠道路由**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下；
