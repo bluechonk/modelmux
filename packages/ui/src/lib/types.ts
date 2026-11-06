@@ -89,6 +89,21 @@ export interface AccountSignin {
   claimed_today: boolean;
   /** 领取时刻（ISO）；台账没记时刻为 null。 */
   at: string | null;
+  /** 今天领到多少额度；渠道报不出数值时为 null。 */
+  reward?: { amount: number; unit: string } | null;
+  /** 最近一次上游探测结论（当天有效）。 */
+  probe?: SigninProbe | null;
+}
+
+/** 一次 `signin.status()` 探测结论（控制台展示用）。 */
+export interface SigninProbe {
+  /** 上游有没有可领的；null = 查不到。 */
+  claimable: boolean | null;
+  /** 上游说今天已签；null = 渠道判断不了。 */
+  claimed_today: boolean | null;
+  /** 渠道自己的说明。 */
+  summary: string;
+  at: string;
 }
 
 /**
@@ -103,6 +118,10 @@ export interface ChannelSignin {
   per_account: boolean;
   claimed_today: boolean;
   at: string | null;
+  /** 今天领到多少额度；渠道报不出数值时为 null。 */
+  reward?: { amount: number; unit: string } | null;
+  /** 最近一次上游探测结论（当天有效）。 */
+  probe?: SigninProbe | null;
 }
 
 export interface PoolAccount {
@@ -203,8 +222,13 @@ export interface CommandResult {
   data?: unknown;
 }
 
-/** 请求结果分桶；`other` = 应答前就断了（连状态码都没给出）。 */
-export type AccessOutcome = "success" | "failure" | "other";
+/**
+ * 一次请求的结果分桶 —— 只有成功与失败。
+ *
+ * 历史第三桶 `other`（「中断」：没拿到状态码就断开）实测恒空，且界面多给一个分段
+ * 只会让人去猜它什么意思；后端读旧 `other.log` 时按 failure 计。
+ */
+export type AccessOutcome = "success" | "failure";
 
 /**
  * 一条访问日志（形状与共享层 `AccessEntry` 一致，字段语义见 docs/LOGGING.md §3.1）。
@@ -257,7 +281,6 @@ export interface AccessLogStats {
   requests: number;
   success: number;
   failure: number;
-  other: number;
   /** 判定为慢的条数（首字延迟或生成速率，口径见 docs/LOGGING.md §3.5）。 */
   slow: number;
   /** 其中首字延迟超标的条数。 */
@@ -340,7 +363,6 @@ export interface LogQuery {
   model?: string;
   stream?: boolean;
   slow?: boolean;
-  q?: string;
   limit?: number;
   offset?: number;
 }
@@ -426,10 +448,9 @@ export interface UsageStats {
     tokensOut: number;
     requests: number;
     messages: number;
-    /** 成功 / 失败 / 中断条数（与日志页统计条同一口径）；区间 KPI 卡读它。 */
+    /** 成功 / 失败条数（与日志页统计条同一口径）；区间 KPI 卡读它。 */
     success: number;
     failure: number;
-    other: number;
     /** 判定为慢的条数。 */
     slow: number;
     durationMs: number;
@@ -468,7 +489,6 @@ export interface OverviewResponse {
     requests: number;
     success: number;
     failure: number;
-    other: number;
     slow: number;
     avg_duration_ms: number | null;
     tokens: { prompt: number; completion: number; total: number };

@@ -1,7 +1,7 @@
 /**
  * 「使用统计」聚合（Web 控制台 `GET /web/api/usage` 的数据源）。
  *
- * 只读 `access/<date>/{success,failure,other}.log`，不为统计另建账本（口径见 docs/USAGE-STATS.md）。
+ * 只读 `access/<date>/{success,failure}.log`（历史的 `other.log` 由 log-store 并入 failure），不计别的账本（口径见 docs/USAGE-STATS.md）。
  * 只统计**模型请求**（`/v1/chat/completions`）—— `/health` 等也落盘，计入会让调用次数失真。
  * 缓存：已过去的日期永久缓存、今天每次重算；不按 mtime 失效（追加写入不改目录 mtime）。
  */
@@ -77,7 +77,7 @@ export interface UsageModelRow {
   share: number;
   /** 成功请求数（`success.log` 里该模型 × 渠道的条数）。 */
   ok: number;
-  /** 失败请求数（`failure.log` + `other.log`）。 */
+  /** 失败请求数（`failure.log`；历史 other.log 已并入）。 */
   fail: number;
   /** 进过上游排队的请求数；> 0 时控制台打「排队」标签。 */
   queued: number;
@@ -108,10 +108,9 @@ export interface UsageStats {
     tokensOut: number;
     requests: number;
     messages: number;
-    /** 成功 / 失败 / 中断条数（按 access 日志的**文件归属**分桶，与日志页同一口径）。 */
+    /** 成功 / 失败条数（按 access 日志的**文件归属**分桶，与日志页同一口径）。 */
     success: number;
     failure: number;
-    other: number;
     /** 判定为慢的条数（口径见 docs/LOGGING.md §3.5）。 */
     slow: number;
     durationMs: number;
@@ -149,10 +148,9 @@ export interface UsageStats {
 }
 
 interface DayAgg extends UsageDaily {
-  /** 成功 / 失败 / 中断条数（`outcome` 取自文件归属）。 */
+  /** 成功 / 失败条数（`outcome` 取自文件归属；历史 other.log 已并入 failure）。 */
   success: number;
   failure: number;
-  other: number;
   /** 判定为慢的条数。 */
   slow: number;
   durationMs: number;
@@ -204,7 +202,6 @@ function aggregateDay(date: string): DayAgg {
     byModel: {},
     success: 0,
     failure: 0,
-    other: 0,
     slow: 0,
     durationMs: 0,
     longestMs: null,
@@ -379,7 +376,6 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     messages: 0,
     success: 0,
     failure: 0,
-    other: 0,
     slow: 0,
     durationMs: 0,
     cacheHitRate: null as number | null,
@@ -432,7 +428,6 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     totals.messages += agg.messages;
     totals.success += agg.success;
     totals.failure += agg.failure;
-    totals.other += agg.other;
     totals.slow += agg.slow;
     totals.durationMs += agg.durationMs;
     totals.noUsage += agg.noUsage;

@@ -420,6 +420,7 @@ export const signin: SigninModule = {
     }
     const summaries: string[] = [];
     let claimed = 0;
+    let totalAmount = 0;
     let blocked = 0;
     let unavailable = 0;
     let failed = 0;
@@ -429,7 +430,10 @@ export const signin: SigninModule = {
       const result = await claimCampaign(credential, id);
       switch (result.kind) {
         case "claimed": {
-          if (!result.replayed) claimed += 1;
+          if (!result.replayed) {
+            claimed += 1;
+            totalAmount += result.amount;
+          }
           const amount = result.amount;
           summaries.push(
             `${amount > 0 ? `+${amount} Credits` : "已领取"}${result.replayed ? "（重复领取，未重复发放）" : ""}`,
@@ -461,6 +465,8 @@ export const signin: SigninModule = {
     return {
       ok: failed === 0,
       summary: summaries.length > 0 ? `${headline}：${summaries.join("；")}` : headline,
+      // 只累加本次真的发放的额度（同人已领 / replay 不重复发放，计进会虚报）
+      ...(totalAmount > 0 ? { reward: { amount: totalAmount, unit: "Credits" } } : {}),
       detail: { claimed, blocked, unavailable, failed },
     };
   },

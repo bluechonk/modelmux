@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { loadCtxScroll, pruneCtxScroll, saveCtxScroll, signatureOf } from "../lib/ctx-scroll";
 import { parseLenient } from "../lib/lenient-json";
+import { describeBinary, estimateBytes, looksBinaryish } from "../lib/payload-binary";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import {
   assembledBody,
@@ -95,6 +96,23 @@ function Disclosure({
       </summary>
       <div className="border-t border-line/40 px-2.5 py-2">{children}</div>
     </details>
+  );
+}
+
+/**
+ * 是不是「不该按文本铺开」的内容：data URL（图片/音频/PDF…）与裸 base64 长串。
+ *
+ * 判据与体积计算在 `lib/payload-binary.ts`（可被单测钉死）：agent 上下文里图片是
+ * `data:image/png;base64,…`，实测一条正文 23 张、单张 6 万字符 —— 直接铺出来就是
+ * 占满弹窗的 base64 墙，正文一个字都看不见。
+ */
+
+/** 非文本片段/长 base64 的占位卡：只说类型与体积，不铺内容。 */
+function BinaryNotice({ label, bytes }: { label: string; bytes: number }): ReactElement {
+  return (
+    <p className="rounded-md border border-line/50 bg-canvas/40 px-2.5 py-1.5 text-xs text-ink-faint">
+      {label}（{formatBytes(bytes)}）—— 二进制内容不展开
+    </p>
   );
 }
 
@@ -239,6 +257,10 @@ function MessageBody({ role, content }: { role: string; content: unknown }): Rea
   if (content === null || content === undefined) return null;
   if (typeof content === "string") {
     if (content === "") return null;
+    // 裸 base64 整段铺开会把弹窗变成 base64 墙（实测 tool 结果 33945 字符）
+    if (looksBinaryish(content)) {
+      return <BinaryNotice label="二进制片段" bytes={estimateBytes(content)} />;
+    }
     return (
       <CollapseBox chars={content.length}>
         {role === "assistant" ? (
@@ -252,9 +274,13 @@ function MessageBody({ role, content }: { role: string; content: unknown }): Rea
     );
   }
   if (Array.isArray(content)) {
+    /**
+     * 折叠阈值按「可读文本」算：图片那类二进制片段不算进去 ——
+     * 否则 23 张图一进来，段就把整条消息折上，用户还得先展开才看得到正文。
+     */
     const total = content.reduce((sum, part) => {
       const rec = asRecord(part);
-      return sum + (typeof rec["text"] === "string" ? (rec["text"] as string).length : 20);
+      return sum + (typeof rec["text"] === "string" ? (rec["text"] as string).length : 0);
     }, 0);
     return (
       <CollapseBox chars={total}>
@@ -270,6 +296,19 @@ function MessageBody({ role, content }: { role: string; content: unknown }): Rea
                   {rec["text"]}
                 </p>
               );
+            }
+            // 图片/音频等：只报类型与体积。媒体 URL 在 `image_url.url` / `source.data` 两处
+            // （OpenAI 与 Anthropic 形态），两种都认；其余非文本片段回落 `brief`。
+            const dataUrl =
+              typeof rec["image_url"] === "object" && rec["image_url"] !== null
+                ? String((asRecord(rec["image_url"])["url"] ?? ""))
+                : typeof rec["source"] === "object" && rec["source"] !== null
+                  ? String((asRecord(rec["source"])["data"] ?? ""))
+                  : "";
+            const url = dataUrl !== "" ? dataUrl : typeof rec["url"] === "string" ? rec["url"] : "";
+            if (url !== "") {
+              const info = describeBinary(url);
+              return <BinaryNotice key={index} label={info.label} bytes={info.bytes} />;
             }
             return (
               <pre

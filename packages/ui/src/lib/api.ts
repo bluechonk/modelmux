@@ -359,7 +359,6 @@ export const api: WebApi = {
             model: query.model,
             stream: query.stream,
             slow: query.slow === true ? 1 : undefined,
-            q: query.q,
             limit: query.limit,
             offset: query.offset,
           })}`,

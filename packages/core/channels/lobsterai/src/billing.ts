@@ -538,6 +538,8 @@ export const signin: SigninModule = {
         : r.ok
           ? `签到成功${r.credits > 0 ? `，+${r.credits}` : ""}`
           : `${r.message || "签到失败"}（${r.code}）`,
+      // `credits` 来自签到接口回执（三步链路里 check_in 的响应）；0 或未领到时不报数字
+      ...(r.ok && r.credits > 0 ? { reward: { amount: r.credits, unit: "积分" } } : {}),
       detail: r,
     };
   },

@@ -597,7 +597,13 @@ export async function attemptCandidate(
     if (quotaOut && (usageLimit || !freeModel)) {
       const resetAt =
         (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(bodySnippet) : null) ?? null;
-      const reason = usageLimit ? "上游用量限额（所有模型都受限）" : "上游返回额度耗尽（等额度窗口刷新）";
+      // 冷却原因带上**上游原话**（截断）：只写「上游用量限额」时，用户看不到
+      // 「将在 20:46:45 重置」这类关键信息，只能来问。上游正文是数据而非渠道知识 ——
+      // 共享层只原样透传，不解析业务码（业务码归渠道的 `quotaSignal`）。
+      const upstreamSaid = snippetOf(bodySnippet);
+      const reason = `${usageLimit ? "上游用量限额（所有模型都受限）" : "上游返回额度耗尽（等额度窗口刷新）"}${
+        upstreamSaid === "" ? "" : `：${upstreamSaid}`
+      }`;
       const untilMs = noteAccountQuotaExhausted(cid, { until: resetAt, reason });
       logThrottled(
         logger,

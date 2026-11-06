@@ -336,6 +336,9 @@ export const signin: SigninModule = {
       summary: `AStudio 每日奖励已处理${deltaText}${
         actions.length > 0 ? `（${actions.join("、")}）` : ""
       }`,
+      // 余额差是**这次实际到账**的额度（口径见上方判据段）；delta<=0 表示今天没有新增，
+      // 不报数字 —— 报 0 会让人以为"签到了但一分没给"
+      ...(delta !== null && delta > 0 ? { reward: { amount: delta, unit: "积分" } } : {}),
       detail: {
         actions,
         before: beforeBalance,
