@@ -1012,6 +1012,60 @@ export function listAccessDates(): string[] {
  * 返回**读失败被跳过**的文件数：调用方（统计聚合）据此避免把残缺结果缓存成
  * 「该日的真实累计」—— 文件被锁 / 正在轮转只是暂时的，缓存却是进程级的。
  */
+/** 速率聚合样本（路由优先级用；只留和与条数，不留原始行）。 */
+export interface TpsSample {
+  sum: number;
+  count: number;
+}
+
+/** 一次速率聚合的结果：按（渠道 × 模型）与按渠道两个维度。 */
+export interface ModelTpsAggregate {
+  /** 键 = `<cid>/<模型>`。 */
+  byModel: Map<string, TpsSample>;
+  byChannel: Map<string, TpsSample>;
+}
+
+/**
+ * 聚合最近几天模型请求的**实测速率**（路由优先级用，见 `pool-usage.speedOf`）。
+ *
+ * 为什么不复用 `queryAccessLogs`：那个服务交互式分页（排序 + 统计 + 缓存），
+ * 而且 `limit` 会按「最近 N 条」截断 —— 忙渠道一天的量上千，会把一天只有几条的
+ * 慢渠道整个挤出样本（实测 qodercn 11-05 的 3 条就被 500 条窗口挡在外面）。
+ * 本函数只读**尾部 1MB**（与 `queryAccessLogs` 同量）并按天遍历，只累加速度，
+ * 不做排序 / 统计 / 缓存 —— 忙渠道占不满慢渠道的样本。
+ *
+ * 读失败的日子直接跳过（不抛）：速度是**先验**，缺一天不影响路由可用性。
+ */
+export function aggregateModelTps(days: readonly string[]): ModelTpsAggregate {
+  const byModel = new Map<string, TpsSample>();
+  const byChannel = new Map<string, TpsSample>();
+  const add = (map: Map<string, TpsSample>, key: string, tps: number): void => {
+    const prev = map.get(key);
+    if (prev === undefined) map.set(key, { sum: tps, count: 1 });
+    else {
+      prev.sum += tps;
+      prev.count += 1;
+    }
+  };
+  for (const date of days) {
+    for (const outcome of ACCESS_OUTCOMES) {
+      for (const file of accessFiles(date, outcome)) {
+        const tail = readTail(file, ACCESS_TAIL_BYTES);
+        for (const line of tail.text.split("\n")) {
+          if (line.trim() === "") continue;
+          const entry = parseAccessLine(line, outcome);
+          if (entry === null || entry.cid === undefined) continue;
+          const tps = tokensPerSecOf(entry);
+          if (tps === null) continue;
+          add(byChannel, entry.cid, tps);
+          if (entry.model !== undefined) add(byModel, `${entry.cid}/${entry.model}`, tps);
+        }
+      }
+    }
+  }
+  return { byModel, byChannel };
+}
+
 export function scanAccessDate(date: string, visit: (entry: AccessEntry) => void): number {
   let skipped = 0;
   for (const outcome of ACCESS_OUTCOMES) {

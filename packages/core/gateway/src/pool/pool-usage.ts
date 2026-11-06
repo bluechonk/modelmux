@@ -23,7 +23,7 @@ import {
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { noteOnce, poolUsagePath } from "../runtime/paths.js";
-import { localDate } from "../runtime/log-store.js";
+import { aggregateModelTps, listAccessDates, localDate } from "../runtime/log-store.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 账单缓存有效期：8 小时 ≈ 一天三次。 */
@@ -648,6 +648,127 @@ export function totalRemainOf(cid: string): number | null {
   // 渠道级查询查的就是生效账号的额度，量纲一致，可当近似值用。
   const channelRemain = entry.remain;
   return Number.isFinite(channelRemain) && channelRemain > 0 ? channelRemain : null;
+}
+
+// ── 渠道速度（路由优先级用）────────────────────────────────────────────────────
+
+/**
+ * 速度采样窗口：**最近 3 个有日志的日期**（今天 + 前两天）。
+ *
+ * 为什么不是「只看今天」：请求量低的渠道一天可能只有 2 条请求（实测 qodercn 11-06 只有 2 条，
+ * 算不出 TPS），而它在前两天有 5 条、速度 85–95 t/s —— 只看当天等于对慢渠道视而不见。
+ * 3 天是「够新又能攒够样本」的折中；更早的日志（如 11-02 那批 glm 请求）已被上游换模型，
+ * 混进来反而会污染当前判断。
+ *
+ * 为什么按天遍历而不是「全局最近 N 条」：忙的渠道一天的量就上千，全局窗口会被它占满，
+ * 慢渠道（一天几条）直接被挤出样本集（实测 qodercn 11-05 的 3 条就被 500 条窗口挡在外面）。
+ * 扫描读的是每天的**尾部 1MB**（与 `queryAccessLogs` 同量），不做排序 / 统计 / 缓存。
+ */
+export const SPEED_WINDOW_DAYS = 3;
+
+/** 速度缓存时长：到期才重扫日志（3 天窗口实测 20–30ms，60s 一次可忽略）。 */
+export const SPEED_TTL_MS = 60_000;
+
+/** 参考速率（tokens/s）：与仪表盘模型清单的「慢」标签阈值一致（`model-health.SLOW_TPS`）。 */
+export const SPEED_REF_TPS = 100;
+
+/** 速度系数下限：再慢也只压到 0.25 —— 渠道慢不代表没货，压太狠会把唯一有货的渠道挤到最后。 */
+export const SPEED_MIN_FACTOR = 0.25;
+
+/**
+ * 少于这个样本数不罚。
+ *
+ * 取 2 而不是 3：请求量低的渠道一天可能只有 2 条请求（实测 qodercn 11-06 只有 2 条），
+ * 门槛 3 会让**最需要被识别的慢渠道**永远进不了样本。速度只是先验、且有 0.25 下限兜底，
+ * 两条的误差不会把排序带偏到不可接受；反过来「测不到就不罚」才是真正的失效。
+ */
+export const SPEED_MIN_SAMPLES = 2;
+
+interface SpeedSample {
+  sum: number;
+  count: number;
+}
+
+/** 一次速度快照：按（渠道 × 模型）与按渠道两个维度聚合。 */
+interface SpeedSnapshot {
+  at: number;
+  /** 键 = `<cid>/<模型>`。 */
+  byModel: Map<string, SpeedSample>;
+  byChannel: Map<string, SpeedSample>;
+}
+
+let speedCache: SpeedSnapshot | null = null;
+
+undefined/**
+ * 扫当天日志建立速度快照（进程内 TTL 缓存）。
+ *
+ * 为什么读日志而不是在请求结束时记账：TPS 要等响应结束（`generateMs` + usage）才拿得到，
+ * 而路由发生在请求**入口** —— 只能拿「最近一段时间的实测」当先验。读日志是唯一
+ * 不侵入转发链路的数据源（`http` 层拿不到 `generateMs`，它在 `runtime/log-store` 里才算得齐）。
+ */
+function speedSnapshot(now = Date.now()): SpeedSnapshot {
+  const hit = speedCache;
+  if (hit !== null && now - hit.at < SPEED_TTL_MS) return hit;
+  const byModel = new Map<string, SpeedSample>();
+  const byChannel = new Map<string, SpeedSample>();
+  try {
+    const aggregate = aggregateModelTps(listAccessDates().slice(0, SPEED_WINDOW_DAYS));
+    for (const [key, sample] of aggregate.byModel) byModel.set(key, sample);
+    for (const [key, sample] of aggregate.byChannel) byChannel.set(key, sample);
+  } catch {
+    // 日志读不出来（权限 / 轮转）→ 当「没有速度数据」，不罚任何渠道
+  }
+  speedCache = { at: now, byModel, byChannel };
+  return speedCache;
+}
+
+/** 测试用：清掉速度缓存（换存储根 / 写日志后必须调，否则读到旧快照）。 */
+export function resetSpeedCacheForTest(): void {
+  speedCache = null;
+}
+
+/**
+ * 某渠道（可选：某模型）的实测平均速率与样本数；样本不足或没数据返回 `null`。
+ *
+ * 优先用**该模型**的样本（同一渠道不同模型速度可能差很多），不足时回落渠道级 ——
+ * 渠道级样本更多、更稳，比直接放过更合理。
+ */
+export function speedOf(cid: string, model?: string): { avgTps: number; samples: number } | null {
+  const snap = speedSnapshot();
+  const pick = (sample: SpeedSample | undefined): { avgTps: number; samples: number } | null =>
+    sample === undefined || sample.count < SPEED_MIN_SAMPLES
+      ? null
+      : { avgTps: sample.sum / sample.count, samples: sample.count };
+  if (model !== undefined) {
+    const specific = pick(snap.byModel.get(`${cid}/${model}`));
+    if (specific !== null) return specific;
+  }
+  return pick(snap.byChannel.get(cid));
+}
+
+/**
+ * 速度系数（1 = 不罚；最低 `SPEED_MIN_FACTOR`）。
+ *
+ * 没有数据 / 样本不足 → 1（**不罚**）：慢的判据要有量，宁可放过一个慢渠道，
+ * 也不要因为「没测到」把有货的渠道压到最后。
+ */
+export function speedFactorOf(cid: string, model?: string): number {
+  const speed = speedOf(cid, model);
+  if (speed === null) return 1;
+  return Math.min(1, Math.max(SPEED_MIN_FACTOR, speed.avgTps / SPEED_REF_TPS));
+}
+
+/**
+ * 渠道**有效优先级** = 剩余额度 × 速度系数；没有额度数据返回 `null`（排序时排最后）。
+ *
+ * 为什么是乘法：额度差异常常是数量级（0 vs 5000），速度差异只有几倍 ——
+ * 相加会让速度几乎不起作用，相除会让慢渠道彻底失去竞争力。乘法让「慢」
+ * 表现为「同样的货，优先级打折」，且只影响同一量级内的排序。
+ */
+export function priorityOf(cid: string, model?: string): number | null {
+  const remain = totalRemainOf(cid);
+  if (remain === null) return null;
+  return remain * speedFactorOf(cid, model);
 }
 
 /** 是否需要刷新账单（任一渠道从没查过，或已过 TTL）。 */

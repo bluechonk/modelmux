@@ -15,7 +15,7 @@ import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { logRecovered, logThrottled } from "../runtime/logger.js";
 import { aliasGroupOf, canonicalOf, DEEPSEEK_EXPOSED_IDS, supersedingModels } from "./model-family.js";
-import { totalRemainOf } from "./pool-usage.js";
+import { priorityOf, totalRemainOf } from "./pool-usage.js";
 
 /**
  * 对外暴露的模型池（deepseek 家族中**至少有一个渠道能供给**的 id，按展示顺序）。
@@ -724,7 +724,7 @@ export interface PoolCandidate {
 export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const canonical = canonicalOf(model);
   if (!canonical) return [];
-  return sortByRemain(candidatesOf(canonical, buildCrossModelIndex()));
+  return sortByPriority(candidatesOf(canonical, buildCrossModelIndex()), canonical);
 }
 
 /**
@@ -828,19 +828,24 @@ function findExposed(
 }
 
 /**
- * 跨渠道排序：**账号池剩余额度之和降序**，无额度数据的排最后，同分按 cid 码点序。
+ * 跨渠道排序：**有效优先级降序** = 剩余额度 × 速度系数（`pool-usage.priorityOf`）。
  *
  * 为什么不用 `scoreOf`（账单已用量）：那是「用得多的优先」，与「谁还有货谁先出」相反；
- * 现在渠道由网关心挑，额度才是路由主键（见 `pool-usage.totalRemainOf`）。
+ * 额度才是路由主键（见 `pool-usage.totalRemainOf`）。
+ *
+ * 为什么要乘速度系数：同为「有货」，一个 60 t/s 的渠道和一个 180 t/s 的渠道不该等价 ——
+ * 慢渠道会把每个请求的等待时间拉长（实测 qodercn 69–95 t/s vs loomy 177 t/s）。
+ * 速度取**当天最近 500 条模型请求**的实测均值（TTL 60s），样本不足不罚。
+ * 无额度数据的排最后，同分按 cid 码点序。
  */
-function sortByRemain(candidates: readonly PoolCandidate[]): PoolCandidate[] {
+function sortByPriority(candidates: readonly PoolCandidate[], canonical: string): PoolCandidate[] {
   return [...candidates].sort((a, b) => {
-    const ra = totalRemainOf(a.cid);
-    const rb = totalRemainOf(b.cid);
-    if (ra === null && rb === null) return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
-    if (ra === null) return 1;
-    if (rb === null) return -1;
-    if (rb !== ra) return rb - ra;
+    const pa = priorityOf(a.cid, canonical);
+    const pb = priorityOf(b.cid, canonical);
+    if (pa === null && pb === null) return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
+    if (pa === null) return 1;
+    if (pb === null) return -1;
+    if (pb !== pa) return pb - pa;
     return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
   });
 }
