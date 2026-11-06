@@ -14,11 +14,11 @@ import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { logRecovered, logThrottled } from "../runtime/logger.js";
-import { aliasGroupOf, canonicalOf, DEEPSEEK_EXPOSED_IDS, supersedingModels } from "./model-family.js";
+import { aliasGroupOf, canonicalOf, POOL_EXPOSED_IDS } from "./model-family.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
 
 /**
- * 对外暴露的模型池（deepseek 家族中**至少有一个渠道能供给**的 id，按展示顺序）。
+ * 对外暴露的模型池（家族中**至少有一个渠道能供给**的 id，按展示顺序）。
  *
  * 不做进程内缓存：渠道目录可随登录/刷新变化，每次调用重新收集是刻意的
  * （调用方若需在同一表达式里保持一致快照，应先取一次局部变量）。
@@ -28,7 +28,7 @@ import { priorityOf, totalRemainOf } from "./pool-usage.js";
  */
 export function poolModels(): string[] {
   const index = buildCrossModelIndex();
-  return DEEPSEEK_EXPOSED_IDS.filter((id) => candidatesOf(canonicalOf(id)!, index).length > 0);
+  return POOL_EXPOSED_IDS.filter((id) => candidatesOf(canonicalOf(id)!, index).length > 0);
 }
 
 export type PoolModel = string;
@@ -733,9 +733,7 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
  * 别名组内的每个名字都查一遍：`deepseek-flash` 与 `deepseek-v4.1-flash` 互为别名，
  * 渠道目录里写哪个都应命中。同一渠道同时暴露两个名字时取先命中的那个。
  *
- * 型号互斥：下位型号（`deepseek-v4-flash` / `deepseek-v4-pro`）只服务上游**没有**
- * `deepseek-v4.1-flash` 的渠道 —— 规则声明在 `model-family.SUPERSEDED_BY`，
- * 这里只是执行点（路由、`/v1/models`、控制台模型表共用这一处）。
+ * 命中判定走 `findExposed`（索引 → 直扫目录）：渠道目录里没有这个规范名就不进候选。
  */
 function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[] {
   const group = aliasGroupOf(canonical);
@@ -743,7 +741,6 @@ function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[
   const cache: ScanCache = new Map();
   for (const channel of channels()) {
     const cid = channel.config.cid;
-    if (isSupersededChannel(channel, canonical, index, cache)) continue;
     const exposedId = findExposed(cid, channel, group, index, cache);
     if (exposedId !== undefined) out.push({ cid, channel, exposedId });
   }
@@ -751,29 +748,10 @@ function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[
 }
 
 /**
- * 该渠道是否因供给**上位型号**而被排除在 `canonical` 之外（规则表见
- * `model-family.SUPERSEDED_BY`）。
- *
- * 候选收集与元数据聚合（`getPoolModelMeta`）共用这一个判定：两处各写一份
- * `supersedingModels(...).some(...)` 迟早会一边改一边忘，而它们回答的是同一个问题。
- */
-function isSupersededChannel(
-  channel: Channel,
-  canonical: string,
-  index: CrossModelIndex,
-  cache: ScanCache,
-): boolean {
-  const cid = channel.config.cid;
-  return supersedingModels(canonical).some(
-    (name) => findExposed(cid, channel, aliasGroupOf(name), index, cache) !== undefined,
-  );
-}
-
-/**
  * 一次候选收集 / 元数据聚合内的直扫记忆：`cid → (规范名 → 目录里的原始写法)`。
  *
  * 为什么要它：索引没命中时原实现每次调用都读盘 + 解析一遍目录，而「渠道没有某个名字」是常态；
- * 加上互斥检查后同一渠道一次收集里最多问两遍（上位型号 + 目标型号），不共享就会双倍读盘。
+ * 别名组内每个名字都要问一次（如 `deepseek-flash` 与 `deepseek-v4.1-flash`），不共享就会重复读盘。
  *
  * 记忆**只活在单次调用里**（调用方传同一个 Map）：目录在 TTL 内被改过、或测试里换过渠道时，
  * 下一次调用仍会直扫到最新目录 —— 这与直扫回落原本的语义（补索引的陈旧）一致。
@@ -865,12 +843,8 @@ export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSp
   const specs = modelSpecs ?? readModelSpecs().models;
   const group = aliasGroupOf(canonical);
   const factsList: ChannelFacts[] = [];
-  const cache: ScanCache = new Map();
   for (const channel of channels()) {
     const cid = channel.config.cid;
-    // 与候选收集同一口径（共用 `isSupersededChannel`）：供给上位型号的渠道不参与该下位型号的
-    // 元数据聚合 —— 否则「模型 × 渠道」行的规格会混进一个永远不会被选中的渠道
-    if (isSupersededChannel(channel, canonical, index, cache)) continue;
     for (const name of group) {
       if (!index.get(name)?.exposed.some((item) => item.cid === cid)) continue;
       try {

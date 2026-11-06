@@ -32,7 +32,7 @@
 {
   "version": 1,
   "models": {
-    "deepseek-v4-flash": {
+    "glm-5.3-flash": {
       "contextWindow": 1000000,
       "maxOutputTokens": 393216,
       "inputModalities": ["text"],
@@ -57,9 +57,9 @@
 ### CLI：`mx model spec <模型名>`
 
 ```bash
-mx model spec deepseek-v4-flash          # 查全局规格
-mx model spec catpaw/deepseek-v4-flash   # 连上游目录一起查
-mx model spec deepseek-v4-flash --json   # JSON 输出
+mx model spec glm-5.3-flash          # 查全局规格
+mx model spec deepseek-v4.1-flash   # 另一个家族成员
+mx model spec glm-5.3-flash --json  # JSON 输出
 ```
 
 ### 手动写入

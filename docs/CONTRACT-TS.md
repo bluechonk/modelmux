@@ -69,7 +69,7 @@ packages/core/channels/<cid>/
 > 参考实现清单，另有可选的 `FINDINGS.md` / `FLOW.md`）。
 
 > **一个渠道 = 一个池子**：渠道 `catalog` 提供模型，共享层的**公共模型池**只把
-> **deepseek 家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
+> **对外模型家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
 > 账号池见同文档 §3。
 
 **每个 `packages/core/channels/<cid>/` 的 `src/` 只有 7 个文件。** 任何不在上表里的 `src/*.ts`
@@ -211,11 +211,11 @@ interface Channel {
 
 ## 4. 模型池策略
 
-### 4.1 对外 id：deepseek 家族裸模型名（`model-family.ts` + `pool-targets.ts`）
+### 4.1 对外 id：模型家族裸模型名（`model-family.ts` + `pool-targets.ts`）
 
-网关对外只做 **deepseek 家族**，id 形态是**裸模型名**（`deepseek-v4.1-flash` /
-`deepseek-v4-flash` / `deepseek-v4-pro`；`deepseek-flash` 是第一个的别名）。
-家族表（对外 id、canonical 归并、别名组）声明在
+网关对外只做**家族表里声明的模型**，id 形态是**裸模型名**（当前是
+`deepseek-v4.1-flash` / `glm-5.3-flash`；`deepseek-flash` 是第一个的别名）。
+家族表（对外 id、canonical 归并、别名组、`owned_by`）声明在
 `packages/core/gateway/src/pool/model-family.ts` —— 共享层**唯一**允许出现模型名的地方
 （由 `scripts/verify-contract.mjs` 强制）。
 
@@ -462,8 +462,8 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 **兜底表是必需的**：未登录或上游目录失败时用户仍应看到模型（否则渠道在选择器里
 凭空消失，用户以为插件坏了）。
-`catalog.exposedIds()` 只需给出该渠道**真实可用**的归一化 id；共享层不做家族过滤
-（全模型池，见 §4.1）。
+`catalog.exposedIds()` 只需给出该渠道**真实可用**的归一化 id；共享层再按**对外模型家族**
+过滤（见 §4.1，家族表是唯一口径）。
 但**不要列出实测用不了的模型** —— 用户选中后拿到空回答，而错误指向「模型」
 而非真实原因，比不列更糟。
 

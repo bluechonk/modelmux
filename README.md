@@ -1,8 +1,8 @@
 # modelmux
 
-**一个端点，只做 DeepSeek。** 把 AStudio、WorkBuddy、Qoder、Loomy、Raccoon、
-TRAE、CatPaw 等渠道的 DeepSeek 额度汇成**一个 OpenAI 兼容端点**，
-对外只有几个 deepseek 模型名（`deepseek-v4.1-flash` / `deepseek-v4-flash` / `deepseek-v4-pro`）。
+**一个端点，只做几个对外模型。** 把 WorkBuddy、Loomy、Raccoon、
+TRAE、CatPaw、Qoder 国内版等渠道的额度汇成**一个 OpenAI 兼容端点**，
+对外只有家族表里的几个模型名（`deepseek-v4.1-flash` / `glm-5.3-flash`）。
 专注做一件事：`npx modelmux` 起网关，任何 OpenAI 兼容客户端指过来就能用 ——
 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
 
@@ -10,7 +10,7 @@ TRAE、CatPaw 等渠道的 DeepSeek 额度汇成**一个 OpenAI 兼容端点**�
 
 - **一个网关**：监听 `127.0.0.1:4412`，OpenAI 兼容 `/v1/chat/completions`，
   另有 `/v1/models` 与 `/health`。
-- **DeepSeek 统一模型池**：对外只有 deepseek 家族的**裸模型名**，`/v1/models` 只列
+- **统一模型池**：对外只有家族表里的**裸模型名**，`/v1/models` 只列
   「至少一个渠道能供给」的那几个；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名。
 - **多渠道路由**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下；
   渠道数由**注册表**决定（`mx model list` 看全量），文档不写死数字。
@@ -73,7 +73,7 @@ mx model list
 ## Web 控制台
 
 `mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**三个路由页**：
-仪表盘 `/`、账号池 `/accounts`、请求日志 `/logs`。对外模型清单（3 个 deepseek 模型）与
+仪表盘 `/`、账号池 `/accounts`、请求日志 `/logs`。对外模型清单（家族表里的几个模型）与
 「一键接入 zcode / dsh」都在仪表盘上。
 
 **在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
@@ -101,7 +101,6 @@ mx model list
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
 | 渠道端到端测试（dsh/ACP 直连网关，覆盖每个渠道的模型） | 技能 `.agents/skills/dsh-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
-| 渠道端到端测试（zcode app-server 直连网关，按会话选模型复测） | 技能 `.agents/skills/zcode-mx-test/SKILL.md`（只许用 zcode 清单内免费或最低倍率模型） |
 | 收尾流程（文档同步 / commit / PR / CI / merge） | 技能 `.agents/skills/repo-sync/SKILL.md` |
 | 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |

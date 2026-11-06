@@ -292,8 +292,8 @@ describe("2. 模型池（model 分组）", () => {
       model: string;
       candidates: Array<{ cid: string; exposed_id: string }>;
     }>;
-    // alpha 只贡献 deepseek 家族（glm-5.3-flash 不进对外池），beta 也贡献同一款 → 1 个池条目
-    assert.equal(parsed.length, 1, `只列 deepseek 家族，实际 ${parsed.length}`);
+    // 两个家族型号各只有 alpha / beta 一家供给 → 2 个池条目
+    assert.equal(parsed.length, 2, `只列对外家族，实际 ${parsed.length}`);
     const ds = parsed.find((x) => x.model === "deepseek-v4.1-flash");
     assert.ok(ds, "应包含 deepseek-v4.1-flash");
     assert.deepEqual(
@@ -301,6 +301,9 @@ describe("2. 模型池（model 分组）", () => {
       ["alpha", "beta"],
       "两家都有货（不跨渠道去重）",
     );
+    const glm = parsed.find((x) => x.model === "glm-5.3-flash");
+    assert.ok(glm, "应包含 glm-5.3-flash");
+    assert.deepEqual(glm!.candidates.map((c) => c.cid), ["alpha"]);
   });
 
   it("未知 model 子命令 → 2", async () => {
@@ -351,17 +354,17 @@ describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
     useRemoteOnly();
 
     await run(["model", "remote"]); // 写入缓存（deepseek-v4.1-flash-0731）
-    refreshState.upstream = ["DeepSeek-V4-Flash-Official"]; // 上游变了
+    refreshState.upstream = ["GLM-5.3-Flash"]; // 上游变了
 
     const cached = await run(["model", "remote"]);
     assert.equal(refreshState.calls, 1, "仍不该打网络");
     assert.match(cached.out, /deepseek-v4.1-flash-0731/, "用的是本地记录的那份");
-    assert.ok(!cached.out.includes("Official"));
+    assert.ok(!cached.out.includes("GLM-5.3-Flash"));
 
     const forced = await run(["model", "remote", "--refresh"]);
     assert.equal(forced.code, 0);
     assert.equal(refreshState.calls, 2, "--refresh 必须真的重拉");
-    assert.match(forced.out, /DeepSeek-V4-Flash-Official/, "重拉后是新内容");
+    assert.match(forced.out, /GLM-5\.3-Flash/, "重拉后是新内容");
     assert.ok(forced.err.includes("刚从上游拉取"));
 
     resetChannels();
@@ -436,7 +439,7 @@ describe("3. <动词> [<cid>] 路由", () => {
     const r = await run(["model", "alpha"]);
     assert.equal(r.code, 0);
     assert.ok(r.out.includes("deepseek-v4.1-flash"), r.out);
-    assert.ok(!r.out.includes("glm-5.3-flash"), "非 deepseek 家族不进对外池");
+    assert.ok(r.out.includes("glm-5.3-flash"), "glm 也是对外家族成员");
     assert.ok(r.out.includes("← DeepSeek-V4.1-Flash"), "要能看出目录里的原始写法");
   });
 

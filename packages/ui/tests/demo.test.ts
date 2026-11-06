@@ -46,9 +46,9 @@ describe("演示快照与模型清单", () => {
     for (const row of demoSettings(state).models) {
       assert.ok(ids.has(row.model), `快照模型 ${row.model} 必须在 demoModels 里`);
     }
-    // 种子里 qoder / workbuddy 未登录，它们的模型不能出现在池里
+    // 种子里 workbuddy 未登录，它的模型不能出现在池里
     for (const row of demoModels(state)) {
-      assert.notEqual(row.cid, "qoder");
+      assert.notEqual(row.cid, "workbuddy");
     }
   });
 
@@ -74,19 +74,19 @@ describe("登录流程（演示的是两步交互）", () => {
 
   it("code 型渠道：无输入卡，直接完成授权", () => {
     const state = createDemoState();
-    demoLogin(state, "qoder");
+    demoLogin(state, "raccoon");
     const snap = demoSettings(state);
     assert.equal(snap.ui_state, "login");
     assert.ok(snap.auth_url.length > 0, "code 型给授权链接");
     assert.equal(snap.login_input, null);
     demoCompleteLogin(state);
-    assert.equal(demoStatus(state).channels.find((c) => c.cid === "qoder")?.present, true);
+    assert.equal(demoStatus(state).channels.find((c) => c.cid === "raccoon")?.present, true);
   });
 
   it("没有进行中的登录时 submitInput 是空操作；cancelInput 收尾", () => {
     const state = createDemoState();
     assert.match(demoSubmitLoginInput(state, "x").message, /没有进行中的登录/);
-    demoLogin(state, "qoder");
+    demoLogin(state, "raccoon");
     demoEndLogin(state);
     assert.equal(demoSettings(state).ui_state, "running");
   });

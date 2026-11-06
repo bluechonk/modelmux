@@ -70,9 +70,7 @@ function makeChannel(cid: string, exposed: string[]): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
     },
     catalog: {
-      // 对外模型池只收 deepseek 家族；纯非家族名不进快照。
-      // 两个型号分给两个渠道：同一渠道同时供给两代模型会被型号互斥收口成只有上位型号
-      // （见 docs/POOL-ARCHITECTURE.md §2.1.1），这里要的是「池里有两个模型」。
+      // 对外模型池只收家族表里的名字；纯非家族名（如 qwen / kimi）不进快照。
       exposedIds: () => exposed,
       resolveModel: (name: string) => name,
     },
@@ -90,9 +88,9 @@ describe("统一模型目录快照", () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-catalog-"));
     process.env["MODELMUX_HOME"] = root;
     clearChannels();
-    // 两个渠道各供一个 deepseek 型号：同一渠道同时供两代会被型号互斥收口成只有上位型号
+    // 一个渠道供两个对外型号；另一个只供家族外的名字（不进池）
     setChannel(makeChannel(CID, ["glm-5.3-flash", "deepseek-v4.1-flash"]));
-    setChannel(makeChannel(`${CID}-legacy`, ["deepseek-v4-flash"]));
+    setChannel(makeChannel(`${CID}-legacy`, ["deepseek-v4-flash", "qwen3.8-flash"]));
   });
 
   after(() => {
@@ -101,16 +99,18 @@ describe("统一模型目录快照", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("生成快照：每个对外模型一条（非家族模型不进池），缺字段标 default", () => {
+  it("生成快照：每个对外模型一条（家族外不进池），缺字段标 default", () => {
     const catalog = buildCatalog();
-    assert.equal(Object.keys(catalog.models).length, 2, "只有 deepseek 家族进对外池");
+    assert.equal(Object.keys(catalog.models).length, 2, "只有家族表里的模型进对外池");
     const entry = catalog.models["deepseek-v4.1-flash"];
     assert.ok(entry);
     assert.equal(entry.id, "deepseek-v4.1-flash");
-    assert.equal(entry.owned_by, "deepseek", "对外模型统一归 deepseek 家族");
+    assert.equal(entry.owned_by, "deepseek");
     assert.equal(entry.meta_sources.context_window, "default");
     assert.equal(entry.meta_sources.max_output_tokens, "default");
     assert.equal(entry.effort, null);
+    // glm 是另一个厂商的家族成员，owned_by 不能一律写 deepseek
+    assert.equal(catalog.models["glm-5.3-flash"]?.owned_by, "zhipu");
   });
 
   it("文件往返：写入后可读回，损坏 JSON 返回 null", () => {

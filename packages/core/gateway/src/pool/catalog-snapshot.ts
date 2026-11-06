@@ -11,6 +11,7 @@ import {
   type CatalogEntry,
   type CatalogFile,
 } from "../runtime/model-catalog.js";
+import { ownerOf } from "./model-family.js";
 import { invalidateCrossModelIndex, poolModels, poolModelMetas, type MetaSource, type PoolModelMeta } from "./pool-targets.js";
 
 /** 把一条池元数据转成快照条目。 */
@@ -18,8 +19,8 @@ function toEntry(id: string, meta: PoolModelMeta): CatalogEntry {
   return {
     id,
     name: meta.name,
-    // 对外模型统一归 deepseek 家族（不再按渠道归属；渠道在请求日志里另记）
-    owned_by: "deepseek",
+    // 厂商归家族表（`ownerOf`）；渠道归属不在这里体现（渠道在请求日志里另记）
+    owned_by: ownerOf(id),
     context_window: meta.contextWindow,
     max_output_tokens: meta.maxOutputTokens,
     input_modalities: meta.inputModalities,

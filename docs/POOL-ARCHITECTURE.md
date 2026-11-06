@@ -9,7 +9,7 @@
 
 | 维度 | 当前设计 | 说明 |
 |---|---|---|
-| 对外模型 id 形态 | **deepseek 家族裸模型名**（`deepseek-v4.1-flash`；见 §2） | 渠道由网关自动挑，客户端不指定 |
+| 对外模型 id 形态 | **对外模型家族裸模型名**（`deepseek-v4.1-flash` / `glm-5.3-flash`；见 §2） | 渠道由网关自动挑，客户端不指定 |
 | 模型目录来源 | 磁盘缓存 → 远端目录 → 渠道内置兜底表（见 §2.8） | 三级来源，兜底表在渠道包里 |
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
 | 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；鉴权失效一律手动切号 | 见 §3.3 |
@@ -21,12 +21,11 @@
 
 - **一个 CLI**：`mx`（bin `modelmux` 全名等价）—— 一个网关进程、一个入口。
 - **渠道的新角色**：不是「一个网关」，而是**一个池子**。
- - **模型池**：该渠道 `catalog` 对外暴露的全部可用模型（共享层不做家族白名单，见 `CONTRACT-TS.md` §4.1）。
+ - **模型池**：该渠道 `catalog` 对外暴露、且属于对外家族的全部可用模型（家族表见 `CONTRACT-TS.md` §4.1）。
  - **账号池**：该渠道的多个账号；`credentials.json` 只是当前生效账号的兼容镜像（见 §3.4）。
-- **对外形态**：一个 base URL（`http://127.0.0.1:4412/v1`）+ **deepseek 家族的裸模型名**
- （`deepseek-v4.1-flash` / `deepseek-v4-flash` / `deepseek-v4-pro`；`deepseek-flash` 是
- `deepseek-v4.1-flash` 的别名）。客户端只说要哪个模型，**哪家渠道出**由网关按账号池
- 剩余额度自动挑，失败顺延下一家 —— 见 §2。
+- **对外形态**：一个 base URL（`http://127.0.0.1:4412/v1`）+ **对外模型家族的裸模型名**
+ （`deepseek-v4.1-flash` / `glm-5.3-flash`；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名）。
+ 客户端只说要哪个模型，**哪家渠道出**由网关按账号池剩余额度自动挑，失败顺延下一家 —— 见 §2。
 
 > 渠道对客户端**透明**：请求里不带渠道前缀；家族外的模型名（哪怕是别家真实存在的模型）
 > 一律 `400 unknown_model`。模型家族是网关的**产品面**，声明在
@@ -34,28 +33,28 @@
 
 ---
 
-## 2. 公共模型池：deepseek 家族裸模型名
+## 2. 公共模型池：对外模型家族裸模型名
 
-网关对外只暴露 **deepseek 家族**，客户端用**裸模型名**请求：
+网关对外只暴露**家族表里声明的模型**，客户端用**裸模型名**请求：
 
 ```
-/v1/models = deepseek 家族中「至少一个渠道能供给」的 canonical 名  →  排序
+/v1/models = 家族中「至少一个渠道能供给」的 canonical 名  →  排序
                  ↑ 渠道目录里的等价写法（大小写 / 连字符版本号 / sn- 包装 / -official / 日期后缀）归一后匹配
 ```
 
-| 对外模型 id | 别名 | 本机供给渠道（实测） |
-|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | loomy（目录写 `DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
-| `deepseek-v4-flash` | — | astudio、catpaw、loomy、traecn |
-| `deepseek-v4-pro` | — | astudio、qodercn、traecn、workbuddy |
+| 对外模型 id | 别名 | `owned_by` | 本机供给渠道（实测） |
+|---|---|---|---|
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | loomy（目录写 `DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
+| `glm-5.3-flash` | — | `zhipu` | catpaw、loomy（`GLM-5.3-Flash`）、qodercn（`gfmodel`）、raccoon（`sn-glm-5-3-flash`）、workbuddy |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
 
 > 过滤只由**渠道自己的目录**决定：隐藏条目（`hidden` / `visible === false`）、
 > 官方「自定义模型」占位（`custom_model_*`）、上游标记不可用的通道会被各渠道排除，
-> 共享层不做闸门。非 deepseek 家族的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）
-> **不进对外池** —— 网关只做 deepseek。
+> 共享层不做闸门。家族外的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）
+> **不进对外池**。`qodercn` 是「渠道级范围」的例子：它只暴露 `glm-5.3-flash`，
+> deepseek 系在它的 `models.json` 里标了 `hidden`。
 
 来源：`pool/model-family.ts`（家族与别名）、`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
 
@@ -74,30 +73,9 @@
 
 客户端请求名走 `canonicalOf`（家族表 + 同一套宽松归一化）：命中家族即归并到 canonical，
 并按**别名组**收集候选 —— `deepseek-flash` 与 `deepseek-v4.1-flash` 互相命中
-（qodercn 只暴露 `deepseek-flash`，请求 `deepseek-v4.1-flash` 也能打过去）。
+（目录里写 `DeepSeek-Flash` 的渠道，请求 `deepseek-v4.1-flash` 也能打过去）。
 家族外的名字一律 `400 unknown_model`；家族内但**没有任何渠道供给**的也是 `400`（没货），
 「渠道都没登录」才是 `503`。
-
-### 2.1.1 型号互斥：上位型号顶掉下位型号
-
-`deepseek-v4-flash` / `deepseek-v4-pro` 只服务**上游没有 `deepseek-v4.1-flash`** 的渠道：
-
-| 渠道目录里有 | 该渠道承接 | 该渠道**不再**承接 |
-| --- | --- | --- |
-| `deepseek-v4.1-flash`（含别名 `deepseek-flash`） | `deepseek-v4.1-flash` | `deepseek-v4-flash`、`deepseek-v4-pro` |
-| 只有 `deepseek-v4-flash` / `deepseek-v4-pro` | 它有的那个 | — |
-
-判据是**归一化后的目录条目**（`canonicalModelId`），所以上游写作
-`DeepSeek-V4.1-Flash` / `sn-deepseek-v4-1-flash` / 带 `-official`、`-0731` 尾饰
-同样算「有 v4.1-flash」。规则表在 `pool/model-family.ts::SUPERSEDED_BY`，
-判定函数 `pool/pool-targets.ts::isSupersededChannel` 被**候选收集**（`candidatesOf`）
-与**元数据聚合**（`getPoolModelMeta`）共用 —— 往返转发、`/v1/models`、`mx model list`、
-控制台「模型 × 渠道」表因此是同一口径，改规则只需要改 `SUPERSEDED_BY`。
-
-为什么必须收口：不收的话同一家渠道会被两个型号重复命中（目录里同时列着两代模型），
-请求 `deepseek-v4-flash` 仍可能落到一家**已经升级到 v4.1-flash** 的渠道上，
-路由结果与「为什么这家既出 v4 又出 v4.1」都解释不清。互斥后一个渠道在同一时刻只对
-上位的那个型号负责，下位型号自然只落到真正需要它的渠道上。
 
 ### 2.2 账本：路由主键（剩余额度 × 速度）＋ 健康度观察
 

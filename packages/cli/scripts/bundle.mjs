@@ -49,7 +49,12 @@ function copySnapshots() {
   for (const entry of readdirSync(channelsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const src = join(channelsRoot, entry.name, "models.json");
-    if (!existsSync(src)) continue;
+    if (!existsSync(src)) {
+      // 快照现在承载渠道级曝光策略（如 qodercn 的 hidden 标记）：
+      // 静默跳过会产出「没有兜底种子」的 bundle，策略在运行时静默失效
+      console.warn(`[bundle] 跳过快照（文件不存在，该渠道将没有随包兜底表）：${relative(repoRoot, src)}`);
+      continue;
+    }
     let models;
     try {
       models = JSON.parse(readFileSync(src, "utf8"))?.models;

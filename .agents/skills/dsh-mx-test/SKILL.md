@@ -1,6 +1,6 @@
 ---
 name: dsh-mx-test
-description: 用 dsh（DeepSeek Harness）ACP 协议对 modelmux（mx）网关做端到端模型测试。适用于：用 dsh 测 mx、dsh 接入 modelmux、网关端到端验收、换 harness 复测模型、dsh 会话编程驱动（新建/停止/续接/固定模型/固定 preset）、验证工具调用与文件落盘、排查 dsh 到 mx 链路报错。网关只对外暴露 deepseek 家族裸名，落点渠道由网关按额度挑；测试前后要做账单核对。
+description: 用 dsh（DeepSeek Harness）ACP 协议对 modelmux（mx）网关做端到端模型测试。适用于：用 dsh 测 mx、dsh 接入 modelmux、网关端到端验收、换 harness 复测模型、dsh 会话编程驱动（新建/停止/续接/固定模型/固定 preset）、验证工具调用与文件落盘、排查 dsh 到 mx 链路报错。网关只对外暴露模型家族裸名，落点渠道由网关按额度挑；测试前后要做账单核对。
 ---
 
 # dsh → modelmux 端到端测试（ACP 协议）
@@ -15,7 +15,7 @@ description: 用 dsh（DeepSeek Harness）ACP 协议对 modelmux（mx）网关�
 
 端到端 Agent 测试一轮轻松几万 token，用高倍率模型等于直接烧钱。这条优先于本文其他内容。
 
-1. **对外模型只有 deepseek 家族**（`deepseek-v4.1-flash` / `deepseek-v4-flash` / `deepseek-v4-pro`），
+1. **对外模型只有家族表里那几个**（`deepseek-v4.1-flash` / `glm-5.3-flash`），
    落点渠道由网关按账号池剩余额度自动挑 —— 不能按渠道选模型（`mx model list` 看谁有货）。
 2. **每次都要核对账单**：`mx bill <cid>` 记录额度（免费预期差 0，付费预期差值 > 0 且量级合理），
    流程与「已用 0」陷阱见 [references/billing.md](references/billing.md)。
@@ -57,7 +57,7 @@ node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "Reply with the singl
 ### 2. 换模型
 
 ```bash
-node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "Reply pong." --model deepseek-v4-flash
+node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "Reply pong." --model glm-5.3-flash
 ```
 
 `--model <deepseek 模型名>` 会现生成临时 overlay（`.tmp/dsh-mx-overlays/generated-acp-overlay.yml`）；
