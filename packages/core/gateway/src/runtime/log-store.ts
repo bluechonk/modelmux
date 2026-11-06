@@ -34,7 +34,15 @@ import type { ServerResponse } from "node:http";
 import * as paths from "./paths.js";
 import { enforcePermissions } from "./permissions.js";
 
-export type AccessOutcome = "success" | "failure" | "other";
+/**
+ * 一次请求的结果分桶 —— **只有成功与失败**。
+ *
+ * 历史上还有第三桶 `other`（「中断」：没拿到状态码就断开）。实测它恒为空
+ * （`status<200` 才落，正常请求拿不到这种状态；客户端提前断开也在 `finishRequestLog`
+ * 之前就被 2xx 定了 success），却在界面上多给用户一个看不懂的分段。
+ * 读旧 `other.log` 的行按 **failure** 计（没有状态码 = 服务端没给出结果）。
+ */
+export type AccessOutcome = "success" | "failure";
 
 /** 单请求的访问日志上下文；由 HTTP 层创建，响应结束时落盘。 */
 export interface RequestLog {
@@ -405,7 +413,10 @@ export function finishRequestLog(log: RequestLog, status: number): void {
     log.generateMs = log.lastFrameAt - log.firstFrameAt;
   }
   if (!log.outcome) {
-    log.outcome = status >= 400 ? "failure" : status >= 200 ? "success" : "other";
+    // 没有状态码（`status < 200`，通常为 0）= 服务端没给出结果 → 按失败记。
+    // 不再单列「中断」：见 `AccessOutcome` 的说明。
+    log.outcome = status >= 200 && status < 400 ? "success" : "failure";
+    if (status < 200) log.error ??= "no_status";
   }
   // 成功的健康检查 / 模型轮询不记访问日志：Web 控制台每 5 秒拉一次 /v1/models，
   // 记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
@@ -605,7 +616,7 @@ function latestDateDir(categoryDir: string, fileName: (date: string) => string):
  * 解析 CLI 要 tail 的日志文件。
  *
  * `kind`：access / error / system / lifecycle / worker / channel；
- * `outcome`：success / failure / other。未给日期时取今天，今天没有则取最新日期。
+ * `outcome`：success / failure。未给日期时取今天，今天没有则取最新日期。
  */
 export function resolveLogPath(options: {
   kind?: string;
@@ -664,7 +675,7 @@ export function resolveLogPath(options: {
 /**
  * 单条访问日志的可读形态（字段语义见 docs/LOGGING.md §3.1）。
  *
- * `outcome` 取自**它所在的文件**（`success.log` / `failure.log` / `other.log`）而不是行内字段：
+ * `outcome` 取自**它所在的文件**（`success.log` / `failure.log`；旧 `other.log` 读入时按 failure）而不是行内字段：
  * 文件归属是分桶的权威事实源，行内字段只作兜底。
  */
 export interface AccessEntry {
@@ -753,7 +764,6 @@ export interface AccessStats {
   requests: number;
   success: number;
   failure: number;
-  other: number;
   /** 判定为慢的条数（口径见 `slowVerdictOf`）。 */
   slow: number;
   /** 其中首字延迟超标的条数（仅流式参与判定）。 */
@@ -806,12 +816,16 @@ const ACCESS_SCAN_LINES = 20_000;
 const ACCESS_DEFAULT_LIMIT = 100;
 const ACCESS_MAX_LIMIT = 500;
 /**
- * 只读这三个文件。
+ * 读取的三个文件（**含历史 `other.log`**）。
  *
- * 刻意**不读** `slow.log`：它是成功/失败行的**并行副本**（同一请求写两处），
- * 一起读会让慢请求在列表里出现两遍。
+ * 新写入只有 success / failure 两类；`other.log` 只为「旧版本落过盘的机器」保留读取，
+ * 其中的行按 failure 计（见 `AccessOutcome`）。刻意**不读** `slow.log`：它是成功/失败行的
+ * 并行副本（同一请求写两处），一起读会让慢请求在列表里出现两遍。
  */
-const ACCESS_OUTCOMES: AccessOutcome[] = ["success", "failure", "other"];
+const ACCESS_OUTCOMES: AccessOutcome[] = ["success", "failure"];
+
+/** 历史「中断」桶的文件名（读到时并入 failure；不再写入）。 */
+const LEGACY_OTHER_FILE = "other.log";
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
@@ -955,6 +969,18 @@ function accessFiles(date: string, outcome: AccessOutcome): string[] {
   return out;
 }
 
+/** 历史 `other.log`（含轮转）—— 只在读取时并入 failure，不再写入。 */
+function legacyOtherFiles(date: string): string[] {
+  const base = join(logsRoot(), "access", date, LEGACY_OTHER_FILE);
+  const out: string[] = [];
+  for (let i = MAX_ROTATED; i >= 1; i -= 1) {
+    const rotated = `${base}.${i}.log`;
+    if (existsSync(rotated)) out.push(rotated);
+  }
+  if (existsSync(base)) out.push(base);
+  return out;
+}
+
 /** `access/` 下真正有日志的日期，倒序（新的在前）。 */
 export function listAccessDates(): string[] {
   const dir = join(logsRoot(), "access");
@@ -967,7 +993,11 @@ export function listAccessDates(): string[] {
   return entries
     .filter((e) => e.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(e.name))
     .map((e) => e.name)
-    .filter((date) => ACCESS_OUTCOMES.some((o) => existsSync(join(dir, date, `${o}.log`))))
+    .filter(
+      (date) =>
+        ACCESS_OUTCOMES.some((o) => existsSync(join(dir, date, `${o}.log`))) ||
+        existsSync(join(dir, date, LEGACY_OTHER_FILE)),
+    )
     .sort()
     .reverse();
 }
@@ -998,6 +1028,21 @@ export function scanAccessDate(date: string, visit: (entry: AccessEntry) => void
         const entry = parseAccessLine(line, outcome);
         if (entry) visit(entry);
       }
+    }
+  }
+  // 历史「中断」桶：按 failure 计入（不再写入，只为旧机器上已落盘的正文保留可见性）
+  for (const file of legacyOtherFiles(date)) {
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      skipped += 1;
+      continue;
+    }
+    for (const line of text.split("\n")) {
+      if (line.trim() === "") continue;
+      const entry = parseAccessLine(line, "failure");
+      if (entry) visit(entry);
     }
   }
   return skipped;
@@ -1090,7 +1135,6 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     requests: 0,
     success: 0,
     failure: 0,
-    other: 0,
     slow: 0,
     slowTtfb: 0,
     slowTps: 0,
@@ -1113,19 +1157,36 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   let tpsSum = 0;
   let tpsCount = 0;
   /**
-   * 统计是否覆盖这条记录：只认调用方声明的**路径范围**。
+   * 统计是否覆盖这条记录：只认调用方声明的**范围**（路径 + 渠道）。
    *
    * 日志页与总览都传 `MODEL_REQUEST_PATHS`，但 access 日志里还有 `/health`、`/v1/models`
    * 的失败与慢请求，以及浏览器探测（`GET /.well-known/appspecific/com.chrome.devtools.json`
    * 404）。把它们计进统计，统计条就会说「请求 230」而列表只有 229 条，筛选分段的
    * 「失败 1」点进去还一条都没有（2026-11-06 实测，分段计数与列表必须同源）。
    * 不传路径时统计覆盖全部（CLI / 排障要全量）。
+   *
+   * 渠道同理：统计条是「当前筛选下的这一批请求」的画像 —— 选了某个渠道，成功率 /
+   * 慢 / 平均 TPS 就该是那个渠道的，否则换渠道时这几个数纹丝不动，读者会以为统计没生效。
    */
-  const inScope = (path: string | undefined): boolean =>
+  const inScope = (path: string | undefined, cid: string | undefined): boolean =>
+    (query.path === undefined || path === query.path) &&
+    (query.paths === undefined || query.paths.includes(path ?? "")) &&
+    (query.cid === undefined || cid === query.cid);
+  /**
+   * 下拉用的渠道集合：只受**路径**范围约束，不受 `cid` 约束 ——
+   * 否则选中某个渠道后，下拉里只剩它自己，用户没法再切回别的渠道。
+   */
+  const pathInScope = (path: string | undefined): boolean =>
     (query.path === undefined || path === query.path) &&
     (query.paths === undefined || query.paths.includes(path ?? ""));
-  scan: for (const outcome of ACCESS_OUTCOMES) {
-    for (const file of accessFiles(date, outcome)) {
+  const seenCids = new Set<string>();
+  // 历史 other.log 并入 failure 一起扫（新写入不再产生，只覆盖旧机器上已有的行）
+  const buckets: Array<{ outcome: AccessOutcome; files: string[] }> = [
+    ...ACCESS_OUTCOMES.map((outcome) => ({ outcome, files: accessFiles(date, outcome) })),
+    { outcome: "failure" as const, files: legacyOtherFiles(date) },
+  ];
+  scan: for (const { outcome, files } of buckets) {
+    for (const file of files) {
       const tail = readTail(file, ACCESS_TAIL_BYTES);
       if (tail.truncated) truncated = true;
       for (const line of tail.text.split("\n")) {
@@ -1139,7 +1200,9 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
         scannedLines += 1;
         const entry = parseAccessLine(line, outcome);
         if (!entry) continue;
-        if (!inScope(entry.path)) continue;
+        // 渠道下拉先收（路径范围内全部渠道），再按 cid 收口统计
+        if (pathInScope(entry.path) && entry.cid !== undefined) seenCids.add(entry.cid);
+        if (!inScope(entry.path, entry.cid)) continue;
         scanned.push(entry);
         stats.requests += 1;
         stats[outcome] += 1;
@@ -1180,7 +1243,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   stats.avgTps = tpsCount > 0 ? tpsSum / tpsCount : null;
   stats.cache.hitRate = stats.cache.total > 0 ? stats.cache.hit / stats.cache.total : null;
 
-  const cids = [...new Set(scanned.map((e) => e.cid).filter((c): c is string => c !== undefined))].sort();
+  const cids = [...seenCids].sort();
 
   const needle = query.q?.toLowerCase();
   // `path` / `paths` 已在扫描时由 `inScope` 收口（统计与列表同一范围），这里不再重复判定 ——

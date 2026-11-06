@@ -65,15 +65,12 @@ function useDebounced<T>(value: T, delayMs: number): T {
 }
 
 /**
- * 统计条：描述**当天读窗口**（未过滤聚合，不随筛选变化）。
+ * 统计条：描述**当前筛选范围**（路径 + 渠道 + 日期）的聚合。
  *
- * 筛选命中的条数**不在本条显示**——筛选变化时分页器与表格行数会跟着变，两个
- * 「总数」同屏对不上只会让人怀疑计数坏了（统计按未过滤窗口、命中按筛选，口径
- * 本来就不同）。只留筛选栏给不出的量：成功率、慢、平均 TPS、读窗口截断。
- * 成功 / 失败 / 中断三个绝对条数就在下面筛选栏的结果分段里（同一组数字、同一份
- * 口径），一屏说两遍反而让人怀疑两处算的不是一回事；tokens / 缓存命中 / 无 usage
- * 三条是**全局用量**（不是这份日志列表的性质），已挪到仪表盘（见 `pages/Dashboard.tsx`
- * 的用量明细条）。
+ * 范围跟着渠道 / 日期走是刻意的：换了渠道，成功率、慢、平均 TPS 就该是那个渠道的画像，
+ * 否则切筛选时这几个数纹丝不动，读者会以为统计没生效。结果（成功 / 失败）的绝对条数
+ * 仍在下面筛选栏的分段里（同一份口径），统计条不重复摊一遍；tokens / 缓存命中 /
+ * 无 usage 是**全局用量**（不是这份列表的性质），已挪到仪表盘。
  */
 function StatBar({ page }: { page: AccessLogPage }): ReactElement {
   const stats = page.stats;
@@ -588,7 +585,7 @@ function localToday(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** 过滤器：结果分段 + 渠道/日期下拉 + 关键词 + 两个开关。 */
+/** 过滤器：结果分段 + 渠道/日期下拉 + 只看慢 + 每页条数。 */
 function Filters({
   page,
   date,
@@ -597,8 +594,6 @@ function Filters({
   onOutcome,
   cid,
   onCid,
-  search,
-  onSearch,
   slowOnly,
   onSlowOnly,
   pageSize,
@@ -613,8 +608,6 @@ function Filters({
   onOutcome: (value: "" | AccessOutcome) => void;
   cid: string;
   onCid: (value: string) => void;
-  search: string;
-  onSearch: (value: string) => void;
   slowOnly: boolean;
   onSlowOnly: (value: boolean) => void;
   pageSize: number;
@@ -627,18 +620,16 @@ function Filters({
     { key: "", label: "全部", count: stats?.requests },
     { key: "success", label: OUTCOME_META.success.label, count: stats?.success },
     { key: "failure", label: OUTCOME_META.failure.label, count: stats?.failure },
-    { key: "other", label: OUTCOME_META.other.label, count: stats?.other },
   ];
   /**
-   * 结果分段的语义色：**未选中时也着色**（成功绿 / 失败红 / 中断黄），
-   * 选中只是加一层淡底 —— 只靠选中态着色时，四个按钮在默认状态下全是灰的，
+   * 结果分段的语义色：**未选中时也着色**（成功绿 / 失败红），
+   * 选中只是加一层淡底 —— 只靠选中态着色时，分段在默认状态下全是灰的，
    * 一眼看不出「哪个是失败」。底色用 12% 透明度，悬停再加深。
    */
   const segmentTone: Record<"" | AccessOutcome, { idle: string; active: string }> = {
     "": { idle: "text-ink-soft hover:bg-overlay/50 hover:text-ink", active: "bg-overlay text-ink" },
     success: { idle: "text-free hover:bg-free/10", active: "bg-free/15 text-free" },
     failure: { idle: "text-danger hover:bg-danger/10", active: "bg-danger/15 text-danger" },
-    other: { idle: "text-warn hover:bg-warn/10", active: "bg-warn/15 text-warn" },
   };
   const today = localToday();
   // 空值 = 后端回落到「最近一个有日志的日期」：今天还没有请求时回落的是昨天，
@@ -684,15 +675,6 @@ function Filters({
       <Select label="渠道" value={cid} onChange={onCid} options={cidOptions} />
       <Select label="日期" value={date} onChange={onDate} options={dateOptions} />
 
-      <input
-        type="search"
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-        placeholder="搜索模型名 / request id / 错误"
-        aria-label="搜索模型名、request id 或错误信息"
-        className="tap w-56 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink placeholder:text-ink-faint"
-      />
-
       <button
         type="button"
         aria-pressed={slowOnly}
@@ -737,8 +719,6 @@ export function Logs(): ReactElement {
   const [date, setDate] = useState("");
   const [outcome, setOutcome] = useState<"" | AccessOutcome>("");
   const [cid, setCid] = useState("");
-  const [rawSearch, setRawSearch] = useState("");
-  const search = useDebounced(rawSearch, 300);
   const [slowOnly, setSlowOnly] = useState(false);
   const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
@@ -750,7 +730,7 @@ export function Logs(): ReactElement {
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
     // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
     // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测出现过）。
-    queryKey: ["logs", date, outcome, cid, search, slowOnly, pageNum, pageSize],
+    queryKey: ["logs", date, outcome, cid, slowOnly, pageNum, pageSize],
     // 再进页面 / 切筛选时先出上一次的数据（列表页最怕被清空成骨架）
     placeholderData: (prev) => prev,
     queryFn: () =>
@@ -758,7 +738,6 @@ export function Logs(): ReactElement {
         date: date === "" ? undefined : date,
         outcome: outcome === "" ? undefined : outcome,
         cid: cid === "" ? undefined : cid,
-        q: search === "" ? undefined : search,
         slow: slowOnly ? true : undefined,
         limit: pageSize,
         offset: (pageNum - 1) * pageSize,
@@ -774,7 +753,7 @@ export function Logs(): ReactElement {
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
-  const dirty = date !== "" || outcome !== "" || cid !== "" || search !== "" || slowOnly;
+  const dirty = date !== "" || outcome !== "" || cid !== "" || slowOnly;
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
   const resetToFirstPage = (): void => setPageNum(1);
   /** 每页条数变化：持久记忆 + 回第 1 页（偏移量跟着 pageSize 走）。 */
@@ -829,8 +808,6 @@ export function Logs(): ReactElement {
             setExpanded(null);
             resetToFirstPage();
           }}
-          search={rawSearch}
-          onSearch={setRawSearch}
           slowOnly={slowOnly}
           onSlowOnly={setSlowOnly}
           pageSize={pageSize}
@@ -844,7 +821,6 @@ export function Logs(): ReactElement {
             setDate("");
             setOutcome("");
             setCid("");
-            setRawSearch("");
             setSlowOnly(false);
             setPageNum(1);
             setExpanded(null);

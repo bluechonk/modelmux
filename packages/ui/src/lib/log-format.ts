@@ -7,11 +7,15 @@
 
 import type { AccessLogEntry, AccessOutcome } from "./types";
 
-/** 结果分桶的展示口径（点色 + 文案 + 文字色），表格与弹窗共用。 */
+/**
+ * 结果分桶的展示口径（点色 + 文案 + 文字色），表格与弹窗共用。
+ *
+ * 只有成功 / 失败：历史第三桶「中断」（拿不到状态码就断开）实测恒空，
+ * 多给一个分段只会让用户去猜它什么意思（口径见 `log-store.AccessOutcome`）。
+ */
 export const OUTCOME_META: Record<AccessOutcome, { label: string; dot: string; text: string }> = {
   success: { label: "成功", dot: "bg-free", text: "text-free" },
   failure: { label: "失败", dot: "bg-danger", text: "text-danger" },
-  other: { label: "中断", dot: "bg-warn", text: "text-warn" },
 };
 
 const TEN_THOUSAND = 10_000;

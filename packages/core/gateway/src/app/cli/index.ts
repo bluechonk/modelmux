@@ -70,7 +70,7 @@ ${groupLines("渠道").join("\n")}
   通用    --json 输出 JSON | --quiet 静默 | --addr <host:port> 监听地址（默认 ${defaultAddr()}）
   model   --refresh 强制重拉目录 / 重查账单
   log     --kind <名> access|error|system|lifecycle|worker|channel
-         --outcome <名> success|failure|other（--kind access）  --date <YYYY-MM-DD>
+         --outcome <名> success|failure（--kind access；历史 other 按 failure 处理）  --date <YYYY-MM-DD>
          --lines <n> 行数  -f, --follow 持续输出  --list 列文件  --compact 压存量正文
   login   --realm <名> 登录域（单域渠道忽略）  --wechat 微信扫码
   start   --force 已在跑也重启  --wait <s> 健康等待秒数（默认 30）
@@ -195,10 +195,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const uiPort = numOpt(o, "ui-port") ?? defaultUiPort();
 
   const logOutcomeRaw = strOpt(o, "outcome");
+  // `other` 已并入 failure（见 log-store 的 `AccessOutcome`）：仍接受这个历史取值，
+  // 但按 failure 解析，免得旧脚本传 `--outcome other` 被静默忽略成「不过滤」。
   const logOutcome =
-    logOutcomeRaw === "success" || logOutcomeRaw === "failure" || logOutcomeRaw === "other"
+    logOutcomeRaw === "success" || logOutcomeRaw === "failure"
       ? logOutcomeRaw
-      : undefined;
+      : logOutcomeRaw === "other"
+        ? "failure"
+        : undefined;
   const logKind = strOpt(o, "kind");
   const logDate = strOpt(o, "date");
   const ctx: groups.CommandContext = {

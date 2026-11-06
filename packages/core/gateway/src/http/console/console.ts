@@ -437,10 +437,9 @@ export function createConsoleHandler(
       }
       const q = new URL(req.url ?? "/", "http://localhost").searchParams;
       const outcomeRaw = q.get("outcome");
+      // 只有 success / failure 两个桶（历史上的 `other` 已并入 failure，见 log-store）
       const outcome: AccessOutcome | undefined =
-        outcomeRaw === "success" || outcomeRaw === "failure" || outcomeRaw === "other"
-          ? outcomeRaw
-          : undefined;
+        outcomeRaw === "success" || outcomeRaw === "failure" ? outcomeRaw : undefined;
       const streamRaw = q.get("stream");
       const page = queryAccessLogs({
         // 日志页只展示**模型请求**（三种入站协议）：`/health` 等非模型请求也在
@@ -744,7 +743,6 @@ export function createConsoleHandler(
           requests: logPage.stats.requests,
           success: logPage.stats.success,
           failure: logPage.stats.failure,
-          other: logPage.stats.other,
           slow: logPage.stats.slow,
           avg_duration_ms: logPage.stats.avgDurationMs,
           tokens: logPage.stats.tokens,

@@ -14,9 +14,15 @@ import { runInChannel } from "../../runtime/channel-context.js";
 import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
-import { signinTodaySnapshot } from "../../auth/signin-ledger.js";
+import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
-import type { WebCommandBody, WebCommandResult, WebChannelStatus, WebSigninView } from "./web-types.js";
+import type {
+  WebChannelSignin,
+  WebCommandBody,
+  WebCommandResult,
+  WebChannelStatus,
+  WebSigninView,
+} from "./web-types.js";
 
 /**
  * 命令分发的外部依赖（由调用方注入）。
@@ -299,18 +305,26 @@ function signinViewOf(cid: string, channel: Channel): WebSigninView {
   const supported = channelCapabilities(channel.config).signin && module !== undefined;
   const perAccount = supported && module.perAccount === true;
   const snapshot = signinTodaySnapshot(cid);
+  const viewOf = (entry: ClaimToday): Omit<WebChannelSignin, "supported" | "per_account"> => ({
+    claimed_today: entry.claimed,
+    at: entry.at,
+    reward: entry.reward,
+    probe: entry.probe === null ? null : {
+      claimable: entry.probe.claimable,
+      claimed_today: entry.probe.claimed_today,
+      summary: entry.probe.summary,
+      at: entry.probe.at,
+    },
+  });
   const accounts: WebSigninView["accounts"] = {};
   if (perAccount) {
-    for (const [key, record] of Object.entries(snapshot.accounts)) {
-      accounts[key] = { claimed_today: record.claimed, at: record.at };
-    }
+    for (const [key, entry] of Object.entries(snapshot.accounts)) accounts[key] = viewOf(entry);
   }
   return {
     channel: {
       supported,
       per_account: perAccount,
-      claimed_today: snapshot.channel.claimed,
-      at: snapshot.channel.at,
+      ...viewOf(snapshot.channel),
     },
     accounts,
   };

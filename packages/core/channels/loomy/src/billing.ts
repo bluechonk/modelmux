@@ -337,6 +337,9 @@ export const signin: SigninModule = {
     return {
       ok: reset.status !== "failed" && tasksError === "",
       summary: parts.join("；"),
+      // 只有**新手任务真领到**才有额度数字（`earned` 是上游回的积分和）；
+      // 每日额度重置那条只报"已触发"，上游不公布发多少 —— 不能拿 5000 当已知值
+      ...(tasks !== null && tasks.earned > 0 ? { reward: { amount: tasks.earned, unit: "积分" } } : {}),
       detail: { first_login: reset, tasks },
     };
   },

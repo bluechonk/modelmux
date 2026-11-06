@@ -177,9 +177,12 @@ function statusNoteOf(
   if (account.health === "cooldown") {
     const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
     const when = Number.isFinite(until) ? shortSpan(until - now) : "";
+    // 第二行是**上游原话**（`cooldown_reason` 里带的是错误体片段）：没有它用户只能
+    // 知道「在冷却」，不知道「为什么冷却 / 什么时候真的会好」
+    const reason = (account.cooldown_reason ?? "").trim();
     return {
       tone: "warn",
-      lines: [when === "" ? "冷却中 · 等待上游窗口刷新" : `冷却中 · ${when} 后自动恢复`],
+      lines: [when === "" ? "冷却中 · 等待上游窗口刷新" : `冷却中 · ${when} 后自动恢复`, ...(reason === "" ? [] : [reason])],
     };
   }
   if (account.health === "error") {
@@ -393,6 +396,13 @@ export function AccountCard({
   const detailStatus = detailAccount ? classifyAccount(detailAccount, billing) : null;
   const detailNote =
     detailAccount && detailStatus ? statusNoteOf(detailAccount, detailStatus, clock) : null;
+  /** 签到行的补充说明（如「今日无可领」的上游原话）；空数组时什么都不渲染。 */
+  const signinNotes =
+    detailAccount === undefined
+      ? []
+      : signinRows(pool.signin, detailAccount)
+          .map((row) => row.note)
+          .filter((note): note is string => note !== undefined && note !== "");
 
   return (
     // 展开**不跨列**：卡片只在自己那一格里长高，同行右侧的渠道保持原位、不被挤到下一行。
@@ -659,6 +669,12 @@ export function AccountCard({
               </div>
             ))}
           </dl>
+          {/* 签到行的补充说明（「今日无可领」时给出上游原话）：单独一段，不挤进数值列 */}
+          {signinNotes.map((note, index) => (
+            <p key={`${index}-${note}`} className="pb-2 text-xs text-ink-faint">
+              {note}
+            </p>
+          ))}
           <div className="space-y-0.5 pt-2">
             {detailNote ? (
               detailNote.lines.map((line, index) => (

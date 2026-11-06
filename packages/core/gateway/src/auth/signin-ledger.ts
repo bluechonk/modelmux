@@ -24,6 +24,31 @@ export interface ClaimRecord {
   at: string;
   /** 来源：`cli`（我们领的） / `upstream-backfill`（上游说已签，补记）。 */
   via: string;
+  /** 这次领到多少额度（渠道能报才记；数量 + 单位原样存）。 */
+  reward?: { amount: number; unit: string };
+}
+
+/**
+ * 一次 `signin.status()` 探测的结果（**最近一次**，不是历史）。
+ *
+ * 为什么需要它：有的渠道「今天没有可领活动」和「今天没签到」在上游是两件事
+ * （qoder 国际版实测：`claimable=false` 且只有一条 `VIEW_DETAILS` 的推广活动）——
+ * 只靠台账（我们领过没有）会把「上游本来就没东西可领」说成「未签到」。
+ * 探测结果落盘后，控制台就能如实显示「今日无可领」。
+ *
+ * 只保留**当天**的那次：跨天后旧结论没有意义（活动按日刷新）。
+ */
+export interface SigninProbe {
+  /** 探测时的本地日期 `YYYY-MM-DD`。 */
+  date: string;
+  /** 探测时刻（ISO）。 */
+  at: string;
+  /** 上游有没有可领的；`null` = 查不到（网络/上游异常）。 */
+  claimable: boolean | null;
+  /** 上游说今天已签；`null` = 渠道判断不了。 */
+  claimed_today: boolean | null;
+  /** 渠道自己的说明（人读）。 */
+  summary: string;
 }
 
 export interface SigninLedger {
@@ -42,6 +67,10 @@ export interface SigninLedger {
    * 两者粒度不同，不能互相替代。
    */
   accounts?: Record<string, ClaimRecord>;
+  /** 最近一次 `signin.status()` 探测（渠道级；见 `SigninProbe`）。 */
+  probe?: SigninProbe;
+  /** 按账号的探测结果（按账号签到的渠道用）。 */
+  probes?: Record<string, SigninProbe>;
 }
 
 export const HISTORY_LIMIT = 30;
@@ -84,41 +113,27 @@ export function readLedger(cid?: string): SigninLedger {
     const timezone = typeof rec["timezone"] === "string" && rec["timezone"] ? rec["timezone"] : empty.timezone;
     const history: ClaimRecord[] = [];
     for (const item of Array.isArray(rec["history"]) ? rec["history"] : []) {
-      if (!item || typeof item !== "object") continue;
-      const entry = item as Record<string, unknown>;
-      const date = typeof entry["date"] === "string" ? entry["date"] : "";
-      if (!date) continue;
-      history.push({
-        date,
-        at: typeof entry["at"] === "string" ? entry["at"] : "",
-        via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
-      });
+      const record = claimOf(item);
+      if (record) history.push(record);
     }
-    const lastRaw = rec["last_claim"];
-    let last: ClaimRecord | undefined;
-    if (lastRaw && typeof lastRaw === "object") {
-      const entry = lastRaw as Record<string, unknown>;
-      if (typeof entry["date"] === "string" && entry["date"]) {
-        last = {
-          date: entry["date"],
-          at: typeof entry["at"] === "string" ? entry["at"] : "",
-          via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
-        };
-      }
-    }
+    const last = claimOf(rec["last_claim"]);
     const accountsRaw = rec["accounts"];
     const accounts: Record<string, ClaimRecord> = {};
     if (accountsRaw && typeof accountsRaw === "object" && !Array.isArray(accountsRaw)) {
       for (const [key, item] of Object.entries(accountsRaw as Record<string, unknown>)) {
-        if (!key || !item || typeof item !== "object") continue;
-        const entry = item as Record<string, unknown>;
-        const date = typeof entry["date"] === "string" ? entry["date"] : "";
-        if (!date) continue;
-        accounts[key] = {
-          date,
-          at: typeof entry["at"] === "string" ? entry["at"] : "",
-          via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
-        };
+        if (!key) continue;
+        const record = claimOf(item);
+        if (record) accounts[key] = record;
+      }
+    }
+    const probe = probeOf(rec["probe"]);
+    const probesRaw = rec["probes"];
+    const probes: Record<string, SigninProbe> = {};
+    if (probesRaw && typeof probesRaw === "object" && !Array.isArray(probesRaw)) {
+      for (const [key, item] of Object.entries(probesRaw as Record<string, unknown>)) {
+        if (!key) continue;
+        const entry = probeOf(item);
+        if (entry) probes[key] = entry;
       }
     }
     return {
@@ -127,10 +142,52 @@ export function readLedger(cid?: string): SigninLedger {
       history,
       ...(last ? { last_claim: last } : {}),
       ...(Object.keys(accounts).length > 0 ? { accounts } : {}),
+      ...(probe ? { probe } : {}),
+      ...(Object.keys(probes).length > 0 ? { probes } : {}),
     };
   } catch {
     return empty;
   }
+}
+
+/** 宽松读一条领取记录（缺 `date` 视为无效）。 */
+function claimOf(value: unknown): ClaimRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const entry = value as Record<string, unknown>;
+  if (typeof entry["date"] !== "string" || entry["date"] === "") return undefined;
+  const rewardRaw = entry["reward"];
+  const reward =
+    rewardRaw && typeof rewardRaw === "object" &&
+    Number.isFinite(Number((rewardRaw as Record<string, unknown>)["amount"]))
+      ? {
+          amount: Number((rewardRaw as Record<string, unknown>)["amount"]),
+          unit: typeof (rewardRaw as Record<string, unknown>)["unit"] === "string"
+            ? ((rewardRaw as Record<string, unknown>)["unit"] as string)
+            : "",
+        }
+      : undefined;
+  return {
+    date: entry["date"],
+    at: typeof entry["at"] === "string" ? entry["at"] : "",
+    via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
+    ...(reward ? { reward } : {}),
+  };
+}
+
+/** 宽松读一条探测结果（缺 `date` 视为无效）。 */
+function probeOf(value: unknown): SigninProbe | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const entry = value as Record<string, unknown>;
+  if (typeof entry["date"] !== "string" || entry["date"] === "") return undefined;
+  const claimable = entry["claimable"];
+  const claimed = entry["claimed_today"];
+  return {
+    date: entry["date"],
+    at: typeof entry["at"] === "string" ? entry["at"] : "",
+    claimable: typeof claimable === "boolean" ? claimable : null,
+    claimed_today: typeof claimed === "boolean" ? claimed : null,
+    summary: typeof entry["summary"] === "string" ? entry["summary"] : "",
+  };
 }
 
 /**
@@ -140,16 +197,25 @@ export function readLedger(cid?: string): SigninLedger {
  */
 export function recordClaim(
   cid?: string,
-  options: { via?: string; now?: Date; timezone?: string; accountKey?: string } = {},
+  options: {
+    via?: string;
+    now?: Date;
+    timezone?: string;
+    accountKey?: string;
+    /** 这次领到多少（渠道能报才传；控制台据此显示「今日签到 +N」）。 */
+    reward?: { amount: number; unit: string };
+  } = {},
 ): ClaimRecord {
-  const { via = "cli", now = new Date(), timezone = currentTimezone(), accountKey } = options;
+  const { via = "cli", now = new Date(), timezone = currentTimezone(), accountKey, reward } = options;
   const record: ClaimRecord = {
     date: dateInTimezone(now, timezone),
     at: now.toISOString(),
     via,
+    ...(reward && Number.isFinite(reward.amount) ? { reward } : {}),
   };
   const ledger = readLedger(cid);
   const next: SigninLedger = {
+    ...ledger,
     version: 1,
     timezone,
     last_claim: record,
@@ -197,6 +263,10 @@ export interface ClaimToday {
   claimed: boolean;
   /** 领取时刻（ISO）；台账没记时刻为 null。 */
   at: string | null;
+  /** 这次领到多少额度；渠道报不出数值时为 null（不猜）。 */
+  reward: { amount: number; unit: string } | null;
+  /** 最近一次探测的上游结论（**只保留当天**；跨天或没探测过为 null）。 */
+  probe: SigninProbe | null;
 }
 
 /** 一次快照：渠道级 + 账号级的「今天领过没有」。 */
@@ -223,13 +293,54 @@ export function signinTodaySnapshot(cid?: string, now: Date = new Date()): Signi
   // 换过时区后它本就不该再和新的一天直接比较 —— 两边共用这一个入口就不会分叉
   const timezone = ledger.timezone || currentTimezone();
   const today = dateInTimezone(now, currentTimezone());
-  const view = (record: ClaimRecord | undefined): ClaimToday =>
-    record === undefined || record.date !== today
-      ? { claimed: false, at: null }
-      : { claimed: true, at: record.at === "" ? null : record.at };
+  /** 探测结论只保留当天：跨天后活动已刷新，旧结论会把「今天有可领」说成「无可领」。 */
+  const probeOfToday = (probe: SigninProbe | undefined): SigninProbe | null =>
+    probe === undefined || probe.date !== today ? null : probe;
+  const view = (record: ClaimRecord | undefined, probe: SigninProbe | undefined): ClaimToday => ({
+    claimed: record !== undefined && record.date === today,
+    at: record !== undefined && record.date === today && record.at !== "" ? record.at : null,
+    reward: record !== undefined && record.date === today ? record.reward ?? null : null,
+    probe: probeOfToday(probe),
+  });
   const accounts: Record<string, ClaimToday> = {};
   for (const [key, record] of Object.entries(ledger.accounts ?? {})) {
-    accounts[key] = view(record);
+    accounts[key] = view(record, ledger.probes?.[key]);
   }
-  return { timezone, today, channel: view(ledger.last_claim), accounts };
+  return { timezone, today, channel: view(ledger.last_claim, ledger.probe), accounts };
+}
+
+/**
+ * 记一次 `signin.status()` 的探测结果（覆盖式：同一渠道/账号只留最近一次）。
+ *
+ * 调用方是自动签到调度器：它本来就是每日轮一次 `status()`，顺手把结论落盘后，
+ * 控制台就能区分「上游今天没有可领活动」与「今天还没签到」。
+ */
+export function recordProbe(
+  cid: string | undefined,
+  probe: Omit<SigninProbe, "date" | "at">,
+  options: { now?: Date; timezone?: string; accountKey?: string } = {},
+): SigninProbe {
+  const { now = new Date(), timezone = currentTimezone(), accountKey } = options;
+  const entry: SigninProbe = {
+    date: dateInTimezone(now, timezone),
+    at: now.toISOString(),
+    claimable: probe.claimable,
+    claimed_today: probe.claimed_today,
+    summary: probe.summary,
+  };
+  const ledger = readLedger(cid);
+  const next: SigninLedger = {
+    ...ledger,
+    version: 1,
+    timezone,
+    history: ledger.history,
+  };
+  if (accountKey) {
+    next.probes = { ...(ledger.probes ?? {}), [accountKey]: entry };
+  } else {
+    next.probe = entry;
+  }
+  ensureStateDir(cid);
+  writeJsonSecret(ledgerPath(cid), next);
+  return entry;
 }

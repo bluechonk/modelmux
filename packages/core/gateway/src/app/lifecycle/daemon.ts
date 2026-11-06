@@ -705,7 +705,7 @@ function printAccountRows(rows: poolUsage.AccountCreditsRow[], indent = ""): voi
 /** 日志筛选条件（CLI `mx log` 用）。 */
 export interface LogFilter {
   kind?: string;
-  outcome?: "success" | "failure" | "other";
+  outcome?: "success" | "failure";
   date?: string;
 }
 

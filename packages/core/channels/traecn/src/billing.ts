@@ -421,6 +421,9 @@ export const signin: SigninModule = {
       summary: r.already
         ? `今日已签到（连续 ${r.streak_days} 天）`
         : `签到成功，+${r.credits} 积分（连续 ${r.streak_days} 天）`,
+      // `credits` 是补查 status 得到的本次积分数（上游 claim 响应本身不含数字）。
+      // 「今天已签到」也带这个数（是当天到账的额度），如实报出，不因 already 抹成 0。
+      ...(r.credits > 0 ? { reward: { amount: r.credits, unit: "积分" } } : {}),
       detail: r,
     };
   },

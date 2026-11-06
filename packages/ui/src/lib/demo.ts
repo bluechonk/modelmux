@@ -571,7 +571,7 @@ const DEMO_LOG_SEED: Array<{
   { cid: "raccoon", model: "deepseek-v4.1-flash", stream: true, outcome: "failure", status: 503, durationMs: 980, upstreamMs: 940, ttfbMs: 980, tokens: null, error: "not_authenticated", message: "not logged in: credential expired", messageCount: 3 },
   { cid: "qodercn", model: "deepseek-v4-pro", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
   { cid: "catpaw", model: "deepseek-v4-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
-  { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "other", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, message: "client disconnected before response finished", messageCount: 4 },
+  { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "failure", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "no_status", message: "client disconnected before response finished", messageCount: 4 },
   { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
   // 慢判定的两个归因维度各给一条：首字慢（速率正常）/ 速率慢（首字正常）——
   // 演示页的「慢」标签与两维归因要有可展示的样本，种子全是快行会让功能像不存在
@@ -646,7 +646,6 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     requests: entries.length,
     success: entries.filter((e) => e.outcome === "success").length,
     failure: entries.filter((e) => e.outcome === "failure").length,
-    other: entries.filter((e) => e.outcome === "other").length,
     slow: entries.filter((e) => e.slow).length,
     slowTtfb: entries.filter((e) => e.slowTtfb).length,
     slowTps: entries.filter((e) => e.slowTps).length,
@@ -686,7 +685,6 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     })(),
   };
 
-  const needle = query.q?.toLowerCase();
   const matched = entries.filter((e) => {
     if (query.outcome !== undefined && e.outcome !== query.outcome) return false;
     if (query.cid !== undefined && e.cid !== query.cid) return false;
@@ -694,10 +692,6 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     if (query.slow === true && !e.slow) return false;
     if (query.model !== undefined && !(e.model ?? "").toLowerCase().includes(query.model.toLowerCase())) {
       return false;
-    }
-    if (needle !== undefined && needle !== "") {
-      const hay = `${e.id} ${e.model ?? ""} ${e.error ?? ""} ${e.message ?? ""}`.toLowerCase();
-      if (!hay.includes(needle)) return false;
     }
     return true;
   });
@@ -816,7 +810,6 @@ export function demoUsage(range: UsageRange): UsageStats {
       // 演示值：失败按 1%、慢按 0.2% 合成（真实口径见 docs/USAGE-STATS.md，逐条分桶）
       success: requests - Math.round(requests * 0.01),
       failure: Math.round(requests * 0.01),
-      other: 0,
       slow: Math.round(requests * 0.002),
       durationMs: requests * 8200,
       cacheHitRate: 0.74,
@@ -980,7 +973,6 @@ export function demoOverview(state: DemoState): OverviewResponse {
       requests: logPage.stats.requests,
       success: logPage.stats.success,
       failure: logPage.stats.failure,
-      other: logPage.stats.other,
       slow: logPage.stats.slow,
       avg_duration_ms: logPage.stats.avgDurationMs,
       tokens: logPage.stats.tokens,

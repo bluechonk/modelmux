@@ -12,7 +12,7 @@ import { channelCapabilities, channels, type Channel, type SigninStatus } from "
 import { runInChannel } from "../runtime/channel-context.js";
 import { readFileSync } from "node:fs";
 import { ensureStateDir, stateDir } from "../runtime/paths.js";
-import { claimedTodayForAccount, claimedTodayPerLedger, recordClaim } from "./signin-ledger.js";
+import { claimedTodayForAccount, claimedTodayPerLedger, recordClaim, recordProbe } from "./signin-ledger.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 import { listAccounts, readAccountCredential } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
@@ -136,6 +136,16 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
     }
 
     // 上游权威：已签 → 回填台账（与手动链路一致的自愈），不再领取
+    // 探测结论一并落盘：控制台据此区分「上游今天没有可领活动」与「今天还没签」
+    try {
+      recordProbe(cid, {
+        claimable: status.claimable,
+        claimed_today: status.claimedToday ?? null,
+        summary: status.summary,
+      });
+    } catch {
+      /* 探测记录失败不影响签到判定 */
+    }
     if (status.claimedToday === true) {
       try {
         recordClaim(cid, { via: "auto-backfill" });
@@ -153,7 +163,7 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
       if (outcome.ok) {
         // 状态登记：领取成功 → 台账记「今天已签」（via=auto 与手动 cli 区分）
         try {
-          recordClaim(cid, { via: "auto" });
+          recordClaim(cid, { via: "auto", reward: outcome.reward });
         } catch {
           /* 记账失败不影响签到本身 */
         }
@@ -198,7 +208,7 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
         if (outcome.ok) {
           try {
             // 账号级 + 渠道级都记：前者做门禁，后者供 `mx status` 摘要
-            recordClaim(cid, { via: "auto", accountKey: account.key });
+            recordClaim(cid, { via: "auto", accountKey: account.key, reward: outcome.reward });
           } catch {
             /* 记账失败不影响签到本身 */
           }

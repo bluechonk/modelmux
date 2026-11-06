@@ -121,8 +121,8 @@ describe("打点函数", () => {
 });
 
 describe("finish 落盘：按状态码分桶", () => {
-  it("2xx/3xx → success.log；≥400 → failure.log；没写状态码（0）→ other.log", () => {
-    for (const [status, file] of [[200, "success.log"], [502, "failure.log"], [0, "other.log"]] as const) {
+  it("2xx/3xx → success.log；≥400 与「没写状态码」→ failure.log（无第三桶）", () => {
+    for (const [status, file] of [[200, "success.log"], [502, "failure.log"], [0, "failure.log"]] as const) {
       const res = fakeRes(status);
       attachRequestLog("POST", "/v1/chat/completions", res);
       res.emit("finish");
