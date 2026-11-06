@@ -21,6 +21,7 @@ import {
   formatDateTime,
   formatDuration,
   formatPercent,
+  formatRate,
   formatTokens,
   formatTokensPerSec,
   OUTCOME_META,
@@ -67,7 +68,7 @@ function useDebounced<T>(value: T, delayMs: number): T {
  *
  * 筛选命中的条数**不在本条显示**——筛选变化时分页器与表格行数会跟着变，两个
  * 「总数」同屏对不上只会让人怀疑计数坏了（统计按未过滤窗口、命中按筛选，口径
- * 本来就不同）。只留筛选栏给不出的量：成功率、慢、平均耗时、读窗口截断。
+ * 本来就不同）。只留筛选栏给不出的量：成功率、慢、平均 TPS、读窗口截断。
  * 成功 / 失败 / 中断三个绝对条数就在下面筛选栏的结果分段里（同一组数字、同一份
  * 口径），一屏说两遍反而让人怀疑两处算的不是一回事；tokens / 缓存命中 / 无 usage
  * 三条是**全局用量**（不是这份日志列表的性质），已挪到仪表盘（见 `pages/Dashboard.tsx`
@@ -76,7 +77,6 @@ function useDebounced<T>(value: T, delayMs: number): T {
 function StatBar({ page }: { page: AccessLogPage }): ReactElement {
   const stats = page.stats;
   const rate = stats.requests > 0 ? Math.round((stats.success / stats.requests) * 100) : null;
-  const ttfbS = Math.round(page.slowThresholds.ttfbMs / 1000);
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-soft">
       <span>
@@ -85,18 +85,15 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       <span>
         成功率 <span className="tabular text-ink">{rate === null ? "-" : `${rate}%`}</span>
       </span>
-      {/* 「慢」拆两个维度归因：首字延迟（仅流式）与生成速率，口径见 docs/LOGGING.md §3.5 */}
+      {/* 「慢」只给条数：两个维度的归因（首字延迟 / 生成速率）在展开行逐条给出，
+          统计条再摊一遍阈值与分项只会把四个数挤成一团（口径见 docs/LOGGING.md §3.5） */}
       <span>
         慢 <span className="tabular text-ink">{formatCount(stats.slow)}</span>
-        <span className="text-ink-faint">
-          {" "}
-          （首字 ≥{ttfbS}s · {formatCount(stats.slowTtfb)} ／ 速率 &lt;{page.slowThresholds.tps} t/s ·{" "}
-          {formatCount(stats.slowTps)}）
-        </span>
       </span>
+      {/* 平均 TPS 回答「一条请求通常多快」；平均耗时被它取代（长输出会把耗时拉长，读不出快慢）。
+          `?? null`：字段缺失（旧构建的载荷）必须显示 `—`，不是 `NaN t/s` */}
       <span>
-        平均耗时{" "}
-        <span className="tabular text-ink">{formatDuration(stats.avgDurationMs ?? undefined)}</span>
+        平均 TPS <span className="tabular text-ink">{formatRate(stats.avgTps ?? null)}</span>
       </span>
       {page.truncated && (
         <span className="rounded-md bg-warn/15 px-1.5 py-0.5 text-xs text-warn">
@@ -143,9 +140,12 @@ function BreakableId({ value }: { value: string }): ReactElement {
 /** 展开行：请求全字段（正文不内联；宽屏走「上下文」列，窄屏走本行内的按钮）。 */
 function LogDetail({
   entry,
+  thresholds,
   onOpenContext,
   showContext,
 }: {  entry: AccessLogEntry;
+  /** 「慢」的两个阈值：展开行给出**真实数值**，否则「慢」不可复核（统计条已不再摊这两个数）。 */
+  thresholds: { ttfbMs: number; tps: number };
   onOpenContext: () => void;
   /** 窄屏（<768px）没有「上下文」列 —— 固定列合计超过表格最小宽，模型列会被挤成零
    *  宽，所以窄屏砍列保正文可读性优先；此时入口挪到这里，否则手机上打不开正文弹窗。 */
@@ -171,12 +171,12 @@ function LogDetail({
           {/* 慢的归因：两个维度独立成立，给阈值让「慢」可复核（口径见 docs/LOGGING.md §3.5） */}
           {entry.slowTtfb && (
             <span className="text-ink-faint">
-              首字 {formatDuration(entry.ttfbMs)}（≥ 阈值）
+              首字 {formatDuration(entry.ttfbMs)}（≥ {formatDuration(thresholds.ttfbMs)}）
             </span>
           )}
           {entry.slowTps && (
             <span className="text-ink-faint">
-              速率 {formatTokensPerSec(entry)}（&lt; 阈值）
+              速率 {formatTokensPerSec(entry)}（&lt; {thresholds.tps} t/s）
             </span>
           )}
         </Field>
@@ -509,6 +509,7 @@ function LogTable({
                       <td colSpan={cols.length} className="p-0">
                         <LogDetail
                           entry={entry}
+                          thresholds={page.slowThresholds}
                           showContext={narrow}
                           onOpenContext={() => onOpenContext(entry)}
                         />

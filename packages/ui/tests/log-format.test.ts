@@ -23,6 +23,7 @@ import {
   formatTokensPerSec,
   tokensPairText,
   tokensPerSecOf,
+  tokensPerSecOfEntry,
 } from "../src/lib/log-format.ts";
 
 describe("formatPercent", () => {
@@ -202,5 +203,17 @@ describe("brief 与 formatTokensPerSec", () => {
       "—",
       "无 usage 的请求（如失败行）显示 —",
     );
+  });
+
+  it("tokensPerSecOfEntry：给的是数值（统计聚合要用，不能是格式化字符串）", () => {
+    const entry = {
+      tokens: { completion: 900, prompt: 0, total: 900, cache: null },
+      durationMs: 3_000,
+      stream: true,
+      ttfbMs: 2_000,
+      upstreamMs: 1_000,
+    };
+    assert.equal(tokensPerSecOfEntry(entry as never), 900);
+    assert.equal(tokensPerSecOfEntry({ tokens: null, durationMs: 100 } as never), null);
   });
 });

@@ -230,6 +230,8 @@ export interface AccessLogStats {
   /** 其中生成速率超标的条数。 */
   slowTps: number;
   avgDurationMs: number | null;
+  /** 窗口内**成功请求**的平均生成速率（tokens/s）；一条都算不出时为 null（口径见 docs/LOGGING.md §3.5）。 */
+  avgTps: number | null;
   /** 窗口内没有 usage 的条数（不把缺失当 0）。 */
   noUsage: number;
   tokens: { prompt: number; completion: number; total: number };
@@ -397,6 +399,8 @@ export interface UsageStats {
     cacheTotal: number;
     /** 区间内单请求最长耗时。 */
     longestRequestMs: number | null;
+    /** 区间内**成功请求**的平均生成速率（tokens/s）；一条都算不出时为 null。 */
+    avgTps: number | null;
     /** 上游没回 usage 的请求数（仪表盘用量明细里要露出来）。 */
     noUsage: number;
   };

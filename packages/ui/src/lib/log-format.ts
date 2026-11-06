@@ -177,18 +177,28 @@ export function formatRate(perSec: number | null): string {
   return `${Math.round(perSec)} t/s`;
 }
 
-/** 访问日志条目的生成速度（token/s）；口径见 `tokensPerSecOf`。 */
+/** 访问日志条目的生成速率（token/s）；算不出可信值时返回 null。 */
+export function tokensPerSecOfEntry(entry: {
+  tokens: { completion: number | null } | null;
+  durationMs?: number;
+  ttfbMs?: number;
+  upstreamMs?: number;
+  generateMs?: number;
+  stream?: boolean;
+}): number | null {
+  return tokensPerSecOf({
+    completion: entry.tokens?.completion,
+    durationMs: entry.durationMs,
+    ttfbMs: entry.ttfbMs,
+    upstreamMs: entry.upstreamMs,
+    generateMs: entry.generateMs,
+    stream: entry.stream,
+  });
+}
+
+/** 访问日志条目的生成速度展示（`—` = 算不出可信速率）；口径见 `tokensPerSecOf`。 */
 export function formatTokensPerSec(entry: AccessLogEntry): string {
-  return formatRate(
-    tokensPerSecOf({
-      completion: entry.tokens?.completion,
-      durationMs: entry.durationMs,
-      ttfbMs: entry.ttfbMs,
-      upstreamMs: entry.upstreamMs,
-      generateMs: entry.generateMs,
-      stream: entry.stream,
-    }),
-  );
+  return formatRate(tokensPerSecOfEntry(entry));
 }
 
 /**
