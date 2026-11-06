@@ -6,8 +6,9 @@
  * 三档粒度（daily / weekly / cumulative）只改颜色映射与浮层文案，格子布局恒定。
  * 交互是 **hover**：格子放大 + 自绘浮层；**点击不触发任何逻辑**。
  *
- * 年内只有已过去的日子可能有数据：未来日期与年外补位都是空格 —— 不是渲染 bug。
- * 日志保留期（默认 14 天）之外的过往日期同样是空格（docs/USAGE-STATS.md §「日志保留期」）。
+ * 年内只有已过去的日子可能有数据；**未来日期渲染成虚线空格**（把年历画到右缘 ——
+ * 全留空会让年末几个月的区域看起来像「面板留白」），年外补位不渲染（前后补齐周）。
+ * 日志保留期（默认 14 天）之外的过往日期是普通空格（docs/USAGE-STATS.md §「日志保留期」）。
  */
 
 import { useMemo, useState, type ReactElement } from "react";
@@ -18,9 +19,14 @@ import { ChartTooltip } from "./ChartTooltip";
 
 export type HeatGranularity = "daily" | "weekly" | "cumulative";
 
-/** 档位色：单色梯度表达「量」，0 档另有底色（无数据与「有点少」要能分开）。 */
+/**
+ * 档位色：单色梯度表达「量」，0 档另有底色（无数据与「有点少」要能分开）。
+ *
+ * 0 档取 `overlay/30`（面板底是 `raised` #2f2f2f，`overlay` #3a3a3a 的 30%）：
+ * 再淡就只剩「一片空白面板」（实测 /25 在深色主题下几乎看不见网格，整年历读不出结构）。
+ */
 const LEVEL_CLASS = [
-  "bg-overlay/25",
+  "bg-overlay/30",
   "bg-brand/20",
   "bg-brand/40",
   "bg-brand/60",
@@ -39,6 +45,14 @@ interface HoverInfo {
   requests: number;
   x: number;
   y: number;
+}
+
+/** 单个格子：`past` = 是否已过去（未来日期渲染成虚线空格，见 `columns` 的说明）。 */
+interface HeatCell {
+  date: string;
+  tokens: number;
+  level: number;
+  past: boolean;
 }
 
 /** `YYYY-MM-DD` → UTC 零点时间戳（只做日期运算，避免时区把天数算歪）。 */
@@ -76,7 +90,7 @@ export function Heatmap({
   const [hover, setHover] = useState<HoverInfo | null>(null);
 
   const { columns, max, monthMarks } = useMemo(() => {
-    const empty = { columns: [] as Array<Array<{ date: string; tokens: number; level: number } | null>>, max: 0, monthMarks: [] as Array<{ col: number; label: string }> };
+    const empty = { columns: [] as Array<Array<HeatCell | null>>, max: 0, monthMarks: [] as Array<{ col: number; label: string }> };
     if (daily.length === 0) return empty;
     const byDate = new Map(daily.map((d) => [d.date, d]));
     // 自然年窗口：1 月 1 日所在周（周一首）铺到 12 月 31 日所在周日。
@@ -111,18 +125,26 @@ export function Heatmap({
     const pastValues = perDay.filter((_, i) => firstWeekStart + i * MS_PER_DAY <= today);
     const max = pastValues.reduce((m, v) => (v > m ? v : m), 0);
 
-    const columns: Array<Array<{ date: string; tokens: number; level: number } | null>> = [];
+    /**
+     * 格子：`null` = 年外补位（不渲染）；`past: false` = 年内的**未来日期**
+     * （渲染成虚线空格）。
+     *
+     * 未来日期为什么不是 `null`：全留空会让年末几个月的区域在视觉上变成「面板留白」
+     * （实测：墨迹只铺到 82% 宽，右侧 12月→面板右缘整块是空的）。虚线空网格把年历
+     * 结构画到右缘，空缺的语义也仍然清楚（未到来 ≠ 没请求）。
+     */
+    const columns: Array<Array<HeatCell | null>> = [];
     for (let c = 0; c < colCount; c += 1) {
-      const column: Array<{ date: string; tokens: number; level: number } | null> = [];
+      const column: Array<HeatCell | null> = [];
       for (let r = 0; r < 7; r += 1) {
         const ts = firstWeekStart + (c * 7 + r) * MS_PER_DAY;
-        // 年外补位与未来日期都是空格：未来不该装作「没请求」
-        if (ts < jan1 || ts > dec31 || ts > today) {
+        if (ts < jan1 || ts > dec31) {
           column.push(null);
           continue;
         }
         const date = isoOf(ts);
-        column.push({ date, tokens: byDate.get(date)?.tokens ?? 0, level: levelOf(values[c * 7 + r] ?? 0, max) });
+        const past = ts <= today;
+        column.push({ date, tokens: byDate.get(date)?.tokens ?? 0, level: levelOf(values[c * 7 + r] ?? 0, max), past });
       }
       columns.push(column);
     }
@@ -189,6 +211,14 @@ export function Heatmap({
                   {columns[col]!.map((cell) =>
                     cell === null ? (
                       <span key={`pad-${col}`} className="h-3 w-full" />
+                    ) : cell.past === false ? (
+                      // 未来日期：虚线空格 —— 把年历画到右缘，同时明确「未到来」不是「没请求」
+                      <span
+                        key={cell.date}
+                        data-heat-future={cell.date}
+                        aria-hidden="true"
+                        className="aspect-square w-full rounded-[3px] border border-dashed border-line-strong bg-overlay/12"
+                      />
                     ) : (
                       <span
                         key={cell.date}
