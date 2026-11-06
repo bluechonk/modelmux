@@ -57,6 +57,23 @@ const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
   { key: "cumulative", label: "累计" },
 ];
 
+/** 区间持久化 key：用户点过就记住，后续访问按最后一次选择。 */
+const RANGE_KEY = "modelmux.dashboard.range";
+
+/**
+ * 读回持久化的区间；没有存过默认「累计」（日志页看最近、看板看总量是两种常见
+ * 动线，主人定的是看板默认全量），存了非法值（手动改 localStorage / 旧版本枚举）
+ * 也回落「累计」。
+ */
+function storedRange(): UsageRange {
+  try {
+    const raw = window.localStorage.getItem(RANGE_KEY);
+    return raw === "today" || raw === "7d" || raw === "30d" || raw === "all" ? raw : "all";
+  } catch {
+    return "all"; // localStorage 不可用（隐私模式等）：回落默认
+  }
+}
+
 /** 趋势图最多画几条序列（更多模型会撞色）。 */
 const MAX_SERIES = 6;
 
@@ -225,7 +242,16 @@ export function Dashboard(): ReactElement {
 
   // 区间用量（每日趋势 / 模型用量 / KPI 的区间格）。与上面的快照**分开轮询**：
   // 它按日志逐日聚合、比快照重得多，只在切区间或手动刷新时重取。
-  const [range, setRange] = useState<UsageRange>("30d");
+  // 区间选择持久记忆：点过就记住，后续访问按最后一次选择。
+  const [range, setRangeState] = useState<UsageRange>(storedRange);
+  const setRange = (value: UsageRange): void => {
+    setRangeState(value);
+    try {
+      window.localStorage.setItem(RANGE_KEY, value);
+    } catch {
+      // localStorage 不可用（隐私模式等）：本次会话仍生效，只是不记忆
+    }
+  };
   const usageQuery = useQuery({ queryKey: ["usage", range], queryFn: () => api.usage(range) });
   const rangeStats = usageQuery.data;
 

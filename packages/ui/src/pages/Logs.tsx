@@ -35,8 +35,22 @@ import { ScrollFade } from "../components/ScrollFade";
 import { Select, type SelectOption } from "../components/Select";
 import { Skeleton } from "./Dashboard";
 
-/** 每页条数默认值（可切换 10 / 20 / 50）。默认取最小档：日志按时间倒序，先看最近的就够。 */
-const PAGE_SIZE = 10;
+/** 每页条数档位（10 / 20 / 50）。 */
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
+/** 每页条数默认档：日志按时间倒序，先看最近的就够。 */
+const PAGE_SIZE_DEFAULT = 10;
+/** 每页条数持久化 key：用户选过就记住，后续访问按最后一次选择。 */
+const PAGE_SIZE_KEY = "modelmux.logs.pageSize";
+
+/** 读回持久化的每页条数；没有存过或存了非法值（手动改 localStorage / 旧版本）回落默认档。 */
+function storedPageSize(): number {
+  try {
+    const value = Number(window.localStorage.getItem(PAGE_SIZE_KEY));
+    return PAGE_SIZE_OPTIONS.includes(value) ? value : PAGE_SIZE_DEFAULT;
+  } catch {
+    return PAGE_SIZE_DEFAULT; // localStorage 不可用（隐私模式等）：回落默认档
+  }
+}
 
 /** 输入防抖：不防的话每敲一个字符都发一次查询。 */
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -49,12 +63,15 @@ function useDebounced<T>(value: T, delayMs: number): T {
 }
 
 /**
- * 统计条：描述**当天读窗口**（不随筛选变化；筛选命中数由「共 N 条」表达）。
+ * 统计条：描述**当天读窗口**（未过滤聚合，不随筛选变化）。
  *
- * 只留筛选栏给不出的量：成功率、慢、平均耗时、读窗口截断。成功 / 失败 / 中断三个绝对条数
- * 就在下面筛选栏的结果分段里（同一组数字、同一份口径），一屏说两遍反而让人怀疑两处算的
- * 不是一回事；tokens / 缓存命中 / 无 usage 三条是**全局用量**（不是这份日志列表的性质），
- * 已挪到仪表盘（见 `pages/Dashboard.tsx` 的用量明细条）。
+ * 筛选命中的条数**不在本条显示**——筛选变化时分页器与表格行数会跟着变，两个
+ * 「总数」同屏对不上只会让人怀疑计数坏了（统计按未过滤窗口、命中按筛选，口径
+ * 本来就不同）。只留筛选栏给不出的量：成功率、慢、平均耗时、读窗口截断。
+ * 成功 / 失败 / 中断三个绝对条数就在下面筛选栏的结果分段里（同一组数字、同一份
+ * 口径），一屏说两遍反而让人怀疑两处算的不是一回事；tokens / 缓存命中 / 无 usage
+ * 三条是**全局用量**（不是这份日志列表的性质），已挪到仪表盘（见 `pages/Dashboard.tsx`
+ * 的用量明细条）。
  */
 function StatBar({ page }: { page: AccessLogPage }): ReactElement {
   const stats = page.stats;
@@ -517,7 +534,7 @@ function LogTable({
 
 /** 分页条：**黏在视口右下**（sticky），翻页不用滚回表格底端。
  *
- * 只放翻页；「共 N 条」与「每页 N 条」在筛选栏（上方）——分页设置属于筛选条件，
+ * 只放翻页；「每页 N 条」在筛选栏（上方）——分页设置属于筛选条件，
  * 放底部会让用户滚到表尾才发现可以改每页条数。
  */
 function Pager({
@@ -690,12 +707,9 @@ function Filters({
             label="每页条数"
             value={String(pageSize)}
             onChange={(value) => onPageSizeChange(Number(value))}
-            options={[10, 20, 50].map((n) => ({ value: String(n), label: String(n) }))}
+            options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: String(n) }))}
           />
           条
-        </span>
-        <span>
-          共 <span className="tabular text-ink-soft">{page?.total ?? 0}</span> 条
         </span>
         {dirty && (
           <button
@@ -724,7 +738,7 @@ export function Logs(): ReactElement {
   const [rawSearch, setRawSearch] = useState("");
   const search = useDebounced(rawSearch, 300);
   const [slowOnly, setSlowOnly] = useState(false);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   /** 打开上下文弹窗的那一条；null = 关闭。 */
@@ -761,6 +775,16 @@ export function Logs(): ReactElement {
   const dirty = date !== "" || outcome !== "" || cid !== "" || search !== "" || slowOnly;
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
   const resetToFirstPage = (): void => setPageNum(1);
+  /** 每页条数变化：持久记忆 + 回第 1 页（偏移量跟着 pageSize 走）。 */
+  const setPageSize = (size: number): void => {
+    setPageSizeState(size);
+    try {
+      window.localStorage.setItem(PAGE_SIZE_KEY, String(size));
+    } catch {
+      // localStorage 不可用（隐私模式等）：本次会话仍生效，只是不记忆
+    }
+    setPageNum(1);
+  };
   /** 展开的条目可能已被新筛选挤走：找不到就不渲染详情。 */
   const expandedEntry = page?.entries.find((entry) => entry.id === expanded) ?? null;
 
