@@ -1,5 +1,5 @@
 /**
- * 仓库级入口冒烟：注册全部渠道 → 一个网关对外暴露 **deepseek 家族**的裸模型名。
+ * 仓库级入口冒烟：注册全部渠道 → 一个网关对外暴露**模型家族**的裸模型名。
  *
  * 存储根指向临时目录：注册全部渠道后，任何 `paths.*` 调用都会解析到
  * `<root>/<cid>/`，本测试绝不碰真实主目录。
@@ -65,6 +65,11 @@ describe("仓库级模型池", () => {
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
     assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
+    // 本 PR 下架的三家：具名断言，避免「等式仍成立但悄悄回来了」
+    for (const cid of ["qoder", "workbuddyai", "astudio"]) {
+      assert.ok(!cids.includes(cid), `${cid} 已下架，不得再注册`);
+      assert.ok(RETIRED_CIDS.includes(cid), `${cid} 必须在 RETIRED_CIDS 里显式声明`);
+    }
   });
 
   it("服务身份是仓库级 modelmux（不是某个渠道）", async () => {
@@ -102,6 +107,9 @@ describe("仓库级模型池", () => {
     assert.ok(ds.length >= 2, `同一模型应有多家候选（实际 ${ds.join(", ")}）`);
     // 别名请求命中同一批渠道
     assert.deepEqual(candsOf("deepseek-flash"), ds);
+    // qodercn 在家族内只供 glm-5.3-flash：deepseek 候选里不能有它
+    assert.ok(!ds.includes("qodercn"), `qodercn 已隐藏 deepseek 系（实际 ${ds.join(", ")}）`);
+    assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
   it("池 id 与候选渠道的一致性（家族内 / 有货 / 候选都是已注册渠道）", () => {

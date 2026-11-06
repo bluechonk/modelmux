@@ -54,33 +54,27 @@ interface DemoAccount {
 }
 
 const DEMO_CHANNELS: DemoChannel[] = [
-  { cid: "astudio", display: "AStudio", present: true, billing: false },
   { cid: "catpaw", display: "CatPaw", present: true, billing: true },
   { cid: "loomy", display: "Loomy", present: true, billing: true },
-  { cid: "qoder", display: "Qoder", present: false, billing: true },
   { cid: "qodercn", display: "Qoder 国内版", present: true, billing: true },
   { cid: "raccoon", display: "Raccoon", present: true, billing: true },
   { cid: "traecn", display: "TRAE", present: true, billing: true },
   { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
 ];
 
-/** 各渠道对外暴露的模型（虚构演示集；网关只对外卖 deepseek 系列，形态与真实一致）。 */
+/** 各渠道对外暴露的模型（虚构演示集；候选集 = 网关对外模型家族，形态与真实一致）。 */
 const DEMO_MODELS: Record<string, string[]> = {
-  astudio: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  catpaw: ["deepseek-v4-flash"],
-  // 型号互斥：同一渠道供了 v4.1-flash 就不再列下位型号（与 pool/model-family 的规则一致）
-  loomy: ["deepseek-v4.1-flash"],
-  qoder: ["deepseek-v4-flash"],
-  qodercn: ["deepseek-flash"],
-  raccoon: ["deepseek-v4.1-flash"],
-  traecn: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  workbuddy: ["deepseek-v4.1-flash"],
+  catpaw: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  loomy: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  // 渠道级范围：qodercn 只暴露 glm-5.3-flash（deepseek 系在它的 models.json 里标了 hidden）
+  qodercn: ["glm-5.3-flash"],
+  raccoon: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  traecn: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  workbuddy: ["deepseek-v4.1-flash", "glm-5.3-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
 const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
-  // 无昵称（实测 nickname 为 null）→ 展示名回落手机号（明文，前端不做脱敏）
-  astudio: [{ key: "demo000000000000b1", uid: "demo-uid-astudio-1", label: "13800138000", name: "", health: "ok", expiresInDays: 120 }],
   catpaw: [
     // 连败熔断：路由会跳过它，等退避到期半开试探（或切号 / 重登）
     { key: "demo000000000000a1", uid: "demo-uid-catpaw-1", label: "demo-uid-catpaw-1", health: "error", failStreak: 3, expiresInDays: 12 },
@@ -117,11 +111,8 @@ const DEMO_QUOTA: Record<string, { size: number; remain: number; unit: string }>
 
 /** 池账本（虚构用量）。`accounts` 是按生效账号拆分的请求计数。 */
 const DEMO_LEDGER: Record<string, { used: number; unit: string; ok: number; fail: number; cooling: boolean }> = {
-  // 免费档（billing: false）→ 单位留空，额度条不渲染
-  astudio: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   catpaw: { used: 128, unit: "credits", ok: 96, fail: 2, cooling: false },
   loomy: { used: 42, unit: "积分", ok: 30, fail: 0, cooling: false },
-  qoder: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
   qodercn: { used: 672, unit: "credits", ok: 210, fail: 3, cooling: false },
   raccoon: { used: 0, unit: "", ok: 12, fail: 1, cooling: true },
   traecn: { used: 1450, unit: "credits", ok: 88, fail: 4, cooling: false },
@@ -201,9 +192,7 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
   /** 倍率（虚构）：同一模型在不同渠道给不同档，演示「按渠道比较」。 */
   const DEMO_MULTIPLIER: Record<string, number> = {
     "deepseek-v4.1-flash": 0.06,
-    "deepseek-v4-flash": 0.03,
-    "deepseek-v4-pro": 0.48,
-    "deepseek-flash": 0.06,
+    "glm-5.3-flash": 0.1,
   };
   const DEMO_MARKETING: Record<string, string> = {
     "deepseek-v4.1-flash": "新",
@@ -212,8 +201,7 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
   // 刻意与真实数据同形，避免演示页把「没声明」显示成「支持」。
   const DEMO_EFFORT: Record<string, { supportedLevels: string[]; defaultLevel: string }> = {
     "deepseek-v4.1-flash": { supportedLevels: ["low", "high", "max"], defaultLevel: "high" },
-    "deepseek-v4-flash": { supportedLevels: ["high", "max"], defaultLevel: "high" },
-    "deepseek-v4-pro": { supportedLevels: ["high", "max"], defaultLevel: "high" },
+    "glm-5.3-flash": { supportedLevels: ["high", "max"], defaultLevel: "high" },
   };
   /**
    * 演示窗口 / 输出上限（虚构，只取常见量级）。
@@ -223,9 +211,7 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
    */
   const DEMO_SIZE: Record<string, { contextWindow: number; maxOutputTokens: number; vision?: boolean }> = {
     "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216, vision: true },
-    "deepseek-v4-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216 },
-    "deepseek-v4-pro": { contextWindow: 1_048_576, maxOutputTokens: 393_216, vision: true },
-    "deepseek-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216, vision: true },
+    "glm-5.3-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216 },
   };
   /**
    * 演示「跨渠道推断」的渠道（真实口径见 POOL-ARCHITECTURE §2.7）：
@@ -565,23 +551,23 @@ const DEMO_LOG_SEED: Array<{
   messageCount?: number;
 }> = [
   { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 8420, upstreamMs: 610, ttfbMs: 1180, tokens: { prompt: 12480, completion: 1332, total: 13812 }, toolCount: 2, messageCount: 14 },
-  { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "success", status: 200, durationMs: 3140, upstreamMs: 380, ttfbMs: 640, tokens: { prompt: 8120, completion: 402, total: 8522 }, messageCount: 9 },
-  { cid: "loomy", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 2210, upstreamMs: 1900, ttfbMs: 2210, tokens: { prompt: 4020, completion: 88, total: 4108 }, messageCount: 5 },
-  { cid: "traecn", model: "deepseek-v4-pro", stream: true, outcome: "failure", status: 502, durationMs: 61040, upstreamMs: 60020, ttfbMs: 60020, tokens: null, error: "upstream_timeout", message: "upstream stream timed out: The operation was aborted due to timeout", messageCount: 22 },
+  { cid: "catpaw", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 3140, upstreamMs: 380, ttfbMs: 640, tokens: { prompt: 8120, completion: 402, total: 8522 }, messageCount: 9 },
+  { cid: "loomy", model: "deepseek-v4.1-flash", stream: false, outcome: "success", status: 200, durationMs: 2210, upstreamMs: 1900, ttfbMs: 2210, tokens: { prompt: 4020, completion: 88, total: 4108 }, messageCount: 5 },
+  { cid: "traecn", model: "glm-5.3-flash", stream: true, outcome: "failure", status: 502, durationMs: 61040, upstreamMs: 60020, ttfbMs: 60020, tokens: null, error: "upstream_timeout", message: "upstream stream timed out: The operation was aborted due to timeout", messageCount: 22 },
   { cid: "raccoon", model: "deepseek-v4.1-flash", stream: true, outcome: "failure", status: 503, durationMs: 980, upstreamMs: 940, ttfbMs: 980, tokens: null, error: "not_authenticated", message: "not logged in: credential expired", messageCount: 3 },
-  { cid: "qodercn", model: "deepseek-v4-pro", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
-  { cid: "catpaw", model: "deepseek-v4-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
-  { cid: "catpaw", model: "deepseek-v4-flash", stream: true, outcome: "failure", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "no_status", message: "client disconnected before response finished", messageCount: 4 },
+  { cid: "qodercn", model: "glm-5.3-flash", stream: true, outcome: "success", status: 200, durationMs: 33120, upstreamMs: 520, ttfbMs: 900, tokens: { prompt: 31240, completion: 6210, total: 37450 }, toolCount: 6, messageCount: 31 },
+  { cid: "catpaw", model: "deepseek-v4.1-flash", stream: false, outcome: "failure", status: 400, durationMs: 12, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "invalid_request", message: "messages must not be empty", messageCount: 0 },
+  { cid: "catpaw", model: "deepseek-v4.1-flash", stream: true, outcome: "failure", status: 0, durationMs: 240, upstreamMs: 0, ttfbMs: 0, tokens: null, error: "no_status", message: "client disconnected before response finished", messageCount: 4 },
   { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 15240, upstreamMs: 700, ttfbMs: 1420, tokens: { prompt: 5600, completion: 3180, total: 8780 }, toolCount: 1, messageCount: 11 },
   // 慢判定的两个归因维度各给一条：首字慢（速率正常）/ 速率慢（首字正常）——
   // 演示页的「慢」标签与两维归因要有可展示的样本，种子全是快行会让功能像不存在
-  { cid: "raccoon", model: "deepseek-v4-flash", stream: true, outcome: "success", status: 200, durationMs: 14200, upstreamMs: 12400, ttfbMs: 12500, tokens: { prompt: 3200, completion: 520, total: 3720 }, messageCount: 6 },
+  { cid: "raccoon", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 14200, upstreamMs: 12400, ttfbMs: 12500, tokens: { prompt: 3200, completion: 520, total: 3720 }, messageCount: 6 },
   { cid: "workbuddy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 12600, upstreamMs: 11500, ttfbMs: 1200, tokens: { prompt: 8400, completion: 120, total: 8520 }, messageCount: 2 },
-  { cid: "astudio", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
-  { cid: "workbuddy", model: "deepseek-v4-pro", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
+  { cid: "workbuddy", model: "deepseek-v4.1-flash", stream: false, outcome: "success", status: 200, durationMs: 4400, upstreamMs: 4100, ttfbMs: 4400, tokens: { prompt: 980, completion: 640, total: 1620 }, messageCount: 2 },
+  { cid: "workbuddy", model: "glm-5.3-flash", stream: true, outcome: "failure", status: 429, durationMs: 1620, upstreamMs: 1580, ttfbMs: 1620, tokens: null, error: "upstream_error", message: "upstream returned HTTP 429: quota exceeded for this window", messageCount: 7 },
   { cid: "loomy", model: "deepseek-v4.1-flash", stream: true, outcome: "success", status: 200, durationMs: 1180, upstreamMs: 300, ttfbMs: 480, tokens: { prompt: 240, completion: 96, total: 336 }, messageCount: 1 },
-  { cid: "qodercn", model: "deepseek-flash", stream: true, outcome: "success", status: 200, durationMs: 40210, upstreamMs: 880, ttfbMs: 2600, tokens: { prompt: 20480, completion: 9140, total: 29620 }, toolCount: 9, messageCount: 44 },
-  { cid: "catpaw", model: "deepseek-v4-flash", stream: false, outcome: "success", status: 200, durationMs: 2620, upstreamMs: 2400, ttfbMs: 2620, tokens: { prompt: 1240, completion: 520, total: 1760 }, messageCount: 6 },
+  { cid: "qodercn", model: "glm-5.3-flash", stream: true, outcome: "success", status: 200, durationMs: 40210, upstreamMs: 880, ttfbMs: 2600, tokens: { prompt: 20480, completion: 9140, total: 29620 }, toolCount: 9, messageCount: 44 },
+  { cid: "catpaw", model: "deepseek-v4.1-flash", stream: false, outcome: "success", status: 200, durationMs: 2620, upstreamMs: 2400, ttfbMs: 2620, tokens: { prompt: 1240, completion: 520, total: 1760 }, messageCount: 6 },
 ];
 
 /** 演示的可用日期（今天起往前三天）。 */
@@ -722,10 +708,10 @@ function localDate(d: Date): string {
 /** 演示用的（渠道 × 模型）权重（聚合键形态与真实一致，权重让环形图有主次）。 */
 const DEMO_USAGE_MODELS: Array<{ id: string; weight: number }> = [
   { id: "loomy/deepseek-v4.1-flash", weight: 0.37 },
-  { id: "catpaw/deepseek-v4-flash", weight: 0.22 },
-  { id: "traecn/deepseek-v4-pro", weight: 0.15 },
-  { id: "qodercn/deepseek-flash", weight: 0.12 },
-  { id: "astudio/deepseek-v4-flash", weight: 0.09 },
+  { id: "catpaw/deepseek-v4.1-flash", weight: 0.22 },
+  { id: "traecn/glm-5.3-flash", weight: 0.15 },
+  { id: "qodercn/glm-5.3-flash", weight: 0.12 },
+  { id: "raccoon/deepseek-v4.1-flash", weight: 0.09 },
   { id: "raccoon/deepseek-v4.1-flash", weight: 0.05 },
 ];
 

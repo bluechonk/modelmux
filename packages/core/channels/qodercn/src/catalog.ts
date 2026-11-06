@@ -48,19 +48,30 @@ function seedPaths(): Array<string | null> {
 }
 
 /**
- * 对外隐藏的模型 id（数据是 `models.json` 的 `hidden` 标记）。
+ * 对外隐藏的模型（数据是 `models.json` 的 `hidden` 标记）。
  *
- * 并集读**用户表**与**随包快照**：用户表可手改；随包快照保证已存在的老安装
- * （首启已浇种、之后不再更新）也遵守同一策略 —— 只改随包文件对它们无效。
+ * 收 **id 与上游 key 两种写法**：对外 id 由上游展示名派生，上游改名会让按 id 的匹配失效，
+ * 按 key 匹配才稳。
+ *
+ * 并集读**用户表**与**随包快照**：用户表可手改（新增隐藏）；随包快照保证已存在的老安装
+ * （首启已浇种、之后不再更新）也遵守同一策略 —— 只改随包文件对它们无效。并集是**单向**的：
+ * 任一来源标了隐藏就一定不暴露，用户表无法单独解除（策略优先于本地改动）。
+ *
+ * **随包快照读不到就抛错**（失败关闭）：隐藏策略的兜底来源没了还照常暴露，等于把 deepseek 系
+ * 悄悄放回池里（调用方会把异常按「目录读失败」处理，不会静默放行）。
  */
 function hiddenIds(): Set<string> {
+  const seed = readSeedFrom<ModelEntry>(seedPaths());
+  if (seed === null) {
+    throw new Error("qodercn: 随包 models.json 读不出来 —— 拒绝在隐藏策略失效的情况下暴露模型");
+  }
   const out = new Set<string>();
-  const rows = [
-    ...(readChannelModels<ModelEntry>(undefined) ?? []),
-    ...(readSeedFrom<ModelEntry>(seedPaths()) ?? []),
-  ];
-  for (const row of rows) {
-    if (row.hidden === true) out.add(row.id.toLowerCase());
+  for (const row of [...(readChannelModels<ModelEntry>(undefined) ?? []), ...seed]) {
+    if (row.hidden !== true) continue;
+    for (const value of [row.id, row.key]) {
+      const key = typeof value === "string" ? value.toLowerCase() : "";
+      if (key !== "") out.add(key);
+    }
   }
   return out;
 }
@@ -73,7 +84,7 @@ function hiddenIds(): Set<string> {
  */
 function specOf(modelId: string): { maxOutputTokens?: number } | undefined {
   const k = modelId.toLowerCase();
-  const row = ensureChannelModels<ModelEntry>(undefined, [bundledSnapshotPath(), packageSnapshotPath(import.meta.url)])?.find(
+  const row = ensureChannelModels<ModelEntry>(undefined, seedPaths())?.find(
     (e) => e.id.toLowerCase() === k,
   );
   return row?.maxOutput === undefined ? undefined : { maxOutputTokens: row.maxOutput };
@@ -99,7 +110,8 @@ export function modelSpec(
  * 只列「上游 key 与展示名对不上」的条目（如 `gfmodel` → `glm-5.3-flash`）；
  * 未列出的 key 用上游展示名归一化后作为对外 id（见 `toEntry`）。
  *
- * 全模型池：不再把非映射条目标在池外 —— 上游目录里的模型都会暴露。
+ * 这是 **key → id 的映射**，不是曝光白名单：上游目录里的模型都会进目录，
+ * 对外暴露哪些由 `models.json` 的 `hidden` 标记决定（见 `hiddenIds`）。
  */
 const POOL_KEY_MAP: Record<string, string> = {
   gfmodel: "glm-5.3-flash",
@@ -168,8 +180,8 @@ function toPublicId(displayName: string, key: string): string {
 /**
  * 官方目录条目 → 内部条目。
  *
- * 全模型池：**所有**目录条目都保留 —— 已知 key 走 `POOL_KEY_MAP` 的显式映射，
- * 其余用展示名归一化作为对外 id（无展示名时退回 key 本身）。
+ * **所有**目录条目都保留（已知 key 走 `POOL_KEY_MAP` 的显式映射，其余用展示名归一化作为
+ * 对外 id，无展示名时退回 key 本身）—— 是不是对外暴露由 `hiddenIds()` 事后过滤。
  */
 function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   const key = str(raw["key"]) || str(raw["id"]);
@@ -211,12 +223,7 @@ function loadCatalog(): ModelEntry[] {
     /* 缓存读不出来就用兜底表 —— 目录不可用不该让整个渠道消失 */
   }
   // 兜底走用户目录模型表（首启由随包 models.json 浇种）：条目已是归一化产物，直接读
-  return (
-    ensureChannelModels<ModelEntry>(undefined, [
-      bundledSnapshotPath(),
-      packageSnapshotPath(import.meta.url),
-    ]) ?? []
-  );
+  return ensureChannelModels<ModelEntry>(undefined, seedPaths()) ?? [];
 }
 
 /** 对外暴露的模型 id（池内名；去重、保持目录顺序；`hidden` 的不暴露）。 */
@@ -225,7 +232,8 @@ export function exposedIds(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of loadCatalog()) {
-    if (hidden.has(entry.id.toLowerCase())) continue;
+    // id 与上游 key 都判：对外 id 由展示名派生，只按 id 匹配会被上游改名绕过
+    if (hidden.has(entry.id.toLowerCase()) || hidden.has(entry.key.toLowerCase())) continue;
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
     out.push(entry.id);

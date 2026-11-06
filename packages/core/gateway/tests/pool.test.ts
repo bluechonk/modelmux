@@ -269,8 +269,15 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
     assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");
   });
 
-  it("已移出家族的下位型号 → 400 unknown_model", async () => {
-    for (const model of ["deepseek-v4-flash", "deepseek-v4-pro"]) {
+  it("已移出家族的下位型号 → 400 unknown_model（大小写 / 尾饰写法都算）", async () => {
+    for (const model of [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "DeepSeek-V4-Flash",
+      "DeepSeek-V4-Flash-Official",
+      "deepseek-v4-flash-0731",
+      "DeepSeek-V4-Pro-Official",
+    ]) {
       const { status, text } = await chat(gw, model);
       assert.equal(status, 400, model);
       assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");

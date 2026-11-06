@@ -73,7 +73,7 @@ mx model catpaw --refresh    # 强制重拉上游目录（失败 exit 1）
 curl -s http://127.0.0.1:4412/v1/models   # 客户端实际看到的 id
 ```
 
-对外 id 是 **deepseek 家族裸模型名**（如 `deepseek-v4.1-flash`）；家族外的名字一律 400。
+对外 id 是**模型家族裸模型名**（如 `deepseek-v4.1-flash` / `glm-5.3-flash`）；家族外的名字一律 400。
 渠道由网关按账号池剩余额度**自动挑**，请求里不带渠道前缀。
 
 `--refresh` 的退出语义不同：`mx model <cid> --refresh` 失败非零退出；

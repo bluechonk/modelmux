@@ -267,6 +267,17 @@ const modelFamily = read(FAMILY_FILE);
 check(/export const POOL_MODEL_IDS/.test(modelFamily), "model-family.ts: 缺 POOL_MODEL_IDS（对外模型家族）");
 check(/export function canonicalOf\(/.test(modelFamily), "model-family.ts: 缺 canonicalOf()（canonical / 别名归并）");
 
+// `/v1/models` 的 `owned_by` 来自 `MODEL_OWNER`：每个对外 canonical 都必须登记，
+// 否则 `ownerOf()` 会静默回落 `modelmux`，客户端拿到伪造的厂商标识。
+const exposedCanonicals = [...modelFamily.matchAll(/"([a-z0-9.-]+)":\s*"\1"/g)].map((m) => m[1]);
+const ownerBlock = /const MODEL_OWNER[^}]*}/.exec(modelFamily)?.[0] ?? "";
+for (const canonical of exposedCanonicals) {
+  check(
+    ownerBlock.includes(`"${canonical}"`),
+    `model-family.ts: MODEL_OWNER 缺 "${canonical}"（owned_by 会回落成 modelmux）`,
+  );
+}
+
 /** 剥掉注释后再查字面量（JSDoc 里的示例 id 是文档，不是代码持有的模型知识）。 */
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 // 只认**引号包起来的**模型名字面量：路由/家族表里出现它们才是持有模型知识。

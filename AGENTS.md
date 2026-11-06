@@ -67,8 +67,9 @@ PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `ty
 
 ## 代码约定
 
-- 对外只做 deepseek 家族（`pool/model-family.ts` 是**唯一**允许出现模型名的地方）：
-  裸模型名请求（`deepseek-v4.1-flash`），渠道由网关按账号池剩余额度自动挑；家族外的名字一律 400。
+- 对外只做模型家族表声明的模型（`pool/model-family.ts` 是**唯一**允许出现模型名的地方）：
+  裸模型名请求（如 `deepseek-v4.1-flash` / `glm-5.3-flash`），渠道由网关按账号池剩余额度自动挑；
+  家族外的名字一律 400。
 - 注释：what 去文档（协议事实只活在 `docs/channels/<cid>/PROTOCOL.md`），why 跟函数（docstring）。
   文件头 ≤12 行：一句话职责 + 关键约束 ≤3 条 + 指针。细则见 [docs/MODULE-COMMENTS.md](docs/MODULE-COMMENTS.md)
   和 [docs/CODE-COMMENTS.md](docs/CODE-COMMENTS.md)。
@@ -77,7 +78,7 @@ PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `ty
 
 ## 测试
 
-- 渠道不写测试，只做端到端（`dsh-mx-test` 技能；zcode 侧用 `zcode-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
+- 渠道不写测试，只做端到端（`dsh-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
 - 临时探测脚本禁止虚构凭证与请求头——虚构载荷撞上游风控（脚本落 `.tmp/`、保留复用见全局规则）。
 - 测试模型选最低倍率，禁止高倍率旗舰（`*-pro` / `*-max` / `kimi-k3` 等）。
 - 禁止占用或杀掉 4412 网关；独立实例用 `--addr` 其他端口。

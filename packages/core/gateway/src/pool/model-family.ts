@@ -93,6 +93,7 @@ function normalizeLoose(id: string): string {
     }
   }
   out = out.replace(/(\d)-(\d)/g, "$1.$2");
-  out = out.replace(/-official$/, "").replace(/-latest$/, "").replace(/-\d{4}$/, "");
+  // 顺序与 `pool-targets.normalize` 保持一致（`-official` / 4 位日期 / `-latest`）
+  out = out.replace(/-official$/, "").replace(/-\d{4}$/, "").replace(/-latest$/, "");
   return out;
 }

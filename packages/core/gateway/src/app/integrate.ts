@@ -1,5 +1,5 @@
 /**
- * 一键接入：把本机 harness 的模型配置改写成网关的 deepseek 裸模型名。
+ * 一键接入：把本机 harness 的模型配置改写成网关的对外模型名。
  *
  * 只改**模型清单**，不动 baseURL / apiKeyEnv / retryPolicy；写前备份到
  * `<root>/backups/integrate/`，幂等。两处例外：zcode 个人供应商规则必须带齐

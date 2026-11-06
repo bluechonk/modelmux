@@ -121,7 +121,7 @@ function originNote(origin: CatalogOrigin): string {
 }
 
 /**
- * `model <cid>`：该渠道能供给哪些**对外模型**（deepseek 家族，裸模型名）。
+ * `model <cid>`：该渠道能供给哪些**对外模型**（家族表里的裸模型名）。
  *
  * 渠道目录里不属于家族、或不能对外暴露的条目只报数量（可能几十条，全列是噪音）。
  */
@@ -187,9 +187,9 @@ export async function listLocalModels(
   // 其余情形（刚拉取 / 拉取失败 / 内置表）用户需要知道自己在看哪份数据。
   if (origin.kind !== "cache") console.error(`${cid}: ${originNote(origin)}`);
   if (rows.length === 0) {
-    console.log(catalogBroken ? `${cid}: 目录读取失败，模型列表不可用（见上方错误）` : `${cid}: 该渠道没有可对外的 deepseek 模型`);
+    console.log(catalogBroken ? `${cid}: 目录读取失败，模型列表不可用（见上方错误）` : `${cid}: 该渠道没有可对外的模型`);
   } else {
-    console.log(`${cid} 的 deepseek 模型（客户端用裸模型名请求，网关按额度挑渠道）：`);
+    console.log(`${cid} 的对外模型（客户端用裸模型名请求，网关按额度挑渠道）：`);
     for (const row of rows) {
       console.log(`  ${row.model.padEnd(22)} ×${row.rate.padStart(5)} ← ${row.exposed_id}`);
     }
@@ -198,7 +198,7 @@ export async function listLocalModels(
 }
 
 /**
- * `model list`：**公共模型池视图** —— 每个对外模型（deepseek 裸名）与能供给它的渠道。
+ * `model list`：**公共模型池视图** —— 每个对外模型（家族裸名）与能供给它的渠道。
  *
  * 渠道由网关按账号池剩余额度自动挑（`poolCandidates` 已排好序），这里按模型分组，
  * 逐渠道列出剩余额度 / 账本状态，回答「这个模型现在能从哪几家出、谁还有货」。

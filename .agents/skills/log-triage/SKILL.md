@@ -89,7 +89,7 @@ mx log --kind worker --lines 100
 
 | `error` | 判定 | 动作 |
 | --- | --- | --- |
-| `unknown_model` | 模型名不在网关对外清单（deepseek 家族裸名） | `GET /v1/models` 核对；`mx model list` 看有货的渠道 |
+| `unknown_model` | 模型名不在网关对外清单（家族表裸名） | `GET /v1/models` 核对；`mx model list` 看有货的渠道 |
 | `not_authenticated` / `upstream_unauthenticated` | 凭据缺失或失效 | `mx acct <cid>`、`mx login <cid>`；**不删凭据文件** |
 | `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断 | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
 | `upstream_timeout` | 上游空闲超时 | 见 §2 第 4 行 |

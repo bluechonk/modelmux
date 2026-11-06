@@ -18,7 +18,7 @@ import { aliasGroupOf, canonicalOf, POOL_EXPOSED_IDS } from "./model-family.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
 
 /**
- * 对外暴露的模型池（deepseek 家族中**至少有一个渠道能供给**的 id，按展示顺序）。
+ * 对外暴露的模型池（家族中**至少有一个渠道能供给**的 id，按展示顺序）。
  *
  * 不做进程内缓存：渠道目录可随登录/刷新变化，每次调用重新收集是刻意的
  * （调用方若需在同一表达式里保持一致快照，应先取一次局部变量）。
@@ -751,7 +751,7 @@ function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[
  * 一次候选收集 / 元数据聚合内的直扫记忆：`cid → (规范名 → 目录里的原始写法)`。
  *
  * 为什么要它：索引没命中时原实现每次调用都读盘 + 解析一遍目录，而「渠道没有某个名字」是常态；
- * 加上互斥检查后同一渠道一次收集里最多问两遍（上位型号 + 目标型号），不共享就会双倍读盘。
+ * 别名组内每个名字都要问一次（如 `deepseek-flash` 与 `deepseek-v4.1-flash`），不共享就会重复读盘。
  *
  * 记忆**只活在单次调用里**（调用方传同一个 Map）：目录在 TTL 内被改过、或测试里换过渠道时，
  * 下一次调用仍会直扫到最新目录 —— 这与直扫回落原本的语义（补索引的陈旧）一致。

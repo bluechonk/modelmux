@@ -14,7 +14,6 @@ export * as gateway from "./http/server.js";
 export * as headless from "./app/lifecycle/headless.js";
 export * as login from "./auth/login.js";
 export * as loginFlow from "./auth/login-flow.js";
-export * as modelFamily from "./pool/model-policy.js";
 // 粘贴兜底的文本识别（授权失败页 / 授权码提取；与渠道无关的字符串启发式）
 export * as pasteDetect from "./auth/paste-detect.js";
 export type { PastedCallback } from "./auth/paste-detect.js";
@@ -93,7 +92,7 @@ export type { ChannelModelEntry, ChannelModelsSource } from "./runtime/channel-m
 // 渠道目录里的名字 → 上游 slug
 export { resolvePoolModel } from "./pool/model-pool.js";
 
-// 公共模型池：deepseek 裸模型名 + 跨渠道候选（按账号池剩余额度排序）
+// 公共模型池：对外家族裸模型名 + 跨渠道候选（按账号池剩余额度排序）
 export {
   POOL_MODELS,
   canonicalModelId,

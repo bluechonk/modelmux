@@ -13,7 +13,7 @@
 | 网关 | `127.0.0.1:4412`，唯一端口 |
 | Web 控制台 | 挂 `/web`（网关同端口，非独立进程） |
 | 对外协议 | OpenAI 兼容 `/v1`，模型为**对外家族裸模型名**（`deepseek-v4.1-flash` / `glm-5.3-flash`） |
-| 对外模型 | 2 个（家族表声明，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2） |
+| 对外模型 | 2 个 canonical（另有 1 个别名 `deepseek-flash`；家族表见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2） |
 | 工作区包 | `packages/cli` / `packages/ui` / `packages/core/gateway` / `packages/core/channels/<cid>` |
 
 ## 渠道状态
