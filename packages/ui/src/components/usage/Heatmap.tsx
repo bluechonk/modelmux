@@ -1,12 +1,13 @@
 /**
- * Token 活动热力图：**52 周 × 7 天**的年度日历，横轴按月份标注（学 ZCode 的「Token 活动」）。
- * 为什么窗口恒为一年、不按数据裁剪：见 `WEEKS`。
+ * Token 活动热力图：**自然年**日历（1 月在左、12 月在右），横轴按月份标注
+ * （学 ZCode 的「Token 活动」，但窗口是自然年而不是滚动 52 周 —— 滚动窗口的
+ * 月标签首尾重复，1 月到 12 月各出现一次才是可读的年度视图）。
  *
  * 三档粒度（daily / weekly / cumulative）只改颜色映射与浮层文案，格子布局恒定。
- * 交互是 **hover**（主人明确要求对齐 ZCode）：格子放大 + 自绘浮层；**点击不触发任何逻辑**。
+ * 交互是 **hover**：格子放大 + 自绘浮层；**点击不触发任何逻辑**。
  *
- * 一年里只有日志保留期内（默认 14 天）的格子有数据 —— 空格是保留策略的必然结果，
- *   不是渲染 bug（docs/USAGE-STATS.md §「日志保留期」）。
+ * 年内只有已过去的日子可能有数据：未来日期与年外补位都是空格 —— 不是渲染 bug。
+ * 日志保留期（默认 14 天）之外的过往日期同样是空格（docs/USAGE-STATS.md §「日志保留期」）。
  */
 
 import { useMemo, useState, type ReactElement } from "react";
@@ -27,14 +28,7 @@ const LEVEL_CLASS = [
 ] as const;
 
 const WEEKDAY_LABELS = ["一", "", "三", "", "五", "", ""] as const;
-/**
- * 恒铺 52 周（一年）。
- *
- * **不按数据裁剪窗口**：格子是 `aspect-square` + `1fr`，宽度摊满面板 —— 窗口裁到 12 周时
- * 每格会被拉到 112px（实测 1440 视口），热力图变成 7 行巨块，比「左侧空网格」难看得多。
- * 格子的合理尺寸与列数耦合，而列数要摊满面板宽，所以窗口只能是固定的一年。
- */
-const WEEKS = 52;
+
 const MS_PER_DAY = 86_400_000;
 
 const MONTH_NAMES = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
@@ -82,14 +76,19 @@ export function Heatmap({
   const [hover, setHover] = useState<HoverInfo | null>(null);
 
   const { columns, max, monthMarks } = useMemo(() => {
-    if (daily.length === 0) return { columns: [] as Array<Array<{ date: string; tokens: number; level: number } | null>>, max: 0, monthMarks: [] as Array<{ col: number; label: string }> };
+    const empty = { columns: [] as Array<Array<{ date: string; tokens: number; level: number } | null>>, max: 0, monthMarks: [] as Array<{ col: number; label: string }> };
+    if (daily.length === 0) return empty;
     const byDate = new Map(daily.map((d) => [d.date, d]));
-    // 以「今天」为日历末端，向前铺满 52 周（周一为首列）——与 ZCode 的年度视图同构；
-    // 为什么不能按数据裁剪窗口，见 `WEEKS`。
+    // 自然年窗口：1 月 1 日所在周（周一首）铺到 12 月 31 日所在周日。
+    // 为什么不按数据裁剪：格子是 aspect-square + 1fr 摊满面板，列数一少每格会被
+    // 拉成巨块（实测 1440 视口下 12 列 = 112px/格），固定整年才撑得住布局。
+    const year = new Date().getFullYear();
+    const jan1 = Date.UTC(year, 0, 1);
+    const dec31 = Date.UTC(year, 11, 31);
+    const firstWeekStart = jan1 - weekdayIndex(jan1) * MS_PER_DAY;
+    const lastWeekStart = dec31 - weekdayIndex(dec31) * MS_PER_DAY;
+    const colCount = (lastWeekStart - firstWeekStart) / (7 * MS_PER_DAY) + 1;
     const today = dayKey(isoOf(Date.now()));
-    const todayWeekday = weekdayIndex(today);
-    const lastWeekStart = today - todayWeekday * MS_PER_DAY;
-    const firstWeekStart = lastWeekStart - (WEEKS - 1) * 7 * MS_PER_DAY;
 
     const perDay: number[] = [];
     for (let ts = firstWeekStart; ts <= lastWeekStart + 6 * MS_PER_DAY; ts += MS_PER_DAY) {
@@ -108,33 +107,32 @@ export function Heatmap({
       for (let k = 0; k <= i; k += 1) sum += perDay[k] ?? 0;
       return sum;
     });
-    const max = values.reduce((m, v) => (v > m ? v : m), 0);
+    /** 有数据的最大值只按「已过去的日子」取：未来 / 年外的空值不该稀释色阶。 */
+    const pastValues = perDay.filter((_, i) => firstWeekStart + i * MS_PER_DAY <= today);
+    const max = pastValues.reduce((m, v) => (v > m ? v : m), 0);
 
-    const cells = perDay.map((_, i) => {
-      const ts = firstWeekStart + i * MS_PER_DAY;
-      const date = isoOf(ts);
-      return { date, tokens: byDate.get(date)?.tokens ?? 0, level: levelOf(values[i] ?? 0, max) };
-    });
-    const pad = weekdayIndex(firstWeekStart);
-    const padded: Array<{ date: string; tokens: number; level: number } | null> = [
-      ...new Array<null>(pad).fill(null),
-      ...cells,
-    ];
     const columns: Array<Array<{ date: string; tokens: number; level: number } | null>> = [];
-    for (let i = 0; i < padded.length; i += 7) columns.push(padded.slice(i, i + 7));
-
-    // 月份标签：每列取首日的月份，月份变化的那一列挂标签（列 index 与格子网格同宽）
-    const monthMarks: Array<{ col: number; label: string }> = [];
-    let prevMonth = -1;
-    for (let c = 0; c < columns.length; c += 1) {
-      const firstCell = columns[c]?.find((cell) => cell !== null);
-      if (!firstCell) continue;
-      const month = Number(firstCell.date.slice(5, 7)) - 1;
-      if (month !== prevMonth) {
-        monthMarks.push({ col: c, label: MONTH_NAMES[month] ?? "" });
-        prevMonth = month;
+    for (let c = 0; c < colCount; c += 1) {
+      const column: Array<{ date: string; tokens: number; level: number } | null> = [];
+      for (let r = 0; r < 7; r += 1) {
+        const ts = firstWeekStart + (c * 7 + r) * MS_PER_DAY;
+        // 年外补位与未来日期都是空格：未来不该装作「没请求」
+        if (ts < jan1 || ts > dec31 || ts > today) {
+          column.push(null);
+          continue;
+        }
+        const date = isoOf(ts);
+        column.push({ date, tokens: byDate.get(date)?.tokens ?? 0, level: levelOf(values[c * 7 + r] ?? 0, max) });
       }
+      columns.push(column);
     }
+
+    // 月份标签：每月 1 日的列下标直算 —— 未来月份的列全是空格，按「首个非空格」找
+    // 会漏掉它们（12 月在年内必须在标签行出现）
+    const monthMarks = MONTH_NAMES.map((label, month) => {
+      const dayIndex = (Date.UTC(year, month, 1) - firstWeekStart) / MS_PER_DAY;
+      return { col: Math.floor(dayIndex / 7), label };
+    });
     return { columns, max, monthMarks };
   }, [daily, granularity]);
 
@@ -151,27 +149,33 @@ export function Heatmap({
 
   return (
     <div className="space-y-1.5">
-      {/* 月份行：与格子网格同列数，标签挂在「月份第一周」的列上 */}
+      {/*
+        月份行与格子网格必须**同一套左缘**：格子网格右侧挂着周标签列槽，
+        标签行若横跨全宽就会整体左偏一个槽宽（实测 53 列 ≈ 1.4 列的偏移）。
+        标签行放进同一个 flex 结构，左侧垫片与周标签列同宽（w-3 + gap 对齐）。
+      */}
       <div className="overflow-x-auto pb-1">
         <div className="min-w-[720px]">
-          <div
-            className="mb-1 grid h-4"
-            style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
-            aria-hidden="true"
-          >
-            {Array.from({ length: columns.length }, (_, col) => {
-              const mark = monthMarks.find((m) => m.col === col);
-              return (
-                <span key={col} className="relative text-xs text-ink-faint">
-                  {mark !== undefined && <span className="absolute left-0 whitespace-nowrap">{mark.label}</span>}
-                </span>
-              );
-            })}
+          <div className="mb-1 flex gap-2" aria-hidden="true">
+            <div className="w-3 shrink-0" />
+            <div
+              className="grid flex-1"
+              style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
+            >
+              {Array.from({ length: columns.length }, (_, col) => {
+                const mark = monthMarks.find((m) => m.col === col);
+                return (
+                  <span key={col} className="relative h-4 text-xs text-ink-faint">
+                    {mark !== undefined && <span className="absolute left-0 whitespace-nowrap">{mark.label}</span>}
+                  </span>
+                );
+              })}
+            </div>
           </div>
           <div className="flex gap-2">
             <div className="flex shrink-0 flex-col gap-[3px]" aria-hidden="true">
               {WEEKDAY_LABELS.map((label, i) => (
-                <span key={i} className="h-3 text-xs leading-3 text-ink-faint">
+                <span key={i} className="h-3 w-3 text-xs leading-3 text-ink-faint">
                   {label}
                 </span>
               ))}
