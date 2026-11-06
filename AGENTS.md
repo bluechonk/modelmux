@@ -115,8 +115,6 @@ PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `ty
 推送门禁由 `pre-push` 钩子自动执行（细节见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「推送门禁」）。
 文档与代码同一个 commit。发版 = 打 tag，不建 GitHub Release。
 版本号 `0.1.x` 连续递增不跳号。tag 打在合并后的 main 上。
-**插件版本号跟 tag 走**（`plugins/*/plugin.json` 与 `marketplace.json` 等于根 `package.json` 版本，
-`verify:plugin-version` 守），插件不自己编版本号。
 大面积功能或重构后提醒主人发版，不擅自操作。
 完整发版流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
