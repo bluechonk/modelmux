@@ -4,7 +4,7 @@
 // 怎么跑：从仓库根执行
 //   node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "<任务文本>" [--model <deepseek 模型名>] [--cwd <目录>] [--timeout <毫秒>]
 //   overlay **每次都现生成**（默认 deepseek-v4.1-flash）；**不按渠道选模型** ——
-//   网关只对外暴露 deepseek 家族裸名，落点渠道由网关按账号池剩余额度自动挑。
+//   网关只对外暴露模型家族裸名，落点渠道由网关按账号池剩余额度自动挑。
 //   环境变量：MODELMUX_API_KEY 必须非空（网关不校验，占位 test 即可）；
 //             DSH_ACP_CMD 可覆盖启动命令（覆盖后按 `<cmd> --profile acp --patch <overlay>` 调用，
 //             命令需自行包好 Electron 与 cli.js；默认用 DeepSeek Harness.exe + cli.js 直调，
@@ -19,7 +19,7 @@ const args = process.argv.slice(2);
 const taskParts = [];
 let cwd = resolve(".tmp/dsh-acp-e2e");
 let timeoutMs = 180000; // 默认与 SKILL.md 示例一致：慢上游单轮可超 90s，120s 太紧
-let model = "deepseek-v4.1-flash"; // 网关对外只做 deepseek 家族裸名
+let model = "deepseek-v4.1-flash"; // 网关对外只做模型家族裸名
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--cwd") cwd = resolve(args[++i]);
   else if (args[i] === "--timeout") timeoutMs = Number(args[++i]);

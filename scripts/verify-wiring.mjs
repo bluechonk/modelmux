@@ -154,8 +154,8 @@ for (const cid of channelDirs) {
 
 const CHANNEL_ID_RE = new RegExp(`["'\`](${channelDirs.join("|")})["'\`]`);
 const MODEL_NAME_RE = /["'`](?:deepseek|glm|qwen|kimi|doubao|hunyuan|minimax|sensenova)-[a-z0-9.-]+["'`]/i;
-// 例外：`pool/model-family.ts` 是**对外模型家族**的唯一声明点 —— 网关只做 deepseek，
-// 家族名是产品面（`AGENTS.md` 的「代码约定」）；其余共享层文件仍不得持有模型名。
+// 例外：`pool/model-family.ts` 是**对外模型家族**的唯一声明点 —— 家族名是产品面
+// （`AGENTS.md` 的「代码约定」）；其余共享层文件仍不得持有模型名。
 const FAMILY_FILE_REL = "packages/core/gateway/src/pool/model-family.ts";
 
 const gatewaySrc = join(repo, "packages", "core", "gateway", "src");

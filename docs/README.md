@@ -94,7 +94,6 @@
 | `.agents/skills/log-triage/SKILL.md` | 日志分诊：分层日志 + `upstreamMs/ttfbMs/durationMs` + 错误码速查 |
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
-| `.agents/skills/zcode-mx-test/SKILL.md` | 端到端测试：zcode（app-server 协议 / headless `-p`）直连网关跑真实 Agent 会话，按会话选模型换 harness 复测；只许用 zcode 清单内免费或最低倍率模型 |
 | `.agents/skills/zcode-session-archaeology/SKILL.md` | 会话考古：按 `session_xxx` / `sess_xxx` 还原**另一个**会话做了什么，用于多会话并行改同一项目时的对齐与收尾 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
@@ -102,8 +101,8 @@
 ## 4. 其它客户端怎么接（任意 OpenAI 客户端）
 
 网关是一个**普通 HTTP 端点**，不依赖 ZCode：任何能配 OpenAI 兼容 base url 的客户端直接指向
-`http://127.0.0.1:4412/v1` 就能用。模型 id 是 **deepseek 家族的裸模型名**（如 `deepseek-v4.1-flash`，
-`/v1/models` 只列有渠道供给的那几个）—— 渠道对客户端透明，由网关按账号池剩余额度自动挑；
+`http://127.0.0.1:4412/v1` 就能用。模型 id 是**对外模型家族的裸模型名**（如 `deepseek-v4.1-flash`、
+`glm-5.3-flash`，`/v1/models` 只列有渠道供给的那几个）—— 渠道对客户端透明，由网关按账号池剩余额度自动挑；
 家族外的模型名一律 400（见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2）。
 
 **不需要**为任何客户端做适配层：网关就是标准 OpenAI 兼容端点，任何客户端把 base url

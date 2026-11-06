@@ -16,7 +16,7 @@ import { after, before, describe, it } from "node:test";
 
 import { integrateClient } from "../dist/app/integrate.js";
 
-const MODELS = ["deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro"];
+const MODELS = ["deepseek-v4.1-flash", "glm-5.3-flash"];
 const GATEWAY_BASE = "http://127.0.0.1:4412/v1";
 
 let home = "";

@@ -1,5 +1,8 @@
 # AStudio 协议规格
 
+> **已下架**：对外模型家族收敛后本渠道不再注册（下架声明见 `packages/cli/src/channels.ts` 的
+> `RETIRED_CIDS`）；包与本文件保留作参考实现。
+
 > 实测时间 2026-10-26；证据等级见 §1。
 > 逆向方法与一次完整实跑记录见 [METHODOLOGY.md](./METHODOLOGY.md) 与 [WALKTHROUGH.md](./WALKTHROUGH.md)。
 

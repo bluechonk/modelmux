@@ -1,5 +1,8 @@
 # Qoder 协议规格（阿里系）
 
+> **已下架**：对外模型家族收敛后本渠道不再注册（下架声明见 `packages/cli/src/channels.ts` 的
+> `RETIRED_CIDS`）；包与本文件保留作参考实现。
+
 签名采用**纯 `node:crypto` 复刻**（RSA-PKCS1v15 包裹会话密钥 + AES-128-CBC 加密身份体 +
 MD5 签名 + 自定义 Base64 请求体编码），完全不需要 WASM —— 实现见 `src/upstream.ts`。
 COSY 版本 `1.1.64`；模型列表动态拉取（`GET /algo/api/v2/model/list?Encode=1`，GET 也要带

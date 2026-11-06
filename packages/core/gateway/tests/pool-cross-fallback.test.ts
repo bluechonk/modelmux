@@ -266,20 +266,26 @@ describe("坏渠道隔离与枚举入口", () => {
     assert.deepEqual([...metas.keys()], ["deepseek-v4.1-flash"], "全池只有这一款 deepseek 模型");
   });
 
-  it("型号互斥同样作用于元数据聚合：供给上位型号的渠道不进下位型号的聚合", () => {
-    // upgraded 同时供两代 → 只算 v4.1-flash 的渠道；legacy 只供下位型号
+  it("家族收敛后不再有型号互斥：同一渠道的两个家族型号各自聚合，兄弟渠道照常补值", () => {
+    // 一个渠道同时供 deepseek 与 glm（互斥规则已删除），各自独立聚合
     use(
-      { cid: "upgraded", exposed: ["deepseek-v4.1-flash", "deepseek-v4-flash"] },
-      { cid: "legacy", exposed: ["deepseek-v4-flash"] },
+      { cid: "both", exposed: ["deepseek-v4.1-flash", "glm-5.3-flash"] },
+      { cid: "sibling", exposed: ["deepseek-v4.1-flash"] },
     );
-    writeCatalogCache([{ id: "deepseek-v4-flash", contextWindow: 500_000 }], "upgraded");
-    writeCatalogCache([{ id: "deepseek-v4-flash", contextWindow: 300_000 }], "legacy");
+    writeCatalogCache([{ id: "deepseek-v4.1-flash", contextWindow: 500_000 }], "both");
+    writeCatalogCache([{ id: "deepseek-v4.1-flash", contextWindow: 300_000 }], "sibling");
+    writeCatalogCache([{ id: "glm-5.3-flash", contextWindow: 700_000 }], "both");
     const index = buildCrossModelIndex();
 
     assert.equal(
-      getPoolModelMeta("deepseek-v4-flash", index).contextWindow,
+      getPoolModelMeta("deepseek-v4.1-flash", index).contextWindow,
       300_000,
-      "聚合只取真正会承接下位型号的渠道（upgraded 的 500k 不该混进来）",
+      "兄弟渠道取 min（不是「排除谁」的问题，两家都进聚合）",
+    );
+    assert.equal(
+      getPoolModelMeta("glm-5.3-flash", index).contextWindow,
+      700_000,
+      "同渠道的另一个家族型号不受影响",
     );
   });
 });

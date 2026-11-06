@@ -70,11 +70,11 @@ describe("跨渠道索引缓存", () => {
   });
 
   it("poolCandidates 从索引拿原始写法（大小写敏感，原样交给渠道 resolveModel）", () => {
-    // 目录里是上游的真实写法 `DeepSeek-V4-Flash`，对外规范名是全小写
-    use("alpha", ["DeepSeek-V4-Flash"]);
-    const candidates = poolCandidates("deepseek-v4-flash");
+    // 目录里是上游的真实写法 `GLM-5.3-Flash`，对外规范名是全小写
+    use("alpha", ["GLM-5.3-Flash"]);
+    const candidates = poolCandidates("glm-5.3-flash");
     assert.equal(candidates.length, 1);
-    assert.equal(candidates[0]?.exposedId, "DeepSeek-V4-Flash", "原始写法不能被小写化");
+    assert.equal(candidates[0]?.exposedId, "GLM-5.3-Flash", "原始写法不能被小写化");
   });
 
   it("索引没命中时 poolCandidates 回落直扫（目录在 TTL 内被改过的情形）", () => {

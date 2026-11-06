@@ -32,9 +32,9 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | string | 对外模型名（deepseek 家族的**裸模型名**，如 `deepseek-v4.1-flash`） |
+| `id` | string | 对外模型名（家族表的 **canonical 裸模型名**，如 `deepseek-v4.1-flash`） |
 | `name` | string | 展示名（取首个声明渠道的上游名，缺省为 `id`） |
-| `owned_by` | string | 恒为 `deepseek`（对外模型统一归家族；承接渠道在请求日志的 `cid` 里） |
+| `owned_by` | string | 厂商标识，取家族表的 `ownerOf()`（如 `deepseek` / `zhipu`；承接渠道在请求日志的 `cid` 里） |
 | `context_window` | number | 上下文窗口 |
 | `max_output_tokens` | number | 最大输出 |
 | `input_modalities` | string[] | 输入模态，缺省 `["text"]` |
@@ -67,7 +67,7 @@
 ```
 
 第 4 级只对**规范模型名相同**的条目生效：`workbuddy/deepseek-v4.1-flash` 与
-`workbuddyai/deepseek-v4.1-flash` 视为同一模型的兄弟渠道。数值取兄弟渠道的最小值
+`loomy/deepseek-v4.1-flash` 视为同一模型的兄弟渠道。数值取兄弟渠道的最小值
 （更少的承诺），档位取交集（各家都支持才算支持）。
 
 第 5 级不编造能力：`effort` 保持 `null`，模态只报 `text`，窗口/输出取常见档位下限。
