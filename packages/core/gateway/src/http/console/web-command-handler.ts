@@ -54,7 +54,7 @@ export interface WebCommandDeps {
    * 实现由 app 层注入（写的是 `~/.zcode` / `~/.dsh`，不是网关运行时），
    * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
    */
-  integrate?: (target: "zcode" | "dsh") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-code" | "codex") => { ok: boolean; error?: string; notes?: string[] };
 }
 
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;
@@ -258,13 +258,14 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       case "integrate": {
         // 一键接入：把本机 harness 的模型配置改成网关的对外模型名。
         const target = args["target"];
-        if (target !== "zcode" && target !== "dsh") {
-          return err("参数 target 只能是 zcode 或 dsh");
+        const INTEGRATION_TARGETS = ["zcode", "dsh", "claude-code", "codex"] as const;
+        if (typeof target !== "string" || !(INTEGRATION_TARGETS as readonly string[]).includes(target)) {
+          return err(`参数 target 只能是 ${INTEGRATION_TARGETS.join(" / ")}`);
         }
         if (!deps.integrate) {
           return err("当前运行形态不支持一键接入（未注入 integrate）");
         }
-        const result = deps.integrate(target);
+        const result = deps.integrate(target as "zcode" | "dsh" | "claude-code" | "codex");
         return result.ok
           ? ok({
               target,

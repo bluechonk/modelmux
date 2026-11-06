@@ -22,6 +22,7 @@ import {
   noteRequestError,
 } from "../../runtime/log-store.js";
 import { isCustomWire } from "./channel.js";
+import { sinkOf } from "../protocol/types.js";
 import * as dsmlTools from "../wire/dsml-tools.js";
 import * as sseStream from "../wire/sse-stream.js";
 
@@ -42,7 +43,7 @@ const FIRST_BYTE_HEARTBEAT_MS = 5_000;
  * 流中继错误的统一收尾：按 custom 分支的同一套分类记账并向客户端写 SSE 错误帧。
  *
  * 两条线型（openai / custom）必须同口径 —— 否则同一个上游故障，换条线型客户端
- * 就从「收到结构化错误」变成「连接被静默掐断」。
+ * 就从「收到结构化错误」变成「连接被静默掐断」。入站协议编码器在场时错误帧也走协议形态。
  */
 function relayError(res: ServerResponse, logger: (m: string) => void, err: unknown): void {
   const code = (err as { code?: string } | null)?.code;
@@ -53,23 +54,21 @@ function relayError(res: ServerResponse, logger: (m: string) => void, err: unkno
     logger("client disconnected, stopping relay");
     return;
   }
+  const sink = sinkOf(res);
+  const writeError = (errorCode: string, message: string): void => {
+    if (res.writableEnded) return;
+    if (sink) sink.writeError(errorCode, message);
+    else res.write(`data: ${JSON.stringify({ error: { code: errorCode, message } })}\n\n`);
+  };
   if (name === "TimeoutError" || /timeout/i.test(String(err))) {
     noteRequestError(res, "upstream_timeout", `upstream stream timed out: ${String(err)}`);
     logger(`upstream stream timed out: ${String(err)}`);
-    if (!res.writableEnded) {
-      res.write(
-        `data: ${JSON.stringify({ error: { code: "upstream_timeout", message: `upstream stream timed out: ${String(err)}` } })}\n\n`,
-      );
-    }
+    writeError("upstream_timeout", `upstream stream timed out: ${String(err)}`);
     return;
   }
   noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
   logger(`upstream stream failed: ${String(err)}`);
-  if (!res.writableEnded) {
-    res.write(
-      `data: ${JSON.stringify({ error: { message: `upstream stream failed: ${String(err)}` } })}\n\n`,
-    );
-  }
+  writeError("upstream_stream_failed", `upstream stream failed: ${String(err)}`);
 }
 
 /** 心跳间隔可用环境变量覆盖（测试与长部署按需调整）。 */
@@ -154,21 +153,32 @@ export async function relayStream(
     // openai 线型的流中途错误也必须以 SSE 错误帧收尾 —— 与下方 custom 分支同一套
     // 分类（断连 / 超时 / 其他）。放任重抛会穿到 server.ts 顶层：headers 已发时只能
     // 静默 res.end()，客户端只见 SSE 截断（无错误帧、无 [DONE]，tool_call 参数可能截坏）。
+    const sink = sinkOf(res);
     try {
       await sseStream.relay(res, upstreamBody, contentType, cid, {
         // 上游是 openai 线型时响应语义一定是 SSE；content-type 常被上游写错，
         // 不能拿它决定要不要兜底，否则 DSML 会原样漏给客户端。
         dsml: new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)),
         prefix: pendingFrames,
+        // 入站协议在场：帧交编码器转译（anthropic / responses 事件族）
+        ...(sink ? { sink } : {}),
       });
     } catch (err) {
       relayError(res, logger, err);
+    } finally {
+      // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补
+      sink?.finish();
+      if (sink && !res.writableEnded) res.end();
     }
     return;
   }
 
-  // custom 线型不走上面的过滤器，探测层帧直接写出
-  for (const frame of pendingFrames) res.write(frame);
+  // custom 线型不走上面的过滤器，探测层帧仍按老路直接写出（有编码器则转译）
+  const sink = sinkOf(res);
+  for (const frame of pendingFrames) {
+    if (sink) sink.writeOpenAiFrame(frame);
+    else res.write(frame);
+  }
 
   const { upstream } = channel;
   // 首帧静默上限：渠道可放宽（某些上游排队时 200 后零字节超 120s）
@@ -218,7 +228,9 @@ export async function relayStream(
         noteLastFrame(res);
         const buf = asBuffer(frame);
         sseStream.noteFrameUsage(res, buf);
-        res.write(buf);
+        // 入站协议在场：帧交编码器转译（anthropic / responses 事件族）
+        if (sink) sink.writeOpenAiFrame(buf);
+        else res.write(buf);
       }
       // 终止标记已随 feed() 发出（含 finish_reason + [DONE]）：立即停读上游，别等 TCP 关闭
       if (translator.isDone?.()) break;
@@ -226,7 +238,8 @@ export async function relayStream(
     for (const frame of translator.finish()) {
       const buf = asBuffer(frame);
       sseStream.noteFrameUsage(res, buf);
-      res.write(buf);
+      if (sink) sink.writeOpenAiFrame(buf);
+      else res.write(buf);
     }
   } catch (err) {
     relayError(res, logger, err);
@@ -237,6 +250,7 @@ export async function relayStream(
     } catch {
       /* 收尾失败不影响响应 */
     }
+    sink?.finish();
     await reader.cancel().catch(() => {});
     if (!res.writableEnded) res.end();
   }
