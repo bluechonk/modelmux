@@ -139,13 +139,6 @@ const STATUS_META: Record<AccountStatus, { text: string; pill: string; dot: stri
   broke: { text: "没钱", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
 };
 
-/** 剩余时长（粗粒度）：`45s` / `3m` / `2h`。 */
-function shortSpan(ms: number): string {
-  if (ms < 60_000) return `${Math.ceil(ms / 1_000)}s`;
-  if (ms < 3_600_000) return `${Math.ceil(ms / 60_000)}m`;
-  return `${Math.round(ms / 3_600_000)}h`;
-}
-
 /**
  * 状态 pill 文案：**只有状态词本身**（正常 / 冷却 / 异常 / 没钱）。
  *
@@ -176,34 +169,24 @@ function statusNoteOf(
   }
   if (account.health === "cooldown") {
     const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
-    // 绝对恢复时刻 + 相对时长一起给：只说「2h 后」时用户还得自己加一次，
-    // 跨天更容易被读成今天（`formatRecoveryAt` 会补日期）
-    const at = Number.isFinite(until) ? formatRecoveryAt(until, now) : "";
-    const when = Number.isFinite(until) ? shortSpan(until - now) : "";
-    // 第二行是**上游原话**（`cooldown_reason` 里带的是错误体片段）：没有它用户只能
-    // 知道「在冷却」，不知道「为什么冷却 / 上游怎么说」
-    const reason = (account.cooldown_reason ?? "").trim();
+    // 只给**具体恢复时刻**（绝对 + 本地时区）：「2h 后」是废话，用户要的是「什么时候能用」
     return {
       tone: "warn",
       lines: [
         Number.isFinite(until)
-          ? `冷却中 · ${at} 恢复${when === "" ? "" : `（${when} 后）`}`
+          ? `冷却中 · ${formatRecoveryAt(until, now)} 恢复`
           : "冷却中 · 等待上游窗口刷新",
-        ...(reason === "" ? [] : [reason]),
       ],
     };
   }
   if (account.health === "error") {
     const until = account.trip_until ? Date.parse(account.trip_until) : Number.NaN;
-    const at = Number.isFinite(until) ? formatRecoveryAt(until, now) : "";
-    const when = Number.isFinite(until) ? shortSpan(until - now) : "";
     return {
       tone: "danger",
       lines: [
         Number.isFinite(until)
-          ? `熔断中 · ${at} 自动试探${when === "" ? "" : `（${when} 后）`}`
+          ? `熔断中 · ${formatRecoveryAt(until, now)} 自动试探`
           : "熔断中 · 下次请求自动试探",
-        `连续失败 ${Number(account.fail_streak ?? 0)} 次`,
       ],
     };
   }
@@ -407,13 +390,6 @@ export function AccountCard({
   const detailStatus = detailAccount ? classifyAccount(detailAccount, billing) : null;
   const detailNote =
     detailAccount && detailStatus ? statusNoteOf(detailAccount, detailStatus, clock) : null;
-  /** 签到行的补充说明（如「今日无可领」的上游原话）；空数组时什么都不渲染。 */
-  const signinNotes =
-    detailAccount === undefined
-      ? []
-      : signinRows(pool.signin, detailAccount)
-          .map((row) => row.note)
-          .filter((note): note is string => note !== undefined && note !== "");
 
   return (
     // 展开**不跨列**：卡片只在自己那一格里长高，同行右侧的渠道保持原位、不被挤到下一行。
@@ -680,12 +656,6 @@ export function AccountCard({
               </div>
             ))}
           </dl>
-          {/* 签到行的补充说明（「今日无可领」时给出上游原话）：单独一段，不挤进数值列 */}
-          {signinNotes.map((note, index) => (
-            <p key={`${index}-${note}`} className="pb-2 text-xs text-ink-faint">
-              {note}
-            </p>
-          ))}
           <div className="space-y-0.5 pt-2">
             {detailNote ? (
               detailNote.lines.map((line, index) => (

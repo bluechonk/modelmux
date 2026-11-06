@@ -64,9 +64,9 @@ export interface QuotaPeriod {
 /**
  * 「今日签到」行（额度详情的最后一行）；`[]` = 该渠道没有签到能力，整行不渲染。
  *
- * 三种情况必须分开说（混成一句「未签到」会把「上游本来就没东西可领」说成用户的失职）：
- * - 领到了：`已签到 09:12`，能报额度时带「+N」（单位原样显示）；
- * - 有探测结论且上游明确没有可领活动：`今日无可领`（附渠道自己的说明）；
+ * 只回答「签没签 / 领了多少」：
+ * - 领到了：`已签到 09:12 +1,200 积分`（额度未知时只给时刻，不编 0）；
+ * - 上游明确没有可领活动：`今日无可领`；
  * - 其余（没探测过 / 探测失败）：`未签到`。
  *
  * 两种口径与后端 `signinViewOf` 一一对应：按账号签到的渠道读**该账号**的记录，
@@ -76,7 +76,7 @@ export interface QuotaPeriod {
 export function signinRows(
   info: ChannelSignin | null | undefined,
   account: Pick<PoolAccount, "signin">,
-): Array<{ label: string; value: string; note?: string }> {
+): Array<{ label: string; value: string }> {
   if (!info?.supported) return [];
   const own = info.per_account ? account.signin ?? null : null;
   const claimed = info.per_account ? own?.claimed_today === true : info.claimed_today;
@@ -93,7 +93,7 @@ export function signinRows(
   }
   // 上游明确「没有可领的」：如实说「今日无可领」，不冒充「你还没签」
   if (probe !== null && probe.claimable === false) {
-    return [{ label: "今日签到", value: "今日无可领", note: probe.summary }];
+    return [{ label: "今日签到", value: "今日无可领" }];
   }
   return [{ label: "今日签到", value: "未签到" }];
 }

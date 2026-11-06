@@ -351,12 +351,12 @@ test("auto signin: 额度没涨 / 查不到时不写额度（不编 0）", async
     const cid = "autosign-nodelta";
     setChannel(makeChannel(cid, { quotaSequence: [{ remain: 500, unit: "credits" }, { remain: 480, unit: "credits" }] }));
     await autoSignin.runOnce();
-    assert.equal(readLedger(cid).last_claim?.reward, undefined, "跌了不写成负数");
+    assert.equal(readLedger(cid).last_claim?.reward, null, "跌了写 null（「不知道/没涨」，不是负数也不是 0）");
 
     const cid2 = "autosign-noquota";
     setChannel(makeChannel(cid2, {}));
     await autoSignin.runOnce();
-    assert.equal(readLedger(cid2).last_claim?.reward, undefined, "查不到额度不编造");
+    assert.equal(readLedger(cid2).last_claim?.reward, null, "查不到额度写 null（三态：已知 / 报不出 / 还没测）");
   });
 });
 

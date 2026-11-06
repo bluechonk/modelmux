@@ -12,7 +12,14 @@ import { channelCapabilities, channels, type Channel, type SigninStatus } from "
 import { runInChannel } from "../runtime/channel-context.js";
 import { readFileSync } from "node:fs";
 import { ensureStateDir, stateDir } from "../runtime/paths.js";
-import { claimedTodayForAccount, claimedTodayPerLedger, recordClaim, recordProbe } from "./signin-ledger.js";
+import {
+  claimedTodayForAccount,
+  claimedTodayPerLedger,
+  readLedger,
+  recordClaim,
+  recordProbe,
+  updateClaimReward,
+} from "./signin-ledger.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 import { listAccounts, readAccountCredential } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
@@ -124,6 +131,43 @@ async function quotaRemainOf(channel: Channel, credential?: unknown): Promise<{ 
 }
 
 /**
+ * 给「已签但没记额度」的台账补一次额度（**只补一次**，补完写 `null` 或数值）。
+ *
+ * 为什么需要：额度是三态（已知 / 报不出 / 还没测）。旧版本落盘的记录没有这个字段，
+ * 而渠道的**状态查询**往往回今天入账额（raccoon 的账单、traecn 的 checkin status）——
+ * 白丢一次已知数字太可惜。补完就写 `null`（渠道报不出）或数值，调度器下一轮不再打扰上游。
+ *
+ * 不猜：查不到就写 `null`（「不知道」），绝不从 summary 里正则抠数字。
+ */
+async function backfillReward(cid: string, channel: Channel, accountKey?: string): Promise<void> {
+  const ledger = readLedger(cid);
+  const record = accountKey === undefined ? ledger.last_claim : ledger.accounts?.[accountKey];
+  if (record === undefined || record.reward !== undefined) return; // 已补过（数值或明确的 null）
+  // 必须包渠道上下文：渠道的 `paths.*` / 凭据落点靠 AsyncLocalStorage 里的 cid 解析，
+  // 裸调会抛「multi-channel routing requires an explicit cid」→ 补写被静默跳过
+  await runInChannel(cid, async () => {
+    try {
+      channel.cred.load();
+    } catch {
+      return; // 未登录：留到下一轮（字段仍是 undefined）
+    }
+    let reward: { amount: number; unit: string } | null = null;
+    try {
+      const status = await channel.billing.signin.status();
+      reward = status.reward ?? null;
+    } catch {
+      // 状态查询失败：如实写「不知道」，不再重复打扰
+      reward = null;
+    }
+    try {
+      updateClaimReward(cid, reward, { accountKey });
+    } catch {
+      /* 补写失败不影响主流程；下一轮会再试 */
+    }
+  });
+}
+
+/**
  * 前后两次额度之差 → 本次发放额度；查不到或没涨就返回 `undefined`（不写 0）。
  *
  * 只认「涨了」：额度下降通常意味着签到没到账 / 或查询期间有消耗，把负数写成
@@ -152,8 +196,11 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
   // ① 当日熔断：连败 3 次的渠道今天不再触发
   if (tripped(cid)) return false;
 
-  // ② 台账已签：今天领过，不问上游直接跳过
-  if (claimedTodayPerLedger(cid)) return false;
+  // ② 台账已签：今天领过 —— 但**旧版本写的记录没有额度**时补一次（只补一次）
+  if (claimedTodayPerLedger(cid)) {
+    await backfillReward(cid, channel);
+    return false;
+  }
 
   return runInChannel(cid, async () => {
     // ③ 未登录：不发任何请求（登录必须用户主动触发，不做网络探测以避免无谓的上游痕迹）
@@ -239,8 +286,11 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
     const scope = `${cid}:${account.key}`;
     // ① 账号级熔断：这个账号连败 3 次，今天不再试（不影响同渠道其他账号）
     if (tripped(scope)) continue;
-    // ② 账号级台账：这个账号今天已处理过，不问上游
-    if (claimedTodayForAccount(cid, account.key)) continue;
+    // ② 账号级台账：这个账号今天已处理过 —— 但旧记录没记额度时补一次（只补一次）
+    if (claimedTodayForAccount(cid, account.key)) {
+      await backfillReward(cid, channel, account.key);
+      continue;
+    }
 
     const credential = normalizeCredentialShape(readAccountCredential(account.key, cid));
     if (Object.keys(credential).length === 0) continue;

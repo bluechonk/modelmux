@@ -424,6 +424,15 @@ export interface SigninStatus {
    */
   claimedToday?: boolean | null;
   /**
+   * **今天已领多少额度**（可选，仅 `claimedToday === true` 时有意义）。
+   *
+   * 用途：控制台在账号详情里显示「今日签到 +N」。有的渠道只在**状态查询**里
+   * 给当天入账额（raccoon 的账单、traecn 的 checkin status），领取接口本身不回数字 ——
+   * 调度器据此给「台账已签但没记额度」的记录补一次额度（见 `auto-signin`）。
+   * 领不到就不填，绝不从 summary 里正则抠数字。
+   */
+  reward?: SigninReward;
+  /**
    * 是否**每日**语义。默认 `true`；`false` 表示它不是每日签到（如 raccoon 那种
    * 一次性登录奖励）—— CLI 不会对它套"今天"的话术。
    */
