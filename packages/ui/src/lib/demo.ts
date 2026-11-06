@@ -801,6 +801,11 @@ export function demoUsage(range: UsageRange): UsageStats {
       tokensOut: Math.round(totalTokens * 0.28),
       requests,
       messages,
+      // 演示值：失败按 1%、慢按 0.2% 合成（真实口径见 docs/USAGE-STATS.md，逐条分桶）
+      success: requests - Math.round(requests * 0.01),
+      failure: Math.round(requests * 0.01),
+      other: 0,
+      slow: Math.round(requests * 0.002),
       durationMs: requests * 8200,
       cacheHitRate: 0.74,
       cacheHit: Math.round(totalTokens * 0.55),

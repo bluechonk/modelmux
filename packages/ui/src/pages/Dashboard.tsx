@@ -57,6 +57,14 @@ const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
   { key: "cumulative", label: "累计" },
 ];
 
+/** KPI 卡上用的区间措辞（与页头选择器一致：今日 / 近 7 日 / 近 30 日 / 累计）。 */
+const RANGE_WORD: Partial<Record<UsageRange, string>> = {
+  today: "今日",
+  "7d": "近 7 日",
+  "30d": "近 30 日",
+  all: "累计",
+};
+
 /** 区间持久化 key：用户点过就记住，后续访问按最后一次选择。 */
 const RANGE_KEY = "modelmux.dashboard.range";
 
@@ -382,12 +390,17 @@ export function Dashboard(): ReactElement {
   if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
   // ----- 派生数据 -----
-  const usage = overview?.usage;
-  const totalReq = usage?.requests ?? 0;
+  // 区间用量：KPI 行**全部**读它 —— 页头选「近 7 日」时这些卡就跟着变成近 7 日的数，
+  // 不固定成「今日」（固定的话选区间只影响趋势图，一屏两套口径）
+  const totals = rangeStats?.totals;
+  // 卡面用「今日 / 近 7 日 / 近 30 日 / 累计」这几个词，跟选择器上的措辞一致
+  const rangeWord = RANGE_WORD[range] ?? "";
   const successRate =
-    totalReq > 0 && usage ? `${Math.round((usage.success / totalReq) * 100)}%` : "—";
-  const avgDur = usage?.avg_duration_ms != null ? formatDuration(usage.avg_duration_ms) : "—";
-  const totalTokens = usage ? formatTokens(usage.tokens.total) : "0";
+    totals && totals.requests > 0 ? `${Math.round((totals.success / totals.requests) * 100)}%` : "—";
+  const avgDur =
+    totals && totals.requests > 0
+      ? formatDuration(Math.round(totals.durationMs / totals.requests))
+      : "—";
 
   // 最近 5 条（overview 已聚合好）
   const recent = overview?.recent ?? [];
@@ -403,44 +416,33 @@ export function Dashboard(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="仪表盘"
-        description="今日快照 + 区间用量（区间作用于每日趋势与模型用量；Token 活动恒看一年）"
+        description="区间用量（KPI、每日趋势、模型用量都随页头区间变化；Token 活动恒看一年）"
         actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
       />
 
-      {/* ① KPI：今日三格 + 区间五格，同一栅格（窄屏 2 列 / lg 起 4 列 × 2 行）。
-          八格排一行在 1400px 容器下每格只剩 ~158px，副说明会被挤成两行，故收成两行四列 */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* ① KPI：全部随页头区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
         <KpiCard
           icon={Wifi}
-          label="今日请求 · 成功率"
-          value={String(totalReq)}
-          sub={usage ? `${usage.success} 成功 · ${successRate}` : undefined}
-          tone={totalReq > 0 ? "free" : "muted"}
+          label={`${rangeWord}请求 · 成功率`}
+          value={totals ? String(totals.requests) : "—"}
+          sub={totals ? `${totals.success} 成功 · ${successRate}` : undefined}
+          tone={(totals?.requests ?? 0) > 0 ? "free" : "muted"}
         />
         <KpiCard
           icon={AlertTriangle}
           label="失败 · 其中慢"
-          value={String(usage?.failure ?? 0)}
-          sub={usage ? `慢 ${usage.slow} 次 · 平均 ${avgDur}` : undefined}
-          tone={(usage?.failure ?? 0) > 0 ? "danger" : "muted"}
+          value={totals ? String(totals.failure) : "—"}
+          sub={totals ? `慢 ${totals.slow} 次 · 平均 ${avgDur}` : undefined}
+          tone={(totals?.failure ?? 0) > 0 ? "danger" : "muted"}
         />
         <KpiCard
           icon={Coins}
-          label="今日 tokens"
-          value={totalTokens}
-          sub={
-            usage && usage.tokens.total > 0
-              ? `入 ${formatTokens(usage.tokens.prompt)} · 出 ${formatTokens(usage.tokens.completion)}`
-              : undefined
-          }
-        />
-        <KpiCard
-          icon={Layers}
-          label="累计 Token"
+          label={`${rangeWord} tokens`}
           value={rangeStats ? formatTokens(rangeStats.totals.tokens) : "—"}
           sub={
-            rangeStats && rangeStats.totals.tokens > 0
-              ? `入 ${formatTokens(rangeStats.totals.tokensIn)} · 出 ${formatTokens(rangeStats.totals.tokensOut)}`
+            totals && totals.tokens > 0
+              ? `入 ${formatTokens(totals.tokensIn)} · 出 ${formatTokens(totals.tokensOut)}`
               : undefined
           }
         />
