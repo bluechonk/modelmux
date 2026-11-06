@@ -75,25 +75,24 @@ describe("仓库级模型池", () => {
     assert.equal(per.length, ACTIVE_CIDS.length, "逐渠道报告");
   });
 
-  it("/v1/models 只返回 deepseek 家族的裸模型名", async () => {
+  it("/v1/models 只返回对外家族的裸模型名", async () => {
     const resp = await fetch(`http://${running.addr}/v1/models`);
     assert.equal(resp.status, 200);
     const payload = (await resp.json()) as { data: Array<{ id: string; owned_by: string }> };
     const ids = payload.data.map((m) => m.id).sort();
     assert.ok(ids.includes("deepseek-v4.1-flash"), `应包含 deepseek-v4.1-flash（实际 ${ids.join(", ")}）`);
-    assert.ok(ids.length >= 1, `至少一个模型，实际 ${ids.length}`);
+    assert.ok(ids.includes("glm-5.3-flash"), `应包含 glm-5.3-flash（实际 ${ids.join(", ")}）`);
     assert.ok(
-      payload.data.every((m) => gw.isDeepseekModel(m.id)),
-      "对外 id 全部属于 deepseek 家族",
+      payload.data.every((m) => gw.isPoolModel(m.id)),
+      "对外 id 全部属于对外家族",
     );
     assert.ok(
       payload.data.every((m) => gw.canonicalOf(m.id) === m.id),
       "对外只列 canonical（别名不单独出现）",
     );
-    assert.ok(
-      payload.data.every((m) => m.owned_by === "deepseek"),
-      "owned_by 恒为 deepseek 家族",
-    );
+    const ownerOf = (id: string): string => payload.data.find((m) => m.id === id)!.owned_by;
+    assert.equal(ownerOf("deepseek-v4.1-flash"), "deepseek");
+    assert.equal(ownerOf("glm-5.3-flash"), "zhipu");
   });
 
   it("同一个模型的候选是**多家**渠道（按剩余额度降序，渠道由网关挑）", () => {
@@ -111,7 +110,7 @@ describe("仓库级模型池", () => {
     const pooled = [...gw.POOL_MODELS];
     assert.ok(pooled.length > 0, "POOL_MODELS 不应为空");
     for (const id of pooled) {
-      assert.ok(gw.isDeepseekModel(id), `池 id 必须是 deepseek 家族名：${id}`);
+      assert.ok(gw.isPoolModel(id), `池 id 必须是对外家族名：${id}`);
       assert.equal(gw.canonicalOf(id), id, `池 id 必须是 canonical：${id}`);
       const cands = gw.poolCandidates(id);
       assert.ok(cands.length > 0, `池 id 至少有一个候选渠道：${id}`);
@@ -131,10 +130,12 @@ describe("仓库级模型池", () => {
     const bare = await post("no-such-model-anywhere-xyz");
     assert.equal(bare.status, 400);
     assert.equal(((await bare.json()) as { error: { code: string } }).error.code, "unknown_model");
-    // 非家族模型（网关不再代理别家的模型名）
-    const other = await post("glm-5.3-flash");
-    assert.equal(other.status, 400);
-    assert.equal(((await other.json()) as { error: { code: string } }).error.code, "unknown_model");
+    // 非家族模型（网关不代理家族外的模型名）
+    for (const model of ["qwen3.8-flash", "deepseek-v4-flash", "deepseek-v4-pro"]) {
+      const other = await post(model);
+      assert.equal(other.status, 400, model);
+      assert.equal(((await other.json()) as { error: { code: string } }).error.code, "unknown_model");
+    }
   });
 
   it("有效的家族名请求：测试环境无凭据 → 503 not_authenticated", async () => {

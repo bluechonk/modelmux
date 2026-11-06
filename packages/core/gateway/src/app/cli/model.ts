@@ -10,7 +10,7 @@ import { channelCapabilities, channels, type Channel } from "../../runtime/chann
 import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, getChannelModelMeta, getPoolModelMeta, poolCandidates, poolModels } from "../../pool/pool-targets.js";
-import { DEEPSEEK_MODEL_IDS, canonicalOf, isDeepseekModel } from "../../pool/model-family.js";
+import { POOL_MODEL_IDS, canonicalOf, isPoolModel } from "../../pool/model-family.js";
 import { ledgerSnapshot, refreshBilling, totalRemainOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
 import { readModelSpecs } from "../../runtime/model-specs.js";
@@ -151,8 +151,8 @@ export async function listLocalModels(
       return [] as string[];
     }
   });
-  // 只列 deepseek 家族：网关对外只提供这几个，渠道目录里的其余条目不属于对外模型池
-  const family = catalogIds.filter((id) => isDeepseekModel(id));
+  // 只列对外家族：网关对外只提供这几个，渠道目录里的其余条目不属于对外模型池
+  const family = catalogIds.filter((id) => isPoolModel(id));
   // 渠道内先按规范名去重：同一渠道的不同原始写法收敛为同一个对外模型名
   const contributed = [...new Map(family.map((id) => [canonicalModelId(id), id])).values()];
 
@@ -363,7 +363,7 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
   }
   const canonical = canonicalOf(model);
   if (!canonical) {
-    console.error(`未知模型：${model}（可用：${DEEPSEEK_MODEL_IDS.join(" / ")}）`);
+    console.error(`未知模型：${model}（可用：${POOL_MODEL_IDS.join(" / ")}）`);
     return 2;
   }
 

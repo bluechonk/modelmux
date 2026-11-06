@@ -255,7 +255,7 @@ for (const pkgPath of NO_EMIT_PACKAGES) {
 const gwDeps = Object.keys(JSON.parse(read("packages/core/gateway/package.json")).dependencies ?? {});
 check(gwDeps.length === 0, `packages/core/gateway: 共享包必须零运行依赖，当前 ${gwDeps.join(", ")}`);
 
-// 对外模型池：网关只做 deepseek 家族，客户端用**裸模型名**请求（渠道由网关按额度挑）。
+// 对外模型池：网关只卖家族表里声明的模型，客户端用**裸模型名**请求（渠道由网关按额度挑）。
 // 家族名是**产品面**，允许且只允许在 `pool/model-family.ts` 里声明 —— 其余共享层文件
 // 仍不得硬编码厂商模型名（渠道知识只活在渠道包内，`AGENTS.md` 的「仓库结构」）。
 const poolTargets = read("packages/core/gateway/src/pool/pool-targets.ts");
@@ -264,7 +264,7 @@ check(/export function poolCandidates\(/.test(poolTargets), "pool-targets.ts: �
 
 const FAMILY_FILE = "packages/core/gateway/src/pool/model-family.ts";
 const modelFamily = read(FAMILY_FILE);
-check(/export const DEEPSEEK_MODEL_IDS/.test(modelFamily), "model-family.ts: 缺 DEEPSEEK_MODEL_IDS（对外模型家族）");
+check(/export const POOL_MODEL_IDS/.test(modelFamily), "model-family.ts: 缺 POOL_MODEL_IDS（对外模型家族）");
 check(/export function canonicalOf\(/.test(modelFamily), "model-family.ts: 缺 canonicalOf()（canonical / 别名归并）");
 
 /** 剥掉注释后再查字面量（JSDoc 里的示例 id 是文档，不是代码持有的模型知识）。 */

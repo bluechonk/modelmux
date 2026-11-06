@@ -103,13 +103,14 @@ export {
   type PoolCandidate,
 } from "./pool/pool-targets.js";
 
-// 对外模型家族（deepseek 系列 + 别名归并）
+// 对外模型家族（产品面：卖哪几个模型 + 别名归并 + owned_by）
 export {
-  DEEPSEEK_MODEL_IDS,
-  DEEPSEEK_EXPOSED_IDS,
+  POOL_MODEL_IDS,
+  POOL_EXPOSED_IDS,
   aliasGroupOf,
   canonicalOf,
-  isDeepseekModel,
+  isPoolModel,
+  ownerOf,
 } from "./pool/model-family.js";
 
 // 公共模型池的账本（账单已用量 + 失败冷却；落 <root>/pool-usage.json）

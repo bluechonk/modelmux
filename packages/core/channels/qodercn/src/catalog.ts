@@ -3,11 +3,18 @@
  *
  * 关键约束（端点/字段/实测见 docs/channels/qodercn/PROTOCOL.md）：
  *   - 对外名 ≠ 上游 key：模型 id 是短 key，需映射到对外名，其余用上游展示名归一化。
- *   - 上游目录全量对外暴露，不按家族过滤。
+ *   - 上游目录全量进目录，但**对外暴露哪些**由 `models.json` 的 `hidden` 标记决定
+ *     （本渠道只暴露 glm-5.3-flash，deepseek 系一律隐藏）。
  *   - 目录按 动态 → 磁盘缓存 → 内置兜底 三源优先级解析；缓存保证未登录/上游不可达时仍能列出模型。
  */
 
-import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import {
+  ensureChannelModels,
+  readCatalogCache,
+  readChannelModels,
+  readSeedFrom,
+  writeCatalogCache,
+} from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 import * as cred from "./cred.js";
@@ -25,6 +32,37 @@ interface ModelEntry {
   maxInputTokens: number;
   /** 最大输出 token（上游不下发，按用户目录模型表补；见 `models.json`）。 */
   maxOutput?: number;
+  /** 对外隐藏（数据在 `models.json`）：目录里保留，但不进对外模型池。 */
+  hidden?: boolean;
+}
+
+/**
+ * 随包快照候选路径（隐藏策略的兜底来源，见 `hiddenIds`）。
+ *
+ * **必须懒算**：`bundledSnapshotPath()` 依赖渠道上下文（`activeCid()`），
+ * 模块加载期还没有上下文 —— 写成常量会永远拿到 `null`（bundle 布局下连
+ * `packageSnapshotPath` 也找不到包根，因为模块 url 指向 bundle 本身）。
+ */
+function seedPaths(): Array<string | null> {
+  return [bundledSnapshotPath(), packageSnapshotPath(import.meta.url)];
+}
+
+/**
+ * 对外隐藏的模型 id（数据是 `models.json` 的 `hidden` 标记）。
+ *
+ * 并集读**用户表**与**随包快照**：用户表可手改；随包快照保证已存在的老安装
+ * （首启已浇种、之后不再更新）也遵守同一策略 —— 只改随包文件对它们无效。
+ */
+function hiddenIds(): Set<string> {
+  const out = new Set<string>();
+  const rows = [
+    ...(readChannelModels<ModelEntry>(undefined) ?? []),
+    ...(readSeedFrom<ModelEntry>(seedPaths()) ?? []),
+  ];
+  for (const row of rows) {
+    if (row.hidden === true) out.add(row.id.toLowerCase());
+  }
+  return out;
 }
 
 /**
@@ -181,11 +219,13 @@ function loadCatalog(): ModelEntry[] {
   );
 }
 
-/** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */
+/** 对外暴露的模型 id（池内名；去重、保持目录顺序；`hidden` 的不暴露）。 */
 export function exposedIds(): string[] {
+  const hidden = hiddenIds();
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of loadCatalog()) {
+    if (hidden.has(entry.id.toLowerCase())) continue;
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
     out.push(entry.id);

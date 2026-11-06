@@ -14,7 +14,7 @@ import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { logRecovered, logThrottled } from "../runtime/logger.js";
-import { aliasGroupOf, canonicalOf, DEEPSEEK_EXPOSED_IDS, supersedingModels } from "./model-family.js";
+import { aliasGroupOf, canonicalOf, POOL_EXPOSED_IDS } from "./model-family.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
 
 /**
@@ -28,7 +28,7 @@ import { priorityOf, totalRemainOf } from "./pool-usage.js";
  */
 export function poolModels(): string[] {
   const index = buildCrossModelIndex();
-  return DEEPSEEK_EXPOSED_IDS.filter((id) => candidatesOf(canonicalOf(id)!, index).length > 0);
+  return POOL_EXPOSED_IDS.filter((id) => candidatesOf(canonicalOf(id)!, index).length > 0);
 }
 
 export type PoolModel = string;
@@ -733,9 +733,7 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
  * 别名组内的每个名字都查一遍：`deepseek-flash` 与 `deepseek-v4.1-flash` 互为别名，
  * 渠道目录里写哪个都应命中。同一渠道同时暴露两个名字时取先命中的那个。
  *
- * 型号互斥：下位型号（`deepseek-v4-flash` / `deepseek-v4-pro`）只服务上游**没有**
- * `deepseek-v4.1-flash` 的渠道 —— 规则声明在 `model-family.SUPERSEDED_BY`，
- * 这里只是执行点（路由、`/v1/models`、控制台模型表共用这一处）。
+ * 命中判定走 `findExposed`（索引 → 直扫目录）：渠道目录里没有这个规范名就不进候选。
  */
 function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[] {
   const group = aliasGroupOf(canonical);
@@ -743,30 +741,10 @@ function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[
   const cache: ScanCache = new Map();
   for (const channel of channels()) {
     const cid = channel.config.cid;
-    if (isSupersededChannel(channel, canonical, index, cache)) continue;
     const exposedId = findExposed(cid, channel, group, index, cache);
     if (exposedId !== undefined) out.push({ cid, channel, exposedId });
   }
   return out;
-}
-
-/**
- * 该渠道是否因供给**上位型号**而被排除在 `canonical` 之外（规则表见
- * `model-family.SUPERSEDED_BY`）。
- *
- * 候选收集与元数据聚合（`getPoolModelMeta`）共用这一个判定：两处各写一份
- * `supersedingModels(...).some(...)` 迟早会一边改一边忘，而它们回答的是同一个问题。
- */
-function isSupersededChannel(
-  channel: Channel,
-  canonical: string,
-  index: CrossModelIndex,
-  cache: ScanCache,
-): boolean {
-  const cid = channel.config.cid;
-  return supersedingModels(canonical).some(
-    (name) => findExposed(cid, channel, aliasGroupOf(name), index, cache) !== undefined,
-  );
 }
 
 /**
@@ -865,12 +843,8 @@ export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSp
   const specs = modelSpecs ?? readModelSpecs().models;
   const group = aliasGroupOf(canonical);
   const factsList: ChannelFacts[] = [];
-  const cache: ScanCache = new Map();
   for (const channel of channels()) {
     const cid = channel.config.cid;
-    // 与候选收集同一口径（共用 `isSupersededChannel`）：供给上位型号的渠道不参与该下位型号的
-    // 元数据聚合 —— 否则「模型 × 渠道」行的规格会混进一个永远不会被选中的渠道
-    if (isSupersededChannel(channel, canonical, index, cache)) continue;
     for (const name of group) {
       if (!index.get(name)?.exposed.some((item) => item.cid === cid)) continue;
       try {

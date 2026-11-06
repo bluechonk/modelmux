@@ -11,15 +11,18 @@
  * 目录 == 注册 ∪ 下架 由 `packages/cli/tests/pool.test.ts` 与 `verify-contract` 机械校验。
  */
 
-import "@modelmux/astudio";
 import "@modelmux/catpaw";
 import "@modelmux/loomy";
-import "@modelmux/qoder";
 import "@modelmux/qodercn";
 import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
-import "@modelmux/workbuddyai";
 
-/** 已下架渠道：账号被上游封停，包保留作参考实现，不再注册。 */
-export const RETIRED_CIDS = ["lobsterai"];
+/**
+ * 已下架渠道：包保留作参考实现，不再注册。
+ *
+ * - `lobsterai`：账号被上游封停。
+ * - `qoder` / `workbuddyai` / `astudio`：对外模型家族收敛后已无它们承接的型号
+ *   （`deepseek-v4-flash` / `deepseek-v4-pro` 不再对外），不再注册。
+ */
+export const RETIRED_CIDS = ["lobsterai", "qoder", "workbuddyai", "astudio"];

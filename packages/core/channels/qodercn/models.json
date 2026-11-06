@@ -63,7 +63,8 @@
       "isReasoning": true,
       "isVl": true,
       "maxInputTokens": 96000,
-      "maxOutput": 393216
+      "maxOutput": 393216,
+      "hidden": true
     },
     {
       "key": "dfmodel",
@@ -72,7 +73,8 @@
       "isReasoning": false,
       "isVl": true,
       "maxInputTokens": 180000,
-      "maxOutput": 393216
+      "maxOutput": 393216,
+      "hidden": true
     },
     {
       "key": "gmodel",

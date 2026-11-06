@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { DEEPSEEK_EXPOSED_IDS } from "../pool/model-family.js";
+import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModels } from "../pool/pool-targets.js";
 import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile } from "../runtime/secret-file.js";
@@ -58,7 +58,7 @@ const DSH_CREDENTIAL_REF = "MODELMUX_API_KEY";
 /** 对外模型名：取当前模型池；池为空（渠道未注册）时回落家族常量。 */
 function exposedModels(): string[] {
   const pooled = poolModels();
-  return pooled.length > 0 ? [...pooled] : [...DEEPSEEK_EXPOSED_IDS];
+  return pooled.length > 0 ? [...pooled] : [...POOL_EXPOSED_IDS];
 }
 
 /** 本次接入的对外模型名（供调用方/测试注入）。 */

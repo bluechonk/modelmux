@@ -12,8 +12,8 @@
 | 当前版本 | v0.1.2 |
 | 网关 | `127.0.0.1:4412`，唯一端口 |
 | Web 控制台 | 挂 `/web`（网关同端口，非独立进程） |
-| 对外协议 | OpenAI 兼容 `/v1`，模型为池 id 形态 `<cid>/<模型名>` |
-| 对外模型 | 191 个（随目录刷新变化，2026-11-02 快照；按渠道拆分见下表） |
+| 对外协议 | OpenAI 兼容 `/v1`，模型为**对外家族裸模型名**（`deepseek-v4.1-flash` / `glm-5.3-flash`） |
+| 对外模型 | 2 个（家族表声明，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2） |
 | 工作区包 | `packages/cli` / `packages/ui` / `packages/core/gateway` / `packages/core/channels/<cid>` |
 
 ## 渠道状态
@@ -21,23 +21,21 @@
 能力声明来自 `ChannelConfig.capabilities`（省略 = `billing` / `signin` 都支持）。
 「计费」= 渠道有额度/积分概念；订阅制渠道（计费=false）没有额度概念，其模型按免费档显示。
 
-| cid | 产品 | 计费 | 签到 | 对外模型数 |
+| cid | 产品 | 计费 | 签到 | 状态 |
 | --- | --- | --- | --- | --- |
-| astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 7 |
-| catpaw | CatPaw（美团妙手） | 是 | 是 | 9 |
-| lobsterai | LobsterAI（有道） | 是 | 是 | 32 |
-| loomy | Loomy（讯飞） | 是 | 是 | 9 |
-| qoder | Qoder（国际版） | 是 | 是 | 14 |
-| qodercn | Qoder 国内版 | 是 | 是 | 10 |
-| raccoon | Raccoon（商汤） | 是 | 是 | 6 |
-| traecn | TRAE（字节，中国版） | 是 | 是 | 21 |
-| workbuddy | WorkBuddy（国内版） | 是 | 是 | 60 |
-| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 23 |
+| catpaw | CatPaw（美团妙手） | 是 | 是 | 在册 |
+| loomy | Loomy（讯飞） | 是 | 是 | 在册 |
+| qodercn | Qoder 国内版 | 是 | 是 | 在册（对外只暴露 `glm-5.3-flash`） |
+| raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
+| traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
+| workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
+| astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 已下架 |
+| lobsterai | LobsterAI（有道） | 是 | 是 | 已下架 |
+| qoder | Qoder（国际版） | 是 | 是 | 已下架 |
+| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 已下架 |
 
-模型数随目录刷新变化，此处为 2026-11-02 快照（astudio 为静态内置表，恒 7 个）。
-
-**astudio 的功能缺口**：登录（手机号 + 短信验证码，Web 控制台）/ 登出 / 思考档位与倍率透出等
-均已实现，审计时的缺口已收敛；余项与验收判据见 [channels/astudio/ROADMAP.md](./channels/astudio/ROADMAP.md)。
+下架渠道的包、`models.json` 与协议文档**原样保留**作参考实现；在册 / 下架的机械校验见
+`scripts/verify-contract.mjs`（渠道目录 == 注册清单 ∪ `RETIRED_CIDS`）。
 
 ## 架构落点
 

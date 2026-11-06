@@ -287,6 +287,10 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 | `qodercn/qwen3.8-max` | 倍率 0.2 | `[实测]` |
 | `qodercn/kimi-k3` | 倍率 1.4 —— **禁用于自动化测试** | `[实测]` |
 
+**对外暴露范围**：本渠道在网关里只暴露 `glm-5.3-flash`。deepseek 系（`dmodel` / `dfmodel`）
+在随包 `models.json` 里标了 `hidden`，`catalog.exposedIds()` 过滤掉；隐藏标记**并集读用户表与
+随包快照**，所以首启已浇种的老安装也遵守同一策略（见 `packages/core/channels/qodercn/models.json`）。
+
 ### 已知限制
 
 - **上游会回 SSE 内嵌业务错误帧**（排队 `10605`、额度 `110`、认证 `105` 是三个独立码），

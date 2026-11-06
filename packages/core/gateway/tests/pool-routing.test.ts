@@ -15,7 +15,7 @@ import { clearChannels, setChannel, type Channel } from "../dist/runtime/channel
 import { poolUsagePath } from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 import { canonicalModelId, POOL_MODELS, poolCandidates } from "../dist/pool/pool-targets.js";
-import { canonicalOf, isDeepseekModel } from "../dist/pool/model-family.js";
+import { canonicalOf, isPoolModel } from "../dist/pool/model-family.js";
 
 let root = "";
 let savedRoot: string | undefined;
@@ -84,29 +84,33 @@ describe("2. 模型家族：canonical 归并 + 别名", () => {
     assert.equal(canonicalOf("deepseek-v4.1-flash"), "deepseek-v4.1-flash");
     assert.equal(canonicalOf("DeepSeek-V4.1-Flash"), "deepseek-v4.1-flash");
     assert.equal(canonicalOf("sn-deepseek-v4-1-flash"), "deepseek-v4.1-flash");
-    assert.equal(canonicalOf("deepseek-v4-flash-0731"), "deepseek-v4-flash");
-    assert.equal(canonicalOf("DeepSeek-V4-Flash-Official"), "deepseek-v4-flash");
-    assert.equal(canonicalOf("deepseek-v4-pro"), "deepseek-v4-pro");
+    assert.equal(canonicalOf("DeepSeek-V4-Flash-Official"), null, "v4-flash 已移出家族");
+    assert.equal(canonicalOf("deepseek-v4-pro"), null);
+    assert.equal(canonicalOf("glm-5.3-flash"), "glm-5.3-flash");
+    assert.equal(canonicalOf("GLM-5.3-Flash"), "glm-5.3-flash");
+    assert.equal(canonicalOf("sn-glm-5-3-flash"), "glm-5.3-flash");
   });
 
   it("deepseek-flash 是 deepseek-v4.1-flash 的别名（互为同一代模型）", () => {
     assert.equal(canonicalOf("deepseek-flash"), "deepseek-v4.1-flash");
     assert.equal(canonicalOf("DeepSeek-Flash"), "deepseek-v4.1-flash");
+    assert.equal(isPoolModel("deepseek-flash"), true);
   });
 
-  it("家族外的名字解析不出来", () => {
-    assert.equal(canonicalOf("glm-5.3-flash"), null);
+  it("家族外的名字解析不出来（含同前缀的另一个型号）", () => {
+    assert.equal(canonicalOf("glm-5.3-flashx"), null, "x 后缀是另一个型号");
     assert.equal(canonicalOf("kimi-k2.6"), null);
+    assert.equal(canonicalOf("qwen3.8-flash"), null);
+    assert.equal(canonicalOf("deepseek-v4-pro"), null, "v4-pro 已移出家族");
     assert.equal(canonicalOf("deepseek-v4-flash-vision-exp"), null);
-    assert.equal(isDeepseekModel("glm-5.3-flash"), false);
-    assert.equal(isDeepseekModel("deepseek-v4-pro"), true);
+    assert.equal(isPoolModel("glm-5.3-flashx"), false);
   });
 });
 
 describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序）", () => {
   it("同一模型的多家渠道都进候选；exposedId 保留目录里的原始写法", () => {
     clearChannels();
-    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flashx"]));
+    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
     setChannel(stubChannel("gamma", ["qwen3.8-flash"]));
 
@@ -125,9 +129,14 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     );
     // 别名双向：deepseek-flash 与 deepseek-v4.1-flash 命中同一批渠道
     assert.deepEqual(poolCandidates("deepseek-flash"), poolCandidates("deepseek-v4.1-flash"));
+    // glm 走自己的家族名（大小写 / 包装前缀都归一）
+    assert.deepEqual(
+      poolCandidates("glm-5.3-flash").map((c) => [c.cid, c.exposedId]),
+      [["alpha", "glm-5.3-flash"]],
+    );
     // 家族外 / 没人供给的 → 空
-    assert.deepEqual(poolCandidates("glm-5.3-flash"), []);
-    assert.deepEqual(poolCandidates("deepseek-v4-pro"), []);
+    assert.deepEqual(poolCandidates("glm-5.3-flashx"), [], "x 后缀是另一个型号");
+    assert.deepEqual(poolCandidates("deepseek-v4-pro"), [], "v4-pro 已移出家族");
   });
 
   it("剩余额度高的渠道排在前面；无额度数据的排最后", () => {
@@ -143,58 +152,17 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     assert.deepEqual(poolCandidates("deepseek-v4.1-flash").map((c) => c.cid), ["beta", "alpha", "gamma"]);
   });
 
-  it("池视图：只列 canonical 的 deepseek 模型（别名不单独出现）", () => {
+  it("池视图：只列 canonical 的对外模型（别名不单独出现）", () => {
     clearChannels();
-    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flashx"]));
+    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
     setChannel(stubChannel("gamma", ["qwen3.8-flash"]));
     const pool = [...POOL_MODELS];
-    assert.deepEqual(pool, ["deepseek-v4.1-flash"], "只列有货的 canonical 模型");
-  });
-});
-
-describe("3.1 型号互斥：供给 v4.1-flash 的渠道不再承接下位型号", () => {
-  it("同一渠道同时暴露 v4.1-flash 与 v4-flash → 只作为 v4.1-flash 的候选", () => {
-    clearChannels();
-    poolUsage.resetPoolLedgerForTest();
-    setChannel(stubChannel("upgraded", ["deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro"]));
-    setChannel(stubChannel("legacy", ["deepseek-v4-flash", "deepseek-v4-pro"]));
-
     assert.deepEqual(
-      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
-      ["upgraded"],
-      "有 v4.1-flash 的渠道照常出",
+      pool,
+      ["deepseek-v4.1-flash", "glm-5.3-flash"],
+      "只列有货的 canonical 模型（别名 deepseek-flash 不单独出现）",
     );
-    assert.deepEqual(
-      poolCandidates("deepseek-v4-flash").map((c) => c.cid),
-      ["legacy"],
-      "同渠道的 v4-flash 条目被互斥规则拦下（下位型号只服务没有 v4.1-flash 的渠道）",
-    );
-    assert.deepEqual(poolCandidates("deepseek-v4-pro").map((c) => c.cid), ["legacy"]);
-  });
-
-  it("别名与上游写法都算数：deepseek-flash / sn-deepseek-v4-1-flash / -Official 同样触发互斥", () => {
-    clearChannels();
-    poolUsage.resetPoolLedgerForTest();
-    setChannel(stubChannel("alias", ["deepseek-flash", "deepseek-v4-flash"]));
-    setChannel(stubChannel("wrapped", ["sn-deepseek-v4-1-flash", "DeepSeek-V4-Pro-Official"]));
-    assert.deepEqual(
-      poolCandidates("deepseek-flash").map((c) => c.cid),
-      ["alias", "wrapped"],
-      "两家的 v4.1-flash 写法（别名 / sn- 前缀）都能被这个别名请求命中",
-    );
-    assert.deepEqual(poolCandidates("deepseek-v4-flash").map((c) => c.cid), [], "两家都被互斥拦下");
-    assert.deepEqual(poolCandidates("deepseek-v4-pro").map((c) => c.cid), []);
-  });
-
-  it("没有 v4.1-flash 的渠道不受影响（下位型号本就是给它们准备的）", () => {
-    clearChannels();
-    poolUsage.resetPoolLedgerForTest();
-    setChannel(stubChannel("only41", ["deepseek-v4.1-flash"]));
-    setChannel(stubChannel("only4", ["deepseek-v4-flash"]));
-    assert.deepEqual(poolCandidates("deepseek-v4.1-flash").map((c) => c.cid), ["only41"]);
-    assert.deepEqual(poolCandidates("deepseek-v4-flash").map((c) => c.cid), ["only4"]);
-    clearChannels();
   });
 });
 

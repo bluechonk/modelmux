@@ -69,7 +69,7 @@ packages/core/channels/<cid>/
 > 参考实现清单，另有可选的 `FINDINGS.md` / `FLOW.md`）。
 
 > **一个渠道 = 一个池子**：渠道 `catalog` 提供模型，共享层的**公共模型池**只把
-> **deepseek 家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
+> **对外模型家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
 > 账号池见同文档 §3。
 
 **每个 `packages/core/channels/<cid>/` 的 `src/` 只有 7 个文件。** 任何不在上表里的 `src/*.ts`
@@ -211,11 +211,11 @@ interface Channel {
 
 ## 4. 模型池策略
 
-### 4.1 对外 id：deepseek 家族裸模型名（`model-family.ts` + `pool-targets.ts`）
+### 4.1 对外 id：模型家族裸模型名（`model-family.ts` + `pool-targets.ts`）
 
-网关对外只做 **deepseek 家族**，id 形态是**裸模型名**（`deepseek-v4.1-flash` /
-`deepseek-v4-flash` / `deepseek-v4-pro`；`deepseek-flash` 是第一个的别名）。
-家族表（对外 id、canonical 归并、别名组）声明在
+网关对外只做**家族表里声明的模型**，id 形态是**裸模型名**（当前是
+`deepseek-v4.1-flash` / `glm-5.3-flash`；`deepseek-flash` 是第一个的别名）。
+家族表（对外 id、canonical 归并、别名组、`owned_by`）声明在
 `packages/core/gateway/src/pool/model-family.ts` —— 共享层**唯一**允许出现模型名的地方
 （由 `scripts/verify-contract.mjs` 强制）。
 
