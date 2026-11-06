@@ -364,6 +364,10 @@ token: <session>
 
 ## 5. 模型目录
 
+**对外暴露范围**：随包 `models.json` 给 `GLM-5.3-Flash` 标了 `hidden` —— 网关里
+`glm-5.3-flash` 只由 qodercn 供给，本渠道不进它的候选；`exposedIds()` 连同指向隐藏条目的
+别名一并撤下。隐藏集合由共享层 `hiddenModelIds()` 并集读用户表与随包快照（读不到即抛错）。
+
 ### 5.1 拉取
 
 ```

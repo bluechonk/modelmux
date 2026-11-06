@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
@@ -444,10 +444,23 @@ function loadAliases(): Array<[string, string]> {
   return [];
 }
 
-/** 对外暴露的模型 id（短名最前；被别名覆盖的原始 id 不再重复暴露）。 */
+/** 对外隐藏的模型 id（数据是 `models.json` 的 `hidden` 标记；机制见共享层 `hiddenModelIds`）。 */
+function hiddenIds(): Set<string> {
+  return hiddenModelIds(import.meta.url);
+}
+
+/**
+ * 对外暴露的模型 id（短名最前；被别名覆盖的原始 id 不再重复暴露）。
+ *
+ * `hidden` 的条目不暴露，**指向它的别名一并撤下** —— 短名不该成为绕过隐藏策略的后门。
+ */
 export function exposedIds(): string[] {
-  const ids = currentEntries().map((e) => e.id);
-  const aliases = loadAliases();
+  const hidden = hiddenIds();
+  const ids = currentEntries()
+    // 归一化口径一并判：池层会把 `-Official` 这类尾饰变体归一进同一家族
+    .filter((e) => !hidden.has(e.id.toLowerCase()) && !hidden.has(canonicalModelId(e.id)))
+    .map((e) => e.id);
+  const aliases = loadAliases().filter(([, slug]) => !hidden.has(slug.toLowerCase()));
   const all =
     aliases.length === 0
       ? ids

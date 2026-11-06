@@ -11,7 +11,13 @@
 
 import type { Channel } from "../runtime/channel.js";
 
-/** 把客户端发来的模型名解析为该渠道的上游模型名（大小写不敏感）。 */
+/**
+ * 把客户端发来的模型名解析为该渠道的上游模型名（大小写不敏感）。
+ *
+ * 已知边界（窄窗口竞态）：`hit` 取自**解析时点**的目录，而 `candidate.exposedId` 可能
+ * 来自 30s TTL 的跨渠道索引 —— 两时点之间条目被隐藏（策略生效）时 `hit` 为 undefined，
+ * 裸名会原样透传给渠道 `resolveModel()`。候选本就来自暴露集合，窗口极窄，不做二次校验。
+ */
 export function resolvePoolModel(channel: Channel, name: string): string {
   const wanted = name.toLowerCase();
   const hit = channel.catalog.exposedIds().find((id) => id.toLowerCase() === wanted);

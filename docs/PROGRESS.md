@@ -37,6 +37,11 @@
 下架渠道的包、`models.json` 与协议文档**原样保留**作参考实现；在册 / 下架的机械校验见
 `scripts/verify-contract.mjs`（渠道目录 == 注册清单 ∪ `RETIRED_CIDS`）。
 
+对外家族的**供给范围**：`glm-5.3-flash` 仅 qodercn 供给，其余在册渠道只供
+`deepseek-v4.1-flash`（catpaw / traecn 的 deepseek 条目是已出家族的 v4 系，家族内零供给）。
+收口数据在各渠道 `models.json` 的 `hidden` 标记（共享层 `hiddenModelIds` 收集），范围校验见
+`scripts/verify-contract.mjs` 的「家族供给范围」。
+
 ## 架构落点
 
 共享层**零运行依赖**（只依赖 Node 标准库），渠道层**只允许** `@modelmux/gateway`。

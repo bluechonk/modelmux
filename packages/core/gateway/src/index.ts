@@ -82,6 +82,7 @@ export {
   channelModelsPath,
   channelModelsMeta,
   ensureChannelModels,
+  hiddenModelIds,
   readChannelModels,
   readSeedFrom,
   seedChannelModels,
