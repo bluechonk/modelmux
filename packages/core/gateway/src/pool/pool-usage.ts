@@ -195,16 +195,18 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
   return out;
 }
 
-/** 宽松读上一窗口余额快照（没有窗口键视为无记录，不阻塞账本加载）。 */
+/** 宽松读上一窗口余额快照（缺窗口键 / 缺余额数字都视为无记录，不阻塞账本加载）。 */
 function readPrev(raw: unknown): PrevQuota | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const rec = raw as Record<string, unknown>;
   const window = str(rec.window);
   if (window === "") return null;
+  const remain = rec.remain;
+  if (typeof remain !== "number" || !Number.isFinite(remain)) return null;
   return {
     window,
     date: str(rec.date),
-    remain: num(rec.remain),
+    remain,
     unit: str(rec.unit),
     at: str(rec.at),
   };
@@ -386,13 +388,17 @@ function noteChannelWindowPrev(entry: ChannelLedger, window: string): void {
     return;
   }
   if (entry.window === window) return;
-  entry.prev = {
-    window: entry.window,
-    date: localDate(),
-    remain: entry.remain,
-    unit: entry.unit,
-    at: entry.billing_at ?? new Date().toISOString(),
-  };
+  // 只有**上次查询成功**的余额才值得留：查询失败时 `remain` 是前一次的残留（或 0），
+  // 拿它当「上一窗口最后余额」会让跨窗口对比算出虚假奖励
+  if (entry.billing_ok) {
+    entry.prev = {
+      window: entry.window,
+      date: localDate(),
+      remain: entry.remain,
+      unit: entry.unit,
+      at: entry.billing_at ?? new Date().toISOString(),
+    };
+  }
   entry.window = window;
 }
 
@@ -400,13 +406,15 @@ function noteChannelWindowPrev(entry: ChannelLedger, window: string): void {
 function noteAccountWindowPrev(entry: AccountCount, window: string): void {
   const prevWindow = entry.baseline?.window;
   if (prevWindow === undefined || prevWindow === window) return;
-  entry.prev = {
-    window: prevWindow,
-    date: entry.baseline?.date ?? localDate(),
-    remain: entry.credits?.remain ?? 0,
-    unit: entry.credits?.unit ?? "",
-    at: entry.billing_at ?? new Date().toISOString(),
-  };
+  if (entry.billing_ok) {
+    entry.prev = {
+      window: prevWindow,
+      date: entry.baseline?.date ?? localDate(),
+      remain: entry.credits?.remain ?? 0,
+      unit: entry.credits?.unit ?? "",
+      at: entry.billing_at ?? new Date().toISOString(),
+    };
+  }
 }
 
 /**

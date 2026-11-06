@@ -41,13 +41,26 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
   // 用 callback ref 而不是 `useRef + useEffect([])`：数据未到时会先渲染空态（没有容器），
   // 挂载后才出现的容器需要重新量一次，否则图形永远停在最小宽度。
   useEffect(() => {
-    if (!wrapEl) return;
+    if (!wrapEl || typeof ResizeObserver === "undefined") return; // 老环境：保持最小宽度
     const update = (): void => setWidth(wrapEl.clientWidth);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(wrapEl);
     return () => observer.disconnect();
   }, [wrapEl]);
+
+  // 宽度变化后旧的视口坐标全部失效：清掉浮层，等鼠标再次移动再出现（宁可不显示，不要错位）
+  useEffect(() => {
+    setTip(null);
+    setHoverIndex(null);
+  }, [width]);
+
+  // 数据清空（区间无请求）时同样清掉：否则数据回来时会用陈旧坐标冒出浮层
+  useEffect(() => {
+    if (daily.length > 0) return;
+    setTip(null);
+    setHoverIndex(null);
+  }, [daily.length]);
 
   if (daily.length === 0) {
     return <p className="px-1 py-6 text-xs text-ink-faint">区间内还没有模型请求。</p>;

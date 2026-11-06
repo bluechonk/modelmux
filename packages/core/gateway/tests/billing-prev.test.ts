@@ -10,12 +10,13 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before, beforeEach, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 
 const CID = "prev-synth";
@@ -57,8 +58,10 @@ describe("上一窗口余额（prev）：跨窗口对比的兜底口径", () => 
   });
 
   beforeEach(() => {
-    // 每个用例从空账本起：窗口键固定回第一天
+    // 每个用例从空账本起：窗口键固定回第一天，磁盘上的旧账本一并清掉
     resetsAt = Date.UTC(2026, 9, 25);
+    poolUsage.resetPoolLedgerForTest();
+    rmSync(paths.poolUsagePath(), { force: true });
     poolUsage.resetPoolLedgerForTest();
   });
 
@@ -78,7 +81,7 @@ describe("上一窗口余额（prev）：跨窗口对比的兜底口径", () => 
     assert.equal(poolUsage.prevRemainOf(CID)?.remain, 500, "同窗口不覆盖");
   });
 
-  it("账号级：与渠道级各自独立", () => {
+  it("账号级：与渠道级各自独立，且同窗口再刷新不覆盖", () => {
     poolUsage.writeAccountBilling(CID, "k1", credits(100));
     assert.equal(poolUsage.prevRemainOf(CID, "k1"), null);
 
@@ -87,5 +90,39 @@ describe("上一窗口余额（prev）：跨窗口对比的兜底口径", () => 
     assert.equal(poolUsage.prevRemainOf(CID, "k1")?.remain, 100);
     // 账号级不写渠道级 prev（渠道级没刷过账单）
     assert.equal(poolUsage.prevRemainOf(CID), null);
+
+    poolUsage.writeAccountBilling(CID, "k1", credits(250));
+    assert.equal(poolUsage.prevRemainOf(CID, "k1")?.remain, 100, "同窗口不覆盖");
+  });
+
+  it("落盘后仍能读回（网关重启不丢 prev）", () => {
+    poolUsage.writeBilling(CID, credits(500));
+    resetsAt = Date.UTC(2026, 9, 26);
+    poolUsage.writeBilling(CID, credits(800));
+    poolUsage.flushLedger();
+    poolUsage.resetPoolLedgerForTest(); // 丢掉内存缓存，强制从磁盘读
+
+    const prev = poolUsage.prevRemainOf(CID);
+    assert.equal(prev?.remain, 500);
+    assert.equal(prev?.unit, "credits");
+    assert.equal(prev?.window, `w:${Date.UTC(2026, 9, 25)}`);
+  });
+
+  it("上次查询失败时不留 prev（避免拿残留值算出虚假奖励）", () => {
+    poolUsage.writeBilling(CID, credits(500));
+    poolUsage.flushLedger();
+    poolUsage.resetPoolLedgerForTest();
+    // 直接改盘模拟「上次查询失败」：`billing_ok=false`，`remain` 是残留值
+    const file = paths.poolUsagePath();
+    const raw = JSON.parse(readFileSync(file, "utf8")) as {
+      channels: Record<string, { billing_ok: boolean }>;
+    };
+    raw.channels[CID]!.billing_ok = false;
+    writeFileSync(file, JSON.stringify(raw), "utf8");
+    poolUsage.resetPoolLedgerForTest();
+
+    resetsAt = Date.UTC(2026, 9, 26);
+    poolUsage.writeBilling(CID, credits(800));
+    assert.equal(poolUsage.prevRemainOf(CID), null, "上次没查成功就没有「最后余额」");
   });
 });

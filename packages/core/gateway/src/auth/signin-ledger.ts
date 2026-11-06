@@ -214,8 +214,8 @@ function claimOf(value: unknown): ClaimRecord | undefined {
       ? (() => {
           const b = balanceRaw as Record<string, unknown>;
           return {
-            before: numOrZero(b["before"]),
-            after: numOrZero(b["after"]),
+            before: numOrNull(b["before"]),
+            after: numOrNull(b["after"]),
             unit: typeof b["unit"] === "string" ? (b["unit"] as string) : "",
           };
         })()
@@ -245,8 +245,8 @@ function claimOf(value: unknown): ClaimRecord | undefined {
   };
 }
 
-/** `null` / 缺字段 → `null`；数字 → 原值（余额三态里的「不知道」）。 */
-function numOrZero(value: unknown): number | null {
+/** 数字 → 原值；`null` / 缺字段 / 非有限数 → `null`（余额三态里的「不知道」）。 */
+function numOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
@@ -313,8 +313,8 @@ export function recordClaim(
     reward: known ? reward! : null,
     ...(known && rewardSource ? { rewardSource } : {}),
     ...(balance ? { balance } : {}),
-    // 已知 = 不必再试；未知 = 已试 1 次（就是这次领取本身）
-    rewardTries: known ? 0 : 1,
+    // 这里记**已重试次数**（领取本身不算一次）：从 0 起，由调度器的重试累加
+    rewardTries: 0,
     rewardAt: now.toISOString(),
     ...(windowEndsAt !== undefined
       ? {
@@ -371,14 +371,19 @@ export function updateClaimReward(
   const known = reward !== null && Number.isFinite(reward.amount);
   patchClaim(
     cid,
-    (record) => ({
-      ...record,
-      reward,
-      ...(known && options.source ? { rewardSource: options.source } : {}),
-      ...(options.balance ? { balance: options.balance } : {}),
-      ...(options.tries !== undefined ? { rewardTries: Math.max(0, Math.trunc(options.tries)) } : {}),
-      rewardAt: (options.at ?? new Date()).toISOString(),
-    }),
+    (record) => {
+      const next: ClaimRecord = {
+        ...record,
+        reward,
+        ...(options.balance ? { balance: options.balance } : {}),
+        ...(options.tries !== undefined ? { rewardTries: Math.max(0, Math.trunc(options.tries)) } : {}),
+        rewardAt: (options.at ?? new Date()).toISOString(),
+      };
+      // 来源与数值同生共死：数值为空时留着一个旧来源会自相矛盾（审计字段不可信）
+      if (known && options.source) next.rewardSource = options.source;
+      else delete next.rewardSource;
+      return next;
+    },
     options,
   );
 }

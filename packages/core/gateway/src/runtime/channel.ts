@@ -441,13 +441,21 @@ export interface SigninStatus {
    */
   dailyReward?: SigninReward;
   /**
-   * 当前签到窗口的刷新时刻（epoch ms，可选）。
+   * 当前签到窗口的**结束**时刻（epoch ms，可选）。
    *
    * 用途：有的渠道签到日界不是本地 0 点（qodercn 是 10:00 UTC+8）。调度器把领取时的
    * `resetAt` 记进台账，`Date.now() > resetAt` 就说明已进入新窗口，允许再领一轮 ——
    * 不声明则按本地自然日判定。
    */
   resetAt?: number;
+  /**
+   * 当前签到窗口的**开始**时刻（epoch ms，可选）。
+   *
+   * 用途：判定**旧台账记录**（没有记窗口）是否属于已结束的窗口 ——
+   * `windowStartsAt > 记录时刻` 就说明记录是上一窗口的，需要再领一轮。
+   * 只在成功查询到状态时用作一次性判定，不落台账。
+   */
+  windowStartsAt?: number;
   /**
    * 是否**每日**语义。默认 `true`；`false` 表示它不是每日签到（如 raccoon 那种
    * 一次性登录奖励）—— CLI 不会对它套"今天"的话术。

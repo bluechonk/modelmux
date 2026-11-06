@@ -183,19 +183,22 @@ async function resolveReward(
   if (daily !== undefined) return { reward: daily, source: "daily" };
   const after = await quotaRemainOf(channel, credential);
   const before = record.balance?.before ?? null;
+  // 「领取后余额」取**领取当时记录的 after 与当下余额的较大者**：两次轮询之间账号正常消耗时，
+  // 当下余额会低于刚领到的数字，只用它会把奖励算少（异步入账只会让余额更高）
+  const afterValue = pickHigher(record.balance?.after ?? null, record.balance?.unit ?? "", after);
   const delta = deltaReward(
     before === null ? null : { remain: before, unit: record.balance?.unit ?? "" },
-    after,
+    afterValue,
   );
   if (delta !== undefined) {
     return {
       reward: delta,
       source: "delta",
-      balance: { before, after: after?.remain ?? null, unit: after?.unit ?? record.balance?.unit ?? "" },
+      balance: { before, after: afterValue?.remain ?? null, unit: afterValue?.unit ?? "" },
     };
   }
   const prev = prevRemainOf(cid, accountKey);
-  if (prev !== null && after !== null && after.remain > prev.remain) {
+  if (prev !== null && after !== null && prev.unit === after.unit && after.remain > prev.remain) {
     const amount = Math.round((after.remain - prev.remain) * 100) / 100;
     if (amount > 0) return { reward: { amount, unit: after.unit }, source: "carry" };
   }
@@ -203,6 +206,17 @@ async function resolveReward(
     reward: null,
     ...(after !== null ? { balance: { before, after: after.remain, unit: after.unit } } : {}),
   };
+}
+
+/** 取两次观测中较大的余额（`recorded` = 领取当时的 after；`current` = 当下）。 */
+function pickHigher(
+  recorded: number | null,
+  recordedUnit: string,
+  current: { remain: number; unit: string } | null,
+): { remain: number; unit: string } | null {
+  if (recorded === null) return current;
+  if (current === null) return { remain: recorded, unit: recordedUnit };
+  return current.remain > recorded ? current : { remain: recorded, unit: recordedUnit };
 }
 
 /**
@@ -246,8 +260,10 @@ async function backfillReward(cid: string, channel: Channel, accountKey?: string
   });
 }
 
-/** 已确认不声明签到窗口的渠道（进程内缓存，避免同渠道多账号重复问上游）。 */
-const windowlessChannels = new Set<string>();
+/** 正的有限时刻；否则 `null`（「渠道没声明」与「查询失败」都不落这个值）。 */
+function positiveMs(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+}
 
 /**
  * 台账记录是否属于**已结束**的签到窗口（需要再领一轮）。
@@ -262,9 +278,14 @@ function windowEndedOf(record: ClaimRecord | undefined): boolean | null {
 }
 
 /**
- * 旧记录没记签到窗口：问一次上游 `resetAt` 并写回台账（`null` = 渠道不声明窗口）。
+ * 旧记录没记签到窗口：问一次上游，写回 `resetAt`（`null` = 渠道不声明窗口）。
  *
- * 为什么写回：否则每 30 分钟都要为同一条旧记录打扰一次上游。
+ * 判定用 `windowStartsAt`（当前窗口的开始）：记录时刻**早于**它 → 记录属于已结束的旧窗口。
+ * 不能拿 `resetAt` 直接比 —— 那是当前窗口的结束时刻（未来），对任何旧记录都成立，
+ * 会把「刚在当前窗口领过」也判成新窗口，导致每轮重复领取。
+ *
+ * **查询失败不落盘、不缓存**：失败时保留 `windowEndsAt` 缺省，下一轮再问。
+ * 把失败当成「渠道不声明窗口」会让非 0 点日界的渠道在本次进程内永久停摆。
  */
 async function determineWindow(
   cid: string,
@@ -272,26 +293,21 @@ async function determineWindow(
   record: ClaimRecord,
   accountKey?: string,
 ): Promise<boolean> {
-  let resetAt: number | null = null;
-  if (!windowlessChannels.has(cid)) {
-    try {
-      const status = await runInChannel(cid, () => channel.billing.signin.status());
-      if (typeof status.resetAt === "number" && Number.isFinite(status.resetAt) && status.resetAt > 0) {
-        resetAt = status.resetAt;
-      } else {
-        windowlessChannels.add(cid);
-      }
-    } catch {
-      // 查不到：当作「不声明窗口」，避免每轮重问
-      windowlessChannels.add(cid);
-    }
+  let status: SigninStatus;
+  try {
+    status = await runInChannel(cid, () => channel.billing.signin.status());
+  } catch {
+    return false; // 查不到：本轮不判定，下一轮重问
   }
+  const resetAt = positiveMs(status.resetAt);
   try {
     updateClaimWindow(cid, resetAt, { accountKey });
   } catch {
     /* 写回失败下一轮再问 */
   }
-  return resetAt !== null && resetAt > Date.parse(record.at);
+  const startsAt = positiveMs(status.windowStartsAt);
+  const at = Date.parse(record.at);
+  return startsAt !== null && Number.isFinite(at) && startsAt > at;
 }
 
 /** 窗口是否已结束；旧记录先问一次上游（结果写回台账）。 */
@@ -377,13 +393,17 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
       /* 探测记录失败不影响签到判定 */
     }
     // 渠道声明的当前签到窗口刷新时刻：写进台账，之后就能纯本地判断「是否已进入新窗口」
-    const resetAt =
-      typeof status.resetAt === "number" && Number.isFinite(status.resetAt) && status.resetAt > 0
-        ? status.resetAt
-        : null;
+    const resetAt = positiveMs(status.resetAt);
     if (status.claimedToday === true) {
+      // 上游说已签 → 回填台账。**保留已有额度**：本分支只该补窗口字段，
+      // 把已知数字擦成 null 会让面板短暂（或永久）丢数字
+      const existing = lastClaimOf(cid);
       try {
-        recordClaim(cid, { via: "auto-backfill", windowEndsAt: resetAt });
+        recordClaim(cid, {
+          via: "auto-backfill",
+          windowEndsAt: resetAt,
+          ...(existing?.reward ? { reward: existing.reward, rewardSource: existing.rewardSource } : {}),
+        });
       } catch {
         /* 回填失败不影响 */
       }
@@ -394,22 +414,21 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
 
     // 领取
     try {
-      // 渠道自己报得出「这次发了多少」就用它；报不出就用**额度实测差值**兜底
-      // （签到前后各查一次额度，涨了多少就是多少 —— workbuddy 这类上游只回
-      // `code/msg` 的渠道，这是唯一能拿到真实数字的口径）
+      // 四口径阶梯的前两档：渠道自报 > 渠道公布的每日发放额（如 loomy 每天 5000）；
+      // 都拿不到才用**领取前后的额度实测差值**（异步入账时事后还能按记录里的 before 补）
       const before = await quotaRemainOf(channel);
       const outcome = await signin.claim();
       if (outcome.ok) {
         const after = await quotaRemainOf(channel);
         const delta = deltaReward(before, after);
         const daily = dailyRewardOf(status);
-        const reward = outcome.reward ?? delta ?? daily;
+        const reward = outcome.reward ?? daily ?? delta;
         // 状态登记：领取成功 → 台账记「今天已签」（via=auto 与手动 cli 区分）
         try {
           recordClaim(cid, {
             via: "auto",
             reward,
-            rewardSource: outcome.reward ? "channel" : delta ? "delta" : daily ? "daily" : undefined,
+            rewardSource: outcome.reward ? "channel" : daily ? "daily" : delta ? "delta" : undefined,
             // 前后余额落盘：异步入账时事后用「当下 − before」就能补回数字
             balance: {
               before: before?.remain ?? null,
@@ -446,14 +465,23 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
   const cid = channel.config.cid;
   const index = listAccounts(cid);
   let claimed = 0;
-  // 逐账号领取时没有 status 调用，替所有账号问一次渠道公布的每日发放额度
-  // （如 loomy 每天 5000；其 `status()` 是纯本地常量，无网络开销）
+  // 逐账号领取时没有 status 调用，需要时替所有账号问**一次**：渠道公布的每日发放额
+  // （如 loomy 每天 5000，其 `status()` 是纯本地常量，无网络开销）与当前签到窗口的结束时刻。
+  // 懒执行：所有账号都已处理时零上游请求。
   let daily: SigninReward | undefined;
-  try {
-    daily = dailyRewardOf(await runInChannel(cid, () => channel.billing.signin.status()));
-  } catch {
-    /* 查不到就只靠渠道自报与差值 */
-  }
+  let resetAt: number | null = null;
+  let asked = false;
+  const askStatus = async (): Promise<void> => {
+    if (asked) return;
+    asked = true;
+    try {
+      const status = await runInChannel(cid, () => channel.billing.signin.status());
+      daily = dailyRewardOf(status);
+      resetAt = positiveMs(status.resetAt);
+    } catch {
+      /* 查不到就只靠渠道自报与差值 */
+    }
+  };
   for (const account of index.accounts) {
     const scope = `${cid}:${account.key}`;
     // ① 账号级熔断：这个账号连败 3 次，今天不再试（不影响同渠道其他账号）
@@ -470,6 +498,8 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
 
     const credential = normalizeCredentialShape(readAccountCredential(account.key, cid));
     if (Object.keys(credential).length === 0) continue;
+    // 走到这里说明这个账号确实要领取 —— 现在才值得问一次渠道状态
+    await askStatus();
 
     const ok = await runInChannel(cid, async () => {
       try {
@@ -478,19 +508,20 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
         if (outcome.ok) {
           const after = await quotaRemainOf(channel, credential);
           const delta = deltaReward(before, after);
-          const reward = outcome.reward ?? delta ?? daily;
+          const reward = outcome.reward ?? daily ?? delta;
           try {
             // 账号级 + 渠道级都记：前者做门禁，后者供 `mx status` 摘要
             recordClaim(cid, {
               via: "auto",
               accountKey: account.key,
               reward,
-              rewardSource: outcome.reward ? "channel" : delta ? "delta" : daily ? "daily" : undefined,
+              rewardSource: outcome.reward ? "channel" : daily ? "daily" : delta ? "delta" : undefined,
               balance: {
                 before: before?.remain ?? null,
                 after: after?.remain ?? null,
                 unit: after?.unit ?? before?.unit ?? "",
               },
+              windowEndsAt: resetAt,
             });
           } catch {
             /* 记账失败不影响签到本身 */

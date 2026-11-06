@@ -3,7 +3,8 @@
  *
  * 关键约束（端点/字段/实测见 docs/channels/loomy/PROTOCOL.md）：
  *   - 两个积分池：永久积分与每日赠送池（后者消耗后不回补）；查余额走只读端点，不触发签到。
- *   - 「查不到」不能显示成 0：核心字段缺失即抛错；每日额度只在初始化响应里，未签到时不硬编码。
+ *   - 「查不到」不能显示成 0：账单核心字段缺失即抛错；账单的日总量只在初始化响应里，不硬编码。
+ *   - 签到发放额（每天 5000）是**实测常量**，与账单字段无关：经 `status().dailyReward` 上报。
  *   - 签到 = 每日额度重置（写、幂等）+ 新手任务直领；全自动能力，无 CLI 动词，由共享层调度。
  */
 
@@ -68,7 +69,10 @@ interface CreditsResult {
     used: number;
     unit: string;
     remain_percent: number;
-    /** `dailyQuota` 只在 first-login 的响应里 → 未签到时为 false（**不硬编码 5000**）。 */
+    /**
+     * `dailyQuota` 只在 first-login 的响应里 → 未签到时为 false。
+     * 这是**账单**字段（`points/records` 不返回），缺失时如实标 unknown，不硬编码。
+     */
     daily_quota_known: boolean;
   };
   packages: CreditPackage[];
@@ -348,7 +352,8 @@ export const signin: SigninModule = {
       ok: reset.status !== "failed" && tasksError === "",
       summary: parts.join("；"),
       // 只有**新手任务真领到**才有额度数字（`earned` 是上游回的积分和）；
-      // 每日额度重置那条只报"已触发"，上游不公布发多少 —— 不能拿 5000 当已知值
+      // 每日额度重置那条只报「已触发」—— 它是**重置**不是「+5000」，发放额由
+      // `status().dailyReward` 作为实测常量上报（见 PROTOCOL §6.3），不在这里重复
       ...(tasks !== null && tasks.earned > 0 ? { reward: { amount: tasks.earned, unit: "积分" } } : {}),
       detail: { first_login: reset, tasks },
     };

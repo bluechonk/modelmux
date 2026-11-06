@@ -19,7 +19,9 @@ const SERIES_CLASS = [
 ] as const;
 
 export function seriesClassOf(index: number): string {
-  return SERIES_CLASS[index % SERIES_CLASS.length]!;
+  // 负数取模保护：调用方理论上只传序列下标（≥0），但颜色函数不该因为 -1 静默返回 undefined
+  const n = ((index % SERIES_CLASS.length) + SERIES_CLASS.length) % SERIES_CLASS.length;
+  return SERIES_CLASS[n]!;
 }
 
 /**

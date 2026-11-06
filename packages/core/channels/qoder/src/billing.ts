@@ -137,20 +137,26 @@ function claimedToday(campaign: Record<string, unknown>, now = Date.now()): bool
 }
 
 /**
- * 当前活动的窗口刷新时刻（epoch ms）：活动 `endAt` 就是这一期的结束 = 下一期的开始。
+ * 当前签到活动的窗口（`startAt` / `endAt`，epoch ms）：这两个字段就是这一期的开始与结束
+ * （每日 10:00 UTC+8 刷新）。
  *
  * 为什么报给共享层：本渠道的签到日界是 **10:00（UTC+8）**，不是本地 0 点。
  * 调度器据此判断「这条领取记录是不是属于已结束的旧窗口」，否则当天活动永远领不到。
+ * 多条活动时取**已开始且开始最晚**的那条 —— 往期/预下发的活动不参与窗口判定。
  */
-function campaignResetAt(campaigns: unknown[]): number | undefined {
+function campaignWindow(campaigns: unknown[]): { startsAt: number; endsAt: number } | undefined {
+  let best: { startsAt: number; endsAt: number } | undefined;
   for (const item of campaigns) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const rec = item as Record<string, unknown>;
     if (str(rec["actionType"]) !== "CLAIM_BENEFIT") continue;
+    const startAt = num(rec["startAt"]);
     const endAt = num(rec["endAt"]);
-    if (endAt > 0) return endAt * 1000;
+    if (endAt <= 0) continue;
+    if (startAt > 0 && startAt * 1000 > Date.now()) continue; // 还没开始（下一期）
+    if (best === undefined || startAt > best.startsAt) best = { startsAt: startAt, endsAt: endAt };
   }
-  return undefined;
+  return best;
 }
 
 interface QuotaLike {
@@ -299,7 +305,10 @@ export const signin: SigninModule = {
         const rec = item as Record<string, unknown>;
         return str(rec["actionType"]) === "CLAIM_BENEFIT" && str(rec["claimStatus"]) === "CLAIMABLE";
       });
-      const resetAt = campaignResetAt(campaigns);
+      const window = campaignWindow(campaigns);
+      const resetAt = window !== undefined && window.endsAt > 0 ? window.endsAt * 1000 : undefined;
+      const windowStartsAt =
+        window !== undefined && window.startsAt > 0 ? window.startsAt * 1000 : undefined;
       if (claimable.length > 0) {
         const amount = num((claimable[0]!["benefit"] as Record<string, unknown> | undefined)?.["amount"]);
         return {
@@ -309,6 +318,7 @@ export const signin: SigninModule = {
           claimedToday: false,
           daily: true,
           ...(resetAt !== undefined ? { resetAt } : {}),
+          ...(windowStartsAt !== undefined ? { windowStartsAt } : {}),
         };
       }
       // 没有可领的**不等于**"今天已领"：该账号此刻可能压根没有每日签到活动
@@ -338,6 +348,7 @@ export const signin: SigninModule = {
         // 领取接口本身在重复领取时不回数字，但活动记录里的 benefit.amount 就是发放额
         ...(done && rewardTotal > 0 ? { reward: { amount: rewardTotal, unit: "Credits" } } : {}),
         ...(resetAt !== undefined ? { resetAt } : {}),
+        ...(windowStartsAt !== undefined ? { windowStartsAt } : {}),
         daily: true,
       };
     } catch (err) {

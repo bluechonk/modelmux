@@ -140,8 +140,22 @@ describe("signinRows：今日签到行", () => {
     assert.match(rows[0]!.value, /^已签到 \d{2}:\d{2}:\d{2} \+1,200 积分（估算）$/);
   });
 
-  it("渠道自报 / 前后实测的额度不标注「估算」", () => {
-    for (const source of ["channel", "delta"] as const) {
+  it("按账号渠道：读该账号自己的来源，carry 同样标「估算」", () => {
+    const info = channel({
+      per_account: true,
+      claimed_today: true,
+      reward: { amount: 9999, unit: "积分" },
+      reward_source: "channel",
+    });
+    const rows = signinRows(
+      info,
+      pool({ claimed_today: true, at: "2026-11-06T01:02:03.000Z", reward: { amount: 1200, unit: "积分" }, reward_source: "carry" }),
+    );
+    assert.match(rows[0]!.value, /\+1,200 积分（估算）$/, "按账号读账号级的来源");
+  });
+
+  it("渠道自报 / 每日额度 / 前后实测的额度不标注「估算」", () => {
+    for (const source of ["channel", "daily", "delta"] as const) {
       const rows = signinRows(
         channel({
           claimed_today: true,
