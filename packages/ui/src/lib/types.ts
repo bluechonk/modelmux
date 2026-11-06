@@ -391,6 +391,12 @@ export interface UsageStats {
     tokensOut: number;
     requests: number;
     messages: number;
+    /** 成功 / 失败 / 中断条数（与日志页统计条同一口径）；区间 KPI 卡读它。 */
+    success: number;
+    failure: number;
+    other: number;
+    /** 判定为慢的条数。 */
+    slow: number;
     durationMs: number;
     /** 加权命中率；区间内无一条带缓存字段时为 null（显示 `—`）。 */
     cacheHitRate: number | null;
