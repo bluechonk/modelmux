@@ -8,7 +8,7 @@
  *   - 目录未登录/不可达时走兜底表；exposedIds/resolveModel 必须同步返回。
  */
 
-import { ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 一条模型目录条目。 */
@@ -325,7 +325,8 @@ function hiddenIds(): Set<string> {
 export function exposedIds(): string[] {
   const hidden = hiddenIds();
   return loadCatalog()
-    .filter((e) => !hidden.has(e.id.toLowerCase()))
+    // 归一化口径一并判：池层会把尾饰变体归一进同一家族，只按原始 id 匹配会被绕过
+    .filter((e) => !hidden.has(e.id.toLowerCase()) && !hidden.has(canonicalModelId(e.id)))
     .map((e) => e.id);
 }
 

@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
@@ -457,7 +457,8 @@ function hiddenIds(): Set<string> {
 export function exposedIds(): string[] {
   const hidden = hiddenIds();
   const ids = currentEntries()
-    .filter((e) => !hidden.has(e.id.toLowerCase()))
+    // 归一化口径一并判：池层会把 `-Official` 这类尾饰变体归一进同一家族
+    .filter((e) => !hidden.has(e.id.toLowerCase()) && !hidden.has(canonicalModelId(e.id)))
     .map((e) => e.id);
   const aliases = loadAliases().filter(([, slug]) => !hidden.has(slug.toLowerCase()));
   const all =

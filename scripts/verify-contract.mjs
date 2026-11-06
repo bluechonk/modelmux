@@ -305,9 +305,15 @@ for (const file of walkSrc(gatewaySrc)) {
 // 行 id 的归一化与共享层 canonicalModelId 同口径（包装前缀 / 版本点号 / 尾饰）。
 const FAMILY_ALLOWED_BY_CID = { qodercn: ["glm-5.3-flash"] };
 const FAMILY_ALLOWED_DEFAULT = ["deepseek-v4.1-flash"];
-const canonicalBlock = /const CANONICAL\s*=\s*\{[^}]*\}/.exec(modelFamily)?.[0] ?? "";
+// `const CANONICAL[^=]*=` 容忍类型注解（`Readonly<Record<…>>`）；解析不出来会让整个
+// 校验变成 no-op，所以下面用条目数守卫 fail-loud —— 校验器自己不许静默失败。
+const canonicalBlock = /const CANONICAL[^=]*=\s*\{[^}]*\}/.exec(modelFamily)?.[0] ?? "";
 const CANONICAL_OF = {};
 for (const m of canonicalBlock.matchAll(/"([a-z0-9.-]+)":\s*"([a-z0-9.-]+)"/g)) CANONICAL_OF[m[1]] = m[2];
+check(
+  Object.keys(CANONICAL_OF).length >= 2,
+  "model-family.ts: CANONICAL 表解析失败，家族供给范围校验无法执行（正则与源码形态脱节）",
+);
 const familyOfRow = (id) => {
   const normalized = id
     .trim()

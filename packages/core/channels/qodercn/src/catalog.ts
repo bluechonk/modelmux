@@ -9,6 +9,7 @@
  */
 
 import {
+  canonicalModelId,
   ensureChannelModels,
   hiddenModelIds,
   readCatalogCache,
@@ -210,8 +211,11 @@ export function exposedIds(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of loadCatalog()) {
-    // id 与上游 key 都判：对外 id 由展示名派生，只按 id 匹配会被上游改名绕过
-    if (hidden.has(entry.id.toLowerCase()) || hidden.has(entry.key.toLowerCase())) continue;
+    // 三种写法都判：id（小写）、上游 key、归一化规范名 —— 池层会把
+    // `GLM-5.3-Flash-Official` 这类尾饰变体归一进同一家族，只按原始 id 匹配会被绕过
+    if (hidden.has(entry.id.toLowerCase())) continue;
+    if (hidden.has(entry.key.toLowerCase())) continue;
+    if (hidden.has(canonicalModelId(entry.id))) continue;
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
     out.push(entry.id);

@@ -427,9 +427,10 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
 ```
 
 - 三个组：`solo_agent_remote`（最全）、`solo_work_remote`、`solo_design_remote`
-- 实测池内模型（2026-10-12，新登录账号）：`glm-5.3-flash`、`glm-5.3`、
+- 实测上游目录模型（2026-10-12，新登录账号）：`glm-5.3-flash`、`glm-5.3`、
   `glm-5.3-flashx`、`glm-5.2`、`deepseek-v4.1-flash`、`DeepSeek-V4-Flash-Official`、
   `DeepSeek-V4-Pro-Official`、`kimi-k3`、`kimi-k2.7-code`、`Doubao-Seed-*`、`mimo-v2.6-*`、`step-5-preview`
+  （现状：`glm-5.3-flash` 已被随包 `hidden` 行挡在对外池外，见「推荐模型」的暴露范围）
 - 模型名大小写混排（`deepseek-v4.1-flash` 与 `DeepSeek-V4-Flash-Official` 并存）；
   池白名单在共享层做 case-insensitive 匹配
 - **倍率在 `features`**（JSON 字符串，须二次 parse）：顶层 `consumption_rate`
@@ -747,9 +748,14 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 | 模型（池 id） | 结论 | 等级 |
 | --- | --- | --- |
-| `traecn/glm-5.3-flash` / `mimo-v2.6-flash` / `doubao-seed-code` | **本渠道倍率最低**（0.06），自动化测试首选 | `[实测]` |
-| `traecn/deepseek-v4.1-flash` | 2026-10-20 AppID 修复后实测可用（非流式 / 流式均 200） | `[实测]` |
+| `traecn/mimo-v2.6-flash` / `doubao-seed-code` | **本渠道倍率最低**（0.06）；家族外，网关不代理，仅渠道直连调试用 | `[实测]` |
+| `traecn/deepseek-v4.1-flash` | 2026-10-20 AppID 修复后实测可用（非流式 / 流式均 200）；本渠道现供的**对外家族模型**，自动化测试走网关时选它 | `[实测]` |
 | `traecn/kimi-k3` | 倍率 1.83 —— **禁用于自动化测试** | `[实测]` |
+
+**对外暴露范围**：本渠道只供 `deepseek-v4.1-flash`。`glm-5.3-flash`（2026-11-07 实测上游
+动态目录已下发）在随包 `models.json` 有预登记的 `hidden` 行，`exposedIds()` 按 id 与
+归一化规范名双口径过滤 —— 隐藏集合由共享层 `hiddenModelIds()` 并集读用户表与随包快照
+（读不到即抛错），条目级 `hidden` 字段拦不住远端条目（恒 false）。
 
 ### 已知限制
 

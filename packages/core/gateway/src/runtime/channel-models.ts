@@ -105,7 +105,9 @@ type HiddenRow = ChannelModelEntry & Record<string, unknown>;
  *
  * **随包快照读不到就抛错**（失败关闭）：隐藏策略的兜底来源没了还照常暴露，等于把该隐藏的
  * 模型悄悄放回池里；调用方会把异常按「目录读失败」处理，不会静默放行。只对「随包确实带
- * models.json」的渠道安全，没有快照的渠道不要用。
+ * models.json」的渠道安全，没有快照的渠道不要用；快照**存在但 `models` 为空**同样抛错
+ * （第三态，`parseModels` 对空表回 null）。已知边界：用户表**损坏**与**不存在**不可区分
+ * （读失败回 null），此时用户手改追加的隐藏行会失效，策略退回随包快照口径。
  *
  * @param metaUrl 调用方模块的 `import.meta.url`（定位渠道包根的 models.json）
  * @param fields 条目里可作匹配键的额外字段（如上游 key、对外名）
@@ -113,7 +115,7 @@ type HiddenRow = ChannelModelEntry & Record<string, unknown>;
 export function hiddenModelIds(metaUrl: string, fields: readonly string[] = []): Set<string> {
   const seed = readSeedFrom<HiddenRow>([bundledSnapshotPath(), packageSnapshotPath(metaUrl)]);
   if (seed === null) {
-    throw new Error("随包 models.json 读不出来 —— 拒绝在隐藏策略失效的情况下暴露模型");
+    throw new Error("bundled models.json unreadable; refusing to expose models with a broken hidden policy");
   }
   const out = new Set<string>();
   for (const row of [...(readChannelModels<HiddenRow>() ?? []), ...seed]) {

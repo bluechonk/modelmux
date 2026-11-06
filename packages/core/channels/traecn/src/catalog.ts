@@ -595,7 +595,9 @@ export function exposedIds(): string[] {
   // （机制见共享层 `hiddenModelIds`：并集读用户表与随包快照，读不到即抛错）。
   const policyHidden = hiddenModelIds(import.meta.url);
   return loadCatalog()
-    .filter((e) => !e.hidden && !policyHidden.has(e.id.toLowerCase()))
+    // 归一化口径一并判：本渠道上游惯用 `-Official` / 日期尾饰，池层会把这类
+    // 变体归一进同一家族，只按原始 id 匹配会被绕过
+    .filter((e) => !e.hidden && !policyHidden.has(e.id.toLowerCase()) && !policyHidden.has(canonicalModelId(e.id)))
     // `custom_model_*` 是官方客户端的「自定义模型」模板占位（让用户填自己的
     // endpoint），**不是可调用模型** —— 实测选中它们 5/5 报 `4001 param is invalid`。
     // 列出来只会让用户点到必然失败的条目，故排除。

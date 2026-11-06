@@ -275,7 +275,8 @@ function hiddenIds(): Set<string> {
 export function exposedIds(): string[] {
   const hidden = hiddenIds();
   return currentEntries()
-    .filter((e) => !hidden.has(e.id.toLowerCase()))
+    // 归一化口径一并判：池层会把尾饰变体（`-latest` 等）归一进同一家族
+    .filter((e) => !hidden.has(e.id.toLowerCase()) && !hidden.has(canonicalModelId(e.id)))
     .map((e) => e.id);
 }
 

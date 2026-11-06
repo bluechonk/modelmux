@@ -89,7 +89,21 @@ describe("hiddenModelIds", () => {
     mkdirSync(bare, { recursive: true });
     assert.throws(
       () => runInChannel(CID, () => hiddenModelIds(pathToFileURL(join(bare, "mod.js")).href)),
-      /随包 models.json 读不出来/,
+      /bundled models\.json unreadable/,
+    );
+  });
+
+  it("随包快照存在但 models 为空 → 同样抛错（空表不是有效策略）", () => {
+    const emptyDir = join(HOME, "empty-seed");
+    mkdirSync(emptyDir, { recursive: true });
+    writeFileSync(join(emptyDir, "package.json"), "{}\n");
+    writeFileSync(
+      join(emptyDir, "models.json"),
+      JSON.stringify({ version: 1, source: "seed", fetched_at: null, models: [] }),
+    );
+    assert.throws(
+      () => runInChannel(CID, () => hiddenModelIds(pathToFileURL(join(emptyDir, "mod.js")).href)),
+      /bundled models\.json unreadable/,
     );
   });
 });

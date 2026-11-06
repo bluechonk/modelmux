@@ -62,7 +62,12 @@ function copySnapshots() {
       console.warn(`[bundle] 跳过快照（不是合法 JSON）：${relative(repoRoot, src)}`);
       continue;
     }
-    if (!Array.isArray(models) || models.length === 0) continue;
+    if (!Array.isArray(models) || models.length === 0) {
+      // 空壳快照同样是坏种子：渠道若依赖随包策略（hidden 收口），运行时会把整渠道
+      // 按「目录读失败」处理（失败关闭），构建期必须让这件事可见
+      console.warn(`[bundle] 跳过快照（models 为空或缺失）：${relative(repoRoot, src)}`);
+      continue;
+    }
     copyFileSync(src, join(outDir, `${entry.name}.json`));
     copied += 1;
   }

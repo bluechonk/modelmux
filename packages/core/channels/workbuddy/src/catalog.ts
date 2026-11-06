@@ -358,7 +358,12 @@ function hiddenIds(): Set<string> {
 export function exposedIds(): string[] {
   const hidden = hiddenIds();
   return entries()
-    .filter((entry) => !hidden.has(entry.id.toLowerCase()) && !hidden.has(entry.exposed.toLowerCase()))
+    .filter(
+      (entry) =>
+        !hidden.has(entry.id.toLowerCase()) &&
+        !hidden.has(entry.exposed.toLowerCase()) &&
+        !hidden.has(canonicalModelId(entry.id)),
+    )
     .map((entry) => entry.exposed);
 }
 
