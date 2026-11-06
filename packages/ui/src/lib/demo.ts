@@ -582,8 +582,8 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
   const now = Date.now();
   const dates = demoLogDates(now);
   // 「慢」判定与后端 `log-store.slowVerdictOf` 同口径（首字延迟 + 生成速率）。
-  // 速率公式复用本包 `log-format.tokensPerSecOf`（与网关同值的唯一 UI 侧实现），
-  // 不再内联第三份；两阈值是网关常量的同值副本，改阈值与 log-store 两处同步
+  // 速率公式复用本包 `log-format.tokensPerSecOf`（与网关同值的唯一 UI 侧实现，勿再内联副本）；
+  // 下方三个常量（10000 / 30 / 20）是 log-store `SLOW_*` 的同值副本，改动必须两边同步
   //（docs/LOGGING.md §3.5 / §6）。
   const slowOf = (seed: (typeof DEMO_LOG_SEED)[number]): Pick<AccessLogEntry, "slow" | "slowTtfb" | "slowTps"> => {
     const slowTtfb = seed.stream === true && (seed.ttfbMs ?? 0) >= 10_000;
@@ -956,6 +956,9 @@ export function demoOverview(state: DemoState): OverviewResponse {
       avg_duration_ms: logPage.stats.avgDurationMs,
       tokens: logPage.stats.tokens,
       cache: logPage.stats.cache,
+      // 扫描窗口元数据与真实接口同形（演示页不展示，只为形状一致）
+      truncated: false,
+      scanned: logPage.entries.length,
     },
     channels,
     model_pool: { total, free, vision, thinking },

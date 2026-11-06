@@ -429,6 +429,10 @@ export interface OverviewResponse {
     tokens: { prompt: number; completion: number; total: number };
   /** 缓存命中（加权 `Σhit / Σ(hit+miss)`）；`hitRate` 为 null = 窗口内无一条带缓存字段。 */
   cache: { hit: number; total: number; hitRate: number | null };
+  /** 尾部扫描窗口被截断：极端量级下统计只代表窗口内（排障用，页面不展示）。 */
+  truncated: boolean;
+  /** 本次统计实际扫描的行数。 */
+  scanned: number;
   };
   channels: Array<{
     cid: string;
