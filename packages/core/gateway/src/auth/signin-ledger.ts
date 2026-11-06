@@ -24,8 +24,16 @@ export interface ClaimRecord {
   at: string;
   /** 来源：`cli`（我们领的） / `upstream-backfill`（上游说已签，补记）。 */
   via: string;
-  /** 这次领到多少额度（渠道能报才记；数量 + 单位原样存）。 */
-  reward?: { amount: number; unit: string };
+  /**
+   * 这次领到多少额度（数量 + 单位原样存）。
+   *
+   * **三态**：`undefined` = 还没试着拿（旧版本写的记录，或领完没测到）；
+   * `null` = 试着拿了但渠道报不出数字（不是 0，是「不知道」）；
+   * `{amount, unit}` = 已知。
+   * 调度器据此只对 `undefined` 的记录补一次额度（见 `auto-signin`），补完写 `null` 或数值，
+   * 不会每轮都去打扰上游。
+   */
+  reward?: { amount: number; unit: string } | null;
 }
 
 /**
@@ -156,6 +164,7 @@ function claimOf(value: unknown): ClaimRecord | undefined {
   const entry = value as Record<string, unknown>;
   if (typeof entry["date"] !== "string" || entry["date"] === "") return undefined;
   const rewardRaw = entry["reward"];
+  const hasReward = Object.prototype.hasOwnProperty.call(entry, "reward");
   const reward =
     rewardRaw && typeof rewardRaw === "object" &&
     Number.isFinite(Number((rewardRaw as Record<string, unknown>)["amount"]))
@@ -165,12 +174,13 @@ function claimOf(value: unknown): ClaimRecord | undefined {
             ? ((rewardRaw as Record<string, unknown>)["unit"] as string)
             : "",
         }
-      : undefined;
+      : null;
   return {
     date: entry["date"],
     at: typeof entry["at"] === "string" ? entry["at"] : "",
     via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
-    ...(reward ? { reward } : {}),
+    // 显式 `reward: null` 是「试过但报不出」，与缺字段（还没试）区分开
+    ...(hasReward ? { reward } : {}),
   };
 }
 
@@ -211,7 +221,8 @@ export function recordClaim(
     date: dateInTimezone(now, timezone),
     at: now.toISOString(),
     via,
-    ...(reward && Number.isFinite(reward.amount) ? { reward } : {}),
+    // 领完就给三态：数值（已知）/ null（测过没涨或渠道报不出）/ 缺字段（旧版本记录，还没测）
+    reward: reward && Number.isFinite(reward.amount) ? reward : null,
   };
   const ledger = readLedger(cid);
   const next: SigninLedger = {
@@ -231,6 +242,35 @@ export function recordClaim(
   ensureStateDir(cid);
   writeJsonSecret(ledgerPath(cid), next);
   return record;
+}
+
+/**
+ * 给一条**已存在**的领取记录补 / 更新额度（不改成新的领取时刻）。
+ *
+ * 用途：台账是旧版本写的（`reward` 缺字段）时，调度器用渠道的 `status()` 补一次 ——
+ * 只写 `reward`，不动 `date` / `at`（那会变成「刚刚才领」，与事实不符）。
+ *
+ * 写 `null` = 明确「问过了，渠道报不出」—— 调度器据此不再重复打扰上游。
+ */
+export function updateClaimReward(
+  cid: string | undefined,
+  reward: { amount: number; unit: string } | null,
+  options: { accountKey?: string } = {},
+): void {
+  const ledger = readLedger(cid);
+  const record = options.accountKey ? ledger.accounts?.[options.accountKey] : ledger.last_claim;
+  if (record === undefined) return;
+  const nextRecord: ClaimRecord = { ...record, reward };
+  const next: SigninLedger = { ...ledger, version: 1 };
+  if (options.accountKey) {
+    next.accounts = { ...(ledger.accounts ?? {}), [options.accountKey]: nextRecord };
+  } else {
+    next.last_claim = nextRecord;
+    // 历史里同一条（同日期）也同步，避免 `mx status` 读到旧值
+    next.history = ledger.history.map((h) => (h.date === nextRecord.date ? { ...h, reward } : h));
+  }
+  ensureStateDir(cid);
+  writeJsonSecret(ledgerPath(cid), next);
 }
 
 /** 台账里是否记着"今天（按当前时区）领过"。 */

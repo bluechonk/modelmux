@@ -317,6 +317,8 @@ export const signin: SigninModule = {
         claimedToday: true,
         daily: true,
         summary: `今日已入账 ${total} 积分（${grants.map((g) => `${g.name} +${g.points}`).join("、")}）`,
+        // 账单里今天的入账总额就是「今天签到领到多少」（领取接口本身不回数字）
+        reward: { amount: total, unit: "积分" },
         items: grants.map((g) => ({ name: g.name, points: g.points, at: g.at })),
       };
     }
