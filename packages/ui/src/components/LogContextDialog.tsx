@@ -13,16 +13,18 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Languages, Loader2, Terminal, X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
+import { loadCtxScroll, pruneCtxScroll, saveCtxScroll, signatureOf } from "../lib/ctx-scroll";
 import { parseLenient } from "../lib/lenient-json";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import { assembledBody, hasMore, nextOffset, PAYLOAD_SLICE } from "../lib/payload-slices";
 import { shouldOfferTranslation, translateText } from "../lib/translate";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
 import { CopyButton } from "./CopyButton";
+import { ScrollJump } from "./ScrollJump";
 
 /** role 的中文名。未知 role 原样显示，不猜。 */
 const ROLE_LABEL: Record<string, string> = {
@@ -33,6 +35,18 @@ const ROLE_LABEL: Record<string, string> = {
   tool: "工具结果",
   function: "工具结果",
 };
+
+/** 恢复滚动位置的到达容差（px）：平滑滚动与缩放会留下零头。 */
+const RESTORE_TOLERANCE = 2;
+
+/** 恢复循环的「内容不再变高」判据（帧）：约 2.5s 没有新分片就认命，停在可达的最近位置。 */
+const STALL_FRAMES = 150;
+
+/** 恢复循环的兜底上限（ms）：正常路径由到达 / 接管 / 不再变高终止。 */
+const RESTORE_MAX_MS = 30_000;
+
+/** 滚动条槽宽（px，`index.css` 里自定义为 10px，留 2px 余量）：判断指针是否落在槽内。 */
+const SCROLLBAR_GUTTER = 12;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -679,8 +693,14 @@ function PayloadBlock({
 /**
  * 请求上下文弹窗（模态）。
  *
- * 用 Radix Dialog：仓库既有选型（见 `LoginModal` / `ConfirmDialog`），焦点陷阱与 ESC 关闭
- * 是标准行为；`Portal` 挂 `document.body`，回避容器变成 fixed 包含块后被裁切。
+ * 用 Radix Dialog：仓库既有选型（见 `LoginModal` / `ConfirmDialog`），焦点陷阱是标准行为；
+ * `Portal` 挂 `document.body`，回避容器变成 fixed 包含块后被裁切。
+ *
+ * 两条本页特有规则（docs/WEB-CONSOLE.md 的请求日志行）：
+ *   1. **只有右上角 × 能关闭**：点遮罩 / 按 Esc 都不关 —— 弹窗里是几 MB 的正文，
+ *      误触即丢失阅读位置与展开状态；
+ *   2. **滚动位置按请求 id 记忆**：正文懒加载 + 体量大，反复打开不该每次从头滑
+ *      （口径与过期策略见 `lib/ctx-scroll.ts`）。
  */
 export function LogContextDialog({
   entry,
@@ -700,6 +720,143 @@ export function LogContextDialog({
   });
   const meta = OUTCOME_META[entry.outcome];
   const records = payload.data?.records ?? [];
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 记录集签名：位置记忆的有效性判据（见 `lib/ctx-scroll.ts` 的文件头约束 1）。
+   * 元数据到达前是空串 —— 空串不写记忆，避免把「还没读到记录」的状态存进去。
+   */
+  const signature = useMemo(() => signatureOf(records), [records]);
+  /** 待恢复的目标位置；null = 不需要恢复（无缓存 / 已到达 / 用户已接管）。 */
+  const restoreRef = useRef<number | null>(null);
+  /** 每次「读到缓存」自增，用来唤醒恢复循环（见下）。 */
+  const [restoreSeq, setRestoreSeq] = useState(0);
+
+  /**
+   * 朝目标推进：内容可能**还没长到**那个位置（正文懒加载只有首片），
+   * 所以到不了就等下一帧再试（不依赖 ResizeObserver 的触发时机 —— 实测它会
+   * 在内容尚未完成布局时报到，或干脆晚于缓存读取，导致恢复丢失）。
+   *
+   * 恢复用直接赋值（不走平滑动画）——「我已经在这儿」不该播滚动动画。
+   */
+  const applyRestore = (): boolean => {
+    const el = scrollRef.current;
+    const target = restoreRef.current;
+    if (!el || target === null) return false;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max <= RESTORE_TOLERANCE) return true; // 还没有可滚动区域：继续等
+    el.scrollTop = Math.min(target, max);
+    // 到达即收工：±2px 容忍亚像素与缩放零头
+    if (Math.abs(el.scrollTop - target) <= RESTORE_TOLERANCE) restoreRef.current = null;
+    return restoreRef.current !== null;
+  };
+
+  // 读缓存：记录元数据到达后才有签名，读到就唤醒恢复循环
+  useEffect(() => {
+    if (records.length === 0) return;
+    pruneCtxScroll();
+    restoreRef.current = loadCtxScroll(entry.id, signature);
+    if (restoreRef.current !== null) setRestoreSeq((n) => n + 1);
+  }, [entry.id, signature, records.length]);
+
+  /**
+   * 恢复循环：逐帧推进直到**到达 / 用户接管 / 内容不再变高**（另加 30s 兜底）。
+   *
+   * 逐帧而不是单次赋值 —— 正文是边滚边加载的，目标位置要等内容长够才够得着。
+   * 「内容不再变高」才收工（不是帧数）：拉片慢时帧数上限会让人留在中途，
+   * 而停下就意味着「已加载的就这么高」，此刻的位置已是可达的最近点。
+   */
+  useEffect(() => {
+    if (restoreSeq === 0 || restoreRef.current === null) return;
+    let raf = 0;
+    let stalled = 0;
+    let lastMax = -1;
+    const startedAt = Date.now();
+    const tick = (): void => {
+      const el = scrollRef.current;
+      if (el !== null) {
+        const max = el.scrollHeight - el.clientHeight;
+        stalled = max > lastMax ? 0 : stalled + 1;
+        lastMax = Math.max(lastMax, max);
+      }
+      const pending = applyRestore();
+      if (!pending || stalled > STALL_FRAMES || Date.now() - startedAt > RESTORE_MAX_MS) return;
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [restoreSeq]);
+
+  /**
+   * 用户接管即放弃恢复（用户意图优先，别和懒加载的自动滚动打架）。
+   *
+   * 只听**真实手势**：滚轮 / 触摸 / 滚动键 / 拖滚动条 —— 程序化滚动（恢复本身、
+   * 跳转钮的平滑动画）不在此列，否则恢复会自我打断。
+   * 滚动键单独判：容器本身不可聚焦，`keydown` 只会从内部按钮（复制 / 翻译）冒泡上来，
+   * 那些按键不是滚动意图，不该取消恢复。
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const abandon = (): void => {
+      restoreRef.current = null;
+    };
+    const scrollKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+    const onKey = (event: KeyboardEvent): void => {
+      if (scrollKeys.has(event.key)) abandon();
+    };
+    // 拖滚动条 / 点轨道：指针落在右侧滚动条槽内才算（内容区点击可能是选文本或点按钮）
+    const onPointerDown = (event: PointerEvent): void => {
+      const rect = el.getBoundingClientRect();
+      if (event.clientX > rect.right - SCROLLBAR_GUTTER) abandon();
+    };
+    el.addEventListener("wheel", abandon, { passive: true });
+    el.addEventListener("touchstart", abandon, { passive: true });
+    el.addEventListener("keydown", onKey);
+    el.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      el.removeEventListener("wheel", abandon);
+      el.removeEventListener("touchstart", abandon);
+      el.removeEventListener("keydown", onKey);
+      el.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, []);
+
+  /**
+   * 滚动停止后写缓存（防抖 400ms）：逐帧写 localStorage 会把主线程拖住，
+   * 而中间帧的位置也没有意义 —— 要的是「停在哪」。
+   * 卸载时**冲刷**而不是丢掉：关弹窗前的最后一停往往就是用户想记住的位置。
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || signature === "") return;
+    // 卸载后节点已脱离文档、`scrollTop` 读回 0，只能用滚动监听记下的最后位置
+    let last = el.scrollTop;
+    let timer: number | undefined;
+    const onScroll = (): void => {
+      last = el.scrollTop;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        saveCtxScroll(entry.id, last, signature);
+      }, 400);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        saveCtxScroll(entry.id, el.isConnected ? el.scrollTop : last, signature);
+      }
+    };
+  }, [entry.id, signature]);
+
+  /** 跳转钮点击：位置确定（0 / 底部），立刻落缓存，不等防抖。 */
+  const onJump = (where: "top" | "bottom", el: HTMLElement): void => {
+    restoreRef.current = null;
+    const top = where === "top" ? 0 : el.scrollHeight - el.clientHeight;
+    saveCtxScroll(entry.id, top, signature);
+  };
 
   return (
     <Dialog.Root
@@ -710,7 +867,13 @@ export function LogContextDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[min(1080px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised">
+        <Dialog.Content
+          // 点遮罩 / 焦点落到外部不关、Esc 也不关：关闭只剩右上角 ×（键盘用户 Tab 到 × 回车）。
+          // 理由见组件头注释 1 —— 正文体量大，误触代价是丢掉阅读位置。
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          className="fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[min(1080px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised"
+        >
           <header className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-3">
             <div className="min-w-0">
               <Dialog.Title className="text-sm font-medium text-ink">请求上下文</Dialog.Title>
@@ -738,45 +901,62 @@ export function LogContextDialog({
             </Dialog.Close>
           </header>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-auto px-5 py-4">
-            {!payload.isPending && records.length > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-ink">
-                  全部内容（{records.length} 条记录）
-                </span>
-                {/*
-                  弹窗顶部不做全局复制按钮：正文懒加载，`records[].body` 在元数据查询里
-                  恒是空串，聚合按钮拼不出全文；逐条「复制完整 JSON」（按需取全文）才可靠。
-                */}
+          {/*
+            滚动区右侧留 64px（`pr-16`）给悬浮跳转钮：长正文里按钮压住字符是真损失，
+            而按钮若挪到右下角又会撞上 toast（z-60）。64 而不是 56：窄屏下 `.tap-square`
+            把按钮抬到 44px 宽，56px 栏位会被按钮正好占满（实测 390 视口间隙 0）。
+          */}
+          <div className="relative flex min-h-0 flex-1">
+            {/*
+              跳转钮排在滚动区**之前**：绝对定位不受 DOM 顺序影响（视觉不变），
+              而 Tab 顺序会因此落在正文之前 —— 否则长正文里要按几百次 Tab 才够得到它。
+            */}
+            <ScrollJump target={scrollRef} content={contentRef} onJump={onJump} />
+            <div
+              ref={scrollRef}
+              className="min-h-0 flex-1 overflow-auto py-4 pr-16 pl-5"
+            >
+              <div ref={contentRef} className="space-y-3">
+                {!payload.isPending && records.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-ink">
+                      全部内容（{records.length} 条记录）
+                    </span>
+                    {/*
+                      弹窗顶部不做全局复制按钮：正文懒加载，`records[].body` 在元数据查询里
+                      恒是空串，聚合按钮拼不出全文；逐条「复制完整 JSON」（按需取全文）才可靠。
+                    */}
+                  </div>
+                )}
+                {payload.isPending ? (
+                  <p className="text-xs text-ink-faint">正在读取…</p>
+                ) : payload.isError ? (
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-danger">请求上下文读取失败</p>
+                    <button
+                      type="button"
+                      onClick={() => void payload.refetch()}
+                      className="tap rounded-md border border-line px-1.5 py-0.5 text-xs text-ink-soft hover:border-line-strong hover:text-ink"
+                    >
+                      重试
+                    </button>
+                  </div>
+                ) : records.length > 0 ? (
+                  records.map((record) => (
+                    <PayloadBlock
+                      key={`${record.phase}-${record.seq}`}
+                      record={record}
+                      id={entry.id}
+                      date={date}
+                    />
+                  ))
+                ) : (
+                  <p className="text-xs text-ink-faint">
+                    该请求没有抓取记录（可能是请求未进入转发，或已过保留期清理）。
+                  </p>
+                )}
               </div>
-            )}
-            {payload.isPending ? (
-              <p className="text-xs text-ink-faint">正在读取…</p>
-            ) : payload.isError ? (
-              <div className="flex items-center gap-2">
-                <p className="text-xs text-danger">请求上下文读取失败</p>
-                <button
-                  type="button"
-                  onClick={() => void payload.refetch()}
-                  className="tap rounded-md border border-line px-1.5 py-0.5 text-xs text-ink-soft hover:border-line-strong hover:text-ink"
-                >
-                  重试
-                </button>
-              </div>
-            ) : records.length > 0 ? (
-              records.map((record) => (
-                <PayloadBlock
-                  key={`${record.phase}-${record.seq}`}
-                  record={record}
-                  id={entry.id}
-                  date={date}
-                />
-              ))
-            ) : (
-              <p className="text-xs text-ink-faint">
-                该请求没有抓取记录（可能是请求未进入转发，或已过保留期清理）。
-              </p>
-            )}
+            </div>
           </div>
 
           {records.length > 0 && (
