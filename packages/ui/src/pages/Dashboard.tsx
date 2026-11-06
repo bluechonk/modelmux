@@ -575,10 +575,15 @@ export function Dashboard(): ReactElement {
           </section>
         </div>
 
-        {/* 右列：对外模型清单 + 一键接入 */}
+        {/*
+          右列：对外模型清单 + 一键接入。两卡**等分撑满**这一列，所以它们合起来的高度恒等于左侧
+          「模型用量」的高度（栅格行高由左列决定）：不这样做时右列按内容高度收尾，左下角会留出
+          一块空白，两列的底边对不齐（实测 1440 差约 70px）。内容仍顶对齐 —— 卡片内留白比拉伸
+          内容好看，且模型数量变化时（左列变高）自动跟上。
+        */}
         <div className="flex flex-col gap-5 lg:col-span-4">
           {/* ④ 对外模型（不显示渠道：落点由网关按额度自动挑） */}
-          <section className="panel p-4">
+          <section className="panel flex flex-1 flex-col p-4">
             <div className="panel-title mb-3">
               <Layers className="h-4 w-4 text-ink-faint" />
               模型
@@ -619,7 +624,7 @@ export function Dashboard(): ReactElement {
           </section>
 
           {/* ⑤ 一键接入：把本机 harness 的模型清单改成网关的对外模型名 */}
-          <section className="panel p-4">
+          <section className="panel flex flex-1 flex-col p-4">
             <div className="panel-title mb-3">
               <PlugZap className="h-4 w-4 text-ink-faint" />
               一键接入
