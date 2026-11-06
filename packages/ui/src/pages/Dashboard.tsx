@@ -178,12 +178,17 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
 
 function EndpointRow({ label, value }: { label: string; value: string }): ReactElement {
   return (
-    <div className="flex flex-col gap-1 rounded-lg px-1 py-1.5 transition-colors hover:bg-overlay/40 sm:flex-row sm:items-center sm:gap-4">
-      <span className="shrink-0 text-[13px] text-ink-faint sm:w-24">{label}</span>
-      <span className="min-w-0 flex-1 break-all font-mono text-[13px] text-ink-soft">
-        {value || "—"}
+    <div className="flex flex-col gap-1 rounded-lg px-1 py-1.5 transition-colors hover:bg-overlay/40 sm:flex-row sm:items-start sm:gap-4">
+      <span className="shrink-0 text-[13px] text-ink-faint sm:w-24 sm:pt-0.5">{label}</span>
+      {/*
+        复制按钮**紧跟值**，不推到行尾：值带 flex-1 时按钮会被顶到最右，
+        视线要从 URL 横跨整行去够按钮（实测观感割裂）。值自身按内容宽度走，
+        超长时整组换行（flex-wrap），按钮始终贴着值的末尾。
+      */}
+      <span className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="break-all font-mono text-[13px] text-ink-soft">{value || "—"}</span>
+        <CopyInline value={value} label={`复制 ${label}`} />
       </span>
-      <CopyInline value={value} label={`复制 ${label}`} />
     </div>
   );
 }
