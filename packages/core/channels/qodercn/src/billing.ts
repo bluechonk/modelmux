@@ -135,6 +135,23 @@ function claimedToday(campaign: Record<string, unknown>, now = Date.now()): bool
   return dayStart(nowU8) <= dayStart(atU8) && dayStart(nowU8) === dayStart(atU8);
 }
 
+/**
+ * 当前活动的窗口刷新时刻（epoch ms）：活动 `endAt` 就是这一期的结束 = 下一期的开始。
+ *
+ * 为什么报给共享层：本渠道的签到日界是 **10:00（UTC+8）**，不是本地 0 点。
+ * 调度器据此判断「这条领取记录是不是属于已结束的旧窗口」，否则当天活动永远领不到。
+ */
+function campaignResetAt(campaigns: unknown[]): number | undefined {
+  for (const item of campaigns) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    if (str(rec["actionType"]) !== "CLAIM_BENEFIT") continue;
+    const endAt = num(rec["endAt"]);
+    if (endAt > 0) return endAt * 1000;
+  }
+  return undefined;
+}
+
 interface QuotaLike {
   total?: unknown;
   used?: unknown;
@@ -364,6 +381,7 @@ export const signin: SigninModule = {
         const rec = item as Record<string, unknown>;
         return str(rec["actionType"]) === "CLAIM_BENEFIT" && str(rec["claimStatus"]) === "CLAIMABLE";
       });
+      const resetAt = campaignResetAt(campaigns);
       if (claimable.length > 0) {
         const amount = num((claimable[0]!["benefit"] as Record<string, unknown> | undefined)?.["amount"]);
         return {
@@ -372,6 +390,7 @@ export const signin: SigninModule = {
           items: claimable,
           claimedToday: false,
           daily: true,
+          ...(resetAt !== undefined ? { resetAt } : {}),
         };
       }
       // 没有可领的**不等于**"今天已领"：该账号此刻可能压根没有每日签到活动
@@ -383,7 +402,13 @@ export const signin: SigninModule = {
         const rec = item as Record<string, unknown>;
         return str(rec["actionType"]) === "CLAIM_BENEFIT" && str(rec["claimStatus"]) === "CLAIMED";
       });
-      const done = claimed.some((item) => claimedToday(item));
+      // 只算**本活动日**内已领的那几条：活动列表里可能还有往期的 CLAIMED 记录
+      const doneToday = claimed.filter((item) => claimedToday(item));
+      const rewardTotal = doneToday.reduce(
+        (sum, item) => sum + num((item["benefit"] as Record<string, unknown> | undefined)?.["amount"]),
+        0,
+      );
+      const done = doneToday.length > 0;
       return {
         claimable: topClaimable,
         summary: done
@@ -392,6 +417,9 @@ export const signin: SigninModule = {
         // 没有活动时是「不适用」而不是「未签」—— 返回 null 才会让 CLI 显示上面
         // 那句渠道自己的说明，而不是通用模板「今天未签到（依据：上游）」
         claimedToday: done ? true : null,
+        // 领取接口本身在重复领取时不回数字，但活动记录里的 benefit.amount 就是发放额
+        ...(done && rewardTotal > 0 ? { reward: { amount: rewardTotal, unit: "Credits" } } : {}),
+        ...(resetAt !== undefined ? { resetAt } : {}),
         daily: true,
       };
     } catch (err) {

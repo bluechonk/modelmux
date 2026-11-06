@@ -36,6 +36,8 @@ export interface WebChannelSignin {
   at: string | null;
   /** 今天领到多少额度（渠道能报才有；控制台据此显示「+N」）。 */
   reward: { amount: number; unit: string } | null;
+  /** 额度数值的来源（渠道自报 / 每日公布额 / 前后实测 / 跨窗口对比）；未知 null。 */
+  reward_source: "channel" | "daily" | "delta" | "carry" | null;
   /** 最近一次上游探测结论（当天有效）；null = 没探测过或已跨天。 */
   probe: SigninProbeView | null;
 }

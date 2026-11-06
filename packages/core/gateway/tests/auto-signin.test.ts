@@ -54,6 +54,12 @@ interface Behavior {
   failTokens?: string[];
   /** 模拟额度序列：`fetchCredits` 每次调用后按序返回（验证「实测差值」记账）。 */
   quotaSequence?: Array<{ remain: number; unit: string }>;
+  /** 状态查询回报的「今天入账额」（验证额度重试的渠道自报口径）。 */
+  statusReward?: { amount: number; unit: string };
+  /** 状态查询公布的「每日发放额度」（如 loomy 每天 5000）。 */
+  dailyReward?: { amount: number; unit: string };
+  /** 状态查询回报的签到窗口刷新时刻（epoch ms；验证非 0 点日界）。 */
+  resetAt?: number;
 }
 
 /** 构造一个签到可编程的 mock 渠道（status/claim 调用计数用于断言「没发请求」）。 */
@@ -118,6 +124,9 @@ function makeChannel(cid: string, behavior: Behavior): Channel {
             claimedToday: behavior.claimedToday ?? false,
             claimable: behavior.claimable ?? true,
             summary: "test",
+            ...(behavior.statusReward ? { reward: behavior.statusReward } : {}),
+            ...(behavior.dailyReward ? { dailyReward: behavior.dailyReward } : {}),
+            ...(behavior.resetAt !== undefined ? { resetAt: behavior.resetAt } : {}),
           };
         },
         claim: async (options?: { credential?: Record<string, unknown> }) => {
@@ -154,11 +163,12 @@ test("auto signin: 领取成功后台账登记今天已签（via=auto），第�
     const ledger = readLedger("autosign-ok");
     assert.equal(ledger.last_claim?.via, "auto");
 
-    // 第二轮：台账已签 → 不再问上游、不再领取
+    // 第二轮：台账已签 → 不再领取。但额度数字还要补（异步入账），且要判定一次签到窗口；
+    // 窗口判定结果写回台账后，后续轮次不再为此查上游。
     const second = await autoSignin.runOnce();
     assert.equal(second.claimed, 0);
-    assert.equal(behavior.statusCalls, 1, "台账已签的渠道第二轮不得再查上游");
     assert.equal(behavior.claimCalls, 1, "台账已签的渠道第二轮不得再领取");
+    assert.equal(readLedger("autosign-ok").last_claim?.windowEndsAt, null, "窗口判定结果写回台账");
   });
 });
 
@@ -375,5 +385,88 @@ test("auto signin: 渠道自己报了 reward 就用它，不再用差值", async
     channel.billing.signin.claim = async () => ({ ok: true, summary: "ok", reward: { amount: 300, unit: "积分" } });
     await autoSignin.runOnce();
     assert.deepEqual(readLedger(cid).last_claim?.reward, { amount: 300, unit: "积分" });
+  });
+});
+
+// 以下用例会注册「可领取」的 mock 渠道，放在文件末尾：
+// 注册表是模块级单例，前面的用例会断言 runOnce 的 claimed 总数，被这些渠道领到就会串扰。
+
+test("auto signin: 领取前后余额差值记为额度（delta）", async () => {
+  await withIsolatedRoot(async () => {
+    const behavior: Behavior = {
+      claimOk: true,
+      quotaSequence: [
+        { remain: 100, unit: "积分" },
+        { remain: 150, unit: "积分" },
+      ],
+    };
+    setChannel(makeChannel("autosign-delta", behavior));
+    await autoSignin.runOnce();
+    const record = readLedger("autosign-delta").last_claim;
+    assert.deepEqual(record?.reward, { amount: 50, unit: "积分" });
+    assert.equal(record?.rewardSource, "delta");
+    assert.deepEqual(record?.balance, { before: 100, after: 150, unit: "积分" });
+  });
+});
+
+test("auto signin: 台账已签但没额度 → 重试拿到渠道自报额度", async () => {
+  await withIsolatedRoot(async () => {
+    const behavior: Behavior = { claimOk: true };
+    setChannel(makeChannel("autosign-reward", behavior));
+    await autoSignin.runOnce();
+    assert.equal(readLedger("autosign-reward").last_claim?.reward ?? null, null, "首轮没数字");
+
+    // 第二轮：上游状态里出现今天的入账额（异步入账到位）
+    behavior.statusReward = { amount: 300, unit: "积分" };
+    await autoSignin.runOnce();
+    const record = readLedger("autosign-reward").last_claim;
+    assert.deepEqual(record?.reward, { amount: 300, unit: "积分" });
+    assert.equal(record?.rewardSource, "channel");
+    assert.equal(record?.rewardTries, 2, "重试次数累加");
+  });
+});
+
+test("auto signin: 渠道公布每日额度 → 台账记 daily 来源", async () => {
+  await withIsolatedRoot(async () => {
+    const behavior: Behavior = { claimOk: true, dailyReward: { amount: 5000, unit: "积分" } };
+    setChannel(makeChannel("autosign-daily", behavior));
+    await autoSignin.runOnce();
+    const record = readLedger("autosign-daily").last_claim;
+    assert.deepEqual(record?.reward, { amount: 5000, unit: "积分" });
+    assert.equal(record?.rewardSource, "daily");
+  });
+});
+
+test("auto signin: 渠道窗口已结束 → 再领一轮（非本地 0 点日界）", async () => {
+  await withIsolatedRoot(async () => {
+    const behavior: Behavior = { claimOk: true, resetAt: Date.now() - 1000 };
+    setChannel(makeChannel("autosign-window", behavior));
+    await autoSignin.runOnce();
+    assert.equal(behavior.claimCalls, 1);
+    assert.equal(readLedger("autosign-window").last_claim?.windowEndsAt, behavior.resetAt);
+
+    // resetAt 已过 → 台账的「今天」不再是同一个窗口，必须再领
+    await autoSignin.runOnce();
+    assert.equal(behavior.claimCalls, 2, "窗口结束后必须再领一轮");
+  });
+});
+
+test("auto signin: 旧台账没记窗口 → 问上游一次并写回", async () => {
+  await withIsolatedRoot(async () => {
+    const behavior: Behavior = { claimOk: true, resetAt: Date.now() + 60_000 };
+    setChannel(makeChannel("autosign-window-old", behavior));
+    // 直接写一条「旧版本」记录（没有 windowEndsAt 字段）
+    signinLedger.recordClaim("autosign-window-old", { via: "cli" });
+    assert.equal(readLedger("autosign-window-old").last_claim?.windowEndsAt, undefined);
+
+    await autoSignin.runOnce();
+    // resetAt 晚于记录时刻 → 属于新窗口 → 再领一轮；判定结果写回台账
+    assert.equal(behavior.claimCalls, 1);
+    assert.equal(readLedger("autosign-window-old").last_claim?.windowEndsAt, behavior.resetAt);
+
+    // 下一轮：窗口判定已落盘（未结束）→ 不重复领取；剩下的查询只为补额度数字
+    await autoSignin.runOnce();
+    assert.equal(behavior.claimCalls, 1, "窗口未结束不得重复领取");
+    assert.equal(readLedger("autosign-window-old").last_claim?.windowEndsAt, behavior.resetAt);
   });
 });

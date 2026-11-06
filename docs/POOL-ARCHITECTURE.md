@@ -697,6 +697,29 @@ interface CredModule {
 
 > 当前**没有渠道**用到这类状态。新增渠道需要时按上面两条规则做，别把账号级状态塞进共享层。
 
+### 3.6 自动签到的额度口径（「今天签到领到多少」）
+
+调度器（`auth/auto-signin.ts`）按**三口径阶梯**确定额度，拿到就停：
+
+| 口径 | 来源 | 用途 |
+| --- | --- | --- |
+| `channel` | 渠道自报：`SigninOutcome.reward` / `SigninStatus.reward`（raccoon 账单、traecn 状态端点、qoder 活动记录的 `benefit.amount`） | 直接进台账 |
+| `daily` | 渠道公布的**每日发放额度**（`SigninStatus.dailyReward`，如 loomy 每天 5000）—— 签到动作本身就是当日额度的发放时用最直接 | 上游不回报入账额时的权威口径 |
+| `delta` | 领取**前后各查一次额度**的差值（`balance.before/after` 落台账） | 异步入账时事后补回 |
+| `carry` | **跨额度窗口对比**：上一窗口最后余额（`pool-usage` 的 `prev`）→ 当下 | 最弱口径，只在前三者都拿不到时用；界面标注「估算」 |
+
+规则：
+
+- **有界重试**：额度未知（`reward: null`）时按 30 分钟一轮重试，最多 `REWARD_MAX_TRIES = 4` 次
+  （只对**当天**的记录重试，跨天由新的一轮领取重新记）；超次停在 `null`，不再打扰上游。
+  旧实现问一次就写终态，异步入账（raccoon 账单、astudio 积分）会白丢数字。
+- **不猜**：渠道报不出、也测不到差额时只显示「已签到 HH:MM」，不写 0。
+- **签到窗口未必是本地 0 点**：渠道可在 `SigninStatus.resetAt` 声明当前窗口的刷新时刻
+  （qodercn 是 10:00 UTC+8）。调度器把领取时的 `resetAt` 记进台账（`windowEndsAt`），
+  `Date.now() > windowEndsAt` 就允许再领一轮 —— 否则当天活动永远领不到，面板还显示「已签到」。
+- 台账新增审计字段 `balance` / `rewardSource` / `rewardTries` / `rewardAt` / `windowEndsAt`；
+  旧记录缺字段时读成「还没测 / 还没判定」，不读成 0。
+
 ## 4. 公共层设计
 
 ### 4.1 注册表

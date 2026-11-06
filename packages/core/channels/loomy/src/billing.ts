@@ -13,6 +13,13 @@ import * as upstream from "./upstream.js";
 /** 额度单位。 */
 const UNIT = "积分";
 
+/**
+ * 每日赠送额度（实测常量，见 PROTOCOL §6.3）—— 「签到」就是触发这个额度重置。
+ *
+ * 与 `quotaPeriod().size` 共用一个常量：两处都是同一个上游事实，各写一份必然漂移。
+ */
+const DAILY_QUOTA = 5000;
+
 /** 额度查询/领取失败。 */
 export class CreditsError extends Error {
   override name = "CreditsError";
@@ -295,6 +302,9 @@ export const signin: SigninModule = {
     return {
       claimable: null,
       summary: "（该渠道没有独立的签到状态端点；claim 会触发每日额度重置并领新手任务）",
+      // 上游不回报「这次发了多少」，但每日额度是公布的固定值（实测常量，见 PROTOCOL §6.3）
+      // —— 控制台据此显示「今日签到 +5000」，不必等额度实测差值
+      dailyReward: { amount: DAILY_QUOTA, unit: UNIT },
     };
   },
   async claim(options) {
@@ -361,7 +371,7 @@ export const signin: SigninModule = {
 export function quotaPeriod(): QuotaPeriod {
   return {
     label: "每天送 5000 积分，本地 0 点刷新",
-    size: 5000,
+    size: DAILY_QUOTA,
     unit: "积分",
     resets_at: nextLocalMidnight(),
   };

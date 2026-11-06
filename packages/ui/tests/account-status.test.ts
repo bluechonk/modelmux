@@ -127,6 +127,34 @@ describe("signinRows：今日签到行", () => {
     assert.match(zero[0]!.value, /^已签到 \d{2}:\d{2}:\d{2}$/, "0 额度不显示（会让人以为签了没给）");
   });
 
+  it("跨窗口对比（carry）得到的额度标注「估算」，不伪装成准确数字", () => {
+    const rows = signinRows(
+      channel({
+        claimed_today: true,
+        at: "2026-11-06T01:02:03.000Z",
+        reward: { amount: 1200, unit: "积分" },
+        reward_source: "carry",
+      }),
+      pool(null),
+    );
+    assert.match(rows[0]!.value, /^已签到 \d{2}:\d{2}:\d{2} \+1,200 积分（估算）$/);
+  });
+
+  it("渠道自报 / 前后实测的额度不标注「估算」", () => {
+    for (const source of ["channel", "delta"] as const) {
+      const rows = signinRows(
+        channel({
+          claimed_today: true,
+          at: "2026-11-06T01:02:03.000Z",
+          reward: { amount: 1200, unit: "积分" },
+          reward_source: source,
+        }),
+        pool(null),
+      );
+      assert.doesNotMatch(rows[0]!.value, /估算/, `${source} 是实测口径，不标估算`);
+    }
+  });
+
   it("上游明确「没有可领」→ 只说「今日无可领」，不附上游原话（废话）", () => {
     const rows = signinRows(
       channel({

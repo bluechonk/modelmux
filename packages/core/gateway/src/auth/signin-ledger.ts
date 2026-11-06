@@ -16,6 +16,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { ensureStateDir, stateDir } from "../runtime/paths.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 
+/** 额度数值的来源（`reward` 有值时才有意义；排查「这个数字怎么来的」看它）。 */
+export type SigninRewardSource =
+  /** 渠道自己回的（账单 / 活动 / 状态端点里的发放额）。 */
+  | "channel"
+  /** 渠道公布的每日发放额度（如 loomy 每天 5000）。 */
+  | "daily"
+  /** 领取前后各查一次额度，差值就是入账额。 */
+  | "delta"
+  /** 跨额度窗口对比（上一窗口最后余额 → 当下），最弱口径，只在前三者都拿不到时用。 */
+  | "carry";
+
 /** 一次领取的记录。 */
 export interface ClaimRecord {
   /** 本地时区下的日期 `YYYY-MM-DD`。 */
@@ -30,10 +41,31 @@ export interface ClaimRecord {
    * **三态**：`undefined` = 还没试着拿（旧版本写的记录，或领完没测到）；
    * `null` = 试着拿了但渠道报不出数字（不是 0，是「不知道」）；
    * `{amount, unit}` = 已知。
-   * 调度器据此只对 `undefined` 的记录补一次额度（见 `auto-signin`），补完写 `null` 或数值，
-   * 不会每轮都去打扰上游。
+   * 调度器对 `null` 也**有界重试**（异步入账常见），次数见 `rewardTries`。
    */
   reward?: { amount: number; unit: string } | null;
+  /** 数值来源（见 `SigninRewardSource`）。 */
+  rewardSource?: SigninRewardSource;
+  /**
+   * 领取**前后**实测到的额度余额（`null` = 当时没测到）。
+   *
+   * 存它的理由：上游入账常常是异步的（raccoon 账单、astudio 积分），
+   * 事后用「当下余额 − before」就能把数字补回来，不必依赖渠道自报。
+   */
+  balance?: { before: number | null; after: number | null; unit: string };
+  /** 已尝试确定额度的次数（达到上限后不再打扰上游）。 */
+  rewardTries?: number;
+  /** 最近一次尝试确定额度的时刻（ISO）。 */
+  rewardAt?: string;
+  /**
+   * 领取时渠道声明的**当前签到窗口**刷新时刻（epoch ms）。
+   *
+   * 有的渠道签到日界不是本地 0 点（qodercn 是 10:00 UTC+8）：本地按「今天」判已签会
+   * 让当天活动永远领不到。调度器在 `Date.now() > windowEndsAt` 时允许再领一轮。
+   *
+   * 三态：缺字段 = 还没判定（旧记录）；`null` = 渠道不声明窗口（按本地日）；数字 = 刷新时刻。
+   */
+  windowEndsAt?: number | null;
 }
 
 /**
@@ -175,13 +207,53 @@ function claimOf(value: unknown): ClaimRecord | undefined {
             : "",
         }
       : null;
+  const source = entry["rewardSource"];
+  const balanceRaw = entry["balance"];
+  const balance =
+    balanceRaw && typeof balanceRaw === "object" && !Array.isArray(balanceRaw)
+      ? (() => {
+          const b = balanceRaw as Record<string, unknown>;
+          return {
+            before: numOrZero(b["before"]),
+            after: numOrZero(b["after"]),
+            unit: typeof b["unit"] === "string" ? (b["unit"] as string) : "",
+          };
+        })()
+      : undefined;
+  const tries = entry["rewardTries"];
+  // `windowEndsAt` 三态：缺字段 = 还没判定；`null` = 渠道不声明窗口；数字 = 窗口刷新时刻
+  const hasWindow = Object.prototype.hasOwnProperty.call(entry, "windowEndsAt");
+  const windowEndsAtValue =
+    typeof entry["windowEndsAt"] === "number" &&
+    Number.isFinite(entry["windowEndsAt"]) &&
+    (entry["windowEndsAt"] as number) > 0
+      ? Math.trunc(entry["windowEndsAt"] as number)
+      : null;
   return {
     date: entry["date"],
     at: typeof entry["at"] === "string" ? entry["at"] : "",
     via: typeof entry["via"] === "string" ? entry["via"] : "unknown",
     // 显式 `reward: null` 是「试过但报不出」，与缺字段（还没试）区分开
     ...(hasReward ? { reward } : {}),
+    ...(isRewardSource(source) ? { rewardSource: source } : {}),
+    ...(balance ? { balance } : {}),
+    ...(typeof tries === "number" && Number.isFinite(tries) && tries > 0
+      ? { rewardTries: Math.trunc(tries) }
+      : {}),
+    ...(typeof entry["rewardAt"] === "string" ? { rewardAt: entry["rewardAt"] as string } : {}),
+    ...(hasWindow ? { windowEndsAt: windowEndsAtValue } : {}),
   };
+}
+
+/** `null` / 缺字段 → `null`；数字 → 原值（余额三态里的「不知道」）。 */
+function numOrZero(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+const REWARD_SOURCES: ReadonlySet<string> = new Set(["channel", "daily", "delta", "carry"]);
+
+function isRewardSource(value: unknown): value is SigninRewardSource {
+  return typeof value === "string" && REWARD_SOURCES.has(value);
 }
 
 /** 宽松读一条探测结果（缺 `date` 视为无效）。 */
@@ -214,15 +286,44 @@ export function recordClaim(
     accountKey?: string;
     /** 这次领到多少（渠道能报才传；控制台据此显示「今日签到 +N」）。 */
     reward?: { amount: number; unit: string };
+    /** 数值来源（见 `SigninRewardSource`）。 */
+    rewardSource?: SigninRewardSource;
+    /** 领取前后实测余额（事后重算差值用）。 */
+    balance?: { before: number | null; after: number | null; unit: string };
+    /** 领取时渠道声明的当前签到窗口刷新时刻（epoch ms）；`null` = 渠道不声明窗口。 */
+    windowEndsAt?: number | null;
   } = {},
 ): ClaimRecord {
-  const { via = "cli", now = new Date(), timezone = currentTimezone(), accountKey, reward } = options;
+  const {
+    via = "cli",
+    now = new Date(),
+    timezone = currentTimezone(),
+    accountKey,
+    reward,
+    rewardSource,
+    balance,
+    windowEndsAt,
+  } = options;
+  const known = reward !== undefined && reward !== null && Number.isFinite(reward.amount);
   const record: ClaimRecord = {
     date: dateInTimezone(now, timezone),
     at: now.toISOString(),
     via,
     // 领完就给三态：数值（已知）/ null（测过没涨或渠道报不出）/ 缺字段（旧版本记录，还没测）
-    reward: reward && Number.isFinite(reward.amount) ? reward : null,
+    reward: known ? reward! : null,
+    ...(known && rewardSource ? { rewardSource } : {}),
+    ...(balance ? { balance } : {}),
+    // 已知 = 不必再试；未知 = 已试 1 次（就是这次领取本身）
+    rewardTries: known ? 0 : 1,
+    rewardAt: now.toISOString(),
+    ...(windowEndsAt !== undefined
+      ? {
+          windowEndsAt:
+            typeof windowEndsAt === "number" && Number.isFinite(windowEndsAt) && windowEndsAt > 0
+              ? Math.trunc(windowEndsAt)
+              : null,
+        }
+      : {}),
   };
   const ledger = readLedger(cid);
   const next: SigninLedger = {
@@ -255,22 +356,70 @@ export function recordClaim(
 export function updateClaimReward(
   cid: string | undefined,
   reward: { amount: number; unit: string } | null,
+  options: {
+    accountKey?: string;
+    /** 数值来源；`reward` 为空时忽略。 */
+    source?: SigninRewardSource;
+    /** 领取前后实测余额（重算差值用）。 */
+    balance?: { before: number | null; after: number | null; unit: string };
+    /** 已尝试次数（绝对值，由调用方累加）。 */
+    tries?: number;
+    /** 本次尝试时刻；默认现在。 */
+    at?: Date;
+  } = {},
+): void {
+  const known = reward !== null && Number.isFinite(reward.amount);
+  patchClaim(
+    cid,
+    (record) => ({
+      ...record,
+      reward,
+      ...(known && options.source ? { rewardSource: options.source } : {}),
+      ...(options.balance ? { balance: options.balance } : {}),
+      ...(options.tries !== undefined ? { rewardTries: Math.max(0, Math.trunc(options.tries)) } : {}),
+      rewardAt: (options.at ?? new Date()).toISOString(),
+    }),
+    options,
+  );
+}
+
+/**
+ * 给一条**已存在**的领取记录打补丁（`date` / `at` 不动 —— 那会变成「刚刚才领」）。
+ *
+ * 账号级与渠道级共用：账号级只改该账号的记录，渠道级同步 history 里同一天那条，
+ * 避免 `mx status` 读到旧值。
+ */
+function patchClaim(
+  cid: string | undefined,
+  patch: (record: ClaimRecord) => ClaimRecord,
   options: { accountKey?: string } = {},
 ): void {
   const ledger = readLedger(cid);
   const record = options.accountKey ? ledger.accounts?.[options.accountKey] : ledger.last_claim;
   if (record === undefined) return;
-  const nextRecord: ClaimRecord = { ...record, reward };
+  const nextRecord = patch(record);
   const next: SigninLedger = { ...ledger, version: 1 };
   if (options.accountKey) {
     next.accounts = { ...(ledger.accounts ?? {}), [options.accountKey]: nextRecord };
   } else {
     next.last_claim = nextRecord;
-    // 历史里同一条（同日期）也同步，避免 `mx status` 读到旧值
-    next.history = ledger.history.map((h) => (h.date === nextRecord.date ? { ...h, reward } : h));
+    next.history = ledger.history.map((h) => (h.date === nextRecord.date ? nextRecord : h));
   }
   ensureStateDir(cid);
   writeJsonSecret(ledgerPath(cid), next);
+}
+
+/**
+ * 记下「这条记录属于哪个签到窗口」的判定（`null` = 渠道不声明窗口）。
+ *
+ * 旧记录没有 `windowEndsAt`，调度器问一次上游后写回，避免每轮都去问。
+ */
+export function updateClaimWindow(
+  cid: string | undefined,
+  windowEndsAt: number | null,
+  options: { accountKey?: string } = {},
+): void {
+  patchClaim(cid, (record) => ({ ...record, windowEndsAt }), options);
 }
 
 /** 台账里是否记着"今天（按当前时区）领过"。 */
@@ -298,6 +447,16 @@ export function ledgerExists(cid?: string): boolean {
   return existsSync(ledgerPath(cid));
 }
 
+/**
+ * 最近一次领取记录（渠道级，或**该账号**的）；没有则 `undefined`。
+ *
+ * 调度器用它判断「领取时记下的签到窗口是否已结束」（见 `ClaimRecord.windowEndsAt`）。
+ */
+export function lastClaimOf(cid: string | undefined, accountKey?: string): ClaimRecord | undefined {
+  const ledger = readLedger(cid);
+  return accountKey === undefined ? ledger.last_claim : ledger.accounts?.[accountKey];
+}
+
 /** 一条领取记录的「今天」视图（控制台展示用）。 */
 export interface ClaimToday {
   claimed: boolean;
@@ -305,6 +464,8 @@ export interface ClaimToday {
   at: string | null;
   /** 这次领到多少额度；渠道报不出数值时为 null（不猜）。 */
   reward: { amount: number; unit: string } | null;
+  /** 额度数值的来源（见 `SigninRewardSource`）；未知时为 null。 */
+  source: SigninRewardSource | null;
   /** 最近一次探测的上游结论（**只保留当天**；跨天或没探测过为 null）。 */
   probe: SigninProbe | null;
 }
@@ -340,6 +501,7 @@ export function signinTodaySnapshot(cid?: string, now: Date = new Date()): Signi
     claimed: record !== undefined && record.date === today,
     at: record !== undefined && record.date === today && record.at !== "" ? record.at : null,
     reward: record !== undefined && record.date === today ? record.reward ?? null : null,
+    source: record !== undefined && record.date === today ? (record.rewardSource ?? null) : null,
     probe: probeOfToday(probe),
   });
   const accounts: Record<string, ClaimToday> = {};
