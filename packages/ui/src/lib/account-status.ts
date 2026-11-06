@@ -6,7 +6,11 @@
  * 会让人白等一个不会自愈的账号）。
  */
 
-import type { PoolAccount } from "./types";
+import type { ChannelSignin, PoolAccount } from "./types";
+import { formatClock } from "./log-format.ts";
+
+/** 签到载荷形状定义在 `types.ts`（与 `AccountSignin` 同处），这里转出给 AccountCard 用。 */
+export type { ChannelSignin };
 
 /** 单账号的额度快照（按账号查询）。 */
 export interface AccountCredits {
@@ -55,6 +59,28 @@ export interface QuotaPeriod {
   unit: string;
   /** 下次刷新时刻（epoch ms）；null = 未知。 */
   resets_at: number | null;
+}
+
+/**
+ * 「今日签到」行（额度详情的最后一行）；`[]` = 该渠道没有签到能力，整行不渲染。
+ *
+ * 两种口径，与后端 `signinViewOf` 一一对应：
+ * - `per_account`（当前只有 loomy）：读**该账号**的台账，没有记录 = 未签到；
+ * - 其余渠道：`claim()` 只作用于生效凭证，台账是**渠道级**的 —— 值里带「（渠道）」，
+ *   否则同一渠道每个账号都写「已签到」，会被读成「这个账号今天签了」。
+ */
+export function signinRows(
+  info: ChannelSignin | null | undefined,
+  account: Pick<PoolAccount, "signin">,
+): Array<{ label: string; value: string }> {
+  if (!info?.supported) return [];
+  const own = info.per_account ? account.signin ?? null : null;
+  const claimed = info.per_account ? own?.claimed_today === true : info.claimed_today;
+  const at = info.per_account ? own?.at ?? null : info.at;
+  const suffix = info.per_account ? "" : "（渠道）";
+  if (!claimed) return [{ label: "今日签到", value: `未签到${suffix}` }];
+  const clock = at === null ? "-" : formatClock(at);
+  return [{ label: "今日签到", value: `${clock === "-" ? "已签到" : `已签到 ${clock}`}${suffix}` }];
 }
 
 export type AccountStatus = "ok" | "cooldown" | "down" | "broke";

@@ -99,7 +99,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
               to={to}
               aria-label={label}
               className={({ isActive }) =>
-                `nav-item flex flex-none items-center whitespace-nowrap ${
+                `nav-item tap-square flex flex-none items-center whitespace-nowrap ${
                   isActive ? "bg-raised text-ink" : "text-ink-soft hover:bg-raised/60 hover:text-ink"
                 }`
               }

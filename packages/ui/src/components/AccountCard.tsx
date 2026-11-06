@@ -25,6 +25,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
  */
 export interface AccountPool {
   cid: string;
+  /** 渠道级签到状态（无签到能力的渠道 `supported=false`，「今日签到」行不渲染）。 */
+  signin?: ChannelSignin | null;
   index: {
     active: string | null;
     accounts: PoolAccount[] | Array<Record<string, unknown>>;
@@ -36,19 +38,23 @@ export interface AccountPool {
 import {
   classifyAccount,
   rowOf,
+  signinRows,
   type AccountBilling,
   type AccountCredits,
   type AccountStatus,
   type ChannelBilling,
+  type ChannelSignin,
   type QuotaPeriod,
 } from "../lib/account-status";
 export {
   classifyAccount,
   rowOf,
+  signinRows,
   type AccountBilling,
   type AccountCredits,
   type AccountStatus,
   type ChannelBilling,
+  type ChannelSignin,
   type QuotaPeriod,
 } from "../lib/account-status";
 
@@ -389,14 +395,13 @@ export function AccountCard({
     detailAccount && detailStatus ? statusNoteOf(detailAccount, detailStatus, clock) : null;
 
   return (
-    // 展开态 `col-span-full`：网格行高取行内最高的卡，展开的卡会把同行两个单账号卡
-    // 下方各留出 200px 空白（实测 371 vs 164）—— 让展开的卡独占一行，其余卡片顺延。
+    // 展开**不跨列**：卡片只在自己那一格里长高，同行右侧的渠道保持原位、不被挤到下一行。
+    // 早期用 `col-span-full` 独占整行（当时是为了避免同行卡片下方留白），代价是
+    // 「展开一个渠道 → 右侧渠道全部下移、本卡占满整行」，整块布局跳一下。
+    // 现在仍会有行内留白（`items-start` 只让卡片不被拉伸，**行轨道高度仍由该行最高的卡决定**），
+    // 但留白落在网格背景上，比整行重排安静得多 —— 这是刻意接受的取舍。
     <>
-    <div
-      className={`panel flex flex-col overflow-hidden transition-colors ${
-        expanded && hiddenCount > 0 ? "col-span-full" : ""
-      }`}
-    >
+    <div className="panel flex flex-col overflow-hidden transition-colors">
       {/* 卡头：cid + 账号数 + 添加按钮（状态在各自的账号行上，渠道不显示状态） */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -638,12 +643,16 @@ export function AccountCard({
       {detail && detailAccount && (
         <AccountDetailPanel anchor={detail.anchor}>
           <dl className="space-y-1 pb-2">
-            {quotaDetailRows(
-              detailBill?.credits,
-              detailBill?.baseline,
-              billing?.unsupported === true,
-              tokensOf?.(detailAccount.key),
-            ).map((row) => (
+            {[
+              ...quotaDetailRows(
+                detailBill?.credits,
+                detailBill?.baseline,
+                billing?.unsupported === true,
+                tokensOf?.(detailAccount.key),
+              ),
+              // 今日签到：渠道没有签到能力时这里是空数组（整行不渲染）
+              ...signinRows(pool.signin, detailAccount),
+            ].map((row) => (
               <div key={row.label} className="flex items-baseline justify-between gap-4">
                 <dt className="text-ink-faint">{row.label}</dt>
                 <dd className="font-mono tabular-nums text-ink">{row.value}</dd>

@@ -33,6 +33,33 @@ const ALIAS_GROUP: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
+ * 渠道级**型号互斥**：键是下位型号，值是「一旦该渠道供给其中任意一个，就不再让它承接键」。
+ *
+ * 语义：`deepseek-v4-flash` / `deepseek-v4-pro` 只服务**上游没有 v4.1-flash** 的渠道
+ * （那两家渠道的目录里就是这两个型号）；渠道只要供给 v4.1-flash（含别名 `deepseek-flash`，
+ * 以及上游各种大小写 / 前后缀写法 —— 归一化交给 `canonicalModelId`），
+ * 这两个下位型号就不再选它。不这么收口的话，同一家渠道会被两个型号重复命中：
+ * 请求 `deepseek-v4-flash` 仍可能被发到「本已升级到 v4.1-flash」的渠道上。
+ *
+ * 归一化写作要靠 `canonicalModelId()`（`DeepSeek-V4.1-Flash` / `sn-deepseek-v4-1-flash` /
+ * 带 `-official`、`-0731` 尾饰）—— 判定走「渠道目录里有没有这个规范名」，不看字面写法。
+ */
+const SUPERSEDED_BY: Readonly<Record<string, readonly string[]>> = {
+  "deepseek-v4-flash": ["deepseek-v4.1-flash"],
+  "deepseek-v4-pro": ["deepseek-v4.1-flash"],
+};
+
+/**
+ * 该规范名的**上位型号**集合：渠道供给其中任意一个时，这个型号不该再选它。
+ *
+ * 空数组 = 该型号不受互斥约束。执行点是 `pool-targets.isSupersededChannel`（候选收集与
+ * 元数据聚合共用），它被 `candidatesOf` / `getPoolModelMeta` 调用 —— 改这条规则只需要改这里。
+ */
+export function supersedingModels(canonical: string): readonly string[] {
+  return SUPERSEDED_BY[canonical] ?? [];
+}
+
+/**
  * 对外**列出**的模型 id：只列 canonical。
  *
  * `deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（同一代模型），仍可被客户端**请求**，

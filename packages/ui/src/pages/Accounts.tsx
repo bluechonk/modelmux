@@ -4,7 +4,6 @@
 
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { RotateCw } from "lucide-react";
 import { api } from "../lib/api";
 import {
   AccountCard,
@@ -15,6 +14,7 @@ import {
 } from "../components/AccountCard";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
+import { RefreshButton } from "../components/RefreshButton";
 import { useToast } from "../components/Toast";
 import { Skeleton } from "./Dashboard";
 
@@ -283,20 +283,18 @@ export function Accounts(): ReactElement {
         title="账号池"
         description="各渠道的凭据、账号池与额度"
         actions={
-          <button
-            type="button"
-            onClick={() => {
-              // 四路查询一起失效：卡片 / 登录态 / 额度 / 弹窗快照本来就是同一批事实
-              void qc.invalidateQueries({ queryKey: ["accounts"] });
-              void qc.invalidateQueries({ queryKey: ["logins"] });
-              void qc.invalidateQueries({ queryKey: ["billing"] });
-              void qc.invalidateQueries({ queryKey: ["state"] });
+          <RefreshButton
+            onRefresh={async () => {
+              // 四路查询一起失效：卡片 / 登录态 / 额度 / 弹窗快照本来就是同一批事实。
+              // Promise.all 是刻意的：忙态要持续到四路都回完，而不是点完立刻复位
+              await Promise.all([
+                qc.invalidateQueries({ queryKey: ["accounts"] }),
+                qc.invalidateQueries({ queryKey: ["logins"] }),
+                qc.invalidateQueries({ queryKey: ["billing"] }),
+                qc.invalidateQueries({ queryKey: ["state"] }),
+              ]);
             }}
-            className="tap flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          >
-            <RotateCw className="h-3.5 w-3.5" />
-            刷新
-          </button>
+          />
         }
       />
 

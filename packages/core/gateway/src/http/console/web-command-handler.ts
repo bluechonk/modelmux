@@ -9,13 +9,14 @@
  * 调用方（headless 的 bridge）负责提供实现。
  */
 
-import { channelCapabilities, channels, getChannel, hasChannel } from "../../runtime/channel.js";
+import { channelCapabilities, channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
+import { signinTodaySnapshot } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
-import type { WebCommandBody, WebCommandResult, WebChannelStatus } from "./web-types.js";
+import type { WebCommandBody, WebCommandResult, WebChannelStatus, WebSigninView } from "./web-types.js";
 
 /**
  * 命令分发的外部依赖（由调用方注入）。
@@ -175,7 +176,12 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
           const poolCid = channel.config.cid;
           runInChannel(poolCid, () => syncPool(poolCid));
           const index = runInChannel(poolCid, () => listAccounts(poolCid));
-          return renderChannelPool(channel.config.cid, channel.upstream.DISPLAY_NAME, index);
+          return renderChannelPool(
+            channel.config.cid,
+            channel.upstream.DISPLAY_NAME,
+            index,
+            signinViewOf(poolCid, channel),
+          );
         });
         // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
         return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
@@ -268,6 +274,45 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
     const message = e instanceof Error ? e.message : String(e);
     return { ok: false, error: message };
   }
+  };
+}
+
+/**
+ * 渠道的签到视图（渠道能力 + 本地台账）。
+ *
+ * **只读本地台账**（`<root>/channels/<cid>/state/signin.json`，旧布局回落 `<root>/<cid>/`），
+ * 不查上游：账号池页是 15 秒一轮的高频页面，让它去打各渠道的上游签到端点既慢又会留下
+ * 无谓的上游痕迹 —— 与 `mx status` 同一取舍（见 daemon.ts 的签到段）。上游的权威答案
+ * 仍归渠道 billing（`mx <cid> checkin`）。
+ *
+ * `per_account` 由渠道声明（`signin.perAccount`）：为 true 时账号行读账号级记录，
+ * 否则整条渠道共用一个「今天领过」—— 这类渠道的 `claim()` 只作用于生效凭证。
+ *
+ * 「今天」的口径收敛在 `signin-ledger.signinTodaySnapshot`（与 `claimedTodayPerLedger` /
+ * `claimedTodayForAccount` 同一个日切入口）—— 控制台与自动签到各自算一遍的话，
+ * 机器换过时区后界面会说「已签到」而调度器认为「未签」并再领一次。
+ */
+function signinViewOf(cid: string, channel: Channel): WebSigninView {
+  // 契约要求每个渠道都给 `signin`。真缺了（契约违例 / 测试桩）时按**能力不可用**处理：
+  // 报 supported=true 会让前端永久显示「未签到（渠道）」，把「没有这项能力」说成「今天没签」
+  const module = channel.billing.signin as { perAccount?: boolean } | undefined;
+  const supported = channelCapabilities(channel.config).signin && module !== undefined;
+  const perAccount = supported && module.perAccount === true;
+  const snapshot = signinTodaySnapshot(cid);
+  const accounts: WebSigninView["accounts"] = {};
+  if (perAccount) {
+    for (const [key, record] of Object.entries(snapshot.accounts)) {
+      accounts[key] = { claimed_today: record.claimed, at: record.at };
+    }
+  }
+  return {
+    channel: {
+      supported,
+      per_account: perAccount,
+      claimed_today: snapshot.channel.claimed,
+      at: snapshot.channel.at,
+    },
+    accounts,
   };
 }
 

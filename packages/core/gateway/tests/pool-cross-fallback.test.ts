@@ -40,9 +40,9 @@ interface StubOptions {
  * 注册若干合成渠道，每个只暴露同名模型 `deepseek-v4.1-flash` —— 跨渠道对齐才会命中
  * 同一个规范名。目录内容全部由测试自己写进目录缓存。
  */
-function use(...specs: Array<{ cid: string } & StubOptions>): void {
+function use(...specs: Array<{ cid: string; exposed?: string[] } & StubOptions>): void {
   clearChannels();
-  for (const { cid, spec, broken } of specs) {
+  for (const { cid, spec, broken, exposed } of specs) {
     const config: ChannelConfig = {
       cid,
       display: `Stub ${cid}`,
@@ -56,7 +56,7 @@ function use(...specs: Array<{ cid: string } & StubOptions>): void {
       catalog: {
         exposedIds: () => {
           if (broken) throw new Error("catalog unavailable");
-          return ["deepseek-v4.1-flash"];
+          return exposed ?? ["deepseek-v4.1-flash"];
         },
         resolveModel: (name: string) => name,
         ...(spec ? { modelSpec: () => spec } : {}),
@@ -264,6 +264,23 @@ describe("坏渠道隔离与枚举入口", () => {
 
     const metas = poolModelMetas();
     assert.deepEqual([...metas.keys()], ["deepseek-v4.1-flash"], "全池只有这一款 deepseek 模型");
+  });
+
+  it("型号互斥同样作用于元数据聚合：供给上位型号的渠道不进下位型号的聚合", () => {
+    // upgraded 同时供两代 → 只算 v4.1-flash 的渠道；legacy 只供下位型号
+    use(
+      { cid: "upgraded", exposed: ["deepseek-v4.1-flash", "deepseek-v4-flash"] },
+      { cid: "legacy", exposed: ["deepseek-v4-flash"] },
+    );
+    writeCatalogCache([{ id: "deepseek-v4-flash", contextWindow: 500_000 }], "upgraded");
+    writeCatalogCache([{ id: "deepseek-v4-flash", contextWindow: 300_000 }], "legacy");
+    const index = buildCrossModelIndex();
+
+    assert.equal(
+      getPoolModelMeta("deepseek-v4-flash", index).contextWindow,
+      300_000,
+      "聚合只取真正会承接下位型号的渠道（upgraded 的 500k 不该混进来）",
+    );
   });
 });
 
