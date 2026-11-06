@@ -106,11 +106,45 @@ describe("signinRows：今日签到行", () => {
     assert.deepEqual(signinRows(undefined, pool(null)), []);
   });
 
-  it("非按账号渠道：读渠道级台账，值里标注「（渠道）」", () => {
-    assert.deepEqual(signinRows(channel(), pool(null)), [{ label: "今日签到", value: "未签到（渠道）" }]);
+  it("非按账号渠道：读渠道级台账，值里不再标「（渠道）」", () => {
+    assert.deepEqual(signinRows(channel(), pool(null)), [{ label: "今日签到", value: "未签到" }]);
     const claimed = signinRows(channel({ claimed_today: true, at: "2026-11-06T01:02:03.000Z" }), pool(null));
     assert.equal(claimed.length, 1);
-    assert.match(claimed[0]!.value, /^已签到 \d{2}:\d{2}:\d{2}（渠道）$/);
+    assert.match(claimed[0]!.value, /^已签到 \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it("领到额度时按「+N 单位」显示；0 额度不显示", () => {
+    const withReward = signinRows(
+      channel({ claimed_today: true, at: "2026-11-06T01:02:03.000Z", reward: { amount: 1200, unit: "积分" } }),
+      pool(null),
+    );
+    // 时刻走本地时区（`formatClock`），断言只钉「时刻 + 额度」的形状，不钉时区
+    assert.match(withReward[0]!.value, /^已签到 \d{2}:\d{2}:\d{2} \+1,200 积分$/);
+    const zero = signinRows(
+      channel({ claimed_today: true, at: "2026-11-06T01:02:03.000Z", reward: { amount: 0, unit: "积分" } }),
+      pool(null),
+    );
+    assert.match(zero[0]!.value, /^已签到 \d{2}:\d{2}:\d{2}$/, "0 额度不显示（会让人以为签了没给）");
+  });
+
+  it("上游明确「没有可领」→ 说「今日无可领」并带上渠道原话，不说「未签到」", () => {
+    const rows = signinRows(
+      channel({
+        probe: { claimable: false, claimed_today: null, summary: "上游今天没有可领的奖励", at: "2026-11-06T02:00:00.000Z" },
+      }),
+      pool(null),
+    );
+    assert.deepEqual(rows, [
+      { label: "今日签到", value: "今日无可领", note: "上游今天没有可领的奖励" },
+    ]);
+  });
+
+  it("探测失败（查不到）仍按「未签到」，不把「不知道」说成「无可领」", () => {
+    const rows = signinRows(
+      channel({ probe: { claimable: null, claimed_today: null, summary: "查不到", at: "2026-11-06T02:00:00.000Z" } }),
+      pool(null),
+    );
+    assert.deepEqual(rows, [{ label: "今日签到", value: "未签到" }]);
   });
 
   it("按账号渠道：读该账号自己的记录，无记录 = 未签到", () => {
@@ -125,6 +159,6 @@ describe("signinRows：今日签到行", () => {
 
   it("签了但台账没记时刻 → 只报「已签到」，不编一个时间", () => {
     const info = channel({ claimed_today: true, at: null });
-    assert.deepEqual(signinRows(info, pool(null)), [{ label: "今日签到", value: "已签到（渠道）" }]);
+    assert.deepEqual(signinRows(info, pool(null)), [{ label: "今日签到", value: "已签到" }]);
   });
 });

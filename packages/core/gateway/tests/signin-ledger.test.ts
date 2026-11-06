@@ -22,6 +22,7 @@ import {
   ledgerExists,
   readLedger,
   recordClaim,
+  recordProbe,
   signinTodaySnapshot,
   HISTORY_LIMIT,
 } from "../dist/auth/signin-ledger.js";
@@ -213,12 +214,24 @@ describe("6. signinTodaySnapshot：控制台的「今日签到」视图", () => 
     assert.match(snap.accounts["acct-1"]?.at ?? "", /^\d{4}-\d{2}-\d{2}T/, "要有可显示的领取时刻");
   }));
 
-  it("隔天的记录不算今天（无记录 → claimed=false，不编造时刻）", withRoot(() => {
+  it("隔天的记录不算今天（旧记录不显示成已签到，也不带额度）", withRoot(() => {
     const yesterday = new Date(Date.now() - 86_400_000);
-    recordClaim(CID, { via: "auto", accountKey: "acct-1", now: yesterday });
+    recordClaim(CID, { via: "auto", accountKey: "acct-1", now: yesterday, reward: { amount: 500, unit: "积分" } });
     const snap = signinTodaySnapshot(CID);
-    assert.equal(snap.channel.claimed, false);
-    assert.deepEqual(snap.accounts["acct-1"], { claimed: false, at: null }, "旧记录不能显示成已签到");
+    assert.equal(snap.channel.claimed, false, "渠道级不带明天的记录（这里昨天也没记渠道级）");
+    assert.equal(snap.accounts["acct-1"]?.claimed, false);
+    assert.equal(snap.accounts["acct-1"]?.reward, null, "旧记录的额度不能当成今天的");
+  }));
+
+  it("额度与探测结论一起透出；探测结论只保留当天", withRoot(() => {
+    recordClaim(CID, { via: "auto", accountKey: "acct-1", reward: { amount: 1200, unit: "积分" } });
+    recordProbe(CID, { claimable: false, claimed_today: null, summary: "上游今天没有可领的奖励" }, { accountKey: "acct-1" });
+    const snap = signinTodaySnapshot(CID);
+    assert.deepEqual(snap.accounts["acct-1"]?.reward, { amount: 1200, unit: "积分" });
+    assert.equal(snap.accounts["acct-1"]?.probe?.summary, "上游今天没有可领的奖励");
+    // 跨天：探测结论作废（活动按日刷新），但记录本身还在
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    assert.equal(signinTodaySnapshot(CID, tomorrow).accounts["acct-1"]?.probe, null);
   }));
 
   it("空台账：两个视图都不签，today 仍有值", withRoot(() => {

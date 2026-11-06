@@ -363,6 +363,8 @@ export const signin: SigninModule = {
     return {
       ok: true,
       summary: `签到成功，今日已入账 ${total} 积分`,
+      // 账单核对出的入账总额就是本次领到的额度（单位沿用上游的「积分」）
+      reward: { amount: total, unit: "积分" },
       detail: { notify, grants },
     };
   },

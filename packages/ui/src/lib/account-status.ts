@@ -64,23 +64,38 @@ export interface QuotaPeriod {
 /**
  * 「今日签到」行（额度详情的最后一行）；`[]` = 该渠道没有签到能力，整行不渲染。
  *
- * 两种口径，与后端 `signinViewOf` 一一对应：
- * - `per_account`（当前只有 loomy）：读**该账号**的台账，没有记录 = 未签到；
- * - 其余渠道：`claim()` 只作用于生效凭证，台账是**渠道级**的 —— 值里带「（渠道）」，
- *   否则同一渠道每个账号都写「已签到」，会被读成「这个账号今天签了」。
+ * 三种情况必须分开说（混成一句「未签到」会把「上游本来就没东西可领」说成用户的失职）：
+ * - 领到了：`已签到 09:12`，能报额度时带「+N」（单位原样显示）；
+ * - 有探测结论且上游明确没有可领活动：`今日无可领`（附渠道自己的说明）；
+ * - 其余（没探测过 / 探测失败）：`未签到`。
+ *
+ * 两种口径与后端 `signinViewOf` 一一对应：按账号签到的渠道读**该账号**的记录，
+ * 其余渠道的 `claim()` 只作用于生效凭证，值是渠道级的（这里不再标「（渠道）」——
+ * 面板本身就是「这个账号的详情」，标注只会让人以为还有另一份数）。
  */
 export function signinRows(
   info: ChannelSignin | null | undefined,
   account: Pick<PoolAccount, "signin">,
-): Array<{ label: string; value: string }> {
+): Array<{ label: string; value: string; note?: string }> {
   if (!info?.supported) return [];
   const own = info.per_account ? account.signin ?? null : null;
   const claimed = info.per_account ? own?.claimed_today === true : info.claimed_today;
   const at = info.per_account ? own?.at ?? null : info.at;
-  const suffix = info.per_account ? "" : "（渠道）";
-  if (!claimed) return [{ label: "今日签到", value: `未签到${suffix}` }];
-  const clock = at === null ? "-" : formatClock(at);
-  return [{ label: "今日签到", value: `${clock === "-" ? "已签到" : `已签到 ${clock}`}${suffix}` }];
+  const reward = (info.per_account ? own?.reward : info.reward) ?? null;
+  const probe = (info.per_account ? own?.probe : info.probe) ?? null;
+  if (claimed) {
+    const clock = at === null ? "" : formatClock(at);
+    const amount =
+      reward !== null && reward.amount > 0
+        ? ` +${reward.amount.toLocaleString("en-US")}${reward.unit === "" ? "" : ` ${reward.unit}`}`
+        : "";
+    return [{ label: "今日签到", value: `${clock === "" || clock === "-" ? "已签到" : `已签到 ${clock}`}${amount}` }];
+  }
+  // 上游明确「没有可领的」：如实说「今日无可领」，不冒充「你还没签」
+  if (probe !== null && probe.claimable === false) {
+    return [{ label: "今日签到", value: "今日无可领", note: probe.summary }];
+  }
+  return [{ label: "今日签到", value: "未签到" }];
 }
 
 export type AccountStatus = "ok" | "cooldown" | "down" | "broke";

@@ -430,11 +430,27 @@ export interface SigninStatus {
   daily?: boolean;
 }
 
+/** 一次领取到手的额度（签到奖励）。 */
+export interface SigninReward {
+  /** 数量；上游没给具体数值就不填（不要从摘要里猜）。 */
+  amount: number;
+  /** 单位（`积分` / `credits` / `Points`…，渠道给的原文）。 */
+  unit: string;
+}
+
 /** 执行签到 / 领取的结果。 */
 export interface SigninOutcome {
   ok: boolean;
   /** 人读摘要（如「签到成功，+300 积分」）。 */
   summary: string;
+  /**
+   * **这次实际领到多少额度**（可选）。
+   *
+   * 只有渠道能从上游回答「发放了多少」时才填：控制台据此在账号详情里显示
+   * 「今日签到 +N」，并记进本地台账。填不出来（上游只回一句 message）就省略 ——
+   * 从 `summary` 里正则抠数字会把「连续 3 天」这类文案当成额度。
+   */
+  reward?: SigninReward;
   /** 渠道原始返回（`--json` 时给）。 */
   detail?: unknown;
 }

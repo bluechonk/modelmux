@@ -42,8 +42,8 @@ export interface CommandContext {
   follow: boolean;
   /** `logs --kind`：access / error / system / lifecycle / worker / channel。 */
   logKind?: string;
-  /** `logs --outcome`：success / failure / other（仅 access）。 */
-  logOutcome?: "success" | "failure" | "other";
+  /** `logs --outcome`：success / failure（仅 access；历史 `other` 已并入 failure）。 */
+  logOutcome?: "success" | "failure";
   /** `logs --date YYYY-MM-DD`。 */
   logDate?: string;
   /** `logs --list`：列出日志文件。 */

@@ -16,6 +16,7 @@ import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
 import { RefreshButton } from "../components/RefreshButton";
 import { useToast } from "../components/Toast";
+import { columnCount, distributeByColumns } from "../lib/card-columns";
 import { Skeleton } from "./Dashboard";
 
 interface StatusRow {
@@ -277,6 +278,27 @@ export function Accounts(): ReactElement {
   const loginChannels = logins.data ?? [];
   const snapshot = state.data;
 
+  /**
+   * 卡片列数（容器实测宽 → `columnCount`）；`ResizeObserver` 跟随窗口/侧栏变化。
+   * 初值 1：首帧按 1 列渲染不会溢出，下一帧量到真实宽度就切到 N 列。
+   */
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [columnTotal, setColumnTotal] = useState(1);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = (): void => {
+      // `clientWidth` 已扣掉内边距与滚动条，正是可分配给列的内容宽
+      setColumnTotal(columnCount(el.clientWidth));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [list.length]);
+  /** 按列分发后的卡片（列内自上而下、列间从左到右）。 */
+  const columns = distributeByColumns(list, columnTotal);
+
   return (
     <div className="space-y-5 pb-10">
       <PageHeader
@@ -327,37 +349,41 @@ export function Accounts(): ReactElement {
           </div>
 
           {/*
-            渠道卡网格：**各卡按自身内容取高**（`items-start`，不再同行拉伸）。
+          {/*
+            渠道卡按**列**分发（瀑布流），不用 CSS Grid 的自动多列。
 
-            不等高的理由：账号数差异大时（1 个 vs 5 个），
-            同行拉伸会让只有 1 个账号的卡被撑到与 5 个账号一样高，卡内出现大片空白，
-            整页看起来「布局坏了」。改为自然高度后，每张卡都是紧凑的，代价是行尾参差
-            —— 对「账号数本来就不齐」的列表，这个代价明显更小。
+            为什么换：网格的行轨道高度 = 行内最高那张卡，一张卡展开就在同行另两张下方
+            顶出一大片空白（实测展开 loomy 后该行 275px、另两张 140px，留 135px 白带）。
+            `items-start` 只阻止卡片被拉伸，治不了行高。改成「算列数 → 轮询分发」后，
+            每列是独立纵向流，任何一张卡长高只把**同一列**下面的卡往下推，没有白带。
 
-            自适应列数：卡片最小宽 340px，空间够就自然多列，不写死断点。
-            `min(340px, 100%)` 是必要的收口：视口比 340px + 内边距还窄时（实测 360 视口），
-            写死 340px 的轨道会把 `main` 顶出 6px 横向滚动。
+            列数按容器实测宽算（`columnCount`，单卡最小 340px）：不写死断点，
+            `< 340px + 内边距` 时收敛成 1 列（360 视口不会被顶出横向滚动）。
           */}
-          <div className="grid items-start gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))" }}>
-            {list.map(({ pool, billing: bill }) => (
-              <AccountCard
-                key={pool.cid}
-                pool={pool}
-                billing={bill}
-                billingLoading={billingLoading}
-                billingError={billingError}
-                now={now}
-                tokensOf={(key) => {
-                  // 数据还没到时返回 undefined（不渲染，避免把「没取到」显示成 0）；
-                  // 取到之后没有记录 = 今天确实没消耗，如实显示 0
-                  if (usageQuery.data === undefined) return undefined;
-                  return tokensByKey.get(key) ?? 0;
-                }}
-                onActivate={(cid, key) => activate.mutate({ cid, key })}
-                onRemove={(cid, key) => remove.mutate({ cid, key })}
-                onAdd={(cid) => setLoginChannel(cid)}
-                busyKey={busyKey}
-              />
+          <div ref={gridRef} className="flex items-start gap-3">
+            {columns.map((column, columnIndex) => (
+              <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-3">
+                {column.map(({ pool, billing: bill }) => (
+                  <AccountCard
+                    key={pool.cid}
+                    pool={pool}
+                    billing={bill}
+                    billingLoading={billingLoading}
+                    billingError={billingError}
+                    now={now}
+                    tokensOf={(key) => {
+                      // 数据还没到时返回 undefined（不渲染，避免把「没取到」显示成 0）；
+                      // 取到之后没有记录 = 今天确实没消耗，如实显示 0
+                      if (usageQuery.data === undefined) return undefined;
+                      return tokensByKey.get(key) ?? 0;
+                    }}
+                    onActivate={(cid, key) => activate.mutate({ cid, key })}
+                    onRemove={(cid, key) => remove.mutate({ cid, key })}
+                    onAdd={(cid) => setLoginChannel(cid)}
+                    busyKey={busyKey}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         </>

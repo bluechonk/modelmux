@@ -53,7 +53,7 @@ describe("访问日志 outcome 分桶", () => {
   // `toISOString().slice(0,10)`（那是 UTC）：在 UTC+8 的 00:00–08:00 之间两者差一天，
   // 测试会去读**前一天的目录**而误报「没落进 success.log」（2026-10-23 早 07:5x 实测踩到）。
 
-  it("200 之后客户端断开 → 落 success（不是 other），并留下断开说明", () => {
+  it("200 之后客户端断开 → 落 success，并留下断开说明", () => {
     const res = new FakeRes();
     const log = attachRequestLog("POST", "/v1/chat/completions", res as never);
     res.statusCode = 200;
@@ -61,7 +61,7 @@ describe("访问日志 outcome 分桶", () => {
     assert.equal(log.outcome, "success", "客户端断开不改变服务端结果的分桶");
     assert.match(String(log.message), /client disconnected/);
     assert.ok(bucket("success").includes(log.id), "应落进 success.log");
-    assert.equal(bucket("other").includes(log.id), false, "不应落进 other.log");
+    assert.equal(bucket("failure").includes(log.id), false, "不应落进 failure.log");
   });
 
   it("5xx 之后客户端断开 → 落 failure", () => {
@@ -73,12 +73,13 @@ describe("访问日志 outcome 分桶", () => {
     assert.ok(bucket("failure").includes(log.id));
   });
 
-  it("还没写状态码就断开 → 落 other", () => {
+  it("还没写状态码就断开 → 落 failure（没有第三桶「中断」）", () => {
     const res = new FakeRes();
     const log = attachRequestLog("POST", "/v1/chat/completions", res as never);
     res.statusCode = 0;
     res.emit("close");
-    assert.equal(log.outcome, "other", "没有状态码 = 服务端没给出结果");
+    assert.equal(log.outcome, "failure", "没有状态码 = 服务端没给出结果 → 按失败记");
+    assert.equal(log.error, "no_status", "失败原因要能看出来是「没给状态码」");
   });
 
   it("noteClientDisconnect 只留说明，不预判 outcome", () => {

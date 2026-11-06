@@ -338,18 +338,24 @@ export const signin: SigninModule = {
     }
     const summaries: string[] = [];
     let claimed = 0;
+    let totalAmount = 0;
     for (const campaign of claimable) {
       const id = str(campaign["campaignId"]);
       if (!id) continue;
       const result = await claimCampaign(credential, id);
       const amount = num((result["benefit"] as Record<string, unknown> | undefined)?.["amount"]);
       const replayed = result["replayed"] === true;
-      if (!replayed) claimed += 1;
+      if (!replayed) {
+        claimed += 1;
+        totalAmount += amount;
+      }
       summaries.push(`${amount > 0 ? `+${amount} Credits` : "已领取"}${replayed ? "（重复领取，未重复发放）" : ""}`);
     }
     return {
       ok: true,
       summary: claimed > 0 ? `领取成功：${summaries.join("；")}` : `没有新的可领奖励：${summaries.join("；")}`,
+      // 只累加**本次真的发放**的额度（replayed 不重复发放，计进去会虚报）
+      ...(totalAmount > 0 ? { reward: { amount: totalAmount, unit: "Credits" } } : {}),
       detail: { claimed },
     };
   },
