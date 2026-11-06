@@ -79,6 +79,32 @@ export interface ModelInfo {
   };
 }
 
+/**
+ * 一个账号的当日签到记录（后端 `accounts` 命令透出，读的是本地台账）。
+ *
+ * `null` / 缺省 = 该渠道不按账号签到（或没有签到能力）—— 此时签到状态是**渠道级**的，
+ * 见 `ChannelSignin`；不要在这里回落到「未签到」，那会把「不适用」说成「今天没签」。
+ */
+export interface AccountSignin {
+  claimed_today: boolean;
+  /** 领取时刻（ISO）；台账没记时刻为 null。 */
+  at: string | null;
+}
+
+/**
+ * 渠道级签到状态（后端 `accounts` 命令透出）。
+ *
+ * `supported=false` = 该渠道没有签到功能（如 workbuddyai 国际版）→ 控制台**不渲染**
+ * 「今日签到」行：写「未签到」会被读成「今天还没签」，与「根本没这项功能」是两回事。
+ */
+export interface ChannelSignin {
+  supported: boolean;
+  /** true = 按账号签到（账号行读账号级台账）；false = 全渠道共用渠道级记录。 */
+  per_account: boolean;
+  claimed_today: boolean;
+  at: string | null;
+}
+
 export interface PoolAccount {
   key: string;
   uid: string;
@@ -110,11 +136,20 @@ export interface PoolAccount {
   trip_until?: string | null;
   /** 当前熔断退避长度（ms）。 */
   trip_backoff_ms?: number;
+  /**
+   * 账号级签到（后端 `accounts` 命令透出）。
+   *
+   * `null` / 缺省 = 该渠道不按账号签到（或没有签到能力）—— 此时签到状态是**渠道级**的，
+   * 见 `ChannelSignin`；不要在这里回落到「未签到」，那会把「不适用」说成「今天没签」。
+   */
+  signin?: AccountSignin | null;
 }
 
 export interface ChannelPool {
   cid: string;
   display: string;
+  /** 渠道级签到状态（`supported=false` 时「今日签到」行整行不渲染）。 */
+  signin?: ChannelSignin | null;
   index: {
     version: 1;
     active: string | null;

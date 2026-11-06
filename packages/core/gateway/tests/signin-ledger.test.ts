@@ -22,6 +22,7 @@ import {
   ledgerExists,
   readLedger,
   recordClaim,
+  signinTodaySnapshot,
   HISTORY_LIMIT,
 } from "../dist/auth/signin-ledger.js";
 
@@ -154,6 +155,7 @@ describe("4. 损坏容忍", () => {
   }));
 });
 
+
 describe("5. 按账号记录（签到按账号调度的门禁）", () => {
   it("账号级记录互不影响，渠道级视图同步更新", withRoot(() => {
     recordClaim(CID, { via: "auto", accountKey: "acct-1" });
@@ -197,5 +199,32 @@ describe("5. 按账号记录（签到按账号调度的门禁）", () => {
     const after = readLedger(CID);
     assert.equal(after.history.length, 2, "历史保留（新记录 + 旧记录）");
     assert.equal(claimedTodayForAccount(CID, "acct-x"), true);
+  }));
+});
+
+describe("6. signinTodaySnapshot：控制台的「今日签到」视图", () => {
+  it("渠道级 + 账号级一起给出，且与 claimedToday* 同一口径", withRoot(() => {
+    recordClaim(CID, { via: "auto", accountKey: "acct-1" });
+    const snap = signinTodaySnapshot(CID);
+    assert.equal(snap.today, dateInTimezone(new Date(), currentTimezone()));
+    assert.equal(snap.channel.claimed, true, "渠道级 last_claim 记着今天");
+    assert.equal(snap.accounts["acct-1"]?.claimed, true);
+    assert.equal(snap.accounts["acct-2"], undefined, "台账里没有的账号不出现（前端按账号对齐）");
+    assert.match(snap.accounts["acct-1"]?.at ?? "", /^\d{4}-\d{2}-\d{2}T/, "要有可显示的领取时刻");
+  }));
+
+  it("隔天的记录不算今天（无记录 → claimed=false，不编造时刻）", withRoot(() => {
+    const yesterday = new Date(Date.now() - 86_400_000);
+    recordClaim(CID, { via: "auto", accountKey: "acct-1", now: yesterday });
+    const snap = signinTodaySnapshot(CID);
+    assert.equal(snap.channel.claimed, false);
+    assert.deepEqual(snap.accounts["acct-1"], { claimed: false, at: null }, "旧记录不能显示成已签到");
+  }));
+
+  it("空台账：两个视图都不签，today 仍有值", withRoot(() => {
+    const snap = signinTodaySnapshot(CID);
+    assert.equal(snap.channel.claimed, false);
+    assert.deepEqual(snap.accounts, {});
+    assert.match(snap.today, /^\d{4}-\d{2}-\d{2}$/);
   }));
 });

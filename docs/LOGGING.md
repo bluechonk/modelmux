@@ -138,6 +138,12 @@
 （`SLOW_MIN_COMPLETION` 只服务「速率慢」判定，均值要的是所有可计算样本）。算不出样本时
 为 `null`（界面显示 `—`，不是 0）。
 
+**统计范围与列表同源**（`queryAccessLogs` 的 `inScope`）：`stats` / `cids` 只覆盖调用方声明的
+`path` / `paths`，日志页与控制台总览都传 `MODEL_REQUEST_PATHS`。不这么收口的话，access 日志里
+必然存在的非模型记录（浏览器探测 `GET /.well-known/appspecific/com.chrome.devtools.json` → 404、
+`/health`、`/v1/models`）会把统计条顶成「请求 1 / 失败 1」，而列表只列模型请求、点「失败」一条
+也没有 —— 分段计数与列表必须同源（2026-11-06 实测）。不传路径时统计覆盖全部（CLI / 排障要全量）。
+
 **定位**：命中后按三个耗时字段的组合找原因：
 
 | `upstreamMs` | `ttfbMs` | `durationMs` | 结论 |

@@ -78,6 +78,27 @@
 家族外的名字一律 `400 unknown_model`；家族内但**没有任何渠道供给**的也是 `400`（没货），
 「渠道都没登录」才是 `503`。
 
+### 2.1.1 型号互斥：上位型号顶掉下位型号
+
+`deepseek-v4-flash` / `deepseek-v4-pro` 只服务**上游没有 `deepseek-v4.1-flash`** 的渠道：
+
+| 渠道目录里有 | 该渠道承接 | 该渠道**不再**承接 |
+| --- | --- | --- |
+| `deepseek-v4.1-flash`（含别名 `deepseek-flash`） | `deepseek-v4.1-flash` | `deepseek-v4-flash`、`deepseek-v4-pro` |
+| 只有 `deepseek-v4-flash` / `deepseek-v4-pro` | 它有的那个 | — |
+
+判据是**归一化后的目录条目**（`canonicalModelId`），所以上游写作
+`DeepSeek-V4.1-Flash` / `sn-deepseek-v4-1-flash` / 带 `-official`、`-0731` 尾饰
+同样算「有 v4.1-flash」。规则表在 `pool/model-family.ts::SUPERSEDED_BY`，
+判定函数 `pool/pool-targets.ts::isSupersededChannel` 被**候选收集**（`candidatesOf`）
+与**元数据聚合**（`getPoolModelMeta`）共用 —— 往返转发、`/v1/models`、`mx model list`、
+控制台「模型 × 渠道」表因此是同一口径，改规则只需要改 `SUPERSEDED_BY`。
+
+为什么必须收口：不收的话同一家渠道会被两个型号重复命中（目录里同时列着两代模型），
+请求 `deepseek-v4-flash` 仍可能落到一家**已经升级到 v4.1-flash** 的渠道上，
+路由结果与「为什么这家既出 v4 又出 v4.1」都解释不清。互斥后一个渠道在同一时刻只对
+上位的那个型号负责，下位型号自然只落到真正需要它的渠道上。
+
 ### 2.2 账本：路由主键（剩余额度）＋ 健康度观察
 
 账本（`pool-usage.json`）按渠道记录**账号池剩余额度之和**（逐账号 `credits.remain` 累加，

@@ -14,7 +14,7 @@ import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { logRecovered, logThrottled } from "../runtime/logger.js";
-import { aliasGroupOf, canonicalOf, DEEPSEEK_EXPOSED_IDS } from "./model-family.js";
+import { aliasGroupOf, canonicalOf, DEEPSEEK_EXPOSED_IDS, supersedingModels } from "./model-family.js";
 import { totalRemainOf } from "./pool-usage.js";
 
 /**
@@ -732,32 +732,99 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
  *
  * 别名组内的每个名字都查一遍：`deepseek-flash` 与 `deepseek-v4.1-flash` 互为别名，
  * 渠道目录里写哪个都应命中。同一渠道同时暴露两个名字时取先命中的那个。
+ *
+ * 型号互斥：下位型号（`deepseek-v4-flash` / `deepseek-v4-pro`）只服务上游**没有**
+ * `deepseek-v4.1-flash` 的渠道 —— 规则声明在 `model-family.SUPERSEDED_BY`，
+ * 这里只是执行点（路由、`/v1/models`、控制台模型表共用这一处）。
  */
 function candidatesOf(canonical: string, index: CrossModelIndex): PoolCandidate[] {
   const group = aliasGroupOf(canonical);
   const out: PoolCandidate[] = [];
+  const cache: ScanCache = new Map();
   for (const channel of channels()) {
     const cid = channel.config.cid;
-    let exposedId: string | undefined;
-    // 先查跨渠道索引（30s 缓存）：它已经枚举过全部渠道目录，命中就不必再扫一遍
-    for (const name of group) {
-      exposedId = index.get(name)?.exposed.find((item) => item.cid === cid)?.exposedId;
-      if (exposedId !== undefined) break;
-    }
-    // 索引没命中：回落到直扫（目录在 TTL 内被改过时，索引可能还没跟上），语义与之前一致
-    if (exposedId === undefined) {
-      const ids = runInChannel(cid, () => {
-        try {
-          return channel.catalog.exposedIds() as string[];
-        } catch {
-          return [] as string[];
-        }
-      });
-      exposedId = ids.find((id) => group.includes(canonicalModelId(id)));
-    }
+    if (isSupersededChannel(channel, canonical, index, cache)) continue;
+    const exposedId = findExposed(cid, channel, group, index, cache);
     if (exposedId !== undefined) out.push({ cid, channel, exposedId });
   }
   return out;
+}
+
+/**
+ * 该渠道是否因供给**上位型号**而被排除在 `canonical` 之外（规则表见
+ * `model-family.SUPERSEDED_BY`）。
+ *
+ * 候选收集与元数据聚合（`getPoolModelMeta`）共用这一个判定：两处各写一份
+ * `supersedingModels(...).some(...)` 迟早会一边改一边忘，而它们回答的是同一个问题。
+ */
+function isSupersededChannel(
+  channel: Channel,
+  canonical: string,
+  index: CrossModelIndex,
+  cache: ScanCache,
+): boolean {
+  const cid = channel.config.cid;
+  return supersedingModels(canonical).some(
+    (name) => findExposed(cid, channel, aliasGroupOf(name), index, cache) !== undefined,
+  );
+}
+
+/**
+ * 一次候选收集 / 元数据聚合内的直扫记忆：`cid → (规范名 → 目录里的原始写法)`。
+ *
+ * 为什么要它：索引没命中时原实现每次调用都读盘 + 解析一遍目录，而「渠道没有某个名字」是常态；
+ * 加上互斥检查后同一渠道一次收集里最多问两遍（上位型号 + 目标型号），不共享就会双倍读盘。
+ *
+ * 记忆**只活在单次调用里**（调用方传同一个 Map）：目录在 TTL 内被改过、或测试里换过渠道时，
+ * 下一次调用仍会直扫到最新目录 —— 这与直扫回落原本的语义（补索引的陈旧）一致。
+ */
+type ScanCache = Map<string, Map<string, string>>;
+
+/** 扫一次目录并记住（坏渠道按「什么都没有」处理，与索引构建同底线）。 */
+function scannedIdsOf(cid: string, channel: Channel, cache: ScanCache): Map<string, string> {
+  const hit = cache.get(cid);
+  if (hit) return hit;
+  const ids = runInChannel(cid, () => {
+    try {
+      return channel.catalog.exposedIds() as string[];
+    } catch {
+      // 目录读不出来：按「该渠道没有这些模型」处理 —— 一个坏渠道不该拖垮整池
+      return [] as string[];
+    }
+  });
+  const map = new Map<string, string>();
+  for (const id of ids) {
+    if (typeof id !== "string") continue; // 目录脏数据（非字符串 id）不该让整池抛错
+    const canonical = canonicalModelId(id);
+    if (!map.has(canonical)) map.set(canonical, id);
+  }
+  cache.set(cid, map);
+  return map;
+}
+
+/**
+ * 在某渠道目录里找 `names`（一组规范名）里第一个命中的条目，返回目录里的**原始写法**。
+ *
+ * 先查跨渠道索引（30s 缓存）；索引没命中再直扫目录（TTL 内刚改过 / 新登录的渠道可能还没进索引）。
+ * 直扫结果在**同一次调用**内按 `ScanCache` 共享，常态路径不会重复读盘。
+ */
+function findExposed(
+  cid: string,
+  channel: Channel,
+  names: readonly string[],
+  index: CrossModelIndex,
+  cache: ScanCache,
+): string | undefined {
+  for (const name of names) {
+    const hit = index.get(name)?.exposed.find((item) => item.cid === cid)?.exposedId;
+    if (hit !== undefined) return hit;
+  }
+  const scanned = scannedIdsOf(cid, channel, cache);
+  for (const name of names) {
+    const hit = scanned.get(name);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
 }
 
 /**
@@ -793,8 +860,12 @@ export function getPoolModelMeta(model: string, cross?: CrossModelIndex, modelSp
   const specs = modelSpecs ?? readModelSpecs().models;
   const group = aliasGroupOf(canonical);
   const factsList: ChannelFacts[] = [];
+  const cache: ScanCache = new Map();
   for (const channel of channels()) {
     const cid = channel.config.cid;
+    // 与候选收集同一口径（共用 `isSupersededChannel`）：供给上位型号的渠道不参与该下位型号的
+    // 元数据聚合 —— 否则「模型 × 渠道」行的规格会混进一个永远不会被选中的渠道
+    if (isSupersededChannel(channel, canonical, index, cache)) continue;
     for (const name of group) {
       if (!index.get(name)?.exposed.some((item) => item.cid === cid)) continue;
       try {
