@@ -52,12 +52,15 @@ interface Behavior {
   seenCredentials?: string[];
   /** 指定哪些 `accessToken` 的 claim 必定失败（用于验证账号级熔断互不影响）。 */
   failTokens?: string[];
+  /** 模拟额度序列：`fetchCredits` 每次调用后按序返回（验证「实测差值」记账）。 */
+  quotaSequence?: Array<{ remain: number; unit: string }>;
 }
 
 /** 构造一个签到可编程的 mock 渠道（status/claim 调用计数用于断言「没发请求」）。 */
 function makeChannel(cid: string, behavior: Behavior): Channel {
   behavior.statusCalls = 0;
   behavior.claimCalls = 0;
+  behavior.quotaCalls = 0;
   behavior.seenCredentials = [];
   const credLoad = behavior.loggedIn === false
     ? (): never => {
@@ -97,10 +100,13 @@ function makeChannel(cid: string, behavior: Behavior): Channel {
       entryFor: () => null,
     } as unknown as Channel["catalog"],
     billing: {
-      fetchCredits: async () => ({
-        total: { remain: 0, size: 0, unit: "", remain_percent: 0 },
-        packages: [],
-      }),
+      fetchCredits: async () => {
+        const next = behavior.quotaSequence?.[behavior.quotaCalls ?? 0];
+        behavior.quotaCalls = (behavior.quotaCalls ?? 0) + 1;
+        return next === undefined
+          ? { total: { remain: 0, size: 0, unit: "", remain_percent: 0 }, packages: [] }
+          : { total: { remain: next.remain, size: next.remain, unit: next.unit, remain_percent: 0 }, packages: [] };
+      },
       signin: {
         daily: true,
         ...(behavior.perAccount ? { perAccount: true } : {}),
@@ -320,5 +326,54 @@ test("auto signin: 旧格式失败计数（{date, failures}）仍可读", async 
     writeFileSync(join(dir, "state", "auto-signin.json"), JSON.stringify({ date: today, failures: 2 }), "utf8");
     assert.equal(autoSignin.readFailures(cid), 2, "旧格式按渠道级读回");
     assert.equal(autoSignin.tripped(cid), false, "2 次未达阈值");
+  });
+});
+
+test("auto signin: 额度实测差值记成「今天领到多少」（渠道报不出数字时）", async () => {
+  await withIsolatedRoot(async () => {
+    const cid = "autosign-delta";
+    const behavior: Behavior = {
+      // 签到前 564.21 → 签到后 600（上游只回一句 message，没有 reward）
+      quotaSequence: [
+        { remain: 564.21, unit: "credits" },
+        { remain: 600, unit: "credits" },
+      ],
+    };
+    setChannel(makeChannel(cid, behavior));
+    await autoSignin.runOnce();
+    const ledger = readLedger(cid);
+    assert.deepEqual(ledger.last_claim?.reward, { amount: 35.79, unit: "credits" }, "差值入账");
+  });
+});
+
+test("auto signin: 额度没涨 / 查不到时不写额度（不编 0）", async () => {
+  await withIsolatedRoot(async () => {
+    const cid = "autosign-nodelta";
+    setChannel(makeChannel(cid, { quotaSequence: [{ remain: 500, unit: "credits" }, { remain: 480, unit: "credits" }] }));
+    await autoSignin.runOnce();
+    assert.equal(readLedger(cid).last_claim?.reward, undefined, "跌了不写成负数");
+
+    const cid2 = "autosign-noquota";
+    setChannel(makeChannel(cid2, {}));
+    await autoSignin.runOnce();
+    assert.equal(readLedger(cid2).last_claim?.reward, undefined, "查不到额度不编造");
+  });
+});
+
+test("auto signin: 渠道自己报了 reward 就用它，不再用差值", async () => {
+  await withIsolatedRoot(async () => {
+    const cid = "autosign-reported";
+    const behavior: Behavior = {
+      quotaSequence: [
+        { remain: 0, unit: "" },
+        { remain: 0, unit: "" },
+      ],
+    };
+    setChannel(makeChannel(cid, behavior));
+    // 覆写 claim 返回渠道自己报的额度
+    const channel = (await import("../dist/runtime/channel.js")).getChannel(cid);
+    channel.billing.signin.claim = async () => ({ ok: true, summary: "ok", reward: { amount: 300, unit: "积分" } });
+    await autoSignin.runOnce();
+    assert.deepEqual(readLedger(cid).last_claim?.reward, { amount: 300, unit: "积分" });
   });
 });
