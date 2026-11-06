@@ -109,6 +109,8 @@ function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wan
   }
   const sink = sinkOf(res);
   if (sink) {
+    // 第 0 轮探测就耗尽预算时排队帧还没写过：响应头要在这里补
+    if (!res.headersSent) res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
     // 排队帧可能已把协议开始事件发出（message_start / response.created）：
     // 文案作为 content 增量续写，收尾交给 sink.finish()
     sink.writeOpenAiFrame(chunk({ role: "assistant", content: "" }, null));

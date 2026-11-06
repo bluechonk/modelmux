@@ -148,7 +148,7 @@ export function emptySnapshot(): UiSnapshot {
     qr_url: "",
     base_url: "",
     chat_url: "",
-    endpoints: ["/v1/chat/completions", "/v1/messages", "/v1/responses", "/v1/models", "/health"],
+    endpoints: ["/v1/chat/completions", "/v1/messages", "/v1/messages/count_tokens", "/v1/responses", "/v1/models", "/health"],
     models: [],
     login_input: null,
     channel_caps: {},

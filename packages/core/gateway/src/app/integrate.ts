@@ -577,7 +577,8 @@ function integrateClaudeCode(models: string[]): IntegrationResult {
     return result;
   }
   const backup = backupDirFor("claude-code");
-  backupFile(backup, file);
+  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）
+  if (existsSync(file)) backupFile(backup, file);
   writeAtomicFile(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
@@ -601,6 +602,32 @@ function renderCodexProviderBlock(): string[] {
 }
 
 /**
+ * 标出 TOML 多行字符串（`"""` / `'''`）区间内的行下标（含开闭行）；开合不配对返回 null。
+ *
+ * 文本级编辑认不出字符串上下文 —— 字符串里行首的 `[` 会被当成表头，把顶层键注进
+ * 字符串内部（Codex 照常启动但配置静默失效）。掩码用于表头与顶层键注入点判定。
+ */
+function maskTomlMultilineStrings(lines: string[]): Set<number> | null {
+  const masked = new Set<number>();
+  let open: string | null = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (open === null) {
+      const at = /("""|''')/.exec(line);
+      if (!at) continue;
+      // 同行自闭合（"""x"""）：不构成区间
+      if (line.slice((at.index ?? 0) + 3).includes(at[1]!)) continue;
+      open = at[1]!;
+      masked.add(i);
+    } else {
+      masked.add(i);
+      if (line.includes(open)) open = null;
+    }
+  }
+  return open === null ? masked : null;
+}
+
+/**
  * Codex：`~/.codex/config.toml` 的**文本级** TOML 改写（共享层零依赖，与 dsh 的
  * YAML 文本级改写同理由）。
  *
@@ -608,6 +635,10 @@ function renderCodexProviderBlock(): string[] {
  * —— TOML 顶层键的硬约束）；`[model_providers.modelmux]` 段整段替换或追加。凭据走
  * 段内 `experimental_bearer_token`（优先级高于 auth.json），`~/.codex/auth.json` 不碰
  * —— 不破坏 ChatGPT 登录态（cc-switch 的同款取舍）。
+ *
+ * 表头识别先做**多行字符串掩码**（`"""` / `'''` 区间内的行首 `[` 不是表头）：文本级
+ * 编辑认不出字符串上下文，掩码失败（开合不配对）宁可放弃写入并报错 —— 写坏一份
+ * Codex 配置还报成功，比不写更糟（dsh 凭据文件的同款取舍）。
  */
 function integrateCodex(models: string[]): IntegrationResult {
   const result: IntegrationResult = { ok: false, target: "codex", models, changed: [], unchanged: [], notes: [] };
@@ -620,14 +651,23 @@ function integrateCodex(models: string[]): IntegrationResult {
   const original = existsSync(file) ? readFileSync(file, "utf8") : "";
   const eol = original.includes("\r\n") ? "\r\n" : "\n";
   const lines = original.split(/\r?\n/);
+  const masked = maskTomlMultilineStrings(lines);
+  if (masked === null) {
+    result.error = "config.toml 的多行字符串（\"\"\" / '''）开合不配对，文本级改写无法安全进行；已跳过写入";
+    return result;
+  }
+
+  // 表头行（行尾可带注释）；掩码表 = 该行不在多行字符串区间内
+  const isTableHeader = (line: string, i: number): boolean =>
+    /^\s*\[.*\]\s*(#.*)?$/.test(line) && !masked.has(i);
 
   // 1. [model_providers.modelmux] 段：替换到下一个表头，缺失则追加到文件尾
-  const providerIdx = lines.findIndex((l) => /^\s*\[model_providers\.modelmux\]\s*$/.test(l));
+  const providerIdx = lines.findIndex((l, i) => /^\s*\[model_providers\.modelmux\]\s*(#.*)?$/.test(l) && !masked.has(i));
   let next: string[];
   if (providerIdx >= 0) {
     let end = lines.length;
     for (let i = providerIdx + 1; i < lines.length; i += 1) {
-      if (/^\s*\[/.test(lines[i]!)) {
+      if (isTableHeader(lines[i]!, i)) {
         end = i;
         break;
       }
@@ -639,7 +679,8 @@ function integrateCodex(models: string[]): IntegrationResult {
 
   // 2. 顶层 model_provider / model：只清**首个表头之前**的旧键行（TOML 顶层键的硬约束：
   //    必须在任何 `[` 表头之前），再统一插到那里 —— 段内同名键不受影响
-  const firstTable = next.findIndex((l) => /^\s*\[/.test(l));
+  const nextMask = maskTomlMultilineStrings(next) ?? new Set<number>();
+  const firstTable = next.findIndex((l, i) => /^\s*\[.*\]\s*(#.*)?$/.test(l) && !nextMask.has(i));
   const headEnd = firstTable < 0 ? next.length : firstTable;
   const head = next.slice(0, headEnd).filter((l) => !/^\s*(model_provider|model)\s*=/.test(l));
   const tail = firstTable < 0 ? [] : next.slice(firstTable);

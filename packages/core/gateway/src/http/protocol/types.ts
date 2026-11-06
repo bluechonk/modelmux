@@ -38,7 +38,7 @@ export interface InboundProtocol {
   readonly name: ProtocolName;
   /** 非流式：聚合的 OpenAI completion → 协议应答 JSON。 */
   encodeCompletion(aggregated: AggregatedCompletion, requestModel: string): unknown;
-  /** 流式：新建每请求编码器并挂到 res 上；requestModel = 客户端请求里的模型名原文。 */
+  /** 流式：新建每请求编码器并挂到 res 上；requestModel = 映射后的**池模型名**。 */
   openEncoder(res: ServerResponse, requestModel: string): ProtocolSink;
 }
 
@@ -47,7 +47,10 @@ const SINK = Symbol("modelmux.protocolSink");
 
 interface ProtocolContext {
   protocol: InboundProtocol;
-  /** 客户端请求里的模型名原文（协议应答的 `model` 字段用它，不是池 id）。 */
+  /**
+   * 协议应答 `model` 字段的取值：映射后的**池模型名**（家族外请求名如 `claude-*`
+   * 已落池主模型 —— 应答如实报告真正执行的模型，不回显客户端原名）。
+   */
   requestModel: string;
 }
 

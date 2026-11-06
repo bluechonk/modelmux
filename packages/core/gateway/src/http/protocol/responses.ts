@@ -312,6 +312,8 @@ class ResponsesSink implements ProtocolSink {
   private responseId = `resp_${Date.now().toString(36)}`;
   private createdAt = Math.floor(Date.now() / 1000);
   private messageId = "";
+  /** message item 的 output_index（reasoning / function_call item 在前时 > 0）。 */
+  private messageOutputIndex = 0;
   /** 文本 item 是否已打开（added 事件已发）。 */
   private textOpened = false;
   private textParts: string[] = [];
@@ -400,7 +402,7 @@ class ResponsesSink implements ProtocolSink {
         type: "response.output_text.delta",
         sequence_number: this.nextSeq(),
         item_id: this.messageId,
-        output_index: 0,
+        output_index: this.messageOutputIndex,
         content_index: 0,
         delta: delta["content"],
       });
@@ -492,18 +494,19 @@ class ResponsesSink implements ProtocolSink {
   private openText(): void {
     this.closeReasoning();
     this.textOpened = true;
+    this.messageOutputIndex = this.outputIndex++;
     this.messageId = `msg_${Date.now().toString(36)}`;
     emit(this.res, "response.output_item.added", {
       type: "response.output_item.added",
       sequence_number: this.nextSeq(),
-      output_index: this.outputIndex++,
+      output_index: this.messageOutputIndex,
       item: { type: "message", id: this.messageId, role: "assistant", status: "in_progress", content: [] },
     });
     emit(this.res, "response.content_part.added", {
       type: "response.content_part.added",
       sequence_number: this.nextSeq(),
       item_id: this.messageId,
-      output_index: 0,
+      output_index: this.messageOutputIndex,
       content_index: 0,
       part: { type: "output_text", text: "", annotations: [] },
     });
@@ -517,7 +520,7 @@ class ResponsesSink implements ProtocolSink {
       type: "response.output_text.done",
       sequence_number: this.nextSeq(),
       item_id: this.messageId,
-      output_index: 0,
+      output_index: this.messageOutputIndex,
       content_index: 0,
       text,
     });
@@ -525,14 +528,14 @@ class ResponsesSink implements ProtocolSink {
       type: "response.content_part.done",
       sequence_number: this.nextSeq(),
       item_id: this.messageId,
-      output_index: 0,
+      output_index: this.messageOutputIndex,
       content_index: 0,
       part: { type: "output_text", text, annotations: [] },
     });
     emit(this.res, "response.output_item.done", {
       type: "response.output_item.done",
       sequence_number: this.nextSeq(),
-      output_index: 0,
+      output_index: this.messageOutputIndex,
       item: {
         type: "message",
         id: this.messageId,

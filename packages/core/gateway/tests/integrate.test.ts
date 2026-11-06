@@ -516,6 +516,16 @@ describe("一键接入 claude code", () => {
       process.env["HOME"] = savedHome ?? "";
     }
   });
+
+  it("settings.json 不存在时新建（目录在即可，评审抓过的 ENOENT 路径）", () => {
+    const dir = join(home, ".claude");
+    rmSync(join(dir, "settings.json"), { force: true });
+    const result = integrateClient("claude-code", MODELS);
+    assert.equal(result.ok, true, `新建路径失败：${result.error ?? ""}`);
+    const after = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")) as { env: Record<string, unknown> };
+    assert.equal(after.env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:4412");
+    assert.equal(after.env["ANTHROPIC_AUTH_TOKEN"], "modelmux-local");
+  });
 });
 
 // ── codex ───────────────────────────────────────────────────────────────────
@@ -609,5 +619,45 @@ describe("一键接入 codex", () => {
       process.env["USERPROFILE"] = savedProfile ?? "";
       process.env["HOME"] = savedHome ?? "";
     }
+  });
+
+  it("多行字符串里的行首 [ 不是表头：顶层键仍插在真表头前，段不被误截", () => {
+    // 评审实测的搅坏形态：instructions = """...[system]...""" —— 掩码必须生效
+    const tricky = `instructions = """
+You are Codex.
+[system] inside a string
+"""
+model = "gpt-5.2"
+
+[model_providers.openai]
+name = "OpenAI"
+`;
+    const file = seedCodex(tricky);
+    const result = integrateClient("codex", MODELS);
+    assert.equal(result.ok, true, `写入失败：${result.error ?? ""}`);
+    const after = readFileSync(file, "utf8");
+    // 顶层键插在**首个真表头**（多行字符串掩码后的 [model_providers.openai]）之前；
+    // 锚点不能 naïvely 用 indexOf("[") —— 字符串内的 "[system]" 不是表头
+    const firstTable = after.indexOf("[model_providers.openai]");
+    assert.ok(firstTable > 0);
+    const head = after.slice(0, firstTable);
+    assert.match(head, /^model_provider = "modelmux"$/m);
+    assert.match(head, new RegExp(`^model = "${MODELS[0]}"$`, "m"));
+    // 字符串内容逐字节保留
+    assert.ok(after.includes("[system] inside a string"), "字符串内容被改动");
+    assert.ok(after.includes("You are Codex."), "字符串内容被改动");
+  });
+
+  it("表头带行尾注释：段边界与首个表头判定不误吞后续配置", () => {
+    const file = seedCodex(`model = "gpt-5.2" # user top-level
+[model_providers.openai] # trailing comment
+name = "OpenAI"
+`);
+    const result = integrateClient("codex", MODELS);
+    assert.equal(result.ok, true);
+    const after = readFileSync(file, "utf8");
+    assert.ok(after.includes("[model_providers.openai] # trailing comment"), "带注释的表头被改动");
+    assert.ok(after.includes('name = "OpenAI"'), "openai 段内容被吞");
+    assert.match(after, /^model_provider = "modelmux"$/m);
   });
 });

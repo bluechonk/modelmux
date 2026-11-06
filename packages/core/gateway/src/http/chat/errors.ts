@@ -20,9 +20,19 @@ export function writeJson(res: ServerResponse, data: unknown, status = 200): voi
   res.end(JSON.stringify(data));
 }
 
-/** 错误响应 JSON 结构：`{"error":{"type","code","message"}}`。 */
+/**
+ * 错误响应 JSON 结构：`{"error":{"type","code","message"}}`。
+ *
+ * **统一协议收口**：res 上挂了入站协议时按该协议的信封回 —— 解析失败 / 池路由 400 /
+ * 未登录 503 这些派发前的错误也都经过这里，逐调用点替换必然漏（评审抓到三条漏网路径）。
+ */
 export function writeJsonError(res: ServerResponse, status: number, code: string, message: string): void {
   noteRequestError(res, code, message);
+  const protocol = protocolOf(res);
+  if (protocol?.protocol.name === "anthropic") {
+    writeJson(res, anthropicErrorBody(code, message), status);
+    return;
+  }
   writeJson(res, { error: { type: "error", code, message } }, status);
 }
 

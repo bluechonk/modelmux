@@ -77,6 +77,8 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
       if (v > max) max = v;
     }
   }
+  // 真实峰值（全零时是 0）—— 峰值文案用它；y 轴刻度用兜底 1 防除零
+  const peak = max;
   if (max <= 0) max = 1;
 
   const xOf = (i: number): number => PAD_LEFT + stepX * i;
@@ -197,7 +199,7 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
             <span className="text-ink-soft">{id === "" ? "未知模型" : id}</span>
           </span>
         ))}
-        <span className="ml-auto text-ink-faint">峰值 {formatTokens(max)} tokens</span>
+        <span className="ml-auto text-ink-faint">峰值 {formatTokens(peak)} tokens</span>
       </div>
       {/* hover 浮层：标题 = 日期 - 总量；明细 = 色点 + 模型名 + tokens（ZCode 同格式） */}
       <ChartTooltip show={hoverDay !== null && tip !== null} x={tip?.x ?? 0} y={tip?.y ?? 0}>
