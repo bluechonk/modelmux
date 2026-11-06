@@ -101,6 +101,44 @@ export function tripped(scope: string): boolean {
 }
 
 /**
+ * 查当前（或指定账号的）额度剩余量，用于**实测**「这次签到涨了多少」。
+ *
+ * 为什么需要它：多数渠道的签到响应只回一句 message（workbuddy 是 `{code,msg}`），
+ * 拿不到发放数额；而额度是查得到的。签到前后各查一次，差值就是真实入账。
+ * 查不到（未登录 / 上游异常 / 该渠道额度接口不适用）返回 `null` —— 不猜。
+ */
+async function quotaRemainOf(channel: Channel, credential?: unknown): Promise<{ remain: number; unit: string } | null> {
+  try {
+    const result = await runInChannel(channel.config.cid, () =>
+      channel.billing.fetchCredits(
+        credential === undefined ? { refreshOn401: false } : { credential, refreshOn401: false },
+      ),
+    );
+    const total = (result as { total?: { remain?: unknown; unit?: unknown } } | null)?.total;
+    const remain = Number(total?.remain);
+    if (!Number.isFinite(remain)) return null;
+    return { remain, unit: typeof total?.unit === "string" ? total.unit : "" };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 前后两次额度之差 → 本次发放额度；查不到或没涨就返回 `undefined`（不写 0）。
+ *
+ * 只认「涨了」：额度下降通常意味着签到没到账 / 或查询期间有消耗，把负数写成
+ * 「-500 积分」只会让人以为签到倒扣钱。
+ */
+export function deltaReward(
+  before: { remain: number; unit: string } | null,
+  after: { remain: number; unit: string } | null,
+): { amount: number; unit: string } | undefined {
+  if (before === null || after === null) return undefined;
+  const delta = after.remain - before.remain;
+  return delta > 0 ? { amount: Math.round(delta * 100) / 100, unit: after.unit } : undefined;
+}
+
+/**
  * 对单个渠道执行一轮自动签到。返回是否发了领取请求。
  *
  * 跳过链（按序）：无签到能力 → 熔断 → 台账已签 → 未登录（不发请求）→ 上游已签/无可领。
@@ -159,11 +197,16 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
 
     // 领取
     try {
+      // 渠道自己报得出「这次发了多少」就用它；报不出就用**额度实测差值**兜底
+      // （签到前后各查一次额度，涨了多少就是多少 —— workbuddy 这类上游只回
+      // `code/msg` 的渠道，这是唯一能拿到真实数字的口径）
+      const before = await quotaRemainOf(channel);
       const outcome = await signin.claim();
       if (outcome.ok) {
+        const reward = outcome.reward ?? deltaReward(before, await quotaRemainOf(channel));
         // 状态登记：领取成功 → 台账记「今天已签」（via=auto 与手动 cli 区分）
         try {
-          recordClaim(cid, { via: "auto", reward: outcome.reward });
+          recordClaim(cid, { via: "auto", reward });
         } catch {
           /* 记账失败不影响签到本身 */
         }
@@ -204,11 +247,16 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
 
     const ok = await runInChannel(cid, async () => {
       try {
+        const before = await quotaRemainOf(channel, credential);
         const outcome = await channel.billing.signin.claim({ credential });
         if (outcome.ok) {
           try {
             // 账号级 + 渠道级都记：前者做门禁，后者供 `mx status` 摘要
-            recordClaim(cid, { via: "auto", accountKey: account.key, reward: outcome.reward });
+            recordClaim(cid, {
+              via: "auto",
+              accountKey: account.key,
+              reward: outcome.reward ?? deltaReward(before, await quotaRemainOf(channel, credential)),
+            });
           } catch {
             /* 记账失败不影响签到本身 */
           }
