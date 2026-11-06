@@ -28,6 +28,10 @@
 
 ## 1.1 模型目录端点
 
+**对外暴露范围**：随包 `models.json` 给 `glm-5.3-flash` 标了 `hidden` —— 网关里
+glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合由共享层
+`hiddenModelIds()` 并集读用户表与随包快照（读不到即抛错），目录数据照常保留。
+
 | 端点 | 用途 | 实测 |
 | --- | --- | --- |
 | `/v3/config` | **真实目录**（桌面端选择器）：`agents[].models` 裸 id + `models[]` 元数据 | 未带凭证：200（UA 门禁通过，但无模型列表） |

@@ -27,7 +27,8 @@
       "supportsImages": false,
       "multiplier": null,
       "marketing": "",
-      "source": "fallback"
+      "source": "fallback",
+      "hidden": true
     },
     {
       "id": "deepseek-v4-flash",

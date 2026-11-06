@@ -396,7 +396,7 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 | --- | --- | --- |
 | `catpaw/deepseek-v4.1-flash` | 2026-10-18 真机验证全绿 —— 普通/流式、单工具、并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过 | `[实测]` |
 | `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
-| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关 | `[实测]` |
+| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关。`glm-5.3-flash` 在随包 `models.json` 已标 `hidden`（网关里 glm 只由 qodercn 供给；隐藏集合见共享层 `hiddenModelIds`），不再作为本渠道的对外候选 | `[实测]` |
 
 ### 环境变量
 

@@ -495,8 +495,13 @@ export function buildCrossModelIndex(): CrossModelIndex {
     const cid = channel.config.cid;
     const ids = runInChannel(cid, () => {
       try {
-        return channel.catalog.exposedIds() as string[];
-      } catch {
+        const out = channel.catalog.exposedIds() as string[];
+        logRecovered(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} catalog recovered`);
+        return out;
+      } catch (err) {
+        // 坏渠道只影响自己（空目录），但「渠道消失」必须留痕 —— 静默吞掉会让
+        // 「随包快照读不到（失败关闭）」伪装成「目录里本来就没有模型」
+        logThrottled(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} exposedIds failed: ${String(err)}`);
         return [] as string[];
       }
     });
@@ -764,9 +769,13 @@ function scannedIdsOf(cid: string, channel: Channel, cache: ScanCache): Map<stri
   if (hit) return hit;
   const ids = runInChannel(cid, () => {
     try {
-      return channel.catalog.exposedIds() as string[];
-    } catch {
-      // 目录读不出来：按「该渠道没有这些模型」处理 —— 一个坏渠道不该拖垮整池
+      const out = channel.catalog.exposedIds() as string[];
+      logRecovered(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} catalog recovered`);
+      return out;
+    } catch (err) {
+      // 目录读不出来：按「该渠道没有这些模型」处理（一个坏渠道不该拖垮整池），
+      // 但必须留痕 —— 否则失败关闭的抛错会被伪装成「目录里本来就没有模型」
+      logThrottled(console.warn, `pool:exposedIds:${cid}`, `[pool] channel ${cid} exposedIds failed: ${String(err)}`);
       return [] as string[];
     }
   });

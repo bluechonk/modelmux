@@ -61,7 +61,8 @@
       "effectiveMultiplier": 0.1,
       "multiplier": 0.2,
       "billingStatus": "discount",
-      "source": "fallback"
+      "source": "fallback",
+      "hidden": true
     },
     {
       "id": "sn-deepseek-v4-1-flash",

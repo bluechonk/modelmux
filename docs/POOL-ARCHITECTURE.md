@@ -42,10 +42,10 @@
                  ↑ 渠道目录里的等价写法（大小写 / 连字符版本号 / sn- 包装 / -official / 日期后缀）归一后匹配
 ```
 
-| 对外模型 id | 别名 | `owned_by` | 本机供给渠道（实测） |
+| 对外模型 id | 别名 | `owned_by` | 本机供给渠道（实测，按路由优先级） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | loomy（目录写 `DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
-| `glm-5.3-flash` | — | `zhipu` | catpaw、loomy（`GLM-5.3-Flash`）、qodercn（`gfmodel`）、raccoon（`sn-glm-5-3-flash`）、workbuddy |
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | catpaw / traecn（动态目录）、loomy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
+| `glm-5.3-flash` | — | `zhipu` | qodercn（上游 key `gfmodel`）—— **唯一供给渠道** |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
@@ -53,8 +53,13 @@
 > 过滤只由**渠道自己的目录**决定：隐藏条目（`hidden` / `visible === false`）、
 > 官方「自定义模型」占位（`custom_model_*`）、上游标记不可用的通道会被各渠道排除，
 > 共享层不做闸门。家族外的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）
-> **不进对外池**。`qodercn` 是「渠道级范围」的例子：它只暴露 `glm-5.3-flash`，
-> deepseek 系在它的 `models.json` 里标了 `hidden`。
+> **不进对外池**。
+>
+> **供给范围是产品面策略**，同样收口在渠道的 `models.json`：`glm-5.3-flash` 只由
+> `qodercn` 供给，其余渠道把目录里的 glm 条目标 `hidden`；`qodercn` 反向只暴露
+> `glm-5.3-flash`，deepseek 系标 `hidden`。隐藏集合由共享层 `hiddenModelIds()`
+> 统一收集（并集读用户表与随包快照、随包快照读不到即抛错），各渠道 `exposedIds()`
+> 只做过滤。机械校验见 `scripts/verify-contract.mjs` 的「家族供给范围」一节。
 
 来源：`pool/model-family.ts`（家族与别名）、`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
 

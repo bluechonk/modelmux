@@ -9,10 +9,10 @@
  */
 
 import {
+  canonicalModelId,
   ensureChannelModels,
+  hiddenModelIds,
   readCatalogCache,
-  readChannelModels,
-  readSeedFrom,
   writeCatalogCache,
 } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
@@ -48,32 +48,11 @@ function seedPaths(): Array<string | null> {
 }
 
 /**
- * 对外隐藏的模型（数据是 `models.json` 的 `hidden` 标记）。
- *
- * 收 **id 与上游 key 两种写法**：对外 id 由上游展示名派生，上游改名会让按 id 的匹配失效，
- * 按 key 匹配才稳。
- *
- * 并集读**用户表**与**随包快照**：用户表可手改（新增隐藏）；随包快照保证已存在的老安装
- * （首启已浇种、之后不再更新）也遵守同一策略 —— 只改随包文件对它们无效。并集是**单向**的：
- * 任一来源标了隐藏就一定不暴露，用户表无法单独解除（策略优先于本地改动）。
- *
- * **随包快照读不到就抛错**（失败关闭）：隐藏策略的兜底来源没了还照常暴露，等于把 deepseek 系
- * 悄悄放回池里（调用方会把异常按「目录读失败」处理，不会静默放行）。
+ * 对外隐藏的模型（数据是 `models.json` 的 `hidden` 标记；并集 / 失败关闭等机制见共享层
+ * `hiddenModelIds`）。收 **id 与上游 key** 两种写法：对外 id 由展示名派生，上游改名不该让策略失效。
  */
 function hiddenIds(): Set<string> {
-  const seed = readSeedFrom<ModelEntry>(seedPaths());
-  if (seed === null) {
-    throw new Error("qodercn: 随包 models.json 读不出来 —— 拒绝在隐藏策略失效的情况下暴露模型");
-  }
-  const out = new Set<string>();
-  for (const row of [...(readChannelModels<ModelEntry>(undefined) ?? []), ...seed]) {
-    if (row.hidden !== true) continue;
-    for (const value of [row.id, row.key]) {
-      const key = typeof value === "string" ? value.toLowerCase() : "";
-      if (key !== "") out.add(key);
-    }
-  }
-  return out;
+  return hiddenModelIds(import.meta.url, ["key"]);
 }
 
 /**
@@ -232,8 +211,11 @@ export function exposedIds(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of loadCatalog()) {
-    // id 与上游 key 都判：对外 id 由展示名派生，只按 id 匹配会被上游改名绕过
-    if (hidden.has(entry.id.toLowerCase()) || hidden.has(entry.key.toLowerCase())) continue;
+    // 三种写法都判：id（小写）、上游 key、归一化规范名 —— 池层会把
+    // `GLM-5.3-Flash-Official` 这类尾饰变体归一进同一家族，只按原始 id 匹配会被绕过
+    if (hidden.has(entry.id.toLowerCase())) continue;
+    if (hidden.has(entry.key.toLowerCase())) continue;
+    if (hidden.has(canonicalModelId(entry.id))) continue;
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
     out.push(entry.id);

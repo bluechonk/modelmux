@@ -60,6 +60,14 @@
       "hidden": false
     },
     {
+      "id": "glm-5.3-flash",
+      "model": "glm-5.3-flash",
+      "name": "glm-5.3-flash",
+      "contextWindow": 0,
+      "maxOutput": 0,
+      "hidden": true
+    },
+    {
       "id": "glm-5-turbo",
       "model": "glm-5-turbo",
       "name": "glm-5-turbo",

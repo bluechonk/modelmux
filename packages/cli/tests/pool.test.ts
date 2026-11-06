@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,6 +112,46 @@ describe("仓库级模型池", () => {
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
+  it("家族模型的渠道供给范围：glm-5.3-flash 只由 qodercn 供给，其余渠道只供 deepseek-v4.1-flash", () => {
+    // 默认 + 例外式允许集（与 scripts/verify-contract.mjs 同形，新注册渠道自动被钉）：
+    // 产品面策略，数据收口在各渠道 models.json 的 hidden 标记。catpaw / traecn 的随包表
+    // 没有 deepseek-v4.1（真机动态目录有，属允许供给 —— 本测试钉的是离线随包表）。
+    const OVERRIDES: Record<string, string[]> = {
+      catpaw: [],
+      qodercn: ["glm-5.3-flash"],
+      traecn: [],
+    };
+    for (const cid of ACTIVE_CIDS) {
+      const expected = OVERRIDES[cid] ?? ["deepseek-v4.1-flash"];
+      const ids = gw.runInChannel(cid, () => gw.getChannel(cid).catalog.exposedIds()) as string[];
+      const got = [...new Set(ids.map((id) => gw.canonicalModelId(id)))]
+        .filter((id) => gw.isPoolModel(id))
+        .sort();
+      assert.deepEqual(got, expected, `${cid} 的对外家族模型应为 [${expected.join(", ")}]`);
+    }
+    const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid);
+    assert.deepEqual(glm, ["qodercn"], `glm-5.3-flash 的候选只能是 qodercn（实际 ${glm.join(", ")}）`);
+  });
+
+  it("老安装（用户表是没有 hidden 的旧副本）也不把 glm 放回池", () => {
+    const bundled = JSON.parse(
+      readFileSync(join(REPO_ROOT, "packages", "core", "channels", "loomy", "models.json"), "utf8"),
+    ) as { models: Array<Record<string, unknown>> };
+    gw.writeChannelModels(
+      bundled.models.map((row) => {
+        const copy = { ...row };
+        delete copy["hidden"];
+        return copy;
+      }),
+      "loomy",
+    );
+    const ids = gw.runInChannel("loomy", () => gw.getChannel("loomy").catalog.exposedIds()) as string[];
+    assert.ok(
+      !ids.some((id) => gw.canonicalModelId(id) === "glm-5.3-flash"),
+      "随包快照的 hidden 对旧用户表仍生效",
+    );
+  });
+
   it("池 id 与候选渠道的一致性（家族内 / 有货 / 候选都是已注册渠道）", () => {
     const known = new Set(ACTIVE_CIDS);
     // POOL_MODELS 是 Proxy（每次属性访问都重建快照），先落一份本地快照再遍历
@@ -155,5 +195,50 @@ describe("仓库级模型池", () => {
       headers: { "Content-Type": "application/json" },
     });
     assert.equal(resp.status, 503);
+  });
+
+  it("上游目录的变体 / 改名写法不把隐藏模型放回池（放最后：会污染渠道目录缓存）", () => {
+    // traecn：上游动态目录下发 `-Official` 尾饰变体 —— 精确 id 匹配拦不住（2026-11-07
+    // 真机实测过原始写法动态下发），必须靠归一化口径。渠道目录缓存有一次性读入标记，
+    // 走 TRAE_MODELS_FILE 注入目录文件（candidatePaths 首选）。
+    const variantDir = mkdtempSync(join(tmpdir(), "mx-variant-"));
+    const variantFile = join(variantDir, "models.json");
+    writeFileSync(
+      variantFile,
+      JSON.stringify({
+        models: [
+          { slug: "glm-5.3-flash", name: "glm-5.3-flash" },
+          { slug: "GLM-5.3-Flash-Official", name: "GLM-5.3-Flash-Official" },
+          { slug: "deepseek-v4.1-flash", name: "deepseek-v4.1-flash" },
+        ],
+      }),
+    );
+    process.env["TRAE_MODELS_FILE"] = variantFile;
+    try {
+      const ids = gw.runInChannel("traecn", () => gw.getChannel("traecn").catalog.exposedIds()) as string[];
+      assert.ok(
+        !ids.some((id) => gw.canonicalModelId(id) === "glm-5.3-flash"),
+        `尾饰变体必须被拦（实际 ${ids.join(", ")}）`,
+      );
+      assert.ok(ids.includes("deepseek-v4.1-flash"), "非隐藏条目不受影响");
+      assert.deepEqual(
+        gw.poolCandidates("glm-5.3-flash").map((c) => c.cid),
+        ["qodercn"],
+        "变体不回池：glm-5.3-flash 仍只有 qodercn 候选",
+      );
+    } finally {
+      delete process.env["TRAE_MODELS_FILE"];
+      rmSync(variantDir, { recursive: true, force: true });
+    }
+    // qodercn：上游把 deepseek 条目改名（key 还是 dmodel）→ fields 接线必须拦住
+    gw.writeCatalogCache(
+      [{ id: "DeepSeek-V4.1-Flash-Official", key: "dmodel", display_name: "DeepSeek-V4.1-Flash-Official" }],
+      "qodercn",
+    );
+    const qodercnIds = gw.runInChannel("qodercn", () => gw.getChannel("qodercn").catalog.exposedIds()) as string[];
+    assert.ok(
+      !qodercnIds.some((id) => gw.canonicalModelId(id) === "deepseek-v4.1-flash"),
+      "上游 key 接线必须拦住改名条目",
+    );
   });
 });
