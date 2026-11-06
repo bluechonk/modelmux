@@ -13,14 +13,27 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Languages, Loader2, Terminal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { loadCtxScroll, pruneCtxScroll, saveCtxScroll, signatureOf } from "../lib/ctx-scroll";
 import { parseLenient } from "../lib/lenient-json";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
-import { assembledBody, hasMore, nextOffset, PAYLOAD_SLICE } from "../lib/payload-slices";
+import {
+  assembledBody,
+  growHead,
+  growTail,
+  initialSpan,
+  nextHeadRequest,
+  nextTailRequest,
+  PAYLOAD_SLICE,
+  spanComplete,
+  spanGapBytes,
+  type SliceSpan,
+  type SliceWindow,
+  windowsTileFully,
+} from "../lib/payload-slices";
 import { shouldOfferTranslation, translateText } from "../lib/translate";
 import type { AccessLogEntry, PayloadRecord } from "../lib/types";
 import { CopyButton } from "./CopyButton";
@@ -526,77 +539,144 @@ function CopyFullBody({
 }
 
 /**
- * 单条记录：元数据 + 按需加载的正文（**滚动懒加载**）。
+ * 单条记录：元数据 + 按需加载的正文（**两头起手 + 双向懒加载**）。
  *
  * 正文不随首屏一起到达（`record.body` 默认是空串）——整段解压后可达 MB 级，
- * 一次塞进首屏会让弹窗卡住。首屏只取一片；用户把弹窗滚到这条记录的底部时
- * **自动**续取下一片（`IntersectionObserver` 观察哨兵元素），不再要人点按钮。
- * 每片到达都重跑 `parseLenient`，已完整闭合的新消息随之追加成卡片。
+ * 一次塞进首屏会让弹窗卡住。所以：打开时同时取**头片**（`[0, 64 KiB)`）与
+ * **尾片**（末尾 64 KiB），「回到顶部 / 滚动到底部」从第一次点击起就落在真两端；
+ * 中间留空隙块，两侧各一个哨兵按需补片；两头接上后拼成完整正文，走单段解析路径。
+ *
+ * 分片进度只认**已到达的窗口**（`SliceWindow[]`，按 offset 去重后 derive），不维护
+ * 「已加载字符串 + 当前 offset」两份状态 —— 旧实现的「首片拼两遍」就是两份状态不同步来的。
  */
 function PayloadBlock({
   record,
   id,
   date,
+  onGrow,
 }: {
   record: PayloadRecord;
   id: string;
   date: string;
+  /** 内容**将要**长高之前调用（弹窗据此决定是否跟随末尾，见 `noteGrowth`）。 */
+  onGrow: () => void;
 }): ReactElement {
   const title = record.phase === "client" ? "客户端原始请求" : `上行 #${(record.attempt ?? 0) + 1}`;
-  // `offset` 恒等于已加载字符数：首片 64 KiB，其后每片 +64 KiB。
-  // 单一事实源，杜绝「loaded 与 offset 不同步」的拼接错位（旧实现点击路径会把首片拼两遍）。
-  const [loaded, setLoaded] = useState("");
-  const [offset, setOffset] = useState(0);
-  const sentinel = useRef<HTMLDivElement | null>(null);
-  const slice = useQuery({
-    queryKey: ["logPayloadBody", id, date, record.phase, offset],
-    queryFn: () => api.logPayloadBody(id, date, record.phase, offset, PAYLOAD_SLICE),
-    enabled: record.body === "" && offset > 0,
+  const [headWindows, setHeadWindows] = useState<SliceWindow[]>([]);
+  const [tailWindows, setTailWindows] = useState<SliceWindow[]>([]);
+  // 已请求的头/尾片起点：头片挂载即取（第 0 格），尾片等 total 认准后再取（见下面的预取 effect）
+  const [headAsked, setHeadAsked] = useState<number | null>(record.body === "" ? 0 : null);
+  const [tailAsked, setTailAsked] = useState<number | null>(null);
+  const headSentinel = useRef<HTMLDivElement | null>(null);
+  const tailSentinel = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * 进度的 `total` 只认**服务端**给的那个：元数据里的 `bytes` 与服务端 `total` 不是一套口径 ——
+   * 截断记录的 `bytes` 是**原始**长度（落盘更短），而明文小记录（< 4 KiB）服务端按**字符**切片、
+   * `total` 是码元数（含中文时比字节小）。拿 `bytes` 当几何基准会让尾格落到正文之外：
+   * 服务端返回 200 + 空 body，进度永不推进、空隙永远收不掉。
+   */
+  const total = headWindows[0]?.total ?? tailWindows[0]?.total ?? record.bytes;
+  /** 任一窗口到达 ⇒ `total` 已是服务端口径，可以据此算尾格几何。 */
+  const totalKnown = headWindows.length > 0 || tailWindows.length > 0;
+
+  const span = useMemo<SliceSpan>(() => {
+    let next = initialSpan(total);
+    for (const window of headWindows) next = growHead(next, window);
+    for (const window of tailWindows) next = growTail(next, window);
+    return next;
+  }, [total, headWindows, tailWindows]);
+  const complete = record.body !== "" || spanComplete(span);
+  const head = headWindows.map((window) => window.body).join("");
+  const tail = tailWindows.map((window) => window.body).join("");
+  const windows = useMemo(() => [...headWindows, ...tailWindows], [headWindows, tailWindows]);
+  const body = assembledBody({ recordBody: record.body, span, windows });
+  /** 进度说取全、窗口却没铺满：拼接会缺段，宁可报错也不显示半截正文。 */
+  const assemblyBroken = complete && record.body === "" && !windowsTileFully(windows, total);
+
+  const headRequest = complete ? null : nextHeadRequest(span);
+  const tailRequest = complete ? null : nextTailRequest(span);
+  // 哨兵申请的就是当前这一片时才发请求：片到达后 `headRequest.offset` 前移、等式自然断开，
+  // 不会拿旧 offset 配新 limit 去打一个已经不需要的窗口。
+  const headReady = headRequest !== null && headAsked === headRequest.offset;
+  const tailReady = tailRequest !== null && tailAsked === tailRequest.offset;
+  const headSlice = useQuery({
+    queryKey: ["logPayloadBody", id, date, record.phase, "head", headRequest?.offset ?? -1, headRequest?.limit ?? 0],
+    queryFn: () => api.logPayloadBody(id, date, record.phase, headRequest?.offset ?? 0, headRequest?.limit ?? 0),
+    enabled: headReady,
     staleTime: 60_000,
   });
-  // 首片（offset=0）独立取：不受「滚动到底才触发」约束 —— 首屏就要拆出前 64K 的消息。
-  const firstSliceQuery = useQuery({
-    queryKey: ["logPayloadBody", id, date, record.phase, 0],
-    queryFn: () => api.logPayloadBody(id, date, record.phase, 0, PAYLOAD_SLICE),
-    enabled: record.body === "",
+  const tailSlice = useQuery({
+    queryKey: ["logPayloadBody", id, date, record.phase, "tail", tailRequest?.offset ?? -1, tailRequest?.limit ?? 0],
+    queryFn: () => api.logPayloadBody(id, date, record.phase, tailRequest?.offset ?? 0, tailRequest?.limit ?? 0),
+    enabled: tailReady,
     staleTime: 60_000,
   });
-  const body = assembledBody({
-    recordBody: record.body,
-    loaded,
-    offset,
-    firstSlice: firstSliceQuery.data,
-    nextSlice: slice.data,
-  });
-  const total = (offset === 0 ? firstSliceQuery.data?.total : slice.data?.total) ?? record.bytes;
-  const fetching =
-    record.body === "" && (offset === 0 ? firstSliceQuery.isPending : slice.isPending);
-  // 取片失败（网关抖动 / 500）必须显式成为错误态：静默下去的话 `body` 是空串，
-  // `parseLenient("")` 返回 null → 渲染成「正文不是可解析的请求体（编码或渠道自有格式）」
-  // 这个**错误结论**，而哨兵还会把 offset 推到 64K，首片内容再也不会被取回。
-  const sliceFailed = record.body === "" && (offset === 0 ? firstSliceQuery.isError : slice.isError);
-  const more = !sliceFailed && hasMore({ recordBody: record.body, offset, total });
-  // 滚动懒加载：哨兵进入视口且还有剩余 → 取下一片。`fetching` 期间不重复触发。
+  // 到达即并入（按 offset 去重：重复到达不会拼两遍）。
+  // 写 state 之前先让弹窗记一次「此刻贴不贴底」—— 内容长高本身不产生 scroll 事件，
+  // 长高之后再问就晚了（末尾已经被推走了）。
   useEffect(() => {
-    const el = sentinel.current;
-    if (!el || !more || fetching) return;
+    const data = headSlice.data;
+    if (data === undefined || data.body === "") return;
+    onGrow();
+    setHeadWindows((prev) => (prev.some((w) => w.offset === data.offset) ? prev : [...prev, data]));
+  }, [headSlice.data]);
+  useEffect(() => {
+    const data = tailSlice.data;
+    if (data === undefined || data.body === "") return;
+    onGrow();
+    setTailWindows((prev) => (prev.some((w) => w.offset === data.offset) ? prev : [...prev, data]));
+  }, [tailSlice.data]);
+
+  const headFetching = headReady && headSlice.isFetching;
+  const tailFetching = tailReady && tailSlice.isFetching;
+  // 取片失败（网关抖动 / 500）必须显式成为错误态：静默下去的话正文是半截，
+  // 解析会把「只加载到这里」当成「正文就这么长」。失败只降级**那一侧**的提示，
+  // 已经取到的头片卡片照常渲染（整块替换成错误文案等于把已在手的内容也藏了）。
+  const sliceFailed = headReady && headSlice.isError ? "head" : tailReady && tailSlice.isError ? "tail" : null;
+
+  /** 尾片预取：`total` 认准后立刻取末格，不等哨兵 —— 「打开就能滚到真末尾」靠这一步。 */
+  useEffect(() => {
+    if (record.body !== "" || tailAsked !== null || tailRequest === null || !totalKnown) return;
+    setTailAsked(tailRequest.offset);
+  }, [record.body, tailAsked, tailRequest, totalKnown]);
+
+  // 双向懒加载：哨兵进视口、那个方向还有剩余 → 请求下一格。
+  // 依赖里带上进度，每格到达后重建观察器 —— 哨兵仍在视口时会立刻再来一格（连续补片）。
+  // 不做方向门：两侧同时可见就两侧一起补（与旧实现「停在底部就一直往下取」同一取舍），
+  // 方向门要靠 wheel 判方向，触摸 / 键盘 / 拖滚动条都不产生它，反而会把某一侧堵死。
+  useEffect(() => {
+    const el = headSentinel.current;
+    if (!el || headRequest === null || headFetching) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setLoaded(body);
-          setOffset(nextOffset(offset, total));
-        }
+        if (entries.some((e) => e.isIntersecting)) setHeadAsked(headRequest.offset);
       },
       { rootMargin: "200px 0px" }, // 略提前于视口底部就开始取，滚动不顿挫
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [more, fetching, offset, total, body]);
+  }, [headRequest, headFetching, span.headEnd, span.tailStart]);
+  useEffect(() => {
+    const el = tailSentinel.current;
+    if (!el || tailRequest === null || tailFetching) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setTailAsked(tailRequest.offset);
+      },
+      { rootMargin: "200px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tailRequest, tailFetching, span.headEnd, span.tailStart]);
+
   // 宽松解析：完整 JSON 走严格路径；截断前缀抢救已完整的消息（信封也在此剥开）。
-  // truncated 记录不再尝试解析（双端截断的正文拼不出真实消息序）。
-  const lenient = record.truncated ? null : parseLenient(body);
+  // truncated 记录不再尝试解析（双端截断的正文拼不出真实消息序）；
+  // 未取全时 `body` 是空串，这里解析的是**头片**（前缀）—— 与改造前同一套语义。
+  const section = complete ? body : head;
+  const lenient = record.truncated ? null : parseLenient(section);
   const parsed = lenient?.top ?? null;
-  const partial = lenient?.truncated ?? false;
+  const partial = !complete || (lenient?.truncated ?? false);
   const messages = parsed !== null && Array.isArray(parsed["messages"]) ? parsed["messages"] : null;
   const tools = parsed !== null && Array.isArray(parsed["tools"]) ? parsed["tools"] : null;
   const rest =
@@ -624,25 +704,47 @@ function PayloadBlock({
             date={date}
             phase={record.phase}
             loaded={body}
-            complete={!more}
+            complete={complete}
             total={total}
             title={title}
           />
         </span>
       </header>
       <div className="space-y-2 px-3.5 py-3">
-        {sliceFailed ? (
+        {/* 失败只降级这一侧的提示：已到达的内容照常渲染（整块换成错误文案会把手里已有的也藏掉）。
+            不叫「重开弹窗」—— 页内就能重试，代价小得多 */}
+        {sliceFailed !== null && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-danger">
+            <span>
+              {sliceFailed === "head" ? "开头片段" : "末尾片段"}读取失败（网关或网络抖动）——
+              其余内容照常显示。
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                void headSlice.refetch();
+                void tailSlice.refetch();
+              }}
+              className="tap rounded-md border border-line px-1.5 py-0.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            >
+              重试
+            </button>
+          </div>
+        )}
+        {assemblyBroken ? (
           <p className="text-xs text-danger">
-            正文读取失败（网关或网络抖动）—— 这不是格式问题；重开本弹窗会重新尝试读取。
+            正文拼装异常（分片没铺满）—— 不显示半截正文；重开本弹窗会重新读取。
           </p>
         ) : parsed === null ? (
           <>
             <p className="text-xs text-ink-faint">
               {record.truncated
                 ? "正文超出单条上限已被截断，按原文呈现（不再尝试解析）。"
-                : "正文不是可解析的请求体（编码或渠道自有格式），按原文呈现。"}
+                : complete
+                  ? "正文不是可解析的请求体（编码或渠道自有格式），按原文呈现。"
+                  : `以下是开头 ${formatBytes(span.headEnd)} 的原文（整份还没读完，其余见下方空隙块与末尾块）。`}
             </p>
-            <JsonBlock value={body} maxHeight="max-h-[50vh]" />
+            <JsonBlock value={section} maxHeight="max-h-[50vh]" />
           </>
         ) : (
           <>
@@ -656,8 +758,9 @@ function PayloadBlock({
             ))}
             {partial && (
               <p className="text-xs text-ink-faint">
-                正文较长，已显示前 {formatCount(body.length)} 字符内的完整消息 ——
-                继续向下滚动会自动加载后续内容。
+                {complete
+                  ? `正文较长，已显示前 ${formatCount(head.length)} 字符内的完整消息。`
+                  : `已显示开头 ${formatCount(head.length)} 字符内的完整消息 —— 中间未加载的部分见下方空隙块。`}
               </p>
             )}
             {tools !== null && <ToolDefinitions tools={tools} />}
@@ -668,20 +771,51 @@ function PayloadBlock({
             )}
           </>
         )}
+
         {record.body === "" && (
-          <div className="border-t border-line/60 px-3.5 py-2 text-xs text-ink-faint">
-            {more ? (
-              <div ref={sentinel} className="flex items-center gap-2 py-1">
-                {fetching ? (
-                  <span>正在读取下一片…</span>
-                ) : (
-                  <span>继续向下滚动加载（已读 {formatCount(body.length)} / {formatCount(total)} 字符）</span>
-                )}
+          <div className="space-y-2">
+            {/*
+              空隙块：头片之后、尾片之前。哨兵贴在空隙的两端 —— 向下滚到头侧补头片、
+              向上滚到尾侧补尾片；两头接上后本块与尾侧原文块一起消失（回到单段渲染）。
+            */}
+            {!complete && (
+              <div className="rounded-md border border-dashed border-line px-3.5 py-2 text-xs text-ink-faint">
+                <div ref={headSentinel} className="h-px w-full" />
+                <div className="flex flex-wrap items-center gap-x-2 pt-1.5">
+                  {headFetching || tailFetching ? (
+                    <span>正在读取…</span>
+                  ) : (
+                    <span>
+                      中间还有 {formatBytes(spanGapBytes(span))} 未加载（共 {formatBytes(total)}）·
+                      已读头 {formatBytes(span.headEnd)} + 尾{" "}
+                      {formatBytes(Math.max(0, total - span.tailStart))}
+                    </span>
+                  )}
+                  <span>向下滚动补前半段、向上滚动补后半段</span>
+                </div>
+                <div ref={tailSentinel} className="h-px w-full" />
               </div>
-            ) : (
-              <span>
-                已读完整正文（{formatCount(total)} 字符）· 压缩存储，按需解压
-              </span>
+            )}
+
+            {/* 原文不设自身滚动条：否则「滚动到底部」到的是块底、末尾还藏在块的内部滚动里 */}
+            {tail !== "" && (
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-x-2 border-t border-line/60 pt-1.5 text-xs text-ink-faint">
+                  <span>
+                    正文末尾（{formatBytes(Math.max(0, total - span.tailStart))}）· 未解析原文
+                  </span>
+                  <span>两头接上后这里会按消息卡片重排</span>
+                </div>
+                <pre className="whitespace-pre-wrap break-all rounded-md border border-line/50 bg-canvas/40 p-2 font-mono text-xs text-ink-soft">
+                  {tail}
+                </pre>
+              </div>
+            )}
+
+            {complete && (
+              <div className="border-t border-line/60 pt-1.5 text-xs text-ink-faint">
+                已读完整正文（{formatBytes(total)}）· 压缩存储，按需解压
+              </div>
             )}
           </div>
         )}
@@ -729,6 +863,27 @@ export function LogContextDialog({
   const signature = useMemo(() => signatureOf(records), [records]);
   /** 待恢复的目标位置；null = 不需要恢复（无缓存 / 已到达 / 用户已接管）。 */
   const restoreRef = useRef<number | null>(null);
+  /**
+   * 「跟随末尾」：补片都让正文变长（头片补在下方、尾片补在尾巴前面），两种都会把**末尾**推远。
+   * 用户本来在末尾（点了「滚动到底部」或自己滚到底）就不该被推走。
+   *
+   * 判据在**内容长高之前**现算（`noteGrowth`），不靠 scroll 事件的缓存值 —— 内容变高本身不
+   * 产生 scroll 事件，缓存值会一直停在「打开弹窗时那一下」（那时内容还没高度，恒判贴底：
+   * 一开弹窗就把人甩到底部，还会跟滚动位置记忆的恢复互相顶）。
+   */
+  const pinnedRef = useRef(false);
+  const noteGrowth = (): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    pinnedRef.current = pinnedRef.current || (max > 4 && max - el.scrollTop <= 4);
+    if (!pinnedRef.current) return;
+    // 下一帧贴回末尾：这一帧内容刚要长高，现在量还是旧高度
+    window.requestAnimationFrame(() => {
+      const node = scrollRef.current;
+      if (node !== null) node.scrollTop = node.scrollHeight - node.clientHeight;
+    });
+  };
   /** 每次「读到缓存」自增，用来唤醒恢复循环（见下）。 */
   const [restoreSeq, setRestoreSeq] = useState(0);
 
@@ -788,7 +943,7 @@ export function LogContextDialog({
   }, [restoreSeq]);
 
   /**
-   * 用户接管即放弃恢复（用户意图优先，别和懒加载的自动滚动打架）。
+   * 用户接管即放弃恢复与贴底跟随（用户意图优先，别和懒加载的自动滚动打架）。
    *
    * 只听**真实手势**：滚轮 / 触摸 / 滚动键 / 拖滚动条 —— 程序化滚动（恢复本身、
    * 跳转钮的平滑动画）不在此列，否则恢复会自我打断。
@@ -800,6 +955,7 @@ export function LogContextDialog({
     if (!el) return;
     const abandon = (): void => {
       restoreRef.current = null;
+      pinnedRef.current = false;
     };
     const scrollKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
     const onKey = (event: KeyboardEvent): void => {
@@ -851,10 +1007,11 @@ export function LogContextDialog({
     };
   }, [entry.id, signature]);
 
-  /** 跳转钮点击：位置确定（0 / 底部），立刻落缓存，不等防抖。 */
+  /** 跳转钮点击：位置确定（0 / 底部），立刻落缓存，不等防抖。跳到底 = 从此跟随末尾。 */
   const onJump = (where: "top" | "bottom", el: HTMLElement): void => {
     restoreRef.current = null;
     const top = where === "top" ? 0 : el.scrollHeight - el.clientHeight;
+    pinnedRef.current = where === "bottom";
     saveCtxScroll(entry.id, top, signature);
   };
 
@@ -948,6 +1105,7 @@ export function LogContextDialog({
                       record={record}
                       id={entry.id}
                       date={date}
+                      onGrow={noteGrowth}
                     />
                   ))
                 ) : (
