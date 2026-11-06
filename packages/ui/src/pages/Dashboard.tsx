@@ -336,10 +336,11 @@ export function Dashboard(): ReactElement {
   const yearQuery = useQuery({ queryKey: ["usage", "365d"], queryFn: () => api.usage("365d") });
   const yearStats = yearQuery.data;
 
-  // 错误提示：按内容去重
+  // 错误提示：按内容去重。用量两路（区间 / 热力图的 365d）也算 —— 它们失败时区间 KPI
+  // 与热力图会停在空态，界面看起来只是「没数据」，不提示就成了静默失败。
   const lastToastedError = useRef("");
   useEffect(() => {
-    const err = stateQuery.error ?? overviewQuery.error;
+    const err = stateQuery.error ?? overviewQuery.error ?? usageQuery.error ?? yearQuery.error;
     if (err) {
       const text = `加载失败：${String(err)}`;
       if (text !== lastToastedError.current) {
@@ -358,7 +359,15 @@ export function Dashboard(): ReactElement {
       lastToastedError.current = text;
       toast.error(text);
     }
-  }, [stateQuery.error, overviewQuery.error, overview?.gateway.gateway_error, state?.gateway_error, toast]);
+  }, [
+    stateQuery.error,
+    overviewQuery.error,
+    usageQuery.error,
+    yearQuery.error,
+    overview?.gateway.gateway_error,
+    state?.gateway_error,
+    toast,
+  ]);
 
   // ----- 加载态 -----
   if (stateQuery.isLoading) return <DashboardSkeleton />;
@@ -398,8 +407,9 @@ export function Dashboard(): ReactElement {
         actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
       />
 
-      {/* ① KPI：今日三格 + 区间四格，同一栅格（窄屏 2 列 / lg 4 列 / xl 7 列） */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
+      {/* ① KPI：今日三格 + 区间五格，同一栅格（窄屏 2 列 / lg 起 4 列 × 2 行）。
+          八格排一行在 1400px 容器下每格只剩 ~158px，副说明会被挤成两行，故收成两行四列 */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
           icon={Wifi}
           label="今日请求 · 成功率"
@@ -449,6 +459,19 @@ export function Dashboard(): ReactElement {
             rangeStats && rangeStats.totals.requests > 0
               ? `平均 ${formatDuration(Math.round(rangeStats.totals.durationMs / rangeStats.totals.requests))}`
               : undefined
+          }
+        />
+        <KpiCard
+          icon={Gauge}
+          label="平均 TPS"
+          value={formatRate(rangeStats?.totals.avgTps ?? null)}
+          // 有区间数据但算不出速率时写清原因：`—` 与「成功请求均值」并排会被读成 0
+          sub={
+            rangeStats === undefined
+              ? undefined
+              : rangeStats.totals.avgTps === null
+                ? "区间内无可算样本"
+                : "成功请求均值"
           }
         />
         <KpiCard

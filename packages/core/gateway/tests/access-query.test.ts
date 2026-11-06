@@ -98,6 +98,7 @@ describe("访问日志读回", () => {
     assert.equal(page.total, 0);
     assert.deepEqual(page.entries, []);
     assert.deepEqual(page.dates, []);
+    assert.equal(page.stats.avgTps, null, "没有样本就没有平均速率（不是 0）");
   });
 
   it("指定一个没有数据的日期时回落到最新有数据的日期", () => {
@@ -178,6 +179,57 @@ describe("访问日志读回", () => {
     assert.equal(page.stats.success, 2);
     assert.equal(page.stats.failure, 1);
     assert.equal(page.stats.tokens.total, 90, "三条各 30");
+  });
+
+  it("统计条的平均 TPS 只采成功请求里算得出的样本", () => {
+    writeAccess("success", [
+      // 100 tokens / 1s 生成窗口 = 100 t/s
+      entry({ id: "req_t1", durationMs: 2000, generateMs: 1000, usage: { prompt_tokens: 10, completion_tokens: 100 } }),
+      // 30 tokens / 1s = 30 t/s
+      entry({ id: "req_t2", durationMs: 2000, generateMs: 1000, usage: { prompt_tokens: 10, completion_tokens: 30 } }),
+      // 生成窗口低于下限（50ms）→ 算不出速率，**不进**均值分母
+      entry({ id: "req_t3", durationMs: 2000, generateMs: 20, usage: { prompt_tokens: 10, completion_tokens: 100 } }),
+    ]);
+    // 失败请求的速率不进均值：失败 usage 多为空，混进去会把速率拉成「丑但成功不了」的假象
+    writeAccess("failure", [
+      entry({
+        id: "req_t4",
+        status: 502,
+        outcome: "failure",
+        durationMs: 2000,
+        generateMs: 1000,
+        usage: { prompt_tokens: 10, completion_tokens: 100 },
+      }),
+    ]);
+    const stats = queryAccessLogs().stats;
+    assert.equal(stats.requests, 4, "统计仍覆盖全部 4 条");
+    assert.equal(stats.avgTps, 65, "只按成功样本求均值：(100 + 30) / 2");
+    assert.equal(stats.avgDurationMs, 2000, "平均耗时不受速率口径影响");
+  });
+
+  it("统计只覆盖声明的路径范围：非模型请求不进统计（否则分段计数点进去是空的）", () => {
+    writeAccess("success", [entry({ id: "req_model" })]);
+    // 浏览器探测 / 健康检查的 404 同样落盘，但它永远不出现在日志列表里
+    writeAccess("failure", [
+      entry({
+        id: "req_probe",
+        method: "GET",
+        path: "/.well-known/appspecific/com.chrome.devtools.json",
+        status: 404,
+        outcome: "failure",
+        model: undefined,
+        usage: undefined,
+      }),
+    ]);
+    const page = queryAccessLogs({ paths: ["/v1/chat/completions"] });
+    assert.equal(page.stats.requests, 1, "统计条与列表必须同源（否则「请求 N」比列表多）");
+    assert.equal(page.stats.failure, 0, "分段计数点进去不能是空的");
+    assert.equal(page.total, 1);
+    assert.deepEqual(page.entries.map((e) => e.id), ["req_model"]);
+    // 不传路径时统计覆盖全部：CLI / 排障要看全量
+    const all = queryAccessLogs();
+    assert.equal(all.stats.requests, 2);
+    assert.equal(all.stats.failure, 1);
   });
 
   it("渠道下拉数据来自未过滤窗口，不随筛选消失", () => {

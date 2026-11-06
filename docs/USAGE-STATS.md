@@ -32,6 +32,7 @@ Web 控制台**仪表盘**里那层「区间用量」的口径与设计依据。
 | 输入 / 输出 | `Σ tokens.prompt` / `Σ tokens.completion` |
 | 峰值 Token | 单日 `Σ tokens.total` 的最大值（同时给出该日、该日内峰值小时） |
 | 最长单请求 | `max(durationMs)`——**替代** ZCode 的「最长聊天时长」：网关是请求制、没有「会话」概念 |
+| 平均 TPS | 区间 `totals.avgTps`：`Σtps / 样本数`，样本 = **成功请求**里 `tokensPerSecOf` 算得出速率的那些（与逐模型 `avgTps` 同一批样本）。**不是** `Σcompletion / Σ生成窗口` —— 后者被长输出主导，答不了「一条请求通常多快」。**不套生成量下限**：`SLOW_MIN_COMPLETION = 20` 是「速率慢」判定用的（避免把 ping 类短请求判慢），均值要的是所有可计算样本 |
 | 当前 / 最长连续天数 | 「当天有模型请求」的日期集合上的连续段；今天没请求时 `current` 算到昨天为止 |
 | 请求数 / 消息数 | 请求条数 / `Σ messageCount`（替代 ZCode 的「会话数 / 消息数」） |
 | 缓存命中率 | **API 仍返回 `cacheHitRate`（`Σhit / Σ(hit+miss)`，仅累加有缓存字段的记录），但控制台不再展示** —— 实测没有任何上游返回「命中率」字段，只有命中 / 未命中计数；界面改为只报「缓存命中 token 数」（上游字段求和）。见 [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) §7 |
