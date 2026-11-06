@@ -7,7 +7,8 @@
  * 浮层 `pointer-events-none` 且渲染进 `document.body`（portal）：不挡住鼠标、
  * 不被滚动容器的 `overflow` 裁掉，也不会出现「移向浮层时它消失」的自激。
  *
- * 位置跟随鼠标（右下偏移 14px），贴近视口右缘/下缘时自动翻到鼠标左上侧。
+ * 位置由调用方给的视口坐标决定（右下偏移 14px），贴近视口右缘/下缘时自动翻到左上侧：
+ * 趋势图传**数据点**的屏幕坐标（浮层与所指日期对齐），环形图传**鼠标**坐标。
  */
 
 import type { CSSProperties, ReactElement, ReactNode } from "react";

@@ -15,8 +15,8 @@ import { useState, type ReactElement } from "react";
 
 import { formatTokens } from "../../lib/log-format";
 import type { UsageModelRow } from "../../lib/types";
+import { seriesClassOf } from "../../lib/trend-series";
 import { ChartTooltip } from "./ChartTooltip";
-import { seriesClassOf } from "./TrendChart";
 
 const R = 60;
 const CIRC = 2 * Math.PI * R;

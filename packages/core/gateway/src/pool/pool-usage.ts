@@ -32,6 +32,19 @@ export const BILLING_TTL_MS = 8 * 60 * 60 * 1000;
 /** 失败后的冷却时长（冷却期内得分当 0）。 */
 export const FAIL_COOLDOWN_MS = 60 * 1000;
 
+/** 上一额度窗口结束时的余额快照（跨窗口对比的兜底口径，见 `prevRemainOf`）。 */
+export interface PrevQuota {
+  /** 那一窗口的键（渠道声明的 `resets_at` 或本地日期）。 */
+  window: string;
+  /** 快照时的本地日期。 */
+  date: string;
+  /** 那一窗口最后一次观测到的剩余额度。 */
+  remain: number;
+  unit: string;
+  /** 快照时间（ISO）。 */
+  at: string;
+}
+
 /** 单个渠道的账本条目。 */
 export interface ChannelLedger {
   /** 账单已用量（排序主键）；查不到时是 0。 */
@@ -52,6 +65,10 @@ export interface ChannelLedger {
   fail: number;
   /** 冷却截止（epoch ms）；0 = 未冷却。 */
   cooldown_until: number;
+  /** 当前额度窗口键（与 `prev` 配套；见 `windowKeyOf`）。 */
+  window?: string;
+  /** 上一额度窗口的最后余额；窗口切换时写入。 */
+  prev?: PrevQuota | null;
   /**
    * 按**生效账号**拆分的请求计数（ok / fail）。key 是账号池的 account key；
    * 账本主维度仍是渠道（used/冷却），账号维度只做展示与排障。
@@ -89,6 +106,8 @@ export interface AccountCount {
    * 响应里、workbuddyai 的 size 是月包 credits），拿它当分母会算出「永远 100%」。
    */
   baseline?: { window: string; date: string; remain: number; at: string } | null;
+  /** 上一额度窗口的最后余额（跨窗口对比兜底用；见 `PrevQuota`）。 */
+  prev?: PrevQuota | null;
 }
 
 export interface PoolLedger {
@@ -162,6 +181,7 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
             };
           })()
         : null;
+    const prev = readPrev(rec.prev);
     out[key] = {
       ok: num(rec.ok),
       fail: num(rec.fail),
@@ -169,9 +189,27 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
       billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
       billing_ok: rec.billing_ok === true,
       ...(baseline ? { baseline } : {}),
+      ...(prev ? { prev } : {}),
     };
   }
   return out;
+}
+
+/** 宽松读上一窗口余额快照（缺窗口键 / 缺余额数字都视为无记录，不阻塞账本加载）。 */
+function readPrev(raw: unknown): PrevQuota | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const window = str(rec.window);
+  if (window === "") return null;
+  const remain = rec.remain;
+  if (typeof remain !== "number" || !Number.isFinite(remain)) return null;
+  return {
+    window,
+    date: str(rec.date),
+    remain,
+    unit: str(rec.unit),
+    at: str(rec.at),
+  };
 }
 
 function str(value: unknown): string {
@@ -194,6 +232,7 @@ function load(): PoolLedger {
         for (const [cid, entry] of Object.entries(raw.channels)) {
           const base = emptyChannel();
           const rec = (entry ?? {}) as Partial<ChannelLedger>;
+          const prev = readPrev(rec.prev);
           merged[cid] = {
             used: num(rec.used),
             size: num(rec.size),
@@ -204,6 +243,8 @@ function load(): PoolLedger {
             ok: num(rec.ok),
             fail: num(rec.fail),
             cooldown_until: num(rec.cooldown_until),
+            ...(typeof rec.window === "string" && rec.window ? { window: rec.window } : {}),
+            ...(prev ? { prev } : {}),
             accounts: readAccounts(rec.accounts),
           };
         }
@@ -302,6 +343,7 @@ export function noteFailure(cid: string, accountKey?: string | number, cooldownM
 export function writeBilling(cid: string, credits: unknown): void {
   const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
   const entry = entryOf(load(), cid);
+  noteChannelWindowPrev(entry, windowKeyOf(cid));
   entry.used = num(total["used"]);
   entry.size = num(total["size"]);
   entry.remain = num(total["remain"]);
@@ -335,6 +377,47 @@ function windowKeyOf(cid: string): string {
 }
 
 /**
+ * 渠道级：额度窗口切换时，把**上一窗口的最后余额**留作跨窗口对比的兜底口径。
+ *
+ * 为什么需要：有的渠道上游不回报「这次签到发了多少」，只能拿「上一窗口结束时剩多少」
+ * 与「这一窗口现在剩多少」对比（用户指定的兜底）。不记下来就没有可比。
+ */
+function noteChannelWindowPrev(entry: ChannelLedger, window: string): void {
+  if (entry.window === undefined) {
+    entry.window = window;
+    return;
+  }
+  if (entry.window === window) return;
+  // 只有**上次查询成功**的余额才值得留：查询失败时 `remain` 是前一次的残留（或 0），
+  // 拿它当「上一窗口最后余额」会让跨窗口对比算出虚假奖励
+  if (entry.billing_ok) {
+    entry.prev = {
+      window: entry.window,
+      date: localDate(),
+      remain: entry.remain,
+      unit: entry.unit,
+      at: entry.billing_at ?? new Date().toISOString(),
+    };
+  }
+  entry.window = window;
+}
+
+/** 账号级：同上（账号条目没有独立窗口键，用基线里的窗口）。 */
+function noteAccountWindowPrev(entry: AccountCount, window: string): void {
+  const prevWindow = entry.baseline?.window;
+  if (prevWindow === undefined || prevWindow === window) return;
+  if (entry.billing_ok) {
+    entry.prev = {
+      window: prevWindow,
+      date: entry.baseline?.date ?? localDate(),
+      remain: entry.credits?.remain ?? 0,
+      unit: entry.credits?.unit ?? "",
+      at: entry.billing_at ?? new Date().toISOString(),
+    };
+  }
+}
+
+/**
  * 决定额度基线（100% 分母）。
  *
  * - 没有基线 / 窗口变了 → 用本轮 `remain` 起新基线；
@@ -363,6 +446,7 @@ function pickBaseline(
 export function writeAccountBilling(cid: string, key: string, credits: unknown): void {
   const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
   const entry = accountEntry(entryOf(load(), cid), key);
+  noteAccountWindowPrev(entry, windowKeyOf(cid));
   const remain = num(total["remain"]);
   entry.credits = {
     remain,
@@ -606,6 +690,19 @@ export function lastKnownRemain(cid: string, key: string): number | null {
   const entry = load().channels[cid]?.accounts[key];
   const value = entry?.credits?.remain;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 上一额度窗口结束时的余额（跨窗口对比的兜底口径）；没有则 `null`。
+ *
+ * 用途：渠道不回报「这次签到发了多少」时，用「上一窗口最后剩多少」对比「现在剩多少」
+ * 推算入账额（用户指定的兜底）。只读本地快照，零网络开销。
+ */
+export function prevRemainOf(cid: string, accountKey?: string): PrevQuota | null {
+  const entry = load().channels[cid];
+  if (!entry) return null;
+  if (accountKey !== undefined) return entry.accounts[accountKey]?.prev ?? null;
+  return entry.prev ?? null;
 }
 
 /**

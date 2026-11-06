@@ -125,7 +125,9 @@
                      | `client-version.json` | lobsterai | 客户端版本号兜底（更新接口抽风时用「最后一次已知可用」版本） |
        | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
   - `state/` 跨重启保持的**状态**：`state/signin.json`（签到台账：
-    `{version, timezone, last_claim, history}`，由共享层在**领取成功**或自动签到回填时写入）、
+    `{version, timezone, last_claim, history, accounts?, probe?, probes?}`，由共享层在**领取成功**
+    或自动签到回填时写入；`last_claim`/`accounts[key]` 的字段与口径见
+    [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6）、
     `state/auto-signin.json`（自动签到的当日失败计数，连败 3 次熔断）。
   - `debug/` 抓包落盘默认位置（`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径）。
     它抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，恒开启，

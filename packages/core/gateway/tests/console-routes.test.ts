@@ -542,7 +542,11 @@ describe("/api/commands 分发", () => {
 
   it("accounts：带出渠道级签到状态；无签到能力的渠道由能力位标注", async () => {
     // 台账写一条「今天领过」（渠道级，非按账号渠道的唯一口径）
-    recordClaim("routes", { via: "test" });
+    recordClaim("routes", {
+      via: "test",
+      reward: { amount: 300, unit: "积分" },
+      rewardSource: "channel",
+    });
     const res = await fetch(`${server.url}api/commands`, {
       method: "POST",
       headers: JSON_HEADERS,
@@ -558,6 +562,8 @@ describe("/api/commands 分发", () => {
     assert.equal(routes?.["per_account"], false, "合成渠道不按账号签到 → 用渠道级台账");
     assert.equal(routes?.["claimed_today"], true, "台账记着今天领过");
     assert.ok(typeof routes?.["at"] === "string" && String(routes["at"]).length > 0, "领取时刻要能显示");
+    assert.deepEqual(routes?.["reward"], { amount: 300, unit: "积分" }, "额度要能显示");
+    assert.equal(routes?.["reward_source"], "channel", "额度来源随额度一起透出");
 
     const nosign = payload.data?.channels?.find((c) => c.cid === "nosign")?.signin;
     assert.equal(nosign?.["supported"], false, "无签到能力 → 前端据此不渲染该行");

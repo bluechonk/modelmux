@@ -660,6 +660,12 @@ body: 空串（不是 {}）
 -  活动每日 **10:00（UTC+8）刷新**（本仓实现见 `packages/core/channels/qoder/src/billing.ts:58` 的 `CAMPAIGN_REFRESH_HOUR_UTC8 = 10` 与 `packages/core/channels/qoder/src/billing.ts:131-147` 的 `claimedToday`）；
  刷新前看到的 `CLAIMED` 属昨天，**不能报「今天已领」**
   （常量名就叫 `CAMPAIGN_REFRESH_HOUR_UTC8`，**没有 `QODER_` 前缀**；模块级私有常量，不导出）
+- **报给共享层的三个字段**（`signin.status()`）：`resetAt` = 当前活动的 `endAt`、
+  `windowStartsAt` = 当前活动的 `startAt`（均为 epoch ms）—— 本渠道的签到日界是 10:00 而不是
+  本地 0 点，调度器靠它们判断「这条领取记录是不是属于已结束的旧窗口」，否则当天活动永远领不到；
+  `reward` = 本活动日内已领活动的 `benefit.amount` 之和 —— 领取接口在重复领取（`replayed`）时
+  不回数字，只能从活动记录里取（见 `auth/auto-signin.ts`）。多条活动时取**已开始且开始最晚**的
+  那条，往期/预下发的活动不参与窗口判定。
 
 ---
 

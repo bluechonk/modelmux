@@ -3,7 +3,8 @@
  *
  * 关键约束（端点/字段/实测见 docs/channels/loomy/PROTOCOL.md）：
  *   - 两个积分池：永久积分与每日赠送池（后者消耗后不回补）；查余额走只读端点，不触发签到。
- *   - 「查不到」不能显示成 0：核心字段缺失即抛错；每日额度只在初始化响应里，未签到时不硬编码。
+ *   - 「查不到」不能显示成 0：账单核心字段缺失即抛错；账单的日总量只在初始化响应里，不硬编码。
+ *   - 签到发放额（每天 5000）是**实测常量**，与账单字段无关：经 `status().dailyReward` 上报。
  *   - 签到 = 每日额度重置（写、幂等）+ 新手任务直领；全自动能力，无 CLI 动词，由共享层调度。
  */
 
@@ -12,6 +13,13 @@ import * as upstream from "./upstream.js";
 
 /** 额度单位。 */
 const UNIT = "积分";
+
+/**
+ * 每日赠送额度（实测常量，见 PROTOCOL §6.3）—— 「签到」就是触发这个额度重置。
+ *
+ * 与 `quotaPeriod().size` 共用一个常量：两处都是同一个上游事实，各写一份必然漂移。
+ */
+const DAILY_QUOTA = 5000;
 
 /** 额度查询/领取失败。 */
 export class CreditsError extends Error {
@@ -61,7 +69,10 @@ interface CreditsResult {
     used: number;
     unit: string;
     remain_percent: number;
-    /** `dailyQuota` 只在 first-login 的响应里 → 未签到时为 false（**不硬编码 5000**）。 */
+    /**
+     * `dailyQuota` 只在 first-login 的响应里 → 未签到时为 false。
+     * 这是**账单**字段（`points/records` 不返回），缺失时如实标 unknown，不硬编码。
+     */
     daily_quota_known: boolean;
   };
   packages: CreditPackage[];
@@ -295,6 +306,9 @@ export const signin: SigninModule = {
     return {
       claimable: null,
       summary: "（该渠道没有独立的签到状态端点；claim 会触发每日额度重置并领新手任务）",
+      // 上游不回报「这次发了多少」，但每日额度是公布的固定值（实测常量，见 PROTOCOL §6.3）
+      // —— 控制台据此显示「今日签到 +5000」，不必等额度实测差值
+      dailyReward: { amount: DAILY_QUOTA, unit: UNIT },
     };
   },
   async claim(options) {
@@ -338,7 +352,8 @@ export const signin: SigninModule = {
       ok: reset.status !== "failed" && tasksError === "",
       summary: parts.join("；"),
       // 只有**新手任务真领到**才有额度数字（`earned` 是上游回的积分和）；
-      // 每日额度重置那条只报"已触发"，上游不公布发多少 —— 不能拿 5000 当已知值
+      // 每日额度重置那条只报「已触发」—— 它是**重置**不是「+5000」，发放额由
+      // `status().dailyReward` 作为实测常量上报（见 PROTOCOL §6.3），不在这里重复
       ...(tasks !== null && tasks.earned > 0 ? { reward: { amount: tasks.earned, unit: "积分" } } : {}),
       detail: { first_login: reset, tasks },
     };
@@ -361,7 +376,7 @@ export const signin: SigninModule = {
 export function quotaPeriod(): QuotaPeriod {
   return {
     label: "每天送 5000 积分，本地 0 点刷新",
-    size: 5000,
+    size: DAILY_QUOTA,
     unit: "积分",
     resets_at: nextLocalMidnight(),
   };

@@ -91,9 +91,14 @@ export interface AccountSignin {
   at: string | null;
   /** 今天领到多少额度；渠道报不出数值时为 null。 */
   reward?: { amount: number; unit: string } | null;
+  /** 额度数值来源；`carry`（跨窗口对比）是估算，界面会标注。 */
+  reward_source?: SigninRewardSource | null;
   /** 最近一次上游探测结论（当天有效）。 */
   probe?: SigninProbe | null;
 }
+
+/** 与后端 `SigninRewardSource` 同口：`carry` 最弱（跨窗口对比），只在无其它口径时用。 */
+export type SigninRewardSource = "channel" | "daily" | "delta" | "carry";
 
 /** 一次 `signin.status()` 探测结论（控制台展示用）。 */
 export interface SigninProbe {
@@ -120,6 +125,8 @@ export interface ChannelSignin {
   at: string | null;
   /** 今天领到多少额度；渠道报不出数值时为 null。 */
   reward?: { amount: number; unit: string } | null;
+  /** 额度数值来源；`carry`（跨窗口对比）是估算，界面会标注。 */
+  reward_source?: SigninRewardSource | null;
   /** 最近一次上游探测结论（当天有效）。 */
   probe?: SigninProbe | null;
 }
