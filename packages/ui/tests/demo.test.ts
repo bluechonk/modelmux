@@ -165,7 +165,15 @@ describe("日志与用量（演示种子数据的读路径）", () => {
       assert.ok(Array.isArray(stats.daily));
       assert.ok(stats.totals.tokens >= 0);
       assert.equal(stats.range, range);
+      // 仪表盘的「平均 TPS」格读它：演示值也必须在可展示区间（不是 0 / NaN）
+      assert.ok(stats.totals.avgTps !== null && stats.totals.avgTps > 0, "演示必须有可展示的平均速率");
     }
+  });
+
+  it("demoLogs 的统计条带平均 TPS（演示页要有可展示的样本）", () => {
+    const page = demoLogs(createDemoState(), {});
+    // 口径的正确性由网关侧用例钉死；这里只要求演示数据不是 null / 0（否则页面显示 `—`）
+    assert.ok(page.stats.avgTps !== null && page.stats.avgTps > 0);
   });
 
   it("demoLogPayload：正文抓取记录可读回（演示对任意 id 回同一份夹具正文）", () => {

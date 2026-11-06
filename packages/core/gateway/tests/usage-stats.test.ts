@@ -309,6 +309,7 @@ describe("computeUsageStats", () => {
     assert.equal(b?.ok, 0);
     assert.equal(b?.fail, 1, "全失败的模型也要出现在 models 里");
     assert.equal(b?.avgTps, null, "没有成功样本就没有速率");
+    assert.equal(Math.round(stats.totals.avgTps ?? 0), 77, "区间总均值与逐模型同一批样本");
     assert.equal(stats.totals.noUsage, 1, "失败那条没有 usage");
   });
 });

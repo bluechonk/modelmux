@@ -10,7 +10,7 @@
  * 不读取、不复制 `~/.modelmux/` 下的任何真实数据。
  */
 
-import { tokensPerSecOf } from "./log-format.ts";
+import { tokensPerSecOfEntry } from "./log-format.ts";
 import type {
   AccessLogEntry,
   AccessLogPage,
@@ -581,20 +581,6 @@ function demoLogDates(now: number): string[] {
 export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage {
   const now = Date.now();
   const dates = demoLogDates(now);
-  // 「慢」判定与后端 `log-store.slowVerdictOf` 同口径（首字延迟 + 生成速率）。
-  // 速率公式复用本包 `log-format.tokensPerSecOf`（与网关同值的唯一 UI 侧实现，勿再内联副本）；
-  // 下方三个常量（10000 / 30 / 20）是 log-store `SLOW_*` 的同值副本，改动必须两边同步
-  //（docs/LOGGING.md §3.5 / §6）。
-  const slowOf = (seed: (typeof DEMO_LOG_SEED)[number]): Pick<AccessLogEntry, "slow" | "slowTtfb" | "slowTps"> => {
-    const slowTtfb = seed.stream === true && (seed.ttfbMs ?? 0) >= 10_000;
-    const completion = seed.tokens?.completion ?? null;
-    const tps =
-      completion != null && completion >= 20
-        ? tokensPerSecOf({ completion, durationMs: seed.durationMs, ttfbMs: seed.ttfbMs, upstreamMs: seed.upstreamMs, generateMs: seed.generateMs, stream: seed.stream })
-        : null;
-    const slowTps = tps !== null && tps < 30;
-    return { slow: slowTtfb || slowTps, slowTtfb, slowTps };
-  };
   const entries: AccessLogEntry[] = DEMO_LOG_SEED.map((seed, i) => ({
     id: `req_demo${String(i).padStart(4, "0")}9f3c`,
     ts: new Date(now - i * 47_000).toISOString(),
@@ -625,8 +611,24 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
               miss: Math.round(seed.tokens.prompt * 0.3),
             },
           },
-    ...slowOf(seed),
+    slow: false,
+    slowTtfb: false,
+    slowTps: false,
   }));
+
+  // 「慢」判定与后端 `log-store.slowVerdictOf` 同口径（首字延迟 + 生成速率）。
+  // 速率公式复用本包 `log-format`（与网关同值的唯一 UI 侧实现，勿再内联副本）；
+  // 下方三个常量（10000 / 30 / 20）是 log-store `SLOW_*` 的同值副本，改动必须两边同步
+  //（docs/LOGGING.md §3.5 / §6）。
+  // 判定在**建好的行**上做（不是拿种子另算一遍）：平均 TPS 等统计同样从这些行派生，
+  // 演示页与真机才会走同一份样本、同一套字段。
+  for (const entry of entries) {
+    const completion = entry.tokens?.completion ?? null;
+    const tps = completion !== null && completion >= 20 ? tokensPerSecOfEntry(entry) : null;
+    entry.slowTtfb = entry.stream === true && (entry.ttfbMs ?? 0) >= 10_000;
+    entry.slowTps = tps !== null && tps < 30;
+    entry.slow = entry.slowTtfb || entry.slowTps;
+  }
 
   const stats: AccessLogStats = {
     requests: entries.length,
@@ -639,6 +641,14 @@ export function demoLogs(state: DemoState, query: LogQuery = {}): AccessLogPage 
     avgDurationMs: Math.round(
       entries.reduce((sum, e) => sum + (e.durationMs ?? 0), 0) / Math.max(1, entries.length),
     ),
+    // 平均速率只采成功请求的样本（与后端 `queryAccessLogs` 同口径，与上面各字段同一批行）
+    avgTps: (() => {
+      const rates = entries
+        .filter((e) => e.outcome === "success")
+        .map(tokensPerSecOfEntry)
+        .filter((value): value is number => value !== null);
+      return rates.length > 0 ? rates.reduce((sum, value) => sum + value, 0) / rates.length : null;
+    })(),
     noUsage: entries.filter((e) => e.tokens === null).length,
     tokens: entries.reduce(
       (acc, e) => ({
@@ -796,6 +806,8 @@ export function demoUsage(range: UsageRange): UsageStats {
       cacheHit: Math.round(totalTokens * 0.55),
       cacheTotal: Math.round(totalTokens * 0.74),
       longestRequestMs: 42_000,
+      // 演示值：真实口径是「成功请求的逐条速率均值」，这里取 models[].avgTps（72–210）之间的定值
+      avgTps: 148,
       noUsage: Math.round(requests * 0.01),
     },
     daily,

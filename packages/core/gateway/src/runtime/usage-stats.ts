@@ -116,6 +116,12 @@ export interface UsageStats {
     cacheTotal: number;
     /** 区间内单请求最长耗时。替代 ZCode 的「最长聊天时长」—— 网关无会话概念（见 docs/USAGE-STATS.md）。 */
     longestRequestMs: number | null;
+    /**
+     * 区间内**成功请求**的平均生成速率（tokens/s）；一条都算不出时为 null。
+     *
+     * 口径与 `models[].avgTps` 同源（成功请求、每条各算一次再平均），只是不按模型拆分。
+     */
+    avgTps: number | null;
     /** 上游没回 usage 的请求数（与日志页 `stats.noUsage` 同一判据：`tokens === null`）。 */
     noUsage: number;
   };
@@ -154,6 +160,9 @@ interface DayAgg extends UsageDaily {
   /** 该模型成功请求的速率之和与样本数（`tpsCount` 只算算得出速率的）。 */
   byModelTpsSum: Record<string, number>;
   byModelTpsCount: Record<string, number>;
+  /** 当日成功请求的速率之和与样本数（区间总计的 `avgTps`；与 `byModelTps*` 同一批样本）。 */
+  tpsSum: number;
+  tpsCount: number;
   /** 账号维度（今日 token）：访问日志的 `key` 字段，渠道 + 账号才能定位到具体凭据。 */
   byAccountTokens: Record<string, number>;
   byAccountRequests: Record<string, number>;
@@ -194,6 +203,8 @@ function aggregateDay(date: string): DayAgg {
     byModelQueued: {},
     byModelTpsSum: {},
     byModelTpsCount: {},
+    tpsSum: 0,
+    tpsCount: 0,
     byAccountTokens: {},
     byAccountRequests: {},
     byHour: new Array<number>(24).fill(0),
@@ -248,6 +259,8 @@ function scanInto(date: string, agg: DayAgg): void {
       if (tps !== null) {
         agg.byModelTpsSum[id] = (agg.byModelTpsSum[id] ?? 0) + tps;
         agg.byModelTpsCount[id] = (agg.byModelTpsCount[id] ?? 0) + 1;
+        agg.tpsSum += tps;
+        agg.tpsCount += 1;
       }
     } else {
       agg.byModelFail[id] = (agg.byModelFail[id] ?? 0) + 1;
@@ -350,11 +363,14 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     cacheHit: 0,
     cacheTotal: 0,
     longestRequestMs: null as number | null,
+    avgTps: null as number | null,
     noUsage: 0,
   };
   let cacheHit = 0;
   let cacheTotal = 0;
   let longest: number | null = null;
+  let tpsSum = 0;
+  let tpsCount = 0;
   const modelTotals = new Map<
     string,
     {
@@ -397,6 +413,8 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     cacheTotal += agg.cacheTotal;
     totals.cacheHit += agg.cacheHit;
     totals.cacheTotal += agg.cacheTotal;
+    tpsSum += agg.tpsSum;
+    tpsCount += agg.tpsCount;
     if (agg.longestMs !== null && (longest === null || agg.longestMs > longest)) longest = agg.longestMs;
     // 并集：只有失败请求的模型在 `byModel` 里可能不存在（usage 为空、tokens 记 0），
     // 但它的失败条数必须进健康度 —— 否则「全挂」会被显示成「没被用过」，正好反过来。
@@ -462,6 +480,7 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
 
   totals.cacheHitRate = cacheTotal > 0 ? cacheHit / cacheTotal : null;
   totals.longestRequestMs = longest;
+  totals.avgTps = tpsCount > 0 ? tpsSum / tpsCount : null;
 
   const streak = computeStreak(new Set(daily.map((d) => d.date)), today);
 

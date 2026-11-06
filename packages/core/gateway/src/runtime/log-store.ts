@@ -761,6 +761,14 @@ export interface AccessStats {
   /** 其中生成速率超标的条数。 */
   slowTps: number;
   avgDurationMs: number | null;
+  /**
+   * 窗口内**成功请求**的平均生成速率（tokens/s）；一条都算不出时为 null。
+   *
+   * 只算成功请求（口径同 `UsageModelRow.avgTps`）：失败的 usage 多为空，混进去会把
+   * 速率拉成「丑但成功不了」的假象。分母是**每条速率各算一次再平均**，不是
+   * `Σcompletion / Σ生成窗口` —— 后者被长请求主导，答不了「一条请求通常多快」。
+   */
+  avgTps: number | null;
   /** 窗口内没有 usage 的条数（失败请求通常没有），避免把缺失当成 0。 */
   noUsage: number;
   tokens: { prompt: number; completion: number; total: number };
@@ -780,7 +788,7 @@ export interface AccessPage {
   /** 实际返回的日期（回落后的）；无任何日志时为空串。 */
   date: string;
   dates: string[];
-  /** 扫描窗口内出现过的渠道（**未过滤**，供筛选下拉用，不会随筛选消失）。 */
+  /** 扫描窗口内出现过的渠道（**未过滤**，供筛选下拉用，不会随筛选消失；受 `path`/`paths` 范围约束，见 `inScope`）。 */
   cids: string[];
   /** 「慢」判定的两个阈值（前端展示归因用；阈值定义见 `SLOW_TTFB_MS` / `SLOW_TPS`）。 */
   slowThresholds: { ttfbMs: number; tps: number };
@@ -894,7 +902,8 @@ function tokensOf(usage: unknown): AccessEntry["tokens"] {
  * 读文件**尾部**最多 `maxBytes` 字节。
  *
  * 起点落在行中间时丢掉残缺的首行（半行解析必然失败，留着只会污染结果）；
- * 文件被并发轮转/删除时返回空 —— 读日志绝不能反过来影响主流程。
+ * 读不到（并发轮转 / 删除 / 锁）按 `truncated` 上报 —— 读日志绝不能反过来影响主流程，
+ * 但也不能把「读不到」伪装成「没有」。
  */
 function readTail(file: string, maxBytes: number): { text: string; truncated: boolean } {
   let fd: number | null = null;
@@ -915,7 +924,9 @@ function readTail(file: string, maxBytes: number): { text: string; truncated: bo
     }
     return { text, truncated: false };
   } catch {
-    return { text: "", truncated: false };
+    // 读失败（锁 / 轮转 / 权限）**不能当成空文件**：那样这一天的统计会静默少算，
+    // 页面也不显示「统计只覆盖窗口内」的横幅。置 `truncated` 让残缺可见。
+    return { text: "", truncated: true };
   } finally {
     if (fd !== null) {
       try {
@@ -1066,7 +1077,9 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
  *
  * 读量有界：每个 outcome 文件只读尾部 1MB、总扫描行数上限 2 万 —— 超限时
  * `truncated=true`，调用方据此把统计口径标注成「窗口内」，而不是假装是全量。
- * 给出的 `stats` 基于**未过滤**的扫描窗口（当天概览），`total` 才是筛选后的条数。
+ * 给出的 `stats`（与 `cids`）基于**未过滤**的扫描窗口（当天概览），`total` 才是筛选后的
+ * 条数；两组数字唯一的范围差别是**路径**：统计只覆盖 `path` / `paths` 声明的范围
+ * （否则分段计数会把列表永远显示不出来的非模型请求算进去，见 `inScope`）。
  */
 export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   const dates = listAccessDates();
@@ -1082,6 +1095,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     slowTtfb: 0,
     slowTps: 0,
     avgDurationMs: null,
+    avgTps: null,
     noUsage: 0,
     tokens: { prompt: 0, completion: 0, total: 0 },
     cache: { hit: 0, total: 0, hitRate: null },
@@ -1093,20 +1107,39 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
 
   const scanned: AccessEntry[] = [];
   let truncated = false;
+  let scannedLines = 0;
   let durationSum = 0;
   let durationCount = 0;
+  let tpsSum = 0;
+  let tpsCount = 0;
+  /**
+   * 统计是否覆盖这条记录：只认调用方声明的**路径范围**。
+   *
+   * 日志页与总览都传 `MODEL_REQUEST_PATHS`，但 access 日志里还有 `/health`、`/v1/models`
+   * 的失败与慢请求，以及浏览器探测（`GET /.well-known/appspecific/com.chrome.devtools.json`
+   * 404）。把它们计进统计，统计条就会说「请求 230」而列表只有 229 条，筛选分段的
+   * 「失败 1」点进去还一条都没有（2026-11-06 实测，分段计数与列表必须同源）。
+   * 不传路径时统计覆盖全部（CLI / 排障要全量）。
+   */
+  const inScope = (path: string | undefined): boolean =>
+    (query.path === undefined || path === query.path) &&
+    (query.paths === undefined || query.paths.includes(path ?? ""));
   scan: for (const outcome of ACCESS_OUTCOMES) {
     for (const file of accessFiles(date, outcome)) {
       const tail = readTail(file, ACCESS_TAIL_BYTES);
       if (tail.truncated) truncated = true;
       for (const line of tail.text.split("\n")) {
         if (line.trim() === "") continue;
-        if (scanned.length >= ACCESS_SCAN_LINES) {
+        // 行数上限按**读到的行**算（不是进统计的行）：不然后半程全是范围外记录时，
+        // 读量只受单文件字节上限约束，行数护栏形同虚设
+        if (scannedLines >= ACCESS_SCAN_LINES) {
           truncated = true;
           break scan;
         }
+        scannedLines += 1;
         const entry = parseAccessLine(line, outcome);
         if (!entry) continue;
+        if (!inScope(entry.path)) continue;
         scanned.push(entry);
         stats.requests += 1;
         stats[outcome] += 1;
@@ -1116,6 +1149,14 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
         if (entry.durationMs !== undefined) {
           durationSum += entry.durationMs;
           durationCount += 1;
+        }
+        // 平均速率只采成功请求的样本（口径与 `usage-stats` 的 `avgTps` 一致）
+        if (outcome === "success") {
+          const tps = tokensPerSecOf(entry);
+          if (tps !== null) {
+            tpsSum += tps;
+            tpsCount += 1;
+          }
         }
         if (entry.tokens === null) {
           stats.noUsage += 1;
@@ -1136,15 +1177,16 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     }
   }
   stats.avgDurationMs = durationCount > 0 ? Math.round(durationSum / durationCount) : null;
+  stats.avgTps = tpsCount > 0 ? tpsSum / tpsCount : null;
   stats.cache.hitRate = stats.cache.total > 0 ? stats.cache.hit / stats.cache.total : null;
 
   const cids = [...new Set(scanned.map((e) => e.cid).filter((c): c is string => c !== undefined))].sort();
 
   const needle = query.q?.toLowerCase();
+  // `path` / `paths` 已在扫描时由 `inScope` 收口（统计与列表同一范围），这里不再重复判定 ——
+  // 同一个「二选一」契约写两处，改一处就会让两边口径静默分叉
   const matched = scanned.filter((e) => {
     if (query.outcome !== undefined && e.outcome !== query.outcome) return false;
-    if (query.path !== undefined && e.path !== query.path) return false;
-    if (query.paths !== undefined && !query.paths.includes(e.path ?? "")) return false;
     if (query.cid !== undefined && e.cid !== query.cid) return false;
     if (query.stream !== undefined && e.stream !== query.stream) return false;
     if (query.slow === true && !e.slow) return false;
