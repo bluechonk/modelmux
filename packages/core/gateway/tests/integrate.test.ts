@@ -449,3 +449,165 @@ describe("一键接入 dsh", () => {
     }
   });
 });
+
+// ── claude code ─────────────────────────────────────────────────────────────
+
+/** 一份带用户自定义键的 settings.json（hooks / 权限必须逐字节保留）。 */
+const CLAUDE_SETTINGS = {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  permissions: { allow: ["Bash(git*)"] },
+  env: {
+    ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+    ANTHROPIC_API_KEY: "sk-stale",
+    OTHER_SETTING: "keep-me",
+  },
+  hooks: { PostToolUse: [{ matcher: "Bash", hooks: [] }] },
+};
+
+function seedClaude(): string {
+  const dir = join(home, ".claude");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "settings.json");
+  writeFileSync(file, `${JSON.stringify(CLAUDE_SETTINGS, null, 2)}\n`, "utf8");
+  return file;
+}
+
+describe("一键接入 claude code", () => {
+  it("patch env：写 baseUrl/authToken/模型三件，移除 ANTHROPIC_API_KEY，用户键逐字节不变", () => {
+    const file = seedClaude();
+    const result = integrateClient("claude-code", MODELS);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.changed, [file]);
+    const after = JSON.parse(readFileSync(file, "utf8")) as typeof CLAUDE_SETTINGS;
+    assert.equal(after.env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:4412", "baseUrl 不带 /v1（客户端自己拼）");
+    assert.equal(after.env["ANTHROPIC_AUTH_TOKEN"], "modelmux-local");
+    assert.equal(after.env["ANTHROPIC_API_KEY"], undefined, "API_KEY 必须移除（与 AUTH_TOKEN 并存会冲突）");
+    for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL"]) {
+      assert.equal(after.env[key], MODELS[0], `${key} 应指向池主模型`);
+    }
+    // 用户自有键：逐字节保留
+    assert.deepEqual(after.permissions, CLAUDE_SETTINGS.permissions);
+    assert.deepEqual(after.hooks, CLAUDE_SETTINGS.hooks);
+    assert.equal(after.env["OTHER_SETTING"], "keep-me");
+    assert.equal(after["$schema"], CLAUDE_SETTINGS["$schema"]);
+  });
+
+  it("幂等：二次运行无改动", () => {
+    const file = seedClaude();
+    integrateClient("claude-code", MODELS);
+    const once = readFileSync(file, "utf8");
+    const second = integrateClient("claude-code", MODELS);
+    assert.equal(second.changed.length, 0);
+    assert.equal(readFileSync(file, "utf8"), once, "二次运行后内容变化");
+  });
+
+  it(".claude 目录不存在时报错（不静默创建）", () => {
+    const ghost = join(home, "ghost-home");
+    const savedProfile = process.env["USERPROFILE"];
+    const savedHome = process.env["HOME"];
+    process.env["USERPROFILE"] = ghost;
+    process.env["HOME"] = ghost;
+    try {
+      const result = integrateClient("claude-code", MODELS);
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? "", /找不到 Claude Code 配置目录/);
+    } finally {
+      process.env["USERPROFILE"] = savedProfile ?? "";
+      process.env["HOME"] = savedHome ?? "";
+    }
+  });
+});
+
+// ── codex ───────────────────────────────────────────────────────────────────
+
+/** 一份带其它 provider 段与顶层键的 config.toml。 */
+const CODEX_CONFIG = `# Codex config
+model = "gpt-5.2"
+model_provider = "openai"
+approval_policy = "on-failure"
+
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+
+[profiles.fast]
+model = "gpt-5.2-mini"
+model_provider = "openai"
+`;
+
+function seedCodex(text = CODEX_CONFIG): string {
+  const dir = join(home, ".codex");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "config.toml");
+  writeFileSync(file, text, "utf8");
+  return file;
+}
+
+describe("一键接入 codex", () => {
+  it("改 modelmux 段与顶层键；其它段与用户顶层键逐字节不变", () => {
+    const file = seedCodex();
+    const result = integrateClient("codex", MODELS);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.changed, [file]);
+    const after = readFileSync(file, "utf8");
+    // 顶层键落在首个表头之前（TOML 顶层键的硬约束）
+    const firstTable = after.indexOf("[");
+    const head = after.slice(0, firstTable);
+    assert.match(head, /^model_provider = "modelmux"$/m);
+    assert.match(head, new RegExp(`^model = "${MODELS[0]}"$`, "m"));
+    // 其它段逐字节保留
+    assert.ok(after.includes('[model_providers.openai]'), "openai 段丢失");
+    assert.ok(after.includes('base_url = "https://api.openai.com/v1"'), "openai 段被改动");
+    assert.ok(after.includes("[profiles.fast]"), "profiles 段丢失");
+    assert.ok(after.includes('model = "gpt-5.2-mini"'), "profiles 段被改动");
+    assert.ok(after.includes("approval_policy"), "用户顶层键丢失");
+    // modelmux 段
+    assert.match(after, /\[model_providers\.modelmux\]\nname = "modelmux"\nbase_url = "http:\/\/127\.0\.0\.1:4412\/v1"\nwire_api = "responses"\n/);
+    assert.ok(after.includes(`experimental_bearer_token = "modelmux-local"`));
+    assert.ok(after.includes("requires_openai_auth = false"));
+  });
+
+  it("幂等：二次运行无改动", () => {
+    const file = seedCodex();
+    integrateClient("codex", MODELS);
+    const once = readFileSync(file, "utf8");
+    const second = integrateClient("codex", MODELS);
+    assert.equal(second.changed.length, 0);
+    assert.equal(readFileSync(file, "utf8"), once, "二次运行后内容变化");
+  });
+
+  it("config.toml 不存在时新建（.codex 目录在即可）", () => {
+    const file = join(home, ".codex", "config.toml");
+    rmSync(file, { force: true });
+    const result = integrateClient("codex", MODELS);
+    assert.equal(result.ok, true);
+    const after = readFileSync(file, "utf8");
+    assert.ok(after.includes("[model_providers.modelmux]"));
+    assert.ok(after.includes('wire_api = "responses"'));
+  });
+
+  it("auth.json 不被触碰（experimental_bearer_token 优先，ChatGPT 登录态保留）", () => {
+    seedCodex();
+    const auth = join(home, ".codex", "auth.json");
+    writeFileSync(auth, '{"tokens":{"access_token":"chatgpt-session"}}', "utf8");
+    integrateClient("codex", MODELS);
+    assert.equal(readFileSync(auth, "utf8"), '{"tokens":{"access_token":"chatgpt-session"}}', "auth.json 被改动");
+  });
+
+  it(".codex 目录不存在时报错", () => {
+    const ghost = join(home, "ghost-home");
+    const savedProfile = process.env["USERPROFILE"];
+    const savedHome = process.env["HOME"];
+    process.env["USERPROFILE"] = ghost;
+    process.env["HOME"] = ghost;
+    try {
+      const result = integrateClient("codex", MODELS);
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? "", /找不到 Codex 配置目录/);
+    } finally {
+      process.env["USERPROFILE"] = savedProfile ?? "";
+      process.env["HOME"] = savedHome ?? "";
+    }
+  });
+});

@@ -14,10 +14,16 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { channelCapabilities, type Channel } from "../../runtime/channel.js";
 import { getRequestLog, noteClientPayload, noteRequestError } from "../../runtime/log-store.js";
 import { ROTATABLE_CODES, rotateExhaustedAccount } from "../../pool/account-rotate.js";
+import { isPoolModel } from "../../pool/model-family.js";
+import { poolModels } from "../../pool/pool-targets.js";
 import type { GatewayOptions } from "../server.js";
+import { anthropicProtocol, translateAnthropicRequest } from "../protocol/anthropic.js";
+import { estimateInputTokens } from "../protocol/count-tokens.js";
+import { responsesProtocol, translateResponsesRequest } from "../protocol/responses.js";
+import { attachProtocol, setSink, sinkOf, type InboundProtocol } from "../protocol/types.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
-import { writeJsonError } from "./errors.js";
-import { noteChatRequestStats, parseChatRequest } from "./request.js";
+import { writeJsonError, writeProtocolError } from "./errors.js";
+import { noteChatRequestStats, parseChatRequest, readBody } from "./request.js";
 import { resolvePoolRoute } from "./route.js";
 
 /**
@@ -59,18 +65,139 @@ export async function handleChat(
   // A 段：请求解析与校验（已应答则直接返回）
   const parsed = await parseChatRequest(req, res);
   if (!parsed) return;
-  await dispatchChat(parsed, res, opts);
+  await dispatchChat(parsed, res, opts, null);
+}
+
+// ── 入站协议：Anthropic Messages 与 OpenAI Responses ─────────────────────────
+
+type JsonBody = Record<string, unknown>;
+
+/** 协议请求体的公共解析：POST + JSON 对象（模型/消息校验交给各自翻译器）。 */
+async function parseProtocolBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<{ body: JsonBody; raw: Buffer } | null> {
+  if (req.method !== "POST") {
+    writeJsonError(res, 405, "method_not_allowed", "use POST");
+    return null;
+  }
+  let raw: Buffer;
+  try {
+    raw = await readBody(req);
+  } catch (err) {
+    writeJsonError(res, 400, "bad_request", String(err));
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = raw.length > 0 ? JSON.parse(raw.toString("utf8")) : null;
+  } catch (err) {
+    writeJsonError(res, 400, "invalid_json", String(err));
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    writeJsonError(res, 400, "invalid_json", "request body must be a JSON object");
+    return null;
+  }
+  return { body: parsed as JsonBody, raw };
+}
+
+/**
+ * 客户端原生模型名（claude-* / gpt-*）映射到池主模型：协议客户端的模型名是它
+ * 自己的默认值（接入配置里已写本网关模型），但拦不住内置兜底 —— 家族外的名字
+ * 落到「有货的第一个池模型」，而不是让请求 400（家族面仍由家族表决定）。
+ */
+function poolModelOrDefault(model: string): string {
+  if (isPoolModel(model)) return model;
+  return poolModels()[0] ?? model;
+}
+
+/** POST /v1/messages（Anthropic Messages，Claude Code 的原生协议）。 */
+export async function handleMessages(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: Required<GatewayOptions>,
+): Promise<void> {
+  // 先挂协议上下文再解析：此后的 4xx（含解析错误）都以 Anthropic 错误信封回
+  attachProtocol(res, anthropicProtocol, "");
+  const parsedBody = await parseProtocolBody(req, res);
+  if (!parsedBody) return;
+  const translated = translateAnthropicRequest(parsedBody.body);
+  if (!translated.ok) {
+    writeProtocolError(res, 400, "invalid_request", translated.error);
+    return;
+  }
+  const model = poolModelOrDefault(translated.value.model);
+  attachProtocol(res, anthropicProtocol, model);
+  noteChatRequestStats(res, translated.value.payload, model, translated.value.messages, parsedBody.raw);
+  noteClientPayload(res, parsedBody.raw);
+  await dispatchChat(
+    {
+      payload: { ...translated.value.payload, model },
+      model,
+      messages: translated.value.messages,
+      raw: parsedBody.raw,
+    },
+    res,
+    opts,
+    anthropicProtocol,
+  );
+}
+
+/** POST /v1/responses（OpenAI Responses，Codex 的原生协议，`wire_api="responses"`）。 */
+export async function handleResponses(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: Required<GatewayOptions>,
+): Promise<void> {
+  attachProtocol(res, responsesProtocol, "");
+  const parsedBody = await parseProtocolBody(req, res);
+  if (!parsedBody) return;
+  const translated = translateResponsesRequest(parsedBody.body);
+  if (!translated.ok) {
+    writeProtocolError(res, 400, "invalid_request", translated.error);
+    return;
+  }
+  const model = poolModelOrDefault(translated.value.model);
+  attachProtocol(res, responsesProtocol, model);
+  noteChatRequestStats(res, translated.value.payload, model, translated.value.messages, parsedBody.raw);
+  noteClientPayload(res, parsedBody.raw);
+  await dispatchChat(
+    {
+      payload: { ...translated.value.payload, model },
+      model,
+      messages: translated.value.messages,
+      raw: parsedBody.raw,
+    },
+    res,
+    opts,
+    responsesProtocol,
+  );
+}
+
+/** POST /v1/messages/count_tokens：本地启发式估算，不打上游（Claude Code 必需端点）。 */
+export async function handleCountTokens(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  attachProtocol(res, anthropicProtocol, "");
+  const parsedBody = await parseProtocolBody(req, res);
+  if (!parsedBody) return;
+  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify({ input_tokens: estimateInputTokens(parsedBody.body) }));
 }
 
 // ── 编排 ──────────────────────────────────────────────────────────────────────
 
 /**
  * 池路由 → 候选尝试 → 失败转移 → 汇总错误。
+ *
+ * `protocol` 为 null 时是 OpenAI chat 直通路径，行为与历史版本完全一致；在场时
+ * 错误信封 / 流式帧 / 非流式应答都经协议层转译（编码器挂在 res 上，
+ * attempt/forward/stream 各层通过 sinkOf(res) 自取）。
  */
 async function dispatchChat(
   parsed: { payload: Record<string, unknown>; model: string; messages: unknown[]; raw: Buffer },
   res: ServerResponse,
   opts: Required<GatewayOptions>,
+  protocol: InboundProtocol | null,
 ): Promise<void> {
   // B 段：池路由解析（已应答则直接返回）
   const route = resolvePoolRoute(parsed.model, res, opts.logger);
@@ -78,7 +205,13 @@ async function dispatchChat(
 
   const wantStream = Boolean(parsed.payload["stream"]);
   const reqLog = getRequestLog(res);
-  if (reqLog) reqLog.stream = wantStream;
+  if (reqLog) {
+    reqLog.stream = wantStream;
+    if (protocol) reqLog.protocol = protocol.name;
+  }
+
+  // 流式请求在这里就建编码器：排队进度帧（attempt 层）也要走协议转译
+  if (protocol && wantStream) setSink(res, protocol.openEncoder(res, parsed.model));
 
   // C 段：逐候选尝试（转发完成或已回错误即终局）
   const tried: string[] = [];
@@ -140,9 +273,15 @@ async function dispatchChat(
     // 不能再回 JSON 错误信封（writeHead 会抛 ERR_HTTP_HEADERS_SENT），
     // 只能流内报错后收尾。失败统计照记（noteRequestError），不因降级丢失。
     noteRequestError(res, final.code, final.message);
-    res.write(`data: ${JSON.stringify({ error: { code: final.code, message: final.message } })}\n\n`);
+    const sink = sinkOf(res);
+    if (sink) {
+      sink.writeError(final.code, final.message);
+      sink.finish();
+    } else {
+      res.write(`data: ${JSON.stringify({ error: { code: final.code, message: final.message } })}\n\n`);
+    }
     res.end();
     return;
   }
-  writeJsonError(res, final.status, final.code, final.message);
+  writeProtocolError(res, final.status, final.code, final.message);
 }

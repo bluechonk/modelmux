@@ -23,6 +23,7 @@ import { QUOTA_EXHAUSTED_CODE } from "../../pool/account-rotate.js";
 import { resolvePoolModel } from "../../pool/model-pool.js";
 import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
+import { sinkOf } from "../protocol/types.js";
 import { getRequestLog, noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { activeKeyOf } from "./candidates.js";
@@ -233,15 +234,18 @@ function writeQueueHeaders(
 ): void {
   if (res.headersSent) return;
   res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-  res.write(
-    `data: ${JSON.stringify({
-      id: progressId,
-      object: "chat.completion.chunk",
-      created,
-      model: payload["model"],
-      choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
-    })}\n\n`,
-  );
+  const frame = `data: ${JSON.stringify({
+    id: progressId,
+    object: "chat.completion.chunk",
+    created,
+    model: payload["model"],
+    choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
+  })}\n\n`;
+  // 入站协议编码器在场时走转译（anthropic message_start / responses created），
+  // 否则空 role 帧会以 OpenAI 形漏给协议客户端
+  const sink = sinkOf(res);
+  if (sink) sink.writeOpenAiFrame(frame);
+  else res.write(frame);
 }
 
 /**

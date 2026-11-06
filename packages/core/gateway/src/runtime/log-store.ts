@@ -52,6 +52,8 @@ export interface RequestLog {
   startAt: number;
   /** 客户端请求的模型 —— **规范 deepseek 名**（如 `deepseek-v4.1-flash`；别名已归并）。 */
   model?: string;
+  /** 入站协议名（anthropic / responses；chat 透传路径不落字段）。 */
+  protocol?: string;
   /** **承接**这次请求的渠道（跨渠道选路后由 `http/chat/attempt.ts` 逐次尝试写入）。 */
   cid?: string;
   /**

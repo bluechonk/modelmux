@@ -54,7 +54,7 @@ export interface WebCommandDeps {
    * 实现由 app 层注入（写的是 `~/.zcode` / `~/.dsh`，不是网关运行时），
    * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
    */
-  integrate?: (target: "zcode" | "dsh") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-code" | "codex") => { ok: boolean; error?: string; notes?: string[] };
 }
 
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;

@@ -148,7 +148,7 @@ export function emptySnapshot(): UiSnapshot {
     qr_url: "",
     base_url: "",
     chat_url: "",
-    endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
+    endpoints: ["/v1/chat/completions", "/v1/messages", "/v1/responses", "/v1/models", "/health"],
     models: [],
     login_input: null,
     channel_caps: {},
@@ -198,7 +198,7 @@ export interface ControlBridge {
    * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
-  integrate?: (target: "zcode" | "dsh") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-code" | "codex") => { ok: boolean; error?: string; notes?: string[] };
 }
 
 export interface ConsoleServer {

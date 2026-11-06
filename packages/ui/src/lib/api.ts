@@ -208,7 +208,7 @@ export interface WebApi {
      *
      * 后端写的是 `~/.zcode` / `~/.dsh`（写前备份），返回变更说明。
      */
-    integrate(target: "zcode" | "dsh"): Promise<CommandData>;
+    integrate(target: "zcode" | "dsh" | "claude-code" | "codex"): Promise<CommandData>;
   };
 }
 

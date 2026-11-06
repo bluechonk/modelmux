@@ -19,7 +19,7 @@ import { poolCandidates } from "../pool/pool-targets.js";
 import { ensureCatalog } from "../pool/catalog-snapshot.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
-import { handleChat } from "./chat/relay.js";
+import { handleChat, handleCountTokens, handleMessages, handleResponses } from "./chat/relay.js";
 import { writeJson, writeJsonError } from "./chat/errors.js";
 import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
 
@@ -131,6 +131,9 @@ function handleHealth(res: ServerResponse): void {
 
 export const ENDPOINTS = [
   "/v1/chat/completions",
+  "/v1/messages",
+  "/v1/messages/count_tokens",
+  "/v1/responses",
   "/v1/models",
   "/health",
 ];
@@ -183,6 +186,20 @@ export function createHandler(opts: GatewayOptions = {}) {
       }
       if (path === "/v1/chat/completions") {
         await handleChat(req, res, options);
+        return;
+      }
+      // 协议入站：Anthropic Messages（Claude Code）与 OpenAI Responses（Codex）——
+      // 请求翻译成内部 chat 形态后复用同一条转发管线，回程按协议编码
+      if (path === "/v1/messages") {
+        await handleMessages(req, res, options);
+        return;
+      }
+      if (path === "/v1/messages/count_tokens") {
+        await handleCountTokens(req, res);
+        return;
+      }
+      if (path === "/v1/responses") {
+        await handleResponses(req, res, options);
         return;
       }
       if (path === "/v1/models") {
