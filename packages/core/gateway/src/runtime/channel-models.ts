@@ -14,7 +14,7 @@
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { bundledSnapshotPath } from "./snapshot.js";
+import { bundledSnapshotPath, packageSnapshotPath } from "./snapshot.js";
 import { channelDir, channelFile, ensureDir } from "./paths.js";
 import { writeAtomicFile } from "./secret-file.js";
 
@@ -85,6 +85,45 @@ export function readSeedFrom<T extends ChannelModelEntry>(paths: ReadonlyArray<s
     }
   }
   return null;
+}
+
+/** 参与隐藏匹配的行：`hidden` 标记 + 渠道自定义的可匹配键字段（上游 key、对外名等）。 */
+type HiddenRow = ChannelModelEntry & Record<string, unknown>;
+
+/**
+ * 对外隐藏的模型 id 集合（数据是渠道 `models.json` 条目的 `hidden: true` 标记）。
+ *
+ * 收 **id 与 `fields` 指定的键**两种写法（小写）：对外 id 常由展示名派生，上游改名会让
+ * 按 id 的匹配失效，按上游 key 匹配才稳。
+ *
+ * 并集读**用户表**与**随包快照**：用户表可手改（新增隐藏）；随包快照保证已存在的老安装
+ * （首启已浇种、之后不再更新）也遵守同一策略。并集是**单向**的：任一来源标了隐藏就一定
+ * 不暴露，用户表解除不了（策略优先于本地改动）。
+ *
+ * 随包快照路径**调用时现算**（bundle 布局与渠道包布局各一候选）—— 提前算成模块常量会在
+ * 渠道上下文建立前求值，`bundledSnapshotPath()` 永远拿到 null。
+ *
+ * **随包快照读不到就抛错**（失败关闭）：隐藏策略的兜底来源没了还照常暴露，等于把该隐藏的
+ * 模型悄悄放回池里；调用方会把异常按「目录读失败」处理，不会静默放行。只对「随包确实带
+ * models.json」的渠道安全，没有快照的渠道不要用。
+ *
+ * @param metaUrl 调用方模块的 `import.meta.url`（定位渠道包根的 models.json）
+ * @param fields 条目里可作匹配键的额外字段（如上游 key、对外名）
+ */
+export function hiddenModelIds(metaUrl: string, fields: readonly string[] = []): Set<string> {
+  const seed = readSeedFrom<HiddenRow>([bundledSnapshotPath(), packageSnapshotPath(metaUrl)]);
+  if (seed === null) {
+    throw new Error("随包 models.json 读不出来 —— 拒绝在隐藏策略失效的情况下暴露模型");
+  }
+  const out = new Set<string>();
+  for (const row of [...(readChannelModels<HiddenRow>() ?? []), ...seed]) {
+    if (row["hidden"] !== true) continue;
+    for (const value of [row.id, ...fields.map((field) => row[field])]) {
+      const key = typeof value === "string" ? value.toLowerCase() : "";
+      if (key !== "") out.add(key);
+    }
+  }
+  return out;
 }
 
 /**

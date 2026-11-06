@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,6 +110,47 @@ describe("仓库级模型池", () => {
     // qodercn 在家族内只供 glm-5.3-flash：deepseek 候选里不能有它
     assert.ok(!ds.includes("qodercn"), `qodercn 已隐藏 deepseek 系（实际 ${ds.join(", ")}）`);
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
+  });
+
+  it("家族模型的渠道供给范围：glm-5.3-flash 只由 qodercn 供给，其余渠道只供 deepseek-v4.1-flash", () => {
+    // 产品面策略，数据收口在各渠道 models.json 的 hidden 标记；catpaw / traecn 的随包表
+    // 没有 deepseek-v4.1（真机动态目录有，属允许供给 —— 本测试钉的是离线随包表）
+    const allowed: Record<string, string[]> = {
+      catpaw: [],
+      loomy: ["deepseek-v4.1-flash"],
+      qodercn: ["glm-5.3-flash"],
+      raccoon: ["deepseek-v4.1-flash"],
+      traecn: [],
+      workbuddy: ["deepseek-v4.1-flash"],
+    };
+    for (const [cid, expected] of Object.entries(allowed)) {
+      const ids = gw.runInChannel(cid, () => gw.getChannel(cid).catalog.exposedIds()) as string[];
+      const got = [...new Set(ids.map((id) => gw.canonicalModelId(id)))]
+        .filter((id) => gw.isPoolModel(id))
+        .sort();
+      assert.deepEqual(got, expected, `${cid} 的对外家族模型应为 [${expected.join(", ")}]`);
+    }
+    const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid);
+    assert.deepEqual(glm, ["qodercn"], `glm-5.3-flash 的候选只能是 qodercn（实际 ${glm.join(", ")}）`);
+  });
+
+  it("老安装（用户表是没有 hidden 的旧副本）也不把 glm 放回池", () => {
+    const bundled = JSON.parse(
+      readFileSync(join(REPO_ROOT, "packages", "core", "channels", "loomy", "models.json"), "utf8"),
+    ) as { models: Array<Record<string, unknown>> };
+    gw.writeChannelModels(
+      bundled.models.map((row) => {
+        const copy = { ...row };
+        delete copy["hidden"];
+        return copy;
+      }),
+      "loomy",
+    );
+    const ids = gw.runInChannel("loomy", () => gw.getChannel("loomy").catalog.exposedIds()) as string[];
+    assert.ok(
+      !ids.some((id) => gw.canonicalModelId(id) === "glm-5.3-flash"),
+      "随包快照的 hidden 对旧用户表仍生效",
+    );
   });
 
   it("池 id 与候选渠道的一致性（家族内 / 有货 / 候选都是已注册渠道）", () => {

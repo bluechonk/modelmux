@@ -8,7 +8,7 @@
  *   - 目录未登录/不可达时走兜底表；exposedIds/resolveModel 必须同步返回。
  */
 
-import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 一条模型目录条目。 */
@@ -311,11 +311,22 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
   return entry;
 }
 
+/** 对外隐藏的模型 id（数据是 `models.json` 的 `hidden` 标记；机制见共享层 `hiddenModelIds`）。 */
+function hiddenIds(): Set<string> {
+  return hiddenModelIds(import.meta.url);
+}
+
 /**
- * 对外暴露的模型 ID 列表（全模型池：`catalog` 内全部模型）。
+ * 对外暴露的模型 ID 列表（`catalog` 内全部未隐藏的模型）。
+ *
+ * 目录（含缓存）照常保留 `hidden` 条目 —— 那是上游的事实；只是不进对外模型池，
+ * 池层据此不再把本渠道列为该模型的候选。
  */
 export function exposedIds(): string[] {
-  return loadCatalog().map((e) => e.id);
+  const hidden = hiddenIds();
+  return loadCatalog()
+    .filter((e) => !hidden.has(e.id.toLowerCase()))
+    .map((e) => e.id);
 }
 
 /**

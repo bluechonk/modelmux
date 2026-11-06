@@ -12,7 +12,13 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalModelId, ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import {
+  canonicalModelId,
+  ensureChannelModels,
+  hiddenModelIds,
+  readCatalogCache,
+  writeCatalogCache,
+} from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /**
@@ -343,9 +349,17 @@ export async function refresh(): Promise<void> {
   await upstream.fetchCatalog(cred.load());
 }
 
-/** 对外暴露的模型 ID 列表（全模型池）。 */
+/** 对外隐藏的模型 id（数据是 `models.json` 的 `hidden` 标记；机制见共享层 `hiddenModelIds`）。 */
+function hiddenIds(): Set<string> {
+  return hiddenModelIds(import.meta.url, ["exposed"]);
+}
+
+/** 对外暴露的模型 ID 列表（`hidden` 的不暴露；对外名是 `exposed`，与上游 id 双匹配防改名绕过）。 */
 export function exposedIds(): string[] {
-  return entries().map((entry) => entry.exposed);
+  const hidden = hiddenIds();
+  return entries()
+    .filter((entry) => !hidden.has(entry.id.toLowerCase()) && !hidden.has(entry.exposed.toLowerCase()))
+    .map((entry) => entry.exposed);
 }
 
 /**

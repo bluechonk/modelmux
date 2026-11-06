@@ -491,7 +491,9 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 思考档位、倍率、隐藏标记一律写在渠道包的 `models.json`。`catalog.ts` 只保留三类逻辑：
 
 1. **怎么取** —— 读缓存 / 拉远端 / 浇种用户表 / 按 cid 解析落点；
-2. **怎么归一化** —— 字段清洗、去重、过滤非对话模型、`hidden` 过滤；
+2. **怎么归一化** —— 字段清洗、去重、过滤非对话模型、`hidden` 过滤
+   （隐藏集合由共享层 `hiddenModelIds()` 从用户表与随包快照**并集**收集，
+   随包快照读不到即抛错；各渠道 `exposedIds()` 只做过滤）；
 3. **id ↔ upstreamId 映射** —— 别名表（`LEGACY_ALIASES` / `POOL_KEY_MAP` 等）留在代码。
 
 判据是机械可查的：`catalog.ts` 里出现模型名或四位以上的规格数字即违规。

@@ -383,6 +383,10 @@ RACCOON_EFFORT_OFF = 'off'   → extra_body.thinking = { type: 'disabled' }
 
 ## 5. 模型目录
 
+**对外暴露范围**：随包 `models.json` 给 `sn-glm-5-3-flash` 标了 `hidden` —— 网关里
+`glm-5.3-flash` 只由 qodercn 供给，本渠道不进它的候选。隐藏集合由共享层 `hiddenModelIds()`
+并集读用户表与随包快照（读不到即抛错），目录数据照常保留。
+
 ### 5.1 拉取
 
 ```

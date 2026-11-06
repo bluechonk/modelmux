@@ -298,6 +298,50 @@ for (const file of walkSrc(gatewaySrc)) {
   );
 }
 
+// ── 家族模型的**渠道供给范围**（产品面策略，数据收口在各渠道 models.json 的 hidden 标记）──
+//
+// glm-5.3-flash 只由 qodercn 供给，deepseek-v4.1-flash 归其余在册渠道。渠道改表漏标
+// hidden 会把不该供的模型悄悄放回池里，这里按「家族命中行的 hidden 与允许集一致」机械守住。
+// 行 id 的归一化与共享层 canonicalModelId 同口径（包装前缀 / 版本点号 / 尾饰）。
+const FAMILY_ALLOWED_BY_CID = { qodercn: ["glm-5.3-flash"] };
+const FAMILY_ALLOWED_DEFAULT = ["deepseek-v4.1-flash"];
+const canonicalBlock = /const CANONICAL\s*=\s*\{[^}]*\}/.exec(modelFamily)?.[0] ?? "";
+const CANONICAL_OF = {};
+for (const m of canonicalBlock.matchAll(/"([a-z0-9.-]+)":\s*"([a-z0-9.-]+)"/g)) CANONICAL_OF[m[1]] = m[2];
+const familyOfRow = (id) => {
+  const normalized = id
+    .trim()
+    .toLowerCase()
+    .replace(/^(sn-|z-ai-|bytedance-)/, "")
+    .replace(/(\d)-(\d)/g, "$1.$2")
+    .replace(/-official$/, "")
+    .replace(/-\d{4}$/, "")
+    .replace(/-latest$/, "");
+  const canonical = CANONICAL_OF[normalized] ?? normalized;
+  return canonical in CANONICAL_OF ? canonical : null;
+};
+for (const cid of channelDirs.filter((c) => registered.includes(`@modelmux/${c}`))) {
+  const modelsPath = join(channelsDir, cid, "models.json");
+  if (!existsSync(modelsPath)) continue;
+  const allowed = new Set(FAMILY_ALLOWED_BY_CID[cid] ?? FAMILY_ALLOWED_DEFAULT);
+  let rows = [];
+  try {
+    rows = JSON.parse(readFileSync(modelsPath, "utf8")).models ?? [];
+  } catch {
+    check(false, `packages/core/channels/${cid}/models.json: 读不出来或不是合法 JSON`);
+    continue;
+  }
+  for (const row of rows) {
+    if (!row || typeof row.id !== "string") continue;
+    const canonical = familyOfRow(row.id);
+    if (canonical === null) continue;
+    check(
+      allowed.has(canonical) ? row.hidden !== true : row.hidden === true,
+      `packages/core/channels/${cid}/models.json: "${row.id}"（${canonical}）应${allowed.has(canonical) ? "暴露（去掉 hidden）" : "标 hidden: true"}——家族供给范围：glm-5.3-flash 仅 qodercn，deepseek-v4.1-flash 归其余渠道`,
+    );
+  }
+}
+
 // ── 渠道**总数**不得写死在文档与注释里 ────────────────────────────────────────
 //
 // 为什么查：渠道数是 `readdirSync(packages/core/channels)` 的派生量，写死就要

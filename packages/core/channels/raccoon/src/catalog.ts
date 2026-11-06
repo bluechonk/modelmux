@@ -9,7 +9,13 @@
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { canonicalModelId, ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import {
+  canonicalModelId,
+  ensureChannelModels,
+  hiddenModelIds,
+  readCatalogCache,
+  writeCatalogCache,
+} from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 远端 tags 的图片特征词（上游字段词表，属解析规则不是模型数据）。 */
@@ -260,10 +266,17 @@ function currentEntries(): ModelEntry[] {
   return snapshot;
 }
 
-/** 对外暴露的模型 id。 */
+/** 对外隐藏的模型 id（数据是 `models.json` 的 `hidden` 标记；机制见共享层 `hiddenModelIds`）。 */
+function hiddenIds(): Set<string> {
+  return hiddenModelIds(import.meta.url);
+}
+
+/** 对外暴露的模型 id（`hidden` 的不暴露；id 即上游 slug，带渠道前缀 `sn-`）。 */
 export function exposedIds(): string[] {
-  // 全模型池：catalog 内全部模型都对外暴露（Raccoon 的 id 带渠道前缀 `sn-`）。
-  return currentEntries().map((e) => e.id);
+  const hidden = hiddenIds();
+  return currentEntries()
+    .filter((e) => !hidden.has(e.id.toLowerCase()))
+    .map((e) => e.id);
 }
 
 /** 模型 id → 上游 slug：Raccoon 的 id 就是 slug，**未知原样返回**。 */

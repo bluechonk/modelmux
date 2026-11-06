@@ -36,7 +36,8 @@
       "exposed": "glm-5.3-flash",
       "name": "glm-5.3-flash",
       "context_window": 1048576,
-      "max_output": 131072
+      "max_output": 131072,
+      "hidden": true
     },
     {
       "id": "glm-5.2",

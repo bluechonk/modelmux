@@ -90,7 +90,8 @@
         "xhigh"
       ],
       "defaultEffort": "high",
-      "maxOutput": 131072
+      "maxOutput": 131072,
+      "hidden": true
     },
     {
       "id": "qwen3.8-flash",
