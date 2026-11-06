@@ -153,6 +153,51 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
   });
 });
 
+describe("3.1 型号互斥：供给 v4.1-flash 的渠道不再承接下位型号", () => {
+  it("同一渠道同时暴露 v4.1-flash 与 v4-flash → 只作为 v4.1-flash 的候选", () => {
+    clearChannels();
+    poolUsage.resetPoolLedgerForTest();
+    setChannel(stubChannel("upgraded", ["deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro"]));
+    setChannel(stubChannel("legacy", ["deepseek-v4-flash", "deepseek-v4-pro"]));
+
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
+      ["upgraded"],
+      "有 v4.1-flash 的渠道照常出",
+    );
+    assert.deepEqual(
+      poolCandidates("deepseek-v4-flash").map((c) => c.cid),
+      ["legacy"],
+      "同渠道的 v4-flash 条目被互斥规则拦下（下位型号只服务没有 v4.1-flash 的渠道）",
+    );
+    assert.deepEqual(poolCandidates("deepseek-v4-pro").map((c) => c.cid), ["legacy"]);
+  });
+
+  it("别名与上游写法都算数：deepseek-flash / sn-deepseek-v4-1-flash / -Official 同样触发互斥", () => {
+    clearChannels();
+    poolUsage.resetPoolLedgerForTest();
+    setChannel(stubChannel("alias", ["deepseek-flash", "deepseek-v4-flash"]));
+    setChannel(stubChannel("wrapped", ["sn-deepseek-v4-1-flash", "DeepSeek-V4-Pro-Official"]));
+    assert.deepEqual(
+      poolCandidates("deepseek-flash").map((c) => c.cid),
+      ["alias", "wrapped"],
+      "两家的 v4.1-flash 写法（别名 / sn- 前缀）都能被这个别名请求命中",
+    );
+    assert.deepEqual(poolCandidates("deepseek-v4-flash").map((c) => c.cid), [], "两家都被互斥拦下");
+    assert.deepEqual(poolCandidates("deepseek-v4-pro").map((c) => c.cid), []);
+  });
+
+  it("没有 v4.1-flash 的渠道不受影响（下位型号本就是给它们准备的）", () => {
+    clearChannels();
+    poolUsage.resetPoolLedgerForTest();
+    setChannel(stubChannel("only41", ["deepseek-v4.1-flash"]));
+    setChannel(stubChannel("only4", ["deepseek-v4-flash"]));
+    assert.deepEqual(poolCandidates("deepseek-v4.1-flash").map((c) => c.cid), ["only41"]);
+    assert.deepEqual(poolCandidates("deepseek-v4-flash").map((c) => c.cid), ["only4"]);
+    clearChannels();
+  });
+});
+
 describe("4. 账本：得分、冷却、剩余额度、落盘", () => {
   it("得分 = 账单已用量；失败后当 0，成功即恢复", () => {
     poolUsage.resetPoolLedgerForTest();

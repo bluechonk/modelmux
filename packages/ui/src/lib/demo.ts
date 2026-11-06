@@ -68,12 +68,13 @@ const DEMO_CHANNELS: DemoChannel[] = [
 const DEMO_MODELS: Record<string, string[]> = {
   astudio: ["deepseek-v4-flash", "deepseek-v4-pro"],
   catpaw: ["deepseek-v4-flash"],
-  loomy: ["deepseek-v4.1-flash", "deepseek-v4-flash"],
+  // 型号互斥：同一渠道供了 v4.1-flash 就不再列下位型号（与 pool/model-family 的规则一致）
+  loomy: ["deepseek-v4.1-flash"],
   qoder: ["deepseek-v4-flash"],
-  qodercn: ["deepseek-flash", "deepseek-v4-pro"],
+  qodercn: ["deepseek-flash"],
   raccoon: ["deepseek-v4.1-flash"],
   traecn: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  workbuddy: ["deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro"],
+  workbuddy: ["deepseek-v4.1-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -346,13 +347,19 @@ export function demoStatus(state: DemoState): { channels: Array<{ cid: string; d
 export function demoAccountPools(state: DemoState): { channels: unknown[] } {
   const channels = state.channels.map((ch) => {
     const list = state.accounts[ch.cid] ?? [];
+    // 签到演示：按账号签到的渠道（loomy，与真实渠道声明一致）只让首个账号「已签到」，
+    // 其余渠道用渠道级记录；catpaw 演示「没有签到功能」—— 详情面板整行不渲染
+    const perAccount = ch.cid === "loomy";
+    const supported = ch.cid !== "catpaw";
+    const signinAt = "2026-11-06T01:20:00.000Z";
     return {
       cid: ch.cid,
       display: ch.display,
+      signin: { supported, per_account: perAccount, claimed_today: supported, at: supported ? signinAt : null },
       index: {
         version: 1,
         active: state.active[ch.cid] ?? null,
-        accounts: list.map((a) => ({
+        accounts: list.map((a, i) => ({
           key: a.key,
           uid: a.uid,
           domain: "demo.local",
@@ -371,6 +378,11 @@ export function demoAccountPools(state: DemoState): { channels: unknown[] } {
               ? null
               : new Date(Date.now() + a.cooldownInMinutes * 60_000).toISOString(),
           cooldown_reason: a.cooldownReason,
+          signin: perAccount
+            ? i === 0
+              ? { claimed_today: true, at: signinAt }
+              : { claimed_today: false, at: null }
+            : null,
         })),
       },
     };

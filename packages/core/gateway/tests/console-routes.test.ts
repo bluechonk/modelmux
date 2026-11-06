@@ -28,16 +28,20 @@ const { start, emptySnapshot } = await import("../dist/http/console/console.js")
 const { localDate } = await import("../dist/runtime/log-store.js");
 const { clearChannels, setChannel } = await import("../dist/runtime/channel.js");
 const { noteFailure, noteSuccess, resetPoolLedgerForTest, writeAccountBilling, writeBilling } = await import("../dist/pool/pool-usage.js");
+const { recordClaim } = await import("../dist/auth/signin-ledger.js");
 
 /** 合成渠道：不碰网络（与 web.test.ts 同构的最小桩）。 */
-function makeChannel(cid: string, opts: { billing?: boolean } = {}): Channel {
+function makeChannel(
+  cid: string,
+  opts: { billing?: boolean; signin?: boolean; perAccount?: boolean } = {},
+): Channel {
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,
     version: "0.0.0",
     defaultAddr: "127.0.0.1:1",
     uiPort: 2,
-    capabilities: { billing: opts.billing ?? true },
+    capabilities: { billing: opts.billing ?? true, signin: opts.signin ?? true },
   };
   return {
     config,
@@ -69,7 +73,16 @@ function makeChannel(cid: string, opts: { billing?: boolean } = {}): Channel {
       newTranslator: () => ({ feed: (c) => [c], finish: () => [] }),
     },
     catalog: { exposedIds: () => [], resolveModel: (n) => n },
-    billing: { CreditsError: class CreditsError extends Error {}, fetchCredits: async () => ({ ok: true, total: {}, packages: [] }) },
+    billing: {
+      CreditsError: class CreditsError extends Error {},
+      fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
+      // 控制台读签到能力/台账：契约要求每个渠道都给 signin（缺了按「能力不可用」处理）
+      signin: {
+        perAccount: opts.perAccount ?? false,
+        status: async () => ({ claimable: null, summary: "测试桩" }),
+        claim: async () => ({ ok: true, summary: "测试桩" }),
+      },
+    },
   } as unknown as Channel;
 }
 
@@ -135,6 +148,8 @@ before(() => {
   setChannel(makeChannel("routes"));
   // 无额度能力的合成渠道：billing 渠道维度行必须被能力过滤拦下
   setChannel(makeChannel("nobill", { billing: false }));
+  // 无签到能力的合成渠道：账号池页必须据能力位**不渲染**「今日签到」行
+  setChannel(makeChannel("nosign", { signin: false }));
   // 落一条访问日志，供 payload / usage / overview 的读路径有数据可读
   const DATE = localDate();
   mkdirSync(join(HOME, "logs", "access", DATE), { recursive: true });
@@ -523,6 +538,56 @@ describe("/api/commands 分发", () => {
     const payload = (await accounts.json()) as { ok: boolean; data?: { channels?: Array<{ cid: string }> } };
     assert.equal(payload.ok, true);
     assert.ok((payload.data?.channels ?? []).some((c) => c.cid === "routes"));
+  });
+
+  it("accounts：带出渠道级签到状态；无签到能力的渠道由能力位标注", async () => {
+    // 台账写一条「今天领过」（渠道级，非按账号渠道的唯一口径）
+    recordClaim("routes", { via: "test" });
+    const res = await fetch(`${server.url}api/commands`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ action: "accounts" }),
+    });
+    const payload = (await res.json()) as {
+      ok: boolean;
+      data?: { channels?: Array<{ cid: string; signin?: Record<string, unknown> | null }> };
+    };
+    assert.equal(payload.ok, true);
+    const routes = payload.data?.channels?.find((c) => c.cid === "routes")?.signin;
+    assert.equal(routes?.["supported"], true, "有签到能力的渠道要带出状态");
+    assert.equal(routes?.["per_account"], false, "合成渠道不按账号签到 → 用渠道级台账");
+    assert.equal(routes?.["claimed_today"], true, "台账记着今天领过");
+    assert.ok(typeof routes?.["at"] === "string" && String(routes["at"]).length > 0, "领取时刻要能显示");
+
+    const nosign = payload.data?.channels?.find((c) => c.cid === "nosign")?.signin;
+    assert.equal(nosign?.["supported"], false, "无签到能力 → 前端据此不渲染该行");
+
+    // 账号行对齐：`renderChannelPool` 按 key 把账号级签到挂到对应行（per_account 渠道）
+    const { renderChannelPool } = await import("../dist/http/console/web-types.js");
+    const rendered = renderChannelPool(
+      "synthetic",
+      "Synthetic",
+      {
+        version: 1,
+        active: "k1",
+        accounts: [
+          { key: "k1", label: "k1", uid: "u1", health: "ok", expires_at: null },
+          { key: "k2", label: "k2", uid: "u2", health: "ok", expires_at: null },
+        ],
+      },
+      {
+        channel: { supported: true, per_account: true, claimed_today: true, at: "2026-11-06T01:00:00.000Z" },
+        accounts: { k1: { claimed_today: true, at: "2026-11-06T01:00:00.000Z" } },
+      },
+    ) as { index: { accounts: Array<{ key: string; signin: unknown }> } };
+    assert.deepEqual(
+      rendered.index.accounts.map((a) => [a.key, a.signin]),
+      [
+        ["k1", { claimed_today: true, at: "2026-11-06T01:00:00.000Z" }],
+        ["k2", null],
+      ],
+      "台账里没有的账号必须是 null（前端回落渠道级），不能凭空补一条未签到",
+    );
   });
 
   it("resetAccount / removeAccount 对不在池里的账号如实报错", async () => {

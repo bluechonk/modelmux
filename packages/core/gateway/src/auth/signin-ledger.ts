@@ -6,7 +6,7 @@
  *  - 有的渠道**没有**签到状态端点（上游自动发奖）→ 上游永远答不了
  *  - 上游答「今天没签」时，要分清「我们没领」还是「在别处领了」
  *
- * 落点：`<root>/<cid>/state/signin.json`。
+ * 落点：`<root>/channels/<cid>/state/signin.json`（旧布局回落 `<root>/<cid>/`，见 `paths.ts`）。
  * 台账只证明**我们**发起过的领取：判定顺序是「上游优先，台账兜底」，
  * 上游说已签时会**回填**台账（自愈）。
  */
@@ -190,4 +190,46 @@ export function claimedTodayForAccount(cid: string | undefined, accountKey: stri
 /** 台账是否存在（用于区分"没有记录"和"记录说没领"）。 */
 export function ledgerExists(cid?: string): boolean {
   return existsSync(ledgerPath(cid));
+}
+
+/** 一条领取记录的「今天」视图（控制台展示用）。 */
+export interface ClaimToday {
+  claimed: boolean;
+  /** 领取时刻（ISO）；台账没记时刻为 null。 */
+  at: string | null;
+}
+
+/** 一次快照：渠道级 + 账号级的「今天领过没有」。 */
+export interface SigninTodaySnapshot {
+  /** 台账自己记的时区名（排查「为什么两边说的今天不是同一天」时先看它）。 */
+  timezone: string;
+  /** 按该渠道**日切口径**算出的今天（`YYYY-MM-DD`）。 */
+  today: string;
+  channel: ClaimToday;
+  /** 账号 key → 该账号的今天视图（台账里没有的账号不出现）。 */
+  accounts: Record<string, ClaimToday>;
+}
+
+/**
+ * 一次读盘算出「今天」的全部视图。
+ *
+ * 存在的理由：控制台的签到展示与 `claimedTodayPerLedger` / `claimedTodayForAccount` 必须
+ * 用**同一个日切口径**，否则机器换过时区后，界面说「已签到」而自动签到认为「未签」并再领一次。
+ * 故日切只在这里算一次，其余调用方都从这里取（不在各自的调用点重算 `currentTimezone()`）。
+ */
+export function signinTodaySnapshot(cid?: string, now: Date = new Date()): SigninTodaySnapshot {
+  const ledger = readLedger(cid);
+  // 日切用**当前**时区（与 claimedTodayPerLedger 一致）：台账里的历史 date 是写入当时的时区算的，
+  // 换过时区后它本就不该再和新的一天直接比较 —— 两边共用这一个入口就不会分叉
+  const timezone = ledger.timezone || currentTimezone();
+  const today = dateInTimezone(now, currentTimezone());
+  const view = (record: ClaimRecord | undefined): ClaimToday =>
+    record === undefined || record.date !== today
+      ? { claimed: false, at: null }
+      : { claimed: true, at: record.at === "" ? null : record.at };
+  const accounts: Record<string, ClaimToday> = {};
+  for (const [key, record] of Object.entries(ledger.accounts ?? {})) {
+    accounts[key] = view(record);
+  }
+  return { timezone, today, channel: view(ledger.last_claim), accounts };
 }

@@ -34,10 +34,10 @@ import * as paths from "../dist/runtime/paths.js";
 
 const CID = "catalogtest";
 
-function makeChannel(): Channel {
+function makeChannel(cid: string, exposed: string[]): Channel {
   const config: ChannelConfig = {
-    cid: CID,
-    display: "Catalog Test",
+    cid,
+    display: `Catalog Test ${cid}`,
     version: "0.0.0",
     defaultAddr: "127.0.0.1:1",
     uiPort: 2,
@@ -51,13 +51,13 @@ function makeChannel(): Channel {
       load: () => ({}),
       save: async () => {},
       login: async () => ({}),
-      refresh: async () => ({}),
+      refresh: async () => {},
       resolveBaseUrl: () => "http://127.0.0.1:1",
     },
     upstream: {
       DEFAULT_BASE_URL: "http://127.0.0.1:1",
       WIRE: "openai" as const,
-      DISPLAY_NAME: "Catalog Test",
+      DISPLAY_NAME: `Catalog Test ${cid}`,
       UpstreamUnauthorized: class UpstreamUnauthorized extends Error {},
       defaultConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
       loadConfig: () => [{ baseUrl: "http://127.0.0.1:1" }, false],
@@ -70,8 +70,10 @@ function makeChannel(): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
     },
     catalog: {
-      // 对外模型池只收 deepseek 家族；这里给两个，纯非家族名不进快照
-      exposedIds: () => ["glm-5.3-flash", "deepseek-v4.1-flash", "deepseek-v4-flash"],
+      // 对外模型池只收 deepseek 家族；纯非家族名不进快照。
+      // 两个型号分给两个渠道：同一渠道同时供给两代模型会被型号互斥收口成只有上位型号
+      // （见 docs/POOL-ARCHITECTURE.md §2.1.1），这里要的是「池里有两个模型」。
+      exposedIds: () => exposed,
       resolveModel: (name: string) => name,
     },
     billing: {
@@ -88,7 +90,9 @@ describe("统一模型目录快照", () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-catalog-"));
     process.env["MODELMUX_HOME"] = root;
     clearChannels();
-    setChannel(makeChannel());
+    // 两个渠道各供一个 deepseek 型号：同一渠道同时供两代会被型号互斥收口成只有上位型号
+    setChannel(makeChannel(CID, ["glm-5.3-flash", "deepseek-v4.1-flash"]));
+    setChannel(makeChannel(`${CID}-legacy`, ["deepseek-v4-flash"]));
   });
 
   after(() => {

@@ -10,7 +10,7 @@
 
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronLeft, ChevronRight, MessagesSquare, RotateCw } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
 import { api } from "../lib/api";
 import {
   countOrDash,
@@ -32,6 +32,7 @@ import { useNarrow } from "../lib/use-narrow";
 import { CopyButton } from "../components/CopyButton";
 import { LogContextDialog } from "../components/LogContextDialog";
 import { PageHeader } from "../components/PageHeader";
+import { RefreshButton } from "../components/RefreshButton";
 import { ScrollFade } from "../components/ScrollFade";
 import { Select, type SelectOption } from "../components/Select";
 import { Skeleton } from "./Dashboard";
@@ -796,14 +797,7 @@ export function Logs(): ReactElement {
         description="网关每次模型请求的时间、渠道与模型、耗时、tokens 与结果（只列 /v1/chat/completions）"
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => void logs.refetch()}
-              className="tap flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-            >
-              <RotateCw className={`h-3.5 w-3.5 ${logs.isFetching ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+            <RefreshButton onRefresh={() => logs.refetch()} />
           </>
         }
       />
