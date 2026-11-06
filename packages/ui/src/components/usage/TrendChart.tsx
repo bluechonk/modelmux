@@ -140,18 +140,31 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
               strokeWidth={1}
             />
           ))}
-          {paths.map((p) => (
-            <path
-              key={p.id}
-              d={p.d}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              className={seriesClassOf(series.indexOf(p.id))}
-            />
-          ))}
+          {/* 单日画不出「线」：path 只有一个 M 命令、没有 L，SVG 什么都不渲染 ——
+              退化为常显圆点，只画当天真正有消耗的序列（与浮层同一过滤口径） */}
+          {daily.length === 1
+            ? activeSeriesOf(daily[0]!, series).map((id) => (
+                <circle
+                  key={id}
+                  cx={xOf(0)}
+                  cy={yOf(daily[0]!.byModel[id] ?? 0)}
+                  r={3.5}
+                  fill="currentColor"
+                  className={seriesClassOf(series.indexOf(id))}
+                />
+              ))
+            : paths.map((p) => (
+                <path
+                  key={p.id}
+                  d={p.d}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  className={seriesClassOf(series.indexOf(p.id))}
+                />
+              ))}
           {/* hover：只在最近的数据点上画圆点（ZCode 同款 `activeDot`），不画十字参考线 */}
           {hoverIndex !== null &&
             activeSeries.map((id) => (

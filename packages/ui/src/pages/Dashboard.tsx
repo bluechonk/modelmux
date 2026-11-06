@@ -227,6 +227,39 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
 }
 
 // ---------------------------------------------------------------------------
+// 一键接入按钮（四客户端共用形态）
+// ---------------------------------------------------------------------------
+
+/** 接入目标（与后端 `IntegrationTarget` 同形）。 */
+type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "codex";
+
+/** 单个接入按钮：写入中态按 target 区分（并行点两个按钮互不误标）。 */
+function IntegrateButton({
+  mutation,
+  target,
+  label,
+}: {
+  mutation: {
+    isPending: boolean;
+    variables: IntegrationTarget | undefined;
+    mutate: (target: IntegrationTarget) => void;
+  };
+  target: IntegrationTarget;
+  label: string;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      disabled={mutation.isPending}
+      onClick={() => mutation.mutate(target)}
+      className="tap rounded-lg border border-line-strong bg-overlay py-2 text-xs font-medium text-ink transition-colors hover:border-brand/50 disabled:opacity-40"
+    >
+      {mutation.isPending && mutation.variables === target ? "写入中…" : label}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 主组件
 // ---------------------------------------------------------------------------
 
@@ -324,7 +357,7 @@ export function Dashboard(): ReactElement {
 
   // 结果只走右下角 toast：卡片里再贴一条会和 toast 重复，还让区块高度跳动。
   const integrateMutation = useMutation({
-    mutationFn: (target: "zcode" | "dsh") => api.commands.integrate(target),
+    mutationFn: (target: "zcode" | "dsh" | "claude-code" | "codex") => api.commands.integrate(target),
     // 命令信封的 ok:false（如 dsh 一个 profile 都没改到）必须走失败 toast ——
     // HTTP 层是 200，onSuccess 不代表接入成功
     onSuccess: (data) => {
@@ -558,9 +591,11 @@ export function Dashboard(): ReactElement {
 
       {/* ③④⑤⑥ 双列区 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* 左列：模型用量（区间聚合，8 列宽够放下环形 + 图例列表） */}
-        <div className="space-y-5 lg:col-span-8">
-          <section className="panel p-4">
+        {/* 左列：模型用量（区间聚合，8 列宽够放下环形 + 图例列表）。
+            与右列同构的 flex 拉伸：右列内容更高时左卡也撑满行高，两列顶底恒对齐
+            （只用 space-y 时左列不跟随，右列撑高行后左卡底部悬空）。 */}
+        <div className="flex flex-col gap-5 lg:col-span-8">
+          <section className="panel flex flex-1 flex-col p-4">
             <div className="panel-title mb-3">
               <Layers className="h-4 w-4 text-ink-faint" />
               模型用量
@@ -631,23 +666,27 @@ export function Dashboard(): ReactElement {
               <PlugZap className="h-4 w-4 text-ink-faint" />
               一键接入
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={integrateMutation.isPending}
-                onClick={() => integrateMutation.mutate("zcode")}
-                className="tap flex-1 rounded-lg border border-line-strong bg-overlay py-2 text-xs font-medium text-ink transition-colors hover:border-brand/50 disabled:opacity-40"
-              >
-                {integrateMutation.isPending && integrateMutation.variables === "zcode" ? "写入中…" : "接入 zcode"}
-              </button>
-              <button
-                type="button"
-                disabled={integrateMutation.isPending}
-                onClick={() => integrateMutation.mutate("dsh")}
-                className="tap flex-1 rounded-lg border border-line-strong bg-overlay py-2 text-xs font-medium text-ink transition-colors hover:border-brand/50 disabled:opacity-40"
-              >
-                {integrateMutation.isPending && integrateMutation.variables === "dsh" ? "写入中…" : "接入 dsh"}
-              </button>
+            <div className="grid grid-cols-2 gap-2">
+              <IntegrateButton
+                mutation={integrateMutation}
+                target="zcode"
+                label="接入 zcode"
+              />
+              <IntegrateButton
+                mutation={integrateMutation}
+                target="dsh"
+                label="接入 dsh"
+              />
+              <IntegrateButton
+                mutation={integrateMutation}
+                target="claude-code"
+                label="接入 claude code"
+              />
+              <IntegrateButton
+                mutation={integrateMutation}
+                target="codex"
+                label="接入 codex"
+              />
             </div>
           </section>
 
