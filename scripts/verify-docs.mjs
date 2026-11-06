@@ -391,7 +391,6 @@ const ROOT_FILES_ALLOWED = new Set([
   "AGENTS.md",
   "LICENSE",
   "README.md",
-  "marketplace.json",
   "package.json",
   "package-lock.json",
   "tsconfig.json",
