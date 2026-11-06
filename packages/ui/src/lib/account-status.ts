@@ -82,6 +82,7 @@ export function signinRows(
   const claimed = info.per_account ? own?.claimed_today === true : info.claimed_today;
   const at = info.per_account ? own?.at ?? null : info.at;
   const reward = (info.per_account ? own?.reward : info.reward) ?? null;
+  const source = (info.per_account ? own?.reward_source : info.reward_source) ?? null;
   const probe = (info.per_account ? own?.probe : info.probe) ?? null;
   if (claimed) {
     const clock = at === null ? "" : formatClock(at);
@@ -89,7 +90,9 @@ export function signinRows(
       reward !== null && reward.amount > 0
         ? ` +${reward.amount.toLocaleString("en-US")}${reward.unit === "" ? "" : ` ${reward.unit}`}`
         : "";
-    return [{ label: "今日签到", value: `${clock === "" || clock === "-" ? "已签到" : `已签到 ${clock}`}${amount}` }];
+    // 跨窗口对比（carry）是最弱口径：标注「估算」，不把它伪装成渠道自报的准确数字
+    const estimate = source === "carry" && amount !== "" ? "（估算）" : "";
+    return [{ label: "今日签到", value: `${clock === "" || clock === "-" ? "已签到" : `已签到 ${clock}`}${amount}${estimate}` }];
   }
   // 上游明确「没有可领的」：如实说「今日无可领」，不冒充「你还没签」
   if (probe !== null && probe.claimable === false) {

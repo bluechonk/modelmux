@@ -608,6 +608,17 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 直接调用时使用。各渠道叫法不同（`check-in` / `signin` / 活动 `claim` / 上游自动发），统一收敛成
 `status()` + `claim()` 两个动作；`claim()` 必须是幂等的或至少可安全重复调用。
 
+**额度数字（「今天签到领到多少」）**：`claim()` / `status()` 可回 `reward: {amount, unit}`
+（渠道自报的发放额）；`status().dailyReward`（可选）是**每日发放额度**的公布值，
+适用于「签到动作本身就是当日额度发放」的渠道（loomy 每天 5000，上游不回报入账额）。
+`status()` **不接受 credential**（拿的是当前生效账号）：`perAccount` 渠道只能用它取
+与账号无关的字段（如 `dailyReward`），不要把账号相关的数字写进别的账号的台账。
+两者都没有时共享层用**领取前后各查一次额度的差值**补；仍拿不到才用**跨额度窗口对比**
+（最弱口径，界面标「估算」）。`status().resetAt` / `windowStartsAt`（可选）声明当前签到窗口的
+结束与开始时刻（epoch ms）—— 日界不是本地 0 点的渠道（qodercn 是 10:00 UTC+8）必须给，
+否则当天活动永远领不到。
+口径与有界重试规则见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.6。
+
 **「查不到」不能显示成 0**：有额度能力但查询失败时抛 `CreditsError`，而不是返回 `remain: 0`。
 未登录时抛 `cred.NotLoggedInError`。
 **没有额度概念的渠道**在 `ChannelConfig.capabilities` 声明 `billing: false`：共享层不调用

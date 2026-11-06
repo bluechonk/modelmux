@@ -309,6 +309,7 @@ function signinViewOf(cid: string, channel: Channel): WebSigninView {
     claimed_today: entry.claimed,
     at: entry.at,
     reward: entry.reward,
+    reward_source: entry.source,
     probe: entry.probe === null ? null : {
       claimable: entry.probe.claimable,
       claimed_today: entry.probe.claimed_today,

@@ -312,6 +312,8 @@ mx bill qodercn
 
 登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 签到与额度由网关启动时的自动签到链路执行（无独立命令），当天是否已领看 `mx status qodercn`。
+`signin.status()` 额外报 `resetAt`（活动 `endAt`，10:00 UTC+8 日界）与 `reward`（本活动日已领的
+`benefit.amount` 之和），供调度器判断窗口与补额度，见 [qoder PROTOCOL §6.2](../qoder/PROTOCOL.md)。
 
 ## 参考实现
 
