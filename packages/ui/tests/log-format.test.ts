@@ -19,6 +19,7 @@ import {
   formatCacheRate,
   formatPercent,
   formatRate,
+  formatRecoveryAt,
   formatTokens,
   formatTokensPerSec,
   tokensPairText,
@@ -215,5 +216,24 @@ describe("brief 与 formatTokensPerSec", () => {
     };
     assert.equal(tokensPerSecOfEntry(entry as never), 900);
     assert.equal(tokensPerSecOfEntry({ tokens: null, durationMs: 100 } as never), null);
+  });
+});
+
+describe("formatRecoveryAt：恢复时刻（绝对 + 本地时区）", () => {
+  // 固定「现在」与「恢复点」，避免测试随运行时间漂移（本地时区 UTC+8）
+  const now = new Date("2026-11-06T10:46:00.000Z"); // 本地 18:46
+  const sameDay = new Date("2026-11-06T12:46:45.000Z"); // 本地 20:46 当天
+  const nextDay = new Date("2026-11-07T02:10:00.000Z"); // 本地 11-07 10:10
+
+  it("同一天 → 「今天 HH:mm」", () => {
+    assert.equal(formatRecoveryAt(sameDay.getTime(), now.getTime()), "今天 20:46");
+  });
+
+  it("跨天 → 补日期（避免被误读成今天）", () => {
+    assert.equal(formatRecoveryAt(nextDay.getTime(), now.getTime()), "11-07 10:10");
+  });
+
+  it("非法时刻 → 空串（调用方据此只显示相对时长）", () => {
+    assert.equal(formatRecoveryAt(Number.NaN, now.getTime()), "");
   });
 });
