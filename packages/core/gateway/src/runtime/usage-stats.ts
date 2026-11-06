@@ -108,6 +108,12 @@ export interface UsageStats {
     tokensOut: number;
     requests: number;
     messages: number;
+    /** 成功 / 失败 / 中断条数（按 access 日志的**文件归属**分桶，与日志页同一口径）。 */
+    success: number;
+    failure: number;
+    other: number;
+    /** 判定为慢的条数（口径见 docs/LOGGING.md §3.5）。 */
+    slow: number;
     durationMs: number;
     /** 加权命中率 `Σhit / Σ(hit+miss)`；区间内无一条带缓存字段时为 null（显示 `—`，不是 0%）。 */
     cacheHitRate: number | null;
@@ -143,6 +149,12 @@ export interface UsageStats {
 }
 
 interface DayAgg extends UsageDaily {
+  /** 成功 / 失败 / 中断条数（`outcome` 取自文件归属）。 */
+  success: number;
+  failure: number;
+  other: number;
+  /** 判定为慢的条数。 */
+  slow: number;
   durationMs: number;
   longestMs: number | null;
   cacheHit: number;
@@ -190,6 +202,10 @@ function aggregateDay(date: string): DayAgg {
     requests: 0,
     messages: 0,
     byModel: {},
+    success: 0,
+    failure: 0,
+    other: 0,
+    slow: 0,
     durationMs: 0,
     longestMs: null,
     cacheHit: 0,
@@ -230,6 +246,9 @@ function scanInto(date: string, agg: DayAgg): void {
     agg.tokensIn += input;
     agg.tokensOut += output;
     agg.messages += entry.messageCount ?? 0;
+    // 结果分桶与「慢」按文件归属 / 读路径判定（与日志页的统计条同一口径）
+    agg[entry.outcome] += 1;
+    if (entry.slow) agg.slow += 1;
     if (entry.durationMs !== undefined) {
       agg.durationMs += entry.durationMs;
       if (agg.longestMs === null || entry.durationMs > agg.longestMs) agg.longestMs = entry.durationMs;
@@ -358,6 +377,10 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     tokensOut: 0,
     requests: 0,
     messages: 0,
+    success: 0,
+    failure: 0,
+    other: 0,
+    slow: 0,
     durationMs: 0,
     cacheHitRate: null as number | null,
     cacheHit: 0,
@@ -407,6 +430,10 @@ export function computeUsageStats(range: UsageRange, now: Date = new Date()): Us
     totals.tokensOut += agg.tokensOut;
     totals.requests += agg.requests;
     totals.messages += agg.messages;
+    totals.success += agg.success;
+    totals.failure += agg.failure;
+    totals.other += agg.other;
+    totals.slow += agg.slow;
     totals.durationMs += agg.durationMs;
     totals.noUsage += agg.noUsage;
     cacheHit += agg.cacheHit;
