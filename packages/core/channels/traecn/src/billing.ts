@@ -411,6 +411,9 @@ export const signin: SigninModule = {
       summary: `${bits.join("，")}${s.message ? `（${s.message}）` : ""}`,
       // 上游直接给了"今天签没签"→ 交给共享层做「今日是否签到过」的权威判定
       claimedToday: s.checked_in,
+      // 已签时 `credits` 就是今天到账的积分（领取接口不回数字，只有 status 有）——
+      // 调度器据此给「台账已签但没记额度」的旧记录补额度
+      ...(s.checked_in && s.credits > 0 ? { reward: { amount: s.credits, unit: "积分" } } : {}),
       daily: true,
     };
   },

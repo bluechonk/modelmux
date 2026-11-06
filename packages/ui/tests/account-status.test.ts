@@ -127,16 +127,14 @@ describe("signinRows：今日签到行", () => {
     assert.match(zero[0]!.value, /^已签到 \d{2}:\d{2}:\d{2}$/, "0 额度不显示（会让人以为签了没给）");
   });
 
-  it("上游明确「没有可领」→ 说「今日无可领」并带上渠道原话，不说「未签到」", () => {
+  it("上游明确「没有可领」→ 只说「今日无可领」，不附上游原话（废话）", () => {
     const rows = signinRows(
       channel({
         probe: { claimable: false, claimed_today: null, summary: "上游今天没有可领的奖励", at: "2026-11-06T02:00:00.000Z" },
       }),
       pool(null),
     );
-    assert.deepEqual(rows, [
-      { label: "今日签到", value: "今日无可领", note: "上游今天没有可领的奖励" },
-    ]);
+    assert.deepEqual(rows, [{ label: "今日签到", value: "今日无可领" }]);
   });
 
   it("探测失败（查不到）仍按「未签到」，不把「不知道」说成「无可领」", () => {
