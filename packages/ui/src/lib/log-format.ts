@@ -55,6 +55,24 @@ export function formatClock(ts: string): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
+/**
+ * 恢复时刻（本地时区）：同一天 → `今天 20:46`，跨天 → `11-07 02:10`。
+ *
+ * 只说「2h 后恢复」时用户还得自己在脑子里加一次，而且**跨天**时会误以为是今天
+ * （冷却 / 熔断的恢复点完全可能落在凌晨）。绝对时刻 + 相对时长一起给。
+ */
+export function formatRecoveryAt(untilMs: number, nowMs: number = Date.now()): string {
+  const until = new Date(untilMs);
+  if (Number.isNaN(until.getTime())) return "";
+  const now = new Date(nowMs);
+  const sameDay =
+    until.getFullYear() === now.getFullYear() &&
+    until.getMonth() === now.getMonth() &&
+    until.getDate() === now.getDate();
+  const hm = `${pad2(until.getHours())}:${pad2(until.getMinutes())}`;
+  return sameDay ? `今天 ${hm}` : `${pad2(until.getMonth() + 1)}-${pad2(until.getDate())} ${hm}`;
+}
+
 /** 毫秒 → `845ms` / `2.9s` / `1m1s`（三段耗时与统计条共用）。 */
 export function formatDuration(ms: number | undefined): string {
   if (ms === undefined) return "-";

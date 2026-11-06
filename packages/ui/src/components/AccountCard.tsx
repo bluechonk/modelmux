@@ -14,7 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { formatTokens } from "../lib/log-format";
+import { formatRecoveryAt, formatTokens } from "../lib/log-format";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 /**
@@ -176,22 +176,33 @@ function statusNoteOf(
   }
   if (account.health === "cooldown") {
     const until = account.cooldown_until ? Date.parse(account.cooldown_until) : Number.NaN;
+    // 绝对恢复时刻 + 相对时长一起给：只说「2h 后」时用户还得自己加一次，
+    // 跨天更容易被读成今天（`formatRecoveryAt` 会补日期）
+    const at = Number.isFinite(until) ? formatRecoveryAt(until, now) : "";
     const when = Number.isFinite(until) ? shortSpan(until - now) : "";
     // 第二行是**上游原话**（`cooldown_reason` 里带的是错误体片段）：没有它用户只能
-    // 知道「在冷却」，不知道「为什么冷却 / 什么时候真的会好」
+    // 知道「在冷却」，不知道「为什么冷却 / 上游怎么说」
     const reason = (account.cooldown_reason ?? "").trim();
     return {
       tone: "warn",
-      lines: [when === "" ? "冷却中 · 等待上游窗口刷新" : `冷却中 · ${when} 后自动恢复`, ...(reason === "" ? [] : [reason])],
+      lines: [
+        Number.isFinite(until)
+          ? `冷却中 · ${at} 恢复${when === "" ? "" : `（${when} 后）`}`
+          : "冷却中 · 等待上游窗口刷新",
+        ...(reason === "" ? [] : [reason]),
+      ],
     };
   }
   if (account.health === "error") {
     const until = account.trip_until ? Date.parse(account.trip_until) : Number.NaN;
+    const at = Number.isFinite(until) ? formatRecoveryAt(until, now) : "";
     const when = Number.isFinite(until) ? shortSpan(until - now) : "";
     return {
       tone: "danger",
       lines: [
-        when === "" ? "熔断中 · 下次请求自动试探" : `熔断中 · ${when} 后自动试探`,
+        Number.isFinite(until)
+          ? `熔断中 · ${at} 自动试探${when === "" ? "" : `（${when} 后）`}`
+          : "熔断中 · 下次请求自动试探",
         `连续失败 ${Number(account.fail_streak ?? 0)} 次`,
       ],
     };
