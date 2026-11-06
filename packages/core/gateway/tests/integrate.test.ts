@@ -355,6 +355,39 @@ describe("一键接入 dsh", () => {
     assert.equal(readFileSync(cred, "utf8"), "version: 1\nrecords: {}\nrefs: { MODELMUX_API_KEY: modelmux-local }\n");
   });
 
+  it("flow 里注释含花括号：不污染深度计数，条目也不落进注释", () => {
+    seedDsh();
+    const cred = seedDshCredentials("version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, # use { template\n}\n");
+    integrateClient("dsh", MODELS);
+    const after = readFileSync(cred, "utf8");
+    // 收尾判定必须到第 4 行（深度归零），条目接在真条目行（尾逗号归一）、注释保持在末尾
+    assert.equal(
+      after,
+      "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: modelmux-local # use { template\n}\n",
+    );
+  });
+
+  it("嵌套内联 flow 的子条目：净深度归零前不误判收尾", () => {
+    seedDsh();
+    const cred = seedDshCredentials("version: 1\nrefs: {\n  A: { x: 1 },\n}\n");
+    integrateClient("dsh", MODELS);
+    const after = readFileSync(cred, "utf8");
+    assert.match(after, /A: \{ x: 1 \}, MODELMUX_API_KEY: modelmux-local/, "条目必须接在外层 flow 的真条目行");
+    assert.match(after, /modelmux-local\n\}\n$/, "外层收尾括号必须原样保留在末行");
+  });
+
+  it("一个可改的 profile 都没有：如实失败，不再冒充已接入", () => {
+    // profiles 目录在、凭据文件也在，但四个 profile 都没有 cordis.patch.yml ——
+    // 只写凭据引用不构成接入，ok:false 必须把「没有可改的 profile」带到调用方。
+    // 共享 home：前序用例留下的 patch 必须清掉，否则 profileSeen 不为 0
+    rmSync(join(home, ".dsh", "profiles"), { recursive: true, force: true });
+    mkdirSync(join(home, ".dsh", "profiles", "desktop"), { recursive: true });
+    seedDshCredentials();
+    const result = integrateClient("dsh", MODELS);
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /没有可改的 profile/);
+  });
+
   it("CRLF 凭据文件保持 CRLF", () => {
     seedDsh();
     const cred = seedDshCredentials("version: 1\r\nrefs: { LONGCAT_API_KEY: ak_test }\r\n");

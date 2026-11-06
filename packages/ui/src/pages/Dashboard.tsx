@@ -286,9 +286,15 @@ export function Dashboard(): ReactElement {
   // 结果只走右下角 toast：卡片里再贴一条会和 toast 重复，还让区块高度跳动。
   const integrateMutation = useMutation({
     mutationFn: (target: "zcode" | "dsh") => api.commands.integrate(target),
+    // 命令信封的 ok:false（如 dsh 一个 profile 都没改到）必须走失败 toast ——
+    // HTTP 层是 200，onSuccess 不代表接入成功
     onSuccess: (data) => {
       const target = String(data.target ?? "");
       const models = Array.isArray(data.models) ? data.models.map(String).join(" / ") : "";
+      if (data.ok === false) {
+        toast.error(`接入失败：${String(data.error ?? "未完成任何改动")}`);
+        return;
+      }
       toast.success(`已接入 ${target || "客户端"}${models ? `（${models}）` : ""}`);
     },
     onError: (err) => toast.error(`接入失败：${String(err)}`),

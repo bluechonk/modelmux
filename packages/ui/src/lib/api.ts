@@ -91,7 +91,7 @@ async function errorMessage(res: Response): Promise<string> {
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
-  // GET 的错误体同样要透传：payload not found / decode-failed 这类具体原因
+  // GET 的错误体同样要透传：payload not found / not ready 这类具体原因
   // 比「HTTP 404」对排障有用得多，不能只让 POST/PUT 独享
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json() as T;

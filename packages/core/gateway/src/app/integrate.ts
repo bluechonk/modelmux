@@ -263,15 +263,18 @@ function childIndentOf(lines: string[], refsIdx: number): string {
 }
 
 /**
- * 多行 flow（`refs: {` … `}`）的收尾行下标：按**净花括号深度**走，而不是「第一个含
- * `}` 的行」—— 子条目自身是内联 flow（`A: { x: 1 }`）时该行净贡献为 0，按行找会把
- * 内层的 `}` 误判成收尾，把新条目拼进内层 map 并留下无效 YAML。值含引号包裹的
- * `{`/`}` 的场景不存在（本函数只写模型名与 env 引用名）。
+ * flow（`refs: { … }`，单行或多行）的收尾行下标：按**净花括号深度**走，而不是
+ * 「第一个含 `}` 的行」—— 子条目自身是内联 flow（`A: { x: 1 }`）时该行净贡献为 0，
+ * 按行找会把内层的 `}` 误判成收尾。逐行**先剥行尾注释再数**：注释里的不平衡花括号
+ * （`A: 1 # use { template`）会污染深度计数。只读不写；refs 由 dsh 的凭据提供方
+ * 管理，值只会是引用名与固定字面量（本流程只追加 `MODELMUX_API_KEY` 一项），
+ * 引号包裹花括号的值不存在。
  */
 function flowCloseLine(lines: string[], refsIdx: number): number {
   let depth = 0;
   for (let i = refsIdx; i < lines.length; i += 1) {
-    for (const ch of lines[i]!) {
+    const [bare] = splitTrailingComment(lines[i]!);
+    for (const ch of bare) {
       if (ch === "{") depth += 1;
       else if (ch === "}") depth -= 1;
     }
@@ -282,9 +285,9 @@ function flowCloseLine(lines: string[], refsIdx: number): number {
 
 /**
  * 拆行尾注释（第一个 ` #` 起）；没有返回 `[原行, ""]`。
- * 追加条目前必须拆 —— 否则 `A: 1 # note` 会被拼成 `A: 1 # note, B: 2`，
- * 条目落进注释里静默丢失。值本身含「空格 + #」的 YAML 不由本函数处理
- * （机器管理的凭据 / patch 文件里不会出现）。
+ * 追加条目与数括号前都要先拆 —— 否则 `A: 1 # note` 会被拼成
+ * `A: 1 # note, B: 2`（条目落进注释里静默丢失）。值本身含「空格 + #」的 YAML
+ * 不由本函数处理（refs 由 dsh 的凭据提供方机器管理，值里不会出现）。
  */
 function splitTrailingComment(line: string): [string, string] {
   const at = line.indexOf(" #");
@@ -327,12 +330,14 @@ function ensureDshCredential(): { file: string; changed: boolean; notes: string[
   } else {
     const next = [...lines];
     const refsLine = next[refsIdx]!;
-    const close = refsLine.includes("{")
-      ? refsLine.includes("}")
-        ? refsIdx
-        : flowCloseLine(next, refsIdx)
-      : -1;
+    const close = refsLine.includes("{") ? flowCloseLine(next, refsIdx) : -1;
     if (close < 0) {
+      if (refsLine.includes("{")) {
+        // flow 开了但收尾判定失败（注释里有不平衡花括号等畸形）：宁可跳过写入，
+        // 也不能把 block 条目拼进未闭合的 flow 里写出无效 YAML
+        notes.push("refs 块形态无法安全解析，已跳过写入");
+        return { file, changed: false, notes };
+      }
       // block map：插到 `refs:` 之后，缩进跟着第一个子条目走
       next.splice(refsIdx + 1, 0, `${childIndentOf(next, refsIdx)}${entry}`);
     } else if (close === refsIdx) {
@@ -350,14 +355,16 @@ function ensureDshCredential(): { file: string; changed: boolean; notes: string[
       const closeHead = closeBare.slice(0, at).replace(/[ \t]+$/, "");
       if (closeHead !== "") {
         // 条目与收尾同行（`A: 1 }` / `A: 1 # 注 }`）：注释挪到 `}` 之后
-        next[close] = `${closeHead}, ${entry}}${closeComment}`;
+        next[close] = `${closeHead.replace(/,\s*$/, "")}, ${entry}}${closeComment}`;
       } else {
         let prev = close - 1;
         while (prev > refsIdx && isBlank(next[prev]!)) prev -= 1;
         if (prev === refsIdx) next.splice(refsIdx + 1, 0, `${childIndentOf(next, refsIdx)}${entry}`);
         else {
-          // 条目拼进行尾：先拆行尾注释再接 —— 否则新条目会被拼进注释里静默丢失
-          const [bare, comment] = splitTrailingComment(next[prev]!);
+          // 条目拼进行尾：先拆行尾注释与尾逗号再接 —— 否则条目会落进注释，
+          // 或拼出 `,,` 双逗号（无效 YAML）
+          const [bareRaw, comment] = splitTrailingComment(next[prev]!);
+          const bare = bareRaw.replace(/,\s*$/, "");
           next[prev] = `${bare}, ${entry}${comment}`;
         }
       }
@@ -418,9 +425,14 @@ function integrateDsh(models: string[]): IntegrationResult {
   }
 
   if (profileChanged === 0) {
-    result.ok = true;
     result.backupDir = dir;
-    if (profileSeen === 0) result.error = `${profilesDir} 下没有可改的 profile（${DSH_PROFILES.join(" / ")}）`;
+    if (profileSeen === 0) {
+      // 一个 profile 都不存在：凭据引用写好了也只是「接线准备」，如实报失败 ——
+      // ok:true 会让控制台弹「已接入」而实际什么都没接（评审抓到的误导路径）
+      result.error = `${profilesDir} 下没有可改的 profile（${DSH_PROFILES.join(" / ")}）`;
+      return result;
+    }
+    result.ok = true;
     return result;
   }
   result.backupDir = dir;

@@ -97,17 +97,18 @@ export async function translateTexts(texts: string[], to = "zh-Hans"): Promise<T
       signal: controller.signal,
     });
   } catch (err) {
+    clearTimeout(timer);
     const aborted = err instanceof Error && err.name === "AbortError";
     return {
       ok: false,
       code: aborted ? "translate-timeout" : "translate-request-failed",
       error: aborted ? `翻译超时（> ${TIMEOUT_MS / 1000}s）` : String(err),
     };
-  } finally {
-    clearTimeout(timer);
   }
+  // 定时器覆盖到**体读取**为止（与 pingModel 同型）：上游发完头就卡住不吐体时，
+  // 请求不能无限挂着。连接中断不置位 signal —— text() 只得到空串，走下方空体分支
   const raw = await res.text().catch(() => "");
-  // 体读取阶段 abort（连接中断 / 信号触发）不能被误判成「响应不合法」——超时就是超时
+  clearTimeout(timer);
   if (controller.signal.aborted) {
     return {
       ok: false,

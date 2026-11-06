@@ -271,8 +271,8 @@ export interface TranslationResult {
 }
 
 /**
- * 服务端单批条数上限：与网关 `translate-proxy.ts` 的 `MAX_TEXTS`（12）同值。
- * 块 ≤3000 字符（`chunkProse` 的上限），12 块 = 36000，天然在单批 40000 字符限内，
+ * 服务端单批条数上限：与网关 `translate-proxy.ts` 的 `MAX_TEXTS` 同值（改一侧必须改另一侧）。
+ * 块 ≤3000 字符（`chunkProse` 的上限），上限数 × 3000 天然在单批 40000 字符限内，
  * 所以按条数分批就够，不必再按字符数二次切。
  */
 const MAX_BATCH_TEXTS = 12;
