@@ -279,6 +279,9 @@ const PING_TIMEOUT_MS = 45_000;
 /** 回环地址名单：ping 只能打回本机，Host 头是客户端给的，不校验就是 SSRF 跳板。 */
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
+/** 总览里已留痕过「账号读取失败」的渠道（进程生命周期内一次）：防止 5s 轮询刷屏。 */
+const overviewAccountFailures = new Set<string>();
+
 /**
  * ping 一个模型：向**本进程**发一次最小 chat 请求并计时。
  *
@@ -315,7 +318,7 @@ async function pingModel(
     const status = upstream.status;
     const text = await upstream.text().catch(() => "");
     const ms = Date.now() - started;
-    // 200 头之后、体读完之前被 abort：实际是超时，不能因为 ok 头就报成功
+    // 响应头已到、体读完之前被 abort：实际是超时，不能按头状态报成败
     if (controller.signal.aborted) {
       return { ok: false, model, ms, status: 0, error: `超时（> ${Math.round(PING_TIMEOUT_MS / 1000)}s）` };
     }
@@ -794,9 +797,13 @@ export function createConsoleHandler(
                 else if (acc.health === "unauthorized") statuses.unauthenticated++;
               }
             } catch (err) {
-              // 渠道未加载或无账号：单渠道失败不拖垮总览，但「读不到」不能和
-              // 「真的是零」在 UI 上混同 —— 留痕让排障能分辨
-              appendGateway(`console overview: channel ${cid} accounts failed: ${String(err)}`);
+              // 渠道未加载或无账号：单渠道失败不拖垮总览。UI 侧无从区分「读不到」
+              // 与「真的是零」（状态同样全零），按 cid 首次失败留痕一次 —— 总览每
+              // 5 秒被轮询，逐次记录会把 gateway.log 刷成单一错误的流水账
+              if (!overviewAccountFailures.has(cid)) {
+                overviewAccountFailures.add(cid);
+                appendGateway(`console overview: channel ${cid} accounts failed: ${String(err)}`);
+              }
             }
             return {
               cid,

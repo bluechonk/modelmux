@@ -196,6 +196,20 @@ describe("computeUsageStats", () => {
     assert.equal(seven.daily.length, 7, "同数据下 7d 只裁 7 天");
   });
 
+  it("读失败（partial）的日期不进缓存：文件恢复后重算立即可见", () => {
+    resetUsageCache();
+    const date = dateOffset(1);
+    // success.log 是个目录：readFileSync 抛 EISDIR → 该文件被跳过 → 聚合残缺
+    mkdirSync(join(paths.logsDir(), "access", date, "success.log"), { recursive: true });
+    let stats = computeUsageStats("all");
+    assert.equal(stats.totals.tokens, 0, "唯一文件读失败，聚合为空");
+    // 修好文件：若残缺结果被缓存过，这里将永远读到 0
+    rmSync(join(paths.logsDir(), "access", date, "success.log"), { recursive: true, force: true });
+    writeDay(date, [modelEntry(date, "a/b", { prompt: 100, completion: 0 })]);
+    stats = computeUsageStats("all");
+    assert.equal(stats.totals.tokens, 100, "partial 结果不得进缓存，修复后必须重算");
+  });
+
   it("缓存命中率：无缓存字段的请求不进分母（全无字段时为 null）", () => {
     resetUsageCache();
     const today = dateOffset(0);

@@ -140,6 +140,15 @@ describe("finish 落盘：按状态码分桶", () => {
     attachRequestLog("GET", "/health", failed);
     failed.emit("finish");
     assert.ok(existsSync(join(accessDir(), "failure.log")), "/health 失败要记");
+
+    // 慢例外：/health 首字 90s 是排障要害，静默跳过会让健康检查的异常无从查起
+    const slow = fakeRes(200);
+    const slowLog = attachRequestLog("GET", "/health", slow);
+    slowLog["stream"] = true;
+    slowLog["ttfbMs"] = 90_000;
+    slowLog["startAt"] = Date.now() - 91_000;
+    slow.emit("finish");
+    assert.ok(existsSync(join(accessDir(), "success.log")), "/health 成功但慢必须记录");
   });
 
   it("模型轮询 /v1/models 的成功同样静默", () => {

@@ -10,11 +10,7 @@ import { Check, Copy, X } from "lucide-react";
 import { useState } from "react";
 import type { ReactElement } from "react";
 
-/**
- * 图标型复制按钮：表格行里用（模型名已经单独成列，不必再套一个胶囊）。
- *
- * 复制成功短暂显示对勾；剪贴板不可用短暂显示叉（红色）后复原。
- */
+/** 图标型复制按钮：表格行里用（模型名已经单独成列，不必再套一个胶囊）。 */
 export function CopyButton({
   value,
   label,
