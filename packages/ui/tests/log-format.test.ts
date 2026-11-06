@@ -19,6 +19,7 @@ import {
   formatCacheRate,
   formatPercent,
   formatRate,
+  formatRecoveryAt,
   formatTokens,
   formatTokensPerSec,
   tokensPairText,
@@ -215,5 +216,30 @@ describe("brief 与 formatTokensPerSec", () => {
     };
     assert.equal(tokensPerSecOfEntry(entry as never), 900);
     assert.equal(tokensPerSecOfEntry({ tokens: null, durationMs: 100 } as never), null);
+  });
+});
+
+describe("formatRecoveryAt：恢复时刻（绝对 + 本地时区）", () => {
+  // 断言只钉**语义**（同一天 / 跨天 / 用本地时区），不钉具体时区 ——
+  // CI 跑在 UTC、本机是 UTC+8，写死时钟会一边绿一边红。
+  const now = new Date("2026-11-06T10:46:00.000Z");
+  const sameDay = new Date("2026-11-06T12:46:45.000Z"); // 与 now 同一本地日
+  const nextDay = new Date("2026-11-07T02:10:00.000Z"); // 与 now 不同本地日
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  it("同一天 → 「今天 + 本地时刻」", () => {
+    const out = formatRecoveryAt(sameDay.getTime(), now.getTime());
+    assert.equal(out, `今天 ${hm(sameDay)}`);
+    assert.ok(out.startsWith("今天 "), "同一天不能补日期");
+  });
+
+  it("跨天 → 补本地日期（避免被误读成今天）", () => {
+    const out = formatRecoveryAt(nextDay.getTime(), now.getTime());
+    assert.equal(out, `${pad(nextDay.getMonth() + 1)}-${pad(nextDay.getDate())} ${hm(nextDay)}`);
+  });
+
+  it("非法时刻 → 空串（调用方据此只显示相对时长）", () => {
+    assert.equal(formatRecoveryAt(Number.NaN, now.getTime()), "");
   });
 });
