@@ -407,10 +407,20 @@ export function AccountCard({
             <span className="shrink-0 font-mono text-[13px] font-medium text-ink">{pool.cid}</span>
             <span className="shrink-0 text-xs text-ink-faint">{`${accounts.length} 个账号`}</span>
           </div>
-          {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
-          {billing?.quota?.label && (
-            <div className="mt-1 text-xs text-ink-faint/70">{billing.quota.label}</div>
-          )}
+          {/* 额度周期：渠道声明就照实显示；**没声明的留一行等高占位**（不编造数字，只占位）。
+              这一行必须 `truncate`（单行封死）：workbuddyai 的 label 有 40+ 字符，允许折行会
+              在 3 列布局下把它撑成两行、让同一行的卡片参差（实测卡高 139.5 vs 155.5）。
+              完整文案在额度详情浮层里读得到，不靠这一行。
+              账单查询失败要**显式说明**——留空白会把「接口挂了」显示成「这个渠道没有周期」。 */}
+          <div className="mt-1 truncate text-xs text-ink-faint/70">
+            {billingError && billing === undefined ? (
+              <span className="text-warn">额度周期未知（账单查询失败）</span>
+            ) : billing?.quota?.label?.trim() ? (
+              billing.quota.label
+            ) : (
+              "\u00A0"
+            )}
+          </div>
         </div>
         <button
           type="button"
