@@ -11,7 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -110,6 +110,8 @@ interface BackupManifest {
   createdAt: string;
   /** 被改文件清单（按写入顺序）。 */
   files: BackupEntry[];
+  /** 最近一次用这份备份做还原的时刻（ISO）；老备份没有这个字段。 */
+  restoredAt?: string;
 }
 
 /**
@@ -992,24 +994,87 @@ export interface RestoreResult {
   notes: string[];
 }
 
+/** 从目录名末尾取 14 位时间戳（`target-20261107120000`）；取不到返回 0。 */
+function stampOf(dir: string): number {
+  const name = dir.split(/[\\/]/).pop() ?? "";
+  const m = /(\d{14})$/.exec(name);
+  return m ? Number.parseInt(m[1]!, 10) : 0;
+}
+
+/**
+ * 清单条目的字段校验：缺原路径 / 缺 existed / existed 为真却没有备份名 → 一律跳过。
+ *
+ * 清单是**磁盘数据**（用户可手改、老版本写的、被截断的），还原又是破坏性动作 ——
+ * 字段不全时猜一条路径写回去，比跳过更危险。
+ */
+function isValidEntry(entry: unknown): entry is BackupEntry {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+  const rec = entry as Record<string, unknown>;
+  if (typeof rec["original"] !== "string" || rec["original"].trim() === "") return false;
+  if (typeof rec["existed"] !== "boolean") return false;
+  if (rec["existed"] && (typeof rec["backup"] !== "string" || rec["backup"].trim() === "")) return false;
+  return true;
+}
+
+/**
+ * 读某次备份的**可还原条目**；没有可还原内容时返回 `null`（调用方据此跳过该目录）。
+ *
+ * 有清单用清单（逐条校验，坏条目如实记 notes）；老备份（无清单）按文件名反推原路径。
+ */
+function entriesOfBackup(
+  target: IntegrationTarget,
+  dir: string,
+  notes: string[],
+): BackupEntry[] | null {
+  const manifest = readManifest(dir);
+  if (manifest !== null) {
+    const valid = manifest.files.filter(isValidEntry);
+    for (const entry of manifest.files) {
+      if (!isValidEntry(entry)) notes.push(`跳过清单里字段不全的条目：${JSON.stringify(entry)}`);
+    }
+    return valid.length > 0 ? valid : null;
+  }
+  const inferred: BackupEntry[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isFile() || e.name === BACKUP_MANIFEST) continue;
+    const original = inferOriginalPath(target, e.name);
+    if (original === null) {
+      notes.push(`跳过 ${e.name}：老备份没有清单，无法确定原路径`);
+      continue;
+    }
+    inferred.push({ original, backup: e.name, existed: true });
+  }
+  return inferred.length > 0 ? inferred : null;
+}
+
 /**
  * 某 target 的全部**可用**备份目录，按时间**新的在前**。
  *
- * 目录名形如 `<target>-<yyyymmddhhmmss>`；两类目录不参与挑选：
- * - `safety-<target>-*`：还原时给「当前状态」留的保护性快照 —— 它是接**后**的状态，
- *   拿去当还原源会把配置又改回接入后的样子（自噬）；
- * - `restored-<target>-*`：已经被还原用掉的备份，再次还原不该重复消费。
+ * 目录名形如 `<target>-<yyyymmddhhmmss>`；两类目录仍可用作还原源：
+ * - `<target>-*`：接入时留的备份；
+ * - `restored-<target>-*`：**旧版本**消费过的备份 —— 它装的一样是「接入前」状态，
+ *   （新版改成可重复还原后）仍能再还原，只是时间戳更老。
+ *
+ * 唯一排除的是 `safety-<target>-*`：还原时给「当前状态」留的保护性快照 ——
+ * 它装着接**后**的状态，拿去当还原源会把配置又改回接入后的样子（自噬）。
+ *
+ * 排序按目录名末尾的 14 位时间戳而不是整个文件名的字典序：后者会让
+ * `restored-<target>-*` 恒排在 `<target>-*` 之前（`r` 大于多数 target 的首字母）。
+ *
+ * 清单为空 / 读不出任何条目的目录直接跳过 —— 否则一次「只建了目录没写文件」的
+ * 接入会挡住更早的真实备份。
  */
 function backupDirsOf(target: IntegrationTarget): string[] {
   backupRoot ??= join(rootDir(), "backups", "integrate");
   if (!existsSync(backupRoot)) return [];
   const prefix = `${target}-`;
   return readdirSync(backupRoot, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith(prefix))
+    .filter((e) => e.isDirectory() && !e.name.startsWith(`safety-${target}-`))
     .map((e) => e.name)
-    .sort()
-    .reverse()
-    .map((name) => join(backupRoot!, name));
+    .filter((name) => name.startsWith(prefix) || name.startsWith(`restored-${prefix}`))
+    .map((name) => join(backupRoot!, name))
+    .filter((dir) => entriesOfBackup(target, dir, []) !== null)
+    .sort((a, b) => stampOf(b) - stampOf(a));
 }
 
 /** 还原前的保护性快照目录（`safety-` 前缀，不参与自动挑选）。 */
@@ -1066,11 +1131,15 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
  * 一键还原：把该 target 的客户端配置恢复成**接入前**的样子。
  *
  * 语义（与「接入」对称，用户可预期）：
- * 1. 取该 target **最新一次**备份（已被还原过的目录带 `restored-` 前缀，不再选中）；
- * 2. **先把当前状态再备份一次**（`<target>-<stamp>` 另一份）—— 还原是破坏性动作，
+ * 1. 取该 target **最新一次**备份（`safety-*` 保护性快照不参与挑选）；
+ * 2. **先把当前状态再备份一次**（`safety-<target>-<stamp>`）—— 还原是破坏性动作，
  *    用户可能想反悔；多留一份成本极低；
  * 3. 逐个文件回写：`existed:true` 写回原文，`existed:false` **删除**；
- * 4. 用过的备份目录改名加 `restored-` 前缀 —— 防「连点两次还原」把第二份备份也吃掉。
+ * 4. 往清单里记 `restoredAt` 留痕，**不消费备份**。
+ *
+ * **可重复还原**：同一份「接入前」状态可以反复还原，第二次点不再报「没有找到备份」。
+ * 早期版本把用过的备份改名成 `restored-` 前缀、导致只能还原一次（主人反馈）——
+ * 现在 `restored-*` 与 `<target>-*` 一样按时间戳参与挑选，旧目录照常可用。
  *
  * 没有任何备份时如实报错（不假装成功）。
  */
@@ -1086,25 +1155,9 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
     return result;
   }
 
-  const manifest = readManifest(source);
-  // 老备份没有清单：按文件名反推原路径（推不出来的如实跳过）
-  let entries: BackupEntry[];
-  if (manifest !== null) {
-    entries = manifest.files;
-  } else {
-    const inferred: BackupEntry[] = [];
-    for (const e of readdirSync(source, { withFileTypes: true })) {
-      if (!e.isFile() || e.name === BACKUP_MANIFEST) continue;
-      const original = inferOriginalPath(target, e.name);
-      if (original === null) {
-        result.notes.push(`跳过 ${e.name}：老备份没有清单，无法确定原路径`);
-        continue;
-      }
-      inferred.push({ original, backup: e.name, existed: true });
-    }
-    entries = inferred;
-  }
-  if (entries.length === 0) {
+  // 条目来源：清单（逐条校验）或老备份的文件名反推；坏条目已在 notes 里说明
+  const entries = entriesOfBackup(target, source, result.notes);
+  if (entries === null) {
     result.error = `备份目录 ${source} 里没有可还原的文件`;
     return result;
   }
@@ -1148,15 +1201,19 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
     }
   }
 
-  // 用掉的备份改名（防重复还原吃掉第二份）；改名失败不影响结果
-  try {
-    backupRoot ??= join(rootDir(), "backups", "integrate");
-    const baseName = source.split(/[\\/]/).pop() ?? `${target}-backup`;
-    const restoredName = join(backupRoot, `restored-${baseName}`);
-    renameSync(source, restoredName);
-    result.notes.push(`用过的备份已标记为已还原：${restoredName}`);
-  } catch (err) {
-    result.notes.push(`备份目录改名失败（不影响还原结果）：${String(err)}`);
+  // **不消费备份**：还原改成幂等、可重复 —— 同一份「接入前」状态可以反复还原，
+  // 第二次点还原不再报「没有找到备份」（主人反馈「前面的问题只能还原一次」）。
+  // 只往清单里记一笔 `restoredAt` 留痕；旧版本留下的 `restored-*` 目录因此也是
+  // 有效还原源（见 `backupDirsOf`）。
+  const manifest = readManifest(source);
+  if (manifest !== null) {
+    manifest.restoredAt = new Date().toISOString();
+    try {
+      writeJsonSecret(join(source, BACKUP_MANIFEST), manifest);
+    } catch (err) {
+      // 留痕失败不影响还原结果（配置已经写回）
+      result.notes.push(`备份清单写回失败（不影响还原结果）：${String(err)}`);
+    }
   }
 
   result.sourceDir = source;
