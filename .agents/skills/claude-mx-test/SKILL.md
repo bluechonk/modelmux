@@ -37,7 +37,7 @@ claude -p "<任务>"
 
 ## 测试任务矩阵（按深度递进，全部实测过）
 
-每发之间查一次 `mx log --tail 3`：`protocol` 必须是 `anthropic`、`status 200`、
+每发之间查一次 `mx log --lines 3`：`protocol` 必须是 `anthropic`、`status 200`、
 `outcome success`。工具任务在仓库根跑，落盘产物进 `.tmp/`（用完即删，不进 git）。
 
 1. **冒烟**：`claude -p "只回答一个词：pong"` → 返回 `pong`。
@@ -57,7 +57,7 @@ claude -p "<任务>"
 
 ## 判据与排查
 
-- **结果错 ≠ 网关坏**：先 `mx log --tail 5` 看该请求 `outcome` —— success 但答案错
+- **结果错 ≠ 网关坏**：先 `mx log --lines 5` 看该请求 `outcome` —— success 但答案错
   才是转换/回灌问题；failure 看 `error` 字段（上游原文带渠道前缀透传）。
 - 日志没有 `protocol:"anthropic"` 字段 = 请求没走协议端点（打到了
   `/v1/chat/completions`，检查 base_url 是否带了多余的路径）。
