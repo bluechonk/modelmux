@@ -181,6 +181,12 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 
 实现见 `scripts/gate.sh`（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
+**worktree 里的推送与手动跑不是同一条路径**：`git push` 会向 `pre-push` 注入
+`GIT_DIR`（指向当前 worktree 的 git 目录）等仓库定位变量，它们会污染 `gate.sh`
+内部的 `git clone` 视图 —— 若不清掉，clone 出的仓库缺少待推分支，门禁在 worktree 里
+对**本地新建、尚未推送**的分支恒失败（手动 `npm run gate` 却通过）。
+`gate.sh` 已在开头 `unset` 这类变量；往它里面加 `git` 调用时不要依赖外部仓库定位变量。
+
 **真正不可绕过的是 CI**：钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意），
 CI 不能 —— `main` 有分支保护，合并前 `test (node 22)` / `test (node 24)` 必须双绿。
 
