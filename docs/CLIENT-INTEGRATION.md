@@ -2,8 +2,13 @@
 
 网关对客户端暴露**三种入站协议**，四个 CLI（Claude Code / Codex / dsh / zcode）都直连
 `http://127.0.0.1:4412` 使用池内模型，无需任何中间层（CCR 等代理可以退役）。
-仪表盘「一键接入」按钮（zcode / dsh / claude code / codex 四个）自动写入各客户端的本机
-配置（写前备份到 `<root>/backups/integrate/`），手工配置见下文形态。
+仪表盘「一键接入」按钮（zcode / dsh / claude code / claude desktop / codex 五个）自动写入
+各客户端的本机配置（写前备份到 `<root>/backups/integrate/`），手工配置见下文形态。
+
+> **Claude Desktop 与 Claude Code 是两个应用**：后者读 `~/.claude/settings.json` 的 env，
+> 前者读自己的 3P profile。Desktop 的配置落在
+> `<LOCALAPPDATA>/Claude-3p/configLibrary/`（macOS：`~/Library/Application Support/Claude-3p/configLibrary/`），
+> 写错位置会**静默无效**（Desktop 照常启动，但完全不读）。
 
 ## 1. 入站端点
 

@@ -231,7 +231,7 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
 // ---------------------------------------------------------------------------
 
 /** 接入目标（与后端 `IntegrationTarget` 同形）。 */
-type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "codex";
+type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex";
 
 /** 单个接入按钮：写入中态按 target 区分（并行点两个按钮互不误标）。 */
 function IntegrateButton({
@@ -357,7 +357,7 @@ export function Dashboard(): ReactElement {
 
   // 结果只走右下角 toast：卡片里再贴一条会和 toast 重复，还让区块高度跳动。
   const integrateMutation = useMutation({
-    mutationFn: (target: "zcode" | "dsh" | "claude-code" | "codex") => api.commands.integrate(target),
+    mutationFn: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => api.commands.integrate(target),
     // 命令信封的 ok:false（如 dsh 一个 profile 都没改到）必须走失败 toast ——
     // HTTP 层是 200，onSuccess 不代表接入成功
     onSuccess: (data) => {
@@ -681,6 +681,11 @@ export function Dashboard(): ReactElement {
                 mutation={integrateMutation}
                 target="claude-code"
                 label="接入 claude code"
+              />
+              <IntegrateButton
+                mutation={integrateMutation}
+                target="claude-desktop"
+                label="接入 claude desktop"
               />
               <IntegrateButton
                 mutation={integrateMutation}

@@ -135,6 +135,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | --- | --- | --- |
 | zcode | `~/.zcode/v2/provider_config.json`（JSON） | modelmux 供应商规则的 `api.baseUrl` 与 `personalModelIds` / `modelOrder`，并补齐 `group` / `access`；`modelConfigRules.providerModelRules` 给这几个模型补 `enabled: true`，并清掉该供应商下已下线的旧模型规则 |
 | dsh | `~/.dsh/profiles/{acp,desktop,headless,web}/cordis.patch.yml`（YAML）+ `~/.dsh/.credentials.yaml` | patch 里 `providers.modelmux.models` 列表整段替换；`acp` profile 再补 `acp` 路由条目（`provider` / `model`）；凭据文件的 `refs` 补 `MODELMUX_API_KEY`（`apiKeyEnv` 指向的名字） |
+| claude-desktop | `<LOCALAPPDATA>/Claude-3p/configLibrary/modelmux.json` + `_meta.json` | `inferenceProvider: "gateway"` + `modelDiscoveryEnabled: true`（Desktop 自己去 `/v1/models` 拉清单），`inferenceModels` 写一份兜底；`_meta.json` 登记 profile 并设为 `appliedId`。**改完需重启 Desktop** |
 
 - **只改模型清单**，不动 baseURL / apiKeyEnv / retryPolicy —— 现有接线通常已正确，越少改动越安全。
 - **两处「不改不行」的例外**：zcode 的个人供应商规则必须带齐 `group` / `access` / `api`，
