@@ -14,6 +14,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { formatTokens } from "../../lib/log-format";
 import type { UsageDaily } from "../../lib/types";
 import { activeSeriesOf, seriesClassOf } from "../../lib/trend-series";
+import { ScrollFade } from "../ScrollFade";
 import { ChartTooltip } from "./ChartTooltip";
 
 const VIEW_H = 260;
@@ -164,37 +165,64 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
   return (
     <div className="space-y-3">
       {/* 图例：顶部一行（参考图同位置），色点 + 模型名。
-          单日不渲染 —— 那时的条形列表每行已经带「色点 + 模型名 + 数值」，
-          再列一遍就是同一份信息出现两次（实测截图里两排一模一样的模型名）。 */}
-      {!singleDay && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+          **恒一行不折行**：不同区间的模型条数不同，允许折行时图例从 1 行变 4~5 行、
+          卡片高度跟着上下跳。放不下就横向滚动，右缘用 `ScrollFade` 的渐隐说明「还有更多」
+          —— 静态裁切会被读成「就这几个模型」。
+          单日整行 `invisible`（每行已带色点 + 名字 + 数值，再列一遍是同一份信息两次），
+          同时必须是 `overflow-hidden`：隐形内容若仍可横向滚动，用户滑动时一个字都不动，
+          就是一条有交互没反馈的死路。 */}
+      {singleDay ? (
+        <div
+          className="invisible flex flex-nowrap items-center gap-x-5 overflow-hidden text-xs"
+          aria-hidden="true"
+        >
           {legend.map((id, i) => (
-            <span key={id} className="inline-flex items-center gap-1.5">
+            <span key={id} className="inline-flex shrink-0 items-center gap-1.5">
               <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
-              <span className="text-ink-soft">{id === "" ? "未知模型" : id}</span>
+              <span className="whitespace-nowrap text-ink-soft">{id === "" ? "未知模型" : id}</span>
             </span>
           ))}
         </div>
+      ) : (
+        <ScrollFade className="no-scrollbar flex flex-nowrap items-center gap-x-5 overflow-x-auto text-xs">
+          {legend.map((id, i) => (
+            <span key={id} className="inline-flex shrink-0 items-center gap-1.5">
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
+              <span className="whitespace-nowrap text-ink-soft">{id === "" ? "未知模型" : id}</span>
+            </span>
+          ))}
+        </ScrollFade>
       )}
 
-      {/* 单日：条形列表（不再画 SVG —— 一个点画不出趋势） */}
+      {/* 单日：条形列表（不再画 SVG —— 一个点画不出趋势）。
+          绘图区取与多日同一个 `VIEW_H`（260），行距由 `justify-between` 在高区内自适应
+          撑开 —— 两张卡的绘图区等高，切区间时下方区块不跳。 */}
       {singleDay && (
-        <div className="space-y-2 py-2">
+        <div className="flex min-h-[260px] flex-col justify-between gap-y-3 py-2">
           {singleRows.length === 0 ? (
             <p className="py-6 text-center text-xs text-ink-faint">当天没有 token 用量。</p>
           ) : (
             singleRows.map(({ id, value }) => {
               const pct = singlePeak > 0 ? Math.max(2, Math.round((value / singlePeak) * 100)) : 0;
               return (
-                <div key={id} className="flex items-center gap-3 text-xs">
-                  {/* 模型名**允许换行**、不截断：池 id 有 `traecn/deepseek-v4.1-flash` 这么长，
-                      190px 必然截断；而截断后的完整值只能靠悬停看，项目禁用原生 title
-                      （样式不可控、无障碍差，正文信息也不该依赖 hover）。两行高度换来一眼读全。 */}
-                  <span className="flex w-[210px] shrink-0 items-start gap-1.5 text-ink-soft">
+                // 行**恒单行**：行高一旦变化（名字或数值折行），六行累加就把卡片撑高、
+                // 「区间切换时高度恒定」这条不变量立刻失效。
+                <div key={id} className="flex items-center gap-2 text-xs sm:gap-3">
+                  {/* 模型名不截断、不悬停、不折行（宽屏）：截断后的完整值只能靠 hover 看，
+                      项目禁用原生 title 且正文信息不该依赖悬停。宽屏固定宽 + `nowrap`；
+                      窄屏没有空间，`flex-[3]` 与占比条按 3:1 分剩余宽度、允许折行。
+                      宽度 224 是量出来的：`workbuddyai/deepseek-v4.1-flash` 需 194.3px 文本宽，
+                      加上色点与 gap 后 210 只差 0.3px 就折行。 */}
+                  <span className="flex min-w-0 flex-[3] items-start gap-1.5 text-ink-soft sm:w-[224px] sm:flex-none">
                     <span
                       className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(series.indexOf(id))}`}
                     />
-                    <span className="min-w-0 break-all">{id === "" ? "未知模型" : id}</span>
+                    {/* 窄屏用 `break-words` 而不是 `break-all`：前者按正常断行机会走
+                        （`/` 之后是允许的断点），折出来是 `catpaw/` + `deepseek-v4.1-flash`；
+                        `break-all` 会断在任意字符，出现 `...flas` / `h` 这种看不出是同一个词的两行。 */}
+                    <span className="min-w-0 break-words sm:whitespace-nowrap">
+                      {id === "" ? "未知模型" : id}
+                    </span>
                   </span>
                   <span className="min-w-0 flex-1">
                     <span
@@ -202,7 +230,9 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
                       style={{ width: `${pct}%` }}
                     />
                   </span>
-                  <span className="w-20 shrink-0 text-right tabular-nums text-ink">
+                  {/* `whitespace-nowrap` 必须有：`formatTokens` 在数字与单位之间有空格
+                      （`1144.58 万`），窄列会把「万」甩到第二行、整行翻倍变高。 */}
+                  <span className="w-16 shrink-0 whitespace-nowrap text-right tabular-nums text-ink sm:w-20">
                     {formatTokens(value)}
                   </span>
                 </div>
@@ -217,7 +247,7 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
       )}
 
       {!singleDay && (
-      <div ref={setWrapEl} className="overflow-x-auto">
+      <div ref={setWrapEl} className="no-scrollbar overflow-x-auto">
         <svg
           ref={svgRef}
           width={plotW}
