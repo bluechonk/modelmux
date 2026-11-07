@@ -64,10 +64,10 @@ describe("仓库级模型池", () => {
     );
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
-    // 本 PR 下架的三家：具名断言，避免「等式仍成立但悄悄回来了」
-    for (const cid of ["qoder", "workbuddyai", "astudio"]) {
-      assert.ok(!cids.includes(cid), `${cid} 已下架，不得再注册`);
-      assert.ok(RETIRED_CIDS.includes(cid), `${cid} 必须在 RETIRED_CIDS 里显式声明`);
+    // 曾经下架、现已全部放行的四家：具名断言，避免「等式仍成立但悄悄又没了」
+    for (const cid of ["qoder", "workbuddyai", "astudio", "lobsterai"]) {
+      assert.ok(cids.includes(cid), `${cid} 已放行，必须出现在注册清单里`);
+      assert.ok(!RETIRED_CIDS.includes(cid), `${cid} 已放行，不得留在 RETIRED_CIDS`);
     }
   });
 
@@ -113,30 +113,38 @@ describe("仓库级模型池", () => {
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
-  it("家族模型的渠道供给范围：glm-5.3-flash 归 qodercn/autoclaw/zcode，longcat-2.5 仅 catpaw，其余渠道只供 deepseek-v4.1-flash", () => {
-    // 默认 + 例外式允许集（与 scripts/verify-contract.mjs 同形，新注册渠道自动被钉）：
-    // 产品面策略，数据收口在各渠道 models.json 的 hidden 标记。catpaw / traecn 的随包表
-    // 没有 deepseek-v4.1（真机动态目录有，属允许供给 —— 本测试钉的是离线随包表）。
+  it("家族模型的渠道供给范围：glm-5.3-flash 多家供给，longcat-2.5 仅 catpaw", () => {
+    // 默认 + 例外式允许集（与 scripts/verify-contract.mjs 的 FAMILY_ALLOWED_BY_CID 同形，
+    // 新注册渠道自动被钉）：产品面策略，数据收口在各渠道 models.json 的 hidden 标记。
+    // catpaw / traecn 的随包表没有 deepseek-v4.1（真机动态目录有，属允许供给 ——
+    // 本测试钉的是离线随包表）。
     const OVERRIDES: Record<string, string[]> = {
       catpaw: ["longcat-2.5"],
       qodercn: ["glm-5.3-flash"],
       autoclaw: ["glm-5.3-flash"],
       zcode: ["glm-5.3-flash"],
+      qoder: ["glm-5.3-flash"],
+      workbuddyai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+      lobsterai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+      // astudio 只供 deepseek-v4-flash / v4-pro（都不在家族表里）→ 家族命中为空集
+      astudio: [],
       traecn: [],
     };
     for (const cid of ACTIVE_CIDS) {
       const expected = OVERRIDES[cid] ?? ["deepseek-v4.1-flash"];
       const ids = gw.runInChannel(cid, () => gw.getChannel(cid).catalog.exposedIds()) as string[];
-      const got = [...new Set(ids.map((id) => gw.canonicalModelId(id)))]
-        .filter((id) => gw.isPoolModel(id))
-        .sort();
+      // 走 `canonicalOf` 而不是 `canonicalModelId`：后者只做字符串归一（`deepseek-flash`
+      // 这类**别名**仍返回自己），只有前者才归并到 family 里的规范名。
+      const got = [
+        ...new Set(ids.map((id) => gw.canonicalOf(id)).filter((x): x is string => x !== null)),
+      ].sort();
       assert.deepEqual(got, expected, `${cid} 的对外家族模型应为 [${expected.join(", ")}]`);
     }
     const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort();
     assert.deepEqual(
       glm,
-      ["autoclaw", "qodercn", "zcode"],
-      `glm-5.3-flash 的候选应为 qodercn/autoclaw/zcode 三家（实际 ${glm.join(", ")}）`,
+      ["autoclaw", "lobsterai", "qoder", "qodercn", "workbuddyai", "zcode"],
+      `glm-5.3-flash 的候选应为六家（实际 ${glm.join(", ")}）`,
     );
     const longcat = gw.poolCandidates("longcat-2.5").map((c) => c.cid);
     assert.deepEqual(longcat, ["catpaw"], `longcat-2.5 的候选只能是 catpaw（实际 ${longcat.join(", ")}）`);
@@ -232,8 +240,8 @@ describe("仓库级模型池", () => {
       assert.ok(ids.includes("deepseek-v4.1-flash"), "非隐藏条目不受影响");
       assert.deepEqual(
         gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort(),
-        ["autoclaw", "qodercn", "zcode"],
-        "变体不回池：glm-5.3-flash 候选仍只有三家已注册供给渠道",
+        ["autoclaw", "lobsterai", "qoder", "qodercn", "workbuddyai", "zcode"],
+        "变体不回池：glm-5.3-flash 候选仍不含 traecn",
       );
     } finally {
       delete process.env["TRAE_MODELS_FILE"];

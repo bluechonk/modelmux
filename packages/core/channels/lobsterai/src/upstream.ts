@@ -7,6 +7,7 @@
  *   - 客户端版本号是动态真值，取不到时退到磁盘缓存再退兜底常量（版本是签到准入门槛）。
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -70,22 +71,70 @@ export const WIRE: "openai" | "custom" = "openai";
 export const USER_AGENT = "LobsterAI/0.1.0";
 
 /**
- * 客户端能力声明（模型端点的准入条件）。
+ * 客户端能力声明（模型端点与对话端点的准入条件）。
  *
- * 两个能力都必须声明：`kimi-k3-agentic-v1` 决定模型集合里有没有 `kimi-k3`；
- * `thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（否则 500）。
+ * 四项都要声明，每一项都门控一类上游行为（依据官方客户端
+ * `src/shared/providers/modelRuntimeProfiles.ts` 的 `LOBSTERAI_CLIENT_CAPABILITIES`）：
+ * - `virtual-models-v1`：虚拟模型目录（2026-10-16 官方加入）；
+ * - `kimi-k3-agentic-v1`：模型集合里是否有 `kimi-k3`；
+ * - `thinking-level-control-v1`：`reasoning_effort:"off"` 的前提（缺了回 500）；
+ * - `upstream-error-details-v1`：错误响应带细节（2026-11-03 官方加入）。
+ *
+ * 第三方反代普遍只发前两项或三项（`xinxinshuhao-create/lobsterai2api` 至今只发第一项），
+ * 缺项表现为「模型列表少几项」或「关思考 500」这类静默降级，不会直接报错。
  */
-const CLIENT_CAPABILITIES = "kimi-k3-agentic-v1,thinking-level-control-v1";
+const CLIENT_CAPABILITIES = [
+  "virtual-models-v1",
+  "kimi-k3-agentic-v1",
+  "thinking-level-control-v1",
+  "upstream-error-details-v1",
+].join(",");
 const CAPABILITIES_HEADER = "X-LobsterAI-Client-Capabilities";
 const VERSION_HEADER = "X-LobsterAI-Client-Version";
+
+/**
+ * 官方客户端的会话追踪头（服务端用于用量归集与排障）。
+ *
+ * 上游对这几个头**不强制**（缺了请求仍成功），所以此前没发也不影响出字；
+ * 但官方客户端每个请求都带，补齐后行为与真客户端一致，上游侧统计也能对上。
+ * 值在一次请求内稳定即可 —— 我们不像 agent 那样有跨轮会话概念，
+ * 用「本进程 + 本轮」派生的稳定 id。
+ */
+const SESSION_HEADER = "x-lobster-session-id";
+const TURN_HEADER = "x-lobster-turn-id";
+
+/**
+ * 本进程的会话 id（进程内恒定）。
+ *
+ * 上游拿它做用量归集：一个会话下的多轮请求应收敛到同一个 id，所以**不能每请求新生成**。
+ * 网关没有客户端那样的会话概念（每个 HTTP 请求都是独立的），用进程级 id 近似
+ * 「同一个网关实例即同一个会话」—— 与官方客户端「一次运行一个 session」同粒度。
+ */
+const PROCESS_SESSION_ID = randomUUID();
+
+function sessionId(): string {
+  return PROCESS_SESSION_ID;
+}
+
+/** 本轮的 turn id（每请求一个新值，对应「一次对话轮次」）。 */
+function newTurnId(): string {
+  return randomUUID();
+}
 
 /** 客户端版本号查询端点（第三方域名，非统一信封）。 */
 const CLIENT_VERSION_URL =
   "https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/prod/update";
 /** 版本号缓存有效期（12 小时）—— 版本是日期式的，变更频率极低。 */
 const VERSION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-/** 动态拉取失败时的**最后一道**兜底版本号（磁盘缓存优先，见 `resolveClientVersion`）。 */
-const FALLBACK_CLIENT_VERSION = "2026.9.4";
+/**
+ * 动态拉取失败时的**最后一道**兜底版本号（磁盘缓存优先，见 `resolveClientVersion`）。
+ *
+ * 取官方客户端当时的线上版本（2026-11-06 官方 `chore: bump version to 2026.11.6`）。
+ * 这个值是**签到 slot 的准入门槛**（低于门槛回 `slotState=empty`），所以要比第三方反代
+ * 常用的 `2026.9.4` 更新 —— 它们停更在 9 月，官方已发到 11 月。
+ * 有磁盘缓存兜在前面，真实拉取成功时这个值不会被用到。
+ */
+const FALLBACK_CLIENT_VERSION = "2026.11.6";
 
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -196,7 +245,8 @@ export function authHeaders(credential: AuthLike, accept = "application/json"): 
 /**
  * 对话请求头。
  *
- * 比通用头多两个 `X-LobsterAI-Client-*` 头、`Accept` 为 SSE。
+ * 比通用头多两个 `X-LobsterAI-Client-*` 头、`Accept` 为 SSE，另带官方客户端的
+ * 会话追踪头（见 `SESSION_HEADER` / `TURN_HEADER`）。
  * 版本号取进程内缓存（或兜底常量）—— `buildHeaders()` 是同步契约，
  * 真正的动态拉取发生在 `resolveClientVersion()`（登录/续期/拉目录时）。
  */
@@ -205,6 +255,8 @@ export function buildHeaders(credential: AuthLike): Record<string, string> {
     ...authHeaders(credential, "text/event-stream, application/json"),
     [CAPABILITIES_HEADER]: CLIENT_CAPABILITIES,
     [VERSION_HEADER]: clientVersion(),
+    [SESSION_HEADER]: sessionId(),
+    [TURN_HEADER]: newTurnId(),
   };
 }
 
