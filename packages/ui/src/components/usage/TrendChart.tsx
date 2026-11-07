@@ -148,6 +148,19 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
   /** 图例列全部声明的序列（与参考图一致：当天没用量也列出，颜色对得上才是图例）。 */
   const legend = series;
 
+  // ── 单日形态：一条横向条形 + 数值，与图例并排落在一起 ──
+  //
+  // 为什么不能只画点：单个数据点在 SVG 里连不成线，几个色点孤零零挂在中间，
+  // 既看不出「多少」，也看不出「谁多谁少」—— 用户看到的第一反应是「内容没显示出来」。
+  // 单日没有趋势可讲，改成**按模型分行的条形**（长度 = 当日峰值归一），信息密度更高。
+  const singleDay = single ? daily[0]! : null;
+  const singleRows = singleDay
+    ? activeSeriesOf(singleDay, series)
+        .map((id) => ({ id, value: singleDay.byModel[id] ?? 0 }))
+        .sort((a, b) => b.value - a.value)
+    : [];
+  const singlePeak = singleRows.reduce((m, r) => Math.max(m, r.value), 0);
+
   return (
     <div className="space-y-3">
       {/* 图例：顶部一行（参考图同位置），色点 + 模型名 */}
@@ -160,6 +173,43 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
         ))}
       </div>
 
+      {/* 单日：条形列表（不再画 SVG —— 一个点画不出趋势） */}
+      {singleDay && (
+        <div className="space-y-2 py-2">
+          {singleRows.length === 0 ? (
+            <p className="py-6 text-center text-xs text-ink-faint">当天没有 token 用量。</p>
+          ) : (
+            singleRows.map(({ id, value }) => {
+              const pct = singlePeak > 0 ? Math.max(2, Math.round((value / singlePeak) * 100)) : 0;
+              return (
+                <div key={id} className="flex items-center gap-3 text-xs">
+                  <span className="w-[190px] shrink-0 truncate text-ink-soft" title={id === "" ? "未知模型" : id}>
+                    <span
+                      className={`mr-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-current align-middle ${seriesClassOf(series.indexOf(id))}`}
+                    />
+                    {id === "" ? "未知模型" : id}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={`block h-2.5 rounded-full bg-current ${seriesClassOf(series.indexOf(id))}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </span>
+                  <span className="w-20 shrink-0 text-right tabular-nums text-ink">
+                    {formatTokens(value)}
+                  </span>
+                </div>
+              );
+            })
+          )}
+          <p className="pt-2 text-xs text-ink-faint">
+            {singleDay.date} 当天合计 {formatTokens(singleDay.tokens)} tokens（{singleDay.requests} 次请求）。
+            想看趋势把页头区间切到「近 7 日」或「累计」。
+          </p>
+        </div>
+      )}
+
+      {!singleDay && (
       <div ref={setWrapEl} className="overflow-x-auto">
         <svg
           ref={svgRef}
@@ -251,11 +301,6 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
           })}
         </svg>
       </div>
-
-      {single && (
-        <p className="text-xs text-ink-faint">
-          当前区间只有 1 天，看不出趋势；把页头区间切到「近 7 日」或「累计」可看曲线。
-        </p>
       )}
 
       {/* hover 浮层：标题 = 日期 - 当日总量；明细 = 色点 + 模型 + tokens（参考图同格式） */}
