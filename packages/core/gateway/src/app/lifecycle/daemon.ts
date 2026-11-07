@@ -77,6 +77,24 @@ function scopeChannels(scope: Scope): Channel[] {
   return scope.cid !== undefined ? [getChannel(scope.cid)] : channels();
 }
 
+/**
+ * 网关子进程的环境：继承调用方，但**摘掉 `TZ`**。
+ *
+ * 为什么：网关的一切时间口径都是「本机时间」—— 日志按本地日期分目录（`localDate`）、
+ * 额度窗口键按本地 0 点（`quotaPeriod().resets_at`）、冷却截止按本地次日。若 launcher
+ * （Claude Code 的 settings.json env 里就有 `TZ: "UTC"`）带着 `TZ` 起网关，同一台机器
+ * 在不同进程里会算出**不同**的窗口键（实测：`w:1794067200000` 与 `w:1794096000000`
+ * 相差 8 小时），基线因此被判「换窗口」重置，签到到账的额度被当成新基线
+ * （2026-11-07 实测 loomy 生效账号基线 201，而其余账号正确为 5000）。
+ *
+ * 只摘 `TZ`：其它变量（代理、调试开关、`MODELMUX_*`）都是调用方的正当意图。
+ */
+export function gatewayEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...base };
+  delete env["TZ"];
+  return env;
+}
+
 /** 额度百分比的报表格式化（两位小数；`--json` 仍输出渠道原始值）。 */
 function percentText(value: number): string {
   return String(Math.round(value * 100) / 100);
@@ -210,6 +228,7 @@ export async function start(options: StartOptions = {}): Promise<number> {
     stdio: ["ignore", logFd, logFd],
     windowsHide: true,
     cwd: ensureScopeDir(scope),
+    env: gatewayEnv(),
   });
   closeSync(logFd);
   child.unref();

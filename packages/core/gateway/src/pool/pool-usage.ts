@@ -446,7 +446,9 @@ function pickBaseline(
 export function writeAccountBilling(cid: string, key: string, credits: unknown): void {
   const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};
   const entry = accountEntry(entryOf(load(), cid), key);
-  noteAccountWindowPrev(entry, windowKeyOf(cid));
+  const window = windowKeyOf(cid);
+  // 先记上一窗口末值（noteAccountWindowPrev 会把当前 credits 搬进 entry.prev）
+  noteAccountWindowPrev(entry, window);
   const remain = num(total["remain"]);
   entry.credits = {
     remain,
@@ -455,7 +457,7 @@ export function writeAccountBilling(cid: string, key: string, credits: unknown):
     unit: str(total["unit"]),
     remain_percent: num(total["remain_percent"]),
   };
-  entry.baseline = pickBaseline(entry.baseline, remain, windowKeyOf(cid));
+  entry.baseline = pickBaseline(entry.baseline, remain, window);
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = true;
   scheduleSave();
