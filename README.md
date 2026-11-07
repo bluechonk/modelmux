@@ -2,7 +2,7 @@
 
 **一个端点，只做几个对外模型。** 把 WorkBuddy、Loomy、Raccoon、
 TRAE、CatPaw、Qoder 国内版等渠道的额度汇成**一个 OpenAI 兼容端点**，
-对外只有家族表里的几个模型名（`deepseek-v4.1-flash` / `glm-5.3-flash`）。
+对外只有家族表里的几个模型名（当前清单看 `GET /v1/models`）。
 专注做一件事：`npx modelmux` 起网关，任何 OpenAI 兼容客户端指过来就能用 ——
 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
 
