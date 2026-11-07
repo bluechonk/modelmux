@@ -37,6 +37,12 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 
 响应给 `access_token / refresh_token / user_id / user_name`，**无 `expires_in`**——按 28 天保守缓存、提前 600s 刷新（bridge.py 同口径）。`device_id` 必须稳定复用（参考实现为每个手机号持久化一个 uuid；本渠道按手机号 md5 确定性派生，同等稳定且不落额外文件）。[参考][推断]
 
+**凭据里存裸 token，不带 `Bearer ` 前缀**（`cred.bareToken`）。上层自己拼 scheme：
+`userapiHeaders` / `upstream.buildHeaders` / 设备 WS 的 query 各拼一次。混存会拼成
+`Authorization: Bearer Bearer eyJ…`，上游一律回 `code=11003 invalid authorization token`
+（wake 与 agent/send 都是这个码）—— 症状是「有 10191 分、refresh 也成功，但每个 glm 请求
+都先撞它一次再换渠道」。`load` / 登录 / 续期三处都做归一，老凭据文件读时即可自愈。
+
 ### 3.2 海外 OAuth（兜底路径）
 
 - 授权入口在 AutoClaw Web 端发起；`-oauth-url` 端点的响应形态未逆向到位，本渠道**不伪造入口链接**，只消费用户粘回的回调链接。
@@ -65,10 +71,21 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 ### 4.2 调用序（wake → WS 上线 → events → agent/send → 泵事件）
 
 1. **wake**：`POST {裸base}/v1/sandboxes/{id}/wake` body `{access_hold_ms:600000, reason, apply_business_busy_cooldown:true}`。幂等；失败不阻断（设备可能仍在线）。[参考]
+   网关的**主请求**就是这一条（`chatUrl()` 指向它），内容与它的响应体无关 —— 内容早在
+   `prepareChat` 里取完并缓存在请求槽。所以翻译器必须在 `feed()` 第一块就交帧：
+   它回的是**一整块 JSON，没有 `\n\n` 事件分隔符**，若等 `finish()` 收尾，网关的 SSE 读法
+   会把整块攒在缓冲里一直等下一块（实测 2026-11-07：短回答 120s 才返回）。
 2. **设备上线（必需，尽力而为）**：仅 HTTP `agent/send` 会得到「云端设备未连接」——必须先 `wss://{裸base}/v1/client/ws?device_id={sandbox_id}&access_token={token 无 Bearer}`，发 `{"type":"auth.inject","token":…,"userId":…,"clientMetadata":{…}}`，等 `auth.inject.ok`。上线后保持连接读（保活）。参考实现在 WS 失败时仍继续（设备可能已被别的会话上线），真正的失败由 agent/send 给出。[参考]
+   握手超时取 **3s**（原 10s）：它是尽力而为的一步，失败不影响 relay，却排在 `prepareChat` 的
+   关键路径上 —— 每次超时都是纯等待（实测本机长期连不上，每个请求白等 10 秒）。
 3. **开事件流**：`GET {proxy}/api/events`（SSE，`Accept: text/event-stream` + Bearer）。**必须先于 agent/send 打开**，否则丢本轮早期事件。[参考]
+   **不能给它整条请求的超时**：这是长期连接，模型生成多久它就挂多久；用 30s 的
+   `AbortSignal.timeout` 会在生成超过 30s 时把流 abort 掉（症状「跑着跑着突然断」）。
+   静默判据交给泵里的单帧上限。
 4. **发对话**：`POST {proxy}/api/electron/agent/send` body `{"args":[{sessionKey, message, thinking?}]}`。`message` **必须是字符串**（对象形式报 `message is required for agent send`）；响应 `{ok, code, data}`，`runId` 取 `data`（串或 `data.runId`）。后端模型经 **HTTP 头 `x-openclaw-model`** 指定——body 里的 `model` 只认 agent 目标名，放后端模型名会报 `LLM request failed`。[参考]
 5. **泵事件**直到终止帧（`type=done` / `state=final` / `lifecycle end`）。[参考]
+   events 是**账号级长连接**，上游不会因为一轮结束就关流 —— 收到本轮终止帧必须**立刻停读**，
+   否则要等到单帧静默上限（120s）才收尾，客户端已经白等两分钟。
 
 ### 4.3 事件流格式与翻译
 

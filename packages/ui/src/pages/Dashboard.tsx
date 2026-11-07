@@ -135,7 +135,12 @@ function Segmented<T extends string>({
 // 最近请求行
 // ---------------------------------------------------------------------------
 
-/** 单条最近请求：时间 / 模型 / 结果 / [错误原因] / 耗时 / tokens / 生成速度。 */
+/**
+ * 单条最近请求：时间 / 渠道 / 模型 / 状态点 / 耗时 / tokens / 生成速度。
+ *
+ * 失败原因**不在这一行展示**（主人要求）：原因可能很长（含上游原文），挤在窄行里只剩
+ * 省略号，既读不全也把数值列推歪。详情点「查看全部请求日志」去看。
+ */
 function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   const ms = entry.duration_ms;
@@ -151,12 +156,6 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
     }),
   );
   const tokens = entry.tokens?.total != null ? formatTokens(entry.tokens.total) : "—";
-  // 非成功行（失败 / 中断）：把状态码 + 原因摊在同一行。状态码只在非 200 时写 ——
-  // 流式请求可能「头已 200、随后超时」，这种情况错误码本身（upstream_timeout）更有信息量。
-  const bad = entry.outcome !== "success";
-  const reason = [entry.status != null && entry.status !== 200 ? `HTTP ${entry.status}` : entry.error, entry.message]
-    .filter((part): part is string => typeof part === "string" && part !== "")
-    .join(" · ");
   return (
     <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30 sm:gap-3">
       <span className="w-14 shrink-0 tabular-nums text-ink-faint sm:w-[120px]">
@@ -167,9 +166,13 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
         {entry.cid ?? "—"}
       </span>
       <span className="w-[120px] shrink-0 truncate text-ink-soft sm:w-44">{entry.model ?? "—"}</span>
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
-      {/* 失败 / 中断：原因占满中间，成功行留空把右侧数值顶到行尾 */}
-      <span className={`min-w-0 flex-1 truncate ${bad ? meta.text : ""}`}>{bad ? reason || meta.label : ""}</span>
+      {/* 状态：一个色点（成功绿 / 失败红），不显示原因文字 */}
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
+        aria-label={meta.label}
+      />
+      {/* 中间留白把右侧数值顶到行尾（失败行不再用文字占位） */}
+      <span className="min-w-0 flex-1" />
       {/* 窄屏先让出耗时列：tokens 与 TPS 是主信息，耗时仍在请求日志里可查 */}
       <span className="hidden w-10 shrink-0 text-right tabular-nums text-ink-soft sm:block">
         {ms != null ? formatDuration(ms) : "—"}
@@ -598,29 +601,74 @@ export function Dashboard(): ReactElement {
         )}
       </div>
 
-      {/* ① 接入盒 */}
-      <section className="panel overflow-hidden">
-        <div className="space-y-1 p-4 sm:p-5">
-          <EndpointRow label="base_url" value={state.base_url} />
-          <div className="hidden sm:block">
-            <EndpointRow label="chat_url" value={state.chat_url} />
-          </div>
-          <div className="hidden md:block">
-            <div className="flex flex-col gap-1.5 pt-1 md:flex-row md:items-start md:gap-4">
-              <span className="shrink-0 pt-0.5 text-[13px] text-ink-faint md:pt-1 md:w-24">
-                endpoints
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {state.endpoints.map((e) => (
-                  <span key={e} className="pill bg-overlay font-mono text-ink-soft">
-                    {e}
-                  </span>
-                ))}
+      {/* ① 接入盒（左，端点信息） + 对外模型清单（右，同一行等高）
+          「模型」原本在下方双列区的右列，导致右列比左列「模型用量」高/矮一截；
+          挪到端点盒右侧后，端点盒只占 8 列、模型占 4 列，两者同一行自然等高。 */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <section className="panel overflow-hidden lg:col-span-8">
+          <div className="space-y-1 p-4 sm:p-5">
+            <EndpointRow label="base_url" value={state.base_url} />
+            <div className="hidden sm:block">
+              <EndpointRow label="chat_url" value={state.chat_url} />
+            </div>
+            <div className="hidden md:block">
+              <div className="flex flex-col gap-1.5 pt-1 md:flex-row md:items-start md:gap-4">
+                <span className="shrink-0 pt-0.5 text-[13px] text-ink-faint md:pt-1 md:w-24">
+                  endpoints
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {state.endpoints.map((e) => (
+                    <span key={e} className="pill bg-overlay font-mono text-ink-soft">
+                      {e}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        {/* ② 对外模型（不显示渠道：落点由网关按额度自动挑） */}
+        <section className="panel flex flex-col p-4 lg:col-span-4">
+          <div className="panel-title mb-3">
+            <Layers className="h-4 w-4 text-ink-faint" />
+            模型
+          </div>
+          {modelRows.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center py-3 text-center text-xs text-ink-faint">
+              还没有可对外提供的模型（先在账号池完成渠道授权）
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {modelRows.map((row) => {
+                const pill = row.verdict.status === null ? null : VERDICT_PILL[row.verdict.status];
+                return (
+                  <div key={row.model} className="flex items-center gap-2">
+                    {/* 模型名与健康度标签贴在一起；TPS / 模态靠右对齐 */}
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span className="truncate font-mono text-xs text-ink">{row.model}</span>
+                      {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
+                    </span>
+                    <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
+                      {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
+                    </span>
+                    {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
+                    <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
+                      <Type className="h-3.5 w-3.5" aria-label="文本" />
+                      {row.modalities.includes("image") && (
+                        <>
+                          <span className="text-ink-faint">+</span>
+                          <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
+                        </>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
 
       {/* ② Token 活动：日历热力图（每日 / 每周 / 累计）；点击格子 → 详情落下方固定区（不用 hover） */}
       <section className="panel p-4">
@@ -673,53 +721,11 @@ export function Dashboard(): ReactElement {
         </div>
 
         {/*
-          右列：对外模型清单 + 一键接入。两卡**等分撑满**这一列，所以它们合起来的高度恒等于左侧
-          「模型用量」的高度（栅格行高由左列决定）：不这样做时右列按内容高度收尾，左下角会留出
-          一块空白，两列的底边对不齐（实测 1440 差约 70px）。内容仍顶对齐 —— 卡片内留白比拉伸
-          内容好看，且模型数量变化时（左列变高）自动跟上。
+          右列：一键接入。**撑满整列**（`flex-1`），所以它的高度恒等于左侧「模型用量」
+          的高度（栅格行高由左列决定）。「模型」清单已挪到上方端点盒右侧 —— 那一行
+          两项天然等高，不必再靠两张卡等分凑高。内容仍顶对齐：卡片内留白比拉伸内容好看。
         */}
         <div className="flex flex-col gap-5 lg:col-span-4">
-          {/* ④ 对外模型（不显示渠道：落点由网关按额度自动挑） */}
-          <section className="panel flex flex-1 flex-col p-4">
-            <div className="panel-title mb-3">
-              <Layers className="h-4 w-4 text-ink-faint" />
-              模型
-            </div>
-            {modelRows.length === 0 ? (
-              <div className="py-3 text-center text-xs text-ink-faint">
-                还没有可对外提供的模型（先在账号池完成渠道授权）
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {modelRows.map((row) => {
-                  const pill = row.verdict.status === null ? null : VERDICT_PILL[row.verdict.status];
-                  return (
-                    <div key={row.model} className="flex items-center gap-2">
-                      {/* 模型名与健康度标签贴在一起；TPS / 模态靠右对齐 */}
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="truncate font-mono text-xs text-ink">{row.model}</span>
-                        {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
-                      </span>
-                      <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
-                        {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
-                      </span>
-                      {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
-                      <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
-                        <Type className="h-3.5 w-3.5" aria-label="文本" />
-                        {row.modalities.includes("image") && (
-                          <>
-                            <span className="text-ink-faint">+</span>
-                            <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
           {/* ⑤ 一键接入：把本机 harness 的模型清单改成网关的对外模型名 */}
           <section className="panel flex flex-1 flex-col p-4">
             <div className="panel-title mb-3">
