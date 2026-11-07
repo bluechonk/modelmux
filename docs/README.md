@@ -95,6 +95,8 @@
 | `.agents/skills/log-triage/SKILL.md` | 日志分诊：分层日志 + `upstreamMs/ttfbMs/durationMs` + 错误码速查 |
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
+| `.agents/skills/claude-mx-test/SKILL.md` | 端到端测试：Claude Code 经 `/v1/messages`（Anthropic Messages）直连网关，tool_use ↔ tool_calls 双向映射与 tool_result 回灌矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
+| `.agents/skills/codex-mx-test/SKILL.md` | 端到端测试：Codex CLI 经 `/v1/responses`（OpenAI Responses）直连网关，function_call ↔ tool_calls 双向映射矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 | `.agents/skills/zcode-session-archaeology/SKILL.md` | 会话考古：按 `session_xxx` / `sess_xxx` 还原**另一个**会话做了什么，用于多会话并行改同一项目时的对齐与收尾 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
