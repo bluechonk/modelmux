@@ -401,6 +401,12 @@ const ROOT_FILES_ALLOWED = new Set([
 const rootFiles = readdirSync(workspaceRoot, { withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => entry.name)
+  // `.git` 在主工作树是**目录**、在 linked worktree 是**文件**（指向共享 git 目录的
+  // 指针）。上面 `walk()` 靠 `SKIP_DIRS` 跳过的只是目录形态，这里是显式扫文件，
+  // 于是 worktree 的 `.git` 被当成「仓库根多放的文件」——worktree 里 `npm test` 恒红，
+  // 且失败在第 3 个校验器，其后全部校验器与测试都不会执行。
+  // 本地推送门禁（`gate.sh` 在干净 clone 里跑）与 CI 都是目录形态，看不见这个问题。
+  .filter((name) => name !== ".git")
   .filter((name) => !ROOT_FILES_ALLOWED.has(name));
 const rootIgnored = gitIgnored(rootFiles); // 本机私有（.env / .zcodeignore 等）：不归仓库管
 for (const name of rootFiles) {
