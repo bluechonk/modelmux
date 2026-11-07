@@ -24,12 +24,15 @@ import { describeBinary, estimateBytes, looksBinaryish } from "../lib/payload-bi
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import {
   assembledBody,
+  decodeSlice,
+  decodeUtf8,
   growHead,
   growTail,
   initialSpan,
   nextHeadRequest,
   nextTailRequest,
   PAYLOAD_SLICE,
+  unionText,
   spanComplete,
   spanGapBytes,
   type SliceSpan,
@@ -483,53 +486,86 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
   const [showing, setShowing] = useState(false);
   const body = translated !== null && showing ? translated.text : rec["content"];
 
-  return (
-    <div className="rounded-lg border border-line/70 bg-canvas/50">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line/60 px-3 py-1.5 text-xs">
-        <span className="pill bg-overlay text-ink-soft">{ROLE_LABEL[role] ?? role}</span>
-        <span className="font-mono text-ink-faint">{role}</span>
-        <span className="text-ink-faint">#{index + 1}</span>
-        {name !== null && <span className="font-mono text-ink-faint">name={name}</span>}
-        {toolCallId !== null && (
-          <span className="break-all font-mono text-ink-faint">tool_call_id={toolCallId}</span>
+  /**
+   * 聊天式布局：user 靠右、assistant 靠左，像对话一样读；system / developer / tool
+   * 不是对话方，保持全宽（工具结果与提示词信息密度高，气泡会挤）。
+   */
+  const side: "left" | "right" | "full" =
+    role === "user" ? "right" : role === "assistant" ? "left" : "full";
+  // header 只包到 span 集合（fragment）：容器由两个布局分支各给一层 ——
+  // 否则嵌套 flex 让外层 item 收缩，`ml-auto` 推不到行尾（评审 2026-11-07）
+  const headerBody = (
+    <>
+      <span className="pill bg-overlay text-ink-soft">{ROLE_LABEL[role] ?? role}</span>
+      <span className="font-mono text-ink-faint">{role}</span>
+      <span className="text-ink-faint">#{index + 1}</span>
+      {name !== null && <span className="font-mono text-ink-faint">name={name}</span>}
+      {toolCallId !== null && (
+        <span className="break-all font-mono text-ink-faint">tool_call_id={toolCallId}</span>
+      )}
+      <span className="ml-auto flex items-center gap-1.5">
+        {translatable && plain !== null && (
+          <TranslateButton
+            text={plain}
+            translated={translated}
+            showing={showing}
+            onTranslated={setTranslated}
+            onToggle={setShowing}
+          />
         )}
-        <span className="ml-auto flex items-center gap-1.5">
-          {translatable && plain !== null && (
-            <TranslateButton
-              text={plain}
-              translated={translated}
-              showing={showing}
-              onTranslated={setTranslated}
-              onToggle={setShowing}
-            />
-          )}
-          <CopyButton value={JSON.stringify(rec)} label="复制本条消息" />
-        </span>
-      </div>
-      <div className="space-y-2 px-3 py-2">
-        {reasoning !== null && (
-          <div className="rounded-md border border-line/50 bg-canvas/60 px-2 py-1.5">
-            <div className="mb-1 text-xs text-ink-faint">
-              思考（reasoning_content）—— 网关会把它随上下文一起发给上游
-            </div>
-            <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-ink-soft">
-              {reasoning}
-            </pre>
+        <CopyButton value={JSON.stringify(rec)} label="复制本条消息" />
+      </span>
+    </>
+  );
+  const bodyParts = (
+    <>
+      {reasoning !== null && (
+        <div className="rounded-md border border-line/50 bg-canvas/60 px-2 py-1.5">
+          <div className="mb-1 text-xs text-ink-faint">
+            思考（reasoning_content）—— 网关会把它随上下文一起发给上游
           </div>
-        )}
-        <MessageBody role={role} content={body} />
-        {translated !== null && showing && (
-          <p className="text-xs text-ink-faint">
-            机器翻译 · 点「原文」看原样正文
-            {translated.truncated && " · 正文过长，只翻了开头的部分"}
-          </p>
-        )}
-        {toolCalls?.map((call, i) => (
-          <ToolCallCard key={i} call={call} index={i} />
-        ))}
-        {!hasBody && toolCalls === null && reasoning === null && (
-          <p className="text-xs text-ink-faint">（本条消息没有正文）</p>
-        )}
+          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-ink-soft">
+            {reasoning}
+          </pre>
+        </div>
+      )}
+      <MessageBody role={role} content={body} />
+      {translated !== null && showing && (
+        <p className="text-xs text-ink-faint">
+          机器翻译 · 点「原文」看原样正文
+          {translated.truncated && " · 正文过长，只翻了开头的部分"}
+        </p>
+      )}
+      {toolCalls?.map((call, i) => (
+        <ToolCallCard key={i} call={call} index={i} />
+      ))}
+      {!hasBody && toolCalls === null && reasoning === null && (
+        <p className="text-xs text-ink-faint">（本条消息没有正文）</p>
+      )}
+    </>
+  );
+
+  if (side === "full") {
+    return (
+      <div className="rounded-lg border border-line/70 bg-canvas/50">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line/60 px-3 py-1.5 text-xs">
+          {headerBody}
+        </div>
+        <div className="space-y-2 px-3 py-2">{bodyParts}</div>
+      </div>
+    );
+  }
+  return (
+    <div className={`flex ${side === "right" ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`min-w-0 max-w-[88%] space-y-2 rounded-2xl border px-3.5 py-2 ${
+          side === "right"
+            ? "rounded-br-sm border-line-strong bg-overlay/70"
+            : "rounded-bl-sm border-line/70 bg-canvas/70"
+        }`}
+      >
+        <div className="flex flex-wrap items-center gap-2 text-xs">{headerBody}</div>
+        {bodyParts}
       </div>
     </div>
   );
@@ -616,8 +652,9 @@ function CopyFullBody({
     if (!complete) {
       setState({ busy: true, copied: false, error: "" });
       try {
+        // 分片是 base64 字节：一次取全后解码 —— 与装配路径同一套「拼齐再转文本」
         const slice = await api.logPayloadBody(id, date, phase, 0, Math.max(total, 1));
-        text = slice.body;
+        text = decodeUtf8(decodeSlice(slice.bodyB64));
       } catch (err) {
         setState({ busy: false, copied: false, error: String(err) });
         return;
@@ -695,10 +732,10 @@ function PayloadBlock({
   const tailSentinel = useRef<HTMLDivElement | null>(null);
 
   /**
-   * 进度的 `total` 只认**服务端**给的那个：元数据里的 `bytes` 与服务端 `total` 不是一套口径 ——
-   * 截断记录的 `bytes` 是**原始**长度（落盘更短），而明文小记录（< 4 KiB）服务端按**字符**切片、
-   * `total` 是码元数（含中文时比字节小）。拿 `bytes` 当几何基准会让尾格落到正文之外：
+   * 进度的 `total` 只认**服务端**给的那个：元数据里的 `bytes` 是**截断前**的原始长度
+   * （落盘的双端保留体更短）。拿 `bytes` 当几何基准会让尾格落到正文之外：
    * 服务端返回 200 + 空 body，进度永不推进、空隙永远收不掉。
+   * 字节语义已统一（分片口径恒为字节，见 `readPayloadSlice`）。
    */
   const total = headWindows[0]?.total ?? tailWindows[0]?.total ?? record.bytes;
   /** 任一窗口到达 ⇒ `total` 已是服务端口径，可以据此算尾格几何。 */
@@ -711,8 +748,9 @@ function PayloadBlock({
     return next;
   }, [total, headWindows, tailWindows]);
   const complete = record.body !== "" || spanComplete(span);
-  const head = headWindows.map((window) => window.body).join("");
-  const tail = tailWindows.map((window) => window.body).join("");
+  // 窗口字节按格拼齐后一次解码：替换符只可能来自源头真坏的字节（GBK 等），
+  // 格子边界劈开的多字节字符在这里复原 —— 旧实现「每片独立 toString」是接缝乱码的根源
+  const head = useMemo(() => unionText(headWindows), [headWindows]);
   const windows = useMemo(() => [...headWindows, ...tailWindows], [headWindows, tailWindows]);
   const body = assembledBody({ recordBody: record.body, span, windows });
   /** 进度说取全、窗口却没铺满：拼接会缺段，宁可报错也不显示半截正文。 */
@@ -741,13 +779,13 @@ function PayloadBlock({
   // 长高之后再问就晚了（末尾已经被推走了）。
   useEffect(() => {
     const data = headSlice.data;
-    if (data === undefined || data.body === "") return;
+    if (data === undefined || data.bodyB64 === "") return;
     onGrow();
     setHeadWindows((prev) => (prev.some((w) => w.offset === data.offset) ? prev : [...prev, data]));
   }, [headSlice.data]);
   useEffect(() => {
     const data = tailSlice.data;
-    if (data === undefined || data.body === "") return;
+    if (data === undefined || data.bodyB64 === "") return;
     onGrow();
     setTailWindows((prev) => (prev.some((w) => w.offset === data.offset) ? prev : [...prev, data]));
   }, [tailSlice.data]);
@@ -764,6 +802,23 @@ function PayloadBlock({
     if (record.body !== "" || tailAsked !== null || tailRequest === null || !totalKnown) return;
     setTailAsked(tailRequest.offset);
   }, [record.body, tailAsked, tailRequest, totalKnown]);
+
+  /**
+   * 后台自动补全：打开弹窗后按格顺序把剩余分片拉完，不等用户滚到哨兵。
+   *
+   * 为什么自动：格子边界切在 JSON 中间，未接上的内容只能等读完才能按消息卡渲染，
+   * 用户不该隔着「读到哪了」的占位看正文 —— 而网关在本地，逐片毫秒级。
+   * 失败即停：错误态交给 `sliceFailed` 的重试按钮，不自动重试；
+   * 滚动哨兵保留为兜底（自动推进被打断时，滚动仍能触发那一格）。
+   * 60ms 是去抖（渲染静止后才发下一格），不是速率上限。
+   */
+  const headOffset = headRequest?.offset ?? null;
+  useEffect(() => {
+    if (!totalKnown || complete || headOffset === null || headFetching) return;
+    if (headSlice.isError) return;
+    const timer = window.setTimeout(() => setHeadAsked(headOffset), 60);
+    return () => window.clearTimeout(timer);
+  }, [totalKnown, complete, headOffset, headFetching, headSlice.isError]);
 
   // 双向懒加载：哨兵进视口、那个方向还有剩余 → 请求下一格。
   // 依赖里带上进度，每格到达后重建观察器 —— 哨兵仍在视口时会立刻再来一格（连续补片）。
@@ -813,9 +868,17 @@ function PayloadBlock({
   /**
    * 无效字节的可见提示：正文里的替换符来自「客户端发的就不是合法 UTF-8」——
    * 常见于 Windows 上 GBK 控制台输出被原样塞进 JSON（PowerShell 报错、GBK argv）。
-   * 乱码不是弹窗渲染坏了，如实说清来源比让读者对着 � 猜强。
+   * 服务端标注（`invalidBytes`）优先，它数的是**字节**；旧行没有标注，
+   * 回退数呈现层的替换符（可能含存储侧的历史 lossy 转换，措辞如实说「原样字节未被保存」）。
+   * 截断记录豁免回退：截断切点劈开的合法字符也会变成替换符，与客户端坏字节无关，
+   * 由「已截断」标注解释（评审 2026-11-07）。
    */
-  const fffdCount = complete ? (body.match(/\uFFFD/g) ?? []).length : 0;
+  const invalidNotice =
+    record.invalidBytes !== undefined
+      ? record.invalidBytes
+      : !record.truncated && complete
+        ? (body.match(/\uFFFD/g) ?? []).length
+        : 0;
 
   return (
     <section className="rounded-xl border border-line/70 bg-raised/40">
@@ -872,7 +935,7 @@ function PayloadBlock({
                 ? "正文超出单条上限已被截断，按原文呈现（不再尝试解析）。"
                 : complete
                   ? "正文不是可解析的请求体（编码或渠道自有格式），按原文呈现。"
-                  : `以下是开头 ${formatBytes(span.headEnd)} 的原文（整份还没读完，其余见下方空隙块与末尾块）。`}
+                  : `以下是开头 ${formatBytes(span.headEnd)} 的原文（其余部分正在后台读取，读完自动按消息卡重排）。`}
             </p>
             <JsonBlock value={section} maxHeight="max-h-[50vh]" />
           </>
@@ -883,10 +946,11 @@ function PayloadBlock({
                 这份请求体不是消息列表形态（渠道自有字段），已按原样逐字段呈现。
               </p>
             )}
-            {fffdCount > 0 && (
+            {invalidNotice > 0 && (
               <p className="rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-xs text-warn">
-                正文含 {fffdCount} 处无法解码的字节（显示为 �）—— 客户端发送时就已不是合法
-                UTF-8，常见于 Windows 的 GBK 控制台输出被原样塞进请求；乱码是源头带的，不是渲染问题。
+                {record.invalidBytes !== undefined
+                  ? `原始字节含 ${invalidNotice} 个无效 UTF-8 字节（显示为 �）—— 客户端发送时就已不是合法 UTF-8，常见于 Windows 的 GBK 控制台输出被原样塞进请求；正文与复制结果按替换符呈现，原样字节仍无损保存。`
+                  : `正文含 ${invalidNotice} 处替换符 —— 常见于客户端以非 UTF-8（如 Windows GBK）编码发送；这是历史记录，原样字节未被保存。`}
               </p>
             )}
             {messages?.map((message, index) => (
@@ -896,7 +960,7 @@ function PayloadBlock({
               <p className="text-xs text-ink-faint">
                 {complete
                   ? `正文较长，已显示前 ${formatCount(head.length)} 字符内的完整消息。`
-                  : `已显示开头 ${formatCount(head.length)} 字符内的完整消息 —— 中间未加载的部分见下方空隙块。`}
+                  : `已显示开头 ${formatCount(head.length)} 字符内的完整消息 —— 其余部分正在后台读取，读完自动接上。`}
               </p>
             )}
             {tools !== null && <ToolDefinitions tools={tools} />}
@@ -911,40 +975,24 @@ function PayloadBlock({
         {record.body === "" && (
           <div className="space-y-2">
             {/*
-              空隙块：头片之后、尾片之前。哨兵贴在空隙的两端 —— 向下滚到头侧补头片、
-              向上滚到尾侧补尾片；两头接上后本块与尾侧原文块一起消失（回到单段渲染）。
+              进度线：后台自动补全（见上）按格顺序拉取，读取期间只显示这条线，
+              **不再显示「正文末尾未解析原文」** —— 格子边界切在 JSON 中间，
+              原文墙看起来就像乱码（2026-11-07 实测反馈）；读完自动按消息卡重排。
+              哨兵保留为兜底：自动推进被错误态打断时，滚动仍能触发那一格。
             */}
             {!complete && (
               <div className="rounded-md border border-dashed border-line px-3.5 py-2 text-xs text-ink-faint">
                 <div ref={headSentinel} className="h-px w-full" />
                 <div className="flex flex-wrap items-center gap-x-2 pt-1.5">
-                  {headFetching || tailFetching ? (
-                    <span>正在读取…</span>
-                  ) : (
+                  {sliceFailed !== null ? (
                     <span>
-                      中间还有 {formatBytes(spanGapBytes(span))} 未加载（共 {formatBytes(total)}）·
-                      已读头 {formatBytes(span.headEnd)} + 尾{" "}
-                      {formatBytes(Math.max(0, total - span.tailStart))}
+                      中间还有 {formatBytes(spanGapBytes(span))} 未加载 —— 读取失败，点上方「重试」恢复自动补全
                     </span>
+                  ) : (
+                    <span>正在后台读取剩余 {formatBytes(spanGapBytes(span))}（共 {formatBytes(total)}）…</span>
                   )}
-                  <span>向下滚动补前半段、向上滚动补后半段</span>
                 </div>
                 <div ref={tailSentinel} className="h-px w-full" />
-              </div>
-            )}
-
-            {/* 原文不设自身滚动条：否则「滚动到底部」到的是块底、末尾还藏在块的内部滚动里 */}
-            {tail !== "" && (
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-x-2 border-t border-line/60 pt-1.5 text-xs text-ink-faint">
-                  <span>
-                    正文末尾（{formatBytes(Math.max(0, total - span.tailStart))}）· 未解析原文
-                  </span>
-                  <span>两头接上后这里会按消息卡片重排</span>
-                </div>
-                <pre className="whitespace-pre-wrap break-all rounded-md border border-line/50 bg-canvas/40 p-2 font-mono text-xs text-ink-soft">
-                  {tail}
-                </pre>
               </div>
             )}
 

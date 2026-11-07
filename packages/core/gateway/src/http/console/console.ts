@@ -481,6 +481,8 @@ export function createConsoleHandler(
           json(res, { ok: false, error: "payload not found", id }, 404);
           return;
         }
+        // bodyB64：分片窗口常落在多字节字符中间，base64 把字节原样交给 UI，
+        // 拼齐后一次解码 —— 接缝处不再产生替换符
         json(res, { ok: true, id, date: date ?? null, ...slice });
         return;
       }
