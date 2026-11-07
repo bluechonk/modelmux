@@ -9,7 +9,7 @@
 
 | 维度 | 当前设计 | 说明 |
 |---|---|---|
-| 对外模型 id 形态 | **对外模型家族裸模型名**（`deepseek-v4.1-flash` / `glm-5.3-flash`；见 §2） | 渠道由网关自动挑，客户端不指定 |
+| 对外模型 id 形态 | **对外模型家族裸模型名**（家族表见 §2；实际清单看 `GET /v1/models`） | 渠道由网关自动挑，客户端不指定 |
 | 模型目录来源 | 磁盘缓存 → 远端目录 → 渠道内置兜底表（见 §2.8） | 三级来源，兜底表在渠道包里 |
 | 账号池存储布局 | `accounts.json` + `accounts/<key>.json`（见 §3.4） | 渠道零改动接入 |
 | 账号选择与失败转移 | 当前生效账号 + 401/403 刷新重试 + 连败标记跳过；鉴权失效一律手动切号 | 见 §3.3 |
@@ -24,7 +24,7 @@
  - **模型池**：该渠道 `catalog` 对外暴露、且属于对外家族的全部可用模型（家族表见 `CONTRACT-TS.md` §4.1）。
  - **账号池**：该渠道的多个账号；`credentials.json` 只是当前生效账号的兼容镜像（见 §3.4）。
 - **对外形态**：一个 base URL（`http://127.0.0.1:4412/v1`）+ **对外模型家族的裸模型名**
- （`deepseek-v4.1-flash` / `glm-5.3-flash`；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名）。
+ （家族与别名表见 §2；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名）。
  客户端只说要哪个模型，**哪家渠道出**由网关按账号池剩余额度自动挑，失败顺延下一家 —— 见 §2。
 
 > 渠道对客户端**透明**：请求里不带渠道前缀；家族外的模型名（哪怕是别家真实存在的模型）
@@ -52,6 +52,7 @@
 |---|---|---|---|
 | `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | catpaw / traecn（动态目录）、loomy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
 | `glm-5.3-flash` | — | `zhipu` | qodercn（上游 key `gfmodel`）—— **唯一供给渠道** |
+| `longcat-2.5` | — | `meituan` | catpaw（动态目录，上游 `LongCat-2.5`，限时免费）—— **唯一供给渠道** |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。

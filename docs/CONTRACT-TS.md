@@ -214,8 +214,9 @@ interface Channel {
 
 ### 4.1 对外 id：模型家族裸模型名（`model-family.ts` + `pool-targets.ts`）
 
-网关对外只做**家族表里声明的模型**，id 形态是**裸模型名**（当前是
-`deepseek-v4.1-flash` / `glm-5.3-flash`；`deepseek-flash` 是第一个的别名）。
+网关对外只做**家族表里声明的模型**，id 形态是**裸模型名**
+（家族与别名表见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2；`deepseek-flash` 是
+`deepseek-v4.1-flash` 的别名）。
 家族表（对外 id、canonical 归并、别名组、`owned_by`）声明在
 `packages/core/gateway/src/pool/model-family.ts` —— 共享层**唯一**允许出现模型名的地方
 （由 `scripts/verify-contract.mjs` 强制）。

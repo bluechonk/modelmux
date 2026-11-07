@@ -15,6 +15,7 @@
 export const POOL_MODEL_IDS = [
   "deepseek-v4.1-flash",
   "glm-5.3-flash",
+  "longcat-2.5",
   "deepseek-flash",
 ] as const;
 
@@ -22,6 +23,7 @@ export const POOL_MODEL_IDS = [
 const CANONICAL: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek-v4.1-flash",
   "glm-5.3-flash": "glm-5.3-flash",
+  "longcat-2.5": "longcat-2.5",
   "deepseek-flash": "deepseek-v4.1-flash",
 };
 
@@ -29,12 +31,14 @@ const CANONICAL: Readonly<Record<string, string>> = {
 const ALIAS_GROUP: Readonly<Record<string, readonly string[]>> = {
   "deepseek-v4.1-flash": ["deepseek-v4.1-flash", "deepseek-flash"],
   "glm-5.3-flash": ["glm-5.3-flash"],
+  "longcat-2.5": ["longcat-2.5"],
 };
 
 /** canonical → `/v1/models` 里的 `owned_by`（厂商标识，展示用）。 */
 const MODEL_OWNER: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek",
   "glm-5.3-flash": "zhipu",
+  "longcat-2.5": "meituan",
 };
 
 /**
