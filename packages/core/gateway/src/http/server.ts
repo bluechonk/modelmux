@@ -74,6 +74,15 @@ function handleModels(res: ServerResponse): void {
   // 数据源是统一快照（docs/MODEL-CATALOG.md）：读文件而非每次实时聚合；
   // 快照缺失时 ensureCatalog() 生成一次并落盘。
   const catalog = ensureCatalog();
+  const entries = Object.values(catalog.models).map((entry) => ({
+    ...entry,
+    object: "model",
+    // Anthropic 形态补充：Claude Code 的模型发现按它解析，缺了选择器只剩「默认模型」；
+    // OpenAI 客户端忽略未知字段，OpenAI 兼容面不受影响
+    type: "model",
+    display_name: entry.name ?? entry.id,
+    created_at: catalog.generated_at,
+  }));
   writeJson(res, {
     object: "list",
     // 扩展字段：客户端据此判断目录新鲜度（官方 GET /models 没有）
@@ -83,7 +92,11 @@ function handleModels(res: ServerResponse): void {
     // 并带上上下文 / 最大输出 / 模态 / 思考档位。
     // `effort` 可为 null：渠道目录没声明思考档位。
     // `meta_sources` 是扩展字段：逐项说明真值来自上游 / 规格文件 / 联网搜索 / 跨渠道 / 占位值。
-    data: Object.values(catalog.models).map((entry) => ({ ...entry, object: "model" })),
+    data: entries,
+    // Anthropic 分页信封：单页全量，恒 has_more=false
+    has_more: false,
+    first_id: entries[0]?.id ?? null,
+    last_id: entries.at(-1)?.id ?? null,
   });
 }
 
