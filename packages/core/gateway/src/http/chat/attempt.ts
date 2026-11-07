@@ -215,7 +215,10 @@ function queueGiveUpText(cid: string, round: number): string {
     `${cid} 这队伍排到天荒地老了，我放弃了。换一个吧！`,
     `${cid} 还在排队，我的尾鳍都等扁了。主人，换一个吧！`,
   ];
-  return lines[(round - 1) % lines.length]!;
+  // round 是 0-based 的排队轮次（非流式恒 0；流式在每轮等待后递增）。早期实现按
+  // 1-based 传并写 (round - 1) % len：round=0 时 JS 负取模算出 -1，取到 undefined，
+  // 非空断言骗过类型 —— 劝换文案静默变回 503 错误信封（非流式必踩、流式首轮也踩）。
+  return lines[round % lines.length]!;
 }
 
 /**

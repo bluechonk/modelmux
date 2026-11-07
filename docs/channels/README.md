@@ -69,6 +69,7 @@ docs/channels/<cid>/
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
 | `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [METHODOLOGY](./astudio/METHODOLOGY.md) / [WALKTHROUGH](./astudio/WALKTHROUGH.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单） |
+| `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | 整轮 relay 在 prepareChat 完成（内容流在独立 events SSE 上），主请求用幂等 wake 占位；每请求独立沙箱会话键防串台；对外只暴露 `glm-5.3-flash` —— **尚未真机验证** | [PROTOCOL](./autoclaw/PROTOCOL.md) |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
@@ -78,6 +79,7 @@ docs/channels/<cid>/
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
 | `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名（账号 2026-11-05 重新登录验证有效）—— **已下架** | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
+| `zcode` | ZCode（`zcode.z.ai` Coding Plan，智谱） | 上游是 **Anthropic Messages 形态**；OAuth 轮询登录拿 JWT（API Key 兑换回退）；无痕验证过码不实现（已知边界）；对外只暴露 `glm-5.3-flash` —— **尚未真机验证** | [PROTOCOL](./zcode/PROTOCOL.md) |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 

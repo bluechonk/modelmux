@@ -70,12 +70,15 @@ describe("qodercn 对外模型范围", () => {
   it("bundle 布局（mx 的真实运行方式）下隐藏同样生效（全部在册渠道）", () => {
     // bundle 布局下 packageSnapshotPath 全部落空，策略 100% 依赖 bundle 步骤复制的
     // dist/models/<cid>.json —— 每个在册渠道都跑一遍，复制环节漏谁谁就破防。
-    // 期望集与 pool.test.ts / verify-contract.mjs 同一策略：qodercn 只供 glm，其余渠道
-    // 只供 deepseek-v4.1-flash（catpaw / traecn 随包表无 v4.1 → 空）。
+    // 期望集与 pool.test.ts / verify-contract.mjs 同一策略：glm-5.3-flash 归
+    // qodercn / autoclaw / zcode，longcat-2.5 仅 catpaw，其余渠道只供
+    // deepseek-v4.1-flash（catpaw / traecn 随包表无 v4.1 → 空）。
     const bundle = join(HERE, "..", "dist", "cli.bundle.js");
     const expected: Record<string, string[]> = {
       qodercn: ["glm-5.3-flash"],
-      catpaw: [],
+      autoclaw: ["glm-5.3-flash"],
+      zcode: ["glm-5.3-flash"],
+      catpaw: ["longcat-2.5"],
       traecn: [],
       loomy: ["deepseek-v4.1-flash"],
       raccoon: ["deepseek-v4.1-flash"],

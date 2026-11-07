@@ -63,7 +63,6 @@ describe("仓库级模型池", () => {
       "下架渠道不得仍在注册清单里",
     );
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
-    assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
     // 本 PR 下架的三家：具名断言，避免「等式仍成立但悄悄回来了」
     for (const cid of ["qoder", "workbuddyai", "astudio"]) {
@@ -98,6 +97,8 @@ describe("仓库级模型池", () => {
     const ownerOf = (id: string): string => payload.data.find((m) => m.id === id)!.owned_by;
     assert.equal(ownerOf("deepseek-v4.1-flash"), "deepseek");
     assert.equal(ownerOf("glm-5.3-flash"), "zhipu");
+    assert.ok(ids.includes("longcat-2.5"), `应包含 longcat-2.5（实际 ${ids.join(", ")}）`);
+    assert.equal(ownerOf("longcat-2.5"), "meituan");
   });
 
   it("同一个模型的候选是**多家**渠道（按剩余额度降序，渠道由网关挑）", () => {
@@ -112,13 +113,15 @@ describe("仓库级模型池", () => {
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
-  it("家族模型的渠道供给范围：glm-5.3-flash 只由 qodercn 供给，其余渠道只供 deepseek-v4.1-flash", () => {
+  it("家族模型的渠道供给范围：glm-5.3-flash 归 qodercn/autoclaw/zcode，longcat-2.5 仅 catpaw，其余渠道只供 deepseek-v4.1-flash", () => {
     // 默认 + 例外式允许集（与 scripts/verify-contract.mjs 同形，新注册渠道自动被钉）：
     // 产品面策略，数据收口在各渠道 models.json 的 hidden 标记。catpaw / traecn 的随包表
     // 没有 deepseek-v4.1（真机动态目录有，属允许供给 —— 本测试钉的是离线随包表）。
     const OVERRIDES: Record<string, string[]> = {
-      catpaw: [],
+      catpaw: ["longcat-2.5"],
       qodercn: ["glm-5.3-flash"],
+      autoclaw: ["glm-5.3-flash"],
+      zcode: ["glm-5.3-flash"],
       traecn: [],
     };
     for (const cid of ACTIVE_CIDS) {
@@ -129,8 +132,14 @@ describe("仓库级模型池", () => {
         .sort();
       assert.deepEqual(got, expected, `${cid} 的对外家族模型应为 [${expected.join(", ")}]`);
     }
-    const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid);
-    assert.deepEqual(glm, ["qodercn"], `glm-5.3-flash 的候选只能是 qodercn（实际 ${glm.join(", ")}）`);
+    const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort();
+    assert.deepEqual(
+      glm,
+      ["autoclaw", "qodercn", "zcode"],
+      `glm-5.3-flash 的候选应为 qodercn/autoclaw/zcode 三家（实际 ${glm.join(", ")}）`,
+    );
+    const longcat = gw.poolCandidates("longcat-2.5").map((c) => c.cid);
+    assert.deepEqual(longcat, ["catpaw"], `longcat-2.5 的候选只能是 catpaw（实际 ${longcat.join(", ")}）`);
   });
 
   it("老安装（用户表是没有 hidden 的旧副本）也不把 glm 放回池", () => {
@@ -222,9 +231,9 @@ describe("仓库级模型池", () => {
       );
       assert.ok(ids.includes("deepseek-v4.1-flash"), "非隐藏条目不受影响");
       assert.deepEqual(
-        gw.poolCandidates("glm-5.3-flash").map((c) => c.cid),
-        ["qodercn"],
-        "变体不回池：glm-5.3-flash 仍只有 qodercn 候选",
+        gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort(),
+        ["autoclaw", "qodercn", "zcode"],
+        "变体不回池：glm-5.3-flash 候选仍只有三家已注册供给渠道",
       );
     } finally {
       delete process.env["TRAE_MODELS_FILE"];

@@ -5,6 +5,9 @@
       "path": "packages/core/channels/astudio"
     },
     {
+      "path": "packages/core/channels/autoclaw"
+    },
+    {
       "path": "packages/core/channels/catpaw"
     },
     {
@@ -30,6 +33,9 @@
     },
     {
       "path": "packages/core/channels/workbuddyai"
+    },
+    {
+      "path": "packages/core/channels/zcode"
     },
     {
       "path": "packages/cli"
