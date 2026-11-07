@@ -265,7 +265,7 @@ describe("字节安全：无效 UTF-8 与劈缝拼接", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  describe("countInvalidUtf8：与 toString(\"utf8\") 的替换符口径同源", () => {
+  describe("countInvalidUtf8：字节覆盖口径（孤立续字节与替换符一一对应，不完整序列可多于 FFFD 数）", () => {
     it("合法 UTF-8（含 CJK / emoji）= 0", () => {
       assert.equal(countInvalidUtf8(Buffer.from("只回答一个词:pong 🐋", "utf8")), 0);
     });

@@ -1393,9 +1393,10 @@ function payloadCids(): string[] | null {
 }
 
 /**
- * 数无效 UTF-8 序列覆盖的字节数（与 `toString("utf8")` 的替换符口径同源：WHATWG
- * 状态机）。合法序列整段跳过（含 overlong / 代理区 / 越界边界），非法时把
- * 「首字节 + 已合法的续字节前缀」计为坏字节 —— 也就是呈现层被替换符顶替的量。
+ * 数无效 UTF-8 序列覆盖的**字节**数（WHATWG 状态机）。孤立续字节、坏第二字节、
+ * overlong / 代理区 / 越界头与 `toString("utf8")` 的替换符一一对应；截断的
+ * 不完整序列按「首字节 + 合法续字节前缀」整段计坏 —— 字节覆盖口径，数量可
+ * 多于呈现层的替换符数（不完整序列只顶出一个 FFFD）。
  */
 export function countInvalidUtf8(buf: Buffer): number {
   let bad = 0;
@@ -1488,11 +1489,13 @@ function clipPayload(body: Buffer | string): ClippedPayload {
     note,
     buf.subarray(buf.length - half),
   ]);
+  // invalidBytes 只认**全量原文**的无效字节：自家切点劈开的合法字符不是「客户端发的坏字节」，
+  // 按半段各自扫描会把切点悬空前缀错记进来（评审 2026-11-07）
   return {
     data,
     bytes: buf.length,
     truncated: true,
-    invalidBytes: countInvalidUtf8(buf.subarray(0, half)) + countInvalidUtf8(buf.subarray(buf.length - half)),
+    invalidBytes: countInvalidUtf8(buf),
   };
 }
 

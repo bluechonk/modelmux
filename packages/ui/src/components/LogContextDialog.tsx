@@ -492,8 +492,10 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
    */
   const side: "left" | "right" | "full" =
     role === "user" ? "right" : role === "assistant" ? "left" : "full";
-  const header = (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
+  // header 只包到 span 集合（fragment）：容器由两个布局分支各给一层 ——
+  // 否则嵌套 flex 让外层 item 收缩，`ml-auto` 推不到行尾（评审 2026-11-07）
+  const headerBody = (
+    <>
       <span className="pill bg-overlay text-ink-soft">{ROLE_LABEL[role] ?? role}</span>
       <span className="font-mono text-ink-faint">{role}</span>
       <span className="text-ink-faint">#{index + 1}</span>
@@ -513,7 +515,7 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
         )}
         <CopyButton value={JSON.stringify(rec)} label="复制本条消息" />
       </span>
-    </div>
+    </>
   );
   const bodyParts = (
     <>
@@ -547,7 +549,7 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
     return (
       <div className="rounded-lg border border-line/70 bg-canvas/50">
         <div className="flex flex-wrap items-center gap-2 border-b border-line/60 px-3 py-1.5 text-xs">
-          {header}
+          {headerBody}
         </div>
         <div className="space-y-2 px-3 py-2">{bodyParts}</div>
       </div>
@@ -562,7 +564,7 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
             : "rounded-bl-sm border-line/70 bg-canvas/70"
         }`}
       >
-        {header}
+        <div className="flex flex-wrap items-center gap-2 text-xs">{headerBody}</div>
         {bodyParts}
       </div>
     </div>
@@ -804,18 +806,19 @@ function PayloadBlock({
   /**
    * 后台自动补全：打开弹窗后按格顺序把剩余分片拉完，不等用户滚到哨兵。
    *
-   * 为什么自动：格子边界切在 JSON 中间，未接上的尾格只能按「未解析原文」显示，
-   * 一坨转义序列看起来像乱码（2026-11-07 实测反馈）—— 而网关在本地，逐片毫秒级，
-   * 补全后整段按消息卡重排，「原文墙」只在拉取瞬间存在。滚动哨兵保留作为兜底
-   * （自动推进被错误态打断时，滚动仍能触发那一格）。失败即停：错误态交给
-   * `sliceFailed` 的重试按钮，不自动重试。
+   * 为什么自动：格子边界切在 JSON 中间，未接上的内容只能等读完才能按消息卡渲染，
+   * 用户不该隔着「读到哪了」的占位看正文 —— 而网关在本地，逐片毫秒级。
+   * 失败即停：错误态交给 `sliceFailed` 的重试按钮，不自动重试；
+   * 滚动哨兵保留为兜底（自动推进被打断时，滚动仍能触发那一格）。
+   * 60ms 是去抖（渲染静止后才发下一格），不是速率上限。
    */
+  const headOffset = headRequest?.offset ?? null;
   useEffect(() => {
-    if (!totalKnown || complete || headRequest === null || headFetching) return;
+    if (!totalKnown || complete || headOffset === null || headFetching) return;
     if (headSlice.isError) return;
-    const timer = window.setTimeout(() => setHeadAsked(headRequest.offset), 60);
+    const timer = window.setTimeout(() => setHeadAsked(headOffset), 60);
     return () => window.clearTimeout(timer);
-  }, [totalKnown, complete, headRequest, headFetching, headSlice.isError]);
+  }, [totalKnown, complete, headOffset, headFetching, headSlice.isError]);
 
   // 双向懒加载：哨兵进视口、那个方向还有剩余 → 请求下一格。
   // 依赖里带上进度，每格到达后重建观察器 —— 哨兵仍在视口时会立刻再来一格（连续补片）。
@@ -866,12 +869,14 @@ function PayloadBlock({
    * 无效字节的可见提示：正文里的替换符来自「客户端发的就不是合法 UTF-8」——
    * 常见于 Windows 上 GBK 控制台输出被原样塞进 JSON（PowerShell 报错、GBK argv）。
    * 服务端标注（`invalidBytes`）优先，它数的是**字节**；旧行没有标注，
-   * 回退数呈现层的替换符（那些可能含存储侧的历史 lossy 转换，如实说「来源不明」）。
+   * 回退数呈现层的替换符（可能含存储侧的历史 lossy 转换，措辞如实说「原样字节未被保存」）。
+   * 截断记录豁免回退：截断切点劈开的合法字符也会变成替换符，与客户端坏字节无关，
+   * 由「已截断」标注解释（评审 2026-11-07）。
    */
   const invalidNotice =
     record.invalidBytes !== undefined
       ? record.invalidBytes
-      : complete
+      : !record.truncated && complete
         ? (body.match(/\uFFFD/g) ?? []).length
         : 0;
 
