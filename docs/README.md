@@ -8,8 +8,9 @@
 | 渠道文档 | `docs/channels/<cid>/` | 每个渠道自己的协议规格与实测（[索引](./channels/README.md)） |
 | 门面与规则 | 仓库根 `README.md` / `AGENTS.md`、`.agents/skills/<name>/` | 门面与工具 / agent 的行为约束（按固定路径读，不能搬） |
 
-> 落点与登记红线见根 [`AGENTS.md`](../AGENTS.md) 的「文档」；分层、事实归属与写作规则见
-> [docs/AGENTS.md](./AGENTS.md)。`scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
+> 落点与登记红线、分层与写作规则见根 [`AGENTS.md`](../AGENTS.md) 的「文档」；
+> 该文件同时给出**设计文档索引表**（改哪块代码先读哪篇）。
+> `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
 
 > 渠道包目录（`packages/core/channels/<cid>/`）只放**实现**（`src/` 的 7 个文件）与包配置，
 > **不再带 `docs/`**；唯一例外是目录级工具指令 `packages/core/channels/catpaw/AGENTS.md`
@@ -24,7 +25,6 @@
 
 | 文档 | 一句话 |
 | --- | --- |
-| [AGENTS.md](./AGENTS.md) | **文档标准**：分层与事实归属、写作规则、预算、审稿清单与明确不采用项 |
 | [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：DeepSeek 统一模型池（裸模型名 + **按账号池剩余额度跨渠道选路**、目录三级来源与兜底，§2）+ 池元数据取值与**跨渠道同 id 兜底**（§2.6 / §2.7）+ 账号池（多账号 / 连败标记 / 手动切号 / **额度耗尽自动换号** / 渠道侧的按账号状态，§3） |
