@@ -9,12 +9,12 @@
  */
 
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { integrateClient } from "../dist/app/integrate.js";
+import { integrateClient, restoreClient } from "../dist/app/integrate.js";
 
 const MODELS = ["deepseek-v4.1-flash", "glm-5.3-flash"];
 const GATEWAY_BASE = "http://127.0.0.1:4412/v1";
@@ -748,5 +748,76 @@ name = "OpenAI"
     assert.ok(after.includes("[model_providers.openai] # trailing comment"), "带注释的表头被改动");
     assert.ok(after.includes('name = "OpenAI"'), "openai 段内容被吞");
     assert.match(after, /^model_provider = "modelmux"$/m);
+  });
+});
+
+/**
+ * 一键还原：接入的反向操作。
+ *
+ * 三条硬判据：
+ *  1. **逐字节还原** —— 还原后与接入前完全一致（不是「看起来像」）；
+ *  2. **新建文件删除** —— 接入时原本不存在的文件，还原时删掉（否则留下用户从来没
+ *     有的配置）；
+ *  3. **无备份如实报错** —— 没接入过就说没备份，不假装成功。
+ */
+describe("一键还原", () => {
+  /** 每个用例前清空该 target 的备份目录：备份根在同一临时 HOME 下，用例之间会互相污染。 */
+  const clearBackups = (target: string): void => {
+    const dir = join(home, ".modelmux", "backups", "integrate");
+    if (!existsSync(dir)) return;
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith(`${target}-`) || name.startsWith(`safety-${target}-`) || name.includes(target)) {
+        rmSync(join(dir, name), { recursive: true, force: true });
+      }
+    }
+  };
+
+  it("zcode：接入后还原，配置文件逐字节回到接入前", () => {
+    clearBackups("zcode");
+    const file = seedZcode();
+    const before = readFileSync(file, "utf8");
+    assert.equal(integrateClient("zcode", MODELS).ok, true);
+    assert.notEqual(readFileSync(file, "utf8"), before, "接入应改动文件");
+
+    const restored = restoreClient("zcode");
+    assert.equal(restored.ok, true, restored.error);
+    assert.ok(restored.restored.includes(file), "应报告还原了该文件");
+    assert.equal(readFileSync(file, "utf8"), before, "还原后必须与接入前逐字节一致");
+    assert.ok(
+      restored.safetyDir !== undefined && existsSync(restored.safetyDir),
+      "应留下保护性备份（可反悔）",
+    );
+  });
+
+  it("接入新建的文件：还原把它删掉（不与「原本就该有」混淆）", () => {
+    clearBackups("codex");
+    // codex 的 config.toml 在临时 HOME 里不存在 → 接入会新建它
+    const file = join(home, ".codex", "config.toml");
+    rmSync(file, { force: true });
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    assert.ok(existsSync(file), "接入应新建 config.toml");
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, true, restored.error);
+    assert.ok(restored.removed.includes(file), "应报告删除了接入新建的文件");
+    assert.equal(existsSync(file), false, "还原后该文件应不存在");
+  });
+
+  it("没有备份时如实报错", () => {
+    clearBackups("dsh");
+    const restored = restoreClient("dsh");
+    assert.equal(restored.ok, false);
+    assert.match(restored.error ?? "", /没有找到.*接入备份/);
+  });
+
+  it("同一份备份不会被还原两次", () => {
+    clearBackups("zcode");
+    const file = seedZcode();
+    integrateClient("zcode", MODELS);
+    assert.equal(restoreClient("zcode").ok, true);
+    // 第一次还原把备份目录改成 restored- 前缀，该 target 已无「未使用」备份
+    const second = restoreClient("zcode");
+    assert.equal(second.ok, false, "同一份备份不该被消费两次");
+    assert.equal(readFileSync(file, "utf8").includes("modelmux"), true, "第二次未动文件");
   });
 });
