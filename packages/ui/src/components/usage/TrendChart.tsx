@@ -163,15 +163,19 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
 
   return (
     <div className="space-y-3">
-      {/* 图例：顶部一行（参考图同位置），色点 + 模型名 */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
-        {legend.map((id, i) => (
-          <span key={id} className="inline-flex items-center gap-1.5">
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
-            <span className="text-ink-soft">{id === "" ? "未知模型" : id}</span>
-          </span>
-        ))}
-      </div>
+      {/* 图例：顶部一行（参考图同位置），色点 + 模型名。
+          单日不渲染 —— 那时的条形列表每行已经带「色点 + 模型名 + 数值」，
+          再列一遍就是同一份信息出现两次（实测截图里两排一模一样的模型名）。 */}
+      {!singleDay && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+          {legend.map((id, i) => (
+            <span key={id} className="inline-flex items-center gap-1.5">
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
+              <span className="text-ink-soft">{id === "" ? "未知模型" : id}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* 单日：条形列表（不再画 SVG —— 一个点画不出趋势） */}
       {singleDay && (
@@ -183,11 +187,14 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
               const pct = singlePeak > 0 ? Math.max(2, Math.round((value / singlePeak) * 100)) : 0;
               return (
                 <div key={id} className="flex items-center gap-3 text-xs">
-                  <span className="w-[190px] shrink-0 truncate text-ink-soft" title={id === "" ? "未知模型" : id}>
+                  {/* 模型名**允许换行**、不截断：池 id 有 `traecn/deepseek-v4.1-flash` 这么长，
+                      190px 必然截断；而截断后的完整值只能靠悬停看，项目禁用原生 title
+                      （样式不可控、无障碍差，正文信息也不该依赖 hover）。两行高度换来一眼读全。 */}
+                  <span className="flex w-[210px] shrink-0 items-start gap-1.5 text-ink-soft">
                     <span
-                      className={`mr-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-current align-middle ${seriesClassOf(series.indexOf(id))}`}
+                      className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(series.indexOf(id))}`}
                     />
-                    {id === "" ? "未知模型" : id}
+                    <span className="min-w-0 break-all">{id === "" ? "未知模型" : id}</span>
                   </span>
                   <span className="min-w-0 flex-1">
                     <span
