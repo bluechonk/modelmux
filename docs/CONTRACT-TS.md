@@ -48,7 +48,7 @@ modelmux/                     ← 仓库根 = 工作区根
 ├── docs/                         ← **全部文档**：契约与规范 + 渠道文档（docs/channels/<cid>/）
 └── scripts/                        ← 仓库级脚本与校验器（verify-contract / verify-storage / verify-docs /
                                     verify-commits / verify-comments / verify-layering / verify-topology /
-                                    verify-wiring / copy-ui / mx-watchdog）
+                                    verify-references / verify-wiring / copy-ui / mx-watchdog）
 ```
 
 `packages/core/channels/<cid>/` 内部（= 一个**池子**）：
