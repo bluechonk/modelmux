@@ -20,6 +20,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { loadCtxScroll, pruneCtxScroll, saveCtxScroll, signatureOf } from "../lib/ctx-scroll";
 import { parseLenient } from "../lib/lenient-json";
+import { classifyMessage, collapseDecision, looksLikeMarkdown, shouldRenderMarkdown, splitThinking } from "../lib/message-kind";
 import { describeBinary, estimateBytes, looksBinaryish } from "../lib/payload-binary";
 import { brief, formatBytes, formatCount, formatDateTime, OUTCOME_META } from "../lib/log-format";
 import {
@@ -319,16 +320,19 @@ function CollapseBox({ chars, children }: { chars: number; children: ReactNode }
 }
 
 /**
- * Markdown 渲染（仅 assistant 正文）：GFM 表格 / 代码块可用；单换行保留为换行
- * （remark-breaks）—— CommonMark 把 softbreak 折成空格，中文回复习惯单换行分段，
- * 折了就是整段粘连。
+ * Markdown 渲染：GFM 表格 / 代码块可用；单换行保留为换行（remark-breaks）——
+ * CommonMark 把 softbreak 折成空格，中文回复习惯单换行分段，折了就是整段粘连。
  *
- * 不开 `rehype-raw` —— 消息里的 HTML 一律转义为文本，绝不执行；
- * system 与工具输出刻意不走这里（提示词里的 XML 标签会被渲染器吃掉，保真优先）。
+ * 不开 `rehype-raw` —— 消息里的 HTML 一律转义为文本，绝不执行。**是否走这里由内容
+ * 形态决定**（`looksLikeMarkdown`），不由角色决定：只按角色会在两处出错 ——
+ * 思考过程里的方案清单、工具输出里的文档同样带 md 却不渲染；而 system-reminder
+ * 的 XML 标签一旦进渲染器就被吃掉（保真优先）。
  */
-function MarkdownText({ text }: { text: string }): ReactElement {
+function MarkdownText({ text, dim = false }: { text: string; dim?: boolean }): ReactElement {
   return (
-    <div className="log-md text-xs leading-relaxed text-ink-soft [&_a]:text-ink [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-canvas [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_hr]:border-line [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-canvas [&_pre]:p-2 [&_pre]:font-mono [&_pre]:text-xs [&_strong]:text-ink [&_table]:w-full [&_td]:border [&_td]:border-line/60 [&_td]:px-1.5 [&_th]:border [&_th]:border-line/60 [&_th]:px-1.5 [&_ul]:list-disc">
+    <div
+      className={`log-md text-xs leading-relaxed ${dim ? "text-ink-faint" : "text-ink-soft"} [&_a]:text-ink [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-canvas [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_hr]:border-line [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-canvas [&_pre]:p-2 [&_pre]:font-mono [&_pre]:text-xs [&_strong]:text-ink [&_table]:w-full [&_td]:border [&_td]:border-line/60 [&_td]:px-1.5 [&_th]:border [&_th]:border-line/60 [&_th]:px-1.5 [&_ul]:list-disc`}
+    >
       <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{text}</Markdown>
     </div>
   );
@@ -337,8 +341,8 @@ function MarkdownText({ text }: { text: string }): ReactElement {
 /**
  * 一条消息的正文。
  *
- * Markdown 只给 **assistant**：它的回复普遍是 Markdown；用户与 system 内容可能带
- * `<system-reminder>` 这类原生标签，走渲染器会把标签吃掉 —— 保真优先，纯文本呈现。
+ * **Markdown 按内容形态判定**（`looksLikeMarkdown`）而不是按角色：带标题/列表/表格/
+ * 代码块的内容一律渲染，XML 风味过重的（system-reminder / env）保持纯文本保真。
  * 超长一律折叠（阈值见 `COLLAPSE_CHARS`）。
  */
 function MessageBody({ role, content }: { role: string; content: unknown }): ReactElement | null {
@@ -349,10 +353,14 @@ function MessageBody({ role, content }: { role: string; content: unknown }): Rea
     if (looksBinaryish(content)) {
       return <BinaryNotice label="二进制片段" bytes={estimateBytes(content)} />;
     }
+    // 角色 + 内容形态双判据：system 类的 YAML frontmatter / 工具记录里的 `#` 与 `1.`
+    // 是数据不是排版，渲染会把原文改写成另一回事（保真优先）
+    const kind = classifyMessage({ role, content });
+    const md = shouldRenderMarkdown(kind, content);
     return (
       <CollapseBox chars={content.length}>
-        {role === "assistant" ? (
-          <MarkdownText text={content} />
+        {md ? (
+          <MarkdownText text={content} dim={role !== "assistant"} />
         ) : (
           <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-soft">
             {content}
@@ -468,35 +476,72 @@ function ToolCallCard({ call, index }: { call: unknown; index: number }): ReactE
   );
 }
 
+/**
+ * 思考过程卡：默认折叠，展开后按 Markdown 渲染。
+ *
+ * 为什么单独成卡而不是混在 AI 气泡里：思考链普遍几万字符（实测单条 44342），
+ * 混进去会把正式回复挤到屏幕外；同时它是排查「模型为什么这么做」的关键证据，
+ * 所以折叠而不是丢弃 —— 标题上给出体量，读者一眼知道值不值得展开。
+ */
+function ThinkingCard({ text, openByDefault = false }: { text: string; openByDefault?: boolean }): ReactElement {
+  const md = looksLikeMarkdown(text);
+  return (
+    <div className="rounded-md border border-line/50 bg-canvas/40">
+      <details open={openByDefault}>
+        <summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs text-ink-faint">
+          思考过程 · {formatCount(text.length)} 字符（点开看推理链）
+        </summary>
+        <div className="border-t border-line/40 px-2.5 py-2">
+          {md ? (
+            <MarkdownText text={text} dim />
+          ) : (
+            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-ink-faint">
+              {text}
+            </pre>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function MessageCard({ message, index }: { message: unknown; index: number }): ReactElement {
   const rec = asRecord(message);
   const role = typeof rec["role"] === "string" ? rec["role"] : "unknown";
   const toolCalls = Array.isArray(rec["tool_calls"]) ? rec["tool_calls"] : null;
-  const reasoning = typeof rec["reasoning_content"] === "string" ? rec["reasoning_content"] : null;
+  /** 思考：字段形态（`reasoning_content`）与正文包裹形态（`<thinking>` 等）都认。 */
+  const rawContent = typeof rec["content"] === "string" ? rec["content"] : "";
+  const split = rawContent !== "" ? splitThinking(rawContent) : { thinking: "", rest: "" };
+  const fieldReasoning = typeof rec["reasoning_content"] === "string" ? rec["reasoning_content"] : "";
+  const reasoning = [fieldReasoning, split.thinking].filter((s) => s !== "").join("\n\n");
   const name = typeof rec["name"] === "string" ? rec["name"] : null;
   const toolCallId = typeof rec["tool_call_id"] === "string" ? rec["tool_call_id"] : null;
   const hasBody = rec["content"] !== null && rec["content"] !== undefined;
+  const kind = classifyMessage(rec);
   /**
    * 只看字符串正文：数组形态（多模态 parts）与工具结果的结构差异太大，
    * 逐段翻译会把图文重排，收益远小于风险。
+   * 剥掉思考包裹后剩下的才是可译正文（否则会把推理链也送去翻）。
    */
-  const plain = typeof rec["content"] === "string" ? rec["content"] : null;
-  const translatable = plain !== null && shouldOfferTranslation(plain);
+  const plain = rawContent !== "" ? split.rest : null;
+  const translatable = plain !== null && plain !== "" && shouldOfferTranslation(plain);
   const [translated, setTranslated] = useState<{ text: string; truncated: boolean } | null>(null);
   const [showing, setShowing] = useState(false);
-  const body = translated !== null && showing ? translated.text : rec["content"];
+  const body = translated !== null && showing ? translated.text : split.thinking !== "" ? split.rest : rec["content"];
 
   /**
-   * 聊天式布局：user 靠右、assistant 靠左，像对话一样读；system / developer / tool
+   * 聊天式布局：user 靠右、assistant 靠左，像对话一样读；system / developer / tool / thinking
    * 不是对话方，保持全宽（工具结果与提示词信息密度高，气泡会挤）。
    */
   const side: "left" | "right" | "full" =
-    role === "user" ? "right" : role === "assistant" ? "left" : "full";
+    kind === "user" ? "right" : kind === "assistant" ? "left" : "full";
   // header 只包到 span 集合（fragment）：容器由两个布局分支各给一层 ——
   // 否则嵌套 flex 让外层 item 收缩，`ml-auto` 推不到行尾（评审 2026-11-07）
   const headerBody = (
     <>
-      <span className="pill bg-overlay text-ink-soft">{ROLE_LABEL[role] ?? role}</span>
+      <span className={`pill ${kind === "thinking" ? "bg-series-3/20 text-ink-soft" : "bg-overlay text-ink-soft"}`}>
+        {kind === "thinking" ? "思考过程" : (ROLE_LABEL[role] ?? role)}
+      </span>
       <span className="font-mono text-ink-faint">{role}</span>
       <span className="text-ink-faint">#{index + 1}</span>
       {name !== null && <span className="font-mono text-ink-faint">name={name}</span>}
@@ -517,18 +562,13 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
       </span>
     </>
   );
-  const bodyParts = (
+  // 过场内容折叠：系统提示词 / system-reminder / 超长思考与工具输出
+  const collapse = collapseDecision(
+    kind,
+    typeof body === "string" ? body : "",
+  );
+  const bodyContent = (
     <>
-      {reasoning !== null && (
-        <div className="rounded-md border border-line/50 bg-canvas/60 px-2 py-1.5">
-          <div className="mb-1 text-xs text-ink-faint">
-            思考（reasoning_content）—— 网关会把它随上下文一起发给上游
-          </div>
-          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-ink-soft">
-            {reasoning}
-          </pre>
-        </div>
-      )}
       <MessageBody role={role} content={body} />
       {translated !== null && showing && (
         <p className="text-xs text-ink-faint">
@@ -539,8 +579,25 @@ function MessageCard({ message, index }: { message: unknown; index: number }): R
       {toolCalls?.map((call, i) => (
         <ToolCallCard key={i} call={call} index={i} />
       ))}
-      {!hasBody && toolCalls === null && reasoning === null && (
+      {!hasBody && toolCalls === null && reasoning === "" && (
         <p className="text-xs text-ink-faint">（本条消息没有正文）</p>
+      )}
+    </>
+  );
+  const bodyParts = (
+    <>
+      {/* 思考链单独成卡、默认折叠：几万字符混进气泡会把正式回复挤走 */}
+      {reasoning !== "" && <ThinkingCard text={reasoning} />}
+      {/* 过场内容（system / reminder / 超长工具输出）默认折起，标题给类型与体量 */}
+      {collapse.collapse && kind !== "thinking" ? (
+        <details className="rounded-md border border-line/50 bg-canvas/40">
+          <summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs text-ink-faint">
+            {collapse.label}（点开查看）
+          </summary>
+          <div className="space-y-2 border-t border-line/40 px-2.5 py-2">{bodyContent}</div>
+        </details>
+      ) : (
+        bodyContent
       )}
     </>
   );
