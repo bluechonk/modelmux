@@ -5,12 +5,11 @@
  * 关键约束（docs/LOGGING.md §3）：
  *   - 行内 `ts` 是 UTC、目录按**本地**日期切分 —— 展示一律转本地时区（UTC+8 凌晨两者差一天）
  *   - 数值列（耗时 / tokens）右对齐 + 等宽数位，与模型表数值列同一约定
- *   - 请求正文不进表格：最右侧「上下文」按钮开弹窗（components/LogContextDialog.tsx）
  */
 
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import {
   countOrDash,
@@ -30,7 +29,6 @@ import {
 import type { AccessLogEntry, AccessLogPage, AccessOutcome } from "../lib/types";
 import { useNarrow } from "../lib/use-narrow";
 import { CopyButton } from "../components/CopyButton";
-import { LogContextDialog } from "../components/LogContextDialog";
 import { PageHeader } from "../components/PageHeader";
 import { RefreshButton } from "../components/RefreshButton";
 import { ScrollFade } from "../components/ScrollFade";
@@ -135,19 +133,14 @@ function BreakableId({ value }: { value: string }): ReactElement {
   );
 }
 
-/** 展开行：请求全字段（正文不内联；宽屏走「上下文」列，窄屏走本行内的按钮）。 */
+/** 展开行：请求全字段。 */
 function LogDetail({
   entry,
   thresholds,
-  onOpenContext,
-  showContext,
-}: {  entry: AccessLogEntry;
+}: {
+  entry: AccessLogEntry;
   /** 「慢」的两个阈值：展开行给出**真实数值**，否则「慢」不可复核（统计条已不再摊这两个数）。 */
   thresholds: { ttfbMs: number; tps: number };
-  onOpenContext: () => void;
-  /** 窄屏（<768px）没有「上下文」列 —— 固定列合计超过表格最小宽，模型列会被挤成零
-   *  宽，所以窄屏砍列保正文可读性优先；此时入口挪到这里，否则手机上打不开正文弹窗。 */
-  showContext: boolean;
 }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
@@ -227,22 +220,6 @@ function LogDetail({
         )}
       </dl>
 
-      {/* 窄屏专属：表格砍掉了「上下文」列（固定列合计超过表格最小宽，加列会把模型列
-          挤成零宽），入口挪到展开行，否则手机上打不开正文弹窗。 */}
-      {showContext && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenContext();
-          }}
-          className="tap inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-        >
-          <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
-          查看请求上下文
-        </button>
-      )}
-
       {entry.message !== undefined && (
         <div className="space-y-1">
           <div className="text-xs font-medium text-ink">说明</div>
@@ -274,7 +251,6 @@ const COL_WIDTHS = {
   tokensPerSec: "72px",
   cache: "48px",
   tokens: "156px",
-  context: "84px",
 } as const;
 
 /**
@@ -293,7 +269,6 @@ const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
   tokensPerSec: "72px",
   cache: "48px",
   tokens: "156px",
-  context: "84px",
 };
 
 /**
@@ -321,7 +296,6 @@ const LOG_COLS: LogCol[] = [
   { key: "tokensPerSec", label: "TPS", align: "right", wide: true },
   { key: "cache", label: "缓存", align: "right", wide: true },
   { key: "tokens", label: "tokens（入/出）", align: "right", wide: true },
-  { key: "context", label: "上下文", wide: true },
 ];
 
 /** 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。 */
@@ -350,14 +324,12 @@ function LogCell({
   open,
   narrow,
   onToggle,
-  onOpenContext,
 }: {
   col: LogCol;
   entry: AccessLogEntry;
   open: boolean;
   narrow: boolean;
   onToggle: () => void;
-  onOpenContext: () => void;
 }): ReactElement {
   const numClass =
     "whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft";
@@ -415,23 +387,6 @@ function LogCell({
       return <td className={numClass}>{formatCacheRate()}</td>;
     case "tokens":
       return <td className={numClass}>{tokensPairText(entry.tokens)}</td>;
-    case "context":
-      return (
-        <td className="whitespace-nowrap px-3 py-2 align-top">
-          <button
-            type="button"
-            aria-label="查看请求上下文"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenContext();
-            }}
-            className="tap inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          >
-            <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
-            上下文
-          </button>
-        </td>
-      );
   }
 }
 
@@ -442,7 +397,6 @@ function LogTable({
   expanded,
   onToggle,
   onPageChange,
-  onOpenContext,
   loading,
 }: {
   page: AccessLogPage;
@@ -451,7 +405,6 @@ function LogTable({
   expanded: string | null;
   onToggle: (id: string) => void;
   onPageChange: (page: number) => void;
-  onOpenContext: (entry: AccessLogEntry) => void;
   loading: boolean;
 }): ReactElement {
   const narrow = useNarrow();
@@ -498,7 +451,6 @@ function LogTable({
                         open={open}
                         narrow={narrow}
                         onToggle={() => onToggle(entry.id)}
-                        onOpenContext={() => onOpenContext(entry)}
                       />
                     ))}
                   </tr>
@@ -508,8 +460,6 @@ function LogTable({
                         <LogDetail
                           entry={entry}
                           thresholds={page.slowThresholds}
-                          showContext={narrow}
-                          onOpenContext={() => onOpenContext(entry)}
                         />
                       </td>
                     </tr>
@@ -723,8 +673,6 @@ export function Logs(): ReactElement {
   const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
-  /** 打开上下文弹窗的那一条；null = 关闭。 */
-  const [contextTarget, setContextTarget] = useState<AccessLogEntry | null>(null);
 
   const logs = useQuery({
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
@@ -742,7 +690,7 @@ export function Logs(): ReactElement {
         limit: pageSize,
         offset: (pageNum - 1) * pageSize,
       }),
-    refetchInterval: expanded !== null || contextTarget !== null || pageNum > 1 ? false : 5_000,
+    refetchInterval: expanded !== null || pageNum > 1 ? false : 5_000,
     // 与轮询同长：间隔内再进页面直接用缓存（列表页最怕被清空成骨架）
     staleTime: 5_000,
   });
@@ -865,16 +813,7 @@ export function Logs(): ReactElement {
             setPageNum(next);
             setExpanded(null);
           }}
-          onOpenContext={setContextTarget}
           loading={logs.isFetching}
-        />
-      )}
-
-      {contextTarget !== null && (
-        <LogContextDialog
-          entry={contextTarget}
-          date={date === "" ? (page?.date ?? "") : date}
-          onClose={() => setContextTarget(null)}
         />
       )}
     </div>

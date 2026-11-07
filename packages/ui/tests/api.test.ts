@@ -52,14 +52,10 @@ describe("api 客户端：请求形态", () => {
     assert.equal(calls[0]?.url, "/web/api/logs?date=2026-11-05&slow=1&limit=50");
   });
 
-  it("usage / logPayloadBody 的 URL 形态", async () => {
+  it("usage 的 URL 形态", async () => {
     stubFetch([{ body: { ok: true } }]);
     await api.usage("7d");
     assert.equal(calls[0]?.url, "/web/api/usage?range=7d");
-    await api.logPayloadBody("req_x", "2026-11-05", "upstream", 1024, 2048);
-    assert.equal(calls[1]?.url, "/web/api/logs/payload?id=req_x&date=2026-11-05&part=body&phase=upstream&offset=1024&limit=2048");
-    await api.logPayload("req_x");
-    assert.equal(calls[2]?.url, "/web/api/logs/payload?id=req_x");
   });
 
   it("setTheme / retryLogin / ping 走 POST 且带 JSON 体", async () => {
@@ -133,26 +129,5 @@ describe("commands：信封解包与载荷形态", () => {
     assert.deepEqual(bodies[0], { action: "integrate", args: { target: "zcode" } });
     assert.deepEqual(bodies[1], { action: "activateAccount", args: { key: "key-1" }, cid: "c" });
     assert.deepEqual(bodies[2], { action: "removeAccount", args: { key: "key-2" }, cid: "c" });
-  });
-});
-
-describe("translate 客户端", () => {
-  it("ok + texts 数组 → 返回译文数组", async () => {
-    stubFetch([{ body: { ok: true, texts: ["你好"] } }]);
-    assert.deepEqual(await api.translate(["hello"]), ["你好"]);
-    const body = JSON.parse(String(calls[0]?.init?.body ?? "{}")) as { texts?: string[] };
-    assert.deepEqual(body.texts, ["hello"]);
-  });
-
-  it("ok 不为 true → 抛后端 error 或兜底文案", async () => {
-    stubFetch([{ body: { ok: false, error: "翻译超时（> 20s）" } }]);
-    await assert.rejects(api.translate(["hi"]), /翻译超时/);
-    stubFetch([{ body: { ok: false } }]);
-    await assert.rejects(api.translate(["hi"]), /翻译失败/);
-  });
-
-  it("texts 不是数组 → 兜底文案", async () => {
-    stubFetch([{ body: { ok: true } }]);
-    await assert.rejects(api.translate(["hi"]), /翻译失败/);
   });
 });
