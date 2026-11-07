@@ -773,7 +773,7 @@ export function Logs(): ReactElement {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <PageHeader
         title="请求日志"
-        description="网关每次模型请求的时间、渠道与模型、耗时、tokens 与结果（覆盖 chat / messages / responses 三协议）"
+        description="每次模型请求的时间、渠道、模型、耗时与 tokens"
         actions={
           <>
             <RefreshButton onRefresh={() => logs.refetch()} />

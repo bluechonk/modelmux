@@ -55,6 +55,13 @@ export interface WebCommandDeps {
    * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
    */
   integrate?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
+  /** 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。 */
+  restore?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => {
+    ok: boolean;
+    error?: string;
+    restored: string[];
+    removed: string[];
+  };
 }
 
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;
@@ -273,6 +280,28 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
               message: result.notes?.[0] ?? "已接入",
             })
           : err(result.error ?? "接入失败");
+      }
+      case "restore": {
+        // 一键还原：把该目标恢复成接入前的样子（取最新一次备份）。
+        const target = args["target"];
+        const INTEGRATION_TARGETS = ["zcode", "dsh", "claude-code", "claude-desktop", "codex"] as const;
+        if (typeof target !== "string" || !(INTEGRATION_TARGETS as readonly string[]).includes(target)) {
+          return err(`参数 target 只能是 ${INTEGRATION_TARGETS.join(" / ")}`);
+        }
+        if (!deps.restore) {
+          return err("当前运行形态不支持一键还原（未注入 restore）");
+        }
+        const result = deps.restore(target as "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex");
+        if (!result.ok) return err(result.error ?? "还原失败");
+        const parts: string[] = [];
+        if (result.restored.length > 0) parts.push(`还原 ${result.restored.length} 个文件`);
+        if (result.removed.length > 0) parts.push(`删除 ${result.removed.length} 个接入新建的文件`);
+        return ok({
+          target,
+          restored: result.restored,
+          removed: result.removed,
+          message: parts.length > 0 ? parts.join("、") : "已还原（无需改动）",
+        });
       }
       default:
         return err(`未知 action: ${String(action)}`);
