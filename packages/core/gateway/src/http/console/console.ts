@@ -6,7 +6,7 @@
  *
  * 端点：`GET /`（SPA 首页）· `GET /assets/*` · `GET /web/api/state` · `GET /api/logs` ·
  * `GET /api/logs/payload` · `GET /api/usage` · `POST /api/theme` ·
- * `POST /api/retry-login` · `POST /api/translate` · `POST /api/commands`（web-command-handler.ts）
+ * `POST /api/retry-login` · `POST /api/commands`（web-command-handler.ts）
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -18,16 +18,12 @@ import { serviceName } from "../server.js";
 import type { LoginInputRequest } from "../../runtime/channel.js";
 import {
   MODEL_REQUEST_PATHS,
-  PAYLOAD_SLICE_BYTES,
   appendGateway,
   queryAccessLogs,
-  readPayloads,
-  readPayloadSlice,
   type AccessOutcome,
 } from "../../runtime/log-store.js";
 import { computeUsageStats, type UsageRange } from "../../runtime/usage-stats.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
-import { translateTexts, validateTexts } from "./translate-proxy.js";
 
 export type { LoginInputRequest };
 
@@ -471,40 +467,6 @@ export function createConsoleHandler(
       return;
     }
 
-    if (path === p("/api/logs/payload")) {
-      if (req.method !== "GET") {
-        json(res, { ok: false, error: "use GET" }, 405);
-        return;
-      }
-      if (!isSameOrigin(req, host)) {
-        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
-        return;
-      }
-      const q = new URL(req.url ?? "/", "http://localhost").searchParams;
-      const id = q.get("id") ?? "";
-      const date = q.get("date") ?? undefined;
-      // 分片读取：弹窗首屏只要元数据，正文按片取（整段返回会把 MB 级明文塞进首屏）。
-      const part = q.get("part");
-      if (part === "body") {
-        const offset = intParam(q.get("offset"), 0);
-        const limit = intParam(q.get("limit"), PAYLOAD_SLICE_BYTES);
-        const slice = readPayloadSlice(id, date, q.get("phase") ?? undefined, offset, limit);
-        if (!slice) {
-          json(res, { ok: false, error: "payload not found", id }, 404);
-          return;
-        }
-        // bodyB64：分片窗口常落在多字节字符中间，base64 把字节原样交给 UI，
-        // 拼齐后一次解码 —— 接缝处不再产生替换符
-        json(res, { ok: true, id, date: date ?? null, ...slice });
-        return;
-      }
-      // 默认只回元数据；`full=1` 才带整段正文（兼容旧前端与排障，受上限保护）。
-      const withBody = q.get("full") === "1";
-      const records = readPayloads(id, date, { withBody });
-      json(res, { ok: true, id, date: date ?? null, records });
-      return;
-    }
-
     if (path === p("/api/usage")) {
       if (req.method !== "GET") {
         json(res, { ok: false, error: "use GET" }, 405);
@@ -523,60 +485,6 @@ export function createConsoleHandler(
           ? raw
           : "30d";
       json(res, { ok: true, ...computeUsageStats(range) });
-      return;
-    }
-
-    if (path === p("/api/translate")) {
-      if (req.method !== "POST") {
-        json(res, { ok: false, error: "use POST" }, 405);
-        return;
-      }
-      // 会把请求正文发给外部公开翻译端点（微软），按写操作要求同源。
-      if (!isSameOrigin(req, host)) {
-        json(res, { ok: false, error: "跨源请求已拒绝" }, 403);
-        return;
-      }
-      let body = "";
-      req.on("data", (chunk) => {
-        // 上限与 MAX_TOTAL_CHARS 同量级：正文块只在界面上被切到 3000 字符，
-        // 这里留出整批余量即可。先追加再判（单块也可能超限），超限直接断开，
-        // 别把内存耗在无意义的负载上；destroy 后流不再发 'end'，不会回写响应。
-        body += String(chunk);
-        if (body.length > 120_000) {
-          req.destroy();
-        }
-      });
-      req.on("end", () => {
-        if (res.writableEnded) return;
-        void (async () => {
-          let parsed: { texts?: unknown; to?: unknown };
-          try {
-            parsed = JSON.parse(body || "{}") as { texts?: unknown; to?: unknown };
-          } catch {
-            json(res, { ok: false, error: "invalid json" }, 400);
-            return;
-          }
-          const checked = validateTexts(parsed.texts);
-          if (!checked.ok) {
-            json(res, { ok: false, code: checked.code, error: checked.error }, 400);
-            return;
-          }
-          // 目标语言固定中文（取舍见 translateTexts / docs/TRANSLATION.md §5）。
-          const result = await translateTexts(checked.texts, "zh-Hans");
-          if (!result.ok) {
-            // 上游失败（超时 / 被网络环境拦截）是高概率事件，必须留痕：
-            // 前端错误串转瞬即逝，排障时 gateway.log 要能独立还原这次失败
-            appendGateway(`translate upstream failed: ${result.code}: ${result.error}`);
-            json(res, { ok: false, code: result.code, error: result.error }, 502);
-            return;
-          }
-          json(res, { ok: true, texts: result.texts });
-        })().catch((err) => {
-          // 与 `/api/ping` 同待遇：意外 rejection 不能变成 unhandledRejection
-          appendGateway(`console /api/translate failed: ${String(err)}`);
-          if (!res.headersSent) json(res, { ok: false, error: `translate failed: ${String(err)}` }, 500);
-        });
-      });
       return;
     }
 

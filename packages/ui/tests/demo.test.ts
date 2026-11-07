@@ -16,7 +16,6 @@ import {
   demoBilling,
   demoCompleteLogin,
   demoEndLogin,
-  demoLogPayload,
   demoLogin,
   demoLogs,
   demoModels,
@@ -176,13 +175,4 @@ describe("日志与用量（演示种子数据的读路径）", () => {
     assert.ok(page.stats.avgTps !== null && page.stats.avgTps > 0);
   });
 
-  it("demoLogPayload：正文抓取记录可读回（演示对任意 id 回同一份夹具正文）", () => {
-    const state = createDemoState();
-    const page = demoLogs(state, {});
-    const payload = demoLogPayload(page.entries[0]!.id);
-    assert.ok(Array.isArray(payload.records) && payload.records.length > 0);
-    for (const record of payload.records) {
-      assert.equal(typeof record.body, "string");
-    }
-  });
 });

@@ -18,8 +18,6 @@ import type {
   AccessOutcome,
   LogQuery,
   OverviewResponse,
-  PayloadQueryResult,
-  PayloadSliceResult,
   UiSnapshot,
   UsageDaily,
   UsageModelRow,
@@ -821,76 +819,6 @@ export function demoUsage(range: UsageRange): UsageStats {
       hourTokens: Math.round(peakDay.tokens * 0.14),
     },
     favorite: models[0] === undefined ? null : { id: models[0].id, share: models[0].share },
-  };
-}
-
-export function demoLogPayload(id: string): PayloadQueryResult {
-  const messages = [
-    { role: "system", content: "你是一个演示用的助手，数据全部虚构。" },
-    { role: "user", content: "帮我看看这个仓库的日志页要怎么设计。" },
-  ];
-  const upstreamMessages = [
-    ...messages,
-    { role: "assistant", content: null, tool_calls: [{ id: "call_demo", type: "function", function: { name: "read_file", arguments: '{"path":"docs/LOGGING.md"}' } }] },
-    { role: "tool", tool_call_id: "call_demo", content: "…（演示用的假文档片段）…" },
-  ];
-  const meta = { model: "loomy/kimi-k2.6", stream: true, temperature: 0.7, tools: [] as unknown[] };
-  const now = Date.now();
-  return {
-    ok: true,
-    id,
-    date: null,
-    records: [
-      {
-        ts: new Date(now - 60_000).toISOString(),
-        seq: 1,
-        id,
-        phase: "client",
-        model: "loomy/kimi-k2.6",
-        stream: true,
-        bytes: JSON.stringify({ ...meta, messages }).length,
-        truncated: false,
-        body: JSON.stringify({ ...meta, messages }),
-      },
-      {
-        ts: new Date(now - 59_500).toISOString(),
-        seq: 2,
-        id,
-        phase: "upstream",
-        attempt: 0,
-        cid: "loomy",
-        model: "kimi-k2.6",
-        stream: true,
-        bytes: JSON.stringify({ ...meta, model: "kimi-k2.6", messages: upstreamMessages }).length,
-        truncated: false,
-        body: JSON.stringify({ ...meta, model: "kimi-k2.6", messages: upstreamMessages }),
-      },
-    ],
-  };
-}
-
-/** 演示用的正文分片（与真实接口同形：元数据先到、正文按窗口取，字节 base64 输出）。 */
-export function demoPayloadSlice(
-  id: string,
-  date: string | undefined,
-  phase: string,
-  offset: number,
-  limit: number,
-): PayloadSliceResult {
-  void date;
-  const full = demoLogPayload(id);
-  const record = full.records.find((r) => r.phase === phase) ?? full.records[0];
-  const raw = new TextEncoder().encode(record?.body ?? "");
-  const start = Math.max(0, Math.min(offset, raw.length));
-  const end = Math.max(start, Math.min(start + limit, raw.length));
-  return {
-    ok: true,
-    id,
-    date: null,
-    offset: start,
-    length: end - start,
-    total: raw.length,
-    bodyB64: btoa(Array.from(raw.subarray(start, end), (b) => String.fromCharCode(b)).join("")),
   };
 }
 

@@ -231,9 +231,7 @@ describe("静态服务边界", () => {
 describe("方法守卫（405）", () => {
   const cases: Array<[string, string]> = [
     ["/api/logs", "POST"],
-    ["/api/logs/payload", "POST"],
     ["/api/usage", "POST"],
-    ["/api/translate", "GET"],
     ["/api/ping", "GET"],
     ["/api/theme", "GET"],
     ["/api/retry-login", "GET"],
@@ -271,7 +269,7 @@ describe("/api/state", () => {
   });
 });
 
-describe("/api/logs 与 payload", () => {
+describe("/api/logs", () => {
   it("跨源拒绝；stream 与坏分页参数不炸", async () => {
     const blocked = await fetch(`${server.url}api/logs`, { headers: { origin: "http://evil.example" } });
     assert.equal(blocked.status, 403);
@@ -282,21 +280,6 @@ describe("/api/logs 与 payload", () => {
     assert.equal(page.total, 1, "坏分页参数回落默认值");
   });
 
-  it("payload：part=body 分片读取（base64 字节）；未知的 id 404；full=1 带正文", async () => {
-    const slice = await fetch(`${server.url}api/logs/payload?id=req_routes&part=body&phase=upstream&offset=0&limit=4`);
-    assert.equal(slice.status, 200);
-    const body = (await slice.json()) as { ok: boolean; bodyB64?: string };
-    assert.equal(body.ok, true);
-    // 分片是字节 base64：解回应与原文一致
-    assert.equal(Buffer.from(body.bodyB64 ?? "", "base64").toString("utf8"), '{"v"');
-
-    const missing = await fetch(`${server.url}api/logs/payload?id=req_absent&part=body&date=${localDate()}`);
-    assert.equal(missing.status, 404);
-
-    const full = await fetch(`${server.url}api/logs/payload?id=req_routes&full=1`);
-    const records = (await full.json()) as { records: Array<{ body?: string }> };
-    assert.equal(records.records[0]?.body, '{"v":1}');
-  });
 });
 
 describe("/api/usage", () => {
@@ -320,101 +303,6 @@ describe("/api/usage", () => {
   });
 });
 
-describe("/api/translate", () => {
-  it("GET 405；跨源 403（这是唯一把正文转发给外部的端点，守卫必须有测试）", async () => {
-    assert.equal((await fetch(`${server.url}api/translate`)).status, 405);
-    const blocked = await fetch(`${server.url}api/translate`, {
-      method: "POST",
-      headers: { ...JSON_HEADERS, origin: "http://evil.example" },
-      body: JSON.stringify({ texts: ["hi"] }),
-    });
-    assert.equal(blocked.status, 403);
-  });
-
-  it("坏 JSON 400；texts 形状非法 400", async () => {
-    assert.equal((await fetch(`${server.url}api/translate`)).status, 405);
-    const bad = await fetch(`${server.url}api/translate`, { method: "POST", headers: JSON_HEADERS, body: "{oops" });
-    assert.equal(bad.status, 400);
-    const shape = await fetch(`${server.url}api/translate`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ texts: "hi" }) });
-    assert.equal(shape.status, 400);
-  });
-
-  it("上游 200 时按序返回译文，且目标语言钉死中文（fetch 桩，不出网）", async () => {
-    const originalFetch = globalThis.fetch;
-    const upstreamUrls: string[] = [];
-    // init 必须透传：只留首参会把 POST 打成 GET（实测 405）
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("edge.microsoft.com")) {
-        upstreamUrls.push(url);
-        // 上游真实形态：每条原文一个元素，译文在 translations[0].text
-        return new Response(JSON.stringify([{ translations: [{ text: "你好" }] }, { translations: [{ text: "世界" }] }]), { status: 200 });
-      }
-      return originalFetch(input, init);
-    }) as typeof fetch;
-    try {
-      const res = await fetch(`${server.url}api/translate`, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ texts: ["hello", "world"] }),
-      });
-      assert.equal(res.status, 200);
-      const payload = (await res.json()) as { ok: boolean; texts: string[] };
-      assert.deepEqual(payload.texts, ["你好", "世界"]);
-      assert.ok(
-        upstreamUrls.every((u) => /[?&]to=zh-Hans(&|$)/.test(u)),
-        `上游 URL 必须固定 to=zh-Hans：${upstreamUrls.join(" , ")}`,
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it("上游非 200 时 502 且带错误码", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes("edge.microsoft.com")) {
-        return new Response("blocked", { status: 403 });
-      }
-      return originalFetch(input, init);
-    }) as typeof fetch;
-    try {
-      const res = await fetch(`${server.url}api/translate`, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ texts: ["hello"] }),
-      });
-      assert.equal(res.status, 502);
-      const payload = (await res.json()) as { code?: string };
-      assert.equal(payload.code, "translate-http-error");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it("请求体小幅超限：断流与校验双层防线必有其一拦下", async () => {
-    const huge = JSON.stringify({ texts: ["x".repeat(125_000)] });
-    try {
-      // destroy 输了竞态（'end' 已排队）→ 走 validateTexts 兜底：400 text-limit
-      const { status, body } = await rawRequest("/api/translate", "POST", { ...JSON_HEADERS }, huge);
-      assert.equal(status, 400);
-      const payload = JSON.parse(body) as { code?: string };
-      assert.equal(payload.code, "translate-text-limit");
-    } catch (err) {
-      // destroy 赢得竞态 → 连接重置，断流保护直接生效
-      assert.match(String(err), /ECONNRESET|socket hang up|aborted|terminated/i);
-    }
-  });
-
-  it("请求体大幅超限（>2 个 TCP 段）：断流保护直接重置连接，不再回 JSON", async () => {
-    // 260KB = 4 个 64KB 段：第二段追加后越限 → req.destroy() → 客户端收到连接重置
-    const huge = JSON.stringify({ texts: ["x".repeat(260_000)] });
-    await assert.rejects(
-      rawRequest("/api/translate", "POST", { ...JSON_HEADERS }, huge),
-      /ECONNRESET|socket hang up|aborted|terminated/i,
-    );
-  });
-});
 
 describe("/api/ping", () => {
   it("坏 JSON 400；缺 model 400", async () => {
