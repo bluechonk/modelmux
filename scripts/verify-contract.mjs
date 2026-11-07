@@ -300,14 +300,19 @@ for (const file of walkSrc(gatewaySrc)) {
 
 // ── 家族模型的**渠道供给范围**（产品面策略，数据收口在各渠道 models.json 的 hidden 标记）──
 //
-// glm-5.3-flash 由 qodercn / autoclaw / zcode 供给，longcat-2.5 仅 catpaw，
-// deepseek-v4.1-flash 归其余在册渠道。渠道改表漏标 hidden 会把不该供的模型悄悄放回池里，
-// 这里按「家族命中行的 hidden 与允许集一致」机械守住。
+// 哪个渠道供给哪个模型由 `FAMILY_ALLOWED_BY_CID` 声明：命中允许集的行必须暴露
+// （`hidden !== true`），其余家族行必须标 `hidden: true`。渠道改表漏标会把不该供的
+// 模型悄悄放回池里，这里按「家族命中行的 hidden 与允许集一致」机械守住。
 // 行 id 的归一化与共享层 canonicalModelId 同口径（包装前缀 / 版本点号 / 尾饰）。
+//
+// 给某个渠道加模型 = 在它的允许集里加一项，并同步该渠道 models.json 的 hidden 标记。
 const FAMILY_ALLOWED_BY_CID = {
   qodercn: ["glm-5.3-flash"],
   autoclaw: ["glm-5.3-flash"],
   zcode: ["glm-5.3-flash"],
+  qoder: ["glm-5.3-flash"],
+  workbuddyai: ["glm-5.3-flash", "deepseek-v4.1-flash"],
+  lobsterai: ["glm-5.3-flash", "deepseek-v4.1-flash"],
   catpaw: ["deepseek-v4.1-flash", "longcat-2.5"],
 };
 const FAMILY_ALLOWED_DEFAULT = ["deepseek-v4.1-flash"];
@@ -349,7 +354,8 @@ for (const cid of channelDirs.filter((c) => registered.includes(`@modelmux/${c}`
     if (canonical === null) continue;
     check(
       allowed.has(canonical) ? row.hidden !== true : row.hidden === true,
-      `packages/core/channels/${cid}/models.json: "${row.id}"（${canonical}）应${allowed.has(canonical) ? "暴露（去掉 hidden）" : "标 hidden: true"}——家族供给范围：glm-5.3-flash 归 qodercn/autoclaw/zcode，longcat-2.5 仅 catpaw，deepseek-v4.1-flash 归其余渠道`,
+      `packages/core/channels/${cid}/models.json: "${row.id}"（${canonical}）应${allowed.has(canonical) ? "暴露（去掉 hidden）" : "标 hidden: true"}` +
+        `——该渠道的家族供给范围是 [${[...allowed].join(", ")}]（声明处：本脚本的 FAMILY_ALLOWED_BY_CID）`,
     );
   }
 }
