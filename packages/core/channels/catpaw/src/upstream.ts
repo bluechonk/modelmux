@@ -262,6 +262,23 @@ function textOfContent(content: unknown): string {
   return bits.join("\n");
 }
 
+/**
+ * 内容里是否含图片段（OpenAI `image_url` / Anthropic `image`）。
+ *
+ * 请求体是**纯文本渲染**（`content: [{type:"text"}]`，见 buildChatBody），图片进不来。
+ * 静默丢掉比报错更坑：模型只会答「看不到图片」，用户分不清是自己发错了还是网关丢了
+ * （2026-11-07 真机实测：LongCat-2.5 收到真实 JPG 后答「当前对话中没有收到任何图片附件」，
+ * 同图发给 glm-5.3-flash 能准确描述）。
+ */
+function hasImagePart(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const p = part as Record<string, unknown>;
+    return p["type"] === "image_url" || p["type"] === "image" || p["image_url"] !== undefined;
+  });
+}
+
 /** tool_calls 的 arguments 统一成 JSON 字符串（兼容字符串/对象两种线格式）。 */
 function rawJsonString(raw: unknown): string {
   if (typeof raw === "string") {
@@ -497,6 +514,14 @@ export function buildChatBody(
   const messages = rawMessages.filter(
     (m): m is Record<string, unknown> => Boolean(m) && typeof m === "object" && !Array.isArray(m),
   );
+  // 图片进不来（请求体是纯文本渲染）：宁可 400 说清楚，也别丢掉后让模型答「看不到」。
+  // 错误文案要可操作 —— 客户端据此换渠道，而不是怀疑自己没发出去。
+  if (messages.some((m) => hasImagePart(m["content"]))) {
+    throw new Error(
+      "catpaw 渠道不支持图片输入（请求体按纯文本渲染，图片段会被丢弃）；" +
+        "请改用支持图片的渠道（如 glm-5.3-flash 的 qodercn 供给）或改用纯文本提问",
+    );
+  }
 
   const modelType = catalog.modelTypeOf(upstreamModel);
   const tools = extractTools(req);

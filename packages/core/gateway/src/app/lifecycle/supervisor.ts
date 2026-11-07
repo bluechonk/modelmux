@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { closeSync, openSync, unlinkSync, writeFileSync } from "node:fs";
 
-import { cliEntry, DEFAULT_WAIT_MS, gatewayHealthy } from "./daemon.js";
+import { cliEntry, DEFAULT_WAIT_MS, gatewayEnv, gatewayHealthy } from "./daemon.js";
 import { appendError, appendSystem, rotateIfNeeded } from "../../runtime/log-store.js";
 
 /** worker 稳定运行该时长后重置退避计数（CCR：稳定 60s 清零，首杀只等 1s）。 */
@@ -110,6 +110,7 @@ const PING_INTERVAL_MS = 2_000;
       stdio: ["ignore", logFd, logFd, "ipc"],
       windowsHide: true,
       cwd,
+      env: gatewayEnv(),
     });
     closeSync(logFd);
     writeWorkerPid(workerPidFile, child.pid ?? 0);
