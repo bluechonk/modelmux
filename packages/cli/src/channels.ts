@@ -11,12 +11,14 @@
  * 目录 == 注册 ∪ 下架 由 `packages/cli/tests/pool.test.ts` 与 `verify-contract` 机械校验。
  */
 
+import "@modelmux/autoclaw";
 import "@modelmux/catpaw";
 import "@modelmux/loomy";
 import "@modelmux/qodercn";
 import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
+import "@modelmux/zcode";
 
 /**
  * 已下架渠道：包保留作参考实现，不再注册。

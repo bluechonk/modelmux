@@ -42,6 +42,19 @@
       "multiplier": null,
       "marketing": "",
       "source": "fallback"
+    },
+    {
+      "id": "LongCat-2.5",
+      "name": "LongCat-2.5",
+      "modelType": 10002544,
+      "reasoning": true,
+      "contextWindow": 1024000,
+      "maxOutput": null,
+      "description": "fallback (upstream unavailable)",
+      "supportsImages": false,
+      "multiplier": null,
+      "marketing": "限时免费",
+      "source": "fallback"
     }
   ]
 }

@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "source": "seed",
+  "fetched_at": "2026-11-07T00:00:00.000Z",
+  "models": [
+    {
+      "key": "glm-5.3-flash",
+      "id": "glm-5.3-flash",
+      "displayName": "GLM-5.3-Flash",
+      "isReasoning": true,
+      "isVl": true,
+      "maxInputTokens": 1000000,
+      "maxOutput": 131072
+    },
+    {
+      "key": "glm-5.2",
+      "id": "glm-5.2",
+      "displayName": "GLM-5.2",
+      "isReasoning": true,
+      "isVl": true,
+      "maxInputTokens": 128000,
+      "maxOutput": 131072,
+      "hidden": true
+    },
+    {
+      "key": "zai_auto",
+      "id": "zai_auto",
+      "displayName": "Zai-Auto",
+      "isReasoning": true,
+      "isVl": true,
+      "maxInputTokens": 200000,
+      "maxOutput": 131072,
+      "hidden": true
+    },
+    {
+      "key": "zai_auto-fast",
+      "id": "zai_auto-fast",
+      "displayName": "Zai-Auto-Fast",
+      "isReasoning": false,
+      "isVl": true,
+      "maxInputTokens": 200000,
+      "maxOutput": 131072,
+      "hidden": true
+    },
+    {
+      "key": "zai_glm-5.3-flash",
+      "id": "zai_glm-5.3-flash",
+      "displayName": "Zai-GLM-5.3-Flash",
+      "isReasoning": true,
+      "isVl": true,
+      "maxInputTokens": 1000000,
+      "maxOutput": 131072,
+      "hidden": true
+    },
+    {
+      "key": "zaicoding_glm-5.3",
+      "id": "zaicoding_glm-5.3",
+      "displayName": "ZaiCoding-GLM-5.3",
+      "isReasoning": true,
+      "isVl": false,
+      "maxInputTokens": 200000,
+      "maxOutput": 131072,
+      "hidden": true
+    },
+    {
+      "key": "tdpsk_deepseek-v4-flash-202605",
+      "id": "tdpsk_deepseek-v4-flash-202605",
+      "displayName": "DeepSeek-V4-Flash-202605",
+      "isReasoning": false,
+      "isVl": true,
+      "maxInputTokens": 180000,
+      "maxOutput": 393216,
+      "hidden": true
+    },
+    {
+      "key": "tdpsk_deepseek-v4-pro-202606",
+      "id": "tdpsk_deepseek-v4-pro-202606",
+      "displayName": "DeepSeek-V4-Pro-202606",
+      "isReasoning": true,
+      "isVl": true,
+      "maxInputTokens": 96000,
+      "maxOutput": 393216,
+      "hidden": true
+    }
+  ]
+}

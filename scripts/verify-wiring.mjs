@@ -157,6 +157,11 @@ const MODEL_NAME_RE = /["'`](?:deepseek|glm|qwen|kimi|doubao|hunyuan|minimax|sen
 // 例外：`pool/model-family.ts` 是**对外模型家族**的唯一声明点 —— 家族名是产品面
 // （`AGENTS.md` 的「代码约定」）；其余共享层文件仍不得持有模型名。
 const FAMILY_FILE_REL = "packages/core/gateway/src/pool/model-family.ts";
+// 「zcode」同名两义：它既是渠道 cid，又是 #300 引入的**集成目标名**（「接入 zcode」按钮
+// 写 settings 的 target 值，属产品面概念，integrate.ts 持有它是既定设计）。字符串层面
+// 无法区分两种用法，集成目标四值从命中里排除 —— 代价是对 zcode 渠道，共享层里
+// 以 `"zcode"` 形态出现的渠道知识不再被本规则拦截（其它 cid 不受影响）。
+const INTEGRATION_TARGETS = new Set(["zcode", "dsh", "claude-code", "codex"]);
 
 const gatewaySrc = join(repo, "packages", "core", "gateway", "src");
 function walk(dir, out = []) {
@@ -172,7 +177,7 @@ for (const file of walk(gatewaySrc)) {
   const code = stripComments(readFileSync(file, "utf8"));
   const idHit = code.match(CHANNEL_ID_RE);
   check(
-    !idHit,
+    !idHit || INTEGRATION_TARGETS.has(idHit[1] ?? ""),
     `${rel}: 共享层不得硬编码渠道 id（出现 "${idHit?.[0]}"）—— 渠道知识只允许出现在各渠道包内`,
   );
   if (rel === FAMILY_FILE_REL) continue;
