@@ -259,6 +259,39 @@ function IntegrateButton({
   );
 }
 
+/**
+ * 单个「还原」按钮：与接入按钮同规格但**描边样式**（次级动作，不抢主按钮的视觉权重）。
+ *
+ * 语义：把该目标恢复成**接入前**的样子。后端取该目标最新一次备份，
+ * 并在还原前先把当前状态再备份一份（可反悔）。
+ */
+function RestoreButton({
+  mutation,
+  target,
+  label,
+}: {
+  mutation: {
+    isPending: boolean;
+    variables: IntegrationTarget | undefined;
+    mutate: (target: IntegrationTarget) => void;
+  };
+  target: IntegrationTarget;
+  label: string;
+}): ReactElement {
+  const busy = mutation.isPending && mutation.variables === target;
+  return (
+    <button
+      type="button"
+      disabled={mutation.isPending}
+      onClick={() => mutation.mutate(target)}
+      aria-label={`还原 ${target} 的接入前配置`}
+      className="tap rounded-lg border border-line bg-transparent py-1.5 text-xs text-ink-soft transition-colors hover:border-warn/50 hover:text-ink disabled:opacity-40"
+    >
+      {busy ? "还原中…" : label}
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 主组件
 // ---------------------------------------------------------------------------
@@ -370,6 +403,29 @@ export function Dashboard(): ReactElement {
       toast.success(`已接入 ${target || "客户端"}${models ? `（${models}）` : ""}`);
     },
     onError: (err) => toast.error(`接入失败：${String(err)}`),
+  });
+
+  /**
+   * 一键还原：把目标恢复成接入前的样子（后端取该目标**最新一次**备份，
+   * 并在还原前先把当前状态再备份一份，可反悔）。
+   */
+  const restoreMutation = useMutation({
+    mutationFn: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") =>
+      api.commands.restore(target),
+    onSuccess: (data) => {
+      const target = String(data.target ?? "");
+      if (data.ok === false) {
+        toast.error(`还原失败：${String(data.error ?? "没有可用的接入备份")}`);
+        return;
+      }
+      const parts: string[] = [];
+      const restored = Array.isArray(data.restored) ? data.restored.length : 0;
+      const removed = Array.isArray(data.removed) ? data.removed.length : 0;
+      if (restored > 0) parts.push(`${restored} 个文件`);
+      if (removed > 0) parts.push(`删除 ${removed} 个接入新建的文件`);
+      toast.success(`已还原 ${target || "客户端"}${parts.length > 0 ? `（${parts.join("、")}）` : ""}`);
+    },
+    onError: (err) => toast.error(`还原失败：${String(err)}`),
   });
 
     // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
@@ -692,6 +748,20 @@ export function Dashboard(): ReactElement {
                 target="codex"
                 label="接入 codex"
               />
+            </div>
+            {/* 还原区：与接入同目标、次级视觉权重。取该目标最新一次备份，
+                还原前自动把当前状态再备份一份（可反悔） */}
+            <div className="mt-3 border-t border-line/50 pt-3">
+              <div className="mb-2 text-xs text-ink-faint">
+                一键还原（恢复到接入前的配置，取最近一次备份）
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <RestoreButton mutation={restoreMutation} target="zcode" label="还原 zcode" />
+                <RestoreButton mutation={restoreMutation} target="dsh" label="还原 dsh" />
+                <RestoreButton mutation={restoreMutation} target="claude-code" label="还原 claude code" />
+                <RestoreButton mutation={restoreMutation} target="claude-desktop" label="还原 claude desktop" />
+                <RestoreButton mutation={restoreMutation} target="codex" label="还原 codex" />
+              </div>
             </div>
           </section>
 

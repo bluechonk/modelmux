@@ -209,6 +209,13 @@ export interface WebApi {
      * 后端写的是 `~/.zcode` / `~/.dsh`（写前备份），返回变更说明。
      */
     integrate(target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex"): Promise<CommandData>;
+    /**
+     * 一键还原：把目标恢复成**接入前**的配置。
+     *
+     * 取该目标最近一次接入备份；还原前会先把当前状态再备份一份（可反悔）。
+     * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
+     */
+    restore(target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex"): Promise<CommandData>;
   };
 }
 
@@ -323,6 +330,21 @@ async function demoCommand(
         message: `演示模式：${target} 的模型清单已改为 ${models.join(" / ")}（未写真实文件）`,
       };
     }
+    case "restore": {
+      const target = String(args["target"] ?? "");
+      const targets = ["zcode", "dsh", "claude-code", "claude-desktop", "codex"];
+      if (!targets.includes(target)) {
+        return { ok: false, error: `参数 target 只能是 ${targets.join(" / ")}` };
+      }
+      // 演示模式：不碰真实文件，只回一个与真实响应同形的结果
+      return {
+        ok: true,
+        target,
+        restored: [`（演示模式）${target} 的配置文件`],
+        removed: [],
+        message: `演示模式：已还原 ${target}（未触碰真实文件）`,
+      };
+    }
     default:
       return { ok: false, error: `演示模式不支持动作 ${action}` };
   }
@@ -407,5 +429,6 @@ export const api: WebApi = {
     /** 关闭登录弹窗：让等待输入的渠道立刻收尾，而不是挂到超时。 */
     cancelInput: () => command("cancelInput", undefined),
     integrate: (target) => command("integrate", undefined, { target }),
+    restore: (target) => command("restore", undefined, { target }),
   },
 };

@@ -199,6 +199,16 @@ export interface ControlBridge {
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
   integrate?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
+  /**
+   * 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。
+   * 实现同为 `app/integrate.ts` 的 `restoreClient`。
+   */
+  restore?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => {
+    ok: boolean;
+    error?: string;
+    restored: string[];
+    removed: string[];
+  };
 }
 
 export interface ConsoleServer {
@@ -691,6 +701,7 @@ export function createConsoleHandler(
             ...(bridge.submitInput ? { submitInput: bridge.submitInput } : {}),
             ...(bridge.cancelInput ? { cancelInput: bridge.cancelInput } : {}),
             ...(bridge.integrate ? { integrate: bridge.integrate } : {}),
+            ...(bridge.restore ? { restore: bridge.restore } : {}),
           });
           const result = await handle({
             action,

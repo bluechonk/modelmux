@@ -10,14 +10,15 @@
  * 控制台经 `ControlBridge.integrate` 注入调用，避免 http → app 的反向依赖。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModels } from "../pool/pool-targets.js";
 import { rootDir } from "../runtime/paths.js";
-import { writeAtomicFile } from "../runtime/secret-file.js";
+import { writeAtomicFile, writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
 export type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex";
@@ -79,9 +80,37 @@ export function integrateClient(target: IntegrationTarget, models: string[] = ex
   }
 }
 
-// ── 备份 ────────────────────────────────────────────────────────────────────
+// ── 备份与还原 ──────────────────────────────────────────────────────────────
 
 let backupRoot: string | undefined;
+
+/**
+ * 备份清单里的一条：某个被改文件**接入前**的原始位置与备份落点。
+ *
+ * `existed: false` 表示接入时该文件**原本不存在**（接入新建了它）—— 还原时必须删除，
+ * 否则「还原」会留下一个用户从来没有的配置文件。
+ */
+interface BackupEntry {
+  /** 原文件的绝对路径（还原时写回这里）。 */
+  original: string;
+  /** 备份文件名（备份目录内）。 */
+  backup: string;
+  /** 接入前是否存在。 */
+  existed: boolean;
+}
+
+/** 备份目录里的清单文件（还原靠它找原路径；老备份没有这个文件，走反推）。 */
+const BACKUP_MANIFEST = "manifest.json";
+
+/** 清单结构。 */
+interface BackupManifest {
+  version: 1;
+  target: IntegrationTarget;
+  /** 备份时刻（ISO）。 */
+  createdAt: string;
+  /** 被改文件清单（按写入顺序）。 */
+  files: BackupEntry[];
+}
 
 /**
  * 备份目录（懒创建）：`<root>/backups/integrate/<target>-<时间戳>/`。
@@ -94,14 +123,74 @@ function backupDirFor(target: IntegrationTarget): string {
   const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
   const dir = join(backupRoot, `${target}-${stamp}`);
   mkdirSync(dir, { recursive: true });
+  // 同一秒内两次接入会落进同一目录：清单里的 files 做去重（按原路径），保留最早的快照
+  if (existsSync(join(dir, BACKUP_MANIFEST))) return dir;
+  writeJsonSecret(join(dir, BACKUP_MANIFEST), {
+    version: 1,
+    target,
+    createdAt: new Date().toISOString(),
+    files: [],
+  } satisfies BackupManifest);
   return dir;
 }
 
-/** 原样备份一个待改文件（同名，0600 —— 备份源可能是凭据文件）。返回备份路径。 */
+/** 读某次备份的清单（没有 manifest 的老备份返回 null，调用方走反推）。 */
+function readManifest(dir: string): BackupManifest | null {
+  const file = join(dir, BACKUP_MANIFEST);
+  if (!existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as BackupManifest;
+    if (!Array.isArray(parsed.files)) return null;
+    return parsed;
+  } catch {
+    // 清单损坏：当作没有（还原走反推，不因清单坏了就拒绝还原）
+    return null;
+  }
+}
+
+/** 把一条记录追加进清单（同原路径只记一次 —— 多次接入同一个文件时保留最早的原始快照）。 */
+function appendManifestEntry(dir: string, entry: BackupEntry): void {
+  const manifest = readManifest(dir);
+  if (manifest === null) return;
+  if (manifest.files.some((f) => f.original === entry.original)) return;
+  manifest.files.push(entry);
+  writeJsonSecret(join(dir, BACKUP_MANIFEST), manifest);
+}
+
+/**
+ * 原样备份一个待改文件（0600 —— 备份源可能是凭据文件）。返回备份路径。
+ *
+ * **备份文件名带原目录的短哈希**：dsh 的多个 profile 补丁同名（都叫
+ * `cordis.patch.yml`，分在不同 profile 目录下），只用 basename 会互相覆盖 ——
+ * 而清单里记了多条不同原路径，还原时除第一条外全都 ENOENT
+ * （2026-11-07 实测：`profiles/web/cordis.patch.yml` 与 `profiles/desktop/...` 撞名）。
+ *
+ * 写成 `<basename>.<dirHash8>` 后同名不同目录的文件各自独立；同时**写成功才登记
+ * 清单**（反过来会在写盘失败时留下指向不存在备份的记录）。
+ */
 function backupFile(dir: string, file: string): string {
-  const dest = join(dir, file.split(/[\\/]/).pop() ?? "config");
+  const base = file.split(/[\\/]/).pop() ?? "config";
+  const dirHash = createHash("sha256").update(file).digest("hex").slice(0, 8);
+  const name = `${base}.${dirHash}`;
+  const dest = join(dir, name);
+  mkdirSync(dir, { recursive: true });
   writeAtomicFile(dest, readFileSync(file, "utf8"), 0o600);
+  appendManifestEntry(dir, { original: file, backup: name, existed: true });
   return dest;
+}
+
+/**
+ * 登记一个「接入将新建」的文件（原本不存在）。
+ *
+ * 不写备份内容（没内容可备），只记 `existed: false` —— 还原时据此删除。
+ * 必须在**写入新文件之前**调用，否则无法区分「原本就没有」与「备份时正好不存在」。
+ */
+function noteCreatedFile(dir: string, file: string): void {
+  appendManifestEntry(dir, {
+    original: file,
+    backup: "",
+    existed: false,
+  });
 }
 
 // ── zcode ───────────────────────────────────────────────────────────────────
@@ -579,8 +668,10 @@ function integrateClaudeCode(models: string[]): IntegrationResult {
     return result;
   }
   const backup = backupDirFor("claude-code");
-  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）
+  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）—— 但要在清单里留下
+  // `existed:false`，否则还原时会以为「没有这个文件的备份」，把接入新建的文件留在盘上
   if (existsSync(file)) backupFile(backup, file);
+  else noteCreatedFile(backup, file);
   writeAtomicFile(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
@@ -748,8 +839,12 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   }
 
   const backup = backupDirFor("claude-desktop");
+  // 两个文件都可能是新建（Desktop 没装过 3P profile）：新建的记 `existed:false`，
+  // 还原时删掉，别把接入产物留在用户目录里
   if (existsSync(profileFile)) backupFile(backup, profileFile);
+  else noteCreatedFile(backup, profileFile);
   if (existsSync(metaFile)) backupFile(backup, metaFile);
+  else noteCreatedFile(backup, metaFile);
   writeAtomicFile(profileFile, profileAfter, 0o600);
   writeAtomicFile(metaFile, metaAfter, 0o600);
   result.changed.push(profileFile, metaFile);
@@ -869,12 +964,202 @@ function integrateCodex(models: string[]): IntegrationResult {
     return result;
   }
   const backup = backupDirFor("codex");
-  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）
+  // 新建场景同样要留 `existed:false`（否则还原会把接入新建的 config.toml 留下）
   if (existsSync(file)) backupFile(backup, file);
+  else noteCreatedFile(backup, file);
   writeAtomicFile(file, text, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
   result.notes.push(`base_url=${GATEWAY_BASE_URL}（wire_api=responses），模型=${models[0]}`);
+  result.ok = true;
+  return result;
+}
+
+// ── 一键还原 ────────────────────────────────────────────────────────────────
+
+export interface RestoreResult {
+  ok: boolean;
+  target: IntegrationTarget;
+  /** 被还原回原内容的文件。 */
+  restored: string[];
+  /** 因为接入时本来不存在、还原时被删掉的文件。 */
+  removed: string[];
+  /** 使用的备份目录（还原成功后，它被移进 `restored-` 前缀以免重复还原同一份）。 */
+  sourceDir?: string;
+  /** 还原前对「当前状态」做的保护性备份目录（可用来反悔）。 */
+  safetyDir?: string;
+  error?: string;
+  notes: string[];
+}
+
+/**
+ * 某 target 的全部**可用**备份目录，按时间**新的在前**。
+ *
+ * 目录名形如 `<target>-<yyyymmddhhmmss>`；两类目录不参与挑选：
+ * - `safety-<target>-*`：还原时给「当前状态」留的保护性快照 —— 它是接**后**的状态，
+ *   拿去当还原源会把配置又改回接入后的样子（自噬）；
+ * - `restored-<target>-*`：已经被还原用掉的备份，再次还原不该重复消费。
+ */
+function backupDirsOf(target: IntegrationTarget): string[] {
+  backupRoot ??= join(rootDir(), "backups", "integrate");
+  if (!existsSync(backupRoot)) return [];
+  const prefix = `${target}-`;
+  return readdirSync(backupRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith(prefix))
+    .map((e) => e.name)
+    .sort()
+    .reverse()
+    .map((name) => join(backupRoot!, name));
+}
+
+/** 还原前的保护性快照目录（`safety-` 前缀，不参与自动挑选）。 */
+function safetyDirFor(target: IntegrationTarget): string {
+  backupRoot ??= join(rootDir(), "backups", "integrate");
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const dir = join(backupRoot, `safety-${target}-${stamp}`);
+  mkdirSync(dir, { recursive: true });
+  if (!existsSync(join(dir, BACKUP_MANIFEST))) {
+    writeJsonSecret(join(dir, BACKUP_MANIFEST), {
+      version: 1,
+      target,
+      createdAt: new Date().toISOString(),
+      files: [],
+    } satisfies BackupManifest);
+  }
+  return dir;
+}
+
+/**
+ * 老备份（无 manifest）的原路径反推。
+ *
+ * 只对**目标路径固定**的 target 可行（每个 target 的配置文件位置由 cid 唯一决定）；
+ * 反推不出来就跳过该文件并如实记 notes —— 不猜路径，写错文件比不还原更糟。
+ *
+ * 备份名可能带 `.xxxxxxxx` 哈希后缀（同名不同目录的去重手段），反推前先剥掉。
+ */
+function inferOriginalPath(target: IntegrationTarget, backupName: string): string | null {
+  const home = homedir();
+  // 剥掉 basename 之后的 8 位哈希后缀
+  const base = backupName.replace(/\.[0-9a-f]{8}$/, "");
+  switch (target) {
+    case "codex":
+      return join(home, ".codex", "config.toml");
+    case "claude-code":
+      return join(home, ".claude", "settings.json");
+    case "zcode":
+      return join(home, ".zcode", "v2", "provider_config.json");
+    case "dsh": {
+      // dsh 的主配置与凭据目录都可能出现在备份里：按文件名分流
+      if (base === "config.yaml") return join(home, ".dsh", "config.yaml");
+      return join(home, ".dsh", "credentials", base);
+    }
+    case "claude-desktop": {
+      // profile 与 meta 都在 Desktop 的 3P 配置库（跨平台路径由渠道自己推导），靠文件名区分
+      return join(claudeDesktopLibraryDir(), base);
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * 一键还原：把该 target 的客户端配置恢复成**接入前**的样子。
+ *
+ * 语义（与「接入」对称，用户可预期）：
+ * 1. 取该 target **最新一次**备份（已被还原过的目录带 `restored-` 前缀，不再选中）；
+ * 2. **先把当前状态再备份一次**（`<target>-<stamp>` 另一份）—— 还原是破坏性动作，
+ *    用户可能想反悔；多留一份成本极低；
+ * 3. 逐个文件回写：`existed:true` 写回原文，`existed:false` **删除**；
+ * 4. 用过的备份目录改名加 `restored-` 前缀 —— 防「连点两次还原」把第二份备份也吃掉。
+ *
+ * 没有任何备份时如实报错（不假装成功）。
+ */
+export function restoreClient(target: IntegrationTarget): RestoreResult {
+  const result: RestoreResult = { ok: false, target, restored: [], removed: [], notes: [] };
+  const dirs = backupDirsOf(target);
+  const source = dirs[0];
+  if (source === undefined) {
+    const backupRootPath = join(rootDir(), "backups", "integrate");
+    result.error =
+      `没有找到 ${target} 的接入备份（${backupRootPath}/${target}-*）` +
+      "——先接入过一次才有可还原的状态";
+    return result;
+  }
+
+  const manifest = readManifest(source);
+  // 老备份没有清单：按文件名反推原路径（推不出来的如实跳过）
+  let entries: BackupEntry[];
+  if (manifest !== null) {
+    entries = manifest.files;
+  } else {
+    const inferred: BackupEntry[] = [];
+    for (const e of readdirSync(source, { withFileTypes: true })) {
+      if (!e.isFile() || e.name === BACKUP_MANIFEST) continue;
+      const original = inferOriginalPath(target, e.name);
+      if (original === null) {
+        result.notes.push(`跳过 ${e.name}：老备份没有清单，无法确定原路径`);
+        continue;
+      }
+      inferred.push({ original, backup: e.name, existed: true });
+    }
+    entries = inferred;
+  }
+  if (entries.length === 0) {
+    result.error = `备份目录 ${source} 里没有可还原的文件`;
+    return result;
+  }
+
+  // 保护性备份：把「当前状态」再留一份，用户想反悔时还有得救。
+  // 用 `safety-` 前缀 —— 它装着接**后**的状态，混进自动挑选会让下次还原把自己改回去
+  const safety = safetyDirFor(target);
+  result.safetyDir = safety;
+  for (const entry of entries) {
+    if (!existsSync(entry.original)) continue;
+    try {
+      backupFile(safety, entry.original);
+    } catch (err) {
+      // 备份失败不阻断还原（可能是权限问题）；但要在 notes 里说出来
+      result.notes.push(`保护性备份失败（${entry.original}）：${String(err)}`);
+    }
+  }
+
+  // 逐个还原
+  for (const entry of entries) {
+    try {
+      if (!entry.existed) {
+        // 接入时新建的文件：还原 = 删掉它（原本就不该存在）
+        if (existsSync(entry.original)) {
+          rmSync(entry.original, { force: true });
+          result.removed.push(entry.original);
+        }
+        continue;
+      }
+      const backupPath = join(source, entry.backup);
+      if (!existsSync(backupPath)) {
+        result.notes.push(`备份文件缺失，跳过：${entry.backup}`);
+        continue;
+      }
+      const original = readFileSync(backupPath, "utf8");
+      writeAtomicFile(entry.original, original, 0o600);
+      result.restored.push(entry.original);
+    } catch (err) {
+      result.error = `还原 ${entry.original} 失败：${String(err)}`;
+      return result;
+    }
+  }
+
+  // 用掉的备份改名（防重复还原吃掉第二份）；改名失败不影响结果
+  try {
+    backupRoot ??= join(rootDir(), "backups", "integrate");
+    const baseName = source.split(/[\\/]/).pop() ?? `${target}-backup`;
+    const restoredName = join(backupRoot, `restored-${baseName}`);
+    renameSync(source, restoredName);
+    result.notes.push(`用过的备份已标记为已还原：${restoredName}`);
+  } catch (err) {
+    result.notes.push(`备份目录改名失败（不影响还原结果）：${String(err)}`);
+  }
+
+  result.sourceDir = source;
   result.ok = true;
   return result;
 }

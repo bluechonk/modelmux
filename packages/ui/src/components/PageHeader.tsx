@@ -25,7 +25,11 @@ export function PageHeader({
         <h1 className="text-lg font-normal tracking-tight text-ink">{title}</h1>
         {description && <p className="mt-1.5 text-[13px] text-ink-faint">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {/* 按钮栏 `shrink-0` + `whitespace-nowrap`：窄屏时让**说明文字**换行，
+          而不是把「刷新」这类两字按钮挤成两行（`flex-wrap` 在外层，actions 自身不再折） */}
+      {actions && (
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">{actions}</div>
+      )}
     </header>
   );
 }

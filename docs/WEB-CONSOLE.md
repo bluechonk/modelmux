@@ -136,15 +136,21 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | zcode | `~/.zcode/v2/provider_config.json`（JSON） | modelmux 供应商规则的 `api.baseUrl` 与 `personalModelIds` / `modelOrder`，并补齐 `group` / `access`；`modelConfigRules.providerModelRules` 给这几个模型补 `enabled: true`，并清掉该供应商下已下线的旧模型规则 |
 | dsh | `~/.dsh/profiles/{acp,desktop,headless,web}/cordis.patch.yml`（YAML）+ `~/.dsh/.credentials.yaml` | patch 里 `providers.modelmux.models` 列表整段替换；`acp` profile 再补 `acp` 路由条目（`provider` / `model`）；凭据文件的 `refs` 补 `MODELMUX_API_KEY`（`apiKeyEnv` 指向的名字） |
 | claude-desktop | `<LOCALAPPDATA>/Claude-3p/configLibrary/<profile>.json` + `_meta.json` | `inferenceProvider: "gateway"` + **`modelDiscoveryEnabled: false`**（发现会把网关裸名当候选，而 Desktop 校验器不收点号，实测选择器为空）；`inferenceModels` 显式写：`name` 用真实 Anthropic 模型名占角色槽（`claude-sonnet-4-5` / `claude-opus-4-5` / `claude-haiku-4-5`），**真正发给网关的模型名走 `labelOverride`**，`supports1m` + `prefer1m` 成对给出 1M；`_meta.json` 复用已有同名条目并设为 `appliedId`。**改完需重启 Desktop** |
+| claude-code / codex | `~/.claude/settings.json`（JSON）/ `~/.codex/config.toml`（TOML） | 前者的 `env` 写 `ANTHROPIC_BASE_URL`（**不带** `/v1`）与模型三件，并**删掉** `ANTHROPIC_API_KEY`（与 `AUTH_TOKEN` 并存会被客户端拒绝）；后者顶层 `model_provider` / `model` 与 `[model_providers.modelmux]` 段（`wire_api = "responses"`），`auth.json` 不碰 |
 
 - **只改模型清单**，不动 baseURL / apiKeyEnv / retryPolicy —— 现有接线通常已正确，越少改动越安全。
 - **两处「不改不行」的例外**：zcode 的个人供应商规则必须带齐 `group` / `access` / `api`，
   缺任一项就整个供应商不进注册表（`setModel` 报「Provider Registry 中不存在 Model」）；
   dsh 的 `apiKeyEnv` 只是引用名，必须在 `~/.dsh/.credentials.yaml` 的 `refs` 里有对应条目，
   否则 Models 页判定该 provider 不可用。两处都只补缺失项，用户已配的密钥原样保留。
-- **写前备份**到 `~/.modelmux/backups/integrate/<target>-<时间戳>/`（误改可回滚）。
+- **写前备份**到 `~/.modelmux/backups/integrate/<target>-<时间戳>/`，同目录一份 `manifest.json`
+  记下每个被改文件的**原路径**与「接入前是否存在」—— 这是「一键还原」的依据（只存文件名
+  无法还原：dsh 各 profile 的补丁同名、且接入新建的文件还原时要删掉）。
+- **一键还原**（与接入并列的按钮）：取该目标**最新一次未用过的**备份写回；`existed:false`
+  的文件删除；还原前先把**当前状态**再备份到 `safety-<target>-<时间戳>/`（可反悔）；
+  用过的备份改名为 `restored-` 前缀，第二次点还原不会再消费同一份。没有备份时如实报错。
 - **幂等**：内容与目标一致时不落盘（结果只经右下角 toast 提示，卡片内不重复贴一条 —— 会和 toast 撞内容，还会让区块高度跳动）。
-- 实现放 app 层（`app/integrate.ts`），控制台（http 层）经 `ControlBridge.integrate` 注入调用 ——
+- 实现放 app 层（`app/integrate.ts`），控制台（http 层）经 `ControlBridge.integrate` / `.restore` 注入调用 ——
   写的是客户端配置（`~/.zcode` / `~/.dsh`），不是网关运行时，故不能放在 http 层（见 `scripts/verify-layering.mjs`）。
 - dsh 是**文本级**改写（共享层零依赖，不能引 YAML 解析器）：只定位 `providers.modelmux` 块下的
   `models:` 列表并整段替换，其余行原样保留（`desktop` 的 patch 里还有 longcat 等**其它 provider**，

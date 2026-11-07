@@ -12,7 +12,7 @@ import { createInterface, type Interface } from "node:readline";
 
 import * as authFlow from "../../auth/auth-flow.js";
 import { startAutoSignin } from "../../auth/auto-signin.js";
-import { integrateClient } from "../integrate.js";
+import { integrateClient, restoreClient } from "../integrate.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
@@ -643,6 +643,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // 控制台的「一键接入」按钮：改写本机 harness 的模型配置（实现见 app/integrate.ts，
     // 写的是 ~/.zcode / ~/.dsh —— 不是网关运行时，故不能放在 http 层）
     integrate: (target) => integrateClient(target),
+    // 控制台的「一键还原」：把目标恢复成接入前状态（同 app/integrate.ts 的 restoreClient）
+    restore: (target) => restoreClient(target),
     // 控制台的「登录」按钮经此回调触发真实登录流程（本函数在 app 层，
     // 控制台层不认识它 —— 见 scripts/verify-layering.mjs）
     triggerLogin: (cid, force) => {
