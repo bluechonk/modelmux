@@ -94,8 +94,7 @@ mx model list
 
 | 想看什么 | 去哪 |
 | --- | --- |
-| 项目规则（开发 / 提交 / 测试） | [AGENTS.md](AGENTS.md) |
-| 文档标准（分层 / 写作 / 审稿） | [docs/AGENTS.md](docs/AGENTS.md) |
+| 项目规则（开发 / 提交 / 测试 / **文档标准** / **设计文档索引**） | [AGENTS.md](AGENTS.md) |
 | 契约与规范 | [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) |
 | 公共模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |

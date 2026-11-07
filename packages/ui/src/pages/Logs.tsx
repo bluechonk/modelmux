@@ -717,11 +717,14 @@ export function Logs(): ReactElement {
   /** 展开的条目可能已被新筛选挤走：找不到就不渲染详情。 */
   const expandedEntry = page?.entries.find((entry) => entry.id === expanded) ?? null;
 
+  // 根容器用 `flex-1` 而非 `h-full`：父级是 LayoutSingle 的 `flex min-h-full flex-col` 容器，
+  // `flex-1` 才能拿到「撑满视口后剩余的高度」，让下方表格区填到视口下缘
+  // （`h-full` 的百分比在只声明 min-height 的父级下解析成 auto，行数少时底部留一大块空白）。
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <PageHeader
         title="请求日志"
-        description="每次模型请求的时间、渠道、模型、耗时与 tokens"
+        description="每次模型请求的明细"
         actions={
           <>
             <RefreshButton onRefresh={() => logs.refetch()} />
