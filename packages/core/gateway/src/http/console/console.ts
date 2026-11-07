@@ -198,7 +198,7 @@ export interface ControlBridge {
    * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
-  integrate?: (target: "zcode" | "dsh" | "claude-code" | "codex") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
 }
 
 export interface ConsoleServer {

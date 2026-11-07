@@ -20,7 +20,7 @@ import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
-export type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "codex";
+export type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex";
 
 export interface IntegrationResult {
   ok: boolean;
@@ -72,6 +72,8 @@ export function integrateClient(target: IntegrationTarget, models: string[] = ex
       return integrateDsh(models);
     case "claude-code":
       return integrateClaudeCode(models);
+    case "claude-desktop":
+      return integrateClaudeDesktop(models);
     case "codex":
       return integrateCodex(models);
   }
@@ -583,6 +585,179 @@ function integrateClaudeCode(models: string[]): IntegrationResult {
   result.changed.push(file);
   result.backupDir = backup;
   result.notes.push(`baseUrl=${GATEWAY_ANTHROPIC_URL}，模型=${primary}（haiku/sonnet/opus 同指）`);
+  result.ok = true;
+  return result;
+}
+
+// ── claude desktop ──────────────────────────────────────────────────────────
+
+/**
+ * Claude Desktop 的 3P（third-party）profile 路径。
+ *
+ * Desktop 与 Claude Code 是**两个应用**：后者读 `~/.claude/settings.json` 的环境变量，
+ * 前者读自己的 3P profile（`<LOCALAPPDATA>/Claude-3p/configLibrary/`，macOS 在
+ * `~/Library/Application Support/Claude-3p/`）。写错位置的后果是 Desktop 照常启动、
+ * 但完全不读我们写的配置 —— 静默无效，没有任何报错。
+ */
+function claudeDesktopLibraryDir(): string {
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "Claude-3p", "configLibrary");
+  }
+  if (process.platform === "win32") {
+    const local = process.env["LOCALAPPDATA"] ?? join(homedir(), "AppData", "Local");
+    return join(local, "Claude-3p", "configLibrary");
+  }
+  const configHome = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
+  return join(configHome, "Claude-3p", "configLibrary");
+}
+
+/**
+ * profile 文件名（`_meta.json` 的 `entries[].id` 与 `appliedId` 都指向它）。
+ *
+ * 复用已有条目的规则见 `pickDesktopProfileId`：Desktop / cc-switch 会按 UUID 命名 profile，
+ * 已有同名（`name` 为 `modelmux`）的条目时**沿用它的 id**，否则 `<cid>` 这类供应商会在
+ * 列表里出现两条同名项。
+ */
+const DESKTOP_PROFILE_NAME = "modelmux";
+
+/** 在已有 `_meta.json` 里挑出应当复用的 profile id：同名的优先，其次 `appliedId`。 */
+function pickDesktopProfileId(meta: Record<string, unknown>): string {
+  const entries = Array.isArray(meta["entries"]) ? (meta["entries"] as unknown[]) : [];
+  const named = entries.find(
+    (e) =>
+      e &&
+      typeof e === "object" &&
+      (e as Record<string, unknown>)["name"] === DESKTOP_PROFILE_NAME &&
+      typeof (e as Record<string, unknown>)["id"] === "string",
+  ) as Record<string, unknown> | undefined;
+  if (named) return named["id"] as string;
+  const applied = meta["appliedId"];
+  if (typeof applied === "string" && applied !== "") return applied;
+  return DESKTOP_PROFILE_NAME;
+}
+
+/**
+ * 把一个对外模型名映射成 Desktop 认的条目。
+ *
+ * `name` 必须是 `anthropic/claude-<role>-…` 形态：Desktop 的模型校验器按**角色前缀**
+ * （sonnet / opus / haiku / fable）认模型，不合规的条目会触发 fail-all —— **整组**被拒，
+ * 表现为「模型列表里一个都没有」，而不是只丢这一项。所以这里统一挂 `sonnet-` 角色，
+ * 真正的对外模型名走 `labelOverride`（界面显示的就是它）。
+ */
+/**
+ * 三条模型的**角色槽位**：Desktop 按角色（sonnet / opus / haiku）给模型分档，
+ * 同一角色只能挂一个模型，故最多并存 3 个。
+ *
+ * `name` 必须写成**真实存在的 Anthropic 模型名**：Desktop 的校验器
+ * （`app.asar` 里 `jo()` → `ko = /^[A-Za-z0-9_-]{1,64}$/` 再叠加「须为已知 Anthropic 模型」）
+ * 会拒掉自造名 —— 连斜杠与点号都不允许，`anthropic/claude-sonnet-longcat-2.5`、
+ * `claude-sonnet-longcat-2-5` 实测都会被丢弃（日志：`is not an Anthropic model`），
+ * 结果是模型选择器为空。真正发给网关的模型名走 `labelOverride`。
+ */
+const DESKTOP_ROLE_SLOTS = ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"] as const;
+
+/**
+ * 把对外模型列表映射成 Desktop 的 `inferenceModels`。
+ *
+ * 超过 3 个时只取前 3 个（角色槽位只有三个）。`supports1m` + `prefer1m` 必须成对出现：
+ * 前者给出 1M 变体，后者让选择器只列 1M 那一项 —— 少了 UI 会退回 200k。
+ */
+function desktopInferenceModels(models: readonly string[]): Array<Record<string, unknown>> {
+  return models.slice(0, DESKTOP_ROLE_SLOTS.length).map((model, index) => ({
+    name: DESKTOP_ROLE_SLOTS[index]!,
+    labelOverride: model,
+    supports1m: true,
+    prefer1m: true,
+  }));
+}
+
+/**
+ * Claude Desktop：写 3P profile（`configLibrary/modelmux.json` + `_meta.json`）。
+ *
+ * 走 **`inferenceProvider: "gateway"`**，模型清单写进 `inferenceModels`（**不**用模型发现，
+ * 原因见 `DESKTOP_ROLE_SLOTS` 与 `modelDiscoveryEnabled` 处的注释）。
+ *
+ * 认证用 `x-api-key`（本地回环网关不校验入站密钥，与 Claude Code 那条同口径）。
+ */
+function integrateClaudeDesktop(models: string[]): IntegrationResult {
+  const result: IntegrationResult = {
+    ok: false,
+    target: "claude-desktop",
+    models,
+    changed: [],
+    unchanged: [],
+    notes: [],
+  };
+  const dir = claudeDesktopLibraryDir();
+  const metaFile = join(dir, "_meta.json");
+
+  // 目录不存在 = Desktop 没装过 / 没起过 3P 模式。不替它造目录：Desktop 首次以 3P 模式
+  // 启动时会自己建，凭空造一个反而可能让它认不出自己的配置根。
+  if (!existsSync(dir)) {
+    result.error = `找不到 Claude Desktop 的 3P 配置目录：${dir}（先启动一次 Claude Desktop）`;
+    return result;
+  }
+
+  const metaBefore = existsSync(metaFile) ? readFileSync(metaFile, "utf8") : "";
+  let meta: Record<string, unknown> = {};
+  if (metaBefore) {
+    try {
+      meta = JSON.parse(metaBefore) as Record<string, unknown>;
+    } catch (err) {
+      result.error = `Claude Desktop 的 _meta.json 不是合法 JSON：${String(err)}`;
+      return result;
+    }
+  }
+  // 沿用已有条目（同名的优先，其次 appliedId），避免出现两条同名供应商
+  const profileId = pickDesktopProfileId(meta);
+  const profileFile = join(dir, `${profileId}.json`);
+
+  const profile: Record<string, unknown> = existsSync(profileFile)
+    ? (JSON.parse(readFileSync(profileFile, "utf8")) as Record<string, unknown>)
+    : {};
+  const before = JSON.stringify(profile);
+  profile["inferenceProvider"] = "gateway";
+  profile["inferenceGatewayBaseUrl"] = GATEWAY_ANTHROPIC_URL;
+  profile["inferenceGatewayAuthScheme"] = "x-api-key";
+  profile["inferenceGatewayApiKey"] = LOCAL_API_KEY;
+  // **必须关**模型发现：它直接拿 `/v1/models` 的裸名（`longcat-2.5` / `deepseek-v4.1-flash`）
+  // 当候选，而 Desktop 的校验器不接受点号 —— 实测 3 个模型全被判「不可用」
+  // （日志：`Gateway /v1/models returned 0 usable models { rawCount: 3 }`，选择器为空）。
+  // 显式 `inferenceModels` 里用合法 Anthropic 名 + `labelOverride` 才是可走的路。
+  profile["modelDiscoveryEnabled"] = false;
+  // 兜底清单：显式列全部对外模型（发现生效时以网关返回为准，这份不冲突）
+  profile["inferenceModels"] = desktopInferenceModels(models);
+  if (profile["disableDeploymentModeChooser"] === undefined) {
+    profile["disableDeploymentModeChooser"] = true;
+  }
+
+  const entries = Array.isArray(meta["entries"]) ? (meta["entries"] as unknown[]) : [];
+  const hasOurs = entries.some(
+    (e) => e && typeof e === "object" && (e as Record<string, unknown>)["id"] === profileId,
+  );
+  if (!hasOurs) entries.push({ id: profileId, name: DESKTOP_PROFILE_NAME });
+  meta["entries"] = entries;
+  meta["appliedId"] = profileId;
+
+  const metaAfter = `${JSON.stringify(meta, null, 2)}\n`;
+  const profileAfter = `${JSON.stringify(profile, null, 2)}\n`;
+  if (before === JSON.stringify(profile) && metaAfter === metaBefore) {
+    result.unchanged.push(profileFile, metaFile);
+    result.ok = true;
+    return result;
+  }
+
+  const backup = backupDirFor("claude-desktop");
+  if (existsSync(profileFile)) backupFile(backup, profileFile);
+  if (existsSync(metaFile)) backupFile(backup, metaFile);
+  writeAtomicFile(profileFile, profileAfter, 0o600);
+  writeAtomicFile(metaFile, metaAfter, 0o600);
+  result.changed.push(profileFile, metaFile);
+  result.backupDir = backup;
+  result.notes.push(
+    `baseUrl=${GATEWAY_ANTHROPIC_URL}，按角色槽写入 ${Math.min(models.length, DESKTOP_ROLE_SLOTS.length)} 个模型（全部 1M 上下文）`,
+  );
+  result.notes.push("改完需重启 Claude Desktop 才生效");
   result.ok = true;
   return result;
 }

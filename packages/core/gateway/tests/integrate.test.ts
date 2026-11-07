@@ -528,6 +528,95 @@ describe("一键接入 claude code", () => {
   });
 });
 
+// ── claude desktop ──────────────────────────────────────────────────────────
+
+/**
+ * 造一份 Desktop 的 3P 配置目录（`configLibrary/` + 一个已有 profile + `_meta.json`）。
+ *
+ * Windows 走 `LOCALAPPDATA`、macOS 走 `~/Library/Application Support`、Linux 走
+ * `XDG_CONFIG_HOME`；三个都指到测试临时目录，互不干扰。
+ */
+function seedDesktop(profileId = "8f69f2f1-3275-4ad8-9317-4aa7e972f311"): { dir: string; profile: string } {
+  const base =
+    process.platform === "darwin"
+      ? join(home, "Library", "Application Support")
+      : process.platform === "win32"
+        ? join(home, "AppData", "Local")
+        : join(home, ".config");
+  process.env["LOCALAPPDATA"] = join(home, "AppData", "Local");
+  process.env["XDG_CONFIG_HOME"] = join(home, ".config");
+  const dir = join(base, "Claude-3p", "configLibrary");
+  mkdirSync(dir, { recursive: true });
+  const profile = join(dir, `${profileId}.json`);
+  writeFileSync(
+    profile,
+    `${JSON.stringify({ inferenceProvider: "gateway", inferenceGatewayBaseUrl: "http://127.0.0.1:9999" }, null, 2)}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    join(dir, "_meta.json"),
+    `${JSON.stringify({ entries: [{ id: profileId, name: "modelmux" }], appliedId: profileId }, null, 2)}\n`,
+    "utf8",
+  );
+  return { dir, profile };
+}
+
+describe("一键接入 claude desktop", () => {
+  it("写 3P profile：gateway 模式 + 模型发现开 + 兜底清单含全部对外模型", () => {
+    const { profile } = seedDesktop();
+    const result = integrateClient("claude-desktop", MODELS);
+    assert.equal(result.ok, true);
+    const after = JSON.parse(readFileSync(profile, "utf8")) as Record<string, unknown>;
+    assert.equal(after["inferenceProvider"], "gateway");
+    // 必须关：发现直接拿网关裸名（带点号）当候选，Desktop 校验器全部拒收，选择器为空
+    assert.equal(after["modelDiscoveryEnabled"], false);
+    assert.equal(after["inferenceGatewayBaseUrl"], "http://127.0.0.1:4412");
+    assert.equal(after["inferenceGatewayAuthScheme"], "x-api-key");
+    const models = after["inferenceModels"] as Array<Record<string, unknown>>;
+    assert.equal(models.length, MODELS.length);
+    for (const entry of models) {
+      const name = String(entry["name"]);
+      // Desktop 只认真实 Anthropic 模型名：自造名（`claude-sonnet-<任意>`）会被判
+      // 「is not an Anthropic model」并丢弃；斜杠与点号同样不允许
+      assert.match(name, /^claude-(sonnet|opus|haiku|fable)-\d+-\d+$/);
+      assert.doesNotMatch(name, /[./]/, "斜杠与点号会被校验器拒收");
+      // 真正发给网关的模型名在这里
+      assert.ok(String(entry["labelOverride"]) !== "", "labelOverride 才是网关收到的模型名");
+      assert.equal(entry["supports1m"], true, "缺 supports1m 会退回 200k 上下文");
+      assert.equal(entry["prefer1m"], true, "缺 prefer1m 选择器会列出两项");
+    }
+  });
+
+  it("复用已有 profile 条目，不新增同名供应商", () => {
+    const { dir } = seedDesktop();
+    integrateClient("claude-desktop", MODELS);
+    const meta = JSON.parse(readFileSync(join(dir, "_meta.json"), "utf8")) as {
+      entries: Array<{ id: string; name: string }>;
+      appliedId: string;
+    };
+    assert.equal(meta.entries.length, 1, "已有同名条目时应复用，否则列表里会出现两条同名项");
+    assert.equal(meta.appliedId, meta.entries[0]!.id);
+  });
+
+  it("幂等：二次运行无改动", () => {
+    const { profile } = seedDesktop();
+    integrateClient("claude-desktop", MODELS);
+    const once = readFileSync(profile, "utf8");
+    const second = integrateClient("claude-desktop", MODELS);
+    assert.equal(second.changed.length, 0);
+    assert.equal(readFileSync(profile, "utf8"), once, "内容一致时不落盘");
+  });
+
+  it("目录不存在时如实报错，不凭空造目录", () => {
+    const { dir } = seedDesktop();
+    rmSync(dir, { recursive: true, force: true });
+    const result = integrateClient("claude-desktop", MODELS);
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /找不到 Claude Desktop 的 3P 配置目录/);
+    assert.equal(existsSync(dir), false, "不替 Desktop 造配置根");
+  });
+});
+
 // ── codex ───────────────────────────────────────────────────────────────────
 
 /** 一份带其它 provider 段与顶层键的 config.toml。 */
