@@ -89,6 +89,11 @@
 | `status < 200` | `other` |
 
 显式标记优先于推导：流内错误、上游错误、超时由 `noteRequestError()` 置为 `failure`。
+**流内业务错误帧**（上游回 HTTP 200 却在 SSE 里投递 `{"error":{…}}`，qoder 系的排队 /
+额度 / 认证都是这个形态）由 `http/chat/stream.ts::noteStreamError` 与非流式聚合分支
+（`forward.ts` 的 `firstSseError`）逐帧记账 —— 在这之前这类帧无声无息地记成 `success`，
+同一个上游错误会一直重复（实测 qodercn `code=112` + `pricingUrl` 额度错误）。
+额度类业务错误同时冷却账号（`quotaSignal` 判据，渠道知识不上共享层）。
 客户端提前断开**不改变分桶**（`noteClientDisconnect()` 与 `close` 回调都只留一句说明）——
 `outcome` 表达的是**服务端这次请求的结果**：上游该回的已经回了（200）就记 `success` ✓，
 说明里带上「客户端提前断开」即可；按 `success.log` 统计成功率才不失真 ✓。

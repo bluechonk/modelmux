@@ -969,6 +969,23 @@ export function activeAccountIsError(cid?: string): boolean {
   }
 }
 
+/**
+ * 生效账号的健康态（池读不出来 / 没有生效账号时 `null`）。
+ *
+ * 路由用它剔除**终态**账号：`unauthorized` 是凭据本身失效（token 被撤销），
+ * 重试永远不会成功 —— 不剔除的话每次请求都会先白跑一趟这条候选。
+ * `error`（熔断）**不在此列**：它有半开试探时刻，到点必须放行一次自检。
+ */
+export function activeAccountHealth(cid?: string): AccountHealth | null {
+  try {
+    const index = readIndex(cid);
+    if (!index.active) return null;
+    return index.accounts.find((a) => a.key === index.active)?.health ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** 熔断剩余信息（短路文案/界面用）；未熔断或已到试探时刻返回 null。 */
 export function activeAccountTrip(cid?: string): { until: string; remainingMs: number } | null {
   try {

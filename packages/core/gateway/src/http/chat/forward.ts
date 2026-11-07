@@ -16,7 +16,7 @@ import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsa
 import { inChannel, isCustomWire } from "./channel.js";
 import { writeJson, writeProtocolError } from "./errors.js";
 import { protocolOf, sinkOf } from "../protocol/types.js";
-import { collectAsOpenAiSse, relayStream } from "./stream.js";
+import { collectAsOpenAiSse, coolAccountOnQuotaSignal, relayStream } from "./stream.js";
 import type { ProbeFrames } from "./queue.js";
 import type { UpstreamCall } from "./upstream.js";
 import * as dsmlTools from "../wire/dsml-tools.js";
@@ -213,7 +213,12 @@ export async function relayUpstream(
       if (isEmptyCompletion(aggregated)) {
         const sseError = sseStream.firstSseError(buf);
         if (sseError) {
-          writeProtocolError(res, 502, sseError.code ?? "upstream_error", sseError.message ?? "upstream error");
+          const code = sseError.code ?? "upstream_error";
+          const message = sseError.message ?? "upstream error";
+          // 额度类业务错误同样冷却账号 —— 与流式路径同一条判据，否则同一个
+          // `code=112` 在流式下被冷却、非流式下被反复重试
+          coolAccountOnQuotaSignal(channel, cid, logger, code, message);
+          writeProtocolError(res, 502, code, message);
           return;
         }
         noteRequestError(

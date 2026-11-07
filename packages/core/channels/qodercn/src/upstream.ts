@@ -789,6 +789,20 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
 }
 
 /**
+ * 额度信号：qodercn 的额度 / 权益类业务错误。
+ *
+ * 实测（2026-11-07）：glm-5.3-flash 的请求被上游回**流内业务错误帧**
+ * `{"code":112,"message":"{\"pricingUrl\":\"https://qoder.com.cn/pricing?client=qoder\"}"}`
+ * —— 正文引导用户去充值，语义就是额度/权益不足。共享层的通用措辞认不出它，
+ * 必须由渠道上报，否则账号不会被冷却（`stream.ts` 的 `noteStreamError` 据此处置）。
+ *
+ * `110` 是 [PROTOCOL.md] 已记录的「额度用尽」码。
+ */
+export function quotaSignal(_status: number, body: string): "balance" | null {
+  return /pricingUrl|"code"\s*:\s*"?(?:110|112)\b/.test(body) ? "balance" : null;
+}
+
+/**
  * 首帧静默上限：**900 秒**（与国际版同源，对齐参考实现 `qoder2api-hub` 的 `idle_limit=900`）。
  *
  * 国内版上游同样会「收下请求（HTTP 200）后长时间零字节」：共享层默认 120 秒

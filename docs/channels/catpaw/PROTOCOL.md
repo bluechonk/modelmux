@@ -344,6 +344,12 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - 现在 `src/catalog.ts` 的 `supportsImages` 恒 `false`（上游的 `supportImage`
   不再抄进来），旧磁盘缓存在读时一并钉死并回写（池层直接读磁盘缓存，
   不回写的话 `/v1/models` 还会看到旧值）。
+- 请求侧同样**显式拒绝**：`buildChatBody` 见到图片分片就抛共享层信号
+  `UnsupportedInputError`（`@modelmux/gateway`）。它不是普通 Error —— 后者会被网关
+  当成「用户输入问题」终局 400，而**换一家渠道本来能收图**，所以必须判「本渠道
+  承载不了、换候选重试」（实测 2026-11-07：`deepseek-v4.1-flash` 的带图请求被这里
+  拦成 400，而 qodercn 等渠道能正常处理）。守卫**不计连败** —— 渠道对纯文本请求
+  是好的，冷却会误伤后续正常请求。
 
 ### 将来要支持图片，得先答清这三件事
 

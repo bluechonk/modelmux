@@ -926,6 +926,13 @@ export async function prepareChat(_body: Record<string, unknown>): Promise<void>
     }
     const code = typeof envelope["code"] === "number" ? envelope["code"] : Number(envelope["code"] ?? 0);
     if (Number.isFinite(code) && code !== 0) {
+      // 11003 = 令牌失效（实测原文 `invalid authorization token`）：与 `cred.ts` 的
+      // 410000 同语义 —— 重试永远不会成功，必须抛 `UpstreamUnauthorized` 让网关
+      // 把账号标成终态，否则每次请求都会先在这条候选上白跑一趟（2026-11-07 实测：
+      // glm-5.3-flash 每次都先撞 autoclaw 的 11003，再落到 qodercn）。
+      if (code === 11003) {
+        throw new UpstreamUnauthorized(`agent/send rejected (code 11003): invalid authorization token, please log in again`);
+      }
       throw new Error(`agent/send business error code=${code}: ${String(envelope["msg"] ?? "")}`);
     }
     const data = envelope["data"] !== undefined ? envelope["data"] : envelope;
