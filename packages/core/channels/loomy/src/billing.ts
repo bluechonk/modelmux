@@ -375,7 +375,7 @@ export const signin: SigninModule = {
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天送 5000 积分，本地 0 点刷新",
+    label: "每天签到送 5000 积分",
     size: DAILY_QUOTA,
     unit: "积分",
     resets_at: nextLocalMidnight(),

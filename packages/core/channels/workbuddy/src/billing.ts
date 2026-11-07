@@ -352,14 +352,14 @@ function nextLocalMidnight(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天签到送 100 credits，本地 0 点刷新**。
+ * 额度周期：**每天签到送 100 credits**。
  *
  * `size` 报的是**每日发放额**，不是账户总额（后者是很多个权益包之和，
  * 与「今天能领多少」无关）。
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天签到送 100 credits，本地 0 点刷新",
+    label: "每天签到送 100 credits",
     size: DAILY_CHECKIN_CREDITS,
     unit: "credits",
     resets_at: nextLocalMidnight(),
