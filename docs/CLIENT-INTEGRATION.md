@@ -9,6 +9,12 @@
 > 前者读自己的 3P profile。Desktop 的配置落在
 > `<LOCALAPPDATA>/Claude-3p/configLibrary/`（macOS：`~/Library/Application Support/Claude-3p/configLibrary/`），
 > 写错位置会**静默无效**（Desktop 照常启动，但完全不读）。
+>
+> Desktop 的 `inferenceModels[].name` 必须是**真实 Anthropic 模型名**（`claude-sonnet-4-5`
+> 这类，实测连斜杠与点号都不允许）：Desktop 的校验器会丢弃自造名，日志写
+> `is not an Anthropic model`，界面上表现为模型选择器为空、只剩「默认模型」。
+> 真正发给网关的模型名写在 `labelOverride` 里。三个角色槽（sonnet / opus / haiku）
+> 决定最多能并存几个模型。
 
 ## 1. 入站端点
 

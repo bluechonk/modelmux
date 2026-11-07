@@ -568,15 +568,22 @@ describe("一键接入 claude desktop", () => {
     assert.equal(result.ok, true);
     const after = JSON.parse(readFileSync(profile, "utf8")) as Record<string, unknown>;
     assert.equal(after["inferenceProvider"], "gateway");
-    assert.equal(after["modelDiscoveryEnabled"], true, "开发现后网关加减模型不用回来改这里");
+    // 必须关：发现直接拿网关裸名（带点号）当候选，Desktop 校验器全部拒收，选择器为空
+    assert.equal(after["modelDiscoveryEnabled"], false);
     assert.equal(after["inferenceGatewayBaseUrl"], "http://127.0.0.1:4412");
     assert.equal(after["inferenceGatewayAuthScheme"], "x-api-key");
     const models = after["inferenceModels"] as Array<Record<string, unknown>>;
     assert.equal(models.length, MODELS.length);
     for (const entry of models) {
-      // 角色前缀不合规会触发 Desktop 的 fail-all（整组被拒，表现为一个模型都没有）
-      assert.match(String(entry["name"]), /^anthropic\/claude-(sonnet|opus|haiku|fable)-/);
-      assert.match(String(entry["labelOverride"]), /^modelmux\//);
+      const name = String(entry["name"]);
+      // Desktop 只认真实 Anthropic 模型名：自造名（`claude-sonnet-<任意>`）会被判
+      // 「is not an Anthropic model」并丢弃；斜杠与点号同样不允许
+      assert.match(name, /^claude-(sonnet|opus|haiku|fable)-\d+-\d+$/);
+      assert.doesNotMatch(name, /[./]/, "斜杠与点号会被校验器拒收");
+      // 真正发给网关的模型名在这里
+      assert.ok(String(entry["labelOverride"]) !== "", "labelOverride 才是网关收到的模型名");
+      assert.equal(entry["supports1m"], true, "缺 supports1m 会退回 200k 上下文");
+      assert.equal(entry["prefer1m"], true, "缺 prefer1m 选择器会列出两项");
     }
   });
 
