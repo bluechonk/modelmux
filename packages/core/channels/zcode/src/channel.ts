@@ -17,7 +17,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "zcode",
   display: "ZCode",
-  version: "0.1.2",
+  version: "0.1.3",
   // 8821/8822 已被 autoclaw 占用（同批新增），顺延取 8823/8824
   defaultAddr: "127.0.0.1:8823",
   uiPort: 8824,

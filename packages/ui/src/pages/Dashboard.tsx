@@ -22,6 +22,7 @@ import {
   Gauge,
   Image as ImageIcon,
   Layers,
+  Link2,
   PlugZap,
   Timer,
   Type,
@@ -57,7 +58,7 @@ const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
   { key: "cumulative", label: "累计" },
 ];
 
-/** KPI 卡上用的区间措辞（与趋势卡右上角的选择器一致：今日 / 近 7 日 / 近 30 日 / 累计）。 */
+/** KPI 卡上用的区间措辞（与页头「用量区间」分段控件一致：今日 / 近 7 日 / 近 30 日 / 累计）。 */
 const RANGE_WORD: Partial<Record<UsageRange, string>> = {
   today: "今日",
   "7d": "近 7 日",
@@ -267,7 +268,11 @@ function IntegrateButton({
 }
 
 /**
- * 单个「还原」按钮：与接入按钮同规格但**描边样式**（次级动作，不抢主按钮的视觉权重）。
+ * 单个「还原」按钮：与接入按钮同规格但**弱一档**（次级动作，不抢主按钮的视觉权重）。
+ *
+ * 配色基线取 `warn` 而不是 `line`：`line` 与卡片描边同色，按钮静止态会被读成
+ * 禁用的说明文字，而不是「另一个可点的动作」。淡黄描边 + 淡黄底让它在同组的
+ * 中性灰主按钮旁边一眼可辨，hover 再提亮一档给出反馈。
  *
  * 语义：把该目标恢复成**接入前**的样子。后端取该目标最新一次备份，
  * 并在还原前先把当前状态再备份一份（可反悔）。
@@ -292,7 +297,7 @@ function RestoreButton({
       disabled={mutation.isPending}
       onClick={() => mutation.mutate(target)}
       aria-label={`还原 ${target} 的接入前配置`}
-      className="tap rounded-lg border border-line bg-transparent py-1.5 text-xs text-ink-soft transition-colors hover:border-warn/50 hover:text-ink disabled:opacity-40"
+      className="tap rounded-lg border border-warn/45 bg-warn/10 py-1.5 text-xs font-medium text-warn transition-colors hover:border-warn/70 hover:bg-warn/16 disabled:opacity-40"
     >
       {busy ? "还原中…" : label}
     </button>
@@ -490,7 +495,7 @@ export function Dashboard(): ReactElement {
   if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
   // ----- 派生数据 -----
-  // 区间用量：KPI 行**全部**读它 —— 趋势卡右上角选「近 7 日」时这些卡就跟着变成近 7 日的数，
+  // 区间用量：KPI 行**全部**读它 —— 页头切到「近 7 日」时这些卡就跟着变成近 7 日的数，
   // 不固定成「今日」（固定的话选区间只影响趋势图，一屏两套口径）
   const totals = rangeStats?.totals;
   // 卡面用「今日 / 近 7 日 / 近 30 日 / 累计」这几个词，跟选择器上的措辞一致
@@ -517,6 +522,7 @@ export function Dashboard(): ReactElement {
       <PageHeader
         title="仪表盘"
         description="用量随区间切换；Token 活动恒看一年"
+        actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
       />
 
       {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
@@ -604,12 +610,19 @@ export function Dashboard(): ReactElement {
         )}
       </div>
 
-      {/* ① 接入盒（左，端点信息） + 对外模型清单（右，同一行等高）
-          「模型」原本在下方双列区的右列，导致右列比左列「模型用量」高/矮一截；
-          挪到端点盒右侧后，端点盒只占 8 列、模型占 4 列，两者同一行自然等高。 */}
+      {/* ① 接口地址盒（左，端点信息） + 对外模型清单（右，同一行等高）
+          两卡同在 `lg:grid-cols-12` 的一行里（8 + 4），行高由内容较高的一侧决定，
+          所以「模型」清单变长时地址盒会被拉高 —— 内容**顶对齐**（`justify-start`），
+          留白沉在卡底；垂直居中会让 `base_url` 随着邻卡高度上下漂，两张并排卡的基线错开。
+          地址盒必须有模块名：右邻卡有「模型」标题，左卡裸着一列键值会被读成
+          「浮在页面上的散数据」而不是一个模块。 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <section className="panel overflow-hidden lg:col-span-8">
-          <div className="space-y-1 p-4 sm:p-5">
+        <section className="panel flex flex-col p-4 lg:col-span-8">
+          <div className="panel-title mb-3">
+            <Link2 className="h-4 w-4 text-ink-faint" />
+            接口地址
+          </div>
+          <div className="flex flex-1 flex-col gap-1">
             <EndpointRow label="base_url" value={state.base_url} />
             <div className="hidden sm:block">
               <EndpointRow label="chat_url" value={state.chat_url} />
@@ -630,7 +643,6 @@ export function Dashboard(): ReactElement {
             </div>
           </div>
         </section>
-
         {/* ② 对外模型（不显示渠道：落点由网关按额度自动挑） */}
         <section className="panel flex flex-col p-4 lg:col-span-4">
           <div className="panel-title mb-3">
@@ -691,15 +703,12 @@ export function Dashboard(): ReactElement {
         )}
       </section>
 
-      {/* ③ 每日 Token 趋势：按模型分色。区间选择器在**卡片右上角**（参考图同位置）——
-          趋势图是唯一随区间变化最直观的一块，把控件放在它自己头上比放页头更好找。 */}
+      {/* ③ 每日 Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
+          它驱动 KPI / 趋势 / 模型用量三块，放在这里会被读成「只切这一张卡」。 */}
       <section className="panel p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="panel-title">
-            <Activity className="h-4 w-4 text-ink-faint" />
-            每日 Token 趋势
-          </div>
-          <Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />
+        <div className="panel-title mb-3">
+          <Activity className="h-4 w-4 text-ink-faint" />
+          每日 Token 趋势
         </div>
         <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
