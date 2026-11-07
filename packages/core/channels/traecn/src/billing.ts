@@ -410,14 +410,14 @@ function nextLocalMidnight(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天签到送 100 积分，本地 0 点刷新**。
+ * 额度周期：**每天签到送 100 积分**。
  *
  * 日界依据：签到状态端点的 `status` 按本机自然日判断（跨天即恢复可签），
  * 未见上游声明其它窗口 —— 与 loomy 同口径。
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天签到送 100 积分，本地 0 点刷新",
+    label: "每天签到送 100 积分",
     size: DAILY_CHECKIN_CREDITS,
     unit: "积分",
     resets_at: nextLocalMidnight(),

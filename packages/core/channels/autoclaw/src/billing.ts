@@ -247,7 +247,7 @@ function nextLocalMidnight(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天签到送 200 Points，本地 0 点刷新**。
+ * 额度周期：**每天签到送 200 points**。
  *
  * 数额依据：上游任务列表 `daily_signin` 条目自报 `reward_points: 200`、
  * `point_description: "每日签到得 200 积分"`（实测 2026-11-07，见 PROTOCOL §6.2）。
@@ -255,7 +255,7 @@ function nextLocalMidnight(now = Date.now()): number {
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天签到送 200 Points，本地 0 点刷新",
+    label: "每天签到送 200 points",
     size: DAILY_SIGNIN_POINTS,
     unit: "Points",
     resets_at: nextLocalMidnight(),
