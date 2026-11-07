@@ -208,6 +208,8 @@ export interface ControlBridge {
     error?: string;
     restored: string[];
     removed: string[];
+    /** 跳过条目 / 备份缺失等需要让用户知道的说明（不透出会伪装成「已还原」）。 */
+    notes: string[];
   };
 }
 

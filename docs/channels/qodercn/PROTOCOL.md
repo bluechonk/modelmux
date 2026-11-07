@@ -294,8 +294,13 @@ deepseek 系（`dmodel` / `dfmodel`）在随包 `models.json` 里标了 `hidden`
 
 ### 已知限制
 
-- **上游会回 SSE 内嵌业务错误帧**（排队 `10605`、额度 `110`、认证 `105` 是三个独立码），
+- **上游会回 SSE 内嵌业务错误帧**（排队 `10605`、额度 `110` / `112`、认证 `105` 是四个独立码），
   测试偶发变慢属正常排队重试机制（见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §4.3），不是故障。
+  - `112`（实测 2026-11-07，`glm-5.3-flash`）：内层 `message` 是
+    `{"pricingUrl":"https://qoder.com.cn/pricing?client=qoder"}` —— 引导用户去充值，
+    语义即额度/权益不足。共享层的通用措辞认不出它，故本渠道用
+    `upstream.quotaSignal()` 上报（判据：`pricingUrl` 或内层 `code` 为 `110` / `112`），
+    网关据此把账号冷却、下次请求换一家（`stream.ts` 的 `noteStreamError` 逐帧记账）。
 - **签到可能看不到活动**：`/sash/**` 的「不发机器指纹」策略在本区是否正确仍待真机确认
   （见「已知边界」V1 / V2）—— 症状是「不报错但活动列表为空」。
 - **`session_type` 取值无出处**：本渠道发 `qoder_work`，三份参考实现分别是 `qodercli` / `qoder`

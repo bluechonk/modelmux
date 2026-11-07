@@ -27,7 +27,7 @@ import { sinkOf } from "../protocol/types.js";
 import { getRequestLog, noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { activeKeyOf } from "./candidates.js";
-import { isQuotaExhausted, isUsageLimit, writeJsonError } from "./errors.js";
+import { isQuotaExhausted, isUnsupportedInputError, isUsageLimit, writeJsonError } from "./errors.js";
 import {
   consumeQueueProbe,
   loadCredentialSafe,
@@ -119,6 +119,133 @@ const PASSTHROUGH_SNIPPET_MAX = 300;
 function snippetOf(text: string): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
   return trimmed.length > PASSTHROUGH_SNIPPET_MAX ? `${trimmed.slice(0, PASSTHROUGH_SNIPPET_MAX)}…` : trimmed;
+}
+
+/**
+ * 是否渠道声明的**凭据失效**错误（`upstream.UpstreamUnauthorized`）。
+ *
+ * 渠道在 `prepareChat` 这类**建连之前**的前置里也可能发现令牌已死（如 autoclaw 的
+ * `agent/send` 回 `11003 invalid authorization token`）—— 不认出来就会被当成
+ * 「上游瞬时故障」反复重试同一条候选，而重试永远不会成功。
+ */
+function isUpstreamUnauthorized(channel: Channel, err: unknown): boolean {
+  const ctor = channel.upstream.UpstreamUnauthorized;
+  if (ctor !== undefined && err instanceof ctor) return true;
+  // 跨包 / 跨进程边界时 `instanceof` 可能失配，按类名兜底（与 `NotLoggedInError` 同式）
+  return err instanceof Error && err.constructor?.name === "UpstreamUnauthorized";
+}
+
+/** 刷新凭据的结果（决定「凭据真失效」还是「瞬时故障」）。 */
+type RefreshOutcome =
+  | { kind: "ok" }
+  /** 凭据真失效（未登录 / 刷新被上游按鉴权拒绝）—— 才可以标终态。 */
+  | { kind: "unauthorized"; error: string }
+  /** 网络 / 读盘 / 上游瞬时失败 —— **不能**当凭据失效处理。 */
+  | { kind: "failed"; error: string };
+
+/**
+ * 刷新当前账号的 token（只刷，不重跑前置）。
+ *
+ * 渠道的 `refresh` 普遍把网络失败包成普通 `Error`（如 autoclaw 的
+ * `userapi request failed (retryable)`），只有抛 `UpstreamUnauthorized` /
+ * `NotLoggedInError` 才是凭据层面的结论 —— 区分二者是这里存在的唯一理由。
+ */
+async function tryRefreshCredential(
+  channel: Channel,
+  logger: (m: string) => void,
+): Promise<RefreshOutcome> {
+  let credential: ReturnType<typeof loadCredentialSafe>;
+  try {
+    credential = loadCredentialSafe(channel);
+  } catch (err) {
+    return { kind: "failed", error: `credential read failed: ${String(err)}` };
+  }
+  if (!credential) return { kind: "unauthorized", error: "not logged in" };
+  try {
+    await inChannel(channel, () => channel.cred.refresh(credential));
+    return { kind: "ok" };
+  } catch (err) {
+    if (isUpstreamUnauthorized(channel, err)) return { kind: "unauthorized", error: String(err) };
+    logger(`token refresh failed: ${String(err)}`);
+    return { kind: "failed", error: String(err) };
+  }
+}
+
+/**
+ * 把账号标成 `unauthorized` 终态并返回换候选的结果。
+ *
+ * `unauthorized` **不可自动恢复**（路由会直接剔除，见 `route.ts`），所以只在这里写；
+ * 记账与写健康态各自的失败只留痕 —— 写盘失败不该把异常抛穿成网关 500。
+ */
+function markUnauthorizedAndRetry(
+  cid: string,
+  logger: (m: string) => void,
+  err: unknown,
+): AttemptResult {
+  logger(`upstream prepare still unauthorized after refresh (channel ${cid}): ${String(err)}`);
+  try {
+    noteFailure(cid, activeKeyOf(cid));
+  } catch (ledgerErr) {
+    logger(`ledger write failed (channel ${cid}): ${String(ledgerErr)}`);
+  }
+  try {
+    markActiveHealth("unauthorized", cid);
+  } catch (healthErr) {
+    logger(`health write failed (channel ${cid}): ${String(healthErr)}`);
+  }
+  return {
+    kind: "retry",
+    error: { status: 503, code: "not_authenticated", message: `not logged in: ${String(err)}` },
+  };
+}
+
+/**
+ * 前置阶段凭据失效的处置（与 401 同一条路径：刷新 → 用新凭据重跑前置）。
+ *
+ * 返回 `null` = 已恢复，调用方继续正常建连；否则返回要交给编排层的 retry 结果。
+ * 只有「刷新本身报鉴权失败」或「刷新后前置仍报鉴权失败」才标终态 —— 一次网络
+ * 抖动把健康账号永久踢出候选（还谎报「未登录」）比白跑一趟糟糕得多。
+ */
+async function handlePrepareUnauthorized(
+  channel: Channel,
+  cid: string,
+  logger: (m: string) => void,
+  body: Record<string, unknown>,
+  originalError: unknown,
+): Promise<AttemptResult | null> {
+  logger(`upstream prepare unauthorized (channel ${cid}): ${String(originalError)}; trying token refresh`);
+  const refreshed = await tryRefreshCredential(channel, logger);
+  if (refreshed.kind === "failed") {
+    return {
+      kind: "retry",
+      error: { status: 502, code: "upstream_error", message: `token refresh failed: ${refreshed.error}` },
+    };
+  }
+  if (refreshed.kind === "unauthorized") {
+    return markUnauthorizedAndRetry(cid, logger, originalError);
+  }
+  try {
+    // 用新凭据重跑**同一个** body（渠道已就地改写凭据文件，随后 openStream 读到新 token）
+    await inChannel(channel, () => channel.upstream.prepareChat!(body));
+  } catch (err) {
+    if (isUpstreamUnauthorized(channel, err)) return markUnauthorizedAndRetry(cid, logger, err);
+    // 输入问题 / 上游瞬时故障：按通用 prepare 失败处理，不碰健康态
+    return {
+      kind: "retry",
+      error: {
+        status: 502,
+        code: "upstream_error",
+        message: `upstream prepare request failed: ${String(err)}`,
+      },
+    };
+  }
+  // 刷新成功 = 凭据已活：清掉终态标记（写盘失败只留痕，不影响本次请求）
+  try {
+    markActiveHealth("ok", cid);
+  } catch (healthErr) {
+    logger(`clear unauthorized mark failed (channel ${cid}): ${String(healthErr)}`);
+  }
+  return null;
 }
 
 /**
@@ -449,6 +576,15 @@ export async function attemptCandidate(
   try {
     built = inChannel(channel, () => upstream.buildChatBody(payload, resolvedModel));
   } catch (err) {
+    // 「本渠道承载不了这类输入」（如 catpaw 按纯文本渲染、图片进不去）：换一家渠道
+    // 可能成功 → 判可重试。**不计连败**：渠道对纯文本请求是好的，冷却会误伤后续请求。
+    if (isUnsupportedInputError(err)) {
+      logger(`channel ${cid} cannot carry this input: ${String(err)}`);
+      return {
+        kind: "retry",
+        error: { status: 400, code: "unsupported_input", message: String(err) },
+      };
+    }
     // 渠道层抛的是**用户输入问题**（上下文超限、system 超长、缺必填字段…）——
     // 换一家渠道同样会失败，直接 400，不浪费尝试次数。
     logger(`request build failed: ${String(err)}`);
@@ -466,19 +602,33 @@ export async function attemptCandidate(
     try {
       await inChannel(channel, () => upstream.prepareChat!(body));
     } catch (err) {
-      logger(`upstream prepare failed (channel ${cid}): ${String(err)}`);
-      noteFailure(cid, activeKeyOf(cid));
-      // 请求体协议错是客户端问题（如 tool 消息序列），不计凭据连败
-      return {
-        kind: "retry",
-        error: {
-          status: 502,
-          code: "upstream_error",
-          // 渠道层的 prepare 错误文案本身不含敏感信息（如上游对请求体回 413），
-          // 透出真实原因比「see gateway logs」更利于客户端自行调整（上下文过大等）
-          message: `upstream prepare request failed: ${String(err)}`,
-        },
-      };
+      // 前置阶段就凭据失效：先刷新再重跑前置（见 `handlePrepareUnauthorized`）
+      if (isUpstreamUnauthorized(channel, err)) {
+        const handled = await handlePrepareUnauthorized(channel, cid, logger, body, err);
+        if (handled !== null) return handled;
+        // 已恢复：**留在这里继续往下走**建连流程（不能落到下面的通用失败分支）
+      } else if (isUnsupportedInputError(err)) {
+        // 「本渠道承载不了这类输入」：换一条候选可能成功，且**不计连败**
+        logger(`channel ${cid} cannot carry this input: ${String(err)}`);
+        return {
+          kind: "retry",
+          error: { status: 400, code: "unsupported_input", message: String(err) },
+        };
+      } else {
+        logger(`upstream prepare failed (channel ${cid}): ${String(err)}`);
+        noteFailure(cid, activeKeyOf(cid));
+        // 请求体协议错是客户端问题（如 tool 消息序列），不计凭据连败
+        return {
+          kind: "retry",
+          error: {
+            status: 502,
+            code: "upstream_error",
+            // 渠道层的 prepare 错误文案本身不含敏感信息（如上游对请求体回 413），
+            // 透出真实原因比「see gateway logs」更利于客户端自行调整（上下文过大等）
+            message: `upstream prepare request failed: ${String(err)}`,
+          },
+        };
+      }
     }
   }
 
@@ -693,6 +843,7 @@ export async function attemptCandidate(
     giveUpText: state.giveUpText,
     probeTranslator: state.translator,
     request: payload,
+    freeModel,
   });
   return { kind: "done" };
 }

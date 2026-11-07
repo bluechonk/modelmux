@@ -42,8 +42,15 @@ const WAKE_HOLD_MS = 600_000;
 const HTTP_TIMEOUT_MS = 30_000;
 /** 事件流的单帧静默上限（agent 执行工具期间也会周期性发事件，超过即判流已死）。 */
 const EVENTS_IDLE_MS = 120_000;
-/** 设备 WS 上线握手上限。 */
-const WS_OPEN_TIMEOUT_MS = 10_000;
+/**
+ * 设备 WS 上线握手上限。
+ *
+ * 取 3s（原 10s）：这条 WS 是**尽力而为**的 —— 连不上不影响 relay（设备可能已被前次会话
+ * 或官方客户端上线，真正的裁决在 `agent/send`）。而它排在 `prepareChat` 的关键路径上，
+ * 每次超时都是纯等待：实测（2026-11-07）本机长期连不上，每个 glm 请求白等 10 秒。
+ * 3 秒是本机成功样本（521ms）的 6 倍余量，够网络抖动。
+ */
+const WS_OPEN_TIMEOUT_MS = 3_000;
 const WS_AUTH_TIMEOUT_MS = 25_000;
 
 /**
@@ -393,7 +400,8 @@ function webSocketCtor(): (new (url: string) => WsLike) | null {
 async function openDeviceWs(credential: Credentials, bareBase: string): Promise<WsLike | null> {
   const Ctor = webSocketCtor();
   if (!Ctor || !credential.sandboxId) return null;
-  const token = credential.accessToken.replace(/^bearer /i, "");
+  // 与 `buildHeaders` 同口径：凭据里存的是裸 token（见 cred.bareToken），这里自己拼 scheme
+  const token = credential.accessToken;
   const url =
     `${toWsBase(bareBase)}/v1/client/ws?device_id=${encodeURIComponent(credential.sandboxId)}` +
     `&access_token=${encodeURIComponent(token)}`;
@@ -776,27 +784,28 @@ async function pumpEvents(
   let buffer = "";
   let dataLines: string[] = [];
 
-  const handleRaw = (raw: string): void => {
-    if (cv.finished) return;
+  const handleRaw = (raw: string): boolean => {
+    if (cv.finished) return true;
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return; // 非 JSON 帧（心跳等）忽略
+      return false; // 非 JSON 帧（心跳等）忽略
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
     const record = parsed as Record<string, unknown>;
     const payloadRaw = record["payload"];
-    if (!payloadRaw || typeof payloadRaw !== "object" || Array.isArray(payloadRaw)) return;
+    if (!payloadRaw || typeof payloadRaw !== "object" || Array.isArray(payloadRaw)) return false;
     const payload = payloadRaw as Record<string, unknown>;
     const frameRun = typeof payload["runId"] === "string" ? payload["runId"] : "";
     const session = typeof payload["sessionKey"] === "string" ? payload["sessionKey"] : "";
     const to = typeof payload["to"] === "string" ? payload["to"] : "";
     const sameRun = frameRun !== "" && runId !== "" && frameRun === runId;
     const sameSession = frameRun === "" && ((session !== "" && session === sessionKey) || (to !== "" && to === sessionKey));
-    if (!sameRun && !sameSession) return;
+    if (!sameRun && !sameSession) return false;
     const event = typeof record["event"] === "string" ? record["event"] : "";
     dispatchEvent(cv, event, payload);
+    return cv.finished;
   };
 
   try {
@@ -813,9 +822,12 @@ async function pumpEvents(
         buffer = buffer.slice(idx + 1);
         if (line === "") {
           if (dataLines.length > 0) {
-            handleRaw(dataLines.join(""));
+            const ended = handleRaw(dataLines.join(""));
             dataLines = [];
-            if (cv.finished) return;
+            // 收到本轮的 done/final 就**立刻**收尾：events 是账号级长连接，
+            // 上游不会因为一轮结束就关流 —— 继续读到 120s 静默才收尾，
+            // 客户端已经白等两分钟（实测 2026-11-07：一个短回答 200s 才返回）。
+            if (ended) return;
           }
         } else if (line.startsWith("data:")) {
           dataLines.push(line.slice(5).trim());
@@ -865,19 +877,24 @@ export async function prepareChat(_body: Record<string, unknown>): Promise<void>
   const ws = await openDeviceWs(credential, bareBase);
 
   const cv = new RelayConverter(slot);
+  // events 流与本次 relay 同寿命：`finally` 里要 abort（fetch 响应体不读完不释放连接）
+  const eventsController = new AbortController();
   try {
     // events 先于 agent/send 打开（bridge/Go 同序）：runId 归属过滤兜住「开流期间
     // 混进来的旧事件」，但开流前的缝隙没有 —— 先开流才不会丢本轮早期事件。
-    const events = await shared.fetchWithTimeout(
-      `${proxyBase.replace(/\/+$/, "")}/api/events`,
-      {
-        headers: {
-          Accept: "text/event-stream",
-          Authorization: `Bearer ${credential.accessToken}`,
-        },
+    //
+    // **不能用 `fetchWithTimeout`**：那条路径的超时是 `AbortSignal.timeout(...)`，
+    // 计的是**整条请求**的寿命 —— 而 events 是一条长期 SSE，模型生成多久它就挂多久。
+    // 用 30s 的 HTTP 超时会在生成超过 30s 时把流 abort 掉，症状正是「跑着跑着突然断了」
+    // （实测 2026-11-07：glm 长回答 + 长思考必然踩）。静默由 `pumpEvents` 的
+    // `EVENTS_IDLE_MS` 判定 —— 那才是「上游真的不吭声」的判据。
+    const events = await fetch(`${proxyBase.replace(/\/+$/, "")}/api/events`, {
+      headers: {
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${credential.accessToken}`,
       },
-      HTTP_TIMEOUT_MS,
-    );
+      signal: eventsController.signal,
+    });
     if (events.status !== 200 || !events.body) {
       const snippet = (await events.text().catch(() => "")).slice(0, 200);
       if (events.status === 401 || events.status === 403) {
@@ -926,6 +943,13 @@ export async function prepareChat(_body: Record<string, unknown>): Promise<void>
     }
     const code = typeof envelope["code"] === "number" ? envelope["code"] : Number(envelope["code"] ?? 0);
     if (Number.isFinite(code) && code !== 0) {
+      // 11003 = 令牌失效（实测原文 `invalid authorization token`）：与 `cred.ts` 的
+      // 410000 同语义 —— 重试永远不会成功，必须抛 `UpstreamUnauthorized` 让网关
+      // 把账号标成终态，否则每次请求都会先在这条候选上白跑一趟（2026-11-07 实测：
+      // glm-5.3-flash 每次都先撞 autoclaw 的 11003，再落到 qodercn）。
+      if (code === 11003) {
+        throw new UpstreamUnauthorized(`agent/send rejected (code 11003): invalid authorization token, please log in again`);
+      }
       throw new Error(`agent/send business error code=${code}: ${String(envelope["msg"] ?? "")}`);
     }
     const data = envelope["data"] !== undefined ? envelope["data"] : envelope;
@@ -941,6 +965,9 @@ export async function prepareChat(_body: Record<string, unknown>): Promise<void>
       cv.finalizeWithoutDone();
     }
   } finally {
+    // events 流与本次 relay 同寿命：收尾时必须显式 abort，否则那条 socket 会一直挂着
+    // （fetch 的响应体不读完就不会释放连接）
+    eventsController.abort();
     if (ws) {
       try {
         ws.close();
@@ -954,24 +981,32 @@ export async function prepareChat(_body: Record<string, unknown>): Promise<void>
 // ── 翻译器 ────────────────────────────────────────────────────────────────────
 
 /**
- * 主请求是 wake 占位：响应体（wake 的 JSON）与内容无关，feed 恒空；
- * isDone 恒真 —— 第一个响应块读完就停读，转由 finish() 一次性吐出 prepareChat
- * 缓存的帧（含 [DONE]）。
+ * 主请求是 wake 占位：响应体（wake 的 JSON）与内容无关，内容帧早已在 `prepareChat`
+ * 里产出并缓存在请求槽。
+ *
+ * **`feed()` 就要吐帧，不能等 `finish()`**：网关的 `sseStream.relay` 把这条响应当 SSE 读
+ * （等 `\n\n` 事件分隔符），而 wake 回的是**一整块 JSON**、没有 `\n\n` —— 它会把整块攒在
+ * 缓冲里一直等下一块，直到空闲守卫 abort（实测 2026-11-07：短回答 120s 才返回，症状就是
+ * 「跑着跑着断了」）。收到第一块（协议体已备好）就交帧，天然免疫这种分隔符差异。
  */
 export function newTranslator(): StreamTranslator {
   let flushed = false;
+  const take = (): Array<Buffer | string> => {
+    if (flushed) return [];
+    flushed = true;
+    const slot = relaySlots.getStore();
+    return slot ? [...slot.frames] : [];
+  };
   return {
     feed(): Array<Buffer | string> {
-      return [];
+      // 第一块响应体到达即可交付（内容与响应体无关，只代表「wake 已回」）
+      return take();
     },
     finish(): Array<Buffer | string> {
-      if (flushed) return [];
-      flushed = true;
-      const slot = relaySlots.getStore();
-      return slot ? [...slot.frames] : [];
+      return take();
     },
     isDone(): boolean {
-      return true;
+      return flushed;
     },
   };
 }

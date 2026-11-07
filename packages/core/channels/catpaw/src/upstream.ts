@@ -11,7 +11,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { login as sharedLogin, type StreamTranslator } from "@modelmux/gateway";
+import { login as sharedLogin, UnsupportedInputError, type StreamTranslator } from "@modelmux/gateway";
 
 const { fetchWithTimeout } = sharedLogin;
 
@@ -514,12 +514,14 @@ export function buildChatBody(
   const messages = rawMessages.filter(
     (m): m is Record<string, unknown> => Boolean(m) && typeof m === "object" && !Array.isArray(m),
   );
-  // 图片进不来（请求体是纯文本渲染）：宁可 400 说清楚，也别丢掉后让模型答「看不到」。
-  // 错误文案要可操作 —— 客户端据此换渠道，而不是怀疑自己没发出去。
+  // 图片进不来（请求体是纯文本渲染）：宁可报错说清楚，也别丢掉后让模型答「看不到」。
+  // 抛 `UnsupportedInputError`（共享层信号）而不是普通 Error：后者会被网关当成
+  // 「用户输入问题」终局 400，而**换一家渠道本来能处理图片** —— 那才是这条守卫
+  // 真正该引发的动作（换候选重试），不是让整条请求失败。
   if (messages.some((m) => hasImagePart(m["content"]))) {
-    throw new Error(
+    throw new UnsupportedInputError(
       "catpaw 渠道不支持图片输入（请求体按纯文本渲染，图片段会被丢弃）；" +
-        "请改用支持图片的渠道（如 glm-5.3-flash 的 qodercn 供给）或改用纯文本提问",
+        "网关会改用其他支持图片的渠道重试，若都不可用请改用纯文本提问",
     );
   }
 

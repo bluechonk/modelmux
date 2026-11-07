@@ -52,6 +52,27 @@ export function writeProtocolError(res: ServerResponse, status: number, code: st
 }
 
 /**
+ * 「本渠道承载不了这类输入」的信号错误。
+ *
+ * 渠道在 `buildChatBody` / `prepareChat` 里抛出它，表示**换一家渠道可能成功**
+ * （如 catpaw 把请求体按纯文本渲染，图片段进不去）。共享层据此把这条候选判为
+ * **可重试**，而不是终局 400 —— 后者会让「只有部分渠道不支持」的输入整条请求失败
+ * （2026-11-07 实测：deepseek-v4.1-flash 的带图请求被 catpaw 守卫拦成 400，
+ * 而 qodercn 等渠道本来能正常处理）。
+ *
+ * 与「用户输入非法」的区别：那种换渠道同样会失败（上下文超限、缺必填字段），
+ * 必须终局 400，不浪费尝试预算。
+ */
+export class UnsupportedInputError extends Error {
+  override name = "UnsupportedInputError";
+}
+
+/** 按类或类名识别（跨包/跨进程边界时 `instanceof` 可能失配，与 `NotLoggedInError` 同式）。 */
+export function isUnsupportedInputError(err: unknown): boolean {
+  return err instanceof UnsupportedInputError || (err instanceof Error && err.name === "UnsupportedInputError");
+}
+
+/**
  * 上游响应体是否表示**额度耗尽 / 用量超限**（不是请求参数/内容错误）。
  *
  * 额度类错误必须与普通 4xx 区分：后者（模型参数、tool 消息序列等）是请求级问题，

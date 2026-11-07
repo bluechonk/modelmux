@@ -858,16 +858,36 @@ export function speedFactorOf(cid: string, model?: string): number {
 }
 
 /**
- * 渠道**有效优先级** = 剩余额度 × 速度系数；没有额度数据返回 `null`（排序时排最后）。
+ * 可靠性系数（1 = 无样本 / 全成功；越低越不可靠）。
+ *
+ * 口径是成功率的拉普拉斯平滑估计 `(ok + 1) / (ok + fail + 1)`：
+ * - 没有样本 → 1（**不罚**）：新登录的渠道不该因为「还没被用过」就排最后；
+ * - 全成功 → 趋近 1；
+ * - 从未成功（ok=0、fail=4）→ 1/5，把「额度最多」的虚高优先级压下来。
+ *
+ * 为什么必须纳入：`ok/fail` 是**本地实测**，额度只是上游快照 —— 一个只剩额度、
+ * 却从未跑通过的渠道会一直排在首位，每个请求先白撞一次（实测 autoclaw：
+ * remain=10191、ok=0、fail=4，glm-5.3-flash 每个请求都先试它再落下一个渠道）。
+ */
+export function reliabilityFactorOf(cid: string): number {
+  const entry = load().channels[cid];
+  if (!entry) return 1;
+  return (entry.ok + 1) / (entry.ok + entry.fail + 1);
+}
+
+/**
+ * 渠道**有效优先级** = 剩余额度 × 速度系数 × 可靠性系数；没有额度数据返回 `null`
+ * （排序时排最后）。
  *
  * 为什么是乘法：额度差异常常是数量级（0 vs 5000），速度差异只有几倍 ——
  * 相加会让速度几乎不起作用，相除会让慢渠道彻底失去竞争力。乘法让「慢」
  * 表现为「同样的货，优先级打折」，且只影响同一量级内的排序。
+ * 可靠性同理：`ok/fail` 是最直接的先验，从未跑通的渠道不该压过有实测的。
  */
 export function priorityOf(cid: string, model?: string): number | null {
   const remain = totalRemainOf(cid);
   if (remain === null) return null;
-  return remain * speedFactorOf(cid, model);
+  return remain * speedFactorOf(cid, model) * reliabilityFactorOf(cid);
 }
 
 /** 是否需要刷新账单（任一渠道从没查过，或已过 TTL）。 */
