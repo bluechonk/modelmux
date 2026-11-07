@@ -12,6 +12,7 @@ import {
   type ChannelBilling,
   type AccountStatus,
 } from "../components/AccountCard";
+import type { QuotaPeriod } from "../lib/account-status";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
 import { RefreshButton } from "../components/RefreshButton";
@@ -37,6 +38,8 @@ interface BillingRow {
     unsupported?: boolean;
     ok?: number;
     fail?: number;
+    /** 额度周期（渠道声明）：`size` 是窗口发放量，判断基线是否错过窗口起点用。 */
+    quota?: QuotaPeriod | null;
     accounts?: Array<{
       key: string;
       ok: number;
@@ -250,6 +253,8 @@ export function Accounts(): ReactElement {
         unsupported: Boolean(c.unsupported),
         accounts: c.accounts ?? [],
         billing_at: null,
+        // 窗口发放量随行带下来：额度详情要用它判断基线是否错过了窗口起点
+        quota: c.quota ?? null,
       });
     }
   }
