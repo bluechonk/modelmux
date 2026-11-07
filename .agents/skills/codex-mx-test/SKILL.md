@@ -44,7 +44,13 @@ CODEX_HOME=<临时目录> codex exec --sandbox read-only "<任务>"
 
 ## 测试任务矩阵（按深度递进，全部实测过）
 
-每发之间查一次 `mx log --tail 3`：`protocol` 必须是 `responses`、`status 200`、
+> **Windows 已知问题（客户端侧，非网关）**：Codex 0.163.0 在 Windows 的
+> `--sandbox read-only` / `workspace-write` 下，shell 命令可能被本地策略间歇拦截
+> （`Rejected: blocked by policy`，且期间网关侧每轮仍 responses/200/success ——
+> 据此区分是客户端沙箱还是网关问题）。被拦时改用 `--sandbox danger-full-access`
+> 重跑（在仓库内受控目录执行）。
+
+每发之间查一次 `mx log --lines 3`：`protocol` 必须是 `responses`、`status 200`、
 `outcome success`。**Codex 每轮工具调用后重发全量 input**（`store:false` 无状态模式）
 —— 一个多轮任务会产生多条日志，这是正确行为，别当成重复请求。
 
@@ -66,7 +72,7 @@ CODEX_HOME=<临时目录> codex exec --sandbox read-only "<任务>"
 
 ## 判据与排查
 
-- **结果错 ≠ 网关坏**：先 `mx log --tail 5` 看该请求 `outcome` —— success 但答案错
+- **结果错 ≠ 网关坏**：先 `mx log --lines 5` 看该请求 `outcome` —— success 但答案错
   才是转换/回灌问题；failure 看 `error` 字段（上游原文带渠道前缀透传）。
 - 日志没有 `protocol:"responses"` 字段 = 请求没走协议端点（`wire_api` 写成了
   `"chat"` 会打到 `/v1/chat/completions`，改回 `"responses"`）。
