@@ -731,12 +731,12 @@ export interface AccessEntry {
 }
 
 /**
- * 模型请求的路径集合（当前只有 OpenAI chat 一种入站协议）。
+ * 模型请求的路径集合（三种入站协议：OpenAI chat / Anthropic Messages / OpenAI Responses）。
  *
  * 日志页与用量统计都只认它们 —— `/health` 之类的非模型请求同样会落进 access 日志
  * （`http/server.ts` 只跳过 console 路径），混进来会让「调用次数 / 累计 tokens」失真。
  */
-export const MODEL_REQUEST_PATHS = ["/v1/chat/completions"] as const;
+export const MODEL_REQUEST_PATHS = ["/v1/chat/completions", "/v1/messages", "/v1/responses"] as const;
 
 /** 旧常量（OpenAI 路径）；统计口径已换成 `isModelRequestPath`。 */
 export const MODEL_REQUEST_PATH = MODEL_REQUEST_PATHS[0];

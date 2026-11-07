@@ -35,6 +35,19 @@ describe("looksBinaryish：什么内容不该铺开", () => {
     const wrapped = B64.match(/.{1,64}/g)!.join("\n");
     assert.equal(looksBinaryish(wrapped), true);
   });
+
+  it("标点稀少的英文系统提示词 → 放行（2026-11-07 实测 5.7KB 噪声比 0.041 被误吞）", () => {
+    // 英文 prompt 的噪声比天然逼近 5% 阈值；解码抽样（解回来是可读文本）才是定夺判据
+    const prompt =
+      "You are an AI agent powered by DeepSeek Harness. You are a terminal based coding assistant. " +
+      "Read the workspace instructions and follow them as guidance when applicable. ".repeat(28);
+    assert.equal(looksBinaryish(prompt), false);
+  });
+
+  it("文本内容的 base64 → 放行（宁漏勿误：铺出来冗长，但不丢正文）", () => {
+    const encoded = Buffer.from("这是一段普通中文说明。".repeat(60), "utf8").toString("base64");
+    assert.equal(looksBinaryish(encoded), false);
+  });
 });
 
 describe("describeBinary：类型与体积", () => {
