@@ -399,19 +399,18 @@ export function AccountCard({
     // 但留白落在网格背景上，比整行重排安静得多 —— 这是刻意接受的取舍。
     <>
     <div className="panel flex flex-col overflow-hidden transition-colors">
-      {/* 卡头：cid + 账号数 + 添加按钮（状态在各自的账号行上，渠道不显示状态） */}
+      {/* 卡头：cid + 账号数（同一行，紧跟渠道名） + 添加按钮；额度周期另起一行。
+          状态在各自的账号行上，渠道不显示状态。 */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="shrink-0 font-mono text-[13px] font-medium text-ink">{pool.cid}</span>
+            <span className="shrink-0 text-xs text-ink-faint">{`${accounts.length} 个账号`}</span>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink-faint">
-            <span>{`${accounts.length} 个账号`}</span>
-            {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
-            {billing?.quota?.label && (
-              <span className="text-ink-faint/70">· {billing.quota.label}</span>
-            )}
-          </div>
+          {/* 额度周期（渠道声明；没声明就不显示，避免编造周期） */}
+          {billing?.quota?.label && (
+            <div className="mt-1 text-xs text-ink-faint/70">{billing.quota.label}</div>
+          )}
         </div>
         <button
           type="button"

@@ -78,7 +78,7 @@ function nextCampaignReset(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天领 100 Credits，10:00（UTC+8）刷新**。
+ * 额度周期：**每天签到送 100 credits**。
  *
  * 数额依据：上游 campaign `benefit.amount = 100`、`title = "每天领 100 Credits"`
  * （实测 2026-11-07，见 PROTOCOL「使用与实测」）。
@@ -87,7 +87,7 @@ function nextCampaignReset(now = Date.now()): number {
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天领 100 Credits，10:00（UTC+8）刷新",
+    label: "每天签到送 100 credits",
     size: DAILY_CLAIM_CREDITS,
     unit: "Credits",
     resets_at: nextCampaignReset(),

@@ -383,7 +383,9 @@ export const signin: SigninModule = {
  * 领取后账单 remain 未变（「已触发发放，但今日账单暂未见入账」），且 bills 只有当日
  * 消耗记录、翻页为空 —— 拿不到任何正数发放样本。
  *
- * 之所以仍然报出：这个数有文档出处；`label` 里写「约」，不把参考级数字说成承诺。
+ * 之所以仍然报出：这个数有文档出处。**证据等级 `[参考]` 记在
+ * `docs/channels/raccoon/PROTOCOL.md` §6.1，不进 label** —— label 是给用户看的一句话口径，
+ * 统一成「每天签到送 <数额> <单位>」的固定格式，各渠道之间才能横向对比。
  */
 const DAILY_GRANT_POINTS = 300;
 
@@ -400,14 +402,14 @@ function nextUtc8Midnight(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天发约 300 积分，北京时间 0 点刷新**。
+ * 额度周期：**每天签到送 300 积分**。
  *
  * 日界是上游实打实的（`setting_info` 按天幂等、账单按 UTC+8 切日）；
- * 数额是 `[参考]` 级，故文案带「约」。
+ * 数额的 `[参考]` 证据等级记在 PROTOCOL §6.1，不进 label。
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天发约 300 积分，北京时间 0 点刷新",
+    label: "每天签到送 300 积分",
     size: DAILY_GRANT_POINTS,
     unit: "积分",
     resets_at: nextUtc8Midnight(),
