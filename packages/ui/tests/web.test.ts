@@ -174,7 +174,7 @@ describe("console 静态托管与命令 API", () => {
   });
 });
 
-describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
+describe("日志接口（/api/logs）", () => {
   const DATE = localDate();
   const ACCESS_DIR = join(HOME, "logs", "access", DATE);
   const PAYLOAD_DIR = join(HOME, "logs", "payload", DATE);
@@ -344,13 +344,4 @@ describe("日志接口（/api/logs 与 /api/logs/payload）", () => {
     assert.equal(res.status, 403);
   });
 
-  it("正文抓取恒开启：读回落盘的记录；查不到的 id 给空数组", async () => {
-    const hit = await fetch(`${server.url}api/logs/payload?id=req_e2e_ok`);
-    assert.equal(hit.status, 200);
-    const found = (await hit.json()) as { records: unknown[] };
-    assert.equal(found.records.length, 1, "恒开启：夹具记录必然可读回");
-    const miss = await fetch(`${server.url}api/logs/payload?id=req_absent&date=${DATE}`);
-    const empty = (await miss.json()) as { records: unknown[] };
-    assert.deepEqual(empty.records, []);
-  });
 });

@@ -100,6 +100,7 @@ mx model list
 | 公共模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
+| 查看模型收到的上下文 | 技能 `.agents/skills/context-capture/SKILL.md`（从 payload 日志抽取 system prompt / 工具 / 对话） |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
 | 渠道端到端测试（dsh/ACP 直连网关，覆盖每个渠道的模型） | 技能 `.agents/skills/dsh-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
 | 客户端协议测试（Claude Code 走 /v1/messages · Codex 走 /v1/responses） | 技能 `.agents/skills/claude-mx-test/SKILL.md` · `.agents/skills/codex-mx-test/SKILL.md`（同上成本红线） |

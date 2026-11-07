@@ -13,8 +13,6 @@ import type {
   CommandResult,
   LogQuery,
   OverviewResponse,
-  PayloadQueryResult,
-  PayloadSliceResult,
   PingResult,
   PoolRow,
   UiSnapshot,
@@ -28,8 +26,6 @@ import {
   demoBilling,
   demoCompleteLogin,
   demoEndLogin,
-  demoLogPayload,
-  demoPayloadSlice,
   demoLogin,
   demoLogs,
   demoModels,
@@ -143,24 +139,8 @@ export interface WebApi {
    * 服务端逐日聚合 access 日志并缓存历史日期，前端只负责展示；区间见 `UsageRange`。
    */
   usage(range: UsageRange): Promise<UsageStats>;
-  /** 某条请求的正文抓取记录（正文抓取恒开启，此接口只读；默认只回元数据）。 */
-  logPayload(id: string, date?: string): Promise<PayloadQueryResult>;
-  /** 按字节窗口取正文分片（首屏只取一片，避免整段 MB 级明文进首屏）。 */
-  logPayloadBody(
-    id: string,
-    date: string | undefined,
-    phase: string,
-    offset: number,
-    limit: number,
-  ): Promise<PayloadSliceResult>;
   /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
   overview(): Promise<OverviewResponse>;
-  /**
-   * 把一批文本译成中文（`POST /web/api/translate`，网关代发到公开翻译端点）。
-   *
-   * 只服务请求上下文弹窗的「翻译」按钮；演示模式没有网关，直接拒绝。
-   */
-  translate(texts: string[]): Promise<string[]>;
   /**
    * ping 一个模型（`POST /web/api/ping`）：向网关自身发一次最小 chat 请求并回耗时。
    *
@@ -386,17 +366,6 @@ export const api: WebApi = {
             offset: query.offset,
           })}`,
         ),
-  logPayload: (id, date) =>
-    IS_DEMO
-      ? demoLater(demoLogPayload(id))
-      : get(`/api/logs/payload${queryString({ id, date })}`),
-  /** 按字节窗口取某条记录的正文分片（首屏只取一片，避免 MB 级明文整段进首屏）。 */
-  logPayloadBody: (id: string, date: string | undefined, phase: string, offset: number, limit: number) =>
-    IS_DEMO
-      ? demoLater( demoPayloadSlice(id, date, phase, offset, limit) )
-      : get(
-          `/api/logs/payload${queryString({ id, date, part: "body", phase, offset, limit })}`,
-        ),
   usage: (range) => (IS_DEMO ? demoLater(demoUsage(range)) : get(`/api/usage${queryString({ range })}`)),
   ping: (model) =>
     IS_DEMO
@@ -404,17 +373,6 @@ export const api: WebApi = {
       : post("/api/ping", { model }),
   overview: () =>
     IS_DEMO ? demoLater(demoOverview(demo())) : get("/api/overview"),
-  translate: (texts) =>
-    IS_DEMO
-      ? Promise.reject(new Error("演示模式不支持翻译（没有网关代发）"))
-      : post<{ ok?: boolean; texts?: string[]; error?: string }>("/api/translate", { texts }).then(
-          (payload) => {
-            if (payload?.ok !== true || !Array.isArray(payload.texts)) {
-              throw new Error(payload?.error ?? "翻译失败");
-            }
-            return payload.texts;
-          },
-        ),
   commands: {
     login: (cid, force) => command("login", cid, { force }),
     status: (cid) => command("status", cid),
