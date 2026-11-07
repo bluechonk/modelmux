@@ -9,8 +9,8 @@ docs/channels/<cid>/
   FLOW.md         端到端数据流（可选）：登录态怎么落盘、怎么加密、怎么被解出来
 ```
 
-> 落点与登记红线见根 [`AGENTS.md`](../../AGENTS.md) 的「文档」；分层与写作规则见
-> [docs/AGENTS.md](../AGENTS.md)。渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，
+> 落点与登记红线、分层与写作规则见根 [`AGENTS.md`](../../AGENTS.md) 的「文档」。
+> 渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，
 > **不再带 `docs/`**；落点由 `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
 
 ## 怎么用（所有渠道一致）

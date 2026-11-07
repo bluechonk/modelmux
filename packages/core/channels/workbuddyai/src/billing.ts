@@ -270,19 +270,19 @@ export const signin: SigninModule = {
 };
 
 /**
- * 额度周期（`BillingModule.quotaPeriod`）：免费档**每日 1 亿 token**，本地 0 点刷新。
+ * 额度周期（`BillingModule.quotaPeriod`）。
  *
- * 依据与边界（别放大结论）：
- * - 「每天 1 亿 token」来自**口头说明**，本仓库没有在响应里核实过；
- * - 上游**账单**口径是 credits（免费档 `CapacitySize = 100`，`CapacityUnit = credits`），
- *   且**没有**任何端点回报「今日已用多少 token」→ 所以 `size` 这里只报 credits 口径，
- *   token 的 1 亿只写在 `label` 里（不编造剩余 token 数）；
- * - 用量限额打满时上游回 `429 + code=6004`，重置时间由 `upstream.quotaResetAt` 尽力解析，
- *   认不出就回落次日本地 0 点（共享层兜底）。
+ * `label` 留空：账号卡显示的就是它（见 AccountCard），而这里没有可据实陈述的额度文案
+ * ——「免费档每日 1 亿 token」来自口头说明、本仓库没在响应里核实过，写上去等于把传闻
+ * 当契约展示。上游账单口径是 credits，但没有任何端点回报「今日已用多少」，
+ * `size` 也因此为 `null`。留空 = 不展示，与 catpaw / qoder / lobsterai 一致。
+ *
+ * `resets_at` 仍必须给：额度耗尽换号（`pool/account-rotate.ts`）与池用量计算
+ * （`pool/pool-usage.ts`）都读它定周期窗口；上游重置时间认不出时回落次日本地 0 点。
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "免费档每日 1 亿 token（本地 0 点刷新）· 账单口径为 credits",
+    label: "",
     size: null,
     unit: "credits",
     resets_at: nextLocalMidnight(),
