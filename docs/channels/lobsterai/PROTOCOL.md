@@ -70,8 +70,10 @@ Base（Portal）：`https://lobsterai.youdao.com`（:77）
 | `Accept` | 常量，随端点 | 否 | 恒定 | chat = `text/event-stream, application/json`；其余 = `application/json` |
 | `Content-Type` | 常量 `application/json` | 否 | 恒定 | 仅带 body 的请求 |
 | `User-Agent` | 常量 `LobsterAI/0.1.0` | 否 | 恒定（**刻意不跟版本号变**） | 照抄参考实现的 `clientUA`；签到/额度端点也用它。**[实测]** UA 里带不带真实版本号对 `profile-summary` / `slot` 的响应**逐字一致** —— 真正的版本门槛在 `clientVersion` **query 参数**上（见 §6.2） |
-| `X-LobsterAI-Client-Capabilities` | 常量 `kimi-k3-agentic-v1,thinking-level-control-v1` | 否，但**是模型端点的准入条件** | 恒定 | 不带则 `/api/models/available` 少 5 个模型且**没有 `kimi-k3`**；`thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（不带该能力服务端直接 500）—— 2026-09-17 实测 |
-| `X-LobsterAI-Client-Version` | **动态真值**：更新接口的 `data.value.version`，进程内缓存 12 小时；取不到时先退到**磁盘缓存**的版本号，再退到 `2026.9.4` | 否 | 12 小时 TTL / 进程启动 | chat 与 models **两个端点都要**；拉取时机 = 登录 exchange / 续期 refresh / 拉目录 / 签到 |
+| `X-LobsterAI-Client-Capabilities` | 常量 `virtual-models-v1,kimi-k3-agentic-v1,thinking-level-control-v1,upstream-error-details-v1` | 否，但**是模型端点与对话端点的准入条件** | 恒定 | 每项各门控一类上游行为：`virtual-models-v1` 决定虚拟模型目录（官方 2026-10-16 加入）；`kimi-k3-agentic-v1` 决定模型集合里有没有 `kimi-k3`；`thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（不带该能力服务端直接 500，2026-09-17 实测）；`upstream-error-details-v1` 让错误响应带细节（官方 2026-11-03 加入）。**缺项只表现为静默降级**（模型列表少几项 / 关思考 500），不直接报错 —— 第三方反代普遍只发前两项或三项，源头 `xinxinshuhao-create/lobsterai2api` 至今只发 `kimi-k3-agentic-v1` |
+| `X-LobsterAI-Client-Version` | **动态真值**：更新接口的 `data.value.version`，进程内缓存 12 小时；取不到时先退到**磁盘缓存**的版本号，再退到 `2026.11.6`（官方 2026-11-06 的线上版本） | 否 | 12 小时 TTL / 进程启动 | chat 与 models **两个端点都要**；拉取时机 = 登录 exchange / 续期 refresh / 拉目录 / 签到 |
+| `x-lobster-session-id` | 进程级 UUID（一个网关实例一个会话） | 否 | 进程启动一次 | 官方客户端的会话追踪头（`src/main/libs/llmUsageContext.ts` 的 `LlmUsageHeader`），上游用于用量归集。缺了请求仍成功，补齐后与真客户端同形 |
+| `x-lobster-turn-id` | 每请求新 UUID | 否 | 每请求 | 同上，标识一次对话轮次 |
 
 **没有 `X-Client-Key`，也没有任何设备指纹类头**（`X-Device-*` / `X-LobsterAI-Device-*` 等）：
 三份参考实现设置过的头全集就是上面这 6 个（`xinxinshuhao/internal/upstream/client.go:147-160`、
@@ -186,7 +188,7 @@ Body: {
  code:0, msg:"OK"}` —— `code`/`msg` 在**外层**，载荷在 `data.value`
 - 版本号正则：`^(\d+(?:\.\d+)*)(?:-[0-9A-Za-z.-]+)?$`
 - 缓存 TTL 12 小时
-- 兜底常量 `FALLBACK_CLIENT_VERSION = '2026.9.4'`
+- 兜底常量 `FALLBACK_CLIENT_VERSION = '2026.11.6'`（官方 2026-11-06 的线上版本）
 - **三个消费点**：exchange 的 `version`、refresh 的 `version`、签到 slot 的必填 query 参数
 - **磁盘兜底**：最近一次成功解析到的版本号落盘到
   `<cid>/cache/client-version.json`；更新接口（第三方域名）抽风时**先用它**兜底，
@@ -395,7 +397,8 @@ glm-5v-turbo, glm-5, doubao-seed-2-1-turbo-260628, doubao-seed-2-0-code-preview-
 
 | `clientVersion`（query） | `slotState` |
 |---|---|
-| `2026.10.16`（当前线上版） | `available` |
+| `2026.11.6`（2026-11-06 官方线上版） | 预期 `available`（未逐版实测，与 `2026.10.16` 同档） |
+| `2026.10.16`（2026-10 线上版） | `available` |
 | `2026.9.4` | `available` |
 | `2026.8.1` | `empty` |
 | `0.1.0` | `empty` |
@@ -631,8 +634,8 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 |---|---|---|
 | V2 | access token / refresh token 的真实有效期 | 决定 G1（定时保活）是否必须补 |
 | V3 | refresh 是否轮换 refresh_token（响应不返回新值时旧值是否仍可用） | 决定续期是否「一次就废」 |
-| V4 | chat / models 端点发**真实版本号**（`2026.9.4`）是否被接受 | 参考实现长期发 `0.1.0`；真实版本可能触发更严格的模型集或校验 |
+| V4 | chat / models 端点发**真实版本号**（`2026.11.6`）是否被接受 | 参考实现长期发 `0.1.0`；真实版本可能触发更严格的模型集或校验。官方客户端自己发的就是真版本，故本渠道发真值 |
 | V5 | 流内错误帧（HTTP 200 + `event:error`）在当前共享层能否换号 | 决定 G8 的优先级 |
 | V6 | `uuid`（安装 UUID）是否需要跨账号 / 跨登录保持稳定 | 当前每次登录新生成（与参考实现一致） |
-| V7 | `X-LobsterAI-Client-Capabilities` 是否支持逗号分隔多能力 | 当前发 2 个，参考只发 1 个 |
-| V8 | `clientVersion` query 参数的**门槛下限**会随客户端发版抬高到多少 | 决定兜底版本号（`2026.9.4`）还能用多久；有磁盘兜底（§2.5）降低风险 |
+| V7 | `X-LobsterAI-Client-Capabilities` 是否支持逗号分隔多能力 | **已知支持**：官方客户端就发逗号分隔的 4 项（`modelRuntimeProfiles.ts` 的 `LOBSTERAI_CLIENT_CAPABILITIES`）；`zgumengyang/lobsterai2api` 曾因空格分隔报错而误改成单值 |
+| V8 | `clientVersion` query 参数的**门槛下限**会随客户端发版抬高到多少 | 决定兜底版本号（`2026.11.6`）还能用多久；有磁盘兜底（§2.5）降低风险。已观测的门槛：`2026.8.1` 起为 `empty` |
