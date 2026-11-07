@@ -57,7 +57,7 @@ const GRAINS: ReadonlyArray<{ key: HeatGranularity; label: string }> = [
   { key: "cumulative", label: "累计" },
 ];
 
-/** KPI 卡上用的区间措辞（与页头选择器一致：今日 / 近 7 日 / 近 30 日 / 累计）。 */
+/** KPI 卡上用的区间措辞（与趋势卡右上角的选择器一致：今日 / 近 7 日 / 近 30 日 / 累计）。 */
 const RANGE_WORD: Partial<Record<UsageRange, string>> = {
   today: "今日",
   "7d": "近 7 日",
@@ -486,7 +486,7 @@ export function Dashboard(): ReactElement {
   if (!state) return <div className="text-ink-faint">（无数据）</div>;
 
   // ----- 派生数据 -----
-  // 区间用量：KPI 行**全部**读它 —— 页头选「近 7 日」时这些卡就跟着变成近 7 日的数，
+  // 区间用量：KPI 行**全部**读它 —— 趋势卡右上角选「近 7 日」时这些卡就跟着变成近 7 日的数，
   // 不固定成「今日」（固定的话选区间只影响趋势图，一屏两套口径）
   const totals = rangeStats?.totals;
   // 卡面用「今日 / 近 7 日 / 近 30 日 / 累计」这几个词，跟选择器上的措辞一致
@@ -512,11 +512,10 @@ export function Dashboard(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="仪表盘"
-        description="区间用量（KPI、每日趋势、模型用量都随页头区间变化；Token 活动恒看一年）"
-        actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
+        description="区间用量（KPI、每日趋势、模型用量随区间变化；Token 活动恒看一年）。区间在「每日 Token 趋势」卡片右上角切换"
       />
 
-      {/* ① KPI：全部随页头区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
+      {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
         <KpiCard
           icon={Wifi}
@@ -688,11 +687,15 @@ export function Dashboard(): ReactElement {
         )}
       </section>
 
-      {/* ③ 每日 Token 趋势：按模型分色；与热力图共享「选中日」 */}
+      {/* ③ 每日 Token 趋势：按模型分色。区间选择器在**卡片右上角**（参考图同位置）——
+          趋势图是唯一随区间变化最直观的一块，把控件放在它自己头上比放页头更好找。 */}
       <section className="panel p-4">
-        <div className="panel-title mb-3">
-          <Activity className="h-4 w-4 text-ink-faint" />
-          每日 Token 趋势
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="panel-title">
+            <Activity className="h-4 w-4 text-ink-faint" />
+            每日 Token 趋势
+          </div>
+          <Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />
         </div>
         <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
