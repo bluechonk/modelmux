@@ -79,6 +79,22 @@ function bearer(token: string): string {
   return /^bearer /i.test(t) ? t : `Bearer ${t}`;
 }
 
+/**
+ * 去掉 `Bearer ` 前缀，只留裸 JWT —— **凭据里统一存裸 token**。
+ *
+ * 为什么必须归一（2026-11-07 实测）：上游登录/续期回的是 `access_token`，而
+ * `userapiHeaders` 用 `bearer()` 会拼成 `Authorization: Bearer <token>`；若 token 自己
+ * 已带前缀，`upstream.buildHeaders` 再拼一次就成 `Bearer Bearer eyJ…` —— 上游一律回
+ * `code=11003 invalid authorization token`（wake / agent/send 都是）。症状是「账号有
+ * 10191 分、刷新也成功，但每个 glm 请求都先撞它一次再换渠道」。
+ *
+ * 归一放在**读与写两处**（`load` / `credentialFrom` / `refresh`）：老凭据文件里已经
+ * 存了带前缀的 token，读时剥掉即可自愈，不需要用户重新登录。
+ */
+export function bareToken(token: string): string {
+  return token.trim().replace(/^bearer\s+/i, "");
+}
+
 /** userapi 统一头族（Web 身份；登录前的请求不携带 Authorization）。 */
 function userapiHeaders(token: string): Record<string, string> {
   const ts = String(Math.floor(Date.now() / 1000));
@@ -208,7 +224,7 @@ export function load(): Credentials {
   } catch {
     throw new NotLoggedInError("Credential file is corrupted, please log in again");
   }
-  const accessToken = str(parsed["accessToken"]);
+  const accessToken = bareToken(str(parsed["accessToken"]));
   if (!accessToken) throw new NotLoggedInError("Credential has no access_token, please log in again");
   lastSandbox = {
     sandboxId: str(parsed["sandboxId"]),
@@ -280,7 +296,8 @@ interface LoginPayload {
 
 /** 把登录/续期载荷装成凭据（device_id 沿用本轮登录用的那个）。 */
 function credentialFrom(payload: LoginPayload, deviceId: string, phone: string): Credentials {
-  const accessToken = str(payload.access_token);
+  // 存**裸 token**：`upstream.buildHeaders` 会自己拼 `Bearer `（见 `bareToken`）
+  const accessToken = bareToken(str(payload.access_token));
   if (!accessToken) throw new Error("login response has no access_token");
   const uid = String(payload.user_id ?? "");
   if (!uid) throw new Error("login response has no user_id");
@@ -288,7 +305,7 @@ function credentialFrom(payload: LoginPayload, deviceId: string, phone: string):
     accessToken,
     uid,
     domain: "autoclaw.z.ai",
-    refreshToken: str(payload.refresh_token),
+    refreshToken: bareToken(str(payload.refresh_token)),
     nickname: str(payload.user_name),
     phone,
     deviceId,
@@ -425,12 +442,12 @@ export async function refresh(credential: Credentials): Promise<Credentials> {
     },
     token: credential.accessToken,
   });
-  const accessToken = str(data.access_token);
+  const accessToken = bareToken(str(data.access_token));
   if (!accessToken) throw new NotLoggedInError("Refresh response has no token, please log in again");
   const next: Credentials = {
     ...credential,
     accessToken,
-    refreshToken: str(data.refresh_token) || credential.refreshToken,
+    refreshToken: bareToken(str(data.refresh_token)) || credential.refreshToken,
     expireAt: Date.now() + EXPIRE_MS,
   };
   await save(next);

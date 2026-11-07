@@ -12,6 +12,7 @@
 
 import type { ServerResponse } from "node:http";
 
+import { activeAccountHealth } from "../../runtime/account-pool.js";
 import { getRequestLog } from "../../runtime/log-store.js";
 import { poolCandidates, type PoolCandidate } from "../../pool/pool-targets.js";
 import { resolveInboundModel } from "../../pool/inbound-model.js";
@@ -87,12 +88,18 @@ export function resolvePoolRoute(
     );
     return null;
   }
-  const available = authed.filter((c) => !isCooling(c.cid));
+  // 凭据失效（`unauthorized`）是**终态**：token 已被上游撤销，换账号 / 重登之前
+  // 重试永远不会成功 —— 与冷却一致地提前剔除，省掉每次请求白跑一趟这条候选
+  // （实测 autoclaw：令牌失效后仍因「额度最多」排在候选首位，每个请求先撞一次
+  // `11003 invalid authorization token` 才落到下一个渠道）。
+  // `error`（熔断）**不剔除**：它有半开试探时刻，到点必须放行一次自检。
+  const routable = authed.filter((c) => activeAccountHealth(c.cid) !== "unauthorized");
+  const available = routable.filter((c) => !isCooling(c.cid));
   const attempts = (available.length > 0 ? available : authed).slice(0, maxPoolAttempts());
   if (available.length === 0) {
     // 只记录异常路径：候选被过滤属设计内行为，逐请求输出会在冷却窗口内产生大量重复日志
     logger(
-      `pool: all ${authed.length} logged-in candidate(s) cooling down (${target}); falling back to retry`,
+      `pool: all ${authed.length} logged-in candidate(s) unavailable (cooling down or unauthorized) (${target}); falling back to retry`,
     );
   }
   return { target, attempts };

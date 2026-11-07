@@ -1,11 +1,12 @@
 /**
- * 每日 Token 趋势（多序列折线，按模型分色）—— 形态对齐 ZCode 的「每日 Token 趋势图」。
+ * 每日 Token 趋势图（多序列平滑曲线，按模型分色）。
  *
- * 手写 SVG，不引图表库；hover 出浮层（标题 = 日期 - 总量，明细 = 色点 + 模型 + tokens），
- * 最近数据点画圆点，不画十字线，点击无逻辑；X 轴标签密度同 ZCode。
+ * 形态与 ZCode 的「每日 Token 趋势图」一致：图例在顶部一行、纵向虚线网格、曲线首尾平滑、
+ * 每条线的**末点**画实心圆、hover 浮层跟随数据点（标题 = 日期 - 当日总量）。
  *
- * 两个取舍：按**容器实测宽度**渲染（viewBox 与像素 1:1，否则 preserveAspectRatio 居中留白）；
- * 浮层跟随**数据点**而非鼠标（横向与日期严格对齐，任何分辨率都不错位）。
+ * 手写 SVG，不引图表库。两个必须遵守的几何约束：
+ *  - 按**容器实测宽度**渲染（viewBox 与像素 1:1；用 preserveAspectRatio 会在两侧留白）；
+ *  - 浮层横向锚定**数据点**而非鼠标（任何分辨率下都与所指日期严格对齐）。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from "react";
@@ -16,19 +17,62 @@ import { activeSeriesOf, seriesClassOf } from "../../lib/trend-series";
 import { ChartTooltip } from "./ChartTooltip";
 
 const VIEW_H = 260;
-const PAD_TOP = 16;
-const PAD_BOTTOM = 26;
-/** 左右留白必须容得下半个 x 轴标签（`textAnchor="middle"`）：标签是 `MM-DD`，半宽 ~17。 */
-const PAD_LEFT = 24;
-const PAD_RIGHT = 24;
+const PAD_TOP = 18;
+const PAD_BOTTOM = 30;
+/** 左右留白容得下半个 x 轴标签（`M月D日` 半宽约 26）。 */
+const PAD_LEFT = 28;
+const PAD_RIGHT = 28;
 /** 窄屏最小绘图宽度：再窄就横向滚动，避免日期标签挤成一片。 */
 const MIN_WIDTH = 520;
 
-/** X 轴标签密度：该下标要不要标（ZCode 的 `S()` 同规则）。 */
+/**
+ * 曲线张力（Catmull-Rom → 三次贝塞尔的控制点系数）。
+ *
+ * 0.2 是「顺滑但不甩出去」的经验值：更大（0.3+）在峰值陡升处会过冲画出负值似的下凹，
+ * 更小（0.1）则接近折线、丢掉参考图的平滑感。
+ */
+const CURVE_TENSION = 0.2;
+
+/** X 轴标签密度：该下标要不要标。 */
 function shouldLabel(index: number, total: number): boolean {
-  if (total <= 14) return true;
-  const step = total > 45 ? 7 : 5;
+  if (total <= 8) return true;
+  const step = total > 20 ? 5 : 1;
   return index === 0 || index === total - 1 || index % step === 0;
+}
+
+/** `2026-11-07` → `11月7日`（参考图的轴标签形态）。 */
+function axisLabel(date: string): string {
+  const [, month, day] = date.split("-");
+  if (!month || !day) return date;
+  return `${Number(month)}月${Number(day)}日`;
+}
+
+/**
+ * 平滑曲线路径（Catmull-Rom 样条转三次贝塞尔）。
+ *
+ * 为什么不用直线折线：参考图的曲线在峰值处是圆的，直线段看不出「增长-回落」的形态。
+ * 端点外推（`p0 = points[i-1] ?? points[i]`）保证首尾两段不外甩 —— 少了这一步，
+ * 首点会用「镜像点」当控制点，曲线会从图外飞进来。
+ */
+function smoothPath(points: Array<{ x: number; y: number }>): string {
+  const first = points[0];
+  if (!first) return "";
+  if (points.length === 1) return `M${first.x.toFixed(1)},${first.y.toFixed(1)}`;
+  const parts = [`M${first.x.toFixed(1)},${first.y.toFixed(1)}`];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] ?? points[i]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) * CURVE_TENSION;
+    const c1y = p1.y + (p2.y - p0.y) * CURVE_TENSION;
+    const c2x = p2.x - (p3.x - p1.x) * CURVE_TENSION;
+    const c2y = p2.y - (p3.y - p1.y) * CURVE_TENSION;
+    parts.push(
+      `C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`,
+    );
+  }
+  return parts.join(" ");
 }
 
 export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: string[] }): ReactElement {
@@ -55,20 +99,16 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
     setHoverIndex(null);
   }, [width]);
 
-  // 数据清空（区间无请求）时同样清掉：否则数据回来时会用陈旧坐标冒出浮层
-  useEffect(() => {
-    if (daily.length > 0) return;
-    setTip(null);
-    setHoverIndex(null);
-  }, [daily.length]);
-
   if (daily.length === 0) {
     return <p className="px-1 py-6 text-xs text-ink-faint">区间内还没有模型请求。</p>;
   }
 
   const plotW = Math.max(width, MIN_WIDTH);
   const plotH = VIEW_H - PAD_TOP - PAD_BOTTOM;
-  const stepX = daily.length > 1 ? (plotW - PAD_LEFT - PAD_RIGHT) / (daily.length - 1) : 0;
+  /** 只有一天时步长为 0（所有点落在左端），此时把这一天摆到中间更符合直觉。 */
+  const single = daily.length === 1;
+  const stepX = single ? 0 : (plotW - PAD_LEFT - PAD_RIGHT) / (daily.length - 1);
+  const xOf = (i: number): number => (single ? plotW / 2 : PAD_LEFT + stepX * i);
 
   let max = 0;
   for (const day of daily) {
@@ -77,22 +117,19 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
       if (v > max) max = v;
     }
   }
-  // 真实峰值（全零时是 0）—— 峰值文案用它；y 轴刻度用兜底 1 防除零
-  const peak = max;
+  // y 轴刻度用兜底 1 防除零；全零时所有点贴底（比乱飞好解释）
   if (max <= 0) max = 1;
-
-  const xOf = (i: number): number => PAD_LEFT + stepX * i;
   const yOf = (value: number): number => PAD_TOP + plotH * (1 - value / max);
 
-  const paths = series.map((id) => {
-    const points = daily.map((day, i) => `${xOf(i).toFixed(1)},${yOf(day.byModel[id] ?? 0).toFixed(1)}`);
-    return { id, d: `M${points.join(" L")}` };
-  });
+  const paths = series.map((id) => ({
+    id,
+    d: smoothPath(daily.map((day, i) => ({ x: xOf(i), y: yOf(day.byModel[id] ?? 0) }))),
+  }));
 
   /** 鼠标的视口 X → 最近的数据点下标（viewBox 与像素 1:1，直接按比例换算）。 */
   const indexFromClientX = (clientX: number): number => {
     const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return 0;
+    if (!rect || rect.width === 0 || single) return 0;
     const ratio = (clientX - rect.left) / rect.width;
     const i = Math.round((ratio * plotW - PAD_LEFT) / (stepX || 1));
     return Math.min(Math.max(0, i), daily.length - 1);
@@ -106,11 +143,23 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
   };
 
   const hoverDay = hoverIndex === null ? null : (daily[hoverIndex] ?? null);
-  /** 当天真正有消耗的模型才进浮层与圆点（0 值的序列只是噪声）。 */
+  /** 当天真正有消耗的模型才进浮层（0 值的序列只会让浮层变成一行行 0）。 */
   const activeSeries = hoverDay === null ? [] : activeSeriesOf(hoverDay, series);
+  /** 图例列全部声明的序列（与参考图一致：当天没用量也列出，颜色对得上才是图例）。 */
+  const legend = series;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* 图例：顶部一行（参考图同位置），色点 + 模型名 */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+        {legend.map((id, i) => (
+          <span key={id} className="inline-flex items-center gap-1.5">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
+            <span className="text-ink-soft">{id === "" ? "未知模型" : id}</span>
+          </span>
+        ))}
+      </div>
+
       <div ref={setWrapEl} className="overflow-x-auto">
         <svg
           ref={svgRef}
@@ -123,91 +172,98 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
           onMouseMove={(event) => {
             const index = indexFromClientX(event.clientX);
             setHoverIndex(index);
-            const pointX = pointScreenX(index);
-            setTip({ x: pointX ?? event.clientX, y: event.clientY });
+            setTip({ x: pointScreenX(index) ?? event.clientX, y: event.clientY });
           }}
           onMouseLeave={() => {
             setTip(null);
             setHoverIndex(null);
           }}
         >
-          {[0, 0.5, 1].map((ratio) => (
+          {/* 纵向虚线网格（参考图同款）：每天一条，作为日期参考线 */}
+          {daily.map((day, i) => (
             <line
-              key={ratio}
-              x1={PAD_LEFT}
-              x2={plotW - PAD_RIGHT}
-              y1={PAD_TOP + plotH * ratio}
-              y2={PAD_TOP + plotH * ratio}
+              key={`grid-${day.date}`}
+              x1={xOf(i)}
+              x2={xOf(i)}
+              y1={PAD_TOP}
+              y2={PAD_TOP + plotH}
               className="stroke-line"
               strokeWidth={1}
+              strokeDasharray="3 4"
             />
           ))}
-          {/* 单日画不出「线」：path 只有一个 M 命令、没有 L，SVG 什么都不渲染 ——
-              退化为常显圆点，只画当天真正有消耗的序列（与浮层同一过滤口径） */}
-          {daily.length === 1
-            ? activeSeriesOf(daily[0]!, series).map((id) => (
-                <circle
-                  key={id}
-                  cx={xOf(0)}
-                  cy={yOf(daily[0]!.byModel[id] ?? 0)}
-                  r={3.5}
-                  fill="currentColor"
-                  className={seriesClassOf(series.indexOf(id))}
-                />
-              ))
-            : paths.map((p) => (
-                <path
-                  key={p.id}
-                  d={p.d}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  className={seriesClassOf(series.indexOf(p.id))}
-                />
-              ))}
-          {/* hover：只在最近的数据点上画圆点（ZCode 同款 `activeDot`），不画十字参考线 */}
+
+          {/* 曲线：多日走平滑样条；单日没有「趋势」可画，只保留末点圆点 */}
+          {!single &&
+            paths.map((p) => (
+              <path
+                key={p.id}
+                d={p.d}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                className={seriesClassOf(series.indexOf(p.id))}
+              />
+            ))}
+
+          {/* 末点圆点（参考图每条线右端一个实心点）；单日就是它自己那一列 */}
+          {activeSeriesOf(daily[daily.length - 1]!, series).map((id) => (
+            <circle
+              key={`end-${id}`}
+              cx={xOf(daily.length - 1)}
+              cy={yOf(daily[daily.length - 1]!.byModel[id] ?? 0)}
+              r={3.5}
+              fill="currentColor"
+              className={seriesClassOf(series.indexOf(id))}
+            />
+          ))}
+
+          {/* hover：所指日期上每个有消耗的模型各画一个圆点 */}
           {hoverIndex !== null &&
             activeSeries.map((id) => (
               <circle
-                key={id}
+                key={`hover-${id}`}
                 cx={xOf(hoverIndex)}
                 cy={yOf(daily[hoverIndex]!.byModel[id] ?? 0)}
-                r={4}
+                r={4.5}
                 fill="currentColor"
                 className={seriesClassOf(series.indexOf(id))}
               />
             ))}
-          {daily.map((day, i) => (
-            <text
-              key={day.date}
-              x={xOf(i)}
-              y={VIEW_H - 8}
-              textAnchor="middle"
-              className={`fill-ink-faint text-xs ${hoverIndex === i ? "fill-ink" : ""}`}
-            >
-              {shouldLabel(i, daily.length) ? day.date.slice(5) : ""}
-            </text>
-          ))}
+
+          {/* X 轴：`M月D日`，两端对齐（首尾标签用 start/end，避免被裁） */}
+          {daily.map((day, i) => {
+            if (!shouldLabel(i, daily.length)) return null;
+            const anchor = i === 0 && !single ? "start" : i === daily.length - 1 && !single ? "end" : "middle";
+            return (
+              <text
+                key={`x-${day.date}`}
+                x={xOf(i)}
+                y={VIEW_H - 8}
+                textAnchor={anchor}
+                className={`fill-ink-faint text-xs ${hoverIndex === i ? "fill-ink" : ""}`}
+              >
+                {axisLabel(day.date)}
+              </text>
+            );
+          })}
         </svg>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-        {series.map((id, i) => (
-          <span key={id} className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full bg-current ${seriesClassOf(i)}`} />
-            <span className="text-ink-soft">{id === "" ? "未知模型" : id}</span>
-          </span>
-        ))}
-        <span className="ml-auto text-ink-faint">峰值 {formatTokens(peak)} tokens</span>
-      </div>
-      {/* hover 浮层：标题 = 日期 - 总量；明细 = 色点 + 模型名 + tokens（ZCode 同格式） */}
+
+      {single && (
+        <p className="text-xs text-ink-faint">
+          当前区间只有 1 天，看不出趋势；把页头区间切到「近 7 日」或「累计」可看曲线。
+        </p>
+      )}
+
+      {/* hover 浮层：标题 = 日期 - 当日总量；明细 = 色点 + 模型 + tokens（参考图同格式） */}
       <ChartTooltip show={hoverDay !== null && tip !== null} x={tip?.x ?? 0} y={tip?.y ?? 0}>
         {hoverDay !== null && (
           <>
-            <div className="mb-1 font-medium text-ink">
-              {hoverDay.date.slice(5).replace("-", "月").replace("-", "日")} -{" "}
-              {formatTokens(hoverDay.tokens)} tokens
+            <div className="mb-2 border-b border-line/60 pb-1.5 font-medium text-ink">
+              {axisLabel(hoverDay.date)} - {formatTokens(hoverDay.tokens)} tokens
             </div>
             <div className="space-y-1">
               {activeSeries.map((id) => (
@@ -219,13 +275,11 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
                     {id === "" ? "未知模型" : id}
                   </span>
                   <span className="shrink-0 tabular-nums text-ink">
-                    {formatTokens(hoverDay.byModel[id] ?? 0)}
+                    {formatTokens(hoverDay.byModel[id] ?? 0)} tokens
                   </span>
                 </div>
               ))}
-              {activeSeries.length === 0 && (
-                <div className="text-ink-faint">当天没有 token 用量</div>
-              )}
+              {activeSeries.length === 0 && <div className="text-ink-faint">当天没有 token 用量</div>}
             </div>
           </>
         )}

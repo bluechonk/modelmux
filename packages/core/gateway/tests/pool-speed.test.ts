@@ -1,8 +1,10 @@
 /**
  * 路由优先级里的**速度因子**（`pool-usage.speedOf` / `speedFactorOf` / `priorityOf`）。
  *
- * 规则：有效优先级 = 剩余额度 × 速度系数；速度系数 = clamp(avgTps / 100, 0.25, 1)，
- * 样本不足 / 没数据不罚。全部离线：临时存储根 + 手写当天 access 日志 + 合成渠道。
+ * 规则：有效优先级 = 剩余额度 × 速度系数 × 可靠性系数；速度系数 =
+ * clamp(avgTps / 100, 0.25, 1)，样本不足 / 没数据不罚；可靠性系数 =
+ * (ok + 1) / (ok + fail + 1)，没有样本不罚。
+ * 全部离线：临时存储根 + 手写当天 access 日志 + 合成渠道。
  */
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -13,7 +15,11 @@ import { after, before, describe, it } from "node:test";
 import { clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
 import { localDate } from "../dist/runtime/log-store.js";
 import {
+  noteFailure,
+  noteSuccess,
   priorityOf,
+  reliabilityFactorOf,
+  resetPoolLedgerForTest,
   resetSpeedCacheForTest,
   speedFactorOf,
   speedOf,
@@ -192,5 +198,65 @@ describe("poolCandidates：速度能压过额度差", () => {
     resetSpeedCacheForTest();
     assert.ok(Math.abs(speedFactorOf("multi", "deepseek-v4.1-flash") - 1) < 0.01);
     assert.ok(speedFactorOf("multi", "deepseek-v4-flash") < 0.3, "v4-flash 明显更慢");
+  });
+});
+
+/**
+ * 可靠性系数（`reliabilityFactorOf`）：优先级 = 额度 × 速度 × 可靠性。
+ *
+ * 为什么需要它：`ok/fail` 是本地实测，额度只是上游快照 —— 一个只剩额度、
+ * 却从未跑通过的渠道会一直排在首位，每个请求先白撞一次。
+ */
+describe("priorityOf：可靠性系数（ok/fail 先验）", () => {
+  it("没有样本不罚（新登录渠道保持原优先级）", () => {
+    clearChannels();
+    resetSpeedCacheForTest();
+    resetPoolLedgerForTest();
+    setChannel(stubChannel("fresh", ["deepseek-v4.1-flash"]));
+    writeBilling("fresh", { total: { remain: 1000, unit: "credits" } });
+    assert.equal(reliabilityFactorOf("fresh"), 1, "没被用过 ≠ 不可靠");
+  });
+
+  it("从未跑通的渠道被压低（ok=0/fail=4 → 1/5）", () => {
+    clearChannels();
+    resetSpeedCacheForTest();
+    resetPoolLedgerForTest();
+    setChannel(stubChannel("flaky", ["deepseek-v4.1-flash"]));
+    writeBilling("flaky", { total: { remain: 1000, unit: "credits" } });
+    for (let i = 0; i < 4; i += 1) noteFailure("flaky");
+    assert.ok(Math.abs(reliabilityFactorOf("flaky") - 0.2) < 1e-9);
+  });
+
+  it("额度同量级时，可靠性决定排序", () => {
+    clearChannels();
+    resetSpeedCacheForTest();
+    resetPoolLedgerForTest();
+    setChannel(stubChannel("flaky", ["deepseek-v4.1-flash"]));
+    setChannel(stubChannel("steady", ["deepseek-v4.1-flash"]));
+    writeBilling("flaky", { total: { remain: 1000, unit: "credits" } });
+    writeBilling("steady", { total: { remain: 1000, unit: "credits" } });
+    for (let i = 0; i < 4; i += 1) noteFailure("flaky");
+    for (let i = 0; i < 10; i += 1) noteSuccess("steady");
+    resetSpeedCacheForTest();
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
+      ["steady", "flaky"],
+      "额度相同 → 有实测的 steady 在前（flaky 1000×0.2=200 < steady 1000×~1）",
+    );
+  });
+
+  it("额度差足够大时可靠性不翻盘（只压低，不否定「谁还有货」）", () => {
+    clearChannels();
+    resetSpeedCacheForTest();
+    resetPoolLedgerForTest();
+    setChannel(stubChannel("flaky", ["deepseek-v4.1-flash"]));
+    setChannel(stubChannel("steady", ["deepseek-v4.1-flash"]));
+    writeBilling("flaky", { total: { remain: 10000, unit: "credits" } });
+    writeBilling("steady", { total: { remain: 1000, unit: "credits" } });
+    for (let i = 0; i < 4; i += 1) noteFailure("flaky");
+    for (let i = 0; i < 10; i += 1) noteSuccess("steady");
+    resetSpeedCacheForTest();
+    assert.ok(Math.abs((priorityOf("flaky", "deepseek-v4.1-flash") ?? 0) - 2000) < 1);
+    assert.ok(Math.abs((priorityOf("steady", "deepseek-v4.1-flash") ?? 0) - 1000) < 1);
   });
 });

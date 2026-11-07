@@ -22,6 +22,28 @@ import { baseUrlOf } from "../../http/portfree.js";
 export const HEALTH_TIMEOUT_MS = 1500;
 
 /**
+ * 解 Windows 控制台程序的输出（`taskkill` 等按 OEM 代码页打印，简中系统=GBK）。
+ *
+ * Node 的 `child_process` 默认把子进程输出按 UTF-8 解码 —— 对 GBK 字节会得到一堆
+ * U+FFFD（实测 2026-11-07 网关日志里 `taskkill … failed: ����: û���ҵ�����`）。
+ * 这里先按 GBK 试解，解不出（含替换符）再回落 UTF-8 —— 两种代码页的输出都不再乱码。
+ *
+ * 只在 win32 用：POSIX 的子进程输出本来就是 UTF-8。
+ */
+export function decodeConsoleOutput(buf: Buffer): string {
+  try {
+    const gbk = new TextDecoder("gbk", { fatal: false }).decode(buf);
+    // GBK 解得出但原文其实是 UTF-8 时会出现「浣犲ソ」这类偏字 —— 用 UTF-8 严格解复核，
+    // 解得干净就说明原字节是 UTF-8
+    const utf8 = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    return utf8.includes("�") ? gbk : utf8;
+  } catch {
+    // 不是合法 UTF-8 → 认定是 GBK（或其它 OEM 代码页），GBK 解码不会抛
+    return new TextDecoder("gbk", { fatal: false }).decode(buf);
+  }
+}
+
+/**
  * 运行范围。
  *
  * - **渠道级**（显式 `cid`，或只注册了一个渠道）：PID/日志/偏好都在渠道层内 `<root>/<cid>/`。
@@ -169,9 +191,19 @@ export async function killTree(pid: number): Promise<boolean> {
   if (process.platform === "win32") {
     // taskkill 失败（拒绝访问等）必须留痕：waitDead 只知道「还活着」，
     // 不知道为什么杀不掉 —— 用户排障需要 stderr。
-    execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, (err, _stdout, stderr) => {
-      if (err) appendGateway(`taskkill /PID ${pid} failed: ${stderr || String(err)}`);
-    });
+    execFile(
+      "taskkill",
+      ["/PID", String(pid), "/T", "/F"],
+      // 按 buffer 收：Node 默认把子进程输出按 UTF-8 解码，而 Windows 的 taskkill
+      // 输出的是**控制台 OEM 代码页**（简中系统=GBK），直接解码会把
+      // 「错误: 找不到进程 "…"」变成一堆 U+FFFD（实测 2026-11-07 网关日志）。
+      { windowsHide: true, encoding: "buffer" },
+      (err, _stdout, stderr) => {
+        if (!err) return;
+        const detail = stderr && stderr.length > 0 ? decodeConsoleOutput(stderr) : "";
+        appendGateway(`taskkill /PID ${pid} failed: ${detail || String(err)}`);
+      },
+    );
     return waitDead();
   }
   try {

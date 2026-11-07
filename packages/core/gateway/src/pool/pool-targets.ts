@@ -815,7 +815,8 @@ function findExposed(
 }
 
 /**
- * 跨渠道排序：**有效优先级降序** = 剩余额度 × 速度系数（`pool-usage.priorityOf`）。
+ * 跨渠道排序：**有效优先级降序** = 剩余额度 × 速度系数 × 可靠性系数
+ * （`pool-usage.priorityOf`）。
  *
  * 为什么不用 `scoreOf`（账单已用量）：那是「用得多的优先」，与「谁还有货谁先出」相反；
  * 额度才是路由主键（见 `pool-usage.totalRemainOf`）。

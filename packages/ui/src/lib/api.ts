@@ -342,6 +342,7 @@ async function demoCommand(
         target,
         restored: [`（演示模式）${target} 的配置文件`],
         removed: [],
+        notes: [],
         message: `演示模式：已还原 ${target}（未触碰真实文件）`,
       };
     }

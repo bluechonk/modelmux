@@ -58,6 +58,9 @@ export {
 // 原子写盘（含密文件与上游连接配置共用）
 export { writeSecretFile, writeJsonSecret, writeJsonFile } from "./runtime/secret-file.js";
 
+// 「本渠道承载不了这类输入」信号（渠道在 buildChatBody / prepareChat 里抛，网关据此换候选）
+export { UnsupportedInputError, isUnsupportedInputError } from "./http/chat/errors.js";
+
 // 签到台账（本地记"我们最后一次领到是什么时候"）
 export * as signinLedger from "./auth/signin-ledger.js";
 export type { SigninLedger, ClaimRecord } from "./auth/signin-ledger.js";

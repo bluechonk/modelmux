@@ -15,6 +15,7 @@ import { after, before, describe, it } from "node:test";
 
 import {
   cliEntry,
+  decodeConsoleOutput,
   foreignServiceOnPort,
   killTree,
   pidAlive,
@@ -137,6 +138,31 @@ describe("killTree", () => {
 
   it("对不存在的 PID 返回 true（含本来就不存在）", async () => {
     assert.equal(await killTree(9_999_999), true);
+  });
+});
+
+/**
+ * Windows 控制台程序的输出解码（`taskkill` 按 OEM 代码页打印，简中系统=GBK）。
+ *
+ * Node 的 `child_process` 默认按 UTF-8 解码子进程输出 → GBK 字节全变 U+FFFD
+ * （实测 2026-11-07 网关日志：`taskkill … failed: ����: û���ҵ�����`）。
+ */
+describe("decodeConsoleOutput", () => {
+  it("GBK 字节解出中文，不再是一串替换符", () => {
+    // 「错误: 找不到进程」的 GBK 字节（简中系统 taskkill 的真实输出形态）
+    const gbk = Buffer.from("b4edcef33a20d5d2b2bbb5bdbdf8b3cc", "hex");
+    const text = decodeConsoleOutput(gbk);
+    assert.equal(text, "错误: 找不到进程");
+    assert.ok(!text.includes("�"), "不该出现替换符");
+  });
+
+  it("UTF-8 字节不会被 GBK 误判（偏字「閿欒」是 GBK 解 UTF-8 的典型症状）", () => {
+    const text = decodeConsoleOutput(Buffer.from("错误: 找不到进程", "utf8"));
+    assert.equal(text, "错误: 找不到进程");
+  });
+
+  it("纯 ASCII 两种编码同解", () => {
+    assert.equal(decodeConsoleOutput(Buffer.from("ERROR: no such process", "utf8")), "ERROR: no such process");
   });
 });
 

@@ -230,6 +230,39 @@ export function firstSseError(buf: Buffer): { code?: string; message?: string } 
 }
 
 /**
+ * 取**单帧**里的业务错误对象（`data: {"error":{…}}`）；不是错误帧返回 null。
+ *
+ * 与 `firstSseError` 的区别：那个翻的是已聚合的整段字节，这个只看一帧 ——
+ * 流式路径需要逐帧记账（见 `http/chat/stream.ts` 的 `noteStreamError`）。
+ */
+export function errorFrameOf(frame: Buffer | string): Record<string, unknown> | null {
+  const text = Buffer.isBuffer(frame) ? frame.toString("utf8") : frame;
+  // 快判：绝大多数帧是内容帧，不值一次 JSON 解析（与 `noteFrameUsage` 同口径 ——
+  // 本函数在流式热路径上逐帧调用）
+  if (!text.includes('"error"')) return null;
+  // 逐 `data:` 行扫：翻译器正常一帧一条，但 TCP 合并 / 渠道实现可能一帧里有多行
+  for (const line of text.split("\n")) {
+    const data = line.trim();
+    if (!data.startsWith("data:")) continue;
+    const payload = data.slice("data:".length).trim();
+    if (payload === "" || payload === "[DONE]") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      /* 非 JSON 的 data 行（心跳 / 注释 / 半截帧）直接跳过，不视为错误帧 */
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    const err = (parsed as Record<string, unknown>)["error"];
+    if (err && typeof err === "object" && !Array.isArray(err)) {
+      return err as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/**
  * 剔除 data 块里语义为空的字段（目前只有空数组 `tool_calls`）。
  *
  * 上游每个 delta 都带 `"tool_calls": []`，而客户端判定
@@ -301,6 +334,13 @@ export interface RelayOptions {
    * 结尾也不再 `out.end()`（编码器的 finish() + 调用方收尾负责）。
    */
   sink?: { writeOpenAiFrame(frame: Buffer | string): void };
+  /**
+   * 每写一帧回调一次（**只观测，不改帧**）。
+   *
+   * 用途是流内业务错误的逐帧记账：openai 线型的帧在本函数内部流转，
+   * 调用方看不到，只能由这里递出去（见 `http/chat/stream.ts`）。
+   */
+  onFrame?: (frame: Buffer | string) => void;
 }
 
 export async function relay(
@@ -329,6 +369,7 @@ export async function relay(
     for (const frame of opts.prefix ?? []) {
       for (const outFrame of dsml ? dsml.push(frame) : [frame]) {
         noteFrameUsage(out, outFrame);
+        opts.onFrame?.(outFrame);
         writeOut(outFrame);
       }
     }
@@ -340,11 +381,13 @@ export async function relay(
         if (capture) capture.push(Buffer.from(value));
         for (const outFrame of dsml.push(value)) {
           noteFrameUsage(out, outFrame);
+          opts.onFrame?.(outFrame);
           writeOut(outFrame);
         }
       }
       for (const outFrame of dsml.finish()) {
         noteFrameUsage(out, outFrame);
+        opts.onFrame?.(outFrame);
         writeOut(outFrame);
       }
       return;
@@ -385,6 +428,7 @@ export async function relay(
         if (processed !== null) {
           const frame = processed.replace(/\r+$/, "");
           noteFrameUsage(out, frame);
+          opts.onFrame?.(frame);
           writeOut(`${frame}\n\n`);
         }
       }
@@ -395,6 +439,7 @@ export async function relay(
         const processed = processEvent(buffer);
         if (processed !== null) {
           noteFrameUsage(out, processed);
+          opts.onFrame?.(processed);
           writeOut(processed);
         }
       }

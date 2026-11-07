@@ -810,14 +810,79 @@ describe("一键还原", () => {
     assert.match(restored.error ?? "", /没有找到.*接入备份/);
   });
 
-  it("同一份备份不会被还原两次", () => {
+  it("同一份备份可以重复还原（不消费备份）", () => {
     clearBackups("zcode");
     const file = seedZcode();
+    const before = readFileSync(file, "utf8");
     integrateClient("zcode", MODELS);
     assert.equal(restoreClient("zcode").ok, true);
-    // 第一次还原把备份目录改成 restored- 前缀，该 target 已无「未使用」备份
+    assert.equal(readFileSync(file, "utf8"), before, "第一次还原回到接入前");
+
+    // 早期版本把用过的备份改名成 restored- 前缀，第二次还原就报「没有找到备份」。
+    // 现在还原是幂等动作：同一份「接入前」状态可以反复还原。
     const second = restoreClient("zcode");
-    assert.equal(second.ok, false, "同一份备份不该被消费两次");
-    assert.equal(readFileSync(file, "utf8").includes("modelmux"), true, "第二次未动文件");
+    assert.equal(second.ok, true, second.error);
+    assert.equal(readFileSync(file, "utf8"), before, "第二次还原同样回到接入前");
+    assert.ok(second.sourceDir !== undefined, "应报告所用备份目录");
+  });
+
+  it("空清单的备份目录不阻塞更早的真实备份", () => {
+    clearBackups("zcode");
+    const file = seedZcode();
+    const before = readFileSync(file, "utf8");
+    integrateClient("zcode", MODELS);
+    assert.equal(restoreClient("zcode").ok, true, "第一次还原");
+
+    // 造一个**更新**但清单为空的目录（模拟「只建了目录没写文件」的接入）：
+    // 它若被当成最新备份，还原就会报「没有可还原的文件」而挡住真实备份
+    const root = join(home, ".modelmux", "backups", "integrate");
+    const empty = join(root, "zcode-20990101000000");
+    mkdirSync(empty, { recursive: true });
+    writeFileSync(
+      join(empty, "manifest.json"),
+      JSON.stringify({ version: 1, target: "zcode", createdAt: new Date().toISOString(), files: [] }),
+    );
+
+    const again = restoreClient("zcode");
+    assert.equal(again.ok, true, again.error);
+    assert.equal(readFileSync(file, "utf8"), before, "回退到更早的真实备份");
+  });
+
+  it("清单里字段不全的条目被跳过（不猜路径写回）", () => {
+    clearBackups("codex");
+    // 自造 codex 配置目录（用例之间不互相依赖：单独跑本条也成立）
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    const file = join(home, ".codex", "config.toml");
+    rmSync(file, { force: true });
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    assert.ok(existsSync(file), "接入应新建 config.toml");
+
+    // 往清单里塞一条缺 original 的坏条目（磁盘数据可被手改 / 被截断）。
+    // 按 manifest 的 target 定位本 target 的备份目录 —— 根目录里还躺着别的 target 的备份。
+    const root = join(home, ".modelmux", "backups", "integrate");
+    const dir = readdirSync(root)
+      .map((name) => join(root, name))
+      .find((candidate) => {
+        const manifestPath = join(candidate, "manifest.json");
+        if (!existsSync(manifestPath)) return false;
+        try {
+          return (JSON.parse(readFileSync(manifestPath, "utf8")) as { target?: string }).target === "codex";
+        } catch {
+          return false;
+        }
+      });
+    assert.ok(dir, "应存在 codex 备份目录");
+    const manifestPath = join(dir!, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { files: unknown[] };
+    manifest.files.push({ backup: "config.toml.00000000", existed: true });
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, true, restored.error);
+    assert.ok(
+      restored.notes.some((n) => n.includes("字段不全")),
+      `应如实记录跳过的坏条目：${restored.notes.join(" / ")}`,
+    );
+    assert.equal(restored.removed.includes(file), true, "好条目仍应生效");
   });
 });

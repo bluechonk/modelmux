@@ -14,6 +14,7 @@
 import type { ServerResponse } from "node:http";
 
 import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
+import { noteAccountQuotaExhausted } from "../../runtime/account-pool.js";
 import {
   noteClientDisconnect,
   noteFirstByte,
@@ -21,7 +22,8 @@ import {
   noteLastFrame,
   noteRequestError,
 } from "../../runtime/log-store.js";
-import { isCustomWire } from "./channel.js";
+import { noteFailure } from "../../pool/pool-usage.js";
+import { inChannel, isCustomWire } from "./channel.js";
 import { sinkOf } from "../protocol/types.js";
 import * as dsmlTools from "../wire/dsml-tools.js";
 import * as sseStream from "../wire/sse-stream.js";
@@ -69,6 +71,88 @@ function relayError(res: ServerResponse, logger: (m: string) => void, err: unkno
   noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
   logger(`upstream stream failed: ${String(err)}`);
   writeError("upstream_stream_failed", `upstream stream failed: ${String(err)}`);
+}
+
+/**
+ * 额度类业务错误的账号处置：渠道用 `quotaSignal` 上报判据，命中就冷却账号。
+ *
+ * 流内错误帧（`noteStreamError`）与非流式聚合出的错误（`forward.ts`）**必须走同一条**
+ * —— 否则同一个上游错误在流式下被冷却、非流式下被反复重试（实测 qodercn 的
+ * `code=112` + `pricingUrl` 就是流内帧，而聚合路径同样会收到它）。
+ *
+ * 显式传 cid 并包渠道上下文：`channelDir` 在仓库级多渠道路由下不接受「靠上下文猜」。
+ */
+export function coolAccountOnQuotaSignal(
+  channel: Channel,
+  cid: string | undefined,
+  logger: (m: string) => void,
+  code: string,
+  message: string,
+  freeModel = false,
+): void {
+  const signal = inChannel(channel, () => channel.upstream.quotaSignal?.(200, message) ?? null);
+  if (signal === null) return;
+  // 免费（×0）模型不吃额度：既不受账号冷却限制，也不该**触发**冷却
+  // （与 `attempt.ts::isFreePoolModel` 的既有铁律同口径 —— 实测 loomy 烧光后
+  // 连倍率 0 的模型都被一起锁死）
+  if (freeModel) {
+    logger(
+      `upstream business error on a free model (channel ${cid ?? "?"}): code=${code}, account left untouched`,
+    );
+    return;
+  }
+  const snippet = message.replace(/\s+/g, " ").trim().slice(0, 200);
+  // 显式传 cid 并包渠道上下文：`channelDir` 在仓库级多渠道路由下不接受「靠上下文猜」
+  const resetAt = inChannel(channel, () => channel.upstream.quotaResetAt?.(message) ?? null);
+  const untilMs = inChannel(channel, () =>
+    noteAccountQuotaExhausted(channel.config.cid, {
+      until: resetAt,
+      reason: `上游业务错误 code=${code}${snippet === "" ? "" : `：${snippet}`}`,
+    }),
+  );
+  logger(
+    `upstream business error (channel ${cid ?? "?"}): code=${code}, cooling account until ${new Date(untilMs).toISOString()}`,
+  );
+}
+
+/**
+ * 流内业务错误帧的记账。
+ *
+ * 上游（qoder 系最典型）对排队 / 额度 / 认证这类失败不拒绝连接，而是回
+ * **HTTP 200 + SSE 里投递一个业务错误帧**。在此之前网关对这类帧完全无感：
+ * 访问日志照记成功、账本不计失败、账号不冷却 —— 于是同一个业务错误一直重复，
+ * 客户端每次只看到一句上游原文（实测 qodercn glm-5.3-flash 的 `code=112`
+ * 额度错误：body 里带 `pricingUrl` 引导充值）。
+ *
+ * 只做两件事，都**不重试**（响应头早已发出，换候选会变成两个响应）：
+ * 1. 把这次请求记成失败（`noteRequestError`）—— 日志与 Web 控制台据此显示真实结果；
+ * 2. 额度类业务错误冷却账号（`coolAccountOnQuotaSignal`），下次请求自然换一家。
+ */
+function noteStreamError(
+  res: ServerResponse,
+  channel: Channel,
+  cid: string | undefined,
+  logger: (m: string) => void,
+  frame: Buffer | string,
+  freeModel: boolean,
+): void {
+  try {
+    const errObj = sseStream.errorFrameOf(frame);
+    if (errObj === null) return;
+    const rawCode = errObj["code"];
+    // 数值码（qodercn 的 `112`）原样保留成字符串 —— 日志与冷却原因都要能看出真码
+    const code = typeof rawCode === "string" ? rawCode : String(rawCode ?? "upstream_error");
+    const message = typeof errObj["message"] === "string" ? errObj["message"] : "";
+    noteRequestError(res, code, message);
+    coolAccountOnQuotaSignal(channel, cid, logger, code, message, freeModel);
+    // 账本补一笔失败：attempt 层在上游**收下请求**（HTTP 200）时就记过 `ok` ——
+    // 那只是「连上了」。不补的话可靠性系数会被这类业务失败反向抬高。
+    // `cooldownMs=0`：只记账，不触发渠道冷却（账号该冷却的上面已经冷却了）。
+    if (cid !== undefined) noteFailure(cid, undefined, 0);
+  } catch (err) {
+    // 记账失败不能打断数据通路（磁盘满 / 渠道判据有 bug 时，客户端看到的应是正常流）
+    logger(`stream error accounting failed (channel ${cid ?? "?"}): ${String(err)}`);
+  }
 }
 
 /** 心跳间隔可用环境变量覆盖（测试与长部署按需调整）。 */
@@ -148,6 +232,8 @@ export async function relayStream(
   request?: Record<string, unknown>,
   initialContent = false,
   pendingFrames: Buffer[] = [],
+  /** 免费（×0）模型：业务错误帧只记账，不冷却账号（见 `coolAccountOnQuotaSignal`）。 */
+  freeModel = false,
 ): Promise<void> {
   if (!isCustomWire(channel)) {
     // openai 线型的流中途错误也必须以 SSE 错误帧收尾 —— 与下方 custom 分支同一套
@@ -162,6 +248,8 @@ export async function relayStream(
         prefix: pendingFrames,
         // 入站协议在场：帧交编码器转译（anthropic / responses 事件族）
         ...(sink ? { sink } : {}),
+        // 帧在本函数内部流转，逐帧记账只能由它递出来
+        onFrame: (frame) => noteStreamError(res, channel, cid, logger, frame, freeModel),
       });
     } catch (err) {
       relayError(res, logger, err);
@@ -175,7 +263,12 @@ export async function relayStream(
 
   // custom 线型不走上面的过滤器，探测层帧仍按老路直接写出（有编码器则转译）
   const sink = sinkOf(res);
+  /** 逐帧记账：业务错误帧（排队 / 额度 / 认证）不能吞得无声无息。 */
+  const accountFrame = (frame: Buffer | string): void => {
+    noteStreamError(res, channel, cid, logger, frame, freeModel);
+  };
   for (const frame of pendingFrames) {
+    accountFrame(frame);
     if (sink) sink.writeOpenAiFrame(frame);
     else res.write(frame);
   }
@@ -228,6 +321,7 @@ export async function relayStream(
         noteLastFrame(res);
         const buf = asBuffer(frame);
         sseStream.noteFrameUsage(res, buf);
+        accountFrame(buf);
         // 入站协议在场：帧交编码器转译（anthropic / responses 事件族）
         if (sink) sink.writeOpenAiFrame(buf);
         else res.write(buf);
@@ -238,6 +332,7 @@ export async function relayStream(
     for (const frame of translator.finish()) {
       const buf = asBuffer(frame);
       sseStream.noteFrameUsage(res, buf);
+      accountFrame(buf);
       if (sink) sink.writeOpenAiFrame(buf);
       else res.write(buf);
     }
