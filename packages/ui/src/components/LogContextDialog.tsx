@@ -15,6 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Languages, Loader2, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import Markdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { loadCtxScroll, pruneCtxScroll, saveCtxScroll, signatureOf } from "../lib/ctx-scroll";
@@ -78,6 +79,88 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   } catch {
     // 截断或自编码体：不是 JSON 属正常情况
   }
+  return null;
+}
+
+/**
+ * OpenAI Responses 的 `input[]`（Codex 原生形态）映射成 messages 形态复用消息卡：
+ * message → 同名；reasoning → reasoning_content；function_call → tool_calls；
+ * function_call_output → role:"tool"。未知 item 原样保留（JsonBlock 兜底渲染）。
+ */
+function normalizeResponsesInput(items: unknown[]): unknown[] {
+  return items.map((item) => {
+    const rec = asRecord(item);
+    switch (rec["type"]) {
+      case "message": {
+        if (typeof rec["content"] === "string") {
+          return { role: typeof rec["role"] === "string" ? rec["role"] : "user", content: rec["content"] };
+        }
+        const parts = Array.isArray(rec["content"]) ? rec["content"] : [];
+        const texts: string[] = [];
+        const nonText: unknown[] = [];
+        for (const part of parts) {
+          const p = asRecord(part);
+          const text = p["text"];
+          if (typeof text === "string") {
+            texts.push(text);
+            continue;
+          }
+          if (p["type"] === "input_image" || p["type"] === "image_url") {
+            // 转成 chat 形态让现有图片占位逻辑认得
+            const url = typeof p["image_url"] === "string" ? p["image_url"] : asRecord(p["image_url"])["url"];
+            nonText.push({ type: "image_url", image_url: { url: typeof url === "string" ? url : "" } });
+          } else {
+            nonText.push(part);
+          }
+        }
+        const role = typeof rec["role"] === "string" ? rec["role"] : "user";
+        if (nonText.length > 0) {
+          return {
+            role,
+            content: [...nonText, ...texts.map((text) => ({ type: "text", text }))],
+          };
+        }
+        return { role, content: texts.join("\n") };
+      }
+      case "reasoning": {
+        const summary = Array.isArray(rec["summary"]) ? rec["summary"] : [];
+        const texts = summary.map((s) => asRecord(s)["text"]).filter((t): t is string => typeof t === "string");
+        return {
+          role: "assistant",
+          reasoning_content:
+            texts.length > 0 ? texts.join("\n") : "（加密思考链，上下文里只有密文占位）",
+        };
+      }
+      case "function_call":
+        return {
+          role: "assistant",
+          tool_calls: [
+            {
+              id: typeof rec["call_id"] === "string" ? rec["call_id"] : rec["id"],
+              type: "function",
+              function: {
+                name: typeof rec["name"] === "string" ? rec["name"] : "(未命名工具)",
+                arguments: typeof rec["arguments"] === "string" ? rec["arguments"] : "{}",
+              },
+            },
+          ],
+        };
+      case "function_call_output":
+        return {
+          role: "tool",
+          tool_call_id: typeof rec["call_id"] === "string" ? rec["call_id"] : undefined,
+          content: rec["output"],
+        };
+      default:
+        return item;
+    }
+  });
+}
+
+/** 请求体的消息序：OpenAI chat 走 `messages`，Responses 走 `input`（映射后复用）。 */
+function messagesOfBody(parsed: Record<string, unknown>): unknown[] | null {
+  if (Array.isArray(parsed["messages"])) return parsed["messages"];
+  if (Array.isArray(parsed["input"])) return normalizeResponsesInput(parsed["input"]);
   return null;
 }
 
@@ -233,7 +316,9 @@ function CollapseBox({ chars, children }: { chars: number; children: ReactNode }
 }
 
 /**
- * Markdown 渲染（仅 assistant 正文）：GFM 表格 / 代码块可用。
+ * Markdown 渲染（仅 assistant 正文）：GFM 表格 / 代码块可用；单换行保留为换行
+ * （remark-breaks）—— CommonMark 把 softbreak 折成空格，中文回复习惯单换行分段，
+ * 折了就是整段粘连。
  *
  * 不开 `rehype-raw` —— 消息里的 HTML 一律转义为文本，绝不执行；
  * system 与工具输出刻意不走这里（提示词里的 XML 标签会被渲染器吃掉，保真优先）。
@@ -241,7 +326,7 @@ function CollapseBox({ chars, children }: { chars: number; children: ReactNode }
 function MarkdownText({ text }: { text: string }): ReactElement {
   return (
     <div className="log-md text-xs leading-relaxed text-ink-soft [&_a]:text-ink [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-canvas [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_hr]:border-line [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-canvas [&_pre]:p-2 [&_pre]:font-mono [&_pre]:text-xs [&_strong]:text-ink [&_table]:w-full [&_td]:border [&_td]:border-line/60 [&_td]:px-1.5 [&_th]:border [&_th]:border-line/60 [&_th]:px-1.5 [&_ul]:list-disc">
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{text}</Markdown>
     </div>
   );
 }
@@ -716,15 +801,21 @@ function PayloadBlock({
   const lenient = record.truncated ? null : parseLenient(section);
   const parsed = lenient?.top ?? null;
   const partial = !complete || (lenient?.truncated ?? false);
-  const messages = parsed !== null && Array.isArray(parsed["messages"]) ? parsed["messages"] : null;
+  const messages = parsed !== null ? messagesOfBody(parsed) : null;
   const tools = parsed !== null && Array.isArray(parsed["tools"]) ? parsed["tools"] : null;
   const rest =
     parsed === null
       ? null
       : Object.fromEntries(
-          Object.entries(parsed).filter(([key]) => key !== "messages" && key !== "tools"),
+          Object.entries(parsed).filter(([key]) => key !== "messages" && key !== "input" && key !== "tools"),
         );
   const restKeys = rest === null ? [] : Object.keys(rest);
+  /**
+   * 无效字节的可见提示：正文里的替换符来自「客户端发的就不是合法 UTF-8」——
+   * 常见于 Windows 上 GBK 控制台输出被原样塞进 JSON（PowerShell 报错、GBK argv）。
+   * 乱码不是弹窗渲染坏了，如实说清来源比让读者对着 � 猜强。
+   */
+  const fffdCount = complete ? (body.match(/\uFFFD/g) ?? []).length : 0;
 
   return (
     <section className="rounded-xl border border-line/70 bg-raised/40">
@@ -789,7 +880,13 @@ function PayloadBlock({
           <>
             {messages === null && (
               <p className="text-xs text-ink-faint">
-                这份请求体不是 OpenAI `messages` 形态（渠道自有字段），已按原样逐字段呈现。
+                这份请求体不是消息列表形态（渠道自有字段），已按原样逐字段呈现。
+              </p>
+            )}
+            {fffdCount > 0 && (
+              <p className="rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-xs text-warn">
+                正文含 {fffdCount} 处无法解码的字节（显示为 �）—— 客户端发送时就已不是合法
+                UTF-8，常见于 Windows 的 GBK 控制台输出被原样塞进请求；乱码是源头带的，不是渲染问题。
               </p>
             )}
             {messages?.map((message, index) => (
