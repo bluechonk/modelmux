@@ -755,7 +755,7 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   result.changed.push(profileFile, metaFile);
   result.backupDir = backup;
   result.notes.push(
-    `baseUrl=${GATEWAY_ANTHROPIC_URL}，模型发现已开（网关清单为准），兜底列出 ${models.length} 个模型`,
+    `baseUrl=${GATEWAY_ANTHROPIC_URL}，按角色槽写入 ${Math.min(models.length, DESKTOP_ROLE_SLOTS.length)} 个模型（全部 1M 上下文）`,
   );
   result.notes.push("改完需重启 Claude Desktop 才生效");
   result.ok = true;
