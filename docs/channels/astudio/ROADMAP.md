@@ -586,7 +586,7 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
 - `packages/ui/src/pages/Dashboard.tsx` 的 `modelRows`（模型清单：模型名 / 健康度 / 平均 TPS / 倍率）
 - `packages/ui/src/components/LoginModal.tsx`（`:58,130-150` 授权链接渲染）
 - `packages/ui/src/lib/demo.ts`（`:44-92` 演示渠道/模型/账号）
-- `packages/ui/src/lib/types.ts`（`:20-47` `model_info` 类型）
+- `packages/ui/src/lib/types.ts`（`:63-81` `ModelInfo` 类型，即 `UiSnapshot.models[].meta`）
 
 **逆向记录**
 - [METHODOLOGY.md](./METHODOLOGY.md) —— 通用方法论与 AStudio 参数映射

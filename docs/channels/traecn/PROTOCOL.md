@@ -436,7 +436,7 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
 - **倍率在 `features`**（JSON 字符串，须二次 parse）：顶层 `consumption_rate`
   是**对象** `{enable:true, data:{rate:0.8}}`（不是裸数字），基础倍率取 `data.rate`；
   活动开启时（`activity_discount.enable`）优先取 `data.current.consumption_rate`
-  的折后值（实测 subsidy 活动 0.4→0.2）。共享层据此产出 `model_info.multiplier`
+  的折后值（实测 subsidy 活动 0.4→0.2）。共享层据此产出 `PoolModelMeta.multiplier`
   （实测 20/20 模型全有倍率）
 - **上下文窗口在 `context_window_tokens{dev,max}`**（实测三组都有该字段）：
   `dev` 是默认档（多在 200000 / 232768 / 256000），`max` 是 Max 档

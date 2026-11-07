@@ -29,11 +29,34 @@ mx <组名> <子命令> [参数]        # 命令组
 
 ## 1. 命令速查
 
-**动作命令的唯一事实源在 `AGENTS.md` 的「常见任务速查」表**（仓库根，工具每次都读，不依赖本技能触发）：
-`mx start` / `stop` / `restart` / `serve` / `web`、`status`（含 `--json` 判 `stale_build`）、
-`model list|usage|<cid>`、`bill`、`acct list|use|add|remove`、`path`、`login` / `relogin`。
+**动作命令的唯一事实源就是本表。** 规则 / 契约 / 事实**不在此表**（那些在 `docs/`）；
+本表只回答「要做这件事，敲什么」。别处（README / docs / AGENTS.md）只指向本技能，不复述命令。
 
-本技能**不再重复那张表** —— 两份事实必然漂移（2026-10-26 实测该命令在 6+ 个文件里各写一份）。
+| 要做的事 | 命令 |
+| --- | --- |
+| 起网关（幂等） | `mx start`（启动失败恒非零退出；`--force` 已在跑也重启，`--wait <s>` 健康等待秒数） |
+| 停 / 重启网关 | `mx stop` / `mx restart` |
+| 前台调试运行 | `mx serve`（无监督直跑，不落 PID） |
+| 看网关与全部渠道状态 | `mx status` |
+| 看某渠道状态 | `mx status <cid>` |
+| **确认没有陈旧构建** | `mx status --json` → `stale_build` 必须为 `false` |
+| 看池里有哪些模型 | `mx model list` |
+| 看各渠道用得怎么样 | `mx model usage` / `mx model usage --refresh` |
+| 看某渠道的模型与倍率 | `mx model <cid>` / `mx model <cid> --refresh` |
+| 看某模型的规格 | `mx model spec <模型名>`（窗口 / 输出 / 档位 / 倍率 / 模态） |
+| 看额度 / 账单 | `mx bill [<cid>]`（**直连上游**，不经网关）；`--accounts` 逐账号列（池内 ≥2 个账号时默认列出） |
+| 登录 | `mx login <cid>`（已有凭据时幂等）；`mx login list` 看可登录渠道 |
+| 强制重新授权 | `mx relogin <cid>`（清主凭据后重走授权，**不是**刷新） |
+| 登出（销毁本地凭据 + 清空账号池） | `mx logout <cid>` |
+| 看账号池 | `mx acct <cid>` / `mx acct <cid> list` |
+| 切生效账号 | `mx acct <cid> use <key>` |
+| 加 / 删账号 | `mx acct <cid> add`（必须给 cid） / `mx acct <cid> remove <key>` |
+| 看存储落点 | `mx path [<cid>]` / `mx path --all` |
+| 打开 Web 控制台 | `mx web`（确保网关在跑并打印 `/web/`，**不自动开浏览器**） |
+| **发版（打 tag）** | 改全部版本号落点（各 `package.json` + 渠道 `channel.ts`）→ `chore(release): 发布 vX.Y.Z` 提交 → PR 合并 → 在 main 打 `vX.Y.Z` tag；**不建 Release**（见 `docs/WORKFLOW.md`） |
+| **查日志 / 排查故障** | 走 `log-triage` 技能（`mx log` 的 `--kind` / `--outcome` / `--date` 组合与判读都在那儿） |
+| **压缩存量日志正文**（维护，非日常） | `mx log --compact`（把已封存轮转段里仍是明文的抓取正文压成压缩态；新写入本就压缩，见 `docs/LOGGING.md` §9） |
+
 本技能只保留**别处没有的内容**：
 
 - `§0 语法铁律`（动词优先、为什么 `mx <cid> <动词>` 不可用）

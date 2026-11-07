@@ -42,7 +42,7 @@ interface ModelEntry {
   supports_image?: boolean;
   /** 倍率展示文案（如 `"x0.34"`）；上游 `credits` 字段为空时缺省。 */
   rate?: string;
-  /** 倍率数值（由 `rate` 解析）；供共享层 `model_info.multiplier` 使用。 */
+  /** 倍率数值（由 `rate` 解析）；供共享层 `PoolModelMeta.multiplier` 使用。 */
   multiplier?: number;
   source: "fallback" | "snapshot" | "remote";
 }
