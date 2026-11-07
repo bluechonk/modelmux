@@ -19,6 +19,12 @@
       "path": "../core/gateway"
     },
     {
+      "path": "../core/channels/astudio"
+    },
+    {
+      "path": "../core/channels/autoclaw"
+    },
+    {
       "path": "../core/channels/catpaw"
     },
     {
@@ -44,6 +50,9 @@
     },
     {
       "path": "../core/channels/workbuddyai"
+    },
+    {
+      "path": "../core/channels/zcode"
     }
   ]
 }
