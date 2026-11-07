@@ -97,6 +97,22 @@
     background-clip: content-box;
   }
 
+  /*
+   * 隐藏滚动条但保留滚动能力（图表卡内的横向滚动条专用）。
+   *
+   * 为什么必须隐藏：滚动条会占 10px 高，而这个高度是**按容器是否有横向溢出**出现的。
+   * 仪表盘趋势卡的「今天」（条形列表，不滚动）与「近 7 日」（SVG 绘图区，窄屏溢出）
+   * 会因此差出一条滚动条的高度，切区间时下方整页跳动。
+   * 横向可滚这件事由 `ScrollFade` 在右缘铺的渐隐交代，不靠滚动条。
+   */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* 键盘可达性：统一的聚焦环（鼠标点击不显示） */
   :focus-visible {
     outline: 2px solid color-mix(in oklab, var(--color-brand) 55%, transparent);
