@@ -282,12 +282,13 @@ describe("/api/logs 与 payload", () => {
     assert.equal(page.total, 1, "坏分页参数回落默认值");
   });
 
-  it("payload：part=body 分片读取；未知的 id 404；full=1 带正文", async () => {
+  it("payload：part=body 分片读取（base64 字节）；未知的 id 404；full=1 带正文", async () => {
     const slice = await fetch(`${server.url}api/logs/payload?id=req_routes&part=body&phase=upstream&offset=0&limit=4`);
     assert.equal(slice.status, 200);
-    const body = (await slice.json()) as { ok: boolean; body?: string; truncated?: boolean };
+    const body = (await slice.json()) as { ok: boolean; bodyB64?: string };
     assert.equal(body.ok, true);
-    assert.equal(body.body, '{"v"');
+    // 分片是字节 base64：解回应与原文一致
+    assert.equal(Buffer.from(body.bodyB64 ?? "", "base64").toString("utf8"), '{"v"');
 
     const missing = await fetch(`${server.url}api/logs/payload?id=req_absent&part=body&date=${localDate()}`);
     assert.equal(missing.status, 404);

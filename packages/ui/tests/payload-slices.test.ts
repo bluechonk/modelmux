@@ -25,9 +25,14 @@ import {
   windowsTileFully,
 } from "../src/lib/payload-slices.ts";
 
-/** 造一片：正文用 `offset:length` 占位（只看结构不看内容）。 */
+/** 造一片：正文用 `offset:length` 占位（只看结构不看内容），按窗口契约给 base64 字节。 */
 function win(offset: number, length: number, total: number): SliceWindow {
-  return { offset, length, total, body: `${offset}:${length}` };
+  return {
+    offset,
+    length,
+    total,
+    bodyB64: Buffer.from(`${offset}:${length}`, "utf8").toString("base64"),
+  };
 }
 
 /** 模拟服务端：按请求参数给一片，到末尾自动变短。 */

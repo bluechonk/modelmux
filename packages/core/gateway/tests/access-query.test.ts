@@ -19,6 +19,7 @@ import {
   noteUpstreamPayload,
   queryAccessLogs,
   readPayloads,
+  readPayloadSlice,
 } from "../dist/runtime/log-store.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -488,6 +489,24 @@ describe("请求正文抓取（恒开启，读回不受门控）", () => {
     assert.deepEqual(result.map((r) => r.attempt), [undefined, 0, 1]);
     assert.equal(result[0]?.body, '{"model":"loomy/kimi-k2.6","messages":[]}');
     assert.equal(result[2]?.cid, "catpaw");
+  });
+
+  it("写端字节安全：含坏字节的小 body 走压缩分支（不进 plain），invalidBytes 由写入端算出", () => {
+    const { res, id } = attach();
+    // 「只回答一个词:」的 GBK 字节流（真实案例 req_2a0b）：14 字节里 6 个无效
+    const gbk = Buffer.from(
+      [0xd6, 0xbb, 0xbb, 0xd8, 0xb4, 0xf0, 0xd2, 0xbb, 0xb8, 0xf6, 0xb4, 0xca, 0xa3, 0xba],
+    );
+    noteClientPayload(res as never, gbk);
+    const rec = readPayloads(id)[0];
+    assert.equal(rec?.bytes, 14, "bytes 是原始字节长度");
+    assert.equal(rec?.invalidBytes, 6, "写入端标注无效字节数");
+    assert.notEqual(rec?.bodyEnc, "plain", "坏字节不能进 plain 字符串（会被顶成替换符丢掉）");
+    assert.ok(rec!.body.includes("\uFFFD"), "文本呈现按替换符");
+    const slice = readPayloadSlice(id, undefined, "client", 0, 1 << 20);
+    assert.ok(slice);
+    assert.equal(slice.total, 14);
+    assert.ok(Buffer.from(slice.bodyB64, "base64").equals(gbk), "压缩块里的字节逐字节复原");
   });
 
   it("上游还没回就失败时，正文照样读得到（写盘在 fetch 之前）", () => {

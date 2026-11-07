@@ -337,6 +337,8 @@ export interface PayloadRecord {
   bytes: number;
   truncated: boolean;
   body: string;
+  /** 原始字节里无效 UTF-8 序列覆盖的字节数（缺省 = 全部有效或旧行未统计）。 */
+  invalidBytes?: number;
 }
 
 export interface PayloadQueryResult {
@@ -353,13 +355,14 @@ export interface PayloadSliceResult {
   ok: boolean;
   id: string;
   date: string | null;
-  /** 本片在正文中的起始偏移。 */
+  /** 本片在正文中的起始偏移（字节）。 */
   offset: number;
-  /** 本片实际长度（到末尾时可能小于请求的 limit）。 */
+  /** 本片实际长度（字节；到末尾时可能小于请求的 limit）。 */
   length: number;
-  /** 正文总长度（字符数），用于「已加载 X / Y」。 */
+  /** 正文总长度（字节），用于「已加载 X / Y」。 */
   total: number;
-  body: string;
+  /** 本片原始字节的 base64 —— 窗口常落在多字节字符中间，拼齐后一次解码。 */
+  bodyB64: string;
 }
 
 /** 日志查询参数（键名与 `/web/api/logs` 的 query 一致）。 */
