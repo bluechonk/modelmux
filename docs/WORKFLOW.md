@@ -38,7 +38,10 @@
    - 磁盘或安装时间不允许每棵树都跑 `npm ci`。
 3. 落点：仓库同级目录 `../modelmux-worktrees/<branch>`，不要放在仓库根目录内
    （`verify-docs` / `verify-storage` / npm workspaces 会扫到嵌套目录）。
-4. 每棵树独立：`npm ci`、`dist/`、`node_modules/` 都不共享。
+4. 每棵树独立：`npm ci`、`dist/`、`node_modules/` 都不共享 —— 开树用
+   `node scripts/worktree-init.mjs <path> [branch]` 一条命令完成
+   add + install + `.tmp/` 建立 + 依赖冒烟；落树后不装依赖就跑测试，报错形态
+   与代码问题难区分（Claude Desktop 开 worktree 开发本项目时踩过这一整串）。
 5. 全局 `mx` 指向主工作树的 bundle；在 worktree 里用 `node packages/cli/dist/cli.js`
    或在该树里重新 `npm link`。
 6. 并行任务用 `PLAN_ID` 绑定 `.planning/`，不要把计划文件写到别的树。

@@ -818,6 +818,10 @@ function expireCooldown(index: PoolIndex, cid?: string, now = Date.now()): boole
     account.cooldown_until = null;
     account.cooldown_reason = undefined;
     account.fail_streak = 0; // 窗口刷新 = 干净重来
+    // 熔断退避一并清掉：额度耗尽盖成 cooldown 的那条路径不碰 trip 字段，连败攒出来的
+    // backoff 若留到恢复后，下一次熔断会直接从封顶起步而不是 30s（实测推演 2026-11-07）
+    account.trip_until = null;
+    account.trip_backoff_ms = 0;
     changed = true;
   }
   if (changed) {

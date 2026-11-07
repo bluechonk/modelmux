@@ -8,7 +8,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -17,6 +17,7 @@ import {
   activateAccount,
   activeAccountCooldown,
   activeAccountIsError,
+  listAccounts,
   noteAccountFailure,
   noteAccountQuotaExhausted,
   noteAccountSuccess,
@@ -182,6 +183,30 @@ describe("账号级冷却（额度耗尽 ≠ 故障）", () => {
     assert.equal(hit["health"], "ok", "过期后应自动恢复 ok");
     assert.equal(hit["cooldown_until"], null, "恢复后应清掉截止时间");
     assert.equal(activeAccountCooldown(CID), null);
+  });
+
+  it("冷却到期恢复时清掉熔断退避残留（否则下次熔断直接 30min 封顶）", () => {
+    // 真实路径：连败熔断攒出退避 → 额度耗尽把 error 盖成 cooldown（那条路径不碰 trip 字段）
+    // → 手动把冷却截止改到过去 → listAccounts 惰性恢复 → 退避必须归零
+    seedPool("ok", null);
+    noteAccountFailure(CID);
+    noteAccountFailure(CID);
+    noteAccountFailure(CID);
+    assert.equal(active()["trip_backoff_ms"], 30_000, "前置：熔断已写入退避");
+    noteAccountQuotaExhausted(CID, { until: Date.now() + 3600_000 });
+    assert.equal(active()["health"], "cooldown");
+
+    const dir = paths.channelDir(CID);
+    const idxPath = join(dir, "accounts.json");
+    const idx = JSON.parse(readFileSync(idxPath, "utf8")) as { accounts: Array<Record<string, unknown>> };
+    idx.accounts[0]!["cooldown_until"] = new Date(Date.now() - 60_000).toISOString();
+    writeFileSync(idxPath, JSON.stringify(idx), "utf8");
+
+    listAccounts(CID); // 惰性过期在这里发生
+    const hit = active();
+    assert.equal(hit["health"], "ok");
+    assert.equal(hit["trip_backoff_ms"], 0, "退避残留必须清零，否则下次熔断从 30min 封顶起步");
+    assert.equal(hit["trip_until"], null);
   });
 
   it("未给截止时间 → 回落次日本地 0 点", () => {
