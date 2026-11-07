@@ -308,7 +308,7 @@ export function Accounts(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="账号池"
-        description="各渠道的凭据、账号池与额度"
+        description="各渠道的凭据与额度"
         actions={
           <RefreshButton
             onRefresh={async () => {

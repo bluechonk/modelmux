@@ -130,7 +130,13 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         页内面板滚动」的双层嵌套）。表格类区块内部仍保留横向滚动。
       */}
       <main ref={mainRef} className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto min-h-full w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
+        {/*
+          `flex flex-col` + `min-h-full`：内层容器本身要撑满 main，其**直接子元素**
+          才能用 `flex-1` 拿到「剩余高度」（请求日志页的表格区靠它填满视口下缘，
+          否则行数少时 `main` 底部会空出一大块）。`h-full` 在这里不成立 —— 父级只声明了
+          `min-height`，不是确定高度，百分比高度解析成 auto。
+        */}
+        <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col px-4 py-6 sm:px-6 sm:py-8">
           {skeleton ? <GatewaySkeleton /> : children ?? <Outlet />}
         </div>
       </main>

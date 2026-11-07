@@ -165,14 +165,18 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
       <span className="hidden w-16 shrink-0 truncate font-mono text-ink-faint sm:block">
         {entry.cid ?? "—"}
       </span>
-      <span className="w-[120px] shrink-0 truncate text-ink-soft sm:w-44">{entry.model ?? "—"}</span>
-      {/* 状态：一个色点（成功绿 / 失败红），不显示原因文字 */}
-      <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
-        aria-label={meta.label}
-      />
-      {/* 中间留白把右侧数值顶到行尾（失败行不再用文字占位） */}
-      <span className="min-w-0 flex-1" />
+      {/* 「模型名 + 状态点」一组**吃满剩余宽度**：原先是固定 176px 的模型列 + 一个
+          `flex-1` 空 spacer 把数值列顶到行尾，1600 宽实测那个 spacer 有 700px，
+          整行右半边一片空。改成这一组 flex-1 后，模型名截断区承担余量、状态点仍紧贴
+          模型名，数值列靠右 —— 空白落在模型名右侧的自然截断区里，不再是一条孤立空带。 */}
+      <span className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+        <span className="min-w-0 flex-1 truncate text-ink-soft">{entry.model ?? "—"}</span>
+        {/* 状态：一个色点（成功绿 / 失败红），不显示原因文字 */}
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
+          aria-label={meta.label}
+        />
+      </span>
       {/* 窄屏先让出耗时列：tokens 与 TPS 是主信息，耗时仍在请求日志里可查 */}
       <span className="hidden w-10 shrink-0 text-right tabular-nums text-ink-soft sm:block">
         {ms != null ? formatDuration(ms) : "—"}
@@ -512,7 +516,7 @@ export function Dashboard(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="仪表盘"
-        description="区间用量（KPI、每日趋势、模型用量随区间变化；Token 活动恒看一年）。区间在「每日 Token 趋势」卡片右上角切换"
+        description="用量随区间切换；Token 活动恒看一年"
       />
 
       {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
@@ -706,7 +710,13 @@ export function Dashboard(): ReactElement {
             与右列同构的 flex 拉伸：右列内容更高时左卡也撑满行高，两列顶底恒对齐
             （只用 space-y 时左列不跟随，右列撑高行后左卡底部悬空）。 */}
         <div className="flex flex-col gap-5 lg:col-span-8">
-          <section className="panel flex flex-1 flex-col p-4">
+          {/*
+            `justify-between`：本卡内容（标题 / 环形+图例 / 占比说明）比右卡矮，
+            栅格行高由右卡（10 个按钮）决定后，本卡被 `flex-1` 拉到同一高度，
+            差额原本全堆在说明行**下方**（1600 宽实测 38px 空白）。
+            上下分散后标题吸顶、说明贴底，空白变成卡内合理留白而不是一条空带。
+          */}
+          <section className="panel flex flex-1 flex-col justify-between p-4">
             <div className="panel-title mb-3">
               <Layers className="h-4 w-4 text-ink-faint" />
               模型用量
