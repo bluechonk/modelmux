@@ -50,7 +50,7 @@ glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 - **倍率在 `models[]` 元数据的 `credits` 字段**（形如 `"x0.34 credits"`），
   与 workbuddyai 同一 `/v3/config` 端点、同一口径；实测 19 条中 18 条有值
   （`x0.00` 视为免费）。解析见 `catalog.ts` 的 `parseCreditsRate`，
-  产物经共享层 `model_info.multiplier` 下发前端。
+  产物经共享层 `PoolModelMeta.multiplier` 下发前端。
 - **目录是并发双探 + 合并**：`/v3/config`（主路）与企业窄表（次路）并发发起，
   同 id 以主路为准、次路只补缺（口径抄 go `internal/upstream/client.go:1281-1330`
   与 `:1336-1357`）。`[参考]`

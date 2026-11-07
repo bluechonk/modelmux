@@ -44,7 +44,7 @@ interface CatalogEntry {
   id: string;
   name: string;
   rate: string;
-  /** 消耗倍率数值（由 `rate` 字符串解析，失败为 undefined）。供 `model_info.multiplier` 使用。 */
+  /** 消耗倍率数值（由 `rate` 字符串解析，失败为 undefined）。供 `PoolModelMeta.multiplier` 使用。 */
   multiplier?: number;
   contextWindow: number;
   /** 最大输出 token（远端不下发，按用户目录模型表补）。 */

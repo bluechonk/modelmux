@@ -112,7 +112,7 @@ export function modelEffortLevels(upstreamModel: string): string[] {
   return spec ? [...spec.efforts] : [];
 }
 
-/** 消耗倍率（供池层 `model_info.multiplier`）；查不到返回 `undefined`（显示 `-`，不猜）。 */
+/** 消耗倍率（供池层 `PoolModelMeta.multiplier`）；查不到返回 `undefined`（显示 `-`，不猜）。 */
 export function modelMultiplier(upstreamModel: string): number | undefined {
   const { byId, byUpstream } = indexOf();
   const spec = byUpstream.get(upstreamModel) ?? byId.get(upstreamModel.toLowerCase());
