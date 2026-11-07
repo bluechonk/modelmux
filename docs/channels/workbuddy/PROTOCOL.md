@@ -197,11 +197,16 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 `POST https://copilot.tencent.com/v2/billing/meter/daily-checkin`（body `{}`）。
 
-- 已签到时上游业务码非 0（幂等，按成功回报）。
+- 已签到时上游业务码非 0（幂等，按成功回报）：实测 2026-11-07 回
+  `HTTP 400 + {"code":10001,"msg":"今天已签到，请明天再来"}`。
+- **每日发放额 = 100 credits**：账单里「CodeBuddy个人版国内运营裂变包」每个
+  `CapacitySize` 都是 100（本机实测 21 个包、合计 2100），即每日发放单位。
+  上游**没有**「今日发放额」字段，故 `billing.quotaPeriod()` 用这个常量。`[实测旁证]`
 - 活动起止时间非 RFC3339（形如 `2026-09-29 23:59:59`，按 CST 解释）。
 - `GET` 同路径返回 404（上游只挂 POST），不要改方法。
 - **签到活动状态端点**（`/v2/billing/meter/checkin-activity-status`，回
-  `today_checked_in` / `streak_days` / `end_time`）**当前未实现** —— 它是上游
+  `today_checked_in` / `streak_days` / `end_time`）**当前未实现** —— 实测 2026-11-07
+  该路径回 `404 page not found`（上游已下架或改路径）；它是上游
   「今天还能不能领 / 活动到哪天结束」的权威依据，缺它意味着只能靠 `daily-checkin`
   的幂等拒绝来猜（签到由网关启动时的自动签到链路执行，CLI **没有** `signin` 动词，
   结果见 `mx status workbuddy` 的签到摘要）。列入 §7.2 缺口 8，**不写进规格**。

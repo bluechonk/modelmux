@@ -391,7 +391,39 @@ export async function fetchCredits(
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────
 
-import type { SigninModule } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
+
+/**
+ * 每日签到发放额（积分）—— **实测常量**（2026-11-07）。
+ *
+ * 依据：领一次签到后 `signin.claim()` 回报 `reward {amount:100, unit:"积分"}`，
+ * 且账单 `remain` 从 2442.85 → 2542.85（+100，同时 size 2500 → 2600，
+ * 即上游新开了一个 100 的权益包）。上游没有「每日额度」字段可查，故用实测常量。
+ */
+const DAILY_CHECKIN_CREDITS = 100;
+
+/** 下一次**本机时区**的 0 点（epoch ms）。 */
+function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * 额度周期：**每天签到送 100 积分，本地 0 点刷新**。
+ *
+ * 日界依据：签到状态端点的 `status` 按本机自然日判断（跨天即恢复可签），
+ * 未见上游声明其它窗口 —— 与 loomy 同口径。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天签到送 100 积分，本地 0 点刷新",
+    size: DAILY_CHECKIN_CREDITS,
+    unit: "积分",
+    resets_at: nextLocalMidnight(),
+  };
+}
+
 /**
  * 签到 / 领取能力（`<cid> checkin`）。
  *

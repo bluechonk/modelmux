@@ -7,7 +7,7 @@
  *   - 余额须合并 `userQuota` 与 `addOnQuota`；`enterprise` 模式上游返回 null 不算错误；活动按 UTC+8 每日 10:00 刷新。
  */
 
-import type { SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";
 
 import * as cred from "./cred.js";
 
@@ -56,6 +56,43 @@ const SASH_CLIENT_VERSION = "1.1.64";
 
 /** 活动每日刷新时刻（UTC+8 的 10:00）。 */
 const CAMPAIGN_REFRESH_HOUR_UTC8 = 10;
+
+// ── 额度周期（`BillingModule.quotaPeriod`，供共享层展示与冷却截止时间）────────
+
+/** 每日签到发放额（Credits）—— 上游 campaign 自报（实测 2026-11-07 = 100）。 */
+const DAILY_CLAIM_CREDITS = 100;
+
+/**
+ * 下一次活动刷新时刻：**次日 10:00（UTC+8）**，不是本地 0 点。
+ *
+ * 上游 campaign 的 `endAt` 就是这一期的结束（每日 10:00 刷新）；这里按同一规则
+ * 推算，不查网络 —— `quotaPeriod` 在展示路径上高频调用，必须纯本地。
+ */
+function nextCampaignReset(now = Date.now()): number {
+  const nowU8 = utc8Now(now);
+  const next = new Date(nowU8.getTime());
+  if (next.getUTCHours() >= CAMPAIGN_REFRESH_HOUR_UTC8) next.setUTCDate(next.getUTCDate() + 1);
+  next.setUTCHours(CAMPAIGN_REFRESH_HOUR_UTC8, 0, 0, 0);
+  // 把「UTC+8 的绝对时刻」换算回真实 epoch：utc8Now 加过 8 小时，这里减回去
+  return next.getTime() - 8 * 3600_000;
+}
+
+/**
+ * 额度周期：**每天领 100 Credits，10:00（UTC+8）刷新**。
+ *
+ * 数额依据：上游 campaign `benefit.amount = 100`、`title = "每天领 100 Credits"`
+ * （实测 2026-11-07，见 PROTOCOL「使用与实测」）。
+ * 日界依据：campaign 的 `startAt` / `endAt` 明确是每日 10:00 UTC+8 滚动 ——
+ * **不能按本地 0 点**，否则海外 / 非 UTC+8 部署会把刷新时刻算错一整个窗口。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天领 100 Credits，10:00（UTC+8）刷新",
+    size: DAILY_CLAIM_CREDITS,
+    unit: "Credits",
+    resets_at: nextCampaignReset(),
+  };
+}
 
 function num(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;

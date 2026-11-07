@@ -643,6 +643,12 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 
 - **不认识自己的周期就别实现**：共享层有兜底（次日本地 0 点），编一个假的比不实现更糟。
 - `size` 拿不到就给 `null`（不编数字）；`resets_at` 拿不到也给 `null`。
+- **日界必须按上游的真实窗口**，不是一律本地 0 点：qodercn 的活动按 **10:00（UTC+8）**
+  滚动，raccoon 的自然日按**北京时间**切 —— 硬写本地 0 点会让海外或非 UTC+8 部署
+  把刷新时刻算错一整个窗口。
+- **数额的证据等级要如实**：上游有字段（`reward_points` / `benefit.amount`）就取字段；
+  只有参考实现或文案时，`label` 里写「约」并在渠道 `PROTOCOL.md` 标注 `[参考]` ——
+  把参考级数字写成承诺，会让用户以为每天必然到账。
 
 ---
 

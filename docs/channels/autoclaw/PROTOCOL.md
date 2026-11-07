@@ -125,7 +125,10 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 
 - 响应 `data.{already_completed, reward_points}`；`already_completed=true` 表示今日已签，服务端幂等，重复执行安全。[参考]
 - 任务列表条目的**完成标记字段未验证**（逆向只确认了签到响应字段）：status 认常见形态，认不出就如实报"不知道"。[推断]
-- 奖励量级约 400 积分/天（桌面端文案逆向值，非精确承诺）。[参考]
+- **每日发放额 = 200 Points**，取自**上游任务条目自报**：`reward_points: 200`、
+  `point_description: "每日签到得 200 积分"`（实测 2026-11-07）。早期桌面端文案逆向
+  给的「约 400」与上游字段不符，以字段为准；`billing.quotaPeriod()` 报 200，
+  `signin.status()` 的 `dailyReward` 也改为读条目字段（读不到就不填，不猜）。`[实测]`
 
 ## 7. 模型与目录
 
