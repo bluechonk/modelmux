@@ -11,6 +11,23 @@
 # 退出码：0 = 通过；非 0 = 未通过（输出里会指出失败步骤）。
 set -euo pipefail
 
+# —— 摘掉 git 给 hook 注入的仓库定位变量 ——
+#
+# `git push` 会把 `GIT_DIR`（指向**当前 worktree** 的 git 目录）等变量注入 pre-push，
+# 它们被 `bash -lc` 起的子 shell 继承，使下面的 `git clone` 用 worktree 的 ref 视图 ——
+# clone 出的仓库**缺少待推的那个分支**，`git checkout origin/<分支>` 于是报
+# `fatal: '...' is not a commit`，门禁在 worktree 里对**本地新建、尚未推送**的分支恒失败
+# （实测：带 GIT_DIR 时 clone 出 10 个 ref，其中没有任何 worktree 当前分支；
+# 隔离后同一 clone 带上了该分支）。
+#
+# 为什么手动 `npm run gate` 发现不了：交互 shell 没有这些变量，同一条命令能通过。
+#
+# 本脚本自己从 cwd 定位仓库（`--git-common-dir`），故这些变量只会误导它。
+# 只摘「仓库/工作树/索引在哪」这一类；`GIT_EXEC_PATH` 等保留（无害且有助于找到子命令）。
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CEILING_DIRECTORIES \
+      GIT_PREFIX GIT_QUARANTINE_PATH GIT_IMPLICIT_WORK_TREE
+
 QUIET=0
 if [ "${1:-}" = "--quiet" ]; then QUIET=1; shift; fi
 # 第一个非 --quiet 的参数是待测分支

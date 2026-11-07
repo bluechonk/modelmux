@@ -61,14 +61,16 @@
 
 ## Web 控制台
 
-- 四页：**仪表盘**（接入端点、模型区）、**模型列表**（可用模型表）、
-  **账号池**（渠道卡、额度条、切号/删除）、**日志**（访问日志与上下文）。
+- 三页：**仪表盘**（接入端点、模型清单、一键接入）、**账号池**（渠道卡、额度条、切号/删除）、
+  **日志**（访问日志与上下文）。模型清单内联在仪表盘右列，不再有独立的模型列表页
+  （原因见 [WEB-CONSOLE.md](./WEB-CONSOLE.md) 的「模型清单」一节）。
 - 在线演示（演示构建，虚构数据）：<https://bluechonk.github.io/modelmux/> ——
   由 `.github/workflows/demo-pages.yml` 发布到 GitHub Pages；真实控制台仍是本机工具。
 - 视觉：Codex/ChatGPT 近黑单色（`#171717` 侧栏 / `#212121` 主区 / `#2f2f2f` 输入盒），
   窄屏侧栏收 56px 图标栏、端点盒堆叠、表格横向滚动。
-- 数据：`/web/api/state` 的 `model_info`（共享层 `PoolModelMeta`），含倍率、最大上下文、
-  输出上限、输入模态、思考档位与来源标记（`sources`，当前表格不展示）。
+- 数据：`/web/api/state` 的 `models`（`{model, cid, meta}` 矩阵；`meta` 是共享层
+  `PoolModelMeta`），含倍率、最大上下文、输出上限、输入模态、思考档位与来源标记
+  （`sources`，当前表格不展示）。
 
 详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)。
 

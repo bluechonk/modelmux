@@ -304,12 +304,12 @@ for (const name of readdirSync(skillsDir)) {
   }
 }
 
-// 4) 命令清单的唯一事实源是 AGENTS.md —— 已知重复点不得再内联
+// 4) 命令清单的唯一事实源是 `mx-cli` 技能 —— 已知重复点不得再内联
 //
 // 为什么查：同一组命令写两遍必然漂移（改一处忘另一处）。已修的那处是
 // `docs/LOGGING.md` 的「CLI 检索」：原先内联 12 条 `mx log` 命令，与
-// `log-triage` 技能的清单近乎逐字重复。事实源已定为 `AGENTS.md` 的
-// 「常见任务速查」表 + 各技能的判读流程，文档只保留独有规则。
+// `log-triage` 技能的清单近乎逐字重复。事实源是 `mx-cli` 技能的「命令速查」
+// 表（动作命令）+ 各技能的判读流程，文档只保留独有规则。
 //
 // 判据刻意**收窄**：只查 `docs/LOGGING.md` 里的 `mx log` 行内命令。
 // 不做「所有文档命令都必须进 AGENTS.md」这种全量校验 —— 命令太多、形态太杂，
@@ -345,6 +345,58 @@ if (agentsMdBytes > AGENTS_MD_MAX_BYTES) {
       `     改法：把低频细则下沉到 docs/ 或 .agents/skills/，根文件只留摘要与指针 —— ` +
       `拆分先例见 docs/WORKFLOW.md。`,
   );
+}
+
+// 5b) 被引用的「唯一事实源」必须真实存在
+//
+// 为什么查：文档与技能互相指认对方持有同一份内容时，两处都以为对方在维护它 ——
+// 实际谁都没有，读者两头扑空。已发生过一次：`mx-cli` 技能写着「动作命令的唯一事实源
+// 在 AGENTS.md 的『常见任务速查』表」，而那张表在根文件瘦身时被删掉（未搬迁），
+// AGENTS.md 反过来又写「完整命令手册见 mx-cli 技能」，形成闭环；两边都不含那张表，
+// 且没有任何检查会失败（2026-11-07 实测）。
+//
+// 判据：出现「唯一事实源」且同句提到另一个文件时，该文件必须存在，且被点名的章节
+// （「」内的中文标题）必须在该文件里真的出现。只查这一个词，不做语义推断。
+const SOURCE_OF_TRUTH_RE = /唯一事实源/;
+for (const rel of candidates) {
+  if (!rel.endsWith(".md")) continue;
+  const text = readText(join(workspaceRoot, ...rel.split("/")));
+  for (const line of text.split(/\r?\n/)) {
+    if (!SOURCE_OF_TRUTH_RE.test(line)) continue;
+    // 同行提到的仓库内文件（形如 `path/to/file.md` 或 AGENTS.md）
+    const refs = [...line.matchAll(/`([A-Za-z0-9._/-]+\.md)`|(?<![\w`/-])([A-Za-z0-9._-]+\.md)\b/g)]
+      .map((m) => m[1] ?? m[2])
+      .filter((f) => f && f !== rel);
+    // 「」里点名的章节标题 —— 只在该行同时出现结构词时才判定，否则「」里多半是
+    // 原则 / 术语名（如「事实在文档、导航在头部」），拿它去文件里找必然误报。
+    const NAMES_SECTION_RE = /(节|章|表|§)/;
+    const sections = NAMES_SECTION_RE.test(line)
+      ? [...line.matchAll(/[「『]([^」』]{2,40})[」』]/g)].map((m) => m[1])
+      : [];
+    for (const ref of refs) {
+      const base = ref.split("/").pop();
+      const target =
+        candidates.find((c) => c === ref) ??
+        candidates.find((c) => c.split("/").pop() === base);
+      if (!target) {
+        problems.push(
+          `${rel}: 声明「唯一事实源」指向 \`${ref}\`，但仓库里没有这个 md。\n` +
+            `     改法：把内容落到真实存在的归属文档，或改指真正持有它的那份文件。`,
+        );
+        continue;
+      }
+      const targetText = readText(join(workspaceRoot, ...target.split("/")));
+      for (const section of sections) {
+        if (!targetText.includes(section)) {
+          problems.push(
+            `${rel}: 声明「唯一事实源」在 \`${target}\` 的「${section}」，但该文件里没有这一节。\n` +
+              `     内容被删或改名后引用即成死链（双方都以为对方在维护它）。\n` +
+              `     改法：指向实际持有该内容的文件与章节。`,
+          );
+        }
+      }
+    }
+  }
 }
 
 // ── 6) 渠道环境变量口径：渠道 src 读的 env 必须在文档里有提及 ────────────────
@@ -401,6 +453,12 @@ const ROOT_FILES_ALLOWED = new Set([
 const rootFiles = readdirSync(workspaceRoot, { withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => entry.name)
+  // `.git` 在主工作树是**目录**、在 linked worktree 是**文件**（指向共享 git 目录的
+  // 指针）。上面 `walk()` 靠 `SKIP_DIRS` 跳过的只是目录形态，这里是显式扫文件，
+  // 于是 worktree 的 `.git` 被当成「仓库根多放的文件」——worktree 里 `npm test` 恒红，
+  // 且失败在第 3 个校验器，其后全部校验器与测试都不会执行。
+  // 本地推送门禁（`gate.sh` 在干净 clone 里跑）与 CI 都是目录形态，看不见这个问题。
+  .filter((name) => name !== ".git")
   .filter((name) => !ROOT_FILES_ALLOWED.has(name));
 const rootIgnored = gitIgnored(rootFiles); // 本机私有（.env / .zcodeignore 等）：不归仓库管
 for (const name of rootFiles) {
