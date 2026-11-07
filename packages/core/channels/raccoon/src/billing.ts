@@ -286,7 +286,7 @@ async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<string, u
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────
 
-import type { SigninModule } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
 
 /**
  * 每日签到（`<cid> checkin`）。
@@ -371,3 +371,45 @@ export const signin: SigninModule = {
     };
   },
 };
+
+// ── 额度周期（`BillingModule.quotaPeriod`，供共享层展示与冷却截止时间）────────
+
+/**
+ * 每日积分发放额（积分）。
+ *
+ * **证据等级 `[参考]`，不是实测**：数值来自参考实现读到的「每日积分发放 300」
+ * （见 docs/channels/raccoon/PROTOCOL.md §6.1 的来源表）。本仓 2026-11-07 实测
+ * 未能验证：`setting_info` 触发器返回 `point_grant_popups: []`（当日无发放公告）、
+ * 领取后账单 remain 未变（「已触发发放，但今日账单暂未见入账」），且 bills 只有当日
+ * 消耗记录、翻页为空 —— 拿不到任何正数发放样本。
+ *
+ * 之所以仍然报出：这个数有文档出处；`label` 里写「约」，不把参考级数字说成承诺。
+ */
+const DAILY_GRANT_POINTS = 300;
+
+/**
+ * 下一次**北京时间（UTC+8）**的 0 点（epoch ms）。
+ *
+ * 上游自然日即 UTC+8 零点（PROTOCOL §6.1 明确：账单按北京时间切日，
+ * 跟机器时区走会让海外 / 容器部署把 16 小时的账单认成昨天）。
+ */
+function nextUtc8Midnight(now = Date.now()): number {
+  const u8 = new Date(now + 8 * 3600_000);
+  u8.setUTCHours(24, 0, 0, 0);
+  return u8.getTime() - 8 * 3600_000;
+}
+
+/**
+ * 额度周期：**每天发约 300 积分，北京时间 0 点刷新**。
+ *
+ * 日界是上游实打实的（`setting_info` 按天幂等、账单按 UTC+8 切日）；
+ * 数额是 `[参考]` 级，故文案带「约」。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天发约 300 积分，北京时间 0 点刷新",
+    size: DAILY_GRANT_POINTS,
+    unit: "积分",
+    resets_at: nextUtc8Midnight(),
+  };
+}

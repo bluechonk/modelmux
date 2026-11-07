@@ -201,6 +201,11 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 
 同日两账号共用 device_id 会被「该设备已签到」拦截。
 
+**每日签到发放额 = 100 积分**（实测 2026-11-07）：领一次后 `signin.claim()` 回报
+`reward {amount:100, unit:"积分"}`，同刻账单 `remain` 2442.85 → 2542.85（+100），
+且 `size` 2500 → 2600（上游新开一个 100 的权益包）。上游**没有**每日额度查询字段，
+故 `billing.quotaPeriod()` 报这个实测常量；日界按本机自然日（跨天即恢复可签）。
+
 ### 2.4 续期
 
 同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（`packages/core/channels/traecn/src/cred.ts`）。

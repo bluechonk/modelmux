@@ -253,6 +253,16 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 ## 使用与实测
 
+### 每日签到额度（`billing.quotaPeriod`）
+
+**每天领 100 Credits，10:00（UTC+8）刷新** —— 实测 2026-11-07：campaigns 原始响应里
+`benefit.amount = 100`、`placements[].content.zh.title = "每天领 100 Credits"`、
+`description = "每日 10:00（UTC+8）刷新，领取后 30 天有效"`。
+
+**日界不是本地 0 点**：`startAt` / `endAt` 明确按每日 10:00 UTC+8 滚动，
+`quotaPeriod().resets_at` 按同一规则推算（纯本地计算，不查网络）。海外或非 UTC+8
+部署若按本地 0 点算，会把刷新时刻算错一整个窗口。
+
 ### 登录方式
 
 `mx login qodercn` 走**浏览器设备码授权（PKCE S256）**：CLI 构造授权页 URL

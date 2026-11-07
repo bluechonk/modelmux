@@ -7,7 +7,7 @@
  *   - 任务列表条目的完成标记字段未经真机验证，认不出就如实报"不知道"，不猜。
  */
 
-import type { SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";
 
 import * as cred from "./cred.js";
 
@@ -145,6 +145,23 @@ function completedMarker(task: Record<string, unknown>): boolean | null {
   return null;
 }
 
+/**
+ * 任务条目自报的每日奖励额（Points）；读不到返回 `null`（**不猜**）。
+ *
+ * 优先 `reward_points`（结构化数字，实测 2026-11-07 = 200）；缺字段时从
+ * `point_description` 的文案里取第一个整数（上游写法是「每日签到得 200 积分」）。
+ * 文案解析只作为兜底：抽不到就报 null，由调用方如实显示「数额未知」。
+ */
+function taskRewardOf(task: Record<string, unknown>): number | null {
+  const direct = Number(task["reward_points"]);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const text = str(task["point_description"]);
+  const m = /(\d[\d,]*)\s*(?:积分|点|Points?)/i.exec(text);
+  if (!m) return null;
+  const parsed = Number(m[1]!.replace(/,/g, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 /** 签到 / 领取能力：上游叫「每日任务」，task_id=daily_signin，服务端幂等。 */
 export const signin: SigninModule = {
   async status(): Promise<SigninStatus> {
@@ -166,13 +183,19 @@ export const signin: SigninModule = {
       }
       const completed = completedMarker(task);
       if (completed !== null) {
+        // 数额取**上游任务条目自己写的**（`reward_points` / `point_description`），
+        // 不写常量：上游调价时这里自动跟上（实测 2026-11-07：`point_description`
+        // 是「每日签到得 200 积分」、`reward_points` 是 200；早期逆向文案给的「约 400」
+        // 是错的，已按上游字段改掉）。
+        const amount = taskRewardOf(task);
         return {
           claimable: !completed,
-          summary: completed ? "今天已签（任务列表标记已完成）" : "今天可签到（约 400 积分）",
+          summary: completed
+            ? "今天已签（任务列表标记已完成）"
+            : `今天可签到（${amount ?? "数额未知"} Points）`,
           items: [task],
           claimedToday: completed,
-          // 每日发放额来自桌面端文案逆向（约 400 积分/天），非精确承诺
-          dailyReward: { amount: 400, unit: "Points" },
+          ...(amount !== null ? { dailyReward: { amount, unit: "Points" } } : {}),
           daily: true,
         };
       }
@@ -210,3 +233,31 @@ export const signin: SigninModule = {
     };
   },
 };
+
+// ── 额度周期（`BillingModule.quotaPeriod`，供共享层展示与冷却截止时间）────────
+
+/** 每日签到发放额（Points）—— 上游任务列表自报（实测 2026-11-07 = 200）。 */
+const DAILY_SIGNIN_POINTS = 200;
+
+/** 下一次**本机时区**的 0 点（epoch ms）。 */
+function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * 额度周期：**每天签到送 200 Points，本地 0 点刷新**。
+ *
+ * 数额依据：上游任务列表 `daily_signin` 条目自报 `reward_points: 200`、
+ * `point_description: "每日签到得 200 积分"`（实测 2026-11-07，见 PROTOCOL §6.2）。
+ * 早期逆向的桌面端文案给过「约 400」，与上游字段不符，以字段为准。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天签到送 200 Points，本地 0 点刷新",
+    size: DAILY_SIGNIN_POINTS,
+    unit: "Points",
+    resets_at: nextLocalMidnight(),
+  };
+}
