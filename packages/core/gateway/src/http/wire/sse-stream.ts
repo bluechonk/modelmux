@@ -237,6 +237,9 @@ export function firstSseError(buf: Buffer): { code?: string; message?: string } 
  */
 export function errorFrameOf(frame: Buffer | string): Record<string, unknown> | null {
   const text = Buffer.isBuffer(frame) ? frame.toString("utf8") : frame;
+  // 快判：绝大多数帧是内容帧，不值一次 JSON 解析（与 `noteFrameUsage` 同口径 ——
+  // 本函数在流式热路径上逐帧调用）
+  if (!text.includes('"error"')) return null;
   // 逐 `data:` 行扫：翻译器正常一帧一条，但 TCP 合并 / 渠道实现可能一帧里有多行
   for (const line of text.split("\n")) {
     const data = line.trim();
@@ -247,6 +250,7 @@ export function errorFrameOf(frame: Buffer | string): Record<string, unknown> | 
     try {
       parsed = JSON.parse(payload);
     } catch {
+      /* 非 JSON 的 data 行（心跳 / 注释 / 半截帧）直接跳过，不视为错误帧 */
       continue;
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;

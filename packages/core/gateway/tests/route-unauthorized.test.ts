@@ -68,6 +68,10 @@ interface ChannelOpts {
   unauthorizedOnPrepare?: boolean;
   /** 第一次 prepare 抛凭据失效，刷新后恢复（对齐「access_token 死了、refresh_token 还活着」）。 */
   recoverAfterRefresh?: boolean;
+  /** 刷新本身抛 `UpstreamUnauthorized`（凭据真失效，与「网络失败」区分）。 */
+  refreshUnauthorized?: boolean;
+  /** 不声明 billing 模块 → 该渠道的模型按「免费（×0）」处理。 */
+  noBilling?: boolean;
 }
 
 function makeChannel(cid: string, opts: ChannelOpts): Channel {
@@ -94,8 +98,9 @@ function makeChannel(cid: string, opts: ChannelOpts): Channel {
       load,
       save,
       login: async () => load(),
-      // 「可救」的渠道刷新成功；其余按「没有刷新端点」抛错
+      // 刷新行为按选项分化：成功 / 鉴权失败（凭据真失效）/ 普通故障（网络等瞬时问题）
       refresh: async (c: Record<string, unknown>) => {
+        if (opts.refreshUnauthorized) throw new UpstreamUnauthorized("refresh rejected the token");
         if (!opts.recoverAfterRefresh) throw new Error("no refresh endpoint");
         const next = { ...c, accessToken: `${String(c["accessToken"])}-refreshed` };
         await save(next);
@@ -143,7 +148,8 @@ function makeChannel(cid: string, opts: ChannelOpts): Channel {
       newTranslator: () => ({ feed: (c: Buffer) => [c], finish: () => [] }),
     },
     catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
-    billing: { fetchCredits: async () => ({ ok: true, total: {}, packages: [] }) },
+    // 不声明 billing → 渠道能力里没有额度概念 → 模型按免费（×0）处理
+    ...(opts.noBilling ? {} : { billing: { fetchCredits: async () => ({ ok: true, total: {}, packages: [] }) } }),
   } as unknown as Channel;
 }
 
@@ -225,23 +231,43 @@ describe("路由剔除凭据失效（unauthorized）的渠道", () => {
   });
 });
 
-describe("prepareChat 发现凭据失效 → 标终态并换候选", () => {
+/**
+ * 前置阶段凭据失效后**刷新失败**的两种结局：
+ * - 刷新被上游按鉴权拒绝 → 凭据真失效 → 标终态；
+ * - 刷新只是网络 / 读盘失败（渠道普遍包成普通 Error）→ **不能**标终态，
+ *   否则一次抖动就把健康账号永久踢出候选。
+ */
+function startRefreshCase(
+  root: string,
+  upstream: Awaited<ReturnType<typeof fakeUpstream>>,
+  refreshUnauthorized: boolean,
+): void {
+  process.env["MODELMUX_HOME"] = root;
+  clearChannels();
+  setChannel(
+    makeChannel("alpha", {
+      token: "tok-alpha",
+      upstreamUrl: upstream.url,
+      unauthorizedOnPrepare: true,
+      refreshUnauthorized,
+    }),
+  );
+  setChannel(makeChannel("beta", { token: "tok-beta", upstreamUrl: upstream.url }));
+  seedAccount("alpha");
+  seedAccount("beta");
+  poolUsage.writeBilling("alpha", { total: { remain: 900, unit: "credits" } });
+  poolUsage.writeBilling("beta", { total: { remain: 100, unit: "credits" } });
+}
+
+describe("前置凭据失效：刷新被鉴权拒绝 → 标终态", () => {
   let root = "";
   let upstream: Awaited<ReturnType<typeof fakeUpstream>>;
   let gw: gateway.RunningGateway;
 
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-unauth2-"));
-    process.env["MODELMUX_HOME"] = root;
     upstream = await fakeUpstream();
-    clearChannels();
-    // alpha 额度更高，但前置阶段就发现令牌是死的（对齐 autoclaw 的 11003）
-    setChannel(makeChannel("alpha", { token: "tok-alpha", upstreamUrl: upstream.url, unauthorizedOnPrepare: true }));
-    setChannel(makeChannel("beta", { token: "tok-beta", upstreamUrl: upstream.url }));
-    seedAccount("alpha");
-    seedAccount("beta");
-    poolUsage.writeBilling("alpha", { total: { remain: 900, unit: "credits" } });
-    poolUsage.writeBilling("beta", { total: { remain: 100, unit: "credits" } });
+    startRefreshCase(root, upstream, true);
     gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
   });
 
@@ -253,7 +279,7 @@ describe("prepareChat 发现凭据失效 → 标终态并换候选", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("请求换到 beta，且 alpha 被标成 unauthorized 终态", async () => {
+  it("标 unauthorized 终态并换候选", async () => {
     upstream.captured.length = 0;
     const resp = await fetch(`http://${gw.addr}/v1/chat/completions`, {
       method: "POST",
@@ -263,6 +289,43 @@ describe("prepareChat 发现凭据失效 → 标终态并换候选", () => {
     assert.equal(resp.status, 200, "换候选后仍应成功");
     assert.deepEqual(upstream.captured, ["Bearer tok-beta"], "不再打 alpha 的上游");
     assert.equal(activeAccountHealth("alpha"), "unauthorized", "前置阶段的凭据失效也要标终态");
+  });
+});
+
+describe("前置凭据失效：刷新只是网络失败 → 不标终态", () => {
+  let root = "";
+  let upstream: Awaited<ReturnType<typeof fakeUpstream>>;
+  let gw: gateway.RunningGateway;
+
+  before(async () => {
+    root = mkdtempSync(join(tmpdir(), "modelmux-unauth4-"));
+    upstream = await fakeUpstream();
+    startRefreshCase(root, upstream, false);
+    gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
+  });
+
+  after(async () => {
+    await gw?.close().catch(() => {});
+    await new Promise<void>((r) => upstream.server.close(() => r()));
+    delete process.env["MODELMUX_HOME"];
+    clearChannels();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("换候选但账号保持可用", async () => {
+    upstream.captured.length = 0;
+    const resp = await fetch(`http://${gw.addr}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(resp.status, 200);
+    assert.deepEqual(upstream.captured, ["Bearer tok-beta"]);
+    assert.equal(
+      activeAccountHealth("alpha"),
+      "ok",
+      "一次瞬时刷新失败就把健康账号永久踢出候选（还谎报未登录）是不可接受的",
+    );
   });
 });
 
@@ -412,16 +475,28 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
     });
 
     clearChannels();
+    registerErrorChannel("qoderish", true, ["deepseek-v4.1-flash"]);
+    registerErrorChannel("freeish", false, ["glm-5.3-flash"]);
+    gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
+  });
+
+  /**
+   * 注册一个「上游只回 112 额度错误帧」的 custom 线型渠道。
+   * `withBilling=false` 时渠道没有额度能力 → 模型按免费（×0）处理。
+   */
+  function registerErrorChannel(cid: string, withBilling: boolean, exposed: string[]): void {
     const config: ChannelConfig = {
-      cid: "qoderish",
-      display: "Synth qoderish",
+      cid,
+      display: `Synth ${cid}`,
       version: "0.0.0",
       defaultAddr: "127.0.0.1:1",
       uiPort: 2,
-      debugDumpEnv: "QODERISH_DEBUG_DUMP",
+      debugDumpEnv: `${cid.toUpperCase()}_DEBUG_DUMP`,
+      // 免费渠道 = 显式声明没有额度能力（`channelCapabilities` 缺省 true）
+      ...(withBilling ? {} : { capabilities: { billing: false } }),
     };
     const load = (): Record<string, unknown> =>
-      JSON.parse(readFileSync(paths.credentialsPath("qoderish"), "utf8")) as Record<string, unknown>;
+      JSON.parse(readFileSync(paths.credentialsPath(cid), "utf8")) as Record<string, unknown>;
     setChannel({
       config,
       cred: {
@@ -436,7 +511,7 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
       upstream: {
         DEFAULT_BASE_URL: upstream.url,
         WIRE: "custom" as const,
-        DISPLAY_NAME: "Synth qoderish",
+        DISPLAY_NAME: `Synth ${cid}`,
         UpstreamUnauthorized: class UpstreamUnauthorized extends Error {},
         chatUrl: () => `${upstream.url}/chat`,
         modelsUrl: () => `${upstream.url}/models`,
@@ -449,13 +524,12 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
           /pricingUrl|"code"\s*:\s*"?(?:110|112)\b/.test(body) ? "balance" : null,
         newTranslator: () => ({ feed: (c: Buffer) => [c], finish: () => [] }),
       },
-      catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
-      billing: { fetchCredits: async () => ({ ok: true, total: {}, packages: [] }) },
+      catalog: { exposedIds: () => exposed, resolveModel: (n: string) => n },
+      ...(withBilling ? { billing: { fetchCredits: async () => ({ ok: true, total: {}, packages: [] }) } } : {}),
     } as unknown as Channel);
-    seedAccount("qoderish");
-    poolUsage.writeBilling("qoderish", { total: { remain: 500, unit: "credits" } });
-    gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
-  });
+    seedAccount(cid);
+    if (withBilling) poolUsage.writeBilling(cid, { total: { remain: 500, unit: "credits" } });
+  }
 
   after(async () => {
     await gw?.close().catch(() => {});
@@ -483,6 +557,35 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
     assert.notEqual(after, before, "应新落一条失败记录");
     assert.ok(after.includes("pricingUrl"), "失败记录带上游业务错误原文");
     assert.equal(activeAccountHealth("qoderish"), "cooldown", "额度类业务错误要冷却账号");
+    // 账本也要记一笔失败：attempt 层在上游收下请求（HTTP 200）时就记过 ok，
+    // 不补的话可靠性系数会被这类业务失败反向抬高
+    assert.ok(
+      (poolUsage.ledgerSnapshot().channels["qoderish"]?.fail ?? 0) > 0,
+      "账本 fail 应 +1（与访问日志同结论）",
+    );
+  });
+
+  it("免费（×0）模型：只记账不冷却账号（与既有铁律同口径）", async () => {
+    const resp = await fetch(`http://${gw.addr}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "glm-5.3-flash",
+        messages: [{ role: "user", content: "hi" }],
+        stream: true,
+      }),
+    });
+    assert.equal(resp.status, 200);
+    await resp.text();
+    assert.equal(
+      activeAccountHealth("freeish"),
+      "ok",
+      "免费模型不吃额度，不该因为额度样式的错误帧把账号锁死",
+    );
+    assert.ok(
+      (poolUsage.ledgerSnapshot().channels["freeish"]?.fail ?? 0) > 0,
+      "但失败仍要记账",
+    );
   });
 
   it("非流式：同一条判据也要冷却账号（不能只修流式那条路）", async () => {

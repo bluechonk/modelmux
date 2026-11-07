@@ -1,8 +1,10 @@
 /**
  * 路由优先级里的**速度因子**（`pool-usage.speedOf` / `speedFactorOf` / `priorityOf`）。
  *
- * 规则：有效优先级 = 剩余额度 × 速度系数；速度系数 = clamp(avgTps / 100, 0.25, 1)，
- * 样本不足 / 没数据不罚。全部离线：临时存储根 + 手写当天 access 日志 + 合成渠道。
+ * 规则：有效优先级 = 剩余额度 × 速度系数 × 可靠性系数；速度系数 =
+ * clamp(avgTps / 100, 0.25, 1)，样本不足 / 没数据不罚；可靠性系数 =
+ * (ok + 1) / (ok + fail + 1)，没有样本不罚。
+ * 全部离线：临时存储根 + 手写当天 access 日志 + 合成渠道。
  */
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

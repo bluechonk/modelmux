@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModels } from "../pool/pool-targets.js";
@@ -986,7 +986,7 @@ export interface RestoreResult {
   restored: string[];
   /** 因为接入时本来不存在、还原时被删掉的文件。 */
   removed: string[];
-  /** 使用的备份目录（还原成功后，它被移进 `restored-` 前缀以免重复还原同一份）。 */
+  /** 本次还原使用的备份目录（**可重复使用** —— 还原不消费备份）。 */
   sourceDir?: string;
   /** 还原前对「当前状态」做的保护性备份目录（可用来反悔）。 */
   safetyDir?: string;
@@ -1005,12 +1005,13 @@ function stampOf(dir: string): number {
  * 清单条目的字段校验：缺原路径 / 缺 existed / existed 为真却没有备份名 → 一律跳过。
  *
  * 清单是**磁盘数据**（用户可手改、老版本写的、被截断的），还原又是破坏性动作 ——
- * 字段不全时猜一条路径写回去，比跳过更危险。
+ * 字段不全时猜一条路径写回去，比跳过更危险。路径还要求是**绝对路径**：
+ * 相对路径会被按当前工作目录解析，写到哪里全凭运气。
  */
 function isValidEntry(entry: unknown): entry is BackupEntry {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
   const rec = entry as Record<string, unknown>;
-  if (typeof rec["original"] !== "string" || rec["original"].trim() === "") return false;
+  if (typeof rec["original"] !== "string" || !isAbsolute(rec["original"])) return false;
   if (typeof rec["existed"] !== "boolean") return false;
   if (rec["existed"] && (typeof rec["backup"] !== "string" || rec["backup"].trim() === "")) return false;
   return true;

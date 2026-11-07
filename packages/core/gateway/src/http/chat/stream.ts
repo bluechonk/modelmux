@@ -22,6 +22,7 @@ import {
   noteLastFrame,
   noteRequestError,
 } from "../../runtime/log-store.js";
+import { noteFailure } from "../../pool/pool-usage.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { sinkOf } from "../protocol/types.js";
 import * as dsmlTools from "../wire/dsml-tools.js";
@@ -87,13 +88,25 @@ export function coolAccountOnQuotaSignal(
   logger: (m: string) => void,
   code: string,
   message: string,
+  freeModel = false,
 ): void {
   const signal = inChannel(channel, () => channel.upstream.quotaSignal?.(200, message) ?? null);
   if (signal === null) return;
+  // 免费（×0）模型不吃额度：既不受账号冷却限制，也不该**触发**冷却
+  // （与 `attempt.ts::isFreePoolModel` 的既有铁律同口径 —— 实测 loomy 烧光后
+  // 连倍率 0 的模型都被一起锁死）
+  if (freeModel) {
+    logger(
+      `upstream business error on a free model (channel ${cid ?? "?"}): code=${code}, account left untouched`,
+    );
+    return;
+  }
   const snippet = message.replace(/\s+/g, " ").trim().slice(0, 200);
+  // 显式传 cid 并包渠道上下文：`channelDir` 在仓库级多渠道路由下不接受「靠上下文猜」
+  const resetAt = inChannel(channel, () => channel.upstream.quotaResetAt?.(message) ?? null);
   const untilMs = inChannel(channel, () =>
     noteAccountQuotaExhausted(channel.config.cid, {
-      until: null,
+      until: resetAt,
       reason: `上游业务错误 code=${code}${snippet === "" ? "" : `：${snippet}`}`,
     }),
   );
@@ -121,13 +134,25 @@ function noteStreamError(
   cid: string | undefined,
   logger: (m: string) => void,
   frame: Buffer | string,
+  freeModel: boolean,
 ): void {
-  const errObj = sseStream.errorFrameOf(frame);
-  if (errObj === null) return;
-  const code = typeof errObj["code"] === "string" ? errObj["code"] : "upstream_error";
-  const message = typeof errObj["message"] === "string" ? errObj["message"] : "";
-  noteRequestError(res, code, message);
-  coolAccountOnQuotaSignal(channel, cid, logger, code, message);
+  try {
+    const errObj = sseStream.errorFrameOf(frame);
+    if (errObj === null) return;
+    const rawCode = errObj["code"];
+    // 数值码（qodercn 的 `112`）原样保留成字符串 —— 日志与冷却原因都要能看出真码
+    const code = typeof rawCode === "string" ? rawCode : String(rawCode ?? "upstream_error");
+    const message = typeof errObj["message"] === "string" ? errObj["message"] : "";
+    noteRequestError(res, code, message);
+    coolAccountOnQuotaSignal(channel, cid, logger, code, message, freeModel);
+    // 账本补一笔失败：attempt 层在上游**收下请求**（HTTP 200）时就记过 `ok` ——
+    // 那只是「连上了」。不补的话可靠性系数会被这类业务失败反向抬高。
+    // `cooldownMs=0`：只记账，不触发渠道冷却（账号该冷却的上面已经冷却了）。
+    if (cid !== undefined) noteFailure(cid, undefined, 0);
+  } catch (err) {
+    // 记账失败不能打断数据通路（磁盘满 / 渠道判据有 bug 时，客户端看到的应是正常流）
+    logger(`stream error accounting failed (channel ${cid ?? "?"}): ${String(err)}`);
+  }
 }
 
 /** 心跳间隔可用环境变量覆盖（测试与长部署按需调整）。 */
@@ -207,6 +232,8 @@ export async function relayStream(
   request?: Record<string, unknown>,
   initialContent = false,
   pendingFrames: Buffer[] = [],
+  /** 免费（×0）模型：业务错误帧只记账，不冷却账号（见 `coolAccountOnQuotaSignal`）。 */
+  freeModel = false,
 ): Promise<void> {
   if (!isCustomWire(channel)) {
     // openai 线型的流中途错误也必须以 SSE 错误帧收尾 —— 与下方 custom 分支同一套
@@ -222,7 +249,7 @@ export async function relayStream(
         // 入站协议在场：帧交编码器转译（anthropic / responses 事件族）
         ...(sink ? { sink } : {}),
         // 帧在本函数内部流转，逐帧记账只能由它递出来
-        onFrame: (frame) => noteStreamError(res, channel, cid, logger, frame),
+        onFrame: (frame) => noteStreamError(res, channel, cid, logger, frame, freeModel),
       });
     } catch (err) {
       relayError(res, logger, err);
@@ -238,7 +265,7 @@ export async function relayStream(
   const sink = sinkOf(res);
   /** 逐帧记账：业务错误帧（排队 / 额度 / 认证）不能吞得无声无息。 */
   const accountFrame = (frame: Buffer | string): void => {
-    noteStreamError(res, channel, cid, logger, frame);
+    noteStreamError(res, channel, cid, logger, frame, freeModel);
   };
   for (const frame of pendingFrames) {
     accountFrame(frame);

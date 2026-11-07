@@ -424,6 +424,10 @@ export function Dashboard(): ReactElement {
       if (restored > 0) parts.push(`${restored} 个文件`);
       if (removed > 0) parts.push(`删除 ${removed} 个接入新建的文件`);
       toast.success(`已还原 ${target || "客户端"}${parts.length > 0 ? `（${parts.join("、")}）` : ""}`);
+      // 跳过的条目 / 缺失的备份文件必须说出来 —— 否则「已还原」是假象
+      for (const note of Array.isArray(data.notes) ? data.notes : []) {
+        toast.info(typeof note === "string" ? note : String(note));
+      }
     },
     onError: (err) => toast.error(`还原失败：${String(err)}`),
   });

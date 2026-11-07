@@ -977,13 +977,11 @@ export function activeAccountIsError(cid?: string): boolean {
  * `error`（熔断）**不在此列**：它有半开试探时刻，到点必须放行一次自检。
  */
 export function activeAccountHealth(cid?: string): AccountHealth | null {
-  try {
-    const index = readIndex(cid);
-    if (!index.active) return null;
-    return index.accounts.find((a) => a.key === index.active)?.health ?? null;
-  } catch {
-    return null;
-  }
+  // 不包 try：`readIndex` 自身已把读盘故障兜成空索引（空索引 → null → 不排除），
+  // 再包一层只会把真实故障藏起来
+  const index = readIndex(cid);
+  if (!index.active) return null;
+  return index.accounts.find((a) => a.key === index.active)?.health ?? null;
 }
 
 /** 熔断剩余信息（短路文案/界面用）；未熔断或已到试探时刻返回 null。 */

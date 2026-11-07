@@ -12,6 +12,7 @@
 import type { ServerResponse } from "node:http";
 
 import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
+import { noteFailure } from "../../pool/pool-usage.js";
 import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { writeJson, writeProtocolError } from "./errors.js";
@@ -58,6 +59,8 @@ export interface ForwardOptions {
   probeTranslator?: StreamTranslator;
   /** 客户端原始请求体（渠道的翻译器要用）。 */
   request?: Record<string, unknown>;
+  /** 免费（×0）模型：流内业务错误帧只记账、不冷却账号（由尝试层算好传入）。 */
+  freeModel?: boolean;
 }
 
 /** 聚合结果是否「什么都没有」：无 content、无 reasoning、无 token 用量。 */
@@ -155,6 +158,7 @@ export async function relayUpstream(
     giveUpText = null,
     probeTranslator,
     request,
+    freeModel = false,
   } = opts;
   const streamBody = call.body;
   if (!streamBody) {
@@ -213,11 +217,18 @@ export async function relayUpstream(
       if (isEmptyCompletion(aggregated)) {
         const sseError = sseStream.firstSseError(buf);
         if (sseError) {
-          const code = sseError.code ?? "upstream_error";
+          const rawCode = sseError.code;
+          const code = rawCode === undefined || rawCode === "" ? "upstream_error" : rawCode;
           const message = sseError.message ?? "upstream error";
           // 额度类业务错误同样冷却账号 —— 与流式路径同一条判据，否则同一个
           // `code=112` 在流式下被冷却、非流式下被反复重试
-          coolAccountOnQuotaSignal(channel, cid, logger, code, message);
+          coolAccountOnQuotaSignal(channel, cid, logger, code, message, freeModel);
+          // 补一笔账本失败（attempt 层在上游收下请求时已记过 ok，见 `noteStreamError`）
+          try {
+            noteFailure(cid, undefined, 0);
+          } catch (err) {
+            logger(`ledger write failed (channel ${cid}): ${String(err)}`);
+          }
           writeProtocolError(res, 502, code, message);
           return;
         }
@@ -296,6 +307,7 @@ export async function relayUpstream(
           request,
           pendingFrames.length > 0,
           pendingFrames,
+          freeModel,
         ),
-  );
+      );
 }

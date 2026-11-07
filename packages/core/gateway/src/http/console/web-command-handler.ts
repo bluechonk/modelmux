@@ -55,12 +55,14 @@ export interface WebCommandDeps {
    * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
    */
   integrate?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
-  /** 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。 */
+  /** 一键还原：把目标恢复成接入前状态（取该目标最新一次备份，可重复使用）。 */
   restore?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => {
     ok: boolean;
     error?: string;
     restored: string[];
     removed: string[];
+    /** 跳过条目 / 备份缺失等需要让用户知道的说明（不透出会伪装成「已还原」）。 */
+    notes: string[];
   };
 }
 
@@ -296,10 +298,13 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         const parts: string[] = [];
         if (result.restored.length > 0) parts.push(`还原 ${result.restored.length} 个文件`);
         if (result.removed.length > 0) parts.push(`删除 ${result.removed.length} 个接入新建的文件`);
+        // notes 必须透出：条目被跳过 / 备份文件缺失时，「已还原」会是假象
+        // （界面只报 ok 会让人以为配置真的回到接入前了）
         return ok({
           target,
           restored: result.restored,
           removed: result.removed,
+          notes: result.notes,
           message: parts.length > 0 ? parts.join("、") : "已还原（无需改动）",
         });
       }
