@@ -51,7 +51,7 @@
 | 对外模型 id | 别名 | `owned_by` | 本机供给渠道（实测，按路由优先级） |
 |---|---|---|---|
 | `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | catpaw / traecn（动态目录）、loomy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
-| `glm-5.3-flash` | — | `zhipu` | qodercn（上游 key `gfmodel`）—— **唯一供给渠道** |
+| `glm-5.3-flash` | — | `zhipu` | qodercn（上游 key `gfmodel`）、autoclaw（沙箱 relay）、zcode（Anthropic 形态上游） |
 | `longcat-2.5` | — | `meituan` | catpaw（动态目录，上游 `LongCat-2.5`，限时免费）—— **唯一供给渠道** |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
