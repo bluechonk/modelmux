@@ -50,6 +50,29 @@ export interface Credentials extends Credential {
   readonly apiKey: string;
   /** JWT `exp`（毫秒；解析不出为 `null` —— 无静默续期，仅展示）。 */
   readonly expireAt: number | null;
+  /**
+   * 账号池展示名（人读）。
+   *
+   * 上游**没有**可读身份字段可拿（2026-11-07 实测：JWT 只含 `sub`/`user_id`；
+   * `zcode-plan` 下 user/me/profile/account 全部 404；`/billing/current` 只有 `plans`；
+   * `getCustomerInfo` 需要 zcode JWT 换不出的业务 token），所以不做「假装拿到昵称」，
+   * 而是给出**能区分账号且人读**的形态：`ZCode · JWT · 87448da0`。
+   * 池层的 `NAME_FIELDS` 认 `nickname` 字段，故这里用它承载（零改动自动进 label）。
+   */
+  readonly nickname: string;
+}
+
+/**
+ * 生成人读展示名：模式 + uid 前 8 位。
+ *
+ * 为什么不用完整 UUID：账号池一行只放得下一个短标识，完整值在详情浮层与凭据文件里
+ * 都能看到；而裸 UUID 既占宽又无从辨认。前 8 位在同一账号池里足够区分（UUIDv4 前缀
+ * 碰撞概率可忽略）。
+ */
+function displayNameOf(mode: CredMode, uid: string): string {
+  const short = uid.replace(/-/g, "").slice(0, 8);
+  if (short === "") return `ZCode · ${mode === "jwt" ? "JWT" : "API Key"}`;
+  return `ZCode · ${mode === "jwt" ? "JWT" : "API Key"} · ${short}`;
 }
 
 /** 契约要求：登录与上游共用的默认基址。 */
@@ -114,14 +137,28 @@ export function load(): Credentials {
   if (!accessToken) throw new NotLoggedInError("Credential has no access_token, please log in again");
   const mode = parsed["mode"] === "apiKey" ? "apiKey" : modeOf(accessToken);
   rememberMode(mode);
+  const uid = str(parsed["uid"]);
+  const stored = str(parsed["nickname"]);
+  const nickname = stored || displayNameOf(mode, uid);
+  // 老凭据（升级前登录）没有 nickname：**补出后回写**，否则账号池的 label 刷新
+  // 读不到新字段（`refreshLabels` 从凭据文件取 `NAME_FIELDS`），UUID 会一直显示下去。
+  // 写失败不影响本次读取：内存里已经是可读值，下一次 load 再试。
+  if (stored === "" && uid !== "") {
+    try {
+      save({ accessToken, uid, domain: str(parsed["domain"]) || (mode === "jwt" ? "zcode.z.ai" : "api.z.ai"), mode, apiKey: str(parsed["apiKey"]), expireAt: shared.parseExpireTime(parsed["expireAt"]), nickname });
+    } catch {
+      /* 回写是尽力而为：只读路径不能因为写盘失败而失败 */
+    }
+  }
   return {
     accessToken,
-    uid: str(parsed["uid"]),
+    uid,
     // 老凭据缺 domain 时按模式补默认值，不拒绝整条凭据（契约 §5.1）
     domain: str(parsed["domain"]) || (mode === "jwt" ? "zcode.z.ai" : "api.z.ai"),
     mode,
     apiKey: str(parsed["apiKey"]),
     expireAt: shared.parseExpireTime(parsed["expireAt"]),
+    nickname,
   };
 }
 
@@ -344,6 +381,7 @@ export async function login(baseUrl?: string, options: LoginOptions = {}): Promi
     apiKey,
     // jwtExpMs 无 exp 时回 0：归一成 null，语义是「不知道」而不是「已过期」
     expireAt: mode === "jwt" ? shared.jwtExpMs(accessToken) || null : null,
+    nickname: displayNameOf(mode, mode === "jwt" ? shared.jwtSubject(accessToken) : ""),
   };
   await save(credential);
   options.onStatus?.(`已登录 ZCode（${mode === "jwt" ? "JWT 模式" : "API Key 模式"}）`);
