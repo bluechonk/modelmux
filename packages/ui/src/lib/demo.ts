@@ -869,7 +869,7 @@ export function demoLogPayload(id: string): PayloadQueryResult {
   };
 }
 
-/** 演示用的正文分片（与真实接口同形：元数据先到、正文按窗口取）。 */
+/** 演示用的正文分片（与真实接口同形：元数据先到、正文按窗口取，字节 base64 输出）。 */
 export function demoPayloadSlice(
   id: string,
   date: string | undefined,
@@ -880,17 +880,17 @@ export function demoPayloadSlice(
   void date;
   const full = demoLogPayload(id);
   const record = full.records.find((r) => r.phase === phase) ?? full.records[0];
-  const body = record?.body ?? "";
-  const start = Math.max(0, Math.min(offset, body.length));
-  const end = Math.max(start, Math.min(start + limit, body.length));
+  const raw = new TextEncoder().encode(record?.body ?? "");
+  const start = Math.max(0, Math.min(offset, raw.length));
+  const end = Math.max(start, Math.min(start + limit, raw.length));
   return {
     ok: true,
     id,
     date: null,
     offset: start,
     length: end - start,
-    total: body.length,
-    body: body.slice(start, end),
+    total: raw.length,
+    bodyB64: btoa(Array.from(raw.subarray(start, end), (b) => String.fromCharCode(b)).join("")),
   };
 }
 

@@ -1343,7 +1343,9 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
  * 一次请求的正文记录（形状与落盘行一致，`ts` / `seq` 由写入时补）。
  *
  * `body` 存**原样文本**（不解析成对象）：既忠实反映「构造了什么」，又让界面在能
- * `JSON.parse` 时按消息渲染、截断时降级成原文。
+ * `JSON.parse` 时按消息渲染、截断时降级成原文。客户端发的字节不是合法 UTF-8 时
+ * （Windows GBK 控制台输出被原样塞进 JSON 等），呈现按替换符，原样字节仍在
+ * 压缩块里无损保存 —— 损坏在源头，不在存储。
  */
 export interface PayloadRecord {
   ts: string;
@@ -1360,6 +1362,8 @@ export interface PayloadRecord {
   body: string;
   /** 正文存储形态（`plain` / `zstd` / `gzip`）；空串 = 旧行（等价 plain）。 */
   bodyEnc?: string;
+  /** 原始字节里无效 UTF-8 序列覆盖的字节数（0 缺省 = 全部有效或旧行未统计）。 */
+  invalidBytes?: number;
 }
 
 /**
@@ -1389,25 +1393,106 @@ function payloadCids(): string[] | null {
 }
 
 /**
+ * 数无效 UTF-8 序列覆盖的字节数（与 `toString("utf8")` 的替换符口径同源：WHATWG
+ * 状态机）。合法序列整段跳过（含 overlong / 代理区 / 越界边界），非法时把
+ * 「首字节 + 已合法的续字节前缀」计为坏字节 —— 也就是呈现层被替换符顶替的量。
+ */
+export function countInvalidUtf8(buf: Buffer): number {
+  let bad = 0;
+  let i = 0;
+  while (i < buf.length) {
+    const b0 = buf[i]!;
+    let need: number;
+    let lower = 0x80;
+    let upper = 0xbf;
+    if (b0 < 0x80) {
+      i += 1;
+      continue;
+    }
+    if (b0 >= 0xc2 && b0 <= 0xdf) {
+      need = 1;
+    } else if (b0 >= 0xe0 && b0 <= 0xef) {
+      need = 2;
+      lower = b0 === 0xe0 ? 0xa0 : 0x80;
+      upper = b0 === 0xed ? 0x9f : 0xbf;
+    } else if (b0 >= 0xf0 && b0 <= 0xf4) {
+      need = 3;
+      lower = b0 === 0xf0 ? 0x90 : 0x80;
+      upper = b0 === 0xf4 ? 0x8f : 0xbf;
+    } else {
+      // 0x80-0xbf 孤立续字节、0xc0/0xc1 overlong 头、0xf5-0xff
+      bad += 1;
+      i += 1;
+      continue;
+    }
+    const b1 = i + 1 < buf.length ? buf[i + 1]! : -1;
+    if (b1 < lower || b1 > upper) {
+      // 首字节带不出合法第二字节：首字节坏，从下一个字节重试
+      bad += 1;
+      i += 1;
+      continue;
+    }
+    let ok = true;
+    for (let k = 2; k <= need; k += 1) {
+      if (i + k >= buf.length || (buf[i + k]! & 0xc0) !== 0x80) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      i += need + 1;
+      continue;
+    }
+    // 截断或中途坏：首字节 + 合法续字节前缀都算坏字节
+    let consumed = 2;
+    while (consumed <= need && i + consumed < buf.length && (buf[i + consumed]! & 0xc0) === 0x80) {
+      consumed += 1;
+    }
+    bad += consumed;
+    i += consumed;
+  }
+  return bad;
+}
+
+/** clipPayload 的产物：字节直通（不 lossy），附带溯源统计。 */
+interface ClippedPayload {
+  /** 双端保留后的字节（未截断时即全量原字节）。 */
+  data: Buffer;
+  bytes: number;
+  truncated: boolean;
+  invalidBytes: number;
+}
+
+/**
  * 截断到单条上限：超过时**双端保留**（头尾各半），而不是保头弃尾 ——
  * agent 会话的最新消息（排查重点）在尾部，截旧尾等于没截在点子上。
  *
- * 截断可能切在 UTF-8 中间（会产生替换字符）—— 这是刻意的取舍：抓包的价值在
- * 「看到构造」，为了一个字符去做边界对齐不划算；`truncated` 已经如实标注。
+ * 返回**字节**而非字符串：客户端发的坏字节（GBK 等）必须原样进压缩块，
+ * 在这里 toString 就永远找不回来了（2026-11-07 实测 meta bytes:107 vs 落盘 119）。
  */
-function clipPayload(body: Buffer | string): Pick<PayloadRecord, "body" | "bytes" | "truncated"> {
+function clipPayload(body: Buffer | string): ClippedPayload {
   const buf = typeof body === "string" ? Buffer.from(body, "utf8") : body;
   const max = payloadMaxBytes();
   if (buf.length <= max) {
-    return { body: buf.toString("utf8"), bytes: buf.length, truncated: false };
+    return { data: buf, bytes: buf.length, truncated: false, invalidBytes: countInvalidUtf8(buf) };
   }
-  const head = buf.subarray(0, Math.floor(max / 2)).toString("utf8");
-  const tail = buf.subarray(buf.length - Math.floor(max / 2)).toString("utf8");
-  const note = `\n\n…（请求体超 ${(max / 1024 / 1024).toFixed(0)}MB，仅保留首尾；共 ${buf.length} 字节）…\n\n`;
+  const note = Buffer.from(
+    `\n\n…（请求体超 ${(max / 1024 / 1024).toFixed(0)}MB，仅保留首尾；共 ${buf.length} 字节）…\n\n`,
+    "utf8",
+  );
+  // 头尾各 max/2（note 叠加在外）：上限被测试调到极小时 note 反超预算，
+  // 从预算里扣会让 half 变负 —— 保头尾语义优先于落盘体严格 ≤ max
+  const half = Math.max(1, Math.floor(max / 2));
+  const data = Buffer.concat([
+    buf.subarray(0, half),
+    note,
+    buf.subarray(buf.length - half),
+  ]);
   return {
-    body: head + note + tail,
+    data,
     bytes: buf.length,
     truncated: true,
+    invalidBytes: countInvalidUtf8(buf.subarray(0, half)) + countInvalidUtf8(buf.subarray(buf.length - half)),
   };
 }
 
@@ -1444,10 +1529,19 @@ interface PackedBody {
   bodyChunks?: string[];
   /** 各块**解压后**的字节数（与 `bodyChunks` 一一对应）；读取侧靠它定位块号。 */
   bodyChunkLens?: number[];
+  /** 原始字节的无效 UTF-8 计数（仅 >0 时落盘；旧行无此字段）。 */
+  invalidBytes?: number;
 }
 
 /**
  * 把正文压成可内联进 JSON 行的形态。
+ *
+ * 输入是**字节**（clipPayload 的产物）：合法 UTF-8 的小正文维持 plain 字符串
+ * （与旧行同形态），其余一律走压缩 —— 无效字节（GBK 等）只能活在这个分支里，
+ * 任何「先转字符串」的动作都会把它们顶成替换符、原样字节永久丢失。
+ *
+ * `invalidBytes` 省略时自动检测（compact 重编码路径复用）；appendPayload 路径
+ * clipPayload 已经算过，显式传入免第二次扫描。
  *
  * 为什么不学 dsh 做「内容寻址 blob + 去重」：实测本仓库 payload 的重复率是 **0**
  * （2 天 114 条正文，唯一 114 条；client 与 upstream 正文也无一字节相同），
@@ -1457,32 +1551,36 @@ interface PackedBody {
  * 大正文按 `PAYLOAD_CHUNK_BYTES` 切成多帧（dsh 式）：读取按块局部解码，
  * 取一片不必解全量 —— 这是「上下文弹窗分片读取」的后端前提。
  */
-function packBody(body: string): PackedBody {
-  const buf = Buffer.from(body, "utf8");
-  if (buf.length < PAYLOAD_COMPRESS_MIN_BYTES) return { body, bodyEnc: "plain" };
+function packBody(data: Buffer, invalidBytes?: number): PackedBody {
+  const bad = invalidBytes ?? countInvalidUtf8(data);
+  const mark = bad > 0 ? { invalidBytes: bad } : {};
+  if (data.length < PAYLOAD_COMPRESS_MIN_BYTES && bad === 0) {
+    return { body: data.toString("utf8"), bodyEnc: "plain" };
+  }
   const enc: BodyEncoding = hasZstd() ? "zstd" : "gzip";
   const pack = (chunk: Buffer): Buffer =>
     enc === "zstd" ? zlib.zstdCompressSync(chunk) : zlib.gzipSync(chunk);
   const chunks: Buffer[] = [];
   const lens: number[] = [];
-  for (let off = 0; off < buf.length; off += PAYLOAD_CHUNK_BYTES) {
-    const slice = buf.subarray(off, Math.min(off + PAYLOAD_CHUNK_BYTES, buf.length));
+  for (let off = 0; off < data.length; off += PAYLOAD_CHUNK_BYTES) {
+    const slice = data.subarray(off, Math.min(off + PAYLOAD_CHUNK_BYTES, data.length));
     chunks.push(pack(slice));
     lens.push(slice.length);
   }
   // 单块时直接落整帧（与旧行形态一致，省一层字段）；多块才走 bodyChunks
-  if (chunks.length === 1) return { bodyEnc: enc, bodyB64: chunks[0]!.toString("base64") };
+  if (chunks.length === 1) return { bodyEnc: enc, bodyB64: chunks[0]!.toString("base64"), ...mark };
   // 每块**明文长度**：读取侧据此算出 `total` 并直接定位命中的块号，
   // 从而只解压需要的那几块（不落这个数组就只能解全部块才知道边界）。
   return {
     bodyEnc: enc,
     bodyChunks: chunks.map((c) => c.toString("base64")),
     bodyChunkLens: lens,
+    ...mark,
   };
 }
 
-/** 解码 `packBody` 的产物；旧行的纯 `body` 由调用方直接取用。 */
-function unpackBody(rec: PackedBody): string | null {
+/** 解码 `packBody` 的产物为**字节**；旧行的纯 `body`（字符串）由调用方自己转。 */
+function unpackBody(rec: PackedBody): Buffer | null {
   const decode = (b64: string): Buffer | null => {
     try {
       const buf = Buffer.from(b64, "base64");
@@ -1509,10 +1607,13 @@ function unpackBody(rec: PackedBody): string | null {
   } else {
     return null;
   }
-  return Buffer.concat(parts).toString("utf8");
+  return Buffer.concat(parts);
 }
 
-function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
+/** appendPayload 的输入：元数据 + clipPayload 的字节产物（body 形态由 packBody 决定）。 */
+type AppendPayloadInput = Omit<PayloadRecord, "ts" | "seq" | "body" | "bodyEnc"> & ClippedPayload;
+
+function appendPayload(record: AppendPayloadInput): void {
   try {
     const date = localDate();
     const dir = join(logsRoot(), "payload", date);
@@ -1526,12 +1627,14 @@ function appendPayload(record: Omit<PayloadRecord, "ts" | "seq">): void {
     const file = join(dir, "payload.log");
     rotateIfNeeded(file);
     payloadSeq += 1;
-    const { body, ...rest } = record;
+    const { data, bytes, truncated, invalidBytes, ...rest } = record;
     const line = JSON.stringify({
       ts: new Date().toISOString(),
       seq: payloadSeq,
       ...rest,
-      ...packBody(body),
+      bytes,
+      truncated,
+      ...packBody(data, invalidBytes),
     });
     appendFileSync(file, `${line}\n`, "utf8");
   } catch {
@@ -1630,21 +1733,23 @@ function compactPayloadFile(file: string): { before: number; after: number } | n
         out.push(line);
         continue;
       }
-      const body =
+      // 统一取字节：明文行（含历史 FFFD 的字符串，本身是合法 UTF-8）与压缩行一致处理，
+      // invalidBytes 由 packBody 自动检测 —— 无效字节的行重编码后标注不丢
+      const data =
         typeof raw["body"] === "string"
-          ? raw["body"]
+          ? Buffer.from(raw["body"], "utf8")
           : unpackBody(raw as PackedBody);
-      if (body === null) {
+      if (data === null) {
         out.push(line);
         continue;
       }
       // 单帧行重编码为分块；重压后仍是单帧（不足两块）就原样保留（无收益不冒险）
-      const repacked = packBody(body);
+      const repacked = packBody(data);
       if (repacked.bodyChunks === undefined) {
         out.push(line);
         continue;
       }
-      const { body: _b, bodyEnc: _e, bodyB64: _x, bodyChunks: _c, ...rest } = raw;
+      const { body: _b, bodyEnc: _e, bodyB64: _x, bodyChunks: _c, invalidBytes: _i, ...rest } = raw;
       migrated += 1;
       out.push(JSON.stringify({ ...rest, ...repacked }));
     }
@@ -1707,14 +1812,19 @@ function parsePayloadLine(line: string, withBody = true): PayloadRecord | null {
       truncated: bool(raw["truncated"]) ?? false,
       // 新行把正文压进 bodyChunks / bodyB64（按 bodyEnc 解码）；旧行直接是 body 字符串。
       // 三种形态都要能读 —— 已落盘的正文按保留期陪着老版本一起走完。
+      // 呈现按 UTF-8 文本（无效字节显示替换符）；原样字节留在压缩块里无损。
       //
       // `withBody=false` 时**跳过解压**：解压是这条读路径上唯一的重量级操作
       // （实测单行 1.2 MB 压缩 → 数 MB 明文），而列表与首屏只需要元数据。
-      body: withBody ? str(raw["body"]) ?? unpackBody(raw as PackedBody) ?? "" : "",
+      body: withBody
+        ? str(raw["body"]) ?? unpackBody(raw as PackedBody)?.toString("utf8") ?? ""
+        : "",
       bodyEnc: str(raw["bodyEnc"]) || (str(raw["body"]) ? "plain" : ""),
     };
     const attempt = num(raw["attempt"]);
     if (attempt !== undefined) rec.attempt = attempt;
+    const invalid = num(raw["invalidBytes"]);
+    if (invalid !== undefined && invalid > 0) rec.invalidBytes = invalid;
     const cid = str(raw["cid"]);
     if (cid !== undefined) rec.cid = cid;
     const model = str(raw["model"]);
@@ -1851,8 +1961,13 @@ function locatePayloadChunks(
  * **只解压命中窗口覆盖的那几块**；旧行没有这个数组，退回「解全部块」的慢路径
  *（实测 4.2 MB / 5 块：只解命中块 2.3 ms，解全部 10.5 ms）。
  *
+ * 输出是 **base64**：分片窗口常落在多字节字符中间，如果这里转字符串再传，
+ * 接缝就会劈出替换符（且 UI 侧无法复原）；字节交给 UI 拼齐后一次性解码，
+ * 接缝问题在字节层自然消失。`offset` / `length` / `total` 恒为字节
+ *（明文行也转字节后再切，旧实现按字符切是另一处乱码源）。
+ *
  * @param phase 指定取哪一份（`client` / `upstream`）；不指定则取第一条有正文的记录。
- * @returns `{ offset, length, total, body }`；未命中返回 `null`
+ * @returns `{ offset, length, total, bodyB64 }`；未命中返回 `null`
  */
 export function readPayloadSlice(
   id: string,
@@ -1860,15 +1975,20 @@ export function readPayloadSlice(
   phase: string | undefined,
   offset = 0,
   limit = PAYLOAD_SLICE_BYTES,
-): { offset: number; length: number; total: number; body: string } | null {
+): { offset: number; length: number; total: number; bodyB64: string } | null {
   const located = locatePayloadChunks(id, date, phase);
   if (!located) return null;
-  // 明文块：字符语义与压缩块的字节语义在切片上是同一回事（UTF-8 直读）
+  // 明文行（旧格式 / <4KB）：字符串本身是合法 UTF-8，转字节后与压缩块同一套几何
   if (located.plain) {
-    const raw = located.chunks[0] ?? "";
+    const raw = Buffer.from(located.chunks[0] ?? "", "utf8");
     const start = Math.max(0, Math.min(offset, raw.length));
     const end = Math.max(start, Math.min(start + limit, raw.length));
-    return { offset: start, length: end - start, total: raw.length, body: raw.slice(start, end) };
+    return {
+      offset: start,
+      length: end - start,
+      total: raw.length,
+      bodyB64: raw.subarray(start, end).toString("base64"),
+    };
   }
   const decode = (b64: string): Buffer | null => {
     try {
@@ -1904,7 +2024,7 @@ export function readPayloadSlice(
       chunkStart = chunkEnd;
       if (chunkStart >= end) break;
     }
-    return { offset: start, length: end - start, total, body: acc.toString("utf8") };
+    return { offset: start, length: end - start, total, bodyB64: acc.toString("base64") };
   }
   // 慢路径（旧行无块长）：解全部块累加 total —— 只把命中区间拼进结果。
   let total = 0;
@@ -1927,5 +2047,5 @@ export function readPayloadSlice(
   }
   if (!hit) return null;
   const start = Math.max(0, Math.min(offset, total));
-  return { offset: start, length: Math.min(limit, total - start), total, body: accumulated.toString("utf8") };
+  return { offset: start, length: Math.min(limit, total - start), total, bodyB64: accumulated.toString("base64") };
 }
