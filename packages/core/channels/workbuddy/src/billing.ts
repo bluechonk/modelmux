@@ -312,7 +312,7 @@ async function dailyCheckin(): Promise<CheckinResult> {
 
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；契约要求**每个渠道都提供**）──────
 
-import type { SigninModule } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
 /**
  * 签到 / 领取能力（`<cid> checkin`）。
  *
@@ -332,3 +332,36 @@ export const signin: SigninModule = {
     return { ok: true, summary: r.message };
   },
 };
+
+// ── 额度周期（`BillingModule.quotaPeriod`，供共享层展示与冷却截止时间）────────
+
+/**
+ * 每日签到发放额（credits）。
+ *
+ * 依据（实测旁证，2026-11-07）：账单里 21 个「CodeBuddy个人版国内运营裂变包」**每个
+ * size 都是 100 credits**，即每日发放单位；当天已签（上游 `code=10001 今天已签到`）
+ * 量不到增量。上游**没有**「每日额度」查询字段，故用这个常量。
+ */
+const DAILY_CHECKIN_CREDITS = 100;
+
+/** 下一次**本机时区**的 0 点（epoch ms）。 */
+function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * 额度周期：**每天签到送 100 credits，本地 0 点刷新**。
+ *
+ * `size` 报的是**每日发放额**，不是账户总额（后者是很多个权益包之和，
+ * 与「今天能领多少」无关）。
+ */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天签到送 100 credits，本地 0 点刷新",
+    size: DAILY_CHECKIN_CREDITS,
+    unit: "credits",
+    resets_at: nextLocalMidnight(),
+  };
+}
