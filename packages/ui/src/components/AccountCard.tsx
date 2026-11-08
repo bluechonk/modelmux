@@ -414,13 +414,15 @@ export function AccountCard({
               固定两行 + `line-clamp-2` 让「长文案显示两行、短文案留白到两行」，
               所有卡卡头同高，信息也不丢（完整文案在额度详情浮层里另有）。
               账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。 */}
-          <div className="mt-1 line-clamp-2 min-h-[2rem] text-xs leading-4 text-ink-faint/70">
+          <div className="mt-1 line-clamp-2 text-xs leading-4 text-ink-faint/70">
             {billingError && billing === undefined ? (
               <span className="text-warn">额度周期未知（账单查询失败）</span>
             ) : billing?.quota?.label?.trim() ? (
               billing.quota.label
             ) : (
-              "\u00A0"
+              /* \u6CA1\u6709\u989D\u5EA6\u5468\u671F\u7684\u6E20\u9053\u660E\u8BF4\u300C\u6682\u65E0\u7B7E\u5230\u300D\uFF0C\u4E0D\u7559\u7A7A\u767D \u2014\u2014
+                 \u7559\u767D\u4F1A\u88AB\u8BFB\u6210\u300C\u8FD8\u6CA1\u52A0\u8F7D\u5B8C\u300D\uFF0C\u800C\u5B9E\u9645\u662F\u8FD9\u4E2A\u6E20\u9053\u5C31\u6CA1\u6709\u7B7E\u5230\u3002 */
+              "\u6682\u65E0\u7B7E\u5230"
             )}
           </div>
         </div>
@@ -462,9 +464,10 @@ export function AccountCard({
           return (
             <li
               key={account.key}
-              className={`group relative transition-colors hover:bg-overlay/40 ${rowBorder} ${
-                active ? "bg-overlay/25" : ""
-              }`}
+              /* 生效账号**不铺背景**：`bg-overlay/25` 是半透明，盖在 `border-b` 上会让
+                 分隔线只剩一条发亮的细边（展开时尤其明显，像凭空多出一条白线）。
+                 用左侧 `bg-brand` 竖条就够区分，不动背景。 */
+              className={`group relative transition-colors hover:bg-overlay/40 ${rowBorder}`}
             >
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}

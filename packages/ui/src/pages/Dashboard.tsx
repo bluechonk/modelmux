@@ -532,7 +532,7 @@ export function Dashboard(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="仪表盘"
-        description="用量随区间切换；Token 活动恒看一年"
+        description="Token 活动恒看一年"
         actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
       />
 
