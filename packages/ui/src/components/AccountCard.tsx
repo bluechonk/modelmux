@@ -762,9 +762,10 @@ function QuotaBar({
       {/*
         百分比在窄卡片上也保留：账号池页首先要回答的是「这个渠道还剩多少」，
         只有一条无刻度的进度条读不出具体数字（`docs/WEB-CONSOLE.md` 的窄屏口径
-        本来就是「先保剩余额度数值」）。窄屏压到更窄的字号与宽度把空间挤出来。
+        本来就是「先保剩余额度数值」）。字号守 12px 下限（项目硬规则），
+        空间靠加宽 1 档（w-9 / md:w-10）而不是压字号。
       */}
-      <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-faint md:w-9">
+      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-ink-faint md:w-10">
         {pct === null ? "—" : `${Math.round(pct)}%`}
       </span>
     </>
