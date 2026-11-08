@@ -96,7 +96,9 @@ export function ModelDonut({ models }: { models: UsageModelRow[] }): ReactElemen
               fill="none"
               strokeWidth={22}
               stroke="currentColor"
-              className={`cursor-default ${seriesClassOf(a.index)} ${hoverId !== null && hoverId !== a.id ? "opacity-30" : ""}`}
+              /* 悬停**不改环的颜色**：在右侧图例上划过时，左侧圆环整片忽明忽暗地
+                 闪一下，比「有反馈」更像故障。图例行自己会亮，那已经够了。 */
+              className={`cursor-default ${seriesClassOf(a.index)}`}
               strokeDasharray={`${(a.frac * CIRC).toFixed(2)} ${CIRC.toFixed(2)}`}
               strokeDashoffset={(-a.offset * CIRC).toFixed(2)}
               transform="rotate(-90)"

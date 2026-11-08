@@ -91,11 +91,11 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       <span>
         平均 TPS <span className="tabular text-ink">{formatRate(stats.avgTps ?? null)}</span>
       </span>
-      {page.truncated && (
-        <span className="rounded-md bg-warn/15 px-1.5 py-0.5 text-xs text-warn">
-          统计只覆盖最近 {formatCount(page.scanned)} 条（读窗口上限）
-        </span>
-      )}
+      {/*
+        不再展示「统计只覆盖最近 N 条（读窗口上限）」—— 这是实现细节（后端读日志
+        有个扫描上限），对用户没有可操作价值：他既不能调大窗口，也不会因此换个
+        时间范围。数字本身仍然按窗口内的真实条数统计，只是不再解释这层内部机制。
+      */}
     </div>
   );
 }
@@ -582,10 +582,16 @@ function Filters({
     failure: { idle: "text-danger hover:bg-danger/10", active: "bg-danger/15 text-danger" },
   };
   const today = localToday();
-  // 空值 = 后端回落到「最近一个有日志的日期」：今天还没有请求时回落的是昨天，
-  // 标签写死「今天」名不副实 —— 跟随实际返回的日期展示
+  // 空值选项固定表示「今天」，**不跟随当前查询日期**。
+  //
+  // 早先写的是 `page.date !== today ? `最新（${page.date}）` : "今天"` —— 但 `page.date`
+  // 是**当前查询的日期**：用户选了 11-07 之后，那个代表「今天」的选项会变成
+  // 「最新（2026-11-07）」，与它实际的行为（回到今天）对不上，看起来像又多了个选项。
+  // 只有一种情况需要跟随：用户还没选日期（`date === ""`）而今天确实没日志，
+  // 此时后端回落到最近一天，标签要如实说明。
+  const fallbackDate = date === "" && page?.date && page.date !== today ? page.date : null;
   const dateOptions: SelectOption[] = [
-    { value: "", label: page?.date && page.date !== today ? `最新（${page.date}）` : "今天" },
+    { value: "", label: fallbackDate ? `今天（无日志，显示 ${fallbackDate}）` : "今天" },
     ...(page?.dates ?? []).filter((value) => value !== today).map((value) => ({ value, label: value })),
   ];
   const cidOptions: SelectOption[] = [
