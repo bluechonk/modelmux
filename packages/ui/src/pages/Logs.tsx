@@ -275,13 +275,22 @@ const LOG_COLS: LogCol[] = [
   { key: "tokens", label: "tokens（入/出）", align: "right", wide: true },
 ];
 
-/** 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。 */
+/**
+ * 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。
+ *
+ * 状态点用**绝对定位**压在文字左侧的 padding 里，不占布局宽度 ——
+ * 否则「点 6px + gap 6px」共 12px 会把「成功」推到表头右边，
+ * 整列文字与表头错开（实测差 12px）。
+ */
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
-    <td className="whitespace-nowrap px-3 py-2 align-top">
+    <td className="relative whitespace-nowrap px-3 py-2 align-top">
+      <span
+        className={`absolute left-1 top-[13px] h-1.5 w-1.5 rounded-full ${meta.dot}`}
+        aria-hidden="true"
+      />
       <span className="inline-flex items-center gap-1.5 text-xs">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
         <span className={meta.text}>{meta.label}</span>
         <span className="font-mono text-ink-faint">{entry.status ?? "-"}</span>
       </span>
