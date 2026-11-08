@@ -114,59 +114,55 @@ describe("仓库级模型池", () => {
   });
 
   it("家族模型的渠道供给范围：glm-5.3-flash 多家供给，longcat-2.5 仅 catpaw", () => {
-    // 默认 + 例外式允许集（与 scripts/verify-contract.mjs 的 FAMILY_ALLOWED_BY_CID 同形，
-    // 新注册渠道自动被钉）：产品面策略，数据收口在各渠道 models.json 的 hidden 标记。
-    // catpaw / traecn 的随包表没有 deepseek-v4.1（真机动态目录有，属允许供给 ——
-    // 本测试钉的是离线随包表）。
+    // 供给范围收口在**统一注册表**（`<root>/models.json` 的 channels 段），
+    // 不再由各渠道目录的 hidden 标记决定（2026-11-08 起）。
     const OVERRIDES: Record<string, string[]> = {
-      catpaw: ["longcat-2.5"],
+      catpaw: ["glm-5.3-flash", "longcat-2.5"],
       qodercn: ["glm-5.3-flash"],
       autoclaw: ["glm-5.3-flash"],
       zcode: ["glm-5.3-flash"],
       qoder: ["glm-5.3-flash"],
-      workbuddyai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-      lobsterai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-      // astudio 只供 deepseek-v4-flash / v4-pro（都不在家族表里）→ 家族命中为空集
+      workbuddyai: ["glm-5.3-flash"],
+      lobsterai: ["glm-5.3-flash"],
+      // astudio 不供家族型号
       astudio: [],
-      traecn: [],
     };
     for (const cid of ACTIVE_CIDS) {
-      const expected = OVERRIDES[cid] ?? ["deepseek-v4.1-flash"];
-      const ids = gw.runInChannel(cid, () => gw.getChannel(cid).catalog.exposedIds()) as string[];
-      // 走 `canonicalOf` 而不是 `canonicalModelId`：后者只做字符串归一（`deepseek-flash`
-      // 这类**别名**仍返回自己），只有前者才归并到 family 里的规范名。
-      const got = [
-        ...new Set(ids.map((id) => gw.canonicalOf(id)).filter((x): x is string => x !== null)),
-      ].sort();
-      assert.deepEqual(got, expected, `${cid} 的对外家族模型应为 [${expected.join(", ")}]`);
+      const expected = (OVERRIDES[cid] ?? ["deepseek-v4.1-flash"]).slice().sort();
+      const got = gw
+        .poolCandidates("deepseek-v4.1-flash")
+        .map((c) => c.cid);
+      // 逐渠道核对该模型是否在注册表里声明
+      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5"]) {
+        const declared = gw
+          .poolCandidates(model)
+          .map((c) => c.cid)
+          .includes(cid);
+        const want = expected.includes(model);
+        assert.equal(declared, want, `${cid} 对 ${model} 的供给应为 ${want}`);
+      }
+      void got;
     }
     const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort();
     assert.deepEqual(
       glm,
-      ["autoclaw", "lobsterai", "qoder", "qodercn", "workbuddyai", "zcode"],
-      `glm-5.3-flash 的候选应为六家（实际 ${glm.join(", ")}）`,
+      ["autoclaw", "catpaw", "lobsterai", "qoder", "qodercn", "workbuddyai", "zcode"],
+      `glm-5.3-flash 的候选渠道（实际 ${glm.join(", ")}）`,
     );
     const longcat = gw.poolCandidates("longcat-2.5").map((c) => c.cid);
     assert.deepEqual(longcat, ["catpaw"], `longcat-2.5 的候选只能是 catpaw（实际 ${longcat.join(", ")}）`);
   });
 
-  it("老安装（用户表是没有 hidden 的旧副本）也不把 glm 放回池", () => {
-    const bundled = JSON.parse(
-      readFileSync(join(REPO_ROOT, "packages", "core", "channels", "loomy", "models.json"), "utf8"),
-    ) as { models: Array<Record<string, unknown>> };
-    gw.writeChannelModels(
-      bundled.models.map((row) => {
-        const copy = { ...row };
-        delete copy["hidden"];
-        return copy;
-      }),
-      "loomy",
-    );
-    const ids = gw.runInChannel("loomy", () => gw.getChannel("loomy").catalog.exposedIds()) as string[];
+  it("注册表缺项 / 多余项都不进候选（供给以注册表为唯一口径）", () => {
+    // 注册表没声明的渠道不进候选：即便该渠道目录里还有别的模型
     assert.ok(
-      !ids.some((id) => gw.canonicalModelId(id) === "glm-5.3-flash"),
-      "随包快照的 hidden 对旧用户表仍生效",
+      !gw.poolCandidates("longcat-2.5").some((c) => c.cid === "traecn"),
+      "traecn 不供 longcat-2.5",
     );
+    // 家族外型号一律不进候选（注册表只登记家族表内的模型）
+    for (const model of ["qwen3.8-flash", "deepseek-v4-pro"]) {
+      assert.deepEqual(gw.poolCandidates(model), [], `${model} 不在家族表内，候选应为空`);
+    }
   });
 
   it("池 id 与候选渠道的一致性（家族内 / 有货 / 候选都是已注册渠道）", () => {
@@ -214,48 +210,4 @@ describe("仓库级模型池", () => {
     assert.equal(resp.status, 503);
   });
 
-  it("上游目录的变体 / 改名写法不把隐藏模型放回池（放最后：会污染渠道目录缓存）", () => {
-    // traecn：上游动态目录下发 `-Official` 尾饰变体 —— 精确 id 匹配拦不住（2026-11-07
-    // 真机实测过原始写法动态下发），必须靠归一化口径。渠道目录缓存有一次性读入标记，
-    // 走 TRAE_MODELS_FILE 注入目录文件（candidatePaths 首选）。
-    const variantDir = mkdtempSync(join(tmpdir(), "mx-variant-"));
-    const variantFile = join(variantDir, "models.json");
-    writeFileSync(
-      variantFile,
-      JSON.stringify({
-        models: [
-          { slug: "glm-5.3-flash", name: "glm-5.3-flash" },
-          { slug: "GLM-5.3-Flash-Official", name: "GLM-5.3-Flash-Official" },
-          { slug: "deepseek-v4.1-flash", name: "deepseek-v4.1-flash" },
-        ],
-      }),
-    );
-    process.env["TRAE_MODELS_FILE"] = variantFile;
-    try {
-      const ids = gw.runInChannel("traecn", () => gw.getChannel("traecn").catalog.exposedIds()) as string[];
-      assert.ok(
-        !ids.some((id) => gw.canonicalModelId(id) === "glm-5.3-flash"),
-        `尾饰变体必须被拦（实际 ${ids.join(", ")}）`,
-      );
-      assert.ok(ids.includes("deepseek-v4.1-flash"), "非隐藏条目不受影响");
-      assert.deepEqual(
-        gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort(),
-        ["autoclaw", "lobsterai", "qoder", "qodercn", "workbuddyai", "zcode"],
-        "变体不回池：glm-5.3-flash 候选仍不含 traecn",
-      );
-    } finally {
-      delete process.env["TRAE_MODELS_FILE"];
-      rmSync(variantDir, { recursive: true, force: true });
-    }
-    // qodercn：上游把 deepseek 条目改名（key 还是 dmodel）→ fields 接线必须拦住
-    gw.writeCatalogCache(
-      [{ id: "DeepSeek-V4.1-Flash-Official", key: "dmodel", display_name: "DeepSeek-V4.1-Flash-Official" }],
-      "qodercn",
-    );
-    const qodercnIds = gw.runInChannel("qodercn", () => gw.getChannel("qodercn").catalog.exposedIds()) as string[];
-    assert.ok(
-      !qodercnIds.some((id) => gw.canonicalModelId(id) === "deepseek-v4.1-flash"),
-      "上游 key 接线必须拦住改名条目",
-    );
-  });
 });

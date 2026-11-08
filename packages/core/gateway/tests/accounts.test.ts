@@ -22,11 +22,14 @@ import {
   syncPool,
 } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { runLogin } from "../dist/app/lifecycle/headless.js";
 import * as paths from "../dist/runtime/paths.js";
 
 /** 合成渠道：cred 只认 uid/domain/accessToken（契约字段），落盘在 credentials.json。 */
 function makeChannel(cid: string): Channel {
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,

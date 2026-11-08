@@ -463,14 +463,12 @@ export async function attemptCandidate(
     reqLog.cid = cid;
   }
 
-  // 模型名解析：**渠道说了算**（目录里查不到 → 这个候选不可用，换下一家）。
-  let resolvedModel: string;
-  try {
-    resolvedModel = inChannel(channel, () => resolvePoolModel(channel, candidate.exposedId));
-  } catch (err) {
-    logger(`model name unresolved (channel ${cid}): ${String(err)}`);
+  // 模型名解析：注册表里的**上游 id**（拿不到 = 这个候选不可用，换下一家）。
+  const resolvedModel = resolvePoolModel(channel, candidate.exposedId);
+  if (resolvedModel === null) {
+    logger(`model name unresolved (channel ${cid}): not in registry`);
     noteFailure(cid, activeKeyOf(cid));
-    // 模型目录问题与凭据无关，不计入账号连败
+    // 注册表缺映射属于配置问题，与凭据无关，不计入账号连败
     return {
       kind: "retry",
       error: {

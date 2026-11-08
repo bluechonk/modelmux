@@ -1,11 +1,15 @@
 # 模型规格清单（`model-specs.json`）
 
-> 本文档描述全局模型规格文件的设计、取值链与 CLI 命令；
-> 配合 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2 的模型池元数据部分阅读。
+> 本文档描述全局模型规格文件的设计与 CLI 命令。
+>
+> **范围**：`/v1/models` 的对外规格**已改由统一模型注册表决定**
+> （`~/.modelmux/models.json`，见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）。
+> 本文档描述的取值链**不再参与对外报值**，`model-specs.json` 现在只服务
+> `mx model spec` 的诊断展示与联网补全的记录。
 
 ## 0. 取值链
 
-模型表六列（模型 / 倍率 / 最大上下文 / 输出上限 / 思考模式 / 输入）的取值顺序为：
+`mx model spec` 的展示取值顺序为：
 
 ```
 1. 上游目录缓存（cache/models.json，渠道自己返回的真实字段）
@@ -14,10 +18,10 @@
         │ 字段缺失 ↓
 3. 渠道静态表 spec（catalog.modelSpec()）
         │ 字段缺失 ↓
-4. 跨渠道同 id 推断（buildCrossModelIndex）
-        │ 字段缺失 ↓
-5. 内置默认（DEFAULT_META；effort 保持 null，不编造档位）
+4. 内置默认（DEFAULT_META；effort 保持 null，不编造档位）
 ```
+
+`/v1/models` 不读这条链 —— 它读统一注册表（见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）。
 
 每列**独立判定**：一个模型可能上下文来自上游、输出上限来自本文件、档位来自兜底。
 完整口径、来源标记与 `/v1/models` 快照见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)。

@@ -12,9 +12,11 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { poolUsagePath } from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 import { canonicalModelId, POOL_MODELS, POOL_MODEL_META, poolCandidates } from "../dist/pool/pool-targets.js";
+import { resolvePoolModel } from "../dist/pool/model-pool.js";
 import { canonicalOf, isPoolModel } from "../dist/pool/model-family.js";
 
 let root = "";
@@ -34,6 +36,8 @@ after(() => {
 
 /** 只填池逻辑要用到的字段（其余按契约不会在候选收集里被碰到）。 */
 function stubChannel(cid: string, exposed: string[]): Channel {
+  registerChannelSupply(cid, exposed);
+
   return {
     config: {
       cid,
@@ -108,24 +112,29 @@ describe("2. 模型家族：canonical 归并 + 别名", () => {
 });
 
 describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序）", () => {
-  it("同一模型的多家渠道都进候选；exposedId 保留目录里的原始写法", () => {
+  it("同一模型的多家渠道都进候选；上游写法由注册表逐渠道保留", () => {
     clearChannels();
     setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
     setChannel(stubChannel("gamma", ["qwen3.8-flash"]));
 
+    // 上游 id 由**注册表**逐渠道声明（不再从目录原始写法推）：候选里带的是规范名，
+    // 真正的上游 slug 由 `resolvePoolModel()` 查表得到（大小写敏感的上游写法在那里保留）
     assert.deepEqual(
       poolCandidates("deepseek-v4.1-flash").map((c) => [c.cid, c.exposedId]),
+      [
+        ["alpha", "deepseek-v4.1-flash"],
+        ["beta", "deepseek-v4.1-flash"],
+      ],
+      "两家都有货；exposedId 统一为规范名",
+    );
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => [c.cid, resolvePoolModel(c.channel, c.exposedId)]),
       [
         ["alpha", "DeepSeek-V4.1-Flash"],
         ["beta", "sn-deepseek-v4-1-flash"],
       ],
-      "两家都有货；原始写法不能被小写化（上游 slug 可能大小写敏感）",
-    );
-    // 同一渠道多条命中同一目标时取目录里第一条
-    assert.deepEqual(
-      poolCandidates("deepseek-v4.1-flash").find((c) => c.cid === "beta")?.exposedId,
-      "sn-deepseek-v4-1-flash",
+      "上游写法在注册表里逐渠道保留，不被小写化",
     );
     // 别名双向：deepseek-flash 与 deepseek-v4.1-flash 命中同一批渠道
     assert.deepEqual(poolCandidates("deepseek-flash"), poolCandidates("deepseek-v4.1-flash"));

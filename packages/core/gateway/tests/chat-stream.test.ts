@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { relayUpstream } from "../dist/http/chat/forward.js";
 import { relayStream } from "../dist/http/chat/stream.js";
 import type { UpstreamCall } from "../dist/http/chat/upstream.js";
@@ -216,6 +217,8 @@ describe("A8 上游错误响应体：读一半挂住时请求必须在超时内�
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-errbody-"));
     process.env["MODELMUX_HOME"] = root;
+  registerChannelSupply("errbody", ["deepseek-v4.1-flash"]);
+
     // 错误体超时跟正常路径同一套预算旋钮：压到 300ms 让用例跑得快
     process.env["MODELMUX_READ_TIMEOUT_MS"] = "300";
     upstream = createServer((req, res) => {

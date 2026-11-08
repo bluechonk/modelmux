@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "models": {
+    "deepseek-v4.1-flash": {
+      "contextWindow": 1000000,
+      "maxOutput": 128000,
+      "inputModalities": ["text", "image"],
+      "channels": {
+        "traecn": "deepseek-v4.1-flash",
+        "loomy": "DeepSeek-V4.1-Flash",
+        "workbuddy": "DeepSeek-V4.1-Flash",
+        "raccoon": "sn-deepseek-v4-1-flash-1017"
+      }
+    },
+    "glm-5.3-flash": {
+      "contextWindow": 1000000,
+      "maxOutput": 32000,
+      "inputModalities": ["text", "image"],
+      "channels": {
+        "catpaw": "glm-5.3-flash",
+        "lobsterai": "glm-5.3-flash",
+        "autoclaw": "glm-5.3-flash",
+        "zcode": "glm-5.3-flash",
+        "qodercn": "gfmodel",
+        "qoder": "gfmodel",
+        "workbuddyai": "glm-5.3-flash"
+      }
+    },
+    "longcat-2.5": {
+      "contextWindow": 1000000,
+      "maxOutput": 64000,
+      "inputModalities": ["text"],
+      "channels": {
+        "catpaw": "LongCat-2.5"
+      }
+    }
+  }
+}

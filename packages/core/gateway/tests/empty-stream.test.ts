@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -147,6 +148,8 @@ describe("上游 200 + 完全空的流", () => {
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-empty-stream-"));
     process.env["MODELMUX_HOME"] = root;
+  registerChannelSupply("emptystream", ["deepseek-v4.1-flash"]);
+
     upstream = await fakeUpstream();
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
 

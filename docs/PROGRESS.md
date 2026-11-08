@@ -41,9 +41,9 @@
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
 机械校验：`scripts/verify-contract.mjs` 保证「渠道目录 == 注册清单 ∪ `RETIRED_CIDS`」，
-`packages/cli/tests/pool.test.ts` 另有一份同口径断言。家族供给范围由各渠道 `models.json`
-的 `hidden` 标记决定（共享层 `hiddenModelIds` 收集），校验见 `scripts/verify-contract.mjs`
-的「家族供给范围」。
+`packages/cli/tests/pool.test.ts` 另有一份同口径断言。家族供给范围与对外规格由
+**统一模型注册表**（`~/.modelmux/models.json`）声明，校验见 `scripts/verify-contract.mjs`
+的「统一模型注册表」段。
 
 ## 架构落点
 
@@ -107,4 +107,4 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
 - 上游目录**普遍不下发**思考档位，只有 catpaw / loomy / traecn / lobsterai 声明了档位；
   其余渠道无声明时控制台显示「不支持」，共享层兜底**不编造**档位。
 - 共享层**不解释渠道字段**，只按约定键名归一；渠道自己的字段名映射在渠道包内。
-- 窗口/输出上限等规格以 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的统一目录快照为唯一事实源。
+- 窗口/输出上限等规格以 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的统一模型注册表为唯一事实源。

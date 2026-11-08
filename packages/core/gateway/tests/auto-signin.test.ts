@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { accounts, autoSignin, paths, poolUsage, setChannel, signinLedger, type Channel } from "@modelmux/gateway";
+import { registerChannelSupply } from "./registry-seed.ts";
 
 const { listAccounts } = accounts;
 
@@ -68,6 +69,9 @@ interface Behavior {
 
 /** 构造一个签到可编程的 mock 渠道（status/claim 调用计数用于断言「没发请求」）。 */
 function makeChannel(cid: string, behavior: Behavior): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   behavior.statusCalls = 0;
   behavior.claimCalls = 0;
   behavior.quotaCalls = 0;
