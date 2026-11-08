@@ -1,192 +1,87 @@
-# 统一模型目录（`model-catalog.json`）
+# 统一模型注册表（`models.json`）
 
-> 本文档描述模型目录的数据源、字段模型、五级补全链与刷新机制。
-> 运行时取值链的说明见 [MODEL-SPECS.md](./MODEL-SPECS.md)，本文档是其上位设计。
+> `/v1/models` 的数据源。字段契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §4.1，
+> 落点见 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md)，实现见
+> `packages/core/gateway/src/pool/model-registry.ts`。
 
 ## 1. 目标
 
-`GET /v1/models` 不再每次实时聚合各渠道目录，而是读一份**统一快照**：
+网关对外只卖**固定几个模型**，规格是产品决策而不是上游目录的副产品：
 
-- 客户端拿到一致、完整、带来源标记的模型配置；
-- 渠道目录缺字段时，按固定优先级补全，而不是各渠道各写一套；
-- 所有推断值可追溯（上游 / 规格文件 / 联网搜索 / 跨渠道 / 默认）。
+- 客户端拿到一致、完整、可预期的模型配置；
+- 哪个渠道供哪个模型由**一份声明**决定，不再逐渠道各写一套；
+- 对外名到各渠道上游 id 的映射显式记录（上游写法千差万别）。
 
-## 2. 文件布局
-
-```
-~/.modelmux/
-├── channels/<cid>/cache/models.json   # 渠道原始目录（上游返回，已有）
-├── model-specs.json                   # 补全规格（人工或联网搜索写入，已有结构）
-└── model-catalog.json                 # 统一快照（/v1/models 的数据源）
-```
-
-| 文件 | 写者 | 读者 | 说明 |
-|------|------|------|------|
-| `channels/<cid>/cache/models.json` | 各渠道 `fetchModels()` | 快照生成器 | 上游原始字段，不做跨渠道加工 |
-| `model-specs.json` | `mx model enrich` / 人工 | 快照生成器 | 只填上游没给的字段，键为规范模型名 |
-| `model-catalog.json` | `mx model refresh` / 首次请求 | `/v1/models` | 合并后的最终快照，原子写入 |
-
-## 3. 字段模型
-
-每条目录项（字段名与 `PoolModelMeta` 对齐）：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 对外模型名（家族表的 **canonical 裸模型名**，如 `deepseek-v4.1-flash`） |
-| `name` | string | 展示名（取首个声明渠道的上游名，缺省为 `id`） |
-| `owned_by` | string | 厂商标识，取家族表的 `ownerOf()`（如 `deepseek` / `zhipu`；承接渠道在请求日志的 `cid` 里） |
-| `context_window` | number | 上下文窗口 |
-| `max_output_tokens` | number | 最大输出 |
-| `input_modalities` | string[] | 输入模态，缺省 `["text"]` |
-| `output_modalities` | string[] | 输出模态，缺省 `["text"]` |
-| `effort` | object \| null | 思考档位；`null` 表示未声明，不编造 |
-| `multiplier` | number \| null | 消耗倍率 |
-| `marketing` | string | 营销角标文案 |
-| `meta_sources` | object | 每个关键字段的来源标记 |
-
-`meta_sources` 取值：
-
-| 来源 | 含义 |
-|------|------|
-| `upstream` | 渠道目录（上游返回）里有该字段 |
-| `spec` | `model-specs.json` 或渠道静态 `catalog.modelSpec()` 提供 |
-| `web_search` | 联网搜索补全写入 `model-specs.json`（`_source` 带 URL） |
-| `cross` | 兄弟渠道同规范模型名的已知值（数值取最大、档位取交集） |
-| `default` | 谁都没有，使用内置兜底（窗口 200K / 输出 64K） |
-
-## 4. 五级补全链
-
-每个字段**独立**判定，优先级从高到低：
+## 2. 落点
 
 ```
-1. 上游目录（channels/<cid>/cache/models.json）
-2. model-specs.json（人工或联网搜索）
-3. 渠道静态表（catalog.modelSpec()）
-4. 跨渠道同 id 兜底（buildCrossModelIndex）
-5. 内置默认（DEFAULT_META）
+~/.modelmux/models.json            # 用户可改；缺失/损坏时回落随包默认表
+packages/core/gateway/models.json  # 随包默认表（bundle 后复制到 cli/dist/models.json）
 ```
 
-第 4 级只对**规范模型名相同**的条目生效：`workbuddy/deepseek-v4.1-flash` 与
-`loomy/deepseek-v4.1-flash` 视为同一模型的兄弟渠道。数值取兄弟渠道的最大值
-（报能力上限），档位取交集（各家都支持才算支持）。
+`MODELMUX_REGISTRY_FILE` 可整体改指向另一个文件（多实例 / 测试隔离）。
 
-第 5 级不编造能力：`effort` 保持 `null`，模态只报 `text`，窗口/输出取常见档位下限。
+## 3. 文档结构
 
-### 4.1 为什么取最大而不是最小
-
-网关对外只卖裸模型名，客户端不指定渠道，由网关按账号池剩余额度挑。所以目录里的
-`context_window` / `max_output_tokens` 必须覆盖**可能落到的所有渠道**。
-
-取最小（旧口径）看起来更安全，实际会把最窄渠道的数字强加给能跑到更宽的渠道：
-2026-11-08 实测 catpaw 报 600K，把 traecn 的 1,048,576 压成 600,000，客户端据此
-判断只剩 59% 余量、不触发自动压缩，一路涨到上游硬顶被 `context length exceeded`
-拒掉。
-
-正确做法是**窄渠道自己退出该型号的候选**，而不是让全池替它降级。渠道在自己的
-`models.json` 里给该条目标 `"hidden": true` 即可（机制见
-`packages/core/gateway/src/runtime/channel-models.ts` 的 `hiddenModelIds`；
-随包快照的 hidden 标记优先级高于用户表），池层据此不再把它列为候选。
-
-## 5. 快照生成与刷新
-
-### 5.1 生成
-
-```
-poolModelMetas()               # 现有实现：枚举池 + 五级取值
-        │
-        ▼
-buildCatalog()                 # 转成 CatalogEntry，补 id/owned_by/meta_sources
-        │
-        ▼
-writeCatalog()                 # 原子写 model-catalog.json（tmp + rename）
-```
-
-### 5.2 刷新时机
-
-- **手动**：`mx model refresh`（推荐，目录或规格变化后执行）；
-- **懒初始化**：`/v1/models` 发现快照缺失或损坏时，自动生成一次并落盘；
-- 快照存在但渠道目录已刷新时，**不自动重建**（避免每次请求都做全量聚合）；
-  客户端可通过响应的 `generated_at` 判断新鲜度。
-
-### 5.3 响应形态
-
-`GET /v1/models` 返回：
-
-```jsonc
+```json
 {
-  "object": "list",
-  "generated_at": "2026-11-02T05:30:00.000Z",   // 扩展字段
-  "data": [ { "id": "...", "object": "model", ... } ]
+  "version": 1,
+  "models": {
+    "<对外模型名>": {
+      "contextWindow": 1000000,
+      "maxOutput": 128000,
+      "inputModalities": ["text", "image"],
+      "channels": { "<cid>": "<该渠道的上游模型 id>" }
+    }
+  }
 }
 ```
 
-字段形态不变，仅新增顶层 `generated_at`；旧客户端忽略即可。
+| 字段 | 含义 |
+| --- | --- |
+| `contextWindow` / `maxOutput` | 对外报值，`/v1/models` 原样返回 |
+| `inputModalities` | 输入模态（客户端据此决定本地是否拦图片） |
+| `channels` | 供给范围 **+ 上游 id 映射**：键是渠道 cid，值是该渠道上游的真名 |
 
-## 6. 联网补全（`mx model enrich`）
+`channels` 是这份表的关键：渠道上游 id 形态各异（`gfmodel` /
+`sn-deepseek-v4-1-flash-1017` / `LongCat-2.5`），请求下发时按它替换模型名。
+删掉这条映射，请求会被上游拒掉。
 
-只处理**关键字段缺失**的模型（`context_window` / `max_output_tokens` / `effort`
-任一为 `default` 或 `null`），按规范模型名去重（兄弟渠道只搜一次）。
+## 4. 校验与回落
 
-流程：
+整份表**要么全用、要么全弃**，不做字段级修补：
 
-```
-筛选缺失模型
-   │
-   ▼
-dws search "<模型名> context window max output tokens official" --count 5
-   │  命中官方文档 / 模型卡
-   ▼
-dws fetch <url>（snippet 不够时）
-   │
-   ▼
-正则提取：128K / 1M / 256k tokens 等
-   │
-   ▼
-writeModelSpec(canonical, { contextWindow, maxOutputTokens, _source: "web_search:<url>" })
-   │
-   ▼
-mx model refresh
-```
+- 任一模型缺 `contextWindow` / `maxOutput`、非正数、`channels` 为空或上游 id 为空串
+  → 整份表判损坏；
+- 模型名不在家族表（`pool/model-family.ts`）里 → 整份表判损坏；
+- 判损坏或文件缺失 → 回落**随包默认表**，并在 `/v1/models` 的应答里带
+  `registry_source: "builtin"` 与 `registry_error`。
 
-约束：
+不缓存：文件是用户可改的静态配置，每次请求读一次盘（几 KB），换来「改完立即生效」。
 
-- 只信官方站点、模型卡、可信文档；提取不到就**不写**，留给跨渠道/默认兜底；
-- 每个模型最多 2 次搜索 + 1 次抓取，失败不重试；
-- `--dry` 只打印将写入的内容；`--limit N` 分批执行；
-- 写入一律带 `_source` 与 `_updated`，便于人工复核与回滚。
+## 5. 与渠道目录的关系
 
-## 7. 兼容与回滚
+渠道的 `refresh()` 仍会拉上游目录并写 `channels/<cid>/cache/models.json` —— 那是
+**诊断与排查**用的原始数据（`mx model <cid>`、控制台渠道行看它），**不再参与选路**。
 
-- `model-catalog.json` 不存在 / 版本不认识 / JSON 损坏 → 重建快照（不读旧文件）；
-- 快照里的渠道集合与当前注册渠道不一致（例如新登录渠道）→ 自动重建；
-- 回滚：删掉快照文件即可回到「首次请求时重建」的行为，无需回退代码；
-- `model-specs.json` 的写入是增量合并，可单独删除某模型的条目撤销补全。
+选路只认注册表：
 
-## 8. 验证方式
+- 候选渠道 = 注册表 `channels` 里声明的、且当前已注册的渠道；
+- 上游模型名 = 注册表 `channels[cid]` 的值；
+- `/v1/models` 的规格 = 注册表的 `contextWindow` / `maxOutput`。
 
-- `npm test` 全绿（含新增 `model-catalog.test.ts`：快照生成、来源标记、缺失回退）；
-- `mx model refresh` 后对比 `poolModelMetas()` 与快照条数、来源统计；
-- `curl /v1/models` 检查 `generated_at` 与字段完整性；
-- `mx model enrich --dry --limit 5` 检查提取结果再实跑。
+渠道配置的 `priorityTier` / `priorityWeight` 决定候选顺序（见
+[POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
 
-## 9. 实测记录（2026-11-02）
+## 6. 实测记录（2026-11-08）
 
-首次生成：**191 个模型**，字段来源统计 `upstream 360 / default 116 / cross 56 / spec 41`。
+按渠道各存一份规格时，同一模型会出现十几个不同数字，聚合只能靠「取最大」猜，
+猜出来的值与实际能不能跑无关：
 
-联网补全（`scripts/model-enrich.mjs`，只处理 context / output 缺失的 13 个模型）：
+- traecn 上游根本不返回输出上限（`model_detail_list` 键不存在），此前报出的
+  65,536 是共享层兜底常量 `DEFAULT_META.maxOutputTokens`；
+- autoclaw 的 200,000 是 `catalog.ts` 里的**默认参数**（`num(raw["contextWindow"], 200_000)`），
+  不是上游值；该渠道上游当时返回空 `{models: []}`；
+- workbuddyai 的 `glm-5.3-flash` 上游实给 `maxOutputTokens: 32000`，表里写的是 131,072（差 4 倍）。
 
-- 仅信一手来源（官方文档 / 模型卡）后，13 个模型**均未提取到可靠规格**；
-- 唯一命中的 `deepseek-v3.0324` 上下文 1M 属误读（官方为 128K），已回滚；
-- 结论：冷门 / 预览型号的公开规格不可靠，按设计走跨渠道与默认兜底；
-  自动补全只在高置信时写入，宁缺毋滥。
-
-## 10. 运行形态
-
-`mx` 必须指向本仓库构建产物（`packages/cli/dist/cli.bundle.js`），否则
-`/v1/models` 仍会跑旧代码。验证方式：
-
-```bash
-mx --help                      # 正常输出
-curl -s 127.0.0.1:4412/v1/models | grep generated_at
-```
-
+改成统一注册表后，这些数字由产品侧一次定版，不再随上游目录漂移。

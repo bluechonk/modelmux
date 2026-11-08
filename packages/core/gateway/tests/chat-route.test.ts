@@ -19,6 +19,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { captureActive, listAccounts } from "../dist/runtime/account-pool.js";
 import { activeCid } from "../dist/runtime/channel-context.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { runLogin } from "../dist/app/lifecycle/headless.js";
 import { resolvePoolRoute } from "../dist/http/chat/route.js";
 import * as gateway from "../dist/http/server.js";
@@ -90,6 +91,8 @@ function makeChannel(cid: string, opts: SynthOptions = {}): Channel {
     return saved;
   };
   const models = opts.models ?? [["deepseek-v4.1-flash", "deepseek-v4.1-flash"]];
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, models.map(([exposed]) => exposed));
   return {
     config,
     cred: {
@@ -296,14 +299,14 @@ describe("3. A9 模型元数据：渠道 resolveModel 抛错不拖垮 /v1/models
     }
   });
 
-  it("getChannelModelMeta 本身不抛错（兜底值照常给出）", async () => {
+  it("getChannelModelMeta 不依赖渠道目录（渠道抛错也不影响）", async () => {
+    // 桩的 resolveModel 会抛错 —— 元数据来自统一注册表，不再走渠道目录，故不受影响
     setChannel(makeChannel("alpha", { resolveThrows: true }));
     const { getChannelModelMeta } = await import("../dist/pool/pool-targets.js");
     const meta = getChannelModelMeta("alpha", "deepseek-v4.1-flash");
-    // 目录读不出来时 `name` 回落到**规范模型名**（旧版返回无信息的 "Unknown"）
-    assert.equal(meta.name, "deepseek-v4.1-flash", "查不到元数据时回落兜底值");
+    assert.equal(meta.name, "deepseek-v4.1-flash");
     assert.ok(meta.contextWindow > 0);
-    assert.equal(meta.sources.contextWindow, "default", "没有真值时必须标成占位值");
+    assert.equal(meta.sources.contextWindow, "registry", "规格来自统一注册表");
   });
 });
 

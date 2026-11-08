@@ -27,6 +27,8 @@
 │   ├── payload/<date>/          ← 请求正文抓取（恒开启，见 LOGGING.md §9）
 │   └── watchdog.log             ← 外部守护日志
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
+├── models.json                  ← **统一模型注册表**（对外模型 + 规格 + 供给范围 + 上游 id 映射）
+│                                   缺失/损坏时回落随包默认表；`MODELMUX_REGISTRY_FILE` 可整体改指向
 └── channels/                    ← 唯一渠道层（0.1.2 起）
     ├── workbuddyai/             ← cid 层
     │   ├── credentials.json         当前生效账号（兼容镜像）
@@ -97,15 +99,6 @@
   运行日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 
 5. **渠道特有文件必须落在自己的 cid 层内**：
-  - `models.json` —— **渠道模型表**（清单 + 规格：窗口 / 输出上限 / 模态 / 档位 / 倍率 / 隐藏标记）。
-    - **首启浇种**：文件不存在时由共享层从**随包种子**（渠道包根 `models.json`，
-      bundle 后为 `dist/models/<cid>.json`）复制一次，来源记 `"seed"`。
-    - **之后以用户文件为准**：可手改；渠道的 `refresh()` 拉到真实目录后覆写（来源记 `"upstream"`）。
-    - **可安全删除**：删掉后下次启动重新浇种，回到随包种子。
-    - **快照**：每次覆盖前生成 `models.json.bak.<时间戳>`（默认保留最近 3 份，同秒重复加
-      `-2`/`-3` 后缀）；刷新失败或返回空表时回退到最近一份可用快照。
-      快照与被保护文件同目录同前缀，删除它们只会失去回退能力，不影响运行。
-    - **代码里不得再写同一份数据**（`catalog.ts` 零模型名、零规格数字，见 CONTRACT-TS §5.3）。
   - `cache/` 可安全删除、可重建（缓存，丢了只是变慢/回落兜底表）
     - `cache/models.json` —— **远端模型目录缓存**：各渠道 `upstream.fetchModels()`
       拉到的真实目录，由共享层 `catalog-cache.ts` 原子写入（信封

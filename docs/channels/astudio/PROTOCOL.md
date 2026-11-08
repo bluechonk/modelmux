@@ -309,7 +309,7 @@ astudio/auto              200 astudio/glm-5.2           200 astudio/deepseek-v4-
 
 给它们填 `multiplier: 1` 是**无源填 1**（客户端会按它算钱）。
 **倍率要么实测、要么未知，绝不编造。**
-规格表见本文 §6.2（渠道静态表）；全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
+规格表见本文 §6.2（渠道静态表）；对外规格以统一注册表为准，见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
 
 **网关 id 实测接受度**：
 

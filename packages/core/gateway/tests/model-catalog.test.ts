@@ -17,6 +17,7 @@ import {
   type Channel,
   type ChannelConfig,
 } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import {
   catalogFilePath,
   invalidateCatalogFileCache,
@@ -35,6 +36,8 @@ import * as paths from "../dist/runtime/paths.js";
 const CID = "catalogtest";
 
 function makeChannel(cid: string, exposed: string[]): Channel {
+  registerChannelSupply(cid, exposed);
+
   const config: ChannelConfig = {
     cid,
     display: `Catalog Test ${cid}`,
@@ -87,6 +90,7 @@ describe("统一模型目录快照", () => {
   before(() => {
     root = mkdtempSync(join(tmpdir(), "modelmux-catalog-"));
     process.env["MODELMUX_HOME"] = root;
+
     clearChannels();
     // 一个渠道供两个对外型号；另一个只供家族外的名字（不进池）
     setChannel(makeChannel(CID, ["glm-5.3-flash", "deepseek-v4.1-flash"]));
@@ -99,15 +103,16 @@ describe("统一模型目录快照", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("生成快照：每个对外模型一条（家族外不进池），缺字段标 default", () => {
+  it("生成快照：每个对外模型一条（家族外不进池），来源标 registry", () => {
     const catalog = buildCatalog();
     assert.equal(Object.keys(catalog.models).length, 2, "只有家族表里的模型进对外池");
     const entry = catalog.models["deepseek-v4.1-flash"];
     assert.ok(entry);
     assert.equal(entry.id, "deepseek-v4.1-flash");
     assert.equal(entry.owned_by, "deepseek");
-    assert.equal(entry.meta_sources.context_window, "default");
-    assert.equal(entry.meta_sources.max_output_tokens, "default");
+    // 规格来自统一注册表（不再从渠道目录聚合）
+    assert.equal(entry.meta_sources.context_window, "registry");
+    assert.equal(entry.meta_sources.max_output_tokens, "registry");
     assert.equal(entry.effort, null);
     // glm 是另一个厂商的家族成员，owned_by 不能一律写 deepseek
     assert.equal(catalog.models["glm-5.3-flash"]?.owned_by, "zhipu");
@@ -134,52 +139,31 @@ describe("统一模型目录快照", () => {
     assert.equal(raw.version, 1);
   });
 
-  it("model-specs 里的联网补全标记为 web_search", () => {
-    const spec = (window: number, output: number): Record<string, unknown> => ({
-      contextWindow: window,
-      maxOutputTokens: output,
-      _source: "web_search:https://example.com/doc",
-      _updated: "2026-11-02T00:00:00.000Z",
-    });
-    writeFileSync(
-      paths.rootFile("model-specs.json"),
-      JSON.stringify({
-        version: 1,
-        models: {
-          "deepseek-v4.1-flash": spec(128000, 16384),
-          "deepseek-v4-flash": spec(1048576, 393216),
-        },
-      }),
-      "utf8",
-    );
-    const catalog = refreshCatalog();
-    const entry = catalog.models["deepseek-v4.1-flash"];
-    assert.ok(entry);
-    assert.equal(entry.context_window, 128000);
-    assert.equal(entry.meta_sources.context_window, "web_search");
-    assert.equal(entry.meta_sources.max_output_tokens, "web_search");
-  });
-
-  it("来源统计覆盖三个字段", () => {
+  it("来源统计：窗口/输出来自注册表，档位未声明（default）", () => {
     const stats = catalogSourceStats(buildCatalog());
-    assert.ok((stats["web_search"] ?? 0) >= 2);
-    assert.ok((stats["default"] ?? 0) >= 2);
+    assert.ok((stats["registry"] ?? 0) >= 2, "窗口与输出都来自注册表");
+    // 注册表不承载思考档位，`effort` 恒为 null → 来源标 default
+    assert.ok((stats["default"] ?? 0) >= 2, "档位未声明，来源为 default");
   });
 
-  it("/v1/models 读快照并带 generated_at", async () => {
+  it("/v1/models 读注册表并带 generated_at", async () => {
     const gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
     try {
       const resp = await fetch(`http://${gw.addr}/v1/models`);
       const body = (await resp.json()) as {
         object: string;
         generated_at: string;
-        data: Array<{ id: string; object: string }>;
+        registry_source: string;
+        data: Array<{ id: string; object: string; meta_sources: Record<string, string> }>;
       };
       assert.equal(resp.status, 200);
       assert.equal(body.object, "list");
       assert.ok(body.generated_at.length > 0);
+      // before 已写注册表（桩登记了供给）→ 读的是文件本身
+      assert.equal(body.registry_source, "file");
       assert.equal(body.data.length, 2);
       assert.equal(body.data[0]?.object, "model");
+      assert.equal(body.data[0]?.meta_sources.context_window, "registry");
     } finally {
       await gw.close();
     }

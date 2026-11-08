@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as daemon from "../dist/app/lifecycle/daemon.js";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
@@ -105,6 +106,9 @@ function closeFake(fake: FakeUpstream): Promise<void> {
  * （与真实渠道同构，用来验证「小写归一进池、原始写法出上游」）。
  */
 function makeChannel(cid: string, upstreamUrl: string, models: Array<[string, string]>): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）：[对外写法, 上游写法] 成对传入
+  registerChannelSupply(cid, models);
+
   return {
     config: {
       cid,
@@ -224,7 +228,7 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
     assert.equal(ownerOf("glm-5.3-flash"), "zhipu", "owned_by 按家族表，不再一律 deepseek");
   });
 
-  it("请求 glm-5.3-flash → 打到提供它的 alpha，且用目录里的原始 slug", async () => {
+  it("请求 glm-5.3-flash → 打到提供它的 alpha，上游写法由注册表给出", async () => {
     alphaUp.captured.length = 0;
     betaUp.captured.length = 0;
     const { status } = await chat(gw, "glm-5.3-flash");
@@ -235,7 +239,7 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
     assert.equal(
       alphaUp.captured[0]!.body!["model"],
       "GLM-5.3-Flash",
-      "池里的模型名是小写规范名，上游收到的是目录里的原始写法",
+      "上游收到的是注册表里该渠道声明的写法（不是池里的规范名）",
     );
     assert.equal(alphaUp.captured[0]!.headers["authorization"], "Bearer tok-alpha");
   });
@@ -426,12 +430,18 @@ describe("4. 单渠道模式也走同一个池", () => {
     clearChannels();
   });
 
-  it("/v1/models 返回该渠道能供给的家族模型；service 身份是 cid（solo）", async () => {
+  it("/v1/models 返回注册表声明的模型；service 身份是 cid（solo）", async () => {
+    // 注册表是**产品面**：列出声明的全部模型，不按单个渠道过滤
+    // （哪个渠道供什么由注册表决定，见 docs/CONTRACT-TS.md §4.1）
     const models = (await (await fetch(`http://${gw.addr}/v1/models`)).json()) as {
       data: Array<{ id: string; owned_by: string }>;
     };
-    assert.deepEqual(models.data.map((m) => m.id), ["deepseek-v4.1-flash"]);
-    assert.equal(models.data[0]!.owned_by, "deepseek");
+    assert.ok(
+      models.data.some((m) => m.id === "deepseek-v4.1-flash"),
+      `应含 deepseek-v4.1-flash（实际 ${models.data.map((m) => m.id).join(", ")}）`,
+    );
+    const ds = models.data.find((m) => m.id === "deepseek-v4.1-flash");
+    assert.equal(ds?.owned_by, "deepseek");
 
     const health = (await (await fetch(`http://${gw.addr}/health`)).json()) as Record<string, unknown>;
     assert.equal(health["service"], "solo");

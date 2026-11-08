@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { localDate } from "../dist/runtime/log-store.js";
 import {
   noteFailure,
@@ -46,6 +47,8 @@ after(() => {
 });
 
 function stubChannel(cid: string, exposed: string[]): Channel {
+  registerChannelSupply(cid, exposed);
+
   return {
     config: {
       cid,

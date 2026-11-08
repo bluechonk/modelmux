@@ -39,8 +39,8 @@
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
 | [WORKFLOW.md](./WORKFLOW.md) | **工作流细则**：worktree 约束、浏览器视觉校验、临时探测脚本、测试红线与已知隐患、构建模型、推送门禁、版本与发版、提交信息规范（根 `AGENTS.md` 只留摘要，细则在此） |
 | [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录与署名不进注释（git 是唯一事实源）的判据与正反例 |
-| [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：五级取值链、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程 |
-| [MODEL-CATALOG.md](./MODEL-CATALOG.md) | **统一模型目录（`model-catalog.json`）**：`/v1/models` 的快照数据源、字段模型、五级补全链、联网补全与刷新机制 |
+| [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：诊断用取值链、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程（对外规格已改由 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的注册表决定） |
+| [MODEL-CATALOG.md](./MODEL-CATALOG.md) | **统一模型注册表（`models.json`）**：`/v1/models` 的数据源、字段模型、校验与回落、与渠道目录的关系 |
 | [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复的设计依据**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；现行规则见 POOL-ARCHITECTURE.md §2.4 / §3.3 |
 | [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
 | [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取的设计依据**：单条上限 10MB、超限双端兜底；现行规则见 LOGGING.md §9 |

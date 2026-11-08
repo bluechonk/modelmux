@@ -21,6 +21,7 @@ import { after, before, describe, it } from "node:test";
 import { UnsupportedInputError } from "../dist/http/chat/errors.js";
 import { activeAccountHealth, captureActive, markActiveHealth } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { resolvePoolRoute } from "../dist/http/chat/route.js";
 import { localDate } from "../dist/runtime/log-store.js";
 import * as gateway from "../dist/http/server.js";
@@ -75,6 +76,8 @@ interface ChannelOpts {
 }
 
 function makeChannel(cid: string, opts: ChannelOpts): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,
@@ -485,6 +488,8 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
    * `withBilling=false` 时渠道没有额度能力 → 模型按免费（×0）处理。
    */
   function registerErrorChannel(cid: string, withBilling: boolean, exposed: string[]): void {
+    // 候选渠道由统一注册表声明（与线上同口径）
+    registerChannelSupply(cid, exposed);
     const config: ChannelConfig = {
       cid,
       display: `Synth ${cid}`,

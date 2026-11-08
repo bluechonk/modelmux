@@ -299,6 +299,13 @@ function integrateZcode(models: string[]): IntegrationResult {
     providerRules.push(rule);
     result.notes.push("新增 modelmux 供应商规则");
   }
+  // 供应商必须进 `providerOrder` 才会在 zcode 里出现：规则写得再全，不在这个列表里
+  // 就是「Provider Registry 中查不到」，客户端根本选不到它（2026-11-08 实测）。
+  const order = (config["providerOrder"] ??= []) as unknown[];
+  if (!order.includes(ZCODE_PROVIDER_ID)) {
+    order.push(ZCODE_PROVIDER_ID);
+    result.notes.push(`把 modelmux 加进 providerOrder（位置 ${order.length}）`);
+  }
   const ruleConfig = (rule["config"] ??= {}) as Record<string, unknown>;
   const before = JSON.stringify(ruleConfig);
   const baseUrl = gatewayBaseUrl();

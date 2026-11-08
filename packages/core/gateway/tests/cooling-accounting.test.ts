@@ -18,6 +18,7 @@ import { after, before, describe, it } from "node:test";
 
 import { readIndex, noteAccountQuotaExhausted, activateAccount, accountKey } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
@@ -161,6 +162,8 @@ describe("账号额度冷却：短路不计连败（2026-10-24 workbuddy 事故�
     savedRoot = process.env["MODELMUX_HOME"];
     root = mkdtempSync(join(tmpdir(), "modelmux-cooling-accounting-"));
     process.env["MODELMUX_HOME"] = root;
+  registerChannelSupply("synthcool", ["deepseek-v4.1-flash"]);
+
 
     upstream = await fakeUpstream();
     clearChannels();

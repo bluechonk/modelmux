@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -194,6 +195,8 @@ describe("排队进度推送与断连止损", () => {
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-notice-"));
     process.env["MODELMUX_HOME"] = root;
+    // 候选渠道由统一注册表声明（与线上同口径）
+    registerChannelSupply(CID, ["deepseek-v4.1-flash"]);
     clearChannels();
     setChannel(makeChannel());
     mkdirSync(paths.channelDir(CID), { recursive: true });
