@@ -198,7 +198,9 @@ export function displayBase(addr: string): string {
     const host = addr.slice(1, close);
     const rest = addr.slice(close + 1);
     const port = rest.startsWith(":") ? rest.slice(1) : "";
-    return `${host === "" || host === "::" ? "127.0.0.1" : host}:${port}`;
+    // 方括号必须带回去：`baseUrlOf` 直接拼 `http://${…}`，裸 `::1:4412` 会被
+    // `new URL()` 判成非法地址，状态查询 / 探测全部拿不到自身端点。
+    return `${host === "" || host === "::" ? "127.0.0.1" : `[${host}]`}:${port}`;
   }
   const idx = addr.lastIndexOf(":");
   if (idx < 0) return addr;

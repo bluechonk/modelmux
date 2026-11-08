@@ -38,6 +38,14 @@ describe("displayBase / baseUrlOf / isAbs", () => {
     assert.equal(baseUrlOf(":4412"), "http://127.0.0.1:4412");
   });
 
+  it("带端口的 IPv6 保留方括号，baseUrlOf 结果可被 URL 解析", () => {
+    assert.equal(displayBase("[::1]:4412"), "[::1]:4412");
+    // 裸 `::1:4412` 会被 new URL() 判非法 —— 网关按 IPv6 监听时状态查询会全线失败
+    assert.equal(new URL(baseUrlOf("[::1]:4412")).host, "[::1]:4412");
+    // 通配 IPv6 仍回显为回环地址
+    assert.equal(baseUrlOf("[::]:4412"), "http://127.0.0.1:4412");
+  });
+
   it("isAbs 识别盘符与 POSIX 绝对路径", () => {
     assert.equal(isAbs("C:\\data\\x"), true);
     assert.equal(isAbs("/usr/local"), true);
