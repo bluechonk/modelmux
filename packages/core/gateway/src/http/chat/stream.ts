@@ -47,7 +47,7 @@ const FIRST_BYTE_HEARTBEAT_MS = 5_000;
  * 两条线型（openai / custom）必须同口径 —— 否则同一个上游故障，换条线型客户端
  * 就从「收到结构化错误」变成「连接被静默掐断」。入站协议编码器在场时错误帧也走协议形态。
  */
-function relayError(res: ServerResponse, logger: (m: string) => void, err: unknown): void {
+function relayError(res: ServerResponse, logger: (m: string) => void, err: unknown, cid?: string): void {
   const code = (err as { code?: string } | null)?.code;
   const name = (err as { name?: string } | null)?.name;
   if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE") {
@@ -62,14 +62,29 @@ function relayError(res: ServerResponse, logger: (m: string) => void, err: unkno
     if (sink) sink.writeError(errorCode, message);
     else res.write(`data: ${JSON.stringify({ error: { code: errorCode, message } })}\n\n`);
   };
+  // 账本补一笔失败：`attempt.ts` 在「上游收下请求」（HTTP 200）时就记了 `ok`，那只是
+  // 「连上了」。relay 阶段中途失败若只写错误帧、不补 fail，这类「永远 200 然后断流」的
+  // 渠道失败计数恒为 0，可靠性系数恒 1，排序永远不惩罚它（2026-11-08 评审指出）。
+  // `cooldownMs=0`：不因一次中途断流就冷却整个渠道。
+  const noteRelayFailure = (): void => {
+    if (cid === undefined) return;
+    try {
+      noteFailure(cid, undefined, 0);
+    } catch (noteErr) {
+      // 记账失败不能影响错误帧的投递
+      logger(`relay failure accounting failed (channel ${cid}): ${String(noteErr)}`);
+    }
+  };
   if (name === "TimeoutError" || /timeout/i.test(String(err))) {
     noteRequestError(res, "upstream_timeout", `upstream stream timed out: ${String(err)}`);
     logger(`upstream stream timed out: ${String(err)}`);
+    noteRelayFailure();
     writeError("upstream_timeout", `upstream stream timed out: ${String(err)}`);
     return;
   }
   noteRequestError(res, "upstream_stream_failed", `upstream stream failed: ${String(err)}`);
   logger(`upstream stream failed: ${String(err)}`);
+  noteRelayFailure();
   writeError("upstream_stream_failed", `upstream stream failed: ${String(err)}`);
 }
 
@@ -252,7 +267,7 @@ export async function relayStream(
         onFrame: (frame) => noteStreamError(res, channel, cid, logger, frame, freeModel),
       });
     } catch (err) {
-      relayError(res, logger, err);
+      relayError(res, logger, err, cid);
     } finally {
       // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补
       sink?.finish();
@@ -337,7 +352,7 @@ export async function relayStream(
       else res.write(buf);
     }
   } catch (err) {
-    relayError(res, logger, err);
+    relayError(res, logger, err, cid);
   } finally {
     // 客户端断开或上游异常时也要触发翻译器收尾（渠道可在 finish 里回报会话完成）
     try {

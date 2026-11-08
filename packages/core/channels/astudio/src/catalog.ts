@@ -10,7 +10,7 @@
  * 查不到一律返回「未知」（`undefined` / 空数组），**绝不编造**。
  */
 
-import { ensureChannelModels } from "@modelmux/gateway";
+import { ensureChannelModels, hiddenModelIds } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 表条目形态（落在 `models.json`；倍率未知时该字段省略）。 */
@@ -55,9 +55,17 @@ function indexOf(): NonNullable<typeof index> {
   return index;
 }
 
-/** 对外暴露的模型 id（恒小写，按表内顺序）。 */
+/**
+ * 对外暴露的模型 id（恒小写，按表内顺序）。
+ *
+ * 过一层 hidden 过滤：不过滤时上游目录新增的家族模型会绕过供给白名单被池层收下
+ * （与其余渠道同口径，见 `hiddenModelIds`）。
+ */
 export function exposedIds(): string[] {
-  return indexOf().rows.map((m) => m.id);
+  const hidden = hiddenModelIds(import.meta.url, ["id", "key"]);
+  return indexOf()
+    .rows.map((m) => m.id)
+    .filter((id) => !hidden.has(id.toLowerCase()));
 }
 
 /**

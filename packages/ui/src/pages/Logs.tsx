@@ -760,7 +760,14 @@ export function Logs(): ReactElement {
             resetToFirstPage();
           }}
           slowOnly={slowOnly}
-          onSlowOnly={setSlowOnly}
+          // 「只看慢」也是筛选：命中数变了，偏移量必须跟着回第 1 页。
+          // 此前唯独它直接 `setSlowOnly`，第 3 页打开筛选会停在中间一段
+          // （实测 11-07：全部 175 页 → 跳第 3 页 → 只看慢 60 条 → 停在 3 / 6）。
+          onSlowOnly={(value) => {
+            setSlowOnly(value);
+            setExpanded(null);
+            resetToFirstPage();
+          }}
           pageSize={pageSize}
           onPageSizeChange={(size) => {
             setPageSize(size);

@@ -95,13 +95,22 @@ async function refreshOne(channel: Channel, cid: string, key: string): Promise<n
  * 排除正在冷却的（额度没刷新，换过去一样失败；而且 `activateAccount` 会顺手清掉
  * `cooldown_until` —— 等于假装它有额度）与凭据失效的（重试永远无效）。
  *
+ * **也必须排除 `health === "error"`（连败熔断）**：`activateAccount` 内部会
+ * `clearTrippedState()` 把 `trip_until` / `trip_backoff_ms` / `fail_streak` 清零并恢复
+ * `ok`，所以一旦选中熔断中的账号，换号就绕过了熔断 —— 那个账号本来该被指数退避隔离
+ * 一段时间，结果每次额度耗尽都把整个池轮一遍（2026-11-08 评审指出）。
+ *
  * 排序分三档、档内按额度降序：① **已知够用**（`≥ LOW_CREDIT_THRESHOLD`）最可靠；
  * ② **未知额度** —— 「没查过」比「查过很少」有希望；③ **已知不够用**，凑数用。
  * ①必须压过②：换到一个已经确认没钱的账号会立刻再撞额度耗尽，比「可能有钱」更糟。
  */
 function pickAlternative(accounts: PoolAccount[], excludeKey: string, cid: string): PoolAccount | null {
   const usable = accounts.filter(
-    (a) => a.key !== excludeKey && a.health !== "unauthorized" && !isAccountCooling(a),
+    (a) =>
+      a.key !== excludeKey &&
+      a.health !== "unauthorized" &&
+      a.health !== "error" &&
+      !isAccountCooling(a),
   );
   if (usable.length === 0) return null;
   const known = (a: PoolAccount): number | null => lastKnownRemain(cid, a.key);

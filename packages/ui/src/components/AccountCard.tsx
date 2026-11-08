@@ -407,12 +407,14 @@ export function AccountCard({
             <span className="shrink-0 font-mono text-[13px] font-medium text-ink">{pool.cid}</span>
             <span className="shrink-0 text-xs text-ink-faint">{`${accounts.length} 个账号`}</span>
           </div>
-          {/* 额度周期：渠道声明就照实显示；**没声明的留一行等高占位**（不编造数字，只占位）。
-              这一行必须 `truncate`（单行封死）：workbuddyai 的 label 有 40+ 字符，允许折行会
-              在 3 列布局下把它撑成两行、让同一行的卡片参差（实测卡高 139.5 vs 155.5）。
-              完整文案在额度详情浮层里读得到，不靠这一行。
-              账单查询失败要**显式说明**——留空白会把「接口挂了」显示成「这个渠道没有周期」。 */}
-          <div className="mt-1 truncate text-xs text-ink-faint/70">
+          {/* 额度周期：**固定两行高度**，彻底拉平卡头。
+              为什么固定两行而不是单行 truncate：渠道声明的文案长短差很大（workbuddyai 的
+              「免费档每日 1 亿 token（本地 0 点刷新）· 账单口径为 credits」在 3 列布局下恒占两行，
+              其余渠道一行），按内容走就必然参差；单行 truncate 又会把长文案截掉一半。
+              固定两行 + `line-clamp-2` 让「长文案显示两行、短文案留白到两行」，
+              所有卡卡头同高，信息也不丢（完整文案在额度详情浮层里另有）。
+              账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。 */}
+          <div className="mt-1 line-clamp-2 min-h-[2rem] text-xs leading-4 text-ink-faint/70">
             {billingError && billing === undefined ? (
               <span className="text-warn">额度周期未知（账单查询失败）</span>
             ) : billing?.quota?.label?.trim() ? (
@@ -757,8 +759,12 @@ function QuotaBar({
       <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-overlay">
         <span className={`block h-full rounded-full ${fill}`} style={{ width: `${pct ?? 0}%` }} />
       </span>
-      {/* 百分比在窄卡片上让位给账号名（条本身已表达比例），详情里有精确数值 */}
-      <span className="hidden w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-faint md:inline">
+      {/*
+        百分比在窄卡片上也保留：账号池页首先要回答的是「这个渠道还剩多少」，
+        只有一条无刻度的进度条读不出具体数字（`docs/WEB-CONSOLE.md` 的窄屏口径
+        本来就是「先保剩余额度数值」）。窄屏压到更窄的字号与宽度把空间挤出来。
+      */}
+      <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-faint md:w-9">
         {pct === null ? "—" : `${Math.round(pct)}%`}
       </span>
     </>

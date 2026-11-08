@@ -21,6 +21,7 @@ import { anthropicProtocol, translateAnthropicRequest } from "../protocol/anthro
 import { estimateInputTokens } from "../protocol/count-tokens.js";
 import { responsesProtocol, translateResponsesRequest } from "../protocol/responses.js";
 import { attachProtocol, setSink, sinkOf, type InboundProtocol } from "../protocol/types.js";
+import { inChannel } from "./channel.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
 import { writeJsonError, writeProtocolError } from "./errors.js";
 import { noteChatRequestStats, parseChatRequest, readBody } from "./request.js";
@@ -35,14 +36,16 @@ import { resolvePoolRoute } from "./route.js";
  */
 function chatHostRotator(channel: Channel): (() => boolean) | undefined {
   const upstream = channel.upstream;
-  const candidates = upstream.chatHostCandidates?.();
+  // 主机轮换状态属于渠道上下文（落点按 cid 推导），钩子要包 `runInChannel` ——
+  // 裸调会让读写落到缺上下文的路径上。
+  const candidates = inChannel(channel, () => upstream.chatHostCandidates?.());
   if (!candidates || !upstream.setChatHostOverride) return undefined;
   let index = 0;
   return () => {
     index += 1;
     const next = candidates[index];
     if (next === undefined) return false;
-    upstream.setChatHostOverride?.(next);
+    inChannel(channel, () => upstream.setChatHostOverride?.(next));
     return true;
   };
 }
@@ -210,8 +213,13 @@ async function dispatchChat(
     if (protocol) reqLog.protocol = protocol.name;
   }
 
-  // 流式请求在这里就建编码器：排队进度帧（attempt 层）也要走协议转译
-  if (protocol && wantStream) setSink(res, protocol.openEncoder(res, parsed.model));
+  // 流式请求在这里就建编码器：排队进度帧（attempt 层）也要走协议转译。
+  // 带上请求体估算的 input tokens —— 协议首事件早于上游 usage 帧，不给就只能报 0。
+  if (protocol && wantStream) {
+    const estimate =
+      protocol.name === "anthropic" ? estimateInputTokens(parsed.payload as Record<string, unknown>) : undefined;
+    setSink(res, protocol.openEncoder(res, parsed.model, estimate));
+  }
 
   // C 段：逐候选尝试（转发完成或已回错误即终局）
   const tried: string[] = [];

@@ -324,47 +324,6 @@ export interface AccessLogPage {
   entries: AccessLogEntry[];
 }
 
-/** 一条请求正文抓取记录（`phase`：client = 客户端原样体，upstream = 实际上行体）。 */
-export interface PayloadRecord {
-  ts: string;
-  seq: number;
-  id: string;
-  phase: string;
-  attempt?: number;
-  cid?: string;
-  model?: string;
-  stream?: boolean;
-  bytes: number;
-  truncated: boolean;
-  body: string;
-  /** 原始字节里无效 UTF-8 序列覆盖的字节数（缺省 = 全部有效或旧行未统计）。 */
-  invalidBytes?: number;
-}
-
-export interface PayloadQueryResult {
-  ok: boolean;
-  id: string;
-  /** 请求发生的日期（与列表接口的 `date` 同源）。 */
-  date: string | null;
-  /** 命中该请求的抓取记录（按写入时间排序；正文抓取恒开启，读回不受门控）。 */
-  records: PayloadRecord[];
-}
-
-/** 正文分片（按字节窗口读取；首屏只取一片，其余按需推进）。 */
-export interface PayloadSliceResult {
-  ok: boolean;
-  id: string;
-  date: string | null;
-  /** 本片在正文中的起始偏移（字节）。 */
-  offset: number;
-  /** 本片实际长度（字节；到末尾时可能小于请求的 limit）。 */
-  length: number;
-  /** 正文总长度（字节），用于「已加载 X / Y」。 */
-  total: number;
-  /** 本片原始字节的 base64 —— 窗口常落在多字节字符中间，拼齐后一次解码。 */
-  bodyB64: string;
-}
-
 /** 日志查询参数（键名与 `/web/api/logs` 的 query 一致）。 */
 export interface LogQuery {
   date?: string;

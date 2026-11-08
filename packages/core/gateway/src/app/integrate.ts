@@ -11,12 +11,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModels } from "../pool/pool-targets.js";
+import { defaultAddr } from "../runtime/cli-consts.js";
 import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile, writeJsonSecret } from "../runtime/secret-file.js";
 
@@ -39,10 +40,22 @@ export interface IntegrationResult {
   notes: string[];
 }
 
-/** 网关对外端点（客户端 baseURL 指向它）。 */
-const GATEWAY_BASE_URL = "http://127.0.0.1:4412/v1";
+/**
+ * 网关对外端点（客户端 baseURL 指向它）。
+ *
+ * 取 `defaultAddr()` 而不是写死 `4412`：换端口是受支持的部署方式（调试实例、双实例并存），
+ * 写死会让接入结果指向一个没人监听的地址。`defaultAddr()` 遵循渠道/仓库配置，
+ * 也是 `mx start` 实际监听的来源；`--addr` 是单次运行的临时参数，**不该**被持久写进
+ * 用户的客户端配置，所以这里不读它。
+ */
+function gatewayBaseUrl(): string {
+  return `http://${defaultAddr()}/v1`;
+}
+
 /** Anthropic 客户端的 baseURL（Claude Code 自己拼 `/v1/messages`，**不带** /v1）。 */
-const GATEWAY_ANTHROPIC_URL = "http://127.0.0.1:4412";
+function gatewayAnthropicUrl(): string {
+  return `http://${defaultAddr()}`;
+}
 /** zcode 供应商在 provider_config.json 里的标识。 */
 const ZCODE_PROVIDER_ID = "new-provider";
 const ZCODE_PROVIDER_NAME = "modelmux";
@@ -167,14 +180,21 @@ function appendManifestEntry(dir: string, entry: BackupEntry): void {
  * 而清单里记了多条不同原路径，还原时除第一条外全都 ENOENT
  * （2026-11-07 实测：`profiles/web/cordis.patch.yml` 与 `profiles/desktop/...` 撞名）。
  *
- * 写成 `<basename>.<dirHash8>` 后同名不同目录的文件各自独立；同时**写成功才登记
- * 清单**（反过来会在写盘失败时留下指向不存在备份的记录）。
+ * **命中清单即跳过写入**：同一秒内两次接入会复用同一个备份目录（目录名按秒分桶），
+ * 第二次若照写就会把同名备份覆盖成「第一次接入之后」的内容 —— 还原拿到的是中间态，
+ * 而真正的「接入前」已经无处可取。文件名与调用次数无关，所以只能靠清单判断。
+ *
+ * 顺序是**先写盘再登记**：反过来会在写盘失败时留下指向不存在备份的记录。
  */
 function backupFile(dir: string, file: string): string {
   const base = file.split(/[\\/]/).pop() ?? "config";
   const dirHash = createHash("sha256").update(file).digest("hex").slice(0, 8);
   const name = `${base}.${dirHash}`;
   const dest = join(dir, name);
+  // 已有该原路径的备份：保留最早那份，不覆盖
+  if (readManifest(dir)?.files.some((f) => f.original === file) === true && existsSync(dest)) {
+    return dest;
+  }
   mkdirSync(dir, { recursive: true });
   writeAtomicFile(dest, readFileSync(file, "utf8"), 0o600);
   appendManifestEntry(dir, { original: file, backup: name, existed: true });
@@ -245,7 +265,8 @@ function integrateZcode(models: string[]): IntegrationResult {
   }
   const ruleConfig = (rule["config"] ??= {}) as Record<string, unknown>;
   const before = JSON.stringify(ruleConfig);
-  ruleConfig["api"] = { type: "openai-chat-completions", baseUrl: GATEWAY_BASE_URL };
+  const baseUrl = gatewayBaseUrl();
+  ruleConfig["api"] = { type: "openai-chat-completions", baseUrl };
   ruleConfig["personalModelIds"] = [...models];
   ruleConfig["modelOrder"] = [...models];
   // zcode 对个人供应商规则做完整校验（group / access / api 缺一不可），缺任一项就整个
@@ -255,7 +276,7 @@ function integrateZcode(models: string[]): IntegrationResult {
     ruleConfig["access"] = { type: "api-key", apiKey: LOCAL_API_KEY };
   }
   if (JSON.stringify(ruleConfig) !== before) {
-    result.notes.push(`供应商 ${ZCODE_PROVIDER_NAME}：baseUrl=${GATEWAY_BASE_URL}，模型=${models.join(" / ")}`);
+    result.notes.push(`供应商 ${ZCODE_PROVIDER_NAME}：baseUrl=${baseUrl}，模型=${models.join(" / ")}`);
   }
 
   // 逐模型的启用开关：补齐新模型、清掉该供应商下已下线的旧模型
@@ -285,7 +306,9 @@ function integrateZcode(models: string[]): IntegrationResult {
   }
   const dir = backupDirFor("zcode");
   backupFile(dir, file);
-  writeFileSync(file, text, "utf8");
+  // 原子写：这是用户的 zcode 主配置，写中断会留下半截 JSON（有备份可救，
+  // 但「能不吃备份就别吃」）
+  writeAtomicFile(file, text, 0o600);
   result.changed.push(file);
   result.backupDir = dir;
   result.ok = true;
@@ -333,7 +356,7 @@ function renderDshProviderEntry(models: string[]): string[] {
     `        displayName: ${DSH_PROVIDER}`,
     `        apiKeyEnv: ${DSH_CREDENTIAL_REF}`,
     `        api: openai-completions`,
-    `        baseURL: ${GATEWAY_BASE_URL}`,
+    `        baseURL: ${gatewayBaseUrl()}`,
     `        models:`,
   ];
   for (const model of models) lines.push(...renderDshModel(10, model));
@@ -522,7 +545,8 @@ function integrateDsh(models: string[]): IntegrationResult {
     }
     dir ??= backupDirFor("dsh");
     backupFile(dir, file);
-    writeFileSync(file, next, "utf8");
+    // 原子写：dsh profile patch 是 dsh 唯一的模型清单来源，写坏会让它起不来
+    writeAtomicFile(file, next, 0o600);
     result.changed.push(file);
     profileChanged += 1;
     result.notes.push(`${profile}：模型清单改为 ${models.join(" / ")}`);
@@ -556,12 +580,16 @@ function upsertDshPatch(text: string, profile: string, models: string[]): string
   let out: string[];
 
   if (providerIdx < 0) {
-    // 没有 modelmux provider：整份文件替换成「新条目（+ acp 路由）」，但保留文件头注释
-    const head = lines.filter((l) => isBlank(l));
-    while (head.length > 0 && head[head.length - 1]!.trim() === "") head.pop();
+    // 没有 modelmux provider：**追加**一个新条目，其余行（其它插件条目、它们的注释）
+    // 一律原样保留。
+    // 不能整份替换 —— patch 里可能有 `ui-chat` / `permission` / `subagent-*` 等其它条目，
+    // 整份替换会把它们全删掉（2026-11-08 实测：`- id: other-plugin` 整块消失），
+    // 而界面还会报「已接入」。
+    while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
     const body = [...renderDshProviderEntry(models)];
     if (profile === "acp") body.push(...renderDshAcpEntry(models[0]!));
-    out = [...head, ...body];
+    // 原有内容与追加条目之间留一个空行（YAML 顶层序列彼此紧邻也能解析，留空只为可读）
+    out = lines.length > 0 ? [...lines, "", ...body] : body;
   } else {
     out = replaceDshModels(lines, providerIdx, models);
     if (profile === "acp" && !lines.some((l) => /^- id: acp\s*$/.test(l))) {
@@ -656,7 +684,8 @@ function integrateClaudeCode(models: string[]): IntegrationResult {
   const env = ((root["env"] ??= {}) as Record<string, unknown>);
   const primary = models[0]!;
   const before = JSON.stringify(env);
-  env["ANTHROPIC_BASE_URL"] = GATEWAY_ANTHROPIC_URL;
+  const anthropicUrl = gatewayAnthropicUrl();
+  env["ANTHROPIC_BASE_URL"] = anthropicUrl;
   env["ANTHROPIC_AUTH_TOKEN"] = LOCAL_API_KEY;
   delete env["ANTHROPIC_API_KEY"];
   // 模型族全指向池主模型：Claude Code 的 haiku/sonnet/opus 三档请求都会进网关
@@ -677,7 +706,7 @@ function integrateClaudeCode(models: string[]): IntegrationResult {
   writeAtomicFile(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
-  result.notes.push(`baseUrl=${GATEWAY_ANTHROPIC_URL}，模型=${primary}（haiku/sonnet/opus 同指）`);
+  result.notes.push(`baseUrl=${anthropicUrl}，模型=${primary}（haiku/sonnet/opus 同指）`);
   result.ok = true;
   return result;
 }
@@ -805,12 +834,23 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   const profileId = pickDesktopProfileId(meta);
   const profileFile = join(dir, `${profileId}.json`);
 
-  const profile: Record<string, unknown> = existsSync(profileFile)
-    ? (JSON.parse(readFileSync(profileFile, "utf8")) as Record<string, unknown>)
-    : {};
+  // profile 文件损坏要**如实报错**（与 _meta.json 同口径）：profileId 来自
+  // `_meta.json` 的 `appliedId`，可能指向 Desktop / cc-switch 生成的其它 profile，
+  // 那个文件不一定是本工具写的。这里裸 `JSON.parse` 会让异常穿透到控制台的
+  // `.catch`，用户看到的是「命令失败」而不是「这个文件不是合法 JSON」。
+  let profile: Record<string, unknown> = {};
+  if (existsSync(profileFile)) {
+    try {
+      profile = JSON.parse(readFileSync(profileFile, "utf8")) as Record<string, unknown>;
+    } catch (err) {
+      result.error = `Claude Desktop 的 ${profileId}.json 不是合法 JSON：${String(err)}`;
+      return result;
+    }
+  }
   const before = JSON.stringify(profile);
+  const anthropicUrl = gatewayAnthropicUrl();
   profile["inferenceProvider"] = "gateway";
-  profile["inferenceGatewayBaseUrl"] = GATEWAY_ANTHROPIC_URL;
+  profile["inferenceGatewayBaseUrl"] = anthropicUrl;
   profile["inferenceGatewayAuthScheme"] = "x-api-key";
   profile["inferenceGatewayApiKey"] = LOCAL_API_KEY;
   // **必须关**模型发现：它直接拿 `/v1/models` 的裸名（`longcat-2.5` / `deepseek-v4.1-flash`）
@@ -852,7 +892,7 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   result.changed.push(profileFile, metaFile);
   result.backupDir = backup;
   result.notes.push(
-    `baseUrl=${GATEWAY_ANTHROPIC_URL}，按角色槽写入 ${Math.min(models.length, DESKTOP_ROLE_SLOTS.length)} 个模型（全部 1M 上下文）`,
+    `baseUrl=${anthropicUrl}，按角色槽写入 ${Math.min(models.length, DESKTOP_ROLE_SLOTS.length)} 个模型（全部 1M 上下文）`,
   );
   result.notes.push("改完需重启 Claude Desktop 才生效");
   result.ok = true;
@@ -866,7 +906,7 @@ function renderCodexProviderBlock(): string[] {
   return [
     "[model_providers.modelmux]",
     `name = "modelmux"`,
-    `base_url = "${GATEWAY_BASE_URL}"`,
+    `base_url = "${gatewayBaseUrl()}"`,
     `wire_api = "responses"`,
     `experimental_bearer_token = "${LOCAL_API_KEY}"`,
     `requires_openai_auth = false`,
@@ -972,7 +1012,7 @@ function integrateCodex(models: string[]): IntegrationResult {
   writeAtomicFile(file, text, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
-  result.notes.push(`base_url=${GATEWAY_BASE_URL}（wire_api=responses），模型=${models[0]}`);
+  result.notes.push(`base_url=${gatewayBaseUrl()}（wire_api=responses），模型=${models[0]}`);
   result.ok = true;
   return result;
 }
@@ -1007,13 +1047,24 @@ function stampOf(dir: string): number {
  * 清单是**磁盘数据**（用户可手改、老版本写的、被截断的），还原又是破坏性动作 ——
  * 字段不全时猜一条路径写回去，比跳过更危险。路径还要求是**绝对路径**：
  * 相对路径会被按当前工作目录解析，写到哪里全凭运气。
+ *
+ * `backup` 必须是**裸文件名**（不含任何分隔符，也不许 `.` / `..`）：它会被
+ * `join(source, backup)` 后直接读取，再写到 `original` 指向的绝对路径。放行相对段
+ * 等于让一条被改过的清单把任意文件读出来、写到任意位置（2026-11-08 实测：
+ * `backup: "../../../../outside-secret.txt"` 会读到 MODELMUX_HOME 之外的内容）。
  */
 function isValidEntry(entry: unknown): entry is BackupEntry {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
   const rec = entry as Record<string, unknown>;
   if (typeof rec["original"] !== "string" || !isAbsolute(rec["original"])) return false;
   if (typeof rec["existed"] !== "boolean") return false;
-  if (rec["existed"] && (typeof rec["backup"] !== "string" || rec["backup"].trim() === "")) return false;
+  if (rec["existed"]) {
+    const backup = rec["backup"];
+    if (typeof backup !== "string") return false;
+    // 裸文件名：不许带分隔符，也不许是路径跳转段
+    if (backup.trim() === "" || backup === "." || backup === "..") return false;
+    if (backup.includes("/") || backup.includes("\\")) return false;
+  }
   return true;
 }
 
@@ -1098,8 +1149,13 @@ function safetyDirFor(target: IntegrationTarget): string {
 /**
  * 老备份（无 manifest）的原路径反推。
  *
- * 只对**目标路径固定**的 target 可行（每个 target 的配置文件位置由 cid 唯一决定）；
- * 反推不出来就跳过该文件并如实记 notes —— 不猜路径，写错文件比不还原更糟。
+ * 只对**路径能被文件名唯一确定**的文件可行。反推不出来就返回 `null`（调用方跳过并记
+ * notes）—— 不猜路径，写错文件比不还原更糟。
+ *
+ * 走这条路的都是没有清单的老备份，所以每个分支只能接受**已知的精确文件名**：
+ * 曾经把 dsh 的所有非 `config.yaml` 一律映射到 `~/.dsh/credentials/<name>`，
+ * 而那个目录根本不存在 —— 结果是整份老备份回 `ENOENT`（2026-11-08 实测），
+ * 或者在该目录恰好存在时把文件写到错位置、假装还原成功。
  *
  * 备份名可能带 `.xxxxxxxx` 哈希后缀（同名不同目录的去重手段），反推前先剥掉。
  */
@@ -1115,13 +1171,21 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
     case "zcode":
       return join(home, ".zcode", "v2", "provider_config.json");
     case "dsh": {
-      // dsh 的主配置与凭据目录都可能出现在备份里：按文件名分流
+      // 只认两个能唯一确定的：凭据引用文件（家目录下）与 config.yaml。
+      // `cordis.patch.yml` 按 profile 分目录、同名多份 —— 反推不出是哪一份，跳过。
+      if (base === ".credentials.yaml" || base === "credentials.yaml") {
+        return join(home, ".dsh", ".credentials.yaml");
+      }
       if (base === "config.yaml") return join(home, ".dsh", "config.yaml");
-      return join(home, ".dsh", "credentials", base);
+      return null;
     }
     case "claude-desktop": {
-      // profile 与 meta 都在 Desktop 的 3P 配置库（跨平台路径由渠道自己推导），靠文件名区分
-      return join(claudeDesktopLibraryDir(), base);
+      // profile 与 meta 都在 Desktop 的 3P 配置库（跨平台路径由渠道自己推导），靠文件名区分。
+      // 只认该库实际用到的两种命名，其余（老备份里混进来的别的文件）不猜。
+      if (base === "_meta.json" || base.endsWith(".json")) {
+        return join(claudeDesktopLibraryDir(), base);
+      }
+      return null;
     }
     default:
       return null;
@@ -1177,7 +1241,11 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
     }
   }
 
-  // 逐个还原
+  // 逐个还原。
+  // 单条失败**不中断**其余文件：一条坏条目（目标目录不存在、权限不足）不该让同一份
+  // 备份里的有效条目全都白等（2026-11-08 实测：老 dsh 备份的第一条是 ENOENT，
+  // 后面的补丁文件根本没被处理）。失败记进 notes、整体标记为失败，但把能还原的都还原。
+  let failed = 0;
   for (const entry of entries) {
     try {
       if (!entry.existed) {
@@ -1194,12 +1262,21 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
         continue;
       }
       const original = readFileSync(backupPath, "utf8");
+      // 目标目录可能已被删掉（用户清理过客户端目录）：补建，否则 writeAtomicFile 的
+      // 临时文件会 ENOENT（报错信息还会指向一个用户看不懂的 `.tmp` 路径）。
+      mkdirSync(dirname(entry.original), { recursive: true });
       writeAtomicFile(entry.original, original, 0o600);
       result.restored.push(entry.original);
     } catch (err) {
-      result.error = `还原 ${entry.original} 失败：${String(err)}`;
-      return result;
+      failed += 1;
+      result.notes.push(`还原 ${entry.original} 失败，已跳过：${String(err)}`);
     }
+  }
+  if (failed > 0) {
+    result.error = `${failed} 个文件还原失败（其余 ${
+      result.restored.length + result.removed.length
+    } 个已还原），详见 notes`;
+    return result;
   }
 
   // **不消费备份**：还原改成幂等、可重复 —— 同一份「接入前」状态可以反复还原，

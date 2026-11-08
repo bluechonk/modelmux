@@ -27,6 +27,7 @@ import {
   Timer,
   Type,
   Wifi,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { KpiCard } from "../components/KpiCard";
@@ -37,7 +38,7 @@ import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
 import { classifyModel } from "../lib/model-health";
-import { formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
+import { errorText, formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { OverviewResponse, UsageRange } from "../lib/types";
 
 /** 区间选项（驱动下方「用量」三块，不影响今日快照）。
@@ -209,8 +210,16 @@ function EndpointRow({ label, value }: { label: string; value: string }): ReactE
   );
 }
 
+/**
+ * 端点行里的复制按钮（紧跟值末端）。
+ *
+ * 失败必须可见：剪贴板在非安全上下文 / 无焦点时抛 `NotAllowedError`，静默失败会让人
+ * 分不清「复制了」还是「没复制」（与 `components/CopyButton.tsx` 同一口径 —— 那里
+ * 成功显示对勾、失败显示红叉）。这里此前只处理成功、`catch` 里一句注释了事。
+ */
 function CopyInline({ value, label }: { value: string; label: string }): ReactElement {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const copy = async (): Promise<void> => {
     if (!value) return;
     try {
@@ -218,7 +227,9 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {
-      // 剪贴板不可用：静默失败
+      // 剪贴板不可用：短暂显示红叉，不弹 toast 打断浏览
+      setFailed(true);
+      setTimeout(() => setFailed(false), 1200);
     }
   };
   return (
@@ -229,7 +240,13 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
       onClick={() => void copy()}
       className="tap-square grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-30"
     >
-      {copied ? <Check className="h-3 w-3 text-free" /> : <Copy className="h-3 w-3" />}
+      {copied ? (
+        <Check className="h-3 w-3 text-free" />
+      ) : failed ? (
+        <X className="h-3 w-3 text-danger" />
+      ) : (
+        <Copy className="h-3 w-3" />
+      )}
     </button>
   );
 }
@@ -414,7 +431,7 @@ export function Dashboard(): ReactElement {
       }
       toast.success(`已接入 ${target || "客户端"}${models ? `（${models}）` : ""}`);
     },
-    onError: (err) => toast.error(`接入失败：${String(err)}`),
+    onError: (err) => toast.error(`接入失败：${errorText(err)}`),
   });
 
   /**
@@ -441,7 +458,7 @@ export function Dashboard(): ReactElement {
         toast.info(typeof note === "string" ? note : String(note));
       }
     },
-    onError: (err) => toast.error(`还原失败：${String(err)}`),
+    onError: (err) => toast.error(`还原失败：${errorText(err)}`),
   });
 
     // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
@@ -455,7 +472,7 @@ export function Dashboard(): ReactElement {
   useEffect(() => {
     const err = stateQuery.error ?? overviewQuery.error ?? usageQuery.error ?? yearQuery.error;
     if (err) {
-      const text = `加载失败：${String(err)}`;
+      const text = `加载失败：${errorText(err)}`;
       if (text !== lastToastedError.current) {
         lastToastedError.current = text;
         toast.error(text);
@@ -703,12 +720,12 @@ export function Dashboard(): ReactElement {
         )}
       </section>
 
-      {/* ③ 每日 Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
+      {/* ③ Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
           它驱动 KPI / 趋势 / 模型用量三块，放在这里会被读成「只切这一张卡」。 */}
       <section className="panel p-4">
         <div className="panel-title mb-3">
           <Activity className="h-4 w-4 text-ink-faint" />
-          每日 Token 趋势
+          Token 趋势
         </div>
         <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>

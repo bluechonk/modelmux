@@ -37,6 +37,13 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 const HEADER_MAX = 12;
+/**
+ * 文件头块注释允许出现的最大起始行号（0 基）。
+ *
+ * 留一点余量给 `#!` shebang、`"use strict"` 与版权声明这类必然靠前的内容；
+ * 但它不能大到「随便挪到哪都算」—— 那是 R1 失效的老路。
+ */
+const HEAD_START_MAX = 5;
 /** 修订记录动词（日期后紧跟这些词 = 在说「代码何时被改」，不是「事实何时成立」）。 */
 const REVISION_RE = /20\d\d-\d\d-\d\d\s*(?:[:：]?\s*)?(修|修正|修死结|改为|修复|补)/;
 /** 署名 / 审批留痕。 */
@@ -108,9 +115,14 @@ for (const root of roots) {
     const exempt = ALLOWLIST.find((a) => rel === a.prefix || rel.startsWith(`${a.prefix}/`));
     const lines = readFileSync(file, "utf8").split("\n");
 
-    // R1: 文件头块行数（首个块注释必须出现在前 3 行内才算文件头）
-    const headStart = lines.findIndex((l, i) => i < 3 && l.trim().startsWith("/**"));
-    if (headStart >= 0) {
+    // R1: 文件头块行数。
+    //
+    // 取**第一个块注释**（不再限制「必须在前 3 行内」）：那条限制是静默盲区 ——
+    // 把 `/**` 挪到 import 之后、或前面加两行注释，R1 就永久失效而校验照样绿
+    // （2026-11-08 评审指出）。文件头按规范就该是文件最上面的块注释，所以直接取首个。
+    // 前面只有 `#!` / `"use strict"` 这类必然在首行的内容时也能正确定位。
+    const headStart = lines.findIndex((l) => l.trim().startsWith("/**"));
+    if (headStart >= 0 && headStart <= HEAD_START_MAX) {
       let end = headStart;
       while (end < lines.length && !lines[end].includes("*/")) end += 1;
       const headLines = end - headStart + 1;

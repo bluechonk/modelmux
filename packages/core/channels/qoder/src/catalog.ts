@@ -7,7 +7,7 @@
  *   - 目录按 动态 → 磁盘缓存 → 内置兜底 三源优先级解析；缓存保证未登录/上游不可达时仍能列出模型。
  */
 
-import { ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 import * as cred from "./cred.js";
@@ -190,11 +190,20 @@ function seedTable(): ModelEntry[] {
   return seedCache.map((e) => ({ ...e }));
 }
 
-/** 对外暴露的模型 id（池内名；去重、保持目录顺序）。 */
+/**
+ * 对外暴露的模型 id（池内名；去重、保持目录顺序）。
+ *
+ * **必须过一层 hidden 过滤**：隐藏集合由共享层 `hiddenModelIds()` 从用户表与随包快照
+ * 并集收集。不过滤时上游目录新增一个家族模型会绕过供给白名单被池层收下并路由过去，
+ * 而 `verify-contract` 查不出来（快照里还没有那一行）—— 静默越权（2026-11-08 评审指出）。
+ */
 export function exposedIds(): string[] {
+  const hidden = hiddenModelIds(import.meta.url, ["key", "exposed"]);
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of loadCatalog()) {
+    const id = entry.id.toLowerCase();
+    if (hidden.has(id) || hidden.has(String(entry.key ?? "").toLowerCase())) continue;
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
     out.push(entry.id);

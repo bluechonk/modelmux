@@ -12,7 +12,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalModelId, ensureChannelModels, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /**
@@ -322,9 +322,17 @@ export async function refresh(): Promise<void> {
   await upstream.fetchCatalog(cred.load());
 }
 
-/** 对外暴露的模型 ID 列表（全模型池）。 */
+/**
+ * 对外暴露的模型 ID 列表。
+ *
+ * 过一层 hidden 过滤：不过滤时上游 `/v3/config` 新增的家族模型会绕过供给白名单
+ * 被池层收下并路由过去，而 `verify-contract` 查不出来（快照里还没有那一行）。
+ */
 export function exposedIds(): string[] {
-  return entries().map((entry) => entry.exposed);
+  const hidden = hiddenModelIds(import.meta.url, ["key", "exposed"]);
+  return entries()
+    .map((entry) => entry.exposed)
+    .filter((id) => !hidden.has(id.toLowerCase()));
 }
 
 /**

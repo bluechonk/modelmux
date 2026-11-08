@@ -13,9 +13,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { channelCount, channelFor, channels, getChannel, type Channel, type Credential, type StreamTranslator, type UpstreamConfig } from "../runtime/channel.js";
-import { runInChannel } from "../runtime/channel-context.js";
-import { poolCandidates } from "../pool/pool-targets.js";
+import { channelCount, channelFor, channels, type UpstreamConfig } from "../runtime/channel.js";
 import { ensureCatalog } from "../pool/catalog-snapshot.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
@@ -177,7 +175,20 @@ export function createHandler(opts: GatewayOptions = {}) {
   };
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    // 畸形 request-target（如 `GET //[`）会让 `new URL()` 抛 `ERR_INVALID_URL`。
+    // 这个解析必须在 try 之外完成（日志与路由都要用 path），所以它自己兜住并回 400 ——
+    // 否则异常会变成 unhandled rejection，Node 直接**终止进程**（实测：整个网关掉线，
+    // 该请求连一个字节的响应都没有）。
+    let path: string;
+    try {
+      path = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      if (!res.headersSent) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid request target" }));
+      }
+      return;
+    }
     // 控制台静态资源不记访问日志（噪音大）；API / 健康检查 / 根路径都记
     const consolePath = opts.console !== undefined &&
       (path === options.consolePrefix || path.startsWith(`${options.consolePrefix}/`));
@@ -252,7 +263,18 @@ export interface RunningGateway {
 export function makeApp(opts: GatewayOptions = {}): Server {
   const handler = createHandler(opts);
   return createServer((req, res) => {
-    void handler(req, res);
+    // handler 是 async：`void` 丢弃返回的 Promise，一旦它内部抛出未被 try 覆盖的异常，
+    // 就成了 unhandled rejection 并终止进程。handler 的第一段（URL 解析）已自带兜底，
+    // 这里再补一层，保证任何遗漏都只影响这一个请求。
+    void handler(req, res).catch((err: unknown) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "gateway internal error" }));
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+      opts.logger?.(`request handler threw outside try: ${String(err)}`);
+    });
   });
 }
 
@@ -266,7 +288,16 @@ export async function start(addr: string, opts: GatewayOptions = {}): Promise<Ru
   const server = await bindFreeServer(host, port, logger);
   const handler = createHandler({ ...opts, logger });
   server.on("request", (req, res) => {
-    void handler(req, res);
+    // 与 makeApp 同口径：handler 抛到 try 之外的异常不能变成进程级的 unhandled rejection
+    void handler(req, res).catch((err: unknown) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "gateway internal error" }));
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+      logger(`request handler threw outside try: ${String(err)}`);
+    });
   });
 
   const actualPort = (server.address() as { port: number } | null)?.port ?? port;

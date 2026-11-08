@@ -1,7 +1,7 @@
 /**
- * 每日 Token 趋势图（多序列平滑曲线，按模型分色）。
+ * Token 趋势图（多序列平滑曲线，按模型分色）。
  *
- * 形态与 ZCode 的「每日 Token 趋势图」一致：图例在顶部一行、纵向虚线网格、曲线首尾平滑、
+ * 形态与 ZCode 的同名图一致：图例在顶部一行、纵向虚线网格、曲线首尾平滑、
  * 每条线的**末点**画实心圆、hover 浮层跟随数据点（标题 = 日期 - 当日总量）。
  *
  * 手写 SVG，不引图表库。两个必须遵守的几何约束：
@@ -255,7 +255,7 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
           viewBox={`0 0 ${plotW} ${VIEW_H}`}
           role="img"
           data-trend-svg=""
-          aria-label={`每日 Token 趋势，共 ${daily.length} 天`}
+          aria-label={`Token 趋势，共 ${daily.length} 天`}
           onMouseMove={(event) => {
             const index = indexFromClientX(event.clientX);
             setHoverIndex(index);

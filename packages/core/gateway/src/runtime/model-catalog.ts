@@ -5,8 +5,9 @@
  * （那层才允许依赖池，runtime 层不能反向依赖）。
  */
 
-import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { rootFile } from "./paths.js";
+import { writeAtomicFile } from "./secret-file.js";
 
 /** 单个模型的完整目录项（字段名与 `PoolModelMeta` 对齐）。 */
 export interface CatalogEntry {
@@ -66,17 +67,17 @@ export function readCatalogFile(): CatalogFile | null {
   return null;
 }
 
-/** 写快照：先写临时文件再 rename，避免读到半截 JSON。 */
+/**
+ * 写快照（原子替换，临时文件名带随机后缀）。
+ *
+ * 不能固定用 `<path>.tmp`：网关与 CLI 是两个进程，可能同时刷同一份缓存 ——
+ * 固定临时名会让两边互相 rename，把对方的半份内容 rename 成正式文件
+ * （STORAGE-CONVENTION §3 第 7 条要求唯一临时名）。`writeAtomicFile` 内部就是
+ * 「唯一临时名 + 原子 rename」，这里直接复用它。
+ */
 export function writeCatalogFile(file: CatalogFile): void {
   const path = catalogFilePath();
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`, "utf-8");
-  try {
-    renameSync(tmp, path);
-  } catch {
-    // Windows 上目标被占用时 rename 可能失败：退回直接覆盖
-    writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, "utf-8");
-  }
+  writeAtomicFile(path, `${JSON.stringify(file, null, 2)}\n`, 0o600);
   _cache = file;
   try {
     _cacheMtime = statSync(path).mtimeMs;

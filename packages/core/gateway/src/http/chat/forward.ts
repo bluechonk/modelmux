@@ -71,7 +71,8 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
   if (choice.message.content) return false;
   if (choice.message.reasoning_content) return false;
   if (choice.message.tool_calls && choice.message.tool_calls.length > 0) return false;
-  const total = (completion.usage as { total_tokens?: unknown }).total_tokens;
+  // usage 可能整个缺席（上游不提供用量，见 aggregateChatSse 的说明）：那不是「空完成」
+  const total = (completion.usage as { total_tokens?: unknown } | undefined)?.total_tokens;
   return !(typeof total === "number" && total > 0);
 }
 
@@ -261,7 +262,7 @@ export async function relayUpstream(
   }
 
   // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传。
-  // 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 writeQueueNotice）：
+  // 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 `writeQueueHeaders`）：
   //   此时不能再 writeHead（会抛 ERR_HTTP_HEADERS_SENT），后续帧直接续写。
   const outHeaders: Record<string, string> = {};
   if (isCustomWire(channel)) {

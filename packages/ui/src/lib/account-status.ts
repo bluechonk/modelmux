@@ -52,7 +52,7 @@ export interface ChannelBilling {
 
 /** 额度周期（与共享层 `QuotaPeriod` 同形）。 */
 export interface QuotaPeriod {
-  /** 人读文案，如「每天送 5000 积分，本地 0 点刷新」。 */
+  /** 人读文案，统一格式「每天签到送 <数额> <单位>」；参考级证据加「约」，刷新时刻不进文案。 */
   label: string;
   /** 本周期总量；null = 上游不公开。 */
   size: number | null;

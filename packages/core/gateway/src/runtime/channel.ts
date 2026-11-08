@@ -595,11 +595,11 @@ export interface ChannelConfig {
    * **单渠道独立运行**时的网关默认监听地址，如 `127.0.0.1:8803`。
    *
    * 仓库级（多渠道路由）网关注册多个渠道，**不看这个字段** —— 它固定用
-   * `REPO_DEFAULT_ADDR`（`127.0.0.1:8787`）。本字段只在
+   * `REPO_DEFAULT_ADDR`（`127.0.0.1:4412`，见 `runtime/cli-consts.ts`）。本字段只在
    * `channels/<cid>/dist/cli.js start|serve` 这类单渠道入口里生效。
    */
   readonly defaultAddr: string;
-  /** 单渠道独立运行时的控制台 API 默认端口（仓库级固定用 `REPO_DEFAULT_UI_PORT`）。 */
+  /** 单渠道独立运行时的控制台 API 默认端口（仓库级固定用 `defaultUiPort()`）。 */
   readonly uiPort: number;
   /** 抓包落盘目录的环境变量名，如 `CATPAW_DEBUG_DUMP`（值 `1` 表示用渠道内 `debug/`）。 */
   readonly debugDumpEnv: string;

@@ -23,10 +23,18 @@ import { CHANNELS_DIR } from "./paths.js";
 export interface MigrationResult {
   moved: string[];
   skipped: string[];
+  /** 非致命问题（如搬移成功但旧路径软链建不出来），调用方按需打日志。 */
+  notes: string[];
 }
 
-/** 顶层固定目录：不是渠道层，永不迁移。 */
-const NON_CHANNEL_DIRS = new Set([CHANNELS_DIR, "logs"]);
+/**
+ * 顶层固定目录：不是渠道层，永不迁移。
+ *
+ * `backups` 必须在这里：它匹配 `CID_PATTERN`（全小写字母），漏掉就会被当成旧渠道目录
+ * 搬进 `channels/`，出现 `channels/backups` 这种伪渠道 —— 而 `<root>/backups` 是
+ * 一键接入的正式落点（见 `app/integrate.ts` 与 docs/CLIENT-INTEGRATION.md）。
+ */
+const NON_CHANNEL_DIRS = new Set([CHANNELS_DIR, "logs", "backups"]);
 
 /** 顶层名字必须是 cid 形态（与 docs/STORAGE-CONVENTION.md §1 的分层名同规则）。 */
 const CID_PATTERN = /^[a-z0-9-]+$/;
@@ -38,7 +46,7 @@ const CID_PATTERN = /^[a-z0-9-]+$/;
  * 目标已存在但源不是软链（异常状态）→ 跳过并保留现场，**绝不覆盖**。
  */
 export function migrateLegacyChannelDirs(root: string): MigrationResult {
-  const result: MigrationResult = { moved: [], skipped: [] };
+  const result: MigrationResult = { moved: [], skipped: [], notes: [] };
   let names: string[];
   try {
     names = readdirSync(root);
@@ -68,8 +76,17 @@ export function migrateLegacyChannelDirs(root: string): MigrationResult {
       continue;
     }
     renameSync(source, target);
-    // 相对软链：`<root>/<cid>` → `channels/<cid>`（整根搬家也不会断）
-    symlinkSync(join(CHANNELS_DIR, name), source);
+    // 相对软链：`<root>/<cid>` → `channels/<cid>`（整根搬家也不会断）。
+    // 软链失败不能让整次迁移失败：目录已经搬走了，抛出去会打断 `mx start` 的首启，
+    // 而新的解析路径本来就直接走 `channels/<cid>` —— 旧路径不可达只影响「旧版可执行
+    // 文件」的兼容（见 docs/STORAGE-CONVENTION.md §2 的回落说明）。
+    try {
+      symlinkSync(join(CHANNELS_DIR, name), source);
+    } catch (err) {
+      // Windows 未开开发者模式 / 非管理员时目录软链会 EPERM。搬移已完成，
+      // 这里只损失旧路径兼容性，所以记录后继续。
+      result.notes.push(`已搬到 channels/${name}，但旧路径软链创建失败（${String(err)}）`);
+    }
     result.moved.push(name);
   }
   return result;

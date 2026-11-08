@@ -2,13 +2,12 @@
  * 排队探测：响应头发出前的排队帧探测，以及探测/排队的重试预算常量。
  *
  * 关键约束：
- *   - `consumeQueueProbe` 只消费上游流、**本身不向客户端写任何字节**；
- *     排队期间的进度文案由调用方（`attempt.ts` 的 `runQueueProbe`）在等待间隙发
+ *   - `consumeQueueProbe` 只消费上游流、**本身不向客户端写任何字节**
  *   - 探测消费掉的帧**一个都不能丢**：按原序交回转发层
  *   - 探测与转发必须复用**同一个翻译器实例**（行缓冲里可能还剩半行）
  *
- * 铁律：只在响应头发出前调用本模块的探测入口；进度文案只在「已决定继续排队
- * 重试」之后发（那一刻起已承诺 200 + SSE，写出不会破坏重试语义）。
+ * 铁律：只在响应头发出前调用本模块的探测入口 —— 一旦响应头写出（排队探测成功后
+ * 会写 200 + SSE），换候选重试就不可能了。
  */
 
 import { type Channel, type Credential, type StreamTranslator } from "../../runtime/channel.js";
@@ -16,10 +15,10 @@ import { inChannel } from "./channel.js";
 import { asBuffer } from "./stream.js";
 
 /**
- * 排队重试：单帧退避上限（上游给的 retryAfterSeconds 超过它就按这个等）。
+ * 排队重试：单帧退避上限（上游给的 `retryAfterSeconds` 超过它就按这个等）。
  *
- * 取 12s：进度文案按轮次下发，间隔太密会让客户端把多条文案挤进同一屏
- * （实测 10s 间隔下 ZCode 每轮都弹同一条「正在加载」提示）。
+ * 取 12s 是「不让客户端等太久」与「不把上游打得更狠」的折中：更短会密集重试，
+ * 更长则单次等待就吃掉整个排队预算。
  */
 export const QUEUE_RETRY_MAX_DELAY_MS = 12_000;
 
