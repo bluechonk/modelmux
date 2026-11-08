@@ -19,6 +19,9 @@ export * as pasteDetect from "./auth/paste-detect.js";
 export type { PastedCallback } from "./auth/paste-detect.js";
 // 通用 OpenAI 请求体归一化（与上游无关的形状修复；渠道判据由渠道传入）
 export * as openaiNormalize from "./http/wire/openai-normalize.js";
+// 文本 token 估算（启发式，±20%）：渠道在上游不返 usage 时用它补 completion_tokens，
+// 必须标 `estimated: true`，统计侧据此区分真实值与估算值。
+export { estimateTextTokens } from "./http/protocol/count-tokens.js";
 export * as paths from "./runtime/paths.js";
 export * as portfree from "./http/portfree.js";
 export * as report from "./app/cli/report.js";
