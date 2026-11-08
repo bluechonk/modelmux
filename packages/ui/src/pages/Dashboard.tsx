@@ -359,8 +359,22 @@ export function Dashboard(): ReactElement {
       // localStorage 不可用（隐私模式等）：本次会话仍生效，只是不记忆
     }
   };
-  const usageQuery = useQuery({ queryKey: ["usage", range], queryFn: () => api.usage(range) });
+  /**
+   * 区间用量。
+   *
+   * `placeholderData: prev` 是**切区间不闪**的关键：`queryKey` 带 `range`，换区间就是
+   * 一个新 key —— 不加 placeholder 时 react-query 会先清成 `undefined`，一整屏卡片
+   * 瞬间塌成骨架再弹回来，观感像故障。保留上一份数据后，新数据到达前界面数字不动，
+   * 只在右上角用「切换中」小点提示（见下方 `rangePending`）。
+   */
+  const usageQuery = useQuery({
+    queryKey: ["usage", range],
+    queryFn: () => api.usage(range),
+    placeholderData: (prev) => prev,
+  });
   const rangeStats = usageQuery.data;
+  /** 正在取新区间数据：数字还是旧的，用来决定是否显示过渡指示。 */
+  const rangePending = usageQuery.isFetching && usageQuery.isPlaceholderData;
 
   /**
    * 对外模型清单（**不显示渠道**）：模型名 + 跨渠道合并的健康度。
@@ -533,7 +547,30 @@ export function Dashboard(): ReactElement {
       <PageHeader
         title="仪表盘"
         description="Token 活动恒看一年"
-        actions={<Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />}
+        actions={
+          <div className="flex items-center gap-2">
+            {/*
+              切换过渡指示：数据还是上一区间的（`placeholderData` 保住的），这里只
+              用一个淡入淡出的小圆点说明「新数字在路上」。不用骨架、不用遮罩 ——
+              数字不动才不会闪，提示只补一句「正在更新」。
+            */}
+            <span
+              className={`h-1.5 w-1.5 rounded-full bg-brand transition-opacity duration-300 ${
+                rangePending ? "animate-pulse opacity-100" : "opacity-0"
+              }`}
+              aria-hidden="true"
+            />
+            <span
+              className={`text-xs text-ink-faint transition-opacity duration-300 ${
+                rangePending ? "opacity-100" : "opacity-0"
+              }`}
+              aria-live="polite"
+            >
+              更新中
+            </span>
+            <Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />
+          </div>
+        }
       />
 
       {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
