@@ -238,22 +238,31 @@ describe("排队重试（10605）", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("流式：前两次排队帧被吞掉，第三次出内容；客户端只看到一次完整响应", async () => {
+  it("流式：上游一说排队就放弃该候选，不再等 —— 单渠道时如实失败", async () => {
     upstream.captured.length = 0;
     logs.length = 0;
-    const { status, text } = await chat(gw.addr, true);
-    assert.equal(status, 200, `排队重试后应当成功（日志: ${logs.join(" | ")}）`);
-    assert.ok(text.includes("queued-ok"), `最终返回的是成功那次的内容（实际: ${text.slice(0, 300)}）`);
-    assert.ok(!text.includes("10605"), "排队帧不能透传给客户端");
-    assert.equal(upstream.captured.length, 3, `上游被打了 3 次（2 次排队 + 1 次成功），日志: ${logs.join(" | ")}`);
+    const { status } = await chat(gw.addr, true);
+    // 语义变更（2026-11-08）：排队请求一律不接受，直接换下一个候选。
+    // 本用例只有一个渠道，所以最终是 503 而不是「排队两轮后成功」。
+    assert.equal(status, 503, `排队应直接放弃（日志: ${logs.join(" | ")}）`);
+    // 关键：只打上游 1 次 —— 早先是 3 次（排队 2 次 + 成功 1 次），说明还在干等
+    assert.equal(
+      upstream.captured.length,
+      1,
+      `排队后不该重试同一渠道（实际打了 ${upstream.captured.length} 次，日志: ${logs.join(" | ")}）`,
+    );
+    assert.ok(
+      logs.some((l) => l.includes("switching to next candidate")),
+      `日志应记录换渠道意图（实际: ${logs.join(" | ")}）`,
+    );
   });
 
-  it("非流式：同样能穿过排队帧拿到聚合结果", async () => {
-    // 计数器已耗尽排队次数，这次直接成功——验证非流式路径不破坏正常流程
-    const { status, text } = await chat(gw.addr, false);
-    assert.equal(status, 200, `非流式应当成功（日志: ${logs.join(" | ")}）`);
-    const payload = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> };
-    assert.ok(payload.choices?.[0]?.message?.content?.includes("queued-ok"));
+  it("非流式：同样不重试同一渠道", async () => {
+    upstream.captured.length = 0;
+    logs.length = 0;
+    const { status } = await chat(gw.addr, false);
+    assert.equal(status, 503, `非流式排队也应直接放弃（日志: ${logs.join(" | ")}）`);
+    assert.equal(upstream.captured.length, 1, "排队后不该重试同一渠道");
   });
 });
 
