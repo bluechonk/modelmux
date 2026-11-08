@@ -249,14 +249,30 @@ describe("额度耗尽自动换号（决策）", () => {
     assert.equal(readIndex(CID).active, A, "安全网：实时值说了算");
   });
 
-  it("模糊错误（upstream_error）→ 快照 ≥100 仍兜底不换（防抖动误换保留）", async () => {
+  it("瞬时故障（upstream_error）→ 直接换号，不查账单也不干等", async () => {
+    // 2026-11-08：池里有的是账号，一次失败就该换，而不是先联网查一次额度去证明
+    // 「不是额度问题」再换 —— 那等于让用户多等一轮。
     scene({ "tok-ua": 0 }, threeAccounts);
     writeAccountBilling(CID, A, { total: { remain: 117, size: 20000, used: 19883, unit: "credits" } });
 
     const result = await rotateExhaustedAccount(CID, undefined, { code: "upstream_error" });
+    assert.equal(result.switched, true, `瞬时故障应直接换号：${result.reason}`);
+    assert.deepEqual(spec.calls, [], "瞬时故障不需要额度证据，不该联网查账单");
+    assert.notEqual(readIndex(CID).active, A, "生效账号应已切走");
+  });
+
+  it("瞬时故障（upstream_timeout）→ 同样直接换号", async () => {
+    scene({ "tok-ua": 0 }, threeAccounts);
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "upstream_timeout" });
+    assert.equal(result.switched, true, `超时应直接换号：${result.reason}`);
+    assert.deepEqual(spec.calls, [], "不查账单");
+  });
+
+  it("瞬时故障但池内只有一个账号 → 换不了，如实说原因", async () => {
+    scene({ "tok-ua": 0 }, [{ key: A, uid: "ua", token: "tok-ua" }]);
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "upstream_error" });
     assert.equal(result.switched, false);
-    assert.ok(result.reason.includes("不像额度问题"), result.reason);
-    assert.deepEqual(spec.calls, [], "模糊错误由快照兜底，不联网");
+    assert.ok(result.reason.includes("只有一个账号"), result.reason);
   });
 
   it("生效账号冷却 + 池内有可用账号 → 请求发出前提前切走", () => {
