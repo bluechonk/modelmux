@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 
-import { channelCapabilities, channels, type Channel } from "../runtime/channel.js";
+import { channelCapabilities, channels, getChannel, hasChannel, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import {
   activeAccountCooling,
@@ -940,18 +940,28 @@ export function reliabilityFactorOf(cid: string): number {
 }
 
 /**
- * 渠道**有效优先级** = 剩余额度 × 速度系数 × 可靠性系数；没有额度数据返回 `null`
+ * 渠道**有效优先级** = 剩余额度 × 速度系数 × 可靠性系数 × 渠道权重；没有额度数据返回 `null`
  * （排序时排最后）。
  *
  * 为什么是乘法：额度差异常常是数量级（0 vs 5000），速度差异只有几倍 ——
  * 相加会让速度几乎不起作用，相除会让慢渠道彻底失去竞争力。乘法让「慢」
  * 表现为「同样的货，优先级打折」，且只影响同一量级内的排序。
  * 可靠性同理：`ok/fail` 是最直接的先验，从未跑通的渠道不该压过有实测的。
+ *
+ * `priorityWeight` 由渠道在 `ChannelConfig` 自己声明（共享层不许有渠道知识）：
+ * 额度**每天清零**的渠道声明 >1，好让易失额度先被消耗掉，能攒的额度留到最后。
  */
 export function priorityOf(cid: string, model?: string): number | null {
   const remain = totalRemainOf(cid);
   if (remain === null) return null;
-  return remain * speedFactorOf(cid, model) * reliabilityFactorOf(cid);
+  return remain * speedFactorOf(cid, model) * reliabilityFactorOf(cid) * weightOf(cid);
+}
+
+/** 渠道声明的选路权重（缺省 1；渠道未注册或没声明都给 1）。 */
+function weightOf(cid: string): number {
+  if (!hasChannel(cid)) return 1;
+  const w = getChannel(cid).config.priorityWeight;
+  return typeof w === "number" && Number.isFinite(w) && w > 0 ? w : 1;
 }
 
 /** 是否需要刷新账单（任一渠道从没查过，或已过 TTL）。 */

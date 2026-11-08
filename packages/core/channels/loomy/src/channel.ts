@@ -20,6 +20,10 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8813",
   uiPort: 8814,
   debugDumpEnv: "LOOMY_DEBUG_DUMP",
+  // 额度**每天签到送、当天清零**（多个账号各 5000 万 tokens），不用就作废。
+  // 池里有能攒的额度（积分 / credits）时先把这份用掉，否则等于白扔。
+  // 权重 2 = 「同等额度下优先被挑中」，不会盖过数量级差异（5 积分仍排 5000 之后）。
+  priorityWeight: 2,
 };
 
 export const channel: Channel = { config, cred, upstream, catalog, billing };

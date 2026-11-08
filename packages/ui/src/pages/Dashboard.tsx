@@ -89,11 +89,12 @@ const MAX_SERIES = 6;
 /**
  * 模型健康度标签的文案与配色（判据同源，见 `lib/model-health.ts`）。
  *
- * 「无调用记录」不挂标签（没数据 ≠ 不可用）；优先级 排队 > 异常 > 慢，一行只出一个。
+ * 「无调用记录」不挂标签（没数据 ≠ 不可用）；优先级 排队 > 异常，一行只出一个。
+ * **没有「慢」标签**：TPS 原样显示，快慢用户自己看数字 —— 阈值是人定的，
+ * 不同模型基准不同，硬套只会误导。
  */
-const VERDICT_PILL: Record<"queued" | "slow" | "error", { text: string; cls: string }> = {
+const VERDICT_PILL: Record<"queued" | "error", { text: string; cls: string }> = {
   queued: { text: "排队", cls: "bg-warn/15 text-warn" },
-  slow: { text: "慢", cls: "bg-warn/15 text-warn" },
   error: { text: "异常", cls: "bg-danger/12 text-danger" },
 };
 
@@ -585,9 +586,9 @@ export function Dashboard(): ReactElement {
         />
         <KpiCard
           icon={AlertTriangle}
-          label="失败 · 其中慢"
+          label="失败"
           value={totals ? String(totals.failure) : "—"}
-          sub={totals ? `慢 ${totals.slow} 次 · 平均 ${avgDur}` : undefined}
+          sub={totals ? `平均耗时 ${avgDur}` : undefined}
           tone={(totals?.failure ?? 0) > 0 ? "danger" : "muted"}
         />
         <KpiCard
