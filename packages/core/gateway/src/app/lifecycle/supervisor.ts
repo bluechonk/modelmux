@@ -44,8 +44,16 @@ export function superviseLog(event: string, extra: Record<string, unknown> = {})
   appendSystem(event, extra);
 }
 
-function waitExit(child: ChildProcess): Promise<{ code: number | null; signal: string | null }> {
+/** 等 worker 退出；供回归测试直接覆盖「已在挂监听前退出」的竞态（其余调用点只在 `runSupervise` 内）。 */
+export function waitExit(child: ChildProcess): Promise<{ code: number | null; signal: string | null }> {
   return new Promise((resolve) => {
+    // worker 可能在挂监听**之前**就退出了：`exit` 是只触发一次的事件，错过就永远
+    // 等不到 —— 监督者会静默挂死，进程既不自退也不重生（健康检查与 sleep 之间
+    // 正好有这段窗口）。已退出时直接按现有 exitCode/signalCode 结算。
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve({ code: child.exitCode, signal: child.signalCode });
+      return;
+    }
     child.once("exit", (code, signal) => resolve({ code, signal: signal ?? null }));
     child.once("error", (err) => {
       appendError(`[supervisor] worker spawn failed: ${String(err)}`);
