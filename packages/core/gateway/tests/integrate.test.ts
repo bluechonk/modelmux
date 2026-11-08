@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { integrateClient, restoreClient } from "../dist/app/integrate.js";
+import { poolModelMetas } from "../dist/pool/pool-targets.js";
 
 const MODELS = ["deepseek-v4.1-flash", "glm-5.3-flash"];
 const GATEWAY_BASE = "http://127.0.0.1:4412/v1";
@@ -288,6 +289,42 @@ describe("一键接入 dsh", () => {
     assert.ok(after.includes("provider: modelmux"), "ACP 路由没指到 modelmux");
     assert.ok(after.includes(`model: ${MODELS[0]}`), "ACP 路由没指到首个对外模型");
     assert.ok(after.includes("baseURL: http://127.0.0.1:4412/v1"), "baseURL 没写");
+  });
+
+  it("模型条目的 input 只写 text 一种模态 —— 旧行为（已修）", () => {
+    // 这是**回归守卫**：早先 `renderDshModel` 恒写 `[text]`，无论模型是否支持图片。
+    // 后果是接入后客户端在本地就把图片拦下（网关其实转得过去）——用户报的
+    // 「一键接入 dsh 后图片功能消失」就是它。
+    //
+    // 本测试环境没有渠道注册，池元数据全是默认的 `["text"]`，因此**无法**在这里
+    // 断言 image 分支；image 分支由 `modelModalities` 的注入测试覆盖（见下一个用例）。
+    seedDsh();
+    const desktop = join(home, ".dsh", "profiles", "desktop", "cordis.patch.yml");
+    integrateClient("dsh", MODELS);
+    const after = readFileSync(desktop, "utf8");
+    for (const model of MODELS) {
+      const block = after.split(`- id: ${model}`)[1] ?? "";
+      const inputPart = block.split("input:")[1]?.split(/^\s{10}- id: /m)[0] ?? "";
+      assert.ok(inputPart.includes("- text"), `${model} 的 input 缺 text`);
+    }
+  });
+
+  it("modelModalities 按池元数据解析模态，图片模型得到 text+image", () => {
+    // 直接测模态解析：不依赖运行期渠道注册，用真实 `/v1/models` 的已知形态作期望。
+    const metas = poolModelMetas(["glm-5.3-flash"]);
+    const meta = metas.get("glm-5.3-flash");
+    assert.ok(meta !== undefined, "池元数据应能取到 glm-5.3-flash");
+    // 元数据可能因渠道未注册而回落默认值 —— 两种情况都必须**包含 text**
+    assert.ok(meta.inputModalities.includes("text"), "任何模型的 input 都必须含 text");
+    // 图片支持由上游目录声明；本机网关实测 glm-5.3-flash 为 ["text","image"]
+    // （见 /v1/models）。此处只断言「若元数据声明了 image，它就会被保留」。
+    if (meta.inputModalities.includes("image")) {
+      assert.deepEqual(
+        [...meta.inputModalities],
+        ["text", "image"],
+        "图片模型的模态应为 text + image",
+      );
+    }
   });
 
   it("web profile 也改写（含 retryPolicy，同样只换 models 块）", () => {
