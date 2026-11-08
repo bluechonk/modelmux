@@ -14,8 +14,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { channelCapabilities, type Channel } from "../../runtime/channel.js";
 import { getRequestLog, noteClientPayload, noteRequestError } from "../../runtime/log-store.js";
 import { ROTATABLE_CODES, rotateExhaustedAccount } from "../../pool/account-rotate.js";
-import { isPoolModel } from "../../pool/model-family.js";
-import { poolModels } from "../../pool/pool-targets.js";
+import { resolveInboundModel } from "../../pool/inbound-model.js";
 import type { GatewayOptions } from "../server.js";
 import { anthropicProtocol, translateAnthropicRequest } from "../protocol/anthropic.js";
 import { estimateInputTokens } from "../protocol/count-tokens.js";
@@ -106,13 +105,21 @@ async function parseProtocolBody(
 }
 
 /**
- * 客户端原生模型名（claude-* / gpt-*）映射到池主模型：协议客户端的模型名是它
- * 自己的默认值（接入配置里已写本网关模型），但拦不住内置兜底 —— 家族外的名字
- * 落到「有货的第一个池模型」，而不是让请求 400（家族面仍由家族表决定）。
+ * 协议入站的模型名归一：家族名 / 别名 / Claude Desktop 角色名 → 池模型，其余返回 400 文案。
+ *
+ * 这里**必须**先过 `resolveInboundModel` 再交给下游路由：请求里的模型名是客户端原样
+ * 发来的（Desktop 发角色名 `claude-opus-4-5`），若在这一层就改写成「第一个池模型」，
+ * 角色映射永远没机会命中，用户选的模型会被静默丢掉（2026-11-08 实测：三个角色槽
+ * 全部跑在 `deepseek-v4.1-flash` 上）。
+ *
+ * 解析失败**如实回 400**（文案直接取 `resolveInboundModel` 的，不另拼一份）——
+ * 静默兜底到「有货的第一个模型」会让跑错模型的请求看起来成功，比 400 难排查得多。
  */
-function poolModelOrDefault(model: string): string {
-  if (isPoolModel(model)) return model;
-  return poolModels()[0] ?? model;
+function resolveOrError(model: string): { target: string } | { error: string } {
+  const resolved = resolveInboundModel(model);
+  return resolved.target === null
+    ? { error: resolved.error ?? `unknown model ${model}` }
+    : { target: resolved.target };
 }
 
 /** POST /v1/messages（Anthropic Messages，Claude Code 的原生协议）。 */
@@ -130,15 +137,22 @@ export async function handleMessages(
     writeProtocolError(res, 400, "invalid_request", translated.error);
     return;
   }
-  const model = poolModelOrDefault(translated.value.model);
-  attachProtocol(res, anthropicProtocol, model);
-  noteChatRequestStats(res, translated.value.payload, model, translated.value.messages, parsedBody.raw);
+  const text = translated.value;
+  // 正文快照要留在 400 之前：客户端「报 400 但不知道发了什么」时只能靠它排查
   noteClientPayload(res, parsedBody.raw);
+  const resolved = resolveOrError(text.model);
+  if ("error" in resolved) {
+    writeProtocolError(res, 400, "unknown_model", resolved.error);
+    return;
+  }
+  const model = resolved.target;
+  attachProtocol(res, anthropicProtocol, model);
+  noteChatRequestStats(res, text.payload, model, text.messages, parsedBody.raw);
   await dispatchChat(
     {
-      payload: { ...translated.value.payload, model },
+      payload: { ...text.payload, model },
       model,
-      messages: translated.value.messages,
+      messages: text.messages,
       raw: parsedBody.raw,
     },
     res,
@@ -161,15 +175,21 @@ export async function handleResponses(
     writeProtocolError(res, 400, "invalid_request", translated.error);
     return;
   }
-  const model = poolModelOrDefault(translated.value.model);
-  attachProtocol(res, responsesProtocol, model);
-  noteChatRequestStats(res, translated.value.payload, model, translated.value.messages, parsedBody.raw);
+  const text = translated.value;
   noteClientPayload(res, parsedBody.raw);
+  const resolved = resolveOrError(text.model);
+  if ("error" in resolved) {
+    writeProtocolError(res, 400, "unknown_model", resolved.error);
+    return;
+  }
+  const model = resolved.target;
+  attachProtocol(res, responsesProtocol, model);
+  noteChatRequestStats(res, text.payload, model, text.messages, parsedBody.raw);
   await dispatchChat(
     {
-      payload: { ...translated.value.payload, model },
+      payload: { ...text.payload, model },
       model,
-      messages: translated.value.messages,
+      messages: text.messages,
       raw: parsedBody.raw,
     },
     res,

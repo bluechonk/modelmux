@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:f
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
-import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
+import { DESKTOP_ROLE_MODELS, POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModelMetas, poolModels } from "../pool/pool-targets.js";
 import { defaultAddr } from "../runtime/cli-consts.js";
 import { rootDir } from "../runtime/paths.js";
@@ -809,34 +809,25 @@ function pickDesktopProfileId(meta: Record<string, unknown>): string {
 }
 
 /**
- * 把一个对外模型名映射成 Desktop 认的条目。
+ * 把池模型写成 Desktop 的 `inferenceModels`（角色名 → 池模型的固定映射）。
  *
- * `name` 必须是 `anthropic/claude-<role>-…` 形态：Desktop 的模型校验器按**角色前缀**
- * （sonnet / opus / haiku / fable）认模型，不合规的条目会触发 fail-all —— **整组**被拒，
- * 表现为「模型列表里一个都没有」，而不是只丢这一项。所以这里统一挂 `sonnet-` 角色，
- * 真正的对外模型名走 `labelOverride`（界面显示的就是它）。
- */
-/**
- * 三条模型的**角色槽位**：Desktop 按角色（sonnet / opus / haiku）给模型分档，
- * 同一角色只能挂一个模型，故最多并存 3 个。
+ * `name` 必须写成**真实存在的 Anthropic 模型名**：Desktop 的校验器（`app.asar` 里
+ * `jo()` → `ko = /^[A-Za-z0-9_-]{1,64}$/` 再叠加「须为已知 Anthropic 模型」）会拒掉
+ * 自造名 —— 连斜杠与点号都不允许，`anthropic/claude-sonnet-longcat-2.5` 实测会被丢弃
+ * （日志：`is not an Anthropic model`），结果是模型选择器为空。
  *
- * `name` 必须写成**真实存在的 Anthropic 模型名**：Desktop 的校验器
- * （`app.asar` 里 `jo()` → `ko = /^[A-Za-z0-9_-]{1,64}$/` 再叠加「须为已知 Anthropic 模型」）
- * 会拒掉自造名 —— 连斜杠与点号都不允许，`anthropic/claude-sonnet-longcat-2.5`、
- * `claude-sonnet-longcat-2-5` 实测都会被丢弃（日志：`is not an Anthropic model`），
- * 结果是模型选择器为空。真正发给网关的模型名走 `labelOverride`。
- */
-const DESKTOP_ROLE_SLOTS = ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"] as const;
-
-/**
- * 把对外模型列表映射成 Desktop 的 `inferenceModels`。
+ * 槽位与映射表都由 `model-family.ts` 的 `DESKTOP_ROLE_MODELS` 决定（接入与解析同源）：
+ * Desktop 直连只会发角色名，`labelOverride` 仅改菜单显示名、不进请求体，所以
+ * 「选了什么模型」全靠网关侧的这张表还原。
  *
- * 超过 3 个时只取前 3 个（角色槽位只有三个）。`supports1m` + `prefer1m` 必须成对出现：
- * 前者给出 1M 变体，后者让选择器只列 1M 那一项 —— 少了 UI 会退回 200k。
+ * 只写**本次接入的对外模型里真有的**那些槽：池里没有的模型写进 profile 只会让
+ * 用户选到一个必然 400 的条目。`supports1m` + `prefer1m` 必须成对出现 ——
+ * 前者给出 1M 变体，后者让选择器只列 1M 那一项，少了 UI 会退回 200k。
  */
 function desktopInferenceModels(models: readonly string[]): Array<Record<string, unknown>> {
-  return models.slice(0, DESKTOP_ROLE_SLOTS.length).map((model, index) => ({
-    name: DESKTOP_ROLE_SLOTS[index]!,
+  const wanted = new Set(models);
+  return DESKTOP_ROLE_MODELS.filter(([, model]) => wanted.has(model)).map(([roleId, model]) => ({
+    name: roleId,
     labelOverride: model,
     supports1m: true,
     prefer1m: true,
@@ -847,7 +838,7 @@ function desktopInferenceModels(models: readonly string[]): Array<Record<string,
  * Claude Desktop：写 3P profile（`configLibrary/modelmux.json` + `_meta.json`）。
  *
  * 走 **`inferenceProvider: "gateway"`**，模型清单写进 `inferenceModels`（**不**用模型发现，
- * 原因见 `DESKTOP_ROLE_SLOTS` 与 `modelDiscoveryEnabled` 处的注释）。
+ * 原因见 `desktopInferenceModels` 与 `modelDiscoveryEnabled` 处的注释）。
  *
  * 认证用 `x-api-key`（本地回环网关不校验入站密钥，与 Claude Code 那条同口径）。
  */
@@ -906,9 +897,9 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   // **必须关**模型发现：它直接拿 `/v1/models` 的裸名（`longcat-2.5` / `deepseek-v4.1-flash`）
   // 当候选，而 Desktop 的校验器不接受点号 —— 实测 3 个模型全被判「不可用」
   // （日志：`Gateway /v1/models returned 0 usable models { rawCount: 3 }`，选择器为空）。
-  // 显式 `inferenceModels` 里用合法 Anthropic 名 + `labelOverride` 才是可走的路。
+  // 显式 `inferenceModels` 里的角色名才是可走的路（映射见 `desktopInferenceModels`）。
   profile["modelDiscoveryEnabled"] = false;
-  // 兜底清单：显式列全部对外模型（发现生效时以网关返回为准，这份不冲突）
+  // 按 `DESKTOP_ROLE_MODELS` 写池里真有的角色槽 —— 模型发现已关，profile 是唯一来源
   profile["inferenceModels"] = desktopInferenceModels(models);
   if (profile["disableDeploymentModeChooser"] === undefined) {
     profile["disableDeploymentModeChooser"] = true;
@@ -942,7 +933,7 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   result.changed.push(profileFile, metaFile);
   result.backupDir = backup;
   result.notes.push(
-    `baseUrl=${anthropicUrl}，按角色槽写入 ${Math.min(models.length, DESKTOP_ROLE_SLOTS.length)} 个模型（全部 1M 上下文）`,
+    `baseUrl=${anthropicUrl}，角色映射 ${desktopInferenceModels(models).length} 项（全部 1M 上下文）`,
   );
   result.notes.push("改完需重启 Claude Desktop 才生效");
   result.ok = true;

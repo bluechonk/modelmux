@@ -54,8 +54,8 @@ const SINK = Symbol("modelmux.protocolSink");
 interface ProtocolContext {
   protocol: InboundProtocol;
   /**
-   * 协议应答 `model` 字段的取值：映射后的**池模型名**（家族外请求名如 `claude-*`
-   * 已落池主模型 —— 应答如实报告真正执行的模型，不回显客户端原名）。
+   * 协议应答 `model` 字段的取值：解析后的**池模型名** —— 应答如实报告真正执行的
+   * 模型，不回显客户端原名（Desktop 会发角色名，见 `DESKTOP_ROLE_MODELS`）。
    */
   requestModel: string;
 }

@@ -623,7 +623,7 @@ function seedDesktop(profileId = "8f69f2f1-3275-4ad8-9317-4aa7e972f311"): { dir:
 }
 
 describe("一键接入 claude desktop", () => {
-  it("写 3P profile：gateway 模式 + 模型发现开 + 兜底清单含全部对外模型", () => {
+  it("写 3P profile：gateway 模式 + 模型发现关 + 角色名映射到池模型", () => {
     const { profile } = seedDesktop();
     const result = integrateClient("claude-desktop", MODELS);
     assert.equal(result.ok, true);
@@ -634,6 +634,7 @@ describe("一键接入 claude desktop", () => {
     assert.equal(after["inferenceGatewayBaseUrl"], "http://127.0.0.1:4412");
     assert.equal(after["inferenceGatewayAuthScheme"], "x-api-key");
     const models = after["inferenceModels"] as Array<Record<string, unknown>>;
+    // 只写池里真有的槽：写进一个必然 400 的条目只会让用户选到坏项
     assert.equal(models.length, MODELS.length);
     for (const entry of models) {
       const name = String(entry["name"]);
@@ -641,8 +642,9 @@ describe("一键接入 claude desktop", () => {
       // 「is not an Anthropic model」并丢弃；斜杠与点号同样不允许
       assert.match(name, /^claude-(sonnet|opus|haiku|fable)-\d+-\d+$/);
       assert.doesNotMatch(name, /[./]/, "斜杠与点号会被校验器拒收");
-      // 真正发给网关的模型名在这里
-      assert.ok(String(entry["labelOverride"]) !== "", "labelOverride 才是网关收到的模型名");
+      // `labelOverride` 只改菜单显示名，**不进请求体**：Desktop 直连发的是 `name`，
+      // 真正落到哪个模型由网关的 `DESKTOP_ROLE_MODELS` 还原（见 inbound-model 测试）
+      assert.ok(MODELS.includes(String(entry["labelOverride"])), "显示名应当是池模型名");
       assert.equal(entry["supports1m"], true, "缺 supports1m 会退回 200k 上下文");
       assert.equal(entry["prefer1m"], true, "缺 prefer1m 选择器会列出两项");
     }

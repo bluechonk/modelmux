@@ -51,7 +51,7 @@ node .agents/skills/context-capture/scripts/extract-context.mjs --latest --phase
 | --- | --- | --- | --- |
 | **Codex** | OpenAI Responses（`/v1/responses`） | 顶层 `instructions` 字段 | `input[]` 数组；工具调用是 `function_call` / `function_call_output` 平铺条目；`reasoning` 条目带 `encrypted_content` |
 | **Claude Code** | Anthropic Messages（`/v1/messages`） | 顶层 `system`（字符串或分片数组） | `content[]` 分片；工具定义在 `tools[].input_schema`；`cache_control` 标记缓存断点 |
-| **Claude Desktop** | Anthropic Messages | 同 Claude Code | 3P profile 走 gateway 时与 Code 同形态，但**模型名走 `labelOverride`**，请求体里是真实池模型名 |
+| **Claude Desktop** | Anthropic Messages | 同 Claude Code | 3P profile 走 gateway 时与 Code 同形态，但请求体里的 `model` 是**角色名**（`claude-sonnet-4-5` 等），落点由网关 `DESKTOP_ROLE_MODELS` 还原；`labelOverride` 只改菜单显示名 |
 | **dsh** | OpenAI chat（`/v1/chat/completions`） | `messages[]` 里 `role: "system"` 的第一条 | `llm-pi-ai` 插件把 provider 配置展开；工具在 `tools[].function` |
 | **ZCode** | OpenAI chat | `messages[]` 的 system 条 | system 里嵌大量 `<system-reminder>` 块与 skill 清单；harness 注入内容与用户输入混在同一条 user 消息里 |
 
