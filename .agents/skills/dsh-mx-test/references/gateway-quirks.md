@@ -26,16 +26,21 @@ dsh 侧判工具调用真跑通：
 3. 访问日志 `messageCount` 随工具轮次递增（实测 5 → 16）；
 4. `status: 200`、`stream: true`，错误日志无新增。
 
-## 「我放弃了，换一个吧」不是模型说的
+## 排队即换渠道（不再有放弃文案）
 
-Agent 拿到的最后一句话若出现 `这队伍排到天荒地老了，我放弃了。换一个吧！`，**这是网关的兜底文案**：
+上游说「在排队」（如 qoder / qodercn 的 `code:"10605"`）时，网关**立即放弃这个候选渠道、
+换下一条**，不等待也不重试同一条流。
 
-- 出处：`packages/core/gateway/src/http/chat/attempt.ts` 的排队放弃文案（超预算后直接回正常应答劝换渠道）；
-- 判据：系统日志同时出现 `queue wait budget exhausted (channel <cid>, waited <N>s)`，
-  且访问日志 `durationMs` ≈ 120000（排队总预算 120 秒）、`upstreamMs` 只有几百毫秒。
+- 判据：系统日志出现 `upstream queued (channel <cid>) — switching to next candidate without waiting`；
+  访问日志该渠道那次尝试 `durationMs` 很短（秒级），不是早先那种 `≈120000` 的长等待。
+- 换完没有下一条可用 → 整条请求 503 `upstream_queued`。
+- 客户端**永远不会**看到排队相关的文字。早先那套「我放弃了，换一个吧！」的兜底文案、
+  排队进度帧、排队成功分界**都已删除**（2026-11-08）——如果你的 agent 看到这类文案，
+  说明跑的是旧构建，先 `npm run build && mx restart` 并确认 `mx status --json` 的
+  `stale_build: false`。
 
-判成**上游排队拥堵**：换该渠道另一个模型重试或等会儿再跑，**不要**当成渠道协议故障去改代码
-（排队重试机制见 `docs/channels/qoder/PROTOCOL.md` §4.3）。
+判成**该渠道上游拥堵**时：给它加第二个供给渠道，或换个有货的模型名重跑，
+**不要**当成渠道协议故障去改代码（协议事实见 `docs/channels/qoder/PROTOCOL.md`）。
 
 ## 历史坑与回归护栏
 

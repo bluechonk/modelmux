@@ -51,10 +51,6 @@ export interface ForwardOptions {
   logger: (m: string) => void;
   /** 探测层消费掉的帧（按原序先写给客户端）。 */
   pendingFrames?: ProbeFrames;
-  /** 排队等待预算耗尽。 */
-  queuedOut?: boolean;
-  /** 排队放弃文案：探测层填了它，本层就回**正常应答**（劝主人换渠道）而不是错误帧。 */
-  giveUpText?: string | null;
   /** 探测用的翻译器实例（必须与探测层是同一个）。 */
   probeTranslator?: StreamTranslator;
   /** 客户端原始请求体（渠道的翻译器要用）。 */
@@ -76,63 +72,6 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
   return !(typeof total === "number" && total > 0);
 }
 
-/**
- * 排队超时后的收尾：把「劝主人换渠道」的文案作为**正常应答**返回。
- *
- * 为什么不回错误帧：排队耗尽时客户端早已等不及，回一个 `upstream_queued` 错误
- * 只会让它显示「上游排队」这种没用的信息；直接告诉主人「别用这家了」才有用。
- * 流式与非流式各按自己的形态给出完整应答（含 `finish_reason` 与 `[DONE]`）。
- * 入站协议在场时经协议编码器转译（anthropic message / responses response）。
- */
-function writeQueueGiveUp(res: ServerResponse, model: unknown, text: string, wantStream: boolean): void {
-  const id = `chatcmpl-queue-${Date.now().toString(36)}`;
-  const created = Math.floor(Date.now() / 1000);
-  const chunk = (delta: Record<string, unknown>, finishReason: string | null): string =>
-    `data: ${JSON.stringify({
-      id,
-      object: "chat.completion.chunk",
-      created,
-      model,
-      choices: [{ index: 0, delta, finish_reason: finishReason }],
-    })}\n\n`;
-  if (!wantStream) {
-    const completion = {
-      id,
-      object: "chat.completion" as const,
-      created,
-      model: typeof model === "string" ? model : "",
-      choices: [
-        { index: 0, message: { role: "assistant", content: `${text}\n\n` }, finish_reason: "stop" },
-      ],
-      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-    };
-    // 协议入站在场时按协议形态回（anthropic message / responses response）
-    const protocol = protocolOf(res);
-    writeJson(res, protocol ? protocol.protocol.encodeCompletion(completion, protocol.requestModel) : completion);
-    return;
-  }
-  const sink = sinkOf(res);
-  if (sink) {
-    // 第 0 轮探测就耗尽预算时排队帧还没写过：响应头要在这里补
-    if (!res.headersSent) res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-    // 排队帧可能已把协议开始事件发出（message_start / response.created）：
-    // 文案作为 content 增量续写，收尾交给 sink.finish()
-    sink.writeOpenAiFrame(chunk({ role: "assistant", content: "" }, null));
-    sink.writeOpenAiFrame(chunk({ content: `${text}\n\n` }, null));
-    sink.writeOpenAiFrame(chunk({}, "stop"));
-    sink.finish();
-    res.end();
-    return;
-  }
-  if (!res.headersSent) {
-    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-  }
-  res.write(chunk({ role: "assistant", content: "" }, null));
-  res.write(chunk({ content: `${text}\n\n` }, null));
-  res.write(chunk({}, "stop"));
-  res.write("data: [DONE]\n\n");
-  res.end();
-}
 
 /**
  * 把胜出候选的上游响应交给客户端：非流式聚合、流式透传。
@@ -155,8 +94,6 @@ export async function relayUpstream(
     wantStream,
     logger,
     pendingFrames = [],
-    queuedOut = false,
-    giveUpText = null,
     probeTranslator,
     request,
     freeModel = false,
@@ -168,23 +105,9 @@ export async function relayUpstream(
   }
 
   // 非流式：消费完整上游流（必要时先翻译），聚合成一个 chat.completion JSON。
-  // custom 线型且渠道声明了 isQueueError 时，**响应头还没发**——排队帧可以触发
-  // 等待 + 重开上游重试（与流式路径同一套预算）。
+  // 排队在上游层已被拦下（见 `attempt.ts` 的 `switchChannel`：探测到排队即换候选），
+  // 走到这里的请求都拿到了真实内容帧，非流式没有排队分支。
   if (!wantStream) {
-    // 排队预算耗尽的判定必须**排在读流之前**（与流式路径同一口径、同一顺序）：
-    //   排队耗尽时上游是「收下请求后彻底静默」，先读流会把客户端拖到静默超时
-    //   （实测 900s）才拿到 503。判据与流式路径一致：探测层没拿到任何内容帧。
-    if (queuedOut && pendingFrames.length === 0) {
-      // 释放这条已静默的上游流（流式路径同处也释放）
-      await call.body?.cancel().catch(() => {});
-      // 排队太久：回「劝主人换渠道」的正常应答，而不是一个没用的错误信封
-      if (giveUpText) {
-        writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
-        return;
-      }
-      writeProtocolError(res, 503, "upstream_queued", "upstream is queued and the wait budget was exhausted");
-      return;
-    }
     try {
       // 这里**不再二次探测**：尝试层已用同一条件探测过这条流并推进了它的位置，
       // 再探测会丢掉第一次消费掉的帧（非流式空响应的元凶）。此处只把探测结果（前缀内容帧 /
@@ -275,27 +198,6 @@ export async function relayUpstream(
     }
   }
   if (!res.headersSent) res.writeHead(call.status, outHeaders);
-  if (queuedOut && pendingFrames.length === 0) {
-    // 排队预算耗尽且没有任何内容：给出明确应答后结束
-    // （与非流式路径同一顺序：先判预算，不再读那条已静默的上游流）
-    await call.body?.cancel().catch(() => {});
-    // 排队太久：回「劝主人换渠道」的正常应答，而不是一个没用的错误帧
-    if (giveUpText) {
-      writeQueueGiveUp(res, request?.["model"], giveUpText, wantStream);
-      return;
-    }
-    const queuedSink = sinkOf(res);
-    if (queuedSink) {
-      queuedSink.writeError("upstream_queued", "upstream is queued and the wait budget was exhausted");
-      queuedSink.finish();
-    } else {
-      res.write(
-        `data: ${JSON.stringify({ error: { code: "upstream_queued", message: "upstream is queued and the wait budget was exhausted" } })}\n\n`,
-      );
-    }
-    res.end();
-    return;
-  }
   await inChannel(channel, () =>
         relayStream(
           res,
