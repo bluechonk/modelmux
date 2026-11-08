@@ -9,8 +9,9 @@
  * 文件以规范模型名（不含 cid 前缀）为键；写入动作无渠道上下文依赖。
  */
 
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { rootFile } from "./paths.js";
+import { writeAtomicFile } from "./secret-file.js";
 
 /** 单条模型规格（所有字段均可选：只补上游没给的）。 */
 export interface ModelSpecEntry {
@@ -68,7 +69,9 @@ export function writeModelSpec(model: string, entry: ModelSpecEntry): void {
   const existing = specs.models[model] ?? {};
   specs.models[model] = { ...existing, ...entry, _updated: new Date().toISOString() };
   const path = rootFile(FILE_NAME);
-  writeFileSync(path, JSON.stringify(specs, null, 2), "utf-8");
+  // 原子写：与 `model-catalog` / `log-store` 同口径。裸 `writeFileSync` 在写中断时
+  // 会留下半截 JSON，之后每次读都走「规格表损坏 → 回落默认值」，症状很难排查。
+  writeAtomicFile(path, JSON.stringify(specs, null, 2), 0o600);
   // 使缓存失效：下次 read 时重新 stat + 读取
   _cache = null;
   _cacheMtime = 0;

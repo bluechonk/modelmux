@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  brief,
   countOrDash,
   formatBytes,
   formatClock,
@@ -178,16 +177,7 @@ describe("计数与字节", () => {
   });
 });
 
-describe("brief 与 formatTokensPerSec", () => {
-  it("brief：超长截断并带总长标注；对象转 JSON", () => {
-    assert.equal(brief("short"), "short");
-    const long = "x".repeat(400);
-    const shown = brief(long, 300);
-    assert.ok(shown.startsWith("x".repeat(300)));
-    assert.match(shown, /…（共 400 字符）$/);
-    assert.equal(brief({ a: 1 }), '{"a":1}');
-  });
-
+describe("formatTokensPerSec", () => {
   it("formatTokensPerSec：复用 tokensPerSecOf 口径，无数据显示 —", () => {
     assert.equal(
       formatTokensPerSec({

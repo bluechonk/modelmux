@@ -42,13 +42,25 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
 };
 
 /**
+ * 只在表**自有键**里查值。
+ *
+ * 三张表都是普通对象字面量，直接用 `TABLES[key]` 会走原型链：
+ * `canonicalOf("constructor")` 命中 `Object.prototype.constructor`（一个函数），
+ * 于是 `isPoolModel("constructor")` 为 true，请求一路走到 `canonicalOf(function)` 报
+ * `id.trim is not a function` —— 客户端拿到 500 而不是「模型不存在」的 400。
+ */
+function lookup<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+/**
  * 对外**列出**的模型 id：只列 canonical。
  *
  * `deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（同一代模型），仍可被客户端**请求**，
  * 但不单独列出来 —— 否则模型池与「模型 × 渠道」表里会出现两行一模一样的条目。
  */
 export const POOL_EXPOSED_IDS: readonly string[] = POOL_MODEL_IDS.filter(
-  (id) => CANONICAL[id] === id,
+  (id) => lookup(CANONICAL, id) === id,
 );
 
 /** 是否为对外暴露的模型 id（大小写不敏感）。 */
@@ -58,7 +70,7 @@ export function isPoolModel(id: string): boolean {
 
 /** canonical → `owned_by`；未登记的家族返回 `modelmux`（不编造厂商标识）。 */
 export function ownerOf(canonical: string): string {
-  return MODEL_OWNER[canonical] ?? "modelmux";
+  return lookup(MODEL_OWNER, canonical) ?? "modelmux";
 }
 
 /**
@@ -70,15 +82,16 @@ export function ownerOf(canonical: string): string {
  */
 export function canonicalOf(id: string): string | null {
   const key = id.trim().toLowerCase();
-  if (CANONICAL[key] !== undefined) return CANONICAL[key]!;
+  const direct = lookup(CANONICAL, key);
+  if (direct !== undefined) return direct;
   // 渠道目录里的等价写法：先按共享归一化再查表（`sn-` 包装、`v4-1` → `v4.1`、`-official` 等）
   const normalized = normalizeLoose(key);
-  return CANONICAL[normalized] ?? null;
+  return lookup(CANONICAL, normalized) ?? null;
 }
 
 /** 规范名 → 该代模型的对外 id 集合（含别名）；未知规范名返回单元素 `[model]`。 */
 export function aliasGroupOf(canonical: string): readonly string[] {
-  return ALIAS_GROUP[canonical] ?? [canonical];
+  return lookup(ALIAS_GROUP, canonical) ?? [canonical];
 }
 
 /**

@@ -956,11 +956,22 @@ export const POOL_MODELS: readonly string[] = new Proxy([] as string[], {
     return prop in (models as unknown as object);
   },
   ownKeys() {
-    // 让 Object.keys / JSON.stringify / spread 看到真实索引
-    return poolModels().map((_, i) => String(i));
+    // 让 Object.keys / JSON.stringify / spread 看到真实索引。
+    //
+    // **必须带 `length`**：Proxy 的不变量要求 `ownKeys` 覆盖目标对象的全部**非可配置**
+    // 自有属性，而数组的 `length` 正是其中之一。漏掉它时 `Object.keys()` /
+    // `Object.entries()` / `for...in` 一律抛
+    // `TypeError: 'ownKeys' on proxy: trap result did not include 'length'`
+    // —— 这个对象是对外导出的（见 index.ts），下游任何一次遍历都会炸
+    // （2026-11-08 评审复现）。
+    return [...poolModels().map((_, i) => String(i)), "length"];
   },
   getOwnPropertyDescriptor(_target, prop) {
     const models = poolModels();
+    if (prop === "length") {
+      // 数组的 length 不可配置；这里如实报告，否则同样触发不变量检查
+      return { value: models.length, writable: true, enumerable: false, configurable: false };
+    }
     if (typeof prop === "string" && /^\d+$/.test(prop)) {
       const i = Number(prop);
       if (i < models.length) {

@@ -91,7 +91,10 @@ export interface AggregatedCompletion {
   created: number;
   model: string;
   choices: AggregatedChoice[];
-  usage: Record<string, unknown>;
+  /**
+   * 上游给的 usage；**上游没给就是 undefined**（不伪造全 0 —— 见下方聚合处的说明）。
+   */
+  usage: Record<string, unknown> | undefined;
 }
 
 /** 把上游的 SSE 流聚合为标准 OpenAI chat.completion JSON（非流式响应用）。 */
@@ -104,7 +107,7 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
   let id = "";
   let model = "";
   let created = 0;
-  let usage: Record<string, unknown> | null = null;
+  let usage: Record<string, unknown> | undefined;
 
   for (const block of buf.toString("utf8").split("\n\n")) {
     for (const line of block.split("\n")) {
@@ -193,8 +196,12 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
       message,
       finish_reason: finish || (calls.length > 0 ? "tool_calls" : "stop"),
     }],
-    usage:
-      usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    // 上游没给 usage 就**不编造**：此前这里填 `{0,0,0}`，让「上游不提供用量」与
+    // 「真的用了 0 token」在日志与 UI 上长得一模一样（autoclaw 的 `type=done` 帧
+    // 只带 runId/type/sessionKey，实测确认上游不提供 → 请求日志整列显示 `0 / 0`）。
+    // 这里显式给 `undefined`（不是省略键）—— `tokensOf` 据此返回 null，日志记 noUsage、
+    // 表格显示 `-`。对外 JSON 序列化时 undefined 键会被丢弃，客户端拿到的仍是原形态。
+    usage,
   };
 }
 
@@ -357,6 +364,8 @@ export async function relay(
   const capture: Buffer[] | null = captureEnabled(cid) ? [] : null;
   const reader = upstreamBody.getReader();
   const decoder = new TextDecoder("utf-8");
+  /** 异常向上传播时置位：`finally` 据此**不**收尾，留给调用方写错误帧。 */
+  let propagateFailure = false;
 
   /** 有编码器时不直写 out：帧交编码器转译（收尾与 end 也归调用方）。 */
   const writeOut = (frame: Buffer | string): void => {
@@ -375,6 +384,19 @@ export async function relay(
     }
 
     if (dsml) {
+      // 上游没按 SSE 回（错误 JSON 直落正文）时 DSML 过滤器一个事件都切不出来：
+      // 非 SSE 兜底必须先判，否则错误体会被当空流吞掉，协议客户端收到「空成功消息」。
+      if (!isSse) {
+        const chunks: Buffer[] = [];
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (capture) capture.push(Buffer.from(value));
+          chunks.push(Buffer.from(value));
+        }
+        emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
+        return;
+      }
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -401,14 +423,12 @@ export async function relay(
       if (!isSse) {
         // 上游没按 SSE 回（错误 JSON 直落正文）：有编码器时转成协议错误事件，
         // 否则协议客户端会收到一段无法解析的字节
-        if (sink) {
-          const text = Buffer.concat([...(capture ?? []), Buffer.from(value)]).toString("utf8").trim();
-          sink.writeOpenAiFrame(
-            `data: ${JSON.stringify({ error: { code: "upstream_error", message: text.slice(0, 500) || "upstream returned a non-SSE body" } })}\n\n`,
-          );
-          return;
-        }
-        out.write(Buffer.from(value));
+        emitNonSseBody(
+          Buffer.concat([...(capture ?? []), Buffer.from(value)]).toString("utf8"),
+          sink,
+          out,
+        );
+        if (sink) return;
         continue;
       }
       buffer += decoder.decode(value, { stream: true });
@@ -446,13 +466,41 @@ export async function relay(
     }
   } catch (err) {
     // 客户端提前断开（如主动取消请求）属正常情况，降级为调试日志
-    if (!isBenignDisconnect(err)) throw err;
+    if (!isBenignDisconnect(err)) {
+      // 异常要往上抛给 `relayStream` 的 catch 去写错误帧 —— 所以下面 finally 不能先 end：
+      // `writeError()` 首行是 `if (res.writableEnded) return`，一旦这里 end 了，
+      // 错误帧与 `[DONE]` 会被静默吞掉，客户端只看到 SSE 截断（与 stream.ts 的
+      // 「必须避免截断」约定直接冲突）。
+      propagateFailure = true;
+      throw err;
+    }
   } finally {
     await reader.cancel().catch(() => {});
     if (capture) debugDump("resp", "sse", Buffer.concat(capture), cid);
     // 有编码器时收尾（finish + end）归调用方：协议收尾事件还没写
-    if (!sink) out.end();
+    if (!sink && !propagateFailure) out.end();
   }
+}
+
+/**
+ * 上游返回非 SSE 正文（多为错误 JSON 直落 body）时的统一兜底。
+ *
+ * 协议客户端（anthropic / responses）只认事件帧 —— 直接把 JSON 字节写过去会让它解析失败；
+ * 有编码器就转成一个错误事件。裸 OpenAI 客户端可以吃原字节，照写。
+ */
+function emitNonSseBody(
+  text: string,
+  sink: { writeOpenAiFrame: (frame: string) => void } | undefined,
+  out: ServerResponse,
+): void {
+  if (sink) {
+    const body = text.trim();
+    sink.writeOpenAiFrame(
+      `data: ${JSON.stringify({ error: { code: "upstream_error", message: body.slice(0, 500) || "upstream returned a non-SSE body" } })}\n\n`,
+    );
+    return;
+  }
+  out.write(Buffer.from(text, "utf8"));
 }
 
 function isBenignDisconnect(err: unknown): boolean {

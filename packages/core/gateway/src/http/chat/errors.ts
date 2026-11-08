@@ -14,8 +14,21 @@ import { noteRequestError } from "../../runtime/log-store.js";
 import { anthropicErrorBody } from "../protocol/anthropic.js";
 import { protocolOf } from "../protocol/types.js";
 
-/** 统一 JSON 应答（`/health`、`/v1/models` 等）。 */
+/**
+ * 统一 JSON 应答（`/health`、`/v1/models` 等）。
+ *
+ * **响应头已发出时不再写**：写错误时必须先看 `res.headersSent` —— 排队探测那条
+ * 路径已经用 `writeQueueHeaders` 写过 200 + SSE 头，此时再 `writeHead` 会抛
+ * `ERR_HTTP_HEADERS_SENT`，把真实错误降级成 internal_error，客户端则拿到一条
+ * 静默截断的 200 流（2026-11-08 评审复现）。守卫放在这里而不是每个调用点，
+ * 因为漏一个就复发。
+ */
 export function writeJson(res: ServerResponse, data: unknown, status = 200): void {
+  if (res.headersSent) {
+    // 头已发：只能收尾，不能改状态码。错误信息已由 `noteRequestError` 落到日志。
+    if (!res.writableEnded) res.end();
+    return;
+  }
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
 }

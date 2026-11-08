@@ -12,6 +12,7 @@
 import { unlinkSync } from "node:fs";
 
 import { getChannel, type LoginInputRequest, type LoginUi } from "../runtime/channel.js";
+import { removeActiveAccountAfterAuthLoss } from "../runtime/account-pool.js";
 import { credentialsPath } from "../runtime/paths.js";
 
 export type { LoginInputRequest, LoginUi };
@@ -110,12 +111,25 @@ export async function ensureLogin(
       await upstream.fetchModels(refreshed);
       return true;
     } catch (err2) {
-      // 刷新失败（刷新令牌可能已被上游消费/作废）：删掉本地凭证，
-      // 让「重试登录」真正走重新登录流程，而不是重复同一条失败路径
+      // 刷新失败（刷新令牌可能已被上游消费/作废）。
+      //
+      // **只删实时凭证，同时把账号池的生效标记一并处理** —— 只删 `credentials.json`
+      // 会留下「未登录 + 账号生效中」：`accounts.json.active` 仍指向那个 key、
+      // `accounts/<key>.json` 还在、health 仍是 ok，于是路由把请求发给一个没有凭据的
+      // 活跃账号（正是 POOL-ARCHITECTURE §3.4 记录的 2026-10-24 三连掉线形态）。
+      // 正确做法是把**生效账号从池里摘掉**（`removeActiveAccountAfterAuthLoss`）：
+      // 它会连带删凭据、清 `accounts.json.active`，让路由读到的池与磁盘一致。
+      // 只 unlink 凭据文件会留下「未登录 + 账号生效中」，路由继续把请求发给一个
+      // 没有凭据的活跃账号（正是 POOL-ARCHITECTURE §3.4 记录的 2026-10-24 三连掉线形态）。
       try {
         unlinkSync(credentialsPath(cid));
       } catch {
         /* 文件本来就不在 */
+      }
+      try {
+        removeActiveAccountAfterAuthLoss(cid);
+      } catch {
+        /* 池文件不可写：不影响「凭据已删」这个事实，路由下一轮读盘会看到池内无可用账号 */
       }
       ui.setState(
         "error",

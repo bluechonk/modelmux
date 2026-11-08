@@ -1,11 +1,24 @@
 /**
  * 日志页的展示口径：时间、耗时、字节、计数与 token 单位。
  *
- * 单独成模块是因为页面与上下文弹窗都要用同一套格式 —— 各写一份必然漂移。
+ * 单独成模块是因为日志页与仪表盘都要用同一套格式 —— 各写一份必然漂移。
  * token 换算按「万 / 亿」给单位（大数不再是一长串数字）。
  */
 
 import type { AccessLogEntry, AccessOutcome } from "./types";
+
+/**
+ * 取异常的可读文案。
+ *
+ * `String(err)` 对 `Error` 会带上 `"Error: "` 前缀，直接拼进 toast 就是
+ * 「接入失败：Error: 找不到 …」这种把实现细节漏给用户的句子（2026-11-08 实测）。
+ * 有 `message` 就用它，其余（字符串、未知值）照原样。
+ */
+export function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name;
+  if (typeof err === "string") return err;
+  return String(err);
+}
 
 /**
  * 结果分桶的展示口径（点色 + 文案 + 文字色），表格与弹窗共用。
@@ -251,9 +264,4 @@ export function formatPercent(rate: number | null | undefined): string {
  */
 export function formatCacheRate(): string {
   return "—";
-}
-
-/** 长文本 / 长 JSON 的短预览：避免把 base64 之类整段铺进页面。 */
-export function brief(value: unknown, max = 300): string {  const text = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
-  return text.length > max ? `${text.slice(0, max)}…（共 ${text.length} 字符）` : text;
 }

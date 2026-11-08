@@ -208,9 +208,11 @@ export function Heatmap({
             >
               {Array.from({ length: columns.length }, (_, col) => (
                 <div key={col} className="flex flex-col gap-[3px]">
-                  {columns[col]!.map((cell) =>
+                  {columns[col]!.map((cell, row) =>
                     cell === null ? (
-                      <span key={`pad-${col}`} className="h-3 w-full" />
+                      // key 必须带行号：一列里所有 null 共用 `pad-${col}` 会触发 React 的
+                      // duplicate key 警告，切粒度重建 columns 时按不确定顺序复用/丢弃 DOM。
+                      <span key={`pad-${col}-${row}`} className="h-3 w-full" />
                     ) : cell.past === false ? (
                       // 未来日期：虚线空格 —— 把年历画到右缘，同时明确「未到来」不是「没请求」
                       <span

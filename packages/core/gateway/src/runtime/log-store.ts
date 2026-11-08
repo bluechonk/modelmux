@@ -6,7 +6,7 @@
  *  - 每类文件独立大小上限（默认 10MB）、超限轮转 `<name>.1.log` 最多保留 3 份；
  *    日期目录按本地时区切分、默认保留 14 天（过期目录在当日首次写入时清理）
  *  - 所有写入 best-effort：日志失败绝不影响请求
- *  - 控制台日志页经 `queryAccessLogs` 读回；请求正文抓取默认开启、偏好可关（见 docs/LOGGING.md §9）
+ *  - 控制台日志页经 `queryAccessLogs` 读回；请求正文抓取**恒开启、无开关**（见 docs/LOGGING.md §9）
  */
 
 import { randomUUID } from "node:crypto";
@@ -23,7 +23,6 @@ import {
   rmSync,
   statSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 // 命名空间导入 + 运行时探测：zstd 是 Node ≥ 22.15 才有的绑定，直接具名导入会让老版本
@@ -33,6 +32,7 @@ import type { ServerResponse } from "node:http";
 
 import * as paths from "./paths.js";
 import { enforcePermissions } from "./permissions.js";
+import { writeAtomicFile } from "./secret-file.js";
 
 /**
  * 一次请求的结果分桶 —— **只有成功与失败**。
@@ -1336,7 +1336,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 请求正文抓取（默认开启，偏好可关 —— 见 docs/LOGGING.md §9）
+// 请求正文抓取（恒开启、无开关 —— 见 docs/LOGGING.md §9）
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -1761,9 +1761,10 @@ function compactPayloadFile(file: string): { before: number; after: number } | n
     // 是接受的成本 —— 与明文压缩那次不同，这里的判据是**形态迁移完成**而非变小；
     // 零迁移（该段没有单帧行可转）时没有改写价值，别动文件。
     if (migrated === 0) return null;
-    const tmp = `${file}.compact`;
-    writeFileSync(tmp, next, "utf8");
-    renameSync(tmp, file);
+    // 唯一临时名 + 原子 rename：`${file}.compact` 与网关主进程共用同一路径，
+    // 两边同时压同一段会把对方的半份内容 rename 成正式日志（STORAGE-CONVENTION §3.7）。
+    // 日志是逐行 JSON（全 UTF-8 文本），以 utf8 形态写回与原来的字节一致。
+    writeAtomicFile(file, next.toString("utf8"), 0o600);
     return { before, after: next.length };
   } catch {
     return null;

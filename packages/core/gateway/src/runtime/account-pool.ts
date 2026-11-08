@@ -302,9 +302,60 @@ export function syncKeyAccounts(
 }
 
 /** 读索引；文件缺失/损坏时返回空池（不抛错）。 */
-export function readIndex(cid?: string): PoolIndex {
+/**
+ * 索引的进程内缓存（按文件路径 + mtime）。
+ *
+ * 为什么必须有：排序比较器（`pool-targets.sortByPriority` → `priorityOf` →
+ * `totalRemainOf` → `readIndex`）在一个 3~5 候选的请求里会同步读盘 **10~20 次**
+ * 并各自 JSON 解析一遍（2026-11-08 评审实测）。稳态下索引不变，每次请求读 20 次
+ * 纯属白费。
+ *
+ * 用 mtime 做失效依据（不是 TTL）：写盘（`writeIndex`）会更新 mtime，其他进程
+ * （CLI `acct` 命令）改过也会体现在 mtime 上，所以不会读到陈旧状态。
+ */
+const indexCache = new Map<string, { mtimeMs: number; index: PoolIndex }>();
+
+/** 清掉某渠道（或全部）的索引缓存 —— 写盘后调用，保证同一进程内立刻读到新值。 */
+function invalidateIndexCache(cid?: string): void {
+  if (cid === undefined) {
+    indexCache.clear();
+    return;
+  }
   try {
-    const parsed: unknown = JSON.parse(readFileSync(indexFile(cid), "utf8"));
+    indexCache.delete(indexFile(cid));
+  } catch {
+    indexCache.clear();
+  }
+}
+
+export function readIndex(cid?: string): PoolIndex {
+  let path: string;
+  try {
+    path = indexFile(cid);
+  } catch {
+    return emptyIndex();
+  }
+  const mtimeMs = fileMtime(path);
+  const cached = indexCache.get(path);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.index;
+  const index = parseIndexFile(path);
+  indexCache.set(path, { mtimeMs, index });
+  return index;
+}
+
+/** 文件 mtime；不存在记 0（等于「空索引」）。 */
+function fileMtime(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/** 真正读盘并解析（`readIndex` 的缓存未命中路径）。 */
+function parseIndexFile(path: string): PoolIndex {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return emptyIndex();
     const rec = parsed as Record<string, unknown>;
     const list = Array.isArray(rec["accounts"]) ? rec["accounts"] : [];
@@ -358,6 +409,9 @@ function writeIndex(index: PoolIndex, cid?: string): void {
   ensureDir(cid);
   mkdirSync(accountDir(cid), { recursive: true });
   writeJsonSecret(indexFile(cid), index);
+  // 写盘后立刻失效缓存：新文件在同一进程里也可能拿到相同的 mtime 粒度（Windows
+  // 的 mtime 精度有限），只靠 mtime 比对会读到写之前的旧值。
+  invalidateIndexCache(cid);
 }
 
 /**
@@ -535,6 +589,15 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
   // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error / cooldown 标记一并恢复
   clearTrippedState(account);
   writeIndex({ version: 1, active: key, accounts: index.accounts }, cid);
+  // 生效账号变了 → 旧生效账号的健康度缓存作废（缓存键含账号，不清会慢慢堆积）
+  try {
+    const scope = channelDir(cid);
+    for (const cacheKey of healthCache.keys()) {
+      if (cacheKey.startsWith(`${scope}\u0000`)) healthCache.delete(cacheKey);
+    }
+  } catch {
+    /* 路径不可用时没有缓存可清 */
+  }
   return account;
 }
 
@@ -607,7 +670,7 @@ export function clearAccountState(key: string, cid?: string): ClearAccountStateR
   if (changed) writeIndex(index, cid);
   // 生效账号的状态缓存在进程里：清了盘不更新缓存的话，下一次 `markActiveHealth`
   // 会拿旧值短路（它按「内存里的值 == 目标值」早退），状态会看起来没被清掉。
-  if (scope !== undefined && index.active === key) healthCache.set(scope, account.health);
+  if (scope !== undefined && index.active === key) healthCache.set(healthKey(scope, key), account.health);
   return { cleared: changed, health: account.health };
 }
 
@@ -679,8 +742,42 @@ export function purgeCredentials(cid?: string): { accounts: number; credential: 
   return { accounts, credential };
 }
 
-/** 进程内的健康度缓存：稳态下每个请求不读盘（仅状态变化时写索引）。 */
+/**
+ * 凭据在运行期彻底失效时，把**生效账号**从池里摘掉（连带删凭据、清 `active`）。
+ *
+ * 与 `purgeCredentials` 的区别：只动生效那一个账号，不碰兄弟账号 —— 后者是
+ * 用户显式登出才用的「清全池」动作。
+ *
+ * 为什么必须连池记录一起处理：只 unlink `credentials.json` 会留下
+ * 「未登录 + 账号生效中」（`accounts.json.active` 仍指向那个 key、账号文件还在、
+ * health 仍 ok），路由会把请求继续发给一个没有凭据的活跃账号 ——
+ * POOL-ARCHITECTURE §3.4 记的 2026-10-24 三连掉线就是这个形态。
+ *
+ * 返回被摘掉的账号 key；池里本来没有生效账号时返回 null（幂等）。
+ */
+export function removeActiveAccountAfterAuthLoss(cid?: string): string | null {
+  const index = readIndex(cid);
+  const active = index.active;
+  if (!active) return null;
+  removeAccount(active, cid);
+  return active;
+}
+
+/**
+ * 进程内的健康度缓存：稳态下每个请求不读盘（仅状态变化时写索引）。
+ *
+ * 键必须是 `<渠道目录>\u0000<生效账号 key>`，不能只用渠道目录：
+ * 切号（`activateAccount`）之后新账号的健康度可能与缓存里旧账号的相同，
+ * 此时同值短路会**跳过写盘**，磁盘上就留着旧状态 —— 路由层按磁盘剔除终态渠道
+ * （`route.ts` 读 `activeAccountHealth`），于是「B 账号已 unauthorized」永远不生效
+ * （2026-11-08 评审指出）。带上账号 key 后，切号即换键，短路自然失效。
+ */
 const healthCache = new Map<string, AccountHealth>();
+
+/** 缓存键：渠道作用域 + 当前生效账号（无生效账号时用空串占位）。 */
+function healthKey(scope: string, active: string): string {
+  return `${scope}\u0000${active}`;
+}
 
 /**
  * 标记当前生效账号的健康度（网关在刷新失败/请求成功时调用）。
@@ -694,14 +791,16 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
   } catch {
     return; // 路径不可用（未注册/多渠道路由下未给 cid）→ 静默跳过，别影响请求
   }
-  if (healthCache.get(scope) === health) return;
   const index = readIndex(cid);
-  if (!index.active) {
-    healthCache.set(scope, health);
+  const active = index.active ?? "";
+  const key = healthKey(scope, active);
+  if (healthCache.get(key) === health) return;
+  if (!active) {
+    healthCache.set(key, health);
     return;
   }
-  const hit = index.accounts.find((a) => a.key === index.active);
-  healthCache.set(scope, health);
+  const hit = index.accounts.find((a) => a.key === active);
+  healthCache.set(key, health);
   if (!hit) return;
   // 恢复 ok 时顺手清掉熔断退避（半开试探成功 / 人工恢复都走这里）。
   const hadTrip = hit.trip_until != null || (hit.trip_backoff_ms ?? 0) > 0;
@@ -798,7 +897,7 @@ export function noteAccountQuotaExhausted(
   hit.cooldown_until = new Date(untilMs).toISOString();
   hit.cooldown_reason = options.reason ?? "额度耗尽，等上游窗口刷新";
   // 刻意**不动 fail_streak**：额度耗尽不是连败，不该累积到熔断
-  healthCache.set(scope, "cooldown");
+  healthCache.set(healthKey(scope, index.active), "cooldown");
   writeIndex(index, cid);
   return untilMs;
 }
@@ -926,7 +1025,7 @@ export function noteAccountFailure(cid?: string): void {
     hit.health_at = nowIso();
     hit.trip_until = new Date(Date.now() + backoff).toISOString();
     hit.trip_backoff_ms = backoff;
-    healthCache.set(scope, "error");
+    healthCache.set(healthKey(scope, index.active), "error");
   }
   writeIndex(index, cid);
 }
