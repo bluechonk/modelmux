@@ -165,9 +165,16 @@ const REALMS: Record<string, string> = {
   cn: DEFAULT_BASE_URL,
 };
 
-/** 把 realm 参数解析为 agentHost。 */
+/**
+ * 把 realm 参数解析为 agentHost。
+ *
+ * 查表用 `hasOwn` 而不是 `in`：`in` 会走原型链，`--realm constructor` / `toString`
+ * 命中 `Object.prototype` 上的成员，于是「返回」一个函数、baseUrl 变成
+ * `"function Object() { [native code] }"`，登录请求打向一个不存在的域，
+ * 而错误信息完全看不出是 realm 写错了。非法 realm 必须落到下面的显式抛错。
+ */
 export function resolveBaseUrl(realm = "auto"): string {
-  if (realm in REALMS) return REALMS[realm]!;
+  if (Object.hasOwn(REALMS, realm)) return REALMS[realm]!;
   if (realm === "intl") {
     // TRAE 源码中不存在国际版配置，明确报错比把用户导向一个不存在的域更好。
     throw new Error("TRAE only has a CN config (trae-api-cn.mchost.guru); intl is unsupported, use auto or cn");
@@ -180,7 +187,7 @@ export function resolveBaseUrl(realm = "auto"): string {
     /* 未登录/损坏都走默认 */
   }
   const saved = readPrefs()["realm"];
-  if (typeof saved === "string" && saved in REALMS) return REALMS[saved]!;
+  if (typeof saved === "string" && Object.hasOwn(REALMS, saved)) return REALMS[saved]!;
   return DEFAULT_BASE_URL;
 }
 
