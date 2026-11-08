@@ -5,8 +5,9 @@
  * ping 一发就成功的模型被标「不可用」是误导，没数据 ≠ 不可用）：
  *   - 零成功零失败（没调用过）不挂标签；「有请求但全失败」才挂异常：前者是没测过、
  *     后者是测过不行，两者都不能给 TPS 数字（没有成功样本就没有速率可算）；
- *   - 「排队」与「异常」两个标签，**不判「慢」**：TPS 原样显示，快慢由用户自己看数字 ——
- *     阈值是人定的，不同模型的合理基准本就不同，硬套一个数只会误导；
+ *   - 只有「异常」一个标签。**不判「慢」也不判「排队」**：两者都是历史计数 ——
+ *     慢是人为阈值（不同模型基准本就不同），排队只看「近 7 天发生过没有」，
+ *     都不代表此刻状态，挂上去是谎报；TPS 数字已足够说明快慢；
  *   - 标签只出一个：一行只回答「现在能不能用」，堆两个标签反而看不清。
  */
 import assert from "node:assert/strict";
@@ -45,15 +46,16 @@ describe("classifyModel", () => {
     assert.equal(verdict.tps, 1, "TPS 必须原样返回");
   });
 
-  it("进过排队 → 排队标签", () => {
+  it("进过排队也不挂标签：「排队」是历史计数，不代表此刻在排队", () => {
+    // 判定看的是近 7 天窗口内**有没有发生过**排队，跟当前状态无关。
+    // 挂标签等于谎报「现在在排队」。
     const verdict = classifyModel(health({ ok: 5, queued: 2, avgTps: 10 }));
-    assert.equal(verdict.status, "queued");
-    // 速率照样给出来：标签只说「会排队」，不代表没有可用的速率
-    assert.equal(verdict.tps, 10);
+    assert.equal(verdict.status, null, "不该因历史排队计数挂标签");
+    assert.equal(verdict.tps, 10, "TPS 照常返回");
   });
 
-  it("排队压过异常：有成功记录 + 排队帧", () => {
-    assert.equal(classifyModel(health({ ok: 1, fail: 9, queued: 1, avgTps: 300 })).status, "queued");
+  it("有成功也有失败但没到「全失败」→ 不挂标签", () => {
+    assert.equal(classifyModel(health({ ok: 1, fail: 9, queued: 1, avgTps: 300 })).status, null);
   });
 
   it("有成功但算不出速率（avgTps 为 null）→ 不挂标签，tps 显示 null", () => {
@@ -62,7 +64,7 @@ describe("classifyModel", () => {
     assert.equal(verdict.tps, null);
   });
 
-  it("全失败优先于排队：ok 为 0 且有失败时按异常判，不给排队；纯排队无结果是不可能态（照不挂标签处理）", () => {
+  it("ok 为 0 且有失败 → 异常；零成功零失败即使有排队记录也不挂标签", () => {
     assert.equal(classifyModel(health({ ok: 0, fail: 3, queued: 1 })).status, "error");
     assert.equal(classifyModel(health({ ok: 0, fail: 0, queued: 1 })).status, null);
   });
