@@ -67,6 +67,43 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `type(scope): 中文`）；禁止 merge commit。
 完整分支流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
+### PR body 与 commit body 同规
+
+squash 会把 PR body 并进 main 上的 commit body，所以 **PR body 必须按 commit message 的标准写**：
+无 emoji、无对话式内容（人称、互动过程、一次性动作）。
+
+CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verify-commits`，**合并前**就能
+拦住不合规的 PR body。此前只在合并后的 push 事件里校验合并提交，问题要等 main 变红才暴露
+（2026-11-08 事故：PR #349 分支绿、合并后 main 红）。
+
+### 工作树落点
+
+并行开发一律用 git worktree，落点固定在 **`.claude/worktrees/<name>`**。
+
+- 只允许这一层落点。禁止在 `default-workspace/` 或仓库根另建目录（如 `../modelmux-worktrees/`、
+  `../modelmux-desktop-wt`）—— 它们不受 `git worktree` 注册管理，会成为无人回收的裸拷贝。
+- 新建用 `git worktree add .claude/worktrees/<name> -b <branch>`；用完用
+  `git worktree remove .claude/worktrees/<name>` 收尾，不要手删目录（会留下空壳与残留注册）。
+- 工作树里**必须**有独立 `node_modules`（`npm install`）：否则包解析会落到主仓库，
+  改动看似生效、实际跑的是主仓库代码（2026-11-08 实测踩过）。
+- 工作树内验证前先确认包解析指向工作树自己：
+  `node -e "console.log(require('module').createRequire(process.cwd()+'/packages/cli/package.json').resolve('@modelmux/gateway'))"`
+  路径必须含 `.claude/worktrees/<name>`。
+- 大改动用 `npx tsc -b --force` 重建：`tsc -b` 有增量缓存，bundle 会留着旧代码。
+- 已合并的分支与其工作树及时清理（`chore/repo-sync` 的职责之一，见下）。
+
+### repo-sync
+
+仓库收尾统一走 `chore(repo):` 类型的同步提交或 PR，职责固定为：
+
+1. 清理已合并分支与其工作树（`git worktree remove` + `git branch -d`）
+2. 删除过期裸拷贝目录
+3. 核对 `docs/PROGRESS.md` 与 `docs/README.md` 的登记是否还与实际一致
+4. 复核近期 PR body 是否符合「与 commit body 同规」（squash 后即 main 档案）
+5. 报告未推送的本地提交与未合并分支
+
+不夹带功能改动：收尾提交只做清理与登记修正。
+
 ## 代码约定
 
 - 对外只做模型家族表声明的模型（`pool/model-family.ts` 是**唯一**允许出现模型名的地方）：

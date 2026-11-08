@@ -817,6 +817,42 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
   writeIndex(index, cid);
 }
 
+/**
+ * 额度查询成功 → 把 `unauthorized` 复活成 `ok`。
+ *
+ * 为什么需要：`unauthorized` 早先只由「重新登录」清除，理由是「凭据本身失效」。
+ * 但 token 失效**未必永久** —— 上游抖动、临时 401、或用户在别处续了 token，
+ * 都会让凭据恢复可用，而卡住的账号只能靠人工重登（体验与「异常」标签都受影响）。
+ *
+ * 判据用「额度查询成功」而不是「模型请求成功」：额度接口同样要带凭据，能通即证明
+ * 凭据有效；模型请求可能因排队 / 额度 / 内容等原因失败，不足以反推凭据。
+ *
+ * 只在当前**生效账号**上做：用户没在用的那份凭据不该被这条旁路改写。
+ */
+export function reviveUnauthorizedAfterBilling(cid?: string): boolean {
+  let scope: string;
+  try {
+    scope = channelDir(cid);
+  } catch {
+    return false; // 路径不可用（未注册 / 多渠道路由下未给 cid）→ 静默跳过
+  }
+  const index = readIndex(cid);
+  const active = index.active ?? "";
+  if (!active) return false;
+  const hit = index.accounts.find((a) => a.key === active);
+  if (!hit || hit.health !== "unauthorized") return false;
+  hit.health = "ok";
+  hit.health_at = nowIso();
+  hit.fail_streak = 0;
+  hit.trip_until = null;
+  hit.trip_backoff_ms = 0;
+  // 与 `markActiveHealth` 同口径：缓存键是「作用域 + 生效账号」，不更新会让
+  // `route.ts` 的磁盘/内存判据分叉（内存仍是 unauthorized → 该渠道继续被剔除）
+  healthCache.set(healthKey(scope, active), "ok");
+  writeIndex(index, cid);
+  return true;
+}
+
 /** 一天毫秒数（回落「次日 0 点」用）。 */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
