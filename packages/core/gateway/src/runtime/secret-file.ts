@@ -11,47 +11,54 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { chmodSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 /** 唯一临时文件名：`<目标>.{pid}.{随机}.tmp`（跨进程、跨并发都不撞名）。 */
 function tempPathOf(path: string): string {
   return `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
 }
 
-/** 目标当前 mtime（毫秒）；不存在返回 `null`。 */
-function mtimeOf(path: string): number | null {
+/** 目标是否已有一份**完整**内容（并发写被别人抢先时的幂等判据）。 */
+function targetHasContent(path: string): boolean {
   try {
-    return statSync(path).mtimeMs;
+    const stat = statSync(path);
+    return stat.isFile() && stat.size > 0;
   } catch {
-    return null;
+    return false;
   }
 }
 
 /**
  * 原子写入：唯一临时文件 → 同目录 rename → chmod。
  *
- * rename 失败按**幂等**处理，判据是「目标有没有被别的写者更新过」——
- * 用的是**写入前后的 mtime 对比**，不是绝对时刻（绝对时刻区分不出一秒内新建的文件）：
+ * rename 失败**先重试一次**，仍失败才判幂等 —— 这是同时满足两个诉求的折中：
  *
- * - 并发写者赢了 → 它把自己的 tmp rename 到了目标，**mtime 变了** → 视为成功；
- * - 目标被锁 / 只读 / 被其它句柄占着 → 目标还是那份旧文件，**mtime 没变** → 如实抛错。
+ * - **并发写**（本进程的 tmp 被另一个写者 rename 走 / 目标句柄瞬时占用）：
+ *   Windows 上实测偶发 `EPERM` / `ENOENT`，重试一次即可成功。早先不重试，
+ *   在 IO 较慢的目录（如门禁的临时 clone）上会偶发失败，让并发的写者白白报错。
+ * - **目标真被锁死**（只读属性 / 别处长期占着句柄）：重试仍失败，此时才看
+ *   目标有没有完整内容 —— 有就当幂等成功（并发写者确实写完了），没有就抛。
  *
- * 早先只判「目标存在且非空」就当成功，把「被锁」误报成「并发已写完」——
- * integrate 因此会报「已接入」并把**根本没改写的**文件列进 changed。
- * 也不能靠错误码：Windows 上并发与被锁都报 `EPERM`。
+ * 为什么最终判据是「非空」而不是「内容一致」：并发写者写的是它自己那份值，
+ * 与本次必然不同，比内容会把正常的并发成功判成失败。
  */
 export function writeAtomicFile(path: string, body: string, mode: number = 0o600): void {
   const tmp = tempPathOf(path);
-  const before = mtimeOf(path);
   try {
     // 临时文件直接按 0600 建：rename 之前它也在磁盘上，不该有更宽的权限
     writeFileSync(tmp, body, { encoding: "utf8", mode: 0o600 });
     try {
       renameSync(tmp, path);
-    } catch (err) {
-      // 只有「目标已被并发写者更新」（mtime 变了）才吞；否则本次真的没写进去
-      const after = mtimeOf(path);
-      if (after === null || after === before) throw err;
+    } catch (first) {
+      // 重试一次：并发窗口通常在毫秒级，第二次基本就过去了。
+      // 若 tmp 已被别人 rename 走（ENOENT），先补写一份再 rename。
+      try {
+        if (!existsSync(tmp)) writeFileSync(tmp, body, { encoding: "utf8", mode: 0o600 });
+        renameSync(tmp, path);
+      } catch {
+        // 重试也失败：目标已有完整内容 = 并发写者写完了（幂等），否则如实抛首个错误
+        if (!targetHasContent(path)) throw first;
+      }
     }
   } finally {
     // 残留临时文件（写盘中断 / rename 失败）不留
