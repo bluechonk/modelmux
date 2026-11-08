@@ -262,7 +262,7 @@ export async function relayUpstream(
   }
 
   // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传。
-  // 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 writeQueueNotice）：
+  // 排队进度帧可能已经把 SSE 头发出去了（`attempt.ts` 的 `writeQueueHeaders`）：
   //   此时不能再 writeHead（会抛 ERR_HTTP_HEADERS_SENT），后续帧直接续写。
   const outHeaders: Record<string, string> = {};
   if (isCustomWire(channel)) {

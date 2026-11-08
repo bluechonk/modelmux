@@ -13,9 +13,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { channelCount, channelFor, channels, getChannel, type Channel, type Credential, type StreamTranslator, type UpstreamConfig } from "../runtime/channel.js";
-import { runInChannel } from "../runtime/channel-context.js";
-import { poolCandidates } from "../pool/pool-targets.js";
+import { channelCount, channelFor, channels, type UpstreamConfig } from "../runtime/channel.js";
 import { ensureCatalog } from "../pool/catalog-snapshot.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";

@@ -6,7 +6,7 @@
  *  - 每类文件独立大小上限（默认 10MB）、超限轮转 `<name>.1.log` 最多保留 3 份；
  *    日期目录按本地时区切分、默认保留 14 天（过期目录在当日首次写入时清理）
  *  - 所有写入 best-effort：日志失败绝不影响请求
- *  - 控制台日志页经 `queryAccessLogs` 读回；请求正文抓取默认开启、偏好可关（见 docs/LOGGING.md §9）
+ *  - 控制台日志页经 `queryAccessLogs` 读回；请求正文抓取**恒开启、无开关**（见 docs/LOGGING.md §9）
  */
 
 import { randomUUID } from "node:crypto";
@@ -1336,7 +1336,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 请求正文抓取（默认开启，偏好可关 —— 见 docs/LOGGING.md §9）
+// 请求正文抓取（恒开启、无开关 —— 见 docs/LOGGING.md §9）
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
