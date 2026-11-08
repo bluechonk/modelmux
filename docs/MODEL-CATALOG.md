@@ -51,7 +51,7 @@
 | `upstream` | 渠道目录（上游返回）里有该字段 |
 | `spec` | `model-specs.json` 或渠道静态 `catalog.modelSpec()` 提供 |
 | `web_search` | 联网搜索补全写入 `model-specs.json`（`_source` 带 URL） |
-| `cross` | 兄弟渠道同规范模型名的已知值（数值取最小、档位取交集） |
+| `cross` | 兄弟渠道同规范模型名的已知值（数值取最大、档位取交集） |
 | `default` | 谁都没有，使用内置兜底（窗口 200K / 输出 64K） |
 
 ## 4. 五级补全链
@@ -67,10 +67,25 @@
 ```
 
 第 4 级只对**规范模型名相同**的条目生效：`workbuddy/deepseek-v4.1-flash` 与
-`loomy/deepseek-v4.1-flash` 视为同一模型的兄弟渠道。数值取兄弟渠道的最小值
-（更少的承诺），档位取交集（各家都支持才算支持）。
+`loomy/deepseek-v4.1-flash` 视为同一模型的兄弟渠道。数值取兄弟渠道的最大值
+（报能力上限），档位取交集（各家都支持才算支持）。
 
 第 5 级不编造能力：`effort` 保持 `null`，模态只报 `text`，窗口/输出取常见档位下限。
+
+### 4.1 为什么取最大而不是最小
+
+网关对外只卖裸模型名，客户端不指定渠道，由网关按账号池剩余额度挑。所以目录里的
+`context_window` / `max_output_tokens` 必须覆盖**可能落到的所有渠道**。
+
+取最小（旧口径）看起来更安全，实际会把最窄渠道的数字强加给能跑到更宽的渠道：
+2026-11-08 实测 catpaw 报 600K，把 traecn 的 1,048,576 压成 600,000，客户端据此
+判断只剩 59% 余量、不触发自动压缩，一路涨到上游硬顶被 `context length exceeded`
+拒掉。
+
+正确做法是**窄渠道自己退出该型号的候选**，而不是让全池替它降级。渠道在自己的
+`models.json` 里给该条目标 `"hidden": true` 即可（机制见
+`packages/core/gateway/src/runtime/channel-models.ts` 的 `hiddenModelIds`；
+随包快照的 hidden 标记优先级高于用户表），池层据此不再把它列为候选。
 
 ## 5. 快照生成与刷新
 

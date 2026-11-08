@@ -410,7 +410,7 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
   }
 
   console.log(`模型: ${canonical}`);
-  console.log(`\n聚合规格（跨渠道合并；窗口/输出取最小，档位取交集）：`);
+  console.log(`\n聚合规格（跨渠道合并；窗口/输出取最大，档位取交集）：`);
   console.log(`  最大上下文  ${meta.contextWindow.toLocaleString()}`);
   console.log(`  输出上限    ${meta.maxOutputTokens.toLocaleString()}`);
   console.log(`  输入模态    ${meta.inputModalities.join(", ")}`);

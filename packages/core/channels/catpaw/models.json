@@ -44,6 +44,20 @@
       "source": "fallback"
     },
     {
+      "id": "deepseek-v4.1-flash",
+      "name": "DeepSeek-V4.1-Flash",
+      "modelType": 63,
+      "reasoning": true,
+      "contextWindow": 600000,
+      "maxOutput": 131072,
+      "description": "hidden: 本渠道该型号窗口只有 600K（同家族其它渠道 1M），会拉低对外报值并把大上下文请求打回上游拒绝",
+      "supportsImages": false,
+      "multiplier": null,
+      "marketing": "",
+      "source": "fallback",
+      "hidden": true
+    },
+    {
       "id": "LongCat-2.5",
       "name": "LongCat-2.5",
       "modelType": 10002544,

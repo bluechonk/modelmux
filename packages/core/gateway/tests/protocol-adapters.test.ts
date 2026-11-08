@@ -544,6 +544,67 @@ describe("count tokens estimator", () => {
     });
     assert.ok(n > 10);
   });
+
+  it("chat 形态（翻译后）的工具 schema 与 tool_calls 不能漏算", () => {
+    // relay.ts:220 传进来的是 translateAnthropicRequest 的产物（chat 形态）。
+    // 回归 2026-11-08 事故：只认原生 input_schema 时整段 schema 被漏掉，
+    // 实测同一请求低估 2.46x，面板显示 59% 假余量，客户端不压缩历史直到撞上游硬顶。
+    const schema = {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "the shell command to run in the workspace" },
+        timeout: { type: "number", description: "timeout in milliseconds" },
+      },
+      required: ["command"],
+    };
+    const chatShape = {
+      model: "deepseek-v4.1-flash",
+      messages: [
+        { role: "system", content: "系统提示" },
+        { role: "user", content: "列一下文件" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              type: "function",
+              id: "call_1",
+              function: { name: "shell", arguments: JSON.stringify({ command: "ls -la", timeout: 30000 }) },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "total 0 drwxr-xr-x" },
+      ],
+      tools: [{ type: "function", function: { name: "shell", description: "run commands", parameters: schema } }],
+    };
+    const chat = estimateInputTokens(chatShape);
+
+    // 同语义原生形态：量级必须接近（差异只来自消息结构开销）
+    const nativeShape = {
+      system: "系统提示",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "列一下文件" }] },
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "call_1", name: "shell", input: { command: "ls -la", timeout: 30000 } }],
+        },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "total 0 drwxr-xr-x" }] },
+      ],
+      tools: [{ name: "shell", description: "run commands", input_schema: schema }],
+    };
+    const native = estimateInputTokens(nativeShape);
+    assert.ok(
+      chat >= native * 0.9,
+      `chat 形态估算 ${chat} 不应明显低于原生形态 ${native}（工具 schema 被漏算的回归）`,
+    );
+
+    // schema 必须计入：去掉 parameters 后估算显著下降
+    const withoutSchema = estimateInputTokens({
+      ...chatShape,
+      tools: [{ type: "function", function: { name: "shell", description: "run commands" } }],
+    });
+    assert.ok(chat > withoutSchema + 20, `工具 schema 必须计入估算（${chat} vs 无 schema ${withoutSchema}）`);
+  });
 });
 
 describe("inbound model resolution", () => {

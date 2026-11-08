@@ -25,8 +25,20 @@ export function estimateTextTokens(text: string): number {
 const PER_MESSAGE_OVERHEAD = 4;
 
 /**
- * 估算 Anthropic 请求体的 input tokens：
- * system + 全部消息文本 + 工具 schema（Claude Code 的工具定义占大头，不能漏）。
+ * 估算请求体的 input tokens：system + 全部消息 + 工具 schema。
+ *
+ * **必须同时认 Anthropic 原生形态与 OpenAI chat 形态**：本函数的调用点
+ * `relay.ts:220` 传进来的是 `translateAnthropicRequest` **翻译后**的 chat payload
+ * （`parsed.payload`），不是客户端原始体。只认原生形态会让工具 schema 整段漏算 ——
+ * 实测同一请求 2.46x 低估、面板显示 59% 的假余量，客户端因此不触发自动压缩，
+ * 一路涨到上游硬顶被 `context length exceeded` 拒掉（2026-11-08 实测 traecn）。
+ *
+ * 两种形态的差异：
+ *   - 工具定义：原生 `tools[].input_schema` ↔ chat `tools[].function.parameters`
+ *   - 工具调用：原生 `content[].type="tool_use"` ↔ chat `message.tool_calls[].function.arguments`
+ *
+ * 对同构字段做了形态探测而非二选一：同一份 body 里两种形态不会并存，
+ * 但调用方（含测试）可能直接传原生体，两处都要覆盖。
  */
 export function estimateInputTokens(body: Rec): number {
   let total = 0;
@@ -44,6 +56,7 @@ export function estimateInputTokens(body: Rec): number {
       const message = raw as Rec;
       total += PER_MESSAGE_OVERHEAD;
       total += estimateMessageContent(message["content"]);
+      total += estimateToolCalls(message["tool_calls"]);
     }
   }
 
@@ -51,11 +64,27 @@ export function estimateInputTokens(body: Rec): number {
     for (const raw of body["tools"]) {
       if (!raw || typeof raw !== "object") continue;
       const tool = raw as Rec;
-      total += estimateTextTokens(`${String(tool["name"] ?? "")} ${String(tool["description"] ?? "")}`);
-      if (tool["input_schema"] !== undefined) {
-        total += estimateTextTokens(JSON.stringify(tool["input_schema"]));
-      }
+      // chat 形态把 name/description/parameters 包在 function 里；原生形态在顶层
+      const fn = tool["function"] && typeof tool["function"] === "object" ? (tool["function"] as Rec) : tool;
+      total += estimateTextTokens(`${String(fn["name"] ?? "")} ${String(fn["description"] ?? "")}`);
+      const schema = fn["input_schema"] ?? fn["parameters"];
+      if (schema !== undefined) total += estimateTextTokens(JSON.stringify(schema));
     }
+  }
+  return total;
+}
+
+/** chat 形态的 assistant 工具调用：`tool_calls[].function.{name,arguments}`。 */
+function estimateToolCalls(raw: unknown): number {
+  if (!Array.isArray(raw)) return 0;
+  let total = 0;
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const fn = (item as Rec)["function"];
+    if (!fn || typeof fn !== "object") continue;
+    const f = fn as Rec;
+    total += estimateTextTokens(String(f["name"] ?? ""));
+    total += estimateTextTokens(String(f["arguments"] ?? ""));
   }
   return total;
 }
