@@ -46,7 +46,8 @@ Chromium 缓存竞争，无害，harness 已过滤。真正的错误会以 `dsh:
 免费模型（如 longcat-2.0）上游就慢（实测 26s 一句 pong），不是链路问题；以网关日志
 `status: 200` 与 `stopReason=end_turn` 为准，超时给足（工具往返建议 180s）。
 
-## 「我放弃了，换一个吧」结束的会话
+## `503 upstream_queued` 结束的会话
 
-不是模型说的，是网关排队预算耗尽的兜底文案——判上游拥堵，换模型重试，别当协议故障。
-判据与出处见 [gateway-quirks.md](gateway-quirks.md)。
+上游在排队，网关**直接放弃该渠道并换下一条**（不等待）。所有候选都在排队才回
+`503 upstream_queued` —— 判该模型上游拥堵：给渠道加供给或换模型重跑，别当协议故障。
+判断细节见 [gateway-quirks.md](gateway-quirks.md)。

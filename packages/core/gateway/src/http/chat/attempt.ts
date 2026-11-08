@@ -33,8 +33,6 @@ import {
   loadCredentialSafe,
   PROBE_RETRY_BASE_MS,
   PROBE_RETRY_MAX,
-  queueBudgetMs,
-  QUEUE_RETRY_MAX_DELAY_MS,
   type ProbeFrames,
   type QueueProbe,
 } from "./queue.js";
@@ -60,17 +58,12 @@ export interface ChatError {
 export interface ProbeState {
   /** 探测消费掉的帧，按原序交回转发层。 */
   frames: ProbeFrames;
-  /** 排队等待预算耗尽（转发层据此给明确错误）。 */
-  queuedOut: boolean;
   /**
    * 一出现排队就放弃本候选、换下一个渠道。
    *
-   * 与 `queuedOut` 的区别：那个是「等够预算才放弃」，这个是「上游一说排队就走」。
    * 置位后返回 `retry`，编排层换下一条候选 —— 排队请求永不被接受。
    */
   switchChannel: boolean;
-  /** 排队放弃文案：预算耗尽时由探测层填，转发层据此回**正常应答**而不是错误帧。 */
-  giveUpText: string | null;
   /** 探测层失败（这条流已死，不能进转发层）。 */
   failed: boolean;
   /** 探测失败时的错误三元组（未失败时用兜底值占位）。 */
@@ -337,57 +330,8 @@ async function reopenForProbe(
   return next;
 }
 
-// ── 排队进度（不向客户端输出任何排队文案）──────────────────────
-
 /**
- * 排队放弃文案：超过预算就不再干等，直接劝主人换渠道。
- *
- * 带**真实渠道 id**（不是字面的 `<cid>`）—— 主人要知道是哪一家在拖时间。
- */
-function queueGiveUpText(cid: string, round: number): string {
-  const lines = [
-    `别用垃圾 ${cid} 了！我等到黄花菜都凉了……换一个吧，主人。`,
-    `${cid} 这队伍排到天荒地老了，我放弃了。换一个吧！`,
-    `${cid} 还在排队，我的尾鳍都等扁了。主人，换一个吧！`,
-  ];
-  // round 是 0-based 的排队轮次（非流式恒 0；流式在每轮等待后递增）。早期实现按
-  // 1-based 传并写 (round - 1) % len：round=0 时 JS 负取模算出 -1，取到 undefined，
-  // 非空断言骗过类型 —— 劝换文案静默变回 503 错误信封（非流式必踩、流式首轮也踩）。
-  return lines[round % lines.length]!;
-}
-
-/**
- * 排队期间只发 SSE 响应头 + 空 role 帧，**不发任何可见文本**。
- *
- * 为什么不发排队文案：agent 客户端会把上一轮 assistant
- * 输出回灌进下一轮上下文，排队提示（「正在排队…」）会污染模型输入、影响效果。
- * 空 role 帧只为尽早建立流（客户端按 SSE 语法解析），不产生任何可回灌内容。
- * **只对流式请求调用**：非流式没有 SSE 通道，排队期间保持沉默（探测层不写字节）。
- */
-function writeQueueHeaders(
-  res: ServerResponse,
-  payload: Record<string, unknown>,
-  progressId: string,
-  created: number,
-): void {
-  if (res.headersSent) return;
-  res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-  const frame = `data: ${JSON.stringify({
-    id: progressId,
-    object: "chat.completion.chunk",
-    created,
-    model: payload["model"],
-    choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
-  })}\n\n`;
-  // 入站协议编码器在场时走转译（anthropic message_start / responses created），
-  // 否则空 role 帧会以 OpenAI 形漏给协议客户端
-  const sink = sinkOf(res);
-  if (sink) sink.writeOpenAiFrame(frame);
-  else res.write(frame);
-}
-
-/**
- * 排队探测子循环：响应头发出前把「排队帧」等掉，直到出内容或预算耗尽。
+ * 排队探测子循环：响应头发出前把「排队帧」等掉，一旦确认排队即放弃本候选。
  *
  * 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
  *   转发层必须**原序**交出这些帧，并**接着用同一个**翻译器实例（半行缓冲在里面）。
@@ -403,20 +347,13 @@ async function runQueueProbe(
   state: ProbeState,
   call: UpstreamCall,
 ): Promise<UpstreamCall> {
-  const { ctx, channel, cid, sendBody } = env;
+  const { ctx, channel, cid } = env;
   const { payload, logger, res } = ctx;
-  const startedAt = Date.now();
-  const progressId = `chatcmpl-queue-${startedAt.toString(36)}`;
-  const progressCreated = Math.floor(startedAt / 1000);
-  let queueRound = 0;
   // 客户端断连检测：客户端断开时 Node 触发 res 的 `close` 事件，但**不一定**置
   // `res.destroyed`（实测：要等一次写失败后才置位）—— 必须挂 close 监听，
-  // 否则探测会在客户端走后继续按预算空转（实测白打 4 分钟上游）。
+  // 否则探测会在客户端走后继续空转。
   let clientGone = res.destroyed || res.writableEnded;
-  const clientClosed = new Promise<void>((resolve) => {
-    if (clientGone) resolve();
-    else res.once("close", () => { clientGone = true; resolve(); });
-  });
+  if (!clientGone) res.once("close", () => { clientGone = true; });
   for (;;) {
     // 客户端已断开：探测再久也没有收件人，立即止损（释放上游流、结束应答）。
     if (clientGone || res.destroyed || res.writableEnded) {
@@ -492,59 +429,10 @@ async function runQueueProbe(
       logger(`upstream queued (channel ${cid}) — switching to next candidate without waiting`);
       break;
     }
-    const elapsed = Date.now() - startedAt;
-    const delayMs = Math.min(probe.delayMs ?? QUEUE_RETRY_MAX_DELAY_MS, QUEUE_RETRY_MAX_DELAY_MS);
-    if (elapsed + delayMs > queueBudgetMs()) {
-      logger(`queue wait budget exhausted (channel ${cid}, waited ${Math.round(elapsed / 1000)}s)`);
-      state.queuedOut = true;
-      // 不再干等：把「劝主人换渠道」的文案交给转发层作为正常应答返回
-      state.giveUpText = queueGiveUpText(cid, queueRound);
-      break;
-    }
-    logger(`upstream queued (channel ${cid}), waiting ${Math.round(delayMs / 1000)}s before retry`);
-    // 排队期间**不向客户端输出任何文本**（会回灌进下一轮模型上下文，污染效果）：
-    // 流式只发一次 SSE 响应头 + 空 role 帧建立流，后续静默等待。
-    if (ctx.wantStream) {
-      queueRound += 1;
-      try {
-        writeQueueHeaders(res, payload, progressId, progressCreated);
-      } catch {
-        /* 客户端已断：交给循环顶部的断连检测 */
-      }
-    }
-    // 等待期与「客户端断开」竞速：断开就立刻醒，最多省一个轮次的空转。
-    await Promise.race([
-      new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, delayMs);
-        timer.unref?.();
-      }),
-      clientClosed,
-    ]);
-    // 同 reopenForProbe：凭据真故障留痕并放弃本轮重开，不能让异常穿透
-    //（runQueueProbe 的调用点没有 try，抛出去就是网关 500 / SSE 截断）。
-    let credential: ReturnType<typeof loadCredentialSafe>;
-    try {
-      credential = loadCredentialSafe(channel);
-    } catch (err) {
-      logger(`queue retry aborted: credential read failed (channel ${cid}): ${String(err)}`);
-      state.queuedOut = true;
-      break;
-    }
-    if (!credential) {
-      logger(`queue retry aborted: no credential available (channel ${cid})`);
-      state.queuedOut = true;
-      break;
-    }
-    const next = await inChannel(channel, () => openStream(channel, credential, sendBody));
-    if (!next.ok) {
-      // 重开失败（连接/鉴权）→ 放弃排队等待，按原结果走后续错误处理
-      logger(`queue retry reopen failed (channel ${cid}): ${String(next.error?.message ?? "")}`);
-      state.queuedOut = true;
-      break;
-    }
-    // 旧流已消费完：释放 reader 锁并丢弃剩余数据，再换新流
-    await call.body?.cancel().catch(() => {});
-    call = next;
+    // 到此已穷尽：上面两个分支（`!probe.queued || probe.hasContent` 与
+    // `probe.queued && !probe.hasContent`）互补，必然命中其中之一并 break。
+    // 这里保留一句 break 作为不变量 —— 将来加分支时若漏了条件，不会静默死循环。
+    break;
   }
   return call;
 }
@@ -728,9 +616,7 @@ export async function attemptCandidate(
   // 只在**响应头发出前**做：一旦开始向客户端写字节就不能再换请求。
   const state: ProbeState = {
     frames: [],
-    queuedOut: false,
     switchChannel: false,
-    giveUpText: null,
     failed: false,
     error: probeFallbackError(cid),
     translator: undefined,
@@ -886,8 +772,6 @@ export async function attemptCandidate(
     wantStream: ctx.wantStream,
     logger,
     pendingFrames: state.frames,
-    queuedOut: state.queuedOut,
-    giveUpText: state.giveUpText,
     probeTranslator: state.translator,
     request: payload,
     freeModel,
