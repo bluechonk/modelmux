@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
-import { poolModels } from "../pool/pool-targets.js";
+import { poolModelMetas, poolModels } from "../pool/pool-targets.js";
 import { defaultAddr } from "../runtime/cli-consts.js";
 import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile, writeJsonSecret } from "../runtime/secret-file.js";
@@ -75,6 +75,23 @@ const DSH_CREDENTIAL_REF = "MODELMUX_API_KEY";
 function exposedModels(): string[] {
   const pooled = poolModels();
   return pooled.length > 0 ? [...pooled] : [...POOL_EXPOSED_IDS];
+}
+
+/**
+ * 取每个对外模型的输入模态（`["text"]` / `["text","image"]`）。
+ *
+ * 写在客户端配置里的模型条目要声明自己能收什么 —— 声明错了客户端会在本地就
+ * 把图片拦下，网关再能转也没用（dsh 实测就是这个症状）。
+ */
+function modelModalities(models: string[]): ModalityMap {
+  const out: ModalityMap = new Map();
+  const metas = poolModelMetas(models);
+  for (const model of models) {
+    const m = metas.get(model);
+    // 元数据缺失时保守按纯文本：宁可在客户端少声明，也不要声明了却转不过去
+    out.set(model, m && m.inputModalities.length > 0 ? m.inputModalities : ["text"]);
+  }
+  return out;
 }
 
 /** 本次接入的对外模型名（供调用方/测试注入）。 */
@@ -334,19 +351,28 @@ function findKey(lines: string[], indent: number, key: string): number {
   return -1;
 }
 
-/** 渲染一个 dsh 模型条目（缩进 = `indent`）。 */
-function renderDshModel(indent: number, model: string): string[] {
+/** 模型 → 输入模态（`["text"]` / `["text","image"]`）；缺省按纯文本处理。 */
+type ModalityMap = Map<string, readonly string[]>;
+
+/**
+ * 渲染一个 dsh 模型条目（缩进 = `indent`）。
+ *
+ * `input` 必须是模型的**真实**模态：早先固定写 `[text]`，支持图片的模型接进 dsh
+ * 后发图会被它自己拦下（模型清单声明「只收文本」），而网关其实转得过去 ——
+ * 这是「一键接入后图片功能消失」的直接原因。
+ */
+function renderDshModel(indent: number, model: string, inputModalities: readonly string[]): string[] {
   const pad = " ".repeat(indent);
   return [
     `${pad}- id: ${model}`,
     `${pad}  name: ${model}`,
     `${pad}  input:`,
-    `${pad}    - text`,
+    ...inputModalities.map((m) => `${pad}    - ${m}`),
   ];
 }
 
 /** 渲染完整的 `llm-pi-ai` patch 条目（顶层，缩进 0）。 */
-function renderDshProviderEntry(models: string[]): string[] {
+function renderDshProviderEntry(models: string[], modalities: ModalityMap): string[] {
   const lines = [
     `- id: ${DSH_PLUGIN_ID}`,
     `  name: "@deepseek-ai/dsh-llm-pi-ai"`,
@@ -359,7 +385,7 @@ function renderDshProviderEntry(models: string[]): string[] {
     `        baseURL: ${gatewayBaseUrl()}`,
     `        models:`,
   ];
-  for (const model of models) lines.push(...renderDshModel(10, model));
+  for (const model of models) lines.push(...renderDshModel(10, model, modalities.get(model) ?? ["text"]));
   return lines;
 }
 
@@ -533,12 +559,13 @@ function integrateDsh(models: string[]): IntegrationResult {
   // 说成已接入 —— 那比报错更具误导性（界面 toast「已接入」，实际什么都没接）。
   let profileSeen = 0;
   let profileChanged = 0;
+  const modalities = modelModalities(models);
   for (const profile of DSH_PROFILES) {
     const file = join(profilesDir, profile, "cordis.patch.yml");
     if (!existsSync(file)) continue;
     profileSeen += 1;
     const original = readFileSync(file, "utf8");
-    const next = upsertDshPatch(original, profile, models);
+    const next = upsertDshPatch(original, profile, models, modalities);
     if (next === original) {
       result.unchanged.push(file);
       continue;
@@ -572,7 +599,7 @@ function integrateDsh(models: string[]): IntegrationResult {
  * 改写单个 dsh profile patch：替换 `providers.modelmux.models` 列表；
  * provider 不存在时追加完整条目；`acp` profile 再补 ACP 路由条目。
  */
-function upsertDshPatch(text: string, profile: string, models: string[]): string {
+function upsertDshPatch(text: string, profile: string, models: string[], modalities: ModalityMap): string {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
 
@@ -586,12 +613,12 @@ function upsertDshPatch(text: string, profile: string, models: string[]): string
     // 整份替换会把它们全删掉（2026-11-08 实测：`- id: other-plugin` 整块消失），
     // 而界面还会报「已接入」。
     while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
-    const body = [...renderDshProviderEntry(models)];
+    const body = [...renderDshProviderEntry(models, modalities)];
     if (profile === "acp") body.push(...renderDshAcpEntry(models[0]!));
     // 原有内容与追加条目之间留一个空行（YAML 顶层序列彼此紧邻也能解析，留空只为可读）
     out = lines.length > 0 ? [...lines, "", ...body] : body;
   } else {
-    out = replaceDshModels(lines, providerIdx, models);
+    out = replaceDshModels(lines, providerIdx, models, modalities);
     if (profile === "acp" && !lines.some((l) => /^- id: acp\s*$/.test(l))) {
       out = [...out, ...renderDshAcpEntry(models[0]!)];
     }
@@ -606,7 +633,7 @@ function upsertDshPatch(text: string, profile: string, models: string[]): string
  * 定位规则：provider 行的缩进为 `p`；`models:` 必须出现在缩进 **大于 p** 的范围内
  * （ provider 的子键），列表项再深一层。找不到 `models:` 时插到 provider 块末尾。
  */
-function replaceDshModels(lines: string[], providerIdx: number, models: string[]): string[] {
+function replaceDshModels(lines: string[], providerIdx: number, models: string[], modalities: ModalityMap): string[] {
   const p = indentOf(lines[providerIdx]!);
   let end = lines.length;
   let childIndent = -1;
@@ -629,7 +656,7 @@ function replaceDshModels(lines: string[], providerIdx: number, models: string[]
     // 插到 provider 块最后一行之后（跳过尾部空行）
     let at = end;
     while (at > providerIdx + 1 && isBlank(next[at - 1]!)) at -= 1;
-    next.splice(at, 0, `${" ".repeat(childIndent)}models:`, ...renderDshModelItems(childIndent + 2, models));
+    next.splice(at, 0, `${" ".repeat(childIndent)}models:`, ...renderDshModelItems(childIndent + 2, models, modalities));
     return next;
   }
 
@@ -641,14 +668,14 @@ function replaceDshModels(lines: string[], providerIdx: number, models: string[]
   // 去掉替换区间尾部混进来的空行（它们属于块外）
   let last = stop;
   while (last > modelsLine + 1 && isBlank(next[last - 1]!)) last -= 1;
-  next.splice(modelsLine + 1, last - (modelsLine + 1), ...renderDshModelItems(itemIndent, models));
+  next.splice(modelsLine + 1, last - (modelsLine + 1), ...renderDshModelItems(itemIndent, models, modalities));
   return next;
 }
 
 /** 渲染 models 列表项（`- id: …` 形式）。 */
-function renderDshModelItems(indent: number, models: string[]): string[] {
+function renderDshModelItems(indent: number, models: string[], modalities: ModalityMap): string[] {
   const out: string[] = [];
-  for (const model of models) out.push(...renderDshModel(indent, model));
+  for (const model of models) out.push(...renderDshModel(indent, model, modalities.get(model) ?? ["text"]));
   return out;
 }
 

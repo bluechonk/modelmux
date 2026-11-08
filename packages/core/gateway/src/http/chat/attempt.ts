@@ -62,6 +62,13 @@ export interface ProbeState {
   frames: ProbeFrames;
   /** 排队等待预算耗尽（转发层据此给明确错误）。 */
   queuedOut: boolean;
+  /**
+   * 一出现排队就放弃本候选、换下一个渠道。
+   *
+   * 与 `queuedOut` 的区别：那个是「等够预算才放弃」，这个是「上游一说排队就走」。
+   * 置位后返回 `retry`，编排层换下一条候选 —— 排队请求永不被接受。
+   */
+  switchChannel: boolean;
   /** 排队放弃文案：预算耗尽时由探测层填，转发层据此回**正常应答**而不是错误帧。 */
   giveUpText: string | null;
   /** 探测层失败（这条流已死，不能进转发层）。 */
@@ -471,6 +478,20 @@ async function runQueueProbe(
       state.translator = probe.translator;
       break;
     }
+    // 上游明确说「在排队」且尚未出内容 —— 直接放弃本候选，换下一个渠道。
+    //
+    // 主人要的行为：**排队请求一律不接受**，宁可换渠道也不等。排队的响应体已经
+    // 消费进 `probe.frames`，交给编排层的下一个候选即可；本流的 reader 在这里
+    // 释放（continue 前先 cancel），不留悬挂连接。
+    //
+    // 为什么放在预算判断**之前**：预算是「等多久」，而这里根本不该等 ——
+    // 先判排队就能连第一轮 delay 也省掉（qoder 实测首轮就要等 15s+）。
+    if (probe.queued && !probe.hasContent) {
+      await call.body?.cancel().catch(() => {});
+      state.switchChannel = true;
+      logger(`upstream queued (channel ${cid}) — switching to next candidate without waiting`);
+      break;
+    }
     const elapsed = Date.now() - startedAt;
     const delayMs = Math.min(probe.delayMs ?? QUEUE_RETRY_MAX_DELAY_MS, QUEUE_RETRY_MAX_DELAY_MS);
     if (elapsed + delayMs > queueBudgetMs()) {
@@ -708,6 +729,7 @@ export async function attemptCandidate(
   const state: ProbeState = {
     frames: [],
     queuedOut: false,
+    switchChannel: false,
     giveUpText: null,
     failed: false,
     error: probeFallbackError(cid),
@@ -721,6 +743,18 @@ export async function attemptCandidate(
   if (call.ok && isCustomWire(channel) && channel.upstream.isQueueError) {
     const env: ProbeEnv = { ctx, channel, cid, sendBody };
     const probedCall = await runQueueProbe(env, state, call);
+    if (state.switchChannel) {
+      // 上游在排队、一个内容都没出：换下一条候选，绝不接受排队请求。
+      // 流已在 `runQueueProbe` 里 cancel 过，这里只报错给编排层。
+      return {
+        kind: "retry",
+        error: {
+          status: 503,
+          code: "upstream_queued",
+          message: `upstream queued [${cid}]: switched to next candidate instead of waiting`,
+        },
+      };
+    }
     if (state.failed) {
       // 探测层异常：这条流已死，跳过转发层（call.ok 仍是 true，不能让它进转发层）
       await probedCall.body?.cancel().catch(() => {});

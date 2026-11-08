@@ -214,8 +214,8 @@ describe("排队进度推送与断连止损", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("排队两轮：只发 SSE 头与空 role 帧，不向客户端输出任何排队文案", async () => {
-    const upstream = await fakeUpstream("queue", 2); // 前 2 次排队，第 3 次成功
+  it("排队即放弃：不发任何排队进度帧，也不把排队帧透传给客户端", async () => {
+    const upstream = await fakeUpstream("queue", 2); // 前 2 次排队，第 3 次才出内容
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
     try {
       const resp = await fetch(`http://${gw.addr}/v1/chat/completions`, {
@@ -228,31 +228,31 @@ describe("排队进度推送与断连止损", () => {
         }),
       });
       const text = await resp.text();
-      assert.equal(resp.status, 200, `日志: ${logs.join(" | ")}`);
-      assert.equal(resp.headers.get("content-type") ?? "", "text/event-stream; charset=utf-8", "进度帧要求 SSE 头");
-      // 排队文案会回灌进下一轮模型上下文、影响效果 → 一律不发。
+      // 语义变更（2026-11-08）：排队请求一律不接受，直接换下一个候选。
+      // 单渠道用例下最终失败 —— 但**客户端绝不会看到任何排队相关字节**。
+      assert.equal(resp.status, 503, `排队应直接放弃（日志: ${logs.join(" | ")}）`);
+      assert.ok(!text.includes("10605"), "排队帧不能透传");
       assert.ok(!text.includes("正在排队"), "不该出现排队进度文案");
       assert.ok(!text.includes("排队成功"), "不该出现「排队成功」分界文案");
-      assert.ok(!text.includes("10605"), "排队帧不能透传");
-      // 真实内容完整到达
-      assert.ok(text.includes("queued-ok"), "真实内容必须完整")
-      // 空 role 帧建立流（无可见文本）
+      assert.ok(!text.includes("queued-ok"), "没等到出内容就放弃了，不该有内容");
+      // 关键：不建流、不发空 role 帧 —— 早先要发 SSE 头等排队，现在根本不等
       assert.ok(
-        text.includes('"delta":{"role":"assistant","content":""}'),
-        "应发一次空 role 帧建立 SSE 流",
+        !text.includes('"delta":{"role":"assistant","content":""}'),
+        "排队时不该建立 SSE 流（不发空 role 帧）",
       );
-      // 空 role 帧只在最前出现一次（每轮不重复）
-      assert.equal(text.split('"delta":{"role":"assistant","content":""}').length - 1, 1);
     } finally {
       await new Promise<void>((r) => upstream.server.close(() => r()));
     }
   });
 
-  it("排队超过预算：直接回正常应答劝主人换渠道", async () => {
-    process.env["MODELMUX_QUEUE_BUDGET_MS"] = "2500";
+  it("永远排队的渠道：立即放弃，不再等预算耗尽", async () => {
+    // 预算设成 30 秒 —— 新语义下这个预算根本用不上（排队即走）。
+    // 本用例验证：**不等**，所以耗时远小于预算。
+    process.env["MODELMUX_QUEUE_BUDGET_MS"] = "30000";
     const upstream = await fakeUpstream("always", 0); // 永远排队
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
     try {
+      const startedAt = Date.now();
       const resp = await fetch(`http://${gw.addr}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -263,18 +263,12 @@ describe("排队进度推送与断连止损", () => {
         }),
       });
       const text = await resp.text();
-      assert.equal(resp.status, 200);
-      // 放弃文案带**真实渠道 id**，且作为正常应答收尾（不是 upstream_queued 错误帧）。
-      // 文案按轮次轮换，故只断言「带 cid」与「劝换渠道」这两个不变量。
-      const giveUpPatterns = [`别用垃圾 ${CID}`, `${CID} 这队伍`, `${CID} 还在排队`];
-      assert.ok(
-        giveUpPatterns.some((p) => text.includes(p)),
-        `放弃文案应带真实渠道 id，实际: ${text}`,
-      );
-      assert.ok(text.includes("换一个吧"), `放弃文案应劝主人换渠道，实际: ${text}`);
-      assert.ok(!text.includes("upstream_queued"), "放弃时不该回 upstream_queued 错误帧");
-      assert.ok(text.includes('"finish_reason":"stop"'), "放弃文案应作为正常应答收尾");
-      assert.ok(text.includes("data: [DONE]"), "放弃文案应带 [DONE]");
+      const elapsed = Date.now() - startedAt;
+      assert.equal(resp.status, 503, `排队应直接失败（日志: ${logs.join(" | ")}）`);
+      // 早先会等到预算耗尽（30s）；现在应当**秒回**
+      assert.ok(elapsed < 5000, `排队应秒回，实际耗时 ${elapsed}ms（预算 30s）`);
+      // 放弃文案按旧设计是「正常应答」；新设计是错误码 + 换渠道，不再有这套文案
+      assert.ok(!text.includes("换一个吧"), `不该再发放弃文案，实际: ${text.slice(0, 200)}`);
     } finally {
       delete process.env["MODELMUX_QUEUE_BUDGET_MS"];
       await new Promise<void>((r) => upstream.server.close(() => r()));
