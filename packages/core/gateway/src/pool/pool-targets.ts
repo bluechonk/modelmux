@@ -941,7 +941,11 @@ export const POOL_MODEL_META: Record<string, PoolModelMeta> = new Proxy({} as Re
     // `valueOf` / `constructor` …）都不是模型名：一律走默认语义。
     // 把它们送进模型名解析会让字符串化（`String(POOL_MODEL_META)`、模板串）拿到
     // 一个不可调用的对象，最终抛 `TypeError: Cannot convert object to primitive value`。
-    if (typeof prop !== "string" || prop in Object.prototype) return Reflect.get(target, prop, receiver);
+    // 用 `hasOwn` 而非 `in`：`in` 会走原型链，若同进程任何地方给 `Object.prototype`
+    // 挂了属性，这个判据就会把真实模型名误判成「原型成员」而放行到默认语义。
+    if (typeof prop !== "string" || Object.hasOwn(Object.prototype, prop)) {
+      return Reflect.get(target, prop, receiver);
+    }
     return getPoolModelMeta(prop);
   },
 });
