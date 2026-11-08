@@ -26,6 +26,13 @@ let upstreamError: { status: number; body: Record<string, unknown> | string };
 
 async function fakeUpstream(): Promise<{ server: Server; url: string }> {
   const server = createServer((_req, res) => {
+    // 流内错误帧形态：上游 HTTP 200 + SSE 里投递业务错误（traecn / qoder 系的做法）
+    if (typeof upstreamError.body === "object" && upstreamError.body["__sseFrame"] === true) {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      const { __sseFrame: _ignored, ...frame } = upstreamError.body as Record<string, unknown>;
+      res.end(`data: ${JSON.stringify({ error: frame })}\n\n`);
+      return;
+    }
     res.writeHead(upstreamError.status, { "Content-Type": "application/json" });
     if (typeof upstreamError.body === "string") {
       res.end(upstreamError.body);
@@ -166,5 +173,35 @@ describe("上游错误透传", () => {
     const err = (JSON.parse(text) as { error: { message: string } }).error;
     assert.match(err.message, /^\[solo\] upstream returned HTTP 503/);
     assert.match(err.message, /plain text gateway outage/);
+  });
+
+  it("流内错误帧报上下文超限：回 400 而非 502（客户端不该重试）", async () => {
+    // 事故路径：上游 HTTP 200 + SSE 错误帧（2026-11-08 traecn code=4026）。
+    // 之前这里硬编码 502，Claude Code 判定「服务端临时故障」，对着同一条超限
+    // 请求连撞 36 次 —— 而上下文体量不会自己变小。
+    upstreamError = {
+      status: 200,
+      body: {
+        __sseFrame: true,
+        code: "4026",
+        message: "We're sorry, your context length has exceeded the maximum limit.",
+      },
+    };
+    const { status, text } = await chat(gw.addr);
+    assert.equal(status, 400, `上下文超限应回 400（实际 ${status}: ${text.slice(0, 200)}）`);
+    const err = (JSON.parse(text) as { error: { code: string; message: string } }).error;
+    assert.equal(err.code, "4026", "上游业务码原样保留，便于排查");
+    assert.match(err.message, /context length has exceeded/);
+  });
+
+  it("流内错误帧报其他业务错：仍回 502（不误判成客户端问题）", async () => {
+    upstreamError = {
+      status: 200,
+      body: { __sseFrame: true, code: "5001", message: "upstream internal hiccup, please retry" },
+    };
+    const { status, text } = await chat(gw.addr);
+    assert.equal(status, 502, `非上下文类业务错误应仍报 502（实际 ${status}: ${text.slice(0, 200)}）`);
+    const err = (JSON.parse(text) as { error: { code: string } }).error;
+    assert.equal(err.code, "5001");
   });
 });
