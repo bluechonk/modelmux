@@ -71,31 +71,31 @@ function cache(cid: string, rows: Array<Record<string, unknown>>): void {
   writeCatalogCache(rows.map((row) => ({ id: "deepseek-v4.1-flash", ...row })), cid);
 }
 
-describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () => {
+describe("数值口径：兄弟渠道取最大，本渠道已有值不动", () => {
   // 每个用例都会重排渠道注册表 / 重写目录缓存 —— 索引缓存必须跟着失效，
   // 否则会读到上一个用例的索引（生产里对应「目录变化 → 显式失效」那一步）
   beforeEach(() => invalidateCrossModelIndex());
 
-  it("本渠道声明的值优先于兄弟渠道（不被更小的值改小）", () => {
+  it("本渠道声明的值优先于兄弟渠道（不被更大的值覆盖）", () => {
     use({ cid: "alpha" }, { cid: "beta" });
     cache("alpha", [{ contextWindow: 1_000_000, maxOutput: 300_000 }]);
     cache("beta", [{ contextWindow: 400_000, maxOutput: 100_000 }]);
     const index = buildCrossModelIndex();
 
-    assert.equal(index.get("deepseek-v4.1-flash")?.contextWindow, 400_000, "索引里的窗口取兄弟最小值");
-    assert.equal(index.get("deepseek-v4.1-flash")?.maxOutputTokens, 100_000, "索引里的输出上限取兄弟最小值");
+    assert.equal(index.get("deepseek-v4.1-flash")?.contextWindow, 1_000_000, "索引里的窗口取兄弟最大值");
+    assert.equal(index.get("deepseek-v4.1-flash")?.maxOutputTokens, 300_000, "索引里的输出上限取兄弟最大值");
 
     const alpha = getChannelModelMeta("alpha", "deepseek-v4.1-flash", index);
-    assert.equal(alpha.contextWindow, 1_000_000, "本渠道声明的 1M 不能被兄弟的 400k 改小");
+    assert.equal(alpha.contextWindow, 1_000_000);
     assert.equal(alpha.maxOutputTokens, 300_000);
     assert.equal(alpha.sources.contextWindow, "upstream");
 
     const beta = getChannelModelMeta("beta", "deepseek-v4.1-flash", index);
-    assert.equal(beta.contextWindow, 400_000);
+    assert.equal(beta.contextWindow, 400_000, "本渠道声明的 400k 不能被兄弟的 1M 改大");
     assert.equal(beta.sources.contextWindow, "upstream");
   });
 
-  it("本渠道没声明 → 用兄弟最小值，来源标 cross", () => {
+  it("本渠道没声明 → 用兄弟最大值，来源标 cross", () => {
     use({ cid: "alpha" }, { cid: "beta" }, { cid: "gamma" });
     cache("alpha", [{ contextWindow: 1_000_000, maxOutput: 300_000 }]);
     cache("beta", [{ contextWindow: 400_000, maxOutput: 100_000 }]);
@@ -103,8 +103,8 @@ describe("数值口径：兄弟渠道取最小，本渠道已有值不动", () =
     const index = buildCrossModelIndex();
 
     const gamma = getChannelModelMeta("gamma", "deepseek-v4.1-flash", index);
-    assert.equal(gamma.contextWindow, 400_000);
-    assert.equal(gamma.maxOutputTokens, 100_000);
+    assert.equal(gamma.contextWindow, 1_000_000);
+    assert.equal(gamma.maxOutputTokens, 300_000);
     assert.equal(gamma.sources.contextWindow, "cross", "推断值必须标出来源，不能冒充上游声明");
     assert.equal(gamma.sources.maxOutputTokens, "cross");
   });
@@ -255,6 +255,22 @@ describe("坏渠道隔离与枚举入口", () => {
     assert.equal(metas.get("deepseek-v4.1-flash")?.contextWindow, 400_000, "有货的模型拿到聚合值");
     // deepseek-v4-flash 没有渠道供给 → 聚合为空，回落默认窗口
     assert.equal(metas.get("deepseek-v4-flash")?.contextWindow, 200_000);
+  });
+
+  it("聚合值取各渠道最大值：窄渠道不能拉低对外报值", () => {
+    // 回归 2026-11-08：catpaw 报 600K，把 traecn 的 1,048,576 压成 600,000，
+    // 客户端据此判断只剩 59% 余量、不触发自动压缩，一路涨到上游硬顶被拒。
+    // 窄渠道应由自己标 hidden 退出候选，不能让全池替它降级。
+    use({ cid: "alpha" }, { cid: "beta" });
+    cache("alpha", [{ contextWindow: 1_048_576 }]);
+    cache("beta", [{ contextWindow: 600_000 }]);
+
+    const metas = poolModelMetas(["deepseek-v4.1-flash"]);
+    assert.equal(
+      metas.get("deepseek-v4.1-flash")?.contextWindow,
+      1_048_576,
+      "对外报值必须覆盖最宽的渠道，否则客户端永远用不满",
+    );
   });
 
   it("poolModelMetas() 缺省枚举全池", () => {

@@ -6,7 +6,7 @@
  *
  * 约束：① 别名双向匹配（`deepseek-flash` ↔ `deepseek-v4.1-flash`）；
  * ② 归一化后**精确相等**（包含匹配会让 `deepseek-v4-flash` 误命中 `deepseek-v4.1-flash`）；
- * ③ 取不到窗口/输出/档位时用兄弟渠道同名值兜底（数值取最小、档位取交集，只填缺值）。
+ * ③ 取不到窗口/输出/档位时用兄弟渠道同名值兜底（数值取最大、档位取交集，只填缺值）。
  */
 
 import { channels, type Channel } from "../runtime/channel.js";
@@ -541,8 +541,11 @@ export function buildCrossModelIndex(): CrossModelIndex {
   const index = new Map<string, CrossModelFallback>();
   for (const [model, bucket] of acc) {
     index.set(model, {
-      contextWindow: bucket.ctxs.length > 0 ? Math.min(...bucket.ctxs) : null,
-      maxOutputTokens: bucket.outs.length > 0 ? Math.min(...bucket.outs) : null,
+      // 取**最大**：跨渠道兜底是给「本渠道没声明」的字段补值，报的是能力上限。
+      // 取最小会把最窄渠道的数字强加给能跑到更宽的渠道（实测 catpaw 报 600K 把
+      // traecn 的 1,048,576 拉成 600,000，客户端按它算预算就永远用不满）。
+      contextWindow: bucket.ctxs.length > 0 ? Math.max(...bucket.ctxs) : null,
+      maxOutputTokens: bucket.outs.length > 0 ? Math.max(...bucket.outs) : null,
       effort: intersectEfforts(bucket.efforts),
       exposed: bucket.exposed,
     });
@@ -633,8 +636,15 @@ function metaFromFacts(
 /**
  * 聚合元数据：一个模型家族跨多个渠道时的合并值。
  *
- * 窗口 / 输出取**各渠道最小值**（与跨渠道兜底同一口径：报能力上限中的保守值），
- * 档位取**交集**，倍率与展示名取首个声明渠道（同代模型这些字段本应一致）。
+ * 窗口 / 输出取**各渠道最大值**：对外报的是能力上限，网关按账号池剩余额度挑渠道，
+ * 客户端拿这个数字算预算。取最小会把最窄渠道的数字强加给能跑到更宽的渠道 ——
+ * 实测 catpaw 报 600K 把 traecn 的 1,048,576 压成 600,000，客户端以为只剩 59% 余量、
+ * 不触发自动压缩，一路涨到上游硬顶被拒（2026-11-08）。
+ *
+ * 窄渠道（如 600K 的 catpaw）应由渠道自己在目录里标 `hidden` 退出该型号候选，
+ * 而不是让全池替它降级 —— 见 `docs/MODEL-CATALOG.md`。
+ *
+ * 档位取**交集**（各家都支持才算支持），倍率与展示名取首个声明渠道。
  * 任一渠道上游声明过的字段，来源就标 `upstream`。
  */
 function mergeFacts(list: readonly ChannelFacts[], model: string, spec?: ModelSpecEntry): PoolModelMeta {
@@ -643,8 +653,8 @@ function mergeFacts(list: readonly ChannelFacts[], model: string, spec?: ModelSp
   const efforts = list
     .map((f) => f.effort)
     .filter((v): v is { supportedLevels: string[]; defaultLevel: string } => v !== null);
-  const ctx = ctxs.length > 0 ? Math.min(...ctxs) : null;
-  const out = outs.length > 0 ? Math.min(...outs) : null;
+  const ctx = ctxs.length > 0 ? Math.max(...ctxs) : null;
+  const out = outs.length > 0 ? Math.max(...outs) : null;
   const effort = intersectEfforts(efforts);
   const specSource: MetaSource = spec?._source?.startsWith("web_search") ? "web_search" : "spec";
   const first = list.find((f) => f.entry) ?? list[0];

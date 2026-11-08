@@ -306,6 +306,9 @@ for (const file of walkSrc(gatewaySrc)) {
 // 行 id 的归一化与共享层 canonicalModelId 同口径（包装前缀 / 版本点号 / 尾饰）。
 //
 // 给某个渠道加模型 = 在它的允许集里加一项，并同步该渠道 models.json 的 hidden 标记。
+//
+// catpaw 不供给 deepseek-v4.1-flash：该渠道这个型号的窗口只有 600K（同家族其余渠道
+// 1M），留着会拉低 `/v1/models` 的对外报值，并把大上下文请求打回上游拒绝。
 const FAMILY_ALLOWED_BY_CID = {
   qodercn: ["glm-5.3-flash"],
   autoclaw: ["glm-5.3-flash"],
@@ -313,7 +316,7 @@ const FAMILY_ALLOWED_BY_CID = {
   qoder: ["glm-5.3-flash"],
   workbuddyai: ["glm-5.3-flash", "deepseek-v4.1-flash"],
   lobsterai: ["glm-5.3-flash", "deepseek-v4.1-flash"],
-  catpaw: ["deepseek-v4.1-flash", "longcat-2.5"],
+  catpaw: ["longcat-2.5"],
 };
 const FAMILY_ALLOWED_DEFAULT = ["deepseek-v4.1-flash"];
 // `const CANONICAL[^=]*=` 容忍类型注解（`Readonly<Record<…>>`）；解析不出来会让整个
