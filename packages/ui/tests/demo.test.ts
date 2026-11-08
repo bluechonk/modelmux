@@ -7,6 +7,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import {
@@ -36,6 +37,25 @@ describe("演示快照与模型清单", () => {
     assert.ok(snap.base_url.length > 0);
     assert.equal(typeof snap.channel_caps, "object");
     assert.ok(Array.isArray(snap.models) && snap.models.length > 0, "演示模式必须有模型可展示");
+  });
+
+  it("演示的 endpoints 与后端 emptySnapshot 一致（防漂移）", async () => {
+    // UI 引不到后端模块（两套构建），只能各抄一份 —— 这条断言把后端源码里的
+    // 那份清单读出来比对。早先只抄了 3 条而真实是 6 条，演示站显示了一份
+    // 不存在的端点表，页面上看不出来但和真机对不上。
+    const backendSrc = await readFile(
+      new URL("../../core/gateway/src/http/console/console.ts", import.meta.url),
+      "utf8",
+    );
+    const m = backendSrc.match(/endpoints:\s*\[([^\]]+)\]/);
+    assert.ok(m, "后端源码里应能定位到 endpoints 声明");
+    const backend = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+    const demo = demoSettings(createDemoState()).endpoints;
+    assert.deepEqual(
+      [...demo].sort(),
+      [...backend].sort(),
+      "演示的 endpoints 与后端不一致 —— 改后端时同步改 demo.ts 的 DEMO_ENDPOINTS",
+    );
   });
 
   it("demoModels 与快照 models 的模型集合一致，且只含已登录渠道", () => {
