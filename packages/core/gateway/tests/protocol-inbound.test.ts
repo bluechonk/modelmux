@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as paths from "../dist/runtime/paths.js";
 import { start, type RunningGateway } from "../dist/http/server.js";
 
@@ -23,6 +24,10 @@ const CID = "stub";
 
 /** 合成渠道：openai 线型，上游指向测试内嵌的假服务器。 */
 function makeChannel(cid: string, base: string): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）：三个池型号都供，
+  // 否则「角色名 → 池模型」的映射没有可用渠道，请求会 400
+  registerChannelSupply(cid, ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5"]);
+
   const config: ChannelConfig = {
     cid,
     display: "Protocol Stub",

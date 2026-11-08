@@ -5,18 +5,13 @@
  * 软链断裂、包名在 registry 上不存在。esbuild 从唯一聚合点 `src/cli.ts` 沿静态 import
  * 收编整条依赖图，产物里不再有任何外部包引用 —— tarball 自包含，`npm i -g` 直接可用。
  *
- * 随包 models.json 快照：渠道 catalog 有两级目录来源 —— 远端目录（`<cid>/cache/models.json`）
- * 与**随包快照**（渠道包根 `models.json`，未登录 / 上游拉不到时的兜底）。
- * 快照是构建产物，bundle 后渠道包根不存在，因此由本步骤**按 cid 复制**到
- * `dist/models/<cid>.json` —— 渠道侧通过共享层的 `bundledSnapshotPath()`
- * （`@modelmux/gateway/snapshot`）找到它。
- *
- * 这里**不用** esbuild 插件内联：插件的 `onResolve` 只拦**静态 import** 的 `.json`，
- * 而渠道是**运行时** `readFileSync` 读盘，插件永远没有命中点（实测 bundle 里快照特征字段
- * 计数为 0）。详见 docs/CONTRACT-TS.md §8.4。
+ * 随包模型注册表：`<root>/models.json`（规格 + 供给范围 + 上游 id 映射）是**数据**，
+ * 运行时 `readFileSync` 读盘 —— esbuild 的 `onResolve` 只拦静态 import 的 `.json`，
+ * 对运行时读盘没有命中点（实测内联计数为 0）。所以由本步骤复制到 `dist/models.json`，
+ * 共享层按 `import.meta.url` 推导找到它。详见 docs/CONTRACT-TS.md §8.4。
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -24,7 +19,7 @@ import { build } from "esbuild";
 const here = dirname(fileURLToPath(import.meta.url)); // packages/cli/scripts
 const cliRoot = resolve(here, "..");                  // packages/cli
 const repoRoot = resolve(cliRoot, "../..");            // 仓库根
-const channelsRoot = join(repoRoot, "packages", "core", "channels");
+const gatewayRoot = join(repoRoot, "packages", "core", "gateway");
 
 await build({
   entryPoints: [join(cliRoot, "src/cli.ts")],
@@ -38,41 +33,21 @@ await build({
 });
 
 /**
- * 把各渠道包根的随包快照复制到 `dist/models/<cid>.json`。
+ * 把共享层的模型注册表复制到 `dist/models.json`。
  *
- * 只复制**有内容**的快照（`models` 数组非空）；空壳快照（`{"models": []}`）没有兜底价值。
+ * 缺文件时模型面会为空（客户端看到空列表），构建期必须让这件事可见而不是静默通过。
  */
-function copySnapshots() {
-  const outDir = join(cliRoot, "dist", "models");
-  mkdirSync(outDir, { recursive: true });
-  let copied = 0;
-  for (const entry of readdirSync(channelsRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const src = join(channelsRoot, entry.name, "models.json");
-    if (!existsSync(src)) {
-      // 快照现在承载渠道级曝光策略（如 qodercn 的 hidden 标记）：
-      // 静默跳过会产出「没有兜底种子」的 bundle，策略在运行时静默失效
-      console.warn(`[bundle] 跳过快照（文件不存在，该渠道将没有随包兜底表）：${relative(repoRoot, src)}`);
-      continue;
-    }
-    let models;
-    try {
-      models = JSON.parse(readFileSync(src, "utf8"))?.models;
-    } catch {
-      console.warn(`[bundle] 跳过快照（不是合法 JSON）：${relative(repoRoot, src)}`);
-      continue;
-    }
-    if (!Array.isArray(models) || models.length === 0) {
-      // 空壳快照同样是坏种子：渠道若依赖随包策略（hidden 收口），运行时会把整渠道
-      // 按「目录读失败」处理（失败关闭），构建期必须让这件事可见
-      console.warn(`[bundle] 跳过快照（models 为空或缺失）：${relative(repoRoot, src)}`);
-      continue;
-    }
-    copyFileSync(src, join(outDir, `${entry.name}.json`));
-    copied += 1;
+function copyRegistry() {
+  const src = join(gatewayRoot, "models.json");
+  if (!existsSync(src)) {
+    console.error(`[bundle] 缺模型注册表：${relative(repoRoot, src)}（模型面会为空）`);
+    return;
   }
-  if (copied > 0) console.log(`[bundle] 随包快照已复制：${copied} 个 → dist/models/`);
+  const dest = join(cliRoot, "dist", "models.json");
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(src, dest);
+  console.log(`[bundle] 模型注册表已复制 → ${relative(repoRoot, dest)}`);
 }
 
-copySnapshots();
+copyRegistry();
 console.log("[bundle] dist/cli.bundle.js built");

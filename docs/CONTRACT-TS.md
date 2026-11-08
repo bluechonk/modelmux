@@ -212,7 +212,7 @@ interface Channel {
 
 ## 4. 模型池策略
 
-### 4.1 对外 id：模型家族裸模型名（`model-family.ts` + `pool-targets.ts`）
+### 4.1 对外 id：模型家族裸模型名（`model-family.ts` + `model-registry.ts`）
 
 网关对外只做**家族表里声明的模型**，id 形态是**裸模型名**
 （家族与别名表见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2；`deepseek-flash` 是
@@ -221,14 +221,19 @@ interface Channel {
 `packages/core/gateway/src/pool/model-family.ts` —— 共享层**唯一**允许出现模型名的地方
 （由 `scripts/verify-contract.mjs` 强制）。
 
-- **渠道由网关挑**：同一模型的候选是**多家**渠道，按账号池剩余额度之和降序（见
+- **供给范围与规格由统一注册表声明**（`<root>/models.json`，实现
+  `pool/model-registry.ts`）：`channels` 段同时给出「哪个渠道供这个模型」与
+  「该渠道上游叫它什么」，`contextWindow` / `maxOutput` 是对外报值。
+  `/v1/models` 直接读它返回，不再聚合各渠道目录。文件契约见
+  [MODEL-CATALOG.md](./MODEL-CATALOG.md)；整份表要么全用、要么全弃（回落随包默认表）。
+- **渠道由网关挑**：候选是注册表 `channels` 里声明、且当前已注册的渠道，
+  经渠道配置的 `priorityTier`（硬档位）与剩余额度排序（见
   [POOL-ARCHITECTURE.md §2.4](./POOL-ARCHITECTURE.md)）；客户端请求里不带渠道前缀。
-- **匹配**：渠道目录里的等价写法（大小写 / 连字符版本号 / `sn-` 包装 / `-official` /
-  日期后缀）归一后**精确相等**；别名组内互相命中。
+- **匹配**：请求名走别名与大小写归一后**精确相等**；别名组内互相命中。
 - **拒绝**：家族外的名字、家族内但没有任何渠道供给的 → `400 unknown_model`；
   候选渠道全都没登录 → `503 not_authenticated`。
 
-> 渠道不再由请求方指定 —— 「哪家出」是网关的调度决策（剩余额度 → 冷却 → 顺延）。
+> 渠道不再由请求方指定 —— 「哪家出」是网关的调度决策（档位 → 剩余额度 → 冷却 → 顺延）。
 
 #### 4.1.1 Claude Desktop 角色名（`DESKTOP_ROLE_MODELS`）
 

@@ -18,6 +18,7 @@ import { after, before, describe, it } from "node:test";
 
 import { activateAccount, captureActive, listAccounts } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -48,6 +49,9 @@ async function fakeUpstream(): Promise<{ server: Server; url: string }> {
 
 /** 合成渠道；`withHook` = 声明 astudio 式「403 + 11200 不算鉴权失败」的钩子。 */
 function makeChannel(cid: string, withHook: boolean): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,
