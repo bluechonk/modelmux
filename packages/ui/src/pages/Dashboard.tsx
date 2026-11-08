@@ -388,6 +388,9 @@ export function Dashboard(): ReactElement {
     const byModel = new Map<string, {
       model: string;
       modalities: Set<string>;
+      /** 上下文窗口：同模型跨渠道可能不同，取最大值（用户关心「最大能装多少」）。 */
+      contextWindow: number | null;
+      maxOutput: number | null;
       ok: number;
       fail: number;
       queued: number;
@@ -398,6 +401,8 @@ export function Dashboard(): ReactElement {
       const cur = byModel.get(row.model) ?? {
         model: row.model,
         modalities: new Set<string>(),
+        contextWindow: null,
+        maxOutput: null,
         ok: 0,
         fail: 0,
         queued: 0,
@@ -405,6 +410,17 @@ export function Dashboard(): ReactElement {
         tpsCount: 0,
       };
       for (const m of row.meta?.inputModalities ?? []) cur.modalities.add(m);
+      // **只信上游声明**：`meta.sources` 标明每个数从哪来 ——
+      //   upstream = 上游目录里真有；spec = 本地 model-specs.json；default = 代码兜底值。
+      // 后两者不是该模型的真实能力（default 恒为 65536），混进「取最大」会虚报。
+      const cw = row.meta?.contextWindow;
+      if (row.meta?.sources?.contextWindow === "upstream" && typeof cw === "number" && cw > 0) {
+        cur.contextWindow = Math.max(cur.contextWindow ?? 0, cw);
+      }
+      const mo = row.meta?.maxOutputTokens;
+      if (row.meta?.sources?.maxOutputTokens === "upstream" && typeof mo === "number" && mo > 0) {
+        cur.maxOutput = Math.max(cur.maxOutput ?? 0, mo);
+      }
       byModel.set(row.model, cur);
     }
     for (const row of rangeStats?.models ?? []) {
@@ -421,6 +437,8 @@ export function Dashboard(): ReactElement {
     return [...byModel.values()].map((row) => ({
       model: row.model,
       modalities: [...row.modalities],
+      contextWindow: row.contextWindow,
+      maxOutput: row.maxOutput,
       verdict: classifyModel({
         ok: row.ok,
         fail: row.fail,
@@ -711,25 +729,47 @@ export function Dashboard(): ReactElement {
               {modelRows.map((row) => {
                 const pill = row.verdict.status === null ? null : VERDICT_PILL[row.verdict.status];
                 return (
-                  <div key={row.model} className="flex items-center gap-2">
-                    {/* 模型名与健康度标签贴在一起；TPS / 模态靠右对齐 */}
-                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                      <span className="truncate font-mono text-xs text-ink">{row.model}</span>
-                      {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
-                    </span>
-                    <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
-                      {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
-                    </span>
-                    {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
-                    <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
-                      <Type className="h-3.5 w-3.5" aria-label="文本" />
-                      {row.modalities.includes("image") && (
-                        <>
-                          <span className="text-ink-faint">+</span>
-                          <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
-                        </>
-                      )}
-                    </span>
+                  <div key={row.model}>
+                    {/* 第一行：模型名 + 健康度标签；TPS / 模态靠右对齐 */}
+                    <div className="flex items-center gap-2">
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="truncate font-mono text-xs text-ink">{row.model}</span>
+                        {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
+                      </span>
+                      <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
+                        {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
+                      </span>
+                      {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
+                      <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
+                        <Type className="h-3.5 w-3.5" aria-label="文本" />
+                        {row.modalities.includes("image") && (
+                          <>
+                            <span className="text-ink-faint">+</span>
+                            <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    {/*
+                      第二行：上下文窗口与最大输出。**只统计上游声明过的值**（`sources` =
+                      upstream），同一模型跨渠道取最大。本地规格表（spec）与代码兜底（default）
+                      不采信 —— 兜底恒为 65536，混进来会虚报能力。
+                      `-` 的意思是「所有供给渠道都没声明」，不是 0。
+                    */}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-ink-faint">
+                      <span>
+                        上下文{" "}
+                        <span className="tabular text-ink-soft">
+                          {row.contextWindow === null ? "上游未声明" : formatTokens(row.contextWindow)}
+                        </span>
+                      </span>
+                      <span>
+                        最大输出{" "}
+                        <span className="tabular text-ink-soft">
+                          {row.maxOutput === null ? "上游未声明" : formatTokens(row.maxOutput)}
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 );
               })}
