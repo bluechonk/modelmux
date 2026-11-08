@@ -380,7 +380,18 @@ export function createConsoleHandler(
   host = DEFAULT_UI_HOST,
 ): (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void {
   return (req, res) => {
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    // `new URL()` 对畸形 request-target 抛 `ERR_INVALID_URL`（与 http/server.ts 同因）：
+    // 这里是同步 handler，异常会直接冒到 server 的 request 事件并杀进程，所以自己兜住。
+    let path: string;
+    try {
+      path = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      if (!res.headersSent) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid request target" }));
+      }
+      return;
+    }
     const p = (suffix: string): string => `${prefix}${suffix}`;
 
     // —— 静态（GET） ——

@@ -71,7 +71,8 @@ function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChat
   if (choice.message.content) return false;
   if (choice.message.reasoning_content) return false;
   if (choice.message.tool_calls && choice.message.tool_calls.length > 0) return false;
-  const total = (completion.usage as { total_tokens?: unknown }).total_tokens;
+  // usage 可能整个缺席（上游不提供用量，见 aggregateChatSse 的说明）：那不是「空完成」
+  const total = (completion.usage as { total_tokens?: unknown } | undefined)?.total_tokens;
   return !(typeof total === "number" && total > 0);
 }
 

@@ -389,12 +389,15 @@ const DOC_FILES = [
   "docs/channels/README.md",
   "docs/MODULE-COMMENTS.md",
   ".agents/skills/mx-cli/SKILL.md",
-  ".agents/skills/opencode-mx-test/SKILL.md",
+  ".agents/skills/dsh-mx-test/SKILL.md",
+  ".agents/skills/codex-mx-test/SKILL.md",
 ];
 const countHits = [];
+let docsRead = 0;
 for (const rel of DOC_FILES) {
   // `read()` 内部已拼 `repo`（见文件顶部），这里**不能**再 join 一次。
   if (!existsSync(join(repo, rel))) continue;
+  docsRead += 1;
   const lines = read(rel).split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
@@ -403,6 +406,13 @@ for (const rel of DOC_FILES) {
     countHits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 100)}`);
   }
 }
+// 「零个文件被读到」也算通过的话，任何一次文档改名 / 搬家都会静默降低覆盖面，
+// 而输出照旧是「✓ 工程契约校验通过」。这条断言把覆盖率下降变成红灯。
+const missingDocs = DOC_FILES.filter((rel) => !existsSync(join(repo, rel)));
+check(
+  docsRead === DOC_FILES.length,
+  `DOC_FILES 有 ${missingDocs.length} 项没读到（文件被改名或删除？）：${missingDocs.join(", ")}`,
+);
 check(
   countHits.length === 0,
   `渠道总数不得写死在文档里（增删渠道时改文档必然漏）。命中 ${countHits.length} 处：\n      ${countHits.join("\n      ")}\n      改法：删掉数字，或改成「全部渠道」「各渠道」等不随数量变化的表述。`,

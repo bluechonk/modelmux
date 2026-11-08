@@ -390,6 +390,8 @@ export class DsmlByteFilter {
   private readonly decoder = new TextDecoder("utf-8");
   private readonly sse: DsmlSseFilter;
   private buffer = "";
+  /** 见过 `[DONE]`：扣住不转发，等 `finish()` 排到全部尾帧之后。 */
+  private pendingDone = false;
 
   constructor(hasTools: boolean) {
     this.sse = new DsmlSseFilter(hasTools);
@@ -405,15 +407,14 @@ export class DsmlByteFilter {
     const out = this.drain();
     const tail = this.buffer;
     this.buffer = "";
-    // `[DONE]` 必须留在最后：客户端看到它就停止读取，状态机残留帧得排在前面
-    const isDone = tail.trim().startsWith("data: [DONE]");
-    if (tail.trim() !== "" && !isDone) {
+    // 半行（无空行收尾的最后一段）：扣留的尾部帧必须**排在 DONE 之前**
+    if (tail.trim() !== "") {
       for (const frame of this.sse.transformEvent(tail)) out.push(this.encode(frame));
     }
+    // 状态机扣住的残留（未闭合的 DSML、合成到一半的 tool_calls）也排在这里
     for (const frame of this.sse.finish()) out.push(this.encode(frame));
-    if (isDone) {
-      for (const frame of this.sse.transformEvent(tail)) out.push(this.encode(frame));
-    }
+    // 最后才是 `[DONE]`：客户端看到它就不再读后面的字节
+    if (this.pendingDone) out.push(Buffer.from("data: [DONE]\n\n", "utf8"));
     return out;
   }
 
@@ -430,6 +431,14 @@ export class DsmlByteFilter {
       } else {
         event = this.buffer.slice(0, crlf);
         this.buffer = this.buffer.slice(crlf + 4);
+      }
+      // `[DONE]` 一出现就**扣留**，交给 `finish()` 统一排在最后。
+      // 它的形状是完整事件（`[DONE]\n\n`），本会在这一轮就被写出去；而 `finish()`
+      // 还要吐出被状态机扣住的尾部（前缀、合成的 tool_calls）。客户端读到 DONE 就
+      // 停止解析，那些尾帧等于丢掉（2026-11-08 实测：丢字、丢工具调用）。
+      if (/^data:\s*\[DONE\]\s*$/.test(event.trim())) {
+        this.pendingDone = true;
+        continue;
       }
       for (const frame of this.sse.transformEvent(event)) out.push(this.encode(frame));
     }

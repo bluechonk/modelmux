@@ -73,7 +73,17 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
   const uiState = state.data?.ui_state ?? "";
   const queryFailed = Boolean(state.isError);
   const onLogs = pathname.replace(/\/+$/, "").endsWith("/logs");
-  const skeleton = queryFailed || uiState === "down" || (uiState === "error" && !onLogs);
+  /**
+   * 骨架只在**网关真的不可用**时出现。
+   *
+   * `ui_state === "error"` 不在此列：它的含义是「某次登录失败」（取值域是
+   * `probing / login / error / running`，见 `app/lifecycle/headless.ts`），
+   * 与网关是否可用无关。此前把它并进骨架条件，导致一次登录超时（如扫码 600s
+   * 超时）之后，仪表盘与账号池只剩页头 + 骨架，**而 `/web/api/overview` 返回
+   * ok、12 个渠道数据齐全** —— 只能重启网关才恢复（2026-11-08 实测）。
+   * 真不可用的信号是 `down` 与查询失败，两者都保留。
+   */
+  const skeleton = queryFailed || uiState === "down";
 
   return (
     <div className="flex h-full flex-col">

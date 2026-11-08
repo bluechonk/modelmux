@@ -62,7 +62,7 @@ Base（Portal）：`https://lobsterai.youdao.com`（:77）
 
 ### 2.1 必需请求头清单
 
-去重后 **6 种**（chat / 模型列表形态发 6 条；匿名控制面 exchange / refresh 发 3 条）。
+去重后 **4 种**（chat / 模型列表形态发 4 条；匿名控制面 exchange / refresh 发 3 条）。
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 |---|---|---|---|---|
@@ -72,11 +72,10 @@ Base（Portal）：`https://lobsterai.youdao.com`（:77）
 | `User-Agent` | 常量 `LobsterAI/0.1.0` | 否 | 恒定（**刻意不跟版本号变**） | 照抄参考实现的 `clientUA`；签到/额度端点也用它。**[实测]** UA 里带不带真实版本号对 `profile-summary` / `slot` 的响应**逐字一致** —— 真正的版本门槛在 `clientVersion` **query 参数**上（见 §6.2） |
 | `X-LobsterAI-Client-Capabilities` | 常量 `virtual-models-v1,kimi-k3-agentic-v1,thinking-level-control-v1,upstream-error-details-v1` | 否，但**是模型端点与对话端点的准入条件** | 恒定 | 每项各门控一类上游行为：`virtual-models-v1` 决定虚拟模型目录（官方 2026-10-16 加入）；`kimi-k3-agentic-v1` 决定模型集合里有没有 `kimi-k3`；`thinking-level-control-v1` 是 `reasoning_effort:"off"` 的前提（不带该能力服务端直接 500，2026-09-17 实测）；`upstream-error-details-v1` 让错误响应带细节（官方 2026-11-03 加入）。**缺项只表现为静默降级**（模型列表少几项 / 关思考 500），不直接报错 —— 第三方反代普遍只发前两项或三项，源头 `xinxinshuhao-create/lobsterai2api` 至今只发 `kimi-k3-agentic-v1` |
 | `X-LobsterAI-Client-Version` | **动态真值**：更新接口的 `data.value.version`，进程内缓存 12 小时；取不到时先退到**磁盘缓存**的版本号，再退到 `2026.11.6`（官方 2026-11-06 的线上版本） | 否 | 12 小时 TTL / 进程启动 | chat 与 models **两个端点都要**；拉取时机 = 登录 exchange / 续期 refresh / 拉目录 / 签到 |
-| `x-lobster-session-id` | 进程级 UUID（一个网关实例一个会话） | 否 | 进程启动一次 | 官方客户端的会话追踪头（`src/main/libs/llmUsageContext.ts` 的 `LlmUsageHeader`），上游用于用量归集。缺了请求仍成功，补齐后与真客户端同形 |
-| `x-lobster-turn-id` | 每请求新 UUID | 否 | 每请求 | 同上，标识一次对话轮次 |
+| `x-lobster-session-id` / `x-lobster-turn-id` / `x-lobster-user-message` | **不发** | — | — | 官方 `src/main/libs/llmUsageContext.ts` 的 `LlmUsageHeader` 定义了这三个追踪头，但 `getLlmUsageHeaders()` 对**未注册的 trace 返回 `{}`** —— 只有 Cowork 主进程内发起、且带 traceparent 注册过的轮次才带。官方自己的 token proxy 路径同样一个都不发。网关没有那条注册链（`turnId` 在官方是 traceparent 里的 traceId，不是随机 UUID），凭空造 UUID 既无归集价值，又让同一请求在网关侧与上游侧对不上。`x-lobster-user-message` 还会把用户消息前 200 字符发上游遥测，隐私成本大于收益，刻意不做 |
 
 **没有 `X-Client-Key`，也没有任何设备指纹类头**（`X-Device-*` / `X-LobsterAI-Device-*` 等）：
-三份参考实现设置过的头全集就是上面这 6 个（`xinxinshuhao/internal/upstream/client.go:147-160`、
+三份参考实现设置过的头全集就是上面 4 个（`xinxinshuhao/internal/upstream/client.go:147-160`、
 `greatleo31/internal/upstream/client.go:100-113`、`skyletter/checkin/checkin.py:20-25`）。
 「设备身份」的真正载体是 **body / query 里的 `uuid`**（安装 UUID），不是 HTTP 头。
 

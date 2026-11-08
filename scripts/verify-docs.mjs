@@ -78,10 +78,10 @@ function walk(dir, out = []) {
     return out;
   }
   for (const entry of entries) {
-    if (entry.name.startsWith(".") && entry.name !== ".") {
-      // 跳过所有隐藏目录（.git 等），但隐藏文件仍要检查
-      if (entry.isDirectory()) continue;
-    }
+    // 只按 SKIP_DIRS 剪枝，**不按 `.` 开头剪**：`.agents/skills/` 下有十几份 md
+    // （命令手册、协议参考），它们同样要过落点 / 死链 / 源码引用可达三关。
+    // 早先这里把任何 `.` 开头的目录整体 continue，等于让整棵技能文档树对文档规则
+    // 假绿灯 —— `ALLOWED` 里为 `.agents/skills/**` 写的规则也成了永远匹配不到的死代码。
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;

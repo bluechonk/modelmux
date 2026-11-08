@@ -9,7 +9,7 @@
  *    冷却期内渠道得分**当 0**（`scoreOf`）且在路由侧被**硬剔除**（`isCooling`）
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { channelCapabilities, channels, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
@@ -57,6 +57,14 @@ export interface ChannelLedger {
   unit: string;
   /** 最近一次账单查询的**尝试**时刻（ISO）；成功失败都更新，用它判 TTL。 */
   billing_at: string | null;
+  /**
+   * 渠道级账单查询被**跳过**的时刻（生效账号冷却中，见 `runRefresh`）。
+   *
+   * 与 `billing_at` 分开记：跳过不代表拿到了新数据（`used`/`remain` 还是旧的），
+   * 但**必须**算作「这轮已经问过了」—— 否则冷却期（可到次日本地 0 点）超过 8h TTL 后，
+   * 每个聊天请求都会重新触发一轮全池刷新。
+   */
+  billing_skipped_at?: string | null;
   /** 最近一次账单查询是否成功。 */
   billing_ok: boolean;
   /** 本地成功转发次数（诊断用，**不**参与排序）。 */
@@ -188,6 +196,7 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
       ...(credits ? { credits } : {}),
       billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
       billing_ok: rec.billing_ok === true,
+      ...(typeof rec.billing_skipped_at === "string" ? { billing_skipped_at: rec.billing_skipped_at } : {}),
       ...(baseline ? { baseline } : {}),
       ...(prev ? { prev } : {}),
     };
@@ -216,45 +225,81 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-/** 读盘结果按路径缓存（测试会切存储根，故缓存键带上路径）。 */
-let cache: { path: string; ledger: PoolLedger } | null = null;
+/**
+ * 读盘结果按路径缓存（测试会切存储根，故缓存键带上路径）。
+ *
+ * `mtimeMs` 一起记：网关与 CLI 是两个进程，都在写同一个账本。只按路径缓存会让
+ * 进程内副本永不失效 —— CLI 跑过 `model usage --refresh` 之后，网关下一次落盘会用
+ * 自己的旧副本把 CLI 写进去的账单**整文件覆盖回滚**（2026-11-08 评审指出）。
+ * 每次 `load()` 都 stat 一次（几微秒），文件被别的进程改过就重读。
+ */
+let cache: { path: string; mtimeMs: number; ledger: PoolLedger } | null = null;
+
+/** 当前文件的 mtime；文件不存在记 0（等于「没被写过」）。 */
+function ledgerMtime(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 落盘时**先合并磁盘上的最新内容**，避免整文件覆盖掉别的进程写的条目。
+ *
+ * 合并口径：以本进程的内存副本为准（它刚被本次操作更新过），但磁盘上存在、
+ * 内存里没有的渠道补进来 —— 直接 `writeJsonSecret(load())` 会把它们抹掉。
+ */
+function loadForWrite(): PoolLedger {
+  const path = poolUsagePath();
+  const current = load();
+  const onDisk = readLedgerFromDisk(path);
+  if (onDisk === null) return current;
+  for (const [cid, entry] of Object.entries(onDisk.channels)) {
+    if (!current.channels[cid]) current.channels[cid] = entry;
+  }
+  return current;
+}
+
+/** 从磁盘读一份账本（不碰缓存）；读不出来返回 null。 */
+function readLedgerFromDisk(path: string): PoolLedger | null {
+  if (!existsSync(path)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<PoolLedger>;
+    if (!raw || typeof raw !== "object" || !raw.channels || typeof raw.channels !== "object") return null;
+    const merged: Record<string, ChannelLedger> = {};
+    for (const [cid, entry] of Object.entries(raw.channels)) {
+      const rec = (entry ?? {}) as Partial<ChannelLedger>;
+      const prev = readPrev(rec.prev);
+      merged[cid] = {
+        used: num(rec.used),
+        size: num(rec.size),
+        remain: num(rec.remain),
+        unit: str(rec.unit),
+        billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
+        billing_ok: rec.billing_ok === true,
+        ...(typeof rec.billing_skipped_at === "string" ? { billing_skipped_at: rec.billing_skipped_at } : {}),
+        ok: num(rec.ok),
+        fail: num(rec.fail),
+        cooldown_until: num(rec.cooldown_until),
+        ...(typeof rec.window === "string" && rec.window ? { window: rec.window } : {}),
+        ...(prev ? { prev } : {}),
+        accounts: readAccounts(rec.accounts),
+      };
+    }
+    return { version: 1, channels: merged };
+  } catch {
+    return null;
+  }
+}
 
 /** 惰性加载账本（文件缺失 / 损坏都退回空账本，**不阻塞**）。 */
 function load(): PoolLedger {
   const path = poolUsagePath();
-  if (cache && cache.path === path) return cache.ledger;
-  let ledger: PoolLedger = { version: 1, channels: {} };
-  if (existsSync(path)) {
-    try {
-      const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<PoolLedger>;
-      if (raw && typeof raw === "object" && raw.channels && typeof raw.channels === "object") {
-        const merged: Record<string, ChannelLedger> = {};
-        for (const [cid, entry] of Object.entries(raw.channels)) {
-          const base = emptyChannel();
-          const rec = (entry ?? {}) as Partial<ChannelLedger>;
-          const prev = readPrev(rec.prev);
-          merged[cid] = {
-            used: num(rec.used),
-            size: num(rec.size),
-            remain: num(rec.remain),
-            unit: str(rec.unit),
-            billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
-            billing_ok: rec.billing_ok === true,
-            ok: num(rec.ok),
-            fail: num(rec.fail),
-            cooldown_until: num(rec.cooldown_until),
-            ...(typeof rec.window === "string" && rec.window ? { window: rec.window } : {}),
-            ...(prev ? { prev } : {}),
-            accounts: readAccounts(rec.accounts),
-          };
-        }
-        ledger = { version: 1, channels: merged };
-      }
-    } catch {
-      ledger = { version: 1, channels: {} };
-    }
-  }
-  cache = { path, ledger };
+  const mtimeMs = ledgerMtime(path);
+  if (cache && cache.path === path && cache.mtimeMs === mtimeMs) return cache.ledger;
+  const ledger = readLedgerFromDisk(path) ?? { version: 1, channels: {} };
+  cache = { path, mtimeMs, ledger };
   return ledger;
 }
 
@@ -278,7 +323,8 @@ export function flushLedger(): void {
     saveTimer = null;
   }
   try {
-    writeJsonSecret(poolUsagePath(), load());
+    // 写前合并磁盘内容：别的进程（CLI）可能刚写过本进程没有的渠道条目
+    writeJsonSecret(poolUsagePath(), loadForWrite());
   } catch {
     /* 写不进去不该让请求失败：账本丢了只影响排序精度 */
   }
@@ -329,11 +375,18 @@ export function noteSuccess(cid: string, accountKey?: string): void {
   scheduleSave();
 }
 
-/** 一次失败：进冷却（冷却期内得分当 0）；`accountKey` 同上。 */
+/**
+ * 一次失败：进冷却（冷却期内得分当 0）；`accountKey` 同上。
+ *
+ * `cooldownMs = 0` 表示**只记一次 fail、不动已有冷却**。此前无条件写
+ * `Date.now() + cooldownMs`，于是 `noteFailure(cid, undefined, 0)` 会把已有冷却
+ * 重置成「立刻到期」—— 与它那两处调用点（`stream.ts` / `forward.ts` 里「不发任何
+ * 可见文案」的分支）的注释描述正好相反。
+ */
 export function noteFailure(cid: string, accountKey?: string | number, cooldownMs = FAIL_COOLDOWN_MS): void {
   const entry = entryOf(load(), cid);
   entry.fail += 1;
-  entry.cooldown_until = Date.now() + cooldownMs;
+  if (cooldownMs > 0) entry.cooldown_until = Date.now() + cooldownMs;
   const key = typeof accountKey === "string" ? accountKey : undefined;
   if (key) accountEntry(entry, key).fail += 1;
   scheduleSave();
@@ -358,6 +411,17 @@ function noteBillingAttempt(cid: string, ok: boolean): void {
   const entry = entryOf(load(), cid);
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = ok;
+  scheduleSave();
+}
+
+/**
+ * 记下「渠道级账单查询被跳过」（生效账号冷却中）—— 见 `billing_skipped_at` 的 why。
+ *
+ * 不动 `billing_at` / `billing_ok`：这次确实没拿到新数据，把 `billing_ok` 置真会撒谎。
+ */
+function noteBillingSkipped(cid: string): void {
+  const entry = entryOf(load(), cid);
+  entry.billing_skipped_at = new Date().toISOString();
   scheduleSave();
 }
 
@@ -897,8 +961,13 @@ export function needsBillingRefresh(now = Date.now()): boolean {
     if (!channelCapabilities(channel.config).billing) continue;
     const cid = channel.config.cid;
     const entry = ledger.channels[cid];
-    if (!entry || !entry.billing_at) return true;
-    const at = Date.parse(entry.billing_at);
+    if (!entry) return true;
+    // 渠道级查询被跳过（生效账号冷却中）也刷新 `billingAt`：否则这个渠道的
+    // `billing_at` 会停在冷却开始那一刻，冷却可长达次日本地 0 点（远超 8h TTL）——
+    // 过 TTL 后**每个聊天请求**都会触发一轮全池账单刷新（2026-11-08 评审指出）。
+    const stamp = entry.billing_at ?? entry.billing_skipped_at ?? null;
+    if (!stamp) return true;
+    const at = Date.parse(stamp);
     if (!Number.isFinite(at) || now - at > BILLING_TTL_MS) return true;
   }
   return false;
@@ -955,6 +1024,8 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
     if (item.status === "fulfilled") {
       if (item.value.skipped) {
         result.skipped.push(cid);
+        // 跳过也要留「这轮问过了」的痕迹，否则 TTL 判据会一直为真（见 billing_skipped_at）
+        noteBillingSkipped(cid);
         return;
       }
       writeBilling(cid, item.value.credits);

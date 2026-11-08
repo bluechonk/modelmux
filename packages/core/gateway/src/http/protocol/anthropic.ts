@@ -298,7 +298,19 @@ class AnthropicSink implements ProtocolSink {
   constructor(
     private readonly res: ServerResponse,
     private readonly requestModel: string,
-  ) {}
+    /**
+     * 请求侧的 input token 估算（`estimateInputTokens` 的结果）。
+     *
+     * 为什么需要：`message_start` 在**首个 chunk 到达时**就发，那一刻上游的 usage 帧
+     * 还没到，`inputTokens` 必然是 0；而 Anthropic 语义里 `message_delta.usage`
+     * 只带 output —— 于是流式路径永远报 `input_tokens: 0`。Claude Code 用它估上下文
+     * 占用与成本，恒 0 会让它误判「还有大把窗口」。上游末尾给了真值就用真值覆盖，
+     * 没给就留估算值（宁可差 20%，也不能是 0）。
+     */
+    inputEstimate = 0,
+  ) {
+    this.inputTokens = inputEstimate;
+  }
 
   writeOpenAiFrame(frame: Buffer | string): void {
     const text = typeof frame === "string" ? frame : frame.toString("utf8");
@@ -476,7 +488,9 @@ class AnthropicSink implements ProtocolSink {
     emit(this.res, "message_delta", {
       type: "message_delta",
       delta: { stop_reason: stopReasonOf(this.finishReason), stop_sequence: null },
-      usage: { output_tokens: this.outputTokens },
+      // input_tokens 也带上：Claude Code 只在 message_delta 里读 usage 的客户端
+      // 拿不到 message_start 的值（`input_tokens` 为 0 会误判上下文没占用）
+      usage: { input_tokens: this.inputTokens, output_tokens: this.outputTokens },
     });
     emit(this.res, "message_stop", { type: "message_stop" });
   }
@@ -489,5 +503,6 @@ class AnthropicSink implements ProtocolSink {
 export const anthropicProtocol: InboundProtocol = {
   name: "anthropic",
   encodeCompletion: (aggregated, requestModel) => encodeCompletion(aggregated, requestModel),
-  openEncoder: (res, requestModel) => new AnthropicSink(res, requestModel),
+  openEncoder: (res, requestModel, inputEstimate) =>
+    new AnthropicSink(res, requestModel, inputEstimate ?? 0),
 };

@@ -321,8 +321,9 @@ async function reopenForProbe(
     );
     return null;
   }
-  // 记下这条应答实际发往的主机（成功回报用）
-  const currentHost = channel.upstream.currentChatHost?.();
+  // 记下这条应答实际发往的主机（成功回报用）。
+  // 渠道钩子一律包 `runInChannel`：主机轮换状态属于渠道上下文，裸调会读到别的渠道的落点。
+  const currentHost = inChannel(channel, () => channel.upstream.currentChatHost?.());
   if (currentHost !== undefined) state.host = currentHost;
   // 旧流已死：释放它再换新流（探测用的 reader 已在 consumeQueueProbe 里 releaseLock）
   await call.body?.cancel().catch(() => {});
@@ -422,8 +423,9 @@ async function runQueueProbe(
       };
       return call;
     }
-    // 每次探测用新翻译器（换流后旧缓冲作废）；成功那次的实例要传给转发层
-    const translator = channel.upstream.newTranslator(payload);
+    // 每次探测用新翻译器（换流后旧缓冲作废）；成功那次的实例要传给转发层。
+    // 翻译器构造读渠道上下文（部分渠道按 cid 决定分帧策略），必须包 `runInChannel`。
+    const translator = inChannel(channel, () => channel.upstream.newTranslator(payload));
     let probe: QueueProbe;
     try {
       probe = await inChannel(channel, () => consumeQueueProbe(call.body!, channel, cid, translator, payload));
@@ -752,8 +754,12 @@ export async function attemptCandidate(
     // 账户级用量限额对所有模型生效 → 一律冷却；
     // 余额类只冷却付费模型，免费模型继续打上游拿真实结论。
     if (quotaOut && (usageLimit || !freeModel)) {
+      // 渠道钩子必须包 `runInChannel`：`quotaResetAt` 会读渠道落点（缓存 / 状态文件），
+      // 裸调时上下文缺失，认出来的重置时刻可能落到别的渠道。
+      const quotaChannel = hasChannel(cid) ? getChannel(cid) : undefined;
       const resetAt =
-        (hasChannel(cid) ? getChannel(cid).upstream.quotaResetAt?.(bodySnippet) : null) ?? null;
+        (quotaChannel ? inChannel(quotaChannel, () => quotaChannel.upstream.quotaResetAt?.(bodySnippet)) : null) ??
+        null;
       // 冷却原因带上**上游原话**（截断）：只写「上游用量限额」时，用户看不到
       // 「将在 20:46:45 重置」这类关键信息，只能来问。上游正文是数据而非渠道知识 ——
       // 共享层只原样透传，不解析业务码（业务码归渠道的 `quotaSignal`）。
@@ -796,10 +802,14 @@ export async function attemptCandidate(
       };
     }
 
-    noteFailure(cid, activeKeyOf(cid));
-    // 仅「上游不可用/网络」计账号连败；4xx 业务错（模型/参数/内容）属请求级，
-    // 计进去会把健康账号误标 error（tool 消息序列实测踩过）
-    if (call.status <= 0 || call.status >= 500) noteAccountFailure(cid);
+    // 渠道级失败只在**上游不可用**时才冷却渠道：4xx 业务错（模型名、参数、tool 消息序列）
+    // 是这一个请求的问题，把它算进渠道冷却会让整个池绕开一个健康渠道 60 秒 ——
+    // 一个客户端连发几个坏请求，全池就都「不可用」了（2026-11-08 评审指出）。
+    if (call.status <= 0 || call.status >= 500) {
+      noteFailure(cid, activeKeyOf(cid));
+      // 账号连败同理：只有上游不可用 / 网络错误才计数，4xx 计进去会把健康账号误标 error
+      noteAccountFailure(cid);
+    }
     // 上游 4xx 业务错（上下文超限、参数不识别等）原样透传状态码：客户端（claude code /
     // codex）对 4xx 不重试、对 502 会重试 —— 转成 502 会让客户端对着一个改不了参数的
     // 请求反复撞墙。5xx/网络错误仍归一 502。

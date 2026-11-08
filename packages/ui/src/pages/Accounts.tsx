@@ -18,6 +18,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RefreshButton } from "../components/RefreshButton";
 import { useToast } from "../components/Toast";
 import { columnCount, distributeByColumns } from "../lib/card-columns";
+import { errorText } from "../lib/log-format";
 import { Skeleton } from "./Dashboard";
 
 interface StatusRow {
@@ -170,7 +171,7 @@ export function Accounts(): ReactElement {
   const startLogin = useMutation({
     // 添加账号 = 强制新授权（已有凭据/被标记 error 时也要拿到新的授权链接）
     mutationFn: async (cid: string) => await api.commands.login(cid, true),
-    onError: (err) => toast.error(String(err)),
+    onError: (err) => toast.error(errorText(err)),
     // 立刻拉一次 state：后端的 triggerLogin 已同步清空旧状态，早拉早让弹窗
     // 看到干净的「准备中」，而不是等下一个 3 秒轮询周期。
     onSuccess: () => {
@@ -183,7 +184,7 @@ export function Accounts(): ReactElement {
       return await api.commands.activateAccount(cid, key);
     },
     onSuccess: () => invalidateAll(),
-    onError: (err) => toast.error(String(err)),
+    onError: (err) => toast.error(errorText(err)),
     onSettled: () => setBusyKey(null),
   });
   const remove = useMutation({
@@ -192,7 +193,7 @@ export function Accounts(): ReactElement {
       return await api.commands.removeAccount(cid, key);
     },
     onSuccess: () => invalidateAll(),
-    onError: (err) => toast.error(String(err)),
+    onError: (err) => toast.error(errorText(err)),
     onSettled: () => setBusyKey(null),
   });
   /**
@@ -203,7 +204,7 @@ export function Accounts(): ReactElement {
    */
   const submitInput = useMutation({
     mutationFn: async (value: string) => await api.commands.submitInput(value),
-    onError: (err) => toast.error(String(err)),
+    onError: (err) => toast.error(errorText(err)),
   });
   /** 弹窗关闭：让后端别再等输入（否则渠道挂到超时）。 */
   const cancelInput = (): void => {
@@ -325,7 +326,24 @@ export function Accounts(): ReactElement {
         }
       />
 
-      {list.length === 0 ? (
+      {/*
+        三态分开渲染：加载中 / **查询失败** / 确实没有账号池。
+        此前只有「loading 或 空串」，于是命令失败（HTTP 400，`post()` 抛错）与
+        「真的没有池」渲染成同一句「先添加账号」—— 良性空态把排查入口整个盖掉了
+        （同文件的 `billing` 查询专门为这个理由加了 `isError` 守卫，这里漏了）。
+      */}
+      {pools.isError && list.length === 0 ? (
+        <div className="rounded-xl border border-line p-5 text-sm">
+          <p className="text-danger">账号池查询失败：{errorText(pools.error)}</p>
+          <button
+            type="button"
+            onClick={() => void pools.refetch()}
+            className="tap mt-3 rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-xs text-ink transition-colors hover:border-brand/50"
+          >
+            重试
+          </button>
+        </div>
+      ) : list.length === 0 ? (
         <div className="rounded-xl border border-line p-5 text-sm text-ink-faint">
           {pools.isLoading ? <Skeleton /> : "（无渠道账号池；先添加账号）"}
         </div>

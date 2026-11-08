@@ -38,8 +38,14 @@ export interface InboundProtocol {
   readonly name: ProtocolName;
   /** 非流式：聚合的 OpenAI completion → 协议应答 JSON。 */
   encodeCompletion(aggregated: AggregatedCompletion, requestModel: string): unknown;
-  /** 流式：新建每请求编码器并挂到 res 上；requestModel = 映射后的**池模型名**。 */
-  openEncoder(res: ServerResponse, requestModel: string): ProtocolSink;
+  /**
+   * 流式：新建每请求编码器并挂到 res 上；requestModel = 映射后的**池模型名**。
+   *
+   * `inputEstimate` 是请求体的 input token 估算：协议的首个事件往往早于上游的 usage 帧，
+   * 没有它就只能报 0（Anthropic 的 `message_start` / `message_delta` 都受影响）。
+   * 只对需要「早期就有 input 数」的协议有意义，其余可忽略。
+   */
+  openEncoder(res: ServerResponse, requestModel: string, inputEstimate?: number): ProtocolSink;
 }
 
 const PROTOCOL = Symbol("modelmux.inboundProtocol");

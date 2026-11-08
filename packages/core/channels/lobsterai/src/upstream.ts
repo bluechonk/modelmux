@@ -7,7 +7,6 @@
  *   - 客户端版本号是动态真值，取不到时退到磁盘缓存再退兜底常量（版本是签到准入门槛）。
  */
 
-import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -92,34 +91,11 @@ const CLIENT_CAPABILITIES = [
 const CAPABILITIES_HEADER = "X-LobsterAI-Client-Capabilities";
 const VERSION_HEADER = "X-LobsterAI-Client-Version";
 
-/**
- * 官方客户端的会话追踪头（服务端用于用量归集与排障）。
- *
- * 上游对这几个头**不强制**（缺了请求仍成功），所以此前没发也不影响出字；
- * 但官方客户端每个请求都带，补齐后行为与真客户端一致，上游侧统计也能对上。
- * 值在一次请求内稳定即可 —— 我们不像 agent 那样有跨轮会话概念，
- * 用「本进程 + 本轮」派生的稳定 id。
- */
-const SESSION_HEADER = "x-lobster-session-id";
-const TURN_HEADER = "x-lobster-turn-id";
-
-/**
- * 本进程的会话 id（进程内恒定）。
- *
- * 上游拿它做用量归集：一个会话下的多轮请求应收敛到同一个 id，所以**不能每请求新生成**。
- * 网关没有客户端那样的会话概念（每个 HTTP 请求都是独立的），用进程级 id 近似
- * 「同一个网关实例即同一个会话」—— 与官方客户端「一次运行一个 session」同粒度。
- */
-const PROCESS_SESSION_ID = randomUUID();
-
-function sessionId(): string {
-  return PROCESS_SESSION_ID;
-}
-
-/** 本轮的 turn id（每请求一个新值，对应「一次对话轮次」）。 */
-function newTurnId(): string {
-  return randomUUID();
-}
+// 不发送官方的会话追踪头（`x-lobster-session-id` / `x-lobster-turn-id` /
+// `x-lobster-user-message`）：官方源码 `getLlmUsageHeaders()` 对**未注册的 trace 返回 `{}`**，
+// 也就是说它自己的 token proxy 路径一个追踪头都不发 —— 只有 Cowork 主进程内发起的轮次
+// 才带 traceparent 去注册。网关没有那条注册链，凭空造 UUID 既无归集价值，
+// 还让同一请求在网关侧与上游侧无法对上。详见 PROTOCOL §2.1。
 
 /** 客户端版本号查询端点（第三方域名，非统一信封）。 */
 const CLIENT_VERSION_URL =
@@ -245,8 +221,7 @@ export function authHeaders(credential: AuthLike, accept = "application/json"): 
 /**
  * 对话请求头。
  *
- * 比通用头多两个 `X-LobsterAI-Client-*` 头、`Accept` 为 SSE，另带官方客户端的
- * 会话追踪头（见 `SESSION_HEADER` / `TURN_HEADER`）。
+ * 比通用头多两个 `X-LobsterAI-Client-*` 头、`Accept` 为 SSE。
  * 版本号取进程内缓存（或兜底常量）—— `buildHeaders()` 是同步契约，
  * 真正的动态拉取发生在 `resolveClientVersion()`（登录/续期/拉目录时）。
  */
@@ -255,8 +230,6 @@ export function buildHeaders(credential: AuthLike): Record<string, string> {
     ...authHeaders(credential, "text/event-stream, application/json"),
     [CAPABILITIES_HEADER]: CLIENT_CAPABILITIES,
     [VERSION_HEADER]: clientVersion(),
-    [SESSION_HEADER]: sessionId(),
-    [TURN_HEADER]: newTurnId(),
   };
 }
 

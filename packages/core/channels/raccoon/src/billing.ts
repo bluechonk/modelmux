@@ -384,8 +384,8 @@ export const signin: SigninModule = {
  * 消耗记录、翻页为空 —— 拿不到任何正数发放样本。
  *
  * 之所以仍然报出：这个数有文档出处。**证据等级 `[参考]` 记在
- * `docs/channels/raccoon/PROTOCOL.md` §6.1，不进 label** —— label 是给用户看的一句话口径，
- * 统一成「每天签到送 <数额> <单位>」的固定格式，各渠道之间才能横向对比。
+ * `docs/channels/raccoon/PROTOCOL.md` §6.1，并在 label 里写成「约」** ——
+ * label 是给用户看的口径，参考级数字不加限定语就会被当成承诺。
  */
 const DAILY_GRANT_POINTS = 300;
 
@@ -402,14 +402,16 @@ function nextUtc8Midnight(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天签到送 300 积分**。
+ * 额度周期：**每天签到约送 300 积分**。
  *
  * 日界是上游实打实的（`setting_info` 按天幂等、账单按 UTC+8 切日）；
- * 数额的 `[参考]` 证据等级记在 PROTOCOL §6.1，不进 label。
+ * 数额只有 `[参考]` 级证据（PROTOCOL §6.1：实测三次都拿不到正数发放样本），
+ * 所以 label 里写「约」—— 把参考级数字说成承诺，会让用户按它预期到账，
+ * 实际不到账时分不清是上游问题还是被误导。
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天签到送 300 积分",
+    label: "每天签到约送 300 积分",
     size: DAILY_GRANT_POINTS,
     unit: "积分",
     resets_at: nextUtc8Midnight(),

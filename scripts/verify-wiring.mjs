@@ -175,10 +175,14 @@ function walk(dir, out = []) {
 for (const file of walk(gatewaySrc)) {
   const rel = file.slice(repo.length + 1).replace(/\\/g, "/");
   const code = stripComments(readFileSync(file, "utf8"));
-  const idHit = code.match(CHANNEL_ID_RE);
+  // **逐处命中**都要判白名单：`String.match`（非 global）只返回第一处，文件里先出现
+  // 一个白名单名（如 `"zcode"`：既是 cid 又是集成目标名）就会让后面真正的渠道 id 溜过去
+  // （2026-11-08 评审复现）。这里用全局正则把所有命中都拿出来逐条判。
+  const idHits = [...code.matchAll(new RegExp(CHANNEL_ID_RE.source, CHANNEL_ID_RE.flags.includes("g") ? CHANNEL_ID_RE.flags : `${CHANNEL_ID_RE.flags}g`))];
+  const offendingId = idHits.find((m) => !INTEGRATION_TARGETS.has(m[1] ?? ""));
   check(
-    !idHit || INTEGRATION_TARGETS.has(idHit[1] ?? ""),
-    `${rel}: 共享层不得硬编码渠道 id（出现 "${idHit?.[0]}"）—— 渠道知识只允许出现在各渠道包内`,
+    offendingId === undefined,
+    `${rel}: 共享层不得硬编码渠道 id（出现 "${offendingId?.[0]}"）—— 渠道知识只允许出现在各渠道包内`,
   );
   if (rel === FAMILY_FILE_REL) continue;
   const modelHit = code.match(MODEL_NAME_RE);
