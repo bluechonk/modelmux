@@ -12,7 +12,7 @@
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, Copy, Info, Loader2, QrCode, X } from "lucide-react";
+import { Check, Copy, Loader2, QrCode, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { LoginInputRequest } from "../lib/types";
 import { useToast } from "./Toast";
@@ -339,21 +339,6 @@ export function LoginModal({
             ) : (
               <DoneCard />
             )}
-          </div>
-
-          {/* 温馨提醒：中性底 + 细字，不用黄色警示块（这里不是错误） */}
-          <div className="px-5 pb-5">
-            <div className="rounded-xl bg-raised p-3.5 text-xs leading-relaxed text-ink-faint">
-              <div className="mb-1.5 flex items-center gap-1.5 font-medium text-ink-soft">
-                <Info className="h-3.5 w-3.5" />
-                提醒
-              </div>
-              <ul className="list-disc space-y-1 pl-4">
-                <li>授权链接只会复制到剪贴板，由你自己决定在哪个浏览器打开。</li>
-                <li>授权成功后会自动跳回本地回调完成登录，不需要手动粘贴任何链接。</li>
-                <li>登录成功后账号自动入池并设为生效；失败时会有右下角错误提示。</li>
-              </ul>
-            </div>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

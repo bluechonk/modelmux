@@ -18,38 +18,40 @@ function tempPathOf(path: string): string {
   return `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
 }
 
-/**
- * 目标是否已有一份**完整**内容（并发写被别人抢先时的幂等判据）。
- *
- * 目标文件只由 rename 产生（原子替换），所以「存在且非空」即代表内容完整。
- */
-function targetHasContent(path: string): boolean {
+/** 目标当前 mtime（毫秒）；不存在返回 `null`。 */
+function mtimeOf(path: string): number | null {
   try {
-    const stat = statSync(path);
-    return stat.isFile() && stat.size > 0;
+    return statSync(path).mtimeMs;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
  * 原子写入：唯一临时文件 → 同目录 rename → chmod。
  *
- * rename 失败按**幂等**处理：目标已是完整内容（并发写时临时文件被别人 rename 走）
- * → 视为成功，不把 ENOENT 抛给调用方；目标也不存在 → 照抛（真的没写进去）。
+ * rename 失败按**幂等**处理，判据是「目标有没有被别的写者更新过」——
+ * 用的是**写入前后的 mtime 对比**，不是绝对时刻（绝对时刻区分不出一秒内新建的文件）：
  *
- * chmod 失败不抛（Windows 上 chmod 意义有限）。
+ * - 并发写者赢了 → 它把自己的 tmp rename 到了目标，**mtime 变了** → 视为成功；
+ * - 目标被锁 / 只读 / 被其它句柄占着 → 目标还是那份旧文件，**mtime 没变** → 如实抛错。
+ *
+ * 早先只判「目标存在且非空」就当成功，把「被锁」误报成「并发已写完」——
+ * integrate 因此会报「已接入」并把**根本没改写的**文件列进 changed。
+ * 也不能靠错误码：Windows 上并发与被锁都报 `EPERM`。
  */
 export function writeAtomicFile(path: string, body: string, mode: number = 0o600): void {
   const tmp = tempPathOf(path);
+  const before = mtimeOf(path);
   try {
     // 临时文件直接按 0600 建：rename 之前它也在磁盘上，不该有更宽的权限
     writeFileSync(tmp, body, { encoding: "utf8", mode: 0o600 });
     try {
       renameSync(tmp, path);
     } catch (err) {
-      // 源已消失 / 目标已被别人替换：目标有完整内容即视为成功（幂等）
-      if (!targetHasContent(path)) throw err;
+      // 只有「目标已被并发写者更新」（mtime 变了）才吞；否则本次真的没写进去
+      const after = mtimeOf(path);
+      if (after === null || after === before) throw err;
     }
   } finally {
     // 残留临时文件（写盘中断 / rename 失败）不留

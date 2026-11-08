@@ -232,6 +232,25 @@ function noteCreatedFile(dir: string, file: string): void {
   });
 }
 
+/**
+ * 写入并**确认真的落地**，没落地就抛。
+ *
+ * `writeAtomicFile` 在 rename 失败时会宽松处理（公共底座要照顾多进程并发写，
+ * 那里「目标已有内容」就当幂等成功）。但接入改写的是**用户配置**：写没写进去
+ * 必须确定 —— 否则会报「已接入」而实际文件未变（Windows 上目标被其它句柄占着
+ * 时正是这样，rename 报 EPERM 而旧文件非空）。
+ *
+ * 所以接入路径在这里多一道读回校验：内容不符就抛错，让上层把该文件从
+ * `changed` 里剔除、并如实报失败。
+ */
+function writeVerified(file: string, body: string, mode = 0o600): void {
+  writeAtomicFile(file, body, mode);
+  const actual = readFileSync(file, "utf8");
+  if (actual !== body) {
+    throw new Error(`写入未生效：${file}（目标可能被其它进程占用，请关闭后重试）`);
+  }
+}
+
 // ── zcode ───────────────────────────────────────────────────────────────────
 
 /** `access` 是否已满足 zcode 的完整校验（api-key 系类型 + 非空 apiKey）。 */
@@ -325,7 +344,7 @@ function integrateZcode(models: string[]): IntegrationResult {
   backupFile(dir, file);
   // 原子写：这是用户的 zcode 主配置，写中断会留下半截 JSON（有备份可救，
   // 但「能不吃备份就别吃」）
-  writeAtomicFile(file, text, 0o600);
+  writeVerified(file, text, 0o600);
   result.changed.push(file);
   result.backupDir = dir;
   result.ok = true;
@@ -465,9 +484,13 @@ function ensureDshCredential(): { file: string; changed: boolean; notes: string[
   const entry = `${DSH_CREDENTIAL_REF}: ${LOCAL_API_KEY}`;
 
   if (!existsSync(file)) {
-    writeAtomicFile(file, `version: 1\nrefs: { ${entry} }\n`, 0o600);
+    const dir = backupDirFor("dsh");
+    // 必须登记「这个文件是本次接入新建的」：否则还原时不知道该删它，
+    // 凭据文件会永久留在 ~/.dsh 下，而用户从没拥有过它。
+    noteCreatedFile(dir, file);
+    writeVerified(file, `version: 1\nrefs: { ${entry} }\n`, 0o600);
     notes.push(`新建凭据文件并写入 ${DSH_CREDENTIAL_REF}`);
-    return { file, changed: true, notes };
+    return { file, changed: true, notes, backupDir: dir };
   }
 
   const original = readFileSync(file, "utf8");
@@ -527,7 +550,7 @@ function ensureDshCredential(): { file: string; changed: boolean; notes: string[
 
   const dir = backupDirFor("dsh");
   backupFile(dir, file);
-  writeAtomicFile(file, text, 0o600);
+  writeVerified(file, text, 0o600);
   notes.push(`凭据文件写入 ${DSH_CREDENTIAL_REF}（备份 ${dir}）`);
   return { file, changed: true, notes, backupDir: dir };
 }
@@ -573,7 +596,7 @@ function integrateDsh(models: string[]): IntegrationResult {
     dir ??= backupDirFor("dsh");
     backupFile(dir, file);
     // 原子写：dsh profile patch 是 dsh 唯一的模型清单来源，写坏会让它起不来
-    writeAtomicFile(file, next, 0o600);
+    writeVerified(file, next, 0o600);
     result.changed.push(file);
     profileChanged += 1;
     result.notes.push(`${profile}：模型清单改为 ${models.join(" / ")}`);
@@ -730,7 +753,7 @@ function integrateClaudeCode(models: string[]): IntegrationResult {
   // `existed:false`，否则还原时会以为「没有这个文件的备份」，把接入新建的文件留在盘上
   if (existsSync(file)) backupFile(backup, file);
   else noteCreatedFile(backup, file);
-  writeAtomicFile(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
+  writeVerified(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
   result.notes.push(`baseUrl=${anthropicUrl}，模型=${primary}（haiku/sonnet/opus 同指）`);
@@ -914,8 +937,8 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   else noteCreatedFile(backup, profileFile);
   if (existsSync(metaFile)) backupFile(backup, metaFile);
   else noteCreatedFile(backup, metaFile);
-  writeAtomicFile(profileFile, profileAfter, 0o600);
-  writeAtomicFile(metaFile, metaAfter, 0o600);
+  writeVerified(profileFile, profileAfter, 0o600);
+  writeVerified(metaFile, metaAfter, 0o600);
   result.changed.push(profileFile, metaFile);
   result.backupDir = backup;
   result.notes.push(
@@ -1036,7 +1059,7 @@ function integrateCodex(models: string[]): IntegrationResult {
   // 新建场景同样要留 `existed:false`（否则还原会把接入新建的 config.toml 留下）
   if (existsSync(file)) backupFile(backup, file);
   else noteCreatedFile(backup, file);
-  writeAtomicFile(file, text, 0o600);
+  writeVerified(file, text, 0o600);
   result.changed.push(file);
   result.backupDir = backup;
   result.notes.push(`base_url=${gatewayBaseUrl()}（wire_api=responses），模型=${models[0]}`);
@@ -1292,7 +1315,7 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
       // 目标目录可能已被删掉（用户清理过客户端目录）：补建，否则 writeAtomicFile 的
       // 临时文件会 ENOENT（报错信息还会指向一个用户看不懂的 `.tmp` 路径）。
       mkdirSync(dirname(entry.original), { recursive: true });
-      writeAtomicFile(entry.original, original, 0o600);
+      writeVerified(entry.original, original, 0o600);
       result.restored.push(entry.original);
     } catch (err) {
       failed += 1;

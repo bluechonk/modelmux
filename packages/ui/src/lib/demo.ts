@@ -51,24 +51,49 @@ interface DemoAccount {
   cooldownReason?: string;
 }
 
+/**
+ * 演示渠道：**必须与真实注册的 12 个渠道一致**。
+ *
+ * 早先这份表停在 6 个渠道，演示站点看起来像「这个网关只接了 6 家」——
+ * 与真实控制台对不上，也就失去了演示的意义。新增渠道时同步加这里。
+ */
 const DEMO_CHANNELS: DemoChannel[] = [
+  { cid: "astudio", display: "AStudio", present: true, billing: false },
+  { cid: "autoclaw", display: "AutoClaw", present: true, billing: true },
   { cid: "catpaw", display: "CatPaw", present: true, billing: true },
+  { cid: "lobsterai", display: "LobsterAI", present: false, billing: true },
   { cid: "loomy", display: "Loomy", present: true, billing: true },
+  { cid: "qoder", display: "Qoder", present: true, billing: true },
   { cid: "qodercn", display: "Qoder 国内版", present: true, billing: true },
   { cid: "raccoon", display: "Raccoon", present: true, billing: true },
   { cid: "traecn", display: "TRAE", present: true, billing: true },
+  // 故意留一个未登录渠道：「登录」这条动线需要演示对象（`demo.test.ts` 有此断言）
   { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
+  { cid: "workbuddyai", display: "WorkBuddyAI", present: true, billing: true },
+  { cid: "zcode", display: "ZCode", present: true, billing: false },
 ];
 
-/** 各渠道对外暴露的模型（虚构演示集；候选集 = 网关对外模型家族，形态与真实一致）。 */
+/**
+ * 各渠道对外暴露的模型（演示集；候选集必须落在网关对外家族内）。
+ *
+ * 三个对外模型：`deepseek-v4.1-flash` / `glm-5.3-flash` / `longcat-2.5`。
+ * `longcat-2.5` 目前只有 catpaw 供给 —— 演示里保留这个事实，否则看不出
+ * 「单渠道模型排队就没有备选」这类真实约束。
+ */
 const DEMO_MODELS: Record<string, string[]> = {
-  catpaw: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-  loomy: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  astudio: [],
+  autoclaw: ["glm-5.3-flash"],
+  catpaw: ["deepseek-v4.1-flash", "longcat-2.5"],
+  lobsterai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  loomy: ["deepseek-v4.1-flash"],
+  qoder: ["deepseek-v4.1-flash", "glm-5.3-flash"],
   // 渠道级范围：qodercn 只暴露 glm-5.3-flash（deepseek 系在它的 models.json 里标了 hidden）
   qodercn: ["glm-5.3-flash"],
-  raccoon: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-  traecn: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-  workbuddy: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  raccoon: ["deepseek-v4.1-flash"],
+  traecn: ["deepseek-v4.1-flash"],
+  workbuddy: ["deepseek-v4.1-flash"],
+  workbuddyai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  zcode: ["glm-5.3-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -90,6 +115,16 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
     { key: "demo000000000000g1", uid: "demo-uid-trae-1", label: "demo-trae-user", name: "demo-trae-user", health: "ok", expiresInDays: 3 },
     // 凭据失效：只能重新登录（清标记也不会让它恢复可用）
     { key: "demo000000000000g2", uid: "demo-uid-trae-2", label: "demo-uid-trae-2", health: "unauthorized", expiresInDays: -2 },
+  ],
+  // 以下为后加入的渠道，账号数据保持最简（演示重点是「渠道存在且能展示」）
+  astudio: [{ key: "demo000000000000h1", uid: "demo-uid-astudio-1", label: "demo-astudio-user", name: "demo-astudio-user", health: "ok" }],
+  autoclaw: [{ key: "demo000000000000i1", uid: "demo-uid-autoclaw-1", label: "demo-autoclaw-user", name: "demo-autoclaw-user", health: "ok", expiresInDays: 21 }],
+  qoder: [{ key: "demo000000000000j1", uid: "demo-uid-qoder-1", label: "demo-qoder-intl", name: "demo-qoder-intl", health: "ok", expiresInDays: 14 }],
+  workbuddyai: [{ key: "demo000000000000k1", uid: "demo-uid-wbai-1", label: "demo-wbai-user", name: "demo-wbai-user", health: "ok" }],
+  zcode: [
+    { key: "demo000000000000l1", uid: "demo-uid-zcode-1", label: "ZCode · demo", name: "ZCode · demo", health: "ok", expiresInDays: 9 },
+    // 与真实账号池当前状态一致：唯一账号被上游拒（token rejected），演示「渠道在册但不可用」
+    { key: "demo000000000000l2", uid: "demo-uid-zcode-2", label: "ZCode · 已失效", name: "ZCode · 已失效", health: "unauthorized", expiresInDays: -1 },
   ],
 };
 
