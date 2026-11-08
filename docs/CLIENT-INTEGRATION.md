@@ -31,6 +31,38 @@
   `mx log` 与 access 日志文件里可见。
 - 转发管线对三种协议共用：候选挑选、账号轮换、排队探测、额度冷却行为完全一致。
 
+### 上下文超限的错误语义
+
+上游报文表示**上下文窗口超限**时，网关按客户端问题报错，不按上游故障处理：
+
+| 路径 | 报错形态 |
+| --- | --- |
+| 非流式 | HTTP `400`（不是 `502`） |
+| 流式 | 响应头已发出，错误类型归 `invalid_request_error` |
+
+判据是**通用措辞**（`context length exceeded` 等），厂商私有业务码由渠道钩子上报
+（`packages/core/gateway/src/http/chat/errors.ts` 的 `isContextLengthExceeded`）。
+
+为什么必须区分：回 `5xx` 会被客户端归类成「服务端临时故障」并重试，而上下文体量
+不会自己变小，重试必然全败。客户端收到 `4xx` 才会去压缩历史或裁剪上下文。
+
+### 流式 usage 的估算值
+
+`message_start` 早于上游 usage 帧到达，此刻只能用请求体估算顶替；上游末帧给了真值就覆盖。
+估算实现见 `packages/core/gateway/src/http/protocol/count-tokens.ts`。
+
+**估算的入参是翻译后的 chat payload，不是客户端原始体**（调用点 `relay.ts`）。
+因此估算器必须同时认两种形态的工具字段：
+
+| 语义 | Anthropic 原生 | OpenAI chat（翻译后） |
+| --- | --- | --- |
+| 工具定义 | `tools[].input_schema` | `tools[].function.parameters` |
+| 工具调用 | `content[].type="tool_use"` | `message.tool_calls[].function.arguments` |
+
+只认原生形态会让整段工具 schema 漏算。2026-11-08 实测 traecn `deepseek-v4.1-flash`：
+同一请求估算 2.46x 低估（面板显示 59% 假余量），客户端不触发自动压缩，一路涨到
+1,048,576 的上游硬顶被 `context length exceeded` 拒掉。补齐后平均偏离 -0.8%。
+
 ## 2. 模型名解析（入站）
 
 客户端发来的模型名解析成**对外家族裸名**（实现在

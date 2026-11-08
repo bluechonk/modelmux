@@ -251,12 +251,29 @@ function toNum(value: unknown): number {
 
 /** Anthropic 错误体（响应头未发时的 4xx/5xx JSON 形态）。 */
 export function anthropicErrorBody(code: string, message: string): Rec {
-  return { type: "error", error: { type: anthropicErrorType(code), message } };
+  return { type: "error", error: { type: anthropicErrorType(code, message), message } };
 }
 
-function anthropicErrorType(code: string): string {
+/**
+ * 上游错误文案是否表示**上下文窗口超限**（请求体太大，重试必然失败）。
+ *
+ * 只认通用措辞；厂商私有业务码由渠道钩子上报，共享层不硬编码。
+ *
+ * 住在协议层是因为它有两个消费者：`chat/errors.ts` 用它决定 HTTP 状态码（回 400
+ * 而非 502），本文件的 `anthropicErrorType` 用它决定流式错误类型（回
+ * `invalid_request_error` 而非 `api_error` —— 流的响应头早已发出，改不了状态码，
+ * 只能靠信封类型告诉客户端「这是请求问题，别重试」）。反向放会让 protocol →
+ * chat 形成循环依赖。
+ */
+export const CONTEXT_LENGTH_EXCEEDED_RE =
+  /context[_ ](length|window)[_ ](has[_ ])?(been[_ ])?exceed|maximum[_ ]context[_ ](length|window)|prompt[_ ]is[_ ]too[_ ]long|input[_ ](is[_ ])?too[_ ](long|large)|reduce[_ ](the[_ ])?(length|size)[_ ]of[_ ](the[_ ])?(messages|prompt|input)|(maximum|max)[_ ](context|token)[_ ](length|limit)[_ ](exceed|reached)|上下文(长度|窗口)?(超出|超过|超限)|超出(模型)?上下文/i;
+
+function anthropicErrorType(code: string, message = ""): string {
   if (/not_found/i.test(code)) return "not_found_error";
   if (/auth/i.test(code)) return "authentication_error";
+  // 上下文超限归 invalid_request_error：让客户端明白是请求太大、该压缩历史，
+  // 而不是「服务端临时故障」（后者会被无限重试）。
+  if (CONTEXT_LENGTH_EXCEEDED_RE.test(message)) return "invalid_request_error";
   if (/quota|rate|limit/i.test(code)) return "rate_limit_error";
   if (/invalid|bad_request|unknown_model|method_not_allowed|missing/i.test(code)) return "invalid_request_error";
   return "api_error";

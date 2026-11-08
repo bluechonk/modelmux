@@ -15,7 +15,7 @@ import { type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import { noteFailure } from "../../pool/pool-usage.js";
 import { noteFirstByte, noteFirstFrame, noteLastFrame, noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
-import { writeJson, writeProtocolError } from "./errors.js";
+import { isContextLengthExceeded, writeJson, writeProtocolError } from "./errors.js";
 import { protocolOf, sinkOf } from "../protocol/types.js";
 import { collectAsOpenAiSse, coolAccountOnQuotaSignal, relayStream } from "./stream.js";
 import type { ProbeFrames } from "./queue.js";
@@ -153,7 +153,11 @@ export async function relayUpstream(
           } catch (err) {
             logger(`ledger write failed (channel ${cid}): ${String(err)}`);
           }
-          writeProtocolError(res, 502, code, message);
+          // 上下文超限是**客户端问题**（请求体太大），必须回 400 让客户端去压缩历史。
+          // 回 502 会被客户端当成「服务端临时故障」无限重试同一条改不了的请求
+          //（2026-11-08 实测 Claude Code 连撞 36 次）。与 `attempt.ts` 的
+          // 「上游 4xx 业务错原样透传状态码」同一条铁律 —— 流内错误帧路径此前漏了。
+          writeProtocolError(res, isContextLengthExceeded(message) ? 400 : 502, code, message);
           return;
         }
         noteRequestError(
