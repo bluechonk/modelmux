@@ -23,15 +23,25 @@ import { asBuffer } from "./stream.js";
 export const QUEUE_RETRY_MAX_DELAY_MS = 12_000;
 
 /**
- * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道快速重试**次数与退避基数。
+ * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道重试**次数与退避基数。
  *
- * 上游对「已收下又立刻断流」的请求是**瞬时态**（同形态请求时而秒级出字、时而断流），
- * 重试通常即恢复（实测：同 body 重放 0s/3s/10s/20s 全部成功）。退避取 15s 是
- * 与实测成功样本对齐的保守值 —— 太短（<3s）时上游仍会掐断连接。
+ * 默认 **0 次**：一次失败立即把控制权交回编排层，由它换账号（同渠道另一账号）
+ * 或换渠道（同模型另一家）。池里通常有多个渠道与多份账号，在同一条候选上干等
+ * 45 秒（15s + 30s 两轮）比换一家更慢 —— 2026-11-08 实测用户能看到请求失败后
+ * 网关仍在原地重试。
+ *
+ * 退避基数保留：`MODELMUX_PROBE_RETRY_MAX` 显式调大时才用到（上游普遍恶劣、
+ * 池里只剩一家的部署可以调回 2）。
  * 空闲超时不重试：那已经等满渠道声明的静默上限，客户端早已等不及，重试只会拖长失败。
  */
-export const PROBE_RETRY_MAX = 2;
 export const PROBE_RETRY_BASE_MS = 15_000;
+
+/** 同渠道重试上限：默认 0；`MODELMUX_PROBE_RETRY_MAX` 可调回旧行为（最多 2 次）。 */
+export const PROBE_RETRY_MAX = ((): number => {
+  const raw = process.env["MODELMUX_PROBE_RETRY_MAX"];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+})();
 
 /**
  * `cred.load()` 的安全包装：**未登录**返回 null（排队重开上游时用）。

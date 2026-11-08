@@ -20,6 +20,7 @@ import {
   noteAccountQuotaExhausted,
   readAccountCredential,
   readIndex,
+  reviveUnauthorizedAfterBilling,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { noteOnce, poolUsagePath } from "../runtime/paths.js";
@@ -404,6 +405,9 @@ export function writeBilling(cid: string, credits: unknown): void {
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = true;
   scheduleSave();
+  // 额度接口能通 = 凭据有效 → 把 `unauthorized` 复活。
+  // 早先只在重新登录时清该标记，token 临时失效（上游抖动 / 别处续期）就永远卡在「异常」。
+  reviveUnauthorizedAfterBilling(cid);
 }
 
 /** 标记一次账单查询尝试（失败时只更新时刻，保留上一次的用量数字）。 */

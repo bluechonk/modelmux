@@ -124,8 +124,27 @@ for (const line of lines) {
   if (emo) problems.push(`${hash}  含 emoji/图形状态符「${emo[0]}」——用文字表达（通过 / 失败 / 注意）：${subject}`);
 }
 
+// PR body 的提前校验：squash 合并会把它**并进 main 上的 commit body**，
+// 但那发生在合并之后 —— 此时 PR 分支自身的提交是干净的，校验必然通过，
+// 问题要等 push 到 main 才暴露（2026-11-08 事故：PR #349 分支绿、合并后 main 红）。
+// CI 在 pull_request 事件里把标题与 body 经环境变量传进来，这里按同样的规则提前拦。
+// 只校验本次新增的 PR 描述，不改写既有历史。
+const prTitle = process.env["PR_TITLE"] ?? "";
+const prBody = process.env["PR_BODY"] ?? "";
+if (prTitle !== "" || prBody !== "") {
+  const combined = `${prTitle}\n${prBody}`;
+  const prConv = CONVERSATIONAL.exec(combined);
+  if (prConv) {
+    problems.push(`PR 描述  疑似对话式内容「${prConv[0]}」——squash 会把 PR body 并入 commit body，档案只写事实与结论`);
+  }
+  const prEmo = EMOJI.exec(combined);
+  if (prEmo) {
+    problems.push(`PR 描述  含 emoji/图形状态符「${prEmo[0]}」——squash 会把 PR body 并入 commit body，用文字表达`);
+  }
+}
+
 if (problems.length > 0) {
-  console.error(`提交信息校验未通过（${problems.length}/${lines.length} 条）：`);
+  console.error(`提交信息校验未通过（${problems.length} 项）：`);
   for (const p of problems) console.error("  " + p);
   process.exit(1);
 }
