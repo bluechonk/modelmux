@@ -89,12 +89,11 @@ const MAX_SERIES = 6;
 /**
  * 模型健康度标签的文案与配色（判据同源，见 `lib/model-health.ts`）。
  *
- * 「无调用记录」不挂标签（没数据 ≠ 不可用）；优先级 排队 > 异常，一行只出一个。
- * **没有「慢」标签**：TPS 原样显示，快慢用户自己看数字 —— 阈值是人定的，
- * 不同模型基准不同，硬套只会误导。
+ * 只有「异常」一种：零调用记录不挂标签（没数据 ≠ 不可用），有请求全失败才挂。
+ * **没有「慢」也没有「排队」**：两者都是近 7 天的历史计数 —— 慢是人为阈值，
+ * 排队只看「历史上发生过没有」，都不代表此刻的状态，挂上去是谎报。
  */
-const VERDICT_PILL: Record<"queued" | "error", { text: string; cls: string }> = {
-  queued: { text: "排队", cls: "bg-warn/15 text-warn" },
+const VERDICT_PILL: Record<"error", { text: string; cls: string }> = {
   error: { text: "异常", cls: "bg-danger/12 text-danger" },
 };
 
@@ -701,7 +700,7 @@ export function Dashboard(): ReactElement {
         <section className="panel flex flex-col p-4 lg:col-span-4">
           <div className="panel-title mb-3">
             <Layers className="h-4 w-4 text-ink-faint" />
-            模型
+            模型列表
           </div>
           {modelRows.length === 0 ? (
             <div className="flex flex-1 items-center justify-center py-3 text-center text-xs text-ink-faint">
