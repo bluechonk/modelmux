@@ -327,6 +327,30 @@ describe("一键接入 dsh", () => {
     }
   });
 
+  it("凭据文件原本不存在：接入新建它，还原必须把它删掉", () => {
+    // `seedDsh` 会清掉 `.credentials.yaml`，所以这里就是「用户从没配过 dsh 凭据」。
+    seedDsh();
+    const cred = join(home, ".dsh", ".credentials.yaml");
+    assert.equal(existsSync(cred), false, "测试前提：凭据文件应不存在");
+
+    const result = integrateClient("dsh", MODELS);
+    assert.equal(result.ok, true);
+    assert.equal(existsSync(cred), true, "接入应新建凭据文件");
+    assert.ok(
+      readFileSync(cred, "utf8").includes("MODELMUX_API_KEY"),
+      "新建的凭据文件应含 apiKeyEnv 指向的引用",
+    );
+
+    // 还原：这个文件是接入的产物，不该留在用户目录里
+    const restored = restoreClient("dsh");
+    assert.equal(restored.ok, true);
+    assert.equal(
+      existsSync(cred),
+      false,
+      "还原应删掉接入新建的凭据文件 —— 否则 ~/.dsh 下永久残留一个用户从没有过的文件",
+    );
+  });
+
   it("web profile 也改写（含 retryPolicy，同样只换 models 块）", () => {
     seedDsh();
     const web = join(home, ".dsh", "profiles", "web", "cordis.patch.yml");
