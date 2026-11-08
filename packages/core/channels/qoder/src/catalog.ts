@@ -133,7 +133,11 @@ function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   const key = str(raw["key"]) || str(raw["id"]);
   if (!key) return null;
   const displayName = str(raw["display_name"]) || str(raw["name"]) || key;
-  const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
+  // `POOL_KEY_MAP` 是普通对象，`??` 会走原型链：上游 key 写成 `constructor` /
+  // `__proto__` 时 `id` 变成函数或对象，随后 `exposedIds()` 里的 `entry.id.toLowerCase()`
+  // 抛 TypeError，被池层 catch 接住 → **整条渠道目录**当作空列表，该渠道所有模型
+  // 一起消失（不是单个模型名异常）。这里只认自有键。
+  const id = Object.hasOwn(POOL_KEY_MAP, key) ? POOL_KEY_MAP[key]! : toPublicId(displayName, key);
   // 规格表优先；缓存行里已带 maxOutput 的（刷新时写入的）也认。
   const spec = specOf(id)?.maxOutputTokens;
   const cached = num(raw["maxOutput"], 0);
@@ -280,7 +284,7 @@ export async function refresh(): Promise<void> {
     .map((item) => {
       const key = str(item["key"]);
       const displayName = str(item["display_name"]) || str(item["name"]) || key;
-      const id = POOL_KEY_MAP[key] ?? toPublicId(displayName, key);
+      const id = Object.hasOwn(POOL_KEY_MAP, key) ? POOL_KEY_MAP[key]! : toPublicId(displayName, key);
       // 原始字段全留（不裁剪），另附**按公开规格补的**最大输出（上游不下发），
       // 以及归一后的思考档位（池层读的是这份缓存，只认 `effort` 那一种形态）。
       const spec = specOf(id)?.maxOutputTokens;

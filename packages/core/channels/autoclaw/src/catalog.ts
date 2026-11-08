@@ -99,7 +99,11 @@ type CacheRow = Record<string, unknown> & { id: string };
 function toEntry(raw: Record<string, unknown>): ModelEntry | null {
   const configId = str(raw["id"]) || str(raw["name"]);
   if (!configId) return null;
-  const id = POOL_KEY_MAP[configId] ?? configId;
+  // `POOL_KEY_MAP` 是普通对象，`??` 会走原型链：上游 id 写成 `constructor` /
+  // `__proto__` 时 `id` 变成函数或对象，随后 `exposedIds()` 里的
+  // `entry.id.toLowerCase()` 抛 TypeError，被池层 catch 接住 → **整条渠道目录**
+  // 当作空列表，该渠道所有模型一起消失。这里只认自有键。
+  const id = Object.hasOwn(POOL_KEY_MAP, configId) ? POOL_KEY_MAP[configId]! : configId;
   const displayName = str(raw["name"]) || configId;
   const spec = specOf(id)?.maxOutputTokens;
   const cached = num(raw["maxTokens"], 0);
