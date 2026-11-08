@@ -141,29 +141,33 @@ export function LoginModal({
   const showSkeleton =
     pristine || (!authUrl && !qrUrl && !loginInput && !failed && !done);
   const totalSteps = qrUrl ? 2 : 3;
-  // 两步登录没有「授权步骤」，侧栏不能写「步骤 1/3 · 浏览器授权」——那会让人
-  // 以为流程走错了（渠道此刻在等用户填手机号/验证码）。
-  const stepLabel = loginInput
-    ? "两步登录"
-    : failed
-      ? "登录失败"
-      : done
-        ? "登录完成"
-        : busy
-          ? "处理中"
-          : `步骤 1 / ${totalSteps}`;
-  // 状态行短词（图 2 布局：渠道行下方一行「步骤 1/3 · 等待授权」）。
-  // 失败/完成时留空 —— 避免「登录失败 · 登录失败」这种重复。
-  const statusWord = loginInput
-    ? "两步登录"
-    : failed || done
-      ? ""
-      : busy
-        ? "等待授权"
-        : qrUrl
-          ? "扫码授权"
-          : "浏览器授权";
-  const stepTone = failed ? "text-danger" : done ? "text-free" : "text-ink";
+  /**
+   * 进度条只在「有明确步数」的流程里出现：两步登录是一条表单、完成与失败是终态，
+   * 都不该画刻度（画了反而让人以为还有后续步骤）。
+   */
+  const showProgress = !loginInput && !failed && !done && (authUrl !== "" || qrUrl !== "");
+  /**
+   * 当前走到第几格（0-based）：链接/二维码到手即第 1 步完成、在做第 2 步。
+   * 骨架期（还没拿到链接）算第 0 步进行中。
+   */
+  const currentStep = 0;
+  /**
+   * 页脚那行字：把「现在该干什么 / 刚发生了什么」说清楚。
+   *
+   * 优先用渠道给的 `message`（它最贴近上游真实状态）；没有就按形态给默认文案。
+   */
+  const footerText =
+    message.trim() !== ""
+      ? message
+      : failed
+        ? "登录未完成，请关闭后重试"
+        : done
+          ? "登录成功，账号已入池并设为生效"
+          : qrUrl
+            ? "等待扫码…"
+            : authUrl
+              ? "等待授权回调，完成后自动继续"
+              : "正在准备授权链接…";
 
   /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口。 */
   const [authCopied, setAuthCopied] = useState(false);
@@ -213,10 +217,13 @@ export function LoginModal({
     {
       title: "复制授权链接",
       body: (
-        <div className="space-y-2">
+        // 链接框一行装下（值 + 末尾复制键），下面一个主按钮 —— 早先是「一个复制按钮 +
+        // 下面再一条链接」两处都能复制，既重复又占两行。
+        <div className="space-y-2.5">
+          <CopyableLink url={authUrl} label="" />
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-[10px] bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
             disabled={authUrl === ""}
             onClick={() => void copyAuthUrl()}
             aria-label="复制授权链接到剪贴板"
@@ -224,7 +231,6 @@ export function LoginModal({
             {authCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             {authCopied ? "已复制，粘到浏览器打开" : "复制授权链接"}
           </button>
-          <CopyableLink url={authUrl} label="授权链接" />
         </div>
       ),
       state: done ? "done" : failed ? "failed" : "active",
@@ -257,22 +263,40 @@ export function LoginModal({
           onInteractOutside={(e) => e.preventDefault()}
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
         >
-          {/* 渠道行（标题）：图标 + cid display + 关闭键（紧凑单栏布局，无左右分栏）。
+          {/* 渠道行：图标 + cid + 展示名 + 一句登录方式。
               标题必须是 `Dialog.Title`：Radix 用它接 `aria-labelledby`，
               少了它屏幕阅读器读不出这个对话框叫什么。 */}
-          <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-overlay text-ink-soft">
+          <div className="flex items-center gap-3 px-5 pt-5 pb-3.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-overlay text-ink-soft">
               <QrCode className="h-4 w-4" />
             </span>
-            <Dialog.Title className="min-w-0 flex-1 truncate text-sm">
-              <span className="font-mono font-medium text-ink">{cid}</span>
-              <span className="ml-2 text-xs font-normal text-ink-faint">{display ?? "渠道账号"}</span>
-            </Dialog.Title>
+            <div className="min-w-0 flex-1">
+              <Dialog.Title className="flex items-baseline gap-2">
+                <span className="truncate font-mono text-sm font-medium text-ink">{cid}</span>
+                <span className="truncate text-[13px] font-normal text-ink-faint">
+                  {display ?? "渠道账号"}
+                </span>
+              </Dialog.Title>
+              {/* 副行只说「哪种登录方式」，不再重复「步骤 x/y · 状态」（进度由下方进度条承担） */}
+              <div className="mt-0.5 text-xs text-ink-faint">
+                {loginInput
+                  ? "短信验证码登录"
+                  : failed
+                    ? "登录未完成"
+                    : done
+                      ? "登录完成"
+                      : qrUrl
+                        ? "扫码授权"
+                        : busy
+                          ? "正在准备授权链接"
+                          : "授权链接 · 自动回调"}
+              </div>
+            </div>
             {/* 唯一的关闭入口：顺带通知后端别再等输入（否则渠道挂到超时） */}
             <button
               type="button"
               aria-label="关闭"
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
               onClick={() => {
                 onCancelInput();
                 onClose();
@@ -282,16 +306,20 @@ export function LoginModal({
             </button>
           </div>
 
-          {/* 状态行 + 说明文本：一行「步骤 x/y · 状态」，下一行渠道给的说明 */}
-          <div className="px-5 pt-3">
-            <div className={`text-xs ${stepTone}`}>
-              {stepLabel}
-              {statusWord && ` · ${statusWord}`}
+          {/* 进度条：把「走到第几步」从文字变成可读的刻度。
+              两步登录 / 完成 / 失败没有「几步」可言，不画。 */}
+          {showProgress && (
+            <div className="flex gap-1 px-5 pb-4" aria-hidden="true">
+              {Array.from({ length: totalSteps }, (_, i) => (
+                <i
+                  key={i}
+                  className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
+                    i < currentStep ? "bg-free" : i === currentStep ? "bg-brand" : "bg-line"
+                  }`}
+                />
+              ))}
             </div>
-            {message.trim() !== "" && (
-              <div className="mt-1.5 text-xs leading-relaxed text-ink-faint">{message}</div>
-            )}
-          </div>
+          )}
 
           {/* 步骤区：授权链接/二维码未到手前始终骨架（见 `showSkeleton`） */}
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -339,6 +367,23 @@ export function LoginModal({
             ) : (
               <DoneCard />
             )}
+          </div>
+
+          {/*
+            页脚统一承担「现在是什么状态」：等待 / 成功 / 失败都是「一个状态点 + 一句话」。
+            早先失败原因只弹右下角 toast，关掉就没了；页脚把它留在界面上，用户随时能看。
+            清空 `message` 的情况（如刚发起）不占位，避免一条空行。
+          */}
+          <div className="flex items-center gap-2 border-t border-line bg-surface px-5 py-3">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                failed ? "bg-danger" : done ? "bg-free" : "bg-warn animate-pulse"
+              }`}
+              aria-hidden="true"
+            />
+            <span className={`min-w-0 flex-1 truncate text-xs ${failed ? "text-danger" : "text-ink-faint"}`}>
+              {footerText}
+            </span>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -432,14 +477,18 @@ function CopyableLink({ url, label }: { url: string; label: string }): ReactElem
     }
   };
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-canvas/60 px-2.5 py-1.5">
-      <span className="shrink-0 text-xs text-ink-faint">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-soft">{url}</span>
+    <div className="flex items-center gap-2.5 rounded-[10px] border border-line bg-surface py-2 pl-3 pr-2">
+      {/* `label` 为空时不渲染标签位 —— 设计稿里标签由外层步骤标题承担，
+          框内只留「链接 + 复制键」，一行装下不折行。 */}
+      {label !== "" && <span className="shrink-0 text-xs text-ink-faint">{label}</span>}
+      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] leading-relaxed text-ink-soft">
+        {url}
+      </span>
       <button
         type="button"
         onClick={() => void copy()}
-        aria-label={`复制${label}`}
-        className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+        aria-label={label === "" ? "复制链接" : `复制${label}`}
+        className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
       >
         {copied ? (
           <Check className="h-3.5 w-3.5 text-free" />
@@ -553,20 +602,27 @@ function PhoneLoginForm({
       }}
     >
       <div className="space-y-1.5">
-        <label htmlFor="login-phone" className="block text-[13px] font-medium text-ink">
-          手机号 (+86)
+        <label htmlFor="login-phone" className="block text-xs text-ink-faint">
+          手机号
         </label>
-        <input
-          id="login-phone"
-          inputMode="tel"
-          autoComplete="tel"
-          autoFocus
-          spellCheck={false}
-          className="w-full rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
-          placeholder="11 位手机号"
-          value={phone}
-          onChange={(e) => onPhone(e.target.value)}
-        />
+        {/* `+86` 做成独立前缀块：与输入框同一行、同一视觉高度，
+            比把区号塞进占位文字里更清楚「这里只填 11 位」。 */}
+        <div className="flex items-center gap-2">
+          <span className="grid shrink-0 place-items-center rounded-[10px] border border-line bg-surface px-2.5 py-2.5 font-mono text-xs text-ink-faint">
+            +86
+          </span>
+          <input
+            id="login-phone"
+            inputMode="tel"
+            autoComplete="tel"
+            autoFocus
+            spellCheck={false}
+            className="min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 py-2.5 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+            placeholder="11 位手机号"
+            value={phone}
+            onChange={(e) => onPhone(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="space-y-1.5">
