@@ -263,6 +263,39 @@ export function classifyError(status: number, body: string): TraeErrorKind {
   return "none";
 }
 
+/**
+ * 声明本渠道的额度信号（`UpstreamModule.quotaSignal`）。
+ *
+ * 为什么必须声明：`classifyError` 早就认得出 `4008`（配额耗尽），但它只在本渠道内部
+ * （目录 / 账单）用，**从没上报给共享层** —— 共享层因此不知道这是额度问题，既不冷却账号
+ * 也不换号，同一个账号被连续打了 6 次（2026-11-08 实测 `09:46:12` 起 traecn 连续 6 条
+ * `4008`，池里另外 6 个渠道一个没试）。
+ *
+ * 判据只放本渠道确认过的业务码：
+ * - `4008` 配额耗尽、`1005` Plan 权益不足 —— 都是「这个账号打不动了」，换号即可继续；
+ * - HTTP 429 同属额度类（上游偶尔不回业务码只给状态码）。
+ */
+export function quotaSignal(status: number, body: string): "usage_limit" | "balance" | null {
+  const text = (body ?? "").toLowerCase();
+  if (text.includes("4008")) return "balance";
+  if (text.includes("1005")) return "balance";
+  if (status === 429) return "balance";
+  return null;
+}
+
+/**
+ * 从报文里认出额度重置时刻（`UpstreamModule.quotaResetAt`）。
+ *
+ * 上游文案形如「将在 2026-10-24 23:54:22 UTC+8 重置」，但**实测并非所有 4008 都带**；
+ * 认不出返回 `null`，由共享层回落次日本地 0 点 —— 不为「显得完整」编一个时间。
+ */
+export function quotaResetAt(bodySnippet: string): number | null {
+  const m = /将在\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(bodySnippet ?? "");
+  if (!m) return null;
+  const at = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+08:00`);
+  return Number.isFinite(at) ? at : null;
+}
+
 // ── 请求体改写：OpenAI → SOLO ───────────────────────────────────────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -48,6 +48,21 @@ describe("额度/用量信号识别", () => {
     assert.equal(isQuotaExhausted("not json at all"), false);
   });
 
+  it("traecn 4008 配额耗尽由渠道钩子上报，共享层据此换号", async () => {
+    // 2026-11-08 事故：traecn 的 classifyError 早认得出 4008，但从未上报给共享层，
+    // 于是同一账号被连打 6 次（09:46:12 起连续 6 条 4008），池里另 6 个渠道一个没试。
+    // 这里直接验渠道钩子：它必须把 4008 / 1005 认成额度信号（换号的前提）。
+    const trae = await import("../../channels/traecn/dist/upstream.js");
+    const body = '{"code":4008,"msg":"Your requests have exceeded the quota."}';
+    assert.equal(trae.quotaSignal(500, body), "balance", "4008 必须被认成额度耗尽");
+    assert.equal(trae.quotaSignal(200, body), "balance", "业务码与状态码无关");
+    assert.equal(trae.quotaSignal(200, '{"code":1005,"msg":"plan not enough"}'), "balance");
+    // 非额度类不能误报，否则正常请求会被冷却
+    assert.equal(trae.quotaSignal(200, '{"code":4011,"msg":"rate limit"}'), null);
+    assert.equal(trae.quotaSignal(200, '{"code":4026,"msg":"context length exceeded"}'), null);
+    assert.equal(trae.quotaSignal(200, "plain ok"), null);
+  });
+
   /**
    * 架构守卫：**共享层不许出现渠道业务码**（AGENTS.md：共享层不许出现任何渠道知识）。
    *
