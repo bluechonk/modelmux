@@ -108,7 +108,9 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verif
 
 - 对外只做模型家族表声明的模型（`pool/model-family.ts` 是**唯一**允许出现模型名的地方）：
   裸模型名请求（如 `deepseek-v4.1-flash` / `glm-5.3-flash`），渠道由网关按账号池剩余额度自动挑；
-  家族外的名字一律 400。
+  家族外的名字一律 400。唯一例外是 Claude Desktop 的三个角色名
+  （`claude-sonnet-4-5` / `claude-opus-4-5` / `claude-haiku-4-5`）：Desktop 直连只能发它们，
+  按 `DESKTOP_ROLE_MODELS` 固定表映射到池模型，见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §4.1.1。
 - 注释：what 去文档（协议事实只活在 `docs/channels/<cid>/PROTOCOL.md`），why 跟函数（docstring）。
   文件头 ≤12 行：一句话职责 + 关键约束 ≤3 条 + 指针。细则见 [docs/MODULE-COMMENTS.md](docs/MODULE-COMMENTS.md)
   和 [docs/CODE-COMMENTS.md](docs/CODE-COMMENTS.md)。

@@ -1,6 +1,6 @@
 ---
 name: claude-mx-test
-description: 用 Claude Code 对 modelmux（mx）网关做端到端测试（Anthropic Messages 协议，/v1/messages + count_tokens）。适用于：用 claude 测 mx、claude code 接入 modelmux、验证 tool_use ↔ tool_calls 双向映射与 tool_result 回灌、协议端到端验收、换协议复测模型、排查 claude 到 mx 链路报错。模型家族裸名由网关解析（claude-* 自动落池主模型），落点渠道由网关按额度挑；测试前后要做账单核对。
+description: 用 Claude Code 对 modelmux（mx）网关做端到端测试（Anthropic Messages 协议，/v1/messages + count_tokens）。适用于：用 claude 测 mx、claude code 接入 modelmux、验证 tool_use ↔ tool_calls 双向映射与 tool_result 回灌、协议端到端验收、换协议复测模型、排查 claude 到 mx 链路报错。请求模型必须写家族裸名（claude-* 等其他厂商名一律 400，唯一例外是 Claude Desktop 的三个角色名），落点渠道由网关按额度挑；测试前后要做账单核对。
 ---
 
 # Claude Code → modelmux 端到端测试（Anthropic Messages）
