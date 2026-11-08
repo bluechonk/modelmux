@@ -578,7 +578,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 | `step-5-preview` | 1_048_576 | 65_536 | 公开规格 |
 
 数值落点为渠道包根的 `models.json`（与本文一致）；
-全局五级取值链见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
+对外规格以统一注册表为准，见 [MODEL-CATALOG.md](../../MODEL-CATALOG.md)。
 
 **留空（官方无公开规格 / 非公开型号）**：
 `doubao-seed-code`（**该型号官方无公开输出规格**，方舟模型列表与价格页均无

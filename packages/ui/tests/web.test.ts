@@ -12,6 +12,7 @@ import { request } from "node:http";
 import { after, before, describe, it } from "node:test";
 
 import { start, emptySnapshot, type ControlBridge } from "../../core/gateway/dist/http/console/console.js";
+import { registerChannelSupply } from "../../core/gateway/tests/registry-seed.ts";
 import { localDate } from "../../core/gateway/dist/runtime/log-store.js";
 import { channels, clearChannels, setChannel, type Channel, type ChannelConfig } from "../../core/gateway/dist/runtime/channel.js";
 import { runInChannel } from "../../core/gateway/dist/runtime/channel-context.js";
@@ -26,6 +27,8 @@ function makeChannel(
   cid: string,
   opts: { capabilities?: { billing?: boolean; signin?: boolean }; models?: string[] } = {},
 ): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  if (opts.models && opts.models.length > 0) registerChannelSupply(cid, opts.models);
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,

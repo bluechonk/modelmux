@@ -22,6 +22,7 @@ import {
   noteLastFrame,
 } from "../dist/runtime/log-store.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { relayUpstream } from "../dist/http/chat/forward.js";
 import type { UpstreamCall } from "../dist/http/chat/upstream.js";
 import * as paths from "../dist/runtime/paths.js";
@@ -78,6 +79,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 /** 合成渠道：custom 线型 + 把每个上游块原样当一帧（够验证打点）。 */
 function makeChannel(cid: string): Channel {
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   const config: ChannelConfig = {
     cid,
     display: "Generate Ms Test",

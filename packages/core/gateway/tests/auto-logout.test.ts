@@ -18,6 +18,7 @@ import { after, before, describe, it } from "node:test";
 
 import { listAccounts } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
@@ -54,6 +55,9 @@ async function fakeUpstream(): Promise<{ server: Server; url: string; captured: 
 
 /** 合成渠道：凭证走**真实文件**（自动登出要删的就是它）；refresh 无端点必然失败。 */
 function makeChannel(cid: string, upstreamUrl: string): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,

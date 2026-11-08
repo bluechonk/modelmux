@@ -11,6 +11,7 @@ import { runInChannel } from "../../runtime/channel-context.js";
 import { catalogCacheFetchedAt } from "../../runtime/catalog-cache.js";
 import { canonicalModelId, getChannelModelMeta, getPoolModelMeta, poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { POOL_MODEL_IDS, canonicalOf, isPoolModel } from "../../pool/model-family.js";
+import { exposedIdsForChannel } from "../../pool/model-registry.js";
 import { ledgerSnapshot, refreshBilling, totalRemainOf } from "../../pool/pool-usage.js";
 import { poolUsagePath } from "../../runtime/paths.js";
 import { readModelSpecs } from "../../runtime/model-specs.js";
@@ -139,18 +140,22 @@ export async function listLocalModels(
     return 1;
   }
   // 匹配用目录里的**原始写法**（见 pool-targets.ts 的说明）；展示与去重分开处理
+  // 展示该渠道的**上游目录**（诊断用：上游实际提供什么，含家族外型号）；
+  // 读不到时回落到**统一注册表**声明的供给 —— 渠道那份 models.json 已取消，
+  // 全新安装下没有可读的表，此时「本渠道供哪些对外模型」仍要答得出来。
   let catalogBroken = false;
-  const catalogIds = runInChannel(cid, () => {
+  let catalogIds = runInChannel(cid, () => {
     try {
       return channel.catalog.exposedIds();
     } catch (err) {
-      // 目录读失败 ≠ 渠道没有模型：静默回落空数组会把「读错误」伪装成
-      // 「该渠道没有可对外暴露的模型」的事实陈述。留痕并标注。
       console.error(`[model] 目录读取失败（${cid}）：${String(err)}`);
       catalogBroken = true;
       return [] as string[];
     }
   });
+  if (catalogIds.length === 0) {
+    catalogIds = exposedIdsForChannel(cid).map(([model]) => model);
+  }
   // 只列对外家族：网关对外只提供这几个，渠道目录里的其余条目不属于对外模型池
   const family = catalogIds.filter((id) => isPoolModel(id));
   // 渠道内先按规范名去重：同一渠道的不同原始写法收敛为同一个对外模型名

@@ -26,6 +26,7 @@ import {
 } from "../dist/pool/account-rotate.js";
 import { resetPoolLedgerForTest, writeAccountBilling } from "../dist/pool/pool-usage.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as paths from "../dist/runtime/paths.js";
 
 const CID = "synthrot";
@@ -52,6 +53,9 @@ function configOf(cid: string): ChannelConfig {
 }
 
 function makeChannel(cid: string, spec: BillingSpec): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   return {
     config: configOf(cid),
     cred: {

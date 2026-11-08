@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, channelCount, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import { captureActive } from "../dist/runtime/account-pool.js";
 import { noteSuccess, resetPoolLedgerForTest } from "../dist/pool/pool-usage.js";
 import { credentialsPath } from "../dist/runtime/paths.js";
@@ -55,6 +56,10 @@ interface FakeSigninSpec {
 }
 
 function makeChannel(cid: string, opts: FakeSigninSpec): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）：alpha 的上游写法是大写形态，
+  // 用来验证「上游 id 由注册表逐渠道保留、不被小写化」
+  registerChannelSupply(cid, cid === "alpha" ? [["deepseek-v4.1-flash", "DeepSeek-V4.1-Flash"]] : ["deepseek-v4.1-flash"]);
+
   const config: ChannelConfig = {
     cid,
     display: cid === "alpha" ? "Alpha 池" : "Beta 池",
@@ -210,6 +215,8 @@ function resetChannels(): void {
   clearChannels();
   setChannel(makeChannel("alpha", { signin: true }));
   setChannel(makeChannel("beta", { signin: false }));
+  // alpha 额外供 glm-5.3-flash（池视图用例要看到两个型号）
+  registerChannelSupply("alpha", ["glm-5.3-flash"]);
 }
 
 before(() => {

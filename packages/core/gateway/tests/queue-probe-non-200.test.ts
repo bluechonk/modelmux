@@ -18,6 +18,7 @@ import { after, before, describe, it } from "node:test";
 
 import { activeAccountHealth, captureActive } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
@@ -92,6 +93,8 @@ describe("custom + isQueueError 渠道的非 200 响应", () => {
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-qprobenull-"));
     process.env["MODELMUX_HOME"] = root;
+  registerChannelSupply("qprobenull", ["deepseek-v4.1-flash"]);
+
     // 402 + 余额不足：既是额度信号，也是最典型的「非 200 无流」形态
     upstream = await fakeUpstream(
       402,

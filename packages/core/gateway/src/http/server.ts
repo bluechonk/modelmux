@@ -15,6 +15,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { channelCount, channelFor, channels, type UpstreamConfig } from "../runtime/channel.js";
 import { ensureCatalog } from "../pool/catalog-snapshot.js";
+import { POOL_EXPOSED_IDS, ownerOf } from "../pool/model-family.js";
+import { loadModelRegistry } from "../pool/model-registry.js";
 import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat, handleCountTokens, handleMessages, handleResponses } from "./chat/relay.js";
@@ -69,27 +71,43 @@ export interface GatewayOptions {
 
 
 function handleModels(res: ServerResponse): void {
-  // 数据源是统一快照（docs/MODEL-CATALOG.md）：读文件而非每次实时聚合；
-  // 快照缺失时 ensureCatalog() 生成一次并落盘。
-  const catalog = ensureCatalog();
-  const entries = Object.values(catalog.models).map((entry) => ({
-    ...entry,
-    object: "model",
-    // Anthropic 形态补充：Claude Code 的模型发现按它解析，缺了选择器只剩「默认模型」；
-    // OpenAI 客户端忽略未知字段，OpenAI 兼容面不受影响
-    type: "model",
-    display_name: entry.name ?? entry.id,
-    created_at: catalog.generated_at,
-  }));
+  // 数据源是**统一模型注册表**（`<root>/models.json`）：读文件即返回，不再聚合渠道目录。
+  // 规格是产品声明（见 docs/CONTRACT-TS.md §4.1）；每请求读一次盘（几 KB）换「改完立即生效」。
+  const { registry, source, error } = loadModelRegistry();
+  const generatedAt = new Date().toISOString();
+  const entries = POOL_EXPOSED_IDS.filter((id) => registry.models[id] !== undefined).map((id) => {
+    const row = registry.models[id]!;
+    return {
+      id,
+      name: id,
+      object: "model",
+      // Anthropic 形态补充：Claude Code 的模型发现按它解析，缺了选择器只剩「默认模型」
+      type: "model",
+      owned_by: ownerOf(id),
+      display_name: id,
+      created_at: generatedAt,
+      context_window: row.contextWindow,
+      max_output_tokens: row.maxOutput,
+      input_modalities: row.inputModalities,
+      output_modalities: ["text"],
+      effort: null,
+      multiplier: null,
+      marketing: "",
+      // `registry` = 来自 `models.json` 的声明值（不再是上游实时探测值）
+      meta_sources: {
+        context_window: "registry",
+        max_output_tokens: "registry",
+        effort: "default",
+      },
+    };
+  });
   writeJson(res, {
     object: "list",
     // 扩展字段：客户端据此判断目录新鲜度（官方 GET /models 没有）
-    generated_at: catalog.generated_at,
-    // 字段结构对齐 DeepSeek 官方 `GET /models`：
-    // 没有 `created`，`name` 是展示名（`id` 是 deepseek 裸模型名），
-    // 并带上上下文 / 最大输出 / 模态 / 思考档位。
-    // `effort` 可为 null：渠道目录没声明思考档位。
-    // `meta_sources` 是扩展字段：逐项说明真值来自上游 / 规格文件 / 联网搜索 / 跨渠道 / 占位值。
+    generated_at: generatedAt,
+    // 注册表读不到时如实告知，但仍返回内置默认表的内容（不让客户端看到空列表）
+    registry_source: source,
+    ...(error === undefined ? {} : { registry_error: error }),
     data: entries,
     // Anthropic 分页信封：单页全量，恒 has_more=false
     has_more: false,

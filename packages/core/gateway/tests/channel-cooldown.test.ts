@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 
@@ -53,6 +54,9 @@ async function fakeUpstream(): Promise<{ server: Server; url: string; captured: 
 
 /** 合成渠道：凭证走文件，chatUrl 指向假上游（token 决定该渠道的命运）。 */
 function makeChannel(cid: string, token: string, upstreamUrl: string): Channel {
+  // 候选渠道由统一注册表声明（与线上同口径）
+  registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
+
   const config: ChannelConfig = {
     cid,
     display: `Synth ${cid}`,

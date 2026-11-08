@@ -298,36 +298,27 @@ for (const file of walkSrc(gatewaySrc)) {
   );
 }
 
-// ── 家族模型的**渠道供给范围**（产品面策略，数据收口在各渠道 models.json 的 hidden 标记）──
+// ── 统一模型注册表：供给范围与上游 id 映射（产品面策略）────────────────────────
 //
-// 哪个渠道供给哪个模型由 `FAMILY_ALLOWED_BY_CID` 声明：命中允许集的行必须暴露
-// （`hidden !== true`），其余家族行必须标 `hidden: true`。渠道改表漏标会把不该供的
-// 模型悄悄放回池里，这里按「家族命中行的 hidden 与允许集一致」机械守住。
-// 行 id 的归一化与共享层 canonicalModelId 同口径（包装前缀 / 版本点号 / 尾饰）。
+// 注册表（`packages/core/gateway/models.json`）是对外模型面的唯一声明：哪个渠道供哪个
+// 模型、各渠道上游叫什么、对外规格是多少。此前这些分散在 12 个渠道的 `models.json` +
+// `hidden` 标记里（2026-11-08 收敛为单文件，见 docs/MODEL-CATALOG.md）。
 //
-// 给某个渠道加模型 = 在它的允许集里加一项，并同步该渠道 models.json 的 hidden 标记。
-//
-// catpaw 不供给 deepseek-v4.1-flash：该渠道这个型号的窗口只有 600K（同家族其余渠道
-// 1M），留着会拉低 `/v1/models` 的对外报值，并把大上下文请求打回上游拒绝。
-const FAMILY_ALLOWED_BY_CID = {
-  qodercn: ["glm-5.3-flash"],
-  autoclaw: ["glm-5.3-flash"],
-  zcode: ["glm-5.3-flash"],
-  qoder: ["glm-5.3-flash"],
-  workbuddyai: ["glm-5.3-flash", "deepseek-v4.1-flash"],
-  lobsterai: ["glm-5.3-flash", "deepseek-v4.1-flash"],
-  catpaw: ["longcat-2.5"],
-};
-const FAMILY_ALLOWED_DEFAULT = ["deepseek-v4.1-flash"];
-// `const CANONICAL[^=]*=` 容忍类型注解（`Readonly<Record<…>>`）；解析不出来会让整个
-// 校验变成 no-op，所以下面用条目数守卫 fail-loud —— 校验器自己不许静默失败。
+// 这里机械守住三件事：
+//   1. 注册表只声明家族表里的模型（家族外的一律 400，不该出现在供给声明里）；
+//   2. 每个模型至少一家渠道供给（否则这个模型对外永远无货）；
+//   3. 每个 cid 都是真实存在的渠道包（拼错会让该渠道静默不参与路由）。
+const REGISTRY_FILE = "packages/core/gateway/models.json";
+// `const CANONICAL[^=]*=` 容忍类型注解（`Readonly<Record<…>>`）；解析不出来会让下面的
+// 家族判定全部落空，所以先按条目数守卫 fail-loud —— 校验器自己不许静默失败。
 const canonicalBlock = /const CANONICAL[^=]*=\s*\{[^}]*\}/.exec(modelFamily)?.[0] ?? "";
 const CANONICAL_OF = {};
 for (const m of canonicalBlock.matchAll(/"([a-z0-9.-]+)":\s*"([a-z0-9.-]+)"/g)) CANONICAL_OF[m[1]] = m[2];
 check(
   Object.keys(CANONICAL_OF).length >= 2,
-  "model-family.ts: CANONICAL 表解析失败，家族供给范围校验无法执行（正则与源码形态脱节）",
+  "model-family.ts: CANONICAL 表解析失败，注册表的家族校验无法执行（正则与源码形态脱节）",
 );
+/** 行 id 到家族规范名；不在家族表内回 null。 */
 const familyOfRow = (id) => {
   const normalized = id
     .trim()
@@ -340,26 +331,41 @@ const familyOfRow = (id) => {
   const canonical = CANONICAL_OF[normalized] ?? normalized;
   return canonical in CANONICAL_OF ? canonical : null;
 };
-for (const cid of channelDirs.filter((c) => registered.includes(`@modelmux/${c}`))) {
-  const modelsPath = join(channelsDir, cid, "models.json");
-  if (!existsSync(modelsPath)) continue;
-  const allowed = new Set(FAMILY_ALLOWED_BY_CID[cid] ?? FAMILY_ALLOWED_DEFAULT);
-  let rows = [];
+check(existsSync(join(repo, REGISTRY_FILE)), `${REGISTRY_FILE}: 缺统一模型注册表（模型面会是空的）`);
+if (existsSync(join(repo, REGISTRY_FILE))) {
+  let registry = null;
   try {
-    rows = JSON.parse(readFileSync(modelsPath, "utf8")).models ?? [];
-  } catch {
-    check(false, `packages/core/channels/${cid}/models.json: 读不出来或不是合法 JSON`);
-    continue;
+    registry = JSON.parse(read(REGISTRY_FILE));
+  } catch (err) {
+    check(false, `${REGISTRY_FILE}: 不是合法 JSON（${String(err)}）`);
   }
-  for (const row of rows) {
-    if (!row || typeof row.id !== "string") continue;
-    const canonical = familyOfRow(row.id);
-    if (canonical === null) continue;
-    check(
-      allowed.has(canonical) ? row.hidden !== true : row.hidden === true,
-      `packages/core/channels/${cid}/models.json: "${row.id}"（${canonical}）应${allowed.has(canonical) ? "暴露（去掉 hidden）" : "标 hidden: true"}` +
-        `——该渠道的家族供给范围是 [${[...allowed].join(", ")}]（声明处：本脚本的 FAMILY_ALLOWED_BY_CID）`,
-    );
+  if (registry) {
+    const models = registry.models ?? {};
+    check(Object.keys(models).length > 0, `${REGISTRY_FILE}: models 为空（对外模型面不能为空）`);
+    const knownCids = new Set(channelDirs);
+    for (const [id, row] of Object.entries(models)) {
+      check(familyOfRow(id) !== null, `${REGISTRY_FILE}: "${id}" 不在模型家族表里`);
+      check(
+        typeof row?.contextWindow === "number" && row.contextWindow > 0,
+        `${REGISTRY_FILE}: "${id}" 的 contextWindow 必须是正数`,
+      );
+      check(
+        typeof row?.maxOutput === "number" && row.maxOutput > 0,
+        `${REGISTRY_FILE}: "${id}" 的 maxOutput 必须是正数`,
+      );
+      const channels = row?.channels ?? {};
+      check(
+        Object.keys(channels).length > 0,
+        `${REGISTRY_FILE}: "${id}" 没有声明任何供给渠道（该模型对外必然无货）`,
+      );
+      for (const [cid, upstream] of Object.entries(channels)) {
+        check(knownCids.has(cid), `${REGISTRY_FILE}: "${id}" 声明了不存在的渠道 "${cid}"`);
+        check(
+          typeof upstream === "string" && upstream.trim() !== "",
+          `${REGISTRY_FILE}: "${id}" 的渠道 "${cid}" 上游 id 为空（请求会带空 model 打上游）`,
+        );
+      }
+    }
   }
 }
 

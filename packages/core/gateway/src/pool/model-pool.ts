@@ -1,25 +1,19 @@
 /**
- * 渠道目录里的名字 → 该渠道的上游 slug。
+ * 对外模型名 → 该渠道的上游模型名。
  *
- * 对外 id 与路由在 `pool-targets.ts`：客户端用 `<cid>/<模型>` **显式指定渠道**，
- * 网关据此挑候选（账本不再决定路由去向）；本文件只负责最后一步转换。
- *
- * **大小写**：解析做**大小写不敏感**匹配，但拿**目录里的原始写法**去走渠道自己的
- * `resolveModel()` —— 上游 slug 可能大小写敏感（例如 TRAE 上游认
- * `DeepSeek-V4-Flash`，不认 `deepseek-v4-flash`）。
+ * 映射来自**统一注册表**（`<root>/models.json` 的 `channels` 段），不再问渠道目录：
+ * 渠道上游 id 形态各异（`gfmodel` / `sn-deepseek-v4-1-flash-1017` / `LongCat-2.5`），
+ * 由注册表逐渠道声明；删掉它请求就打不到模型。
  */
 
 import type { Channel } from "../runtime/channel.js";
+import { upstreamIdOf } from "./model-registry.js";
 
 /**
- * 把客户端发来的模型名解析为该渠道的上游模型名（大小写不敏感）。
+ * 把对外模型名解析为该渠道的上游模型名；该渠道不提供这个模型时返回 `null`。
  *
- * 已知边界（窄窗口竞态）：`hit` 取自**解析时点**的目录，而 `candidate.exposedId` 可能
- * 来自 30s TTL 的跨渠道索引 —— 两时点之间条目被隐藏（策略生效）时 `hit` 为 undefined，
- * 裸名会原样透传给渠道 `resolveModel()`。候选本就来自暴露集合，窗口极窄，不做二次校验。
+ * `name` 可以是别名（`deepseek-flash`）：注册表按规范名建键，`upstreamIdOf` 内部归一。
  */
-export function resolvePoolModel(channel: Channel, name: string): string {
-  const wanted = name.toLowerCase();
-  const hit = channel.catalog.exposedIds().find((id) => id.toLowerCase() === wanted);
-  return channel.catalog.resolveModel(hit ?? name);
+export function resolvePoolModel(channel: Channel, name: string): string | null {
+  return upstreamIdOf(name, channel.config.cid) ?? null;
 }

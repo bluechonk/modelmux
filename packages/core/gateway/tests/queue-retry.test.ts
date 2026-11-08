@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
+import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
 
@@ -215,6 +216,8 @@ describe("排队重试（10605）", () => {
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-queue-"));
     process.env["MODELMUX_HOME"] = root;
+  registerChannelSupply("queuechan", ["deepseek-v4.1-flash"]);
+
     upstream = await fakeUpstream(2); // 前 2 次排队，第 3 次成功
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
 
@@ -277,6 +280,8 @@ describe("上游 HTTP 200 + 流内业务错误帧（非排队）", () => {
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-instream-err-"));
     process.env["MODELMUX_HOME"] = root;
+
+    registerChannelSupply(CID, ["deepseek-v4.1-flash"]);
     upstream = await fakeUpstreamError();
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
 
@@ -330,6 +335,8 @@ describe("排队探测消费掉的帧一个都不能丢（回归）", () => {
   before(async () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-frame-split-"));
     process.env["MODELMUX_HOME"] = root;
+
+    registerChannelSupply(CID, ["deepseek-v4.1-flash"]);
     upstream = await fakeUpstreamFrameSplit();
     process.env["MB_TEST_UPSTREAM"] = upstream.url;
 
