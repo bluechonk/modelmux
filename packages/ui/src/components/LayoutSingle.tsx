@@ -93,7 +93,9 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
       */}
       <header className="flex h-14 flex-none items-center gap-3 border-b border-line bg-surface px-4">
         <div className="flex flex-none items-center gap-2">
-          <BrandMark size={20} className="text-ink" />
+          {/* 32px：header 高 56px，20px 的图标在彩色角色图上认不出内容；
+              圆角 8px 让方图与整体的圆角语言一致 */}
+          <BrandMark size={32} className="rounded-lg" />
           {/* 窄屏隐藏品牌名，把横向空间让给 Tabs（390px 下品牌名 + 网关控制会挤掉导航） */}
           <span className="hidden text-[15px] font-medium tracking-tight text-ink min-[420px]:inline">
             modelmux

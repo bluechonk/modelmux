@@ -963,6 +963,65 @@ function renderCodexProviderBlock(): string[] {
   ];
 }
 
+/** Codex 的模型目录文件放在网关自己的存储根下（不碰用户的 ~/.codex 里的其它文件）。 */
+function codexCatalogPath(): string {
+  return join(rootDir(), "codex-model-catalog.json");
+}
+
+/**
+ * 写一份**只含对外模型**的 Codex 模型目录，并返回其绝对路径。
+ *
+ * 为什么必须写：Codex 的 `model_catalog_json` 指向的目录里若没有配置里那个
+ * `model`，它启动时会直接报「系统找不到指定的文件」并拒绝运行 —— 接入只改
+ * config.toml、不写目录，等于让 Codex 起不来（或指向一份不含对外模型名的旧目录，
+ * 接入静默失效）。
+ *
+ * 为什么只写对外模型：Codex 的模型选择器会把这个目录整个列出来，把 100+ 个内部
+ * 池 id 塞进去没人看得懂。对外只有家族表那几个裸名。
+ *
+ * 字段按 Codex 的 schema 给最小合法集（`slug` / `display_name` / `base_instructions`
+ * / `supported_reasoning_levels` 是必填，缺任一项整份文件解析失败）。
+ */
+function writeCodexCatalog(models: string[]): string {
+  const path = codexCatalogPath();
+  const doc = {
+    models: models.map((id) => ({
+      id,
+      slug: id,
+      model: id,
+      display_name: id,
+      description: "modelmux 网关模型（渠道由网关按剩余额度自动挑）",
+      base_instructions: CODEX_BASE_INSTRUCTIONS,
+      apply_patch_tool_type: "freeform",
+      supported_in_api: true,
+      supported_reasoning_levels: ["low", "medium", "high"],
+      default_reasoning_level: "medium",
+      context_window: 1_048_576,
+      max_context_window: 1_048_576,
+      visibility: "public",
+    })),
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeVerified(path, `${JSON.stringify(doc, null, 2)}\n`, 0o600);
+  return path;
+}
+
+/**
+ * Codex 的 base instructions（`base_instructions` 是 catalog 每条目的必填项）。
+ *
+ * 与 Codex CLI 内置提示同源，接入只负责让它存在；真正的会话级 instructions
+ * 仍由 Codex 每次请求自带。
+ */
+const CODEX_BASE_INSTRUCTIONS = [
+  "You are Codex, a coding agent working with the user in a shared workspace.",
+  "",
+  "Keep the user informed while completing their task. Before the first tool call, send a brief",
+  "user-facing message explaining what you will check or change and why.",
+  "",
+  "Inspect the relevant code and workspace instructions before editing. Preserve unrelated user",
+  "changes, make focused fixes, and run checks appropriate to the change.",
+].join("\n");
+
 /**
  * 标出 TOML 多行字符串（`"""` / `'''`）区间内的行下标（含开闭行）；开合不配对返回 null。
  *
@@ -1044,9 +1103,20 @@ function integrateCodex(models: string[]): IntegrationResult {
   const nextMask = maskTomlMultilineStrings(next) ?? new Set<number>();
   const firstTable = next.findIndex((l, i) => /^\s*\[.*\]\s*(#.*)?$/.test(l) && !nextMask.has(i));
   const headEnd = firstTable < 0 ? next.length : firstTable;
-  const head = next.slice(0, headEnd).filter((l) => !/^\s*(model_provider|model)\s*=/.test(l));
+  // `model_catalog_json` 一并重写：它指向的目录必须含下面这个 `model`，
+  // 否则 Codex 启动即报「系统找不到指定的文件」（目录不存在或里面没有该模型名）。
+  const head = next
+    .slice(0, headEnd)
+    .filter((l) => !/^\s*(model_provider|model|model_catalog_json)\s*=/.test(l));
   const tail = firstTable < 0 ? [] : next.slice(firstTable);
-  const topKeys = [`model_provider = "modelmux"`, `model = "${models[0]!}"`];
+  const catalogPath = writeCodexCatalog(models);
+  // TOML 基本字符串里反斜杠是转义符：Windows 路径必须用单引号字面量或转成 `\\`
+  const catalogLiteral = `'${catalogPath.replace(/\\/g, "\\\\")}'`;
+  const topKeys = [
+    `model_provider = "modelmux"`,
+    `model = "${models[0]!}"`,
+    `model_catalog_json = ${catalogLiteral}`,
+  ];
   const withKeys = [...head, ...topKeys, ...tail];
 
   const text = `${withKeys.join(eol).replace(/\s+$/, "")}${eol}`;
