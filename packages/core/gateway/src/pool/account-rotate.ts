@@ -145,9 +145,6 @@ export async function rotateExhaustedAccount(
   // 无额度能力的渠道：只认「凭据失效」类换号（账号被上游拒绝就切下一个健康账号），
   // 额度换号无意义 —— 判据不能走账单核查（fetchCredits 对这类渠道直接抛错）
   const authSwap = !hasBilling && opts.code === "upstream_unauthenticated";
-  if (!hasBilling && !authSwap) {
-    return { switched: false, remain: null, reason: "渠道没有额度能力，不按额度换号" };
-  }
   const index = runInChannel(cid, () => readIndex(cid));
   if (!index.active) return { switched: false, remain: null, reason: "当前没有生效账号" };
   const activeKey = index.active;
@@ -157,6 +154,33 @@ export async function rotateExhaustedAccount(
 
   if (authSwap) {
     return swapWithoutBilling(cid, index, activeKey, logger);
+  }
+
+  // **瞬时故障快速换号**（不查账单）：上游 5xx / 断流 / 超时是这一台账号这一次的问题，
+  // 池里还有别的账号就该立刻换，而不是先花一次额度查询去证明「不是额度问题」再换。
+  //
+  // 为什么不等账单：两段式判定（先读快照、再实时重查）是为「额度耗尽」服务的 ——
+  // 而瞬时故障的诉求是**尽快换到还能用的账号**。2026-11-08 实测：一次失败后同渠道
+  // 还要干等 45s（15s + 30s 两轮探测重试）才轮到下一个候选。
+  // 判据刻意不含额度码（那种要走账单证据）与鉴权码（换了会掩盖凭据真因）。
+  if (opts.code === "upstream_error" || opts.code === "upstream_timeout") {
+    const target = pickAlternative(index.accounts, activeKey, cid);
+    if (target) {
+      runInChannel(cid, () => activateAccount(target.key, cid));
+      logger(
+        `account rotated (${cid}): ${short(activeKey)} → ${short(target.key)} (transient upstream failure)`,
+      );
+      return {
+        switched: true,
+        from: short(activeKey),
+        to: short(target.key),
+        remain: null,
+        reason: `上游瞬时故障（${opts.code}），直接换到 ${short(target.key)}`,
+      };
+    }
+  }
+  if (!hasBilling) {
+    return { switched: false, remain: null, reason: "渠道没有额度能力，不按额度换号" };
   }
 
   // ① 最近一次账单（本地快照，零网络开销）：还有额度就不该怀疑额度。
