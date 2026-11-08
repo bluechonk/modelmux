@@ -715,7 +715,10 @@ export async function attemptCandidate(
     attempts: 0,
     host: null,
   };
-  if (isCustomWire(channel) && channel.upstream.isQueueError) {
+  // `call.ok` 前置判断不能省：非 200 时 `openStream()` 只读 `bodySnippet`，`body`
+  // 恒为 null，探测会对它取 `getReader()` 直接抛 TypeError —— 真实状态码被替换成
+  // 502，额度冷却路径也永远走不到（排队只可能发生在 HTTP 200 的流内）。
+  if (call.ok && isCustomWire(channel) && channel.upstream.isQueueError) {
     const env: ProbeEnv = { ctx, channel, cid, sendBody };
     const probedCall = await runQueueProbe(env, state, call);
     if (state.failed) {
