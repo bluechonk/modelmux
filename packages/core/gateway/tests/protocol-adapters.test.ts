@@ -18,6 +18,7 @@ import {
 import { responsesProtocol, translateResponsesRequest } from "../dist/http/protocol/responses.js";
 import { estimateInputTokens, estimateTextTokens } from "../dist/http/protocol/count-tokens.js";
 import { resolveInboundModel } from "../dist/pool/inbound-model.js";
+import { DESKTOP_ROLE_MODELS, canonicalOf } from "../dist/pool/model-family.js";
 import * as paths from "../dist/runtime/paths.js";
 import type { AggregatedCompletion } from "../dist/http/wire/sse-stream.js";
 
@@ -622,7 +623,26 @@ describe("inbound model resolution", () => {
     assert.equal(resolveInboundModel("DeepSeek-Flash").target, "deepseek-v4.1-flash");
   });
 
-  it("家族外名字 → target null + 400 文案（协议路径由此落到池主模型映射）", () => {
+  it("Claude Desktop 角色名按固定表映射到池模型（labelOverride 不进请求体）", () => {
+    for (const [roleId, model] of DESKTOP_ROLE_MODELS) {
+      const resolved = resolveInboundModel(roleId);
+      assert.equal(resolved.target, model, `${roleId} 必须解析成 ${model}`);
+      assert.equal(resolved.via, "desktop-role");
+      // Desktop 会按需补上 [1m] 标记，映射要能穿过它
+      assert.equal(resolveInboundModel(`${roleId}[1m]`).target, model);
+      assert.equal(resolveInboundModel(roleId.toUpperCase()).target, model, "大小写不敏感");
+    }
+    // 角色名不是家族名，但也不该被当成「随便什么 claude-* 都放行」
+    assert.equal(resolveInboundModel("claude-opus-9-9").target, null);
+    assert.equal(resolveInboundModel("claude-sonnet-4-5-20260101").target, null);
+    // 表里的目标必须都是家族模型：家族表增删时忘了同步这里，会以「无渠道供给」400
+    // 收场（报错理由误导排查方向），这一行把漂移挡在测试里
+    for (const [, model] of DESKTOP_ROLE_MODELS) {
+      assert.equal(canonicalOf(model), model, `${model} 必须是家族 canonical`);
+    }
+  });
+
+  it("家族外且非角色名 → target null + 400 文案", () => {
     const miss = resolveInboundModel("claude-sonnet-4-5-20260101");
     assert.equal(miss.target, null);
     assert.match(miss.error ?? "", /unknown model/);
