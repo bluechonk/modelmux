@@ -936,7 +936,12 @@ export function poolModelMetas(ids?: readonly string[]): Map<string, PoolModelMe
 
 /** 兼容旧代码的常量形式。 */
 export const POOL_MODEL_META: Record<string, PoolModelMeta> = new Proxy({} as Record<string, PoolModelMeta>, {
-  get(_target, prop: string) {
+  get(target, prop, receiver) {
+    // 符号键（`Symbol.toPrimitive` 等）与 `Object.prototype` 上的成员（`toString` /
+    // `valueOf` / `constructor` …）都不是模型名：一律走默认语义。
+    // 把它们送进模型名解析会让字符串化（`String(POOL_MODEL_META)`、模板串）拿到
+    // 一个不可调用的对象，最终抛 `TypeError: Cannot convert object to primitive value`。
+    if (typeof prop !== "string" || prop in Object.prototype) return Reflect.get(target, prop, receiver);
     return getPoolModelMeta(prop);
   },
 });
