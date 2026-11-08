@@ -25,22 +25,25 @@
 | --- | --- | --- | --- | --- |
 | catpaw | CatPaw（美团妙手） | 是 | 是 | 在册 |
 | loomy | Loomy（讯飞） | 是 | 是 | 在册 |
-| qodercn | Qoder 国内版 | 是 | 是 | 在册（对外只暴露 `glm-5.3-flash`） |
+| qodercn | Qoder 国内版 | 是 | 是 | 在册 |
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
-| astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 已下架 |
-| lobsterai | LobsterAI（有道） | 是 | 是 | 已下架 |
-| qoder | Qoder（国际版） | 是 | 是 | 已下架 |
-| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 已下架 |
+| astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 在册 |
+| lobsterai | LobsterAI（有道） | 是 | 是 | 在册（账号被上游封停，需重新登录） |
+| qoder | Qoder（国际版） | 是 | 是 | 在册 |
+| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 在册 |
+| autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
+| zcode | ZCode（智谱 Coding Plan） | 是 | 是 | 在册 |
 
-下架渠道的包、`models.json` 与协议文档**原样保留**作参考实现；在册 / 下架的机械校验见
-`scripts/verify-contract.mjs`（渠道目录 == 注册清单 ∪ `RETIRED_CIDS`）。
+全部 12 个渠道均在册（`RETIRED_CIDS` 为空）。
 
-对外家族的**供给范围**：`glm-5.3-flash` 仅 qodercn 供给，其余在册渠道只供
-`deepseek-v4.1-flash`（catpaw / traecn 的 deepseek 条目是已出家族的 v4 系，家族内零供给）。
-收口数据在各渠道 `models.json` 的 `hidden` 标记（共享层 `hiddenModelIds` 收集），范围校验见
-`scripts/verify-contract.mjs` 的「家族供给范围」。
+**每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
+`mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
+机械校验：`scripts/verify-contract.mjs` 保证「渠道目录 == 注册清单 ∪ `RETIRED_CIDS`」，
+`packages/cli/tests/pool.test.ts` 另有一份同口径断言。家族供给范围由各渠道 `models.json`
+的 `hidden` 标记决定（共享层 `hiddenModelIds` 收集），校验见 `scripts/verify-contract.mjs`
+的「家族供给范围」。
 
 ## 架构落点
 

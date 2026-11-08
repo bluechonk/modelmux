@@ -93,7 +93,7 @@ mx log --kind worker --lines 100
 | `not_authenticated` / `upstream_unauthenticated` | 凭据缺失或失效 | `mx acct <cid>`、`mx login <cid>`；**不删凭据文件** |
 | `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断 | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
 | `upstream_timeout` | 上游空闲超时 | 见 §2 第 4 行 |
-| `upstream_queued` | 上游排队 | 声明 `isQueueError` 的渠道会自动重试；等待或换模型 |
+| `upstream_queued` | 上游排队，网关已换过所有候选 | 排队即换渠道、不等待；全部候选都排队才回 503。给渠道加供给或换模型 |
 | `quota_exhausted` | 账号额度耗尽 | 账号进入**冷却**（`cooldown_until`，不是标 `error`），到期自动恢复；可等窗口刷新、`mx acct <cid> use <key>` 换号，或 `mx model usage` 看冷却状态 |
 | `invalid_request` | 请求体或上下文问题 | 对照渠道 `buildChatBody` 的约束 |
 | `internal_error` | 网关自身异常 | 在 `gateway.log` / `worker.log` 搜 `request handler error`；记录可复现的请求 |

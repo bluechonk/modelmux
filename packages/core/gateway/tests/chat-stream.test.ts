@@ -205,69 +205,6 @@ describe("A1 首帧等待期：心跳不得吞掉上游帧", () => {
   });
 });
 
-describe("A2 排队预算耗尽：判定必须排在读流之前", () => {
-  /**
-   * 上游收下请求后彻底静默：流永不产出任何字节。
-   *
-   * 本组用例**不传 `giveUpText`**，走的是「排队重开失败 / 凭据丢失」的兜底错误路径。
-   * 「排队等满预算」那条路会带 `giveUpText`，回的是劝主人换渠道的**正常应答**
-   * （见 `queue-notice.test.ts`），不是这里的错误帧。
-   */
-  function silentBody(): ReadableStream<Uint8Array> {
-    return new ReadableStream<Uint8Array>({
-      start() {
-        /* 永不产出、永不关闭 */
-      },
-    });
-  }
-
-  it("非流式：兜底路径回 503（不等满静默超时）", async () => {
-    const res = new FakeRes();
-    const channel = makeChannel("streamtest");
-    const call: UpstreamCall = {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      body: silentBody(),
-    };
-    const started = Date.now();
-    await relayUpstream(res as unknown as ServerResponse, channel, "streamtest", call, {
-      wantStream: false,
-      logger: () => {},
-      queuedOut: true,
-      pendingFrames: [],
-    });
-    const elapsed = Date.now() - started;
-    assert.equal(res.statusCode, 503, "排队预算耗尽应回 503");
-    const payload = JSON.parse(res.body) as { error?: { code?: string } };
-    assert.equal(payload.error?.code, "upstream_queued");
-    assert.ok(
-      elapsed < 1_000,
-      `必须立刻回 503，不能等满静默超时（实际 ${elapsed}ms）`,
-    );
-  });
-
-  it("流式与非流式口径一致：两条路径都是「先判预算」", async () => {
-    const res = new FakeRes();
-    const channel = makeChannel("streamtest");
-    const call: UpstreamCall = {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      body: silentBody(),
-    };
-    const started = Date.now();
-    await relayUpstream(res as unknown as ServerResponse, channel, "streamtest", call, {
-      wantStream: true,
-      logger: () => {},
-      queuedOut: true,
-      pendingFrames: [],
-    });
-    const elapsed = Date.now() - started;
-    assert.ok(res.body.includes("upstream_queued"), "流式路径也要给明确的排队错误帧");
-    assert.ok(elapsed < 1_000, `流式路径必须立刻收尾（实际 ${elapsed}ms）`);
-  });
-});
 
 describe("A8 上游错误响应体：读一半挂住时请求必须在超时内结束", () => {
   const CID = "errbody";
