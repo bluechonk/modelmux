@@ -124,15 +124,19 @@ export function LoginModal({
   const toast = useToast();
   const lastToastedError = useRef("");
   useEffect(() => {
-    if (uiState !== "error") {
+    if (snapshot?.login_result !== "error") {
       lastToastedError.current = "";
       return;
     }
     const msg = message.trim();
     if (!msg || msg === PREPARING_MESSAGE || msg === lastToastedError.current) return;
+    // 「取消」不是错误：用户主动放弃登录不该弹红色失败提示 —— 页脚的失败态已经说明
+    // 情况，再弹一次等于把「我点了取消」报成「出错了」。
+    if (/取消|cancel/i.test(msg)) return;
+    // 弹窗前剥掉 `Error: ` 前缀：那是内部异常的类名，用户不需要看到。
     lastToastedError.current = msg;
-    toast.error(msg);
-  }, [uiState, message, toast]);
+    toast.error(msg.replace(/^Error:\s*/, ""));
+  }, [snapshot?.login_result, message, toast]);
 
   // 扫码流 2 步、授权链接流 3 步；标题栏据此给步骤提示
   /** 既没有授权链接/二维码，也没有待回答的输入 = 正在处理（准备中或渠道在发码）。 */
@@ -186,19 +190,6 @@ export function LoginModal({
               ? "等待授权回调，完成后自动继续"
               : "正在准备授权链接…";
 
-  /** 点「复制授权链接」：只写剪贴板，**不**打开新窗口。 */
-  const [authCopied, setAuthCopied] = useState(false);
-  const copyAuthUrl = async (): Promise<void> => {
-    if (authUrl === "") return;
-    try {
-      await navigator.clipboard.writeText(authUrl);
-      setAuthCopied(true);
-      setTimeout(() => setAuthCopied(false), 1800);
-    } catch {
-      // 剪贴板不可用（非安全上下文等）：静默失败，用户仍可手动复制下面那一行
-    }
-  };
-
   // 扫码流：扫码 → 手机确认 → 自动入池
   const qrSteps: Array<{ title: string; body: ReactNode; state: StepState }> = [
     {
@@ -234,21 +225,9 @@ export function LoginModal({
     {
       title: "复制授权链接",
       body: (
-        // 链接框一行装下（值 + 末尾复制键），下面一个主按钮 —— 早先是「一个复制按钮 +
-        // 下面再一条链接」两处都能复制，既重复又占两行。
-        <div className="space-y-2.5">
-          <CopyableLink url={authUrl} label="" />
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-[10px] bg-brand px-4 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
-            disabled={authUrl === ""}
-            onClick={() => void copyAuthUrl()}
-            aria-label="复制授权链接到剪贴板"
-          >
-            {authCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            {authCopied ? "已复制，粘到浏览器打开" : "复制授权链接"}
-          </button>
-        </div>
+        // 只留链接框里那个复制小图标 —— 大按钮与它功能完全重复（都只写剪贴板），
+        // 占一整行还把「复制」这件事说得比实际更重要。
+        <CopyableLink url={authUrl} label="" />
       ),
       state: done ? "done" : failed ? "failed" : "active",
     },

@@ -81,12 +81,8 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       <span>
         成功率 <span className="tabular text-ink">{rate === null ? "-" : `${rate}%`}</span>
       </span>
-      {/* 「慢」只给条数：两个维度的归因（首字延迟 / 生成速率）在展开行逐条给出，
-          统计条再摊一遍阈值与分项只会把四个数挤成一团（口径见 docs/LOGGING.md §3.5） */}
-      <span>
-        慢 <span className="tabular text-ink">{formatCount(stats.slow)}</span>
-      </span>
-      {/* 平均 TPS 回答「一条请求通常多快」；平均耗时被它取代（长输出会把耗时拉长，读不出快慢）。
+      {/* 不再显示「慢」条数：快慢由 TPS 数字自证，阈值是人定的，统计条里单列一个
+          「慢 N」只会让人去猜「N 是多少才算正常」。平均 TPS 一格已足够。
           `?? null`：字段缺失（旧构建的载荷）必须显示 `—`，不是 `NaN t/s` */}
       <span>
         平均 TPS <span className="tabular text-ink">{formatRate(stats.avgTps ?? null)}</span>
@@ -134,14 +130,7 @@ function BreakableId({ value }: { value: string }): ReactElement {
 }
 
 /** 展开行：请求全字段。 */
-function LogDetail({
-  entry,
-  thresholds,
-}: {
-  entry: AccessLogEntry;
-  /** 「慢」的两个阈值：展开行给出**真实数值**，否则「慢」不可复核（统计条已不再摊这两个数）。 */
-  thresholds: { ttfbMs: number; tps: number };
-}): ReactElement {
+function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
     <div className="space-y-3 bg-canvas/40 px-4 py-3">
@@ -158,18 +147,6 @@ function LogDetail({
         <Field label="结果">
           <span className={meta.text}>{meta.label}</span>
           <span className="font-mono">{entry.status ?? "-"}</span>
-          {entry.slow && <span className="pill bg-warn/15 text-warn">慢</span>}
-          {/* 慢的归因：两个维度独立成立，给阈值让「慢」可复核（口径见 docs/LOGGING.md §3.5） */}
-          {entry.slowTtfb && (
-            <span className="text-ink-faint">
-              首字 {formatDuration(entry.ttfbMs)}（≥ {formatDuration(thresholds.ttfbMs)}）
-            </span>
-          )}
-          {entry.slowTps && (
-            <span className="text-ink-faint">
-              速率 {formatTokensPerSec(entry)}（&lt; {thresholds.tps} t/s）
-            </span>
-          )}
         </Field>
         <Field label="耗时">
           <span className="tabular">
@@ -307,7 +284,6 @@ function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
         <span className={meta.text}>{meta.label}</span>
         <span className="font-mono text-ink-faint">{entry.status ?? "-"}</span>
-        {entry.slow && <span className="pill bg-warn/15 text-warn">慢</span>}
       </span>
     </td>
   );
@@ -457,10 +433,7 @@ function LogTable({
                   {open && (
                     <tr className="border-b border-line/40">
                       <td colSpan={cols.length} className="p-0">
-                        <LogDetail
-                          entry={entry}
-                          thresholds={page.slowThresholds}
-                        />
+                        <LogDetail entry={entry} />
                       </td>
                     </tr>
                   )}
@@ -544,8 +517,6 @@ function Filters({
   onOutcome,
   cid,
   onCid,
-  slowOnly,
-  onSlowOnly,
   pageSize,
   onPageSizeChange,
   dirty,
@@ -558,8 +529,6 @@ function Filters({
   onOutcome: (value: "" | AccessOutcome) => void;
   cid: string;
   onCid: (value: string) => void;
-  slowOnly: boolean;
-  onSlowOnly: (value: boolean) => void;
   pageSize: number;
   onPageSizeChange: (size: number) => void;
   dirty: boolean;
@@ -631,15 +600,6 @@ function Filters({
       <Select label="渠道" value={cid} onChange={onCid} options={cidOptions} />
       <Select label="日期" value={date} onChange={onDate} options={dateOptions} />
 
-      <button
-        type="button"
-        aria-pressed={slowOnly}
-        onClick={() => onSlowOnly(!slowOnly)}
-        className={toggleClass(slowOnly)}
-      >
-        只看慢
-      </button>
-
       <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
         <span className="flex items-center gap-1.5">
           每页
@@ -675,7 +635,6 @@ export function Logs(): ReactElement {
   const [date, setDate] = useState("");
   const [outcome, setOutcome] = useState<"" | AccessOutcome>("");
   const [cid, setCid] = useState("");
-  const [slowOnly, setSlowOnly] = useState(false);
   const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -684,7 +643,7 @@ export function Logs(): ReactElement {
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
     // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
     // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测出现过）。
-    queryKey: ["logs", date, outcome, cid, slowOnly, pageNum, pageSize],
+    queryKey: ["logs", date, outcome, cid, pageNum, pageSize],
     // 再进页面 / 切筛选时先出上一次的数据（列表页最怕被清空成骨架）
     placeholderData: (prev) => prev,
     queryFn: () =>
@@ -692,7 +651,6 @@ export function Logs(): ReactElement {
         date: date === "" ? undefined : date,
         outcome: outcome === "" ? undefined : outcome,
         cid: cid === "" ? undefined : cid,
-        slow: slowOnly ? true : undefined,
         limit: pageSize,
         offset: (pageNum - 1) * pageSize,
       }),
@@ -707,7 +665,7 @@ export function Logs(): ReactElement {
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
-  const dirty = date !== "" || outcome !== "" || cid !== "" || slowOnly;
+  const dirty = date !== "" || outcome !== "" || cid !== "";
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
   const resetToFirstPage = (): void => setPageNum(1);
   /** 每页条数变化：持久记忆 + 回第 1 页（偏移量跟着 pageSize 走）。 */
@@ -765,15 +723,6 @@ export function Logs(): ReactElement {
             setExpanded(null);
             resetToFirstPage();
           }}
-          slowOnly={slowOnly}
-          // 「只看慢」也是筛选：命中数变了，偏移量必须跟着回第 1 页。
-          // 此前唯独它直接 `setSlowOnly`，第 3 页打开筛选会停在中间一段
-          // （实测 11-07：全部 175 页 → 跳第 3 页 → 只看慢 60 条 → 停在 3 / 6）。
-          onSlowOnly={(value) => {
-            setSlowOnly(value);
-            setExpanded(null);
-            resetToFirstPage();
-          }}
           pageSize={pageSize}
           onPageSizeChange={(size) => {
             setPageSize(size);
@@ -785,7 +734,6 @@ export function Logs(): ReactElement {
             setDate("");
             setOutcome("");
             setCid("");
-            setSlowOnly(false);
             setPageNum(1);
             setExpanded(null);
           }}
