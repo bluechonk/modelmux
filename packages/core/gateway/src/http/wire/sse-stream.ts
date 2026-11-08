@@ -415,22 +415,27 @@ export async function relay(
       return;
     }
 
+    if (!isSse) {
+      // 上游没按 SSE 回（错误 JSON 直落正文）：**整段读完一次性交付**。
+      // 边读边发会把已读前缀反复拼进正文（第 N 段带上前 N-1 段）；开了抓包时
+      // `capture` 已收下当前段，再拼一次就是两份正文。协议客户端拿到的消息会
+      // 被重复内容挤占 500 字符窗口，真正的错误细节反而被截掉。
+      const chunks: Buffer[] = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (capture) capture.push(Buffer.from(value));
+        chunks.push(Buffer.from(value));
+      }
+      emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
+      return;
+    }
+
     let buffer = "";
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (capture) capture.push(Buffer.from(value));
-      if (!isSse) {
-        // 上游没按 SSE 回（错误 JSON 直落正文）：有编码器时转成协议错误事件，
-        // 否则协议客户端会收到一段无法解析的字节
-        emitNonSseBody(
-          Buffer.concat([...(capture ?? []), Buffer.from(value)]).toString("utf8"),
-          sink,
-          out,
-        );
-        if (sink) return;
-        continue;
-      }
       buffer += decoder.decode(value, { stream: true });
       for (;;) {
         const lf = buffer.indexOf("\n\n");
