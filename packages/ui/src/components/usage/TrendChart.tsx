@@ -239,10 +239,6 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
               );
             })
           )}
-          <p className="pt-2 text-xs text-ink-faint">
-            {singleDay.date} 当天合计 {formatTokens(singleDay.tokens)} tokens（{singleDay.requests} 次请求）。
-            想看趋势把页头区间切到「近 7 日」或「累计」。
-          </p>
         </div>
       )}
 

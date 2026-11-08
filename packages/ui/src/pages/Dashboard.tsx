@@ -534,6 +534,15 @@ export function Dashboard(): ReactElement {
   const series = (rangeStats?.models ?? []).slice(0, MAX_SERIES).map((m) => m.id);
   const streakDays = rangeStats?.streak.current ?? 0;
 
+  /**
+   * 单日区间的当天合计（选「今天」时 `daily` 恰好一条）。
+   *
+   * 这句话原先长在 `TrendChart` 的单日分支里，压在按模型分行的条形底下 —— 离页头
+   * 区间控件隔着一整张图卡，读者要先看图才知道「为什么只有一天」。挪到接口地址 / 模型
+   * 行上方后，与页头区间控件的视线路径连成一条：先看选了什么区间，再看选出来是哪天、多少量。
+   */
+  const singleDay = rangeStats?.daily.length === 1 ? rangeStats.daily[0]! : null;
+
   return (
     <div className="space-y-5 pb-10">
       <PageHeader
@@ -626,6 +635,15 @@ export function Dashboard(): ReactElement {
           </span>
         )}
       </div>
+
+      {/* 单日区间的合计与「怎么看趋势」：贴着接口地址 / 模型行上方。
+          只有 `daily` 恰好一天（选「今天」）时出现 —— 多日区间这句话没有对象。 */}
+      {singleDay && (
+        <p className="px-1 text-xs text-ink-faint">
+          {singleDay.date} 当天合计 {formatTokens(singleDay.tokens)} tokens（{singleDay.requests} 次请求）。
+          想看趋势把页头区间切到「近 7 日」或「累计」。
+        </p>
+      )}
 
       {/* ① 接口地址盒（左，端点信息） + 对外模型清单（右，同一行等高）
           两卡同在 `lg:grid-cols-12` 的一行里（8 + 4），行高由内容较高的一侧决定，
