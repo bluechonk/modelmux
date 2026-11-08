@@ -57,6 +57,22 @@ interface DemoAccount {
  * 早先这份表停在 6 个渠道，演示站点看起来像「这个网关只接了 6 家」——
  * 与真实控制台对不上，也就失去了演示的意义。新增渠道时同步加这里。
  */
+/**
+ * 对外端点清单 —— **必须与后端 `console.ts` 的 `emptySnapshot().endpoints` 一致**。
+ *
+ * UI 引不到后端模块（两套构建、不同 tsconfig），只能在这里抄一份；抄错了演示站就会
+ * 显示一份不存在的端点表（早先只抄了 3 条，真实是 6 条）。
+ * `demo.test.ts` 有一条断言把两边的清单读出来比对，漂移会红。
+ */
+const DEMO_ENDPOINTS: string[] = [
+  "/v1/chat/completions",
+  "/v1/messages",
+  "/v1/messages/count_tokens",
+  "/v1/responses",
+  "/v1/models",
+  "/health",
+];
+
 const DEMO_CHANNELS: DemoChannel[] = [
   { cid: "astudio", display: "AStudio", present: true, billing: false },
   { cid: "autoclaw", display: "AutoClaw", present: true, billing: true },
@@ -280,13 +296,15 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
 function demoSettingsBase(state: DemoState): UiSnapshot {
   return {
     ui_state: "running",
+    // 一次性登录结果：演示站不预先带 done/error，否则一打开就显示「登录失败」
+    login_result: "idle",
     message: "演示模式：数据均为虚构，未连接任何真实网关",
     auth_url: "",
     qr_url: "",
     login_input: null,
     base_url: "http://127.0.0.1:4412/v1",
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
-    endpoints: ["/v1/chat/completions", "/v1/models", "/health"],
+    endpoints: DEMO_ENDPOINTS,
     models: demoModelRows(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),
     theme_mode: "dark",
