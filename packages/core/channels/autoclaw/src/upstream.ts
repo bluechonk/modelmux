@@ -12,6 +12,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
+  estimateTextTokens,
   login as shared,
   type Credential,
   type StreamTranslator,
@@ -539,7 +540,26 @@ class RelayConverter {
   emitDone(usage: Record<string, unknown> | undefined): void {
     if (this.done) return;
     const normalized = normalizeUsage(usage);
-    this.finishFrame(normalized);
+    this.finishFrame(normalized ?? this.estimateUsageFromText());
+  }
+
+  /**
+   * 上游全程不发 usage 时的兜底估算（autoclaw 实测从不带该字段，2026-11-08）。
+   *
+   * 为什么要补：不补的话这些成功请求在访问日志里 `usage` 为空，仪表盘把它们算进
+   * 「N 条无 usage」，该渠道的 token 消耗永远不进统计。
+   *
+   * 为什么必须标 `estimated`：这是启发式估算（±20%），与上游真实计数不是一回事。
+   * 标出来，统计侧才能区分、人才能判断哪个数字可信；不标就成了伪精确。
+   *
+   * 只估 `completion_tokens`：生成正文在本地拿得到（`lastText`），输入侧拿不到
+   * （渠道契约里 `newTranslator()` 无参，看不到请求体），不编造。
+   */
+  private estimateUsageFromText(): Record<string, unknown> | undefined {
+    if (!this.lastText) return undefined;
+    const completion = estimateTextTokens(this.lastText);
+    if (completion <= 0) return undefined;
+    return { completion_tokens: completion, total_tokens: completion, estimated: true };
   }
 
   /** 错误事件：有内容已发出就以错误帧收尾（客户端看到半截 + 原因），否则交上层重试。 */
@@ -557,7 +577,7 @@ class RelayConverter {
   finalizeWithoutDone(usage?: Record<string, unknown>): void {
     if (this.done) return;
     const normalized = normalizeUsage(usage);
-    this.finishFrame(normalized);
+    this.finishFrame(normalized ?? this.estimateUsageFromText());
   }
 }
 
