@@ -14,7 +14,7 @@ import { after, before, describe, it } from "node:test";
 import { clearChannels, setChannel, type Channel } from "../dist/runtime/channel.js";
 import { poolUsagePath } from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
-import { canonicalModelId, POOL_MODELS, poolCandidates } from "../dist/pool/pool-targets.js";
+import { canonicalModelId, POOL_MODELS, POOL_MODEL_META, poolCandidates } from "../dist/pool/pool-targets.js";
 import { canonicalOf, isPoolModel } from "../dist/pool/model-family.js";
 
 let root = "";
@@ -163,6 +163,16 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
       ["deepseek-v4.1-flash", "glm-5.3-flash"],
       "只列有货的 canonical 模型（别名 deepseek-flash 不单独出现）",
     );
+  });
+
+  it("POOL_MODEL_META 不把原型成员与符号键当模型名（String / 模板串不抛错）", () => {
+    clearChannels();
+    setChannel(stubChannel("alpha", ["deepseek-v4.1-flash"]));
+    // 字符串化会先取 `toString` / `valueOf` / `Symbol.toPrimitive`：它们必须是原型上
+    // 可调用的真函数，否则 `Cannot convert object to primitive value`
+    assert.doesNotThrow(() => String(POOL_MODEL_META));
+    assert.doesNotThrow(() => `${POOL_MODEL_META}`);
+    assert.equal(POOL_MODEL_META["deepseek-v4.1-flash"]?.name, "deepseek-v4.1-flash");
   });
 });
 
