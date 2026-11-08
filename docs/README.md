@@ -32,7 +32,7 @@
 | [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
 | [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 三页深色看板（仪表盘 / 账号池 / 请求日志；模型清单与一键接入在仪表盘）的架构、构建与 API 面貌 |
 | [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：仪表盘用量区块的数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
-| [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议（OpenAI chat / Anthropic Messages / OpenAI Responses）、模型名解析（家族外落池主模型）、四 CLI 的一键接入与手工配置、真机验证矩阵 |
+| [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议（OpenAI chat / Anthropic Messages / OpenAI Responses）、模型名解析（家族裸名 + Claude Desktop 角色映射 + 家族外 400）、四 CLI 的一键接入与手工配置、真机验证矩阵 |
 | [backup/translation/TRANSLATION.md](./backup/translation/TRANSLATION.md) | **请求上下文翻译（已下线，方案留档）**：英译中的判定算法、分块与缓存策略、网关代发的取舍、入参上限 —— 功能随上下文弹窗移除，代码已删，方案留给后续项目复用 |
 | [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案**：/web/ 首页运行视图的模块划分、布局与数据通道；现行规则见 WEB-CONSOLE.md |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |

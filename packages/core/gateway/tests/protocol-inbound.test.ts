@@ -2,8 +2,8 @@
  * 协议入站端到端（makeApp + 假上游，openai 线型全链路）。
  *
  * 协议形态的**单元级**断言见 protocol-adapters.test.ts（翻译器与回程编码器）；
- * 本文件钉的是接线层：端点路由、模型名映射（claude-* / gpt-* → 池主模型）、
- * 错误信封按协议分发、count_tokens 端点，以及转发管线对协议客户端的完整事件流。
+ * 本文件钉的是接线层：端点路由、模型名解析（家族裸名 + Claude Desktop 角色映射 +
+ * 家族外 400）、错误信封按协议分发、count_tokens 端点，以及转发管线对协议客户端的完整事件流。
  */
 
 import assert from "node:assert/strict";
@@ -63,7 +63,11 @@ function makeChannel(cid: string, base: string): Channel {
       fetchModels: async () => ({}),
       resolveConfig: () => ({ baseUrl: base }),
     },
-    catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
+    catalog: {
+      // 三个池模型都供给：角色名映射要真正走通选路，只有一个模型时另两个槽会因「无渠道供给」400
+      exposedIds: () => ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5"],
+      resolveModel: (n: string) => n,
+    },
     billing: {
       CreditsError: class CreditsError extends Error {},
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
@@ -144,7 +148,24 @@ describe("协议入站端点（假上游全链路）", () => {
     assert.equal(upstreamModel, "deepseek-v4.1-flash");
   });
 
-  it("/v1/messages 客户端原生模型名映射到池主模型", async () => {
+  it("/v1/messages Claude Desktop 角色名映射到对应池模型", async () => {
+    const resp = await fetch(`http://${gw.addr}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "ping" }],
+      }),
+    });
+    assert.equal(resp.status, 200);
+    // 角色名 → 固定池模型（不是「第一个池模型」）：菜单里选什么，跑的就是什么
+    assert.equal(upstreamModel, "glm-5.3-flash", "claude-opus-4-5 必须映射到 glm-5.3-flash");
+    const payload = (await resp.json()) as Record<string, unknown>;
+    assert.equal(payload["type"], "message");
+  });
+
+  it("/v1/messages 家族外且非角色名 → 400，不静默兜底", async () => {
     const resp = await fetch(`http://${gw.addr}/v1/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -154,20 +175,20 @@ describe("协议入站端点（假上游全链路）", () => {
         messages: [{ role: "user", content: "ping" }],
       }),
     });
-    assert.equal(resp.status, 200);
-    assert.equal(upstreamModel, "deepseek-v4.1-flash", "claude-* 必须映射到池内模型");
+    assert.equal(resp.status, 400);
     const payload = (await resp.json()) as Record<string, unknown>;
-    assert.equal(payload["type"], "message");
+    const err = payload["error"] as Record<string, unknown>;
+    assert.match(String(err["message"]), /unknown model/);
   });
 
   it("/v1/responses 非流式：response 对象带 output_text 与 usage", async () => {
     const resp = await fetch(`http://${gw.addr}/v1/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "gpt-5.2", input: "ping", instructions: "你是 Codex。" }),
+      body: JSON.stringify({ model: "deepseek-v4.1-flash", input: "ping", instructions: "你是 Codex。" }),
     });
     assert.equal(resp.status, 200);
-    assert.equal(upstreamModel, "deepseek-v4.1-flash", "gpt-* 必须映射到池内模型");
+    assert.equal(upstreamModel, "deepseek-v4.1-flash");
     const payload = (await resp.json()) as Record<string, unknown>;
     assert.equal(payload["object"], "response");
     assert.equal(payload["status"], "completed");

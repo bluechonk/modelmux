@@ -13,8 +13,11 @@
 > Desktop 的 `inferenceModels[].name` 必须是**真实 Anthropic 模型名**（`claude-sonnet-4-5`
 > 这类，实测连斜杠与点号都不允许）：Desktop 的校验器会丢弃自造名，日志写
 > `is not an Anthropic model`，界面上表现为模型选择器为空、只剩「默认模型」。
-> 真正发给网关的模型名写在 `labelOverride` 里。三个角色槽（sonnet / opus / haiku）
-> 决定最多能并存几个模型。
+>
+> `labelOverride` 只改**菜单显示名**，**不进请求体**：Desktop 直连网关时发的始终是
+> `name` 里的角色名。角色名到池模型的还原由网关的固定映射表负责
+> （`pool/model-family.ts` 的 `DESKTOP_ROLE_MODELS`，接入写 profile 与入站解析同读一份）。
+> 三个角色槽（sonnet / opus / haiku）决定最多能并存几个模型。
 
 ## 1. 入站端点
 
@@ -70,8 +73,9 @@
 
 1. 剥 `[1m]` 后缀（Claude Code 的 1M 窗口标记）与 `modelmux/` 前缀；
 2. 大小写不敏感 + 别名归并（`deepseek-flash` → `deepseek-v4.1-flash`，家族表唯一事实源）；
-3. 不在家族里的名字（Claude Code / Codex 发的厂商默认名 `claude-sonnet-4-5` 等）→
-   **池主模型**（有货的第一个池模型）—— 协议入站路径专有，OpenAI chat 入站仍是家族外 400。
+3. Claude Desktop 的三个角色名（`claude-sonnet-4-5` / `claude-opus-4-5` / `claude-haiku-4-5`）
+   按 `DESKTOP_ROLE_MODELS` 固定表映射到池模型（见 [CONTRACT-TS.md §4.1.1](./CONTRACT-TS.md)）；
+4. 其余家族外的名字一律 `400 unknown_model`（含 `gpt-*` 与不在角色表里的 `claude-*`）。
 
 ## 3. 四 CLI 接入配置
 

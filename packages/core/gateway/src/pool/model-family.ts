@@ -42,6 +42,28 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
 };
 
 /**
+ * `[角色名, 池模型]` 表：接入写 profile 与入站解析共读（顺序即档位顺序）。
+ *
+ * Desktop 直连网关只会发 `claude-<role>-<n>-<n>` 这类真实 Anthropic 名（校验器拒自造名、
+ * 斜杠与点号，且整组拒收），`labelOverride` 只改菜单显示名、**不进请求体** ——
+ * 没有这层映射时三个槽只能落到「第一个池模型」，菜单选 glm 实际跑 deepseek
+ * （2026-11-08 实测）。固定表而非按槽位下标取 `models[n]`：后者让实际模型随
+ * `/v1/models` 展示顺序漂移。契约见 docs/CONTRACT-TS.md §4.1.1。
+ */
+export const DESKTOP_ROLE_MODELS: ReadonlyArray<readonly [roleId: string, model: string]> = [
+  ["claude-sonnet-4-5", "deepseek-v4.1-flash"],
+  ["claude-opus-4-5", "glm-5.3-flash"],
+  ["claude-haiku-4-5", "longcat-2.5"],
+];
+
+/** 角色名 → 池模型的 canonical；不是角色名返回 `null`。 */
+export function desktopRoleModel(roleId: string): string | null {
+  const key = roleId.trim().toLowerCase();
+  for (const [id, model] of DESKTOP_ROLE_MODELS) if (id === key) return model;
+  return null;
+}
+
+/**
  * 只在表**自有键**里查值。
  *
  * 三张表都是普通对象字面量，直接用 `TABLES[key]` 会走原型链：
