@@ -23,8 +23,13 @@ concurrency:
 
 # push 事件里 verify:commits 用「上一次 main 的 SHA..本次 SHA」校验被推送的提交；
 # pull_request 事件该值为空，脚本会回落到 origin/main..HEAD。
+#
+# PR_TITLE / PR_BODY：squash 会把 PR 描述并入 main 上的 commit body，但那只在合并后
+# 发生 —— 不在这里提前校验，就无法在合并前发现 emoji / 对话式内容（PR #349 事故）。
 env:
   GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+  PR_TITLE: ${{ github.event.pull_request.title }}
+  PR_BODY: ${{ github.event.pull_request.body }}
 
 jobs:
   test:
