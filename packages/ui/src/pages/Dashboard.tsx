@@ -423,12 +423,12 @@ export function Dashboard(): ReactElement {
     // HTTP 层是 200，onSuccess 不代表接入成功
     onSuccess: (data) => {
       const target = String(data.target ?? "");
-      const models = Array.isArray(data.models) ? data.models.map(String).join(" / ") : "";
       if (data.ok === false) {
         toast.error(`接入失败：${String(data.error ?? "未完成任何改动")}`);
         return;
       }
-      toast.success(`已接入 ${target || "客户端"}${models ? `（${models}）` : ""}`);
+      // 只说结论：改了哪些模型，同屏「模型」清单里就列着，toast 里再重复一遍是噪音。
+      toast.success(`已接入 ${target || "客户端"}`);
     },
     onError: (err) => toast.error(`接入失败：${errorText(err)}`),
   });
@@ -446,13 +446,9 @@ export function Dashboard(): ReactElement {
         toast.error(`还原失败：${String(data.error ?? "没有可用的接入备份")}`);
         return;
       }
-      const parts: string[] = [];
-      const restored = Array.isArray(data.restored) ? data.restored.length : 0;
-      const removed = Array.isArray(data.removed) ? data.removed.length : 0;
-      if (restored > 0) parts.push(`${restored} 个文件`);
-      if (removed > 0) parts.push(`删除 ${removed} 个接入新建的文件`);
-      toast.success(`已还原 ${target || "客户端"}${parts.length > 0 ? `（${parts.join("、")}）` : ""}`);
-      // 跳过的条目 / 缺失的备份文件必须说出来 —— 否则「已还原」是假象
+      toast.success(`已还原 ${target || "客户端"}`);
+      // 跳过的条目 / 缺失的备份文件必须说出来 —— 否则「已还原」是假象。
+      // 这是真警告而不是计数，保留逐条提示。
       for (const note of Array.isArray(data.notes) ? data.notes : []) {
         toast.info(typeof note === "string" ? note : String(note));
       }
@@ -794,9 +790,7 @@ export function Dashboard(): ReactElement {
             {/* 还原区：与接入同目标、次级视觉权重。取该目标最新一次备份，
                 还原前自动把当前状态再备份一份（可反悔） */}
             <div className="mt-3 border-t border-line/50 pt-3">
-              <div className="mb-2 text-xs text-ink-faint">
-                一键还原（恢复到接入前的配置，取最近一次备份）
-              </div>
+              <div className="mb-2 text-xs text-ink-faint">一键还原</div>
               <div className="grid grid-cols-2 gap-2">
                 <RestoreButton mutation={restoreMutation} target="zcode" label="还原 zcode" />
                 <RestoreButton mutation={restoreMutation} target="dsh" label="还原 dsh" />
