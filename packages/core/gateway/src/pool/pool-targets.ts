@@ -281,14 +281,21 @@ function contextWindowOf(entry: Record<string, unknown>): number | null {
   return Math.max(direct, tierMax);
 }
 
-/** 模态数组归一：小写化 + 别名映射 + 去重（保持首次出现的顺序）。 */
+/**
+ * 模态数组归一：小写化 + 别名映射 + 去重（保持首次出现的顺序）。
+ *
+ * 查别名用 `hasOwn`：上游目录的 `input_modalities` 是外部数据，写成 `constructor` /
+ * `__proto__` 会走原型链命中 `Object.prototype`，`??` 于是不落兜底，
+ * 把函数或对象塞进返回值 —— 该结果直接进 `/v1/models` 的 `input_modalities`，
+ * 破坏「`string[]`」契约，客户端按字符串处理会崩。
+ */
 function normalizeModalities(raw: readonly unknown[]): string[] {
   const out: string[] = [];
   for (const item of raw) {
     if (typeof item !== "string") continue;
     const key = item.trim().toLowerCase();
     if (!key) continue;
-    const norm = MODALITY_ALIASES[key] ?? key;
+    const norm = Object.hasOwn(MODALITY_ALIASES, key) ? MODALITY_ALIASES[key]! : key;
     if (!out.includes(norm)) out.push(norm);
   }
   return out;
