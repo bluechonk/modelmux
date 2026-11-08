@@ -11,7 +11,7 @@
 import type { ServerResponse } from "node:http";
 
 import { noteRequestError } from "../../runtime/log-store.js";
-import { anthropicErrorBody } from "../protocol/anthropic.js";
+import { CONTEXT_LENGTH_EXCEEDED_RE, anthropicErrorBody } from "../protocol/anthropic.js";
 import { protocolOf } from "../protocol/types.js";
 
 /**
@@ -113,4 +113,22 @@ export function isQuotaExhausted(body: string): boolean {
 export function isUsageLimit(body: string): boolean {
   if (!body) return false;
   return /frequency[_ ]limit|usage[_ ]exceeds|频率限制/i.test(body);
+}
+
+/**
+ * 上游错误是否表示**上下文窗口超限**（请求体本身太大，重试永远不会成功）。
+ *
+ * 为什么必须单独认：语义上这是客户端问题，该回 4xx 让客户端去压缩/裁剪历史；
+ * 回 5xx 会被客户端归类成「服务端临时故障」并无限重试 —— 而上下文体量不会自己
+ * 变小，重试必然全败（2026-11-08 实测：Claude Code 对着同一条超限请求重试 36 次，
+ * 面板还显示「还有 380k 余量」）。铁律见 `attempt.ts` 的「上游 4xx 业务错原样
+ * 透传状态码」注释 —— 流内错误帧路径此前漏了这条。
+ *
+ * **只放通用措辞**：各家文案不同，但「context length exceeded」这类说法通用；
+ * 厂商私有业务码（如 traecn 的 `4026`）属渠道知识，共享层不硬编码
+ * （AGENTS.md：共享层不许出现任何渠道知识）。
+ */
+export function isContextLengthExceeded(body: string): boolean {
+  if (!body) return false;
+  return CONTEXT_LENGTH_EXCEEDED_RE.test(body);
 }
