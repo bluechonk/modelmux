@@ -98,6 +98,10 @@ export function modelSpec(
  *
  * 三种输入都认 —— 排查时手写哪种都能通。未命中则原样返回
  * （大小写敏感的最终裁决在上游：打错名拿到的 4xx 会带上游原文）。
+ *
+ * 查表用 `hasOwn`：`POOL_KEY_MAP` 是普通对象，`constructor` / `__proto__` 这类
+ * 模型名会沿原型链命中 `Object.prototype`，`??` 因而不落兜底，函数被当作上游
+ * 模型名发出去。返回值声明是 `string`，运行时却不是。
  */
 export function resolveModel(name: string): string {
   const wanted = name.trim().toLowerCase();
@@ -106,5 +110,5 @@ export function resolveModel(name: string): string {
     if (entry.key.toLowerCase() === wanted) return entry.key;
     if (entry.displayName.toLowerCase() === wanted) return entry.key;
   }
-  return POOL_KEY_MAP[wanted] ?? name;
+  return Object.hasOwn(POOL_KEY_MAP, wanted) ? POOL_KEY_MAP[wanted]! : name;
 }

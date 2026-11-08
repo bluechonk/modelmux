@@ -339,12 +339,16 @@ export function exposedIds(): string[] {
  * 把客户端请求里的模型名解析为上游名。
  *
  * 顺序：目录命中（对外名 → slug）→ 历史短名（`LEGACY_ALIASES`）→ 原样透传。
+ *
+ * 查表用 `hasOwn`：`LEGACY_ALIASES` 是普通对象，`constructor` / `toString` /
+ * `valueOf` / `__proto__` 这类模型名会沿原型链命中 `Object.prototype`，
+ * 真值判断通过、函数或对象被当成上游模型名返回（声明类型是 `string`）。
  */
 export function resolveModel(name: string): string {
   for (const entry of entries()) {
     if (entry.exposed === name) return entry.id;
   }
-  const legacy = LEGACY_ALIASES[name];
-  if (legacy) return legacy;
+  const legacy = Object.hasOwn(LEGACY_ALIASES, name) ? LEGACY_ALIASES[name] : undefined;
+  if (typeof legacy === "string") return legacy;
   return name;
 }
