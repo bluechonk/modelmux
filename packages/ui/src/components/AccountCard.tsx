@@ -660,7 +660,6 @@ export function AccountCard({
                 detailBill?.baseline,
                 billing?.unsupported === true,
                 tokensOf?.(detailAccount.key),
-                typeof billing?.quota?.size === "number" ? billing.quota.size : null,
               ),
               // 今日签到：渠道没有签到能力时这里是空数组（整行不渲染）
               ...signinRows(pool.signin, detailAccount),
@@ -701,18 +700,12 @@ export function AccountCard({
 /**
  * 额度详情（悬停面板的内容）：全部取上游账单字段 —— 剩余额度、今日消耗、今日 tokens、
  * 今日首次账单（即进度条的 100% 基准）。推不出的显示 `-`，不猜。
- *
- * `windowSize` 是渠道声明的窗口发放量（如 loomy 的每日 5000）：基线只在**首次查询**
- * 时抓取，网关若在签到到账后才启动（典型：重启后补查），抓到的就是已消耗的残余。
- * 此时**不能**把它当「首次账单」展示 —— 那会让读者以为今天的额度本来就只有 201。
- * 判据：基线显著低于窗口发放量 → 标注「错过窗口起点」并给出真实发放量。
  */
 function quotaDetailRows(
   credits: AccountCredits | null | undefined,
   baseline: { window?: string; date: string; remain: number; at?: string } | null | undefined,
   unsupported: boolean,
   tokens: number | undefined,
-  windowSize?: number | null,
 ): Array<{ label: string; value: string }> {
   let used: number | null = null;
   if (credits && baseline) {
@@ -721,17 +714,7 @@ function quotaDetailRows(
     if (Number.isFinite(base) && Number.isFinite(remain)) used = Math.max(0, base - remain);
   }
   const fmt = (value: number): string => value.toLocaleString("en-US", { maximumFractionDigits: 2 });
-  // 基线错过窗口起点：抓基线时额度已被消耗（< 声明的 80%，留出签到叠加的余量）
-  const missedOrigin =
-    baseline != null &&
-    typeof windowSize === "number" &&
-    windowSize > 0 &&
-    Number(baseline.remain) < windowSize * 0.8;
-  const firstBill = baseline
-    ? missedOrigin
-      ? `${fmt(Number(baseline.remain))}（错过窗口起点·窗口发放 ${fmt(windowSize!)}）`
-      : fmt(Number(baseline.remain))
-    : "-";
+  const firstBill = baseline ? fmt(Number(baseline.remain)) : "-";
   return [
     { label: "剩余额度", value: quotaAmount(credits, unsupported) },
     { label: "今日消耗", value: used === null ? "-" : fmt(used) },
