@@ -246,9 +246,11 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   绝不渲染上一轮残留的 `done` / `error` / 旧授权链接。
   后端 `triggerLogin` 也会**同步**清空旧状态（`beginLogin()`），
   两边一起才封得住那个最长 3 秒的窗口（2026-10-26 主人反馈「一开始就显示登录成功」）。
-- **登录成功后弹窗自动关闭**：页面轮询 `/web/api/state`，一旦 `ui_state` 变成 `done`，
+- **登录成功后弹窗自动关闭**：页面轮询 `/web/api/state`，一旦 `login_result` 变成 `done`，
   立刻关闭弹窗、刷新账号池 / 登录态 / 账本，并主动重查该渠道额度（新账号额度与旧账号不同）。
-  判据要求先观察到 `login` / `error` 等中间态，避免上一次登录残留的 `done` 误关新弹窗。
+  判据要求先观察到别的结果（`idle`），避免上一次登录残留的 `done` 误关新弹窗。
+  **登录结果不在 `ui_state` 里**：那个字段只表示网关状态（probing / login / running），
+  一次登录失败不该让右上角永久显示「登录失败」（详见下方「状态快照」）。
 
 ## 账号展示与额度
 
@@ -376,7 +378,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 ## 数据通道
 
-- `GET /web/api/state`：登录快照（ui_state / message / auth_url / qr_url / **login_input** / 端点），
+- `GET /web/api/state`：登录快照（ui_state / **login_result** / message / auth_url / qr_url / **login_input** / 端点），
   外加模型池视图所需的 `models`（`{model, cid, meta}` 矩阵）/ `channel_caps`（各渠道能力位）。
   - `login_input` 非空 = 渠道在等用户输入（两步登录，如 loomy 的短信验证码）。
     界面据此把登录弹窗切成**输入卡**；`null` = 没有待回答的输入。

@@ -90,9 +90,18 @@ export interface ChannelCaps {
   billing: boolean;
 }
 
-/** 状态快照；`ui_state` 取值 probing / login / error / running。 */
+/**
+ * 状态快照。
+ *
+ * `ui_state` 只表示**网关状态**（probing / login / running），不承载登录结果；
+ * 上一轮登录的结果在 `login_result`（idle / done / error），是一次性事件。
+ * 早先 `error` / `done` 直接写进 `ui_state`，一次登录失败就让右上角永久显示
+ * 「登录失败」，直到下次登录成功才被覆盖。
+ */
 export interface UiSnapshot {
   ui_state: string;
+  /** 上一轮登录的结果：`idle`（无结果）/ `done` / `error`。 */
+  login_result: "idle" | "done" | "error";
   message: string;
   /** 授权页 URL。**不要在这里扫码**（每次加载都是新的二维码会话）。 */
   auth_url: string;
@@ -139,6 +148,7 @@ export interface UiSnapshot {
 export function emptySnapshot(): UiSnapshot {
   return {
     ui_state: "probing",
+    login_result: "idle",
     message: "",
     auth_url: "",
     qr_url: "",

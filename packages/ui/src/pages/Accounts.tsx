@@ -220,10 +220,14 @@ export function Accounts(): ReactElement {
       handledSuccessRef.current = false;
       return;
     }
-    const uiState = state.data?.ui_state;
-    if (!uiState) return;
-    // done 之前必须先见到别的状态 —— 否则那是上一次登录留下的结果
-    if (uiState !== "done") {
+    const snapshot = state.data;
+    if (!snapshot) return;
+    // 登录结果读 `login_result`（`ui_state` 只表示网关状态，已不承载 done/error）。
+    // 回落分支兼容还没升级的后端。
+    const result =
+      snapshot.login_result ?? (snapshot.ui_state === "done" ? "done" : snapshot.ui_state === "error" ? "error" : "idle");
+    // 先见到中间态（不是 done/error）才算「本轮真的在跑」—— 否则那是上一次登录留下的结果
+    if (result !== "done") {
       sawProgressRef.current = true;
       return;
     }
@@ -232,7 +236,7 @@ export function Accounts(): ReactElement {
     setLoginChannel(null);
     toast.success("登录成功，账号已入池。");
     invalidateAll();
-  }, [loginChannel, state.data?.ui_state]);
+  }, [loginChannel, state.data?.login_result, state.data?.ui_state]);
 
   // 合并三路数据：账号池 + 登录状态 + 渠道账本（都按 cid 对齐）
   const statusMap = new Map((logins.data ?? []).map((r) => [r.cid, Boolean(r.present)]));

@@ -220,7 +220,9 @@ class ServiceState {
   readonly base: string;
   readonly baseUrl: string;
   readonly chatUrl: string;
-  private uiState = "probing"; // 状态取值（英文枚举）：probing / login / error / running
+  private uiState = "probing"; // 网关状态（英文枚举）：probing / login / running
+  /** 上一轮登录的一次性结果：`idle` / `done` / `error`。不占 `ui_state`。 */
+  private loginResult: "idle" | "done" | "error" = "idle";
   private stateMessage = "";
   private authUrl = "";
   private qrUrl = "";
@@ -249,13 +251,37 @@ class ServiceState {
     this.chatUrl = `${described.url}/v1/chat/completions`;
   }
 
+  /**
+   * 记录一次状态变化。
+   *
+   * `ui_state` 只回答「网关现在能不能用」（running / probing / down），
+   * **不承载登录结果**。早先 `error` / `done` 直接写进 `ui_state`，一次登录失败就让
+   * 右上角永久显示「登录失败」，直到下一次登录成功才被覆盖 —— 那是一次性事件，
+   * 不该霸占常驻状态位。
+   *
+   * 所以 `error` / `done` 落到独立的 `loginResult`：界面用它决定页脚/提示，
+   * `ui_state` 同时归位到 `running`（登录流程跑完，网关照常可用）。
+   */
   setState(state: string, message = "", url = ""): void {
-    this.uiState = state;
+    if (state === "error" || state === "done") {
+      // 一次性结果：记下来给界面看，但网关状态回到可用
+      this.loginResult = state;
+      this.uiState = "running";
+    } else {
+      this.uiState = state;
+      if (state === "login" || state === "probing") this.loginResult = "idle";
+    }
     this.stateMessage = message;
     if (url) this.authUrl = url; // 后续状态不带 url 时沿用上一条授权链接
     else if (state !== "login") this.authUrl = ""; // 登录结束/失败后清掉旧授权链接
     if (state !== "login") this.clearQr();
     if (state === "running") this.gatewayError = "";
+  }
+
+  /** 清掉上一轮的登录结果（开始新一轮登录时调用）。 */
+  clearLoginResult(): void {
+    this.loginResult = "idle";
+    this.stateMessage = "";
   }
 
   /** 设置本轮扫码的二维码图片 URL（真正该给用户扫的那张）。 */
@@ -350,6 +376,7 @@ class ServiceState {
     return {
       ...base,
       ui_state: this.uiState,
+      login_result: this.loginResult,
       message: this.stateMessage,
       auth_url: this.authUrl,
       qr_url: this.qrUrl,

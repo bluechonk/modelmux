@@ -20,7 +20,10 @@ import { GeetestCaptcha } from "./GeetestCaptcha";
 
 /** 登录态快照（后端 `GET /web/api/state` 的 `ui_state` / `auth_url` / `qr_url` 等字段）。 */
 export interface LoginSnapshot {
+  /** 网关状态（probing / login / running）—— **不再承载登录结果**。 */
   ui_state: string;
+  /** 上一轮登录的一次性结果：`idle` / `done` / `error`。 */
+  login_result?: "idle" | "done" | "error";
   message: string;
   auth_url: string;
   qr_url: string;
@@ -93,17 +96,28 @@ export function LoginModal({
   /** 本轮是否出现过「要手机号」的请求 —— 出现即按手机表单渲染，不再画骨架。 */
   const [phoneStep, setPhoneStep] = useState(false);
   useEffect(() => {
-    if (uiState !== mountState.current || authUrl !== "" || qrUrl !== "" || loginInput) {
+    // 挂载守卫：只要出现任何「本轮有进展」的信号就撤掉骨架。
+    // `login_result` 也要看 —— 登录结果不再改 `ui_state`，只靠后者会漏掉
+    // 「失败/完成」这类终态（弹窗会一直卡在骨架）。
+    if (
+      uiState !== mountState.current ||
+      snapshot?.login_result === "done" ||
+      snapshot?.login_result === "error" ||
+      authUrl !== "" ||
+      qrUrl !== "" ||
+      loginInput
+    ) {
       setPristine(false);
     }
-  }, [uiState, authUrl, qrUrl, loginInput]);
+  }, [uiState, snapshot?.login_result, authUrl, qrUrl, loginInput]);
   useEffect(() => {
     if (loginInput?.kind === "phone") setPhoneStep(true);
   }, [loginInput?.kind]);
-  // 发码失败就让用户能重发（否则按钮卡在「已发送」，只能关掉弹窗重来）
+  // 发码失败就让用户能重发（否则按钮卡在「已发送」，只能关掉弹窗重来）。
+  // 判 `login_result` 而非 `ui_state` —— 后者已不再承载登录结果。
   useEffect(() => {
-    if (uiState === "error") setPhoneSent(false);
-  }, [uiState]);
+    if (snapshot?.login_result === "error") setPhoneSent(false);
+  }, [snapshot?.login_result]);
 
   // 失败提示走 toast（按内容去重：轮询 3s 会反复拿到同一条 message）。
   // 离开错误态即重置 —— 下一轮同样的错误仍要能弹。
@@ -130,8 +144,11 @@ export function LoginModal({
     (phoneStep || loginInput?.kind === "phone" || loginInput?.kind === "code") &&
     !authUrl &&
     !qrUrl;
-  const failed = uiState === "error";
-  const done = uiState === "done";
+  // 登录结果读 `login_result`；`ui_state` 只表示网关状态，不再承载 done/error。
+  // 回落分支兼容还没升级的后端（那时它把结果写进 ui_state）。
+  const loginResult = snapshot?.login_result ?? (uiState === "error" || uiState === "done" ? uiState : "idle");
+  const failed = loginResult === "error";
+  const done = loginResult === "done";
   /**
    * **链接未到手前始终骨架**：授权链接/二维码没拿到、也没有待回答的输入时，
    * 一直画骨架占位（而不是转圈文案或空白）—— 用户明确要求「登录链接未获取到
