@@ -818,36 +818,55 @@ export function markActiveHealth(health: AccountHealth, cid?: string): void {
 }
 
 /**
- * 额度查询成功 → 把 `unauthorized` 复活成 `ok`。
+ * 额度查询成功 → 把生效账号的**异常状态**复活成 `ok`。
  *
- * 为什么需要：`unauthorized` 早先只由「重新登录」清除，理由是「凭据本身失效」。
- * 但 token 失效**未必永久** —— 上游抖动、临时 401、或用户在别处续了 token，
- * 都会让凭据恢复可用，而卡住的账号只能靠人工重登（体验与「异常」标签都受影响）。
+ * 覆盖三类需要复原的状态：
+ * - `unauthorized`：token 失效未必永久（上游抖动、临时 401、用户在别处续了 token），
+ *   早先只由「重新登录」清除，卡住的账号只能人工重登。
+ * - `cooldown` 且**已到期**：`coolingDown` 到期后逻辑上视为可用，但 `health` 字段
+ *   一直停在 `cooldown`，UI 与账本都显示「冷却中」—— 额度接口已经能通，就该写回 `ok`。
+ *   未到期的 cooling 不动（窗口确实还没刷新）。
+ * - `error` 且已过 `trip_until`：半开试探若一直轮不到（路由可能按别的顺序挑），
+ *   额度能通也说明账号活着，一并清掉熔断退避。
  *
  * 判据用「额度查询成功」而不是「模型请求成功」：额度接口同样要带凭据，能通即证明
  * 凭据有效；模型请求可能因排队 / 额度 / 内容等原因失败，不足以反推凭据。
  *
  * 只在当前**生效账号**上做：用户没在用的那份凭据不该被这条旁路改写。
+ *
+ * @returns 是否真的改了状态（调用方可用它决定要不要写日志）。
  */
-export function reviveUnauthorizedAfterBilling(cid?: string): boolean {
+export function reviveAfterBilling(cid?: string): boolean {
   let scope: string;
   try {
     scope = channelDir(cid);
   } catch {
     return false; // 路径不可用（未注册 / 多渠道路由下未给 cid）→ 静默跳过
   }
+  const now = Date.now();
   const index = readIndex(cid);
   const active = index.active ?? "";
   if (!active) return false;
   const hit = index.accounts.find((a) => a.key === active);
-  if (!hit || hit.health !== "unauthorized") return false;
+  if (!hit) return false;
+
+  const revivable =
+    hit.health === "unauthorized" ||
+    // 冷却到期：额度接口都通了，窗口已经刷新
+    (hit.health === "cooldown" && !coolingDown(hit, now)) ||
+    // 熔断已过试探时刻：额度能通说明账号活着，不必等半开
+    (hit.health === "error" && hit.trip_until != null && Date.parse(hit.trip_until) <= now);
+  if (!revivable) return false;
+
   hit.health = "ok";
   hit.health_at = nowIso();
   hit.fail_streak = 0;
   hit.trip_until = null;
   hit.trip_backoff_ms = 0;
+  hit.cooldown_until = null;
+  hit.cooldown_reason = undefined;
   // 与 `markActiveHealth` 同口径：缓存键是「作用域 + 生效账号」，不更新会让
-  // `route.ts` 的磁盘/内存判据分叉（内存仍是 unauthorized → 该渠道继续被剔除）
+  // `route.ts` 的磁盘/内存判据分叉（内存仍是旧状态 → 该渠道继续被剔除）
   healthCache.set(healthKey(scope, active), "ok");
   writeIndex(index, cid);
   return true;

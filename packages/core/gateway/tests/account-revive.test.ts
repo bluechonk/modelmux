@@ -1,5 +1,5 @@
 /**
- * `unauthorized` 账号的自动复活（`reviveUnauthorizedAfterBilling`）。
+ * `unauthorized` 账号的自动复活（`reviveAfterBilling`）。
  *
  * 背景：`unauthorized` 早先只由「重新登录」清除。但 token 失效未必永久 ——
  * 上游抖动、临时 401、或用户在别处续了 token，凭据都可能恢复可用。判据用
@@ -20,7 +20,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import {
   activeAccountHealth,
   readIndex,
-  reviveUnauthorizedAfterBilling,
+  reviveAfterBilling,
 } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import * as paths from "../dist/runtime/paths.js";
@@ -50,8 +50,10 @@ interface SeedAccount {
   key: string;
   health: string;
   failStreak?: number;
-  tripUntil?: number | null;
+  tripUntil?: string | null;
   tripBackoffMs?: number;
+  /** 冷却截止时刻（ISO8601）；缺省 null。 */
+  cooldownUntil?: string | null;
 }
 
 /** 铺一个「已登录 + 池里若干账号」的现场（第一个是生效账号）。 */
@@ -74,7 +76,7 @@ function seedPool(accounts: SeedAccount[]): void {
         health: a.health,
         health_at: new Date(0).toISOString(),
         fail_streak: a.failStreak ?? 0,
-        cooldown_until: null,
+        cooldown_until: a.cooldownUntil ?? null,
         trip_until: a.tripUntil ?? null,
         trip_backoff_ms: a.tripBackoffMs ?? 0,
       })),
@@ -99,13 +101,13 @@ describe("unauthorized 账号自动复活", () => {
 
   beforeEach(() => {
     seedPool([
-      { key: ACTIVE, health: "unauthorized", failStreak: 7, tripUntil: 1799999999999, tripBackoffMs: 60000 },
+      { key: ACTIVE, health: "unauthorized", failStreak: 7, tripUntil: new Date(1799999999999).toISOString(), tripBackoffMs: 60000 },
       { key: OTHER, health: "unauthorized" },
     ]);
   });
 
   it("生效账号是 unauthorized → 额度查成功即复活为 ok，并清掉熔断残留", () => {
-    const revived = reviveUnauthorizedAfterBilling(CID);
+    const revived = reviveAfterBilling(CID);
     assert.equal(revived, true, "命中 unauthorized 应返回 true");
 
     const idx = readIndex(CID);
@@ -117,21 +119,57 @@ describe("unauthorized 账号自动复活", () => {
   });
 
   it("只动生效账号：非生效账号的 unauthorized 保持原状", () => {
-    reviveUnauthorizedAfterBilling(CID);
+    reviveAfterBilling(CID);
     const other = readIndex(CID).accounts.find((a) => a.key === OTHER)!;
     assert.equal(other.health, "unauthorized", "用户没在用的凭据不该被这条旁路改写");
   });
 
   it("账号已是 ok → 不重复写，返回 false", () => {
     seedPool([{ key: ACTIVE, health: "ok" }]);
-    assert.equal(reviveUnauthorizedAfterBilling(CID), false);
+    assert.equal(reviveAfterBilling(CID), false);
     assert.equal(readIndex(CID).accounts[0]!.health, "ok");
   });
 
-  it("冷却中的账号不受影响（额度耗尽与凭据失效是两回事）", () => {
-    seedPool([{ key: ACTIVE, health: "cooldown" }]);
-    assert.equal(reviveUnauthorizedAfterBilling(CID), false);
-    assert.equal(readIndex(CID).accounts[0]!.health, "cooldown", "复活只针对 unauthorized");
+  it("冷却未到期 → 不复活（窗口确实还没刷新）", () => {
+    seedPool([{ key: ACTIVE, health: "cooldown", cooldownUntil: new Date(Date.now() + 600_000).toISOString() }]);
+    assert.equal(reviveAfterBilling(CID), false);
+    assert.equal(readIndex(CID).accounts[0]!.health, "cooldown");
+  });
+
+  it("冷却已到期 → 额度能通即写回 ok（此前 health 字段永远停在 cooldown）", () => {
+    // 2026-11-08：coolingDown 到期后逻辑上视为可用，但 health 字段从没人写回 ok，
+    // UI 与账本一直显示「冷却中」，与实际可用状态分叉。
+    seedPool([{ key: ACTIVE, health: "cooldown", cooldownUntil: new Date(Date.now() - 60_000).toISOString() }]);
+    assert.equal(reviveAfterBilling(CID), true, "已到期的冷却应复活");
+    const acc = readIndex(CID).accounts[0]!;
+    assert.equal(acc.health, "ok");
+    assert.equal(acc.cooldown_until, null, "冷却截止时间一并清掉");
+  });
+
+  it("熔断已过试探时刻 → 复活（额度能通说明账号活着，不必等半开）", () => {
+    seedPool([{
+      key: ACTIVE,
+      health: "error",
+      failStreak: 3,
+      tripUntil: new Date(Date.now() - 60_000).toISOString(),
+      tripBackoffMs: 60_000,
+    }]);
+    assert.equal(reviveAfterBilling(CID), true);
+    const acc = readIndex(CID).accounts[0]!;
+    assert.equal(acc.health, "ok");
+    assert.equal(acc.trip_until, null);
+    assert.equal(acc.fail_streak, 0);
+  });
+
+  it("熔断还没到试探时刻 → 不复活", () => {
+    seedPool([{
+      key: ACTIVE,
+      health: "error",
+      tripUntil: new Date(Date.now() + 600_000).toISOString(),
+      tripBackoffMs: 60_000,
+    }]);
+    assert.equal(reviveAfterBilling(CID), false);
+    assert.equal(readIndex(CID).accounts[0]!.health, "error");
   });
 
   it("没有生效账号 → 返回 false，不抛错", () => {
@@ -142,15 +180,15 @@ describe("unauthorized 账号自动复活", () => {
       JSON.stringify({ version: 1, active: "", accounts: readIndex(CID).accounts }),
       "utf8",
     );
-    assert.equal(reviveUnauthorizedAfterBilling(CID), false);
+    assert.equal(reviveAfterBilling(CID), false);
   });
 
   it("渠道未注册 → 静默返回 false（多渠道路由下可能拿不到路径）", () => {
-    assert.equal(reviveUnauthorizedAfterBilling("no-such-channel-xyz"), false);
+    assert.equal(reviveAfterBilling("no-such-channel-xyz"), false);
   });
 
   it("复活后路由判据同步：activeAccountHealth 不再是 unauthorized", () => {
-    reviveUnauthorizedAfterBilling(CID);
+    reviveAfterBilling(CID);
     assert.notEqual(
       activeAccountHealth(CID),
       "unauthorized",
