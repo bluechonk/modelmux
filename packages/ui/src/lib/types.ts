@@ -19,7 +19,10 @@ export interface LoginInputRequest {
 }
 
 export interface UiSnapshot {
+  /** 网关状态（probing / login / running）；**不承载登录结果**。 */
   ui_state: string;
+  /** 上一轮登录的一次性结果：`idle` / `done` / `error`。 */
+  login_result?: "idle" | "done" | "error";
   message: string;
   /** 授权页 URL。不要在这里扫码（每次加载都是新的二维码会话）。 */
   auth_url: string;

@@ -14,16 +14,18 @@ import { api } from "../lib/api";
  * `ui_state`（后端英文枚举）→ 界面文案。
  *
  * 后端取值域见 `app/lifecycle/headless.ts` 的 `uiState`：
- * `probing / login / error / running`（另有 `down` 由前端在查询失败时补）。
- * **不能直接回显** —— 页面上出现一个英文 `login` / `error` 既不是中文界面应有的样子，
+ * **只有** `probing / login / running`（另有 `down` 由前端在查询失败时补）。
+ * `done` / `error` 是**登录结果**，不在这个位置显示 —— 那是一次性事件，
+ * 写进常驻状态位会让右上角在一次登录失败后永久显示「登录失败」。
+ * 登录结果由登录弹窗的页脚承担。
+ *
+ * **不能直接回显** —— 页面上出现一个英文 `login` 既不是中文界面应有的样子，
  * 也说不清「登录中」和「网关不可用」的区别（2026-11-08 实测截图）。
  */
 const STATE_LABEL: Record<string, string> = {
   running: "运行中",
   probing: "准备中",
   login: "登录中",
-  done: "登录已完成",
-  error: "登录失败",
   down: "网关未运行",
   unknown: "状态未知",
 };
