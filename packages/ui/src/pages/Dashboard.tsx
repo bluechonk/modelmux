@@ -14,7 +14,6 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  CalendarCheck,
   Check,
   Coins,
   Copy,
@@ -530,18 +529,8 @@ export function Dashboard(): ReactElement {
   /** 区间标签（「近 30 日」）：用量明细条上要写明这些数字覆盖多长。 */
   const rangeLabel = RANGES.find((r) => r.key === range)?.label ?? "";
 
-  // 区间用量的派生：趋势序列、连续天数
+  // 区间用量的派生：趋势序列
   const series = (rangeStats?.models ?? []).slice(0, MAX_SERIES).map((m) => m.id);
-  const streakDays = rangeStats?.streak.current ?? 0;
-
-  /**
-   * 单日区间的当天合计（选「今天」时 `daily` 恰好一条）。
-   *
-   * 这句话原先长在 `TrendChart` 的单日分支里，压在按模型分行的条形底下 —— 离页头
-   * 区间控件隔着一整张图卡，读者要先看图才知道「为什么只有一天」。挪到接口地址 / 模型
-   * 行上方后，与页头区间控件的视线路径连成一条：先看选了什么区间，再看选出来是哪天、多少量。
-   */
-  const singleDay = rangeStats?.daily.length === 1 ? rangeStats.daily[0]! : null;
 
   return (
     <div className="space-y-5 pb-10">
@@ -552,7 +541,8 @@ export function Dashboard(): ReactElement {
       />
 
       {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
+      {/* KPI：窄屏 2 列 / lg 3 列 / xl 一行六格（移除「当前连续」后正好六张） */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           icon={Wifi}
           label={`${rangeWord}请求 · 成功率`}
@@ -607,13 +597,6 @@ export function Dashboard(): ReactElement {
                 : "成功请求均值"
           }
         />
-        <KpiCard
-          icon={CalendarCheck}
-          label="当前连续"
-          value={`${streakDays} 天`}
-          sub={rangeStats ? `最长 ${rangeStats.streak.longest} 天` : undefined}
-          tone={streakDays > 0 ? "free" : "muted"}
-        />
       </div>
 
       {/*
@@ -636,14 +619,16 @@ export function Dashboard(): ReactElement {
         )}
       </div>
 
-      {/* 单日区间的合计与「怎么看趋势」：贴着接口地址 / 模型行上方。
-          只有 `daily` 恰好一天（选「今天」）时出现 —— 多日区间这句话没有对象。 */}
-      {singleDay && (
-        <p className="px-1 text-xs text-ink-faint">
-          {singleDay.date} 当天合计 {formatTokens(singleDay.tokens)} tokens（{singleDay.requests} 次请求）。
-          想看趋势把页头区间切到「近 7 日」或「累计」。
-        </p>
-      )}
+      {/* ③ Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
+          它驱动 KPI / 趋势 / 模型用量三块，紧贴 KPI 与用量明细，
+          让「区间 → 数字 → 趋势」连成一条自上而下的读序。 */}
+      <section className="panel p-4">
+        <div className="panel-title mb-3">
+          <Activity className="h-4 w-4 text-ink-faint" />
+          Token 趋势
+        </div>
+        <TrendChart daily={rangeStats?.daily ?? []} series={series} />
+      </section>
 
       {/* ① 接口地址盒（左，端点信息） + 对外模型清单（右，同一行等高）
           两卡同在 `lg:grid-cols-12` 的一行里（8 + 4），行高由内容较高的一侧决定，
@@ -736,16 +721,6 @@ export function Dashboard(): ReactElement {
             峰值时段 {String(rangeStats.peak.hour).padStart(2, "0")}:00 前后。
           </p>
         )}
-      </section>
-
-      {/* ③ Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
-          它驱动 KPI / 趋势 / 模型用量三块，放在这里会被读成「只切这一张卡」。 */}
-      <section className="panel p-4">
-        <div className="panel-title mb-3">
-          <Activity className="h-4 w-4 text-ink-faint" />
-          Token 趋势
-        </div>
-        <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
 
       {/* ③④⑤⑥ 双列区 */}
