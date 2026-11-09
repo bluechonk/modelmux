@@ -127,6 +127,18 @@ export interface UiSnapshot {
     meta: import("../../pool/pool-targets.js").PoolModelMeta;
   }>;
   /**
+   * 模型级渠道偏好：每个对外模型「优先走哪家」。
+   *
+   * `channels` 是该模型的全部候选渠道（下拉的选项来源），`preferred` 为当前偏好
+   * （`null` = 自动选路）。偏好的渠道在候选里**置顶**，其余仍按剩余额度排在后面 ——
+   * 被偏好的渠道冷却 / 额度耗尽时自然顺延，不需要额外开关。
+   */
+  model_prefs: Array<{
+    model: string;
+    channels: string[];
+    preferred: string | null;
+  }>;
+  /**
    * 待回答的输入请求（渠道两步登录，如 loomy 的短信验证码）；`null` = 当前没有。
    *
    * 界面拿到它就把登录弹窗切成**输入卡**（提示 + 输入框 + 提交/取消），
@@ -156,6 +168,7 @@ export function emptySnapshot(): UiSnapshot {
     chat_url: "",
     endpoints: ["/v1/chat/completions", "/v1/messages", "/v1/messages/count_tokens", "/v1/responses", "/v1/models", "/health"],
     models: [],
+    model_prefs: [],
     login_input: null,
     channel_caps: {},
     theme_mode: "system",
