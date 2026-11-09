@@ -219,6 +219,13 @@
 - 以上都是**请求级**行为，不参与账号连败计数（凭据是健康的）。
 - **输出帧规范**：usage-only 的 SSE chunk 必须带空的 `choices: []`；缺字段会被严格校验的
   客户端整块拒收（ZCode 实测 `Type validation failed ... choices expected array`）。
+- **缓存字段**：上游把用量放在 `contextInfo.usage`，其中 `cache_read_tokens` / `cache_write_tokens`
+  是 **Anthropic 形态**（`prompt_tokens` **不含**缓存读，`total_tokens` = prompt + completion + cache_read，
+  实测 2026-11-09：prompt 47 / cache_read 29184 / total 29234）。渠道映射成
+  `prompt_tokens_details.cached_tokens` 透出，仪表盘据此统计命中率；上游没给时**不写该字段**
+  （共享层据此把缓存显示成 `—` 而不是 0%）。
+  `contextInfo.usageDistribution` 按 system_prompt / tools_and_subagents / mcp / skills /
+  conversation / model_output 分类给占比，未消费。
 
 ## 流结束语义（生命周期帧，2026-10-18）
 
