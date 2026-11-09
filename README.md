@@ -48,6 +48,8 @@ node packages/cli/dist/cli.js model usage        # 池账本：各渠道用得�
 node packages/cli/dist/cli.js login <cid>        # 登录某个渠道（浏览器授权）
 node packages/cli/dist/cli.js web                # 打开 Web 控制台（http://127.0.0.1:4412/web/）
 node packages/cli/dist/cli.js log --list         # 分层日志：access / error / system
+
+npm run desktop      # 可选：打成 Windows 便携单文件 exe（双击自启网关 + 内嵌控制台）
 ```
 
 ### 全局安装 / npx

@@ -77,6 +77,12 @@
 
 详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)。
 
+## 桌面壳（可选）
+
+Windows 便携单文件 exe（Electron）：双击 → 自启网关 → 内嵌窗口显示 Web 控制台 →
+关窗自动收网关。未签名、无网络来源标记，双击不弹安全警告；便携模式（`data/` 随 exe 走）
+换机免逐渠道重新登录。构建 `npm run desktop`，规范与路径约束见 [DESKTOP-APP.md](./DESKTOP-APP.md)。
+
 ## 排队重试（上游 200 + 流内排队帧）
 
 渠道声明 `upstream.isQueueError(frame)` 后，网关在**响应头发出前**探测并按

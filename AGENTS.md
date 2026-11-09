@@ -22,6 +22,9 @@ packages/
     channels/  渠道包：每个 <cid> 只实现 7 个文件（channel / cli / index + cred / upstream / catalog / billing）
 ```
 
+另有 `desktop/` —— Windows 便携 exe 壳（Electron），独立构建环境、**不进 npm workspaces**，
+规范见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)。
+
 - `packages/core/gateway` 不许出现渠道知识（厂商名、渠道特有字段、渠道模型名）。
 - `packages/core/channels/<cid>` 超出 7 文件即违规。
 - 共享层 `dependencies` 为空；渠道包只依赖 `@modelmux/gateway`。
@@ -115,6 +118,10 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verif
   和 [docs/CODE-COMMENTS.md](docs/CODE-COMMENTS.md)。
 - Web 控制台：正文信息不依赖 hover；图表数据详情例外（自绘浮层，`pointer-events-none`）。原生 `title=` 禁用。
   交互铁律见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
+- 桌面壳（`desktop/`）的 Electron 边界，规范见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)：
+  壳是 loadURL 型（加载网关托管的控制台，没有 preload、没有 IPC、渲染层不是自写代码），
+  禁止 `nodeIntegration` / `webSecurity: false` / 裸 `ipcRenderer`；
+  只允许探活复用或 fork 自己拉起的网关，绝不占用 / 杀掉不属于自己的网关进程。
 
 ## 测试
 
@@ -249,6 +256,7 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verif
 | 仪表盘模块划分与布局的设计方案 | [docs/DASHBOARD-DESIGN.md](docs/DASHBOARD-DESIGN.md) |
 | 缓存命中率口径（官方字段 / 公式 / 各渠道形态） | [docs/CACHE-HIT-RATE.md](docs/CACHE-HIT-RATE.md) |
 | 入站三种协议 / 模型名解析 / 客户端一键接入 | [docs/CLIENT-INTEGRATION.md](docs/CLIENT-INTEGRATION.md) |
+| 桌面壳（Windows 便携 exe）/ 构建与路径约束 / MotW 与签名 / 便携模式 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) |
 | 统一模型目录 `model-catalog.json` / `/v1/models` 数据源 | [docs/MODEL-CATALOG.md](docs/MODEL-CATALOG.md) |
 | 模型规格 `model-specs.json` / `mx model spec` / 联网补全 | [docs/MODEL-SPECS.md](docs/MODEL-SPECS.md) |
 | 工作流细则：worktree / 视觉校验 / 探测脚本 / 测试红线 / 门禁 / 发版 | [docs/WORKFLOW.md](docs/WORKFLOW.md) |

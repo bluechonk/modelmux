@@ -6,6 +6,10 @@ dist/
 # 发布包里的许可证副本（由 packages/cli 的 prepack 从仓库根复制，属构建产物）
 packages/cli/LICENSE
 
+# 桌面壳构建 payload（打包时生成）与用户便携数据（凭据，绝不入库）
+desktop/app/
+desktop/data/
+
 # agent 运行时状态（本机私有）
 .box-agent/
 .box-agent-scratch/
