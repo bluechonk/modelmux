@@ -195,10 +195,11 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
       )}
 
       {/* 单日：条形列表（不再画 SVG —— 一个点画不出趋势）。
-          绘图区取与多日同一个 `VIEW_H`（260），行距由 `justify-between` 在高区内自适应
-          撑开 —— 两张卡的绘图区等高，切区间时下方区块不跳。 */}
+          高度由内容决定，**不与多日曲线的 `VIEW_H` 对齐**：条数少时撑满 260px 会把行距
+          拉成几十像素的空白，条数多时又撑不下 —— 两种都只能靠「凑高度」换来到处挪的
+          下方区块。行距固定 `gap-y-3`，切区间时高度差由卡片自己吸收。 */}
       {singleDay && (
-        <div className="flex min-h-[260px] flex-col justify-between gap-y-3 py-2">
+        <div className="flex flex-col gap-y-3 py-2">
           {singleRows.length === 0 ? (
             <p className="py-6 text-center text-xs text-ink-faint">当天没有 token 用量。</p>
           ) : (

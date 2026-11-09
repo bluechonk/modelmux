@@ -418,7 +418,7 @@ export function Accounts(): ReactElement {
                         onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
                         label={`模型 ${pref.model} 优先渠道`}
                         options={[
-                          { value: "", label: "自动（按剩余额度）" },
+                          { value: "", label: "自动" },
                           ...pref.channels.map((cid) => ({ value: cid, label: cid })),
                         ]}
                       />

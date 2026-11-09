@@ -22,7 +22,7 @@ description: 用 Claude Code 对 modelmux（mx）网关做端到端测试（Anth
 | 条件 | 验证 |
 | --- | --- |
 | 网关在跑 | `curl -s http://127.0.0.1:4412/health` 含 `"ok":true` 与 `"service":"modelmux"` |
-| 接入已就绪 | 仪表盘「接入 claude code」点过（写 `~/.claude/settings.json` 的 env），或用下面的隔离方式 |
+| 接入已就绪 | 用下面的隔离方式（环境变量注入），或手工写 `~/.claude/settings.json` 的 env |
 | 至少一个渠道已登录 | `mx status --json` 里该渠道 `credentials.present` 为 `true` |
 
 **隔离方式**（不动真实配置，验证链路时首选）：
@@ -64,6 +64,6 @@ claude -p "<任务>"
 - 报 400 `unknown_model`：请求没经协议端点的模型映射，或池为空（渠道全没登录）。
 - 报 503 `not_authenticated`：所有候选渠道都没登录，`mx status --json` 逐渠道查。
 - 报「Both ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are set」：settings.json 的 env
-  里残留了 API_KEY —— 重新点一次「接入 claude code」（写入器会移除它），或手动删除。
+  里残留了 API_KEY —— 手动删掉它（Claude Code 没有一键接入，配置由用户自己维护）。
 - Claude Code 对 4xx 不重试、对 5xx/502 会重试：反复重试大概率是网关在 502
   （上游抖动），看日志的 `error` 原文定位渠道。
