@@ -21,7 +21,7 @@ import {
 } from "../../runtime/account-pool.js";
 import { QUOTA_EXHAUSTED_CODE } from "../../pool/account-rotate.js";
 import { resolvePoolModel } from "../../pool/model-pool.js";
-import { noteFailure, noteSuccess } from "../../pool/pool-usage.js";
+import { FAIL_COOLDOWN_MS, noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
 import { sinkOf } from "../protocol/types.js";
 import { getRequestLog, noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
@@ -672,6 +672,24 @@ export async function attemptCandidate(
       inChannel(channel, () => channel.upstream.quotaSignal?.(call.status, bodySnippet)) ?? null;
     const quotaOut = isQuotaExhausted(bodySnippet) || channelSignal !== null;
     const usageLimit = isUsageLimit(bodySnippet) || channelSignal === "usage_limit";
+    // 频率/速率超限：**渠道级短冷却**（理由见 `stream.ts::coolAccountOnQuotaSignal`）——
+    // 账号级冷却挡不住它，同一个被限流的账号会被反复重试。
+    if (channelSignal === "rate_limit" && !freeModel) {
+      noteFailure(cid, activeKeyOf(cid), FAIL_COOLDOWN_MS);
+      logThrottled(
+        logger,
+        `chat:ratelimit:${cid}:${candidate.exposedId}`,
+        `upstream rate limit (channel ${cid}); cooling channel for ${FAIL_COOLDOWN_MS / 1000}s`,
+      );
+      return {
+        kind: "retry",
+        error: {
+          status: 429,
+          code: "upstream_rate_limited",
+          message: `upstream rate limit (${cid}): ${snippetOf(bodySnippet)}`,
+        },
+      };
+    }
     // 账户级用量限额对所有模型生效 → 一律冷却；
     // 余额类只冷却付费模型，免费模型继续打上游拿真实结论。
     if (quotaOut && (usageLimit || !freeModel)) {

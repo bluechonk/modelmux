@@ -528,11 +528,14 @@ export interface SigninModule {
  * 渠道声明的额度信号类型。
  *
  * - `usage_limit`：**账户级用量限额**（如 workbuddyai `6004`）—— 对所有模型生效，
- *   连倍率 0 的也受限 → 网关**一律冷却**该账号。
+ *   连倍率 0 的也受限 → 网关**一律冷却**该账号（等到渠道认的重置时刻）。
  * - `balance`：**余额不足**（如 loomy `402 insufficient_quota`）—— 只影响计费用量，
  *   免费模型仍可继续打上游 → 只冷却**付费**模型。
+ * - `rate_limit`：**频率/速率超限**（如 traecn `3004`）—— 上游说「等会儿再试」，
+ *   但**没给等待时长**；账号级冷却挡不住它（生效凭据照样被使用，其他账号的额度
+ *   仍让渠道保持高优先级），故改为**渠道级短冷却**，让请求先落到别家。
  */
-export type QuotaSignal = "usage_limit" | "balance";
+export type QuotaSignal = "usage_limit" | "balance" | "rate_limit";
 
 /**
  * 渠道的额度周期（可选能力，见 `BillingModule.quotaPeriod`）。

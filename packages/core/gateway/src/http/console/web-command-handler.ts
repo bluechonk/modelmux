@@ -12,6 +12,7 @@
 import { channelCapabilities, channels, getChannel, hasChannel, type Channel } from "../../runtime/channel.js";
 import { runInChannel } from "../../runtime/channel-context.js";
 import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
+import { loadModelPrefs, setPreferredChannel } from "../../pool/model-prefs.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
@@ -233,6 +234,27 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");
         runInChannel(cid, () => syncPool(cid));
         return ok({});
+      }
+      case "modelChannels": {
+        // 每个对外模型的候选渠道 + 当前偏好（下拉的选项与选中项都来自这里）
+        return ok({
+          models: poolModels().map((model) => ({
+            model,
+            channels: poolCandidates(model).map((candidate) => candidate.cid),
+            preferred: loadModelPrefs()[model] ?? null,
+          })),
+        });
+      }
+      case "setModelChannel": {
+        const model = typeof args["model"] === "string" ? args["model"] : "";
+        const preferred = typeof args["cid"] === "string" && args["cid"] !== "" ? args["cid"] : null;
+        if (model === "") return err("参数 model 必填");
+        try {
+          setPreferredChannel(model, preferred);
+        } catch (e) {
+          return err(String(e));
+        }
+        return ok({ model, preferred });
       }
       case "pasteCallback": {
         // 兜底路径：回调页线上是 404，code 只在用户浏览器地址栏里。

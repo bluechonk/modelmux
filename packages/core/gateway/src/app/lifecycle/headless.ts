@@ -25,6 +25,7 @@ import { rootDir } from "../../runtime/paths.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates } from "../../pool/pool-targets.js";
+import { preferredChannelOf } from "../../pool/model-prefs.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
@@ -389,6 +390,11 @@ class ServiceState {
           meta: getChannelModelMeta(candidate.cid, candidate.exposedId),
         })),
       ),
+      model_prefs: this.modelsShown.map((model) => ({
+        model,
+        channels: poolCandidates(model).map((candidate) => candidate.cid),
+        preferred: preferredChannelOf(model),
+      })),
       // 待回答的输入请求（渠道两步登录）：null = 当前没有。
       login_input: this.pendingInput?.req ?? null,
       channel_caps: Object.fromEntries(

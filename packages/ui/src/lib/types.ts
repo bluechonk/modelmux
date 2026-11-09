@@ -46,6 +46,14 @@ export interface UiSnapshot {
    */
   models: Array<{ model: string; cid: string; meta: ModelInfo }>;
   /**
+   * 模型级渠道偏好（「这个模型优先走哪家」）。
+   *
+   * `channels` 是该模型的全部候选渠道，`preferred` 为当前偏好（`null` = 自动选路）。
+   * 偏好的渠道在选路里**置顶**，其余渠道仍按剩余额度排在后面；被偏好的渠道
+   * 冷却 / 额度耗尽时自然顺延，不需要额外开关。
+   */
+  model_prefs: Array<{ model: string; channels: string[]; preferred: string | null }>;
+  /**
    * 各渠道的能力位（键 = cid）。
    *
    * `billing: false` = 该渠道没有额度/倍率概念（订阅制）—— 前端据此把它的模型

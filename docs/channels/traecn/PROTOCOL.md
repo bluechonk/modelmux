@@ -401,6 +401,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `1005` | Plan 权益不足 → 分类 `hard-plan` | 如实报错；**网关不自动换号**（换号由用户手动执行，见本节末注）；渠道层无冷却表，冷却由共享层 `noteFailure()` 统一给（默认 60s，见 §6.3） | `packages/core/channels/traecn/src/upstream.ts:275` |
 | `4008` | 配额耗尽 → 分类 `quota-exceeded`（**判定必须先于 4011**） | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:276` |
 | `4011` | 频率超限 → 分类 `soft-rate` | 如实报错；同上不自动换号 | `packages/core/channels/traecn/src/upstream.ts:277` |
+| `3004` | 限流（文案「exceeded the rate limit」）→ 分类 `soft-rate`，并经 `quotaSignal` 上报 `rate_limit` | **渠道级短冷却**（60s），让请求先落到别家 | 包在 **HTTP 200** 的流内 `event:error` 帧里（无 HTTP 状态码，只能靠报文内容认）。账号级冷却挡不住它 —— 生效凭据照样被使用、其他账号额度又让渠道保持高优先级，同一账号被反复重试（实测 2026-11-09：连续 70 次失败后 `cooldown_until=0`、4 个账号全 `health=ok`），故走 `rate_limit` → 共享层做渠道级冷却（`http/chat/stream.ts::coolAccountOnQuotaSignal`、`http/chat/attempt.ts`） |
 | `4001` | 模型不可调用（`param is invalid`） | **不换号**，如实报错 | 本仓**没有** `4001` 专门分支：`classifyError` 里没有这一项，落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）；版本准入见 `packages/core/channels/traecn/src/cred.ts:124`。除版本准入外，**空壳 assistant 消息**（无正文且无 tool_calls）也触发 4001 —— 已由消息序列归一化挡在网关侧（§3.2 第 10 条，实测见「使用与实测」2026-10-23） |
 | `4027` | tool 消息顺序错误 | 直接失败 | 本仓**没有** `4027` 专门分支：同样落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`） |
 | `4023` | `the model is unknown`（不可调用通道） | 通道白名单已挡 | `packages/core/channels/traecn/src/catalog.ts:43-59` |

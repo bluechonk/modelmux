@@ -16,6 +16,7 @@ import type { QuotaPeriod } from "../lib/account-status";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
 import { RefreshButton } from "../components/RefreshButton";
+import { Select } from "../components/Select";
 import { useToast } from "../components/Toast";
 import { columnCount, distributeByColumns } from "../lib/card-columns";
 import { errorText } from "../lib/log-format";
@@ -197,6 +198,25 @@ export function Accounts(): ReactElement {
     onSettled: () => setBusyKey(null),
   });
   /**
+   * 模型级渠道偏好。
+   *
+   * 存的是用户意图（`<root>/model-prefs.json`），不是运行时状态 —— 改完立刻让
+   * 账号池与额度一起失效：卡片上的排序与「优先走哪家」会在下一轮反映新偏好。
+   */
+  const setPref = useMutation({
+    mutationFn: async ({ model, cid }: { model: string; cid: string }) =>
+      await api.commands.setModelChannel(model, cid),
+    onSuccess: () => {
+      // 必须一并失效**快照**：账号池/额度各自有独立的轮询，而快照只在登录弹窗
+      // 打开时才轮询（`enabled: loginChannel !== null`）—— 不失效的话用户选完
+      // 下拉，按钮还停在旧值（实测：后端已写入 traecn，界面仍显示 raccoon）。
+      void qc.invalidateQueries({ queryKey: ["state"] });
+      void qc.invalidateQueries({ queryKey: ["accounts"] });
+      void qc.invalidateQueries({ queryKey: ["billing"] });
+    },
+    onError: (err) => toast.error(errorText(err)),
+  });
+  /**
    * 两步登录的输入（如 loomy 的短信验证码）。
    *
    * 后端把待回答的请求放在 `state.login_input` 里，弹窗只渲染一张输入卡；
@@ -287,6 +307,8 @@ export function Accounts(): ReactElement {
 
   const loginChannels = logins.data ?? [];
   const snapshot = state.data;
+  /** 模型级渠道偏好（下拉的选项与选中项都来自快照，后端 5 秒一轮）。 */
+  const modelPrefs = snapshot?.model_prefs ?? [];
 
   /**
    * 卡片列数（容器实测宽 → `columnCount`）；`ResizeObserver` 跟随窗口/侧栏变化。
@@ -374,6 +396,43 @@ export function Accounts(): ReactElement {
               </span>
             ))}
           </div>
+
+          {/*
+            模型级渠道偏好：每个对外模型指定「优先走哪家」。
+            被偏好的渠道在选路里**置顶**，其余仍按剩余额度顺延 —— 被偏好的渠道
+            冷却 / 额度耗尽时自然落到别家，不需要额外开关（口径见
+            docs/POOL-ARCHITECTURE.md §2.4）。
+          */}
+          {modelPrefs.length > 0 && (
+            <section className="rounded-xl border border-line bg-panel p-3">
+              <h2 className="mb-2 text-xs font-medium text-ink-soft">模型走哪家</h2>
+              <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                {modelPrefs.map((pref) => (
+                  <div key={pref.model} className="flex min-w-56 flex-1 flex-col gap-1">
+                    <span className="font-mono text-xs text-ink">{pref.model}</span>
+                    {/* 同类控件必须等宽（判据 1）：组件本身按内容收缩，
+                        由外层钉死宽度；nowrap 防窄屏下文字折行把高度顶高 */}
+                    <div className="w-full [&_button]:w-full [&_button]:whitespace-nowrap">
+                      <Select
+                        value={pref.preferred ?? ""}
+                        onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
+                        label={`模型 ${pref.model} 优先渠道`}
+                        options={[
+                          { value: "", label: "自动（按剩余额度）" },
+                          ...pref.channels.map((cid) => ({ value: cid, label: cid })),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {modelPrefs.every((pref) => pref.channels.length === 0) && (
+                <p className="mt-2 text-xs text-ink-faint">
+                  池里暂无可路由的模型：先添加账号，或检查渠道是否已登录。
+                </p>
+              )}
+            </section>
+          )}
 
           {/*
           {/*

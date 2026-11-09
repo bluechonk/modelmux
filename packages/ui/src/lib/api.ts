@@ -169,6 +169,10 @@ export interface WebApi {
     resetAccount(cid: string, key: string): Promise<CommandData>;
     removeAccount(cid: string, key: string): Promise<CommandData>;
     syncPool(cid: string): Promise<CommandData>;
+    /** 模型级渠道偏好：每个对外模型的候选渠道 + 当前偏好（下拉的数据源）。 */
+    modelChannels(): Promise<CommandData>;
+    /** 设置 / 清除某模型的优先渠道（`cid` 传空串 = 回到自动选路）。 */
+    setModelChannel(model: string, cid: string): Promise<CommandData>;
     /**
      * 提交用户粘回的回调链接（一次性 code 的兜底通道）。
      *
@@ -282,6 +286,11 @@ async function demoCommand(
     }
     case "syncPool":
       return { ok: true };
+    case "modelChannels":
+      // 演示模式没有真实池：给出与账号池同口径的占位，避免下拉空白
+      return { models: [] };
+    case "setModelChannel":
+      return { model: String(args["model"] ?? ""), preferred: args["cid"] ?? null, ok: true };
     case "pasteCallback": {
       // 演示模式：视为授权完成 —— 把流程真的走完（渠道转已登录 + 账号入池）
       const res = demoCompleteLogin(st);
@@ -382,6 +391,8 @@ export const api: WebApi = {
     resetAccount: (cid, key) => command("resetAccount", cid, { key }),
     removeAccount: (cid, key) => command("removeAccount", cid, { key }),
     syncPool: (cid) => command("syncPool", cid),
+    modelChannels: () => command("modelChannels", undefined),
+    setModelChannel: (model, cid) => command("setModelChannel", undefined, { model, cid }),
     pasteCallback: (url) => command("pasteCallback", undefined, { url }),
     /** 两步登录（如 loomy 短信验证码）：把用户在弹窗里填的内容交回去。 */
     submitInput: (value) => command("submitInput", undefined, { value }),
