@@ -817,9 +817,8 @@ type RawEvent =
   | { type: "delta"; text: string }
   | { type: "reasoning"; text: string }
   /**
-   * `cacheReadTokens` = 上游 `contextInfo.usage.cache_read_tokens`（Anthropic 形态：
-   * 不含在 `prompt_tokens` 里）。省略表示上游没给 —— 共享层据此把该渠道的缓存显示成
-   * `—` 而不是 0%。
+   * 上游缓存读（字段与语义见 `docs/channels/catpaw/PROTOCOL.md`）。省略表示上游没给 ——
+   * 共享层据此把该渠道的缓存显示成 `—` 而不是 0%。
    */
   | { type: "usage"; promptTokens: number; completionTokens: number; totalTokens: number; cacheReadTokens?: number }
   | { type: "error"; message: string; code: number };
@@ -960,8 +959,7 @@ function decodeFrame(
     const num = (k: string): number => (typeof u[k] === "number" && Number.isFinite(u[k]) ? (u[k] as number) : 0);
     const completion = num("completion_tokens");
     const prompt = Math.max(num("prompt_tokens"), num("total_tokens") - completion);
-    // 缓存读单独带出：`prompt` 已含它（= total − completion），所以共享层按
-    // OpenAI 形态（cached ⊆ prompt）算分母，不必再给 input_tokens
+    // 缓存读单独带出：`prompt` 已含它，共享层按 OpenAI 形态（cached ⊆ prompt）算分母即可
     const cacheRead =
       typeof u["cache_read_tokens"] === "number" && Number.isFinite(u["cache_read_tokens"])
         ? (u["cache_read_tokens"] as number)
