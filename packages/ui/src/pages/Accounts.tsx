@@ -408,7 +408,10 @@ export function Accounts(): ReactElement {
               <h2 className="mb-2 text-xs font-medium text-ink-soft">模型走哪家</h2>
               <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                 {modelPrefs.map((pref) => (
-                  <div key={pref.model} className="flex min-w-56 flex-1 flex-col gap-1">
+                  // 列宽钉死而不是 flex-1 均分：均分时每列占到卡片宽的三分之一（实测 385px），
+                  // 而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。固定 176px 后
+                  // 三列靠左排、窄屏自动折行，右侧留白交给卡片。
+                  <div key={pref.model} className="flex w-44 flex-col gap-1">
                     <span className="font-mono text-xs text-ink">{pref.model}</span>
                     {/* 同类控件必须等宽（判据 1）：组件本身按内容收缩，
                         由外层钉死宽度；nowrap 防窄屏下文字折行把高度顶高 */}
