@@ -1,0 +1,30 @@
+{
+  "name": "modelmux-desktop",
+  "version": "0.1.3",
+  "private": true,
+  "description": "modelmux Windows 便携壳（Electron）：双击自启网关 + 内嵌 Web 控制台",
+  "author": "bluechonk",
+  "main": "main.cjs",
+  "scripts": {
+    "pack": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "43.8.7",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.bluechonk.modelmux",
+    "productName": "modelmux",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.cjs", "app/**/*", "assets/**/*"],
+    "asar": true,
+    "compression": "maximum",
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "portable": { "artifactName": "modelmux.exe", "unpackDirName": "modelmux" }
+  }
+}

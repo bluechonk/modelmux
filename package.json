@@ -22,6 +22,7 @@
     "verify:wiring": "node scripts/verify-wiring.mjs",
     "verify:comments": "node scripts/verify-comments.mjs",
     "gate": "bash scripts/gate.sh",
+    "desktop": "node scripts/pack-desktop.mjs",
     "after-change": "node scripts/after-change.mjs",
     "prepare": "node scripts/setup-git-hooks.mjs",
     "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:comments && npm run verify:commits && npm run verify:topology && npm run verify:references && npm run verify:layering && npm run verify:wiring && npm run test --workspaces --if-present"
