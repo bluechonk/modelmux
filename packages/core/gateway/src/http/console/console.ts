@@ -217,12 +217,12 @@ export interface ControlBridge {
    * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
-  integrate?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
   /**
    * 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。
    * 实现同为 `app/integrate.ts` 的 `restoreClient`。
    */
-  restore?: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => {
+  restore?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
     ok: boolean;
     error?: string;
     restored: string[];

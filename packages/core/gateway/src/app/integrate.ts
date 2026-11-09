@@ -22,7 +22,7 @@ import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile, writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
-export type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex";
+export type IntegrationTarget = "zcode" | "dsh" | "claude-desktop" | "codex";
 
 export interface IntegrationResult {
   ok: boolean;
@@ -52,7 +52,7 @@ function gatewayBaseUrl(): string {
   return `http://${defaultAddr()}/v1`;
 }
 
-/** Anthropic 客户端的 baseURL（Claude Code 自己拼 `/v1/messages`，**不带** /v1）。 */
+/** Anthropic 客户端的 baseURL（客户端自己拼 `/v1/messages`，**不带** /v1）。 */
 function gatewayAnthropicUrl(): string {
   return `http://${defaultAddr()}`;
 }
@@ -101,8 +101,6 @@ export function integrateClient(target: IntegrationTarget, models: string[] = ex
       return integrateZcode(models);
     case "dsh":
       return integrateDsh(models);
-    case "claude-code":
-      return integrateClaudeCode(models);
     case "claude-desktop":
       return integrateClaudeDesktop(models);
     case "codex":
@@ -709,74 +707,14 @@ function renderDshModelItems(indent: number, models: string[], modalities: Modal
   return out;
 }
 
-// ── claude code ─────────────────────────────────────────────────────────────
-
-/**
- * Claude Code：`~/.claude/settings.json` 的 `env` patch（形态同 cc-switch 的供应商写入）。
- *
- * 只写 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / 模型三件，**绝不写
- * `ANTHROPIC_API_KEY`** —— 两者并存会触发 Claude Code 的「Both ANTHROPIC_API_KEY and
- * ANTHROPIC_AUTH_TOKEN are set」警告并拒绝生效（cc-switch #4919 同款坑）；env 里已有的
- * ANTHROPIC_API_KEY 也一并移除。其余用户键（hooks / 权限等）原样保留。
- */
-function integrateClaudeCode(models: string[]): IntegrationResult {
-  const result: IntegrationResult = { ok: false, target: "claude-code", models, changed: [], unchanged: [], notes: [] };
-  const dir = join(homedir(), ".claude");
-  const file = join(dir, "settings.json");
-  if (!existsSync(dir)) {
-    result.error = `找不到 Claude Code 配置目录：${dir}（Claude Code 装了吗？）`;
-    return result;
-  }
-  let root: Record<string, unknown> = {};
-  if (existsSync(file)) {
-    try {
-      root = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-    } catch (err) {
-      result.error = `Claude Code 配置不是合法 JSON：${String(err)}`;
-      return result;
-    }
-  } else {
-    result.notes.push("settings.json 不存在，新建");
-  }
-  const env = ((root["env"] ??= {}) as Record<string, unknown>);
-  const primary = models[0]!;
-  const before = JSON.stringify(env);
-  const anthropicUrl = gatewayAnthropicUrl();
-  env["ANTHROPIC_BASE_URL"] = anthropicUrl;
-  env["ANTHROPIC_AUTH_TOKEN"] = LOCAL_API_KEY;
-  delete env["ANTHROPIC_API_KEY"];
-  // 模型族全指向池主模型：Claude Code 的 haiku/sonnet/opus 三档请求都会进网关
-  env["ANTHROPIC_MODEL"] = primary;
-  env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = primary;
-  env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = primary;
-  env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = primary;
-  if (JSON.stringify(env) === before) {
-    result.unchanged.push(file);
-    result.ok = true;
-    return result;
-  }
-  const backup = backupDirFor("claude-code");
-  // 新建场景没有旧文件可备份（backupFile 读原文件会 ENOENT）—— 但要在清单里留下
-  // `existed:false`，否则还原时会以为「没有这个文件的备份」，把接入新建的文件留在盘上
-  if (existsSync(file)) backupFile(backup, file);
-  else noteCreatedFile(backup, file);
-  writeVerified(file, `${JSON.stringify(root, null, 2)}\n`, 0o600);
-  result.changed.push(file);
-  result.backupDir = backup;
-  result.notes.push(`baseUrl=${anthropicUrl}，模型=${primary}（haiku/sonnet/opus 同指）`);
-  result.ok = true;
-  return result;
-}
-
 // ── claude desktop ──────────────────────────────────────────────────────────
 
 /**
  * Claude Desktop 的 3P（third-party）profile 路径。
  *
- * Desktop 与 Claude Code 是**两个应用**：后者读 `~/.claude/settings.json` 的环境变量，
- * 前者读自己的 3P profile（`<LOCALAPPDATA>/Claude-3p/configLibrary/`，macOS 在
- * `~/Library/Application Support/Claude-3p/`）。写错位置的后果是 Desktop 照常启动、
- * 但完全不读我们写的配置 —— 静默无效，没有任何报错。
+ * Desktop 读自己的 3P profile（`<LOCALAPPDATA>/Claude-3p/configLibrary/`，macOS 在
+ * `~/Library/Application Support/Claude-3p/`），**不是** `~/.claude/settings.json`。
+ * 写错位置的后果是 Desktop 照常启动、但完全不读我们写的配置 —— 静默无效，没有任何报错。
  */
 function claudeDesktopLibraryDir(): string {
   if (process.platform === "darwin") {
@@ -847,7 +785,7 @@ function desktopInferenceModels(models: readonly string[]): Array<Record<string,
  * 走 **`inferenceProvider: "gateway"`**，模型清单写进 `inferenceModels`（**不**用模型发现，
  * 原因见 `desktopInferenceModels` 与 `modelDiscoveryEnabled` 处的注释）。
  *
- * 认证用 `x-api-key`（本地回环网关不校验入站密钥，与 Claude Code 那条同口径）。
+ * 认证用 `x-api-key`（本地回环网关不校验入站密钥，只要求头存在）。
  */
 function integrateClaudeDesktop(models: string[]): IntegrationResult {
   const result: IntegrationResult = {
@@ -1284,8 +1222,6 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
   switch (target) {
     case "codex":
       return join(home, ".codex", "config.toml");
-    case "claude-code":
-      return join(home, ".claude", "settings.json");
     case "zcode":
       return join(home, ".zcode", "v2", "provider_config.json");
     case "dsh": {

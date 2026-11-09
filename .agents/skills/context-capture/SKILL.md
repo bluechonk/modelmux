@@ -65,7 +65,7 @@ harness 行为约束。`--format text` 会按 `系统提示词 / 工具定义 / 
 | 客户端 | 怎么接 | 验证 |
 | --- | --- | --- |
 | Codex | 仪表盘「接入 codex」（写 `~/.codex/config.toml` 的 `[model_providers.modelmux]` + `wire_api = "responses"`） | 跑一次 `codex exec "..."`，`--list` 里出现 `phase=client` 且模型是池模型 |
-| Claude Code | 「接入 claude code」（写 `~/.claude/settings.json` 的 env 三件） | `claude -p "..."` 后查列表 |
+| Claude Code | 手工写 `~/.claude/settings.json` 的 `env`（`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，见 `claude-mx-test` 技能；无一键接入） | `claude -p "..."` 后查列表 |
 | Claude Desktop | 「接入 claude desktop」（写 3P profile） | 在 Desktop 里发一句话，注意要重启客户端才生效 |
 | dsh | 「接入 dsh」（写 `~/.dsh/profiles/*/cordis.patch.yml`） | dsh 里发消息 |
 | ZCode | 「接入 zcode」（写 `~/.zcode/v2/provider_config.json`） | 在 ZCode 里发消息 |

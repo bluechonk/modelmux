@@ -188,18 +188,18 @@ export interface WebApi {
     /** 用户关掉了登录弹窗：让等待输入的渠道收尾（见 `ControlBridge.cancelInput`）。 */
     cancelInput(): Promise<CommandData>;
     /**
-     * 一键接入：把本机 harness（zcode / dsh）的模型配置改写成网关的对外模型名。
+     * 一键接入：把本机客户端的模型配置改写成网关的对外模型名。
      *
-     * 后端写的是 `~/.zcode` / `~/.dsh`（写前备份），返回变更说明。
+     * 后端写的是各客户端自己的配置文件（写前备份），返回变更说明。
      */
-    integrate(target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex"): Promise<CommandData>;
+    integrate(target: "zcode" | "dsh" | "claude-desktop" | "codex"): Promise<CommandData>;
     /**
      * 一键还原：把目标恢复成**接入前**的配置。
      *
      * 取该目标最近一次接入备份；还原前会先把当前状态再备份一份（可反悔）。
      * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
      */
-    restore(target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex"): Promise<CommandData>;
+    restore(target: "zcode" | "dsh" | "claude-desktop" | "codex"): Promise<CommandData>;
   };
 }
 
@@ -307,8 +307,9 @@ async function demoCommand(
       return { cancelled: true, ok: true };
     case "integrate": {
       const target = String(args["target"] ?? "");
-      if (target !== "zcode" && target !== "dsh") {
-        return { ok: false, error: "参数 target 只能是 zcode 或 dsh" };
+      const targets = ["zcode", "dsh", "claude-desktop", "codex"];
+      if (!targets.includes(target)) {
+        return { ok: false, error: `参数 target 只能是 ${targets.join(" / ")}` };
       }
       // 演示数据里模型清单与真实快照同形（`state.models` 的 model 段去重）
       const models = [...new Set(demoModels(st).map((row) => row.model))];
@@ -321,7 +322,7 @@ async function demoCommand(
     }
     case "restore": {
       const target = String(args["target"] ?? "");
-      const targets = ["zcode", "dsh", "claude-code", "claude-desktop", "codex"];
+      const targets = ["zcode", "dsh", "claude-desktop", "codex"];
       if (!targets.includes(target)) {
         return { ok: false, error: `参数 target 只能是 ${targets.join(" / ")}` };
       }

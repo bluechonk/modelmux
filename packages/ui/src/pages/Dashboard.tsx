@@ -87,6 +87,16 @@ function storedRange(): UsageRange {
 const MAX_SERIES = 6;
 
 /**
+ * 规格值的可信来源：注册表（产品决策，与 `/v1/models` 同源）与上游目录声明。
+ *
+ * `spec`（本地 model-specs.json）与 `default`（代码兜底常量）不算 —— 后者恒为 65536，
+ * 混进「跨渠道取最大」会把模型能力虚报上去。
+ */
+function isTrustedMetaSource(source: string | undefined): boolean {
+  return source === "registry" || source === "upstream";
+}
+
+/**
  * 模型健康度标签的文案与配色（判据同源，见 `lib/model-health.ts`）。
  *
  * 只有「异常」一种：零调用记录不挂标签（没数据 ≠ 不可用），有请求全失败才挂。
@@ -255,7 +265,7 @@ function CopyInline({ value, label }: { value: string; label: string }): ReactEl
 // ---------------------------------------------------------------------------
 
 /** 接入目标（与后端 `IntegrationTarget` 同形）。 */
-type IntegrationTarget = "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex";
+type IntegrationTarget = "zcode" | "dsh" | "claude-desktop" | "codex";
 
 /** 单个接入按钮：写入中态按 target 区分（并行点两个按钮互不误标）。 */
 function IntegrateButton({
@@ -410,15 +420,16 @@ export function Dashboard(): ReactElement {
         tpsCount: 0,
       };
       for (const m of row.meta?.inputModalities ?? []) cur.modalities.add(m);
-      // **只信上游声明**：`meta.sources` 标明每个数从哪来 ——
+      // **只信权威来源**：`meta.sources` 标明每个数从哪来 ——
+      //   registry = 统一模型注册表（`models.json`，与 `/v1/models` 同源）；
       //   upstream = 上游目录里真有；spec = 本地 model-specs.json；default = 代码兜底值。
       // 后两者不是该模型的真实能力（default 恒为 65536），混进「取最大」会虚报。
       const cw = row.meta?.contextWindow;
-      if (row.meta?.sources?.contextWindow === "upstream" && typeof cw === "number" && cw > 0) {
+      if (isTrustedMetaSource(row.meta?.sources?.contextWindow) && typeof cw === "number" && cw > 0) {
         cur.contextWindow = Math.max(cur.contextWindow ?? 0, cw);
       }
       const mo = row.meta?.maxOutputTokens;
-      if (row.meta?.sources?.maxOutputTokens === "upstream" && typeof mo === "number" && mo > 0) {
+      if (isTrustedMetaSource(row.meta?.sources?.maxOutputTokens) && typeof mo === "number" && mo > 0) {
         cur.maxOutput = Math.max(cur.maxOutput ?? 0, mo);
       }
       byModel.set(row.model, cur);
@@ -450,7 +461,7 @@ export function Dashboard(): ReactElement {
 
   // 结果只走右下角 toast：卡片里再贴一条会和 toast 重复，还让区块高度跳动。
   const integrateMutation = useMutation({
-    mutationFn: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") => api.commands.integrate(target),
+    mutationFn: (target: IntegrationTarget) => api.commands.integrate(target),
     // 命令信封的 ok:false（如 dsh 一个 profile 都没改到）必须走失败 toast ——
     // HTTP 层是 200，onSuccess 不代表接入成功
     onSuccess: (data) => {
@@ -470,8 +481,7 @@ export function Dashboard(): ReactElement {
    * 并在还原前先把当前状态再备份一份，可反悔）。
    */
   const restoreMutation = useMutation({
-    mutationFn: (target: "zcode" | "dsh" | "claude-code" | "claude-desktop" | "codex") =>
-      api.commands.restore(target),
+    mutationFn: (target: IntegrationTarget) => api.commands.restore(target),
     onSuccess: (data) => {
       const target = String(data.target ?? "");
       if (data.ok === false) {
@@ -751,22 +761,22 @@ export function Dashboard(): ReactElement {
                       </span>
                     </div>
                     {/*
-                      第二行：上下文窗口与最大输出。**只统计上游声明过的值**（`sources` =
-                      upstream），同一模型跨渠道取最大。本地规格表（spec）与代码兜底（default）
-                      不采信 —— 兜底恒为 65536，混进来会虚报能力。
-                      `-` 的意思是「所有供给渠道都没声明」，不是 0。
+                      第二行：上下文窗口与最大输出。取值只认**可信来源**（注册表 / 上游声明，
+                      见 `isTrustedMetaSource`），同一模型跨渠道取最大。本地规格表（spec）与
+                      代码兜底（default）不采信 —— 兜底恒为 65536，混进来会虚报能力。
+                      「未声明」的意思是「没有可信来源」，不是 0。
                     */}
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-ink-faint">
                       <span>
                         上下文{" "}
                         <span className="tabular text-ink-soft">
-                          {row.contextWindow === null ? "上游未声明" : formatTokens(row.contextWindow)}
+                          {row.contextWindow === null ? "未声明" : formatTokens(row.contextWindow)}
                         </span>
                       </span>
                       <span>
                         最大输出{" "}
                         <span className="tabular text-ink-soft">
-                          {row.maxOutput === null ? "上游未声明" : formatTokens(row.maxOutput)}
+                          {row.maxOutput === null ? "未声明" : formatTokens(row.maxOutput)}
                         </span>
                       </span>
                     </div>
@@ -850,11 +860,6 @@ export function Dashboard(): ReactElement {
               />
               <IntegrateButton
                 mutation={integrateMutation}
-                target="claude-code"
-                label="接入 claude code"
-              />
-              <IntegrateButton
-                mutation={integrateMutation}
                 target="claude-desktop"
                 label="接入 claude desktop"
               />
@@ -871,7 +876,6 @@ export function Dashboard(): ReactElement {
               <div className="grid grid-cols-2 gap-2">
                 <RestoreButton mutation={restoreMutation} target="zcode" label="还原 zcode" />
                 <RestoreButton mutation={restoreMutation} target="dsh" label="还原 dsh" />
-                <RestoreButton mutation={restoreMutation} target="claude-code" label="还原 claude code" />
                 <RestoreButton mutation={restoreMutation} target="claude-desktop" label="还原 claude desktop" />
                 <RestoreButton mutation={restoreMutation} target="codex" label="还原 codex" />
               </div>
