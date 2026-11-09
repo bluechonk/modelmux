@@ -108,8 +108,8 @@
 | catpaw | `contextInfo.usage.cache_read_tokens` / `cache_write_tokens` | Anthropic 形态：`prompt_tokens` 不含缓存读，`total = prompt + completion + cache_read`（实测 prompt 47 / cache_read 29184 / total 29234） | **是** → `prompt_tokens_details.cached_tokens`（`prompt` 已含缓存读，走 OpenAI 形态） |
 | autoclaw | **无** | relay events 原始帧（45 条叶子路径）里没有任何 cache/hit/prefix 字段；连 usage 都不发（渠道按字符数兜底估算，见 `docs/channels/autoclaw/PROTOCOL.md`） | 无从映射 |
 
-> 结论修正：**catpaw 的缓存命中此前被渠道翻译器丢弃**，仪表盘一直少算。修复后访问日志出现
-> `prompt_tokens_details.cached_tokens`，仪表盘「缓存命中」计入 catpaw。
+> **catpaw 的缓存命中由渠道映射成 `prompt_tokens_details.cached_tokens` 透出**，与 loomy /
+> workbuddy / astudio 等一样计入仪表盘「缓存命中」。
 
 ## 6. 归一化规则（本仓库口径）
 
