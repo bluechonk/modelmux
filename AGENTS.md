@@ -73,8 +73,7 @@ squash 会把 PR body 并进 main 上的 commit body，所以 **PR body 必须�
 无 emoji、无对话式内容（人称、互动过程、一次性动作）。
 
 CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verify-commits`，**合并前**就能
-拦住不合规的 PR body。此前只在合并后的 push 事件里校验合并提交，问题要等 main 变红才暴露
-（2026-11-08 事故：PR #349 分支绿、合并后 main 红）。
+拦住不合规的 PR body（2026-11-08 事故：PR #349 分支绿、合并后 main 红）。
 
 ### 工作树落点
 
