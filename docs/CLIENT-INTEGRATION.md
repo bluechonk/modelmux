@@ -2,11 +2,10 @@
 
 网关对客户端暴露**三种入站协议**，四个 CLI（Claude Code / Codex / dsh / zcode）都直连
 `http://127.0.0.1:4412` 使用池内模型，无需任何中间层（CCR 等代理可以退役）。
-仪表盘「一键接入」按钮（zcode / dsh / claude code / claude desktop / codex 五个）自动写入
-各客户端的本机配置（写前备份到 `<root>/backups/integrate/`），手工配置见下文形态。
+仪表盘「一键接入」按钮（zcode / dsh / claude desktop / codex 四个）自动写入各客户端的本机
+配置（写前备份到 `<root>/backups/integrate/`），手工配置见下文形态。
 
-> **Claude Desktop 与 Claude Code 是两个应用**：后者读 `~/.claude/settings.json` 的 env，
-> 前者读自己的 3P profile。Desktop 的配置落在
+> **Claude Desktop 的配置在自己的 3P profile**，落在
 > `<LOCALAPPDATA>/Claude-3p/configLibrary/`（macOS：`~/Library/Application Support/Claude-3p/configLibrary/`），
 > 写错位置会**静默无效**（Desktop 照常启动，但完全不读）。
 >
@@ -77,30 +76,11 @@
    按 `DESKTOP_ROLE_MODELS` 固定表映射到池模型（见 [CONTRACT-TS.md §4.1.1](./CONTRACT-TS.md)）；
 4. 其余家族外的名字一律 `400 unknown_model`（含 `gpt-*` 与不在角色表里的 `claude-*`）。
 
-## 3. 四 CLI 接入配置
+## 3. 三 CLI 接入配置
 
-### Claude Code（Anthropic Messages）
-
-仪表盘「接入 claude code」写 `~/.claude/settings.json` 的 `env` 块（其余用户键不动）：
-
-```jsonc
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4412",
-    "ANTHROPIC_AUTH_TOKEN": "modelmux-local",
-    "ANTHROPIC_MODEL": "deepseek-v4.1-flash",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4.1-flash",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4.1-flash",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4.1-flash"
-  }
-}
-```
-
-- **绝不写 `ANTHROPIC_API_KEY`**：与 AUTH_TOKEN 并存会让 Claude Code 报
-  「Both ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are set」并拒绝生效；写入器会把
-  残留的 API_KEY 一并移除。
-- 也可以不改配置文件，会话环境变量注入同样的四个键即可（`CLAUDE_CONFIG_DIR` 可指向
-  临时目录做隔离验证）。
+> Claude Code 走 `/v1/messages`，但**不提供一键接入**：它的配置是 `~/.claude/settings.json`
+> 的 `env` 块，改动会碰用户自己的 hooks / 权限键，不适合代劳。手工形态（含隔离验证）见
+> `.agents/skills/claude-mx-test/SKILL.md`。
 
 ### Codex（OpenAI Responses）
 

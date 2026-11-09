@@ -81,12 +81,13 @@ export interface ModelInfo {
   /**
    * 窗口 / 输出 / 档位各自从哪来（与共享层 `PoolModelMeta.sources` 同形）。
    *
+   * `registry` = 统一模型注册表（`models.json`，与 `/v1/models` 同源）；
    * `web_search` = 联网补全写入，`cross` = 兄弟渠道同 id 的推断值。
    */
   sources?: {
-    contextWindow: "upstream" | "spec" | "web_search" | "cross" | "default";
-    maxOutputTokens: "upstream" | "spec" | "web_search" | "cross" | "default";
-    effort: "upstream" | "spec" | "web_search" | "cross" | "default";
+    contextWindow: "upstream" | "spec" | "web_search" | "cross" | "registry" | "default";
+    maxOutputTokens: "upstream" | "spec" | "web_search" | "cross" | "registry" | "default";
+    effort: "upstream" | "spec" | "web_search" | "cross" | "registry" | "default";
   };
 }
 
