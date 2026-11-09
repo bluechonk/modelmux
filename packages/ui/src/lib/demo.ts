@@ -293,6 +293,24 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
   });
 }
 
+/**
+ * 演示「模型走哪家」：候选渠道取该模型真实出现的渠道（去重），偏好留空
+ * （= 自动选路）—— 演示站要让用户看到下拉能选，但默认值不该伪装成已有偏好。
+ */
+function demoModelPrefs(state: DemoState): UiSnapshot["model_prefs"] {
+  const byModel = new Map<string, Set<string>>();
+  for (const { model, cid } of demoModels(state)) {
+    const set = byModel.get(model) ?? new Set<string>();
+    set.add(cid);
+    byModel.set(model, set);
+  }
+  return [...byModel.entries()].map(([model, set]) => ({
+    model,
+    channels: [...set],
+    preferred: null,
+  }));
+}
+
 function demoSettingsBase(state: DemoState): UiSnapshot {
   return {
     ui_state: "running",
@@ -306,6 +324,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: DEMO_ENDPOINTS,
     models: demoModelRows(state),
+    model_prefs: demoModelPrefs(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),
     theme_mode: "dark",
     resolved_theme: "dark",

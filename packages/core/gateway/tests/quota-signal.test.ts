@@ -57,6 +57,11 @@ describe("额度/用量信号识别", () => {
     assert.equal(trae.quotaSignal(500, body), "balance", "4008 必须被认成额度耗尽");
     assert.equal(trae.quotaSignal(200, body), "balance", "业务码与状态码无关");
     assert.equal(trae.quotaSignal(200, '{"code":1005,"msg":"plan not enough"}'), "balance");
+    // 3004 是限流，包在 **HTTP 200** 的流内错误帧里：必须是 rate_limit 而非余额类，
+    // 且光看 status 认不出（200）—— 判据只能来自报文内容（2026-11-09 实测）。
+    const rateBody =
+      '{"error":{"code":3004,"message":"We\'re sorry, your requests have exceeded the rate limit."}}';
+    assert.equal(trae.quotaSignal(200, rateBody), "rate_limit", "3004 必须被认成限流");
     // 非额度类不能误报，否则正常请求会被冷却
     assert.equal(trae.quotaSignal(200, '{"code":4011,"msg":"rate limit"}'), null);
     assert.equal(trae.quotaSignal(200, '{"code":4026,"msg":"context length exceeded"}'), null);
