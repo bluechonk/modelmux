@@ -36,6 +36,8 @@ docs/                         全部文档（契约与规范 + 渠道文档 docs
 
 ## 快速开始
 
+<!-- ci probe -->
+
 ```bash
 npm install          # 装工作区依赖
 npm run build        # 全仓编译（tsc -b + cli 单文件 bundle + copy-ui）
