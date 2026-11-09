@@ -382,7 +382,7 @@ event:done   | data:{"finish_reason":"stop"}
 |---|---|---|
 | `metadata` / `timing_cost` / `extra_info` | 未消费 | 出现即算「上游已开工」 |
 | `output` | `response`（正文**增量**）、`reasoning_content`（思考**增量**）、`tool_calls`（null 或数组） | 主要帧 |
-| `token_usage` | `prompt_tokens`、`completion_tokens`、`reasoning_tokens` | 用量 |
+| `token_usage` | `prompt_tokens`、`completion_tokens`、`reasoning_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`（各带 `_total` 变体）、`cluster` | 用量。缓存字段**实测恒为 0**（2026-11-09，4 个模型 × 3 次请求，含 9235 token 相同前缀连发），`_total` 变体同样恒 0 —— 判为未填充的占位字段，**不映射**（映射会把「上游没给」变成假的 0%） |
 | `notify_usage` | `billing_mode`、`cn_credits_remain_info.{ide_credits, work_credits}` | **通道余额**；不产出客户端帧，只落盘（见 §6.4） |
 | `done` | `finish_reason` | **流结束标志** |
 | `error` | `code`、`message` | 业务错误 |

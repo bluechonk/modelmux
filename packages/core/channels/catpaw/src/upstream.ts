@@ -816,7 +816,12 @@ function unwrapFrame(raw: Record<string, unknown>): Record<string, unknown> {
 type RawEvent =
   | { type: "delta"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "usage"; promptTokens: number; completionTokens: number; totalTokens: number }
+  /**
+   * `cacheReadTokens` = 上游 `contextInfo.usage.cache_read_tokens`（Anthropic 形态：
+   * 不含在 `prompt_tokens` 里）。省略表示上游没给 —— 共享层据此把该渠道的缓存显示成
+   * `—` 而不是 0%。
+   */
+  | { type: "usage"; promptTokens: number; completionTokens: number; totalTokens: number; cacheReadTokens?: number }
   | { type: "error"; message: string; code: number };
 
 /** 把一帧（已解信封）翻成零或多个事件；生命周期结束帧通过 onTerminal 通知。 */
@@ -955,11 +960,18 @@ function decodeFrame(
     const num = (k: string): number => (typeof u[k] === "number" && Number.isFinite(u[k]) ? (u[k] as number) : 0);
     const completion = num("completion_tokens");
     const prompt = Math.max(num("prompt_tokens"), num("total_tokens") - completion);
+    // 缓存读单独带出：`prompt` 已含它（= total − completion），所以共享层按
+    // OpenAI 形态（cached ⊆ prompt）算分母，不必再给 input_tokens
+    const cacheRead =
+      typeof u["cache_read_tokens"] === "number" && Number.isFinite(u["cache_read_tokens"])
+        ? (u["cache_read_tokens"] as number)
+        : undefined;
     events.push({
       type: "usage",
       promptTokens: prompt,
       completionTokens: completion,
       totalTokens: prompt + completion,
+      ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
     });
   }
 
@@ -1003,6 +1015,10 @@ function eventToSseFrame(event: RawEvent): Buffer {
           prompt_tokens: event.promptTokens,
           completion_tokens: event.completionTokens,
           total_tokens: event.totalTokens,
+          // 上游给了缓存读才写：缺失与「命中 0」在共享层是两种展示（`—` vs 0%）
+          ...(event.cacheReadTokens !== undefined
+            ? { prompt_tokens_details: { cached_tokens: event.cacheReadTokens } }
+            : {}),
         },
       });
     case "error":

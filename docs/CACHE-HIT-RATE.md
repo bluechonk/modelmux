@@ -64,7 +64,9 @@
 5. **失败/中断请求没有 usage**：若当 0 计入分母会低估命中率（本仓库已有 `noUsage` 计数区分）
 6. **不同上游 usage 形态不同**（见 §5 → §6 的归一化）
 
-## 5. 各渠道 usage 形态（本仓库实测，2026-11-09，14 天全量真实日志）
+## 5. 各渠道 usage 形态
+
+### 5.1 日志口径（本仓库实测，2026-11-09，14 天全量真实日志）
 
 量测脚本：`.tmp/probe-cache-channels.mjs`（按 cid 汇总「有缓存字段的条数 / 字段签名 / 命中与输入 token」）、
 `.tmp/probe-cache-sanity.mjs`（字段自洽性校验）。
@@ -79,13 +81,13 @@
 | qodercn | 155 / 187 | `prompt_tokens_details.cached_tokens` | 86.1% |
 | workbuddyai | 5 / 22 | 同 workbuddy（两套风格全给） | — |
 | qoder | 3 / 6 | `prompt_tokens_details.cached_tokens` | — |
-| traecn / catpaw / autoclaw / zcode | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
+| catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
+| traecn / autoclaw / zcode | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
 
 要点：
 
 - **缓存字段确实存在，且不是官方直连才有**：14 天 35413 条里 9 个渠道带回缓存字段，
   其中多数是第三方聚合上游（loomy / astudio / raccoon 等），它们把模型侧的 KV cache 计数透传上来。
-  traecn / catpaw / autoclaw / zcode 从不给。
 - **字段是自洽的上游统计，不是被中途改写**：全渠道 **0 条 `hit > prompt`、0 条负值**；
   workbuddy 的 4123 条 DeepSeek 形态**全部**满足官方等式 `hit + miss == prompt`。
 - 同一渠道**混合形态**很常见（lobsterai 个别请求多给双字段、loomy 少数请求完全不给）——
@@ -94,6 +96,20 @@
   只有 `prompt_tokens` / `completion_tokens` / `total_tokens` + `points_consumed`，
   没有缓存字段（该模型倍率 0、`points_consumed: 0`，属免费模型）。
 - 结论：命中率**不可能对所有渠道统一显示** —— 无缓存字段的渠道必须显示 `—`，而不是 0%。
+
+### 5.2 上游原始响应里的缓存字段（2026-11-09 逐渠真实请求）
+
+日志只存共享层抽出的 `usage`，**响应体其余部分看不到** —— 单看日志会得出「上游不给缓存」
+的错误结论。逐渠打真实请求、dump 响应体全部叶子路径后：
+
+| 渠道 | 上游原始字段 | 语义 | 是否映射 |
+|---|---|---|---|
+| traecn | `cache_read_input_tokens`、`cache_creation_input_tokens`（+ `_total` 变体）、`prompt_cache_pool_record` | Anthropic 命名，但**实测恒为 0**（4 个模型 × 3 次请求，含 9235 token 相同前缀连发；`_total` 同样恒 0） | **否** —— 判为未填充的占位字段，映射会把「没给」变成假的 0% |
+| catpaw | `contextInfo.usage.cache_read_tokens` / `cache_write_tokens` | Anthropic 形态：`prompt_tokens` 不含缓存读，`total = prompt + completion + cache_read`（实测 prompt 47 / cache_read 29184 / total 29234） | **是** → `prompt_tokens_details.cached_tokens`（`prompt` 已含缓存读，走 OpenAI 形态） |
+| autoclaw | **无** | relay events 原始帧（45 条叶子路径）里没有任何 cache/hit/prefix 字段；连 usage 都不发（渠道按字符数兜底估算，见 `docs/channels/autoclaw/PROTOCOL.md`） | 无从映射 |
+
+> 结论修正：**catpaw 的缓存命中此前被渠道翻译器丢弃**，仪表盘一直少算。修复后访问日志出现
+> `prompt_tokens_details.cached_tokens`，仪表盘「缓存命中」计入 catpaw。
 
 ## 6. 归一化规则（本仓库口径）
 
