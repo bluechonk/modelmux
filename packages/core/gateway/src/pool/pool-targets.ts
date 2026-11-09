@@ -15,6 +15,7 @@ import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import { aliasGroupOf, canonicalOf } from "./model-family.js";
 import { providersOf, registryModelIds, registryModelOf } from "./model-registry.js";
+import { preferredChannelOf } from "./model-prefs.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
 
 /**
@@ -421,7 +422,7 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
  * 无额度数据的排最后，同分按 cid 码点序。
  */
 function sortByPriority(candidates: readonly PoolCandidate[], canonical: string): PoolCandidate[] {
-  return [...candidates].sort((a, b) => {
+  const sorted = [...candidates].sort((a, b) => {
     const ta = tierOf(a.cid);
     const tb = tierOf(b.cid);
     if (ta !== tb) return ta - tb;
@@ -433,6 +434,13 @@ function sortByPriority(candidates: readonly PoolCandidate[], canonical: string)
     if (pb !== pa) return pb - pa;
     return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
   });
+  // 模型级偏好**置顶**：用户指定「这个模型就走这家」，优先于一切自动排序。
+  // 只是换顺序，不改候选集 —— 被偏好的渠道冷却 / 额度耗尽时，后面几家照常顶上。
+  const preferred = preferredChannelOf(canonical);
+  if (preferred === null) return sorted;
+  const at = sorted.findIndex((c) => c.cid.toLowerCase() === preferred.toLowerCase());
+  if (at <= 0) return sorted; // 没这家（未注册 / 不供该模型）或已在首位
+  return [sorted[at]!, ...sorted.slice(0, at), ...sorted.slice(at + 1)];
 }
 
 /** 渠道的选路档位（缺省 1；渠道未注册也按 1）。 */

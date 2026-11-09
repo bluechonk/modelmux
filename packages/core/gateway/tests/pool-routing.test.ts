@@ -16,6 +16,7 @@ import { registerChannelSupply } from "./registry-seed.ts";
 import { poolUsagePath } from "../dist/runtime/paths.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 import { canonicalModelId, POOL_MODELS, POOL_MODEL_META, poolCandidates } from "../dist/pool/pool-targets.js";
+import { setPreferredChannel } from "../dist/pool/model-prefs.js";
 import { resolvePoolModel } from "../dist/pool/model-pool.js";
 import { canonicalOf, isPoolModel } from "../dist/pool/model-family.js";
 
@@ -159,6 +160,55 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     // gamma 没有额度数据 → 排最后
 
     assert.deepEqual(poolCandidates("deepseek-v4.1-flash").map((c) => c.cid), ["beta", "alpha", "gamma"]);
+  });
+
+  it("模型级偏好把指定渠道**置顶**；未指定时保持自动排序", () => {
+    clearChannels();
+    setChannel(stubChannel("alpha", ["deepseek-v4.1-flash"]));
+    setChannel(stubChannel("beta", ["deepseek-v4.1-flash"]));
+    setChannel(stubChannel("gamma", ["deepseek-v4.1-flash"]));
+    poolUsage.resetPoolLedgerForTest();
+    // 自动排序下 beta（500）> alpha（10）> gamma（无数据）
+    poolUsage.writeBilling("alpha", { total: { remain: 10, unit: "credits" } });
+    poolUsage.writeBilling("beta", { total: { remain: 500, unit: "credits" } });
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
+      ["beta", "alpha", "gamma"],
+      "无偏好时按剩余额度降序",
+    );
+
+    // 指定 alpha → 它必须排到最前，其余仍按原优先级跟在后面
+    setPreferredChannel("deepseek-v4.1-flash", "alpha");
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
+      ["alpha", "beta", "gamma"],
+      "偏好置顶，其余顺序不变",
+    );
+
+    // 清除偏好 → 回到自动排序（写回而不是留着旧值）
+    setPreferredChannel("deepseek-v4.1-flash", null);
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
+      ["beta", "alpha", "gamma"],
+      "清除后恢复自动排序",
+    );
+  });
+
+  it("偏好指向不存在的渠道时静默落空（不报错、不改顺序）", () => {
+    clearChannels();
+    setChannel(stubChannel("alpha", ["deepseek-v4.1-flash"]));
+    setChannel(stubChannel("beta", ["deepseek-v4.1-flash"]));
+    poolUsage.resetPoolLedgerForTest();
+    poolUsage.writeBilling("alpha", { total: { remain: 10, unit: "credits" } });
+    poolUsage.writeBilling("beta", { total: { remain: 500, unit: "credits" } });
+
+    // 渠道包可能后装、偏好是用户意图 —— 不在候选里就自然落空
+    setPreferredChannel("deepseek-v4.1-flash", "not-a-channel");
+    assert.deepEqual(
+      poolCandidates("deepseek-v4.1-flash").map((c) => c.cid),
+      ["beta", "alpha"],
+      "拼错/未注册的渠道不该让选路崩掉",
+    );
   });
 
   it("池视图：只列 canonical 的对外模型（别名不单独出现）", () => {

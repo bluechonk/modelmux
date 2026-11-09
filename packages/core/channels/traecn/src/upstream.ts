@@ -253,7 +253,10 @@ export function classifyError(status: number, body: string): TraeErrorKind {
   const text = (body ?? "").toLowerCase();
   if (text.includes("1005")) return "hard-plan"; // Plan 权益不足
   if (text.includes("4008")) return "quota-exceeded"; // 配额耗尽
-  if (text.includes("4011")) return "soft-rate"; // 频率超限
+  // 3004 与 4011 同为限流：上游把 3004 放在 **HTTP 200** 的流内 `event:error` 帧里
+  // （文案 "exceeded the rate limit"），只有业务码、没有 HTTP 状态码，
+  // 判据必须靠报文内容认，光看 status 会漏掉（实测 2026-11-09 连续 70 次全失败）。
+  if (text.includes("4011") || text.includes("3004")) return "soft-rate"; // 频率超限
   if (status === 401 || status === 403) return "session-dead";
   if (/token invalid|token 失效|session|unauthorized|login/.test(text)) return "session-dead";
   if (status === 429) return "soft-rate";
@@ -273,12 +276,16 @@ export function classifyError(status: number, body: string): TraeErrorKind {
  *
  * 判据只放本渠道确认过的业务码：
  * - `4008` 配额耗尽、`1005` Plan 权益不足 —— 都是「这个账号打不动了」，换号即可继续；
- * - HTTP 429 同属额度类（上游偶尔不回业务码只给状态码）。
+ * - HTTP 429 同属额度类（上游偶尔不回业务码只给状态码）；
+ * - `3004` 频率超限 —— 上游只说「等会儿再试」、**没给等待时长**，且它包在 HTTP 200 的
+ *   流内错误帧里（光看 status 是认不出的）。账号级冷却对它无效（生效凭据照样被使用、
+ *   其他账号的额度又让渠道保持高优先级），故上报 `rate_limit` 由共享层做**渠道级**短冷却。
  */
-export function quotaSignal(status: number, body: string): "usage_limit" | "balance" | null {
+export function quotaSignal(status: number, body: string): "usage_limit" | "balance" | "rate_limit" | null {
   const text = (body ?? "").toLowerCase();
   if (text.includes("4008")) return "balance";
   if (text.includes("1005")) return "balance";
+  if (text.includes("3004")) return "rate_limit";
   if (status === 429) return "balance";
   return null;
 }

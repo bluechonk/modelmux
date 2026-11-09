@@ -22,7 +22,7 @@ import {
   noteLastFrame,
   noteRequestError,
 } from "../../runtime/log-store.js";
-import { noteFailure } from "../../pool/pool-usage.js";
+import { FAIL_COOLDOWN_MS, noteFailure } from "../../pool/pool-usage.js";
 import { inChannel, isCustomWire } from "./channel.js";
 import { sinkOf } from "../protocol/types.js";
 import * as dsmlTools from "../wire/dsml-tools.js";
@@ -113,6 +113,18 @@ export function coolAccountOnQuotaSignal(
   if (freeModel) {
     logger(
       `upstream business error on a free model (channel ${cid ?? "?"}): code=${code}, account left untouched`,
+    );
+    return;
+  }
+  // 频率/速率超限：上游只说「等会儿再试」、没给时长。**账号级冷却挡不住它** ——
+  // 生效凭据照样被使用，其他账号的额度又让渠道保持高优先级，同一个被限流的账号
+  // 会被反复重试（实测 traecn `3004`：70 次失败后 `cooldown_until=0`、4 个账号
+  // 全 `health=ok`）。故改为**渠道级短冷却**，让请求先落到别家。
+  if (signal === "rate_limit") {
+    const realCid = channel.config.cid;
+    noteFailure(realCid, undefined, FAIL_COOLDOWN_MS);
+    logger(
+      `upstream rate limit (channel ${cid ?? "?"}): code=${code}, cooling channel for ${FAIL_COOLDOWN_MS / 1000}s`,
     );
     return;
   }

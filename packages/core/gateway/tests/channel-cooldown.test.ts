@@ -23,8 +23,7 @@ import * as gateway from "../dist/http/server.js";
 import * as poolUsage from "../dist/pool/pool-usage.js";
 
 /** 假上游：tok-alpha 一律 500，其它 token 回 200 SSE。 */
-async function fakeUpstream(): Promise<{ server: Server; url: string; captured: string[] }> {
-  const captured: string[] = [];
+async function fakeUpstream(): Promise<{ server: Server; url: string; captured: string[] }> {  const captured: string[] = [];
   const server = createServer((req, res) => {
     req.on("data", () => {});
     req.on("end", () => {
@@ -100,6 +99,51 @@ function makeChannel(cid: string, token: string, upstreamUrl: string): Channel {
     catalog: { exposedIds: () => ["deepseek-v4.1-flash"], resolveModel: (n: string) => n },
     billing: {
       fetchCredits: async () => ({ ok: true, total: {}, packages: [] }),
+    },
+  } as unknown as Channel;
+}
+
+/**
+ * 限流假上游：HTTP 200 起流，随后投递一条业务错误帧（code=3004）。
+ *
+ * 刻意复刻 traecn 的真实形态：**限流不反映在 HTTP 状态上**，而是流内 `event:error`。
+ * 网关若只按 status 判定，就会把它当成功（实测 70 次失败、零冷却）。
+ */
+async function fakeRateLimitedUpstream(): Promise<{ server: Server; url: string; captured: string[] }> {
+  const captured: string[] = [];
+  const server = createServer((req, res) => {
+    req.on("data", () => {});
+    req.on("end", () => {
+      captured.push(String(req.headers["authorization"] ?? ""));
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(
+        `data: ${JSON.stringify({
+          error: {
+            type: "upstream_error",
+            message:
+              "We're sorry, your requests have exceeded the rate limit. Please wait and try again later.",
+            code: "3004",
+          },
+        })}\n\n`,
+      );
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+  });
+  const port = await new Promise<number>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port));
+  });
+  return { server, url: `http://127.0.0.1:${port}`, captured };
+}
+
+/** 限流渠道桩：`quotaSignal` 上报 `rate_limit`（共享层据此做渠道级冷却）。 */
+function makeRateLimitedChannel(cid: string, token: string, upstreamUrl: string): Channel {
+  const base = makeChannel(cid, token, upstreamUrl);
+  return {
+    ...base,
+    upstream: {
+      ...(base.upstream as object),
+      quotaSignal: () => "rate_limit" as const,
     },
   } as unknown as Channel;
 }
@@ -190,6 +234,69 @@ describe("渠道级冷却与跨渠道顺延（对外模型是 deepseek 裸名）
       upstream.captured,
       ["Bearer tok-alpha", "Bearer tok-beta"],
       "回退时按剩余额度顺序试了完整候选",
+    );
+  });
+});
+
+/**
+ * 限流（`rate_limit` 信号）必须触发**渠道级**冷却。
+ *
+ * 与上面的 500 路径分开测：额度类信号走账号级冷却，而账号级冷却**挡不住限流** ——
+ * 生效凭据照样被使用，其他账号的额度又让渠道保持高优先级，同一个被限流的账号会被
+ * 反复重试（实测 traecn `3004`：70 次失败后 `cooldown_until=0`、4 个账号全 `health=ok`）。
+ */
+describe("限流信号触发渠道级冷却（rate_limit）", () => {
+  let root = "";
+  let upstream: Awaited<ReturnType<typeof fakeRateLimitedUpstream>>;
+  let gw: gateway.RunningGateway;
+  const logs: string[] = [];
+
+  before(async () => {
+    root = mkdtempSync(join(tmpdir(), "modelmux-ratelimit-"));
+    process.env["MODELMUX_HOME"] = root;
+    upstream = await fakeRateLimitedUpstream();
+    clearChannels();
+    setChannel(makeRateLimitedChannel("ratelimit", "tok-rl", upstream.url));
+    poolUsage.writeBilling("ratelimit", {
+      total: { used: 10, size: 1000, remain: 990, unit: "credits" },
+    });
+    gw = await gateway.start("127.0.0.1:0", { logger: (m) => logs.push(m) });
+  });
+
+  after(async () => {
+    await gw?.close().catch(() => {});
+    await new Promise<void>((r) => upstream.server.close(() => r()));
+    delete process.env["MODELMUX_HOME"];
+    clearChannels();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("限流 → 渠道进冷却，且不记账号级额度耗尽", async () => {
+    const { status, text } = await chat(gw.addr);
+    assert.equal(status, 200, "SSE 头已发出，客户端仍拿到 200");
+    assert.ok(text.includes("error"), "错误帧要透传给客户端");
+    assert.equal(poolUsage.isCooling("ratelimit"), true, "限流必须让渠道进冷却");
+    // 账号级额度耗尽会把账号标成 cooldown 直到次日 0 点；限流是瞬时的，不该这样
+    assert.ok(
+      !logs.some((m) => m.includes("quota exhausted") || m.includes("cooling account")),
+      "限流不走账号级额度耗尽路径",
+    );
+    assert.ok(
+      logs.some((m) => m.includes("rate limit") && m.includes("cooling channel")),
+      "日志要说明这是限流且冷却的是渠道",
+    );
+  });
+
+  it("冷却只影响**候选集**：全池冷却时仍回退完整候选（服务不因此不可用）", async () => {
+    upstream.captured.length = 0;
+    logs.length = 0;
+    const { status } = await chat(gw.addr);
+    assert.equal(status, 200, "单渠道冷却时回退到它，客户端仍拿到应答");
+    // 这是设计内的回退：没有别家可用时不能硬 503（见 route.ts 的 available/authed 兜底）
+    assert.deepEqual(upstream.captured, ["Bearer tok-rl"], "回退时仍会试这个渠道");
+    assert.ok(
+      logs.some((m) => m.includes("falling back")),
+      "日志要标注走了回退路径",
     );
   });
 });
