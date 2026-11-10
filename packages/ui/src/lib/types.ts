@@ -60,8 +60,10 @@ export interface UiSnapshot {
    * 按「免费」显示。**不硬编码渠道名**：再接一个订阅制渠道，前端不用改。
    */
   channel_caps?: Record<string, { billing: boolean }>;
+  /** 各接入目标当前的接入态（键 = target；开关式 UI 的状态源）。 */
+  integrations?: Record<string, boolean>;
+  /** 用户选的主题模式：system（跟随系统）/ dark / light（持久化在网关侧）。 */
   theme_mode: string;
-  resolved_theme: string;
   gateway_error: string;
 }
 

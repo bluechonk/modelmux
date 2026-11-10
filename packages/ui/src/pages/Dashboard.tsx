@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -183,72 +183,118 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
 }
 
 // ---------------------------------------------------------------------------
-// 一键接入按钮（四客户端共用形态）
+// 一键接入：开关式卡片（开 = 已接入写入客户端配置；关 = 还原到接入前）
 // ---------------------------------------------------------------------------
 
 /** 接入目标（与后端 `IntegrationTarget` 同形）。 */
 type IntegrationTarget = "zcode" | "dsh" | "claude-desktop" | "codex";
 
-/** 单个接入按钮：写入中态按 target 区分（并行点两个按钮互不误标）。 */
-function IntegrateButton({
-  mutation,
-  target,
-  label,
-}: {
-  mutation: {
-    isPending: boolean;
-    variables: IntegrationTarget | undefined;
-    mutate: (target: IntegrationTarget) => void;
-  };
+/** 每个客户端在卡片上展示的静态信息（图标缩写 / 名称 / 接入会写的配置文件）。 */
+const INTEGRATE_CLIENTS: Array<{
   target: IntegrationTarget;
-  label: string;
-}): ReactElement {
-  return (
-    <button
-      type="button"
-      disabled={mutation.isPending}
-      onClick={() => mutation.mutate(target)}
-      className="tap rounded-lg border border-line-strong bg-overlay py-2 text-xs font-medium text-ink transition-colors hover:border-brand/50 disabled:opacity-40"
-    >
-      {mutation.isPending && mutation.variables === target ? "写入中…" : label}
-    </button>
-  );
+  icon: string;
+  name: string;
+  file: string;
+}> = [
+  { target: "zcode", icon: "zc", name: "zcode", file: "~/.zcode/v2/provider_config.json" },
+  { target: "dsh", icon: "ds", name: "dsh", file: "~/.dsh/profiles/<profile>/cordis.patch.yml" },
+  { target: "claude-desktop", icon: "cd", name: "claude desktop", file: "~/claude_desktop_config.json" },
+  { target: "codex", icon: "cx", name: "codex", file: "~/.codex/config.toml" },
+];
+
+/** 开关操作中态：哪个目标在跑哪种动作（并行点两张卡互不误标）。 */
+interface PendingAction {
+  target: IntegrationTarget;
+  action: "integrate" | "restore";
 }
 
 /**
- * 单个「还原」按钮：与接入按钮同规格但**弱一档**（次级动作，不抢主按钮的视觉权重）。
- *
- * 配色基线取 `warn` 而不是 `line`：`line` 与卡片描边同色，按钮静止态会被读成
- * 禁用的说明文字，而不是「另一个可点的动作」。淡黄描边 + 淡黄底让它在同组的
- * 中性灰主按钮旁边一眼可辨，hover 再提亮一档给出反馈。
- *
- * 语义：把该目标恢复成**接入前**的样子。后端取该目标最新一次备份，
- * 并在还原前先把当前状态再备份一份（可反悔）。
+ * 开关式接入卡片：开关就是状态本身 —— 开 = 已接入（写入客户端配置），关 = 还原到
+ * 接入前（自动备份可反悔）。操作中开关禁用并停在目标位置，失败弹回原位 + 红字
+ * 原因 + 描边转红：只弹 toast 会让人以为状态变了。
  */
-function RestoreButton({
-  mutation,
+function IntegrateSwitchCard({
   target,
-  label,
+  icon,
+  name,
+  file,
+  integrated,
+  pending,
+  error,
+  onToggle,
 }: {
-  mutation: {
-    isPending: boolean;
-    variables: IntegrationTarget | undefined;
-    mutate: (target: IntegrationTarget) => void;
-  };
   target: IntegrationTarget;
-  label: string;
+  icon: string;
+  name: string;
+  file: string;
+  integrated: boolean;
+  /** 该卡片的操作中态（null = 空闲）。 */
+  pending: PendingAction | null;
+  /** 最近一次操作的失败原因（null = 无）。 */
+  error: string | null;
+  onToggle: () => void;
 }): ReactElement {
-  const busy = mutation.isPending && mutation.variables === target;
+  const busy = pending !== null;
+  const failed = error !== null;
+  /** 操作中开关**先走到目标位置**（接入中停在开、还原中停在关），完成后再由快照定稿。 */
+  const shown = pending ? pending.action === "integrate" : integrated;
+  const stateText = pending
+    ? pending.action === "integrate"
+      ? "接入中…"
+      : "还原中…"
+    : failed
+      ? integrated
+        ? "还原失败"
+        : "接入失败"
+      : integrated
+        ? "已接入"
+        : "未接入";
+  const stateClass = pending
+    ? "text-warn"
+    : failed
+      ? "text-danger"
+      : integrated
+        ? "text-free"
+        : "text-ink-faint";
   return (
-    <button
-      type="button"
-      disabled={mutation.isPending}
-      onClick={() => mutation.mutate(target)}
-      aria-label={`还原 ${target} 的接入前配置`}
-      className="tap rounded-lg border border-warn/45 bg-warn/10 py-1.5 text-xs font-medium text-warn transition-colors hover:border-warn/70 hover:bg-warn/16 disabled:opacity-40"
+    <div
+      className={`relative rounded-xl border bg-surface p-3 transition-colors ${
+        failed ? "border-danger/45" : "border-line"
+      } ${busy ? "opacity-70" : ""}`}
     >
-      {busy ? "还原中…" : label}
-    </button>
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-lg bg-overlay text-[11px] font-medium text-ink">
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-medium text-ink">{name}</div>
+          <div className="mt-0.5 truncate font-mono text-[11px] text-ink-faint">{file}</div>
+        </div>
+        <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
+        {/*
+          开关本体：`role="switch"` + `aria-checked`。轨道色用品牌色（开 = 白/浅色下近黑，
+          关 = 描边灰）—— 单色系的 accent 就是前景色本身，不为开关引入第二种类色。
+        */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={shown}
+          disabled={busy}
+          onClick={onToggle}
+          aria-label={`${name} ${stateText}，点击${shown ? "还原" : "接入"}`}
+          className={`tap relative h-[22px] w-10 flex-none rounded-full transition-colors disabled:cursor-default ${
+            shown ? "bg-brand" : "bg-overlay"
+          } ${busy ? "opacity-55" : ""}`}
+        >
+          <span
+            className={`absolute top-[3px] h-4 w-4 rounded-full transition-all ${
+              shown ? "left-[19px] bg-canvas" : "left-[3px] bg-ink-faint"
+            }`}
+          />
+        </button>
+      </div>
+      {failed && <div className="mt-2 break-words text-[11px] text-danger">{error}</div>}
+    </div>
   );
 }
 
@@ -370,48 +416,71 @@ export function Dashboard(): ReactElement {
     }));
   }, [state, rangeStats]);
 
-  // 结果只走右下角 toast：卡片里再贴一条会和 toast 重复，还让区块高度跳动。
+  // 开关式接入：操作中态与每卡失败原因（键 = target）。结果同时走右下角 toast
+  // （命令信封 ok:false 是 200 响应，onSuccess 不代表成功）+ 卡上红字（最新一次）。
+  const queryClient = useQueryClient();
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [integrateErrors, setIntegrateErrors] = useState<Partial<Record<IntegrationTarget, string>>>({});
+  const clearError = (target: IntegrationTarget): void =>
+    setIntegrateErrors((prev) => {
+      const next = { ...prev };
+      delete next[target];
+      return next;
+    });
+
+  // 接入（开）：把该客户端的模型清单改成网关的对外模型名。
   const integrateMutation = useMutation({
     mutationFn: (target: IntegrationTarget) => api.commands.integrate(target),
-    // 命令信封的 ok:false（如 dsh 一个 profile 都没改到）必须走失败 toast ——
-    // HTTP 层是 200，onSuccess 不代表接入成功
-    onSuccess: (data) => {
-      const target = String(data.target ?? "");
+    onMutate: (target) => setPendingAction({ target, action: "integrate" }),
+    onSuccess: (data, target) => {
       if (data.ok === false) {
+        setIntegrateErrors((prev) => ({ ...prev, [target]: String(data.error ?? "未完成任何改动") }));
         toast.error(`接入失败：${String(data.error ?? "未完成任何改动")}`);
         return;
       }
-      // 只说结论：改了哪些模型，同屏「模型」清单里就列着，toast 里再重复一遍是噪音。
-      toast.success(`已接入 ${target || "客户端"}`);
+      clearError(target);
+      toast.success(`已接入 ${target}`);
       // warnings 是「有东西没做成」（备份清单读不出 / 备份未登记）：不说出来就成了
-      // 「已接入」的假象（与还原同一取舍，见 docs/WEB-CONSOLE.md）
+      // 「已接入」的假象
       for (const note of Array.isArray(data.warnings) ? data.warnings : []) {
         toast.info(typeof note === "string" ? note : String(note));
       }
+      void queryClient.invalidateQueries({ queryKey: ["state"] });
     },
-    onError: (err) => toast.error(`接入失败：${errorText(err)}`),
+    onError: (err, target) => {
+      setIntegrateErrors((prev) => ({ ...prev, [target]: errorText(err) }));
+      toast.error(`接入失败：${errorText(err)}`);
+    },
+    onSettled: () => setPendingAction(null),
   });
 
   /**
-   * 一键还原：把目标恢复成接入前的样子（后端取该目标**最新一次**备份，
+   * 还原（关）：把目标恢复成接入前的样子（后端取该目标**最新一次**备份，
    * 并在还原前先把当前状态再备份一份，可反悔）。
    */
   const restoreMutation = useMutation({
     mutationFn: (target: IntegrationTarget) => api.commands.restore(target),
-    onSuccess: (data) => {
-      const target = String(data.target ?? "");
+    onMutate: (target) => setPendingAction({ target, action: "restore" }),
+    onSuccess: (data, target) => {
       if (data.ok === false) {
+        setIntegrateErrors((prev) => ({ ...prev, [target]: String(data.error ?? "没有可用的接入备份") }));
         toast.error(`还原失败：${String(data.error ?? "没有可用的接入备份")}`);
         return;
       }
-      toast.success(`已还原 ${target || "客户端"}`);
+      clearError(target);
+      toast.success(`已还原 ${target}`);
       // 跳过的条目 / 缺失的备份文件必须说出来 —— 否则「已还原」是假象。
       // 这是真警告而不是计数，保留逐条提示。
       for (const note of Array.isArray(data.notes) ? data.notes : []) {
         toast.info(typeof note === "string" ? note : String(note));
       }
+      void queryClient.invalidateQueries({ queryKey: ["state"] });
     },
-    onError: (err) => toast.error(`还原失败：${errorText(err)}`),
+    onError: (err, target) => {
+      setIntegrateErrors((prev) => ({ ...prev, [target]: errorText(err) }));
+      toast.error(`还原失败：${errorText(err)}`);
+    },
+    onSettled: () => setPendingAction(null),
   });
 
     // 热力图独立取**一年**（52 周的日历不随区间变化，与 ZCode 同构）。
@@ -708,32 +777,32 @@ export function Dashboard(): ReactElement {
         )}
       </section>
 
-      {/* ③ 一键接入（全宽）：四客户端接入 + 还原，窄屏 2 列、≥sm 4 列 */}
+      {/* ③ 一键接入（全宽）：开关式卡片 —— 开 = 已接入（写客户端配置），关 = 还原到接入前 */}
       <section className="panel p-4">
-        <div className="panel-title mb-3">
+        <div className="panel-title mb-1">
           <PlugZap className="h-4 w-4 text-ink-faint" />
           一键接入
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <IntegrateButton mutation={integrateMutation} target="zcode" label="接入 zcode" />
-          <IntegrateButton mutation={integrateMutation} target="dsh" label="接入 dsh" />
-          <IntegrateButton
-            mutation={integrateMutation}
-            target="claude-desktop"
-            label="接入 claude desktop"
-          />
-          <IntegrateButton mutation={integrateMutation} target="codex" label="接入 codex" />
-        </div>
-        {/* 还原区：与接入同目标、次级视觉权重。取该目标最新一次备份，
-            还原前自动把当前状态再备份一份（可反悔） */}
-        <div className="mt-3 border-t border-line/50 pt-3">
-          <div className="mb-2 text-xs text-ink-faint">一键还原</div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <RestoreButton mutation={restoreMutation} target="zcode" label="还原 zcode" />
-            <RestoreButton mutation={restoreMutation} target="dsh" label="还原 dsh" />
-            <RestoreButton mutation={restoreMutation} target="claude-desktop" label="还原 claude desktop" />
-            <RestoreButton mutation={restoreMutation} target="codex" label="还原 codex" />
-          </div>
+        <p className="mb-3 ml-6 text-xs text-ink-faint">
+          开关打开 = 把该客户端的模型清单改成网关的对外模型名；关闭 = 还原到接入前（自动备份，可反悔）
+        </p>
+        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+          {INTEGRATE_CLIENTS.map(({ target, icon, name, file }) => (
+            <IntegrateSwitchCard
+              key={target}
+              target={target}
+              icon={icon}
+              name={name}
+              file={file}
+              integrated={state?.integrations?.[target] === true}
+              pending={pendingAction?.target === target ? pendingAction : null}
+              error={integrateErrors[target] ?? null}
+              onToggle={() => {
+                if (state?.integrations?.[target]) restoreMutation.mutate(target);
+                else integrateMutation.mutate(target);
+              }}
+            />
+          ))}
         </div>
       </section>
 

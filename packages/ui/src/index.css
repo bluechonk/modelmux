@@ -3,10 +3,11 @@
 /**
  * 设计令牌（Tailwind v4 的 `@theme`）。
  *
- * 视觉语言参照 Codex / ChatGPT：**纯近黑单色系**。侧栏比主区更深、浮层比主区更浅，
- * 层级只靠底色差与留白表达；**accent 就是白**（主按钮白底黑字、选中态白色高亮），
+ * 视觉语言参照 Codex / ChatGPT：**纯近黑单色系，深浅双主题**。层级只靠底色差与
+ * 留白表达；**accent 单色反转**（深色 = 白、浅色 = 近黑，主按钮与选中态同此），
  * 不用任何彩色品牌色；状态语义色保留但饱和度压低，只出现在「需要人看」的地方。
  * 命名分四组：**表面**（四个深度层）、**描边**、**文字**、**语义色**。
+ * 深色令牌是默认值，浅色在下方 `html[data-theme="light"]` 覆盖同名变量。
  * 组件一律用这里的令牌类（如 `bg-raised` / `border-line` / `text-ink-soft`），
  * 不再直接写 `gray-900` 这类中性灰 —— 换主题时只改这一处。
  */
@@ -29,9 +30,17 @@
   /* 语义色：accent = 白（单色系的「品牌色」就是前景色本身） */
   --color-brand: #ffffff;
   --color-brand-deep: #d9d9d9;
+  /* 品牌底（白）上的前景色：跟随 accent 反转 */
+  --color-on-brand: #171717;
+  /* 危险底（红）上的前景色：同样随主题反转（深色深字 / 浅色白字） */
+  --color-on-danger: #171717;
   --color-free: #86d9a8;
   --color-warn: #dcbd6b;
   --color-danger: #ee7062;
+
+  /* 滚动条：深浅两套各自的灰阶（浅色主题覆盖，见下方 data-theme=light 块） */
+  --color-scrollbar: #3d3d3d;
+  --color-scrollbar-hover: #505050;
 
   /*
    * 图表分类色：数据可视化专用，**不是品牌色**。
@@ -48,6 +57,35 @@
   --color-series-7: #9d7cd8;
 }
 
+/*
+ * 浅色主题：`<html data-theme="light">` 时覆盖同名令牌（深浅由 lib/theme.ts 解析并
+ * 落到这个属性上）。组件全部走令牌类，改这里的变量即整站换肤。
+ *
+ * 层级关系与深色对调：主区近白、顶栏白、卡片白靠描边分界 —— 单色系的 accent
+ * 随之反转为近黑（选中态深底浅字）；语义色压深一档保证白底上的对比度。
+ */
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-canvas: #f9f9f9;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-overlay: #ececec;
+  --color-line: #e4e4e4;
+  --color-line-strong: #c8c8c8;
+  --color-ink: #171717;
+  --color-ink-soft: #555555;
+  --color-ink-faint: #8a8a8a;
+  --color-brand: #171717;
+  --color-brand-deep: #454545;
+  --color-on-brand: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-free: #188552;
+  --color-warn: #a8781c;
+  --color-danger: #d54b3f;
+  --color-scrollbar: #cfcfcf;
+  --color-scrollbar-hover: #b4b4b4;
+}
+
 @layer base {
   /* 全局基础：铺满视口，供 Layout 的 flex 布局使用 */
   html,
@@ -57,9 +95,13 @@
     margin: 0;
   }
 
-  /* 深色主题（唯一主题，不做浅色） */
+  /* 主题：深色为默认（令牌值即深色），浅色由 data-theme=light 覆盖（见上方块）；
+     跟随系统由 lib/theme.ts 按 prefers-color-scheme 解析后落 data-theme */
   html {
     color-scheme: dark;
+  }
+  html[data-theme="light"] {
+    color-scheme: light;
   }
 
   body {
@@ -87,13 +129,13 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #3d3d3d;
+    background: var(--color-scrollbar);
     border-radius: 999px;
     border: 3px solid transparent;
     background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #505050;
+    background: var(--color-scrollbar-hover);
     background-clip: content-box;
   }
 

@@ -429,7 +429,7 @@ function StepBadge({ state, index }: { state: StepState; index: number }): React
   }
   if (state === "active") {
     return (
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-[#171717]">
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-on-brand">
         {index}
       </span>
     );
@@ -654,7 +654,7 @@ function PhoneLoginForm({
         <button
           type="submit"
           disabled={!canLogin}
-          className="rounded-full bg-brand px-5 py-2 text-[13px] font-medium text-[#171717] transition-colors hover:bg-brand-deep disabled:opacity-50"
+          className="rounded-full bg-brand px-5 py-2 text-[13px] font-medium text-on-brand transition-colors hover:bg-brand-deep disabled:opacity-50"
         >
           {sending && codePending ? "登录中…" : "登录"}
         </button>

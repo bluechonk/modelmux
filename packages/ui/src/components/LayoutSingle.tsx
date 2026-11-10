@@ -20,6 +20,7 @@ import { BackToTop } from "./BackToTop";
 import { BrandMark } from "./BrandMark";
 import { CopyButton } from "./CopyButton";
 import { GatewayStatus } from "./GatewayStatus";
+import { ThemeToggle } from "./ThemeToggle";
 
 /** 顶部标签导航项（路由不变，仅视觉载体从侧栏移到头部）。 */
 const NAV = [
@@ -147,6 +148,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
               <CopyButton value={state.data.base_url} label="复制 base_url" />
             </div>
           )}
+          <ThemeToggle />
           <GatewayStatus />
         </div>
       </header>
