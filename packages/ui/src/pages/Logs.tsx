@@ -288,19 +288,20 @@ const LOG_COLS: LogCol[] = [
 /**
  * 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。
  *
- * 状态点用**绝对定位**压在文字左侧的 padding 里，不占布局宽度 ——
- * 否则「点 6px + gap 6px」共 12px 会把「成功」推到表头右边，
- * 整列文字与表头错开（实测差 12px）。
+ * 状态点**挂在文字行内**（相对文字 span 定位、`top-1/2` 居中），不钉死在单元格的
+ * 固定像素上 —— 行高受字号 strut 影响，固定 top 会让点浮在文字中线上方（实测约 3px，
+ * 顶部统计条的点是 flex 子项自动居中、没有这个问题，两处一对比就很扎眼）。
+ * `-left-2` 把点放回左 padding（4-10px），「成功」起点与表头对齐、不被点挤开。
  */
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
-    <td className="relative whitespace-nowrap px-3 py-2 align-top">
-      <span
-        className={`absolute left-1 top-[13px] h-1.5 w-1.5 rounded-full ${meta.dot}`}
-        aria-hidden="true"
-      />
-      <span className="inline-flex items-center gap-1.5 text-xs">
+    <td className="whitespace-nowrap px-3 py-2 align-top">
+      <span className="relative inline-flex items-center gap-1.5 text-xs">
+        <span
+          className={`absolute -left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full ${meta.dot}`}
+          aria-hidden="true"
+        />
         <span className={meta.text}>{meta.label}</span>
         <span className="font-mono text-ink-faint">{entry.status ?? "-"}</span>
       </span>
