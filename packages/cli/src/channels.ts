@@ -23,7 +23,6 @@ import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
 import "@modelmux/workbuddyai";
-import "@modelmux/zcode";
 
 /**
  * 已下架渠道：包保留作参考实现，不再注册。

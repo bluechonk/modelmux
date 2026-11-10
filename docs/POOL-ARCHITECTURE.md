@@ -52,7 +52,7 @@
 | 对外模型 id | 别名 | `owned_by` | 供给渠道（注册表声明的上游 id） |
 |---|---|---|---|
 | `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn（`deepseek-v4.1-flash`）、loomy（`DeepSeek-V4.1-Flash`）、workbuddy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash-1017`） |
-| `glm-5.3-flash` | — | `zhipu` | catpaw / lobsterai / autoclaw / zcode / workbuddyai（`glm-5.3-flash`）、qoder（`gfmodel`）、qodercn（`gfmodel`） |
+| `glm-5.3-flash` | — | `zhipu` | catpaw / lobsterai / autoclaw / workbuddyai（`glm-5.3-flash`）、qoder（`gfmodel`）、qodercn（`gfmodel`） |
 | `longcat-2.5` | — | `meituan` | catpaw（`LongCat-2.5`）—— **唯一供给渠道** |
 | `qwork-flash` | — | `alibaba` | qwenworkcn（`flash`）—— **唯一供给渠道**；千问办公只卖「标准」档，底层型号由上游池化 |
 

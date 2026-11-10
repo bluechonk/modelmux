@@ -157,11 +157,8 @@ const MODEL_NAME_RE = /["'`](?:deepseek|glm|qwen|kimi|doubao|hunyuan|minimax|sen
 // 例外：`pool/model-family.ts` 是**对外模型家族**的唯一声明点 —— 家族名是产品面
 // （`AGENTS.md` 的「代码约定」）；其余共享层文件仍不得持有模型名。
 const FAMILY_FILE_REL = "packages/core/gateway/src/pool/model-family.ts";
-// 「zcode」同名两义：它既是渠道 cid，又是**集成目标名**（「接入 zcode」按钮写 settings 的
-// target 值，属产品面概念，integrate.ts 持有它是既定设计）。字符串层面无法区分两种用法，
-// 集成目标名从命中里排除 —— 代价是对 zcode 渠道，共享层里以 `"zcode"` 形态出现的渠道知识
-// 不再被本规则拦截（其它 cid 不受影响）。
-const INTEGRATION_TARGETS = new Set(["zcode", "dsh", "codex"]);
+// 集成目标名（`integrate.ts` 里的 zcode / dsh / codex）是产品面概念，不是渠道知识；
+// 它们与现有渠道 cid 不重叠，因此不需要白名单 —— 真出现同名渠道时命中会被如实报出。
 
 const gatewaySrc = join(repo, "packages", "core", "gateway", "src");
 function walk(dir, out = []) {
@@ -175,11 +172,10 @@ function walk(dir, out = []) {
 for (const file of walk(gatewaySrc)) {
   const rel = file.slice(repo.length + 1).replace(/\\/g, "/");
   const code = stripComments(readFileSync(file, "utf8"));
-  // **逐处命中**都要判白名单：`String.match`（非 global）只返回第一处，文件里先出现
-  // 一个白名单名（如 `"zcode"`：既是 cid 又是集成目标名）就会让后面真正的渠道 id 溜过去
-  // （2026-11-08 评审复现）。这里用全局正则把所有命中都拿出来逐条判。
-  const idHits = [...code.matchAll(new RegExp(CHANNEL_ID_RE.source, CHANNEL_ID_RE.flags.includes("g") ? CHANNEL_ID_RE.flags : `${CHANNEL_ID_RE.flags}g`))];
-  const offendingId = idHits.find((m) => !INTEGRATION_TARGETS.has(m[1] ?? ""));
+  // **逐处命中**都要判：`String.match`（非 global）只返回第一处，先出现一个无害命中就会
+  // 让后面真正的渠道 id 溜过去（2026-11-08 评审复现）。用全局正则把所有命中都拿出来判。
+  const idHits = [...code.matchAll(new RegExp(CHANNEL_ID_RE.source, `${CHANNEL_ID_RE.flags}g`))];
+  const offendingId = idHits[0];
   check(
     offendingId === undefined,
     `${rel}: 共享层不得硬编码渠道 id（出现 "${offendingId?.[0]}"）—— 渠道知识只允许出现在各渠道包内`,
