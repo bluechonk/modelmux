@@ -251,10 +251,10 @@ function showWindow() {
 
 async function createWindow() {
   win = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 960,
-    minHeight: 620,
+    width: 1300,
+    height: 1000,
+    minWidth: 800,
+    minHeight: 600,
     backgroundColor: "#171717",
     show: false,
     title: "modelmux",

@@ -14,7 +14,7 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 | 启动 | ShellExecute 直跑安装后的 exe，先探 `127.0.0.1:4412/health`：已有网关则**复用**（不重复起实例、退出也不杀别人的），否则 fork 内嵌网关 |
 | 单实例 | 已有实例在跑（含关窗后托盘后台）时，再次启动只把已有窗口调到前台（`second-instance` → 显示窗口 + 先置顶再取消 + `app.focus({steal:true})`）；未拿到锁的实例立即退出，不再走启动流程 |
 | 网关进程 | `ELECTRON_RUN_AS_NODE=1` + 自身 exe 跑 `app/modelmux.mjs`（打包后的 CLI bundle，零第三方运行依赖）—— **不要求用户装 Node** |
-| 窗口 | 1280×860，无原生菜单，`contextIsolation` + `sandbox` 开，**没有 preload、没有 IPC** —— loadURL 型壳，渲染层就是网关托管的控制台（设计选择，最小攻击面） |
+| 窗口 | 默认 1300×1000，最小 800×600；无原生菜单，`contextIsolation` + `sandbox` 开，**没有 preload、没有 IPC** —— loadURL 型壳，渲染层就是网关托管的控制台（设计选择，最小攻击面） |
 | 关窗 | **收起为托盘**（`hide`，不退出）；网关继续在后台接客户端请求，托盘是唯一的可见入口与退出通道 |
 | 托盘 | 常驻通知区；菜单：网关状态（禁用项）/ 打开控制台 / 在浏览器打开 / 退出。单击托盘图标 = 打开控制台 |
 | 退出 | 只走托盘菜单 → `app.isQuitting` → `before-quit` → 停**自己起的**网关；复用的网关不受影响 |
