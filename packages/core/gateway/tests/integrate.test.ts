@@ -841,6 +841,49 @@ name = "OpenAI"
       if (ro) chmodSync(catalogPath, 0o600);
     }
   });
+
+  it("只对 id 的目录不算等价：缺必填字段仍如实报写入失败", () => {
+    seedCodex();
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
+    // 只有 id 的目录 Codex 会整份拒绝 —— 不能当「等价内容」放过去（那会把失败报成成功）
+    writeFileSync(catalogPath, JSON.stringify({ models: MODELS.map((id) => ({ id })) }), "utf8");
+    const ro = process.platform === "win32";
+    if (ro) chmodSync(catalogPath, 0o444);
+    try {
+      const result = integrateClient("codex", MODELS);
+      if (ro) {
+        // Windows：只读挡下 rename，读回的是 stub → accepts 判否 → 如实报失败
+        assert.equal(result.ok, false, "缺必填字段的目录不能算等价");
+        assert.match(result.error ?? "", /写 Codex 模型目录失败/);
+      } else {
+        assert.equal(result.ok, true, result.error);
+      }
+    } finally {
+      if (ro) chmodSync(catalogPath, 0o600);
+    }
+  });
+
+  it("配置写失败时目录回滚（不留配置指不到的内容）", () => {
+    seedCodex();
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
+    const before = readFileSync(catalogPath, "utf8");
+    const file = join(home, ".codex", "config.toml");
+    const ro = process.platform === "win32";
+    if (ro) chmodSync(file, 0o444);
+    try {
+      // 换模型集让配置与目录都要改写：配置写失败后目录必须回到接入前，否则 Codex 起不来
+      const result = integrateClient("codex", [MODELS[1]!, MODELS[0]!]);
+      if (ro) {
+        assert.equal(result.ok, false, "配置写失败必须报失败");
+        assert.match(result.error ?? "", /目录已回滚/);
+        assert.equal(readFileSync(catalogPath, "utf8"), before, "目录应回滚到接入前");
+      }
+    } finally {
+      if (ro) chmodSync(file, 0o600);
+    }
+  });
 });
 
 /**
@@ -1051,6 +1094,22 @@ describe("一键还原", () => {
     // 反推要各自还原到原路径（config.toml 与 catalog 不能互相覆盖）
     assert.equal(readFileSync(join(home, ".codex", "config.toml"), "utf8"), CODEX_CONFIG);
     assert.equal(readFileSync(catalog, "utf8"), before);
+  });
+
+  it("空清单的备份目录也留原因：不说「没有备份」的假话", () => {
+    clearBackups("codex");
+    const root = join(home, ".modelmux", "backups", "integrate");
+    const empty = join(root, "codex-20990101000000");
+    mkdirSync(empty, { recursive: true });
+    writeFileSync(
+      join(empty, "manifest.json"),
+      JSON.stringify({ version: 1, target: "codex", createdAt: new Date().toISOString(), files: [] }),
+    );
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, false);
+    assert.match(restored.error ?? "", /候选目录不可用/);
+    assert.match(restored.error ?? "", /清单为空或没有可还原条目/);
   });
 
   it("清单 target 与请求不符时跳过该目录，并在 error 里说明原因", () => {
