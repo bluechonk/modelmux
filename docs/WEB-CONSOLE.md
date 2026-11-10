@@ -154,13 +154,19 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 - **写前备份**到 `~/.modelmux/backups/integrate/<target>-<时间戳>/`，同目录一份 `manifest.json`
   记下每个被改文件的**原路径**与「接入前是否存在」—— 这是「一键还原」的依据（只存文件名
   无法还原：dsh 各 profile 的补丁同名、且接入新建的文件还原时要删掉）。
-- **一键还原**（与接入并列的按钮）：取该目标**最新一次未用过的**备份写回；`existed:false`
+- **一键还原**（与接入并列的按钮）：取该目标**最新一次**备份写回；`existed:false`
   的文件删除；还原前先把**当前状态**再备份到 `safety-<target>-<时间戳>/`（可反悔）；
-  用过的备份改名为 `restored-` 前缀，第二次点还原不会再消费同一份。没有备份时如实报错。
+  **不消费备份** —— 同一份「接入前」状态可反复还原，只往清单记 `restoredAt` 留痕
+  （旧版本留下的 `restored-<target>-*` 目录因此仍是有效还原源）。没有备份时如实报错；
+  备份文件缺失或还原失败时整体报失败，不假装成功。
   配色**必须与接入按钮可辨**：接入是 `border-line-strong` 中性主按钮，还原是 `warn` 淡黄描边 + 淡黄底
   （`border-warn/45 bg-warn/10 text-warn`，hover 提到 `/16`）——`line` 与卡片描边同色，
   静止态会被读成禁用的说明文字。
 - **幂等**：内容与目标一致时不落盘（结果只经右下角 toast 提示，卡片内不重复贴一条 —— 会和 toast 撞内容，还会让区块高度跳动）。
+- **警告单独弹**：接入返回的 `warnings`（备份清单读不出、备份未登记 等）与还原返回的
+  `notes`（跳过条目、备份缺失）都逐条弹 info toast。接入的 `warnings` 与 `notes`
+  （「做了什么」的变更说明）分开传：混在一起会被当噪音忽略，「已接入」就成了假象。
+  失败时 `warnings` 拼进 `error`（命令信封的 err 分支只带 error）。
 - 实现放 app 层（`app/integrate.ts`），控制台（http 层）经 `ControlBridge.integrate` / `.restore` 注入调用 ——
   写的是客户端配置（`~/.zcode` / `~/.dsh`），不是网关运行时，故不能放在 http 层（见 `scripts/verify-layering.mjs`）。
 - dsh 是**文本级**改写（共享层零依赖，不能引 YAML 解析器）：只定位 `providers.modelmux` 块下的
