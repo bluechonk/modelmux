@@ -11,7 +11,7 @@
  *   - 失败要分清原因：端口被占 ≠ 起动超时 ≠ 网关崩溃，错误页分别说明。
  */
 
-const { app, BrowserWindow, dialog, shell, Menu } = require("electron");
+const { app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -53,6 +53,10 @@ let ownsGateway = false;
 let gatewayReady = false;
 /** 子进程 stderr 里的关键线索（端口被占等）。 */
 let gatewayFailureHint = "";
+/** 复用了别人起的网关（不是我们 fork 的，退出时不能杀）。 */
+let reusedGateway = false;
+/** @type {Tray | null} */
+let tray = null;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -127,6 +131,7 @@ function startGateway() {
       gateway = null;
       ownsGateway = false;
     }
+    refreshTrayMenu(); // 状态变了，托盘菜单第一行跟着更新
     // 「起来过又崩了」才值得弹窗打断用户；压根没起来交给错误页说明
     if (gatewayReady && code !== 0 && code !== null && !app.isQuitting) {
       void dialog.showMessageBox({
@@ -152,6 +157,56 @@ function stopGateway() {
   }
   gateway = null;
   ownsGateway = false;
+}
+
+/**
+ * 托盘入口：常驻 + 后台管理。
+ *
+ * 为什么要有：关窗后网关还在跑（后台继续接客户端请求），没有托盘就没有「看得见、
+ * 关得掉」的入口 —— 用户只能去任务管理器结束进程。托盘给出显示窗口 / 打开浏览器 /
+ * 退出三个动作，并显示网关当前状态。
+ */
+function createTray() {
+  if (tray) return;
+  const iconPath = path.join(__dirname, "assets", "icon.png");
+  tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
+  tray.setToolTip("modelmux 控制台");
+  refreshTrayMenu();
+  // 单击恢复窗口（Windows 上的常见约定；双击同样走这里）
+  tray.on("click", showWindow);
+}
+
+/** 重建托盘菜单（网关状态会变，菜单要跟着刷新）。 */
+function refreshTrayMenu() {
+  if (!tray) return;
+  const running = gateway !== null || reusedGateway;
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: running ? "网关：运行中" : "网关：未运行", enabled: false },
+      { type: "separator" },
+      { label: "打开控制台", click: showWindow },
+      { label: "在浏览器打开", click: () => void shell.openExternal(`${BASE}/web/`) },
+      { type: "separator" },
+      {
+        label: "退出 modelmux",
+        click: () => {
+          app.isQuitting = true;
+          app.quit();
+        },
+      },
+    ]),
+  );
+}
+
+/** 显示并聚焦主窗口（窗口被关掉过就重建）。 */
+function showWindow() {
+  if (!win) {
+    void createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
 }
 
 async function createWindow() {
@@ -180,6 +235,14 @@ async function createWindow() {
     return { action: "deny" };
   });
 
+  // 关窗只**收起**到托盘，不退出：网关继续在后台接客户端请求，用户从托盘再打开或退出。
+  // 真要退出走托盘菜单（那时 app.isQuitting 已置位，不再拦截）。
+  win.on("close", (event) => {
+    if (app.isQuitting) return;
+    event.preventDefault();
+    win?.hide();
+  });
+
   win.on("closed", () => {
     win = null;
   });
@@ -192,6 +255,7 @@ async function createWindow() {
 
   if (ok) {
     gatewayReady = true;
+    refreshTrayMenu();
     await win.loadURL(`${BASE}/web/`);
   } else {
     await win.loadURL(
@@ -245,31 +309,36 @@ function errorPage(hint) {
 }
 
 app.on("second-instance", () => {
-  if (!win) return;
-  if (win.isMinimized()) win.restore();
-  win.focus();
+  showWindow();
 });
 
 app.whenReady().then(async () => {
   // 去掉默认菜单：单页控制台用不上，还占一行原生高度
   Menu.setApplicationMenu(null);
 
+  // 托盘常驻：关窗后网关继续跑，托盘是唯一的可见入口与退出通道
+  createTray();
+
   // 已有网关在跑（用户自己 `mx start`）→ 复用，不再起第二个
   const already = await probeHealth();
-  if (!already) startGateway();
+  if (already) reusedGateway = true;
+  else startGateway();
+  refreshTrayMenu();
+
   await createWindow();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+    showWindow();
   });
 });
 
-/** 退出前停掉自己起的网关。 */
+/** 退出前停掉自己起的网关（复用的不动）。 */
 app.on("before-quit", () => {
   app.isQuitting = true;
   stopGateway();
 });
 
+// 关窗不退出：托盘常驻，网关在后台继续接请求。退出只走托盘菜单 / before-quit。
 app.on("window-all-closed", () => {
-  app.quit();
+  /* 刻意留空：见上方 close 处理 */
 });

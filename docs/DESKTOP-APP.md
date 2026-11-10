@@ -1,7 +1,7 @@
 # 桌面壳（Windows 便携 exe）
 
 modelmux 的可选 Windows 分发形态：**portable 单文件 exe**（Electron）。
-双击 → 自启网关 → 内嵌窗口显示 Web 控制台 → 关窗自动收网关。
+双击 → 自启网关 → 内嵌窗口显示 Web 控制台 → 关窗收起为托盘（后台常驻）→ 托盘退出才真退。
 构建工程在 `desktop/`，产物 `desktop/dist/modelmux.exe`。
 
 本文件是桌面壳的**唯一规范源**：形态、行为、构建、路径约束、签名 / MotW 真相、便携模式。
@@ -13,7 +13,9 @@ modelmux 的可选 Windows 分发形态：**portable 单文件 exe**（Electron�
 | 双击启动 | ShellExecute 直跑，先探 `127.0.0.1:4412/health`：已有网关则**复用**（不重复起实例、退出也不杀别人的），否则 fork 内嵌网关 |
 | 网关进程 | `ELECTRON_RUN_AS_NODE=1` + 自身 exe 跑 `app/modelmux.mjs`（打包后的 CLI bundle，零第三方运行依赖）—— **不要求用户装 Node** |
 | 窗口 | 1280×860，无原生菜单，`contextIsolation` + `sandbox` 开，**没有 preload、没有 IPC** —— loadURL 型壳，渲染层就是网关托管的控制台（设计选择，最小攻击面） |
-| 关窗 | `before-quit` → 停**自己起的**网关；复用的网关不受影响 |
+| 关窗 | **收起为托盘**（`hide`，不退出）；网关继续在后台接客户端请求，托盘是唯一的可见入口与退出通道 |
+| 托盘 | 常驻通知区；菜单：网关状态（禁用项）/ 打开控制台 / 在浏览器打开 / 退出。单击托盘图标 = 打开控制台 |
+| 退出 | 只走托盘菜单 → `app.isQuitting` → `before-quit` → 停**自己起的**网关；复用的网关不受影响 |
 | 失败分因 | 端口被占（stderr 线索）≠ 起动超时 ≠ 起来后崩溃，错误页分别说明 |
 
 ## 2. 构建
@@ -30,6 +32,20 @@ npm run desktop        # 拷 payload → desktop/app/ → electron-builder porta
 
 依赖安装走 `desktop/.npmrc` 的镜像；根 `npm install` **不会**装 Electron
 （`desktop/` 不在 workspaces），首次打包时由 pack 脚本自动补装。
+
+### 图标与版本信息（rcedit afterPack 钩子）
+
+内层 exe 的图标与版本信息由 `desktop/after-pack.cjs` 用 `rcedit`（npm 包，自带
+预编译二进制）在打包流程中写入：
+
+- 写的是 `build/icon.ico`（6 尺寸，源图 `packages/ui/src/assets/logo-192.png`）；
+- 同时写 `version-string`（ProductName / FileDescription / FileVersion），
+  让任务栏、标题栏、托盘、属性页都用同一品牌标识。
+
+**为什么不交给 electron-builder 的资源改写**：它依赖 winCodeSign 工具包，本机解压该包时
+`app-builder` 建目录被拒（`mkdir ...\Cache\winCodeSign\<n>: Access is denied`，
+手动建同名目录却正常）—— 与其跟工具链的缓存路径较劲，不如用 `rcedit` 直接写。
+因此 `win.signAndEditExecutable` 保持 `false`（只跳过它的资源改写，不影响打包）。
 
 ## 3. 路径敏感性（实测，2026-11-10）
 
@@ -96,3 +112,6 @@ exe 同目录检测到 `data/channels/` 时，把 `data/` 作为 `MODELMUX_HOME`
   **资源管理器双击**为准。
 - 构建需走镜像（`desktop/.npmrc` 已配 electron / electron-builder-binaries）。
 - 便携 `data/` 的路径长度同受 §3 约束。
+- **托盘图标**：Windows 会把新出现的托盘图标折叠进「隐藏图标」区，需在任务栏设置里
+  手动固定一次（系统行为，非缺陷）。
+- **关窗后网关常驻**：这是设计（后台继续接客户端请求）；要停网关走托盘「退出」。
