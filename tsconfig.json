@@ -23,6 +23,9 @@
       "path": "packages/core/channels/qodercn"
     },
     {
+      "path": "packages/core/channels/qwenworkcn"
+    },
+    {
       "path": "packages/core/channels/raccoon"
     },
     {

@@ -63,6 +63,15 @@
 | [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | MIT | `docs/channels/qodercn/PROTOCOL.md` |
 | [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | MIT | `docs/channels/qodercn/PROTOCOL.md` |
 
+### qwenworkcn
+
+| 仓库 | 许可证 | 落点 |
+|---|---|---|
+| [wicm84266964/Buddy2api](https://github.com/wicm84266964/Buddy2api) | MIT | `docs/channels/qwenworkcn/PROTOCOL.md`（`providers/qwenwork/` 的 constants / cosy / token / checkin） |
+| [REALOIYO/dsh-qwenwork-connector](https://github.com/REALOIYO/dsh-qwenwork-connector) | MIT | 同上（`src/adapter/` 的 auth / body / codec / cosy / catalog） |
+| [Alphaxiaoteng/qwenwork2api](https://github.com/Alphaxiaoteng/qwenwork2api) | MIT | 同上 |
+| [harwinvoid/magpie-plugin-qwenwork](https://github.com/harwinvoid/magpie-plugin-qwenwork) | MIT | 同上（设备码登录流程） |
+
 ### raccoon
 
 | 仓库 | 许可证 | 落点 |

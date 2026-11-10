@@ -40,6 +40,9 @@
       "path": "../core/channels/qodercn"
     },
     {
+      "path": "../core/channels/qwenworkcn"
+    },
+    {
       "path": "../core/channels/raccoon"
     },
     {

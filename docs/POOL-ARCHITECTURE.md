@@ -49,11 +49,12 @@
                  ↑ 渠道目录里的等价写法（大小写 / 连字符版本号 / sn- 包装 / -official / 日期后缀）归一后匹配
 ```
 
-| 对外模型 id | 别名 | `owned_by` | 本机供给渠道（实测，按路由优先级） |
+| 对外模型 id | 别名 | `owned_by` | 供给渠道（注册表声明的上游 id） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | catpaw / traecn（动态目录）、loomy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash`）、workbuddy |
-| `glm-5.3-flash` | — | `zhipu` | qodercn（上游 key `gfmodel`）、autoclaw（沙箱 relay）、zcode（Anthropic 形态上游） |
-| `longcat-2.5` | — | `meituan` | catpaw（动态目录，上游 `LongCat-2.5`，限时免费）—— **唯一供给渠道** |
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn（`deepseek-v4.1-flash`）、loomy（`DeepSeek-V4.1-Flash`）、workbuddy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash-1017`） |
+| `glm-5.3-flash` | — | `zhipu` | catpaw / lobsterai / autoclaw / zcode / workbuddyai（`glm-5.3-flash`）、qoder（`gfmodel`）、qodercn（`gfmodel`） |
+| `longcat-2.5` | — | `meituan` | catpaw（`LongCat-2.5`）—— **唯一供给渠道** |
+| `qwork-flash` | — | `alibaba` | qwenworkcn（`flash`）—— **唯一供给渠道**；千问办公只卖「标准」档，底层型号由上游池化 |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
@@ -63,11 +64,11 @@
 > 共享层不做闸门。家族外的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）
 > **不进对外池**。
 >
-> **供给范围是产品面策略**，同样收口在渠道的 `models.json`：`glm-5.3-flash` 只由
-> `qodercn` 供给，其余渠道把目录里的 glm 条目标 `hidden`；`qodercn` 反向只暴露
-> `glm-5.3-flash`，deepseek 系标 `hidden`。隐藏集合由共享层 `hiddenModelIds()`
-> 统一收集（并集读用户表与随包快照、随包快照读不到即抛错），各渠道 `exposedIds()`
-> 只做过滤。机械校验见 `scripts/verify-contract.mjs` 的「家族供给范围」一节。
+> **供给范围是产品面策略**，收口在**统一模型注册表**（`packages/core/gateway/models.json`，
+> 见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）：每个模型声明由哪些渠道供给、各自的上游 id 是什么。
+> 渠道目录的 `exposedIds()` 只服务 `mx model <cid>` 的渠道视图，不承担选路闸门；
+> 家族外的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）**不进对外池**。
+> 机械校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」一节。
 
 来源：`pool/model-family.ts`（家族与别名）、`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
 
