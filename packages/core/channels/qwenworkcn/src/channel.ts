@@ -23,6 +23,9 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8825",
   uiPort: 8826,
   debugDumpEnv: "QWENWORKCN_DEBUG_DUMP",
+  // 上游无签到接口（daily-credit-notice/* 与 /sash/... 全 404，日额度自动发放），
+  // 声明 false 让控制台不显示签到状态、自动签到调度器也跳过本渠道。
+  capabilities: { billing: true, signin: false },
 };
 
 export const channel: Channel = {
