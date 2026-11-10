@@ -472,6 +472,11 @@ export function Dashboard(): ReactElement {
       }
       // 只说结论：改了哪些模型，同屏「模型」清单里就列着，toast 里再重复一遍是噪音。
       toast.success(`已接入 ${target || "客户端"}`);
+      // warnings 是「有东西没做成」（备份清单读不出 / 备份未登记）：不说出来就成了
+      // 「已接入」的假象（与还原同一取舍，见 docs/WEB-CONSOLE.md）
+      for (const note of Array.isArray(data.warnings) ? data.warnings : []) {
+        toast.info(typeof note === "string" ? note : String(note));
+      }
     },
     onError: (err) => toast.error(`接入失败：${errorText(err)}`),
   });

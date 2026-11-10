@@ -313,11 +313,13 @@ async function demoCommand(
       }
       // 演示数据里模型清单与真实快照同形（`state.models` 的 model 段去重）
       const models = [...new Set(demoModels(st).map((row) => row.model))];
+      const message = `演示模式：${target} 的模型清单已改为 ${models.join(" / ")}（未写真实文件）`;
       return {
         ok: true,
         target,
-        models,
-        message: `演示模式：${target} 的模型清单已改为 ${models.join(" / ")}（未写真实文件）`,
+        notes: [message],
+        warnings: [],
+        message,
       };
     }
     case "restore": {

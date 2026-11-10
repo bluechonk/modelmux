@@ -163,6 +163,10 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   （`border-warn/45 bg-warn/10 text-warn`，hover 提到 `/16`）——`line` 与卡片描边同色，
   静止态会被读成禁用的说明文字。
 - **幂等**：内容与目标一致时不落盘（结果只经右下角 toast 提示，卡片内不重复贴一条 —— 会和 toast 撞内容，还会让区块高度跳动）。
+- **警告单独弹**：接入返回的 `warnings`（备份清单读不出、备份未登记 等）与还原返回的
+  `notes`（跳过条目、备份缺失）都逐条弹 info toast。接入的 `warnings` 与 `notes`
+  （「做了什么」的变更说明）分开传：混在一起会被当噪音忽略，「已接入」就成了假象。
+  失败时 `warnings` 拼进 `error`（命令信封的 err 分支只带 error）。
 - 实现放 app 层（`app/integrate.ts`），控制台（http 层）经 `ControlBridge.integrate` / `.restore` 注入调用 ——
   写的是客户端配置（`~/.zcode` / `~/.dsh`），不是网关运行时，故不能放在 http 层（见 `scripts/verify-layering.mjs`）。
 - dsh 是**文本级**改写（共享层零依赖，不能引 YAML 解析器）：只定位 `providers.modelmux` 块下的
