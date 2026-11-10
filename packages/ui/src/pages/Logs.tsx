@@ -14,7 +14,7 @@ import { api } from "../lib/api";
 import {
   countOrDash,
   formatBytes,
-  cachePairText,
+  cacheHitRateText,
   formatClock,
   formatCount,
   formatDateTime,
@@ -226,7 +226,7 @@ const COL_WIDTHS = {
   model: "",
   duration: "64px",
   tokensPerSec: "72px",
-  cache: "132px",
+  cache: "84px",
   tokens: "156px",
 } as const;
 
@@ -244,7 +244,7 @@ const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
   model: "",
   duration: "64px",
   tokensPerSec: "72px",
-  cache: "132px",
+  cache: "84px",
   tokens: "156px",
 };
 
@@ -271,7 +271,7 @@ const LOG_COLS: LogCol[] = [
   { key: "model", label: "模型" },
   { key: "duration", label: "耗时", align: "right", wide: true },
   { key: "tokensPerSec", label: "TPS", align: "right", wide: true },
-  { key: "cache", label: "缓存 命中/未命中", align: "right", wide: true },
+  { key: "cache", label: "缓存命中率", align: "right", wide: true },
   { key: "tokens", label: "tokens（入/出）", align: "right", wide: true },
 ];
 
@@ -369,7 +369,7 @@ function LogCell({
     case "tokensPerSec":
       return <td className={numClass}>{formatTokensPerSec(entry)}</td>;
     case "cache":
-      return <td className={numClass}>{cachePairText(entry.tokens?.cache)}</td>;
+      return <td className={numClass}>{cacheHitRateText(entry.tokens?.cache)}</td>;
     case "tokens":
       return <td className={numClass}>{tokensPairText(entry.tokens)}</td>;
   }
