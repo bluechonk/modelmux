@@ -55,7 +55,14 @@ export interface WebCommandDeps {
    * 实现由 app 层注入（写的是 `~/.zcode` / `~/.dsh`，不是网关运行时），
    * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
    */
-  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
+    ok: boolean;
+    error?: string;
+    /** 变更说明（人读，控制台作展示）。 */
+    notes?: string[];
+    /** 需要用户处置的警告（备份清单读不出 / 备份未登记 等）；不透出会被当噪音忽略。 */
+    warnings?: string[];
+  };
   /** 一键还原：把目标恢复成接入前状态（取该目标最新一次备份，可重复使用）。 */
   restore?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
     ok: boolean;
@@ -297,13 +304,18 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
           return err("当前运行形态不支持一键接入（未注入 integrate）");
         }
         const result = deps.integrate(target as "zcode" | "dsh" | "claude-desktop" | "codex");
-        return result.ok
-          ? ok({
-              target,
-              models: result.notes ?? [],
-              message: result.notes?.[0] ?? "已接入",
-            })
-          : err(result.error ?? "接入失败");
+        if (!result.ok) {
+          // 失败也带上警告：只报 error 会把「备份没登记上」这类线索丢掉
+          const detail = (result.warnings ?? []).join("；");
+          const message = [result.error ?? "接入失败", detail].filter((part) => part !== "").join("；");
+          return err(message);
+        }
+        return ok({
+          target,
+          notes: result.notes ?? [],
+          warnings: result.warnings ?? [],
+          message: result.notes?.[0] ?? "已接入",
+        });
       }
       case "restore": {
         // 一键还原：把该目标恢复成接入前的样子（取最新一次备份）。

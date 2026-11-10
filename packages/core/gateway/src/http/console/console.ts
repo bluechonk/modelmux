@@ -217,7 +217,14 @@ export interface ControlBridge {
    * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
-  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => { ok: boolean; error?: string; notes?: string[] };
+  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
+    ok: boolean;
+    error?: string;
+    /** 变更说明（人读，控制台作展示）。 */
+    notes?: string[];
+    /** 需要用户处置的警告（备份清单读不出 / 备份未登记 等）；不透出会被当噪音忽略。 */
+    warnings?: string[];
+  };
   /**
    * 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。
    * 实现同为 `app/integrate.ts` 的 `restoreClient`。
