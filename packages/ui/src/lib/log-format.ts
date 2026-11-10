@@ -256,20 +256,26 @@ export function formatPercent(rate: number | null | undefined): string {
 }
 
 /**
- * 缓存列展示：**给上游回过的计数，不给自算比率**。
+ * 缓存命中率展示：**用上游给的命中 / 未命中计数相除，百分比呈现**。
  *
- * 口径见 docs/CACHE-HIT-RATE.md §7：没有任何上游回「命中率」字段，比率只能自己相除，
- * 所以不展示百分比。但列表里恒显示 `—` 会让整列没有信息量 —— 有计数时展示
- * `命中 / 未命中`（与 tokens 列同风格），没有缓存字段时才是 `—`。
+ * 上游一律只回计数（`cached_tokens` / `prompt_cache_hit_tokens` / `cache_read_input_tokens`），
+ * 没有任何一家回比率字段 —— 所以比率只能由 `hit / (hit + miss)` 算出。这是**展示层**的
+ * 折算，不改变「上游没给比率」这个事实（口径见 docs/CACHE-HIT-RATE.md §7）。
  *
- * `hit` 与 `miss` 都为空（上游只给了写缓存）时同样返回 `—`：
- * 写缓存不是命中，不该显示成 0 命中。
+ * 分母为 0（命中与未命中都是 0，如只写了缓存）时返回 `—`：0/0 不是 0%，是「不知道」。
+ * 没有缓存字段时同样 `—`。
  */
-export function cachePairText(
+export function cacheHitRateText(
   cache: NonNullable<AccessLogEntry["tokens"]>["cache"] | null | undefined,
 ): string {
   if (!cache) return "—";
-  const { hit, miss } = cache;
+  const hit = cache.hit;
+  const miss = cache.miss;
   if (hit === null && miss === null) return "—";
-  return `${hit === null ? "-" : formatTokens(hit)} / ${miss === null ? "-" : formatTokens(miss)}`;
+  const h = hit ?? 0;
+  const m = miss ?? 0;
+  const total = h + m;
+  // 0/0 不是 0%，是「没有可判定的样本」
+  if (total <= 0) return "—";
+  return formatPercent(h / total);
 }

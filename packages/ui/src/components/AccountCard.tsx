@@ -407,21 +407,26 @@ export function AccountCard({
             <span className="shrink-0 font-mono text-[13px] font-medium text-ink">{pool.cid}</span>
             <span className="shrink-0 text-xs text-ink-faint">{`${accounts.length} 个账号`}</span>
           </div>
-          {/* 额度周期：**固定两行高度**，彻底拉平卡头。
-              为什么固定两行而不是单行 truncate：渠道声明的文案长短差很大（workbuddyai 的
-              「免费档每日 1 亿 token（本地 0 点刷新）· 账单口径为 credits」在 3 列布局下恒占两行，
-              其余渠道一行），按内容走就必然参差；单行 truncate 又会把长文案截掉一半。
-              固定两行（`min-h-8`，`leading-4` 两行）+ `line-clamp-2` 让「长文案显示两行、
-              短文案留白到两行」，所有卡卡头同高，信息也不丢（完整文案在额度详情浮层里另有）。
+          {/* 额度周期：单行，按内容高度走。
+              为什么不再固定两行（`min-h-8`）：绝大多数渠道的文案只有一行（「每天签到送 100 积分」），
+              固定两行会在每张卡上多出一行空白，视觉上像卡头缺内容 —— 卡与卡之间的等高由网格
+              `items-start` 之外的行轨道保证，不需要靠卡头硬撑。
               账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。
-              渠道没声明周期时**不填占位文案**：这里写「暂无签到」这类字样，等于替
-              `capabilities.signin: false` 的渠道（workbuddyai / zcode）宣称一项它没有的功能；
-              「没这项功能」与「今天没签」是两回事，详情浮层的「今日签到」行按能力位整行不渲染。 */}
-          <div className="mt-1 line-clamp-2 min-h-8 text-xs leading-4 text-ink-faint/70">
+              没有签到能力的渠道（`signin.supported === false`，如 workbuddyai / zcode）明写
+              「暂无签到」：这是**功能不存在**，不是「今天没签」；详情浮层的「今日签到」行
+              仍按能力位整行不渲染，两处口径一致。
+              有签到能力但没声明额度周期的渠道（catpaw / qoder / lobsterai）写「签到无固定额度」：
+              它们确实能签，只是不发固定额度（一次性注册奖励 / 活动制），留空会被读成「没加载完」。 */}
+          <div className="mt-1 truncate text-xs leading-4 text-ink-faint/70">
             {billingError && billing === undefined ? (
               <span className="text-warn">额度周期未知（账单查询失败）</span>
             ) : (
-              billing?.quota?.label?.trim() ?? ""
+              (billing?.quota?.label?.trim() ?? "") ||
+              (pool.signin?.supported === false
+                ? "暂无签到"
+                : pool.signin?.supported === true
+                  ? "签到无固定额度"
+                  : "")
             )}
           </div>
         </div>
