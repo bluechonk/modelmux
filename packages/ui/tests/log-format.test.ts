@@ -1,8 +1,9 @@
 /**
  * 缓存命中率的展示口径（分层负责：归一化在共享层，这里只测展示）。
  *
- * 重点是**不把 99.6% 显示成 100%** —— 上游给的近似满命中与真正的满命中必须区分，
- * 否则满屏 100% 会让人以为数据坏了（见 docs/CACHE-HIT-RATE.md §6）。
+ * 统一**两位小数**（`99.70%` / `100.00%`）—— 近似满命中与真满命中依然可区分
+ * （99.96% ≠ 100.00%），且不再需要 `>` / `<` 前缀（见 docs/CACHE-HIT-RATE.md §6）。
+ * `formatPercent` 只剩仪表盘占比一个使用方，保留整数百分比口径。
  */
 
 import assert from "node:assert/strict";
@@ -16,6 +17,7 @@ import {
   formatDateTime,
   formatDuration,
   cacheHitRateText,
+  formatCacheHitRate,
   formatPercent,
   formatRate,
   formatRecoveryAt,
@@ -49,13 +51,13 @@ describe("formatPercent", () => {
 describe("cacheHitRateText", () => {
   it("用命中 / (命中 + 未命中) 算百分比", () => {
     // 1983 / 1989 = 99.698% —— 不能因为接近满命中就显示 100%
-    assert.equal(cacheHitRateText({ hit: 1983, miss: 6 }), "99.7%");
-    assert.equal(cacheHitRateText({ hit: 1, miss: 1 }), "50%");
-    assert.equal(cacheHitRateText({ hit: 0, miss: 1989 }), "0%");
+    assert.equal(cacheHitRateText({ hit: 1983, miss: 6 }), "99.70%");
+    assert.equal(cacheHitRateText({ hit: 1, miss: 1 }), "50.00%");
+    assert.equal(cacheHitRateText({ hit: 0, miss: 1989 }), "0.00%");
   });
 
   it("99% 以上不四舍五入成 100%（近似满命中与真满命中是两件事）", () => {
-    assert.equal(cacheHitRateText({ hit: 996, miss: 4 }), "99.6%");
+    assert.equal(cacheHitRateText({ hit: 996, miss: 4 }), "99.60%");
   });
 
   it("没有缓存字段 → —", () => {
@@ -72,8 +74,20 @@ describe("cacheHitRateText", () => {
   });
 
   it("单边缺值按 0 计入分母", () => {
-    assert.equal(cacheHitRateText({ hit: 100, miss: null }), "100%");
-    assert.equal(cacheHitRateText({ hit: null, miss: 100 }), "0%");
+    assert.equal(cacheHitRateText({ hit: 100, miss: null }), "100.00%");
+    assert.equal(cacheHitRateText({ hit: null, miss: 100 }), "0.00%");
+  });
+});
+
+describe("formatCacheHitRate", () => {
+  it("统一两位小数，不再需要 > / < 前缀", () => {
+    assert.equal(formatCacheHitRate(0.9996), "99.96%");
+    assert.equal(formatCacheHitRate(0.9999), "99.99%");
+    assert.equal(formatCacheHitRate(0.004), "0.40%");
+    assert.equal(formatCacheHitRate(0), "0.00%");
+    assert.equal(formatCacheHitRate(1), "100.00%");
+    assert.equal(formatCacheHitRate(null), "—");
+    assert.equal(formatCacheHitRate(Number.NaN), "—");
   });
 });
 

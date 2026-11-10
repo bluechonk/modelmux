@@ -256,6 +256,17 @@ export function formatPercent(rate: number | null | undefined): string {
 }
 
 /**
+ * 缓存命中率的展示：**统一两位小数**（`99.96%` / `100.00%` / `0.00%`），无数据 `—`。
+ *
+ * 两位小数让「近似满命中（99.96%）」与「真满命中（100.00%）」依然可区分，且不再
+ * 需要 `>` / `<` 前缀来表达近似（前缀在表格里读起来像杂讯）。
+ */
+export function formatCacheHitRate(rate: number | null | undefined): string {
+  if (typeof rate !== "number" || !Number.isFinite(rate)) return "—";
+  return `${(rate * 100).toFixed(2)}%`;
+}
+
+/**
  * 缓存命中率展示：**用上游给的命中 / 未命中计数相除，百分比呈现**。
  *
  * 上游一律只回计数（`cached_tokens` / `prompt_cache_hit_tokens` / `cache_read_input_tokens`），
@@ -277,5 +288,5 @@ export function cacheHitRateText(
   const total = h + m;
   // 0/0 不是 0%，是「没有可判定的样本」
   if (total <= 0) return "—";
-  return formatPercent(h / total);
+  return formatCacheHitRate(h / total);
 }
