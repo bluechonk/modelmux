@@ -628,12 +628,31 @@ function seedCodex(text = CODEX_CONFIG): string {
   return file;
 }
 
+/** 该 target 最近一次的接入备份目录（按 manifest 的 target 字段定位）。 */
+function findBackupDir(target: string): string {
+  const root = join(home, ".modelmux", "backups", "integrate");
+  const dir = readdirSync(root)
+    .map((name) => join(root, name))
+    .find((candidate) => {
+      const manifestPath = join(candidate, "manifest.json");
+      if (!existsSync(manifestPath)) return false;
+      try {
+        return (JSON.parse(readFileSync(manifestPath, "utf8")) as { target?: string }).target === target;
+      } catch {
+        return false;
+      }
+    });
+  assert.ok(dir, `应存在 ${target} 备份目录`);
+  return dir!;
+}
+
 describe("一键接入 codex", () => {
   it("改 modelmux 段与顶层键；其它段与用户顶层键逐字节不变", () => {
     const file = seedCodex();
     const result = integrateClient("codex", MODELS);
     assert.equal(result.ok, true);
-    assert.deepEqual(result.changed, [file]);
+    // 目录与配置都是接入产物，都要在 changed 里
+    assert.deepEqual(result.changed, [file, join(home, ".modelmux", "codex-model-catalog.json")]);
     const after = readFileSync(file, "utf8");
     // 顶层键落在首个表头之前（TOML 顶层键的硬约束）
     const firstTable = after.indexOf("[");
@@ -801,6 +820,20 @@ name = "OpenAI"
       "catalog 里没有配置引用的 model",
     );
   });
+
+  it("catalog 已是同一模型集的等价内容时不误报写入失败", () => {
+    seedCodex();
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
+    // 模拟并发写者留下等价内容：同一 id 集、不同序列化（紧凑 JSON）
+    const doc = JSON.parse(readFileSync(catalogPath, "utf8"));
+    writeFileSync(catalogPath, JSON.stringify(doc), "utf8");
+
+    const result = integrateClient("codex", MODELS);
+    assert.equal(result.ok, true, result.error);
+    const after = JSON.parse(readFileSync(catalogPath, "utf8")) as { models: Array<{ id: string }> };
+    assert.deepEqual(after.models.map((m) => m.id), MODELS, "catalog 仍应是同一模型集");
+  });
 });
 
 /**
@@ -936,5 +969,80 @@ describe("一键还原", () => {
       `应如实记录跳过的坏条目：${restored.notes.join(" / ")}`,
     );
     assert.equal(restored.removed.includes(file), true, "好条目仍应生效");
+  });
+
+  it("codex：还原删掉接入新建的 catalog", () => {
+    clearBackups("codex");
+    const file = join(home, ".codex", "config.toml");
+    const catalog = join(home, ".modelmux", "codex-model-catalog.json");
+    rmSync(file, { force: true });
+    rmSync(catalog, { force: true });
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    assert.ok(existsSync(catalog), "接入应新建 catalog");
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, true, restored.error);
+    assert.ok(restored.removed.includes(catalog), "应报告删除接入新建的 catalog");
+    assert.equal(existsSync(catalog), false, "还原后 catalog 应不存在");
+  });
+
+  it("codex：还原把接入前的 catalog 内容写回", () => {
+    clearBackups("codex");
+    seedCodex();
+    const catalog = join(home, ".modelmux", "codex-model-catalog.json");
+    mkdirSync(join(home, ".modelmux"), { recursive: true });
+    const before = '{ "models": [{ "id": "old-model" }] }\n';
+    writeFileSync(catalog, before, "utf8");
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+    assert.notEqual(readFileSync(catalog, "utf8"), before, "接入应改写 catalog");
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, true, restored.error);
+    assert.equal(readFileSync(catalog, "utf8"), before, "还原后 catalog 应回到接入前");
+  });
+
+  it("备份文件缺失时还原如实报失败（不假装成功）", () => {
+    clearBackups("codex");
+    seedCodex();
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+
+    const dir = findBackupDir("codex");
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as {
+      files: Array<{ backup: string }>;
+    };
+    const configEntry = manifest.files.find((f) => f.backup.startsWith("config.toml"));
+    assert.ok(configEntry, "清单里应有 config.toml 条目");
+    rmSync(join(dir, configEntry!.backup), { force: true });
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, false, "备份文件缺失必须报失败");
+    assert.match(restored.error ?? "", /还原失败/);
+    assert.ok(
+      restored.notes.some((n) => n.includes("备份文件缺失")),
+      `应记录缺失的备份文件：${restored.notes.join(" / ")}`,
+    );
+  });
+
+  it("清单损坏时如实记 notes（还原走反推，不静默降级）", () => {
+    clearBackups("codex");
+    seedCodex();
+    const catalog = join(home, ".modelmux", "codex-model-catalog.json");
+    mkdirSync(join(home, ".modelmux"), { recursive: true });
+    const before = "{}\n";
+    writeFileSync(catalog, before, "utf8");
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+
+    const dir = findBackupDir("codex");
+    writeFileSync(join(dir, "manifest.json"), "{ 不是合法 JSON", "utf8");
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, true, restored.error);
+    assert.ok(
+      restored.notes.some((n) => n.includes("备份清单解析失败")),
+      `应如实记录清单损坏：${restored.notes.join(" / ")}`,
+    );
+    // 反推要各自还原到原路径（config.toml 与 catalog 不能互相覆盖）
+    assert.equal(readFileSync(join(home, ".codex", "config.toml"), "utf8"), CODEX_CONFIG);
+    assert.equal(readFileSync(catalog, "utf8"), before);
   });
 });

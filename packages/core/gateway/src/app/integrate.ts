@@ -164,18 +164,28 @@ function backupDirFor(target: IntegrationTarget): string {
   return dir;
 }
 
-/** 读某次备份的清单（没有 manifest 的老备份返回 null，调用方走反推）。 */
-function readManifest(dir: string): BackupManifest | null {
+/**
+ * 读某次备份的清单（没有 manifest 的老备份返回 null，调用方走反推）。
+ *
+ * `notes` 非空时，清单**存在却读不出**（解析失败 / `files` 不是数组）会记一条：
+ * 调用方会退化成按文件名反推，还原可能不完整，用户必须知道原因。没有 manifest
+ * 文件的老备份是正常路径，不记。
+ */
+function readManifest(dir: string, notes?: string[]): BackupManifest | null {
   const file = join(dir, BACKUP_MANIFEST);
   if (!existsSync(file)) return null;
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as BackupManifest;
-    if (!Array.isArray(parsed.files)) return null;
-    return parsed;
-  } catch {
-    // 清单损坏：当作没有（还原走反推，不因清单坏了就拒绝还原）
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    notes?.push(`备份清单解析失败（${dir}），本次按老备份规则反推原路径：${String(err)}`);
     return null;
   }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as BackupManifest).files)) {
+    notes?.push(`备份清单结构无效（${dir} 的 files 不是数组），本次按老备份规则反推原路径`);
+    return null;
+  }
+  return parsed as BackupManifest;
 }
 
 /** 把一条记录追加进清单（同原路径只记一次 —— 多次接入同一个文件时保留最早的原始快照）。 */
@@ -240,13 +250,21 @@ function noteCreatedFile(dir: string, file: string): void {
  *
  * 所以接入路径在这里多一道读回校验：内容不符就抛错，让上层把该文件从
  * `changed` 里剔除、并如实报失败。
+ *
+ * `accepts` 用于「内容等价的其它写法也算成功」：并发写者可能刚把目标换成另一份
+ * 等价内容（如模型目录 —— 同一模型集可能由另一次接入写出）。没有它只能逐字节
+ * 比对，会把别人的等价写入误报成自己的写入失败。
  */
-function writeVerified(file: string, body: string, mode = 0o600): void {
+function writeVerified(
+  file: string,
+  body: string,
+  mode = 0o600,
+  accepts?: (actual: string) => boolean,
+): void {
   writeAtomicFile(file, body, mode);
   const actual = readFileSync(file, "utf8");
-  if (actual !== body) {
-    throw new Error(`写入未生效：${file}（目标可能被其它进程占用，请关闭后重试）`);
-  }
+  if (actual === body || (accepts !== undefined && accepts(actual))) return;
+  throw new Error(`写入未生效：${file}（目标可能被其它进程占用，请关闭后重试）`);
 }
 
 // ── zcode ───────────────────────────────────────────────────────────────────
@@ -934,8 +952,7 @@ function codexCatalogPath(): string {
  * `reasoning.effort`，不转发 `text.verbosity`。声明 `true` 会让 Codex 在用户配置
  * `model_verbosity` 时发送该字段，随后被网关静默丢弃。
  */
-function writeCodexCatalog(models: string[]): string {
-  const path = codexCatalogPath();
+function renderCodexCatalog(models: string[]): string {
   const doc = {
     models: models.map((id) => ({
       id,
@@ -958,8 +975,26 @@ function writeCodexCatalog(models: string[]): string {
       max_context_window: 1_048_576,
     })),
   };
+  return `${JSON.stringify(doc, null, 2)}\n`;
+}
+
+/** 写目录并返回其绝对路径；并发写者留下同一模型集的等价内容也算成功。 */
+function writeCodexCatalog(models: string[]): string {
+  const path = codexCatalogPath();
   mkdirSync(dirname(path), { recursive: true });
-  writeVerified(path, `${JSON.stringify(doc, null, 2)}\n`, 0o600);
+  const expected = new Set(models);
+  writeVerified(path, renderCodexCatalog(models), 0o600, (actual) => {
+    try {
+      const doc = JSON.parse(actual) as { models?: Array<{ id?: unknown }> };
+      return (
+        Array.isArray(doc.models) &&
+        doc.models.length === expected.size &&
+        doc.models.every((m) => typeof m?.id === "string" && expected.has(m.id))
+      );
+    } catch {
+      return false;
+    }
+  });
   return path;
 }
 
@@ -1078,15 +1113,9 @@ function integrateCodex(models: string[]): IntegrationResult {
     .slice(0, headEnd)
     .filter((l) => !/^\s*(model_provider|model|model_catalog_json)\s*=/.test(l));
   const tail = firstTable < 0 ? [] : next.slice(firstTable);
-  let catalogPath: string;
-  try {
-    catalogPath = writeCodexCatalog(models);
-  } catch (err) {
-    result.error = `写 Codex 模型目录失败：${String(err)}`;
-    return result;
-  }
   // TOML 字面量字符串（单引号）不处理转义，Windows 路径原样写入即可；
   // 只有双引号基本字符串才需要把反斜杠转成 `\\`
+  const catalogPath = codexCatalogPath();
   const catalogLiteral = `'${catalogPath}'`;
   const topKeys = [
     `model_provider = "modelmux"`,
@@ -1096,17 +1125,47 @@ function integrateCodex(models: string[]): IntegrationResult {
   const withKeys = [...head, ...topKeys, ...tail];
 
   const text = `${withKeys.join(eol).replace(/\s+$/, "")}${eol}`;
-  if (text === original) {
-    result.unchanged.push(file);
+  const catalogBody = renderCodexCatalog(models);
+  let catalogChanged = false;
+  try {
+    catalogChanged = readFileSync(catalogPath, "utf8") !== catalogBody;
+  } catch {
+    catalogChanged = true; // 不存在或读不出 → 需要写
+  }
+  const fileChanged = text !== original;
+  if (!fileChanged && !catalogChanged) {
+    result.unchanged.push(file, catalogPath);
     result.ok = true;
     return result;
   }
+  // 配置与目录都是接入产物：接入前存在则备份，不存在则登记为「接入新建」（还原时删）
   const backup = backupDirFor("codex");
-  // 新建场景同样要留 `existed:false`（否则还原会把接入新建的 config.toml 留下）
+  if (existsSync(catalogPath)) backupFile(backup, catalogPath);
+  else noteCreatedFile(backup, catalogPath);
   if (existsSync(file)) backupFile(backup, file);
   else noteCreatedFile(backup, file);
-  writeVerified(file, text, 0o600);
-  result.changed.push(file);
+  if (fileChanged) {
+    try {
+      writeVerified(file, text, 0o600);
+    } catch (err) {
+      result.error = `写 Codex 配置失败：${String(err)}`;
+      return result;
+    }
+    result.changed.push(file);
+  } else {
+    result.unchanged.push(file);
+  }
+  if (catalogChanged) {
+    try {
+      writeCodexCatalog(models);
+    } catch (err) {
+      result.error = `写 Codex 模型目录失败：${String(err)}`;
+      return result;
+    }
+    result.changed.push(catalogPath);
+  } else {
+    result.unchanged.push(catalogPath);
+  }
   result.backupDir = backup;
   result.notes.push(`base_url=${gatewayBaseUrl()}（wire_api=responses），模型=${models[0]}`);
   result.ok = true;
@@ -1174,7 +1233,7 @@ function entriesOfBackup(
   dir: string,
   notes: string[],
 ): BackupEntry[] | null {
-  const manifest = readManifest(dir);
+  const manifest = readManifest(dir, notes);
   if (manifest !== null) {
     const valid = manifest.files.filter(isValidEntry);
     for (const entry of manifest.files) {
@@ -1195,8 +1254,15 @@ function entriesOfBackup(
   return inferred.length > 0 ? inferred : null;
 }
 
+/** 某次备份的可还原条目，以及 discovery 阶段为该目录产生的 notes。 */
+interface BackupSource {
+  dir: string;
+  entries: BackupEntry[];
+  notes: string[];
+}
+
 /**
- * 某 target 的全部**可用**备份目录，按时间**新的在前**。
+ * 某 target 的全部**可用**备份目录，按时间**新的在前**，并一并算出可还原条目。
  *
  * 目录名形如 `<target>-<yyyymmddhhmmss>`；两类目录仍可用作还原源：
  * - `<target>-*`：接入时留的备份；
@@ -1211,18 +1277,24 @@ function entriesOfBackup(
  *
  * 清单为空 / 读不出任何条目的目录直接跳过 —— 否则一次「只建了目录没写文件」的
  * 接入会挡住更早的真实备份。
+ *
+ * 条目在 discovery 阶段算好、还原直接复用（省掉对选中目录的重复计算）；notes 只
+ * 跟着被选中的目录走 —— 非选中目录的问题与本次还原无关，不进用户视野。
  */
-function backupDirsOf(target: IntegrationTarget): string[] {
+function backupSourcesOf(target: IntegrationTarget): BackupSource[] {
   backupRoot ??= join(rootDir(), "backups", "integrate");
   if (!existsSync(backupRoot)) return [];
   const prefix = `${target}-`;
-  return readdirSync(backupRoot, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && !e.name.startsWith(`safety-${target}-`))
-    .map((e) => e.name)
-    .filter((name) => name.startsWith(prefix) || name.startsWith(`restored-${prefix}`))
-    .map((name) => join(backupRoot!, name))
-    .filter((dir) => entriesOfBackup(target, dir, []) !== null)
-    .sort((a, b) => stampOf(b) - stampOf(a));
+  const out: BackupSource[] = [];
+  for (const e of readdirSync(backupRoot, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith(`safety-${target}-`)) continue;
+    if (!e.name.startsWith(prefix) && !e.name.startsWith(`restored-${prefix}`)) continue;
+    const dir = join(backupRoot!, e.name);
+    const notes: string[] = [];
+    const entries = entriesOfBackup(target, dir, notes);
+    if (entries !== null) out.push({ dir, entries, notes });
+  }
+  return out.sort((a, b) => stampOf(b.dir) - stampOf(a.dir));
 }
 
 /** 还原前的保护性快照目录（`safety-` 前缀，不参与自动挑选）。 */
@@ -1260,8 +1332,13 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
   // 剥掉 basename 之后的 8 位哈希后缀
   const base = backupName.replace(/\.[0-9a-f]{8}$/, "");
   switch (target) {
-    case "codex":
-      return join(home, ".codex", "config.toml");
+    case "codex": {
+      // 只认两个能唯一确定的名字；其余不猜（写错文件比不还原更糟）。
+      // catalog 也是接入产物，原路径固定在网关存储根，可以反推。
+      if (base === "config.toml") return join(home, ".codex", "config.toml");
+      if (base === "codex-model-catalog.json") return join(rootDir(), "codex-model-catalog.json");
+      return null;
+    }
     case "zcode":
       return join(home, ".zcode", "v2", "provider_config.json");
     case "dsh": {
@@ -1304,8 +1381,8 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
  */
 export function restoreClient(target: IntegrationTarget): RestoreResult {
   const result: RestoreResult = { ok: false, target, restored: [], removed: [], notes: [] };
-  const dirs = backupDirsOf(target);
-  const source = dirs[0];
+  const sources = backupSourcesOf(target);
+  const source = sources[0];
   if (source === undefined) {
     const backupRootPath = join(rootDir(), "backups", "integrate");
     result.error =
@@ -1315,11 +1392,8 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
   }
 
   // 条目来源：清单（逐条校验）或老备份的文件名反推；坏条目已在 notes 里说明
-  const entries = entriesOfBackup(target, source, result.notes);
-  if (entries === null) {
-    result.error = `备份目录 ${source} 里没有可还原的文件`;
-    return result;
-  }
+  result.notes.push(...source.notes);
+  const entries = source.entries;
 
   // 保护性备份：把「当前状态」再留一份，用户想反悔时还有得救。
   // 用 `safety-` 前缀 —— 它装着接**后**的状态，混进自动挑选会让下次还原把自己改回去
@@ -1350,8 +1424,10 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
         }
         continue;
       }
-      const backupPath = join(source, entry.backup);
+      const backupPath = join(source.dir, entry.backup);
       if (!existsSync(backupPath)) {
+        // 缺失也算失败：只报 ok 会让用户以为配置已回到接入前，实际少还原了一个文件
+        failed += 1;
         result.notes.push(`备份文件缺失，跳过：${entry.backup}`);
         continue;
       }
@@ -1376,19 +1452,19 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
   // **不消费备份**：还原改成幂等、可重复 —— 同一份「接入前」状态可以反复还原，
   // 第二次点还原不再报「没有找到备份」（主人反馈「前面的问题只能还原一次」）。
   // 只往清单里记一笔 `restoredAt` 留痕；旧版本留下的 `restored-*` 目录因此也是
-  // 有效还原源（见 `backupDirsOf`）。
-  const manifest = readManifest(source);
+  // 有效还原源（见 `backupSourcesOf`）。
+  const manifest = readManifest(source.dir);
   if (manifest !== null) {
     manifest.restoredAt = new Date().toISOString();
     try {
-      writeJsonSecret(join(source, BACKUP_MANIFEST), manifest);
+      writeJsonSecret(join(source.dir, BACKUP_MANIFEST), manifest);
     } catch (err) {
       // 留痕失败不影响还原结果（配置已经写回）
       result.notes.push(`备份清单写回失败（不影响还原结果）：${String(err)}`);
     }
   }
 
-  result.sourceDir = source;
+  result.sourceDir = source.dir;
   result.ok = true;
   return result;
 }
