@@ -85,11 +85,14 @@
 ### Codex（OpenAI Responses）
 
 仪表盘「接入 codex」写 `~/.codex/config.toml`（文本级 TOML 编辑，`auth.json` 不碰 ——
-ChatGPT 登录态保留，段内 `experimental_bearer_token` 优先级更高）：
+ChatGPT 登录态保留，段内 `experimental_bearer_token` 优先级更高），并在
+`<root>/codex-model-catalog.json` 写一份模型目录。`model_catalog_json` 指向的目录必须包含
+配置里的 `model`，否则 Codex 启动时拒绝加载配置：
 
 ```toml
 model_provider = "modelmux"
 model = "deepseek-v4.1-flash"
+model_catalog_json = 'C:\Users\<用户>\.modelmux\codex-model-catalog.json'
 
 [model_providers.modelmux]
 name = "modelmux"
@@ -102,6 +105,12 @@ requires_openai_auth = false
 - `wire_api` **必须是 `"responses"`**（Codex 打 `{base_url}/responses`）。
 - 顶层 `model_provider` / `model` 必须在任何 `[` 表头之前（TOML 顶层键约束），
   写入器已处理。
+- 目录条目按 Codex 0.163 的 schema 给实测最小必填集：`slug` / `display_name` /
+  `base_instructions` / `supported_reasoning_levels` / `shell_type` / `visibility` /
+  `supported_in_api` / `priority` / `support_verbosity` / `truncation_policy` /
+  `experimental_supported_tools`。`supported_reasoning_levels` 的元素是
+  `{effort, description}` 对象，`visibility` 取 `list` / `hide`，`truncation_policy` 是
+  `{mode, limit}` 对象。
 
 ### dsh / zcode（OpenAI Chat Completions）
 
