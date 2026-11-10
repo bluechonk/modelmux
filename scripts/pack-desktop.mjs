@@ -12,7 +12,7 @@
  *     避免 `npm install` 给所有开发者拉 100MB+ 的 Electron。
  */
 
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +63,8 @@ if (!existsSync(path.join(desktop, "node_modules", "electron", "dist", "electron
 }
 
 // 3) 拷贝 payload：bundle 改名 .mjs（ESM 显式扩展名，免 Node 二次解析告警）
+// 先整目录复位：cpSync 只覆盖不删除，上一次构建的 hash 资源会一直残留进 asar
+rmSync(appDir, { recursive: true, force: true });
 mkdirSync(appDir, { recursive: true });
 cpSync(path.join(cliDist, "cli.bundle.js"), path.join(appDir, "modelmux.mjs"));
 cpSync(path.join(cliDist, "models.json"), path.join(appDir, "models.json"));
