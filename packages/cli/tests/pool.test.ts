@@ -64,6 +64,7 @@ describe("仓库级模型池", () => {
     );
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
+    assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
     // 曾经下架、现已全部放行的四家：具名断言，避免「等式仍成立但悄悄又没了」
     for (const cid of ["qoder", "workbuddyai", "astudio", "lobsterai"]) {
       assert.ok(cids.includes(cid), `${cid} 已放行，必须出现在注册清单里`);
@@ -120,7 +121,6 @@ describe("仓库级模型池", () => {
       catpaw: ["glm-5.3-flash", "longcat-2.5"],
       qodercn: ["glm-5.3-flash"],
       autoclaw: ["glm-5.3-flash"],
-      zcode: ["glm-5.3-flash"],
       qoder: ["glm-5.3-flash"],
       qwenworkcn: ["qwork-flash"],
       workbuddyai: ["glm-5.3-flash"],
@@ -147,7 +147,7 @@ describe("仓库级模型池", () => {
     const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort();
     assert.deepEqual(
       glm,
-      ["autoclaw", "catpaw", "lobsterai", "qoder", "qodercn", "workbuddyai", "zcode"],
+      ["autoclaw", "catpaw", "lobsterai", "qoder", "qodercn", "workbuddyai"],
       `glm-5.3-flash 的候选渠道（实际 ${glm.join(", ")}）`,
     );
     const longcat = gw.poolCandidates("longcat-2.5").map((c) => c.cid);

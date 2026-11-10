@@ -148,7 +148,7 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 
 ### 推荐模型
 
-唯一暴露 `glm-5.3-flash`（对外家族表登记的供给渠道之一，与 qodercn / zcode 并列）。其余后端模型（`zai_auto` 等）已随包隐藏，仅供 #299 hidden 机制与排查。
+唯一暴露 `glm-5.3-flash`（对外家族表登记的供给渠道之一，与 qodercn 并列）。其余后端模型（`zai_auto` 等）已随包隐藏，仅供 #299 hidden 机制与排查。
 
 ### 已知限制
 
