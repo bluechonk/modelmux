@@ -16,7 +16,6 @@ import {
   formatBytes,
   cacheHitRateText,
   formatClock,
-  formatCount,
   formatDateTime,
   formatDuration,
   formatPercent,
@@ -73,24 +72,35 @@ function useDebounced<T>(value: T, delayMs: number): T {
 function StatBar({ page }: { page: AccessLogPage }): ReactElement {
   const stats = page.stats;
   const rate = stats.requests > 0 ? Math.round((stats.success / stats.requests) * 100) : null;
+  /*
+   * chip 排与账号池总览条（`Accounts.tsx` 的 SUMMARY_ORDER）同规格：
+   * `bg-overlay/50` + `rounded-lg` + `px-2.5 py-1` + `text-xs`，数字 `font-mono tabular-nums`。
+   * 纯文字加分隔符在窄屏折行后像「错位的两行」，chip 换行时逐枚对齐，标签与数字永远同单元。
+   *
+   * 不再显示「请求 N」：下面筛选栏分段的「全部 N」就是它，同屏两个相同数字只占位置。
+   * 缓存命中率取 `stats.cache.hitRate`（后端按**当前筛选范围**加权 Σhit/Σ(hit+miss)），
+   * 所以换渠道、换日期它跟着变；窗口内没有一条带缓存字段时为 null，显示 `—`。
+   */
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-soft">
-      <span>
-        请求 <span className="tabular text-ink">{formatCount(stats.requests)}</span>
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-line pb-3 text-xs text-ink-soft">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-free" />
+        成功率
+        <span className="font-mono tabular-nums text-ink">{rate === null ? "-" : `${rate}%`}</span>
       </span>
-      <span>
-        成功率 <span className="tabular text-ink">{rate === null ? "-" : `${rate}%`}</span>
-      </span>
-      {/* 不再显示「慢」条数：快慢由 TPS 数字自证，阈值是人定的，统计条里单列一个
-          「慢 N」只会让人去猜「N 是多少才算正常」。平均 TPS 一格已足够。
+      {/* 不再显示「慢」条数：快慢由 TPS 数字自证，阈值是人定的。
           `?? null`：字段缺失（旧构建的载荷）必须显示 `—`，不是 `NaN t/s` */}
-      <span>
-        平均 TPS <span className="tabular text-ink">{formatRate(stats.avgTps ?? null)}</span>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1">
+        平均 TPS
+        <span className="font-mono tabular-nums text-ink">{formatRate(stats.avgTps ?? null)}</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-free" />
+        平均缓存命中率
+        <span className="font-mono tabular-nums text-ink">{formatPercent(stats.cache?.hitRate ?? null)}</span>
       </span>
       {/*
-        不再展示「统计只覆盖最近 N 条（读窗口上限）」—— 这是实现细节（后端读日志
-        有个扫描上限），对用户没有可操作价值：他既不能调大窗口，也不会因此换个
-        时间范围。数字本身仍然按窗口内的真实条数统计，只是不再解释这层内部机制。
+        不再展示「统计只覆盖最近 N 条（读窗口上限）」—— 这是实现细节，对用户没有可操作价值。
       */}
     </div>
   );

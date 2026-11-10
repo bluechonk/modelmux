@@ -412,21 +412,15 @@ export function AccountCard({
               固定两行会在每张卡上多出一行空白，视觉上像卡头缺内容 —— 卡与卡之间的等高由网格
               `items-start` 之外的行轨道保证，不需要靠卡头硬撑。
               账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。
-              没有签到能力的渠道（`signin.supported === false`，如 workbuddyai / zcode）明写
-              「暂无签到」：这是**功能不存在**，不是「今天没签」；详情浮层的「今日签到」行
-              仍按能力位整行不渲染，两处口径一致。
-              有签到能力但没声明额度周期的渠道（catpaw / qoder / lobsterai）写「签到无固定额度」：
-              它们确实能签，只是不发固定额度（一次性注册奖励 / 活动制），留空会被读成「没加载完」。 */}
+              没声明额度周期的渠道一律写「暂无签到」：上游没有每日签到就是没有，不编
+              「签到无固定额度」这类说法 —— catpaw 只有一次性注册奖励、qoder 没有签到活动、
+              workbuddyai / zcode / qwenworkcn 连签到能力位都没有，对用户都是「这渠道没签到」。
+              详情浮层的「今日签到」行仍按能力位渲染，两处口径一致。 */}
           <div className="mt-1 truncate text-xs leading-4 text-ink-faint/70">
             {billingError && billing === undefined ? (
               <span className="text-warn">额度周期未知（账单查询失败）</span>
             ) : (
-              (billing?.quota?.label?.trim() ?? "") ||
-              (pool.signin?.supported === false
-                ? "暂无签到"
-                : pool.signin?.supported === true
-                  ? "签到无固定额度"
-                  : "")
+              (billing?.quota?.label?.trim() ?? "") || "暂无签到"
             )}
           </div>
         </div>
