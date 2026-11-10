@@ -206,6 +206,12 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 且 `size` 2500 → 2600（上游新开一个 100 的权益包）。上游**没有**每日额度查询字段，
 故 `billing.quotaPeriod()` 报这个实测常量；日界按本机自然日（跨天即恢复可签）。
 
+**签到按账号独立**（`signin.perAccount: true`）：签到设备 id 由账号 uid 派生，
+上游按「设备 + 账号」判当日是否已签 —— 池里每个账号都有自己的一份 100 积分。
+共享层逐个账号带凭据调用 `claim({ credential })`，台账按账号记账（控制台账号详情读账号级
+记录）；只对生效凭证领一次会让其余账号的当日额度白丢（2026-11-10 实测：4 个账号里只有
+生效账号有额度、其余 remain 为 0，而卡片仍显示「已签到 +100」）。
+
 ### 2.4 续期
 
 同 ExchangeToken 流程；只改 `access_token`/`refresh_token`/`expires_at`，设备指纹字段完全不动（`packages/core/channels/traecn/src/cred.ts`）。
@@ -406,7 +412,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `4027` | tool 消息顺序错误 | 直接失败 | 本仓**没有** `4027` 专门分支：同样落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`） |
 | `4023` | `the model is unknown`（不可调用通道） | 通道白名单已挡 | `packages/core/channels/traecn/src/catalog.ts:43-59` |
 | `3003` | `model service is unavailable`（`inline_chat`） | 同上 | `packages/core/channels/traecn/src/catalog.ts:43-59` |
-| `9074` | 签到人数过多（设备级限流） | **轮换签到设备代次**（持久化到凭据的 `checkin_generation`）并抛 `CreditsError`；**渠道层没有 300s 冷却** | `packages/core/channels/traecn/src/billing.ts:190-199`（`handleDeviceRateLimit`）、`packages/core/channels/traecn/src/cred.ts:720-725`（`rotateCheckinGeneration`） |
+| `9074` | 签到人数过多（设备级限流） | **轮换签到设备代次**（有回写通道时持久化到凭据的 `checkin_generation`；按账号调度时池内凭据只读，故只报错不落盘）并抛 `CreditsError`；**渠道层没有 300s 冷却** | `packages/core/channels/traecn/src/billing.ts:184-205`（`handleDeviceRateLimit`）、`packages/core/channels/traecn/src/cred.ts:720-725`（`rotateCheckinGeneration`） |
 
 流内 `event:error` **只被转成一个 error 帧**（`code` 转字符串保真转发），
 共享层原样写给客户端（`packages/core/channels/traecn/src/upstream.ts:885-902`）。
@@ -597,7 +603,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 
 全部走 `https://api.trae.cn`（**硬编码**，未用 `product.ugHost`）。
 
-### 6.1 签到头（约 20 个，`packages/core/channels/traecn/src/billing.ts:124-149`）
+### 6.1 签到头（约 20 个，`packages/core/channels/traecn/src/billing.ts:111-136`）
 
 ```
 Content-Type: application/json
@@ -651,7 +657,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 **「权益包剩余」≠「SOLO 通道能对话的余额」** —— 不分维度就会出现
 「对话报 4008 配额耗尽、额度页却显示余额富余」。`[参考]`
 
-当前实现的处理（`packages/core/channels/traecn/src/billing.ts:289-399` 的 `fetchCredits()`）：`[代码]`
+当前实现的处理（`packages/core/channels/traecn/src/billing.ts:303-417` 的 `fetchCredits()`）：`[代码]`
 
 | 项 | 口径 |
 |---|---|

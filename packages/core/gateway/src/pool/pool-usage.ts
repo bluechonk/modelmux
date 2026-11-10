@@ -836,7 +836,7 @@ export const SPEED_WINDOW_DAYS = 3;
 /** 速度缓存时长：到期才重扫日志（3 天窗口实测 20–30ms，60s 一次可忽略）。 */
 export const SPEED_TTL_MS = 60_000;
 
-/** 参考速率（tokens/s）：与仪表盘模型清单的「慢」标签阈值一致（`model-health.SLOW_TPS`）。 */
+/** 参考速率（tokens/s）：等于它时速度系数为 1，快于它按比例上浮、慢于它下浮。 */
 export const SPEED_REF_TPS = 100;
 
 /** 速度系数下限：再慢也只压到 0.25 —— 渠道慢不代表没货，压太狠会把唯一有货的渠道挤到最后。 */

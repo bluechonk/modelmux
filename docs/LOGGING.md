@@ -134,8 +134,8 @@
 | 速率慢 | 可信速率 < 阈值，且生成量 ≥ 20 tokens（少于它窗口太小，速率数值不可信——实测 tps<30 的命中里 p50 completion=3，全是 ping 类短请求） | `MODELMUX_SLOW_TPS`（默认 30 t/s；实测分布 p05 = 54 t/s） |
 
 速率复用 `tokensPerSecOf`（护栏同 TPS 展示：窗口 < 50ms 或速率 > 1000 t/s 算不可测，
-不可测不判慢）。模型清单的「慢」标签是另一口径（`model-health.ts` 的 `SLOW_TPS = 100`，
-看的是长期平均），两者故意不同。
+不可测不判慢）。它与池选路的参考速率（`pool/pool-usage.ts` 的 `SPEED_REF_TPS = 100`，
+看的是长期平均、只折速度系数）故意不同：请求级判定抓单条真龟速，参考速率给渠道排序。
 
 **平均 TPS**（日志页统计条 `stats.avgTps` 与仪表盘的「平均 TPS」格）：样本 = **成功请求**里
 `tokensPerSecOf` 算得出速率的那些，先**逐条**算速率再求均值 —— 用 `Σcompletion / Σ生成窗口`
