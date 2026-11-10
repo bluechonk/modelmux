@@ -377,15 +377,11 @@ export const signin: SigninModule = {
 /**
  * 每日积分发放额（积分）。
  *
- * **证据等级 `[参考]`，不是实测**：数值来自参考实现读到的「每日积分发放 300」
- * （见 docs/channels/raccoon/PROTOCOL.md §6.1 的来源表）。本仓 2026-11-07 实测
- * 未能验证：`setting_info` 触发器返回 `point_grant_popups: []`（当日无发放公告）、
- * 领取后账单 remain 未变（「已触发发放，但今日账单暂未见入账」），且 bills 只有当日
- * 消耗记录、翻页为空 —— 拿不到任何正数发放样本。
- *
- * 之所以仍然报出：这个数有文档出处。**证据等级 `[参考]` 记在
- * `docs/channels/raccoon/PROTOCOL.md` §6.1，并在 label 里写成「约」** ——
- * label 是给用户看的口径，参考级数字不加限定语就会被当成承诺。
+ * **本机实测值**：本地签到台账连续多日记到 300（`balance.before → after` 为
+ * 261 → 561、565 → 865 等，`rewardSource: "channel"`，即账单里的当日入账额；
+ * 2026-11-07 起每天一次）。此前 2026-11-07 单次探测拿不到样本（`setting_info`
+ * 的 `point_grant_popups` 为空、账单未见入账），故曾按 `[参考]` 记 —— 现状见
+ * `docs/channels/raccoon/PROTOCOL.md` §6.1。
  */
 const DAILY_GRANT_POINTS = 300;
 
@@ -402,16 +398,14 @@ function nextUtc8Midnight(now = Date.now()): number {
 }
 
 /**
- * 额度周期：**每天签到约送 300 积分**。
+ * 额度周期：**每天签到送 300 积分**。
  *
  * 日界是上游实打实的（`setting_info` 按天幂等、账单按 UTC+8 切日）；
- * 数额只有 `[参考]` 级证据（PROTOCOL §6.1：实测三次都拿不到正数发放样本），
- * 所以 label 里写「约」—— 把参考级数字说成承诺，会让用户按它预期到账，
- * 实际不到账时分不清是上游问题还是被误导。
+ * 数额是台账里连续多日的账单实测值（见 `DAILY_GRANT_POINTS`）。
  */
 export function quotaPeriod(): QuotaPeriod {
   return {
-    label: "每天签到约送 300 积分",
+    label: "每天签到送 300 积分",
     size: DAILY_GRANT_POINTS,
     unit: "积分",
     resets_at: nextUtc8Midnight(),

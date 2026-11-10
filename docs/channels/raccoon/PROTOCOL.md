@@ -542,14 +542,13 @@ def raccoon_supports_image(model_id, tags):
 | 每日积分发放 | 300 | `GET /api/web/office/v3/setting_info`（按天幂等） | 签到（触发 + 账单核对） |
 | 桌面端登录奖励 | 3000 | `POST …/login/points/grant`（幂等一次性） | 导出备用（不与签到混跑） |
 
-**「每日 300」目前只有 `[参考]` 级证据，未经实测确认**（2026-11-07 尝试过，三种办法都
-拿不到数）：① `setting_info` 触发器回来 `point_grant_popups: []`（当日无发放公告）；
-② 领一次后账单 `remain` 未变，`signin.claim()` 回「已触发发放，但今日账单暂未见入账」；
-③ bills 端点只有当日消耗记录（50 条全为负数）、翻页为空 —— 无任何历史发放样本可查。
+**「每日 300」已由账单实测确认**：本地签到台账连续多日记到 `+300`（`balance.before → after`
+为 261 → 561、565 → 865 等，`rewardSource: "channel"`，即账单里当天的发放记录；2026-11-07
+起每天一次）。单次探测仍可能拿不到样本（`setting_info` 的 `point_grant_popups` 常为空、
+账单入账异步），故 `signin.claim()` 用**触发 + 账单核对**的结论，额度重试由共享层台账接手。
 
-因此 `billing.quotaPeriod()` 的 `label` 写「每天发**约** 300 积分」，不把参考级数字
-说成承诺；日界（北京时间 0 点）是上游实打实的（`setting_info` 按天幂等、账单按
-UTC+8 切日），这一条可以信。
+因此 `billing.quotaPeriod()` 的 `label` 写「每天签到送 300 积分」；日界（北京时间 0 点）
+与数额都是实打实的（`setting_info` 按天幂等、账单按 UTC+8 切日）。
 
 **签到 = 触发 + 核对两步**：`setting_info` 只是**触发器**（官方桌面端每次启动都打，
 服务端按天幂等发放）；「今天有没有领到」以**账单**为准 —— 存在 `biz_type: 'daily_grant'`

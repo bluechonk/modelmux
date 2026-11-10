@@ -463,6 +463,10 @@ User-Agent: AStudio/3.4.4
 - `fetchCredits()` 报**积分余额**（通用 + 星火两个包），模型网关用量只用来报今日花费。
 - `signin.status()` → 余额摘要 + 套餐 + 待领弹窗明细；`claim()` →
   `init-app`（发奖）→ 关横幅 → 领下载奖励，并用余额差报「+N 积分」。
+- `quotaPeriod()` 报「每天签到送 100 积分」，日界为**本机自然日**：数额是本地签到台账
+  连续多日的实测值（`init-app` 前后余额差，2026-11-07 起每天 +100，如 7597 → 7697）；
+  日界依据是发奖动作按「当日首次调用」入账。`size` 报的是**每日发放额**而不是余额上限
+  —— 本渠道积分是累计余额、不随日清零。
 - 共享层的自动签到调度器在**网关 ready 时**跑一轮（`startAutoSignin`）——
   正好是 `init-app` 应该在「当日首次」调用的时机。
 
@@ -501,7 +505,7 @@ AStudio 桌面应用里也仍是登录态。
 | `cred.ts` | `load()` 读 AStudio 会话文件取 `modelBearerToken`；`login()` **两条路**：有界面走手机号+验证码（云端直连，`force` 重读、`/userInfo` 补全），无界面走会话文件（`pasteCode` 支持粘贴会话）；`refresh()` 带 Cookie 打 `/bot/models/configs` 取 `api_key`；`logout()` 删本地凭据 |
 | `upstream.ts` | `WIRE: "openai"`；`chatUrl()` = 模型网关 `/chat/completions`；`buildHeaders()` 只发 `Authorization: Bearer`；`buildChatBody()` 透传 + 校验 `reasoning_effort`；`fetchUserInfo()` 打 `/userInfo` 补全账号信息；**认证链路**：`fetchGeetestConfig()` / `sendSmsCode()` / `loginWithSms()` / `fetchTenantState()` / `fetchPointsBalance()`（见 §5） |
 | `catalog.ts` | **静态内置表**（7 个模型）；`modelSpec()` 给 `contextWindow` / `maxOutputTokens` / `effort` / `multiplier`（倍率只填实测值）；**无 `refresh()`** |
-| `billing.ts` | `fetchCredits()` 报**积分余额**（积分端点），模型网关 `/usage` 只用来补今日花费（尽力而为）；`signin` 走 `init-app` 发奖 + 关横幅 + 领下载奖励；**不实现 `quotaPeriod()`**（无额度墙可报） |
+| `billing.ts` | `fetchCredits()` 报**积分余额**（积分端点），模型网关 `/usage` 只用来补今日花费（尽力而为）；`signin` 走 `init-app` 发奖 + 关横幅 + 领下载奖励；`quotaPeriod()` 报「每天签到送 100 积分」（实测常量，日界本机自然日，见 §8.3） |
 | `channel.ts` | `capabilities: { billing: true, signin: true }` |
 
 ---

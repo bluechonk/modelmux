@@ -36,7 +36,6 @@ import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
 import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
-import { classifyModel } from "../lib/model-health";
 import { errorText, formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { OverviewResponse, UsageRange } from "../lib/types";
 
@@ -95,17 +94,6 @@ const MAX_SERIES = 6;
 function isTrustedMetaSource(source: string | undefined): boolean {
   return source === "registry" || source === "upstream";
 }
-
-/**
- * 模型健康度标签的文案与配色（判据同源，见 `lib/model-health.ts`）。
- *
- * 只有「异常」一种：零调用记录不挂标签（没数据 ≠ 不可用），有请求全失败才挂。
- * **没有「慢」也没有「排队」**：两者都是近 7 天的历史计数 —— 慢是人为阈值，
- * 排队只看「历史上发生过没有」，都不代表此刻的状态，挂上去是谎报。
- */
-const VERDICT_PILL: Record<"error", { text: string; cls: string }> = {
-  error: { text: "异常", cls: "bg-danger/12 text-danger" },
-};
 
 /** 分段控件（区间 / 热力图粒度共用）。 */
 function Segmented<T extends string>({
@@ -387,12 +375,14 @@ export function Dashboard(): ReactElement {
   const rangePending = usageQuery.isFetching && usageQuery.isPlaceholderData;
 
   /**
-   * 对外模型清单（**不显示渠道**）：模型名 + 跨渠道合并的健康度。
+   * 对外模型清单（**不显示渠道**）：模型名 + 平均 TPS + 输入模态。
    *
-   * 健康度按模型合并（各渠道的 ok/fail/queued 累加、TPS 取均值）—— 仪表盘回答的是
-   * 「这个模型现在能不能用、快不快」，落点渠道是网关的调度细节，不摆上来。
-   * 输入模态同样按模型合并，但取**并集**：同一模型的不同渠道能力不同（如 v4-flash
-   * astudio 只收文本、workbuddy 收图片），取并集才答得了「这个模型能不能收图」。
+   * **不挂状态标签**：这个模块只回答「对外有哪些模型、装得下多少」，可用性由网关
+   * 按账号池现况决定，近 7 天的历史计数（成功 / 失败 / 排队）不是此刻状态，挂上去
+   * 会误导（一条失败请求就把模型标成「异常」，而它下一分钟可能就正常）。
+   * 平均 TPS 按模型取各渠道成功请求的均值；输入模态取**并集** —— 同一模型的不同渠道
+   * 能力不同（如 v4-flash astudio 只收文本、workbuddy 收图片），取并集才答得了
+   * 「这个模型能不能收图」。
    */
   const modelRows = useMemo(() => {
     const byModel = new Map<string, {
@@ -401,9 +391,6 @@ export function Dashboard(): ReactElement {
       /** 上下文窗口：同模型跨渠道可能不同，取最大值（用户关心「最大能装多少」）。 */
       contextWindow: number | null;
       maxOutput: number | null;
-      ok: number;
-      fail: number;
-      queued: number;
       tpsSum: number;
       tpsCount: number;
     }>();
@@ -413,9 +400,6 @@ export function Dashboard(): ReactElement {
         modalities: new Set<string>(),
         contextWindow: null,
         maxOutput: null,
-        ok: 0,
-        fail: 0,
-        queued: 0,
         tpsSum: 0,
         tpsCount: 0,
       };
@@ -437,9 +421,6 @@ export function Dashboard(): ReactElement {
     for (const row of rangeStats?.models ?? []) {
       const cur = byModel.get(row.model);
       if (!cur) continue;
-      cur.ok += row.ok;
-      cur.fail += row.fail;
-      cur.queued += row.queued;
       if (row.avgTps !== null) {
         cur.tpsSum += row.avgTps;
         cur.tpsCount += 1;
@@ -450,12 +431,8 @@ export function Dashboard(): ReactElement {
       modalities: [...row.modalities],
       contextWindow: row.contextWindow,
       maxOutput: row.maxOutput,
-      verdict: classifyModel({
-        ok: row.ok,
-        fail: row.fail,
-        queued: row.queued,
-        avgTps: row.tpsCount > 0 ? row.tpsSum / row.tpsCount : null,
-      }),
+      // 平均 TPS：近 7 天各渠道成功请求的均值；算不出（无成功样本）显示 `-`
+      tps: row.tpsCount > 0 ? row.tpsSum / row.tpsCount : null,
     }));
   }, [state, rangeStats]);
 
@@ -742,17 +719,16 @@ export function Dashboard(): ReactElement {
           ) : (
             <div className="space-y-2">
               {modelRows.map((row) => {
-                const pill = row.verdict.status === null ? null : VERDICT_PILL[row.verdict.status];
                 return (
                   <div key={row.model}>
-                    {/* 第一行：模型名 + 健康度标签；TPS / 模态靠右对齐 */}
+                    {/* 第一行：模型名 + 平均 TPS / 输入模态（都靠右对齐）；**不挂状态标签** ——
+                        这个模块只说「有哪些模型」，可用性由网关按账号池现况决定，见 `modelRows` */}
                     <div className="flex items-center gap-2">
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="truncate font-mono text-xs text-ink">{row.model}</span>
-                        {pill && <span className={`pill shrink-0 ${pill.cls}`}>{pill.text}</span>}
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
+                        {row.model}
                       </span>
                       <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
-                        {row.verdict.tps === null ? "-" : `${Math.round(row.verdict.tps)} t/s`}
+                        {row.tps === null ? "-" : `${Math.round(row.tps)} t/s`}
                       </span>
                       {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
                       <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
