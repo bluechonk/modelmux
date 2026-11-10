@@ -18,6 +18,7 @@ import { useRef, type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { BackToTop } from "./BackToTop";
 import { BrandMark } from "./BrandMark";
+import { CopyButton } from "./CopyButton";
 import { GatewayStatus } from "./GatewayStatus";
 
 /** 顶部标签导航项（路由不变，仅视觉载体从侧栏移到头部）。 */
@@ -132,6 +133,19 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             <span className="whitespace-nowrap rounded-lg border border-warn/25 bg-warn/8 px-2 py-1 text-xs text-warn/90">
               演示模式
             </span>
+          )}
+          {/*
+            base_url 放顶栏最右（紧挨网关状态）：它是客户端唯一要填的地址，
+            放仪表盘卡里要滚到中部才看得到。窄屏（<900px）隐藏 —— 顶栏横向空间
+            要留给导航，地址在账号池页与文档里也能查到。
+          */}
+          {state.data?.base_url && (
+            <div className="hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[900px]:flex">
+              <span className="whitespace-nowrap font-mono text-xs text-ink-soft">
+                {state.data.base_url}
+              </span>
+              <CopyButton value={state.data.base_url} label="复制 base_url" />
+            </div>
           )}
           <GatewayStatus />
         </div>
