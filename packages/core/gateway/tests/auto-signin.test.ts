@@ -320,6 +320,29 @@ test("auto signin: 渠道级台账已签不影响 perAccount 渠道的其余账�
   });
 });
 
+test("auto signin: perAccount 渠道补额度不写渠道级 status.reward（不串号）", async () => {
+  await withIsolatedRoot(async () => {
+    const cid = "autosign-peraccount-scope";
+    const behavior: Behavior = {
+      perAccount: true,
+      // 渠道级 status 报「今天入账 777」——它读的是**生效凭证**，不是被补的那台账号
+      statusReward: { amount: 777, unit: "积分" },
+      // 余额不变（100 → 100）→ 差值口径拿不到数字，只能落到「不知道」
+      quotaSequence: Array.from({ length: 8 }, () => ({ remain: 100, unit: "积分" })),
+    };
+    setChannel(makeChannel(cid, behavior));
+    const { keyA } = seedTwoAccounts(cid, "acct-scope-b");
+
+    await autoSignin.runOnce(); // 第一轮：领取成功但渠道不回数额 → 台账记 null 待补
+    assert.equal(readLedger(cid).accounts?.[keyA]?.reward, null, "拿不到数额时记 null（不知道）");
+
+    await autoSignin.runOnce(); // 第二轮：补额度（这一步曾把渠道级的数写进账号台账）
+    const reward = readLedger(cid).accounts?.[keyA]?.reward;
+    assert.notEqual(reward?.amount, 777, "渠道级 status.reward 不得记到某个账号名下");
+    assert.equal(reward, null, "补不到该账号自己的数额就保持「不知道」，不猜");
+  });
+});
+
 test("auto signin: 账号级熔断只锁该账号，不牵连同渠道其他账号", async () => {
   await withIsolatedRoot(async () => {
     const cid = "autosign-peraccount-trip";

@@ -411,18 +411,17 @@ export function AccountCard({
               为什么固定两行而不是单行 truncate：渠道声明的文案长短差很大（workbuddyai 的
               「免费档每日 1 亿 token（本地 0 点刷新）· 账单口径为 credits」在 3 列布局下恒占两行，
               其余渠道一行），按内容走就必然参差；单行 truncate 又会把长文案截掉一半。
-              固定两行 + `line-clamp-2` 让「长文案显示两行、短文案留白到两行」，
-              所有卡卡头同高，信息也不丢（完整文案在额度详情浮层里另有）。
-              账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。 */}
-          <div className="mt-1 line-clamp-2 text-xs leading-4 text-ink-faint/70">
+              固定两行（`min-h-8`，`leading-4` 两行）+ `line-clamp-2` 让「长文案显示两行、
+              短文案留白到两行」，所有卡卡头同高，信息也不丢（完整文案在额度详情浮层里另有）。
+              账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。
+              渠道没声明周期时**不填占位文案**：这里写「暂无签到」这类字样，等于替
+              `capabilities.signin: false` 的渠道（workbuddyai / zcode）宣称一项它没有的功能；
+              「没这项功能」与「今天没签」是两回事，详情浮层的「今日签到」行按能力位整行不渲染。 */}
+          <div className="mt-1 line-clamp-2 min-h-8 text-xs leading-4 text-ink-faint/70">
             {billingError && billing === undefined ? (
               <span className="text-warn">额度周期未知（账单查询失败）</span>
-            ) : billing?.quota?.label?.trim() ? (
-              billing.quota.label
             ) : (
-              /* \u6CA1\u6709\u989D\u5EA6\u5468\u671F\u7684\u6E20\u9053\u660E\u8BF4\u300C\u6682\u65E0\u7B7E\u5230\u300D\uFF0C\u4E0D\u7559\u7A7A\u767D \u2014\u2014
-                 \u7559\u767D\u4F1A\u88AB\u8BFB\u6210\u300C\u8FD8\u6CA1\u52A0\u8F7D\u5B8C\u300D\uFF0C\u800C\u5B9E\u9645\u662F\u8FD9\u4E2A\u6E20\u9053\u5C31\u6CA1\u6709\u7B7E\u5230\u3002 */
-              "\u6682\u65E0\u7B7E\u5230"
+              billing?.quota?.label?.trim() ?? ""
             )}
           </div>
         </div>

@@ -30,12 +30,12 @@
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
-| astudio | AStudio（讯飞桌面 Agent） | 否（免费档） | 否 | 在册 |
+| astudio | AStudio（讯飞桌面 Agent） | 是（免费档，额度口径为积分） | 是 | 在册 |
 | lobsterai | LobsterAI（有道） | 是 | 是 | 在册（账号被上游封停，需重新登录） |
 | qoder | Qoder（国际版） | 是 | 是 | 在册 |
-| workbuddyai | WorkBuddyAI（国际版） | 是 | 是 | 在册 |
+| workbuddyai | WorkBuddyAI（国际版） | 是 | 否 | 在册 |
 | autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
-| zcode | ZCode（智谱 Coding Plan） | 是 | 是 | 在册 |
+| zcode | ZCode（智谱 Coding Plan） | 是 | 否 | 在册 |
 
 全部 13 个渠道均在册（`RETIRED_CIDS` 为空）。
 

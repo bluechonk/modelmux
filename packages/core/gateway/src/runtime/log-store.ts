@@ -209,8 +209,8 @@ export const SLOW_TTFB_MS = envInt("MODELMUX_SLOW_TTFB_MS", 10_000);
  * 生成速率阈值（tokens/s）：可信速率低于它即判「速率慢」。
  *
  * 实测（2026-11-05，1816 条）分布：p05 = 54 t/s —— 30 落在正常分布之外，抓的是真龟速；
- * 模型清单的「慢」标签另有口径（`model-health.ts` 的 `SLOW_TPS = 100`，长期平均），
- * 请求级用更宽的值避免把慢渠道的每条请求都标满。
+ * 池选路那边的参考速率是 100（`pool/pool-usage.ts` 的 `SPEED_REF_TPS`，长期平均，
+ * 只用来折速度系数、不给单条请求贴标签），请求级用更宽的值避免把慢渠道的每条请求都标满。
  */
 export const SLOW_TPS = envInt("MODELMUX_SLOW_TPS", 30);
 

@@ -204,7 +204,7 @@ export async function fetchCredits(
 
 // ── 签到 / 领取能力（共享层自动签到调度器用；见 SigninModule 契约）────────────
 
-import type { SigninModule } from "@modelmux/gateway";
+import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
 
 /**
  * 签到 / 领取：AStudio 有真实的签到链路（端点与实测见 docs/channels/astudio/PROTOCOL.md §8.2）。
@@ -351,10 +351,34 @@ export const signin: SigninModule = {
 
 // ── 额度周期（`BillingModule.quotaPeriod`）────────────────────────────────────
 
+/** 每日登录奖励（积分）—— 见 `quotaPeriod()` 的证据说明。 */
+const DAILY_LOGIN_POINTS = 100;
+
+/** 下一次**本机时区**的 0 点（epoch ms）。 */
+function nextLocalMidnight(now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
 /**
- * **刻意不实现** `quotaPeriod()`。
+ * 额度周期：**每天签到送 100 积分**。
  *
- * 契约原文：「渠道不认识自己的周期就别实现 —— 共享层有兜底（次日 0 点），
- * 编一个假的周期比不实现更糟。」本渠道是免费档、没有额度墙，
- * 报一个「按自然日重置」的周期是在编造不存在的额度概念。
+ * 数额依据：本地签到台账连续多日的实测值（`init-app` 前后的余额差，
+ * 2026-11-07 ~ 11-10 每天 +100，如 7597 → 7697），不是猜的。
+ *
+ * 日界依据：发奖动作 `init-app` 是**当日首次调用**才入账（重复调用不重复发放），
+ * 故日界是本机自然日 —— 与 loomy / traecn 同口径。
+ *
+ * 为什么声明它：账号卡头的额度周期文案读这里；本渠道**没有额度上限**（积分是累计余额，
+ * 不随日清零），所以 `size` 报的是**每日发放额**而不是余额上限 —— 与 traecn 同口径，
+ * 共享层只消费 `resets_at`（额度窗口键与冷却截止），不把 `size` 当余额。
  */
+export function quotaPeriod(): QuotaPeriod {
+  return {
+    label: "每天签到送 100 积分",
+    size: DAILY_LOGIN_POINTS,
+    unit: "积分",
+    resets_at: nextLocalMidnight(),
+  };
+}

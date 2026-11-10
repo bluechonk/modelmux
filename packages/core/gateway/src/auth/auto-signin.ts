@@ -158,6 +158,11 @@ function dailyRewardOf(status: SigninStatus | null): SigninReward | undefined {
  * 4. `carry`：跨额度窗口对比（上一窗口最后余额 → 当下），最弱口径，只在前三者都拿不到时用。
  *
  * 全拿不到返回 `null`（「不知道」），**不猜**；调用方用 `tries` 限制重试次数。
+ *
+ * 给定 `accountKey`（按账号签到的渠道）时**跳过第 1 档**：`status()` 是渠道级口径
+ * （读的是生效凭证），把这台账号的数字记到另一台账号名下是张冠李戴 —— 尤其当
+ * 生效账号已签、待补的那台没签时，会凭空给它写上「已签到 +100」。按账号补额度
+ * 交给 `delta`（前后余额差，本来就是该账号自己的凭据实测）与 `daily`（渠道公布的常量）。
  */
 async function resolveReward(
   channel: Channel,
@@ -176,7 +181,13 @@ async function resolveReward(
   } catch {
     // 状态查询失败：继续走余额口径（可能照样拿到数字）
   }
-  if (status?.reward && Number.isFinite(status.reward.amount) && status.reward.amount > 0) {
+  const channelLevel = accountKey === undefined;
+  if (
+    channelLevel &&
+    status?.reward &&
+    Number.isFinite(status.reward.amount) &&
+    status.reward.amount > 0
+  ) {
     return { reward: status.reward, source: "channel" };
   }
   const daily = dailyRewardOf(status);
