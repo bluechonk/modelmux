@@ -414,7 +414,7 @@ export function AccountCard({
               账单查询失败要**显式说明** —— 留空白会把「接口挂了」显示成「这个渠道没有周期」。
               没声明额度周期的渠道一律写「暂无签到」：上游没有每日签到就是没有，不编
               「签到无固定额度」这类说法 —— catpaw 只有一次性注册奖励、qoder 没有签到活动、
-              workbuddyai / zcode / qwenworkcn 连签到能力位都没有，对用户都是「这渠道没签到」。
+              workbuddyai / qwenworkcn 连签到能力位都没有，对用户都是「这渠道没签到」。
               详情浮层的「今日签到」行仍按能力位渲染，两处口径一致。 */}
           <div className="mt-1 truncate text-xs leading-4 text-ink-faint/70">
             {billingError && billing === undefined ? (

@@ -70,7 +70,6 @@
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表；账号 2026-11-05 重新登录验证有效） |
-| `zcode` | ZCode（`zcode.z.ai` Coding Plan，智谱） | [PROTOCOL](./channels/zcode/PROTOCOL.md)（Anthropic Messages 形态上游 + OAuth 轮询登录；协议事实来自参考实现逆向，**尚未真机验证**） |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）见下表。
 > GitHub 登录仅协议事实，未实现。

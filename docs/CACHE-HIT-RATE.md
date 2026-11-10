@@ -82,7 +82,7 @@
 | workbuddyai | 5 / 22 | 同 workbuddy（两套风格全给） | — |
 | qoder | 3 / 6 | `prompt_tokens_details.cached_tokens` | — |
 | catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
-| traecn / autoclaw / zcode | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
+| traecn / autoclaw | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
 
 要点：
 

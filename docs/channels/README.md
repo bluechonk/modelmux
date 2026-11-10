@@ -40,7 +40,7 @@ docs/channels/<cid>/
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：`PROTOCOL.md` 13 份（每个渠道一份）、`FINDINGS.md` 3 份
+当前落地：`PROTOCOL.md` 12 份（每个渠道一份）、`FINDINGS.md` 3 份
 （`catpaw` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
 后两者是**按需**的逆向结论层，不是每个渠道都有。
 
@@ -80,7 +80,6 @@ docs/channels/<cid>/
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
 | `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名（账号 2026-11-05 重新登录验证有效）—— **已下架** | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
-| `zcode` | ZCode（`zcode.z.ai` Coding Plan，智谱） | 上游是 **Anthropic Messages 形态**；OAuth 轮询登录拿 JWT（API Key 兑换回退）；无痕验证过码不实现（已知边界）；对外只暴露 `glm-5.3-flash` —— **尚未真机验证** | [PROTOCOL](./zcode/PROTOCOL.md) |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 

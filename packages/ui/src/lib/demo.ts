@@ -86,7 +86,6 @@ const DEMO_CHANNELS: DemoChannel[] = [
   // 故意留一个未登录渠道：「登录」这条动线需要演示对象（`demo.test.ts` 有此断言）
   { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
   { cid: "workbuddyai", display: "WorkBuddyAI", present: true, billing: true },
-  { cid: "zcode", display: "ZCode", present: true, billing: false },
 ];
 
 /**
@@ -109,7 +108,6 @@ const DEMO_MODELS: Record<string, string[]> = {
   traecn: ["deepseek-v4.1-flash"],
   workbuddy: ["deepseek-v4.1-flash"],
   workbuddyai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-  zcode: ["glm-5.3-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -137,11 +135,6 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
   autoclaw: [{ key: "demo000000000000i1", uid: "demo-uid-autoclaw-1", label: "demo-autoclaw-user", name: "demo-autoclaw-user", health: "ok", expiresInDays: 21 }],
   qoder: [{ key: "demo000000000000j1", uid: "demo-uid-qoder-1", label: "demo-qoder-intl", name: "demo-qoder-intl", health: "ok", expiresInDays: 14 }],
   workbuddyai: [{ key: "demo000000000000k1", uid: "demo-uid-wbai-1", label: "demo-wbai-user", name: "demo-wbai-user", health: "ok" }],
-  zcode: [
-    { key: "demo000000000000l1", uid: "demo-uid-zcode-1", label: "ZCode · demo", name: "ZCode · demo", health: "ok", expiresInDays: 9 },
-    // 与真实账号池当前状态一致：唯一账号被上游拒（token rejected），演示「渠道在册但不可用」
-    { key: "demo000000000000l2", uid: "demo-uid-zcode-2", label: "ZCode · 已失效", name: "ZCode · 已失效", health: "unauthorized", expiresInDays: -1 },
-  ],
 };
 
 /**

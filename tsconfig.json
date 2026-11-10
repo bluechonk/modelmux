@@ -38,9 +38,6 @@
       "path": "packages/core/channels/workbuddyai"
     },
     {
-      "path": "packages/core/channels/zcode"
-    },
-    {
       "path": "packages/cli"
     },
     {
