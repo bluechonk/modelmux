@@ -37,7 +37,7 @@ export function BackToTop({ target }: { target: RefObject<HTMLElement | null> })
       type="button"
       aria-label="回到顶部"
       onClick={scrollToTop}
-      className={`tap-square fixed bottom-[18px] right-[18px] z-40 grid h-10 w-10 place-items-center rounded-full border border-line-strong bg-overlay/85 text-ink-shadow shadow-lg backdrop-blur transition-[opacity,transform,background-color,border-color,color] duration-200 hover:border-[#5c5c5c] hover:bg-[#464646] hover:text-ink max-md:bottom-[14px] max-md:right-[14px] ${
+      className={`tap-square fixed bottom-[18px] right-[18px] z-40 grid h-10 w-10 place-items-center rounded-full border border-line-strong bg-overlay/85 text-ink-shadow shadow-lg backdrop-blur transition-[opacity,transform,background-color,color] duration-200 hover:bg-overlay hover:text-ink max-md:bottom-[14px] max-md:right-[14px] ${
         visible ? "visible translate-y-0 opacity-100" : "invisible translate-y-2 opacity-0"
       } motion-reduce:transition-none`}
       data-back-to-top

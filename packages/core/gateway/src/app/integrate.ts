@@ -101,8 +101,8 @@ function modelModalities(models: string[]): ModalityMap {
   return out;
 }
 
-/** 本次接入的对外模型名（供调用方/测试注入）。 */
-export function integrateClient(target: IntegrationTarget, models: string[] = exposedModels()): IntegrationResult {
+/** 按目标分发到各客户端的接入实现（`integrateClient` 的主体）。 */
+function integrateByTarget(target: IntegrationTarget, models: string[]): IntegrationResult {
   switch (target) {
     case "zcode":
       return integrateZcode(models);
@@ -113,6 +113,14 @@ export function integrateClient(target: IntegrationTarget, models: string[] = ex
     case "codex":
       return integrateCodex(models);
   }
+}
+
+/** 本次接入的对外模型名（供调用方/测试注入）。 */
+export function integrateClient(target: IntegrationTarget, models: string[] = exposedModels()): IntegrationResult {
+  const result = integrateByTarget(target, models);
+  // 整体成功才记「接入态」标记（开关式 UI 的状态源）；失败不动 —— 开关留在原位报错误
+  if (result.ok) writeIntegrationMarker(target, true);
+  return result;
 }
 
 // ── 备份与还原 ──────────────────────────────────────────────────────────────
@@ -147,6 +155,13 @@ interface BackupManifest {
   files: BackupEntry[];
   /** 最近一次用这份备份做还原的时刻（ISO）；老备份没有这个字段。 */
   restoredAt?: string;
+  /**
+   * 本次接入**成功写盘**的时刻（ISO）；老备份没有这个字段。
+   *
+   * 与 `restoredAt` 配对回答「这个目标现在是不是接入态」：最新一份清单里
+   * `integratedAt` 晚于 `restoredAt`（或没有 `restoredAt`）= 处于接入态。
+   */
+  integratedAt?: string;
 }
 
 /**
@@ -1637,5 +1652,78 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
   }
 
   result.ok = true;
+  writeIntegrationMarker(target, false);
   return result;
+}
+
+// ── 接入状态（开关式 UI 的状态源）────────────────────────────────────────────
+
+/** 每 target 的接入态标记（`<root>/backups/integrate/<target>.state.json`）。 */
+interface IntegrationMarker {
+  integrated: boolean;
+  /** 标记时刻（ISO）。 */
+  at: string;
+}
+
+function markerPathFor(target: IntegrationTarget): string {
+  backupRoot ??= join(rootDir(), "backups", "integrate");
+  return join(backupRoot, `${target}.state.json`);
+}
+
+/** 容错读：文件缺失 / 损坏 / 字段非法一律返回 null（调用方回落清单推断）。 */
+function readIntegrationMarker(target: IntegrationTarget): IntegrationMarker | null {
+  const file = markerPathFor(target);
+  if (!existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as IntegrationMarker;
+    if (typeof parsed.integrated !== "boolean") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 写接入态标记。失败静默：接入 / 还原本身已完成，标记丢了只会让开关回落到
+ * 清单推断（可能不准），不该为此把一次成功的接入报成失败。
+ */
+function writeIntegrationMarker(target: IntegrationTarget, integrated: boolean): void {
+  try {
+    writeJsonSecret(markerPathFor(target), {
+      integrated,
+      at: new Date().toISOString(),
+    } satisfies IntegrationMarker);
+  } catch {
+    /* 回落清单推断，见上 */
+  }
+}
+
+/**
+ * 老安装没有标记文件：回落到「最新一份可用清单」推断 —— 接入成功的清单没有
+ * `restoredAt`，视为在接入态。已知边界：接入失败（备份成功、写盘失败）也会留下
+ * 没有 `restoredAt` 的清单，会误报成已接入 —— 首次开关操作后标记文件即接管。
+ */
+function fallbackIntegrated(target: IntegrationTarget): boolean {
+  const scan = backupScanOf(target);
+  const latest = scan.sources[0];
+  if (latest === undefined) return false;
+  const manifest = readManifest(latest.dir);
+  if (manifest === null) return false;
+  return manifest.restoredAt === undefined;
+}
+
+/**
+ * 四个目标当前的接入态（开关式 UI 的状态源，随 `/api/state` 快照下发）。
+ *
+ * 判定顺序：标记文件（integrate / restore **整体成功**时写）→ 最新清单推断；
+ * 没有任何备份（从未接入过）= 未接入。
+ */
+export function integrationStatus(): Record<IntegrationTarget, boolean> {
+  const targets: IntegrationTarget[] = ["zcode", "dsh", "claude-desktop", "codex"];
+  const out = {} as Record<IntegrationTarget, boolean>;
+  for (const target of targets) {
+    const marker = readIntegrationMarker(target);
+    out[target] = marker ? marker.integrated : fallbackIntegrated(target);
+  }
+  return out;
 }

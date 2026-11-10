@@ -152,8 +152,20 @@ export interface UiSnapshot {
    * 前端硬编码渠道名 —— 否则每接一个订阅制渠道，前端就得跟着改一次。
    */
   channel_caps: Record<string, ChannelCaps>;
+  /**
+   * 各接入目标（zcode / dsh / claude-desktop / codex）当前的接入态（键 = target）。
+   *
+   * 开关式 UI 的状态源：true = 已接入（客户端配置已指向网关），false = 未接入。
+   * 由接入备份清单 + 标记文件推导（见 `app/integrate.ts` 的 `integrationStatus`）。
+   */
+  integrations: Record<string, boolean>;
+  /**
+   * 用户选的主题模式：`system`（跟随系统）/ `dark` / `light`。
+   *
+   * `system` 的解析（prefers-color-scheme）在**前端**做 —— 服务端不知道显示器设置。
+   * 持久化在 `~/.modelmux/setting.json`（写走 POST /api/theme）。
+   */
   theme_mode: string;
-  resolved_theme: string;
   gateway_error: string;
 }
 
@@ -171,8 +183,8 @@ export function emptySnapshot(): UiSnapshot {
     model_prefs: [],
     login_input: null,
     channel_caps: {},
+    integrations: {},
     theme_mode: "system",
-    resolved_theme: "dark",
     gateway_error: "",
   };
 }
