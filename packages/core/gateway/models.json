@@ -8,7 +8,7 @@
       "channels": {
         "traecn": "deepseek-v4.1-flash",
         "loomy": "DeepSeek-V4.1-Flash",
-        "workbuddy": "DeepSeek-V4.1-Flash",
+        "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017"
       }
     },
