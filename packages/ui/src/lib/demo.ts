@@ -86,12 +86,13 @@ const DEMO_CHANNELS: DemoChannel[] = [
   // 故意留一个未登录渠道：「登录」这条动线需要演示对象（`demo.test.ts` 有此断言）
   { cid: "workbuddy", display: "WorkBuddy", present: false, billing: true },
   { cid: "workbuddyai", display: "WorkBuddyAI", present: true, billing: true },
+  { cid: "qwenworkcn", display: "千问办公", present: true, billing: true },
 ];
 
 /**
  * 各渠道对外暴露的模型（演示集；候选集必须落在网关对外家族内）。
  *
- * 三个对外模型：`deepseek-v4.1-flash` / `glm-5.3-flash` / `longcat-2.5`。
+ * 对外模型：`deepseek-v4.1-flash` / `glm-5.3-flash` / `longcat-2.5` / `qwork-flash`。
  * `longcat-2.5` 目前只有 catpaw 供给 —— 演示里保留这个事实，否则看不出
  * 「单渠道模型排队就没有备选」这类真实约束。
  */
@@ -108,6 +109,8 @@ const DEMO_MODELS: Record<string, string[]> = {
   traecn: ["deepseek-v4.1-flash"],
   workbuddy: ["deepseek-v4.1-flash"],
   workbuddyai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
+  // 渠道级范围：qwenworkcn 只卖「标准」档 qwork-flash
+  qwenworkcn: ["qwork-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -135,6 +138,7 @@ const DEMO_ACCOUNTS: Record<string, DemoAccount[]> = {
   autoclaw: [{ key: "demo000000000000i1", uid: "demo-uid-autoclaw-1", label: "demo-autoclaw-user", name: "demo-autoclaw-user", health: "ok", expiresInDays: 21 }],
   qoder: [{ key: "demo000000000000j1", uid: "demo-uid-qoder-1", label: "demo-qoder-intl", name: "demo-qoder-intl", health: "ok", expiresInDays: 14 }],
   workbuddyai: [{ key: "demo000000000000k1", uid: "demo-uid-wbai-1", label: "demo-wbai-user", name: "demo-wbai-user", health: "ok" }],
+  qwenworkcn: [{ key: "demo000000000000m1", uid: "demo-uid-qwc-1", label: "demo-qwc-user", name: "demo-qwc-user", health: "ok" }],
 };
 
 /**
@@ -147,6 +151,7 @@ const DEMO_QUOTA: Record<string, { size: number; remain: number; unit: string }>
   catpaw: { size: 500, remain: 486, unit: "积分" },
   loomy: { size: 5000, remain: 4820, unit: "积分" },
   qodercn: { size: 600, remain: 228, unit: "credits" },
+  qwenworkcn: { size: 100, remain: 64, unit: "credits" },
   raccoon: { size: 800, remain: 610, unit: "积分" },
   traecn: { size: 2000, remain: 797, unit: "credits" },
 };
@@ -156,6 +161,7 @@ const DEMO_LEDGER: Record<string, { used: number; unit: string; ok: number; fail
   catpaw: { used: 128, unit: "credits", ok: 96, fail: 2, cooling: false },
   loomy: { used: 42, unit: "积分", ok: 30, fail: 0, cooling: false },
   qodercn: { used: 672, unit: "credits", ok: 210, fail: 3, cooling: false },
+  qwenworkcn: { used: 36, unit: "credits", ok: 12, fail: 0, cooling: false },
   raccoon: { used: 0, unit: "", ok: 12, fail: 1, cooling: true },
   traecn: { used: 1450, unit: "credits", ok: 88, fail: 4, cooling: false },
   workbuddy: { used: 0, unit: "", ok: 0, fail: 0, cooling: false },
@@ -254,6 +260,8 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
   const DEMO_SIZE: Record<string, { contextWindow: number; maxOutputTokens: number; vision?: boolean }> = {
     "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216, vision: true },
     "glm-5.3-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216 },
+    // qwork-flash：千问办公的「标准」档（1M 上下文 + 图片输入，与注册表口径一致）
+    "qwork-flash": { contextWindow: 1_000_000, maxOutputTokens: 32_000, vision: true },
   };
   /**
    * 演示「跨渠道推断」的渠道（真实口径见 POOL-ARCHITECTURE §2.7）：

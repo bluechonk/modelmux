@@ -470,31 +470,30 @@ export function AccountCard({
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
                 {/*
-                  账号行 = 单行（44px）：
-                    状态点 + 名称 + 短状态 pill + 状态标签（倒计时 / 需登录）+ 连败计数 | 额度 | 操作
+                  账号行 = 单行（44px），左右两块等分：
+                    左：状态点 + 名称（超长截断）
+                    右：状态 pill（与额度条一体）+ 连败计数 + 额度条 | 操作
                 */}
                 <div className="flex h-11 items-center gap-2 px-4 max-md:gap-1.5 max-md:px-3">
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
                     aria-label={meta.text}
                   />
-                  {/* 名称区：弹性，超长截断；pill 与操作按钮**不压缩**（它们在 44px 单行里必须完整可见） */}
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                  {/* 名称区：弹性，超长截断 —— 状态 pill 已并入右侧额度模块（标签与
+                      额度条一体，位置不随用户名长度漂移；名称过长在此截断即可） */}
+                  <div className="flex min-w-0 flex-1 items-center overflow-hidden">
                     <span className="min-w-0 truncate text-[13px] font-medium text-ink">{displayName(account)}</span>
+                  </div>
+                  {/* 状态 + 额度模块：状态 pill 贴着进度条，与名称的分界恒定（两个
+                      flex-1 平分一行），视觉上是一组而不是「名称的附件」 */}
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</span>
                     {failStreak > 0 && (health === "ok" || health === "unknown") && (
                       <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
                     )}
-                  </div>
-                  {/*
-                    额度条：整段可悬停 / 可聚焦 / 可点击固定，详情经 portal 浮层逐行展示
-                    （剩余额度 / 今日消耗 / 今日 tokens / 今日首次账单 + 状态原因）。
-                    订阅制渠道没有额度概念，直接写文字（不画恒满的条）。
-                    账单未到画骨架、失败画「账单失败」—— 都不伪装成「查过了但没数据」。
-                  */}
-                  {billing?.unsupported === true ? (
-                    <span className="shrink-0 text-xs text-ink-faint/70">订阅制 · 无额度概念</span>
-                  ) : (
+                    {billing?.unsupported === true ? (
+                      <span className="shrink-0 text-xs text-ink-faint/70">订阅制 · 无额度概念</span>
+                    ) : (
                     <button
                       type="button"
                       data-quota-meter
@@ -537,7 +536,7 @@ export function AccountCard({
                               },
                         );
                       }}
-                      className="tap flex w-[22%] min-w-0 shrink-0 items-center gap-2 rounded-md px-1 py-2 text-left transition-colors hover:bg-overlay/40 md:w-auto md:flex-1 md:max-w-[420px]"
+                      className="tap flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-2 text-left transition-colors hover:bg-overlay/40"
                     >
                       {billingLoading ? (
                         <>
@@ -551,6 +550,7 @@ export function AccountCard({
                       )}
                     </button>
                   )}
+                  </div>
                   {/*
                     操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 92px ——
                     两个键各自撑到 44px 的触控下限后，52px 装不下。
