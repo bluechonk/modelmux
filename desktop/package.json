@@ -2,11 +2,11 @@
   "name": "modelmux-desktop",
   "version": "0.1.4",
   "private": true,
-  "description": "modelmux Windows 便携壳（Electron）：双击自启网关 + 内嵌 Web 控制台",
+  "description": "modelmux Windows 桌面壳（Electron）：自启网关 + 内嵌 Web 控制台",
   "author": "bluechonk",
   "main": "main.cjs",
   "scripts": {
-    "pack": "electron-builder --win portable --x64"
+    "pack": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "43.8.7",
@@ -31,7 +31,7 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
@@ -41,9 +41,17 @@
       "signAndEditExecutable": false,
       "requestedExecutionLevel": "asInvoker"
     },
-    "portable": {
-      "artifactName": "modelmux.exe",
-      "unpackDirName": "modelmux"
-    }
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "modelmux",
+      "artifactName": "modelmux-setup-${version}.${ext}",
+      "uninstallDisplayName": "modelmux",
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": null
   }
 }

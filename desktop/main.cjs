@@ -8,6 +8,8 @@
  *     不依赖用户机器上装没装 Node —— 打包后没有第二份运行时。
  *   - 网关生命周期跟着窗口走：窗口关闭即停止，避免 4412 端口残留占位。
  *   - 端口已被占用时（用户自己 `mx start` 过）**直接复用**，不再起第二个实例。
+ *   - 单实例：已有实例在跑（含关窗后托盘后台）时，再次启动只把已有窗口调到前台；
+ *     未拿到锁的实例必须立刻退出，且不得再走启动流程（否则会闪窗、甚至抢 4412）。
  *   - 失败要分清原因：端口被占 ≠ 起动超时 ≠ 网关崩溃，错误页分别说明。
  */
 
@@ -23,12 +25,13 @@ const PORT = 4412;
 const BASE = `http://${HOST}:${PORT}`;
 
 /**
- * 便携模式：exe 同目录有 `data/`（内含 `channels/`）时，把它当存储根（MODELMUX_HOME）。
+ * 便携分支：`PORTABLE_EXECUTABLE_DIR`（便携打包壳注入，NSIS 安装器**不设**）指向的目录里
+ * 有 `data/`（内含 `channels/`）时，把它当存储根（MODELMUX_HOME）；否则走默认 `~/.modelmux`。
  *
  * 为什么不用 `__dirname`：portable exe 运行时先自解压到临时目录，`__dirname` 指向
  * 解压现场而非用户放 exe 的地方；electron-builder 会注入 `PORTABLE_EXECUTABLE_DIR`
  * 指向用户放 exe 的真实目录。`data/` 里存在 `channels/` 才认 —— 空目录不算，
- * 避免误触发便携模式导致账号「看不见」。
+ * 避免误触发便携分支导致账号「看不见」。
  *
  * 价值：`modelmux.exe` + `data/` 一起拷走，凭据随行，**换机免逐渠道重新登录**。
  * ⚠ `data/` 是明文凭据，不要放公共网盘 / 别人能碰的目录。
@@ -59,7 +62,37 @@ let reusedGateway = false;
 let tray = null;
 
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) app.quit();
+if (!gotLock) {
+  // 已有实例在跑：立刻退出，且**不能**再走下面的启动流程 —— 否则会闪一个窗口、
+  // 甚至因健康探测竞态再 fork 一个网关来抢 4412。
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    showWindow();
+    // Windows 前台锁：仅 win.focus() 常常压不上前台，必须由 app 层面 steal
+    app.focus({ steal: true });
+  });
+
+  app.whenReady().then(async () => {
+    // 去掉默认菜单：单页控制台用不上，还占一行原生高度
+    Menu.setApplicationMenu(null);
+
+    // 托盘常驻：关窗后网关继续跑，托盘是唯一的可见入口与退出通道
+    createTray();
+
+    // 已有网关在跑（用户自己 `mx start`）→ 复用，不再起第二个
+    const already = await probeHealth();
+    if (already) reusedGateway = true;
+    else startGateway();
+    refreshTrayMenu();
+
+    await createWindow();
+
+    app.on("activate", () => {
+      showWindow();
+    });
+  });
+}
 
 /** 探测 `/health`：返回 true 表示已有可用网关（含用户自己起的）。 */
 function probeHealth(timeoutMs = 1200) {
@@ -206,6 +239,7 @@ function showWindow() {
   }
   if (win.isMinimized()) win.restore();
   win.show();
+  win.moveTop();
   win.focus();
 }
 
@@ -307,30 +341,6 @@ function errorPage(hint) {
      <code>mx serve</code> 看实时输出。</p>
 </div>`;
 }
-
-app.on("second-instance", () => {
-  showWindow();
-});
-
-app.whenReady().then(async () => {
-  // 去掉默认菜单：单页控制台用不上，还占一行原生高度
-  Menu.setApplicationMenu(null);
-
-  // 托盘常驻：关窗后网关继续跑，托盘是唯一的可见入口与退出通道
-  createTray();
-
-  // 已有网关在跑（用户自己 `mx start`）→ 复用，不再起第二个
-  const already = await probeHealth();
-  if (already) reusedGateway = true;
-  else startGateway();
-  refreshTrayMenu();
-
-  await createWindow();
-
-  app.on("activate", () => {
-    showWindow();
-  });
-});
 
 /** 退出前停掉自己起的网关（复用的不动）。 */
 app.on("before-quit", () => {
