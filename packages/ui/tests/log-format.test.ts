@@ -15,7 +15,7 @@ import {
   formatCount,
   formatDateTime,
   formatDuration,
-  cachePairText,
+  cacheHitRateText,
   formatPercent,
   formatRate,
   formatRecoveryAt,
@@ -46,24 +46,34 @@ describe("formatPercent", () => {
   });
 });
 
-describe("cachePairText", () => {
-  it("有计数时展示命中 / 未命中，不自算比率", () => {
-    assert.equal(cachePairText({ hit: 1983, miss: 6 }), "1,983 / 6");
-    assert.equal(cachePairText({ hit: 0, miss: 1989 }), "0 / 1,989");
+describe("cacheHitRateText", () => {
+  it("用命中 / (命中 + 未命中) 算百分比", () => {
+    // 1983 / 1989 = 99.698% —— 不能因为接近满命中就显示 100%
+    assert.equal(cacheHitRateText({ hit: 1983, miss: 6 }), "99.7%");
+    assert.equal(cacheHitRateText({ hit: 1, miss: 1 }), "50%");
+    assert.equal(cacheHitRateText({ hit: 0, miss: 1989 }), "0%");
   });
 
-  it("没有缓存字段 → —（不显示成 0 命中）", () => {
-    assert.equal(cachePairText(null), "—");
-    assert.equal(cachePairText(undefined), "—");
+  it("99% 以上不四舍五入成 100%（近似满命中与真满命中是两件事）", () => {
+    assert.equal(cacheHitRateText({ hit: 996, miss: 4 }), "99.6%");
   });
 
-  it("只有写缓存、读写计数都缺 → —（写缓存不是命中）", () => {
-    assert.equal(cachePairText({ hit: null, miss: null }), "—");
+  it("没有缓存字段 → —", () => {
+    assert.equal(cacheHitRateText(null), "—");
+    assert.equal(cacheHitRateText(undefined), "—");
   });
 
-  it("单边缺值用 - 占位", () => {
-    assert.equal(cachePairText({ hit: 100, miss: null }), "100 / -");
-    assert.equal(cachePairText({ hit: null, miss: 100 }), "- / 100");
+  it("只写缓存（读写计数都缺）→ —（写缓存不是命中）", () => {
+    assert.equal(cacheHitRateText({ hit: null, miss: null }), "—");
+  });
+
+  it("分母为 0 → —（0/0 不是 0%，是没有可判定样本）", () => {
+    assert.equal(cacheHitRateText({ hit: 0, miss: 0 }), "—");
+  });
+
+  it("单边缺值按 0 计入分母", () => {
+    assert.equal(cacheHitRateText({ hit: 100, miss: null }), "100%");
+    assert.equal(cacheHitRateText({ hit: null, miss: 100 }), "0%");
   });
 });
 
