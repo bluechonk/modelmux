@@ -409,7 +409,10 @@ function integrateZcode(models: string[]): IntegrationResult {
     result.notes.push(`供应商 ${ZCODE_PROVIDER_NAME}：baseUrl=${baseUrl}，模型=${models.join(" / ")}`);
   }
 
-  // 逐模型的启用开关：补齐新模型、清掉该供应商下已下线的旧模型
+  // 逐模型的启用开关：补齐新模型、清掉该供应商下已下线的旧模型；
+  // 并按模型清单的输入模态声明 `properties.inputFormat.supportsImage` —— 不声明的话
+  // 客户端在本地就把图片拦下，网关再能转也没用（schema 见 zcode 客户端的既有条目）。
+  const modalities = modelModalities(models);
   const modelRules = ((config["modelConfigRules"] ??= {}) as Record<string, unknown>);
   const providerModelRules = (modelRules["providerModelRules"] ??= []) as Array<Record<string, unknown>>;
   const wanted = new Set(models);
@@ -417,13 +420,21 @@ function integrateZcode(models: string[]): IntegrationResult {
     (r) => !(r["providerId"] === ZCODE_PROVIDER_ID && !wanted.has(String(r["modelId"]))),
   );
   for (const model of models) {
+    const supportsImage = (modalities.get(model) ?? ["text"]).includes("image");
     const hit = kept.find((r) => r["providerId"] === ZCODE_PROVIDER_ID && r["modelId"] === model);
     if (hit) {
       const c = (hit["config"] ??= {}) as Record<string, unknown>;
       c["enabled"] = true;
+      const props = (c["properties"] ??= {}) as Record<string, unknown>;
+      const inputFormat = (props["inputFormat"] ??= {}) as Record<string, unknown>;
+      inputFormat["supportsImage"] = supportsImage;
     } else {
-      kept.push({ modelId: model, providerId: ZCODE_PROVIDER_ID, config: { enabled: true } });
-      result.notes.push(`新增模型启用项 ${model}`);
+      kept.push({
+        modelId: model,
+        providerId: ZCODE_PROVIDER_ID,
+        config: { enabled: true, properties: { inputFormat: { supportsImage } } },
+      });
+      result.notes.push(`新增模型启用项 ${model}${supportsImage ? "（含图片输入）" : ""}`);
     }
   }
   modelRules["providerModelRules"] = kept;
