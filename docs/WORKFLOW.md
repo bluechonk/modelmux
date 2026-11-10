@@ -27,6 +27,10 @@
 **按需使用**。仓库只有一个网关端口 4412 和共享的 `~/.modelmux` 存储根，worktree 不能用来
 并行跑两个真实网关。
 
+落点与清理规则在全局 `~/.agents/AGENTS.md`：落点固定 `.zcode/worktrees/<name>`，新建
+`git worktree add .zcode/worktrees/<name> -b <branch>`，收尾 `git worktree remove` +
+`git branch -d`（不手删目录）。本节只写本仓库特有的事项。
+
 1. 什么时候开：
    - 多个 agent 同时做互不依赖的分支；
    - 一个长任务保留未提交改动，同时另一个任务要用 `main`；
@@ -36,18 +40,16 @@
    - 简单顺序任务、单文件改动；
    - 需要真实账号 + 真实网关的并行 e2e（端口与账号池状态会冲突）；
    - 磁盘或安装时间不允许每棵树都跑 `npm ci`。
-3. 落点：仓库同级目录 `../modelmux-worktrees/<branch>`，不要放在仓库根目录内
-   （`verify-docs` / `verify-storage` / npm workspaces 会扫到嵌套目录）。
-4. 每棵树独立：`npm ci`、`dist/`、`node_modules/` 都不共享 —— 开树用
-   `node scripts/worktree-init.mjs <path> [branch]` 一条命令完成
-   add + install + `.tmp/` 建立 + 依赖冒烟；落树后不装依赖就跑测试，报错形态
-   与代码问题难区分（Claude Desktop 开 worktree 开发本项目时踩过这一整串）。
-5. 全局 `mx` 指向主工作树的 bundle；在 worktree 里用 `node packages/cli/dist/cli.js`
+3. 每棵树独立：`npm ci`、`dist/`、`node_modules/` 都不共享 —— 开树用
+   `node scripts/worktree-init.mjs <name> [branch]` 一条命令完成 add + install + `.tmp/`
+   建立 + 依赖冒烟；落树后不装依赖就跑测试，报错形态与代码问题难区分（Claude Desktop
+   开 worktree 开发本项目时踩过这一整串）。落点由脚本按 `.zcode/worktrees/` 拼。
+4. 全局 `mx` 指向主工作树的 bundle；在 worktree 里用 `node packages/cli/dist/cli.js`
    或在该树里重新 `npm link`。
+5. `.zcode/` 已在 `.gitignore` 里（`verify-storage` 也因此不会扫到树内产物）。
 6. 并行任务用 `PLAN_ID` 绑定 `.planning/`，不要把计划文件写到别的树。
 7. `.githooks/pre-push` 用 `git rev-parse --show-toplevel` 解析当前工作树；不要在 hook 里
    用 hook 文件所在目录推导仓库根（linked worktree 会指到主工作树）。
-8. 清理：`git worktree remove <path>`，再 `git worktree prune`。
 
 ## 浏览器视觉校验
 

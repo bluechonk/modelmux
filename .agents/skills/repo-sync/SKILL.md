@@ -215,7 +215,8 @@ done
 - 双实例（如 4413 调试实例）：重启后确认 `health=200`；日志按**分层目录**落
   （`~/.modelmux/logs/system/<日期>/`，实例各自写自己的 `worker.log`），见
   [`docs/LOGGING.md`](../../../docs/LOGGING.md) §2。
-- 在 linked worktree 里收尾：先读 `AGENTS.md` 的「Worktree 约束」；删分支前先
+- 在 linked worktree 里收尾：先读 [`docs/WORKFLOW.md`](../../../docs/WORKFLOW.md) 的「Worktree 约束」
+  （落点与清理规则在全局 `~/.agents/AGENTS.md`）；删分支前先
   `git worktree remove` + `git worktree prune`。
 
 ## 6. 常见错误（都真机踩过）

@@ -78,21 +78,15 @@ squash 会把 PR body 并进 main 上的 commit body，所以 **PR body 必须�
 CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verify-commits`，**合并前**就能
 拦住不合规的 PR body（2026-11-08 事故：PR #349 分支绿、合并后 main 红）。
 
-### 工作树落点
+### 工作树内的验证
 
-并行开发一律用 git worktree，落点固定在 **`.claude/worktrees/<name>`**。
+工作树的落点、新建与清理规则在全局 `~/.agents/AGENTS.md`（`.zcode/worktrees/<name>`），此处不重复；
+本仓库特有的两条：
 
-- 只允许这一层落点。禁止在 `default-workspace/` 或仓库根另建目录（如 `../modelmux-worktrees/`、
-  `../modelmux-desktop-wt`）—— 它们不受 `git worktree` 注册管理，会成为无人回收的裸拷贝。
-- 新建用 `git worktree add .claude/worktrees/<name> -b <branch>`；用完用
-  `git worktree remove .claude/worktrees/<name>` 收尾，不要手删目录（会留下空壳与残留注册）。
-- 工作树里**必须**有独立 `node_modules`（`npm install`）：否则包解析会落到主仓库，
-  改动看似生效、实际跑的是主仓库代码（2026-11-08 实测踩过）。
 - 工作树内验证前先确认包解析指向工作树自己：
   `node -e "console.log(require('module').createRequire(process.cwd()+'/packages/cli/package.json').resolve('@modelmux/gateway'))"`
-  路径必须含 `.claude/worktrees/<name>`。
+  路径必须含 `.zcode/worktrees/<name>`。
 - 大改动用 `npx tsc -b --force` 重建：`tsc -b` 有增量缓存，bundle 会留着旧代码。
-- 已合并的分支与其工作树及时清理（`chore/repo-sync` 的职责之一，见下）。
 
 ### repo-sync
 
