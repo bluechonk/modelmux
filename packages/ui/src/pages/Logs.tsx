@@ -14,7 +14,7 @@ import { api } from "../lib/api";
 import {
   countOrDash,
   formatBytes,
-  formatCacheRate,
+  cachePairText,
   formatClock,
   formatCount,
   formatDateTime,
@@ -226,7 +226,7 @@ const COL_WIDTHS = {
   model: "",
   duration: "64px",
   tokensPerSec: "72px",
-  cache: "48px",
+  cache: "132px",
   tokens: "156px",
 } as const;
 
@@ -244,7 +244,7 @@ const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
   model: "",
   duration: "64px",
   tokensPerSec: "72px",
-  cache: "48px",
+  cache: "132px",
   tokens: "156px",
 };
 
@@ -271,7 +271,7 @@ const LOG_COLS: LogCol[] = [
   { key: "model", label: "模型" },
   { key: "duration", label: "耗时", align: "right", wide: true },
   { key: "tokensPerSec", label: "TPS", align: "right", wide: true },
-  { key: "cache", label: "缓存", align: "right", wide: true },
+  { key: "cache", label: "缓存 命中/未命中", align: "right", wide: true },
   { key: "tokens", label: "tokens（入/出）", align: "right", wide: true },
 ];
 
@@ -369,7 +369,7 @@ function LogCell({
     case "tokensPerSec":
       return <td className={numClass}>{formatTokensPerSec(entry)}</td>;
     case "cache":
-      return <td className={numClass}>{formatCacheRate()}</td>;
+      return <td className={numClass}>{cachePairText(entry.tokens?.cache)}</td>;
     case "tokens":
       return <td className={numClass}>{tokensPairText(entry.tokens)}</td>;
   }
@@ -395,7 +395,8 @@ function LogTable({
   const narrow = useNarrow();
   const cols = narrow ? LOG_COLS.filter((col) => !col.wide) : LOG_COLS;
   const widths: Record<keyof typeof COL_WIDTHS, string> = narrow ? NARROW_COL_WIDTHS : COL_WIDTHS;
-  const headClass = "px-3 py-2 font-normal";
+  // whitespace-nowrap：`table-fixed` 下中文表头会在空格处折成竖排（「缓存 命中/未命中」挤成 5 行）
+  const headClass = "whitespace-nowrap px-3 py-2 font-normal";
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">

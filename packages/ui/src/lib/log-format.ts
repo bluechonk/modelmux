@@ -256,12 +256,20 @@ export function formatPercent(rate: number | null | undefined): string {
 }
 
 /**
- * 缓存命中率展示：**只认上游返回的命中率字段**。
+ * 缓存列展示：**给上游回过的计数，不给自算比率**。
  *
- * 实测（2026-11-05，逐条扫全部渠道 usage 叶子字段）没有任何上游回比率，只回命中 /
- * 未命中的 token 计数 —— 按「不自己算比率」的口径，这里恒为 `—`；上游计数在展开详情里
- * 原样展示（`命中 X · 未命中 Y`）。口径出处：docs/CACHE-HIT-RATE.md §7。
+ * 口径见 docs/CACHE-HIT-RATE.md §7：没有任何上游回「命中率」字段，比率只能自己相除，
+ * 所以不展示百分比。但列表里恒显示 `—` 会让整列没有信息量 —— 有计数时展示
+ * `命中 / 未命中`（与 tokens 列同风格），没有缓存字段时才是 `—`。
+ *
+ * `hit` 与 `miss` 都为空（上游只给了写缓存）时同样返回 `—`：
+ * 写缓存不是命中，不该显示成 0 命中。
  */
-export function formatCacheRate(): string {
-  return "—";
+export function cachePairText(
+  cache: NonNullable<AccessLogEntry["tokens"]>["cache"] | null | undefined,
+): string {
+  if (!cache) return "—";
+  const { hit, miss } = cache;
+  if (hit === null && miss === null) return "—";
+  return `${hit === null ? "-" : formatTokens(hit)} / ${miss === null ? "-" : formatTokens(miss)}`;
 }
