@@ -13,9 +13,10 @@
  *   - 失败要分清原因：端口被占 ≠ 起动超时 ≠ 网关崩溃，错误页分别说明。
  */
 
-const { app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage } = require("electron");
+const { app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, ipcMain, nativeTheme } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 
@@ -249,25 +250,72 @@ function showWindow() {
   win.focus();
 }
 
+/** 窗口背景色随主题（深 = surface，浅 = canvas），与 web 的根底色一致。 */
+function windowBackground() {
+  return nativeTheme.shouldUseDarkColors ? "#171717" : "#f9f9f9";
+}
+
+/** 用户主题（`<root>/setting.json` 的 theme 字段）；缺失 / 损坏 / 非法 → 跟随系统。 */
+function startupTheme() {
+  try {
+    const root = portableDataDir() ?? path.join(os.homedir(), ".modelmux");
+    const raw = JSON.parse(fs.readFileSync(path.join(root, "setting.json"), "utf8"));
+    if (raw?.theme === "dark" || raw?.theme === "light" || raw?.theme === "system") return raw.theme;
+  } catch {
+    /* 缺失 / 损坏 → 跟随系统 */
+  }
+  return "system";
+}
+
 async function createWindow() {
+  // 标题栏隐藏：顶栏即拖拽区，窗口控制钮由 web 顶栏渲染（经 preload 桥调回来）。
+  // 背景色在 loadURL **之前**按主题设对 —— 首帧不闪错色。
+  nativeTheme.themeSource = startupTheme();
   win = new BrowserWindow({
     width: 1300,
     height: 1000,
     minWidth: 800,
     minHeight: 600,
-    backgroundColor: "#171717",
+    backgroundColor: windowBackground(),
+    titleBarStyle: "hidden",
     show: false,
     title: "modelmux",
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
-      // 控制台是普通网页：不需要 Node，保持隔离
+      // 控制台是普通网页：不需要 Node，保持隔离；唯一 preload 是窗口控制桥
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      preload: path.join(__dirname, "preload.cjs"),
     },
   });
 
   win.once("ready-to-show", () => win?.show());
+
+  // 主题 / 系统深浅变化 → 窗口背景跟随（resize 边缘与首帧不再露出深色残边）
+  const followTheme = () => win?.setBackgroundColor(windowBackground());
+  followTheme();
+  nativeTheme.on("updated", followTheme);
+
+  // 窗口控制桥的白名单通道（渲染层能做的只有这几件事；close 走 close→托盘拦截）
+  ipcMain.handle("win:minimize", () => win?.minimize());
+  ipcMain.handle("win:toggle-maximize", () => {
+    if (!win) return;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+  ipcMain.handle("win:close", () => win?.close());
+  ipcMain.handle("win:is-maximized", () => win?.isMaximized() ?? false);
+  ipcMain.handle("theme:set", (_event, mode) => {
+    if (mode !== "system" && mode !== "dark" && mode !== "light") return;
+    nativeTheme.themeSource = mode;
+    followTheme();
+  });
+
+  // 最大化状态推送给顶栏的窗口控制钮（图标在最大化 / 还原间切换）
+  const pushMaximize = () => win?.webContents.send("win:maximize-changed", win.isMaximized());
+  win.on("maximize", pushMaximize);
+  win.on("unmaximize", pushMaximize);
 
   // 外链交给系统浏览器
   win.webContents.setWindowOpenHandler(({ url }) => {

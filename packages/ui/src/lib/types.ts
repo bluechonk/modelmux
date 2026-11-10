@@ -67,6 +67,20 @@ export interface UiSnapshot {
   gateway_error: string;
 }
 
+/** 桌面壳的窗口控制桥（desktop/preload.cjs 经 contextBridge 暴露；浏览器里不存在）。 */
+declare global {
+  interface Window {
+    modelmuxWindow?: {
+      minimize(): Promise<void>;
+      toggleMaximize(): Promise<void>;
+      close(): Promise<void>;
+      isMaximized(): Promise<boolean>;
+      onMaximizeChange(callback: (maximized: boolean) => void): () => void;
+      setTheme(mode: "system" | "dark" | "light"): Promise<void>;
+    };
+  }
+}
+
 /**
  * 单个模型的元数据（与共享层 `PoolModelMeta` 对齐）。
  *

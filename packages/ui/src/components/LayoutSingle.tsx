@@ -21,6 +21,7 @@ import { BrandMark } from "./BrandMark";
 import { CopyButton } from "./CopyButton";
 import { GatewayStatus } from "./GatewayStatus";
 import { ThemeToggle } from "./ThemeToggle";
+import { WindowControls } from "./WindowControls";
 
 /** 顶部标签导航项（路由不变，仅视觉载体从侧栏移到头部）。 */
 const NAV = [
@@ -93,7 +94,12 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         头部：品牌 + Tabs + 网关控制。吸顶（页面级滚动在 main，头部常驻）。
         窄屏 Tabs 横向滚动（overflow-x-auto），不再需要抽屉。
       */}
-      <header className="flex h-14 flex-none items-center gap-3 border-b border-line bg-surface px-4">
+      {/*
+        头部：品牌 + Tabs + 顶栏右侧簇 + 网关控制。吸顶（页面级滚动在 main，头部常驻）。
+        桌面壳里顶栏同时是**拖拽区**（frameless 窗口的移动把手）：可点子元素逐个 no-drag，
+        缺一个点击就会被拖拽区吞掉；浏览器里 app-region 无效果，类挂着无害。
+      */}
+      <header className="drag-region flex h-14 flex-none items-center gap-3 border-b border-line bg-surface px-4">
         <div className="flex flex-none items-center gap-2">
           {/* 32px：header 高 56px，20px 的图标在彩色角色图上认不出内容；
               圆角 8px 让方图与整体的圆角语言一致 */}
@@ -104,7 +110,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           </span>
         </div>
         <nav
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+          className="no-drag flex flex-none items-center gap-1 overflow-x-auto"
           aria-label="主导航"
         >
           {NAV.map(({ to, label, icon: Icon }) => (
@@ -113,7 +119,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
               to={to}
               aria-label={label}
               className={({ isActive }) =>
-                `nav-item tap-square flex flex-none items-center whitespace-nowrap ${
+                `no-drag nav-item tap-square flex flex-none items-center whitespace-nowrap ${
                   isActive ? "bg-raised text-ink" : "text-ink-soft hover:bg-raised/60 hover:text-ink"
                 }`
               }
@@ -129,6 +135,13 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             </NavLink>
           ))}
         </nav>
+        {/*
+          导航与右侧簇之间的**纯拖拽条**：导航是滚动容器（overflow-x-auto），滚动容器
+          会挡住 app-region 的拖拽命中 —— 顶栏的空白区域必须是一条独立的拖拽元素，
+          否则「按住顶栏空白处拖不动窗口」（实测）。压在它上面的可点元素都在各自的
+          no-drag 区里，互不影响。
+        */}
+        <div className="drag-region h-full min-w-4 flex-1" aria-hidden="true" />
         <div className="flex flex-none items-center gap-3">
           {IS_DEMO && (
             <span className="whitespace-nowrap rounded-lg border border-warn/25 bg-warn/8 px-2 py-1 text-xs text-warn/90">
@@ -141,7 +154,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             要留给导航，地址在账号池页与文档里也能查到。
           */}
           {state.data?.base_url && (
-            <div className="hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[900px]:flex">
+            <div className="no-drag hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[900px]:flex">
               <span className="whitespace-nowrap font-mono text-xs text-ink-soft">
                 {state.data.base_url}
               </span>
@@ -150,6 +163,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           )}
           <ThemeToggle />
           <GatewayStatus />
+          <WindowControls />
         </div>
       </header>
 
