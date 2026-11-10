@@ -915,8 +915,24 @@ function codexCatalogPath(): string {
  * 为什么只写对外模型：Codex 的模型选择器会把这个目录整个列出来，把 100+ 个内部
  * 池 id 塞进去没人看得懂。对外只有家族表那几个裸名。
  *
- * 字段按 Codex 的 schema 给最小合法集（`slug` / `display_name` / `base_instructions`
- * / `supported_reasoning_levels` 是必填，缺任一项整份文件解析失败）。
+ * 字段按 Codex 的 schema 给**实测最小必填集**（Codex 0.163 逐轮探测得出）：
+ * `slug` / `display_name` / `base_instructions` / `supported_reasoning_levels` /
+ * `shell_type` / `visibility` / `supported_in_api` / `priority` / `support_verbosity` /
+ * `truncation_policy` / `experimental_supported_tools`，缺任一项整份文件解析失败
+ * （报 `missing field \`xxx\``）。
+ *
+ * 三处字段形状必须严格照 schema：`supported_reasoning_levels` 的元素是
+ * `{effort, description}` 对象而非裸字符串（实测报
+ * `invalid type: string "low", expected struct ReasoningEffortPreset`）；`visibility`
+ * 的枚举只有 `list` / `hide`（写 `public` 同样解析失败）；`truncation_policy` 是
+ * `{mode, limit}` 对象。
+ *
+ * 刻意**不**继承内置目录的实验工具（`experimental_supported_tools` 置空）：那些是
+ * Codex 自家模型的内部工具，第三方模型声明了只会让 Codex 发它不认识的工具调用。
+ *
+ * `support_verbosity` 必须为 `false`：网关的 Responses 适配器只转发
+ * `reasoning.effort`，不转发 `text.verbosity`。声明 `true` 会让 Codex 在用户配置
+ * `model_verbosity` 时发送该字段，随后被网关静默丢弃。
  */
 function writeCodexCatalog(models: string[]): string {
   const path = codexCatalogPath();
@@ -930,17 +946,34 @@ function writeCodexCatalog(models: string[]): string {
       base_instructions: CODEX_BASE_INSTRUCTIONS,
       apply_patch_tool_type: "freeform",
       supported_in_api: true,
-      supported_reasoning_levels: ["low", "medium", "high"],
+      supported_reasoning_levels: CODEX_REASONING_PRESETS,
       default_reasoning_level: "medium",
+      shell_type: "shell_command",
+      visibility: "list",
+      priority: 0,
+      support_verbosity: false,
+      truncation_policy: { mode: "tokens", limit: 10_000 },
+      experimental_supported_tools: [],
       context_window: 1_048_576,
       max_context_window: 1_048_576,
-      visibility: "public",
     })),
   };
   mkdirSync(dirname(path), { recursive: true });
   writeVerified(path, `${JSON.stringify(doc, null, 2)}\n`, 0o600);
   return path;
 }
+
+/**
+ * Codex 模型目录里的推理档位（`ReasoningEffortPreset`）。
+ *
+ * 只给 `low` / `medium` / `high` 三档：网关各渠道的真实档位未在 `/v1/models`
+ * 里声明（`effort` 均为 null），多给的档位只会变成选了也没效果的空选项。
+ */
+const CODEX_REASONING_PRESETS = [
+  { effort: "low", description: "Fast responses with lighter reasoning" },
+  { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+  { effort: "high", description: "Greater reasoning depth for complex problems" },
+];
 
 /**
  * Codex 的 base instructions（`base_instructions` 是 catalog 每条目的必填项）。
