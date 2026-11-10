@@ -1,18 +1,21 @@
 /**
- * 打包 Windows 便携 exe：`npm run desktop`（仓库根）。
+ * 打包 Windows 安装包：`npm run desktop`（仓库根）。
  *
  * 流程：构建 CLI bundle → 拷贝 payload（bundle + Web UI + 模型注册表）进 desktop/app/
- * → electron-builder 打 portable 单文件 → desktop/dist/modelmux.exe。
+ * → electron-builder 打 NSIS 一键安装器 → desktop/dist/modelmux-setup-<版本>.exe。
+ *
+ * 为什么是安装器而不是便携单文件：electron-builder 的 portable 目标每次启动都会
+ * 删掉 %TEMP% 下的解压目录再全量解压（应用运行时约 20s），既拖慢「再次点击」也不安全。
+ * 安装到固定目录后，第二次启动直接拉起已安装的 exe，单实例事件 0.3s 内到达。
  *
  * 约束（实测见 docs/DESKTOP-APP.md）：
- *   - Electron 运行时对路径敏感：本脚本只在打包（不执行 Electron），
- *     但 dev 直跑 `electron .` 必须在短路径下，仓库深路径会静默退出 / 段错误；
- *   - 产物自解压到 %TEMP%（短路径），双击位置不限 —— 真机实测为准；
+ *   - Electron 运行时对路径敏感：dev 直跑 `electron .` 必须在短路径下，
+ *     仓库深路径会静默退出 / 段错误；
  *   - `desktop/` **不进 npm workspaces**：Electron 工具链与主仓隔离，
  *     避免 `npm install` 给所有开发者拉 100MB+ 的 Electron。
  */
 
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,15 +74,18 @@ cpSync(path.join(cliDist, "models.json"), path.join(appDir, "models.json"));
 cpSync(path.join(cliDist, "ui"), path.join(appDir, "ui"), { recursive: true });
 cpSync(path.join(cliDist, "models"), path.join(appDir, "models"), { recursive: true });
 
-// 4) portable 单文件
-console.log("[desktop] electron-builder portable …");
-run("npx", ["electron-builder", "--win", "portable", "--x64"], { cwd: desktop });
+// 4) NSIS 一键安装器
+console.log("[desktop] electron-builder nsis …");
+run("npx", ["electron-builder", "--win", "nsis", "--x64"], { cwd: desktop });
 
-const out = path.join(desktop, "dist", "modelmux.exe");
+const desktopPkg = JSON.parse(readFileSync(path.join(desktop, "package.json"), "utf8"));
+const outName = `modelmux-setup-${desktopPkg.version}.exe`;
+const out = path.join(desktop, "dist", outName);
 if (!existsSync(out)) {
-  console.error("[desktop] 产物缺失：desktop/dist/modelmux.exe");
+  console.error(`[desktop] 产物缺失：desktop/dist/${outName}`);
   process.exit(1);
 }
 
-console.log(`[desktop] 完成：desktop/dist/modelmux.exe`);
-console.log("[desktop] 拷到桌面等**短路径**再双击：原地（仓库 dist 深路径）会挂起，见 docs/DESKTOP-APP.md §3。");
+console.log(`[desktop] 完成：desktop/dist/${outName}`);
+console.log("[desktop] 双击安装：装到 %LOCALAPPDATA%\\Programs\\modelmux-desktop，并在桌面建 modelmux 快捷方式。");
+console.log("[desktop] 之后**双击桌面快捷方式**启动；已运行时再点会把已有窗口调到前台。");
