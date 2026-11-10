@@ -18,6 +18,7 @@ import "@modelmux/lobsterai";
 import "@modelmux/loomy";
 import "@modelmux/qoder";
 import "@modelmux/qodercn";
+import "@modelmux/qwenworkcn";
 import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
