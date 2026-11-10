@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -651,8 +651,8 @@ describe("一键接入 codex", () => {
     const file = seedCodex();
     const result = integrateClient("codex", MODELS);
     assert.equal(result.ok, true);
-    // 目录与配置都是接入产物，都要在 changed 里
-    assert.deepEqual(result.changed, [file, join(home, ".modelmux", "codex-model-catalog.json")]);
+    // 目录与配置都是接入产物，都要在 changed 里（先写目录，见 integrateCodex 的顺序说明）
+    assert.deepEqual(result.changed, [join(home, ".modelmux", "codex-model-catalog.json"), file]);
     const after = readFileSync(file, "utf8");
     // 顶层键落在首个表头之前（TOML 顶层键的硬约束）
     const firstTable = after.indexOf("[");
@@ -821,18 +821,26 @@ name = "OpenAI"
     );
   });
 
-  it("catalog 已是同一模型集的等价内容时不误报写入失败", () => {
+  it("catalog 被并发写者换成等价内容且目标只读时，接入不误报写入失败", () => {
     seedCodex();
     assert.equal(integrateClient("codex", MODELS).ok, true);
     const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
-    // 模拟并发写者留下等价内容：同一 id 集、不同序列化（紧凑 JSON）
+    // 模拟并发写者：目标已是同一模型集的等价内容（紧凑 JSON）且只读 ——
+    // writeAtomicFile 的 rename 会 EPERM，读回的是别人的等价内容，正好走 accepts 判据
     const doc = JSON.parse(readFileSync(catalogPath, "utf8"));
-    writeFileSync(catalogPath, JSON.stringify(doc), "utf8");
-
-    const result = integrateClient("codex", MODELS);
-    assert.equal(result.ok, true, result.error);
-    const after = JSON.parse(readFileSync(catalogPath, "utf8")) as { models: Array<{ id: string }> };
-    assert.deepEqual(after.models.map((m) => m.id), MODELS, "catalog 仍应是同一模型集");
+    const compact = JSON.stringify(doc);
+    writeFileSync(catalogPath, compact, "utf8");
+    chmodSync(catalogPath, 0o444);
+    try {
+      const result = integrateClient("codex", MODELS);
+      assert.equal(result.ok, true, result.error);
+      // 目标没被替换（只读），但内容仍是同一模型集的合法 catalog
+      assert.equal(readFileSync(catalogPath, "utf8"), compact);
+      const after = JSON.parse(readFileSync(catalogPath, "utf8")) as { models: Array<{ id: string }> };
+      assert.deepEqual(after.models.map((m) => m.id), MODELS, "catalog 仍应是同一模型集");
+    } finally {
+      chmodSync(catalogPath, 0o600);
+    }
   });
 });
 
@@ -1044,5 +1052,24 @@ describe("一键还原", () => {
     // 反推要各自还原到原路径（config.toml 与 catalog 不能互相覆盖）
     assert.equal(readFileSync(join(home, ".codex", "config.toml"), "utf8"), CODEX_CONFIG);
     assert.equal(readFileSync(catalog, "utf8"), before);
+  });
+
+  it("清单 target 与请求不符时跳过该目录，并在 error 里说明原因", () => {
+    clearBackups("codex");
+    const file = join(home, ".codex", "config.toml");
+    rmSync(file, { force: true });
+    assert.equal(integrateClient("codex", MODELS).ok, true);
+
+    // 手工改目录名/清单 target 模拟「别家备份被挪进来」
+    const dir = findBackupDir("codex");
+    const manifestPath = join(dir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { target: string };
+    manifest.target = "zcode";
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    const restored = restoreClient("codex");
+    assert.equal(restored.ok, false, "唯一备份被跳过 → 没有可用源");
+    assert.match(restored.error ?? "", /候选目录不可用/);
+    assert.match(restored.error ?? "", /target 是 zcode/);
   });
 });
