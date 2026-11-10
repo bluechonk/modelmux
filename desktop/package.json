@@ -1,6 +1,6 @@
 {
   "name": "modelmux-desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "modelmux Windows 便携壳（Electron）：双击自启网关 + 内嵌 Web 控制台",
   "author": "bluechonk",
