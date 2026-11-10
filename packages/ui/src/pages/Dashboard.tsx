@@ -14,19 +14,15 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  Check,
   Coins,
-  Copy,
   Flame,
   Gauge,
   Image as ImageIcon,
   Layers,
-  Link2,
   PlugZap,
   Timer,
   Type,
   Wifi,
-  X,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { KpiCard } from "../components/KpiCard";
@@ -187,68 +183,6 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
 }
 
 // ---------------------------------------------------------------------------
-// 端点行（复用现有形态）
-// ---------------------------------------------------------------------------
-
-function EndpointRow({ label, value }: { label: string; value: string }): ReactElement {
-  return (
-    <div className="flex flex-col gap-1 rounded-lg px-1 py-1.5 transition-colors hover:bg-overlay/40 sm:flex-row sm:items-start sm:gap-4">
-      <span className="shrink-0 text-[13px] text-ink-faint sm:w-24 sm:pt-0.5">{label}</span>
-      {/*
-        复制按钮**紧跟值**，不推到行尾：值带 flex-1 时按钮会被顶到最右，
-        视线要从 URL 横跨整行去够按钮（实测观感割裂）。值自身按内容宽度走，
-        超长时整组换行（flex-wrap），按钮始终贴着值的末尾。
-      */}
-      <span className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="break-all font-mono text-[13px] text-ink-soft">{value || "—"}</span>
-        <CopyInline value={value} label={`复制 ${label}`} />
-      </span>
-    </div>
-  );
-}
-
-/**
- * 端点行里的复制按钮（紧跟值末端）。
- *
- * 失败必须可见：剪贴板在非安全上下文 / 无焦点时抛 `NotAllowedError`，静默失败会让人
- * 分不清「复制了」还是「没复制」（与 `components/CopyButton.tsx` 同一口径 —— 那里
- * 成功显示对勾、失败显示红叉）。这里此前只处理成功、`catch` 里一句注释了事。
- */
-function CopyInline({ value, label }: { value: string; label: string }): ReactElement {
-  const [copied, setCopied] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const copy = async (): Promise<void> => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // 剪贴板不可用：短暂显示红叉，不弹 toast 打断浏览
-      setFailed(true);
-      setTimeout(() => setFailed(false), 1200);
-    }
-  };
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={!value}
-      onClick={() => void copy()}
-      className="tap-square grid h-6 w-6 shrink-0 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:opacity-30"
-    >
-      {copied ? (
-        <Check className="h-3 w-3 text-free" />
-      ) : failed ? (
-        <X className="h-3 w-3 text-danger" />
-      ) : (
-        <Copy className="h-3 w-3" />
-      )}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // 一键接入按钮（四客户端共用形态）
 // ---------------------------------------------------------------------------
 
@@ -326,7 +260,7 @@ export function Dashboard(): ReactElement {
   const toast = useToast();
   const navigate = useNavigate();
 
-  // 状态快照（端点盒：base_url / chat_url / endpoints）——
+  // 状态快照：模型清单 / 网关错误 / 加载判定都读它（base_url 已挪到顶栏，见 LayoutSingle）——
   // 读 `["state"]` 的共享缓存，轮询归 `Layout` 所有
   const stateQuery = useQuery({
     queryKey: ["state"],
@@ -673,38 +607,25 @@ export function Dashboard(): ReactElement {
         <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
 
-      {/* ① 接口地址盒（左，端点信息） + 对外模型清单（右，同一行等高）
-          两卡同在 `lg:grid-cols-12` 的一行里（8 + 4），行高由内容较高的一侧决定，
-          所以「模型」清单变长时地址盒会被拉高 —— 内容**顶对齐**（`justify-start`），
-          留白沉在卡底；垂直居中会让 `base_url` 随着邻卡高度上下漂，两张并排卡的基线错开。
-          地址盒必须有模块名：右邻卡有「模型」标题，左卡裸着一列键值会被读成
-          「浮在页面上的散数据」而不是一个模块。 */}
+      {/* ① 模型用量（左，区间聚合）+ 对外模型清单（右，同一行等高）
+          用量卡占 8 列放环形 + 图例；清单卡占 4 列只列模型名与规格。
+          `justify-between`：标题吸顶、占比说明贴底 —— 行高由较高一侧决定时，
+          多余留白沉在卡内，而不是堆成一条空带。 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <section className="panel flex flex-col p-4 lg:col-span-8">
+        <section className="panel flex flex-col justify-between p-4 lg:col-span-8">
           <div className="panel-title mb-3">
-            <Link2 className="h-4 w-4 text-ink-faint" />
-            接口地址
+            <Layers className="h-4 w-4 text-ink-faint" />
+            模型用量
           </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <EndpointRow label="base_url" value={state.base_url} />
-            <div className="hidden sm:block">
-              <EndpointRow label="chat_url" value={state.chat_url} />
-            </div>
-            <div className="hidden md:block">
-              <div className="flex flex-col gap-1.5 pt-1 md:flex-row md:items-start md:gap-4">
-                <span className="shrink-0 pt-0.5 text-[13px] text-ink-faint md:pt-1 md:w-24">
-                  endpoints
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {state.endpoints.map((e) => (
-                    <span key={e} className="pill bg-overlay font-mono text-ink-soft">
-                      {e}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* 只画有 tokens 的模型：`models` 里现在还包含「只有失败请求」的（它们 tokens 为 0），
+              那是模型列表健康度要的，画进环形图会多出一堆 0% 图例。 */}
+          <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
+          {rangeStats?.favorite != null && rangeStats.favorite.share > 0 && (
+            <p className="mt-3 text-xs text-ink-faint">
+              {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}
+              {formatPercent(rangeStats.favorite.share)}。
+            </p>
+          )}
         </section>
         {/* ② 对外模型（不显示渠道：落点由网关按额度自动挑） */}
         <section className="panel flex flex-col p-4 lg:col-span-4">
@@ -787,87 +708,36 @@ export function Dashboard(): ReactElement {
         )}
       </section>
 
-      {/* ③④⑤⑥ 双列区 */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* 左列：模型用量（区间聚合，8 列宽够放下环形 + 图例列表）。
-            与右列同构的 flex 拉伸：右列内容更高时左卡也撑满行高，两列顶底恒对齐
-            （只用 space-y 时左列不跟随，右列撑高行后左卡底部悬空）。 */}
-        <div className="flex flex-col gap-5 lg:col-span-8">
-          {/*
-            `justify-between`：本卡内容（标题 / 环形+图例 / 占比说明）比右卡矮，
-            栅格行高由右卡（10 个按钮）决定后，本卡被 `flex-1` 拉到同一高度，
-            差额原本全堆在说明行**下方**（1600 宽实测 38px 空白）。
-            上下分散后标题吸顶、说明贴底，空白变成卡内合理留白而不是一条空带。
-          */}
-          <section className="panel flex flex-1 flex-col justify-between p-4">
-            <div className="panel-title mb-3">
-              <Layers className="h-4 w-4 text-ink-faint" />
-              模型用量
-            </div>
-            {/* 只画有 tokens 的模型：`models` 里现在还包含「只有失败请求」的（它们 tokens 为 0），
-                那是模型列表健康度要的，画进环形图会多出一堆 0% 图例。 */}
-            <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
-            {rangeStats?.favorite != null && rangeStats.favorite.share > 0 && (
-              <p className="mt-3 text-xs text-ink-faint">
-                {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}
-                {formatPercent(rangeStats.favorite.share)}。
-              </p>
-            )}
-          </section>
+      {/* ③ 一键接入（全宽）：四客户端接入 + 还原，窄屏 2 列、≥sm 4 列 */}
+      <section className="panel p-4">
+        <div className="panel-title mb-3">
+          <PlugZap className="h-4 w-4 text-ink-faint" />
+          一键接入
         </div>
-
-        {/*
-          右列：一键接入。**撑满整列**（`flex-1`），所以它的高度恒等于左侧「模型用量」
-          的高度（栅格行高由左列决定）。「模型」清单已挪到上方端点盒右侧 —— 那一行
-          两项天然等高，不必再靠两张卡等分凑高。内容仍顶对齐：卡片内留白比拉伸内容好看。
-        */}
-        <div className="flex flex-col gap-5 lg:col-span-4">
-          {/* ⑤ 一键接入：把本机 harness 的模型清单改成网关的对外模型名 */}
-          <section className="panel flex flex-1 flex-col p-4">
-            <div className="panel-title mb-3">
-              <PlugZap className="h-4 w-4 text-ink-faint" />
-              一键接入
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <IntegrateButton
-                mutation={integrateMutation}
-                target="zcode"
-                label="接入 zcode"
-              />
-              <IntegrateButton
-                mutation={integrateMutation}
-                target="dsh"
-                label="接入 dsh"
-              />
-              <IntegrateButton
-                mutation={integrateMutation}
-                target="claude-desktop"
-                label="接入 claude desktop"
-              />
-              <IntegrateButton
-                mutation={integrateMutation}
-                target="codex"
-                label="接入 codex"
-              />
-            </div>
-            {/* 还原区：与接入同目标、次级视觉权重。取该目标最新一次备份，
-                还原前自动把当前状态再备份一份（可反悔） */}
-            <div className="mt-3 border-t border-line/50 pt-3">
-              <div className="mb-2 text-xs text-ink-faint">一键还原</div>
-              <div className="grid grid-cols-2 gap-2">
-                <RestoreButton mutation={restoreMutation} target="zcode" label="还原 zcode" />
-                <RestoreButton mutation={restoreMutation} target="dsh" label="还原 dsh" />
-                <RestoreButton mutation={restoreMutation} target="claude-desktop" label="还原 claude desktop" />
-                <RestoreButton mutation={restoreMutation} target="codex" label="还原 codex" />
-              </div>
-            </div>
-          </section>
-
-          {/* ⑥ 网关状态只在顶部导航（LayoutSingle 的 GatewayStatus）—— Web 不提供启停网关 */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <IntegrateButton mutation={integrateMutation} target="zcode" label="接入 zcode" />
+          <IntegrateButton mutation={integrateMutation} target="dsh" label="接入 dsh" />
+          <IntegrateButton
+            mutation={integrateMutation}
+            target="claude-desktop"
+            label="接入 claude desktop"
+          />
+          <IntegrateButton mutation={integrateMutation} target="codex" label="接入 codex" />
         </div>
-      </div>
+        {/* 还原区：与接入同目标、次级视觉权重。取该目标最新一次备份，
+            还原前自动把当前状态再备份一份（可反悔） */}
+        <div className="mt-3 border-t border-line/50 pt-3">
+          <div className="mb-2 text-xs text-ink-faint">一键还原</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <RestoreButton mutation={restoreMutation} target="zcode" label="还原 zcode" />
+            <RestoreButton mutation={restoreMutation} target="dsh" label="还原 dsh" />
+            <RestoreButton mutation={restoreMutation} target="claude-desktop" label="还原 claude desktop" />
+            <RestoreButton mutation={restoreMutation} target="codex" label="还原 codex" />
+          </div>
+        </div>
+      </section>
 
-      {/* ⑦ 最近请求（全宽：池 id 较长，给足横向空间） */}
+      {/* ④ 最近请求（全宽：池 id 较长，给足横向空间） */}
       <section className="panel p-4">
         <div className="panel-title mb-3">
           <Gauge className="h-4 w-4 text-ink-faint" />
