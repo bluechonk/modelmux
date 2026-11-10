@@ -821,25 +821,24 @@ name = "OpenAI"
     );
   });
 
-  it("catalog 被并发写者换成等价内容且目标只读时，接入不误报写入失败", () => {
+  it("catalog 被并发写者换成等价内容时，接入不误报写入失败", () => {
     seedCodex();
     assert.equal(integrateClient("codex", MODELS).ok, true);
     const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
-    // 模拟并发写者：目标已是同一模型集的等价内容（紧凑 JSON）且只读 ——
-    // writeAtomicFile 的 rename 会 EPERM，读回的是别人的等价内容，正好走 accepts 判据
+    // 模拟并发写者留下等价内容：同一模型集、不同序列化（紧凑 JSON）
     const doc = JSON.parse(readFileSync(catalogPath, "utf8"));
-    const compact = JSON.stringify(doc);
-    writeFileSync(catalogPath, compact, "utf8");
-    chmodSync(catalogPath, 0o444);
+    writeFileSync(catalogPath, JSON.stringify(doc), "utf8");
+    // Windows 上把目标置只读：writeAtomicFile 的 rename 会 EPERM，读回的是别人的
+    // 等价内容，正好走 writeVerified 的 accepts 判据（Linux 靠目录权限，挡不住 rename）
+    const ro = process.platform === "win32";
+    if (ro) chmodSync(catalogPath, 0o444);
     try {
       const result = integrateClient("codex", MODELS);
       assert.equal(result.ok, true, result.error);
-      // 目标没被替换（只读），但内容仍是同一模型集的合法 catalog
-      assert.equal(readFileSync(catalogPath, "utf8"), compact);
       const after = JSON.parse(readFileSync(catalogPath, "utf8")) as { models: Array<{ id: string }> };
       assert.deepEqual(after.models.map((m) => m.id), MODELS, "catalog 仍应是同一模型集");
     } finally {
-      chmodSync(catalogPath, 0o600);
+      if (ro) chmodSync(catalogPath, 0o600);
     }
   });
 });
