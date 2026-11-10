@@ -15,7 +15,7 @@ import {
   formatCount,
   formatDateTime,
   formatDuration,
-  formatCacheRate,
+  cachePairText,
   formatPercent,
   formatRate,
   formatRecoveryAt,
@@ -46,9 +46,24 @@ describe("formatPercent", () => {
   });
 });
 
-describe("formatCacheRate", () => {
-  it("恒为 —：没有上游返回命中率字段，不自己相除（计数在展开详情里原样展示）", () => {
-    assert.equal(formatCacheRate(), "—");
+describe("cachePairText", () => {
+  it("有计数时展示命中 / 未命中，不自算比率", () => {
+    assert.equal(cachePairText({ hit: 1983, miss: 6 }), "1,983 / 6");
+    assert.equal(cachePairText({ hit: 0, miss: 1989 }), "0 / 1,989");
+  });
+
+  it("没有缓存字段 → —（不显示成 0 命中）", () => {
+    assert.equal(cachePairText(null), "—");
+    assert.equal(cachePairText(undefined), "—");
+  });
+
+  it("只有写缓存、读写计数都缺 → —（写缓存不是命中）", () => {
+    assert.equal(cachePairText({ hit: null, miss: null }), "—");
+  });
+
+  it("单边缺值用 - 占位", () => {
+    assert.equal(cachePairText({ hit: 100, miss: null }), "100 / -");
+    assert.equal(cachePairText({ hit: null, miss: 100 }), "- / 100");
   });
 });
 
