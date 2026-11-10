@@ -63,6 +63,8 @@ export function ThemeToggle(): ReactElement {
     applyTheme(next);
     storeMode(next);
     setThemeMutation.mutate(next);
+    // 桌面壳的窗口背景 / 表单控件跟随（nativeTheme）；浏览器里无桥，跳过
+    void window.modelmuxWindow?.setTheme(next);
   };
 
   const Icon = resolved === "dark" ? Sun : Moon;
@@ -73,7 +75,7 @@ export function ThemeToggle(): ReactElement {
       aria-label={`切换主题（当前${resolved === "dark" ? "深色" : "浅色"}，点击切到${
         resolved === "dark" ? "浅色" : "深色"
       }）`}
-      className="tap-square grid h-8 w-8 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-raised hover:text-ink"
+      className="no-drag tap-square grid h-8 w-8 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-raised hover:text-ink"
     >
       <Icon className="h-4 w-4" />
     </button>
