@@ -9,22 +9,29 @@
  * 本脚本，把初始化收敛成一条命令。
  *
  * 用法：
- *   node scripts/worktree-init.mjs <path> [branch]
- *     <path>   worktree 落点（推荐 `../modelmux-worktrees/<branch>`，见 docs/WORKFLOW.md）
- *     [branch] 新分支名；缺省按路径最后一段取名
+ *   node scripts/worktree-init.mjs <name> [branch]
+ *     <name>   工作树名；落点固定为 `.zcode/worktrees/<name>`（全局 `~/.agents/AGENTS.md`
+ *              定死这一层，脚本不接受任意路径，免得又开出无人回收的裸拷贝）
+ *     [branch] 新分支名；缺省用 <name>
  * 已存在的 worktree（路径与分支都对得上）会跳过 add 直接补装依赖。
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 
-const [, , rawPath, branchArg] = process.argv;
-if (!rawPath) {
-  console.error("用法: node scripts/worktree-init.mjs <path> [branch]");
+const [, , rawName, branchArg] = process.argv;
+if (!rawName) {
+  console.error("用法: node scripts/worktree-init.mjs <name> [branch]");
   process.exit(2);
 }
-const path = resolve(rawPath);
-const branch = branchArg ?? basename(path);
+// 名字里带路径分隔符会开出 `.zcode/worktrees/` 之外的新落点层，直接拒绝
+if (rawName.includes("/") || rawName.includes("\\")) {
+  console.error(`<name> 只能是单段名字（落点固定 .zcode/worktrees/<name>），收到：${rawName}`);
+  process.exit(2);
+}
+const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+const path = resolve(join(repoRoot, ".zcode", "worktrees", rawName));
+const branch = branchArg ?? rawName;
 
 const run = (cmd, args, opts = {}) => {
   console.log(`+ ${cmd} ${args.join(" ")}`);
@@ -37,6 +44,7 @@ const known = listed.split("\n").some((line) => line === `worktree ${path}`);
 if (known) {
   console.log(`worktree 已存在，复用：${path}`);
 } else {
+  mkdirSync(join(repoRoot, ".zcode", "worktrees"), { recursive: true });
   run("git", ["worktree", "add", "-b", branch, path]);
 }
 
