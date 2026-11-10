@@ -15,10 +15,10 @@ import {
   countOrDash,
   formatBytes,
   cacheHitRateText,
+  formatCacheHitRate,
   formatClock,
   formatDateTime,
   formatDuration,
-  formatPercent,
   formatRate,
   formatTokens,
   formatTokensPerSec,
@@ -97,7 +97,7 @@ function StatBar({ page }: { page: AccessLogPage }): ReactElement {
       <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1">
         <span className="h-1.5 w-1.5 rounded-full bg-free" />
         平均缓存命中率
-        <span className="font-mono tabular-nums text-ink">{formatPercent(stats.cache?.hitRate ?? null)}</span>
+        <span className="font-mono tabular-nums text-ink">{formatCacheHitRate(stats.cache?.hitRate ?? null)}</span>
       </span>
       {/*
         不再展示「统计只覆盖最近 N 条（读窗口上限）」—— 这是实现细节，对用户没有可操作价值。
@@ -436,7 +436,7 @@ function LogTable({
                 <Fragment key={entry.id}>
                   <tr
                     onClick={() => onToggle(entry.id)}
-                    className={`cursor-pointer border-b border-line/40 transition-colors last:border-b-0 hover:bg-overlay/40 ${
+                    className={`cursor-pointer border-b border-line transition-colors last:border-b-0 hover:bg-overlay/40 ${
                       open ? "bg-overlay/30" : ""
                     }`}
                   >
@@ -452,7 +452,7 @@ function LogTable({
                     ))}
                   </tr>
                   {open && (
-                    <tr className="border-b border-line/40">
+                    <tr className="border-b border-line">
                       <td colSpan={cols.length} className="p-0">
                         <LogDetail entry={entry} />
                       </td>
@@ -572,16 +572,14 @@ function Filters({
     failure: { idle: "text-danger hover:bg-danger/10", active: "bg-danger/15 text-danger" },
   };
   const today = localToday();
-  // 空值选项固定表示「今天」，**不跟随当前查询日期**。
+  // 空值选项固定表示「今天」，**不跟随当前查询日期**，标签也恒为「今天」——
+  // 当天无日志时后端回落到最近一天，日期列里看得到具体日期，不必在标签里解释。
   //
   // 早先写的是 `page.date !== today ? `最新（${page.date}）` : "今天"` —— 但 `page.date`
   // 是**当前查询的日期**：用户选了 11-07 之后，那个代表「今天」的选项会变成
   // 「最新（2026-11-07）」，与它实际的行为（回到今天）对不上，看起来像又多了个选项。
-  // 只有一种情况需要跟随：用户还没选日期（`date === ""`）而今天确实没日志，
-  // 此时后端回落到最近一天，标签要如实说明。
-  const fallbackDate = date === "" && page?.date && page.date !== today ? page.date : null;
   const dateOptions: SelectOption[] = [
-    { value: "", label: fallbackDate ? `今天（无日志，显示 ${fallbackDate}）` : "今天" },
+    { value: "", label: "今天" },
     ...(page?.dates ?? []).filter((value) => value !== today).map((value) => ({ value, label: value })),
   ];
   const cidOptions: SelectOption[] = [
