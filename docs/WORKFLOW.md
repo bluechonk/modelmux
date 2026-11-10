@@ -243,10 +243,11 @@ git config --get core.hooksPath         # 应为 .githooks
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。
 3. **版本号落点（下面每一处都要改；新增渠道时落点随之增加）**：
    - 根 `package.json`，以及 `packages/cli` / `packages/ui` / `packages/core/gateway` /
-     **每个渠道包**的 `package.json`；
+     **每个渠道包**的 `package.json`，外加 `desktop/package.json`（exe 的 FileVersion 源，
+     必须与网关版本一致）；
    - **每个渠道包**的 `packages/core/channels/<cid>/src/channel.ts` 里的 `version` 字段
      （`mx --version` 读它）；
-   - 根 `package-lock.json` 的两处（顶层 `version` 与 `packages[""].version`）；
+   - 根 `package-lock.json`（顶层 `version`、`packages[""].version` 与各 workspace 条目）；
    - `docs/PROGRESS.md` 的「当前版本」；
    提交信息 `chore(release): 发布 vX.Y.Z`，正文按类型归纳本版变更（体例对齐 v0.1.1 / v0.1.2）。
    发版提交也走 PR（`main` 有分支保护），tag 打在**合并后的 main** 上。

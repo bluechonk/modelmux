@@ -18,6 +18,16 @@ modelmux 的可选 Windows 分发形态：**portable 单文件 exe**（Electron�
 | 退出 | 只走托盘菜单 → `app.isQuitting` → `before-quit` → 停**自己起的**网关；复用的网关不受影响 |
 | 失败分因 | 端口被占（stderr 线索）≠ 起动超时 ≠ 起来后崩溃，错误页分别说明 |
 
+### 前置条件（新机器零依赖）
+
+| 项 | 要求 |
+| --- | --- |
+| 系统 | Windows 10 1809+ / 11，x64 |
+| Node.js / npm / mx CLI | **不需要** —— 网关子进程是 exe 自身以 `ELECTRON_RUN_AS_NODE=1` 跑内置 `app/modelmux.mjs`；渠道登录走内嵌 Web 控制台 |
+| VC++ 运行时 | **不需要** —— CRT 静态链接（2026-11-10 用 objdump 扫 `win-unpacked` 全部二进制，无 `vcruntime140` / `msvcp140` 导入） |
+| 凭据 | **不随 exe 附带** —— 首次使用需在 Web 控制台逐渠道登录；换机即换凭据 |
+| 网络 | 需要（上游推理与模型目录） |
+
 ## 2. 构建
 
 工程 `desktop/`。**不在 npm workspaces** —— Electron 工具链与主仓隔离，
