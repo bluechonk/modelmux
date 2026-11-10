@@ -1,14 +1,11 @@
 /**
  * 对外模型家族：网关**卖哪几个模型**（产品面），客户端用裸模型名请求（不带 `<cid>/` 前缀）。
  *
- * 渠道归属由网关按「账号池剩余额度」自动选择（见 `pool-targets.ts` / `http/chat/route.ts`），
- * 客户端不关心模型来自哪家。模型家族是网关的产品面，不是渠道知识 ——
- * 渠道各自暴露什么仍由渠道目录决定，这里只声明「对外卖哪几个模型」。
+ * 渠道归属由网关按「账号池剩余额度」自动选择（见 `pool-targets.ts` / `http/chat/route.ts`）。
+ * 本表是共享层唯一允许出现模型名的地方（`scripts/verify-contract.mjs` 强制）。
  *
- * 家族表是共享层唯一允许出现模型名的地方（`scripts/verify-contract.mjs` 强制）。
- *
- * 别名：`deepseek-flash` 与 `deepseek-v4.1-flash` 是同一代模型的两个名字，双向匹配
- * （请求任一名字都命中渠道目录里这两个 canonical 之一）。
+ * 两点命名约定：`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（双向匹配）；
+ * `qwork-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
  */
 
 /** 对外暴露的模型 id（顺序即 `/v1/models` 与控制台的展示顺序；别名排在最后）。 */
@@ -16,6 +13,7 @@ export const POOL_MODEL_IDS = [
   "deepseek-v4.1-flash",
   "glm-5.3-flash",
   "longcat-2.5",
+  "qwork-flash",
   "deepseek-flash",
 ] as const;
 
@@ -24,6 +22,7 @@ const CANONICAL: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek-v4.1-flash",
   "glm-5.3-flash": "glm-5.3-flash",
   "longcat-2.5": "longcat-2.5",
+  "qwork-flash": "qwork-flash",
   "deepseek-flash": "deepseek-v4.1-flash",
 };
 
@@ -32,6 +31,7 @@ const ALIAS_GROUP: Readonly<Record<string, readonly string[]>> = {
   "deepseek-v4.1-flash": ["deepseek-v4.1-flash", "deepseek-flash"],
   "glm-5.3-flash": ["glm-5.3-flash"],
   "longcat-2.5": ["longcat-2.5"],
+  "qwork-flash": ["qwork-flash"],
 };
 
 /** canonical → `/v1/models` 里的 `owned_by`（厂商标识，展示用）。 */
@@ -39,6 +39,7 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek",
   "glm-5.3-flash": "zhipu",
   "longcat-2.5": "meituan",
+  "qwork-flash": "alibaba",
 };
 
 /**

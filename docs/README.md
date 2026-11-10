@@ -46,7 +46,7 @@
 | [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
 | [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取的设计依据**：单条上限 10MB、超限双端兜底；现行规则见 LOGGING.md §9 |
 | [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) | **缓存命中率口径**：DeepSeek 官方字段与加和关系、命中率公式（官方无明文，业界推导）、12 天实测的各渠道字段形态表、三类形态的分派归一化规则、展示精度规则 |
-| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：39 个参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
+| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：各参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 
 ## 2. 渠道文档 `docs/channels/<cid>/`
 
@@ -65,6 +65,7 @@
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./channels/qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
+| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |

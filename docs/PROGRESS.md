@@ -26,6 +26,7 @@
 | catpaw | CatPaw（美团妙手） | 是 | 是 | 在册 |
 | loomy | Loomy（讯飞） | 是 | 是 | 在册 |
 | qodercn | Qoder 国内版 | 是 | 是 | 在册 |
+| qwenworkcn | 千问办公（QwenWorkCN） | 是 | 否 | 在册（上游无签到接口，日额度自动发放） |
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
@@ -36,7 +37,7 @@
 | autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
 | zcode | ZCode（智谱 Coding Plan） | 是 | 是 | 在册 |
 
-全部 12 个渠道均在册（`RETIRED_CIDS` 为空）。
+全部 13 个渠道均在册（`RETIRED_CIDS` 为空）。
 
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。

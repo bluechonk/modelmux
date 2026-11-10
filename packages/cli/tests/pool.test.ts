@@ -122,6 +122,7 @@ describe("仓库级模型池", () => {
       autoclaw: ["glm-5.3-flash"],
       zcode: ["glm-5.3-flash"],
       qoder: ["glm-5.3-flash"],
+      qwenworkcn: ["qwork-flash"],
       workbuddyai: ["glm-5.3-flash"],
       lobsterai: ["glm-5.3-flash"],
       // astudio 不供家族型号
@@ -133,7 +134,7 @@ describe("仓库级模型池", () => {
         .poolCandidates("deepseek-v4.1-flash")
         .map((c) => c.cid);
       // 逐渠道核对该模型是否在注册表里声明
-      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5"]) {
+      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5", "qwork-flash"]) {
         const declared = gw
           .poolCandidates(model)
           .map((c) => c.cid)
@@ -163,6 +164,14 @@ describe("仓库级模型池", () => {
     for (const model of ["qwen3.8-flash", "deepseek-v4-pro"]) {
       assert.deepEqual(gw.poolCandidates(model), [], `${model} 不在家族表内，候选应为空`);
     }
+    // 千问办公只卖「标准」档：其余两档与具体型号名都不进家族表
+    assert.deepEqual(gw.poolCandidates("qwork-pro"), [], "高级档未放行");
+    assert.deepEqual(gw.poolCandidates("qwen3.8-max"), [], "最强档未放行");
+    assert.deepEqual(
+      gw.poolCandidates("qwork-flash").map((c) => c.cid),
+      ["qwenworkcn"],
+      "qwork-flash 只由 qwenworkcn 供给",
+    );
   });
 
   it("池 id 与候选渠道的一致性（家族内 / 有货 / 候选都是已注册渠道）", () => {
