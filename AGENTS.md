@@ -113,8 +113,9 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verif
 - Web 控制台：正文信息不依赖 hover；图表数据详情例外（自绘浮层，`pointer-events-none`）。原生 `title=` 禁用。
   交互铁律见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)。
 - 桌面壳（`desktop/`）的 Electron 边界，规范见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)：
-  壳是 loadURL 型（加载网关托管的控制台，没有 preload、没有 IPC、渲染层不是自写代码），
-  禁止 `nodeIntegration` / `webSecurity: false` / 裸 `ipcRenderer`；
+  壳是 loadURL 型（加载网关托管的控制台，渲染层不是自写代码），标题栏隐藏、窗口控制
+  走**唯一 preload 桥**（`desktop/preload.cjs` 的白名单通道：最小化 / 最大化 / 关闭收托盘 /
+  主题）——禁止 `nodeIntegration` / `webSecurity: false` / 裸 `ipcRenderer` / 白名单之外的通道；
   只允许探活复用或 fork 自己拉起的网关，绝不占用 / 杀掉不属于自己的网关进程。
 
 ## 测试
@@ -264,7 +265,8 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verif
 
 推送门禁由 `pre-push` 钩子自动执行（细节见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「推送门禁」）。
 文档与代码同一个 commit。发版 = 打 tag，不建 GitHub Release。
-版本号 `0.1.x` 连续递增不跳号。tag 打在合并后的 main 上。
+版本号 `0.1.x` 连续递增不跳号，**cli / web / desktop 三位一体同版本**（desktop 由打包脚本
+自动跟随根版本），tag 打在合并后的 main 上，tag 即三个形态共同的版本。
 大面积功能或重构后提醒主人发版，不擅自操作。
 完整发版流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 

@@ -14,7 +14,7 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 | 启动 | ShellExecute 直跑安装后的 exe，先探 `127.0.0.1:4412/health`：已有网关则**复用**（不重复起实例、退出也不杀别人的），否则 fork 内嵌网关 |
 | 单实例 | 已有实例在跑（含关窗后托盘后台）时，再次启动只把已有窗口调到前台（`second-instance` → 显示窗口 + 先置顶再取消 + `app.focus({steal:true})`）；未拿到锁的实例立即退出，不再走启动流程 |
 | 网关进程 | `ELECTRON_RUN_AS_NODE=1` + 自身 exe 跑 `app/modelmux.mjs`（打包后的 CLI bundle，零第三方运行依赖）—— **不要求用户装 Node** |
-| 窗口 | 默认 1300×1000，最小 800×600；无原生菜单，`contextIsolation` + `sandbox` 开，**没有 preload、没有 IPC** —— loadURL 型壳，渲染层就是网关托管的控制台（设计选择，最小攻击面） |
+| 窗口 | 默认 1300×1000，最小 800×600；**标题栏隐藏**（顶栏即拖拽区，窗口控制钮在顶栏右侧，见下节）；`contextIsolation` + `sandbox` 开，**唯一 preload 是窗口控制桥**（白名单通道）—— 渲染层仍是网关托管的控制台 |
 | 关窗 | **收起为托盘**（`hide`，不退出）；网关继续在后台接客户端请求，托盘是唯一的可见入口与退出通道 |
 | 托盘 | 常驻通知区；菜单：网关状态（禁用项）/ 打开控制台 / 在浏览器打开 / 退出。单击托盘图标 = 打开控制台 |
 | 退出 | 只走托盘菜单 → `app.isQuitting` → `before-quit` → 停**自己起的**网关；复用的网关不受影响 |
@@ -29,6 +29,22 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 | VC++ 运行时 | **不需要** —— CRT 静态链接（2026-11-10 用 objdump 扫 `win-unpacked` 全部二进制，无 `vcruntime140` / `msvcp140` 导入） |
 | 凭据 | **不随 exe 附带** —— 首次使用需在 Web 控制台逐渠道登录；换机即换凭据 |
 | 网络 | 需要（上游推理与模型目录） |
+
+### 自定义标题栏与拖拽
+
+- 标题栏隐藏（`titleBarStyle: "hidden"`）：web 顶栏（LayoutSingle 的 `<header>`）即
+  **拖拽区**（`.drag-region`）；顶栏上所有可点子元素（导航 / base_url / 主题钮 /
+  窗口控制钮）逐个 `.no-drag` —— 缀一个少一个，点击就会被拖拽区吞掉（最常见坑）。
+- 窗口控制钮（最小化 / 最大化还原 / 关闭）**只在桌面壳渲染**：以 `window.modelmuxWindow`
+  桥存在与否判断，浏览器里没有窗口，不渲染。关闭 = 收起托盘（与关窗拦截一致）；
+  真退出走托盘菜单。
+- **白名单通道**（`desktop/preload.cjs`）：`win:minimize` / `win:toggle-maximize` /
+  `win:close` / `win:is-maximized` / `win:maximize-changed`（推送）/ `theme:set`。
+  不暴露 `ipcRenderer` 本体、不暴露 `webContents`；`contextIsolation` + `sandbox` 维持开。
+- 已知边界：Win11 悬停 Snap Layout 拿不到（那是原生按钮的行为）；拖拽移动、
+  双击最大化 / 边缘拉伸由系统提供，行为以真机为准。
+- **主题跟随**：壳启动读 `<root>/setting.json` 设 `nativeTheme.themeSource`（首帧背景
+  不闪错色），页面切主题时经 `theme:set` 同步；窗口背景与过渡页随之。
 
 ## 2. 构建
 

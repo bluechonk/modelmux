@@ -15,7 +15,7 @@
  *     避免 `npm install` 给所有开发者拉 100MB+ 的 Electron。
  */
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,11 +74,29 @@ cpSync(path.join(cliDist, "models.json"), path.join(appDir, "models.json"));
 cpSync(path.join(cliDist, "ui"), path.join(appDir, "ui"), { recursive: true });
 cpSync(path.join(cliDist, "models"), path.join(appDir, "models"), { recursive: true });
 
-// 4) NSIS 一键安装器
+// 4) 版本三位一体：desktop 版本自动跟随根版本（cli / web / desktop 同版本，tag 即版本）。
+//    artifactName 与 electron-builder 的 appInfo 都读 desktop/package.json，exe 内
+//    `mx --version` 也反推读它 —— 写回这一处，三处一致；after-pack 的 FileVersion
+//    独立读根版本（after-pack.cjs），本来就地一致。
+const rootVersion = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
+const desktopPkgPath = path.join(desktop, "package.json");
+const desktopPkg = JSON.parse(readFileSync(desktopPkgPath, "utf8"));
+const oldDesktopVersion = desktopPkg.version;
+if (oldDesktopVersion !== rootVersion) {
+  desktopPkg.version = rootVersion;
+  writeFileSync(desktopPkgPath, `${JSON.stringify(desktopPkg, null, 2)}\n`);
+  // desktop 自己的 lock 两处版本同步（npm ci 校验 lock 与 manifest 一致）
+  const lockPath = path.join(desktop, "package-lock.json");
+  if (existsSync(lockPath)) {
+    const lock = readFileSync(lockPath, "utf8");
+    writeFileSync(lockPath, lock.split(`"version": "${oldDesktopVersion}"`).join(`"version": "${rootVersion}"`));
+  }
+}
+
+// 5) NSIS 一键安装器
 console.log("[desktop] electron-builder nsis …");
 run("npx", ["electron-builder", "--win", "nsis", "--x64"], { cwd: desktop });
 
-const desktopPkg = JSON.parse(readFileSync(path.join(desktop, "package.json"), "utf8"));
 const outName = `modelmux-setup-${desktopPkg.version}.exe`;
 const out = path.join(desktop, "dist", outName);
 if (!existsSync(out)) {

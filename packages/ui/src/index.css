@@ -202,7 +202,16 @@ html[data-theme="light"] {
   }
 }
 
-/* 状态灯：运行中时缓慢呼吸（纯装饰，尊重 reduced-motion） */
+  /* 桌面壳自定义标题栏：顶栏拖拽区（frameless 窗口的移动把手；浏览器里无效果）。
+     可点子元素必须逐个 no-drag，否则点击会被拖拽区吞掉（见 LayoutSingle 顶栏） */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* 状态灯：运行中时缓慢呼吸（纯装饰，尊重 reduced-motion） */
 @keyframes pulse-dot {
   0%,
   100% {

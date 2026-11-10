@@ -234,17 +234,20 @@ git config --get core.hooksPath         # 应为 .githooks
 
 1. **发版 = 打 tag，到此为止。不要建 GitHub Release**（`gh release create` / `gh release edit`
    一律不用，`github:release` 技能与网页「Draft a new release」同样不用）——
-   本仓的发布物就是 tag 本身：仓库没有任何发布流程（无 `npm publish`、无产物打包 workflow、
-   不做 exe/安装包，只有 web 控制台与 CLI），Release 页面只承载一份版本说明，
+   本仓的发布物就是 tag 本身与桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`，
+   本地构建、随 tag 重出，无产物发布 workflow），Release 页面只承载一份版本说明，
    而那份说明的权威来源是 `git log`。
    注意：与全局规则的这一条冲突时**以本条为准**；**Releases 页必须保持为空**（`gh release list` 无输出）。
 2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与各 `package.json` 的 `version`，
    按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。
-3. **版本号落点（下面每一处都要改；新增渠道时落点随之增加）**：
+3. **cli / web / desktop 三位一体**：三者共享同一个版本号 —— `mx --version`、
+   web 控制台（`packages/ui`）、桌面安装包名与 exe 的 FileVersion 全部一致，tag 打哪个
+   版本，三个形态就是哪个版本。desktop 的版本**不手改**：`npm run desktop`（pack 脚本）
+   打包前自动把根版本写回 `desktop/package.json`（含其 lock 两处）。
+4. **版本号落点（下面每一处都要改；新增渠道时落点随之增加）**：
    - 根 `package.json`，以及 `packages/cli` / `packages/ui` / `packages/core/gateway` /
-     **每个渠道包**的 `package.json`，外加 `desktop/package.json`（exe 的 FileVersion 源，
-     必须与网关版本一致）；
+     **每个渠道包**的 `package.json`（desktop/package.json 由 pack 脚本自动跟随，勿手改）；
    - **每个渠道包**的 `packages/core/channels/<cid>/src/channel.ts` 里的 `version` 字段
      （`mx --version` 读它）；
    - 根 `package-lock.json`（顶层 `version`、`packages[""].version` 与各 workspace 条目）；
