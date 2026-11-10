@@ -734,6 +734,73 @@ name = "OpenAI"
     assert.ok(after.includes('name = "OpenAI"'), "openai 段内容被吞");
     assert.match(after, /^model_provider = "modelmux"$/m);
   });
+
+  it("写 codex-model-catalog.json：条目按 Codex 0.163 schema 给实测最小必填集", () => {
+    seedCodex();
+    const result = integrateClient("codex", MODELS);
+    assert.equal(result.ok, true);
+    const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
+    const doc = JSON.parse(readFileSync(catalogPath, "utf8")) as {
+      models: Array<Record<string, unknown>>;
+    };
+    // 只含对外模型
+    assert.deepEqual(doc.models.map((m) => m.id), MODELS);
+    for (const entry of doc.models) {
+      // schema 必填集：缺任一项整份文件解析失败
+      for (const key of [
+        "slug",
+        "display_name",
+        "base_instructions",
+        "supported_reasoning_levels",
+        "shell_type",
+        "visibility",
+        "supported_in_api",
+        "priority",
+        "support_verbosity",
+        "truncation_policy",
+        "experimental_supported_tools",
+      ]) {
+        assert.ok(key in entry, `缺字段 ${key}（Codex 整份解析失败）`);
+      }
+      // 三处字段形状必须严格照 schema
+      assert.deepEqual(
+        entry["supported_reasoning_levels"],
+        [
+          { effort: "low", description: "Fast responses with lighter reasoning" },
+          { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+          { effort: "high", description: "Greater reasoning depth for complex problems" },
+        ],
+        "reasoning 档位必须是 {effort, description} 对象数组",
+      );
+      assert.equal(entry["visibility"], "list", "visibility 枚举只有 list / hide（写 public 解析失败）");
+      assert.deepEqual(entry["truncation_policy"], { mode: "tokens", limit: 10_000 });
+      assert.equal(entry["support_verbosity"], false, "网关不转发 text.verbosity，声明 true 会被静默丢弃");
+      assert.deepEqual(entry["experimental_supported_tools"], [], "不继承 Codex 自家模型的内部工具");
+    }
+  });
+
+  it("config.toml 的 model_catalog_json 指向 catalog，且目录里含配置的 model", () => {
+    const file = seedCodex();
+    integrateClient("codex", MODELS);
+    const after = readFileSync(file, "utf8");
+    const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
+    // 顶层键落在首个表头之前（TOML 顶层键的硬约束）
+    const head = after.slice(0, after.indexOf("["));
+    assert.match(head, /^model_catalog_json = /m);
+    // 单引号字面量字符串不处理转义，值必须逐字节等于真实路径
+    // （多写反斜杠会让 Codex 指错文件，Windows 路径规约会掩盖它）
+    const m = /^model_catalog_json = '(.*)'\s*$/m.exec(after);
+    assert.ok(m, "model_catalog_json 不是单引号字面量");
+    assert.equal(m[1], catalogPath, "catalog 路径被转义损坏");
+    // 指向的目录必须含配置里的 model（Codex 按 slug 匹配），否则启动拒绝加载配置
+    const catalog = JSON.parse(readFileSync(catalogPath, "utf8")) as {
+      models: Array<{ slug: string }>;
+    };
+    assert.ok(
+      catalog.models.some((m) => m.slug === MODELS[0]),
+      "catalog 里没有配置引用的 model",
+    );
+  });
 });
 
 /**
