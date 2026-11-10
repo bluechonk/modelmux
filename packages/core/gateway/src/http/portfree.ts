@@ -33,7 +33,12 @@ export function findPortPids(port: number): number[] {
       const pids: number[] = [];
       for (const line of out.split("\n")) {
         const fields = line.trim().split(/\s+/);
-        if (fields.length < 5 || fields[0] !== "TCP" || fields[3] !== "LISTENING") continue;
+        if (fields.length < 5 || fields[0] !== "TCP") continue;
+        // 两种状态都算：LISTENING 是监听 socket；ESTABLISHED 是已接受的连接。
+        // 只认 LISTENING 在部分 Windows 环境下会漏 —— 空闲的监听 socket 可能不出现在
+        // netstat 输出里（实测本机），有连接活动才看得到该端口。
+        const state = fields[3];
+        if (state !== "LISTENING" && state !== "ESTABLISHED") continue;
         if (!fields[1]!.endsWith(suffix)) continue;
         const pid = Number.parseInt(fields[fields.length - 1]!, 10);
         if (Number.isFinite(pid) && pid > 0) pids.push(pid);
