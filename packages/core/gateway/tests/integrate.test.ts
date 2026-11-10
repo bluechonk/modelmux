@@ -784,14 +784,20 @@ name = "OpenAI"
     integrateClient("codex", MODELS);
     const after = readFileSync(file, "utf8");
     const catalogPath = join(home, ".modelmux", "codex-model-catalog.json");
-    assert.match(after, /^model_catalog_json = /m);
-    assert.match(after, /codex-model-catalog\.json/, "catalog 路径没进 config.toml");
-    // 指向的目录必须含配置里的 model，否则 Codex 启动时拒绝加载配置
+    // 顶层键落在首个表头之前（TOML 顶层键的硬约束）
+    const head = after.slice(0, after.indexOf("["));
+    assert.match(head, /^model_catalog_json = /m);
+    // 单引号字面量字符串不处理转义，值必须逐字节等于真实路径
+    // （多写反斜杠会让 Codex 指错文件，Windows 路径规约会掩盖它）
+    const m = /^model_catalog_json = '(.*)'\s*$/m.exec(after);
+    assert.ok(m, "model_catalog_json 不是单引号字面量");
+    assert.equal(m[1], catalogPath, "catalog 路径被转义损坏");
+    // 指向的目录必须含配置里的 model（Codex 按 slug 匹配），否则启动拒绝加载配置
     const catalog = JSON.parse(readFileSync(catalogPath, "utf8")) as {
-      models: Array<{ id: string }>;
+      models: Array<{ slug: string }>;
     };
     assert.ok(
-      catalog.models.some((m) => m.id === MODELS[0]),
+      catalog.models.some((m) => m.slug === MODELS[0]),
       "catalog 里没有配置引用的 model",
     );
   });

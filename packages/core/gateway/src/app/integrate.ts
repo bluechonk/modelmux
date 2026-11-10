@@ -1078,9 +1078,16 @@ function integrateCodex(models: string[]): IntegrationResult {
     .slice(0, headEnd)
     .filter((l) => !/^\s*(model_provider|model|model_catalog_json)\s*=/.test(l));
   const tail = firstTable < 0 ? [] : next.slice(firstTable);
-  const catalogPath = writeCodexCatalog(models);
-  // TOML 基本字符串里反斜杠是转义符：Windows 路径必须用单引号字面量或转成 `\\`
-  const catalogLiteral = `'${catalogPath.replace(/\\/g, "\\\\")}'`;
+  let catalogPath: string;
+  try {
+    catalogPath = writeCodexCatalog(models);
+  } catch (err) {
+    result.error = `写 Codex 模型目录失败：${String(err)}`;
+    return result;
+  }
+  // TOML 字面量字符串（单引号）不处理转义，Windows 路径原样写入即可；
+  // 只有双引号基本字符串才需要把反斜杠转成 `\\`
+  const catalogLiteral = `'${catalogPath}'`;
   const topKeys = [
     `model_provider = "modelmux"`,
     `model = "${models[0]!}"`,
