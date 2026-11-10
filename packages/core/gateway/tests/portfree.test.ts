@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
+import { connect as netConnect, type Socket } from "node:net";
 import { after, before, describe, it } from "node:test";
 
 import {
@@ -62,6 +63,7 @@ describe("displayBase / baseUrlOf / isAbs", () => {
 describe("findPortPids / excludeSelf / procName", () => {
   let server: Server;
   let port = 0;
+  let probe: Socket;
 
   before(async () => {
     await new Promise<void>((resolve) => {
@@ -69,9 +71,14 @@ describe("findPortPids / excludeSelf / procName", () => {
       server.listen(0, "127.0.0.1", () => resolve());
     });
     port = (server.address() as { port: number }).port;
+    // 保持一条已建立的连接：本机 netstat 对空闲监听 socket 不显示该端口，
+    // 有连接活动后才看得到（原因见 src/http/portfree.ts 的说明）
+    probe = netConnect(port, "127.0.0.1");
+    await new Promise<void>((resolve) => probe.once("connect", () => resolve()));
   });
 
   after(() => {
+    probe?.destroy();
     server.close();
   });
 

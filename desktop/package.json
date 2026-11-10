@@ -10,21 +10,40 @@
   },
   "devDependencies": {
     "electron": "43.8.7",
-    "electron-builder": "25.1.8"
+    "electron-builder": "25.1.8",
+    "rcedit": "^5.0.2"
   },
   "build": {
     "appId": "com.bluechonk.modelmux",
     "productName": "modelmux",
-    "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.cjs", "app/**/*", "assets/**/*"],
+    "afterPack": "./after-pack.cjs",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "app/**/*",
+      "assets/**/*"
+    ],
     "asar": true,
     "compression": "maximum",
     "win": {
-      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "requestedExecutionLevel": "asInvoker"
     },
-    "portable": { "artifactName": "modelmux.exe", "unpackDirName": "modelmux" }
+    "portable": {
+      "artifactName": "modelmux.exe",
+      "unpackDirName": "modelmux"
+    }
   }
 }
