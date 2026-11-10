@@ -239,6 +239,12 @@ function showWindow() {
   }
   if (win.isMinimized()) win.restore();
   win.show();
+  // Windows 前台锁：后台进程直接 show/focus 压不过前台程序（窗口会停在 Z 序中段）。
+  // 先置顶再取消，把窗口顶到最前；这一下闪烁是可接受的代价。
+  if (!win.isAlwaysOnTop()) {
+    win.setAlwaysOnTop(true);
+    win.setAlwaysOnTop(false);
+  }
   win.moveTop();
   win.focus();
 }
