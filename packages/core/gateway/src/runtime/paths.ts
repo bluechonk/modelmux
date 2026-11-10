@@ -226,3 +226,8 @@ export function rootLogPath(): string {
 export function poolUsagePath(): string {
   return rootFile("pool-usage.json");
 }
+
+/** 用户级设置文件（`<root>/setting.json`，目前只有主题；读写见 runtime/user-settings.ts）。 */
+export function rootSettingPath(): string {
+  return rootFile("setting.json");
+}

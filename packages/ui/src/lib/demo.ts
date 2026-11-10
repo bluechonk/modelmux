@@ -320,7 +320,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     model_prefs: demoModelPrefs(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),
     theme_mode: "dark",
-    resolved_theme: "dark",
+    integrations: { zcode: true, dsh: false, "claude-desktop": false, codex: true },
     gateway_error: "",
   };
 }

@@ -12,7 +12,7 @@ import { createInterface, type Interface } from "node:readline";
 
 import * as authFlow from "../../auth/auth-flow.js";
 import { startAutoSignin } from "../../auth/auto-signin.js";
-import { integrateClient, restoreClient } from "../integrate.js";
+import { integrateClient, integrationStatus, restoreClient } from "../integrate.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
@@ -22,6 +22,7 @@ import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
 import { rootDir } from "../../runtime/paths.js";
+import { loadUserSettings, saveUserSettings, type ThemeMode } from "../../runtime/user-settings.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates } from "../../pool/pool-targets.js";
@@ -400,6 +401,8 @@ class ServiceState {
       channel_caps: Object.fromEntries(
         channels().map((channel) => [channel.config.cid, channelCapabilities(channel.config)]),
       ),
+      integrations: integrationStatus(),
+      theme_mode: loadUserSettings().theme,
       gateway_error: this.gatewayError,
     };
   }
@@ -669,7 +672,9 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
   const bridge: console_.ControlBridge = {
     provider: () => state.snapshot(),
-    setTheme: () => {}, // 无窗口模式没有主题
+    // 主题持久化到 ~/.modelmux/setting.json（mode 已由路由层校验过取值域）；
+    // 快照每次重算都会重新读文件，下一次轮询即带新值
+    setTheme: (mode) => saveUserSettings({ theme: mode as ThemeMode }),
     retryLogin: () => {
       state.retryRequested = true;
     },

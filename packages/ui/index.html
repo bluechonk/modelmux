@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <!--
+      color-scheme 不在这里写死：深浅由 lib/theme.ts 落 `<html data-theme>`，
+      index.css 的 color-scheme 随之切换（写死会让浅色首帧用深色表单控件渲染）。
+    -->
     <!--
       图标经 Vite 资源管线处理（`src/assets/` → 构建后落在 `/web/assets/*`）。
       不能放 `public/`：console 只托管 `/web/` 与 `/web/assets/*`，
