@@ -287,19 +287,22 @@ const LOG_COLS: LogCol[] = [
 /**
  * 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。
  *
- * 状态点是**文字流的第一个 flex 子项**（不再绝对定位外扩）：整块内容（点 + 结果 +
- * 状态码）从列起点开始，与表头文字同 x —— 早先的 `-left-2` 让点突出到列外，
- * 比表头左沿还左 8px，是「结果列看起来没对齐」的来源（实测 2026-11-11）。
+ * 三列网格（点 | 结果 | 状态码）：两侧等宽列把**结果文字**夹在列正中。
+ * 早先的 `inline-flex` 让点与状态码分列文字两侧，二者宽度不等（点 6px、码 20px），
+ * 整块居中时文字被挤偏 —— 实测「成功」比表头「结果」左移 7px（2026-11-11）。
  */
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
     <td className="whitespace-nowrap px-3 py-2 align-top">
-      <span className="inline-flex items-center gap-1.5 text-xs">
-        <span className={`h-1.5 w-1.5 flex-none rounded-full ${meta.dot}`} aria-hidden="true" />
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 text-xs">
+        <span
+          className={`justify-self-end block h-1.5 w-1.5 rounded-full ${meta.dot}`}
+          aria-hidden="true"
+        />
         <span className={meta.text}>{meta.label}</span>
-        <span className="font-mono text-ink-faint">{entry.status ?? "-"}</span>
-      </span>
+        <span className="justify-self-start font-mono text-ink-faint">{entry.status ?? "-"}</span>
+      </div>
     </td>
   );
 }
