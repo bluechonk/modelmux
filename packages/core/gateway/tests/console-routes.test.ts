@@ -574,16 +574,16 @@ describe("/api/commands 分发", () => {
     assert.ok(Array.isArray(payload.data.models), "返回模型数组");
   });
 
-  it("snoozeUpdate / skipUpdate：skip 缺 version 400；两者都落盘", async () => {
-    const snooze = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "snoozeUpdate" }) });
-    assert.equal(snooze.status, 200);
-
-    const noVersion = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "skipUpdate" }) });
-    assert.equal(noVersion.status, 400);
-
-    const skip = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "skipUpdate", args: { version: "v9.9.9" } }) });
-    assert.equal(skip.status, 200);
-    rmSync(join(HOME, "update.json"), { force: true });
+  it("未知 action → 400 + ok:false（命令信封错误，不炸连接）", async () => {
+    const res = await fetch(`${server.url}api/commands`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ action: "snoozeUpdate" }),
+    });
+    assert.equal(res.status, 400);
+    const payload = (await res.json()) as { ok: boolean; error?: string };
+    assert.equal(payload.ok, false);
+    assert.match(payload.error ?? "", /未知 action/);
   });
 });
 

@@ -13,7 +13,7 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, ScrollText } from "lucide-react";
+import { Boxes, ExternalLink, Gauge, ScrollText } from "lucide-react";
 import { useRef, type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { BackToTop } from "./BackToTop";
@@ -150,6 +150,23 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             <span className="whitespace-nowrap rounded-lg border border-warn/25 bg-warn/8 px-2 py-1 text-xs text-warn/90">
               演示模式
             </span>
+          )}
+          {/*
+            「web 页」：一键在默认浏览器打开本网关的控制台页。桌面壳的 setWindowOpenHandler
+            会把它交给系统浏览器；普通浏览器里是新标签。地址从 base_url 推导（同一网关，
+            /v1 换成 /web/）；演示站没有真实网关可开，不渲染。窄屏与 base_url 一起隐藏。
+          */}
+          {!IS_DEMO && state.data?.base_url && (
+            <a
+              href={`${state.data.base_url.replace(/\/v1\/?$/, "")}/web/`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="在默认浏览器打开 modelmux Web 控制台"
+              className="no-drag hidden items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-ink-faint transition-colors hover:text-ink min-[900px]:flex"
+            >
+              <ExternalLink size={12} aria-hidden="true" />
+              web 页
+            </a>
           )}
           {/*
             base_url 放顶栏最右（紧挨网关状态）：它是客户端唯一要填的地址，

@@ -1,5 +1,5 @@
 /**
- * 版本更新检测：版本比较、每日一次的真请求、标签回落、跳过 / 稍后。
+ * 版本更新检测：版本比较、每日一次的真请求、标签回落、旧状态文件兼容。
  *
  * `fetch` 用 node:test 的 mock 注入 —— 不联网也能跑（真实网络失败时是静默回落）。
  */
@@ -14,8 +14,6 @@ import {
   checkForUpdate,
   isNewer,
   refreshUpdateNotice,
-  skipUpdate,
-  snoozeUpdate,
   updateNotice,
 } from "../dist/runtime/update-check.js";
 
@@ -52,7 +50,7 @@ function readState(): Record<string, unknown> {
   return JSON.parse(readFileSync(stateFile, "utf8")) as Record<string, unknown>;
 }
 
-const RELEASE = { tag_name: "v0.1.4", body: "新增 todayai 渠道", html_url: "https://example.com/r/v0.1.4" };
+const RELEASE = { tag_name: "v0.1.4", body: "发布说明已不读", html_url: "https://example.com/r/v0.1.4" };
 
 describe("版本比较", () => {
   it("严格新于才为真（含不带 v 的写法）", () => {
@@ -70,13 +68,13 @@ describe("版本比较", () => {
 });
 
 describe("检测", () => {
-  it("有新版本：返回提示并落盘检查时间", async () => {
+  it("有新版本：返回版本与地址并落盘检查时间（不读发布说明）", async () => {
     mockFetch([{ match: "/releases/latest", status: 200, body: RELEASE }]);
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice);
     assert.equal(notice.version, "v0.1.4");
-    assert.equal(notice.notes, "新增 todayai 渠道");
     assert.equal(notice.url, "https://example.com/r/v0.1.4");
+    assert.equal("notes" in notice, false, "发布说明已下线，提示里不该有 notes");
     assert.ok(readState()["lastCheckAt"], "检查时间要落盘");
   });
 
@@ -104,7 +102,7 @@ describe("检测", () => {
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice);
     assert.equal(notice.version, "v0.1.4");
-    assert.equal(notice.notes, "");
+    assert.equal(notice.url, "https://api.github.com/repos/bluechonk/modelmux/releases/tag/v0.1.4");
   });
 
   it("网络失败 → null（不误报「没有更新」）", async () => {
@@ -113,48 +111,30 @@ describe("检测", () => {
     });
     assert.equal(await checkForUpdate("0.1.3"), null);
   });
-});
 
-describe("跳过 / 稍后", () => {
-  it("跳过该版本后不再提示", async () => {
-    mockFetch([{ match: "/releases/latest", status: 200, body: RELEASE }]);
-    assert.ok(await checkForUpdate("0.1.3"));
-    skipUpdate("v0.1.4");
-    assert.equal(await checkForUpdate("0.1.3"), null, "缓存期内直接被跳过");
-    assert.equal(readState()["skippedVersion"], "v0.1.4");
-  });
-
-  it("稍后提醒 = 今天不再提示（snoozedUntil 在未来 24h 内）", async () => {
-    mockFetch([{ match: "/releases/latest", status: 200, body: RELEASE }]);
-    assert.ok(await checkForUpdate("0.1.3"));
-    snoozeUpdate();
-    assert.equal(await checkForUpdate("0.1.3"), null);
-    const until = new Date(String(readState()["snoozedUntil"])).getTime();
-    assert.ok(until > Date.now() && until - Date.now() <= 24 * 60 * 60 * 1000);
-  });
-
-  it("snooze 过期后恢复提示", async () => {
+  it("旧状态文件里的 snoozedUntil / skippedVersion 遗留字段被忽略", async () => {
     writeFileSync(
       stateFile,
       JSON.stringify({
         lastCheckAt: new Date(Date.now() - 2 * 86400 * 1000).toISOString(),
         latest: { version: "v0.1.4", notes: "", url: "u" },
-        snoozedUntil: new Date(Date.now() - 1000).toISOString(),
-        skippedVersion: null,
+        snoozedUntil: new Date(Date.now() + 86400 * 1000).toISOString(),
+        skippedVersion: "v0.1.4",
       }),
     );
     mockFetch([{ match: "/releases/latest", status: 200, body: RELEASE }]);
     const notice = await checkForUpdate("0.1.3");
-    assert.ok(notice, "snooze 过期 + 缓存过期 → 重新提示");
+    assert.ok(notice, "跳过 / 稍后已下线：遗留字段不得再压制提示");
+    const state = readState();
+    assert.equal(state["snoozedUntil"], undefined, "重新落盘后遗留字段消失");
+    assert.equal(state["skippedVersion"], undefined);
   });
 });
 
 describe("后台缓存", () => {
-  it("refreshUpdateNotice 填充 updateNotice，skip 后清空", async () => {
+  it("refreshUpdateNotice 填充 updateNotice", async () => {
     mockFetch([{ match: "/releases/latest", status: 200, body: RELEASE }]);
     await refreshUpdateNotice("0.1.3", () => {});
     assert.ok(updateNotice());
-    skipUpdate("v0.1.4");
-    assert.equal(updateNotice(), null);
   });
 });

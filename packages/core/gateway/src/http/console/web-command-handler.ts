@@ -16,7 +16,6 @@ import { loadModelPrefs, setPreferredChannel } from "../../pool/model-prefs.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
-import { skipUpdate, snoozeUpdate } from "../../runtime/update-check.js";
 import { renderChannelPool } from "./web-types.js";
 import type {
   WebChannelSignin,
@@ -242,17 +241,6 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");
         runInChannel(cid, () => syncPool(cid));
         return ok({});
-      }
-      case "snoozeUpdate": {
-        // 稍后提醒 = 今天不再提示（snoozedUntil 落到下一个本地 0 点）
-        snoozeUpdate();
-        return ok({});
-      }
-      case "skipUpdate": {
-        const version = typeof args["version"] === "string" ? args["version"] : "";
-        if (version === "") return err("参数 version 必填");
-        skipUpdate(version);
-        return ok({ skipped: version });
       }
       case "modelChannels": {
         // 每个对外模型的候选渠道 + 当前偏好（下拉的选项与选中项都来自这里）
