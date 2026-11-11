@@ -153,7 +153,7 @@ async function postJson(
   })) as Record<string, unknown>;
 }
 
-/** 拉全部资源包（分页；上游按 TotalCount  tells 总数）。 */
+/** 拉全部资源包（分页；上游用 TotalCount 给总数）。 */
 async function fetchAccounts(credential: cred.Credentials): Promise<Array<Record<string, unknown>>> {
   const url = `${BILLING_BASE_URL}${RESOURCE_PATH}`;
   const accounts: Array<Record<string, unknown>> = [];
@@ -230,14 +230,15 @@ export async function fetchCredits(
     return summarize(await fetchAccounts(credential));
   } catch (err) {
     if (!(err instanceof cred.NotLoggedInError) || !refreshOn401) {
-      if (err instanceof CreditsError) throw err;
+      // 未登录要原样上抛（共享层据此提示重新登录），不混进「查额度失败」
+      if (err instanceof CreditsError || err instanceof cred.NotLoggedInError) throw err;
       throw new CreditsError(`resource query failed: ${String(err)}`);
     }
     credential = await cred.refresh(credential);
     try {
       return summarize(await fetchAccounts(credential));
     } catch (retryErr) {
-      if (retryErr instanceof CreditsError) throw retryErr;
+      if (retryErr instanceof CreditsError || retryErr instanceof cred.NotLoggedInError) throw retryErr;
       throw new CreditsError(`resource query failed: ${String(retryErr)}`);
     }
   }
@@ -260,7 +261,7 @@ function pooledCredential(value: Record<string, unknown> | undefined): cred.Cred
 async function checkinRequest(
   path: string,
   credential: cred.Credentials,
-): Promise<{ status: number; payload: Record<string, unknown> }> {
+): Promise<Record<string, unknown>> {
   const resp = await shared.fetchWithTimeout(
     `${BILLING_BASE_URL}${path}`,
     { method: "POST", headers: buildHeaders(credential, { json: true }), body: "{}" },
@@ -269,8 +270,7 @@ async function checkinRequest(
   if (resp.status === 401 || resp.status === 403) {
     throw new cred.NotLoggedInError(`codebuddycn rejected the access token (HTTP ${resp.status})`);
   }
-  const payload = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: resp.status, payload };
+  return (await resp.json().catch(() => ({}))) as Record<string, unknown>;
 }
 
 /** 今日签到状态与领取。 */
@@ -278,7 +278,7 @@ export const signin = {
   perAccount: true,
 
   async status(): Promise<import("@modelmux/gateway").SigninStatus> {
-    const { payload } = await checkinRequest(CHECKIN_STATUS_PATH, cred.load());
+    const payload = await checkinRequest(CHECKIN_STATUS_PATH, cred.load());
     const data = (
       payload["data"] && typeof payload["data"] === "object" ? payload["data"] : {}
     ) as Record<string, unknown>;
@@ -312,7 +312,7 @@ export const signin = {
     options?: { credential?: Record<string, unknown> },
   ): Promise<import("@modelmux/gateway").SigninOutcome> {
     const credential = pooledCredential(options?.credential) ?? cred.load();
-    const { payload } = await checkinRequest(CHECKIN_PATH, credential);
+    const payload = await checkinRequest(CHECKIN_PATH, credential);
     const code = num(payload["code"]);
     const msg = str(payload["msg"]) || str(payload["message"]);
     // 1001 / 10001+已签到 = 今天已签；1003 = 活动未开放；1002 = 无资格

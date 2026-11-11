@@ -167,6 +167,13 @@ function parseStatistics(payload: unknown): CreditsResult {
       },
       packages: rows
         .filter((m) => m.name && m.name !== CREDIT_TOTAL_METRIC)
+        // 只留真有积分数值的 metric：积分包也可能同时报 token 账，混进来会标错单位
+        .filter(
+          (m) =>
+            num(m.package_credit_remain) !== null ||
+            num(m.package_credit_amount) !== null ||
+            num(m.package_credit_used) !== null,
+        )
         .map((m) => ({
           name: String(m.name),
           remain: num(m.package_credit_remain) ?? 0,
@@ -212,7 +219,8 @@ export async function fetchCredits(
     );
     return parseStatistics(payload);
   } catch (err) {
-    if (err instanceof CreditsError) throw err;
+    // 未登录要原样上抛（共享层据此提示重新登录），不混进「查额度失败」
+    if (err instanceof CreditsError || err instanceof cred.NotLoggedInError) throw err;
     throw new CreditsError(`statistics query failed: ${String(err)}`);
   }
 }
