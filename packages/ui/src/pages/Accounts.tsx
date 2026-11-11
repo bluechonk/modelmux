@@ -412,14 +412,15 @@ export function Accounts(): ReactElement {
                   // 而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。固定 176px 后
                   // 三列靠左排、窄屏自动折行，右侧留白交给卡片。
                   <div key={pref.model} className="flex w-44 flex-col gap-1">
-                    <span className="font-mono text-xs text-ink">{pref.model}</span>
-                    {/* 同类控件必须等宽（判据 1）：组件本身按内容收缩，
-                        由外层钉死宽度；nowrap 防窄屏下文字折行把高度顶高 */}
-                    <div className="w-full [&_button]:w-full [&_button]:whitespace-nowrap">
+                    <span className="text-center font-mono text-xs text-ink">{pref.model}</span>
+                    {/* 触发器固定宽度（fixedWidth）后在列内**居中**，与上方模型名对齐；
+                        nowrap 防窄屏下文字折行把高度顶高 */}
+                    <div className="flex w-full justify-center [&_button]:whitespace-nowrap">
                       <Select
                         value={pref.preferred ?? ""}
                         onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
                         label={`模型 ${pref.model} 优先渠道`}
+                        fixedWidth
                         options={[
                           { value: "", label: "自动" },
                           ...pref.channels.map((cid) => ({ value: cid, label: cid })),

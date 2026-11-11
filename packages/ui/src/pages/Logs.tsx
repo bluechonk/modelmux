@@ -405,8 +405,10 @@ function LogTable({
   // whitespace-nowrap：`table-fixed` 下中文表头会在空格处折成竖排（「缓存 命中/未命中」挤成 5 行）
   // 末列与表体共用同一套内边距（含加大的右距），否则表头与数据右沿错开
   // 显式 text-center：UA 样式表给 `th` 的默认对齐会压过 table 的继承值（实测 th 计算值是 left）
+  // align-top 与表体一致：表体是 align-top（多行内容顶对齐），表头若用 UA 默认的 middle，
+  // 两行文字在各自行内的相对位置不同（实测差约 3px）
   const headClass = (key: string): string =>
-    `whitespace-nowrap text-center ${key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 font-normal`;
+    `whitespace-nowrap text-center align-top ${key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 font-normal`;
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
@@ -543,7 +545,7 @@ function Filters({
   onPageSizeChange,
   dirty,
   onReset,
-  channelBasis,
+  allChannels,
   dateBasis,
 }: {
   page: AccessLogPage | undefined;
@@ -557,8 +559,8 @@ function Filters({
   onPageSizeChange: (size: number) => void;
   dirty: boolean;
   onReset: () => void;
-  /** 渠道下拉的定宽基准（全部在册渠道，见 Logs 的说明）。 */
-  channelBasis: ReadonlyArray<string>;
+  /** 全部在册渠道：下拉**恒列全部**（不按当前日志的渠道子集收缩），也是定宽基准。 */
+  allChannels: ReadonlyArray<string>;
   /** 日期下拉的定宽基准（含完整 YYYY-MM-DD）。 */
   dateBasis: ReadonlyArray<string>;
 }): ReactElement {
@@ -589,9 +591,14 @@ function Filters({
     { value: "", label: "今天" },
     ...(page?.dates ?? []).filter((value) => value !== today).map((value) => ({ value, label: value })),
   ];
+  /**
+   * 渠道下拉**恒列全部在册渠道**（不按当前日期/日志的渠道子集收缩）——
+   * 选了某天没有某渠道的日志时，选项仍在（选中后列表为空总比选项消失好判断）。
+   * 定宽基准与选项同源，宽度不随日期筛选变化。
+   */
   const cidOptions: SelectOption[] = [
     { value: "", label: "全部渠道" },
-    ...(page?.cids ?? []).map((value) => ({ value, label: value })),
+    ...allChannels.map((value) => ({ value, label: value })),
   ];
   const toggleClass = (active: boolean): string =>
     `tap rounded-lg border px-2 py-1 text-xs transition-colors ${
@@ -628,7 +635,14 @@ function Filters({
         切换选项时按钮位置纹丝不动；清除筛选**常驻**，无筛选时禁用而非隐藏。
       */}
       <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
-        <Select label="渠道" value={cid} onChange={onCid} options={cidOptions} fixedWidth widthBasis={channelBasis} />
+        <Select
+          label="渠道"
+          value={cid}
+          onChange={onCid}
+          options={cidOptions}
+          fixedWidth
+          widthBasis={["全部渠道", ...allChannels]}
+        />
         <Select label="日期" value={date} onChange={onDate} options={dateOptions} fixedWidth widthBasis={dateBasis} />
         <span className="flex items-center gap-1.5">
           每页
@@ -674,7 +688,7 @@ export function Logs(): ReactElement {
    * 与 LayoutSingle 共用 `["state"]` 缓存，不额外发起轮询。
    */
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
-  const channelBasis = ["全部渠道", ...Object.keys(state.data?.channel_caps ?? {})];
+  const allChannels = Object.keys(state.data?.channel_caps ?? {});
   /** 日期基准：完整 `YYYY-MM-DD` 恒为最长（「今天」更短），不随日期列表增减变化。 */
   const dateBasis = ["今天", localToday()];
 
@@ -768,7 +782,7 @@ export function Logs(): ReactElement {
             setPageNum(1);
             setExpanded(null);
           }}
-          channelBasis={channelBasis}
+          allChannels={allChannels}
           dateBasis={dateBasis}
           dirty={dirty}
           onReset={() => {

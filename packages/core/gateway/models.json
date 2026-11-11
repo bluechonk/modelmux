@@ -4,19 +4,26 @@
     "deepseek-v4.1-flash": {
       "contextWindow": 1000000,
       "maxOutput": 128000,
-      "inputModalities": ["text", "image"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
       "channels": {
         "traecn": "deepseek-v4.1-flash",
         "loomy": "DeepSeek-V4.1-Flash",
         "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017",
-        "codebuddycn": "deepseek-v4.1-flash"
+        "codebuddycn": "deepseek-v4.1-flash",
+        "codearts": "deepseek-v4.1-flash"
       }
     },
     "glm-5.3-flash": {
       "contextWindow": 1000000,
       "maxOutput": 32000,
-      "inputModalities": ["text", "image"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
       "channels": {
         "catpaw": "glm-5.3-flash",
         "lobsterai": "glm-5.3-flash",
@@ -24,23 +31,19 @@
         "qodercn": "gfmodel",
         "qoder": "gfmodel",
         "workbuddyai": "glm-5.3-flash",
-        "codebuddycn": "glm-5.3-flash"
+        "codebuddycn": "glm-5.3-flash",
+        "codearts": "glm-5.3-flash"
       }
     },
-    "qwork-flash": {
+    "qwen3.8-flash": {
       "contextWindow": 1000000,
       "maxOutput": 32000,
-      "inputModalities": ["text", "image"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
       "channels": {
         "qwenworkcn": "flash"
-      }
-    },
-    "longcat-2.5": {
-      "contextWindow": 1000000,
-      "maxOutput": 64000,
-      "inputModalities": ["text"],
-      "channels": {
-        "catpaw": "LongCat-2.5"
       }
     }
   }

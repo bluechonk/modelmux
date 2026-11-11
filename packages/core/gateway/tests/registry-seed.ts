@@ -65,7 +65,7 @@ interface RegistryDoc {
 const SPEC: Record<string, { contextWindow: number; maxOutput: number }> = {
   "deepseek-v4.1-flash": { contextWindow: 1_000_000, maxOutput: 128_000 },
   "glm-5.3-flash": { contextWindow: 1_000_000, maxOutput: 32_000 },
-  "longcat-2.5": { contextWindow: 1_000_000, maxOutput: 64_000 },
+  "qwen3.8-flash": { contextWindow: 1_000_000, maxOutput: 32_000 },
 };
 
 /**

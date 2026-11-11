@@ -360,9 +360,12 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 **可选钩子的语义**（路由相关的两项见 `POOL-ARCHITECTURE.md` §2.4）：
 
-- `buildChatHeaders?(credential, cfg)`：对话请求的**专用头族**（上游按整组头判定
+- `buildChatHeaders?(credential, cfg, body?)`：对话请求的**专用头族**（上游按整组头判定
   「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
   （`packages/core/gateway/src/http/chat/upstream.ts:137-140`）；普通 OpenAI 兼容渠道无需声明。
+  第三参 `body` 是**网关已序列化的请求体**：**签名类渠道**要用它把 payload 哈希计进签名
+  （如华为云 `SDK-HMAC-SHA256` 的 `Authorization`）—— 签名覆盖 body 时必须在建头阶段
+  算好，而网关的 `fetch` 只认这组网。不签名的渠道忽略该参数即可（向后兼容）。
 - `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
   （`packages/core/gateway/src/http/chat/attempt.ts:301-319`）。参数是**网关已经建好的
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`

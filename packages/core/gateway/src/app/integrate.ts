@@ -887,7 +887,7 @@ function pickDesktopProfileId(meta: Record<string, unknown>): string {
  *
  * `name` 必须写成**真实存在的 Anthropic 模型名**：Desktop 的校验器（`app.asar` 里
  * `jo()` → `ko = /^[A-Za-z0-9_-]{1,64}$/` 再叠加「须为已知 Anthropic 模型」）会拒掉
- * 自造名 —— 连斜杠与点号都不允许，`anthropic/claude-sonnet-longcat-2.5` 实测会被丢弃
+ * 自造名 —— 连斜杠与点号都不允许，`anthropic/claude-sonnet-deepseek-v4.1-flash` 实测会被丢弃
  * （日志：`is not an Anthropic model`），结果是模型选择器为空。
  *
  * 槽位与映射表都由 `model-family.ts` 的 `DESKTOP_ROLE_MODELS` 决定（接入与解析同源）：
@@ -969,7 +969,7 @@ function integrateClaudeDesktop(models: string[]): IntegrationResult {
   profile["inferenceGatewayBaseUrl"] = anthropicUrl;
   profile["inferenceGatewayAuthScheme"] = "x-api-key";
   profile["inferenceGatewayApiKey"] = LOCAL_API_KEY;
-  // **必须关**模型发现：它直接拿 `/v1/models` 的裸名（`longcat-2.5` / `deepseek-v4.1-flash`）
+  // **必须关**模型发现：它直接拿 `/v1/models` 的裸名（`qwen3.8-flash` / `deepseek-v4.1-flash`）
   // 当候选，而 Desktop 的校验器不接受点号 —— 实测 3 个模型全被判「不可用」
   // （日志：`Gateway /v1/models returned 0 usable models { rawCount: 3 }`，选择器为空）。
   // 显式 `inferenceModels` 里的角色名才是可走的路（映射见 `desktopInferenceModels`）。

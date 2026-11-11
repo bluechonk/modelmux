@@ -105,7 +105,7 @@ describe("2. 模型家族：canonical 归并 + 别名", () => {
   it("家族外的名字解析不出来（含同前缀的另一个型号）", () => {
     assert.equal(canonicalOf("glm-5.3-flashx"), null, "x 后缀是另一个型号");
     assert.equal(canonicalOf("kimi-k2.6"), null);
-    assert.equal(canonicalOf("qwen3.8-flash"), null);
+    assert.equal(canonicalOf("longcat-2.5"), null, "longcat-2.5 已移出家族");
     assert.equal(canonicalOf("deepseek-v4-pro"), null, "v4-pro 已移出家族");
     assert.equal(canonicalOf("deepseek-v4-flash-vision-exp"), null);
     assert.equal(isPoolModel("glm-5.3-flashx"), false);
@@ -219,7 +219,7 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     const pool = [...POOL_MODELS];
     assert.deepEqual(
       pool,
-      ["deepseek-v4.1-flash", "glm-5.3-flash"],
+      ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"],
       "只列有货的 canonical 模型（别名 deepseek-flash 不单独出现）",
     );
   });

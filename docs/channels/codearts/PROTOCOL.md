@@ -1,0 +1,266 @@
+# CodeArts（华为云码道）协议规格
+
+华为云 **CodeArts Agent**（盘古助手 / 码道，桌面端 `CodeArts Agent`）的反代协议。
+上游由官方 VS Code 插件 `huaweicloud.authentication` 与 `snap-manager` 逆向而来。
+
+> 证据等级：`[实测]` 真机实测 / `[代码]` 源码逐字读出 / `[推断]` 由结构推出 /
+> `[参考]` 仅见于参考实现自述、本仓库未复验。
+> **参考实现只提供协议知识，事实以本仓实现为准。** 许可证见 [REFERENCES](../../REFERENCES.md)。
+
+---
+
+## 1. 登录：浏览器 OAuth2（PKCE + DPoP）
+
+### 1.1 流程
+
+| 步 | 动作 | 端点 |
+| --- | --- | --- |
+| 1 | 起本地回调服务器（`127.0.0.1:<port>`，被占则随机端口） | — |
+| 2 | 生成 PKCE（S256）+ ticket_id，构造授权链接并交给用户 | `GET https://codearts.huaweicloud.com/portal/authorize?...` |
+| 3 | 用户在华为云页面登录（**手机号 + 短信验证码**，见 §1.2） | — |
+| 4 | 门户带 `code` 回调本地端口 | `GET http://127.0.0.1:<port>/oauth/callback?code=...` |
+| 5 | 用授权码 + code_verifier + DPoP 证明换 STS 凭证 | `POST https://sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens` |
+| 6 | 落盘 `~/.modelmux/channels/codearts/credentials.json` | — |
+
+授权链接参数 `[代码]`（对齐官方插件）：
+
+```
+theme=2  locale=zh-cn  uri_scheme=codearts-agent  client_id=codearts-agent
+port=<本地回调端口>  code_challenge=<S256>  code_challenge_method=SHA-256
+ticket_id=<随机 hex>  plugin-name=snap_AIIDE  plugin-version=5.2.0
+```
+
+`client_id`（`codearts-agent`）与 refresh_token 绑定：换 client_id 刷新会被 STS 拒
+（`invalid client id`）`[参考]`。
+
+### 1.2 为什么走浏览器（而不是接口直发短信）
+
+华为云登录页（`auth.huaweicloud.com/authui`）的手机号登录在**发码前**要过
+`hwsiamcaptcha` 验证码（场景 `sendLoginSms`）：
+
+```
+GET /authui/v1/captcha?businessId=hwsiamcaptcha&sceneId=2&type=2&lang=zh-CN   → 验证码 SDK 配置
+POST /authui/sendLoginSms  {mobile, verifyCode: <验证码解>}                   → 发短信
+```
+
+验证码是浏览器 SDK（滑块 / 点选），纯接口流没有可行解法；让 CLI 直接收手机号与
+短信码也会被验证码拦住。故本渠道**只提供浏览器登录**：用户在自己打开的华为云页面
+上选择手机号 + 短信登录，CLI 只负责把授权链接递出去、把回调收回来。
+
+### 1.3 DPoP（RFC 9449，ES256 / P-256）
+
+令牌端点要求 `DPoP` 头：`{alg: ES256, typ: dpop+jwt, jwk: <公钥>}` +
+`{htm: POST, htu: <令牌端点>, iat, jti}`，ES256 签名（低 S）。
+
+**refresh_token 与签发时的 DPoP 公钥绑定**：换密钥刷新会被拒（`InvalidDPoPHeader`）。
+故私钥（JWK）与凭据一起落盘，`refresh()` 复用同一密钥 `[代码]`。
+
+### 1.4 续期
+
+同一令牌端点，`grant_type=refresh_token` + `refresh_token` + `code_verifier` + DPoP。
+终态失效（`ExpiredRefreshToken` / `InvalidDPoPHeader` / `invalid client id` /
+`has been used`）抛 `NotLoggedInError`，由共享层提示重新登录；其余错误可重试。
+
+---
+
+## 2. 对话：`/api/v2/chat/completions`
+
+```
+POST https://snap-access.cn-north-4.myhuaweicloud.com/api/v2/chat/completions
+```
+
+**两重鉴权**（缺一不可）`[代码]`：
+
+| 头 | 作用 |
+| --- | --- |
+| `x-auth-token` | STS `security_token`（用户身份） |
+| `Authorization: SDK-HMAC-SHA256 Access=<AK>, SignedHeaders=..., Signature=...` | AK/SK 请求签名（华为云 SDK 算法） |
+| `X-Security-Token` | 同 `x-auth-token`（SDK 签名要求） |
+| `X-Sdk-Date` / `X-Sdk-Content-Sha256` | 签名输入（payload 哈希） |
+| `x-snap-traceid` / `X-Language: zh-cn` / `app-id: CodeAgent3.0` / `is_confidential: false` | 官方客户端身份头族 |
+| `maas_type: benefit` | **福利模型**必带（见 §3） |
+
+签名算法（`SDK-HMAC-SHA256`，对齐 `@huaweicloud/huaweicloud-sdk-core`）`[代码]`：
+
+```
+CanonicalRequest = METHOD \n CanonicalURI \n CanonicalQuery \n CanonicalHeaders \n SignedHeaders \n PayloadHash
+StringToSign     = SDK-HMAC-SHA256 \n X-Sdk-Date \n hex(sha256(CanonicalRequest))
+Signature        = hex(hmac_sha256(SecretAccessKey, StringToSign))
+```
+
+- CanonicalHeaders = 请求里**全部头**（小写 key 排序，值去首尾空白），含 `host`；
+- CanonicalURI 每段 percent-encode 且末尾补 `/`；
+- PayloadHash = `X-Sdk-Content-Sha256`（请求体 sha256）；
+- `Chat-Id` / `Session-Id` 在签名**之后**追加（不参与签名）。
+
+**签名覆盖请求体 → 必须在建头阶段拿到 body**：共享层 `Channel.buildChatHeaders`
+已扩展为可接收网关已序列化的 body（见 [CONTRACT-TS](../../CONTRACT-TS.md)）。
+
+### 2.1 请求体（OpenAI 形状 + CodeArts 扩展）
+
+```json
+{
+  "model": "<上游模型 id>",
+  "stream": true,
+  "messages": [ ... ],
+  "prompt_cache_key": "<32hex>",
+  "tool_stream": true,
+  "chat_id": "<32hex>",
+  "max_tokens": 1024,          // 可选
+  "temperature": 0.7,          // 可选
+  "top_p": 0.9,                // 可选
+  "tools": [ ... ], "tool_choice": "auto"   // 可选
+}
+```
+
+- **始终发 `stream: true`**：网关侧按 SSE 聚合（非流式客户端也由网关聚合成 JSON，
+  见 `http/chat/forward.ts`）。
+- `chat_id` / `prompt_cache_key` 按**账号**稳定（由 accessKeyId 派生）：上游对
+  并发会话数有限额（实测 3 个），每次新建会话几个请求就打满（`TM.00001041`）。
+  chat_id 只做亲和与缓存 —— 多轮语义仍由完整 messages 承载（对齐参考实现）。
+  `Chat-Id` / `Session-Id` 头在签名**之后**追加（不参与签名）。
+
+### 2.2 响应
+
+标准 OpenAI SSE（`WIRE = "openai"`），网关不套翻译层。工具调用支持
+`tool_choice` 的 `auto` / `none` / `required` 与指定函数对象。
+
+---
+
+## 3. 模型目录：内置表
+
+`GET /v1/model/builtin`（`Agent-Type: PromptCenter`，AK/SK 签名）：
+
+```
+{builtinModels: [{model_id, model_name, model_category, model_desc, context_window, max_tokens, credit, ...}]}
+```
+
+实测（2026-11-11，本机账号）返回 **11 个模型**：`GLM-5.2`、`glm-5.3`、`glm-5.3-flash`、
+`deepseek-v4.1-flash`、`deepseek-v4.1-flash-1017`、`kimi-k3`、`kimi-k3.1-pro`、
+`openpangu-2.0-pro` / `flash`、`glm-5.2-sft-harmony`、`speed`（窗口 200K–1M，
+输出上限 64K–65,536）。
+
+> 参考实现（2026-09）曾把 `glm-5.3-flash` / `deepseek-v4-*` 走「限时福利」路由
+> （`opengw` 网关 + `maas_type: benefit` 头 + 领取）。**当前上游已把这些模型并入
+> 内置表**（`channel_source: codearts`，带 credit 倍率），福利端点返回
+> `invalid channel, group not found` —— 本渠道只读内置表，不再走福利路由。
+
+### 3.1 供给范围（注册表映射）
+
+上游模型名与网关对外模型名的映射写在统一注册表
+（`packages/core/gateway/models.json` 的 `channels.codearts` 段）：
+
+| 对外 id | 上游 id | 说明 |
+| --- | --- | --- |
+| `glm-5.3-flash` | `glm-5.3-flash` | 内置表，1M 窗口 |
+| `deepseek-v4.1-flash` | `deepseek-v4.1-flash` | 内置表，1M 窗口 |
+
+`longcat-2.5` / `qwork-flash` 上游没有对应模型，本渠道不供。
+
+---
+
+## 4. 额度与签到（积分活动）
+
+```
+GET  /v1/ops/delivery?channel=IDE                       → 活动列表
+POST /v1/ops/claim    {campaignId, channel, idempotentKey}
+POST /v1/ops/confirm  （CLAIMED → 确认到账）
+```
+
+只领 **campaign 1（每日签到）** 与 **4（新手奖励）** 且 `benefitUnit = CREDIT`
+的条目。活动状态机 `[代码]`：
+
+| 状态 | 含义 | 动作 |
+| --- | --- | --- |
+| `ELIGIBLE` + `claimable` | 可领 | 调 claim |
+| `CLAIMED` | 已到账未确认 | 只补 confirm，不重复领取 |
+| `CONFIRMED` / `CONSUMED` | 已结束 | 无 |
+| 其它 / 空 | 无资格 | 无 |
+
+---
+
+## 5. 使用与实测
+
+### 登录方式
+
+- **只有浏览器授权一条路**（§1）：`mx login codearts` 打印授权链接，用户在华为云
+  页面用手机号 + 短信完成登录，回调自动回到本地端口。
+- CLI 无界面时同样走这条（链接打到 stdout，用户自行打开）。
+
+### 存储
+
+`~/.modelmux/channels/codearts/credentials.json`（0600）：STS 临时凭证 +
+refresh_token + PKCE verifier + DPoP 私钥 + 身份字段。
+
+### 模型 id
+
+见 §3.1 的注册表映射；`mx model codearts` 可看渠道视图。
+
+### 已知限制
+
+- **并发会话数限额**：上游按账号限并发会话（实测 3 个）；不带 `chat_id` 时每次请求
+  新建会话，几个请求即报 `TM.00001041 并发会话数已达上限`。本渠道按账号派生稳定
+  `chat_id`（§2.1）规避。
+- 对话请求的签名覆盖 body：渠道必须在建头阶段拿到已序列化的请求体（共享层已支持）。
+- 上游模型名单随账号套餐变化（内置表 11 个，2026-11-11 实测）；注册表未登记的
+  模型名请求会 400。
+
+### 推荐模型
+
+| 场景 | 模型 | 理由 |
+| --- | --- | --- |
+| 通用对话 / Agent | `glm-5.3-flash` | 内置表，1M 窗口 |
+| 长上下文 | `deepseek-v4.1-flash` | 内置表，1M 窗口 |
+
+---
+
+### 怎么测这个渠道
+
+```sh
+# 登录（打印授权链接，浏览器完成）
+node packages/core/channels/codearts/dist/cli.js login
+
+# 渠道视图（对外模型 + 上游映射）
+node packages/core/channels/codearts/dist/cli.js model
+
+# 刷新模型目录（写 cache/models.json）
+node packages/core/channels/codearts/dist/cli.js model --refresh
+
+# 额度 / 签到
+node packages/core/channels/codearts/dist/cli.js bill
+node packages/core/channels/codearts/dist/cli.js status
+```
+
+端到端（真实客户端）走 `dsh-mx-test` 技能：base url 指到 `http://127.0.0.1:4412/v1`，
+模型填裸模型名（如 `glm-5.3-flash`）。
+
+### 端到端测试覆盖
+
+- [x] 登录链路（授权链接 → 浏览器手机号+短信登录 → 回调 → STS 凭证落盘，2026-11-11 实测）
+- [ ] 续期（过期前自动 refresh；STS 凭证 2 小时有效）
+- [x] 对话（`glm-5.3-flash` / `deepseek-v4.1-flash`，流式 + 非流式，2026-11-11 实测）
+- [ ] 工具调用（`tool_choice: auto` 往返）
+- [x] 模型目录（内置 11 个模型，含窗口/输出上限，2026-11-11 实测）
+- [ ] 签到（campaign 1 / 4）
+
+### 2026-11-11 端到端实测
+
+单渠道实例（`node packages/core/channels/codearts/dist/cli.js serve --addr 127.0.0.1:4414`）：
+
+| 用例 | 结果 |
+| --- | --- |
+| `POST /v1/chat/completions` `glm-5.3-flash` stream=true | 200，SSE 分块 + usage + `[DONE]` |
+| 同上 stream=false | 200，聚合 JSON（网关 SSE 聚合） |
+| `deepseek-v4.1-flash` stream=false | 200，中文内容正确（UTF-8） |
+| 模型目录 `model codearts --refresh` | 11 个模型，窗口/输出上限齐全 |
+| 登录 | 浏览器手机号+短信 → STS 凭证 + refresh_token + DPoP 私钥落盘 |
+| 并发会话限额 | 不带 chat_id 时 3 个请求即 `TM.00001041`；带 chat_id 后规避 |
+
+## 8. 参考实现
+
+| 仓库 | 许可证 | 学到了什么 |
+| --- | --- | --- |
+| [HITZY2002/codearts2api](https://github.com/HITZY2002/codearts2api) | MIT | OAuth2 + PKCE + DPoP 登录链、STS 签名对话、模型目录两源、积分活动 |
+| [Johnsheng1/codearts2api](https://github.com/Johnsheng1/codearts2api) | MIT | 同协议的另一实现（Python），交叉核对端点字段 |
+
+> 许可证与使用边界统一登记在 [REFERENCES.md](../../REFERENCES.md)。
