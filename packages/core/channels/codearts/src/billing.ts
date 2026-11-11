@@ -228,6 +228,12 @@ export const signin = {
     const claimed = items.filter(
       (it) => it.status === "CONFIRMED" || it.status === "CONSUMED" || it.status === "CLAIMED",
     );
+    // 签到面额取活动自报值（上游换 ID / 换面额时跟着走）。报出去是为了让调度器
+    // 给「已签但没记额度」的台账补数值 —— 本渠道余额是 token 包，差值口径拿不到积分。
+    const amount = items.reduce(
+      (sum, it) => sum + (it.benefitAmount || it.pendingTotalAmount || 0),
+      0,
+    );
     return {
       claimable: claimable.length > 0,
       summary:
@@ -244,6 +250,8 @@ export const signin = {
       })),
       claimedToday: claimed.length > 0,
       daily: true,
+      ...(amount > 0 ? { dailyReward: { amount, unit: "积分" } } : {}),
+      ...(claimed.length > 0 && amount > 0 ? { reward: { amount, unit: "积分" } } : {}),
     };
   },
 

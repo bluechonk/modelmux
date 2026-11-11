@@ -303,6 +303,8 @@ export const signin = {
       ...(checked && (num(data["today_credit"]) ?? 0) > 0
         ? { reward: { amount: num(data["today_credit"])!, unit: "credits" } }
         : {}),
+      // 按账号签到的渠道拿不到「领取接口自报」的数额，调度器走 dailyReward 口径
+      ...(daily > 0 ? { dailyReward: { amount: daily, unit: "credits" } } : {}),
     };
   },
 
