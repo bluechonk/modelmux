@@ -103,7 +103,10 @@ POST /v2/chat/completions
 | --- | --- | --- |
 | 端点、头族、gzip 对话体、SSE 形态 | 参考实现 `app/auth_oauth.py` / `app/client_profiles.py` / `app/upstream_io.py` / `app/credits.py` | 参考实现逆向（未本机验证） |
 | 模型 id（`deepseek-v4.1-flash` / `glm-5.3-flash`） | 参考实现目录解析 + 本仓注册表 | 参考实现逆向 |
-| 登录/续期/对话的真机行为 | 待真机验证 | 未验证 |
+| 登录（授权页 + 轮询 + 账号档案） | 真机：账号「セシリア」授权入池（2026-11-11） | 已验证 |
+| 模型目录（GET + 账单主机） | 真机：拉到 `deepseek-v4.1-flash` / `glm-5.3-flash`（2026-11-11） | 已验证 |
+| 对话（gzip 体 + 头族 + SSE） | 真机：`glm-5.3-flash` 最小对话返回「1+1=2」（2026-11-11） | 已验证 |
+| 续期（refresh） | 未单独验证 | 未验证 |
 
 ### 怎么测这个渠道
 
