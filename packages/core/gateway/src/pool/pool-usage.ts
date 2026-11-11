@@ -21,6 +21,7 @@ import {
   readAccountCredential,
   readIndex,
   reviveAfterBilling,
+  runForAccountCredential,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 import { noteOnce, poolUsagePath } from "../runtime/paths.js";
@@ -634,8 +635,9 @@ async function refreshAccountCredits(
     const credential = normalizeCredentialShape(raw);
     if (Object.keys(credential).length === 0) continue;
     try {
-      const credits = await runInChannel(cid, () =>
-        channel.billing.fetchCredits({ refreshOn401: false, credential }),
+      // 落点限在该账号自己的文件：凭据过期就地续期并写回这里，不顶掉 live 的生效凭据
+      const credits = await runForAccountCredential(cid, account.key, () =>
+        channel.billing.fetchCredits({ refreshOn401: true, credential }),
       );
       writeAccountBilling(cid, account.key, credits);
     } catch (err) {
@@ -695,7 +697,7 @@ export async function queryAccountCredits(cid: string): Promise<AccountCreditsRo
       continue;
     }
     try {
-      const credits: unknown = await runInChannel(cid, () =>
+      const credits: unknown = await runForAccountCredential(cid, account.key, () =>
         channel.billing.fetchCredits({ refreshOn401: false, credential }),
       );
       const total = (credits as { total?: Record<string, unknown> } | null)?.total ?? {};

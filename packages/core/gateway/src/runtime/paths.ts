@@ -13,6 +13,7 @@ import { join } from "node:path";
 
 import { channelFor, getChannel, type ChannelConfig } from "./channel.js";
 import { activeCid } from "./channel-context.js";
+import { credentialPathOverride } from "./credential-scope.js";
 import { enforcePermissions } from "./permissions.js";
 
 /** 存储根目录名（用户主目录下）。 */
@@ -39,6 +40,7 @@ export const SUBDIRS = {
   cache: "cache",
   state: "state",
   debug: "debug",
+  accounts: "accounts",
 } as const;
 
 const warned = new Set<string>();
@@ -174,9 +176,17 @@ export function logsDir(): string {
   return join(rootDir(), "logs");
 }
 
-/** 凭证文件路径。 */
+/** 凭证文件路径（账号上下文中是该账号自己的文件，见 runtime/credential-scope.ts）。 */
 export function credentialsPath(cid?: string): string {
-  return channelFile(FILES.credentials, cid);
+  return credentialPathOverride() ?? channelFile(FILES.credentials, cid);
+}
+
+/** 账号凭证文件路径（与 live 的 credentials.json 同构，账号池里每个账号一份）。 */
+export function accountCredentialsPath(key: string, cid?: string): string {
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(key)) {
+    throw new Error(`invalid account key: ${key}`);
+  }
+  return join(channelDir(cid), SUBDIRS.accounts, `${key}.json`);
 }
 
 /** 上游配置文件路径。 */

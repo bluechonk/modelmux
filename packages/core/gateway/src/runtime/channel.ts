@@ -566,8 +566,11 @@ export interface BillingModule {
    * 查额度。
    *
    * `credential` 用于**按账号**查询：不传 = 当前生效账号（`cred.load()`）；
-   * 传入时用它代替 `cred.load()`，并应配合 `refreshOn401: false`（避免刷新/回写
-   * 当前生效账号的凭证文件）。形状见 `credential-shape.ts` 的归一化结果。
+   * 传入时用它代替 `cred.load()`。形状见 `credential-shape.ts` 的归一化结果。
+   *
+   * `refreshOn401` 为真且上游拒绝凭据时，渠道应续期后重试一次。**传入 `credential`
+   * 的调用方必须先套 `accounts.runForAccountCredential(cid, key, …)`** —— 否则
+   * 渠道 `refresh()` 的落盘会写进 live 文件，把生效账号的凭据顶掉。
    */
   fetchCredits(options?: { refreshOn401?: boolean; credential?: unknown }): Promise<any>;
   /**

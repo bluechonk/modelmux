@@ -17,8 +17,9 @@ import { join } from "node:path";
 
 import { getChannel, type Channel } from "./channel.js";
 import { runInChannel } from "./channel-context.js";
+import { runWithCredentialPath } from "./credential-scope.js";
 import { logThrottled } from "./logger.js";
-import { channelDir, credentialsPath, ensureDir } from "./paths.js";
+import { accountCredentialsPath, channelDir, credentialsPath, ensureDir } from "./paths.js";
 import { writeJsonSecret } from "./secret-file.js";
 
 /**
@@ -125,8 +126,18 @@ function indexFile(cid?: string): string {
 }
 
 function accountFile(key: string, cid?: string): string {
-  if (!/^[a-z0-9][a-z0-9.-]*$/.test(key)) throw new Error(`invalid account key: ${key}`);
-  return join(accountDir(cid), `${key}.json`);
+  return accountCredentialsPath(key, cid);
+}
+
+/**
+ * 在「凭据落点 = 该账号文件」的上下文里对**这个账号**跑 `fn`。
+ *
+ * 为什么需要它：渠道的 `cred.refresh()` 会 `save()` 到 `credentialsPath()`。不限定落点时，
+ * 用非生效账号的凭据续期会把 live 文件写成那个账号的凭据（`syncPool` 据此把生效账号切走）。
+ * 套上这层后，渠道侧零改动就把续期结果写进该账号自己的文件。
+ */
+export function runForAccountCredential<T>(cid: string, key: string, fn: () => T): T {
+  return runInChannel(cid, () => runWithCredentialPath(accountCredentialsPath(key, cid), fn));
 }
 
 function nowIso(): string {
