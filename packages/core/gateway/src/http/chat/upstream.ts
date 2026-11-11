@@ -171,8 +171,9 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
   let headers: Record<string, string>;
   try {
     await upstream.refreshIfExpired?.(c);
-    // 渠道声明了对话专用头族就用它，否则回退基础头
-    headers = upstream.buildChatHeaders ? upstream.buildChatHeaders(c) : upstream.buildHeaders(c);
+    // 渠道声明了对话专用头族就用它，否则回退基础头。
+    // 传入已序列化的 body：签名类渠道（如华为云 SDK-HMAC-SHA256）要把 payload 哈希计进签名。
+    headers = upstream.buildChatHeaders ? upstream.buildChatHeaders(c, undefined, body) : upstream.buildHeaders(c);
   } catch (err) {
     return {
       ok: false,

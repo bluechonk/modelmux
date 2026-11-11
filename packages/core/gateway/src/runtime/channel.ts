@@ -239,8 +239,13 @@ export interface UpstreamModule {
    *
    * 缺省时网关回退 `buildHeaders`（基础鉴权头）——普通 OpenAI 兼容渠道无需声明。
    * 实例：workbuddyai 的官方桌面端身分头族（含每轮新生的会话/请求 ID）。
+   *
+   * `body`（可选）：网关已序列化的请求体。**签名类渠道**要用它把 payload 哈希
+   * 计进签名（如华为云 `SDK-HMAC-SHA256` 的 `X-Sdk-Content-Sha256` 与
+   * `Authorization` 头）—— 签名覆盖 body 时必须在建头阶段算好，而网关的
+   * `fetch` 只认这组网。不签名的渠道忽略该参数即可（向后兼容）。
    */
-  buildChatHeaders?(credential: any, cfg?: any): Record<string, string>;
+  buildChatHeaders?(credential: any, cfg?: any, body?: Buffer): Record<string, string>;
   /**
    * 可选：判定某个**非 200** 响应是否算**鉴权失败**（触发 token 刷新 + 标记账号不可用）。
    *
