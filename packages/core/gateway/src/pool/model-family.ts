@@ -4,16 +4,15 @@
  * 渠道归属由网关按「账号池剩余额度」自动选择（见 `pool-targets.ts` / `http/chat/route.ts`）。
  * 本表是共享层唯一允许出现模型名的地方（`scripts/verify-contract.mjs` 强制）。
  *
- * 两点命名约定：`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（双向匹配）；
- * `qwork-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
+ * 命名约定：`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（双向匹配）；
+ * `qwen3.8-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
  */
 
 /** 对外暴露的模型 id（顺序即 `/v1/models` 与控制台的展示顺序；别名排在最后）。 */
 export const POOL_MODEL_IDS = [
   "deepseek-v4.1-flash",
   "glm-5.3-flash",
-  "longcat-2.5",
-  "qwork-flash",
+  "qwen3.8-flash",
   "deepseek-flash",
 ] as const;
 
@@ -21,8 +20,7 @@ export const POOL_MODEL_IDS = [
 const CANONICAL: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek-v4.1-flash",
   "glm-5.3-flash": "glm-5.3-flash",
-  "longcat-2.5": "longcat-2.5",
-  "qwork-flash": "qwork-flash",
+  "qwen3.8-flash": "qwen3.8-flash",
   "deepseek-flash": "deepseek-v4.1-flash",
 };
 
@@ -30,16 +28,14 @@ const CANONICAL: Readonly<Record<string, string>> = {
 const ALIAS_GROUP: Readonly<Record<string, readonly string[]>> = {
   "deepseek-v4.1-flash": ["deepseek-v4.1-flash", "deepseek-flash"],
   "glm-5.3-flash": ["glm-5.3-flash"],
-  "longcat-2.5": ["longcat-2.5"],
-  "qwork-flash": ["qwork-flash"],
+  "qwen3.8-flash": ["qwen3.8-flash"],
 };
 
 /** canonical → `/v1/models` 里的 `owned_by`（厂商标识，展示用）。 */
 const MODEL_OWNER: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek",
   "glm-5.3-flash": "zhipu",
-  "longcat-2.5": "meituan",
-  "qwork-flash": "alibaba",
+  "qwen3.8-flash": "alibaba",
 };
 
 /**
@@ -54,7 +50,7 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
 export const DESKTOP_ROLE_MODELS: ReadonlyArray<readonly [roleId: string, model: string]> = [
   ["claude-sonnet-4-5", "deepseek-v4.1-flash"],
   ["claude-opus-4-5", "glm-5.3-flash"],
-  ["claude-haiku-4-5", "longcat-2.5"],
+  ["claude-haiku-4-5", "qwen3.8-flash"],
 ];
 
 /** 角色名 → 池模型的 canonical；不是角色名返回 `null`。 */

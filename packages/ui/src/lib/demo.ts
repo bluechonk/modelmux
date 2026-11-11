@@ -92,14 +92,12 @@ const DEMO_CHANNELS: DemoChannel[] = [
 /**
  * 各渠道对外暴露的模型（演示集；候选集必须落在网关对外家族内）。
  *
- * 对外模型：`deepseek-v4.1-flash` / `glm-5.3-flash` / `longcat-2.5` / `qwork-flash`。
- * `longcat-2.5` 目前只有 catpaw 供给 —— 演示里保留这个事实，否则看不出
- * 「单渠道模型排队就没有备选」这类真实约束。
+ * 对外模型：`deepseek-v4.1-flash` / `glm-5.3-flash` / `qwen3.8-flash`。
  */
 const DEMO_MODELS: Record<string, string[]> = {
   astudio: [],
   autoclaw: ["glm-5.3-flash"],
-  catpaw: ["deepseek-v4.1-flash", "longcat-2.5"],
+  catpaw: ["deepseek-v4.1-flash"],
   lobsterai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
   loomy: ["deepseek-v4.1-flash"],
   qoder: ["deepseek-v4.1-flash", "glm-5.3-flash"],
@@ -109,8 +107,8 @@ const DEMO_MODELS: Record<string, string[]> = {
   traecn: ["deepseek-v4.1-flash"],
   workbuddy: ["deepseek-v4.1-flash"],
   workbuddyai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-  // 渠道级范围：qwenworkcn 只卖「标准」档 qwork-flash
-  qwenworkcn: ["qwork-flash"],
+  // 渠道级范围：qwenworkcn 只卖「标准」档 qwen3.8-flash
+  qwenworkcn: ["qwen3.8-flash"],
 };
 
 /** 演示账号池：key / uid / label / name 全是虚构占位值。 */
@@ -260,8 +258,8 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
   const DEMO_SIZE: Record<string, { contextWindow: number; maxOutputTokens: number; vision?: boolean }> = {
     "deepseek-v4.1-flash": { contextWindow: 1_048_576, maxOutputTokens: 393_216, vision: true },
     "glm-5.3-flash": { contextWindow: 1_000_000, maxOutputTokens: 393_216 },
-    // qwork-flash：千问办公的「标准」档（1M 上下文 + 图片输入，与注册表口径一致）
-    "qwork-flash": { contextWindow: 1_000_000, maxOutputTokens: 32_000, vision: true },
+    // qwen3.8-flash：千问办公的「标准」档（1M 上下文 + 图片输入，与注册表口径一致）
+    "qwen3.8-flash": { contextWindow: 1_000_000, maxOutputTokens: 32_000, vision: true },
   };
   /**
    * 演示「跨渠道推断」的渠道（真实口径见 POOL-ARCHITECTURE §2.7）：

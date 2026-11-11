@@ -199,7 +199,7 @@ export function Select({
                   onChange(option.value);
                   setOpen(false);
                 }}
-                className={`block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs transition-colors ${
+                className={`block w-full whitespace-nowrap px-3 py-1.5 text-center text-xs transition-colors ${
                   option.value === value
                     ? "bg-overlay text-ink"
                     : index === activeIndex

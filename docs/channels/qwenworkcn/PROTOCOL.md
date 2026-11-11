@@ -160,11 +160,11 @@ GET https://gateway.qwenwork.cn/algo/api/v2/model/list?Encode=1
   `deepseek-flash` 全部回 `{"code":"403","message":"Model is not available for this user"}`。
 
 因此**能对外放出的只有档位本身**。本仓只卖最便宜的「标准」档，对外名
-`qwork-flash`（如实标成档位，不假装是某个具体型号）。
+`qwen3.8-flash`（如实标成档位，不假装是某个具体型号）。
 
 ### 3.4 对外名映射
 
-`catalog.ts` 的 `POOL_KEY_MAP` 只登记 `flash → qwork-flash`。`pro` 与
+`catalog.ts` 的 `POOL_KEY_MAP` 只登记 `flash → qwen3.8-flash`。`pro` 与
 `qwen3.8-max-preview` 不映射，其对外 id 不是家族名，池层不放行。
 
 ---

@@ -105,7 +105,7 @@ describe("统一模型目录快照", () => {
 
   it("生成快照：每个对外模型一条（家族外不进池），来源标 registry", () => {
     const catalog = buildCatalog();
-    assert.equal(Object.keys(catalog.models).length, 2, "只有家族表里的模型进对外池");
+    assert.equal(Object.keys(catalog.models).length, 3, "只有家族表里的模型进对外池");
     const entry = catalog.models["deepseek-v4.1-flash"];
     assert.ok(entry);
     assert.equal(entry.id, "deepseek-v4.1-flash");
@@ -161,7 +161,7 @@ describe("统一模型目录快照", () => {
       assert.ok(body.generated_at.length > 0);
       // before 已写注册表（桩登记了供给）→ 读的是文件本身
       assert.equal(body.registry_source, "file");
-      assert.equal(body.data.length, 2);
+      assert.equal(body.data.length, 3);
       assert.equal(body.data[0]?.object, "model");
       assert.equal(body.data[0]?.meta_sources.context_window, "registry");
     } finally {

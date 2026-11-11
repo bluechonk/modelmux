@@ -46,7 +46,7 @@ describe("统一模型注册表", () => {
     assert.equal(source, "builtin");
     assert.equal(error, undefined);
     // 随包默认表必须含家族三型号
-    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5"]) {
+    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
       assert.ok(registry.models[id], `缺 ${id}`);
     }
   });
@@ -98,15 +98,15 @@ describe("统一模型注册表", () => {
     writeRegistry({
       version: 1,
       models: {
-        "longcat-2.5": {
+        "qwen3.8-flash": {
           contextWindow: 1000000,
-          maxOutput: 64000,
-          inputModalities: ["text"],
-          channels: { catpaw: "LongCat-2.5" },
+          maxOutput: 32000,
+          inputModalities: ["text", "image"],
+          channels: { qwenworkcn: "flash" },
         },
       },
     });
-    assert.deepEqual(providersOf("longcat-2.5"), ["catpaw"]);
+    assert.deepEqual(providersOf("qwen3.8-flash"), ["qwenworkcn"]);
     assert.deepEqual(providersOf("glm-5.3-flash"), []);
   });
 
@@ -145,11 +145,11 @@ describe("统一模型注册表", () => {
     writeRegistry({
       version: 1,
       models: {
-        "qwen3.8-flash": {
+        "longcat-2.5": {
           contextWindow: 1000000,
           maxOutput: 65536,
           inputModalities: ["text"],
-          channels: { qoder: "qwen3.8-flash" },
+          channels: { qoder: "LongCat-2.5" },
         },
       },
     });
@@ -174,7 +174,7 @@ describe("统一模型注册表", () => {
     const bundled = JSON.parse(
       readFileSync(new URL("../models.json", import.meta.url), "utf8"),
     ) as { models: Record<string, unknown> };
-    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5"]) {
+    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
       assert.ok(bundled.models[id], `随包表缺 ${id}`);
     }
   });
