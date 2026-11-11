@@ -288,20 +288,16 @@ const LOG_COLS: LogCol[] = [
 /**
  * 结果单元格：与同行其它列一样 `align-top`（否则纵向对齐与其余列不一致）。
  *
- * 状态点**挂在文字行内**（相对文字 span 定位、`top-1/2` 居中），不钉死在单元格的
- * 固定像素上 —— 行高受字号 strut 影响，固定 top 会让点浮在文字中线上方（实测约 3px，
- * 顶部统计条的点是 flex 子项自动居中、没有这个问题，两处一对比就很扎眼）。
- * `-left-2` 把点放回左 padding（4-10px），「成功」起点与表头对齐、不被点挤开。
+ * 状态点是**文字流的第一个 flex 子项**（不再绝对定位外扩）：整块内容（点 + 结果 +
+ * 状态码）从列起点开始，与表头文字同 x —— 早先的 `-left-2` 让点突出到列外，
+ * 比表头左沿还左 8px，是「结果列看起来没对齐」的来源（实测 2026-11-11）。
  */
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
     <td className="whitespace-nowrap px-3 py-2 align-top">
-      <span className="relative inline-flex items-center gap-1.5 text-xs">
-        <span
-          className={`absolute -left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full ${meta.dot}`}
-          aria-hidden="true"
-        />
+      <span className="inline-flex items-center gap-1.5 text-xs">
+        <span className={`h-1.5 w-1.5 flex-none rounded-full ${meta.dot}`} aria-hidden="true" />
         <span className={meta.text}>{meta.label}</span>
         <span className="font-mono text-ink-faint">{entry.status ?? "-"}</span>
       </span>
@@ -327,8 +323,8 @@ function LogCell({
   narrow: boolean;
   onToggle: () => void;
 }): ReactElement {
-  const numClass =
-    "whitespace-nowrap px-3 py-2 text-right align-top font-mono text-xs tabular text-ink-soft";
+  // 末列（tokens）右内边距加大：数据与表格右沿留出呼吸位，不与滚动条/边缘贴死
+  const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 text-right align-top font-mono text-xs tabular text-ink-soft`;
   switch (col.key) {
     case "toggle":
       return (
@@ -407,7 +403,9 @@ function LogTable({
   const cols = narrow ? LOG_COLS.filter((col) => !col.wide) : LOG_COLS;
   const widths: Record<keyof typeof COL_WIDTHS, string> = narrow ? NARROW_COL_WIDTHS : COL_WIDTHS;
   // whitespace-nowrap：`table-fixed` 下中文表头会在空格处折成竖排（「缓存 命中/未命中」挤成 5 行）
-  const headClass = "whitespace-nowrap px-3 py-2 font-normal";
+  // 末列与表体共用同一套内边距（含加大的右距），否则表头与数据右沿错开
+  const headClass = (key: string): string =>
+    `whitespace-nowrap ${key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 font-normal`;
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
@@ -422,7 +420,7 @@ function LogTable({
               {cols.map((col) => (
                 <th
                   key={col.key}
-                  className={col.align === "right" ? `text-right ${headClass}` : headClass}
+                  className={col.align === "right" ? `text-right ${headClass(col.key)}` : headClass(col.key)}
                 >
                   {col.label}
                 </th>
@@ -616,10 +614,13 @@ function Filters({
         ))}
       </span>
 
-      <Select label="渠道" value={cid} onChange={onCid} options={cidOptions} />
-      <Select label="日期" value={date} onChange={onDate} options={dateOptions} />
-
+      {/*
+        渠道 / 时间 / 每页三个下拉右置并排：都开 `fixedWidth`（按各自最宽选项量宽），
+        切换选项时按钮位置纹丝不动；清除筛选**常驻**，无筛选时禁用而非隐藏。
+      */}
       <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
+        <Select label="渠道" value={cid} onChange={onCid} options={cidOptions} fixedWidth />
+        <Select label="日期" value={date} onChange={onDate} options={dateOptions} fixedWidth />
         <span className="flex items-center gap-1.5">
           每页
           <Select
@@ -627,18 +628,18 @@ function Filters({
             value={String(pageSize)}
             onChange={(value) => onPageSizeChange(Number(value))}
             options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: String(n) }))}
+            fixedWidth
           />
           条
         </span>
-        {dirty && (
-          <button
-            type="button"
-            onClick={onReset}
-            className="tap rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          >
-            清除筛选
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!dirty}
+          className="tap rounded-lg border border-line px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-default disabled:opacity-45 disabled:hover:border-line disabled:hover:text-ink-soft"
+        >
+          清除筛选
+        </button>
       </span>
     </div>
   );

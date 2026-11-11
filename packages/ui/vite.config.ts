@@ -3,7 +3,8 @@
  *
  * 关键约束：
  *  - **`base` 必须与实际路由前缀一致**（正常构建 `/web/`；演示构建默认 `/`、Pages 项目
- *    站点传 `DEMO_BASE=/<repo>/`），不一致就资源 404、整页空白；
+ *    站点传 `DEMO_BASE=/<repo>/`），不一致就资源 404、整页空白；Git Bash 下须加
+ *    `MSYS_NO_PATHCONV=1`，否则该值被改写成 `C:/Program Files/Git/<repo>/`；
  *  - `BrowserRouter` 的 `basename` 要读同一个 `__DEMO_BASE__`（见 `src/App.tsx`）——
  *    只设 `base` 不够；
  *  - `DEMO=1` 注入 `__DEMO_MODE__=true`，`lib/api.ts` 据此用内存数据替换所有 fetch
