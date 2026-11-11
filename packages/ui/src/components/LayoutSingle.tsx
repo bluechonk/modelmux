@@ -34,6 +34,8 @@ const NAV = [
 /** 是否演示构建（由 `vite.config.ts` 的 define 注入；见 `lib/demo.ts`）。 */
 declare const __DEMO_MODE__: boolean;
 const IS_DEMO = typeof __DEMO_MODE__ !== "undefined" && __DEMO_MODE__;
+/** 桌面壳判定：preload 桥只在壳的渲染层存在（浏览器 / 演示站都没有）。 */
+const IS_DESKTOP = typeof window !== "undefined" && window.modelmuxWindow !== undefined;
 
 /**
  * 网关异常时的正文骨架：替代所有页面内容渲染，形状贴近单列流的真实排版
@@ -152,19 +154,20 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             </span>
           )}
           {/*
-            「web 页」：一键在默认浏览器打开本网关的控制台页。桌面壳的 setWindowOpenHandler
-            会把它交给系统浏览器；普通浏览器里是新标签。地址从 base_url 推导（同一网关，
-            /v1 换成 /web/）；演示站没有真实网关可开，不渲染。窄屏与 base_url 一起隐藏。
+            「web 页」：**桌面壳专属** —— 浏览器里你已经在 web 页上，再放一个入口是同义反复；
+            壳里才需要一键跳到默认浏览器（setWindowOpenHandler 交系统浏览器）。
+            地址从 base_url 推导（同一网关，/v1 换成 /web/）；尺寸对齐右侧 base_url 胶囊；
+            窄屏与 base_url 一起隐藏。
           */}
-          {!IS_DEMO && state.data?.base_url && (
+          {IS_DESKTOP && state.data?.base_url && (
             <a
               href={`${state.data.base_url.replace(/\/v1\/?$/, "")}/web/`}
               target="_blank"
               rel="noreferrer"
               aria-label="在默认浏览器打开 modelmux Web 控制台"
-              className="no-drag hidden items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-ink-faint transition-colors hover:text-ink min-[900px]:flex"
+              className="no-drag hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-xs text-ink-faint transition-colors hover:text-ink min-[900px]:flex"
             >
-              <ExternalLink size={12} aria-hidden="true" />
+              <ExternalLink size={13} aria-hidden="true" />
               web 页
             </a>
           )}

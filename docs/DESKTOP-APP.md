@@ -62,10 +62,14 @@ npm run desktop        # 拷 payload → desktop/app/ → electron-builder nsis
 `%LOCALAPPDATA%\Programs\modelmux-desktop`，桌面与开始菜单各建一个 `modelmux` 快捷方式，
 并注册卸载器（控制面板 / 设置里可卸）。
 
-**安装前提：先退出正在运行的 modelmux**（托盘 → 退出）。安装器启动时会检测
-`modelmux.exe` 是否在跑，在跑会先尝试结束它再装；结束不掉就中止 —— 交互模式弹
-「modelmux 无法关闭」，静默（`/S`）模式直接退出。低完整性（沙盒）启动时杀不动
-中完整性进程，必然走到中止。
+**安装器会自动结束正在运行的 modelmux，不需要手动退出**：`build/installer.nsh` 的
+`customCheckAppInUse` 直接强杀 `modelmux.exe`（打两轮防竞态），装完 `runAfterFinish`
+拉起新实例。为什么必须强杀：electron-builder 默认走「礼貌关闭」（向窗口发 WM_CLOSE
+并等待），而壳的关窗语义是**收进托盘**，礼貌关闭永远等不到退出，只会弹
+「modelmux 无法关闭，请手动关闭」—— 重试永远过不去（实测 2026-11-12，交互与
+静默 `/S` 都被挡死）。安装本来就要替换二进制，强杀是唯一自洽的行为；托盘「退出」
+仍是日常的正常退出方式，强杀只发生在安装场景。低完整性（沙盒）启动时杀不动
+中完整性进程，仍会走到中止。
 
 **为什么是安装器而不是便携单文件**：electron-builder 的 `portable` 目标（NSIS 模板）
 每次启动都 `RMDir /r` 删掉 `%TEMP%` 下的解压目录再全量解压 —— 应用运行时再点一次要等
