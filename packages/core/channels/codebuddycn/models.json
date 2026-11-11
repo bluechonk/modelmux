@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "source": "seed",
+  "fetched_at": null,
+  "models": [
+    {
+      "id": "deepseek-v4.1-flash",
+      "exposed": "deepseek-v4.1-flash",
+      "name": "DeepSeek-V4.1-Flash",
+      "contextWindow": 1000000,
+      "maxOutput": 128000,
+      "supportsImage": true,
+      "source": "fallback"
+    },
+    {
+      "id": "glm-5.3-flash",
+      "exposed": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "contextWindow": 1000000,
+      "maxOutput": 32000,
+      "supportsImage": true,
+      "source": "fallback"
+    }
+  ]
+}

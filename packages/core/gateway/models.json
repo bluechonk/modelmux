@@ -13,6 +13,7 @@
         "loomy": "DeepSeek-V4.1-Flash",
         "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017",
+        "codebuddycn": "deepseek-v4.1-flash",
         "codearts": "deepseek-v4.1-flash"
       }
     },
@@ -30,6 +31,7 @@
         "qodercn": "gfmodel",
         "qoder": "gfmodel",
         "workbuddyai": "glm-5.3-flash",
+        "codebuddycn": "glm-5.3-flash",
         "codearts": "glm-5.3-flash"
       }
     },
