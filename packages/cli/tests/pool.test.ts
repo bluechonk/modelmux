@@ -127,6 +127,7 @@ describe("仓库级模型池", () => {
       lobsterai: ["glm-5.3-flash"],
       codebuddycn: ["deepseek-v4.1-flash", "glm-5.3-flash"],
       codearts: ["glm-5.3-flash", "deepseek-v4.1-flash"],
+      todayai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
       // astudio 不供家族型号
       astudio: [],
     };
@@ -149,7 +150,7 @@ describe("仓库级模型池", () => {
     const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort();
     assert.deepEqual(
       glm,
-      ["autoclaw", "catpaw", "codearts", "codebuddycn", "lobsterai", "qoder", "qodercn", "workbuddyai"],
+      ["autoclaw", "catpaw", "codearts", "codebuddycn", "lobsterai", "qoder", "qodercn", "todayai", "workbuddyai"],
       `glm-5.3-flash 的候选渠道（实际 ${glm.join(", ")}）`,
     );
     const qwen = gw.poolCandidates("qwen3.8-flash").map((c) => c.cid);
