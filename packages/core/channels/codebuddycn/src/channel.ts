@@ -15,7 +15,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "codebuddycn",
   display: "CodeBuddy 国内版",
-  version: "0.1.4",
+  version: "0.1.3",
   defaultAddr: "127.0.0.1:8823",
   uiPort: 8824,
   debugDumpEnv: "CODEBUDDYCN_DEBUG_DUMP",

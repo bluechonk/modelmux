@@ -17,7 +17,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "autoclaw",
   display: "AutoClaw",
-  version: "0.1.4",
+  version: "0.1.3",
   defaultAddr: "127.0.0.1:8821",
   uiPort: 8822,
   debugDumpEnv: "AUTOCLAW_DEBUG_DUMP",
