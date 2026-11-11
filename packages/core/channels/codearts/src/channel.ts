@@ -18,7 +18,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "codearts",
   display: "CodeArts",
-  version: "0.1.4",
+  version: "0.1.3",
   defaultAddr: "127.0.0.1:8827",
   uiPort: 8828,
   debugDumpEnv: "CODEARTS_DEBUG_DUMP",
