@@ -144,7 +144,13 @@ const DSH_ACP_WITH_PROVIDER = `- id: llm-pi-ai
               - text
 `;
 
-const DESKTOP_DIR = join(home, "AppData", "Local", "Claude-3p", "configLibrary");
+// 与实现同口径：darwin 用 Library，Windows 用 LOCALAPPDATA，其余用 XDG_CONFIG_HOME
+const DESKTOP_DIR =
+  process.platform === "darwin"
+    ? join(home, "Library", "Application Support", "Claude-3p", "configLibrary")
+    : process.platform === "win32"
+      ? join(home, "AppData", "Local", "Claude-3p", "configLibrary")
+      : join(home, ".config", "Claude-3p", "configLibrary");
 
 function seedDesktop(): string {
   mkdirSync(DESKTOP_DIR, { recursive: true });

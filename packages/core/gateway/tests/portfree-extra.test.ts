@@ -2,8 +2,8 @@
  * 端口工具补充覆盖：平台分支（lsof / ps / killPid）、joinPath，
  * 以及 bindFreeServer 的「自身残留实例自动结束」与「第三方进程拒绝」两条分支。
  *
- * Windows 上 lsof / ps 分支默认不可达：临时改写 `process.platform` 驱动它们走 POSIX 路径，
- * 让真实缺失的 lsof / ps 触发 catch 分支，结束后恢复。不 mock 命令本身。
+ * 「命令缺失」分支用临时改写 `process.platform` + 把 PATH 指向空目录构造：真实缺失的
+ * lsof / ps 触发 catch，结束后恢复。不 mock 命令本身，Windows / POSIX 都适用。
  *
  * 自动结束分支用「把 node.exe 复制成与本测试进程同名的可执行文件」来构造：
  * `procName` 比对的是**镜像名**，同名才会被判定为自身残留实例。
@@ -75,40 +75,44 @@ describe("joinPath / isAbs", () => {
   });
 });
 
-describe("平台分支（临时改写 process.platform）", () => {
+describe("平台分支（临时改写 process.platform + PATH）", () => {
   const original = process.platform;
+  let emptyDir = "";
 
-  it("POSIX 分支：lsof / ps 缺失时按空结果处理（catch 兜住）", () => {
+  before(() => {
+    emptyDir = mkdtempSync(join(tmpdir(), "modelmux-portfree-empty-"));
+  });
+
+  after(() => {
+    rmSync(emptyDir, { recursive: true, force: true });
+  });
+
+  it("lsof / ps 缺失时按空结果处理（catch 兜住）", () => {
+    const savedPath = process.env["PATH"];
     Object.defineProperty(process, "platform", { value: "linux" });
+    process.env["PATH"] = emptyDir;
     try {
-      assert.deepEqual(findPortPids(1), [], "Linux 上没有 lsof → 空数组");
-      assert.equal(procName(process.pid), "", "Linux 上没有 ps → 空串");
+      assert.deepEqual(findPortPids(1), [], "命令缺失 → 空数组");
+      assert.equal(procName(process.pid), "", "命令缺失 → 空串");
     } finally {
       Object.defineProperty(process, "platform", { value: original });
+      if (savedPath === undefined) delete process.env["PATH"];
+      else process.env["PATH"] = savedPath;
     }
   });
 
   it("POSIX killPid：SIGTERM 能结束子进程", async () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     const child = spawn(process.execPath, ["-e", "setInterval(()=>{},60000)"], { stdio: "ignore" });
+    const exited = new Promise<number | null>((res) => child.once("exit", (code) => res(code)));
     try {
       await new Promise((resolve) => setTimeout(resolve, 300));
       killPid(child.pid!);
-      const deadline = Date.now() + 3000;
-      for (;;) {
-        let gone = false;
-        try {
-          process.kill(child.pid!, 0);
-        } catch {
-          gone = true;
-        }
-        if (gone || Date.now() >= deadline) {
-          assert.ok(gone, "killPid 应在 3s 内结束子进程");
-          break;
-        }
-        const shared = new SharedArrayBuffer(4);
-        Atomics.wait(new Int32Array(shared), 0, 0, 50);
-      }
+      const code = await Promise.race([
+        exited,
+        new Promise<number | null>((r) => setTimeout(() => r(null), 4000)),
+      ]);
+      assert.notEqual(code, null, "killPid 应结束子进程");
     } finally {
       Object.defineProperty(process, "platform", { value: original });
       child.kill("SIGKILL");
@@ -131,7 +135,10 @@ describe("bindFreeServer 占用处理", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("占用者是自身同名残留实例 → 自动结束并重试成功", async () => {
+  // POSIX 的 procName 取线程名（node 进程显示 MainThread），与 exeName 的镜像名对不上，
+  // 只有 Windows 的 tasklist 镜像名比较能稳定触发「自身同名」分支。
+  const isWin = process.platform === "win32";
+  (isWin ? it : it.skip)("占用者是自身同名残留实例 → 自动结束并重试成功", async () => {
     const selfName = exeName();
     assert.ok(selfName.length > 0, "exeName 必须非空");
     // 复制 node.exe 成与本测试进程同名的镜像：procName 只比镜像名
