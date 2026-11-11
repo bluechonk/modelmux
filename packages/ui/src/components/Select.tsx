@@ -17,8 +17,8 @@ export interface SelectOption {
   label: string;
 }
 
-/** 触发器内「箭头 + 间隙 + 内边距 + 边框」的固定占位（px）。 */
-const TRIGGER_CHROME_W = 12 + 6 + 16 + 2;
+/** 触发器内「占位 + 箭头 + 间隙 + 内边距 + 边框」的固定占位（px）。 */
+const TRIGGER_CHROME_W = 12 + 12 + 6 + 6 + 16 + 2;
 
 export function Select({
   value,
@@ -26,14 +26,20 @@ export function Select({
   options,
   label,
   fixedWidth = false,
+  widthBasis,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: ReadonlyArray<SelectOption>;
   /** 无障碍名（按钮与列表共用，如「渠道」「日期」）。 */
   label: string;
-  /** 宽度固定为最宽选项的占用（并排筛选时切换选项不移位）。 */
+  /** 宽度固定为基准文字的占用（并排筛选时切换选项不移位）。 */
   fixedWidth?: boolean;
+  /**
+   * 定宽基准文字；缺省用当前选项标签。选项集变化时宽度不变 ——
+   * 渠道按**全部在册渠道**、日期按完整 `YYYY-MM-DD` 传，避免选项增减导致按钮位移。
+   */
+  widthBasis?: ReadonlyArray<string>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -44,6 +50,9 @@ export function Select({
   /** 固定宽度时触发器的宽度（px）；undefined = 未测量 / 不固定。 */
   const [triggerWidth, setTriggerWidth] = useState<number | undefined>(undefined);
   const measureRef = useRef<HTMLDivElement | null>(null);
+  /** 定宽基准文字（缺省 = 当前选项标签）。 */
+  const basis = widthBasis ?? options.map((o) => o.label);
+  const basisKey = basis.join("\u0001");
 
   // 量最宽选项的文字占用（隐藏节点，字号与触发器一致）→ 触发器宽度恒定
   useLayoutEffect(() => {
@@ -58,7 +67,8 @@ export function Select({
       max = Math.max(max, el.getBoundingClientRect().width);
     }
     setTriggerWidth(max + TRIGGER_CHROME_W);
-  }, [fixedWidth, options]);
+    // 基准文字 join 成 key：数组每次渲染都是新引用，用内容做依赖
+  }, [fixedWidth, basisKey]);
 
   // 展开时从当前选中项开始高亮（不存在就落在第一项）
   useEffect(() => {
@@ -141,11 +151,11 @@ export function Select({
   return (
     <div ref={rootRef} className="relative">
       {fixedWidth && (
-        // 宽度测量用：与触发器同字号，选项逐行排列量每行占用
+        // 宽度测量用：与触发器同字号，基准文字逐行排列量每行占用
         <div ref={measureRef} aria-hidden="true" className="pointer-events-none absolute left-0 top-0 invisible">
-          {options.map((option) => (
-            <span key={option.value} data-select-label className="block whitespace-nowrap text-xs">
-              {option.label}
+          {basis.map((text, index) => (
+            <span key={index} data-select-label className="block whitespace-nowrap text-xs">
+              {text}
             </span>
           ))}
         </div>
@@ -160,12 +170,15 @@ export function Select({
         onClick={() => setOpen((v) => !v)}
         onKeyDown={onTriggerKeyDown}
         style={fixedWidth && triggerWidth !== undefined ? { width: `${triggerWidth}px` } : undefined}
-        className={`tap inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink ${
-          fixedWidth ? "justify-between" : ""
-        }`}
+        className={`tap inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink`}
       >
-        {current?.label ?? "—"}
-        <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        {/*
+          定宽态：标签**水平居中**（左侧放一个与箭头等宽的占位，两侧对称才真正居中），
+          箭头固定在右。缺省态保持左对齐（内容决定宽度，没有居中语义）。
+        */}
+        {fixedWidth && <span className="w-3 flex-none" aria-hidden="true" />}
+        <span className={fixedWidth ? "flex-1 text-center" : undefined}>{current?.label ?? "—"}</span>
+        <ChevronDown className={`h-3 w-3 flex-none transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <ul
@@ -186,7 +199,7 @@ export function Select({
                   onChange(option.value);
                   setOpen(false);
                 }}
-                className={`block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs transition-colors ${
+                className={`block w-full whitespace-nowrap px-3 py-1.5 text-center text-xs transition-colors ${
                   option.value === value
                     ? "bg-overlay text-ink"
                     : index === activeIndex

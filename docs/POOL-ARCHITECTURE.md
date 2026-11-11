@@ -53,8 +53,7 @@
 |---|---|---|---|
 | `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn（`deepseek-v4.1-flash`）、loomy（`DeepSeek-V4.1-Flash`）、workbuddy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash-1017`） |
 | `glm-5.3-flash` | — | `zhipu` | catpaw / lobsterai / autoclaw / workbuddyai（`glm-5.3-flash`）、qoder（`gfmodel`）、qodercn（`gfmodel`） |
-| `longcat-2.5` | — | `meituan` | catpaw（`LongCat-2.5`）—— **唯一供给渠道** |
-| `qwork-flash` | — | `alibaba` | qwenworkcn（`flash`）—— **唯一供给渠道**；千问办公只卖「标准」档，底层型号由上游池化 |
+| `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）—— **唯一供给渠道**；千问办公只卖「标准」档，底层型号由上游池化 |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。

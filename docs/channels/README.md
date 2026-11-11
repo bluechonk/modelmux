@@ -76,7 +76,7 @@ docs/channels/<cid>/
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
 | `qoder` | Qoder（国际版 `qoder.com`） | COSY 签名 + 请求体**自定义 Base64 编码**（直发字符串）—— **已下架** | [PROTOCOL](./qoder/PROTOCOL.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与 `qoder` **同一套协议**，仅域名 / 身份 / 模型目录不同；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./qodercn/PROTOCOL.md) |
-| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | 与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwork-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
+| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | 与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwen3.8-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |

@@ -259,7 +259,7 @@ const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
 };
 
 /**
- * 列定义（列宽 + 对齐 + 窄屏是否保留）。
+ * 列定义（列宽 + 窄屏是否保留；对齐统一由 table 的 `text-center` 给）。
  *
  * 表头与表体**共用这一份**，改列只改这里；`< md` 丢弃 `wide` 列时是**少渲染
  * `<td>`**，不是 `hidden md:table-cell`（`display:none` 的 `<td>` 在
@@ -268,7 +268,6 @@ const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
 interface LogCol {
   key: keyof typeof COL_WIDTHS;
   label: string;
-  align?: "right";
   /** `< md` 丢弃。窄屏只留「时间 / 结果 / 模型」，其余信息在展开行（整行可点）里。 */
   wide?: boolean;
 }
@@ -279,10 +278,10 @@ const LOG_COLS: LogCol[] = [
   { key: "result", label: "结果" },
   { key: "channel", label: "渠道", wide: true },
   { key: "model", label: "模型" },
-  { key: "duration", label: "耗时", align: "right", wide: true },
-  { key: "tokensPerSec", label: "TPS", align: "right", wide: true },
-  { key: "cache", label: "缓存命中率", align: "right", wide: true },
-  { key: "tokens", label: "tokens（入/出）", align: "right", wide: true },
+  { key: "duration", label: "耗时", wide: true },
+  { key: "tokensPerSec", label: "TPS", wide: true },
+  { key: "cache", label: "缓存命中率", wide: true },
+  { key: "tokens", label: "tokens（入/出）", wide: true },
 ];
 
 /**
@@ -324,11 +323,12 @@ function LogCell({
   onToggle: () => void;
 }): ReactElement {
   // 末列（tokens）右内边距加大：数据与表格右沿留出呼吸位，不与滚动条/边缘贴死
-  const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 text-right align-top font-mono text-xs tabular text-ink-soft`;
+  // 对齐由 table 的 text-center 统一给（数值列不再右对齐：居中后表头与数据同中心线）
+  const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 align-top font-mono text-xs tabular text-ink-soft`;
   switch (col.key) {
     case "toggle":
       return (
-        <td className="px-3 py-2 align-top max-md:px-0">
+        <td className="flex items-center justify-center px-3 py-2 max-md:px-0">
           <button
             type="button"
             aria-expanded={open}
@@ -404,12 +404,20 @@ function LogTable({
   const widths: Record<keyof typeof COL_WIDTHS, string> = narrow ? NARROW_COL_WIDTHS : COL_WIDTHS;
   // whitespace-nowrap：`table-fixed` 下中文表头会在空格处折成竖排（「缓存 命中/未命中」挤成 5 行）
   // 末列与表体共用同一套内边距（含加大的右距），否则表头与数据右沿错开
+  // 显式 text-center：UA 样式表给 `th` 的默认对齐会压过 table 的继承值（实测 th 计算值是 left）
+  // align-top 与表体一致：表体是 align-top（多行内容顶对齐），表头若用 UA 默认的 middle，
+  // 两行文字在各自行内的相对位置不同（实测差约 3px）
   const headClass = (key: string): string =>
-    `whitespace-nowrap ${key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 font-normal`;
+    `whitespace-nowrap text-center align-top ${key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 font-normal`;
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full table-fixed border-collapse text-sm min-w-[300px] md:min-w-[960px]">
+        {/*
+          全表**居中**：表头与数据同列中心线重合（左对齐时表头两字与数据长串只在左沿
+          相碰、中心差几十像素；右对齐时数值列中心同样错开）。居中后每列
+          「表头中心 == 数据中心」，是这张表唯一能逐列对上的对齐方式。
+        */}
+        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[300px] md:min-w-[960px]">
           <colgroup>
             {cols.map((col) => (
               <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />
@@ -418,10 +426,7 @@ function LogTable({
           <thead>
             <tr className="border-b border-line text-left text-xs text-ink-faint">
               {cols.map((col) => (
-                <th
-                  key={col.key}
-                  className={col.align === "right" ? `text-right ${headClass(col.key)}` : headClass(col.key)}
-                >
+                <th key={col.key} className={headClass(col.key)}>
                   {col.label}
                 </th>
               ))}
@@ -540,6 +545,8 @@ function Filters({
   onPageSizeChange,
   dirty,
   onReset,
+  allChannels,
+  dateBasis,
 }: {
   page: AccessLogPage | undefined;
   date: string;
@@ -552,6 +559,10 @@ function Filters({
   onPageSizeChange: (size: number) => void;
   dirty: boolean;
   onReset: () => void;
+  /** 全部在册渠道：下拉**恒列全部**（不按当前日志的渠道子集收缩），也是定宽基准。 */
+  allChannels: ReadonlyArray<string>;
+  /** 日期下拉的定宽基准（含完整 YYYY-MM-DD）。 */
+  dateBasis: ReadonlyArray<string>;
 }): ReactElement {
   const stats = page?.stats;
   const segments: Array<{ key: "" | AccessOutcome; label: string; count: number | undefined }> = [
@@ -580,9 +591,14 @@ function Filters({
     { value: "", label: "今天" },
     ...(page?.dates ?? []).filter((value) => value !== today).map((value) => ({ value, label: value })),
   ];
+  /**
+   * 渠道下拉**恒列全部在册渠道**（不按当前日期/日志的渠道子集收缩）——
+   * 选了某天没有某渠道的日志时，选项仍在（选中后列表为空总比选项消失好判断）。
+   * 定宽基准与选项同源，宽度不随日期筛选变化。
+   */
   const cidOptions: SelectOption[] = [
     { value: "", label: "全部渠道" },
-    ...(page?.cids ?? []).map((value) => ({ value, label: value })),
+    ...allChannels.map((value) => ({ value, label: value })),
   ];
   const toggleClass = (active: boolean): string =>
     `tap rounded-lg border px-2 py-1 text-xs transition-colors ${
@@ -619,8 +635,15 @@ function Filters({
         切换选项时按钮位置纹丝不动；清除筛选**常驻**，无筛选时禁用而非隐藏。
       */}
       <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
-        <Select label="渠道" value={cid} onChange={onCid} options={cidOptions} fixedWidth />
-        <Select label="日期" value={date} onChange={onDate} options={dateOptions} fixedWidth />
+        <Select
+          label="渠道"
+          value={cid}
+          onChange={onCid}
+          options={cidOptions}
+          fixedWidth
+          widthBasis={["全部渠道", ...allChannels]}
+        />
+        <Select label="日期" value={date} onChange={onDate} options={dateOptions} fixedWidth widthBasis={dateBasis} />
         <span className="flex items-center gap-1.5">
           每页
           <Select
@@ -658,6 +681,16 @@ export function Logs(): ReactElement {
   const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  /**
+   * 渠道下拉的**定宽基准**取全部在册渠道（快照 `channel_caps`），
+   * 不用当前日志里的渠道子集 —— 后者随日志内容增减，按钮宽度会跟着变。
+   * 与 LayoutSingle 共用 `["state"]` 缓存，不额外发起轮询。
+   */
+  const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
+  const allChannels = Object.keys(state.data?.channel_caps ?? {});
+  /** 日期基准：完整 `YYYY-MM-DD` 恒为最长（「今天」更短），不随日期列表增减变化。 */
+  const dateBasis = ["今天", localToday()];
 
   const logs = useQuery({
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
@@ -749,6 +782,8 @@ export function Logs(): ReactElement {
             setPageNum(1);
             setExpanded(null);
           }}
+          allChannels={allChannels}
+          dateBasis={dateBasis}
           dirty={dirty}
           onReset={() => {
             setDate("");
