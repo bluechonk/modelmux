@@ -19,7 +19,7 @@ import { runInChannel } from "../../runtime/channel-context.js";
 import { channels, getChannel, hasChannel, channelCapabilities, type Channel } from "../../runtime/channel.js";
 import * as console_ from "../../http/console/console.js";
 import * as gateway from "../../http/server.js";
-import { REPO_UI_PREFIX } from "../../runtime/cli-consts.js";
+import { REPO_UI_PREFIX, version } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
 import { rootDir } from "../../runtime/paths.js";
 import { loadUserSettings, saveUserSettings, type ThemeMode } from "../../runtime/user-settings.js";
@@ -384,6 +384,7 @@ class ServiceState {
       qr_url: this.qrUrl,
       base_url: this.baseUrl,
       chat_url: this.chatUrl,
+      version: version(),
       models: this.modelsShown.flatMap((model) =>
         poolCandidates(model).map((candidate) => ({
           model,
