@@ -23,6 +23,7 @@ import { REPO_UI_PREFIX, version } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
 import { rootDir } from "../../runtime/paths.js";
 import { loadUserSettings, saveUserSettings, type ThemeMode } from "../../runtime/user-settings.js";
+import { startUpdateChecks, updateNotice } from "../../runtime/update-check.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates } from "../../pool/pool-targets.js";
@@ -385,6 +386,7 @@ class ServiceState {
       base_url: this.baseUrl,
       chat_url: this.chatUrl,
       version: version(),
+      update: updateNotice(),
       models: this.modelsShown.flatMap((model) =>
         poolCandidates(model).map((candidate) => ({
           model,
@@ -833,6 +835,9 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
     // 网关 ready 即挂自动签到：逐渠道（未登录跳过 / 台账已签跳过 / 连败 3 次当日熔断）
     startAutoSignin(logLine);
+
+    // 版本更新检测：每天一次，结果进控制台顶栏的版本胶囊（见 runtime/update-check.ts）
+    startUpdateChecks(() => version(), logLine);
 
     // 额度保鲜：每 5 分钟并行查一遍全部有账单能力的渠道（控制台的额度展示靠它，
     // 不再依赖 8 小时的 TTL 或用户手动 `mx bill`）。间隔见 BILLING_REFRESH_INTERVAL_MS。

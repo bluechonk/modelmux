@@ -21,6 +21,7 @@ import { BrandMark } from "./BrandMark";
 import { CopyButton } from "./CopyButton";
 import { GatewayStatus } from "./GatewayStatus";
 import { ThemeToggle } from "./ThemeToggle";
+import { UpdateCard } from "./UpdateCard";
 import { WindowControls } from "./WindowControls";
 
 /** 顶部标签导航项（路由不变，仅视觉载体从侧栏移到头部）。 */
@@ -166,14 +167,10 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           <ThemeToggle />
           <GatewayStatus />
           {/*
-            版本号：紧跟网关状态。数据来自快照的 `version`（网关入口包版本），
+            版本号 + 更新提示：数据来自快照的 `version` / `update`（后台每天检测一次），
             缺失（旧网关 / 加载中）时不渲染，不留空壳。
           */}
-          {state.data?.version && (
-            <span className="no-drag hidden rounded-lg border border-line px-2 py-1 font-mono text-xs text-ink-faint min-[900px]:inline">
-              v{state.data.version}
-            </span>
-          )}
+          <UpdateCard />
           <WindowControls />
         </div>
       </header>
