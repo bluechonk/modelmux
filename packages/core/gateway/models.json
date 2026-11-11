@@ -9,7 +9,8 @@
         "traecn": "deepseek-v4.1-flash",
         "loomy": "DeepSeek-V4.1-Flash",
         "workbuddy": "deepseek-v4.1-flash",
-        "raccoon": "sn-deepseek-v4-1-flash-1017"
+        "raccoon": "sn-deepseek-v4-1-flash-1017",
+        "codearts": "deepseek-v4.1-flash"
       }
     },
     "glm-5.3-flash": {
@@ -22,7 +23,8 @@
         "autoclaw": "glm-5.3-flash",
         "qodercn": "gfmodel",
         "qoder": "gfmodel",
-        "workbuddyai": "glm-5.3-flash"
+        "workbuddyai": "glm-5.3-flash",
+        "codearts": "glm-5.3-flash"
       }
     },
     "qwork-flash": {
