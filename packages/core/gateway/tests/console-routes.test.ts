@@ -269,6 +269,18 @@ describe("/api/state", () => {
   });
 });
 
+describe("静态服务边界", () => {
+  it("路径含 .. → 403（%2f 编码的目录穿越也拦）", async () => {
+    const { status } = await rawRequest("/assets/..%2f..%2fetc%2fpasswd", "GET", {}, "");
+    assert.equal(status, 403);
+  });
+
+  it("畸形百分号编码 → 400（decodeURIComponent 抛错要兜住）", async () => {
+    const { status } = await rawRequest("/assets/%E0%A4%A", "GET", {}, "");
+    assert.equal(status, 400);
+  });
+});
+
 describe("/api/logs", () => {
   it("跨源拒绝；stream 与坏分页参数不炸", async () => {
     const blocked = await fetch(`${server.url}api/logs`, { headers: { origin: "http://evil.example" } });
@@ -540,6 +552,38 @@ describe("/api/commands 分发", () => {
     } finally {
       resetPoolLedgerForTest();
     }
+  });
+  it("status：全部渠道 + 单渠道限定，未登录标 present:false", async () => {
+    const all = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "status" }) });
+    const allPayload = (await all.json()) as { data: { channels: Array<{ cid: string; present: boolean }> } };
+    assert.equal(all.status, 200);
+    assert.ok(allPayload.data.channels.length >= 1);
+
+    const one = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "status", cid: "routes" }) });
+    const onePayload = (await one.json()) as { data: { channels: Array<{ cid: string }> } };
+    assert.equal(onePayload.data.channels.length, 1);
+    assert.equal(onePayload.data.channels[0]!.cid, "routes");
+  });
+
+  it("modelChannels：每个对外模型给候选渠道与当前偏好", async () => {
+    const res = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "modelChannels" }) });
+    const payload = (await res.json()) as {
+      data: { models: Array<{ model: string; channels: string[]; preferred: string | null }> };
+    };
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(payload.data.models), "返回模型数组");
+  });
+
+  it("snoozeUpdate / skipUpdate：skip 缺 version 400；两者都落盘", async () => {
+    const snooze = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "snoozeUpdate" }) });
+    assert.equal(snooze.status, 200);
+
+    const noVersion = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "skipUpdate" }) });
+    assert.equal(noVersion.status, 400);
+
+    const skip = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "skipUpdate", args: { version: "v9.9.9" } }) });
+    assert.equal(skip.status, 200);
+    rmSync(join(HOME, "update.json"), { force: true });
   });
 });
 

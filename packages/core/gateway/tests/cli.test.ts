@@ -320,6 +320,43 @@ describe("2. 模型池（model 分组）", () => {
   });
 });
 
+describe("2c. model spec / usage / 渠道视图", () => {
+  it("model spec 给聚合规格与逐渠道值", async () => {
+    const r = await run(["model", "spec", "deepseek-v4.1-flash", "--json"]);
+    assert.equal(r.code, 0, r.err);
+    const parsed = JSON.parse(r.out) as {
+      model: string;
+      aggregate: Record<string, unknown>;
+      channels: Array<{ cid: string }>;
+    };
+    assert.equal(parsed.model, "deepseek-v4.1-flash");
+    assert.ok(parsed.channels.length >= 1, "逐渠道值至少一条");
+    assert.ok(parsed.aggregate, "要有聚合规格");
+  });
+
+  it("model spec 缺模型名 → 2", async () => {
+    assert.equal((await run(["model", "spec"])).code, 2);
+  });
+
+  it("model spec 未知模型 → 2 且提示可选", async () => {
+    const r = await run(["model", "spec", "nope"]);
+    assert.equal(r.code, 2);
+    assert.ok(r.err.includes("未知模型"), r.err);
+  });
+
+  it("model usage 输出池账本", async () => {
+    const r = await run(["model", "usage", "--json"]);
+    assert.equal(r.code, 0, r.err);
+    assert.ok(r.out.trim().length > 0);
+  });
+
+  it("model <cid> 给该渠道的模型目录视图", async () => {
+    const r = await run(["model", "alpha", "--json"]);
+    assert.equal(r.code, 0, r.err);
+    assert.ok(r.out.includes("glm-5.3-flash") || r.out.includes("deepseek-v4.1-flash"));
+  });
+});
+
 describe("2b. 模型目录：缓存优先 / 首次拉取 / --refresh", () => {
   /** 每个用例都在干净存储根上跑，避免上一条留下的 cache/models.json 串味。 */
   function withFreshRoot(): void {
@@ -729,6 +766,43 @@ describe("4. 账号池与落点（也走 CLI）", () => {
       assert.ok(forced.out.includes("生效中"), forced.out);
     } finally {
       resetChannels();
+    }
+  });
+});
+
+describe("5. acct 列表状态文案", () => {
+  it("到期 / 熔断（error + trip_until）文案", async () => {
+    const myRoot = mkdtempSync(join(tmpdir(), "mx-acct-"));
+    const savedHome = process.env["MODELMUX_HOME"];
+    process.env["MODELMUX_HOME"] = myRoot;
+    mkdirSync(join(myRoot, "channels", "alpha"), { recursive: true, force: true });
+    clearChannels();
+    setChannel(makeChannel("alpha", { signin: false }));
+    try {
+      writeFileSync(
+        credentialsPath("alpha"),
+        `${JSON.stringify({ accessToken: "tok-a", uid: "user-a", domain: "example.com" }, null, 2)}\n`,
+        "utf8",
+      );
+      captureActive("alpha");
+      const indexFile = join(myRoot, "channels", "alpha", "accounts.json");
+      const index = JSON.parse(readFileSync(indexFile, "utf8")) as {
+        accounts: Array<Record<string, unknown>>;
+      };
+      index.accounts[0]!.health = "error";
+      index.accounts[0]!.trip_until = new Date(Date.now() + 60_000).toISOString();
+      index.accounts[0]!.expires_at = Math.floor(Date.now() / 1000) + 86400 * 3;
+      writeFileSync(indexFile, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+
+      const r = await run(["acct", "alpha", "list"]);
+      assert.equal(r.code, 0, r.err);
+      assert.ok(r.out.includes("error"), r.out);
+      assert.ok(/到期（\d+ 天后）/.test(r.out), r.out);
+    } finally {
+      clearChannels();
+      if (savedHome === undefined) delete process.env["MODELMUX_HOME"];
+      else process.env["MODELMUX_HOME"] = savedHome;
+      rmSync(myRoot, { recursive: true, force: true });
     }
   });
 });
