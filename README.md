@@ -1,7 +1,7 @@
 # modelmux
 
 **一个端点，只做几个对外模型。** 把 WorkBuddy、Loomy、Raccoon、
-TRAE、CatPaw、Qoder 国内版、千问办公、AutoClaw、ZCode 等渠道的额度汇成**一个 OpenAI 兼容端点**，
+TRAE、CatPaw、Qoder 国内版、千问办公、AutoClaw 等渠道的额度汇成**一个 OpenAI 兼容端点**，
 对外只有家族表里的几个模型名（当前清单看 `GET /v1/models`）。
 专注做一件事：`npx modelmux` 起网关，任何 OpenAI 兼容客户端指过来就能用 ——
 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
@@ -77,7 +77,7 @@ mx model list
 
 `mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**三个路由页**：
 仪表盘 `/`、账号池 `/accounts`、请求日志 `/logs`。对外模型清单（家族表里的几个模型）与
-「一键接入 zcode / dsh」都在仪表盘上。
+「一键接入」（zcode / dsh / claude desktop / codex 四个客户端）都在仪表盘上。
 
 **在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
 （截图不放仓库：界面与文案改得快，图必然过时 —— 要看实际形态就看在线演示或 `mx web`。）
