@@ -28,6 +28,7 @@
 | qodercn | Qoder 国内版 | 是 | 是 | 在册 |
 | qwenworkcn | 千问办公（QwenWorkCN） | 是 | 否 | 在册（上游无签到接口，日额度自动发放） |
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
+| todayai | Today 国内版（todayai.cn） | 否（订阅制，无额度数字） | 是（rapport 规则上报） | 在册 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
 | astudio | AStudio（讯飞桌面 Agent） | 是（免费档，额度口径为积分） | 是 | 在册 |
