@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { upstreamPath } from "@modelmux/gateway";
+import { login as shared, upstreamPath } from "@modelmux/gateway";
 
 import * as cred from "./cred.js";
 
@@ -23,8 +23,12 @@ export const DEFAULT_BASE_URL = "https://copilot.tencent.com";
 
 /** 对话路径（完整 URL = 基址 + 路径）。 */
 const CHAT_PATH = "/v2/chat/completions";
-/** 模型目录路径（POST）。 */
+/** 模型目录（GET）——**账单主机**，不是对话主机。 */
 const MODELS_PATH = "/v2/enterprises/personal/models";
+/** 目录兜底（GET，官方云模型目录 `/v3/config`，在对话主机上）。 */
+const CONFIG_PATH = "/v3/config";
+/** 账单/目录主机（与对话主机分离）。 */
+const BILLING_BASE_URL = "https://www.codebuddy.cn";
 
 /** 官方 CLI 版本（头族里的 `X-IDE-Version` / User-Agent）。 */
 const CLI_VERSION = "2.179.3";
@@ -100,9 +104,14 @@ export function chatUrl(): string {
   return `${resolveConfig().baseUrl}${CHAT_PATH}`;
 }
 
-/** 模型目录端点。 */
+/** 模型目录端点（账单主机，GET）。 */
 export function modelsUrl(): string {
-  return `${resolveConfig().baseUrl}${MODELS_PATH}`;
+  return `${BILLING_BASE_URL}${MODELS_PATH}`;
+}
+
+/** 目录兜底端点（官方云模型目录，GET）。 */
+export function configUrl(): string {
+  return `${resolveConfig().baseUrl}${CONFIG_PATH}`;
 }
 
 // ── 请求头 ───────────────────────────────────────────────────────────────────
@@ -196,31 +205,48 @@ export function buildChatBody(
 
 // ── 模型目录 ─────────────────────────────────────────────────────────────────
 
-/**
- * 拉模型目录（`POST /v2/enterprises/personal/models`，个人账号专用）。
- * 401/403 → `UpstreamUnauthorized`。
- */
-export async function fetchModels(credential: AuthLike): Promise<Record<string, unknown>> {
-  let resp: Response;
-  try {
-    resp = await fetch(modelsUrl(), {
-      method: "POST",
-      headers: buildHeaders(credential, { json: true }),
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(20_000),
-    });
-  } catch (err) {
-    throw new Error(`Model catalog request failed: ${String(err)}`);
-  }
+/** 目录请求头（GET，带 X-Request-ID —— 官方账单域要求）。 */
+function catalogHeaders(credential: AuthLike): Record<string, string> {
+  return {
+    ...buildHeaders(credential, { json: true }),
+    Accept: "application/json, text/plain, */*",
+    "X-Request-ID": shared.randomHex(16),
+  };
+}
+
+async function getJson(url: string, credential: AuthLike): Promise<Record<string, unknown>> {
+  const resp = await fetch(url, {
+    method: "GET",
+    headers: catalogHeaders(credential),
+    signal: AbortSignal.timeout(20_000),
+  });
   if (resp.status === 401 || resp.status === 403) {
     throw new UpstreamUnauthorized(`CodeBuddy rejected the access token (HTTP ${resp.status})`);
   }
   if (resp.status !== 200) throw new Error(`Model catalog returned HTTP ${resp.status}`);
+  return (await resp.json().catch(() => {
+    throw new Error("Model catalog response is not valid JSON");
+  })) as Record<string, unknown>;
+}
+
+/**
+ * 拉模型目录：先 `GET /v2/enterprises/personal/models`（账单主机，个人账号专用），
+ * 404/405 时回落官方云目录 `GET /v3/config`（企业账号没有个人模型表）。
+ */
+export async function fetchModels(credential: AuthLike): Promise<Record<string, unknown>> {
+  let firstStatus = 0;
   try {
-    return (await resp.json()) as Record<string, unknown>;
+    return await getJson(modelsUrl(), credential);
   } catch (err) {
-    throw new Error(`Model catalog response is not valid JSON: ${String(err)}`);
+    if (err instanceof UpstreamUnauthorized) throw err;
+    firstStatus = err instanceof Error && /HTTP (\d+)/.exec(err.message)?.[1]
+      ? Number(/HTTP (\d+)/.exec(err.message)![1])
+      : 0;
   }
+  if (![404, 405, 501].includes(firstStatus)) {
+    throw new Error(`Model catalog request failed: HTTP ${firstStatus || "network"}`);
+  }
+  return getJson(configUrl(), credential);
 }
 
 /** 翻译器接口（`WIRE === "openai"` 时网关不会调用，导出仅为契约一致）。 */
