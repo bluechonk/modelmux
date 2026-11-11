@@ -61,6 +61,11 @@ POST /authui/sendLoginSms  {mobile, verifyCode: <验证码解>}                 
 终态失效（`ExpiredRefreshToken` / `InvalidDPoPHeader` / `invalid client id` /
 `has been used`）抛 `NotLoggedInError`，由共享层提示重新登录；其余错误可重试。
 
+**账号身份**：STS 令牌响应不含 `user_id` / `domain_id`；稳定账号 id 在 refresh_token
+（JWT）的 `user_profile`（base64url JSON）的 `account_id` 里。渠道据此派生契约字段
+`uid` —— 缺了它账号池会退化成按 accessToken 建键，而 accessToken 每次续期都换，
+于是一次登录每续期一次就多出一个「新账号」`[实测 2026-11-11]`。
+
 ---
 
 ## 2. 对话：`/api/v2/chat/completions`
@@ -159,16 +164,42 @@ Signature        = hex(hmac_sha256(SecretAccessKey, StringToSign))
 
 ---
 
-## 4. 额度与签到（积分活动）
+## 4. 额度与签到
+
+### 4.1 额度：`/snap-manager/v1/statistics/plugin`
 
 ```
-GET  /v1/ops/delivery?channel=IDE                       → 活动列表
+GET https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/statistics/plugin
+Agent-Type: PromptCenter + AK/SK 签名 + X-Security-Token
+```
+
+**前缀必须带 `snap-manager`**（不带回 `APIG.0101`），与 `/v1/ops/*` 相反 `[实测]`。
+
+响应按账号套餐分两形 `[实测 2026-11-11]`：
+
+| 套餐 | metric | 字段 |
+| --- | --- | --- |
+| 积分包 | `usageTotalPackageCredit`（合计）+ `usageBasicPackageCredit` / `usageOnDemandPackageCredit` / `usageBonusPackageCredit`（分项） | `package_credit_amount` / `_used` / `_remain` |
+| 非积分包（体验版，`is_credit_package:false`） | `usageTokenChatMessages` | `package_token_amount` / `usage_token_num` |
+
+积分账缺失时返回「未知」，**不显示 0** —— 0 会被池层判「已耗尽」而提前冷却 `[代码]`。
+
+### 4.2 签到：积分活动
+
+```
+GET  /v1/ops/delivery?channel=IDE                       → 活动列表（不带 snap-manager）
 POST /v1/ops/claim    {campaignId, channel, idempotentKey}
-POST /v1/ops/confirm  （CLAIMED → 确认到账）
+POST /v1/ops/confirm  {campaignId}                      → CLAIMED 推到 CONFIRMED
 ```
 
-只领 **campaign 1（每日签到）** 与 **4（新手奖励）** 且 `benefitUnit = CREDIT`
-的条目。活动状态机 `[代码]`：
+**每日签到的稳定标识是 `type == "USER_LOGIN"`**（等价 `extra.triggerEvent ==
+"user.login"`）。上游会换 `campaignId`（2026-11 由 1 换成 34）与面额（1000 → 100
+积分），按 ID 匹配会让签到静默失效：任务每天「成功」封账、官网任务仍在、积分不增加 `[实测]`。
+
+领取必须 **claim + confirm 两步**：积分在 claim 时到账，confirm 把状态从 `CLAIMED`
+推到 `CONFIRMED`；漏 confirm 会让上游一直卡在未确认态 `[参考]`。
+
+活动状态机 `[代码]`：
 
 | 状态 | 含义 | 动作 |
 | --- | --- | --- |
@@ -237,11 +268,12 @@ node packages/core/channels/codearts/dist/cli.js status
 ### 端到端测试覆盖
 
 - [x] 登录链路（授权链接 → 浏览器手机号+短信登录 → 回调 → STS 凭证落盘，2026-11-11 实测）
-- [ ] 续期（过期前自动 refresh；STS 凭证 2 小时有效）
+- [x] 续期（过期后自动 refresh；STS 凭证 2 小时有效，2026-11-11 实测）
 - [x] 对话（`glm-5.3-flash` / `deepseek-v4.1-flash`，流式 + 非流式，2026-11-11 实测）
 - [ ] 工具调用（`tool_choice: auto` 往返）
 - [x] 模型目录（内置 11 个模型，含窗口/输出上限，2026-11-11 实测）
-- [ ] 签到（campaign 1 / 4）
+- [x] 签到（每日签到 `type=USER_LOGIN`，2026-11-11 实测：ELIGIBLE → claim + confirm → CONFIRMED）
+- [x] 额度（`/snap-manager/v1/statistics/plugin`，2026-11-11 实测：体验版 token 包 5,000,000 / 已用 4,310）
 
 ### 2026-11-11 端到端实测
 

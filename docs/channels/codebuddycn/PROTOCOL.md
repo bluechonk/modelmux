@@ -90,12 +90,36 @@ POST /v2/chat/completions
 - 兜底表（渠道包 `models.json`）用于未登录 / 离线；远端失败**不清空**缓存。
 - 规格（上下文 / 输出 / 模态）是数据，落在 `models.json`。
 
-## 7. 额度
+## 7. 额度与签到
 
-`POST /v2/billing/meter/get-user-resource`（个人账号资源表）：按资源条目给
-总量 / 已用 / 剩余，没有单一「积分」字段。认不出数值时不编造（抛 `CreditsError`）。
+账单主机是 `www.codebuddy.cn`，与对话主机 `copilot.tencent.com` 分离 `[实测]`。
 
-**国内版无每日签到入口**（参考实现里签到仅国际 WorkBuddy 适用），故 `signin` 明确声明不支持。
+### 7.1 额度：用户资源表
+
+```
+POST https://www.codebuddy.cn/v2/billing/meter/get-user-resource
+body: {PageNumber, PageSize, ProductCode:"p_tcaca", Status:[0,3],
+       PackageEndTimeRangeBegin, PackageEndTimeRangeEnd}
+```
+
+响应埋在 `data.Response.Data.Accounts[]`（另有 `data.data.Response.Data` 嵌套变体）
+`[实测]`。条目字段：`CapacityRemain` / `CapacitySize` / `CapacityUsed`
+（带 `*Precise` 后缀的精确值优先）、`CapacityUnit`、`PackageName`、`DeductionEndTime`。
+
+只计**还有余额**的包（`remain > 0`），耗尽的包不进总额 `[代码]`。企业账号不走此端点
+（`Accounts` 为空）。认不出数值时不编造（抛 `CreditsError`）。
+
+### 7.2 签到
+
+```
+POST /v2/billing/meter/checkin-activity-status
+  → {active, today_checked_in, streak_days, daily_credit, today_credit, total_credits}
+POST /v2/billing/meter/daily-checkin   → {code, msg}
+```
+
+**国内版有每日签到**（实测 2026-11-11：连续 25 天、每天 100 credits、累计 2500）`[实测]`。
+领取幂等：今天已签返回 HTTP 400 `code=10001`（`msg`「今天已签到，请明天再来」），
+按「已签」处理，不算失败 `[实测]`。
 
 ## 8. 证据等级
 
@@ -106,6 +130,8 @@ POST /v2/chat/completions
 | 登录（授权页 + 轮询 + 账号档案） | 真机：账号「セシリア」授权入池（2026-11-11） | 已验证 |
 | 模型目录（GET + 账单主机） | 真机：拉到 `deepseek-v4.1-flash` / `glm-5.3-flash`（2026-11-11） | 已验证 |
 | 对话（gzip 体 + 头族 + SSE） | 真机：`glm-5.3-flash` 最小对话返回「1+1=2」（2026-11-11） | 已验证 |
+| 额度（资源表 `Accounts[]` 与字段名） | 真机：剩余 645 credits / 总量 700（2026-11-11） | 已验证 |
+| 签到（状态 + 领取 + 幂等码 10001） | 真机：连续 25 天、每天 100 credits（2026-11-11） | 已验证 |
 | 续期（refresh） | 未单独验证 | 未验证 |
 
 ### 怎么测这个渠道
