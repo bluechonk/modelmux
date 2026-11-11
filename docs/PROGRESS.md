@@ -32,13 +32,14 @@
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
 | astudio | AStudio（讯飞桌面 Agent） | 是（免费档，额度口径为积分） | 是 | 在册 |
-| lobsterai | LobsterAI（有道） | 是 | 是 | 在册（账号被上游封停，需重新登录） |
+| lobsterai | LobsterAI（有道） | 是 | 是 | 在册 |
 | qoder | Qoder（国际版） | 是 | 是 | 在册 |
 | workbuddyai | WorkBuddyAI（国际版） | 是 | 否 | 在册 |
 | autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
+| codebuddycn | CodeBuddy 国内版（腾讯） | 是 | 是 | 在册 |
 | codearts | CodeArts（华为云码道） | 是 | 是 | 在册（浏览器 OAuth2 登录；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash`） |
 
-全部 13 个渠道均在册（`RETIRED_CIDS` 为空）。
+全部 15 个渠道均在册（`RETIRED_CIDS` 为空）。
 
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
@@ -113,7 +114,7 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
 
 ## 已知边界
 
-- 上游目录**普遍不下发**思考档位，只有 catpaw / loomy / traecn / lobsterai 声明了档位；
-  其余渠道无声明时控制台显示「不支持」，共享层兜底**不编造**档位。
+- 上游目录**普遍不下发**思考档位，只有少数渠道的目录声明了档位（哪些有声明看控制台
+  模型清单 / `GET /v1/models` 的 meta）；无声明时控制台显示「不支持」，共享层兜底**不编造**档位。
 - 共享层**不解释渠道字段**，只按约定键名归一；渠道自己的字段名映射在渠道包内。
 - 窗口/输出上限等规格以 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的统一模型注册表为唯一事实源。

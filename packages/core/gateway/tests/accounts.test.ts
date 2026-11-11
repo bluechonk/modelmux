@@ -15,10 +15,12 @@ import {
   accountKey,
   activateAccount,
   captureActive,
+  keyUid,
   listAccounts,
   markActiveHealth,
   readAccountCredential,
   removeAccount,
+  syncKeyAccounts,
   syncPool,
 } from "../dist/runtime/account-pool.js";
 import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../dist/runtime/channel.js";
@@ -329,5 +331,54 @@ describe("6. 展示名（name / label）", () => {
     const refreshed = listAccounts(CID).accounts[0]!;
     assert.equal(refreshed.name, "bob", "补上的昵称应进入 name");
     assert.equal(refreshed.label, "bob", "弱 label（uid）应升级为名称");
+  }));
+});
+
+describe("syncKeyAccounts（凭据即 key 的渠道）", () => {
+  const keyOf = (key: string): string =>
+    accountKey({ accessToken: key, uid: keyUid(key), domain: CID });
+
+  it("新增 key：入池并把生效凭据写成该 key", withRoot(async () => {
+    syncKeyAccounts(CID, [{ key: "k1", label: "主号" }]);
+    const index = listAccounts(CID);
+    assert.equal(index.active, keyOf("k1"));
+    assert.equal(index.accounts.length, 1);
+    assert.equal(index.accounts[0]!.label, "主号");
+    assert.equal(readAccountCredential(index.active!, CID)["accessToken"], "k1");
+    assert.ok(
+      readFileSync(paths.credentialsPath(CID), "utf8").includes("k1"),
+      "生效凭据要写成该 key",
+    );
+  }));
+
+  it("移除不在列表里的 key：删账号文件并清生效凭据", withRoot(async () => {
+    syncKeyAccounts(CID, [{ key: "k1" }]);
+    const key = listAccounts(CID).active!;
+    syncKeyAccounts(CID, []);
+    assert.equal(listAccounts(CID).accounts.length, 0);
+    assert.equal(listAccounts(CID).active, null);
+    assert.equal(existsSync(paths.accountCredentialsPath(key, CID)), false, "账号文件要删掉");
+    assert.equal(existsSync(paths.credentialsPath(CID)), false, "生效凭据要清掉");
+  }));
+
+  it("preferredActive 决定生效账号", withRoot(async () => {
+    syncKeyAccounts(CID, [{ key: "k1" }, { key: "k2" }], "k2");
+    assert.equal(listAccounts(CID).active, keyOf("k2"));
+  }));
+
+  it("重同步保留健康与冷却历史", withRoot(async () => {
+    syncKeyAccounts(CID, [{ key: "k1" }]);
+    markActiveHealth("cooldown", CID);
+    syncKeyAccounts(CID, [{ key: "k1" }]);
+    assert.equal(listAccounts(CID).accounts[0]!.health, "cooldown", "重同步不该清掉健康状态");
+  }));
+
+  it("生效凭据的 uid 不一致时重写（旧版本落盘形态）", withRoot(async () => {
+    syncKeyAccounts(CID, [{ key: "k1" }]);
+    // 旧版本只写 accessToken、没有 uid → 下次同步要补齐
+    writeFileSync(paths.credentialsPath(CID), `${JSON.stringify({ accessToken: "k1" }, null, 2)}\n`, "utf8");
+    syncKeyAccounts(CID, [{ key: "k1" }]);
+    const saved = JSON.parse(readFileSync(paths.credentialsPath(CID), "utf8")) as Record<string, unknown>;
+    assert.equal(saved["uid"], keyUid("k1"));
   }));
 });

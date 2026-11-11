@@ -7,13 +7,16 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import {
+  channelModelsMeta,
   CHANNEL_MODELS_FILE,
+  ensureChannelModels,
+  seedChannelModels,
   CHANNEL_MODELS_SNAPSHOTS,
   channelModelsPath,
   listChannelModelsSnapshots,
@@ -96,5 +99,74 @@ describe("渠道模型表：快照与回退", () => {
   it("文件落点固定在渠道层根（不是 cache/）", () => {
     assert.ok(channelModelsPath(CID).includes(`${CHANNEL_MODELS_FILE}`));
     assert.ok(!channelModelsPath(CID).includes(`cache${process.platform === "win32" ? "\\" : "/"}`));
+  });
+});
+
+describe("渠道模型表：首启种子与元信息", () => {
+  let root = "";
+
+  before(() => {
+    root = mkdtempSync(join(tmpdir(), "mx-seed-"));
+    process.env["MODELMUX_HOME"] = root;
+    clearChannels();
+    setChannel(makeChannel());
+  });
+
+  after(() => {
+    delete process.env["MODELMUX_HOME"];
+    clearChannels();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function writeSeed(path: string, entries: Array<{ id: string }>): void {
+    mkdirSync(join(path, ".."), { recursive: true, force: true });
+    writeFileSync(
+      path,
+      `${JSON.stringify({ version: 1, source: "seed", fetched_at: "2026-01-01T00:00:00.000Z", models: entries }, null, 2)}
+`,
+      "utf8",
+    );
+  }
+
+  it("ensureChannelModels：已有用户文件 → 直接返回，不浇种", () => {
+    writeChannelModels([{ id: "m1" }], CID);
+    const seed = join(root, "seed.json");
+    writeSeed(seed, [{ id: "m2" }]);
+    const got = ensureChannelModels(CID, [seed]);
+    assert.deepEqual(got!.map((m) => m.id), ["m1"]);
+  });
+
+  it("ensureChannelModels：无用户文件但有种子 → 浇种并落盘", () => {
+    rmSync(channelModelsPath(CID), { force: true });
+    const seed = join(root, "seed2.json");
+    writeSeed(seed, [{ id: "m3" }]);
+    const got = ensureChannelModels(CID, [seed]);
+    assert.ok(got);
+    assert.deepEqual(got!.map((m) => m.id), ["m3"]);
+    assert.ok(existsSync(channelModelsPath(CID)), "种子要落盘成用户文件");
+  });
+
+  it("ensureChannelModels：用户文件与种子都没有 → null", () => {
+    rmSync(channelModelsPath(CID), { force: true });
+    assert.equal(ensureChannelModels(CID, [join(root, "nope.json")]), null);
+  });
+
+  it("seedChannelModels：空条目 → null；已有文件 → 返回文件内容不覆盖", () => {
+    rmSync(channelModelsPath(CID), { force: true });
+    assert.equal(seedChannelModels([], CID), null);
+    writeChannelModels([{ id: "m4" }], CID);
+    const got = seedChannelModels([{ id: "m5" }], CID);
+    assert.deepEqual(got!.map((m) => m.id), ["m4"], "已有文件时不覆盖");
+  });
+
+  it("channelModelsMeta：读 source/fetched_at；缺失或损坏 → null", () => {
+    writeChannelModels([{ id: "m6" }], CID, "seed");
+    const meta = channelModelsMeta(CID);
+    assert.equal(meta!.source, "seed");
+    assert.ok(meta!.fetched_at);
+    rmSync(channelModelsPath(CID), { force: true });
+    assert.equal(channelModelsMeta(CID), null);
+    writeFileSync(channelModelsPath(CID), "{broken", "utf8");
+    assert.equal(channelModelsMeta(CID), null);
   });
 });
