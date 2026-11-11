@@ -667,8 +667,12 @@ interface CredModule {
 - **共享层不解析渠道磁盘格式**：只做「复制文件 + 记下 `cred.load()` 的契约字段 uid/domain」，
  所以全部渠道**零改动**就支持账号池。
 - **同步按身份，不按时间**：`credentials.json` 变新时先比 `accountKey` —— 同一账号 → 回灌池内
- 那份（渠道 `refresh()` 只写 live 文件）；不同账号 → 收成新账号并设为 active。
- 只看 mtime 回灌会在「换账号登录」时把旧账号的池内文件覆盖成别人的凭证。
+  那份；不同账号 → 收成新账号并设为 active。
+  只看 mtime 回灌会在「换账号登录」时把旧账号的池内文件覆盖成别人的凭证。
+- **账号自己的续期落点**：对某个账号的凭据做操作（账单刷新、签到领取）时，共享层用
+  `accounts.runForAccountCredential(cid, key, …)` 把 `credentialsPath()` 的落点限定到
+  `accounts/<key>.json`，渠道 `refresh()` 无需改动就写进该账号的文件；不限定时只写 live
+  （那是生效账号的路径，写错会把生效账号顶掉）。见 [CONTRACT-TS.md](./CONTRACT-TS.md)。
 - **切换** = 把 `accounts/<key>.json` 复制回 `credentials.json` + 更新 `active`（不用重新授权）。
 - **重登（`mx relogin` / 控制台「+」添加账号）不删旧凭据**：授权流程要等人操作（扫码 / 粘回调），
   期间渠道处于「登录中」，旧凭据本来还能正常服务。旧实现**先 `unlink(credentials.json)` 再授权**，

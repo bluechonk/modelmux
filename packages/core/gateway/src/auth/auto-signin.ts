@@ -25,7 +25,11 @@ import {
   type SigninRewardSource,
 } from "./signin-ledger.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
-import { listAccounts, readAccountCredential } from "../runtime/account-pool.js";
+import {
+  listAccounts,
+  readAccountCredential,
+  runForAccountCredential,
+} from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
 
 /** 轮询间隔：签到是低频事件，30 分钟足够跨天补签（凌晨 0 点后 30 分钟内补上）。 */
@@ -126,13 +130,22 @@ export function tripped(scope: string): boolean {
  * 拿不到发放数额；而额度是查得到的。签到前后各查一次，差值就是真实入账。
  * 查不到（未登录 / 上游异常 / 该渠道额度接口不适用）返回 `null` —— 不猜。
  */
-async function quotaRemainOf(channel: Channel, credential?: unknown): Promise<{ remain: number; unit: string } | null> {
-  try {
-    const result = await runInChannel(channel.config.cid, () =>
-      channel.billing.fetchCredits(
-        credential === undefined ? { refreshOn401: false } : { credential, refreshOn401: false },
-      ),
+async function quotaRemainOf(
+  channel: Channel,
+  credential?: unknown,
+  accountKey?: string,
+): Promise<{ remain: number; unit: string } | null> {
+  const cid = channel.config.cid;
+  const query = (): Promise<unknown> =>
+    channel.billing.fetchCredits(
+      credential === undefined ? { refreshOn401: false } : { credential, refreshOn401: false },
     );
+  try {
+    // 指定了账号就把落点限在该账号的文件上（与账单/领取同口径）
+    const result =
+      accountKey === undefined
+        ? await runInChannel(cid, query)
+        : await runForAccountCredential(cid, accountKey, query);
     const total = (result as { total?: { remain?: unknown; unit?: unknown } } | null)?.total;
     const remain = Number(total?.remain);
     if (!Number.isFinite(remain)) return null;
@@ -177,7 +190,10 @@ async function resolveReward(
 }> {
   let status: SigninStatus | null = null;
   try {
-    status = await channel.billing.signin.status();
+    // 按账号签到时，状态也要读该账号的凭据（`status()` 内部走 `cred.load()`）
+    const ask = () => channel.billing.signin.status();
+    status =
+      accountKey === undefined ? await ask() : await runForAccountCredential(cid, accountKey, ask);
   } catch {
     // 状态查询失败：继续走余额口径（可能照样拿到数字）
   }
@@ -192,7 +208,7 @@ async function resolveReward(
   }
   const daily = dailyRewardOf(status);
   if (daily !== undefined) return { reward: daily, source: "daily" };
-  const after = await quotaRemainOf(channel, credential);
+  const after = await quotaRemainOf(channel, credential, accountKey);
   const before = record.balance?.before ?? null;
   // 「领取后余额」取**领取当时记录的 after 与当下余额的较大者**：两次轮询之间账号正常消耗时，
   // 当下余额会低于刚领到的数字，只用它会把奖励算少（异步入账只会让余额更高）
@@ -512,12 +528,13 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
     // 走到这里说明这个账号确实要领取 —— 现在才值得问一次渠道状态
     await askStatus();
 
-    const ok = await runInChannel(cid, async () => {
+    // 落点限在该账号自己的文件：签到途中若续期，结果写回这里而不顶掉 live 的生效凭据
+    const ok = await runForAccountCredential(cid, account.key, async () => {
       try {
-        const before = await quotaRemainOf(channel, credential);
+        const before = await quotaRemainOf(channel, credential, account.key);
         const outcome = await channel.billing.signin.claim({ credential });
         if (outcome.ok) {
-          const after = await quotaRemainOf(channel, credential);
+          const after = await quotaRemainOf(channel, credential, account.key);
           const delta = deltaReward(before, after);
           const reward = outcome.reward ?? daily ?? delta;
           try {

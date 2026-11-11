@@ -653,9 +653,15 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 `fetchCredits()` 可保留抛错作为防御性兜底。
 
 **按账号查询**：`fetchCredits(options?: { refreshOn401?: boolean; credential?: unknown })`。
-不传 `credential` = 当前生效账号；传入时用它代替 `cred.load()`，并配合
-`refreshOn401: false`（避免刷新 / 回写生效账号的凭证文件）。账号池刷新账单时按账号调用，
+不传 `credential` = 当前生效账号；传入时用它代替 `cred.load()`。账号池刷新账单时按账号调用，
 结果写入账本 `accounts[key].credits`（见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.4）。
+
+**传入 `credential` 且允许续期（`refreshOn401: true`）时，调用方必须先套
+`accounts.runForAccountCredential(cid, key, …)`**。渠道的 `cred.refresh()` 会落盘到
+`credentialsPath()`，而落点上下文让这次落盘写进**该账号自己的文件**
+（`accounts/<key>.json`，见 [`STORAGE-CONVENTION.md`](./STORAGE-CONVENTION.md)）——
+不限定落点时它会写进 live 文件，把生效账号的凭据顶掉（`syncPool` 据此把生效账号切走）。
+渠道侧无需改动：`save()` / `load()` 照旧只认 `credentialsPath()`。
 
 **额度周期（`quotaPeriod?()`，可选）**：返回
 `{ label, size, unit, resets_at }` —— 周期的人读文案（如「每天 5000 积分，0 点刷新」）、

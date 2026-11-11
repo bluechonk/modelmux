@@ -19,6 +19,7 @@ import {
   noteAccountQuotaExhausted,
   readAccountCredential,
   readIndex,
+  runForAccountCredential,
   type PoolAccount,
   type PoolIndex,
 } from "../runtime/account-pool.js";
@@ -81,7 +82,7 @@ async function refreshOne(channel: Channel, cid: string, key: string): Promise<n
   const raw = runInChannel(cid, () => readAccountCredential(key, cid));
   const credential = normalizeCredentialShape(raw);
   if (Object.keys(credential).length === 0) return null;
-  const credits: unknown = await runInChannel(cid, () =>
+  const credits: unknown = await runForAccountCredential(cid, key, () =>
     channel.billing.fetchCredits({ refreshOn401: false, credential }),
   );
   writeAccountBilling(cid, key, credits);
