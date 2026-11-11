@@ -22,6 +22,7 @@ import "@modelmux/qoder";
 import "@modelmux/qodercn";
 import "@modelmux/qwenworkcn";
 import "@modelmux/raccoon";
+import "@modelmux/todayai";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
 import "@modelmux/workbuddyai";
