@@ -38,6 +38,12 @@ __pycache__/
 # 规划过程文件（planning-with-files；结项即删）
 .planning/
 
+# plan-with-files 插件的过程文件：每次会话固定写到仓库根（插件无落点配置），
+# 由 verify-docs 经 gitignore 跳过（过程文件不入库、不按文档规则校验）
+/task_plan.md
+/findings.md
+/progress.md
+
 # ZCode 会话产物（计划/exec 缓存等），不入库
 .zcode/
 .claude/

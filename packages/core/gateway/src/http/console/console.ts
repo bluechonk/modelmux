@@ -115,6 +115,8 @@ export interface UiSnapshot {
   base_url: string;
   chat_url: string;
   endpoints: string[];
+  /** 网关自身版本（入口包 package.json），给控制台顶栏显示当前版本。 */
+  version: string;
   /**
    * 对外模型池的**「模型 × 渠道」矩阵**：一个模型可能由多个渠道供给。
    *
@@ -179,6 +181,7 @@ export function emptySnapshot(): UiSnapshot {
     base_url: "",
     chat_url: "",
     endpoints: ["/v1/chat/completions", "/v1/messages", "/v1/messages/count_tokens", "/v1/responses", "/v1/models", "/health"],
+    version: "",
     models: [],
     model_prefs: [],
     login_input: null,

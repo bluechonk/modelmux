@@ -324,6 +324,7 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     base_url: "http://127.0.0.1:4412/v1",
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: DEMO_ENDPOINTS,
+    version: "0.1.3",
     models: demoModelRows(state),
     model_prefs: demoModelPrefs(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),

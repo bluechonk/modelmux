@@ -165,6 +165,15 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           )}
           <ThemeToggle />
           <GatewayStatus />
+          {/*
+            版本号：紧跟网关状态。数据来自快照的 `version`（网关入口包版本），
+            缺失（旧网关 / 加载中）时不渲染，不留空壳。
+          */}
+          {state.data?.version && (
+            <span className="no-drag hidden rounded-lg border border-line px-2 py-1 font-mono text-xs text-ink-faint min-[900px]:inline">
+              v{state.data.version}
+            </span>
+          )}
           <WindowControls />
         </div>
       </header>
