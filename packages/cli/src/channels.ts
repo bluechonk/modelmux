@@ -14,6 +14,7 @@
 import "@modelmux/astudio";
 import "@modelmux/autoclaw";
 import "@modelmux/catpaw";
+import "@modelmux/codebuddycn";
 import "@modelmux/lobsterai";
 import "@modelmux/loomy";
 import "@modelmux/qoder";
