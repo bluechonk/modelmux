@@ -241,3 +241,8 @@ export function poolUsagePath(): string {
 export function rootSettingPath(): string {
   return rootFile("setting.json");
 }
+
+/** 版本更新检测状态（`<root>/update.json`；读写见 runtime/update-check.ts）。 */
+export function rootUpdatePath(): string {
+  return rootFile("update.json");
+}

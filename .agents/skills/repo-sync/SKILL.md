@@ -162,24 +162,20 @@ gh pr checks <n>
   `git fetch --prune`、`git checkout main`、`git reset --hard origin/main`（squash 会重写 SHA，
   本地与远端分叉属正常）、删本地分支，再确认 main 的 CI 双绿。
 
-### 4.1 发版：**只打 tag，绝不建 Release**（主人明确要求，违反即返工）
+### 4.1 发版：**打 tag + 建 GitHub Release**（Release 承载版本说明）
 
 ```
-发版 = 改版本号落点 → chore(release) 提交 → PR 合并 → 在 main 打 vX.Y.Z tag → 停。
+发版 = 改版本号落点 → chore(release) 提交 → PR 合并 → 在 main 打 vX.Y.Z tag
+     → 用同一份说明建 Release：gh release create <tag> --title "vX.Y.Z" --notes-file <说明文件>
 ```
 
-- **禁止** `gh release create` / `gh release edit` / `gh release upload`，
-  **禁止**用全局 `github:release` 技能，**禁止**点 GitHub 网页的「Draft a new release」。
-  与全局 `~/.agents/AGENTS.md`「标签与发布」里「打 tag → 出 Release」冲突时**以本仓规则为准**
-  （本仓细则见 [docs/WORKFLOW.md](../../../docs/WORKFLOW.md) 的「版本与发版」）。
-- 为什么：本仓没有发布物 —— 没有 `npm publish`、没有产物打包 workflow、没有 exe/安装包，
-  发布物只有 **web 控制台 + CLI 源码**。Release 页面承载的「版本说明」的权威来源是 `git log`，
-  多一个页面就多一份会漂移的事实源（主人原话：「我又不做 exe，我只做 web 和 cli」）。
-- 打 tag 前先过推送门禁；tag 只打在**合并后的 main** 上，不打开发分支。
-- **Releases 页必须保持为空**（含 draft）：`gh release list --repo bluechonk/modelmux` 要**没有输出**，
-  `gh api repos/bluechonk/modelmux/releases` 要是 `[]`。若发现残留（历史遗留也算），
-  删掉并**保留 tag**：`gh release delete <tag> --yes`（⚠ 别加 `--cleanup-tag`，那会连 tag 一起删）。
-- 删除 Release 与「发布」无关，不影响 tag、不影响任何产物 —— 本仓本就没有发布物。
+- **说明即 Release body**：控制台「发现新版本」卡片读的就是它
+  （见 [docs/WEB-CONSOLE.md](../../../docs/WEB-CONSOLE.md)），所以按类型归纳、只写事实、
+  不写对话式内容（与 commit body 同规）。
+- tag 必须先打在**合并后的 main** 上，Release 再指向它；打 tag 前过推送门禁。
+- 已有 Release 要改说明用 `gh release edit <tag> --notes-file …`，不要删了重建。
+- 桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`）本地构建，可作 Release 附件上传，
+  也可只在说明里写构建步骤（见 [docs/DESKTOP-APP.md](../../../docs/DESKTOP-APP.md)）。
 
 ## 5. 收尾检查清单（一条都不能漏）
 
@@ -193,8 +189,8 @@ node scripts/verify-docs.mjs            # 文档整改复查：落点 + 链接 +
 npm run verify:comments                 # 代码注释整改下限：文件头 / 署名 / 修订记录 / TODO 条件（§1）
 git status                     # 工作树干净（无未提交 tracked 文件）
 git fetch --prune && git branch -a      # 本地/远端只剩 main
-gh release list --repo bluechonk/modelmux   # 必须没有任何输出（含 draft；§4.1）
-git tag -l                      # tag 才是发布物，必须都在
+gh release list --repo bluechonk/modelmux   # 每个 tag 都应有对应 Release（§4.1）
+git tag -l                      # tag 是版本事实源，必须都在
 ls .tmp                        # **只看不动**：.tmp 一切内容禁止删除（全局 AGENTS「临时文件」节），
                                 # 收尾不把它当清理待办项
 # PR body 体检（push 前逐条跑）：对话式内容与 emoji 在 archive 里零容忍
@@ -229,7 +225,8 @@ done
 | 文档里写自身变更史 / 实施状态（「此前…」「已落地」） | 越写越像流水账，与 git 重复 | 按 §1「md 文档整改」清掉，只留当前状态与外部证据 |
 | `git add -u` 漏掉新文件 | CI 构建失败（UNRESOLVED_IMPORT） | 新文件用 `git add <path>` |
 | 改了代码没 restart | 验证的是旧进程 | build → restart → status 无陈旧 |
-| **给本仓建了 GitHub Release**（`gh release create` / `github:release` 技能 / 网页 Draft） | 主人明确禁止：本仓发布物只有 tag，Release 页是多余事实源 | 只打 tag（§4.1）；已建的要删掉并保留 tag：`gh release delete <tag> --yes` |
+| **只打 tag 不建 Release** | 控制台「发现新版本」卡片没有说明可读（读的是 Release body） | 发版最后一步建 Release（§4.1）；已发的用 `gh release create/edit` 补 |
+| Release 说明写对话式内容 / 记变更史 | 控制台卡片与档案里出现「此前…」「本次」 | 与 commit body 同规：按类型归纳、只写事实 |
 | 本地绿但推送门禁红 | 平台/依赖差异（如漏提交新文件） | 用门禁同款命令在干净 clone 复现 |
 | `.tmp` 被删后重定向失败 | 测试没跑却以为绿了 | 先 `mkdir -p .tmp` |
 | 合并后本地 `git pull` 冲突 | squash 重写了 SHA，同内容不同源 | `git fetch --prune` 后 `git reset --hard origin/main` |
