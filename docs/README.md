@@ -101,8 +101,6 @@
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 | `.agents/skills/claude-mx-test/SKILL.md` | 端到端测试：Claude Code 经 `/v1/messages`（Anthropic Messages）直连网关，tool_use ↔ tool_calls 双向映射与 tool_result 回灌矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 | `.agents/skills/codex-mx-test/SKILL.md` | 端到端测试：Codex CLI 经 `/v1/responses`（OpenAI Responses）直连网关，function_call ↔ tool_calls 双向映射矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
-| `.agents/skills/zcode-session-archaeology/SKILL.md` | 会话考古：按 `session_xxx` / `sess_xxx` 还原**另一个**会话做了什么，用于多会话并行改同一项目时的对齐与收尾 |
-| `.agents/skills/context-capture/SKILL.md` | 客户端上下文获取：从 `~/.modelmux/logs/payload/` 抽取任意一次模型请求的完整上下文（系统提示词 / skills / system-reminder / 工具定义 / 多轮对话 / 思考过程），用于对比 Codex / Claude Code / Claude Desktop / dsh / ZCode 的上下文构造差异 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
 

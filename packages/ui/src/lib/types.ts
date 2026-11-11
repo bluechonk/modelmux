@@ -38,6 +38,8 @@ export interface UiSnapshot {
   base_url: string;
   chat_url: string;
   endpoints: string[];
+  /** 网关自身版本（如 `0.1.3`），顶栏版本胶囊的数据源。 */
+  version: string;
   /**
    * 对外模型池的**「模型 × 渠道」矩阵**：一个 deepseek 模型可能由多个渠道供给。
    *

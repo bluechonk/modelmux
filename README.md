@@ -102,7 +102,6 @@ mx model list
 | 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
 | 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
 | Windows 桌面安装版 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)（安装前提 / 托盘与网关生命周期 / 自定义标题栏 / 存储根） |
-| 查看模型收到的上下文 | 技能 `.agents/skills/context-capture/SKILL.md`（从 payload 日志抽取 system prompt / 工具 / 对话） |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
 | 渠道端到端测试（dsh/ACP 直连网关，覆盖每个渠道的模型） | 技能 `.agents/skills/dsh-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
 | 客户端协议测试（Claude Code 走 /v1/messages · Codex 走 /v1/responses） | 技能 `.agents/skills/claude-mx-test/SKILL.md` · `.agents/skills/codex-mx-test/SKILL.md`（同上成本红线） |
@@ -111,7 +110,6 @@ mx model list
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |
 | 某个渠道还差什么没做 | `docs/channels/<cid>/ROADMAP.md`（如 astudio 的 [ROADMAP](docs/channels/astudio/ROADMAP.md)：8 项功能的缺口清单与验收判据） |
 | AStudio 逆向方法与实跑记录 | [docs/channels/astudio/METHODOLOGY.md](docs/channels/astudio/METHODOLOGY.md) · [WALKTHROUGH.md](docs/channels/astudio/WALKTHROUGH.md) |
-| 多会话并行改同一项目时的对齐与收尾 | 技能 `.agents/skills/zcode-session-archaeology/SKILL.md` |
 
 > 技能清单以 [docs/README.md](docs/README.md) §3 的表为准（`.agents/skills/` 下每个技能都登记在彼）；
 > `verify-docs` 会校验不漏登记。
