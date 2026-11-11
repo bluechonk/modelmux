@@ -32,6 +32,8 @@
 ├── model-prefs.json             ← **模型级渠道偏好**（每个对外模型「优先走哪家」，`null` = 自动选路）
 │                                   由控制台「模型走哪家」下拉写入，见 POOL-ARCHITECTURE.md §2.4
 ├── setting.json                 ← **用户级设置**（目前只有主题 system/dark/light；读写见 runtime/user-settings.ts）
+├── update.json                  ← **版本更新检测状态**（上次检查时间 / 最近一次结果 / 跳过的版本 /
+│                                   稍后提醒到几点；读写见 runtime/update-check.ts）
 └── channels/                    ← 唯一渠道层（0.1.2 起）
     ├── workbuddyai/             ← cid 层
     │   ├── credentials.json         当前生效账号（兼容镜像）
@@ -143,5 +145,7 @@
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
    `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
    账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）、
-   `watchdog.pid` / `watchdog.pause`（外部守护 `scripts/mx-watchdog.mjs`）。走 `paths.rootFile()`
+   `watchdog.pid` / `watchdog.pause`（外部守护 `scripts/mx-watchdog.mjs`）、
+   `update.json`（版本更新检测状态：上次检查时间 / 最近结果 / 跳过的版本 / 稍后提醒，
+   见 `docs/WEB-CONSOLE.md` 的版本胶囊）。走 `paths.rootFile()`
    或 `paths.logsDir()`，文件名同样受本节第 7 条的校验。

@@ -230,14 +230,16 @@ git config --get core.hooksPath         # 应为 .githooks
 
 ## 版本与发版
 
-**强制**。全局规则「标签与发布」规定「打 tag → 出 Release」，**本仓库只做前半步**：
+**强制**。全局规则「标签与发布」规定「打 tag → 出 Release」，本仓两步都做：
 
-1. **发版 = 打 tag，到此为止。不要建 GitHub Release**（`gh release create` / `gh release edit`
-   一律不用，`github:release` 技能与网页「Draft a new release」同样不用）——
-   本仓的发布物就是 tag 本身与桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`，
-   本地构建、随 tag 重出，无产物发布 workflow），Release 页面只承载一份版本说明，
-   而那份说明的权威来源是 `git log`。
-   注意：与全局规则的这一条冲突时**以本条为准**；**Releases 页必须保持为空**（`gh release list` 无输出）。
+1. **发版 = 打 tag + 建 GitHub Release**：tag 是版本事实源，Release 承载**版本说明** ——
+   控制台「发现新版本」卡片读的就是 Release body（见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)）。
+   - `gh release create <tag> --title "vX.Y.Z" --notes-file <说明文件>`；说明与 commit body 同规
+     （按类型归纳、只写事实、不写对话过程）。
+   - tag 必须先打在**合并后的 main** 上，Release 再指向它；打 tag 前过推送门禁。
+   - 已有 Release 改说明用 `gh release edit <tag> --notes-file …`，不要删了重建。
+   - 桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`）本地构建、随 tag 重出，
+     可作 Release 附件上传，也可只在说明里写构建步骤（见 [DESKTOP-APP.md](./DESKTOP-APP.md)）。
 2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与各 `package.json` 的 `version`，
    按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。

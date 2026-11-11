@@ -323,6 +323,14 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     chat_url: "http://127.0.0.1:4412/v1/chat/completions",
     endpoints: DEMO_ENDPOINTS,
     version: "0.1.3",
+    // 演示固定展示一条更新提示（真实数据来自网关每天一次的检测）
+    update: {
+      available: true,
+      version: "v0.1.4",
+      notes: "新增 todayai 渠道；修复非生效账号续期后额度不刷新；请求日志结果列对齐。",
+      url: "https://github.com/bluechonk/modelmux/releases/tag/v0.1.4",
+      checkedAt: new Date().toISOString(),
+    },
     models: demoModelRows(state),
     model_prefs: demoModelPrefs(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),

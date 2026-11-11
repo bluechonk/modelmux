@@ -169,6 +169,10 @@ export interface WebApi {
     resetAccount(cid: string, key: string): Promise<CommandData>;
     removeAccount(cid: string, key: string): Promise<CommandData>;
     syncPool(cid: string): Promise<CommandData>;
+    /** 稍后提醒：今天不再提示新版本（下次检测是明天）。 */
+    snoozeUpdate(): Promise<CommandData>;
+    /** 跳过该版本：对同一个版本号不再提示。 */
+    skipUpdate(version: string): Promise<CommandData>;
     /** 模型级渠道偏好：每个对外模型的候选渠道 + 当前偏好（下拉的数据源）。 */
     modelChannels(): Promise<CommandData>;
     /** 设置 / 清除某模型的优先渠道（`cid` 传空串 = 回到自动选路）。 */
@@ -286,6 +290,10 @@ async function demoCommand(
     }
     case "syncPool":
       return { ok: true };
+    case "snoozeUpdate":
+    case "skipUpdate":
+      // 演示模式没有真实检测状态：收下动作即可（卡片靠快照的 update 字段消失）
+      return { ok: true };
     case "modelChannels":
       // 演示模式没有真实池：给出与账号池同口径的占位，避免下拉空白
       return { models: [] };
@@ -394,6 +402,8 @@ export const api: WebApi = {
     resetAccount: (cid, key) => command("resetAccount", cid, { key }),
     removeAccount: (cid, key) => command("removeAccount", cid, { key }),
     syncPool: (cid) => command("syncPool", cid),
+    snoozeUpdate: () => command("snoozeUpdate", undefined),
+    skipUpdate: (version) => command("skipUpdate", undefined, { version }),
     modelChannels: () => command("modelChannels", undefined),
     setModelChannel: (model, cid) => command("setModelChannel", undefined, { model, cid }),
     pasteCallback: (url) => command("pasteCallback", undefined, { url }),

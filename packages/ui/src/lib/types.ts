@@ -18,6 +18,19 @@ export interface LoginInputRequest {
   captcha?: { gt: string; challenge: string; success?: unknown };
 }
 
+/** 版本更新提示（数据源：`/web/api/state` 的 `update`）。 */
+export interface UpdateNotice {
+  available: boolean;
+  /** 检测到的新版本（如 `v0.1.4`）。 */
+  version: string;
+  /** 发布说明（Release body）；标签回落时可能为空。 */
+  notes: string;
+  /** 版本页地址。 */
+  url: string;
+  /** 本次检测时间（ISO）。 */
+  checkedAt: string;
+}
+
 export interface UiSnapshot {
   /** 网关状态（probing / login / running）；**不承载登录结果**。 */
   ui_state: string;
@@ -40,6 +53,8 @@ export interface UiSnapshot {
   endpoints: string[];
   /** 网关自身版本（如 `0.1.3`），顶栏版本胶囊的数据源。 */
   version: string;
+  /** 版本更新提示（后台每天检测一次；无提示为 null）。 */
+  update: UpdateNotice | null;
   /**
    * 对外模型池的**「模型 × 渠道」矩阵**：一个 deepseek 模型可能由多个渠道供给。
    *

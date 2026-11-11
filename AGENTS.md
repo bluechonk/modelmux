@@ -264,7 +264,8 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verif
 ## 推送与发版
 
 推送门禁由 `pre-push` 钩子自动执行（细节见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「推送门禁」）。
-文档与代码同一个 commit。发版 = 打 tag，不建 GitHub Release。
+文档与代码同一个 commit。发版 = 打 tag + 建 GitHub Release（Release body 即版本说明，
+控制台「发现新版本」卡片读它，细则见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「版本与发版」）。
 版本号 `0.1.x` 连续递增不跳号，**cli / web / desktop 三位一体同版本**（desktop 由打包脚本
 自动跟随根版本），tag 打在合并后的 main 上，tag 即三个形态共同的版本。
 大面积功能或重构后提醒主人发版，不擅自操作。
