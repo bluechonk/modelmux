@@ -61,6 +61,11 @@ POST /authui/sendLoginSms  {mobile, verifyCode: <验证码解>}                 
 终态失效（`ExpiredRefreshToken` / `InvalidDPoPHeader` / `invalid client id` /
 `has been used`）抛 `NotLoggedInError`，由共享层提示重新登录；其余错误可重试。
 
+**账号身份**：STS 令牌响应不含 `user_id` / `domain_id`；稳定账号 id 在 refresh_token
+（JWT）的 `user_profile`（base64url JSON）的 `account_id` 里。渠道据此派生契约字段
+`uid` —— 缺了它账号池会退化成按 accessToken 建键，而 accessToken 每次续期都换，
+于是一次登录每续期一次就多出一个「新账号」`[实测 2026-11-11]`。
+
 ---
 
 ## 2. 对话：`/api/v2/chat/completions`

@@ -67,6 +67,13 @@ export interface Credentials {
   /** STS 凭证过期时间（RFC3339）。 */
   expiration: string;
   obtainedAt: string;
+  /**
+   * 契约字段 `uid` / `domain`：账号池靠它们认「同一个账号」
+   * （`accountKey` 在 uid 为空时会退化成按 token 建键，而 STS 每次续期都换
+   * accessToken → 每次续期都多一个「新账号」）。取上游的 user_id / domain_id。
+   */
+  uid: string;
+  domain: string;
   userId: string;
   userName: string;
   domainId: string;
@@ -88,6 +95,8 @@ const EMPTY: Credentials = {
   dpopPrivateKey: null,
   expiration: "",
   obtainedAt: "",
+  uid: "",
+  domain: "",
   userId: "",
   userName: "",
   domainId: "",
@@ -96,6 +105,43 @@ const EMPTY: Credentials = {
 
 function str(v: unknown): string {
   return sharedLogin.str(v);
+}
+
+/** refresh_token 里的稳定身份（`user_profile` 是 base64url(JSON)）。 */
+interface TokenProfile {
+  accountId: string;
+  accountName: string;
+}
+
+/**
+ * 解 refresh_token 的 `user_profile`。
+ *
+ * 为什么需要：STS 令牌响应不给 user_id / domain_id，账号池的 `accountKey` 在 uid
+ * 为空时退化成按 accessToken 建键 —— 而 accessToken 每次续期都换，于是一次登录
+ * 每续期一次就多出一个「新账号」。refresh_token 是 JWT，其 `user_profile` 里的
+ * `account_id` 才是账号的稳定身份。
+ */
+function parseTokenProfile(c: Credentials): TokenProfile {
+  try {
+    const parts = c.refreshToken.split(".");
+    if (parts.length !== 3) return { accountId: "", accountName: "" };
+    const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    const profile = payload["user_profile"];
+    if (typeof profile !== "string" || profile === "") return { accountId: "", accountName: "" };
+    const inner = JSON.parse(Buffer.from(profile, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    return {
+      accountId: typeof inner["account_id"] === "string" ? inner["account_id"] : "",
+      accountName: typeof inner["account_name"] === "string" ? inner["account_name"] : "",
+    };
+  } catch {
+    return { accountId: "", accountName: "" };
+  }
 }
 
 /** 读凭据；不存在 / 损坏 → 抛 NotLoggedInError。 */
@@ -114,7 +160,16 @@ export function load(): Credentials {
   }
   const token = str(doc["accessToken"]);
   if (!token) throw new NotLoggedInError("credentials carry no access token; run `mx login codearts`");
-  return { ...EMPTY, ...doc, accessToken: token } as Credentials;
+  const merged = { ...EMPTY, ...doc, accessToken: token } as Credentials;
+  const profile = parseTokenProfile(merged);
+  return {
+    ...merged,
+    // 老凭据没有 uid/domain（只有空的 userId/domainId）：从令牌解出稳定身份，
+    // 否则账号池仍按 accessToken 建键、每续期一次多一个账号
+    uid: str(doc["uid"]) || merged.userId || profile.accountId,
+    domain: str(doc["domain"]) || merged.domainId,
+    userName: merged.userName || profile.accountName,
+  } as Credentials;
 }
 
 /** 落盘（0600，原子写）。 */
@@ -283,6 +338,8 @@ async function exchangeCode(code: string, verifier: string, redirectUri: string,
     dpopPrivateKey: jwk,
     expiration: doc.credentials.expiration,
     obtainedAt: sharedLogin.nowIso(),
+    uid: doc.user_id,
+    domain: doc.domain_id,
     userId: doc.user_id,
     userName: doc.user_name,
     domainId: doc.domain_id,
@@ -309,7 +366,14 @@ export async function refresh(c: Credentials): Promise<Credentials> {
     obtainedAt: sharedLogin.nowIso(),
   };
   if (doc.refresh_token) next.refreshToken = doc.refresh_token;
-  if (doc.user_id) next.userId = doc.user_id;
+  if (doc.user_id) {
+    next.userId = doc.user_id;
+    next.uid = doc.user_id;
+  }
+  if (doc.domain_id) {
+    next.domainId = doc.domain_id;
+    next.domain = doc.domain_id;
+  }
   if (doc.user_name) next.userName = doc.user_name;
   await save(next);
   return next;
