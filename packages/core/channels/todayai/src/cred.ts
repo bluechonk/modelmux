@@ -104,8 +104,12 @@ function num(value: unknown): number | null {
  * JWT 到期走 `expireAt`（换票响应里带）。
  */
 function sessionExpired(c: Credentials): boolean {
-  const obtained = Number.parseInt(c.obtainedAt || "0", 10);
-  if (!obtained) return false;
+  const raw = c.obtainedAt || "";
+  if (!raw) return false;
+  // obtainedAt 落盘是 ISO 字符串；兼容历史/外部写入的毫秒时间戳字符串。
+  // 直接用 parseInt 会把 ISO 串解析成年份（2026），导致每次续期都误判过期。
+  const obtained = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Date.parse(raw);
+  if (!Number.isFinite(obtained) || obtained <= 0) return false;
   return Date.now() > obtained + SESSION_TTL_MS;
 }
 
