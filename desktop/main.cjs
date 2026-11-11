@@ -6,7 +6,8 @@
  * 关键约束：
  *   - 子进程用 **Electron 自身**当 Node 跑（`ELECTRON_RUN_AS_NODE=1`），
  *     不依赖用户机器上装没装 Node —— 打包后没有第二份运行时。
- *   - 网关生命周期跟着窗口走：窗口关闭即停止，避免 4412 端口残留占位。
+ *   - 关窗只收起托盘，网关后台常驻（继续接客户端请求）；真退出走托盘 → before-quit
+ *     停掉自己起的网关，避免 4412 端口残留占位。
  *   - 端口已被占用时（用户自己 `mx start` 过）**直接复用**，不再起第二个实例。
  *   - 单实例：已有实例在跑（含关窗后托盘后台）时，再次启动只把已有窗口调到前台；
  *     未拿到锁的实例必须立刻退出，且不得再走启动流程（否则会闪窗、甚至抢 4412）。
@@ -26,22 +27,14 @@ const PORT = 4412;
 const BASE = `http://${HOST}:${PORT}`;
 
 /**
- * 便携分支：`PORTABLE_EXECUTABLE_DIR`（便携打包壳注入，NSIS 安装器**不设**）指向的目录里
- * 有 `data/`（内含 `channels/`）时，把它当存储根（MODELMUX_HOME）；否则走默认 `~/.modelmux`。
+ * 存储根：`~/.modelmux`（共享层在 `MODELMUX_HOME` 未设时的默认值）。
  *
- * 为什么不用 `__dirname`：portable exe 运行时先自解压到临时目录，`__dirname` 指向
- * 解压现场而非用户放 exe 的地方；electron-builder 会注入 `PORTABLE_EXECUTABLE_DIR`
- * 指向用户放 exe 的真实目录。`data/` 里存在 `channels/` 才认 —— 空目录不算，
- * 避免误触发便携分支导致账号「看不见」。
- *
- * 价值：`modelmux.exe` + `data/` 一起拷走，凭据随行，**换机免逐渠道重新登录**。
- * ⚠ `data/` 是明文凭据，不要放公共网盘 / 别人能碰的目录。
+ * 安装版固定用它 —— 换机迁移靠整目录拷贝 `~/.modelmux`，不另设便携分支：
+ * electron-builder 的 NSIS 安装器不设 `PORTABLE_EXECUTABLE_DIR`，便携打包壳又已废弃
+ * （每次启动全量解压，见 docs/DESKTOP-APP.md），留着分支只会制造「配置了不生效」的坑。
  */
-function portableDataDir() {
-  const base = process.env.PORTABLE_EXECUTABLE_DIR;
-  if (!base) return null; // 开发态（electron . 直跑）没有这个变量，走默认 ~/.modelmux
-  const dir = path.join(base, "data");
-  return fs.existsSync(path.join(dir, "channels")) ? dir : null;
+function homeDir() {
+  return path.join(os.homedir(), ".modelmux");
 }
 
 /** 起网关最多等多久（首次启动要扫渠道凭据，比热启动慢）。 */
@@ -74,6 +67,9 @@ if (!gotLock) {
     app.focus({ steal: true });
   });
 
+  // 窗口控制桥与主题跟随只注册一次（重复注册 ipcMain.handle 会抛错）
+  registerWindowIpc();
+
   app.whenReady().then(async () => {
     // 去掉默认菜单：单页控制台用不上，还占一行原生高度
     Menu.setApplicationMenu(null);
@@ -96,7 +92,7 @@ if (!gotLock) {
 }
 
 /** 探测 `/health`：返回 true 表示已有可用网关（含用户自己起的）。 */
-function probeHealth(timeoutMs = 1200) {
+function probeHealth(timeoutMs = 3000) {
   return new Promise((resolve) => {
     const req = http.get(`${BASE}/health`, { timeout: timeoutMs }, (res) => {
       let body = "";
@@ -136,15 +132,8 @@ async function waitForGateway() {
  */
 function startGateway() {
   const script = path.join(__dirname, "app", "modelmux.mjs");
-  const portable = portableDataDir();
-  if (portable) console.log(`[portable] MODELMUX_HOME=${portable}`);
   const child = spawn(process.execPath, [script, "serve"], {
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: "1",
-      // 便携模式：凭据跟 exe 走。开发态（无 PORTABLE_EXECUTABLE_DIR）为 undefined，走默认 ~/.modelmux
-      ...(portable ? { MODELMUX_HOME: portable } : {}),
-    },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -255,16 +244,41 @@ function windowBackground() {
   return nativeTheme.shouldUseDarkColors ? "#171717" : "#f9f9f9";
 }
 
-/** 用户主题（`<root>/setting.json` 的 theme 字段）；缺失 / 损坏 / 非法 → 跟随系统。 */
+/** 用户主题（`~/.modelmux/setting.json` 的 theme 字段）；缺失 / 损坏 / 非法 → 跟随系统。 */
 function startupTheme() {
   try {
-    const root = portableDataDir() ?? path.join(os.homedir(), ".modelmux");
-    const raw = JSON.parse(fs.readFileSync(path.join(root, "setting.json"), "utf8"));
+    const raw = JSON.parse(fs.readFileSync(path.join(homeDir(), "setting.json"), "utf8"));
     if (raw?.theme === "dark" || raw?.theme === "light" || raw?.theme === "system") return raw.theme;
   } catch {
     /* 缺失 / 损坏 → 跟随系统 */
   }
   return "system";
+}
+
+/**
+ * 窗口控制桥的白名单通道 + 主题跟随，**注册一次**（进程级）。
+ *
+ * 为什么不在 createWindow 里注册：`ipcMain.handle` 对同一通道重复注册会抛
+ * 「Attempted to register a second handler」，而窗口销毁后重建（showWindow 的
+ * `win === null` 分支）会再走一遍 createWindow —— 注册放里面就是一颗雷。
+ * 处理器读模块级 `win`，窗口换了也照样生效。
+ */
+function registerWindowIpc() {
+  ipcMain.handle("win:minimize", () => win?.minimize());
+  ipcMain.handle("win:toggle-maximize", () => {
+    if (!win) return;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+  ipcMain.handle("win:close", () => win?.close());
+  ipcMain.handle("win:is-maximized", () => win?.isMaximized() ?? false);
+  ipcMain.handle("theme:set", (_event, mode) => {
+    if (mode !== "system" && mode !== "dark" && mode !== "light") return;
+    nativeTheme.themeSource = mode;
+    win?.setBackgroundColor(windowBackground());
+  });
+  // 系统深浅变化 → 窗口背景跟随（resize 边缘与首帧不再露出深色残边）
+  nativeTheme.on("updated", () => win?.setBackgroundColor(windowBackground()));
 }
 
 async function createWindow() {
@@ -292,35 +306,33 @@ async function createWindow() {
 
   win.once("ready-to-show", () => win?.show());
 
-  // 主题 / 系统深浅变化 → 窗口背景跟随（resize 边缘与首帧不再露出深色残边）
-  const followTheme = () => win?.setBackgroundColor(windowBackground());
-  followTheme();
-  nativeTheme.on("updated", followTheme);
-
-  // 窗口控制桥的白名单通道（渲染层能做的只有这几件事；close 走 close→托盘拦截）
-  ipcMain.handle("win:minimize", () => win?.minimize());
-  ipcMain.handle("win:toggle-maximize", () => {
-    if (!win) return;
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-  });
-  ipcMain.handle("win:close", () => win?.close());
-  ipcMain.handle("win:is-maximized", () => win?.isMaximized() ?? false);
-  ipcMain.handle("theme:set", (_event, mode) => {
-    if (mode !== "system" && mode !== "dark" && mode !== "light") return;
-    nativeTheme.themeSource = mode;
-    followTheme();
-  });
-
   // 最大化状态推送给顶栏的窗口控制钮（图标在最大化 / 还原间切换）
   const pushMaximize = () => win?.webContents.send("win:maximize-changed", win.isMaximized());
   win.on("maximize", pushMaximize);
   win.on("unmaximize", pushMaximize);
 
-  // 外链交给系统浏览器
+  // 外链交给系统浏览器：新窗口走 setWindowOpenHandler，当前窗口的跳转走 will-navigate ——
+  // 窗口自身绝不导航离开控制台（自定义标题栏没有返回键，离开了就回不来）
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (url.startsWith(`${BASE}/`)) return;
+    event.preventDefault();
+    if (/^https?:/i.test(url)) void shell.openExternal(url);
+  });
+
+  // 渲染进程崩了（OOM / GPU 故障）→ 重载恢复；网关已死时重载会落到错误页
+  win.webContents.on("render-process-gone", () => {
+    if (!win?.isDestroyed()) win?.webContents.reload();
+  });
+
+  // 主框架加载失败（网关在健康检查后死掉）→ 错误页，别让「正在启动」永远转圈；
+  // ERR_ABORTED（-3）是 loadURL 替换页面时的正常取消，忽略
+  win.webContents.on("did-fail-load", (_e, errorCode, _desc, _url, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3 || !win || win.isDestroyed()) return;
+    void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorPage(gatewayFailureHint))}`);
   });
 
   // 关窗只**收起**到托盘，不退出：网关继续在后台接客户端请求，用户从托盘再打开或退出。
@@ -352,18 +364,26 @@ async function createWindow() {
   }
 }
 
-/** 启动中的过渡页（深色，与 Web 控制台同色系）。 */
+/** 过渡页 / 错误页配色：跟随当前主题，避免浅色系统下首帧黑闪。 */
+function pageColors() {
+  return nativeTheme.shouldUseDarkColors
+    ? { bg: "#171717", fg: "#e5e5e5", muted: "#8b8b8b", code: "#262626" }
+    : { bg: "#f9f9f9", fg: "#171717", muted: "#5f5f5f", code: "#ececec" };
+}
+
+/** 启动中的过渡页（配色随主题，与 Web 控制台同色系）。 */
 function bootPage() {
+  const c = pageColors();
   return `<!doctype html><meta charset="utf-8">
 <style>
-  html,body{height:100%;margin:0;background:#171717;color:#e5e5e5;
+  html,body{height:100%;margin:0;background:${c.bg};color:${c.fg};
     font:14px -apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center}
   .box{text-align:center}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#3b82f6;
     margin:0 3px;animation:p 1.2s ease-in-out infinite}
   .dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
   @keyframes p{0%,80%,100%{opacity:.25}40%{opacity:1}}
-  p{margin:16px 0 0;color:#8b8b8b;font-size:13px}
+  p{margin:16px 0 0;color:${c.muted};font-size:13px}
 </style>
 <div class="box">
   <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
@@ -379,14 +399,15 @@ function errorPage(hint) {
        <code>node</code> / <code>electron</code> 进程，或重启电脑后再开。</p>`
     : `<p>网关在 ${Math.round(BOOT_TIMEOUT_MS / 1000)} 秒内没有就绪。</p>`;
 
+  const c = pageColors();
   return `<!doctype html><meta charset="utf-8">
 <style>
-  html,body{height:100%;margin:0;background:#171717;color:#e5e5e5;
+  html,body{height:100%;margin:0;background:${c.bg};color:${c.fg};
     font:14px -apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center}
   .box{max-width:560px;text-align:left;padding:0 24px}
   h1{font-size:16px;margin:0 0 12px;color:#f87171}
-  p{margin:8px 0;color:#a3a3a3;line-height:1.6}
-  code{background:#262626;padding:2px 6px;border-radius:4px;font-size:12px;word-break:break-all}
+  p{margin:8px 0;color:${c.muted};line-height:1.6}
+  code{background:${c.code};padding:2px 6px;border-radius:4px;font-size:12px;word-break:break-all}
 </style>
 <div class="box">
   <h1>modelmux 启动失败</h1>
