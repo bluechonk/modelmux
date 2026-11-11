@@ -35,8 +35,9 @@
 | qoder | Qoder（国际版） | 是 | 是 | 在册 |
 | workbuddyai | WorkBuddyAI（国际版） | 是 | 否 | 在册 |
 | autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
+| codearts | CodeArts（华为云码道） | 是 | 是 | 在册（浏览器 OAuth2 登录；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash`） |
 
-全部 12 个渠道均在册（`RETIRED_CIDS` 为空）。
+全部 13 个渠道均在册（`RETIRED_CIDS` 为空）。
 
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。

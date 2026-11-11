@@ -33,6 +33,13 @@
 | [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | MIT | 同上 |
 | [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | NOASSERTION | 同上 |
 
+### codearts
+
+| 仓库 | 许可证 | 在本仓库的落点 |
+|---|---|---|
+| [HITZY2002/codearts2api](https://github.com/HITZY2002/codearts2api) | MIT | `docs/channels/codearts/PROTOCOL.md`（已 clone 到 `packages/core/channels/codearts/reference/`，不入库） |
+| [Johnsheng1/codearts2api](https://github.com/Johnsheng1/codearts2api) | MIT | 同上（交叉核对端点字段） |
+
 ### lobsterai
 
 | 仓库 | 许可证 | 落点 |
