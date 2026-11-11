@@ -104,15 +104,17 @@ describe("平台分支（临时改写 process.platform + PATH）", () => {
   it("POSIX killPid：SIGTERM 能结束子进程", async () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     const child = spawn(process.execPath, ["-e", "setInterval(()=>{},60000)"], { stdio: "ignore" });
-    const exited = new Promise<number | null>((res) => child.once("exit", (code) => res(code)));
+    const exited = new Promise<true>((res) => child.once("exit", () => res(true)));
     try {
       await new Promise((resolve) => setTimeout(resolve, 300));
       killPid(child.pid!);
-      const code = await Promise.race([
+      // killPid 的轮询用 Atomics.wait 阻塞主线程，'exit' 要等它返回后才被处理；
+      // 被信号终止时 exit code 是 null，所以判「是否退出」而不是退出码。
+      const done = await Promise.race([
         exited,
-        new Promise<number | null>((r) => setTimeout(() => r(null), 4000)),
+        new Promise<false>((r) => setTimeout(() => r(false), 2000)),
       ]);
-      assert.notEqual(code, null, "killPid 应结束子进程");
+      assert.equal(done, true, "killPid 应结束子进程");
     } finally {
       Object.defineProperty(process, "platform", { value: original });
       child.kill("SIGKILL");
