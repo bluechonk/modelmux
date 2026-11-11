@@ -98,8 +98,8 @@ describe("仓库级模型池", () => {
     const ownerOf = (id: string): string => payload.data.find((m) => m.id === id)!.owned_by;
     assert.equal(ownerOf("deepseek-v4.1-flash"), "deepseek");
     assert.equal(ownerOf("glm-5.3-flash"), "zhipu");
-    assert.ok(ids.includes("longcat-2.5"), `应包含 longcat-2.5（实际 ${ids.join(", ")}）`);
-    assert.equal(ownerOf("longcat-2.5"), "meituan");
+    assert.ok(ids.includes("qwen3.8-flash"), `应包含 qwen3.8-flash（实际 ${ids.join(", ")}）`);
+    assert.equal(ownerOf("qwen3.8-flash"), "alibaba");
   });
 
   it("同一个模型的候选是**多家**渠道（按剩余额度降序，渠道由网关挑）", () => {
@@ -114,15 +114,15 @@ describe("仓库级模型池", () => {
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
-  it("家族模型的渠道供给范围：glm-5.3-flash 多家供给，longcat-2.5 仅 catpaw", () => {
+  it("家族模型的渠道供给范围：glm-5.3-flash 多家供给，qwen3.8-flash 仅 qwenworkcn", () => {
     // 供给范围收口在**统一注册表**（`<root>/models.json` 的 channels 段），
     // 不再由各渠道目录的 hidden 标记决定（2026-11-08 起）。
     const OVERRIDES: Record<string, string[]> = {
-      catpaw: ["glm-5.3-flash", "longcat-2.5"],
+      catpaw: ["glm-5.3-flash"],
       qodercn: ["glm-5.3-flash"],
       autoclaw: ["glm-5.3-flash"],
       qoder: ["glm-5.3-flash"],
-      qwenworkcn: ["qwork-flash"],
+      qwenworkcn: ["qwen3.8-flash"],
       workbuddyai: ["glm-5.3-flash"],
       lobsterai: ["glm-5.3-flash"],
       codearts: ["glm-5.3-flash", "deepseek-v4.1-flash"],
@@ -135,7 +135,7 @@ describe("仓库级模型池", () => {
         .poolCandidates("deepseek-v4.1-flash")
         .map((c) => c.cid);
       // 逐渠道核对该模型是否在注册表里声明
-      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "longcat-2.5", "qwork-flash"]) {
+      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
         const declared = gw
           .poolCandidates(model)
           .map((c) => c.cid)
@@ -151,27 +151,27 @@ describe("仓库级模型池", () => {
       ["autoclaw", "catpaw", "codearts", "lobsterai", "qoder", "qodercn", "workbuddyai"],
       `glm-5.3-flash 的候选渠道（实际 ${glm.join(", ")}）`,
     );
-    const longcat = gw.poolCandidates("longcat-2.5").map((c) => c.cid);
-    assert.deepEqual(longcat, ["catpaw"], `longcat-2.5 的候选只能是 catpaw（实际 ${longcat.join(", ")}）`);
+    const qwen = gw.poolCandidates("qwen3.8-flash").map((c) => c.cid);
+    assert.deepEqual(qwen, ["qwenworkcn"], `qwen3.8-flash 的候选只能是 qwenworkcn（实际 ${qwen.join(", ")}）`);
   });
 
   it("注册表缺项 / 多余项都不进候选（供给以注册表为唯一口径）", () => {
     // 注册表没声明的渠道不进候选：即便该渠道目录里还有别的模型
     assert.ok(
-      !gw.poolCandidates("longcat-2.5").some((c) => c.cid === "traecn"),
-      "traecn 不供 longcat-2.5",
+      !gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === "traecn"),
+      "traecn 不供 qwen3.8-flash",
     );
     // 家族外型号一律不进候选（注册表只登记家族表内的模型）
-    for (const model of ["qwen3.8-flash", "deepseek-v4-pro"]) {
+    for (const model of ["longcat-2.5", "deepseek-v4-pro"]) {
       assert.deepEqual(gw.poolCandidates(model), [], `${model} 不在家族表内，候选应为空`);
     }
     // 千问办公只卖「标准」档：其余两档与具体型号名都不进家族表
     assert.deepEqual(gw.poolCandidates("qwork-pro"), [], "高级档未放行");
     assert.deepEqual(gw.poolCandidates("qwen3.8-max"), [], "最强档未放行");
     assert.deepEqual(
-      gw.poolCandidates("qwork-flash").map((c) => c.cid),
+      gw.poolCandidates("qwen3.8-flash").map((c) => c.cid),
       ["qwenworkcn"],
-      "qwork-flash 只由 qwenworkcn 供给",
+      "qwen3.8-flash 只由 qwenworkcn 供给",
     );
   });
 
@@ -202,7 +202,7 @@ describe("仓库级模型池", () => {
     assert.equal(bare.status, 400);
     assert.equal(((await bare.json()) as { error: { code: string } }).error.code, "unknown_model");
     // 非家族模型（网关不代理家族外的模型名）
-    for (const model of ["qwen3.8-flash", "deepseek-v4-flash", "deepseek-v4-pro"]) {
+    for (const model of ["longcat-2.5", "deepseek-v4-flash", "deepseek-v4-pro"]) {
       const other = await post(model);
       assert.equal(other.status, 400, model);
       assert.equal(((await other.json()) as { error: { code: string } }).error.code, "unknown_model");
