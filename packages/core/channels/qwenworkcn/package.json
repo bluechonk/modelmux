@@ -1,6 +1,6 @@
 {
   "name": "@modelmux/qwenworkcn",
-  "version": "0.1.4",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "QwenWorkCN / 千问办公的本地 OpenAI Chat Completion 透明代理网关（TypeScript，无窗口，modelmux 渠道）",
