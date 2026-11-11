@@ -164,6 +164,7 @@ export {
   pidPath,
   prefsPath,
   credentialsPath,
+  accountCredentialsPath,
   upstreamPath,
 } from "./runtime/paths.js";
 
