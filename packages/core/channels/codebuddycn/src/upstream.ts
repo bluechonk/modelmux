@@ -27,8 +27,8 @@ const CHAT_PATH = "/v2/chat/completions";
 const MODELS_PATH = "/v2/enterprises/personal/models";
 /** 目录兜底（GET，官方云模型目录 `/v3/config`，在对话主机上）。 */
 const CONFIG_PATH = "/v3/config";
-/** 账单/目录主机（与对话主机分离）。 */
-const BILLING_BASE_URL = "https://www.codebuddy.cn";
+/** 账单/目录主机（与对话主机分离；额度与签到端点也在这里）。 */
+export const BILLING_BASE_URL = "https://www.codebuddy.cn";
 
 /** 官方 CLI 版本（头族里的 `X-IDE-Version` / User-Agent）。 */
 const CLI_VERSION = "2.179.3";
