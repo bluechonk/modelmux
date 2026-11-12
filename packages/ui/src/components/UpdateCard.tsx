@@ -76,11 +76,16 @@ export function UpdateCard(): ReactElement | null {
               {update.version}
             </span>
           </span>
+          {/*
+            主操作「前往下载页」用一层 overlay 淡墨 + 墨色字：既是小卡里的主操作，
+            又不至于像原来的 `bg-free`（深色下浅绿底白字）那样对比不足、也不像
+            前景反转那样在浅色下糊成一块全黑。hover 压到 line-strong（浅深都加深）。
+          */}
           <a
             href={update.url}
             target="_blank"
             rel="noreferrer"
-            className="flex-none rounded-lg bg-free px-2.5 py-1 text-xs font-medium text-white hover:opacity-90"
+            className="flex-none rounded-lg bg-overlay px-2.5 py-1 text-xs font-medium text-ink transition-colors hover:bg-line-strong"
           >
             前往下载页
           </a>
