@@ -115,7 +115,7 @@ export interface UiSnapshot {
   base_url: string;
   chat_url: string;
   endpoints: string[];
-  /** 网关自身版本（入口包 package.json），给控制台顶栏显示当前版本。 */
+  /** 网关自身版本（仓库 `VERSION` 常量），给控制台顶栏显示当前版本。 */
   version: string;
   /** 版本更新提示（后台每天检测一次；无提示为 null）。 */
   update: import("../../runtime/update-check.js").UpdateNotice | null;

@@ -7,7 +7,7 @@
  * 端点/字段/实测见 docs/channels/autoclaw/PROTOCOL.md。
  */
 
-import { setChannel, type Channel, type ChannelConfig } from "@modelmux/gateway";
+import { setChannel, VERSION, type Channel, type ChannelConfig } from "@modelmux/gateway";
 
 import * as billing from "./billing.js";
 import * as catalog from "./catalog.js";
@@ -17,7 +17,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "autoclaw",
   display: "AutoClaw",
-  version: "0.1.4",
+  version: VERSION,
   defaultAddr: "127.0.0.1:8821",
   uiPort: 8822,
   debugDumpEnv: "AUTOCLAW_DEBUG_DUMP",

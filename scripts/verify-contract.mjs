@@ -196,10 +196,15 @@ function expandWorkspaces() {
 }
 
 const allPackages = expandWorkspaces();
-const pkgVersions = new Map();
 for (const pkgPath of allPackages) {
   const pkg = JSON.parse(read(`${pkgPath}/package.json`));
-  pkgVersions.set(pkgPath, pkg.version);
+  // **私有** workspace 包一律不得自带 version —— 全仓只有一个版本号（根 package.json）；
+  // 唯一例外是**可发布**的 cli 包（npm 清单必须有 version，由 `npm run version:sync` 派生，
+  // 断言见下方「版本号」段）。
+  check(
+    pkg.private !== true || pkg.version === undefined,
+    `${pkgPath}: 私有 workspace 包不得自带 version（唯一真相是根 package.json；删掉该字段）`,
+  );
   // 每个包都必须有 typecheck 脚本：`npm run typecheck`（不带 --if-present）会因此硬失败。
   // 新增包时漏写 → `npm test` 直接红，不会重演「UI 类型错误长期无人拦截」。
   check(
@@ -221,23 +226,31 @@ for (const pkgPath of allPackages) {
   }
 }
 
-// 版本号：**全仓一个版本线**（自用工具，走 0.1.x，不搞对外的版本语义）。
-// 同一事实只记一遍 —— package.json 的 version 是唯一真相，渠道的 ChannelConfig.version
-// 必须与它一致（那处版本会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。
-// 靠人同步 22 处版本号必然漂移（此前 catpaw / workbuddyai 就漂到了 0.4.0），故机器守。
-const versionSet = new Set(pkgVersions.values());
-check(
-  versionSet.size === 1,
-  `工作区包版本不一致（应全仓同一版本线）：${[...pkgVersions]
-    .map(([p, v]) => `${p}=${v}`)
-    .join(", ")}`,
-);
-for (const cid of channelDirs) {
-  const declared = read(`packages/core/channels/${cid}/src/channel.ts`).match(/version:\s*"([^"]+)"/)?.[1];
-  const pkgVersion = pkgVersions.get(`packages/core/channels/${cid}`);
+// 版本号：**全仓一条版本线**（自用工具，走 0.1.x，不搞对外的版本语义）。
+// 唯一真相是根 package.json 的 version；gateway 的 VERSION 常量、可发布的 cli 清单、
+// desktop 清单与文档由 `npm run version:sync`（scripts/version.mjs）从根派生，
+// 私有 workspace 包一律不带 version。发版只改根一处 + 跑同步；机器在此守漂移
+// （此前 catpaw / workbuddyai 就漂到了 0.4.0）。
+const rootVersion = JSON.parse(read("package.json")).version;
+const versioned = [
+  ["packages/core/gateway/src/version.ts", read("packages/core/gateway/src/version.ts").match(/export const VERSION = "([^"]+)"/)?.[1]],
+  ["packages/cli/package.json", JSON.parse(read("packages/cli/package.json")).version],
+  ["desktop/package.json", JSON.parse(read("desktop/package.json")).version],
+  ["package-lock.json", JSON.parse(read("package-lock.json")).version],
+  ["desktop/package-lock.json", JSON.parse(read("desktop/package-lock.json")).version],
+  ["docs/PROGRESS.md", read("docs/PROGRESS.md").match(/\| 当前版本 \| v([^\s|]+) \|/)?.[1]],
+];
+for (const [where, v] of versioned) {
   check(
-    declared === pkgVersion,
-    `packages/core/channels/${cid}: channel.ts 声明的 version（${declared}）与 package.json（${pkgVersion}）不一致`,
+    v === rootVersion,
+    `${where}: 版本（${v}）与根 package.json（${rootVersion}）不一致 —— 跑 npm run version:sync`,
+  );
+}
+for (const cid of channelDirs) {
+  const src = read(`packages/core/channels/${cid}/src/channel.ts`);
+  check(
+    !/version:\s*"/.test(src) && /version:\s*VERSION\b/.test(src),
+    `packages/core/channels/${cid}: channel.ts 的 version 必须引用 VERSION 常量，不得写版本字面量`,
   );
 }
 for (const pkgPath of NO_EMIT_PACKAGES) {
