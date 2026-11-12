@@ -1,6 +1,5 @@
 {
   "name": "@modelmux/codearts",
-  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "华为云 CodeArts Agent 的 OpenAI Chat Completion 透明代理网关（TypeScript，无窗口，modelmux 渠道）",

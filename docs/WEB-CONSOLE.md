@@ -399,7 +399,8 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 - `GET /web/api/state`：登录快照（ui_state / **login_result** / message / auth_url / qr_url / **login_input** / 端点 / **version** / **update**），
   外加模型池视图所需的 `models`（`{model, cid, meta}` 矩阵）/ `channel_caps`（各渠道能力位）。
-  - `version` 是网关入口包版本（如 `0.1.3`），顶栏版本胶囊的数据源；旧网关缺失该字段时
+  - `version` 是仓库 `VERSION` 常量（唯一真相是根 `package.json` 的 `version`，见
+    [CONTRACT-TS.md](./CONTRACT-TS.md) 的发布约定），顶栏版本胶囊的数据源；旧网关缺失该字段时
     胶囊不渲染（不留空壳）。
   - `update` 是版本更新提示（`{available, version, notes, url, checkedAt}` 或 `null`），
     由网关后台**每天检测一次**填充（见 runtime/update-check.ts）；无提示时胶囊不出现橙点。

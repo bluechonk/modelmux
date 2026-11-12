@@ -240,20 +240,23 @@ git config --get core.hooksPath         # 应为 .githooks
    - 已有 Release 改说明用 `gh release edit <tag> --notes-file …`，不要删了重建。
    - 桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`）本地构建、随 tag 重出，
      可作 Release 附件上传，也可只在说明里写构建步骤（见 [DESKTOP-APP.md](./DESKTOP-APP.md)）。
-2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与各 `package.json` 的 `version`，
+2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与根 `package.json` 的 `version`，
    按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。
-3. **cli / web / desktop 三位一体**：三者共享同一个版本号 —— `mx --version`、
-   web 控制台（`packages/ui`）、桌面安装包名与 exe 的 FileVersion 全部一致，tag 打哪个
-   版本，三个形态就是哪个版本。desktop 的版本**不手改**：`npm run desktop`（pack 脚本）
-   打包前自动把根版本写回 `desktop/package.json`（含其 lock 两处）。
-4. **版本号落点（下面每一处都要改；新增渠道时落点随之增加）**：
-   - 根 `package.json`，以及 `packages/cli` / `packages/ui` / `packages/core/gateway` /
-     **每个渠道包**的 `package.json`（desktop/package.json 由 pack 脚本自动跟随，勿手改）；
-   - **每个渠道包**的 `packages/core/channels/<cid>/src/channel.ts` 里的 `version` 字段
-     （`mx --version` 读它）；
-   - 根 `package-lock.json`（顶层 `version`、`packages[""].version` 与各 workspace 条目）；
-   - `docs/PROGRESS.md` 的「当前版本」；
+3. **版本号只有一个家，cli / web / desktop 三位一体**：唯一真相是根 `package.json` 的
+   `version`，改版本**只改根这一处**，再跑 `npm run version:sync`（`scripts/version.mjs`）
+   派生全部落点：
+   - `packages/core/gateway/src/version.ts` 的 `VERSION` 常量 —— 渠道 `channel.ts`、
+     `mx --version`、控制台快照（`/web/api/state`）与更新检测都引用它（不再各写版本字面量）；
+   - `packages/cli/package.json`（唯一可发布的包，npm 清单必须有 `version`）；
+   - `desktop/package.json` 与 `desktop/package-lock.json`（`npm run desktop` 打包前也会自动跟随）；
+   - 根 `package-lock.json`（顶层与 `packages[""]`）；
+   - `docs/PROGRESS.md` 的「当前版本」。
+
+   私有 workspace 包（ui / gateway / 各渠道）一律**不带 `version` 字段**，故发版不会出现
+   「一堆文件各改一行」；漏跑同步时 `scripts/verify-contract.mjs` 会让 `npm test` 变红。
+   `mx --version`、web 控制台、桌面安装包名与 exe 的 FileVersion 全部一致，tag 打哪个版本，
+   三个形态就是哪个版本。
    提交信息 `chore(release): 发布 vX.Y.Z`，正文按类型归纳本版变更（体例对齐 v0.1.1 / v0.1.2）。
    发版提交也走 PR（`main` 有分支保护），tag 打在**合并后的 main** 上。
 4. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒主人，**不要自己擅自发**）。

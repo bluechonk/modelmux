@@ -6,43 +6,8 @@
  * 都能引用它而不互相 import。
  */
 
-import { readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
-
 import { channelCount, getChannel } from "./channel.js";
-
-/**
- * 入口包（`process.argv[1]` 所在包）的版本。
- *
- * 多渠道路由下没有"渠道版本"可言，`--version` 该报**仓库级 CLI**（bin `modelmux` / `mx`）的版本；
- * 而共享层不知道自己在哪个入口下被跑，故从入口脚本的位置反推它的 package.json。
- *
- * `argv[1]` 可能是**无扩展名的 bin shim**（`/usr/local/bin/mx` 符号链接，npm 安装形态），
- * 此时它的目录根本没有 package.json —— 必须先 `realpath` 回到真实入口文件再反推，
- * 否则 `--version` 会静默退化成 `0.0.0`。
- */
-function entryVersion(): string {
-  const entry = process.argv[1];
-  if (!entry) return "0.0.0";
-  let real = entry;
-  try {
-    real = realpathSync(entry);
-  } catch {
-    /* 链接目标不存在：按原路径尝试 */
-  }
-  // 产物落在包内 dist/（上一级是包根）；也兼容入口直接放在包根的情形
-  for (const base of [join(dirname(real), ".."), dirname(real)]) {
-    try {
-      const parsed = JSON.parse(readFileSync(join(base, "package.json"), "utf8")) as {
-        version?: unknown;
-      };
-      if (typeof parsed.version === "string") return parsed.version;
-    } catch {
-      /* 换下一个候选目录 */
-    }
-  }
-  return "0.0.0";
-}
+import { VERSION } from "../version.js";
 
 /**
  * 仓库级（多渠道路由）默认值。
@@ -56,11 +21,14 @@ export const REPO_DEFAULT_ADDR = "127.0.0.1:4412";
 /** Web UI 的挂载前缀（单端口模式下由网关转发给 console handler）。 */
 export const REPO_UI_PREFIX = "/web";
 
-/** CLI 版本号：渠道级 = 该渠道的版本；多渠道路由 = 入口包（仓库级 CLI）的版本。 */
-export function version(cid?: string): string {
-  if (cid !== undefined) return getChannel(cid).config.version;
-  if (channelCount() === 1) return getChannel().config.version;
-  return entryVersion();
+/**
+ * CLI 版本号。
+ *
+ * 单渠道独立运行与多渠道路由同属一个仓库、同一条版本线，一律返回仓库级 `VERSION`
+ * （唯一真相是根 `package.json`）。版本只在一处定义，避免多处字面量各自漂移。
+ */
+export function version(): string {
+  return VERSION;
 }
 
 /** 网关默认监听地址（多渠道路由时用仓库级默认值）。 */
