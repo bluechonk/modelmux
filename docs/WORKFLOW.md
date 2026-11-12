@@ -259,7 +259,13 @@ git config --get core.hooksPath         # 应为 .githooks
    三个形态就是哪个版本。
    提交信息 `chore(release): 发布 vX.Y.Z`，正文按类型归纳本版变更（体例对齐 v0.1.1 / v0.1.2）。
    发版提交也走 PR（`main` 有分支保护），tag 打在**合并后的 main** 上。
-4. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒主人，**不要自己擅自发**）。
+4. **补历史 Release 后必须把 Latest 指回最新版**：`published_at` 由 GitHub 在建 Release 的
+   当下设定、创建后不可改；补建历史版本时即便请求里带 `published_at`，也只会落进 `created_at`，
+   而 Latest 徽章与 Releases 列表排序都按 `published_at` —— 于是「最新发布」变成刚补进去的
+   旧版本。补完执行 `gh release edit <最新版 tag> --latest` 指回最新版；`releases/latest`
+   端点有约 1 分钟 CDN 缓存，核对时稍等。（控制台更新检测已改从 tags 取语义版本最大者，
+   不吃 Latest，但徽章与列表顺序仍要对。）
+5. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒主人，**不要自己擅自发**）。
    一轮工作结束时满足下列任一情形就提醒：
    - 新渠道上线或渠道下线；
    - 契约级行为变更（账号池、路由、日志、存储落点、CLI 命令形态）；
