@@ -1,6 +1,7 @@
 # Today 国内版（todayai.cn）协议
 
 > 上游：Today 国内版（`todayai.cn`），Next.js + better-auth（phone-number 插件）。
+> 桌面客户端（`TodayCN.exe`，同一厂商 TODAY AI PTE. LTD.）走**另一套**登录栈（§10）。
 > 本文件是**协议事实与证据等级**的唯一落点；共享层规则见根 `AGENTS.md` 与 `docs/CONTRACT-TS.md`。
 
 ## 0. 结论速查
@@ -8,7 +9,7 @@
 | 环节 | 结论 | 证据等级 |
 |---|---|---|
 | 三件套域名 | 国内版 `todayai.cn`（App/鉴权）+ `api.todayai.cn`（API） | [实测] |
-| 登录 | 手机号 + 短信验证码（better-auth `phone-number` 插件），**唯一路径** | [实测] |
+| 登录 | 手机号 + 短信验证码（better-auth `phone-number` 插件），**唯一路径**；桌面端另见 §10 | [实测] |
 | 手机号格式 | **必须带国家码 `+86…`**；裸 11 位被判 `INVALID_PHONE_NUMBER` | [实测] |
 | 会话票 | verify 响应体 `token`（与 `Set-Cookie` 同值），60 天（`Max-Age=5184000`） | [实测] |
 | 换票 | `POST {app}/api/token`（Cookie 鉴权）→ JWT（1 小时），**不轮换** | [实测] |
@@ -186,3 +187,175 @@ node packages/core/channels/todayai/dist/cli.js login    # todayai 自有 CLI
 
 > 参考实现的面板只收 Cookie（不做手机登录），本渠道按用户要求实现**手机号 + 短信验证码**登录；
 > 协议事实以参考项目的 `docs/reverse-engineering.md`（1123 行逆向记录）为准。
+
+## 10. 桌面客户端（TodayCN.exe）的认证栈
+
+> 桌面端与网页端是**两套登录栈**：桌面走 OAuth2 授权码 + PKCE 与邮箱 OTP（`auth.today.ai`），
+> API 指向**全球云** `api.today.ai`，会话票不再经 `todayai.cn/api/token` 换 JWT。以下全部来自
+> 安装包静态解剖（`app.asar` 反编译，v1.25.3），证据等级 [代码]；**未做真机抓包验证**——
+> 桌面端登录需要真实账号走浏览器授权，接入前按本节形态先实测。
+
+### 10.1 应用身份与域名
+
+| 项 | 值 |
+| --- | --- |
+| 安装目标 | `%LOCALAPPDATA%\Programs\Today CN\TodayCN.exe`（v1.25.3，Electron 版本化启动器：壳 `TodayCN.exe` + `versions\<uuid>\` + `.today-active` 指针） |
+| 更新源 | `https://releases.todayai.cn/apps/today/desktop/windows-cn/release/x64`（generic + electron-updater，channel `latest`） |
+| API | `https://api.today.ai`（prod 与 staging 同域；dev `api.todayai.dev`） |
+| 鉴权 | `https://auth.today.ai`（better-auth；dev `auth.todayai.dev`） |
+| App | `https://today.ai`（staging `staging.today.ai`；dev `todayai.dev`） |
+| 回调深链 | `today-connector://auth/callback` |
+| 遥测 | `sentry.todayai.cn` / `posthog.todayai.cn`（CN 发行版专有） |
+| OAuth client_id | prod `Bh2VwEojzfuJw4kBGuLQf3wxGEoupUnx`（dev `vfKNEjlofHTRUVvgfPYUPtYdMeakEvbI`） |
+| token audience / resource | `https://api.today.ai` |
+| scope | `openid profile email offline_access` |
+
+### 10.2 登录
+
+三个入口（凭据源两种：`oauth2` 与 `better-auth-session`）。
+
+**a. OAuth2 授权码 + PKCE（浏览器授权，提供者限 `google` / `microsoft`）**
+
+```
+GET https://auth.today.ai/api/auth/oauth2/authorize
+  client_id=Bh2VwEojzfuJw4kBGuLQf3wxGEoupUnx
+  redirect_uri=today-connector://auth/callback
+  response_type=code
+  scope=openid profile email offline_access
+  state=<一次性 state>
+  code_challenge=<S256 challenge>&code_challenge_method=S256
+  resource=https://api.today.ai
+  idp_hint=google|microsoft
+  prompt=login
+  browser_handoff=1        ← windows / linux 客户端必带
+```
+
+浏览器完成授权后经深链回传 `code`，换票：
+
+```
+POST https://auth.today.ai/api/auth/oauth2/token
+  Content-Type: application/x-www-form-urlencoded
+  Origin: https://today.ai
+  grant_type=authorization_code
+  client_id=Bh2VwEojzfuJw4kBGuLQf3wxGEoupUnx
+  code=<授权码>
+  redirect_uri=today-connector://auth/callback
+  code_verifier=<PKCE verifier>
+  resource=https://api.today.ai
+→ {accessToken, refreshToken, expiresInSeconds…}
+```
+
+**b. 邮箱 OTP（桌面端内置，两跳）**
+
+```
+POST https://auth.today.ai/api/auth/email-otp/send-verification-otp
+  Content-Type: application/json
+  {"email":"<邮箱>","type":"sign-in"}
+
+POST https://auth.today.ai/api/auth/sign-in/email-otp
+  Content-Type: application/json
+  Cookie: <better-auth 会话 Cookie>（credentials: include）
+  {"email":"<邮箱>","otp":"<验证码>"}
+→ {token | session.token}（better-auth 会话票，凭据源 better-auth-session）
+```
+
+错误码：`400 INVALID_OTP` / `OTP_EXPIRED`。会话票拿到后立即走 §10.3 的 `GET /api/auth/token` 换 JWT。
+
+### 10.3 凭证刷新
+
+凭据源 `oauth2`：
+
+```
+POST https://auth.today.ai/api/auth/oauth2/token
+  Content-Type: application/x-www-form-urlencoded
+  grant_type=refresh_token
+  client_id=Bh2VwEojzfuJw4kBGuLQf3wxGEoupUnx
+  refresh_token=<refreshToken>
+  resource=https://api.today.ai
+```
+
+凭据源 `better-auth-session`（会话票换 JWT，会话票本身不轮换）：
+
+```
+GET https://auth.today.ai/api/auth/token
+  Authorization: Bearer <会话票>
+  Origin: https://today.ai
+→ {token(=JWT), expiresInSeconds…}
+```
+
+**自动刷新时机**：API 响应被判为凭据失效（401 族）时置 `rejectedToken`，强制刷新一次后
+**原请求重发一次**（`createBearerRequester`）；普通请求用 `getFreshAuthContext()` 取未过期 JWT。
+
+### 10.4 登录状态
+
+```
+GET https://auth.today.ai/api/auth/get-session
+  Cookie: <better-auth 会话 Cookie>（credentials: include）
+  Origin: https://today.ai
+→ {user:{…}}（非 2xx 或无 user 字段即未登录）
+```
+
+### 10.5 模型列表 / 模型请求 / 账号额度
+
+| 用途 | 端点（Bearer JWT） | 说明 |
+| --- | --- | --- |
+| 模型列表 | `GET https://api.today.ai/v1/llm/models` | 「List enabled LLM models」，返回对客户端开放的网关模型 id |
+| 连接器/提供方 | `GET https://api.today.ai/api/integrations/v1/providers` 与 `/v1/connections` | **web 运行时专有前缀** `/api/integrations`；响应 `{providers:[{provider,configured,oauth}]}` |
+| 套餐目录 | `GET https://api.today.ai/v1/pricing/plans` | 按客户端平台 / surface / 试用资格过滤 |
+| 模型选项 | `PUT https://api.today.ai/v1/pricing/model-option` | 持久化用户全局模型选项，回规范化目录 |
+| 模型请求 | `POST https://api.today.ai/v1/messages` | canonical-v1 或 legacy，同 §4.1；`target={type:new_task,surface:task_panel}` 建任务 |
+| 取回答 | `GET /v1/messages`（opaque 游标）、`POST /v1/messages/batch`、`GET /v1/conversations/messages` | 同 §4.2 |
+| 账号额度 | `GET https://api.today.ai/v1/pricing/status` | 定价状态 + Usage Breakdown（无场景归属时为 null） |
+| 额度重置 | `POST https://api.today.ai/v1/pricing/resets` | — |
+
+### 10.6 公共请求头（桌面端 `AccountHeaders.build`）
+
+| 头 | 值 | 何时带 |
+| --- | --- | --- |
+| `Accept` | `application/json` | 恒带 |
+| `X-App-Version` | `1.25.3` | 恒带 |
+| `X-Client-Platform` | `windows`（API 域）/ `windows-client`（鉴权域） | 恒带，按调用目标切换 |
+| `X-Traffic-Lane` | 配置了才带 | 可选 |
+| `Origin` | `https://today.ai` | `includeOrigin` 时（鉴权域调用） |
+| `Accept-Language` | 系统语言 | web 运行时的 fetch |
+| `Authorization` | `Bearer <JWT>`（API）/ `Bearer <会话票>`（`GET /api/auth/token`） | 对应凭据源 |
+
+Cookie 语义：**API 调用一律 `credentials: omit`**（纯 Bearer）；只有鉴权域的 `get-session` 与
+`sign-in/email-otp` 用 `credentials: include`。安全检查：API 请求 URL 的 origin 必须等于
+`apiBaseUrl` 的 origin，否则抛「The account API endpoint changed.」。
+
+### 10.7 任务接口实测（2026-11-13）
+
+用既有渠道凭据（§2-§3 换出的 JWT，audience `api.todayai.cn` 换成 `api.today.ai` 同源会话）实测
+任务创建与生命周期：
+
+```
+POST https://api.todayai.cn/v1/messages
+  body: {"body":{"parts":[{"id":"<uuid>","type":"text","text":"<任务指令>"}]},
+         "clientMessageId":"<uuid>",
+         "target":{"type":"new_task","surface":"task_panel"}}
+  → 202 {"taskId":"01a1d095-…","conversationId":"01a1d095-…","canonicalMessage":{…}}
+```
+
+- 建任务与普通发消息**同一个端点**，差别只在 `target`（建任务时不带 `isMainChat` /
+  `conversationId`）—— 与 §4.1 的 schema 解剖一致（canonical-v1 的 `target` 分支）。
+- 任务状态机：`POST /v2/tasks` 列表里该任务 `running → completed`（实测 26s 完成八文件
+  写入/校验/删除的长指令）；快照字段含 `state` / `id`。
+- **长任务实测**（同日第二次实验）：指令要求 12 个文件 × 每个 sleep 30s（约 6 分钟工作量），
+  任务 `running` 持续 **448s** 后正常 `completed`，无限时长、无被杀、无 quota 拒绝；
+  agent 自报总耗时 369s（写入间隔真实落在 32~34s），产物已复制到 `storage://agent/marathon-…/`。
+  **并发**：同一账号同时建 3 个任务，三者在 `/v2/tasks` 里同时 `running` 约 70s 后各自完成——
+  并发任务可用，沙箱按 taskId 隔离。
+- **工作区在服务端沙箱**：agent 自报工作路径 `/tmp/task-agent-runs/<taskId>/`，文件操作
+  （mkdir / 写入 / 读回校验 / 删除）全部真实执行并逐文件回报结果。
+- 消息正文承载与 §4.2 相同：`body.parts[].content.text`（text 型字符串；turn 型为
+  `content.segments` 累积数组）—— 注意正文在 `body.parts` 下，不在消息顶层。
+- 任务产生的文件**不经过** `/v1/files`：`GET /v1/files` 直接 404（该端点在 API 上不存在）；
+  `/v1/file-links` 与 `/v1/files/share-links` 存在但要求查询/路径参数，裸调 400。
+- **沙箱 `/tmp` 不跨轮持久化**：同会话续发消息（`isMainChat:false` + `conversationId`）后，
+  上一轮写进 `/tmp/task-agent-runs/<taskId>/` 的文件全部消失、目录被重置为空。
+- **持久存储走 `storage://agent`**（agent 自述并实测）：显式要求写到 `storage://agent` 的文件
+  跨轮保留——verify 轮只读时 `fileId`（`nd_…`）/`versionId`（`ver_…`）与写入轮完全一致；
+  `storage://agent/task-tool-results/<taskId>/` 是历史任务产物归档，`storage://user` 用于交付。
+- **取文件内容的可行路径**：让 agent 在对话里直接输出（文本文件可完整取回）；二进制下载
+  通道未验证（file-links / share-links 的参数形态未解出）。
