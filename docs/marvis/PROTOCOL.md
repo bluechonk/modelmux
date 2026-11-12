@@ -295,3 +295,88 @@ async function marvisApi(path, body, { needLogin = true } = {}) {
 - `MarvisAgent`（Python）的 MCP server 有独立协议，未展开。
 - 服务端下发的动态地址不在静态清单内。
 - 全部原始数据见 `marvis-urls.txt` / `marvis-by-host.json` / `api-context.json`。
+
+## 14. 凭证落盘与实测（2026-11-12）
+
+### 14.1 凭证落点
+
+`~/.modelmux/channels/marvis/credentials.json`（0600）：
+
+| 字段 | 说明 |
+| --- | --- |
+| `host` | `https://yybadaccess.3g.qq.com` |
+| `accessKey` | `fpzkeTlcGLVP37qiOWd29MyaOqaJYxMi` |
+| `login` | `{ loginType, openId, nickname }` |
+| `tokens` | `{ accessToken, refreshToken, expireAt }` |
+| `device` | `{ guid, qimei36, platformType, systemVersion }` |
+| `cookie` | 完整 cookie 串（含 `accesstoken` / `openid` / `logintype`） |
+
+### 14.2 凭证来源
+
+登录态存在**页面 cookie + localStorage**，可从
+`https://marvis-client.yyb.qq.com/` 的 `document.cookie` 直接读出：
+
+```
+guid / qimei36 / platform_type / system_version /
+refreshtoken / logintype / appid / openid / nickname /
+scope / accesstoken / access_token_expire_time
+```
+
+获取方式：CDP 连该页面执行 `document.cookie`。
+
+### 14.3 实测结果
+
+| 接口 | 方法 | 结果 |
+| --- | --- | --- |
+| `/marvis_client/marvis_check_login` | POST + 签名 | 通过（`code:0`） |
+| `/marvis_client/marvis_refresh_token` | POST + 签名 | 通过（`expires_in` 7200） |
+| `/v3/marvis_list_agent_token_stats` | POST + 签名 | 通过（token 用量） |
+| `/v3/marvis_get_system_message_list` | POST + 签名 | 通过 |
+| `/v3/marvis_list_custom_llm_provider` | POST + 签名 | 通过（7 家供应商） |
+| `/v3/marvis_get_tool_tab_list` | POST + 签名 | 通过 |
+| `/v3/marvis_get_rec_mcps` | POST + 签名 | 通过 |
+| `/v3/marvis_get_agent_team` | POST + 签名 | 通过（4 个 agent） |
+| `/v3/marvis_get_agent_detail` | POST + 签名 | 通过（需 `agent_id`） |
+| `/marvis_client/marvis_get_user_info` | GET + 头 | 失败 `RC_NO_AUTH_ERR`（需 bridge） |
+| `/v3/marvis_query_bind_status` | POST | 失败 403 |
+
+`check_login` 的参数嵌在 userInfo 里：
+
+```json
+{ "userInfo": { "openId": "...", "accessToken": "...", "loginType": "WX", "refreshToken": "..." } }
+```
+
+### 14.4 签名验证（决定性实验）
+
+- 正确签名 → `200` + 业务码（如 `-109` 缺参数）
+- 错误签名 → `403`
+
+证明 `MD5(body + timestamp + accessKey + nonce)` 正确。
+
+### 14.5 模型能力分布
+
+**Marvis 自身不提供模型。** `list_custom_llm_provider` 返回 7 家第三方
+（腾讯云 / DeepSeek / 阿里云 / MiniMax / Kimi / 智谱），全部是标准 OpenAI 兼容
+`chat/completions` 地址。
+
+Marvis 自己的对话走**本地 WebSocket**（`ws://127.0.0.1:<port>`，端口取自
+`agent_port.ini`，默认 6161），由 `MarvisAgent`（Python）承载。
+
+`get_agent_team` 返回 4 个内置 agent：
+
+| agent_id | 名称 | 职责 |
+| --- | --- | --- |
+| `computer_agent` | 电脑管家 | 电脑系统运维 |
+| `file_agent` | 文件管家 | 数字资产专家 |
+| `app_agent` | 软件管家 | 软件与游戏助手 |
+| `browser_agent` | 浏览器管家 | 网页交互专员 |
+
+### 14.6 登录的本质
+
+`Login` / `GetUserInfo` / `KeepAliveCheckLogin` 全走 **native bridge**
+（`window.CallBridge.invokeMethod`，模块名 `cloginManager`），不经过 HTTP。
+
+OAuth 授权在 iframe 里完成，结果通过 `postMessage`
+（`pcyyb_login_result` / `qclogin_success`）回传，再由 native 写回客户端。
+
+结论：**首次登录需要客户端**；**登录后 accessToken 可纯 HTTP 复用**（已实测）。
