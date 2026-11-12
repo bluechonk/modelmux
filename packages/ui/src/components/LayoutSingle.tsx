@@ -150,11 +150,11 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         <div className="flex flex-none items-center gap-3">
           {/*
             顶栏右侧簇按**梯度收敛**（窗口越窄越先丢「能从别处拿回」的信息）：
-            控制钮 > 深浅切换 > 版本号 > web 页 > 网关地址 —— 每档只掉一个元素，
-            掉档顺序与阈值：地址 <1200px → web 页 <1100px → 版本胶囊 <1000px →
-            主题 <900px。窗口控制钮是窗口可用性兜底、运行中是网关存活信号，二者常驻；
-            主题与版本是轻量状态；web 页在浏览器里本就同义反复；地址在账号池页与文档
-            里也能查到。
+            控制钮 > 深浅切换 > 版本号 > web 页 = 网关地址 —— 每档只掉一个元素，
+            掉档顺序与阈值：web 页 = 地址 <1100px → 版本胶囊 <1000px → 主题 <900px。
+            窗口控制钮是窗口可用性兜底、运行中是网关存活信号，二者常驻；
+            主题与版本是轻量状态；web 页在浏览器里本就同义反复；地址与 web 页同档
+            （客户端唯一要填的地址，空间够就必须显示，不能出现「web 页在、地址不在」）。
           */}
           {IS_DEMO && (
             <span className="whitespace-nowrap rounded-lg border border-warn/25 bg-warn/8 px-2 py-1 text-xs text-warn/90">
@@ -183,7 +183,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             放仪表盘卡里要滚到中部才看得到；窗口最窄时最早收敛（见上梯度注释）。
           */}
           {state.data?.base_url && (
-            <div className="no-drag hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[1200px]:flex">
+            <div className="no-drag hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[1100px]:flex">
               <span className="whitespace-nowrap font-mono text-xs text-ink-soft">
                 {state.data.base_url}
               </span>
@@ -204,17 +204,17 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
       </header>
 
       {/*
-        内容区：单列纵向流，最大宽度居中；页面级滚动（取消旧版「宽屏钉一屏 +
-        页内面板滚动」的双层嵌套）。表格类区块内部仍保留横向滚动。
+        内容区：单列纵向流，最大宽度居中。**日志页例外**：它把页面钉成一屏 ——
+        `main` 关滚动（`overflow-hidden`）、内层给确定高度 `h-full`，纵向滚动只属于
+        表格区；其余页面仍是「页面级滚动 + `min-h-full` 撑满」（取消旧版「宽屏钉一屏 +
+        页内面板滚动」的双层嵌套）。
       */}
-      <main ref={mainRef} className="min-h-0 flex-1 overflow-auto">
-        {/*
-          `flex flex-col` + `min-h-full`：内层容器本身要撑满 main，其**直接子元素**
-          才能用 `flex-1` 拿到「剩余高度」（请求日志页的表格区靠它填满视口下缘，
-          否则行数少时 `main` 底部会空出一大块）。`h-full` 在这里不成立 —— 父级只声明了
-          `min-height`，不是确定高度，百分比高度解析成 auto。
-        */}
-        <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col px-4 py-6 sm:px-6 sm:py-8">
+      <main ref={mainRef} className={`min-h-0 flex-1 ${onLogs ? "overflow-hidden" : "overflow-auto"}`}>
+        <div
+          className={`mx-auto flex w-full max-w-[1400px] flex-col px-4 py-6 sm:px-6 sm:py-8 ${
+            onLogs ? "h-full min-h-0" : "min-h-full"
+          }`}
+        >
           {skeleton ? <GatewaySkeleton /> : children ?? <Outlet />}
         </div>
       </main>
