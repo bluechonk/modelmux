@@ -118,8 +118,9 @@ function integrateByTarget(target: IntegrationTarget, models: string[]): Integra
 /** 本次接入的对外模型名（供调用方/测试注入）。 */
 export function integrateClient(target: IntegrationTarget, models: string[] = exposedModels()): IntegrationResult {
   const result = integrateByTarget(target, models);
-  // 整体成功才记「接入态」标记（开关式 UI 的状态源）；失败不动 —— 开关留在原位报错误
-  if (result.ok) writeIntegrationMarker(target, true);
+  // 整体成功才记「接入态」标记（开关式 UI 的状态源）；失败不动 —— 开关留在原位报错误。
+  // 记下写入时的模型清单：「有更新」= 这份清单与当前对外清单 diff 出差异（integrationUpdates）。
+  if (result.ok) writeIntegrationMarker(target, true, models);
   return result;
 }
 
@@ -1672,6 +1673,8 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
 /** 每 target 的接入态标记（`<root>/backups/integrate/<target>.state.json`）。 */
 interface IntegrationMarker {
   integrated: boolean;
+  /** 接入时写入的对外模型清单（「有更新」的 diff 基准；还原标记与老标记没有该字段）。 */
+  models?: string[];
   /** 标记时刻（ISO）。 */
   at: string;
 }
@@ -1698,10 +1701,12 @@ function readIntegrationMarker(target: IntegrationTarget): IntegrationMarker | n
  * 写接入态标记。失败静默：接入 / 还原本身已完成，标记丢了只会让开关回落到
  * 清单推断（可能不准），不该为此把一次成功的接入报成失败。
  */
-function writeIntegrationMarker(target: IntegrationTarget, integrated: boolean): void {
+function writeIntegrationMarker(target: IntegrationTarget, integrated: boolean, models?: string[]): void {
   try {
     writeJsonSecret(markerPathFor(target), {
       integrated,
+      // 只在接入时记清单（还原后没有「写入了什么」可言）；老标记缺该字段时按「判不了」处理
+      ...(models === undefined ? {} : { models: [...models] }),
       at: new Date().toISOString(),
     } satisfies IntegrationMarker);
   } catch {
@@ -1735,6 +1740,44 @@ export function integrationStatus(): Record<IntegrationTarget, boolean> {
   for (const target of targets) {
     const marker = readIntegrationMarker(target);
     out[target] = marker ? marker.integrated : fallbackIntegrated(target);
+  }
+  return out;
+}
+
+/** 单个接入目标的「模型有更新」明细（diff 相对当前对外模型清单）。 */
+export interface IntegrationUpdate {
+  /** 当前对外有、接入时没有的模型。 */
+  added: string[];
+  /** 接入时有、当前对外已经没有的模型。 */
+  removed: string[];
+  /** 上次接入时刻（标记文件的 `at`）。 */
+  at: string;
+}
+
+/**
+ * 各接入目标的「模型有更新」（快照随 `integrations` 一起下发）。
+ *
+ * 判据 = 标记文件里接入时写入的 `models` 与**当前**对外模型清单的集合差；
+ * 没接入、老标记没记清单、或集合一致 → null（前端不亮更新按钮）。
+ * 集合比较而不是逐位比较：清单顺序无语义，接入时是什么顺序不重要。
+ */
+export function integrationUpdates(): Record<string, IntegrationUpdate | null> {
+  const targets: IntegrationTarget[] = ["zcode", "dsh", "claude-desktop", "codex"];
+  const current = new Set(exposedModels());
+  const out: Record<string, IntegrationUpdate | null> = {};
+  for (const target of targets) {
+    const marker = readIntegrationMarker(target);
+    if (marker === null || !marker.integrated || !Array.isArray(marker.models)) {
+      out[target] = null;
+      continue;
+    }
+    const recorded = new Set(marker.models.filter((m) => typeof m === "string"));
+    const added = [...current].filter((m) => !recorded.has(m));
+    const removed = [...recorded].filter((m) => !current.has(m));
+    out[target] =
+      added.length === 0 && removed.length === 0
+        ? null
+        : { added, removed, at: typeof marker.at === "string" ? marker.at : "" };
   }
   return out;
 }

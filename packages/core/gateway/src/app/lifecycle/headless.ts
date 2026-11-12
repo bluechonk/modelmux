@@ -12,7 +12,7 @@ import { createInterface, type Interface } from "node:readline";
 
 import * as authFlow from "../../auth/auth-flow.js";
 import { startAutoSignin } from "../../auth/auto-signin.js";
-import { integrateClient, integrationStatus, restoreClient } from "../integrate.js";
+import { integrateClient, integrationStatus, integrationUpdates, restoreClient } from "../integrate.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
@@ -405,6 +405,7 @@ class ServiceState {
         channels().map((channel) => [channel.config.cid, channelCapabilities(channel.config)]),
       ),
       integrations: integrationStatus(),
+      integration_updates: integrationUpdates(),
       theme_mode: loadUserSettings().theme,
       gateway_error: this.gatewayError,
     };
