@@ -2,7 +2,7 @@
  * 版本更新检测的失败分支与后台调度。
  *
  * 只补既有 update-check.test.ts 未覆盖的行：tags 失败、tags 无有效版本、
- * release 地址查询失败、以及 startUpdateChecks 的启动即跑 + 定时器 unref。
+ * 以及 startUpdateChecks 的启动即跑 + 定时器 unref。
  *
  * fetch 用 node:test 的 mock 注入，不联网。
  */
@@ -72,45 +72,20 @@ describe("更新检测的失败分支", () => {
     assert.equal(await checkForUpdate("0.1.3"), null);
   });
 
-  it("release 地址查询非 404 失败：记录原因，仍返回版本 + 列表页地址", async () => {
-    mockFetch([
-      { match: "modelmux/tags", status: 200, body: [{ name: "v0.1.4" }] },
-      { match: "/releases/tags/v0.1.4", status: 500 },
-    ]);
-    const logs: string[] = [];
-    const notice = await checkForUpdate("0.1.3", (m) => logs.push(m));
-    assert.ok(notice);
-    assert.equal(notice.version, "v0.1.4");
-    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases");
-    assert.ok(logs.some((m) => m.includes("release 请求失败")), "失败原因要留痕");
-  });
-
-  it("release 地址查询抛错：回落列表页，不中断检测", async () => {
-    mock.method(globalThis, "fetch", async (input: string | URL) => {
-      const url = String(input);
-      if (url.includes("modelmux/tags")) {
-        return new Response(JSON.stringify([{ name: "v0.1.4" }]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
+  it("tags 请求抛错：返回 null，不误报没有更新", async () => {
+    mock.method(globalThis, "fetch", async () => {
       throw new Error("dns");
     });
-    const notice = await checkForUpdate("0.1.3");
-    assert.ok(notice);
-    assert.equal(notice.version, "v0.1.4");
-    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases");
+    assert.equal(await checkForUpdate("0.1.3"), null);
   });
 });
 
 describe("后台调度", () => {
   it("startUpdateChecks 启动即跑一轮并填充缓存", async () => {
-    mockFetch([
-      { match: "modelmux/tags", status: 200, body: [{ name: "v0.1.4" }] },
-      { match: "/releases/tags/v0.1.4", status: 200, body: { html_url: "https://example.com/r/v0.1.4" } },
-    ]);
+    mockFetch([{ match: "modelmux/tags", status: 200, body: [{ name: "v0.1.4" }] }]);
     startUpdateChecks(() => "0.1.3", () => {});
     await waitFor(() => updateNotice() !== null, 3_000, "updateNotice to be filled");
     assert.equal(updateNotice()?.["version"], "v0.1.4");
+    assert.equal(updateNotice()?.["url"], "https://github.com/bluechonk/modelmux/releases/latest");
   });
 });

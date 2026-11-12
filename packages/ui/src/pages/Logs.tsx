@@ -220,42 +220,43 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
 }
 
 /**
- * 列宽表。
+ * 列宽表。宽度已按**内容实测**收过：`px-1`（左右各 4px）下每列刚好装下自己的内容
+ * （时间 `MM-DD HH:MM:SS` 93、tokens 对 130、表头「缓存命中率」60 等，2026-11-12 量）。
  *
- * 模型列**吃剩余空间**，但整表设了 `md:min-w-[960px]`：其余 9 列固定宽合计 780，
- * 最小宽时模型列仍有 180px —— 列宽合计等于表最小宽时，剩余空间列会被压到 0，
- * `<wbr>` 断点让模型名逐字符竖排（2026-11-05 实测：行高 321px）。
- * 宁可整表横向滚动，也不压垮某一列。
+ * 模型列定宽 200px（文字实测 192px）：不给它定宽它会吃掉全部剩余空间，中间空一大块、
+ * 前几列被压到内容宽（1000px 窗口下模型列 366px、左右各空 87px）。定宽后 `table-fixed`
+ * 把剩余空间按各列既定宽度**成比例**摊到全部 9 列 —— 窗口拉多宽比例都不变，
+ * 前几列的间隔与模型列的空档同步伸缩，永不失衡、也永不出现横向滚动条。
  * 数值列（耗时 / tokens）右对齐，位数不同也能对齐（全站同一约定）。
  */
 const COL_WIDTHS = {
-  toggle: "36px",
-  time: "116px",
-  result: "116px",
-  channel: "88px",
-  model: "",
-  duration: "64px",
-  tokensPerSec: "72px",
-  cache: "84px",
-  tokens: "156px",
+  toggle: "28px",
+  time: "101px",
+  result: "72px",
+  channel: "81px",
+  model: "200px",
+  duration: "41px",
+  tokensPerSec: "55px",
+  cache: "68px",
+  tokens: "138px",
 } as const;
 
 /**
- * 窄屏（`< md`）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 88px。
+ * 窄屏（< 735px）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 53px 内容。
  *
- * 窄屏只留「时间 / 结果 / 模型」三列，固定列合计 88 + 104 = 192px，
- * 模型列吃剩余（最小宽 300 时约 100px）。
+ * 窄屏只留「时间 / 结果 / 模型」三列，模型列仍是唯一弹性列（吃剩余）——
+ * 只有四列时不存在「中间空一大块」的问题。
  */
 const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
-  toggle: "36px",
-  time: "88px",
-  result: "104px",
-  channel: "88px",
+  toggle: "28px",
+  time: "61px",
+  result: "72px",
+  channel: "81px",
   model: "",
-  duration: "64px",
-  tokensPerSec: "72px",
-  cache: "84px",
-  tokens: "156px",
+  duration: "41px",
+  tokensPerSec: "55px",
+  cache: "68px",
+  tokens: "138px",
 };
 
 /**
@@ -294,7 +295,7 @@ const LOG_COLS: LogCol[] = [
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
-    <td className="whitespace-nowrap px-3 py-2 align-top">
+    <td className="whitespace-nowrap px-1 py-2 align-top">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 text-xs">
         <span
           className={`justify-self-end block h-1.5 w-1.5 rounded-full ${meta.dot}`}
@@ -327,11 +328,11 @@ function LogCell({
 }): ReactElement {
   // 末列（tokens）右内边距加大：数据与表格右沿留出呼吸位，不与滚动条/边缘贴死
   // 对齐由 table 的 text-center 统一给（数值列不再右对齐：居中后表头与数据同中心线）
-  const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 align-top font-mono text-xs tabular text-ink-soft`;
+  const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-1 pr-4" : "px-1"} py-2 align-top font-mono text-xs tabular text-ink-soft`;
   switch (col.key) {
     case "toggle":
       return (
-        <td className="flex items-center justify-center px-3 py-2 max-md:px-0">
+        <td className="flex items-center justify-center px-1 py-2 max-md:px-0">
           <button
             type="button"
             aria-expanded={open}
@@ -352,7 +353,7 @@ function LogCell({
       );
     case "time":
       return (
-        <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs tabular text-ink-soft">
+        <td className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs tabular text-ink-soft">
           {narrow ? formatClock(entry.ts) : formatDateTime(entry.ts)}
         </td>
       );
@@ -360,13 +361,13 @@ function LogCell({
       return <ResultCell entry={entry} />;
     case "channel":
       return (
-        <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs text-ink-soft">
+        <td className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-soft">
           {entry.cid ?? <span className="text-ink-faint">-</span>}
         </td>
       );
     case "model":
       return (
-        <td className="break-words px-3 py-2 align-top text-xs text-ink-soft">
+        <td className="break-words px-1 py-2 align-top text-xs text-ink-soft">
           {entry.model ? (
             <BreakableId value={entry.model} />
           ) : (
@@ -402,7 +403,12 @@ function LogTable({
   onPageChange: (page: number) => void;
   loading: boolean;
 }): ReactElement {
-  const narrow = useNarrow();
+  /**
+   * 阈值 735 而不是默认的 767：窗口最小宽是 736（见 desktop/main.cjs），
+   * 列宽已按内容压到 684（固定列 584 + 模型列 100），736 下内容宽 688 刚好装下。
+   * 再按 768 退化就只剩 3 列 —— 那是「砍列」不是「压缩」，与本表的设计取向相反。
+   */
+  const narrow = useNarrow(735);
   const cols = narrow ? LOG_COLS.filter((col) => !col.wide) : LOG_COLS;
   const widths: Record<keyof typeof COL_WIDTHS, string> = narrow ? NARROW_COL_WIDTHS : COL_WIDTHS;
   // whitespace-nowrap：`table-fixed` 下中文表头会在空格处折成竖排（「缓存 命中/未命中」挤成 5 行）
@@ -411,7 +417,7 @@ function LogTable({
   // align-top 与表体一致：表体是 align-top（多行内容顶对齐），表头若用 UA 默认的 middle，
   // 两行文字在各自行内的相对位置不同（实测差约 3px）
   const headClass = (key: string): string =>
-    `whitespace-nowrap text-center align-top ${key === "tokens" ? "pl-3 pr-8" : "px-3"} py-2 font-normal`;
+    `whitespace-nowrap text-center align-top ${key === "tokens" ? "pl-1 pr-4" : "px-1"} py-2 font-normal`;
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
@@ -420,7 +426,7 @@ function LogTable({
           相碰、中心差几十像素；右对齐时数值列中心同样错开）。居中后每列
           「表头中心 == 数据中心」，是这张表唯一能逐列对上的对齐方式。
         */}
-        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[300px] md:min-w-[960px]">
+        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[300px] md:min-w-[684px]">
           <colgroup>
             {cols.map((col) => (
               <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />

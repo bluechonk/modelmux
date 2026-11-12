@@ -3,10 +3,11 @@
  *
  * 关键约束：
  *   - 版本源取 GitHub tags 里语义版本最大的 tag（不用 releases/latest：Latest 由
- *     published_at 决定，补历史 Release 会让旧版本变成 Latest）。有对应 Release 用其
- *     html_url，否则给 Release 列表页 —— 永不返回 api.github.com 的 JSON 地址。
+ *     published_at 决定，补历史 Release 会让旧版本变成 Latest）。
+ *   - 下载入口固定用 `releases/latest`：补历史 Release 后它始终指向最新那个，
+ *     不必为每个 tag 反查页面地址。
  *   - 每天最多一次真请求（落 `<root>/update.json`）；失败静默回落上次结果，绝不把失败
- *     当成「没有更新」；不抓发布说明（顶栏小卡只显示版本号与下载入口）。
+ *    当成「没有更新」。只报版本号与下载入口，不抓发布说明（顶栏小卡要简洁）。
  */
 
 import { readFileSync } from "node:fs";
@@ -26,7 +27,7 @@ export interface UpdateNotice {
   available: boolean;
   /** 检测到的新版本（如 v0.1.4）。 */
   version: string;
-  /** 版本页地址（「前往下载页」在默认浏览器打开它）。 */
+  /** 下载入口（固定 `releases/latest`，不绑定具体 tag）。 */
   url: string;
   /** 本次检测时间（ISO）。 */
   checkedAt: string;
@@ -98,32 +99,9 @@ export function isNewer(candidate: string, current: string): boolean {
   return false;
 }
 
-/**
- * 取该 tag 对应 Release 的页面地址；没有对应 Release 时给 Release 列表页。
- *
- * 永远返回 github.com 的页面地址：早先在 tags 回落分支里拼的是 `api.github.com`，
- * 点开是一坨 JSON，不是给用户看的页面。
- */
-async function releaseUrl(
-  tag: string,
-  headers: Record<string, string>,
-  logger: (m: string) => void,
-): Promise<string> {
-  try {
-    const rel = await fetch(`${API_BASE}/releases/tags/${tag}`, {
-      headers,
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
-    if (rel.ok) {
-      const body = (await rel.json().catch(() => null)) as Record<string, unknown> | null;
-      if (typeof body?.["html_url"] === "string") return body["html_url"];
-    } else if (rel.status !== 404) {
-      logger(`update check: release 请求失败（HTTP ${rel.status}）`);
-    }
-  } catch (err) {
-    logger(`update check: release 查询失败：${String(err)}`);
-  }
-  return `https://github.com/${REPO}/releases`;
+/** 下载入口：GitHub 的 Latest 页（不绑定 tag，补历史 Release 也不用改）。 */
+function releasesLatestUrl(): string {
+  return `https://github.com/${REPO}/releases/latest`;
 }
 
 async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease | null> {
@@ -148,7 +126,7 @@ async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease |
       if (best === "" || isNewer(name, best)) best = name;
     }
     if (best === "") return null;
-    return { version: best, url: await releaseUrl(best, headers, logger) };
+    return { version: best, url: releasesLatestUrl() };
   } catch (err) {
     logger(`update check failed: ${String(err)}`);
     return null;
