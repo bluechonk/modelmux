@@ -287,22 +287,24 @@ function IntegrateSwitchCard({
         <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
         {/*
           「有更新」直显按钮：接入后对外模型清单变了才出现（判据在服务端 diff 好下发）。
-          与版本胶囊同一套提示语言（橙点 + warn 淡底）；点击重跑接入，成功后随快照消失。
+          中性描边 + 一颗 warn 语义点（不再铺 warn 淡底 —— 浅色下_warn/10 发灰、
+          深色下又偏土，不如只留一个点交代「有变化」）。点击重跑接入，成功后随快照消失。
         */}
         {!busy && integrated && update !== null && (
           <button
             type="button"
             onClick={onUpdate}
             aria-label={`${name} 模型有更新（${updateDiffLabel(update)}），点击更新接入`}
-            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 py-[3px] text-[11px] text-warn transition-colors hover:border-warn"
+            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-line bg-overlay px-2.5 py-[3px] text-[11px] text-ink transition-colors hover:border-line-strong"
           >
             <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn" aria-hidden="true" />
             更新
           </button>
         )}
         {/*
-          开关本体：`role="switch"` + `aria-checked`。轨道色用品牌色（开 = 白/浅色下近黑，
-          关 = 描边灰）—— 单色系的 accent 就是前景色本身，不为开关引入第二种类色。
+          开关本体：`role="switch"` + `aria-checked`。开 = 状态绿（与「已接入」文字同语义，
+          深浅两套都有对比），关 = overlay 灰。不用品牌反白：深色下白轨道在一排深卡上
+          过于刺眼，且与「已接入」的绿色文字各说各话。
         */}
         <button
           type="button"
@@ -312,7 +314,7 @@ function IntegrateSwitchCard({
           onClick={onToggle}
           aria-label={`${name} ${stateText}，点击${shown ? "还原" : "接入"}`}
           className={`tap relative h-[22px] w-10 flex-none rounded-full transition-colors disabled:cursor-default ${
-            shown ? "bg-brand" : "bg-overlay"
+            shown ? "bg-free" : "bg-overlay"
           } ${busy ? "opacity-55" : ""}`}
         >
           <span

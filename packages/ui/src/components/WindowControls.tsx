@@ -21,8 +21,10 @@ export function WindowControls(): ReactElement | null {
 
   if (!bridge) return null;
 
+  // hover 用 overlay 而非 raised：浅色主题下 raised 与 surface 同为 #ffffff，
+  // 用 raised 做 hover 底等于没加（最大化/最小化/关闭在浅色下完全看不出悬停）。
   const btn =
-    "tap-square grid h-8 w-11 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-raised hover:text-ink";
+    "tap-square grid h-8 w-11 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-overlay hover:text-ink";
   return (
     <div className="flex items-center gap-0.5 no-drag">
       <button
