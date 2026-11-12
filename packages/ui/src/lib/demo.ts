@@ -44,7 +44,7 @@ interface DemoAccount {
   health: string;
   /** 凭据到期：相对今天的天数（负数 = 已过期）；不填 = 渠道不给到期时间。 */
   expiresInDays?: number;
-  /** 连续失败次数（`health === "error"` 时展示，演示「连败熔断」）。 */
+  /** 连续失败次数（API 形状的一部分；账号行不再显示连败标签，见 AccountCard）。 */
   failStreak?: number;
   /** 冷却截止：相对现在的分钟数（`health === "cooldown"` 时展示）。 */
   cooldownInMinutes?: number;

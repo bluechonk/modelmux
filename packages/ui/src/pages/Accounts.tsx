@@ -65,7 +65,7 @@ interface BillingRow {
 const SUMMARY_ORDER: Array<{ key: AccountStatus; label: string; dot: string }> = [
   { key: "ok", label: "正常", dot: "bg-free" },
   { key: "cooldown", label: "冷却", dot: "bg-warn" },
-  { key: "down", label: "异常", dot: "bg-danger" },
+  { key: "down", label: "失败", dot: "bg-danger" },
   { key: "broke", label: "没钱", dot: "bg-danger" },
 ];
 
@@ -375,7 +375,7 @@ export function Accounts(): ReactElement {
         </div>
       ) : (
         <>
-          {/* 总览条：一眼看清正常 / 冷却 / 异常 / 没钱了几个，不用逐张翻卡。
+          {/* 总览条：一眼看清正常 / 冷却 / 失败 / 没钱了几个，不用逐张翻卡。
               每个统计都是一个 chip（中性底 + 圆角 + `whitespace-nowrap`）——
               纯文字加竖线分隔在窄屏折行后像是「错位的两行」，chip 换行时逐行对齐，
               且标签与数字永远在同一个视觉单元里。 */}

@@ -3,7 +3,7 @@
  * 数据形状直接吃后端 `/web/api/commands` 的宽松 JSON（见下方 `AccountPool`）。
  *
  * 视觉分层（参照 DeepSeek 的列表语言）：卡头 = cid + 渠道级状态 pill + 账号数
- * （异常/冷却只给状态点着色，不铺彩色底）；账号行 = **单行扁平结构**
+ * （失败/冷却只给状态点着色，不铺彩色底）；账号行 = **单行扁平结构**
  * （状态点 + 名称 + 状态 pill + 额度 + 操作，内容保持尽量扁平）；名称
  * **渠道给什么就显示什么**，前端不做脱敏（见 `displayName`）；操作按钮
  * 默认隐藏、悬停账号行才出现，触屏常显。
@@ -129,18 +129,19 @@ function quotaAmount(credits: AccountCredits | null | undefined, unsupported: bo
 /**
  * 账号级状态 pill 的配色与文案（与 `classifyAccount` 一一对应）。
  *
- * 四个状态全部用语义色：正常绿 / 冷却黄 / 异常与没钱红 —— 「正常」不着色时，
+ * 四个状态全部用语义色：正常绿 / 冷却黄 / 失败与没钱红 —— 「正常」不着色时，
  * 一屏里只有坏消息有颜色，反而要多读一遍文字才知道哪个号是好的。
+ * 每行**只显示这一个状态标签**（用户指定口径）：连败计数、账单失败等一律不再上标签。
  */
 const STATUS_META: Record<AccountStatus, { text: string; pill: string; dot: string }> = {
   ok: { text: "正常", pill: "bg-free/12 text-free", dot: "bg-free live-dot" },
   cooldown: { text: "冷却", pill: "bg-warn/12 text-warn", dot: "bg-warn" },
-  down: { text: "异常", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
+  down: { text: "失败", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
   broke: { text: "没钱", pill: "bg-danger/12 text-danger", dot: "bg-danger" },
 };
 
 /**
- * 状态 pill 文案：**只有状态词本身**（正常 / 冷却 / 异常 / 没钱）。
+ * 状态 pill 文案：**只有状态词本身**（正常 / 冷却 / 失败 / 没钱）。
  *
  * 冷却剩余时间、熔断退避等具体信息由额度条的悬停面板（`statusNoteOf`）承担 ——
  * 这个 pill 只回答「现在是什么状态」，不掺时间，避免语义混杂。
@@ -455,8 +456,6 @@ export function AccountCard({
           const bill = billingByKey.get(account.key);
           const status = classifyAccount(account, billing);
           const meta = STATUS_META[status];
-          const health = account.health;
-          const failStreak = Number(account.fail_streak ?? 0);
           // 最后一行不画下边框（否则与卡底条的上边框叠成双线）
           const rowBorder = index >= shownAccounts.length - 1 ? "" : "border-b border-line/60";
           return (
@@ -472,7 +471,7 @@ export function AccountCard({
                 {/*
                   账号行 = 单行（44px），左右两块等分：
                     左：状态点 + 名称（超长截断）
-                    右：状态 pill（与额度条一体）+ 连败计数 + 额度条 | 操作
+                    右：状态 pill + 额度条 | 操作
                 */}
                 <div className="flex h-11 items-center gap-2 px-4 max-md:gap-1.5 max-md:px-3">
                   <span
@@ -488,9 +487,6 @@ export function AccountCard({
                       flex-1 平分一行），视觉上是一组而不是「名称的附件」 */}
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</span>
-                    {failStreak > 0 && (health === "ok" || health === "unknown") && (
-                      <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
-                    )}
                     {billing?.unsupported === true ? (
                       <span className="shrink-0 text-xs text-ink-faint/70">订阅制 · 无额度概念</span>
                     ) : (
