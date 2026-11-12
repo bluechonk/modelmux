@@ -19,7 +19,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "qwenworkcn",
   display: "QwenWorkCN / 千问办公",
-  version: "0.1.3",
+  version: "0.1.4",
   defaultAddr: "127.0.0.1:8825",
   uiPort: 8826,
   debugDumpEnv: "QWENWORKCN_DEBUG_DUMP",
