@@ -105,11 +105,20 @@ describe("检测", () => {
     assert.equal(notice.url, "https://api.github.com/repos/bluechonk/modelmux/releases/tag/v0.1.4");
   });
 
-  it("网络失败 → null（不误报「没有更新」）", async () => {
+  it("网络失败不误报「没有更新」：保留上次检测到的新版本", async () => {
+    mockFetch([{ match: "/releases/latest", status: 200, body: RELEASE }]);
+    assert.ok(await checkForUpdate("0.1.3"), "先成功检出 v0.1.4");
+    // 让缓存过期后断网：失败必须回落上次结果，而不是抹掉它
+    const state = readState();
+    state["lastCheckAt"] = new Date(Date.now() - 2 * 86400 * 1000).toISOString();
+    writeFileSync(stateFile, JSON.stringify(state));
     mock.method(globalThis, "fetch", async () => {
       throw new Error("offline");
     });
-    assert.equal(await checkForUpdate("0.1.3"), null);
+    const notice = await checkForUpdate("0.1.3");
+    assert.ok(notice, "网络失败不得把已检测到的新版本抹掉（那是「误报没有更新」）");
+    assert.equal(notice.version, "v0.1.4");
+    assert.equal((readState()["latest"] as { version?: string }).version, "v0.1.4", "latest 要保留");
   });
 
   it("旧状态文件里的 snoozedUntil / skippedVersion 遗留字段被忽略", async () => {

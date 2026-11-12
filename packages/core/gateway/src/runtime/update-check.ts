@@ -5,7 +5,8 @@
  *   - 版本源用 GitHub 的 `releases/latest`；还没有 Release 时回落 `tags`（只有版本号）。
  *     仓库是 public，未认证可读。不抓发布说明 —— 顶栏小卡只显示版本号与下载入口。
  *   - **每天最多一次**真请求：上次检查时间落 `<root>/update.json`，24 小时内直接用缓存。
- *   - 检测失败（无网 / 限流 / 仓库改名）一律静默回落「没有更新」，不重试、不打扰。
+ *   - 检测失败（无网 / 限流 / 仓库改名）一律静默回落**上次结果**：不重试、不打扰，
+ *     也绝不把失败当成「没有更新」（否则已检测到的提示会被抹掉一整天）。
  */
 
 import { readFileSync } from "node:fs";
@@ -170,7 +171,9 @@ export async function checkForUpdate(
   }
   const latest = await fetchLatest(logger);
   state.lastCheckAt = now.toISOString();
-  state.latest = latest;
+  // 失败（null）**不覆盖**上次结果：把一次网络抖动当成「没有更新」会把已检测到的
+  // 提示静默抹掉一整天 —— 与上面 docstring 的承诺相悖。
+  if (latest !== null) state.latest = latest;
   saveUpdateState(state);
   return noticeFrom(state, currentVersion);
 }
@@ -201,7 +204,11 @@ export function startUpdateChecks(
   logger: (m: string) => void = () => {},
 ): void {
   const run = (): void => {
-    void refreshUpdateNotice(currentVersion(), logger);
+    // 落盘失败（只读 / 被占用）不能让 rejection 冒到顶层：未处理的 rejection 按
+    // Node 默认行为会终止 worker，一次磁盘抖动就变成网关瞬断。
+    void refreshUpdateNotice(currentVersion(), logger).catch((err) => {
+      logger(`update check: persistence failed: ${String(err)}`);
+    });
   };
   run();
   const timer = setInterval(run, CHECK_INTERVAL_MS);

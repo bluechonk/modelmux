@@ -29,6 +29,13 @@ export interface UpdateNotice {
   checkedAt: string;
 }
 
+/** 单个接入目标的「模型有更新」明细（与服务端 `integration_updates` 同构）。 */
+export interface IntegrationUpdate {
+  added: string[];
+  removed: string[];
+  at: string;
+}
+
 export interface UiSnapshot {
   /** 网关状态（probing / login / running）；**不承载登录结果**。 */
   ui_state: string;
@@ -81,7 +88,7 @@ export interface UiSnapshot {
    * 各接入目标的「模型有更新」（键 = target；null / 缺省 = 无更新）。
    * 服务端用标记文件里的写入清单与当前对外清单 diff 好再下发。
    */
-  integration_updates?: Record<string, { added: string[]; removed: string[]; at: string } | null>;
+  integration_updates?: Record<string, IntegrationUpdate | null>;
   /** 用户选的主题模式：system（跟随系统）/ dark / light（持久化在网关侧）。 */
   theme_mode: string;
   gateway_error: string;
