@@ -176,8 +176,10 @@ export function Heatmap({
         标签行若横跨全宽就会整体左偏一个槽宽（实测 53 列 ≈ 1.4 列的偏移）。
         标签行放进同一个 flex 结构，左侧垫片与周标签列同宽（w-3 + gap 对齐）。
       */}
+      {/* 不设 min-w：窗口最小 736 时面板内容宽仍有 ~645，53 列每格约 9px 可读；
+          再设下限会在这个宽度下挤出横向滚动条（2026-11-12 实测） */}
       <div className="overflow-x-auto pb-1">
-        <div className="min-w-[720px]">
+        <div>
           <div className="mb-1 flex gap-2" aria-hidden="true">
             <div className="w-3 shrink-0" />
             <div

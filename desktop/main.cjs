@@ -14,7 +14,7 @@
  *   - 失败要分清原因：端口被占 ≠ 起动超时 ≠ 网关崩溃，错误页分别说明。
  */
 
-const { app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, ipcMain, nativeTheme } = require("electron");
+const { app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, ipcMain, nativeTheme, screen } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -35,6 +35,64 @@ const BASE = `http://${HOST}:${PORT}`;
  */
 function homeDir() {
   return path.join(os.homedir(), ".modelmux");
+}
+
+/** 窗口尺寸：最小与默认同为 1000×720（直接按这个数填，不做 DPI 换算）。 */
+const MIN_WIDTH = 1000;
+const MIN_HEIGHT = 720;
+/** 首次启动（或上次尺寸不可用）时的默认尺寸。 */
+const DEFAULT_WIDTH = 1000;
+const DEFAULT_HEIGHT = 720;
+
+/**
+ * 窗口状态文件：`%APPDATA%/modelmux-desktop/window-state.json`。
+ *
+ * 为什么放 userData 而不是 `~/.modelmux/setting.json`：后者是**共享层**的用户偏好
+ * （主题），由网关读写；窗口尺寸是桌面壳自己的事，两者不该互相牵扯。
+ */
+function windowStatePath() {
+  return path.join(app.getPath("userData"), "window-state.json");
+}
+
+/** 读上次退出时的窗口尺寸；缺失 / 损坏 / 字段非法一律回落默认。 */
+function loadWindowState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(windowStatePath(), "utf8"));
+    const num = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : null);
+    const width = num(raw?.["width"]);
+    const height = num(raw?.["height"]);
+    if (width === null || height === null) return null;
+    const x = num(raw?.["x"]);
+    const y = num(raw?.["y"]);
+    return { width, height, x: x ?? undefined, y: y ?? undefined };
+  } catch {
+    /* 缺失 / 损坏 → 用默认尺寸 */
+    return null;
+  }
+}
+
+/** 落盘窗口尺寸（移动 / 缩放防抖后、关闭与退出时调用）。 */
+function saveWindowState() {
+  if (!win || win.isDestroyed()) return;
+  const { width, height, x, y } = win.getBounds();
+  try {
+    fs.writeFileSync(windowStatePath(), JSON.stringify({ width, height, x, y }));
+  } catch {
+    /* 只读 / 被占用：这次记不住而已，不值得打断用户 */
+  }
+}
+
+/**
+ * 上次的位置是否还落在某块屏幕上。
+ *
+ * 拔掉外接显示器 / 改分辨率后，保存的坐标可能落到所有屏幕之外 —— 窗口会「消失」，
+ * 用户只能去任务栏里找。命中任一屏幕才复用，否则交给 Electron 摆到当前屏幕中央。
+ */
+function onAnyDisplay(x, y, width, height) {
+  return screen.getAllDisplays().some((d) => {
+    const b = d.bounds;
+    return x < b.x + b.width && x + width > b.x && y < b.y + b.height && y + height > b.y;
+  });
 }
 
 /** 起网关最多等多久（首次启动要扫渠道凭据，比热启动慢）。 */
@@ -285,11 +343,20 @@ async function createWindow() {
   // 标题栏隐藏：顶栏即拖拽区，窗口控制钮由 web 顶栏渲染（经 preload 桥调回来）。
   // 背景色在 loadURL **之前**按主题设对 —— 首帧不闪错色。
   nativeTheme.themeSource = startupTheme();
+  // 还原上次的窗口尺寸与位置（缺记录 / 已不在任何屏幕上 → 默认尺寸居中）
+  const saved = loadWindowState();
+  const width = Math.max(MIN_WIDTH, saved?.["width"] ?? DEFAULT_WIDTH);
+  const height = Math.max(MIN_HEIGHT, saved?.["height"] ?? DEFAULT_HEIGHT);
+  const placed =
+    saved?.["x"] !== undefined &&
+    saved["y"] !== undefined &&
+    onAnyDisplay(saved["x"], saved["y"], width, height);
   win = new BrowserWindow({
-    width: 1300,
-    height: 1000,
-    minWidth: 800,
-    minHeight: 600,
+    width,
+    height,
+    ...(placed ? { x: saved["x"], y: saved["y"] } : {}),
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
     backgroundColor: windowBackground(),
     titleBarStyle: "hidden",
     show: false,
@@ -305,6 +372,19 @@ async function createWindow() {
   });
 
   win.once("ready-to-show", () => win?.show());
+
+  // 缩放 / 移动后记住尺寸（防抖）：下次启动直接还原用户最后的窗口
+  let saveTimer = null;
+  const scheduleSave = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      saveWindowState();
+    }, 400);
+    if (saveTimer.unref) saveTimer.unref();
+  };
+  win.on("resize", scheduleSave);
+  win.on("move", scheduleSave);
 
   // 最大化状态推送给顶栏的窗口控制钮（图标在最大化 / 还原间切换）
   const pushMaximize = () => win?.webContents.send("win:maximize-changed", win.isMaximized());
@@ -344,6 +424,8 @@ async function createWindow() {
   });
 
   win.on("closed", () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveWindowState();
     win = null;
   });
 
@@ -420,6 +502,7 @@ function errorPage(hint) {
 /** 退出前停掉自己起的网关（复用的不动）。 */
 app.on("before-quit", () => {
   app.isQuitting = true;
+  saveWindowState();
   stopGateway();
 });
 
