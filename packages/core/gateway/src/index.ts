@@ -144,6 +144,9 @@ export {
   REPO_UI_PREFIX,
 } from "./runtime/cli-consts.js";
 
+// 仓库版本常量（全仓唯一版本号，渠道与本层都引用它）
+export { VERSION } from "./version.js";
+
 // 服务身份（池路由入口在 pool-targets.ts）
 export { serviceName, knownServiceNames, IMPLEMENTATION } from "./http/server.js";
 

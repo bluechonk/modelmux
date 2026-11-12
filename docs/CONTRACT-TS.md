@@ -130,8 +130,8 @@ packages/core/channels/<cid>/
 
 | 约定 | 原因 |
 | --- | --- |
-| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + **全部渠道包**）**版本号一律相同**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
-| **版本号只记一遍** | `package.json` 的 `version` 是唯一真相；渠道 `src/channel.ts` 的 `ChannelConfig.version` 必须与之一致（那处会显示在 `mx --version <cid>` 与 `mx path` 的输出里）。同一事实记两遍必然漂移 |
+| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + **全部渠道**）共用**根 `package.json` 的 `version`**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
+| **版本号只记一遍** | 唯一真相是**根 `package.json` 的 `version`**。私有 workspace 包（ui / gateway / 各渠道）一律**不带 `version` 字段**；渠道 `src/channel.ts` 不再写版本字面量，改为引用 gateway 导出的 `VERSION` 常量（`packages/core/gateway/src/version.ts`，显示在 `mx --version` 与 `mx path`）。`VERSION` 常量、**可发布**的 cli 清单（npm 要求有 `version`）、desktop 清单与根 lock、`docs/PROGRESS.md` 由 `npm run version:sync`（`scripts/version.mjs`）从根派生 —— **发版只改根一处再跑同步**，`verify-contract` 守漂移 |
 | **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
 | **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
 | **`prepublishOnly` 先跑 `npm run build`** | 发布出去的 `dist/` 必须与当前源码一致；没有它，`npm publish` 会把上一次的构建产物（甚至空目录）发出去 |
@@ -178,7 +178,7 @@ hasChannel(): boolean;        // 供测试/工具探测，不抛错
 interface ChannelConfig {
  cid: string;                 // 渠道 id，如 "catpaw"（日志前缀、服务名、CLI 名、**存储分层名**）
  display: string;             // 展示名，如 "CatPaw"
- version: string;             // CLI 版本号
+ version: string;             // 仓库版本号（引用 VERSION 常量；发布约定见本节表格）
  defaultAddr: string;         // **单渠道独立运行**的网关默认地址，如 "127.0.0.1:8803"
  uiPort: number;              // **单渠道独立运行**的控制台端口（仓库级路由用 REPO_DEFAULT_*）
  debugDumpEnv: string;        // 抓包落盘目录的环境变量名（值 "1" 表示用渠道内 debug/）

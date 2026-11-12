@@ -8,7 +8,7 @@
  * 端点/字段/实测见 docs/channels/raccoon/PROTOCOL.md。
  */
 
-import { setChannel, type ChannelConfig, type Channel } from "@modelmux/gateway";
+import { setChannel, VERSION, type ChannelConfig, type Channel } from "@modelmux/gateway";
 
 import * as billing from "./billing.js";
 import * as catalog from "./catalog.js";
@@ -18,7 +18,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "raccoon",
   display: "Raccoon",
-  version: "0.1.4",
+  version: VERSION,
   defaultAddr: "127.0.0.1:8815",
   uiPort: 8816,
   debugDumpEnv: "RACCOON_DEBUG_DUMP",
