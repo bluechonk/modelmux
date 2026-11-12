@@ -1,8 +1,8 @@
 /**
  * 版本更新检测的失败分支与后台调度。
  *
- * 只补既有 update-check.test.ts 未覆盖的行：releases 非 404 失败、tags 失败、
- * 响应无有效标签时回落、以及 startUpdateChecks 的启动即跑 + 定时器 unref。
+ * 只补既有 update-check.test.ts 未覆盖的行：tags 失败、tags 无有效版本、
+ * release 地址查询失败、以及 startUpdateChecks 的启动即跑 + 定时器 unref。
  *
  * fetch 用 node:test 的 mock 注入，不联网。
  */
@@ -56,49 +56,59 @@ async function waitFor(ok: () => boolean, timeoutMs: number, what: string): Prom
 }
 
 describe("更新检测的失败分支", () => {
-  it("releases 非 404 失败：记录原因并返回 null", async () => {
-    mockFetch([{ match: "/releases/latest", status: 500 }]);
+  it("tags 非 200：记录原因并返回 null", async () => {
+    mockFetch([{ match: "modelmux/tags", status: 500 }]);
     const logs: string[] = [];
     const notice = await checkForUpdate("0.1.3", (m) => logs.push(m));
     assert.equal(notice, null);
-    assert.ok(logs.some((m) => m.includes("releases 请求失败")), "失败原因要留痕");
+    assert.ok(logs.some((m) => m.includes("tags 请求失败")), "失败原因要留痕");
   });
 
-  it("releases 404 后 tags 也失败：记录原因并返回 null", async () => {
+  it("tags 返回空列表 / 项无 name：返回 null", async () => {
+    mockFetch([{ match: "modelmux/tags", status: 200, body: [] }]);
+    assert.equal(await checkForUpdate("0.1.3"), null);
+
+    mockFetch([{ match: "modelmux/tags", status: 200, body: [{ notName: "v0.1.4" }, { name: "" }] }]);
+    assert.equal(await checkForUpdate("0.1.3"), null);
+  });
+
+  it("release 地址查询非 404 失败：记录原因，仍返回版本 + 列表页地址", async () => {
     mockFetch([
-      { match: "/releases/latest", status: 404 },
-      { match: "/tags", status: 503 },
+      { match: "modelmux/tags", status: 200, body: [{ name: "v0.1.4" }] },
+      { match: "/releases/tags/v0.1.4", status: 500 },
     ]);
     const logs: string[] = [];
     const notice = await checkForUpdate("0.1.3", (m) => logs.push(m));
-    assert.equal(notice, null);
-    assert.ok(logs.some((m) => m.includes("tags 请求失败")), "tags 失败原因要留痕");
+    assert.ok(notice);
+    assert.equal(notice.version, "v0.1.4");
+    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases");
+    assert.ok(logs.some((m) => m.includes("release 请求失败")), "失败原因要留痕");
   });
 
-  it("releases 200 但无 tag_name：回落标签", async () => {
-    mockFetch([
-      { match: "/releases/latest", status: 200, body: {} },
-      { match: "/tags", status: 200, body: [{ name: "v0.1.5" }] },
-    ]);
+  it("release 地址查询抛错：回落列表页，不中断检测", async () => {
+    mock.method(globalThis, "fetch", async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("modelmux/tags")) {
+        return new Response(JSON.stringify([{ name: "v0.1.4" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error("dns");
+    });
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice);
-    assert.equal(notice.version, "v0.1.5");
-    assert.equal("notes" in notice, false, "发布说明已下线，提示里没有 notes 字段");
-    assert.equal(notice.url, "https://api.github.com/repos/bluechonk/modelmux/releases/tag/v0.1.5");
-  });
-
-  it("tags 返回空列表 / 首项无 name：返回 null", async () => {
-    mockFetch([
-      { match: "/releases/latest", status: 404 },
-      { match: "/tags", status: 200, body: [] },
-    ]);
-    assert.equal(await checkForUpdate("0.1.3"), null);
+    assert.equal(notice.version, "v0.1.4");
+    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases");
   });
 });
 
 describe("后台调度", () => {
   it("startUpdateChecks 启动即跑一轮并填充缓存", async () => {
-    mockFetch([{ match: "/releases/latest", status: 200, body: { tag_name: "v0.1.4", body: "说明" } }]);
+    mockFetch([
+      { match: "modelmux/tags", status: 200, body: [{ name: "v0.1.4" }] },
+      { match: "/releases/tags/v0.1.4", status: 200, body: { html_url: "https://example.com/r/v0.1.4" } },
+    ]);
     startUpdateChecks(() => "0.1.3", () => {});
     await waitFor(() => updateNotice() !== null, 3_000, "updateNotice to be filled");
     assert.equal(updateNotice()?.["version"], "v0.1.4");

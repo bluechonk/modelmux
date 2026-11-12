@@ -174,6 +174,9 @@ gh pr checks <n>
   不写对话式内容（与 commit body 同规）。
 - tag 必须先打在**合并后的 main** 上，Release 再指向它；打 tag 前过推送门禁。
 - 已有 Release 要改说明用 `gh release edit <tag> --notes-file …`，不要删了重建。
+- **补历史 Release 后**：`published_at` 不可改、只会落 `created_at`，补进去的旧版本会变成
+  Latest（列表排序与徽章都按 `published_at`）。补完执行 `gh release edit <最新版 tag> --latest`
+  指回最新版，细则见 [docs/WORKFLOW.md](../../../docs/WORKFLOW.md) 的「版本与发版」。
 - 桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`）本地构建，可作 Release 附件上传，
   也可只在说明里写构建步骤（见 [docs/DESKTOP-APP.md](../../../docs/DESKTOP-APP.md)）。
 
