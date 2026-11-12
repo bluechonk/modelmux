@@ -164,6 +164,14 @@ export interface UiSnapshot {
    */
   integrations: Record<string, boolean>;
   /**
+   * 各接入目标的「模型有更新」（键 = target；null = 无更新）。
+   *
+   * 服务端算好差集再下发：前端没有「接入那一刻写入了哪些模型」这个基准，
+   * 自己 diff 不出来（见 `app/integrate.ts` 的 `integrationUpdates`）。
+   * 类型就地同构声明 —— http 层不许向上依赖 app 层。
+   */
+  integration_updates: Record<string, { added: string[]; removed: string[]; at: string } | null>;
+  /**
    * 用户选的主题模式：`system`（跟随系统）/ `dark` / `light`。
    *
    * `system` 的解析（prefers-color-scheme）在**前端**做 —— 服务端不知道显示器设置。
@@ -190,6 +198,7 @@ export function emptySnapshot(): UiSnapshot {
     login_input: null,
     channel_caps: {},
     integrations: {},
+    integration_updates: {},
     theme_mode: "system",
     gateway_error: "",
   };

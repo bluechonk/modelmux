@@ -335,7 +335,11 @@ function demoSettingsBase(state: DemoState): UiSnapshot {
     model_prefs: demoModelPrefs(state),
     channel_caps: Object.fromEntries(state.channels.map((c) => [c.cid, { billing: c.billing }])),
     theme_mode: "dark",
-    integrations: { zcode: true, dsh: false, "claude-desktop": false, codex: true },
+    integrations: { zcode: true, dsh: true, "claude-desktop": false, codex: true },
+    integration_updates: {
+      // 演示「有更新」：dsh 接入后池里新增了 qwen3.8-flash
+      dsh: { added: ["qwen3.8-flash"], removed: [], at: "2026-11-08T02:14:00.000Z" },
+    },
     gateway_error: "",
   };
 }

@@ -208,6 +208,17 @@ interface PendingAction {
   action: "integrate" | "restore";
 }
 
+/** 快照里的「模型有更新」明细（与服务端 `integration_updates` 同构）。 */
+type IntegrationUpdate = { added: string[]; removed: string[]; at: string };
+
+/** 更新差异的可读措辞（进 aria-label；直显按钮方案保持卡面极简，正文不放差异）。 */
+function updateDiffLabel(update: IntegrationUpdate): string {
+  const parts: string[] = [];
+  if (update.added.length > 0) parts.push(`新增 ${update.added.join("、")}`);
+  if (update.removed.length > 0) parts.push(`移除 ${update.removed.join("、")}`);
+  return parts.join("；") || "模型清单有变化";
+}
+
 /**
  * 开关式接入卡片：开关就是状态本身 —— 开 = 已接入（写入客户端配置），关 = 还原到
  * 接入前（自动备份可反悔）。操作中开关禁用并停在目标位置，失败弹回原位 + 红字
@@ -221,7 +232,9 @@ function IntegrateSwitchCard({
   integrated,
   pending,
   error,
+  update,
   onToggle,
+  onUpdate,
 }: {
   target: IntegrationTarget;
   icon: string;
@@ -232,7 +245,11 @@ function IntegrateSwitchCard({
   pending: PendingAction | null;
   /** 最近一次操作的失败原因（null = 无）。 */
   error: string | null;
+  /** 模型有更新明细（null = 无；仅在已接入且空闲时展示更新按钮）。 */
+  update: IntegrationUpdate | null;
   onToggle: () => void;
+  /** 点「更新」= 重跑同一条接入路径，把客户端清单刷成当前对外模型。 */
+  onUpdate: () => void;
 }): ReactElement {
   const busy = pending !== null;
   const failed = error !== null;
@@ -271,6 +288,21 @@ function IntegrateSwitchCard({
           <div className="mt-0.5 truncate font-mono text-[11px] text-ink-faint">{file}</div>
         </div>
         <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
+        {/*
+          「有更新」直显按钮：接入后对外模型清单变了才出现（判据在服务端 diff 好下发）。
+          与版本胶囊同一套提示语言（橙点 + warn 淡底）；点击重跑接入，成功后随快照消失。
+        */}
+        {!busy && integrated && update !== null && (
+          <button
+            type="button"
+            onClick={onUpdate}
+            aria-label={`${name} 模型有更新（${updateDiffLabel(update)}），点击更新接入`}
+            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 py-[3px] text-[11px] text-warn transition-colors hover:border-warn"
+          >
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn" aria-hidden="true" />
+            更新
+          </button>
+        )}
         {/*
           开关本体：`role="switch"` + `aria-checked`。轨道色用品牌色（开 = 白/浅色下近黑，
           关 = 描边灰）—— 单色系的 accent 就是前景色本身，不为开关引入第二种类色。
@@ -797,10 +829,12 @@ export function Dashboard(): ReactElement {
               integrated={state?.integrations?.[target] === true}
               pending={pendingAction?.target === target ? pendingAction : null}
               error={integrateErrors[target] ?? null}
+              update={state?.integrations?.[target] ? state?.integration_updates?.[target] ?? null : null}
               onToggle={() => {
                 if (state?.integrations?.[target]) restoreMutation.mutate(target);
                 else integrateMutation.mutate(target);
               }}
+              onUpdate={() => integrateMutation.mutate(target)}
             />
           ))}
         </div>
