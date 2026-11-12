@@ -18,7 +18,7 @@ import * as upstream from "./upstream.js";
 export const config: ChannelConfig = {
   cid: "todayai",
   display: "Today 国内版",
-  version: "0.1.3",
+  version: "0.1.4",
   defaultAddr: "127.0.0.1:8829",
   uiPort: 8830,
   debugDumpEnv: "TODAYAI_DEBUG_DUMP",
