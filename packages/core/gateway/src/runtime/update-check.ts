@@ -2,11 +2,11 @@
  * 版本更新检测：只读、低频、静默。
  *
  * 关键约束：
- *   - 版本源用 GitHub 的 `releases/latest`；还没有 Release 时回落 `tags`（只有版本号）。
- *     仓库是 public，未认证可读。不抓发布说明 —— 顶栏小卡只显示版本号与下载入口。
- *   - **每天最多一次**真请求：上次检查时间落 `<root>/update.json`，24 小时内直接用缓存。
- *   - 检测失败（无网 / 限流 / 仓库改名）一律静默回落**上次结果**：不重试、不打扰，
- *     也绝不把失败当成「没有更新」（否则已检测到的提示会被抹掉一整天）。
+ *   - 版本源取 GitHub tags 里语义版本最大的 tag（不用 releases/latest：Latest 由
+ *     published_at 决定，补历史 Release 会让旧版本变成 Latest）。有对应 Release 用其
+ *     html_url，否则给 Release 列表页 —— 永不返回 api.github.com 的 JSON 地址。
+ *   - 每天最多一次真请求（落 `<root>/update.json`）；失败静默回落上次结果，绝不把失败
+ *     当成「没有更新」；不抓发布说明（顶栏小卡只显示版本号与下载入口）。
  */
 
 import { readFileSync } from "node:fs";
@@ -98,30 +98,37 @@ export function isNewer(candidate: string, current: string): boolean {
   return false;
 }
 
-async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease | null> {
-  const headers = { Accept: "application/vnd.github+json", "User-Agent": "modelmux" };
+/**
+ * 取该 tag 对应 Release 的页面地址；没有对应 Release 时给 Release 列表页。
+ *
+ * 永远返回 github.com 的页面地址：早先在 tags 回落分支里拼的是 `api.github.com`，
+ * 点开是一坨 JSON，不是给用户看的页面。
+ */
+async function releaseUrl(
+  tag: string,
+  headers: Record<string, string>,
+  logger: (m: string) => void,
+): Promise<string> {
   try {
-    const rel = await fetch(`${API_BASE}/releases/latest`, {
+    const rel = await fetch(`${API_BASE}/releases/tags/${tag}`, {
       headers,
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
     if (rel.ok) {
       const body = (await rel.json().catch(() => null)) as Record<string, unknown> | null;
-      const tag = typeof body?.["tag_name"] === "string" ? body["tag_name"] : "";
-      if (tag) {
-        return {
-          version: tag,
-          url:
-            typeof body?.["html_url"] === "string"
-              ? body["html_url"]
-              : `${API_BASE}/releases/tag/${tag}`,
-        };
-      }
+      if (typeof body?.["html_url"] === "string") return body["html_url"];
     } else if (rel.status !== 404) {
-      logger(`update check: releases 请求失败（HTTP ${rel.status}）`);
-      return null;
+      logger(`update check: release 请求失败（HTTP ${rel.status}）`);
     }
-    // 还没有 Release：回落标签（只有版本号）
+  } catch (err) {
+    logger(`update check: release 查询失败：${String(err)}`);
+  }
+  return `https://github.com/${REPO}/releases`;
+}
+
+async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease | null> {
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "modelmux" };
+  try {
     const tags = await fetch(`${API_BASE}/tags`, {
       headers,
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
@@ -131,10 +138,17 @@ async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease |
       return null;
     }
     const list = (await tags.json().catch(() => null)) as unknown;
-    const first = Array.isArray(list) ? (list[0] as Record<string, unknown> | undefined) : undefined;
-    const name = typeof first?.["name"] === "string" ? first["name"] : "";
-    if (!name) return null;
-    return { version: name, url: `${API_BASE}/releases/tag/${name}` };
+    if (!Array.isArray(list) || list.length === 0) return null;
+    // tags 的默认顺序是推送时间，不等于版本顺序：取语义版本最大者
+    let best = "";
+    for (const item of list) {
+      const raw = (item as Record<string, unknown> | null)?.["name"];
+      const name = typeof raw === "string" ? raw : "";
+      if (name === "") continue;
+      if (best === "" || isNewer(name, best)) best = name;
+    }
+    if (best === "") return null;
+    return { version: best, url: await releaseUrl(best, headers, logger) };
   } catch (err) {
     logger(`update check failed: ${String(err)}`);
     return null;
