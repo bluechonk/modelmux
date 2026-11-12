@@ -1699,7 +1699,8 @@ function readIntegrationMarker(target: IntegrationTarget): IntegrationMarker | n
 
 /**
  * 写接入态标记。失败静默：接入 / 还原本身已完成，标记丢了只会让开关回落到
- * 清单推断（可能不准），不该为此把一次成功的接入报成失败。
+ * 清单推断（可能不准），不该为此把一次成功的接入报成失败。但 `models` 基准
+ * 也会一起丢（卡头可能亮一个消不掉的假「更新」），失败必须留痕可查。
  */
 function writeIntegrationMarker(target: IntegrationTarget, integrated: boolean, models?: string[]): void {
   try {
@@ -1709,8 +1710,10 @@ function writeIntegrationMarker(target: IntegrationTarget, integrated: boolean, 
       ...(models === undefined ? {} : { models: [...models] }),
       at: new Date().toISOString(),
     } satisfies IntegrationMarker);
-  } catch {
-    /* 回落清单推断，见上 */
+  } catch (err) {
+    // integrate 走 CLIClient 与控制台两条路，都没带 logger 通道；与 paths.ts 同法
+    // 直接写 stderr（监督者会收进 worker.log）
+    console.error(`[modelmux] integrate marker write failed: ${String(err)}`);
   }
 }
 

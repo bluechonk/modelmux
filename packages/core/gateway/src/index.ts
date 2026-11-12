@@ -130,8 +130,6 @@ export { runInChannel, activeCid } from "./runtime/channel-context.js";
 export {
   checkForUpdate,
   isNewer,
-  skipUpdate,
-  snoozeUpdate,
   startUpdateChecks,
   updateNotice,
   type UpdateNotice,

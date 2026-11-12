@@ -33,7 +33,7 @@ import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
 import { errorText, formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
-import type { OverviewResponse, UsageRange } from "../lib/types";
+import type { IntegrationUpdate, OverviewResponse, UsageRange } from "../lib/types";
 
 /** 区间选项（驱动下方「用量」三块，不影响今日快照）。
  *
@@ -207,9 +207,6 @@ interface PendingAction {
   target: IntegrationTarget;
   action: "integrate" | "restore";
 }
-
-/** 快照里的「模型有更新」明细（与服务端 `integration_updates` 同构）。 */
-type IntegrationUpdate = { added: string[]; removed: string[]; at: string };
 
 /** 更新差异的可读措辞（进 aria-label；直显按钮方案保持卡面极简，正文不放差异）。 */
 function updateDiffLabel(update: IntegrationUpdate): string {

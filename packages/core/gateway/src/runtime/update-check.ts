@@ -1,13 +1,12 @@
 /**
- * 版本更新检测：只读、低频、可关闭。
+ * 版本更新检测：只读、低频、静默。
  *
  * 关键约束：
- *   - 版本源用 GitHub 的 `releases/latest`（带发布说明）；还没有 Release 时回落
- *     `tags`（只有版本号、没有说明）。仓库是 public，未认证可读。
+ *   - 版本源用 GitHub 的 `releases/latest`；还没有 Release 时回落 `tags`（只有版本号）。
+ *     仓库是 public，未认证可读。不抓发布说明 —— 顶栏小卡只显示版本号与下载入口。
  *   - **每天最多一次**真请求：上次检查时间落 `<root>/update.json`，24 小时内直接用缓存。
- *   - 「稍后提醒」= 今天不再提醒（snoozedUntil 落到下一个本地 0 点）；「跳过此版本」
- *     记住版本号，对同一版本不再提示。
- *   - 检测失败（无网 / 限流 / 仓库改名）一律静默回落「没有更新」，不重试、不打扰。
+ *   - 检测失败（无网 / 限流 / 仓库改名）一律静默回落**上次结果**：不重试、不打扰，
+ *     也绝不把失败当成「没有更新」（否则已检测到的提示会被抹掉一整天）。
  */
 
 import { readFileSync } from "node:fs";
@@ -27,9 +26,7 @@ export interface UpdateNotice {
   available: boolean;
   /** 检测到的新版本（如 v0.1.4）。 */
   version: string;
-  /** 发布说明（Release body）；标签回落时可能为空。 */
-  notes: string;
-  /** 版本页地址。 */
+  /** 版本页地址（「前往下载页」在默认浏览器打开它）。 */
   url: string;
   /** 本次检测时间（ISO）。 */
   checkedAt: string;
@@ -37,22 +34,17 @@ export interface UpdateNotice {
 
 interface LatestRelease {
   version: string;
-  notes: string;
   url: string;
 }
 
 interface UpdateState {
   lastCheckAt: string | null;
   latest: LatestRelease | null;
-  snoozedUntil: string | null;
-  skippedVersion: string | null;
 }
 
 const EMPTY: UpdateState = {
   lastCheckAt: null,
   latest: null,
-  snoozedUntil: null,
-  skippedVersion: null,
 };
 
 function isLatest(value: unknown): value is LatestRelease {
@@ -62,7 +54,10 @@ function isLatest(value: unknown): value is LatestRelease {
   );
 }
 
-/** 读检测状态：文件缺失 / 损坏 / 字段非法一律回落空状态（不猜、不修）。 */
+/**
+ * 读检测状态：文件缺失 / 损坏 / 字段非法一律回落空状态（不猜、不修）。
+ * 旧文件里的 snoozedUntil / skippedVersion 是已下线功能的遗留字段，读到也直接忽略。
+ */
 function loadUpdateState(): UpdateState {
   let parsed: unknown;
   try {
@@ -75,8 +70,6 @@ function loadUpdateState(): UpdateState {
   return {
     lastCheckAt: typeof rec["lastCheckAt"] === "string" ? rec["lastCheckAt"] : null,
     latest: isLatest(rec["latest"]) ? rec["latest"] : null,
-    snoozedUntil: typeof rec["snoozedUntil"] === "string" ? rec["snoozedUntil"] : null,
-    skippedVersion: typeof rec["skippedVersion"] === "string" ? rec["skippedVersion"] : null,
   };
 }
 
@@ -118,7 +111,6 @@ async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease |
       if (tag) {
         return {
           version: tag,
-          notes: typeof body?.["body"] === "string" ? body["body"].trim() : "",
           url:
             typeof body?.["html_url"] === "string"
               ? body["html_url"]
@@ -142,22 +134,20 @@ async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease |
     const first = Array.isArray(list) ? (list[0] as Record<string, unknown> | undefined) : undefined;
     const name = typeof first?.["name"] === "string" ? first["name"] : "";
     if (!name) return null;
-    return { version: name, notes: "", url: `${API_BASE}/releases/tag/${name}` };
+    return { version: name, url: `${API_BASE}/releases/tag/${name}` };
   } catch (err) {
     logger(`update check failed: ${String(err)}`);
     return null;
   }
 }
 
-/** 由状态推导提示：无新版本 / 已跳过 / 已过期 → null。 */
+/** 由状态推导提示：无新版本 → null。 */
 function noticeFrom(state: UpdateState, currentVersion: string): UpdateNotice | null {
   const latest = state.latest;
   if (latest === null || !isNewer(latest.version, currentVersion)) return null;
-  if (state.skippedVersion === latest.version) return null;
   return {
     available: true,
     version: latest.version,
-    notes: latest.notes,
     url: latest.url,
     checkedAt: state.lastCheckAt ?? "",
   };
@@ -175,34 +165,17 @@ export async function checkForUpdate(
 ): Promise<UpdateNotice | null> {
   const state = loadUpdateState();
   const now = new Date();
-  if (state.snoozedUntil !== null && new Date(state.snoozedUntil) > now) return null;
   const last = state.lastCheckAt === null ? null : new Date(state.lastCheckAt).getTime();
   if (last !== null && Number.isFinite(last) && now.getTime() - last < CHECK_INTERVAL_MS) {
     return noticeFrom(state, currentVersion);
   }
   const latest = await fetchLatest(logger);
   state.lastCheckAt = now.toISOString();
-  state.latest = latest;
+  // 失败（null）**不覆盖**上次结果：把一次网络抖动当成「没有更新」会把已检测到的
+  // 提示静默抹掉一整天 —— 与上面 docstring 的承诺相悖。
+  if (latest !== null) state.latest = latest;
   saveUpdateState(state);
   return noticeFrom(state, currentVersion);
-}
-
-/** 稍后提醒：今天不再提示（snoozedUntil 落到下一个本地 0 点）。 */
-export function snoozeUpdate(): void {
-  const state = loadUpdateState();
-  const next = new Date();
-  next.setHours(24, 0, 0, 0);
-  state.snoozedUntil = next.toISOString();
-  saveUpdateState(state);
-  cachedNotice = null;
-}
-
-/** 跳过此版本：对同一个版本号不再提示。 */
-export function skipUpdate(version: string): void {
-  const state = loadUpdateState();
-  state.skippedVersion = version;
-  saveUpdateState(state);
-  cachedNotice = null;
 }
 
 /** 控制台顶栏读的提示（由后台调度填充）。 */
@@ -231,7 +204,11 @@ export function startUpdateChecks(
   logger: (m: string) => void = () => {},
 ): void {
   const run = (): void => {
-    void refreshUpdateNotice(currentVersion(), logger);
+    // 落盘失败（只读 / 被占用）不能让 rejection 冒到顶层：未处理的 rejection 按
+    // Node 默认行为会终止 worker，一次磁盘抖动就变成网关瞬断。
+    void refreshUpdateNotice(currentVersion(), logger).catch((err) => {
+      logger(`update check: persistence failed: ${String(err)}`);
+    });
   };
   run();
   const timer = setInterval(run, CHECK_INTERVAL_MS);

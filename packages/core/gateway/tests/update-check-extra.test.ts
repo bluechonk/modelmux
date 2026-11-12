@@ -83,7 +83,7 @@ describe("更新检测的失败分支", () => {
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice);
     assert.equal(notice.version, "v0.1.5");
-    assert.equal(notice.notes, "", "标签回落没有发布说明");
+    assert.equal("notes" in notice, false, "发布说明已下线，提示里没有 notes 字段");
     assert.equal(notice.url, "https://api.github.com/repos/bluechonk/modelmux/releases/tag/v0.1.5");
   });
 
