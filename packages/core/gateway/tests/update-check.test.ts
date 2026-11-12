@@ -1,5 +1,5 @@
 /**
- * 版本更新检测：版本比较、每日一次的真请求、tags 取最大版本、Release 页面地址。
+ * 版本更新检测：版本比较、每日一次的真请求、tags 取最大版本、Latest 下载入口。
  *
  * `fetch` 用 node:test 的 mock 注入 —— 不联网也能跑（真实网络失败时是静默回落）。
  */
@@ -50,17 +50,11 @@ function readState(): Record<string, unknown> {
   return JSON.parse(readFileSync(stateFile, "utf8")) as Record<string, unknown>;
 }
 
-/** tags 列表路由（用完整后缀：`/releases/tags/…` 也含 `/tags`，不能只匹配它）。 */
+/** tags 列表路由（只匹配 tags，不误命中 release 路径）。 */
 const tagsOk = (names: string[]) => ({
   match: "modelmux/tags",
   status: 200,
   body: names.map((name) => ({ name })),
-});
-/** 某个 tag 的 Release 页面地址。 */
-const releasePage = (tag: string) => ({
-  match: `/releases/tags/${tag}`,
-  status: 200,
-  body: { html_url: `https://example.com/r/${tag}` },
 });
 
 describe("版本比较", () => {
@@ -79,60 +73,46 @@ describe("版本比较", () => {
 });
 
 describe("检测", () => {
-  it("有新版本：取版本与 Release 页面地址并落盘检查时间（不读发布说明）", async () => {
-    mockFetch([tagsOk(["v0.1.3", "v0.1.4"]), releasePage("v0.1.4")]);
+  it("有新版本：取版本与 Latest 下载入口并落盘检查时间", async () => {
+    mockFetch([tagsOk(["v0.1.3", "v0.1.4"])]);
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice);
     assert.equal(notice.version, "v0.1.4");
-    assert.equal(notice.url, "https://example.com/r/v0.1.4");
-    assert.equal("notes" in notice, false, "发布说明已下线，提示里不该有 notes");
+    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases/latest");
+    assert.equal("notes" in notice, false, "小卡只报版本号与入口，不抓发布说明");
     assert.ok(readState()["lastCheckAt"], "检查时间要落盘");
   });
 
   it("取语义版本最大者，而不是 tags 的第一项", async () => {
     // tags 的默认顺序是推送时间，先 v0.1.4 后 v0.1.5 是常见情形
-    mockFetch([tagsOk(["v0.1.4", "v0.1.5"]), releasePage("v0.1.5")]);
+    mockFetch([tagsOk(["v0.1.4", "v0.1.5"])]);
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice);
     assert.equal(notice.version, "v0.1.5");
-    assert.equal(notice.url, "https://example.com/r/v0.1.5");
+    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases/latest");
   });
 
   it("上游版本不更新 → null", async () => {
-    mockFetch([tagsOk(["v0.1.3"]), releasePage("v0.1.3")]);
+    mockFetch([tagsOk(["v0.1.3"])]);
     assert.equal(await checkForUpdate("0.1.3"), null);
   });
 
   it("24 小时内用缓存，不重复请求", async () => {
     let calls = 0;
-    mock.method(globalThis, "fetch", async (input: string | URL) => {
+    mock.method(globalThis, "fetch", async () => {
       calls += 1;
-      const url = String(input);
-      const body = url.includes("modelmux/tags")
-        ? [{ name: "v0.1.4" }]
-        : url.includes("/releases/tags/")
-          ? { html_url: "https://example.com/r/v0.1.4" }
-          : null;
-      return new Response(body === null ? "" : JSON.stringify(body), {
-        status: body === null ? 404 : 200,
+      return new Response(JSON.stringify([{ name: "v0.1.4" }]), {
+        status: 200,
         headers: { "Content-Type": "application/json" },
       });
     });
     assert.ok(await checkForUpdate("0.1.3"));
     assert.ok(await checkForUpdate("0.1.3"));
-    assert.equal(calls, 2, "首轮 tags + release 共 2 次；第二轮命中缓存不再请求");
-  });
-
-  it("没有对应 Release：地址落 Release 列表页（不能是 api.github.com 的 JSON 地址）", async () => {
-    mockFetch([tagsOk(["v0.1.4"]), { match: "/releases/tags/v0.1.4", status: 404 }]);
-    const notice = await checkForUpdate("0.1.3");
-    assert.ok(notice);
-    assert.equal(notice.version, "v0.1.4");
-    assert.equal(notice.url, "https://github.com/bluechonk/modelmux/releases");
+    assert.equal(calls, 1, "只查 tags 一次；第二轮命中缓存不再请求");
   });
 
   it("网络失败不误报「没有更新」：保留上次检测到的新版本", async () => {
-    mockFetch([tagsOk(["v0.1.4"]), releasePage("v0.1.4")]);
+    mockFetch([tagsOk(["v0.1.4"])]);
     assert.ok(await checkForUpdate("0.1.3"), "先成功检出 v0.1.4");
     // 让缓存过期后断网：失败必须回落上次结果，而不是抹掉它
     const state = readState();
@@ -152,12 +132,12 @@ describe("检测", () => {
       stateFile,
       JSON.stringify({
         lastCheckAt: new Date(Date.now() - 2 * 86400 * 1000).toISOString(),
-        latest: { version: "v0.1.4", notes: "", url: "u" },
+        latest: { version: "v0.1.4", url: "u" },
         snoozedUntil: new Date(Date.now() + 86400 * 1000).toISOString(),
         skippedVersion: "v0.1.4",
       }),
     );
-    mockFetch([tagsOk(["v0.1.4"]), releasePage("v0.1.4")]);
+    mockFetch([tagsOk(["v0.1.4"])]);
     const notice = await checkForUpdate("0.1.3");
     assert.ok(notice, "跳过 / 稍后已下线：遗留字段不得再压制提示");
     const state = readState();
@@ -168,7 +148,7 @@ describe("检测", () => {
 
 describe("后台缓存", () => {
   it("refreshUpdateNotice 填充 updateNotice", async () => {
-    mockFetch([tagsOk(["v0.1.4"]), releasePage("v0.1.4")]);
+    mockFetch([tagsOk(["v0.1.4"])]);
     await refreshUpdateNotice("0.1.3", () => {});
     assert.ok(updateNotice());
   });

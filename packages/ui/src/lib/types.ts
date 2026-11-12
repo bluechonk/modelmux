@@ -23,7 +23,7 @@ export interface UpdateNotice {
   available: boolean;
   /** 检测到的新版本（如 `v0.1.4`）。 */
   version: string;
-  /** 版本页地址（「前往下载页」在默认浏览器打开它）。 */
+  /** 下载入口（固定 GitHub Releases 的 Latest 页）。 */
   url: string;
   /** 本次检测时间（ISO）。 */
   checkedAt: string;
