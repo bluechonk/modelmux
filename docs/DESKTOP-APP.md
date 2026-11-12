@@ -21,6 +21,7 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 | 失败分因 | 端口被占（stderr 线索）≠ 起动超时 ≠ 起来后崩溃，错误页分别说明；主框架加载失败（`did-fail-load`）也落错误页，不让「正在启动」无限转圈 |
 | 崩溃恢复 | 渲染进程崩了（`render-process-gone`）自动重载窗口；网关已死时重载落到错误页 |
 | 外链 | 窗口内跳转（`will-navigate`）与新窗口（`setWindowOpenHandler`）都交系统浏览器 —— 窗口绝不导航离开控制台（没有返回键） |
+| 自动更新 | electron-updater + 应用内进度窗（§6）：**不做自动检查**，仅托盘菜单「检查更新」触发；检查 → 下载 → `quitAndInstall()`（应用**真正退出**）→ 静默安装 → 自动重启 |
 
 ### 前置条件（新机器零依赖）
 
@@ -155,7 +156,33 @@ Electron 运行时对本机路径敏感，**同一份二进制、同一个脚本
 - 渠道本身**必须登录**才能用：modelmux 是代理，转发的是你个人账号的请求，
   「自带可用渠道」= 凭据分发，红线禁止。
 
-## 6. 已知边界
+## 6. 自动更新
+
+对齐 DeepSeek Harness 的做法：**electron-updater 编排 + 应用内进度窗**，安装器仍是
+electron-builder NSIS（§2）。**刻意不做自动更新** —— 启动不检查、不定时检查，只有用户从托盘菜单点
+「检查更新」才走一遍：检查到新版本 → 自动下载 → 应用内进度窗显示「正在安装更新 / 更新完成后将自动重启应用」
+→ 下载完成 `quitAndInstall()`：应用**真正退出**（`app.isUpdating` 放行 close 拦截）→ 安装器运行 →
+装完自动拉起新版本。
+
+| 环节 | 口径 |
+| --- | --- |
+| 更新源 | `resources/app-update.yml`（构建时由 `build.publish` 生成）：`provider: github`，仓库 `bluechonk/modelmux` |
+| 进度窗 | 主进程自建的独立小窗（`desktop/update.cjs`），不是 Web 控制台的一页；主窗口退出后仍可见 |
+| 退出放行 | `app.isUpdating` 置位后，主窗口的 close 拦截放行（否则又被收托盘，安装器杀不掉） |
+| 安装器 | `quitAndInstall(true, true)`：**静默**安装（不再弹 NSIS 自己的进度窗），装完自动拉起新版本 |
+| 失败 | 进度窗显示原因 + 提示稍后在控制台版本胶囊重试；不影响应用继续用当前版本 |
+| 开发模式 | `electron .` 没有 `app-update.yml`，直接跳过检查 |
+
+**发版要求**：GitHub Release 除 `modelmux-setup-<版本>.exe` 外，还必须上传
+`desktop/dist/latest.yml`（electron-updater 靠它校验安装包的 sha512 / 大小）；缺它更新检查会失败。
+`latest.yml` 由 `npm run desktop` 生成。
+
+> 之所以不再走「NSIS 宏强杀旧实例」：那条路依赖 electron-builder 的钩子注入顺序，实测
+> 安装器脚本不采用 `customCheckAppRunning`（宏在 `installer.nsh` 被包含前就求值），
+> 且旧卸载器会被 `uninstallOldVersion` 调起而卡住。改为「应用先退出、安装器再装」后，
+> 安装器那套运行中检查根本不会触发。
+
+## 7. 已知边界
 
 - **ia32 不支持**：Electron 44 起不再发布 32 位。
 - **Git Bash / 管道环境直跑 dev Electron** 有 GPU 沙箱噪音（历史记录），验证以

@@ -240,6 +240,9 @@ git config --get core.hooksPath         # 应为 .githooks
    - 已有 Release 改说明用 `gh release edit <tag> --notes-file …`，不要删了重建。
    - 桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`）本地构建、随 tag 重出，
      可作 Release 附件上传，也可只在说明里写构建步骤（见 [DESKTOP-APP.md](./DESKTOP-APP.md)）。
+   - 上传桌面包时**必须同时上传 `desktop/dist/latest.yml`**（`npm run desktop` 生成）——
+     electron-updater 靠它校验安装包的 sha512 / 大小，缺它自动更新直接失败
+     （见 [DESKTOP-APP.md](./DESKTOP-APP.md) §6）。
 2. **版本号连续递增，不跳号**：发版前先核 `git tag -l` 与根 `package.json` 的 `version`，
    按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。

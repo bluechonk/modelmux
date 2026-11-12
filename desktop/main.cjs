@@ -15,6 +15,7 @@
  */
 
 const { app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, ipcMain, nativeTheme } = require("electron");
+const { setupAutoUpdate, checkNow } = require("./update.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -84,6 +85,9 @@ if (!gotLock) {
     refreshTrayMenu();
 
     await createWindow();
+
+    // 自动更新：应用内检查 + 应用内进度窗 + quitAndInstall（对齐 DeepSeek Harness）
+    setupAutoUpdate();
 
     app.on("activate", () => {
       showWindow();
@@ -207,6 +211,7 @@ function refreshTrayMenu() {
     Menu.buildFromTemplate([
       { label: running ? "网关：运行中" : "网关：未运行", enabled: false },
       { type: "separator" },
+      { label: "检查更新", click: () => checkNow() },
       { label: "打开控制台", click: showWindow },
       { label: "在浏览器打开", click: () => void shell.openExternal(`${BASE}/web/`) },
       { type: "separator" },
@@ -336,9 +341,10 @@ async function createWindow() {
   });
 
   // 关窗只**收起**到托盘，不退出：网关继续在后台接客户端请求，用户从托盘再打开或退出。
-  // 真要退出走托盘菜单（那时 app.isQuitting 已置位，不再拦截）。
+  // 真要退出走托盘菜单（那时 app.isQuitting 已置位，不再拦截）；
+  // 更新安装时 app.isUpdating 置位，也必须放行，否则 quitAndInstall 会被收托盘挡住。
   win.on("close", (event) => {
-    if (app.isQuitting) return;
+    if (app.isQuitting || app.isUpdating) return;
     event.preventDefault();
     win?.hide();
   });

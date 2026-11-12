@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "electron": "43.8.7",
-    "electron-builder": "25.1.8",
+    "electron-builder": "26.18.1",
     "rcedit": "^5.0.2"
   },
   "build": {
@@ -24,6 +24,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "update.cjs",
       "app/**/*",
       "assets/**/*"
     ],
@@ -53,6 +54,13 @@
       "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": false
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "bluechonk",
+      "repo": "modelmux"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }
