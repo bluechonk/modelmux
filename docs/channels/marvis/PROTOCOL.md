@@ -380,3 +380,204 @@ OAuth 授权在 iframe 里完成，结果通过 `postMessage`
 （`pcyyb_login_result` / `qclogin_success`）回传，再由 native 写回客户端。
 
 结论：**首次登录需要客户端**；**登录后 accessToken 可纯 HTTP 复用**（已实测）。
+
+## 15. 本地 gateway 协议（2026-11-12 实测打通）
+
+### 15.1 连接
+
+```
+1. native bridge 取 token：
+   CallBridge.invokeMethod("AiStarter.GetGatewayToken", callbackId)
+   回调签名：(callbackId, code, data, message)
+   data = {"token":"<uuid>","port":10123}
+
+2. 连 WebSocket（注意：**不要加 handler 参数**）：
+   ws://127.0.0.1:<port>/?token=<token>
+
+3. 端口复用 HTTP：
+   GET /health?token=<token>  → {"code":0,"agent_ready":true}
+```
+
+WebSocket 握手成功即 101；**首帧不是 hello，直接发业务请求**。
+
+### 15.2 帧格式（纯 JSON 文本）
+
+```json
+// 请求
+{ "type": "request", "event": "<action>", "payload": {...}, "requestId": "<自定义>" }
+
+// 成功应答
+{ "type": "ack", "event": "<action>", "requestId": "...",
+  "data": { "ok": true, "action": "<action>", "data": {...}, "request_id": "<服务端>" } }
+
+// 失败应答
+{ "type": "ack", "data": { "ok": false, "error": { "code": "bad_request", "message": "..." } } }
+
+// 服务端主动事件
+{ "type": "event", "event": "gateway.connected",
+  "data": { "agentConnectionStatus": "Ready" } }
+```
+
+### 15.3 action 清单（服务端错误信息泄露）
+
+```
+blocking.resolve        browser.list          browser.login.open
+browser.status          device.notify         feature.get
+mcp.cancel / create / delete / disable / enable / get / list / update
+persona.get             product.get           skills.notify
+token.conversation_usage  token.conversations_usage
+token.usage_logs        token.wallet          tool_calls.app...
+```
+
+### 15.4 实测结果
+
+| action | 结果 |
+| --- | --- |
+| `feature.get` | 通过（功能开关） |
+| `product.get` | 通过（产品列表） |
+| `persona.get` | 通过（人设） |
+| `token.wallet` | 通过（**额度**） |
+| `token.usage_logs` | 通过（逐日用量） |
+| `mcp.list` | 通过 |
+| `device.notify` | 通过 |
+| `token.conversation_usage` | 参数校验：需 `conversation_id` |
+| `browser.list` / `browser.status` | 超时（需浏览器会话） |
+
+### 15.5 额度实测值
+
+```json
+{ "avail_tokens": "10000000", "total_tokens": "10000000",
+  "used_tokens": "0", "frozen_tokens": "0", "status": 1 }
+```
+
+**1000 万 tokens 可用**。这是 Marvis 自己的模型额度（区别于第三方 provider）。
+
+### 15.6 踩坑记录
+
+| 现象 | 原因 |
+| --- | --- |
+| 1005 立即关闭 | URL 多了 `handler=codeagent` 参数 |
+| `missing field \`event\`` | 帧用 `name` 而非 `event` |
+| `Unknown action` | 用了 `machines:list` 这类前端方法名，不是 gateway action |
+| 103 字节错误帧 | 帧是**纯 JSON**，不是二进制 MVT1 |
+
+`MVT1`/`CA2F` 双头二进制帧是**另一条协议**（页面与宿主之间），gateway WebSocket 用 JSON。
+
+## 16. Agent 侧登录与 AK/SK（2026-11-12）
+
+### 16.1 action 全清单（33 个）
+
+```
+user.login  user.logout  user.get_credentials
+token.wallet  token.usage_logs  token.conversation_usage  token.conversations_usage
+tool_calls.execute  tool_calls.approve  tool_calls.notify
+tool_calls.download_app  tool_calls.get_app_status  tool_calls.pause_download
+tool_calls.resume_download  tool_calls.stop_download  tool_calls.update_app
+mcp.list  mcp.get  mcp.create  mcp.update  mcp.delete
+mcp.enable  mcp.disable  mcp.cancel
+browser.list  browser.status  browser.login.open
+feature.get  product.get  persona.get  skills.notify
+device.notify  blocking.resolve
+```
+
+### 16.2 user.login 的真实机制
+
+源码（`marvis_agent.pyd` 内嵌文档字符串）：
+
+```
+1. 先从 SQLite 加载已有 AK/SK
+2. SQLite 中没有匹配 → 调远程 API
+   服务：cloud_asset_service.create_aksk
+3. 创建成功后缓存到 AuthStore，并加密持久化到 SQLite
+```
+
+流程分支（源码注释）：
+
+```
+1. 有 user_switching 错误 → 拒绝
+2. 无用户登录 → 创建 UserContext + 鉴权
+3. 已有用户且 openid 不一致 → 自动登出当前用户并切换
+   （openid 一致时直接走后续鉴权，不需重新激活）
+```
+
+必需参数（服务端原话）：
+
+```
+Ual-Access-Openid is required in login_args when no active user
+```
+
+### 16.3 AK/SK 表结构
+
+```sql
+CREATE TABLE IF NOT EXISTS aksks (
+  aksk_id        TEXT PRIMARY KEY,
+  login_source   TEXT NOT NULL DEFAULT '',
+  openid         TEXT NOT NULL DEFAULT '',
+  login_type     TEXT NOT NULL DEFAULT '',
+  pc_openid      TEXT NOT NULL DEFAULT '',      -- PC 端登录标识
+  pc_login_type  TEXT NOT NULL DEFAULT '',      -- 如 LOGIN_TYPE_PC_MARVIS
+  access_key     TEXT NOT NULL,
+  secret_key     TEXT NOT NULL,
+  description    TEXT NOT NULL DEFAULT '',
+  status         INTEGER NOT NULL DEFAULT 1,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+```
+
+`aksk_id` 由 `auto-created by marvis-agent` 生成，`LoginInfo` 从
+`from_query_params` 构造（`LOGIN_SOURCE_PC`）。
+
+### 16.4 登录态判定
+
+| 现象 | 含义 |
+| --- | --- |
+| `user.get_credentials` → `no_aksk` | Agent 侧尚未登录 |
+| `user.login` → `login_args is required` | 未传登录参数 |
+| `user.login` → `'NoneType' object has no attribute 'pc_openid'` | 参数形态不对，未解析出 `pc_openid` |
+
+**Agent 登录与网页登录是两套**：网页登录只给 REST 用；Agent 需要额外的 AK/SK
+（由 `cloud_asset_service.create_aksk` 创建）。
+
+## 17. 测试
+
+### 怎么测这个渠道
+
+```bash
+mx marvis status          # 凭据可用性
+mx marvis bill            # 额度（走本地 gateway）
+mx marvis models          # 第三方供应商清单
+```
+
+首次登录需在 Marvis 客户端完成，然后导入 cookie：
+
+```bash
+# 客户端登录后，用 CDP 读页面 cookie
+node .tmp/probe-marvis/cdp-read.mjs 'document.cookie'
+# 写入 ~/.modelmux/channels/marvis/credentials.json
+```
+
+gateway 地址配置（客户端运行时获取）：
+
+```bash
+node .tmp/probe-marvis/gw-token.mjs   # 输出 {"token":"...","port":10123}
+# 写入 upstream.json 的 gatewayAddr
+```
+
+### 端到端测试覆盖
+
+| 覆盖项 | 判据 |
+| --- | --- |
+| 凭据读取 | `credentials.json` 含 token / openId |
+| 登录态 | `marvis_check_login` 返回 `code:0` |
+| 令牌刷新 | `marvis_refresh_token` 返回 `code:0` + `expires_in` |
+| 签名正确性 | 正确签名 `200`；错误签名 `403` |
+| gateway 连接 | `/?token=` 可握手，收到 `gateway.connected` 事件 |
+| 额度 | `token.wallet` 返回 `avail_tokens` |
+| 用量 | `list_agent_token_stats` 返回逐日记录 |
+| 供应商 | `list_custom_llm_provider` 返回 ≥1 家 |
+
+实测（2026-11-12）：上述全部通过，额度 1000 万 tokens。
+
+边界：**首次登录需客户端**（OAuth 走 native bridge）；模型对话未对外暴露可复用端点，
+故本渠道不承载对话（`buildChatBody` 显式抛错）。

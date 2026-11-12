@@ -80,6 +80,7 @@ docs/channels/<cid>/
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | OAuth 授权页 + 轮询取令牌（无本机回环）；对话体 **gzip 压缩**；伪装官方 CLI 头族；模型目录仅个人账号可取；**国内版无签到入口** | [PROTOCOL](./codebuddycn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `doubaowork` | 豆包工作（`www.doubao.com`） | 手机号 + 短信验证码登录（登录域 `accounts.doubao.com`，`a_bogus` 签名故走真实浏览器）；对话**必须带客户端设备号**，缺了被人机验证拦；活动额度在 `incentive_quota_entitlements`，**上游无签到接口** | [PROTOCOL](./doubaowork/PROTOCOL.md) |
+| `marvis` | 腾讯 Marvis（`yybadaccess.3g.qq.com`） | 微信/QQ OAuth 登录（首次需客户端）；REST 签名 `MD5(body+ts+accessKey+nonce)`；自带「省心组合」模型，对话走本地 gateway WebSocket 的 `agent.run`（**纯 JSON 帧 + AG-UI 事件流**） | [PROTOCOL](./marvis/PROTOCOL.md) |
 | `todayai` | Today 国内版（`todayai.cn`） | 手机号 + 短信验证码登录（唯一路径）；canonical-v1 会话协议，**没有流式**（历史页只给终态）；订阅制无额度，「签到」是 rapport 规则上报 | [PROTOCOL](./todayai/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |

@@ -70,6 +70,7 @@
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | [PROTOCOL](./channels/codebuddycn/PROTOCOL.md)（OAuth 授权页 + 轮询；对话体 gzip；官方 CLI 头族） |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
 | `doubaowork` | 豆包工作（`www.doubao.com`） | [PROTOCOL](./channels/doubaowork/PROTOCOL.md)（手机号 + 短信验证码登录；SSE 对话必须带设备号；窗口限额 + 活动赠送额度） |
+| `marvis` | 腾讯 Marvis（AI 办公助手，`yybadaccess.3g.qq.com`） | [PROTOCOL](./channels/marvis/PROTOCOL.md) · [FINDINGS](./channels/marvis/FINDINGS.md)（微信/QQ OAuth 登录；MD5 签名；内置「省心组合」+ 本地 gateway 对话） |
 | `todayai` | Today 国内版（`todayai.cn`） | [PROTOCOL](./channels/todayai/PROTOCOL.md)（手机号 + 短信验证码登录；canonical-v1 会话协议，无流式；订阅制无额度） |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
@@ -127,5 +128,4 @@
 3. `packages/cli/src/channels.ts` 加一行 `import "@modelmux/<cid>"`（包名 = `@modelmux/` + 目录名，装好后由工作区软链解析）
 4. 工作区根 `package.json` 的 `workspaces`（`packages/cli` 不必声明依赖：发布 bundle 自包含）
 5. `npm install && npm test`（自带 `build`；`verify-storage` 校验落点规范、`verify-docs` 校验文档归属）
-| 腾讯 Marvis 逆向（非渠道，研究记录） | [PROTOCOL](./marvis/PROTOCOL.md) · [FINDINGS](./marvis/FINDINGS.md)（微信/QQ OAuth 登录、MD5 签名、Electron 字节码 + Python Agent） |
 
