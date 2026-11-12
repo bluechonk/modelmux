@@ -355,11 +355,19 @@ scope / accesstoken / access_token_expire_time
 
 ### 14.5 模型能力分布
 
-**Marvis 自身不提供模型。** `list_custom_llm_provider` 返回 7 家第三方
-（腾讯云 / DeepSeek / 阿里云 / MiniMax / Kimi / 智谱），全部是标准 OpenAI 兼容
-`chat/completions` 地址。
+Marvis 有**两层模型**：
 
-Marvis 自己的对话走**本地 WebSocket**（`ws://127.0.0.1:<port>`，端口取自
+1. **内置「省心组合」**（默认，`homeSelectedModel = "default"`）：按任务难度自动
+   匹配模型，由服务端承载，用账号 token 额度计费。前端常量 `cs = "default"`、
+   `Ll = "省心组合"`；对话时 `model_config` **留空**即为它。
+2. **用户自配的第三方 provider**：`list_custom_llm_provider` 返回 7 家
+   （腾讯云 / DeepSeek / 阿里云 / MiniMax / Kimi / 智谱 / 小米），标准 OpenAI 兼容
+   `chat/completions`；以 `custom:<id>` 前缀作 config_id。
+
+> 早期结论「Marvis 自身不提供模型」是**错的** —— 只查了第 2 层，
+> 漏了 `agent.run` 这个不在 action 白名单里的对话入口（见 §18）。
+
+对话走**本地 WebSocket**（`ws://127.0.0.1:<port>`，端口取自
 `agent_port.ini`，默认 6161），由 `MarvisAgent`（Python）承载。
 
 `get_agent_team` 返回 4 个内置 agent：
@@ -581,3 +589,74 @@ node .tmp/probe-marvis/gw-token.mjs   # 输出 {"token":"...","port":10123}
 
 边界：**首次登录需客户端**（OAuth 走 native bridge）；模型对话未对外暴露可复用端点，
 故本渠道不承载对话（`buildChatBody` 显式抛错）。
+
+## 18. 模型对话协议（`agent.run`，2026-11-12 实测打通）
+
+### 18.1 为什么容易漏掉
+
+`agent.run` **不在 gateway 的 action 白名单里**（白名单只列 33 个 action），
+所以从 `Unknown action` 的报错信息里看不出来。它挂在前端
+`__WS_CONNECTION__` 的 `runAgent()` 上，用同一套 WebSocket 但独立的 `event` 名。
+
+### 18.2 请求
+
+```js
+// 1. 先建会话
+await call("conversations.create", {});
+// → { conversation_id: "conv_...", status: "created" }
+
+// 2. 发消息
+await call("agent.run", {
+  conversation_id,          // 上一步的 id
+  message,                  // 用户文本
+  response_id,              // 自定义 id，用于关联事件流
+  attachments: [],          // 附件（可为空）
+  mcp_manage_tools_enabled: true,
+  // model_config 留空 = 用默认「省心组合」；
+  // 指定时传 { config_id: "default" } 或 { config_id: "custom:<id>" }
+});
+// → { ok: true, conversation_id, response_id }
+```
+
+`agent.run` 的 ack 只表示**已受理**，正文靠后续事件推送。
+
+### 18.3 响应：AG-UI 事件流
+
+同一连接持续推 `ag_ui_event`：
+
+| type | 含义 |
+| --- | --- |
+| `TEXT_MESSAGE_START` | 助手消息开始 |
+| `TEXT_MESSAGE_CONTENT` | **正文增量**（`delta` 字段） |
+| `TEXT_MESSAGE_END` | 消息结束 |
+| `CUSTOM`（name=`message_complete`） | 完整消息 + token 用量 |
+| `RUN_FINISHED` | 本轮终止（唯一成功终态） |
+
+配套事件：`conversations.status_changed`（`in_progress` → `completed`）、
+`gateway.agent_stats_changed`、`gateway.tick`。
+
+正文取 `data.delta`；token 用量在 `CUSTOM.value.rawEvent.token_usage`
+（`input_tokens` / `output_tokens` / `cached_tokens`）。
+
+### 18.4 实测
+
+```
+buildChatBody → 槽位登记（本渠道无 HTTP 体）
+prepareChat   → 1908ms（真跑 agent.run + 收齐 AG-UI 事件）
+newTranslator → 4 帧
+回复           → "收到。"
+
+token 用量：input 26234 / output 2 / cached 24704
+```
+
+### 18.5 渠道实现要点
+
+因为对话走 **WebSocket 事件流**而非 HTTP 响应体，共享层的 `chatUrl` 拿不到内容：
+
+1. `chatUrl` 返回一个幂等只读的 REST 占位（`marvis_check_login`）。
+2. `buildChatBody`（同步）只登记槽位。
+3. `prepareChat`（异步）真跑 `conversations.create` + `agent.run`，
+   收齐 `TEXT_MESSAGE_CONTENT.delta` 与 `RUN_FINISHED`，攒成 OpenAI SSE 帧。
+4. `newTranslator` 从槽位把帧吐出去。
+
+与 todayai 同一手法（占位端点 + `prepareChat` 内部完成 + 槽位取帧）。
