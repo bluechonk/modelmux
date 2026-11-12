@@ -47,7 +47,7 @@ export function UpdateCard(): ReactElement | null {
   if (version === "") return null;
 
   return (
-    <div ref={wrapRef} className="no-drag relative hidden min-[900px]:block">
+    <div ref={wrapRef} className="no-drag relative hidden min-[1000px]:block">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

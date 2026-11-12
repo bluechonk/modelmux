@@ -148,6 +148,14 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         */}
         <div className="drag-region h-full min-w-4 flex-1" aria-hidden="true" />
         <div className="flex flex-none items-center gap-3">
+          {/*
+            顶栏右侧簇按**梯度收敛**（窗口越窄越先丢「能从别处拿回」的信息）：
+            控制钮 > 深浅切换 > 版本号 > web 页 > 网关地址 —— 每档只掉一个元素，
+            掉档顺序与阈值：地址 <1200px → web 页 <1100px → 版本胶囊 <1000px →
+            主题 <900px。窗口控制钮是窗口可用性兜底、运行中是网关存活信号，二者常驻；
+            主题与版本是轻量状态；web 页在浏览器里本就同义反复；地址在账号池页与文档
+            里也能查到。
+          */}
           {IS_DEMO && (
             <span className="whitespace-nowrap rounded-lg border border-warn/25 bg-warn/8 px-2 py-1 text-xs text-warn/90">
               演示模式
@@ -156,8 +164,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           {/*
             「web 页」：**桌面壳专属** —— 浏览器里你已经在 web 页上，再放一个入口是同义反复；
             壳里才需要一键跳到默认浏览器（setWindowOpenHandler 交系统浏览器）。
-            地址从 base_url 推导（同一网关，/v1 换成 /web/）；尺寸对齐右侧 base_url 胶囊；
-            窄屏与 base_url 一起隐藏。
+            地址从 base_url 推导（同一网关，/v1 换成 /web/）；尺寸对齐右侧 base_url 胶囊。
           */}
           {IS_DESKTOP && state.data?.base_url && (
             <a
@@ -165,7 +172,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
               target="_blank"
               rel="noreferrer"
               aria-label="在默认浏览器打开 modelmux Web 控制台"
-              className="no-drag hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-xs text-ink-faint transition-colors hover:text-ink min-[900px]:flex"
+              className="no-drag hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-xs text-ink-faint transition-colors hover:text-ink min-[1100px]:flex"
             >
               <ExternalLink size={13} aria-hidden="true" />
               web 页
@@ -173,18 +180,19 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           )}
           {/*
             base_url 放顶栏最右（紧挨网关状态）：它是客户端唯一要填的地址，
-            放仪表盘卡里要滚到中部才看得到。窄屏（<900px）隐藏 —— 顶栏横向空间
-            要留给导航，地址在账号池页与文档里也能查到。
+            放仪表盘卡里要滚到中部才看得到；窗口最窄时最早收敛（见上梯度注释）。
           */}
           {state.data?.base_url && (
-            <div className="no-drag hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[900px]:flex">
+            <div className="no-drag hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[1200px]:flex">
               <span className="whitespace-nowrap font-mono text-xs text-ink-soft">
                 {state.data.base_url}
               </span>
               <CopyButton value={state.data.base_url} label="复制 base_url" />
             </div>
           )}
-          <ThemeToggle />
+          <span className="no-drag hidden min-[900px]:flex">
+            <ThemeToggle />
+          </span>
           <GatewayStatus />
           {/*
             版本号 + 更新提示：数据来自快照的 `version` / `update`（后台每天检测一次），
