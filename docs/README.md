@@ -103,6 +103,7 @@
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 | `.agents/skills/claude-mx-test/SKILL.md` | 端到端测试：Claude Code 经 `/v1/messages`（Anthropic Messages）直连网关，tool_use ↔ tool_calls 双向映射与 tool_result 回灌矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
+| `.agents/skills/doubaowork-reverse/SKILL.md` | 豆包工作纯 HTTP 接入：请求体 XOR 0x05 混淆、最小参数集、mitmproxy 抓真实请求、排查清单 |
 | `.agents/skills/codex-mx-test/SKILL.md` | 端到端测试：Codex CLI 经 `/v1/responses`（OpenAI Responses）直连网关，function_call ↔ tool_calls 双向映射矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。

@@ -1,231 +1,189 @@
-# 豆包工作（DoubaoWork）上游协议
+# 豆包工作（DoubaoWork）协议规格
 
-豆包工作网页/客户端（`www.doubao.com`）的登录、模型目录、对话与额度协议。
-证据等级：**实测**（2026-11-12，本机 Windows 11、Chrome 147、账号已登录）为主，
-反代项目源码对照为辅（见文末「参考实现」）。
+> 上游：豆包网页端 / 豆包工作账号（`www.doubao.com` + `accounts.doubao.com`）。
+> 本文件是协议事实与证据等级的唯一落点；共享层规则见根 `AGENTS.md` 与 `docs/CONTRACT-TS.md`。
+> 桌面端资源结构与 URL 解包结论见 [FINDINGS.md](./FINDINGS.md)。
 
-## 1. 域名与身份
+## 0. 结论速查
 
-| 用途 | 域 |
+| 环节 | 结论 | 证据等级 |
+| --- | --- | --- |
+| 登录 | 手机号 + 短信验证码，真实两跳 | [实测 2026-11-12] |
+| 发码 | `POST https://accounts.doubao.com/passport/web/send_code/` | [实测] |
+| 校验 | `POST https://accounts.doubao.com/passport/web/sms_login/` | [实测] |
+| 表单编码 | 字段值按 UTF-8 字节异或 `0x05` 后转 hex | [实测] |
+| 会话 | passport cookie jar（`sessionid` / `sid_guard` 等），非 Bearer token | [实测] |
+| 账号信息 | `GET https://accounts.doubao.com/passport/account/info/v2/` | [实测] |
+| 模型菜单 | `POST https://www.doubao.com/alice/slot/action_bar_v3/brief_list` | [实测] |
+| 对话 | `POST https://www.doubao.com/chat/completion`，豆包事件流 | [实测] |
+| 额度 | `POST /alice/commerce/sale/subscription/quota/summary/` | [实测] |
+| 登录态刷新 | 无 refresh 端点，调账号信息端点做有效性探测 | [实测] |
+| 客户端凭证 | 不读取豆包桌面客户端 cookie / DPAPI / assr | [实测] |
+
+## 1. 登录链路
+
+### 1.1 发码
+
+```
+POST https://accounts.doubao.com/passport/web/send_code/?aid=497858&language=zh&account_app_language=zh-CN&account_sdk_source=web&multi_login=1&device_platform=web&os_type=1&terminal_type=2&ts=<unix秒>
+Cookie: <页面预热得到的匿名 cookie>
+Content-Type: application/x-www-form-urlencoded
+
+mix_mode=1&mobile=<编码手机号>&type=<编码的 "24">&is6Digits=1&fixed_mix_mode=1
+```
+
+- 手机号编码：`+86 13146069411` 按 UTF-8 字节逐位异或 `0x05`，再转小写 hex。
+- `type` 的明文是 `24`（网页端手机号登录）。
+- 页面预热 `GET https://www.doubao.com/chat/` 会下发匿名 cookie；全新匿名会话**不需要** `sign` / `a_bogus` / `msToken` 也能发码（实测成功）。
+- 成功响应：`{"data":{"mobile_ticket":"...","retry_time":60},"message":"success"}`。
+
+### 1.2 校验
+
+```
+POST https://accounts.doubao.com/passport/web/sms_login/?<与发码相同的 query>
+Cookie: <发码阶段的 cookie jar>
+Content-Type: application/x-www-form-urlencoded
+
+mix_mode=1&mobile=<编码手机号>&code=<编码验证码>&login_only=false&fixed_mix_mode=1
+```
+
+- 成功响应 `message:"success"`，同时通过 `Set-Cookie` 下发登录会话：
+  `sessionid` / `sessionid_ss` / `sid_guard` / `sid_tt` / `uid_tt` / `passport_auth_status` 等。
+- 登录会话是 cookie，不是响应体 token。
+
+## 2. 凭据落盘与刷新
+
+- 落点：`~/.modelmux/channels/doubaowork/credentials.json`（`0600`）。
+- 字段：`cookieJar`（完整 passport cookie）、`accessToken`（`sessionid` 镜像，满足共享层契约）、
+  `uid`、`nickname`、`phone`、`expiresAt`、`obtainedAt`、`source`。
+- 未完成登录的中间态：`~/.modelmux/channels/doubaowork/state/login-pending.json`，保存发码 cookie 与 `mobile_ticket`。
+- **无 refresh 端点**：`refresh()` 调账号信息端点验证 cookie；有效则保留，失效抛 `NotLoggedInError`。
+
+## 3. 账号信息
+
+```
+GET https://accounts.doubao.com/passport/account/info/v2/?pc_version=3.45.3&version_code=20800&language=zh&device_platform=web&aid=497858&real_aid=497858&pkg_type=release_version&use-olympus-account=1&region=CN&sys_region=CN&account_sdk_source=web&sdk_version=2.2.10&doubao_from=inject_html
+Cookie: <cookie jar>
+```
+
+- 成功：`message:"success"`，`data.user_id_str` / `data.name` / `data.mobile`。
+- 401/403 或非 success 视为会话失效。
+
+## 4. 模型菜单
+
+```
+POST https://www.doubao.com/alice/slot/action_bar_v3/brief_list?<公共 query>
+Cookie: <cookie jar>
+Content-Type: application/json
+
+{"language_code":"zh","bot_id":"7338286299411103781","conversation_id":"local_<随机>"}
+```
+
+- 公共 query：`aid=497858`、`real_aid=497858`、`device_platform=web`、`doubao_device_platform=web`、
+  `pc_version=3.45.3`、`version_code=20800`、`region=CN`、`sys_region=CN`、
+  `use-olympus-account=1`、`web_platform=browser` 等。
+- 菜单在 `data.menu_conf_v2.mode_list.item_list[]`：
+  - 对话模式 `mode_id=1`：`快速(0)` / `专家(3)`。
+  - 工作任务模式 `mode_id=3`：`自动(9)`、`2.1 Lite(seed-lite-7b)`、`2.1 Pro(5)`、
+    `person-deepseek-v4-1-flash-261017`、`person-glm-5-3-flash-261111` 等。
+- 上游没有独立 `/models` 端点；渠道目录以菜单快照为准。
+
+## 5. 对话
+
+```
+POST https://www.doubao.com/chat/completion?<公共 query + web_tab_id>
+Cookie: <cookie jar>
+Content-Type: application/json
+Accept: text/event-stream
+Agw-Js-Conv: str
+x-flow-trace: <uuid>-<uuid>-01
+last-event-id: undefined
+
+{ "client_meta": {...}, "messages": [...], "option": {...}, "user_context": [], "ext": {...} }
+```
+
+- 每条请求新建 `local_conversation_id` 与 `unique_key`；多轮上下文由渠道把完整消息列表扁平化为一条 user 文本送入。
+- 模型选择在两处同时写：`option.model_config.model_item_key` 与
+  `option.aggregate_params.model_item_key`；模式写 `mode_id` 与 `agent_mode`。
+- 工作任务模型（`person-*`、`5`、`9`、`seed-lite-7b`）：`mode_id="3"`、`agent_mode=1`；
+  对话模式：`mode_id="1"`、`agent_mode=2`。
+
+### 5.1 响应事件
+
+| 事件 | 语义 |
 | --- | --- |
-| 对话、模型目录、额度 | `https://www.doubao.com` |
-| 登录、账号信息、登录态心跳 | `https://accounts.doubao.com` |
+| `SSE_HEARTBEAT` | 心跳 |
+| `SSE_ACK` | 建会话回执（含真实 `conversation_id`） |
+| `FULL_MSG_NOTIFY` | 用户消息回执，**不能当回答** |
+| `STREAM_MSG_NOTIFY` | 回答首段 + 后续内容块 |
+| `STREAM_CHUNK` | 增量 patch |
+| `CHUNK_DELTA` | 纯文本增量 |
+| `STREAM_ERROR` | 业务错误帧 |
+| `SSE_REPLY_END` | 正常终止（唯一成功终态） |
 
-两个域**不能混用**：把 `passport/*` 打到 `www` 或把 `alice/*` 打到 `accounts` 都是 404。
+- 正文在 `content_block[].content.text_block.text`；思考容器是 `block_type=10040`，其子块为 `reasoning_content`。
+- 渠道翻译器把首段与增量转成 OpenAI SSE，`SSE_REPLY_END` 后发 `finish_reason:"stop"` 与 `[DONE]`。
+- `STREAM_ERROR` 必须转成错误帧；`710022004` 是语义风控 / 限流，不是 cookie 失效。
 
-`aid`（应用 id）也分两套：
-
-- 登录域 `aid=497858`（`real_aid=497858`）。
-- 对话域 `aid=1044603`（`real_aid=1044603`）。
-
-## 2. 登录：手机号 + 短信验证码
-
-登录页 `https://www.doubao.com/login/`。表单提交到 **`accounts.doubao.com`**：
-
-```
-POST https://accounts.doubao.com/passport/web/send_code/
-POST https://accounts.doubao.com/passport/web/sms_login/
-```
-
-两个请求都带一大组查询参数（`passport_jssdk_version`、`is_from_ttaccountsdk`、
-`account_sdk_source`、`account_sdk_source_info`、`sign`、`qs`、`msToken`、
-**`a_bogus`** 等）。其中 `a_bogus` 由页面里的 `webmssdk` 生成，`account_sdk_source_info`
-是打包过的设备指纹。
-
-结论：**纯 HTTP 复现不可行**。渠道实现走真实浏览器（Playwright）完成表单，
-让字节自己的 JS 生成签名，再回收 Cookie。同目录 `cred.ts` 的 `runBrowserLogin`
-就是这条路径。
-
-登录成功的判据是 Cookie 里出现 `sessionid`（或 `sessionid_ss`）。
-
-## 3. 登录态与续期
+## 6. 额度
 
 ```
-GET https://accounts.doubao.com/passport/token/beat/web/?...
+POST https://www.doubao.com/alice/commerce/sale/subscription/quota/summary/?<公共 query>
+Cookie: <cookie jar>
+Content-Type: application/json
+
+{"product_line":"membership"}
 ```
 
-返回 `{"data":{"error_code":0,...}}` 表示仍有效。**上游没有续期接口** ——
-Cookie 到期只能重新登录。`cred.probeSession` 只做有效性探测，
-`cred.refresh` 在失效时抛 `NotLoggedInError`，绝不伪造「刷新成功」。
+- 返回 `data.window_limit_section` / `data.incentive_quota_section` / `data.enterprise_window_limit_section`。
+- 窗口字段：`window_type`（1=5 小时，2=周，3=活动赠送）、`used_percent`、`used_amount`、`total_amount`、`start_time`、`end_time`。
+- 实测账号：活动赠送额度 `3900`，已用 `509`，剩余 `3391`。
 
-## 4. 设备号（关键风控条件）
+## 7. 环境变量（运维面）
 
-对话请求必须带：
-
-```
-device_id=<14 位数字>
-fp=verify_<同一个 device_id>
-```
-
-缺失时 `/chat/completion` 回 HTTP 200 + SSE 错误帧：
-
-```
-event: STREAM_ERROR
-data: {"error_code":710022004,"error_msg":"rate limited",
-       "extra":{"decision":"{...\"from\":\"shark_admin\",\"subtype\":\"slide\"...}"}}
-```
-
-这是**人机验证（滑块）**，不是真的限流。实测：同一 Cookie、同一出口，
-只补上 `device_id` 就从被拦变为正常回答（2026-11-12 复现两次）。
-
-设备号只在客户端配置文件里：
-
-```
-%LOCALAPPDATA%\DoubaoWork\User Data\Local State   →  aha.device.device_id
-```
-
-Cookie 与协议都不下发它。`cred.readDeviceId` 读这个文件；读不到时登录会给出警告
-（对话大概率被拦），但不会阻断登录。
-
-## 5. 模型目录
-
-```
-POST https://www.doubao.com/alice/user/launch
-  → data.assistant_bot_id（实测 7338286299411103781）
-
-POST https://www.doubao.com/alice/slot/action_bar_v3/brief_list
-  body: {"language_code":"zh","bot_id":"<assistant_bot_id>"}
-```
-
-`brief_list` 的 `data.entry_list[].active_switch_conf.menu_conf.item_list[]` 是模型项，
-每项字段：
-
-| 字段 | 含义 |
+| 变量 | 用途 |
 | --- | --- |
-| `model_item_key` | 上游模型 id，发对话用（如 `person-deepseek-v4-1-flash-261017`） |
-| `name` | 展示名 |
-| `default_mode` / `mode_id` | 模式 id（`3` = 工作任务） |
-| `agent_mode` | 任务模式（实测全部为 `1`） |
-| `menu_type` / `item_id` | 思考档位基值 |
-| `model_extra_params` | 原样回传给上游的 JSON |
+| `DOUBAOWORK_PHONE` | CLI 无界面登录的手机号 |
+| `DOUBAOWORK_SMS_CODE` | 验证码（与手机号同批给出时直接完成校验） |
+| `DOUBAOWORK_DEBUG_DUMP` | 调试转储开关 |
 
-`pc_version` 缺了会返回**空菜单**（实测）。渠道固定发 `2.33.5`。
-
-## 6. 对话
-
-```
-POST https://www.doubao.com/chat/completion?<查询串>
-```
-
-查询串必须含 `device_id` + `fp`（见 §4），另有 `aid=1044603`、`samantha_web=1`、
-`web_platform=desktop`、`client_platform=pc_client`、`runtime=web`、
-`runtime_version=3.42.2`、`pc_version`、`use-olympus-account=1` 等。
-
-请求体关键字段：
-
-```jsonc
-{
-  "client_meta": { "local_conversation_id": "local_<16 位数字>", "bot_id": "<bot>", ... },
-  "messages": [{ "local_message_id": "<uuid>", "content_block": [ /* block_type 10000 文本块 */ ] }],
-  "option": {
-    "need_create_conversation": true,
-    "need_deep_think": 0,
-    "agent_mode": 1,
-    "model_config": { "model_item_key": "<model>", "model_extra_params": {} },
-    "aggregate_params": { "mode_id": "3", "model_item_key": "<model>", "agent_mode": "1" },
-    "general_task_param": { /* agent_mode 1/2 时需要 */ }
-  },
-  "ext": { "use_deep_think": "0", "agent_mode": "1", "is_finish": "1" }
-}
-```
-
-### 响应事件（`text/event-stream`）
-
-| event | 内容 |
-| --- | --- |
-| `SSE_HEARTBEAT` | 心跳，忽略 |
-| `SSE_ACK` | 建会话回执，含 `conversation_id` |
-| `FULL_MSG_NOTIFY` | 完整消息（`user_type == 2` 是助手） |
-| `STREAM_MSG_NOTIFY` | 消息块更新（`content.content_block`） |
-| `CHUNK_DELTA` | 增量文本（`text` 字段） |
-| `STREAM_CHUNK` | 补丁式更新（`patch_op[].patch_value.content_block`） |
-| `STREAM_TIMEOUT_CONTROL` | 上游控制帧，忽略 |
-| `SSE_REPLY_END` | 本轮结束 |
-| `STREAM_ERROR` | 错误（见 §4 的风控码） |
-
-正文统一在 `content_block[].content.text_block.text` 里。渠道的翻译器把上述事件
-转成 OpenAI `chat.completion.chunk`。
-
-## 7. 额度
-
-```
-POST https://www.doubao.com/alice/commerce/sale/subscription/overview/
-  body: {"product_line":"membership"}
-
-POST https://www.doubao.com/alice/commerce/sale/subscription/entry/config/
-  body: {}
-```
-
-`overview` 的额度分两块：
-
-1. **窗口限额**：`data.window_limit_section.window_limit_groups[].window_limits[]`，
-   `window_type` 1 = 5 小时、2 = 近 7 天、4 = 其他周期。
-   企业账号看 `enterprise_window_limit_section`。
-2. **活动赠送**：`data.incentive_quota_entitlements[]`，字段是
-   `total_amount` / `used_amount` / `total_used_percent` / `end_time`。
-   **不在** `quota_package_section` 里（该字段实测为 `null`）。
-
-`entry/config` 给套餐展示名（`profile` / `membership_display_name`）。
-
-豆包工作**没有签到端点** —— 活动额度由上游按活动规则自动发放，
-渠道的 `billing.signin` 如实回报「无签到」，不伪装成领取成功。
-
-## 8. 账号信息
-
-```
-GET https://www.doubao.com/passport/account/info/v2/?aid=497858&device_platform=web&...
-```
-
-给 `user_id` / `user_id_str` / `name` / `avatar_url` 等。登录域 `aid=497858` 同样可用。
-
-## 9. 测试
+## 8. 使用与实测
 
 ### 怎么测这个渠道
 
-#### 登录
-
-```sh
-mx doubaowork login
+```bash
+mx login doubaowork
+mx status doubaowork
+mx model doubaowork
+mx bill doubaowork
 ```
 
-浏览器打开后填手机号，验证码由界面/终端输入。成功后 Cookie 落到
-`~/.modelmux/channels/doubaowork/credentials.json`（0600）。
+单渠道直连：
 
-若未装客户端（没有 `Local State`），登录会给出设备号警告；此时对话大概率被
-人机验证拦下 —— 先装一次豆包工作客户端并登录，或把设备号写进
-`~/.modelmux/channels/doubaowork/device.json` 的 `deviceId` 字段。
-
-#### 各接口单测
-
-```sh
-mx doubaowork status          # 登录态 + 设备号 + 模型数
-mx doubaowork models          # 模型目录（--refresh 强制重拉）
-mx doubaowork bill            # 额度（窗口限额 + 活动赠送）
-mx doubaowork chat "你好"     # 对话
+```bash
+node packages/core/channels/doubaowork/dist/cli.js login
 ```
 
 ### 端到端测试覆盖
 
-渠道不写单测（见根 `AGENTS.md` 的「测试」节），验证走端到端：
+- 手机号发码 → 验证码校验 → cookie 落盘。
+- 账号信息探测（登录状态与 `refresh`）。
+- 模型菜单（`brief_list`）与家族模型映射。
+- 额度摘要（活动赠送额度）。
+- 真实对话：`/chat/completion` 返回事件流，翻译器输出 OpenAI SSE 并以 `[DONE]` 收尾。
 
-| 覆盖项 | 判据 |
-| --- | --- |
-| 手机号 + 验证码登录 | 登录后 `credentials.json` 里有 `sessionid` |
-| 登录态探测 | `passport/token/beat/web/` 返回 `error_code: 0` |
-| 设备号生效 | 带 `device_id` 时 `/chat/completion` 不返回 `710022004` |
-| 模型目录 | `brief_list` 解析出 ≥1 个模型，`bot_id` 非空 |
-| 对话 | SSE 里出现 `CHUNK_DELTA` 或 `STREAM_MSG_NOTIFY`，翻译层产出 `content` |
-| 额度 | `overview` 解析出窗口限额或活动赠送明细 |
+### 2026-11-12 端到端实测
 
-实测（2026-11-12）：登录、探测、目录（10 个模型）、对话（回复「收到」）、
-额度（3391/3900 积分）全部通过。
+- 手机号 `131****9411` 完成真实短信登录，账号 `bluechonk` / uid `1001000343446896`。
+- 纯 HTTP 携带 cookie 调账号信息成功。
+- 额度：活动赠送额度 `3391 / 3900`。
+- 对话：`person-deepseek-v4-1-flash-261017` 返回 `OK`，OpenAI 帧正常收尾。
+- 已知边界：网页端模型名与桌面端不完全一致；工作任务模式若需要本地工具执行，网关只转发文本，不模拟客户端工具运行时。
 
-## 10. 参考实现
+## 9. 参考实现
 
-| 项目 | 用途 | 与本文的关系 |
+| 仓库 | 学到了什么 | 许可证 |
 | --- | --- | --- |
-| `ProvidersPlugin/Agent2Providers` | Rust 反代，`doubaowork` provider | 设备号风控结论、模型目录解析、额度字段名 |
-| `Fullstop000/doubao-cli` | Headless CLI | 查询串参数集、`account/info/v2` 校验 |
-| `lianjiexu08-ui/doubao_reg` | Dola（国际版）逆向 | 短信登录端点族（`send_code` / `mobile_code_login`） |
+| `Wahwayhale/dsh-connect-doubao` | `/chat/completion` 请求体、豆包事件流字段、额度端点、模型菜单结构 | 见 [REFERENCES.md](../../REFERENCES.md) |
 
-三个项目都用 **Cookie 复用**，本文的登录路径（真实浏览器 + 手机号）由本仓库实现。
+> 该参考项目用 CDP 复用桌面客户端 cookie；本渠道不复用客户端凭证，登录改为真实手机号短信链路。
