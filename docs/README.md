@@ -127,4 +127,5 @@
 3. `packages/cli/src/channels.ts` 加一行 `import "@modelmux/<cid>"`（包名 = `@modelmux/` + 目录名，装好后由工作区软链解析）
 4. 工作区根 `package.json` 的 `workspaces`（`packages/cli` 不必声明依赖：发布 bundle 自包含）
 5. `npm install && npm test`（自带 `build`；`verify-storage` 校验落点规范、`verify-docs` 校验文档归属）
+| 腾讯 Marvis 逆向（非渠道，研究记录） | [PROTOCOL](./marvis/PROTOCOL.md) · [FINDINGS](./marvis/FINDINGS.md)（微信/QQ OAuth 登录、MD5 签名、Electron 字节码 + Python Agent） |
 
