@@ -99,6 +99,9 @@ export type { ChannelModelEntry, ChannelModelsSource } from "./runtime/channel-m
 // 渠道目录里的名字 → 上游 slug
 export { resolvePoolModel } from "./pool/model-pool.js";
 
+// 统一模型注册表的按渠道查询（渠道 catalog 用它算「本渠道供哪些池模型」）
+export { exposedIdsForChannel, upstreamIdOf } from "./pool/model-registry.js";
+
 // 公共模型池：对外家族裸模型名 + 跨渠道候选（按账号池剩余额度排序）
 export {
   POOL_MODELS,

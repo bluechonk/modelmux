@@ -106,6 +106,7 @@ mx model list
 | 渠道端到端测试（dsh/ACP 直连网关，覆盖每个渠道的模型） | 技能 `.agents/skills/dsh-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
 | 客户端协议测试（Claude Code 走 /v1/messages · Codex 走 /v1/responses） | 技能 `.agents/skills/claude-mx-test/SKILL.md` · `.agents/skills/codex-mx-test/SKILL.md`（同上成本红线） |
 | 收尾流程（文档同步 / commit / PR / CI / merge） | 技能 `.agents/skills/repo-sync/SKILL.md` |
+| 豆包工作怎么接入（纯 HTTP，含参数混淆与抓包方法） | 技能 `.agents/skills/doubaowork-reverse/SKILL.md` |
 | 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |
 | 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |
 | 某个渠道还差什么没做 | `docs/channels/<cid>/ROADMAP.md`（如 astudio 的 [ROADMAP](docs/channels/astudio/ROADMAP.md)：8 项功能的缺口清单与验收判据） |
