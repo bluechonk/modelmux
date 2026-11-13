@@ -321,6 +321,23 @@ export interface UpstreamModule {
    * 未实现时网关直接跳过（绝大多数渠道不需要）。
    */
   prepareChat?(body: Record<string, unknown>): Promise<void>;
+  /**
+   * 可选：由渠道自行提供**本次对话的响应字节流**，覆盖网关默认的 POST chatUrl 读响应体。
+   *
+   * 为什么需要它：有些上游的对话内容不在主 POST 的响应体上 —— 主 POST 只回一个受理结果，
+   * 内容经另一条长连接（SSE / WS）回流。没有本钩子时，这种渠道只能在 prepareChat 里把
+   * 整轮跑完再一次性交给翻译器，流式退化成末尾突发：客户端在整个生成期间收不到任何字节
+   * （连响应头都没有），与卡死无法区分。
+   *
+   * 声明本钩子后，网关不再向 chatUrl() 建连（buildHeaders / chatUrlForModel 不会为此被调用），
+   * 改为把返回的 ReadableStream 当作上游响应体交给翻译器增量消费；首帧、心跳、空闲守卫与
+   * 探测重试走既有同一套管线。返回 null 时回落到默认的 POST chatUrl 路径。
+   *
+   * 返回流的字节形态必须与 WIRE / newTranslator() 对齐。鉴权建连由渠道自己完成（在
+   * runInChannel 上下文里 cred.load() 取凭据）；建连阶段的凭据失效必须抛 UpstreamUnauthorized，
+   * 网关据此走刷新重试。只有内容确实在侧信道的渠道才声明它。
+   */
+  openChatStream?(body: Record<string, unknown>): Promise<ReadableStream<Uint8Array> | null>;
   fetchModels(credential: any): Promise<Record<string, unknown>>;
   resolveConfig(data: Record<string, unknown>, fallback?: any): any;
   /**

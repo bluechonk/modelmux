@@ -59,7 +59,7 @@
 | cid | 产品 | 文档 |
 | --- | --- | --- |
 | `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单） |
-| `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | [PROTOCOL](./channels/autoclaw/PROTOCOL.md)（云端 OpenClaw 沙箱 relay + 短信登录；协议事实来自参考实现逆向，**尚未真机验证**） |
+| `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | [PROTOCOL](./channels/autoclaw/PROTOCOL.md)（云端 OpenClaw 沙箱 relay + 短信登录；协议事实来自参考实现逆向，对话 relay 与流式已真机验证） |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
 | `codearts` | CodeArts（华为云码道） | [PROTOCOL](./channels/codearts/PROTOCOL.md)（浏览器 OAuth2 + PKCE + DPoP；STS 签名对话；模型目录内置 + 限时福利两源） |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md)（渠道在册；上游曾封停测试账号，账号现状以 `mx acct lobsterai` 为准） |

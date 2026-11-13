@@ -371,6 +371,14 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
   会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
   （`packages/core/gateway/src/runtime/channel.ts:223`）。
+- `openChatStream?(body)`：**内容不在主 POST 响应体上**的上游（侧信道 SSE / WS）用。声明后
+  网关在建连 `chatUrl` **之前**调它（`packages/core/gateway/src/http/chat/upstream.ts:255-260`），
+  把返回的流当作上游响应体交给翻译器 —— `buildHeaders` / `chatUrlForModel` 不再被调用。
+  返回 `null` 回落默认 POST 路径；入参与 `prepareChat` 同源（网关已经建好的 body），真正的
+  请求现场可放在渠道自己的请求槽里由两个钩子共用。返回流之前抛 `UpstreamUnauthorized`
+  归一成 401 + `authRejected`（走刷新重试链）；其余错误**不**自动重开 —— 这个钩子有上游
+  副作用（真发了一轮对话），重开会让同一提问跑两遍。声明处见
+  `packages/core/gateway/src/runtime/channel.ts:340`。
 - `refreshIfExpired?(credential)`：建头**之前**的异步凭据保鲜，网关在 `buildHeaders` 前
   `await` 它（`packages/core/gateway/src/http/chat/upstream.ts:139`）。
   为什么需要：`buildHeaders` 是同步的，无法「先续期再发」；而渠道的预续期若是惰性的
