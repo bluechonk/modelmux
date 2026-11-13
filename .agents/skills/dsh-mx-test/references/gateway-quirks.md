@@ -46,4 +46,4 @@ dsh 侧判工具调用真跑通：
 
 traecn 工具调用回包错形、错误帧 `code` 类型、空壳 assistant 等历史坑由 `npm run verify:wiring`
 （在 `npm test` 链里）做静态校验；`verify:wiring` 失败时先回查渠道的 `toSoloToolCalls()` 与
-共享层 wire 归一化，详见 `.agents/skills/mx-cli/SKILL.md` 与 `docs/CONTRACT-TS.md` §7。
+共享层 wire 归一化，详见 `docs/CONTRACT-TS.md` §7。

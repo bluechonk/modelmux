@@ -244,6 +244,18 @@ node packages/core/channels/todayai/dist/cli.js task "<指令>" [--rounds 轮数
 
 结论：本渠道适合**纯文本对话**，Agent 工具流量应交给支持工具的候选渠道。
 
+### 排查清单
+
+| 现象 | 先查 |
+| --- | --- |
+| `mx bill todayai` 显示 `unsupported` | `ChannelConfig.capabilities.billing` 是否为 true |
+| 额度打到 100 但不重置 | `resetQuotaIfExhausted` 有没有被调；`fetchResets` 的 `totalCount` 是不是 0 |
+| 重置调用失败 | 上游 `409 pricing.reset_unavailable`；或 `resetId` 已过期 |
+| 请求落点不是 todayai | 网关按额度排序；`billing:false` 的渠道恒排最后 |
+| 探测脚本 `cred.load()` 路径解析失败 | 没包 `runInChannel(cid, ...)`，或没先 import 渠道 `channel.js` |
+
+逆向方法、结论的证据来源与探测脚本见 [FINDINGS.md](./FINDINGS.md)。
+
 ## 9. 参考实现
 
 | 仓库 | 学到了什么 | 许可证 |

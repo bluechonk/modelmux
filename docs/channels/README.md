@@ -5,9 +5,10 @@
 ```
 docs/channels/<cid>/
   PROTOCOL.md     协议规格（实现依据）+ 使用与实测（推荐模型 / 已知限制 / 端到端实测）+ 参考实现
-  FINDINGS.md     逆向结论汇总（可选）：逐条标注证据等级
-  FLOW.md         端到端数据流（可选）：登录态怎么落盘、怎么加密、怎么被解出来
+  FINDINGS.md     逆向结论汇总（按需）：逐条标注证据等级 + 来源；含方法论 / 实跑记录 / 缺口清单
 ```
+
+> **每个渠道至多两份 md**：`PROTOCOL.md` 必有；`FINDINGS.md` 只在有逆向结论时写。
 
 > 落点与登记红线、分层与写作规则见根 [`AGENTS.md`](../../AGENTS.md) 的「文档」。
 > 渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，
@@ -33,16 +34,14 @@ docs/channels/<cid>/
 | 文件 | 回答的问题 | 写什么 | 不写什么 |
 | --- | --- | --- | --- |
 | `PROTOCOL.md` | 「上游长什么样 + 这条渠道怎么用」 | 端点、请求头约束、请求体、环境变量（`src/` 读的运维面变量，`verify-docs` 强制）、实测结论、推荐模型、已知限制、端到端实测、参考实现清单 | why（why 跟代码走） |
-| `FINDINGS.md` | 「逆向出了什么」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件 | 推断写成实测（禁止） |
-| `FLOW.md` | 「数据怎么流动」 | 端到端链路图（凭据落盘 → 加密 → 解密 → 注入请求） | 与链路无关的旁支 |
+| `FINDINGS.md` | 「逆向出了什么 + 有多可信」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件；逆向方法论、完整实跑记录、渠道缺口清单 | 推断写成实测（禁止）；推理过程 / 变更史 |
 
 > **许可证与出处**：各渠道 `PROTOCOL.md` 的 `## 参考实现` 只写「从哪个仓库学到了什么」；
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：`PROTOCOL.md` 13 份（每个渠道一份）、`FINDINGS.md` 3 份
-（`catpaw` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
-后两者是**按需**的逆向结论层，不是每个渠道都有。
+当前落地：**每个渠道一份 `PROTOCOL.md`**；另有 `FINDINGS.md` 的渠道是**按需**的逆向结论层
+（实际清单以 `docs/channels/` 目录为准，不在此处手抄数量）。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
 注释的三层分工见 [`MODULE-COMMENTS.md`](../MODULE-COMMENTS.md)。
@@ -68,9 +67,9 @@ docs/channels/<cid>/
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [METHODOLOGY](./astudio/METHODOLOGY.md) / [WALKTHROUGH](./astudio/WALKTHROUGH.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单） |
+| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [FINDINGS](./astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | 内容流在独立 events SSE 上：prepareChat 只做前置（保鲜 / 沙箱 / 唤醒 / 设备上线），`openChatStream` 边收边翻成 OpenAI SSE 真增量下发；每请求独立沙箱会话键防串台；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./autoclaw/PROTOCOL.md) |
-| `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
+| `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
 | `codearts` | CodeArts（华为云码道） | 浏览器 OAuth2（PKCE + DPoP）+ STS 签名对话；模型目录内置 + 限时福利两源；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash` | [PROTOCOL](./codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
@@ -79,9 +78,9 @@ docs/channels/<cid>/
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | 与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwen3.8-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | OAuth 授权页 + 轮询取令牌（无本机回环）；对话体 **gzip 压缩**；伪装官方 CLI 头族；模型目录仅个人账号可取；**国内版无签到入口** | [PROTOCOL](./codebuddycn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
-| `doubaowork` | 豆包工作（`www.doubao.com`） | 手机号 + 短信验证码登录（登录域 `accounts.doubao.com`，`a_bogus` 签名故走真实浏览器）；对话**必须带客户端设备号**，缺了被人机验证拦；活动额度在 `incentive_quota_entitlements`，**上游无签到接口** | [PROTOCOL](./doubaowork/PROTOCOL.md) |
+| `doubaowork` | 豆包工作（`www.doubao.com`） | 手机号 + 短信验证码登录（纯 HTTP 两跳，登录域 `accounts.doubao.com`，表单值 XOR 0x05 编码）；对话**必须带客户端设备号**，缺了被人机验证拦；活动额度在 `incentive_quota_entitlements`，**上游无签到接口** | [PROTOCOL](./doubaowork/PROTOCOL.md) |
 | `marvis` | 腾讯 Marvis（`yybadaccess.3g.qq.com`） | 微信/QQ OAuth 登录（首次需客户端）；REST 签名 `MD5(body+ts+accessKey+nonce)`；自带「省心组合」模型，对话走本地 gateway WebSocket 的 `agent.run`（**纯 JSON 帧 + AG-UI 事件流**） | [PROTOCOL](./marvis/PROTOCOL.md) |
-| `todayai` | Today 国内版（`todayai.cn`） | 手机号 + 短信验证码登录（唯一路径）；canonical-v1 会话协议，**没有流式**（历史页只给终态）；订阅制无额度，「签到」是 rapport 规则上报 | [PROTOCOL](./todayai/PROTOCOL.md) |
+| `todayai` | Today 国内版（`todayai.cn`） | 手机号 + 短信验证码登录（唯一路径）；canonical-v1 会话协议，**没有流式**（历史页只给终态）；订阅制按月计量（只给已用百分比，打满可由自助重置清零），「签到」是 rapport 规则上报 | [PROTOCOL](./todayai/PROTOCOL.md) + [FINDINGS](./todayai/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
 | `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名（账号 2026-11-05 重新登录验证有效）—— **已下架** | [PROTOCOL](./workbuddyai/PROTOCOL.md) |

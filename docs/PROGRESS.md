@@ -46,9 +46,9 @@
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
 机械校验：`scripts/verify-contract.mjs` 保证「渠道目录 == 注册清单 ∪ `RETIRED_CIDS`」，
-`packages/cli/tests/pool.test.ts` 另有一份同口径断言。家族供给范围与对外规格由
-**统一模型注册表**（`~/.modelmux/models.json`）声明，校验见 `scripts/verify-contract.mjs`
-的「统一模型注册表」段。
+`packages/cli/tests/pool.test.ts` 另有一份同口径断言。**候选渠道**由渠道目录
+`exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底；对外规格由**统一模型注册表**
+（`~/.modelmux/models.json`）声明，校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」段。
 
 ## 架构落点
 
@@ -72,8 +72,7 @@
 - 三页：**仪表盘**（接入端点、模型清单、一键接入）、**账号池**（渠道卡、额度条、切号/删除）、
   **日志**（访问日志与上下文）。模型清单内联在仪表盘右列，不再有独立的模型列表页
   （原因见 [WEB-CONSOLE.md](./WEB-CONSOLE.md) 的「模型清单」一节）。
-- 在线演示（演示构建，虚构数据）：<https://bluechonk.github.io/modelmux/> ——
-  由 `.github/workflows/demo-pages.yml` 发布到 GitHub Pages；真实控制台仍是本机工具。
+- 控制台只作本机工具（要读本机网关与账号池），不上公网；看真机就 `mx web`。
 - 视觉：Codex/ChatGPT 近黑单色（`#171717` 侧栏 / `#212121` 主区 / `#2f2f2f` 输入盒），
   窄屏侧栏收 56px 图标栏、表格横向滚动；顶栏 base_url 窄于 900px 隐藏。
 - 数据：`/web/api/state` 的 `models`（`{model, cid, meta}` 矩阵；`meta` 是共享层
@@ -125,6 +124,7 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
   会被上游风控拦截（`code 11128`）。判据与实测见
   [channels/todayai/PROTOCOL.md](./channels/todayai/PROTOCOL.md) §8 与
   [channels/codebuddycn/PROTOCOL.md](./channels/codebuddycn/PROTOCOL.md) §7.3。
-- 用户侧注册表 `~/.modelmux/models.json` 在首启浇种后**不再自动更新**：随包注册表改了渠道映射
+- 用户侧注册表 `~/.modelmux/models.json` 在首启浇种后**不再自动更新**：随包注册表改了上游 id
   （如 todayai 的 `glm-5.3-flash` → `model.glm-5.3-flash`）不会传播到已装机器的用户侧文件。
   运行网关读哪份取决于用户侧文件是否通过校验，见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)。
+  **候选渠道列表不受它影响** —— 那是渠道目录 `exposedIds()` 现算的（注册表只作兜底）。

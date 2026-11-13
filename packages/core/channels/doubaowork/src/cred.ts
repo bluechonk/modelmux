@@ -1,8 +1,8 @@
 /**
- * 豆包工作认证：手机号 + 短信验证码登录 → 会话 Cookie 落盘 → 设备号绑定。
+ * 豆包工作认证：纯 HTTP 手机号 + 短信验证码登录 → 会话 Cookie 落盘 → 设备号绑定。
  *
  * 关键约束（端点/字段/实测见 docs/channels/doubaowork/PROTOCOL.md）：
- *   - 登录域是 `accounts.doubao.com`；每请求带 `a_bogus` 签名，故登录走真实浏览器。
+ *   - 登录域是 `accounts.doubao.com`；表单值按 XOR 0x05 编码，两跳共用同一个 cookie jar。
  *   - 登录态是 Cookie，上游**无续期接口**，失效只能重登；`token/beat/web/` 只做探测。
  *   - 对话必须带设备号（`device_id` + `fp=verify_<device_id>`），否则被 `shark_admin` 滑块拦。
  *
@@ -191,14 +191,169 @@ export function resolveBaseUrl(_realm?: string): string {
   return DEFAULT_BASE_URL;
 }
 
-// ── 登录（浏览器驱动） ──────────────────────────────────────────────────────
+// ── 登录（纯 HTTP 两跳） ────────────────────────────────────────────────────
+
+/** 表单编码：UTF-8 字节逐位异或 `0x05`，再转小写 hex（见 PROTOCOL.md §1.1）。 */
+function enc(value: string): string {
+  const bytes = Buffer.from(value, "utf8");
+  let out = "";
+  for (const b of bytes) out += (b ^ 0x05).toString(16).padStart(2, "0");
+  return out;
+}
 
 /**
- * 登录：打开真实浏览器完成手机号 + 验证码登录，回收 Cookie。
+ * 上游表单里的手机号形态：`+86 ` + 11 位（抓包原文，见 PROTOCOL.md §1.1）。
  *
- * 为什么必须走浏览器：`accounts.doubao.com` 的每个请求都带 `a_bogus` 签名
- * （`webmssdk` 在页面里生成），纯 HTTP 复现要内嵌整个签名器；而短信接口还有
- * 频率限制与人机验证。用真实浏览器让字节自己的 JS 完成签名是唯一稳的路子。
+ * 注意中间那个空格：漏掉会拿到 `1003 手机号错误`，多写也会。
+ * `normalizePhone` 补过的 `+86` 前缀要先剥掉，否则国家码会重复。
+ */
+function formPhone(phone: string): string {
+  let digits = phone.replace(/\D/g, "");
+  if (digits.length === 13 && digits.startsWith("86")) digits = digits.slice(2);
+  return `+86 ${digits}`;
+}
+
+/** 极简 cookie jar：按 domain 存，解析 Set-Cookie 的 name/value/expires。 */
+class CookieJar {
+  private readonly cookies: StoredCookie[] = [];
+
+  /** 并入一条 Set-Cookie（`responseHost` 用于缺省 domain）。 */
+  add(setCookie: string | null | undefined, responseHost: string): void {
+    if (!setCookie) return;
+    const parts = setCookie.split(";");
+    const first = (parts[0] ?? "").trim();
+    const eq = first.indexOf("=");
+    if (eq <= 0) return;
+    const name = first.slice(0, eq);
+    const value = first.slice(eq + 1);
+    const attrs = parts.slice(1).map((s) => s.trim());
+    let domain = responseHost.toLowerCase();
+    let path = "/";
+    let expires = -1;
+    for (const attr of attrs) {
+      const idx = attr.indexOf("=");
+      const key = (idx > 0 ? attr.slice(0, idx) : attr).trim().toLowerCase();
+      const val = idx > 0 ? attr.slice(idx + 1).trim() : "";
+      if (key === "domain" && val) domain = val.replace(/^\./, "").toLowerCase();
+      else if (key === "path" && val) path = val;
+      else if (key === "expires" && val) {
+        const parsed = Date.parse(val);
+        if (Number.isFinite(parsed)) expires = parsed;
+      } else if (key === "max-age" && /^\d+$/.test(val)) {
+        expires = Date.now() + Number(val) * 1000;
+      }
+    }
+    const cookie: StoredCookie = { name, value, domain, path, expires };
+    const at = this.cookies.findIndex(
+      (c) => c.name === name && c.domain === domain && c.path === path,
+    );
+    if (at >= 0) this.cookies[at] = cookie;
+    else this.cookies.push(cookie);
+  }
+
+  /** 发给某 host 的 Cookie 头（过期的丢掉）。 */
+  headerFor(host: string): string {
+    const h = host.toLowerCase();
+    const now = Date.now();
+    return this.cookies
+      .filter((c) => c.expires <= 0 || c.expires > now)
+      .filter((c) => c.domain === h || (c.domain !== "" && h.endsWith(`.${c.domain}`)))
+      .map((c) => `${c.name}=${c.value}`)
+      .join("; ");
+  }
+
+  /** 落盘快照（过期的丢掉）。 */
+  snapshot(): StoredCookie[] {
+    const now = Date.now();
+    return this.cookies.filter((c) => c.expires <= 0 || c.expires > now);
+  }
+}
+
+/** 取响应的全部 Set-Cookie（undici 的 `getSetCookie()`；老实现回落 get）。 */
+function setCookiesOf(resp: Response): string[] {
+  const headers = resp.headers as unknown as { getSetCookie?: () => string[] };
+  if (typeof headers.getSetCookie === "function") return headers.getSetCookie();
+  const raw = resp.headers.get("set-cookie");
+  return raw ? [raw] : [];
+}
+
+/** 登录 / 账号域的公共 query（`ts` 为 unix 秒）。 */
+function loginQuery(): string {
+  return new URLSearchParams({
+    aid: AID_LOGIN,
+    language: "zh",
+    account_app_language: "zh-CN",
+    account_sdk_source: "web",
+    multi_login: "1",
+    device_platform: "web",
+    os_type: "1",
+    terminal_type: "2",
+    ts: String(Math.floor(Date.now() / 1000)),
+  }).toString();
+}
+
+const SEND_CODE_PATH = "/passport/web/send_code/";
+const SMS_LOGIN_PATH = "/passport/web/sms_login/";
+
+/** 公共登录头（Cookie 由调用方按域注入）。 */
+function loginHeaders(cookie: string, contentType?: string): Record<string, string> {
+  return {
+    "User-Agent": USER_AGENT,
+    Cookie: cookie,
+    Origin: "https://www.doubao.com",
+    Referer: "https://www.doubao.com/",
+    ...(contentType ? { "Content-Type": contentType } : {}),
+  };
+}
+
+/** 发码。 */
+async function sendCode(jar: CookieJar, phone: string): Promise<Record<string, unknown>> {
+  const body = `mix_mode=1&mobile=${enc(formPhone(phone))}&type=${enc("24")}&is6Digits=1&fixed_mix_mode=1`;
+  const resp = await fetchWithTimeout(
+    `${ACCOUNTS_HOST}${SEND_CODE_PATH}?${loginQuery()}`,
+    {
+      method: "POST",
+      headers: loginHeaders(jar.headerFor("accounts.doubao.com"), "application/x-www-form-urlencoded"),
+      body,
+    },
+    HTTP_TIMEOUT_MS,
+  );
+  for (const c of setCookiesOf(resp)) jar.add(c, "accounts.doubao.com");
+  return (await resp.json().catch(() => ({}))) as Record<string, unknown>;
+}
+
+/** 校验验证码：成功后 jar 里有会话 Cookie。 */
+async function smsLogin(
+  jar: CookieJar,
+  phone: string,
+  code: string,
+): Promise<Record<string, unknown>> {
+  const body =
+    `mix_mode=1&mobile=${enc(formPhone(phone))}&code=${enc(code)}&login_only=false&fixed_mix_mode=1`;
+  const resp = await fetchWithTimeout(
+    `${ACCOUNTS_HOST}${SMS_LOGIN_PATH}?${loginQuery()}`,
+    {
+      method: "POST",
+      headers: loginHeaders(jar.headerFor("accounts.doubao.com"), "application/x-www-form-urlencoded"),
+      body,
+    },
+    HTTP_TIMEOUT_MS,
+  );
+  for (const c of setCookiesOf(resp)) jar.add(c, "accounts.doubao.com");
+  return (await resp.json().catch(() => ({}))) as Record<string, unknown>;
+}
+
+/** 上游错误描述（不回显 Cookie，只取 message / msg / code）。 */
+function describeUpstreamError(body: Record<string, unknown>): string {
+  const msg = str(body["msg"]) || str(body["message"]) || str(body["code"]);
+  return msg === "" ? "上游未给出原因" : msg;
+}
+
+/**
+ * 登录：纯 HTTP 两跳（发码 → 校验），同一个 cookie jar 贯穿。
+ *
+ * 为什么不用浏览器：`accounts.doubao.com` 的表单值是 XOR 0x05 编码的，两跳在同一个
+ * cookie jar 里就能完成，不需要 `a_bogus` 签名器（零浏览器实测可跑通，见 PROTOCOL.md §8）。
  */
 export async function login(
   _baseUrl: string,
@@ -210,37 +365,57 @@ export async function login(
   },
 ): Promise<Credentials> {
   const status = options?.onStatus ?? (() => {});
-  const phone = await resolvePhone(options);
+  const jar = new CookieJar();
 
-  status("正在启动浏览器并打开豆包登录页…");
-  options?.onUrl?.(`${DEFAULT_BASE_URL}/login/`);
+  // 1. 页面预热：拿匿名 cookie（ttwid 等）
+  status("正在预热登录页…");
+  const warm = await fetchWithTimeout(
+    `${DEFAULT_BASE_URL}/chat/`,
+    { headers: { "User-Agent": USER_AGENT } },
+    HTTP_TIMEOUT_MS,
+  );
+  for (const c of setCookiesOf(warm)) jar.add(c, "www.doubao.com");
 
-  const result = await runBrowserLogin({
-    phone,
-    onStatus: status,
-    requestCode: async () => {
-      const code = await options?.requestInput?.({
-        kind: "code",
-        prompt: `已向 ${maskPhone(phone)} 发送验证码，请输入收到的 6 位验证码：`,
-      });
-      return (code ?? "").trim();
-    },
-  });
+  // 2. 发码
+  const phone = normalizePhone(await resolvePhone(options));
+  status(`正在向 ${maskPhone(phone)} 发送验证码…`);
+  const sent = await sendCode(jar, phone);
+  if (sent["message"] !== "success") throw new Error(`发码失败：${describeUpstreamError(sent)}`);
 
-  if (!hasSession(result.cookieHeader)) {
+  // 3. 验证码（凭据：只说格式，不回显）
+  const code = (
+    await options?.requestInput?.({
+      kind: "code",
+      prompt: `已向 ${maskPhone(phone)} 发送验证码，请输入收到的 6 位验证码：`,
+    })
+  )?.trim() ?? "";
+  if (!/^\d{4,8}$/.test(code)) throw new Error("验证码格式无效（应为 4-8 位数字）");
+
+  // 4. 校验（同会话 Cookie）
+  status("正在校验验证码…");
+  const verified = await smsLogin(jar, phone, code);
+  if (verified["message"] !== "success") {
+    throw new Error(`登录失败：${describeUpstreamError(verified)}`);
+  }
+
+  const cookieHeader = jar.headerFor("www.doubao.com");
+  if (!hasSession(cookieHeader)) {
     throw new Error("登录流程结束但没有拿到会话 Cookie（sessionid），请重试");
   }
 
+  // 5. 账号信息（昵称 / uid）
+  const account = await readAccount(cookieHeader);
+
   const credential: Credentials = {
-    accessToken: result.cookieHeader,
-    uid: result.uid,
+    accessToken: cookieHeader,
+    uid: account.uid,
     domain: "doubao.com",
-    cookies: result.cookies,
-    cookieHeader: result.cookieHeader,
+    cookies: jar.snapshot(),
+    cookieHeader,
     deviceId: readDeviceId(),
-    fingerprint: cookieValue(result.cookieHeader, "s_v_web_id"),
+    fingerprint: cookieValue(cookieHeader, "s_v_web_id"),
     phone,
-    nickname: result.nickname,
+    nickname: account.nickname,
     clientVersion: CLIENT_VERSION,
     obtainedAt: new Date().toISOString(),
   };
@@ -362,207 +537,6 @@ export function describe(credential: Credentials): string {
 /** 空凭据（共享层按账号初始化时用）。 */
 export function empty(): Credentials {
   return { ...EMPTY };
-}
-
-// ── 浏览器登录实现 ──────────────────────────────────────────────────────────
-
-/** 登录页（手机号表单在这里）。 */
-const LOGIN_URL = "https://www.doubao.com/login/";
-
-/** 回收结果。 */
-export interface BrowserLoginResult {
-  readonly cookieHeader: string;
-  readonly cookies: Array<{ name: string; value: string; domain: string; path: string; expires: number }>;
-  readonly uid: string;
-  readonly nickname: string;
-}
-
-export interface BrowserLoginOptions {
-  readonly phone: string;
-  readonly onStatus: (msg: string) => void;
-  /** 向用户要验证码（界面 / CLI 提供）。 */
-  readonly requestCode: () => Promise<string>;
-}
-
-/**
- * 动态加载 playwright，缺失时给出明确的安装指引。
- *
- * 用变量名做动态导入：playwright 是**可选依赖**（只有登录需要），
- * 直接写 `import("playwright")` 会让 tsc 在未安装时报类型错误。
- */
-async function loadChromium(): Promise<{
-  launch: (opts: Record<string, unknown>) => Promise<BrowserHandle>;
-}> {
-  const specifier = "playwright";
-  try {
-    const mod = (await import(specifier)) as unknown as {
-      chromium: { launch: (opts: Record<string, unknown>) => Promise<BrowserHandle> };
-    };
-    return mod.chromium;
-  } catch {
-    throw new Error(
-      "登录需要 Playwright：请在仓库根运行 `npm i -D playwright && npx playwright install chromium`",
-    );
-  }
-}
-
-/** playwright 的最小结构化类型（避免把 playwright 作为编译期依赖）。 */
-interface BrowserHandle {
-  newContext(opts?: Record<string, unknown>): Promise<ContextHandle>;
-  close(): Promise<void>;
-}
-interface ContextHandle {
-  newPage(): Promise<PageHandle>;
-  cookies(): Promise<RawCookie[]>;
-  close(): Promise<void>;
-}
-interface PageHandle {
-  goto(url: string, opts?: Record<string, unknown>): Promise<unknown>;
-  fill(selector: string, value: string): Promise<void>;
-  click(selector: string, opts?: Record<string, unknown>): Promise<void>;
-  waitForSelector(selector: string, opts?: Record<string, unknown>): Promise<unknown>;
-  evaluate<T>(fn: () => T): Promise<T>;
-}
-interface RawCookie {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires: number;
-}
-
-/** 手机号输入框候选（登录页改版时按顺序尝试）。 */
-const PHONE_SELECTORS = [
-  'input[placeholder*="手机号"]',
-  'input[type="tel"]',
-  'input[name="mobile"]',
-];
-/** 「下一步」按钮候选。 */
-const NEXT_SELECTORS = ['button:has-text("下一步")', 'button:has-text("登录")'];
-/** 验证码输入框候选。 */
-const CODE_SELECTORS = ['input[placeholder*="验证码"]', 'input[maxlength="6"]'];
-/** 协议「同意」按钮候选。 */
-const AGREE_SELECTORS = ['button:has-text("同意")', 'button:has-text("已阅读并同意")'];
-
-/** 依次尝试选择器，返回第一个命中的。 */
-async function firstMatch(page: PageHandle, selectors: string[], timeoutMs = 5_000): Promise<string | null> {
-  for (const selector of selectors) {
-    try {
-      await page.waitForSelector(selector, { timeout: timeoutMs });
-      return selector;
-    } catch {
-      /* 换下一个 */
-    }
-  }
-  return null;
-}
-
-/** 登录后判据：Cookie 里出现 `sessionid`。 */
-async function hasSessionCookie(ctx: ContextHandle): Promise<boolean> {
-  const cookies = await ctx.cookies();
-  return cookies.some(
-    (c) =>
-      (c.name === "sessionid" || c.name === "sessionid_ss") &&
-      c.value.length > 0 &&
-      /doubao\.com$/.test(c.domain.replace(/^\./, "")),
-  );
-}
-
-/**
- * 执行一次完整登录。
- *
- * 流程：打开登录页 → 填手机号 → 点下一步 → （同意协议）→ 等验证码输入框 →
- * 向用户要码 → 填入 → 等 `sessionid` 出现 → 回收 Cookie。
- */
-export async function runBrowserLogin(options: BrowserLoginOptions): Promise<BrowserLoginResult> {
-  const chromium = await loadChromium();
-  const browser = await chromium.launch({
-    headless: false,
-    args: ["--disable-blink-features=AutomationControlled"],
-  });
-  const context = await browser.newContext({
-    userAgent: USER_AGENT,
-    viewport: { width: 1280, height: 900 },
-    locale: "zh-CN",
-    timezoneId: "Asia/Shanghai",
-  });
-  const page = await context.newPage();
-
-  try {
-    options.onStatus("正在打开豆包登录页…");
-    await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
-
-    // 1. 手机号
-    const phoneSelector = await firstMatch(page, PHONE_SELECTORS, 20_000);
-    if (!phoneSelector) throw new Error("登录页没有找到手机号输入框（页面可能改版）");
-    await page.fill(phoneSelector, options.phone.replace(/^\+86/, ""));
-    options.onStatus("已填入手机号，点击下一步…");
-
-    const nextSelector = await firstMatch(page, NEXT_SELECTORS, 10_000);
-    if (!nextSelector) throw new Error("登录页没有找到「下一步」按钮");
-    await page.click(nextSelector);
-
-    // 2. 协议（出现就点同意）
-    const agreeSelector = await firstMatch(page, AGREE_SELECTORS, 3_000);
-    if (agreeSelector) {
-      options.onStatus("点击同意服务协议…");
-      await page.click(agreeSelector);
-    }
-
-    // 3. 验证码
-    const codeSelector = await firstMatch(page, CODE_SELECTORS, 30_000);
-    if (!codeSelector) throw new Error("没有出现验证码输入框（短信可能未发出或被风控拦截）");
-    options.onStatus("验证码已发送，等待输入…");
-    const code = await options.requestCode();
-    // 验证码本身是凭据：只说「格式不对」，不回显它
-    if (!/^\d{4,8}$/.test(code)) throw new Error("验证码格式无效（应为 4-8 位数字）");
-    await page.fill(codeSelector, code);
-
-    // 4. 等登录态落地
-    options.onStatus("已提交验证码，等待登录完成…");
-    const deadline = Date.now() + 60_000;
-    let loggedIn = false;
-    while (Date.now() < deadline) {
-      if (await hasSessionCookie(context)) {
-        loggedIn = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
-    if (!loggedIn) throw new Error("提交验证码后没有拿到会话 Cookie，登录未完成");
-
-    // 5. 回收 Cookie（只留 doubao.com）
-    const raw = await context.cookies();
-    const cookies = raw
-      .filter((c) => {
-        const domain = c.domain.replace(/^\./, "");
-        return domain === "doubao.com" || domain === "www.doubao.com";
-      })
-      .map((c) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain.startsWith(".") ? c.domain : `.${c.domain}`,
-        path: c.path || "/",
-        expires: typeof c.expires === "number" ? c.expires : -1,
-      }));
-    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    if (!cookies.some((c) => c.name === "sessionid" && c.value)) {
-      throw new Error("回收的 Cookie 里没有 sessionid，登录未完成");
-    }
-
-    // 6. 账号信息（昵称 / uid）
-    const account = await readAccount(cookieHeader);
-
-    return {
-      cookieHeader,
-      cookies,
-      uid: account.uid,
-      nickname: account.nickname,
-    };
-  } finally {
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
-  }
 }
 
 /**

@@ -1,38 +1,23 @@
 # modelmux
 
-**一个端点，只做几个对外模型。** 把 WorkBuddy、Loomy、Raccoon、
-TRAE、CatPaw、Qoder 国内版、千问办公、AutoClaw 等渠道的额度汇成**一个 OpenAI 兼容端点**，
+**一个端点，只做几个对外模型。** 把 WorkBuddy、Loomy、Raccoon、TRAE、CatPaw、
+Qoder 国内版、千问办公、AutoClaw 等渠道的额度汇成**一个 OpenAI 兼容端点**，
 对外只有家族表里的几个模型名（当前清单看 `GET /v1/models`）。
-专注做一件事：`npx modelmux` 起网关，任何 OpenAI 兼容客户端指过来就能用 ——
 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
 
 ## 这是什么
 
 - **一个网关**：监听 `127.0.0.1:4412`，OpenAI 兼容 `/v1/chat/completions`，
-  另有 Anthropic Messages（`/v1/messages`，Claude Code 直连）、OpenAI Responses
-  （`/v1/responses`，Codex 直连）、`/v1/models` 与 `/health`。
-- **统一模型池**：对外只有家族表里的**裸模型名**，`/v1/models` 只列
-  「至少一个渠道能供给」的那几个；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名。
-- **多渠道路由**：每个渠道是一个池子（模型目录 + 凭据 + 上游协议），注册在 `packages/core/channels/` 下；
-  渠道数由**注册表**决定（`mx model list` 看全量），文档不写死数字。
-- **渠道对客户端透明，网关按额度自动挑**：同一模型的候选渠道按**账号池剩余额度之和降序**，
-  先出额度最多的那家；渠道内账号额度耗尽自动换号，整家烧光则**顺延下一家**，直到全部试完。
-  额度耗尽的账号进「冷却」（到期自动恢复），连败账号熔断后自动半开试探（失败指数退避）。
-- **运维全自动**：签名式登录（扫码 / 设备码 / 短信，按渠道）、**多账号池**（切换 / 移除 / 逐账号额度）、
-  **自动签到**（每个渠道各自的每日奖励）、**每 3 分钟并行刷新全渠道额度**、目录每日保鲜。
+  另有 Anthropic Messages（`/v1/messages`）、OpenAI Responses（`/v1/responses`）、
+  `/v1/models` 与 `/health`。
+- **统一模型池**：对外只有家族表里的**裸模型名**（`deepseek-flash` 是
+  `deepseek-v4.1-flash` 的别名）；`/v1/models` 只列「至少一个渠道能供给」的那几个。
+- **多渠道路由**：同一模型的候选渠道按**账号池剩余额度之和降序**，先出额度最多的那家；
+  渠道内账号耗尽自动换号，整家烧光则顺延下一家。额度耗尽进冷却（到期自动恢复），
+  连败熔断后自动半开试探。
+- **运维全自动**：签名式登录（扫码 / 设备码 / 短信，按渠道）、多账号池、自动签到、
+  每 3 分钟并行刷新全渠道额度、目录每日保鲜。
 - **零第三方运行依赖**：TypeScript 实现，共享层 `dependencies` 为空；Web 看板由 `mx web` 托管。
-
-## 目录
-
-```
-packages/
-├── cli/                      CLI 入口（bin modelmux / mx，注册全部渠道后交给共享 CLI）
-├── ui/                       Web 管理看板（React 19 SPA，`mx web` 托管）
-└── core/                     服务端运行时
-    ├── gateway/              共享层（网关 / 守护 / 路径 / 渠道注册表）
-    └── channels/<cid>/       一个渠道 = 一个池子（模型目录 + 凭据 + 上游协议）
-docs/                         全部文档（契约与规范 + 渠道文档 docs/channels/<cid>/）
-```
 
 ## 快速开始
 
@@ -42,75 +27,42 @@ npm run build        # 全仓编译（tsc -b + cli 单文件 bundle + copy-ui）
 npm test             # build + 全部校验器 + 全部包的测试
 
 node packages/cli/dist/cli.js start              # 启动网关（守护式，端口 4412）
-node packages/cli/dist/cli.js status --json      # reachable / stale_build / 日志目录
+node packages/cli/dist/cli.js login <cid>        # 登录某个渠道（按渠道的登录方式）
 node packages/cli/dist/cli.js model list         # 池视图：有哪些模型（按渠道分组）
-node packages/cli/dist/cli.js model usage        # 池账本：各渠道用得怎么样（每渠道一行）
-node packages/cli/dist/cli.js login <cid>        # 登录某个渠道（浏览器授权）
 node packages/cli/dist/cli.js web                # 打开 Web 控制台（http://127.0.0.1:4412/web/）
-node packages/cli/dist/cli.js log --list         # 分层日志：access / error / system
 
-npm run desktop      # 可选：打成 Windows 安装版 exe（NSIS 一键安装，自启网关 + 内嵌控制台）
+npm run desktop      # 可选：打成 Windows 安装版 exe
 ```
-
-### 全局安装 / npx
-
-`packages/cli` 构建后是自包含的单文件 bundle（`dist/cli.bundle.js`，内联 gateway
-与全部渠道），可脱离本仓库安装；发布到 npm 后支持 `npx modelmux`：
-
-```bash
-npm i -g modelmux    # 或：cd packages/cli && npm pack && npm i -g ./modelmux-*.tgz
-mx start                     # 任意目录直接可用（全名 modelmux 等价）
-mx model list
-```
-
-注意：bundle 形态下陈旧构建检测（`status` 的 stale_build）找不到工作区根，会退化为
-不报告——这是已知限制，不影响网关功能。
 
 ## 接入任意客户端
 
-网关不绑定任何宿主工具：任何 OpenAI 兼容客户端（CLI、IDE、桌面应用）把 base url
-指到 `http://127.0.0.1:4412/v1`，模型填 **deepseek 模型名**
+任何 OpenAI 兼容客户端把 base url 指到 `http://127.0.0.1:4412/v1`，模型填**裸模型名**
 （清单看 `GET /v1/models`，如 `deepseek-v4.1-flash`；API key 任意非空）即可 ——
 哪家渠道出由网关按额度自动挑。
 
 ## Web 控制台
 
-`mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**三个路由页**：
-仪表盘 `/`、账号池 `/accounts`、请求日志 `/logs`。对外模型清单（家族表里的几个模型）与
-「一键接入」（zcode / dsh）都在仪表盘上。
+`mx web` 起本地控制台（`http://127.0.0.1:4412/web/`）：仪表盘 `/`、账号池 `/accounts`、
+请求日志 `/logs`；对外模型清单与「一键接入」（zcode / dsh）在仪表盘上。
 
-**在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
-（截图不放仓库：界面与文案改得快，图必然过时 —— 要看实际形态就看在线演示或 `mx web`。）
-
-- **仪表盘**：当下快照（KPI、接入端点、模型池概览、最近请求）+ 区间用量（热力图、趋势、
-  模型环形图）；模型区可按渠道筛选、只看免费，并标出跨渠道推断的元数据。
-- **账号池**：每个渠道的登录状态、账号列表与剩余额度，支持切换 / 删除 / 新增；
-  熔断与额度冷却的账号都会自动恢复。
-
-页面结构、交互铁律、数据通道与设计令牌见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)；
-用量口径见 [docs/USAGE-STATS.md](docs/USAGE-STATS.md)。
+页面结构与交互铁律见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)，用量口径见
+[docs/USAGE-STATS.md](docs/USAGE-STATS.md)。
 
 ## 文档
 
-项目规则在 [AGENTS.md](AGENTS.md)；契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)），**渠道文档统一在** `docs/channels/<cid>/`：
+项目规则在 [AGENTS.md](AGENTS.md)，契约与规范在 `docs/`（入口 [docs/README.md](docs/README.md)）。
 
 | 想看什么 | 去哪 |
 | --- | --- |
-| 项目规则（开发 / 提交 / 测试 / **文档标准** / **设计文档索引**） | [AGENTS.md](AGENTS.md) |
+| 项目规则（开发 / 提交 / 测试 / 文档标准 / 设计文档索引） | [AGENTS.md](AGENTS.md) |
 | 契约与规范 | [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) |
-| 公共模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
-| 存储落点规范 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) |
-| 运行日志与排查 | [docs/LOGGING.md](docs/LOGGING.md) · 技能 `.agents/skills/log-triage/SKILL.md` |
-| Windows 桌面安装版 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)（安装前提 / 托盘与网关生命周期 / 自定义标题栏 / 存储根） |
+| 模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
+| 存储落点 / 日志 / Web 控制台 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) · [docs/LOGGING.md](docs/LOGGING.md) · [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) |
+| Windows 桌面安装版 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
-| 渠道端到端测试（dsh/ACP 直连网关，覆盖每个渠道的模型） | 技能 `.agents/skills/dsh-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
-| 收尾流程（文档同步 / commit / PR / CI / merge） | 技能 `.agents/skills/repo-sync/SKILL.md` |
-| 豆包工作怎么接入（纯 HTTP，含参数混淆与抓包方法） | 技能 `.agents/skills/doubaowork-reverse/SKILL.md` |
-| Today 怎么逆向（asar 解包 + 压缩 bundle 定位端点、额度重置） | 技能 `.agents/skills/todayai-reverse/SKILL.md` |
-| 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |
-| 某个上游的协议细节 | `docs/channels/<cid>/PROTOCOL.md` |
-| 某个渠道还差什么没做 | `docs/channels/<cid>/ROADMAP.md`（如 astudio 的 [ROADMAP](docs/channels/astudio/ROADMAP.md)：8 项功能的缺口清单与验收判据） |
-| AStudio 逆向方法与实跑记录 | [docs/channels/astudio/METHODOLOGY.md](docs/channels/astudio/METHODOLOGY.md) · [WALKTHROUGH.md](docs/channels/astudio/WALKTHROUGH.md) |
+| 渠道端到端测试 | 技能 `.agents/skills/dsh-mx-test/SKILL.md` |
+| 日志排查 | 技能 `.agents/skills/log-triage/SKILL.md` |
+| 收尾流程 | 技能 `.agents/skills/repo-sync/SKILL.md` |
+| 渠道用法与上游协议 | [docs/channels/README.md](docs/channels/README.md) · `docs/channels/<cid>/PROTOCOL.md` |
 
-> 技能清单以 [docs/README.md](docs/README.md) §3 的表为准（`.agents/skills/` 下每个技能都登记在彼）；
-> `verify-docs` 会校验不漏登记。
+> 技能清单以 [docs/README.md](docs/README.md) §3 的表为准；`verify-docs` 会校验不漏登记。

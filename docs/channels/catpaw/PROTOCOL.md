@@ -9,8 +9,7 @@
 
 | 顺序 | 文档 | 一句话 |
 | --- | --- | --- |
-| 0 | [FINDINGS.md](FINDINGS.md) | **先看这个**：全部结论汇总 + 证据等级 |
-| 0 | [FLOW.md](FLOW.md) | 端到端数据流：登录态怎么落盘、怎么加密、怎么被解出来 |
+| 0 | [FINDINGS.md](FINDINGS.md) | **先看这个**：全部结论汇总 + 证据等级（凭据落点 / 加密方案 / 密钥材料 / 解密验证 / scope 机制 / 敏感面） |
 
 ## 方法论
 
@@ -61,6 +60,76 @@
   `X-Auth-Token`）与直连域 `ai.catpaw.meituan.com`（对话 / 模型目录，`X-Passport-Token` + Cookie）。
   代码里分别是 `cred.ts` 的 `GATEWAY_HOST` 与 `upstream.ts` 的 `DIRECT_HOST`。
 - 登录**只有一条路径**：真实 URL 授权 + `poll-token` 轮询（见下「唯一登录路径」）。
+
+## 端到端数据流
+
+### 桌面端凭据从哪来（逆向结论，证据等级见 FINDINGS.md）
+
+```text
+                     ┌──────────────────────── 妙手桌面端（Electron, catpaw-moon） ────────────────────────┐
+                     │                                                                                    │
+    用户扫码/登录 ──> │  passport 登录 → 拿到 SSO access_token（152 字符）                                  │
+                     │        │                                                                           │
+                     │        ├─> StorageService.Oe(payload)  ← key = SHA256(machineId + 盐)              │
+                     │        │        └─> %APPDATA%\catpaw-moon\catx-credential.json                     │
+                     │        │                 { "ssoTokenEnc": "<base64(iv‖tag‖ct)>" }   ← 加密            │
+                     │        │                                                                           │
+                     │        └─> catx-auth-provider.json / catx-scope-pointer.json / catpaw-uuid         │
+                     │                 （通道名、存储 scope、设备 UUID —— 都不是秘密）                      │
+                     └────────────────────────────────────────────────────────────────────────────────────┘
+                                                      │
+             同一台机器上，同一条 token 还有一条明文出口（CLI 侧）
+                                                      ▼
+                     ┌──────────────── CLI（paw / catdesk, dataFolderName=.meituan-catpaw） ─────────────┐
+                     │  %USERPROFILE%\.meituan-catpaw\auth.json                                          │
+                     │    { auth:{loginType,accessToken,tokenType}, account:{uid,…}, scopeSuffix, … }     │
+                     │    ← 明文，用于交叉验证                                                            │
+                     └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+解密路径（AES-256-GCM，密钥由机器码派生）与 scope 机制见 [FINDINGS.md](FINDINGS.md)。
+**现役渠道实现不读桌面端任何文件**：凭据只来自 `mx login catpaw` 的真实 URL 登录，
+落盘在 `~/.modelmux/catpaw/credentials.json`（见 `src/cred.ts`）。
+
+### 上游调用路径（三段式）
+
+```text
+{ access_token, uid? }
+   │
+   ▼ ①  POST .../api/agent/conversation/round          提交本轮消息（单条 user）
+       body: { conversationId, source:"CatX",
+               messages:[{type:"user", role, messageId,
+                          content:[{type:"text", text:"<折叠后的完整 prompt>"}]}],
+               modelType, mode:"CATX_APP", toolVersion:"2.0.2",
+               requestContext:{modelParams:{declarativeParams:{effort,context}}} }
+       折叠：system/developer + 对话历史 + 工具说明 → 一条 user 文本
+       校验：上游要求末条是 user；本实现恒为单条 user，不触发序列校验
+       上限：不使用 systemPromptContext；prompt 预算 900KB
+   │
+   ▼ ②  POST .../api/agent/conversation/event          回报轮次状态 running
+   │
+   ▼ ③  POST .../api/agent/conversation/turn           执行轮次
+       headers: M-TRACEID / M-APPKEY / gray-set / X-Agent-Version
+                Cookie: X-Passport-Token=<access_token>   user-uid: <uid>
+       body:    { conversationId, turnRequestId, source:"CatX", action:"turn",
+                  message:{type:"user",content:[{type:"text",text}]},
+                  modelType, mode:"CATX_APP", permissionMode:"default",
+                  toolVersion:"2.0.2" }
+   │
+   ▼  text/event-stream
+ data: {"message":{"content":[…]},"contextInfo":{"usage":{…}}}   ← 每帧是累积全文
+   │  SseReader 切行 → unwrapApiData 解信封 → SuffixDiff 转增量
+   ▼
+ { type:'delta' | 'reasoning' | 'tool_use' | 'usage' | 'done' }
+   │
+   └─ 流结束条件：识别上游生命周期终止帧（`finished` 不可依赖；不能等 TCP 关闭）
+```
+
+对应实现：`src/upstream.ts`（三段式协议 + 帧解码 + 消息折叠）。
+
+> 工具调用：上游**无原生用户工具通道**，网关把工具说明注入折叠后的 user 文本，模型以
+> ` ```tool_call ` 块输出，网关解析后转回 OpenAI `tool_calls`（`finish_reason=tool_calls`）。
+> 折叠 prompt 按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
 
 ## 唯一登录路径
 

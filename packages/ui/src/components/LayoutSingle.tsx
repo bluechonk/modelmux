@@ -7,8 +7,7 @@
  * 保留约束（与旧 Layout 一致，重构不得破坏）：
  * - `["state"]` 唯一轮询所有者在布局层，各页面共享缓存、不各自挂表；
  * - 网关异常（查询失败 / down / error 且非日志页）时正文骨架，顶部导航始终可用；
- * - 日志页豁免骨架（排查异常时恰恰要看日志）；
- * - 演示模式提示在头部显示。
+ * - 日志页豁免骨架（排查异常时恰恰要看日志）。
  */
 
 import { NavLink, Outlet, useLocation } from "react-router";
@@ -31,10 +30,7 @@ const NAV = [
   { to: "/logs", label: "请求日志", icon: ScrollText },
 ];
 
-/** 是否演示构建（由 `vite.config.ts` 的 define 注入；见 `lib/demo.ts`）。 */
-declare const __DEMO_MODE__: boolean;
-const IS_DEMO = typeof __DEMO_MODE__ !== "undefined" && __DEMO_MODE__;
-/** 桌面壳判定：preload 桥只在壳的渲染层存在（浏览器 / 演示站都没有）。 */
+/** 桌面壳判定：preload 桥只在壳的渲染层存在（浏览器里没有）。 */
 const IS_DESKTOP = typeof window !== "undefined" && window.modelmuxWindow !== undefined;
 
 /**
@@ -156,11 +152,6 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             主题与版本是轻量状态；web 页在浏览器里本就同义反复；地址与 web 页同档
             （客户端唯一要填的地址，空间够就必须显示，不能出现「web 页在、地址不在」）。
           */}
-          {IS_DEMO && (
-            <span className="whitespace-nowrap rounded-lg border border-warn/25 bg-warn/8 px-2 py-1 text-xs text-warn/90">
-              演示模式
-            </span>
-          )}
           {/*
             「web 页」：**桌面壳专属** —— 浏览器里你已经在 web 页上，再放一个入口是同义反复；
             壳里才需要一键跳到默认浏览器（setWindowOpenHandler 交系统浏览器）。

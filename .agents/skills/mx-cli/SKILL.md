@@ -96,7 +96,7 @@ mx model catpaw --refresh    # 强制重拉上游目录（失败 exit 1）
 curl -s http://127.0.0.1:4412/v1/models   # 客户端实际看到的 id
 ```
 
-对外 id 是**模型家族裸模型名**（如 `deepseek-v4.1-flash` / `glm-5.3-flash`）；家族外的名字一律 400。
+对外 id 是**模型家族裸模型名**（清单以 `mx model list` / `GET /v1/models` 为准，不在此枚举）；家族外的名字一律 400。
 渠道由网关按账号池剩余额度**自动挑**，请求里不带渠道前缀。
 
 `--refresh` 的退出语义不同：`mx model <cid> --refresh` 失败非零退出；
@@ -155,8 +155,8 @@ mx web                     # 确保网关在跑 -> 打印 http://127.0.0.1:4412/
 - `--json` / `--quiet`：主要作用于 `status` / `bill` / `path` / `log` / `acct` / `login` /
   `model`；`start` / `stop` / `restart` / `web` 只解析不输出 JSON，`--quiet` 只影响启停。
 - `--refresh`：`model <cid>` 重拉目录；`model usage` 重查账单；退出语义见 §2.2。
-- `--wait <秒>`：启动健康等待（默认 30，可用 `MODELMUX_START_WAIT_MS` 覆盖）；
-  `--strict` 让启动失败非零退出。
+- `--wait <秒>`：启动健康等待（默认 30，可用 `MODELMUX_START_WAIT_MS` 覆盖）。
+  启动失败**恒非零退出**；`--strict` 仅兼容保留（默认即严格），传不传都一样。
 - `--realm`：登录域（多数渠道忽略或仅兼容）；`--wechat`：扫码登录入口 ——
   参数仍存在，但**目前没有渠道实现** `loginWechat`，传入会报不支持。
 - `--addr`：网关监听地址（默认 `127.0.0.1:4412`）；`--ui-port` 是**控制台端口**，

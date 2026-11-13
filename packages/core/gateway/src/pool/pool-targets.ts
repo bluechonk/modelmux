@@ -13,19 +13,44 @@ import { channels, getChannel, hasChannel, type Channel } from "../runtime/chann
 import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
-import { aliasGroupOf, canonicalOf } from "./model-family.js";
-import { providersOf, registryModelIds, registryModelOf } from "./model-registry.js";
+import { aliasGroupOf, canonicalOf, POOL_EXPOSED_IDS } from "./model-family.js";
+import { providersOf, registryModelOf, upstreamIdOf } from "./model-registry.js";
 import { preferredChannelOf } from "./model-prefs.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
 
+/** 渠道目录暴露模型的内存缓存时长：`exposedIds()` 要读盘，逐个请求读 17 份太贵。 */
+const EXPOSED_TTL_MS = 30_000;
+const exposedCache = new Map<string, { ids: string[]; at: number }>();
+
+/** 读某渠道目录暴露的模型 id（带 TTL 缓存）。 */
+function exposedIdsOf(cid: string, channel: Channel): string[] {
+  const now = Date.now();
+  const hit = exposedCache.get(cid);
+  if (hit && now - hit.at < EXPOSED_TTL_MS) return hit.ids;
+  const ids = runInChannel(cid, () => channel.catalog.exposedIds());
+  exposedCache.set(cid, { ids, at: now });
+  return ids;
+}
+
+/** 清掉某渠道（或全部）的目录缓存 —— 目录刷新后调用，避免最长 TTL 的滞后。 */
+export function invalidateExposedCache(cid?: string): void {
+  if (cid === undefined) exposedCache.clear();
+  else exposedCache.delete(cid);
+}
+
+/** 渠道目录是否暴露某规范模型（大小写 / 上游包装归一到家族名后精确相等）。 */
+function channelExposes(canonical: string, cid: string, channel: Channel): boolean {
+  return exposedIdsOf(cid, channel).some((id) => canonicalOf(id) === canonical);
+}
+
 /**
- * 对外暴露的模型池：注册表里**至少有一家渠道供给**的 id，按家族表顺序。
+ * 对外暴露的模型池：家族表里**至少有一家渠道目录声明**的 id，按家族表顺序。
  *
- * 供给范围由统一注册表（`model-registry.ts`，落盘 `<root>/models.json`）声明，
- * 不再枚举各渠道目录 —— 规格是产品决策，不随上游目录漂移。
+ * 供给范围**运行时问各渠道目录**（`catalog.exposedIds()`），不写死在注册表或代码里 ——
+ * 渠道目录变了（上游加/下模型、用户改 `hidden`）候选自动跟着变。
  */
 export function poolModels(): string[] {
-  return registryModelIds().filter((id) => providersOf(id).length > 0);
+  return POOL_EXPOSED_IDS.filter((id) => poolCandidates(id).length > 0);
 }
 
 export type PoolModel = string;
@@ -386,12 +411,13 @@ export interface PoolCandidate {
 /**
  * 收集某模型（对外 id 或规范名）的**全部候选渠道** —— 按账号池剩余额度降序。
  *
- * 候选来自**统一注册表**的 `channels` 段：哪个渠道提供哪个模型是产品声明，
- * 不是从各渠道目录现算的。注册表里没声明的渠道不进候选（它本来也没有上游 id
- * 可用，进了候选也只会在解析阶段失败）。
+ * 候选 = **渠道目录现算** ∪ **注册表声明**：
+ *  - 目录（`catalog.exposedIds()`）是上游能力的实时事实 —— 上游加/下模型、用户改
+ *    `hidden`，候选立刻跟着变，不必改注册表或代码；
+ *  - 注册表是**兜底**：新装 / 未登录 / 目录还没拉到时目录可能是空的，这时按注册表
+ *    声明兜住，不至于让本来能跑的渠道从候选里消失。
  *
- * 只返回**已注册**的渠道：注册表可能列了一个当前没装/没启用的渠道包，
- * 那种条目跳过即可，不必报错。
+ * 只返回**已注册**的渠道：没装的渠道包不进候选，不必报错。
  */
 export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const canonical = canonicalOf(model);
@@ -400,7 +426,8 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const out: PoolCandidate[] = [];
   for (const channel of channels()) {
     const cid = channel.config.cid;
-    if (declared.has(cid)) out.push({ cid, channel, exposedId: canonical });
+    if (!declared.has(cid) && !channelExposes(canonical, cid, channel)) continue;
+    out.push({ cid, channel, exposedId: canonical });
   }
   return sortByPriority(out, canonical);
 }
@@ -426,6 +453,11 @@ function sortByPriority(candidates: readonly PoolCandidate[], canonical: string)
     const ta = tierOf(a.cid);
     const tb = tierOf(b.cid);
     if (ta !== tb) return ta - tb;
+    // 排队渠道往后放（同档位内）：上游会排队的渠道不作为「有货就先用」的对象，
+    // 但**仍在候选里** —— 真撞到排队时网关立即换下一条（不等待）。
+    const qa = queueOf(a.cid) ? 1 : 0;
+    const qb = queueOf(b.cid) ? 1 : 0;
+    if (qa !== qb) return qa - qb;
     const pa = priorityOf(a.cid, canonical);
     const pb = priorityOf(b.cid, canonical);
     if (pa === null && pb === null) return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
@@ -448,6 +480,11 @@ function tierOf(cid: string): number {
   if (!hasChannel(cid)) return 1;
   const t = getChannel(cid).config.priorityTier;
   return typeof t === "number" && Number.isFinite(t) ? t : 1;
+}
+
+/** 渠道上游是否可能排队（能力位 `capabilities.queue`，缺省 false）。 */
+function queueOf(cid: string): boolean {
+  return hasChannel(cid) && getChannel(cid).config.capabilities?.queue === true;
 }
 
 /**

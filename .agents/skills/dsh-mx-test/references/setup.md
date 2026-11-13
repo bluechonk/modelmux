@@ -43,7 +43,7 @@ dsh-qqbot 是跑在 dsh 宿主内的 cordis 插件，驱动面等于 dsh 的内�
 
 - 传输：ndjson over stdio（每行一个 JSON-RPC 消息）；stdout 只走协议流量，dsh 的日志走 stderr。
 - 握手：`initialize {protocolVersion: 1, clientCapabilities}` → 返回协议版本与能力。
-- `session/new` 返回 `configOptions`：`currentValue` 即本会话固定路由（如 `["modelmux","catpaw/longcat-2.0"]`），
+- `session/new` 返回 `configOptions`：`currentValue` 即本会话固定路由（如 `["modelmux","deepseek-v4.1-flash"]`），
   options 里按 provider 分组列出全部可选模型——这就是「固定模型生效」的直接证据。
 - `session/prompt` 阻塞到整轮收敛（根 agent + 后代都结算），返回 `stopReason`（`end_turn` / `cancelled` / error）。
 - 服务端会反向请求 `session/request_permission`：客户端必须应答，否则挂起；harness 自动选第一个选项。

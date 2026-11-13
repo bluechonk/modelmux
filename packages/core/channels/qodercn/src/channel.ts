@@ -24,6 +24,8 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8817",
   uiPort: 8818,
   debugDumpEnv: "QODERCN_DEBUG_DUMP",
+  // 上游会排队（`10605`）：请求被收下但长时间不出字，网关立即换下一条候选。
+  capabilities: { queue: true },
 };
 
 export const channel: Channel = {

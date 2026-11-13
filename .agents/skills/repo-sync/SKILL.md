@@ -85,7 +85,7 @@ grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反�
   指向已改名章节的引用（如 `AGENTS.md` 的「命令与构建」）改成实际章节名。
 - **留**：外部事实的实测证据（上游行为、限流、真机数字 —— 日期必须留）、影响行为的 why、
   根 `AGENTS.md`「文档」节 / `docs/CODE-COMMENTS.md` 里作为反例的词、设计依据文档顶部的一行状态、
-  `PROGRESS.md` 与渠道 `ROADMAP.md` 的状态表、`WALKTHROUGH` 类过程记录。
+  `PROGRESS.md` 与渠道 `FINDINGS.md` 里带日期的实测记录与缺口清单。
 - 改完必须 `node scripts/verify-docs.mjs` 通过（相对链接与索引登记会拦）。
 
 落点约束（`scripts/verify-docs.mjs` 会拦）：`.md` 只允许落在 `docs/`（含
@@ -97,15 +97,7 @@ grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反�
 `verify-docs` 检查的是落点、索引登记、渠道 PROTOCOL 缺失、README 样板与相对链接死链；
 「文档与代码同一 commit」「中文、无 emoji」「注释同步」属于**评审约束**，它不检查。
 
-## 2. 规划同步
-
-- 多步任务用 `planning-with-files` 技能的 `.planning/<PLAN_ID>/`（`task_plan.md` /
-  `progress.md` / `findings.md`）；阶段状态变化后立即更新。
-- 记录踩过的错误与解决方式（防重复踩坑）。
-- 结项：`.planning/` 与 `.zcode/plans/` 是过程文件（已 gitignore），任务结束删除；
-  需要时从 git 历史取，不设 `archive/`。
-
-## 3. 提交规范
+## 2. 提交规范
 
 1. 一次逻辑变更 = 一个提交；能合并的不要拆碎。
 2. 信息格式 `type(scope): 中文描述`，scope 必填，结尾不加句号；
@@ -120,11 +112,11 @@ grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反�
    状态符（✅ ❌ ⚠ 等，引用命令真实输出的除外）—— 一律改写成事实本身（「问题：…」
    「选型：…」「未实现项：…」）；决策依据写结论，不写沟通过程。
    **squash merge 会把 PR body 写进 main 的 commit body**，所以 PR body 要按 commit
-   message 的标准写；§7 的「需要用户配合的事项」只属于**对话回复**，绝不搬进 PR body。
+   message 的标准写；§6 的「需要用户配合的事项」只属于**对话回复**，绝不搬进 PR body。
    commit message 侧由 `scripts/verify-commits.mjs` 机械拦截（对话词 + emoji）；
    历史 PR 出现同类表述时一并清理（`gh pr edit` 对已合并 PR 有效）。
 
-## 4. 分支 → PR → CI → merge（需要推送时执行）
+## 3. 分支 → PR → CI → merge（需要推送时执行）
 
 ```bash
 # 1) 从最新 main 开分支并提交
@@ -138,8 +130,8 @@ npm run gate
 # 3) 推送（.githooks/pre-push 会自动再跑一次同一门禁）
 git push -u origin fix/<模块>
 
-# 4) 建 PR（gh 优先；标题必须合规）
-gh pr create --title "fix(<scope>): 中文描述" --body-file .tmp/pr-body.md
+# 4) 建 PR（唯一入口 npm run pr；它先校验工作树干净、HEAD 与远端一致、门禁回执仍新鲜）
+npm run pr -- --base main --head fix/<模块> --title "fix(<scope>): 中文描述" --body-file .tmp/pr-body.md
 
 # 5) 等 CI 双绿（node 22 / node 24）再合并
 gh pr checks <n>
@@ -150,10 +142,8 @@ gh pr checks <n>
   在工作树上跑绿不代表 CI 会绿。`pre-push` 会对**所有推送**全量再跑一次 `npm test`，
   它是兜底拦截，不是提前发现，也不按文件范围分流。
 - **改了 `.github/workflows/**` 必须本地先跑通再推**：workflow 的失败模式通常只有真跑
-  产物才暴露。演示站点的 `demo-pages.yml` 要本地验三件事：`DEMO=1 DEMO_BASE=/<repo>/`
-  构建后资源引用带前缀、`index.html` 复制成 `404.html` 后深链能渲染、Pages 源为
-  `build_type: workflow`。workflow 改动仍以 `npm run gate` 为准；
-  本机没有 `act`，不要假设能用 act 复现。
+  产物才暴露。workflow 改动仍以 `npm run gate` 为准；本机没有 `act`，
+  不要假设能用 act 复现。
 - 合并统一用 **`gh pr merge <n> --squash`**（与全局规则一致；保持线性历史，禁止 merge commit）。
   squash 后 **PR 标题就是 main 上那条 commit 的标题**，所以开 PR 时标题必须
   `type(scope): 中文描述`（全局红线）；分支内的多条提交会被压缩成一条。
@@ -161,8 +151,11 @@ gh pr checks <n>
 - 合并后：删远端分支（`gh api -X DELETE repos/bluechonk/modelmux/git/refs/heads/<branch>`）、
   `git fetch --prune`、`git checkout main`、`git reset --hard origin/main`（squash 会重写 SHA，
   本地与远端分叉属正常）、删本地分支，再确认 main 的 CI 双绿。
+  **分支被某棵工作树占用时**（当前分支正是它，或它落在别的 worktree 里）：先
+  `git worktree remove <落点>` 再 `git branch -d <branch>` —— 直接删会报
+  `checked out at ...`。与 §4「在 linked worktree 里收尾」同一口径。
 
-### 4.1 发版：**打 tag + 建 GitHub Release**（Release 承载版本说明）
+### 3.1 发版：**打 tag + 建 GitHub Release**（Release 承载版本说明）
 
 ```
 发版 = 改版本号落点 → chore(release) 提交 → PR 合并 → 在 main 打 vX.Y.Z tag
@@ -180,7 +173,7 @@ gh pr checks <n>
 - 桌面安装包（`desktop/dist/modelmux-setup-<版本>.exe`）本地构建，可作 Release 附件上传，
   也可只在说明里写构建步骤（见 [docs/DESKTOP-APP.md](../../../docs/DESKTOP-APP.md)）。
 
-## 5. 收尾检查清单（一条都不能漏）
+## 4. 收尾检查清单（一条都不能漏）
 
 ```bash
 npm run build                  # 全仓编译（含 ui + bundle + copy-ui）
@@ -192,14 +185,14 @@ node scripts/verify-docs.mjs            # 文档整改复查：落点 + 链接 +
 npm run verify:comments                 # 代码注释整改下限：文件头 / 署名 / 修订记录 / TODO 条件（§1）
 git status                     # 工作树干净（无未提交 tracked 文件）
 git fetch --prune && git branch -a      # 本地/远端只剩 main
-gh release list --repo bluechonk/modelmux   # 每个 tag 都应有对应 Release（§4.1）
+gh release list --repo bluechonk/modelmux   # 每个 tag 都应有对应 Release（§3.1）
 git tag -l                      # tag 是版本事实源，必须都在
 ls .tmp                        # **只看不动**：.tmp 一切内容禁止删除（全局 AGENTS「临时文件」节），
                                 # 收尾不把它当清理待办项
 # PR body 体检（push 前逐条跑）：对话式内容与 emoji 在 archive 里零容忍
 # （换分支重建 PR 时同样适用；已合并 PR 用 gh pr edit 清理）
 gh pr list --state all --limit 40 --json number --jq '.[].number' | while read n; do
-  gh pr view "$n" --json body --jq .body | grep -nE "主人|拍板|批复|需要你|需要用户|等你|另起任务" && echo "PR $n 违规，见 §3 第 5 条"
+  gh pr view "$n" --json body --jq .body | grep -nE "主人|拍板|批复|需要你|需要用户|等你|另起任务" && echo "PR $n 违规，见 §2 第 5 条"
 done
 ```
 
@@ -217,30 +210,30 @@ done
   （落点与清理规则在全局 `~/.agents/AGENTS.md`）；删分支前先
   `git worktree remove` + `git worktree prune`。
 
-## 6. 常见错误（都真机踩过）
+## 5. 常见错误（都真机踩过）
 
 | 错误 | 后果 | 正确处理 |
 | --- | --- | --- |
-| 只 push 不建 PR / 合并后不删分支 | 分支残留、历史碎 | 走完 §4 全流程 |
+| 只 push 不建 PR / 合并后不删分支 | 分支残留、历史碎 | 走完 §3 全流程 |
 | PR 标题写英文/无 scope | squash 后 main 上的 commit 标题不合规（`verify:commits` 拦） | 标题必须是 `type(scope): 中文` |
 | 一次提交后立刻开 PR | 历史碎片化 | 小改动先本地攒批次 |
 | 未提交就继续做新任务 | 改动混批、历史难看 | 每轮收尾再开工 |
 | 文档里写自身变更史 / 实施状态（「此前…」「已落地」） | 越写越像流水账，与 git 重复 | 按 §1「md 文档整改」清掉，只留当前状态与外部证据 |
 | `git add -u` 漏掉新文件 | CI 构建失败（UNRESOLVED_IMPORT） | 新文件用 `git add <path>` |
 | 改了代码没 restart | 验证的是旧进程 | build → restart → status 无陈旧 |
-| **只打 tag 不建 Release** | 控制台「发现新版本」卡片没有说明可读（读的是 Release body） | 发版最后一步建 Release（§4.1）；已发的用 `gh release create/edit` 补 |
+| **只打 tag 不建 Release** | 控制台「发现新版本」卡片没有说明可读（读的是 Release body） | 发版最后一步建 Release（§3.1）；已发的用 `gh release create/edit` 补 |
 | Release 说明写对话式内容 / 记变更史 | 控制台卡片与档案里出现「此前…」「本次」 | 与 commit body 同规：按类型归纳、只写事实 |
 | 本地绿但推送门禁红 | 平台/依赖差异（如漏提交新文件） | 用门禁同款命令在干净 clone 复现 |
 | `.tmp` 被删后重定向失败 | 测试没跑却以为绿了 | 先 `mkdir -p .tmp` |
 | 合并后本地 `git pull` 冲突 | squash 重写了 SHA，同内容不同源 | `git fetch --prune` 后 `git reset --hard origin/main` |
 
-## 7. 输出要求
+## 6. 输出要求
 
 收尾完成后给用户一份简短清单：本轮提交（SHA + 一行说明）、PR 编号与合并方式、
 CI 状态、真机验证结论、分支/工作树/临时文件状态、以及**需要用户配合的事项**
 （如需要真实账号的登录验证）必须单独列出，不能混在「已完成」里。
 **边界：本节清单只属于对话回复** —— 配合事项、提醒、待办一律不进 PR body、
-commit message 与任何档案（见 §3 第 5 条；squash 会把 PR body 写进 main 的 commit）。
+commit message 与任何档案（见 §2 第 5 条；squash 会把 PR body 写进 main 的 commit）。
 
 ### Agent 交付说明（每轮变更的固定格式）
 

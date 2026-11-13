@@ -22,6 +22,8 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8801",
   uiPort: 8802,
   debugDumpEnv: "QODER_DEBUG_DUMP",
+  // 上游会排队（`10605`）：请求被收下但长时间不出字，网关立即换下一条候选。
+  capabilities: { queue: true },
 };
 
 // 模型元数据查询器：catalog（目录知识）→ upstream（请求体消费）。

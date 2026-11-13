@@ -58,9 +58,9 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单） |
+| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [FINDINGS](./channels/astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | [PROTOCOL](./channels/autoclaw/PROTOCOL.md)（云端 OpenClaw 沙箱 relay + 短信登录；协议事实来自参考实现逆向，对话 relay 与流式已真机验证） |
-| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
+| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md)（凭据加密 / 密钥材料 / 解密验证 / scope / 敏感面） |
 | `codearts` | CodeArts（华为云码道） | [PROTOCOL](./channels/codearts/PROTOCOL.md)（浏览器 OAuth2 + PKCE + DPoP；STS 签名对话；模型目录内置 + 限时福利两源） |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md)（渠道在册；上游曾封停测试账号，账号现状以 `mx acct lobsterai` 为准） |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
@@ -71,7 +71,7 @@
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
 | `doubaowork` | 豆包工作（`www.doubao.com`） | [PROTOCOL](./channels/doubaowork/PROTOCOL.md)（手机号 + 短信验证码登录；SSE 对话必须带设备号；窗口限额 + 活动赠送额度） |
 | `marvis` | 腾讯 Marvis（AI 办公助手，`yybadaccess.3g.qq.com`） | [PROTOCOL](./channels/marvis/PROTOCOL.md) · [FINDINGS](./channels/marvis/FINDINGS.md)（微信/QQ OAuth 登录；MD5 签名；内置「省心组合」+ 本地 gateway 对话） |
-| `todayai` | Today 国内版（`todayai.cn`） | [PROTOCOL](./channels/todayai/PROTOCOL.md)（手机号 + 短信验证码登录；canonical-v1 会话协议，无流式；订阅制无额度） |
+| `todayai` | Today 国内版（`todayai.cn`） | [PROTOCOL](./channels/todayai/PROTOCOL.md)（手机号 + 短信验证码登录；canonical-v1 会话协议，无流式；订阅制无额度）+ [FINDINGS](./channels/todayai/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表；账号 2026-11-05 重新登录验证有效） |
@@ -82,15 +82,12 @@
 `astudio` 的逆向记录与协议规格分开放：
 
 - [PROTOCOL.md](./channels/astudio/PROTOCOL.md) —— 现役协议事实
-- [METHODOLOGY.md](./channels/astudio/METHODOLOGY.md) —— 通用逆向方法论 + AStudio 参数映射
-- [WALKTHROUGH.md](./channels/astudio/WALKTHROUGH.md) —— 一次完整实跑记录
-- [ROADMAP.md](./channels/astudio/ROADMAP.md) —— 缺口清单
+- [FINDINGS.md](./channels/astudio/FINDINGS.md) —— 方法论 + 一次完整实跑 + 渠道缺口
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 
-- [PROTOCOL.md](./channels/catpaw/PROTOCOL.md) —— 全部结论速览 + 方法论 + 证据等级约定
-- [FINDINGS.md](./channels/catpaw/FINDINGS.md) —— 结论汇总（逐条标注证据等级）
-- [FLOW.md](./channels/catpaw/FLOW.md) —— 端到端数据流：登录态怎么落盘、怎么加密、怎么被解出来
+- [PROTOCOL.md](./channels/catpaw/PROTOCOL.md) —— 全部结论速览 + 方法论 + 证据等级约定 + 端到端数据流
+- [FINDINGS.md](./channels/catpaw/FINDINGS.md) —— 结论汇总（凭据落点 / 加密方案 / 密钥材料 / 解密验证 / scope 机制 / 敏感面）
 
 ## 3. 规则文件与项目技能
 
@@ -99,12 +96,10 @@
 | `README.md`（**仓库根**） | 仓库门面（GitHub 只渲染根 README），全中文 |
 | `AGENTS.md`（**仓库根**） | 仓库级规则（工具从根读，不能搬） |
 | `packages/core/channels/catpaw/AGENTS.md` | 该目录的 agent 级指令（工具从目录读取，不能搬） |
-| `.agents/skills/repo-sync/SKILL.md` | 收尾流程：`docs/` 与 `.planning/.zcode` 同步、commit / PR / CI / merge |
+| `.agents/skills/repo-sync/SKILL.md` | 收尾流程：`docs/` 同步、commit / PR / CI / merge |
 | `.agents/skills/log-triage/SKILL.md` | 日志分诊：分层日志 + `upstreamMs/ttfbMs/durationMs` + 错误码速查 |
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
-| `.agents/skills/doubaowork-reverse/SKILL.md` | 豆包工作纯 HTTP 接入：请求体 XOR 0x05 混淆、最小参数集、mitmproxy 抓真实请求、排查清单 |
-| `.agents/skills/todayai-reverse/SKILL.md` | Today 逆向方法：Electron 客户端 asar 解包 + 压缩 bundle 定位端点与 UI 触发逻辑、只读探测、额度耗尽自动重置的落地与排查 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
 

@@ -67,7 +67,7 @@ packages/core/channels/<cid>/
 
 > **渠道包只放实现**（`src/` 的 7 个文件 + 包配置）；渠道文档统一在
 > [`docs/channels/<cid>/`](./channels/README.md)（`PROTOCOL.md` 协议规格 + 使用与实测 +
-> 参考实现清单，另有可选的 `FINDINGS.md` / `FLOW.md`）。
+> 参考实现清单，另有可选的 `FINDINGS.md` 逆向结论层；**每渠道至多两份 md**）。
 
 > **一个渠道 = 一个池子**：渠道 `catalog` 提供模型，共享层的**公共模型池**只把
 > **对外模型家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
@@ -182,13 +182,17 @@ interface ChannelConfig {
  defaultAddr: string;         // **单渠道独立运行**的网关默认地址，如 "127.0.0.1:8803"
  uiPort: number;              // **单渠道独立运行**的控制台端口（仓库级路由用 REPO_DEFAULT_*）
  debugDumpEnv: string;        // 抓包落盘目录的环境变量名（值 "1" 表示用渠道内 debug/）
- capabilities?: Partial<ChannelCapabilities>; // 能力声明：billing / signin，缺省 true
+ capabilities?: Partial<ChannelCapabilities>; // 能力声明：billing / signin / queue
 }
 ```
 
 **能力声明**：`capabilities.billing` / `capabilities.signin` 为 `false` 表示该渠道没有额度 /
 签到概念。共享层据此直接显示 `-`，不调用对应模块；缺省视为支持，兼容所有现有渠道。
 无对应能力的渠道在 `channel.ts` 显式声明，不靠抛错或空台账让上层猜。
+
+`capabilities.queue: true` 表示**上游可能排队**（请求被收下但长时间不出字）：网关的排队探测
+立即放弃本候选、换下一条（不等待）；模型偏好的自动排序也把它往后放（同档位内不排队的渠道优先）。
+省略 = `false`。
 
 **落点不由渠道决定**：存储根、`<cid>` 分层、目录内文件名全部由共享层
 `paths.ts` 推导；渠道只给 `cid`，没有任何历史名清单。
@@ -221,13 +225,12 @@ interface Channel {
 `packages/core/gateway/src/pool/model-family.ts` —— 共享层**唯一**允许出现模型名的地方
 （由 `scripts/verify-contract.mjs` 强制）。
 
-- **供给范围与规格由统一注册表声明**（`<root>/models.json`，实现
-  `pool/model-registry.ts`）：`channels` 段同时给出「哪个渠道供这个模型」与
-  「该渠道上游叫它什么」，`contextWindow` / `maxOutput` 是对外报值。
-  `/v1/models` 直接读它返回，不再聚合各渠道目录。文件契约见
+- **规格与上游 id 由统一注册表声明**（`<root>/models.json`，实现
+  `pool/model-registry.ts`）：`contextWindow` / `maxOutput` 是对外报值，`channels` 段是
+  **上游 id 映射的兜底**。`/v1/models` 直接读它返回，不再聚合各渠道目录。文件契约见
   [MODEL-CATALOG.md](./MODEL-CATALOG.md)；整份表要么全用、要么全弃（回落随包默认表）。
-- **渠道由网关挑**：候选是注册表 `channels` 里声明、且当前已注册的渠道，
-  经渠道配置的 `priorityTier`（硬档位）与剩余额度排序（见
+- **渠道由网关挑**：候选 = 渠道目录 `exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底，
+  且当前已注册；经 `capabilities.queue`、`priorityTier`（硬档位）与剩余额度排序（见
   [POOL-ARCHITECTURE.md §2.4](./POOL-ARCHITECTURE.md)）；客户端请求里不带渠道前缀。
 - **匹配**：请求名走别名与大小写归一后**精确相等**；别名组内互相命中。
 - **拒绝**：家族外的名字、家族内但没有任何渠道供给的 → `400 unknown_model`；
