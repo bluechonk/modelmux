@@ -134,7 +134,8 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 
 ## 7. 模型与目录
 
-- 远程模型配置：`GET /autoclaw-proxy/proxy/autoclaw-model-config`（Bearer）→ `data.models[]`，条目含 `id / name / contextWindow / maxTokens / reasoning`。[参考]
+- 远程模型配置：`GET /autoclaw-proxy/proxy/autoclaw-model-config`（Bearer）→ **裸 `{models:[…]}`**（无 `{code,msg,data}` 信封；与 userapi 其余端点不同），条目含 `id / name / contextWindow / maxTokens / reasoning / input / reasoningLevel`。实测条目：`zai_auto` / `zai_auto-fast` / `zaicoding_glm-5.3` / `zai_glm-5.3-flash` / `zai_glm-5.3-flashx-legal`。[实测 2026-11-13]
+  该端点**必须按裸响应解包**：经 `userapiData`（剥 `data` 信封）会得到空对象，目录恒空、`mx model autoclaw --refresh` 恒报 `upstream model config is empty`，刷新只能靠 seed / 缓存兜底。[实测 2026-11-13]
 - 后端模型名（x-openclaw-model 头实测可用）：`glm-5.3-flash` / `glm-5.2` / `zai_auto`，以及 `zaicoding_glm-5.3` / `tdpsk_deepseek-v4-flash-202605` / `tdpsk_deepseek-v4-pro-202606`（cn relay 全通）。桌面路由名 `zai_glm-5.3-flash` 与 relay 名 `glm-5.3-flash` 指同一后端模型，目录经映射表收口到 relay 实测名。[参考]
 - **对外只暴露 `glm-5.3-flash`**（对外模型家族表归它供给）；其余后端模型进目录但由 `models.json` 的 `hidden: true` 挡在池外。刷新（`--refresh`）拉 model-config 并要求映射后仍含 `glm-5.3-flash`，否则抛错保留旧表——绝不把渠道自己的供给模型刷没。[推断]
 - zai-proxy 直连通道（`POST {region}/autoclaw-proxy/proxy/autoclaw/chat/completions`）2026-09-23 起被阿里 WAF 406 拦截，本渠道不实现；沙箱 OpenAI 端点（`{proxy}/v1/chat/completions`）默认关闭，同样不依赖。[参考]

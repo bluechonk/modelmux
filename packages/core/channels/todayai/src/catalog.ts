@@ -4,7 +4,7 @@
  * 关键约束（端点/字段/实测见 docs/channels/todayai/PROTOCOL.md）：
  *   - 上游模型选项是**账号级**的（`/v1/pricing/status` 按套餐给），
  *     但池内能暴露的只有家族表里的模型 —— 本表是「池模型 → 上游选项」的静态映射，
- *     上游选项增减时改这里（上游给的是 `model.<name>`，别名 `glm-5.3` → 池内 `glm-5.3-flash`）。
+ *     上游选项增减时改这里（上游给的是 `model.<name>`，池内名与档位逐条对齐）。
  *   - `resolveModel` 只认表内条目：表外的名字原样返回（共享层据此判定「本渠道不供」）。
  *   - 上游目录不带窗口与输出上限，故 `modelSpec` 整体省略 —— 池层拿不到就回落默认，
  *     不编造数字（编造会让客户端按假窗口算钱）。
@@ -12,10 +12,16 @@
 
 import { canonicalModelId } from "@modelmux/gateway";
 
-/** 池模型 → 上游选项 id。上游 `model.<name>` 与池内裸名多数一致，`glm-5.3` 是别名。 */
+/**
+ * 池模型 → 上游选项 id。
+ *
+ * 上游账号目录同时供 `model.glm-5.3`（GLM 5.3，4× usage）与 `model.glm-5.3-flash`
+ * （GLM 5.3 Flash，1× usage）；池内 `glm-5.3-flash` 对应的是 **flash 档**，故映射到
+ * `model.glm-5.3-flash`（早期写成 `model.glm-5.3` 会把 flash 请求打到 4× 的非 flash 档）。
+ */
 const POOL_TO_OPTION: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "model.deepseek-v4.1-flash",
-  "glm-5.3-flash": "model.glm-5.3",
+  "glm-5.3-flash": "model.glm-5.3-flash",
 };
 
 /** 对外暴露的模型 id（顺序即展示顺序）。 */

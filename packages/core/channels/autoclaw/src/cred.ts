@@ -132,6 +132,28 @@ export async function userapiData<T = Record<string, unknown>>(
   path: string,
   init: { method?: string; body?: unknown; token?: string; timeoutMs?: number } = {},
 ): Promise<T> {
+  const payload = await userapiRaw<Envelope>(path, init);
+  const code = typeof payload.code === "number" ? payload.code : Number(payload.code ?? 0);
+  if (code === 410_000) throw new NotLoggedInError("session expired (code 410000), please log in again");
+  if (code !== 0) {
+    throw new Error(`userapi business error code=${code}: ${String(payload.msg ?? "")}`);
+  }
+  return (payload.data ?? {}) as T;
+}
+
+/**
+ * userapi 原始调用：与本模块 userapiData 同一套签名头族与网络错误归类，
+ * 但不剥 data 信封 —— 裸响应的解包交给调用方。
+ *
+ * 为什么要它：目录端点 /autoclaw-proxy/proxy/autoclaw-model-config 实测（2026-11-13）
+ * 回的是裸 {models:[…]}（无 {code,msg,data} 信封）；经 userapiData 取 payload.data
+ * 会得到空对象，目录恒空、mx model autoclaw --refresh 恒报 upstream model config is
+ * empty，只能靠 seed / 缓存兜底。
+ */
+export async function userapiRaw<T = Record<string, unknown>>(
+  path: string,
+  init: { method?: string; body?: unknown; token?: string; timeoutMs?: number } = {},
+): Promise<T> {
   let resp: Response;
   try {
     resp = await shared.fetchWithTimeout(
@@ -149,18 +171,11 @@ export async function userapiData<T = Record<string, unknown>>(
   if (resp.status === 401 || resp.status === 403) {
     throw new NotLoggedInError(`credential rejected (HTTP ${resp.status}), please log in again`);
   }
-  let payload: Envelope;
   try {
-    payload = (await resp.json()) as Envelope;
+    return (await resp.json()) as T;
   } catch {
     throw new Error(`userapi response is not JSON (HTTP ${resp.status})`);
   }
-  const code = typeof payload.code === "number" ? payload.code : Number(payload.code ?? 0);
-  if (code === 410_000) throw new NotLoggedInError("session expired (code 410000), please log in again");
-  if (code !== 0) {
-    throw new Error(`userapi business error code=${code}: ${String(payload.msg ?? "")}`);
-  }
-  return (payload.data ?? {}) as T;
 }
 
 function str(value: unknown): string {
