@@ -18,8 +18,8 @@
 | 取回答 | `GET /v1/conversations/messages?conversationId=main`，按 `originClientMessageId` 归属 | [实测] |
 | 流式 | **没有流式**：历史页只给终态（连轮 200ms 也只看到 `state=completed`） | [实测] |
 | 模型选项 | 账号级（`/v1/pricing/status` 按套餐给）；池内映射见 §5 | [实测] |
+| 额度 | 订阅制**按月计量**，上游只给已用百分比（`usage.progress`）；打满可由自助重置清零（§6） | [实测] |
 | 签到 | rapport 规则上报（两条幂等动作），积分由服务端事件累计 | [实测] |
-| 额度 | **订阅制，没有额度数字**（免费版发消息直接 `429 quota_denied`） | [实测] |
 
 ## 1. 域名与网络
 
@@ -137,15 +137,57 @@ GET https://api.todayai.cn/v1/conversations/messages?conversationId=<真实 id>&
 
 ## 6. 额度与「签到」
 
-- **订阅制，没有额度数字**：渠道声明 `billing:false`，控制台额度位显示 `-`。[实测]
-- 「签到」= rapport 规则上报：上游规则卡的 `scoreTrigger` 都是 `server_event`（积分由服务端事件累计），客户端点不动；只有两条可申报动作，均**幂等一次性**：
+### 6.1 用量（按月计量的百分比）
+
+```
+GET /v1/pricing/status   （Bearer JWT）
+→ data.status.usage = {
+    progress: 9,                    // 已用百分比 0-100（路由与冷却的主键）
+    period: "monthly",
+    resetAt: "2026-12-11T03:54:56.320Z",   // 本周期刷新时刻
+    progressText: "91% left",
+    breakdown: { items: [...] },    // 按场景（tasks / daily_brief / memory_updates…）拆分
+    freeServices: { items: [...] }  // 不计费的场景（chat / generic / proactive）
+  }
+```
+
+- 上游**只给百分比，不给绝对总量** —— 故 `billing.fetchCredits` 的 `size` 固定 100（单位 `%`），
+  `remain = 100 - progress`；`mx bill todayai` 显示「剩余 91 / 100 %」。[实测 2026-11-13]
+- `progress` 达到 100 即额度耗尽，上游开始拒请求。
+- 渠道声明 `billing: true`（有额度概念），但**不实现 `quotaPeriod()`** —— 那是同步契约，
+  拿不到异步的 `resetAt`；共享层回落「次日本地 0 点」兜底，且冷却被 30 分钟探测上限截断。
+
+### 6.2 自助重置额度
+
+额度打满后可用**自助重置次数**把用量清零（次数由邀请好友获得，上游按账号发放）：
+
+```
+GET  /v1/pricing/resets   （Bearer）
+→ data = { items: [{ resetId, expiresAt }], totalCount, observedAt, paging }
+
+POST /v1/pricing/resets   （Bearer，Content-Type: application/json）
+  body: { "resetId": "<上面拿到的 resetId>" }
+→ data.receipt = { operationId, resetId, consumedCount: 1, resetAt, availableCountAfter }
+```
+
+- 一次消耗一个 `resetId`，把 `progress` 清零；`totalCount` 是**可用次数**。[实测 2026-11-13：`totalCount=1`]
+- 无可用次数时上游回 `409 {"success":false,"code":"pricing.reset_unavailable"}`。[代码]
+- **请求前置自动重置**：`upstream.resetQuotaIfExhausted()` 在 `prepareChat` 里先读 `progress`，
+  `≥100` 才取一个未过期的 `resetId` 调 POST，然后才发消息 —— 避免本轮请求被上游直接拒。
+  未耗尽 / 无可用次数 / 读取失败时**不消耗**重置，交上游按原逻辑处理。[代码]
+- 用量读取带 30 秒缓存（`USAGE_TTL_MS`），避免每个请求都打一次 `pricing/status`。[代码]
+
+### 6.3 签到（rapport 规则上报）
+
+「签到」= rapport 规则上报：上游规则卡的 `scoreTrigger` 都是 `server_event`（积分由服务端事件累计），
+客户端点不动；只有两条可申报动作，均**幂等一次性**：
 
 ```
 POST /v1/rapport/actions/notification-enabled
 POST /v1/rapport/actions/discord-joined
 ```
 
-  做法与参考实现一致：读快照 → 上报两条 → 复读 → 用积分差当结果。[代码]
+做法与参考实现一致：读快照 → 上报两条 → 复读 → 用积分差当结果。[代码]
 
 ## 7. 环境变量（运维面）
 
@@ -165,7 +207,7 @@ POST /v1/rapport/actions/discord-joined
 mx login todayai            # 控制台弹窗输手机号 → 收短信 → 输验证码
 mx status todayai
 mx model todayai
-mx bill todayai             # 订阅制无额度，显示套餐名
+mx bill todayai             # 剩余百分比（100 - usage.progress）
 ```
 
 单渠道直连（不经网关）用于看上游原始帧：
