@@ -138,6 +138,17 @@ traecn）走各自 translator，不经过该兜底。
   （hub `remote_config_headers` 注释）；故用 `buildChatHeaders()` 那套桌面端身分。
 - 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddyai/cache/models.json`（共享层 `catalog-cache.ts`），
   `mx model workbuddyai --refresh` 与登录后的 `fetchModels` 都会触发。
+- **单条规格字段与国内版同构**（实测 2026-11-14：`data.models[]` 23 条，
+  `agents[cli].models` 21 个裸 id，含 gpt-6 系 / grok-4.7 / gemini-3.8-flash 等国际款）：
+  `id` / `name` / `credits` / `descriptionZh` / `descriptionEn` / `maxInputTokens` /
+  `maxOutputTokens` / `maxAllowedSize` / `contextWindow{defaultLength, supportedLengths}` /
+  `reasoning{defaultEffort, supportedEfforts}` / `relatedModels` / `supportsImages` /
+  `supportsToolCall` / `temperature` / `vendor` / `iconId`。
+- **DeepSeek 条目唯一**（实测 2026-11-14）：`deepseek-v4.1-flash-sg`——`credits x0.11`、
+  `maxInputTokens 1,000,000`、`maxOutputTokens 128,000`、`maxAllowedSize 1,000,000`、
+  `contextWindow.supportedLengths [300000, 1000000]`（`defaultLength 300000`，1M 是最大档）、
+  efforts `low/high/max`、原生多模态（`supportsImages: true`）、`vendor: "f"`。
+  无 v4-pro / v4-flash / v3 系条目——DeepSeek 供给面比国内版窄。
 
 ### 6.1 图片能力判据（哪个字段说了算）
 
