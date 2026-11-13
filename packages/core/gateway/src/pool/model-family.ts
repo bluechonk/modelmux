@@ -39,7 +39,7 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
 };
 
 /**
- * `[角色名, 池模型]` 表：接入写 profile 与入站解析共读（顺序即档位顺序）。
+ * `[角色名, 池模型]` 表：入站解析读这份表（顺序即档位顺序）。
  *
  * Desktop 直连网关只会发 `claude-<role>-<n>-<n>` 这类真实 Anthropic 名（校验器拒自造名、
  * 斜杠与点号，且整组拒收），`labelOverride` 只改菜单显示名、**不进请求体** ——

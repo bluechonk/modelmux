@@ -76,6 +76,21 @@ describe("演示快照与模型清单", () => {
     assert.ok(channels.some((c) => c.present));
     assert.ok(channels.some((c) => !c.present), "保留未登录渠道，登录流程才有演示对象");
   });
+
+  it("接入目标只有 zcode / dsh，且演示得出一张「有更新」的卡", () => {
+    const snap = demoSettings(createDemoState());
+    assert.deepEqual(Object.keys(snap.integrations ?? {}), ["zcode", "dsh"]);
+    const updated = Object.entries(snap.integration_updates ?? {}).filter(([, u]) => u !== null);
+    assert.ok(updated.length > 0, "演示必须能演示「模型有更新」");
+    for (const [target, update] of updated) {
+      // 更新胶囊只在已接入的卡上亮：演示数据若把两者错配，页面上就看不到这个功能
+      assert.equal(snap.integrations?.[target], true, `${target} 未接入时更新胶囊不会亮`);
+      assert.ok(
+        update && (update.added.length > 0 || update.removed.length > 0),
+        `${target} 的更新差异要有内容`,
+      );
+    }
+  });
 });
 
 describe("登录流程（演示的是两步交互）", () => {

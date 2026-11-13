@@ -412,7 +412,6 @@ const DOC_FILES = [
   "docs/MODULE-COMMENTS.md",
   ".agents/skills/mx-cli/SKILL.md",
   ".agents/skills/dsh-mx-test/SKILL.md",
-  ".agents/skills/codex-mx-test/SKILL.md",
 ];
 const countHits = [];
 let docsRead = 0;
