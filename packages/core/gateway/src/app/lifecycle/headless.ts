@@ -63,9 +63,13 @@ function catalogRefreshIntervalMs(): number {
  * 只在 TTY 下生效等于把管道场景整个废掉。
  */
 class StdinPasteReader {
-  private pending: string | undefined;
+  /** 待取的行（**队列**：管道里多行可能早于提问到达，单槽会丢掉先到的行）。 */
+  private readonly pendingLines: string[] = [];
   private readonly rl: Interface | null = null;
   private buffer = "";
+  /** 正在等一条回答（交互式提问）时，把行交给它而不是排队。 */
+  private waiter: ((line: string | null) => void) | undefined;
+
   /** 非 TTY 分支的 data 监听（收尾时按引用摘掉）。 */
   private readonly onData = (chunk: string): void => {
     this.buffer += chunk;
@@ -73,17 +77,32 @@ class StdinPasteReader {
     while (idx >= 0) {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);
-      if (line) this.pending = line;
+      if (line) this.deliver(line);
       idx = this.buffer.indexOf("\n");
     }
   };
+
+  /** 一行到达：优先喂给正在等待的提问，否则按到达顺序排队。 */
+  private deliver(text: string): void {
+    const w = this.waiter;
+    if (w) {
+      this.waiter = undefined;
+      w(text);
+      return;
+    }
+    this.pendingLines.push(text);
+  }
 
   constructor() {
     if (process.stdin.isTTY) {
       this.rl = createInterface({ input: process.stdin });
       this.rl.on("line", (line: string) => {
         const text = line.trim();
-        if (text) this.pending = text;
+        if (text) this.deliver(text);
+      });
+      this.rl.on("close", () => {
+        this.waiter?.(null);
+        this.waiter = undefined;
       });
       return;
     }
@@ -93,15 +112,31 @@ class StdinPasteReader {
     process.stdin.resume();
   }
 
-  /** 取走一行用户输入（只消费一次）；没有则返回 undefined。 */
+  /** 取走最早一行用户输入（只消费一次）；没有则返回 undefined。 */
   take(): string | undefined {
-    const v = this.pending;
-    this.pending = undefined;
-    return v;
+    return this.pendingLines.shift();
+  }
+
+  /**
+   * 问一句、等一行（提示写 stderr —— `--json` 时 stdout 要保持干净的 JSON 流）。
+   *
+   * CLI 无界面时替渠道要手机号 / 验证码；TTY 与管道都支持。
+   * 先取走可能已到达的一行（管道里输入常比提问早到），再挂等待器。
+   * stdin 关闭（Ctrl+C / EOF）返回 `undefined`，交回渠道回落自己的输入来源。
+   */
+  question(prompt: string): Promise<string | undefined> {
+    process.stderr.write(prompt);
+    const queued = this.take();
+    if (queued !== undefined) return Promise.resolve(queued);
+    return new Promise<string | undefined>((resolve) => {
+      this.waiter = (line) => resolve(line ?? undefined);
+    });
   }
 
   /** 收尾：关掉 readline / 摘掉 data 监听，避免进程挂着不退。 */
   close(): void {
+    this.waiter?.(null);
+    this.waiter = undefined;
     this.rl?.close();
     if (!this.rl) process.stdin.off("data", this.onData);
   }
@@ -182,11 +217,14 @@ class StdoutLoginUi implements authFlow.LoginUi {
   /**
    * 向用户要一段输入（渠道两步登录，如 loomy 的短信验证码）。
    *
-   * 有观察者（控制台）时转给 `ServiceState` 弹输入卡；**CLI 没有界面，直接返回
-   * `undefined`** —— 渠道据此回落到环境变量，`mx login loomy` 的既有用法不受影响。
+   * 有观察者（控制台）时转给 `ServiceState` 弹输入卡；CLI 无界面时走
+   * `stdinPaste` **交互式提问**（提示写 stderr），TTY 与管道都支持。
+   * 没开粘贴通道（如 `serve` 长驻）或 stdin 关闭时返回 `undefined` ——
+   * 渠道据此回落到自己的输入来源（环境变量等）。
    */
   requestInput(req: authFlow.LoginInputRequest): Promise<string | undefined> {
-    return this.observer?.requestInput?.(req) ?? Promise.resolve(undefined);
+    if (this.observer?.requestInput) return this.observer.requestInput(req);
+    return this.stdinPaste?.question(req.prompt) ?? Promise.resolve(undefined);
   }
 
   /** 登录结束后关掉 stdin 监听（否则进程挂着不退）。 */
