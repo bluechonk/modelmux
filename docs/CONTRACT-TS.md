@@ -241,7 +241,7 @@ Claude Desktop 直连网关时只会发 `claude-sonnet-4-5` / `claude-opus-4-5` 
 这类**真实 Anthropic 模型名**：它的 `inferenceModels[].name` 必须过校验器，自造名、
 斜杠与点号都会被整组拒收；`labelOverride` 只改菜单显示名、**不进请求体**。
 `model-family.ts` 的 `DESKTOP_ROLE_MODELS` 声明这三者到池模型的固定映射，
-接入（写 profile）与入站解析（`resolveInboundModel`）读同一张表。
+入站解析（`resolveInboundModel`）读这份表。
 
 - 映射是**固定表**，不按槽位下标取 `models[n]` —— 后者让实际模型随 `/v1/models` 的
   展示顺序漂移，菜单里看到的与日志里跑的随时可能不一致。

@@ -426,7 +426,7 @@ describe("/api/commands 分发", () => {
     assert.equal(bad.status, 400);
     // zcode / dsh 会被 bridge 真实改写本机配置 —— 测试 HOME 隔离下没有配置目录，
     // 走到 integrateClient 后报「找不到」也算转交成功（错误在 data.error 而非 400 参数错）
-    for (const target of ["zcode", "dsh", "claude-desktop", "codex"]) {
+    for (const target of ["zcode", "dsh"]) {
       const res = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "integrate", args: { target } }) });
       const payload = (await res.json()) as { ok: boolean; data?: { target?: string; error?: string; warnings?: string[] } };
       assert.equal(res.status, 200, `${target} 不该被参数校验拦下`);

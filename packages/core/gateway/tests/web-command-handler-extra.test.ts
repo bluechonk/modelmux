@@ -328,10 +328,10 @@ describe("integrate / restore", () => {
       integrate: () => ({ ok: true, notes: ["已写入 3 个文件"], warnings: [] }),
     };
     const handle = createWebCommandHandler(deps);
-    const result = await handle({ action: "integrate", args: { target: "codex" } });
+    const result = await handle({ action: "integrate", args: { target: "dsh" } });
     assert.equal(result.ok, true);
     assert.deepEqual(result.data, {
-      target: "codex",
+      target: "dsh",
       notes: ["已写入 3 个文件"],
       warnings: [],
       message: "已写入 3 个文件",
@@ -357,7 +357,7 @@ describe("integrate / restore", () => {
     const noop = createWebCommandHandler({
       restore: () => ({ ok: true, restored: [], removed: [], notes: [] }),
     });
-    const noopResult = await noop({ action: "restore", args: { target: "claude-desktop" } });
+    const noopResult = await noop({ action: "restore", args: { target: "zcode" } });
     assert.equal(noopResult.ok, true);
     assert.equal(noopResult.data?.["message"], "已还原（无需改动）");
 

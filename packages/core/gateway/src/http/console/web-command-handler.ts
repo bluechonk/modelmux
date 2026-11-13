@@ -55,7 +55,7 @@ export interface WebCommandDeps {
    * 实现由 app 层注入（写的是 `~/.zcode` / `~/.dsh`，不是网关运行时），
    * 控制台只校验 target 并转交。省略时该动作返回「未就绪」。
    */
-  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
+  integrate?: (target: "zcode" | "dsh") => {
     ok: boolean;
     error?: string;
     /** 变更说明（人读，控制台作展示）。 */
@@ -64,7 +64,7 @@ export interface WebCommandDeps {
     warnings?: string[];
   };
   /** 一键还原：把目标恢复成接入前状态（取该目标最新一次备份，可重复使用）。 */
-  restore?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
+  restore?: (target: "zcode" | "dsh") => {
     ok: boolean;
     error?: string;
     restored: string[];
@@ -296,14 +296,14 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       case "integrate": {
         // 一键接入：把本机 harness 的模型配置改成网关的对外模型名。
         const target = args["target"];
-        const INTEGRATION_TARGETS = ["zcode", "dsh", "claude-desktop", "codex"] as const;
+        const INTEGRATION_TARGETS = ["zcode", "dsh"] as const;
         if (typeof target !== "string" || !(INTEGRATION_TARGETS as readonly string[]).includes(target)) {
           return err(`参数 target 只能是 ${INTEGRATION_TARGETS.join(" / ")}`);
         }
         if (!deps.integrate) {
           return err("当前运行形态不支持一键接入（未注入 integrate）");
         }
-        const result = deps.integrate(target as "zcode" | "dsh" | "claude-desktop" | "codex");
+        const result = deps.integrate(target as "zcode" | "dsh");
         if (!result.ok) {
           // 失败也带上警告：只报 error 会把「备份没登记上」这类线索丢掉
           const detail = (result.warnings ?? []).join("；");
@@ -320,14 +320,14 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       case "restore": {
         // 一键还原：把该目标恢复成接入前的样子（取最新一次备份）。
         const target = args["target"];
-        const INTEGRATION_TARGETS = ["zcode", "dsh", "claude-desktop", "codex"] as const;
+        const INTEGRATION_TARGETS = ["zcode", "dsh"] as const;
         if (typeof target !== "string" || !(INTEGRATION_TARGETS as readonly string[]).includes(target)) {
           return err(`参数 target 只能是 ${INTEGRATION_TARGETS.join(" / ")}`);
         }
         if (!deps.restore) {
           return err("当前运行形态不支持一键还原（未注入 restore）");
         }
-        const result = deps.restore(target as "zcode" | "dsh" | "claude-desktop" | "codex");
+        const result = deps.restore(target as "zcode" | "dsh");
         if (!result.ok) return err(result.error ?? "还原失败");
         const parts: string[] = [];
         if (result.restored.length > 0) parts.push(`还原 ${result.restored.length} 个文件`);

@@ -157,7 +157,7 @@ const MODEL_NAME_RE = /["'`](?:deepseek|glm|qwen|kimi|doubao|hunyuan|minimax|sen
 // 例外：`pool/model-family.ts` 是**对外模型家族**的唯一声明点 —— 家族名是产品面
 // （`AGENTS.md` 的「代码约定」）；其余共享层文件仍不得持有模型名。
 const FAMILY_FILE_REL = "packages/core/gateway/src/pool/model-family.ts";
-// 集成目标名（`integrate.ts` 里的 zcode / dsh / codex）是产品面概念，不是渠道知识；
+// 集成目标名（`integrate.ts` 里的 zcode / dsh）是产品面概念，不是渠道知识；
 // 它们与现有渠道 cid 不重叠，因此不需要白名单 —— 真出现同名渠道时命中会被如实报出。
 
 const gatewaySrc = join(repo, "packages", "core", "gateway", "src");
