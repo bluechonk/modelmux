@@ -36,17 +36,22 @@ mix_mode=1&mobile=<编码手机号>&type=<编码的 "24">&is6Digits=1&fixed_mix_
   逐位异或 `0x05` 再转小写 hex：
 
   ```js
-  const enc = (s) => Buffer.from([...s].map((c) => c.charCodeAt(0) ^ 5)).toString("hex");
+  const enc = (s) => {
+    let out = "";
+    for (const b of Buffer.from(s, "utf8")) out += (b ^ 0x05).toString(16).padStart(2, "0");
+    return out;
+  };
   const dec = (hex) =>
     Buffer.from(hex, "hex").toString("latin1").split("").map((c) =>
       String.fromCharCode(c.charCodeAt(0) ^ 5)).join("");
 
-  enc("+8613800138000") // → 2e3d332534363d353534363d353535
-  enc("24")             // → 3731
+  enc("+86 13800138000") // → 2e3d332534363d353534363d353535
+  enc("24")              // → 3731
   ```
 
   判据：**凡是 hex 形态、长度是原文两倍的参数，先试 XOR 0x05**。参数名对、值也对但服务端报
   `1204` / `3052` 时，先怀疑这一条。[实测]
+- **手机号形态是 `+86 ` + 11 位**（中间有一个空格，抓包原文即如此）：渠道按这个形态编码。[实测]
 - `type` 的明文是 `24`（网页端手机号登录）。
 - **最小参数集**：只需 `mobile`（加密）+ `type`（加密）+ `mix_mode=1` + `is6Digits=1` +
   `fixed_mix_mode=1`，外加基础查询串（`aid` / `language` / `device_platform` / `account_sdk_source`）。
