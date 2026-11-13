@@ -42,6 +42,10 @@ if (!existsSync(join(repoRoot, ".git"))) {
 
 const current = git(["config", "--get", "core.hooksPath"]);
 if (current === HOOKS_DIR) {
+  // 回执通道：门禁按「待推提交 sha」精确复现时需要从源仓库按 sha fetch，
+  // 而按 sha fetch 要求源仓库显式允许（见 scripts/gate.sh 的 TEST_SHA 分支）。
+  // 放在这里而不是 gate.sh 里改配置：接线是本仓唯一幂等的仓库配置入口。
+  git(["config", "uploadpack.allowAnySHA1InWant", "true"]);
   console.log(`[setup-hooks] 已就绪：core.hooksPath = ${HOOKS_DIR}（push 前会自动跑 scripts/gate.sh）`);
   process.exit(0);
 }
@@ -52,6 +56,8 @@ if (set === null) {
   console.log(`[setup-hooks] 需要时手动执行：git config core.hooksPath ${HOOKS_DIR}`);
   process.exit(0);
 }
+
+git(["config", "uploadpack.allowAnySHA1InWant", "true"]);
 
 console.log(
   current === null

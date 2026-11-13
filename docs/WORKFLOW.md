@@ -186,6 +186,14 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 
 实现见 `scripts/gate.sh`（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
+**门禁测的就是「要推的那个提交」**：pre-push 从 git 喂进来的
+`<local-ref> <local-sha> <remote-ref> <remote-sha>` 里取 **remote-ref** 认分支
+（`HEAD:<分支>` 写法的 local-ref 是字面量 `HEAD`，只扫第一个 token 会认不出分支，
+2026-11-13 修），取 **local-sha** 作为待测提交；该 sha 不在任何 ref 上时（游离 HEAD 工作树
+推 `HEAD:<分支>`），门禁在干净 clone 里按 sha `fetch` 精确复现，源仓库已开
+`uploadpack.allowAnySHA1InWant`（由 `scripts/setup-git-hooks.mjs` 接线）。
+分支删除（local-sha 全零）与不含分支引用的推送跳过门禁。
+
 **建 PR 入口焊死在 `npm run pr`**（`scripts/pr-create.mjs`），把「证绿」与「建 PR」做成一个原子动作：
 工作树必须干净、本地 HEAD 必须等于 `origin/<分支>`、门禁回执必须对应当前 HEAD —— 任一不满足即
 禁提 PR（「本地测试不对劲」不存在带病提交的口子）。回执是 `gate.sh` 成功时写进

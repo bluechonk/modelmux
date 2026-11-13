@@ -5,8 +5,10 @@
 # （CI 用 fetch-depth: 0）、`npm ci` 装平台原生依赖、而开发工作树自带未提交改动与陈旧
 # 产物：直接在工作树上跑，测的就不是「待推的那个提交」。故门禁总是 clone 到干净目录再跑。
 #
-# 用法：bash scripts/gate.sh [--quiet] [分支名]
+# 用法：bash scripts/gate.sh [--quiet] [分支名] [待测提交 sha]
 #   分支名：待测分支（默认 = 当前 HEAD 分支）。pre-push 会显式传入。
+#   待测 sha：精确复现「要推的那个提交」——它可能不在任何 ref 上（游离 HEAD 工作树推
+#             `HEAD:<分支>` 时，clone 只带 ref 可达的对象，必须按 sha 单独 fetch）。
 # 环境变量：GATE_DIR（默认 /tmp/modelmux-gate）、GATE_BASE（默认 origin/main）
 # 退出码：0 = 通过；非 0 = 未通过（输出里会指出失败步骤）。
 set -euo pipefail
@@ -30,8 +32,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
 
 QUIET=0
 if [ "${1:-}" = "--quiet" ]; then QUIET=1; shift; fi
-# 第一个非 --quiet 的参数是待测分支
+# 第一个非 --quiet 的参数是待测分支，第二个是待测提交 sha（pre-push 传入）
 BRANCH="${1:-}"
+TEST_SHA="${2:-}"
 
 GATE="${GATE_DIR:-/tmp/modelmux-gate}"
 BASE_REF="${GATE_BASE:-origin/main}"
@@ -47,9 +50,21 @@ main_repo=$(dirname "$common_dir")
 
 if [ -z "$BRANCH" ]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  # 游离 HEAD 解析出来是字面量 "HEAD"——拿去 checkout 只会得到
+  # 「'HEAD' is not a valid branch name」。测不了就明确报错，不猜一个分支。
+  if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
+    echo "[gate] 游离 HEAD 且未指定分支——无法确定待测对象" >&2
+    exit 1
+  fi
 fi
 
-[ "$QUIET" = 0 ] && echo "[gate] 克隆 $main_repo → $GATE，切到分支 $BRANCH，然后 npm ci → npm test"
+if [ "$QUIET" = 0 ]; then
+  if [ -n "$TEST_SHA" ]; then
+    echo "[gate] 克隆 $main_repo → $GATE，按提交 $TEST_SHA 精确复现，然后 npm ci → npm test"
+  else
+    echo "[gate] 克隆 $main_repo → $GATE，切到分支 $BRANCH，然后 npm ci → npm test"
+  fi
+fi
 
 # —— 第 1 步：CI 等价的完整测试 ——
 # 固定 UTF-8 locale：clone 出来的子树里同样要能正确输出中文。
@@ -59,9 +74,17 @@ if ! bash -lc "
   rm -rf '$GATE'
   git clone --no-hardlinks -q '$main_repo' '$GATE'
   cd '$GATE'
-  # 测**待推分支**而不是 clone 的默认分支：本地 clone 会把所有分支带成
-  # origin/<branch>，这里切过去 —— 否则推 A 分支却测了 B 分支的内容。
-  git checkout -q -B '$BRANCH' 'origin/$BRANCH'
+  if [ -n '$TEST_SHA' ]; then
+    # 精确复现「要推的那个提交」：它可能不在任何 ref 上（游离 HEAD 工作树推 HEAD:<分支>），
+    # clone 只带 ref 可达的对象，故按 sha 单独 fetch（源仓库需 uploadpack.allowAnySHA1InWant，
+    # 由 scripts/setup-git-hooks.mjs 接线）。
+    git fetch -q origin '$TEST_SHA'
+    git checkout -q '$TEST_SHA'
+  else
+    # 测**待推分支**而不是 clone 的默认分支：本地 clone 会把所有分支带成
+    # origin/<branch>，这里切过去 —— 否则推 A 分支却测了 B 分支的内容。
+    git checkout -q -B '$BRANCH' 'origin/$BRANCH'
+  fi
   npm ci --no-fund --no-audit
   npm test
 "; then
