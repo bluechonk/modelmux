@@ -40,9 +40,9 @@ docs/channels/<cid>/
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：`PROTOCOL.md` 13 份（每个渠道一份）、`FINDINGS.md` 3 份
-（`catpaw` / `loomy` / `raccoon`）、`FLOW.md` 1 份（`catpaw`）——
-后两者是**按需**的逆向结论层，不是每个渠道都有。
+当前落地：**每个渠道一份 `PROTOCOL.md`**；`FINDINGS.md` / `FLOW.md` 与 `astudio` 的
+`METHODOLOGY.md` / `WALKTHROUGH.md` 是**按需**的逆向结论层，不是每个渠道都有
+（实际清单以 `docs/channels/` 目录为准，不在此处手抄数量）。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
 注释的三层分工见 [`MODULE-COMMENTS.md`](../MODULE-COMMENTS.md)。
@@ -81,7 +81,7 @@ docs/channels/<cid>/
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `doubaowork` | 豆包工作（`www.doubao.com`） | 手机号 + 短信验证码登录（登录域 `accounts.doubao.com`，`a_bogus` 签名故走真实浏览器）；对话**必须带客户端设备号**，缺了被人机验证拦；活动额度在 `incentive_quota_entitlements`，**上游无签到接口** | [PROTOCOL](./doubaowork/PROTOCOL.md) |
 | `marvis` | 腾讯 Marvis（`yybadaccess.3g.qq.com`） | 微信/QQ OAuth 登录（首次需客户端）；REST 签名 `MD5(body+ts+accessKey+nonce)`；自带「省心组合」模型，对话走本地 gateway WebSocket 的 `agent.run`（**纯 JSON 帧 + AG-UI 事件流**） | [PROTOCOL](./marvis/PROTOCOL.md) |
-| `todayai` | Today 国内版（`todayai.cn`） | 手机号 + 短信验证码登录（唯一路径）；canonical-v1 会话协议，**没有流式**（历史页只给终态）；订阅制无额度，「签到」是 rapport 规则上报 | [PROTOCOL](./todayai/PROTOCOL.md) |
+| `todayai` | Today 国内版（`todayai.cn`） | 手机号 + 短信验证码登录（唯一路径）；canonical-v1 会话协议，**没有流式**（历史页只给终态）；订阅制按月计量（只给已用百分比，打满可由自助重置清零），「签到」是 rapport 规则上报 | [PROTOCOL](./todayai/PROTOCOL.md) + [FINDINGS](./todayai/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
 | `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名（账号 2026-11-05 重新登录验证有效）—— **已下架** | [PROTOCOL](./workbuddyai/PROTOCOL.md) |

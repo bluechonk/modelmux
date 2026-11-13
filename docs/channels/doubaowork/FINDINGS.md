@@ -138,3 +138,15 @@ DoubaoWork 是豆包工作（Doubao Work）的 Windows 桌面客户端，安装�
 - 清单是静态可提取 URL 的并集。运行时动态拼接的 URL、服务端下发且未落盘的 URL、加密资源中无法离线解密的字符串，不在静态清单内。
 - 第三方依赖文档、示例域名和 XML 命名空间会产生大量非业务 URL；业务清单已单独剥离。
 - 本地清单保留在 `.tmp/`，不提交进仓库，避免把数 MB 数据与第三方文档链接固化进版本历史。
+
+## 7. HTTP 探测脚本
+
+协议链路的纯 HTTP 探针（零浏览器、零客户端）留在 `.tmp/`（已忽略、保留复用）：
+
+| 脚本 | 用途 |
+| --- | --- |
+| `.tmp/probe-doubao-cookie.mjs` | 登录前抓匿名 cookie（`ttwid` / `bd_mount_l-singer` 等） |
+| `.tmp/probe-doubao-2step.mjs` | 发码 → 收 stdin 验证码 → 校验登录（两跳） |
+| `.tmp/probe-doubao-files.mjs` | 登录后批量打真实接口（账号信息 / 模型菜单 / 额度 / 对话） |
+
+抓包方法（mitmproxy）与排查清单见 [PROTOCOL.md](./PROTOCOL.md) §8。

@@ -32,9 +32,29 @@ Content-Type: application/x-www-form-urlencoded
 mix_mode=1&mobile=<编码手机号>&type=<编码的 "24">&is6Digits=1&fixed_mix_mode=1
 ```
 
-- 手机号编码：`+86 13146069411` 按 UTF-8 字节逐位异或 `0x05`，再转小写 hex。
+- **字段值被 XOR 混淆**（踩坑最深的一条）：`mobile` 与 `type` 传的是**密文** —— 按 UTF-8 字节
+  逐位异或 `0x05` 再转小写 hex：
+
+  ```js
+  const enc = (s) => Buffer.from([...s].map((c) => c.charCodeAt(0) ^ 5)).toString("hex");
+  const dec = (hex) =>
+    Buffer.from(hex, "hex").toString("latin1").split("").map((c) =>
+      String.fromCharCode(c.charCodeAt(0) ^ 5)).join("");
+
+  enc("+8613800138000") // → 2e3d332534363d353534363d353535
+  enc("24")             // → 3731
+  ```
+
+  判据：**凡是 hex 形态、长度是原文两倍的参数，先试 XOR 0x05**。参数名对、值也对但服务端报
+  `1204` / `3052` 时，先怀疑这一条。[实测]
 - `type` 的明文是 `24`（网页端手机号登录）。
-- 页面预热 `GET https://www.doubao.com/chat/` 会下发匿名 cookie；全新匿名会话**不需要** `sign` / `a_bogus` / `msToken` 也能发码（实测成功）。
+- **最小参数集**：只需 `mobile`（加密）+ `type`（加密）+ `mix_mode=1` + `is6Digits=1` +
+  `fixed_mix_mode=1`，外加基础查询串（`aid` / `language` / `device_platform` / `account_sdk_source`）。
+  实测**不需要** `a_bogus` / `account_sdk_source_info`（1898 字节加密设备指纹）/
+  `sign` / `qs` / `msToken` / `fp` / `verifyFp`。[实测]
+  - 判据：先用最小参数集打通，再按报错逐个加，不要一开始就抄全套。
+- 页面预热 `GET https://www.doubao.com/chat/` 会下发匿名 cookie；全新匿名会话**不需要**
+  `sign` / `a_bogus` / `msToken` 也能发码（实测成功）。
 - 成功响应：`{"data":{"mobile_ticket":"...","retry_time":60},"message":"success"}`。
 
 ### 1.2 校验
@@ -47,9 +67,25 @@ Content-Type: application/x-www-form-urlencoded
 mix_mode=1&mobile=<编码手机号>&code=<编码验证码>&login_only=false&fixed_mix_mode=1
 ```
 
+- **两个参数缺一不可**：`login_only=false` 与 `fixed_mix_mode=1`；少了它们，参数加密全对
+  也只会得到无描述的 `3052`。[实测]
+- **必须同会话**：发码与校验用同一个 cookie jar，否则 `mobile_ticket` 对不上，报
+  `1203 验证码过期`。[实测]
+- **手机号格式两处相反**：`send_code` 要 `+86` 前缀；`sms_login` 的 `mobile` 字段是 `+86`
+  编码后的密文，但拿裸 11 位明文试探会得到 `1003 手机号错误` —— 那是格式判据，不是手机号真错。[实测]
 - 成功响应 `message:"success"`，同时通过 `Set-Cookie` 下发登录会话：
   `sessionid` / `sessionid_ss` / `sid_guard` / `sid_tt` / `uid_tt` / `passport_auth_status` 等。
-- 登录会话是 cookie，不是响应体 token。
+  **登录态是 cookie，不是响应体 token。**
+
+### 1.3 CSRF（部分接口需要）
+
+```
+GET https://accounts.doubao.com/passport/safe/csrf_token/?<查询串>
+→ {"data":{"passport_csrf_token":"..."}}
+   Set-Cookie: passport_csrf_token=...; passport_csrf_token_default=...
+```
+
+请求时带 `x-tt-passport-csrf-token: <值>`。
 
 ## 2. 凭据落盘与刷新
 
@@ -103,6 +139,7 @@ last-event-id: undefined
 ```
 
 - 每条请求新建 `local_conversation_id` 与 `unique_key`；多轮上下文由渠道把完整消息列表扁平化为一条 user 文本送入。
+- **必须带客户端设备号**（`device_id`，网页端本地存储里那个 32 位随机 hex）：缺了会被下人机验证。[实测 2026-11-12：同一账号同一出口，只补这一项就从被拦变正常。]
 - 模型选择在两处同时写：`option.model_config.model_item_key` 与
   `option.aggregate_params.model_item_key`；模式写 `mode_id` 与 `agent_mode`。
 - 工作任务模型（`person-*`、`5`、`9`、`seed-lite-7b`）：`mode_id="3"`、`agent_mode=1`；
@@ -164,6 +201,35 @@ mx bill doubaowork
 node packages/core/channels/doubaowork/dist/cli.js login
 ```
 
+### 怎么抓真实请求（逆向用）
+
+不要靠猜参数 —— 用 mitmproxy 抓一遍真实登录再照抄。
+
+```sh
+mitmdump -s sniff.py -p 8899
+# 浏览器带代理
+agent-browser --proxy "http://127.0.0.1:8899" --args "--ignore-certificate-errors" open "https://www.doubao.com/login/"
+```
+
+`sniff.py` 只要一个 `response` 钩子，按 URL 关键字过滤，把 method / url / headers / body
+落 JSONL。抓完**第一件事是看 body 是不是 hex** —— 豆包的发码接口就是，不看这一点会一直
+以为是签名问题。
+
+### 排查清单
+
+| 现象 | 先查 |
+| --- | --- |
+| `1204 验证码请求错误` | body 参数**没加密**（忘了 XOR 0x05），或手机号没带 `+86` |
+| `1003 手机号错误` | 手机号格式不对（裸 11 位 / 多余字符） |
+| `3052`（无描述） | `type` 场景码不对，或参数加密方式不对 |
+| `16 该应用无权限` | `aid` 用错（网页 `497858`） |
+| `1203 验证码过期` | 发码与校验**跨会话**了（cookie jar 不是同一个） |
+| `400 / 500` | 缺基础查询串（`aid` / `language` / `device_platform` / `account_sdk_source`） |
+| 登录成功但接口 401 | 漏带 `passport_auth_status` / `sid_guard`（passport 30 天会话核心 cookie） |
+| 对话被人机验证拦 | 缺设备号（见 §5） |
+
+判据总结：**看 body 是不是 hex → 是不是同会话 → 关键布尔参数齐不齐**。
+
 ### 端到端测试覆盖
 
 - 手机号发码 → 验证码校验 → cookie 落盘。
@@ -179,6 +245,18 @@ node packages/core/channels/doubaowork/dist/cli.js login
 - 额度：活动赠送额度 `3391 / 3900`。
 - 对话：`person-deepseek-v4-1-flash-261017` 返回 `OK`，OpenAI 帧正常收尾。
 - 已知边界：网页端模型名与桌面端不完全一致；工作任务模式若需要本地工具执行，网关只转发文本，不模拟客户端工具运行时。
+
+零浏览器、零客户端的纯 HTTP 闭环（同一批实测）：
+
+```
+1. GET  /chat/                           → 匿名 cookie（ttwid 等）
+2. POST /passport/web/send_code/         → mobile_ticket
+3. POST /passport/web/sms_login/         → 23 条 cookie，sessionid 到手
+4. POST /alice/user/launch               → bot_id 7338286299411103781
+5. POST /alice/slot/action_bar_v3/...    → 10 个模型
+6. POST /alice/commerce/.../overview/    → 额度 3391/3900
+7. POST /chat/completion                 → SSE 返回「收到」
+```
 
 ## 9. 参考实现
 
