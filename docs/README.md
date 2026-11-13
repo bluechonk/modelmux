@@ -58,9 +58,9 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [ROADMAP](./channels/astudio/ROADMAP.md)（缺口清单） |
+| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [FINDINGS](./channels/astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | [PROTOCOL](./channels/autoclaw/PROTOCOL.md)（云端 OpenClaw 沙箱 relay + 短信登录；协议事实来自参考实现逆向，对话 relay 与流式已真机验证） |
-| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md) / [FLOW](./channels/catpaw/FLOW.md) |
+| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md)（凭据加密 / 密钥材料 / 解密验证 / scope / 敏感面） |
 | `codearts` | CodeArts（华为云码道） | [PROTOCOL](./channels/codearts/PROTOCOL.md)（浏览器 OAuth2 + PKCE + DPoP；STS 签名对话；模型目录内置 + 限时福利两源） |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md)（渠道在册；上游曾封停测试账号，账号现状以 `mx acct lobsterai` 为准） |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
@@ -82,15 +82,12 @@
 `astudio` 的逆向记录与协议规格分开放：
 
 - [PROTOCOL.md](./channels/astudio/PROTOCOL.md) —— 现役协议事实
-- [METHODOLOGY.md](./channels/astudio/METHODOLOGY.md) —— 通用逆向方法论 + AStudio 参数映射
-- [WALKTHROUGH.md](./channels/astudio/WALKTHROUGH.md) —— 一次完整实跑记录
-- [ROADMAP.md](./channels/astudio/ROADMAP.md) —— 缺口清单
+- [FINDINGS.md](./channels/astudio/FINDINGS.md) —— 方法论 + 一次完整实跑 + 渠道缺口
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 
-- [PROTOCOL.md](./channels/catpaw/PROTOCOL.md) —— 全部结论速览 + 方法论 + 证据等级约定
-- [FINDINGS.md](./channels/catpaw/FINDINGS.md) —— 结论汇总（逐条标注证据等级）
-- [FLOW.md](./channels/catpaw/FLOW.md) —— 端到端数据流：登录态怎么落盘、怎么加密、怎么被解出来
+- [PROTOCOL.md](./channels/catpaw/PROTOCOL.md) —— 全部结论速览 + 方法论 + 证据等级约定 + 端到端数据流
+- [FINDINGS.md](./channels/catpaw/FINDINGS.md) —— 结论汇总（凭据落点 / 加密方案 / 密钥材料 / 解密验证 / scope 机制 / 敏感面）
 
 ## 3. 规则文件与项目技能
 

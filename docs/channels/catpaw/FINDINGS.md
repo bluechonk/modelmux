@@ -178,3 +178,33 @@ function re(encoded) {
 **「这个字段到底有没有加密」不靠熵判断，而看首字节**：真信封的首字节是随机 IV，
 几乎不可能是 `{` / `[` / `"`；明文 JSON 落盘则必然以它们开头。本样本首字节不是
 JSON 起始符，可排除「未加密」这一支。 `[实测]`
+
+---
+
+## 6. 存储 scope 机制（读代码得到的旁支结论）
+
+`app.asar` 里还有一层「多租户 scope」逻辑，影响凭据落在哪个文件名前缀下： `[代码]`
+
+- scope 段默认 `anon`；登录后由 `uid` + `entId` 派生（`catx-scope-pointer.json` 记住上次的段）。
+- 通道名：`catx-passport`（个人 passport）、`catpaw-enterprise`、`catx-cloud`、`catx-cloud-enterprise`。
+- 每个 scope 有独立的 store 文件；这就是为什么 userData 里能看到
+  `catpaw-memory-<scope>.db` 与 `catpaw-memory-anon.db` 两个会话库。
+- **凭据本身不随 scope 分文件**：`catx-credential.json` 始终是同一个文件、
+  同一个 `ssoTokenEnc` 键 —— 换 scope 只是覆盖内容。
+
+---
+
+## 7. 敏感面小结
+
+| 数据 | 是否秘密 | 说明 |
+| --- | --- | --- |
+| `ssoTokenEnc` | 是（密文） | 但密钥可从机器码离线派生 ⇒ 实际保护强度取决于机器码的不可得性，而非保密性 |
+| `auth.json` 的 `accessToken` | 是（**明文**） | 同一 token 的明文副本，本课题正是用它做交叉验证 |
+| `machineId`（MachineGuid） | 否 | 本机任意进程可读；它是这套方案的**唯一**密钥材料 |
+| 派生 `key` | 是（等于秘密） | 但完全由 machineId 决定，可重算 |
+| IV / authTag | 否 | IV 随密文落盘，authTag 用于完整性校验 |
+| `catpaw-uuid` | 否 | 设备标识，不参与密钥派生 |
+| `catx-scope-pointer` / `auth-provider` | 否 | 只是路由信息 |
+
+因此本仓库的全部输出（日志、文档）只使用脱敏形态与指纹，
+**不解密到磁盘、不回显 token 原文**。

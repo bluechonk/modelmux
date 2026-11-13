@@ -85,7 +85,7 @@ grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反�
   指向已改名章节的引用（如 `AGENTS.md` 的「命令与构建」）改成实际章节名。
 - **留**：外部事实的实测证据（上游行为、限流、真机数字 —— 日期必须留）、影响行为的 why、
   根 `AGENTS.md`「文档」节 / `docs/CODE-COMMENTS.md` 里作为反例的词、设计依据文档顶部的一行状态、
-  `PROGRESS.md` 与渠道 `ROADMAP.md` 的状态表、`WALKTHROUGH` 类过程记录。
+  `PROGRESS.md` 与渠道 `FINDINGS.md` 里带日期的实测记录与缺口清单。
 - 改完必须 `node scripts/verify-docs.mjs` 通过（相对链接与索引登记会拦）。
 
 落点约束（`scripts/verify-docs.mjs` 会拦）：`.md` 只允许落在 `docs/`（含

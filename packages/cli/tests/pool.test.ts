@@ -109,75 +109,53 @@ describe("仓库级模型池", () => {
     assert.ok(ds.length >= 2, `同一模型应有多家候选（实际 ${ds.join(", ")}）`);
     // 别名请求命中同一批渠道
     assert.deepEqual(candsOf("deepseek-flash"), ds);
-    // qodercn 在家族内只供 glm-5.3-flash：deepseek 候选里不能有它
-    assert.ok(!ds.includes("qodercn"), `qodercn 已隐藏 deepseek 系（实际 ${ds.join(", ")}）`);
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
-  it("家族模型的渠道供给范围：glm-5.3-flash 多家供给，qwen3.8-flash 仅 qwenworkcn", () => {
-    // 供给范围收口在**统一注册表**（`<root>/models.json` 的 channels 段），
-    // 不再由各渠道目录的 hidden 标记决定（2026-11-08 起）。
-    const OVERRIDES: Record<string, string[]> = {
-      catpaw: ["glm-5.3-flash"],
-      qodercn: ["glm-5.3-flash"],
-      autoclaw: ["glm-5.3-flash"],
-      qoder: ["glm-5.3-flash"],
-      qwenworkcn: ["qwen3.8-flash"],
-      workbuddyai: ["glm-5.3-flash"],
-      lobsterai: ["glm-5.3-flash"],
-      codebuddycn: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-      codearts: ["glm-5.3-flash", "deepseek-v4.1-flash"],
-      todayai: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-      doubaowork: ["deepseek-v4.1-flash", "glm-5.3-flash"],
-      // astudio 不供家族型号
-      astudio: [],
-      // marvis 自身不提供模型（模型来自用户自配的第三方 provider），不供家族型号
-      marvis: [],
-    };
-    for (const cid of ACTIVE_CIDS) {
-      const expected = (OVERRIDES[cid] ?? ["deepseek-v4.1-flash"]).slice().sort();
-      const got = gw
-        .poolCandidates("deepseek-v4.1-flash")
-        .map((c) => c.cid);
-      // 逐渠道核对该模型是否在注册表里声明
-      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
-        const declared = gw
-          .poolCandidates(model)
-          .map((c) => c.cid)
-          .includes(cid);
-        const want = expected.includes(model);
-        assert.equal(declared, want, `${cid} 对 ${model} 的供给应为 ${want}`);
-      }
-      void got;
+  it("家族模型的候选来自渠道目录：qwen3.8-flash 含 qwenworkcn / qoder / qodercn", () => {
+    // 候选 = 渠道目录现算 ∪ 注册表兜底：下列必须出现在候选里。
+    // 只断言「必须包含」不断言全集 —— 目录内容随上游 / 用户 `hidden` 变化。
+    const mustHave: Array<[model: string, cid: string]> = [
+      ["deepseek-v4.1-flash", "traecn"],
+      ["glm-5.3-flash", "catpaw"],
+      ["glm-5.3-flash", "qoder"],
+      ["glm-5.3-flash", "qodercn"],
+      ["qwen3.8-flash", "qwenworkcn"],
+      ["qwen3.8-flash", "qoder"],
+      ["qwen3.8-flash", "qodercn"],
+    ];
+    for (const [model, cid] of mustHave) {
+      assert.ok(
+        gw.poolCandidates(model).some((c) => c.cid === cid),
+        `${cid} 的目录声明供 ${model}，应出现在候选里`,
+      );
     }
-    const glm = gw.poolCandidates("glm-5.3-flash").map((c) => c.cid).sort();
-    assert.deepEqual(
-      glm,
-      ["autoclaw", "catpaw", "codearts", "codebuddycn", "doubaowork", "lobsterai", "qoder", "qodercn", "todayai", "workbuddyai"],
-      `glm-5.3-flash 的候选渠道（实际 ${glm.join(", ")}）`,
-    );
-    const qwen = gw.poolCandidates("qwen3.8-flash").map((c) => c.cid);
-    assert.deepEqual(qwen, ["qwenworkcn"], `qwen3.8-flash 的候选只能是 qwenworkcn（实际 ${qwen.join(", ")}）`);
+    // 不供家族型号的渠道（模型来自用户自配的第三方 provider）不进候选
+    for (const cid of ["astudio", "marvis"]) {
+      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
+        assert.ok(
+          !gw.poolCandidates(model).some((c) => c.cid === cid),
+          `${cid} 不供 ${model}`,
+        );
+      }
+    }
   });
 
-  it("注册表缺项 / 多余项都不进候选（供给以注册表为唯一口径）", () => {
-    // 注册表没声明的渠道不进候选：即便该渠道目录里还有别的模型
-    assert.ok(
-      !gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === "traecn"),
-      "traecn 不供 qwen3.8-flash",
-    );
-    // 家族外型号一律不进候选（注册表只登记家族表内的模型）
+  it("候选来自渠道目录 ∪ 注册表兜底（不再以注册表为唯一口径）", () => {
+    // 目录声明供给的渠道进候选：qoder / qodercn 的 qwen3.8-flash 由上游目录给出
+    for (const cid of ["qoder", "qodercn"]) {
+      assert.ok(
+        gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === cid),
+        `${cid} 的目录供 qwen3.8-flash，应进候选`,
+      );
+    }
+    // 家族外型号一律不进候选（家族表是硬边界）
     for (const model of ["longcat-2.5", "deepseek-v4-pro"]) {
       assert.deepEqual(gw.poolCandidates(model), [], `${model} 不在家族表内，候选应为空`);
     }
     // 千问办公只卖「标准」档：其余两档与具体型号名都不进家族表
     assert.deepEqual(gw.poolCandidates("qwork-pro"), [], "高级档未放行");
     assert.deepEqual(gw.poolCandidates("qwen3.8-max"), [], "最强档未放行");
-    assert.deepEqual(
-      gw.poolCandidates("qwen3.8-flash").map((c) => c.cid),
-      ["qwenworkcn"],
-      "qwen3.8-flash 只由 qwenworkcn 供给",
-    );
   });
 
   it("池 id 与候选渠道的一致性（家族内 / 有货 / 候选都是已注册渠道）", () => {

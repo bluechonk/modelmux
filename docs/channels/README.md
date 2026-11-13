@@ -5,9 +5,10 @@
 ```
 docs/channels/<cid>/
   PROTOCOL.md     协议规格（实现依据）+ 使用与实测（推荐模型 / 已知限制 / 端到端实测）+ 参考实现
-  FINDINGS.md     逆向结论汇总（可选）：逐条标注证据等级
-  FLOW.md         端到端数据流（可选）：登录态怎么落盘、怎么加密、怎么被解出来
+  FINDINGS.md     逆向结论汇总（按需）：逐条标注证据等级 + 来源；含方法论 / 实跑记录 / 缺口清单
 ```
+
+> **每个渠道至多两份 md**：`PROTOCOL.md` 必有；`FINDINGS.md` 只在有逆向结论时写。
 
 > 落点与登记红线、分层与写作规则见根 [`AGENTS.md`](../../AGENTS.md) 的「文档」。
 > 渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，
@@ -33,15 +34,13 @@ docs/channels/<cid>/
 | 文件 | 回答的问题 | 写什么 | 不写什么 |
 | --- | --- | --- | --- |
 | `PROTOCOL.md` | 「上游长什么样 + 这条渠道怎么用」 | 端点、请求头约束、请求体、环境变量（`src/` 读的运维面变量，`verify-docs` 强制）、实测结论、推荐模型、已知限制、端到端实测、参考实现清单 | why（why 跟代码走） |
-| `FINDINGS.md` | 「逆向出了什么」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件 | 推断写成实测（禁止） |
-| `FLOW.md` | 「数据怎么流动」 | 端到端链路图（凭据落盘 → 加密 → 解密 → 注入请求） | 与链路无关的旁支 |
+| `FINDINGS.md` | 「逆向出了什么 + 有多可信」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件；逆向方法论、完整实跑记录、渠道缺口清单 | 推断写成实测（禁止）；推理过程 / 变更史 |
 
 > **许可证与出处**：各渠道 `PROTOCOL.md` 的 `## 参考实现` 只写「从哪个仓库学到了什么」；
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：**每个渠道一份 `PROTOCOL.md`**；`FINDINGS.md` / `FLOW.md` 与 `astudio` 的
-`METHODOLOGY.md` / `WALKTHROUGH.md` 是**按需**的逆向结论层，不是每个渠道都有
+当前落地：**每个渠道一份 `PROTOCOL.md`**；另有 `FINDINGS.md` 的渠道是**按需**的逆向结论层
 （实际清单以 `docs/channels/` 目录为准，不在此处手抄数量）。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
@@ -68,9 +67,9 @@ docs/channels/<cid>/
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [METHODOLOGY](./astudio/METHODOLOGY.md) / [WALKTHROUGH](./astudio/WALKTHROUGH.md) + [ROADMAP](./astudio/ROADMAP.md)（缺口清单） |
+| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [FINDINGS](./astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | 内容流在独立 events SSE 上：prepareChat 只做前置（保鲜 / 沙箱 / 唤醒 / 设备上线），`openChatStream` 边收边翻成 OpenAI SSE 真增量下发；每请求独立沙箱会话键防串台；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./autoclaw/PROTOCOL.md) |
-| `catpaw` | CatPaw（美团妙手） | 凭据加密落盘，逆向链路结论拆成三份文档 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) / [FLOW](./catpaw/FLOW.md) |
+| `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
 | `codearts` | CodeArts（华为云码道） | 浏览器 OAuth2（PKCE + DPoP）+ STS 签名对话；模型目录内置 + 限时福利两源；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash` | [PROTOCOL](./codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
