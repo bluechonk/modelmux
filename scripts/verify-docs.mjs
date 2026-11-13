@@ -304,12 +304,12 @@ for (const name of readdirSync(skillsDir)) {
   }
 }
 
-// 4) 命令清单的唯一事实源是 `mx-cli` 技能 —— 已知重复点不得再内联
+// 4) 命令清单的唯一事实源是 CONTRACT-TS.md §9 —— 已知重复点不得再内联
 //
 // 为什么查：同一组命令写两遍必然漂移（改一处忘另一处）。已修的那处是
 // `docs/LOGGING.md` 的「CLI 检索」：原先内联 12 条 `mx log` 命令，与
-// `log-triage` 技能的清单近乎逐字重复。事实源是 `mx-cli` 技能的「命令速查」
-// 表（动作命令）+ 各技能的判读流程，文档只保留独有规则。
+// CONTRACT-TS.md §9 的「命令速查」表近乎逐字重复。事实源就是 §9，
+// LOGGING.md 只保留日志独有的解析规则与判读流程。
 //
 // 判据刻意**收窄**：只查 `docs/LOGGING.md` 里的 `mx log` 行内命令。
 // 不做「所有文档命令都必须进 AGENTS.md」这种全量校验 —— 命令太多、形态太杂，
@@ -321,9 +321,9 @@ const inlineLogCmd = loggingText
   .filter((line) => /^\s*(mx log\b|`mx log\b)/.test(line));
 if (inlineLogCmd.length > 0) {
   problems.push(
-    `${LOGGING_MD}: 不得内联 \`mx log\` 命令清单（与 log-triage 技能重复，会漂移）。\n` +
+    `${LOGGING_MD}: 不得内联 \`mx log\` 命令清单（与 CONTRACT-TS.md §9 重复，会漂移）。\n` +
       `     命中 ${inlineLogCmd.length} 行，例：${inlineLogCmd[0]?.trim().slice(0, 80) ?? ""}\n` +
-      `     改法：换成一行指向 \`log-triage\` 技能，只保留该文档独有的解析规则。`,
+      `     改法：换成一行指向 CONTRACT-TS.md §9，只保留该文档独有的解析规则。`,
   );
 }
 
@@ -349,10 +349,10 @@ if (agentsMdBytes > AGENTS_MD_MAX_BYTES) {
 
 // 5b) 被引用的「唯一事实源」必须真实存在
 //
-// 为什么查：文档与技能互相指认对方持有同一份内容时，两处都以为对方在维护它 ——
-// 实际谁都没有，读者两头扑空。已发生过一次：`mx-cli` 技能写着「动作命令的唯一事实源
+// 为什么查：两份文档互相指认对方持有同一份内容时，两处都以为对方在维护它 ——
+// 实际谁都没有，读者两头扑空。已发生过一次：契约里写着「动作命令的唯一事实源
 // 在 AGENTS.md 的『常见任务速查』表」，而那张表在根文件瘦身时被删掉（未搬迁），
-// AGENTS.md 反过来又写「完整命令手册见 mx-cli 技能」，形成闭环；两边都不含那张表，
+// AGENTS.md 反过来又指向它，形成闭环；两边都不含那张表，
 // 且没有任何检查会失败（2026-11-07 实测）。
 //
 // 判据：出现「唯一事实源」且同句提到另一个文件时，该文件必须存在，且被点名的章节

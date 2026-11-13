@@ -120,6 +120,22 @@
 > **catpaw 的缓存命中由渠道映射成 `prompt_tokens_details.cached_tokens` 透出**，与 loomy /
 > workbuddy / astudio 等一样计入仪表盘「缓存命中」。
 
+### 5.3 真实请求直连上游的字段（2026-11-13 探针实测）
+
+判据不能靠日志反推 —— 日志里的 `usage` 已经是归一化后的产物。**绕过网关直连上游**
+（用渠道包 `upstream.js` 的 `buildChatBody` / `buildChatHeaders` / `chatUrl` 自己发请求），
+直接看模型返回的**原始帧**：
+
+| 渠道 | 线协议 | 原始返回里的事实 |
+| --- | --- | --- |
+| workbuddy | openai | 末帧带完整 usage：`prompt_cache_hit_tokens: 0` / `prompt_cache_miss_tokens: 22`（**DeepSeek 形**），同时也有 `prompt_tokens_details.cached_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`；另每帧附带 `quota:{model,percent,reset_at,shared_models}` |
+| loomy | openai | 响应体是 **JSON 信封** `{code, desc, trace_id, data}`，SSE 流在 `data` 里 —— 不是裸 SSE |
+| doubaowork | custom | 原生事件流：`event: SSE_HEARTBEAT` / `event: STREAM_ERROR`（`{error_code, error_msg, extra}`）；**无 usage 帧** |
+| traecn | custom | 直连回 **401**（`{code, message}`）—— 探针未带刷新后的凭据 |
+
+结论：§6 的三种缓存形态判定与**真实上游帧**一致；`quota` 对象是上游在对话帧里就给的额度信息，
+与 §5.2 的账单端点是两条独立取数路径。
+
 ## 6. 归一化规则（本仓库口径）
 
 **只读上游返回的字段，绝不用本地会话 / prompt 自行推算** —— 这是模型侧 KV cache 的命中量，

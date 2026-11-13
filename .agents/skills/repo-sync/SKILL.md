@@ -198,8 +198,8 @@ done
 
 验证分工（不要在本技能里重复展开细节）：
 
-- `mx` 命令用法与坑 → `mx-cli` 技能；
-- 日志与失败码 → `log-triage` 技能；
+- `mx` 命令用法与坑 → [docs/CONTRACT-TS.md](../../../docs/CONTRACT-TS.md) §9；
+- 日志与失败码 → [docs/LOGGING.md](../../../docs/LOGGING.md) §10 / §11；
 - 渠道端到端验收 → `dsh-mx-test` 技能。
 
 - 涉及登录/凭据/上游的改动：必须 `mx login <cid>` → `mx status <cid>` → 真实对话。

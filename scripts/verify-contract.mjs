@@ -410,7 +410,6 @@ const DOC_FILES = [
   "docs/LOGGING.md",
   "docs/channels/README.md",
   "docs/MODULE-COMMENTS.md",
-  ".agents/skills/mx-cli/SKILL.md",
   ".agents/skills/dsh-mx-test/SKILL.md",
 ];
 const countHits = [];

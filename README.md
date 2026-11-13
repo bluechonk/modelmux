@@ -59,10 +59,11 @@ npm run desktop      # 可选：打成 Windows 安装版 exe
 | 模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
 | 存储落点 / 日志 / Web 控制台 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) · [docs/LOGGING.md](docs/LOGGING.md) · [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) |
 | Windows 桌面安装版 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) |
-| `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
+| `mx` 命令用法 | [docs/CONTRACT-TS.md §9](docs/CONTRACT-TS.md) |
 | 渠道端到端测试 | 技能 `.agents/skills/dsh-mx-test/SKILL.md` |
-| 日志排查 | 技能 `.agents/skills/log-triage/SKILL.md` |
+| 日志排查 | [docs/LOGGING.md §10](docs/LOGGING.md) |
 | 收尾流程 | 技能 `.agents/skills/repo-sync/SKILL.md` |
+| 探索式开发的收口（dev 分支整理） | 技能 `.agents/skills/dev-flow/SKILL.md` |
 | 渠道用法与上游协议 | [docs/channels/README.md](docs/channels/README.md) · `docs/channels/<cid>/PROTOCOL.md` |
 
 > 技能清单以 [docs/README.md](docs/README.md) §3 的表为准；`verify-docs` 会校验不漏登记。

@@ -45,8 +45,7 @@ npm run gate       # 推送门禁：干净 clone → npm ci → npm test
 ```
 
 CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kubectl）。`mx <cid> <动词>` 不采用。
-仓库级动词（`start/stop/restart/serve/web`）不接受 cid。完整命令手册见 `mx-cli` 技能，
-设计见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §9。
+仓库级动词（`start/stop/restart/rebuild/serve/web`）不接受 cid。命令形态与完整手册见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §9。
 
 网关只监听 `127.0.0.1:4412`，Web 控制台与网关共用该端口，挂在 `/web`。`mx web` = 确保网关在跑 → 打印 `/web/` 地址（禁止自动打开浏览器，用户自行复制打开）。
 `ChannelConfig.defaultAddr` 只在单渠道独立运行时生效。
