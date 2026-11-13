@@ -270,7 +270,7 @@ function IntegrateSwitchCard({
         : "text-ink-faint";
   return (
     <div
-      className={`relative rounded-xl border bg-surface p-3 transition-colors ${
+      className={`relative rounded-xl border bg-raised p-3 transition-colors ${
         failed ? "border-danger/45" : "border-line"
       } ${busy ? "opacity-70" : ""}`}
     >
