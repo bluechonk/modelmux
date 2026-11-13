@@ -192,14 +192,14 @@ export interface WebApi {
      *
      * 后端写的是各客户端自己的配置文件（写前备份），返回变更说明。
      */
-    integrate(target: "zcode" | "dsh" | "claude-desktop" | "codex"): Promise<CommandData>;
+    integrate(target: "zcode" | "dsh"): Promise<CommandData>;
     /**
      * 一键还原：把目标恢复成**接入前**的配置。
      *
      * 取该目标最近一次接入备份；还原前会先把当前状态再备份一份（可反悔）。
      * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
      */
-    restore(target: "zcode" | "dsh" | "claude-desktop" | "codex"): Promise<CommandData>;
+    restore(target: "zcode" | "dsh"): Promise<CommandData>;
   };
 }
 
@@ -242,6 +242,14 @@ async function command(
   // 保留 ok / message / error，便于调用方按需读取（data 的字段与它们平级）
   return { ...merged, ok: envelope.ok, ...(envelope.message ? { message: envelope.message } : {}), ...(envelope.error ? { error: envelope.error } : {}) };
 }
+
+/**
+ * 一键接入的合法目标（与后端 `IntegrationTarget` 同形）。
+ *
+ * 演示模式的参数校验与真实后端**同一口径** —— 分成两份会在加目标时漏改一处，
+ * 表现为演示站放行、真机报错。
+ */
+const INTEGRATE_TARGETS: readonly string[] = ["zcode", "dsh"];
 
 /**
  * 演示模式的动作分发：与真实 `/web/api/commands` 同形（解包后的扁平对象）。
@@ -307,9 +315,8 @@ async function demoCommand(
       return { cancelled: true, ok: true };
     case "integrate": {
       const target = String(args["target"] ?? "");
-      const targets = ["zcode", "dsh", "claude-desktop", "codex"];
-      if (!targets.includes(target)) {
-        return { ok: false, error: `参数 target 只能是 ${targets.join(" / ")}` };
+      if (!INTEGRATE_TARGETS.includes(target)) {
+        return { ok: false, error: `参数 target 只能是 ${INTEGRATE_TARGETS.join(" / ")}` };
       }
       // 演示数据里模型清单与真实快照同形（`state.models` 的 model 段去重）
       const models = [...new Set(demoModels(st).map((row) => row.model))];
@@ -324,9 +331,8 @@ async function demoCommand(
     }
     case "restore": {
       const target = String(args["target"] ?? "");
-      const targets = ["zcode", "dsh", "claude-desktop", "codex"];
-      if (!targets.includes(target)) {
-        return { ok: false, error: `参数 target 只能是 ${targets.join(" / ")}` };
+      if (!INTEGRATE_TARGETS.includes(target)) {
+        return { ok: false, error: `参数 target 只能是 ${INTEGRATE_TARGETS.join(" / ")}` };
       }
       // 演示模式：不碰真实文件，只回一个与真实响应同形的结果
       return {

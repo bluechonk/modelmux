@@ -157,7 +157,7 @@ export interface UiSnapshot {
    */
   channel_caps: Record<string, ChannelCaps>;
   /**
-   * 各接入目标（zcode / dsh / claude-desktop / codex）当前的接入态（键 = target）。
+   * 各接入目标（zcode / dsh）当前的接入态（键 = target）。
    *
    * 开关式 UI 的状态源：true = 已接入（客户端配置已指向网关），false = 未接入。
    * 由接入备份清单 + 标记文件推导（见 `app/integrate.ts` 的 `integrationStatus`）。
@@ -244,7 +244,7 @@ export interface ControlBridge {
    * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
-  integrate?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
+  integrate?: (target: "zcode" | "dsh") => {
     ok: boolean;
     error?: string;
     /** 变更说明（人读，控制台作展示）。 */
@@ -256,7 +256,7 @@ export interface ControlBridge {
    * 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。
    * 实现同为 `app/integrate.ts` 的 `restoreClient`。
    */
-  restore?: (target: "zcode" | "dsh" | "claude-desktop" | "codex") => {
+  restore?: (target: "zcode" | "dsh") => {
     ok: boolean;
     error?: string;
     restored: string[];

@@ -187,7 +187,7 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
 // ---------------------------------------------------------------------------
 
 /** 接入目标（与后端 `IntegrationTarget` 同形）。 */
-type IntegrationTarget = "zcode" | "dsh" | "claude-desktop" | "codex";
+type IntegrationTarget = "zcode" | "dsh";
 
 /** 每个客户端在卡片上展示的静态信息（图标缩写 / 名称 / 接入会写的配置文件）。 */
 const INTEGRATE_CLIENTS: Array<{
@@ -198,8 +198,6 @@ const INTEGRATE_CLIENTS: Array<{
 }> = [
   { target: "zcode", icon: "zc", name: "zcode", file: "~/.zcode/v2/provider_config.json" },
   { target: "dsh", icon: "ds", name: "dsh", file: "~/.dsh/profiles/<profile>/cordis.patch.yml" },
-  { target: "claude-desktop", icon: "cd", name: "claude desktop", file: "~/claude_desktop_config.json" },
-  { target: "codex", icon: "cx", name: "codex", file: "~/.codex/config.toml" },
 ];
 
 /** 开关操作中态：哪个目标在跑哪种动作（并行点两张卡互不误标）。 */

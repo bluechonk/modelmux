@@ -77,7 +77,7 @@ mx model list
 
 `mx web` 起一个本地控制台（`http://127.0.0.1:4412/web/`），同一端口下分**三个路由页**：
 仪表盘 `/`、账号池 `/accounts`、请求日志 `/logs`。对外模型清单（家族表里的几个模型）与
-「一键接入」（zcode / dsh / claude desktop / codex 四个客户端）都在仪表盘上。
+「一键接入」（zcode / dsh）都在仪表盘上。
 
 **在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
 （截图不放仓库：界面与文案改得快，图必然过时 —— 要看实际形态就看在线演示或 `mx web`。）
@@ -104,7 +104,6 @@ mx model list
 | Windows 桌面安装版 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)（安装前提 / 托盘与网关生命周期 / 自定义标题栏 / 存储根） |
 | `mx` 命令用法 | 技能 `.agents/skills/mx-cli/SKILL.md` |
 | 渠道端到端测试（dsh/ACP 直连网关，覆盖每个渠道的模型） | 技能 `.agents/skills/dsh-mx-test/SKILL.md`（只许用免费或当前渠道倍率最低的模型） |
-| 客户端协议测试（Claude Code 走 /v1/messages · Codex 走 /v1/responses） | 技能 `.agents/skills/claude-mx-test/SKILL.md` · `.agents/skills/codex-mx-test/SKILL.md`（同上成本红线） |
 | 收尾流程（文档同步 / commit / PR / CI / merge） | 技能 `.agents/skills/repo-sync/SKILL.md` |
 | 豆包工作怎么接入（纯 HTTP，含参数混淆与抓包方法） | 技能 `.agents/skills/doubaowork-reverse/SKILL.md` |
 | 某个渠道怎么用 | [docs/channels/README.md](docs/channels/README.md)（通用用法）· `docs/channels/<cid>/PROTOCOL.md`（该渠道的差异） |

@@ -35,8 +35,6 @@ let root = "";
 let savedProfile: string | undefined;
 let savedHome: string | undefined;
 let savedRoot: string | undefined;
-let savedLocalAppData: string | undefined;
-let savedXdg: string | undefined;
 
 before(() => {
   home = mkdtempSync(join(tmpdir(), "modelmux-integrate-extra-home-"));
@@ -44,13 +42,9 @@ before(() => {
   savedProfile = process.env["USERPROFILE"];
   savedHome = process.env["HOME"];
   savedRoot = process.env["MODELMUX_HOME"];
-  savedLocalAppData = process.env["LOCALAPPDATA"];
-  savedXdg = process.env["XDG_CONFIG_HOME"];
   process.env["USERPROFILE"] = home;
   process.env["HOME"] = home;
   process.env["MODELMUX_HOME"] = root;
-  process.env["LOCALAPPDATA"] = join(home, "AppData", "Local");
-  process.env["XDG_CONFIG_HOME"] = join(home, ".config");
 });
 
 after(() => {
@@ -61,8 +55,6 @@ after(() => {
   restore("USERPROFILE", savedProfile);
   restore("HOME", savedHome);
   restore("MODELMUX_HOME", savedRoot);
-  restore("LOCALAPPDATA", savedLocalAppData);
-  restore("XDG_CONFIG_HOME", savedXdg);
   rmSync(home, { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
 });
@@ -77,10 +69,7 @@ function clearBackups(): void {
 beforeEach(() => {
   clearBackups();
   // 客户端配置副本也要清：用例之间不能靠「上一个没写过」
-  rmSync(join(root, "codex-model-catalog.json"), { force: true });
   rmSync(join(home, ".dsh", ".credentials.yaml"), { force: true });
-  rmSync(join(home, ".codex"), { recursive: true, force: true });
-  rmSync(DESKTOP_DIR, { recursive: true, force: true });
 });
 
 /** Windows 下把文件置只读；其它平台不动（POSIX 的目录权限已由专门用例覆盖）。 */
@@ -143,27 +132,6 @@ const DSH_ACP_WITH_PROVIDER = `- id: llm-pi-ai
             input:
               - text
 `;
-
-// 与实现同口径：darwin 用 Library，Windows 用 LOCALAPPDATA，其余用 XDG_CONFIG_HOME
-const DESKTOP_DIR =
-  process.platform === "darwin"
-    ? join(home, "Library", "Application Support", "Claude-3p", "configLibrary")
-    : process.platform === "win32"
-      ? join(home, "AppData", "Local", "Claude-3p", "configLibrary")
-      : join(home, ".config", "Claude-3p", "configLibrary");
-
-function seedDesktop(): string {
-  mkdirSync(DESKTOP_DIR, { recursive: true });
-  return DESKTOP_DIR;
-}
-
-function seedCodex(text: string): string {
-  const dir = join(home, ".codex");
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, "config.toml");
-  writeFileSync(file, text, "utf8");
-  return file;
-}
 
 /** 预建当前秒与未来两秒的备份目录（避免跨秒竞态），对每个目录调 setup。 */
 function precreateBackupDirs(target: string, setup: (dir: string) => void): void {
@@ -336,92 +304,6 @@ describe("dsh 补充分支", () => {
   });
 });
 
-// ── claude desktop ──────────────────────────────────────────────────────────
-
-describe("claude desktop 补充分支", () => {
-  it("_meta.json 不是合法 JSON：如实报错", () => {
-    const dir = seedDesktop();
-    writeFileSync(join(dir, "_meta.json"), "{broken", "utf8");
-    const result = integrateClient("claude-desktop", MODELS);
-    assert.equal(result.ok, false);
-    assert.match(result.error ?? "", /_meta\.json 不是合法 JSON/);
-  });
-
-  it("profile 不是合法 JSON：如实报错", () => {
-    const dir = seedDesktop();
-    writeFileSync(join(dir, "modelmux.json"), "{broken", "utf8");
-    const result = integrateClient("claude-desktop", MODELS);
-    assert.equal(result.ok, false);
-    assert.match(result.error ?? "", /不是合法 JSON/);
-  });
-
-  it("空配置库：两个文件都是接入新建", () => {
-    const dir = seedDesktop();
-    const result = integrateClient("claude-desktop", MODELS);
-    assert.equal(result.ok, true, result.error);
-    assert.ok(result.changed.includes(join(dir, "modelmux.json")), "profile 应是新建");
-    assert.ok(result.changed.includes(join(dir, "_meta.json")), "meta 应是新建");
-  });
-
-  it("配置写失败（只读）：如实报错", () => {
-    const dir = seedDesktop();
-    const profile = join(dir, "modelmux.json");
-    writeFileSync(profile, "{}\n", "utf8");
-    readOnly(profile);
-    if (!isWin) return;
-    try {
-      const result = integrateClient("claude-desktop", MODELS);
-      assert.equal(result.ok, false);
-      assert.match(result.error ?? "", /写 Claude Desktop 配置失败/);
-    } finally {
-      writable(profile);
-    }
-  });
-});
-
-// ── codex ───────────────────────────────────────────────────────────────────
-
-describe("codex 补充分支", () => {
-  it("modelmux 段后面还有别的表：替换到下一个表头为止", () => {
-    const file = seedCodex(`[model_providers.modelmux]
-name = "old"
-base_url = "http://old"
-
-[profiles.fast]
-model = "gpt"
-`);
-    const result = integrateClient("codex", MODELS);
-    assert.equal(result.ok, true, result.error);
-    const after = readFileSync(file, "utf8");
-    assert.ok(after.includes("[profiles.fast]"), "后续段丢失");
-    assert.ok(after.includes('model = "gpt"'), "后续段被改动");
-    assert.ok(!after.includes("http://old"), "旧段没被替换");
-  });
-
-  it("多行字符串开合不配对：如实报错", () => {
-    seedCodex('instructions = """\nunclosed\n');
-    const result = integrateClient("codex", MODELS);
-    assert.equal(result.ok, false);
-    assert.match(result.error ?? "", /多行字符串/);
-  });
-
-  it("catalog 内容损坏且写不进去：解析不了不算等价，如实报错", () => {
-    seedCodex('model = "gpt"\n');
-    const catalog = join(root, "codex-model-catalog.json");
-    mkdirSync(join(root), { recursive: true });
-    writeFileSync(catalog, "{broken", "utf8");
-    readOnly(catalog);
-    if (!isWin) return;
-    try {
-      const result = integrateClient("codex", MODELS);
-      assert.equal(result.ok, false);
-      assert.match(result.error ?? "", /写 Codex 模型目录失败/);
-    } finally {
-      writable(catalog);
-    }
-  });
-});
-
 // ── 还原 ────────────────────────────────────────────────────────────────────
 
 describe("还原补充分支", () => {
@@ -504,30 +386,6 @@ describe("还原补充分支", () => {
     assert.equal(readFileSync(cfg, "utf8"), "OLDCFG");
   });
 
-  it("desktop 老备份反推 json 文件；非 json 跳过", () => {
-    const dir = join(backupRoot(), "claude-desktop-20990101000000");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "_meta.json.aaa11111"), "META", "utf8");
-    writeFileSync(join(dir, "other.txt"), "x", "utf8");
-
-    const result = restoreClient("claude-desktop");
-    assert.equal(result.ok, true, result.error);
-    assert.equal(readFileSync(join(DESKTOP_DIR, "_meta.json"), "utf8"), "META");
-    assert.ok(result.notes.some((n) => n.includes("other.txt")), "非 json 文件应被跳过并记录");
-  });
-
-  it("老备份（codex）反推不出原路径：跳过并记 notes", () => {
-    const dir = join(backupRoot(), "codex-20990101000000");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "other.txt"), "x", "utf8");
-    const result = restoreClient("codex");
-    assert.equal(result.ok, false);
-    assert.ok(
-      (result.error ?? "").includes("无法确定原路径") || result.notes.some((n) => n.includes("无法确定原路径")),
-      `应记录跳过的文件：${result.error ?? ""} / ${result.notes.join(" / ")}`,
-    );
-  });
-
   it("多份备份按时间戳排序：stampOf 参与比较", () => {
     const provider = join(home, ".zcode", "v2", "provider_config.json");
     mkdirSync(join(home, ".zcode", "v2"), { recursive: true });
@@ -577,9 +435,9 @@ describe("还原补充分支", () => {
 // ── 接入状态 ────────────────────────────────────────────────────────────────
 
 describe("接入状态标记与回落", () => {
-  it("无标记无备份：全部未接入", () => {
+  it("无标记无备份：两个目标都未接入", () => {
     const status = integrationStatus();
-    assert.deepEqual(status, { zcode: false, dsh: false, "claude-desktop": false, codex: false });
+    assert.deepEqual(status, { zcode: false, dsh: false });
   });
 
   it("标记损坏 / 字段非法：回落清单推断", () => {

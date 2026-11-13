@@ -36,7 +36,7 @@
 > Codex 直连）—— 请求翻译成内部 chat 形态后走**同一条**池转发管线，回程按协议编码；
 > 这两条路径上家族外的模型名一律 400；唯一例外是 Claude Desktop 的三个角色名，
 > 按固定表映射到池模型（见 [CONTRACT-TS.md §4.1.1](./CONTRACT-TS.md)）。
-> 端点、解析与四 CLI 配置见 [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md)。
+> 端点、解析与客户端接入见 [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md)。
 
 ---
 

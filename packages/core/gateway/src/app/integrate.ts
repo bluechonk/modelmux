@@ -15,14 +15,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:f
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-import { DESKTOP_ROLE_MODELS, POOL_EXPOSED_IDS } from "../pool/model-family.js";
+import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModelMetas, poolModels } from "../pool/pool-targets.js";
 import { defaultAddr } from "../runtime/cli-consts.js";
 import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile, writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
-export type IntegrationTarget = "zcode" | "dsh" | "claude-desktop" | "codex";
+export type IntegrationTarget = "zcode" | "dsh";
 
 export interface IntegrationResult {
   ok: boolean;
@@ -59,10 +59,6 @@ function gatewayBaseUrl(): string {
   return `http://${defaultAddr()}/v1`;
 }
 
-/** Anthropic 客户端的 baseURL（客户端自己拼 `/v1/messages`，**不带** /v1）。 */
-function gatewayAnthropicUrl(): string {
-  return `http://${defaultAddr()}`;
-}
 /** zcode 供应商在 provider_config.json 里的标识。 */
 const ZCODE_PROVIDER_ID = "new-provider";
 const ZCODE_PROVIDER_NAME = "modelmux";
@@ -108,10 +104,6 @@ function integrateByTarget(target: IntegrationTarget, models: string[]): Integra
       return integrateZcode(models);
     case "dsh":
       return integrateDsh(models);
-    case "claude-desktop":
-      return integrateClaudeDesktop(models);
-    case "codex":
-      return integrateCodex(models);
   }
 }
 
@@ -837,515 +829,6 @@ function renderDshModelItems(indent: number, models: string[], modalities: Modal
   return out;
 }
 
-// ── claude desktop ──────────────────────────────────────────────────────────
-
-/**
- * Claude Desktop 的 3P（third-party）profile 路径。
- *
- * Desktop 读自己的 3P profile（`<LOCALAPPDATA>/Claude-3p/configLibrary/`，macOS 在
- * `~/Library/Application Support/Claude-3p/`），**不是** `~/.claude/settings.json`。
- * 写错位置的后果是 Desktop 照常启动、但完全不读我们写的配置 —— 静默无效，没有任何报错。
- */
-function claudeDesktopLibraryDir(): string {
-  if (process.platform === "darwin") {
-    return join(homedir(), "Library", "Application Support", "Claude-3p", "configLibrary");
-  }
-  if (process.platform === "win32") {
-    const local = process.env["LOCALAPPDATA"] ?? join(homedir(), "AppData", "Local");
-    return join(local, "Claude-3p", "configLibrary");
-  }
-  const configHome = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
-  return join(configHome, "Claude-3p", "configLibrary");
-}
-
-/**
- * profile 文件名（`_meta.json` 的 `entries[].id` 与 `appliedId` 都指向它）。
- *
- * 复用已有条目的规则见 `pickDesktopProfileId`：Desktop / cc-switch 会按 UUID 命名 profile，
- * 已有同名（`name` 为 `modelmux`）的条目时**沿用它的 id**，否则 `<cid>` 这类供应商会在
- * 列表里出现两条同名项。
- */
-const DESKTOP_PROFILE_NAME = "modelmux";
-
-/** 在已有 `_meta.json` 里挑出应当复用的 profile id：同名的优先，其次 `appliedId`。 */
-function pickDesktopProfileId(meta: Record<string, unknown>): string {
-  const entries = Array.isArray(meta["entries"]) ? (meta["entries"] as unknown[]) : [];
-  const named = entries.find(
-    (e) =>
-      e &&
-      typeof e === "object" &&
-      (e as Record<string, unknown>)["name"] === DESKTOP_PROFILE_NAME &&
-      typeof (e as Record<string, unknown>)["id"] === "string",
-  ) as Record<string, unknown> | undefined;
-  if (named) return named["id"] as string;
-  const applied = meta["appliedId"];
-  if (typeof applied === "string" && applied !== "") return applied;
-  return DESKTOP_PROFILE_NAME;
-}
-
-/**
- * 把池模型写成 Desktop 的 `inferenceModels`（角色名 → 池模型的固定映射）。
- *
- * `name` 必须写成**真实存在的 Anthropic 模型名**：Desktop 的校验器（`app.asar` 里
- * `jo()` → `ko = /^[A-Za-z0-9_-]{1,64}$/` 再叠加「须为已知 Anthropic 模型」）会拒掉
- * 自造名 —— 连斜杠与点号都不允许，`anthropic/claude-sonnet-deepseek-v4.1-flash` 实测会被丢弃
- * （日志：`is not an Anthropic model`），结果是模型选择器为空。
- *
- * 槽位与映射表都由 `model-family.ts` 的 `DESKTOP_ROLE_MODELS` 决定（接入与解析同源）：
- * Desktop 直连只会发角色名，`labelOverride` 仅改菜单显示名、不进请求体，所以
- * 「选了什么模型」全靠网关侧的这张表还原。
- *
- * 只写**本次接入的对外模型里真有的**那些槽：池里没有的模型写进 profile 只会让
- * 用户选到一个必然 400 的条目。`supports1m` + `prefer1m` 必须成对出现 ——
- * 前者给出 1M 变体，后者让选择器只列 1M 那一项，少了 UI 会退回 200k。
- */
-function desktopInferenceModels(models: readonly string[]): Array<Record<string, unknown>> {
-  const wanted = new Set(models);
-  return DESKTOP_ROLE_MODELS.filter(([, model]) => wanted.has(model)).map(([roleId, model]) => ({
-    name: roleId,
-    labelOverride: model,
-    supports1m: true,
-    prefer1m: true,
-  }));
-}
-
-/**
- * Claude Desktop：写 3P profile（`configLibrary/modelmux.json` + `_meta.json`）。
- *
- * 走 **`inferenceProvider: "gateway"`**，模型清单写进 `inferenceModels`（**不**用模型发现，
- * 原因见 `desktopInferenceModels` 与 `modelDiscoveryEnabled` 处的注释）。
- *
- * 认证用 `x-api-key`（本地回环网关不校验入站密钥，只要求头存在）。
- */
-function integrateClaudeDesktop(models: string[]): IntegrationResult {
-  const result: IntegrationResult = {
-    ok: false,
-    target: "claude-desktop",
-    models,
-    changed: [],
-    unchanged: [],
-    notes: [],
-    warnings: [],
-  };
-  const dir = claudeDesktopLibraryDir();
-  const metaFile = join(dir, "_meta.json");
-
-  // 目录不存在 = Desktop 没装过 / 没起过 3P 模式。不替它造目录：Desktop 首次以 3P 模式
-  // 启动时会自己建，凭空造一个反而可能让它认不出自己的配置根。
-  if (!existsSync(dir)) {
-    result.error = `找不到 Claude Desktop 的 3P 配置目录：${dir}（先启动一次 Claude Desktop）`;
-    return result;
-  }
-
-  const metaBefore = existsSync(metaFile) ? readFileSync(metaFile, "utf8") : "";
-  let meta: Record<string, unknown> = {};
-  if (metaBefore) {
-    try {
-      meta = JSON.parse(metaBefore) as Record<string, unknown>;
-    } catch (err) {
-      result.error = `Claude Desktop 的 _meta.json 不是合法 JSON：${String(err)}`;
-      return result;
-    }
-  }
-  // 沿用已有条目（同名的优先，其次 appliedId），避免出现两条同名供应商
-  const profileId = pickDesktopProfileId(meta);
-  const profileFile = join(dir, `${profileId}.json`);
-
-  // profile 文件损坏要**如实报错**（与 _meta.json 同口径）：profileId 来自
-  // `_meta.json` 的 `appliedId`，可能指向 Desktop / cc-switch 生成的其它 profile，
-  // 那个文件不一定是本工具写的。这里裸 `JSON.parse` 会让异常穿透到控制台的
-  // `.catch`，用户看到的是「命令失败」而不是「这个文件不是合法 JSON」。
-  let profile: Record<string, unknown> = {};
-  if (existsSync(profileFile)) {
-    try {
-      profile = JSON.parse(readFileSync(profileFile, "utf8")) as Record<string, unknown>;
-    } catch (err) {
-      result.error = `Claude Desktop 的 ${profileId}.json 不是合法 JSON：${String(err)}`;
-      return result;
-    }
-  }
-  const before = JSON.stringify(profile);
-  const anthropicUrl = gatewayAnthropicUrl();
-  profile["inferenceProvider"] = "gateway";
-  profile["inferenceGatewayBaseUrl"] = anthropicUrl;
-  profile["inferenceGatewayAuthScheme"] = "x-api-key";
-  profile["inferenceGatewayApiKey"] = LOCAL_API_KEY;
-  // **必须关**模型发现：它直接拿 `/v1/models` 的裸名（`qwen3.8-flash` / `deepseek-v4.1-flash`）
-  // 当候选，而 Desktop 的校验器不接受点号 —— 实测 3 个模型全被判「不可用」
-  // （日志：`Gateway /v1/models returned 0 usable models { rawCount: 3 }`，选择器为空）。
-  // 显式 `inferenceModels` 里的角色名才是可走的路（映射见 `desktopInferenceModels`）。
-  profile["modelDiscoveryEnabled"] = false;
-  // 按 `DESKTOP_ROLE_MODELS` 写池里真有的角色槽 —— 模型发现已关，profile 是唯一来源
-  profile["inferenceModels"] = desktopInferenceModels(models);
-  if (profile["disableDeploymentModeChooser"] === undefined) {
-    profile["disableDeploymentModeChooser"] = true;
-  }
-
-  const entries = Array.isArray(meta["entries"]) ? (meta["entries"] as unknown[]) : [];
-  const hasOurs = entries.some(
-    (e) => e && typeof e === "object" && (e as Record<string, unknown>)["id"] === profileId,
-  );
-  if (!hasOurs) entries.push({ id: profileId, name: DESKTOP_PROFILE_NAME });
-  meta["entries"] = entries;
-  meta["appliedId"] = profileId;
-
-  const metaAfter = `${JSON.stringify(meta, null, 2)}\n`;
-  const profileAfter = `${JSON.stringify(profile, null, 2)}\n`;
-  if (before === JSON.stringify(profile) && metaAfter === metaBefore) {
-    result.unchanged.push(profileFile, metaFile);
-    result.ok = true;
-    return result;
-  }
-
-  const backup = backupDirFor("claude-desktop");
-  try {
-    // 两个文件都可能是新建（Desktop 没装过 3P profile）：新建的记 `existed:false`，
-    // 还原时删掉，别把接入产物留在用户目录里
-    if (existsSync(profileFile)) backupFile(backup, profileFile, result.warnings);
-    else noteCreatedFile(backup, profileFile, result.warnings);
-    if (existsSync(metaFile)) backupFile(backup, metaFile, result.warnings);
-    else noteCreatedFile(backup, metaFile, result.warnings);
-    writeVerified(profileFile, profileAfter, 0o600);
-    writeVerified(metaFile, metaAfter, 0o600);
-  } catch (err) {
-    result.error = `写 Claude Desktop 配置失败：${String(err)}（备份目录 ${backup}）`;
-    return result;
-  }
-  result.changed.push(profileFile, metaFile);
-  result.backupDir = backup;
-  result.notes.push(
-    `baseUrl=${anthropicUrl}，角色映射 ${desktopInferenceModels(models).length} 项（全部 1M 上下文）`,
-  );
-  result.notes.push("改完需重启 Claude Desktop 才生效");
-  result.ok = true;
-  return result;
-}
-
-// ── codex ───────────────────────────────────────────────────────────────────
-
-/** `[model_providers.modelmux]` 段（TOML；Codex 的 Responses 入口，见 cc-switch 的第三方模板）。 */
-function renderCodexProviderBlock(): string[] {
-  return [
-    "[model_providers.modelmux]",
-    `name = "modelmux"`,
-    `base_url = "${gatewayBaseUrl()}"`,
-    `wire_api = "responses"`,
-    `experimental_bearer_token = "${LOCAL_API_KEY}"`,
-    `requires_openai_auth = false`,
-  ];
-}
-
-/** Codex 的模型目录文件放在网关自己的存储根下（不碰用户的 ~/.codex 里的其它文件）。 */
-function codexCatalogPath(): string {
-  return join(rootDir(), "codex-model-catalog.json");
-}
-
-/**
- * catalog 条目的 schema 必填字段（Codex 0.163；缺任一项整份文件解析失败）。
- *
- * 与 `renderCodexCatalog` 输出、以及「等价目录」判定共用一份：只比 id 集会放过
- * 缺字段的目录，那次接入会报成功而 Codex 起不来。
- */
-const CODEX_CATALOG_REQUIRED_KEYS = [
-  "slug",
-  "display_name",
-  "base_instructions",
-  "supported_reasoning_levels",
-  "shell_type",
-  "visibility",
-  "supported_in_api",
-  "priority",
-  "support_verbosity",
-  "truncation_policy",
-  "experimental_supported_tools",
-] as const;
-
-/** 渲染 Codex 模型目录的 JSON 文本（纯函数，供写入前比对与复用）。 */
-function renderCodexCatalog(models: string[]): string {
-  const doc = {
-    models: models.map((id) => ({
-      id,
-      slug: id,
-      model: id,
-      display_name: id,
-      description: "modelmux 网关模型（渠道由网关按剩余额度自动挑）",
-      base_instructions: CODEX_BASE_INSTRUCTIONS,
-      apply_patch_tool_type: "freeform",
-      supported_in_api: true,
-      supported_reasoning_levels: CODEX_REASONING_PRESETS,
-      default_reasoning_level: "medium",
-      shell_type: "shell_command",
-      visibility: "list",
-      priority: 0,
-      support_verbosity: false,
-      truncation_policy: { mode: "tokens", limit: 10_000 },
-      experimental_supported_tools: [],
-      context_window: 1_048_576,
-      max_context_window: 1_048_576,
-    })),
-  };
-  return `${JSON.stringify(doc, null, 2)}\n`;
-}
-
-/**
- * 写一份**只含对外模型**的 Codex 模型目录，并返回其绝对路径。
- *
- * 为什么必须写：Codex 的 `model_catalog_json` 指向的目录里若没有配置里那个
- * `model`，它启动时会直接报「系统找不到指定的文件」并拒绝运行 —— 接入只改
- * config.toml、不写目录，等于让 Codex 起不来（或指向一份不含对外模型名的旧目录，
- * 接入静默失效）。
- *
- * 为什么只写对外模型：Codex 的模型选择器会把这个目录整个列出来，把 100+ 个内部
- * 池 id 塞进去没人看得懂。对外只有家族表那几个裸名。
- *
- * 字段按 Codex 的 schema 给**实测最小必填集**（Codex 0.163 逐轮探测得出）：
- * `slug` / `display_name` / `base_instructions` / `supported_reasoning_levels` /
- * `shell_type` / `visibility` / `supported_in_api` / `priority` / `support_verbosity` /
- * `truncation_policy` / `experimental_supported_tools`，缺任一项整份文件解析失败
- * （报 `missing field \`xxx\``）。
- *
- * 三处字段形状必须严格照 schema：`supported_reasoning_levels` 的元素是
- * `{effort, description}` 对象而非裸字符串（实测报
- * `invalid type: string "low", expected struct ReasoningEffortPreset`）；`visibility`
- * 的枚举只有 `list` / `hide`（写 `public` 同样解析失败）；`truncation_policy` 是
- * `{mode, limit}` 对象。
- *
- * 刻意**不**继承内置目录的实验工具（`experimental_supported_tools` 置空）：那些是
- * Codex 自家模型的内部工具，第三方模型声明了只会让 Codex 发它不认识的工具调用。
- *
- * `support_verbosity` 必须为 `false`：网关的 Responses 适配器只转发
- * `reasoning.effort`，不转发 `text.verbosity`。声明 `true` 会让 Codex 在用户配置
- * `model_verbosity` 时发送该字段，随后被网关静默丢弃。
- */
-function writeCodexCatalog(models: string[]): string {
-  const path = codexCatalogPath();
-  mkdirSync(dirname(path), { recursive: true });
-  const expected = new Set(models);
-  writeVerified(path, renderCodexCatalog(models), 0o600, (actual) => {
-    try {
-      const doc = JSON.parse(actual) as { models?: Array<Record<string, unknown>> };
-      if (!Array.isArray(doc.models) || doc.models.length !== expected.size) return false;
-      // 只对 id 集不算等价：缺必填字段的目录 Codex 整份拒绝，认它等于把失败报成成功
-      return doc.models.every(
-        (m) =>
-          CODEX_CATALOG_REQUIRED_KEYS.every((k) => k in m) &&
-          typeof m["id"] === "string" &&
-          expected.has(m["id"]),
-      );
-    } catch {
-      // 解析不了 = 不能当作我们的目录用；具体原因由 writeVerified 的失败信息统一报出
-      return false;
-    }
-  });
-  return path;
-}
-
-/**
- * Codex 模型目录里的推理档位（`ReasoningEffortPreset`）。
- *
- * 只给 `low` / `medium` / `high` 三档：网关各渠道的真实档位未在 `/v1/models`
- * 里声明（`effort` 均为 null），多给的档位只会变成选了也没效果的空选项。
- */
-const CODEX_REASONING_PRESETS = [
-  { effort: "low", description: "Fast responses with lighter reasoning" },
-  { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
-  { effort: "high", description: "Greater reasoning depth for complex problems" },
-];
-
-/**
- * Codex 的 base instructions（`base_instructions` 是 catalog 每条目的必填项）。
- *
- * 与 Codex CLI 内置提示同源，接入只负责让它存在；真正的会话级 instructions
- * 仍由 Codex 每次请求自带。
- */
-const CODEX_BASE_INSTRUCTIONS = [
-  "You are Codex, a coding agent working with the user in a shared workspace.",
-  "",
-  "Keep the user informed while completing their task. Before the first tool call, send a brief",
-  "user-facing message explaining what you will check or change and why.",
-  "",
-  "Inspect the relevant code and workspace instructions before editing. Preserve unrelated user",
-  "changes, make focused fixes, and run checks appropriate to the change.",
-].join("\n");
-
-/**
- * 标出 TOML 多行字符串（`"""` / `'''`）区间内的行下标（含开闭行）；开合不配对返回 null。
- *
- * 文本级编辑认不出字符串上下文 —— 字符串里行首的 `[` 会被当成表头，把顶层键注进
- * 字符串内部（Codex 照常启动但配置静默失效）。掩码用于表头与顶层键注入点判定。
- */
-function maskTomlMultilineStrings(lines: string[]): Set<number> | null {
-  const masked = new Set<number>();
-  let open: string | null = null;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!;
-    if (open === null) {
-      const at = /("""|''')/.exec(line);
-      if (!at) continue;
-      // 同行自闭合（"""x"""）：不构成区间
-      if (line.slice((at.index ?? 0) + 3).includes(at[1]!)) continue;
-      open = at[1]!;
-      masked.add(i);
-    } else {
-      masked.add(i);
-      if (line.includes(open)) open = null;
-    }
-  }
-  return open === null ? masked : null;
-}
-
-/**
- * Codex：`~/.codex/config.toml` 的**文本级** TOML 改写（共享层零依赖，与 dsh 的
- * YAML 文本级改写同理由）。
- *
- * 三件事：顶层 `model_provider` / `model` 键替换或插入（**必须落在任何 `[` 表头之前**
- * —— TOML 顶层键的硬约束）；`[model_providers.modelmux]` 段整段替换或追加。凭据走
- * 段内 `experimental_bearer_token`（优先级高于 auth.json），`~/.codex/auth.json` 不碰
- * —— 不破坏 ChatGPT 登录态（cc-switch 的同款取舍）。
- *
- * 表头识别先做**多行字符串掩码**（`"""` / `'''` 区间内的行首 `[` 不是表头）：文本级
- * 编辑认不出字符串上下文，掩码失败（开合不配对）宁可放弃写入并报错 —— 写坏一份
- * Codex 配置还报成功，比不写更糟（dsh 凭据文件的同款取舍）。
- */
-function integrateCodex(models: string[]): IntegrationResult {
-  const result: IntegrationResult = {
-    ok: false,
-    target: "codex",
-    models,
-    changed: [],
-    unchanged: [],
-    notes: [],
-    warnings: [],
-  };
-  const dir = join(homedir(), ".codex");
-  const file = join(dir, "config.toml");
-  if (!existsSync(dir)) {
-    result.error = `找不到 Codex 配置目录：${dir}（Codex 装了吗？）`;
-    return result;
-  }
-  const original = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const eol = original.includes("\r\n") ? "\r\n" : "\n";
-  const lines = original.split(/\r?\n/);
-  const masked = maskTomlMultilineStrings(lines);
-  if (masked === null) {
-    result.error = "config.toml 的多行字符串（\"\"\" / '''）开合不配对，文本级改写无法安全进行；已跳过写入";
-    return result;
-  }
-
-  // 表头行（行尾可带注释）；掩码表 = 该行不在多行字符串区间内
-  const isTableHeader = (line: string, i: number): boolean =>
-    /^\s*\[.*\]\s*(#.*)?$/.test(line) && !masked.has(i);
-
-  // 1. [model_providers.modelmux] 段：替换到下一个表头，缺失则追加到文件尾
-  const providerIdx = lines.findIndex((l, i) => /^\s*\[model_providers\.modelmux\]\s*(#.*)?$/.test(l) && !masked.has(i));
-  let next: string[];
-  if (providerIdx >= 0) {
-    let end = lines.length;
-    for (let i = providerIdx + 1; i < lines.length; i += 1) {
-      if (isTableHeader(lines[i]!, i)) {
-        end = i;
-        break;
-      }
-    }
-    next = [...lines.slice(0, providerIdx), ...renderCodexProviderBlock(), ...lines.slice(end)];
-  } else {
-    next = [...lines, "", ...renderCodexProviderBlock()];
-  }
-
-  // 2. 顶层 model_provider / model：只清**首个表头之前**的旧键行（TOML 顶层键的硬约束：
-  //    必须在任何 `[` 表头之前），再统一插到那里 —— 段内同名键不受影响
-  const nextMask = maskTomlMultilineStrings(next) ?? new Set<number>();
-  const firstTable = next.findIndex((l, i) => /^\s*\[.*\]\s*(#.*)?$/.test(l) && !nextMask.has(i));
-  const headEnd = firstTable < 0 ? next.length : firstTable;
-  // `model_catalog_json` 一并重写：它指向的目录必须含下面这个 `model`，
-  // 否则 Codex 启动即报「系统找不到指定的文件」（目录不存在或里面没有该模型名）。
-  const head = next
-    .slice(0, headEnd)
-    .filter((l) => !/^\s*(model_provider|model|model_catalog_json)\s*=/.test(l));
-  const tail = firstTable < 0 ? [] : next.slice(firstTable);
-  // TOML 字面量字符串（单引号）不处理转义，Windows 路径原样写入即可；
-  // 只有双引号基本字符串才需要把反斜杠转成 `\\`
-  const catalogPath = codexCatalogPath();
-  const catalogLiteral = `'${catalogPath}'`;
-  const topKeys = [
-    `model_provider = "modelmux"`,
-    `model = "${models[0]!}"`,
-    `model_catalog_json = ${catalogLiteral}`,
-  ];
-  const withKeys = [...head, ...topKeys, ...tail];
-
-  const text = `${withKeys.join(eol).replace(/\s+$/, "")}${eol}`;
-  const catalogBody = renderCodexCatalog(models);
-  // 留一份接入前的目录内容：配置写失败时要靠它回滚（见下面的 catch）
-  let catalogOriginal: string | undefined;
-  try {
-    catalogOriginal = readFileSync(catalogPath, "utf8");
-  } catch {
-    catalogOriginal = undefined; // 不存在或读不出 → 需要写
-  }
-  const catalogChanged = catalogOriginal !== catalogBody;
-  const fileChanged = text !== original;
-  if (!fileChanged && !catalogChanged) {
-    result.unchanged.push(file, catalogPath);
-    result.ok = true;
-    return result;
-  }
-  // 配置与目录都是接入产物：接入前存在则备份，不存在则登记为「接入新建」（还原时删）
-  const backup = backupDirFor("codex");
-  // 先记账：随后的任何失败返回都要能让用户找到这份备份
-  result.backupDir = backup;
-  try {
-    if (existsSync(catalogPath)) backupFile(backup, catalogPath, result.warnings);
-    else noteCreatedFile(backup, catalogPath, result.warnings);
-    if (existsSync(file)) backupFile(backup, file, result.warnings);
-    else noteCreatedFile(backup, file, result.warnings);
-  } catch (err) {
-    result.error = `备份 Codex 接入前的文件失败：${String(err)}（备份目录 ${backup}）`;
-    return result;
-  }
-  // 先写目录再写配置：目录写失败时 config.toml 未被改写，不会出现「配置指向一份
-  // 不存在/不完整的目录」的中间态（那会让 Codex 直接起不来）
-  if (catalogChanged) {
-    try {
-      writeCodexCatalog(models);
-    } catch (err) {
-      result.error = `写 Codex 模型目录失败：${String(err)}（config.toml 尚未改写，备份在 ${backup}）`;
-      return result;
-    }
-    result.changed.push(catalogPath);
-  } else {
-    result.unchanged.push(catalogPath);
-  }
-  if (fileChanged) {
-    try {
-      writeVerified(file, text, 0o600);
-    } catch (err) {
-      // 目录已按新模型集改写、配置还是旧的：旧模型可能不在新目录里，Codex 会起不来。
-      // 把目录回滚到接入前，宁可这次接入整体失败。
-      let rollback = "目录未改动";
-      if (catalogChanged) {
-        try {
-          if (catalogOriginal === undefined) rmSync(catalogPath, { force: true });
-          else writeVerified(catalogPath, catalogOriginal, 0o600);
-          const at = result.changed.indexOf(catalogPath);
-          if (at >= 0) result.changed.splice(at, 1);
-          rollback = "目录已回滚";
-        } catch (e) {
-          rollback = `目录回滚也失败：${String(e)}`;
-        }
-      }
-      result.error = `写 Codex 配置失败：${String(err)}（${rollback}；备份在 ${backup}）`;
-      return result;
-    }
-    result.changed.push(file);
-  } else {
-    result.unchanged.push(file);
-  }
-  result.notes.push(`base_url=${gatewayBaseUrl()}（wire_api=responses），模型=${models[0]}`);
-  result.ok = true;
-  return result;
-}
-
 // ── 一键还原 ────────────────────────────────────────────────────────────────
 
 export interface RestoreResult {
@@ -1524,13 +1007,6 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
   // 剥掉 basename 之后的 8 位哈希后缀
   const base = backupName.replace(/\.[0-9a-f]{8}$/, "");
   switch (target) {
-    case "codex": {
-      // 只认两个能唯一确定的名字；其余不猜（写错文件比不还原更糟）。
-      // catalog 也是接入产物，原路径固定在网关存储根，可以反推。
-      if (base === "config.toml") return join(home, ".codex", "config.toml");
-      if (base === "codex-model-catalog.json") return join(rootDir(), "codex-model-catalog.json");
-      return null;
-    }
     case "zcode":
       return join(home, ".zcode", "v2", "provider_config.json");
     case "dsh": {
@@ -1540,14 +1016,6 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
         return join(home, ".dsh", ".credentials.yaml");
       }
       if (base === "config.yaml") return join(home, ".dsh", "config.yaml");
-      return null;
-    }
-    case "claude-desktop": {
-      // profile 与 meta 都在 Desktop 的 3P 配置库（跨平台路径由渠道自己推导），靠文件名区分。
-      // 只认该库实际用到的两种命名，其余（老备份里混进来的别的文件）不猜。
-      if (base === "_meta.json" || base.endsWith(".json")) {
-        return join(claudeDesktopLibraryDir(), base);
-      }
       return null;
     }
     default:
@@ -1732,13 +1200,13 @@ function fallbackIntegrated(target: IntegrationTarget): boolean {
 }
 
 /**
- * 四个目标当前的接入态（开关式 UI 的状态源，随 `/api/state` 快照下发）。
+ * 两个目标当前的接入态（开关式 UI 的状态源，随 `/api/state` 快照下发）。
  *
  * 判定顺序：标记文件（integrate / restore **整体成功**时写）→ 最新清单推断；
  * 没有任何备份（从未接入过）= 未接入。
  */
 export function integrationStatus(): Record<IntegrationTarget, boolean> {
-  const targets: IntegrationTarget[] = ["zcode", "dsh", "claude-desktop", "codex"];
+  const targets: IntegrationTarget[] = ["zcode", "dsh"];
   const out = {} as Record<IntegrationTarget, boolean>;
   for (const target of targets) {
     const marker = readIntegrationMarker(target);
@@ -1765,7 +1233,7 @@ export interface IntegrationUpdate {
  * 集合比较而不是逐位比较：清单顺序无语义，接入时是什么顺序不重要。
  */
 export function integrationUpdates(): Record<string, IntegrationUpdate | null> {
-  const targets: IntegrationTarget[] = ["zcode", "dsh", "claude-desktop", "codex"];
+  const targets: IntegrationTarget[] = ["zcode", "dsh"];
   const current = new Set(exposedModels());
   const out: Record<string, IntegrationUpdate | null> = {};
   for (const target of targets) {

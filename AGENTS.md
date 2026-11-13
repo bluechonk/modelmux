@@ -126,7 +126,7 @@ squash 挡不住这种泄漏，必须逐条扫）。
 
 ## 测试
 
-- 渠道不写测试，只做端到端（`dsh-mx-test` 技能；协议层另用 `claude-mx-test` / `codex-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
+- 渠道不写测试，只做端到端（`dsh-mx-test` 技能）。契约见 [docs/CONTRACT-TS.md](docs/CONTRACT-TS.md) §7。
 - 临时探测脚本禁止虚构凭证与请求头——虚构载荷撞上游风控（脚本落 `.tmp/`、保留复用见全局规则）。
 - 测试模型选最低倍率，禁止高倍率旗舰（`*-pro` / `*-max` / `kimi-k3` 等）。
 - 禁止占用或杀掉 4412 网关；独立实例用 `--addr` 其他端口。
