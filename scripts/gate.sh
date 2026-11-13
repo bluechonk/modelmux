@@ -70,4 +70,8 @@ if ! bash -lc "
 fi
 [ "$QUIET" = 0 ] && echo "[gate] npm test 通过"
 
+# 门禁回执：记下「刚被证绿的那个 HEAD」，供 scripts/pr-create.mjs 消费 ——
+# PR 入口据此拒绝「没测过 / 测的不是当前 HEAD」的分支，又不重复跑一遍全量门禁。
+printf '%s %s\n' "$(git -C "$GATE" rev-parse HEAD)" "$(date +%s)" > "$common_dir/modelmux-gate-stamp"
+
 echo "[gate] ✓ 全绿，可推送"
