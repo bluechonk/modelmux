@@ -549,10 +549,18 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 **`gm51model` GLM-5.2**(1M,0.6，CN 独有)、`kmodel_latest`(1M,1.4)、`kmodel`(1M,0.8)、
 **`mmodel` MiniMax-M2.7**(200K,0.2，版本与国际版 M3.1-Flash 不同)
 
-**deepseek-v4.1-flash 供给现状（2026-11-14）**：目录刷新**无 deepseek 条目**（目录 key
-是别名形态，同 qodercn），池候选由注册表兜底映射维持，上下文窗口与最大输出取统一注册表
-对外值。缓存字段 `prompt_tokens_details.cached_tokens`（14 天日志仅 3/6 条带缓存字段，
-样本太少无全量命中率；见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+**窗口是分档的**（实测上游字段 `context_config`，2026-11-14 两部署全条目一致）：每条三档
+`1M(1,000,000)` / `400K(400,000)` / `200K(200,000, **默认**)`；上表括号里的单值窗口取的
+是最大档（本渠道 §5.1 口径）。顶层 `max_input_tokens` 是**默认档下的输入预算**
+（多数条目 180,000 / `qmodel_latest` 1,000,000 / `dmodel` 国内版 96,000），不等于窗口上限。
+
+**deepseek-v4.1-flash 供给实测（2026-11-14）**：目录 key 是短别名（同 qodercn），
+`dfmodel`（display_name `DeepSeek-Flash`）归一为 `deepseek-flash` → 家族别名组命中
+`deepseek-v4.1-flash` → 进池候选。上游 `context_config` 与国内版同为三档
+`1M / 400K / 200K`（默认 200K）；本渠道快照窗口取 **context_config 最大档**（§5.1 口径），
+`dfmodel` 的 `max_input_tokens: 1000000` 恰为 1M 档。缓存字段
+`prompt_tokens_details.cached_tokens`（14 天日志仅 3/6 条带缓存字段，样本太少无全量
+命中率；见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
 
 ### 5.2.1 上游字段全集与思考档位 [实测]
 

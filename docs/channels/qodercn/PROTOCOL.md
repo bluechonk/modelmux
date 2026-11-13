@@ -289,11 +289,17 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
   `name` / `user_type` / `id`（snake_case 与 camelCase 两种字段名都认），
   故两边的 `aliyun_user_type` 都取真实值（取不到才回落默认 `personal_professional_trial`）。
 
-**deepseek-v4.1-flash 供给现状（2026-11-14）**：目录刷新（`mx model qodercn --refresh`）
-**无 deepseek 条目**（目录 key 是 `qmodel` / `dmodel` 等别名形态），池候选由注册表兜底
-映射维持，上下文窗口与最大输出取统一注册表对外值。缓存字段
-`prompt_tokens_details.cached_tokens`，14 天全量加权命中率实测 **86.1%**
-（155/187 条；见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+**deepseek-v4.1-flash 供给实测（2026-11-14）**：目录 key 是短别名（`dmodel` / `dfmodel` /
+`gfmodel` / `qfmodel`），按名字扫目录看不到 deepseek 字样——真实供给链路：`dfmodel`
+（display_name `DeepSeek-Flash`）归一为对外 id `deepseek-flash` → 家族别名组命中
+`deepseek-v4.1-flash` → 进池候选；`dmodel`（display_name `DeepSeek-V4-Pro`）归一为
+`deepseek-v4-pro`，供另一池。
+**上下文窗口是分档的**（实测上游字段 `context_config`，全目录 12 条统一）：三档
+`1M = 1,000,000` / `400K = 400,000` / `200K = 200,000`（**默认 200K**）；顶层
+`max_input_tokens`（`dfmodel` 180,000 / `dmodel` 96,000）是**默认档下的输入预算**，
+不是窗口上限——真实窗口可到 1M。缓存字段 `prompt_tokens_details.cached_tokens`，
+14 天全量加权命中率实测 **86.1%**（155/187 条；口径见
+[CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
 
 ### 推荐模型
 
