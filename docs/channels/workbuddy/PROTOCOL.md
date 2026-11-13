@@ -57,6 +57,35 @@ glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 - **非对话条目不入目录**：`nes-` / `completion-` / `codewise-` 前缀的条目列出来也
   选不中（选中后上游回 `code=11102`），故一律挡掉（go
   `internal/upstream/client.go:1470-1473`）。`[参考]`
+- **`data.models[]` 是完整规格表，不只是名单**（实测 2026-11-14：61 条）。
+  `agents[].models` 只是裸 id 字符串数组（cli agent 17 个），规格全在顶层 `data.models[]`，
+  单条字段：`id` / `name` / `descriptionZh` / `descriptionEn` / `credits` /
+  `maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` /
+  `contextWindow{defaultLength, supportedLengths}` / `reasoning{canDisableThinking,
+  defaultEffort, supportedEfforts}` / `relatedModels` / `supportsImages` /
+  `supportsReasoning` / `supportsToolCall` / `temperature` / `vendor` / `aliases` /
+  `isDefault` / `onlyReasoning` / `iconUrl`。
+- **上下文窗口是分档结构**：`contextWindow.supportedLengths` 实测三档
+  `300000 / 600000 / 1000000`，`defaultLength` 是 `300000`——上游默认按 30 万走，
+  1M 是最大档（`maxAllowedSize`）；对外口径按 1M 报没有错，但请求超 30 万时上游
+  行为取决于档位协商，未实测。
+- **DeepSeek 条目全表**（实测 2026-11-14，`credits` 为积分倍率）：
+
+  | id | credits | maxInput | maxOutput | supportedLengths | efforts |
+  | --- | --- | --- | --- | --- | --- |
+  | `deepseek-v4.1-flash` | x0.11 | 1,000,000 | 128,000 | 300k / 600k / 1M | low/high/max |
+  | `deepseek-v4-pro` | x0.51 | 1,000,000 | 128,000 | 300k / 600k / 1M | high/xhigh |
+  | `deepseek-v4-flash` | x0.17 | 1,000,000 | 50,000 | 300k / 1M | high/xhigh |
+  | `deepseek-v3-2-volc` | x0.29 | 96,000 | 32,000 | - | - |
+  | `deepseek-v3-1-volc` / `-lkeap` / 裸 | x0.52 | 96,000 | 32,000（lkeap 128,000） | - | - |
+  | `deepseek-v3-0324-lkeap` | x0.52 | 112,000 | 16,000 | - | - |
+  | `deepseek-r1-0528(-lkeap)` | - | 96,000 | 16,000 / 8,192 | - | - |
+  | `deepseek-v3-0324` | x0.52 | 96,000 | 8,192 | - | - |
+  | `deepseek-v3-0324-taco-completion` | - | - | 256 | - | - |
+
+- **促销字段**：`data.modelPromotions[]` 携带 DeepSeek 时段折扣（`ds-discount-202608`
+  覆盖 v4 系含未在 cli 名单的 `-ioa` 变体，非高峰 5 折）；`data.modelTiers[]` 的
+  订阅优先集合（`tier-standard-2026q3`）只含 glm / kimi，不含 DeepSeek。
 
 ### 1.2 图片能力判据（哪个字段说了算）
 
