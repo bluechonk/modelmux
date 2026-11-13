@@ -830,7 +830,7 @@ mx <命令组> <子命令> [参数...]           # mx model list / mx model usag
 - 心智对齐 `git` / `docker` / `gh` / `kubectl` / `npm`：清一色 `<动词> [<对象>]`。
 - **TAB 补全**：`mx login <TAB>` 直接列出已注册渠道 —— 补全器只需对位置 2 补「渠道」一个维度，
  不必先猜位置 1 是动词还是渠道名。
-- **生命周期动词不接受 cid**：`start` / `stop` / `restart` 操作的是服务全部渠道的那个网关；
+- **生命周期动词不接受 cid**：`start` / `stop` / `restart` / `rebuild` 操作的是服务全部渠道的那个网关；
  `status` / `log` 则**可选** cid（不给 = 仓库级聚合，给 = 该渠道）——两条语义靠**是否带 operand** 区分。
 - **不采用 `mx <cid> <动词>`**：渠道名与动词共享位置 1 会二义（渠道动词 `model`
 既用于仓库级 `model list`/`model usage`，也用于 `mx model <cid>` 列某渠道模型），

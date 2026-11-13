@@ -18,7 +18,7 @@ mx <组名> <子命令> [参数]        # 命令组
 
 - 渠道动词永远在第一位，渠道 id 在第二位：`mx login catpaw`、`mx status catpaw`。
 - 不要写 `mx catpaw status`：渠道名与动词共享位置会产生二义，补全器也无法工作。
-- 仓库级动词（`start` / `stop` / `restart` / `serve` / `web`）不带 cid；
+- 仓库级动词（`start` / `stop` / `restart` / `rebuild` / `serve` / `web`）不带 cid；
   `status` / `model` / `bill` / `acct` / `path` / `login` / `relogin` 都可以带 cid ——
   `mx status <cid>` 才是「某渠道的状态」。
 - 命令组是「组名在前、子命令在后」：`mx model list` / `mx model usage`。

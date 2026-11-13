@@ -26,7 +26,7 @@ import { loadUserSettings, saveUserSettings, type ThemeMode } from "../../runtim
 import { startUpdateChecks, updateNotice } from "../../runtime/update-check.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
-import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates } from "../../pool/pool-targets.js";
+import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { preferredChannelOf } from "../../pool/model-prefs.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
@@ -432,7 +432,9 @@ class ServiceState {
           meta: getChannelModelMeta(candidate.cid, candidate.exposedId),
         })),
       ),
-      model_prefs: this.modelsShown.map((model) => ({
+      // 模型偏好**从家族表派生**（`poolModels()`），不依赖 `/v1/models` 轮询结果：
+      // 轮询为空（刚起进程 / 上游抖动）时偏好整段会消失，用户根本无处设置。
+      model_prefs: poolModels().map((model) => ({
         model,
         channels: poolCandidates(model).map((candidate) => candidate.cid),
         preferred: preferredChannelOf(model),

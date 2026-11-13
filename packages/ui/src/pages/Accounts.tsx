@@ -402,41 +402,42 @@ export function Accounts(): ReactElement {
             被偏好的渠道在选路里**置顶**，其余仍按剩余额度顺延 —— 被偏好的渠道
             冷却 / 额度耗尽时自然落到别家，不需要额外开关（口径见
             docs/POOL-ARCHITECTURE.md §2.4）。
+
+            段落**恒渲染**：模型清单由服务端从家族表派生（不再依赖 `/v1/models`
+            的轮询结果），刚起进程 / 上游抖动时也不会整段消失，用户始终有处设置。
           */}
-          {modelPrefs.length > 0 && (
-            <section className="rounded-xl border border-line bg-panel p-3">
-              <h2 className="mb-2 text-xs font-medium text-ink-soft">模型偏好</h2>
-              <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                {modelPrefs.map((pref) => (
-                  // 列宽钉死而不是 flex-1 均分：均分时每列占到卡片宽的三分之一（实测 385px），
-                  // 而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。固定 176px 后
-                  // 三列靠左排、窄屏自动折行，右侧留白交给卡片。
-                  <div key={pref.model} className="flex w-44 flex-col gap-1">
-                    <span className="text-center font-mono text-xs text-ink">{pref.model}</span>
-                    {/* 触发器固定宽度（fixedWidth）后在列内**居中**，与上方模型名对齐；
-                        nowrap 防窄屏下文字折行把高度顶高 */}
-                    <div className="flex w-full justify-center [&_button]:whitespace-nowrap">
-                      <Select
-                        value={pref.preferred ?? ""}
-                        onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
-                        label={`模型 ${pref.model} 优先渠道`}
-                        fixedWidth
-                        options={[
-                          { value: "", label: "自动" },
-                          ...pref.channels.map((cid) => ({ value: cid, label: cid })),
-                        ]}
-                      />
-                    </div>
+          <section className="rounded-xl border border-line bg-panel p-3">
+            <h2 className="mb-2 text-xs font-medium text-ink-soft">模型偏好</h2>
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              {modelPrefs.map((pref) => (
+                // 列宽钉死而不是 flex-1 均分：均分时每列占到卡片宽的三分之一（实测 385px），
+                // 而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。固定 176px 后
+                // 三列靠左排、窄屏自动折行，右侧留白交给卡片。
+                <div key={pref.model} className="flex w-44 flex-col gap-1">
+                  <span className="text-center font-mono text-xs text-ink">{pref.model}</span>
+                  {/* 触发器固定宽度（fixedWidth）后在列内**居中**，与上方模型名对齐；
+                      nowrap 防窄屏下文字折行把高度顶高 */}
+                  <div className="flex w-full justify-center [&_button]:whitespace-nowrap">
+                    <Select
+                      value={pref.preferred ?? ""}
+                      onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
+                      label={`模型 ${pref.model} 优先渠道`}
+                      fixedWidth
+                      options={[
+                        { value: "", label: "自动" },
+                        ...pref.channels.map((cid) => ({ value: cid, label: cid })),
+                      ]}
+                    />
                   </div>
-                ))}
-              </div>
-              {modelPrefs.every((pref) => pref.channels.length === 0) && (
-                <p className="mt-2 text-xs text-ink-faint">
-                  池里暂无可路由的模型：先添加账号，或检查渠道是否已登录。
-                </p>
-              )}
-            </section>
-          )}
+                </div>
+              ))}
+            </div>
+            {modelPrefs.every((pref) => pref.channels.length === 0) && (
+              <p className="mt-2 text-xs text-ink-faint">
+                池里暂无可路由的模型：先添加账号，或检查渠道是否已登录。
+              </p>
+            )}
+          </section>
 
           {/*
           {/*

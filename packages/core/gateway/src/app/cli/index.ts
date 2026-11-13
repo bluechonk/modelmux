@@ -8,6 +8,9 @@
  * 再调用 `main()`。故这里不再自带「直接运行本文件」的入口判断。
  */
 
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { channelCount, channels, getChannel, hasChannel } from "../../runtime/channel.js";
@@ -19,6 +22,58 @@ import * as daemon from "../lifecycle/daemon.js";
 import * as headless from "../lifecycle/headless.js";
 import { runWeb } from "../lifecycle/web.js";
 import * as supervisor from "../lifecycle/supervisor.js";
+
+/**
+ * `mx rebuild`：在**源码检出根**重新构建，然后重启网关让新产物生效。
+ *
+ * 为什么限定源码检出：全局安装的包只含 `dist/`（见 `packages/cli/package.json` 的
+ * `files`），没有 `src/`、也没法重跑 tsc —— 那种安装形态下无可重建，如实报错退出，
+ * 不静默成功。
+ */
+async function runRebuild(options: { quiet?: boolean; addr: string; uiPort?: number }): Promise<number> {
+  const cwd = process.cwd();
+  const pkgPath = join(cwd, "package.json");
+  if (!existsSync(pkgPath)) {
+    console.error("mx rebuild 需要在 modelmux 源码检出根目录执行（当前目录没有 package.json）。");
+    return 1;
+  }
+  let buildScript = "";
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { scripts?: Record<string, string> };
+    buildScript = pkg.scripts?.["build"] ?? "";
+  } catch {
+    /* 读不出按没有处理 */
+  }
+  if (!buildScript) {
+    console.error("当前目录的 package.json 没有 build 脚本，不像 modelmux 源码检出；未做任何事。");
+    return 1;
+  }
+
+  if (!options.quiet) console.log("[rebuild] npm run build …");
+  const code = await new Promise<number>((resolve) => {
+    const child = spawn("npm", ["run", "build"], {
+      cwd,
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+    child.on("error", () => resolve(1));
+    child.on("exit", (c) => resolve(c ?? 1));
+  });
+  if (code !== 0) {
+    console.error(`[rebuild] 构建失败（退出码 ${code}）。`);
+    return code;
+  }
+
+  // 产物已刷新，但正在跑的 worker 还是旧代码 —— 必须重启才生效（stale_build 判据见
+  // docs/CONTRACT-TS.md §8）。
+  if (!options.quiet) console.log("[rebuild] 重启网关 …");
+  return daemon.restart({
+    addr: options.addr,
+    uiPort: options.uiPort,
+    quiet: options.quiet,
+    strict: false,
+  });
+}
 
 /**
  * 生成当前渠道的帮助文本。
@@ -57,6 +112,7 @@ export function usage(): string {
 
 网关:
   ${pad("start | stop | restart")}守护式启停（幂等）
+  ${pad("rebuild")}在源码检出里 npm run build 并重启（改完代码后用）
   ${pad("serve")}前台运行（调试用）
   ${pad("web")}打开 Web 控制台
 
@@ -304,6 +360,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         quiet: boolOpt(o, "quiet"),
         strict: boolOpt(o, "strict"),
       });
+
+    case "rebuild":
+      // 先构建再重启：只重启的话跑的还是上一次构建的产物（改了代码看不出变化）。
+      return runRebuild({ addr, uiPort, quiet: boolOpt(o, "quiet") });
 
     default:
       // 旧语法 `mx <cid> <动词>` 的指路：渠道名现在写在动词之后。
