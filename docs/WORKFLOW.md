@@ -233,7 +233,7 @@ git config --get core.hooksPath         # 应为 .githooks
 | `npm ci` 装**平台原生依赖**（esbuild 等） | 开发机上的残留依赖不代表 CI 能装 |
 | 开发工作树自带未提交改动与陈旧产物（`dist/`） | 在工作树上跑，测的不是待推的那个提交 |
 
-门禁因此总是 **clone 一份到干净目录**（默认 `/tmp/modelmux-gate`）再跑。
+门禁因此总是 **clone 一份到干净目录**（缺省每次运行各用独立临时目录，`GATE_DIR` 可指定固定落点）再跑。
 
 ### 各阶段的强制范围
 
