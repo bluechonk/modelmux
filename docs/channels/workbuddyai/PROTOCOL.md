@@ -149,6 +149,20 @@ traecn）走各自 translator，不经过该兜底。
   `contextWindow.supportedLengths [300000, 1000000]`（`defaultLength 300000`，1M 是最大档）、
   efforts `low/high/max`、原生多模态（`supportsImages: true`）、`vendor: "f"`。
   无 v4-pro / v4-flash / v3 系条目——DeepSeek 供给面比国内版窄。
+- **响应顶层结构**（实测 2026-11-14，20,908 字节）：`code` / `msg` / `requestId` / `data`。
+  `data` 块与国际版差异（对照国内版 `workbuddy` 的 22 块）：**多** `$schema`（string）与
+  `builtInConnectorMarketplaces`（连接器市场，国内版无）；**少** `completion`（补全配置）、
+  `config`（密钥 / 购买入口）、`defaultVideoModel`、`productFeatureExperiment`、
+  `requestMaxStepLimit`、`telemetry`、`tokenUsageThresholds`、`builtInMarketPluginsMerge`。
+- **`models[23]` 字段集比国内版窄**：只有 `credits` / `descriptionEn` / `descriptionZh` /
+  `iconId` / `id` / `isDefault` / `maxAllowedSize` / `maxInputTokens` / `maxOutputTokens` /
+  `name` / `supportsImages` / `supportsToolCall` / `temperature` /
+  `vendor`——**无** `contextWindow`（分档结构）、`reasoning`、`onlyReasoning`、
+  `relatedModels`、`aliases`、`tags`、`disabledMultimodal`；分档窗口只在该渠道
+  `deepseek-v4.1-flash-sg` 条目上带 `contextWindow`（国内版是普遍字段）。
+- `modelPromotions[2]` 的 `schedule` 形态与国内版不同：国际版是
+  `{timezone, validFrom, validUntil}`（绝对区间），国内版是 `daily[{start, end}]`（每日循环）。
+  `modelTiers[1]` 的 `modelIds` 11 个（国内版 3 个）、`badge` 多 `color` / `labelEn`。
 
 ### 6.1 图片能力判据（哪个字段说了算）
 
