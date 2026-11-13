@@ -4,9 +4,9 @@
  * 关键约束（端点/字段/实测见 docs/channels/codearts/PROTOCOL.md）：
  *   - 对话请求要**两重鉴权**：`x-auth-token`（STS security_token）+ 华为云
  *     `SDK-HMAC-SHA256` AK/SK 签名（签名覆盖 payload 哈希，故必须拿到 body 才能建头）。
- *   - 模型目录两源：内置 `/v1/model/builtin`（Agent-Type: PromptCenter）与
- *     限时福利 `{opengw}/api/v1/gateway/config`；福利模型聊天要带 `maas_type: benefit`。
+ *   - 模型目录只读内置 `/v1/model/builtin`（Agent-Type: PromptCenter）。
  *   - 线型是标准 OpenAI SSE（`WIRE = "openai"`），网关不再套翻译层。
+ *   - 续期单飞与 `chat_id` 稳定派生见 `cred.ts`（撞 `TM.00001041` 走 `quotaSignal`）。
  */
 
 import { createHash, createHmac } from "node:crypto";
@@ -233,9 +233,13 @@ export function newTranslator(): import("@modelmux/gateway").StreamTranslator {
 
 // ── 续期 ────────────────────────────────────────────────────────────────────
 
-/** 过期前阻塞续期（契约钩子：`buildHeaders` 是同步的，无法先续期再发）。 */
+/**
+ * 已过期才阻塞续期（契约见 `Channel.refreshIfExpired`：续期窗口内不必阻塞，
+ * 否则每个请求都多等一次 STS 网络往返；提前撞死 token 的请求由 401 重试链兜底）。
+ * 并发请求各自进这里也无妨 —— `cred.refresh` 单飞，真正打 STS 的只有一个。
+ */
 export async function refreshIfExpired(credential: cred.Credentials): Promise<void> {
-  if (!cred.expiresSoon(credential)) return;
+  if (!cred.expiresSoon(credential, 0)) return;
   const refreshed = await cred.refresh(credential);
   credential.accessToken = refreshed.accessToken;
   credential.accessKeyId = refreshed.accessKeyId;
@@ -243,6 +247,16 @@ export async function refreshIfExpired(credential: cred.Credentials): Promise<vo
   credential.expiration = refreshed.expiration;
   credential.refreshToken = refreshed.refreshToken;
   credential.obtainedAt = refreshed.obtainedAt;
+}
+
+/**
+ * 渠道业务码信号：`TM.00001041`「并发会话数已达上限」是**会话并发超限**，
+ * 不是额度也不是鉴权 —— 会话释放后自愈。报 `rate_limit` 让共享层做渠道级短冷却、
+ * 换别家渠道，而不是计连败把健康账号熔断路（2026-11-11 实测：未识别时被当
+ * 普通 400 记连败）。匹配用业务码字段形态，避免错误体里其他数字误判。
+ */
+export function quotaSignal(_status: number, body: string): "rate_limit" | null {
+  return /TM\.00001041/.test(body) ? "rate_limit" : null;
 }
 
 // ── 模型目录 ────────────────────────────────────────────────────────────────
