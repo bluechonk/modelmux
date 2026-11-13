@@ -83,6 +83,7 @@
 | qoder | 3 / 6 | `prompt_tokens_details.cached_tokens` | — |
 | catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
 | traecn / autoclaw | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
+| doubaowork | **0** | 只有内容块与会话状态；`/chat/completion` 的事件流里没有任何 usage / token 字段（详见 [channels/doubaowork/PROTOCOL.md](./channels/doubaowork/PROTOCOL.md) §8） | — |
 
 要点：
 
@@ -95,6 +96,9 @@
 - 同一渠道**不同模型**形态也可能不同：实测（2026-10-29）`loomy/spark-x2.6` 的 usage
   只有 `prompt_tokens` / `completion_tokens` / `total_tokens` + `points_consumed`，
   没有缓存字段（该模型倍率 0、`points_consumed: 0`，属免费模型）。
+- **有的渠道连 token 计数都不给**（doubaowork）：访问日志里恒为 `tokens=null`（入 / 出都没有），
+  渠道包内也没有任何 usage 解析代码 —— 仪表盘与日志页的 token 统计因此**不含该渠道**。
+  这不是「0 命中」，而是**无数据**，不要当成 0 计入分母或总和。
 - 结论：命中率**不可能对所有渠道统一显示** —— 无缓存字段的渠道必须显示 `—`，而不是 0%。
 
 ### 5.2 上游原始响应里的缓存字段（2026-11-09 逐渠真实请求）
