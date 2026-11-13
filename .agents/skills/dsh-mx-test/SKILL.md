@@ -15,7 +15,7 @@ description: 用 dsh（DeepSeek Harness）ACP 协议对 modelmux（mx）网关�
 
 端到端 Agent 测试一轮轻松几万 token，用高倍率模型等于直接烧钱。这条优先于本文其他内容。
 
-1. **对外模型只有家族表里那几个**（`deepseek-v4.1-flash` / `glm-5.3-flash`），
+1. **对外模型只有家族表里那几个**（清单见 `packages/core/gateway/src/pool/model-family.ts`，以 `mx model list` 为准），
    落点渠道由网关按账号池剩余额度自动挑 —— 不能按渠道选模型（`mx model list` 看谁有货）。
 2. **每次都要核对账单**：`mx bill <cid>` 记录额度（免费预期差 0，付费预期差值 > 0 且量级合理），
    流程与「已用 0」陷阱见 [references/billing.md](references/billing.md)。

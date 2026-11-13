@@ -102,8 +102,9 @@ grep -rnE '此前|原先|曾经|旧版|早期|改造前|修复后|结论已反�
 - 多步任务用 `planning-with-files` 技能的 `.planning/<PLAN_ID>/`（`task_plan.md` /
   `progress.md` / `findings.md`）；阶段状态变化后立即更新。
 - 记录踩过的错误与解决方式（防重复踩坑）。
-- 结项：`.planning/` 与 `.zcode/plans/` 是过程文件（已 gitignore），任务结束删除；
-  需要时从 git 历史取，不设 `archive/`。
+- `task_plan.md` / `findings.md` / `progress.md` 是**跨会话资产**，任务结束一律保留
+  （全局规则），由下次会话续用；彻底完结后才可归档或删除。工具自己的过程产物
+  （如 `.zcode/plans/`）随工具走，同样是 gitignore 的。
 
 ## 3. 提交规范
 
@@ -138,8 +139,8 @@ npm run gate
 # 3) 推送（.githooks/pre-push 会自动再跑一次同一门禁）
 git push -u origin fix/<模块>
 
-# 4) 建 PR（gh 优先；标题必须合规）
-gh pr create --title "fix(<scope>): 中文描述" --body-file .tmp/pr-body.md
+# 4) 建 PR（唯一入口 npm run pr；它先校验工作树干净、HEAD 与远端一致、门禁回执仍新鲜）
+npm run pr -- --base main --head fix/<模块> --title "fix(<scope>): 中文描述" --body-file .tmp/pr-body.md
 
 # 5) 等 CI 双绿（node 22 / node 24）再合并
 gh pr checks <n>

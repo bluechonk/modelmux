@@ -43,7 +43,7 @@ Chromium 缓存竞争，无害，harness 已过滤。真正的错误会以 `dsh:
 
 ## 冒烟响应极慢但成功
 
-免费模型（如 longcat-2.0）上游就慢（实测 26s 一句 pong），不是链路问题；以网关日志
+上游对某些模型本身就慢（实测 26s 一句 pong），不是链路问题；以网关日志
 `status: 200` 与 `stopReason=end_turn` 为准，超时给足（工具往返建议 180s）。
 
 ## `503 upstream_queued` 结束的会话
