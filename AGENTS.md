@@ -73,10 +73,13 @@ PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `ty
 ### PR body 与 commit body 同规
 
 squash 会把 PR body 并进 main 上的 commit body，所以 **PR body 必须按 commit message 的标准写**：
-无 emoji、无对话式内容（人称、互动过程、一次性动作）。
+无 emoji、无对话式内容（人称、互动过程、一次性动作）、**无署名类尾注**（Co-Authored-By 等）。
 
-CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 把描述传给 `verify-commits`，**合并前**就能
-拦住不合规的 PR body（2026-11-08 事故：PR #349 分支绿、合并后 main 红）。
+CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 校验描述、经 `PR_BASE` / `PR_HEAD`
+**逐条扫 PR 内的全部提交**（尾注正则与空范围口径见 [docs/WORKFLOW.md](docs/WORKFLOW.md)
+「提交信息规范」第 3 条），**合并前**就能拦住不合规的 body 与提交
+（2026-11-08 事故：PR #349 分支绿、合并后 main 红；其 PR 页面两条提交带 Claude 尾注，
+squash 挡不住这种泄漏，必须逐条扫）。
 
 ### 工作树内的验证
 
