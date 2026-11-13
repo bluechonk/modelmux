@@ -153,6 +153,9 @@ gh pr checks <n>
 - 合并后：删远端分支（`gh api -X DELETE repos/bluechonk/modelmux/git/refs/heads/<branch>`）、
   `git fetch --prune`、`git checkout main`、`git reset --hard origin/main`（squash 会重写 SHA，
   本地与远端分叉属正常）、删本地分支，再确认 main 的 CI 双绿。
+  **分支被某棵工作树占用时**（当前分支正是它，或它落在别的 worktree 里）：先
+  `git worktree remove <落点>` 再 `git branch -d <branch>` —— 直接删会报
+  `checked out at ...`。与 §4「在 linked worktree 里收尾」同一口径。
 
 ### 3.1 发版：**打 tag + 建 GitHub Release**（Release 承载版本说明）
 
