@@ -2,9 +2,9 @@
  * AutoClaw 上游：云端沙箱 relay（wake → 设备上线 → events SSE → agent/send）→ OpenAI 形态。
  *
  * 关键约束（端点/字段/实测见 docs/channels/autoclaw/PROTOCOL.md）：
- *   - 内容在独立的 GET /api/events SSE 上回流，网关主请求（恒 POST）拿不到 —— 整轮
- *     relay 由 prepareChat 完成并缓存成帧，主请求用幂等的 sandbox wake 占位，翻译器
- *     finish() 一次性吐帧（流式为"末尾突发"形态，协议本身只提供事件流）。
+ *   - 内容在独立的 GET /api/events SSE 上回流，网关主请求拿不到：prepareChat 只做前置
+ *     （保鲜 / 沙箱 / 唤醒 / 设备上线），openChatStream 把事件边收边翻成 OpenAI SSE
+ *     字节交给网关增量转发。
  *   - agent/send 的 message 必须是字符串；后端模型经 x-openclaw-model 头指定。
  *   - text 事件是累积快照（前缀递增），按前缀差分发增量。
  */
@@ -43,6 +43,8 @@ const WAKE_HOLD_MS = 600_000;
 const HTTP_TIMEOUT_MS = 30_000;
 /** 事件流的单帧静默上限（agent 执行工具期间也会周期性发事件，超过即判流已死）。 */
 const EVENTS_IDLE_MS = 120_000;
+/** events 响应头的等待上限（只约束「等多久才出头」，不约束这条长连接的寿命）。 */
+const EVENTS_HEADER_TIMEOUT_MS = 30_000;
 /**
  * 设备 WS 上线握手上限。
  *
@@ -124,8 +126,8 @@ interface RelaySlot {
   displayModel: string;
   /** 沙箱会话键：每请求独立新键（旧键复用会把无关对话混进同一 agent 上下文）。 */
   sessionKey: string;
-  /** prepareChat 产出的 OpenAI SSE 帧（含 [DONE]）。 */
-  frames: string[];
+  /** prepareChat 留下的 relay 现场（凭据含沙箱落点、设备 WS 句柄）。 */
+  relay?: RelayContext;
 }
 
 /**
@@ -135,6 +137,14 @@ interface RelaySlot {
  * await 但同属一条异步链 —— `AsyncLocalStorage` 让并发请求各持一份，互不覆盖
  * （与 qodercn 的待签名槽同一机制）。
  */
+/** prepareChat 交给 openChatStream 的 relay 现场。 */
+interface RelayContext {
+  /** 已保鲜并带回沙箱落点的凭据。 */
+  credential: Credentials;
+  /** 设备上线句柄（尽力而为，失败为 null），流结束时关闭。 */
+  ws: WsLike | null;
+}
+
 const relaySlots = new AsyncLocalStorage<RelaySlot>();
 
 // ── 对话记录扁平化 ────────────────────────────────────────────────────────────
@@ -239,11 +249,9 @@ export function modelsUrl(): string {
 }
 
 /**
- * 主请求端点：sandbox wake（幂等，只负责把沙箱叫醒）。
+ * 契约要求的对话端点：本渠道永远走 `openChatStream` 的自管流，网关不会往这里建连。
  *
- * 为什么用 wake 而不是 agent/send：内容流在另一条 events SSE 上，主 POST 的响应体
- * 注定没有内容；agent/send 有副作用（再发一轮），wake 幂等且本来就是 relay 序列的
- * 第一步 —— 网关级重试（换凭据重发）落在它身上也安全。真实 relay 在 prepareChat。
+ * 保留它只为满足 `chatUrl()` 必选成员，取幂等的 sandbox wake（真被 POST 也不产生副作用）。
  */
 export function chatUrl(): string {
   const sandboxId = cred.currentSandboxId();
@@ -289,13 +297,12 @@ export function buildChatBody(req: Record<string, unknown>, upstreamModel: strin
     model: relayModelHeader(upstreamModel),
     displayModel: typeof req["model"] === "string" && req["model"] ? req["model"] : upstreamModel,
     sessionKey: `relay-${shared.randomHex(8)}`,
-    frames: [],
   };
   relaySlots.enterWith(slot);
   return wakeBody();
 }
 
-// ── relay 序列（prepareChat 内完成整轮） ──────────────────────────────────────
+// ── relay 前置（prepareChat：保鲜 → 沙箱 → 唤醒 → 设备上线） ──────────────────────────────────
 
 interface SandboxRow {
   sandbox_id?: unknown;
@@ -461,9 +468,13 @@ async function openDeviceWs(credential: Credentials, bareBase: string): Promise<
 
 // ── 事件流 → OpenAI 帧 ────────────────────────────────────────────────────────
 
+/** 产出帧的去处：openChatStream 把它们写进响应流。 */
+type FrameSink = (frame: string) => void;
+
 /** 转换器的可变状态（一次 relay 运行一份）。 */
 class RelayConverter {
-  private readonly slot: RelaySlot;
+  private readonly displayModel: string;
+  private readonly sink: FrameSink;
   private readonly chatId: string;
   private readonly created: number;
   private lastText = "";
@@ -473,8 +484,9 @@ class RelayConverter {
   /** 是否产出过任何内容（content / reasoning / tool_call）——空完成判定的依据。 */
   private sawContent = false;
 
-  constructor(slot: RelaySlot) {
-    this.slot = slot;
+  constructor(displayModel: string, sink: FrameSink) {
+    this.displayModel = displayModel;
+    this.sink = sink;
     this.chatId = `chatcmpl-${Date.now().toString(36)}-${shared.randomHex(4)}`;
     this.created = Math.floor(Date.now() / 1000);
   }
@@ -492,16 +504,16 @@ class RelayConverter {
       id: this.chatId,
       object: "chat.completion.chunk",
       created: this.created,
-      model: this.slot.displayModel,
+      model: this.displayModel,
       choices: [{ index: 0, delta, finish_reason: finishReason }],
       ...(usage === undefined ? {} : { usage }),
     };
-    this.slot.frames.push(`data: ${JSON.stringify(body)}\n\n`);
+    this.sink(`data: ${JSON.stringify(body)}\n\n`);
   }
 
   private finishFrame(usage?: Record<string, unknown>): void {
     this.chunk({}, "stop", usage);
-    this.slot.frames.push("data: [DONE]\n\n");
+    this.sink("data: [DONE]\n\n");
     this.done = true;
   }
 
@@ -565,8 +577,8 @@ class RelayConverter {
   /** 错误事件：有内容已发出就以错误帧收尾（客户端看到半截 + 原因），否则交上层重试。 */
   emitError(message: string): boolean {
     if (this.done) return false;
-    if (this.slot.frames.length === 0) return false;
-    this.slot.frames.push(
+    if (!this.sawContent) return false;
+    this.sink(
       `data: ${JSON.stringify({ error: { code: "upstream_error", message } })}\n\n`,
     );
     this.finishFrame();
@@ -876,12 +888,11 @@ function extractRunId(data: unknown): string {
 }
 
 /**
- * 整轮 relay：保鲜 → 确保沙箱 → 唤醒 → 设备上线 → 开 events SSE → agent/send →
- * 泵事件到终止。产出的 OpenAI 帧缓存在请求槽，由翻译器 finish() 交给网关。
+ * relay 前置：保鲜 → 确保沙箱 → 唤醒 → 设备上线。
  *
- * 为什么整轮放这里：网关的主请求是**一条** POST 且内容必须在其响应体上 —— relay 的
- * 内容流在另一条连接上，塞不进主响应；prepareChat 是唯一能完成多步序列的挂点
- * （与 catpaw 的 round→event→turn 同理，只是本渠道把内容也一并取完）。
+ * 为什么与取内容拆开：网关要在**响应头发出前**拿到「这条上游能不能出内容」的判据
+ * （失败才好换候选），又要在内容产生时立刻转发 —— 前置留在 prepareChat，内容流交给
+ * `openChatStream`，两者之间不再攒帧。
  */
 export async function prepareChat(_body: Record<string, unknown>): Promise<void> {
   const slot = relaySlots.getStore();
@@ -896,137 +907,247 @@ export async function prepareChat(_body: Record<string, unknown>): Promise<void>
   await wakeSandbox(credential, bareBase, credential.sandboxId);
   const ws = await openDeviceWs(credential, bareBase);
 
-  const cv = new RelayConverter(slot);
-  // events 流与本次 relay 同寿命：`finally` 里要 abort（fetch 响应体不读完不释放连接）
-  const eventsController = new AbortController();
-  try {
-    // events 先于 agent/send 打开（bridge/Go 同序）：runId 归属过滤兜住「开流期间
-    // 混进来的旧事件」，但开流前的缝隙没有 —— 先开流才不会丢本轮早期事件。
-    //
-    // **不能用 `fetchWithTimeout`**：那条路径的超时是 `AbortSignal.timeout(...)`，
-    // 计的是**整条请求**的寿命 —— 而 events 是一条长期 SSE，模型生成多久它就挂多久。
-    // 用 30s 的 HTTP 超时会在生成超过 30s 时把流 abort 掉，症状正是「跑着跑着突然断了」
-    // （实测 2026-11-07：glm 长回答 + 长思考必然踩）。静默由 `pumpEvents` 的
-    // `EVENTS_IDLE_MS` 判定 —— 那才是「上游真的不吭声」的判据。
-    const events = await fetch(`${proxyBase.replace(/\/+$/, "")}/api/events`, {
-      headers: {
-        Accept: "text/event-stream",
-        Authorization: `Bearer ${credential.accessToken}`,
-      },
-      signal: eventsController.signal,
-    });
-    if (events.status !== 200 || !events.body) {
-      const snippet = (await events.text().catch(() => "")).slice(0, 200);
-      if (events.status === 401 || events.status === 403) {
-        throw new UpstreamUnauthorized(`events stream rejected (HTTP ${events.status}), please log in again`);
-      }
-      throw new Error(`events stream failed: HTTP ${events.status}${snippet ? ` ${snippet}` : ""}`);
-    }
-
-    const sendResp = await shared.fetchWithTimeout(
-      `${proxyBase.replace(/\/+$/, "")}/api/electron/agent/send`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json, text/plain, */*",
-          Authorization: `Bearer ${credential.accessToken}`,
-          ...(slot.model ? { "x-openclaw-model": slot.model } : {}),
-        },
-        body: JSON.stringify({
-          args: [
-            {
-              sessionKey: slot.sessionKey,
-              message: slot.message,
-              ...(slot.thinking ? { thinking: slot.thinking } : {}),
-            },
-          ],
-        }),
-      },
-      HTTP_TIMEOUT_MS,
-    );
-    const sendRaw = await sendResp.text();
-    if (sendResp.status !== 200) {
-      if (sendResp.status === 401 || sendResp.status === 403) {
-        throw new UpstreamUnauthorized(`agent/send rejected (HTTP ${sendResp.status}), please log in again`);
-      }
-      throw new Error(`agent/send failed: HTTP ${sendResp.status} ${sendRaw.slice(0, 200)}`);
-    }
-    let envelope: Record<string, unknown> = {};
+  // 刷新重试会让本函数**再跑一次**（见 attempt.ts 的 handlePrepareUnauthorized）：上一次
+  // 上线成功的 WS 必须先关掉，否则每次刷新漏一条连接。
+  const previous = slot.relay?.ws;
+  if (previous) {
     try {
-      envelope = JSON.parse(sendRaw) as Record<string, unknown>;
+      previous.close();
     } catch {
-      throw new Error("agent/send response is not JSON");
+      /* 连接可能已被对端关闭 */
     }
-    if (envelope["ok"] === false) {
-      throw new Error(`agent/send failed: ${String(envelope["error"] ?? envelope["msg"] ?? "unknown error")}`);
-    }
-    const code = typeof envelope["code"] === "number" ? envelope["code"] : Number(envelope["code"] ?? 0);
-    if (Number.isFinite(code) && code !== 0) {
-      // 11003 = 令牌失效（实测原文 `invalid authorization token`）：与 `cred.ts` 的
-      // 410000 同语义 —— 重试永远不会成功，必须抛 `UpstreamUnauthorized` 让网关
-      // 把账号标成终态，否则每次请求都会先在这条候选上白跑一趟（2026-11-07 实测：
-      // glm-5.3-flash 每次都先撞 autoclaw 的 11003，再落到 qodercn）。
-      if (code === 11003) {
-        throw new UpstreamUnauthorized(`agent/send rejected (code 11003): invalid authorization token, please log in again`);
-      }
-      throw new Error(`agent/send business error code=${code}: ${String(envelope["msg"] ?? "")}`);
-    }
-    const data = envelope["data"] !== undefined ? envelope["data"] : envelope;
-    const runId = (typeof envelope["runId"] === "string" ? envelope["runId"] : "") || extractRunId(data);
+  }
+  slot.relay = { credential, ws };
+}
 
-    await pumpEvents(events.body, cv, runId, slot.sessionKey);
-    // 流断了但没等到终止帧：有内容按 bridge 口径优雅收尾；零内容（离线/模型不可用）
-    // 抛错换候选 —— 空成功会掩盖故障并阻断渠道回退（Go 实现同判据）
-    if (!cv.finished) {
-      if (!cv.hasContent) {
-        throw new Error("autoclaw relay: empty completion (sandbox offline or model unavailable)");
-      }
-      cv.finalizeWithoutDone();
-    }
-  } finally {
-    // events 流与本次 relay 同寿命：收尾时必须显式 abort，否则那条 socket 会一直挂着
-    // （fetch 的响应体不读完就不会释放连接）
+// ── 侧信道流（openChatStream） ────────────────────────────────────────────────
+
+/**
+ * 开 events SSE → 发 agent/send → 把事件边收边翻成 OpenAI SSE 字节交给网关。
+ *
+ * 为什么返回流而不是在这里跑完整轮：内容在侧信道上，客户端该在多长时间里收到多少
+ * 字节取决于上游吐多少 —— 攒完再交就是「末尾突发」，客户端在生成期间零字节，与卡死
+ * 无法区分（实测 2026-11-13：ttfbMs 133263 ≈ durationMs 133265，generateMs 仅 1）。
+ *
+ * **等首帧内容再返回**：网关在发出响应头之前要判定这条上游有没有内容 —— 零内容、
+ * 建连失败、凭据失效都必须在此之前抛出去，才能换候选（qodercn 兜底）或走刷新重试。
+ * 首帧之后的内容边生成边入流。
+ */
+export async function openChatStream(_body: Record<string, unknown>): Promise<ReadableStream<Uint8Array>> {
+  const slot = relaySlots.getStore();
+  if (!slot) throw new Error("relay slot missing: buildChatBody did not run in this async context");
+  const relay = slot.relay;
+  if (!relay) throw new Error("relay context missing: prepareChat did not run for this request");
+  // 重读凭据文件而不是用请求槽快照：鉴权失败时网关会 `cred.refresh()` 换发新 token 再重开
+  // 这条流（见 auth.ts），快照还是旧 token —— 不重读的话「刷新后重试」会再撞一次 401，
+  // 把一次可恢复的令牌过期升级成账号终态。沙箱落点由 `rememberSandbox` 一并落盘，重读不丢。
+  let credential = relay.credential;
+  try {
+    credential = cred.load();
+  } catch {
+    /* 读不到（凭据文件被清）就退回前置时那份，让上游给出权威错误 */
+  }
+  const proxyBase = credential.sandboxEndpoint;
+  if (!proxyBase) throw new Error("sandbox endpoint missing: ensureSandbox did not persist it");
+
+  // events 流与本次 relay 同寿命：结束时要 abort（fetch 的响应体不读完不会释放连接）
+  const eventsController = new AbortController();
+  const cleanup = (): void => {
     eventsController.abort();
-    if (ws) {
+    if (relay.ws) {
       try {
-        ws.close();
+        relay.ws.close();
       } catch {
         /* 连接可能已被对端关闭 */
       }
     }
+  };
+
+  // **不能用 `fetchWithTimeout`**：那条路径的超时是 `AbortSignal.timeout(...)`，
+  // 计的是**整条请求**的寿命 —— 而 events 是一条长期 SSE，模型生成多久它就挂多久。
+  // 用 30s 的 HTTP 超时会在生成超过 30s 时把流 abort 掉，症状正是「跑着跑着突然断了」
+  // （实测 2026-11-07：glm 长回答 + 长思考必然踩）。静默由 `pumpEvents` 的
+  // `EVENTS_IDLE_MS` 判定 —— 那才是「上游真的不吭声」的判据。
+  //
+  // 但**响应头必须有个上限**：这条 fetch 挂在网关无任何超时的关键路径上（自管流在
+  // `openStream` 的首包定时器之前），上游若连上了却迟迟不回头，请求会永久挂住。
+  // 定时器在 fetch 返回后立刻清掉 —— 只约束「等多久才出头」，不约束流的寿命。
+  const eventsHeaderTimer = setTimeout(() => {
+    eventsController.abort(new Error(`events stream header timeout after ${EVENTS_HEADER_TIMEOUT_MS}ms`));
+  }, EVENTS_HEADER_TIMEOUT_MS);
+  eventsHeaderTimer.unref?.();
+  const events = await fetch(`${proxyBase.replace(/\/+$/, "")}/api/events`, {
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${credential.accessToken}`,
+    },
+    signal: eventsController.signal,
+  });
+  clearTimeout(eventsHeaderTimer);
+  if (events.status !== 200 || !events.body) {
+    const snippet = (await events.text().catch(() => "")).slice(0, 200);
+    cleanup();
+    if (events.status === 401 || events.status === 403) {
+      throw new UpstreamUnauthorized(`events stream rejected (HTTP ${events.status}), please log in again`);
+    }
+    throw new Error(`events stream failed: HTTP ${events.status}${snippet ? ` ${snippet}` : ""}`);
   }
+
+  const sendResp = await shared.fetchWithTimeout(
+    `${proxyBase.replace(/\/+$/, "")}/api/electron/agent/send`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/plain, */*",
+        Authorization: `Bearer ${credential.accessToken}`,
+        ...(slot.model ? { "x-openclaw-model": slot.model } : {}),
+      },
+      body: JSON.stringify({
+        args: [
+          {
+            sessionKey: slot.sessionKey,
+            message: slot.message,
+            ...(slot.thinking ? { thinking: slot.thinking } : {}),
+          },
+        ],
+      }),
+    },
+    HTTP_TIMEOUT_MS,
+  );
+  const sendRaw = await sendResp.text();
+  if (sendResp.status !== 200) {
+    cleanup();
+    if (sendResp.status === 401 || sendResp.status === 403) {
+      throw new UpstreamUnauthorized(`agent/send rejected (HTTP ${sendResp.status}), please log in again`);
+    }
+    throw new Error(`agent/send failed: HTTP ${sendResp.status} ${sendRaw.slice(0, 200)}`);
+  }
+  let envelope: Record<string, unknown> = {};
+  try {
+    envelope = JSON.parse(sendRaw) as Record<string, unknown>;
+  } catch {
+    cleanup();
+    throw new Error("agent/send response is not JSON");
+  }
+  if (envelope["ok"] === false) {
+    cleanup();
+    throw new Error(`agent/send failed: ${String(envelope["error"] ?? envelope["msg"] ?? "unknown error")}`);
+  }
+  const code = typeof envelope["code"] === "number" ? envelope["code"] : Number(envelope["code"] ?? 0);
+  if (Number.isFinite(code) && code !== 0) {
+    cleanup();
+    // 11003 = 令牌失效（实测原文 `invalid authorization token`）：与 `cred.ts` 的
+    // 410000 同语义 —— 重试永远不会成功，必须抛 `UpstreamUnauthorized` 让网关
+    // 把账号标成终态，否则每次请求都会先在这条候选上白跑一趟（2026-11-07 实测：
+    // glm-5.3-flash 每次都先撞 autoclaw 的 11003，再落到 qodercn）。
+    if (code === 11003) {
+      throw new UpstreamUnauthorized(`agent/send rejected (code 11003): invalid authorization token, please log in again`);
+    }
+    throw new Error(`agent/send business error code=${code}: ${String(envelope["msg"] ?? "")}`);
+  }
+  const data = envelope["data"] !== undefined ? envelope["data"] : envelope;
+  const runId = (typeof envelope["runId"] === "string" ? envelope["runId"] : "") || extractRunId(data);
+
+  return streamRelay(slot, events.body, runId, cleanup);
+}
+
+/**
+ * events → 响应流。
+ *
+ * 首帧内容之前只攒不发（网关此时还没发响应头，失败要能换候选）；首帧之后每个事件
+ * 翻成的 OpenAI 帧立刻入流。流结束时按 bridge 口径收尾：有内容就补终止帧，不丢已生成内容。
+ */
+async function streamRelay(
+  slot: RelaySlot,
+  body: ReadableStream<Uint8Array>,
+  runId: string,
+  cleanup: () => void,
+): Promise<ReadableStream<Uint8Array>> {
+  const encoder = new TextEncoder();
+  const buffered: string[] = [];
+  let out: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let closed = false;
+  let settled = false;
+  let onSettled: (() => void) | null = null;
+
+  let announce = (): void => {};
+  const firstFrame = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+
+  const cv = new RelayConverter(slot.displayModel, (frame) => {
+    if (out === null) {
+      buffered.push(frame);
+    } else if (!closed) {
+      out.enqueue(encoder.encode(frame));
+    }
+    announce();
+  });
+
+  // 错误分两种：还没产出内容 → 抛给网关换候选；已有内容 → 记一笔后按收尾处理
+  let failure: unknown = null;
+  const pump = pumpEvents(body, cv, runId, slot.sessionKey)
+    .catch((err: unknown) => {
+      failure = err;
+    })
+    .then(() => {
+      settled = true;
+      onSettled?.();
+    });
+
+  await Promise.race([firstFrame, pump]);
+  if (!cv.hasContent) {
+    await pump;
+    cleanup();
+    if (failure) throw failure;
+    // 零内容零终止帧（离线 / 模型不可用）：空成功会掩盖故障并阻断渠道回退（Go 实现同判据）
+    throw new Error("autoclaw relay: empty completion (sandbox offline or model unavailable)");
+  }
+
+  const settle = (): void => {
+    if (!settled || out === null || closed) return;
+    if (!cv.finished) cv.finalizeWithoutDone();
+    closed = true;
+    try {
+      out.close();
+    } catch {
+      /* 客户端已取消 */
+    }
+    cleanup();
+  };
+  onSettled = settle;
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      out = controller;
+      for (const frame of buffered.splice(0)) controller.enqueue(encoder.encode(frame));
+      settle();
+    },
+    cancel() {
+      closed = true;
+      cleanup();
+    },
+  });
 }
 
 // ── 翻译器 ────────────────────────────────────────────────────────────────────
 
 /**
- * 主请求是 wake 占位：响应体（wake 的 JSON）与内容无关，内容帧早已在 `prepareChat`
- * 里产出并缓存在请求槽。
+ * 翻译器：字节已是 OpenAI SSE（`openChatStream` 产出），原样透传即完成「翻译」。
  *
- * **`feed()` 就要吐帧，不能等 `finish()`**：网关的 `sseStream.relay` 把这条响应当 SSE 读
- * （等 `\n\n` 事件分隔符），而 wake 回的是**一整块 JSON**、没有 `\n\n` —— 它会把整块攒在
- * 缓冲里一直等下一块，直到空闲守卫 abort（实测 2026-11-07：短回答 120s 才返回，症状就是
- * 「跑着跑着断了」）。收到第一块（协议体已备好）就交帧，天然免疫这种分隔符差异。
+ * 网关的 `relayStream` / `collectAsOpenAiSse` 照常逐帧记账、打首帧点、聚合成非流式响应。
  */
 export function newTranslator(): StreamTranslator {
-  let flushed = false;
-  const take = (): Array<Buffer | string> => {
-    if (flushed) return [];
-    flushed = true;
-    const slot = relaySlots.getStore();
-    return slot ? [...slot.frames] : [];
-  };
   return {
-    feed(): Array<Buffer | string> {
-      // 第一块响应体到达即可交付（内容与响应体无关，只代表「wake 已回」）
-      return take();
+    feed(chunk: Buffer): Array<Buffer | string> {
+      return [chunk];
     },
     finish(): Array<Buffer | string> {
-      return take();
+      return [];
     },
     isDone(): boolean {
-      return flushed;
+      return false;
     },
   };
 }
