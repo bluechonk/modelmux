@@ -2,7 +2,7 @@
 
 智谱 AutoClaw（`autoclaw.z.ai`，云端 OpenClaw 沙箱）渠道的协议事实源。实现依据，端点与字段以本文件为准。
 
-证据等级标注：`[参考]` 来自参考实现逆向（见文末清单）、`[推断]` 为按行为推定的设计、`[实测]` 为真机验证结论。**本渠道尚未真机验证**（登录需要真实手机号）：全部协议事实来自参考实现静态逆向与抓包记录（2026-09-22 / 2026-09-23，桌面端 1.18.5 + Web bundle），下线风险与真机差异见「已知边界」。
+证据等级标注：`[参考]` 来自参考实现逆向（见文末清单）、`[推断]` 为按行为推定的设计、`[实测]` 为真机验证结论。协议事实初始来自参考实现静态逆向与抓包记录（2026-09-22 / 2026-09-23，桌面端 1.18.5 + Web bundle）；**对话 relay 与流式管线已于 2026-11-13 真机验证**（登录态、wake → 设备 WS → events → agent/send 序列、增量流式下发），登录短信流程与签名头族仍只有逆向证据，下线风险见「已知边界」。
 
 ## 1. 基址与身份
 
@@ -71,10 +71,9 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 ### 4.2 调用序（wake → WS 上线 → events → agent/send → 泵事件）
 
 1. **wake**：`POST {裸base}/v1/sandboxes/{id}/wake` body `{access_hold_ms:600000, reason, apply_business_busy_cooldown:true}`。幂等；失败不阻断（设备可能仍在线）。[参考]
-   网关的**主请求**就是这一条（`chatUrl()` 指向它），内容与它的响应体无关 —— 内容早在
-   `prepareChat` 里取完并缓存在请求槽。所以翻译器必须在 `feed()` 第一块就交帧：
-   它回的是**一整块 JSON，没有 `\n\n` 事件分隔符**，若等 `finish()` 收尾，网关的 SSE 读法
-   会把整块攒在缓冲里一直等下一块（实测 2026-11-07：短回答 120s 才返回）。
+   网关**不**向它建连：本渠道声明共享层 `openChatStream`，网关改为消费渠道自管的响应流。
+   这一条只在前置里发一次（同样幂等；失败不阻断，设备可能仍在线）；`chatUrl()` 仍返回它，
+   但只为满足契约必选成员。
 2. **设备上线（必需，尽力而为）**：仅 HTTP `agent/send` 会得到「云端设备未连接」——必须先 `wss://{裸base}/v1/client/ws?device_id={sandbox_id}&access_token={token 无 Bearer}`，发 `{"type":"auth.inject","token":…,"userId":…,"clientMetadata":{…}}`，等 `auth.inject.ok`。上线后保持连接读（保活）。参考实现在 WS 失败时仍继续（设备可能已被别的会话上线），真正的失败由 agent/send 给出。[参考]
    握手超时取 **3s**（原 10s）：它是尽力而为的一步，失败不影响 relay，却排在 `prepareChat` 的
    关键路径上 —— 每次超时都是纯等待（实测本机长期连不上，每个请求白等 10 秒）。
@@ -103,9 +102,9 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 
 ## 5. 与网关管线的对接（实现侧约定）
 
-- 共享网关的主请求是**一条 POST 且内容必须在其响应体上**，而 relay 的内容流在另一条 GET SSE 上——因此**整轮 relay（§4.2 的 2-5 步）在 `prepareChat` 钩子内完成**，产出的 OpenAI 帧缓存在请求槽（`AsyncLocalStorage`，跨 `buildChatBody → prepareChat → newTranslator` 传递）；主请求用**幂等的 wake** 占位（POST + body 形态正好匹配 `openStream`），翻译器 `feed()` 恒空、`isDone()` 恒真、`finish()` 一次性吐帧。[推断]
-- 代价：流式呈「末尾突发」形态（生成期间客户端无响应头、无心跳，生成完一次性收到全部帧）——协议本身只提供事件流，这是管线约束下唯一不丢内容的映射；生成时长与 agent 轮次相当（典型数秒到数十秒）。[推断]
-- 失败语义：relay 中的错误事件在**无内容时**抛出（attempt 层换候选重试，可能落到兄弟渠道 qodercn）；**已有内容时**以错误帧收尾。整轮可重试意味着瞬时失败会重跑完整生成。[推断]
+- 网关的对话端点恒为**一条 POST 且内容必须在其响应体上**，而本渠道的内容流在另一条 GET SSE 上。因此本渠道声明共享层的 `openChatStream` 钩子：`prepareChat` 只做前置（§4.2 的 1-2 步：保鲜 → 沙箱 → 唤醒 → 设备上线），`openChatStream` 打开 events 与 `agent/send`，把事件边收边翻成 OpenAI SSE 字节交给网关增量转发 —— 内容不再攒帧，客户端从首帧起就有字节。[参考]
+- 首帧之前的失败仍在响应头发出前抛给网关：建连 / 凭据 / 零内容都走候选切换（可能落到兄弟渠道 qodercn）；`agent/send` 的 `code=11003` 抛 `UpstreamUnauthorized`，网关据此刷新令牌或把账号标成终态。[推断]
+- 首帧之后的上游错误以错误帧收尾：流断了但有内容就补终止帧，不丢已生成内容。[推断]
 - 事件流静默 120s 判死（工具执行期间 agent 也会周期性发事件）；空完成（零内容零 usage）按失败抛出，不掩盖故障。[参考][推断]
 - **usage 实际收不到**：实测（2026-11-09）轮询本轮全部原始事件（45 条叶子路径）没有任何
   cache/hit/prefix 字段，也没有 usage —— 渠道按字符数兜底估算（`estimated: true`）。
@@ -152,16 +151,16 @@ X-Trace-Id: <uuid hex>     Authorization: Bearer <accessToken>（登录后）
 
 ### 已知限制
 
-- 流式为「末尾突发」形态（见 §5）——客户端在生成完成前收不到任何字节，对首字延迟敏感的场景请改用其它供给渠道。
+- 流式从首帧起增量下发（见 §5）：首帧延迟 = 上游首个 `agent:stream` 事件（实测 1.5s 量级），之后按上游节奏逐帧推送；非流式请求照样聚合成完整响应。
 - 会话不跨请求保持（每请求独立沙箱会话键）；多轮上下文靠请求体全量携带。
 - 沙箱 device WS 依赖 Node 内置 WebSocket（`globalThis.WebSocket`，Node ≥22 可用）。
 
 ### 怎么测这个渠道
 
-1. `mx login autoclaw`（真实手机号 + 短信验证码；**本渠道尚未真机验证**，首次登录同时验证签名头族与登录链路）。
+1. `mx login autoclaw`（真实手机号 + 短信验证码；登录流程本身仍只有逆向证据，首次登录同时验证签名头族与登录链路）。
 2. `mx status autoclaw` 确认 `stale_build: false` 与登录态；`mx bill autoclaw` 看积分钱包（`v2/wallets`）。
 3. `mx signin autoclaw` / `mx signin autoclaw --claim` 验证 `daily_signin` 幂等签到。
-4. 网关在跑后对 `http://127.0.0.1:4412/v1/chat/completions` 发 `{"model":"glm-5.3-flash","messages":[{"role":"user","content":"你好"}],"stream":true}`：预期先有约数秒静默，然后一次性收到完整 SSE（含 `[DONE]`）。
+4. 网关在跑后对 `http://127.0.0.1:4412/v1/chat/completions` 发 `{"model":"glm-5.3-flash","messages":[{"role":"user","content":"你好"}],"stream":true}`：首帧延迟由上游模型首 token 决定（实测 10~15s 量级），**判据是首帧之后逐帧推送直到 `[DONE]`**；若首帧延迟与总时长几乎相等（ttfb ≈ duration、`generateMs` 趋近 0），说明又回退成攒帧了。
 5. 对照 `mx log <cid> --kind channel` 检查 relay 序列（wake → events → agent/send）与错误分类。
 
 ### 端到端测试覆盖

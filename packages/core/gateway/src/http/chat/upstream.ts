@@ -163,8 +163,104 @@ function chatUrlOf(upstream: UpstreamModule, body: Buffer): string {
   return upstream.chatUrl();
 }
 
+/** 上游响应头到达后允许的连续静默上限（渠道可放宽，见 `UpstreamModule.idleTimeoutMs`）。 */
+function idleBudgetMs(upstream: UpstreamModule): number {
+  const timeoutMs = readTimeoutMs();
+  const channelIdleMs = upstream.idleTimeoutMs?.();
+  return channelIdleMs === undefined ? timeoutMs : Math.max(timeoutMs, channelIdleMs);
+}
+
+/**
+ * 渠道自管的流错误是否算「凭据失效」。
+ *
+ * 与 `attempt.ts` 的 `isUpstreamUnauthorized` 同口径：跨包边界时 `instanceof` 可能失配，
+ * 按类名兜底。
+ */
+function isChannelUnauthorized(upstream: UpstreamModule, err: unknown): boolean {
+  // 契约里 `UpstreamUnauthorized` 是必选成员，但仍判空：`instanceof undefined` 会抛
+  // TypeError，把「分类」变成「崩溃」（与 `attempt.ts` 同式）。
+  const ctor = upstream.UpstreamUnauthorized;
+  if (ctor !== undefined && err instanceof ctor) return true;
+  return err instanceof Error && err.constructor?.name === "UpstreamUnauthorized";
+}
+
+/**
+ * 探渠道的 `openChatStream` 钩子（内容不在主 POST 响应体上的上游用）。
+ *
+ * 返回 null = 未声明 / 本次不用自管流 / 请求体不是对象 —— 调用方回落到默认 POST 路径。
+ * 命中时网关**不建连 `chatUrl`**，也不调 `buildHeaders` / `chatUrlForModel`：鉴权建连由
+ * 渠道自己完成，网关只把返回的流当作上游响应体交给翻译器。
+ *
+ * 失败分两类，区别在「能不能安全重开」：
+ *   - 凭据失效 → `status 401` + `authRejected`，接住 `auth.ts` 的刷新重试链（与 401 同路径）；
+ *   - 其余错误 → `ok:false` 且 **`connectFailed: false`** —— 这个钩子有副作用（真发了一轮
+ *     对话），不能像连接抖动那样自动重开，否则同一条提问会在上游跑两遍。
+ */
+async function openChannelStream(
+  upstream: UpstreamModule,
+  body: Buffer,
+): Promise<UpstreamCall | null> {
+  const hook = upstream.openChatStream;
+  if (!hook) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+  let opened: ReadableStream<Uint8Array> | null;
+  try {
+    opened = await hook(parsed as Record<string, unknown>);
+  } catch (err) {
+    if (isChannelUnauthorized(upstream, err)) {
+      return {
+        ok: false,
+        status: 401,
+        headers: new Headers(),
+        body: null,
+        error: new Error(`upstream stream rejected: ${String(err)}`),
+        authRejected: true,
+      };
+    }
+    return {
+      ok: false,
+      status: 0,
+      headers: new Headers(),
+      body: null,
+      error: new Error(`channel stream failed: ${String(err)}`),
+      connectFailed: false,
+    };
+  }
+  if (!opened) return null;
+  const stream = opened;
+
+  // 空闲守卫只认 AbortController，而这条流的寿命在渠道手里 —— 把 abort 接到 cancel 上，
+  // 否则「200 后长时间零字节」的守卫对自管流等于没接（上游那条 socket 会一直挂着）。
+  const controller = new AbortController();
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      void stream.cancel(controller.signal.reason).catch(() => {});
+    },
+    { once: true },
+  );
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "text/event-stream; charset=utf-8" }),
+    body: idleGuardedBody(stream, controller, idleBudgetMs(upstream)),
+    authRejected: false,
+  };
+}
+
 export async function openStream(channel: Channel, c: Credential, body: Buffer): Promise<UpstreamCall> {
   const { upstream } = channel;
+
+  // 渠道自管响应流优先：命中即不建连 chatUrl（见 `openChannelStream`）。
+  const provided = await openChannelStream(upstream, body);
+  if (provided) return provided;
   // 渠道可在建头前异步确保凭据可用（如 token 已过期时阻塞续期）；未声明钩子的渠道
   // 保持同步行为。钩子抛错按 connectFailed 形态返回（交上层重试/换号），不能裸穿：
   // auth.ts 的刷新重试链会把同型异常吞成「refresh failed」并把账号误标 unauthorized 终态。
@@ -198,10 +294,7 @@ export async function openStream(channel: Channel, c: Credential, body: Buffer):
 
   let resp: Response;
   const controller = new AbortController();
-  let timeoutMs = readTimeoutMs();
-  // 渠道可放宽静默上限（首字慢的上游：200 后长时间零字节，见 UpstreamModule.idleTimeoutMs）
-  const channelIdleMs = upstream.idleTimeoutMs?.();
-  if (channelIdleMs !== undefined) timeoutMs = Math.max(timeoutMs, channelIdleMs);
+  const timeoutMs = idleBudgetMs(upstream);
   const headerTimer = setTimeout(() => {
     controller.abort(new Error(`upstream header timeout after ${timeoutMs}ms`));
   }, timeoutMs);
