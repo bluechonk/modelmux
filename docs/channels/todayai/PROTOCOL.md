@@ -115,20 +115,22 @@ GET https://api.todayai.cn/v1/conversations/messages?conversationId=<真实 id>&
 `GET /v1/pricing/status` → `data.status`（实测形状）：
 
 ```json
-{"plan":"free","subscriptionState":"none","serviceState":"normal",
- "display":{"title":"Free","subtitle":"…"},
- "modelOptions":{"selectedOptionId":"model.deepseek-v4.1-flash","availableOptions":[]}}
+{"plan":"pro","subscriptionState":"none","serviceState":"normal",
+ "display":{"title":"Pro","subtitle":"…"},
+ "modelOptions":{"selectedOptionId":"model.deepseek-v4.1-flash",
+   "options":[{"id":"model.glm-5.3-flash","disabled":false,
+     "display":{"title":"GLM 5.3 Flash","subtitle":"1× usage"}}]}}
 ```
 
 - 选项 id 形如 `model.<name>`（Pro 的具体模型）或 `mode.<name>`（Free 的档位）；**前缀不同**，解析时两种都认。[实测]
-- **`availableOptions` 会是空数组**（实测新账号：`selectedOptionId` 有值、可选列表为空）—— 池内映射不依赖它，走 §5 的静态表；目录为空时 `mx model todayai` 只会回selectedOptionId。[实测 2026-11-11]
+- **选项列表在 `modelOptions.options[]`**（条目字段 `id` + `display.title`/`display.subtitle`）；旧字段 `modelOptions.availableOptions[]`（`optionId`/`displayName`）已不再下发。只读旧字段会解出空表，`mx model todayai` 只剩 `selectedOptionId`。[实测 2026-11-13]
 - **免费版没有对话额度**：发消息直接 `429 {"error":"quota_denied"}`。[实测]
-- 池内映射（`pool/model-family.ts` 的对外模型 → 上游选项，静态表）：
+- 池内映射（对外模型 → 上游选项，静态表）。池内 `glm-5.3-flash` 是 **flash 档**，映射到 `model.glm-5.3-flash`（1× usage）；`model.glm-5.3` 是非 flash 档（4× usage），两者上游同时供：
 
 | 池模型 | 上游选项 id |
 | --- | --- |
 | `deepseek-v4.1-flash` | `model.deepseek-v4.1-flash` |
-| `glm-5.3-flash` | `model.glm-5.3` |
+| `glm-5.3-flash` | `model.glm-5.3-flash` |
 
 - 上游目录**不带**窗口 / 输出上限 / 倍率 —— 池层回落默认，不编造数字。[实测]
 - 账号信息（`GET /v1/users/me`）是**平铺**的：`{"id","preferredName","avatarUrl",…}`，昵称取 `preferredName`（不是 `name`）。[实测]
@@ -181,6 +183,24 @@ node packages/core/channels/todayai/dist/cli.js task "<指令>" [--rounds 轮数
 轮到回答终态、正文落 access 日志）/ 多轮上下文（扁平化历史）/ 错误码（`INVALID_OTP`、
 `INVALID_PHONE_NUMBER`、`401`）。**无签到链路** —— rapport 规则由服务端事件累计，
 客户端只能上报两条幂等动作（见 §6）。
+
+### 已知限制：Agent 工具长任务不可用
+
+本渠道**不承载带工具的 Agent 长任务**。判据与实测（2026-11-13）：
+
+- 钉偏好后发带 `tools` 的 `/v1/chat/completions` 请求，落点确实是 todayai
+  （访问日志 `cid=todayai`、`toolCount=1`、`status=200`、`outcome=success`），
+  但响应 `choices[0].message.tool_calls` 为空，模型正文明确回「没有这个工具」。
+- 根因在协议层而非共享层：本渠道的 `flattenMessages` 把 messages 拍平成 `"role: 内容"`
+  单条文本、`buildChatBody` 只带 `{conversationId,limit}`、`newTranslator` 不产出
+  `tool_calls`（`packages/core/channels/todayai/src/upstream.ts`）。上游 `/v1/messages`
+  是对话消息接口，没有 tools 语义，所以工具调用无从发生。
+- dsh 长任务（写→读→删→建文件）在本渠道表现为 `stop=end_turn`、`toolCalls=0`、
+  产物文件不生成；同一任务在 raccoon / traecn / loomy 上正常（5 次 tool_call、落盘正确）。
+- 另有超时风险：带大请求体时上游常不产出终态，`pollReply` 轮询 90 轮后抛
+  `轮询 90 轮仍未见回答终态`，网关按设计换下一条候选。
+
+结论：本渠道适合**纯文本对话**，Agent 工具流量应交给支持工具的候选渠道。
 
 ## 9. 参考实现
 

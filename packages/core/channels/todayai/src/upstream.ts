@@ -405,20 +405,39 @@ interface PricingStatus {
   availableOptions: PricingOption[];
 }
 
+/**
+ * 解析 /v1/pricing/status 的模型选项。
+ *
+ * 字段形态**两种都认**：
+ * - 现行（实测 2026-11-13）：`data.status.modelOptions.options[].{id,display.title}`；
+ * - 旧形态：`modelOptions.availableOptions[].{optionId,displayName,modelId}`。
+ * 只读前者会让目录恒空（`options` 才是上游真实字段，`availableOptions` 恒缺）。
+ */
 function parsePricing(body: string): PricingStatus | null {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const data = (parsed["data"] ?? parsed) as Record<string, unknown>;
     const status = (data["status"] ?? data) as Record<string, unknown>;
     const options = (status["modelOptions"] ?? {}) as Record<string, unknown>;
-    const available = (options["availableOptions"] ?? []) as Array<Record<string, unknown>>;
+    const current = Array.isArray(options["options"]) ? (options["options"] as Array<Record<string, unknown>>) : [];
+    const legacy = Array.isArray(options["availableOptions"]) ? (options["availableOptions"] as Array<Record<string, unknown>>) : [];
+    const rows = current.length > 0 ? current : legacy;
     return {
       selectedOptionId: typeof options["selectedOptionId"] === "string" ? options["selectedOptionId"] : "",
-      availableOptions: available.map((o) => ({
-        optionId: typeof o["optionId"] === "string" ? o["optionId"] : "",
-        displayName: typeof o["displayName"] === "string" ? o["displayName"] : "",
-        modelId: typeof o["modelId"] === "string" ? o["modelId"] : "",
-      })),
+      availableOptions: rows.map((o) => {
+        const display = (o["display"] ?? {}) as Record<string, unknown>;
+        return {
+          optionId:
+            typeof o["id"] === "string" ? o["id"] : typeof o["optionId"] === "string" ? o["optionId"] : "",
+          displayName:
+            typeof display["title"] === "string"
+              ? display["title"]
+              : typeof o["displayName"] === "string"
+                ? o["displayName"]
+                : "",
+          modelId: typeof o["modelId"] === "string" ? o["modelId"] : "",
+        };
+      }),
     };
   } catch {
     return null;

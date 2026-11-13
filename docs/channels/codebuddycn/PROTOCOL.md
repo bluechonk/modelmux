@@ -121,6 +121,23 @@ POST /v2/billing/meter/daily-checkin   → {code, msg}
 领取幂等：今天已签返回 HTTP 400 `code=10001`（`msg`「今天已签到，请明天再来」），
 按「已签」处理，不算失败 `[实测]`。
 
+### 7.3 已知限制：Agent 长任务被渠道校验拦截
+
+带工具的 Agent 长任务（如 dsh 端到端）实测被上游拒：
+
+```
+HTTP 400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel",
+  "displayMsg":{"zh":"请求被拦截，请重新发送"}}
+```
+
+- 触发面：**带 tools 的大请求**（本机实测 dsh 长任务请求体 ~1 MB、`toolCount` 24）被拦；
+  同账号同模型的无工具小请求（`toolCount` 0，几 KB）HTTP 200 正常返回 `[实测 2026-11-13]`。
+- 网关行为：按「上游非 200 → 换下一条候选」顺延到下一家渠道（实测顺延到 loomy），
+  不重试同一渠道；该渠道的界面额度与账号状态照常显示可用 `[实测] `。
+- 结论：本渠道的**额度与简单对话可用**，但**不适合承载 Agent 工具长任务**；
+  这类流量走别的候选渠道。判成上游渠道校验（而非本仓协议 bug）的判据是
+  `code:11128` + `unapproved channel` 文案 `[实测]`。
+
 ## 8. 证据等级
 
 | 结论 | 来源 | 性质 |
