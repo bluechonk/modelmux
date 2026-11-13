@@ -86,6 +86,36 @@ glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 - **促销字段**：`data.modelPromotions[]` 携带 DeepSeek 时段折扣（`ds-discount-202608`
   覆盖 v4 系含未在 cli 名单的 `-ioa` 变体，非高峰 5 折）；`data.modelTiers[]` 的
   订阅优先集合（`tier-standard-2026q3`）只含 glm / kimi，不含 DeepSeek。
+- **响应顶层结构**（实测 2026-11-14，61,600 字节）：`code` / `msg` / `requestId` / `data`。
+  `data` 下 22 块，键树（标量为省略，`(n)` 为数组长度）：
+
+  ```text
+  agents[1]        {commands[], description, instructions, modelTags[], models[](裸 id), name, tags[], tools[](裸 id)}
+  models[61]       规格条目，字段为按条目可选的并集（见上）
+  modelPromotions[6]  {id, kind, modelIds[], badge{color,icon,label}, discount{discountedCredits,displayMode,factor}, enabled, hover{action{labelZh,type},textZh}, priority, schedule{daily[{start,end}],timezone}}
+  modelTiers[1]    {id, tier, modelIds[], requiredUserType, priority, enabled, trackKey, badge{label}, hover{action{labelEn,labelZh,type},textEn,textZh}}
+  completion       {currentFileMaxLines, jumpToHere{instructions, model, models[], userMessageInstruction, variables[]}, maxInputCharacters, maxInputTokens, nesPredictionMaxLines, sensitivity, suffixPercent}
+  config           {InspirationCodeRule, creditPurchaseActions{6004|6005|14018{labelEn,labelZh,showButton,url}}, limitHint, limitHintCN, mcpSchemaUrl, playbookBaseUrl, skillSecurityAppKey, skillhubKey}
+  featureToggles   {SupportHttpsAgentProxy, disabledTerminalCheck}
+  integrations.builtins  {anydev, cloudStudio, eop, lighthouse, supabase, tcb}（布尔）
+  productFeatures  约 100 个布尔特性开关（键集随上游变，不在文档枚举）
+  productFeaturesConfig  {BuddyOnePrompt, KnowledgeSearch{enabledSourceTypes[]}, ModelRateLimitCap{lines[{allowPaidSwitch,displayName,freeId,paidId}]}, ModelTrialBanner{banners[{firstUseTimeKey,modelId,targetModelId,trialDays}]}}
+  telemetry        {report{model{enabled}, standard{enabled, reportCodeSnippet}}, tracing{enabled}}
+  tokenUsageThresholds  {compact{emergency, modelOverrides{deepseek}}, request{emergency}, summary{emergency}}
+  endpoint / enterpriseId / defaultVideoModel / links{helpLink}
+  builtInMarketPlugins[0] / builtInMarketPluginsMerge[0] / builtInMarketplaces / builtInSkillMarketplaces（插件市场 URL 配置）
+  ```
+
+  `models[]` 字段**并集**（按条目可选；`auto` 等路由条目无 `credits` 与
+  `contextWindow`，真模型才有）：`id` / `name` / `descriptionEn` / `descriptionZh` /
+  `credits` / `maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` /
+  `contextWindow{defaultLength, supportedLengths[]}` / `reasoning{canDisableThinking?,
+  defaultEffort, summary, supportedEfforts[]}` / `relatedModels{builtin-lite?, lite,
+  reasoning}` / `supportsImages` / `supportsReasoning` / `supportsToolCall` /
+  `temperature` / `vendor` / `aliases[]` / `isDefault` / `onlyReasoning` / `iconUrl` /
+  `disabledMultimodal` / `tags[]`。
+  `tokenUsageThresholds.compact.modelOverrides.deepseek` 是 DeepSeek 专属的 compact
+  阈值覆盖（上游按模型族给不同 emergency 阈值）。
 
 ### 1.2 图片能力判据（哪个字段说了算）
 
