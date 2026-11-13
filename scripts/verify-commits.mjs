@@ -7,7 +7,9 @@
  *   （`merge` 专供 merge commit）；
  * - scope（`(git事件)`）**必填**，为变更涉及的模块或对象名；
  * - 描述为简体中文，**结尾不加句号**；
- * - 破坏性变更可加 `!`（如 `refactor(repo)!:`）。
+ * - 破坏性变更可加 `!`（如 `refactor(repo)!:`）；
+ * - **禁止 `Co-Authored-By` 协作者尾注**：GitHub 按尾注邮箱把协作者记进仓库贡献者列表，
+ *   AI 助手（claude / codex / zcode 等）由此上榜——提交与 PR 描述都不许带。
  *
  * **merge commit 一并校验**：GitHub 默认生成的 `Merge pull request #N from …`
  * 不含 type/scope/中文，属违规。仓库设置已改为 `merge_commit_title=PR_TITLE`
@@ -39,6 +41,12 @@ const CJK = /[\u3400-\u9fff]/;
 const CONVERSATIONAL = /主人(要求|批复|拍板|指出|反馈|指正|报|说)|等你(拍板|确认|回复)|需要你配合|需要用户配合|老板(说|要求|拍板)/;
 /** emoji 与图形状态符：档案里用文字（通过 / 失败 / 注意），不靠符号装点。 */
 const EMOJI = /[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/u;
+
+/**
+ * 协作者尾注：一律禁止携带。GitHub 按尾注邮箱把「协作者」记进仓库贡献者列表，
+ * AI 助手（claude / codex / zcode 等）会因此上榜——这正是要防的。大小写不敏感。
+ */
+const CO_TRAILER_KEY = /^co-authored-by:/i;
 
 /**
  * GitHub 生成的合成合并提交：`Merge <40位sha> into <40位sha>`。
@@ -122,6 +130,13 @@ for (const line of lines) {
   if (conv) problems.push(`${hash}  疑似对话式内容「${conv[0]}」——档案只写事实与结论（AGENTS 版本控制第 5 条）：${subject}`);
   const emo = EMOJI.exec(subject) ?? EMOJI.exec(body);
   if (emo) problems.push(`${hash}  含 emoji/图形状态符「${emo[0]}」——用文字表达（通过 / 失败 / 注意）：${subject}`);
+  // 协作者尾注：一律禁止携带——GitHub 会按尾注邮箱把 AI 记进仓库贡献者列表
+  for (const line of body.split("\n")) {
+    const t = line.trim();
+    if (CO_TRAILER_KEY.test(t)) {
+      problems.push(`${hash}  禁止携带 Co-Authored-By 尾注——GitHub 会把协作者记进仓库贡献者列表，AI 助手由此上榜：${t}`);
+    }
+  }
 }
 
 // PR body 的提前校验：squash 合并会把它**并进 main 上的 commit body**，
@@ -141,6 +156,13 @@ if (prTitle !== "" || prBody !== "") {
   if (prEmo) {
     problems.push(`PR 描述  含 emoji/图形状态符「${prEmo[0]}」——squash 会把 PR body 并入 commit body，用文字表达`);
   }
+  // PR body 同样禁止携带协作者尾注：squash 合并后它就是 main 上 commit body 的一部分
+  for (const line of prBody.split("\n")) {
+    const t = line.trim();
+    if (CO_TRAILER_KEY.test(t)) {
+      problems.push(`PR 描述  禁止携带 Co-Authored-By 尾注——squash 会并入 commit body，GitHub 会把协作者记进贡献者列表：${t}`);
+    }
+  }
 }
 
 if (problems.length > 0) {
@@ -151,5 +173,5 @@ if (problems.length > 0) {
 
 const skipNote = skipped > 0 ? `（跳过 ${skipped} 条 GitHub 合成合并提交）` : "";
 console.log(
-  `提交信息校验通过：${lines.length - skipped} 条提交全部符合 type(scope): 中文描述${skipNote}${range ? `（范围 ${range}）` : ""}`,
+  `提交信息校验通过：${lines.length - skipped} 条提交全部符合 type(scope): 中文描述且未携带协作者尾注${skipNote}${range ? `（范围 ${range}）` : ""}`,
 );
