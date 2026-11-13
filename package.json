@@ -22,6 +22,7 @@
     "verify:wiring": "node scripts/verify-wiring.mjs",
     "verify:comments": "node scripts/verify-comments.mjs",
     "gate": "bash scripts/gate.sh",
+    "pr": "node scripts/pr-create.mjs",
     "desktop": "node scripts/pack-desktop.mjs",
     "version:sync": "node scripts/sync-version.mjs",
     "after-change": "node scripts/after-change.mjs",

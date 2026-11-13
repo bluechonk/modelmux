@@ -186,6 +186,12 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 
 实现见 `scripts/gate.sh`（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
+**建 PR 入口焊死在 `npm run pr`**（`scripts/pr-create.mjs`），把「证绿」与「建 PR」做成一个原子动作：
+工作树必须干净、本地 HEAD 必须等于 `origin/<分支>`、门禁回执必须对应当前 HEAD —— 任一不满足即
+禁提 PR（「本地测试不对劲」不存在带病提交的口子）。回执是 `gate.sh` 成功时写进
+`<git-common-dir>/modelmux-gate-stamp` 的 `<sha> <epoch>`；缺失或过期时入口会现场重跑全量门禁，
+而不是放行。绕过入口直接 `gh pr create` 属违规。
+
 **worktree 里的推送与手动跑不是同一条路径**：`git push` 会向 `pre-push` 注入
 `GIT_DIR`（指向当前 worktree 的 git 目录）等仓库定位变量，它们会污染 `gate.sh`
 内部的 `git clone` 视图 —— 若不清掉，clone 出的仓库缺少待推分支，门禁在 worktree 里
@@ -227,6 +233,7 @@ git config --get core.hooksPath         # 应为 .githooks
 | --- | --- |
 | 任何改动 | `npm run gate`（含 `npm test`） |
 | `.github/workflows/**`（任意 workflow） | 必须本地先跑通再推 |
+| 建任何 PR | 只走 `npm run pr`（回执 + 门禁，不过禁提） |
 
 ## 版本与发版
 
@@ -288,6 +295,8 @@ git config --get core.hooksPath         # 应为 .githooks
    范围为空同样报错退出（浅 fetch 造成的空范围是假绿）；校验器对一切违规直接拦。
 4. **合并方式**：
    - PR 统一用 squash 合并：`gh pr merge <n> --squash`（与全局规则一致）。
+   - **禁止自动 merge**：合并必须先得到用户对当次的明确允许（全局规则「版本控制」第 6 条）；
+     CI 双绿只是「可合并」的状态报告，不是许可。
    - **禁止 merge commit**：仓库已关闭 merge commit；`verify:topology` 会拦截 tree 与任一父提交
      相同的冗余 merge。
    - PR 标题必须是 `type(scope): 中文描述` —— squash 后它就是 main 上那条 commit 的标题
