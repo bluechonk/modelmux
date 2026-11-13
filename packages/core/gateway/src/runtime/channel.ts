@@ -607,6 +607,14 @@ export interface ChannelCapabilities {
   readonly billing: boolean;
   /** 是否提供签到 / 领取。false = 无签到概念，CLI 统一显示 `-`。 */
   readonly signin: boolean;
+  /**
+   * 上游是否可能**排队**（请求被收下但长时间不出字）。
+   *
+   * true 时：网关的排队探测会**立即放弃本候选、换下一条**（不等待）；
+   * 模型偏好的自动排序也把它往后放（用户默认不该把排队渠道设为首选）。
+   * 省略 = `false`。
+   */
+  readonly queue: boolean;
 }
 
 /**
@@ -671,6 +679,7 @@ export function channelCapabilities(config: ChannelConfig): ChannelCapabilities 
   return {
     billing: config.capabilities?.billing ?? true,
     signin: config.capabilities?.signin ?? true,
+    queue: config.capabilities?.queue ?? false,
   };
 }
 

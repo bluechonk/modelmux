@@ -47,7 +47,9 @@
         "image"
       ],
       "channels": {
-        "qwenworkcn": "flash"
+        "qwenworkcn": "flash",
+        "qoder": "qfmodel",
+        "qodercn": "qfmodel"
       }
     }
   }

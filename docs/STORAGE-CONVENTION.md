@@ -27,7 +27,7 @@
 │   ├── payload/<date>/          ← 请求正文抓取（恒开启，见 LOGGING.md §9）
 │   └── watchdog.log             ← 外部守护日志
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
-├── models.json                  ← **统一模型注册表**（对外模型 + 规格 + 供给范围 + 上游 id 映射）
+├── models.json                  ← **统一模型注册表**（对外模型 + 规格 + 上游 id 兜底映射）
 │                                   缺失/损坏时回落随包默认表；`MODELMUX_REGISTRY_FILE` 可整体改指向
 ├── model-prefs.json             ← **模型级渠道偏好**（每个对外模型「优先走哪家」，`null` = 自动选路）│                                   由控制台「模型偏好」下拉写入，见 POOL-ARCHITECTURE.md §2.4
 ├── setting.json                 ← **用户级设置**（目前只有主题 system/dark/light；读写见 runtime/user-settings.ts）

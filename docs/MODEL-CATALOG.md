@@ -41,11 +41,11 @@ packages/core/gateway/models.json  # 随包默认表（bundle 后复制到 cli/d
 | --- | --- |
 | `contextWindow` / `maxOutput` | 对外报值，`/v1/models` 原样返回 |
 | `inputModalities` | 输入模态（客户端据此决定本地是否拦图片） |
-| `channels` | 供给范围 **+ 上游 id 映射**：键是渠道 cid，值是该渠道上游的真名 |
+| `channels` | 上游 id 映射的**兜底**：键是渠道 cid，值是该渠道上游的真名。候选列表不再靠它（见 §5） |
 
 `channels` 是这份表的关键：渠道上游 id 形态各异（`gfmodel` /
 `sn-deepseek-v4-1-flash-1017` / `LongCat-2.5`），请求下发时按它替换模型名。
-删掉这条映射，请求会被上游拒掉。
+渠道目录认不出某模型时回落到这条映射；两处都没有，请求会被上游拒掉。
 
 ## 4. 校验与回落
 
@@ -61,16 +61,18 @@ packages/core/gateway/models.json  # 随包默认表（bundle 后复制到 cli/d
 
 ## 5. 与渠道目录的关系
 
-渠道的 `refresh()` 仍会拉上游目录并写 `channels/<cid>/cache/models.json` —— 那是
-**诊断与排查**用的原始数据（`mx model <cid>`、控制台渠道行看它），**不再参与选路**。
+渠道的 `refresh()` 会拉上游目录并写 `channels/<cid>/cache/models.json`，
+`catalog.exposedIds()` 是**模型供给范围的实时事实**（上游加/下模型、用户改 `hidden` 都立刻反映）。
 
-选路只认注册表：
+**候选 = 渠道目录现算 ∪ 注册表 `channels` 声明**：
 
-- 候选渠道 = 注册表 `channels` 里声明的、且当前已注册的渠道；
-- 上游模型名 = 注册表 `channels[cid]` 的值；
+- 目录（`catalog.exposedIds()`，带 30s 缓存）认出来的渠道进候选 —— 上游能力变了候选自动跟着变；
+- 注册表是**兜底**：新装 / 未登录 / 目录还没拉到时目录可能是空的，这时按注册表声明兜住，
+  不至于让本来能跑的渠道从候选里消失；
+- 上游模型名优先取 `catalog.resolveModel()`，目录不认时回落注册表 `channels[cid]`；
 - `/v1/models` 的规格 = 注册表的 `contextWindow` / `maxOutput`。
 
-渠道配置的 `priorityTier` / `priorityWeight` 决定候选顺序（见
+渠道配置的 `priorityTier` / `priorityWeight` / `capabilities.queue` 决定候选顺序（见
 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
 
 ## 6. 实测记录（2026-11-08）

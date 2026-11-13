@@ -49,25 +49,21 @@
                  ↑ 渠道目录里的等价写法（大小写 / 连字符版本号 / sn- 包装 / -official / 日期后缀）归一后匹配
 ```
 
-| 对外模型 id | 别名 | `owned_by` | 供给渠道（注册表声明的上游 id） |
+| 对外模型 id | 别名 | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn（`deepseek-v4.1-flash`）、loomy（`DeepSeek-V4.1-Flash`）、workbuddy（`DeepSeek-V4.1-Flash`）、raccoon（`sn-deepseek-v4-1-flash-1017`） |
-| `glm-5.3-flash` | — | `zhipu` | catpaw / lobsterai / autoclaw / workbuddyai（`glm-5.3-flash`）、qoder（`gfmodel`）、qodercn（`gfmodel`） |
-| `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）—— **唯一供给渠道**；千问办公只卖「标准」档，底层型号由上游池化 |
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、todayai、doubaowork、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
+| `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、autoclaw、workbuddyai、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
+| `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）、qoder（`qfmodel`）、qodercn（`qfmodel`）…（千问办公只卖「标准」档，底层型号由上游池化） |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
 
-> 过滤只由**渠道自己的目录**决定：隐藏条目（`hidden` / `visible === false`）、
-> 官方「自定义模型」占位（`custom_model_*`）、上游标记不可用的通道会被各渠道排除，
-> 共享层不做闸门。家族外的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）
-> **不进对外池**。
->
-> **供给范围是产品面策略**，收口在**统一模型注册表**（`packages/core/gateway/models.json`，
-> 见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）：每个模型声明由哪些渠道供给、各自的上游 id 是什么。
-> 渠道目录的 `exposedIds()` 只服务 `mx model <cid>` 的渠道视图，不承担选路闸门；
-> 家族外的条目（各渠道的 kimi / qwen / MiniMax / 豆包 等）**不进对外池**。
-> 机械校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」一节。
+> 候选渠道 = **渠道目录 `exposedIds()` 现算** ∪ **注册表 `channels` 声明**（兜底，见
+> [MODEL-CATALOG.md](./MODEL-CATALOG.md) §5）：目录是上游能力的实时事实（上游加/下模型、
+> 用户改 `hidden` 都立刻反映），注册表保证新装 / 未登录 / 目录未拉时候选不消失。
+> 隐藏条目（`hidden` / `visible === false`）、官方「自定义模型」占位、上游标记不可用的
+> 通道由各渠道自己排除，共享层不做闸门。家族外的条目（各渠道的 kimi / qwen / MiniMax /
+> 豆包 等）**不进对外池**。机械校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」一节。
 
 来源：`pool/model-family.ts`（家族与别名）、`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
 
@@ -154,14 +150,17 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    家族内但没有任何渠道供给 → `400`（没货）。日志的 `model` 写 canonical 名。
 2. **候选收集**：能供给该模型的渠道先按**档位**、档位内再按**有效优先级降序**排好
    （`pool/pool-targets.ts::poolCandidates`）—— 客户端不指定渠道。
-   供给范围来自统一注册表（见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)）。
+   候选 = 渠道目录 `exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底（见
+   [MODEL-CATALOG.md](./MODEL-CATALOG.md) §5）。
 
    **档位（`priorityTier`，数值越小越优先）是硬的**：不同档位的渠道永不按额度比较，
    低档位只要还有额度就一定排在前面。用于「额度当天清零、必须在别的渠道之前用掉」的渠道
    （如 loomy：签到送的额度不用就作废）。乘法权重做不到这一点 —— 实测 loomy 1020×2
    仍输给 traecn 2329×1，易失额度照样留着不用。
 
-   **档位内**按**有效优先级 = 剩余额度 × 速度系数 × 可靠性系数**：
+   **档位内**先按**是否排队**（能力位 `capabilities.queue`，缺省 false）：不排队的渠道
+   整体排在排队渠道之前 —— 上游会排队的渠道不作为「有货就先用」的对象，但**仍在候选里**，
+   真撞到排队时网关立即换下一条（不等待）。再按**有效优先级 = 剩余额度 × 速度系数 × 可靠性系数**：
 
    **模型级渠道偏好**（`<root>/model-prefs.json`）在**排序之后**把指定渠道提到最前：
    用户表达「这个模型就走这家」，优先于一切自动排序。它**只换顺序、不改候选集** ——

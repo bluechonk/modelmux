@@ -46,9 +46,9 @@
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
 机械校验：`scripts/verify-contract.mjs` 保证「渠道目录 == 注册清单 ∪ `RETIRED_CIDS`」，
-`packages/cli/tests/pool.test.ts` 另有一份同口径断言。家族供给范围与对外规格由
-**统一模型注册表**（`~/.modelmux/models.json`）声明，校验见 `scripts/verify-contract.mjs`
-的「统一模型注册表」段。
+`packages/cli/tests/pool.test.ts` 另有一份同口径断言。**候选渠道**由渠道目录
+`exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底；对外规格由**统一模型注册表**
+（`~/.modelmux/models.json`）声明，校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」段。
 
 ## 架构落点
 
@@ -124,6 +124,7 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
   会被上游风控拦截（`code 11128`）。判据与实测见
   [channels/todayai/PROTOCOL.md](./channels/todayai/PROTOCOL.md) §8 与
   [channels/codebuddycn/PROTOCOL.md](./channels/codebuddycn/PROTOCOL.md) §7.3。
-- 用户侧注册表 `~/.modelmux/models.json` 在首启浇种后**不再自动更新**：随包注册表改了渠道映射
+- 用户侧注册表 `~/.modelmux/models.json` 在首启浇种后**不再自动更新**：随包注册表改了上游 id
   （如 todayai 的 `glm-5.3-flash` → `model.glm-5.3-flash`）不会传播到已装机器的用户侧文件。
   运行网关读哪份取决于用户侧文件是否通过校验，见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)。
+  **候选渠道列表不受它影响** —— 那是渠道目录 `exposedIds()` 现算的（注册表只作兜底）。
