@@ -9,7 +9,8 @@
 #   分支名：待测分支（默认 = 当前 HEAD 分支）。pre-push 会显式传入。
 #   待测 sha：精确复现「要推的那个提交」——它可能不在任何 ref 上（游离 HEAD 工作树推
 #             `HEAD:<分支>` 时，clone 只带 ref 可达的对象，必须按 sha 单独 fetch）。
-# 环境变量：GATE_DIR（默认 /tmp/modelmux-gate）、GATE_BASE（默认 origin/main）
+# 环境变量：GATE_DIR（指定门禁落点；缺省每次运行各用独立临时目录）、
+#           GATE_BASE（默认 origin/main）、GATE_KEEP（=1 成功也保留现场，缺省失败才留）
 # 退出码：0 = 通过；非 0 = 未通过（输出里会指出失败步骤）。
 set -euo pipefail
 
@@ -36,7 +37,22 @@ if [ "${1:-}" = "--quiet" ]; then QUIET=1; shift; fi
 BRANCH="${1:-}"
 TEST_SHA="${2:-}"
 
-GATE="${GATE_DIR:-/tmp/modelmux-gate}"
+# —— 门禁落点：缺省每次运行各用独立目录 ——
+#
+# 为什么不能固定：多个会话（多个 agent、多次推送）会在同一台机器上并跑门禁，固定路径会
+# 互相 `rm -rf` + clone 覆盖 —— 实测 2026-11-13 两边一起跑：一方 `rm` 报
+# `Device or resource busy`，另一方的 `npm ci` 被抽掉 node_modules 报
+# `TAR_ENTRY_ERROR ENOENT`，双双失败；11-08 也在系统 temp 里留下 9 个手造后缀的
+# `modelmux-gate*` 残留（`modelmux-gate2`…`-push-8629`）。临时目录用完即删，失败时
+# 保留现场便于排查；GATE_DIR 可强制指定固定落点（此时由调用方保证不并发）。
+if [ -n "${GATE_DIR:-}" ]; then
+  GATE="$GATE_DIR"
+  GATE_KEEP=1
+else
+  GATE="$(mktemp -d "${TMPDIR:-/tmp}/modelmux-gate.XXXXXXXX")"
+  GATE_KEEP="${GATE_KEEP:-0}"
+fi
+trap 'if [ "$GATE_KEEP" = "0" ]; then rm -rf "$GATE" 2>/dev/null || true; fi' EXIT INT TERM
 BASE_REF="${GATE_BASE:-origin/main}"
 
 # —— 定位「主工作树」——
@@ -88,6 +104,11 @@ if ! bash -lc "
   npm ci --no-fund --no-audit
   npm test
 "; then
+  # 失败时保留现场，便于排查（自动创建的临时目录缺省用完即删）
+  if [ "$GATE_KEEP" = "0" ]; then
+    GATE_KEEP=1
+    echo "[gate] 现场保留在 $GATE" >&2
+  fi
   echo "[gate] ✗ 测试未全绿 —— 与 CI 等价的门禁拦截（本地修完再推）" >&2
   exit 1
 fi
