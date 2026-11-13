@@ -443,6 +443,11 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
   `glm-5.3-flashx`、`glm-5.2`、`deepseek-v4.1-flash`、`DeepSeek-V4-Flash-Official`、
   `DeepSeek-V4-Pro-Official`、`kimi-k3`、`kimi-k2.7-code`、`Doubao-Seed-*`、`mimo-v2.6-*`、`step-5-preview`
   （现状：`glm-5.3-flash` 已被随包 `hidden` 行挡在对外池外，见「推荐模型」的暴露范围）
+- **deepseek-v4.1-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 1000000` /
+  倍率 x0.06；**最大输出上游不给**（`maxOutput: 0`，共享层兜底 65,536，见
+  [MODEL-CATALOG.md](../../MODEL-CATALOG.md) §6）。缓存：原始响应带
+  `cache_read_input_tokens` 等占位字段但恒为 0（判不映射），对话 usage 无缓存字段，
+  命中率显示 `—`（口径见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.2）。
 - 模型名大小写混排（`deepseek-v4.1-flash` 与 `DeepSeek-V4-Flash-Official` 并存）；
   池白名单在共享层做 case-insensitive 匹配
 - **倍率在 `features`**（JSON 字符串，须二次 parse）：顶层 `consumption_rate`

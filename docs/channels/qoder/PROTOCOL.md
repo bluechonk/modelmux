@@ -549,6 +549,11 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 **`gm51model` GLM-5.2**(1M,0.6，CN 独有)、`kmodel_latest`(1M,1.4)、`kmodel`(1M,0.8)、
 **`mmodel` MiniMax-M2.7**(200K,0.2，版本与国际版 M3.1-Flash 不同)
 
+**deepseek-v4.1-flash 供给现状（2026-11-14）**：目录刷新**无 deepseek 条目**（目录 key
+是别名形态，同 qodercn），池候选由注册表兜底映射维持，上下文窗口与最大输出取统一注册表
+对外值。缓存字段 `prompt_tokens_details.cached_tokens`（14 天日志仅 3/6 条带缓存字段，
+样本太少无全量命中率；见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+
 ### 5.2.1 上游字段全集与思考档位 [实测]
 
 缓存 `~/.modelmux/qoder/cache/models.json` 条目字段全集（14 条）：

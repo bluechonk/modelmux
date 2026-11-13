@@ -289,6 +289,12 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
   `name` / `user_type` / `id`（snake_case 与 camelCase 两种字段名都认），
   故两边的 `aliyun_user_type` 都取真实值（取不到才回落默认 `personal_professional_trial`）。
 
+**deepseek-v4.1-flash 供给现状（2026-11-14）**：目录刷新（`mx model qodercn --refresh`）
+**无 deepseek 条目**（目录 key 是 `qmodel` / `dmodel` 等别名形态），池候选由注册表兜底
+映射维持，上下文窗口与最大输出取统一注册表对外值。缓存字段
+`prompt_tokens_details.cached_tokens`，14 天全量加权命中率实测 **86.1%**
+（155/187 条；见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+
 ### 推荐模型
 
 | 模型（池 id） | 结论 | 等级 |

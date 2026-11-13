@@ -592,6 +592,11 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 **以上游为准**（这条渠道实际能吃多少以它自己为准），分歧记在本文 §5.4 与
 `packages/core/channels/loomy/src/catalog.ts`。
 
+**deepseek-v4.1-flash 缓存命中率**：usage 带 `prompt_tokens_details.cached_tokens`
+（形态② OpenAI），14 天全量加权命中率实测 **98.4%**（13224/13674 条带缓存字段）；
+窗口与输出上限见表（上游 `context_length` 1048576 / `max_output_tokens` 384000）。
+口径与公式见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1 / §6。
+
 数值与来源见 `packages/core/channels/loomy/models.json` 的 `maxOutput`（公开规格）；
 全局规格与渠道表的关系见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §4。
 

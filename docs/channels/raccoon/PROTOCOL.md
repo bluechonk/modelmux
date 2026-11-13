@@ -387,6 +387,11 @@ RACCOON_EFFORT_OFF = 'off'   → extra_body.thinking = { type: 'disabled' }
 `glm-5.3-flash` 只由 qodercn 供给，本渠道不进它的候选。隐藏集合由共享层 `hiddenModelIds()`
 并集读用户表与随包快照（读不到即抛错），目录数据照常保留。
 
+**deepseek-v4.1-flash 供给实测（2026-11-14）**：上游 id `sn-deepseek-v4-1-flash-1017`——
+上下文窗口 `1000000` / 最大输出 `100000` / 倍率 x0.25（`effectiveMultiplier` 同值）。
+缓存字段 `prompt_tokens_details.cached_tokens`（形态② OpenAI），14 天全量加权命中率
+实测 **86.0%**（707/814 条带缓存字段；口径见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md)）。
+
 ### 5.1 拉取
 
 ```

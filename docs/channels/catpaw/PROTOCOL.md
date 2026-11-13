@@ -471,6 +471,11 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
   没有图片传输路径（内容被拍平成纯文本）→ 本渠道不对外声明图片能力，
   `/v1/models` 报 `input_modalities: ["text"]`。见「图片能力」。
 - **家族 B 协议不实现**（IDE 侧 `/api/gpt/*`）：token 与家族 A 不通用，见「已知边界」。
+- **deepseek-v4.1-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 600000`
+  （供此模型各渠道中最低）、倍率 x0.06、effort 档位 `low/high/max`（默认 high）、
+  最大输出上游不给。缓存由渠道映射 `contextInfo.usage.cache_read_tokens` →
+  `prompt_tokens_details.cached_tokens` 透出（Anthropic 形态；口径见
+  [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.2）；全量命中率无记录。
 
 ### 推荐模型
 
