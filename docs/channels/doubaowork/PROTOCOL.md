@@ -136,8 +136,27 @@ Content-Type: application/json
   `person-glm-5-3-261111`、`person-glm-5-3-flash-261111`。
 - DeepSeek 模型是上游默认选中项：`default_select_mode_map`（creation / office 两模式）与
   `switch_memory_v2.default_select_model_by_mode_id.3` 都指向 `person-deepseek-v4-1-flash-261017`。
-- 实测（2026-11-14）整份 `brief_list` 响应无任何上下文窗口 / 输出上限 / 倍率字段——
-  协议形态是菜单，规格信息上游不下发；渠道目录的 `contextWindow` 只能落共享层兜底值。
+- **唯一的规格字段是 `model_extra_params.total_window_size`**（字符串形态的数字）：
+  内置模型（`9` / `seed-lite-7b` / `5`）为 `"256000"`，`person-*` 全系为 `"300000"`；
+  同一模型在不同菜单区块（`mode_list` / `model_list` / `use_mode_model_list`）出现多份，
+  部分位置该字段为 `null`。实测（2026-11-14）整份响应**无输出上限、无倍率、无窗口分档**
+  字段——渠道目录的 `contextWindow` 落 `total_window_size` 或共享层兜底值。
+- **响应结构**（实测 2026-11-14，81,629 字节）：顶层 `data{entry_list, expose_conf}` +
+  `code` / `msg` / `message`；`entry_list[]` 10 条动作栏入口（`coco_instruction` 图像 / 音乐 /
+  视频 / 播客 / PPT / 写作 / AI 表格，`coco_record` 录音转写，`coco_deep_thinking` 深度思考——
+  **模型菜单挂在这条**，`coco_call` 打电话）。
+- **`coco_deep_thinking` 条目的 `active_switch_conf`**：`default_status` / `switch_type` /
+  `switch_memory_strategy` / `menu_conf`（v1 菜单，结构同 v2 但无默认选择）/ `menu_conf_v2` /
+  `switch_memory_v2{default_select_model_by_mode_id.<mode_id>}`。
+- **`menu_conf_v2` 顶层键**：
+  `default_select_mode_map`（creation / office → `{mode_id, model{item_id, model_item_key},
+  reasoning_effort}`）、`mode_list` / `model_list`（各为 `{expose_config, item_list[]}`）、
+  `use_mode_model_list`。`item_list[]` 模型条目全键：`item_id`（数字）、`model_item_key`、
+  `name`、图标族（`icon` / `active_icon` / `dark_mode_icon` / `active_dark_mode_icon`，各
+  `{uri, url}`）、`agent_mode`、`conversation_mode_list`、`default_mode`、
+  `model_extra_params{total_window_size}`、`reasoning_effort_config{default_level,
+  option_list[{level, name}]}`、`show_task_tools`、`tag_list[{text, type}]`、
+  `need_login`、`subscribe_config`。
 - 上游没有独立 `/models` 端点；渠道目录以菜单快照为准。
 
 ## 5. 对话
