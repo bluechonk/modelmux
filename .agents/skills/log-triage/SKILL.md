@@ -64,7 +64,7 @@ mx log --list
 | 大 | 大 | — | 耗时在**上游建连** | 对照该渠道 PROTOCOL 的端点与握手流程 |
 | 正常 | 大或缺失 | 正常 | 耗时在**上游首帧** | 看请求规模（`requestBytes` / `systemChars` / `toolCount`）与该渠道的排队机制 |
 | 正常 | 正常 | 大 | 耗时在**流式输出 / 工具循环 / 客户端读取** | 看 `usage` 与 `toolCount` 判断是否为长 tool 循环 |
-| — | — | — | `error=upstream_timeout`：上游在空闲超时内无任何数据 | 该超时是**空闲**超时（每读一块即重置），持续出字的流不会被切断。默认 120s（`MODELMUX_READ_TIMEOUT_MS`）；qoder / qodercn 声明了 `idleTimeoutMs()`，实际放宽到 900s |
+| — | — | — | `error=upstream_timeout`：上游在空闲超时内无任何数据 | 该超时是**空闲**超时（每读一块即重置），持续出字的流不会被切断。默认 120s（`MODELMUX_READ_TIMEOUT_MS`）；声明 `idleTimeoutMs()` 的渠道各有自己的值（qoder / qodercn / qwenworkcn 900s、raccoon 180s） |
 
 **报告必须包含**：`id`、`model`、`cid`、`stream`、`status`、`outcome`、三个耗时、`usage`、`error`。
 字段缺失时注明「未采集」，**不要推断或编造**。
@@ -82,7 +82,7 @@ mx log --kind worker --lines 100
 | `start_timeout` | 启动窗口内未 ready | `mx restart`（默认 30 秒窗口） |
 | `worker_unhealthy` | worker 异常退出 | 看 `worker.log` 末 80 行，定位端口占用或未捕获异常 |
 | `worker_exited` | worker 退出，监督者将按退避重生 | 同上，并看 `delay_ms` 判断退避档位 |
-| `gateway.reachable=false` 且无 worker | 网关未运行 | `mx start --wait 30 --strict`（不加 `--strict` 时超时也返回 0）；仍失败则逐个渠道 `mx login <cid>`，排除渠道启动探测卡住 |
+| `gateway.reachable=false` 且无 worker | 网关未运行 | `mx start --wait 30`（启动失败**恒非零退出**；`--strict` 仅兼容保留，默认即严格）；仍失败则逐个渠道 `mx login <cid>`，排除渠道启动探测卡住 |
 | `gateway.occupied_by` 非空 | 端口被其它进程占用 | 不直接杀未知进程；先确认进程归属 |
 
 ## 4. 失败码速查
@@ -94,7 +94,11 @@ mx log --kind worker --lines 100
 | `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断 | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
 | `upstream_timeout` | 上游空闲超时 | 见 §2 第 4 行 |
 | `upstream_queued` | 上游排队，网关已换过所有候选 | 排队即换渠道、不等待；全部候选都排队才回 503。给渠道加供给或换模型 |
-| `quota_exhausted` | 账号额度耗尽 | 账号进入**冷却**（`cooldown_until`，不是标 `error`），到期自动恢复；可等窗口刷新、`mx acct <cid> use <key>` 换号，或 `mx model usage` 看冷却状态 |
+| `insufficient_quota` | 账号额度耗尽 | 账号进入**冷却**（`cooldown_until`，不是标 `error`），到期自动恢复；可等窗口刷新、`mx acct <cid> use <key>` 换号，或 `mx model usage` 看冷却状态 |
+| `upstream_insufficient_quota` | 免费（×0）模型撞到余额类信号 | 不冷却账号（免费模型不吃额度），网关原样回 402；换模型或换渠道 |
+| `upstream_rate_limited` | 上游限流（渠道级短冷却） | 网关把该渠道冷却几十秒，让请求先落别家；等一会儿自然恢复 |
+| `unsupported_input` | 本渠道承载不了这类输入（上下文超限、缺必填字段等） | 网关换下一条候选（不计连败）；所有候选都不行才回 400 |
+| `client_disconnected` | 客户端主动断连 | 网关按已完成处理，不计失败 |
 | `invalid_request` | 请求体或上下文问题 | 对照渠道 `buildChatBody` 的约束 |
 | `internal_error` | 网关自身异常 | 在 `gateway.log` / `worker.log` 搜 `request handler error`；记录可复现的请求 |
 
