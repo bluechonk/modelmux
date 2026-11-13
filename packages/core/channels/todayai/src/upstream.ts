@@ -19,6 +19,7 @@ import {
   login as sharedLogin,
   upstreamPath,
   writeJsonFile,
+  type QuotaSignal,
   type StreamTranslator,
 } from "@modelmux/gateway";
 
@@ -47,8 +48,10 @@ export class UpstreamUnauthorized extends Error {
 const SEND_PATH = "/v1/messages";
 /** 历史页（轮询回答；主对话固定 `conversationId=main`）。 */
 const HISTORY_PATH = "/v1/conversations/messages";
-/** 模型选项（账号级）。 */
+/** 模型选项与用量（账号级）。 */
 const PRICING_PATH = "/v1/pricing/status";
+/** 自助重置（列出可用次数 / 消耗一次）。 */
+const PRICING_RESETS_PATH = "/v1/pricing/resets";
 /** 能力协商（主对话等）。 */
 const CONFIG_PATH = "/v1/config";
 
@@ -358,6 +361,8 @@ export async function prepareChat(body: Record<string, unknown>): Promise<void> 
   if (!slot) throw new Error("todayai: 请求槽缺失（buildChatBody 未先执行）");
   const credential = cred.load();
   await refreshIfExpired(credential);
+  // 额度打满时先消耗一次自助重置，避免本轮请求被上游直接拒（见 resetQuotaIfExhausted）
+  await resetQuotaIfExhausted(credential);
   const conversationId = await sendMessage(credential, slot.text, slot.clientMessageId);
   const reply = await pollReply(credential, slot.clientMessageId, conversationId);
   slot.frames = buildFrames(slot, messageTextOf(reply));
@@ -405,20 +410,39 @@ interface PricingStatus {
   availableOptions: PricingOption[];
 }
 
+/**
+ * 解析 /v1/pricing/status 的模型选项。
+ *
+ * 字段形态**两种都认**：
+ * - 现行（实测 2026-11-13）：`data.status.modelOptions.options[].{id,display.title}`；
+ * - 旧形态：`modelOptions.availableOptions[].{optionId,displayName,modelId}`。
+ * 只读前者会让目录恒空（`options` 才是上游真实字段，`availableOptions` 恒缺）。
+ */
 function parsePricing(body: string): PricingStatus | null {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const data = (parsed["data"] ?? parsed) as Record<string, unknown>;
     const status = (data["status"] ?? data) as Record<string, unknown>;
     const options = (status["modelOptions"] ?? {}) as Record<string, unknown>;
-    const available = (options["availableOptions"] ?? []) as Array<Record<string, unknown>>;
+    const current = Array.isArray(options["options"]) ? (options["options"] as Array<Record<string, unknown>>) : [];
+    const legacy = Array.isArray(options["availableOptions"]) ? (options["availableOptions"] as Array<Record<string, unknown>>) : [];
+    const rows = current.length > 0 ? current : legacy;
     return {
       selectedOptionId: typeof options["selectedOptionId"] === "string" ? options["selectedOptionId"] : "",
-      availableOptions: available.map((o) => ({
-        optionId: typeof o["optionId"] === "string" ? o["optionId"] : "",
-        displayName: typeof o["displayName"] === "string" ? o["displayName"] : "",
-        modelId: typeof o["modelId"] === "string" ? o["modelId"] : "",
-      })),
+      availableOptions: rows.map((o) => {
+        const display = (o["display"] ?? {}) as Record<string, unknown>;
+        return {
+          optionId:
+            typeof o["id"] === "string" ? o["id"] : typeof o["optionId"] === "string" ? o["optionId"] : "",
+          displayName:
+            typeof display["title"] === "string"
+              ? display["title"]
+              : typeof o["displayName"] === "string"
+                ? o["displayName"]
+                : "",
+          modelId: typeof o["modelId"] === "string" ? o["modelId"] : "",
+        };
+      }),
     };
   } catch {
     return null;
@@ -451,6 +475,159 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 /** 模型选项 id → 池模型名（`model.deepseek-v4.1-flash` → `deepseek-v4.1-flash`）。 */
 export function optionIdToModel(optionId: string): string {
   return optionId.replace(/^model\./, "");
+}
+
+// ── 用量与自助重置 ──────────────────────────────────────────────────────────
+
+/** 账号用量（`/v1/pricing/status` 的 `data.status.usage`）。 */
+export interface AccountUsage {
+  /** 已用百分比（0-100，上游口径）。 */
+  progress: number;
+  /** 周期刷新时刻（epoch ms）；上游没给为 null。 */
+  resetAt: number | null;
+  /** 周期（monthly / weekly）。 */
+  period: string | null;
+}
+
+/** 自助重置条目（`/v1/pricing/resets` 的 `data.items[]`）。 */
+export interface ResetItem {
+  resetId: string;
+  expiresAt: number | null;
+}
+
+/** 解析 `data.status.usage`（字段缺失按「没给」处理，不编造）。 */
+function parseUsage(status: Record<string, unknown>): AccountUsage {
+  const usage = (status["usage"] ?? {}) as Record<string, unknown>;
+  const progress = typeof usage["progress"] === "number" ? usage["progress"] : 0;
+  const raw = usage["resetAt"];
+  return {
+    progress,
+    resetAt: typeof raw === "string" && Number.isFinite(Date.parse(raw)) ? Date.parse(raw) : null,
+    period: typeof usage["period"] === "string" ? usage["period"] : null,
+  };
+}
+
+/** 读账号用量（`GET /v1/pricing/status`）。 */
+export async function fetchUsage(credential: Credentials): Promise<AccountUsage> {
+  const res = await fetchWithTimeout(modelsUrl(), { method: "GET", headers: buildHeaders(credential) }, HTTP_TIMEOUT_MS);
+  if (res.status === 401 || res.status === 403) throw new UpstreamUnauthorized(`pricing failed: HTTP ${res.status}`);
+  if (res.status !== 200) throw new Error(`取用量失败（HTTP ${res.status}）：${(await res.text()).slice(0, 200)}`);
+  const parsed = JSON.parse(await res.text()) as Record<string, unknown>;
+  const data = (parsed["data"] ?? parsed) as Record<string, unknown>;
+  const status = (data["status"] ?? data) as Record<string, unknown>;
+  return parseUsage(status);
+}
+
+/** 读可用重置（`GET /v1/pricing/resets`；`totalCount` 是上游口径的次数）。 */
+export async function fetchResets(credential: Credentials): Promise<{ items: ResetItem[]; totalCount: number }> {
+  const res = await fetchWithTimeout(
+    `${DEFAULT_BASE_URL}${PRICING_RESETS_PATH}`,
+    { method: "GET", headers: buildHeaders(credential) },
+    HTTP_TIMEOUT_MS,
+  );
+  if (res.status === 401 || res.status === 403) throw new UpstreamUnauthorized(`pricing failed: HTTP ${res.status}`);
+  if (res.status !== 200) throw new Error(`取重置列表失败（HTTP ${res.status}）：${(await res.text()).slice(0, 200)}`);
+  const parsed = JSON.parse(await res.text()) as Record<string, unknown>;
+  const data = (parsed["data"] ?? parsed) as Record<string, unknown>;
+  const rows = Array.isArray(data["items"]) ? (data["items"] as Array<Record<string, unknown>>) : [];
+  const items: ResetItem[] = [];
+  for (const row of rows) {
+    const resetId = typeof row["resetId"] === "string" ? row["resetId"].trim() : "";
+    if (!resetId) continue;
+    const raw = row["expiresAt"];
+    items.push({
+      resetId,
+      expiresAt: typeof raw === "string" && Number.isFinite(Date.parse(raw)) ? Date.parse(raw) : null,
+    });
+  }
+  const totalCount = typeof data["totalCount"] === "number" ? data["totalCount"] : items.length;
+  return { items, totalCount };
+}
+
+/** 消耗一次重置（`POST /v1/pricing/resets`，body `{resetId}`，把用量清零）。 */
+export async function consumeReset(
+  credential: Credentials,
+  resetId: string,
+): Promise<{ operationId: string; resetAt: number | null; availableCountAfter: number }> {
+  const res = await fetchWithTimeout(
+    `${DEFAULT_BASE_URL}${PRICING_RESETS_PATH}`,
+    {
+      method: "POST",
+      headers: { ...buildHeaders(credential), "Content-Type": "application/json" },
+      body: JSON.stringify({ resetId }),
+    },
+    HTTP_TIMEOUT_MS,
+  );
+  const text = await res.text();
+  if (res.status === 401 || res.status === 403) throw new UpstreamUnauthorized(`pricing failed: HTTP ${res.status}`);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`重置响应无法解析（HTTP ${res.status}）`);
+  }
+  if (res.status !== 200 || parsed["success"] === false) {
+    const code = typeof parsed["code"] === "string" ? parsed["code"] : "";
+    throw new Error(`重置额度失败（HTTP ${res.status}${code === "" ? "" : ` ${code}`}）：${String(parsed["message"] ?? "").slice(0, 200)}`);
+  }
+  const receipt = ((parsed["data"] as Record<string, unknown> | undefined)?.["receipt"] ?? {}) as Record<string, unknown>;
+  const raw = receipt["resetAt"];
+  return {
+    operationId: typeof receipt["operationId"] === "string" ? receipt["operationId"] : "",
+    resetAt: typeof raw === "string" && Number.isFinite(Date.parse(raw)) ? Date.parse(raw) : null,
+    availableCountAfter: typeof receipt["availableCountAfter"] === "number" ? receipt["availableCountAfter"] : 0,
+  };
+}
+
+/** 上次用量读取结果（避免每个请求都打一次 pricing/status）。 */
+let usageCache: { at: number; usage: AccountUsage } | null = null;
+
+/** 用量缓存时长：额度只随本渠道的请求变化，30s 足够跟住。 */
+const USAGE_TTL_MS = 30_000;
+
+/**
+ * 额度耗尽时消耗一次自助重置把用量清零（`UpstreamModule` 在请求前置里调用）。
+ *
+ * 为什么要主动做：本渠道额度是**按月计量的百分比**，打满后上游直接拒；而上游提供
+ * 「自助重置次数」（邀请好友获得），消耗一次即可清零继续用。等上游拒绝再重置会让
+ * 本轮请求直接失败，所以在发消息前先把额度续上。
+ *
+ * @returns 真的重置成功 true；未耗尽 / 无可用重置 / 读取失败 false（交上游拒绝后走原冷却逻辑）。
+ */
+export async function resetQuotaIfExhausted(credential: Credentials): Promise<boolean> {
+  try {
+    let usage = usageCache;
+    if (usage === null || Date.now() - usage.at > USAGE_TTL_MS) {
+      usage = { at: Date.now(), usage: await fetchUsage(credential) };
+      usageCache = usage;
+    }
+    if (usage.usage.progress < 100) return false;
+    const { items } = await fetchResets(credential);
+    const next = items.find((i) => i.expiresAt === null || i.expiresAt > Date.now());
+    if (next === undefined) return false;
+    await consumeReset(credential, next.resetId);
+    usageCache = null;
+    return true;
+  } catch (err) {
+    // 凭据失效要往上抛（共享层据此刷新后重跑前置）；其余失败不阻塞请求 ——
+    // 让上游按原逻辑处理，额度耗尽会走冷却。
+    if (err instanceof UpstreamUnauthorized) throw err;
+    return false;
+  }
+}
+
+/**
+ * 声明本渠道的额度信号（`UpstreamModule.quotaSignal`）。
+ *
+ * 主动重置失败（无可用次数）后上游才会拒；命中即按**账户级用量限额**冷却。
+ * 业务措辞属渠道知识（共享层只认通用措辞，见 `gateway/src/http/chat/errors.ts`）。
+ */
+export function quotaSignal(_status: number, body: string): QuotaSignal | null {
+  return /quota_denied|usage_locked|quota[_\- ]?(exhausted|exceeded|denied|limit)|insufficient_quota|额度(不足|已用完|耗尽)|配额不足/i.test(
+    body ?? "",
+  )
+    ? "usage_limit"
+    : null;
 }
 
 // ── 任务接口（agent 长任务；实测与字段见 PROTOCOL.md §10.7）──────────────────

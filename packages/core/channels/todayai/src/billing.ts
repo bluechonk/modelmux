@@ -1,35 +1,24 @@
 /**
- * Today 额度与「签到」：套餐状态查询 + rapport 规则上报。
+ * Today 额度与「签到」：套餐用量查询 + rapport 规则上报。
  *
  * 关键约束（端点/字段/实测见 docs/channels/todayai/PROTOCOL.md）：
- *   - Today 是**订阅制**：没有「余额/额度」数字（免费版发消息直接
- *     `429 {"error":"quota_denied"}`），故 `capabilities.billing = false`，
- *     控制台额度位显示 `-`；`fetchCredits` 只回报套餐名，不给假数字。
- *   - 「签到」= rapport 规则上报：上游规则卡的 `scoreTrigger` 全是
- *     `server_event`（积分由服务端事件累计），客户端**点不动**；只有两条
- *     可申报动作（`notification-enabled` / `discord-joined`），均**幂等一次性**。
- *     做法与参考实现一致：读快照 → 上报两条 → 复读 → 用积分差当结果。
+ *   - 订阅制按月计量，上游只给已用百分比（`usage.progress`）—— `size` 固定 100（`%`）。
+ *   - 额度打满由 `upstream.resetQuotaIfExhausted()` 在请求前置里自助重置，本模块只读。
+ *   - 「签到」= rapport 规则上报（两条幂等动作），积分由服务端事件累计。
  */
 
 import { login as sharedLogin } from "@modelmux/gateway";
 const { fetchWithTimeout } = sharedLogin;
 
 import * as cred from "./cred.js";
+import * as upstream from "./upstream.js";
 import type { Credentials } from "./cred.js";
 
 const HTTP_TIMEOUT_MS = 30_000;
 
-/** 额度查询失败（本渠道无额度概念，仅在显式调用时抛）。 */
+/** 额度查询失败（仅在显式调用时抛）。 */
 export class CreditsError extends Error {
   override name = "CreditsError";
-}
-
-/** 套餐状态（`/v1/pricing/status` 的 `data.status`）。 */
-interface PricingStatus {
-  plan: string;
-  subscriptionState: string;
-  serviceState: string;
-  display: { title: string; subtitle: string };
 }
 
 /** rapport 快照（`/v1/rapport` 的 `data.rapport`）。 */
@@ -66,38 +55,39 @@ async function getJson(url: string, credential: Credentials): Promise<Record<str
   return parseEnvelope(await resp.text());
 }
 
-/** 读套餐状态。 */
-export async function fetchPricing(credential: Credentials): Promise<PricingStatus> {
-  const data = dataOf(await getJson(`${cred.API_HOST}/v1/pricing/status`, credential));
-  const status = (data["status"] ?? data) as Record<string, unknown>;
-  const display =
-    status["display"] && typeof status["display"] === "object"
-      ? (status["display"] as Record<string, unknown>)
-      : {};
-  return {
-    plan: typeof status["plan"] === "string" ? status["plan"] : "",
-    subscriptionState: typeof status["subscriptionState"] === "string" ? status["subscriptionState"] : "",
-    serviceState: typeof status["serviceState"] === "string" ? status["serviceState"] : "",
-    display: {
-      title: typeof display["title"] === "string" ? display["title"] : "",
-      subtitle: typeof display["subtitle"] === "string" ? display["subtitle"] : "",
-    },
-  };
+/** 凭据被上游拒绝（`cred` 与 `upstream` 两个模块各自抛的类型都算）。 */
+function isAuthFailure(err: unknown): boolean {
+  return err instanceof cred.NotLoggedInError || err instanceof upstream.UpstreamUnauthorized;
 }
 
-/** 查额度：本渠道无额度概念（订阅制），返回套餐名而不编造数字。 */
-export async function fetchCredits(): Promise<{
+/**
+ * 查额度：上游只给已用百分比，`size` 固定 100（单位 `%`），不给绝对总量。
+ *
+ * 契约口径：`refreshOn401` 为真且凭据被拒时 `cred.refresh()` 续期后重试一次；
+ * 传入 `credential` 的调用方必须先套 `accounts.runForAccountCredential`。
+ */
+export async function fetchCredits(options: { refreshOn401?: boolean; credential?: Credentials } = {}): Promise<{
   ok: true;
   total: { remain: number; size: number; used: number; unit: string; remain_percent: number };
   packages: Array<Record<string, unknown>>;
 }> {
-  const credential = cred.load();
-  const pricing = await fetchPricing(credential);
-  const plan = pricing.display.title || pricing.plan || "未知套餐";
+  const { refreshOn401 = true } = options;
+  let credential = options.credential ?? cred.load();
+  const loadUsage = async (): Promise<upstream.AccountUsage> => {
+    try {
+      return await upstream.fetchUsage(credential);
+    } catch (err) {
+      if (!isAuthFailure(err) || !refreshOn401) throw err;
+      credential = await cred.refresh(credential);
+      return await upstream.fetchUsage(credential);
+    }
+  };
+  const usage = await loadUsage();
+  const used = usage.progress;
+  const remain = Math.max(0, 100 - used);
   return {
     ok: true,
-    // 订阅制没有「剩余额度」：全 0 + 单位写套餐名（控制台对 billing:false 的渠道显示 `-`，不读这组数）
-    total: { remain: 0, size: 0, used: 0, unit: plan, remain_percent: 0 },
+    total: { remain, size: 100, used, unit: "%", remain_percent: remain },
     packages: [],
   };
 }

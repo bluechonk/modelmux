@@ -1179,19 +1179,26 @@ export function isAuthFailure(status: number, body: string): boolean {
 // ── 模型目录 ──────────────────────────────────────────────────────────────────
 
 /**
- * 远程 model 配置（`data.models[]`，含 contextWindow / maxTokens / reasoning）。
+ * 远程 model 配置（`models[]`，含 contextWindow / maxTokens / reasoning）。
  *
  * 这是全球区共用的路由模型表 —— 本渠道的 relay 经 x-openclaw-model 头打同样的
  * 后端模型（cn relay 实测 zai / zaicoding / tdpsk 各路由全通），故目录以它为准。
+ *
+ * 响应形态**两种都认**：上游现在回裸 `{models:[…]}`，也曾有 `{code,msg,data:{models}}`
+ * 信封 —— 走 `userapiRaw` 取整包，再按有无 `data.models` 落位，避免因信封有无而目录恒空。
  */
 export async function fetchModels(credential: Credential): Promise<Record<string, unknown>> {
   try {
-    const data = await cred.userapiData<unknown>(modelsUrl().slice(cred.USERAPI_BASE.length), {
+    const payload = await cred.userapiRaw<unknown>(modelsUrl().slice(cred.USERAPI_BASE.length), {
       token: credential.accessToken,
     });
-    const models = data && typeof data === "object" && Array.isArray((data as { models?: unknown }).models)
-      ? (data as { models: unknown[] }).models
-      : [];
+    const holder = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+    const envelopeData = holder["data"];
+    const container =
+      envelopeData && typeof envelopeData === "object" && !Array.isArray(envelopeData)
+        ? (envelopeData as Record<string, unknown>)
+        : holder;
+    const models = Array.isArray(container["models"]) ? (container["models"] as unknown[]) : [];
     return { models };
   } catch (err) {
     if (err instanceof cred.NotLoggedInError) throw new UpstreamUnauthorized(String(err.message ?? err));

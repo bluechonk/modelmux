@@ -25,11 +25,12 @@ export const config: ChannelConfig = {
   /**
    * 能力位。
    *
-   * - **额度**：订阅制，没有余额/额度数字（免费版发消息直接 `429 quota_denied`），
-   *   声明 false 让控制台显示 `-`，不编造数字。
+   * - **额度**：订阅制按月计量，上游只给已用百分比（`usage.progress`），
+   *   故 `billing.fetchCredits` 的 `size` 固定 100（单位 `%`）；额度打满由
+   *   `upstream.resetQuotaIfExhausted()` 在请求前置里自助重置。
    * - **签到**：有 rapport 规则上报链路（两条幂等动作），见 billing.ts。
    */
-  capabilities: { billing: false, signin: true },
+  capabilities: { billing: true, signin: true },
 };
 
 export const channel: Channel = { config, cred, upstream, catalog, billing };

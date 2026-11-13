@@ -28,7 +28,7 @@
 | qodercn | Qoder 国内版 | 是 | 是 | 在册 |
 | qwenworkcn | 千问办公（QwenWorkCN） | 是 | 否 | 在册（上游无签到接口，日额度自动发放） |
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
-| todayai | Today 国内版（todayai.cn） | 否（订阅制，无额度数字） | 是（rapport 规则上报） | 在册 |
+| todayai | Today 国内版（todayai.cn） | 是（按月计量的百分比，无绝对总量） | 是（rapport 规则上报） | 在册 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
 | astudio | AStudio（讯飞桌面 Agent） | 是（免费档，额度口径为积分） | 是 | 在册 |
@@ -120,3 +120,11 @@ node packages/cli/dist/cli.js restart          # 改了 core/cli/ui 必须重启
   模型清单 / `GET /v1/models` 的 meta）；无声明时控制台显示「不支持」，共享层兜底**不编造**档位。
 - 共享层**不解释渠道字段**，只按约定键名归一；渠道自己的字段名映射在渠道包内。
 - 窗口/输出上限等规格以 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的统一模型注册表为唯一事实源。
+- **Agent 工具长任务的可承载渠道不等同于模型供给渠道**。供给只说明该渠道有该模型的上游 id，
+  不代表它支持 `tools`：todayai 是纯文本对话渠道（工具调用恒为 0），codebuddycn 的带工具大请求
+  会被上游风控拦截（`code 11128`）。判据与实测见
+  [channels/todayai/PROTOCOL.md](./channels/todayai/PROTOCOL.md) §8 与
+  [channels/codebuddycn/PROTOCOL.md](./channels/codebuddycn/PROTOCOL.md) §7.3。
+- 用户侧注册表 `~/.modelmux/models.json` 在首启浇种后**不再自动更新**：随包注册表改了渠道映射
+  （如 todayai 的 `glm-5.3-flash` → `model.glm-5.3-flash`）不会传播到已装机器的用户侧文件。
+  运行网关读哪份取决于用户侧文件是否通过校验，见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)。
