@@ -250,6 +250,10 @@ agent-browser --proxy "http://127.0.0.1:8899" --args "--ignore-certificate-error
 - 额度：活动赠送额度 `3391 / 3900`。
 - 对话：`person-deepseek-v4-1-flash-261017` 返回 `OK`，OpenAI 帧正常收尾。
 - 已知边界：网页端模型名与桌面端不完全一致；工作任务模式若需要本地工具执行，网关只转发文本，不模拟客户端工具运行时。
+- **无 usage / token 计数**：`/chat/completion` 的事件流只回内容块与会话状态，既没有缓存命中字段、
+  也没有 prompt / completion token 计数（2026-11-13 真机核验：流式与非流式都跑通，但访问日志恒为
+  `tokens=null`）。该渠道在仪表盘 / 日志页的 token 统计里是**无数据**而不是 0；
+  缓存命中率按 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §6 统一显示 `—`。
 
 零浏览器、零客户端的纯 HTTP 闭环（同一批实测）：
 
