@@ -279,10 +279,13 @@ git config --get core.hooksPath         # 应为 .githooks
 
 1. `type` 额外允许 `merge`，专供合并提交。
 2. 校验器 `scripts/verify-commits.mjs` 已接入 `npm test`。
-3. **禁止协作者尾注**：提交与 PR 描述**不得携带 `Co-Authored-By`（任何大小写变体）**。
+3. **禁止署名类尾注**：提交、PR 描述与 **PR 里的每一条提交**都**不得携带**
+   `Co-Authored-By` / `Co-Developed-By` / `Generated-With` 一类尾注（任何大小写与连字变体）。
    GitHub 会按尾注邮箱把「协作者」记进仓库贡献者列表，AI 助手（claude / codex / zcode 等）
-   由此上榜。agent 的参与由 git 的 author/committer 与 PR 关联体现，不进消息正文；
-   校验器对一切携带尾注的提交与 PR 描述直接报错。
+   由此上榜；PR 页面上的每条提交即使 squash 后也永久保留尾注，只查 PR 描述会漏
+   （PR #349 事故）。agent 的参与由 git 的 author/committer 与 PR 关联体现，不进消息正文。
+   CI 的 `pull_request` 按 `PR_BASE..PR_HEAD` 逐条扫 PR 内全部提交，端点解析不到或
+   范围为空同样报错退出（浅 fetch 造成的空范围是假绿）；校验器对一切违规直接拦。
 4. **合并方式**：
    - PR 统一用 squash 合并：`gh pr merge <n> --squash`（与全局规则一致）。
    - **禁止 merge commit**：仓库已关闭 merge commit；`verify:topology` 会拦截 tree 与任一父提交
