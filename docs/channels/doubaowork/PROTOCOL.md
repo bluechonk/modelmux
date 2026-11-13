@@ -245,7 +245,7 @@ agent-browser --proxy "http://127.0.0.1:8899" --args "--ignore-certificate-error
 
 ### 2026-11-12 端到端实测
 
-- 手机号 `131****9411` 完成真实短信登录，账号 `bluechonk` / uid `1001000343446896`。
+- 完成真实短信登录（账号名 / uid / 手机号均已脱敏，不写真实值）。
 - 纯 HTTP 携带 cookie 调账号信息成功。
 - 额度：活动赠送额度 `3391 / 3900`。
 - 对话：`person-deepseek-v4-1-flash-261017` 返回 `OK`，OpenAI 帧正常收尾。

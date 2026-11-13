@@ -194,7 +194,7 @@ cookie:        credentials: "include"（会话 cookie 随请求带）
 ```js
 const ot = "/v3/marvis_scheduled_task_aigc";
 const Kt = "/v3/marvis_scheduled_task_template";
-const et = { bid: "marvis_client", accessKey: "fpzkeTlcGLVP37qiOWd29MyaOqaJYxMi", needLogin: true };
+const et = { bid: "marvis_client", accessKey: "<accessKey>", needLogin: true };
 ```
 
 ## 8. 会话与分享
@@ -251,7 +251,7 @@ GET https://static.marvis.qq.com/wupload/<id>.png
 async function marvisApi(path, body, { needLogin = true } = {}) {
   const ts = String(Date.now());
   const nonce = String(~~(Math.random() * 1e4));
-  const accessKey = "fpzkeTlcGLVP37qiOWd29MyaOqaJYxMi";
+  const accessKey = "<accessKey>";   // 从客户端 bundle 提取
   const payload = JSON.stringify(body);
   const sig = md5(`${payload}${ts}${accessKey}${nonce}`);   // 关键：MD5
 

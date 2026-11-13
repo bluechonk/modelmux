@@ -231,7 +231,6 @@ const label = account.label?.trim() ?? "";
 `packages/ui/src/components/AccountCard.tsx:151` 注释明写「页面上不出现任何完整账号 id / 昵称 / 邮箱」，
 但 `name` 分支**不做任何脱敏**（脱敏只在 label 回落路径）。
 真实数据下 AStudio 账号会以**明文 11 位手机号**显示。
-`packages/ui/src/lib/demo.ts:74` 的示例（`label:"138****8000", name:""`）与真实链路也不一致。
 
 ### 附带缺失
 
@@ -253,7 +252,6 @@ const label = account.label?.trim() ?? "";
    —— 顺带解决「会话文件没有 nickname 键」的问题。
 4. **补 `domain` / `accessToken`** 字段，让 `accountKey` 与其它渠道一致。
 5. **`banned` 上报**：封禁状态该在账号池页可见（上游 `tenant-app/v2/init-app` 返回 `banned`）。
-6. **对齐 demo 数据**：`demo.ts` 的 astudio 账号按真实链路的形态更新。
 
 ### 验收判据
 
@@ -585,7 +583,6 @@ claim()  → ① POST /tenant-app/v2/init-app（发奖动作）
   `:440-442` 渲染）
 - `packages/ui/src/pages/Dashboard.tsx` 的 `modelRows`（模型清单：模型名 / 平均 TPS / 输入模态）
 - `packages/ui/src/components/LoginModal.tsx`（`:58,130-150` 授权链接渲染）
-- `packages/ui/src/lib/demo.ts`（`:44-92` 演示渠道/模型/账号）
 - `packages/ui/src/lib/types.ts`（`:63-81` `ModelInfo` 类型，即 `UiSnapshot.models[].meta`）
 
 **逆向记录**

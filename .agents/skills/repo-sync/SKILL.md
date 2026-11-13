@@ -142,10 +142,8 @@ gh pr checks <n>
   在工作树上跑绿不代表 CI 会绿。`pre-push` 会对**所有推送**全量再跑一次 `npm test`，
   它是兜底拦截，不是提前发现，也不按文件范围分流。
 - **改了 `.github/workflows/**` 必须本地先跑通再推**：workflow 的失败模式通常只有真跑
-  产物才暴露。演示站点的 `demo-pages.yml` 要本地验三件事：`DEMO=1 DEMO_BASE=/<repo>/`
-  构建后资源引用带前缀、`index.html` 复制成 `404.html` 后深链能渲染、Pages 源为
-  `build_type: workflow`。workflow 改动仍以 `npm run gate` 为准；
-  本机没有 `act`，不要假设能用 act 复现。
+  产物才暴露。workflow 改动仍以 `npm run gate` 为准；本机没有 `act`，
+  不要假设能用 act 复现。
 - 合并统一用 **`gh pr merge <n> --squash`**（与全局规则一致；保持线性历史，禁止 merge commit）。
   squash 后 **PR 标题就是 main 上那条 commit 的标题**，所以开 PR 时标题必须
   `type(scope): 中文描述`（全局红线）；分支内的多条提交会被压缩成一条。

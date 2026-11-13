@@ -45,8 +45,6 @@ npm run desktop      # 可选：打成 Windows 安装版 exe
 `mx web` 起本地控制台（`http://127.0.0.1:4412/web/`）：仪表盘 `/`、账号池 `/accounts`、
 请求日志 `/logs`；对外模型清单与「一键接入」（zcode / dsh）在仪表盘上。
 
-**在线演示（虚构数据，不用起网关）：<https://bluechonk.github.io/modelmux/>**
-
 页面结构与交互铁律见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)，用量口径见
 [docs/USAGE-STATS.md](docs/USAGE-STATS.md)。
 
