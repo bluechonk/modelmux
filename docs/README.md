@@ -69,6 +69,7 @@
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | [PROTOCOL](./channels/codebuddycn/PROTOCOL.md)（OAuth 授权页 + 轮询；对话体 gzip；官方 CLI 头族） |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
+| `doubaowork` | 豆包工作（`www.doubao.com`） | [PROTOCOL](./channels/doubaowork/PROTOCOL.md)（手机号 + 短信验证码登录；SSE 对话必须带设备号；窗口限额 + 活动赠送额度） |
 | `todayai` | Today 国内版（`todayai.cn`） | [PROTOCOL](./channels/todayai/PROTOCOL.md)（手机号 + 短信验证码登录；canonical-v1 会话协议，无流式；订阅制无额度） |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
@@ -102,6 +103,7 @@
 | `.agents/skills/mx-cli/SKILL.md` | `mx` 命令用法：动词/渠道顺序、常用工作流与坑 |
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 | `.agents/skills/claude-mx-test/SKILL.md` | 端到端测试：Claude Code 经 `/v1/messages`（Anthropic Messages）直连网关，tool_use ↔ tool_calls 双向映射与 tool_result 回灌矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
+| `.agents/skills/doubaowork-reverse/SKILL.md` | 豆包工作纯 HTTP 接入：请求体 XOR 0x05 混淆、最小参数集、mitmproxy 抓真实请求、排查清单 |
 | `.agents/skills/codex-mx-test/SKILL.md` | 端到端测试：Codex CLI 经 `/v1/responses`（OpenAI Responses）直连网关，function_call ↔ tool_calls 双向映射矩阵；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
