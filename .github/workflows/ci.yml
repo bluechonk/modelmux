@@ -22,12 +22,15 @@ concurrency:
   cancel-in-progress: true
 
 # push 事件里 verify:commits 用「上一次 main 的 SHA..本次 SHA」校验被推送的提交；
-# pull_request 事件该值为空，脚本会回落到 origin/main..HEAD。
+# pull_request 事件用 PR_BASE..PR_HEAD **逐条扫 PR 内的全部提交**——squash 只在 main 留
+# 标题+描述，但 PR 页面每条提交都永久保留并映射协作者，只查描述会漏（PR #349 事故）。
 #
 # PR_TITLE / PR_BODY：squash 会把 PR 描述并入 main 上的 commit body，但那只在合并后
 # 发生 —— 不在这里提前校验，就无法在合并前发现 emoji / 对话式内容（PR #349 事故）。
 env:
   GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+  PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PR_HEAD: ${{ github.event.pull_request.head.sha }}
   PR_TITLE: ${{ github.event.pull_request.title }}
   PR_BODY: ${{ github.event.pull_request.body }}
 
