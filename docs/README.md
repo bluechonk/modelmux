@@ -97,6 +97,7 @@
 | `AGENTS.md`（**仓库根**） | 仓库级规则（工具从根读，不能搬） |
 | `packages/core/channels/catpaw/AGENTS.md` | 该目录的 agent 级指令（工具从目录读取，不能搬） |
 | `.agents/skills/repo-sync/SKILL.md` | 收尾流程：`docs/` 同步、commit / PR / CI / merge |
+| `.agents/skills/dev-flow/SKILL.md` | 探索式开发的收口：dev 分支 wip 存档，定期按主题 cherry-pick 拆成主题分支、重写提交信息后按序 PR |
 | `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
