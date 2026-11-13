@@ -131,6 +131,8 @@ describe("仓库级模型池", () => {
       doubaowork: ["deepseek-v4.1-flash", "glm-5.3-flash"],
       // astudio 不供家族型号
       astudio: [],
+      // marvis 自身不提供模型（模型来自用户自配的第三方 provider），不供家族型号
+      marvis: [],
     };
     for (const cid of ACTIVE_CIDS) {
       const expected = (OVERRIDES[cid] ?? ["deepseek-v4.1-flash"]).slice().sort();

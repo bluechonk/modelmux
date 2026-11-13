@@ -19,6 +19,7 @@ import "@modelmux/codearts";
 import "@modelmux/doubaowork";
 import "@modelmux/lobsterai";
 import "@modelmux/loomy";
+import "@modelmux/marvis";
 import "@modelmux/qoder";
 import "@modelmux/qodercn";
 import "@modelmux/qwenworkcn";
