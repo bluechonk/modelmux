@@ -441,7 +441,7 @@ export function AccountCard({
         展开态**恒一列**（一行一个账号竖向排开）：两列会把每行压成半宽、账号名与进度条
         互相挤，读序也变成「左右左右」。
       */}
-      <ul className="grid border-t border-line">
+      <ul className="grid gap-y-1 border-t border-line">
         {empty && (
           // 空位行：结构与真实账号行同高（单行 44px），内容留空 ——
           // 「暂无账号」由卡底条说明，这里只负责把卡撑到与别的卡一样高。
@@ -457,15 +457,17 @@ export function AccountCard({
           const meta = STATUS_META[status];
           const health = account.health;
           const failStreak = Number(account.fail_streak ?? 0);
-          // 最后一行不画下边框（否则与卡底条的上边框叠成双线）
-          const rowBorder = index >= shownAccounts.length - 1 ? "" : "border-b border-line/60";
           return (
             <li
               key={account.key}
-              /* 生效账号**不铺背景**：`bg-overlay/25` 是半透明，盖在 `border-b` 上会让
-                 分隔线只剩一条发亮的细边（展开时尤其明显，像凭空多出一条白线）。
-                 用左侧 `bg-brand` 竖条就够区分，不动背景。 */
-              className={`group relative transition-colors hover:bg-overlay/40 ${rowBorder}`}
+              /*
+                **不用行级边框做分隔**：实测在生效行下方会显出一道亮线（用户描述为
+                「白线」，只有第 1、2 条账号之间出现，其余行之间正常）——同样是
+                `border-b border-line`，说明它会被行的状态/底色影响，机制不稳定。
+                改成「行间留 4px 空隙 + 卡片底色透出」：没有线可渲染，就不存在被染亮
+                的可能；同时去掉整行悬停底（悬停反馈交给行内的额度条 / 操作键）。
+              */
+              className="group relative transition-colors"
             >
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
