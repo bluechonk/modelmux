@@ -405,7 +405,7 @@ export function Accounts(): ReactElement {
           */}
           {modelPrefs.length > 0 && (
             <section className="rounded-xl border border-line bg-panel p-3">
-              <h2 className="mb-2 text-xs font-medium text-ink-soft">模型走哪家</h2>
+              <h2 className="mb-2 text-xs font-medium text-ink-soft">模型偏好</h2>
               <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                 {modelPrefs.map((pref) => (
                   // 列宽钉死而不是 flex-1 均分：均分时每列占到卡片宽的三分之一（实测 385px），

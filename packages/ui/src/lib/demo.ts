@@ -293,7 +293,7 @@ function demoModelRows(state: DemoState): UiSnapshot["models"] {
 }
 
 /**
- * 演示「模型走哪家」：候选渠道取该模型真实出现的渠道（去重），偏好留空
+ * 演示「模型偏好」：候选渠道取该模型真实出现的渠道（去重），偏好留空
  * （= 自动选路）—— 演示站要让用户看到下拉能选，但默认值不该伪装成已有偏好。
  */
 function demoModelPrefs(state: DemoState): UiSnapshot["model_prefs"] {
