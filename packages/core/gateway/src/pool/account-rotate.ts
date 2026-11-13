@@ -105,13 +105,38 @@ async function refreshOne(channel: Channel, cid: string, key: string): Promise<n
  * ② **未知额度** —— 「没查过」比「查过很少」有希望；③ **已知不够用**，凑数用。
  * ①必须压过②：换到一个已经确认没钱的账号会立刻再撞额度耗尽，比「可能有钱」更糟。
  */
-function pickAlternative(accounts: PoolAccount[], excludeKey: string, cid: string): PoolAccount | null {
+/**
+ * 账号凭据是否可用（渠道自己说了算，共享层不解析字段）。
+ *
+ * 为什么需要：`health` 是**行为**标记（最近请求成败），空壳凭据文件（登出写成 `{}`、
+ * 轮转/裁剪留下的半状态）行为上从没被拒绝过 → `health === "ok"` → 被选为换号目标，
+ * 换过去当场 `NotLoggedInError`，把一次 504 放大成整条请求失败
+ * （2026-11-11 codearts 渠道日志实证：504 → 换号 → 空壳账号 → not logged in）。
+ * 判据 = 在该账号的凭据落点上下文里跑 `cred.load()`，任何抛错都算不可用：
+ * `NotLoggedInError` 是「确定没用」，真故障（损坏 / 权限）是「此刻说不清」——
+ * 换号的目的是找一个**现在**能用的账号，两种都不该换过去。
+ */
+function accountCredentialUsable(channel: Channel, cid: string, key: string): boolean {
+  try {
+    return runForAccountCredential(cid, key, () => channel.cred.load()) != null;
+  } catch {
+    return false;
+  }
+}
+
+function pickAlternative(
+  accounts: PoolAccount[],
+  excludeKey: string,
+  cid: string,
+  channel: Channel,
+): PoolAccount | null {
   const usable = accounts.filter(
     (a) =>
       a.key !== excludeKey &&
       a.health !== "unauthorized" &&
       a.health !== "error" &&
-      !isAccountCooling(a),
+      !isAccountCooling(a) &&
+      accountCredentialUsable(channel, cid, a.key),
   );
   if (usable.length === 0) return null;
   const known = (a: PoolAccount): number | null => lastKnownRemain(cid, a.key);
@@ -154,7 +179,7 @@ export async function rotateExhaustedAccount(
   }
 
   if (authSwap) {
-    return swapWithoutBilling(cid, index, activeKey, logger);
+    return swapWithoutBilling(cid, index, activeKey, channel, logger);
   }
 
   // **瞬时故障快速换号**（不查账单）：上游 5xx / 断流 / 超时是这一台账号这一次的问题，
@@ -165,7 +190,7 @@ export async function rotateExhaustedAccount(
   // 还要干等 45s（15s + 30s 两轮探测重试）才轮到下一个候选。
   // 判据刻意不含额度码（那种要走账单证据）与鉴权码（换了会掩盖凭据真因）。
   if (opts.code === "upstream_error" || opts.code === "upstream_timeout") {
-    const target = pickAlternative(index.accounts, activeKey, cid);
+    const target = pickAlternative(index.accounts, activeKey, cid, channel);
     if (target) {
       runInChannel(cid, () => activateAccount(target.key, cid));
       logger(
@@ -226,7 +251,7 @@ export async function rotateExhaustedAccount(
     }),
   );
 
-  const target = pickAlternative(index.accounts, activeKey, cid);
+  const target = pickAlternative(index.accounts, activeKey, cid, channel);
   if (!target) {
     return {
       switched: false,
@@ -258,9 +283,10 @@ function swapWithoutBilling(
   cid: string,
   index: PoolIndex,
   activeKey: string,
+  channel: Channel,
   logger: (m: string) => void,
 ): RotateResult {
-  const target = pickAlternative(index.accounts, activeKey, cid);
+  const target = pickAlternative(index.accounts, activeKey, cid, channel);
   if (!target) {
     return { switched: false, remain: null, reason: "池内其它账号都不可用（凭据失效/冷却）" };
   }
@@ -301,7 +327,7 @@ export function switchOffCoolingAccount(
   if (!active || !isAccountCooling(active)) {
     return { switched: false, remain: null, reason: "生效账号不在冷却中" };
   }
-  const target = pickAlternative(index.accounts, activeKey, cid);
+  const target = pickAlternative(index.accounts, activeKey, cid, channel);
   if (!target) {
     return {
       switched: false,

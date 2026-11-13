@@ -56,14 +56,20 @@ function makeChannel(cid: string, spec: BillingSpec): Channel {
   // 候选渠道由统一注册表声明（与线上同口径）
   registerChannelSupply(cid, ["deepseek-v4.1-flash"]);
 
+  class NotLoggedInError extends Error {}
+
   return {
     config: configOf(cid),
     cred: {
       DEFAULT_BASE_URL: "http://127.0.0.1:1",
-      NotLoggedInError: class NotLoggedInError extends Error {},
+      NotLoggedInError,
       // 读 live 凭据（不带 cid：必须走 ALS 上下文，与真实渠道一致）
-      load: (): Record<string, unknown> =>
-        JSON.parse(readFileSync(paths.credentialsPath(), "utf8")) as Record<string, unknown>,
+      load: (): Record<string, unknown> => {
+        const doc = JSON.parse(readFileSync(paths.credentialsPath(), "utf8")) as Record<string, unknown>;
+        // 真实渠道契约：accessToken 为空 = 未登录，抛 NotLoggedInError（换号据此排除空壳账号）
+        if (!doc["accessToken"]) throw new NotLoggedInError("no access token");
+        return doc;
+      },
       save: async (c: Record<string, unknown>) => {
         writeFileSync(paths.credentialsPath(), JSON.stringify(c, null, 2), "utf8");
       },
@@ -277,6 +283,19 @@ describe("额度耗尽自动换号（决策）", () => {
     const result = await rotateExhaustedAccount(CID, undefined, { code: "upstream_error" });
     assert.equal(result.switched, false);
     assert.ok(result.reason.includes("只有一个账号"), result.reason);
+  });
+
+  it("瞬时故障 + 备选是空壳凭据（登出残留）→ 跳过空壳，换到有凭据的账号（2026-11-13 codearts 事故）", async () => {
+    // 事故：空壳账号文件里 accessToken 为空但从没被上游拒绝 → health 仍是 "ok"，
+    // 换号选中它，切过去当场 NotLoggedInError，把一次 504 放大成整条请求失败。
+    scene({ "tok-ua": 0, "tok-uc": 0 }, [
+      { key: A, uid: "ua", token: "tok-ua" },
+      { key: B, uid: "ub", token: "" },
+      { key: C, uid: "uc", token: "tok-uc" },
+    ]);
+    const result = await rotateExhaustedAccount(CID, undefined, { code: "upstream_error" });
+    assert.equal(result.switched, true, `应跳过空壳换到 C：${result.reason}`);
+    assert.equal(readIndex(CID).active, C, "生效账号应是有凭据的 C，而不是空壳 B");
   });
 
   it("生效账号冷却 + 池内有可用账号 → 请求发出前提前切走", () => {

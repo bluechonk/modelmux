@@ -61,6 +61,16 @@ POST /authui/sendLoginSms  {mobile, verifyCode: <验证码解>}                 
 终态失效（`ExpiredRefreshToken` / `InvalidDPoPHeader` / `invalid client id` /
 `has been used`）抛 `NotLoggedInError`，由共享层提示重新登录；其余错误可重试。
 
+**refresh_token 是轮转型**：每次成功续期返回**新**的 refresh_token，旧票立刻作废 ——
+同一份旧票再用一次即 `has been used`（终态）`[代码]`（`refresh()` 落新票；参考实现同述）。
+续期因此必须满足两条：
+
+- **进程内单飞**：对话路径、账单轮询（180s）、401 重试链、签到调度器会并发触发续期，
+  不加去重就是「多个调用各打一次 STS、输家烧号」。按凭据落点去重（live 文件与各账号
+  文件互不干扰）；锁内双检磁盘上 refresh_token 是否已换代，已换则直接采纳新凭据。
+- **绝不主动预刷**：`refreshIfExpired` 只在 STS 凭证**已过期**时阻塞续期，不提前刷新
+  （契约见共享层 `refreshIfExpired`）。提前刷会把仍有效的 token 换掉且徒增一轮网络往返。
+
 **账号身份**：STS 令牌响应不含 `user_id` / `domain_id`；稳定账号 id 在 refresh_token
 （JWT）的 `user_profile`（base64url JSON）的 `account_id` 里。渠道据此派生契约字段
 `uid` —— 缺了它账号池会退化成按 accessToken 建键，而 accessToken 每次续期都换，
@@ -120,9 +130,13 @@ Signature        = hex(hmac_sha256(SecretAccessKey, StringToSign))
 
 - **始终发 `stream: true`**：网关侧按 SSE 聚合（非流式客户端也由网关聚合成 JSON，
   见 `http/chat/forward.ts`）。
-- `chat_id` / `prompt_cache_key` 按**账号**稳定（由 accessKeyId 派生）：上游对
-  并发会话数有限额（实测 3 个），每次新建会话几个请求就打满（`TM.00001041`）。
+- `chat_id` / `prompt_cache_key` 按**账号稳定身份**（`uid`+`domain`，退化时 accessKeyId）
+  派生：上游对并发会话数有限额（实测 3 个），每次新建会话几个请求就打满
+  （`TM.00001041`）。**不能按 accessKeyId 派生** —— STS 2 小时一换、accessKeyId 跟着变，
+  等于每续期一次多出一个会话、旧会话不关闭，攒几轮照样打满（2026-11-11 实测踩中）。
   chat_id 只做亲和与缓存 —— 多轮语义仍由完整 messages 承载（对齐参考实现）。
+- 撞 `TM.00001041`（并发会话超限）经 `quotaSignal` 上报为 `rate_limit`：会话释放后自愈，
+  走渠道级短冷却换别家，不计连败（否则会熔断路健康账号）。
   `Chat-Id` / `Session-Id` 头在签名**之后**追加（不参与签名）。
 
 ### 2.2 响应
@@ -230,8 +244,9 @@ refresh_token + PKCE verifier + DPoP 私钥 + 身份字段。
 ### 已知限制
 
 - **并发会话数限额**：上游按账号限并发会话（实测 3 个）；不带 `chat_id` 时每次请求
-  新建会话，几个请求即报 `TM.00001041 并发会话数已达上限`。本渠道按账号派生稳定
-  `chat_id`（§2.1）规避。
+  新建会话，几个请求即报 `TM.00001041 并发会话数已达上限`。本渠道按账号稳定身份派生
+  `chat_id`（§2.1）复用同一会话规避；撞限额时经 `quotaSignal` 报 `rate_limit`
+  （渠道级短冷却，不计连败）。
 - 对话请求的签名覆盖 body：渠道必须在建头阶段拿到已序列化的请求体（共享层已支持）。
 - 上游模型名单随账号套餐变化（内置表 11 个，2026-11-11 实测）；注册表未登记的
   模型名请求会 400。
