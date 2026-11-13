@@ -38,8 +38,10 @@
 | autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
 | codebuddycn | CodeBuddy 国内版（腾讯） | 是 | 是 | 在册 |
 | codearts | CodeArts（华为云码道） | 是 | 是 | 在册（浏览器 OAuth2 登录；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash`） |
+| doubaowork | 豆包工作（字节） | 是 | 否（上游无签到接口） | 在册（手机号 + 短信验证码登录；对话必须带客户端设备号） |
+| marvis | Marvis（腾讯 AI 办公助手） | 是 | 否 | 在册（微信/QQ OAuth 登录；对话走本地 gateway WebSocket） |
 
-全部 15 个渠道均在册（`RETIRED_CIDS` 为空）。
+全部 17 个渠道均在册（`RETIRED_CIDS` 为空）。
 
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
