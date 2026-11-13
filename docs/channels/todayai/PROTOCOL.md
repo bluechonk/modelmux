@@ -170,6 +170,9 @@ mx bill todayai             # 订阅制无额度，显示套餐名
 
 ```bash
 node packages/core/channels/todayai/dist/cli.js login    # todayai 自有 CLI
+
+# 跑 agent 长任务（建任务 → 轮询 → 取回答，见 §10.7）
+node packages/core/channels/todayai/dist/cli.js task "<指令>" [--rounds 轮数] [--interval 轮询间隔秒]
 ```
 
 ### 端到端测试覆盖
@@ -339,8 +342,9 @@ POST https://api.todayai.cn/v1/messages
 
 - 建任务与普通发消息**同一个端点**，差别只在 `target`（建任务时不带 `isMainChat` /
   `conversationId`）—— 与 §4.1 的 schema 解剖一致（canonical-v1 的 `target` 分支）。
-- 任务状态机：`POST /v2/tasks` 列表里该任务 `running → completed`（实测 26s 完成八文件
-  写入/校验/删除的长指令）；快照字段含 `state` / `id`。
+- 任务状态机：`GET /v2/tasks` 列表里该任务 `status` 字段 `running → completed`（实测 26s 完成八文件
+  写入/校验/删除的长指令）；快照字段含 `status` / `id` / `conversationId` / `outputFiles` /
+  `completionSummary` / `startedAt` / `completedAt`（`state` 字段不存在，探针双兜底才碰对）。
 - **长任务实测**（同日第二次实验）：指令要求 12 个文件 × 每个 sleep 30s（约 6 分钟工作量），
   任务 `running` 持续 **448s** 后正常 `completed`，无限时长、无被杀、无 quota 拒绝；
   agent 自报总耗时 369s（写入间隔真实落在 32~34s），产物已复制到 `storage://agent/marathon-…/`。

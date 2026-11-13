@@ -220,11 +220,12 @@ export function buildChatBody(req: Record<string, unknown>, upstreamModel: strin
 
 // ── 发消息 + 轮询 ───────────────────────────────────────────────────────────
 
-interface CanonicalMessage {
+export interface CanonicalMessage {
   id: string;
   role: string;
   state: string;
   isFinal: boolean;
+  createdAt: string;
   originClientMessageId: string;
   body: { parts: Array<{ messageType?: string; content?: { text?: unknown } }> };
 }
@@ -450,4 +451,138 @@ export function resolveConfig(data: Record<string, unknown>, fallback?: Config):
 /** 模型选项 id → 池模型名（`model.deepseek-v4.1-flash` → `deepseek-v4.1-flash`）。 */
 export function optionIdToModel(optionId: string): string {
   return optionId.replace(/^model\./, "");
+}
+
+// ── 任务接口（agent 长任务；实测与字段见 PROTOCOL.md §10.7）──────────────────
+
+/** 任务快照列表（`GET /v2/tasks`，按最近活动排序）。 */
+const TASKS_PATH = "/v2/tasks";
+
+export interface TaskHandle {
+  taskId: string;
+  conversationId: string;
+}
+
+export interface TaskRunOptions {
+  pollIntervalMs?: number;
+  maxRounds?: number;
+  /** 每有新消息（含 user 回执与 agent 中间输出）触发一次。 */
+  onMessages?: (messages: CanonicalMessage[]) => void;
+}
+
+export interface TaskRunResult {
+  taskId: string;
+  conversationId: string;
+  state: string;
+  /** 终态时 agent 的最后一条正文（工作区路径与产物清单在这里）。 */
+  finalText: string;
+}
+
+/**
+ * 建一个 agent 任务：与发消息**同一个端点**，差别只在 `target:new_task` 分支——
+ * 不带 `isMainChat` / `conversationId`。任务在服务端沙箱异步执行，本调用立即返回。
+ */
+export async function createTask(credential: Credentials, instruction: string): Promise<TaskHandle> {
+  const body = {
+    body: { parts: [{ id: randomUUID(), type: "text", text: instruction }] },
+    clientMessageId: randomUUID(),
+    target: { type: "new_task", surface: "task_panel" },
+  };
+  const res = await fetchWithTimeout(`${DEFAULT_BASE_URL}${SEND_PATH}`, {
+    method: "POST",
+    headers: { ...buildHeaders(credential), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }, HTTP_TIMEOUT_MS);
+  const raw = await res.text();
+  const snippet = raw.slice(0, 200);
+  if (res.status !== 200 && res.status !== 202) {
+    if (res.status === 401 || res.status === 403) throw new UpstreamUnauthorized(`task create failed: ${snippet}`);
+    throw new Error(`建任务失败（HTTP ${res.status}）：${snippet}`);
+  }
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error(`建任务响应无法解析：${snippet}`);
+  }
+  const msg = (payload["canonicalMessage"] ?? payload) as Record<string, unknown>;
+  const taskId = typeof msg["taskId"] === "string" ? msg["taskId"] : "";
+  const conversationId = typeof msg["conversationId"] === "string" ? msg["conversationId"] : "";
+  if (!taskId || !conversationId) throw new Error(`建任务响应缺 taskId/conversationId：${snippet}`);
+  return { taskId, conversationId };
+}
+
+/** 任务状态（`/v2/tasks` 按 id 找，快照字段是 `status`；"?" = 刚建的任务还没进列表）。 */
+export async function fetchTaskState(credential: Credentials, taskId: string): Promise<string> {
+  const res = await fetchWithTimeout(`${DEFAULT_BASE_URL}${TASKS_PATH}`, {
+    method: "GET",
+    headers: buildHeaders(credential),
+  }, HTTP_TIMEOUT_MS);
+  if (res.status === 401 || res.status === 403) {
+    throw new UpstreamUnauthorized(`task list failed: HTTP ${res.status}`);
+  }
+  // 任务快照不是 canonical 消息页，不能用 parseHistory：直接读 JSON
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(await res.text());
+  } catch {
+    return "?";
+  }
+  const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+  const data = (obj["data"] ?? obj) as Record<string, unknown>;
+  const items = Array.isArray(data["items"]) ? (data["items"] as Array<Record<string, unknown>>) : [];
+  const mine = items.find((t) => t["id"] === taskId || t["taskId"] === taskId);
+  // 快照的状态字段是 status（state 字段不存在）
+  return typeof mine?.["status"] === "string" ? (mine["status"] as string) : "?";
+}
+
+/** 会话消息整页（任务会话与主对话同一承载：`body.parts[].content`）。 */
+export async function fetchConversation(
+  credential: Credentials,
+  conversationId: string,
+  limit = 50,
+): Promise<CanonicalMessage[]> {
+  const url = `${DEFAULT_BASE_URL}${HISTORY_PATH}?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}`;
+  const res = await fetchWithTimeout(url, { method: "GET", headers: buildHeaders(credential) }, HTTP_TIMEOUT_MS);
+  if (res.status === 401 || res.status === 403) {
+    throw new UpstreamUnauthorized(`conversation failed: HTTP ${res.status}`);
+  }
+  if (res.status !== 200) throw new Error(`取会话失败（HTTP ${res.status}）`);
+  return parseHistory(await res.text())?.items ?? [];
+}
+
+/**
+ * 跑一个 agent 任务直到终态。
+ *
+ * 任务在服务端沙箱异步执行：本函数只负责建任务与轮询，时长不受客户端限制
+ * （实测 448s 的任务跑通）。轮询期间每有**新**消息就回调 `onMessages`。
+ *
+ * 注意沙箱 `/tmp` 不跨轮持久化——需要保留产物时，指令里要明确让 agent
+ * 写到 `storage://agent`（实测跨轮保留，fileId/versionId 稳定）。
+ */
+export async function runTask(
+  credential: Credentials,
+  instruction: string,
+  opts: TaskRunOptions = {},
+): Promise<TaskRunResult> {
+  const pollIntervalMs = opts.pollIntervalMs ?? 10_000;
+  const maxRounds = opts.maxRounds ?? 60;
+  const handle = await createTask(credential, instruction);
+  const seen = new Set<string>();
+  let state = "?";
+  let finalText = "";
+  for (let round = 0; round < maxRounds; round += 1) {
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+    state = await fetchTaskState(credential, handle.taskId);
+    const messages = await fetchConversation(credential, handle.conversationId);
+    const fresh = messages.filter((m) => !seen.has(m.id ?? m.createdAt ?? ""));
+    if (fresh.length > 0 && opts.onMessages) opts.onMessages(fresh);
+    for (const m of fresh) seen.add(m.id ?? m.createdAt ?? "");
+    if (state === "completed" || state === "interrupted" || state === "failed") {
+      const assistants = messages.filter((m) => m.role === "assistant");
+      finalText = assistants.length > 0 ? messageTextOf(assistants.at(-1) as CanonicalMessage) : "";
+      break;
+    }
+  }
+  return { taskId: handle.taskId, conversationId: handle.conversationId, state, finalText };
 }
