@@ -1,0 +1,38 @@
+{
+  "name": "@modelmux/marvis",
+  "private": true,
+  "type": "module",
+  "description": "腾讯 Marvis（AI 办公助手）的本地网关接入（TypeScript，通过本地 gateway WebSocket 读取额度与账号状态）",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "bin": {
+    "marvis": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "marvis",
+    "tencent",
+    "gateway",
+    "cli",
+    "typescript"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelmux/gateway": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.2"
+  }
+}
