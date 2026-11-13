@@ -244,6 +244,14 @@ node packages/core/channels/todayai/dist/cli.js task "<指令>" [--rounds 轮数
 
 结论：本渠道适合**纯文本对话**，Agent 工具流量应交给支持工具的候选渠道。
 
+### 无 usage / token 计数
+
+上游 `/v1/messages` 不回传 usage：访问日志里恒为 `tokens=null`（入 / 出都没有），
+渠道包内也没有任何 usage 解析代码。与 doubaowork 同形态（见
+[CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）—— 该渠道在仪表盘 / 日志页的 token 统计里是
+**无数据**而不是 0，缓存命中率按 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §6 统一显示 `—`；
+额度只有 §6 的按月百分比，没有逐请求计数。
+
 ### 排查清单
 
 | 现象 | 先查 |
