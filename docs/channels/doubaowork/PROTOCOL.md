@@ -123,10 +123,21 @@ Content-Type: application/json
 - 公共 query：`aid=497858`、`real_aid=497858`、`device_platform=web`、`doubao_device_platform=web`、
   `pc_version=3.45.3`、`version_code=20800`、`region=CN`、`sys_region=CN`、
   `use-olympus-account=1`、`web_platform=browser` 等。
-- 菜单在 `data.menu_conf_v2.mode_list.item_list[]`：
-  - 对话模式 `mode_id=1`：`快速(0)` / `专家(3)`。
-  - 工作任务模式 `mode_id=3`：`自动(9)`、`2.1 Lite(seed-lite-7b)`、`2.1 Pro(5)`、
-    `person-deepseek-v4-1-flash-261017`、`person-glm-5-3-flash-261111` 等。
+- 响应是动作栏 UI 配置：顶层 `data.entry_list[]`（每条 `action_bar_key` / `item_id` / `name` / 图标族），
+  模型列表嵌在 `entry_list[].active_switch_conf.menu_conf_v2` 的多级 `item_list[]`
+  （`mode_list` / `model_list` / `default_select_mode_map`）里，不在响应顶层。
+- 模型条目对象全字段：`item_id`、`model_item_key`、`name`、`icon` / `active_icon` /
+  `dark_mode_icon` / `active_dark_mode_icon`、`agent_mode`、`conversation_mode_list`、
+  `default_mode`、`model_extra_params`、`reasoning_effort_config`、`show_task_tools`、
+  `tag_list`、`need_login`、`subscribe_config`。
+- `model_item_key` 全集（实测 2026-11-14）：`9`（自动）、`seed-lite-7b`（2.1 Lite）、
+  `5`（2.1 Pro）、`person-deepseek-v4-1-flash-261017`、`person-deepseek-v4-pro-ga-260813`、
+  `person-kimi-k3-1-pro-261111`、`person-kimi-k3-1-pro-highspeed-261111`、`person-kimi-k3-261111`、
+  `person-glm-5-3-261111`、`person-glm-5-3-flash-261111`。
+- DeepSeek 模型是上游默认选中项：`default_select_mode_map`（creation / office 两模式）与
+  `switch_memory_v2.default_select_model_by_mode_id.3` 都指向 `person-deepseek-v4-1-flash-261017`。
+- 实测（2026-11-14）整份 `brief_list` 响应无任何上下文窗口 / 输出上限 / 倍率字段——
+  协议形态是菜单，规格信息上游不下发；渠道目录的 `contextWindow` 只能落共享层兜底值。
 - 上游没有独立 `/models` 端点；渠道目录以菜单快照为准。
 
 ## 5. 对话
