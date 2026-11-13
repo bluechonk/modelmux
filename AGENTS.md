@@ -86,12 +86,12 @@ squash 挡不住这种泄漏，必须逐条扫）。
 
 ### 工作树内的验证
 
-工作树的落点、新建与清理规则在全局 `~/.agents/AGENTS.md`（`.zcode/worktrees/<name>`），此处不重复；
-本仓库特有的两条：
+工作树落点由所用工具决定（zcode / DSH 自带工作树实现），本仓不约束路径；新建与收尾用
+`git worktree add` / `git worktree remove` + `git branch -d`（不手删目录）。本仓库特有的两条：
 
 - 工作树内验证前先确认包解析指向工作树自己：
   `node -e "console.log(require('module').createRequire(process.cwd()+'/packages/cli/package.json').resolve('@modelmux/gateway'))"`
-  路径必须含 `.zcode/worktrees/<name>`。
+  解析结果必须在本工作树内，不能落到主工作树。
 - 大改动用 `npx tsc -b --force` 重建：`tsc -b` 有增量缓存，bundle 会留着旧代码。
 
 ### repo-sync
