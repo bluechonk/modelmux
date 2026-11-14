@@ -830,13 +830,10 @@ export function Dashboard(): ReactElement {
 
       {/* ③ 一键接入（全宽）：开关式卡片 —— 开 = 已接入（写客户端配置），关 = 还原到接入前 */}
       <section className="panel p-4">
-        <div className="panel-title mb-1">
+        <div className="panel-title mb-3">
           <PlugZap className="h-4 w-4 text-ink-faint" />
           一键接入
         </div>
-        <p className="mb-3 ml-6 text-xs text-ink-faint">
-          开关打开 = 把该客户端的模型清单改成网关的对外模型名；关闭 = 还原到接入前（自动备份，可反悔）
-        </p>
         <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
           {INTEGRATE_CLIENTS.map(({ target, icon, name, file }) => (
             <IntegrateSwitchCard
