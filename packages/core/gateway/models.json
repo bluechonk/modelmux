@@ -14,9 +14,7 @@
         "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017",
         "codebuddycn": "deepseek-v4.1-flash",
-        "codearts": "deepseek-v4.1-flash",
-        "todayai": "model.deepseek-v4.1-flash",
-        "doubaowork": "person-deepseek-v4-1-flash-261017"
+        "codearts": "deepseek-v4.1-flash"
       }
     },
     "glm-5.3-flash": {
@@ -34,9 +32,7 @@
         "qoder": "gfmodel",
         "workbuddyai": "glm-5.3-flash",
         "codebuddycn": "glm-5.3-flash",
-        "codearts": "glm-5.3-flash",
-        "todayai": "model.glm-5.3-flash",
-        "doubaowork": "person-glm-5-3-flash-261111"
+        "codearts": "glm-5.3-flash"
       }
     },
     "qwen3.8-flash": {

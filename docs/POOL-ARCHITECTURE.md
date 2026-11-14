@@ -51,7 +51,7 @@
 
 | 对外模型 id | 别名 | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、todayai、doubaowork、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
 | `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、autoclaw、workbuddyai、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
 | `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）、qoder（`qfmodel`）、qodercn（`qfmodel`）…（千问办公只卖「标准」档，底层型号由上游池化） |
 

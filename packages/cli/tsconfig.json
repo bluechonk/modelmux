@@ -33,13 +33,7 @@
     {
       "path": "../core/channels/codearts"
     },
-    {
-      "path": "../core/channels/doubaowork"
-    },
-    {
-      "path": "../core/channels/marvis"
-    },
-    {
+            {
       "path": "../core/channels/lobsterai"
     },
     {
@@ -57,10 +51,7 @@
     {
       "path": "../core/channels/raccoon"
     },
-    {
-      "path": "../core/channels/todayai"
-    },
-    {
+        {
       "path": "../core/channels/traecn"
     },
     {

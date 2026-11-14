@@ -83,8 +83,6 @@
 | qoder | 3 / 6 | `prompt_tokens_details.cached_tokens` | — |
 | catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
 | traecn | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
-| doubaowork | **0** | 只有内容块与会话状态；`/chat/completion` 的事件流里没有任何 usage / token 字段（详见 [channels/doubaowork/PROTOCOL.md](./channels/doubaowork/PROTOCOL.md) §8） | — |
-| todayai | **0** | 与 doubaowork 同形态：事件流只回内容块与状态，无 usage | — |
 | autoclaw | 有 usage 但**只有出** | `completion_tokens` / `total_tokens`；`prompt_tokens` 恒为 `0`，且无缓存字段 | — |
 
 要点：
@@ -98,9 +96,6 @@
 - 同一渠道**不同模型**形态也可能不同：实测（2026-10-29）`loomy/spark-x2.6` 的 usage
   只有 `prompt_tokens` / `completion_tokens` / `total_tokens` + `points_consumed`，
   没有缓存字段（该模型倍率 0、`points_consumed: 0`，属免费模型）。
-- **有的渠道连 token 计数都不给**（doubaowork）：访问日志里恒为 `tokens=null`（入 / 出都没有），
-  渠道包内也没有任何 usage 解析代码 —— 仪表盘与日志页的 token 统计因此**不含该渠道**。
-  这不是「0 命中」，而是**无数据**，不要当成 0 计入分母或总和。
 - **输入 token 也可能单独缺失**：autoclaw 的 usage 里 `prompt_tokens` 恒为 `0`
   （只有 `completion_tokens` 有值）—— 该渠道的「入」在统计里永远是 0，
   同样是**缺口**而不是真实的零输入。
@@ -130,7 +125,6 @@
 | --- | --- | --- |
 | workbuddy | openai | 末帧带完整 usage：`prompt_cache_hit_tokens: 0` / `prompt_cache_miss_tokens: 22`（**DeepSeek 形**），同时也有 `prompt_tokens_details.cached_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`；另每帧附带 `quota:{model,percent,reset_at,shared_models}` |
 | loomy | openai | 响应体是 **JSON 信封** `{code, desc, trace_id, data}`，SSE 流在 `data` 里 —— 不是裸 SSE |
-| doubaowork | custom | 原生事件流：`event: SSE_HEARTBEAT` / `event: STREAM_ERROR`（`{error_code, error_msg, extra}`）；**无 usage 帧** |
 | traecn | custom | 直连回 **401**（`{code, message}`）—— 探针未带刷新后的凭据 |
 
 结论：§6 的三种缓存形态判定与**真实上游帧**一致；`quota` 对象是上游在对话帧里就给的额度信息，

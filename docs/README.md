@@ -69,9 +69,6 @@
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | [PROTOCOL](./channels/codebuddycn/PROTOCOL.md)（OAuth 授权页 + 轮询；对话体 gzip；官方 CLI 头族） |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
-| `doubaowork` | 豆包工作（`www.doubao.com`） | [PROTOCOL](./channels/doubaowork/PROTOCOL.md)（手机号 + 短信验证码登录；SSE 对话必须带设备号；窗口限额 + 活动赠送额度） |
-| `marvis` | 腾讯 Marvis（AI 办公助手，`yybadaccess.3g.qq.com`） | [PROTOCOL](./channels/marvis/PROTOCOL.md) · [FINDINGS](./channels/marvis/FINDINGS.md)（微信/QQ OAuth 登录；MD5 签名；内置「省心组合」+ 本地 gateway 对话） |
-| `todayai` | Today 国内版（`todayai.cn`） | [PROTOCOL](./channels/todayai/PROTOCOL.md)（手机号 + 短信验证码登录；canonical-v1 会话协议，无流式；订阅制无额度）+ [FINDINGS](./channels/todayai/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
 | `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表；账号 2026-11-05 重新登录验证有效） |

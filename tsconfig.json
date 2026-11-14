@@ -10,13 +10,7 @@
     {
       "path": "packages/core/channels/catpaw"
     },
-    {
-      "path": "packages/core/channels/doubaowork"
-    },
-    {
-      "path": "packages/core/channels/marvis"
-    },
-    {
+            {
       "path": "packages/core/channels/codebuddycn"
     },
     {
@@ -40,10 +34,7 @@
     {
       "path": "packages/core/channels/raccoon"
     },
-    {
-      "path": "packages/core/channels/todayai"
-    },
-    {
+        {
       "path": "packages/core/channels/traecn"
     },
     {
