@@ -9,7 +9,7 @@
  * 默认隐藏、悬停账号行才出现，触屏常显。
  */
 
-import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement, ReactNode } from "react";
@@ -574,7 +574,7 @@ export function AccountCard({
                         onClick={() => onActivate(pool.cid, account.key)}
                         aria-label="切换为生效账号"
                       >
-                        <UserCheck className="h-3.5 w-3.5" />
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
                       </button>
                     )}
                     <button
