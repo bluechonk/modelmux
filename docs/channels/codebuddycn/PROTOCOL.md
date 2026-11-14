@@ -94,6 +94,9 @@ POST /v2/chat/completions
   无规格字段）。缓存字段形态无实测记录（[CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md)
   §5.1 未含本渠道），目录本身不含缓存信息。
 
+- **glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 1000000` /
+  `maxOutput: 32000`。
+
 ## 7. 额度与签到
 
 账单主机是 `www.codebuddy.cn`，与对话主机 `copilot.tencent.com` 分离 `[实测]`。
