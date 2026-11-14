@@ -20,6 +20,7 @@ import { Select } from "../components/Select";
 import { useToast } from "../components/Toast";
 import { columnCount, distributeByColumns } from "../lib/card-columns";
 import { errorText } from "../lib/log-format";
+import { useNarrow } from "../lib/use-narrow";
 import { Skeleton } from "./Dashboard";
 
 interface StatusRow {
@@ -78,6 +79,8 @@ const SUMMARY_ORDER: Array<{ key: AccountStatus; label: string; dot: string }> =
 export function Accounts(): ReactElement {
   const qc = useQueryClient();
   const toast = useToast();
+  /** 窄屏（< md）：模型偏好切两列网格、下拉填满列宽。 */
+  const narrow = useNarrow();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   /** 弹窗目标渠道；null = 关闭。 */
   const [loginChannel, setLoginChannel] = useState<string | null>(null);
@@ -409,28 +412,25 @@ export function Accounts(): ReactElement {
           */}
           <section className="rounded-xl border border-line bg-panel p-3">
             <h2 className="mb-2 text-xs font-medium text-ink-soft">模型偏好</h2>
-            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+            <div className={narrow ? "grid grid-cols-2 gap-3" : "flex flex-wrap items-end gap-x-4 gap-y-2"}>
               {modelPrefs.map((pref) => (
-                // 列宽钉死而不是 flex-1 均分：均分时每列占到卡片宽的三分之一（实测 385px），
-                // 而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。固定 176px 后
-                // 三列靠左排、窄屏自动折行，右侧留白交给卡片。
-                // 窄屏例外：176px 定列在手机上折成竖排居中的大块（fixedWidth 下拉 ≈150px
-                // 占屏幕 1/3，2026-11-14 实拍裁决）—— 改成弹性两列并排、靠左，与桌面
-                // 「多列等宽一行」同语义；min-w 156 保证 fixedWidth 下拉（≈150px）不溢出，
-                // 360 视口两列放不下时自然回落单列。
-                <div
-                  key={pref.model}
-                  className="flex w-44 flex-col gap-1 max-md:w-auto max-md:min-w-[156px] max-md:flex-1"
-                >
-                  <span className="text-center font-mono text-xs text-ink max-md:text-left">{pref.model}</span>
-                  {/* 触发器固定宽度（fixedWidth）后在列内**居中**，与上方模型名对齐；
-                      窄屏靠左；nowrap 防窄屏下文字折行把高度顶高 */}
-                  <div className="flex w-full justify-center max-md:justify-start [&_button]:whitespace-nowrap">
+                // 桌面：列宽钉死而不是 flex-1 均分 —— 均分时每列占到卡片宽的三分之一
+                // （实测 385px），而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。
+                // 固定 176px 后三列靠左排、右侧留白交给卡片。
+                // 窄屏：两列网格一行放完（主人裁决 2026-11-14）——176px 定列在手机上
+                // 折成竖排居中的大块；下拉 fill 模式填满列宽（360 视口两列各 ~144px），
+                // 定宽 150px 在窄列会溢出。
+                <div key={pref.model} className={narrow ? "flex min-w-0 flex-col gap-1" : "flex w-44 flex-col gap-1"}>
+                  <span className={`font-mono text-xs text-ink ${narrow ? "" : "text-center"}`}>{pref.model}</span>
+                  {/* 桌面触发器定宽后列内居中，与上方模型名对齐；窄屏填满列宽；
+                      nowrap 防文字折行把高度顶高 */}
+                  <div className="flex w-full [&_button]:whitespace-nowrap">
                     <Select
                       value={pref.preferred ?? ""}
                       onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
                       label={`模型 ${pref.model} 优先渠道`}
                       fixedWidth
+                      fill={narrow}
                       options={[
                         { value: "", label: "自动" },
                         ...pref.channels.map((cid) => ({ value: cid, label: cid })),
