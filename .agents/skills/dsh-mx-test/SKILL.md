@@ -57,7 +57,7 @@ node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "Reply with the singl
 ### 2. 换模型
 
 ```bash
-node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "Reply pong." --model glm-5.3-flash
+node .agents/skills/dsh-mx-test/references/mx-acp-test.mjs "Reply pong." --model deepseek-v4.1-flash
 ```
 
 `--model <deepseek 模型名>` 会现生成临时 overlay（`.tmp/dsh-mx-overlays/generated-acp-overlay.yml`）；
