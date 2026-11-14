@@ -414,11 +414,18 @@ export function Accounts(): ReactElement {
                 // 列宽钉死而不是 flex-1 均分：均分时每列占到卡片宽的三分之一（实测 385px），
                 // 而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。固定 176px 后
                 // 三列靠左排、窄屏自动折行，右侧留白交给卡片。
-                <div key={pref.model} className="flex w-44 flex-col gap-1">
-                  <span className="text-center font-mono text-xs text-ink">{pref.model}</span>
+                // 窄屏例外：176px 定列在手机上折成竖排居中的大块（fixedWidth 下拉 ≈150px
+                // 占屏幕 1/3，2026-11-14 实拍裁决）—— 改成弹性两列并排、靠左，与桌面
+                // 「多列等宽一行」同语义；min-w 156 保证 fixedWidth 下拉（≈150px）不溢出，
+                // 360 视口两列放不下时自然回落单列。
+                <div
+                  key={pref.model}
+                  className="flex w-44 flex-col gap-1 max-md:w-auto max-md:min-w-[156px] max-md:flex-1"
+                >
+                  <span className="text-center font-mono text-xs text-ink max-md:text-left">{pref.model}</span>
                   {/* 触发器固定宽度（fixedWidth）后在列内**居中**，与上方模型名对齐；
-                      nowrap 防窄屏下文字折行把高度顶高 */}
-                  <div className="flex w-full justify-center [&_button]:whitespace-nowrap">
+                      窄屏靠左；nowrap 防窄屏下文字折行把高度顶高 */}
+                  <div className="flex w-full justify-center max-md:justify-start [&_button]:whitespace-nowrap">
                     <Select
                       value={pref.preferred ?? ""}
                       onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
