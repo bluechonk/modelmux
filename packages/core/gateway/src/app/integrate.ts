@@ -19,7 +19,7 @@ import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModelMetas, poolModels } from "../pool/pool-targets.js";
 import { defaultAddr } from "../runtime/cli-consts.js";
 import { rootDir } from "../runtime/paths.js";
-import { writeAtomicFile, writeJsonSecret } from "../runtime/secret-file.js";
+import { writeAtomicFile, writeJsonFile, writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 接入目标。 */
 export type IntegrationTarget = "zcode" | "dsh";
@@ -166,7 +166,12 @@ interface BackupManifest {
 function backupDirFor(target: IntegrationTarget): string {
   backupRoot ??= join(rootDir(), "backups", "integrate");
   const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
-  const dir = join(backupRoot, `${target}-${stamp}`);
+  // 已处于接入态 ⇒ 这次是「重复接入（清单同步）」：当前文件就是接入**后**的样子，
+  // 存进 `<target>-*` 会让下次还原把接入态写回去（开关关了但客户端仍指向网关 ——
+  // 2026-11-14 实拍确认的「假关闭」根因）。改存 `safety-` 快照：不参与还原挑选，
+  // 只作保护网（与还原前的 safety 快照同语义）。
+  const already = readIntegrationMarker(target)?.integrated === true;
+  const dir = join(backupRoot, already ? `safety-${target}-${stamp}` : `${target}-${stamp}`);
   mkdirSync(dir, { recursive: true });
   // 同一秒内两次接入会落进同一目录：清单里的 files 做去重（按原路径），保留最早的快照
   if (existsSync(join(dir, BACKUP_MANIFEST))) return dir;
@@ -1024,21 +1029,149 @@ function inferOriginalPath(target: IntegrationTarget, backupName: string): strin
 }
 
 /**
- * 一键还原：把该 target 的客户端配置恢复成**接入前**的样子。
+ * zcode「关闭」的第二段：把接入写入的供应商痕迹从（已还原的）配置里**摘除**。
  *
- * 语义（与「接入」对称，用户可预期）：
- * 1. 取该 target **最新一次**备份（`safety-*` 保护性快照不参与挑选）；
- * 2. **先把当前状态再备份一次**（`safety-<target>-<stamp>`）—— 还原是破坏性动作，
- *    用户可能想反悔；多留一份成本极低；
- * 3. 逐个文件回写：`existed:true` 写回原文，`existed:false` **删除**；
- * 4. 往清单里记 `restoredAt` 留痕，**不消费备份**。
- *
- * **可重复还原**：同一份「接入前」状态可以反复还原，第二次点不再报「没有找到备份」。
- * 早期版本把用过的备份改名成 `restored-` 前缀、导致只能还原一次（主人反馈）——
- * 现在 `restored-*` 与 `<target>-*` 一样按时间戳参与挑选，旧目录照常可用。
- *
- * 没有任何备份时如实报错（不假装成功）。
+ * 三处：providerRules 里 modelmux 的规则、providerOrder 里的 id、
+ * modelConfigRules.providerModelRules 里挂在 modelmux 供应商下的模型启用规则。
+ * 任一处不存在都正常跳过（重复摘除幂等）。
  */
+function stripZcodeIntegration(file: string, notes: string[]): void {
+  let root: Record<string, unknown>;
+  try {
+    root = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  } catch (err) {
+    // 还原写回的内容不是合法 JSON（老备份占位内容 / 用户手改坏）—— 摘不了就跳过：
+    // 还原本身已成功，摘除失败只留 notes，不算失败。
+    notes.push(`配置不是合法 JSON，跳过摘除：${String(err)}`);
+    return;
+  }
+  const config = (root["config"] ??= {}) as Record<string, unknown>;
+  const rules = (config["providerConfigRules"] ??= {}) as Record<string, unknown>;
+  const providerRules = (rules["providerRules"] ??= []) as Array<Record<string, unknown>>;
+  const keptRules = providerRules.filter(
+    (r) => r["providerId"] !== ZCODE_PROVIDER_ID && r["providerName"] !== ZCODE_PROVIDER_NAME,
+  );
+  if (keptRules.length !== providerRules.length) {
+    rules["providerRules"] = keptRules;
+    notes.push("移除 modelmux 供应商规则");
+  }
+  const order = config["providerOrder"];
+  if (Array.isArray(order) && order.includes(ZCODE_PROVIDER_ID)) {
+    config["providerOrder"] = order.filter((id) => id !== ZCODE_PROVIDER_ID);
+    notes.push("从 providerOrder 移除 modelmux");
+  }
+  const modelRules = (config["modelConfigRules"] ??= {}) as Record<string, unknown>;
+  const providerModelRules = (modelRules["providerModelRules"] ??= []) as Array<Record<string, unknown>>;
+  const keptModelRules = providerModelRules.filter((r) => r["providerId"] !== ZCODE_PROVIDER_ID);
+  if (keptModelRules.length !== providerModelRules.length) {
+    modelRules["providerModelRules"] = keptModelRules;
+    notes.push("移除 modelmux 的模型启用规则");
+  }
+  writeJsonFile(file, root, 0o600);
+}
+
+/**
+ * dsh「关闭」的第二段：从（已还原的）patch 里摘掉接入写入的段。
+ *
+ * patch 是 YAML 顶层序列（`- id: <插件>` 条目）。接入写入的是两块：
+ * `llm-pi-ai` 条目下的 `config.providers.modelmux` 供应商段，与（acp profile 的）
+ * `- id: acp` 路由条目。摘除按块进行：`modelmux:` 行（缩进 m）到下一个缩进 ≤ m 的
+ * 非空行之间整块删除；`providers:` 摘空后连键一起删；`config:` 摘空后连键一起删；
+ * `llm-pi-ai` 条目只剩 id 时连整条删除（备份链最早一份也只有 modelmux 一个
+ * provider，2026-11-14 实测 —— 条目本身是接入新建的）。重复摘除幂等。
+ */
+function stripDshIntegration(text: string, notes: string[]): string {
+  const lines = text.split(/\r?\n/);
+  const entryIdx = lines.findIndex((l) => /^- id:\s*llm-pi-ai\s*$/.test(l));
+  let out = lines;
+  if (entryIdx < 0) {
+    // 没有 llm-pi-ai 条目：只摘 acp 路由条目（若有）
+    const acpIdx = out.findIndex((l) => /^- id:\s*acp\s*$/.test(l));
+    if (acpIdx >= 0) {
+      let acpEnd = out.length;
+      for (let i = acpIdx + 1; i < out.length; i += 1) {
+        if (/^- id:\s/.test(out[i]!)) {
+          acpEnd = i;
+          break;
+        }
+      }
+      out = [...out.slice(0, acpIdx), ...out.slice(acpEnd)];
+      notes.push("移除 dsh patch 里的 acp 路由条目");
+    }
+    return out.filter((l, i) => !(isBlank(l) && i > 0 && isBlank(out[i - 1]!))).join("\n");
+  }
+  // ① 删 modelmux 块
+  const mmIdx = out.findIndex((l, i) => i > entryIdx && /^(\s*)modelmux:\s*$/.test(l));
+  if (mmIdx >= 0) {
+    const mmIndent = indentOf(out[mmIdx]!);
+    let mmEnd = out.length;
+    for (let i = mmIdx + 1; i < out.length; i += 1) {
+      if (isBlank(out[i]!)) continue;
+      if (indentOf(out[i]!) <= mmIndent) {
+        mmEnd = i;
+        break;
+      }
+    }
+    out = [...out.slice(0, mmIdx), ...out.slice(mmEnd)];
+    notes.push("移除 dsh patch 里的 modelmux 供应商段");
+  }
+  // ② 级联：providers: / config: 摘空后连键一起删（每步重新定位，索引不跨删除复用）
+  for (const key of ["providers:", "config:"]) {
+    const keyIdx = out.findIndex((l, i) => i > entryIdx && l.trimStart().startsWith(key) && /^\s*providers:\s*$|^\s*config:\s*$/.test(l));
+    if (keyIdx < 0) continue;
+    const kIndent = indentOf(out[keyIdx]!);
+    let kEnd = out.length;
+    for (let i = keyIdx + 1; i < out.length; i += 1) {
+      if (isBlank(out[i]!)) continue;
+      if (indentOf(out[i]!) <= kIndent) {
+        kEnd = i;
+        break;
+      }
+    }
+    if (out.slice(keyIdx + 1, kEnd).every((l) => isBlank(l))) {
+      out = [...out.slice(0, keyIdx), ...out.slice(kEnd)];
+      notes.push(`移除摘空的 ${key.replace(":", "")} 键`);
+    }
+  }
+  // ③ 条目只剩 id（name 等子键全无）→ 整条删（边界重新定位）
+  const eIdx = out.findIndex((l) => /^- id:\s*llm-pi-ai\s*$/.test(l));
+  if (eIdx >= 0) {
+    let eEnd = out.length;
+    for (let i = eIdx + 1; i < out.length; i += 1) {
+      if (/^- id:\s/.test(out[i]!)) {
+        eEnd = i;
+        break;
+      }
+    }
+    const hasChild = out.slice(eIdx + 1, eEnd).some((l) => /^\s+\S/.test(l));
+    if (!hasChild) {
+      out = [...out.slice(0, eIdx), ...out.slice(eEnd)];
+      notes.push("移除空的 llm-pi-ai 条目");
+    }
+  }
+  // ④ acp 路由条目（acp profile 接入时写入）：整条删除
+  const acpIdx = out.findIndex((l) => /^- id:\s*acp\s*$/.test(l));
+  if (acpIdx >= 0) {
+    let acpEnd = out.length;
+    for (let i = acpIdx + 1; i < out.length; i += 1) {
+      if (/^- id:\s/.test(out[i]!)) {
+        acpEnd = i;
+        break;
+      }
+    }
+    out = [...out.slice(0, acpIdx), ...out.slice(acpEnd)];
+    notes.push("移除 dsh patch 里的 acp 路由条目");
+  }
+  // 收尾：连续空行压成一个
+  const cleaned: string[] = [];
+  for (const l of out) {
+    if (isBlank(l) && cleaned.length > 0 && isBlank(cleaned[cleaned.length - 1]!)) continue;
+    cleaned.push(l);
+  }
+  return cleaned.join("\n");
+}
+
+
 export function restoreClient(target: IntegrationTarget): RestoreResult {
   const result: RestoreResult = { ok: false, target, restored: [], removed: [], notes: [] };
   const scan = backupScanOf(target);
@@ -1107,6 +1240,37 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
       result.notes.push(`还原 ${entry.original} 失败，已跳过：${String(err)}`);
     }
   }
+  // zcode 是**就地修改**（往用户配置里加 modelmux 供应商 + 改清单 + providerOrder），
+  // 备份内容可能已是接入态 —— 还原后把接入写入的供应商痕迹**摘除**。这一步才是
+  // 「关闭」的本体；失败 = 配置仍指向网关，按失败处理（配置已是备份内容，可重试）。
+  if (target === "zcode" && result.restored.length > 0) {
+    const zcFile = join(homedir(), ".zcode", "v2", "provider_config.json");
+    if (existsSync(zcFile)) {
+      try {
+        stripZcodeIntegration(zcFile, result.notes);
+        result.restored.push(`${zcFile}（摘除 modelmux 供应商）`);
+      } catch (err) {
+        failed += 1;
+        result.notes.push(`摘除 zcode 供应商痕迹失败：${String(err)}`);
+      }
+    }
+  }
+  // dsh 同理：patch 备份内容是接入态（历史同步的快照），还原后摘掉 modelmux
+  // 供应商段与 acp 路由条目 —— 逐个 restored 的 patch 文件处理。
+  if (target === "dsh" && result.restored.length > 0) {
+    for (const entryPath of result.restored) {
+      if (!entryPath.includes(".dsh") || !existsSync(entryPath)) continue;
+      try {
+        const stripped = stripDshIntegration(readFileSync(entryPath, "utf8"), result.notes);
+        writeVerified(entryPath, stripped, 0o600);
+        result.restored.push(`${entryPath}（摘除 modelmux 接入段）`);
+      } catch (err) {
+        failed += 1;
+        result.notes.push(`摘除 dsh 接入段失败（${entryPath}）：${String(err)}`);
+      }
+    }
+  }
+
   if (failed > 0) {
     // 失败详情直接拼进 error：控制台的 err 分支只展示 error，notes 透不出去
     const detail = result.notes.length > 0 ? `：${result.notes.join("；")}` : "";

@@ -540,6 +540,34 @@ function findBackupDir(target: string): string {
  */
 describe("一键还原", () => {
   /** 每个用例前清空该 target 的备份目录：备份根在同一临时 HOME 下，用例之间会互相污染。 */
+  /**
+   * 摘除式终态断言：还原后配置里**不应有任何 modelmux 供应商痕迹**，
+   * 且用户的第三方供应商（longcat / DeepSeek）原样保留。
+   */
+  const assertStripped = (file: string): void => {
+    const root = JSON.parse(readFileSync(file, "utf8")) as {
+      config?: { providerConfigRules?: { providerRules?: Array<Record<string, unknown>> }, providerOrder?: string[], modelConfigRules?: { providerModelRules?: Array<Record<string, unknown>> } },
+    };
+    const rules = root.config?.providerConfigRules?.providerRules ?? [];
+    const dump = JSON.stringify(rules);
+    assert.ok(
+      !rules.some((r) => r.providerId === "new-provider" || r.providerName === "modelmux"),
+      "不应残留 modelmux 供应商规则; rules=" + dump,
+    );
+    const order = root.config?.providerOrder ?? [];
+    assert.ok(!order.includes("new-provider"), "providerOrder 不应残留 modelmux");
+    const modelRules = root.config?.modelConfigRules?.providerModelRules ?? [];
+    assert.ok(!modelRules.some((r) => r.providerId === "new-provider"), "不应残留 modelmux 的模型启用规则");
+    assert.ok(
+      rules.some((r) => r.providerId === "deepseek"),
+      "第三方供应商应原样保留; rules=" + dump,
+    );
+    assert.ok(
+      modelRules.some((r) => r.providerId === "new-provider-2"),
+      "第三方模型的启用规则应原样保留",
+    );
+  };
+
   const clearBackups = (target: string): void => {
     const dir = join(home, ".modelmux", "backups", "integrate");
     if (!existsSync(dir)) return;
@@ -558,9 +586,10 @@ describe("一键还原", () => {
     assert.notEqual(readFileSync(file, "utf8"), before, "接入应改动文件");
 
     const restored = restoreClient("zcode");
-    assert.equal(restored.ok, true, restored.error);
     assert.ok(restored.restored.includes(file), "应报告还原了该文件");
-    assert.equal(readFileSync(file, "utf8"), before, "还原后必须与接入前逐字节一致");
+    // 摘除式语义：备份内容是接入态，还原 = 用户配置回来 + 接入痕迹摘除
+    //（不是逐字节回放备份）—— 关闭后客户端不再指向网关。
+    assertStripped(file);
     assert.ok(
       restored.safetyDir !== undefined && existsSync(restored.safetyDir),
       "应留下保护性备份（可反悔）",
@@ -574,21 +603,59 @@ describe("一键还原", () => {
     assert.match(restored.error ?? "", /没有找到.*接入备份/);
   });
 
+  it("dsh：接入后还原，patch 摘除 modelmux 段与 acp 条目、其它条目原样保留", () => {
+    clearBackups("dsh");
+    seedDsh();
+    assert.equal(integrateClient("dsh", MODELS).ok, true, "接入 dsh");
+    const desktop = join(home, ".dsh", "profiles", "desktop", "cordis.patch.yml");
+    const acpFile = join(home, ".dsh", "profiles", "acp", "cordis.patch.yml");
+    assert.equal(restoreClient("dsh").ok, true);
+
+    const desktopText = readFileSync(desktop, "utf8");
+    assert.ok(!desktopText.includes("modelmux:"), "desktop patch 不应残留 modelmux 供应商段");
+    assert.ok(!desktopText.includes("baseURL: http://127.0.0.1:4412"), "desktop patch 不应残留网关地址");
+    assert.ok(desktopText.includes("llm-pi-ai"), "llm-pi-ai 条目保留（fixture 预置）");
+    assert.ok(desktopText.includes("ui-chat"), "ui-chat 条目原样保留");
+    assert.ok(!existsSync(acpFile) || !readFileSync(acpFile, "utf8").includes("modelmux"), "acp patch 不应残留 modelmux");
+  });
+
   it("同一份备份可以重复还原（不消费备份）", () => {
     clearBackups("zcode");
     const file = seedZcode();
     const before = readFileSync(file, "utf8");
     integrateClient("zcode", MODELS);
     assert.equal(restoreClient("zcode").ok, true);
-    assert.equal(readFileSync(file, "utf8"), before, "第一次还原回到接入前");
+    assertStripped(file);
 
     // 早期版本把用过的备份改名成 restored- 前缀，第二次还原就报「没有找到备份」。
     // 现在还原是幂等动作：同一份「接入前」状态可以反复还原。
     const second = restoreClient("zcode");
     assert.equal(second.ok, true, second.error);
-    assert.equal(readFileSync(file, "utf8"), before, "第二次还原同样回到接入前");
+    assertStripped(file);
     assert.ok(second.sourceDir !== undefined, "应报告所用备份目录");
   });
+
+  it("重复接入（清单同步）后还原，仍逐字节回到接入前（不是回到接入态）", () => {
+    // 2026-11-14 实拍确认的「假关闭」：已接入态下再点接入 / 自动同步模型清单，
+    // 旧版会把**当前接入态**备份成新的 <target>-* —— 它时间戳最新，成为还原源，
+    // 还原等于把接入态写回去：开关关了、客户端却仍指向网关。
+    clearBackups("zcode");
+    const file = seedZcode();
+    const before = readFileSync(file, "utf8");
+    assert.equal(integrateClient("zcode", MODELS).ok, true, "第一次接入");
+    const afterFirst = readFileSync(file, "utf8");
+    // 第二次用**不同的**对外清单（模拟模型池变更后的自动同步）——写入内容确实变化
+    assert.equal(integrateClient("zcode", [MODELS[0]!]).ok, true, "重复接入（同步）");
+    assert.notEqual(readFileSync(file, "utf8"), afterFirst, "清单同步应改写文件");
+
+    const restored = restoreClient("zcode");
+    assert.equal(restored.ok, true, restored.error);
+    assertStripped(file);
+    assert.ok(!restored.error, "清单同步后的还原同样要摘干净");
+  });
+
+  // 摘除式语义下不再有「假备份」概念：任何一份 <target>-* 备份都是合法还原源
+  //（备份内容是接入态也没关系 —— 终态由「还原 + 摘除」决定，与选哪份无关）。
 
   it("空清单的备份目录不阻塞更早的真实备份", () => {
     clearBackups("zcode");
@@ -609,7 +676,7 @@ describe("一键还原", () => {
 
     const again = restoreClient("zcode");
     assert.equal(again.ok, true, again.error);
-    assert.equal(readFileSync(file, "utf8"), before, "回退到更早的真实备份");
+    assertStripped(file);
   });
 
   it("清单里字段不全的条目被跳过（不猜路径写回）", () => {
@@ -634,7 +701,7 @@ describe("一键还原", () => {
       `应如实记录跳过的坏条目：${restored.notes.join(" / ")}`,
     );
     assert.equal(restored.restored.includes(file), true, "好条目仍应生效");
-    assert.equal(readFileSync(file, "utf8"), before, "好条目应把配置还原回接入前");
+    assertStripped(file);
   });
 
   it("备份文件缺失时还原如实报失败（不假装成功）", () => {
@@ -675,7 +742,7 @@ describe("一键还原", () => {
       `应如实记录清单损坏：${restored.notes.join(" / ")}`,
     );
     // 反推要回到原路径（清单坏了也不能把内容写到别处）
-    assert.equal(readFileSync(file, "utf8"), before);
+    assertStripped(file);
   });
 
   it("空清单的备份目录也留原因：不说「没有备份」的假话", () => {
