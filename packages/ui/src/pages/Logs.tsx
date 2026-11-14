@@ -547,6 +547,7 @@ function localToday(): string {
 
 /** 过滤器：结果分段 + 渠道/日期下拉 + 只看慢 + 每页条数。 */
 function Filters({
+  narrow,
   page,
   date,
   onDate,
@@ -561,6 +562,8 @@ function Filters({
   allChannels,
   dateBasis,
 }: {
+  /** 窄屏（<735，与表格收敛同口径）：下拉组换行后占满整行靠左排。 */
+  narrow: boolean;
   page: AccessLogPage | undefined;
   date: string;
   onDate: (value: string) => void;
@@ -646,8 +649,14 @@ function Filters({
       {/*
         渠道 / 时间 / 每页三个下拉右置并排：都开 `fixedWidth`（按各自最宽选项量宽），
         切换选项时按钮位置纹丝不动；清除筛选**常驻**，无筛选时禁用而非隐藏。
+        窄屏整组换行后占满整行、靠左排 —— ml-auto + justify-end 会把换行后的下拉组
+        推到行右侧悬空，与上方的结果分段错位（2026-11-14 实拍裁决）。
       */}
-      <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs text-ink-faint">
+      <span
+        className={`flex flex-wrap items-center gap-2 text-xs text-ink-faint ${
+          narrow ? "w-full" : "ml-auto justify-end"
+        }`}
+      >
         <Select
           label="渠道"
           value={cid}
@@ -688,6 +697,8 @@ function Filters({
  * 用户正在看的记录可能被刷新挤走。
  */
 export function Logs(): ReactElement {
+  /** 窄屏（<735，与表格收敛同口径）：筛选下拉组换行后占满整行靠左排。 */
+  const narrow = useNarrow(735);
   const [date, setDate] = useState("");
   const [outcome, setOutcome] = useState<"" | AccessOutcome>("");
   const [cid, setCid] = useState("");
@@ -769,6 +780,7 @@ export function Logs(): ReactElement {
           <div className="h-4 w-2/3 animate-pulse rounded bg-raised" />
         )}
         <Filters
+          narrow={narrow}
           page={page}
           date={date}
           onDate={(value) => {
