@@ -200,7 +200,7 @@ describe("路由剔除凭据失效（unauthorized）的渠道", () => {
   it("额度高的渠道被标 unauthorized 后不再进候选", () => {
     markActiveHealth("unauthorized", "alpha");
     assert.equal(activeAccountHealth("alpha"), "unauthorized");
-    const route = resolvePoolRoute("deepseek-v4.1-flash", {} as ServerResponse, () => {});
+    const route = resolvePoolRoute("deepseek-v4.1-flash", 0, {} as ServerResponse, () => {});
     assert.ok(route !== null);
     assert.deepEqual(
       route.attempts.map((c) => c.cid),
@@ -224,7 +224,7 @@ describe("路由剔除凭据失效（unauthorized）的渠道", () => {
   it("全被标 unauthorized 时回退完整候选（服务不能因此不可用）", () => {
     markActiveHealth("unauthorized", "alpha");
     markActiveHealth("unauthorized", "beta");
-    const route = resolvePoolRoute("deepseek-v4.1-flash", {} as ServerResponse, () => {});
+    const route = resolvePoolRoute("deepseek-v4.1-flash", 0, {} as ServerResponse, () => {});
     assert.ok(route !== null);
     assert.deepEqual(
       route.attempts.map((c) => c.cid).sort(),
@@ -479,7 +479,7 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
 
     clearChannels();
     registerErrorChannel("qoderish", true, ["deepseek-v4.1-flash"]);
-    registerErrorChannel("freeish", false, ["glm-5.3-flash"]);
+    registerErrorChannel("freeish", false, ["deepseek-v4.1-flash"]);
     gw = await gateway.start("127.0.0.1:0", { logger: () => {} });
   });
 
@@ -575,7 +575,7 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "glm-5.3-flash",
+        model: "deepseek-v4.1-flash",
         messages: [{ role: "user", content: "hi" }],
         stream: true,
       }),

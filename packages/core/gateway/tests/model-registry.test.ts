@@ -46,7 +46,7 @@ describe("统一模型注册表", () => {
     assert.equal(source, "builtin");
     assert.equal(error, undefined);
     // 随包默认表必须含家族三型号
-    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
+    for (const id of ["deepseek-v4.1-flash", "qwen3.8-flash"]) {
       assert.ok(registry.models[id], `缺 ${id}`);
     }
   });
@@ -55,7 +55,7 @@ describe("统一模型注册表", () => {
     writeRegistry({
       version: 1,
       models: {
-        "glm-5.3-flash": {
+        "qwen3.8-flash": {
           contextWindow: 1000000,
           maxOutput: 32000,
           inputModalities: ["text", "image"],
@@ -65,10 +65,10 @@ describe("统一模型注册表", () => {
     });
     const { registry, source } = loadModelRegistry();
     assert.equal(source, "file");
-    assert.equal(registry.models["glm-5.3-flash"]?.contextWindow, 1_000_000);
-    assert.equal(registry.models["glm-5.3-flash"]?.maxOutput, 32_000);
+    assert.equal(registry.models["qwen3.8-flash"]?.contextWindow, 1_000_000);
+    assert.equal(registry.models["qwen3.8-flash"]?.maxOutput, 32_000);
     // 只登记了一个型号时，池里就只有它
-    assert.deepEqual(registryModelIds(), ["glm-5.3-flash"]);
+    assert.deepEqual(registryModelIds(), ["qwen3.8-flash"]);
   });
 
   it("上游 id 映射逐渠道独立（同一模型在不同渠道叫不同名字）", () => {
@@ -107,7 +107,7 @@ describe("统一模型注册表", () => {
       },
     });
     assert.deepEqual(providersOf("qwen3.8-flash"), ["qwenworkcn"]);
-    assert.deepEqual(providersOf("glm-5.3-flash"), []);
+    assert.deepEqual(providersOf("glm-5.3-flash"), [], "glm 已移出对外家族");
   });
 
   it("字段不合法 → 整份表判损坏，回落随包默认（不猜、不修补）", () => {
@@ -115,7 +115,7 @@ describe("统一模型注册表", () => {
     writeRegistry({
       version: 1,
       models: {
-        "glm-5.3-flash": {
+        "qwen3.8-flash": {
           contextWindow: 1000000,
           maxOutput: 0,
           inputModalities: ["text"],
@@ -131,7 +131,7 @@ describe("统一模型注册表", () => {
     writeRegistry({
       version: 1,
       models: {
-        "glm-5.3-flash": {
+        "qwen3.8-flash": {
           contextWindow: 1000000,
           maxOutput: 32000,
           inputModalities: ["text"],
@@ -165,7 +165,7 @@ describe("统一模型注册表", () => {
 
   it("registryModelOf 对未知型号返回 undefined", () => {
     writeRegistry({ version: 1, models: {} });
-    assert.equal(registryModelOf("glm-5.3-flash"), undefined);
+    assert.equal(registryModelOf("qwen3.8-flash"), undefined);
     assert.equal(registryModelOf("no-such-model"), undefined);
   });
 
@@ -174,7 +174,7 @@ describe("统一模型注册表", () => {
     const bundled = JSON.parse(
       readFileSync(new URL("../models.json", import.meta.url), "utf8"),
     ) as { models: Record<string, unknown> };
-    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
+    for (const id of ["deepseek-v4.1-flash", "qwen3.8-flash"]) {
       assert.ok(bundled.models[id], `随包表缺 ${id}`);
     }
   });

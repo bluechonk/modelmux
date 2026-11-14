@@ -92,8 +92,8 @@ describe("统一模型目录快照", () => {
     process.env["MODELMUX_HOME"] = root;
 
     clearChannels();
-    // 一个渠道供两个对外型号；另一个只供家族外的名字（不进池）
-    setChannel(makeChannel(CID, ["glm-5.3-flash", "deepseek-v4.1-flash"]));
+    // 一个渠道供一个对外型号；另一个只供家族外的名字（不进池）
+    setChannel(makeChannel(CID, ["deepseek-v4.1-flash"]));
     // qwen3.8-flash 收窄到 qwenworkcn 单渠道（SINGLE_CHANNEL_SUPPLY）：mock 渠道名
     // 必须与收窄表指定渠道一致，否则 qwen 候选被挡、快照缺 qwen（实测 2 !== 3）。
     setChannel(makeChannel("qwenworkcn", ["deepseek-v4-flash", "qwen3.8-flash"]));
@@ -107,7 +107,7 @@ describe("统一模型目录快照", () => {
 
   it("生成快照：每个对外模型一条（家族外不进池），来源标 registry", () => {
     const catalog = buildCatalog();
-    assert.equal(Object.keys(catalog.models).length, 3, "只有家族表里的模型进对外池");
+    assert.equal(Object.keys(catalog.models).length, 2, "只有家族表里的模型进对外池");
     const entry = catalog.models["deepseek-v4.1-flash"];
     assert.ok(entry);
     assert.equal(entry.id, "deepseek-v4.1-flash");
@@ -116,8 +116,6 @@ describe("统一模型目录快照", () => {
     assert.equal(entry.meta_sources.context_window, "registry");
     assert.equal(entry.meta_sources.max_output_tokens, "registry");
     assert.equal(entry.effort, null);
-    // glm 是另一个厂商的家族成员，owned_by 不能一律写 deepseek
-    assert.equal(catalog.models["glm-5.3-flash"]?.owned_by, "zhipu");
   });
 
   it("文件往返：写入后可读回，损坏 JSON 返回 null", () => {
@@ -163,7 +161,7 @@ describe("统一模型目录快照", () => {
       assert.ok(body.generated_at.length > 0);
       // before 已写注册表（桩登记了供给）→ 读的是文件本身
       assert.equal(body.registry_source, "file");
-      assert.equal(body.data.length, 3);
+      assert.equal(body.data.length, 2);
       assert.equal(body.data[0]?.object, "model");
       assert.equal(body.data[0]?.meta_sources.context_window, "registry");
     } finally {

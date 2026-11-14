@@ -26,7 +26,7 @@ import {
 } from "../dist/app/integrate.js";
 import { POOL_EXPOSED_IDS } from "../dist/pool/model-family.js";
 
-const MODELS = ["deepseek-v4.1-flash", "glm-5.3-flash"];
+const MODELS = ["deepseek-v4.1-flash", "qwen3.8-flash"];
 /** 写失败用例依赖 Windows 的只读属性挡 rename；POSIX 上 rename 不受文件权限影响。 */
 const isWin = process.platform === "win32";
 

@@ -13,7 +13,13 @@
         "loomy": "DeepSeek-V4.1-Flash",
         "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017",
-        "codebuddycn": "deepseek-v4.1-flash"
+        "codebuddycn": "deepseek-v4.1-flash",
+        "catpaw": {
+          "slug": "deepseek-v4.1-flash",
+          "contextWindow": 600000
+        },
+        "lobsterai": "deepseek-v4.1-flash",
+        "qodercn": "deepseek-v4.1-flash"
       }
     },
     "qwen3.8-flash": {
@@ -26,20 +32,6 @@
       "channels": {
         "qwenworkcn": "flash",
         "qodercn": "qfmodel"
-      }
-    },
-    "glm-5.3-flash": {
-      "contextWindow": 1000000,
-      "maxOutput": 32000,
-      "inputModalities": [
-        "text",
-        "image"
-      ],
-      "channels": {
-        "catpaw": "glm-5.3-flash",
-        "lobsterai": "glm-5.3-flash",
-        "qodercn": "gfmodel",
-        "codebuddycn": "glm-5.3-flash"
       }
     }
   }

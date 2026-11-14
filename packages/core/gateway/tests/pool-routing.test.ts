@@ -91,9 +91,8 @@ describe("2. 模型家族：canonical 归并 + 别名", () => {
     assert.equal(canonicalOf("sn-deepseek-v4-1-flash"), "deepseek-v4.1-flash");
     assert.equal(canonicalOf("DeepSeek-V4-Flash-Official"), null, "v4-flash 已移出家族");
     assert.equal(canonicalOf("deepseek-v4-pro"), null);
-    assert.equal(canonicalOf("glm-5.3-flash"), "glm-5.3-flash");
-    assert.equal(canonicalOf("GLM-5.3-Flash"), "glm-5.3-flash");
-    assert.equal(canonicalOf("sn-glm-5-3-flash"), "glm-5.3-flash");
+    assert.equal(canonicalOf("glm-5.3-flash"), null, "glm 已移出对外家族");
+    assert.equal(canonicalOf("GLM-5.3-Flash"), null, "glm 已移出对外家族");
   });
 
   it("deepseek-flash 是 deepseek-v4.1-flash 的别名（互为同一代模型）", () => {
@@ -115,7 +114,7 @@ describe("2. 模型家族：canonical 归并 + 别名", () => {
 describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序）", () => {
   it("同一模型的多家渠道都进候选；上游写法由注册表逐渠道保留", () => {
     clearChannels();
-    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
+    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
     // qwen3.8-flash 收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
     setChannel(stubChannel("qwenworkcn", ["qwen3.8-flash"]));
@@ -140,12 +139,8 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     );
     // 别名双向：deepseek-flash 与 deepseek-v4.1-flash 命中同一批渠道
     assert.deepEqual(poolCandidates("deepseek-flash"), poolCandidates("deepseek-v4.1-flash"));
-    // glm 走自己的家族名（大小写 / 包装前缀都归一）
-    assert.deepEqual(
-      poolCandidates("glm-5.3-flash").map((c) => [c.cid, c.exposedId]),
-      [["alpha", "glm-5.3-flash"]],
-    );
     // 家族外 / 没人供给的 → 空
+    assert.deepEqual(poolCandidates("glm-5.3-flash"), [], "glm 已移出对外家族");
     assert.deepEqual(poolCandidates("glm-5.3-flashx"), [], "x 后缀是另一个型号");
     assert.deepEqual(poolCandidates("deepseek-v4-pro"), [], "v4-pro 已移出家族");
   });
@@ -214,14 +209,14 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
 
   it("池视图：只列 canonical 的对外模型（别名不单独出现）", () => {
     clearChannels();
-    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
+    setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
-    // qwen3.8-flash 收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
+    // qwen3.8-flash现收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
     setChannel(stubChannel("qwenworkcn", ["qwen3.8-flash"]));
     const pool = [...POOL_MODELS];
     assert.deepEqual(
       pool,
-      ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"],
+      ["deepseek-v4.1-flash", "qwen3.8-flash"],
       "只列有货的 canonical 模型（别名 deepseek-flash 不单独出现）",
     );
   });
