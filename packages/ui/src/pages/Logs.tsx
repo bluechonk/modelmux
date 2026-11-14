@@ -249,7 +249,9 @@ const COL_WIDTHS = {
  */
 const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
   toggle: "6.3%",
-  time: "13.8%",
+  // 「HH:MM:SS」实测 57px：13.8% 在 340px 表宽下只有 47px 会裁掉秒位（2026-11-14）；
+  // 17% 配合下方的 min-w-[340px] 保证任何窄视口都 ≥ 57px
+  time: "17%",
   result: "16.3%",
   channel: "18.4%",
   model: "",
@@ -426,7 +428,9 @@ function LogTable({
           相碰、中心差几十像素；右对齐时数值列中心同样错开）。居中后每列
           「表头中心 == 数据中心」，是这张表唯一能逐列对上的对齐方式。
         */}
-        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[300px] md:min-w-[684px]">
+        {/* min-w 340：三列的窄表里「HH:MM:SS」需要 57px（时间 17%），300px 下再怎么调
+            比例都装不下 —— 低于 340 的视口转内层横滚，ScrollFade 在右缘提示 */}
+        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[340px] md:min-w-[684px]">
           <colgroup>
             {cols.map((col) => (
               <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />
@@ -543,6 +547,7 @@ function localToday(): string {
 
 /** 过滤器：结果分段 + 渠道/日期下拉 + 只看慢 + 每页条数。 */
 function Filters({
+  narrow,
   page,
   date,
   onDate,
@@ -557,6 +562,8 @@ function Filters({
   allChannels,
   dateBasis,
 }: {
+  /** 窄屏（<735，与表格收敛同口径）：下拉组换行后占满整行靠左排。 */
+  narrow: boolean;
   page: AccessLogPage | undefined;
   date: string;
   onDate: (value: string) => void;
@@ -642,8 +649,14 @@ function Filters({
       {/*
         渠道 / 时间 / 每页三个下拉右置并排：都开 `fixedWidth`（按各自最宽选项量宽），
         切换选项时按钮位置纹丝不动；清除筛选**常驻**，无筛选时禁用而非隐藏。
+        窄屏整组换行后占满整行、靠左排 —— ml-auto + justify-end 会把换行后的下拉组
+        推到行右侧悬空，与上方的结果分段错位（2026-11-14 实拍裁决）。
       */}
-      <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs text-ink-faint">
+      <span
+        className={`flex flex-wrap items-center gap-2 text-xs text-ink-faint ${
+          narrow ? "w-full" : "ml-auto justify-end"
+        }`}
+      >
         <Select
           label="渠道"
           value={cid}
@@ -684,6 +697,8 @@ function Filters({
  * 用户正在看的记录可能被刷新挤走。
  */
 export function Logs(): ReactElement {
+  /** 窄屏（<735，与表格收敛同口径）：筛选下拉组换行后占满整行靠左排。 */
+  const narrow = useNarrow(735);
   const [date, setDate] = useState("");
   const [outcome, setOutcome] = useState<"" | AccessOutcome>("");
   const [cid, setCid] = useState("");
@@ -765,6 +780,7 @@ export function Logs(): ReactElement {
           <div className="h-4 w-2/3 animate-pulse rounded bg-raised" />
         )}
         <Filters
+          narrow={narrow}
           page={page}
           date={date}
           onDate={(value) => {

@@ -9,7 +9,7 @@
  * 默认隐藏、悬停账号行才出现，触屏常显。
  */
 
-import { ChevronDown, ChevronUp, Plus, Trash2, UserCheck } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement, ReactNode } from "react";
@@ -462,16 +462,17 @@ export function AccountCard({
             <li
               key={account.key}
               /*
-                行分隔用 `border-b border-line/60`（末行不加）。
-                演进记录：border-b 先被换成「行间 gap-y-1 缝隙透卡底」（#426）——当时的
-                染亮根因是生效行 `bg-overlay/25` 与悬停 `bg-overlay/40` 这类**半透明底**
-                叠在 border-b 上，让分隔线显出发亮细边；半透明底后来已移除。而缝隙方案
-                在浅色主题下会让每条 4px 缝隙透出纯白卡底，行内容区域透出的层级色略灰，
-                缝隙反而显成一条白带（IAB 实拍：深浅两主题行间均有可见亮带）。行级
-                border-b 没有半透明底叠加后渲染稳定，恢复使用。
+                行底必须是不透明实色（与卡底同为 bg-raised），分隔画在**行框内**
+                （inset 投影，末行不加）——不用跨行元素的 border-b：行间任何亚像素
+                缝隙都会瞬时透出卡底（浅色主题 = 纯白），展开/滚动重合成时表现为
+                一闪而过的白线，截图与录屏都抓不到（2026-11-14 实测；#426、#429
+                两轮 border 方案均在此复发）。投影落在行自己的实底上，行外不存在
+                可透的第三层颜色，机制上杜绝闪白。
               */
-              className={`group relative transition-colors ${
-                index >= shownAccounts.length - 1 ? "" : "border-b border-line/60"
+              className={`group relative bg-raised transition-colors ${
+                index >= shownAccounts.length - 1
+                  ? ""
+                  : "shadow-[inset_0_-1px_0_var(--color-line)]"
               }`}
             >
                 {/* 生效账号：左侧高亮条 */}
@@ -559,13 +560,13 @@ export function AccountCard({
                   )}
                   </div>
                   {/*
-                    操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 92px ——
-                    两个键各自撑到 44px 的触控下限后，52px 装不下。
+                    操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 76px ——
+                    两个键各自撑到 36px 的触控下限后，52px 装不下。
                     **默认隐藏，鼠标悬停该账号行才出现**（删除/切换不常使用）；
                     键盘聚焦（`group-focus-within`）时也出现；触屏设备（`pointer-coarse`）常显 ——
                     触屏没有悬停。
                   */}
-                  <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity max-md:w-[92px] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
+                  <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity max-md:w-[76px] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
                     {!active && (
                       <button
                         className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
@@ -573,7 +574,7 @@ export function AccountCard({
                         onClick={() => onActivate(pool.cid, account.key)}
                         aria-label="切换为生效账号"
                       >
-                        <UserCheck className="h-3.5 w-3.5" />
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
                       </button>
                     )}
                     <button

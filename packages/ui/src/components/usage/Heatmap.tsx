@@ -176,10 +176,12 @@ export function Heatmap({
         标签行若横跨全宽就会整体左偏一个槽宽（实测 53 列 ≈ 1.4 列的偏移）。
         标签行放进同一个 flex 结构，左侧垫片与周标签列同宽（w-3 + gap 对齐）。
       */}
-      {/* 不设 min-w：窗口最小 736 时面板内容宽仍有 ~645，53 列每格约 9px 可读；
-          再设下限会在这个宽度下挤出横向滚动条（2026-11-12 实测） */}
+      {/* 手机宽度下面板只剩 ~300px，53 列摊上 52 条缝后每格不足 3px，月份标签互相叠字
+          （2026-11-14 实测 390 视口）。内层下限 700px 且缝收窄到 2px：每格恢复 ~11px
+          （8px 时无数据的 0 档格几乎隐形，点阵区域看起来像一片空白），窄于 ~750 的
+          视口横向滚动 —— 736+ 窗口面板内容宽 ~645 仍接近不滚，桌面形态基本不变 */}
       <div className="overflow-x-auto pb-1">
-        <div>
+        <div className="min-w-[700px]">
           <div className="mb-1 flex gap-2" aria-hidden="true">
             <div className="w-3 shrink-0" />
             <div
@@ -197,7 +199,7 @@ export function Heatmap({
             </div>
           </div>
           <div className="flex gap-2">
-            <div className="flex shrink-0 flex-col gap-[3px]" aria-hidden="true">
+            <div className="flex shrink-0 flex-col gap-[2px]" aria-hidden="true">
               {WEEKDAY_LABELS.map((label, i) => (
                 <span key={i} className="h-3 w-3 text-xs leading-3 text-ink-faint">
                   {label}
@@ -205,11 +207,11 @@ export function Heatmap({
               ))}
             </div>
             <div
-              className="grid flex-1 gap-[3px]"
+              className="grid flex-1 gap-[2px]"
               style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
             >
               {Array.from({ length: columns.length }, (_, col) => (
-                <div key={col} className="flex flex-col gap-[3px]">
+                <div key={col} className="flex flex-col gap-[2px]">
                   {columns[col]!.map((cell, row) =>
                     cell === null ? (
                       // key 必须带行号：一列里所有 null 共用 `pad-${col}` 会触发 React 的

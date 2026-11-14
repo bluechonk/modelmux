@@ -1,12 +1,13 @@
 /**
- * 控制台根组件：React Query 客户端 + 路由挂载（`/` 仪表盘、`/accounts` 账号池）。
+ * 控制台根组件：React Query 客户端 + 路由挂载（`/` 仪表盘、`/accounts` 账号池、
+ * `/logs` 请求日志；未知路径兜底回仪表盘）。
  *
  * 路由 `basename` 必须与 `vite.config.ts` 的 `base` 一致（挂 `/web`）——
  * 只改 Vite 的 `base` 不改 Router 会整页空白。
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import type { ReactElement } from "react";
 import { LayoutSingle } from "./components/LayoutSingle";
 import { ToastProvider } from "./components/Toast";
@@ -39,6 +40,9 @@ export function App(): ReactElement {
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/logs" element={<Logs />} />
             </Route>
+            {/* 兜底：历史链接/书签里的旧路径（如已下线的 /web/models）不匹配任何路由时
+                连 Layout 都不渲染，整页只剩底色 —— 重定向回仪表盘（2026-11-14 实测） */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>

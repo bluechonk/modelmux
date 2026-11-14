@@ -26,6 +26,7 @@ export function Select({
   options,
   label,
   fixedWidth = false,
+  fill = false,
   widthBasis,
 }: {
   value: string;
@@ -35,6 +36,11 @@ export function Select({
   label: string;
   /** 宽度固定为基准文字的占用（并排筛选时切换选项不移位）。 */
   fixedWidth?: boolean;
+  /**
+   * 填满父容器宽度（`w-full`），不应用定宽 —— 手机上模型偏好一行两列，
+   * 列宽就是约束，固定 150px 会溢出窄列（360 视口两列各 ~144px）。
+   */
+  fill?: boolean;
   /**
    * 定宽基准文字；缺省用当前选项标签。选项集变化时宽度不变 ——
    * 渠道按**全部在册渠道**、日期按完整 `YYYY-MM-DD` 传，避免选项增减导致按钮位移。
@@ -169,8 +175,12 @@ export function Select({
         aria-activedescendant={open && activeIndex >= 0 ? `${baseId}-opt-${activeIndex}` : undefined}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={onTriggerKeyDown}
-        style={fixedWidth && triggerWidth !== undefined ? { width: `${triggerWidth}px` } : undefined}
-        className={`tap inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink`}
+        style={
+          fixedWidth && triggerWidth !== undefined && !fill
+            ? { width: `${triggerWidth}px` }
+            : undefined
+        }
+        className={`tap inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-ink-soft transition-colors hover:border-line-strong hover:text-ink ${fill ? "w-full" : ""}`}
       >
         {/*
           定宽态：标签**水平居中**（左侧放一个与箭头等宽的占位，两侧对称才真正居中），

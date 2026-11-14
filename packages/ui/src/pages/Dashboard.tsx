@@ -32,7 +32,7 @@ import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
 import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
-import { errorText, formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
+import { errorText, formatTokens, formatDuration, formatDateTime, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { IntegrationUpdate, OverviewResponse, UsageRange } from "../lib/types";
 
 /** 区间选项（驱动下方「用量」三块，不影响今日快照）。
@@ -176,7 +176,9 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
       <span className="hidden w-10 shrink-0 text-right tabular-nums text-ink-soft sm:block">
         {ms != null ? formatDuration(ms) : "—"}
       </span>
-      <span className="w-11 shrink-0 text-right tabular-nums text-ink-faint sm:w-16">{tokens}</span>
+      {/* formatTokens 在数字与单位之间有空格，44px 会把「万」甩到第二行 —— 与
+          单日行的数值列同规（64px + nowrap，docs/WEB-CONSOLE.md「响应式适配」） */}
+      <span className="w-14 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-16">{tokens}</span>
       <span className="w-11 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-12">{tps}</span>
     </div>
   );
@@ -275,12 +277,12 @@ function IntegrateSwitchCard({
       } ${busy ? "opacity-70" : ""}`}
     >
       <div className="flex items-center gap-2.5">
-        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-lg bg-overlay text-[11px] font-medium text-ink">
+        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-lg bg-overlay text-xs font-medium text-ink">
           {icon}
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium text-ink">{name}</div>
-          <div className="mt-0.5 truncate font-mono text-[11px] text-ink-faint">{file}</div>
+          <div className="mt-0.5 truncate font-mono text-xs text-ink-faint">{file}</div>
         </div>
         <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
         {/*
@@ -293,7 +295,7 @@ function IntegrateSwitchCard({
             type="button"
             onClick={onUpdate}
             aria-label={`${name} 模型有更新（${updateDiffLabel(update)}），点击更新接入`}
-            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-line bg-overlay px-2.5 py-[3px] text-[11px] text-ink transition-colors hover:border-line-strong"
+            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-line bg-overlay px-2.5 py-[3px] text-xs text-ink transition-colors hover:border-line-strong"
           >
             <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn" aria-hidden="true" />
             更新
@@ -303,6 +305,9 @@ function IntegrateSwitchCard({
           开关本体：`role="switch"` + `aria-checked`。开 = 状态绿（与「已接入」文字同语义，
           深浅两套都有对比），关 = overlay 灰。不用品牌反白：深色下白轨道在一排深卡上
           过于刺眼，且与「已接入」的绿色文字各说各话。
+          触控垫：`.tap-square`（< md 时 min 44×44）放在**按钮**上、视觉轨道缩进里面 ——
+          之前 `.tap` 直接加在 22px 高的轨道按钮上，min-height 把轨道撑成 44px 圆饼、
+          滑块 top-[3px] 贴在圆饼顶部（2026-11-14 实测 390 视口）。
         */}
         <button
           type="button"
@@ -311,18 +316,24 @@ function IntegrateSwitchCard({
           disabled={busy}
           onClick={onToggle}
           aria-label={`${name} ${stateText}，点击${shown ? "还原" : "接入"}`}
-          className={`tap relative h-[22px] w-10 flex-none rounded-full transition-colors disabled:cursor-default ${
-            shown ? "bg-free" : "bg-overlay"
-          } ${busy ? "opacity-55" : ""}`}
+          className={`tap-square grid flex-none place-items-center disabled:cursor-default ${
+            busy ? "opacity-55" : ""
+          }`}
         >
           <span
-            className={`absolute top-[3px] h-4 w-4 rounded-full transition-all ${
-              shown ? "left-[19px] bg-canvas" : "left-[3px] bg-ink-faint"
+            className={`relative block h-[22px] w-10 rounded-full transition-colors ${
+              shown ? "bg-free" : "bg-overlay"
             }`}
-          />
+          >
+            <span
+              className={`absolute top-[3px] h-4 w-4 rounded-full transition-all ${
+                shown ? "left-[19px] bg-canvas" : "left-[3px] bg-ink-faint"
+              }`}
+            />
+          </span>
         </button>
       </div>
-      {failed && <div className="mt-2 break-words text-[11px] text-danger">{error}</div>}
+      {failed && <div className="mt-2 break-words text-xs text-danger">{error}</div>}
     </div>
   );
 }
@@ -704,15 +715,24 @@ export function Dashboard(): ReactElement {
           <Activity className="h-4 w-4 text-ink-faint" />
           Token 趋势
         </div>
-        <TrendChart daily={rangeStats?.daily ?? []} series={series} />
+        {/*
+          手机宽度下按容器实测渲染会把 14 天时间轴压到每格 ~23px、日期标签叠字 ——
+          与热力图同一招：内容保 600px 最小宽横向滚动（.no-scrollbar，docs/WEB-CONSOLE.md
+          「响应式适配」的图表容器规则），ResizeObserver 量到的就是 600px 宽的容器。
+        */}
+        <div className="no-scrollbar overflow-x-auto">
+          <div className="min-w-[600px]">
+            <TrendChart daily={rangeStats?.daily ?? []} series={series} />
+          </div>
+        </div>
       </section>
 
       {/* ① 模型用量（左，区间聚合）+ 对外模型清单（右，同一行等高）
           用量卡占 8 列放环形 + 图例；清单卡占 4 列只列模型名与规格。
-          `justify-between`：标题吸顶、占比说明贴底 —— 行高由较高一侧决定时，
-          多余留白沉在卡内，而不是堆成一条空带。 */}
+          两卡都内容顶对齐：行高由较高一侧决定时，多余留白沉在矮卡底部，
+          而不是堆成一条空带。 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <section className="panel flex flex-col justify-between p-4 lg:col-span-8">
+        <section className="panel flex flex-col p-4 lg:col-span-8">
           <div className="panel-title mb-3">
             <Layers className="h-4 w-4 text-ink-faint" />
             模型用量
@@ -720,12 +740,6 @@ export function Dashboard(): ReactElement {
           {/* 只画有 tokens 的模型：`models` 里现在还包含「只有失败请求」的（它们 tokens 为 0），
               那是模型列表健康度要的，画进环形图会多出一堆 0% 图例。 */}
           <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
-          {rangeStats?.favorite != null && rangeStats.favorite.share > 0 && (
-            <p className="mt-3 text-xs text-ink-faint">
-              {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}
-              {formatPercent(rangeStats.favorite.share)}。
-            </p>
-          )}
         </section>
         {/* ② 对外模型（不显示渠道：落点由网关按额度自动挑） */}
         <section className="panel flex flex-col p-4 lg:col-span-4">
@@ -768,7 +782,7 @@ export function Dashboard(): ReactElement {
                       代码兜底（default）不采信 —— 兜底恒为 65536，混进来会虚报能力。
                       「未声明」的意思是「没有可信来源」，不是 0。
                     */}
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-ink-faint">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-ink-faint">
                       <span>
                         上下文{" "}
                         <span className="tabular text-ink-soft">
@@ -810,13 +824,10 @@ export function Dashboard(): ReactElement {
 
       {/* ③ 一键接入（全宽）：开关式卡片 —— 开 = 已接入（写客户端配置），关 = 还原到接入前 */}
       <section className="panel p-4">
-        <div className="panel-title mb-1">
+        <div className="panel-title mb-3">
           <PlugZap className="h-4 w-4 text-ink-faint" />
           一键接入
         </div>
-        <p className="mb-3 ml-6 text-xs text-ink-faint">
-          开关打开 = 把该客户端的模型清单改成网关的对外模型名；关闭 = 还原到接入前（自动备份，可反悔）
-        </p>
         <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
           {INTEGRATE_CLIENTS.map(({ target, icon, name, file }) => (
             <IntegrateSwitchCard
