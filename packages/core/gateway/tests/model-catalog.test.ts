@@ -94,7 +94,9 @@ describe("统一模型目录快照", () => {
     clearChannels();
     // 一个渠道供两个对外型号；另一个只供家族外的名字（不进池）
     setChannel(makeChannel(CID, ["glm-5.3-flash", "deepseek-v4.1-flash"]));
-    setChannel(makeChannel(`${CID}-legacy`, ["deepseek-v4-flash", "qwen3.8-flash"]));
+    // qwen3.8-flash 收窄到 qwenworkcn 单渠道（SINGLE_CHANNEL_SUPPLY）：mock 渠道名
+    // 必须与收窄表指定渠道一致，否则 qwen 候选被挡、快照缺 qwen（实测 2 !== 3）。
+    setChannel(makeChannel("qwenworkcn", ["deepseek-v4-flash", "qwen3.8-flash"]));
   });
 
   after(() => {
