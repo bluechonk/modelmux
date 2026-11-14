@@ -86,6 +86,17 @@ export const PREFS_CANONICALS: readonly string[] = [
 ];
 
 /**
+ * 单渠道供给收窄表（canonical → 指定渠道；产品决策）。收窄模型只从指定渠道出，
+ * 其余渠道的目录条目一律不进候选。为什么在候选出口统一过滤而不是逐渠道标
+ * `hidden`：目录条目散在多渠道且形态各异（裸名 / 短别名 / person-* 变体），逐渠道
+ * 标 hidden 漏一家就还进候选；出口一处过滤，目录现算与注册表兜底两个来源一起挡。
+ */
+export const SINGLE_CHANNEL_SUPPLY: Readonly<Record<string, string>> = {
+  "glm-5.3-flash": "autoclaw",
+  "qwen3.8-flash": "qwenworkcn",
+};
+
+/**
  * 对外**列出**的模型 id：只列 canonical。
  *
  * `deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（同一代模型），仍可被客户端**请求**，

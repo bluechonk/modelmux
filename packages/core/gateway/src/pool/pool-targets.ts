@@ -13,7 +13,12 @@ import { channels, getChannel, hasChannel, type Channel } from "../runtime/chann
 import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
-import { aliasGroupOf, canonicalOf, POOL_EXPOSED_IDS } from "./model-family.js";
+import {
+  aliasGroupOf,
+  canonicalOf,
+  POOL_EXPOSED_IDS,
+  SINGLE_CHANNEL_SUPPLY,
+} from "./model-family.js";
 import { providersOf, registryModelOf, upstreamIdOf } from "./model-registry.js";
 import { preferredChannelOf } from "./model-prefs.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
@@ -419,19 +424,6 @@ export interface PoolCandidate {
  *
  * 只返回**已注册**的渠道：没装的渠道包不进候选，不必报错。
  */
-/**
- * 单渠道供给收窄表（canonical → 指定渠道；产品决策）。
- *
- * 为什么在候选出口统一过滤而不是逐渠道标 `hidden`：glm / qwen 的目录条目散在十几个
- * 渠道里，形态各异（裸名 / 短别名 `gfmodel`·`qfmodel` / `person-*` 变体），逐渠道标
- * hidden 要摸清每家的条目形态与 hidden 通路（builtin 渠道根本没有），漏一家就还进
- * 候选；出口一处过滤，目录现算与注册表兜底两个来源一起挡，机制唯一。
- */
-const SINGLE_CHANNEL_SUPPLY: Readonly<Record<string, string>> = {
-  "glm-5.3-flash": "autoclaw",
-  "qwen3.8-flash": "qwenworkcn",
-};
-
 export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const canonical = canonicalOf(model);
   if (!canonical) return [];
