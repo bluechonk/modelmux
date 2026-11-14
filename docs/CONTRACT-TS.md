@@ -311,12 +311,12 @@ Claude Desktop 直连网关时只会发 `claude-sonnet-4-5` / `claude-opus-4-5` 
 ##### `force`：`relogin` 与 `login` 的分界
 
 `login()` 的语义是**幂等**的（已有凭据就复用），`relogin` 要的是**重新走一遍**。
-两者必须区分：astudio 这种「凭据来自外部会话文件」的渠道，若不区分，
+两者必须区分：「凭据来自外部会话文件」的渠道，若不区分，
 `mx relogin` 在凭据还在时会是**空操作**。
 
 - 共享层 `ensureLogin({force})` → `cred.login(baseUrl, {force: true})`；
 - 渠道**必须先试 `force`**：为真时跳过复用短路，重新读自己的凭据来源
-  （astudio 重读会话文件；其它渠道重走授权）。
+  （重读会话文件的渠道；其它渠道重走授权）。
 
 `pasteCode` 的来路：共享层把 `LoginUi.takePastedCallback`
 （`packages/core/gateway/src/runtime/channel.ts`）包成 `pasteCode()` 传给渠道 ——
@@ -350,7 +350,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 | 形态 | 本机回环服务器 | 粘贴内容怎么用 | 渠道 |
 |---|---|---|---|
 | **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | lobsterai、raccoon |
-| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | qodercn、workbuddyai、qoder、workbuddy |
+| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | qodercn、workbuddy |
 
 不消费 `pasteCode` 的渠道：loomy（手机验证码两步）、catpaw、traecn。
 
@@ -429,8 +429,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 - `chatHostCandidates()` / `setChatHostOverride(host)` / `currentChatHost()` / `rememberChatHost()`：
   多主机上游里个别主机对「200 后零字节 / 断流」是坏的，网关在探测层重试前换下一候选，
-  成功后回写记忆。仅 custom 线型且签名不覆盖 host 的渠道适用（如 Qoder，见
-  `docs/channels/qoder/PROTOCOL.md` §7.5）；标准 OpenAI 兼容渠道没有这个概念。
+  成功后回写记忆。仅 custom 线型且签名不覆盖 host 的渠道适用；标准 OpenAI 兼容渠道没有这个概念。
   `rememberChatHost` 的**实现是零参**（渠道自己取当前主机）；声明写成
   `rememberChatHost?(host?: string)` 是为了兼容「零参实现」与「共享层带 host 传参」两种形态。
 
@@ -705,8 +704,8 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 | 类型 | 用法 | 渠道 |
 |---|---|---|
 | **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、lobsterai、raccoon |
-| **B. flow 轮询** | 拼授权 URL → 交给用户打开 → 轮询拿 token | workbuddyai、workbuddy、catpaw |
-| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | qoder、qodercn |
+| **B. flow 轮询** | 拼授权 URL → 交给用户打开 → 轮询拿 token | workbuddy、catpaw |
+| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | qodercn |
 | **D. 手机验证码两步** | 发码（返回 `msgid`）→ 带 `msgid` + 验证码换 token | loomy |
 
 各渠道的端点、请求头与字段是**渠道知识**，写在 `docs/channels/<cid>/PROTOCOL.md`，

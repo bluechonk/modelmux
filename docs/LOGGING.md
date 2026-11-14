@@ -72,7 +72,7 @@
 >
 > `usage` 在**两条转发路径**上都会采集：渠道翻译器路径与 `openai` 线型的直通路径
 > （`http/wire/sse-stream.ts` 的 `relay`）。因此 openai 线型渠道
-> （workbuddy / lobsterai / loomy / raccoon / workbuddyai）的流式请求也有该字段。
+> （workbuddy / lobsterai / loomy / raccoon）的流式请求也有该字段。
 >
 > 读回时 `usage` 被归一化为 `tokens: { prompt, completion, total, cache }`，其中
 > `cache.{hit,miss}` 是**缓存命中**的归一化结果（各家字段名差异极大，规则见
@@ -383,7 +383,7 @@ mx status --json
 | 大 | 大 | — | 耗时在**上游建连** | 对照该渠道 PROTOCOL 的端点与握手流程 |
 | 正常 | 大或缺失 | 正常 | 耗时在**上游首帧** | 看请求规模（`requestBytes` / `systemChars` / `toolCount`）与该渠道的排队机制 |
 | 正常 | 正常 | 大 | 耗时在**流式输出 / 工具循环 / 客户端读取** | 看 `usage` 与 `toolCount` 判断是否为长 tool 循环 |
-| — | — | — | `error=upstream_timeout`：上游在空闲超时内无任何数据 | 该超时是**空闲**超时（每读一块即重置），持续出字的流不会被切断。默认 120s（`MODELMUX_READ_TIMEOUT_MS`）；声明 `idleTimeoutMs()` 的渠道各有自己的值（qoder / qodercn / qwenworkcn 900s、raccoon 180s） |
+| — | — | — | `error=upstream_timeout`：上游在空闲超时内无任何数据 | 该超时是**空闲**超时（每读一块即重置），持续出字的流不会被切断。默认 120s（`MODELMUX_READ_TIMEOUT_MS`）；声明 `idleTimeoutMs()` 的渠道各有自己的值（qodercn / qwenworkcn 900s、raccoon 180s） |
 
 **报告必须包含**：`id`、`model`、`cid`、`stream`、`status`、`outcome`、三个耗时、`usage`、`error`。
 字段缺失时注明「未采集」，**不要推断或编造**。

@@ -2,7 +2,7 @@
 
 > 状态：**已实施**（2026-10-28）。规则已收敛进 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3；
 > 本文保留设计依据与实现细节。
-> 问题出处：astudio 上游 120s header timeout 抖动 → 连败 3 次 → `health: error` 终态 → 人工才能解开。
+> 问题出处：上游 120s header timeout 抖动 → 连败 3 次 → `health: error` 终态 → 人工才能解开。
 
 ## 1. 现状与问题
 

@@ -82,6 +82,5 @@ packages/core/gateway/models.json  # 随包默认表（bundle 后复制到 cli/d
 
 - traecn 上游不返回输出上限（`model_detail_list` 键不存在），65,536 是共享层兜底常量
   `DEFAULT_META.maxOutputTokens`，不是上游值；
-- workbuddyai 的 `glm-5.3-flash` 上游实给 `maxOutputTokens: 32000`，逐渠道表写 131,072（差 4 倍）。
 
 规格由统一注册表一次定版，不随上游目录漂移。
