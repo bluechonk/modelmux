@@ -32,7 +32,7 @@ import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
 import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
-import { errorText, formatTokens, formatDuration, formatDateTime, formatPercent, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
+import { errorText, formatTokens, formatDuration, formatDateTime, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
 import type { IntegrationUpdate, OverviewResponse, UsageRange } from "../lib/types";
 
 /** 区间选项（驱动下方「用量」三块，不影响今日快照）。
@@ -729,10 +729,10 @@ export function Dashboard(): ReactElement {
 
       {/* ① 模型用量（左，区间聚合）+ 对外模型清单（右，同一行等高）
           用量卡占 8 列放环形 + 图例；清单卡占 4 列只列模型名与规格。
-          `justify-between`：标题吸顶、占比说明贴底 —— 行高由较高一侧决定时，
-          多余留白沉在卡内，而不是堆成一条空带。 */}
+          两卡都内容顶对齐：行高由较高一侧决定时，多余留白沉在矮卡底部，
+          而不是堆成一条空带。 */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <section className="panel flex flex-col justify-between p-4 lg:col-span-8">
+        <section className="panel flex flex-col p-4 lg:col-span-8">
           <div className="panel-title mb-3">
             <Layers className="h-4 w-4 text-ink-faint" />
             模型用量
@@ -740,12 +740,6 @@ export function Dashboard(): ReactElement {
           {/* 只画有 tokens 的模型：`models` 里现在还包含「只有失败请求」的（它们 tokens 为 0），
               那是模型列表健康度要的，画进环形图会多出一堆 0% 图例。 */}
           <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
-          {rangeStats?.favorite != null && rangeStats.favorite.share > 0 && (
-            <p className="mt-3 text-xs text-ink-faint">
-              {rangeStats.favorite.id === "" ? "未知模型" : rangeStats.favorite.id} 占比最高，约{" "}
-              {formatPercent(rangeStats.favorite.share)}。
-            </p>
-          )}
         </section>
         {/* ② 对外模型（不显示渠道：落点由网关按额度自动挑） */}
         <section className="panel flex flex-col p-4 lg:col-span-4">
