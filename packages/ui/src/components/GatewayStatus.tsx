@@ -45,7 +45,9 @@ export function GatewayStatus(): ReactElement {
       <span
         className={`h-1.5 w-1.5 shrink-0 rounded-full ${running ? "bg-free live-dot" : "bg-ink-faint"}`}
       />
-      <span className="whitespace-nowrap text-ink-soft">{label}</span>
+      {/* 文字在窄屏（<480）隐藏只留绿点：存活信号常驻，但 414/320 顶栏宽度装不下
+          「运行中」胶囊全宽（实测右缘裁切）；绿点保住信号，title 由外层容器给。 */}
+      <span className="hidden whitespace-nowrap text-ink-soft min-[480px]:inline">{label}</span>
     </div>
   );
 }
