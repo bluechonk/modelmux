@@ -80,7 +80,7 @@ const PRODUCTS: Record<Realm, ProductConfig> = {
  * 本渠道**固定绑定**的区域。
  *
  * 域是渠道身份的一部分，写死在配置里 —— 国际版 `qoder`（`qoder.com`）与国内版
- * `qodercn`（`qoder.com.cn`）是**两个独立渠道**（同 `workbuddy` / `workbuddyai` 的拆法）：
+ * `qodercn`（`qoder.com.cn`）是**两个独立渠道**（同 workbuddy 系拆法）：
  * 账号在哪个域就得用哪个渠道登录。这样登录链路与凭据落点不会随 `--realm` 漂移，
  * 也不会出现"用国内版渠道登了国际版账号"这种串区。
  *

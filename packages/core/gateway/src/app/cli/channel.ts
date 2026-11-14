@@ -169,7 +169,7 @@ function channelCountSafe(): number {
  * 与「删除池里某个账号」（`mx acct <cid> remove <key>`）的区别：
  * 那是摘掉一个条目，这是把整个渠道的登录态清掉。
  *
- * 渠道若声明了 `cred.logout()`（目前只有 astudio），先调它做上游侧的销毁；
+ * 渠道若声明了 `cred.logout()`，先调它做上游侧的销毁；
  * 渠道没声明就只做本地销毁（共享层契约里 `logout?` 是可选的）。
  */
 async function runLogoutVerb(cid: string | undefined, ctx: CommandContext): Promise<number> {
@@ -179,7 +179,7 @@ async function runLogoutVerb(cid: string | undefined, ctx: CommandContext): Prom
   }
   const channel = getChannel(cid);
   const logout = channel.cred.logout;
-  // 先探凭据在不在：渠道的 `logout()`（如 astudio）会**先删掉** `credentials.json`，
+  // 先探凭据在不在：渠道的 `logout()` 会**先删掉** `credentials.json`，
   // 等 `purgeCredentials` 再探就永远是 false，汇报就成了「凭据本来就没有」。
   const hadCredential = runInChannel(cid, () => {
     try {

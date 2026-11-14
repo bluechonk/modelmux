@@ -104,10 +104,10 @@ export function isQuotaExhausted(body: string): boolean {
 /**
  * 是否为**账户级用量限额**（区别于「余额不足」）。
  *
- * 为什么要分：用量限额对**所有模型**生效 —— 实测 workbuddyai 用量打满时，连我们目录里
+ * 为什么要分：用量限额对**所有模型**生效 —— 实测用量打满时，连我们目录里
  * 标倍率 0 的模型也吃限额 —— 所以一律冷却；而余额不足只影响计费用量，免费模型不该被连坐。
  *
- * 同样只放通用措辞；渠道的专有业务码（如 workbuddyai 的 `6004`）由
+ * 同样只放通用措辞；渠道的专有业务码由
  * `upstream.quotaSignal()` 上报，别写在这里。
  */
 export function isUsageLimit(body: string): boolean {

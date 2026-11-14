@@ -113,7 +113,7 @@ export interface AccountCount {
    *     否则回升后的消耗会被 clamp 掩盖。
    *
    * 为什么不用上游的 `size`：各渠道口径不一（loomy 的 `dailyQuota` 只在 first-login
-   * 响应里、workbuddyai 的 size 是月包 credits），拿它当分母会算出「永远 100%」。
+   * 响应里、月包型渠道的 size 是月包 credits），拿它当分母会算出「永远 100%」。
    */
   baseline?: { window: string; date: string; remain: number; at: string } | null;
   /** 上一额度窗口的最后余额（跨窗口对比兜底用；见 `PrevQuota`）。 */

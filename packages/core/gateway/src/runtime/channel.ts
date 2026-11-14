@@ -89,7 +89,7 @@ export interface LoginInputRequest {
    *
    * 这个字段是**通用**形态（不绑定任何厂商）：它只描述「一个需要浏览器
    * 完成的挑战」，具体怎么解由界面决定。渠道拿不到解法时的兜底是
-   * 改走别的登录路（astudio：读桌面应用的会话文件）。
+   * 改走别的登录路（如读桌面应用会话文件的渠道）。
    */
   captcha?: { gt: string; challenge: string; success?: unknown };
 }
@@ -156,7 +156,7 @@ export interface CredModule {
       /**
        * 强制重读（`mx relogin`）：跳过「已有凭据就复用」的短路。
        *
-       * astudio 这类「凭据来自外部会话文件」的渠道不传就永远是空操作。
+       * 「凭据来自外部会话文件」的渠道不传就永远是空操作。
        */
       force?: boolean;
     },
@@ -238,7 +238,7 @@ export interface UpstreamModule {
    * 可选：对话请求的**专用头族**（上游按整组头判定「是否官方客户端」的渠道需要）。
    *
    * 缺省时网关回退 `buildHeaders`（基础鉴权头）——普通 OpenAI 兼容渠道无需声明。
-   * 实例：workbuddyai 的官方桌面端身分头族（含每轮新生的会话/请求 ID）。
+   * 实例：官方桌面端的身分头族（含每轮新生的会话/请求 ID）。
    *
    * `body`（可选）：网关已序列化的请求体。**签名类渠道**要用它把 payload 哈希
    * 计进签名（如华为云 `SDK-HMAC-SHA256` 的 `X-Sdk-Content-Sha256` 与
@@ -261,7 +261,7 @@ export interface UpstreamModule {
   /**
    * 可选：声明本渠道的**额度信号**（业务码 / 专有措辞）。
    *
-   * 为什么需要它：额度类业务码是**渠道知识**（如 workbuddyai 的 `code=6004`
+   * 为什么需要它：额度类业务码是**渠道知识**（如某渠道的 `code=6004`
    * 「usage exceeds frequency limit」），共享层不许硬编码。共享层只认**通用**措辞
    * （`insufficient_quota`、「余额不足」这类任何上游都可能用的说法）；渠道自己的
    * 码与专有措辞通过本钩子上报。
@@ -276,7 +276,7 @@ export interface UpstreamModule {
    *
    * 共享层已有一层通用判定（`isQuotaExhausted`，看措辞），命中就**冷却**该账号；
    * 但「等到什么时候」只有渠道知道 —— 有的上游直接把重置时间放在错误体里
-   * （主人实测 workbuddyai 花完 1 亿 token 后返回下次刷新时间），有的按自然日重置。
+   * （实测有渠道花完额度后返回下次刷新时间），有的按自然日重置。
    *
    * @param bodySnippet 上游错误响应体的片段（可能被截断，见 `BUFFER_LIMIT`）。
    * @returns 下次刷新时刻（epoch ms）；**认不出返回 `null`**，共享层回落次日本地 0 点。
@@ -401,7 +401,7 @@ export interface CatalogModule {
    *
    * 可选：只有具备「远端目录层」的渠道才实现（catpaw / lobsterai /
    * traecn / raccoon / loomy）。目录本身就是静态内置表的渠道
-   * （workbuddyai / qoder）**不实现** —— 共享层据此回报
+   * 部分渠道**不实现** —— 共享层据此回报
    * 「该渠道的模型表是内置的，没有可刷新的远端」，而不是假装刷了一遍。
    *
    * 实现约定：
@@ -549,7 +549,7 @@ export interface SigninModule {
 /**
  * 渠道声明的额度信号类型。
  *
- * - `usage_limit`：**账户级用量限额**（如 workbuddyai `6004`）—— 对所有模型生效，
+ * - `usage_limit`：**账户级用量限额**（渠道专有业务码）—— 对所有模型生效，
  *   连倍率 0 的也受限 → 网关**一律冷却**该账号（等到渠道认的重置时刻）。
  * - `balance`：**余额不足**（如 loomy `402 insufficient_quota`）—— 只影响计费用量，
  *   免费模型仍可继续打上游 → 只冷却**付费**模型。

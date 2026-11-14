@@ -49,7 +49,7 @@ export interface ClaimRecord {
   /**
    * 领取**前后**实测到的额度余额（`null` = 当时没测到）。
    *
-   * 存它的理由：上游入账常常是异步的（raccoon 账单、astudio 积分），
+   * 存它的理由：上游入账常常是异步的（账单 / 积分类上游），
    * 事后用「当下余额 − before」就能把数字补回来，不必依赖渠道自报。
    */
   balance?: { before: number | null; after: number | null; unit: string };

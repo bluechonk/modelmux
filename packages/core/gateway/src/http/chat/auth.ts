@@ -94,7 +94,7 @@ export async function callUpstream(
   }
   // 判定权在 openStream：它已按渠道钩子算出 `authRejected`（401 恒真；403 默认真，
   // 渠道可用 isAuthFailure 排掉权益类拒绝）。这里不再按状态码二次判定，
-  // 否则渠道排掉的 403 又会被当成凭据失效（实测 2026-11-02 astudio）。
+  // 否则渠道排掉的 403 又会被当成凭据失效（2026-11-02 实测）。
   if (call.ok || !call.authRejected) return { kind: "ok", call };
 
   // 401/403：先刷新当前账号的 token，刷成则原账号重试一次（仍是同一个账号）

@@ -44,7 +44,7 @@ export function bundledSnapshotPath(): string | null {
  * 为什么要有第二个候选：`bundledSnapshotPath()` 只覆盖 **bundle 布局**（快照在
  * `dist/models/<cid>.json`）。以非 bundle 方式运行（`node packages/cli/dist/cli.js start`，
  * 也就是本仓「改动后执行顺序」的默认路径）时，共享层模块位于 `gateway/dist/runtime/`，
- * 那里没有快照 —— 种子会落空（实测：astudio 的模型从 7 个变成 0 个）。
+ * 那里没有快照 —— 种子会落空（实测：某渠道的模型从 7 个变成 0 个）。
  *
  * 找法：从模块目录向上最多 `maxDepth` 层，命中的目录必须同时有 `models.json` 与
  * `package.json`（确认是包根，而不是某个恰好含 models.json 的子目录）；找不到回 `null`。

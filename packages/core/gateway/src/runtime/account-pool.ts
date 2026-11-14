@@ -31,7 +31,7 @@ import { writeJsonSecret } from "./secret-file.js";
  * - `cooldown`：**额度耗尽**（不是故障）—— 等到 `cooldown_until` 上游窗口刷新后自动恢复，
  *   也可以由用户在 Web 上提前解除（见 `clearAccountState`）。
  *   与 `error` 分开是因为额度耗尽会自然好转，把它当故障会让账号被永久跳过
- *   （workbuddyai 的 429/6004 被打 `fail_streak` → 显示「不可用」，就是混判的后果）。
+ *   （`429` + 用量超限业务码被打 `fail_streak` → 显示「不可用」，就是混判的后果）。
  */
 export type AccountHealth = "ok" | "unauthorized" | "unknown" | "error" | "cooldown";
 
@@ -89,7 +89,7 @@ const ACCOUNT_DIR = "accounts";
  *
  * 只放能代表「这是谁」的字段；`uid` / `key` 这类机器标识不进表 —— 它们是兜底，
  * 不是名字。各渠道实测：traecn/qoder/qodercn/raccoon 给 nickname，loomy 给
- * 已脱敏手机号，workbuddy/workbuddyai 给 nickname（可能为空），catpaw 只有 uid。
+ * 已脱敏手机号，有的渠道给 nickname（可能为空），catpaw 只有 uid。
  */
 const NAME_FIELDS = [
   "nickname",
@@ -552,7 +552,7 @@ export function captureActive(
  * ## 为什么需要
  *
  * 账号 key 是**从凭据派生**的（`accountKey()`：有 uid 用 `sha256(domain\0uid)`，
- * 没有就退化到 token 派生）。凭据里的字段一变（本次：astudio 补上了 `domain` 字段），
+ * 没有就退化到 token 派生）。凭据里的字段一变（如渠道补上新字段），
  * **同一个账号会算出另一个 key** —— 旧条目指向的文件就没人再维护了。
  *
  * 旧条目的凭证文件被删（切账号、重新登录、清理）后，索引里还留着它 →
@@ -890,7 +890,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 下一次**本地零点**（epoch ms）—— 渠道没给「下次刷新时间」时的兜底。
  *
  * 为什么敢兜底：上游额度窗口基本都按自然日重置（loomy 实测 `dailyCycleDate` 就是日期串、
- * workbuddyai 的用量限额 `6004` 也是日额度）。渠道能给出更准的时间就用渠道的（见 `until` 参数）。
+ * 用量超限类业务码也是日额度）。渠道能给出更准的时间就用渠道的（见 `until` 参数）。
  */
 export function nextLocalMidnight(now = Date.now()): number {
   const d = new Date(now);
@@ -933,7 +933,7 @@ export function activeAccountCooling(cid?: string, now = Date.now()): PoolAccoun
  *
  * 与 `error` 的分工：
  * - 额度耗尽不是故障 —— 上游窗口刷新后会自然好转，所以**不动 `fail_streak`**，
- *   否则「额度用满」会被连败熔断误判成「账号不可用」（workbuddyai 的 429/6004 就是受害者）；
+ *   否则「额度用满」会被连败熔断误判成「账号不可用」（`429` + 用量超限码就是受害者）；
  * - 真故障（连败、鉴权失效）仍走 `noteAccountFailure` / `markActiveHealth`。
  *
  * @param options.until  下次额度刷新时刻（epoch ms）。不给则回落**次日 0 点**。

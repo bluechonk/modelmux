@@ -664,7 +664,7 @@ export async function attemptCandidate(
     // 额度耗尽：不是瞬时故障，继续打同一个账号只会重复失败 → **冷却**它（不是标 error）。
     // 冷却截止由渠道从错误体里认（`upstream.quotaResetAt`），认不出就兜底次日本地 0 点。
     // 刻意**不计连败**（`noteFailure` 不调）：额度耗尽不是故障，计进去会让账号被
-    //   3 连败熔断打成「不可用」（workbuddyai 就是这样被误标过的）。
+    //   3 连败熔断打成「不可用」（就有渠道这样被误标过）。
     const bodySnippet = call.bodySnippet ?? "";
     // 额度信号 = 共享层**通用措辞** 或 渠道自己声明的业务码（`upstream.quotaSignal`）。
     // 渠道业务码属渠道知识，只能由渠道上报；共享层不硬编码任何厂商码（AGENTS.md 铁律）。

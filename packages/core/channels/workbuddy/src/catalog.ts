@@ -129,7 +129,7 @@ function num(value: unknown): number | undefined {
 }
 
 /**
- * 解析上游 `credits` 字段得到倍率（与 workbuddyai 同一 `/v3/config` 端点、同一口径）。
+ * 解析上游 `credits` 字段得到倍率（`/v3/config` 端点）。
  *
  * 形如 `"x0.34 credits"`；`x0.00` 视为免费（0）；Auto 这类不给倍率的条目是空串。
  * 取不到数字就返回 null（不猜）。

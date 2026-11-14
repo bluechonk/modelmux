@@ -390,10 +390,10 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
  * ```
  *
  * 上报 `usage_limit`（**账户级**）：上游文案里「您也可以切换其他模型继续使用」是客套话，
- * 实测不可信 —— 国际版兄弟渠道 `workbuddyai` 的 429/6004 文案**同样**写着
+ * 实测不可信 —— 同类上游的 429/用量超限文案**同样**写着
  * 「alternatively, you can switch to the other models」，但 2026-10-23 真机实测证明
  * 连目录里标倍率 0 的 `deepseek-v4.1-flash` 也照样吃 6004
- * （`docs/channels/workbuddyai/PROTOCOL.md:569-573`）。两渠道同属腾讯 CodeBuddy、
+ * （历史实测存档）。两渠道同属腾讯 CodeBuddy、
  * 业务码与文案同族，故按账户级处理。
  *
  * 若按「模型级」只冷却单个模型，用户换一个模型会立刻再撞同一个限额，且账号级冷却
@@ -425,7 +425,7 @@ export function quotaSignal(status: number, body: string): QuotaSignal | null {
  *
  * 时间戳是 **body 自己声明的 UTC 偏移**下的墙钟时间，按 UTC 解释成 epoch 后再**减去**
  * 该偏移 —— 直接按本地时区解析会在非 UTC+8 的机器上差几个小时（国际版同族实现
- * `workbuddyai/src/upstream.ts` 的 `quotaResetAt` 有同一结论，解析逻辑与其保持一致）。
+ * 兄弟渠道的 `quotaResetAt` 有同一结论，解析逻辑与其保持一致）。
  * 认不出返回 `null` —— 共享层回落自己的兜底，绝不编造时间。
  */
 export function quotaResetAt(bodySnippet: string): number | null {
