@@ -220,25 +220,25 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
 }
 
 /**
- * 列宽表。宽度已按**内容实测**收过：`px-1`（左右各 4px）下每列刚好装下自己的内容
- * （时间 `MM-DD HH:MM:SS` 93、tokens 对 130、表头「缓存命中率」60 等，2026-11-12 量）。
+ * 列宽表。**百分比**基于各列内容实测宽（时间 `MM-DD HH:MM:SS` 93、tokens 对 130、
+ * 表头「缓存命中率」60 等，2026-11-12 量）在总宽 784px 里的占比。
  *
- * 模型列定宽 200px（文字实测 192px）：不给它定宽它会吃掉全部剩余空间，中间空一大块、
- * 前几列被压到内容宽（1000px 窗口下模型列 366px、左右各空 87px）。定宽后 `table-fixed`
- * 把剩余空间按各列既定宽度**成比例**摊到全部 9 列 —— 窗口拉多宽比例都不变，
- * 前几列的间隔与模型列的空档同步伸缩，永不失衡、也永不出现横向滚动条。
+ * 为什么用百分比而不是 px：Chrome 的 `table-fixed` 对**全列 px 定宽**的表，窗口宽于
+ * 列宽总和时**列不放大**、剩余空间留在表右缘（1920 实拍右缘空 ~40%）；百分比列宽随
+ * 容器等比伸缩，宽窄两端比例都恒定。窄屏 `md:min-w-[684px]` 保住可读下限（低于则
+ * 容器 `overflow-auto` 横滚）。
  * 数值列（耗时 / tokens）右对齐，位数不同也能对齐（全站同一约定）。
  */
 const COL_WIDTHS = {
-  toggle: "28px",
-  time: "101px",
-  result: "72px",
-  channel: "81px",
-  model: "200px",
-  duration: "41px",
-  tokensPerSec: "55px",
-  cache: "68px",
-  tokens: "138px",
+  toggle: "3.6%",
+  time: "12.9%",
+  result: "9.2%",
+  channel: "10.3%",
+  model: "25.5%",
+  duration: "5.2%",
+  tokensPerSec: "7%",
+  cache: "8.7%",
+  tokens: "17.6%",
 } as const;
 
 /**
@@ -248,15 +248,15 @@ const COL_WIDTHS = {
  * 只有四列时不存在「中间空一大块」的问题。
  */
 const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
-  toggle: "28px",
-  time: "61px",
-  result: "72px",
-  channel: "81px",
+  toggle: "6.3%",
+  time: "13.8%",
+  result: "16.3%",
+  channel: "18.4%",
   model: "",
-  duration: "41px",
-  tokensPerSec: "55px",
-  cache: "68px",
-  tokens: "138px",
+  duration: "5.2%",
+  tokensPerSec: "7%",
+  cache: "8.7%",
+  tokens: "17.6%",
 };
 
 /**
@@ -643,7 +643,7 @@ function Filters({
         渠道 / 时间 / 每页三个下拉右置并排：都开 `fixedWidth`（按各自最宽选项量宽），
         切换选项时按钮位置纹丝不动；清除筛选**常驻**，无筛选时禁用而非隐藏。
       */}
-      <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
+      <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs text-ink-faint">
         <Select
           label="渠道"
           value={cid}

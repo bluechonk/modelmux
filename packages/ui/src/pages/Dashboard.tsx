@@ -615,9 +615,11 @@ export function Dashboard(): ReactElement {
         }
       />
 
-      {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 4 列 / xl 一行七格） */}
-      {/* KPI：窄屏 2 列 / lg 3 列 / xl 一行六格（移除「当前连续」后正好六张） */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 3 列 / 2xl 一行六格） */}
+      {/* KPI：窄屏 2 列 / lg 3 列 / 2xl 一行六格（移除「当前连续」后正好六张）——
+          1366 笔记本（xl 档）六列时每列 ~210px，tokens 副行折行把卡高撑乱；
+          2xl（≥1536）起才一行六格，1366 落 3 列 × 2 行，副行单行不折。 */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
         <KpiCard
           icon={Wifi}
           label={`${rangeWord}请求 · 成功率`}

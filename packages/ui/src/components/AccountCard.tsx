@@ -441,7 +441,7 @@ export function AccountCard({
         展开态**恒一列**（一行一个账号竖向排开）：两列会把每行压成半宽、账号名与进度条
         互相挤，读序也变成「左右左右」。
       */}
-      <ul className="grid gap-y-1 border-t border-line">
+      <ul className="grid border-t border-line">
         {empty && (
           // 空位行：结构与真实账号行同高（单行 44px），内容留空 ——
           // 「暂无账号」由卡底条说明，这里只负责把卡撑到与别的卡一样高。
@@ -457,17 +457,22 @@ export function AccountCard({
           const meta = STATUS_META[status];
           const health = account.health;
           const failStreak = Number(account.fail_streak ?? 0);
+          // 末行不画下边框（否则与卡底条的上边框叠成双线）。
           return (
             <li
               key={account.key}
               /*
-                **不用行级边框做分隔**：实测在生效行下方会显出一道亮线（用户描述为
-                「白线」，只有第 1、2 条账号之间出现，其余行之间正常）——同样是
-                `border-b border-line`，说明它会被行的状态/底色影响，机制不稳定。
-                改成「行间留 4px 空隙 + 卡片底色透出」：没有线可渲染，就不存在被染亮
-                的可能；同时去掉整行悬停底（悬停反馈交给行内的额度条 / 操作键）。
+                行分隔用 `border-b border-line/60`（末行不加）。
+                演进记录：border-b 先被换成「行间 gap-y-1 缝隙透卡底」（#426）——当时的
+                染亮根因是生效行 `bg-overlay/25` 与悬停 `bg-overlay/40` 这类**半透明底**
+                叠在 border-b 上，让分隔线显出发亮细边；半透明底后来已移除。而缝隙方案
+                在浅色主题下会让每条 4px 缝隙透出纯白卡底，行内容区域透出的层级色略灰，
+                缝隙反而显成一条白带（IAB 实拍：深浅两主题行间均有可见亮带）。行级
+                border-b 没有半透明底叠加后渲染稳定，恢复使用。
               */
-              className="group relative transition-colors"
+              className={`group relative transition-colors ${
+                index >= shownAccounts.length - 1 ? "" : "border-b border-line/60"
+              }`}
             >
                 {/* 生效账号：左侧高亮条 */}
                 {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
