@@ -715,7 +715,16 @@ export function Dashboard(): ReactElement {
           <Activity className="h-4 w-4 text-ink-faint" />
           Token 趋势
         </div>
-        <TrendChart daily={rangeStats?.daily ?? []} series={series} />
+        {/*
+          手机宽度下按容器实测渲染会把 14 天时间轴压到每格 ~23px、日期标签叠字 ——
+          与热力图同一招：内容保 600px 最小宽横向滚动（.no-scrollbar，docs/WEB-CONSOLE.md
+          「响应式适配」的图表容器规则），ResizeObserver 量到的就是 600px 宽的容器。
+        */}
+        <div className="no-scrollbar overflow-x-auto">
+          <div className="min-w-[600px]">
+            <TrendChart daily={rangeStats?.daily ?? []} series={series} />
+          </div>
+        </div>
       </section>
 
       {/* ① 模型用量（左，区间聚合）+ 对外模型清单（右，同一行等高）
