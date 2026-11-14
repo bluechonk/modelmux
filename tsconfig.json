@@ -10,19 +10,13 @@
             {
       "path": "packages/core/channels/codebuddycn"
     },
-    {
-      "path": "packages/core/channels/codearts"
-    },
-    {
+        {
       "path": "packages/core/channels/lobsterai"
     },
     {
       "path": "packages/core/channels/loomy"
     },
-    {
-      "path": "packages/core/channels/qoder"
-    },
-    {
+        {
       "path": "packages/core/channels/qodercn"
     },
     {
@@ -37,10 +31,7 @@
     {
       "path": "packages/core/channels/workbuddy"
     },
-    {
-      "path": "packages/core/channels/workbuddyai"
-    },
-    {
+        {
       "path": "packages/cli"
     },
     {

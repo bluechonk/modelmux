@@ -79,8 +79,6 @@
 | raccoon | 707 / 814 | `prompt_tokens_details.cached_tokens` | 86.0% |
 | lobsterai | 297 / 319 | `prompt_tokens_details.cached_tokens`；1 条另带 `prompt_cache_hit_tokens` + `miss` | 96.4% |
 | qodercn | 155 / 187 | `prompt_tokens_details.cached_tokens` | 86.1% |
-| workbuddyai | 5 / 22 | 同 workbuddy（两套风格全给） | — |
-| qoder | 3 / 6 | `prompt_tokens_details.cached_tokens` | — |
 | catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
 | traecn | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
 

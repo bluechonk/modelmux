@@ -14,16 +14,13 @@
 import "@modelmux/astudio";
 import "@modelmux/catpaw";
 import "@modelmux/codebuddycn";
-import "@modelmux/codearts";
 import "@modelmux/lobsterai";
 import "@modelmux/loomy";
-import "@modelmux/qoder";
 import "@modelmux/qodercn";
 import "@modelmux/qwenworkcn";
 import "@modelmux/raccoon";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
-import "@modelmux/workbuddyai";
 
 /**
  * 已下架渠道：包保留作参考实现，不再注册。

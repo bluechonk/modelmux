@@ -69,17 +69,14 @@ docs/channels/<cid>/
 | --- | --- | --- | --- |
 | `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [FINDINGS](./astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
-| `codearts` | CodeArts（华为云码道） | 浏览器 OAuth2（PKCE + DPoP）+ STS 签名对话；模型目录内置 + 限时福利两源；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash` | [PROTOCOL](./codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
-| `qoder` | Qoder（国际版 `qoder.com`） | COSY 签名 + 请求体**自定义 Base64 编码**（直发字符串）—— **已下架** | [PROTOCOL](./qoder/PROTOCOL.md) |
-| `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与 `qoder` **同一套协议**，仅域名 / 身份 / 模型目录不同；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./qodercn/PROTOCOL.md) |
+| `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与已移除的国际版 qoder **同一套 COSY 协议**的不同部署（协议存档见 git 历史），仅域名 / 身份 / 模型目录不同；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./qodercn/PROTOCOL.md) |
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | 与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwen3.8-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | OAuth 授权页 + 轮询取令牌（无本机回环）；对话体 **gzip 压缩**；伪装官方 CLI 头族；模型目录仅个人账号可取；**国内版无签到入口** | [PROTOCOL](./codebuddycn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
-| `workbuddyai` | WorkBuddyAI（国际版） | 官方桌面端**身分头族**（缺任一可能触发渠道校验）；realm 换域名（账号 2026-11-05 重新登录验证有效）—— **已下架** | [PROTOCOL](./workbuddyai/PROTOCOL.md) |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）不在本层，在 [`docs/` 根](../README.md)。
 
@@ -96,12 +93,10 @@ docs/channels/<cid>/
 | `catpaw` | `longcat-2.0`（倍率 0） | 通过 | |
 | `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费与倍率相符（**已下架**，账号被上游封停） |
 | `loomy` | `spark-x`（倍率 0） | 通过 | 工具往返通过、零扣费；冷启动首字较慢 |
-| `qoder` | `qwen3.8-flash`（倍率 0） | **受限** | 上游排队饱和：单请求 TTFB 极长，模型不再推进 |
 | `qodercn` | `qwen3.8-flash`（倍率 0） | **受限** | 同 qoder（上游排队） |
 | `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费与倍率相符 |
 | `traecn` | `doubao-seed-code`（倍率 0.06） | 通过 | 扣费与倍率相符 |
 | `workbuddy` | `hy3`（倍率 0） | 通过 | |
-| `workbuddyai` | `hy3`（倍率 0） | 功能通过，**错误日志有新增** | 上游 429「模型繁忙」，属账号侧限流（当时账号已封停；2026-11-05 渠道重新上架） |
 
 **已知问题**（下一轮跟进）：
 

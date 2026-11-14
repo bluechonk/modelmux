@@ -27,19 +27,13 @@
     {
       "path": "../core/channels/codebuddycn"
     },
-    {
-      "path": "../core/channels/codearts"
-    },
-            {
+                {
       "path": "../core/channels/lobsterai"
     },
     {
       "path": "../core/channels/loomy"
     },
-    {
-      "path": "../core/channels/qoder"
-    },
-    {
+        {
       "path": "../core/channels/qodercn"
     },
     {
@@ -54,8 +48,5 @@
     {
       "path": "../core/channels/workbuddy"
     },
-    {
-      "path": "../core/channels/workbuddyai"
-    }
-  ]
+      ]
 }

@@ -629,8 +629,7 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 ```
 
 目录知识仍归 `catalog` 管，两个模块保持单向依赖。参考实现见
-`packages/core/channels/qoder/src/channel.ts:25-30`、
-`packages/core/channels/qoder/src/upstream.ts:487-502`。
+。
 
 ### 5.4 `billing.ts`
 

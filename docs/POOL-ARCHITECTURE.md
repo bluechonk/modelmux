@@ -405,7 +405,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
     实测覆盖：qoder 11 条 + qodercn 8 条（2026-10-25）。
   - 上游的 `thinking_config.disabled`（「可关闭思考」）**不映射**成 `off` 档 ——
     那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段。
-    详见 [channels/qoder/PROTOCOL.md](./channels/qoder/PROTOCOL.md) 的「上游 model 字段与思考档位」。
+    详见 qoder 渠道协议存档（git 历史，渠道已移除） 的「上游 model 字段与思考档位」。
 - **`effort` 可为 `null` = 渠道没声明**（兜底**不许编档位**）：
   渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
   lobsterai（`efforts` 数组）、qoder / qodercn（`thinking_config`，见上）有真值。
@@ -528,9 +528,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。因此：
 
 1. `upstream` 侧导出 `setModelMetaLookup(lookup)`，只认注入进来的查询器
-   （`packages/core/channels/qoder/src/upstream.ts:498-502`）；
+   ；
 2. 渠道装配处（`channel.ts`）接上：`upstream.setModelMetaLookup(catalog.metaOfKey)`
-   （`packages/core/channels/qoder/src/channel.ts:30`）；
+   ；
 3. 查询器按**上游 key** 查（`buildChatBody` 只拿到 key；对外 id 是另一套名字，
    见 `catalog.metaOfKey` 与 `catalog.entryOf` 的分工）。
 
@@ -538,7 +538,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 渠道 | 状态 | 后果 |
 |---|---|---|
-| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:676-687`） |
+| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens` |
 | `qodercn` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qodercn/src/channel.ts:44`、`packages/core/channels/qodercn/src/upstream.ts:593-603`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
