@@ -142,7 +142,7 @@ packages/core/channels/<cid>/
 ### 2.2 渠道**总数**不得写死在文档与注释里
 
 渠道数是 `readdirSync(packages/core/channels)` 的**派生量**。写死它的后果不是「不好看」，而是
-**增删渠道时必然漏改**：2026-10-26 加 `astudio` 后，`README.md` / `CONTRACT-TS.md` /
+**增删渠道时必然漏改**：曾有一次增删渠道后，`README.md` / `CONTRACT-TS.md` /
 `POOL-ARCHITECTURE.md` 三处仍写着旧数字，测试里的贡献渠道下界（`>= 8`）也随渠道数漂移。
 
 | 该写 | 不该写 |
