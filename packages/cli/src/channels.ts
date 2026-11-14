@@ -11,7 +11,6 @@
  * 目录 == 注册 ∪ 下架 由 `packages/cli/tests/pool.test.ts` 与 `verify-contract` 机械校验。
  */
 
-import "@modelmux/astudio";
 import "@modelmux/catpaw";
 import "@modelmux/codebuddycn";
 import "@modelmux/lobsterai";

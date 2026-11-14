@@ -30,7 +30,6 @@
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |
 | traecn | TRAE（字节，中国版） | 是 | 是 | 在册 |
 | workbuddy | WorkBuddy（国内版） | 是 | 是 | 在册 |
-| astudio | AStudio（讯飞桌面 Agent） | 是（免费档，额度口径为积分） | 是 | 在册 |
 | lobsterai | LobsterAI（有道） | 是 | 是 | 在册 |
 | codebuddycn | CodeBuddy 国内版（腾讯） | 是 | 是 | 在册 |
 
