@@ -176,10 +176,11 @@ export function Heatmap({
         标签行若横跨全宽就会整体左偏一个槽宽（实测 53 列 ≈ 1.4 列的偏移）。
         标签行放进同一个 flex 结构，左侧垫片与周标签列同宽（w-3 + gap 对齐）。
       */}
-      {/* 不设 min-w：窗口最小 736 时面板内容宽仍有 ~645，53 列每格约 9px 可读；
-          再设下限会在这个宽度下挤出横向滚动条（2026-11-12 实测） */}
+      {/* 手机宽度下面板只剩 ~300px，53 列摊上 52 条 3px 缝后每格不足 3px，月份标签互相
+          叠字（2026-11-14 实测 390 视口）。内层下限 600px：每格 ~8px 恢复可读，窄于
+          ~650 的视口横向滚动 —— 736+ 窗口面板内容宽 ~645 仍不滚，桌面形态不变 */}
       <div className="overflow-x-auto pb-1">
-        <div>
+        <div className="min-w-[600px]">
           <div className="mb-1 flex gap-2" aria-hidden="true">
             <div className="w-3 shrink-0" />
             <div
