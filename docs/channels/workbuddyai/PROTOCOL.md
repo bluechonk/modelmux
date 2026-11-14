@@ -152,6 +152,9 @@ traecn）走各自 translator，不经过该兜底。
 - **缓存命中率（deepseek 系）**：usage 形态同国内版 workbuddy（两套风格全给）；14 天日志
   实测仅 5/22 条带缓存字段（样本太少无全量命中率；见
   [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+
+- **glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `maxInputTokens: 1000000` /
+  `maxOutputTokens: 131072` / `credits x0.08`。
 - **响应顶层结构**（实测 2026-11-14，20,908 字节）：`code` / `msg` / `requestId` / `data`。
   `data` 块与国际版差异（对照国内版 `workbuddy` 的 22 块）：**多** `$schema`（string）与
   `builtInConnectorMarketplaces`（连接器市场，国内版无）；**少** `completion`（补全配置）、

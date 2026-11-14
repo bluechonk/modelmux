@@ -300,6 +300,8 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 不是窗口上限——真实窗口可到 1M。缓存字段 `prompt_tokens_details.cached_tokens`，
 14 天全量加权命中率实测 **86.1%**（155/187 条；口径见
 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+**glm-5.3-flash 供给实测（2026-11-14）**：上游 key `gfmodel`（归一 id
+`glm-5.3-flash`）；窗口同 `context_config` 三档（1M / 400K / 200K，默认 200K）。
 
 ### 推荐模型
 

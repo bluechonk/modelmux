@@ -448,6 +448,10 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
   [MODEL-CATALOG.md](../../MODEL-CATALOG.md) §6）。缓存：原始响应带
   `cache_read_input_tokens` 等占位字段但恒为 0（判不映射），对话 usage 无缓存字段，
   命中率显示 `—`（口径见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.2）。
+
+- **glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 1000000` /
+  倍率 x0.08；最大输出上游同样不给（兜底 65,536）。同目录的 `glm-5.3-flashx`
+  （1M / x0.31）是同族另一型号，不进 glm-5.3-flash 池。
 - 模型名大小写混排（`deepseek-v4.1-flash` 与 `DeepSeek-V4-Flash-Official` 并存）；
   池白名单在共享层做 case-insensitive 匹配
 - **倍率在 `features`**（JSON 字符串，须二次 parse）：顶层 `consumption_rate`

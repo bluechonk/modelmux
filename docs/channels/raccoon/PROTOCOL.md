@@ -392,6 +392,10 @@ RACCOON_EFFORT_OFF = 'off'   → extra_body.thinking = { type: 'disabled' }
 缓存字段 `prompt_tokens_details.cached_tokens`（形态② OpenAI），14 天全量加权命中率
 实测 **86.0%**（707/814 条带缓存字段；口径见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md)）。
 
+**glm-5.3-flash 供给实测（2026-11-14）**：上游 id `sn-glm-5-3-flash`——上下文窗口
+`1000000` / 最大输出 `100000` / 倍率 x0.2（`effectiveMultiplier` 同值）。同目录的
+`sn-glm-5-3`（1M / 100000 / x0.75）是同族另一型号，不进 glm-5.3-flash 池。
+
 ### 5.1 拉取
 
 ```

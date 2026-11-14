@@ -561,6 +561,8 @@ price_factor, original_price_factor, promotion, context_config, thinking_config,
 `dfmodel` 的 `max_input_tokens: 1000000` 恰为 1M 档。缓存字段
 `prompt_tokens_details.cached_tokens`（14 天日志仅 3/6 条带缓存字段，样本太少无全量
 命中率；见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+**glm-5.3-flash 供给实测（2026-11-14）**：上游 key `gfmodel`（归一 id
+`glm-5.3-flash`）；窗口同 `context_config` 三档（1M / 400K / 200K，默认 200K）。
 
 ### 5.2.1 上游字段全集与思考档位 [实测]
 

@@ -477,6 +477,9 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
   `prompt_tokens_details.cached_tokens` 透出（Anthropic 形态；口径见
   [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.2）；全量命中率无记录。
 
+**glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 800000` /
+倍率 x0.06；同目录的 `glm-5.3-flashx`（800K / x0.16）是同族另一型号，不进 glm-5.3-flash 池。
+
 ### 推荐模型
 
 | 模型 | 结论 | 等级 |

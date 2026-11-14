@@ -90,6 +90,9 @@ glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
   `miss` + `prompt_tokens_details.cached_tokens` + `cache_read_input_tokens` 等），14 天
   全量加权命中率实测 **96.9%**（4123/4227 条带缓存字段；口径见
   [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1 / §6）。
+
+- **glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `maxInputTokens: 1000000` /
+  `maxOutputTokens: 131072` / `credits x0.08`（`/v3/config` 的 `models[]`）。
   覆盖 v4 系含未在 cli 名单的 `-ioa` 变体，非高峰 5 折）；`data.modelTiers[]` 的
   订阅优先集合（`tier-standard-2026q3`）只含 glm / kimi，不含 DeepSeek。
 - **响应顶层结构**（实测 2026-11-14，61,600 字节）：`code` / `msg` / `requestId` / `data`。

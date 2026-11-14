@@ -597,6 +597,10 @@ POST /api/v1/onboarding/tasks/complete   body { key } → { alreadyCompleted, ba
 窗口与输出上限见表（上游 `context_length` 1048576 / `max_output_tokens` 384000）。
 口径与公式见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1 / §6。
 
+**glm-5.3-flash 供给实测（2026-11-14）**：上游 `GLM-5.3-Flash`——`context_length`
+1048576 / `max_output_tokens` 131072 / 倍率 x0.8；缓存形态与 deepseek 同渠道口径
+（`prompt_tokens_details.cached_tokens`，见 §5.1 表）。
+
 数值与来源见 `packages/core/channels/loomy/models.json` 的 `maxOutput`（公开规格）；
 全局规格与渠道表的关系见 [MODEL-SPECS.md](../../MODEL-SPECS.md) §4。
 
