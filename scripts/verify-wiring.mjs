@@ -171,6 +171,10 @@ function walk(dir, out = []) {
 }
 for (const file of walk(gatewaySrc)) {
   const rel = file.slice(repo.length + 1).replace(/\\/g, "/");
+  // 家族表是**产品面策略的唯一落点**：模型名（家族/别名/偏好族）与收窄策略的渠道指定
+  // （SINGLE_CHANNEL_SUPPLY）都在这里声明 —— 模型名与渠道 id 两类校验都豁免它。
+  // 其余共享层文件照旧：模型名与渠道 id 一律不得硬编码。
+  if (rel === FAMILY_FILE_REL) continue;
   const code = stripComments(readFileSync(file, "utf8"));
   // **逐处命中**都要判：`String.match`（非 global）只返回第一处，先出现一个无害命中就会
   // 让后面真正的渠道 id 溜过去（2026-11-08 评审复现）。用全局正则把所有命中都拿出来判。
@@ -180,7 +184,6 @@ for (const file of walk(gatewaySrc)) {
     offendingId === undefined,
     `${rel}: 共享层不得硬编码渠道 id（出现 "${offendingId?.[0]}"）—— 渠道知识只允许出现在各渠道包内`,
   );
-  if (rel === FAMILY_FILE_REL) continue;
   const modelHit = code.match(MODEL_NAME_RE);
   check(
     !modelHit,
