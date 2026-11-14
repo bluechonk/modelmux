@@ -936,8 +936,8 @@ export function speedFactorOf(cid: string, model?: string): number {
  * - 从未成功（ok=0、fail=4）→ 1/5，把「额度最多」的虚高优先级压下来。
  *
  * 为什么必须纳入：`ok/fail` 是**本地实测**，额度只是上游快照 —— 一个只剩额度、
- * 却从未跑通过的渠道会一直排在首位，每个请求先白撞一次（实测 autoclaw：
- * remain=10191、ok=0、fail=4，glm-5.3-flash 每个请求都先试它再落下一个渠道）。
+ * 却从未跑通过的渠道会一直排在首位，每个请求先白撞一次（本地 ok/fail 计数
+ * 正是为暴露这类「额度好看却 fail 连连」的渠道）。
  */
 export function reliabilityFactorOf(cid: string): number {
   const entry = load().channels[cid];

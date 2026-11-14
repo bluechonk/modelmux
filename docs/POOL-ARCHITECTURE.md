@@ -52,7 +52,7 @@
 | 对外模型 id | 别名 | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
 | `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
-| `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、autoclaw、workbuddyai、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
+| `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、codearts、codebuddycn、workbuddyai、loomy、traecn、raccoon、workbuddy、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
 | `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）、qoder（`qfmodel`）、qodercn（`qfmodel`）…（千问办公只卖「标准」档，底层型号由上游池化） |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
@@ -182,9 +182,9 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    为什么读日志而不是请求结束时记账：TPS 要等响应结束（`generateMs` + usage）才拿得到，
    而路由发生在请求**入口** —— 只能用「最近一段时间的实测」当先验。
    为什么要可靠性：`ok/fail` 是**本地实测**，额度只是上游快照 —— 一个只剩额度、却从未跑通的渠道
-   会一直排在首位，每个请求先白撞一次（实测 autoclaw：`remain=10191`、`ok=0`、`fail=4`，
-   `glm-5.3-flash` 每个请求都先撞它的 `11003 invalid authorization token` 才落到下一个渠道）。
-   可靠性只**压低**优先级，不否定「谁还有货」：额度差足够大时（10 倍）它不翻盘。
+   会一直排在首位，每个请求先白撞一次 —— 本地 `ok/fail` 实测正是为了暴露这类
+   「额度好看却跑不通」的渠道。可靠性只**压低**优先级，不否定「谁还有货」：
+   额度差足够大时（10 倍）它不翻盘。
 3. **候选过滤**：凭据读不出的渠道直接退出路由（不可能成功，白耗尝试预算）；
    生效账号已被标 `unauthorized`（凭据失效，**终态**，重试永远不会成功）的渠道硬排除；
    冷却中的渠道硬排除。全被过滤掉时回退完整候选（服务不能因此不可用），仍全失败 → `503 not_authenticated`。
@@ -195,8 +195,8 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    不可用并返回鉴权错误，**由用户手动切换账号**（`mx acct <cid> use <key>` /
    Web 账号池），不自动切号。
    这条刷新在**两条**路径上都要走：既覆盖 `openStream` 收到的 401/403，也覆盖
-   `prepareChat` 这类**建连之前**的前置（实测 autoclaw 的 `11003 invalid authorization
-   token` 就发生在前置里）—— 漏掉后者，一个「access_token 死了、refresh_token 还活着」
+   `prepareChat` 这类**建连之前**的前置（有的渠道鉴权失败就发生在前置里，上游回
+   渠道自己的业务码）—— 漏掉后者，一个「access_token 死了、refresh_token 还活着」
    的账号会被当成终态永久踢出候选，而它恰恰是额度最高的那条。
    刷新成功即清掉 `unauthorized` 标记（凭据已活，不该再当终态）。
 6. **额度耗尽例外**：失败错误码属于「可能是额度问题」那一类（`insufficient_quota` /

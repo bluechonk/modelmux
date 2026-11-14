@@ -68,7 +68,6 @@ docs/channels/<cid>/
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
 | `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [FINDINGS](./astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
-| `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | 内容流在独立 events SSE 上：prepareChat 只做前置（保鲜 / 沙箱 / 唤醒 / 设备上线），`openChatStream` 边收边翻成 OpenAI SSE 真增量下发；每请求独立沙箱会话键防串台；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./autoclaw/PROTOCOL.md) |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
 | `codearts` | CodeArts（华为云码道） | 浏览器 OAuth2（PKCE + DPoP）+ STS 签名对话；模型目录内置 + 限时福利两源；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash` | [PROTOCOL](./codearts/PROTOCOL.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |

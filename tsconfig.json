@@ -4,10 +4,7 @@
     {
       "path": "packages/core/channels/astudio"
     },
-    {
-      "path": "packages/core/channels/autoclaw"
-    },
-    {
+        {
       "path": "packages/core/channels/catpaw"
     },
             {

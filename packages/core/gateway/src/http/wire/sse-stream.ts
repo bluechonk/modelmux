@@ -197,8 +197,8 @@ export function aggregateChatSse(buf: Buffer): AggregatedCompletion {
       finish_reason: finish || (calls.length > 0 ? "tool_calls" : "stop"),
     }],
     // 上游没给 usage 就**不编造**：此前这里填 `{0,0,0}`，让「上游不提供用量」与
-    // 「真的用了 0 token」在日志与 UI 上长得一模一样（autoclaw 的 `type=done` 帧
-    // 只带 runId/type/sessionKey，实测确认上游不提供 → 请求日志整列显示 `0 / 0`）。
+    // 「真的用了 0 token」在日志与 UI 上长得一模一样（有的渠道结束帧只带会话
+    // 标识、不带任何计数，实测确认上游不提供 → 请求日志整列显示 `0 / 0`）。
     // 这里显式给 `undefined`（不是省略键）—— `tokensOf` 据此返回 null，日志记 noUsage、
     // 表格显示 `-`。对外 JSON 序列化时 undefined 键会被丢弃，客户端拿到的仍是原形态。
     usage,

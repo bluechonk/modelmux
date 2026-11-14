@@ -17,24 +17,6 @@
         "codearts": "deepseek-v4.1-flash"
       }
     },
-    "glm-5.3-flash": {
-      "contextWindow": 1000000,
-      "maxOutput": 32000,
-      "inputModalities": [
-        "text",
-        "image"
-      ],
-      "channels": {
-        "catpaw": "glm-5.3-flash",
-        "lobsterai": "glm-5.3-flash",
-        "autoclaw": "glm-5.3-flash",
-        "qodercn": "gfmodel",
-        "qoder": "gfmodel",
-        "workbuddyai": "glm-5.3-flash",
-        "codebuddycn": "glm-5.3-flash",
-        "codearts": "glm-5.3-flash"
-      }
-    },
     "qwen3.8-flash": {
       "contextWindow": 1000000,
       "maxOutput": 32000,
@@ -46,6 +28,23 @@
         "qwenworkcn": "flash",
         "qoder": "qfmodel",
         "qodercn": "qfmodel"
+      }
+    },
+    "glm-5.3-flash": {
+      "contextWindow": 1000000,
+      "maxOutput": 32000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "channels": {
+        "catpaw": "glm-5.3-flash",
+        "lobsterai": "glm-5.3-flash",
+        "qodercn": "gfmodel",
+        "qoder": "gfmodel",
+        "workbuddyai": "glm-5.3-flash",
+        "codebuddycn": "glm-5.3-flash",
+        "codearts": "glm-5.3-flash"
       }
     }
   }

@@ -124,8 +124,8 @@ function snippetOf(text: string): string {
 /**
  * 是否渠道声明的**凭据失效**错误（`upstream.UpstreamUnauthorized`）。
  *
- * 渠道在 `prepareChat` 这类**建连之前**的前置里也可能发现令牌已死（如 autoclaw 的
- * `agent/send` 回 `11003 invalid authorization token`）—— 不认出来就会被当成
+ * 渠道在 `prepareChat` 这类**建连之前**的前置里也可能发现令牌已死（如上游回渠道
+ * 自己的鉴权业务码）—— 不认出来就会被当成
  * 「上游瞬时故障」反复重试同一条候选，而重试永远不会成功。
  */
 function isUpstreamUnauthorized(channel: Channel, err: unknown): boolean {
@@ -146,8 +146,8 @@ type RefreshOutcome =
 /**
  * 刷新当前账号的 token（只刷，不重跑前置）。
  *
- * 渠道的 `refresh` 普遍把网络失败包成普通 `Error`（如 autoclaw 的
- * `userapi request failed (retryable)`），只有抛 `UpstreamUnauthorized` /
+ * 渠道的 `refresh` 普遍把网络失败包成普通 `Error`（有的渠道包成带 retryable 字样的
+ * 普通错误），只有抛 `UpstreamUnauthorized` /
  * `NotLoggedInError` 才是凭据层面的结论 —— 区分二者是这里存在的唯一理由。
  */
 async function tryRefreshCredential(

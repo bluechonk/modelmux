@@ -34,7 +34,6 @@
 | lobsterai | LobsterAI（有道） | 是 | 是 | 在册 |
 | qoder | Qoder（国际版） | 是 | 是 | 在册 |
 | workbuddyai | WorkBuddyAI（国际版） | 是 | 否 | 在册 |
-| autoclaw | AutoClaw（智谱云端沙箱） | 是 | 是 | 在册 |
 | codebuddycn | CodeBuddy 国内版（腾讯） | 是 | 是 | 在册 |
 | codearts | CodeArts（华为云码道） | 是 | 是 | 在册（浏览器 OAuth2 登录；对外供 `glm-5.3-flash` / `deepseek-v4.1-flash`） |
 
