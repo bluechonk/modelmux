@@ -447,8 +447,6 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
     traecn（Solo `model_detail_list[].max_tokens`）、workbuddy / workbuddyai（`maxOutputTokens`）。
   - **只发上下文、不发输出**：catpaw / lobsterai / qoder / qodercn（输出按公开规格补）。
-  - **完全无上游目录**：**astudio**（清单随应用包内置，应用侧另有 `model-gateway/catalog-*.json`
-    下发窗口与输出上限）—— 只能按该内置目录补。
   缺字段的渠道用**渠道包根的 `models.json`**（按公开规格维护的数据文件）回答 —— 入口是
   **可选钩子** `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
   当前**全部渠道**都实现了该钩子（规格数据落 `channels/<cid>/models.json`，

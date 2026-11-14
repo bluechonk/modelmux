@@ -58,7 +58,6 @@
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [FINDINGS](./channels/astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md)（凭据加密 / 密钥材料 / 解密验证 / scope / 敏感面） |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md)（渠道在册；上游曾封停测试账号，账号现状以 `mx acct lobsterai` 为准） |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
@@ -71,11 +70,6 @@
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）见下表。
 > GitHub 登录仅协议事实，未实现。
-
-`astudio` 的逆向记录与协议规格分开放：
-
-- [PROTOCOL.md](./channels/astudio/PROTOCOL.md) —— 现役协议事实
-- [FINDINGS.md](./channels/astudio/FINDINGS.md) —— 方法论 + 一次完整实跑 + 渠道缺口
 
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 

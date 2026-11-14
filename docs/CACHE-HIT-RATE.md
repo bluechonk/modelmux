@@ -75,7 +75,6 @@
 |---|---|---|---|
 | loomy | 13224 / 13674 | `prompt_tokens_details.cached_tokens` | 98.4% |
 | workbuddy | 4123 / 4227 | 两套风格全给（`prompt_cache_hit_tokens` + `miss` + `prompt_tokens_details.cached_tokens` + 顶层 `cached_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens` + `prompt_cache_write_tokens`） | 96.9% |
-| astudio | 1541 / 1935 | `prompt_tokens_details.cached_tokens` | 99.0% |
 | raccoon | 707 / 814 | `prompt_tokens_details.cached_tokens` | 86.0% |
 | lobsterai | 297 / 319 | `prompt_tokens_details.cached_tokens`；1 条另带 `prompt_cache_hit_tokens` + `miss` | 96.4% |
 | qodercn | 155 / 187 | `prompt_tokens_details.cached_tokens` | 86.1% |
@@ -85,7 +84,7 @@
 要点：
 
 - **缓存字段确实存在，且不是官方直连才有**：14 天 35413 条里 9 个渠道带回缓存字段，
-  其中多数是第三方聚合上游（loomy / astudio / raccoon 等），它们把模型侧的 KV cache 计数透传上来。
+  其中多数是第三方聚合上游（loomy / raccoon 等），它们把模型侧的 KV cache 计数透传上来。
 - **字段是自洽的上游统计，不是被中途改写**：全渠道 **0 条 `hit > prompt`、0 条负值**；
   workbuddy 的 4123 条 DeepSeek 形态**全部**满足官方等式 `hit + miss == prompt`。
 - 同一渠道**混合形态**很常见（lobsterai 个别请求多给双字段、loomy 少数请求完全不给）——
@@ -109,7 +108,7 @@
 | catpaw | `contextInfo.usage.cache_read_tokens` / `cache_write_tokens` | Anthropic 形态：`prompt_tokens` 不含缓存读，`total = prompt + completion + cache_read`（实测 prompt 47 / cache_read 29184 / total 29234） | **是** → `prompt_tokens_details.cached_tokens`（`prompt` 已含缓存读，走 OpenAI 形态） |
 
 > **catpaw 的缓存命中由渠道映射成 `prompt_tokens_details.cached_tokens` 透出**，与 loomy /
-> workbuddy / astudio 等一样计入仪表盘「缓存命中」。
+> workbuddy 等一样计入仪表盘「缓存命中」。
 
 ### 5.3 真实请求直连上游的字段（2026-11-13 探针实测）
 

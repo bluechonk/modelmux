@@ -19,21 +19,18 @@
       "path": "../core/gateway"
     },
     {
-      "path": "../core/channels/astudio"
-    },
-        {
       "path": "../core/channels/catpaw"
     },
     {
       "path": "../core/channels/codebuddycn"
     },
-                {
+    {
       "path": "../core/channels/lobsterai"
     },
     {
       "path": "../core/channels/loomy"
     },
-        {
+    {
       "path": "../core/channels/qodercn"
     },
     {
@@ -42,11 +39,11 @@
     {
       "path": "../core/channels/raccoon"
     },
-        {
+    {
       "path": "../core/channels/traecn"
     },
     {
       "path": "../core/channels/workbuddy"
-    },
-      ]
+    }
+  ]
 }

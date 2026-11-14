@@ -66,12 +66,12 @@ describe("仓库级模型池", () => {
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
     assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
     // 曾经下架、现已全部放行的三家：具名断言，避免「等式仍成立但悄悄又没了」
-    for (const cid of ["astudio", "lobsterai"]) {
+    for (const cid of ["lobsterai"]) {
       assert.ok(cids.includes(cid), `${cid} 已放行，必须出现在注册清单里`);
       assert.ok(!RETIRED_CIDS.includes(cid), `${cid} 已放行，不得留在 RETIRED_CIDS`);
     }
     // 本轮移除的五家：具名断言，防止渠道包目录残留或注册悄悄回来
-    for (const cid of ["qoder", "workbuddyai", "codearts", "doubaowork", "todayai", "marvis", "autoclaw"]) {
+    for (const cid of ["qoder", "workbuddyai", "codearts", "doubaowork", "todayai", "marvis", "autoclaw", "astudio"]) {
       assert.ok(!cids.includes(cid), `${cid} 已移除，不得出现在注册清单里`);
       assert.ok(!RETIRED_CIDS.includes(cid), `${cid} 已移除，不得留在 RETIRED_CIDS`);
     }
@@ -136,15 +136,6 @@ describe("仓库级模型池", () => {
         !gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === cid),
         `qwen3.8-flash 收窄后 ${cid} 不应进候选`,
       );
-    }
-    // 不供对外家族的渠道不进候选：astudio 的模型来自用户自配 provider
-    for (const cid of ["astudio"]) {
-      for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
-        assert.ok(
-          !gw.poolCandidates(model).some((c) => c.cid === cid),
-          `${cid} 不供 ${model}`,
-        );
-      }
     }
   });
 

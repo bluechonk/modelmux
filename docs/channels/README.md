@@ -67,7 +67,6 @@ docs/channels/<cid>/
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
-| `astudio` | AStudio（讯飞桌面 Agent） | 登录两条路：Web 控制台手机号 + 短信验证码云端直连，CLI 无界面时回落读桌面应用落盘的会话文件；渠道用 `modelBearerToken` 直连模型网关；支持 `mx logout` 本地登出 —— **已下架** | [PROTOCOL](./astudio/PROTOCOL.md) + [FINDINGS](./astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
 | `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
@@ -89,7 +88,6 @@ docs/channels/<cid>/
 
 | 渠道 | 测的模型 | 结果 | 备注 |
 | --- | --- | --- | --- |
-| `astudio` | 全部 7 个模型 | 通过 | 免费档（倍率 `-`）；7/7 落盘一致、`messageCount` 递增、无新增错误 |
 | `catpaw` | `longcat-2.0`（倍率 0） | 通过 | |
 | `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费与倍率相符（**已下架**，账号被上游封停） |
 | `loomy` | `spark-x`（倍率 0） | 通过 | 工具往返通过、零扣费；冷启动首字较慢 |
