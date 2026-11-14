@@ -89,6 +89,10 @@ POST /v2/chat/completions
 - 过滤：`disabled: true` 的剔除；`availableModels` 非空时只保留其中列出的 id。
 - 兜底表（渠道包 `models.json`）用于未登录 / 离线；远端失败**不清空**缓存。
 - 规格（上下文 / 输出 / 模态）是数据，落在 `models.json`。
+- **deepseek-v4.1-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 1000000` /
+  `maxOutput: 128000`（同目录的 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v3-2-volc`
+  无规格字段）。缓存字段形态无实测记录（[CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md)
+  §5.1 未含本渠道），目录本身不含缓存信息。
 
 ## 7. 额度与签到
 

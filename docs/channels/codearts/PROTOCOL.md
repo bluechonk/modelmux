@@ -164,6 +164,10 @@ Signature        = hex(hmac_sha256(SecretAccessKey, StringToSign))
 > 内置表**（`channel_source: codearts`，带 credit 倍率），福利端点返回
 > `invalid channel, group not found` —— 本渠道只读内置表，不再走福利路由。
 
+**deepseek-v4.1-flash 供给实测（2026-11-14）**：目录条目 `context_window: 1048576` /
+`max_tokens: 65536`（credit 倍率目录未给）；缓存字段形态无实测记录
+（[CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1 未含本渠道），目录本身不含缓存信息。
+
 ### 3.1 供给范围（注册表映射）
 
 上游模型名与网关对外模型名的映射写在统一注册表

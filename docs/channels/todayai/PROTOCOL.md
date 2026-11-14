@@ -125,6 +125,10 @@ GET https://api.todayai.cn/v1/conversations/messages?conversationId=<真实 id>&
 - 选项 id 形如 `model.<name>`（Pro 的具体模型）或 `mode.<name>`（Free 的档位）；**前缀不同**，解析时两种都认。[实测]
 - **选项列表在 `modelOptions.options[]`**（条目字段 `id` + `display.title`/`display.subtitle`）；旧字段 `modelOptions.availableOptions[]`（`optionId`/`displayName`）已不再下发。只读旧字段会解出空表，`mx model todayai` 只剩 `selectedOptionId`。[实测 2026-11-13]
 - **免费版没有对话额度**：发消息直接 `429 {"error":"quota_denied"}`。[实测]
+- **deepseek-v4.1-flash 供给（2026-11-14）**：上游选项 id `model.deepseek-v4.1-flash`
+  （注册表兜底映射；目录为 `builtin` 内置、无上游条目，无规格字段——上下文窗口与最大
+  输出取统一注册表对外值 1M / 128K）。**该渠道无 usage**：事件流只回内容块与状态，
+  无缓存字段，命中率显示 `—`（见 [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
 - 池内映射（对外模型 → 上游选项，静态表）。池内 `glm-5.3-flash` 是 **flash 档**，映射到 `model.glm-5.3-flash`（1× usage）；`model.glm-5.3` 是非 flash 档（4× usage），两者上游同时供：
 
 | 池模型 | 上游选项 id |

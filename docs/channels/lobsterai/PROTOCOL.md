@@ -330,6 +330,11 @@ URL：`POST {apiBase}/api/proxy/v1/chat/completions`
 实测远端把 `level:'max'` 映射到 `openclawLevel:'xhigh'`；
 直接发 `reasoning_effort:'max'` 与不带参数无差异。
 
+**deepseek-v4.1-flash 供给现状（2026-11-14）**：渠道已下架且本地未登录（目录刷新报
+`no credentials found`），上游规格不可取。缓存字段 `prompt_tokens_details.cached_tokens`，
+14 天全量加权命中率实测 **96.4%**（297/319 条，历史实测；见
+[CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+
 ### 5.3 兜底静态模型表（30 个，`catalog.ts:49-80`）
 
 全部 `contextWindow: 131072`：

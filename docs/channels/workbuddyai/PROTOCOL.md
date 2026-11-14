@@ -138,6 +138,37 @@ traecn）走各自 translator，不经过该兜底。
   （hub `remote_config_headers` 注释）；故用 `buildChatHeaders()` 那套桌面端身分。
 - 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddyai/cache/models.json`（共享层 `catalog-cache.ts`），
   `mx model workbuddyai --refresh` 与登录后的 `fetchModels` 都会触发。
+- **单条规格字段与国内版同构**（实测 2026-11-14：`data.models[]` 23 条，
+  `agents[cli].models` 21 个裸 id，含 gpt-6 系 / grok-4.7 / gemini-3.8-flash 等国际款）：
+  `id` / `name` / `credits` / `descriptionZh` / `descriptionEn` / `maxInputTokens` /
+  `maxOutputTokens` / `maxAllowedSize` / `contextWindow{defaultLength, supportedLengths}` /
+  `reasoning{defaultEffort, supportedEfforts}` / `relatedModels` / `supportsImages` /
+  `supportsToolCall` / `temperature` / `vendor` / `iconId`。
+- **DeepSeek 条目唯一**（实测 2026-11-14）：`deepseek-v4.1-flash-sg`——`credits x0.11`、
+  `maxInputTokens 1,000,000`、`maxOutputTokens 128,000`、`maxAllowedSize 1,000,000`、
+  `contextWindow.supportedLengths [300000, 1000000]`（`defaultLength 300000`，1M 是最大档）、
+  efforts `low/high/max`、原生多模态（`supportsImages: true`）、`vendor: "f"`。
+  无 v4-pro / v4-flash / v3 系条目——DeepSeek 供给面比国内版窄。
+- **缓存命中率（deepseek 系）**：usage 形态同国内版 workbuddy（两套风格全给）；14 天日志
+  实测仅 5/22 条带缓存字段（样本太少无全量命中率；见
+  [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.1）。
+
+- **glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `maxInputTokens: 1000000` /
+  `maxOutputTokens: 131072` / `credits x0.08`。
+- **响应顶层结构**（实测 2026-11-14，20,908 字节）：`code` / `msg` / `requestId` / `data`。
+  `data` 块与国际版差异（对照国内版 `workbuddy` 的 22 块）：**多** `$schema`（string）与
+  `builtInConnectorMarketplaces`（连接器市场，国内版无）；**少** `completion`（补全配置）、
+  `config`（密钥 / 购买入口）、`defaultVideoModel`、`productFeatureExperiment`、
+  `requestMaxStepLimit`、`telemetry`、`tokenUsageThresholds`、`builtInMarketPluginsMerge`。
+- **`models[23]` 字段集比国内版窄**：只有 `credits` / `descriptionEn` / `descriptionZh` /
+  `iconId` / `id` / `isDefault` / `maxAllowedSize` / `maxInputTokens` / `maxOutputTokens` /
+  `name` / `supportsImages` / `supportsToolCall` / `temperature` /
+  `vendor`——**无** `contextWindow`（分档结构）、`reasoning`、`onlyReasoning`、
+  `relatedModels`、`aliases`、`tags`、`disabledMultimodal`；分档窗口只在该渠道
+  `deepseek-v4.1-flash-sg` 条目上带 `contextWindow`（国内版是普遍字段）。
+- `modelPromotions[2]` 的 `schedule` 形态与国内版不同：国际版是
+  `{timezone, validFrom, validUntil}`（绝对区间），国内版是 `daily[{start, end}]`（每日循环）。
+  `modelTiers[1]` 的 `modelIds` 11 个（国内版 3 个）、`badge` 多 `color` / `labelEn`。
 
 ### 6.1 图片能力判据（哪个字段说了算）
 
