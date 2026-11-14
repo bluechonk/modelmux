@@ -111,7 +111,7 @@ async function refreshOne(channel: Channel, cid: string, key: string): Promise<n
  * 为什么需要：`health` 是**行为**标记（最近请求成败），空壳凭据文件（登出写成 `{}`、
  * 轮转/裁剪留下的半状态）行为上从没被拒绝过 → `health === "ok"` → 被选为换号目标，
  * 换过去当场 `NotLoggedInError`，把一次 504 放大成整条请求失败
- * （2026-11-11 codearts 渠道日志实证：504 → 换号 → 空壳账号 → not logged in）。
+ * （2026-11-11 渠道日志实证：504 → 换号 → 空壳账号 → not logged in）。
  * 判据 = 在该账号的凭据落点上下文里跑 `cred.load()`，任何抛错都算不可用：
  * `NotLoggedInError` 是「确定没用」，真故障（损坏 / 权限）是「此刻说不清」——
  * 换号的目的是找一个**现在**能用的账号，两种都不该换过去。

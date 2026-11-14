@@ -5,8 +5,8 @@
 > `reference/Sliverkiss_CodeBuddy2api`（Python，下称 **sliver**）、
 > `reference/workbuddy2api-panel`（Go，下称 **panel**）、
 > `reference/dsh-workbuddy-connect`（TypeScript，下称 **dsh**）；
-> 以及 `ardeyouxipianyi_workbuddy2api-hub`（clone 在**国际版** `workbuddyai/reference/` 下，
-> 与 `workbuddyai` 共用一套抓包结论，见 workbuddyai 协议存档（git 历史，渠道已移除））。
+> 以及 `ardeyouxipianyi_workbuddy2api-hub`（与已移除的国际版渠道共用一套抓包结论，
+> 见其协议存档 git 历史；参考实现 clone 目录随渠道移除一并清理）。
 > 国内版桌面端**无独立抓包**：版本号与 UA 维持参考实现原值（5.5.6 / CLI 2.137.1），不凭猜测改。
 > 逐条证据等级见各条标注（`[实测]` / `[代码]` / `[推断]` / `[参考]`）。
 
@@ -22,7 +22,7 @@
 | **登录**的 Origin / Referer | `https://codebuddy.cn`（+`/`）—— 与 chat 侧**不同**（少 `www`），见 §2.1 与 §7.3 V3 |
 | Accept-Language | `zh-CN` |
 
-身分头族、会话头族、链路族与设备指纹口径同 `workbuddyai`（见其 PROTOCOL.md §2-§3），
+身分头族、会话头族、链路族与设备指纹口径见 workbuddyai 协议存档（git 历史，渠道已移除），
 仅端点 / 域 / 版本三元组按上表替换。请求体归一化管线也完全一致（其 §5），
 本包 `src/upstream.ts::buildChatBody` 是同一份实现的两个副本（两渠道共用一套协议）。
 
@@ -48,7 +48,7 @@ glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
   故一律用 `buildChatHeaders()`。
 - 拉到的目录落盘到 `<MODELMUX_HOME>/workbuddy/cache/models.json`。
 - **倍率在 `models[]` 元数据的 `credits` 字段**（形如 `"x0.34 credits"`），
-  与 workbuddyai 同一 `/v3/config` 端点、同一口径；实测 19 条中 18 条有值
+  与国际版（已移除）同一 `/v3/config` 端点、同一口径；实测 19 条中 18 条有值
   （`x0.00` 视为免费）。解析见 `catalog.ts` 的 `parseCreditsRate`，
   产物经共享层 `PoolModelMeta.multiplier` 下发前端。
 - **目录是并发双探 + 合并**：`/v3/config`（主路）与企业窄表（次路）并发发起，
@@ -468,7 +468,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 两者的登录协议、上游约束、SSE 处理**完全一致**（代码有意重复），差别只有域名、
 模型目录与凭证落点 —— 规格见 workbuddyai 协议存档（git 历史，渠道已移除）。
 
-`cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似，这是有意的：
+`cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与国际版渠道高度相似，这是有意的：
 两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
 变成默认行为。
 
@@ -478,7 +478,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 `credentials.json`（0600）、`accounts.json` + `accounts/<key>.json`、`upstream.json`、
 `prefs.json`、`gateway.pid`，外加 `cache/`、`state/`、`debug/`。
 
-本渠道只读写 `~/.modelmux/workbuddy/`；国际版的数据在 `~/.modelmux/workbuddyai/`，两者不共享。
+本渠道只读写 `~/.modelmux/workbuddy/`；国际版渠道已移除，两者数据不共享。
 详见 [`STORAGE-CONVENTION.md`](../../STORAGE-CONVENTION.md)。
 
 `upstream.json` 里的 `deviceToken` 字段用于启用 `X-Device-Token`（§6.1）。

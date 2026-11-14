@@ -142,7 +142,7 @@ function uidFromUser(user: Record<string, unknown>, accessToken: string): string
  * 昵称归一化：**原样返回**（不做脱敏设计，该是什么就显示什么）。
  *
  * 渠道若再对上游下发的手机号昵称脱一层（如压成「露末 2 位」），就属于**二次加工**
- * —— 页面上 astudio 显示明文手机号、lobsterai 显示密文，
+ * —— 不同渠道上游给的明文/密文口径不同，
  * 同一页两套口径，看起来自相矛盾。所以直接透传上游给的值。
  */
 function normalizeNickname(value: string): string {

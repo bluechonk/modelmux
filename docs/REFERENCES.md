@@ -33,13 +33,6 @@
 | [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | MIT | 同上 |
 | [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | NOASSERTION | 同上 |
 
-### codearts
-
-| 仓库 | 许可证 | 在本仓库的落点 |
-|---|---|---|
-| [HITZY2002/codearts2api](https://github.com/HITZY2002/codearts2api) | MIT | `docs/channels/codearts/PROTOCOL.md`（已 clone 到 `packages/core/channels/codearts/reference/`，不入库） |
-| [Johnsheng1/codearts2api](https://github.com/Johnsheng1/codearts2api) | MIT | 同上（交叉核对端点字段） |
-
 ### lobsterai
 
 | 仓库 | 许可证 | 落点 |
@@ -100,24 +93,11 @@
 
 | 仓库 | 许可证 | 落点 |
 |---|---|---|
-| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | MIT | `docs/channels/workbuddy/PROTOCOL.md`、`docs/channels/workbuddyai/PROTOCOL.md` |
+| [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel) | MIT | `docs/channels/workbuddy/PROTOCOL.md` |
 | [HanawaBanana/workbuddy2api](https://github.com/HanawaBanana/workbuddy2api) | MIT | `docs/channels/workbuddy/PROTOCOL.md` |
 | [xiaofan6ya/workbuddy2api](https://github.com/xiaofan6ya/workbuddy2api) | — | 同上（已 404） |
 | [Sliverkiss/CodeBuddy2api](https://github.com/Sliverkiss/CodeBuddy2api) | MIT | 同上 |
 | [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) | — | 同上（已 404） |
-
-### workbuddyai
-
-| 仓库 | 许可证 | 落点 |
-|---|---|---|
-| [ardeyouxipianyi/workbuddy2api-hub](https://github.com/ardeyouxipianyi/workbuddy2api-hub) | **MIT**（主参照，已 clone 到 `packages/core/channels/workbuddyai/reference/`，不入库） | `docs/channels/workbuddyai/PROTOCOL.md` |
-| [Tom6814/WorkBuddy2API](https://github.com/Tom6814/WorkBuddy2API) | MIT | 同上 |
-| [ckldy/workbuddy2api](https://github.com/ckldy/workbuddy2api) | NOASSERTION | 同上 |
-
-> 从 `workbuddy2api-hub` 学到的具体结论：`6004`（用量限额）的重置时间写在 **msg 文本**里
-> （`... reset at YYYY-MM-DD HH:MM:SS UTC+8 ...` / `将在 ... 重置`），且必须用 `timegm`
-> 语义解析（见 `wb_proxy.py::parse_rate_limit_reset`）。本仓库据此用 TypeScript 重写了
-> `upstream.quotaResetAt()`，**未复制其代码**。
 
 ## 3. 模型规格参考（官方模型卡）
 

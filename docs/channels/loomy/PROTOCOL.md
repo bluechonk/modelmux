@@ -648,7 +648,7 @@ mx login loomy
 
 **结论**：慢在上游 prefill，不在网关（网关侧从首字到流结束约 3.4s）。
 工具集或上下文一变缓存即失效，会重新吃 ~25s 冷启动。
-**交互式对话建议换 `workbuddyai/deepseek-v4.1-flash`（首字 1.3–1.9s，同样免费）**；
+**交互式对话建议换在册免费渠道（如 `workbuddy/deepseek-v4.1-flash`，首字 1.3–1.9s）**；
 spark-x 适合不在乎延迟的批量任务。
 
 另注：`max_tokens` 太小时（如 64）正文可能为空 —— 思考 token 把预算吃光了，

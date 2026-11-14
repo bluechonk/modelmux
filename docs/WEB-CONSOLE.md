@@ -109,7 +109,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
    - **「今日签到」行**：值来自本地签到台账（`<root>/channels/<cid>/state/signin.json`，
      旧布局回落 `<root>/<cid>/`；不查上游 ——
      账号池页是 15 秒轮询，不该为一行状态去打各渠道的上游端点）。渠道声明
-     `capabilities.signin = false`（如 workbuddyai 国际版）时**整行不渲染** —— 写「未签到」
+     `capabilities.signin = false`（渠道无签到能力）时**整行不渲染** —— 写「未签到」
      会被读成「今天还没签」，与「根本没这项功能」是两回事。按账号签到的渠道（`signin.perAccount`，
      当前只有 loomy）读**该账号自己的**记录；其余渠道的 `claim()` 只作用于生效凭证，
      台账是渠道级的，值里带「（渠道）」标注。

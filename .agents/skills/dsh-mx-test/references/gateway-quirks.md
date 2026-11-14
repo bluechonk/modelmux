@@ -28,7 +28,7 @@ dsh 侧判工具调用真跑通：
 
 ## 排队即换渠道（不再有放弃文案）
 
-上游说「在排队」（如 qoder / qodercn 的 `code:"10605"`）时，网关**立即放弃这个候选渠道、
+上游说「在排队」（如 `code:"10605"`）时，网关**立即放弃这个候选渠道、
 换下一条**，不等待也不重试同一条流。
 
 - 判据：系统日志出现 `upstream queued (channel <cid>) — switching to next candidate without waiting`；
@@ -40,7 +40,7 @@ dsh 侧判工具调用真跑通：
   `stale_build: false`。
 
 判成**该渠道上游拥堵**时：给它加第二个供给渠道，或换个有货的模型名重跑，
-**不要**当成渠道协议故障去改代码（协议事实见 `docs/channels/qoder/PROTOCOL.md`）。
+**不要**当成渠道协议故障去改代码（协议事实见对应渠道 PROTOCOL）。
 
 ## 历史坑与回归护栏
 

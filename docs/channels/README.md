@@ -68,7 +68,7 @@ docs/channels/<cid>/
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
-| `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植 —— **已下架** | [PROTOCOL](./lobsterai/PROTOCOL.md) |
+| `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植（账号被上游封停，账号现状以 `mx acct lobsterai` 为准） | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
 | `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与已移除的国际版 qoder **同一套 COSY 协议**的不同部署（协议存档见 git 历史），仅域名 / 身份 / 模型目录不同；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./qodercn/PROTOCOL.md) |
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | 与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwen3.8-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
@@ -89,7 +89,7 @@ docs/channels/<cid>/
 | 渠道 | 测的模型 | 结果 | 备注 |
 | --- | --- | --- | --- |
 | `catpaw` | `longcat-2.0`（倍率 0） | 通过 | |
-| `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费与倍率相符（**已下架**，账号被上游封停） |
+| `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费与倍率相符（账号被上游封停） |
 | `loomy` | `spark-x`（倍率 0） | 通过 | 工具往返通过、零扣费；冷启动首字较慢 |
 | `qodercn` | `qwen3.8-flash`（倍率 0） | **受限** | 同 qoder（上游排队） |
 | `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费与倍率相符 |

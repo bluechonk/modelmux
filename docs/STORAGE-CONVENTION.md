@@ -34,7 +34,7 @@
 ├── update.json                  ← **版本更新检测状态**（上次检查时间 / 最近一次结果；
 │                                   读写见 runtime/update-check.ts）
 └── channels/                    ← 唯一渠道层（0.1.2 起）
-    ├── workbuddyai/             ← cid 层
+    ├── workbuddy/             ← cid 层
     │   ├── credentials.json         当前生效账号（兼容镜像）
     │   ├── accounts.json            账号池索引（active + 元信息）
     │   ├── accounts/<key>.json      单账号凭证

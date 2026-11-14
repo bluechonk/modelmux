@@ -152,9 +152,9 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
               }),
           }))
           .filter((row) => row.candidates.length > 0);
-        // 不在模型池里的渠道也要有账单行：workbuddyai 的上游目录没有 deepseek 家族模型
+        // 不在模型池里的渠道也要有账单行：上游目录没有家族模型的渠道
         // （进不了统一池），但它的额度照样要出现在账号池页 —— 账单行以**渠道**为主维度，
-        // 池内有没有模型是另一件事。（此前缺这段：workbuddyai 恒无 candidates → 前端额度恒 0。）
+        // 池内有没有模型是另一件事。（此前缺这段：这类渠道恒无 candidates → 前端额度恒 0。）
         const seen = new Set(rows.flatMap((row) => row.candidates.map((c) => c.cid)));
         for (const channel of wanted) {
           const chanCid = channel.config.cid;

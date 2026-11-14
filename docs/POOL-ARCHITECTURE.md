@@ -138,7 +138,7 @@
 为什么不用自然日：多个渠道的日额度在本地 0 点**之后**才到账，按自然日抓基线会让
 `remain > 基线`，比例被 clamp 成恒 100%（2026-10-24 实测 traecn / qodercn / raccoon）。
 为什么不用上游 `size`：各渠道口径不一（loomy 的 `dailyQuota` 只在首登响应里、
-workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
+月包型渠道的 `size` 是月包），拿它当分母同样恒 100%。
 
 前端只认基线：没有基线或 `remain` 不是有限数字时不画进度条、不显示百分比
 （不回退 `remain_percent`）。
@@ -224,7 +224,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 |---|---|---|---|
 | 瞬时故障 | 连败达 `FAIL_STREAK_LIMIT`（3） | `error` + `trip_until`（Web 显示「熔断 · X 后试探」） | **到期自动恢复**（半开试探）：成功恢复 `ok`，再失败退避翻倍（30s → 1m → … 封顶 30min） |
 | 凭据失效 | 401/403、刷新失败、`not_authenticated` | `unauthorized` | 只能重新登录（自动重试永远无效） |
-| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（如 workbuddyai 的 `429 + code=6004`） | **`cooldown`**（Web 显示「冷却 · 原因 · X 后恢复」） | **到期自动恢复**（惰性，无需定时器，到期自动放行） |
+| **额度耗尽** | 上游错误体命中 `isQuotaExhausted`（含 `429` + 用量超限业务码） | **`cooldown`**（Web 显示「冷却 · 原因 · X 后恢复」） | **到期自动恢复**（惰性，无需定时器，到期自动放行） |
 
 **熔断自动恢复（`trip_until`，2026-10-28 起）**：
 
@@ -279,7 +279,7 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
   | 信号 | 原文样例 | 作用范围 | 处置 |
   |---|---|---|---|
   | **余额不足** | loomy `HTTP 402` + `insufficient_quota`「积分余额不足」 | 计费用量 | 只冷却**付费**模型；免费模型继续打上游 |
-  | **账户级用量限额** | workbuddyai `HTTP 429` + `code=6004`「usage exceeds frequency limit」 | **所有模型**（含倍率 0 的） | **一律冷却**，截止取上游给的**滚动重置时间**（如 `17:36`，不是次日 0 点） |
+  | **账户级用量限额** | `HTTP 429` + 「usage exceeds frequency limit」类业务码 | **所有模型**（含倍率 0 的） | **一律冷却**，截止取上游给的**滚动重置时间**（如 `17:36`，不是次日 0 点） |
 
   识别见 `http/chat/errors.ts` 的 `isQuotaExhausted`（是否额度类）与 `isUsageLimit`（是否账户级
   用量限额）；词表只按真机原文维护（见 `tests/quota-signal.test.ts`）。
@@ -385,8 +385,8 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 语义 | 候选字段名 | 渠道缓存里实际写的键 |
 |---|---|---|
-| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy·workbuddyai）、上游原样 `max_input_tokens`（qoder·qodercn） |
-| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qoder·qodercn）、`max_output`（lobsterai·traecn·workbuddy·workbuddyai） |
+| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy）、上游原样 `max_input_tokens`（qodercn） |
+| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qodercn）、`max_output`（lobsterai·traecn·workbuddy） |
 | 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn·lobsterai）、**渠道解析后写进来的同一形态**（qoder·qodercn，见下） |
 
 - **`context_window` 报的是「最大上下文」**：qoder 的 `context_config` 是档位表
@@ -434,7 +434,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `/web/api/state` 下发，客户端据此决定要不要信这个数字；控制台表格当前不展示来源标记
 （详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)）。
 
-上游自己的字段名（lobsterai 的 `maxTokens`、workbuddyai 的 `maxOutputTokens` /
+上游自己的字段名（lobsterai 的 `maxTokens`、workbuddy 的 `maxOutputTokens` /
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
 汇聚层只认缓存里那两种写法（`pool-targets.ts` 的 `CONTEXT_KEYS` / `OUTPUT_KEYS`）。
 
@@ -443,9 +443,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   - **上下文也发**：catpaw（`parameterDefinitions[id=context]` 逐型号档位）、loomy（`context_length`）、
     lobsterai（`contextWindow`）、qoder / qodercn（`max_input_tokens` + `context_config` 档位表）、
     raccoon（`params.context_window`）、traecn（Remote `context_window_tokens`）、
-    workbuddy / workbuddyai（`maxInputTokens`）。
+    workbuddy（`maxInputTokens`）。
   - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
-    traecn（Solo `model_detail_list[].max_tokens`）、workbuddy / workbuddyai（`maxOutputTokens`）。
+    traecn（Solo `model_detail_list[].max_tokens`）、workbuddy（`maxOutputTokens`）。
   - **只发上下文、不发输出**：catpaw / lobsterai / qoder / qodercn（输出按公开规格补）。
   缺字段的渠道用**渠道包根的 `models.json`**（按公开规格维护的数据文件）回答 —— 入口是
   **可选钩子** `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
@@ -463,7 +463,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 ### 2.7 跨渠道同 model id 兜底
 
 同一个规范模型名常被**多个渠道**同时提供，而各渠道上游按**自己的上限**裁剪过同一个模型 ——
-实测同一个 id 的窗口能差一倍（`deepseek-v4-pro`：catpaw 报 700000、traecn/workbuddy
+实测同一个 id 的窗口能差一倍（同为 v4-pro 的实测：一家报 700000、另一家
 报 1000000）。
 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，就用兄弟渠道同名的已知值兜底。
 
@@ -490,7 +490,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 本渠道规格排在跨渠道**之前**：规格是渠道自己按公开规格维护的真值
 （[MODEL-SPECS.md](./MODEL-SPECS.md)），比兄弟渠道被上游裁剪过的值更权威 ——
-所以兜底**只替换占位值**，不会把 `traecn/deepseek-v4-pro` 从 1000000（规格）改成
+所以兜底**只替换占位值**，不会把规格窗口 1000000 改成
 700000（catpaw 的上游值）。每个值从哪来记在 `sources` 里（见 §2.6），随接口下发。
 
 **只在枚举路径生效**：`/v1/models` / 控制台 state / `mx model list` 走 `poolModelMetas()`
@@ -654,7 +654,7 @@ interface CredModule {
     见 `NAME_FIELDS`），渠道没给就是空串 —— Web 据此决定「显示名字」还是「显示脱敏 id」。
   - `label`：`name` 的兜底版本，取不到名称才退化成 `uid` / `key`；CLI 文本视图用它。
   - 渠道实测：traecn / qoder / qodercn / raccoon 给 nickname，loomy 给已脱敏手机号，
-    workbuddy / workbuddyai 的 nickname 可能为空，**catpaw 只有 uid**。
+    workbuddy 的 nickname 可能为空，**catpaw 只有 uid**。
     读池子时（`refreshLabels`）若渠道补上了名称，两者会一起升级。
 - `health`：`ok` | `unauthorized` | `unknown` | `error` | `cooldown`。由**网关**在刷新失败时写
   `unauthorized`、请求成功时写 `ok`；同值短路（进程内缓存），稳态下不产生额外 I/O。
@@ -731,7 +731,7 @@ interface CredModule {
 
 - **有界重试**：额度未知（`reward: null`）时按 30 分钟一轮重试，最多 `REWARD_MAX_TRIES = 4` 次
   （只对**当天**的记录重试，跨天由新的一轮领取重新记）；超次停在 `null`，不再打扰上游。
-  旧实现问一次就写终态，异步入账（raccoon 账单、astudio 积分）会白丢数字。
+  旧实现问一次就写终态，异步入账（账单 / 积分类上游）会白丢数字。
 - **不猜**：渠道报不出、也测不到差额时只显示「已签到 HH:MM」，不写 0。
 - **签到窗口未必是本地 0 点**：渠道可在 `SigninStatus.resetAt` / `windowStartsAt` 声明当前窗口的
   结束与开始时刻（qodercn 是 10:00 UTC+8）。调度器把领取时的 `resetAt` 记进台账（`windowEndsAt`），

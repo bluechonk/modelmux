@@ -33,7 +33,7 @@
 | lobsterai | LobsterAI（有道） | 是 | 是 | 在册 |
 | codebuddycn | CodeBuddy 国内版（腾讯） | 是 | 是 | 在册 |
 
-全部 17 个渠道均在册（`RETIRED_CIDS` 为空）。
+全部 9 个渠道均在册（`RETIRED_CIDS` 为空）。
 
 **每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
 `mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。

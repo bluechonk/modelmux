@@ -1,7 +1,6 @@
 # modelmux
 
-**一个端点，只做几个对外模型。** 把 WorkBuddy、Loomy、Raccoon、TRAE、CatPaw、
-Qoder 国内版、千问办公、AutoClaw 等渠道的额度汇成**一个 OpenAI 兼容端点**，
+**一个端点，只做几个对外模型。** 把在册渠道（WorkBuddy、Loomy、Raccoon、TRAE、CatPaw 等）的额度汇成**一个 OpenAI 兼容端点**，
 对外只有家族表里的几个模型名（当前清单看 `GET /v1/models`）。
 登录、多账号池、自动签到、额度刷新全在网关里自动跑完。
 
