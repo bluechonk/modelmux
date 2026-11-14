@@ -176,7 +176,9 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
       <span className="hidden w-10 shrink-0 text-right tabular-nums text-ink-soft sm:block">
         {ms != null ? formatDuration(ms) : "—"}
       </span>
-      <span className="w-11 shrink-0 text-right tabular-nums text-ink-faint sm:w-16">{tokens}</span>
+      {/* formatTokens 在数字与单位之间有空格，44px 会把「万」甩到第二行 —— 与
+          单日行的数值列同规（64px + nowrap，docs/WEB-CONSOLE.md「响应式适配」） */}
+      <span className="w-14 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-16">{tokens}</span>
       <span className="w-11 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-12">{tps}</span>
     </div>
   );
@@ -275,12 +277,12 @@ function IntegrateSwitchCard({
       } ${busy ? "opacity-70" : ""}`}
     >
       <div className="flex items-center gap-2.5">
-        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-lg bg-overlay text-[11px] font-medium text-ink">
+        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-lg bg-overlay text-xs font-medium text-ink">
           {icon}
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium text-ink">{name}</div>
-          <div className="mt-0.5 truncate font-mono text-[11px] text-ink-faint">{file}</div>
+          <div className="mt-0.5 truncate font-mono text-xs text-ink-faint">{file}</div>
         </div>
         <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
         {/*
@@ -293,7 +295,7 @@ function IntegrateSwitchCard({
             type="button"
             onClick={onUpdate}
             aria-label={`${name} 模型有更新（${updateDiffLabel(update)}），点击更新接入`}
-            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-line bg-overlay px-2.5 py-[3px] text-[11px] text-ink transition-colors hover:border-line-strong"
+            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-line bg-overlay px-2.5 py-[3px] text-xs text-ink transition-colors hover:border-line-strong"
           >
             <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn" aria-hidden="true" />
             更新
@@ -303,6 +305,9 @@ function IntegrateSwitchCard({
           开关本体：`role="switch"` + `aria-checked`。开 = 状态绿（与「已接入」文字同语义，
           深浅两套都有对比），关 = overlay 灰。不用品牌反白：深色下白轨道在一排深卡上
           过于刺眼，且与「已接入」的绿色文字各说各话。
+          触控垫：`.tap-square`（< md 时 min 44×44）放在**按钮**上、视觉轨道缩进里面 ——
+          之前 `.tap` 直接加在 22px 高的轨道按钮上，min-height 把轨道撑成 44px 圆饼、
+          滑块 top-[3px] 贴在圆饼顶部（2026-11-14 实测 390 视口）。
         */}
         <button
           type="button"
@@ -311,18 +316,24 @@ function IntegrateSwitchCard({
           disabled={busy}
           onClick={onToggle}
           aria-label={`${name} ${stateText}，点击${shown ? "还原" : "接入"}`}
-          className={`tap relative h-[22px] w-10 flex-none rounded-full transition-colors disabled:cursor-default ${
-            shown ? "bg-free" : "bg-overlay"
-          } ${busy ? "opacity-55" : ""}`}
+          className={`tap-square grid flex-none place-items-center disabled:cursor-default ${
+            busy ? "opacity-55" : ""
+          }`}
         >
           <span
-            className={`absolute top-[3px] h-4 w-4 rounded-full transition-all ${
-              shown ? "left-[19px] bg-canvas" : "left-[3px] bg-ink-faint"
+            className={`relative block h-[22px] w-10 rounded-full transition-colors ${
+              shown ? "bg-free" : "bg-overlay"
             }`}
-          />
+          >
+            <span
+              className={`absolute top-[3px] h-4 w-4 rounded-full transition-all ${
+                shown ? "left-[19px] bg-canvas" : "left-[3px] bg-ink-faint"
+              }`}
+            />
+          </span>
         </button>
       </div>
-      {failed && <div className="mt-2 break-words text-[11px] text-danger">{error}</div>}
+      {failed && <div className="mt-2 break-words text-xs text-danger">{error}</div>}
     </div>
   );
 }
@@ -768,7 +779,7 @@ export function Dashboard(): ReactElement {
                       代码兜底（default）不采信 —— 兜底恒为 65536，混进来会虚报能力。
                       「未声明」的意思是「没有可信来源」，不是 0。
                     */}
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-ink-faint">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-ink-faint">
                       <span>
                         上下文{" "}
                         <span className="tabular text-ink-soft">

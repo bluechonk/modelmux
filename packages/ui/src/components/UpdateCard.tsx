@@ -72,7 +72,7 @@ export function UpdateCard(): ReactElement | null {
           <span className="inline-flex items-center gap-2 text-xs text-ink">
             <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn" aria-hidden="true" />
             新版本
-            <span className="rounded-md bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-soft">
+            <span className="rounded-md bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-soft">
               {update.version}
             </span>
           </span>
