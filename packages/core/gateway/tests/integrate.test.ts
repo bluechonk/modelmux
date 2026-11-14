@@ -17,7 +17,7 @@ import { after, before, describe, it } from "node:test";
 import { integrateClient, restoreClient } from "../dist/app/integrate.js";
 import { poolModelMetas } from "../dist/pool/pool-targets.js";
 
-const MODELS = ["deepseek-v4.1-flash", "glm-5.3-flash"];
+const MODELS = ["deepseek-v4.1-flash", "qwen3.8-flash"];
 const GATEWAY_BASE = "http://127.0.0.1:4412/v1";
 
 let home = "";
@@ -311,12 +311,12 @@ describe("一键接入 dsh", () => {
 
   it("modelModalities 按池元数据解析模态，图片模型得到 text+image", () => {
     // 直接测模态解析：不依赖运行期渠道注册，用真实 `/v1/models` 的已知形态作期望。
-    const metas = poolModelMetas(["glm-5.3-flash"]);
-    const meta = metas.get("glm-5.3-flash");
-    assert.ok(meta !== undefined, "池元数据应能取到 glm-5.3-flash");
+    const metas = poolModelMetas(["deepseek-v4.1-flash"]);
+    const meta = metas.get("deepseek-v4.1-flash");
+    assert.ok(meta !== undefined, "池元数据应能取到 deepseek-v4.1-flash");
     // 元数据可能因渠道未注册而回落默认值 —— 两种情况都必须**包含 text**
     assert.ok(meta.inputModalities.includes("text"), "任何模型的 input 都必须含 text");
-    // 图片支持由上游目录声明；本机网关实测 glm-5.3-flash 为 ["text","image"]
+    // 图片支持由上游目录声明；本机网关实测 deepseek-v4.1-flash 为 ["text","image"]
     // （见 /v1/models）。此处只断言「若元数据声明了 image，它就会被保留」。
     if (meta.inputModalities.includes("image")) {
       assert.deepEqual(

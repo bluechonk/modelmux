@@ -20,7 +20,6 @@ import { Select } from "../components/Select";
 import { useToast } from "../components/Toast";
 import { columnCount, distributeByColumns } from "../lib/card-columns";
 import { errorText } from "../lib/log-format";
-import { useNarrow } from "../lib/use-narrow";
 import { Skeleton } from "./Dashboard";
 
 interface StatusRow {
@@ -79,8 +78,6 @@ const SUMMARY_ORDER: Array<{ key: AccountStatus; label: string; dot: string }> =
 export function Accounts(): ReactElement {
   const qc = useQueryClient();
   const toast = useToast();
-  /** 窄屏（< md）：模型偏好切两列网格、下拉填满列宽。 */
-  const narrow = useNarrow();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   /** 弹窗目标渠道；null = 关闭。 */
   const [loginChannel, setLoginChannel] = useState<string | null>(null);
@@ -412,25 +409,22 @@ export function Accounts(): ReactElement {
           */}
           <section className="rounded-xl border border-line bg-panel p-3">
             <h2 className="mb-2 text-xs font-medium text-ink-soft">模型偏好</h2>
-            <div className={narrow ? "grid grid-cols-2 gap-3" : "flex flex-wrap items-end gap-x-4 gap-y-2"}>
+            <div className="flex flex-col gap-2">
               {modelPrefs.map((pref) => (
-                // 桌面：列宽钉死而不是 flex-1 均分 —— 均分时每列占到卡片宽的三分之一
-                // （实测 385px），而下拉只需要容下最长的渠道名（workbuddyai ≈ 110px）。
-                // 固定 176px 后三列靠左排、右侧留白交给卡片。
-                // 窄屏：两列网格一行放完（主人裁决 2026-11-14）——176px 定列在手机上
-                // 折成竖排居中的大块；下拉 fill 模式填满列宽（360 视口两列各 ~144px），
-                // 定宽 150px 在窄列会溢出。
-                <div key={pref.model} className={narrow ? "flex min-w-0 flex-col gap-1" : "flex w-44 flex-col gap-1"}>
-                  <span className={`font-mono text-xs text-ink ${narrow ? "" : "text-center"}`}>{pref.model}</span>
-                  {/* 桌面触发器定宽后列内居中，与上方模型名对齐；窄屏填满列宽；
-                      nowrap 防文字折行把高度顶高 */}
-                  <div className="flex w-full [&_button]:whitespace-nowrap">
+                // 一个模型一行：「模型 → 偏好渠道」横着读，flex 两端对齐。
+                // 为什么不再分桌面/窄屏两套排布：此前桌面 176px 定列居中、窄屏两列网格
+                // 左对齐，模型名与下拉的对齐靠分支逻辑撑着，每加一档断点就错位一次
+                // （2026-11-14 主人实拍指出）；单行两端全档位同构，多模型按行自动扩展。
+                <div key={pref.model} className="flex items-center gap-3">
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{pref.model}</span>
+                  {/* 下拉定宽靠右（fixedWidth 按最长渠道名量宽）：切换选项时按钮不位移，
+                      名称截断让位；nowrap 防文字折行把高度顶高 */}
+                  <div className="flex-none [&_button]:whitespace-nowrap">
                     <Select
                       value={pref.preferred ?? ""}
                       onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
                       label={`模型 ${pref.model} 优先渠道`}
                       fixedWidth
-                      fill={narrow}
                       options={[
                         { value: "", label: "自动" },
                         ...pref.channels.map((cid) => ({ value: cid, label: cid })),

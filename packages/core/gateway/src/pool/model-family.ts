@@ -11,7 +11,6 @@
 /** 对外暴露的模型 id（顺序即 `/v1/models` 与控制台的展示顺序；别名排在最后）。 */
 export const POOL_MODEL_IDS = [
   "deepseek-v4.1-flash",
-  "glm-5.3-flash",
   "qwen3.8-flash",
   "deepseek-flash",
 ] as const;
@@ -19,7 +18,6 @@ export const POOL_MODEL_IDS = [
 /** 对外 id → 规范名（别名归并到同一个 canonical）。 */
 const CANONICAL: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek-v4.1-flash",
-  "glm-5.3-flash": "glm-5.3-flash",
   "qwen3.8-flash": "qwen3.8-flash",
   "deepseek-flash": "deepseek-v4.1-flash",
 };
@@ -27,14 +25,12 @@ const CANONICAL: Readonly<Record<string, string>> = {
 /** 规范名 → 该代模型的对外 id 集合（含别名）。 */
 const ALIAS_GROUP: Readonly<Record<string, readonly string[]>> = {
   "deepseek-v4.1-flash": ["deepseek-v4.1-flash", "deepseek-flash"],
-  "glm-5.3-flash": ["glm-5.3-flash"],
   "qwen3.8-flash": ["qwen3.8-flash"],
 };
 
 /** canonical → `/v1/models` 里的 `owned_by`（厂商标识，展示用）。 */
 const MODEL_OWNER: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek",
-  "glm-5.3-flash": "zhipu",
   "qwen3.8-flash": "alibaba",
 };
 
@@ -43,13 +39,14 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
  *
  * Desktop 直连网关只会发 `claude-<role>-<n>-<n>` 这类真实 Anthropic 名（校验器拒自造名、
  * 斜杠与点号，且整组拒收），`labelOverride` 只改菜单显示名、**不进请求体** ——
- * 没有这层映射时三个槽只能落到「第一个池模型」，菜单选 glm 实际跑 deepseek
- * （2026-11-08 实测）。固定表而非按槽位下标取 `models[n]`：后者让实际模型随
- * `/v1/models` 展示顺序漂移。契约见 docs/CONTRACT-TS.md §4.1.1。
+ * 没有这层映射时三个槽只能落到「第一个池模型」（2026-11-08 实测）。固定表而非按槽位
+ * 下标取 `models[n]`：后者让实际模型随 `/v1/models` 展示顺序漂移。
+ * opus 与 sonnet 同落 deepseek：池里唯一的多渠道强档模型（glm-5.3-flash 已移出家族）。
+ * 契约见 docs/CONTRACT-TS.md §4.1.1。
  */
 export const DESKTOP_ROLE_MODELS: ReadonlyArray<readonly [roleId: string, model: string]> = [
   ["claude-sonnet-4-5", "deepseek-v4.1-flash"],
-  ["claude-opus-4-5", "glm-5.3-flash"],
+  ["claude-opus-4-5", "deepseek-v4.1-flash"],
   ["claude-haiku-4-5", "qwen3.8-flash"],
 ];
 
@@ -73,13 +70,12 @@ function lookup<T>(table: Readonly<Record<string, T>>, key: string): T | undefin
 }
 
 /**
- * 偏好功能覆盖的模型族（canonical 集合）：两族均为多渠道供给，偏好有意义；
+ * 偏好功能覆盖的模型族（canonical 集合）：deepseek 为多渠道供给，偏好有意义；
  * 单渠道收窄的模型（qwen3.8-flash → qwenworkcn）无偏好语义。模型名的唯一
  * 落点在家族表（verify-contract 校验共享层不得另行硬编码）。
  */
 export const PREFS_CANONICALS: readonly string[] = [
   "deepseek-v4.1-flash",
-  "glm-5.3-flash",
 ];
 
 /**

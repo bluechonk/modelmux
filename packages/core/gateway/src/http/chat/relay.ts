@@ -222,8 +222,14 @@ async function dispatchChat(
   opts: Required<GatewayOptions>,
   protocol: InboundProtocol | null,
 ): Promise<void> {
-  // B 段：池路由解析（已应答则直接返回）
-  const route = resolvePoolRoute(parsed.model, res, opts.logger);
+  // B 段：池路由解析（已应答则直接返回）。输入 token 估算喂给选路做上下文窗口过滤 ——
+  // 估算器同时认 Anthropic 原生与 OpenAI chat 两形态（见 protocol/count-tokens.ts）。
+  const route = resolvePoolRoute(
+    parsed.model,
+    estimateInputTokens(parsed.payload as Record<string, unknown>),
+    res,
+    opts.logger,
+  );
   if (!route) return;
 
   const wantStream = Boolean(parsed.payload["stream"]);

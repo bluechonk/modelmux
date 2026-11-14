@@ -26,7 +26,7 @@ const CID = "stub";
 function makeChannel(cid: string, base: string): Channel {
   // 候选渠道由统一注册表声明（与线上同口径）：三个池型号都供，
   // 否则「角色名 → 池模型」的映射没有可用渠道，请求会 400
-  registerChannelSupply(cid, ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]);
+  registerChannelSupply(cid, ["deepseek-v4.1-flash", "qwen3.8-flash"]);
 
   const config: ChannelConfig = {
     cid,
@@ -70,7 +70,7 @@ function makeChannel(cid: string, base: string): Channel {
     },
     catalog: {
       // 三个池模型都供给：角色名映射要真正走通选路，只有一个模型时另两个槽会因「无渠道供给」400
-      exposedIds: () => ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"],
+      exposedIds: () => ["deepseek-v4.1-flash", "qwen3.8-flash"],
       resolveModel: (n: string) => n,
     },
     billing: {
@@ -165,7 +165,7 @@ describe("协议入站端点（假上游全链路）", () => {
     });
     assert.equal(resp.status, 200);
     // 角色名 → 固定池模型（不是「第一个池模型」）：菜单里选什么，跑的就是什么
-    assert.equal(upstreamModel, "glm-5.3-flash", "claude-opus-4-5 必须映射到 glm-5.3-flash");
+    assert.equal(upstreamModel, "deepseek-v4.1-flash", "claude-opus-4-5 必须映射到 deepseek-v4.1-flash");
     const payload = (await resp.json()) as Record<string, unknown>;
     assert.equal(payload["type"], "message");
   });

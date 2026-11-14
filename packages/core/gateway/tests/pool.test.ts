@@ -184,7 +184,7 @@ function chat(gw: gateway.RunningGateway, model: string) {
 // ── 1. 对外形态与跨渠道选路 ──────────────────────────────────────────────────
 
 describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
-  let alphaUp: FakeUpstream; // 提供 glm-5.3-flash（目录里混排大小写）
+  let alphaUp: FakeUpstream; // 提供 GLM-5.3-Flash（已移出家族：验证家族外不进对外池）
   let betaUp: FakeUpstream; // 提供 deepseek-v4.1-flash（raccoon 式连字符写法）
   let gw: gateway.RunningGateway;
 
@@ -220,35 +220,27 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
     assert.equal(resp.status, 200);
     const payload = (await resp.json()) as { data: Array<{ id: string; owned_by: string }> };
     const ids = payload.data.map((m) => m.id).sort();
-    // alpha 出 glm-5.3-flash、beta 出 deepseek-v4.1-flash
-    assert.deepEqual(ids, ["deepseek-v4.1-flash", "glm-5.3-flash"]);
+    // alpha 的 GLM-5.3-Flash 已在家族外：对外池只列 beta 的 deepseek-v4.1-flash
+    assert.deepEqual(ids, ["deepseek-v4.1-flash"]);
     const ownerOf = (id: string): string =>
       payload.data.find((m) => m.id === id)!.owned_by;
     assert.equal(ownerOf("deepseek-v4.1-flash"), "deepseek");
-    assert.equal(ownerOf("glm-5.3-flash"), "zhipu", "owned_by 按家族表，不再一律 deepseek");
   });
 
-  it("请求 glm-5.3-flash → 打到提供它的 alpha，上游写法由注册表给出", async () => {
+  it("请求已移出家族的 glm → 400（目录里仍暴露也不进池）", async () => {
     alphaUp.captured.length = 0;
     betaUp.captured.length = 0;
     const { status } = await chat(gw, "glm-5.3-flash");
-    assert.equal(status, 200);
-    assert.equal(alphaUp.captured.length, 1);
+    assert.equal(status, 400);
+    assert.equal(alphaUp.captured.length, 0);
     assert.equal(betaUp.captured.length, 0);
-    assert.equal(alphaUp.captured[0]!.body!["routed_to"], "alpha");
-    assert.equal(
-      alphaUp.captured[0]!.body!["model"],
-      "GLM-5.3-Flash",
-      "上游收到的是注册表里该渠道声明的写法（不是池里的规范名）",
-    );
-    assert.equal(alphaUp.captured[0]!.headers["authorization"], "Bearer tok-alpha");
   });
 
-  it("大小写不敏感：GLM-5.3-Flash 同样命中", async () => {
+  it("大小写不敏感失效：GLM-5.3-Flash 同样 400（已移出家族）", async () => {
     alphaUp.captured.length = 0;
     const { status } = await chat(gw, "GLM-5.3-Flash");
-    assert.equal(status, 200);
-    assert.equal(alphaUp.captured.length, 1);
+    assert.equal(status, 400);
+    assert.equal(alphaUp.captured.length, 0);
   });
 
   it("两个家族型号不串号：deepseek-v4.1-flash → beta", async () => {
@@ -289,10 +281,10 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
   });
 
   it("带 `modelmux/` 前缀 / `[1m]` 后缀的容错写法仍可用", async () => {
-    alphaUp.captured.length = 0;
-    const { status } = await chat(gw, "modelmux/glm-5.3-flash[1m]");
+    betaUp.captured.length = 0;
+    const { status } = await chat(gw, "modelmux/deepseek-flash[1m]");
     assert.equal(status, 200);
-    assert.equal(alphaUp.captured.length, 1);
+    assert.equal(betaUp.captured.length, 1);
   });
 
   it("/health 逐渠道报告；/ 列出渠道与服务身份", async () => {
@@ -454,12 +446,12 @@ describe("4. 单渠道模式也走同一个池", () => {
   });
 
   it("家族内但本渠道没有 → 400 unknown_model", async () => {
-    const { status } = await chat(gw, "glm-5.3-flash");
+    const { status } = await chat(gw, "qwen3.8-flash");
     assert.equal(status, 400);
   });
 
   it("非家族模型 → 400 unknown_model", async () => {
-    const { status } = await chat(gw, "qwen3.8-flash");
+    const { status } = await chat(gw, "glm-5.3-flash");
     assert.equal(status, 400);
   });
 });

@@ -91,7 +91,7 @@ describe("仓库级模型池", () => {
     const payload = (await resp.json()) as { data: Array<{ id: string; owned_by: string }> };
     const ids = payload.data.map((m) => m.id).sort();
     assert.ok(ids.includes("deepseek-v4.1-flash"), `应包含 deepseek-v4.1-flash（实际 ${ids.join(", ")}）`);
-    assert.ok(ids.includes("glm-5.3-flash"), `应包含 glm-5.3-flash（实际 ${ids.join(", ")}）`);
+    assert.ok(!ids.includes("glm-5.3-flash"), "glm 已移出对外家族");
     assert.ok(
       payload.data.every((m) => gw.isPoolModel(m.id)),
       "对外 id 全部属于对外家族",
@@ -102,7 +102,6 @@ describe("仓库级模型池", () => {
     );
     const ownerOf = (id: string): string => payload.data.find((m) => m.id === id)!.owned_by;
     assert.equal(ownerOf("deepseek-v4.1-flash"), "deepseek");
-    assert.equal(ownerOf("glm-5.3-flash"), "zhipu");
     assert.ok(ids.includes("qwen3.8-flash"), `应包含 qwen3.8-flash（实际 ${ids.join(", ")}）`);
     assert.equal(ownerOf("qwen3.8-flash"), "alibaba");
   });
@@ -114,7 +113,7 @@ describe("仓库级模型池", () => {
     assert.ok(ds.length >= 2, `同一模型应有多家候选（实际 ${ds.join(", ")}）`);
     // 别名请求命中同一批渠道
     assert.deepEqual(candsOf("deepseek-flash"), ds);
-    assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
+    assert.deepEqual(candsOf("glm-5.3-flash"), [], "glm 已移出对外家族");
   });
 
   it("家族模型的候选来自渠道目录：qwen3.8-flash 收窄后只含 qwenworkcn", () => {
@@ -122,8 +121,7 @@ describe("仓库级模型池", () => {
     // qwen3.8-flash 只从 qwenworkcn 出（其余渠道的 qwen 条目一律不进候选）。
     const mustHave: Array<[model: string, cid: string]> = [
       ["deepseek-v4.1-flash", "traecn"],
-      ["glm-5.3-flash", "catpaw"],
-      ["glm-5.3-flash", "qodercn"],
+      ["deepseek-v4.1-flash", "catpaw"],
       ["qwen3.8-flash", "qwenworkcn"],
     ];
     for (const [model, cid] of mustHave) {
@@ -139,8 +137,8 @@ describe("仓库级模型池", () => {
         `qwen3.8-flash 收窄后 ${cid} 不应进候选`,
       );
     }
-    // 不供家族型号的渠道（模型来自用户自配的第三方 provider）不进候选
-    for (const cid of ["astudio", "marvis"]) {
+    // 不供对外家族的渠道不进候选：astudio 的模型来自用户自配 provider
+    for (const cid of ["astudio"]) {
       for (const model of ["deepseek-v4.1-flash", "glm-5.3-flash", "qwen3.8-flash"]) {
         assert.ok(
           !gw.poolCandidates(model).some((c) => c.cid === cid),
@@ -151,13 +149,8 @@ describe("仓库级模型池", () => {
   });
 
   it("候选来自渠道目录 ∪ 注册表兜底（不再以注册表为唯一口径）", () => {
-    // 目录声明供给的渠道进候选：qodercn 的 glm-5.3-flash 由上游目录给出
-    assert.ok(
-      gw.poolCandidates("glm-5.3-flash").some((c) => c.cid === "qodercn"),
-      "qodercn 的目录供 glm-5.3-flash，应进候选",
-    );
     // 家族外型号一律不进候选（家族表是硬边界）
-    for (const model of ["longcat-2.5", "deepseek-v4-pro"]) {
+    for (const model of ["longcat-2.5", "deepseek-v4-pro", "glm-5.3-flash"]) {
       assert.deepEqual(gw.poolCandidates(model), [], `${model} 不在家族表内，候选应为空`);
     }
     // 千问办公只卖「标准」档：其余两档与具体型号名都不进家族表

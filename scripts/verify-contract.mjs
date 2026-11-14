@@ -371,11 +371,18 @@ if (existsSync(join(repo, REGISTRY_FILE))) {
         Object.keys(channels).length > 0,
         `${REGISTRY_FILE}: "${id}" 没有声明任何供给渠道（该模型对外必然无货）`,
       );
-      for (const [cid, upstream] of Object.entries(channels)) {
+      for (const [cid, entry] of Object.entries(channels)) {
         check(knownCids.has(cid), `${REGISTRY_FILE}: "${id}" 声明了不存在的渠道 "${cid}"`);
+        // 两种形态：纯 slug 字符串，或 { slug, contextWindow? }（渠道级窗口）
+        const slug = typeof entry === "string" ? entry : entry?.slug;
+        const ctx = typeof entry === "object" && entry !== null ? entry.contextWindow : undefined;
         check(
-          typeof upstream === "string" && upstream.trim() !== "",
+          typeof slug === "string" && slug.trim() !== "",
           `${REGISTRY_FILE}: "${id}" 的渠道 "${cid}" 上游 id 为空（请求会带空 model 打上游）`,
+        );
+        check(
+          ctx === undefined || (typeof ctx === "number" && Number.isFinite(ctx) && ctx > 0),
+          `${REGISTRY_FILE}: "${id}" 的渠道 "${cid}" contextWindow 必须是正数`,
         );
       }
     }

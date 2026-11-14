@@ -227,8 +227,11 @@ interface Channel {
 
 - **规格与上游 id 由统一注册表声明**（`<root>/models.json`，实现
   `pool/model-registry.ts`）：`contextWindow` / `maxOutput` 是对外报值，`channels` 段是
-  **上游 id 映射的兜底**。`/v1/models` 直接读它返回，不再聚合各渠道目录。文件契约见
-  [MODEL-CATALOG.md](./MODEL-CATALOG.md)；整份表要么全用、要么全弃（回落随包默认表）。
+  **上游 id 映射的兜底**，条目为纯 slug 字符串或 `{ slug, contextWindow? }`（渠道级窗口，
+  缺省回落模型级）—— 选路时输入估算超过渠道级窗口的候选被跳过（见
+  [POOL-ARCHITECTURE.md §2.4](./POOL-ARCHITECTURE.md)）。`/v1/models` 直接读它返回，
+  不再聚合各渠道目录。文件契约见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)；
+  整份表要么全用、要么全弃（回落随包默认表）。
 - **渠道由网关挑**：候选 = 渠道目录 `exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底，
   且当前已注册；经 `capabilities.queue`、`priorityTier`（硬档位）与剩余额度排序（见
   [POOL-ARCHITECTURE.md §2.4](./POOL-ARCHITECTURE.md)）；客户端请求里不带渠道前缀。
