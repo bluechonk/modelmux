@@ -20,17 +20,20 @@ export const MODEL_PREFS_FILE = "model-prefs.json";
 export type ModelPrefs = Record<string, string | null>;
 
 /**
- * 偏好功能覆盖的模型族（canonical）：只有 `deepseek-v4.1-flash`。
+ * 偏好功能覆盖的模型族（canonical 集合）：`deepseek-v4.1-flash` 与 `glm-5.3-flash`。
  *
- * 为什么只有它：glm-5.3-flash 与 qwen3.8-flash 的供给已收窄到唯一渠道
- * （autoclaw / qwenworkcn），单渠道没有「优先走哪家」的语义，偏好只对
- * 多渠道供给的模型有意义。
+ * 为什么是这两个：两者均为多渠道供给（候选 10 / 11 家），偏好有意义；
+ * qwen3.8-flash 收窄到 qwenworkcn 单渠道，无偏好语义——UI 不显示，选路默认
+ * 走唯一候选 qwenworkcn。
  */
-export const PREFS_CANONICAL = "deepseek-v4.1-flash";
+export const PREFS_CANONICALS: readonly string[] = [
+  "deepseek-v4.1-flash",
+  "glm-5.3-flash",
+];
 
 /** 偏好功能是否覆盖某池模型（按 canonical 判定，别名 `deepseek-flash` 同样命中）。 */
 export function isPrefsModel(model: string): boolean {
-  return canonicalOf(model) === PREFS_CANONICAL;
+  return PREFS_CANONICALS.includes(canonicalOf(model) ?? "");
 }
 
 /** 读偏好；文件缺失或损坏返回空表（不猜、不修补）。 */
