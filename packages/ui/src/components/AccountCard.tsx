@@ -559,13 +559,13 @@ export function AccountCard({
                   )}
                   </div>
                   {/*
-                    操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 92px ——
-                    两个键各自撑到 44px 的触控下限后，52px 装不下。
+                    操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 76px ——
+                    两个键各自撑到 36px 的触控下限后，52px 装不下。
                     **默认隐藏，鼠标悬停该账号行才出现**（删除/切换不常使用）；
                     键盘聚焦（`group-focus-within`）时也出现；触屏设备（`pointer-coarse`）常显 ——
                     触屏没有悬停。
                   */}
-                  <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity max-md:w-[92px] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
+                  <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity max-md:w-[76px] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
                     {!active && (
                       <button
                         className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
