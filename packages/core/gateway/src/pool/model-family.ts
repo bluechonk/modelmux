@@ -76,6 +76,16 @@ function lookup<T>(table: Readonly<Record<string, T>>, key: string): T | undefin
 }
 
 /**
+ * 偏好功能覆盖的模型族（canonical 集合）：两族均为多渠道供给，偏好有意义；
+ * 单渠道收窄的模型（qwen3.8-flash → qwenworkcn）无偏好语义。模型名的唯一
+ * 落点在家族表（verify-contract 校验共享层不得另行硬编码）。
+ */
+export const PREFS_CANONICALS: readonly string[] = [
+  "deepseek-v4.1-flash",
+  "glm-5.3-flash",
+];
+
+/**
  * 对外**列出**的模型 id：只列 canonical。
  *
  * `deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（同一代模型），仍可被客户端**请求**，
