@@ -51,9 +51,8 @@
 
 | 对外模型 id | 别名 | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
-| `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、codearts、codebuddycn、workbuddyai、loomy、traecn、raccoon、workbuddy、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
-| `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）、qoder（`qfmodel`）、qodercn（`qfmodel`）…（千问办公只卖「标准」档，底层型号由上游池化） |
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codebuddycn、catpaw（渠道级窗口 600k）、lobsterai、qodercn —— 上游写法逐渠道不同（如 raccoon 的 `sn-deepseek-v4-1-flash-1017`），catpaw 的渠道级窗口见注册表 `channels.catpaw.contextWindow` |
+| `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）…（千问办公只卖「标准」档，底层型号由上游池化；候选经单渠道收窄表只出 qwenworkcn） |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
 出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
@@ -188,6 +187,11 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
 3. **候选过滤**：凭据读不出的渠道直接退出路由（不可能成功，白耗尝试预算）；
    生效账号已被标 `unauthorized`（凭据失效，**终态**，重试永远不会成功）的渠道硬排除；
    冷却中的渠道硬排除。全被过滤掉时回退完整候选（服务不能因此不可用），仍全失败 → `503 not_authenticated`。
+   **上下文窗口过滤**：请求体估算的输入 tokens（`estimateInputTokens`，与
+   `/v1/messages/count_tokens` 同一套启发式）超过渠道级窗口（注册表 `channels` 条目的
+   `contextWindow`，缺省回落模型级）的候选直接跳过；**不参与冷却回退**——输入超窗是硬
+   事实，回退把超窗渠道放回来也一定失败。全部候选超窗 → `400 input_exceeds_context`；
+   窗口数据缺失的渠道不过滤（没有数据不能当没有能力）。跳过写网关日志。
 4. **逐候选尝试**：请求体由**该候选渠道**单独构建（上游 slug 与渠道一一对应，
    TRAE 认 `DeepSeek-V4-Flash` 不认全小写；`catpaw` 的 `prepareChat` 有建会话副作用，
    只在轮到它时才执行）。**只在上游响应头到达之前**重试，一旦开始转发就换不动。

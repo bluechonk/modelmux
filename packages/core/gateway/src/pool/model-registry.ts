@@ -15,6 +15,22 @@ import { fileURLToPath } from "node:url";
 import { POOL_EXPOSED_IDS, POOL_MODEL_IDS, canonicalOf } from "./model-family.js";
 import { rootFile } from "../runtime/paths.js";
 
+/** 渠道级条目：上游 slug 之外可以声明**该渠道的上下文窗口**（与模型级不同时）。 */
+export interface RegistryChannelEntry {
+  /** 该渠道上游的模型 id（请求体里的真名）。 */
+  slug: string;
+  /**
+   * 该渠道这一档的上下文窗口；缺省回落模型级 `contextWindow`。
+   *
+   * 选路时输入估算超过它的渠道会被跳过（见 `http/chat/route.ts`）——
+   * 同一模型在不同渠道的窗口可以不同（档位制渠道、缩水窗口渠道）。
+   */
+  contextWindow?: number;
+}
+
+/** 渠道条目的两种 JSON 形态：纯 slug 字符串或带窗口的对象。 */
+export type RegistryChannelSpec = string | RegistryChannelEntry;
+
 /** 一个模型在注册表里的声明。 */
 export interface RegistryModel {
   /** 上下文窗口（对外报值，客户端按它算预算）。 */
@@ -23,8 +39,8 @@ export interface RegistryModel {
   maxOutput: number;
   /** 输入模态（`text` / `image`）。 */
   inputModalities: string[];
-  /** 渠道 cid → 该渠道上游的模型 id（请求体里的真名）。 */
-  channels: Record<string, string>;
+  /** 渠道 cid → 该渠道的上游条目（slug + 可选的渠道级窗口）。 */
+  channels: Record<string, RegistryChannelSpec>;
 }
 
 /** 注册表文件结构。 */
@@ -71,11 +87,24 @@ function parseModel(value: unknown): RegistryModel | null {
       : ["text"];
   const channelsRaw = row["channels"];
   if (!channelsRaw || typeof channelsRaw !== "object" || Array.isArray(channelsRaw)) return null;
-  const channels: Record<string, string> = {};
-  for (const [cid, upstream] of Object.entries(channelsRaw as Record<string, unknown>)) {
-    // 上游 id 必须是非空字符串：空串会让请求带着空 model 打上游
-    if (typeof upstream !== "string" || upstream.trim() === "") return null;
-    channels[cid] = upstream;
+  const channels: Record<string, RegistryChannelSpec> = {};
+  for (const [cid, value] of Object.entries(channelsRaw as Record<string, unknown>)) {
+    // 两种形态：纯 slug 字符串，或 { slug, contextWindow? } 对象（渠道级窗口）
+    if (typeof value === "string") {
+      if (value.trim() === "") return null; // 空串会让请求带着空 model 打上游
+      channels[cid] = value;
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const entry = value as Record<string, unknown>;
+      const slug = entry["slug"];
+      if (typeof slug !== "string" || slug.trim() === "") return null;
+      const ctx = entry["contextWindow"];
+      if (ctx !== undefined && (typeof ctx !== "number" || !Number.isFinite(ctx) || ctx <= 0)) return null;
+      channels[cid] = { slug, contextWindow: typeof ctx === "number" ? ctx : undefined };
+      continue;
+    }
+    return null;
   }
   return { contextWindow, maxOutput, inputModalities, channels };
 }
@@ -193,7 +222,24 @@ export function upstreamIdOf(model: string, cid: string): string | undefined {
   const row = registryModelOf(model);
   if (!row) return undefined;
   const key = Object.keys(row.channels).find((k) => k.toLowerCase() === cid.toLowerCase());
-  return key === undefined ? undefined : row.channels[key];
+  if (key === undefined) return undefined;
+  const spec = row.channels[key]!;
+  return typeof spec === "string" ? spec : spec.slug;
+}
+
+/**
+ * 某渠道对某模型的上下文窗口；渠道级声明优先，缺省回落模型级。
+ *
+ * 返回 `undefined` = 没有可信窗口数据（选路时**不过滤**——没有数据不能当没有能力）。
+ */
+export function channelContextWindowOf(model: string, cid: string): number | undefined {
+  const row = registryModelOf(model);
+  if (!row) return undefined;
+  const key = Object.keys(row.channels).find((k) => k.toLowerCase() === cid.toLowerCase());
+  if (key === undefined) return undefined;
+  const spec = row.channels[key]!;
+  if (typeof spec === "object" && typeof spec.contextWindow === "number") return spec.contextWindow;
+  return row.contextWindow;
 }
 
 /**

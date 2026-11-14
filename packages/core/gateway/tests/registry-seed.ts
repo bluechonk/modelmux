@@ -16,7 +16,8 @@ export interface SeedModel {
   contextWindow: number;
   maxOutput: number;
   inputModalities?: string[];
-  channels: Record<string, string>;
+  /** 渠道条目：纯 slug 字符串，或 { slug, contextWindow }（渠道级窗口）。 */
+  channels: Record<string, string | { slug: string; contextWindow?: number }>;
 }
 
 export function seedRegistry(models: Record<string, SeedModel>, home = process.env["MODELMUX_HOME"]): void {
@@ -58,13 +59,17 @@ export function seedDeepseek(cids: Record<string, string>, home?: string): void 
 /** 注册表文档（与共享层 `ModelRegistry` 同形）。 */
 interface RegistryDoc {
   version: number;
-  models: Record<string, { contextWindow: number; maxOutput: number; inputModalities: string[]; channels: Record<string, string> }>;
+  models: Record<string, {
+    contextWindow: number;
+    maxOutput: number;
+    inputModalities: string[];
+    channels: Record<string, string | { slug: string; contextWindow?: number }>;
+  }>;
 }
 
-/** 默认规格（测试只关心路由，不关心窗口数值）。 */
+/** 默认规格（测试只关心路由，不关心窗口数值）。glm 已移出对外家族，不再作种子。 */
 const SPEC: Record<string, { contextWindow: number; maxOutput: number }> = {
   "deepseek-v4.1-flash": { contextWindow: 1_000_000, maxOutput: 128_000 },
-  "glm-5.3-flash": { contextWindow: 1_000_000, maxOutput: 32_000 },
   "qwen3.8-flash": { contextWindow: 1_000_000, maxOutput: 32_000 },
 };
 

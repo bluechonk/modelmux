@@ -20,6 +20,7 @@ import { captureActive, listAccounts } from "../dist/runtime/account-pool.js";
 import { activeCid } from "../dist/runtime/channel-context.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 import { registerChannelSupply } from "./registry-seed.ts";
+import { modelRegistryPath } from "../dist/pool/model-registry.js";
 import { runLogin } from "../dist/app/lifecycle/headless.js";
 import { resolvePoolRoute } from "../dist/http/chat/route.js";
 import * as gateway from "../dist/http/server.js";
@@ -168,7 +169,7 @@ describe("1. A3 池路由：解析失败要写应答（不挂死）", () => {
     poolUsage.writeBilling("alpha", { total: { used: 0 } });
 
     const { res, status, body } = fakeRes();
-    const route = resolvePoolRoute(UNKNOWN_MODEL, res, () => {});
+    const route = resolvePoolRoute(UNKNOWN_MODEL, 0, res, () => {});
 
     assert.equal(route, null, "解析失败：路由不给候选");
     assert.equal(status(), 400, "必须写 400 —— 不写就是连接挂死");
@@ -220,10 +221,116 @@ describe("1. A3 池路由：解析失败要写应答（不挂死）", () => {
     poolUsage.writeBilling("alpha", { total: { used: 0 } });
 
     const { res, status, body } = fakeRes();
-    const route = resolvePoolRoute("no-such-model-xyz", res, () => {});
+    const route = resolvePoolRoute("no-such-model-xyz", 0, res, () => {});
     assert.equal(route, null);
     assert.equal(status(), 400);
     assert.equal((JSON.parse(body()) as { error: { code: string } }).error.code, "unknown_model");
+  });
+
+  it("输入估算超过渠道级窗口的候选被跳过；窗口更大的渠道照常路由", () => {
+    // 渠道级窗口来自注册表：small 声明 600k（低于输入估算 800k）被跳过，
+    // normal 无渠道级声明 → 回落模型级 1M ≥ 800k 照常进候选。
+    writeFileSync(
+      modelRegistryPath(),
+      JSON.stringify(
+        {
+          version: 1,
+          models: {
+            "deepseek-v4.1-flash": {
+              contextWindow: 1_000_000,
+              maxOutput: 128_000,
+              channels: {
+                small: { slug: "deepseek-v4.1-flash", contextWindow: 600_000 },
+                normal: "deepseek-v4.1-flash",
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    setChannel(makeChannel("small"));
+    seedCredential("small", { accessToken: "tok-small", uid: "u-small", domain: "" });
+    setChannel(makeChannel("normal"));
+    seedCredential("normal", { accessToken: "tok-normal", uid: "u-normal", domain: "" });
+    poolUsage.writeBilling("small", { total: { used: 0 } });
+    poolUsage.writeBilling("normal", { total: { used: 0 } });
+
+    const logs: string[] = [];
+    const { res, status } = fakeRes();
+    const route = resolvePoolRoute("deepseek-v4.1-flash", 800_000, res, (m) => logs.push(m));
+    assert.notEqual(route, null, "route=null; logs=" + logs.join(" | "));
+    assert.deepEqual(
+      route!.attempts.map((c) => c.cid),
+      ["normal"],
+      "估算 800k > small 的 600k 渠道级窗口，small 被跳过; logs=" + logs.join(" | "),
+    );
+    assert.equal(status(), null, "成功路由不写错误应答");
+  });
+
+  it("全部候选超窗 → 400 input_exceeds_context，不参与冷却回退", () => {
+    writeFileSync(
+      modelRegistryPath(),
+      JSON.stringify(
+        {
+          version: 1,
+          models: {
+            "deepseek-v4.1-flash": {
+              contextWindow: 1_000_000,
+              maxOutput: 128_000,
+              channels: { tiny: { slug: "deepseek-v4.1-flash", contextWindow: 600_000 } },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    setChannel(makeChannel("tiny"));
+    seedCredential("tiny", { accessToken: "tok-tiny", uid: "u-tiny", domain: "" });
+    poolUsage.writeBilling("tiny", { total: { used: 0 } });
+
+    const { res, status, body } = fakeRes();
+    const route = resolvePoolRoute("deepseek-v4.1-flash", 800_000, res, () => {});
+    assert.equal(route, null);
+    assert.equal(status(), 400);
+    assert.equal(
+      (JSON.parse(body()) as { error: { code: string } }).error.code,
+      "input_exceeds_context",
+    );
+  });
+
+  it("渠道级窗口缺省回落模型级：输入未超窗时正常路由", () => {
+    writeFileSync(
+      modelRegistryPath(),
+      JSON.stringify(
+        {
+          version: 1,
+          models: {
+            "deepseek-v4.1-flash": {
+              contextWindow: 1_000_000,
+              maxOutput: 128_000,
+              channels: { normal: "deepseek-v4.1-flash" },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    setChannel(makeChannel("normal"));
+    seedCredential("normal", { accessToken: "tok-normal", uid: "u-normal", domain: "" });
+    poolUsage.writeBilling("normal", { total: { used: 0 } });
+
+    const { res, status } = fakeRes();
+    const route = resolvePoolRoute("deepseek-v4.1-flash", 800_000, res, () => {});
+    assert.notEqual(route, null);
+    assert.deepEqual(route!.attempts.map((c) => c.cid), ["normal"]);
+    assert.equal(status(), null, "成功路由不写错误应答");
   });
 });
 
