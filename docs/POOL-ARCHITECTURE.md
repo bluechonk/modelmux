@@ -463,7 +463,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 ### 2.7 跨渠道同 model id 兜底
 
 同一个规范模型名常被**多个渠道**同时提供，而各渠道上游按**自己的上限**裁剪过同一个模型 ——
-实测同一个 id 的窗口能差一倍（`deepseek-v4-pro`：catpaw 报 700000、traecn/workbuddy
+实测同一个 id 的窗口能差一倍（同为 v4-pro 的实测：一家报 700000、另一家
 报 1000000）。
 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，就用兄弟渠道同名的已知值兜底。
 
@@ -490,7 +490,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 本渠道规格排在跨渠道**之前**：规格是渠道自己按公开规格维护的真值
 （[MODEL-SPECS.md](./MODEL-SPECS.md)），比兄弟渠道被上游裁剪过的值更权威 ——
-所以兜底**只替换占位值**，不会把 `traecn/deepseek-v4-pro` 从 1000000（规格）改成
+所以兜底**只替换占位值**，不会把规格窗口 1000000 改成
 700000（catpaw 的上游值）。每个值从哪来记在 `sources` 里（见 §2.6），随接口下发。
 
 **只在枚举路径生效**：`/v1/models` / 控制台 state / `mx model list` 走 `poolModelMetas()`
