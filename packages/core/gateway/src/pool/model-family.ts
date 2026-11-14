@@ -22,6 +22,9 @@ const CANONICAL: Readonly<Record<string, string>> = {
   "glm-5.3-flash": "glm-5.3-flash",
   "qwen3.8-flash": "qwen3.8-flash",
   "deepseek-flash": "deepseek-v4.1-flash",
+  // workbuddyai 的目录条目名（新加坡部署，display_name 同为 Deepseek-V4.1-Flash）：
+  // 加进 CANONICAL 让目录现算能 canonical 匹配进池；不进 ALIAS_GROUP —— 它不是对外请求名。
+  "deepseek-v4.1-flash-sg": "deepseek-v4.1-flash",
 };
 
 /** 规范名 → 该代模型的对外 id 集合（含别名）。 */
@@ -71,6 +74,27 @@ export function desktopRoleModel(roleId: string): string | null {
 function lookup<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
   return Object.hasOwn(table, key) ? table[key] : undefined;
 }
+
+/**
+ * 偏好功能覆盖的模型族（canonical 集合）：两族均为多渠道供给，偏好有意义；
+ * 单渠道收窄的模型（qwen3.8-flash → qwenworkcn）无偏好语义。模型名的唯一
+ * 落点在家族表（verify-contract 校验共享层不得另行硬编码）。
+ */
+export const PREFS_CANONICALS: readonly string[] = [
+  "deepseek-v4.1-flash",
+  "glm-5.3-flash",
+];
+
+/**
+ * 单渠道供给收窄表（canonical → 指定渠道；产品决策）。收窄模型只从指定渠道出，
+ * 其余渠道的目录条目一律不进候选。为什么在候选出口统一过滤而不是逐渠道标
+ * `hidden`：目录条目散在多渠道且形态各异（裸名 / 短别名 / person-* 变体），逐渠道
+ * 标 hidden 漏一家就还进候选；出口一处过滤，目录现算与注册表兜底两个来源一起挡。
+ * glm-5.3-flash 曾收窄到 autoclaw，恢复全渠道开放供给后不再出现在表中。
+ */
+export const SINGLE_CHANNEL_SUPPLY: Readonly<Record<string, string>> = {
+  "qwen3.8-flash": "qwenworkcn",
+};
 
 /**
  * 对外**列出**的模型 id：只列 canonical。

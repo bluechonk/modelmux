@@ -117,7 +117,8 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     clearChannels();
     setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
-    setChannel(stubChannel("gamma", ["qwen3.8-flash"]));
+    // qwen3.8-flash 收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
+    setChannel(stubChannel("qwenworkcn", ["qwen3.8-flash"]));
 
     // 上游 id 由**注册表**逐渠道声明（不再从目录原始写法推）：候选里带的是规范名，
     // 真正的上游 slug 由 `resolvePoolModel()` 查表得到（大小写敏感的上游写法在那里保留）
@@ -215,7 +216,8 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     clearChannels();
     setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash", "glm-5.3-flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
-    setChannel(stubChannel("gamma", ["qwen3.8-flash"]));
+    // qwen3.8-flash 收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
+    setChannel(stubChannel("qwenworkcn", ["qwen3.8-flash"]));
     const pool = [...POOL_MODELS];
     assert.deepEqual(
       pool,

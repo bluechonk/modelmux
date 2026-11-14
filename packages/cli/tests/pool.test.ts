@@ -112,22 +112,26 @@ describe("仓库级模型池", () => {
     assert.ok(candsOf("glm-5.3-flash").includes("qodercn"), "qodercn 仍供 glm-5.3-flash");
   });
 
-  it("家族模型的候选来自渠道目录：qwen3.8-flash 含 qwenworkcn / qoder / qodercn", () => {
-    // 候选 = 渠道目录现算 ∪ 注册表兜底：下列必须出现在候选里。
-    // 只断言「必须包含」不断言全集 —— 目录内容随上游 / 用户 `hidden` 变化。
+  it("家族模型的候选来自渠道目录：qwen3.8-flash 收窄后只含 qwenworkcn", () => {
+    // 候选 = 渠道目录现算 ∪ 注册表兜底，再经 SINGLE_CHANNEL_SUPPLY 收窄：
+    // qwen3.8-flash 只从 qwenworkcn 出（其余渠道的 qwen 条目一律不进候选）。
     const mustHave: Array<[model: string, cid: string]> = [
       ["deepseek-v4.1-flash", "traecn"],
       ["glm-5.3-flash", "catpaw"],
-      ["glm-5.3-flash", "qoder"],
       ["glm-5.3-flash", "qodercn"],
       ["qwen3.8-flash", "qwenworkcn"],
-      ["qwen3.8-flash", "qoder"],
-      ["qwen3.8-flash", "qodercn"],
     ];
     for (const [model, cid] of mustHave) {
       assert.ok(
         gw.poolCandidates(model).some((c) => c.cid === cid),
         `${cid} 的目录声明供 ${model}，应出现在候选里`,
+      );
+    }
+    // 收窄后的 qwen3.8-flash 不再从其它渠道出（目录里仍声明供给也不进候选）
+    for (const cid of ["qoder", "qodercn"]) {
+      assert.ok(
+        !gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === cid),
+        `qwen3.8-flash 收窄后 ${cid} 不应进候选`,
       );
     }
     // 不供家族型号的渠道（模型来自用户自配的第三方 provider）不进候选
@@ -142,13 +146,11 @@ describe("仓库级模型池", () => {
   });
 
   it("候选来自渠道目录 ∪ 注册表兜底（不再以注册表为唯一口径）", () => {
-    // 目录声明供给的渠道进候选：qoder / qodercn 的 qwen3.8-flash 由上游目录给出
-    for (const cid of ["qoder", "qodercn"]) {
-      assert.ok(
-        gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === cid),
-        `${cid} 的目录供 qwen3.8-flash，应进候选`,
-      );
-    }
+    // 目录声明供给的渠道进候选：qodercn 的 glm-5.3-flash 由上游目录给出
+    assert.ok(
+      gw.poolCandidates("glm-5.3-flash").some((c) => c.cid === "qodercn"),
+      "qodercn 的目录供 glm-5.3-flash，应进候选",
+    );
     // 家族外型号一律不进候选（家族表是硬边界）
     for (const model of ["longcat-2.5", "deepseek-v4-pro"]) {
       assert.deepEqual(gw.poolCandidates(model), [], `${model} 不在家族表内，候选应为空`);

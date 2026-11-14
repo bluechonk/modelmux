@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-import { canonicalOf } from "./model-family.js";
+import { canonicalOf, PREFS_CANONICALS } from "./model-family.js";
 import { rootFile } from "../runtime/paths.js";
 
 /** 偏好文件名（根级，与 `pool-usage.json` / `models.json` 并列）。 */
@@ -18,6 +18,11 @@ export const MODEL_PREFS_FILE = "model-prefs.json";
 
 /** 空值语义：`null` = 不指定（回到自动选路）。 */
 export type ModelPrefs = Record<string, string | null>;
+
+/** 偏好功能是否覆盖某池模型（按 canonical 判定，别名 `deepseek-flash` 同样命中）。 */
+export function isPrefsModel(model: string): boolean {
+  return PREFS_CANONICALS.includes(canonicalOf(model) ?? "");
+}
 
 /** 读偏好；文件缺失或损坏返回空表（不猜、不修补）。 */
 export function loadModelPrefs(): ModelPrefs {

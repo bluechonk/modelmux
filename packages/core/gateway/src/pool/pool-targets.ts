@@ -13,7 +13,12 @@ import { channels, getChannel, hasChannel, type Channel } from "../runtime/chann
 import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
-import { aliasGroupOf, canonicalOf, POOL_EXPOSED_IDS } from "./model-family.js";
+import {
+  aliasGroupOf,
+  canonicalOf,
+  POOL_EXPOSED_IDS,
+  SINGLE_CHANNEL_SUPPLY,
+} from "./model-family.js";
 import { providersOf, registryModelOf, upstreamIdOf } from "./model-registry.js";
 import { preferredChannelOf } from "./model-prefs.js";
 import { priorityOf, totalRemainOf } from "./pool-usage.js";
@@ -423,9 +428,11 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const canonical = canonicalOf(model);
   if (!canonical) return [];
   const declared = new Set(providersOf(canonical));
+  const only = SINGLE_CHANNEL_SUPPLY[canonical];
   const out: PoolCandidate[] = [];
   for (const channel of channels()) {
     const cid = channel.config.cid;
+    if (only && cid !== only) continue;
     if (!declared.has(cid) && !channelExposes(canonical, cid, channel)) continue;
     out.push({ cid, channel, exposedId: canonical });
   }
