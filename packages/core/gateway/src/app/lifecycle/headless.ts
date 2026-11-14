@@ -27,7 +27,7 @@ import { startUpdateChecks, updateNotice } from "../../runtime/update-check.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates, poolModels } from "../../pool/pool-targets.js";
-import { preferredChannelOf } from "../../pool/model-prefs.js";
+import { isPrefsModel, preferredChannelOf } from "../../pool/model-prefs.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
@@ -434,11 +434,14 @@ class ServiceState {
       ),
       // 模型偏好**从家族表派生**（`poolModels()`），不依赖 `/v1/models` 轮询结果：
       // 轮询为空（刚起进程 / 上游抖动）时偏好整段会消失，用户根本无处设置。
-      model_prefs: poolModels().map((model) => ({
-        model,
-        channels: poolCandidates(model).map((candidate) => candidate.cid),
-        preferred: preferredChannelOf(model),
-      })),
+      // 只渲染 deepseek 族：glm / qwen 的供给已收窄到唯一渠道，无偏好语义。
+      model_prefs: poolModels()
+        .filter((model) => isPrefsModel(model))
+        .map((model) => ({
+          model,
+          channels: poolCandidates(model).map((candidate) => candidate.cid),
+          preferred: preferredChannelOf(model),
+        })),
       // 待回答的输入请求（渠道两步登录）：null = 当前没有。
       login_input: this.pendingInput?.req ?? null,
       channel_caps: Object.fromEntries(

@@ -398,7 +398,8 @@ export function Accounts(): ReactElement {
           </div>
 
           {/*
-            模型级渠道偏好：每个对外模型指定「优先走哪家」。
+            模型级渠道偏好：只覆盖 deepseek 族 —— glm / qwen 的供给已收窄到唯一渠道
+            （autoclaw / qwenworkcn），单渠道没有「优先走哪家」的语义。
             被偏好的渠道在选路里**置顶**，其余仍按剩余额度顺延 —— 被偏好的渠道
             冷却 / 额度耗尽时自然落到别家，不需要额外开关（口径见
             docs/POOL-ARCHITECTURE.md §2.4）。
