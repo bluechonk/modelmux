@@ -51,8 +51,8 @@
 
 | 对外模型 id | 别名 | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、todayai、doubaowork、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
-| `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、autoclaw、workbuddyai、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
+| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codearts、qoder、qodercn…（上游写法逐渠道不同，如 raccoon 的 `sn-deepseek-v4-1-flash-1017`） |
+| `glm-5.3-flash` | — | `zhipu` | catpaw、lobsterai、codearts、codebuddycn、workbuddyai、loomy、traecn、raccoon、workbuddy、qoder（`gfmodel`）、qodercn（`gfmodel`）… |
 | `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）、qoder（`qfmodel`）、qodercn（`qfmodel`）…（千问办公只卖「标准」档，底层型号由上游池化） |
 
 **只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
@@ -182,9 +182,9 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    为什么读日志而不是请求结束时记账：TPS 要等响应结束（`generateMs` + usage）才拿得到，
    而路由发生在请求**入口** —— 只能用「最近一段时间的实测」当先验。
    为什么要可靠性：`ok/fail` 是**本地实测**，额度只是上游快照 —— 一个只剩额度、却从未跑通的渠道
-   会一直排在首位，每个请求先白撞一次（实测 autoclaw：`remain=10191`、`ok=0`、`fail=4`，
-   `glm-5.3-flash` 每个请求都先撞它的 `11003 invalid authorization token` 才落到下一个渠道）。
-   可靠性只**压低**优先级，不否定「谁还有货」：额度差足够大时（10 倍）它不翻盘。
+   会一直排在首位，每个请求先白撞一次 —— 本地 `ok/fail` 实测正是为了暴露这类
+   「额度好看却跑不通」的渠道。可靠性只**压低**优先级，不否定「谁还有货」：
+   额度差足够大时（10 倍）它不翻盘。
 3. **候选过滤**：凭据读不出的渠道直接退出路由（不可能成功，白耗尝试预算）；
    生效账号已被标 `unauthorized`（凭据失效，**终态**，重试永远不会成功）的渠道硬排除；
    冷却中的渠道硬排除。全被过滤掉时回退完整候选（服务不能因此不可用），仍全失败 → `503 not_authenticated`。
@@ -195,8 +195,8 @@ workbuddyai 的 `size` 是月包），拿它当分母同样恒 100%。
    不可用并返回鉴权错误，**由用户手动切换账号**（`mx acct <cid> use <key>` /
    Web 账号池），不自动切号。
    这条刷新在**两条**路径上都要走：既覆盖 `openStream` 收到的 401/403，也覆盖
-   `prepareChat` 这类**建连之前**的前置（实测 autoclaw 的 `11003 invalid authorization
-   token` 就发生在前置里）—— 漏掉后者，一个「access_token 死了、refresh_token 还活着」
+   `prepareChat` 这类**建连之前**的前置（有的渠道鉴权失败就发生在前置里，上游回
+   渠道自己的业务码）—— 漏掉后者，一个「access_token 死了、refresh_token 还活着」
    的账号会被当成终态永久踢出候选，而它恰恰是额度最高的那条。
    刷新成功即清掉 `unauthorized` 标记（凭据已活，不该再当终态）。
 6. **额度耗尽例外**：失败错误码属于「可能是额度问题」那一类（`insufficient_quota` /
@@ -405,7 +405,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
     实测覆盖：qoder 11 条 + qodercn 8 条（2026-10-25）。
   - 上游的 `thinking_config.disabled`（「可关闭思考」）**不映射**成 `off` 档 ——
     那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段。
-    详见 [channels/qoder/PROTOCOL.md](./channels/qoder/PROTOCOL.md) 的「上游 model 字段与思考档位」。
+    详见 qoder 渠道协议存档（git 历史，渠道已移除） 的「上游 model 字段与思考档位」。
 - **`effort` 可为 `null` = 渠道没声明**（兜底**不许编档位**）：
   渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
   lobsterai（`efforts` 数组）、qoder / qodercn（`thinking_config`，见上）有真值。
@@ -528,9 +528,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `upstream` 再 import `catalog` 就成环（ESM 环依赖下模块初始化顺序不可靠）。因此：
 
 1. `upstream` 侧导出 `setModelMetaLookup(lookup)`，只认注入进来的查询器
-   （`packages/core/channels/qoder/src/upstream.ts:498-502`）；
+   ；
 2. 渠道装配处（`channel.ts`）接上：`upstream.setModelMetaLookup(catalog.metaOfKey)`
-   （`packages/core/channels/qoder/src/channel.ts:30`）；
+   ；
 3. 查询器按**上游 key** 查（`buildChatBody` 只拿到 key；对外 id 是另一套名字，
    见 `catalog.metaOfKey` 与 `catalog.entryOf` 的分工）。
 
@@ -538,7 +538,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 渠道 | 状态 | 后果 |
 |---|---|---|
-| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qoder/src/upstream.ts:676-687`） |
+| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens` |
 | `qodercn` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qodercn/src/channel.ts:44`、`packages/core/channels/qodercn/src/upstream.ts:593-603`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。

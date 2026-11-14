@@ -59,22 +59,15 @@
 | cid | 产品 | 文档 |
 | --- | --- | --- |
 | `astudio` | AStudio（讯飞桌面 Agent） | [PROTOCOL](./channels/astudio/PROTOCOL.md)（Web 控制台可手机号 + 短信验证码云端直连登录；CLI 无界面时回落读桌面应用会话文件）+ [FINDINGS](./channels/astudio/FINDINGS.md)（含方法论 / 实跑 / 缺口） |
-| `autoclaw` | AutoClaw（`autoclaw.z.ai`，智谱云端沙箱） | [PROTOCOL](./channels/autoclaw/PROTOCOL.md)（云端 OpenClaw 沙箱 relay + 短信登录；协议事实来自参考实现逆向，对话 relay 与流式已真机验证） |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md)（凭据加密 / 密钥材料 / 解密验证 / scope / 敏感面） |
-| `codearts` | CodeArts（华为云码道） | [PROTOCOL](./channels/codearts/PROTOCOL.md)（浏览器 OAuth2 + PKCE + DPoP；STS 签名对话；模型目录内置 + 限时福利两源） |
 | `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md)（渠道在册；上游曾封停测试账号，账号现状以 `mx acct lobsterai` 为准） |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
-| `qoder` | Qoder（国际版 `qoder.com`） | [PROTOCOL](./channels/qoder/PROTOCOL.md) |
-| `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md)；与 `qoder` **同一套协议**（仅域名/身份/模型目录不同），规格见 [qoder PROTOCOL](./channels/qoder/PROTOCOL.md) |
+| `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md) |
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | [PROTOCOL](./channels/codebuddycn/PROTOCOL.md)（OAuth 授权页 + 轮询；对话体 gzip；官方 CLI 头族） |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
-| `doubaowork` | 豆包工作（`www.doubao.com`） | [PROTOCOL](./channels/doubaowork/PROTOCOL.md)（手机号 + 短信验证码登录；SSE 对话必须带设备号；窗口限额 + 活动赠送额度） |
-| `marvis` | 腾讯 Marvis（AI 办公助手，`yybadaccess.3g.qq.com`） | [PROTOCOL](./channels/marvis/PROTOCOL.md) · [FINDINGS](./channels/marvis/FINDINGS.md)（微信/QQ OAuth 登录；MD5 签名；内置「省心组合」+ 本地 gateway 对话） |
-| `todayai` | Today 国内版（`todayai.cn`） | [PROTOCOL](./channels/todayai/PROTOCOL.md)（手机号 + 短信验证码登录；canonical-v1 会话协议，无流式；订阅制无额度）+ [FINDINGS](./channels/todayai/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md)（与 `workbuddyai` 同一套端点协议，仅端点/域/版本不同） |
-| `workbuddyai` | WorkBuddyAI（国际版） | [PROTOCOL](./channels/workbuddyai/PROTOCOL.md)（官方 5.8.4 抓包的身分头族与 realm 端点表；账号 2026-11-05 重新登录验证有效） |
 
 > 跨渠道的规范（契约、池化、存储、进程、日志、注释）见下表。
 > GitHub 登录仅协议事实，未实现。

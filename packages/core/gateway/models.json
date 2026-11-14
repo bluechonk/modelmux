@@ -13,10 +13,19 @@
         "loomy": "DeepSeek-V4.1-Flash",
         "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017",
-        "codebuddycn": "deepseek-v4.1-flash",
-        "codearts": "deepseek-v4.1-flash",
-        "todayai": "model.deepseek-v4.1-flash",
-        "doubaowork": "person-deepseek-v4-1-flash-261017"
+        "codebuddycn": "deepseek-v4.1-flash"
+      }
+    },
+    "qwen3.8-flash": {
+      "contextWindow": 1000000,
+      "maxOutput": 32000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "channels": {
+        "qwenworkcn": "flash",
+        "qodercn": "qfmodel"
       }
     },
     "glm-5.3-flash": {
@@ -29,27 +38,8 @@
       "channels": {
         "catpaw": "glm-5.3-flash",
         "lobsterai": "glm-5.3-flash",
-        "autoclaw": "glm-5.3-flash",
         "qodercn": "gfmodel",
-        "qoder": "gfmodel",
-        "workbuddyai": "glm-5.3-flash",
-        "codebuddycn": "glm-5.3-flash",
-        "codearts": "glm-5.3-flash",
-        "todayai": "model.glm-5.3-flash",
-        "doubaowork": "person-glm-5-3-flash-261111"
-      }
-    },
-    "qwen3.8-flash": {
-      "contextWindow": 1000000,
-      "maxOutput": 32000,
-      "inputModalities": [
-        "text",
-        "image"
-      ],
-      "channels": {
-        "qwenworkcn": "flash",
-        "qoder": "qfmodel",
-        "qodercn": "qfmodel"
+        "codebuddycn": "glm-5.3-flash"
       }
     }
   }

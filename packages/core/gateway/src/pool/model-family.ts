@@ -22,9 +22,6 @@ const CANONICAL: Readonly<Record<string, string>> = {
   "glm-5.3-flash": "glm-5.3-flash",
   "qwen3.8-flash": "qwen3.8-flash",
   "deepseek-flash": "deepseek-v4.1-flash",
-  // workbuddyai 的目录条目名（新加坡部署，display_name 同为 Deepseek-V4.1-Flash）：
-  // 加进 CANONICAL 让目录现算能 canonical 匹配进池；不进 ALIAS_GROUP —— 它不是对外请求名。
-  "deepseek-v4.1-flash-sg": "deepseek-v4.1-flash",
 };
 
 /** 规范名 → 该代模型的对外 id 集合（含别名）。 */

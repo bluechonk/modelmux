@@ -45,8 +45,8 @@ Web 控制台**仪表盘**里那层「区间用量」的口径与设计依据。
 「缺失不补零」是贯穿全表的约定：上游没给 usage 的请求（失败请求通常没有）不计入 tokens，
 也不当成 0 参与分母。
 
-**例外：渠道可补估算值并标 `estimated: true`。** 若某渠道的上游**从不**返回 usage
-（autoclaw 实测如此），它的成功请求会永远落进「无 usage」，该渠道的 token 消耗也就
+**例外：渠道可补估算值并标 `estimated: true`。** 若某渠道的上游**从不**返回 usage，
+它的成功请求会永远落进「无 usage」，该渠道的 token 消耗也就
 永远进不了统计。这类渠道可以用已生成的正文做启发式估算补 `completion_tokens`
 （取共享层的 `estimateTextTokens`），**必须**在 usage 对象里带 `estimated: true`：
 

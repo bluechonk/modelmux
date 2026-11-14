@@ -12,22 +12,15 @@
  */
 
 import "@modelmux/astudio";
-import "@modelmux/autoclaw";
 import "@modelmux/catpaw";
 import "@modelmux/codebuddycn";
-import "@modelmux/codearts";
-import "@modelmux/doubaowork";
 import "@modelmux/lobsterai";
 import "@modelmux/loomy";
-import "@modelmux/marvis";
-import "@modelmux/qoder";
 import "@modelmux/qodercn";
 import "@modelmux/qwenworkcn";
 import "@modelmux/raccoon";
-import "@modelmux/todayai";
 import "@modelmux/traecn";
 import "@modelmux/workbuddy";
-import "@modelmux/workbuddyai";
 
 /**
  * 已下架渠道：包保留作参考实现，不再注册。

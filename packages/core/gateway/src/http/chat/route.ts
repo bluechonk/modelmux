@@ -90,8 +90,8 @@ export function resolvePoolRoute(
   }
   // 凭据失效（`unauthorized`）是**终态**：token 已被上游撤销，换账号 / 重登之前
   // 重试永远不会成功 —— 与冷却一致地提前剔除，省掉每次请求白跑一趟这条候选
-  // （实测 autoclaw：令牌失效后仍因「额度最多」排在候选首位，每个请求先撞一次
-  // `11003 invalid authorization token` 才落到下一个渠道）。
+  // （有的渠道令牌失效后仍因「额度最多」排在候选首位，每个请求先撞一次它的
+  // 鉴权错误才落到下一个渠道）。
   // `error`（熔断）**不剔除**：它有半开试探时刻，到点必须放行一次自检。
   const routable = authed.filter((c) => activeAccountHealth(c.cid) !== "unauthorized");
   const available = routable.filter((c) => !isCooling(c.cid));

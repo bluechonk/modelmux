@@ -6,7 +6,7 @@
 > `reference/workbuddy2api-panel`（Go，下称 **panel**）、
 > `reference/dsh-workbuddy-connect`（TypeScript，下称 **dsh**）；
 > 以及 `ardeyouxipianyi_workbuddy2api-hub`（clone 在**国际版** `workbuddyai/reference/` 下，
-> 与 `workbuddyai` 共用一套抓包结论，见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)）。
+> 与 `workbuddyai` 共用一套抓包结论，见 workbuddyai 协议存档（git 历史，渠道已移除））。
 > 国内版桌面端**无独立抓包**：版本号与 UA 维持参考实现原值（5.5.6 / CLI 2.137.1），不凭猜测改。
 > 逐条证据等级见各条标注（`[实测]` / `[代码]` / `[推断]` / `[参考]`）。
 
@@ -355,7 +355,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
   本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本渠道不改**，
   列入 §7.3 V8。
 - 国际版把同样的路径挂在 `https://www.workbuddy.ai` 上（两渠道共用协议，
-  见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)）。
+  见 workbuddyai 协议存档（git 历史，渠道已移除））。
 
 ## 6. 必需请求头清单
 
@@ -466,7 +466,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 （保留仅为兼容共享层 CLI 的签名）。
 
 两者的登录协议、上游约束、SSE 处理**完全一致**（代码有意重复），差别只有域名、
-模型目录与凭证落点 —— 规格见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)。
+模型目录与凭证落点 —— 规格见 workbuddyai 协议存档（git 历史，渠道已移除）。
 
 `cred.ts` / `upstream.ts` / `catalog.ts` / `billing.ts` 与 `workbuddyai` 高度相似，这是有意的：
 两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
@@ -570,7 +570,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - **`6004` 按账户级用量限额处理**（`quotaSignal` 上报 `usage_limit`）。上游文案里
   「您也可以切换其他模型继续使用」**不可信**：国际版同族文案写着同样的话，但 2026-10-23
   真机实测证明连倍率 0 的 `deepseek-v4.1-flash` 也照吃 `6004`
-  （[`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md)「使用与实测」）。
+  （workbuddyai 协议存档（git 历史，渠道已移除）「使用与实测」）。
 - **冷却截止用上游给的滚动重置时刻**（`quotaResetAt` 从 msg 文本解析，含 `UTC+8` 偏移换算），
   不再回落次日本地 0 点。
 - **事故根因在共享层记账**：冷却期间 `http/chat/auth.ts` 把短路报成 `not_authenticated`，
@@ -584,7 +584,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 ### 已知限制（实测）
 
 - SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
-  （原因与结论见 [`workbuddyai/PROTOCOL.md`](../workbuddyai/PROTOCOL.md) 的「使用与实测」）。
+  （原因与结论见 workbuddyai 协议存档（git 历史，渠道已移除） 的「使用与实测」）。
 - **上游偶发把工具调用写成 DSML 文本**（`<｜｜DSML｜｜ calls>` 包住 `invoke` / `parameter`），
   落在 `delta.content` 或 `delta.reasoning_content` 而不是 `tool_calls`。网关对所有
   `WIRE === "openai"` 渠道做了响应侧兜底（`http/wire/dsml-tools.ts`）：完整块还原为

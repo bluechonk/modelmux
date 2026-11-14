@@ -79,13 +79,8 @@
 | raccoon | 707 / 814 | `prompt_tokens_details.cached_tokens` | 86.0% |
 | lobsterai | 297 / 319 | `prompt_tokens_details.cached_tokens`；1 条另带 `prompt_cache_hit_tokens` + `miss` | 96.4% |
 | qodercn | 155 / 187 | `prompt_tokens_details.cached_tokens` | 86.1% |
-| workbuddyai | 5 / 22 | 同 workbuddy（两套风格全给） | — |
-| qoder | 3 / 6 | `prompt_tokens_details.cached_tokens` | — |
 | catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
 | traecn | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
-| doubaowork | **0** | 只有内容块与会话状态；`/chat/completion` 的事件流里没有任何 usage / token 字段（详见 [channels/doubaowork/PROTOCOL.md](./channels/doubaowork/PROTOCOL.md) §8） | — |
-| todayai | **0** | 与 doubaowork 同形态：事件流只回内容块与状态，无 usage | — |
-| autoclaw | 有 usage 但**只有出** | `completion_tokens` / `total_tokens`；`prompt_tokens` 恒为 `0`，且无缓存字段 | — |
 
 要点：
 
@@ -98,10 +93,7 @@
 - 同一渠道**不同模型**形态也可能不同：实测（2026-10-29）`loomy/spark-x2.6` 的 usage
   只有 `prompt_tokens` / `completion_tokens` / `total_tokens` + `points_consumed`，
   没有缓存字段（该模型倍率 0、`points_consumed: 0`，属免费模型）。
-- **有的渠道连 token 计数都不给**（doubaowork）：访问日志里恒为 `tokens=null`（入 / 出都没有），
-  渠道包内也没有任何 usage 解析代码 —— 仪表盘与日志页的 token 统计因此**不含该渠道**。
-  这不是「0 命中」，而是**无数据**，不要当成 0 计入分母或总和。
-- **输入 token 也可能单独缺失**：autoclaw 的 usage 里 `prompt_tokens` 恒为 `0`
+- **输入 token 也可能单独缺失**：有的渠道 usage 里 `prompt_tokens` 恒为 `0`
   （只有 `completion_tokens` 有值）—— 该渠道的「入」在统计里永远是 0，
   同样是**缺口**而不是真实的零输入。
 - 结论：命中率**不可能对所有渠道统一显示** —— 无缓存字段的渠道必须显示 `—`，而不是 0%。
@@ -115,7 +107,6 @@
 |---|---|---|---|
 | traecn | `cache_read_input_tokens`、`cache_creation_input_tokens`（+ `_total` 变体）、`prompt_cache_pool_record` | Anthropic 命名，但**实测恒为 0**（4 个模型 × 3 次请求，含 9235 token 相同前缀连发；`_total` 同样恒 0） | **否** —— 判为未填充的占位字段，映射会把「没给」变成假的 0% |
 | catpaw | `contextInfo.usage.cache_read_tokens` / `cache_write_tokens` | Anthropic 形态：`prompt_tokens` 不含缓存读，`total = prompt + completion + cache_read`（实测 prompt 47 / cache_read 29184 / total 29234） | **是** → `prompt_tokens_details.cached_tokens`（`prompt` 已含缓存读，走 OpenAI 形态） |
-| autoclaw | **无** | relay events 原始帧（45 条叶子路径）里没有任何 cache/hit/prefix 字段；连 usage 都不发（渠道按字符数兜底估算，见 `docs/channels/autoclaw/PROTOCOL.md`） | 无从映射 |
 
 > **catpaw 的缓存命中由渠道映射成 `prompt_tokens_details.cached_tokens` 透出**，与 loomy /
 > workbuddy / astudio 等一样计入仪表盘「缓存命中」。
@@ -130,7 +121,6 @@
 | --- | --- | --- |
 | workbuddy | openai | 末帧带完整 usage：`prompt_cache_hit_tokens: 0` / `prompt_cache_miss_tokens: 22`（**DeepSeek 形**），同时也有 `prompt_tokens_details.cached_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`；另每帧附带 `quota:{model,percent,reset_at,shared_models}` |
 | loomy | openai | 响应体是 **JSON 信封** `{code, desc, trace_id, data}`，SSE 流在 `data` 里 —— 不是裸 SSE |
-| doubaowork | custom | 原生事件流：`event: SSE_HEARTBEAT` / `event: STREAM_ERROR`（`{error_code, error_msg, extra}`）；**无 usage 帧** |
 | traecn | custom | 直连回 **401**（`{code, message}`）—— 探针未带刷新后的凭据 |
 
 结论：§6 的三种缓存形态判定与**真实上游帧**一致；`quota` 对象是上游在对话帧里就给的额度信息，

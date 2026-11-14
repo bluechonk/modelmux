@@ -1,13 +1,13 @@
 # Qoder 国内版（`qodercn`）协议规格
 
 国内版与 `qoder` **同一套协议**（仅域名 / 身份 / 模型目录不同），COSY 签名、请求/响应
-形状、额度与签到的协议正文见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md)。本文件只记
+形状、额度与签到的协议正文见 qoder 渠道协议存档（git 历史，渠道已移除）。本文件只记
 **国内版独有**的内容：域名三件套、登录路径、端点与请求头的确切形态、以及本渠道的
 已知边界。
 
 > 证据等级：`[实测]` 真机实测 / `[代码]` 源码逐字读出 / `[推断]` 由结构推出 /
 > `[参考]` 仅见于参考实现自述、本仓库未复验。
-> **引用口径与参考实现约定**见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 的「引用口径」
+> **引用口径与参考实现约定**见 qoder 渠道协议存档（git 历史，渠道已移除） 的「引用口径」
 > （国内版与 `qoder` 共用同一批 clone，位于 `packages/core/channels/qoder/reference/`、**不入库**）。
 > **参考实现只提供协议知识，事实以本仓实现为准。**
 
@@ -65,7 +65,7 @@
 
 `[推断]` 风险与验证方式：若真机发现「不带 `machine_id` 就授权失败」（授权页报错或轮询一直
 pending），再改成「带官方客户端真机身份」；在那之前保持不带（与 `qoder` 国际版渠道一致，
-见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
+见 qoder 渠道协议存档（git 历史，渠道已移除） §2.1）。
 
 实现见 `packages/core/channels/qodercn/src/cred.ts` 的登录、续期、授权 URL 构造与设备指纹派生。
 
@@ -84,7 +84,7 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 
 **`machine_id` 的分歧结论**（见 §1.1.2）：带它的两家带的是**官方客户端真机身份**，
 本渠道没有官方客户端（自己的 `machineId` 是给 COSY 头用的派生值），故**不带**
-（对齐 Zhengyuuuui，与 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1 的记载一致）。
+（对齐 Zhengyuuuui，与 qoder 渠道协议存档（git 历史，渠道已移除） §2.1 的记载一致）。
 
 ---
 
@@ -170,7 +170,7 @@ pending），再改成「带官方客户端真机身份」；在那之前保持�
 
 chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）。
 实现见 `packages/core/channels/qodercn/src/upstream.ts:279-305`。
-签名与编码细节见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §1.1 / §3.3。
+签名与编码细节见 qoder 渠道协议存档（git 历史，渠道已移除） §1.1 / §3.3。
 ### 3.2 `/sash/**` 额度与活动请求（走 `openapi.qoder.com.cn`）
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
@@ -191,7 +191,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
   `shuishuipingan/qoder2api-hub` 的 `qoder_accounts.py`（issue #10：
   全套派生六头会被整条过滤，派生分支一律不发；另注明「CN 侧不发头是正确行为」）。[参考]
 - 国际版则**必须**发真实 UMID 机器身份，否则活动列表为空
-  （[qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §7.2）—— 两区策略不同，别互相照搬。
+  （qoder 渠道协议存档（git 历史，渠道已移除） §7.2）—— 两区策略不同，别互相照搬。
 
 实现见 `packages/core/channels/qodercn/src/billing.ts:105-119`。
 
@@ -240,9 +240,9 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 | 归一 | 共享层接口 | 本渠道调用点 | 协议依据 |
 | --- | --- | --- | --- |
-| `tools[]` 顶层 `name` 型 → 嵌套 `function` 型 | `normalizeToolList` | `packages/core/channels/qodercn/src/upstream.ts:535` | 上游要求 `tools[].function` 是对象，否则 400 `'function' is a required property, expected an object - 'tools.N'`（与国际版同，见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §3.2）`[参考]` |
+| `tools[]` 顶层 `name` 型 → 嵌套 `function` 型 | `normalizeToolList` | `packages/core/channels/qodercn/src/upstream.ts:535` | 上游要求 `tools[].function` 是对象，否则 400 `'function' is a required property, expected an object - 'tools.N'`（与国际版同，见 qoder 渠道协议存档（git 历史，渠道已移除） §3.2）`[参考]` |
 | `max_completion_tokens` 别名 → `max_tokens` | `translateMaxCompletionTokens` | `packages/core/channels/qodercn/src/upstream.ts:538-547` | 上游只认 `max_tokens`（与国际版同）`[参考]` |
-| DeepSeek 多轮的 assistant 补 `reasoning_content` | `backfillReasoningContent` | `packages/core/channels/qodercn/src/upstream.ts:499-518` | 缺一条上游拒（与国际版同，见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §3.2.1）`[参考]` |
+| DeepSeek 多轮的 assistant 补 `reasoning_content` | `backfillReasoningContent` | `packages/core/channels/qodercn/src/upstream.ts:499-518` | 缺一条上游拒（与国际版同，见 qoder 渠道协议存档（git 历史，渠道已移除） §3.2.1）`[参考]` |
 
 思考链回填的**协议判据**用共享层选项表达，与国际版完全一致：
 `modelPrefix: ""`（模型族按上游 key 判定，在渠道侧）、`mirrorReasoning: false`
@@ -278,10 +278,10 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 - **两个独立渠道**：国内版站点 `qoder.com.cn`（国际版 `qoder.com`）；账号在哪个域就用
   哪个渠道登录，**不能互相代登**（会串区），也不共用凭据文件。
 - 域名 / 身份 / 模型目录的逐项差异见本文件 §2.3 与
-  [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §1.1（产品配置表）；国内版模型目录见同文件
+  qoder 渠道协议存档（git 历史，渠道已移除） §1.1（产品配置表）；国内版模型目录见同文件
   §5.2（中国版 14 条，`q37fmodel`、`gm51model` 为国内版独有，`mmodel` 的版本与国际版 M3 不同）。
 - 登录授权页国内版**额外带 `redirect_uri`**（见 §1.1 与
-  [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §2.1）。
+  qoder 渠道协议存档（git 历史，渠道已移除） §2.1）。
 - **`/sash/**` 的机器头策略两区不同**（见 §3.2）—— 这是国内版与国际版最容易踩混的一处。
 - **登录后补 userinfo 的字段数两区一致**：国内版读 `name` / `user_type` /
   `id`（昵称、请求体 `aliyun_user_type` 用的身份类型、uid 兜底）；**国际版 `qoder` 渠道同口径**
@@ -307,7 +307,7 @@ chat 共 19 头（模型目录 16 头，无 `cache-control` 与 `x-model-*`）�
 
 | 模型（池 id） | 结论 | 等级 |
 | --- | --- | --- |
-| `qodercn/qwen3.8-flash` | **倍率 0 / 免费**（目录 key `qfmodel`，见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §5.2）—— 自动化测试首选 | `[实测]` |
+| `qodercn/qwen3.8-flash` | **倍率 0 / 免费**（目录 key `qfmodel`，见 qoder 渠道协议存档（git 历史，渠道已移除） §5.2）—— 自动化测试首选 | `[实测]` |
 | `qodercn/qwen3.8-max` | 倍率 0.2 | `[实测]` |
 | `qodercn/kimi-k3` | 倍率 1.4 —— **禁用于自动化测试** | `[实测]` |
 
@@ -319,7 +319,7 @@ deepseek 系（`dmodel` / `dfmodel`）在随包 `models.json` 里标了 `hidden`
 ### 已知限制
 
 - **上游会回 SSE 内嵌业务错误帧**（排队 `10605`、额度 `110` / `112`、认证 `105` 是四个独立码），
-  测试偶发变慢属正常排队重试机制（见 [qoder 的 PROTOCOL](../qoder/PROTOCOL.md) §4.3），不是故障。
+  测试偶发变慢属正常排队重试机制（见 qoder 渠道协议存档（git 历史，渠道已移除） §4.3），不是故障。
   - `112`（实测 2026-11-07，`glm-5.3-flash`）：内层 `message` 是
     `{"pricingUrl":"https://qoder.com.cn/pricing?client=qoder"}` —— 引导用户去充值，
     语义即额度/权益不足。共享层的通用措辞认不出它，故本渠道用
@@ -347,13 +347,13 @@ mx bill qodercn
 登录入池 / `mx model qodercn --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 签到与额度由网关启动时的自动签到链路执行（无独立命令），当天是否已领看 `mx status qodercn`。
 `signin.status()` 额外报 `resetAt`（活动 `endAt`，10:00 UTC+8 日界）与 `reward`（本活动日已领的
-`benefit.amount` 之和），供调度器判断窗口与补额度，见 [qoder PROTOCOL §6.2](../qoder/PROTOCOL.md)。
+`benefit.amount` 之和），供调度器判断窗口与补额度，见 qoder 协议存档（git 历史）§6.2。
 
 ## 参考实现
 
 clone 到 `packages/core/channels/qoder/reference/` 下的学习材料（**不入库**）；
 与 `qoder` **共用同一批 clone**，COSY 签名等协议正文结论与
-[qoder 的 PROTOCOL](../qoder/PROTOCOL.md) 共用，国内版独有的结论写在本文件。
+qoder 渠道协议存档（git 历史，渠道已移除） 共用，国内版独有的结论写在本文件。
 下文的引用只写**仓库与文件名**（参考实现不在本仓，行号会随上游漂移）。
 
 | 仓库 | 用途 |
