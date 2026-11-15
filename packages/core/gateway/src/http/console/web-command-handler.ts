@@ -320,6 +320,21 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
           message: result.notes?.[0] ?? "已接入",
         });
       }
+      case "checkUpdate": {
+        // 手动检查更新（设置页按钮）：忽略每日节流，失败如实上报
+        const [{ VERSION }, { forceCheckForUpdate }] = await Promise.all([
+          import("../../version.js"),
+          import("../../runtime/update-check.js"),
+        ]);
+        const result = await forceCheckForUpdate(VERSION, () => {});
+        if (!result.ok) return err(result.error ?? "检查更新失败");
+        return ok({
+          available: result.available,
+          version: result.version,
+          url: result.url,
+          checkedAt: result.checkedAt,
+        });
+      }
       case "restore": {
         // 一键还原：把该目标恢复成接入前的样子（取最新一次备份）。
         const target = args["target"];

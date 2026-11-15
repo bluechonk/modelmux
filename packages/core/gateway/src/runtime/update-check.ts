@@ -104,19 +104,23 @@ function releasesLatestUrl(): string {
   return `https://github.com/${REPO}/releases/latest`;
 }
 
-async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease | null> {
+/**
+ * 取最新 tag；**网络 / HTTP 失败一律抛错**，由调用方决定「静默兜底」还是「如实上报」。
+ *
+ * 拆成 core + 兜底两层：后台的每日检测要「失败保留上次结果」（静默），
+ * 控制台的手动检查要「点了按钮就给明确结果」（如实上报）。
+ */
+async function fetchLatestCore(logger: (m: string) => void): Promise<LatestRelease | null> {
   const headers = { Accept: "application/vnd.github+json", "User-Agent": "modelmux" };
-  try {
-    const tags = await fetch(`${API_BASE}/tags`, {
-      headers,
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
-    if (!tags.ok) {
-      logger(`update check: tags 请求失败（HTTP ${tags.status}）`);
-      return null;
-    }
-    const list = (await tags.json().catch(() => null)) as unknown;
-    if (!Array.isArray(list) || list.length === 0) return null;
+  const tags = await fetch(`${API_BASE}/tags`, {
+    headers,
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+  });
+  if (!tags.ok) {
+    throw new Error(`tags 请求失败（HTTP ${tags.status}）`);
+  }
+  const list = (await tags.json().catch(() => null)) as unknown;
+  if (!Array.isArray(list) || list.length === 0) return null;
     // tags 的默认顺序是推送时间，不等于版本顺序：取语义版本最大者
     let best = "";
     for (const item of list) {
@@ -127,6 +131,12 @@ async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease |
     }
     if (best === "") return null;
     return { version: best, url: releasesLatestUrl() };
+}
+
+/** 后台每日检测用：失败静默回落 null（保留上次结果）。 */
+async function fetchLatest(logger: (m: string) => void): Promise<LatestRelease | null> {
+  try {
+    return await fetchLatestCore(logger);
   } catch (err) {
     logger(`update check failed: ${String(err)}`);
     return null;
@@ -172,6 +182,50 @@ export async function checkForUpdate(
 
 /** 控制台顶栏读的提示（由后台调度填充）。 */
 let cachedNotice: UpdateNotice | null = null;
+
+export interface ForceCheckResult {
+  ok: boolean;
+  available: boolean;
+  /** 检测到的新版本；无更新为 null。 */
+  version: string | null;
+  url: string | null;
+  checkedAt: string;
+  /** ok=false 时的原因（进 toast，不静默）。 */
+  error?: string;
+}
+
+/**
+ * 手动检查（设置页按钮）：忽略每日节流立即真请求一轮。
+ *
+ * 与 `checkForUpdate` 的唯一区别是**失败如实上报** —— 用户主动点了按钮，
+ * 「网络挂了」不能被显示成「已是最新」。
+ */
+export async function forceCheckForUpdate(
+  currentVersion: string,
+  logger: (m: string) => void = () => {},
+): Promise<ForceCheckResult> {
+  const checkedAt = new Date().toISOString();
+  let latest: LatestRelease | null;
+  try {
+    latest = await fetchLatestCore(logger);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger(`update check failed: ${message}`);
+    return { ok: false, available: false, version: null, url: null, checkedAt, error: message };
+  }
+  const state = loadUpdateState();
+  state.lastCheckAt = checkedAt;
+  if (latest !== null) state.latest = latest;
+  saveUpdateState(state);
+  cachedNotice = noticeFrom(state, currentVersion);
+  return {
+    ok: true,
+    available: cachedNotice !== null,
+    version: cachedNotice?.version ?? null,
+    url: cachedNotice?.url ?? null,
+    checkedAt,
+  };
+}
 
 /** 后台跑一轮并缓存结果。 */
 export async function refreshUpdateNotice(

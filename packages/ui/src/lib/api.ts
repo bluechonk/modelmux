@@ -94,8 +94,8 @@ export interface WebApi {
     login(cid: string, force: boolean): Promise<CommandData>;
     status(cid?: string): Promise<CommandData>;
     /**
-     * 渠道账单快照；`args.refresh = true` 时后端会先重查一遍各渠道账单
-     * （控制台「刷新」按钮用）。`cid` 限定单渠道。
+     * 渠道账单快照；`args.refresh = true` 时后端会先重查一遍各渠道账单。
+     * `cid` 限定单渠道。重查调用面保留给将来的手动入口，当前 UI 未使用。
      */
     billing(cid?: string, args?: { refresh?: boolean }): Promise<CommandData>;
     accounts(cid?: string): Promise<CommandData>;
@@ -142,6 +142,13 @@ export interface WebApi {
      * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
      */
     restore(target: "zcode" | "dsh"): Promise<CommandData>;
+    /**
+     * 手动检查更新（设置页「检查更新」按钮）。
+     *
+     * 忽略每日节流立即请求 GitHub tags；失败如实返回 `error`（不静默回落）。
+     * `available=false` 即当前已是最新。
+     */
+    checkUpdate(): Promise<CommandData>;
   };
 }
 
@@ -238,5 +245,6 @@ export const api: WebApi = {
     cancelInput: () => command("cancelInput", undefined),
     integrate: (target) => command("integrate", undefined, { target }),
     restore: (target) => command("restore", undefined, { target }),
+    checkUpdate: () => command("checkUpdate", undefined),
   },
 };
