@@ -9,7 +9,7 @@
 
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import {
   countOrDash,
@@ -17,9 +17,9 @@ import {
   cacheHitRateText,
   formatCacheHitRate,
   formatClock,
-  formatDateTime,
   formatDuration,
   formatRate,
+  formatTimestamp,
   formatTokens,
   formatTokensPerSec,
   OUTCOME_META,
@@ -29,7 +29,7 @@ import type { AccessLogEntry, AccessLogPage, AccessOutcome } from "../lib/types"
 import { useNarrow } from "../lib/use-narrow";
 import { CopyButton } from "../components/CopyButton";
 import { PageHeader } from "../components/PageHeader";
-import { RefreshButton } from "../components/RefreshButton";
+import { useRefreshInterval } from "../lib/refresh-interval";
 import { ScrollFade } from "../components/ScrollFade";
 import { Select, type SelectOption } from "../components/Select";
 import { Skeleton } from "./Dashboard";
@@ -143,8 +143,14 @@ function BreakableId({ value }: { value: string }): ReactElement {
 function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
-    <div className="space-y-3 bg-canvas/40 px-4 py-3">
+    // text-left：详情在 `<td>` 里，会继承表格的 `text-center` —— 长值（请求规模等）
+    // 折行后半截悬在中间，读起来像错位（2026-11-15 手机实测）
+    <div className="space-y-3 bg-canvas/40 px-4 py-3 text-left">
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2 xl:grid-cols-3">
+        {/* 列表时间列只放 `HH:MM:SS`，完整日期在这里给出 */}
+        <Field label="时间">
+          <span className="font-mono tabular">{formatTimestamp(entry.ts)}</span>
+        </Field>
         <Field label="request id">
           <span className="break-all font-mono">{entry.id}</span>
           <CopyButton value={entry.id} label="复制 request id" />
@@ -229,16 +235,24 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
  * 容器 `overflow-auto` 横滚）。
  * 数值列（耗时 / tokens）右对齐，位数不同也能对齐（全站同一约定）。
  */
+/**
+ * 列宽（`>` 展开箭头列移除后重新分配；时间列只放 `HH:MM:SS`）。
+ * 展开交互改为整行点击 + 行焦点（Enter / 空格），首列的呼吸位由内边距给。
+ *
+ * 百分比按**最坏宽度 684px**（`md:min-w`）逐列量过：每列 ≥ 内容 + 内边距，
+ * 任何 ≥735 视口都不贴边——时间 / 结果 70px、渠道 80px（`qwenworkcn` mono 72 + 8）、
+ * 缓存列表头 68px、tokens 列 107px（实测 768 下旧值 9%/10% 各差 2px 撞邻列）。
+ * 模型列是唯一弹性列，吃剩余（684 下仍 ≥ 190px）。
+ */
 const COL_WIDTHS = {
-  toggle: "3.6%",
-  time: "12.9%",
-  result: "9.2%",
-  channel: "10.3%",
-  model: "25.5%",
-  duration: "5.2%",
-  tokensPerSec: "7%",
-  cache: "8.7%",
-  tokens: "17.6%",
+  time: "10.5%",
+  result: "10.5%",
+  channel: "12%",
+  model: "28%",
+  duration: "6.5%",
+  tokensPerSec: "7.5%",
+  cache: "10%",
+  tokens: "15%",
 } as const;
 
 /**
@@ -247,12 +261,20 @@ const COL_WIDTHS = {
  * 窄屏只留「时间 / 结果 / 模型」三列，模型列仍是唯一弹性列（吃剩余）——
  * 只有四列时不存在「中间空一大块」的问题。
  */
+/**
+ * 窄屏（< 735px）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 53px 内容。
+ *
+ * 窄屏只留「时间 / 结果 / 模型」三列，模型列仍是唯一弹性列（吃剩余）——
+ * 只有四列时不存在「中间空一大块」的问题。
+ *
+ * **时间 / 结果用固定 76px，不用百分比**：内容下限 ≈ 70px（`HH:MM:SS` 57 + 首列 `pl-3`
+ * 与呼吸位；结果 = 点 + 文案 + 状态码 + 内边距 ≈ 70），在 340px 表宽下 17%/16.3%
+ * 只分别拿到 71/55px——时间撞进结果列、结果挤掉状态码（2026-11-15 实测）。
+ * 76px + 模型列吃剩余，任何窄视口都不重叠。
+ */
 const NARROW_COL_WIDTHS: Record<keyof typeof COL_WIDTHS, string> = {
-  toggle: "6.3%",
-  // 「HH:MM:SS」实测 57px：13.8% 在 340px 表宽下只有 47px 会裁掉秒位（2026-11-14）；
-  // 17% 配合下方的 min-w-[340px] 保证任何窄视口都 ≥ 57px
-  time: "17%",
-  result: "16.3%",
+  time: "76px",
+  result: "76px",
   channel: "18.4%",
   model: "",
   duration: "5.2%",
@@ -276,7 +298,6 @@ interface LogCol {
 }
 
 const LOG_COLS: LogCol[] = [
-  { key: "toggle", label: "", wide: true },
   { key: "time", label: "时间" },
   { key: "result", label: "结果" },
   { key: "channel", label: "渠道", wide: true },
@@ -318,45 +339,20 @@ function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
 function LogCell({
   col,
   entry,
-  open,
-  narrow,
-  onToggle,
 }: {
   col: LogCol;
   entry: AccessLogEntry;
-  open: boolean;
-  narrow: boolean;
-  onToggle: () => void;
 }): ReactElement {
   // 末列（tokens）右内边距加大：数据与表格右沿留出呼吸位，不与滚动条/边缘贴死
   // 对齐由 table 的 text-center 统一给（数值列不再右对齐：居中后表头与数据同中心线）
   const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-1 pr-4" : "px-1"} py-2 align-top font-mono text-xs tabular text-ink-soft`;
   switch (col.key) {
-    case "toggle":
-      return (
-        <td className="flex items-center justify-center px-1 py-2 max-md:px-0">
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-label={open ? "收起详情" : "展开详情"}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggle();
-            }}
-            className="tap-square grid h-5 w-5 place-items-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-          >
-            {open ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-          </button>
-        </td>
-      );
+    // 时间列是全表首列：左侧 `pl-3` 给呼吸位（`>` 箭头列移除后行贴左沿，实测很局促）；
+    // 只显示 `HH:MM:SS`，完整日期在展开详情（formatTimestamp）
     case "time":
       return (
-        <td className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs tabular text-ink-soft">
-          {narrow ? formatClock(entry.ts) : formatDateTime(entry.ts)}
+        <td className="whitespace-nowrap py-2 pl-3 pr-1 align-top font-mono text-xs tabular text-ink-soft">
+          {formatClock(entry.ts)}
         </td>
       );
     case "result":
@@ -407,7 +403,7 @@ function LogTable({
 }): ReactElement {
   /**
    * 阈值 735 而不是默认的 767：窗口最小宽是 736（见 desktop/main.cjs），
-   * 列宽已按内容压到 684（固定列 584 + 模型列 100），736 下内容宽 688 刚好装下。
+   * 列宽已按内容压到 684（固定列 + 模型列 100），736 下内容宽 688 刚好装下。
    * 再按 768 退化就只剩 3 列 —— 那是「砍列」不是「压缩」，与本表的设计取向相反。
    */
   const narrow = useNarrow(735);
@@ -419,7 +415,9 @@ function LogTable({
   // align-top 与表体一致：表体是 align-top（多行内容顶对齐），表头若用 UA 默认的 middle，
   // 两行文字在各自行内的相对位置不同（实测差约 3px）
   const headClass = (key: string): string =>
-    `whitespace-nowrap text-center align-top ${key === "tokens" ? "pl-1 pr-4" : "px-1"} py-2 font-normal`;
+    `whitespace-nowrap text-center align-top ${
+      key === "tokens" ? "pl-1 pr-4" : key === "time" ? "pl-3 pr-1" : "px-1"
+    } py-2 font-normal`;
   return (
     <div className="panel flex min-h-0 flex-1 flex-col">
       <ScrollFade wrapperClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 overflow-auto">
@@ -451,20 +449,22 @@ function LogTable({
               return (
                 <Fragment key={entry.id}>
                   <tr
+                    // `>` 箭头列移除后，展开交互 = 整行点击 + 行焦点（键盘 Enter / 空格）
+                    tabIndex={0}
+                    aria-expanded={open}
                     onClick={() => onToggle(entry.id)}
-                    className={`cursor-pointer border-b border-line transition-colors last:border-b-0 hover:bg-overlay/40 ${
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onToggle(entry.id);
+                      }
+                    }}
+                    className={`cursor-pointer border-b border-line transition-colors last:border-b-0 hover:bg-overlay/40 focus-visible:outline-2 focus-visible:outline-brand/55 ${
                       open ? "bg-overlay/30" : ""
                     }`}
                   >
                     {cols.map((col) => (
-                      <LogCell
-                        key={col.key}
-                        col={col}
-                        entry={entry}
-                        open={open}
-                        narrow={narrow}
-                        onToggle={() => onToggle(entry.id)}
-                      />
+                      <LogCell key={col.key} col={col} entry={entry} />
                     ))}
                   </tr>
                   {open && (
@@ -705,6 +705,8 @@ export function Logs(): ReactElement {
   const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
+  /** 日志列表的自动刷新节奏（设置页可调，最小 5s）。 */
+  const { interval: logsInterval } = useRefreshInterval("logs");
 
   /**
    * 渠道下拉的**定宽基准**取全部在册渠道（快照 `channel_caps`），
@@ -731,9 +733,10 @@ export function Logs(): ReactElement {
         limit: pageSize,
         offset: (pageNum - 1) * pageSize,
       }),
-    refetchInterval: expanded !== null || pageNum > 1 ? false : 5_000,
+    // 展开行 / 翻页时暂停：此刻轮询会把用户正在读的详情顶掉
+    refetchInterval: expanded !== null || pageNum > 1 ? false : logsInterval,
     // 与轮询同长：间隔内再进页面直接用缓存（列表页最怕被清空成骨架）
-    staleTime: 5_000,
+    staleTime: logsInterval,
   });
 
   const page = logs.data;
@@ -762,15 +765,7 @@ export function Logs(): ReactElement {
   // （`overflow-hidden`）并给内层确定高度，纵向滚动只属于下方表格区（见 LogTable）。
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <PageHeader
-        title="请求日志"
-        description="每次模型请求的明细"
-        actions={
-          <>
-            <RefreshButton onRefresh={() => logs.refetch()} />
-          </>
-        }
-      />
+      <PageHeader title="请求日志" description="每次模型请求的明细" />
 
       {/* 统计条 + 筛选栏：页面已不滚动，天然常驻可见，不再需要 sticky */}
       <div className="panel space-y-3 p-3">
@@ -827,7 +822,7 @@ export function Logs(): ReactElement {
         <div className="panel space-y-2 p-5 text-sm text-ink-soft">
           <p className="text-danger">日志读取失败。</p>
           <p className="text-xs text-ink-faint">
-            控制台与网关同进程：网关不可用时这里也读不到；恢复后点「刷新」重试。
+            控制台与网关同进程：网关不可用时这里也读不到；恢复后轮询会自动重试。
           </p>
           <button
             type="button"
