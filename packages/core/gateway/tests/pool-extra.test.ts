@@ -32,7 +32,7 @@ import {
 import { rotateExhaustedAccount, switchOffCoolingAccount } from "../dist/pool/account-rotate.js";
 import { loadModelRegistry, modelRegistryPath, registryModelIds } from "../dist/pool/model-registry.js";
 import { buildCatalog, catalogSourceStats, ensureCatalog } from "../dist/pool/catalog-snapshot.js";
-import { aliasGroupOf, canonicalOf, ownerOf } from "../dist/pool/model-family.js";
+import { canonicalOf, isClientModelId, ownerOf } from "../dist/pool/model-family.js";
 import {
   loadModelPrefs,
   preferredChannelOf,
@@ -436,11 +436,21 @@ describe("catalog-snapshot：重建与来源统计", () => {
 });
 
 describe("model-family / model-prefs", () => {
-  it("aliasGroupOf：未知规范名回单元素数组", () => {
-    assert.deepEqual(aliasGroupOf("unknown-model"), ["unknown-model"]);
-    assert.deepEqual(aliasGroupOf("deepseek-v4.1-flash"), ["deepseek-v4.1-flash", "deepseek-flash"]);
-    assert.equal(canonicalOf("DeepSeek-Flash"), "deepseek-v4.1-flash");
+  it("canonicalOf / ownerOf：目录写法仍归一，未登记家族不编厂商", () => {
+    assert.equal(canonicalOf("DeepSeek-V4-1-Flash"), "deepseek-v4.1-flash");
+    assert.equal(canonicalOf("sn-deepseek-v4-1-flash-1017"), "deepseek-v4.1-flash");
+    assert.equal(canonicalOf("deepseek-flash"), "deepseek-v4.1-flash");
     assert.equal(ownerOf("unknown-model"), "modelmux");
+  });
+
+  it("isClientModelId：只认对外公布的两个裸名", () => {
+    assert.equal(isClientModelId("deepseek-v4.1-flash"), true);
+    assert.equal(isClientModelId("DeepSeek-V4.1-Flash"), true);
+    assert.equal(isClientModelId("qwen3.8-flash"), true);
+    // 历史别名与渠道目录写法：内部能归一，但客户端不许用
+    assert.equal(isClientModelId("deepseek-flash"), false);
+    assert.equal(isClientModelId("sn-deepseek-v4-1-flash-1017"), false);
+    assert.equal(isClientModelId("LongCat-2.5"), false);
   });
 
   it("model-prefs：损坏文件回空表，未知模型设置抛错", withRoot(() => {

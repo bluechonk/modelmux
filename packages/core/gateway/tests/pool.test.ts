@@ -252,11 +252,13 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
     assert.equal(alphaUp.captured.length, 0, "glm 的渠道不该被 deepseek 的请求命中");
   });
 
-  it("别名双向：deepseek-flash 与 deepseek-v4.1-flash 命中同一批渠道", async () => {
+  it("历史别名不再接受：deepseek-flash → 400（对外一个模型只有一个名字）", async () => {
     betaUp.captured.length = 0;
+    alphaUp.captured.length = 0;
     const { status } = await chat(gw, "deepseek-flash");
-    assert.equal(status, 200);
-    assert.equal(betaUp.captured.length, 1, "deepseek-flash 是 deepseek-v4.1-flash 的别名");
+    assert.equal(status, 400);
+    assert.equal(betaUp.captured.length, 0);
+    assert.equal(alphaUp.captured.length, 0);
   });
 
   it("不在家族里的模型 → 400 unknown_model", async () => {
@@ -282,7 +284,7 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
 
   it("带 `modelmux/` 前缀 / `[1m]` 后缀的容错写法仍可用", async () => {
     betaUp.captured.length = 0;
-    const { status } = await chat(gw, "modelmux/deepseek-flash[1m]");
+    const { status } = await chat(gw, "modelmux/deepseek-v4.1-flash[1m]");
     assert.equal(status, 200);
     assert.equal(betaUp.captured.length, 1);
   });

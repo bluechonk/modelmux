@@ -137,7 +137,8 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
       ],
       "上游写法在注册表里逐渠道保留，不被小写化",
     );
-    // 别名双向：deepseek-flash 与 deepseek-v4.1-flash 命中同一批渠道
+    // 池内归一仍认渠道侧写法（目录里写 deepseek-flash 的渠道照样进候选）；客户端能不能用
+    // 这个名字是另一层（`isClientModelId`，见 inbound-model）
     assert.deepEqual(poolCandidates("deepseek-flash"), poolCandidates("deepseek-v4.1-flash"));
     // 家族外 / 没人供给的 → 空
     assert.deepEqual(poolCandidates("glm-5.3-flash"), [], "glm 已移出对外家族");

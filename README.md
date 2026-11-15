@@ -9,8 +9,9 @@
 - **一个网关**：监听 `127.0.0.1:4412`，OpenAI 兼容 `/v1/chat/completions`，
   另有 Anthropic Messages（`/v1/messages`）、OpenAI Responses（`/v1/responses`）、
   `/v1/models` 与 `/health`。
-- **统一模型池**：对外只有家族表里的**裸模型名**（`deepseek-flash` 是
-  `deepseek-v4.1-flash` 的别名）；`/v1/models` 只列「至少一个渠道能供给」的那几个。
+- **统一模型池**：对外只有家族表里公布的那几个**裸模型名**（当前是
+  `deepseek-v4.1-flash` 与 `qwen3.8-flash`，别的一律 400）；`/v1/models` 只列
+  「至少一个渠道能供给」的那些。
 - **多渠道路由**：同一模型的候选渠道按**账号池剩余额度之和降序**，先出额度最多的那家；
   渠道内账号耗尽自动换号，整家烧光则顺延下一家。额度耗尽进冷却（到期自动恢复），
   连败熔断后自动半开试探。

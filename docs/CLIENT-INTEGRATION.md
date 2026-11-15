@@ -71,7 +71,8 @@
 `packages/core/gateway/src/pool/inbound-model.ts`）：
 
 1. 剥 `[1m]` 后缀（Claude Code 的 1M 窗口标记）与 `modelmux/` 前缀；
-2. 大小写不敏感 + 别名归并（`deepseek-flash` → `deepseek-v4.1-flash`，家族表唯一事实源）；
+2. 大小写不敏感 + 只认**对外公布的裸名**（当前 `deepseek-v4.1-flash` / `qwen3.8-flash`；
+   渠道侧写法如 `deepseek-flash`、`sn-deepseek-v4-1-flash-1017` 不在名单里，写了就是 400）；
 3. Claude Desktop 的三个角色名（`claude-sonnet-4-5` / `claude-opus-4-5` / `claude-haiku-4-5`）
    按 `DESKTOP_ROLE_MODELS` 固定表映射到池模型（见 [CONTRACT-TS.md §4.1.1](./CONTRACT-TS.md)）；
 4. 其余家族外的名字一律 `400 unknown_model`（含 `gpt-*` 与不在角色表里的 `claude-*`）。

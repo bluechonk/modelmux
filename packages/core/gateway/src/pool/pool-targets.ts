@@ -14,7 +14,6 @@ import { runInChannel } from "../runtime/channel-context.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import {
-  aliasGroupOf,
   canonicalOf,
   POOL_EXPOSED_IDS,
   SINGLE_CHANNEL_SUPPLY,

@@ -116,7 +116,6 @@ export {
 export {
   POOL_MODEL_IDS,
   POOL_EXPOSED_IDS,
-  aliasGroupOf,
   canonicalOf,
   isPoolModel,
   ownerOf,

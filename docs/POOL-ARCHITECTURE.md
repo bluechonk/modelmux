@@ -24,8 +24,7 @@
  - **模型池**：该渠道 `catalog` 对外暴露、且属于对外家族的全部可用模型（家族表见 `CONTRACT-TS.md` §4.1）。
  - **账号池**：该渠道的多个账号；`credentials.json` 只是当前生效账号的兼容镜像（见 §3.4）。
 - **对外形态**：一个 base URL（`http://127.0.0.1:4412/v1`）+ **对外模型家族的裸模型名**
- （家族与别名表见 §2；`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名）。
- 客户端只说要哪个模型，**哪家渠道出**由网关按账号池剩余额度自动挑，失败顺延下一家 —— 见 §2。
+ （家族表见 §2）。客户端只说要哪个模型，**哪家渠道出**由网关按账号池剩余额度自动挑，失败顺延下一家 —— 见 §2。
 
 > 渠道对客户端**透明**：请求里不带渠道前缀；家族外的模型名（哪怕是别家真实存在的模型）
 > 一律 `400 unknown_model`。模型家族是网关的**产品面**，声明在
@@ -49,13 +48,15 @@
                  ↑ 渠道目录里的等价写法（大小写 / 连字符版本号 / sn- 包装 / -official / 日期后缀）归一后匹配
 ```
 
-| 对外模型 id | 别名 | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
+| 对外模型 id | 渠道侧等价写法（只用于内部归一） | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash` | `deepseek` | traecn、loomy、workbuddy、raccoon、codebuddycn、catpaw（渠道级窗口 600k）、lobsterai、qodercn —— 上游写法逐渠道不同（如 raccoon 的 `sn-deepseek-v4-1-flash-1017`），catpaw 的渠道级窗口见注册表 `channels.catpaw.contextWindow` |
+| `deepseek-v4.1-flash` | `deepseek-flash`（qodercn / lobsterai 的上游 id） | `deepseek` | traecn、loomy、workbuddy、raccoon、codebuddycn、catpaw（渠道级窗口 600k）、lobsterai、qodercn —— 上游写法逐渠道不同（如 raccoon 的 `sn-deepseek-v4-1-flash-1017`），catpaw 的渠道级窗口见注册表 `channels.catpaw.contextWindow` |
 | `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）…（千问办公只卖「标准」档，底层型号由上游池化；候选经单渠道收窄表只出 qwenworkcn） |
 
-**只列 canonical**：别名 `deepseek-flash` 可被请求（与 canonical 一同命中候选），但不单独
-出现在模型池里 —— 否则「模型 × 渠道」表会出现两行一模一样的条目。
+**客户端只认这两个名字**：入站解析放行的只有对外公布的裸名（大小写不敏感，可带
+`modelmux/` 前缀与 `[1m]` 后缀）。渠道侧等价写法（`deepseek-flash`、
+`sn-deepseek-v4-1-flash-1017`）只用于把**渠道目录条目**归到家族，客户端写了照样
+`400` —— 对外一个模型只有一个名字（2026-11-15 产品口径）。
 
 > 候选渠道 = **渠道目录 `exposedIds()` 现算** ∪ **注册表 `channels` 声明**（兜底，见
 > [MODEL-CATALOG.md](./MODEL-CATALOG.md) §5）：目录是上游能力的实时事实（上游加/下模型、
@@ -64,9 +65,10 @@
 > 通道由各渠道自己排除，共享层不做闸门。家族外的条目（各渠道的 kimi / qwen / MiniMax /
 > 豆包 等）**不进对外池**。机械校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」一节。
 
-来源：`pool/model-family.ts`（家族与别名）、`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
+来源：`pool/model-family.ts`（家族表与对外名单）、`pool/inbound-model.ts`（客户端名解析）、
+`pool/pool-targets.ts`（匹配与候选）、`pool-usage.ts`（账本与额度）。
 
-### 2.1 匹配 = 归一化 + 精确相等 + 别名组
+### 2.1 匹配 = 归一化 + 精确相等
 
 各渠道目录的命名完全不同，所以先归一化（`canonicalModelId`）：
 
@@ -79,11 +81,13 @@
 然后做**精确相等**匹配 —— 用包含匹配的话，`deepseek-v4-flash` 会把
 `deepseek-v4.1-flash` 一起捞进来，精确相等是唯一的隔离保证。
 
-客户端请求名走 `canonicalOf`（家族表 + 同一套宽松归一化）：命中家族即归并到 canonical，
-并按**别名组**收集候选 —— `deepseek-flash` 与 `deepseek-v4.1-flash` 互相命中
-（目录里写 `DeepSeek-Flash` 的渠道，请求 `deepseek-v4.1-flash` 也能打过去）。
-家族外的名字一律 `400 unknown_model`；家族内但**没有任何渠道供给**的也是 `400`（没货），
-「渠道都没登录」才是 `503`。
+客户端请求名走 `pool/inbound-model.ts`：先剥 `[1m]` 后缀与 `modelmux/` 前缀，再对
+**对外名单**做精确匹配（`isClientModelId`），命中即取 canonical；没命中再看 Claude Desktop
+的三个角色名（固定表）。两者都不中一律 `400 unknown_model`，文案列出对外公布的两个名字。
+渠道目录条目走另一条路（`canonicalOf` + 同一套宽松归一化）：目录里的上游写法
+（`DeepSeek-Flash`、`sn-deepseek-v4-1-flash-1017`）照旧归到同一 canonical，于是「目录里写
+`deepseek-flash` 的渠道，请求 `deepseek-v4.1-flash` 也能打过去」。家族内但**没有任何渠道
+供给**的同样是 `400`（没货），「候选渠道当前都不可用」才是 `503`。
 
 ### 2.2 账本：路由主键（剩余额度 × 速度 × 可靠性）＋ 健康度观察
 
@@ -145,7 +149,7 @@
 
 ### 2.4 路由与失败转移（跨渠道）
 
-1. **解析**：家族名 → canonical（别名归并），家族外 → `400 unknown_model`；
+1. **解析**：对外名单精确匹配 → canonical（家族外 → `400 unknown_model`）；
    家族内但没有任何渠道供给 → `400`（没货）。日志的 `model` 写 canonical 名。
 2. **候选收集**：能供给该模型的渠道先按**档位**、档位内再按**有效优先级降序**排好
    （`pool/pool-targets.ts::poolCandidates`）—— 客户端不指定渠道。
@@ -467,7 +471,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 报 1000000）。
 某渠道**本渠道取不到**窗口 / 输出上限 / 思考档位时，就用兄弟渠道同名的已知值兜底。
 
-对外**只列 canonical 的 deepseek 模型**（别名 `deepseek-flash` 不单独出现）；同一个模型的
+对外**只列对外名**（渠道侧写法如 `deepseek-flash` 不进清单）；同一个模型的
 多家渠道在「模型 × 渠道」视图里逐行展开（渠道各有自己的倍率与上游写法）。
 
 实测口径（2026-10-25，走真实注册链路取数）：跨渠道重复名 29 个（当时是全池 207 个 id）；
@@ -765,7 +769,7 @@ hasChannel(cid?: string): boolean;
 
 - `/v1/chat/completions`：**池路由** —— 客户端用 **deepseek 裸模型名**请求，渠道由网关按
   账号池剩余额度自动挑（见 §2.4）。模型名先过**入站模型解析**（剥 `[1m]` 后缀与
-  `modelmux/` 前缀、别名归并到 canonical）；家族外的名字一律 400。
+  `modelmux/` 前缀，再对对外名单精确匹配）；家族外的名字一律 400。
 - `/v1/models`：读**统一模型注册表** `~/.modelmux/models.json`（缺失/损坏时回落随包默认表，
   应答带 `registry_source` 说明来源），见 [MODEL-CATALOG.md](./MODEL-CATALOG.md)。
 - `/health`：报告**整体**状态 + 每个渠道一行（登录/池子/是否上架），而不是单个渠道。

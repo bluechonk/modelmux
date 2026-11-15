@@ -4,28 +4,29 @@
  * 渠道归属由网关按「账号池剩余额度」自动选择（见 `pool-targets.ts` / `http/chat/route.ts`）。
  * 本表是共享层唯一允许出现模型名的地方（`scripts/verify-contract.mjs` 强制）。
  *
- * 命名约定：`deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（双向匹配）；
- * `qwen3.8-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
+ * 命名约定：`qwen3.8-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
+ * **对外只有下面这两个名字**：渠道目录里的上游写法（如 qodercn 的 `deepseek-flash`）只在
+ * 内部归一用，客户端写了照样 400（2026-11-15 产品口径）。
  */
 
-/** 对外暴露的模型 id（顺序即 `/v1/models` 与控制台的展示顺序；别名排在最后）。 */
-export const POOL_MODEL_IDS = [
-  "deepseek-v4.1-flash",
-  "qwen3.8-flash",
-  "deepseek-flash",
-] as const;
+/** 对外暴露的模型 id（顺序即 `/v1/models` 与控制台的展示顺序）。 */
+export const POOL_MODEL_IDS = ["deepseek-v4.1-flash", "qwen3.8-flash"] as const;
 
-/** 对外 id → 规范名（别名归并到同一个 canonical）。 */
+/** 对外 id → 规范名。 */
 const CANONICAL: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek-v4.1-flash",
   "qwen3.8-flash": "qwen3.8-flash",
-  "deepseek-flash": "deepseek-v4.1-flash",
 };
 
-/** 规范名 → 该代模型的对外 id 集合（含别名）。 */
-const ALIAS_GROUP: Readonly<Record<string, readonly string[]>> = {
-  "deepseek-v4.1-flash": ["deepseek-v4.1-flash", "deepseek-flash"],
-  "qwen3.8-flash": ["qwen3.8-flash"],
+/**
+ * 渠道目录里的上游等价写法 → 规范名（**不对客户端开放**）。
+ *
+ * 为什么与 `CANONICAL` 分开：`canonicalOf` 两条路共用（客户端请求 + 渠道目录条目），
+ * 而收口只针对前者（见 `isClientModelId`）。目录里的上游名（qodercn / lobsterai 都写
+ * `deepseek-flash`）必须照旧能归到家族，否则那几家渠道会从候选里消失。
+ */
+const UPSTREAM_ALIASES: Readonly<Record<string, string>> = {
+  "deepseek-flash": "deepseek-v4.1-flash",
 };
 
 /** canonical → `/v1/models` 里的 `owned_by`（厂商标识，展示用）。 */
@@ -92,8 +93,7 @@ export const SINGLE_CHANNEL_SUPPLY: Readonly<Record<string, string>> = {
 /**
  * 对外**列出**的模型 id：只列 canonical。
  *
- * `deepseek-flash` 是 `deepseek-v4.1-flash` 的别名（同一代模型），仍可被客户端**请求**，
- * 但不单独列出来 —— 否则模型池与「模型 × 渠道」表里会出现两行一模一样的条目。
+ * 每个对外名字只出现一次 —— 否则模型池与「模型 × 渠道」表里会出现两行一模一样的条目。
  */
 export const POOL_EXPOSED_IDS: readonly string[] = POOL_MODEL_IDS.filter(
   (id) => lookup(CANONICAL, id) === id,
@@ -102,6 +102,18 @@ export const POOL_EXPOSED_IDS: readonly string[] = POOL_MODEL_IDS.filter(
 /** 是否为对外暴露的模型 id（大小写不敏感）。 */
 export function isPoolModel(id: string): boolean {
   return canonicalOf(id) !== null;
+}
+
+/**
+ * 客户端**可请求**的模型 id：只认对外公布的裸名。
+ *
+ * 与 `canonicalOf` 的分工：那个是「能归到家族就算」，把渠道目录里的上游写法
+ * （`sn-deepseek-v4-1-flash-1017`、`deepseek-flash`）也算命中；这里只认公开面 ——
+ * 对外只有一个名字，客户端写目录写法或历史别名一律 400（2026-11-15 产品口径）。
+ */
+export function isClientModelId(id: string): boolean {
+  const key = id.trim().toLowerCase();
+  return POOL_EXPOSED_IDS.includes(key);
 }
 
 /** canonical → `owned_by`；未登记的家族返回 `modelmux`（不编造厂商标识）。 */
@@ -118,16 +130,11 @@ export function ownerOf(canonical: string): string {
  */
 export function canonicalOf(id: string): string | null {
   const key = id.trim().toLowerCase();
-  const direct = lookup(CANONICAL, key);
+  const direct = lookup(CANONICAL, key) ?? lookup(UPSTREAM_ALIASES, key);
   if (direct !== undefined) return direct;
   // 渠道目录里的等价写法：先按共享归一化再查表（`sn-` 包装、`v4-1` → `v4.1`、`-official` 等）
   const normalized = normalizeLoose(key);
-  return lookup(CANONICAL, normalized) ?? null;
-}
-
-/** 规范名 → 该代模型的对外 id 集合（含别名）；未知规范名返回单元素 `[model]`。 */
-export function aliasGroupOf(canonical: string): readonly string[] {
-  return lookup(ALIAS_GROUP, canonical) ?? [canonical];
+  return lookup(CANONICAL, normalized) ?? lookup(UPSTREAM_ALIASES, normalized) ?? null;
 }
 
 /**

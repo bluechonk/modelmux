@@ -171,7 +171,10 @@ describe("model list / usage：人读输出", () => {
   });
 
   it("model usage --refresh：先重查账单再打印", async () => {
-    setChannel(makeChannel("alpha"));
+    const ch = makeChannel("alpha");
+    setChannel(ch);
+    // 未登录的渠道不查账单（skip 语义）：先写一份凭据，让这家真的被查
+    await ch.cred.login();
     const r = await run(["model", "usage", "--refresh"]);
     assert.equal(r.code, 0, r.err);
     assert.ok(r.err.includes("账单已刷新：成功 1 个渠道"), r.err);
@@ -184,6 +187,7 @@ describe("model list / usage：人读输出", () => {
       throw new Error("上游拒绝");
     };
     setChannel(ch);
+    await ch.cred.login(); // 同上：先登录，失败才算「查了但失败」
     const r = await run(["model", "usage", "--refresh"]);
     assert.equal(r.code, 0, r.err);
     assert.ok(r.err.includes("账单已刷新：成功 0 个渠道，失败 1 个（alpha）"), r.err);

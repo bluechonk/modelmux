@@ -609,7 +609,7 @@ describe("count tokens estimator", () => {
 });
 
 describe("inbound model resolution", () => {
-  it("家族裸名直认；剥 modelmux/ 前缀与 [1m] 后缀；大小写与别名归并", () => {
+  it("只认对外名单；剥 modelmux/ 前缀与 [1m] 后缀；大小写不敏感", () => {
     assert.deepEqual(resolveInboundModel("deepseek-v4.1-flash"), {
       target: "deepseek-v4.1-flash",
       via: "pool",
@@ -619,8 +619,11 @@ describe("inbound model resolution", () => {
     assert.equal(prefixed.via, "pool");
     const windowed = resolveInboundModel("deepseek-v4.1-flash[1m]");
     assert.equal(windowed.target, "deepseek-v4.1-flash");
-    // 大小写不敏感 + 别名归并（deepseek-flash → v4.1 的 canonical）
-    assert.equal(resolveInboundModel("DeepSeek-Flash").target, "deepseek-v4.1-flash");
+    // 大小写不敏感
+    assert.equal(resolveInboundModel("DeepSeek-V4.1-Flash").target, "deepseek-v4.1-flash");
+    // 渠道侧写法（历史别名 / 目录写法）不再接受：对外一个模型只有一个名字
+    assert.equal(resolveInboundModel("deepseek-flash").target, null);
+    assert.equal(resolveInboundModel("sn-deepseek-v4-1-flash-1017").target, null);
   });
 
   it("Claude Desktop 角色名按固定表映射到池模型（labelOverride 不进请求体）", () => {
