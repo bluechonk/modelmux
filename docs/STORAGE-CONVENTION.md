@@ -146,5 +146,5 @@
    账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）、
    `watchdog.pid` / `watchdog.pause`（外部守护 `scripts/mx-watchdog.mjs`）、
    `update.json`（版本更新检测状态：上次检查时间 / 最近结果，
-   见 `docs/WEB-CONSOLE.md` 的版本胶囊）。走 `paths.rootFile()`
+   见 `docs/WEB-CONSOLE.md` 的设置弹窗版本行）。走 `paths.rootFile()`
    或 `paths.logsDir()`，文件名同样受本节第 7 条的校验。
