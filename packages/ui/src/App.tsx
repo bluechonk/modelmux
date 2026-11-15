@@ -1,6 +1,7 @@
 /**
  * 控制台根组件：React Query 客户端 + 路由挂载（`/` 仪表盘、`/accounts` 账号池、
- * `/logs` 请求日志；未知路径兜底回仪表盘）。
+ * `/logs` 请求日志；未知路径兜底回仪表盘）。设置不是路由页面，是顶栏齿轮弹窗
+ * （`components/SettingsModal.tsx`）。
  *
  * 路由 `basename` 必须与 `vite.config.ts` 的 `base` 一致（挂 `/web`）——
  * 只改 Vite 的 `base` 不改 Router 会整页空白。

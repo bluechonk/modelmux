@@ -12,26 +12,24 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, ExternalLink, Gauge, ScrollText } from "lucide-react";
-import { useRef, type ReactElement, type ReactNode } from "react";
+import { Boxes, Gauge, ScrollText, Settings as SettingsIcon } from "lucide-react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
+import { REPO_URL } from "../lib/site";
+import { GithubMark } from "./GithubMark";
 import { BackToTop } from "./BackToTop";
 import { BrandMark } from "./BrandMark";
-import { CopyButton } from "./CopyButton";
 import { GatewayStatus } from "./GatewayStatus";
+import { SettingsModal } from "./SettingsModal";
 import { ThemeToggle } from "./ThemeToggle";
-import { UpdateCard } from "./UpdateCard";
 import { WindowControls } from "./WindowControls";
 
-/** 顶部标签导航项（路由不变，仅视觉载体从侧栏移到头部）。 */
+/** 顶部标签导航项（设置不是页面：收进顶栏齿轮弹窗，见 SettingsModal）。 */
 const NAV = [
   { to: "/", label: "仪表盘", icon: Gauge },
   { to: "/accounts", label: "账号池", icon: Boxes },
   { to: "/logs", label: "请求日志", icon: ScrollText },
 ];
-
-/** 桌面壳判定：preload 桥只在壳的渲染层存在（浏览器里没有）。 */
-const IS_DESKTOP = typeof window !== "undefined" && window.modelmuxWindow !== undefined;
 
 /**
  * 网关异常时的正文骨架：替代所有页面内容渲染，形状贴近单列流的真实排版
@@ -72,6 +70,8 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
   // 「running」，只看缓存永远等不到异常。
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  /** 设置弹窗开关：齿轮打开，ESC / 遮罩 / 关闭键收起（设置不是流程态，允许随手关）。 */
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const uiState = state.data?.ui_state ?? "";
   const queryFailed = Boolean(state.isError);
   const onLogs = pathname.replace(/\/+$/, "").endsWith("/logs");
@@ -145,51 +145,36 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         <div className="drag-region h-full min-w-4 flex-1" aria-hidden="true" />
         <div className="flex flex-none items-center gap-3">
           {/*
-            顶栏右侧簇按**梯度收敛**（窗口越窄越先丢「能从别处拿回」的信息）：
-            控制钮 > 深浅切换 > 版本号 > web 页 = 网关地址 —— 每档只掉一个元素，
-            掉档顺序与阈值：web 页 = 地址 <1100px → 版本胶囊 <1000px → 主题 <900px。
-            窗口控制钮是窗口可用性兜底、运行中是网关存活信号，二者常驻；
-            主题与版本是轻量状态；web 页在浏览器里本就同义反复；地址与 web 页同档
-            （客户端唯一要填的地址，空间够就必须显示，不能出现「web 页在、地址不在」）。
+            顶栏右侧簇只放**常驻信号 + 轻量控制**：GitHub（仓库入口，<768px 隐藏）、
+            齿轮（设置弹窗入口，<768px 隐藏）、主题小按钮（<900px 隐藏）、
+            网关状态（存活信号，文字 <480px 收敛为绿点）、桌面壳窗口控制钮。
+            配置类信息（web 页入口 / base_url / 版本与更新）统一收在设置弹窗 ——
+            窄屏收敛梯度不再需要为它们保留档位。图标均为 currentColor，深浅主题自动跟随。
           */}
-          {/*
-            「web 页」：**桌面壳专属** —— 浏览器里你已经在 web 页上，再放一个入口是同义反复；
-            壳里才需要一键跳到默认浏览器（setWindowOpenHandler 交系统浏览器）。
-            地址从 base_url 推导（同一网关，/v1 换成 /web/）；尺寸对齐右侧 base_url 胶囊。
-          */}
-          {IS_DESKTOP && state.data?.base_url && (
-            <a
-              href={`${state.data.base_url.replace(/\/v1\/?$/, "")}/web/`}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="在默认浏览器打开 modelmux Web 控制台"
-              className="no-drag hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-xs text-ink-faint transition-colors hover:text-ink min-[1100px]:flex"
-            >
-              <ExternalLink size={13} aria-hidden="true" />
-              web 页
-            </a>
-          )}
-          {/*
-            base_url 放顶栏最右（紧挨网关状态）：它是客户端唯一要填的地址，
-            放仪表盘卡里要滚到中部才看得到；窗口最窄时最早收敛（见上梯度注释）。
-          */}
-          {state.data?.base_url && (
-            <div className="no-drag hidden items-center gap-1 rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 min-[1100px]:flex">
-              <span className="whitespace-nowrap font-mono text-xs text-ink-soft">
-                {state.data.base_url}
-              </span>
-              <CopyButton value={state.data.base_url} label="复制 base_url" />
-            </div>
-          )}
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="modelmux 的 GitHub 仓库"
+            className="no-drag tap-square hidden h-8 w-8 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-overlay hover:text-ink md:grid"
+          >
+            <GithubMark className="h-4 w-4" />
+          </a>
+          {/* 齿轮恒常驻：它是设置弹窗的唯一入口，窄屏收起来等于设置不可达 */}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="设置"
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen}
+            className="no-drag tap-square grid h-8 w-8 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-overlay hover:text-ink"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </button>
           <span className="no-drag hidden min-[900px]:flex">
             <ThemeToggle />
           </span>
           <GatewayStatus />
-          {/*
-            版本号 + 更新提示：数据来自快照的 `version` / `update`（后台每天检测一次），
-            缺失（旧网关 / 加载中）时不渲染，不留空壳。
-          */}
-          <UpdateCard />
           <WindowControls />
         </div>
       </header>
@@ -210,6 +195,8 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         </div>
       </main>
       <BackToTop target={mainRef} />
+      {/* 设置弹窗挂在布局层：任何页面都能从齿轮打开 */}
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }
