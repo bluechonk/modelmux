@@ -118,6 +118,16 @@ let gatewayReady = false;
 let gatewayFailureHint = "";
 /** 复用了别人起的网关（不是我们 fork 的，退出时不能杀）。 */
 let reusedGateway = false;
+/**
+ * 网关**此刻**是否可用。
+ *
+ * 为什么单独记：`reusedGateway` / `gateway` 只说明「当初是谁起的」，网关随后被别的进程
+ * （`mx restart`、任务管理器、托盘退出）停掉时它们不变 —— 页面于是永远停在骨架，
+ * 用户看到的就是「控制台全是灰块」（2026-11-15 实测）。
+ */
+let gatewayHealthy = false;
+/** @type {NodeJS.Timeout | null} */
+let healthTimer = null;
 /** @type {Tray | null} */
 let tray = null;
 
@@ -192,6 +202,36 @@ async function waitForGateway() {
   return false;
 }
 
+/** 存活巡检间隔：壳要能发现「网关没了」，不论它是自己起的还是复用来的。 */
+const HEALTH_POLL_MS = 10_000;
+
+/** 起存活巡检（幂等）。 */
+function startGatewayWatch() {
+  if (healthTimer) return;
+  healthTimer = setInterval(() => void checkGatewayLiveness(), HEALTH_POLL_MS);
+  // 巡检不该阻止进程退出（托盘常驻时进程本来就长活，这只防退出时被拖住）
+  healthTimer.unref?.();
+}
+
+/**
+ * 巡检一轮：网关断了换说明页，恢复后自动重新载入控制台。
+ *
+ * 为什么必须有：复用模式下壳不管理网关生命周期，`mx restart` 一跑页面就没了后端；
+ * 没有巡检时页面既不报错也不恢复，永远停在骨架（2026-11-15 实测）。
+ */
+async function checkGatewayLiveness() {
+  const ok = await probeHealth(2_000);
+  if (ok === gatewayHealthy) return;
+  gatewayHealthy = ok;
+  refreshTrayMenu();
+  if (!win || win.isDestroyed()) return;
+  if (!ok) {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(downPage())}`);
+  } else {
+    await win.loadURL(`${BASE}/web/`);
+  }
+}
+
 /**
  * 起内嵌网关。
  *
@@ -222,6 +262,7 @@ function startGateway() {
       gateway = null;
       ownsGateway = false;
     }
+    gatewayHealthy = false; // 巡检与托盘据此把状态改成「未运行」
     refreshTrayMenu(); // 状态变了，托盘菜单第一行跟着更新
     // 「起来过又崩了」才值得弹窗打断用户；压根没起来交给错误页说明
     if (gatewayReady && code !== 0 && code !== null && !app.isQuitting) {
@@ -270,7 +311,8 @@ function createTray() {
 /** 重建托盘菜单（网关状态会变，菜单要跟着刷新）。 */
 function refreshTrayMenu() {
   if (!tray) return;
-  const running = gateway !== null || reusedGateway;
+  // 按**当前存活**判定：复用来的网关被别人停掉后，`gateway`/`reusedGateway` 仍是旧值
+  const running = gatewayHealthy;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: running ? "网关：运行中" : "网关：未运行", enabled: false },
@@ -452,6 +494,10 @@ async function createWindow() {
   const ok = await waitForGateway();
   if (!win) return;
 
+  // 存活巡检从第一轮就开着：启动失败也要能等到网关起来后自动恢复
+  gatewayHealthy = ok;
+  startGatewayWatch();
+
   if (ok) {
     gatewayReady = true;
     refreshTrayMenu();
@@ -516,9 +562,31 @@ function errorPage(hint) {
 </div>`;
 }
 
+/** 网关断开页：说明现状并声明会自愈（恢复后由巡检自动载回控制台）。 */
+function downPage() {
+  const c = pageColors();
+  return `<!doctype html><meta charset="utf-8">
+<style>
+  html,body{height:100%;margin:0;background:${c.bg};color:${c.fg};
+    font:14px -apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center}
+  .box{max-width:560px;text-align:left;padding:0 24px}
+  h1{font-size:16px;margin:0 0 12px;color:#f87171}
+  p{margin:8px 0;color:${c.muted};line-height:1.6}
+  code{background:${c.code};padding:2px 6px;border-radius:4px;font-size:12px;word-break:break-all}
+</style>
+<div class="box">
+  <h1>modelmux 网关已断开</h1>
+  <p>控制台与网关同进程，网关不在时读不到任何数据（此前显示的是加载骨架）。</p>
+  <p>网关恢复后本页会自动载回控制台；也可以从托盘菜单「打开控制台」手动重试。</p>
+  <p>启动网关：在终端执行 <code>mx start</code>；日志在 <code>~/.modelmux/logs/system/</code>。</p>
+</div>`;
+}
+
 /** 退出前停掉自己起的网关（复用的不动）。 */
 app.on("before-quit", () => {
   app.isQuitting = true;
+  if (healthTimer) clearInterval(healthTimer);
+  healthTimer = null;
   saveWindowState();
   stopGateway();
 });
