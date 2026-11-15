@@ -21,7 +21,7 @@ import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat, handleCountTokens, handleMessages, handleResponses } from "./chat/relay.js";
 import { writeJson, writeJsonError } from "./chat/errors.js";
-import { attachRequestLog, noteRequestDetail } from "../runtime/log-store.js";
+import { attachRequestLog, noteRequestDetail, noteRequestUa } from "../runtime/log-store.js";
 
 /**
  * 服务标识：出现在 `/health` 应答里。
@@ -168,7 +168,7 @@ export const ENDPOINTS = [
 ];
 
 
-function handleRoot(res: ServerResponse, path: string): void {
+function handleRoot(req: IncomingMessage, res: ServerResponse, path: string): void {
   if (path === "/") {
     const list = channels();
     writeJson(res, {
@@ -179,6 +179,8 @@ function handleRoot(res: ServerResponse, path: string): void {
     });
     return;
   }
+  // 未知路径：把 UA 记下来，下一次幽灵探针（`HEAD /api/hello` 之类）就能认领来源
+  noteRequestUa(res, req.headers["user-agent"]);
   writeJsonError(res, 404, "not_found", `unknown path ${path}`);
 }
 
@@ -256,7 +258,7 @@ export function createHandler(opts: GatewayOptions = {}) {
         handleHealth(res);
         return;
       }
-      handleRoot(res, path);
+      handleRoot(req, res, path);
     } catch (err) {
       // 异常详情走 detail 字段（`message` 随后会被 writeJsonError 写成给客户端的通用文案）
       noteRequestDetail(res, String(err));

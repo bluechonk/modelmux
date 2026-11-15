@@ -61,9 +61,11 @@
 | `status` | number | 最终 HTTP 状态码 | 响应结束时 |
 | `outcome` | string | 结果分类，见 §3.2 | 响应结束时 |
 | `error` | string | 错误码（如 `upstream_error`、`upstream_timeout`） | 出错时 |
+| `detail` | string | **网关自身异常详情**（如 500 的真实异常）。只进 `error/*/error.log` 的镜像行，情况见 §5 第 3 条 | `internal_error` 兜底时（`noteRequestDetail`） |
 | `message` | string | 错误说明（**截断到 800 字符**） | 出错时 |
 | `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
 | `queued` | boolean | **进过上游排队**（收到排队帧并等待重试）。只在为真时写，缺省 = 没收到排队帧 | 排队帧到达时（`noteQueued`） |
+| `ua` | string | 客户端 User-Agent（截断 160 字符）。**只在未知路径 404 上写**：`/api/hello` 这类幽灵探针只能靠它认领来源 | 未知路径应答时（`noteRequestUa`） |
 
 > `ttfbMs` 的语义是「**我们**什么时候开始回字节」，不是「上游什么时候开始吐字」：
 > 流式下两者几乎相同（收到首帧即转发），但**非流式下我们收完才写** —— 该值于是 ≈ `durationMs`，

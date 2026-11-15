@@ -29,6 +29,8 @@
 | `GET /v1/models` | OpenAI 模型清单 | 所有客户端 |
 
 - 入站**无鉴权**（网关只绑 127.0.0.1）；`apiKey` 字段任意非空值即可。
+- 请求体上限 **32MB**（`http/chat/request.ts` 的 `MAX_BODY`）；超过即 `400`，不读完整包。
+  长上下文请求（实测有 2.5MB / 66 万 tokens 的量级）离上限还远，正常用不会碰到。
 - 访问日志记 `protocol` 字段（`anthropic` / `responses`；缺省 = OpenAI chat），
   `mx log` 与 access 日志文件里可见。
 - 转发管线对三种协议共用：候选挑选、账号轮换、排队探测、额度冷却行为完全一致。

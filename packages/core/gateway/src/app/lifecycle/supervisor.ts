@@ -11,7 +11,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { closeSync, openSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { cliEntry, DEFAULT_WAIT_MS, gatewayEnv, gatewayHealthy } from "./daemon.js";
 import { appendError, appendSystem, rotateIfNeeded } from "../../runtime/log-store.js";
@@ -56,11 +56,59 @@ export function waitExit(child: ChildProcess): Promise<{ code: number | null; si
     }
     child.once("exit", (code, signal) => resolve({ code, signal: signal ?? null }));
     child.once("error", (err) => {
-      appendError(`[supervisor] worker spawn failed: ${String(err)}`);
-      console.error(`[supervisor] worker spawn failed: ${String(err)}`);
+      const text = String(err);
+      // `ERR_IPC_CHANNEL_CLOSED` = 监督者正在被拆掉时撞上重生（`mx stop` / `restart` 的
+      // 正常竞态），不是故障；其余 spawn 失败（ENOENT 等）照旧进错误日志
+      if (/ERR_IPC_CHANNEL_CLOSED/.test(text)) {
+        console.warn(`[supervisor] worker spawn raced with shutdown: ${text}`);
+      } else {
+        appendError(`[supervisor] worker spawn failed: ${text}`);
+        console.error(`[supervisor] worker spawn failed: ${text}`);
+      }
       resolve({ code: null, signal: "spawn-error" });
     });
   });
+}
+
+/**
+ * 读日志文件最后一行（诊断用）。
+ *
+ * 为什么需要：worker 被外部杀掉 / 原生崩溃时**没有机会写遗言**，只剩退出码 ——
+ * 崩溃前最后做了什么就永久丢了（2026-11-15 排查 `code=-1` 时确认）。退出时读一次
+ * 日志尾部，把最后一行记进 lifecycle / 错误日志。
+ */
+function readLastLogLine(path: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, "r");
+    const size = statSync(path).size;
+    if (size === 0) return null;
+    // 按**字节**偏移定位着读尾部 4KB：worker 日志是持续追加的，整文件读入会顶内存、
+    // 阻塞事件循环；字节偏移也不能拿去切 utf8 解码后的字符串（多字节字符会错位）
+    const start = Math.max(0, size - 4096);
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    // `readSync` 允许短读（statSync 与 read 之间文件被轮转/截断、信号中断）：必须按**实际**
+    // 读到的字节数截断缓冲区，否则尾部补零会被当成日志内容（一串 NUL）写进 lifecycle
+    let filled = 0;
+    while (filled < len) {
+      const n = readSync(fd, buf, filled, len - filled, start + filled);
+      if (n <= 0) break;
+      filled += n;
+    }
+    if (filled <= 0) return null;
+    // 起点可能落在多字节字符中间 → 首字符可能是替换符；取的是**最后一行**，尾部完整
+    const lines = buf
+      .subarray(0, filled)
+      .toString("utf8")
+      .split("\n")
+      .filter((l) => l.trim() !== "");
+    return lines.length > 0 ? lines[lines.length - 1]!.slice(0, 300) : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -182,12 +230,26 @@ const PING_INTERVAL_MS = 2_000;
     // CCR 判定：稳定运行 ≥60s 清零退避计数（长期健康 worker 首次被杀只等 1s）
     if (Date.now() - healthyAt >= STABLE_MS) attempts = 0;
     const delay = backoffMs(attempts++);
+    // 崩溃原因随进程消失：把日志最后一行带上（含原生崩溃 / 被杀的现场）
+    const lastLine = readLastLogLine(logPath);
     const message =
       `[supervisor] gateway worker exited unexpectedly ` +
-      `(code=${exited.code ?? "signal:" + String(exited.signal)}); restarting in ${delay}ms`;
-    appendError(message, { event: "worker_exited", code: exited.code, signal: exited.signal, delay_ms: delay });
+      `(code=${exited.code ?? "signal:" + String(exited.signal)}); restarting in ${delay}ms` +
+      (lastLine ? ` ; last log line: ${lastLine}` : "");
+    appendError(message, {
+      event: "worker_exited",
+      code: exited.code,
+      signal: exited.signal,
+      delay_ms: delay,
+      ...(lastLine ? { last_line: lastLine } : {}),
+    });
     console.warn(message);
-    superviseLog("worker_exited", { code: exited.code, signal: exited.signal, delay_ms: delay });
+    superviseLog("worker_exited", {
+      code: exited.code,
+      signal: exited.signal,
+      delay_ms: delay,
+      ...(lastLine ? { last_line: lastLine } : {}),
+    });
     await sleep(delay);
   }
 }

@@ -69,6 +69,14 @@ export interface RequestLog {
   error?: string;
   message?: string;
   /**
+   * 客户端 User-Agent（只在**未知路径 404** 上写）。
+   *
+   * 为什么记它：`/api/hello`、`/.well-known/...` 这类幽灵探针只知道路径，认不出是谁发的
+   * （2026-11-15 排查时 11 天里 69 次 HEAD `/api/hello` 无法定位来源）。只在 404 上记，
+   * 正常请求不落这个字段（省体积、也少一份可识别信息）。
+   */
+  ua?: string;
+  /**
    * 网关自身异常的详情（诊断用，不发给客户端）。
    *
    * 为什么单开字段：`message` 是给客户端的那一句话（如「gateway internal error; see logs」），
@@ -493,6 +501,17 @@ export function noteRequestDetail(res: ServerResponse, detail: string): void {
   const log = getRequestLog(res);
   if (!log) return;
   log.detail = detail.slice(0, 800);
+}
+
+/**
+ * 记客户端 User-Agent（只给未知路径 404 用；见 `RequestLog.ua` 的 why）。
+ *
+ * 截断到 160 字符：UA 可能很长，且这里只为认领「谁在探」。
+ */
+export function noteRequestUa(res: ServerResponse, ua: string | undefined): void {
+  const log = getRequestLog(res);
+  if (!log || !ua) return;
+  log.ua = ua.slice(0, 160);
 }
 
 /** 标记客户端主动断开（不算服务端失败）。 */
