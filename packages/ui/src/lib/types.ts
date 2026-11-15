@@ -56,7 +56,7 @@ export interface UiSnapshot {
   base_url: string;
   chat_url: string;
   endpoints: string[];
-  /** 网关自身版本（仓库 `VERSION` 常量），顶栏版本胶囊的数据源。 */
+  /** 网关自身版本（仓库 `VERSION` 常量），设置页版本行的数据源。 */
   version: string;
   /** 版本更新提示（后台每天检测一次；无提示为 null）。 */
   update: UpdateNotice | null;
@@ -104,6 +104,8 @@ declare global {
       isMaximized(): Promise<boolean>;
       onMaximizeChange(callback: (maximized: boolean) => void): () => void;
       setTheme(mode: "system" | "dark" | "light"): Promise<void>;
+      getAutostart(): Promise<boolean>;
+      setAutostart(enabled: boolean): Promise<void>;
     };
   }
 }

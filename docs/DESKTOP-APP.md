@@ -12,6 +12,7 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 | 行为 | 口径 |
 | --- | --- |
 | 启动 | ShellExecute 直跑安装后的 exe，先探 `127.0.0.1:4412/health`：已有网关则**复用**（不重复起实例、退出也不杀别人的），否则 fork 内嵌网关 |
+| 开机自启动 | 经设置弹窗开关读写：注册进 Windows 登录项（HKCU Run 键），命令行固定带 `--hidden`；登录时拉起壳后**静默收进托盘**（不自动显示窗口、不抢前台）。既有实例在跑时重复拉起也保持静默（`second-instance` 见 `--hidden` 即跳过调前台） |
 | 单实例 | 已有实例在跑（含关窗后托盘后台）时，再次启动只把已有窗口调到前台（`second-instance` → 显示窗口 + 先置顶再取消 + `app.focus({steal:true})`）；未拿到锁的实例立即退出，不再走启动流程 |
 | 网关进程 | `ELECTRON_RUN_AS_NODE=1` + 自身 exe 跑 `app/modelmux.mjs`（打包后的 CLI bundle，零第三方运行依赖）—— **不要求用户装 Node** |
 | 窗口 | **1000×720**（最小即默认，不让缩）；**尺寸记忆**：上次退出时的宽高与位置落 `%APPDATA%/modelmux-desktop/window-state.json`（userData），下次启动还原；位置已不在任一屏幕上则回落默认尺寸居中（拔显示器 / 改分辨率后窗口不会「消失」）；**标题栏隐藏**（顶栏即拖拽区，窗口控制钮在顶栏右侧，见下节）；`contextIsolation` + `sandbox` 开，**唯一 preload 是窗口控制桥**（白名单通道）—— 渲染层仍是网关托管的控制台 |
@@ -35,13 +36,14 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 ### 自定义标题栏与拖拽
 
 - 标题栏隐藏（`titleBarStyle: "hidden"`）：web 顶栏（LayoutSingle 的 `<header>`）即
-  **拖拽区**（`.drag-region`）；顶栏上所有可点子元素（导航 / base_url / 主题钮 /
-  窗口控制钮）逐个 `.no-drag` —— 缀一个少一个，点击就会被拖拽区吞掉（最常见坑）。
+  **拖拽区**（`.drag-region`）；顶栏上所有可点子元素（导航 / 主题钮 / 窗口控制钮）
+  逐个 `.no-drag` —— 缀一个少一个，点击就会被拖拽区吞掉（最常见坑）。
 - 窗口控制钮（最小化 / 最大化还原 / 关闭）**只在桌面壳渲染**：以 `window.modelmuxWindow`
   桥存在与否判断，浏览器里没有窗口，不渲染。关闭 = 收起托盘（与关窗拦截一致）；
   真退出走托盘菜单。
 - **白名单通道**（`desktop/preload.cjs`）：`win:minimize` / `win:toggle-maximize` /
-  `win:close` / `win:is-maximized` / `win:maximize-changed`（推送）/ `theme:set`。
+  `win:close` / `win:is-maximized` / `win:maximize-changed`（推送）/ `theme:set` /
+  `autostart:get` / `autostart:set`。
   不暴露 `ipcRenderer` 本体、不暴露 `webContents`；`contextIsolation` + `sandbox` 维持开。
 - 已知边界：Win11 悬停 Snap Layout 拿不到（那是原生按钮的行为）；拖拽移动、
   双击最大化 / 边缘拉伸由系统提供，行为以真机为准。

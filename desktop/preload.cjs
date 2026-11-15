@@ -5,7 +5,8 @@
  * 暴露一个**白名单方法集**（每个方法固定一个 IPC 通道，不接受调用方传通道名）。
  * 不暴露 `ipcRenderer` 本体、不暴露 `webContents` / `remote`；`contextIsolation` 与
  * `sandbox` 维持开。渲染层能做的只有：最小化、最大化切换、关闭（收起托盘）、
- * 查询与订阅最大化状态、设置主题（nativeTheme，web 侧已先落 setting.json）。
+ * 查询与订阅最大化状态、设置主题（nativeTheme，web 侧已先落 setting.json）、
+ * 读写开机自启动注册（Windows 登录项）。
  */
 
 const { contextBridge, ipcRenderer } = require("electron");
@@ -17,6 +18,8 @@ const CHANNELS = {
   isMaximized: "win:is-maximized",
   maximizeChanged: "win:maximize-changed",
   setTheme: "theme:set",
+  getAutostart: "autostart:get",
+  setAutostart: "autostart:set",
 };
 
 contextBridge.exposeInMainWorld("modelmuxWindow", {
@@ -32,4 +35,8 @@ contextBridge.exposeInMainWorld("modelmuxWindow", {
   },
   /** 主题模式（"system" / "dark" / "light"）→ nativeTheme（窗口背景与表单控件跟随）。 */
   setTheme: (mode) => ipcRenderer.invoke(CHANNELS.setTheme, mode),
+  /** 开机自启动当前是否已注册（壳内专用；浏览器里没有桥）。 */
+  getAutostart: () => ipcRenderer.invoke(CHANNELS.getAutostart),
+  /** 开 / 关开机自启动：登录 Windows 后拉起壳并静默收进托盘。 */
+  setAutostart: (enabled) => ipcRenderer.invoke(CHANNELS.setAutostart, Boolean(enabled)),
 });

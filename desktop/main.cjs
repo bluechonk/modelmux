@@ -45,6 +45,14 @@ const DEFAULT_WIDTH = 1000;
 const DEFAULT_HEIGHT = 720;
 
 /**
+ * 开机自启注册时带上的命令行参数：登录后拉起壳但**静默收进托盘**，
+ * 不抢用户前台（已开着的实例同理，见 second-instance 分支）。
+ */
+const HIDDEN_ARGS = ["--hidden"];
+/** 本次进程是否由「登录自启」拉起（模块加载时定，早于 whenReady）。 */
+const START_HIDDEN = process.argv.includes("--hidden");
+
+/**
  * 窗口状态文件：`%APPDATA%/modelmux-desktop/window-state.json`。
  *
  * 为什么放 userData 而不是 `~/.modelmux/setting.json`：后者是**共享层**的用户偏好
@@ -119,7 +127,9 @@ if (!gotLock) {
   // 甚至因健康探测竞态再 fork 一个网关来抢 4412。
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, commandLine) => {
+    // 开机自启（--hidden）拉起的重复实例保持静默：已有实例在跑就不再弹窗抢前台
+    if (Array.isArray(commandLine) && commandLine.includes("--hidden")) return;
     showWindow();
     // Windows 前台锁：仅 win.focus() 常常压不上前台，必须由 app 层面 steal
     app.focus({ steal: true });
@@ -335,6 +345,12 @@ function registerWindowIpc() {
     nativeTheme.themeSource = mode;
     win?.setBackgroundColor(windowBackground());
   });
+  // 开机自启动：读 / 写 Windows 登录项。注册时固定带 --hidden（静默收托盘），
+  // get 时传同一组 args 才能匹配上那条记录
+  ipcMain.handle("autostart:get", () => app.getLoginItemSettings({ args: HIDDEN_ARGS }).openAtLogin);
+  ipcMain.handle("autostart:set", (_event, enabled) => {
+    app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: HIDDEN_ARGS });
+  });
   // 系统深浅变化 → 窗口背景跟随（resize 边缘与首帧不再露出深色残边）
   nativeTheme.on("updated", () => win?.setBackgroundColor(windowBackground()));
 }
@@ -371,7 +387,8 @@ async function createWindow() {
     },
   });
 
-  win.once("ready-to-show", () => win?.show());
+  // 开机自启拉起的进程不自动显示窗口：登录后静默收进托盘，用户点托盘再打开
+  win.once("ready-to-show", () => { if (!START_HIDDEN) win?.show(); });
 
   // 缩放 / 移动后记住尺寸（防抖）：下次启动直接还原用户最后的窗口
   let saveTimer = null;
