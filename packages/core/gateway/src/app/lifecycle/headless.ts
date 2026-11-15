@@ -708,7 +708,9 @@ export async function runServe(options: ServeOptions): Promise<number> {
       const match = /^\[([a-z0-9][a-z0-9.-]*)\]/.exec(message);
       if (match && hasChannel(match[1])) appendChannel(match[1]!, line);
     }
-    if (/(error|failed|timeout|reject|aborted|exception|unauthor)/i.test(line)) {
+    // `info:` 前缀 = 网关自己消化的降级路径（如「该渠道接不住这段输入，换渠道重试」），
+    // 不是故障；关键词匹配会把 UnsupportedInputError 这类字面量骗进错误日志
+    if (!message.startsWith("info:") && /(error|failed|timeout|reject|aborted|exception|unauthor)/i.test(line)) {
       appendError(line);
     }
     if (!json) console.error(line);

@@ -123,6 +123,22 @@ export function tripped(scope: string): boolean {
   return readFailures(scope) >= MAX_FAILURES_PER_DAY;
 }
 
+/** 调度器日志出口，由 `startAutoSignin` 注入（落 worker 日志）。 */
+let signinLog: (msg: string) => void = () => {};
+
+/**
+ * 记一次签到失败并留痕。
+ *
+ * 为什么必须留痕：失败计数只有数字、没有原因 —— 上游拒签（业务码 / 文案）、凭据失效、
+ * 网络异常在台账里长得一模一样，事后只能靠重放请求猜（2026-11-15 workbuddy 连败熔断
+ * 就是靠手工重放才定位到「400 + code 10001」）。
+ */
+function noteFailure(scope: string, reason: string): void {
+  const n = readFailures(scope) + 1;
+  writeFailures(scope, n);
+  signinLog(`auto signin failed (${scope}, ${n}/${MAX_FAILURES_PER_DAY}): ${reason}`);
+}
+
 /**
  * 查当前（或指定账号的）额度剩余量，用于**实测**「这次签到涨了多少」。
  *
@@ -402,9 +418,9 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
     let status: SigninStatus;
     try {
       status = await signin.status();
-    } catch {
+    } catch (err) {
       // 上游答不了（含网络失败）：计一次失败，别盲领
-      writeFailures(cid, readFailures(cid) + 1);
+      noteFailure(cid, `status 查询失败：${String(err)}`);
       return false;
     }
 
@@ -470,11 +486,11 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
         // 成功清零失败计数
         writeFailures(cid, 0);
       } else {
-        writeFailures(cid, readFailures(cid) + 1);
+        noteFailure(cid, `claim 未成功：${outcome.summary ?? "(上游没给说明)"}`);
       }
       return outcome.ok;
-    } catch {
-      writeFailures(cid, readFailures(cid) + 1);
+    } catch (err) {
+      noteFailure(cid, `claim 抛错：${String(err)}`);
       return false;
     }
   });
@@ -556,11 +572,11 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
           }
           writeFailures(scope, 0);
         } else {
-          writeFailures(scope, readFailures(scope) + 1);
+          noteFailure(scope, `claim 未成功：${outcome.summary ?? "(上游没给说明)"}`);
         }
         return outcome.ok;
-      } catch {
-        writeFailures(scope, readFailures(scope) + 1);
+      } catch (err) {
+        noteFailure(scope, `claim 抛错：${String(err)}`);
         return false;
       }
     });
@@ -598,6 +614,7 @@ let started = false;
 export function startAutoSignin(logger: (msg: string) => void = () => {}): void {
   if (started) return;
   started = true;
+  signinLog = logger;
   const tick = async (): Promise<void> => {
     try {
       const { claimed } = await runOnce();

@@ -68,6 +68,14 @@ export interface RequestLog {
   outcome?: AccessOutcome;
   error?: string;
   message?: string;
+  /**
+   * 网关自身异常的详情（诊断用，不发给客户端）。
+   *
+   * 为什么单开字段：`message` 是给客户端的那一句话（如「gateway internal error; see logs」），
+   * 真实异常若也走 `message`，会被随后的 `writeJsonError` 覆盖 —— 500 于是只剩一句空话，
+   * 事后无从定位（2026-11-15 排查 internal_error 时确认）。
+   */
+  detail?: string;
   /** 从请求开始到第一个响应字节（首帧）的毫秒数。 */
   ttfbMs?: number;
   /** 从请求开始到上游响应头到达的毫秒数。 */
@@ -396,6 +404,8 @@ function appendAccessFile(outcome: AccessOutcome, record: RequestLog): void {
       model: record.model,
       cid: record.cid,
       error: record.error,
+      // 详情只在有值时出现：正常业务失败（未知模型、上游 4xx）没有这一项
+      ...(record.detail !== undefined ? { detail: record.detail } : {}),
       duration_ms: record.durationMs,
       ttfb_ms: record.ttfbMs,
       upstream_ms: record.upstreamMs,
@@ -471,6 +481,18 @@ export function noteRequestError(res: ServerResponse, code: string, message: str
   log.outcome = "failure";
   log.error ??= code;
   log.message = message.slice(0, 800);
+}
+
+/**
+ * 记网关自身异常详情（只进日志，不回客户端）。
+ *
+ * 与 `noteRequestError` 分开：那个写的是给客户端看的原因，可能被随后的
+ * `writeJsonError` 用同文案再写一遍；详情走独立字段，不被覆盖。
+ */
+export function noteRequestDetail(res: ServerResponse, detail: string): void {
+  const log = getRequestLog(res);
+  if (!log) return;
+  log.detail = detail.slice(0, 800);
 }
 
 /** 标记客户端主动断开（不算服务端失败）。 */

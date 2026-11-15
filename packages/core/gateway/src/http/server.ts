@@ -21,7 +21,7 @@ import { inChannel } from "./chat/channel.js";
 import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat, handleCountTokens, handleMessages, handleResponses } from "./chat/relay.js";
 import { writeJson, writeJsonError } from "./chat/errors.js";
-import { attachRequestLog, noteRequestError } from "../runtime/log-store.js";
+import { attachRequestLog, noteRequestDetail } from "../runtime/log-store.js";
 
 /**
  * 服务标识：出现在 `/health` 应答里。
@@ -258,7 +258,8 @@ export function createHandler(opts: GatewayOptions = {}) {
       }
       handleRoot(res, path);
     } catch (err) {
-      noteRequestError(res, "internal_error", String(err));
+      // 异常详情走 detail 字段（`message` 随后会被 writeJsonError 写成给客户端的通用文案）
+      noteRequestDetail(res, String(err));
       options.logger(`request handler error: ${String(err)}`);
       if (!res.headersSent) {
         writeJsonError(res, 500, "internal_error", "gateway internal error; see logs");

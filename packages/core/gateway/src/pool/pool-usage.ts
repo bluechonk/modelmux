@@ -252,6 +252,23 @@ function ledgerMtime(path: string): number {
  * 合并口径：以本进程的内存副本为准（它刚被本次操作更新过），但磁盘上存在、
  * 内存里没有的渠道补进来 —— 直接 `writeJsonSecret(load())` 会把它们抹掉。
  */
+/**
+ * 落盘前剪掉**已不在册**的渠道条目。
+ *
+ * 渠道包下架（如 astudio）或历史实验（`fake` / `aaa`）留下的条目永远不会再进候选，
+ * 留着只会让控制台与 `mx pool` 读到幽灵行（2026-11-15 实测 11 个）。
+ * 只剪写、不剪读：读路径要能读**任何**账本（含旧格式与测试数据）。
+ */
+function pruneUnregistered(ledger: PoolLedger): PoolLedger {
+  // 一个渠道都没注册时**不剪**：注册表还没装配（或装配失败）时照剪会把账本清空
+  if (channels().length === 0) return ledger;
+  const kept: Record<string, ChannelLedger> = {};
+  for (const [cid, entry] of Object.entries(ledger.channels)) {
+    if (hasChannel(cid)) kept[cid] = entry;
+  }
+  return { version: 1, channels: kept };
+}
+
 function loadForWrite(): PoolLedger {
   const path = poolUsagePath();
   const current = load();
@@ -326,7 +343,7 @@ export function flushLedger(): void {
   }
   try {
     // 写前合并磁盘内容：别的进程（CLI）可能刚写过本进程没有的渠道条目
-    writeJsonSecret(poolUsagePath(), loadForWrite());
+    writeJsonSecret(poolUsagePath(), pruneUnregistered(loadForWrite()));
   } catch {
     /* 写不进去不该让请求失败：账本丢了只影响排序精度 */
   }
@@ -640,9 +657,10 @@ async function refreshAccountCredits(
         channel.billing.fetchCredits({ refreshOn401: true, credential }),
       );
       writeAccountBilling(cid, account.key, credits);
+      clearBillingFailure(`${cid}/${account.key}`);
     } catch (err) {
       noteAccountBillingAttempt(cid, account.key, false);
-      logger(`account billing query failed (${cid}/${account.key.slice(0, 8)}…): ${String(err)}`);
+      noteBillingFailure(`${cid}/${account.key}`, String(err), logger);
     }
   }
 }
@@ -1001,6 +1019,24 @@ export interface RefreshResult {
   skipped: string[];
 }
 
+/**
+ * 账单失败的**同因去重**：同一 scope 连续同一条错误只写一次，成功后清账。
+ *
+ * 为什么：未登录 / 凭据失效这类常态原因会持续好几天，每轮（默认 3 分钟）写一行会把
+ * 错误日志淹掉 —— 实测 14 天里 error.log 有 98% 是账单噪音（2026-11-15）。
+ */
+const billingFailureSeen = new Map<string, string>();
+
+function noteBillingFailure(scope: string, error: string, logger: (m: string) => void): void {
+  if (billingFailureSeen.get(scope) === error) return;
+  billingFailureSeen.set(scope, error);
+  logger(`billing query failed (${scope}): ${error}`);
+}
+
+function clearBillingFailure(scope: string): void {
+  billingFailureSeen.delete(scope);
+}
+
 /** 查一轮账单（并行；不抛错，失败只记在返回值与账本里）。 */
 async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
   // 无额度能力的渠道没有账单可刷，直接排除（不记成功也不记失败）
@@ -1009,6 +1045,19 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
   const settled = await Promise.allSettled(
     list.map(async (channel: Channel) => {
       const cid = channel.config.cid;
+      // 未登录的渠道不刷账单：没账号、或不想走这个渠道，是用户自己的选择 —— 网关不必
+      // 每轮拿一次网络请求加一行失败日志去提醒（谁没登录在控制台账号池里一眼可见）。
+      const loggedIn = runInChannel(cid, () => {
+        // 契约违例（测试桩等没有 cred.load）：不拦，按「已登录」继续查
+        if (typeof channel.cred.load !== "function") return true;
+        try {
+          channel.cred.load();
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (!loggedIn) return { cid, credits: undefined, skipped: true };
       // 生效账号在冷却中：额度要等窗口刷新才会变，渠道级查询（= 查生效账号）跳过；
       // 但**兄弟账号照查**（`refreshAccountCredits` 会逐个跳过冷却中的账号）。
       const cooling = runInChannel(cid, () => activeAccountCooling(cid));
@@ -1045,6 +1094,7 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
         return;
       }
       writeBilling(cid, item.value.credits);
+      clearBillingFailure(cid);
       // 账单显示 0 → 提前进冷却（见 markCooldownIfExhausted 的 why）
       markCooldownIfExhausted(list[index]!, cid, item.value.credits);
       result.refreshed.push(cid);
@@ -1052,7 +1102,7 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
       const error = String(item.reason);
       noteBillingAttempt(cid, false);
       result.failed.push({ cid, error });
-      logger(`billing query failed (${cid}): ${error}`);
+      noteBillingFailure(cid, error, logger);
     }
   });
   flushLedger();
@@ -1125,8 +1175,10 @@ export function startBillingRefresher(logger: (m: string) => void = () => {}): v
     void refreshBilling(logger)
       .then((result) => {
         if (result.refreshed.length > 0 || result.failed.length > 0) {
+          // `info:` 前缀 = 这行是心跳、不是故障：具体失败原因已由同因去重逐条给出，
+          // 汇总行每轮都写，若进错误日志就又把日志淹了
           logger(
-            `billing refreshed (${result.refreshed.length} ok, ${result.failed.length} failed)` +
+            `info: billing refreshed (${result.refreshed.length} ok, ${result.failed.length} failed)` +
               (result.failed.length > 0
                 ? `: ${result.failed.map((f) => f.cid).join(", ")}`
                 : ""),

@@ -43,6 +43,18 @@ import type { PoolCandidate } from "../../pool/pool-targets.js";
 import { getChannelModelMeta } from "../../pool/pool-targets.js";
 
 /** 一次失败的错误三元组：状态码 + 错误码 + 文案（回给客户端的信封内容）。 */
+/**
+ * 客户端可见的 503 文案。
+ *
+ * 只说「当前没有可用账号」，不夹「去登录」这类指令 —— 谁没登录在控制台一眼可见，
+ * 网关不必每次请求都催 (2026-11-15 口径)。上游给的技术原因照旧带上（便于客户端判断
+ * 是「账号被拒」还是「额度耗尽」），只把 `not logged in` 这种措辞抹掉。
+ */
+function unavailableMessage(detail: string): string {
+  const text = detail.replace(/not logged in:?\s*/gi, "").trim();
+  return text === "" ? "no available account for this request" : `no available account for this request（${text}）`;
+}
+
 export interface ChatError {
   status: number;
   code: string;
@@ -195,7 +207,7 @@ function markUnauthorizedAndRetry(
   }
   return {
     kind: "retry",
-    error: { status: 503, code: "not_authenticated", message: `not logged in: ${String(err)}` },
+    error: { status: 503, code: "not_authenticated", message: unavailableMessage(String(err)) },
   };
 }
 
@@ -488,7 +500,7 @@ export async function attemptCandidate(
     // 「本渠道承载不了这类输入」（如 catpaw 按纯文本渲染、图片进不去）：换一家渠道
     // 可能成功 → 判可重试。**不计连败**：渠道对纯文本请求是好的，冷却会误伤后续请求。
     if (isUnsupportedInputError(err)) {
-      logger(`channel ${cid} cannot carry this input: ${String(err)}`);
+      logger(`info: channel ${cid} cannot carry this input: ${String(err)}`);
       return {
         kind: "retry",
         error: { status: 400, code: "unsupported_input", message: String(err) },
@@ -518,7 +530,7 @@ export async function attemptCandidate(
         // 已恢复：**留在这里继续往下走**建连流程（不能落到下面的通用失败分支）
       } else if (isUnsupportedInputError(err)) {
         // 「本渠道承载不了这类输入」：换一条候选可能成功，且**不计连败**
-        logger(`channel ${cid} cannot carry this input: ${String(err)}`);
+        logger(`info: channel ${cid} cannot carry this input: ${String(err)}`);
         return {
           kind: "retry",
           error: { status: 400, code: "unsupported_input", message: String(err) },
@@ -565,7 +577,7 @@ export async function attemptCandidate(
     markActiveHealth("unauthorized", cid);
     return {
       kind: "retry",
-      error: { status: 503, code: "not_authenticated", message: `not logged in: ${outcome.error}` },
+      error: { status: 503, code: "not_authenticated", message: unavailableMessage(outcome.error) },
     };
   }
   if (outcome.kind === "auth_exhausted") {
@@ -604,7 +616,7 @@ export async function attemptCandidate(
     logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
     return {
       kind: "retry",
-      error: { status: 503, code: "not_authenticated", message: `not logged in: ${outcome.error}` },
+      error: { status: 503, code: "not_authenticated", message: unavailableMessage(outcome.error) },
     };
   }
   let call = outcome.call;
