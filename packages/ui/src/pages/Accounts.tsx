@@ -15,7 +15,7 @@ import {
 import type { QuotaPeriod } from "../lib/account-status";
 import { LoginModal } from "../components/LoginModal";
 import { PageHeader } from "../components/PageHeader";
-import { RefreshButton } from "../components/RefreshButton";
+import { useRefreshInterval } from "../lib/refresh-interval";
 import { Select } from "../components/Select";
 import { useToast } from "../components/Toast";
 import { columnCount, distributeByColumns } from "../lib/card-columns";
@@ -86,14 +86,16 @@ export function Accounts(): ReactElement {
   /** 本轮弹窗的成功是否已处理，避免重复刷新。 */
   const handledSuccessRef = useRef(false);
 
+  /** 账号池主数据的自动刷新节奏（设置页可调，最小 10s）。 */
+  const { interval: accountsInterval } = useRefreshInterval("accounts");
   const pools = useQuery({
     queryKey: ["accounts"],
     queryFn: async () => {
       const res = (await api.commands.accounts()) as { channels?: AccountPool[] };
       return res.channels ?? [];
     },
-    refetchInterval: 15_000,
-    staleTime: 15_000,
+    refetchInterval: accountsInterval,
+    staleTime: accountsInterval,
     // 再进页面先出上一次的数据（轮询间隔内数据没变的话，等一轮没有意义）
     placeholderData: (prev) => prev,
   });
@@ -103,8 +105,8 @@ export function Accounts(): ReactElement {
       const res = (await api.commands.status()) as { channels?: StatusRow[] };
       return res.channels ?? [];
     },
-    refetchInterval: 10_000,
-    staleTime: 10_000,
+    refetchInterval: accountsInterval,
+    staleTime: accountsInterval,
     placeholderData: (prev) => prev,
   });
   const billing = useQuery({
@@ -333,24 +335,7 @@ export function Accounts(): ReactElement {
 
   return (
     <div className="space-y-5 pb-10">
-      <PageHeader
-        title="账号池"
-        description="各渠道的凭据与额度"
-        actions={
-          <RefreshButton
-            onRefresh={async () => {
-              // 四路查询一起失效：卡片 / 登录态 / 额度 / 弹窗快照本来就是同一批事实。
-              // Promise.all 是刻意的：忙态要持续到四路都回完，而不是点完立刻复位
-              await Promise.all([
-                qc.invalidateQueries({ queryKey: ["accounts"] }),
-                qc.invalidateQueries({ queryKey: ["logins"] }),
-                qc.invalidateQueries({ queryKey: ["billing"] }),
-                qc.invalidateQueries({ queryKey: ["state"] }),
-              ]);
-            }}
-          />
-        }
-      />
+      <PageHeader title="账号池" description="各渠道的凭据与额度" />
 
       {/*
         三态分开渲染：加载中 / **查询失败** / 确实没有账号池。

@@ -26,7 +26,7 @@ export function PageHeader({
         {description && <p className="mt-1.5 text-[13px] text-ink-faint">{description}</p>}
       </div>
       {/* 按钮栏 `shrink-0` + `whitespace-nowrap`：窄屏时让**说明文字**换行，
-          而不是把「刷新」这类两字按钮挤成两行（`flex-wrap` 在外层，actions 自身不再折）。
+          而不是把「检查更新」这类多字按钮挤成两行（`flex-wrap` 在外层，actions 自身不再折）。
           `ml-auto`：actions 换行到第二行时仍靠右 —— justify-between 只对同行 item
           生效，单 item 行会落到行首，仪表盘的区间分段控件就这样居中过（2026-11-14）。 */}
       {actions && (
