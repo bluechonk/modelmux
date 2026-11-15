@@ -23,8 +23,43 @@ const PAD_BOTTOM = 30;
 /** 左右留白容得下半个 x 轴标签（`M月D日` 半宽约 26）。 */
 const PAD_LEFT = 28;
 const PAD_RIGHT = 28;
-/** 窄屏最小绘图宽度：再窄就横向滚动，避免日期标签挤成一片。 */
-const MIN_WIDTH = 520;
+/**
+ * 窄屏最小绘图宽度：低于它就横向滚动（极端视口兜底）。
+ * 常规窄屏不再靠滚动 —— 横轴标签改为按像素抽稀（见 `labelPlan`），不重叠、可完整铺开。
+ */
+const MIN_WIDTH = 300;
+/**
+ * x 轴标签最小**中心距**：text-xs 的「M月D日」约 44px 宽，加两侧呼吸取 72。
+ * 必须覆盖「中心距」而不是「锚点间距」—— 首尾标签是 start/end 锚定，
+ * 它们的中心比锚点内缩半个字宽，按锚点算间距会让前两天的文字贴上
+ * （实测 390 视口 11月2日/11月5日 重叠）。
+ */
+const LABEL_GAP = 72;
+
+/**
+ * 横轴标签抽稀：以**相邻数据的像素步长**换算 stride（间隔 ≥ `LABEL_GAP`）。
+ *
+ * 旧实现按天数总数抽稀（≤20 天几乎全标），14 天在任何窄屏都必然重叠，只能靠横向
+ * 滚动硬扛。改为像素驱动后：绘图越窄 stride 越大，标签中心间距恒 ≥ `LABEL_GAP`，
+ * 曲线与每日虚线不动 —— 只是少画标签文字，数据一点不少。
+ *
+ * 末尾处理：尾标与前一标签不足一个 stride 时**替换**它（宁可少标一天，
+ * 不让文字重叠 —— 实测追加会让最后两天标签贴在一起）。
+ */
+function labelPlan(count: number, stepX: number): Set<number> {
+  const stride = Math.max(1, Math.ceil(LABEL_GAP / stepX));
+  const labels: number[] = [];
+  for (let i = 0; i < count; i += stride) labels.push(i);
+  const lastIdx = count - 1;
+  if (!labels.includes(lastIdx)) {
+    const lastLabeled = labels[labels.length - 1];
+    if (lastLabeled === undefined) return new Set(labels);
+    const tail = lastIdx - lastLabeled;
+    if (tail < stride && labels.length >= 2) labels[labels.length - 1] = lastIdx;
+    else labels.push(lastIdx);
+  }
+  return new Set(labels);
+}
 
 /**
  * 曲线张力（Catmull-Rom → 三次贝塞尔的控制点系数）。
@@ -33,13 +68,6 @@ const MIN_WIDTH = 520;
  * 更小（0.1）则接近折线、丢掉参考图的平滑感。
  */
 const CURVE_TENSION = 0.2;
-
-/** X 轴标签密度：该下标要不要标。 */
-function shouldLabel(index: number, total: number): boolean {
-  if (total <= 8) return true;
-  const step = total > 20 ? 5 : 1;
-  return index === 0 || index === total - 1 || index % step === 0;
-}
 
 /** `2026-11-07` → `11月7日`（参考图的轴标签形态）。 */
 function axisLabel(date: string): string {
@@ -126,6 +154,9 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
     id,
     d: smoothPath(daily.map((day, i) => ({ x: xOf(i), y: yOf(day.byModel[id] ?? 0) }))),
   }));
+
+  /** x 轴标签按像素步长抽稀（间距恒 ≥ LABEL_GAP；曲线与每日虚线不受影响）。 */
+  const labeled = labelPlan(daily.length, stepX || 1);
 
   /** 鼠标的视口 X → 最近的数据点下标（viewBox 与像素 1:1，直接按比例换算）。 */
   const indexFromClientX = (clientX: number): number => {
@@ -317,9 +348,9 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
               />
             ))}
 
-          {/* X 轴：`M月D日`，两端对齐（首尾标签用 start/end，避免被裁） */}
+          {/* X 轴：`M月D日`，按可用宽度抽稀，两端对齐（首尾标签用 start/end，避免被裁） */}
           {daily.map((day, i) => {
-            if (!shouldLabel(i, daily.length)) return null;
+            if (!labeled.has(i)) return null;
             const anchor = i === 0 && !single ? "start" : i === daily.length - 1 && !single ? "end" : "middle";
             return (
               <text

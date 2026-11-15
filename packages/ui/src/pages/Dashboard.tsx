@@ -27,6 +27,8 @@ import {
 import { useNavigate } from "react-router";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
+import { Segmented } from "../components/Segmented";
+import { Switch } from "../components/Switch";
 import { useToast } from "../components/Toast";
 import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
 import { ModelDonut } from "../components/usage/ModelDonut";
@@ -91,41 +93,6 @@ function isTrustedMetaSource(source: string | undefined): boolean {
   return source === "registry" || source === "upstream";
 }
 
-/** 分段控件（区间 / 热力图粒度共用）。 */
-function Segmented<T extends string>({
-  items,
-  value,
-  onChange,
-  label,
-}: {
-  items: ReadonlyArray<{ key: T; label: string }>;
-  value: T;
-  onChange: (next: T) => void;
-  label: string;
-}): ReactElement {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="inline-flex overflow-hidden rounded-lg border border-line"
-    >
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          aria-pressed={value === item.key}
-          onClick={() => onChange(item.key)}
-          className={`tap px-3 py-1.5 text-xs transition-colors ${
-            value === item.key ? "bg-brand text-canvas" : "text-ink-soft hover:bg-overlay/40"
-          }`}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // 最近请求行
 // ---------------------------------------------------------------------------
@@ -153,19 +120,20 @@ function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): Re
   const tokens = entry.tokens?.total != null ? formatTokens(entry.tokens.total) : "—";
   return (
     <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30 sm:gap-3">
-      <span className="w-14 shrink-0 tabular-nums text-ink-faint sm:w-[120px]">
+      {/* 时间恒为 `HH:mm:ss`（slice(-8)），一档宽度即可 —— 旧代码从日志表抄来
+          `sm:w-[120px]`，给 8 字符留了 60px 的空洞（2026-11-15 实测）。 */}
+      <span className="w-16 shrink-0 tabular-nums text-ink-faint">
         {formatDateTime(entry.ts).slice(-8)}
       </span>
-      {/* 渠道窄屏让位（tokens / TPS 是主信息）；宽屏渠道与模型分列，与请求日志页同序 */}
-      <span className="hidden w-16 shrink-0 truncate font-mono text-ink-faint sm:block">
+      {/* 渠道窄屏让位（tokens / TPS 是主信息）；宽屏按内容自然宽度显示，
+          不截断 —— 在途渠道 id 最长 ~11 字符（codebuddycn），实测放得下。 */}
+      <span className="hidden shrink-0 font-mono text-ink-faint sm:block">
         {entry.cid ?? "—"}
       </span>
-      {/* 「模型名 + 状态点」一组**吃满剩余宽度**：原先是固定 176px 的模型列 + 一个
-          `flex-1` 空 spacer 把数值列顶到行尾，1600 宽实测那个 spacer 有 700px，
-          整行右半边一片空。改成这一组 flex-1 后，模型名截断区承担余量、状态点仍紧贴
-          模型名，数值列靠右 —— 空白落在模型名右侧的自然截断区里，不再是一条孤立空带。 */}
+      {/* 「模型名 + 状态点」一组吃满剩余宽度（数值列靠右）：模型名自身不撑长，
+          状态点紧跟其后，余量落在状态点与数值列之间 —— 大空白不再夹在文字中间。 */}
       <span className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-        <span className="min-w-0 flex-1 truncate text-ink-soft">{entry.model ?? "—"}</span>
+        <span className="min-w-0 truncate text-ink-soft">{entry.model ?? "—"}</span>
         {/* 状态：一个色点（成功绿 / 失败红），不显示原因文字 */}
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
@@ -301,37 +269,12 @@ function IntegrateSwitchCard({
             更新
           </button>
         )}
-        {/*
-          开关本体：`role="switch"` + `aria-checked`。开 = 状态绿（与「已接入」文字同语义，
-          深浅两套都有对比），关 = overlay 灰。不用品牌反白：深色下白轨道在一排深卡上
-          过于刺眼，且与「已接入」的绿色文字各说各话。
-          触控垫：`.tap-square`（< md 时 min 44×44）放在**按钮**上、视觉轨道缩进里面 ——
-          之前 `.tap` 直接加在 22px 高的轨道按钮上，min-height 把轨道撑成 44px 圆饼、
-          滑块 top-[3px] 贴在圆饼顶部（2026-11-14 实测 390 视口）。
-        */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={shown}
+        <Switch
+          checked={shown}
           disabled={busy}
-          onClick={onToggle}
-          aria-label={`${name} ${stateText}，点击${shown ? "还原" : "接入"}`}
-          className={`tap-square grid flex-none place-items-center disabled:cursor-default ${
-            busy ? "opacity-55" : ""
-          }`}
-        >
-          <span
-            className={`relative block h-[22px] w-10 rounded-full transition-colors ${
-              shown ? "bg-free" : "bg-overlay"
-            }`}
-          >
-            <span
-              className={`absolute top-[3px] h-4 w-4 rounded-full transition-all ${
-                shown ? "left-[19px] bg-canvas" : "left-[3px] bg-ink-faint"
-              }`}
-            />
-          </span>
-        </button>
+          onChange={onToggle}
+          label={`${name} ${stateText}，点击${shown ? "还原" : "接入"}`}
+        />
       </div>
       {failed && <div className="mt-2 break-words text-xs text-danger">{error}</div>}
     </div>
@@ -346,7 +289,7 @@ export function Dashboard(): ReactElement {
   const toast = useToast();
   const navigate = useNavigate();
 
-  // 状态快照：模型清单 / 网关错误 / 加载判定都读它（base_url 已挪到顶栏，见 LayoutSingle）——
+  // 状态快照：模型清单 / 网关错误 / 加载判定都读它（base_url / 版本等配置类信息已收进设置页）——
   // 读 `["state"]` 的共享缓存，轮询归 `Layout` 所有
   const stateQuery = useQuery({
     queryKey: ["state"],
@@ -716,15 +659,11 @@ export function Dashboard(): ReactElement {
           Token 趋势
         </div>
         {/*
-          手机宽度下按容器实测渲染会把 14 天时间轴压到每格 ~23px、日期标签叠字 ——
-          与热力图同一招：内容保 600px 最小宽横向滚动（.no-scrollbar，docs/WEB-CONSOLE.md
-          「响应式适配」的图表容器规则），ResizeObserver 量到的就是 600px 宽的容器。
+          图表按**容器实测宽度**渲染（组件内 ResizeObserver）；横轴标签按像素步长
+          抽稀，窄屏不再需要 600px 最小宽硬扛 —— 早期那层 `min-w-[600px]` 已随
+          抽稀上线移除（2026-11-15）。极端视口（<300px）由组件内部横向滚动兜底。
         */}
-        <div className="no-scrollbar overflow-x-auto">
-          <div className="min-w-[600px]">
-            <TrendChart daily={rangeStats?.daily ?? []} series={series} />
-          </div>
-        </div>
+        <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
 
       {/* ① 模型用量（左，区间聚合）+ 对外模型清单（右，同一行等高）
