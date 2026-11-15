@@ -537,16 +537,8 @@ export async function status(
       console.log(`签到: -（${info.signin.unsupported.join(", ")} 无签到功能）`);
     }
   }
-  // 下一步建议：有异常才说话，正常不打扰（status 是高频诊断命令的收尾）
-  const notLoggedIn = perChannel.filter((c) => !c.present);
-  if (notLoggedIn.length > 0) {
-    const first = notLoggedIn[0]!;
-    console.log(
-      list.length === 1
-        ? `建议: mx login ${first.cid}（未登录）`
-        : `建议: ${notLoggedIn.length} 个渠道未登录，逐个 mx login <cid>（如 mx login ${first.cid}）`,
-    );
-  }
+  // 不再提示「未登录渠道去 mx login」：谁没登录在控制台账号池里一眼可见，
+  // 没登录就是用户没号或不想走这个渠道，不需要每次 status 都催一遍
   if (stale.stale) console.log(staleBuildHint(stale));
   const message = consoleState?.["message"];
   if (typeof message === "string" && message) console.log(`提示: ${message}`);

@@ -88,7 +88,7 @@ export function resolvePoolRoute(
       res,
       503,
       "not_authenticated",
-      `no logged-in channel provides ${target}; run \`mx login <cid>\` for one of: ${candidates.map((c) => c.cid).join(", ")}`,
+      `no available channel for ${target}（该模型的候选渠道当前都不可用）`,
     );
     return null;
   }

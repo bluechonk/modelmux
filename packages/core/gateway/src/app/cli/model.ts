@@ -467,7 +467,8 @@ export async function showPoolUsage(json: boolean, force = false): Promise<numbe
       const failed = result.failed.map((f) => f.cid).join("、");
       console.error(
         `账单已刷新：成功 ${result.refreshed.length} 个渠道` +
-          (result.failed.length > 0 ? `，失败 ${result.failed.length} 个（${failed}）` : ""),
+          (result.failed.length > 0 ? `，失败 ${result.failed.length} 个（${failed}）` : "") +
+          (result.skipped.length > 0 ? `，跳过 ${result.skipped.length} 个（未登录 / 冷却中）` : ""),
       );
     }
   }
