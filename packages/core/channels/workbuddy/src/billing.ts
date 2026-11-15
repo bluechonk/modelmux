@@ -291,22 +291,28 @@ async function dailyCheckin(): Promise<CheckinResult> {
   if (resp.status === 401 || resp.status === 403) {
     throw new cred.NotLoggedInError("daily checkin rejected the access token (401/403)");
   }
-  if (resp.status !== 200) throw new CreditsError(`daily checkin returned HTTP ${resp.status}`);
 
+  // 先解响应体、再看 HTTP 状态码：幂等的「今天已签到」上游走 **HTTP 400 + 业务码 10001**
+  // （PROTOCOL 实测）。按状态码先判会把这句拒绝当失败 —— 当日连败 3 次触发熔断，
+  // 台账也记不上「今天已签」，面板一直显示未签到（2026-11-15 实测）。
   let env: Record<string, unknown>;
   try {
     env = (await resp.json()) as Record<string, unknown>;
   } catch (err) {
-    throw new CreditsError(`daily checkin response is not valid JSON: ${String(err)}`);
+    throw new CreditsError(
+      `daily checkin response is not valid JSON (HTTP ${resp.status}): ${String(err)}`,
+    );
   }
   const code = env["code"];
   const msg = String(env["msg"] ?? "");
   if (code === 0) {
     return { checkedIn: true, already: false, message: "签到成功" };
   }
-  if (/already|已签|repeat|duplicate/i.test(msg)) {
+  // 10001 = 今天已签到（上游幂等拒绝，按成功回报）；文案串兜底防上游改措辞
+  if (code === 10001 || /already|已签|repeat|duplicate/i.test(msg)) {
     return { checkedIn: true, already: true, message: msg || "今天已签到" };
   }
+  if (resp.status !== 200) throw new CreditsError(`daily checkin returned HTTP ${resp.status}`);
   throw new CreditsError(describeBillingError(resp.status, env, resp.headers));
 }
 
