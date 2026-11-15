@@ -440,12 +440,14 @@ async function claimCheckin(): Promise<ClaimResult> {
   if (resp.status === 401 || resp.status === 403) {
     throw new cred.NotLoggedInError("check-in endpoint rejected the access token (401/403)");
   }
-  if (resp.status !== 200) throw new CreditsError(`check-in returned HTTP ${resp.status}`);
 
+  // 先解响应体、再看状态码：上游把业务拒绝也挂在 4xx 上（PROTOCOL 实测「400 + 中文原因」），
+  // 先按状态码抛会把业务码与文案一起丢掉（与 workbuddy 同类，2026-11-15）。
   let env: Record<string, unknown>;
   try {
     env = (await resp.json()) as Record<string, unknown>;
   } catch (err) {
+    if (resp.status !== 200) throw new CreditsError(`check-in returned HTTP ${resp.status}`);
     throw new CreditsError(`check-in response is not valid JSON: ${String(err)}`);
   }
   if (env["code"] !== undefined && env["code"] !== 0) {
