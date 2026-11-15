@@ -1,16 +1,16 @@
 /**
- * 设置弹窗：顶栏齿轮打开，左锚点 + 右内容（C 方案）。
+ * 设置弹窗：顶栏齿轮打开，左锚点（通用 / 外观 / 关于）+ 右内容。
  *
  * 与「添加账号」登录弹窗同一套 Radix Dialog 骨架，但关闭策略相反：
  * 设置不是流程态，ESC 与点遮罩都应当关闭（登录弹窗刻意不关）。
- * 配置类信息（地址 / 自启动 / 主题 / 刷新间隔 / 版本）从独立页面收进来，
- * 导航回到三个标签。窄屏（<sm）锚点折成顶部一行横滑，不挤压内容列。
+ * 右列用小字分组标签分节（偏好设置 / 显示 / 信息），行首带图标；
+ * 窄屏（<sm）锚点折成顶部一行横滑，不挤压内容列。
  */
 
 import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ExternalLink, Info, Loader2, Palette, RefreshCw, RotateCw, Server, Settings, X } from "lucide-react";
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
+import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 
 import { Segmented } from "./Segmented";
 import { Switch } from "./Switch";
@@ -39,41 +39,63 @@ const THEME_ITEMS: ReadonlyArray<{ key: ThemeMode; label: string }> = [
   { key: "light", label: "浅色" },
 ];
 
-type SectionKey = "net" | "look" | "general" | "about";
+type SectionKey = "general" | "look" | "about";
 
-const SECTION_ITEMS: ReadonlyArray<{ key: SectionKey; label: string; icon: typeof Server }> = [
-  { key: "net", label: "网关", icon: Server },
-  { key: "look", label: "外观", icon: Palette },
+/** 行首 / 锚点图标：lucide 组件与 GithubMark 都只吃 className，共用同一形态。 */
+type IconType = ComponentType<{ className?: string }>;
+
+const SECTION_ITEMS: ReadonlyArray<{ key: SectionKey; label: string; icon: IconType }> = [
   { key: "general", label: "通用", icon: RefreshCw },
+  { key: "look", label: "外观", icon: Palette },
   { key: "about", label: "关于", icon: Info },
 ];
 
-/** 分区内的一行设置：左标题说明、右控件；两端结构，窄屏先让说明换行。 */
+/** 分区内的一行设置：图标 + 左标题说明、右控件；两端结构，窄屏先让说明换行。 */
 function ModalRow({
+  icon: Icon,
   title,
   description,
   children,
 }: {
+  icon: IconType;
   title: string;
   description: string;
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3.5 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <div className="text-sm text-ink">{title}</div>
-        <div className="mt-0.5 text-xs text-ink-faint">{description}</div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3.5 first:pt-0 last:pb-0">
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className="grid h-[26px] w-[26px] flex-none place-items-center rounded-[7px] bg-overlay text-ink-soft"
+          aria-hidden="true"
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm text-ink">{title}</div>
+          <div className="mt-0.5 text-xs text-ink-faint">{description}</div>
+        </div>
       </div>
-      <div className="flex flex-none items-center gap-2">{children}</div>
+      <div className="ml-auto flex flex-none items-center gap-2">{children}</div>
     </div>
   );
 }
 
 /** 刷新间隔一行：档位分段控件，只能选设定值（最小值由 lib 钳制）。 */
-function IntervalRow({ page, title, description }: { page: RefreshPage; title: string; description: string }): ReactElement {
+function IntervalRow({
+  icon,
+  page,
+  title,
+  description,
+}: {
+  icon: IconType;
+  page: RefreshPage;
+  title: string;
+  description: string;
+}): ReactElement {
   const { interval, options, select } = useRefreshInterval(page);
   return (
-    <ModalRow title={title} description={description}>
+    <ModalRow icon={icon} title={title} description={description}>
       <Segmented
         items={options.map((ms) => ({ key: String(ms), label: `${ms / 1000}s` }))}
         value={String(interval)}
@@ -89,7 +111,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
   const toast = useToast();
   const { mode, select } = useThemeMode();
-  const [section, setSection] = useState<SectionKey>("net");
+  const [section, setSection] = useState<SectionKey>("general");
 
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
@@ -202,30 +224,19 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
               ))}
             </nav>
 
-            {/* 去卡化：分区标题 + 行直接铺在弹窗里（弹窗本身已是浮层，不再套一层容器边框） */}
+            {/* 去卡化：小字分组标签 + 行直接铺在弹窗里（弹窗本身已是浮层，不再套一层容器边框） */}
             <div
               role="tabpanel"
               id="settings-panel"
               aria-labelledby={`settings-tab-${section}`}
               className="no-scrollbar min-w-0 flex-1 overflow-y-auto pt-1"
             >
-              {section === "net" && (
-                <>
-                  <h3 className="panel-title">
-                    <Server className="h-4 w-4" aria-hidden="true" />
-                    网关
-                  </h3>
-                  <div className="mt-3 divide-y divide-line">
-                    {base_url && (
-                      <ModalRow title="网关地址" description="客户端接入地址">
-                        <span className="inline-flex max-w-full items-center gap-1 overflow-hidden rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 font-mono text-xs text-ink-soft">
-                          <span className="truncate">{base_url}</span>
-                          <CopyButton value={base_url} label="复制 base_url" />
-                        </span>
-                      </ModalRow>
-                    )}
+              {section === "general" && (
+                <div>
+                  <div className="mb-2.5 text-xs font-medium text-ink-faint">偏好设置</div>
+                  <div className="divide-y divide-line">
                     {CAN_AUTOSTART && (
-                      <ModalRow title="开机自启动" description="登录 Windows 后自动启动并收进托盘">
+                      <ModalRow icon={Power} title="开机自启动" description="登录 Windows 后自动启动并收进托盘">
                         <Switch
                           checked={autostart === true}
                           disabled={autostart === null}
@@ -234,45 +245,36 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                         />
                       </ModalRow>
                     )}
+                    <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
+                    <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
                   </div>
-                </>
+                </div>
               )}
 
               {section === "look" && (
-                <>
-                  <h3 className="panel-title">
-                    <Palette className="h-4 w-4" aria-hidden="true" />
-                    外观
-                  </h3>
-                  <div className="mt-3 divide-y divide-line">
-                    <ModalRow title="主题" description="跟随系统或固定深浅">
+                <div>
+                  <div className="mb-2.5 text-xs font-medium text-ink-faint">显示</div>
+                  <div className="divide-y divide-line">
+                    <ModalRow icon={Palette} title="主题" description="跟随系统或固定深浅">
                       <Segmented items={THEME_ITEMS} value={mode} onChange={select} label="主题模式" />
                     </ModalRow>
                   </div>
-                </>
-              )}
-
-              {section === "general" && (
-                <>
-                  <h3 className="panel-title">
-                    <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                    通用
-                  </h3>
-                  <div className="mt-3 divide-y divide-line">
-                    <IntervalRow page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
-                    <IntervalRow page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
-                  </div>
-                </>
+                </div>
               )}
 
               {section === "about" && (
-                <>
-                  <h3 className="panel-title">
-                    <Info className="h-4 w-4" aria-hidden="true" />
-                    关于
-                  </h3>
-                  <div className="mt-3 divide-y divide-line">
-                    <ModalRow title="GitHub" description="源码仓库与版本发布">
+                <div>
+                  <div className="mb-2.5 text-xs font-medium text-ink-faint">信息</div>
+                  <div className="divide-y divide-line">
+                    {base_url && (
+                      <ModalRow icon={Server} title="网关地址" description="客户端接入地址">
+                        <span className="inline-flex max-w-full items-center gap-1 overflow-hidden rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 font-mono text-xs text-ink-soft">
+                          <span className="truncate">{base_url}</span>
+                          <CopyButton value={base_url} label="复制 base_url" />
+                        </span>
+                      </ModalRow>
+                    )}
+                    <ModalRow icon={GithubMark} title="GitHub" description="源码仓库与版本发布">
                       <a
                         href={REPO_URL}
                         target="_blank"
@@ -284,7 +286,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                       </a>
                     </ModalRow>
                     {IS_DESKTOP && webUrl && (
-                      <ModalRow title="Web 控制台" description="在默认浏览器打开本页">
+                      <ModalRow icon={ExternalLink} title="Web 控制台" description="在默认浏览器打开本页">
                         <a
                           href={webUrl}
                           target="_blank"
@@ -298,6 +300,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                     )}
                     {version && (
                       <ModalRow
+                        icon={Tag}
                         title="版本"
                         description={passiveUpdate ? `检测到新版本 ${passiveUpdate.version}` : "当前安装的版本"}
                       >
@@ -336,7 +339,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                       </ModalRow>
                     )}
                   </div>
-                </>
+                </div>
               )}
             </div>
           </div>
