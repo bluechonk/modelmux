@@ -2,8 +2,8 @@
  * CatPaw 模型目录：上游模型表解析、缓存与首启种子（对外 id = 上游 id，不做短名映射）。
  *
  * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
- *   - 图片能力恒不对外声明（supportsImages=false）：上游逐模型声明的是模型自身能力，
- *     本渠道 conversation 协议不传图片，照抄会对外误报能吃图。
+ *   - 图片能力照上游逐模型声明（`supportImage`）：conversation 协议把图片作为
+ *     `content[]` 的 `image_url` 分片传上去（先转存到自家对象存储换公网 URL）。
  *   - 上下文窗口取上游逐型号声明的最大档，未声明的型号回落渠道默认档（见 DEFAULT_CONTEXT_WINDOW）。
  *   - 目录未登录/不可达时走兜底表；exposedIds/resolveModel 必须同步返回。
  */
@@ -28,12 +28,15 @@ export interface CatalogEntry {
   /** 描述。 */
   description: string;
   /**
-   * 是否支持图片输入 —— **恒 false**。
+   * 是否支持图片输入（照上游 `supportImage` 声明）。
    *
-   * 上游模型目录的 `supportImage` 是**模型自身**的能力声明，本渠道的 conversation
-   * 协议没有图片传输路径（见文件头「图片能力」）；照抄上游会对外误报能吃图。
+   * `supportImage` 是上游**逐型号**给的布尔：`deepseek-v4.1-flash` / `LongCat-2.5` /
+   * `glm-5.3-flash` 为 true，`deepseek-v4-pro` / `glm-5.3` / `auto` 为 false
+   * （2026-11-16 真机实测上游原文）。请求侧的守卫按它决定「本型号收不收图」。
    */
   supportsImages: boolean;
+  /** 上游原值（旧缓存里可能没有：那时被钉死成 false，恢复真值要一次 `--refresh`）。 */
+  supportImage?: boolean;
   /** 消耗倍率（上游 `extendedInfo.rateMultiplier`）；null = 上游未提供。 */
   multiplier: number | null;
   /** 营销角标文案（上游 `extendedInfo.marketingCopy`，如「限时免费」「新」）。 */
@@ -174,10 +177,12 @@ function ensureCachedModels(): void {
     // 旧缓存没有 maxOutput（那是后来按公开规格补的）—— 读时补上，不必等一次刷新。
     if (cached) {
       const entries = cached.map((entry) => {
-        // 旧缓存可能带着上游的 `supportsImages: true` —— 那是**模型**的能力声明，
-        // 不是本渠道的传输能力；读时钉死为 false（否则对外会误报能吃图）。
-        const patched =
-          entry.supportsImages === false ? entry : { ...entry, supportsImages: false };
+        // 旧缓存里的 `supportsImages` 是「本渠道不传图」那阵钉死的 false，且没有
+        // 上游原值可依据 —— 只能继续按 false 处理，真值等一次 `mx model catpaw --refresh`。
+        const patched = {
+          ...entry,
+          supportsImages: entry.supportImage === true,
+        };
         if (patched.maxOutput !== undefined) return patched;
         const maxOutput = maxOutputOf(patched.id);
         return maxOutput === undefined ? patched : { ...patched, maxOutput };
@@ -300,9 +305,9 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
       declaredContextWindow(row) || num("contextWindow", "maxContextLength"),
     ),
     description: pick("description"),
-    // 上游的 `supportImage` 是**模型**的能力声明；本渠道的 conversation 协议不传图片
-    // （内容拍平成纯文本）→ 不对外声明图片能力（见文件头「图片能力」）。
-    supportsImages: false,
+    // 图片能力照上游逐型号声明走（请求侧守卫与转存链见 `upstream.ts`）。
+    supportsImages: row["supportImage"] === true,
+    ...(typeof row["supportImage"] === "boolean" ? { supportImage: row["supportImage"] } : {}),
     ...parseExtendedInfo(row),
     ...(effort ? { effort } : {}),
   };
@@ -373,6 +378,19 @@ export function contextWindowOf(id: string): number {
  * 注：目录条目的 modelType 恒 > 0（上游返回 0 的条目在 `toModelInfo` 就被丢弃）；
  * 兜底目录里表未覆盖的模型取 0（= auto，由上游自行选型）。
  */
+/**
+ * 该上游型号是否收图片（照 `supportImage` 声明）。
+ *
+ * 查不到条目按 **false** 处理：宁可拒图换一家，也不要把图丢掉后让模型答「看不到」。
+ * 兜底表没有上游原值，所以未刷新目录时一律按 false —— 带图请求会顺延到别的渠道。
+ */
+export function supportsImageOf(upstreamModel: string): boolean {
+  for (const entry of loadCatalog()) {
+    if (entry.id === upstreamModel) return entry.supportsImages === true;
+  }
+  return false;
+}
+
 export function modelTypeOf(id: string): number {
   for (const entry of loadCatalog()) {
     if (entry.id === id) return entry.modelType;

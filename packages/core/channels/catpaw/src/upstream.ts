@@ -209,12 +209,18 @@ export function buildHeaders(
 
 // ── 请求体构造 ───────────────────────────────────────────────────────────────
 
-/** 上游消息：折叠后只剩一条 user 文本（round.messages 与 turn.message 共用）。 */
+/** 图片分片（桌面端实测形态）：OpenAI 式键名 + camelCase 值对象。 */
+interface UpstreamImagePart {
+  type: "image_url";
+  imageUrl: { url: string; detail: string };
+}
+
+/** 上游消息：折叠后一条 user 消息（round.messages 与 turn.message 共用）。 */
 interface UpstreamMessage {
   type: "user";
   role: "user";
   messageId: string;
-  content: Array<{ type: "text"; text: string }>;
+  content: Array<{ type: "text"; text: string } | UpstreamImagePart>;
 }
 
 /** OpenAI 消息的归一化形态（只保留折叠 prompt 需要的字段）。 */
@@ -263,20 +269,110 @@ function textOfContent(content: unknown): string {
 }
 
 /**
- * 内容里是否含图片段（OpenAI `image_url` / Anthropic `image`）。
+ * 从 messages 的 content 分片里收图片 URL（OpenAI `image_url.url` / Anthropic `source`）。
  *
- * 请求体是**纯文本渲染**（`content: [{type:"text"}]`，见 buildChatBody），图片进不来。
- * 静默丢掉比报错更坑：模型只会答「看不到图片」，用户分不清是自己发错了还是网关丢了
- * （2026-11-07 真机实测：LongCat-2.5 收到真实 JPG 后答「当前对话中没有收到任何图片附件」，
- * 同图发给 glm-5.3-flash 能准确描述）。
+ * 只收 URL 形态：base64 一律封成 `data:` 统一走转存，conversation 协议要的是
+ * **可公开访问的 URL**（上游自己拉取）。
  */
-function hasImagePart(content: unknown): boolean {
-  if (!Array.isArray(content)) return false;
-  return content.some((part) => {
-    if (!part || typeof part !== "object") return false;
-    const p = part as Record<string, unknown>;
-    return p["type"] === "image_url" || p["type"] === "image" || p["image_url"] !== undefined;
+function collectImageUrls(messages: Array<Record<string, unknown>>): string[] {
+  const out: string[] = [];
+  for (const m of messages) {
+    const content = m["content"];
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const piece = part as Record<string, unknown>;
+      if (piece["type"] === "image_url" && piece["image_url"] && typeof piece["image_url"] === "object") {
+        const inner = piece["image_url"] as Record<string, unknown>;
+        if (typeof inner["url"] === "string" && inner["url"] !== "") out.push(inner["url"]);
+      } else if (piece["type"] === "image" && piece["source"] && typeof piece["source"] === "object") {
+        const src = piece["source"] as Record<string, unknown>;
+        if (typeof src["url"] === "string" && src["url"] !== "") out.push(src["url"]);
+        else if (src["type"] === "base64" && typeof src["data"] === "string") {
+          const media = typeof src["media_type"] === "string" ? src["media_type"] : "image/png";
+          out.push(`data:${media};base64,${src["data"]}`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ── 图片转存链（presign → PUT → 公网引用） ─────────────────────────────────
+
+/** 上传超时（单张）：几十 KB 到几 MB 的截图 20s 足够，超时宁可换渠道。 */
+const IMAGE_UPLOAD_TIMEOUT_MS = 20_000;
+
+/** 图片引用的只读基址：presign 给的是另一个域上的签名 PUT 地址，引用一律拼这个。 */
+const IMAGE_PUB_BASE = "https://s3plus.meituan.net/catpaw-pub-external/";
+
+/** 单张图上限：超过直接拒 —— 客户端塞 20MB 截图不属于正常用法。 */
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+function mimeExtOf(mime: string): string {
+  if (mime.includes("png")) return "png";
+  if (mime.includes("gif")) return "gif";
+  if (mime.includes("webp")) return "webp";
+  if (mime.includes("bmp")) return "bmp";
+  return "jpg";
+}
+
+function randomObjectName(ext: string): string {
+  return `copilot/chat/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+}
+
+/**
+ * 把一张图转存成**可公开访问的 URL**。
+ *
+ * 桌面端同款三步（2026-11-16 真机实测）：presign（直连域，带登录态）→
+ * PUT（签名 URL，对象存储域）→ 引用 URL（只读域 + objectName）。
+ * 一律转存、不透传外部 URL：桌面端也恒走自家 S3，而且透传一个模型拉不到的
+ * 私网地址等于「图没送到」—— 静默失败比报错更坑。
+ */
+async function uploadImage(url: string, credential: CredentialShape): Promise<UpstreamImagePart> {
+  // 取字节：data: 解码，http(s) 下载（外链也可能有时效）
+  let bytes: Buffer;
+  let mime = "image/png";
+  if (url.startsWith("data:")) {
+    const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(url);
+    if (!m) throw new Error("unparseable data-url image");
+    mime = m[1] ?? "image/png";
+    const payload = m[3] ?? "";
+    bytes = m[2] ? Buffer.from(payload, "base64") : Buffer.from(decodeURIComponent(payload));
+  } else {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(IMAGE_UPLOAD_TIMEOUT_MS) });
+    if (!resp.ok) throw new Error(`image source HTTP ${resp.status}`);
+    mime = (resp.headers.get("content-type") ?? "image/png").split(";")[0]!;
+    bytes = Buffer.from(await resp.arrayBuffer());
+  }
+  if (bytes.length === 0) throw new Error("empty image source");
+  if (bytes.length > IMAGE_MAX_BYTES) throw new Error(`image too large: ${bytes.length} bytes`);
+
+  // presign：直连域 + 登录态；三个 query 都必填（缺一上游就 400）
+  const objectName = randomObjectName(mimeExtOf(mime));
+  const presignUrl =
+    `${resolveBaseUrl()}/api/s3/presign/generate` +
+    `?objectName=${encodeURIComponent(objectName)}` +
+    `&contentType=${encodeURIComponent(mime)}&isUpload=true`;
+  const presignResp = await fetch(presignUrl, {
+    method: "GET",
+    headers: buildHeaders(credential, { stream: false }),
+    signal: AbortSignal.timeout(IMAGE_UPLOAD_TIMEOUT_MS),
   });
+  if (!presignResp.ok) throw new Error(`presign HTTP ${presignResp.status}`);
+  const presignBody = (await presignResp.json()) as Record<string, unknown>;
+  const putUrl = typeof presignBody["data"] === "string" ? presignBody["data"] : undefined;
+  if (!putUrl) throw new Error("presign returned no signed PUT url");
+
+  const putResp = await fetch(putUrl, {
+    method: "PUT",
+    headers: { "Content-Type": mime },
+    body: new Uint8Array(bytes),
+    signal: AbortSignal.timeout(IMAGE_UPLOAD_TIMEOUT_MS),
+  });
+  if (!putResp.ok) throw new Error(`image upload HTTP ${putResp.status}`);
+
+  return { type: "image_url", imageUrl: { url: IMAGE_PUB_BASE + objectName, detail: "low" } };
 }
 
 /** tool_calls 的 arguments 统一成 JSON 字符串（兼容字符串/对象两种线格式）。 */
@@ -514,14 +610,15 @@ export function buildChatBody(
   const messages = rawMessages.filter(
     (m): m is Record<string, unknown> => Boolean(m) && typeof m === "object" && !Array.isArray(m),
   );
-  // 图片进不来（请求体是纯文本渲染）：宁可报错说清楚，也别丢掉后让模型答「看不到」。
-  // 抛 `UnsupportedInputError`（共享层信号）而不是普通 Error：后者会被网关当成
-  // 「用户输入问题」终局 400，而**换一家渠道本来能处理图片** —— 那才是这条守卫
-  // 真正该引发的动作（换候选重试），不是让整条请求失败。
-  if (messages.some((m) => hasImagePart(m["content"]))) {
+  // 守卫按上游逐型号声明决定收不收图：`supportImage:false` 的型号（如 deepseek-v4-pro /
+  // glm-5.3 / auto）收了图也送不上去，宁可换渠道。抛 `UnsupportedInputError`（共享层信号）
+  // 而不是普通 Error：后者会被网关当成「用户输入问题」终局 400，而**换一家渠道本来能
+  // 处理图片** —— 那才是这条守卫真正该引发的动作（换候选重试）。
+  const imageUrls = collectImageUrls(messages);
+  if (imageUrls.length > 0 && !catalog.supportsImageOf(upstreamModel)) {
     throw new UnsupportedInputError(
-      "catpaw 渠道不支持图片输入（请求体按纯文本渲染，图片段会被丢弃）；" +
-        "网关会改用其他支持图片的渠道重试，若都不可用请改用纯文本提问",
+      `catpaw 的 ${upstreamModel} 上游声明不支持图片输入；` +
+        "网关会改用支持图片的渠道重试，若都不可用请改用纯文本提问",
     );
   }
 
@@ -576,7 +673,11 @@ export function buildChatBody(
   // 前置 round + event 由网关通过 `prepareChat` 钩子 await（见下方该函数）。
   // 这里只把 roundBody 挂上，不发起请求 —— 且 fire-and-forget 会与 turn 竞争。
   turnBody["__conversationId"] = conversationId;
-  turnBody["__roundBody"] = JSON.stringify(roundBody);
+  // 图片的转存是异步的，而 buildChatBody 是同步契约 —— 这里只挂原始 URL 清单，
+  // 真正的 presign / PUT 放在 `prepareChat`（它本来就 async，且在 turn 发出前 await）。
+  if (imageUrls.length > 0) turnBody["__images"] = imageUrls;
+  // round 体现对象而不是序列化串：图片注入发生在 prepareChat 里，注入后这里才是终态
+  turnBody["__roundBody"] = roundBody;
   return turnBody;
 }
 
@@ -595,8 +696,13 @@ export function buildChatBody(
  */
 export async function prepareChat(body: Record<string, unknown>): Promise<void> {
   const conversationId = sharedLogin.str(body["__conversationId"]);
-  const rawRound = sharedLogin.str(body["__roundBody"]);
-  if (!conversationId || !rawRound) return;
+  const round = body["__roundBody"] as Record<string, unknown> | undefined;
+  if (!conversationId || !round) return;
+
+  // 待转存的图片：客户端分片里的 URL（data:/http(s)）都要先转成自家对象存储的
+  // 公网引用 —— conversation 协议吃 URL，上游会自己来拉。
+  const pendingImages = body["__images"] as string[] | undefined;
+  delete body["__images"];
 
   // 内部字段不能发给上游：在这里就地摘掉（网关随后发的就是同一个对象）。
   // 用 `__` 前缀 + 显式删除，而不是另开一张旁路表 —— 让「body 就是最终请求体」
@@ -604,15 +710,22 @@ export async function prepareChat(body: Record<string, unknown>): Promise<void> 
   delete body["__conversationId"];
   delete body["__roundBody"];
 
+  if (pendingImages && pendingImages.length > 0) {
+    const credential = loadCredential();
+    const parts: UpstreamImagePart[] = [];
+    for (const url of pendingImages) {
+      parts.push(await uploadImage(url, credential));
+    }
+    // round.messages[0] 与 turn.message 是**同一个引用**（buildChatBody 里共用），
+    // 改 content 两个都生效；round 在下方按终态重新序列化。
+    const message = body["message"] as UpstreamMessage | undefined;
+    if (message) message.content.push(...parts);
+  }
+
   const headers = buildHeaders(loadCredential(), { stream: false });
   // 顺序执行：round 建会话 → event 置 running。任一失败都会让 turn 无法工作，
   // 所以**不吞错**（由网关归为上游错误，日志能看到是哪一步失败）。
-  await postJson(
-    roundUrl(),
-    headers,
-    JSON.parse(rawRound) as Record<string, unknown>,
-    FETCH_TIMEOUT_MS,
-  );
+  await postJson(roundUrl(), headers, round, FETCH_TIMEOUT_MS);
   await postJson(
     eventUrl(),
     headers,

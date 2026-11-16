@@ -398,10 +398,12 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 `models.json` 的 `maxOutput`。公开规格是**模型上限**，上游可能更严
 （超限回 400）—— 客户端应能降档重试。
 
-## 图片能力：**本渠道不对外声明**
+## 图片能力：按上游逐型号声明放行，图片走对象存储转存
 
-> 结论先行：**上游声明 ≠ 本渠道可送达**。本渠道的 `/v1/models` 对 catpaw 的模型
-> 一律报 `input_modalities: ["text"]` —— 图片不会被送到上游（发了也等于不发）。
+> 结论先行：本渠道**能**传图。图片先转存到自家对象存储换公网 URL，再作为
+> `round.messages[].content[]` 的 `image_url` 分片送上去。是否放行由上游逐型号声明的
+> `supportImage` 决定：`deepseek-v4.1-flash` / `LongCat-2.5` / `glm-5.3-flash` 放行，
+> `deepseek-v4-pro` / `glm-5.3` / `auto` 拒收（抛 `UnsupportedInputError` 换渠道）。
 
 | 事实 | 等级 | 来源 |
 |---|---|---|
@@ -409,37 +411,36 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 | 本机实测：上游 `/api/agent/maas/model-types` 确实带该标志（本仓目录缓存里 `LongCat-2.0` / `glm-5.3-flash` / `glm-5.3-flashx` 为 true，`glm-5.3` 为 false） | `[实测]` | 2026-10-20 `~/.modelmux/catpaw/cache/models.json` |
 | 本机实测（上游**原文**，绕开渠道归一化）：`deepseek-v4.1-flash` = **true**；`deepseek-v4-pro` / `glm-5.3` / `auto` = false；其余（`LongCat-2.5` / `glm-5.3-flash` / `glm-5.3-flashx` / `MiniMax-M3` / `kimi-k3` / `kimi-k3.1-pro`）为 true | `[实测]` | 2026-11-16 直打 `/api/agent/maas/model-types` 取原文（`.tmp/probe-catpaw-raw-catalog.mjs`）—— 渠道 API 读不到原值，`catalog.toModelInfo()` 已把它钉成 false |
 | 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事 | `[推断]` | 见下两条 |
-| 本渠道走的 conversation 协议（`/api/agent/conversation/{round,event,turn}`）请求体的消息内容只有 `{type:"text",text}` 分片，**没有图片字段**；`src/upstream.ts` 的 `textOfContent` 把多段 content 拍平成纯文本，`image_url` 分片直接丢弃 | `[代码]` | `packages/core/channels/catpaw/src/upstream.ts:255-259`（`UpstreamMessage.content` 的类型）、`packages/core/channels/catpaw/src/upstream.ts:291-305`（`textOfContent`） |
+| conversation 流程的图片分片：`{"type":"image_url","imageUrl":{"url":"<公网 URL>","detail":"low"}}` —— 分片键是 OpenAI 式 `image_url`，值对象却是 camelCase `imageUrl` | `[实测]` | 2026-11-16 带图对话通过（`.tmp/probe-catpaw-images7.mjs`）；桌面端持久化的 tool 消息同形 |
+| 转存链三步：`GET /api/s3/presign/generate?objectName&contentType&isUpload=true`（三参全必填）→ `PUT` 返回的签名地址 → 引用 `https://s3plus.meituan.net/catpaw-pub-external/<objectName>` | `[实测]` | 同上；presign 必填参数逐层试出 |
+| `requestContext` **不需要**任何图片声明位：只带现行的 `modelParams.declarativeParams.context` 就能通过 | `[实测]` | 同上 |
+| 端到端：`deepseek-v4.1-flash` 收到截图后准确描述出「妙手桌面应用工作界面 / 左侧列表 / Git 变更清单 / 测试报告 38/38 / 两张 diff 卡片 / 底部输入框」；`prompt_tokens=20400` 而文本估算只有 31 —— 差额即图片计入的输入 | `[实测]` | 2026-11-16 访问日志 `cid=catpaw status=200`（`.tmp/req-catpaw-image2.json`） |
+| 文本渲染路径不变：`textOfContent` 仍只取 `text` 与 tool 分片，图片另走 `collectImageUrls` 采集后注入 `content` | `[代码]` | `packages/core/channels/catpaw/src/upstream.ts`（`collectImageUrls` / `uploadImage` / `prepareChat`） |
 | 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片 | `[参考]` | `reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76` |
 
-### 为什么必须改成「不声明」
+### 实现要点（`src/upstream.ts` / `src/catalog.ts`）
 
-- 早先 `src/catalog.ts` 直接抄上游的 `supportImage` 填 `supportsImages`，于是
-  `/v1/models` 对 catpaw 的模型报 `input_modalities: ["text","image"]` —— 但请求侧
-  仍会把 `image_url` 拍平成纯文本。**声明与实现不符**：客户端以为图能到，
-  用户看到的是「模型读不到图片」，且没有任何报错。
-- 现在 `src/catalog.ts` 的 `supportsImages` 恒 `false`（上游的 `supportImage`
-  不再抄进来），旧磁盘缓存在读时一并钉死并回写（池层直接读磁盘缓存，
-  不回写的话 `/v1/models` 还会看到旧值）。
-- 请求侧同样**显式拒绝**：`buildChatBody` 见到图片分片就抛共享层信号
-  `UnsupportedInputError`（`@modelmux/gateway`）。它不是普通 Error —— 后者会被网关
-  当成「用户输入问题」终局 400，而**换一家渠道本来能收图**，所以必须判「本渠道
-  承载不了、换候选重试」（实测 2026-11-07：`deepseek-v4.1-flash` 的带图请求被这里
-  拦成 400，而其它渠道能正常处理）。守卫**不计连败** —— 渠道对纯文本请求
-  是好的，冷却会误伤后续正常请求。
+- `collectImageUrls()` 从 OpenAI `image_url.url` 与 Anthropic `image.source`（URL /
+  base64 两种）收图；base64 一律封成 `data:` 统一走转存，不留第二条路径。
+- `buildChatBody` 是**同步契约**，放不下上传：它只把待传清单挂到内部字段
+  `__images`，真正的 presign / PUT 在 `prepareChat`（async，且网关在 turn 发出前 await）。
+- `round.messages[0]` 与 `turn.message` 是**同一个对象引用**，注入一次两处同时生效；
+  `__roundBody` 因此挂对象而不是序列化串，注入后才序列化。
+- **一律转存、不透传外部 URL**：桌面端也恒先传自家 S3，而透传一个模型拉不到的
+  私网地址等于「图没送到」—— 静默失败比报错更坑。
+- 守卫按型号放行：`catalog.supportsImageOf()` 为 false 的型号带图抛
+  `UnsupportedInputError`（共享层信号 → 网关换候选重试，不是终局 400；实测
+  2026-11-07 曾因为抛普通 Error 被拦成 400）。守卫**不计连败** —— 渠道对纯文本
+  请求是好的，冷却会误伤后续正常请求。
+- 单张上限 10MB、上传超时 20s；超限直接拒（宁可换渠道，不要把 20MB 塞给上游）。
 
-### 将来要支持图片，得先答清这三件事
+### 仍未验证
 
-1. conversation 流程（不是 nocode 建聊流程）到底有没有图片字段？字段名与形态
-   （URL / base64 / 文件 id）是什么？—— 目前**无任何证据**。
-2. 若有，`round.messages[].content[]` 的分片类型怎么写（`image` / `image_url`？）
-   与 `requestContext` 里要不要额外的声明位？
-3. 真机带图实测通过后，再把 `supportsImages` 接回上游的 `supportImage`。
-
-在这三条落定之前，**不要**因为上游目录写了 `supportImage: true` 就对外声明能吃图。
-
-摸清这三条能直接受益的模型是 `deepseek-v4.1-flash`：上游对它声明 `supportImage: true`
-（2026-11-16 实测），也就是说挡住的只是**传输实现**，不是模型能力。
+- 外部 URL 能否**跳过转存**直接引用：桌面端恒先传 S3，本渠道也一律转存，透传未测。
+- `detail` 是否必填：桌面端带 `low`，本渠道照带，未试缺省。
+- 目录**未刷新**时拿不到上游 `supportImage` 原值（旧磁盘缓存里那阵被钉死成 false），
+  此时 `supportsImageOf()` 一律 false、带图请求会顺延到别的渠道 ——
+  `mx model catpaw --refresh` 后恢复。
 
 ## 边界与伦理
 
@@ -471,9 +472,9 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
   `requestContext.modelParams.declarativeParams.context` 下发；折叠后的 prompt 预算 **900KB**，
   超预算先丢最早历史。
 - **token 72h 到期只能重登**：上游**没有刷新端点**，`refresh()` 只是有效性探测。
-- **不支持图片输入**：上游目录虽逐模型声明 `supportImage`，但 conversation 协议
-  没有图片传输路径（内容被拍平成纯文本）→ 本渠道不对外声明图片能力，
-  `/v1/models` 报 `input_modalities: ["text"]`。见「图片能力」。
+- **图片输入按上游逐型号声明放行**：`deepseek-v4-pro` / `glm-5.3` / `auto` 声明
+  `supportImage:false`，带图请求会抛 `UnsupportedInputError` 换渠道；其余型号放行，
+  图片经对象存储转存后作为 `content` 的 `image_url` 分片送出。见「图片能力」。
 - **家族 B 协议不实现**（IDE 侧 `/api/gpt/*`）：token 与家族 A 不通用，见「已知边界」。
 - **deepseek-v4.1-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 600000`
   （供此模型各渠道中最低）、倍率 x0.06、effort 档位 `low/high/max`（默认 high）、
