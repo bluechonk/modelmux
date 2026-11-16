@@ -33,17 +33,6 @@
 | [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | MIT | 同上 |
 | [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | NOASSERTION | 同上 |
 
-### lobsterai
-
-| 仓库 | 许可证 | 落点 |
-|---|---|---|
-| [netease-youdao/LobsterAI](https://github.com/netease-youdao/LobsterAI) | MIT | `docs/channels/lobsterai/PROTOCOL.md`（官方客户端，用于协议事实） |
-| [greatleo31/lobsterAi2api](https://github.com/greatleo31/lobsterAi2api) | MIT | 同上 |
-| [xinxinshuhao-create/lobsterai2api](https://github.com/xinxinshuhao-create/lobsterai2api) | MIT | 同上 |
-| [skyletter/lobsterai2api-docker](https://github.com/skyletter/lobsterai2api-docker) | NOASSERTION | 同上 |
-| [L0NE-6/LobsterAI-AutoCheckin](https://github.com/L0NE-6/LobsterAI-AutoCheckin) | MIT | 同上（签到逻辑） |
-| [gurio-wine/dsh-account-hub](https://github.com/gurio-wine/dsh-account-hub) | MIT | 同上（多账号治理思路） |
-
 ### loomy
 
 | 仓库 | 许可证 | 落点 |
@@ -53,15 +42,15 @@
 | [xxhhlk/loomy2api](https://github.com/xxhhlk/loomy2api) | MIT | 同上 |
 | [xingluoyuankong/loomy2api](https://github.com/xingluoyuankong/loomy2api) | MIT（历史参照，微信登录已移除） | 同上 |
 
-### qoder / qodercn
+### qoder 系（COSY 协议）
 
 | 仓库 | 许可证 | 落点 |
 |---|---|---|
-| [cubk1/qoder2api](https://github.com/cubk1/qoder2api) | NOASSERTION | `docs/channels/qoder/PROTOCOL.md` |
-| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | MIT | `docs/channels/qoder/PROTOCOL.md`、`docs/channels/qodercn/PROTOCOL.md` |
+| [cubk1/qoder2api](https://github.com/cubk1/qoder2api) | NOASSERTION | `docs/channels/qwenworkcn/PROTOCOL.md`（同一套 COSY 协议） |
+| [shuishuipingan/qoder2api-hub](https://github.com/shuishuipingan/qoder2api-hub) | MIT | `docs/channels/qwenworkcn/PROTOCOL.md` |
 | [Zhengyuuuui/qoder2api](https://github.com/Zhengyuuuui/qoder2api) | NOASSERTION | 同上 |
-| [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | MIT | `docs/channels/qodercn/PROTOCOL.md` |
-| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | MIT | `docs/channels/qodercn/PROTOCOL.md` |
+| [EchoPing07/Qoder-2API-Go](https://github.com/EchoPing07/Qoder-2API-Go) | MIT | `docs/channels/qwenworkcn/PROTOCOL.md` |
+| [jyao0708/qoder2api](https://github.com/jyao0708/qoder2api) | MIT | `docs/channels/qwenworkcn/PROTOCOL.md` |
 
 ### qwenworkcn
 

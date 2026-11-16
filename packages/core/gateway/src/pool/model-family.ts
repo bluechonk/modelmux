@@ -5,7 +5,7 @@
  * 本表是共享层唯一允许出现模型名的地方（`scripts/verify-contract.mjs` 强制）。
  *
  * 命名约定：`qwen3.8-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
- * **对外只有下面这两个名字**：渠道目录里的上游写法（如 qodercn 的 `deepseek-flash`）只在
+ * **对外只有下面这两个名字**：渠道目录里的上游写法（如 workbuddy 的 `deepseek-flash`）只在
  * 内部归一用，客户端写了照样 400（2026-11-15 产品口径）。
  */
 
@@ -22,8 +22,8 @@ const CANONICAL: Readonly<Record<string, string>> = {
  * 渠道目录里的上游等价写法 → 规范名（**不对客户端开放**）。
  *
  * 为什么与 `CANONICAL` 分开：`canonicalOf` 两条路共用（客户端请求 + 渠道目录条目），
- * 而收口只针对前者（见 `isClientModelId`）。目录里的上游名（qodercn / lobsterai 都写
- * `deepseek-flash`）必须照旧能归到家族，否则那几家渠道会从候选里消失。
+ * 而收口只针对前者（见 `isClientModelId`）。目录里的上游名（workbuddy 写
+ * `deepseek-flash`）必须照旧能归到家族，否则它会从候选里消失。
  */
 const UPSTREAM_ALIASES: Readonly<Record<string, string>> = {
   "deepseek-flash": "deepseek-v4.1-flash",

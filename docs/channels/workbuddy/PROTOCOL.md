@@ -29,7 +29,7 @@
 ## 1.1 模型目录端点
 
 **对外暴露范围**：随包 `models.json` 给 `glm-5.3-flash` 标了 `hidden` —— 网关里
-glm 只由 qodercn 供给，本渠道只供 `deepseek-v4.1-flash`。隐藏集合由共享层
+glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合由共享层
 `hiddenModelIds()` 并集读用户表与随包快照（读不到即抛错），目录数据照常保留。
 
 | 端点 | 用途 | 实测 |
@@ -257,7 +257,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:338`） | **声明**该回调（每轮轮询前取一次） |
 | `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:300`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
-与 `lobsterai` 的形态差别：那两条是**本地回调服务器**收 code，粘贴内容被
+与**本地回调服务器**型渠道的形态差别：那类渠道靠回环收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
 

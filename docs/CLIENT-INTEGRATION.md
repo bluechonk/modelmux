@@ -98,7 +98,7 @@
 | --- | --- | --- | --- |
 | Claude Code 2.1.318（`claude -p`） | anthropic，流式 | 「pong」 | `protocol:"anthropic"`、cid=loomy、200 success |
 | Codex CLI 0.163.0（`codex exec`） | responses，流式 | 「pong」 | `protocol:"responses"`、cid=loomy、200 success |
-| dsh ACP（dsh-mx-test 技能） | chat | glm / deepseek 两模型全过 | `cid=loomy/qodercn` |
+| dsh ACP（dsh-mx-test 技能） | chat | glm / deepseek 两模型全过 | `cid=loomy` |
 | zcode | chat | 池内模型可用 | — |
 
 工具调用往返由 `protocol-adapters.test.ts` 的编码器用例钉住（tool_use / function_call

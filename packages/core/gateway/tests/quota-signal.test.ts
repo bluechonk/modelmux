@@ -68,24 +68,6 @@ describe("额度/用量信号识别", () => {
     assert.equal(trae.quotaSignal(200, "plain ok"), null);
   });
 
-  it("qodercn 限流帧必须上报 rate_limit（不能当余额问题冷却账号）", async () => {
-    // 2026-11-16 实测：3.49MB / 607 条消息的请求被回 HTTP 200 + 流内帧
-    // {"code":"rate_limit_exceeded_error","message":"Unknown sse issue"}，1.7s 返回。
-    // 账号还有 1000/2800 credits，只是这一刻被限速 —— 上报 balance 会误冷却一个还有钱的账号。
-    const qoder = await import("../../channels/qodercn/dist/upstream.js");
-    const rateBody = '{"error":{"code":"rate_limit_exceeded_error","message":"Unknown sse issue"}}';
-    assert.equal(qoder.quotaSignal(200, rateBody), "rate_limit", "限流帧必须认成 rate_limit");
-    // 额度类仍走原判据
-    assert.equal(
-      qoder.quotaSignal(200, '{"code":112,"message":"{\\"pricingUrl\\":\\"https://qoder.com.cn/pricing\\"}"}'),
-      "balance",
-      "112 / pricingUrl 仍是余额问题",
-    );
-    assert.equal(qoder.quotaSignal(200, '{"code":110,"message":"quota used up"}'), "balance");
-    // 正常帧不能误报，否则每个正常请求都会触发渠道冷却
-    assert.equal(qoder.quotaSignal(200, '{"choices":[{"delta":{"content":"ok"}}]}'), null);
-  });
-
   /**
    * 架构守卫：**共享层不许出现渠道业务码**（AGENTS.md：共享层不许出现任何渠道知识）。
    *

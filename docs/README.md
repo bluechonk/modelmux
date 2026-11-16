@@ -59,10 +59,8 @@
 | cid | 产品 | 文档 |
 | --- | --- | --- |
 | `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md)（凭据加密 / 密钥材料 / 解密验证 / scope / 敏感面） |
-| `lobsterai` | LobsterAI（有道） | [PROTOCOL](./channels/lobsterai/PROTOCOL.md)（渠道在册；上游曾封停测试账号，账号现状以 `mx acct lobsterai` 为准） |
 | `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
-| `qodercn` | Qoder 国内版（`qoder.com.cn`） | [PROTOCOL](./channels/qodercn/PROTOCOL.md) |
-| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
+| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；**COSY 协议的一个部署**（同族实现存档见 git 历史）：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | [PROTOCOL](./channels/codebuddycn/PROTOCOL.md)（OAuth 授权页 + 轮询；对话体 gzip；官方 CLI 头族） |
 | `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |

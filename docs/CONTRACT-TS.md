@@ -350,8 +350,8 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 | 形态 | 本机回环服务器 | 粘贴内容怎么用 | 渠道 |
 |---|---|---|---|
-| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | lobsterai、raccoon |
-| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | qodercn、workbuddy |
+| **A. 回环转交型** | 有 | 转交**同一个回调处理器**：回环请求打到自己的回调地址，或直接调同一个 exchange 入口 | raccoon |
+| **B. 无回环信号型** | 无 | 由**同一个轮询处理器**消费：含授权码 → 解析出来交给同一条换码路径；不含 → 只作「浏览器那一步已完成」的信号，立即再轮询一次 | qwenworkcn、workbuddy |
 
 不消费 `pasteCode` 的渠道：loomy（手机验证码两步）、catpaw、traecn。
 
@@ -654,7 +654,7 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 与账号无关的字段（如 `dailyReward`），不要把账号相关的数字写进别的账号的台账。
 两者都没有时共享层用**领取前后各查一次额度的差值**补；仍拿不到才用**跨额度窗口对比**
 （最弱口径，界面标「估算」）。`status().resetAt` / `windowStartsAt`（可选）声明当前签到窗口的
-结束与开始时刻（epoch ms）—— 日界不是本地 0 点的渠道（qodercn 是 10:00 UTC+8）必须给，
+结束与开始时刻（epoch ms）—— 日界不是本地 0 点的渠道（qoder 系上游是 10:00 UTC+8）必须给，
 否则当天活动永远领不到。
 口径与有界重试规则见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.6。
 
@@ -684,7 +684,7 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 
 - **不认识自己的周期就别实现**：共享层有兜底（次日本地 0 点），编一个假的比不实现更糟。
 - `size` 拿不到就给 `null`（不编数字）；`resets_at` 拿不到也给 `null`。
-- **日界必须按上游的真实窗口**，不是一律本地 0 点：qodercn 的活动按 **10:00（UTC+8）**
+- **日界必须按上游的真实窗口**，不是一律本地 0 点：qoder 系上游的活动按 **10:00（UTC+8）**
   滚动，raccoon 的自然日按**北京时间**切 —— 硬写本地 0 点会让海外或非 UTC+8 部署
   把刷新时刻算错一整个窗口。
 - **数额的证据等级要如实**：上游有字段（`reward_points` / `benefit.amount`）就取字段；
@@ -704,9 +704,9 @@ Ctrl+点击 / 复制），用户自行在浏览器打开，再轮询/回调拿�
 
 | 类型 | 用法 | 渠道 |
 |---|---|---|
-| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、lobsterai、raccoon |
+| **A. 本地回调服务器** | 起 `http://127.0.0.1:<port>` 回调服务 → 拼授权 URL（含 PKCE/DPoP 等）→ 等浏览器重定向回填 | traecn、raccoon |
 | **B. flow 轮询** | 拼授权 URL → 交给用户打开 → 轮询拿 token | workbuddy、catpaw |
-| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | qodercn |
+| **C. 设备码 / 扫码轮询** | 申请 device code 或二维码 URL → 轮询 token | qwenworkcn |
 | **D. 手机验证码两步** | 发码（返回 `msgid`）→ 带 `msgid` + 验证码换 token | loomy |
 
 各渠道的端点、请求头与字段是**渠道知识**，写在 `docs/channels/<cid>/PROTOCOL.md`，

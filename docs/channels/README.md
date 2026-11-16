@@ -68,10 +68,8 @@ docs/channels/<cid>/
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
 | `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
-| `lobsterai` | LobsterAI（有道） | 有每日签到（签到分三步），错误分类按上游 `Classify()` 移植（账号被上游封停，账号现状以 `mx acct lobsterai` 为准） | [PROTOCOL](./lobsterai/PROTOCOL.md) |
 | `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
-| `qodercn` | Qoder 国内版（`qoder.com.cn`） | 与已移除的国际版 qoder **同一套 COSY 协议**的不同部署（协议存档见 git 历史），仅域名 / 身份 / 模型目录不同；对外只暴露 `glm-5.3-flash` | [PROTOCOL](./qodercn/PROTOCOL.md) |
-| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | 与 `qodercn` **同一套 COSY 协议的不同部署**：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwen3.8-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
+| `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | **COSY 协议的一个部署**（同族实现的存档见 git 历史）：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；只卖「标准」档（`qwen3.8-flash`，0.1×，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | OAuth 授权页 + 轮询取令牌（无本机回环）；对话体 **gzip 压缩**；伪装官方 CLI 头族；模型目录仅个人账号可取；**国内版无签到入口** | [PROTOCOL](./codebuddycn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
@@ -101,7 +99,7 @@ docs/channels/<cid>/
 1. **上游限流与账号侧风控**：raccoon / loomy 的
    `not_authenticated`（token 失效后需用户手动 `mx acct <cid> use <key>` 切号）——
    都是账号侧约束，不是协议缺陷。
-2. **qoder / qodercn 上游排队饱和**：单请求 TTFB 极长后模型不再推进（见上表「受限」）。
+2. **qoder 系上游排队饱和**：单请求 TTFB 极长后模型不再推进（同族上游的历史实测见上表「受限」；该族现已只剩 `qwenworkcn`）。
 
 ## 新增渠道要动的文档
 

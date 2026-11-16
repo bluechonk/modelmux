@@ -557,7 +557,7 @@ function isBenignDisconnect(err: unknown): boolean {
  * 从一个 SSE 帧里提取 usage 并记到请求日志。
  *
  * 两条转发路径共用：翻译器路径（`chat/stream.ts`）与 `openai` 线型的直通路径
- * （本文件的 `relay`）。直通路径**不采集 usage 的话**，workbuddy / lobsterai /
+ * （本文件的 `relay`）。直通路径**不采集 usage 的话**，workbuddy /
  * loomy / raccoon 等渠道的流式请求访问日志会没有 usage 字段
  * （2026-10-24 实测：这几个渠道当日流式请求 usage 采样全部为 0）。
  *

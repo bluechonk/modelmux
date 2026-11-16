@@ -396,7 +396,7 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
   if (tripped(cid)) return false;
 
   // ② 台账已签：今天领过 —— 补额度（异步入账）后收工。
-  //    但渠道的签到窗口未必是本地 0 点（qodercn 是 10:00 UTC+8）：窗口已结束就再领一轮，
+  //    但渠道的签到窗口未必是本地 0 点（qoder 系上游是 10:00 UTC+8）：窗口已结束就再领一轮，
   //    否则当天活动永远领不到，面板还显示「已签到」。
   if (claimedTodayPerLedger(cid)) {
     const ended = await windowEnded(cid, channel, lastClaimOf(cid));

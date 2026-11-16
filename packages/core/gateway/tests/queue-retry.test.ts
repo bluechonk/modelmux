@@ -324,7 +324,7 @@ describe("上游 HTTP 200 + 流内业务错误帧（非排队）", () => {
 describe("排队探测消费掉的帧一个都不能丢（回归）", () => {
   // 症状：ZCode 报 `model.tool_input.normalize_failed`（Bash 工具参数 JSON 语法错误）
   // —— tool_call 的 arguments 分片在流中被吞掉一段，拼出来就是坏 JSON。
-  // 两个丢帧向量都出在 `consumeQueueProbe` 退出点（qoder/qodercn 专用路径）：
+  // 两个丢帧向量都出在 `consumeQueueProbe` 退出点（qoder 系上游专用路径）：
   //   A. 同一 TCP 块里多帧，探测在第一帧（内容）处 return，同块剩余帧被丢；
   //   B. 翻译器缓冲里的**半行**随探测实例一起丢弃，转发层换了新实例接不上残行，整帧丢失。
   let root = "";

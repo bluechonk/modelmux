@@ -17,9 +17,7 @@
         "catpaw": {
           "slug": "deepseek-v4.1-flash",
           "contextWindow": 600000
-        },
-        "lobsterai": "deepseek-v4.1-flash",
-        "qodercn": "deepseek-v4.1-flash"
+        }
       }
     },
     "qwen3.8-flash": {
@@ -30,8 +28,7 @@
         "image"
       ],
       "channels": {
-        "qwenworkcn": "flash",
-        "qodercn": "qfmodel"
+        "qwenworkcn": "flash"
       }
     }
   }

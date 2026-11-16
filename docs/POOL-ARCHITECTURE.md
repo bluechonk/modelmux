@@ -50,7 +50,7 @@
 
 | 对外模型 id | 渠道侧等价写法（只用于内部归一） | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
-| `deepseek-v4.1-flash` | `deepseek-flash`（qodercn / lobsterai 的上游 id） | `deepseek` | traecn、loomy、workbuddy、raccoon、codebuddycn、catpaw（渠道级窗口 600k）、lobsterai、qodercn —— 上游写法逐渠道不同（如 raccoon 的 `sn-deepseek-v4-1-flash-1017`），catpaw 的渠道级窗口见注册表 `channels.catpaw.contextWindow` |
+| `deepseek-v4.1-flash` | `deepseek-flash`（workbuddy 的上游 id） | `deepseek` | traecn、loomy、workbuddy、raccoon、codebuddycn、catpaw（渠道级窗口 600k）—— 上游写法逐渠道不同（如 raccoon 的 `sn-deepseek-v4-1-flash-1017`），catpaw 的渠道级窗口见注册表 `channels.catpaw.contextWindow` |
 | `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）…（千问办公只卖「标准」档，底层型号由上游池化；候选经单渠道收窄表只出 qwenworkcn） |
 
 **客户端只认这两个名字**：入站解析放行的只有对外公布的裸名（大小写不敏感，可带
@@ -113,7 +113,7 @@
 
 ```json
 { "version": 1, "channels": {
-   "lobsterai": { "used": 17, "size": 100, "remain": 83, "unit": "credits",
+   "raccoon": { "used": 17, "size": 100, "remain": 83, "unit": "credits",
                  "billing_at": "2026-10-08T…", "billing_ok": true,
                  "ok": 12, "fail": 0, "cooldown_until": 0,
                  "accounts": { "<account-key>": { "ok": 10, "fail": 1,
@@ -331,7 +331,7 @@
 #### 排队即换渠道（`isQueueError`）
 
 有些上游过载/排队时**不拒绝连接**，而是回 HTTP 200 + SSE 里投递一个业务错误帧
-（qoder / qodercn 的 `code:"10605"`）。渠道声明 `upstream.isQueueError(frame)` 后，
+（qoder 系上游的 `code:"10605"`）。渠道声明 `upstream.isQueueError(frame)` 后，
 共享层在**尚未向客户端写出任何字节**时消费上游流做探测：
 
 - 翻译器逐帧处理：内容帧 → 立即停止探测（已有实质输出，不能再换）；
@@ -394,9 +394,9 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 语义 | 候选字段名 | 渠道缓存里实际写的键 |
 |---|---|---|
-| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（lobsterai·traecn·workbuddy）、上游原样 `max_input_tokens`（qodercn） |
-| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qodercn）、`max_output`（lobsterai·traecn·workbuddy） |
-| 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn·lobsterai）、**渠道解析后写进来的同一形态**（qoder·qodercn，见下） |
+| 上下文窗口 | `contextWindow` / `context_window` / `maxInputTokens` / `max_input_tokens` | 驼峰 `contextWindow`（catpaw·loomy·raccoon）、下划线 `context_window`（traecn·workbuddy）、上游原样 `max_input_tokens`（qwenworkcn） |
+| 最大输出 | `maxOutputTokens` / `max_output_tokens` / `maxOutput` / `max_output` / `maxTokens` / `max_tokens` | `maxOutput`（catpaw·loomy·raccoon·qwenworkcn）、`max_output`（traecn·workbuddy） |
+| 思考档位 | `effort`（对象）/ `efforts`（数组） | 对象 `effort:{supportedLevels,defaultLevel}`（catpaw）、数组 `efforts:[…]` + `defaultEffort` / `default_effort`（loomy·traecn）、**渠道解析后写进来的同一形态**（qwenworkcn，见下） |
 
 - **`context_window` 报的是「最大上下文」**：qoder 的 `context_config` 是档位表
   （`{"1M":{token_count:1000000}, …}`），取**最大档**而非默认档 —— 客户端永远走最大上下文，
@@ -411,7 +411,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   - **没有目录端点的渠道走规格通道**：渠道用内置快照、官方文档逐模型给了档位 →
     经 `catalog.modelSpec().effort` 交给池层，来源标 `spec`（不是 `upstream`）。
     表见 [MODEL-SPECS.md](./MODEL-SPECS.md) §3.2。
-  - **上游形态与池层形态不一致时，由渠道在落盘前归一**：qoder / qodercn 上游下发的是
+  - **上游形态与池层形态不一致时，由渠道在落盘前归一**：qoder 系上游（现 `qwenworkcn`）下发的是
     `thinking_config.enabled.efforts{}`（对象 map，默认档由 `is_default` 标出），
     渠道 catalog 的 `wireEffort()` 把它归一成 `effort:{supportedLevels[],defaultLevel}`
     写进目录缓存（刷新时写、旧缓存读时补），池层 `effortOf()` 一行没改。
@@ -420,8 +420,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
     那会让客户端发出 `reasoning_effort: "off"`，而上游关闭思考走的是另一套字段。
     详见 qoder 渠道协议存档（git 历史，渠道已移除） 的「上游 model 字段与思考档位」。
 - **`effort` 可为 `null` = 渠道没声明**（兜底**不许编档位**）：
-  渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn /
-  lobsterai（`efforts` 数组）、qoder / qodercn（`thinking_config`，见上）有真值。
+  渠道目录**普遍不下发**思考档位 —— 实测只有 catpaw（`effort` 对象）、loomy / traecn（`efforts` 数组）、qoder 系上游（`thinking_config`，见上）有真值。
   **不许给所有模型都填 `["low","high"]`** —— 那是把「不知道」说成「支持」（界面上 200 个
   模型都会显示 low/high）。空数组同样算未声明（traecn 全部模型都写 `[]`）。`effort` 为
   `null` 时控制台显示「不支持」。
@@ -443,19 +442,19 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `/web/api/state` 下发，客户端据此决定要不要信这个数字；控制台表格当前不展示来源标记
 （详见 [WEB-CONSOLE.md](./WEB-CONSOLE.md)）。
 
-上游自己的字段名（lobsterai 的 `maxTokens`、workbuddy 的 `maxOutputTokens` /
+上游自己的字段名（workbuddy 的 `maxOutputTokens` /
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
 汇聚层只认缓存里那两种写法（`pool-targets.ts` 的 `CONTEXT_KEYS` / `OUTPUT_KEYS`）。
 
 - **上游不发 → 问渠道要「已知规格」**：上游目录**普遍只下发部分字段**，缺的那部分由渠道表补。
   实测（见各渠道 PROTOCOL 的「模型窗口规格」节）：
   - **上下文也发**：catpaw（`parameterDefinitions[id=context]` 逐型号档位）、loomy（`context_length`）、
-    lobsterai（`contextWindow`）、qoder / qodercn（`max_input_tokens` + `context_config` 档位表）、
+    qwenworkcn（`max_input_tokens` + `context_config` 档位表）、
     raccoon（`params.context_window`）、traecn（Remote `context_window_tokens`）、
     workbuddy（`maxInputTokens`）。
   - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
     traecn（Solo `model_detail_list[].max_tokens`）、workbuddy（`maxOutputTokens`）。
-  - **只发上下文、不发输出**：catpaw / lobsterai / qoder / qodercn（输出按公开规格补）。
+  - **只发上下文、不发输出**：catpaw / qwenworkcn（输出按公开规格补）。
   缺字段的渠道用**渠道包根的 `models.json`**（按公开规格维护的数据文件）回答 —— 入口是
   **可选钩子** `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
   当前**全部渠道**都实现了该钩子（规格数据落 `channels/<cid>/models.json`，
@@ -521,7 +520,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **兜底表必须能真的兜住**：用**真实上游 id**，不用占位名（占位名如 `catpaw-flash`，
   上游根本不存在，选中必然失败）。
 - **兜底表的形态随上游协议而定**：目录条目表（多数渠道）、上游目录快照
-  （qodercn 的国内版目录 14 条）、上游元数据快照（qoder 的 `STATIC_META`，
+  （qoder 系的目录快照）、上游元数据快照（同族实现的 `STATIC_META`，
   供请求体的 `model_config` 用）、以及**上游协议要求的数值表**（catpaw 的
   `modelType` 数值表 —— turn / round 的请求体要的是**数字** modelType 而不是模型名，
   目录拉不到时没有这张表就等于全部模型不可用）。
@@ -549,8 +548,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 | 渠道 | 状态 | 后果 |
 |---|---|---|
-| `qoder` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens` |
-| `qodercn` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qodercn/src/channel.ts:44`、`packages/core/channels/qodercn/src/upstream.ts:593-603`） |
+| `qwenworkcn` | 已接线 | 请求体的 `model_config` 带上目录里的 `display_name` / `is_vl` / `is_reasoning` / `max_input_tokens`（`packages/core/channels/qwenworkcn/src/channel.ts:46`、`packages/core/channels/qwenworkcn/src/upstream.ts:489`） |
 
 判定依据是「目录里的真实值」而不是写死的常量：写死会让上游看到互相矛盾的推理开关。
 
@@ -662,7 +660,7 @@ interface CredModule {
   - `name`：**名称类字段**（`nickname` → `displayName` → `username` → 邮箱 → 手机号，
     见 `NAME_FIELDS`），渠道没给就是空串 —— Web 据此决定「显示名字」还是「显示脱敏 id」。
   - `label`：`name` 的兜底版本，取不到名称才退化成 `uid` / `key`；CLI 文本视图用它。
-  - 渠道实测：traecn / qoder / qodercn / raccoon 给 nickname，loomy 给已脱敏手机号，
+  - 渠道实测：traecn / raccoon / qwenworkcn 给 nickname，loomy 给已脱敏手机号，
     workbuddy 的 nickname 可能为空，**catpaw 只有 uid**。
     读池子时（`refreshLabels`）若渠道补上了名称，两者会一起升级。
 - `health`：`ok` | `unauthorized` | `unknown` | `error` | `cooldown`。由**网关**在刷新失败时写
@@ -743,7 +741,7 @@ interface CredModule {
   旧实现问一次就写终态，异步入账（账单 / 积分类上游）会白丢数字。
 - **不猜**：渠道报不出、也测不到差额时只显示「已签到 HH:MM」，不写 0。
 - **签到窗口未必是本地 0 点**：渠道可在 `SigninStatus.resetAt` / `windowStartsAt` 声明当前窗口的
-  结束与开始时刻（qodercn 是 10:00 UTC+8）。调度器把领取时的 `resetAt` 记进台账（`windowEndsAt`），
+  结束与开始时刻（qoder 系上游是 10:00 UTC+8）。调度器把领取时的 `resetAt` 记进台账（`windowEndsAt`），
   `Date.now() > windowEndsAt` 就允许再领一轮 —— 否则当天活动永远领不到，面板还显示「已签到」。
   **旧记录**没有 `windowEndsAt` 时问一次上游：`windowStartsAt > 记录时刻` 才判定属于已结束的旧窗口
   （拿 `resetAt` 直接比会对任何旧记录都成立，导致每轮重复领取）。**查询失败不落盘、不缓存**，

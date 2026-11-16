@@ -5,7 +5,7 @@
  *   - COSY 协议版本是 `1.1.32`（Buddy2api 从千问办公 1.0.4 bundle 冻出；另一份参考
  *     `dsh-qwenwork-connector` 写的是 `1.1.59`）。签名 payload 与 `cosy-version` 头都用它。
  *   - 请求体是自定义 Base64 变体编码后的字符串，`buildChatBody` 返回字符串，由网关按字符串直发。
- *   - 模型目录是 GET 且**签名覆盖空串 body、真的不发 body**（与 qodercn 的 `qoder_encode("{}")` 不同）。
+ *   - 模型目录是 GET 且**签名覆盖空串 body、真的不发 body**。
  *   - 签名需要 body，但共享网关在重试路径上会多次调用 `buildHeaders`：待签名 body 必须走请求级槽（`AsyncLocalStorage`），并发各持一份。
  */
 
@@ -577,9 +577,8 @@ export function buildChatBody(req: Record<string, unknown>, modelKey: string): s
  * 拉上游模型目录（原始响应，由 catalog.ts 归一化）。
  *
  * **签名覆盖空串 body，且真的不发 body**：参考实现（`FetchModels`）逐字如此，
- * 两份独立参考（`Buddy2api` 与 `dsh-qwenwork-connector`）一致。qodercn 那边发的是
- * `qoder_encode("{}")`，
- * 与本渠道**有意不同**（见 docs/channels/qwenworkcn/PROTOCOL.md）。
+ * 两份独立参考（`Buddy2api` 与 `dsh-qwenwork-connector`）一致 —— 改成发编码后的
+ * `{}` 会让签名与实际载荷不一致（见 docs/channels/qwenworkcn/PROTOCOL.md）。
  */
 export async function fetchModels(credential: Credentials): Promise<Record<string, unknown>> {
   const url = modelsUrl();
@@ -632,7 +631,7 @@ export function quotaSignal(_status: number, body: string): "balance" | null {
 }
 
 /**
- * 首帧静默上限：**900 秒**（与 qodercn 同源，对齐参考实现的排队容忍）。
+ * 首帧静默上限：**900 秒**（对齐参考实现的排队容忍）。
  *
  * 上游会「收下请求（HTTP 200）后长时间零字节」：共享层默认 120 秒会把还活着的
  * 排队请求误判成超时。声明本上限后网关等待首帧至多 900 秒，并在等待期向客户端补心跳。

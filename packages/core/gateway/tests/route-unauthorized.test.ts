@@ -7,7 +7,7 @@
  *  2. **「本渠道承载不了这类输入」不是用户输入错误** —— 换一家渠道可能成功
  *     （catpaw 把请求体按纯文本渲染，图片进不去）。必须判**可重试**，
  *     而不是终局 400（实测 deepseek-v4.1-flash 的带图请求被 catpaw 守卫拦死，
- *     而 qodercn 等渠道本来能正常处理）。
+ *     而其它渠道本来能正常处理）。
  */
 
 import assert from "node:assert/strict";
@@ -463,7 +463,7 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
     root = mkdtempSync(join(tmpdir(), "modelmux-streamerr-"));
     process.env["MODELMUX_HOME"] = root;
     upstream = await fakeUpstream();
-    // 假上游改成回一个内嵌业务错误帧（qodercn 的 112 额度错误形态）
+    // 假上游改成回一个内嵌业务错误帧（qoder 系上游的 112 额度错误形态）
     upstream.server.removeAllListeners("request");
     upstream.server.on("request", (req, res) => {
       req.on("data", () => {});
@@ -524,7 +524,7 @@ describe("流内业务错误帧：记失败 + 额度冷却", () => {
         buildChatBody: (req: Record<string, unknown>) => req,
         fetchModels: async () => ({}),
         resolveConfig: () => ({ baseUrl: upstream.url }),
-        // 渠道上报额度判据（对齐 qodercn 的 quotaSignal）
+        // 渠道上报额度判据（对齐 qwenworkcn 的 quotaSignal）
         quotaSignal: (_status: number, body: string) =>
           /pricingUrl|"code"\s*:\s*"?(?:110|112)\b/.test(body) ? "balance" : null,
         newTranslator: () => ({ feed: (c: Buffer) => [c], finish: () => [] }),

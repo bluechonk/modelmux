@@ -3,7 +3,7 @@
 阿里**千问办公**（QwenWorkCN，桌面端 `%LOCALAPPDATA%\Programs\QwenWorkCN\Launcher.exe`，
 ProductName `QwenWorkCN`，CompanyName `Qoder`）的反代协议。
 
-它与 `qodercn` / `qoder` 是**同一套 COSY 协议的不同部署**：签名、请求体编码、SSE 信封
+它与 qoder 系实现是**同一套 COSY 协议的不同部署**（同族存档见 git 历史）：签名、请求体编码、SSE 信封
 形状同源，但**域名、client_id、深链、模型命名空间、额度与账号端点全部不同**。本文件记
 本渠道的实测形态与已知边界。
 

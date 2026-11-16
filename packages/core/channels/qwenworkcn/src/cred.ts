@@ -85,7 +85,7 @@ export function productOf(): typeof PRODUCT {
 /**
  * 生成一套随机机器指纹。
  *
- * 与 `qodercn` 的「按 uid 派生」不同，这里**随机生成并落盘**：参考实现
+ * **随机生成并落盘**，不按 uid 派生：参考实现
  * （`Buddy2api` 的 `providers/qwenwork/store.py`）就是每次新账号
  * 随机一套，不复用、不派生。派生值会把「同一个人」暴露给上游风控，随机值不会。
  */
@@ -312,7 +312,7 @@ const EMPTY_PROFILE: UserProfile = { uid: "", nickname: "", userType: "" };
  * 取账号档案：设备码轮询响应**不带**昵称与身份类型，必须单独取。
  *
  * 尽力而为，失败不阻塞登录（uid 回落轮询响应，身份类型回落默认值）。
- * 字段名两种写法都认（snake_case / camelCase），与 `qodercn` 同口径。
+ * 字段名两种写法都认（snake_case / camelCase）。
  */
 async function fetchUserProfile(accessToken: string): Promise<UserProfile> {
   if (!accessToken) return EMPTY_PROFILE;

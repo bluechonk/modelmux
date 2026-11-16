@@ -65,13 +65,8 @@ describe("仓库级模型池", () => {
     assert.ok(!cids.includes("cline"), "cline 渠道已移除");
     assert.ok(!cids.includes("orcaterm"), "orcaterm 渠道已移除");
     assert.ok(!cids.includes("zcode"), "zcode 渠道已移除");
-    // 曾经下架、现已全部放行的三家：具名断言，避免「等式仍成立但悄悄又没了」
-    for (const cid of ["lobsterai"]) {
-      assert.ok(cids.includes(cid), `${cid} 已放行，必须出现在注册清单里`);
-      assert.ok(!RETIRED_CIDS.includes(cid), `${cid} 已放行，不得留在 RETIRED_CIDS`);
-    }
-    // 本轮移除的五家：具名断言，防止渠道包目录残留或注册悄悄回来
-    for (const cid of ["qoder", "workbuddyai", "codearts", "doubaowork", "todayai", "marvis", "autoclaw", "astudio"]) {
+    // 本轮移除的渠道：具名断言，防止渠道包目录残留或注册悄悄回来
+    for (const cid of ["qoder", "workbuddyai", "codearts", "doubaowork", "todayai", "marvis", "autoclaw", "astudio", "qodercn", "lobsterai"]) {
       assert.ok(!cids.includes(cid), `${cid} 已移除，不得出现在注册清单里`);
       assert.ok(!RETIRED_CIDS.includes(cid), `${cid} 已移除，不得留在 RETIRED_CIDS`);
     }
@@ -131,7 +126,7 @@ describe("仓库级模型池", () => {
       );
     }
     // 收窄后的 qwen3.8-flash 不再从其它渠道出（目录里仍声明供给也不进候选）
-    for (const cid of ["qoder", "qodercn"]) {
+    for (const cid of ["qoder"]) {
       assert.ok(
         !gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === cid),
         `qwen3.8-flash 收窄后 ${cid} 不应进候选`,

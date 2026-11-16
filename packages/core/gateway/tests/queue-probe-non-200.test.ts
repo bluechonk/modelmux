@@ -42,7 +42,7 @@ async function fakeUpstream(status: number, body: string): Promise<{ server: Ser
   return { server, url: `http://127.0.0.1:${port}`, calls: () => calls };
 }
 
-/** 合成渠道：custom 线型 + `isQueueError`（对齐 qoder / qodercn 的形态）。 */
+/** 合成渠道：custom 线型 + `isQueueError`（对齐 workbuddy / qwenworkcn 的形态）。 */
 function makeChannel(upstreamUrl: string): Channel {
   const config: ChannelConfig = {
     cid: CID,

@@ -168,8 +168,8 @@ describe("访问日志读回", () => {
         error: "rate_limit_exceeded_error",
         route: {
           est: 812345,
-          candidates: ["loomy", "traecn", "qodercn"],
-          attempts: ["loomy", "qodercn"],
+          candidates: ["loomy", "traecn", "workbuddy"],
+          attempts: ["loomy", "workbuddy"],
           skipped: [
             { cid: "traecn", why: "cooling" },
             { cid: "catpaw", why: "not-a-reason" },
@@ -182,8 +182,8 @@ describe("访问日志读回", () => {
     const byId = new Map(queryAccessLogs().entries.map((e) => [e.id, e]));
     assert.deepEqual(byId.get("req_route")?.route, {
       est: 812345,
-      candidates: ["loomy", "traecn", "qodercn"],
-      attempts: ["loomy", "qodercn"],
+      candidates: ["loomy", "traecn", "workbuddy"],
+      attempts: ["loomy", "workbuddy"],
       skipped: [{ cid: "traecn", why: "cooling" }],
     }, "未知 why 的条目被过滤，其余照常读回");
     assert.equal(byId.get("req_route_bad")?.route, undefined, "形状不全必须丢弃");

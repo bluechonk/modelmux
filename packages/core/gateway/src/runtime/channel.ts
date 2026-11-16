@@ -399,8 +399,8 @@ export interface CatalogModule {
   /**
    * **强制**从上游重拉目录并落盘（CLI 的 `--refresh` 用）。
    *
-   * 可选：只有具备「远端目录层」的渠道才实现（catpaw / lobsterai /
-   * traecn / raccoon / loomy）。目录本身就是静态内置表的渠道
+   * 可选：只有具备「远端目录层」的渠道才实现（codebuddycn / loomy /
+   * raccoon / traecn）。目录本身就是静态内置表的渠道
    * 部分渠道**不实现** —— 共享层据此回报
    * 「该渠道的模型表是内置的，没有可刷新的远端」，而不是假装刷了一遍。
    *
@@ -465,7 +465,7 @@ export interface SigninStatus {
   /**
    * 当前签到窗口的**结束**时刻（epoch ms，可选）。
    *
-   * 用途：有的渠道签到日界不是本地 0 点（qodercn 是 10:00 UTC+8）。调度器把领取时的
+   * 用途：有的渠道签到日界不是本地 0 点（qoder 系上游是 10:00 UTC+8）。调度器把领取时的
    * `resetAt` 记进台账，`Date.now() > resetAt` 就说明已进入新窗口，允许再领一轮 ——
    * 不声明则按本地自然日判定。
    */

@@ -44,7 +44,7 @@ same uuid across loads? DIFFERENT
 `https://loomy.xunfei.cn/oauth/wechat/callback?code=…&state=…`（线上 404 页，正常）
 → 把地址栏整条链接粘回 CLI（CLI 收 stdin 一行；Web 端收 `pasteCallback` 命令）。
 
-**粘贴兜底在代码里的落点**（与 `lobsterai` 同一形态）`[代码]`（**已随微信路移除**）：
+**粘贴兜底在代码里的落点**（与本地回调服务器型渠道同一形态）`[代码]`（**已随微信路移除**）：
 
 | 位置 | 职责 |
 |---|---|

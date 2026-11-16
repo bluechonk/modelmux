@@ -71,7 +71,7 @@ export function writeProtocolError(res: ServerResponse, status: number, code: st
  * （如 catpaw 把请求体按纯文本渲染，图片段进不去）。共享层据此把这条候选判为
  * **可重试**，而不是终局 400 —— 后者会让「只有部分渠道不支持」的输入整条请求失败
  * （2026-11-07 实测：deepseek-v4.1-flash 的带图请求被 catpaw 守卫拦成 400，
- * 而 qodercn 等渠道本来能正常处理）。
+ * 而其它渠道本来能正常处理）。
  *
  * 与「用户输入非法」的区别：那种换渠道同样会失败（上下文超限、缺必填字段），
  * 必须终局 400，不浪费尝试预算。

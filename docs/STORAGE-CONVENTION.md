@@ -120,7 +120,6 @@
 
        | 文件 | 渠道 | 内容 |
        |---|---|---|
-                     | `client-version.json` | lobsterai | 客户端版本号兜底（更新接口抽风时用「最后一次已知可用」版本） |
        | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
   - `state/` 跨重启保持的**状态**：`state/signin.json`（签到台账：
     `{version, timezone, last_claim, history, accounts?, probe?, probes?}`，由共享层在**领取成功**

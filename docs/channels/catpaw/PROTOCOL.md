@@ -424,7 +424,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
   `UnsupportedInputError`（`@modelmux/gateway`）。它不是普通 Error —— 后者会被网关
   当成「用户输入问题」终局 400，而**换一家渠道本来能收图**，所以必须判「本渠道
   承载不了、换候选重试」（实测 2026-11-07：`deepseek-v4.1-flash` 的带图请求被这里
-  拦成 400，而 qodercn 等渠道能正常处理）。守卫**不计连败** —— 渠道对纯文本请求
+  拦成 400，而其它渠道能正常处理）。守卫**不计连败** —— 渠道对纯文本请求
   是好的，冷却会误伤后续正常请求。
 
 ### 将来要支持图片，得先答清这三件事
@@ -486,7 +486,7 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 | --- | --- | --- |
 | `catpaw/deepseek-v4.1-flash` | 2026-10-18 真机验证全绿 —— 普通/流式、单工具、并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过 | `[实测]` |
 | `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
-| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关。`glm-5.3-flash` 在随包 `models.json` 已标 `hidden`（网关里 glm 只由 qodercn 供给；隐藏集合见共享层 `hiddenModelIds`），不再作为本渠道的对外候选 | `[实测]` |
+| `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关。`glm-5.3-flash` 在随包 `models.json` 已标 `hidden`（glm 已移出对外家族；隐藏集合见共享层 `hiddenModelIds`），不再作为本渠道的对外候选 | `[实测]` |
 
 ### 环境变量
 

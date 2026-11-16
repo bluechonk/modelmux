@@ -5,7 +5,7 @@
  * gateway / daemon / headless / auth-flow 都通过这里注册的 `Channel` 拿到
  * cred / upstream / catalog / billing。
  *
- * 与 `qodercn` 的差异（COSY 版本、机器指纹、续期 body、请求体形状、额度与签到端点）
+ * 渠道特有细节（COSY 版本、机器指纹、续期 body、请求体形状、额度与签到端点）
  * 全部收敛在本渠道包内，见 docs/channels/qwenworkcn/PROTOCOL.md。
  */
 

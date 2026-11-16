@@ -246,7 +246,7 @@ describe("computeUsageStats", () => {
     writeDay(today, [
       modelEntry(today, "loomy/a", { prompt: 100, completion: 50 }, { key: "acc-1" }),
       modelEntry(today, "loomy/a", { prompt: 200, completion: 100 }, { key: "acc-1" }),
-      modelEntry(today, "qodercn/b", { prompt: 10, completion: 5 }, { key: "acc-2" }),
+      modelEntry(today, "workbuddy/b", { prompt: 10, completion: 5 }, { key: "acc-2" }),
       // 没有 key 的请求（登录前 / 健康检查）不进账号汇总
       modelEntry(today, "loomy/a", { prompt: 999, completion: 999 }),
     ]);
