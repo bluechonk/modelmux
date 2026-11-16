@@ -71,6 +71,26 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 | `packages/core/gateway/src/runtime/paths.ts` | `workerPidPath` / `FILES.workerPid` |
 | `packages/core/gateway/src/app/cli/index.ts` | 隐藏内部命令 `supervise`（同 `serve` 待遇） |
 
+## 7. 外层守护：supervisor 自己被杀（`scripts/mx-watchdog.mjs`）
+
+§1–§4 那一层只能保证「worker 崩了有人拉回」，**管不了 supervisor 自己消失**（被
+`taskkill /F`、任务管理器、清理工具、误操作杀掉时，`stop` 事件都不会有，实测
+2026-10-22 与 2026-11-16 两次）。外层守护从**进程外**盯 `/health`，不在就 `mx start`：
+
+| 模式 | 用途 |
+| --- | --- |
+| `--once` | 单次探测，**不在就拉起**（登录自启用这一条） |
+| 常驻（`--interval 60`） | 每 60s 探一次，连续 2 次失败才拉起（阈值防抖：网关正在重启时不算故障） |
+
+单实例锁在 `watchdog.pid`；`watchdog.pause` 存在时**只探测不拉起**（手动 `mx stop` 前先建它）。
+日志 `logs/watchdog.log`。
+
+**本机注册方式**（一次性动作，不是代码）：`bin/watchdog-login.vbs` 依次跑 `--once` 与
+常驻；「启动」文件夹里的 `modelmux-gateway-watchdog.lnk` 指向它（**删除该快捷方式即停用**）。
+守护依赖仓库路径（`packages/cli/dist/cli.js`）与 `C:\Program Files
+odejs
+ode.exe`。
+
 ## 日志布局与实例隔离
 
 - 运行日志的落点、格式、轮转与保留规则见 [LOGGING.md](./LOGGING.md)。

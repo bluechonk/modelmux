@@ -19,6 +19,7 @@
 ├── gateway-worker.pid           ← 仓库级网关 worker PID（监督进程维护）
 ├── watchdog.pid                 ← 外部守护 PID（scripts/mx-watchdog.mjs）
 ├── watchdog.pause               ← 外部守护暂停标记（存在时只探测不拉起）
+├── bin/watchdog-login.vbs       ← 登录自启的守护启动器（本机专用；删除「启动」文件夹里的快捷方式即停用）
 ├── logs/                        ← 运行日志（类型/日期/结果分层，见 LOGGING.md）
 │   ├── access/<date>/           ← 请求元数据（success / failure / other / slow）
 │   ├── error/<date>/            ← 错误上下文
