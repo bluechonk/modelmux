@@ -17,6 +17,7 @@ import {
   cacheHitRateText,
   formatCacheHitRate,
   formatClock,
+  formatDate,
   formatDuration,
   formatRate,
   formatTimestamp,
@@ -147,10 +148,6 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
     // 折行后半截悬在中间，读起来像错位（2026-11-15 手机实测）
     <div className="space-y-3 bg-canvas/40 px-4 py-3 text-left">
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2 xl:grid-cols-3">
-        {/* 列表时间列只放 `HH:MM:SS`，完整日期在这里给出 */}
-        <Field label="时间">
-          <span className="font-mono tabular">{formatTimestamp(entry.ts)}</span>
-        </Field>
         <Field label="request id">
           <span className="break-all font-mono">{entry.id}</span>
           <CopyButton value={entry.id} label="复制 request id" />
@@ -236,33 +233,36 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
  * 数值列（耗时 / tokens）右对齐，位数不同也能对齐（全站同一约定）。
  */
 /**
- * 列宽（`>` 展开箭头列移除后重新分配；时间列只放 `HH:MM:SS`）。
+ * 列宽（`>` 展开箭头列移除后重新分配；时间列放完整时间戳）。
  * 展开交互改为整行点击 + 行焦点（Enter / 空格），首列的呼吸位由内边距给。
  *
- * 百分比按**最坏宽度 684px**（`md:min-w`）逐列量过：每列 ≥ 内容 + 内边距，
- * 任何 ≥735 视口都不贴边——时间 / 结果 70px、渠道 80px（`qwenworkcn` mono 72 + 8）、
- * 缓存列表头 68px、tokens 列 107px（实测 768 下旧值 9%/10% 各差 2px 撞邻列）。
- * 模型列是唯一弹性列，吃剩余（684 下仍 ≥ 190px）。
+ * 百分比按**最坏宽度 720px**（`md:min-w`）逐列量过：每列 ≥ 内容 + 内边距 ——
+ * 时间列装完整时间戳（≈137px + 内边距）、结果 ≈70px、渠道 80px（`qwenworkcn`
+ * mono 72 + 8）、缓存列表头 62px、tokens ≈88px。
+ * 模型列是唯一弹性列，吃剩余（720 下 ≈137px，`deepseek-v4.1-flash` 一行放得下）；
+ * 735–769 视口内容宽不足 720，由外层 ScrollFade 提示横向滚动（不让列折叠换行）。
  */
 const COL_WIDTHS = {
-  time: "10.5%",
+  // 时间列装**完整时间戳**（`YYYY-MM-DD HH:mm:ss` ≈ 137px + 内边距）：
+  // 选了「全部时间」后不同天的同一时刻必须可分，只给 `HH:MM:SS` 会看混
+  time: "22%",
   result: "10.5%",
-  channel: "12%",
-  model: "28%",
+  channel: "11.5%",
+  model: "19%",
   duration: "6.5%",
-  tokensPerSec: "7.5%",
-  cache: "10%",
-  tokens: "15%",
+  tokensPerSec: "7%",
+  cache: "9%",
+  tokens: "14.5%",
 } as const;
 
 /**
- * 窄屏（< 735px）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 53px 内容。
+ * 窄屏（< 735px）的列宽：时间列是**两行**（日期 + `HH:MM:SS`），日期 72px 内容。
  *
  * 窄屏只留「时间 / 结果 / 模型」三列，模型列仍是唯一弹性列（吃剩余）——
  * 只有四列时不存在「中间空一大块」的问题。
  */
 /**
- * 窄屏（< 735px）的列宽：时间列换成 `HH:MM:SS`（`formatClock`）后只需 53px 内容。
+ * 窄屏（< 735px）的列宽：时间列是**两行**（日期 + `HH:MM:SS`），日期 72px 内容。
  *
  * 窄屏只留「时间 / 结果 / 模型」三列，模型列仍是唯一弹性列（吃剩余）——
  * 只有四列时不存在「中间空一大块」的问题。
@@ -339,20 +339,29 @@ function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
 function LogCell({
   col,
   entry,
+  narrow,
 }: {
   col: LogCol;
   entry: AccessLogEntry;
+  narrow: boolean;
 }): ReactElement {
   // 末列（tokens）右内边距加大：数据与表格右沿留出呼吸位，不与滚动条/边缘贴死
   // 对齐由 table 的 text-center 统一给（数值列不再右对齐：居中后表头与数据同中心线）
   const numClass = `whitespace-nowrap ${col.key === "tokens" ? "pl-1 pr-4" : "px-1"} py-2 align-top font-mono text-xs tabular text-ink-soft`;
   switch (col.key) {
     // 时间列是全表首列：左侧 `pl-3` 给呼吸位（`>` 箭头列移除后行贴左沿，实测很局促）；
-    // 只显示 `HH:MM:SS`，完整日期在展开详情（formatTimestamp）
+    // 宽屏一行完整 `YYYY-MM-DD HH:MM:SS`（「全部时间」下跨天看混过）；窄屏拆两行（日期在上）
     case "time":
       return (
         <td className="whitespace-nowrap py-2 pl-3 pr-1 align-top font-mono text-xs tabular text-ink-soft">
-          {formatClock(entry.ts)}
+          {narrow ? (
+            <span className="flex flex-col items-center leading-tight">
+              <span>{formatDate(entry.ts)}</span>
+              <span>{formatClock(entry.ts)}</span>
+            </span>
+          ) : (
+            formatTimestamp(entry.ts)
+          )}
         </td>
       );
     case "result":
@@ -403,7 +412,7 @@ function LogTable({
 }): ReactElement {
   /**
    * 阈值 735 而不是默认的 767：窗口最小宽是 736（见 desktop/main.cjs），
-   * 列宽已按内容压到 684（固定列 + 模型列 100），736 下内容宽 688 刚好装下。
+   * 736 下内容宽 688，仍走 8 列的宽表（720 的 `min-w` 由外层横滚兜住）。
    * 再按 768 退化就只剩 3 列 —— 那是「砍列」不是「压缩」，与本表的设计取向相反。
    */
   const narrow = useNarrow(735);
@@ -428,7 +437,7 @@ function LogTable({
         */}
         {/* min-w 340：三列的窄表里「HH:MM:SS」需要 57px（时间 17%），300px 下再怎么调
             比例都装不下 —— 低于 340 的视口转内层横滚，ScrollFade 在右缘提示 */}
-        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[340px] md:min-w-[684px]">
+        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[340px] md:min-w-[720px]">
           <colgroup>
             {cols.map((col) => (
               <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />
@@ -464,7 +473,7 @@ function LogTable({
                     }`}
                   >
                     {cols.map((col) => (
-                      <LogCell key={col.key} col={col} entry={entry} />
+                      <LogCell key={col.key} col={col} entry={entry} narrow={narrow} />
                     ))}
                   </tr>
                   {open && (
@@ -596,16 +605,11 @@ function Filters({
     success: { idle: "text-free hover:bg-free/10", active: "bg-free/15 text-free" },
     failure: { idle: "text-danger hover:bg-danger/10", active: "bg-danger/15 text-danger" },
   };
-  const today = localToday();
-  // 空值选项固定表示「今天」，**不跟随当前查询日期**，标签也恒为「今天」——
-  // 当天无日志时后端回落到最近一天，日期列里看得到具体日期，不必在标签里解释。
-  //
-  // 早先写的是 `page.date !== today ? `最新（${page.date}）` : "今天"` —— 但 `page.date`
-  // 是**当前查询的日期**：用户选了 11-07 之后，那个代表「今天」的选项会变成
-  // 「最新（2026-11-07）」，与它实际的行为（回到今天）对不上，看起来像又多了个选项。
+  // 「全部时间」= 跨所有有日志的日期聚合（值 `all`，后端同口径）；
+  // 「今天」不再单列 —— 它就是日期列表里的一个普通日期（`YYYY-MM-DD`）
   const dateOptions: SelectOption[] = [
-    { value: "", label: "今天" },
-    ...(page?.dates ?? []).filter((value) => value !== today).map((value) => ({ value, label: value })),
+    { value: "all", label: "全部时间" },
+    ...(page?.dates ?? []).map((value) => ({ value, label: value })),
   ];
   /**
    * 渠道下拉**恒列全部在册渠道**（不按当前日期/日志的渠道子集收缩）——
@@ -699,7 +703,7 @@ function Filters({
 export function Logs(): ReactElement {
   /** 窄屏（<735，与表格收敛同口径）：筛选下拉组换行后占满整行靠左排。 */
   const narrow = useNarrow(735);
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState("all");
   const [outcome, setOutcome] = useState<"" | AccessOutcome>("");
   const [cid, setCid] = useState("");
   const [pageSize, setPageSizeState] = useState(storedPageSize);
@@ -715,8 +719,8 @@ export function Logs(): ReactElement {
    */
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
   const allChannels = Object.keys(state.data?.channel_caps ?? {});
-  /** 日期基准：完整 `YYYY-MM-DD` 恒为最长（「今天」更短），不随日期列表增减变化。 */
-  const dateBasis = ["今天", localToday()];
+  /** 日期基准：完整 `YYYY-MM-DD` 恒为最长（「全部时间」更短），不随日期列表增减变化。 */
+  const dateBasis = ["全部时间", localToday()];
 
   const logs = useQuery({
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
@@ -805,7 +809,7 @@ export function Logs(): ReactElement {
           dateBasis={dateBasis}
           dirty={dirty}
           onReset={() => {
-            setDate("");
+            setDate("all");
             setOutcome("");
             setCid("");
             setPageNum(1);

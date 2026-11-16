@@ -1225,7 +1225,10 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
  */
 export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   const dates = listAccessDates();
-  const date = query.date !== undefined && dates.includes(query.date) ? query.date : (dates[0] ?? "");
+  /** `all` = 跨**全部**有日志的日期聚合（控制台「全部时间」；倒序扫，新的先读满）。 */
+  const all = query.date === "all";
+  const date = !all && query.date !== undefined && dates.includes(query.date) ? query.date : (dates[0] ?? "");
+  const scanDates = all ? [...dates].reverse() : [date];
   const limit = Math.min(Math.max(1, query.limit ?? ACCESS_DEFAULT_LIMIT), ACCESS_MAX_LIMIT);
   const offset = Math.max(0, query.offset ?? 0);
   const stats: AccessStats = {
@@ -1242,7 +1245,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     cache: { hit: 0, total: 0, hitRate: null },
   };
   const slowThresholds = { ttfbMs: SLOW_TTFB_MS, tps: SLOW_TPS };
-  if (!date) {
+  if (!date && !all) {
     return { date: "", dates, cids: [], slowThresholds, scanned: 0, truncated: false, total: 0, stats, entries: [] };
   }
 
@@ -1278,10 +1281,11 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     (query.paths === undefined || query.paths.includes(path ?? ""));
   const seenCids = new Set<string>();
   // 历史 other.log 并入 failure 一起扫（新写入不再产生，只覆盖旧机器上已有的行）
-  const buckets: Array<{ outcome: AccessOutcome; files: string[] }> = [
-    ...ACCESS_OUTCOMES.map((outcome) => ({ outcome, files: accessFiles(date, outcome) })),
-    { outcome: "failure" as const, files: legacyOtherFiles(date) },
-  ];
+  const buckets: Array<{ outcome: AccessOutcome; files: string[] }> = [];
+  for (const d of scanDates) {
+    buckets.push(...ACCESS_OUTCOMES.map((outcome) => ({ outcome, files: accessFiles(d, outcome) })));
+    buckets.push({ outcome: "failure" as const, files: legacyOtherFiles(d) });
+  }
   scan: for (const { outcome, files } of buckets) {
     for (const file of files) {
       const tail = readTail(file, ACCESS_TAIL_BYTES);
@@ -1364,7 +1368,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   matched.sort((a, b) => (a.ts === b.ts ? (a.id < b.id ? 1 : -1) : a.ts < b.ts ? 1 : -1));
 
   return {
-    date,
+    date: all ? "all" : date,
     dates,
     cids,
     slowThresholds,

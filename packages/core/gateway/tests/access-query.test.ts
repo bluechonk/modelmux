@@ -109,6 +109,34 @@ describe("访问日志读回", () => {
     assert.equal(page.total, 1);
   });
 
+  it("date=all 跨全部有日志的日期聚合（不只最新一天）", () => {
+    // 夹具只写今天；这里手动铺两个历史日期，验证跨天聚合与倒序
+    const mk = (date: string, id: string): void => {
+      const dir = join(paths.logsDir(), "access", date);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "success.log"),
+        `${JSON.stringify(entry({ id, ts: `${date}T01:00:00.000Z` }))}
+`,
+        "utf8",
+      );
+    };
+    mk("2026-10-01", "req_old");
+    mk("2026-10-02", "req_newer");
+
+    const all = queryAccessLogs({ date: "all", limit: 10 });
+    assert.equal(all.date, "all");
+    const ids = all.entries.map((e) => e.id);
+    assert.deepEqual(ids, ["req_newer", "req_old"], "跨天命中且新的在前");
+    assert.equal(all.stats.requests, 2, "统计也要跨天聚合");
+
+    // 单天查询仍只读那一天（all 没有把单天语义冲掉）
+    assert.deepEqual(
+      queryAccessLogs({ date: "2026-10-01" }).entries.map((e) => e.id),
+      ["req_old"],
+    );
+  });
+
   it("slow.log 是并行副本，不能造成重复行", () => {
     const slow = entry({ durationMs: 40_000, status: 200 });
     writeAccess("success", [slow]);

@@ -56,11 +56,10 @@ export function formatDateTime(ts: string): string {
 }
 
 /**
- * 时间列形态（全宽度）：只有 `HH:MM:SS`。
+ * 时间列形态（窄屏下半行）：只有 `HH:MM:SS`。
  *
- * 为什么不干脆裁掉时间列：它是判断「刚才发生了什么」的主线索，不能丢；
- * 而完整日期会把时间列撑宽、挤掉模型列。日志页默认按「最新日期」筛选，
- * 列表基本同一天，省掉日期段没有歧义——**完整日期在展开详情**（`formatTimestamp`）。
+ * 窄屏列宽只有 76px，装不下完整时间戳，所以拆两行：日期（`formatDate`）在上、
+ * 时刻在这里。为什么不一刀裁掉时间列：它是判断「刚才发生了什么」的主线索。
  */
 export function formatClock(ts: string): string {
   const date = new Date(ts);
@@ -68,7 +67,14 @@ export function formatClock(ts: string): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
-/** `2026-11-15 15:05:22`：展开详情的完整时间戳（列表列只放 `formatClock`，日期挪到这里）。 */
+/** 仅日期（本地 `YYYY-MM-DD`）：窄屏时间列的上半行。 */
+export function formatDate(ts: string): string {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** `2026-11-15 15:05:22`：宽屏时间列一行的完整时间戳。 */
 export function formatTimestamp(ts: string): string {
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return "-";
