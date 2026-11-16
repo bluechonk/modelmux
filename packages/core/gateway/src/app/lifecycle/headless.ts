@@ -434,7 +434,7 @@ class ServiceState {
       ),
       // 模型偏好**从家族表派生**（`poolModels()`），不依赖 `/v1/models` 轮询结果：
       // 轮询为空（刚起进程 / 上游抖动）时偏好整段会消失，用户根本无处设置。
-      // 只渲染 deepseek 族：glm / qwen 的供给已收窄到唯一渠道，无偏好语义。
+      // 只渲染 PREFS_CANONICALS 声明的族：收窄到唯一渠道的模型没有偏好语义（选了也没别家可换）。
       model_prefs: poolModels()
         .filter((model) => isPrefsModel(model))
         .map((model) => ({

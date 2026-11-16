@@ -383,8 +383,9 @@ export function Accounts(): ReactElement {
           </div>
 
           {/*
-            模型级渠道偏好：覆盖 deepseek 与 glm 两族（均为多渠道供给）—— qwen 的
-            供给已收窄到唯一渠道（qwenworkcn），无偏好语义，UI 不显示、选路默认走它。
+            模型级渠道偏好：只渲染**多渠道供给**的模型（覆盖范围由服务端家族表的
+            `PREFS_CANONICALS` 决定；收窄到唯一渠道的模型没有偏好语义，UI 不显示、
+            选路默认走它）。
             被偏好的渠道在选路里**置顶**，其余仍按剩余额度顺延 —— 被偏好的渠道
             冷却 / 额度耗尽时自然落到别家，不需要额外开关（口径见
             docs/POOL-ARCHITECTURE.md §2.4）。

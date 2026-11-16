@@ -333,10 +333,11 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 `LoginUi.requestInput?`（`packages/core/gateway/src/runtime/channel.ts:102-113`）向用户
 要一段输入，返回用户填的内容；**取消 / 无人应答 → `undefined`**。
 
-- **无界面实现不要实现它**（CLI 的 `StdoutLoginUi` 就不实现，见
-  `packages/core/gateway/src/app/lifecycle/headless.ts:152-157`）；渠道**必须先试
-  `requestInput`，拿到 `undefined` 再回落到自己的输入来源**（环境变量 / 文件），
-  否则终端用户会卡在等一个永远不来的输入框（`mx login loomy` 的既有用法全靠环境变量）。
+- **渠道必须先试 `requestInput`，拿到 `undefined` 再回落到自己的输入来源**（环境变量 / 文件），
+  否则终端用户会卡在等一个永远不来的输入框（脚本化用法全靠环境变量）。
+  CLI 的 `StdoutLoginUi` **已实现**它：提示写 stderr、从 stdin 读一行，TTY 与管道都支持
+  （`packages/core/gateway/src/app/lifecycle/headless.ts` 的 `StdinPasteReader`）；
+  长驻模式（`serve`）不开粘贴通道，直接返回 `undefined`，回落路径不变。
 - 控制台侧：`ServiceState.requestInput` 登记请求 → 快照的 `login_input`
   下发到界面（`packages/core/gateway/src/http/console/console.ts` 的 `UiSnapshot`）→
   用户提交经 `submitInput` 动作回来；界面关闭走 `cancelInput`。

@@ -1218,7 +1218,7 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
  * 查询某天的访问日志。
  *
  * 读量有界：每个 outcome 文件只读尾部 1MB、总扫描行数上限 2 万 —— 超限时
- * `truncated=true`，调用方据此把统计口径标注成「窗口内」，而不是假装是全量。
+ * `truncated=true`，让残缺可见（排障用；界面不展示，列表本身就是窗口内的样本）。
  * 给出的 `stats`（与 `cids`）基于**未过滤**的扫描窗口（当天概览），`total` 才是筛选后的
  * 条数；两组数字唯一的范围差别是**路径**：统计只覆盖 `path` / `paths` 声明的范围
  * （否则分段计数会把列表永远显示不出来的非模型请求算进去，见 `inScope`）。

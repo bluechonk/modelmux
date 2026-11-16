@@ -5,7 +5,7 @@
  * 「这个模型我就要走这家」。偏好在**候选排序里置顶**，其余渠道仍按原优先级排在后面 ——
  * 被偏好的渠道不可用时（冷却 / 额度耗尽 / 请求失败）自然顺延，不需要额外的开关。
  *
- * 落点与字段契约见 docs/MODEL-PREFS.md（若存在）与 docs/STORAGE-CONVENTION.md。
+ * 落点与字段契约见 docs/STORAGE-CONVENTION.md 与 docs/POOL-ARCHITECTURE.md §2.4。
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
