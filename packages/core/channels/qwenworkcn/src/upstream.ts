@@ -622,9 +622,12 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
 /**
  * 额度信号：QwenWorkCN 的额度 / 权益类业务错误。
  *
- * 与 qodercn 同口径（同一上游）：内层 `code` 为 `110` / `112`，或 `message` 含
- * `pricingUrl`（引导用户去充值，语义即额度/权益不足）。共享层的通用措辞认不出它，
- * 必须由渠道上报，否则账号不会被冷却。
+ * 判据：内层 `code` 为 `110` / `112`，或 `message` 含 `pricingUrl`（引导用户去充值，
+ * 语义即额度/权益不足）。共享层的通用措辞认不出它，必须由渠道上报，否则账号不会被冷却。
+ *
+ * TODO(小鲸鲸): 这两枚码是从 qoder 侧协议抄来的，本渠道至今没实测到（PROTOCOL 的实测记录
+ * 里没有 110 / 112 / pricingUrl 任何一条）。清理条件：真机抓到本渠道的业务错误帧，
+ * 按真实码重写判据。
  */
 export function quotaSignal(_status: number, body: string): "balance" | null {
   return /pricingUrl|"code"\s*:\s*"?(?:110|112)\b/.test(body) ? "balance" : null;
