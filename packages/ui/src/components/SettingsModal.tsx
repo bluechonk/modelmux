@@ -63,7 +63,7 @@ function ModalRow({
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3.5 first:pt-0 last:pb-0">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3.5 first:pt-2 last:pb-0">
       <div className="flex min-w-0 items-center gap-3">
         <span
           className="grid h-[26px] w-[26px] flex-none place-items-center rounded-[7px] bg-overlay text-ink-soft"
@@ -233,7 +233,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
             >
               {section === "general" && (
                 <div>
-                  <div className="mb-2.5 text-xs font-medium text-ink-faint">偏好设置</div>
+                  <div className="mb-3 text-xs font-medium text-ink-faint">偏好设置</div>
                   <div className="divide-y divide-line">
                     {CAN_AUTOSTART && (
                       <ModalRow icon={Power} title="开机自启动" description="登录 Windows 后自动启动并收进托盘">
@@ -253,7 +253,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
 
               {section === "look" && (
                 <div>
-                  <div className="mb-2.5 text-xs font-medium text-ink-faint">显示</div>
+                  <div className="mb-3 text-xs font-medium text-ink-faint">显示</div>
                   <div className="divide-y divide-line">
                     <ModalRow icon={Palette} title="主题" description="跟随系统或固定深浅">
                       <Segmented items={THEME_ITEMS} value={mode} onChange={select} label="主题模式" />
@@ -264,7 +264,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
 
               {section === "about" && (
                 <div>
-                  <div className="mb-2.5 text-xs font-medium text-ink-faint">信息</div>
+                  <div className="mb-3 text-xs font-medium text-ink-faint">信息</div>
                   <div className="divide-y divide-line">
                     {base_url && (
                       <ModalRow icon={Server} title="网关地址" description="客户端接入地址">
