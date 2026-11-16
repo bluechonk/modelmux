@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -21,6 +21,7 @@ import { clearChannels, setChannel, type ChannelConfig, type Channel } from "../
 import { registerChannelSupply } from "./registry-seed.ts";
 import * as gateway from "../dist/http/server.js";
 import * as paths from "../dist/runtime/paths.js";
+import { localDate } from "../dist/runtime/log-store.js";
 
 const CID = "emptystream";
 
@@ -201,5 +202,22 @@ describe("上游 200 + 完全空的流", () => {
     };
     assert.equal(payload.choices?.[0]?.message?.content, "hello");
     assert.equal(payload.usage?.total_tokens, 4);
+  });
+
+  it("零帧（流式）：写出结构化错误帧，且访问日志记失败", async () => {
+    // 2026-11-16 实测：loomy 一次 10.3s 的空流被静默 end，客户端（ZCode）只看到
+    // 「200 + 空响应」，报成 "Provider returned a business error"，而访问日志记 success。
+    upstream.setMode("empty");
+    upstream.setBody("");
+    const { status, text } = await chat(gw.addr, true);
+    assert.equal(status, 200, "流式响应头早于内容发出，状态码已定，只能用错误帧表达失败");
+    assert.match(text, /upstream_stream_failed/, `空流必须写错误帧（实际：${text.slice(0, 200)}）`);
+    const failureLog = join(root, "logs", "access", localDate(), "failure.log");
+    const lines = existsSync(failureLog) ? readFileSync(failureLog, "utf8").trim().split("\n") : [];
+    const last =
+      lines.length > 0
+        ? (JSON.parse(lines[lines.length - 1] ?? "{}") as { error?: string; outcome?: string })
+        : null;
+    assert.equal(last?.error, "upstream_stream_failed", "空流必须落进失败日志，否则成功率与可靠性系数被污染");
   });
 });

@@ -15,7 +15,7 @@ import { isAbsolute, join } from "node:path";
 import type { ServerResponse } from "node:http";
 
 import { getChannel } from "../../runtime/channel.js";
-import { noteUsage } from "../../runtime/log-store.js";
+import { noteRequestError, noteUsage } from "../../runtime/log-store.js";
 import { debugDir, noteOnce } from "../../runtime/paths.js";
 import type { DsmlByteFilter } from "./dsml-tools.js";
 
@@ -340,7 +340,11 @@ export interface RelayOptions {
    * 传入时规范化后的帧不再直写 `out`，改交编码器转译成协议事件字节；
    * 结尾也不再 `out.end()`（编码器的 finish() + 调用方收尾负责）。
    */
-  sink?: { writeOpenAiFrame(frame: Buffer | string): void };
+  sink?: {
+    writeOpenAiFrame(frame: Buffer | string): void;
+    /** 可选：零帧等异常收尾时写结构化错误帧（协议编码器实现它）。 */
+    writeError?(code: string, message: string): void;
+  };
   /**
    * 每写一帧回调一次（**只观测，不改帧**）。
    *
@@ -350,13 +354,18 @@ export interface RelayOptions {
   onFrame?: (frame: Buffer | string) => void;
 }
 
+/** `relay` 的结果：`produced` = 实际交付给客户端的帧数（0 = 上游 200 但零帧）。 */
+export interface RelayResult {
+  produced: number;
+}
+
 export async function relay(
   out: ServerResponse,
   upstreamBody: ReadableStream<Uint8Array>,
   contentType: string,
   cid?: string,
   opts: RelayOptions = {},
-): Promise<void> {
+): Promise<RelayResult> {
   const isSse = contentType.toLowerCase().includes("text/event-stream");
   // 只要上层给了过滤器就启用：openai 线型的响应语义是 SSE，content-type 可能不准
   const dsml = opts.dsml;
@@ -366,9 +375,19 @@ export async function relay(
   const decoder = new TextDecoder("utf-8");
   /** 异常向上传播时置位：`finally` 据此**不**收尾，留给调用方写错误帧。 */
   let propagateFailure = false;
+  /**
+   * 交付给客户端的帧数。
+   *
+   * 0 = 上游回了 200 却一个帧都没有 —— 静默 `end()` 会让客户端收到「空的成功响应」
+   * （ZCode 报成 "Provider returned a business error"），访问日志与账本还都记 success
+   * （2026-11-16 实测 loomy 一次 10.3s 空流）。非流式聚合路径早有同口径判定，
+   * 流式路径此前漏了。`prefix` 帧也算产出：它们确属本次响应。
+   */
+  let produced = 0;
 
   /** 有编码器时不直写 out：帧交编码器转译（收尾与 end 也归调用方）。 */
   const writeOut = (frame: Buffer | string): void => {
+    produced += 1;
     if (sink) sink.writeOpenAiFrame(frame);
     else out.write(frame);
   };
@@ -395,7 +414,8 @@ export async function relay(
           chunks.push(Buffer.from(value));
         }
         emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
-        return;
+        produced += 1; // 非 SSE 正文同样是一次交付（不算空流）
+        return { produced };
       }
       for (;;) {
         const { done, value } = await reader.read();
@@ -412,7 +432,7 @@ export async function relay(
         opts.onFrame?.(outFrame);
         writeOut(outFrame);
       }
-      return;
+      return { produced };
     }
 
     if (!isSse) {
@@ -428,7 +448,8 @@ export async function relay(
         chunks.push(Buffer.from(value));
       }
       emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
-      return;
+      produced += 1; // 非 SSE 正文同样是一次交付（不算空流）
+      return { produced };
     }
 
     let buffer = "";
@@ -482,9 +503,23 @@ export async function relay(
   } finally {
     await reader.cancel().catch(() => {});
     if (capture) debugDump("resp", "sse", Buffer.concat(capture), cid);
+    // 零帧收尾：上游 200 但一个帧都没交付，且不是异常传播（那种由调用方写错误帧）。
+    // 响应头早已发出，换不了状态码，所以如实写一个结构化错误帧 —— 让客户端知道
+    // 「上游给了空流」而不是自己猜（ZCode 会把它归成 provider 业务错误）。
+    if (!propagateFailure && produced === 0 && !out.writableEnded) {
+      const message = "upstream returned an empty stream";
+      noteRequestError(out, "upstream_stream_failed", message);
+      if (sink) {
+        sink.writeError?.("upstream_stream_failed", message);
+      } else {
+        out.write(`data: ${JSON.stringify({ error: { code: "upstream_stream_failed", message } })}\n\n`);
+      }
+      produced += 1;
+    }
     // 有编码器时收尾（finish + end）归调用方：协议收尾事件还没写
     if (!sink && !propagateFailure) out.end();
   }
+  return { produced };
 }
 
 /**

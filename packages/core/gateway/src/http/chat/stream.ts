@@ -267,8 +267,11 @@ export async function relayStream(
     // 分类（断连 / 超时 / 其他）。放任重抛会穿到 server.ts 顶层：headers 已发时只能
     // 静默 res.end()，客户端只见 SSE 截断（无错误帧、无 [DONE]，tool_call 参数可能截坏）。
     const sink = sinkOf(res);
+    /** 探测期已消费的帧也算产出（`initialContent` / `pendingFrames`）。 */
+    let produced = initialContent || pendingFrames.length > 0 ? 1 : 0;
+    let errored = false;
     try {
-      await sseStream.relay(res, upstreamBody, contentType, cid, {
+      const relayed = await sseStream.relay(res, upstreamBody, contentType, cid, {
         // 上游是 openai 线型时响应语义一定是 SSE；content-type 常被上游写错，
         // 不能拿它决定要不要兜底，否则 DSML 会原样漏给客户端。
         dsml: new dsmlTools.DsmlByteFilter(dsmlTools.hasToolDeclarations(request)),
@@ -278,9 +281,23 @@ export async function relayStream(
         // 帧在本函数内部流转，逐帧记账只能由它递出来
         onFrame: (frame) => noteStreamError(res, channel, cid, logger, frame, freeModel),
       });
+      produced = Math.max(produced, relayed.produced);
     } catch (err) {
       relayError(res, logger, err, cid);
+      errored = true;
     } finally {
+      // 上游 200 却零帧：错误帧与失败记录由 `relay` 的零帧收尾写了，这里只补账本
+      // （attempt 层在上游收下请求时就记过 `ok`，不补的话可靠性系数会被空流反向抬高）
+      if (!errored && produced === 0) {
+        logger(`upstream stream had no content (channel ${cid ?? "?"})`);
+        if (cid !== undefined) {
+          try {
+            noteFailure(cid, undefined, 0);
+          } catch (err) {
+            logger(`ledger write failed (channel ${cid}): ${String(err)}`);
+          }
+        }
+      }
       // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补
       sink?.finish();
       if (sink && !res.writableEnded) res.end();
@@ -310,6 +327,8 @@ export async function relayStream(
   // 探测阶段可能已经写过帧：据此判断是否已收到内容
   let first = true;
   let sawContent = initialContent;
+  /** 异常路径已写过错误帧：避免零帧收尾再叠一条（见 `relayError`）。 */
+  let errored = false;
   try {
     for (;;) {
       const pendingTool = translator.hasPendingToolCall?.() ?? false;
@@ -365,12 +384,29 @@ export async function relayStream(
     }
   } catch (err) {
     relayError(res, logger, err, cid);
+    errored = true;
   } finally {
     // 客户端断开或上游异常时也要触发翻译器收尾（渠道可在 finish 里回报会话完成）
     try {
       translator.finish();
     } catch {
       /* 收尾失败不影响响应 */
+    }
+    // 与 openai 线型同口径（见 `relay` 的零帧收尾）：上游 200 却零内容帧时不能静默 end，
+    // 否则客户端收到空的成功响应、账本还记 success
+    if (!errored && !sawContent && !res.writableEnded) {
+      const message = "upstream returned an empty stream";
+      noteRequestError(res, "upstream_stream_failed", message);
+      logger(`upstream stream had no content (channel ${cid ?? "?"})`);
+      if (sink) sink.writeError("upstream_stream_failed", message);
+      else res.write(`data: ${JSON.stringify({ error: { code: "upstream_stream_failed", message } })}\n\n`);
+      if (cid !== undefined) {
+        try {
+          noteFailure(cid, undefined, 0);
+        } catch (err) {
+          logger(`ledger write failed (channel ${cid}): ${String(err)}`);
+        }
+      }
     }
     sink?.finish();
     await reader.cancel().catch(() => {});
