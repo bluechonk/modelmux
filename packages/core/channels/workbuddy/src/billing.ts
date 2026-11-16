@@ -330,12 +330,19 @@ export const signin: SigninModule = {
   async status() {
     return {
       claimable: true,
+      // 每日发放额是实测常量（见下方 DAILY_CHECKIN_CREDITS）：报出来让台账与界面直接用，
+      // 不再退到「跨窗口对比」那种最弱口径（界面会把它标成「估算」）
+      dailyReward: { amount: DAILY_CHECKIN_CREDITS, unit: "credits" },
       summary: "存在每日签到端点（/v2/billing/meter/daily-checkin，POST 空 body）",
     };
   },
   async claim() {
     const r = await dailyCheckin();
-    return { ok: true, summary: r.message };
+    return {
+      ok: true,
+      summary: r.message,
+      reward: { amount: DAILY_CHECKIN_CREDITS, unit: "credits" },
+    };
   },
 };
 

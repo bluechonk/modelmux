@@ -292,9 +292,16 @@ import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
  * 每日签到（`<cid> checkin`）。
  *
  * 语义对齐上游真实链路：**触发**（`setting_info`，按天幂等）+ **核对**（账单里
- * 今天有没有入账）。`ok` 的口径是「今日积分确有入账」—— 重复签到不会重复入账，
- * 账单里看得到就算领到（与参考实现 agent2api 的 `claim_daily_grant` 一致）。
+ * 今天有没有入账）。`ok` 的口径是「**触发成功**」—— 触发端点按天幂等，就是官方桌面端
+ * 每次启动做的那一下；账单是**异步**入账的，把它当成功前提会让自动签到在「已触发、
+ * 账单未入账」时连记 3 次失败并当日熔断，之后连入账了也看不到（2026-11-16 raccoon
+ * 面板卡在「未签到」即此）。因此：触发成功即 `ok: true`，入账情况写在 summary 里，
+ * 「今天领到多少」仍以账单为准（`status()` 的 `claimedToday` 只认账单）。
  */
+
+/** 每日发放额（积分）：PROTOCOL §6.1 账单实测的固定值（触发成功、账单未入账时报它）。 */
+const RACCOON_DAILY_POINTS = 300;
+
 export const signin: SigninModule = {
   async status() {
     const c = cred.load(); // 未登录时抛 NotLoggedInError：别把"没登录"显示成"可领"
@@ -326,6 +333,8 @@ export const signin: SigninModule = {
       claimable: true,
       claimedToday: false,
       daily: true,
+      // 渠道公布的每日发放额（实测常量）：触发成功即可报数，不必等账单入账（界面不标「估算」）
+      dailyReward: { amount: RACCOON_DAILY_POINTS, unit: "积分" },
       summary: "今日还没有入账记录（checkin 会触发一次发放；上游按天幂等，重复执行不会重复入账）",
     };
   },
@@ -343,21 +352,24 @@ export const signin: SigninModule = {
     } catch (err) {
       return { ok: false, summary: `触发发放失败: ${String(err)}`, detail: { error: String(err) } };
     }
-    // ② 账单核对（权威结果）
+    // ② 账单核对（入账异步，可能晚于触发）
     let grants: DailyGrant[];
     try {
       grants = await todayGrants(c);
     } catch (err) {
       return {
-        ok: false,
-        summary: `已触发发放，但账单核对失败（暂时无法确认入账）: ${String(err)}`,
-        detail: { notify },
+        ok: true,
+        summary: `已触发发放；账单核对失败，入账待确认（${String(err)}）`,
+        // 账单拿不到时的如实数字：渠道公布的每日发放额（PROTOCOL §6.1 实测），不估算
+        reward: { amount: RACCOON_DAILY_POINTS, unit: "积分" },
+        detail: { notify, error: String(err) },
       };
     }
     if (grants.length === 0) {
       return {
-        ok: false,
-        summary: "已触发发放，但今日账单暂未见入账（稍后可再看账单）",
+        ok: true,
+        summary: "已触发发放，入账待账单确认（今天领到多少以账单为准）",
+        reward: { amount: RACCOON_DAILY_POINTS, unit: "积分" },
         detail: { notify },
       };
     }
