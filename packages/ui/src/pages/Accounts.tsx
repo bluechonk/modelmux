@@ -400,7 +400,7 @@ export function Accounts(): ReactElement {
                 // 一个模型一行：「模型 → 偏好渠道」横着读，flex 两端对齐。
                 // 为什么不再分桌面/窄屏两套排布：此前桌面 176px 定列居中、窄屏两列网格
                 // 左对齐，模型名与下拉的对齐靠分支逻辑撑着，每加一档断点就错位一次
-                // （2026-11-14 主人实拍指出）；单行两端全档位同构，多模型按行自动扩展。
+                // （2026-11-14 实拍）；单行两端全档位同构，多模型按行自动扩展。
                 <div key={pref.model} className="flex items-center gap-3">
                   <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{pref.model}</span>
                   {/* 下拉定宽靠右（fixedWidth 按最长渠道名量宽）：切换选项时按钮不位移，

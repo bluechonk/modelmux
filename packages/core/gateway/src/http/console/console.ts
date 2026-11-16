@@ -519,7 +519,7 @@ export function createConsoleHandler(
       const streamRaw = q.get("stream");
       const page = queryAccessLogs({
         // 日志页只展示**模型请求**（三种入站协议）：`/health` 等非模型请求也在
-        // access 日志里，但主人要的是「请求日志」，混进来只会稀释列表。
+        // access 日志里，但这一页要的是「模型请求」，混进来只会稀释列表。
         paths: MODEL_REQUEST_PATHS,
         date: q.get("date") ?? undefined,
         outcome,

@@ -273,7 +273,7 @@ squash 挡不住这种泄漏，必须逐条扫）。
 控制台「发现新版本」卡片读它，细则见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「版本与发版」）。
 版本号 `0.1.x` 连续递增不跳号，**cli / web / desktop 三位一体同版本**（desktop 由打包脚本
 自动跟随根版本），tag 打在合并后的 main 上，tag 即三个形态共同的版本。
-大面积功能或重构后提醒主人发版，不擅自操作。
+大面积功能或重构后提醒用户发版，不擅自操作。
 完整发版流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
 提交信息 `type(scope): 中文描述`，`type` 额外允许 `merge`。`scripts/verify-commits.mjs` 在 `npm test` 里校验

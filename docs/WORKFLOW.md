@@ -130,7 +130,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .tmp/link-claude-skills.ps1 -Remov
    用 `--addr 127.0.0.1:<其它端口>`（控制台端口用 `--ui-port`，模型池 id 与存储根可继续共用）
    —— 例如 `node packages/cli/dist/cli.js serve --addr 127.0.0.1:4499`；`mx stop` / `taskkill` /
    `kill` 只允许针对**自己起的那个实例的 pid**；「挂掉能否拉回」这类验证同理，改在临时端口上做，
-   不要拿主人的 4412 当实验对象。
+   不要拿用户正在使用的 4412 当实验对象。
 
 ## 测试已知隐患
 
@@ -281,7 +281,7 @@ git config --get core.hooksPath         # 应为 .githooks
    旧版本。补完执行 `gh release edit <最新版 tag> --latest` 指回最新版；`releases/latest`
    端点有约 1 分钟 CDN 缓存，核对时稍等。（控制台更新检测已改从 tags 取语义版本最大者，
    不吃 Latest，但徽章与列表顺序仍要对。）
-5. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒主人，**不要自己擅自发**）。
+5. **大面积功能 / 重构之后要主动提醒发新 tag**（提醒用户，**不要自行发版**）。
    一轮工作结束时满足下列任一情形就提醒：
    - 新渠道上线或渠道下线；
    - 契约级行为变更（账号池、路由、日志、存储落点、CLI 命令形态）；

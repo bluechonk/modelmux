@@ -1281,7 +1281,7 @@ export function restoreClient(target: IntegrationTarget): RestoreResult {
   }
 
   // **不消费备份**：还原改成幂等、可重复 —— 同一份「接入前」状态可以反复还原，
-  // 第二次点还原不再报「没有找到备份」（主人反馈「前面的问题只能还原一次」）。
+  // 第二次点还原也要能跑：还原必须可重复执行，不能一次就把备份消费掉。
   // 只往清单里记一笔 `restoredAt` 留痕；旧版本留下的 `restored-*` 目录因此也是
   // 有效还原源（见 `backupScanOf`）。
   const manifest = readManifest(source.dir);

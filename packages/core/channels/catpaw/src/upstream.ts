@@ -303,7 +303,7 @@ function collectImageUrls(messages: Array<Record<string, unknown>>): string[] {
 /** 上传超时（单张）：几十 KB 到几 MB 的截图 20s 足够，超时宁可换渠道。 */
 const IMAGE_UPLOAD_TIMEOUT_MS = 20_000;
 
-/** 图片引用的只读基址：presign 给的是另一个域上的签名 PUT 地址，引用一律拼这个。 */
+/** 图片引用的只读基址：与签名 PUT 地址不同域，引用一律拼这个。 */
 const IMAGE_PUB_BASE = "https://s3plus.meituan.net/catpaw-pub-external/";
 
 /** 单张图上限：超过直接拒 —— 客户端塞 20MB 截图不属于正常用法。 */
@@ -322,12 +322,11 @@ function randomObjectName(ext: string): string {
 }
 
 /**
- * 把一张图转存成**可公开访问的 URL**。
+ * 把一张图转存成**可公开访问的 URL** —— 端点、必填参数与实测证据见
+ * `docs/channels/catpaw/PROTOCOL.md` 的「图片能力」。
  *
- * 桌面端同款三步（2026-11-16 真机实测）：presign（直连域，带登录态）→
- * PUT（签名 URL，对象存储域）→ 引用 URL（只读域 + objectName）。
- * 一律转存、不透传外部 URL：桌面端也恒走自家 S3，而且透传一个模型拉不到的
- * 私网地址等于「图没送到」—— 静默失败比报错更坑。
+ * 一律转存、不透传外部 URL：上游是自己来拉图的，透传一个它拉不到的私网地址
+ * 等于「图没送到」，而静默失败比报错更坑。
  */
 async function uploadImage(url: string, credential: CredentialShape): Promise<UpstreamImagePart> {
   // 取字节：data: 解码，http(s) 下载（外链也可能有时效）
@@ -348,7 +347,7 @@ async function uploadImage(url: string, credential: CredentialShape): Promise<Up
   if (bytes.length === 0) throw new Error("empty image source");
   if (bytes.length > IMAGE_MAX_BYTES) throw new Error(`image too large: ${bytes.length} bytes`);
 
-  // presign：直连域 + 登录态；三个 query 都必填（缺一上游就 400）
+  // presign：必填 query 缺一个上游就 400（参数清单见 PROTOCOL 的「图片能力」）
   const objectName = randomObjectName(mimeExtOf(mime));
   const presignUrl =
     `${resolveBaseUrl()}/api/s3/presign/generate` +

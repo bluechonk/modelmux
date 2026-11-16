@@ -26,7 +26,7 @@ description: 用 dsh（DeepSeek Harness）ACP 协议对 modelmux（mx）网关�
 
 ## 为什么用 dsh + 为什么走 ACP
 
-- dsh 是主人日常在用的 harness（桌面版 + QQ 机器人生态），换 harness 复测能发现渠道桥接层在另一套 Agent 工作流下的问题；
+- dsh 是日常在用的 harness（桌面版 + QQ 机器人生态），换 harness 复测能发现渠道桥接层在另一套 Agent 工作流下的问题；
   同一模型在不同 harness 下工具名不同，桥接问题可能只在一边暴露（见 gateway-quirks.md）。
 - dsh 的编程入口有三层：headless CLI（一次性任务）、**ACP stdio 服务器**（官方为「测试运行器、脚本化控制器」设计）、宿主内 cordis 插件（dsh-qqbot 的路子）。
 - **ACP 是测试的正解**：`session/new`（新建会话）、`session/set_config_option`（逐会话固定模型）、`session/prompt` / `session/cancel`（提交/中止）、`session/close` / `session/list` / `session/resume`（停止/枚举/续接），全操作覆盖；headless 无 `--model` 参数且实测存在静默退出问题（见 troubleshooting）。

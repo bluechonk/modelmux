@@ -68,7 +68,7 @@ const RANGE_KEY = "modelmux.dashboard.range";
 
 /**
  * 读回持久化的区间；没有存过默认「累计」（日志页看最近、看板看总量是两种常见
- * 动线，主人定的是看板默认全量），存了非法值（手动改 localStorage / 旧版本枚举）
+ * 动线，看板默认取全量），存了非法值（手动改 localStorage / 旧版本枚举）
  * 也回落「累计」。
  */
 function storedRange(): UsageRange {
@@ -100,7 +100,7 @@ function isTrustedMetaSource(source: string | undefined): boolean {
 /**
  * 单条最近请求：时间 / 渠道 / 模型 / 状态点 / 耗时 / tokens / 生成速度。
  *
- * 失败原因**不在这一行展示**（主人要求）：原因可能很长（含上游原文），挤在窄行里只剩
+ * 失败原因**不在这一行展示**：原因可能很长（含上游原文），挤在窄行里只剩
  * 省略号，既读不全也把数值列推歪。详情点「查看全部请求日志」去看。
  */
 function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): ReactElement {

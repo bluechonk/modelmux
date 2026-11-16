@@ -29,7 +29,7 @@ import { lastKnownRemain, writeAccountBilling } from "./pool-usage.js";
 /** 视为「额度耗尽」的余额上限。
  *
  * 为什么不是 0：上游的额度结算有延迟（实时余额可能停在 0 而请求已经能跑），
- * 且各家单位不同（积分 / credits）。<100 是主人给的实测口径，留一点余量避免
+ * 且各家单位不同（积分 / credits）。<100 是实测口径，留一点余量避免
  * 「余额 3 但已经打不动」的边缘账号继续吃掉请求。
  */
 export const LOW_CREDIT_THRESHOLD = 100;
