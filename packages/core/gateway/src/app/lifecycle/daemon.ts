@@ -307,6 +307,9 @@ export async function stop(options: { quiet?: boolean; addr?: string; cid?: stri
       log("网关在运行但没有 PID 文件（非本机守护拉起），未做处理");
       return 1;
     }
+    // 无 PID 文件且端口上不健康 = 网关确实没在跑，这正是「显式停止」要的结果：
+    // 置标记，否则外层守护下一轮探测失败就会把它重新拉起来
+    setWatchdogPaused(true);
     log("网关未在运行");
     return 0;
   }
@@ -315,7 +318,9 @@ export async function stop(options: { quiet?: boolean; addr?: string; cid?: stri
   // 进程对象还在，都不能声称停止（实测踩过：stop 报成功、删了 PID 文件，
   // 进程照常服务）。端口的最终核验放到 worker 清理完之后做。
   if (!dead || pidAlive(pid)) {
-    // 进程还活着就不能声称「已停止」：留着 PID 文件，下一次 stop 还能再试
+    // 进程还活着就不能声称「已停止」：留着 PID 文件，下一次 stop 还能再试。
+    // 这里**不置**守护暂停标记：标记的语义是「用户不要再拉起」，而网关此刻仍在跑，
+    // 置标记既不会让它停下，只会让守护在它下次崩溃时不再拉回。
     log(`未能停止网关 (PID ${pid})：进程仍在运行，请手动结束`);
     return 1;
   }

@@ -17,6 +17,7 @@ import { after, before, describe, it } from "node:test";
 
 import { stop } from "../dist/app/lifecycle/daemon.js";
 import { localDate } from "../dist/runtime/log-store.js";
+import { watchdogPaused } from "../dist/runtime/watchdog-flag.js";
 
 /** 生命周期时间线的落点：`<root>/logs/system/<本地日期>/lifecycle.log`。 */
 function lifecyclePath(root: string): string {
@@ -52,6 +53,7 @@ describe("stop：终止记录写入日志", () => {
       const code = await stop({ quiet: true, addr: "127.0.0.1:1" });
       assert.equal(code, 0, "stop 应成功");
       assert.ok(!existsSync(pidPath), "PID 文件应被清除");
+      assert.equal(watchdogPaused(), true, "停干净了要置守护暂停标记（否则守护下一轮又拉起来）");
       const lines = readFileSync(logPath, "utf8").trimEnd().split("\n");
       assert.equal(lines[0], ready, "原有日志必须保留");
       const last = JSON.parse(lines[lines.length - 1] ?? "{}") as { event?: string; pid?: number };

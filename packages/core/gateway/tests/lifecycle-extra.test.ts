@@ -17,6 +17,7 @@ import { main } from "../dist/app/cli/index.js";
 import { detectStaleBuild, findWorkspaceRoot, staleBuildHint } from "../dist/app/lifecycle/stale-build.js";
 import { cliEntry, killTree, pidAlive } from "../dist/app/lifecycle/process.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
+import { watchdogPaused } from "../dist/runtime/watchdog-flag.js";
 
 const HOME = mkdtempSync(join(tmpdir(), "mx-lifecycle-home-"));
 process.env["MODELMUX_HOME"] = HOME;
@@ -239,12 +240,14 @@ describe("mx web / start / stop 路由", () => {
     assert.ok(r.out.includes("网关已在运行"), r.out);
   });
 
-  it("stop：默认地址不可达 → 报未在运行", async () => {
+  it("stop：默认地址不可达 → 报未在运行，并置守护暂停标记", async () => {
     clearChannels();
     setChannel(makeChannel("alpha"));
     const r = await runMain(["stop"]);
     assert.equal(r.code, 0, r.err);
     assert.ok(r.out.includes("网关未在运行"), r.out);
+    // 网关确实没在跑 = 显式停止已达成；不置标记的话外层守护下一轮探测失败就会把它拉起来
+    assert.equal(watchdogPaused(), true, "无 PID 且端口不可达时也要置标记");
   });
 
   it("restart：停掉默认地址的实例后，在指定地址探到已在跑 → 返回 0", async () => {
