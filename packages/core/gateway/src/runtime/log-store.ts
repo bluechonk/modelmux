@@ -1225,10 +1225,12 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
  */
 export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
   const dates = listAccessDates();
-  /** `all` = 跨**全部**有日志的日期聚合（控制台「全部时间」；倒序扫，新的先读满）。 */
+  /** `all` = 跨**全部**有日志的日期聚合（控制台「全部时间」）。 */
   const all = query.date === "all";
   const date = !all && query.date !== undefined && dates.includes(query.date) ? query.date : (dates[0] ?? "");
-  const scanDates = all ? [...dates].reverse() : [date];
+  // `listAccessDates()` 本身已是倒序（新的在前），直接沿用：扫描行数上限触发时先读满最新日期，
+  // 被截断丢掉的必须是最旧那几天 —— 否则默认视图（全部时间）会看不到当天与最近几天。
+  const scanDates = all ? dates : [date];
   const limit = Math.min(Math.max(1, query.limit ?? ACCESS_DEFAULT_LIMIT), ACCESS_MAX_LIMIT);
   const offset = Math.max(0, query.offset ?? 0);
   const stats: AccessStats = {

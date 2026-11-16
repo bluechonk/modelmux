@@ -137,6 +137,28 @@ describe("访问日志读回", () => {
     );
   });
 
+  it("全部时间的扫描行数上限触发截断时，保留最新日期（不是最旧日期）", () => {
+    // 行数上限 2 万、单文件尾部上限 1MB：铺 7 天 × 3500 行小行（单天不足 1MB，整文件都读）。
+    // 前 6 天就凑满 2 万行，所以正序扫时**最新那天一行都读不到** —— 这正是要防的形态。
+    const days = Array.from({ length: 7 }, (_, i) => `2026-09-0${i + 1}`);
+    const newest = days[days.length - 1]!;
+    for (const day of days) {
+      const dir = join(paths.logsDir(), "access", day);
+      mkdirSync(dir, { recursive: true });
+      const lines: string[] = [];
+      for (let i = 0; i < 3500; i += 1) {
+        lines.push(JSON.stringify(entry({ id: `req_${day}_${i}`, ts: `${day}T00:00:00.000Z` })));
+      }
+      writeFileSync(join(dir, "success.log"), `${lines.join("\n")}\n`, "utf8");
+    }
+    const page = queryAccessLogs({ date: "all", limit: 500 });
+    assert.equal(page.truncated, true, "总量超上限必须如实标注");
+    assert.ok(
+      page.entries.some((e) => e.ts.startsWith(newest)),
+      "截断丢弃的应是最旧日期：默认视图看不到当天是最容易误导人的形态",
+    );
+  });
+
   it("slow.log 是并行副本，不能造成重复行", () => {
     const slow = entry({ durationMs: 40_000, status: 200 });
     writeAccess("success", [slow]);
