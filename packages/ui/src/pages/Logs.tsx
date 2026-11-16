@@ -17,6 +17,7 @@ import {
   cacheHitRateText,
   formatCacheHitRate,
   formatClock,
+  formatCount,
   formatDate,
   formatDuration,
   formatRate,
@@ -35,9 +36,16 @@ import { ScrollFade } from "../components/ScrollFade";
 import { Select, type SelectOption } from "../components/Select";
 import { Skeleton } from "./Dashboard";
 
+/** 选路剔除原因的展示文案（与后端 `RouteSkipReason` 一一对应）。 */
+const ROUTE_SKIP_LABEL: Record<"auth" | "window" | "unauthorized" | "cooling", string> = {
+  auth: "未登录",
+  window: "超窗",
+  unauthorized: "凭据失效",
+  cooling: "冷却中",
+};
+
 /** 每页条数档位（10 / 20 / 50）。 */
-const PAGE_SIZE_OPTIONS = [10, 20, 50];
-/** 每页条数默认档：日志按时间倒序，先看最近的就够。 */
+const PAGE_SIZE_OPTIONS = [10, 20, 50];/** 每页条数默认档：日志按时间倒序，先看最近的就够。 */
 const PAGE_SIZE_DEFAULT = 10;
 /** 每页条数持久化 key：用户选过就记住，后续访问按最后一次选择。 */
 const PAGE_SIZE_KEY = "modelmux.logs.pageSize";
@@ -182,6 +190,23 @@ function LogDetail({ entry }: { entry: AccessLogEntry }): ReactElement {
         <Field label="模型">
           <span className="break-all font-mono">{entry.model ?? "-"}</span>
         </Field>
+        {entry.route && (
+          <Field label="选路">
+            {/* 候选顺序与剔除原因是选路的全部事实；不展示等于「为什么这次走了这家」无从查证 */}
+            <span className="tabular">
+              输入估算 {entry.route.est > 0 ? `${formatCount(entry.route.est)} tokens` : "-"} · 候选{" "}
+              {entry.route.candidates.length} · 试 {entry.route.attempts.join(" → ") || "-"}
+            </span>
+            {entry.route.skipped.length > 0 && (
+              <span className="tabular text-ink-faint">
+                · 跳过{" "}
+                {entry.route.skipped
+                  .map((s) => `${s.cid}(${ROUTE_SKIP_LABEL[s.why]})`)
+                  .join("、")}
+              </span>
+            )}
+          </Field>
+        )}
         <Field label="tokens">
           {entry.tokens === null ? (
             "上游未返回 usage"

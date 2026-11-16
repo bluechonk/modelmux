@@ -172,6 +172,9 @@
    落点见 [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md)。
    **覆盖范围**由家族表的 `PREFS_CANONICALS` 声明：只有多渠道供给的模型有偏好语义，
    收窄到唯一渠道的模型（`SINGLE_CHANNEL_SUPPLY`）不渲染下拉。
+   每次选路的**候选顺序、实际尝试与被剔除的原因**（未登录 / 超窗 / 凭据失效 / 冷却）
+   都落进访问日志的 `route` 字段（见 [LOGGING.md](./LOGGING.md) §3.1），控制台展开详情可见 ——
+   否则「这次为什么走了这家」事后无从查证。
 
    | 量 | 口径 |
    | --- | --- |

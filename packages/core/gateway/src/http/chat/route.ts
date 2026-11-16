@@ -13,7 +13,7 @@
 import type { ServerResponse } from "node:http";
 
 import { activeAccountHealth } from "../../runtime/account-pool.js";
-import { getRequestLog } from "../../runtime/log-store.js";
+import { getRequestLog, noteRequestRoute, type RouteSkipReason } from "../../runtime/log-store.js";
 import { poolCandidates, type PoolCandidate } from "../../pool/pool-targets.js";
 import { channelContextWindowOf } from "../../pool/model-registry.js";
 import { resolveInboundModel } from "../../pool/inbound-model.js";
@@ -75,11 +75,19 @@ export function resolvePoolRoute(
   // （额度耗尽，等窗口刷新），全部冷却时回退完整候选 —— 冷却只是短暂状态，
   // 服务不能因此不可用。凭据读取的「真实故障」（文件损坏等，非未登录）逐渠道记日志
   // 并剔除：不能静默当未登录（误导用户去 login），也不该整条请求 500。
+  // 剔除原因逐条留痕：只写进访问日志（`RouteTrace`），不复用上面的 logger ——
+  // 逐请求输出会在冷却窗口里刷屏，而「为什么走了这家」恰恰只有事后才需要
+  const skipped: Array<{ cid: string; why: RouteSkipReason }> = [];
   const authed = candidates.filter((c) => {
     try {
-      return loadCredentialSafe(c.channel) !== null;
+      if (loadCredentialSafe(c.channel) === null) {
+        skipped.push({ cid: c.cid, why: "auth" });
+        return false;
+      }
+      return true;
     } catch (err) {
       logger(`pool: credential load failed (channel ${c.cid}): ${String(err)}`);
+      skipped.push({ cid: c.cid, why: "auth" });
       return false;
     }
   });
@@ -101,11 +109,14 @@ export function resolvePoolRoute(
   // 不过滤 —— 没有数据不能当没有能力。**强于冷却回退**：输入超窗是硬事实，回退把
   // 超窗渠道放回来也一定失败，所以过滤基于 authed、兜底范围也是 authed 减去超窗
   // （unauthorized 渠道保持原有回退语义 —— 服务可用性优先于终态判定）。
+  // 剔除原因逐条留痕：只写进访问日志（`RouteTrace`），不复用上面那条 logger ——
+  // 逐请求输出会在冷却窗口里刷屏，而「为什么走了这家」恰恰只有事后才需要
   const contextOk = authed.filter((c) => {
     const window = channelContextWindowOf(target, c.cid);
     if (window === undefined || estimateInput <= 0) return true;
     if (estimateInput > window) {
       logger(`pool: skip ${c.cid} for ${target}: estimated input ${estimateInput} > context ${window}`);
+      skipped.push({ cid: c.cid, why: "window" });
       return false;
     }
     return true;
@@ -120,9 +131,17 @@ export function resolvePoolRoute(
     return null;
   }
 
-  const available = contextOk.filter(
-    (c) => activeAccountHealth(c.cid) !== "unauthorized" && !isCooling(c.cid),
-  );
+  const available = contextOk.filter((c) => {
+    if (activeAccountHealth(c.cid) === "unauthorized") {
+      skipped.push({ cid: c.cid, why: "unauthorized" });
+      return false;
+    }
+    if (isCooling(c.cid)) {
+      skipped.push({ cid: c.cid, why: "cooling" });
+      return false;
+    }
+    return true;
+  });
   const attempts = (available.length > 0 ? available : contextOk).slice(0, maxPoolAttempts());
   if (available.length === 0) {
     // 只记录异常路径：候选被过滤属设计内行为，逐请求输出会在冷却窗口内产生大量重复日志
@@ -130,5 +149,13 @@ export function resolvePoolRoute(
       `pool: all ${authed.length} logged-in candidate(s) unavailable (cooling down or unauthorized) (${target}); falling back to retry`,
     );
   }
+  // 选路快照：候选顺序 + 实际尝试 + 剔除原因。冷却回退时注释掉的那批会在 `skipped` 里
+  // 表现为 cooling，正是事后要看的「当时为什么没走它」
+  noteRequestRoute(res, {
+    est: estimateInput,
+    candidates: candidates.map((c) => c.cid),
+    attempts: attempts.map((c) => c.cid),
+    skipped,
+  });
   return { target, attempts };
 }

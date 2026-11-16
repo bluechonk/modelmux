@@ -159,6 +159,36 @@ describe("访问日志读回", () => {
     );
   });
 
+  it("选路快照按行读回；形状不全的整段丢弃", () => {
+    writeAccess("failure", [
+      entry({
+        id: "req_route",
+        status: 502,
+        outcome: "failure",
+        error: "rate_limit_exceeded_error",
+        route: {
+          est: 812345,
+          candidates: ["loomy", "traecn", "qodercn"],
+          attempts: ["loomy", "qodercn"],
+          skipped: [
+            { cid: "traecn", why: "cooling" },
+            { cid: "catpaw", why: "not-a-reason" },
+          ],
+        },
+      }),
+      // candidates 混进数字 → 整段丢弃，不让半份数据进界面
+      entry({ id: "req_route_bad", route: { est: 1, candidates: ["a", 2], attempts: [] } }),
+    ]);
+    const byId = new Map(queryAccessLogs().entries.map((e) => [e.id, e]));
+    assert.deepEqual(byId.get("req_route")?.route, {
+      est: 812345,
+      candidates: ["loomy", "traecn", "qodercn"],
+      attempts: ["loomy", "qodercn"],
+      skipped: [{ cid: "traecn", why: "cooling" }],
+    }, "未知 why 的条目被过滤，其余照常读回");
+    assert.equal(byId.get("req_route_bad")?.route, undefined, "形状不全必须丢弃");
+  });
+
   it("slow.log 是并行副本，不能造成重复行", () => {
     const slow = entry({ durationMs: 40_000, status: 200 });
     writeAccess("success", [slow]);

@@ -44,6 +44,27 @@ import { writeAtomicFile } from "./secret-file.js";
  */
 export type AccessOutcome = "success" | "failure";
 
+/** 候选被剔除的原因（选路快照用）。 */
+export type RouteSkipReason = "auth" | "window" | "unauthorized" | "cooling";
+
+/**
+ * 一次请求的**选路快照**（落进访问日志，控制台展开详情可见）。
+ *
+ * 为什么落盘：路由只在内存里发生，响应里看不到任何痕迹 —— 「这次为什么走了这家」
+ * 事后无从查证（2026-11-16 排查 qodercn 单次失败，网关日志里只有最终 cid，
+ * 候选顺序与顺延原因全都丢了）。只存摘要（渠道名 + 原因词），不带额度数值。
+ */
+export interface RouteTrace {
+  /** 输入估算（token）；`<= 0` = 没算出来，不参与窗口过滤。 */
+  est: number;
+  /** 全部候选渠道，按选路顺序（已按档位 / 排队 / 有效优先级排好）。 */
+  candidates: string[];
+  /** 本次实际会尝试的候选（冷却回退后取前 N 个）。 */
+  attempts: string[];
+  /** 被剔除的候选与原因。 */
+  skipped: Array<{ cid: string; why: RouteSkipReason }>;
+}
+
 /** 单请求的访问日志上下文；由 HTTP 层创建，响应结束时落盘。 */
 export interface RequestLog {
   id: string;
@@ -84,6 +105,8 @@ export interface RequestLog {
    * 事后无从定位（2026-11-15 排查 internal_error 时确认）。
    */
   detail?: string;
+  /** 选路快照（候选顺序 / 最终尝试 / 剔除原因，见 `RouteTrace`）。 */
+  route?: RouteTrace;
   /** 从请求开始到第一个响应字节（首帧）的毫秒数。 */
   ttfbMs?: number;
   /** 从请求开始到上游响应头到达的毫秒数。 */
@@ -504,6 +527,17 @@ export function noteRequestDetail(res: ServerResponse, detail: string): void {
 }
 
 /**
+ * 记选路快照（候选顺序 / 实际尝试 / 剔除原因）。
+ *
+ * 在候选解析完成后调用一次；控制台展开详情据此回答「为什么走了这家」。
+ */
+export function noteRequestRoute(res: ServerResponse, trace: RouteTrace): void {
+  const log = getRequestLog(res);
+  if (!log) return;
+  log.route = trace;
+}
+
+/**
  * 记客户端 User-Agent（只给未知路径 404 用；见 `RequestLog.ua` 的 why）。
  *
  * 截断到 160 字符：UA 可能很长，且这里只为认领「谁在探」。
@@ -762,6 +796,8 @@ export interface AccessEntry {
   } | null;
   /** 进过上游排队（收到过排队帧）。缺省 = 没有排队帧，不代表「没等过」。 */
   queued?: boolean;
+  /** 选路快照（候选顺序 / 实际尝试 / 剔除原因）；缺省 = 该行没记（历史行）。 */
+  route?: RouteTrace;
   /**
    * 「慢」判定（读路径按当前口径重算，历史行自动跟随，见 `slowVerdictOf`）。
    * 两个维度独立成立：`slowTtfb` 首字延迟超标（仅流式）、`slowTps` 生成速率超标。
@@ -880,6 +916,38 @@ function num(value: unknown): number | undefined {
 
 function bool(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+/** 取字符串数组（元素全为字符串才认；读到脏行时整段丢弃比塞进半份数据好）。 */
+function strArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.every((v) => typeof v === "string") ? (value as string[]) : undefined;
+}
+
+const ROUTE_SKIP_REASONS: readonly RouteSkipReason[] = ["auth", "window", "unauthorized", "cooling"];
+
+function isSkipReason(value: string | undefined): value is RouteSkipReason {
+  return value !== undefined && (ROUTE_SKIP_REASONS as readonly string[]).includes(value);
+}
+
+/** 读回选路快照；形状不完整就当没有（一行脏数据不该让整页读不出来）。 */
+function routeTraceOf(value: unknown): RouteTrace | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const est = num(raw["est"]);
+  const candidates = strArray(raw["candidates"]);
+  const attempts = strArray(raw["attempts"]);
+  if (est === undefined || candidates === undefined || attempts === undefined) return undefined;
+  const skipped: Array<{ cid: string; why: RouteSkipReason }> = [];
+  if (Array.isArray(raw["skipped"])) {
+    for (const item of raw["skipped"]) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const cid = str((item as Record<string, unknown>)["cid"]);
+      const why = str((item as Record<string, unknown>)["why"]);
+      if (cid !== undefined && isSkipReason(why)) skipped.push({ cid, why });
+    }
+  }
+  return { est, candidates, attempts, skipped };
 }
 
 /**
@@ -1211,6 +1279,8 @@ function parseAccessLine(line: string, outcome: AccessOutcome): AccessEntry | nu
   if (toolCount !== undefined) entry.toolCount = toolCount;
   const queued = bool(raw["queued"]);
   if (queued !== undefined) entry.queued = queued;
+  const route = routeTraceOf(raw["route"]);
+  if (route !== undefined) entry.route = route;
   return entry;
 }
 

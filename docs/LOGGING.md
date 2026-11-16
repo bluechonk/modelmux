@@ -66,6 +66,7 @@
 | `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
 | `queued` | boolean | **进过上游排队**（收到排队帧并等待重试）。只在为真时写，缺省 = 没收到排队帧 | 排队帧到达时（`noteQueued`） |
 | `ua` | string | 客户端 User-Agent（截断 160 字符）。**只在未知路径 404 上写**：`/api/hello` 这类幽灵探针只能靠它认领来源 | 未知路径应答时（`noteRequestUa`） |
+| `route` | object | **选路快照**：`{ est, candidates[], attempts[], skipped[{cid,why}] }`。`est` 是输入估算 token，`candidates` 是全部候选顺序，`attempts` 是本次实际会试的，`skipped.why` 取 `auth` / `window` / `unauthorized` / `cooling`。落它的原因：路由只在内存里发生，事后「这次为什么走了这家」原本无从查证（2026-11-16 排查 qodercn 单次限流失败时确认） | 候选解析完成时（`noteRequestRoute`） |
 
 > `ttfbMs` 的语义是「**我们**什么时候开始回字节」，不是「上游什么时候开始吐字」：
 > 流式下两者几乎相同（收到首帧即转发），但**非流式下我们收完才写** —— 该值于是 ≈ `durationMs`，
@@ -423,7 +424,7 @@ mx status --json
 | --- | --- | --- |
 | `unknown_model` | 模型名不在网关对外清单（家族表裸名） | `GET /v1/models` 核对；`mx model list` 看有货的渠道 |
 | `not_authenticated` / `upstream_unauthenticated` | 凭据缺失或失效 | `mx acct <cid>`、`mx login <cid>`；**不删凭据文件** |
-| `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断 | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
+| `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断。流式下**零内容帧**（上游 200 却一个帧都没有）也归此类：如实写错误帧并记失败，不再静默结束（静默会让客户端只见到空的成功响应） | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
 | `upstream_timeout` | 上游空闲超时 | 见 §2 第 4 行 |
 | `upstream_queued` | 上游排队，网关已换过所有候选 | 排队即换渠道、不等待；全部候选都排队才回 503。给渠道加供给或换模型 |
 | `insufficient_quota` | 账号额度耗尽 | 账号进入**冷却**（`cooldown_until`，不是标 `error`），到期自动恢复；可等窗口刷新、`mx acct <cid> use <key>` 换号，或 `mx model usage` 看冷却状态 |

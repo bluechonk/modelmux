@@ -339,6 +339,14 @@ export interface AccessLogEntry {
   slowTtfb: boolean;
   /** 生成速率超标（阈值见 `AccessLogPage.slowThresholds`）。 */
   slowTps: boolean;
+  /** 选路快照（候选顺序 / 实际尝试 / 剔除原因）；缺省 = 该行没记（历史行）。 */
+  route?: {
+    /** 输入估算（token）；`<= 0` = 没算出来。 */
+    est: number;
+    candidates: string[];
+    attempts: string[];
+    skipped: Array<{ cid: string; why: "auth" | "window" | "unauthorized" | "cooling" }>;
+  };
 }
 
 export interface AccessLogStats {
