@@ -144,7 +144,10 @@ async function main() {
       if (existsSync(PAUSE_PATH)) {
         log(`gateway down but paused (${PAUSE_PATH} exists); not starting`);
         fails = 0;
-      } else if (fails >= FAIL_THRESHOLD) {
+      } else if (fails >= (once ? 1 : FAIL_THRESHOLD)) {
+        // `--once` 只探一次就退出，阈值 2 让它**永远拉不起来** —— 开机脚本正是靠这条路径
+        // 补「网关没起来」，单次探测失败即视为不在（2026-11-16 实测：--once 对挂掉的网关
+        // 只写一行 up 就退出，注释里承诺的「不通就拉起」落空）。常驻模式仍按阈值防抖。
         await startGateway();
         fails = 0;
       }
