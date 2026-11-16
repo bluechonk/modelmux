@@ -82,8 +82,17 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 | `--once` | 单次探测，**不在就拉起**（登录自启用这一条） |
 | 常驻（`--interval 60`） | 每 60s 探一次，连续 2 次失败才拉起（阈值防抖：网关正在重启时不算故障） |
 
-单实例锁在 `watchdog.pid`；`watchdog.pause` 存在时**只探测不拉起**（手动 `mx stop` 前先建它）。
-日志 `logs/watchdog.log`。
+单实例锁在 `watchdog.pid`；日志 `logs/watchdog.log`。
+
+**暂停标记 `watchdog.pause`**：存在 = **只探测不拉起**。它是「用户明确要停」与「网关静默
+消失」之间的分界，由**显式动作**维护：
+
+| 动作 | 标记 |
+| --- | --- |
+| `mx stop` / 桌面壳托盘「退出 modelmux」 | 置（别再拉回来） |
+| `mx start` / `mx restart` / 壳启动 | 清（恢复保护） |
+
+没有这个标记，守护会把用户的「退出」当成故障拉回来（2026-11-16 讨论）。
 
 **本机注册方式**（一次性动作，不是代码）：`bin/watchdog-login.vbs` 依次跑 `--once` 与
 常驻；「启动」文件夹里的 `modelmux-gateway-watchdog.lnk` 指向它（**删除该快捷方式即停用**）。

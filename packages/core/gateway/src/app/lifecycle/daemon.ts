@@ -33,6 +33,7 @@ import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import * as poolUsage from "../../pool/pool-usage.js";
 import { baseUrlOf, displayBase } from "../../http/portfree.js";
 import { detectStaleBuild, staleBuildHint } from "./stale-build.js";
+import { setWatchdogPaused } from "../../runtime/watchdog-flag.js";
 import {
   appendSystem,
   compactPayloads,
@@ -152,6 +153,8 @@ export async function start(options: StartOptions = {}): Promise<number> {
   const waitMs = options.waitMs ?? DEFAULT_WAIT_MS;
   const { quiet = false, auto = false, force = false } = options;
   const name = scope.name;
+  // 显式启动 = 撤销「用户明确要停」的标记，让外层守护恢复保护（见 runtime/watchdog-flag.ts）
+  setWatchdogPaused(false);
   const log = (m: string): void => {
     if (!quiet) console.log(`[${name}] ${m}`);
   };
@@ -348,6 +351,8 @@ export async function stop(options: { quiet?: boolean; addr?: string; cid?: stri
   } catch {
     /* 已被清掉 */
   }
+  // 显式停止：外层守护不再把它拉回来（用户要的就是「停」）
+  setWatchdogPaused(true);
   log(`已停止网关 (PID ${pid})`);
   return 0;
 }

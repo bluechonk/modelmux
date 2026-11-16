@@ -30,6 +30,8 @@ export const FILES = {
   pid: "gateway.pid",
   workerPid: "gateway-worker.pid",
   log: "gateway.log",
+  /** 外层守护的暂停标记（存在 = 只探测不拉起；见 runtime/watchdog-flag.ts）。 */
+  watchdogPause: "watchdog.pause",
 } as const;
 
 /** 渠道层的父目录名（唯一渠道层，见 docs/STORAGE-CONVENTION.md §1）。 */

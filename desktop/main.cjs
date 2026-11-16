@@ -37,6 +37,23 @@ function homeDir() {
   return path.join(os.homedir(), ".modelmux");
 }
 
+/**
+ * 外层守护（scripts/mx-watchdog.mjs）的暂停标记：存在 = 只探测不拉起。
+ *
+ * 为什么壳要管它：托盘「退出 modelmux」是**明确要停**，守护不该把它拉回来；
+ * 壳启动是**明确要开**，要清掉标记让守护恢复保护（与 `mx start` / `mx stop` 同口径）。
+ */
+function setWatchdogPaused(paused) {
+  const file = path.join(homeDir(), "watchdog.pause");
+  try {
+    if (paused) fs.writeFileSync(file, `${new Date().toISOString()}
+`);
+    else if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch {
+    /* 标记写不进去不影响退出/启动 */
+  }
+}
+
 /** 窗口尺寸：最小与默认同为 1000×720（直接按这个数填，不做 DPI 换算）。 */
 const MIN_WIDTH = 1000;
 const MIN_HEIGHT = 720;
@@ -151,6 +168,9 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     // 去掉默认菜单：单页控制台用不上，还占一行原生高度
     Menu.setApplicationMenu(null);
+
+    // 壳启动 = 明确要开：撤销「用户明确退出」的标记，让外层守护恢复保护
+    setWatchdogPaused(false);
 
     // 托盘常驻：关窗后网关继续跑，托盘是唯一的可见入口与退出通道
     createTray();
@@ -324,6 +344,7 @@ function refreshTrayMenu() {
         label: "退出 modelmux",
         click: () => {
           app.isQuitting = true;
+          setWatchdogPaused(true); // 明确退出：外层守护不再把网关拉回来
           app.quit();
         },
       },
