@@ -796,7 +796,7 @@ export async function attemptCandidate(
       );
     }
   }
-  await relayUpstream(res, channel, cid, call, {
+  const forwarded = await relayUpstream(res, channel, cid, call, {
     wantStream: ctx.wantStream,
     logger,
     pendingFrames: state.frames,
@@ -804,6 +804,27 @@ export async function attemptCandidate(
     request: payload,
     freeModel,
   });
+  if (forwarded.kind === "empty-stream") {
+    // 上游回了 200 却零产出、响应头也还没写（`forward.ts` 把写头挪到了首次写出）：
+    // 这条候选没接住请求，**换下一条** —— 客户端一个字节都没收到，换得干净。
+    // 补一笔失败：attempt 层在「上游收下请求」时已记过 `ok`，不补的话可靠性系数
+    // 会被这类空流反向抬高；`cooldownMs=0` 是不因一次空流冷却整个渠道。
+    logger(`upstream returned an empty stream (channel ${cid}) — switching to next candidate`);
+    noteRequestError(res, "upstream_stream_failed", forwarded.reason);
+    try {
+      noteFailure(cid, activeKeyOf(cid), 0);
+    } catch (err) {
+      logger(`ledger write failed (channel ${cid}): ${String(err)}`);
+    }
+    return {
+      kind: "retry",
+      error: {
+        status: 502,
+        code: "upstream_stream_failed",
+        message: `${forwarded.reason} [${cid}]`,
+      },
+    };
+  }
   return { kind: "done" };
 }
 

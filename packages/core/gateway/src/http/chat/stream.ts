@@ -261,7 +261,14 @@ export async function relayStream(
   pendingFrames: Buffer[] = [],
   /** 免费（×0）模型：业务错误帧只记账，不冷却账号（见 `coolAccountOnQuotaSignal`）。 */
   freeModel = false,
-): Promise<void> {
+  /**
+   * 惰性写响应头（同 `RelayOptions.ensureHead`）。
+   *
+   * 上层（`forward.ts`）用它把 writeHead 挪到「第一次真要往客户端写东西」，于是
+   * 上游 200 却零产出的候选能在写头前被换掉 —— 写了头就是两个响应了。
+   */
+  ensureHead?: () => void,
+): Promise<{ produced: number; disconnected: boolean }> {
   if (!isCustomWire(channel)) {
     // openai 线型的流中途错误也必须以 SSE 错误帧收尾 —— 与下方 custom 分支同一套
     // 分类（断连 / 超时 / 其他）。放任重抛会穿到 server.ts 顶层：headers 已发时只能
@@ -269,7 +276,7 @@ export async function relayStream(
     const sink = sinkOf(res);
     /** 探测期已消费的帧也算产出（`initialContent` / `pendingFrames`）。 */
     let produced = initialContent || pendingFrames.length > 0 ? 1 : 0;
-    let errored = false;
+    let disconnected = false;
     try {
       const relayed = await sseStream.relay(res, upstreamBody, contentType, cid, {
         // 上游是 openai 线型时响应语义一定是 SSE；content-type 常被上游写错，
@@ -280,29 +287,19 @@ export async function relayStream(
         ...(sink ? { sink } : {}),
         // 帧在本函数内部流转，逐帧记账只能由它递出来
         onFrame: (frame) => noteStreamError(res, channel, cid, logger, frame, freeModel),
+        ...(ensureHead ? { ensureHead } : {}),
       });
       produced = Math.max(produced, relayed.produced);
+      disconnected = relayed.disconnected;
     } catch (err) {
       relayError(res, logger, err, cid);
-      errored = true;
     } finally {
-      // 上游 200 却零帧：错误帧与失败记录由 `relay` 的零帧收尾写了，这里只补账本
-      // （attempt 层在上游收下请求时就记过 `ok`，不补的话可靠性系数会被空流反向抬高）
-      if (!errored && produced === 0) {
-        logger(`upstream stream had no content (channel ${cid ?? "?"})`);
-        if (cid !== undefined) {
-          try {
-            noteFailure(cid, undefined, 0);
-          } catch (err) {
-            logger(`ledger write failed (channel ${cid}): ${String(err)}`);
-          }
-        }
-      }
-      // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补
+      // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补。
+      // 零产出**且还没写头**时不能 end：上层要拿这条候选去换下一条（见 ensureHead）。
       sink?.finish();
-      if (sink && !res.writableEnded) res.end();
+      if (sink && !res.writableEnded && (produced > 0 || res.headersSent)) res.end();
     }
-    return;
+    return { produced, disconnected };
   }
 
   // custom 线型不走上面的过滤器，探测层帧仍按老路直接写出（有编码器则转译）
@@ -311,10 +308,22 @@ export async function relayStream(
   const accountFrame = (frame: Buffer | string): void => {
     noteStreamError(res, channel, cid, logger, frame, freeModel);
   };
-  for (const frame of pendingFrames) {
-    accountFrame(frame);
+  /**
+   * 交付计数 + 惰性写头：**所有**往客户端写出的路径都必须走这里（含心跳）。
+   *
+   * 计数是上层「零产出就换候选」的唯一依据 —— 漏记一条写出路径，就会把已经写了头
+   * 的响应误判成还能重试（换渠道变成两个响应）。
+   */
+  let produced = initialContent || pendingFrames.length > 0 ? 1 : 0;
+  const deliver = (frame: Buffer | string): void => {
+    ensureHead?.();
+    produced += 1;
     if (sink) sink.writeOpenAiFrame(frame);
     else res.write(frame);
+  };
+  for (const frame of pendingFrames) {
+    accountFrame(frame);
+    deliver(frame);
   }
 
   const { upstream } = channel;
@@ -337,9 +346,13 @@ export async function relayStream(
         : sawContent
           ? (translator.idleCutoffAfterContentMs?.() ?? FIRST_TOKEN_IDLE_MS)
           : firstTokenIdleMs;
-      // 首帧等待期补心跳：上游长时间零字节时客户端/中间代理容易空闲断连
+      // 首帧等待期补心跳：上游长时间零字节时客户端/中间代理容易空闲断连。
+      // 心跳**必须先落头**（写 body 隐含 200，会把状态码写错），且**不计入产出** ——
+      // 它是「我们还在等」的信号，不是内容；计入就会让空流失去换候选的机会。
       const next = await readWithIdle(reader, idleMs, sawContent ? undefined : () => {
-        if (!res.writableEnded) res.write(": ping\n\n");
+        if (res.writableEnded) return;
+        ensureHead?.();
+        res.write(": ping\n\n");
       });
       if ("idle" in next) {
         if (pendingTool) {
@@ -369,8 +382,7 @@ export async function relayStream(
         sseStream.noteFrameUsage(res, buf);
         accountFrame(buf);
         // 入站协议在场：帧交编码器转译（anthropic / responses 事件族）
-        if (sink) sink.writeOpenAiFrame(buf);
-        else res.write(buf);
+        deliver(buf);
       }
       // 终止标记已随 feed() 发出（含 finish_reason + [DONE]）：立即停读上游，别等 TCP 关闭
       if (translator.isDone?.()) break;
@@ -379,8 +391,7 @@ export async function relayStream(
       const buf = asBuffer(frame);
       sseStream.noteFrameUsage(res, buf);
       accountFrame(buf);
-      if (sink) sink.writeOpenAiFrame(buf);
-      else res.write(buf);
+      deliver(buf);
     }
   } catch (err) {
     relayError(res, logger, err, cid);
@@ -392,26 +403,16 @@ export async function relayStream(
     } catch {
       /* 收尾失败不影响响应 */
     }
-    // 与 openai 线型同口径（见 `relay` 的零帧收尾）：上游 200 却零内容帧时不能静默 end，
-    // 否则客户端收到空的成功响应、账本还记 success
-    if (!errored && !sawContent && !res.writableEnded) {
-      const message = "upstream returned an empty stream";
-      noteRequestError(res, "upstream_stream_failed", message);
-      logger(`upstream stream had no content (channel ${cid ?? "?"})`);
-      if (sink) sink.writeError("upstream_stream_failed", message);
-      else res.write(`data: ${JSON.stringify({ error: { code: "upstream_stream_failed", message } })}\n\n`);
-      if (cid !== undefined) {
-        try {
-          noteFailure(cid, undefined, 0);
-        } catch (err) {
-          logger(`ledger write failed (channel ${cid}): ${String(err)}`);
-        }
-      }
-    }
-    sink?.finish();
+    // 本轮要不要收尾（协议事件 + end）：零产出**且还没写头**时不收 —— 上层要拿这条
+    // 候选去换下一条，此时连一个字节都不能落到客户端（异常路径已由 `relayError`
+    // 写好错误帧，它自己保证先落头，照常收尾）。
+    // 断连也算 errored（relayError 吞掉它但已无收件人），收尾照常
+    const wrapUp = errored || produced > 0 || res.headersSent;
+    if (wrapUp) sink?.finish();
     await reader.cancel().catch(() => {});
-    if (!res.writableEnded) res.end();
+    if (wrapUp && !res.writableEnded) res.end();
   }
+  return { produced, disconnected: errored };
 }
 
 /**

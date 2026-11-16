@@ -15,7 +15,7 @@ import { isAbsolute, join } from "node:path";
 import type { ServerResponse } from "node:http";
 
 import { getChannel } from "../../runtime/channel.js";
-import { noteRequestError, noteUsage } from "../../runtime/log-store.js";
+import { noteUsage } from "../../runtime/log-store.js";
 import { debugDir, noteOnce } from "../../runtime/paths.js";
 import type { DsmlByteFilter } from "./dsml-tools.js";
 
@@ -352,11 +352,25 @@ export interface RelayOptions {
    * 调用方看不到，只能由这里递出去（见 `http/chat/stream.ts`）。
    */
   onFrame?: (frame: Buffer | string) => void;
+  /**
+   * **惰性写响应头**：第一次真正要往客户端写东西之前调用（幂等，由调用方保证）。
+   *
+   * 为什么要惰性：一进转发层就 writeHead，等于向客户端承诺「这个请求我接了」，
+   * 之后发现上游 200 却零产出（空流）就再也换不了候选 —— 换渠道会变成两个响应。
+   * 把写头挪到首次写出，零产出且未写头的情况就能交回上层改试下一条渠道。
+   */
+  ensureHead?: () => void;
 }
 
-/** `relay` 的结果：`produced` = 实际交付给客户端的帧数（0 = 上游 200 但零帧）。 */
+/**
+ * `relay` 的结果。
+ *
+ * `produced` = 实际交付给客户端的帧数（0 = 上游 200 但零帧）；
+ * `disconnected` = 客户端已断开（那种情况没有收件人，上层不该再换候选去喂它）。
+ */
 export interface RelayResult {
   produced: number;
+  disconnected: boolean;
 }
 
 export async function relay(
@@ -375,6 +389,8 @@ export async function relay(
   const decoder = new TextDecoder("utf-8");
   /** 异常向上传播时置位：`finally` 据此**不**收尾，留给调用方写错误帧。 */
   let propagateFailure = false;
+  /** 客户端已断开：没有收件人，照常收尾，也不给上层留「换候选」的余地。 */
+  let disconnected = false;
   /**
    * 交付给客户端的帧数。
    *
@@ -387,6 +403,8 @@ export async function relay(
 
   /** 有编码器时不直写 out：帧交编码器转译（收尾与 end 也归调用方）。 */
   const writeOut = (frame: Buffer | string): void => {
+    // 首次写出才落响应头：在此之前都还算「这条渠道没接住这个请求」，上层可换候选
+    opts.ensureHead?.();
     produced += 1;
     if (sink) sink.writeOpenAiFrame(frame);
     else out.write(frame);
@@ -413,9 +431,11 @@ export async function relay(
           if (capture) capture.push(Buffer.from(value));
           chunks.push(Buffer.from(value));
         }
-        emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
+        opts.ensureHead?.(); // 非 SSE 正文也是「往客户端写东西」：先落头
+        opts.ensureHead?.(); // 非 SSE 正文也是「往客户端写东西」：先落头
+      emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
         produced += 1; // 非 SSE 正文同样是一次交付（不算空流）
-        return { produced };
+        return { produced, disconnected };
       }
       for (;;) {
         const { done, value } = await reader.read();
@@ -432,7 +452,7 @@ export async function relay(
         opts.onFrame?.(outFrame);
         writeOut(outFrame);
       }
-      return { produced };
+      return { produced, disconnected };
     }
 
     if (!isSse) {
@@ -447,9 +467,10 @@ export async function relay(
         if (capture) capture.push(Buffer.from(value));
         chunks.push(Buffer.from(value));
       }
+      opts.ensureHead?.(); // 非 SSE 正文也是「往客户端写东西」：先落头
       emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
       produced += 1; // 非 SSE 正文同样是一次交付（不算空流）
-      return { produced };
+      return { produced, disconnected };
     }
 
     let buffer = "";
@@ -492,7 +513,9 @@ export async function relay(
     }
   } catch (err) {
     // 客户端提前断开（如主动取消请求）属正常情况，降级为调试日志
-    if (!isBenignDisconnect(err)) {
+    if (isBenignDisconnect(err)) {
+      disconnected = true;
+    } else {
       // 异常要往上抛给 `relayStream` 的 catch 去写错误帧 —— 所以下面 finally 不能先 end：
       // `writeError()` 首行是 `if (res.writableEnded) return`，一旦这里 end 了，
       // 错误帧与 `[DONE]` 会被静默吞掉，客户端只看到 SSE 截断（与 stream.ts 的
@@ -503,23 +526,11 @@ export async function relay(
   } finally {
     await reader.cancel().catch(() => {});
     if (capture) debugDump("resp", "sse", Buffer.concat(capture), cid);
-    // 零帧收尾：上游 200 但一个帧都没交付，且不是异常传播（那种由调用方写错误帧）。
-    // 响应头早已发出，换不了状态码，所以如实写一个结构化错误帧 —— 让客户端知道
-    // 「上游给了空流」而不是自己猜（ZCode 会把它归成 provider 业务错误）。
-    if (!propagateFailure && produced === 0 && !out.writableEnded) {
-      const message = "upstream returned an empty stream";
-      noteRequestError(out, "upstream_stream_failed", message);
-      if (sink) {
-        sink.writeError?.("upstream_stream_failed", message);
-      } else {
-        out.write(`data: ${JSON.stringify({ error: { code: "upstream_stream_failed", message } })}\n\n`);
-      }
-      produced += 1;
-    }
-    // 有编码器时收尾（finish + end）归调用方：协议收尾事件还没写
-    if (!sink && !propagateFailure) out.end();
+    // 零帧**不在这里**写错误帧、也不 end：头还没写时上层要改试下一条候选
+    // （写了就成了两个响应，end 掉了更没法重试）—— 判定与收尾都在 `forward.ts`。
+    if (!sink && !propagateFailure && (produced > 0 || out.headersSent || disconnected)) out.end();
   }
-  return { produced };
+  return { produced, disconnected };
 }
 
 /**

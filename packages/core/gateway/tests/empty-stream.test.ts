@@ -204,14 +204,17 @@ describe("上游 200 + 完全空的流", () => {
     assert.equal(payload.usage?.total_tokens, 4);
   });
 
-  it("零帧（流式）：写出结构化错误帧，且访问日志记失败", async () => {
+  it("零帧（流式）：唯一候选也如实终局 502，绝不回 200 空响应", async () => {
     // 2026-11-16 实测：loomy 一次 10.3s 的空流被静默 end，客户端（ZCode）只看到
     // 「200 + 空响应」，报成 "Provider returned a business error"，而访问日志记 success。
     upstream.setMode("empty");
     upstream.setBody("");
     const { status, text } = await chat(gw.addr, true);
-    assert.equal(status, 200, "流式响应头早于内容发出，状态码已定，只能用错误帧表达失败");
-    assert.match(text, /upstream_stream_failed/, `空流必须写错误帧（实际：${text.slice(0, 200)}）`);
+    // 写头挪到首次写出之后，空流已能换候选；本用例只有一条候选，故由编排层终局 502
+    // （跨候选换人由 empty-stream-retry.test.ts 锁）
+    assert.equal(status, 502, `空流必须报错，不能把 200 空响应递给客户端（实际 ${status}: ${text.slice(0, 200)}）`);
+    const payload = JSON.parse(text) as { error?: { code?: string } };
+    assert.equal(payload.error?.code, "upstream_stream_failed", text);
     const failureLog = join(root, "logs", "access", localDate(), "failure.log");
     const lines = existsSync(failureLog) ? readFileSync(failureLog, "utf8").trim().split("\n") : [];
     const last =

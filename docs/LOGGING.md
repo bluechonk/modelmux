@@ -424,7 +424,7 @@ mx status --json
 | --- | --- | --- |
 | `unknown_model` | 模型名不在网关对外清单（家族表裸名） | `GET /v1/models` 核对；`mx model list` 看有货的渠道 |
 | `not_authenticated` / `upstream_unauthenticated` | 凭据缺失或失效 | `mx acct <cid>`、`mx login <cid>`；**不删凭据文件** |
-| `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断。流式下**零内容帧**（上游 200 却一个帧都没有）也归此类：如实写错误帧并记失败，不再静默结束（静默会让客户端只见到空的成功响应） | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
+| `upstream_error` / `upstream_stream_failed` | 上游返回错误或流中断。流式下**零内容帧**（上游 200 却一个帧都没交付）也归此类：响应头挪到首次写出才落，因此能换下一条候选，全部候选都空流才终局 502 —— 不再把「200 空响应」递给客户端 | 用 `request_id` 查 `error.log` + `worker.log`，再对照该渠道 PROTOCOL |
 | `upstream_timeout` | 上游空闲超时 | 见 §2 第 4 行 |
 | `upstream_queued` | 上游排队，网关已换过所有候选 | 排队即换渠道、不等待；全部候选都排队才回 503。给渠道加供给或换模型 |
 | `insufficient_quota` | 账号额度耗尽 | 账号进入**冷却**（`cooldown_until`，不是标 `error`），到期自动恢复；可等窗口刷新、`mx acct <cid> use <key>` 换号，或 `mx model usage` 看冷却状态 |

@@ -59,6 +59,24 @@ export interface ForwardOptions {
   freeModel?: boolean;
 }
 
+/**
+ * 转发层的结果。
+ *
+ * `empty-stream` = 上游回了 200 但**一个字节都没交付、响应头也还没写** —— 这条候选
+ * 没接住请求，尝试层可以换下一条。之所以要单独回这个信号而不是就地报错：写头就等于
+ * 向客户端承诺接了，之后换渠道会变成两个响应；而「200 + 空流」交出去只会让客户端
+ * 自己猜（ZCode 报成 provider 业务错误），日志还记 success。
+ */
+export type ForwardResult =
+  | { kind: "done" }
+  /**
+   * 上游回了 200 却零产出，且响应头还没写。
+   *
+   * `reason` 是给人看的说明（进日志与最终错误文案）：流式与聚合两条路径的
+   * 「空」判据不同，文案也就不同 —— 统一在尝试层落地，不在这里重复记账。
+   */
+  | { kind: "empty-stream"; reason: string };
+
 /** 聚合结果是否「什么都没有」：无 content、无 reasoning、无 token 用量。 */
 
 function isEmptyCompletion(completion: ReturnType<typeof sseStream.aggregateChatSse>): boolean {
@@ -89,7 +107,7 @@ export async function relayUpstream(
   cid: string,
   call: UpstreamCall,
   opts: ForwardOptions,
-): Promise<void> {
+): Promise<ForwardResult> {
   const {
     wantStream,
     logger,
@@ -101,7 +119,7 @@ export async function relayUpstream(
   const streamBody = call.body;
   if (!streamBody) {
     writeProtocolError(res, 502, "upstream_error", "upstream returned an empty response body");
-    return;
+    return { kind: "done" };
   }
 
   // 非流式：消费完整上游流（必要时先翻译），聚合成一个 chat.completion JSON。
@@ -158,15 +176,14 @@ export async function relayUpstream(
           //（2026-11-08 实测 Claude Code 连撞 36 次）。与 `attempt.ts` 的
           // 「上游 4xx 业务错原样透传状态码」同一条铁律 —— 流内错误帧路径此前漏了。
           writeProtocolError(res, isContextLengthExceeded(message) ? 400 : 502, code, message);
-          return;
+          return { kind: "done" };
         }
-        noteRequestError(
-          res,
-          "upstream_stream_failed",
-          "aggregated upstream stream had no content, tool calls, reasoning or token usage",
-        );
-        writeProtocolError(res, 502, "upstream_stream_failed", "upstream returned an empty stream");
-        return;
+        // 交回尝试层换下一条候选：非流式也是「聚合完才 writeJson」，此刻还没写头，
+        // 直接 502 就放弃了「换一家可能有货」的机会。记账与文案由尝试层统一落地。
+        return {
+          kind: "empty-stream",
+          reason: "aggregated upstream stream had no content, tool calls, reasoning or token usage",
+        };
       }
       noteFirstByte(res);
       // 协议入站在场：聚合体按协议形态回（anthropic message / responses response）
@@ -185,7 +202,7 @@ export async function relayUpstream(
       );
       noteRequestError(res, timedOut ? "upstream_timeout" : "upstream_read_failed", String(err));
     }
-    return;
+    return { kind: "done" };
   }
 
   // 流式：复制上游响应头（剔除 hop-by-hop 与已失效头），状态码透传。
@@ -201,20 +218,34 @@ export async function relayUpstream(
       if (!STRIP_HEADERS.has(name.toLowerCase())) outHeaders[name] = value;
     }
   }
-  if (!res.headersSent) res.writeHead(call.status, outHeaders);
-  await inChannel(channel, () =>
-        relayStream(
-          res,
-          streamBody,
-          call.headers.get("content-type") ?? "",
-          logger,
-          channel,
-          cid,
-          probeTranslator,
-          request,
-          pendingFrames.length > 0,
-          pendingFrames,
-          freeModel,
-        ),
-      );
+  /**
+   * 惰性写头：第一次真要往客户端写东西（含心跳）时才落。
+   *
+   * 排队进度帧可能已经写过头（`attempt.ts` 的探测层），writeHead 因此必须幂等；
+   * 而「上游 200 却零产出」的情况要靠它把换候选的窗口留到写头之前。
+   */
+  const ensureHead = (): void => {
+    if (!res.headersSent) res.writeHead(call.status, outHeaders);
+  };
+  const relayed = await inChannel(channel, () =>
+    relayStream(
+      res,
+      streamBody,
+      call.headers.get("content-type") ?? "",
+      logger,
+      channel,
+      cid,
+      probeTranslator,
+      request,
+      pendingFrames.length > 0,
+      pendingFrames,
+      freeModel,
+      ensureHead,
+    ),
+  );
+  // 零产出且一字节未写：交回尝试层换下一条候选（此时客户端什么都没收到，换得干净）
+  if (relayed.produced === 0 && !res.headersSent && !relayed.disconnected) {
+    return { kind: "empty-stream", reason: "upstream returned an empty stream" };
+  }
+  return { kind: "done" };
 }
