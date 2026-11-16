@@ -325,6 +325,11 @@ deepseek 系（`dmodel` / `dfmodel`）在随包 `models.json` 里标了 `hidden`
     语义即额度/权益不足。共享层的通用措辞认不出它，故本渠道用
     `upstream.quotaSignal()` 上报（判据：`pricingUrl` 或内层 `code` 为 `110` / `112`），
     网关据此把账号冷却、下次请求换一家（`stream.ts` 的 `noteStreamError` 逐帧记账）。
+  - 限流（实测 2026-11-16）：3.49MB / 607 条消息的请求被回
+    `{"code":"rate_limit_exceeded_error","message":"Unknown sse issue"}`，HTTP 200 流内帧、
+    1.7s 返回。账号此时**还有额度**（1000/2800 credits），只是这一刻被限速，故
+    `quotaSignal` 对上报 `rate_limit` 让共享层做**渠道级短冷却**而不是冷却账号
+    （与 traecn `3004` 同一处置）。
 - **签到可能看不到活动**：`/sash/**` 的「不发机器指纹」策略在本区是否正确仍待真机确认
   （见「已知边界」V1 / V2）—— 症状是「不报错但活动列表为空」。
 - **`session_type` 取值无出处**：本渠道发 `qoder_work`，三份参考实现分别是 `qodercli` / `qoder`

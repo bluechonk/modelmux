@@ -789,7 +789,7 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
 }
 
 /**
- * 额度信号：qodercn 的额度 / 权益类业务错误。
+ * 额度信号：qodercn 的额度 / 权益 / 限流类业务错误。
  *
  * 实测（2026-11-07）：glm-5.3-flash 的请求被上游回**流内业务错误帧**
  * `{"code":112,"message":"{\"pricingUrl\":\"https://qoder.com.cn/pricing?client=qoder\"}"}`
@@ -797,8 +797,17 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
  * 必须由渠道上报，否则账号不会被冷却（`stream.ts` 的 `noteStreamError` 据此处置）。
  *
  * `110` 是 [PROTOCOL.md] 已记录的「额度用尽」码。
+ *
+ * 限流单独上报（2026-11-16 实测）：大请求被回
+ * `code=rate_limit_exceeded_error` + `message=Unknown sse issue`（HTTP 200 流内帧，
+ * 1.7s 就返回）。它与额度不足是两回事 —— 账号还有额度，只是这一刻被限速，
+ * 所以上报 `rate_limit` 让共享层做**渠道级短冷却**（复用 traecn `3004` 那条路径），
+ * 下次请求换别家，而不是把它当余额问题去冷却账号。
  */
-export function quotaSignal(_status: number, body: string): "balance" | null {
+export function quotaSignal(_status: number, body: string): "balance" | "rate_limit" | null {
+  // 先判限流：`Unknown sse issue` 是上游对限流的固定文案，与额度码不会同时出现，
+  // 但顺序固定能让「两者都命中」的脏数据按更轻的处置（短冷却）走
+  if (/rate_limit_exceeded_error|rate.?limit/i.test(body)) return "rate_limit";
   return /pricingUrl|"code"\s*:\s*"?(?:110|112)\b/.test(body) ? "balance" : null;
 }
 
