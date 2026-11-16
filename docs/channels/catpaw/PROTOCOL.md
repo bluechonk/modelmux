@@ -405,8 +405,9 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 
 | 事实 | 等级 | 来源 |
 |---|---|---|
-| 上游模型目录**逐模型声明** `supportImage`（布尔）：`LongCat-2.0` / `glm-5.2` / `MiniMax-M3` / `kimi-k3` 为 true，`deepseek-v4-flash` / `deepseek-v4-pro` / `auto` 为 false | `[参考]` | `reference/HITZY2002_catpaw2api/internal/upstream/client.go:386`（`SupportImage bool` / `json:"supportImage"`）、`docs/reverse-engineering.md:129-142` 的真实模型表；`reference/icebears111_catpaw2api/internal/upstream/client.go:346` 同构 |
+| 上游模型目录**逐模型声明** `supportImage`（布尔） | `[参考]` | `reference/HITZY2002_catpaw2api/internal/upstream/client.go:386`（`SupportImage bool` / `json:"supportImage"`）、`docs/reverse-engineering.md:129-142` 的真实模型表；`reference/icebears111_catpaw2api/internal/upstream/client.go:346` 同构 |
 | 本机实测：上游 `/api/agent/maas/model-types` 确实带该标志（本仓目录缓存里 `LongCat-2.0` / `glm-5.3-flash` / `glm-5.3-flashx` 为 true，`glm-5.3` 为 false） | `[实测]` | 2026-10-20 `~/.modelmux/catpaw/cache/models.json` |
+| 本机实测（上游**原文**，绕开渠道归一化）：`deepseek-v4.1-flash` = **true**；`deepseek-v4-pro` / `glm-5.3` / `auto` = false；其余（`LongCat-2.5` / `glm-5.3-flash` / `glm-5.3-flashx` / `MiniMax-M3` / `kimi-k3` / `kimi-k3.1-pro`）为 true | `[实测]` | 2026-11-16 直打 `/api/agent/maas/model-types` 取原文（`.tmp/probe-catpaw-raw-catalog.mjs`）—— 渠道 API 读不到原值，`catalog.toModelInfo()` 已把它钉成 false |
 | 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事 | `[推断]` | 见下两条 |
 | 本渠道走的 conversation 协议（`/api/agent/conversation/{round,event,turn}`）请求体的消息内容只有 `{type:"text",text}` 分片，**没有图片字段**；`src/upstream.ts` 的 `textOfContent` 把多段 content 拍平成纯文本，`image_url` 分片直接丢弃 | `[代码]` | `packages/core/channels/catpaw/src/upstream.ts:255-259`（`UpstreamMessage.content` 的类型）、`packages/core/channels/catpaw/src/upstream.ts:291-305`（`textOfContent`） |
 | 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片 | `[参考]` | `reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76` |
@@ -436,6 +437,9 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 3. 真机带图实测通过后，再把 `supportsImages` 接回上游的 `supportImage`。
 
 在这三条落定之前，**不要**因为上游目录写了 `supportImage: true` 就对外声明能吃图。
+
+摸清这三条能直接受益的模型是 `deepseek-v4.1-flash`：上游对它声明 `supportImage: true`
+（2026-11-16 实测），也就是说挡住的只是**传输实现**，不是模型能力。
 
 ## 边界与伦理
 
