@@ -17,6 +17,7 @@
  *
  * 暂停/恢复：`~/.modelmux/watchdog.pause` 存在时**只探测不拉起**（想手动 `mx stop` 时先建它）。
  * 日志：`~/.modelmux/logs/watchdog.log`（按日不切分，追加，带时间戳）。
+ * 状态：`~/.modelmux/watchdog.state.json` 每轮刷新；mtime 停更即守护最后存活时刻。
  */
 
 import { spawn } from "node:child_process";
@@ -31,6 +32,7 @@ const HOME_ROOT = process.env["MODELMUX_HOME"] || join(homedir(), ".modelmux");
 const LOG_PATH = join(HOME_ROOT, "logs", "watchdog.log");
 const PID_PATH = join(HOME_ROOT, "watchdog.pid");
 const PAUSE_PATH = join(HOME_ROOT, "watchdog.pause");
+const STATE_PATH = join(HOME_ROOT, "watchdog.state.json");
 
 /** 连续探测失败多少次才拉起：避免网关正在重启时被误判（抖动的网关最怕雪上加霜）。 */
 const FAIL_THRESHOLD = 2;
@@ -44,6 +46,19 @@ function log(message) {
     /* 日志写不进去不影响守护 */
   }
   process.stdout.write(line);
+}
+
+/**
+ * 每轮探测结果落盘。日志只在状态变化时出声，进程「静默消失」时靠本文件的 mtime
+ * 界定最后存活时刻，并区分「守护死了」与「守护活着但网关没起来」。
+ */
+function writeState(state) {
+  try {
+    mkdirSync(dirname(STATE_PATH), { recursive: true });
+    writeFileSync(STATE_PATH, `${JSON.stringify({ ...state, ts: new Date().toISOString() })}\n`, "utf8");
+  } catch {
+    /* 状态写不进去不影响探测 */
+  }
 }
 
 function parseArgs(argv) {
@@ -137,25 +152,48 @@ async function main() {
 
   for (;;) {
     const up = await healthy(addr);
+    const paused = existsSync(PAUSE_PATH);
+    let action = "none";
     if (up) {
       fails = 0;
     } else {
       fails += 1;
-      if (existsSync(PAUSE_PATH)) {
+      if (paused) {
         log(`gateway down but paused (${PAUSE_PATH} exists); not starting`);
         fails = 0;
+        action = "paused";
       } else if (fails >= (once ? 1 : FAIL_THRESHOLD)) {
         // `--once` 只探一次就退出，阈值 2 让它**永远拉不起来** —— 开机脚本正是靠这条路径
         // 补「网关没起来」，单次探测失败即视为不在（2026-11-16 实测：--once 对挂掉的网关
         // 只写一行 up 就退出，注释里承诺的「不通就拉起」落空）。常驻模式仍按阈值防抖。
+        action = "start";
         await startGateway();
         fails = 0;
+      } else {
+        action = "wait";
       }
     }
+    writeState({ pid: process.pid, healthy: up, fails, action, paused, addr });
     if (once) return;
     await new Promise((r) => setTimeout(r, intervalSec * 1000));
   }
 }
+
+// 计划任务没有控制台，未捕获异常的栈默认流向 stderr 会直接丢；落盘后由计划任务按
+// 非零退出重启。守护被静默杀掉时，state.json 的 mtime 停更仍是最可靠的死亡时刻证据。
+process.on("uncaughtException", (err) => {
+  log(`fatal: uncaughtException: ${err && err.stack ? err.stack : String(err)}`);
+  releaseSingleInstance();
+  process.exit(1);
+});
+// 偶发拒绝不该打死守护，先记下；反复拒绝会由健康探测失败驱动拉起。
+process.on("unhandledRejection", (reason) => {
+  log(`fatal: unhandledRejection: ${String(reason)}`);
+});
+// stdout 可能指向已关闭的管道（EPIPE），写不出去不影响探测。
+process.stdout.on("error", () => {
+  /* 有意忽略：输出管道断开不是守护故障 */
+});
 
 main().catch((err) => {
   log(`watchdog crashed: ${String(err)}`);

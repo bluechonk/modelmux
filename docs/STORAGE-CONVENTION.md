@@ -17,9 +17,9 @@
 ├── prefs.json                   ← 预留（曾用于正文抓取开关，已改为恒开启，当前无写入方）
 ├── gateway.pid                  ← 仓库级网关监督进程 PID（不属于任何渠道）
 ├── gateway-worker.pid           ← 仓库级网关 worker PID（监督进程维护）
-├── watchdog.pid                 ← 外部守护 PID（scripts/mx-watchdog.mjs）
+├── watchdog.pid                 ← 外部守护常驻模式单实例锁（scripts/mx-watchdog.mjs；--once 不留此文件）
 ├── watchdog.pause               ← 外部守护暂停标记（存在时只探测不拉起；显式停止置、显式启动清）
-├── bin/watchdog-login.vbs       ← 登录自启的守护启动器（本机专用；删除「启动」文件夹里的快捷方式即停用）
+├── watchdog.state.json          ← 外部守护每轮状态（mtime = 最后存活时刻，见 DAEMON-SUPERVISOR.md §7）
 ├── logs/                        ← 运行日志（类型/日期/结果分层，见 LOGGING.md）
 │   ├── access/<date>/           ← 请求元数据（success / failure / other / slow）
 │   ├── error/<date>/            ← 错误上下文
@@ -144,7 +144,7 @@
 10. **根级共享运行时文件**：属于「全部渠道」而不属于任一渠道的文件放根上 ——
    `gateway.pid` / `logs/`（仓库级网关）、`pool-usage.json`（公共模型池的渠道账本：
    账单已用量 + 失败冷却，见 `docs/POOL-ARCHITECTURE.md` §2.3）、
-   `watchdog.pid` / `watchdog.pause`（外部守护 `scripts/mx-watchdog.mjs`）、
+   `watchdog.pid` / `watchdog.pause` / `watchdog.state.json`（外部守护 `scripts/mx-watchdog.mjs`）、
    `update.json`（版本更新检测状态：上次检查时间 / 最近结果，
    见 `docs/WEB-CONSOLE.md` 的设置弹窗版本行）。走 `paths.rootFile()`
    或 `paths.logsDir()`，文件名同样受本节第 7 条的校验。
