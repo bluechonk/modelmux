@@ -91,10 +91,9 @@ const INTEGRATE_CLIENTS: Array<{
   target: IntegrationTarget;
   icon: string;
   name: string;
-  file: string;
 }> = [
-  { target: "zcode", icon: "zc", name: "zcode", file: "~/.zcode/v2/provider_config.json" },
-  { target: "dsh", icon: "ds", name: "dsh", file: "~/.dsh/profiles/<profile>/cordis.patch.yml" },
+  { target: "zcode", icon: "zc", name: "zcode" },
+  { target: "dsh", icon: "ds", name: "dsh" },
 ];
 
 /** 开关操作中态：哪个目标在跑哪种动作（并行点两张卡互不误标）。 */
@@ -120,7 +119,6 @@ function IntegrateSwitchCard({
   target,
   icon,
   name,
-  file,
   integrated,
   pending,
   error,
@@ -131,7 +129,6 @@ function IntegrateSwitchCard({
   target: IntegrationTarget;
   icon: string;
   name: string;
-  file: string;
   integrated: boolean;
   /** 该卡片的操作中态（null = 空闲）。 */
   pending: PendingAction | null;
@@ -177,7 +174,6 @@ function IntegrateSwitchCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium text-ink">{name}</div>
-          <div className="mt-0.5 truncate font-mono text-xs text-ink-faint">{file}</div>
         </div>
         <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
         {/*
@@ -548,13 +544,12 @@ export function Dashboard(): ReactElement {
             一键接入
           </div>
           <div className="grid grid-cols-1 gap-2.5">
-            {INTEGRATE_CLIENTS.map(({ target, icon, name, file }) => (
+            {INTEGRATE_CLIENTS.map(({ target, icon, name }) => (
               <IntegrateSwitchCard
                 key={target}
                 target={target}
                 icon={icon}
                 name={name}
-                file={file}
                 integrated={state?.integrations?.[target] === true}
                 pending={pendingAction?.target === target ? pendingAction : null}
                 error={integrateErrors[target] ?? null}

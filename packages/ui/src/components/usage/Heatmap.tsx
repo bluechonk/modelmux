@@ -254,7 +254,6 @@ export function Heatmap({
           <span key={cls} className={`h-3 w-3 rounded-[3px] ${cls}`} />
         ))}
         <span>多</span>
-        <span className="ml-2">峰值 {formatTokens(max)} tokens</span>
       </div>
       <ChartTooltip show={hover !== null} x={hover?.x ?? 0} y={hover?.y ?? 0}>
         {hover !== null && (
