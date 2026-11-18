@@ -389,9 +389,6 @@ export function Dashboard(): ReactElement {
       ? formatDuration(Math.round(totals.durationMs / totals.requests))
       : "—";
 
-  /** 区间标签（「近 30 日」）：用量明细条上要写明这些数字覆盖多长。 */
-  const rangeLabel = RANGES.find((r) => r.key === range)?.label ?? "";
-
   // 区间用量的派生：趋势序列
   const series = (rangeStats?.models ?? []).slice(0, MAX_SERIES).map((m) => m.id);
 
@@ -485,26 +482,6 @@ export function Dashboard(): ReactElement {
                 : "成功请求均值"
           }
         />
-      </div>
-
-      {/*
-        ② 区间用量明细：缓存命中（含分子 / 分母）与「无 usage」条数 —— 从请求日志页挪过来。
-        tokens 的入 / 出已经在上面「累计 Token」格里，这里不重复铺第二遍。
-      */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-ink-soft">
-        <span className="text-ink-faint">{rangeLabel}</span>
-        {/* 缓存只报上游返回的命中 token 数：没有任何渠道回命中率字段，比率不自己算 */}
-        <span>
-          缓存命中{" "}
-          <span className="tabular text-ink">
-            {rangeStats && rangeStats.totals.cacheTotal > 0 ? `${formatTokens(rangeStats.totals.cacheHit)} tokens` : "—"}
-          </span>
-        </span>
-        {(rangeStats?.totals.noUsage ?? 0) > 0 && rangeStats && (
-          <span className="text-ink-faint">
-            {rangeStats.totals.noUsage} 条无 usage（上游没回用量，不计入 tokens）
-          </span>
-        )}
       </div>
 
       {/* ③ Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
