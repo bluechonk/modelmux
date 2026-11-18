@@ -479,8 +479,6 @@ export function AccountCard({
           const bill = billingByKey.get(account.key);
           const status = classifyAccount(account, billing);
           const meta = STATUS_META[status];
-          const health = account.health;
-          const failStreak = Number(account.fail_streak ?? 0);
           // 末行不画下边框（否则与卡底条的上边框叠成双线）。
           return (
             <li
@@ -504,7 +502,7 @@ export function AccountCard({
                 {/*
                   账号行 = 单行（44px），左右两块等分：
                     左：状态点 + 名称（超长截断）
-                    右：状态 pill（与额度条一体）+ 连败计数 + 额度条 | 操作
+                    右：状态 pill（与额度条一体）+ 额度条 | 操作
                 */}
                 <div className="flex h-11 items-center gap-2 px-4 max-md:gap-1.5 max-md:px-3">
                   <span
@@ -520,9 +518,6 @@ export function AccountCard({
                       flex-1 平分一行），视觉上是一组而不是「名称的附件」 */}
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <Badge className={`shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</Badge>
-                    {failStreak > 0 && (health === "ok" || health === "unknown") && (
-                      <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
-                    )}
                     {billing?.unsupported === true ? (
                       <span className="shrink-0 text-xs text-ink-faint/70">订阅制 · 无额度概念</span>
                     ) : (
