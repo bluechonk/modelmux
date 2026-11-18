@@ -8,7 +8,15 @@ if ($PSVersionTable.PSVersion.Major -lt 7) { throw "requires PowerShell 7+" }
 
 $ErrorActionPreference = "Stop"
 
-$node = "C:\Program Files\nodejs\node.exe"
+# 计划任务的 <Exec><Command> 不做 PATH 查找，必须落 node.exe 绝对路径；注册动作发生在
+# 当前登录会话里，Get-Command 的解析结果与任务运行时环境一致。MSI 默认位置作兜底。
+$node = (Get-Command node -ErrorAction SilentlyContinue).Source
+if (-not $node) {
+  foreach ($cand in "$env:ProgramFiles\nodejs\node.exe", "$env:LOCALAPPDATA\Volta\bin\node.exe") {
+    if (Test-Path -LiteralPath $cand) { $node = $cand; break }
+  }
+}
+if (-not $node) { throw "找不到 node.exe：确认已安装 Node.js 且在 PATH 中" }
 # 仓库根从脚本位置推导（本文件在 scripts/ 下），仓库换机换目录都不用改。
 $repo = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $repo "scripts\mx-watchdog.mjs"
