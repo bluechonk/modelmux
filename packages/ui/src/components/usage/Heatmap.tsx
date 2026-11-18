@@ -22,15 +22,16 @@ export type HeatGranularity = "daily" | "weekly" | "cumulative";
 /**
  * 档位色：单色梯度表达「量」，0 档另有底色（无数据与「有点少」要能分开）。
  *
- * 0 档取 `overlay/30`（面板底是 `raised` #2f2f2f，`overlay` #3a3a3a 的 30%）：
+ * 0 档取 `overlay/30`（面板底是 `raised`，`overlay` 的 30%）：
  * 再淡就只剩「一片空白面板」（实测 /25 在深色主题下几乎看不见网格，整年历读不出结构）。
+ * 1-4 档走 ZCode usage-heatmap：series-1（蓝）按 20/35/55/80% 混入面板底。
  */
 const LEVEL_CLASS = [
   "bg-overlay/30",
-  "bg-brand/20",
-  "bg-brand/40",
-  "bg-brand/60",
-  "bg-brand/85",
+  "bg-series-1/20",
+  "bg-series-1/35",
+  "bg-series-1/55",
+  "bg-series-1/80",
 ] as const;
 
 const WEEKDAY_LABELS = ["一", "", "三", "", "五", "", ""] as const;

@@ -5,9 +5,10 @@
 
 ## 设计系统（`packages/ui/src/index.css`）
 
-视觉语言：**shadcn/ui zinc 标准双主题**。浅色 = 纯白卡 + zinc-200 描边 + 微阴影，深色 = zinc-950
-页面底 + zinc-900 卡片；accent 单色反转（浅色黑钮、深色白钮，选中态与浮块同此）；状态语义色
-分深浅两档 —— 浅底加深一档、深底提亮一档，保证白底/黑底上的对比度。
+视觉语言：**ZCode 主题（`theme-zai-dark` / `theme-zai-light`）源值直出**。中性黑灰白表面、
+**半透明描边**（前景色 10%/16% alpha，明暗自动适配）、accent 反色（深白钮 / 浅黑钮）；
+选中态走 `sel` 令牌（深白底黑字 / 浅灰底黑字）；**蓝只做功能色** —— 图表序列、热力图、链接。
+语义色取 ZCode 档（绿 / 橙 / 红），浅底加深保证对比。
 
 UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次**，组件一律用令牌类，
 不直接写 `gray-900` / `sky-500` 这类原始色 —— 换主题只改这一处（浅色由 `html[data-theme="light"]`
@@ -16,10 +17,12 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 | 组 | 令牌类 | 深色值 | 浅色值 | 用途 |
 | --- | --- | --- | --- | --- |
-| 表面（四个深度层） | `bg-canvas` / `bg-surface` / `bg-raised` / `bg-overlay` | `#09090b` / `#0f0f12` / `#0f0f12` / `#1c1c1f` | `#fafafa` / `#ffffff` / `#ffffff` / `#f4f4f5` | 页面底 → 顶栏与输入 → 卡片 → 悬浮层与选中底 |
-| 描边 | `border-line` / `border-line-strong` | `#27272a` / `#3f3f46` | `#e4e4e7` / `#d4d4d8` | 卡片与表格分界、hover 加深 |
-| 文字 | `text-ink` / `text-ink-soft` / `text-ink-faint` | `#fafafa` / `#a1a1aa` / `#71717a` | `#09090b` / `#52525b` / `#71717a` | 主 / 次 / 弱 |
-| 语义 | `brand` / `free` / `warn` / `danger` | `#fafafa` / `#4ade80` / `#facc15` / `#ef4444` | `#18181b` / `#16a34a` / `#a16207` / `#dc2626` | accent 反色单色 + 状态色 |
+| 表面（四个深度层） | `bg-canvas` / `bg-surface` / `bg-raised` / `bg-overlay` | `#161616` / `#202020` / `#2b2b2b` / `#363636` | `#f8f8f8` / `#ffffff` / `#ffffff` / `#e6e6e6` | 页面底 → 顶栏 → 卡片与输入 → 次级与悬浮底 |
+| 描边 | `border-line` / `border-line-strong` | `rgba(250,250,250,.1)` / `.16` | `rgba(10,10,10,.1)` / `.16` | 半透明，明暗自动适配 |
+| 文字 | `text-ink` / `text-ink-soft` / `text-ink-faint` | `#f5f5f5` / `#d4d4d4` / `#a3a3a3` | `#171717` / `#404040` / `#737373` | 主 / 次 / 弱（均按可读对比取实色，不用低透明度正文） |
+| 语义 | `brand` / `free` / `warn` / `danger` | `#ffffff` / `#46bf72` / `#ff8a30` / `#ff5c5c` | `#000000` / `#166b32` / `#b45309` / `#e03131` | accent 反色单色 + 状态色 |
+| 选中与触发器 | `bg-sel` + `text-sel-ink` / `bg-trigger` + `text-trigger-ink` | 白底黑字 / 白底黑字 | 灰底黑字 / 白底黑字加描边 | 导航与分段选中、下拉触发器 |
+| 图表序列 | `series-1..7` | `#4099ff` `#46bf72` `#7b5ce5` `#ff5c5c` `#ff8a30` `#42c8c8` | `#0b7fff` `#1e8a3e` `#8250df` `#cf222e` `#d97706` `#0aa7a7` | 趋势 / 环图 / 热力图（蓝首色） |
 
 三个组件类与一处动效：
 
@@ -28,7 +31,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | `.panel` | 唯一的容器形态（`rounded-xl border border-line bg-raised shadow-xs`），仪表盘卡、渠道卡共用 |
 | `.panel-title` | 面板标题（图标 + 文字，14px 中黑字重） |
 | `.pill` | 徽标（状态 / 计数）；**语义类按状态着色**（正常绿 / 冷却黄 / 异常·没钱红，底色 12% 透明），纯计数类用中性底 |
-| `.nav-item` | 顶部标签导航项（纯文本 + 圆角 hover 底；选中态 `bg-raised`，不用彩色底） |
+| `.nav-item` | 顶部标签导航项（纯文本 + 圆角 hover 底；选中态 `bg-sel text-sel-ink`） |
 | `.live-dot` | 网关状态灯的呼吸动效（`prefers-reduced-motion` 下自动关闭） |
 
 约定：
@@ -36,14 +39,14 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 - 圆角两档：容器 `rounded-xl`（12px + `shadow-xs`）、行内元素与按钮 `rounded-lg`（8px）；
   不再使用 `rounded-full` 按钮（胶囊档已废）。
 - **accent 反色单色**：主操作按钮一律 `bg-brand text-on-brand`（浅色黑底白字、深色白底黑字）；
-  除状态语义色（免费/冷却/错误）与下一条的「还原」例外，不出现任何彩色。
+  开关同走反色（开 = 反色轨道，关 = 次级灰轨 + 前景钮）；除状态语义色与下一条「还原」例外，
+  不出现彩色。
 - **动作色例外**：一键接入里的「还原」用 `warn` 淡黄（`border-warn/45 bg-warn/10 text-warn`）。
   语义是「非破坏性撤销」（写回接入前备份、可反悔），用中性描边会被读成禁用态；
   这是 `warn` 唯一一处非状态用法，新增前先想清楚要不要再借这个色。
 - 标题是**无衬线中黑字重 + 微收字距**（shadcn 口径），不用衬线字体。
 - 数字用等宽数位（`.tabular`），统计值变化时不抖动。
-- 表格**左对齐 + 行 hover**（`hover:bg-overlay/40`）：列中心线不再强求重合，
-  扫读起点恒定优先（原「全表居中」口径已废）。
+- 表格**左对齐 + 行 hover**（`hover:bg-overlay/40`）：扫读起点恒定优先（原「全表居中」口径已废）。
 - 键盘可达：`:focus-visible` 有统一聚焦环（鼠标点击不显示）。
 - 图标统一用 `lucide-react`，尺寸三档：12（小徽标）/ 14（行内）/ 16（面板标题）。
 - **品牌 mark 是内联组件**（`components/BrandMark.tsx`，极简鲸鱼剪影 +

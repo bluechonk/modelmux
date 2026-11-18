@@ -118,10 +118,9 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
               to={to}
               aria-label={label}
               className={({ isActive }) =>
-                // 选中态用 overlay 而不是 raised：浅色下两者都是白，raised 会让
-                // 「当前在哪个模块」完全不可辨（overlay 深浅两套都有对比）
+                // 选中态走 ZCode 的 sel 令牌：深色白底黑字、浅色灰底黑字
                 `no-drag nav-item tap-square flex flex-none items-center whitespace-nowrap ${
-                  isActive ? "bg-overlay text-ink" : "text-ink-soft hover:bg-overlay/60 hover:text-ink"
+                  isActive ? "bg-sel text-sel-ink" : "text-ink-soft hover:bg-overlay/60 hover:text-ink"
                 }`
               }
             >

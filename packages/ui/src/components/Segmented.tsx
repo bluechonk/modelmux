@@ -31,7 +31,7 @@ export function Segmented<T extends string>({
           <TabsTrigger
             key={item.key}
             value={item.key}
-            className="tap rounded-md px-3 py-1.5 text-xs text-ink-soft data-[state=active]:bg-card data-[state=active]:text-ink hover:text-ink"
+            className="tap rounded-md px-3 py-1.5 text-xs text-ink-soft data-[state=active]:bg-sel data-[state=active]:text-sel-ink hover:text-ink"
           >
             {item.label}
           </TabsTrigger>

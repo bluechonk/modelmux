@@ -5,57 +5,61 @@
 /**
  * 设计令牌（Tailwind v4 的 `@theme`）。
  *
- * 视觉语言：**shadcn/ui zinc 标准双主题**（浅 #fff/#09090b，深 #09090b/#fafafa）。
- * 层级靠底色差 + 细描边 + 微阴影表达；accent 单色反转（深 = 白钮、浅 = 黑钮）；
- * 状态语义色分深浅两档（浅底加深、深底提亮），保证对比度。
+ * 视觉语言：**ZCode 主题（theme-zai-dark / theme-zai-light）源值直出**。
+ * 中性黑灰白表面 + 半透明描边（前景色 10%/16% alpha，明暗自动适配）；
+ * accent 反色（深白钮 / 浅黑钮）；选中态 = sel 令牌（深白底黑字 / 浅灰底黑字）；
+ * 蓝只做功能色：图表序列、热力图、链接。语义色取 ZCode 档（绿 #46bf72 橙 #ff8a30 红 #ff5c5c）。
  * 深色令牌是默认值，浅色在下方 `html[data-theme="light"]` 覆盖同名变量。
- * 组件一律用这里的令牌类（如 `bg-raised` / `border-line` / `text-ink-soft`），
- * 换主题只改这一处。
+ * 组件一律用这里的令牌类，换主题只改这一处。
  */
 @theme {
-  /* 表面：页面底 → 卡片/输入 → 悬浮层（zinc 950 / 900 档 / 800 档） */
-  --color-canvas: #09090b;
-  --color-surface: #0f0f12;
-  --color-raised: #0f0f12;
-  --color-overlay: #1c1c1f;
+  /* 表面：页面底 → 顶栏 → 卡片/输入 → 次级（ZCode background/header/card/secondary） */
+  --color-canvas: #161616;
+  --color-surface: #202020;
+  --color-raised: #2b2b2b;
+  --color-overlay: #363636;
 
-  /* 描边：zinc 800 / 700 */
-  --color-line: #27272a;
-  --color-line-strong: #3f3f46;
+  /* 描边：前景色半透明（ZCode border #ffffff1a / hover #ffffff26） */
+  --color-line: rgba(250, 250, 250, 0.1);
+  --color-line-strong: rgba(250, 250, 250, 0.16);
 
-  /* 文字：主 / 次 / 弱（zinc 50 / 400 / 500） */
-  --color-ink: #fafafa;
-  --color-ink-soft: #a1a1aa;
-  --color-ink-faint: #71717a;
+  /* 文字：主 / 次 / 弱（ZCode foreground / subtle / remote-muted，均保证可读对比） */
+  --color-ink: #f5f5f5;
+  --color-ink-soft: #d4d4d4;
+  --color-ink-faint: #a3a3a3;
 
-  /* 语义色：accent = 白（深底上的主操作色就是前景色本身） */
-  --color-brand: #fafafa;
-  --color-brand-deep: #d4d4d8;
-  /* 品牌底（白）上的前景色：跟随 accent 反转 */
-  --color-on-brand: #18181b;
-  /* 危险底（红）上的前景色：两套都是白字（zinc destructive 口径） */
+  /* 语义色：accent = 白（反色单色系的主操作色就是前景色本身） */
+  --color-brand: #ffffff;
+  --color-brand-deep: #e5e5e5;
+  --color-on-brand: #161616;
+  /* 危险底（红）上的前景色：两套都是白字 */
   --color-on-danger: #ffffff;
-  --color-free: #4ade80;
-  --color-warn: #facc15;
-  --color-danger: #ef4444;
+  --color-free: #46bf72;
+  --color-warn: #ff8a30;
+  --color-danger: #ff5c5c;
 
-  /* 滚动条：深浅两套各自的灰阶（浅色主题覆盖，见下方 data-theme=light 块） */
-  --color-scrollbar: #27272a;
-  --color-scrollbar-hover: #3f3f46;
+  /* 选中态与下拉触发器（ZCode：深色白底黑字；浅色灰底 / 白底黑字） */
+  --color-sel: #ffffff;
+  --color-sel-ink: #161616;
+  --color-trigger: #ffffff;
+  --color-trigger-ink: #161616;
+  --color-trigger-border: transparent;
+
+  /* 滚动条 */
+  --color-scrollbar: #3f3f3f;
+  --color-scrollbar-hover: #525252;
 
   /*
-   * 图表分类色：数据可视化专用，**不是品牌色**。
-   *
-   * 单色系能表达层级，表达不了「第 3 条序列是谁」—— 多序列折线与环形图必须有可区分的
-   * 分类色。这里沿用与语义色同族的低饱和色相，只出现在图表里（其余界面仍是纯单色）。
+   * 图表分类色：ZCode usage-chart 序列（蓝首色 + 绿紫红橙青）。
+   * 界面主体仍是黑灰白单色，彩色只出现在数据可视化里。
    */
-  --color-series-1: #7aa2f7;
-  --color-series-2: #86d9a8;
-  --color-series-3: #bb9af7;
-  --color-series-4: #e0af68;
-  --color-series-5: #7dcfff;
-  --color-series-6: #f7768e;
-  --color-series-7: #9d7cd8;
+  --color-series-1: #4099ff;
+  --color-series-2: #46bf72;
+  --color-series-3: #7b5ce5;
+  --color-series-4: #ff5c5c;
+  --color-series-5: #ff8a30;
+  --color-series-6: #42c8c8;
+  --color-series-7: #a78bfa;
 }
 
 /*
@@ -91,29 +95,41 @@
  * 浅色主题：`<html data-theme="light">` 时覆盖同名令牌（深浅由 lib/theme.ts 解析并
  * 落到这个属性上）。组件全部走令牌类，改这里的变量即整站换肤。
  *
- * zinc 浅色档：页面底 zinc-50、卡片纯白靠描边 + 微阴影分界；accent 反转为近黑；
- * 语义色加深一档保证白底对比度（WCAG AA 以上）。
+ * ZCode theme-zai-light 源值：页面 #f8f8f8、卡片/顶栏纯白、次级 #e6e6e6；
+ * 选中态灰底黑字（非反白）、下拉触发器白底黑字 + 描边；语义色加深保证白底可读。
  */
 html[data-theme="light"] {
   color-scheme: light;
-  --color-canvas: #fafafa;
+  --color-canvas: #f8f8f8;
   --color-surface: #ffffff;
   --color-raised: #ffffff;
-  --color-overlay: #f4f4f5;
-  --color-line: #e4e4e7;
-  --color-line-strong: #d4d4d8;
-  --color-ink: #09090b;
-  --color-ink-soft: #52525b;
-  --color-ink-faint: #71717a;
-  --color-brand: #18181b;
-  --color-brand-deep: #3f3f46;
-  --color-on-brand: #fafafa;
+  --color-overlay: #e6e6e6;
+  --color-line: rgba(10, 10, 10, 0.1);
+  --color-line-strong: rgba(10, 10, 10, 0.16);
+  --color-ink: #171717;
+  --color-ink-soft: #404040;
+  --color-ink-faint: #737373;
+  --color-brand: #000000;
+  --color-brand-deep: #262626;
+  --color-on-brand: #ffffff;
   --color-on-danger: #ffffff;
-  --color-free: #16a34a;
-  --color-warn: #a16207;
-  --color-danger: #dc2626;
-  --color-scrollbar: #d4d4d8;
-  --color-scrollbar-hover: #a1a1aa;
+  --color-free: #166b32;
+  --color-warn: #b45309;
+  --color-danger: #e03131;
+  --color-sel: #e6e6e6;
+  --color-sel-ink: #171717;
+  --color-trigger: #ffffff;
+  --color-trigger-ink: #171717;
+  --color-trigger-border: rgba(10, 10, 10, 0.16);
+  --color-scrollbar: #d4d4d4;
+  --color-scrollbar-hover: #a1a1a1;
+  --color-series-1: #0b7fff;
+  --color-series-2: #1e8a3e;
+  --color-series-3: #8250df;
+  --color-series-4: #cf222e;
+  --color-series-5: #d97706;
+  --color-series-6: #0aa7a7;
+  --color-series-7: #a855f7;
 }
 
 @layer base {
