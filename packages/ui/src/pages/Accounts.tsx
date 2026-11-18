@@ -399,9 +399,11 @@ export function Accounts(): ReactElement {
             段落**恒渲染**：模型清单由服务端从家族表派生（不再依赖 `/v1/models`
             的轮询结果），刚起进程 / 上游抖动时也不会整段消失，用户始终有处设置。
           */}
-          {/* 渠道偏好（左）+ 对外模型清单（右）一排两卡：偏好管「走哪家」，清单管「对外有什么」 */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <section className="rounded-xl border border-line bg-panel p-3">
+          {/* 渠道偏好（左）+ 对外模型清单（右）一排两卡：偏好管「走哪家」，清单管「对外有什么」。
+              宽度按内容：偏好卡自适应（下限 264px），清单卡吃剩余；高度不拉平 ——
+              偏好只有一两行时，把它撑到清单等高只剩空白（2026-11-18 设计裁决）。 */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+          <section className="panel p-3 lg:w-auto lg:min-w-[264px] lg:shrink-0">
             <h2 className="mb-2 text-xs font-medium text-ink-soft">渠道偏好</h2>
             <div className="flex flex-col gap-2">
               {modelPrefs.map((pref) => (
@@ -434,7 +436,7 @@ export function Accounts(): ReactElement {
               </p>
             )}
           </section>
-            <section className="rounded-xl border border-line bg-panel p-3">
+            <section className="panel p-3 lg:min-w-0 lg:flex-1">
               <h2 className="mb-2 text-xs font-medium text-ink-soft">模型清单</h2>
               <ModelRows rows={modelRows} />
             </section>
