@@ -14,6 +14,7 @@ import {
 } from "../components/AccountCard";
 import type { QuotaPeriod } from "../lib/account-status";
 import { LoginModal } from "../components/LoginModal";
+import { buildModelRows, ModelRows } from "../components/ModelListCard";
 import { PageHeader } from "../components/PageHeader";
 import { useRefreshInterval } from "../lib/refresh-interval";
 import { Select } from "../components/Select";
@@ -311,6 +312,11 @@ export function Accounts(): ReactElement {
   const snapshot = state.data;
   /** 模型级渠道偏好（下拉的选项与选中项都来自快照，后端 5 秒一轮）。 */
   const modelPrefs = snapshot?.model_prefs ?? [];
+  // 对外模型清单：与仪表盘原「模型列表」卡同口径（state 快照的 meta + 7 日 usage 的 TPS）
+  const modelRows = useMemo(
+    () => buildModelRows(snapshot?.models, usageQuery.data?.models),
+    [snapshot, usageQuery.data],
+  );
 
   /**
    * 卡片列数（容器实测宽 → `columnCount`）；`ResizeObserver` 跟随窗口/侧栏变化。
@@ -393,8 +399,10 @@ export function Accounts(): ReactElement {
             段落**恒渲染**：模型清单由服务端从家族表派生（不再依赖 `/v1/models`
             的轮询结果），刚起进程 / 上游抖动时也不会整段消失，用户始终有处设置。
           */}
+          {/* 渠道偏好（左）+ 对外模型清单（右）一排两卡：偏好管「走哪家」，清单管「对外有什么」 */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <section className="rounded-xl border border-line bg-panel p-3">
-            <h2 className="mb-2 text-xs font-medium text-ink-soft">模型偏好</h2>
+            <h2 className="mb-2 text-xs font-medium text-ink-soft">渠道偏好</h2>
             <div className="flex flex-col gap-2">
               {modelPrefs.map((pref) => (
                 // 一个模型一行：「模型 → 偏好渠道」横着读，flex 两端对齐。
@@ -426,6 +434,11 @@ export function Accounts(): ReactElement {
               </p>
             )}
           </section>
+            <section className="rounded-xl border border-line bg-panel p-3">
+              <h2 className="mb-2 text-xs font-medium text-ink-soft">模型清单</h2>
+              <ModelRows rows={modelRows} />
+            </section>
+          </div>
 
           {/*
           {/*

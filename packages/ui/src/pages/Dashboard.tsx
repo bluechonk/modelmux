@@ -1,30 +1,26 @@
 /**
  * 仪表盘页（`/web/` 首页）：**当下快照 + 区间用量**两层。
  *
- * 快照（今日 KPI / 接入盒 / 模型池 / 最近请求）走 `/api/overview`，3-5 秒轮询；
+ * 快照（今日 KPI / 接入盒 / 模型池）走 `/api/overview`，3-5 秒轮询；
  * 用量（Token 活动 / 每日趋势 / 模型用量）走 `/api/usage`，只在切区间或手动刷新时重取。
  * 口径：控制台里「请求」恒指模型请求（`/v1/chat/completions`）——请求日志、用量区块、
  *   今日 KPI 三处同源，见 docs/USAGE-STATS.md。
  * 无 hover 信息：详情一律点击后落固定区域；lg 双列 / md 单列，不新增依赖。
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
   Coins,
   Flame,
   Gauge,
-  Image as ImageIcon,
   Layers,
   PlugZap,
   Timer,
-  Type,
   Wifi,
 } from "lucide-react";
-import { useNavigate } from "react-router";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { Segmented } from "../components/Segmented";
@@ -34,8 +30,8 @@ import { Heatmap, type HeatGranularity } from "../components/usage/Heatmap";
 import { ModelDonut } from "../components/usage/ModelDonut";
 import { TrendChart } from "../components/usage/TrendChart";
 import { api } from "../lib/api";
-import { errorText, formatTokens, formatDuration, formatDateTime, formatRate, tokensPerSecOf, OUTCOME_META } from "../lib/log-format";
-import type { IntegrationUpdate, OverviewResponse, UsageRange } from "../lib/types";
+import { errorText, formatTokens, formatDuration, formatRate } from "../lib/log-format";
+import type { IntegrationUpdate, UsageRange } from "../lib/types";
 
 /** 区间选项（驱动下方「用量」三块，不影响今日快照）。
  *
@@ -82,75 +78,6 @@ function storedRange(): UsageRange {
 
 /** 趋势图最多画几条序列（更多模型会撞色）。 */
 const MAX_SERIES = 6;
-
-/**
- * 规格值的可信来源：注册表（产品决策，与 `/v1/models` 同源）与上游目录声明。
- *
- * `spec`（本地 model-specs.json）与 `default`（代码兜底常量）不算 —— 后者恒为 65536，
- * 混进「跨渠道取最大」会把模型能力虚报上去。
- */
-function isTrustedMetaSource(source: string | undefined): boolean {
-  return source === "registry" || source === "upstream";
-}
-
-// ---------------------------------------------------------------------------
-// 最近请求行
-// ---------------------------------------------------------------------------
-
-/**
- * 单条最近请求：时间 / 渠道 / 模型 / 状态点 / 耗时 / tokens / 生成速度。
- *
- * 失败原因**不在这一行展示**：原因可能很长（含上游原文），挤在窄行里只剩
- * 省略号，既读不全也把数值列推歪。详情点「查看全部请求日志」去看。
- */
-function RecentRow({ entry }: { entry: OverviewResponse["recent"][number] }): ReactElement {
-  const meta = OUTCOME_META[entry.outcome];
-  const ms = entry.duration_ms;
-  // 生成速度 = completion ÷ 纯生成窗口（口径与护栏见 log-format.ts::tokensPerSecOf）
-  const tps = formatRate(
-    tokensPerSecOf({
-      completion: entry.tokens?.completion,
-      durationMs: entry.duration_ms,
-      ttfbMs: entry.ttfb_ms,
-      upstreamMs: entry.upstream_ms,
-      generateMs: entry.generate_ms,
-      stream: entry.stream,
-    }),
-  );
-  const tokens = entry.tokens?.total != null ? formatTokens(entry.tokens.total) : "—";
-  return (
-    <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition-colors hover:bg-overlay/30 sm:gap-3">
-      {/* 时间恒为 `HH:mm:ss`（slice(-8)），一档宽度即可 —— 旧代码从日志表抄来
-          `sm:w-[120px]`，给 8 字符留了 60px 的空洞（2026-11-15 实测）。 */}
-      <span className="w-16 shrink-0 tabular-nums text-ink-faint">
-        {formatDateTime(entry.ts).slice(-8)}
-      </span>
-      {/* 渠道窄屏让位（tokens / TPS 是主信息）；宽屏按内容自然宽度显示，
-          不截断 —— 在途渠道 id 最长 ~11 字符（codebuddycn），实测放得下。 */}
-      <span className="hidden shrink-0 font-mono text-ink-faint sm:block">
-        {entry.cid ?? "—"}
-      </span>
-      {/* 「模型名 + 状态点」一组吃满剩余宽度（数值列靠右）：模型名自身不撑长，
-          状态点紧跟其后，余量落在状态点与数值列之间 —— 大空白不再夹在文字中间。 */}
-      <span className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-        <span className="min-w-0 truncate text-ink-soft">{entry.model ?? "—"}</span>
-        {/* 状态：一个色点（成功绿 / 失败红），不显示原因文字 */}
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
-          aria-label={meta.label}
-        />
-      </span>
-      {/* 窄屏先让出耗时列：tokens 与 TPS 是主信息，耗时仍在请求日志里可查 */}
-      <span className="hidden w-10 shrink-0 text-right tabular-nums text-ink-soft sm:block">
-        {ms != null ? formatDuration(ms) : "—"}
-      </span>
-      {/* formatTokens 在数字与单位之间有空格，44px 会把「万」甩到第二行 —— 与
-          单日行的数值列同规（64px + nowrap，docs/WEB-CONSOLE.md「响应式适配」） */}
-      <span className="w-14 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-16">{tokens}</span>
-      <span className="w-11 shrink-0 text-right whitespace-nowrap tabular-nums text-ink-faint sm:w-12">{tps}</span>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // 一键接入：开关式卡片（开 = 已接入写入客户端配置；关 = 还原到接入前）
@@ -287,7 +214,6 @@ function IntegrateSwitchCard({
 
 export function Dashboard(): ReactElement {
   const toast = useToast();
-  const navigate = useNavigate();
 
   // 状态快照：模型清单 / 网关错误 / 加载判定都读它（base_url / 版本等配置类信息已收进设置页）——
   // 读 `["state"]` 的共享缓存，轮询归 `Layout` 所有
@@ -336,68 +262,6 @@ export function Dashboard(): ReactElement {
   const rangeStats = usageQuery.data;
   /** 正在取新区间数据：数字还是旧的，用来决定是否显示过渡指示。 */
   const rangePending = usageQuery.isFetching && usageQuery.isPlaceholderData;
-
-  /**
-   * 对外模型清单（**不显示渠道**）：模型名 + 平均 TPS + 输入模态。
-   *
-   * **不挂状态标签**：这个模块只回答「对外有哪些模型、装得下多少」，可用性由网关
-   * 按账号池现况决定，近 7 天的历史计数（成功 / 失败 / 排队）不是此刻状态，挂上去
-   * 会误导（一条失败请求就把模型标成「异常」，而它下一分钟可能就正常）。
-   * 平均 TPS 按模型取各渠道成功请求的均值；输入模态取**并集** —— 同一模型的不同渠道
-   * 能力不同（如 v4-flash astudio 只收文本、workbuddy 收图片），取并集才答得了
-   * 「这个模型能不能收图」。
-   */
-  const modelRows = useMemo(() => {
-    const byModel = new Map<string, {
-      model: string;
-      modalities: Set<string>;
-      /** 上下文窗口：同模型跨渠道可能不同，取最大值（用户关心「最大能装多少」）。 */
-      contextWindow: number | null;
-      maxOutput: number | null;
-      tpsSum: number;
-      tpsCount: number;
-    }>();
-    for (const row of state?.models ?? []) {
-      const cur = byModel.get(row.model) ?? {
-        model: row.model,
-        modalities: new Set<string>(),
-        contextWindow: null,
-        maxOutput: null,
-        tpsSum: 0,
-        tpsCount: 0,
-      };
-      for (const m of row.meta?.inputModalities ?? []) cur.modalities.add(m);
-      // **只信权威来源**：`meta.sources` 标明每个数从哪来 ——
-      //   registry = 统一模型注册表（`models.json`，与 `/v1/models` 同源）；
-      //   upstream = 上游目录里真有；spec = 本地 model-specs.json；default = 代码兜底值。
-      // 后两者不是该模型的真实能力（default 恒为 65536），混进「取最大」会虚报。
-      const cw = row.meta?.contextWindow;
-      if (isTrustedMetaSource(row.meta?.sources?.contextWindow) && typeof cw === "number" && cw > 0) {
-        cur.contextWindow = Math.max(cur.contextWindow ?? 0, cw);
-      }
-      const mo = row.meta?.maxOutputTokens;
-      if (isTrustedMetaSource(row.meta?.sources?.maxOutputTokens) && typeof mo === "number" && mo > 0) {
-        cur.maxOutput = Math.max(cur.maxOutput ?? 0, mo);
-      }
-      byModel.set(row.model, cur);
-    }
-    for (const row of rangeStats?.models ?? []) {
-      const cur = byModel.get(row.model);
-      if (!cur) continue;
-      if (row.avgTps !== null) {
-        cur.tpsSum += row.avgTps;
-        cur.tpsCount += 1;
-      }
-    }
-    return [...byModel.values()].map((row) => ({
-      model: row.model,
-      modalities: [...row.modalities],
-      contextWindow: row.contextWindow,
-      maxOutput: row.maxOutput,
-      // 平均 TPS：近 7 天各渠道成功请求的均值；算不出（无成功样本）显示 `-`
-      tps: row.tpsCount > 0 ? row.tpsSum / row.tpsCount : null,
-    }));
-  }, [state, rangeStats]);
 
   // 开关式接入：操作中态与每卡失败原因（键 = target）。结果同时走右下角 toast
   // （命令信封 ok:false 是 200 响应，onSuccess 不代表成功）+ 卡上红字（最新一次）。
@@ -528,9 +392,6 @@ export function Dashboard(): ReactElement {
     totals && totals.requests > 0
       ? formatDuration(Math.round(totals.durationMs / totals.requests))
       : "—";
-
-  // 最近 5 条（overview 已聚合好）
-  const recent = overview?.recent ?? [];
 
   /** 区间标签（「近 30 日」）：用量明细条上要写明这些数字覆盖多长。 */
   const rangeLabel = RANGES.find((r) => r.key === range)?.label ?? "";
@@ -680,66 +541,32 @@ export function Dashboard(): ReactElement {
               那是模型列表健康度要的，画进环形图会多出一堆 0% 图例。 */}
           <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
         </section>
-        {/* ② 对外模型（不显示渠道：落点由网关按额度自动挑） */}
+        {/* ② 一键接入（4 列窄卡）：开关式卡片 —— 开 = 已接入（写客户端配置），关 = 还原到接入前 */}
         <section className="panel flex flex-col p-4 lg:col-span-4">
           <div className="panel-title mb-3">
-            <Layers className="h-4 w-4 text-ink-faint" />
-            模型列表
+            <PlugZap className="h-4 w-4 text-ink-faint" />
+            一键接入
           </div>
-          {modelRows.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center py-3 text-center text-xs text-ink-faint">
-              还没有可对外提供的模型（先在账号池完成渠道授权）
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {modelRows.map((row) => {
-                return (
-                  <div key={row.model}>
-                    {/* 第一行：模型名 + 平均 TPS / 输入模态（都靠右对齐）；**不挂状态标签** ——
-                        这个模块只说「有哪些模型」，可用性由网关按账号池现况决定，见 `modelRows` */}
-                    <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
-                        {row.model}
-                      </span>
-                      <span className="shrink-0 font-mono text-xs tabular text-ink-soft">
-                        {row.tps === null ? "-" : `${Math.round(row.tps)} t/s`}
-                      </span>
-                      {/* 输入模态：文本恒有（T 字形），支持图片再补一个 + 图片图标 */}
-                      <span className="inline-flex shrink-0 items-center gap-1 text-ink-soft">
-                        <Type className="h-3.5 w-3.5" aria-label="文本" />
-                        {row.modalities.includes("image") && (
-                          <>
-                            <span className="text-ink-faint">+</span>
-                            <ImageIcon className="h-3.5 w-3.5" aria-label="图片" />
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    {/*
-                      第二行：上下文窗口与最大输出。取值只认**可信来源**（注册表 / 上游声明，
-                      见 `isTrustedMetaSource`），同一模型跨渠道取最大。本地规格表（spec）与
-                      代码兜底（default）不采信 —— 兜底恒为 65536，混进来会虚报能力。
-                      「未声明」的意思是「没有可信来源」，不是 0。
-                    */}
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-ink-faint">
-                      <span>
-                        上下文{" "}
-                        <span className="tabular text-ink-soft">
-                          {row.contextWindow === null ? "未声明" : formatTokens(row.contextWindow)}
-                        </span>
-                      </span>
-                      <span>
-                        最大输出{" "}
-                        <span className="tabular text-ink-soft">
-                          {row.maxOutput === null ? "未声明" : formatTokens(row.maxOutput)}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <div className="grid grid-cols-1 gap-2.5">
+            {INTEGRATE_CLIENTS.map(({ target, icon, name, file }) => (
+              <IntegrateSwitchCard
+                key={target}
+                target={target}
+                icon={icon}
+                name={name}
+                file={file}
+                integrated={state?.integrations?.[target] === true}
+                pending={pendingAction?.target === target ? pendingAction : null}
+                error={integrateErrors[target] ?? null}
+                update={state?.integrations?.[target] ? state?.integration_updates?.[target] ?? null : null}
+                onToggle={() => {
+                  if (state?.integrations?.[target]) restoreMutation.mutate(target);
+                  else integrateMutation.mutate(target);
+                }}
+                onUpdate={() => integrateMutation.mutate(target)}
+              />
+            ))}
+          </div>
         </section>
       </div>
 
@@ -753,65 +580,6 @@ export function Dashboard(): ReactElement {
           <Segmented items={GRAINS} value={grain} onChange={setGrain} label="热力图粒度" />
         </div>
         <Heatmap daily={yearStats?.daily ?? []} granularity={grain} />
-        {rangeStats?.peak != null && (
-          <p className="mt-2 text-xs text-ink-faint">
-            最活跃的一天是 {rangeStats.peak.date}，约 {formatTokens(rangeStats.peak.tokens)} tokens；
-            峰值时段 {String(rangeStats.peak.hour).padStart(2, "0")}:00 前后。
-          </p>
-        )}
-      </section>
-
-      {/* ③ 一键接入（全宽）：开关式卡片 —— 开 = 已接入（写客户端配置），关 = 还原到接入前 */}
-      <section className="panel p-4">
-        <div className="panel-title mb-3">
-          <PlugZap className="h-4 w-4 text-ink-faint" />
-          一键接入
-        </div>
-        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-          {INTEGRATE_CLIENTS.map(({ target, icon, name, file }) => (
-            <IntegrateSwitchCard
-              key={target}
-              target={target}
-              icon={icon}
-              name={name}
-              file={file}
-              integrated={state?.integrations?.[target] === true}
-              pending={pendingAction?.target === target ? pendingAction : null}
-              error={integrateErrors[target] ?? null}
-              update={state?.integrations?.[target] ? state?.integration_updates?.[target] ?? null : null}
-              onToggle={() => {
-                if (state?.integrations?.[target]) restoreMutation.mutate(target);
-                else integrateMutation.mutate(target);
-              }}
-              onUpdate={() => integrateMutation.mutate(target)}
-            />
-          ))}
-        </div>
-      </section>
-
-      {/* ④ 最近请求（全宽：池 id 较长，给足横向空间） */}
-      <section className="panel p-4">
-        <div className="panel-title mb-3">
-          <Gauge className="h-4 w-4 text-ink-faint" />
-          最近请求
-        </div>
-        {recent.length === 0 ? (
-          <div className="py-4 text-center text-xs text-ink-faint">今日暂无请求</div>
-        ) : (
-          <div className="space-y-0.5">
-            {recent.map((entry) => (
-              <RecentRow key={entry.id} entry={entry} />
-            ))}
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={() => void navigate("/logs")}
-          className="tap mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs text-ink-faint transition-colors hover:text-ink-soft"
-        >
-          查看全部请求日志
-          <ArrowRight className="h-3 w-3" />
-        </button>
       </section>
     </div>
   );
