@@ -450,7 +450,7 @@ function LogTable({
   // align-top 与表体一致：表体是 align-top（多行内容顶对齐），表头若用 UA 默认的 middle，
   // 两行文字在各自行内的相对位置不同（实测差约 3px）
   const headClass = (key: string): string =>
-    `whitespace-nowrap text-center align-top ${
+    `whitespace-nowrap text-left align-top ${
       key === "tokens" ? "pl-1 pr-4" : key === "time" ? "pl-3 pr-1" : "px-1"
     } py-2 font-normal`;
   return (
@@ -463,7 +463,7 @@ function LogTable({
         */}
         {/* min-w 340：三列的窄表里「HH:MM:SS」需要 57px（时间 17%），300px 下再怎么调
             比例都装不下 —— 低于 340 的视口转内层横滚，ScrollFade 在右缘提示 */}
-        <Table className="w-full table-fixed border-collapse text-center text-sm min-w-[340px] md:min-w-[720px]">
+        <Table className="w-full table-fixed border-collapse text-left text-sm min-w-[340px] md:min-w-[720px]">
           <colgroup>
             {cols.map((col) => (
               <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />

@@ -25,13 +25,13 @@ export function Segmented<T extends string>({
     <Tabs value={value} onValueChange={(next) => onChange(next as T)} className="contents">
       <TabsList
         aria-label={label}
-        className="h-auto gap-0.5 rounded-[10px] border border-line bg-canvas p-0.5 text-ink-soft"
+        className="h-auto gap-0.5 rounded-lg bg-muted p-0.5 text-ink-soft"
       >
         {items.map((item) => (
           <TabsTrigger
             key={item.key}
             value={item.key}
-            className="tap rounded-lg px-3 py-1.5 text-xs text-ink-soft data-[state=active]:bg-brand data-[state=active]:text-on-brand hover:text-ink"
+            className="tap rounded-md px-3 py-1.5 text-xs text-ink-soft data-[state=active]:bg-card data-[state=active]:text-ink hover:text-ink"
           >
             {item.label}
           </TabsTrigger>

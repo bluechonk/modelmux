@@ -190,7 +190,7 @@ function IntegrateSwitchCard({
             type="button"
             onClick={onUpdate}
             aria-label={`${name} 模型有更新（${updateDiffLabel(update)}），点击更新接入`}
-            className="tap inline-flex flex-none items-center gap-1.5 rounded-full border border-line bg-overlay px-2.5 py-[3px] text-xs text-ink transition-colors hover:border-line-strong"
+            className="tap inline-flex flex-none items-center gap-1.5 rounded-lg border border-line bg-overlay px-2.5 py-[3px] text-xs text-ink transition-colors hover:border-line-strong"
           >
             <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn" aria-hidden="true" />
             更新

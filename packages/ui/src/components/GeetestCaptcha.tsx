@@ -238,7 +238,7 @@ export function GeetestCaptcha({
         type="button"
         onClick={() => void run()}
         disabled={busy}
-        className="rounded-full bg-overlay px-4 py-1.5 text-[13px] text-ink-soft transition-colors hover:bg-overlay/70 hover:text-ink disabled:opacity-50"
+        className="rounded-lg bg-overlay px-4 py-1.5 text-[13px] text-ink-soft transition-colors hover:bg-overlay/70 hover:text-ink disabled:opacity-50"
       >
         重新验证
       </button>

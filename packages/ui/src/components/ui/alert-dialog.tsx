@@ -82,7 +82,7 @@ function AlertDialogAction({ className, ...props }: ComponentProps<typeof AlertD
     <AlertDialogPrimitive.Action
       data-slot="alert-dialog-action"
       className={cn(
-        "inline-flex items-center justify-center rounded-full bg-danger px-4 py-1.5 text-[13px] font-medium text-on-danger transition-colors outline-none hover:brightness-95 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+        "inline-flex items-center justify-center rounded-lg bg-danger px-4 py-1.5 text-[13px] font-medium text-on-danger transition-colors outline-none hover:brightness-95 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
         className,
       )}
       {...props}
@@ -95,7 +95,7 @@ function AlertDialogCancel({ className, ...props }: ComponentProps<typeof AlertD
     <AlertDialogPrimitive.Cancel
       data-slot="alert-dialog-cancel"
       className={cn(
-        "inline-flex items-center justify-center rounded-full px-4 py-1.5 text-[13px] text-ink-soft transition-colors outline-none hover:bg-overlay hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+        "inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-[13px] text-ink-soft transition-colors outline-none hover:bg-overlay hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
         className,
       )}
       {...props}

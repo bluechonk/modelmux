@@ -781,7 +781,7 @@ function QuotaBar({
     tone === "danger" ? "bg-danger" : tone === "warn" ? "bg-warn" : tone === "free" ? "bg-free" : "bg-line-strong";
   return (
     <>
-      <Progress value={pct ?? 0} className="h-1.5 min-w-0 flex-1" indicatorClassName={fill} />
+      <Progress value={pct ?? 0} className="h-2 min-w-0 flex-1" indicatorClassName={fill} />
       {/*
         百分比在窄卡片上也保留：账号池页首先要回答的是「这个渠道还剩多少」，
         只有一条无刻度的进度条读不出具体数字（`docs/WEB-CONSOLE.md` 的窄屏口径

@@ -6,7 +6,7 @@
  *
  * 本仓口径（原实现裁决保留）：
  *   - `fixedWidth`：触发器宽度按**最宽选项**量出后固定 —— 筛选栏里三个下拉并排，
- *     宽度一变就把相邻控件挤开；定宽时标签**水平居中**（左侧占位与箭头等宽）；
+ *     宽度一变就把相邻控件挤开；内容左对齐（shadcn 口径，定宽仅锁宽度不锁对齐）；
  *   - `widthBasis`：定宽基准文字（渠道按全部在册、日期按完整 YYYY-MM-DD）；
  *   - value 不在选项集里时回落第一个选项（显示与提交都用回落值）。
  */
@@ -20,8 +20,8 @@ export interface SelectOption {
   label: string;
 }
 
-/** 触发器内「占位 + 箭头 + 间隙 + 内边距 + 边框」的固定占位（px）。 */
-const TRIGGER_CHROME_W = 12 + 12 + 6 + 6 + 16 + 2;
+/** 触发器内「箭头 + 间隙 + 内边距 + 边框」的固定占位（px）。 */
+const TRIGGER_CHROME_W = 12 + 6 + 16 + 2;
 
 export function Select({
   value,
@@ -88,12 +88,8 @@ export function Select({
           style={fixedWidth && triggerWidth !== undefined ? { width: `${triggerWidth}px` } : undefined}
           className={fixedWidth ? "tap w-fit" : "tap"}
         >
-          {/*
-            定宽态：标签**水平居中**（左侧放一个与箭头等宽的占位，两侧对称才真正居中），
-            箭头固定在右（SelectTrigger 内置）。缺省态左对齐（内容决定宽度）。
-          */}
-          {fixedWidth && <span className="w-3 flex-none" aria-hidden="true" />}
-          <span className={fixedWidth ? "flex-1 text-center" : undefined}>{current?.label ?? "—"}</span>
+          {/* 定宽保留（切换选项不移位），内容左对齐 —— shadcn 口径 */}
+          <span>{current?.label ?? "—"}</span>
         </SelectTrigger>
         <SelectContent className="max-h-64">{options.map((o) => (
           <SelectItem key={o.value} value={o.value}>

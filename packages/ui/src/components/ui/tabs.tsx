@@ -1,8 +1,8 @@
 /**
  * Tabs（shadcn/ui 源码复制版，皮肤走本仓令牌桥 `--color-*`）。
  *
- * 与官方 new-york-v4 版的差异：触发器选中态用 accent 反转（bg-primary /
- * primary-foreground）而非「白底浮块」，与本仓既有分段控件观感一致。
+ * 与官方 new-york-v4 版的差异：选中态是 muted 容器上的**卡片浮块**（bg-card + shadow），
+ * 与 shadcn Tabs 默认一致；hover 文字提亮由封装层补。
  */
 
 import * as TabsPrimitive from "@radix-ui/react-tabs";
@@ -32,7 +32,7 @@ function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitiv
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-sm font-medium text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-sm font-medium text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-card data-[state=active]:text-ink data-[state=active]:shadow-sm [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}
