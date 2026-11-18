@@ -2,15 +2,24 @@
  * 危险操作确认弹窗（模态）。行内确认条会撑高账号行、确认键挤在行里易误点
  * —— 弹窗把「确认」这个决定隔离出来。
  *
- * 用 Radix AlertDialog：「模态确认」属于行为标准化、无业务差异的一类（焦点陷阱、
- * 焦点归还、滚动锁、alertdialog 接线），选型见 docs/WEB-CONSOLE.md；手写版没有
- * 焦点陷阱。Radix 无样式，视觉仍由本仓 Tailwind 令牌写；`Portal` 挂 `document.body`，
- * 顺带解决「账号卡 `@container` 成为 fixed 包含块、弹窗被裁切」的坑。
+ * 骨架是 shadcn AlertDialog（Radix AlertDialog：焦点陷阱、焦点归还、滚动锁）；
+ * Radix 无样式，视觉由 ui/alert-dialog 的类 + 本处传入布局。`Portal` 挂
+ * `document.body`，顺带解决「账号卡 `@container` 成为 fixed 包含块、弹窗被裁切」的坑。
  * 交互：ESC / 点遮罩 = 取消；默认焦点在「取消」（误按回车不删账号）。
  */
 
-import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { useCallback, type ReactElement, type ReactNode } from "react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 export function ConfirmDialog({
   title,
@@ -51,54 +60,41 @@ export function ConfirmDialog({
   return (
     // open 恒为 true：本组件由父组件按条件渲染（挂载即打开），
     // 取消走 onCancel、确认走 onConfirm，不给 Radix 自管开合的机会。
-    <AlertDialog.Root open>
-      <AlertDialog.Portal>
+    <AlertDialog open>
+      <AlertDialogPortal>
         {/*
           点遮罩 = 取消：走的是 Overlay 自己的 onClick。
           Radix 的 `AlertDialog` **刻意**把 `onPointerDownOutside` / `onInteractOutside`
           从 props 里去掉了（破坏性确认不该被误点关掉），所以要保留「点遮罩取消」
           只能自己接 —— 需求是「与手写版逐条一致」。
         */}
-        <AlertDialog.Overlay
+        <AlertDialogOverlay
           onClick={() => {
             if (!busy) cancel();
           }}
-          className="fixed inset-0 z-50 bg-black/70"
         />
-        <AlertDialog.Content
+        <AlertDialogContent
           // 按 ESC = 取消（Radix 默认也关，这里显式走 cancel 以便 busy 时挡住）
           onEscapeKeyDown={() => {
             if (!busy) cancel();
           }}
-          className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,24rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-raised p-5 shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
+          className="w-[min(92vw,24rem)] p-5"
         >
-          <AlertDialog.Title className="text-[15px] font-medium text-ink">{title}</AlertDialog.Title>
-          <AlertDialog.Description asChild>
-            <div className="mt-2 text-[13px] leading-relaxed text-ink-soft">{body}</div>
-          </AlertDialog.Description>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="mt-2">{body}</div>
+          </AlertDialogDescription>
           <div className="mt-5 flex justify-end gap-2">
             {/* 默认焦点放在取消上：误按回车不会删掉账号（Radix 的 Cancel 自动聚焦） */}
-            <AlertDialog.Cancel asChild>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={cancel}
-                className="rounded-full px-4 py-1.5 text-[13px] text-ink-soft transition-colors hover:bg-overlay hover:text-ink disabled:opacity-50"
-              >
-                {cancelLabel}
-              </button>
-            </AlertDialog.Cancel>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onConfirm}
-              className="rounded-full bg-danger px-4 py-1.5 text-[13px] font-medium text-on-danger transition-colors hover:brightness-95 disabled:opacity-50"
-            >
+            <AlertDialogCancel disabled={busy} onClick={cancel}>
+              {cancelLabel}
+            </AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={onConfirm}>
               {confirmLabel}
-            </button>
+            </AlertDialogAction>
           </div>
-        </AlertDialog.Content>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
+        </AlertDialogContent>
+      </AlertDialogPortal>
+    </AlertDialog>
   );
 }

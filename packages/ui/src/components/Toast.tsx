@@ -4,22 +4,20 @@
  * 「登录成功」这类已完成的事实看一眼就够，常驻横幅会一直占着页面顶部一行
  * —— 瞬时反馈一律用 toast；**错误也走 toast**（错误级停留 6s，swipe/手动可提前
  * 收掉），页面不再保留自绘常驻横幅，持续性错误由调用方按内容去重。
- * 用 Radix：无障碍接线（live region）等行为标准化，样式仍走本仓 Tailwind 令牌。
+ *
+ * 骨架是 shadcn Sonner（toast 库由 Radix Toast 换成 Sonner：堆叠动画与
+ * swipe 手势开箱即用）；对外 API（`useToast()` 的 success/info/error）不变。
+ * 主题跟随 `<html data-theme>`（lib/theme.ts 落属性，Sonner 自带的系统检测
+ * 与本仓「强制深色」模式冲突，由本处观察属性显式传入）。
  */
 
-import * as ToastPrimitive from "@radix-ui/react-toast";
-import { AlertCircle, Check, Info, X } from "lucide-react";
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { ReactElement, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { toast as sonner } from "sonner";
+
+import { Toaster } from "./ui/sonner";
 
 /** 提示语气：成功（绿点）/ 中性信息（灰点）/ 错误（红点，停留更久）。 */
 export type ToastTone = "success" | "info" | "error";
-
-interface ToastItem {
-  id: number;
-  tone: ToastTone;
-  message: string;
-}
 
 interface ToastApi {
   success: (message: string) => void;
@@ -41,40 +39,33 @@ const ERROR_DURATION_MS = 6000;
  * 两个页面都要能用，且不受路由切换影响。
  */
 export function ToastProvider({ children }: { children: ReactNode }): ReactElement {
-  const [items, setItems] = useState<ToastItem[]>([]);
-  const nextId = useRef(0);
-
-  const push = useCallback((tone: ToastTone, message: string): void => {
-    const id = nextId.current++;
-    setItems((prev) => [...prev, { id, tone, message }]);
-  }, []);
-
   const api = useMemo<ToastApi>(
     () => ({
-      success: (message) => push("success", message),
-      info: (message) => push("info", message),
-      error: (message) => push("error", message),
+      success: (message) => sonner.success(message, { duration: DURATION_MS }),
+      info: (message) => sonner.message(message, { duration: DURATION_MS }),
+      error: (message) => sonner.error(message, { duration: ERROR_DURATION_MS }),
     }),
-    [push],
+    [],
   );
+  const theme = useHtmlTheme();
 
   return (
     <ToastContext.Provider value={api}>
-      {/* 同时只挂一个 Viewport：Radix 要求 Provider 包住 Root，Viewport 只出现一次。
-          Toast 项必须是 Viewport 的**子节点**（Radix 用 Collection 把 Item 收进
-          Viewport）；放在 Viewport 外面不会被收集，也不参与焦点/ESC 语义。 */}
-      <ToastPrimitive.Provider duration={DURATION_MS} swipeDirection="right">
-        {children}
-        <ToastPrimitive.Viewport className="fixed bottom-0 right-0 z-[60] flex w-full flex-col gap-2 p-4 outline-none sm:max-w-sm">
-          {items.map((item) => (
-            <ToastItemView
-              key={item.id}
-              item={item}
-              onDone={() => setItems((prev) => prev.filter((t) => t.id !== item.id))}
-            />
-          ))}
-        </ToastPrimitive.Viewport>
-      </ToastPrimitive.Provider>
+      {children}
+      <Toaster
+        position="bottom-right"
+        theme={theme}
+        gap={8}
+        offset={16}
+        toastOptions={{
+          classNames: {
+            toast:
+              "!rounded-2xl !border-line !bg-raised !px-4 !py-3 !text-ink !shadow-[0_16px_40px_-20px_rgba(0,0,0,0.9)]",
+            title: "!text-[13px] !leading-relaxed !text-ink data-[type=error]:!text-danger",
+            closeButton: "!bg-raised !text-ink-faint hover:!text-ink",
+          },
+        }}
+      />
     </ToastContext.Provider>
   );
 }
@@ -92,54 +83,15 @@ export function useToast(): ToastApi {
 
 const SILENT_TOAST: ToastApi = { success: () => {}, info: () => {}, error: () => {} };
 
-/** 单条提示：Radix Root + 标题 + 关闭键。错误级停留更久（Root 级覆盖全局时长）。 */
-function ToastItemView({
-  item,
-  onDone,
-}: {
-  item: ToastItem;
-  onDone: () => void;
-}): ReactElement {
-  const success = item.tone === "success";
-  const failed = item.tone === "error";
-  return (
-    <ToastPrimitive.Root
-      // 关闭动画结束后才真正移除节点（Radix 的 open 双向绑定）
-      defaultOpen
-      duration={failed ? ERROR_DURATION_MS : undefined}
-      onOpenChange={(open) => {
-        if (!open) setTimeout(onDone, 200);
-      }}
-      className="panel flex items-start gap-2.5 px-4 py-3 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.9)] transition-opacity data-[state=closed]:opacity-0"
-    >
-      <span
-        className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full ${
-          success
-            ? "bg-free/14 text-free"
-            : failed
-              ? "bg-danger/14 text-danger"
-              : "bg-overlay text-ink-soft"
-        }`}
-      >
-        {success ? (
-          <Check className="h-2.5 w-2.5" />
-        ) : failed ? (
-          <AlertCircle className="h-2.5 w-2.5" />
-        ) : (
-          <Info className="h-2.5 w-2.5" />
-        )}
-      </span>
-      <ToastPrimitive.Title
-        className={`min-w-0 flex-1 text-[13px] leading-relaxed ${failed ? "text-danger" : "text-ink"}`}
-      >
-        {item.message}
-      </ToastPrimitive.Title>
-      <ToastPrimitive.Close
-        aria-label="关闭提示"
-        className="-mr-1 -mt-0.5 shrink-0 rounded p-0.5 text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-      >
-        <X className="h-3.5 w-3.5" />
-      </ToastPrimitive.Close>
-    </ToastPrimitive.Root>
-  );
+/** 当前深浅：读 `<html data-theme>` 并用 MutationObserver 跟进切换。 */
+function useHtmlTheme(): "light" | "dark" {
+  const read = (): "light" | "dark" =>
+    document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const [theme, setTheme] = useState<"light" | "dark">(read);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(read()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
 }

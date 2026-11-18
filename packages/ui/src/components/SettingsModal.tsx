@@ -8,7 +8,14 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import * as Dialog from "@radix-ui/react-dialog";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "./ui/dialog";
 import { ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 
@@ -174,10 +181,12 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
   const webUrl = base_url ? `${base_url.replace(/\/v1\/?$/, "")}/web/` : "";
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
-        <Dialog.Content
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPortal>
+        <DialogOverlay className="fixed inset-0 z-50 bg-black/70" />
+        <DialogContent
+          // 关闭钮是自绘的（头部那枚），不用组件内置角标，避免两枚重叠
+          showCloseButton={false}
           className="fixed left-1/2 top-1/2 z-50 flex h-[min(600px,85vh)] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
           aria-describedby={undefined}
         >
@@ -185,8 +194,8 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-overlay text-ink-soft">
               <Settings className="h-4 w-4" aria-hidden="true" />
             </span>
-            <Dialog.Title className="flex-1 text-sm font-medium text-ink">设置</Dialog.Title>
-            <Dialog.Close asChild>
+            <DialogTitle className="flex-1 text-sm font-medium text-ink">设置</DialogTitle>
+            <DialogClose asChild>
               <button
                 type="button"
                 aria-label="关闭设置"
@@ -194,7 +203,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
-            </Dialog.Close>
+            </DialogClose>
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 pb-5 sm:flex-row sm:gap-4">
@@ -343,28 +352,29 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
               )}
             </div>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </DialogContent>
+      </DialogPortal>
 
       {/* 检查更新结果：嵌套在设置弹窗之上的模态卡（非破坏性信息 + 明确主操作） */}
-      <Dialog.Root
+      <Dialog
         open={updateDialog !== null}
         onOpenChange={(next) => {
           if (!next) setUpdateDialog(null);
         }}
       >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70" />
-          <Dialog.Content
+        <DialogPortal>
+          <DialogOverlay className="fixed inset-0 z-[60] bg-black/70" />
+          <DialogContent
+            showCloseButton={false}
             className="fixed left-1/2 top-1/2 z-[60] w-[min(360px,calc(100vw-3rem))] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line-strong bg-raised p-5 shadow-2xl"
             aria-describedby={undefined}
           >
-            <Dialog.Title className="flex items-baseline gap-2 text-base text-ink">
+            <DialogTitle className="flex items-baseline gap-2 text-base text-ink">
               发现新版本
               <span className="rounded-md bg-overlay px-1.5 py-0.5 font-mono text-xs text-ink-soft">
                 {updateDialog?.version}
               </span>
-            </Dialog.Title>
+            </DialogTitle>
             <p className="mt-2 text-xs leading-6 text-ink-faint">
               当前 v{version} → 最新 {updateDialog?.version}。前往 GitHub Release 页下载安装包
               （安装器会自动替换，凭据保留在 ~/.modelmux 不丢）。
@@ -386,9 +396,9 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                 前往下载页
               </a>
             </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-    </Dialog.Root>
+          </DialogContent>
+        </DialogPortal>
+      </Dialog>
+    </Dialog>
   );
 }

@@ -11,7 +11,14 @@
  * 用 Radix Dialog：焦点陷阱等行为通用化，内层 JSX 只换最外层容器。
  */
 
-import * as Dialog from "@radix-ui/react-dialog";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "./ui/dialog";
 import { Check, Copy, Loader2, QrCode, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { LoginInputRequest } from "../lib/types";
@@ -247,11 +254,13 @@ export function LoginModal({
 
   return (
     // 恒 open：本组件按条件渲染（挂载即打开），关闭只走右上角那个键（见文件头）。
-    <Dialog.Root open>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
-        <Dialog.Content
+    <Dialog open>
+      <DialogPortal>
+        <DialogOverlay className="fixed inset-0 z-50 bg-black/70" />
+        <DialogContent
           aria-label={`添加账号：${cid}`}
+          // 关闭钮是自绘的（头部那枚），不用组件内置角标，避免两枚重叠
+          showCloseButton={false}
           // 与手写版逐条一致：ESC 与「点遮罩之外」都**不**关闭 ——
           // 登录进行中误触会丢流程（需求：仅关闭键可关）。
           onEscapeKeyDown={(e) => e.preventDefault()}
@@ -260,19 +269,19 @@ export function LoginModal({
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
         >
           {/* 渠道行：图标 + cid + 展示名 + 一句登录方式。
-              标题必须是 `Dialog.Title`：Radix 用它接 `aria-labelledby`，
+              标题必须是 `DialogTitle`：Radix 用它接 `aria-labelledby`，
               少了它屏幕阅读器读不出这个对话框叫什么。 */}
           <div className="flex items-center gap-3 px-5 pt-5 pb-3.5">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-overlay text-ink-soft">
               <QrCode className="h-4 w-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="flex items-baseline gap-2">
+              <DialogTitle className="flex items-baseline gap-2">
                 <span className="truncate font-mono text-sm font-medium text-ink">{cid}</span>
                 <span className="truncate text-[13px] font-normal text-ink-faint">
                   {display ?? "渠道账号"}
                 </span>
-              </Dialog.Title>
+              </DialogTitle>
               {/* 副行只说「哪种登录方式」，不再重复「步骤 x/y · 状态」（进度由下方进度条承担） */}
               <div className="mt-0.5 text-xs text-ink-faint">
                 {loginInput
@@ -381,9 +390,9 @@ export function LoginModal({
               {footerText}
             </span>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </DialogContent>
+      </DialogPortal>
+    </Dialog>
   );
 }
 

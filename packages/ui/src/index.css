@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* shadcn 组件源码的进出场动画类（animate-in / fade-in-0 / zoom-in-95 …） */
+@import "tw-animate-css";
 
 /**
  * 设计令牌（Tailwind v4 的 `@theme`）。
@@ -55,6 +57,35 @@
   --color-series-5: #7dcfff;
   --color-series-6: #f7768e;
   --color-series-7: #9d7cd8;
+}
+
+/*
+ * shadcn/ui 令牌桥（`@theme inline`：工具类引用变量本身而非拷贝值，随 data-theme 联动）。
+ *
+ * `components/ui/` 下复制进仓的 shadcn 组件源码只用这一组语义类（bg-background /
+ * border-border / text-muted-foreground …）；这里把它们映射到上方本仓令牌，
+ * 第一期不动视觉皮肤。设计系统整站迁移（第二期）时只改本块的映射值。
+ */
+@theme inline {
+  --color-background: var(--color-canvas);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-raised);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-raised);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-brand);
+  --color-primary-foreground: var(--color-on-brand);
+  --color-secondary: var(--color-overlay);
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted: var(--color-overlay);
+  --color-muted-foreground: var(--color-ink-soft);
+  --color-accent: var(--color-overlay);
+  --color-accent-foreground: var(--color-ink);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--color-on-danger);
+  --color-border: var(--color-line);
+  --color-input: var(--color-line);
+  --color-ring: var(--color-brand);
 }
 
 /*
