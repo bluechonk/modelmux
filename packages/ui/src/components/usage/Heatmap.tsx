@@ -238,7 +238,7 @@ export function Heatmap({
                           setHover((prev) => (prev === null || prev.date !== cell.date ? prev : { ...prev, x: event.clientX, y: event.clientY }))
                         }
                         onMouseLeave={() => setHover(null)}
-                        className={`aspect-square w-full rounded-[3px] border border-transparent transition-transform hover:scale-125 hover:border-line ${LEVEL_CLASS[cell.level]}`}
+                        className={`aspect-square w-full rounded-[3px] border border-transparent transition-[transform,background-color] duration-150 hover:scale-125 hover:border-line motion-reduce:transition-none ${LEVEL_CLASS[cell.level]}`}
                       />
                     ),
                   )}
