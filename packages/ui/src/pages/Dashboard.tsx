@@ -543,7 +543,9 @@ export function Dashboard(): ReactElement {
             <PlugZap className="h-4 w-4 text-ink-faint" />
             一键接入
           </div>
-          <div className="grid grid-cols-1 gap-2.5">
+          {/* flex-1 + content-center：两张开关卡垂直居中吃掉等高带来的余量，
+              不再在卡底堆出一整块空白 */}
+          <div className="grid flex-1 grid-cols-1 content-center gap-2.5">
             {INTEGRATE_CLIENTS.map(({ target, icon, name }) => (
               <IntegrateSwitchCard
                 key={target}
