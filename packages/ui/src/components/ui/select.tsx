@@ -36,14 +36,14 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "group/select flex w-fit items-center justify-between gap-1.5 rounded-lg border border-line bg-raised px-2 py-1 text-xs whitespace-nowrap text-ink transition-colors outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+        "group/select relative flex w-fit items-center justify-center gap-1.5 rounded-lg border border-line bg-raised px-2 py-1 text-xs whitespace-nowrap text-ink transition-colors outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="h-3 w-3 flex-none opacity-70 transition-transform duration-150 group-data-[state=open]/select:rotate-180" />
+        <ChevronDown className="absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 opacity-70" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
