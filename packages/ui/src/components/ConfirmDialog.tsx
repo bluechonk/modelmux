@@ -52,9 +52,10 @@ export function ConfirmDialog({
   // 取消是唯一「弹窗关掉但触发键还在」的路径（确认会删掉那一行），故只在这里还焦点。
   const cancel = useCallback((): void => {
     onCancel();
-    // 必须**延到下一帧**：Radix 的 FocusScope 在卸载时会把焦点收回它挂载时捕获的
-    // 元素（实测是 `BODY`），同步调用 `focus()` 会被它覆盖掉。
-    requestAnimationFrame(() => returnFocusTo?.focus?.());
+    // 必须**延到两帧之后**：Radix 的 FocusScope 在卸载时会把焦点收回它挂载时捕获的
+    // 元素（实测是 `BODY`），同步调用 `focus()` 会被它覆盖掉；单帧 rAF 又早于
+    // DropdownMenu 关闭时的焦点归还（触发键在菜单 portal 卸载后才复位），同样被覆盖。
+    requestAnimationFrame(() => requestAnimationFrame(() => returnFocusTo?.focus?.()));
   }, [returnFocusTo, onCancel]);
 
   return (

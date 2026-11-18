@@ -9,7 +9,7 @@
  * 默认隐藏、悬停账号行才出现，触屏常显。
  */
 
-import { ArrowLeftRight, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, ChevronUp, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PoolAccount } from "../lib/types";
 import type { ReactElement, ReactNode } from "react";
@@ -18,6 +18,12 @@ import { formatRecoveryAt, formatTokens } from "../lib/log-format";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Badge } from "./ui/badge";
 import { Card } from "./ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { Progress } from "./ui/progress";
 import { Skeleton } from "./ui/skeleton";
 
@@ -336,6 +342,20 @@ export function AccountCard({
   useEffect(() => {
     if (busyKey !== null) setPendingRemove(null);
   }, [busyKey]);
+  // 取消/确认后把焦点还给「…」触发键。ConfirmDialog 卸载时 Radix FocusScope 会把焦点
+  // 还给 BODY，且归还发生在 commit 之后的异步帧（rAF 实测压不住，effect 同步 focus 同样被覆盖）；
+  // 150ms 是所有 portal 归还链落定后的窗口。删除成功时触发键随行卸载，focus() 落空无害。
+  const hadPendingRemove = useRef(false);
+  useEffect(() => {
+    if (pendingRemove) {
+      hadPendingRemove.current = true;
+      return;
+    }
+    if (hadPendingRemove.current) {
+      hadPendingRemove.current = false;
+      setTimeout(() => removeTriggerRef.current?.focus?.(), 150);
+    }
+  }, [pendingRemove]);
   const accounts = [...pool.index.accounts]
     .map(rowOf)
     .sort((a, b) => {
@@ -564,35 +584,44 @@ export function AccountCard({
                   )}
                   </div>
                   {/*
-                    操作区：`≥ md` 固定 52px（切换 + 删除两个图标键）；`< md` 放宽到 76px ——
-                    两个键各自撑到 36px 的触控下限后，52px 装不下。
-                    **默认隐藏，鼠标悬停该账号行才出现**（删除/切换不常使用）；
-                    键盘聚焦（`group-focus-within`）时也出现；触屏设备（`pointer-coarse`）常显 ——
-                    触屏没有悬停。
+                    操作区：单枚「…」DropdownMenu，恒可见 —— 旧的两枚行内键靠
+                    `pointer-fine` 悬停显形 + 触屏常显两条路径，菜单版点击展开、
+                    不依赖 hover（更贴「正文信息不得只靠 hover」铁律），行右侧也更干净。
+                    宽度 32px（旧 52/76 是两枚键的占位）。删除仍走 ConfirmDialog，
+                    取消后焦点还给打开菜单的那枚「…」。
                   */}
-                  <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5 opacity-100 transition-opacity max-md:w-[76px] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
-                    {!active && (
-                      <button
-                        className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-brand disabled:opacity-40"
+                  <div className="flex w-8 shrink-0 items-center justify-end">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-overlay hover:text-ink data-[state=open]:bg-overlay data-[state=open]:text-ink disabled:opacity-40"
                         disabled={busyKey !== null}
-                        onClick={() => onActivate(pool.cid, account.key)}
-                        aria-label="切换为生效账号"
+                        aria-label={`${displayName(account)} 的操作`}
+                        onPointerDown={(e) => {
+                          // 记下本行触发键：取消确认时焦点要还到这里（见 ConfirmDialog 注释）。
+                          // 不能用 onClick —— Radix 在 pointerdown 就打开菜单并 preventDefault，
+                          // click 不派发（实测 ref 恒 null，归还全落空）；onPointerDown 是 React
+                          // 合成事件，不受 preventDefault 影响，且此刻焦点尚未被菜单 FocusScope 接管。
+                          removeTriggerRef.current = e.currentTarget;
+                        }}
                       >
-                        <ArrowLeftRight className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    <button
-                      className="tap-square shrink-0 rounded p-1 text-ink-faint transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
-                      disabled={busyKey !== null}
-                      onClick={(e) => {
-                        // 记下触发键：取消确认时焦点要还到这里（见 ConfirmDialog 注释）
-                        removeTriggerRef.current = e.currentTarget;
-                        setPendingRemove({ key: account.key, name: displayName(account), active });
-                      }}
-                      aria-label={active ? "删除生效账号（同时登出）" : "从池中删除"}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {!active && (
+                          <DropdownMenuItem onSelect={() => onActivate(pool.cid, account.key)}>
+                            <ArrowLeftRight />
+                            切换为生效账号
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setPendingRemove({ key: account.key, name: displayName(account), active })}
+                        >
+                          <Trash2 />
+                          {active ? "删除生效账号（同时登出）" : "从池中删除"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
                 </li>
