@@ -16,6 +16,10 @@ import type { ReactElement, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { formatRecoveryAt, formatTokens } from "../lib/log-format";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Badge } from "./ui/badge";
+import { Card } from "./ui/card";
+import { Progress } from "./ui/progress";
+import { Skeleton } from "./ui/skeleton";
 
 /**
  * 账号池卡片的数据形状（直接吃 /api/commands 的宽松 JSON）。
@@ -398,7 +402,7 @@ export function AccountCard({
     // 现在仍会有行内留白（`items-start` 只让卡片不被拉伸，**行轨道高度仍由该行最高的卡决定**），
     // 但留白落在网格背景上，比整行重排安静得多 —— 这是刻意接受的取舍。
     <>
-    <div className="panel flex flex-col overflow-hidden transition-colors">
+    <Card className="gap-0 overflow-hidden transition-colors">
       {/* 卡头：cid + 账号数（同一行，紧跟渠道名） + 添加按钮；额度周期另起一行。
           状态在各自的账号行上，渠道不显示状态。 */}
       <div className="flex items-center gap-3 px-4 py-3">
@@ -495,7 +499,7 @@ export function AccountCard({
                   {/* 状态 + 额度模块：状态 pill 贴着进度条，与名称的分界恒定（两个
                       flex-1 平分一行），视觉上是一组而不是「名称的附件」 */}
                   <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className={`pill shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</span>
+                    <Badge className={`shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</Badge>
                     {failStreak > 0 && (health === "ok" || health === "unknown") && (
                       <span className="pill shrink-0 bg-warn/12 text-warn">连败 {failStreak}</span>
                     )}
@@ -548,8 +552,8 @@ export function AccountCard({
                     >
                       {billingLoading ? (
                         <>
-                          <span className="h-1.5 min-w-0 flex-1 animate-pulse rounded-full bg-overlay" />
-                          <span className="h-2 w-8 shrink-0 animate-pulse rounded bg-overlay" />
+                          <Skeleton className="h-1.5 min-w-0 flex-1 rounded-full" />
+                          <Skeleton className="h-2 w-8 shrink-0" />
                         </>
                       ) : billingError && !bill?.billing_at ? (
                         <span className="shrink-0 text-xs text-warn">账单失败</span>
@@ -655,7 +659,7 @@ export function AccountCard({
           }
         />
       )}
-    </div>
+    </Card>
       {/* 额度详情浮层（portal 到 body）：数值逐行 + 状态说明；悬停/聚焦显示、点击固定 */}
       {detail && detailAccount && (
         <AccountDetailPanel anchor={detail.anchor}>
@@ -748,9 +752,7 @@ function QuotaBar({
     tone === "danger" ? "bg-danger" : tone === "warn" ? "bg-warn" : tone === "free" ? "bg-free" : "bg-line-strong";
   return (
     <>
-      <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-overlay">
-        <span className={`block h-full rounded-full ${fill}`} style={{ width: `${pct ?? 0}%` }} />
-      </span>
+      <Progress value={pct ?? 0} className="h-1.5 min-w-0 flex-1" indicatorClassName={fill} />
       {/*
         百分比在窄卡片上也保留：账号池页首先要回答的是「这个渠道还剩多少」，
         只有一条无刻度的进度条读不出具体数字（`docs/WEB-CONSOLE.md` 的窄屏口径

@@ -10,6 +10,14 @@
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "../components/ui/pagination";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { api } from "../lib/api";
 import {
   countOrDash,
@@ -336,7 +344,7 @@ const LOG_COLS: LogCol[] = [
 function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
   const meta = OUTCOME_META[entry.outcome];
   return (
-    <td className="whitespace-nowrap px-1 py-2 align-top">
+    <TableCell className="whitespace-nowrap px-1 py-2 align-top">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 text-xs">
         <span
           className={`justify-self-end block h-1.5 w-1.5 rounded-full ${meta.dot}`}
@@ -345,7 +353,7 @@ function ResultCell({ entry }: { entry: AccessLogEntry }): ReactElement {
         <span className={meta.text}>{meta.label}</span>
         <span className="justify-self-start font-mono text-ink-faint">{entry.status ?? "-"}</span>
       </div>
-    </td>
+    </TableCell>
   );
 }
 
@@ -371,7 +379,7 @@ function LogCell({
     // 宽屏一行完整 `YYYY-MM-DD HH:MM:SS`（「全部时间」下跨天看混过）；窄屏拆两行（日期在上）
     case "time":
       return (
-        <td className="whitespace-nowrap py-2 pl-3 pr-1 align-top font-mono text-xs tabular text-ink-soft">
+        <TableCell className="whitespace-nowrap py-2 pl-3 pr-1 align-top font-mono text-xs tabular text-ink-soft">
           {narrow ? (
             <span className="flex flex-col items-center leading-tight">
               <span>{formatDate(entry.ts)}</span>
@@ -380,34 +388,34 @@ function LogCell({
           ) : (
             formatTimestamp(entry.ts)
           )}
-        </td>
+        </TableCell>
       );
     case "result":
       return <ResultCell entry={entry} />;
     case "channel":
       return (
-        <td className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-soft">
+        <TableCell className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-soft">
           {entry.cid ?? <span className="text-ink-faint">-</span>}
-        </td>
+        </TableCell>
       );
     case "model":
       return (
-        <td className="break-words px-1 py-2 align-top text-xs text-ink-soft">
+        <TableCell className="break-words px-1 py-2 align-top text-xs text-ink-soft">
           {entry.model ? (
             <BreakableId value={entry.model} />
           ) : (
             <span className="font-mono text-ink-faint">{entry.path ?? "-"}</span>
           )}
-        </td>
+        </TableCell>
       );
     case "duration":
-      return <td className={numClass}>{formatDuration(entry.durationMs)}</td>;
+      return <TableCell className={numClass}>{formatDuration(entry.durationMs)}</TableCell>;
     case "tokensPerSec":
-      return <td className={numClass}>{formatTokensPerSec(entry)}</td>;
+      return <TableCell className={numClass}>{formatTokensPerSec(entry)}</TableCell>;
     case "cache":
-      return <td className={numClass}>{cacheHitRateText(entry.tokens?.cache)}</td>;
+      return <TableCell className={numClass}>{cacheHitRateText(entry.tokens?.cache)}</TableCell>;
     case "tokens":
-      return <td className={numClass}>{tokensPairText(entry.tokens)}</td>;
+      return <TableCell className={numClass}>{tokensPairText(entry.tokens)}</TableCell>;
   }
 }
 
@@ -455,27 +463,27 @@ function LogTable({
         */}
         {/* min-w 340：三列的窄表里「HH:MM:SS」需要 57px（时间 17%），300px 下再怎么调
             比例都装不下 —— 低于 340 的视口转内层横滚，ScrollFade 在右缘提示 */}
-        <table className="w-full table-fixed border-collapse text-center text-sm min-w-[340px] md:min-w-[720px]">
+        <Table className="w-full table-fixed border-collapse text-center text-sm min-w-[340px] md:min-w-[720px]">
           <colgroup>
             {cols.map((col) => (
               <col key={col.key} style={widths[col.key] ? { width: widths[col.key] } : undefined} />
             ))}
           </colgroup>
-          <thead>
-            <tr className="border-b border-line text-left text-xs text-ink-faint">
+          <TableHeader>
+            <TableRow className="border-b border-line text-left text-xs text-ink-faint">
               {cols.map((col) => (
-                <th key={col.key} className={headClass(col.key)}>
+                <TableHead key={col.key} className={headClass(col.key)}>
                   {col.label}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {page.entries.map((entry) => {
               const open = expanded === entry.id;
               return (
                 <Fragment key={entry.id}>
-                  <tr
+                  <TableRow
                     // `>` 箭头列移除后，展开交互 = 整行点击 + 行焦点（键盘 Enter / 空格）
                     tabIndex={0}
                     aria-expanded={open}
@@ -493,19 +501,19 @@ function LogTable({
                     {cols.map((col) => (
                       <LogCell key={col.key} col={col} entry={entry} narrow={narrow} />
                     ))}
-                  </tr>
+                  </TableRow>
                   {open && (
-                    <tr className="border-b border-line">
-                      <td colSpan={cols.length} className="p-0">
+                    <TableRow className="border-b border-line">
+                      <TableCell colSpan={cols.length} className="p-0">
                         <LogDetail entry={entry} />
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )}
                 </Fragment>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </ScrollFade>
 
       <Pager
@@ -534,34 +542,34 @@ function Pager({
   onPageChange: (page: number) => void;
   loading: boolean;
 }): ReactElement {
-  const navCls = (disabled: boolean): string =>
-    `tap-square grid h-7 w-7 place-items-center rounded-lg border border-line text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40`;
   return (
-    <div className="shrink-0 border-t border-line/70 bg-canvas/95 px-3 py-2">
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          aria-label="上一页"
-          disabled={pageNum <= 1 || loading}
-          onClick={() => onPageChange(pageNum - 1)}
-          className={navCls(pageNum <= 1 || loading)}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <span className="min-w-16 text-center text-xs tabular text-ink-soft">
-          {pageNum} / {totalPages}
-        </span>
-        <button
-          type="button"
-          aria-label="下一页"
-          disabled={pageNum >= totalPages || loading}
-          onClick={() => onPageChange(pageNum + 1)}
-          className={navCls(pageNum >= totalPages || loading)}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+    <Pagination aria-label="分页" className="shrink-0 border-t border-line/70 bg-canvas/95 px-3 py-2">
+      <PaginationContent className="w-full justify-end gap-2">
+        <PaginationItem>
+          <PaginationPrevious
+            disabled={pageNum <= 1 || loading}
+            onClick={() => onPageChange(pageNum - 1)}
+            className="tap-square h-7"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </PaginationPrevious>
+        </PaginationItem>
+        <PaginationItem>
+          <span className="min-w-16 text-center text-xs tabular text-ink-soft">
+            {pageNum} / {totalPages}
+          </span>
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationNext
+            disabled={pageNum >= totalPages || loading}
+            onClick={() => onPageChange(pageNum + 1)}
+            className="tap-square h-7"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </PaginationNext>
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   );
 }
 

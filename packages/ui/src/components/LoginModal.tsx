@@ -21,6 +21,9 @@ import {
 } from "./ui/dialog";
 import { Check, Copy, Loader2, QrCode, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Skeleton } from "./ui/skeleton";
 import type { LoginInputRequest } from "../lib/types";
 import { useToast } from "./Toast";
 import { GeetestCaptcha } from "./GeetestCaptcha";
@@ -607,22 +610,22 @@ function PhoneLoginForm({
       }}
     >
       <div className="space-y-1.5">
-        <label htmlFor="login-phone" className="block text-xs text-ink-faint">
+        <Label htmlFor="login-phone" className="text-xs text-ink-faint">
           手机号
-        </label>
+        </Label>
         {/* `+86` 做成独立前缀块：与输入框同一行、同一视觉高度，
             比把区号塞进占位文字里更清楚「这里只填 11 位」。 */}
         <div className="flex items-center gap-2">
           <span className="grid shrink-0 place-items-center rounded-[10px] border border-line bg-surface px-2.5 py-2.5 font-mono text-xs text-ink-faint">
             +86
           </span>
-          <input
+          <Input
             id="login-phone"
             inputMode="tel"
             autoComplete="tel"
             autoFocus
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 py-2.5 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
+            className="flex-1 font-mono focus:border-line-strong"
             placeholder="11 位手机号"
             value={phone}
             onChange={(e) => onPhone(e.target.value)}
@@ -631,18 +634,18 @@ function PhoneLoginForm({
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor="login-code" className="block text-[13px] font-medium text-ink">
+        <Label htmlFor="login-code" className="text-[13px] font-medium text-ink">
           验证码
-        </label>
+        </Label>
         {/* 第二行：左验证码输入框，右「获取验证码」 */}
         <div className="flex items-center gap-2">
-          <input
+          <Input
             id="login-code"
             inputMode="numeric"
             autoComplete="one-time-code"
             spellCheck={false}
             disabled={!codePending}
-            className="min-w-0 flex-1 rounded-lg border border-line bg-canvas/60 px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none disabled:opacity-50"
+            className="flex-1 rounded-lg bg-canvas/60 py-2 font-mono focus:border-line-strong"
             placeholder={codePending ? "6 位验证码" : "先获取验证码"}
             value={code}
             onChange={(e) => onCode(e.target.value)}
@@ -690,23 +693,23 @@ function LoginSkeleton(): ReactElement {
   return (
     <div className="space-y-1" aria-hidden="true">
       <div className="flex gap-3">
-        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-overlay" />
+        <Skeleton className="h-6 w-6 shrink-0 rounded-full" />
         <div className="min-w-0 flex-1">
-          <div className="h-4 w-24 animate-pulse rounded bg-overlay" />
-          <div className="mt-2.5 h-8 w-36 animate-pulse rounded-lg bg-overlay" />
-          <div className="mt-2 h-8 w-full animate-pulse rounded-lg bg-canvas/60" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="mt-2.5 h-8 w-36 rounded-lg" />
+          <Skeleton className="mt-2 h-8 w-full rounded-lg bg-canvas/60" />
         </div>
       </div>
       <div className="flex gap-3 pt-3">
-        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-line" />
-        <div className="h-4 w-40 animate-pulse rounded bg-line" />
+        <Skeleton className="h-6 w-6 shrink-0 rounded-full bg-line" />
+        <Skeleton className="h-4 w-40 bg-line" />
       </div>
       <div className="flex gap-3 pt-3">
-        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-line" />
+        <Skeleton className="h-6 w-6 shrink-0 rounded-full bg-line" />
         <div className="min-w-0 flex-1">
-          <div className="h-4 w-32 animate-pulse rounded bg-line" />
-          <div className="mt-2 h-3 w-full animate-pulse rounded bg-line" />
-          <div className="mt-1.5 h-3 w-2/3 animate-pulse rounded bg-line" />
+          <Skeleton className="h-4 w-32 bg-line" />
+          <Skeleton className="mt-2 h-3 w-full bg-line" />
+          <Skeleton className="mt-1.5 h-3 w-2/3 bg-line" />
         </div>
       </div>
     </div>

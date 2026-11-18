@@ -6,6 +6,8 @@
 
 import type { ReactElement } from "react";
 
+import { Card } from "./ui/card";
+
 export type KpiTone = "free" | "danger" | "warn" | "muted";
 
 const TONE_TEXT: Record<KpiTone, string> = {
@@ -37,7 +39,7 @@ export function KpiCard({
 }): ReactElement {
   const resolved = tone ?? "muted";
   return (
-    <div className="flex items-start gap-2 rounded-xl border border-line bg-raised px-3 py-3.5 sm:gap-3 sm:px-4">
+    <Card className="flex-row items-start gap-2 rounded-xl px-3 py-3.5 sm:gap-3 sm:px-4">
       <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${TONE_TEXT[resolved]}`} />
       <div className="min-w-0">
         <div className="text-xs leading-snug text-ink-faint">{label}</div>
@@ -46,6 +48,6 @@ export function KpiCard({
         </div>
         {sub !== undefined && <div className="mt-0.5 text-xs text-ink-faint">{sub}</div>}
       </div>
-    </div>
+    </Card>
   );
 }
