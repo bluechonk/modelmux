@@ -55,7 +55,13 @@ $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($boot, $repeat) -Settings $settings -RunLevel Limited -Force | Out-Null
+# S4U（Service For User）：以用户身份跑在非交互会话，不存密码也不分配控制台——
+# Interactive 登录类型下 node.exe 是控制台程序，每分钟触发都新建一个 conhost 窗口
+# 一闪（实测 2026-11-18 用户桌面抓到）。网关与守护都是纯回环 HTTP/文件操作，
+# 不需要交互桌面；若改回 Interactive 必须另加隐藏启动器，否则弹窗回归。
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($boot, $repeat) `
+  -Settings $settings -Principal $principal -Force | Out-Null
 Start-ScheduledTask -TaskName $taskName
 Write-Output "已注册并启动计划任务：$taskName"
 
