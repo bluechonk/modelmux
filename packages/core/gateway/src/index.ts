@@ -186,5 +186,9 @@ export {
 export type { PoolStore } from "./runtime/pool-store.js";
 export { FsPoolStore, setPoolStore, poolStore } from "./runtime/pool-store.js";
 
+// 租户上下文与门禁端口（S2，docs/SAAS-REDESIGN.md）
+export type { TenantContext, TenantGate, SettleInput } from "./runtime/tenant-context.js";
+export { runInTenant, currentTenant, setTenantGate, tenantGate } from "./runtime/tenant-context.js";
+
 // CLI 入口
 export { main, usage } from "./app/cli/index.js";

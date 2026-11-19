@@ -13,6 +13,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { channelCapabilities, type Channel } from "../../runtime/channel.js";
 import { getRequestLog, noteClientPayload, noteRequestError } from "../../runtime/log-store.js";
+import { runInTenant, tenantGate } from "../../runtime/tenant-context.js";
 import { ROTATABLE_CODES, rotateExhaustedAccount } from "../../pool/account-rotate.js";
 import { resolveInboundModel } from "../../pool/inbound-model.js";
 import type { GatewayOptions } from "../server.js";
@@ -52,6 +53,58 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
 // ── 路由 ──────────────────────────────────────────────────────────────────────
 
 /**
+ * 租户门禁预检（S2，docs/SAAS-REDESIGN.md §6）：gate 未注入（本机形态）直通，
+ * 请求路径零变化。服务形态下依次认证 → 模型白名单 → 额度预扣，拒绝即应答；
+ * 通过后把请求包进 `runInTenant`，并在 RequestLog 上留记账关联 ——
+ * 结算由 log-store finish hook 统一做（res finish 回调的 ALS 上下文到不了这里）。
+ */
+async function withTenantGate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  model: string,
+  next: () => Promise<void>,
+): Promise<void> {
+  const gate = tenantGate();
+  if (gate === null) {
+    await next();
+    return;
+  }
+  const log = getRequestLog(res);
+  if (log === undefined) {
+    // attachRequestLog 在路由层必挂；缺失说明装配异常，宁可拒绝也不漏记账
+    writeJsonError(res, 500, "internal_error", "request log context missing");
+    return;
+  }
+  // 白名单与计费对**归一后的对外模型名**判定（角色名/别名先过家族表）
+  const resolved = resolveInboundModel(model);
+  const canonical = resolved.target ?? model;
+  const auth = String(req.headers.authorization ?? "");
+  const apiKey = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+  const tenantId = await gate.authenticate(apiKey);
+  if (tenantId === null) {
+    writeJsonError(res, 401, "authentication_error", "invalid or missing api key");
+    return;
+  }
+  const allowed = await gate.allowedModels(tenantId);
+  if (!allowed.includes(canonical)) {
+    writeJsonError(res, 403, "permission_error", `model ${canonical} not granted to tenant`);
+    return;
+  }
+  const held = await gate.hold(canonical, tenantId, log.id);
+  if (!held.ok) {
+    writeJsonError(
+      res,
+      402,
+      "insufficient_quota",
+      held.reason === "insufficient" ? "tenant quota insufficient" : `hold rejected: ${held.reason ?? "unknown"}`,
+    );
+    return;
+  }
+  log.tenant = { id: tenantId, requestId: log.id };
+  await runInTenant({ tenantId, requestId: log.id }, next);
+}
+
+/**
  * 失败后**允许**先查账单再换号的错误码。
  *
  * 集合本体在 `pool/account-rotate.ts` —— 产出点（`attempt.ts` 的额度短路与上游额度
@@ -67,7 +120,7 @@ export async function handleChat(
   // A 段：请求解析与校验（已应答则直接返回）
   const parsed = await parseChatRequest(req, res);
   if (!parsed) return;
-  await dispatchChat(parsed, res, opts, null);
+  await withTenantGate(req, res, parsed.model, () => dispatchChat(parsed, res, opts, null));
 }
 
 // ── 入站协议：Anthropic Messages 与 OpenAI Responses ─────────────────────────
@@ -148,16 +201,18 @@ export async function handleMessages(
   const model = resolved.target;
   attachProtocol(res, anthropicProtocol, model);
   noteChatRequestStats(res, text.payload, model, text.messages, parsedBody.raw);
-  await dispatchChat(
-    {
-      payload: { ...text.payload, model },
-      model,
-      messages: text.messages,
-      raw: parsedBody.raw,
-    },
-    res,
-    opts,
-    anthropicProtocol,
+  await withTenantGate(req, res, model, () =>
+    dispatchChat(
+      {
+        payload: { ...text.payload, model },
+        model,
+        messages: text.messages,
+        raw: parsedBody.raw,
+      },
+      res,
+      opts,
+      anthropicProtocol,
+    ),
   );
 }
 
@@ -185,16 +240,18 @@ export async function handleResponses(
   const model = resolved.target;
   attachProtocol(res, responsesProtocol, model);
   noteChatRequestStats(res, text.payload, model, text.messages, parsedBody.raw);
-  await dispatchChat(
-    {
-      payload: { ...text.payload, model },
-      model,
-      messages: text.messages,
-      raw: parsedBody.raw,
-    },
-    res,
-    opts,
-    responsesProtocol,
+  await withTenantGate(req, res, model, () =>
+    dispatchChat(
+      {
+        payload: { ...text.payload, model },
+        model,
+        messages: text.messages,
+        raw: parsedBody.raw,
+      },
+      res,
+      opts,
+      responsesProtocol,
+    ),
   );
 }
 

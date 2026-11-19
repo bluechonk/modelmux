@@ -12,7 +12,7 @@ const [marker] = process.argv.slice(2);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const chunks = [];
-const child = spawn(process.execPath, ["--test", "--test-force-exit", "--test-timeout=120000", join(root, "tests", "pg-store.test.ts")], {
+const child = spawn(process.execPath, ["--test", "--test-force-exit", "--test-timeout=120000", join(root, "tests", "*.test.ts")], {
   cwd: root,
 });
 child.stdout.on("data", (c) => chunks.push(c));

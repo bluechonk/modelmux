@@ -7,10 +7,30 @@
  */
 
 import { setPoolStore, type PoolStore } from "./pool-store.js";
+import { onRequestFinished } from "./log-store.js";
+import { setTenantGate } from "./tenant-context.js";
+
+/** TenantStore 的动态面：bootstrap 只按方法签名取用，不静态依赖 store 包。 */
+interface TenantStoreLike {
+  init(): Promise<void>;
+  authenticate(apiKey: string): Promise<string | null>;
+  allowedModels(tenantId: string): Promise<string[]>;
+  hold(tenantId: string, requestId: string, amountUsd: string): Promise<{ ok: boolean; reason?: string }>;
+  estimateHoldUsd(model: string): Promise<string>;
+  settle(input: {
+    tenantId: string;
+    requestId: string;
+    model: string;
+    cid: string;
+    outcome: "success" | "failure";
+    usage: Record<string, unknown> | undefined;
+  }): Promise<void>;
+}
 
 export async function bootstrapStore(): Promise<void> {
   const mode = process.env.MODELMUX_STORE?.trim() || "fs";
-  if (mode === "fs") return;
+  const tenantMode = process.env.MODELMUX_TENANT_MODE?.trim() === "on";
+  if (mode === "fs" && !tenantMode) return;
   if (mode !== "pg") {
     throw new Error(`MODELMUX_STORE 取值未知：${mode}（预期 fs | pg）`);
   }
@@ -21,7 +41,46 @@ export async function bootstrapStore(): Promise<void> {
   const specifier = ["@modelmux", "store"].join("/");
   const mod = (await import(specifier)) as {
     createPgPoolStore: (options: { dsn: string; pollIntervalMs?: number }) => Promise<PoolStore>;
+    TenantStore: new (options: { dsn: string }) => TenantStoreLike;
   };
   const store = await mod.createPgPoolStore({ dsn });
   setPoolStore(store);
+
+  // 租户形态（S2）：门禁注入 + finish hook 结算。gate 只在 MODELMUX_TENANT_MODE=on
+  // 时装配 —— 未开启的进程 gate=null，请求路径与本机形态完全一致。
+  if (tenantMode) {
+    const tenants = new mod.TenantStore({ dsn });
+    await tenants.init();
+    setTenantGate({
+      authenticate: (apiKey) => (apiKey === null ? Promise.resolve(null) : tenants.authenticate(apiKey)),
+      allowedModels: (tenantId) => tenants.allowedModels(tenantId),
+      hold: async (model, tenantId, requestId) =>
+        await tenants.hold(tenantId, requestId, await tenants.estimateHoldUsd(model)),
+      settle: (input) =>
+        tenants.settle({
+          tenantId: input.tenantId,
+          requestId: input.requestId,
+          model: input.model,
+          cid: "",
+          outcome: input.outcome,
+          usage: input.usage,
+        }),
+    });
+    onRequestFinished((log) => {
+      const t = log.tenant;
+      if (t === undefined || log.outcome === undefined) return;
+      void tenants
+        .settle({
+          tenantId: t.id,
+          requestId: t.requestId,
+          model: log.model ?? "",
+          cid: log.cid ?? "",
+          outcome: log.outcome === "success" ? "success" : "failure",
+          usage: log.usage,
+        })
+        .catch((err: unknown) => {
+          console.error(`tenant settle failed (${t.requestId}): ${String(err)}`);
+        });
+    });
+  }
 }

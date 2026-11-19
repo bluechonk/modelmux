@@ -26,6 +26,28 @@ function isElevated() {
   }
 }
 
+/**
+ * 残留自卫：上一次被取消的测试跑会留下占着 5434/5435 的 embedded PG，
+ * 新用例起不了实例（超时后连锁取消）。只杀这两个端口上的监听进程，
+ * 不碰其它 postgres 实例。
+ */
+function freeTestPorts() {
+  for (const port of [5434, 5435]) {
+    try {
+      const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
+      for (const line of out.split("\n")) {
+        if (line.includes(`127.0.0.1:${port}`) && line.includes("LISTENING")) {
+          const pid = line.trim().split(/\s+/).pop();
+          if (pid && /^\d+$/.test(pid)) execFileSync("taskkill", ["/PID", pid, "/F"], { stdio: "ignore" });
+        }
+      }
+    } catch {
+      /* netstat/taskkill 失败不阻塞测试 */
+    }
+  }
+}
+freeTestPorts();
+
 /** runas 的命令串引号解析不可靠：路径含空格时换 8.3 短名（Program Files → PROGRA~1）。 */
 function nodePath() {
   const p = process.execPath;
@@ -35,7 +57,7 @@ function nodePath() {
 }
 
 if (!isElevated()) {
-  const child = spawn(process.execPath, ["--test", "--test-force-exit", "--test-timeout=120000", join(root, "tests", "pg-store.test.ts")], {
+  const child = spawn(process.execPath, ["--test", "--test-force-exit", "--test-timeout=120000", join(root, "tests", "*.test.ts")], {
     cwd: root,
     stdio: "inherit",
   });
