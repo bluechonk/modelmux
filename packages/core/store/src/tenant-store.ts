@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail  jsonb,
   at      timestamptz NOT NULL DEFAULT now()
 );
+COMMENT ON TABLE tenants IS '租户主体（§6）：status 目前只用 active；suspended 为预留开关';
+COMMENT ON TABLE tenant_api_keys IS '租户 API key：库里只存 scrypt 哈希与展示前缀，明文只在创建时回显一次，之后谁也拿不回来';
+COMMENT ON COLUMN tenant_api_keys.key_hash IS 'scrypt(password) 摘要，网关鉴权用它恒时比对';
+COMMENT ON COLUMN tenant_api_keys.prefix IS '明文 key 前 8 位（mmx_xxxxxxxx），仅供管理页展示辨认';
+COMMENT ON TABLE tenant_models IS '租户×模型授权白名单：不在表里的模型请求一律 403；rpm/tpm 是每模型的限流上限（Redis 计数）';
+COMMENT ON TABLE tenant_quota IS '租户余额（USD，numeric 12,6）：预扣-实扣-退款直接改这里，与 quota_ledger 同事务';
+COMMENT ON TABLE quota_ledger IS '额度流水（§7）：hold=预扣 / commit=实扣差额 / refund=全额退款；UNIQUE(request_id, kind) 保证重试幂等';
+COMMENT ON COLUMN quota_ledger.amount_usd IS '正数=扣减、负数=回补；commit 行记录的是与 hold 的差额';
+COMMENT ON TABLE usage_events IS '请求用量事件（append-only，按月 RANGE 分区）：对账任务拿它和 quota_ledger 核对；启用 RLS 租户隔离';
+COMMENT ON COLUMN usage_events.cost_usd IS '按 model_prices 算出的真实成本（USD/百万 token 口径）';
+COMMENT ON TABLE usage_events_default IS '默认分区：兜住未预建月度分区的行；归档按分区 DROP（§10 D4）';
+COMMENT ON TABLE model_prices IS '价格表（§7.4）：模型 × 输入/输出单价（USD/百万 token）；上游倍率变化只改数据不改代码';
+COMMENT ON TABLE audit_log IS '管理动作审计（§9）：开通/授权/充值/定价全部留痕，actor 目前恒为 admin（管理面单主体）';
 ALTER TABLE usage_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_events FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON usage_events;

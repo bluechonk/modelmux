@@ -36,6 +36,7 @@ const { Client } = require(pgPath);
 
 const SCHEMA = `
 CREATE SEQUENCE IF NOT EXISTS pool_kv_ver_seq;
+COMMENT ON SEQUENCE pool_kv_ver_seq IS 'pool_kv.version 的单调序列：跨实例可见性轮询靠 max(version) 增量判断';
 CREATE TABLE IF NOT EXISTS pool_kv (
   kind    text   NOT NULL,
   cid     text   NOT NULL,
@@ -44,14 +45,25 @@ CREATE TABLE IF NOT EXISTS pool_kv (
   version bigint NOT NULL DEFAULT nextval('pool_kv_ver_seq'),
   PRIMARY KEY (kind, cid, skey)
 );
+COMMENT ON TABLE pool_kv IS '账号池状态总表（fs 存储的服务化映射，docs/SAAS-REDESIGN.md §10）：一个事实一行，data 为 jsonb 整存整写';
+COMMENT ON COLUMN pool_kv.kind IS '行类型：index=账号索引 / active=渠道生效凭据 / account=账号凭据 / ledger=全局账本';
+COMMENT ON COLUMN pool_kv.cid IS '渠道 id（ledger 为空串）';
+COMMENT ON COLUMN pool_kv.skey IS '账号 key（index/active/ledger 为空串）';
+COMMENT ON COLUMN pool_kv.data IS '内容：凭据行为 AES-256-GCM 信封 {v:1,kid,iv,ct}（kid=主密钥版本），其余为 jsonb 快照';
+COMMENT ON COLUMN pool_kv.version IS '写入即递增的全局版本号，实例轮询/广播失效据此重载快照';
 CREATE TABLE IF NOT EXISTS probe_lease (
   ref         text PRIMARY KEY,
   lease_until timestamptz NOT NULL
 );
+COMMENT ON TABLE probe_lease IS '熔断半开试探租约（§8.1）：多实例只放行一个试探请求，租约到点自然过期，不需要解锁';
+COMMENT ON COLUMN probe_lease.ref IS '租约标识，格式 "<cid>|<账号key>"';
+COMMENT ON COLUMN probe_lease.lease_until IS '持租截止时间；INSERT ... ON CONFLICT ... WHERE lease_until < now() 抢租约';
 CREATE TABLE IF NOT EXISTS routing_prefs (
   model         text PRIMARY KEY,
   preferred_cid text
 );
+COMMENT ON TABLE routing_prefs IS '模型级渠道偏好（原 model-prefs.json）：NULL = 该模型回到自动选路';
+COMMENT ON COLUMN routing_prefs.preferred_cid IS '优先渠道；渠道冷却/额度耗尽时选路自然顺延到其他候选';
 CREATE TABLE IF NOT EXISTS access_log_entries (
   request_id text PRIMARY KEY,
   ts         timestamptz NOT NULL,
@@ -61,7 +73,11 @@ CREATE TABLE IF NOT EXISTS access_log_entries (
   model      text,
   cid        text,
   entry      jsonb NOT NULL
-);`;
+);
+COMMENT ON TABLE access_log_entries IS '访问日志写端落表（§10）：服务形态跨实例可查；控制台日志页读路径仍走本地 JSONL（后续里程碑）';
+COMMENT ON COLUMN access_log_entries.tenant_id IS '发起请求的租户（本机形态为 NULL）';
+COMMENT ON COLUMN access_log_entries.outcome IS '结果枚举：success / failure / aborted（语义见 docs/LOGGING.md §3）';
+COMMENT ON COLUMN access_log_entries.entry IS '完整请求日志 JSON（与 JSONL 行同构），供详情页回放';`;
 
 export interface PgPoolStoreOptions {
   /** libpq 连接串（例：postgres://modelmux:modelmux@127.0.0.1:5433/modelmux）。 */
