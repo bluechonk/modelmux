@@ -27,6 +27,27 @@ export class RateLimiter {
     }
   }
 
+  /** 记消耗（tpm 窗口用）：INCRBY n。失败静默 —— 计数丢了是少限不是误杀。 */
+  async add(key: string, n: number, windowSec = 60): Promise<void> {
+    if (n <= 0) return;
+    try {
+      const total = await this.#client.command("INCRBY", key, n);
+      if (Number(total) === n) await this.#client.command("EXPIRE", key, windowSec);
+    } catch (err) {
+      console.error(`rate limiter record failed (ignored): ${String(err)}`);
+    }
+  }
+
+  /** 读当前窗口计数；不可达返回 0（fail-open 同向：读不到就当没超）。 */
+  async peek(key: string): Promise<number> {
+    try {
+      const v = await this.#client.command("GET", key);
+      return v === null ? 0 : Number(v);
+    } catch {
+      return 0;
+    }
+  }
+
   close(): void {
     this.#client.close();
   }

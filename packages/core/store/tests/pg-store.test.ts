@@ -247,4 +247,24 @@ describe("PgPoolStore：账本与跨实例可见性", () => {
       await b.close();
     }
   });
+
+  it("渠道偏好 routing_prefs：写入落表、跨实例读回", async () => {
+    const a = new PgPoolStore({ dsn: DSN });
+    await a.init();
+    const b = new PgPoolStore({ dsn: DSN });
+    await b.init();
+    try {
+      a.writePrefs({ "deepseek-v4.1-flash": "loomy", "qwen3.8-flash": null });
+      assert.deepEqual(a.readPrefs(), { "deepseek-v4.1-flash": "loomy", "qwen3.8-flash": null });
+      assert.deepEqual(b.readPrefs(), {}, "B 尚未失效，读到空表");
+      await new Promise((r) => setTimeout(r, 1200)); // 广播/轮询失效
+      assert.deepEqual(b.readPrefs(), { "deepseek-v4.1-flash": "loomy", "qwen3.8-flash": null });
+      a.writePrefs({ "deepseek-v4.1-flash": null }); // 清偏好 = 该行置 NULL；qwen 不在新表 → 整行删除
+      await new Promise((r) => setTimeout(r, 1200));
+      assert.deepEqual(b.readPrefs(), { "deepseek-v4.1-flash": null });
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
 });

@@ -39,7 +39,7 @@ function freeTestPorts() {
       ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   `;
   let killed = false;
-  for (const port of [5434, 5435]) {
+  for (const port of [5434, 5435, 5436]) {
     try {
       const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
       if (out.split("\n").some((l) => l.includes(`127.0.0.1:${port}`) && l.includes("LISTENING"))) killed = true;
@@ -52,7 +52,7 @@ function freeTestPorts() {
     execFileSync("pwsh", ["-NoProfile", "-Command", kill], { stdio: "ignore" });
   } catch {
     /* pwsh 不可用时退回 netstat 单杀监听者 */
-    for (const port of [5434, 5435]) {
+    for (const port of [5434, 5435, 5436]) {
       try {
         const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
         for (const line of out.split("\n")) {

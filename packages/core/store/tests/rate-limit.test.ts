@@ -80,4 +80,18 @@ describe("RateLimiter：固定窗口", () => {
       rl.close();
     }
   });
+
+  it("tpm 记账：add 累加、peek 读回（tpm 双限的计数原语）", async () => {
+    const rl = new RateLimiter(`redis://127.0.0.1:${REDIS_PORT}`);
+    try {
+      const key = `test:tpm:${Date.now()}`;
+      await rl.add(key, 1200);
+      assert.equal(await rl.peek(key), 1200);
+      await rl.add(key, 300);
+      assert.equal(await rl.peek(key), 1500);
+      assert.equal(await rl.peek(`test:tpm:missing:${Date.now()}`), 0, "缺失键读回 0");
+    } finally {
+      rl.close();
+    }
+  });
 });

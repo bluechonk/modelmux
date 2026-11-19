@@ -46,6 +46,20 @@ CREATE TABLE IF NOT EXISTS pool_kv (
 CREATE TABLE IF NOT EXISTS probe_lease (
   ref         text PRIMARY KEY,
   lease_until timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS routing_prefs (
+  model         text PRIMARY KEY,
+  preferred_cid text
+);
+CREATE TABLE IF NOT EXISTS access_log_entries (
+  request_id text PRIMARY KEY,
+  ts         timestamptz NOT NULL,
+  tenant_id  text,
+  status     int,
+  outcome    text,
+  model      text,
+  cid        text,
+  entry      jsonb NOT NULL
 );`;
 
 export interface PgPoolStoreOptions {
@@ -74,10 +88,11 @@ function sq(value: string): string {
 }
 
 /**
- * 同步 psql 路径的标识符校验：kind/cid/skey 只可能是注册表 cid、sha16 账号 key
- * 或空串 —— 拼接进 SQL 前强制白名单，注入面为零（数据体走 jsonLiteral 单独转义）。
+ * 同步 psql 路径的标识符校验：kind/cid/skey/model 只可能是注册表 cid、sha16 账号 key、
+ * 对外模型名（含点号是约定）或空串 —— 拼接进 SQL 前强制白名单，注入面为零
+ * （数据体走 jsonLiteral 单独转义）。
  */
-const IDENT_RE = /^[A-Za-z0-9_-]*$/;
+const IDENT_RE = /^[A-Za-z0-9_.-]*$/;
 function safeIdent(value: string, what: string): string {
   if (!IDENT_RE.test(value)) throw new Error(`pool store: unsafe ${what}: ${JSON.stringify(value)}`);
   return value;
@@ -120,12 +135,13 @@ export class PgPoolStore implements PoolStore {
   async init(): Promise<void> {
     await this.#pool.query(SCHEMA);
     await this.#reloadAll();
+    await this.#loadPrefs();
     if (this.#redisUrl !== undefined) {
       const target = parseRedisUrl(this.#redisUrl);
       this.#pub = new RespClient(target);
       this.#sub = new RespClient(target);
       this.#sub.onPush(() => {
-        void this.#reloadAll().catch((err) => console.error(`pool store reload after publish failed: ${String(err)}`));
+        void Promise.all([this.#reloadAll(), this.#loadPrefs()]).catch((err) => console.error(`pool store reload after publish failed: ${String(err)}`));
       });
       // 订阅失败退回纯轮询兜底：广播是优化，不是正确性依赖
       await this.#sub.command("SUBSCRIBE", CONFIG_CHANNEL).catch(() => {
@@ -213,6 +229,8 @@ export class PgPoolStore implements PoolStore {
     );
     const mx = Number(rows[0]?.mx ?? 0);
     if (mx > this.#maxVersion) await this.#reloadAll();
+    // 偏好表独立于 pool_kv 版本序列：小表每次轮询直接重载（无 Redis 广播时的兜底）
+    await this.#loadPrefs();
   }
 
   #get(kind: Kind, cid: string | undefined, skey = ""): SnapEntry | undefined {
@@ -370,6 +388,47 @@ export class PgPoolStore implements PoolStore {
     return this.#get("ledger", undefined)?.stamp ?? 0;
   }
 
+  /** 渠道偏好缓存（读高频走缓存，写低频同步落表；§10 model-prefs → routing_prefs）。 */
+  #prefs = new Map<string, string | null>();
+
+  async #loadPrefs(): Promise<void> {
+    const { rows } = await this.#pool.query<{ model: string; preferred_cid: string | null }>(
+      "SELECT model, preferred_cid FROM routing_prefs",
+    );
+    this.#prefs.clear();
+    for (const r of rows) this.#prefs.set(r.model, r.preferred_cid);
+  }
+
+  readPrefs(): unknown | null {
+    const out: Record<string, string | null> = {};
+    for (const [model, cid] of this.#prefs) out[model] = cid;
+    return out;
+  }
+
+  writePrefs(prefs: unknown): void {
+    const next = new Map<string, string | null>();
+    const rec = (prefs ?? {}) as Record<string, unknown>;
+    for (const [model, cid] of Object.entries(rec)) {
+      next.set(model, typeof cid === "string" && cid !== "" ? cid : null);
+    }
+    const stmts: string[] = [];
+    for (const [model, cid] of next) {
+      stmts.push(
+        `INSERT INTO routing_prefs (model, preferred_cid) VALUES (${sq(safeIdent(model, "model"))}, ${cid === null ? "NULL" : sq(safeIdent(cid, "cid"))})` +
+        ` ON CONFLICT (model) DO UPDATE SET preferred_cid = EXCLUDED.preferred_cid`,
+      );
+    }
+    for (const model of this.#prefs.keys()) {
+      if (!next.has(model)) stmts.push(`DELETE FROM routing_prefs WHERE model = ${sq(safeIdent(model, "model"))}`);
+    }
+    if (stmts.length === 0) return;
+    if (!this.#execSync([`BEGIN;${stmts.join(";")};COMMIT;`])) {
+      throw new Error("pool store: sync write routing prefs failed");
+    }
+    this.#prefs = next;
+    this.#publish();
+  }
+
   /** 半开试探租约：原子 UPSERT 抢约，抢到（行返回）true。低频路径，走同步子进程。 */
   claimProbeLease(cid: string, key: string, ttlMs: number): boolean {
     const ref = `${cid}|${key}`;
@@ -379,6 +438,24 @@ export class PgPoolStore implements PoolStore {
       ` RETURNING 1`;
     const r = this.#execSync([sql]);
     return r.ok && (r.rowCount ?? 0) > 0;
+  }
+
+  /** 访问日志条目 write-behind（高频路径，与索引同纪律）。 */
+  writeAccess(entry: {
+    requestId: string;
+    tsIso: string;
+    tenantId: string | null;
+    status: number | null;
+    outcome: string | null;
+    model: string | null;
+    cid: string | null;
+    raw: unknown;
+  }): void {
+    this.#enqueue(
+      `INSERT INTO access_log_entries (request_id, ts, tenant_id, status, outcome, model, cid, entry)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) ON CONFLICT (request_id) DO NOTHING`,
+      [entry.requestId, entry.tsIso, entry.tenantId, entry.status, entry.outcome, entry.model, entry.cid, JSON.stringify(entry.raw ?? null)],
+    );
   }
 }
 

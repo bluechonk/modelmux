@@ -39,8 +39,10 @@ export interface TenantGate {
   allowedModels(tenantId: string): Promise<string[]>;
   /** 预扣（估算口径是实现细节）；false 带 reason（insufficient → 402）。 */
   hold(model: string, tenantId: string, requestId: string): Promise<{ ok: boolean; reason?: string }>;
-  /** rpm 限流检查（S3：Redis 固定窗口，多实例共享计数；Redis 不可达 fail-open）。 */
+  /** rpm + tpm 双限检查（S3/S6：tpm 用已记账的窗口 token 消耗，超限拒 429）。 */
   rateOk(tenantId: string, model: string): Promise<boolean>;
+  /** 记一次请求的 token 消耗进 tpm 窗口（settle 成功后调用）。 */
+  recordTokens(tenantId: string, model: string, tokens: number): Promise<void>;
   /** 请求结束结算：成功按真实 usage 实扣，失败退款；返回结算动作（null = 未发生，指标记录用）。 */
   settle(input: SettleInput): Promise<{ kind: "commit" | "refund"; amountUsd: string } | null>;
 }

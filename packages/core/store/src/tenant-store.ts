@@ -212,6 +212,15 @@ export class TenantStore {
     return rows.length === 0 ? 0 : Number(rows[0].rpm_limit);
   }
 
+  /** 模型 tpm 上限（同上，未授权返回 0）。 */
+  async tpmLimitOf(tenantId: string, model: string): Promise<number> {
+    const { rows } = await this.#pool.query(
+      "SELECT tpm_limit FROM tenant_models WHERE tenant_id = $1 AND model = $2",
+      [tenantId, model],
+    );
+    return rows.length === 0 ? 0 : Number(rows[0].tpm_limit);
+  }
+
   // —— 额度闭环 ——
 
   /** 按 token 数与价格表算美元成本；无价格表按 0（免费模型）。 */
@@ -364,13 +373,41 @@ export class TenantStore {
     await this.#audit("price.set", { model, input_usd_per_mtok: inputUsdPerMtok, output_usd_per_mtok: outputUsdPerMtok });
   }
 
-  /** 授权租户可用模型（管理面）。 */
-  async grantModel(tenantId: string, model: string): Promise<void> {
+  /** 授权租户可用模型（管理面）；可带 rpm/tpm 上限。 */
+  async grantModel(tenantId: string, model: string, rpmLimit = 60, tpmLimit = 200_000): Promise<void> {
     await this.#pool.query(
-      `INSERT INTO tenant_models (tenant_id, model) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [tenantId, model],
+      `INSERT INTO tenant_models (tenant_id, model, rpm_limit, tpm_limit) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (tenant_id, model) DO UPDATE SET rpm_limit = EXCLUDED.rpm_limit, tpm_limit = EXCLUDED.tpm_limit`,
+      [tenantId, model, rpmLimit, tpmLimit],
     );
-    await this.#audit("model.grant", { tenant_id: tenantId, model });
+    await this.#audit("model.grant", { tenant_id: tenantId, model, rpm_limit: rpmLimit, tpm_limit: tpmLimit });
+  }
+
+  /** 租户充值（管理面）。 */
+  async addQuota(tenantId: string, amountUsd: string): Promise<string> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE tenant_quota SET balance_usd = balance_usd + $2 WHERE tenant_id = $1", [tenantId, amountUsd]);
+      const { rows } = await client.query("SELECT balance_usd FROM tenant_quota WHERE tenant_id = $1", [tenantId]);
+      await client.query("COMMIT");
+      await this.#audit("quota.add", { tenant_id: tenantId, amount_usd: amountUsd });
+      return rows[0]?.balance_usd ?? "0";
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 审计流水（最近 N 条，管理面）。 */
+  async auditList(limit = 50): Promise<Array<{ actor: string; action: string; detail: unknown; at: string }>> {
+    const { rows } = await this.#pool.query(
+      "SELECT actor, action, detail, at FROM audit_log ORDER BY id DESC LIMIT $1",
+      [Math.max(1, Math.min(200, limit))],
+    );
+    return rows.map((r) => ({ actor: String(r.actor), action: String(r.action), detail: r.detail, at: String(r.at) }));
   }
 
   /** 预扣估算：输入 32k + 输出 4k tokens（覆盖常规请求的保守值，真实差额由 commit 回补）。 */
@@ -378,7 +415,7 @@ export class TenantStore {
     return await this.costOf(model, 32_000n, 4_000n);
   }
 
-  /** 请求结束结算（log-store finish hook 驱动）：成功按真实 usage 实扣，失败全额退款。返回结算动作（指标记录用）。 */
+  /** 请求结束结算（log-store finish hook 驱动）：成功按真实 usage 实扣，失败全额退款。返回结算动作与真实 token 数（指标与 tpm 记账用）。 */
   async settle(input: {
     tenantId: string;
     requestId: string;
@@ -386,7 +423,7 @@ export class TenantStore {
     cid: string;
     outcome: "success" | "failure";
     usage: Record<string, unknown> | undefined;
-  }): Promise<{ kind: "commit" | "refund"; amountUsd: string } | null> {
+  }): Promise<{ kind: "commit" | "refund"; amountUsd: string; tokens: number } | null> {
     if (input.outcome === "success") {
       const t = usageTokens(input.usage);
       const actual = await this.costOf(input.model, t.prompt, t.completion);
@@ -396,10 +433,10 @@ export class TenantStore {
         promptTokens: t.prompt,
         completionTokens: t.completion,
       });
-      return done.ok ? { kind: "commit", amountUsd: actual } : null;
+      return done.ok ? { kind: "commit", amountUsd: actual, tokens: Number(t.prompt + t.completion) } : null;
     }
     const r = await this.refund(input.tenantId, input.requestId);
-    return r.ok && r.amountUsd !== "0" ? { kind: "refund", amountUsd: r.amountUsd } : null;
+    return r.ok && r.amountUsd !== "0" ? { kind: "refund", amountUsd: r.amountUsd, tokens: 0 } : null;
   }
 
   /**

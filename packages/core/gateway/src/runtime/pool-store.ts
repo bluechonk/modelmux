@@ -10,9 +10,9 @@
  * 空索引 / 空账本 / `{}`）；`*Stamp` 是缓存失效依据（fs = mtimeMs，pg = 版本号）。
  */
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { accountCredentialsPath, channelDir, credentialsPath, ensureDir, poolUsagePath } from "./paths.js";
+import { accountCredentialsPath, channelDir, credentialsPath, ensureDir, poolUsagePath, rootFile } from "./paths.js";
 import { writeJsonSecret } from "./secret-file.js";
 
 /** 索引与账号文件名（落点规则见 docs/STORAGE-CONVENTION.md）。 */
@@ -46,6 +46,26 @@ export interface PoolStore {
   readLedger(): unknown | null;
   writeLedger(ledger: unknown): void;
   ledgerStamp(): number;
+  /**
+   * 渠道偏好（§10：`model-prefs.json` → 服务形态 `routing_prefs` 表）。
+   * 平台级键值对（model → cid|null）；fs 形态读写原文件，pg 形态读写表。
+   */
+  readPrefs(): unknown | null;
+  writePrefs(prefs: unknown): void;
+  /**
+   * 访问日志条目（§10：服务形态落 `access_log_entries` 表，跨实例可查；
+   * fs 形态 no-op —— JSONL 就是它的家）。
+   */
+  writeAccess(entry: {
+    requestId: string;
+    tsIso: string;
+    tenantId: string | null;
+    status: number | null;
+    outcome: string | null;
+    model: string | null;
+    cid: string | null;
+    raw: unknown;
+  }): void;
   /**
    * 半开试探租约（S3，docs/SAAS-REDESIGN.md §8.1）：熔断到期时多实例只放行一次
    * 试探 —— 抢到租约返回 true（放行），未抢到 false（继续短路）。
@@ -171,6 +191,28 @@ export class FsPoolStore implements PoolStore {
   }
   ledgerStamp(): number {
     return mtimeOrZero(poolUsagePath());
+  }
+
+  readPrefs(): unknown | null {
+    // 与 model-prefs.ts 原读路径同语义：缺失/损坏 = null（调用方回落空表）
+    return readJsonOrNull(rootFile("model-prefs.json"));
+  }
+  writePrefs(prefs: unknown): void {
+    writeFileSync(rootFile("model-prefs.json"), `${JSON.stringify(prefs, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  }
+
+  writeAccess(entry: {
+    requestId: string;
+    tsIso: string;
+    tenantId: string | null;
+    status: number | null;
+    outcome: string | null;
+    model: string | null;
+    cid: string | null;
+    raw: unknown;
+  }): void {
+    // fs 形态：访问日志的家是 JSONL（appendAccessFile），表落点 no-op
+    void entry;
   }
 
   claimProbeLease(cid: string, key: string, ttlMs: number): boolean {

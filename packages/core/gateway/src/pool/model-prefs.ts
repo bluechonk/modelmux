@@ -8,12 +8,10 @@
  * 落点与字段契约见 docs/STORAGE-CONVENTION.md 与 docs/POOL-ARCHITECTURE.md §2.4。
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-
 import { canonicalOf, PREFS_CANONICALS } from "./model-family.js";
-import { rootFile } from "../runtime/paths.js";
+import { poolStore } from "../runtime/pool-store.js";
 
-/** 偏好文件名（根级，与 `pool-usage.json` / `models.json` 并列）。 */
+/** 偏好文件名（根级，与 `pool-usage.json` / `models.json` 并列；服务形态落到 `routing_prefs` 表）。 */
 export const MODEL_PREFS_FILE = "model-prefs.json";
 
 /** 空值语义：`null` = 不指定（回到自动选路）。 */
@@ -24,28 +22,21 @@ export function isPrefsModel(model: string): boolean {
   return PREFS_CANONICALS.includes(canonicalOf(model) ?? "");
 }
 
-/** 读偏好；文件缺失或损坏返回空表（不猜、不修补）。 */
+/** 读偏好；存储缺失或损坏返回空表（不猜、不修补）。 */
 export function loadModelPrefs(): ModelPrefs {
-  const path = rootFile(MODEL_PREFS_FILE);
-  if (!existsSync(path)) return {};
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const out: ModelPrefs = {};
-    for (const [id, cid] of Object.entries(parsed as Record<string, unknown>)) {
-      // 只保留「字符串或 null」的值；脏值（数字、对象）视为未指定
-      out[id] = typeof cid === "string" && cid !== "" ? cid : null;
-    }
-    return out;
-  } catch {
-    return {};
+  const parsed = poolStore().readPrefs();
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const out: ModelPrefs = {};
+  for (const [id, cid] of Object.entries(parsed as Record<string, unknown>)) {
+    // 只保留「字符串或 null」的值；脏值（数字、对象）视为未指定
+    out[id] = typeof cid === "string" && cid !== "" ? cid : null;
   }
+  return out;
 }
 
-/** 写偏好（原子替换，权限 0600：里面只有渠道名，不含凭据）。 */
+/** 写偏好（端口负责原子替换 / 落表）。 */
 export function saveModelPrefs(prefs: ModelPrefs): void {
-  const path = rootFile(MODEL_PREFS_FILE);
-  writeFileSync(path, `${JSON.stringify(prefs, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  poolStore().writePrefs(prefs);
 }
 
 /** 某模型当前偏好的渠道；未指定返回 `null`。 */

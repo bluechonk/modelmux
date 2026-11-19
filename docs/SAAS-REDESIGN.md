@@ -2,10 +2,9 @@
 
 > 设计方案。进度：S0-S4 全部落地（存储开端口 → PgPoolStore → 租户/RLS/额度闭环 →
 > 租约半开/限流/广播 → 指标/信封加密/审计/对账），抓取栈已验证（Prometheus + Grafana
-> 出 p95/错误率/租户消耗，provisioning 配置在 `scripts/monitoring/`）。落地形态与
-> §5-§8 设计一致，两处偏差：多实例部署形态为「同机多进程 + 共享 PG/Redis」
-> （compose/LB 属发布链，未做）；Redis 用 Garnet（RESP 兼容），RESP 客户端自写
-> （ioredis 握手与 Garnet 不兼容）。
+> 出 p95/错误率/租户消耗，provisioning 配置在 `scripts/monitoring/`），§5-§12 的
+> 具名交付物补齐（tpm 双限、`routing_prefs` 承接渠道偏好、`/admin/*` 管理 API、
+> 访问日志写端落表）——与本文的全部既定差异见 §17 偏差台账。
 > 现行单实例本机契约（CONTRACT-TS.md / POOL-ARCHITECTURE.md）仍是默认形态：
 > `MODELMUX_STORE` 未设时全部服务化组件不装配，行为与 S0 前一致。
 > 定位与 [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) 同级：目标架构设计，不是行为契约。
@@ -272,3 +271,19 @@ TTL 兜底。渠道热插拔语义不变，只是「重读文件」变成「失�
 | D4 | 冷数据（usage 归档）保留期 | 90 天热、之后归档对象存储 |
 | D5 | 上游账号归属（平台自有 / 租户自带 key） | 平台自有起步；BYOK 是后续特性 |
 | D6 | S0 端口的接口粒度（按表 / 按领域） | 按领域（AccountRepository 等），表映射是适配器内部细节 |
+
+## 17. 落地偏差台账（实现与本文的既定差异，2026-11-19）
+
+| 设计条目 | 落地形态 | 偏差理由 |
+| --- | --- | --- |
+| §5 规范化表 `accounts` / `account_health` | 适配器内部用单表 `pool_kv`（kind/cid/skey + jsonb + 版本序列） | D6 裁决「表映射是适配器内部细节」；池索引整读整写的访问形态与 jsonb 行匹配，拆列没有查询收益。升级触发：出现按列查询需求（如跨渠道健康聚合） |
+| §5 `routing_prefs` 的 `tenant_id` 维度 | 仅平台级（model → preferred_cid），无租户覆盖层 | 租户级路由偏好尚无产品语义（租户看到的是模型不是渠道）；表结构预留可 ALTER 加列 |
+| §10 访问日志读路径 | 写端已迁 `access_log_entries` 表（服务形态跨实例可查）；控制台读路径仍走本地 JSONL | 日志页的扫描上限/分页语义与 JSONL 绑定；多实例日志聚合需要读路径改表查询，属后续里程碑（验收已证条目落表） |
+| §10 `model-catalog.json` / `model-specs.json` → 表 | 未迁（仍随构建产物分发） | 目录是构建期数据非运行期状态；迁表只增加启动依赖，无消费方要求 |
+| §12 Redis = ioredis | 自写最小 RESP 客户端（四条命令够用） | ioredis 握手与 Garnet 实测不兼容（连接被 reset）；少一个运行时依赖 |
+| §12 `argon2` | `node:crypto` scrypt | 同等内存硬功能，零依赖 |
+| §12 `prom-client` | 自写最小 Prometheus 文本注册表 | 暴露面只有四类指标，文本协议等价 |
+| §12 `testcontainers` | embedded-postgres 直连 + 端口残留自卫 | 本机无 Docker；embedded 真实二进制验证强度等价 |
+| §12 docker-compose（caddy×N） | 未做（验证形态为同机多进程） | 属发布链运维，代码面验收不依赖 |
+| §12 zod / pino / §13 trace | 未引入 | 输入校验以白名单正则就地实现；日志沿用现有 logger；trace 本文已标可选，规模不配位 |
+| §11 管理员会话 | 静态高熵令牌（sha256 + timingSafeEqual），无登录态存储 | 管理面单主体、单机起步；引入会话存储是给不存在的需求建模（D2 升级路径：接 OIDC） |
