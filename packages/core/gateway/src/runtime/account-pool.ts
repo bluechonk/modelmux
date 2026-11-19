@@ -12,15 +12,14 @@
  */
 
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
 
 import { getChannel, type Channel } from "./channel.js";
 import { runInChannel } from "./channel-context.js";
 import { runWithCredentialPath } from "./credential-scope.js";
 import { logThrottled } from "./logger.js";
-import { accountCredentialsPath, channelDir, credentialsPath, ensureDir } from "./paths.js";
-import { writeJsonSecret } from "./secret-file.js";
+import { accountCredentialsPath, channelDir } from "./paths.js";
+import { poolStore } from "./pool-store.js";
+import { ACCOUNT_DIR, INDEX_NAME } from "./pool-store.js";
 
 /**
  * 账号健康状态。
@@ -82,8 +81,6 @@ export interface PoolIndex {
   accounts: PoolAccount[];
 }
 
-const INDEX_NAME = "accounts.json";
-const ACCOUNT_DIR = "accounts";
 /**
  * **名称类字段**（按「区分度」排序，越靠前越像人读的账号名）。
  *
@@ -117,18 +114,6 @@ const NAME_FIELDS = [
 const LABEL_FIELDS = [...NAME_FIELDS, "account", "login"] as const;
 const EXPIRY_FIELDS = ["expiresAt", "expireTime", "expiry", "expires_at", "refreshExpiresAt"] as const;
 
-function accountDir(cid?: string): string {
-  return join(channelDir(cid), ACCOUNT_DIR);
-}
-
-function indexFile(cid?: string): string {
-  return join(channelDir(cid), INDEX_NAME);
-}
-
-function accountFile(key: string, cid?: string): string {
-  return accountCredentialsPath(key, cid);
-}
-
 /**
  * 在「凭据落点 = 该账号文件」的上下文里对**这个账号**跑 `fn`。
  *
@@ -142,15 +127,6 @@ export function runForAccountCredential<T>(cid: string, key: string, fn: () => T
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-/** 「谁新用谁」的时间戳（毫秒）；不存在返回 0。 */
-function mtimeMs(path: string): number {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
 }
 
 function hint(cred: Record<string, unknown>, fields: readonly string[]): string {
@@ -239,11 +215,8 @@ export function syncKeyAccounts(
     // 留着会以幽灵账号身份被显示/被选中
     const stale = !wanted.has(account.key) && (account.domain === cid || account.domain === "");
     if (stale) {
-      try {
-        rmSync(accountFile(account.key, cid), { force: true });
-      } catch {
-        /* 账号文件删不掉不阻塞索引裁剪（它是权威事实源） */
-      }
+      // 账号凭据删不掉不阻塞索引裁剪（store 内部吞异常，与现状一致）
+      poolStore().deleteAccountCredential(account.key, cid);
       continue;
     }
     kept.push(account);
@@ -272,8 +245,7 @@ export function syncKeyAccounts(
     const at = kept.findIndex((a) => a.key === key);
     if (at >= 0) kept[at] = account;
     else kept.push(account);
-    mkdirSync(accountDir(cid), { recursive: true });
-    writeJsonSecret(accountFile(key, cid), item.credential);
+    poolStore().writeAccountCredential(key, item.credential, cid);
   }
 
   // 生效账号必须落在本次同步的 key 集合里：首选 preferredActive（登录/新加 key），
@@ -288,28 +260,16 @@ export function syncKeyAccounts(
 
   // 生效凭据：与 active 对齐（缺失 / 指向已删 key / 内容不一致时改写；无 key 则清理）
   const target = active ? wanted.get(active) : undefined;
-  const credPath = credentialsPath(cid);
   if (!target) {
-    try {
-      rmSync(credPath, { force: true });
-    } catch {
-      /* 清理失败不影响池状态 */
-    }
+    poolStore().deleteActiveCredential(cid);
     return;
   }
-  let current = "";
-  let currentUid = "";
-  try {
-    const parsed = JSON.parse(readFileSync(credPath, "utf8")) as Record<string, unknown>;
-    current = typeof parsed["accessToken"] === "string" ? parsed["accessToken"] : "";
-    currentUid = typeof parsed["uid"] === "string" ? parsed["uid"] : "";
-  } catch {
-    /* 无文件 / 损坏：下面重写 */
-  }
-  // uid 也要比对：旧版本写的凭据 uid 派生不同，仅凭 token 相同跳过会把不一致形态留在盘上
+  const parsed = poolStore().readActiveCredential(cid) as Record<string, unknown> | null;
+  // uid 也要比对：旧版本写的凭据 uid 派生不同，仅凭 token 相同跳过会把不一致形态留在存储里
+  const current = parsed && typeof parsed["accessToken"] === "string" ? parsed["accessToken"] : "";
+  const currentUid = parsed && typeof parsed["uid"] === "string" ? parsed["uid"] : "";
   if (current === String(target.credential["accessToken"]) && currentUid === String(target.credential["uid"])) return;
-  mkdirSync(channelDir(cid), { recursive: true });
-  writeJsonSecret(credPath, target.credential);
+  poolStore().writeActiveCredential(target.credential, cid);
 }
 
 /** 读索引；文件缺失/损坏时返回空池（不抛错）。 */
@@ -324,7 +284,12 @@ export function syncKeyAccounts(
  * 用 mtime 做失效依据（不是 TTL）：写盘（`writeIndex`）会更新 mtime，其他进程
  * （CLI `acct` 命令）改过也会体现在 mtime 上，所以不会读到陈旧状态。
  */
-const indexCache = new Map<string, { mtimeMs: number; index: PoolIndex }>();
+const indexCache = new Map<string, { stamp: number; index: PoolIndex }>();
+
+/** 缓存键：cid 缺省（单渠道回落形态）与具体渠道区分开。 */
+function poolKey(cid?: string): string {
+  return cid ?? "(default)";
+}
 
 /** 清掉某渠道（或全部）的索引缓存 —— 写盘后调用，保证同一进程内立刻读到新值。 */
 function invalidateIndexCache(cid?: string): void {
@@ -332,41 +297,29 @@ function invalidateIndexCache(cid?: string): void {
     indexCache.clear();
     return;
   }
-  try {
-    indexCache.delete(indexFile(cid));
-  } catch {
-    indexCache.clear();
-  }
+  indexCache.delete(poolKey(cid));
 }
 
 export function readIndex(cid?: string): PoolIndex {
-  let path: string;
+  let stamp: number;
+  let raw: unknown | null;
   try {
-    path = indexFile(cid);
+    stamp = poolStore().indexStamp(cid);
+    raw = poolStore().readIndex(cid);
   } catch {
+    // 落点解析失败（多渠道未显式给 cid）：与现状一致返回空池
     return emptyIndex();
   }
-  const mtimeMs = fileMtime(path);
-  const cached = indexCache.get(path);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.index;
-  const index = parseIndexFile(path);
-  indexCache.set(path, { mtimeMs, index });
+  const key = poolKey(cid);
+  const cached = indexCache.get(key);
+  if (cached && cached.stamp === stamp) return cached.index;
+  const index = normalizeIndex(raw);
+  indexCache.set(key, { stamp, index });
   return index;
 }
 
-/** 文件 mtime；不存在记 0（等于「空索引」）。 */
-function fileMtime(path: string): number {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
-
-/** 真正读盘并解析（`readIndex` 的缓存未命中路径）。 */
-function parseIndexFile(path: string): PoolIndex {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+/** 规范化存储读回的原始索引（`readIndex` 的缓存未命中路径）。 */
+function normalizeIndex(parsed: unknown): PoolIndex {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return emptyIndex();
     const rec = parsed as Record<string, unknown>;
     const list = Array.isArray(rec["accounts"]) ? rec["accounts"] : [];
@@ -407,9 +360,6 @@ function parseIndexFile(path: string): PoolIndex {
     }
     const active = typeof rec["active"] === "string" ? rec["active"] : null;
     return { version: 1, active, accounts };
-  } catch {
-    return emptyIndex();
-  }
 }
 
 function emptyIndex(): PoolIndex {
@@ -417,11 +367,9 @@ function emptyIndex(): PoolIndex {
 }
 
 function writeIndex(index: PoolIndex, cid?: string): void {
-  ensureDir(cid);
-  mkdirSync(accountDir(cid), { recursive: true });
-  writeJsonSecret(indexFile(cid), index);
-  // 写盘后立刻失效缓存：新文件在同一进程里也可能拿到相同的 mtime 粒度（Windows
-  // 的 mtime 精度有限），只靠 mtime 比对会读到写之前的旧值。
+  poolStore().writeIndex(index, cid);
+  // 写盘后立刻失效缓存：同一进程内 stamp 粒度可能不变（Windows mtime 精度有限），
+  // 只靠 stamp 比对会读到写之前的旧值。
   invalidateIndexCache(cid);
 }
 
@@ -507,8 +455,7 @@ export function captureActive(
   options: { label?: string } = {},
 ): PoolAccount | null {
   const channel: Channel = getChannel(cid);
-  const source = credentialsPath(cid);
-  if (!existsSync(source)) return null;
+  if (!poolStore().hasActiveCredential(cid)) return null;
 
   // 读不到就是**没东西可收**（未登录）；但失败原因必须可诊断 —— 见 loadCredentialOf
   const raw = loadCredentialOf(channel);
@@ -533,13 +480,7 @@ export function captureActive(
     fail_streak: 0,
   };
 
-  mkdirSync(accountDir(cid), { recursive: true });
-  copyFileSync(source, accountFile(key, cid));
-  try {
-    chmodSync(accountFile(key, cid), 0o600);
-  } catch {
-    /* 忽略 */
-  }
+  poolStore().copyActiveToAccountCredential(key, cid);
 
   const accounts = [...index.accounts.filter((a) => a.key !== key), account];
   writeIndex({ version: 1, active: key, accounts }, cid);
@@ -562,7 +503,7 @@ export function captureActive(
  * 连带修好 `active` 指向已删文件的情况。
  */
 function pruneMissingFiles(index: PoolIndex, cid?: string): PoolIndex {
-  const kept = index.accounts.filter((a) => existsSync(accountFile(a.key, cid)));
+  const kept = index.accounts.filter((a) => poolStore().hasAccountCredential(a.key, cid));
   if (kept.length === index.accounts.length) {
     // 条目都在，但 active 可能指向一个已被换掉的 key（key 变了的情形）
     if (index.active && kept.some((a) => a.key === index.active)) return index;
@@ -587,15 +528,10 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
     const known = index.accounts.map((a) => a.key).join(", ") || "(empty pool)";
     throw new Error(`account not found: ${key} (pool for this channel: ${known})`);
   }
-  const from = accountFile(key, cid);
-  if (!existsSync(from)) throw new Error(`account file missing: ${from}`);
-  ensureDir(cid);
-  copyFileSync(from, credentialsPath(cid));
-  try {
-    chmodSync(credentialsPath(cid), 0o600);
-  } catch {
-    /* 忽略 */
+  if (!poolStore().hasAccountCredential(key, cid)) {
+    throw new Error(`account file missing: ${accountCredentialsPath(key, cid)}`);
   }
+  poolStore().copyAccountCredentialToActive(key, cid);
   account.last_used_at = nowIso();
   // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error / cooldown 标记一并恢复
   clearTrippedState(account);
@@ -700,19 +636,10 @@ export function removeAccount(
   const hit = index.accounts.find((a) => a.key === key);
   if (!hit) return { removed: false, wasActive: false, loggedOut: false };
   const wasActive = index.active === key;
-  try {
-    rmSync(accountFile(key, cid), { force: true });
-  } catch {
-    /* 文件已不在也算删掉 */
-  }
+  poolStore().deleteAccountCredential(key, cid);
   let loggedOut = false;
   if (wasActive) {
-    try {
-      rmSync(credentialsPath(cid), { force: true });
-      loggedOut = true;
-    } catch {
-      /* 删不掉就算了，下次同步会把它收回来 */
-    }
+    loggedOut = poolStore().deleteActiveCredential(cid);
   }
   writeIndex(
     { version: 1, active: wasActive ? null : index.active, accounts: index.accounts.filter((a) => a.key !== key) },
@@ -736,7 +663,7 @@ export function purgeCredentials(cid?: string): { accounts: number; credential: 
   // `rmSync(credentialsPath)`，之后再探就永远是 false，汇报就成了「凭据本来就没有」。
   let credential = false;
   try {
-    credential = existsSync(credentialsPath(cid));
+    credential = poolStore().hasActiveCredential(cid);
   } catch {
     /* 路径不可用：按没有处理 */
   }
@@ -745,11 +672,8 @@ export function purgeCredentials(cid?: string): { accounts: number; credential: 
   for (const account of index.accounts) {
     if (removeAccount(account.key, cid).removed) accounts += 1;
   }
-  try {
-    rmSync(credentialsPath(cid), { force: true });
-  } catch {
-    /* 删不掉：如实报告（credential 保持探测值） */
-  }
+  // 删不掉：如实报告（credential 保持探测值）—— store 内部吞异常
+  poolStore().deleteActiveCredential(cid);
   return { accounts, credential };
 }
 
@@ -1017,17 +941,11 @@ export function reconcile(cid?: string): boolean {
 /** 同一账号的 token 刷新：把 credentials.json 回灌池内那份（调用方已确认身份一致）。 */
 function reconcileActive(cid: string | undefined, index: PoolIndex): boolean {
   if (!index.active) return false;
-  const pool = accountFile(index.active, cid);
-  const live = credentialsPath(cid);
-  if (!existsSync(pool) || !existsSync(live)) return false;
-  if (mtimeMs(live) <= mtimeMs(pool)) return false;
-
-  copyFileSync(live, pool);
-  try {
-    chmodSync(pool, 0o600);
-  } catch {
-    /* 忽略 */
-  }
+  const store = poolStore();
+  if (!store.hasAccountCredential(index.active, cid) || !store.hasActiveCredential(cid)) return false;
+  // 「谁新用谁」：live 比池内新才回灌（stamp 语义 = fs mtime / pg 版本）
+  if (store.activeCredentialStamp(cid) <= store.accountCredentialStamp(index.active, cid)) return false;
+  store.copyActiveToAccountCredential(index.active, cid);
   const hit = index.accounts.find((a) => a.key === index.active);
   if (hit) {
     hit.last_used_at = nowIso();
@@ -1039,14 +957,10 @@ function reconcileActive(cid: string | undefined, index: PoolIndex): boolean {
 
 /** 读 credentials.json 的原始 JSON（**仅用于展示字段**，不解释渠道语义）。 */
 function readRawCredential(cid?: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(credentialsPath(cid), "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
+  const parsed = poolStore().readActiveCredential(cid);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
 }
 
 /** 读当前生效凭证（走渠道自己的 `load()`，从而拿到契约字段 uid/domain）。未登录返回 null。 */
@@ -1231,14 +1145,10 @@ export function syncPool(cid?: string): void {
 
 /** 池内某账号的凭证原始 JSON（供诊断；不解释渠道语义）。 */
 export function readAccountCredential(key: string, cid?: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(accountFile(key, cid), "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
+  const parsed = poolStore().readAccountCredential(key, cid);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
 }
 
 export { ACCOUNT_DIR, INDEX_NAME };

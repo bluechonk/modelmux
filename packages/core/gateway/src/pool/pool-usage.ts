@@ -9,8 +9,6 @@
  *    冷却期内渠道得分**当 0**（`scoreOf`）且在路由侧被**硬剔除**（`isCooling`）
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-
 import { channelCapabilities, channels, getChannel, hasChannel, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
 import {
@@ -24,9 +22,9 @@ import {
   runForAccountCredential,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
-import { noteOnce, poolUsagePath } from "../runtime/paths.js";
+import { noteOnce } from "../runtime/paths.js";
+import { poolStore } from "../runtime/pool-store.js";
 import { aggregateModelTps, listAccessDates, localDate } from "../runtime/log-store.js";
-import { writeJsonSecret } from "../runtime/secret-file.js";
 
 /** 账单缓存有效期：8 小时 ≈ 一天三次。 */
 export const BILLING_TTL_MS = 8 * 60 * 60 * 1000;
@@ -228,29 +226,20 @@ function str(value: unknown): string {
 }
 
 /**
- * 读盘结果按路径缓存（测试会切存储根，故缓存键带上路径）。
+ * 账本读回结果按存储 stamp 缓存。
  *
- * `mtimeMs` 一起记：网关与 CLI 是两个进程，都在写同一个账本。只按路径缓存会让
+ * stamp 一起记：网关与 CLI 是两个进程，都在写同一个账本。只按内容缓存会让
  * 进程内副本永不失效 —— CLI 跑过 `model usage --refresh` 之后，网关下一次落盘会用
  * 自己的旧副本把 CLI 写进去的账单**整文件覆盖回滚**（2026-11-08 评审指出）。
- * 每次 `load()` 都 stat 一次（几微秒），文件被别的进程改过就重读。
+ * 每次 `load()` 都取一次 stamp（fs 形态 = 几微秒的 stat），存储被别的进程改过就重读。
  */
-let cache: { path: string; mtimeMs: number; ledger: PoolLedger } | null = null;
-
-/** 当前文件的 mtime；文件不存在记 0（等于「没被写过」）。 */
-function ledgerMtime(path: string): number {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
+let cache: { stamp: number; ledger: PoolLedger } | null = null;
 
 /**
  * 落盘时**先合并磁盘上的最新内容**，避免整文件覆盖掉别的进程写的条目。
  *
  * 合并口径：以本进程的内存副本为准（它刚被本次操作更新过），但磁盘上存在、
- * 内存里没有的渠道补进来 —— 直接 `writeJsonSecret(load())` 会把它们抹掉。
+ * 内存里没有的渠道补进来 —— 直接 `writeLedger(load())` 会把它们抹掉。
  */
 /**
  * 落盘前剪掉**已不在册**的渠道条目。
@@ -270,9 +259,8 @@ function pruneUnregistered(ledger: PoolLedger): PoolLedger {
 }
 
 function loadForWrite(): PoolLedger {
-  const path = poolUsagePath();
   const current = load();
-  const onDisk = readLedgerFromDisk(path);
+  const onDisk = normalizeLedger(poolStore().readLedger());
   if (onDisk === null) return current;
   for (const [cid, entry] of Object.entries(onDisk.channels)) {
     if (!current.channels[cid]) current.channels[cid] = entry;
@@ -280,11 +268,10 @@ function loadForWrite(): PoolLedger {
   return current;
 }
 
-/** 从磁盘读一份账本（不碰缓存）；读不出来返回 null。 */
-function readLedgerFromDisk(path: string): PoolLedger | null {
-  if (!existsSync(path)) return null;
+/** 把存储读回的原始账本规范化（不碰缓存）；读不出来返回 null。 */
+function normalizeLedger(parsed: unknown): PoolLedger | null {
   try {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<PoolLedger>;
+    const raw = parsed as Partial<PoolLedger> | null;
     if (!raw || typeof raw !== "object" || !raw.channels || typeof raw.channels !== "object") return null;
     const merged: Record<string, ChannelLedger> = {};
     for (const [cid, entry] of Object.entries(raw.channels)) {
@@ -312,13 +299,12 @@ function readLedgerFromDisk(path: string): PoolLedger | null {
   }
 }
 
-/** 惰性加载账本（文件缺失 / 损坏都退回空账本，**不阻塞**）。 */
+/** 惰性加载账本（存储缺失 / 损坏都退回空账本，**不阻塞**）。 */
 function load(): PoolLedger {
-  const path = poolUsagePath();
-  const mtimeMs = ledgerMtime(path);
-  if (cache && cache.path === path && cache.mtimeMs === mtimeMs) return cache.ledger;
-  const ledger = readLedgerFromDisk(path) ?? { version: 1, channels: {} };
-  cache = { path, mtimeMs, ledger };
+  const stamp = poolStore().ledgerStamp();
+  if (cache && cache.stamp === stamp) return cache.ledger;
+  const ledger = normalizeLedger(poolStore().readLedger()) ?? { version: 1, channels: {} };
+  cache = { stamp, ledger };
   return ledger;
 }
 
@@ -342,8 +328,8 @@ export function flushLedger(): void {
     saveTimer = null;
   }
   try {
-    // 写前合并磁盘内容：别的进程（CLI）可能刚写过本进程没有的渠道条目
-    writeJsonSecret(poolUsagePath(), pruneUnregistered(loadForWrite()));
+    // 写前合并存储内容：别的进程（CLI）可能刚写过本进程没有的渠道条目
+    poolStore().writeLedger(pruneUnregistered(loadForWrite()));
   } catch {
     /* 写不进去不该让请求失败：账本丢了只影响排序精度 */
   }
