@@ -284,6 +284,16 @@ export interface UpstreamModule {
    */
   quotaResetAt?(bodySnippet: string): number | null;
   /**
+   * 可选：判定一个**非 200** 响应是否是**上游容量型过载**（推理集群无空闲实例一类）。
+   *
+   * 为什么单独认：这类错误**换账号没用** —— 整个集群都没容量，继续给账号计连败会把
+   * 健康账号误熔断（上游排队高峰整批 5xx，几个账号接连被标 `error` 后全池绕行）。
+   * 命中时网关仍记渠道级冷却（把候选让给别家），但**不计账号连败**。
+   * 渠道自己的业务码（如 loomy 的 `no_provider_error, provider_name=venus`）由渠道
+   * 声明，共享层不硬编码（AGENTS.md：共享层不许出现任何渠道知识）。
+   */
+  isCapacityError?(status: number, body: string): boolean;
+  /**
    * 可选：上游响应头到达后允许的**连续静默上限**（毫秒），默认 `MODELMUX_READ_TIMEOUT_MS`（120s）。
    *
    * 有些上游排队/长思考时**收下请求（HTTP 200）后长时间零字节**，且不像其他渠道那样

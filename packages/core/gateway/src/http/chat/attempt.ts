@@ -758,8 +758,14 @@ export async function attemptCandidate(
     // 一个客户端连发几个坏请求，全池就都「不可用」了（2026-11-08 评审指出）。
     if (call.status <= 0 || call.status >= 500) {
       noteFailure(cid, activeKeyOf(cid));
-      // 账号连败同理：只有上游不可用 / 网络错误才计数，4xx 计进去会把健康账号误标 error
-      noteAccountFailure(cid);
+      // 容量型过载（钩子命中）：换账号没用，不计账号连败 —— 否则上游排队高峰会把
+      // 健康账号整批误熔断。渠道业务码归 upstream.isCapacityError，共享层不硬编码。
+      const capacity =
+        hasChannel(cid) &&
+        inChannel(getChannel(cid), () =>
+          getChannel(cid)!.upstream.isCapacityError?.(call.status, bodySnippet ?? ""),
+        ) === true;
+      if (!capacity) noteAccountFailure(cid);
     }
     // 上游 4xx 业务错（上下文超限、参数不识别等）原样透传状态码：客户端（claude code /
     // codex）对 4xx 不重试、对 502 会重试 —— 转成 502 会让客户端对着一个改不了参数的

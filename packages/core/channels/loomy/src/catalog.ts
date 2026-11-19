@@ -259,10 +259,11 @@ function toCatalogEntry(m: FallbackModel): CatalogEntry {
   };
 }
 
-/** 把档位登记进 upstream（避免 upstream <-> catalog 循环依赖）。 */
+/** 把档位与输出上限登记进 upstream（避免 upstream <-> catalog 循环依赖）。 */
 function publish(entries: CatalogEntry[]): void {
   for (const entry of entries) {
     upstream.setModelEfforts(entry.id, entry.efforts, entry.defaultEffort);
+    if (entry.maxOutput !== undefined) upstream.setModelMaxOutput(entry.id, entry.maxOutput);
   }
 }
 
@@ -473,6 +474,10 @@ export function exposedIds(): string[] {
 
 /** 短名 → 上游 slug；未知名称**原样返回**。 */
 export function resolveModel(name: string): string {
+  // 每条对话请求的选路都经过这里：顺手种入快照（磁盘缓存先顶上 + 每进程一次后台刷新）。
+  // 不然新进程只发对话（不访问 /v1/models 与控制台）时，upstream 的档位 /
+  // max_output 注册表没人 publish，max_tokens 拉满在第一条请求上是空转的（实测踩过）。
+  ensureRefresh();
   for (const [short, slug] of loadAliases()) {
     if (short === name) return slug;
   }

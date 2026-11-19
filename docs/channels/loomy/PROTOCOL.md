@@ -126,9 +126,21 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 | `Accept` | 常量 `text/event-stream` | 否 | — | `[参考]` 实现发的是 `application/json` → **待真机确认** |
 | `Content-Type` | 常量 `application/json` | 否 | — | — |
 | `traceparent` | `00-<32 hex>-<16 hex>-01`，**每请求新生成** | 否（链路追踪） | 每请求 | `[参考]` 标注为**必需**（缺失会挂死到超时）；本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核** |
-| `loomy-version` | 常量（官方客户端版本号） | 否（网关只检查它存在） | — | `[参考]` 同上，**待真机 A/B 复核** |
-| `X-Loomy-Request-Purpose` | — | 否（服务端积分归属记账） | — | **本渠道不做**：17 个取值的语义需先对照参考实现枚举（§9） |
-| `ChatId` / `MsgId` / `TurnId` | — | 否（会话关联） | — | **本渠道不做**（§9） |
+| `loomy-version` | 常量 `0.9.39`（官方客户端版本号） | 否（网关只检查它存在） | — | `[参考]` 0.9.39 为官方 CDN 实测最新版（2026-11-14）；已对齐 |
+| `X-Loomy-Request-Purpose` | 常量 `chat.message` | 否（服务端积分归属记账） | 每请求 | attribution 五头之一，经 `buildChatHeaders` 钩子下发（见 §2.2.1.1） |
+| `ChatId` / `MsgId` / `TurnId` | `chat-<uuid>` / `msg-<uuid>`，**每请求新生**（`TurnId`=`MsgId`） | 否（会话关联） | 每请求 | attribution 五头；会话级稳定 + 每请求新 msgid 会被判同对话并发/重放（偶发 409，生态实测） |
+| `InvokeOrigin` | 常量 `user` | 否 | 每请求 | attribution 五头之一 |
+
+##### 2.2.1.1 attribution 头与思考开关实测（2026-11-19）
+
+同一 prompt 交错真机 A/B（baseline / +attribution 五头 / `/no_think` 前缀 /
+`reasoning_effort=none` / `enable_thinking=false`+`chat_template_kwargs`）：
+
+- **生成相位 TPS（40-58 tok/s）对五种形态全部不敏感** —— 速度由上游推理排队支配，
+  请求头/字段改不动它；与生态实测一致（首包 7~100s 随机波动，换网关不会更快）。
+- **思考关不掉**：三种关思考手段全部压不掉 reasoning token（每请求 100-301）。
+- 小 `max_tokens` 会被思考吃穿：上限 300 时 completion 恰好打满 300（其中 reasoning
+  226-301），正文被截 → `max_tokens` 按目录上限拉满（只抬高不压低，计费按实际用量）。
 
 #### 2.2.2 账号端点（HMAC-SHA1 签名）
 
@@ -725,11 +737,9 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；短信路已实测跑通，无此必要 |
 | `/embeddings`、`/images/generations`、`/search/tencent` | 上游有，但本渠道定位是 **OpenAI 兼容对话网关**；我们是否可用、返回形状均未验证 |
 | 多账号加权调度（按额度加权 / 会话粘性 / 在途租约 / 模型级冷却） | 共享层目前只有简单轮换 + 连续失败 3 次标 error；本渠道不扩共享层 |
-| 思考开关 `enable_thinking` / `chat_template_kwargs.enable_thinking` | 当前用 `reasoning_effort` 表达档位；上游对未知字段静默忽略，语义需真机确认 |
+| 思考开关 `enable_thinking` / `chat_template_kwargs.enable_thinking` | 已实测（2026-11-19，§2.2.1.1）连同 `/no_think` 前缀全部关不掉思考；档位表达保留 `reasoning_effort`，思考成本按实测计入 |
 | 积分兑换码（`/points/redemption-codes/redeem`）/ 邀请码绑定（`/points/activation`） | 属运营玩法；且需 campus 设备号 `deviceId`（promotions 侧） |
 | 积分流水翻页 + 每模型实际单价统计 | 当前额度只取第一页余额字段；翻页聚合是面板级需求 |
-| `X-Loomy-Request-Purpose` 归属头（17 取值） | 取值语义需先对照参考实现的完整枚举（影响服务端积分归属记账） |
-| `ChatId` / `MsgId` / `TurnId` 会话关联头 | 需先确认网关是否要求成对下发 |
 | `pet-work` 平台每日任务（`/api/v1/pet-work`） | 与 `onboarding/tasks` 并存的另一套任务体系，未验证 |
 | Anthropic 兼容端点（`/v1/messages`） | 网关只做 OpenAI 兼容 |
 

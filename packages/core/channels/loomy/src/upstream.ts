@@ -198,9 +198,9 @@ function businessHeaders(credential: AuthLike): Record<string, string> {
  * 官方客户端版本号（`loomy-version` 头的值）。
  *
  * `[参考]` 取**官方客户端**版本号（与参考实现一致），**不是**本渠道包的版本号；
- * 上游网关**只检查它存在**。
+ * 上游网关**只检查它存在**。0.9.39 为官方 CDN 实测最新版（生态多家 2026-11 主动对齐）。
  */
-const CLIENT_VERSION = "0.9.38";
+const CLIENT_VERSION = "0.9.39";
 
 /**
  * W3C traceparent（`00-<32 hex>-<16 hex>-01`），**每请求新生成**。
@@ -235,6 +235,35 @@ export function buildHeaders(
   opts: { chat?: boolean } = {},
 ): Record<string, string> {
   return (opts.chat ?? true) ? chatHeaders(credential) : businessHeaders(credential);
+}
+
+/**
+ * 对话请求头族（网关 `buildChatHeaders` 钩子）：基础头 + 官方 attribution 五头。
+ *
+ * 上游裁决层读这组头判「是否官方客户端」，缺它们是第三方网关与真实客户端最具体的
+ * 差异（生态实测，见 PROTOCOL §2.2.2）。chatid/msgid **每请求新生**：会话级稳定 +
+ * 每请求新 msgid 会被判成同对话并发/重放（偶发 409，Android-AI-gateway 2.11.0
+ * 实测后回退为每请求唯一）。
+ */
+export function buildChatHeaders(credential: AuthLike): Record<string, string> {
+  const msgId = `msg-${randomUUID()}`;
+  return {
+    ...chatHeaders(credential),
+    ChatId: `chat-${randomUUID()}`,
+    MsgId: msgId,
+    TurnId: msgId,
+    InvokeOrigin: "user",
+    "X-Loomy-Request-Purpose": "chat.message",
+  };
+}
+
+/**
+ * 容量型过载识别（网关 `isCapacityError` 钩子）：上游推理集群（venus）无空闲实例时回
+ * `503 no_provider_error, provider_name=venus` —— 换账号没用，不该计入账号连败
+ * （连败计数在网关 5xx 分支，钩子命中即跳过，否则排队高峰会把健康账号整批误熔断）。
+ */
+export function isCapacityError(status: number, body: string): boolean {
+  return status === 503 && /no_provider_error|provider_name\s*[=:]\s*venus/i.test(body);
 }
 
 // ── 业务信封 ──────────────────────────────────────────────────────────────────
@@ -466,9 +495,17 @@ function modelEfforts(model: string): ModelEfforts | null {
   return effortsRegistry.get(model) ?? null;
 }
 
-/** 仅供测试：清空档位注册表。 */
+const maxOutputRegistry = new Map<string, number>();
+
+/** 由 `catalog` 在构建目录时调用：登记某模型的最大输出 token（供 max_tokens 拉满用）。 */
+export function setModelMaxOutput(model: string, max: number): void {
+  if (Number.isFinite(max) && max > 0) maxOutputRegistry.set(model, max);
+}
+
+/** 仅供测试：清空档位与 max_output 注册表。 */
 export function clearModelEfforts(): void {
   effortsRegistry.clear();
+  maxOutputRegistry.clear();
 }
 
 // ── 请求体改写 ────────────────────────────────────────────────────────────────
@@ -498,6 +535,7 @@ function hoistSystemMessages(messages: unknown[]): unknown[] {
  * - `system` 提升为 `messages[0]`
  * - `reasoning_effort` **校验档位在该模型的 efforts 内**，不过就静默删掉
  *   （给一个远端不认的值比不给更糟）
+ * - `max_tokens` **只抬高不压低**，缺省或低于目录上限时拉满（思考 token 先吃预算）
  * - 恒设 `stream: true`（客户端要非流式由网关聚合）
  * - 其余可选字段条件展开（`undefined` 时不发该键）
  */
@@ -518,6 +556,15 @@ export function buildChatBody(
     if (!known || !value || !known.efforts.includes(value)) {
       delete body["reasoning_effort"]; // 静默不下发（退回服务端默认档）
     }
+  }
+
+  // max_tokens 拉满到模型上限：思考 token 先吃预算，客户端给小了会
+  // `finish_reason=length` 且正文被截（实测 300 的上限被思考吃掉 226-301 token）。
+  // 计费按实际用量走，抬高上限不改变费用；未知模型不动。只抬高不压低。
+  const modelMax = maxOutputRegistry.get(upstreamModel);
+  if (modelMax !== undefined) {
+    const requested = typeof body["max_tokens"] === "number" ? body["max_tokens"] : 0;
+    if (!(Number.isFinite(requested) && requested >= modelMax)) body["max_tokens"] = modelMax;
   }
 
   body["stream"] = true;
