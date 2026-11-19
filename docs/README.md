@@ -50,15 +50,19 @@
 | [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) | **缓存命中率口径**：DeepSeek 官方字段与加和关系、命中率公式（官方无明文，业界推导）、12 天实测的各渠道字段形态表、三类形态的分派归一化规则、展示精度规则 |
 | [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：各参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
 
-## 2. 项目官网 `docs/site/`
+## 2. 项目官网 `docs/index.html`
 
-面向项目外部读者的单页站点（GitHub Pages 用同一份文件）：定位、选路原理、渠道能力、
-快速开始、明确写出的边界。与 Web 控制台**互不复用**——控制台是"用这个网关的人"看的
-运维界面，官网是"还没用的人"看的介绍页。
+面向项目外部读者的单页站点，同时是 GitHub Pages 的发布入口（仓库 Settings → Pages →
+Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。与 Web 控制台
+**互不复用**——控制台是"用这个网关的人"看的运维界面，官网是"还没用的人"看的介绍页。
 
 | 文件 | 用途 |
 | --- | --- |
-| [site/index.html](./site/index.html) | 单文件站点（内联 CSS，无外链资源，可直接托管） |
+| [index.html](./index.html) | 单文件站点（内联 CSS，无外链资源；file:// 直接打开也可用） |
+
+> Pages 根目录 = `/docs`，所以站点文件必须留在这一层，不要挪进子目录。
+> `docs/index.html` 与 `docs/README.md` 并存不冲突：GitHub 仓库页优先渲染 README，
+> Pages 优先 serve index.html。
 
 ## 2. 渠道文档 `docs/channels/<cid>/`
 
