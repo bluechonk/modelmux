@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>modelmux — 一个端点，几个模型，额度自适应</title>
 <meta name="description" content="modelmux 是本地 LLM 网关：7 个渠道的额度汇成一个 OpenAI 兼容端点，对外只有几个裸模型名，选路、换号、熔断、签到全自动。" />
+<!-- 图标与控制台同源（复用 packages/ui/src/assets），Pages 根是 /docs，所以走相对路径 -->
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon-180.png" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="modelmux — 一个端点，几个模型，额度自适应" />
+<meta property="og:description" content="本地 LLM 网关：7 个渠道的额度汇成一个 OpenAI 兼容端点，对外只有几个裸模型名。" />
+<meta property="og:image" content="https://bluechonk.github.io/modelmux/assets/logo-192.png" />
+<meta name="twitter:card" content="summary" />
 <style>
   :root {
     --ink: #0c0d0e;
@@ -43,6 +51,10 @@
     color: var(--text-faint); font-family: var(--mono);
   }
   hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0; }
+  /* hero 品牌锁：52px 角色图与 eyebrow 同一基线，窄屏缩到 40px 给文字让位 */
+  .mark-row { display: flex; align-items: center; gap: 12px; }
+  .mark-row img { width: 52px; height: 52px; object-fit: contain; flex: none; }
+  @media (max-width: 620px) { .mark-row img { width: 40px; height: 40px; } }
 
   /* ——— 顶栏 ——— */
   header.top {
@@ -53,7 +65,8 @@
   }
   .top .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
   .brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 500; letter-spacing: -0.01em; }
-  .brand svg { display: block; }
+  /* 品牌图是透明底 192px 方图，按 24px 等比缩放；object-fit 防止纵向被压扁 */
+  .brand img { display: block; width: 24px; height: 24px; object-fit: contain; }
   nav.main { display: flex; gap: 2px; margin-left: 8px; }
   nav.main a { padding: 6px 10px; border-radius: 8px; font-size: 13px; color: var(--text-soft); }
   nav.main a:hover { color: var(--text); background: var(--raised); }
@@ -101,6 +114,8 @@
     padding: 9px 12px; border-bottom: 1px solid var(--line);
     background: var(--raised); font-family: var(--mono); font-size: 11px; color: var(--text-faint);
   }
+  /* 标题栏右端放品牌图：与真实控制台窗口的标题栏位置一致 */
+  .term .bar img { margin-left: auto; width: 15px; height: 15px; object-fit: contain; opacity: 0.9; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
   .term pre { margin: 0; padding: 16px; font-size: 12.5px; line-height: 1.75; overflow-x: auto; }
   /* 极窄屏代码仍需横滚（11px 是字号下限）：细滚动条让它是「可滚的代码块」而非溢出 */
@@ -210,7 +225,10 @@
 
   footer { padding: 40px 0 56px; }
   footer .wrap { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; font-size: 12.5px; color: var(--text-faint); }
-  footer .links { display: flex; gap: 16px; }
+  footer .brandline { display: flex; align-items: center; gap: 8px; }
+  footer .brandline img { width: 18px; height: 18px; object-fit: contain; }
+  /* 链接靠右：品牌字标在左，链接组在右，窄屏换行后仍各自成组 */
+  footer .links { display: flex; gap: 16px; margin-left: auto; }
   footer a:hover { color: var(--text); }
 
   @media (max-width: 940px) {
@@ -266,11 +284,7 @@
 <header class="top">
   <div class="wrap">
     <a class="brand" href="#top" aria-label="modelmux 首页">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="2" y="6" width="5" height="12" rx="1.6" stroke="currentColor" stroke-width="1.6"/>
-        <rect x="9.5" y="3" width="5" height="18" rx="1.6" stroke="currentColor" stroke-width="1.6"/>
-        <rect x="17" y="8" width="5" height="8" rx="1.6" stroke="currentColor" stroke-width="1.6"/>
-      </svg>
+      <img src="assets/logo-192.png" width="24" height="24" alt="" />
       modelmux
     </a>
     <nav class="main" aria-label="站点导航">
@@ -292,7 +306,10 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <div class="eyebrow">本地 LLM 网关 · OpenAI 兼容</div>
+        <div class="mark-row">
+          <img src="assets/logo-192.png" width="52" height="52" alt="modelmux 标志" />
+          <div class="eyebrow">本地 LLM 网关 · OpenAI 兼容</div>
+        </div>
         <h1>一个端点<br />几个模型，<span class="dim">额度自己挑</span></h1>
         <p class="lede">
           把在册渠道的额度汇成一个端点。对外只有家族表里的裸模型名，
@@ -310,7 +327,7 @@
         </div>
       </div>
       <div class="term" role="img" aria-label="终端示例：网关启动、账号池状态与一次请求的选路输出">
-        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:6px">mx status</span></div>
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:6px">mx status</span><img src="assets/logo-192.png" width="15" height="15" alt="" /></div>
         <pre><span class="c">$</span> <span class="t">mx start</span>
 <span class="g">✓</span> gateway listening <span class="t">127.0.0.1:4412</span>
 
@@ -580,7 +597,7 @@ npm run build</pre>
 
 <footer>
   <div class="wrap">
-    <span>modelmux · v0.1.5 · MIT</span>
+    <span class="brandline"><img src="assets/logo-192.png" width="18" height="18" alt="" />modelmux · v0.1.5 · MIT</span>
     <span class="links">
       <a href="https://github.com/bluechonk/modelmux">GitHub</a>
       <a href="https://github.com/bluechonk/modelmux/tree/main/docs">文档</a>

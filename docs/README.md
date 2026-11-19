@@ -58,9 +58,11 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 
 | 文件 | 用途 |
 | --- | --- |
-| [index.html](./index.html) | 单文件站点（内联 CSS，无外链资源；file:// 直接打开也可用） |
+| [index.html](./index.html) | 单页站点（内联 CSS；HTML 不依赖任何 CDN，仅引用同源 `assets/`） |
+| [assets/](./assets/) | 站点图片：品牌标志与 favicon，复用 `packages/ui/src/assets/` 的原图 |
 
-> Pages 根目录 = `/docs`，所以站点文件必须留在这一层，不要挪进子目录。
+> Pages 根目录 = `/docs`，所以站点文件必须留在这一层，不要挪进子目录；`index.html` 里的
+> `assets/…` 是相对根路径的写法，部署到 `/modelmux/` 子目录下同样成立。
 > `docs/index.html` 与 `docs/README.md` 并存不冲突：GitHub 仓库页优先渲染 README，
 > Pages 优先 serve index.html。
 
