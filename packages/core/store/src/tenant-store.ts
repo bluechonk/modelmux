@@ -59,8 +59,10 @@ CREATE TABLE IF NOT EXISTS usage_events (
   completion_tokens bigint NOT NULL,
   cost_usd          numeric(12,6) NOT NULL,
   ts                timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (request_id)
-);
+  PRIMARY KEY (request_id, ts)
+) PARTITION BY RANGE (ts);
+-- 默认分区兜底：数百租户量级不预建月度分区，归档时按分区 DROP 即可
+CREATE TABLE IF NOT EXISTS usage_events_default PARTITION OF usage_events DEFAULT;
 CREATE TABLE IF NOT EXISTS model_prices (
   model               text PRIMARY KEY,
   input_usd_per_mtok  numeric(12,6) NOT NULL,
@@ -279,7 +281,7 @@ export class TenantStore {
       ]);
       await client.query(
         `INSERT INTO usage_events (request_id, tenant_id, cid, model, prompt_tokens, completion_tokens, cost_usd)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (request_id) DO NOTHING`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [requestId, tenantId, usage.cid, usage.model, usage.promptTokens, usage.completionTokens, actualUsd],
       );
       await client.query("COMMIT");
