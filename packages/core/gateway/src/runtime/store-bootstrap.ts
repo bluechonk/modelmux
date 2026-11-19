@@ -8,6 +8,7 @@
 
 import { setPoolStore, type PoolStore } from "./pool-store.js";
 import { onRequestFinished } from "./log-store.js";
+import { setMetricsProvider } from "./metrics-port.js";
 import { setTenantGate } from "./tenant-context.js";
 
 /** TenantStore 的动态面：bootstrap 只按方法签名取用，不静态依赖 store 包。 */
@@ -25,7 +26,7 @@ interface TenantStoreLike {
     cid: string;
     outcome: "success" | "failure";
     usage: Record<string, unknown> | undefined;
-  }): Promise<void>;
+  }): Promise<{ kind: "commit" | "refund"; amountUsd: string } | null>;
 }
 
 export async function bootstrapStore(): Promise<void> {
@@ -41,14 +42,30 @@ export async function bootstrapStore(): Promise<void> {
   }
   const specifier = ["@modelmux", "store"].join("/");
   const mod = (await import(specifier)) as {
-    createPgPoolStore: (options: { dsn: string; pollIntervalMs?: number; redisUrl?: string }) => Promise<PoolStore>;
+    createPgPoolStore: (options: { dsn: string; pollIntervalMs?: number; redisUrl?: string; masterKeys?: unknown }) => Promise<PoolStore>;
     TenantStore: new (options: { dsn: string }) => TenantStoreLike;
-    RateLimiter: new (url: string) => { hit(key: string, limit: number, windowSec?: number): Promise<boolean>; close(): Promise<void> };
+    RateLimiter: new (url: string) => { hit(key: string, limit: number, windowSec?: number): Promise<boolean>; close(): void };
+    keyRingFromEnv: (env: NodeJS.ProcessEnv) => unknown;
+    gatewayMetrics: {
+      inc(name: string, labels?: Record<string, string>, value?: number): void;
+      observe(name: string, seconds: number, labels?: Record<string, string>): void;
+      render(): string;
+    };
   };
   // Redis 广播（S3 §8.3）：配置变更即时失效各实例快照，轮询降为兜底
   const redisUrl = process.env.MODELMUX_REDIS_URL?.trim() || "redis://127.0.0.1:6380";
-  const store = await mod.createPgPoolStore({ dsn, redisUrl });
+  // 凭据信封加密（S4 §9）：MODELMUX_MASTER_KEYS 未设则明文（与 S1 一致）
+  const store = await mod.createPgPoolStore({ dsn, redisUrl, masterKeys: mod.keyRingFromEnv(process.env) ?? undefined });
   setPoolStore(store);
+
+  // 指标（S4）：服务形态暴露 /metrics；请求观测挂在 finish hook（与结算同一挂点）
+  setMetricsProvider({ text: () => mod.gatewayMetrics.render() });
+  onRequestFinished((log) => {
+    mod.gatewayMetrics.inc("modelmux_http_requests_total", { code: String(log.status ?? 0) });
+    mod.gatewayMetrics.observe("modelmux_http_request_duration_seconds", (log.durationMs ?? 0) / 1000, {
+      model: log.model ?? "unknown",
+    });
+  });
 
   // 租户形态（S2）：门禁注入 + finish hook 结算。gate 只在 MODELMUX_TENANT_MODE=on
   // 时装配 —— 未开启的进程 gate=null，请求路径与本机形态完全一致。
@@ -62,11 +79,14 @@ export async function bootstrapStore(): Promise<void> {
       hold: async (model, tenantId, requestId) =>
         await tenants.hold(tenantId, requestId, await tenants.estimateHoldUsd(model)),
       // rpm 固定窗口：key 带分钟桶（窗口边界自然滚动），多实例共享同一 Redis 计数
-      rateOk: async (tenantId, model) =>
-        await limiter.hit(
+      rateOk: async (tenantId, model) => {
+        const ok = await limiter.hit(
           `mmx:rl:${tenantId}:${model}:${Math.floor(Date.now() / 60_000)}`,
           await tenants.rpmLimitOf(tenantId, model),
-        ),
+        );
+        if (!ok) mod.gatewayMetrics.inc("modelmux_tenant_rate_limited_total", { tenant: tenantId, model });
+        return ok;
+      },
       settle: (input) =>
         tenants.settle({
           tenantId: input.tenantId,
@@ -88,6 +108,11 @@ export async function bootstrapStore(): Promise<void> {
           cid: log.cid ?? "",
           outcome: log.outcome === "success" ? "success" : "failure",
           usage: log.usage,
+        })
+        .then((result) => {
+          if (result !== null) {
+            mod.gatewayMetrics.inc("modelmux_tenant_cost_usd_total", { tenant: t.id, kind: result.kind }, Number(result.amountUsd));
+          }
         })
         .catch((err: unknown) => {
           console.error(`tenant settle failed (${t.requestId}): ${String(err)}`);

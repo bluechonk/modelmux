@@ -1,12 +1,11 @@
 # 服务化重构设计方案（SaaS-Redesign）
 
-> 设计方案。进度：S0（存储开端口）、S1（PgPoolStore + 组合根注入）与 S2（TenantStore
-> 租户身份 / RLS 隔离 / 额度闭环 + 网关门禁接线，`MODELMUX_TENANT_MODE=on` 装配）已落地；
-> S3-S4 未实施。落地形态与 §5-§7 设计一致（RLS 需非特权角色 `modelmux_app` —— 超级用户
-> 会绕过策略；结算挂点在访问日志 finish hook，租户关联随 RequestLog 字段传递）。
-> 若产品决策把 modelmux 从个人本机网关升级为服务化部署（几百号真实用户、多租户、
-> 多实例），本文是重设计路线；现行单实例契约见 [CONTRACT-TS.md](./CONTRACT-TS.md)
-> 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)，本文不替代它们。
+> 设计方案。进度：S0-S4 全部落地（存储开端口 → PgPoolStore → 租户/RLS/额度闭环 →
+> 租约半开/限流/广播 → 指标/信封加密/审计/对账）。落地形态与 §5-§8 设计一致，两处偏差：
+> 多实例部署形态为「同机多进程 + 共享 PG/Redis」（compose/LB 属发布链，未做）；
+> Redis 用 Garnet（RESP 兼容），RESP 客户端自写（ioredis 握手与 Garnet 不兼容）。
+> 现行单实例本机契约（CONTRACT-TS.md / POOL-ARCHITECTURE.md）仍是默认形态：
+> `MODELMUX_STORE` 未设时全部服务化组件不装配，行为与 S0 前一致。
 > 定位与 [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) 同级：目标架构设计，不是行为契约。
 
 ## 1. 目标与规模假设

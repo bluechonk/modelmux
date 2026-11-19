@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import pg from "pg";
 import type { PoolStore } from "@modelmux/gateway";
 import { RespClient, parseRedisUrl } from "./resp-client.js";
+import { decryptJson, encryptJson, isEncryptedRow, type MasterKeyRing } from "./crypto-box.js";
 
 const require = createRequire(import.meta.url);
 /** pg 驱动入口绝对路径：同步子进程不继承本进程模块解析上下文。 */
@@ -54,6 +55,8 @@ export interface PgPoolStoreOptions {
   pollIntervalMs?: number;
   /** 配置失效广播（S3 §8.3）：写入后 PUBLISH、收到消息即重载快照；不设则纯轮询。 */
   redisUrl?: string;
+  /** 凭据信封加密（S4 §9）：active/account 两类落盘密文化；不设则明文（与 S1 一致）。 */
+  masterKeys?: MasterKeyRing;
 }
 
 type Kind = "index" | "active" | "account" | "ledger";
@@ -93,6 +96,7 @@ export class PgPoolStore implements PoolStore {
   readonly #dsn: string;
   readonly #pollMs: number;
   readonly #redisUrl: string | undefined;
+  readonly #keys: MasterKeyRing | null;
   readonly #pool: pg.Pool;
   #pub: RespClient | null = null;
   #sub: RespClient | null = null;
@@ -108,6 +112,7 @@ export class PgPoolStore implements PoolStore {
     this.#dsn = options.dsn;
     this.#pollMs = options.pollIntervalMs ?? 1000;
     this.#redisUrl = options.redisUrl;
+    this.#keys = options.masterKeys ?? null;
     this.#pool = new pg.Pool({ connectionString: options.dsn, max: 4 });
   }
 
@@ -164,9 +169,41 @@ export class PgPoolStore implements PoolStore {
     const { rows } = await this.#pool.query("SELECT kind, cid, skey, data, version FROM pool_kv");
     this.#snap.clear();
     for (const r of rows) {
-      this.#snap.set(rowId(r.kind as Kind, r.cid, r.skey), { data: r.data ?? null, stamp: ++this.#seq });
+      this.#snap.set(rowId(r.kind as Kind, r.cid, r.skey), { data: this.#decodeKind(r.kind, r.data ?? null), stamp: ++this.#seq });
     }
     this.#maxVersion = rows.reduce((m: number, r) => Math.max(m, Number(r.version)), 0);
+  }
+
+  /** 凭据类行的信封加密/解密（其余 kind 明文 —— 索引/账本不是凭据）。 */
+  #encodeKind(kind: Kind, data: unknown): unknown {
+    if (this.#keys === null || (kind !== "active" && kind !== "account")) return data;
+    return encryptJson(data, this.#keys);
+  }
+
+  #decodeKind(kind: Kind, data: unknown): unknown {
+    if (this.#keys === null || (kind !== "active" && kind !== "account")) return data;
+    return decryptJson(data, this.#keys); // 非密文（加密启用前的旧行）原样返回
+  }
+
+  /**
+   * 主密钥轮换重加密（S4 演练入口）：把所有凭据行统一转到当前密钥。
+   * 旧 kid 行经 `previous` 解密；明文行（启用加密前的遗留）直接加密。
+   */
+  async reencryptAll(): Promise<number> {
+    if (this.#keys === null) return 0;
+    const { rows } = await this.#pool.query<{ kind: Kind; cid: string; skey: string; data: unknown }>(
+      "SELECT kind, cid, skey, data FROM pool_kv WHERE kind IN ('active','account') AND data IS NOT NULL",
+    );
+    let rewritten = 0;
+    for (const r of rows) {
+      const row = r.data;
+      if (isEncryptedRow(row) && row.kid === this.#keys.current.id) continue; // 已是当前密钥
+      const plain = decryptJson(row, this.#keys);
+      await this.#pool.query(upsertStmt(r.kind, r.cid, r.skey, this.#encodeKind(r.kind, plain)));
+      rewritten += 1;
+    }
+    if (rewritten > 0) this.#publish();
+    return rewritten;
   }
 
   async #tick(): Promise<void> {
@@ -248,7 +285,7 @@ export class PgPoolStore implements PoolStore {
     // syncPool 每轮全量重写凭据：内容未变直接跳过（fs 原子写 ~1ms 无感，子进程必须去抖）
     if (this.#sameAsSnap("account", cid, key, cred)) return;
     this.#set("account", cid, cred, key);
-    if (!this.#execSync([upsertStmt("account", cid, key, cred)]).ok) {
+    if (!this.#execSync([upsertStmt("account", cid, key, this.#encodeKind("account", cred))]).ok) {
       throw new Error(`pool store: sync write account credential failed (cid=${cid ?? ""} key=${key})`);
     }
     this.#publish();
@@ -275,7 +312,7 @@ export class PgPoolStore implements PoolStore {
   writeActiveCredential(cred: unknown, cid?: string): void {
     if (this.#sameAsSnap("active", cid, "", cred)) return;
     this.#set("active", cid, cred);
-    if (!this.#execSync([upsertStmt("active", cid, "", cred)]).ok) {
+    if (!this.#execSync([upsertStmt("active", cid, "", this.#encodeKind("active", cred))]).ok) {
       throw new Error(`pool store: sync write active credential failed (cid=${cid ?? ""})`);
     }
     this.#publish();
@@ -303,7 +340,7 @@ export class PgPoolStore implements PoolStore {
     if (source == null) throw new Error(`pool store: active credential missing (cid=${cid ?? ""})`);
     if (this.#sameAsSnap("account", cid, key, source)) return;
     this.#set("account", cid, source, key);
-    if (!this.#execSync([upsertStmt("account", cid, key, source)]).ok) {
+    if (!this.#execSync([upsertStmt("account", cid, key, this.#encodeKind("account", source))]).ok) {
       throw new Error(`pool store: sync copy to account credential failed (cid=${cid ?? ""} key=${key})`);
     }
     this.#publish();
@@ -314,7 +351,7 @@ export class PgPoolStore implements PoolStore {
     if (source == null) throw new Error(`pool store: account credential missing (cid=${cid ?? ""} key=${key})`);
     if (this.#sameAsSnap("active", cid, "", source)) return;
     this.#set("active", cid, source);
-    if (!this.#execSync([upsertStmt("active", cid, "", source)]).ok) {
+    if (!this.#execSync([upsertStmt("active", cid, "", this.#encodeKind("active", source))]).ok) {
       throw new Error(`pool store: sync copy to active credential failed (cid=${cid ?? ""})`);
     }
     this.#publish();

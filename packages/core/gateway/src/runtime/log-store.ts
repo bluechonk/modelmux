@@ -479,9 +479,9 @@ export function finishRequestLog(log: RequestLog, status: number): void {
     log.outcome = status >= 200 && status < 400 ? "success" : "failure";
     if (status < 200) log.error ??= "no_status";
   }
-  // 成功的健康检查 / 模型轮询不记访问日志：Web 控制台每 5 秒拉一次 /v1/models，
-  // 记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
-  const routine = log.path === "/health" || log.path === "/v1/models";
+  // 成功的健康检查 / 模型轮询 / 指标抓取不记访问日志：Web 控制台每 5 秒拉一次 /v1/models、
+  // Prometheus 定时刮 /metrics，记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
+  const routine = log.path === "/health" || log.path === "/v1/models" || log.path === "/metrics";
   if (routine && log.outcome === "success" && !slowVerdictOfLog(log).slow) return;
   appendAccessFile(log.outcome, log);
   for (const hook of finishHooks) {

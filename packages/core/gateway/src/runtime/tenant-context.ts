@@ -41,8 +41,8 @@ export interface TenantGate {
   hold(model: string, tenantId: string, requestId: string): Promise<{ ok: boolean; reason?: string }>;
   /** rpm 限流检查（S3：Redis 固定窗口，多实例共享计数；Redis 不可达 fail-open）。 */
   rateOk(tenantId: string, model: string): Promise<boolean>;
-  /** 请求结束结算：成功按真实 usage 实扣，失败退款。 */
-  settle(input: SettleInput): Promise<void>;
+  /** 请求结束结算：成功按真实 usage 实扣，失败退款；返回结算动作（null = 未发生，指标记录用）。 */
+  settle(input: SettleInput): Promise<{ kind: "commit" | "refund"; amountUsd: string } | null>;
 }
 
 let gate: TenantGate | null = null;

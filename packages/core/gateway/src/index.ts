@@ -190,5 +190,9 @@ export { FsPoolStore, setPoolStore, poolStore } from "./runtime/pool-store.js";
 export type { TenantContext, TenantGate, SettleInput } from "./runtime/tenant-context.js";
 export { runInTenant, currentTenant, setTenantGate, tenantGate } from "./runtime/tenant-context.js";
 
+// 指标端口（S4）：provider 由组合根注入，/metrics 有 provider 才暴露
+export type { MetricsProvider } from "./runtime/metrics-port.js";
+export { setMetricsProvider, metricsProvider } from "./runtime/metrics-port.js";
+
 // CLI 入口
 export { main, usage } from "./app/cli/index.js";

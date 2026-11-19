@@ -66,6 +66,13 @@ CREATE TABLE IF NOT EXISTS model_prices (
   input_usd_per_mtok  numeric(12,6) NOT NULL,
   output_usd_per_mtok numeric(12,6) NOT NULL
 );
+CREATE TABLE IF NOT EXISTS audit_log (
+  id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  actor   text NOT NULL,
+  action  text NOT NULL,
+  detail  jsonb,
+  at      timestamptz NOT NULL DEFAULT now()
+);
 ALTER TABLE usage_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_events FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON usage_events;
@@ -89,7 +96,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
-  tenants, tenant_api_keys, tenant_models, tenant_quota, quota_ledger, usage_events, model_prices
+  tenants, tenant_api_keys, tenant_models, tenant_quota, quota_ledger, usage_events, model_prices, audit_log
   TO modelmux_app;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO modelmux_app;
 `;
@@ -107,6 +114,8 @@ export interface TenantInfo {
 export class TenantStore {
   readonly #bootstrapDsn: string;
   #pool: pg.Pool;
+  /** 引导角色连接池：管理面跨租户读（reconcile）—— app 角色被 RLS 挡住，对账必须全表。 */
+  #admin: pg.Pool | null = null;
 
   constructor(options: { dsn: string }) {
     this.#bootstrapDsn = options.dsn;
@@ -119,6 +128,7 @@ export class TenantStore {
     await bootstrap.query(SCHEMA);
     await bootstrap.query(APP_ROLE);
     await bootstrap.end();
+    this.#admin = new pg.Pool({ connectionString: this.#bootstrapDsn, max: 2 });
     await this.#pool.end();
     const at = this.#bootstrapDsn.indexOf("@");
     const appDsn = `postgres://modelmux_app:modelmux_app${this.#bootstrapDsn.slice(at)}`;
@@ -127,6 +137,16 @@ export class TenantStore {
 
   async close(): Promise<void> {
     await this.#pool.end();
+    if (this.#admin !== null) await this.#admin.end();
+    this.#admin = null;
+  }
+
+  /** 管理动作审计（actor 固定 admin：S2 形态管理面只有管理员）。 */
+  async #audit(action: string, detail: unknown): Promise<void> {
+    await this.#pool.query("INSERT INTO audit_log (actor, action, detail) VALUES ('admin', $1, $2::jsonb)", [
+      action,
+      JSON.stringify(detail ?? null),
+    ]);
   }
 
   // —— 身份 ——
@@ -148,6 +168,7 @@ export class TenantStore {
         plain.slice(0, 12),
       ]);
       await client.query("COMMIT");
+      await this.#audit("tenant.create", { tenant_id: id, name, initial_balance_usd: initialBalanceUsd });
       return { tenant: { id, name, balanceUsd: initialBalanceUsd }, apiKey: plain };
     } catch (err) {
       await client.query("ROLLBACK");
@@ -271,8 +292,8 @@ export class TenantStore {
     }
   }
 
-  /** 退款：上游失败时把 hold 全额还回余额。幂等：已 refund 跳过。 */
-  async refund(tenantId: string, requestId: string): Promise<SettleResult> {
+  /** 退款：上游失败时把 hold 全额还回余额。幂等：已 refund 跳过。返回退款金额（幂等重放为 0）。 */
+  async refund(tenantId: string, requestId: string): Promise<{ ok: boolean; reason?: string; amountUsd: string }> {
     const client = await this.#pool.connect();
     try {
       await client.query("BEGIN");
@@ -280,12 +301,12 @@ export class TenantStore {
       const done = await client.query("SELECT 1 FROM quota_ledger WHERE request_id = $1 AND kind IN ('commit','refund')", [requestId]);
       if (done.rowCount !== 0) {
         await client.query("COMMIT");
-        return { ok: true };
+        return { ok: true, amountUsd: "0" };
       }
       const held = await client.query("SELECT amount_usd FROM quota_ledger WHERE request_id = $1 AND kind = 'hold'", [requestId]);
       if (held.rowCount === 0) {
         await client.query("ROLLBACK");
-        return { ok: false, reason: "no_hold" };
+        return { ok: false, reason: "no_hold", amountUsd: "0" };
       }
       await client.query("UPDATE tenant_quota SET balance_usd = balance_usd + $2 WHERE tenant_id = $1", [tenantId, held.rows[0].amount_usd]);
       await client.query("INSERT INTO quota_ledger (tenant_id, request_id, kind, amount_usd) VALUES ($1, $2, 'refund', $3)", [
@@ -294,7 +315,7 @@ export class TenantStore {
         held.rows[0].amount_usd,
       ]);
       await client.query("COMMIT");
-      return { ok: true };
+      return { ok: true, amountUsd: String(held.rows[0].amount_usd) };
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
@@ -338,6 +359,7 @@ export class TenantStore {
        ON CONFLICT (model) DO UPDATE SET input_usd_per_mtok = EXCLUDED.input_usd_per_mtok, output_usd_per_mtok = EXCLUDED.output_usd_per_mtok`,
       [model, inputUsdPerMtok, outputUsdPerMtok],
     );
+    await this.#audit("price.set", { model, input_usd_per_mtok: inputUsdPerMtok, output_usd_per_mtok: outputUsdPerMtok });
   }
 
   /** 授权租户可用模型（管理面）。 */
@@ -346,6 +368,7 @@ export class TenantStore {
       `INSERT INTO tenant_models (tenant_id, model) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [tenantId, model],
     );
+    await this.#audit("model.grant", { tenant_id: tenantId, model });
   }
 
   /** 预扣估算：输入 32k + 输出 4k tokens（覆盖常规请求的保守值，真实差额由 commit 回补）。 */
@@ -353,7 +376,7 @@ export class TenantStore {
     return await this.costOf(model, 32_000n, 4_000n);
   }
 
-  /** 请求结束结算（log-store finish hook 驱动）：成功按真实 usage 实扣，失败全额退款。 */
+  /** 请求结束结算（log-store finish hook 驱动）：成功按真实 usage 实扣，失败全额退款。返回结算动作（指标记录用）。 */
   async settle(input: {
     tenantId: string;
     requestId: string;
@@ -361,19 +384,40 @@ export class TenantStore {
     cid: string;
     outcome: "success" | "failure";
     usage: Record<string, unknown> | undefined;
-  }): Promise<void> {
+  }): Promise<{ kind: "commit" | "refund"; amountUsd: string } | null> {
     if (input.outcome === "success") {
       const t = usageTokens(input.usage);
       const actual = await this.costOf(input.model, t.prompt, t.completion);
-      await this.commit(input.tenantId, input.requestId, actual, {
+      const done = await this.commit(input.tenantId, input.requestId, actual, {
         cid: input.cid,
         model: input.model,
         promptTokens: t.prompt,
         completionTokens: t.completion,
       });
-    } else {
-      await this.refund(input.tenantId, input.requestId);
+      return done.ok ? { kind: "commit", amountUsd: actual } : null;
     }
+    const r = await this.refund(input.tenantId, input.requestId);
+    return r.ok && r.amountUsd !== "0" ? { kind: "refund", amountUsd: r.amountUsd } : null;
+  }
+
+  /**
+   * 对账（S4）：逐租户比较 usage_events 汇总与 quota_ledger commit 汇总。
+   * commit 同事务写两表，理论恒等；不等即数据缺陷（半写/手工改动），返回差异行供告警。
+   * 走引导角色连接 —— app 角色被 RLS 挡，全表对账是管理面职责。
+   */
+  async reconcile(): Promise<Array<{ tenantId: string; usageSum: string; ledgerSum: string; diff: string }>> {
+    if (this.#admin === null) throw new Error("TenantStore 未 init");
+    const { rows } = await this.#admin.query(
+      `SELECT COALESCE(u.tenant_id, l.tenant_id)::text AS tenant_id,
+              COALESCE(u.s, 0)::text AS usage_sum,
+              COALESCE(l.s, 0)::text AS ledger_sum,
+              (COALESCE(u.s, 0) - COALESCE(l.s, 0))::text AS diff
+       FROM (SELECT tenant_id, sum(cost_usd) s FROM usage_events GROUP BY tenant_id) u
+       FULL JOIN (SELECT tenant_id, sum(amount_usd) s FROM quota_ledger WHERE kind = 'commit' GROUP BY tenant_id) l
+         ON u.tenant_id = l.tenant_id
+       WHERE COALESCE(u.s, 0) <> COALESCE(l.s, 0)`,
+    );
+    return rows.map((r) => ({ tenantId: String(r.tenant_id), usageSum: String(r.usage_sum), ledgerSum: String(r.ledger_sum), diff: String(r.diff) }));
   }
 }
 

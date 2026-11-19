@@ -27,33 +27,48 @@ function isElevated() {
 }
 
 /**
- * 残留自卫：上一次被取消的测试跑会留下占着 5434/5435 的 embedded PG，
- * 新用例起不了实例（超时后连锁取消）。只杀这两个端口上的监听进程，
- * 不碰其它 postgres 实例。
+ * 残留自卫：上一次被取消的测试跑会留下占着 5434/5435 的 embedded PG（postmaster
+ * 及其 forkchild/checkpointer 子进程），新用例起不了实例（超时后连锁取消）。
+ * 按命令行匹配杀**本仓库 node_modules 下的** postgres.exe 全家 —— 精确到路径，
+ * 不碰机器上其它 postgres 实例。
  */
 function freeTestPorts() {
+  const kill = `
+    Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" |
+      Where-Object { $_.CommandLine -like '*modelmux*node_modules*' } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  `;
   let killed = false;
   for (const port of [5434, 5435]) {
     try {
       const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
-      for (const line of out.split("\n")) {
-        if (line.includes(`127.0.0.1:${port}`) && line.includes("LISTENING")) {
-          const pid = line.trim().split(/\s+/).pop();
-          if (pid && /^\d+$/.test(pid)) {
-            execFileSync("taskkill", ["/PID", pid, "/F"], { stdio: "ignore" });
-            killed = true;
+      if (out.split("\n").some((l) => l.includes(`127.0.0.1:${port}`) && l.includes("LISTENING"))) killed = true;
+    } catch {
+      /* netstat 失败不阻塞 */
+    }
+  }
+  if (!killed) return;
+  try {
+    execFileSync("pwsh", ["-NoProfile", "-Command", kill], { stdio: "ignore" });
+  } catch {
+    /* pwsh 不可用时退回 netstat 单杀监听者 */
+    for (const port of [5434, 5435]) {
+      try {
+        const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
+        for (const line of out.split("\n")) {
+          if (line.includes(`127.0.0.1:${port}`) && line.includes("LISTENING")) {
+            const pid = line.trim().split(/\s+/).pop();
+            if (pid && /^\d+$/.test(pid)) execFileSync("taskkill", ["/PID", pid, "/F"], { stdio: "ignore" });
           }
         }
+      } catch {
+        /* 兜底也失败就交给测试自身的重试 */
       }
-    } catch {
-      /* netstat/taskkill 失败不阻塞测试 */
     }
   }
   // taskkill 后 Windows 延迟释放数据目录句柄：不等这一步，测试的 rmSync 会撞 EPERM
-  if (killed) {
-    const until = Date.now() + 2000;
-    while (Date.now() < until) { /* 自旋等句柄释放 */ }
-  }
+  const until = Date.now() + 2000;
+  while (Date.now() < until) { /* 自旋等句柄释放 */ }
 }
 freeTestPorts();
 

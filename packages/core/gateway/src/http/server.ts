@@ -22,6 +22,7 @@ import { baseUrlOf, bindFreeServer, displayBase } from "./portfree.js";
 import { handleChat, handleCountTokens, handleMessages, handleResponses } from "./chat/relay.js";
 import { writeJson, writeJsonError } from "./chat/errors.js";
 import { attachRequestLog, noteRequestDetail, noteRequestUa } from "../runtime/log-store.js";
+import { metricsProvider } from "../runtime/metrics-port.js";
 
 /**
  * 服务标识：出现在 `/health` 应答里。
@@ -256,6 +257,17 @@ export function createHandler(opts: GatewayOptions = {}) {
       }
       if (path === "/health") {
         handleHealth(res);
+        return;
+      }
+      // 服务形态指标出口（S4）：provider 由组合根注入，本机形态无 provider → 404
+      if (path === "/metrics") {
+        const provider = metricsProvider();
+        if (provider === null) {
+          writeJsonError(res, 404, "not_found", "metrics not enabled");
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/plain; version=0.0.4" });
+        res.end(provider.text());
         return;
       }
       handleRoot(req, res, path);
