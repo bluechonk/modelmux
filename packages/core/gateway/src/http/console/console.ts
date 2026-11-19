@@ -179,6 +179,12 @@ export interface UiSnapshot {
    */
   theme_mode: string;
   /**
+   * 设置弹窗的渠道开关：`enabled=false` 的渠道从账号池隐藏、不参与选路。
+   *
+   * 关闭 ≠ 注销：凭据与登录态都在，勾回来即恢复（存 setting.json 的 disabled_channels）。
+   */
+  channel_toggles: Array<{ cid: string; display: string; enabled: boolean }>;
+  /**
    * 服务形态租户模式是否开启（tenantGate 已装配）。
    *
    * 控制台「租户管理」页的唯一显示开关 —— 本机形态恒 false，导航与页面都不出现。
@@ -206,6 +212,7 @@ export function emptySnapshot(): UiSnapshot {
     integrations: {},
     integration_updates: {},
     theme_mode: "system",
+    channel_toggles: [],
     tenant_mode: false,
     gateway_error: "",
   };

@@ -7,7 +7,7 @@
  * 窄屏（<sm）锚点折成顶部一行横滑，不挤压内容列。
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogClose,
@@ -16,7 +16,7 @@ import {
   DialogPortal,
   DialogTitle,
 } from "./ui/dialog";
-import { ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
+import { Boxes, ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 
 import { Segmented } from "./Segmented";
@@ -46,13 +46,14 @@ const THEME_ITEMS: ReadonlyArray<{ key: ThemeMode; label: string }> = [
   { key: "light", label: "浅色" },
 ];
 
-type SectionKey = "general" | "look" | "about";
+type SectionKey = "general" | "channels" | "look" | "about";
 
 /** 行首 / 锚点图标：lucide 组件与 GithubMark 都只吃 className，共用同一形态。 */
 type IconType = ComponentType<{ className?: string }>;
 
 const SECTION_ITEMS: ReadonlyArray<{ key: SectionKey; label: string; icon: IconType }> = [
   { key: "general", label: "通用", icon: RefreshCw },
+  { key: "channels", label: "渠道", icon: Boxes },
   { key: "look", label: "外观", icon: Palette },
   { key: "about", label: "关于", icon: Info },
 ];
@@ -116,6 +117,7 @@ function IntervalRow({
 export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }): ReactElement {
   // `["state"]` 轮询归布局层所有，这里只订阅同一份缓存（同 GatewayStatus）
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
+  const qc = useQueryClient();
   const toast = useToast();
   const { mode, select } = useThemeMode();
   const [section, setSection] = useState<SectionKey>("general");
@@ -149,6 +151,22 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
     } catch (err) {
       setAutostart(!next);
       toast.error(`开机自启动设置失败：${errorText(err)}`);
+    }
+  };
+
+  const toggleChannel = async (cid: string, enabled: boolean): Promise<void> => {
+    try {
+      const res = await api.commands.setChannelEnabled(cid, enabled);
+      if (!res.ok) {
+        toast.error(res.error ?? "渠道开关保存失败");
+        return;
+      }
+      // 开关影响三处视图：设置页自身、账号池卡片、选路派生（state 里的模型矩阵）
+      void qc.invalidateQueries({ queryKey: ["state"] });
+      void qc.invalidateQueries({ queryKey: ["accounts"] });
+      void qc.invalidateQueries({ queryKey: ["billing"] });
+    } catch (err) {
+      toast.error(`渠道开关保存失败：${errorText(err)}`);
     }
   };
 
@@ -256,6 +274,34 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                     )}
                     <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
                     <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
+                  </div>
+                </div>
+              )}
+
+              {section === "channels" && (
+                <div>
+                  <div className="mb-3 text-xs font-medium text-ink-faint">渠道开关</div>
+                  <p className="mb-3 text-xs text-ink-faint">
+                    关闭的渠道从账号池隐藏、不参与选路；凭据与登录态保留，勾回来即恢复。
+                  </p>
+                  <div className="divide-y divide-line">
+                    {(state.data?.channel_toggles ?? []).map((t) => (
+                      <ModalRow
+                        key={t.cid}
+                        icon={Boxes}
+                        title={t.display}
+                        description={t.enabled ? "参与选路，账号池可见" : "已关闭：账号池隐藏、不参与选路"}
+                      >
+                        <Switch
+                          checked={t.enabled}
+                          onChange={() => void toggleChannel(t.cid, !t.enabled)}
+                          label={`渠道 ${t.display}，${t.enabled ? "已开启" : "已关闭"}`}
+                        />
+                      </ModalRow>
+                    ))}
+                    {(state.data?.channel_toggles ?? []).length === 0 && (
+                      <p className="py-3 text-xs text-ink-faint">（没有可选渠道）</p>
+                    )}
                   </div>
                 </div>
               )}

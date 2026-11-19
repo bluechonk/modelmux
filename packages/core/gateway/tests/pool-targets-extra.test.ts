@@ -80,3 +80,46 @@ describe("poolModels / invalidateCrossModelIndex", () => {
     invalidateCrossModelIndex();
   });
 });
+
+describe("channel toggle：关闭的渠道不进选路候选", () => {
+  before(async () => {
+    const { setChannel } = await import("../dist/runtime/channel.js");
+    const { registerChannelSupply } = await import("./registry-seed.ts");
+    setChannel({
+      config: { cid: "cid-on", display: "ON", version: "1.0.0", defaultAddr: "127.0.0.1:1", uiPort: 2 },
+      upstream: { DISPLAY_NAME: "ON" },
+      catalog: { exposedIds: async () => [] },
+      cred: { load: async () => ({}) },
+    } as unknown as Channel);
+    setChannel({
+      config: { cid: "cid-off", display: "OFF", version: "1.0.0", defaultAddr: "127.0.0.1:3", uiPort: 4 },
+      upstream: { DISPLAY_NAME: "OFF" },
+      catalog: { exposedIds: async () => [] },
+      cred: { load: async () => ({}) },
+    } as unknown as Channel);
+    registerChannelSupply("cid-on", ["deepseek-v4.1-flash"]);
+    registerChannelSupply("cid-off", ["deepseek-v4.1-flash"]);
+  });
+
+  after(() => {
+    // 同步清理（after 不允许 await import 之外的顶层 await）
+    void import("../dist/runtime/user-settings.js").then((m) => m.setChannelEnabled("cid-off", true));
+  });
+
+  it("两个都开着 → 候选含两者", async () => {
+    const { poolCandidates } = await import("../dist/pool/pool-targets.js");
+    const cids = poolCandidates("deepseek-v4.1-flash" as never).map((c) => c.cid);
+    assert.ok(cids.includes("cid-on") && cids.includes("cid-off"));
+  });
+
+  it("关掉 cid-off → 候选只剩 cid-on（凭据不动，只是不路由）", async () => {
+    const { setChannelEnabled } = await import("../dist/runtime/user-settings.js");
+    const { poolCandidates } = await import("../dist/pool/pool-targets.js");
+    setChannelEnabled("cid-off", false);
+    const cids = poolCandidates("deepseek-v4.1-flash" as never).map((c) => c.cid);
+    assert.deepEqual(cids, ["cid-on"]);
+    setChannelEnabled("cid-off", true);
+    const back = poolCandidates("deepseek-v4.1-flash" as never).map((c) => c.cid);
+    assert.ok(back.includes("cid-off"), "开启后立刻回到候选");
+  });
+});

@@ -22,7 +22,7 @@ import * as gateway from "../../http/server.js";
 import { REPO_UI_PREFIX, version } from "../../runtime/cli-consts.js";
 import { appendChannel, appendError, appendGateway, appendSystem } from "../../runtime/log-store.js";
 import { rootDir } from "../../runtime/paths.js";
-import { loadUserSettings, saveUserSettings, type ThemeMode } from "../../runtime/user-settings.js";
+import { loadUserSettings, saveUserSettings, isChannelEnabled, type ThemeMode } from "../../runtime/user-settings.js";
 import { startUpdateChecks, updateNotice } from "../../runtime/update-check.js";
 import { tenantGate } from "../../runtime/tenant-context.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
@@ -451,6 +451,12 @@ class ServiceState {
       integrations: integrationStatus(),
       integration_updates: integrationUpdates(),
       theme_mode: loadUserSettings().theme,
+      // 设置弹窗的渠道开关状态：关闭的渠道从账号池隐藏、不参与选路
+      channel_toggles: channels().map((channel) => ({
+        cid: channel.config.cid,
+        display: channel.upstream.DISPLAY_NAME,
+        enabled: isChannelEnabled(channel.config.cid),
+      })),
       // 租户管理页的唯一开关：tenantGate 装配与否（MODELMUX_TENANT_MODE=on 且 store=pg）
       tenant_mode: tenantGate() !== null,
       gateway_error: this.gatewayError,

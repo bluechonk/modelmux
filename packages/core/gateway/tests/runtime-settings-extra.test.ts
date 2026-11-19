@@ -21,7 +21,7 @@ import {
   readModelSpecs,
   writeModelSpec,
 } from "../dist/runtime/model-specs.js";
-import { loadUserSettings, saveUserSettings } from "../dist/runtime/user-settings.js";
+import { isChannelEnabled, loadUserSettings, saveUserSettings, setChannelEnabled } from "../dist/runtime/user-settings.js";
 
 describe("用户设置读容错与合并写", () => {
   let saved: string | undefined;
@@ -41,40 +41,40 @@ describe("用户设置读容错与合并写", () => {
   });
 
   it("文件缺失 → 默认主题 system", () => {
-    assert.deepEqual(loadUserSettings(), { theme: "system" });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
   });
 
   it("文件损坏 → 回落默认值", () => {
     writeFileSync(file, "{broken", "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system" });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
   });
 
   it("顶层是数组 → 回落默认值", () => {
     writeFileSync(file, JSON.stringify(["dark"]), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system" });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
   });
 
   it("theme 非法 → 该项回落默认值", () => {
     writeFileSync(file, JSON.stringify({ theme: "neon" }), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system" });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
     writeFileSync(file, JSON.stringify({ theme: 42 }), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system" });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
   });
 
   it("theme 合法 → 原样读回", () => {
     writeFileSync(file, JSON.stringify({ theme: "dark" }), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "dark" });
+    assert.deepEqual(loadUserSettings(), { theme: "dark", disabled_channels: [] });
   });
 
   it("saveUserSettings 合并写入并返回完整设置", () => {
     writeFileSync(file, JSON.stringify({ theme: "dark" }), "utf8");
     const merged = saveUserSettings({ theme: "light" });
-    assert.deepEqual(merged, { theme: "light" });
-    assert.deepEqual(loadUserSettings(), { theme: "light" });
+    assert.deepEqual(merged, { theme: "light", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "light", disabled_channels: [] });
     assert.equal(JSON.parse(readFileSync(file, "utf8"))["theme"], "light");
 
     // 空 patch 不改变已存值
-    assert.deepEqual(saveUserSettings({}), { theme: "light" });
+    assert.deepEqual(saveUserSettings({}), { theme: "light", disabled_channels: [] });
   });
 });
 
@@ -171,5 +171,51 @@ describe("模型目录快照的磁盘解析", () => {
     const doc = { version: 1 as const, generated_at: "g", models: {} };
     writeCatalogFile(doc);
     assert.equal(readCatalogFile(), doc);
+  });
+});
+
+describe("渠道开关（disabled_channels）", () => {
+  let saved: string | undefined;
+  let root = "";
+  let file = "";
+
+  before(() => {
+    saved = process.env["MODELMUX_HOME"];
+    root = mkdtempSync(join(tmpdir(), "modelmux-toggles-"));
+    process.env["MODELMUX_HOME"] = root;
+    file = join(root, "setting.json");
+  });
+  after(() => {
+    if (saved === undefined) delete process.env["MODELMUX_HOME"];
+    else process.env["MODELMUX_HOME"] = saved;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("缺省：没有关闭项，全部渠道启用", () => {
+    rmSync(file, { force: true });
+    assert.deepEqual(loadUserSettings().disabled_channels, []);
+    assert.equal(isChannelEnabled("loomy"), true);
+  });
+
+  it("关闭后落盘、再开启移除", () => {
+    setChannelEnabled("qwenworkcn", false);
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).disabled_channels, ["qwenworkcn"]);
+    assert.equal(isChannelEnabled("qwenworkcn"), false);
+    assert.equal(isChannelEnabled("loomy"), true);
+    setChannelEnabled("qwenworkcn", true);
+    assert.deepEqual(loadUserSettings().disabled_channels, []);
+    assert.equal(isChannelEnabled("qwenworkcn"), true);
+  });
+
+  it("非法项读时丢弃（不让坏值污染选路）", () => {
+    writeFileSync(file, JSON.stringify({ theme: "dark", disabled_channels: ["ok-cid", "bad cid", 42, "../x"] }), "utf8");
+    assert.deepEqual(loadUserSettings().disabled_channels, ["ok-cid"]);
+  });
+
+  it("重复关闭幂等", () => {
+    rmSync(file, { force: true });
+    setChannelEnabled("traecn", false);
+    setChannelEnabled("traecn", false);
+    assert.deepEqual(loadUserSettings().disabled_channels, ["traecn"]);
   });
 });

@@ -11,6 +11,7 @@
 
 import { channels, getChannel, hasChannel, type Channel } from "../runtime/channel.js";
 import { runInChannel } from "../runtime/channel-context.js";
+import { isChannelEnabled } from "../runtime/user-settings.js";
 import { readCatalogCache } from "../runtime/catalog-cache.js";
 import { readModelSpecs, type ModelSpecEntry } from "../runtime/model-specs.js";
 import {
@@ -431,6 +432,8 @@ export function poolCandidates(model: PoolModel): PoolCandidate[] {
   const out: PoolCandidate[] = [];
   for (const channel of channels()) {
     const cid = channel.config.cid;
+    // 设置弹窗关闭的渠道 = 不参与选路（账号池也隐藏它的卡片）
+    if (!isChannelEnabled(cid)) continue;
     if (only && cid !== only) continue;
     if (!declared.has(cid) && !channelExposes(canonical, cid, channel)) continue;
     out.push({ cid, channel, exposedId: canonical });

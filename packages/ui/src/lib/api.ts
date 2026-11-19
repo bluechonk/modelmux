@@ -148,6 +148,8 @@ export interface WebApi {
      * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
      */
     restore(target: "zcode" | "dsh"): Promise<CommandData>;
+    /** 设置弹窗的渠道开关：关闭 = 账号池隐藏 + 选路跳过（凭据与登录态保留）。 */
+    setChannelEnabled(cid: string, enabled: boolean): Promise<CommandData>;
     /**
      * 手动检查更新（设置页「检查更新」按钮）。
      *
@@ -251,6 +253,7 @@ export const api: WebApi = {
     cancelInput: () => command("cancelInput", undefined),
     integrate: (target) => command("integrate", undefined, { target }),
     restore: (target) => command("restore", undefined, { target }),
+    setChannelEnabled: (cid, enabled) => command("setChannelEnabled", cid, { enabled }),
     checkUpdate: () => command("checkUpdate", undefined),
   },
 };

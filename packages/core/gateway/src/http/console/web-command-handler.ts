@@ -15,6 +15,7 @@ import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { isPrefsModel, loadModelPrefs, setPreferredChannel } from "../../pool/model-prefs.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
+import { isChannelEnabled, setChannelEnabled } from "../../runtime/user-settings.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
 import type {
@@ -193,7 +194,12 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         return ok({ rows, models: poolModels() });
       }
       case "accounts": {
-        const targets = cid !== undefined && hasChannel(cid) ? [getChannel(cid)] : channels();
+        // 显式指定 cid 时照常返回（诊断入口）；列表模式只列启用的渠道 ——
+        // 设置弹窗关闭的渠道在这里消失，账号池卡片随之隐藏
+        const targets =
+          cid !== undefined && hasChannel(cid)
+            ? [getChannel(cid)]
+            : channels().filter((channel) => isChannelEnabled(channel.config.cid));
         if (targets.length === 0) return err("没有渠道被注册");
         const pools = targets.map((channel) => {
           const poolCid = channel.config.cid;
@@ -208,6 +214,13 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         });
         // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
         return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
+      }
+      case "setChannelEnabled": {
+        if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");
+        const enabled = args["enabled"];
+        if (typeof enabled !== "boolean") return err("参数 enabled 必须是布尔值");
+        setChannelEnabled(cid, enabled);
+        return ok({ cid, enabled });
       }
       case "activateAccount": {
         if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");
