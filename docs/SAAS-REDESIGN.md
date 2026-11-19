@@ -1,8 +1,10 @@
 # 服务化重构设计方案（SaaS-Redesign）
 
-> 设计方案。进度：S0（存储开端口）已落地 —— `runtime/pool-store.ts` 定义 PoolStore 端口，
-> fs 适配器保持原落点与写盘语义；S1-S4 未实施。若产品决策把 modelmux 从个人本机网关
-> 升级为服务化部署（几百号真实用户、多租户、多实例），本文是重设计路线；
+> 设计方案。进度：S0（存储开端口）与 S1（PgPoolStore + 组合根注入）已落地 ——
+> `runtime/pool-store.ts` 定义 PoolStore 端口，`packages/core/store` 的 pg 适配器经
+> `MODELMUX_STORE=pg MODELMUX_PG_DSN=…` 装配（读走内存快照 + 版本轮询，凭据同步
+> 子进程持久化，索引/账本 write-behind）；S2-S4 未实施。若产品决策把 modelmux 从
+> 个人本机网关升级为服务化部署（几百号真实用户、多租户、多实例），本文是重设计路线；
 > 现行单实例契约见 [CONTRACT-TS.md](./CONTRACT-TS.md)
 > 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)，本文不替代它们。
 > 定位与 [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) 同级：目标架构设计，不是行为契约。

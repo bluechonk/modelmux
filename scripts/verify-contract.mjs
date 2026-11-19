@@ -151,6 +151,7 @@ const tsconfigs = [
   ...channelDirs.map((cid) => `packages/core/channels/${cid}/tsconfig.json`),
   "packages/cli/tsconfig.json",
   "packages/core/gateway/tsconfig.json",
+  "packages/core/store/tsconfig.json",
 ];
 for (const where of tsconfigs) {
   const block = referencesBlock(read(where));
@@ -160,7 +161,7 @@ for (const where of tsconfigs) {
 }
 
 const solutionPaths = [...referencesBlock(read("tsconfig.json")).matchAll(/"path"\s*:\s*"([^"]+)"/g)].map((m) => m[1]);
-const packagePaths = [...channelDirs.map((cid) => `packages/core/channels/${cid}`), "packages/cli", "packages/core/gateway"];
+const packagePaths = [...channelDirs.map((cid) => `packages/core/channels/${cid}`), "packages/cli", "packages/core/gateway", "packages/core/store"];
 const missingRefs = packagePaths.filter((p) => !solutionPaths.includes(p));
 const strayRefs = solutionPaths.filter((p) => !packagePaths.includes(p));
 check(

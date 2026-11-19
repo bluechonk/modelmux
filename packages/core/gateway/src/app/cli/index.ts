@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 
 import { channelCount, channels, getChannel, hasChannel } from "../../runtime/channel.js";
 import { rootDir } from "../../runtime/paths.js";
+import { bootstrapStore } from "../../runtime/store-bootstrap.js";
 import { CHANNEL_VERBS, isChannelVerb, runVerb } from "./channel.js";
 import * as groups from "./model.js";
 import { defaultAddr, defaultUiPort, version } from "../../runtime/cli-consts.js";
@@ -184,6 +185,9 @@ function numOpt(values: RawValues, key: string): number | undefined {
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+  // 存储装配（docs/SAAS-REDESIGN.md S1）：MODELMUX_STORE=pg 时账号池/账本切到 PG；
+  // 未设或 fs 走默认文件存储，行为零变化。CLI 与 worker 都经此入口，一处装配两边生效。
+  await bootstrapStore();
   let parsed: ParsedArgs;
   try {
     parsed = parseArgs({

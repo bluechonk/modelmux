@@ -182,5 +182,9 @@ export {
   upstreamPath,
 } from "./runtime/paths.js";
 
+// 存储端口（S0，docs/SAAS-REDESIGN.md）：服务化适配器（@modelmux/store）实现 PoolStore 后 setPoolStore 注入
+export type { PoolStore } from "./runtime/pool-store.js";
+export { FsPoolStore, setPoolStore, poolStore } from "./runtime/pool-store.js";
+
 // CLI 入口
 export { main, usage } from "./app/cli/index.js";
