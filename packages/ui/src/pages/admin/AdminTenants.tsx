@@ -13,6 +13,7 @@ import { Plus, RefreshCw } from "lucide-react";
 
 import { adminApi } from "../../lib/api";
 import { AdminHeader, useAdminToken } from "../../components/AdminLayout";
+import { useAdminQueryError } from "./use-admin-query-error";
 import { CopyButton } from "../../components/CopyButton";
 import { Input } from "../../components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
@@ -106,9 +107,8 @@ export function AdminTenants(): ReactElement {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
   const list = useQuery({ queryKey: ["admin", "tenants"], queryFn: () => adminApi.tenants(token) });
-  if (list.isError) {
-    onError(list.error);
-  }
+  useAdminQueryError(list.error, list.isError, onError);
+  
   const refresh = (): void => {
     void list.refetch();
     void qc.invalidateQueries({ queryKey: ["admin", "audit"] });

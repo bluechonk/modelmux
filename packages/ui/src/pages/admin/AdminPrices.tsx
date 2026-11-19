@@ -10,6 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { adminApi } from "../../lib/api";
 import { AdminHeader, useAdminToken } from "../../components/AdminLayout";
+import { useAdminQueryError } from "./use-admin-query-error";
 import { Input } from "../../components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { useToast } from "../../components/Toast";
@@ -26,7 +27,7 @@ export function AdminPrices(): ReactElement {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const prices = useQuery({ queryKey: ["admin", "prices"], queryFn: () => adminApi.prices(token) });
-  if (prices.isError) onError(prices.error);
+  useAdminQueryError(prices.error, prices.isError, onError);
   const upsert = useMutation({
     mutationFn: () => adminApi.setPrice(token, model.trim(), input.trim(), output.trim()),
     onSuccess: () => {

@@ -11,6 +11,7 @@ import { RefreshCw } from "lucide-react";
 
 import { adminApi } from "../../lib/api";
 import { AdminHeader, useAdminToken } from "../../components/AdminLayout";
+import { useAdminQueryError } from "./use-admin-query-error";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { errorText } from "../../lib/log-format";
 
@@ -21,7 +22,7 @@ const CELL = "align-top px-3 py-2.5";
 export function AdminReconcile(): ReactElement {
   const { token, onError } = useAdminToken();
   const rec = useQuery({ queryKey: ["admin", "reconcile"], queryFn: () => adminApi.reconcile(token) });
-  if (rec.isError) onError(rec.error);
+  useAdminQueryError(rec.error, rec.isError, onError);
   const diffs = rec.data?.diffs ?? [];
   return (
     <div>

@@ -11,6 +11,7 @@ import { RefreshCw } from "lucide-react";
 
 import { adminApi } from "../../lib/api";
 import { AdminHeader, useAdminToken } from "../../components/AdminLayout";
+import { useAdminQueryError } from "./use-admin-query-error";
 import { errorText, formatDateTime } from "../../lib/log-format";
 
 const BTN =
@@ -19,7 +20,7 @@ const BTN =
 export function AdminAudit(): ReactElement {
   const { token, onError } = useAdminToken();
   const audit = useQuery({ queryKey: ["admin", "audit"], queryFn: () => adminApi.audit(token, 100) });
-  if (audit.isError) onError(audit.error);
+  useAdminQueryError(audit.error, audit.isError, onError);
   const entries = audit.data?.entries ?? [];
   return (
     <div>

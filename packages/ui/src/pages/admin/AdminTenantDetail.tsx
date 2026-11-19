@@ -12,6 +12,7 @@ import { ChevronLeft } from "lucide-react";
 
 import { adminApi } from "../../lib/api";
 import { AdminHeader, useAdminToken } from "../../components/AdminLayout";
+import { useAdminQueryError } from "./use-admin-query-error";
 import { Input } from "../../components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { useToast } from "../../components/Toast";
@@ -34,7 +35,7 @@ export function AdminTenantDetail(): ReactElement {
     queryKey: ["admin", "detail", id],
     queryFn: () => adminApi.detail(token, id),
   });
-  if (detail.isError) onError(detail.error);
+  useAdminQueryError(detail.error, detail.isError, onError);
 
   const grant = useMutation({
     mutationFn: () => adminApi.grantModel(token, id, model.trim(), Number(rpm), Number(tpm)),

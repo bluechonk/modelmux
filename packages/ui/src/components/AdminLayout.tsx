@@ -8,7 +8,7 @@
  * 令牌只存 sessionStorage；未持令牌时只渲染输入卡，管理命题/子路由不出内容。
  */
 
-import { createContext, useContext, useEffect, useState, type ReactElement } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactElement } from "react";
 import { NavLink, Navigate, Outlet } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, LogOut, ShieldCheck } from "lucide-react";
@@ -103,19 +103,32 @@ export function AdminLayout(): ReactElement {
   const [token, setToken] = useState(() => loadAdminToken());
   const toast = useToast();
 
-  const onError = (err: unknown): void => {
-    if (err instanceof AdminAuthError) {
-      clearAdminToken();
-      setToken("");
-      toast.error("管理令牌已失效，请重新输入");
-      return;
-    }
-    toast.error(errorText(err));
-  };
+  /**
+   * 统一错误回流。**必须是稳定引用**：子页面以它作 effect 依赖
+   * （useAdminQueryError），每次 render 新建会让 effect 反复触发 → 循环清令牌。
+   * 401 分支幂等：令牌已清空时直接返回，避免重复 setToken 与重复 toast。
+   */
+  const onError = useCallback(
+    (err: unknown): void => {
+      if (err instanceof AdminAuthError) {
+        clearAdminToken();
+        setToken((prev) => {
+          if (prev === "") return prev; // 已登出：不重复 toast
+          toast.error("管理令牌已失效，请重新输入");
+          return "";
+        });
+        return;
+      }
+      toast.error(errorText(err));
+    },
+    [toast],
+  );
 
   useEffect(() => {
     document.title = "modelmux 管理面";
   }, []);
+
+  const tokenValue = useMemo<AdminTokenApi>(() => ({ token, onError }), [token, onError]);
 
   // 本机形态没有管理面：直接回用户 console（不留死页面）
   if (state.data !== undefined && state.data.tenant_mode !== true) {
@@ -126,7 +139,7 @@ export function AdminLayout(): ReactElement {
   }
 
   return (
-    <TokenContext.Provider value={{ token, onError }}>
+    <TokenContext.Provider value={tokenValue}>
       <div className="flex h-full flex-col bg-canvas">
         <header className="drag-region flex h-14 flex-none items-center gap-2 border-b border-line bg-surface px-4">
           <span
