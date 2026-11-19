@@ -1,0 +1,12 @@
+# modelmux 服务形态指标抓取（SAAS-REDESIGN §13 S4）
+# 用法：prometheus.exe --config.file=scripts/monitoring/prometheus.yml
+# 抓取目标是 pg 形态网关（默认 4413；本机开发网关 4412 不在此列——fs 形态无指标出口）
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: modelmux
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:4413"]

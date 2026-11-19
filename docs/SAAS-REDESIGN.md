@@ -1,9 +1,11 @@
 # 服务化重构设计方案（SaaS-Redesign）
 
 > 设计方案。进度：S0-S4 全部落地（存储开端口 → PgPoolStore → 租户/RLS/额度闭环 →
-> 租约半开/限流/广播 → 指标/信封加密/审计/对账）。落地形态与 §5-§8 设计一致，两处偏差：
-> 多实例部署形态为「同机多进程 + 共享 PG/Redis」（compose/LB 属发布链，未做）；
-> Redis 用 Garnet（RESP 兼容），RESP 客户端自写（ioredis 握手与 Garnet 不兼容）。
+> 租约半开/限流/广播 → 指标/信封加密/审计/对账），抓取栈已验证（Prometheus + Grafana
+> 出 p95/错误率/租户消耗，provisioning 配置在 `scripts/monitoring/`）。落地形态与
+> §5-§8 设计一致，两处偏差：多实例部署形态为「同机多进程 + 共享 PG/Redis」
+> （compose/LB 属发布链，未做）；Redis 用 Garnet（RESP 兼容），RESP 客户端自写
+> （ioredis 握手与 Garnet 不兼容）。
 > 现行单实例本机契约（CONTRACT-TS.md / POOL-ARCHITECTURE.md）仍是默认形态：
 > `MODELMUX_STORE` 未设时全部服务化组件不装配，行为与 S0 前一致。
 > 定位与 [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) 同级：目标架构设计，不是行为契约。
