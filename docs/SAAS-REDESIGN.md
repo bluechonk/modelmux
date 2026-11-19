@@ -4,7 +4,8 @@
 > 租约半开/限流/广播 → 指标/信封加密/审计/对账），抓取栈已验证（Prometheus + Grafana
 > 出 p95/错误率/租户消耗，provisioning 配置在 `scripts/monitoring/`），§5-§12 的
 > 具名交付物补齐（tpm 双限、`routing_prefs` 承接渠道偏好、`/admin/*` 管理 API、
-> 访问日志写端落表）——与本文的全部既定差异见 §17 偏差台账。
+> 访问日志写端落表、§11 管理面 Web 页 `租户管理`——仅 `tenant_mode` 下发时出现）——
+> 与本文的全部既定差异见 §17 偏差台账。
 > 现行单实例本机契约（CONTRACT-TS.md / POOL-ARCHITECTURE.md）仍是默认形态：
 > `MODELMUX_STORE` 未设时全部服务化组件不装配，行为与 S0 前一致。
 > 定位与 [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) 同级：目标架构设计，不是行为契约。

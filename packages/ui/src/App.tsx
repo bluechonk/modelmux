@@ -1,7 +1,7 @@
 /**
  * 控制台根组件：React Query 客户端 + 路由挂载（`/` 仪表盘、`/accounts` 账号池、
- * `/logs` 请求日志；未知路径兜底回仪表盘）。设置不是路由页面，是顶栏齿轮弹窗
- * （`components/SettingsModal.tsx`）。
+ * `/logs` 请求日志、`/tenants` 租户管理（仅服务形态可见）；未知路径兜底回仪表盘）。
+ * 设置不是路由页面，是顶栏齿轮弹窗（`components/SettingsModal.tsx`）。
  *
  * 路由 `basename` 必须与 `vite.config.ts` 的 `base` 一致（挂 `/web`）——
  * 只改 Vite 的 `base` 不改 Router 会整页空白。
@@ -15,6 +15,7 @@ import { ToastProvider } from "./components/Toast";
 import { Dashboard } from "./pages/Dashboard";
 import { Accounts } from "./pages/Accounts";
 import { Logs } from "./pages/Logs";
+import { Tenants } from "./pages/Tenants";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
 
@@ -40,6 +41,8 @@ export function App(): ReactElement {
               <Route path="/" element={<Dashboard />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/logs" element={<Logs />} />
+              {/* 服务形态管理面：仅 tenant_mode=true 时导航出现，页面内再兜一次弹回 */}
+              <Route path="/tenants" element={<Tenants />} />
             </Route>
             {/* 兜底：历史链接/书签里的旧路径（如已下线的 /web/models）不匹配任何路由时
                 连 Layout 都不渲染，整页只剩底色 —— 重定向回仪表盘（2026-11-14 实测） */}

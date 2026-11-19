@@ -24,6 +24,7 @@ import { appendChannel, appendError, appendGateway, appendSystem } from "../../r
 import { rootDir } from "../../runtime/paths.js";
 import { loadUserSettings, saveUserSettings, type ThemeMode } from "../../runtime/user-settings.js";
 import { startUpdateChecks, updateNotice } from "../../runtime/update-check.js";
+import { tenantGate } from "../../runtime/tenant-context.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates, poolModels } from "../../pool/pool-targets.js";
@@ -450,6 +451,8 @@ class ServiceState {
       integrations: integrationStatus(),
       integration_updates: integrationUpdates(),
       theme_mode: loadUserSettings().theme,
+      // 租户管理页的唯一开关：tenantGate 装配与否（MODELMUX_TENANT_MODE=on 且 store=pg）
+      tenant_mode: tenantGate() !== null,
       gateway_error: this.gatewayError,
     };
   }

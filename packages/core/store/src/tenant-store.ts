@@ -410,6 +410,62 @@ export class TenantStore {
     return rows.map((r) => ({ actor: String(r.actor), action: String(r.action), detail: r.detail, at: String(r.at) }));
   }
 
+  /** 租户列表（管理页数据源）：基础信息 + 余额 + key 前缀（明文永不可回读）。 */
+  async listTenants(): Promise<Array<{ id: string; name: string; status: string; createdAt: string; balanceUsd: string; keyPrefixes: string[] }>> {
+    const { rows } = await this.#pool.query(
+      `SELECT t.id, t.name, t.status, t.created_at, q.balance_usd,
+              COALESCE(k.prefixes, '{}') AS prefixes
+         FROM tenants t
+         LEFT JOIN tenant_quota q ON q.tenant_id = t.id
+         LEFT JOIN (SELECT tenant_id, array_agg(prefix ORDER BY created_at DESC) AS prefixes
+                      FROM tenant_api_keys GROUP BY tenant_id) k ON k.tenant_id = t.id
+        ORDER BY t.created_at DESC`,
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      status: String(r.status),
+      createdAt: String(r.created_at),
+      balanceUsd: String(r.balance_usd ?? "0"),
+      keyPrefixes: r.prefixes as string[],
+    }));
+  }
+
+  /** 单租户详情：余额 + 已授权模型（含 rpm/tpm，管理页编辑器的当前值）。 */
+  async tenantDetail(tenantId: string): Promise<{ tenant: { id: string; name: string; status: string; balanceUsd: string }; models: Array<{ model: string; rpmLimit: number; tpmLimit: number }> } | null> {
+    const { rows } = await this.#pool.query(
+      `SELECT t.id, t.name, t.status, q.balance_usd FROM tenants t
+         LEFT JOIN tenant_quota q ON q.tenant_id = t.id WHERE t.id = $1`,
+      [tenantId],
+    );
+    if (rows.length === 0) return null;
+    const { rows: models } = await this.#pool.query(
+      "SELECT model, rpm_limit, tpm_limit FROM tenant_models WHERE tenant_id = $1 ORDER BY model",
+      [tenantId],
+    );
+    return {
+      tenant: {
+        id: String(rows[0].id),
+        name: String(rows[0].name),
+        status: String(rows[0].status),
+        balanceUsd: String(rows[0].balance_usd ?? "0"),
+      },
+      models: models.map((m) => ({ model: String(m.model), rpmLimit: Number(m.rpm_limit), tpmLimit: Number(m.tpm_limit) })),
+    };
+  }
+
+  /** 价格表全量（管理页数据源）。 */
+  async listPrices(): Promise<Array<{ model: string; inputUsdPerMtok: string; outputUsdPerMtok: string }>> {
+    const { rows } = await this.#pool.query(
+      "SELECT model, input_usd_per_mtok, output_usd_per_mtok FROM model_prices ORDER BY model",
+    );
+    return rows.map((r) => ({
+      model: String(r.model),
+      inputUsdPerMtok: String(r.input_usd_per_mtok),
+      outputUsdPerMtok: String(r.output_usd_per_mtok),
+    }));
+  }
+
   /** 预扣估算：输入 32k + 输出 4k tokens（覆盖常规请求的保守值，真实差额由 commit 回补）。 */
   async estimateHoldUsd(model: string): Promise<string> {
     return await this.costOf(model, 32_000n, 4_000n);

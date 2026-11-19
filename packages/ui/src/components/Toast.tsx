@@ -19,7 +19,7 @@ import { Toaster } from "./ui/sonner";
 /** 提示语气：成功（绿点）/ 中性信息（灰点）/ 错误（红点，停留更久）。 */
 export type ToastTone = "success" | "info" | "error";
 
-interface ToastApi {
+export interface ToastApi {
   success: (message: string) => void;
   info: (message: string) => void;
   error: (message: string) => void;

@@ -178,6 +178,12 @@ export interface UiSnapshot {
    * 持久化在 `~/.modelmux/setting.json`（写走 POST /api/theme）。
    */
   theme_mode: string;
+  /**
+   * 服务形态租户模式是否开启（tenantGate 已装配）。
+   *
+   * 控制台「租户管理」页的唯一显示开关 —— 本机形态恒 false，导航与页面都不出现。
+   */
+  tenant_mode: boolean;
   gateway_error: string;
 }
 
@@ -200,6 +206,7 @@ export function emptySnapshot(): UiSnapshot {
     integrations: {},
     integration_updates: {},
     theme_mode: "system",
+    tenant_mode: false,
     gateway_error: "",
   };
 }

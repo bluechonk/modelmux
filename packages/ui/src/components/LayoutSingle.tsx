@@ -12,7 +12,7 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, ScrollText, Settings as SettingsIcon } from "lucide-react";
+import { Boxes, Gauge, ScrollText, Settings as SettingsIcon, Users } from "lucide-react";
 import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { REPO_URL } from "../lib/site";
@@ -30,6 +30,9 @@ const NAV = [
   { to: "/accounts", label: "账号池", icon: Boxes },
   { to: "/logs", label: "请求日志", icon: ScrollText },
 ];
+
+/** 「租户管理」的显示条件：`state.tenant_mode`（服务端 tenantGate 装配与否）。 */
+const TENANTS_NAV = { to: "/tenants", label: "租户管理", icon: Users };
 
 /**
  * 网关异常时的正文骨架：替代所有页面内容渲染，形状贴近单列流的真实排版
@@ -86,6 +89,8 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
    * 真不可用的信号是 `down` 与查询失败，两者都保留。
    */
   const skeleton = queryFailed || uiState === "down";
+  // 服务形态多一个管理面标签；本机形态（tenant_mode 缺省 false）导航与原来完全一致
+  const navItems = state.data?.tenant_mode === true ? [...NAV, TENANTS_NAV] : NAV;
 
   return (
     <div className="flex h-full flex-col">
@@ -112,7 +117,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           className="no-drag flex flex-none items-center gap-1 overflow-x-auto"
           aria-label="主导航"
         >
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}

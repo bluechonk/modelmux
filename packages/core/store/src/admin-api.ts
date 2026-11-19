@@ -3,9 +3,9 @@
  * 租户开通、模型授权（含 rpm/tpm）、价格、充值、对账、审计 —— 服务形态的管理动作
  * 收进管理 API，不暴露给租户路由；本机形态不装配（gateway 侧 provider=null → 404）。
  *
- * 管理员会话：Bearer MODELMUX_ADMIN_TOKEN（环境变量注入的静态高熵令牌，
- * sha256 后 timingSafeEqual 比对 —— 管理面只有一个主体，会话体系按规模配位，
- * 不引入登录态存储）。
+ * 管理员会话：Authorization 走 Bearer 方案，值取环境变量注入的静态高熵令牌
+ * （MODELMUX_ADMIN_TOKEN，sha256 后 timingSafeEqual 比对 —— 管理面只有一个主体，
+ * 会话体系按规模配位，不引入登录态存储）。
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -111,6 +111,25 @@ export class AdminApi {
       if (sub === "audit" && method === "GET") {
         const limit = Number(new URL(req.url ?? "/", "http://x").searchParams.get("limit") ?? 50);
         json(res, 200, { ok: true, entries: await this.#tenants.auditList(limit) });
+        return;
+      }
+      // 读端点（管理页数据源）：列表 / 详情 / 价格表
+      if (sub === "tenants" && method === "GET") {
+        json(res, 200, { ok: true, tenants: await this.#tenants.listTenants() });
+        return;
+      }
+      const detail = /^tenants\/([0-9a-fA-F-]{36})$/.exec(sub);
+      if (detail !== null && method === "GET") {
+        const t = await this.#tenants.tenantDetail(detail[1]!);
+        if (t === null) {
+          json(res, 404, { ok: false, error: "租户不存在" });
+          return;
+        }
+        json(res, 200, { ok: true, ...t });
+        return;
+      }
+      if (sub === "prices" && method === "GET") {
+        json(res, 200, { ok: true, prices: await this.#tenants.listPrices() });
         return;
       }
       json(res, 404, { ok: false, error: `未知管理端点：/${sub}` });

@@ -91,6 +91,8 @@ export interface UiSnapshot {
   integration_updates?: Record<string, IntegrationUpdate | null>;
   /** 用户选的主题模式：system（跟随系统）/ dark / light（持久化在网关侧）。 */
   theme_mode: string;
+  /** 服务形态租户模式开关（tenantGate 已装配）；「租户管理」导航与页面的唯一显示条件。 */
+  tenant_mode?: boolean;
   gateway_error: string;
 }
 
@@ -560,4 +562,45 @@ export interface OverviewResponse {
     /** 失败 / 中断的说明文案（控制台直接展示，超长由行内截断）。 */
     message?: string;
   }>;
+}
+
+// —— 管理面（/admin/*，服务形态租户模式；类型与服务端 TenantStore 读端点同构）——
+
+/** 租户列表行：key 只回前缀，明文永不可回读。 */
+export interface AdminTenantRow {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  balanceUsd: string;
+  keyPrefixes: string[];
+}
+
+/** 单租户详情：余额 + 已授权模型（rpm/tpm 当前值）。 */
+export interface AdminTenantDetail {
+  tenant: { id: string; name: string; status: string; balanceUsd: string };
+  models: Array<{ model: string; rpmLimit: number; tpmLimit: number }>;
+}
+
+/** 价格表行（USD / 百万 token 口径）。 */
+export interface AdminPriceRow {
+  model: string;
+  inputUsdPerMtok: string;
+  outputUsdPerMtok: string;
+}
+
+/** 对账差异行：usage 汇总 vs 账本 commit 汇总。 */
+export interface AdminDiffRow {
+  tenantId: string;
+  usageSum: string;
+  ledgerSum: string;
+  diff: string;
+}
+
+/** 审计流水条目。 */
+export interface AdminAuditRow {
+  actor: string;
+  action: string;
+  detail: unknown;
+  at: string;
 }

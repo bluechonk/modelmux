@@ -108,6 +108,34 @@ describe("AdminApi", () => {
     assert.equal(await tenants.tpmLimitOf(id, "m-limit"), 999);
   });
 
+  it("读端点：GET tenants / tenants/:id / prices（管理页数据源）", async () => {
+    const created = await call("POST", "tenants", { name: "adm-read", balance_usd: "1.000000" });
+    const id = created.json.tenant.id;
+    await call("POST", `tenants/${id}/models`, { model: "m-read", rpm_limit: 3, tpm_limit: 77 });
+    await call("POST", "prices", { model: "m-read", input_usd_per_mtok: "0.02", output_usd_per_mtok: "0.06" });
+
+    const list = await call("GET", "tenants");
+    const row = list.json.tenants.find((t: { id: string }) => t.id === id);
+    assert.ok(row, "列表应含新建租户");
+    assert.equal(row.balanceUsd, "1.000000");
+    assert.ok(row.keyPrefixes.length >= 1, "列表带 key 前缀（明文不可回读）");
+
+    const detail = await call("GET", `tenants/${id}`);
+    assert.equal(detail.json.tenant.balanceUsd, "1.000000");
+    const granted = detail.json.models.find((m: { model: string }) => m.model === "m-read");
+    assert.deepEqual({ rpm: granted.rpmLimit, tpm: granted.tpmLimit }, { rpm: 3, tpm: 77 });
+
+    const prices = await call("GET", "prices");
+    const price = prices.json.prices.find((p: { model: string }) => p.model === "m-read");
+    assert.deepEqual(
+      { in: price.inputUsdPerMtok, out: price.outputUsdPerMtok },
+      { in: "0.020000", out: "0.060000" },
+    );
+
+    const missing = await call("GET", "tenants/00000000-0000-4000-8000-000000000000");
+    assert.equal(missing.status, 404);
+  });
+
   it("未知端点 404", async () => {
     assert.equal((await call("GET", "nope")).status, 404);
   });
