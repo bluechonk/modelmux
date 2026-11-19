@@ -454,11 +454,12 @@ class ServiceState {
       integrations: integrationStatus(),
       integration_updates: integrationUpdates(),
       theme_mode: settings.theme,
-      // 设置弹窗的渠道开关状态：关闭的渠道从账号池隐藏、不参与选路
-      // （settings 只读一次：主题与开关同源，逐项再读是同一文件的重复解析）
+      // 设置弹窗的渠道开关状态：关闭的渠道从账号池隐藏、不参与选路。
+      // 只给 cid（渠道包里的唯一名，小写），不附展示名 —— 设置页要的就是能对上
+      // packages/core/channels/<cid> 的标识，多一层映射反而对不上号。
+      // settings 只读一次：主题与开关同源，逐项再读是同一文件的重复解析
       channel_toggles: channels().map((channel) => ({
         cid: channel.config.cid,
-        display: channel.upstream.DISPLAY_NAME,
         enabled: !disabled.has(channel.config.cid),
       })),
       // 租户管理页的唯一开关：tenantGate 装配与否（MODELMUX_TENANT_MODE=on 且 store=pg）

@@ -92,7 +92,7 @@ export interface UiSnapshot {
   /** 用户选的主题模式：system（跟随系统）/ dark / light（持久化在网关侧）。 */
   theme_mode: string;
   /** 设置弹窗的渠道开关状态（关闭 = 账号池隐藏 + 不参与选路，不是注销）。 */
-  channel_toggles?: Array<{ cid: string; display: string; enabled: boolean }>;
+  channel_toggles?: Array<{ cid: string; enabled: boolean }>;
   /** 服务形态租户模式开关（tenantGate 已装配）；「租户管理」导航与页面的唯一显示条件。 */
   tenant_mode?: boolean;
   gateway_error: string;

@@ -181,9 +181,11 @@ export interface UiSnapshot {
   /**
    * 设置弹窗的渠道开关：`enabled=false` 的渠道从账号池隐藏、不参与选路。
    *
+   * 只给 `cid`（渠道包名，小写）—— 设置页展示的就是 `packages/core/channels/<cid>`
+   * 里的那个标识，不附展示名，避免多一层映射对不上号。
    * 关闭 ≠ 注销：凭据与登录态都在，勾回来即恢复（存 setting.json 的 disabled_channels）。
    */
-  channel_toggles: Array<{ cid: string; display: string; enabled: boolean }>;
+  channel_toggles: Array<{ cid: string; enabled: boolean }>;
   /**
    * 服务形态租户模式是否开启（tenantGate 已装配）。
    *

@@ -58,7 +58,8 @@ const SECTION_ITEMS: ReadonlyArray<{ key: SectionKey; label: string; icon: IconT
   { key: "about", label: "关于", icon: Info },
 ];
 
-/** 分区内的一行设置：图标 + 左标题说明、右控件；两端结构，窄屏先让说明换行。 */
+/** 分区内的一行设置：图标 + 左标题说明、右控件；两端结构，窄屏先让说明换行。
+ *  `description` 省略时整行不收说明（渠道开关这类「标题即全部信息」的行用）。 */
 function ModalRow({
   icon: Icon,
   title,
@@ -67,7 +68,7 @@ function ModalRow({
 }: {
   icon: IconType;
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 }): ReactElement {
   return (
@@ -81,7 +82,7 @@ function ModalRow({
         </span>
         <div className="min-w-0">
           <div className="text-sm text-ink">{title}</div>
-          <div className="mt-0.5 text-xs text-ink-faint">{description}</div>
+          {description !== undefined && <div className="mt-0.5 text-xs text-ink-faint">{description}</div>}
         </div>
       </div>
       <div className="ml-auto flex flex-none items-center gap-2">{children}</div>
@@ -286,16 +287,11 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                   </p>
                   <div className="divide-y divide-line">
                     {(state.data?.channel_toggles ?? []).map((t) => (
-                      <ModalRow
-                        key={t.cid}
-                        icon={Boxes}
-                        title={t.display}
-                        description={t.enabled ? "参与选路，账号池可见" : "已关闭：账号池隐藏、不参与选路"}
-                      >
+                      <ModalRow key={t.cid} icon={Boxes} title={t.cid}>
                         <Switch
                           checked={t.enabled}
                           onChange={() => void toggleChannel(t.cid, !t.enabled)}
-                          label={`渠道 ${t.display}，${t.enabled ? "已开启" : "已关闭"}`}
+                          label={`渠道 ${t.cid}，${t.enabled ? "已开启" : "已关闭"}`}
                         />
                       </ModalRow>
                     ))}
