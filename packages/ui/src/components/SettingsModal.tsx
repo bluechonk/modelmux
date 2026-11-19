@@ -16,7 +16,8 @@ import {
   DialogPortal,
   DialogTitle,
 } from "./ui/dialog";
-import { Boxes, ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
+import { Boxes, ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, ShieldCheck, Tag, X } from "lucide-react";
+import { Link } from "react-router";
 import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 
 import { Segmented } from "./Segmented";
@@ -275,6 +276,19 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                     )}
                     <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
                     <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
+                    {/* 管理面入口：服务形态才有（本机形态没有租户概念，不渲染） */}
+                    {state.data?.tenant_mode === true && (
+                      <ModalRow icon={ShieldCheck} title="管理面" description="租户 / 价格 / 对账 / 审计（需管理令牌）">
+                        <Link
+                          to="/admin"
+                          onClick={() => onOpenChange(false)}
+                          className="tap inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:bg-overlay"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                          打开管理面
+                        </Link>
+                      </ModalRow>
+                    )}
                   </div>
                 </div>
               )}
