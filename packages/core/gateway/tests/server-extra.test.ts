@@ -334,3 +334,18 @@ describe("handler 在 try 之外抛错的兜底", () => {
     }
   });
 });
+
+describe("服务化端口的本机形态缺省", () => {
+  it("未装配 provider：/admin/* 与 /metrics 一律 404（不暴露存在性细节）", async () => {
+    const app = makeApp({});
+    const base = await listen(app);
+    try {
+      for (const path of ["/admin/tenants", "/admin/reconcile", "/metrics"]) {
+        const res = await fetch(`http://${base}${path}`);
+        assert.equal(res.status, 404, `${path} 应 404`);
+      }
+    } finally {
+      app.close();
+    }
+  });
+});
