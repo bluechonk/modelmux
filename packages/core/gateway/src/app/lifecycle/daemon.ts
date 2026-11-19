@@ -426,6 +426,47 @@ function runningScopeOf(scope: Scope, health: Record<string, unknown> | null): S
   return candidates[0] ?? scope;
 }
 
+/**
+ * 终端显示宽度：CJK 全角字符占两列，拉丁与半角占一列。
+ *
+ * `padEnd` 按码元数补空格，中文标签会被少算一列，对齐直接偏掉 —— 报表对齐必须按显示宽度算。
+ */
+function charWidth(ch: string): number {
+  const code = ch.codePointAt(0) ?? 0;
+  return (
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x2e80 && code <= 0xa4cf) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe30 && code <= 0xfe4f) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6)
+  )
+    ? 2
+    : 1;
+}
+
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const ch of text) width += charWidth(ch);
+  return width;
+}
+
+/** 标签列宽：取所有报表字段里最宽的标签（`auto_start` = 10 列）。 */
+const LABEL_COLUMN = 10;
+
+function field(label: string, value: string): string {
+  const pad = LABEL_COLUMN - displayWidth(label);
+  return `${pad > 0 ? label + " ".repeat(pad) : label}: ${value}`;
+}
+
+/** 续行：签到分组等多行字段的后续行，缩进到值列，与上方各字段的值对齐。 */
+function cont(label: string, value: string): string {
+  // 分组标签也进标签列（最宽的「无签到功能」正好 10 列）：三行渠道清单才纵向对齐
+  const pad = LABEL_COLUMN - displayWidth(label);
+  return `${" ".repeat(LABEL_COLUMN + 2)}${label}${" ".repeat(Math.max(1, pad))}${value}`;
+}
+
 /** 聚合状态：网关健康、控制台快照、守护 PID、凭证、auto_start。 */
 export async function status(
   options: { json?: boolean; addr?: string; cid?: string } = {},
@@ -517,41 +558,46 @@ export async function status(
   const state =
     (consoleState?.["ui_state"] as string | undefined) ?? (gatewayUp ? "running" : "down");
   const head = gatewayUp
-    ? `网关: ${baseUrlOf(addr)} [OK]`
+    ? `${baseUrlOf(addr)} [OK]`
     : foreign
-      ? `网关: ${baseUrlOf(addr)} [端口被 ${foreign} 占用]`
-      : `网关: ${baseUrlOf(addr)} [不可达]`;
-  // 一行一个字段：挤成一行在窄终端里会被折断成难读的形状
-  console.log(head);
-  console.log(`状态: ${state}`);
-  console.log(`守护PID: ${info.daemon_pid ?? "无"}`);
-  console.log(`凭证: ${credentialsPresent ? "有" : "无"}`);
-  console.log(`auto_start: ${info.auto_start ? "开" : "关"}`);
+      ? `${baseUrlOf(addr)} [端口被 ${foreign} 占用]`
+      : `${baseUrlOf(addr)} [不可达]`;
+  const lines = [
+    field("网关", head),
+    field("状态", state),
+    field("守护 PID", String(info.daemon_pid ?? "无")),
+    field("凭证", credentialsPresent ? "有" : "无"),
+    field("auto_start", info.auto_start ? "开" : "关"),
+  ];
   // 仓库级时逐渠道报登录态（渠道级只有一行，且行首已有渠道名，不重复）
   if (list.length > 1) {
-    console.log(
-      `渠道: ${perChannel.map((c) => `${c.cid}${c.present ? "✓" : "✗"}`).join(" ")}`,
-    );
+    lines.push(field("渠道", perChannel.map((c) => `${c.cid}${c.present ? "✓" : "✗"}`).join(" ")));
   }
-  const signinParts = [
-    ...info.signin.channels.map((c) => `${c.cid}${c.claimed_today ? "✓" : ""}`),
-    ...info.signin.unsupported.map((cid) => `${cid}-`),
-  ];
-  if (signinParts.length > 0) {
-    if (info.signin.tracked > 0) {
-      console.log(
-        `签到（本地记录）: 今天已签 ${info.signin.claimed_today}/${info.signin.tracked} 个渠道` +
-          `（${signinParts.join(", ")}）`,
-      );
-    } else {
-      console.log(`签到: -（${info.signin.unsupported.join(", ")} 无签到功能）`);
+  // 签到按状态分三组：台账里「未签」与「无签到功能」混排会让同一个渠道出现两次
+  // （既在台账里、又在不支持列表里），且 `-` 标记没有含义；拆成互斥三组后每渠道只出现一次
+  if (info.signin.channels.length > 0) {
+    lines.push(
+      field("签到", `今天已签 ${info.signin.claimed_today}/${info.signin.tracked}（仅本地台账）`),
+    );
+    const claimed = info.signin.channels.filter((c) => c.claimed_today).map((c) => c.cid);
+    const unclaimed = info.signin.channels
+      .filter((c) => !c.claimed_today && !info.signin.unsupported.includes(c.cid))
+      .map((c) => c.cid);
+    if (claimed.length > 0) lines.push(cont("已签", claimed.join(" ")));
+    if (unclaimed.length > 0) lines.push(cont("未签", unclaimed.join(" ")));
+    if (info.signin.unsupported.length > 0) {
+      lines.push(cont("无签到功能", info.signin.unsupported.join(" ")));
     }
+  } else if (info.signin.unsupported.length > 0) {
+    lines.push(field("签到", `无台账（${info.signin.unsupported.join(", ")} 无签到功能）`));
   }
   // 不再提示「未登录渠道去 mx login」：谁没登录在控制台账号池里一眼可见，
   // 没登录就是用户没号或不想走这个渠道，不需要每次 status 都催一遍
-  if (stale.stale) console.log(staleBuildHint(stale));
+  if (stale.stale) lines.push(staleBuildHint(stale));
   const message = consoleState?.["message"];
-  if (typeof message === "string" && message) console.log(`提示: ${message}`);
+  if (typeof message === "string" && message) lines.push(field("提示", message));
+  // 一行一个字段：挤成一行在窄终端里会被折断成难读的形状
+  console.log(lines.join("\n"));
   return 0;
 }
 

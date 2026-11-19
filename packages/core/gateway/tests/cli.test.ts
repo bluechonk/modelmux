@@ -525,7 +525,8 @@ describe("3. <动词> [<cid>] 路由", () => {
 
       const text = await run(["status", "gamma", "--addr", "127.0.0.1:1", "--ui-port", "1"]);
       assert.equal(text.code, 0);
-      assert.ok(text.out.includes("签到: -"), text.out);
+      // 报表对齐后标签列有填充，断言值而非整行（渠道无台账 → 报「无台账」+ 无签到功能）
+      assert.ok(text.out.includes("无台账（gamma 无签到功能）"), text.out);
     } finally {
       resetChannels();
     }
