@@ -210,11 +210,26 @@
     .routing-note { border-left: 0; padding-left: 0; padding-top: 8px; border-top: 1px solid var(--line); margin-top: 4px; }
     .cols { grid-template-columns: minmax(0,1fr); }
     .limits { grid-template-columns: minmax(0,1fr); }
-    nav.main { display: none; }
   }
   @media (max-width: 620px) {
+    /* 渠道表在窄屏改两列堆叠：四列表格在 320–390 会裁掉「签到」列（实测 346 > 326） */
+    .chans thead { display: none; }
+    .chans tbody tr {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto;
+      gap: 3px 12px; padding: 12px 14px; border-top: 1px solid var(--line);
+    }
+    .chans tbody tr:first-child { border-top: 0; }
+    .chans tbody td { padding: 0; border: 0; }
+    .chans tbody td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .chans tbody td:nth-child(2) { grid-column: 1; grid-row: 2; color: var(--text-faint); font-size: 12px; }
+    .chans tbody td:nth-child(3) { grid-column: 2; grid-row: 1; text-align: right; white-space: nowrap; }
+    .chans tbody td:nth-child(4) { grid-column: 2; grid-row: 2; text-align: right; white-space: nowrap; }
+    .chans tbody tr:hover { background: transparent; }
+
     /* 窄屏 h1 收到 30px：56→34 时「额度自己挑」仍会掉到第三行只剩一个「挑」 */
     h1 { font-size: 30px; letter-spacing: -0.02em; }
+    /* 导航在 620 以下才收起：768 平板宽度放得下，收起只留一片空白 */
+    nav.main { display: none; }
     .hero { padding: 56px 0 44px; }
     section { padding: 52px 0; }
     .lane { grid-template-columns: 88px minmax(0,1fr) 68px; }
