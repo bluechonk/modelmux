@@ -6,7 +6,9 @@
  *     开关表达「动作已生效」而不是「状态健康」，健康绿留给状态点与 pill；
  *   - 触控垫：Root 即 button，窄屏撑 36×36（触控下限），桌面收窄回轨道尺寸
  *     保持行高密度；轨道色与滑块位移由 group-data-[state] 从 Root 映射到内层
- *     （Radix 的 data-state 只挂在 Root 上）。
+ *     （Radix 的 data-state 只挂在 Root 上）；
+ *   - 轨道跟随 Root 收窄：触控垫 36px 时内层恒 40px 会溢出 4px（行内右缘被裁、
+ *     容器 scrollWidth 多 4），故窄屏轨道 `w-9`、桌面 `md:w-10`。
  */
 
 import * as SwitchPrimitive from "@radix-ui/react-switch";
@@ -26,12 +28,12 @@ function Switch({ className, ...props }: ComponentProps<typeof SwitchPrimitive.R
     >
       <span
         aria-hidden="true"
-        className="relative block h-[22px] w-10 rounded-full transition-colors group-data-[state=unchecked]/switch:bg-overlay group-data-[state=checked]/switch:bg-brand"
+        className="relative block h-[22px] w-9 rounded-full transition-colors group-data-[state=unchecked]/switch:bg-overlay group-data-[state=checked]/switch:bg-brand md:w-10"
       >
         <SwitchPrimitive.Thumb
           data-slot="switch-thumb"
           className={cn(
-            "pointer-events-none absolute left-[3px] top-[3px] block size-4 rounded-full transition-all group-data-[state=checked]/switch:left-[19px] group-data-[state=checked]/switch:bg-on-brand group-data-[state=unchecked]/switch:bg-ink",
+            "pointer-events-none absolute left-[3px] top-[3px] block size-4 rounded-full transition-all group-data-[state=checked]/switch:left-[15px] group-data-[state=checked]/switch:bg-on-brand group-data-[state=unchecked]/switch:bg-ink md:group-data-[state=checked]/switch:left-[19px]",
           )}
         />
       </span>
