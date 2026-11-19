@@ -182,6 +182,18 @@
   .models-inline { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
   .pill { font-family: var(--mono); font-size: 11.5px; color: var(--text-soft); border: 1px solid var(--line-strong); border-radius: 20px; padding: 3px 10px; }
 
+  /* 桌面版 */
+  .desktop-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .desk-main { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .desk-row { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 16px; padding: 13px 16px; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .desk-row:first-child { border-top: 0; }
+  .desk-k { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); padding-top: 2px; }
+  .desk-v { color: var(--text-soft); }
+  .desk-v code { color: var(--text); font-size: 12.5px; }
+  .desk-side { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 20px; }
+  .desk-side h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; letter-spacing: 0.02em; }
+  .desk-side p { margin: 0 0 16px; font-size: 13px; color: var(--text-soft); }
+
   /* 边界 */
   .limits { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .limit { background: var(--surface); padding: 20px 22px; }
@@ -194,7 +206,7 @@
   footer a:hover { color: var(--text); }
 
   @media (max-width: 940px) {
-    .hero-grid, .route, .install { grid-template-columns: minmax(0,1fr); }
+    .hero-grid, .route, .install, .desktop-grid { grid-template-columns: minmax(0,1fr); }
     .routing-note { border-left: 0; padding-left: 0; padding-top: 8px; border-top: 1px solid var(--line); margin-top: 4px; }
     .cols { grid-template-columns: minmax(0,1fr); }
     .limits { grid-template-columns: minmax(0,1fr); }
@@ -229,6 +241,7 @@
       <a href="#capability">能力</a>
       <a href="#channels">渠道</a>
       <a href="#start">开始</a>
+      <a href="#desktop">桌面版</a>
       <a href="#limits">边界</a>
     </nav>
     <div class="right">
@@ -400,7 +413,7 @@ qwenworkcn         1        <span class="c">—</span>      ok
     <div class="wrap">
       <div class="sec-head">
         <h2>四步跑起来</h2>
-        <p>Node ≥ 22。本机单用户形态不需要数据库、不需要 Redis，也不需要先建 API key。</p>
+        <p>Node ≥ 22。本机单用户形态不需要数据库、不需要 Redis，也不需要先建 API key。不想碰命令行的话，直接用<a href="#desktop" style="color:var(--text);text-decoration:underline;text-underline-offset:3px">Windows 桌面版</a>。</p>
       </div>
       <div class="install">
         <div class="steps">
@@ -451,6 +464,51 @@ npm run build</pre>
             需要多设备共享又不想裸奔？设置里开启「要求 API key」，每个 key 可限定模型白名单与每分钟请求数。
           </p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="desktop">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>Windows 桌面版</h2>
+        <p>不想碰命令行就用安装包：双击装完，桌面一个快捷方式，剩下的它自己办。</p>
+      </div>
+      <div class="desktop-grid">
+        <div class="desk-main">
+          <div class="desk-row">
+            <span class="desk-k">安装包</span>
+            <span class="desk-v">NSIS 一键安装，装到 <code>%LOCALAPPDATA%\Programs\modelmux-desktop</code></span>
+          </div>
+          <div class="desk-row">
+            <span class="desk-k">零依赖</span>
+            <span class="desk-v">不需要 Node.js / npm / CLI，也不需要 VC++ 运行时（CRT 静态链接）</span>
+          </div>
+          <div class="desk-row">
+            <span class="desk-k">启动</span>
+            <span class="desk-v">双击快捷方式自启网关并显示控制台；已有网关在跑就复用，不重复起实例</span>
+          </div>
+          <div class="desk-row">
+            <span class="desk-k">常驻</span>
+            <span class="desk-v">关窗收进托盘，网关继续在后台接请求；托盘菜单退出才真退</span>
+          </div>
+          <div class="desk-row">
+            <span class="desk-k">自愈</span>
+            <span class="desk-v">每 10 秒探一次 <code>/health</code>：网关断了换说明页，起来了自动载回控制台</span>
+          </div>
+          <div class="desk-row">
+            <span class="desk-k">窗口</span>
+            <span class="desk-v">1000×720，记住上次位置与尺寸；标题栏隐藏，顶栏即拖拽区</span>
+          </div>
+        </div>
+        <aside class="desk-side">
+          <h3>系统要求</h3>
+          <p>Windows 10 1809+ / 11，x64。首次使用要在控制台逐渠道登录 —— 安装包不附带任何凭据。</p>
+          <a class="btn" href="https://github.com/bluechonk/modelmux/releases">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            下载安装包
+          </a>
+        </aside>
       </div>
     </div>
   </section>
