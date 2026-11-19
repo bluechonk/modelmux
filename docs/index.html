@@ -103,6 +103,11 @@
   }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
   .term pre { margin: 0; padding: 16px; font-size: 12.5px; line-height: 1.75; overflow-x: auto; }
+  /* 极窄屏代码仍需横滚（11px 是字号下限）：细滚动条让它是「可滚的代码块」而非溢出 */
+  pre { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  pre::-webkit-scrollbar { height: 6px; }
+  pre::-webkit-scrollbar-track { background: transparent; }
+  pre::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
   .term .c { color: var(--text-faint); }
   .term .g { color: var(--signal); }
   .term .w { color: var(--warn); }
@@ -113,6 +118,8 @@
   @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
 
   /* ——— 章节 ——— */
+  /* 锚点跳转的落点补偿：吸顶栏 57px，不留白会把章节标题压在栏下（390 实测压 5px） */
+  section[id] { scroll-margin-top: 72px; }
   section { padding: 72px 0; border-bottom: 1px solid var(--line); }
   .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 34px; flex-wrap: wrap; }
   h2 { margin: 0; font-size: 28px; letter-spacing: -0.02em; font-weight: 500; }
@@ -189,7 +196,8 @@
   .desk-row:first-child { border-top: 0; }
   .desk-k { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); padding-top: 2px; }
   .desk-v { color: var(--text-soft); }
-  .desk-v code { color: var(--text); font-size: 12.5px; }
+  /* 安装路径是不可断词的长 token：320px 下需要 350px，不放开换行会顶破容器 */
+  .desk-v code { color: var(--text); font-size: 12.5px; overflow-wrap: anywhere; }
   .desk-side { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 20px; }
   .desk-side h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; letter-spacing: 0.02em; }
   .desk-side p { margin: 0 0 16px; font-size: 13px; color: var(--text-soft); }
@@ -211,7 +219,21 @@
     .cols { grid-template-columns: minmax(0,1fr); }
     .limits { grid-template-columns: minmax(0,1fr); }
   }
+  /* 320 档：h1 高亮段独立成行。30px 下「几个模型，额度自己挑」需要 300px，
+     容器只有 257px，不拆行会只剩一个「挑」掉到第三行 */
+  @media (max-width: 360px) {
+    .hero h1 .dim { display: block; }
+  }
   @media (max-width: 620px) {
+    /* 桌面版行改上下堆叠：两列时值列只剩 ~200px，长路径会被从单词中间断开 */
+    .desk-row { grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 12px 14px; }
+    .desk-k { padding-top: 0; }
+    .desk-v code { font-size: 11.5px; }
+    /* 代码块收字号 + 内边距：12.5px 下 `login loomy` 那行在 390 会出横滚条 */
+    .step pre { font-size: 11px; padding: 9px 10px; }
+    /* 首屏终端同样收一档：12.5px 下状态表在 390 溢出 57px（需横滚才看得到 ok 列） */
+    .term pre { font-size: 11px; }
+
     /* 渠道表在窄屏改两列堆叠：四列表格在 320–390 会裁掉「签到」列（实测 346 > 326） */
     .chans thead { display: none; }
     .chans tbody tr {
@@ -239,7 +261,7 @@
   }
 </style>
 </head>
-<body>
+<body id="top">
 
 <header class="top">
   <div class="wrap">
@@ -266,12 +288,12 @@
   </div>
 </header>
 
-<main id="top">
+<main>
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
         <div class="eyebrow">本地 LLM 网关 · OpenAI 兼容</div>
-        <h1>一个端点<br />几个模型<span class="dim">，额度自己挑</span></h1>
+        <h1>一个端点<br />几个模型，<span class="dim">额度自己挑</span></h1>
         <p class="lede">
           把在册渠道的额度汇成一个端点。对外只有家族表里的裸模型名，
           哪家渠道出、用哪个账号、额度烧完怎么顺延，全在网关里跑完，客户端不用知道。
