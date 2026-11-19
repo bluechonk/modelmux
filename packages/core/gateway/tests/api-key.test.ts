@@ -51,6 +51,19 @@ describe("API key 存储", () => {
     assert.ok(raw.includes(record.keyHash));
   });
 
+  it("每条 key 独立随机 salt（同明文两次新建哈希不同）", () => {
+    const a = createApiKey({ name: "s1", allowedModels: [], rpmLimit: 0 });
+    const b = createApiKey({ name: "s2", allowedModels: [], rpmLimit: 0 });
+    const saltOf = (h: string) => h.slice(0, h.indexOf(":"));
+    assert.notEqual(saltOf(a.record.keyHash), saltOf(b.record.keyHash));
+    // 格式 <saltHex>:<hashHex>，两段都是偶数长度 hex
+    for (const h of [a.record.keyHash, b.record.keyHash]) {
+      const [salt, digest] = h.split(":");
+      assert.equal(salt!.length, 32, "salt 16 字节 = 32 hex");
+      assert.equal(digest!.length, 64, "scrypt 32 字节 = 64 hex");
+    }
+  });
+
   it("白名单去重与去空；rpm 负数归零", () => {
     const { record } = createApiKey({
       name: "multi",
@@ -107,6 +120,35 @@ describe("API key 校验", () => {
     const third = await guard.check(plain, "m");
     assert.equal(third.ok, false);
     assert.equal(third.ok === false ? third.reason : "", "rate_limited");
+  });
+
+  it("旧格式（无 salt 裸摘要）仍可校验 —— 升级不作废已发出的 key", async () => {
+    // 手工造一条旧格式记录：固定 salt + 16 字节摘要
+    const { scryptSync } = await import("node:crypto");
+    const plain = "mmx_legacykey0123456789abcdef";
+    const legacy = scryptSync(plain, "modelmux-apikey", 16).toString("hex");
+    const { writeApiKeys, readApiKeys } = await import("../dist/runtime/pool-store.js").then((m) => ({
+      writeApiKeys: (v: unknown) => m.poolStore().writeApiKeys(v),
+      readApiKeys: () => m.poolStore().readApiKeys(),
+    }));
+    writeApiKeys({
+      version: 1,
+      keys: [
+        {
+          id: "legacy1",
+          name: "old",
+          prefix: plain.slice(0, 12),
+          keyHash: legacy,
+          allowedModels: [],
+          rpmLimit: 0,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    assert.equal((readApiKeys() !== null), true);
+    installApiKeyGuard(true);
+    assert.equal((await apiKeyGuard()!.check(plain, "m")).ok, true, "旧格式必须继续通过");
+    assert.equal((await apiKeyGuard()!.check("mmx_wrongkey0123456789abcdef", "m")).ok, false);
   });
 
   it("模型未解析（null）时不因白名单拒绝", async () => {

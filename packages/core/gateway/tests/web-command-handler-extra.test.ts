@@ -430,3 +430,26 @@ describe("外层 catch", () => {
     assert.match(result.error ?? "", /Cannot read properties|undefined/);
   });
 });
+
+describe("管理类命令：仅本机直连", () => {
+  it("无 admin 标记（如被代理转发）→ 拒绝", async () => {
+    const handle = createWebCommandHandler();
+    for (const action of ["createApiKey", "updateApiKey", "deleteApiKey", "setApiKeyRequired"]) {
+      const res = await handle({ action, args: { name: "x" } });
+      assert.equal(res.ok, false, `${action} 应被拒`);
+      assert.match(String(res.error), /本机直连/);
+    }
+  });
+
+  it("带 admin 标记 → 进入正常分支（以 setApiKeyRequired 为例）", async () => {
+    const handle = createWebCommandHandler();
+    const res = await handle({ action: "setApiKeyRequired", args: { enabled: false }, admin: true });
+    assert.equal(res.ok, true);
+  });
+
+  it("普通命令不受限制（无 admin 也能调）", async () => {
+    const handle = createWebCommandHandler();
+    const res = await handle({ action: "modelChannels" });
+    assert.equal(typeof res.ok, "boolean", "普通命令照常返回结果，不是「仅本机」拒绝");
+  });
+});

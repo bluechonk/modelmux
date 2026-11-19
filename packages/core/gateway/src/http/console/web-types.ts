@@ -4,6 +4,13 @@ export interface WebCommandBody {
   action: string;
   cid?: string;
   args?: Record<string, unknown>;
+  /**
+   * 请求来源是本机直连（路由层按 socket 远端地址判定后注入）。
+   *
+   * 管理类命令（改全局配置 / API key 增删改）只认这个标记 —— 它不进 HTTP 载荷，
+   * 客户端无法伪造（JSON 里写了也会被路由层覆盖）。
+   */
+  admin?: boolean;
 }
 
 export interface WebCommandResult {

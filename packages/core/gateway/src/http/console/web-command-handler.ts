@@ -78,11 +78,24 @@ export interface WebCommandDeps {
 
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;
 
+/**
+ * 管理类命令（改全局配置 / API key 增删改）：只允许**本机直连**调用。
+ *
+ * 路由层（console.ts）按来源判定后把 `admin` 放进 body（见 `isLocalDirectRequest`）。
+ * 为什么不是「校验管理令牌」：本机形态没有管理员身份概念，运营者就是本机用户；
+ * 真正要挡的是「非本机来源能创建 key 拿到明文」——那是把鉴权体系整个交出去。
+ */
+const ADMIN_ACTIONS = new Set(["setApiKeyRequired", "createApiKey", "updateApiKey", "deleteApiKey"]);
+
 /** /api/commands 的统一入口。 */
 export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHandler {
   return async (body) => {
     const { action, cid, args = {} } = body;
     try {
+      // 管理类命令：非本机直连一律拒绝（无论校验开关是否开启）
+      if (ADMIN_ACTIONS.has(action) && body.admin !== true) {
+        return err("管理命令仅允许本机直连调用");
+      }
       switch (action) {
         case "login": {
           if (cid === undefined || !hasChannel(cid)) {

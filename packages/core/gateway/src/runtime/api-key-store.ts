@@ -45,9 +45,35 @@ function saveApiKeys(keys: ApiKeyRecord[]): void {
   poolStore().writeApiKeys(doc);
 }
 
-/** scrypt 摘要（hex）；校验用同一参数。 */
-function hashKey(plain: string): string {
-  return scryptSync(plain, "modelmux-apikey", 16).toString("hex");
+/**
+ * scrypt 摘要：**每条 key 随机 salt**（`<saltHex>:<hashHex>` 同串存储）。
+ *
+ * 为什么不用固定 salt：固定 salt 让全表共享同一预计算表 —— key 本身是高熵随机值，
+ * 泄露风险有限，但这是存储反模式，且没有理由付这个代价。salt 与 hash 同存互不保密
+ * （salt 的作用是让彩虹表失效，不是秘密）。
+ */
+function hashKey(plain: string, saltHex?: string): string {
+  const salt = saltHex !== undefined ? Buffer.from(saltHex, "hex") : randomBytes(16);
+  return `${salt.toString("hex")}:${scryptSync(plain, salt, 32).toString("hex")}`;
+}
+
+/**
+ * 旧格式兼容：早期记录是无 salt 的裸 16 字节摘要（固定 salt）。
+ *
+ * 升级瞬间不能把已发出去的 key 全部作废 —— 校验时按格式分派，旧记录走这条路径。
+ * 旧记录不会被自动迁移（哈希不可回推），需要重建 key 才换成 per-key salt。
+ */
+const LEGACY_SALT = "modelmux-apikey";
+
+/** 校验一条记录：新格式（salt:hash）与旧格式（裸 hex）各自重算后恒时比对。 */
+function verifyRecord(plain: string, stored: string): boolean {
+  const idx = stored.indexOf(":");
+  const got =
+    idx === -1
+      ? Buffer.from(scryptSync(plain, LEGACY_SALT, 16).toString("hex"), "utf8")
+      : Buffer.from(hashKey(plain, stored.slice(0, idx)), "utf8");
+  const want = Buffer.from(stored, "utf8");
+  return want.length === got.length && timingSafeEqual(want, got);
 }
 
 /**
@@ -115,13 +141,10 @@ export function deleteApiKey(id: string): boolean {
  * timingSafeEqual 比对完整摘要，前缀只用于避免对全表做 scrypt。
  */
 function findKey(plain: string): ApiKeyRecord | null {
-  const got = hashKey(plain);
-  const gotBuf = Buffer.from(got, "hex");
   const prefix = plain.slice(0, PREFIX_LEN);
   for (const rec of listApiKeys()) {
     if (rec.prefix !== prefix) continue;
-    const want = Buffer.from(rec.keyHash, "hex");
-    if (want.length === gotBuf.length && timingSafeEqual(want, gotBuf)) return rec;
+    if (verifyRecord(plain, rec.keyHash)) return rec;
   }
   return null;
 }
@@ -130,6 +153,7 @@ function findKey(plain: string): ApiKeyRecord | null {
 const minuteHits = new Map<string, { bucket: number; count: number }>();
 
 function hitLocalCounters(keyId: string, limit: number): boolean {
+  // 0 = 明确不限（UI 文案「0 = 不限」），与「未配置」区分开
   if (limit <= 0) return true;
   const bucket = Math.floor(Date.now() / 60_000);
   const entry = minuteHits.get(keyId);

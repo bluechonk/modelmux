@@ -339,6 +339,17 @@ function serveStatic(res: import("node:http").ServerResponse, relPath: string): 
   res.end(readFileSync(file));
 }
 
+/**
+ * 是否本机直连（管理类命令的唯一放行条件）。
+ *
+ * 用 socket 远端地址而不是 Origin/Host 头：头是可伪造的，socket 对端不可伪造。
+ * 回环地址集合见 LOOPBACK_HOSTS。
+ */
+function isLocalDirect(req: import("node:http").IncomingMessage): boolean {
+  const remote = req.socket.remoteAddress ?? "";
+  return LOOPBACK_HOSTS.has(remote) || LOOPBACK_HOSTS.has(remote.replace(/^::ffff:/, ""));
+}
+
 /** 写操作同源校验（比对 host:port，避免只比 hostname 时跨端口请求被放行）。 */
 function isSameOrigin(req: import("node:http").IncomingMessage, host: string): boolean {
   const origin = req.headers["origin"];
@@ -701,6 +712,8 @@ export function createConsoleHandler(
             action,
             ...(typeof cid === "string" ? { cid } : {}),
             args: typeof args === "object" && args !== null ? args as Record<string, unknown> : {},
+            // 来源标记由路由层注入，覆盖客户端可能自带的同名字段
+            admin: isLocalDirect(req),
           });
           json(res, result, result.ok ? 200 : 400);
         })().catch((err) => {
