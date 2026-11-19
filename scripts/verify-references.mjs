@@ -67,11 +67,12 @@ check(
   `${cliRel}: references 指向不存在的渠道目录（${cliStrayChannels.join(", ")}）`,
 );
 
-// ── 2. 根 tsconfig.json：solution 必须覆盖全部包（cli + gateway + 每个渠道目录）──
+// ── 2. 根 tsconfig.json：solution 必须覆盖全部包（cli + gateway + store + 每个渠道目录）──
 const solutionPaths = refPaths("tsconfig.json");
 const expectedPackages = [
   "packages/cli",
   "packages/core/gateway",
+  "packages/core/store",
   ...channelDirs.map((cid) => `packages/core/channels/${cid}`),
 ];
 const solutionMissing = expectedPackages.filter((p) => !solutionPaths.includes(p));

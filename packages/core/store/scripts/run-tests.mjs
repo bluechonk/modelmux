@@ -32,18 +32,27 @@ function isElevated() {
  * 不碰其它 postgres 实例。
  */
 function freeTestPorts() {
+  let killed = false;
   for (const port of [5434, 5435]) {
     try {
       const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
       for (const line of out.split("\n")) {
         if (line.includes(`127.0.0.1:${port}`) && line.includes("LISTENING")) {
           const pid = line.trim().split(/\s+/).pop();
-          if (pid && /^\d+$/.test(pid)) execFileSync("taskkill", ["/PID", pid, "/F"], { stdio: "ignore" });
+          if (pid && /^\d+$/.test(pid)) {
+            execFileSync("taskkill", ["/PID", pid, "/F"], { stdio: "ignore" });
+            killed = true;
+          }
         }
       }
     } catch {
       /* netstat/taskkill 失败不阻塞测试 */
     }
+  }
+  // taskkill 后 Windows 延迟释放数据目录句柄：不等这一步，测试的 rmSync 会撞 EPERM
+  if (killed) {
+    const until = Date.now() + 2000;
+    while (Date.now() < until) { /* 自旋等句柄释放 */ }
   }
 }
 freeTestPorts();

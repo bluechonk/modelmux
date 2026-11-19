@@ -46,6 +46,12 @@ export interface PoolStore {
   readLedger(): unknown | null;
   writeLedger(ledger: unknown): void;
   ledgerStamp(): number;
+  /**
+   * 半开试探租约（S3，docs/SAAS-REDESIGN.md §8.1）：熔断到期时多实例只放行一次
+   * 试探 —— 抢到租约返回 true（放行），未抢到 false（继续短路）。
+   * fs 形态单进程恒 true（读-改-写天然串行，无竞态可言）。
+   */
+  claimProbeLease(cid: string, key: string, ttlMs: number): boolean;
 }
 
 function mtimeOrZero(path: string): number {
@@ -165,6 +171,14 @@ export class FsPoolStore implements PoolStore {
   }
   ledgerStamp(): number {
     return mtimeOrZero(poolUsagePath());
+  }
+
+  claimProbeLease(cid: string, key: string, ttlMs: number): boolean {
+    // 单进程形态无竞态：恒放行（与 S0 之前的行为一致）
+    void cid;
+    void key;
+    void ttlMs;
+    return true;
   }
 }
 

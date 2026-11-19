@@ -17,6 +17,7 @@ interface TenantStoreLike {
   allowedModels(tenantId: string): Promise<string[]>;
   hold(tenantId: string, requestId: string, amountUsd: string): Promise<{ ok: boolean; reason?: string }>;
   estimateHoldUsd(model: string): Promise<string>;
+  rpmLimitOf(tenantId: string, model: string): Promise<number>;
   settle(input: {
     tenantId: string;
     requestId: string;
@@ -40,10 +41,13 @@ export async function bootstrapStore(): Promise<void> {
   }
   const specifier = ["@modelmux", "store"].join("/");
   const mod = (await import(specifier)) as {
-    createPgPoolStore: (options: { dsn: string; pollIntervalMs?: number }) => Promise<PoolStore>;
+    createPgPoolStore: (options: { dsn: string; pollIntervalMs?: number; redisUrl?: string }) => Promise<PoolStore>;
     TenantStore: new (options: { dsn: string }) => TenantStoreLike;
+    RateLimiter: new (url: string) => { hit(key: string, limit: number, windowSec?: number): Promise<boolean>; close(): Promise<void> };
   };
-  const store = await mod.createPgPoolStore({ dsn });
+  // Redis 广播（S3 §8.3）：配置变更即时失效各实例快照，轮询降为兜底
+  const redisUrl = process.env.MODELMUX_REDIS_URL?.trim() || "redis://127.0.0.1:6380";
+  const store = await mod.createPgPoolStore({ dsn, redisUrl });
   setPoolStore(store);
 
   // 租户形态（S2）：门禁注入 + finish hook 结算。gate 只在 MODELMUX_TENANT_MODE=on
@@ -51,11 +55,18 @@ export async function bootstrapStore(): Promise<void> {
   if (tenantMode) {
     const tenants = new mod.TenantStore({ dsn });
     await tenants.init();
+    const limiter = new mod.RateLimiter(redisUrl);
     setTenantGate({
       authenticate: (apiKey) => (apiKey === null ? Promise.resolve(null) : tenants.authenticate(apiKey)),
       allowedModels: (tenantId) => tenants.allowedModels(tenantId),
       hold: async (model, tenantId, requestId) =>
         await tenants.hold(tenantId, requestId, await tenants.estimateHoldUsd(model)),
+      // rpm 固定窗口：key 带分钟桶（窗口边界自然滚动），多实例共享同一 Redis 计数
+      rateOk: async (tenantId, model) =>
+        await limiter.hit(
+          `mmx:rl:${tenantId}:${model}:${Math.floor(Date.now() / 60_000)}`,
+          await tenants.rpmLimitOf(tenantId, model),
+        ),
       settle: (input) =>
         tenants.settle({
           tenantId: input.tenantId,

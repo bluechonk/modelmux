@@ -90,6 +90,11 @@ async function withTenantGate(
     writeJsonError(res, 403, "permission_error", `model ${canonical} not granted to tenant`);
     return;
   }
+  // rpm 限流在预扣之前：被限流的请求不该占用额度（hold 已发就要 refund，白跑一轮事务）
+  if (!(await gate.rateOk(tenantId, canonical))) {
+    writeJsonError(res, 429, "rate_limit_error", `rpm limit exceeded for ${canonical}`);
+    return;
+  }
   const held = await gate.hold(canonical, tenantId, log.id);
   if (!held.ok) {
     writeJsonError(

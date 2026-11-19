@@ -1042,11 +1042,18 @@ export function activeAccountIsError(cid?: string): boolean {
     const hit = index.accounts.find((a) => a.key === index.active);
     if (!hit || hit.health !== "error") return false;
     const until = hit.trip_until ? Date.parse(hit.trip_until) : Number.NaN;
-    return Number.isFinite(until) && until > Date.now();
+    if (Number.isFinite(until) && until > Date.now()) return true;
+    // 到期（旧数据缺 trip_until 视为早已到期）= 半开放行窗口：多实例形态必须先抢
+    // 租约（S3，docs/SAAS-REDESIGN.md §8.1），未抢到的实例继续短路 ——
+    // 否则 N 实例同时放 N 发试探。fs 单实例恒 true，行为与 S0 一致。
+    return !poolStore().claimProbeLease(cid ?? "", hit.key, PROBE_LEASE_MS);
   } catch {
     return false;
   }
 }
+
+/** 半开试探租约时长：覆盖一次上游往返的余量；持租实例崩溃后自然过期。 */
+const PROBE_LEASE_MS = 30_000;
 
 /**
  * 生效账号的健康态（池读不出来 / 没有生效账号时 `null`）。

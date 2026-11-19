@@ -180,6 +180,15 @@ export class TenantStore {
     return rows.map((r) => String(r.model));
   }
 
+  /** 模型 rpm 上限（未授权返回 0 —— 白名单检查在前，门禁不会拿到 0）。 */
+  async rpmLimitOf(tenantId: string, model: string): Promise<number> {
+    const { rows } = await this.#pool.query(
+      "SELECT rpm_limit FROM tenant_models WHERE tenant_id = $1 AND model = $2",
+      [tenantId, model],
+    );
+    return rows.length === 0 ? 0 : Number(rows[0].rpm_limit);
+  }
+
   // —— 额度闭环 ——
 
   /** 按 token 数与价格表算美元成本；无价格表按 0（免费模型）。 */

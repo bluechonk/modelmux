@@ -46,7 +46,16 @@ async function dbRow(kind: string, cid: string, skey: string): Promise<{ data: u
 }
 
 before(async () => {
-  rmSync(DATA_DIR, { recursive: true, force: true });
+  // 上一轮残留句柄可能未释放（Windows 延迟），rmSync 重试而不是直接炸
+  for (let i = 0; ; i += 1) {
+    try {
+      rmSync(DATA_DIR, { recursive: true, force: true });
+      break;
+    } catch {
+      if (i >= 10) throw new Error("pgdata 清理失败：句柄未释放");
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
   await pgServer.initialise();
   await pgServer.start();
 });
@@ -215,6 +224,27 @@ describe("PgPoolStore：账本与跨实例可见性", () => {
       );
     } finally {
       await store.close();
+    }
+  });
+
+  it("半开试探租约：双实例抢同一租约只放行一次，到期后可再抢", async () => {
+    const a = new PgPoolStore({ dsn: DSN });
+    await a.init();
+    const b = new PgPoolStore({ dsn: DSN });
+    await b.init();
+    try {
+      assert.equal(a.claimProbeLease("loomy", "lease-k1", 30_000), true, "先到的抢到租约");
+      assert.equal(b.claimProbeLease("loomy", "lease-k1", 30_000), false, "未抢到 = 继续短路");
+      assert.equal(a.claimProbeLease("loomy", "lease-k2", 30_000), true, "不同账号各自租约");
+      // 短租约到期后可再抢（模拟持租实例崩溃后不永久卡死）；
+      // ttl 必须大于一次同步子进程调用的开销（~200ms），否则「未到期」断言测的是计时器
+      assert.equal(a.claimProbeLease("loomy", "lease-k3", 1500), true);
+      assert.equal(a.claimProbeLease("loomy", "lease-k3", 1500), false);
+      await new Promise((r) => setTimeout(r, 1700));
+      assert.equal(b.claimProbeLease("loomy", "lease-k3", 1500), true, "租约过期后其他实例可试探");
+    } finally {
+      await a.close();
+      await b.close();
     }
   });
 });

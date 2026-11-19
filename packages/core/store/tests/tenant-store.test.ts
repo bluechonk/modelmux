@@ -30,7 +30,15 @@ const pgServer = new EmbeddedPostgres({
 });
 
 before(async () => {
-  rmSync(DATA_DIR, { recursive: true, force: true });
+  for (let i = 0; ; i += 1) {
+    try {
+      rmSync(DATA_DIR, { recursive: true, force: true });
+      break;
+    } catch {
+      if (i >= 10) throw new Error("pgdata 清理失败：句柄未释放");
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
   await pgServer.initialise();
   await pgServer.start();
 });

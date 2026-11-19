@@ -39,6 +39,8 @@ export interface TenantGate {
   allowedModels(tenantId: string): Promise<string[]>;
   /** 预扣（估算口径是实现细节）；false 带 reason（insufficient → 402）。 */
   hold(model: string, tenantId: string, requestId: string): Promise<{ ok: boolean; reason?: string }>;
+  /** rpm 限流检查（S3：Redis 固定窗口，多实例共享计数；Redis 不可达 fail-open）。 */
+  rateOk(tenantId: string, model: string): Promise<boolean>;
   /** 请求结束结算：成功按真实 usage 实扣，失败退款。 */
   settle(input: SettleInput): Promise<void>;
 }

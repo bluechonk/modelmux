@@ -1,37 +1,35 @@
 /**
- * PgPoolStore：PoolStore 端口的 PostgreSQL 适配器（docs/SAAS-REDESIGN.md S1）。
+ * PgPoolStore：PoolStore 端口的 PostgreSQL 适配器（docs/SAAS-REDESIGN.md S1/S3）。
  *
  * 接口保持同步（fs 端口语义），三条纪律：
- *  - 读走**内存快照**：init 全量加载 + 1s 版本轮询失效（跨进程可见性；
- *    fs 版靠 mtime，pg 版靠行版本号，语义等价、延迟 ≤1 个轮询周期）。
- *  - 凭据与删除/搬运走**同步子进程持久化**（node -e 跑 pg 驱动，不依赖外部 psql）：
- *    登录凭据不允许 write-behind —— 进程崩溃丢一次登录是不可接受的。
- *    凭据写带**内容未变跳过**：syncPool 每轮全量重写凭据，fs 原子写 ~1ms 无感，
- *    子进程 ~300ms 必须去抖（比较 JSON 文本，等价于 fs 版的幂等）。
- *  - 索引与账本走**异步写队列**（write-behind，flush 前落库）：这两个文件本来
- *    就有「stamp 缓存 + 1s 节流」的近似语义（pool-usage SAVE_DEBOUNCE_MS），
- *    状态丢了最坏多重试一次熔断，可接受。
+ *  - 读走内存快照：init 全量加载 + 1s 版本轮询 + Redis 广播即时失效（fs mtime 的等价物）。
+ *  - 凭据与搬运走同步子进程持久化（登录不允许 write-behind）；写带内容未变跳过
+ *    （syncPool 每轮全量重写，子进程 ~300ms 必须去抖）。广播在 DB 落库之后发。
+ *  - 索引与账本 write-behind + flush：本来就有节流语义，状态丢了最坏多重试一次熔断。
  */
 
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import pg from "pg";
 import type { PoolStore } from "@modelmux/gateway";
+import { RespClient, parseRedisUrl } from "./resp-client.js";
 
 const require = createRequire(import.meta.url);
 /** pg 驱动入口绝对路径：同步子进程不继承本进程模块解析上下文。 */
 const PG_PATH = require.resolve("pg");
 
-/** 同步执行 SQL 的子进程脚本：连接 → 顺序执行 → 退出；任何失败 exit 1。 */
+/** 同步执行 SQL 的子进程脚本：连接 → 顺序执行 → 输出最后一条的 rowCount → 退出。 */
 const SYNC_RUNNER = `
 const [dsn, sqlsJson, pgPath] = process.argv.slice(1);
 const { Client } = require(pgPath);
 (async () => {
   const c = new Client({ connectionString: dsn });
   await c.connect();
-  for (const s of JSON.parse(sqlsJson)) await c.query(s);
+  let last = { rowCount: 0 };
+  for (const s of JSON.parse(sqlsJson)) last = await c.query(s);
   await c.end();
-})().catch(() => process.exit(1));
+  process.stdout.write(JSON.stringify({ rowCount: last.rowCount ?? 0 }));
+})().catch((e) => { console.error(e && e.message); process.exit(1); });
 `;
 
 const SCHEMA = `
@@ -43,16 +41,25 @@ CREATE TABLE IF NOT EXISTS pool_kv (
   data    jsonb,
   version bigint NOT NULL DEFAULT nextval('pool_kv_ver_seq'),
   PRIMARY KEY (kind, cid, skey)
-)`;
+);
+CREATE TABLE IF NOT EXISTS probe_lease (
+  ref         text PRIMARY KEY,
+  lease_until timestamptz NOT NULL
+);`;
 
 export interface PgPoolStoreOptions {
   /** libpq 连接串（例：postgres://modelmux:modelmux@127.0.0.1:5433/modelmux）。 */
   dsn: string;
   /** 跨进程可见性轮询间隔（毫秒）。 */
   pollIntervalMs?: number;
+  /** 配置失效广播（S3 §8.3）：写入后 PUBLISH、收到消息即重载快照；不设则纯轮询。 */
+  redisUrl?: string;
 }
 
 type Kind = "index" | "active" | "account" | "ledger";
+
+/** 配置失效广播通道（S3 §8.3）：写后发布、各实例收到即重载快照。 */
+const CONFIG_CHANNEL = "modelmux:cfg";
 
 function rowId(kind: Kind, cid: string | undefined, skey = ""): string {
   return `${kind}|${cid ?? ""}|${skey}`;
@@ -85,7 +92,10 @@ interface SnapEntry {
 export class PgPoolStore implements PoolStore {
   readonly #dsn: string;
   readonly #pollMs: number;
+  readonly #redisUrl: string | undefined;
   readonly #pool: pg.Pool;
+  #pub: RespClient | null = null;
+  #sub: RespClient | null = null;
   readonly #snap = new Map<string, SnapEntry>();
   /** 进程内单调 stamp 计数器：缓存失效只需单调，不需与 DB version 相等。 */
   #seq = 0;
@@ -97,13 +107,26 @@ export class PgPoolStore implements PoolStore {
   constructor(options: PgPoolStoreOptions) {
     this.#dsn = options.dsn;
     this.#pollMs = options.pollIntervalMs ?? 1000;
+    this.#redisUrl = options.redisUrl;
     this.#pool = new pg.Pool({ connectionString: options.dsn, max: 4 });
   }
 
-  /** 建表 + 全量加载快照 + 启动轮询。组合根在 setPoolStore 之前必须 await 它。 */
+  /** 建表 + 全量加载快照 + 启动轮询与失效订阅。 */
   async init(): Promise<void> {
     await this.#pool.query(SCHEMA);
     await this.#reloadAll();
+    if (this.#redisUrl !== undefined) {
+      const target = parseRedisUrl(this.#redisUrl);
+      this.#pub = new RespClient(target);
+      this.#sub = new RespClient(target);
+      this.#sub.onPush(() => {
+        void this.#reloadAll().catch((err) => console.error(`pool store reload after publish failed: ${String(err)}`));
+      });
+      // 订阅失败退回纯轮询兜底：广播是优化，不是正确性依赖
+      await this.#sub.command("SUBSCRIBE", CONFIG_CHANNEL).catch(() => {
+        console.error("pool store redis subscribe failed; falling back to polling only");
+      });
+    }
     this.#timer = setInterval(() => {
       void this.#tick().catch((err) => {
         console.error(`pool store poll failed: ${String(err)}`);
@@ -122,7 +145,17 @@ export class PgPoolStore implements PoolStore {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
     await this.#queue;
+    this.#pub?.close();
+    this.#sub?.close();
+    this.#pub = null;
+    this.#sub = null;
     await this.#pool.end();
+  }
+
+  /** 写后广播失效（无订阅方/Redis 不可达时静默 —— 轮询仍是兜底）。 */
+  #publish(): void {
+    if (this.#pub === null) return;
+    void this.#pub.command("PUBLISH", CONFIG_CHANNEL, "1").catch(() => {});
   }
 
   // —— 内部 ——
@@ -161,14 +194,16 @@ export class PgPoolStore implements PoolStore {
   }
 
   /** 同步执行 SQL（node 子进程起 pg 驱动 ~300ms：只用于低频且必须崩溃安全的写）。 */
-  #execSync(sqls: string[]): boolean {
+  #execSync(sqls: string[]): { ok: boolean; rowCount: number | null } {
     try {
-      execFileSync(process.execPath, ["-e", SYNC_RUNNER, this.#dsn, JSON.stringify(sqls), PG_PATH], {
-        stdio: ["ignore", "ignore", "ignore"],
+      const out = execFileSync(process.execPath, ["-e", SYNC_RUNNER, this.#dsn, JSON.stringify(sqls), PG_PATH], {
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
       });
-      return true;
+      const parsed = JSON.parse(out.trim().split("\n").pop() ?? "{}") as { rowCount?: number };
+      return { ok: true, rowCount: parsed.rowCount ?? null };
     } catch {
-      return false;
+      return { ok: false, rowCount: null };
     }
   }
 
@@ -177,6 +212,8 @@ export class PgPoolStore implements PoolStore {
     this.#queue = this.#queue
       .then(async () => {
         await this.#pool.query(sql, params);
+        // 广播必须在 DB 写落库**之后**：订阅方收到即重载，先发后写会让它读到旧库
+        this.#publish();
       })
       .catch((err) => {
         console.error(`pool store write-behind failed: ${String(err)}`);
@@ -211,15 +248,16 @@ export class PgPoolStore implements PoolStore {
     // syncPool 每轮全量重写凭据：内容未变直接跳过（fs 原子写 ~1ms 无感，子进程必须去抖）
     if (this.#sameAsSnap("account", cid, key, cred)) return;
     this.#set("account", cid, cred, key);
-    if (!this.#execSync([upsertStmt("account", cid, key, cred)])) {
+    if (!this.#execSync([upsertStmt("account", cid, key, cred)]).ok) {
       throw new Error(`pool store: sync write account credential failed (cid=${cid ?? ""} key=${key})`);
     }
+    this.#publish();
   }
 
   deleteAccountCredential(key: string, cid?: string): void {
     this.#set("account", cid, null, key);
     // 删不掉不阻塞索引裁剪（与 fs 版一致吞异常）
-    this.#execSync([deleteStmt("account", cid, key)]);
+    if (this.#execSync([deleteStmt("account", cid, key)]).ok) this.#publish();
   }
 
   hasAccountCredential(key: string, cid?: string): boolean {
@@ -237,16 +275,19 @@ export class PgPoolStore implements PoolStore {
   writeActiveCredential(cred: unknown, cid?: string): void {
     if (this.#sameAsSnap("active", cid, "", cred)) return;
     this.#set("active", cid, cred);
-    if (!this.#execSync([upsertStmt("active", cid, "", cred)])) {
+    if (!this.#execSync([upsertStmt("active", cid, "", cred)]).ok) {
       throw new Error(`pool store: sync write active credential failed (cid=${cid ?? ""})`);
     }
+    this.#publish();
   }
 
   deleteActiveCredential(cid?: string): boolean {
     // 快照里本就不存在：幂等成功（fs 版 rmSync force 对缺失文件同样不抛）
     if (this.#get("active", cid)?.data == null) return true;
     this.#set("active", cid, null);
-    return this.#execSync([deleteStmt("active", cid, "")]);
+    const deleted = this.#execSync([deleteStmt("active", cid, "")]).ok;
+    if (deleted) this.#publish();
+    return deleted;
   }
 
   hasActiveCredential(cid?: string): boolean {
@@ -262,9 +303,10 @@ export class PgPoolStore implements PoolStore {
     if (source == null) throw new Error(`pool store: active credential missing (cid=${cid ?? ""})`);
     if (this.#sameAsSnap("account", cid, key, source)) return;
     this.#set("account", cid, source, key);
-    if (!this.#execSync([upsertStmt("account", cid, key, source)])) {
+    if (!this.#execSync([upsertStmt("account", cid, key, source)]).ok) {
       throw new Error(`pool store: sync copy to account credential failed (cid=${cid ?? ""} key=${key})`);
     }
+    this.#publish();
   }
 
   copyAccountCredentialToActive(key: string, cid?: string): void {
@@ -272,9 +314,10 @@ export class PgPoolStore implements PoolStore {
     if (source == null) throw new Error(`pool store: account credential missing (cid=${cid ?? ""} key=${key})`);
     if (this.#sameAsSnap("active", cid, "", source)) return;
     this.#set("active", cid, source);
-    if (!this.#execSync([upsertStmt("active", cid, "", source)])) {
+    if (!this.#execSync([upsertStmt("active", cid, "", source)]).ok) {
       throw new Error(`pool store: sync copy to active credential failed (cid=${cid ?? ""})`);
     }
+    this.#publish();
   }
 
   readLedger(): unknown | null {
@@ -288,6 +331,17 @@ export class PgPoolStore implements PoolStore {
 
   ledgerStamp(): number {
     return this.#get("ledger", undefined)?.stamp ?? 0;
+  }
+
+  /** 半开试探租约：原子 UPSERT 抢约，抢到（行返回）true。低频路径，走同步子进程。 */
+  claimProbeLease(cid: string, key: string, ttlMs: number): boolean {
+    const ref = `${cid}|${key}`;
+    const sql =
+      `INSERT INTO probe_lease (ref, lease_until) VALUES (${sq(ref)}, now() + (${Math.max(1, Math.trunc(ttlMs))} * interval '1 millisecond'))` +
+      ` ON CONFLICT (ref) DO UPDATE SET lease_until = EXCLUDED.lease_until WHERE probe_lease.lease_until < now()` +
+      ` RETURNING 1`;
+    const r = this.#execSync([sql]);
+    return r.ok && (r.rowCount ?? 0) > 0;
   }
 }
 
