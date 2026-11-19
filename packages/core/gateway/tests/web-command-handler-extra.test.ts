@@ -247,7 +247,7 @@ describe("accounts / 账号动作", () => {
   it("activateAccount：成功切换并返回新生效账号", async () => {
     seedAccount("wch", "error");
     const handle = createWebCommandHandler();
-    const result = await handle({ action: "activateAccount", cid: "wch", args: { key: KEY } });
+    const result = await handle({ action: "activateAccount", admin: true, cid: "wch", args: { key: KEY } });
     assert.equal(result.ok, true);
     assert.equal((result.data as { active: string }).active, KEY);
   });
@@ -255,12 +255,12 @@ describe("accounts / 账号动作", () => {
   it("resetAccount：冷却账号解除成功；未授权账号如实说明不清", async () => {
     const handle = createWebCommandHandler();
     seedAccount("wch", "cooldown");
-    const cooled = await handle({ action: "resetAccount", cid: "wch", args: { key: KEY } });
+    const cooled = await handle({ action: "resetAccount", admin: true, cid: "wch", args: { key: KEY } });
     assert.equal(cooled.ok, true);
     assert.equal((cooled.data as { key: string }).key, KEY);
 
     seedAccount("wch", "unauthorized");
-    const denied = await handle({ action: "resetAccount", cid: "wch", args: { key: KEY } });
+    const denied = await handle({ action: "resetAccount", admin: true, cid: "wch", args: { key: KEY } });
     assert.equal(denied.ok, false);
     assert.match(denied.error ?? "", /重新登录/);
   });
@@ -268,14 +268,14 @@ describe("accounts / 账号动作", () => {
   it("removeAccount：成功移除并回传是否生效账号", async () => {
     seedAccount("wch", "ok");
     const handle = createWebCommandHandler();
-    const result = await handle({ action: "removeAccount", cid: "wch", args: { key: KEY } });
+    const result = await handle({ action: "removeAccount", admin: true, cid: "wch", args: { key: KEY } });
     assert.equal(result.ok, true);
     assert.deepEqual(result.data, { removed: KEY, was_active: true });
   });
 
   it("syncPool：返回 ok", async () => {
     const handle = createWebCommandHandler();
-    const result = await handle({ action: "syncPool", cid: "wch" });
+    const result = await handle({ action: "syncPool", admin: true, cid: "wch" });
     assert.equal(result.ok, true);
   });
 });
@@ -283,20 +283,20 @@ describe("accounts / 账号动作", () => {
 describe("modelChannels / setModelChannel", () => {
   it("setModelChannel：设置与清除偏好；未知模型走异常分支", async () => {
     const handle = createWebCommandHandler();
-    const set = await handle({ action: "setModelChannel", args: { model: "deepseek-v4.1-flash", cid: "wch" } });
+    const set = await handle({ action: "setModelChannel", admin: true, args: { model: "deepseek-v4.1-flash", cid: "wch" } });
     assert.equal(set.ok, true);
     assert.equal(loadModelPrefs()["deepseek-v4.1-flash"], "wch");
 
-    const clear = await handle({ action: "setModelChannel", args: { model: "deepseek-v4.1-flash", cid: "" } });
+    const clear = await handle({ action: "setModelChannel", admin: true, args: { model: "deepseek-v4.1-flash", cid: "" } });
     assert.equal(clear.ok, true);
     assert.equal((clear.data as { preferred: string | null }).preferred, null);
     assert.equal(loadModelPrefs()["deepseek-v4.1-flash"], null);
 
-    const missing = await handle({ action: "setModelChannel", args: { cid: "wch" } });
+    const missing = await handle({ action: "setModelChannel", admin: true, args: { cid: "wch" } });
     assert.equal(missing.ok, false);
 
     // 家族外模型：canonicalOf 返回 null → setPreferredChannel 抛错 → 转成 err
-    const unknown = await handle({ action: "setModelChannel", args: { model: "totally-unknown-model", cid: "wch" } });
+    const unknown = await handle({ action: "setModelChannel", admin: true, args: { model: "totally-unknown-model", cid: "wch" } });
     assert.equal(unknown.ok, false);
     assert.match(unknown.error ?? "", /unknown model/);
   });

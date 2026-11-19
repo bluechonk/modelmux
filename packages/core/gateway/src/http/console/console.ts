@@ -340,10 +340,14 @@ function serveStatic(res: import("node:http").ServerResponse, relPath: string): 
 }
 
 /**
- * 是否本机直连（管理类命令的唯一放行条件）。
+ * 是否本机直连（非公共命令的唯一放行条件）。
  *
- * 用 socket 远端地址而不是 Origin/Host 头：头是可伪造的，socket 对端不可伪造。
- * 回环地址集合见 LOOPBACK_HOSTS。
+ * 用 socket 远端地址而不是 Origin/Host 头：头可由客户端伪造，socket 对端不能。
+ *
+ * **明确假设：网关不支持前置反向代理**（含同机 nginx/caddy）。若将来引入代理，
+ * 所有外部请求的对端都会变成 127.0.0.1，这个判定会整体失效 —— 届时必须改为
+ * 「显式配置 trustedProxy + 校验代理注入的源地址头」，不能沿用本实现。
+ * 当前形态（单机自建网关、只监听回环）下不存在该风险。
  */
 function isLocalDirect(req: import("node:http").IncomingMessage): boolean {
   const remote = req.socket.remoteAddress ?? "";

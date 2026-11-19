@@ -79,22 +79,43 @@ export interface WebCommandDeps {
 export type WebCommandHandler = (body: WebCommandBody) => Promise<WebCommandResult>;
 
 /**
- * 管理类命令（改全局配置 / API key 增删改）：只允许**本机直连**调用。
+ * 命令分权限类：**正向白名单**。
  *
- * 路由层（console.ts）按来源判定后把 `admin` 放进 body（见 `isLocalDirectRequest`）。
- * 为什么不是「校验管理令牌」：本机形态没有管理员身份概念，运营者就是本机用户；
- * 真正要挡的是「非本机来源能创建 key 拿到明文」——那是把鉴权体系整个交出去。
+ * 只有列在 `PUBLIC_ACTIONS` 里的命令允许任意来源调用；其余一律要求本机直连
+ * （路由层按 socket 远端地址判定后把 `admin` 放进 body）。
+ * 为什么正向：`ADMIN_ACTIONS` 反向名单在新增命令时默认放行 —— 加一个改全局状态的
+ * action 忘了登记就是漏洞；正向名单忘登记只会「新命令暂时只允许本机」，
+ * 报错可见、不会静默泄露。
+ *
+ * 公共面 = 只读查询 + 与单次请求/单渠道登录交互相关的动作；凡是能改全局配置、
+ * 账号池、API key、渠道开关的，都不在此列。
  */
-const ADMIN_ACTIONS = new Set(["setApiKeyRequired", "createApiKey", "updateApiKey", "deleteApiKey"]);
+const PUBLIC_ACTIONS = new Set([
+  // 只读视图
+  "status",
+  "billing",
+  "accounts",
+  "modelChannels",
+  "checkUpdate",
+  "apiKeys",
+  // 交互式登录流（本机浏览器授权 / 粘贴回调 / 验证码 / 取消）
+  "login",
+  "pasteCallback",
+  "submitInput",
+  "cancelInput",
+  // 一键接入与还原（写本机客户端配置，动作由用户在控制台显式触发）
+  "integrate",
+  "restore",
+]);
 
 /** /api/commands 的统一入口。 */
 export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHandler {
   return async (body) => {
     const { action, cid, args = {} } = body;
     try {
-      // 管理类命令：非本机直连一律拒绝（无论校验开关是否开启）
-      if (ADMIN_ACTIONS.has(action) && body.admin !== true) {
-        return err("管理命令仅允许本机直连调用");
+      // 非公共命令（= 改全局配置 / 账号池 / API key / 渠道开关）只允许本机直连
+      if (!PUBLIC_ACTIONS.has(action) && body.admin !== true) {
+        return err("该命令仅允许本机直连调用");
       }
       switch (action) {
         case "login": {

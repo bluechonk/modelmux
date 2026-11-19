@@ -65,13 +65,31 @@ function hashKey(plain: string, saltHex?: string): string {
  */
 const LEGACY_SALT = "modelmux-apikey";
 
-/** 校验一条记录：新格式（salt:hash）与旧格式（裸 hex）各自重算后恒时比对。 */
+/**
+ * 校验一条记录：新格式（`salt:hash`）与旧格式（裸 hex）各自重算后恒时比对。
+ *
+ * 畸形记录一律 false：存储被损坏或被人手工改成 `":abc"` / 非 hex / 奇数长度时，
+ * 不把垃圾喂给 scrypt（`Buffer.from(x,"hex")` 会静默截断出空串，空 salt 参与运算
+ * 得到的「摘要」可能意外匹配）。这里先做格式校验，不合格直接拒绝。
+ */
+const HEX_RE = /^[0-9a-f]+$/i;
+
 function verifyRecord(plain: string, stored: string): boolean {
   const idx = stored.indexOf(":");
-  const got =
-    idx === -1
-      ? Buffer.from(scryptSync(plain, LEGACY_SALT, 16).toString("hex"), "utf8")
-      : Buffer.from(hashKey(plain, stored.slice(0, idx)), "utf8");
+  if (idx === -1) {
+    // 旧格式：固定 salt + 16 字节摘要（32 hex）
+    if (stored.length !== 32 || !HEX_RE.test(stored)) return false;
+    const got = Buffer.from(scryptSync(plain, LEGACY_SALT, 16).toString("hex"), "utf8");
+    const want = Buffer.from(stored, "utf8");
+    return want.length === got.length && timingSafeEqual(want, got);
+  }
+  // 新格式：两段都必须是合法偶长 hex，且都不能为空
+  if (idx === 0 || idx >= stored.length - 1) return false;
+  const saltHex = stored.slice(0, idx);
+  const digestHex = stored.slice(idx + 1);
+  if (saltHex.length % 2 !== 0 || digestHex.length % 2 !== 0) return false;
+  if (!HEX_RE.test(saltHex) || !HEX_RE.test(digestHex)) return false;
+  const got = Buffer.from(hashKey(plain, saltHex), "utf8");
   const want = Buffer.from(stored, "utf8");
   return want.length === got.length && timingSafeEqual(want, got);
 }

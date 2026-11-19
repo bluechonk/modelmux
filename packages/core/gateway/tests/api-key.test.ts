@@ -151,6 +151,21 @@ describe("API key 校验", () => {
     assert.equal((await apiKeyGuard()!.check("mmx_wrongkey0123456789abcdef", "m")).ok, false);
   });
 
+  it("畸形记录一律拒绝（不把垃圾喂给 scrypt）", async () => {
+    const { poolStore } = await import("../dist/runtime/pool-store.js");
+    const plain = "mmx_malformed0123456789abcdef";
+    const bad = [":abc", "abc:", ":", "zz:zz", "abc:def1", "a".repeat(31), "00:" + "gg".repeat(32)];
+    for (const hash of bad) {
+      poolStore().writeApiKeys({
+        version: 1,
+        keys: [{ id: "bad", name: "bad", prefix: plain.slice(0, 12), keyHash: hash, allowedModels: [], rpmLimit: 0, createdAt: "2026-01-01T00:00:00.000Z" }],
+      });
+      installApiKeyGuard(true);
+      const res = await apiKeyGuard()!.check(plain, "m");
+      assert.equal(res.ok, false, `畸形哈希 ${JSON.stringify(hash)} 必须拒绝`);
+    }
+  });
+
   it("模型未解析（null）时不因白名单拒绝", async () => {
     const { plain } = createApiKey({ name: "n", allowedModels: ["only"], rpmLimit: 0 });
     installApiKeyGuard(true);
