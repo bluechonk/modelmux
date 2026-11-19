@@ -1,11 +1,10 @@
 # 服务化重构设计方案（SaaS-Redesign）
 
-> 设计方案。进度：S0-S4 全部落地（存储开端口 → PgPoolStore → 租户/RLS/额度闭环 →
-> 租约半开/限流/广播 → 指标/信封加密/审计/对账），抓取栈已验证（Prometheus + Grafana
-> 出 p95/错误率/租户消耗，provisioning 配置在 `scripts/monitoring/`），§5-§12 的
-> 具名交付物补齐（tpm 双限、`routing_prefs` 承接渠道偏好、`/admin/*` 管理 API、
-> 访问日志写端落表、§11 管理面 Web 页 `租户管理`——仅 `tenant_mode` 下发时出现）——
-> 与本文的全部既定差异见 §17 偏差台账。
+> 设计方案。进度：S0-S4 落地（存储开端口 → PgPoolStore → 租约半开/限流/广播 →
+> 指标/信封加密/访问日志落表），抓取栈已验证（Prometheus + Grafana，provisioning 在
+> `scripts/monitoring/`）。
+> **多租户体系（§6/§7）已整体移除**，改为面向单部署的 API key 管理（见 §17 变更说明）；
+> 保留白名单与 rpm 限流。其余既定差异同见 §17 偏差台账。
 > 现行单实例本机契约（CONTRACT-TS.md / POOL-ARCHITECTURE.md）仍是默认形态：
 > `MODELMUX_STORE` 未设时全部服务化组件不装配，行为与 S0 前一致。
 > 定位与 [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) 同级：目标架构设计，不是行为契约。
@@ -275,17 +274,23 @@ TTL 兜底。渠道热插拔语义不变，只是「重读文件」变成「失�
 
 ## 17. 落地偏差台账（实现与本文的既定差异，2026-11-19）
 
+**重大变更（2026-11-19）**：§6/§7 的多租户体系（tenants / tenant_api_keys / tenant_quota /
+quota_ledger / usage_events / RLS / `/admin/*` / Web 管理面）**已整体移除**。取而代之的是面向单部署的
+**API key 管理**（`/web/api-keys`）：对话端点按 key 鉴权（401 无效 → 403 模型不在白名单 →
+429 每分钟超限），明文只在创建时展示一次，落盘/落库为 scrypt 哈希 + 前 8 位前缀，存储走
+`PoolStore` 端口（fs → `api-keys.json`，pg → `pool_kv` kind=`apikey`）。保留的是原租户体系里
+**单部署也用得上**的部分：模型白名单、rpm 限流、key 前缀展示。移除的理由：本项目面向「个人/小团队
+自建网关」，多租户的计费闭环与 RLS 在真实使用中没有消费方（验证成本高于收益）。
+
 | 设计条目 | 落地形态 | 偏差理由 |
 | --- | --- | --- |
-| §5 规范化表 `accounts` / `account_health` | 适配器内部用单表 `pool_kv`（kind/cid/skey + jsonb + 版本序列） | D6 裁决「表映射是适配器内部细节」；池索引整读整写的访问形态与 jsonb 行匹配，拆列没有查询收益。升级触发：出现按列查询需求（如跨渠道健康聚合） |
-| §5 `routing_prefs` 的 `tenant_id` 维度 | 仅平台级（model → preferred_cid），无租户覆盖层 | 租户级路由偏好尚无产品语义（租户看到的是模型不是渠道）；表结构预留可 ALTER 加列 |
-| §10 访问日志读路径 | 写端已迁 `access_log_entries` 表（服务形态跨实例可查）；控制台读路径仍走本地 JSONL | 日志页的扫描上限/分页语义与 JSONL 绑定；多实例日志聚合需要读路径改表查询，属后续里程碑（验收已证条目落表） |
-| §10 `model-catalog.json` / `model-specs.json` → 表 | 未迁（仍随构建产物分发） | 目录是构建期数据非运行期状态；迁表只增加启动依赖，无消费方要求 |
-| §12 Redis = ioredis | 自写最小 RESP 客户端（四条命令够用） | ioredis 握手与 Garnet 实测不兼容（连接被 reset）；少一个运行时依赖 |
-| §12 `argon2` | `node:crypto` scrypt | 同等内存硬功能，零依赖 |
-| §12 `prom-client` | 自写最小 Prometheus 文本注册表 | 暴露面只有四类指标，文本协议等价 |
-| §12 `testcontainers` | embedded-postgres 直连 + 端口残留自卫 | 本机无 Docker；embedded 真实二进制验证强度等价 |
-| §12 docker-compose（caddy×N） | 未做（验证形态为同机多进程） | 属发布链运维，代码面验收不依赖 |
-| §12 zod / pino / §13 trace | 未引入 | 输入校验以白名单正则就地实现；日志沿用现有 logger；trace 本文已标可选，规模不配位 |
-| §9 两层信封（主密钥→每条随机数据密钥） | 单层：主密钥直接 AES-256-GCM 每条随机 IV，`kid` 头 + 后台重加密承担轮换 | 本规模下强度等价；少一层数据密钥包装，主密钥泄露面即全部凭据。升级触发：接 KMS（数据密钥 wrap 层随 KMS 客户端一起补，信封结构 `v` 字段留了版本位） |
-| §11 管理员会话 | 静态高熵令牌（sha256 + timingSafeEqual），无登录态存储 | 管理面单主体、单机起步；引入会话存储是给不存在的需求建模（D2 升级路径：接 OIDC） |
+| §5 规范化表 `accounts` / `account_health` | 适配器内部用单表 `pool_kv`（kind/cid/skey + jsonb + 版本序列） | D6 裁决「表映射是适配器内部细节」；池索引整读整写的访问形态与 jsonb 行匹配，拆列没有查询收益 |
+| §5 `routing_prefs` 的 `tenant_id` 维度 | 仅平台级（model → preferred_cid） | 单部署无租户覆盖需求 |
+| §6/§7 多租户、额度闭环、RLS | **整体移除**（见上方变更说明） | 无消费方；保留 API key + 白名单 + 限流 |
+| §10 访问日志读路径 | 写端落 `access_log_entries` 表；控制台读路径仍走本地 JSONL | 日志页的扫描上限/分页语义与 JSONL 绑定 |
+| §10 `model-catalog.json` / `model-specs.json` → 表 | 未迁（随构建产物分发） | 构建期数据，无运行期消费方 |
+| §12 Redis = ioredis | 自写最小 RESP 客户端 | ioredis 握手与 Garnet 不兼容 |
+| §12 `argon2` / `prom-client` / `testcontainers` | scrypt / 自写文本注册表 / embedded-postgres | 能力等价，零新增依赖（本机无 Docker） |
+| §12 docker-compose（caddy×N） | 未做（验证形态为同机多进程） | 属发布链运维 |
+| §12 zod / pino / §13 trace | 未引入 | 规模不配位 |
+| §9 两层信封 | 单层：主密钥直接 AES-256-GCM + kid 头 | 本规模强度等价；升级触发：接 KMS 时补 wrap 层 |

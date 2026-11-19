@@ -16,7 +16,7 @@ import {
   DialogPortal,
   DialogTitle,
 } from "./ui/dialog";
-import { Boxes, ExternalLink, Info, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, ShieldCheck, Tag, X } from "lucide-react";
+import { Boxes, ExternalLink, Info, KeyRound, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
 import { Link } from "react-router";
 import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 
@@ -116,6 +116,37 @@ function IntervalRow({
   );
 }
 
+
+/**
+ * 网关状态行：原顶栏「运行中」信号迁入设置弹窗。
+ *
+ * 只读（与旧 GatewayStatus 同口径）：控制台本身就是网关进程的一部分，从页面启停
+ * 网关会让页面当场不可达 —— 启停一律走本机终端 `mx`。
+ */
+const STATE_LABEL: Record<string, string> = {
+  running: "运行中",
+  probing: "准备中",
+  login: "登录中",
+  down: "网关未运行",
+  unknown: "状态未知",
+};
+
+function GatewayRow(): ReactElement {
+  const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
+  const raw = state.data?.ui_state ?? "";
+  const running = raw === "running";
+  const label = state.data ? (STATE_LABEL[raw] ?? raw ?? "不可达") : "加载中…";
+  const base = state.data?.base_url ?? "";
+  return (
+    <ModalRow icon={Power} title="网关状态" description={base !== "" ? `接入地址 ${base}` : "网关存活状态"}>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-ink-soft">
+        <span className={`h-1.5 w-1.5 rounded-full ${running ? "bg-free live-dot" : "bg-ink-faint"}`} aria-hidden="true" />
+        {label}
+      </span>
+    </ModalRow>
+  );
+}
+
 export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }): ReactElement {
   // `["state"]` 轮询归布局层所有，这里只订阅同一份缓存（同 GatewayStatus）
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
@@ -169,6 +200,21 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
       void qc.invalidateQueries({ queryKey: ["billing"] });
     } catch (err) {
       toast.error(`渠道开关保存失败：${errorText(err)}`);
+    }
+  };
+
+  /** 开关「要求 API key」：写入 setting.json，需重启网关生效（装配期决定）。 */
+  const toggleApiKeyRequired = async (enabled: boolean): Promise<void> => {
+    try {
+      const res = await api.commands.setApiKeyRequired(enabled);
+      if (!res.ok) {
+        toast.error(res.error ?? "设置失败");
+        return;
+      }
+      toast.info(enabled ? "已开启校验，重启网关后生效" : "已关闭校验，重启网关后生效");
+      void qc.invalidateQueries({ queryKey: ["state"] });
+    } catch (err) {
+      toast.error(`设置失败：${errorText(err)}`);
     }
   };
 
@@ -262,7 +308,21 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
             >
               {section === "general" && (
                 <div>
-                  <div className="mb-3 text-xs font-medium text-ink-faint">偏好设置</div>
+                  <div className="mb-3 text-xs font-medium text-ink-faint">状态与去处</div>
+                  <div className="divide-y divide-line">
+                    <GatewayRow />
+                    <ModalRow icon={Boxes} title="账号池" description="渠道凭据、额度与模型清单">
+                      <Link
+                        to="/accounts"
+                        onClick={() => onOpenChange(false)}
+                        className="tap inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:bg-overlay"
+                      >
+                        <Boxes className="h-3.5 w-3.5" aria-hidden="true" />
+                        打开账号池
+                      </Link>
+                    </ModalRow>
+                  </div>
+                  <div className="mb-3 mt-6 text-xs font-medium text-ink-faint">偏好设置</div>
                   <div className="divide-y divide-line">
                     {CAN_AUTOSTART && (
                       <ModalRow icon={Power} title="开机自启动" description="登录 Windows 后自动启动并收进托盘">
@@ -276,19 +336,27 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                     )}
                     <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
                     <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
-                    {/* 管理面入口：服务形态才有（本机形态没有租户概念，不渲染） */}
-                    {state.data?.tenant_mode === true && (
-                      <ModalRow icon={ShieldCheck} title="管理面" description="租户 / 价格 / 对账 / 审计（需管理令牌）">
-                        <Link
-                          to="/admin"
-                          onClick={() => onOpenChange(false)}
-                          className="tap inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:bg-overlay"
-                        >
-                          <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                          打开管理面
-                        </Link>
-                      </ModalRow>
-                    )}
+                    <ModalRow
+                      icon={KeyRound}
+                      title="要求 API key"
+                      description="对话请求必须携带有效 key；改动需重启网关生效"
+                    >
+                      <Switch
+                        checked={state.data?.api_key_mode === true}
+                        onChange={() => void toggleApiKeyRequired(state.data?.api_key_mode !== true)}
+                        label={`要求 API key，${state.data?.api_key_mode === true ? "已开启" : "已关闭"}`}
+                      />
+                    </ModalRow>
+                    <ModalRow icon={KeyRound} title="API Keys" description="新建、白名单与限流管理">
+                      <Link
+                        to="/api-keys"
+                        onClick={() => onOpenChange(false)}
+                        className="tap inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:bg-overlay"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                        管理 API Keys
+                      </Link>
+                    </ModalRow>
                   </div>
                 </div>
               )}

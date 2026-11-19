@@ -12,16 +12,12 @@
 
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Gauge, ScrollText, Settings as SettingsIcon } from "lucide-react";
+import { Boxes, Gauge, KeyRound, ScrollText, Settings as SettingsIcon } from "lucide-react";
 import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { api } from "../lib/api";
-import { REPO_URL } from "../lib/site";
-import { GithubMark } from "./GithubMark";
 import { BackToTop } from "./BackToTop";
 import { BrandMark } from "./BrandMark";
-import { GatewayStatus } from "./GatewayStatus";
 import { SettingsModal } from "./SettingsModal";
-import { ThemeToggle } from "./ThemeToggle";
 import { WindowControls } from "./WindowControls";
 
 /** 顶部标签导航项（设置不是页面：收进顶栏齿轮弹窗，见 SettingsModal）。
@@ -30,6 +26,7 @@ const NAV = [
   { to: "/", label: "仪表盘", icon: Gauge },
   { to: "/accounts", label: "账号池", icon: Boxes },
   { to: "/logs", label: "请求日志", icon: ScrollText },
+  { to: "/api-keys", label: "API Keys", icon: KeyRound },
 ];
 
 /**
@@ -87,7 +84,6 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
    * 真不可用的信号是 `down` 与查询失败，两者都保留。
    */
   const skeleton = queryFailed || uiState === "down";
-  // 服务形态多一个管理面标签；本机形态（tenant_mode 缺省 false）导航与原来完全一致
   // 服务形态多一个管理面入口？不 —— 管理面在设置弹窗里（另一类主体，不占用户导航）
 
   return (
@@ -147,21 +143,10 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         <div className="drag-region h-full min-w-4 flex-1" aria-hidden="true" />
         <div className="flex flex-none items-center gap-3">
           {/*
-            顶栏右侧簇只放**常驻信号 + 轻量控制**：GitHub（仓库入口，<768px 隐藏）、
-            齿轮（设置弹窗入口，<768px 隐藏）、主题小按钮（<900px 隐藏）、
-            网关状态（存活信号，文字 <480px 收敛为绿点）、桌面壳窗口控制钮。
-            配置类信息（web 页入口 / base_url / 版本与更新）统一收在设置弹窗 ——
-            窄屏收敛梯度不再需要为它们保留档位。图标均为 currentColor，深浅主题自动跟随。
+            顶栏右侧簇只留**设置入口 + 桌面壳窗口控制钮**：仓库链接、主题切换、
+            网关状态都已收进设置弹窗 —— 顶栏是导航与存活信号的载体，不是控制面板。
+            窄屏下顶栏因此不再需要收敛档位。
           */}
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="modelmux 的 GitHub 仓库"
-            className="no-drag tap-square hidden h-8 w-8 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-overlay hover:text-ink md:grid"
-          >
-            <GithubMark className="h-4 w-4" />
-          </a>
           {/* 齿轮恒常驻：它是设置弹窗的唯一入口，窄屏收起来等于设置不可达 */}
           <button
             type="button"
@@ -173,10 +158,6 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
           >
             <SettingsIcon className="h-4 w-4" />
           </button>
-          <span className="no-drag hidden min-[900px]:flex">
-            <ThemeToggle />
-          </span>
-          <GatewayStatus />
           <WindowControls />
         </div>
       </header>

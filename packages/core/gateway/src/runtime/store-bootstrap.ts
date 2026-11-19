@@ -4,37 +4,25 @@
  * `MODELMUX_STORE` 未设或 `fs` → 默认 FsPoolStore（行为零变化）；`pg` → 动态
  * import `@modelmux/store` 取 PgPoolStore。依赖方向 store → gateway：共享层
  * **不静态依赖** store 包（分层红线），运行时用字符串说明符装配，esbuild 不打包。
+ *
+ * API key 门禁（取代原租户体系）也在这里装配：`setting.json` 的 `api_key_required`
+ * 为 true 时注入校验器（存储仍走 PoolStore，两种形态自动一致）。
  */
 
 import { setPoolStore, type PoolStore } from "./pool-store.js";
 import { onRequestFinished } from "./log-store.js";
 import { setMetricsProvider } from "./metrics-port.js";
-import { setAdminApi } from "./admin-port.js";
-import { setTenantGate } from "./tenant-context.js";
-
-/** TenantStore 的动态面：bootstrap 只按方法签名取用，不静态依赖 store 包。 */
-interface TenantStoreLike {
-  init(): Promise<void>;
-  authenticate(apiKey: string): Promise<string | null>;
-  allowedModels(tenantId: string): Promise<string[]>;
-  hold(tenantId: string, requestId: string, amountUsd: string): Promise<{ ok: boolean; reason?: string }>;
-  estimateHoldUsd(model: string): Promise<string>;
-  rpmLimitOf(tenantId: string, model: string): Promise<number>;
-  tpmLimitOf(tenantId: string, model: string): Promise<number>;
-  settle(input: {
-    tenantId: string;
-    requestId: string;
-    model: string;
-    cid: string;
-    outcome: "success" | "failure";
-    usage: Record<string, unknown> | undefined;
-  }): Promise<{ kind: "commit" | "refund"; amountUsd: string; tokens: number } | null>;
-}
+import { installApiKeyGuard } from "./api-key-store.js";
+import { loadUserSettings } from "./user-settings.js";
 
 export async function bootstrapStore(): Promise<void> {
   const mode = process.env.MODELMUX_STORE?.trim() || "fs";
-  const tenantMode = process.env.MODELMUX_TENANT_MODE?.trim() === "on";
-  if (mode === "fs" && !tenantMode) return;
+  // API key 门禁与存储形态解耦：fs 也能开（存储落 api-keys.json）
+  const keyRequired = loadUserSettings().api_key_required;
+  if (mode === "fs") {
+    installApiKeyGuard(keyRequired);
+    return;
+  }
   if (mode !== "pg") {
     throw new Error(`MODELMUX_STORE 取值未知：${mode}（预期 fs | pg）`);
   }
@@ -45,14 +33,6 @@ export async function bootstrapStore(): Promise<void> {
   const specifier = ["@modelmux", "store"].join("/");
   const mod = (await import(specifier)) as {
     createPgPoolStore: (options: { dsn: string; pollIntervalMs?: number; redisUrl?: string; masterKeys?: unknown }) => Promise<PoolStore>;
-    TenantStore: new (options: { dsn: string }) => TenantStoreLike;
-    AdminApi: new (tenants: TenantStoreLike, adminToken: string) => { handle(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, sub: string): Promise<void> };
-    RateLimiter: new (url: string) => {
-      hit(key: string, limit: number, windowSec?: number): Promise<boolean>;
-      add(key: string, n: number, windowSec?: number): Promise<void>;
-      peek(key: string): Promise<number>;
-      close(): void;
-    };
     keyRingFromEnv: (env: NodeJS.ProcessEnv) => unknown;
     gatewayMetrics: {
       inc(name: string, labels?: Record<string, string>, value?: number): void;
@@ -79,7 +59,7 @@ export async function bootstrapStore(): Promise<void> {
       store.writeAccess({
         requestId: log.id,
         tsIso: new Date(log.startAt).toISOString(),
-        tenantId: log.tenant?.id ?? null,
+        tenantId: null,
         status: log.status ?? null,
         outcome: log.outcome,
         model: log.model ?? null,
@@ -89,78 +69,6 @@ export async function bootstrapStore(): Promise<void> {
     }
   });
 
-  // 租户形态（S2）：门禁注入 + finish hook 结算。gate 只在 MODELMUX_TENANT_MODE=on
-  // 时装配 —— 未开启的进程 gate=null，请求路径与本机形态完全一致。
-  if (tenantMode) {
-    const tenants = new mod.TenantStore({ dsn });
-    await tenants.init();
-    // 管理面（§6/§11）：/admin/* 需要 MODELMUX_ADMIN_TOKEN；未设则不装配（404）
-    const adminToken = process.env.MODELMUX_ADMIN_TOKEN?.trim();
-    if (adminToken !== undefined && adminToken !== "") {
-      setAdminApi(new mod.AdminApi(tenants, adminToken));
-    }
-    const limiter = new mod.RateLimiter(redisUrl);
-    setTenantGate({
-      authenticate: (apiKey) => (apiKey === null ? Promise.resolve(null) : tenants.authenticate(apiKey)),
-      allowedModels: (tenantId) => tenants.allowedModels(tenantId),
-      hold: async (model, tenantId, requestId) =>
-        await tenants.hold(tenantId, requestId, await tenants.estimateHoldUsd(model)),
-      // rpm 固定窗口：key 带分钟桶（窗口边界自然滚动），多实例共享同一 Redis 计数；
-      // tpm 双限（§6）：放行前查已记账消耗，settle 后把真实 token 数记回窗口
-      rateOk: async (tenantId, model) => {
-        const minute = Math.floor(Date.now() / 60_000);
-        const rpmOk = await limiter.hit(
-          `mmx:rl:${tenantId}:${model}:${minute}`,
-          await tenants.rpmLimitOf(tenantId, model),
-        );
-        if (!rpmOk) {
-          mod.gatewayMetrics.inc("modelmux_tenant_rate_limited_total", { tenant: tenantId, model });
-          return false;
-        }
-        const tpmLimit = await tenants.tpmLimitOf(tenantId, model);
-        if (tpmLimit > 0 && (await limiter.peek(`mmx:tpm:${tenantId}:${model}:${minute}`)) >= tpmLimit) {
-          mod.gatewayMetrics.inc("modelmux_tenant_rate_limited_total", { tenant: tenantId, model });
-          return false;
-        }
-        return true;
-      },
-      recordTokens: async (tenantId, model, tokens) => {
-        await limiter.add(`mmx:tpm:${tenantId}:${model}:${Math.floor(Date.now() / 60_000)}`, tokens);
-      },
-      settle: (input) =>
-        tenants.settle({
-          tenantId: input.tenantId,
-          requestId: input.requestId,
-          model: input.model,
-          cid: "",
-          outcome: input.outcome,
-          usage: input.usage,
-        }),
-    });
-    onRequestFinished((log) => {
-      const t = log.tenant;
-      if (t === undefined || log.outcome === undefined) return;
-      void tenants
-        .settle({
-          tenantId: t.id,
-          requestId: t.requestId,
-          model: log.model ?? "",
-          cid: log.cid ?? "",
-          outcome: log.outcome === "success" ? "success" : "failure",
-          usage: log.usage,
-        })
-        .then((result) => {
-          if (result !== null) {
-            mod.gatewayMetrics.inc("modelmux_tenant_cost_usd_total", { tenant: t.id, kind: result.kind }, Number(result.amountUsd));
-            // tpm 窗口记账（§6）：真实 token 数进当前分钟桶，下一分钟的 rateOk 据此拒绝
-            if (result.tokens > 0) {
-              void limiter.add(`mmx:tpm:${t.id}:${log.model ?? ""}:${Math.floor(Date.now() / 60_000)}`, result.tokens);
-            }
-          }
-        })
-        .catch((err: unknown) => {
-          console.error(`tenant settle failed (${t.requestId}): ${String(err)}`);
-        });
-    });
-  }
+  // API key 门禁：存储走 PoolStore（fs → api-keys.json / pg → pool_kv），校验逻辑同源
+  installApiKeyGuard(keyRequired);
 }

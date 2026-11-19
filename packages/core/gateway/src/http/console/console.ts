@@ -187,11 +187,11 @@ export interface UiSnapshot {
    */
   channel_toggles: Array<{ cid: string; enabled: boolean }>;
   /**
-   * 服务形态租户模式是否开启（tenantGate 已装配）。
+   * API key 校验是否启用（guard 已装配）。
    *
-   * 控制台「租户管理」页的唯一显示开关 —— 本机形态恒 false，导航与页面都不出现。
+   * 控制台「API Keys」页与设置页开关的唯一显示条件 —— 未启用时恒 false。
    */
-  tenant_mode: boolean;
+  api_key_mode: boolean;
   gateway_error: string;
 }
 
@@ -215,7 +215,7 @@ export function emptySnapshot(): UiSnapshot {
     integration_updates: {},
     theme_mode: "system",
     channel_toggles: [],
-    tenant_mode: false,
+    api_key_mode: false,
     gateway_error: "",
   };
 }

@@ -23,7 +23,6 @@ import { handleChat, handleCountTokens, handleMessages, handleResponses } from "
 import { writeJson, writeJsonError } from "./chat/errors.js";
 import { attachRequestLog, noteRequestDetail, noteRequestUa } from "../runtime/log-store.js";
 import { metricsProvider } from "../runtime/metrics-port.js";
-import { adminApi } from "../runtime/admin-port.js";
 
 /**
  * 服务标识：出现在 `/health` 应答里。
@@ -269,16 +268,6 @@ export function createHandler(opts: GatewayOptions = {}) {
         }
         res.writeHead(200, { "content-type": "text/plain; version=0.0.4" });
         res.end(provider.text());
-        return;
-      }
-      // 管理面（§6/§11）：/admin/* 只在服务形态装配；本机形态 404，不暴露存在性细节
-      if (path === "/admin" || path.startsWith("/admin/")) {
-        const api = adminApi();
-        if (api === null) {
-          writeJsonError(res, 404, "not_found", "admin api not enabled");
-          return;
-        }
-        await api.handle(req, res, path.slice("/admin/".length));
         return;
       }
       handleRoot(req, res, path);

@@ -90,7 +90,7 @@ export interface PgPoolStoreOptions {
   masterKeys?: MasterKeyRing;
 }
 
-type Kind = "index" | "active" | "account" | "ledger";
+type Kind = "index" | "active" | "account" | "ledger" | "apikey";
 
 /** 配置失效广播通道（S3 §8.3）：写后发布、各实例收到即重载快照。 */
 const CONFIG_CHANNEL = "modelmux:cfg";
@@ -422,6 +422,17 @@ export class PgPoolStore implements PoolStore {
     for (const r of rows) this.#prefs.set(r.model, r.preferred_cid);
   }
 
+  /** API key 记录（整读整写；低频路径，与索引同机制 write-behind + flush）。 */
+  readApiKeys(): unknown | null {
+    return this.#get("apikey", "", "")?.data ?? null;
+  }
+
+  writeApiKeys(keys: unknown): void {
+    if (this.#sameAsSnap("apikey", "", "", keys)) return;
+    this.#set("apikey", "", keys, "");
+    this.#enqueue(this.#upsertSql(), ["apikey", "", "", keys ?? null]);
+  }
+
   readPrefs(): unknown | null {
     const out: Record<string, string | null> = {};
     for (const [model, cid] of this.#prefs) out[model] = cid;
@@ -453,8 +464,7 @@ export class PgPoolStore implements PoolStore {
   }
 
   /** 半开试探租约：原子 UPSERT 抢约，抢到（行返回）true。低频路径，走同步子进程。 */
-  claimProbeLease(cid: string, key: string, ttlMs: number): boolean {
-    const ref = `${cid}|${key}`;
+  claimProbeLease(cid: string, key: string, ttlMs: number): boolean {    const ref = `${cid}|${key}`;
     const sql =
       `INSERT INTO probe_lease (ref, lease_until) VALUES (${sq(ref)}, now() + (${Math.max(1, Math.trunc(ttlMs))} * interval '1 millisecond'))` +
       ` ON CONFLICT (ref) DO UPDATE SET lease_until = EXCLUDED.lease_until WHERE probe_lease.lease_until < now()` +
@@ -464,8 +474,7 @@ export class PgPoolStore implements PoolStore {
   }
 
   /** 访问日志条目 write-behind（高频路径，与索引同纪律）。 */
-  writeAccess(entry: {
-    requestId: string;
+  writeAccess(entry: {    requestId: string;
     tsIso: string;
     tenantId: string | null;
     status: number | null;

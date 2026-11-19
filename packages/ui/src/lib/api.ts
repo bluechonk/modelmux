@@ -1,17 +1,12 @@
 /**
- * 控制台 API 客户端：统一封装 `/web/api/*` 的读写与服务形态的 `/admin/*` 管理面。
+ * 控制台 API 客户端：统一封装 `/web/api/*` 的读写。
  *
- * 关键约束：控制台基址固定为 `<origin>/web`（单端口模式下 UI 与 API 共用网关端口）；
- * 管理端点在根路径 `/admin/*`，带 Bearer 令牌，仅租户模式网关会应答（本机形态 404）。
+ * 关键约束：基址固定为 `<origin>/web`（单端口模式下 UI 与控制台 API 共用网关端口）。
+ * API key 管理走命令面（`commands.apiKeys/createApiKey/...`），不单独开路由。
  */
 
 import type {
   AccessLogPage,
-  AdminAuditRow,
-  AdminDiffRow,
-  AdminPriceRow,
-  AdminTenantDetail,
-  AdminTenantRow,
   ChannelInfo,
   ChannelPool,
   CommandResult,
@@ -150,6 +145,14 @@ export interface WebApi {
     restore(target: "zcode" | "dsh"): Promise<CommandData>;
     /** 设置弹窗的渠道开关：关闭 = 账号池隐藏 + 选路跳过（凭据与登录态保留）。 */
     setChannelEnabled(cid: string, enabled: boolean): Promise<CommandData>;
+    /** 开关「要求 API key」：写入 setting.json，需重启网关生效。 */
+    setApiKeyRequired(enabled: boolean): Promise<CommandData>;
+    /** API key 列表（不含哈希；明文永不回读）。 */
+    apiKeys(): Promise<CommandData>;
+    /** 新建 key：返回 `plain`（明文，仅此一次）与记录。 */
+    createApiKey(name: string, allowedModels: string[], rpmLimit: number): Promise<CommandData>;
+    updateApiKey(id: string, allowedModels: string[], rpmLimit: number): Promise<CommandData>;
+    deleteApiKey(id: string): Promise<CommandData>;
     /**
      * 手动检查更新（设置页「检查更新」按钮）。
      *
@@ -254,75 +257,11 @@ export const api: WebApi = {
     integrate: (target) => command("integrate", undefined, { target }),
     restore: (target) => command("restore", undefined, { target }),
     setChannelEnabled: (cid, enabled) => command("setChannelEnabled", cid, { enabled }),
+    setApiKeyRequired: (enabled) => command("setApiKeyRequired", undefined, { enabled }),
+    apiKeys: () => command("apiKeys", undefined),
+    createApiKey: (name, allowedModels, rpmLimit) => command("createApiKey", undefined, { name, allowedModels, rpmLimit }),
+    updateApiKey: (id, allowedModels, rpmLimit) => command("updateApiKey", undefined, { id, allowedModels, rpmLimit }),
+    deleteApiKey: (id) => command("deleteApiKey", undefined, { id }),
     checkUpdate: () => command("checkUpdate", undefined),
   },
-};
-
-// —— 管理面客户端（服务形态 /admin/*；本机形态没有这些端点，页面在租户模式才出现）——
-
-/** 管理令牌被拒（401）：页面据此清掉 sessionStorage 里的令牌回到输入态。 */
-export class AdminAuthError extends Error {
-  constructor() {
-    super("管理令牌无效");
-  }
-}
-
-/** 管理令牌只进 sessionStorage：关标签即失效，不落 localStorage。 */
-const TOKEN_KEY = "mmx-admin-token";
-
-export function loadAdminToken(): string {
-  return window.sessionStorage.getItem(TOKEN_KEY) ?? "";
-}
-
-export function saveAdminToken(token: string): void {
-  window.sessionStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearAdminToken(): void {
-  window.sessionStorage.removeItem(TOKEN_KEY);
-}
-
-async function adminCall<T>(
-  token: string,
-  path: string,
-  init?: { method?: string; body?: unknown },
-): Promise<T> {
-  const res = await fetch(`${BASE}/admin/${path}`, {
-    method: init?.method ?? "GET",
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(init?.body !== undefined ? { "content-type": "application/json" } : {}),
-    },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-  });
-  if (res.status === 401) throw new AdminAuthError();
-  const payload = (await res.json().catch(() => null)) as ({ error?: string } & Record<string, unknown>) | null;
-  if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
-  return payload as T;
-}
-
-/** 管理面调用面（与 AdminApi 路由一一对应；错误文案取响应体 `error`）。 */
-export const adminApi = {
-  tenants: (token: string) => adminCall<{ tenants: AdminTenantRow[] }>(token, "tenants"),
-  detail: (token: string, id: string) => adminCall<AdminTenantDetail>(token, `tenants/${id}`),
-  createTenant: (token: string, name: string, balanceUsd: string) =>
-    adminCall<{ tenant: { id: string; name: string }; apiKey: string }>(token, "tenants", {
-      method: "POST",
-      body: { name, balance_usd: balanceUsd },
-    }),
-  grantModel: (token: string, id: string, model: string, rpm: number, tpm: number) =>
-    adminCall(token, `tenants/${id}/models`, { method: "POST", body: { model, rpm_limit: rpm, tpm_limit: tpm } }),
-  addQuota: (token: string, id: string, amountUsd: string) =>
-    adminCall<{ balance_usd: string }>(token, `tenants/${id}/quota`, {
-      method: "POST",
-      body: { amount_usd: amountUsd },
-    }),
-  prices: (token: string) => adminCall<{ prices: AdminPriceRow[] }>(token, "prices"),
-  setPrice: (token: string, model: string, inputUsd: string, outputUsd: string) =>
-    adminCall(token, "prices", {
-      method: "POST",
-      body: { model, input_usd_per_mtok: inputUsd, output_usd_per_mtok: outputUsd },
-    }),
-  reconcile: (token: string) => adminCall<{ diffs: AdminDiffRow[] }>(token, "reconcile"),
-  audit: (token: string, limit = 50) => adminCall<{ entries: AdminAuditRow[] }>(token, `audit?limit=${limit}`),
 };

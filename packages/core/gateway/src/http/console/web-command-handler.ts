@@ -15,7 +15,8 @@ import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { isPrefsModel, loadModelPrefs, setPreferredChannel } from "../../pool/model-prefs.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
-import { disabledChannelSet, setChannelEnabled } from "../../runtime/user-settings.js";
+import { disabledChannelSet, saveUserSettings, setChannelEnabled } from "../../runtime/user-settings.js";
+import { createApiKey, deleteApiKey, listApiKeys, updateApiKey } from "../../runtime/api-key-store.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
 import type {
@@ -216,6 +217,51 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         });
         // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
         return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
+      }
+      case "setApiKeyRequired": {
+        // 装配期开关：写入 setting.json，重启网关后由 store-bootstrap 读取生效
+        const enabled = args["enabled"];
+        if (typeof enabled !== "boolean") return err("参数 enabled 必须是布尔值");
+        saveUserSettings({ api_key_required: enabled });
+        return ok({ api_key_required: enabled, restart_required: true });
+      }
+      // —— API key 管理（新建/删除/改白名单与限流；明文只在新建时返回一次）——
+      case "apiKeys": {
+        // 哈希不外发：列表只给 id / 名称 / 前缀 / 白名单 / 限流 / 时间
+        return ok({
+          keys: listApiKeys().map(({ keyHash: _hash, ...rest }) => rest),
+        });
+      }
+      case "createApiKey": {
+        const name = typeof args["name"] === "string" ? args["name"] : "";
+        if (name.trim() === "") return err("参数 name 必填");
+        const allowed = Array.isArray(args["allowedModels"])
+          ? (args["allowedModels"] as unknown[]).filter((m): m is string => typeof m === "string")
+          : [];
+        const rpm = typeof args["rpmLimit"] === "number" ? args["rpmLimit"] : 0;
+        const { record, plain } = createApiKey({ name, allowedModels: allowed, rpmLimit: rpm });
+        const { keyHash: _hash, ...shown } = record;
+        // plain 只在这里出现一次，前端必须当场展示并提示保存
+        return ok({ key: shown, plain });
+      }
+      case "updateApiKey": {
+        const id = typeof args["id"] === "string" ? args["id"] : "";
+        if (id === "") return err("参数 id 必填");
+        const patch: { name?: string; allowedModels?: string[]; rpmLimit?: number } = {};
+        if (typeof args["name"] === "string") patch.name = args["name"];
+        if (Array.isArray(args["allowedModels"])) {
+          patch.allowedModels = (args["allowedModels"] as unknown[]).filter((m): m is string => typeof m === "string");
+        }
+        if (typeof args["rpmLimit"] === "number") patch.rpmLimit = args["rpmLimit"];
+        const rec = updateApiKey(id, patch);
+        if (rec === null) return err("key 不存在");
+        const { keyHash: _hash, ...shown } = rec;
+        return ok({ key: shown });
+      }
+      case "deleteApiKey": {
+        const id = typeof args["id"] === "string" ? args["id"] : "";
+        if (id === "") return err("参数 id 必填");
+        return deleteApiKey(id) ? ok({ id }) : err("key 不存在");
       }
       case "setChannelEnabled": {
         if (cid === undefined || !hasChannel(cid)) return err("参数 cid 必须是已注册渠道");

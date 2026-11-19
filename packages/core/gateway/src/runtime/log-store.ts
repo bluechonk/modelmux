@@ -131,12 +131,6 @@ export interface RequestLog {
    */
   generateMs?: number;
   usage?: Record<string, unknown>;
-  /**
-   * 租户门禁记账关联（S2，服务形态才有）：门禁预检通过后写入，
-   * finish hook 据此结算额度。res finish 回调的 ALS 上下文停在路由层
-   * （attach 早于 runInTenant），所以靠字段传递而非 currentTenant() 读取。
-   */
-  tenant?: { id: string; requestId: string };
   requestBytes?: number;
   messageCount?: number;
   systemChars?: number;

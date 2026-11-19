@@ -186,9 +186,9 @@ export {
 export type { PoolStore } from "./runtime/pool-store.js";
 export { FsPoolStore, setPoolStore, poolStore } from "./runtime/pool-store.js";
 
-// 租户上下文与门禁端口（S2，docs/SAAS-REDESIGN.md）
-export type { TenantContext, TenantGate, SettleInput } from "./runtime/tenant-context.js";
-export { runInTenant, currentTenant, setTenantGate, tenantGate } from "./runtime/tenant-context.js";
+// API key 校验端口：组合根注入（本机文件 / 服务化存储两种实现），未装配 = 不校验
+export type { ApiKeyGuard, ApiKeyRecord } from "./runtime/api-key.js";
+export { setApiKeyGuard, apiKeyGuard } from "./runtime/api-key.js";
 
 // 指标端口（S4）：provider 由组合根注入，/metrics 有 provider 才暴露
 export type { MetricsProvider } from "./runtime/metrics-port.js";

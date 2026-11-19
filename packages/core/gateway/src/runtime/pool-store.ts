@@ -13,11 +13,13 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { accountCredentialsPath, channelDir, credentialsPath, ensureDir, poolUsagePath, rootFile } from "./paths.js";
-import { writeJsonSecret } from "./secret-file.js";
+import { writeJsonFile, writeJsonSecret } from "./secret-file.js";
 
 /** 索引与账号文件名（落点规则见 docs/STORAGE-CONVENTION.md）。 */
 export const INDEX_NAME = "accounts.json";
 export const ACCOUNT_DIR = "accounts";
+/** API key 记录文件（根级，与 model-prefs.json 同层）。 */
+export const API_KEYS_NAME = "api-keys.json";
 
 export interface PoolStore {
   // —— 账号池索引（<channel>/pool-index.json）——
@@ -72,6 +74,14 @@ export interface PoolStore {
    * fs 形态单进程恒 true（读-改-写天然串行，无竞态可言）。
    */
   claimProbeLease(cid: string, key: string, ttlMs: number): boolean;
+  /**
+   * API key 记录（`<root>/api-keys.json`）：列表整读整写。
+   *
+   * 明文 key 不在这里 —— 存储只放哈希与前缀，创建时的明文由调用方一次性回显。
+   * fs 形态读写原文件（0600），pg 形态落 `pool_kv`（kind='apikey'）。
+   */
+  readApiKeys(): unknown | null;
+  writeApiKeys(keys: unknown): void;
 }
 
 function mtimeOrZero(path: string): number {
@@ -221,6 +231,14 @@ export class FsPoolStore implements PoolStore {
     void key;
     void ttlMs;
     return true;
+  }
+
+  readApiKeys(): unknown | null {
+    return readJsonOrNull(rootFile(API_KEYS_NAME));
+  }
+
+  writeApiKeys(keys: unknown): void {
+    writeJsonFile(rootFile(API_KEYS_NAME), keys);
   }
 }
 

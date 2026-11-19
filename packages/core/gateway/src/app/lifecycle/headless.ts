@@ -24,7 +24,7 @@ import { appendChannel, appendError, appendGateway, appendSystem } from "../../r
 import { rootDir } from "../../runtime/paths.js";
 import { loadUserSettings, saveUserSettings, disabledChannelSet, type ThemeMode } from "../../runtime/user-settings.js";
 import { startUpdateChecks, updateNotice } from "../../runtime/update-check.js";
-import { tenantGate } from "../../runtime/tenant-context.js";
+import { apiKeyGuard } from "../../runtime/api-key.js";
 import { migrateLegacyChannelDirs } from "../../runtime/storage-migrate.js";
 import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-models.js";
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates, poolModels } from "../../pool/pool-targets.js";
@@ -462,8 +462,8 @@ class ServiceState {
         cid: channel.config.cid,
         enabled: !disabled.has(channel.config.cid),
       })),
-      // 租户管理页的唯一开关：tenantGate 装配与否（MODELMUX_TENANT_MODE=on 且 store=pg）
-      tenant_mode: tenantGate() !== null,
+      // API key 管理页的唯一开关：guard 已装配（设置页开启「要求 API key」时注入）
+      api_key_mode: apiKeyGuard() !== null,
       gateway_error: this.gatewayError,
     };
   }
