@@ -15,6 +15,8 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypt
 
 import pg from "pg";
 
+import { retryWhileDbStarting } from "./db-ready.js";
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS tenants (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -122,19 +124,35 @@ export class TenantStore {
   constructor(options: { dsn: string }) {
     this.#bootstrapDsn = options.dsn;
     this.#pool = new pg.Pool({ connectionString: options.dsn, max: 8 });
+    // 同 PgPoolStore：pool 的后台 error 无人接会被 pg 抛成 uncaughtException 杀死进程
+    this.#pool.on("error", (err) => {
+      console.error(`tenant store idle client error: ${String(err)}`);
+    });
   }
 
   async init(): Promise<void> {
-    // 引导角色建表 + 建非特权应用角色；数据面连接切到 modelmux_app（RLS 对其生效）
-    const bootstrap = new pg.Pool({ connectionString: this.#bootstrapDsn, max: 1 });
-    await bootstrap.query(SCHEMA);
-    await bootstrap.query(APP_ROLE);
-    await bootstrap.end();
+    // 引导角色建表 + 建非特权应用角色；数据面连接切到 modelmux_app（RLS 对其生效）。
+    // 撞 PG 恢复窗口时等就绪而不是抛死 worker（见 db-ready.ts）
+    await retryWhileDbStarting(async () => {
+      const bootstrap = new pg.Pool({ connectionString: this.#bootstrapDsn, max: 1 });
+      bootstrap.on("error", (err) => {
+        console.error(`tenant store bootstrap client error: ${String(err)}`);
+      });
+      await bootstrap.query(SCHEMA);
+      await bootstrap.query(APP_ROLE);
+      await bootstrap.end();
+    });
     this.#admin = new pg.Pool({ connectionString: this.#bootstrapDsn, max: 2 });
+    this.#admin.on("error", (err) => {
+      console.error(`tenant store admin client error: ${String(err)}`);
+    });
     await this.#pool.end();
     const at = this.#bootstrapDsn.indexOf("@");
     const appDsn = `postgres://modelmux_app:modelmux_app${this.#bootstrapDsn.slice(at)}`;
     this.#pool = new pg.Pool({ connectionString: appDsn, max: 8 });
+    this.#pool.on("error", (err) => {
+      console.error(`tenant store idle client error: ${String(err)}`);
+    });
   }
 
   async close(): Promise<void> {

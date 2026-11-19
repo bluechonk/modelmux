@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import pg from "pg";
 import type { PoolStore } from "@modelmux/gateway";
 import { RespClient, parseRedisUrl } from "./resp-client.js";
+import { retryWhileDbStarting } from "./db-ready.js";
 import { decryptJson, encryptJson, isEncryptedRow, type MasterKeyRing } from "./crypto-box.js";
 
 const require = createRequire(import.meta.url);
@@ -129,11 +130,17 @@ export class PgPoolStore implements PoolStore {
     this.#redisUrl = options.redisUrl;
     this.#keys = options.masterKeys ?? null;
     this.#pool = new pg.Pool({ connectionString: options.dsn, max: 4 });
+    // 空闲连接的后台错误（PG 重启窗口）必须有人接：pg 对无 handler 的 pool error
+    // 直接抛 uncaughtException —— 一次连接抖动不该杀死整个网关
+    this.#pool.on("error", (err) => {
+      console.error(`pool store idle client error: ${String(err)}`);
+    });
   }
 
   /** 建表 + 全量加载快照 + 启动轮询与失效订阅。 */
   async init(): Promise<void> {
-    await this.#pool.query(SCHEMA);
+    // 撞 PG 恢复窗口（端口已监听但拒绝连接）时等它就绪，而不是让 worker 陪葬
+    await retryWhileDbStarting(() => this.#pool.query(SCHEMA));
     await this.#reloadAll();
     await this.#loadPrefs();
     if (this.#redisUrl !== undefined) {
