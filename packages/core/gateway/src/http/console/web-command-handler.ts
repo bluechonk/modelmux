@@ -15,7 +15,7 @@ import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { isPrefsModel, loadModelPrefs, setPreferredChannel } from "../../pool/model-prefs.js";
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
-import { isChannelEnabled, setChannelEnabled } from "../../runtime/user-settings.js";
+import { disabledChannelSet, setChannelEnabled } from "../../runtime/user-settings.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
 import type {
@@ -195,11 +195,13 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       }
       case "accounts": {
         // 显式指定 cid 时照常返回（诊断入口）；列表模式只列启用的渠道 ——
-        // 设置弹窗关闭的渠道在这里消失，账号池卡片随之隐藏
+        // 设置弹窗关闭的渠道在这里消失，账号池卡片随之隐藏。
+        // 关闭集合循环外取一次：逐渠道 isChannelEnabled 是逐渠道同步读盘
+        const disabled = disabledChannelSet();
         const targets =
           cid !== undefined && hasChannel(cid)
             ? [getChannel(cid)]
-            : channels().filter((channel) => isChannelEnabled(channel.config.cid));
+            : channels().filter((channel) => !disabled.has(channel.config.cid));
         if (targets.length === 0) return err("没有渠道被注册");
         const pools = targets.map((channel) => {
           const poolCid = channel.config.cid;

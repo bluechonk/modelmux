@@ -71,9 +71,18 @@ export function saveUserSettings(patch: Partial<UserSettings>): UserSettings {
   return merged;
 }
 
-/** 渠道是否启用（设置弹窗的勾选状态；未记录 = 启用）。 */
+/** 渠道是否启用（设置弹窗的勾选状态；未记录 = 启用）。单次判断用。 */
 export function isChannelEnabled(cid: string): boolean {
   return !loadUserSettings().disabled_channels.includes(cid);
+}
+
+/**
+ * 关闭渠道集合（热路径用）：`poolCandidates` 逐渠道过滤、账号池列表逐卡判断，
+ * 每渠道调一次 `isChannelEnabled` 就是每渠道一次同步读盘 + JSON.parse。
+ * 调用方在循环外取一次，循环内只做 `set.has(cid)`。
+ */
+export function disabledChannelSet(): Set<string> {
+  return new Set(loadUserSettings().disabled_channels);
 }
 
 /** 开/关一个渠道：只改 `disabled_channels`，凭据与登录态一概不动。 */

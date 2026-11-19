@@ -13,8 +13,10 @@ import { registerChannelSupply } from "./registry-seed.ts";
 import {
   invalidateCrossModelIndex,
   inputModalitiesOf,
+  poolCandidates,
   poolModels,
 } from "../dist/pool/pool-targets.js";
+import { setChannelEnabled } from "../dist/runtime/user-settings.js";
 
 let root = "";
 let savedRoot: string | undefined;
@@ -82,9 +84,9 @@ describe("poolModels / invalidateCrossModelIndex", () => {
 });
 
 describe("channel toggle：关闭的渠道不进选路候选", () => {
-  before(async () => {
-    const { setChannel } = await import("../dist/runtime/channel.js");
-    const { registerChannelSupply } = await import("./registry-seed.ts");
+  // 资源用同步 import 在模块顶层持有：after 里必须**同步**撤掉已注册渠道，
+  // 否则 cid-on/cid-off 会污染同文件后续用例的 channels() 结果
+  before(() => {
     setChannel({
       config: { cid: "cid-on", display: "ON", version: "1.0.0", defaultAddr: "127.0.0.1:1", uiPort: 2 },
       upstream: { DISPLAY_NAME: "ON" },
@@ -102,19 +104,17 @@ describe("channel toggle：关闭的渠道不进选路候选", () => {
   });
 
   after(() => {
-    // 同步清理（after 不允许 await import 之外的顶层 await）
-    void import("../dist/runtime/user-settings.js").then((m) => m.setChannelEnabled("cid-off", true));
+    setChannelEnabled("cid-off", true); // 复位开关（幂等；已复位也无害）
+    clearChannels(); // 撤掉本组注册的合成渠道
+    invalidateCrossModelIndex();
   });
 
-  it("两个都开着 → 候选含两者", async () => {
-    const { poolCandidates } = await import("../dist/pool/pool-targets.js");
+  it("两个都开着 → 候选含两者", () => {
     const cids = poolCandidates("deepseek-v4.1-flash" as never).map((c) => c.cid);
     assert.ok(cids.includes("cid-on") && cids.includes("cid-off"));
   });
 
-  it("关掉 cid-off → 候选只剩 cid-on（凭据不动，只是不路由）", async () => {
-    const { setChannelEnabled } = await import("../dist/runtime/user-settings.js");
-    const { poolCandidates } = await import("../dist/pool/pool-targets.js");
+  it("关掉 cid-off → 候选只剩 cid-on（凭据不动，只是不路由）", () => {
     setChannelEnabled("cid-off", false);
     const cids = poolCandidates("deepseek-v4.1-flash" as never).map((c) => c.cid);
     assert.deepEqual(cids, ["cid-on"]);
