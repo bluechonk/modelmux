@@ -241,6 +241,8 @@
      容器只有 257px，不拆行会只剩一个「挑」掉到第三行 */
   @media (max-width: 360px) {
     .hero h1 .dim { display: block; }
+    /* 四项数字在 320 会折成 3+1（第三项之后断行），改两列正好 2+2 */
+    .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
   }
   @media (max-width: 620px) {
     /* 桌面版行改上下堆叠：两列时值列只剩 ~200px，长路径会被从单词中间断开 */
