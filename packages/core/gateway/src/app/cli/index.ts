@@ -18,6 +18,7 @@ import { rootDir } from "../../runtime/paths.js";
 import { bootstrapStore } from "../../runtime/store-bootstrap.js";
 import { CHANNEL_VERBS, isChannelVerb, runVerb } from "./channel.js";
 import * as groups from "./model.js";
+import { runMigrate } from "./migrate.js";
 import { defaultAddr, defaultUiPort, version } from "../../runtime/cli-consts.js";
 import * as daemon from "../lifecycle/daemon.js";
 import * as headless from "../lifecycle/headless.js";
@@ -115,6 +116,7 @@ export function usage(): string {
   ${pad("start | stop | restart")}守护式启停（幂等）
   ${pad("rebuild")}在源码检出里 npm run build 并重启（改完代码后用）
   ${pad("serve")}前台运行（调试用）
+  ${pad("migrate pg")}把本机账号池迁入 PostgreSQL（--dsn / --cid / --dry-run）
   ${pad("web")}打开 Web 控制台
 
 模型:
@@ -228,6 +230,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         "worker-pid": { type: "string" },
         log: { type: "string" },
         cwd: { type: "string" },
+        // migrate pg：服务化迁移入口（--dsn / --cid / --dry-run）
+        dsn: { type: "string" },
+        cid: { type: "string" },
+        "dry-run": { type: "boolean" },
         follow: { type: "boolean", short: "f" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
@@ -368,6 +374,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     case "rebuild":
       // 先构建再重启：只重启的话跑的还是上一次构建的产物（改了代码看不出变化）。
       return runRebuild({ addr, uiPort, quiet: boolOpt(o, "quiet") });
+
+    case "migrate":
+      // 服务化迁移（S1/§10）：fs 账号池 → PostgreSQL；目标写在动词后（当前只有 pg）
+      return runMigrate({
+        target: positionals[1] ?? "pg",
+        dsn: strOpt(o, "dsn") ?? process.env.MODELMUX_PG_DSN?.trim(),
+        cid: strOpt(o, "cid"),
+        dryRun: boolOpt(o, "dry-run"),
+      });
 
     default:
       // 旧语法 `mx <cid> <动词>` 的指路：渠道名现在写在动词之后。
