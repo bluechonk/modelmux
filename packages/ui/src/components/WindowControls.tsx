@@ -23,6 +23,8 @@ export function WindowControls(): ReactElement | null {
 
   // hover 用 overlay 而非 raised：浅色主题下 raised 与 surface 同为 #ffffff，
   // 用 raised 做 hover 底等于没加（最大化/最小化/关闭在浅色下完全看不出悬停）。
+  // 三键共用同一条 hover 底色：关闭不再单独铺红 —— 红底与另两键的灰底在深浅
+  // 两套主题下都不同色，三个按钮看起来像三种控件（2026-11-20 用户指出的不一致）。
   const btn =
     "tap-square grid h-8 w-11 place-items-center rounded-lg text-ink-soft transition-colors hover:bg-overlay hover:text-ink";
   return (
@@ -46,7 +48,7 @@ export function WindowControls(): ReactElement | null {
       <button
         type="button"
         aria-label="关闭窗口（收起到托盘）"
-        className={`${btn} hover:bg-danger/80 hover:text-on-danger`}
+        className={btn}
         onClick={() => void bridge.close()}
       >
         <X className="h-4 w-4" />

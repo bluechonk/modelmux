@@ -32,13 +32,17 @@
   --color-brand: #ffffff;
   --color-brand-deep: #e5e5e5;
   --color-on-brand: #161616;
-  /* 危险底（红）上的前景色：两套都是白字 */
+  /* 危险色拆两档：`danger` 是文字 / 图标色（浅底上要压深），
+     `danger-strong` 是实底（按钮、AlertDialog 动作钮）—— 同一档红既要白字 4.5
+     又要深底文字 4.5 在数学上无解（底亮度区间为空），必须分开。 */
   --color-on-danger: #ffffff;
+  --color-danger-strong: #d92b2b;
   --color-free: #46bf72;
   --color-warn: #ff8a30;
   --color-danger: #ff5c5c;
 
-  /* 选中态（ZCode：深色白底黑字、浅色灰底黑字） */
+  /* 选中态 = 反色药丸（两套主题各自反色，跨主题语义一致）。
+     浅色不能取灰底：`sel` 与 `overlay` 同值时选中项在分段控件里与容器底完全同色。 */
   --color-sel: #ffffff;
   --color-sel-ink: #161616;
 
@@ -93,7 +97,8 @@
  * 落到这个属性上）。组件全部走令牌类，改这里的变量即整站换肤。
  *
  * ZCode theme-zai-light 源值：页面 #f8f8f8、卡片/顶栏纯白、次级 #e6e6e6；
- * 选中态灰底黑字（非反白）、下拉触发器白底黑字 + 描边；语义色加深保证白底可读。
+ * 下拉触发器白底黑字 + 描边；语义色加深保证白底可读。
+ * 选中态不用源值的灰底 #e6e6e6 —— 它与 overlay 同值，选中项会与容器底融成一片。
  */
 html[data-theme="light"] {
   color-scheme: light;
@@ -105,16 +110,20 @@ html[data-theme="light"] {
   --color-line-strong: rgba(10, 10, 10, 0.16);
   --color-ink: #171717;
   --color-ink-soft: #404040;
-  --color-ink-faint: #737373;
+  /* 弱文字压到 #666：#737373 在白底 4.46、在 overlay(#e6e6e6) 上只剩 3.80，
+     说明文字与小字标签在浅灰底上读不清（2026-11-20 对比度实测）。 */
+  --color-ink-faint: #666666;
   --color-brand: #000000;
   --color-brand-deep: #262626;
   --color-on-brand: #ffffff;
   --color-on-danger: #ffffff;
+  --color-danger-strong: #d92b2b;
   --color-free: #166b32;
   --color-warn: #b45309;
-  --color-danger: #e03131;
-  --color-sel: #e6e6e6;
-  --color-sel-ink: #171717;
+  --color-danger: #c92a2a;
+  /* 与深色同构的反色药丸（黑底白字），选中的那档一眼可辨 */
+  --color-sel: #171717;
+  --color-sel-ink: #ffffff;
   --color-scrollbar: #d4d4d4;
   --color-scrollbar-hover: #a1a1a1;
   --color-series-1: #0b7fff;

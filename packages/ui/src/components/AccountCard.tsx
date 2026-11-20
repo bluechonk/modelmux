@@ -440,7 +440,7 @@ export function AccountCard({
               「签到无固定额度」这类说法 —— catpaw 只有一次性注册奖励、qoder 没有签到活动、
               workbuddyai / qwenworkcn 连签到能力位都没有，对用户都是「这渠道没签到」。
               详情浮层的「今日签到」行仍按能力位渲染，两处口径一致。 */}
-          <div className="mt-1 truncate text-xs leading-4 text-ink-faint/70">
+          <div className="mt-1 truncate text-xs leading-4 text-ink-faint">
             {billingError && billing === undefined ? (
               <span className="text-warn">额度周期未知（账单查询失败）</span>
             ) : (
@@ -519,7 +519,7 @@ export function AccountCard({
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <Badge className={`shrink-0 whitespace-nowrap ${meta.pill}`}>{statusPillText(status)}</Badge>
                     {billing?.unsupported === true ? (
-                      <span className="shrink-0 text-xs text-ink-faint/70">订阅制 · 无额度概念</span>
+                      <span className="shrink-0 text-xs text-ink-faint">订阅制 · 无额度概念</span>
                     ) : (
                     <button
                       type="button"
@@ -637,7 +637,7 @@ export function AccountCard({
         整片网格才不参差 —— 账号池的卡片布局逐卡一致。
       */}
       {empty ? (
-        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint/70">
+        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint">
           暂无账号
         </div>
       ) : hiddenCount > 0 ? (
@@ -655,7 +655,7 @@ export function AccountCard({
           {collapsedBack ? "收起" : `展开剩余 ${hiddenCount} 个账号`}
         </button>
       ) : (
-        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint/70">
+        <div className="flex items-center border-t border-line px-4 py-1.5 text-xs text-ink-faint">
           已展示全部
         </div>
       )}
