@@ -1,7 +1,7 @@
 /**
  * Token 趋势图（多序列平滑曲线，按模型分色）。
  *
- * 形态与 ZCode 的同名图一致：图例在顶部一行、纵向虚线网格、曲线首尾平滑、
+ * 形态与 ZCode 的同名图一致：图例在顶部（放不下换行，全部模型恒可见）、纵向虚线网格、曲线首尾平滑、
  * 每条线的**末点**画实心圆、hover 浮层跟随数据点（标题 = 日期 - 当日总量）。
  *
  * 手写 SVG，不引图表库。两个必须遵守的几何约束：
@@ -14,7 +14,6 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { formatTokens } from "../../lib/log-format";
 import type { UsageDaily } from "../../lib/types";
 import { activeSeriesOf, seriesClassOf } from "../../lib/trend-series";
-import { ScrollFade } from "../ScrollFade";
 import { ChartTooltip } from "./ChartTooltip";
 
 const VIEW_H = 260;
@@ -195,35 +194,23 @@ export function TrendChart({ daily, series }: { daily: UsageDaily[]; series: str
 
   return (
     <div className="space-y-3">
-      {/* 图例：顶部一行（参考图同位置），色点 + 模型名。
-          **恒一行不折行**：不同区间的模型条数不同，允许折行时图例从 1 行变 4~5 行、
-          卡片高度跟着上下跳。放不下就横向滚动，右缘用 `ScrollFade` 的渐隐说明「还有更多」
-          —— 静态裁切会被读成「就这几个模型」。
-          单日整行 `invisible`（每行已带色点 + 名字 + 数值，再列一遍是同一份信息两次），
-          同时必须是 `overflow-hidden`：隐形内容若仍可横向滚动，用户滑动时一个字都不动，
-          就是一条有交互没反馈的死路。 */}
-      {singleDay ? (
-        <div
-          className="invisible flex flex-nowrap items-center gap-x-5 overflow-hidden text-xs"
-          aria-hidden="true"
-        >
-          {legend.map((id, i) => (
-            <span key={id} className="inline-flex shrink-0 items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
-              <span className="whitespace-nowrap text-ink-soft">{id === "" ? "未知模型" : id}</span>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <ScrollFade className="no-scrollbar flex flex-nowrap items-center gap-x-5 overflow-x-auto text-xs">
-          {legend.map((id, i) => (
-            <span key={id} className="inline-flex shrink-0 items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
-              <span className="whitespace-nowrap text-ink-soft">{id === "" ? "未知模型" : id}</span>
-            </span>
-          ))}
-        </ScrollFade>
-      )}
+      {/* 图例：顶部，色点 + 模型名，**放不下就换行**。
+          不折行 + 横向滚动时，被滚出视口的模型在界面上完全不出现（只能靠滑动），
+          用户看到的是「就这几个模型」；换行让全部模型恒可见，代价是模型多时图例
+          占两三行、卡片变高 —— 与「每天只列当天真正有消耗的模型」的既有口径一致，
+          高度由内容决定，不做凑高度的占位。
+          单日整行 `invisible`（每行已带色点 + 名字 + 数值，再列一遍是同一份信息两次）。 */}
+      <div
+        className={`flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs ${singleDay ? "invisible" : ""}`}
+        aria-hidden={singleDay ? true : undefined}
+      >
+        {legend.map((id, i) => (
+          <span key={id} className="inline-flex items-center gap-1.5">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-current ${seriesClassOf(i)}`} />
+            <span className="whitespace-nowrap text-ink-soft">{id === "" ? "未知模型" : id}</span>
+          </span>
+        ))}
+      </div>
 
       {/* 单日：条形列表（不再画 SVG —— 一个点画不出趋势）。
           高度由内容决定，**不与多日曲线的 `VIEW_H` 对齐**：条数少时撑满 260px 会把行距
