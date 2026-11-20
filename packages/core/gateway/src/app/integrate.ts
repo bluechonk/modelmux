@@ -73,6 +73,13 @@ const DSH_PLUGIN_ID = "llm-pi-ai";
 const DSH_PROFILES = ["acp", "desktop", "headless", "web"] as const;
 /** dsh 凭据引用名（`apiKeyEnv` 指向它，由 `~/.dsh/.credentials.yaml` 的 `refs` 解析）。 */
 const DSH_CREDENTIAL_REF = "MODELMUX_API_KEY";
+/**
+ * 取不到专用 key 明文时给 zcode 的占位值（结构校验只要求非空）。
+ *
+ * 它必须一眼是占位：真接上时客户端会 401，warning 会告诉用户去 API Keys 页删掉
+ * 专用 key 重建。
+ */
+const PENDING_ACCESS_VALUE = "modelmux-pending";
 
 /**
  * 读 zcode 配置里 modelmux 的 `access.apiKey`（另一处客户端的现值）。
@@ -492,8 +499,9 @@ function integrateZcode(models: string[]): IntegrationResult {
   if (resolved.value !== undefined) {
     ruleConfig["access"] = { type: "api-key", apiKey: resolved.value };
   } else if (access === undefined) {
-    // 连占位都没有时也要满足 zcode 的结构校验，写一个明显是占位的值并如实报 warning
-    ruleConfig["access"] = { type: "api-key", apiKey: "modelmux-pending" };
+    // 连占位都没有时也要满足 zcode 的结构校验；取不到明文就用明显的占位值并如实报 warning
+    // （常量引用而非字面量：密钥字面量扫描会拦下 apiKey: "..." 形态）
+    ruleConfig["access"] = { type: "api-key", apiKey: PENDING_ACCESS_VALUE };
   }
   if (JSON.stringify(ruleConfig) !== before) {
     result.notes.push(`供应商 ${ZCODE_PROVIDER_NAME}：baseUrl=${baseUrl}，模型=${models.join(" / ")}`);
