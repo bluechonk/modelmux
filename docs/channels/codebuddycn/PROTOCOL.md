@@ -54,8 +54,9 @@ POST /v2/plugin/auth/token/refresh   body: {}
 POST /v2/chat/completions
 ```
 
-- 请求体是 **gzip 压缩**的 OpenAI 形态（`Content-Encoding: gzip` +
-  `Accept-Encoding: identity`）—— 不压缩会被上游拒（实测参考实现）。
+- 请求体是**明文 JSON**（`Accept-Encoding: identity`）。`Content-Encoding: gzip` + 明文体
+  会被上游回 `11101 Invalid gzip body`（2026-11-20 探针实测）；不声明该头的明文形态是网关
+  全天数百次成功对话的既证形态（2026-11-19 实测 389 次），「必须 gzip」为历史误记。
 - 请求体字段与 OpenAI 兼容（`model` / `messages` / `tools` / `stream` 等），
   由网关按 `buildChatBody` 改写（`developer` 角色转 `system`、恒 `stream: true`）。
 - 响应是**标准 OpenAI SSE**（`choices[].delta` 增量帧 + `usage` 帧 + `[DONE]`），
@@ -165,11 +166,11 @@ HTTP 400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"
 
 | 结论 | 来源 | 性质 |
 | --- | --- | --- |
-| 端点、头族、gzip 对话体、SSE 形态 | 参考实现 `app/auth_oauth.py` / `app/client_profiles.py` / `app/upstream_io.py` / `app/credits.py` | 参考实现逆向（未本机验证） |
+| 端点、头族、SSE 形态（明文对话体） | 参考实现 `app/auth_oauth.py` / `app/client_profiles.py` / `app/upstream_io.py` / `app/credits.py` | 参考实现逆向（未本机验证） |
 | 模型 id（`deepseek-v4.1-flash` / `glm-5.3-flash`） | 参考实现目录解析 + 本仓注册表 | 参考实现逆向 |
 | 登录（授权页 + 轮询 + 账号档案） | 真机：账号「セシリア」授权入池（2026-11-11） | 已验证 |
 | 模型目录（GET + 账单主机） | 真机：拉到 `deepseek-v4.1-flash` / `glm-5.3-flash`（2026-11-11） | 已验证 |
-| 对话（gzip 体 + 头族 + SSE） | 真机：`glm-5.3-flash` 最小对话返回「1+1=2」（2026-11-11） | 已验证 |
+| 对话（明文对话体 + 头族 + SSE） | 真机：`glm-5.3-flash` 最小对话返回「1+1=2」（2026-11-11）；明文形态 + 会话头族与额度码表（2026-11-20 探针实测） | 已验证 |
 | 额度（资源表 `Accounts[]` 与字段名） | 真机：剩余 645 credits / 总量 700（2026-11-11） | 已验证 |
 | 签到（状态 + 领取 + 幂等码 10001） | 真机：连续 25 天、每天 100 credits（2026-11-11） | 已验证 |
 | 续期（refresh） | 未单独验证 | 未验证 |
