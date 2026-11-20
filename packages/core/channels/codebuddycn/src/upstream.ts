@@ -168,9 +168,10 @@ export function buildHeaders(
   if (chat) {
     headers["Content-Type"] = "application/json";
     headers["Accept"] = "text/event-stream";
-    // 对话体走 gzip：不接受压缩回包
+    // 明文 JSON + 不声明 Content-Encoding：上游对「声明 gzip 却收到明文」回
+    // 11101 Invalid gzip body（2026-11-20 探针实测），而网关历史成功（11-19 全天
+    // 389 次）走的一直是不声明头的明文形态 —— PROTOCOL 的「必须 gzip」是误记。
     headers["Accept-Encoding"] = "identity";
-    headers["Content-Encoding"] = "gzip";
   } else if (json) {
     headers["Content-Type"] = "application/json";
     headers["Accept"] = "application/json";
