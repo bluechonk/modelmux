@@ -28,11 +28,12 @@
   --color-ink-soft: #d4d4d4;
   --color-ink-faint: #a3a3a3;
 
-  /* 语义色：主操作 / 选中态取**卡片同色**（深 #2b2b2b、浅 #ffffff）+ 描边 ——
-     纯黑纯白在切换主题时视觉重量跳变，且浅色下白底卡片上的一键黑块很突兀。 */
-  --color-brand: #2b2b2b;
-  --color-brand-deep: #363636;
-  --color-on-brand: #f5f5f5;
+  /* 主操作 / 选中态：与背景**拉开一档**的中性色（深 #e8e8e8 浅字 / 浅 #262626 深字）。
+     不能用卡片同色（#2b2b2b / #ffffff）—— 与画布只差 1.05~1.44:1，选中项和主按钮
+     在页面上等于看不见（2026-11-20 实测）；也不要纯黑纯白，切主题时视觉重量跳变。 */
+  --color-brand: #e8e8e8;
+  --color-brand-deep: #f5f5f5;
+  --color-on-brand: #171717;
   /* 危险色拆两档：`danger` 是文字 / 图标色（浅底上要压深），
      `danger-strong` 是实底（按钮、AlertDialog 动作钮）—— 同一档红既要白字 4.5
      又要深底文字 4.5 在数学上无解（底亮度区间为空），必须分开。 */
@@ -42,10 +43,15 @@
   --color-warn: #ff8a30;
   --color-danger: #ff5c5c;
 
-  /* 选中态 = 与主按钮同档的卡片色（深色 #2b2b2b 浅字 / 浅色 #ffffff 深字）。
-     分段控件的容器是 overlay，比 sel 各深一档，选中项因此仍可辨。 */
-  --color-sel: #2b2b2b;
-  --color-sel-ink: #f5f5f5;
+  /* 开关状态色：开 = 绿、关 = 红（语义即状态，不借主色）。
+     绿色不复用 `free`（#46bf72 上白钮只有 2.3:1），取更暗一档保白钮 ≥3:1。 */
+  --color-switch-on: #2f9e5f;
+  --color-switch-off: #d92b2b;
+
+  /* 选中态 = 与主按钮同档（深 #e8e8e8 深字 / 浅 #262626 白字）。
+     分段控件的容器是 overlay，与 sel 各差一档以上，选中项恒可辨。 */
+  --color-sel: #e8e8e8;
+  --color-sel-ink: #171717;
 
   /* 滚动条 */
   --color-scrollbar: #3f3f3f;
@@ -114,18 +120,19 @@ html[data-theme="light"] {
   /* 弱文字压到 #666：#737373 在白底 4.46、在 overlay(#e6e6e6) 上只剩 3.80，
      说明文字与小字标签在浅灰底上读不清（2026-11-20 对比度实测）。 */
   --color-ink-faint: #666666;
-  --color-brand: #ffffff;
-  --color-brand-deep: #e6e6e6;
-  --color-on-brand: #171717;
+  --color-brand: #262626;
+  --color-brand-deep: #171717;
+  --color-on-brand: #ffffff;
   --color-on-danger: #ffffff;
   --color-danger-strong: #d92b2b;
   --color-free: #166b32;
   --color-warn: #b45309;
   --color-danger: #c92a2a;
-  /* 选中态 = 比顶栏/卡片略深一档的浅底（#efefef），与深色 #2b2b2b 底浅字对称；
-     顶栏是纯白，选中态若也纯白会在上面消失。 */
-  --color-sel: #efefef;
-  --color-sel-ink: #171717;
+  --color-switch-on: #16a34a;
+  --color-switch-off: #d92b2b;
+  /* 选中态 = 与主按钮同档（#262626 白字），比容器 overlay(#e6e6e6) 深一档以上。 */
+  --color-sel: #262626;
+  --color-sel-ink: #ffffff;
   --color-scrollbar: #d4d4d4;
   --color-scrollbar-hover: #a1a1a1;
   --color-series-1: #0b7fff;
