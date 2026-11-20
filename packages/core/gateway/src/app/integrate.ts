@@ -718,8 +718,9 @@ function ensureDshCredential(warnings: string[]): { file: string; changed: boole
       warnings,
     );
     if (resolved.note !== undefined) notes.push(resolved.note);
-    if (resolved.value === undefined) return { file, changed: false, notes, backupDir: dir };
-    const entry = `${DSH_CREDENTIAL_REF}: ${resolved.value}`;
+    // 取不到明文也要把引用补上（结构缺失会让 dsh 直接判定 provider 不可用），
+    // 值退回占位并已由 resolveIntegrationSecret 报过 warning
+    const entry = `${DSH_CREDENTIAL_REF}: ${resolved.value ?? PENDING_ACCESS_VALUE}`;
     try {
       // 必须登记「这个文件是本次接入新建的」：否则还原时不知道该删它，
       // 凭据文件会永久留在 ~/.dsh 下，而用户从没拥有过它。
@@ -740,9 +741,9 @@ function ensureDshCredential(warnings: string[]): { file: string; changed: boole
   if (current !== undefined) {
     const resolved = resolveIntegrationSecret(current, readZcodeAccessApiKey(), integration, warnings);
     if (resolved.note !== undefined) notes.push(resolved.note);
-    if (resolved.value === undefined || resolved.value === current) {
-      return { file, changed: false, notes };
-    }
+    if (resolved.value === current) return { file, changed: false, notes };
+    // 值缺失时同样退回占位（见上）：引用存在但值不可用，比整条缺失更好排查
+    const next = resolved.value ?? PENDING_ACCESS_VALUE;
     // 值需要换：整文件重写风险大（该文件由 dsh 机器管理），改为逐行替换那一条
     const idx = lines.findIndex((l) => new RegExp(`^\\s*["']?${DSH_CREDENTIAL_REF}["']?\\s*:`).test(l.replace(/#.*$/, "")) || new RegExp(`(?:\\{|,)\\s*["']?${DSH_CREDENTIAL_REF}["']?\\s*:`).test(l.replace(/#.*$/, "")));
     if (idx < 0) return { file, changed: false, notes };
@@ -752,7 +753,7 @@ function ensureDshCredential(warnings: string[]): { file: string; changed: boole
       const [bare, comment] = splitTrailingComment(lines[idx]!);
       const replaced = bare.replace(
         new RegExp(`(["']?${DSH_CREDENTIAL_REF}["']?\\s*:\\s*)([^,}\\s]+)`),
-        `$1${resolved.value}`,
+        `$1${next}`,
       );
       lines[idx] = `${replaced}${comment}`;
       writeVerified(file, lines.join(nl), 0o600);
@@ -766,8 +767,7 @@ function ensureDshCredential(warnings: string[]): { file: string; changed: boole
 
   const resolved = resolveIntegrationSecret(undefined, readZcodeAccessApiKey(), integration, warnings);
   if (resolved.note !== undefined) notes.push(resolved.note);
-  if (resolved.value === undefined) return { file, changed: false, notes };
-  const entry = `${DSH_CREDENTIAL_REF}: ${resolved.value}`;
+  const entry = `${DSH_CREDENTIAL_REF}: ${resolved.value ?? PENDING_ACCESS_VALUE}`;
 
   let text: string;
   const refsIdx = lines.findIndex((l) => /^\s*refs:\s*/.test(l));

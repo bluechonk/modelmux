@@ -262,7 +262,9 @@ describe("dsh 补充分支", () => {
     const result = integrateClient("dsh", MODELS);
     assert.equal(result.ok, true, result.error);
     const after = readFileSync(cred, "utf8");
-    assert.match(after, /LONGCAT_API_KEY: ak, MODELMUX_API_KEY: modelmux-local\}\n/, "条目应接在收尾同行");
+    // 值不钉死字面量：正常路径写的是一键接入专用 key 的明文（mmx_ 前缀），
+    // 取不到明文时退回占位（见 integrate.ts 的 PENDING_ACCESS_VALUE）
+    assert.match(after, /LONGCAT_API_KEY: ak, MODELMUX_API_KEY: (mmx_[0-9a-f]+|modelmux-pending)\}\n/, "条目应接在收尾同行");
   });
 
   it("凭据文件写失败（只读）：警告且不中断 profile", () => {
