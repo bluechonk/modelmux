@@ -97,7 +97,14 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
         桌面壳里顶栏同时是**拖拽区**（frameless 窗口的移动把手）：可点子元素逐个 no-drag，
         缺一个点击就会被拖拽区吞掉；浏览器里 app-region 无效果，类挂着无害。
       */}
-      <header className="drag-region flex h-14 flex-none items-center gap-3 border-b border-line bg-surface px-4">
+      {/*
+        顶栏内容与页面正文**同一条居中容器**（`max-w-[1400px]` + 同内边距）：
+        顶栏是全宽条，正文在居中容器里 —— 各给一套内边距时，宽屏下品牌（贴左）与
+        页面内容（容器内）左缘差几百像素，看上去就是「顶栏和页面没对齐」。
+        拖拽区仍铺满整条 header，只是把内容收进容器。
+      */}
+      <header className="drag-region flex h-14 flex-none items-center border-b border-line bg-surface">
+        <div className="mx-auto flex h-full w-full max-w-[1400px] items-center gap-3 px-4 sm:px-6">
         <div className="flex flex-none items-center gap-2">
           {/* 32px：header 高 56px，20px 的图标在彩色角色图上认不出内容；
               圆角 8px 让方图与整体的圆角语言一致 */}
@@ -159,6 +166,7 @@ export function LayoutSingle({ children }: { children?: ReactNode }): ReactEleme
             <SettingsIcon className="h-4 w-4" />
           </button>
           <WindowControls />
+        </div>
         </div>
       </header>
 
