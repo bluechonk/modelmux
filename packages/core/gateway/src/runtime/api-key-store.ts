@@ -2,8 +2,8 @@
  * API key 管理（取代原多租户体系）：存储走 `poolStore()` 的 `readApiKeys/writeApiKeys`
  * 端口 —— fs 落 `<root>/api-keys.json`（0600），服务形态由 PgPoolStore 写 `pool_kv`。
  *
- * 三条纪律：明文只在创建时返回一次（落盘是 scrypt 哈希 + 前 8 位前缀）；校验按前缀
- * 缩候选再恒时比对；限流是每分钟固定窗口、只在启用校验时生效。
+ * 三条纪律：明文与 scrypt 哈希同库保存（同一 0600 文件，同一信任域）—— 列表复制与
+ * 一键接入都要完整值；校验按前缀缩候选再恒时比对；限流是每分钟固定窗口。
  */
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
@@ -95,10 +95,10 @@ function verifyRecord(plain: string, stored: string): boolean {
 }
 
 /**
- * 新建 key：返回**明文一次**。
+ * 新建 key：返回记录与明文。
  *
- * 为什么不是「随便生成一串存起来」：明文落盘等于把密钥写进备份、日志与截图，
- * 与市面通行做法（创建时展示一次、库里只有哈希）背道而驰。
+ * 明文同时落库（`secret` 字段）：列表的行内复制与一键接入都需要完整值，只存哈希
+ * 时这两处只能给前缀 / 写占位。存储是 0600 的本地文件，与哈希同一信任域。
  */
 export function createApiKey(input: {
   name: string;
@@ -110,6 +110,7 @@ export function createApiKey(input: {
     id: randomBytes(8).toString("hex"),
     name: input.name.trim(),
     prefix: plain.slice(0, PREFIX_LEN),
+    secret: plain,
     keyHash: hashKey(plain),
     allowedModels: [...new Set(input.allowedModels.map((m) => m.trim()).filter((m) => m !== ""))],
     rpmLimit: Math.max(0, Math.trunc(input.rpmLimit)),
@@ -119,6 +120,28 @@ export function createApiKey(input: {
   keys.push(record);
   saveApiKeys(keys);
   return { record, plain };
+}
+
+/**
+ * 重新生成某个 key 的明文（哈希与前缀一起换），保留名称 / 白名单 / 限流。
+ *
+ * 早期记录只有哈希（`secret` 为空），无法回读；重建是唯一能拿到完整值的路径。
+ */
+export function regenerateApiKey(id: string): { record: ApiKeyRecord; plain: string } | null {
+  const keys = listApiKeys();
+  const idx = keys.findIndex((k) => k.id === id);
+  if (idx === -1) return null;
+  const prev = keys[idx]!;
+  const plain = `mmx_${randomBytes(24).toString("hex")}`;
+  const next: ApiKeyRecord = {
+    ...prev,
+    prefix: plain.slice(0, PREFIX_LEN),
+    secret: plain,
+    keyHash: hashKey(plain),
+  };
+  keys[idx] = next;
+  saveApiKeys(keys);
+  return { record: next, plain };
 }
 
 /** 更新一个 key 的备注名 / 白名单 / 限流（明文与哈希不可改）。 */
@@ -156,14 +179,15 @@ export const INTEGRATION_KEY_NAME = "modelmux";
 export const API_KEY_NAME_MAX = 24;
 
 /**
- * 确保一键接入专用 key 存在；**明文只在新建那次返回**。
+ * 确保一键接入专用 key 存在，并给出**可写进客户端配置的明文**。
  *
- * 明文不可回读是存储纪律（库里只有哈希）：重跑接入时若客户端已写着一把仍有效的
- * key，就不需要明文；取不到明文又要写时才报错（见 integrate.ts 的调用处）。
+ * 明文可回读（`secret`）时直接返回；早期记录只有哈希时返回 null，调用方据此
+ * 走 `regenerateApiKey` 重建 —— 不能写占位：对话请求恒定校验，占位串会让客户端
+ * 全体 401（一键接入写了等于没写）。
  */
 export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string | null } {
   const existing = listApiKeys().find((k) => k.name === INTEGRATION_KEY_NAME);
-  if (existing) return { record: existing, plain: null };
+  if (existing) return { record: existing, plain: existing.secret ?? null };
   const { record, plain } = createApiKey({
     name: INTEGRATION_KEY_NAME,
     // 接入的客户端要能用全部对外模型；限流不限（本机单客户端）
@@ -171,6 +195,19 @@ export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string
     rpmLimit: 0,
   });
   return { record, plain };
+}
+
+/**
+ * 一键接入取明文：能回读就用，回读不了（早期记录）就重建一把并返回新明文。
+ *
+ * 重建会作废客户端里旧的专用 key —— 但旧 key 本来就取不到、写不进配置，
+ * 保留它只会让接入永远写占位。
+ */
+export function integrationKeySecret(): string | null {
+  const { record, plain } = ensureIntegrationApiKey();
+  if (plain !== null) return plain;
+  const rebuilt = regenerateApiKey(record.id);
+  return rebuilt?.plain ?? null;
 }
 
 /** 校验一把明文 key 是否仍有效（接入重跑时判断客户端里那把要不要换）。 */

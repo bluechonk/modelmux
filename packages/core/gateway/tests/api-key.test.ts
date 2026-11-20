@@ -2,11 +2,11 @@
  * API key 管理：新建/校验/白名单/限流/删除闭环。
  *
  * 全程临时 MODELMUX_HOME（fs 形态），不碰真实存储；不 mock 任何 IO —— 落盘语义
- * （哈希不落明文）本身就是要验的部分。
+ * （哈希与明文同存）本身就是要验的部分。
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -15,8 +15,12 @@ import {
   createApiKey,
   deleteApiKey,
   installApiKeyGuard,
+  INTEGRATION_KEY_NAME,
+  integrationKeySecret,
   listApiKeys,
+  regenerateApiKey,
   updateApiKey,
+  verifyApiKeyPlain,
 } from "../dist/runtime/api-key-store.js";
 import { apiKeyGuard, setApiKeyGuard } from "../dist/runtime/api-key.js";
 
@@ -42,13 +46,39 @@ beforeEach(() => {
 });
 
 describe("API key 存储", () => {
-  it("新建：明文一次性返回，落盘只有哈希与前缀", () => {
+  it("新建：明文与哈希同存，前缀是明文前 12 位", () => {
     const { record, plain } = createApiKey({ name: "ci", allowedModels: [], rpmLimit: 0 });
     assert.ok(plain.startsWith("mmx_"));
     assert.equal(record.prefix, plain.slice(0, 12));
+    // 明文可回读：列表复制与一键接入都要完整值（0600 文件，与哈希同一信任域）
+    assert.equal(record.secret, plain);
     const raw = readFileSync(join(root, "api-keys.json"), "utf8");
-    assert.ok(!raw.includes(plain), "明文不能出现在落盘文件里");
-    assert.ok(raw.includes(record.keyHash));
+    assert.ok(raw.includes(record.keyHash), "哈希必须落盘（校验走它）");
+    assert.ok(raw.includes(plain), "明文也要落盘（否则复制与接入拿不到完整值）");
+  });
+
+  it("重建：换新明文与前缀，哈希随之更新，旧明文失效", () => {
+    const { record } = createApiKey({ name: "rekey", allowedModels: [], rpmLimit: 0 });
+    const oldPlain = record.secret!;
+    const rebuilt = regenerateApiKey(record.id);
+    assert.ok(rebuilt !== null);
+    assert.notEqual(rebuilt!.plain, oldPlain);
+    assert.equal(rebuilt!.record.secret, rebuilt!.plain);
+    assert.equal(rebuilt!.record.prefix, rebuilt!.plain.slice(0, 12));
+    assert.ok(verifyApiKeyPlain(rebuilt!.plain), "新明文必须能通过校验");
+    assert.ok(!verifyApiKeyPlain(oldPlain), "旧明文必须失效");
+  });
+
+  it("一键接入取明文：旧记录（只有哈希）会被重建出可用的明文", () => {
+    const { record } = createApiKey({ name: INTEGRATION_KEY_NAME, allowedModels: [], rpmLimit: 0 });
+    // 模拟早期记录：抹掉 secret，只剩哈希（直接改落盘文件，走真实读取路径）
+    const file = join(root, "api-keys.json");
+    const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
+    for (const k of doc.keys) if (k["id"] === record.id) delete k["secret"];
+    writeFileSync(file, JSON.stringify(doc));
+    const secret = integrationKeySecret();
+    assert.ok(secret !== null && secret.startsWith("mmx_"));
+    assert.ok(verifyApiKeyPlain(secret!), "重建出的明文必须能通过校验");
   });
 
   it("每条 key 独立随机 salt（同明文两次新建哈希不同）", () => {

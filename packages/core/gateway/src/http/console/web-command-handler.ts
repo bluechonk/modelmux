@@ -16,7 +16,14 @@ import { isPrefsModel, loadModelPrefs, setPreferredChannel } from "../../pool/mo
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { disabledChannelSet, saveUserSettings, setChannelEnabled } from "../../runtime/user-settings.js";
-import { API_KEY_NAME_MAX, createApiKey, deleteApiKey, listApiKeys, updateApiKey } from "../../runtime/api-key-store.js";
+import {
+  API_KEY_NAME_MAX,
+  createApiKey,
+  deleteApiKey,
+  listApiKeys,
+  regenerateApiKey,
+  updateApiKey,
+} from "../../runtime/api-key-store.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
 import type {
@@ -252,12 +259,20 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
         return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
       }
-      // —— API key 管理（新建/删除/改白名单与限流；明文只在新建时返回一次）——
+      // —— API key 管理（新建/删除/改白名单与限流/重建明文）——
       case "apiKeys": {
-        // 哈希不外发：列表只给 id / 名称 / 前缀 / 白名单 / 限流 / 时间
+        // 哈希不外发；`secret` 外发（列表复制与一键接入都要完整值，管理面仅本机直连）
         return ok({
           keys: listApiKeys().map(({ keyHash: _hash, ...rest }) => rest),
         });
+      }
+      case "regenerateApiKey": {
+        const id = typeof args["id"] === "string" ? args["id"] : "";
+        if (id === "") return err("参数 id 必填");
+        const rebuilt = regenerateApiKey(id);
+        if (rebuilt === null) return err("key 不存在");
+        const { keyHash: _hash, ...shown } = rebuilt.record;
+        return ok({ key: shown, plain: rebuilt.plain });
       }
       case "createApiKey": {
         const name = typeof args["name"] === "string" ? args["name"] : "";

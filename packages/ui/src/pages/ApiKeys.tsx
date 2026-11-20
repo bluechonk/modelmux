@@ -1,14 +1,9 @@
 /**
  * API Keys 页：列表 + 弹窗化新建 / 编辑 / 删除确认。
  *
- * 三条硬约束：
- *  - **明文只出现一次**：新建成功当场在弹窗里展示 + 复制；库里只有哈希，列表与
- *    行内复制按钮用的都是**前缀**（够认人、不够还原）；
- *  - **危险动作走确认弹窗**：删除不可逆，行内直接删会误点；
- *  - **表格与请求日志同口径**：固定列宽 + 单元格居中，长名称截断（创建时限长 24 字）。
- *
- * 新建与编辑共用同一个 Dialog；对话请求一律校验（无开关），客户端接入要带
- * `Authorization: Bearer <key>`。
+ * 三条硬约束：**明文可回读**（行内复制给完整 `secret`，列里只显示前缀；早期只有哈希
+ * 的记录走「重建密钥」）；**危险动作走确认弹窗**；**表格与请求日志同口径**（固定列宽 +
+ * 单元格居中，长名称截断）。新建与编辑共用同一个 Dialog；对话请求一律校验。
  */
 
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
@@ -51,6 +46,8 @@ interface ApiKeyRow {
   id: string;
   name: string;
   prefix: string;
+  /** 完整明文：行内复制与一键接入都要它（管理面仅本机直连，故可外发）。 */
+  secret?: string | null;
   allowedModels: string[];
   rpmLimit: number;
   createdAt: string;
@@ -78,8 +75,8 @@ function KeyFormDialog({
   state: EditorState;
   allModels: ReadonlyArray<string>;
   onClose: () => void;
-  /** 新建成功后进入明文展示（由父组件接管）。 */
-  onCreated: (plain: string) => void;
+  /** 新建 / 重建成功后进入明文展示（由父组件接管）；`rebuilt` 区分两者。 */
+  onCreated: (plain: string, rebuilt: boolean) => void;
 }): ReactElement {
   const toast = useToast();
   const editing = state.mode === "edit";
@@ -111,7 +108,7 @@ function KeyFormDialog({
         }
         if (!editing) {
           const plain = typeof r["plain"] === "string" ? r["plain"] : "";
-          onCreated(plain);
+          onCreated(plain, false);
           return;
         }
         toast.success("已保存");
@@ -125,6 +122,23 @@ function KeyFormDialog({
     e.preventDefault();
     submit.mutate();
   };
+
+  /**
+   * 重建明文：早期记录只有哈希，取不到完整值（列表只能复制前缀）。
+   * 重建会作废旧 key —— 必须在弹窗里明说，不能当普通保存。
+   */
+  const rebuild = useMutation({
+    mutationFn: (): Promise<void> =>
+      api.commands.regenerateApiKey(state.mode === "edit" ? state.row.id : "").then((r) => {
+        if (!r.ok) {
+          toast.error(r.error ?? "重建失败");
+          return;
+        }
+        const plain = typeof r["plain"] === "string" ? r["plain"] : "";
+        onCreated(plain, true);
+      }),
+    onError: (err) => toast.error(errorText(err)),
+  });
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -205,13 +219,31 @@ function KeyFormDialog({
               <Input value={rpm} inputMode="numeric" className="w-28" onChange={(e) => setRpm(e.target.value)} />
             </label>
 
-            <div className="flex justify-end gap-2">
-              <button type="button" className={BTN} onClick={onClose}>
-                取消
-              </button>
-              <button type="submit" className={BTN_PRIMARY} disabled={submit.isPending || name.trim() === ""}>
-                {submit.isPending ? "提交中…" : editing ? "保存" : "创建"}
-              </button>
+            {/*
+              重建入口只在**编辑一把取不到明文的旧 key**时出现：列表复制只能给前缀，
+              用户要完整值就必须换一把。放在左下角与右侧保存区分开，避免误点。
+            */}
+            <div className="flex items-center justify-between gap-2">
+              {editing && !state.row.secret ? (
+                <button
+                  type="button"
+                  className={`${BTN} text-danger hover:border-danger/50`}
+                  disabled={rebuild.isPending}
+                  onClick={() => rebuild.mutate()}
+                >
+                  {rebuild.isPending ? "重建中…" : "重建密钥"}
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <button type="button" className={BTN} onClick={onClose}>
+                  取消
+                </button>
+                <button type="submit" className={BTN_PRIMARY} disabled={submit.isPending || name.trim() === ""}>
+                  {submit.isPending ? "提交中…" : editing ? "保存" : "创建"}
+                </button>
+              </div>
             </div>
           </form>
         </DialogContent>
@@ -220,8 +252,21 @@ function KeyFormDialog({
   );
 }
 
-/** 明文一次性展示：关闭即失效，刷新页面也拿不回。 */
-function PlainDialog({ plain, onClose }: { plain: string; onClose: () => void }): ReactElement {
+/**
+ * 明文展示：新建 / 重建后弹一次，给出可复制的完整 key。
+ *
+ * 明文可回读（列表里也能复制），这里的弹窗只是「刚生成、先看一眼」的确认，
+ * 不是唯一获取途径 —— 因此文案不再写「只展示一次」。
+ */
+function PlainDialog({
+  plain,
+  rebuilt,
+  onClose,
+}: {
+  plain: string;
+  rebuilt: boolean;
+  onClose: () => void;
+}): ReactElement {
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogPortal>
@@ -232,7 +277,9 @@ function PlainDialog({ plain, onClose }: { plain: string; onClose: () => void })
           aria-describedby={undefined}
         >
           <div className="flex items-start justify-between gap-3">
-            <DialogTitle className="text-sm font-medium text-ink">API key 已创建</DialogTitle>
+            <DialogTitle className="text-sm font-medium text-ink">
+              {rebuilt ? "API key 已重建" : "API key 已创建"}
+            </DialogTitle>
             <DialogClose asChild>
               <button
                 type="button"
@@ -244,21 +291,22 @@ function PlainDialog({ plain, onClose }: { plain: string; onClose: () => void })
             </DialogClose>
           </div>
 
-          <div className="mt-3 flex flex-col gap-3">
+          <div className="mt-4 flex flex-col gap-4">
             <div className="flex items-center gap-2 rounded-[10px] border border-dashed border-line-strong bg-surface p-3">
               <code className="min-w-0 flex-1 break-all font-mono text-[13px] text-ink">{plain}</code>
               <CopyButton value={plain} label="复制 API key" />
             </div>
-            <p className="rounded-[10px] border border-danger/30 bg-danger/10 px-3 py-2.5 text-[12.5px] leading-relaxed text-danger">
-              <span className="font-medium">只展示一次。</span>
-              <span className="text-ink-soft">库里只保存哈希，忘记只能删除重建。</span>
+            <p className="rounded-[10px] bg-overlay/60 px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-soft">
+              {rebuilt
+                ? "旧 key 已作废，请把客户端配置里的密钥换成这一把。"
+                : "列表里随时可以再复制；一键接入会自动使用这把 key。"}
             </p>
             <div className="flex justify-end gap-2">
               <button type="button" className={BTN} onClick={() => void navigator.clipboard?.writeText(plain).catch(() => {})}>
                 复制
               </button>
               <button type="button" className={BTN_PRIMARY} onClick={onClose} autoFocus>
-                我已保存
+                完成
               </button>
             </div>
           </div>
@@ -288,7 +336,8 @@ export function ApiKeys(): ReactElement {
   };
 
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [plain, setPlain] = useState<string | null>(null);
+  /** 明文弹窗：`rebuilt` 区分「刚创建」与「重建」，文案不同。 */
+  const [plain, setPlain] = useState<{ value: string; rebuilt: boolean } | null>(null);
   /** 待删除的行：ConfirmDialog 关闭后要把焦点还给该行的删除键。 */
   const [pendingDelete, setPendingDelete] = useState<ApiKeyRow | null>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
@@ -430,10 +479,18 @@ export function ApiKeys(): ReactElement {
                       <span className="inline-flex items-center justify-center gap-1 font-mono text-xs text-ink-soft">
                         {row.prefix}…
                         {/*
-                          行内复制的是**前缀**：明文不可回读，前缀足够在客户端配置里
-                          认出是哪一把；完整明文只能新建时取一次。
+                          复制给**完整明文**（`secret`）：列表里显示前缀只是为了不把长串
+                          铺满一列，用户拿到的必须能直接粘进客户端配置。早期只有哈希的
+                          记录没有 secret，此时退回复制前缀（并靠「重建」换一把新的）。
                         */}
-                        <CopyButton value={row.prefix} label={`复制 ${row.name} 的密钥前缀`} />
+                        <CopyButton
+                          value={row.secret ?? row.prefix}
+                          label={
+                            row.secret
+                              ? `复制 ${row.name} 的完整密钥`
+                              : `复制 ${row.name} 的密钥前缀（该 key 需重建才能取完整值）`
+                          }
+                        />
                       </span>
                     </TableCell>
                   )}
@@ -489,15 +546,17 @@ export function ApiKeys(): ReactElement {
           state={editor}
           allModels={allModels}
           onClose={() => setEditor(null)}
-          onCreated={(value) => {
+          onCreated={(value, rebuilt) => {
             setEditor(null);
-            setPlain(value);
+            setPlain({ value, rebuilt });
             refresh();
           }}
         />
       )}
 
-      {plain !== null && <PlainDialog plain={plain} onClose={() => setPlain(null)} />}
+      {plain !== null && (
+        <PlainDialog plain={plain.value} rebuilt={plain.rebuilt} onClose={() => setPlain(null)} />
+      )}
 
       {pendingDelete !== null && (
         <ConfirmDialog

@@ -22,6 +22,7 @@ import { rootDir } from "../runtime/paths.js";
 import { writeAtomicFile, writeJsonFile, writeJsonSecret } from "../runtime/secret-file.js";
 import {
   ensureIntegrationApiKey,
+  integrationKeySecret,
   INTEGRATION_KEY_NAME,
   verifyApiKeyPlain,
 } from "../runtime/api-key-store.js";
@@ -124,11 +125,14 @@ function readDshCredentialValueFromFile(): string | undefined {
 }
 
 /**
- * 接入要写的密钥：一键接入专用 key（`INTEGRATION_KEY_NAME`）的明文。
+ * 接入要写的密钥：**恒为**一键接入专用 key（`INTEGRATION_KEY_NAME`）的明文。
  *
- * 取值顺序：客户端现值仍有效 → 专用 key 的明文（仅新建时可得）→ **另一处客户端**
- * 已写入的有效 key → 客户端现值（无效，保留并如实报 warning，不静默写占位串 ——
- * 那会让客户端在恒定校验下 401）。
+ * 专用 key 的明文由 `integrationKeySecret()` 保证可取（早期只有哈希的记录会被重建），
+ * 所以这里总是能拿到值 —— 客户端里原有的、别的 key（用户自建的）一律被换成它：
+ * 一键接入的语义就是「配置成用 modelmux 的专用 key」，沿用旧值会让客户端继续用一把
+ * 用户随时可能删掉的 key（实测 zcode 就停在旧 key 上不动）。
+ *
+ * `current` / `peer` 只用于**日志与 note**（说明换了哪一把），不参与选值。
  */
 function resolveIntegrationSecret(
   current: string | undefined,
@@ -136,26 +140,26 @@ function resolveIntegrationSecret(
   integration: { record: { name: string }; plain: string | null },
   warnings: string[],
 ): { value: string | undefined; warning?: string; note?: string } {
-  if (current !== undefined && current.trim() !== "" && verifyApiKeyPlain(current)) {
-    return { value: current };
+  if (integration.plain !== null) {
+    const same = current !== undefined && current === integration.plain;
+    return {
+      value: integration.plain,
+      note: same ? undefined : `客户端密钥已换成一键接入专用 key（${INTEGRATION_KEY_NAME}）`,
+    };
   }
-  if (integration.plain !== null) return { value: integration.plain };
-  if (peer !== undefined && peer.trim() !== "" && verifyApiKeyPlain(peer)) {
-    return { value: peer, note: "沿用另一处客户端已写入的专用 key" };
-  }
+  // 兜底：重建也失败（存储不可写）时保留现值，但必须让用户知道接入没配成
   if (current !== undefined && current.trim() !== "") {
     return {
       value: current,
-      warning:
-        `客户端里的 key 已失效，而专用 key（${INTEGRATION_KEY_NAME}）的明文不可回读；` +
-        `请在 API Keys 页删除该 key 后重新接入。`,
+      warning: `专用 key（${INTEGRATION_KEY_NAME}）的明文不可用（重建失败），客户端沿用原有密钥`,
     };
+  }
+  if (peer !== undefined && peer.trim() !== "" && verifyApiKeyPlain(peer)) {
+    return { value: peer, note: "沿用另一处客户端已写入的专用 key" };
   }
   return {
     value: undefined,
-    warning:
-      `专用 key（${INTEGRATION_KEY_NAME}）已存在但明文不可回读，两处客户端里也没有可用值；` +
-      `请在 API Keys 页删除该 key 后重新接入。`,
+    warning: `专用 key（${INTEGRATION_KEY_NAME}）的明文不可用（重建失败），且客户端里没有可用值`,
   };
 }
 
@@ -485,7 +489,8 @@ function integrateZcode(models: string[]): IntegrationResult {
   // zcode 对个人供应商规则做完整校验（group / access / api 缺一不可），缺任一项就整个
   // 供应商不进注册表 —— 模型清单写得再对，setModel 也报「Provider Registry 中不存在 Model」。
   ruleConfig["group"] = "standard-personal";
-  const integration = ensureIntegrationApiKey();
+  // 明文必须可写：早期只有哈希的记录会被重建（占位串会让客户端 401）
+  const integration = { record: ensureIntegrationApiKey().record, plain: integrationKeySecret() };
   const access = hasUsableAccessKey(ruleConfig["access"])
     ? (ruleConfig["access"] as Record<string, unknown>)
     : undefined;
@@ -707,7 +712,8 @@ function readDshCredentialValue(lines: string[]): string | undefined {
 function ensureDshCredential(warnings: string[]): { file: string; changed: boolean; notes: string[]; backupDir?: string } {
   const notes: string[] = [];
   const file = join(homedir(), ".dsh", ".credentials.yaml");
-  const integration = ensureIntegrationApiKey();
+  // 明文必须可写：早期只有哈希的记录会被重建（占位串会让客户端 401）
+  const integration = { record: ensureIntegrationApiKey().record, plain: integrationKeySecret() };
 
   if (!existsSync(file)) {
     const dir = backupDirFor("dsh");

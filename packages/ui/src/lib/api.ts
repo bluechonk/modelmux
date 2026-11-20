@@ -151,6 +151,7 @@ export interface WebApi {
     createApiKey(name: string, allowedModels: string[], rpmLimit: number): Promise<CommandData>;
     updateApiKey(id: string, name: string, allowedModels: string[], rpmLimit: number): Promise<CommandData>;
     deleteApiKey(id: string): Promise<CommandData>;
+    regenerateApiKey(id: string): Promise<CommandData>;
     /**
      * 手动检查更新（设置页「检查更新」按钮）。
      *
@@ -259,6 +260,7 @@ export const api: WebApi = {
     createApiKey: (name, allowedModels, rpmLimit) => command("createApiKey", undefined, { name, allowedModels, rpmLimit }),
     updateApiKey: (id, name, allowedModels, rpmLimit) => command("updateApiKey", undefined, { id, name, allowedModels, rpmLimit }),
     deleteApiKey: (id) => command("deleteApiKey", undefined, { id }),
+    regenerateApiKey: (id) => command("regenerateApiKey", undefined, { id }),
     checkUpdate: () => command("checkUpdate", undefined),
   },
 };
