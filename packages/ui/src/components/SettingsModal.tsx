@@ -237,9 +237,10 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
         <DialogContent
           // 关闭钮是自绘的（头部那枚），不用组件内置角标，避免两枚重叠
           showCloseButton={false}
-          // 高度由内容决定（`max-h` 而非 `h`）：通用区只有三行，写死 600px 会在弹窗
-          // 下半部留出整块空白；内容多的分区（渠道）仍由面板自身 `overflow-y-auto` 滚动
-          className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(600px,85vh)] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
+          // 尺寸**恒定**：高度取视口比例（80vh，上限 42rem），宽度取 48rem（上限 96vw）。
+          // 高度随内容伸缩时，切左侧标签会让弹窗上下跳、把背后页面内容顶得移位；
+          // 内容多的分区（渠道）由面板自身 `overflow-y-auto` 滚动，不撑高弹窗。
+          className="fixed left-1/2 top-1/2 z-50 flex h-[min(80vh,42rem)] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
           aria-describedby={undefined}
         >
           <div className="flex flex-none items-center gap-3 px-5 pb-3 pt-4">
