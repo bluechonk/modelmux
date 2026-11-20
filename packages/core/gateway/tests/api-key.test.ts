@@ -18,7 +18,7 @@ import {
   listApiKeys,
   updateApiKey,
 } from "../dist/runtime/api-key-store.js";
-import { apiKeyGuard } from "../dist/runtime/api-key.js";
+import { apiKeyGuard, setApiKeyGuard } from "../dist/runtime/api-key.js";
 
 let root = "";
 let savedHome: string | undefined;
@@ -38,7 +38,7 @@ after(() => {
 beforeEach(() => {
   // 每个用例从空表开始（文件与进程内计数都清）
   for (const k of listApiKeys()) deleteApiKey(k.id);
-  installApiKeyGuard(false);
+  setApiKeyGuard(null);
 });
 
 describe("API key 存储", () => {
@@ -87,13 +87,13 @@ describe("API key 存储", () => {
 });
 
 describe("API key 校验", () => {
-  it("未装配 guard → 不校验（本机默认形态）", async () => {
-    installApiKeyGuard(false);
+  it("未装配 guard → 不校验", async () => {
+    setApiKeyGuard(null);
     assert.equal(apiKeyGuard(), null);
   });
 
   it("缺 key / 错 key → invalid", async () => {
-    installApiKeyGuard(true);
+    installApiKeyGuard();
     const guard = apiKeyGuard()!;
     assert.equal((await guard.check(null, "m")).ok, false);
     assert.equal((await guard.check("mmx_nope", "m")).ok, false);
@@ -102,7 +102,7 @@ describe("API key 校验", () => {
   it("白名单：空数组放行全部，非空只放行列出的", async () => {
     const all = createApiKey({ name: "all", allowedModels: [], rpmLimit: 0 });
     const one = createApiKey({ name: "one", allowedModels: ["m1"], rpmLimit: 0 });
-    installApiKeyGuard(true);
+    installApiKeyGuard();
     const guard = apiKeyGuard()!;
     assert.equal((await guard.check(all.plain, "anything")).ok, true);
     assert.equal((await guard.check(one.plain, "m1")).ok, true);
@@ -113,7 +113,7 @@ describe("API key 校验", () => {
 
   it("rpm 上限：第 N+1 次 rate_limited", async () => {
     const { plain } = createApiKey({ name: "rl", allowedModels: [], rpmLimit: 2 });
-    installApiKeyGuard(true);
+    installApiKeyGuard();
     const guard = apiKeyGuard()!;
     assert.equal((await guard.check(plain, "m")).ok, true);
     assert.equal((await guard.check(plain, "m")).ok, true);
@@ -146,7 +146,7 @@ describe("API key 校验", () => {
       ],
     });
     assert.equal((readApiKeys() !== null), true);
-    installApiKeyGuard(true);
+    installApiKeyGuard();
     assert.equal((await apiKeyGuard()!.check(plain, "m")).ok, true, "旧格式必须继续通过");
     assert.equal((await apiKeyGuard()!.check("mmx_wrongkey0123456789abcdef", "m")).ok, false);
   });
@@ -160,7 +160,7 @@ describe("API key 校验", () => {
         version: 1,
         keys: [{ id: "bad", name: "bad", prefix: plain.slice(0, 12), keyHash: hash, allowedModels: [], rpmLimit: 0, createdAt: "2026-01-01T00:00:00.000Z" }],
       });
-      installApiKeyGuard(true);
+      installApiKeyGuard();
       const res = await apiKeyGuard()!.check(plain, "m");
       assert.equal(res.ok, false, `畸形哈希 ${JSON.stringify(hash)} 必须拒绝`);
     }
@@ -168,7 +168,7 @@ describe("API key 校验", () => {
 
   it("模型未解析（null）时不因白名单拒绝", async () => {
     const { plain } = createApiKey({ name: "n", allowedModels: ["only"], rpmLimit: 0 });
-    installApiKeyGuard(true);
+    installApiKeyGuard();
     assert.equal((await apiKeyGuard()!.check(plain, null)).ok, true);
   });
 });

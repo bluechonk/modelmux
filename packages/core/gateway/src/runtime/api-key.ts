@@ -2,11 +2,11 @@
  * API key 端口（取代原多租户门禁）：对话端点鉴权、模型白名单、每分钟请求上限。
  *
  * 三个关键取舍：
- *  - **默认不校验**：`apiKeyGuard()` 为 null 时（未启用）请求直通 —— 本机单用户形态
- *    不该被迫先建 key；启用开关在设置页（`setting.json` 的 `api_key_required`）。
+ *  - **对话请求必须带 key**：装配即注入，`apiKeyGuard()` 恒非 null；模型列表、状态类
+ *    端点不经过这里（它们不承载模型调用）。
  *  - **key 明文只在创建时出现一次**：落盘/落库都是哈希 + 前缀，与市面通行做法一致。
  *  - **校验结果带白名单与限流**：白名单判定用归一后的对外模型名（角色名先过家族表），
- *    限流是每分钟固定窗口，与租户体系时代的 rpm 语义相同。
+ *    限流是每分钟固定窗口。
  */
 
 /** 存储里的 key 记录（哈希 + 展示前缀 + 白名单 + 限流；明文不落盘）。 */
@@ -40,12 +40,12 @@ export interface ApiKeyGuard {
 
 let guard: ApiKeyGuard | null = null;
 
-/** 注入实现（组合根调用；`null` = 不启用校验）。 */
+/** 注入实现（组合根装配时调用）。 */
 export function setApiKeyGuard(next: ApiKeyGuard | null): void {
   guard = next;
 }
 
-/** 当前门禁实现；null = 不校验（本机默认形态）。 */
+/** 当前门禁实现。 */
 export function apiKeyGuard(): ApiKeyGuard | null {
   return guard;
 }

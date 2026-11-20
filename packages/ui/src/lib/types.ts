@@ -93,8 +93,6 @@ export interface UiSnapshot {
   theme_mode: string;
   /** 设置弹窗的渠道开关状态（关闭 = 账号池隐藏 + 不参与选路，不是注销）。 */
   channel_toggles?: Array<{ cid: string; enabled: boolean }>;
-  /** API key 校验是否启用（guard 已装配）；设置页开关的显示依据。 */
-  api_key_mode?: boolean;
   gateway_error: string;
 }
 

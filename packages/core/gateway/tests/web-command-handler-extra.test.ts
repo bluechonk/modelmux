@@ -434,17 +434,19 @@ describe("外层 catch", () => {
 describe("管理类命令：仅本机直连", () => {
   it("无 admin 标记（如被代理转发）→ 拒绝", async () => {
     const handle = createWebCommandHandler();
-    for (const action of ["createApiKey", "updateApiKey", "deleteApiKey", "setApiKeyRequired"]) {
+    for (const action of ["createApiKey", "updateApiKey", "deleteApiKey"]) {
       const res = await handle({ action, args: { name: "x" } });
       assert.equal(res.ok, false, `${action} 应被拒`);
       assert.match(String(res.error), /本机直连/);
     }
   });
 
-  it("带 admin 标记 → 进入正常分支（以 setApiKeyRequired 为例）", async () => {
+  it("带 admin 标记 → 进入正常分支（以 deleteApiKey 为例）", async () => {
     const handle = createWebCommandHandler();
-    const res = await handle({ action: "setApiKeyRequired", args: { enabled: false }, admin: true });
-    assert.equal(res.ok, true);
+    // 不存在的 id：走的就是正常分支（返回 ok:false 的业务错误，而非「仅本机」拒绝）
+    const res = await handle({ action: "deleteApiKey", args: { id: "nope" }, admin: true });
+    assert.equal(res.ok, false);
+    assert.doesNotMatch(String(res.error), /本机直连/);
   });
 
   it("普通命令不受限制（无 admin 也能调）", async () => {

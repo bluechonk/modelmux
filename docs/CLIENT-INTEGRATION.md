@@ -28,7 +28,9 @@
 | `POST /v1/responses` | OpenAI Responses | Codex（`wire_api="responses"`） |
 | `GET /v1/models` | OpenAI 模型清单 | 所有客户端 |
 
-- 入站**无鉴权**（网关只绑 127.0.0.1）；`apiKey` 字段任意非空值即可。
+- **对话请求必须带 API key**：`Authorization: Bearer <key>`，key 在控制台「API Keys」页创建。
+  判定顺序 401 无效 key → 403 模型不在该 key 白名单 → 429 每分钟请求超限。
+  模型列表（`GET /v1/models`）与健康检查不校验。
 - 请求体上限 **32MB**（`http/chat/request.ts` 的 `MAX_BODY`）；超过即 `400`，不读完整包。
   长上下文请求（实测有 2.5MB / 66 万 tokens 的量级）离上限还远，正常用不会碰到。
 - 访问日志记 `protocol` 字段（`anthropic` / `responses`；缺省 = OpenAI chat），

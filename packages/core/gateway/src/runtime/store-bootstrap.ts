@@ -5,22 +5,20 @@
  * import `@modelmux/store` 取 PgPoolStore。依赖方向 store → gateway：共享层
  * **不静态依赖** store 包（分层红线），运行时用字符串说明符装配，esbuild 不打包。
  *
- * API key 门禁（取代原租户体系）也在这里装配：`setting.json` 的 `api_key_required`
- * 为 true 时注入校验器（存储仍走 PoolStore，两种形态自动一致）。
+ * API key 门禁（取代原租户体系）也在这里装配：对话请求一律校验，没有开关
+ * （存储仍走 PoolStore，两种形态自动一致）。
  */
 
 import { setPoolStore, type PoolStore } from "./pool-store.js";
 import { onRequestFinished } from "./log-store.js";
 import { setMetricsProvider } from "./metrics-port.js";
 import { installApiKeyGuard } from "./api-key-store.js";
-import { loadUserSettings } from "./user-settings.js";
 
 export async function bootstrapStore(): Promise<void> {
   const mode = process.env.MODELMUX_STORE?.trim() || "fs";
-  // API key 门禁与存储形态解耦：fs 也能开（存储落 api-keys.json）
-  const keyRequired = loadUserSettings().api_key_required;
+  // API key 门禁与存储形态解耦：fs 也校验（存储落 api-keys.json）
   if (mode === "fs") {
-    installApiKeyGuard(keyRequired);
+    installApiKeyGuard();
     return;
   }
   if (mode !== "pg") {
@@ -70,5 +68,5 @@ export async function bootstrapStore(): Promise<void> {
   });
 
   // API key 门禁：存储走 PoolStore（fs → api-keys.json / pg → pool_kv），校验逻辑同源
-  installApiKeyGuard(keyRequired);
+  installApiKeyGuard();
 }

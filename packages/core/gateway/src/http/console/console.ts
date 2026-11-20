@@ -186,12 +186,6 @@ export interface UiSnapshot {
    * 关闭 ≠ 注销：凭据与登录态都在，勾回来即恢复（存 setting.json 的 disabled_channels）。
    */
   channel_toggles: Array<{ cid: string; enabled: boolean }>;
-  /**
-   * API key 校验是否启用（guard 已装配）。
-   *
-   * 控制台「API Keys」页与设置页开关的唯一显示条件 —— 未启用时恒 false。
-   */
-  api_key_mode: boolean;
   gateway_error: string;
 }
 
@@ -215,7 +209,6 @@ export function emptySnapshot(): UiSnapshot {
     integration_updates: {},
     theme_mode: "system",
     channel_toggles: [],
-    api_key_mode: false,
     gateway_error: "",
   };
 }

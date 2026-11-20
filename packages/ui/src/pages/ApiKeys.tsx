@@ -7,8 +7,8 @@
  *  - **危险动作走确认弹窗**：删除不可逆，行内直接删会误点；
  *  - **表格与请求日志同口径**：全表居中、表头与数据同中心线（见 Logs.tsx 的对齐说明）。
  *
- * 新建与编辑共用同一个 Dialog；校验开关在设置弹窗（`api_key_required`），改完需重启
- * 网关生效 —— 运行期热切换会让已发出去的 key 突然失效。
+ * 新建与编辑共用同一个 Dialog；对话请求一律校验（无开关），客户端接入要带
+ * `Authorization: Bearer <key>`。
  */
 
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";

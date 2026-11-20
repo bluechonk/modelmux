@@ -145,8 +145,6 @@ export interface WebApi {
     restore(target: "zcode" | "dsh"): Promise<CommandData>;
     /** 设置弹窗的渠道开关：关闭 = 账号池隐藏 + 选路跳过（凭据与登录态保留）。 */
     setChannelEnabled(cid: string, enabled: boolean): Promise<CommandData>;
-    /** 开关「要求 API key」：写入 setting.json，需重启网关生效。 */
-    setApiKeyRequired(enabled: boolean): Promise<CommandData>;
     /** API key 列表（不含哈希；明文永不回读）。 */
     apiKeys(): Promise<CommandData>;
     /** 新建 key：返回 `plain`（明文，仅此一次）与记录。 */
@@ -257,7 +255,6 @@ export const api: WebApi = {
     integrate: (target) => command("integrate", undefined, { target }),
     restore: (target) => command("restore", undefined, { target }),
     setChannelEnabled: (cid, enabled) => command("setChannelEnabled", cid, { enabled }),
-    setApiKeyRequired: (enabled) => command("setApiKeyRequired", undefined, { enabled }),
     apiKeys: () => command("apiKeys", undefined),
     createApiKey: (name, allowedModels, rpmLimit) => command("createApiKey", undefined, { name, allowedModels, rpmLimit }),
     updateApiKey: (id, name, allowedModels, rpmLimit) => command("updateApiKey", undefined, { id, name, allowedModels, rpmLimit }),

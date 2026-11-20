@@ -128,7 +128,7 @@ function readDshCredentialValueFromFile(): string | undefined {
  *
  * 取值顺序：客户端现值仍有效 → 专用 key 的明文（仅新建时可得）→ **另一处客户端**
  * 已写入的有效 key → 客户端现值（无效，保留并如实报 warning，不静默写占位串 ——
- * 那会让「要求 API key」开启后客户端 401）。
+ * 那会让客户端在恒定校验下 401）。
  */
 function resolveIntegrationSecret(
   current: string | undefined,
@@ -695,8 +695,8 @@ function readDshCredentialValue(lines: string[]): string | undefined {
  * 只是个引用名，真正的密钥在 `~/.dsh/.credentials.yaml` 的 `refs` 里；名字不在 refs 中
  * 时 dsh 的 Models 页判定该 provider 不可用（具名凭据未配置），请求发不出去。
  *
- * 值不对（占位串 / 已失效的旧 key）时一并改写 —— 否则网关开启「要求 API key」后
- * 客户端拿着旧占位串恒 401。
+ * 值不对（占位串 / 已失效的旧 key）时一并改写 —— 对话请求恒定校验，旧占位串会让
+ * 客户端恒 401。
  *
  * 文本级改写：只改 `refs` 里那一条，其余条目、注释与格式原样保留（该文件由 dsh 的
  * 凭据提供方管理，整文件重写会丢格式）。

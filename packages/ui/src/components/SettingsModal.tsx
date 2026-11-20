@@ -202,21 +202,6 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
     }
   };
 
-  /** 开关「要求 API key」：写入 setting.json，需重启网关生效（装配期决定）。 */
-  const toggleApiKeyRequired = async (enabled: boolean): Promise<void> => {
-    try {
-      const res = await api.commands.setApiKeyRequired(enabled);
-      if (!res.ok) {
-        toast.error(res.error ?? "设置失败");
-        return;
-      }
-      toast.info(enabled ? "已开启校验，重启网关后生效" : "已关闭校验，重启网关后生效");
-      void qc.invalidateQueries({ queryKey: ["state"] });
-    } catch (err) {
-      toast.error(`设置失败：${errorText(err)}`);
-    }
-  };
-
   const checkUpdate = async (): Promise<void> => {
     if (checking) return;
     setChecking(true);
@@ -325,17 +310,6 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                     )}
                     <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
                     <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
-                    <ModalRow
-                      icon={KeyRound}
-                      title="要求 API key"
-                      description="对话请求必须携带有效 key；改动需重启网关生效"
-                    >
-                      <Switch
-                        checked={state.data?.api_key_mode === true}
-                        onChange={() => void toggleApiKeyRequired(state.data?.api_key_mode !== true)}
-                        label={`要求 API key，${state.data?.api_key_mode === true ? "已开启" : "已关闭"}`}
-                      />
-                    </ModalRow>
                   </div>
                 </div>
               )}

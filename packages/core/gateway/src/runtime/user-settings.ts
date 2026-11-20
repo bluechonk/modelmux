@@ -26,16 +26,9 @@ export interface UserSettings {
    * 开关是本机全局设置（setting.json），与 fs/pg 存储形态无关。
    */
   disabled_channels: string[];
-  /**
-   * 是否要求 API key（对话端点鉴权）。
-   *
-   * 装配期决定：改动后需重启网关生效（见 runtime/api-key-store.ts）。
-   * 默认 false —— 本机单用户形态不该被迫先建 key。
-   */
-  api_key_required: boolean;
 }
 
-const DEFAULTS: UserSettings = { theme: "system", disabled_channels: [], api_key_required: false };
+const DEFAULTS: UserSettings = { theme: "system", disabled_channels: [] };
 
 function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === "string" && (THEME_MODES as readonly string[]).includes(value);
@@ -68,7 +61,6 @@ export function loadUserSettings(): UserSettings {
   return {
     theme: isThemeMode(theme) ? theme : DEFAULTS.theme,
     disabled_channels: normalizeDisabled(record["disabled_channels"]),
-    api_key_required: record["api_key_required"] === true,
   };
 }
 

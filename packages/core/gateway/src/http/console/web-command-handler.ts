@@ -252,13 +252,6 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
         return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
       }
-      case "setApiKeyRequired": {
-        // 装配期开关：写入 setting.json，重启网关后由 store-bootstrap 读取生效
-        const enabled = args["enabled"];
-        if (typeof enabled !== "boolean") return err("参数 enabled 必须是布尔值");
-        saveUserSettings({ api_key_required: enabled });
-        return ok({ api_key_required: enabled, restart_required: true });
-      }
       // —— API key 管理（新建/删除/改白名单与限流；明文只在新建时返回一次）——
       case "apiKeys": {
         // 哈希不外发：列表只给 id / 名称 / 前缀 / 白名单 / 限流 / 时间

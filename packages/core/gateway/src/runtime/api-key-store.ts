@@ -147,7 +147,7 @@ export function updateApiKey(
  * 一键接入专用 key 的名称。
  *
  * 客户端配置（zcode `access.apiKey` / dsh `refs.MODELMUX_API_KEY`）写的是这个 key
- * —— 网关开启「要求 API key」后客户端才连得通；写死占位串会让校验开启后全体 401。
+ * —— 对话请求恒定校验，写死占位串会让客户端全体 401。
  * 列表里按名字认它，UI 标注「一键接入」。
  */
 export const INTEGRATION_KEY_NAME = "modelmux";
@@ -220,17 +220,8 @@ function hitLocalCounters(keyId: string, limit: number): boolean {
   return true;
 }
 
-/**
- * 装配门禁：`enabled=false` 时注入 null（= 不校验，本机默认形态）。
- *
- * 这是唯一需要「重启网关才生效」的开关 —— 改 `setting.json` 后需重启进程，
- * 与 `MODELMUX_STORE` 一类装配期决定一致（运行期热切换会让「已发出去的 key 突然失效」）。
- */
-export function installApiKeyGuard(enabled: boolean): void {
-  if (!enabled) {
-    setApiKeyGuard(null);
-    return;
-  }
+/** 装配门禁：对话请求一律校验（模型列表 / 状态类端点不经过这里）。 */
+export function installApiKeyGuard(): void {
   setApiKeyGuard({
     async check(apiKey, model): Promise<ApiKeyDecision> {
       if (apiKey === null || apiKey === "") {
