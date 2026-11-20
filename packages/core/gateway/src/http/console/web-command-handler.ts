@@ -16,7 +16,7 @@ import { isPrefsModel, loadModelPrefs, setPreferredChannel } from "../../pool/mo
 import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import { disabledChannelSet, saveUserSettings, setChannelEnabled } from "../../runtime/user-settings.js";
-import { createApiKey, deleteApiKey, listApiKeys, updateApiKey } from "../../runtime/api-key-store.js";
+import { API_KEY_NAME_MAX, createApiKey, deleteApiKey, listApiKeys, updateApiKey } from "../../runtime/api-key-store.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
 import { renderChannelPool } from "./web-types.js";
 import type {
@@ -262,6 +262,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       case "createApiKey": {
         const name = typeof args["name"] === "string" ? args["name"] : "";
         if (name.trim() === "") return err("参数 name 必填");
+        if (name.trim().length > API_KEY_NAME_MAX) return err(`参数 name 最长 ${API_KEY_NAME_MAX} 字`);
         const allowed = Array.isArray(args["allowedModels"])
           ? (args["allowedModels"] as unknown[]).filter((m): m is string => typeof m === "string")
           : [];
@@ -275,7 +276,10 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         const id = typeof args["id"] === "string" ? args["id"] : "";
         if (id === "") return err("参数 id 必填");
         const patch: { name?: string; allowedModels?: string[]; rpmLimit?: number } = {};
-        if (typeof args["name"] === "string") patch.name = args["name"];
+        if (typeof args["name"] === "string") {
+          if (args["name"].trim().length > API_KEY_NAME_MAX) return err(`参数 name 最长 ${API_KEY_NAME_MAX} 字`);
+          patch.name = args["name"];
+        }
         if (Array.isArray(args["allowedModels"])) {
           patch.allowedModels = (args["allowedModels"] as unknown[]).filter((m): m is string => typeof m === "string");
         }

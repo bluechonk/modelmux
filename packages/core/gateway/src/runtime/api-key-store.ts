@@ -152,6 +152,9 @@ export function updateApiKey(
  */
 export const INTEGRATION_KEY_NAME = "modelmux";
 
+/** 名称长度上限：列表列宽有限，过长只能折叠，创建时就拦住比事后截断诚实。 */
+export const API_KEY_NAME_MAX = 24;
+
 /**
  * 确保一键接入专用 key 存在；**明文只在新建那次返回**。
  *

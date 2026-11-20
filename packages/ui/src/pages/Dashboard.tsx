@@ -405,7 +405,7 @@ export function Dashboard(): ReactElement {
               数字不动才不会闪，提示只补一句「正在更新」。
             */}
             <span
-              className={`h-1.5 w-1.5 rounded-full bg-brand transition-opacity duration-300 ${
+              className={`h-1.5 w-1.5 rounded-full bg-ink transition-opacity duration-300 ${
                 rangePending ? "animate-pulse opacity-100" : "opacity-0"
               }`}
               aria-hidden="true"

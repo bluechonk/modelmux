@@ -666,7 +666,7 @@ function PhoneLoginForm({
         <button
           type="submit"
           disabled={!canLogin}
-          className="rounded-full bg-brand px-5 py-2 text-[13px] font-medium text-on-brand transition-colors hover:bg-brand-deep disabled:opacity-50"
+          className="rounded-full border border-line-strong bg-brand px-5 py-2 text-[13px] font-medium text-on-brand transition-colors hover:bg-brand-deep disabled:opacity-50"
         >
           {sending && codePending ? "登录中…" : "登录"}
         </button>

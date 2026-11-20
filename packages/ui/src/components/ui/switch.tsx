@@ -28,7 +28,7 @@ function Switch({ className, ...props }: ComponentProps<typeof SwitchPrimitive.R
     >
       <span
         aria-hidden="true"
-        className="relative block h-[22px] w-9 rounded-full transition-colors group-data-[state=unchecked]/switch:bg-overlay group-data-[state=checked]/switch:bg-brand md:w-10"
+        className="relative block h-[22px] w-9 rounded-full border border-line-strong transition-colors group-data-[state=unchecked]/switch:bg-overlay group-data-[state=checked]/switch:bg-brand md:w-10"
       >
         <SwitchPrimitive.Thumb
           data-slot="switch-thumb"

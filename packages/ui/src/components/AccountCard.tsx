@@ -498,7 +498,7 @@ export function AccountCard({
               }`}
             >
                 {/* 生效账号：左侧高亮条 */}
-                {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />}
+                {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-ink" aria-hidden />}
                 {/*
                   账号行 = 单行（44px），左右两块等分：
                     左：状态点 + 名称（超长截断）
