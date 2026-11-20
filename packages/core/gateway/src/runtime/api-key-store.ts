@@ -2,13 +2,15 @@
  * API key 管理（取代原多租户体系）：存储走 `poolStore()` 的 `readApiKeys/writeApiKeys`
  * 端口 —— fs 落 `<root>/api-keys.json`（0600），服务形态由 PgPoolStore 写 `pool_kv`。
  *
- * 三条纪律：明文与 scrypt 哈希同库保存（同一 0600 文件，同一信任域）—— 列表复制与
- * 一键接入都要完整值；校验按前缀缩候选再恒时比对；限流是每分钟固定窗口。
+ * 三条纪律：明文**加密**后与哈希同库保存（密钥单独落 0600 文件，见 api-key-crypto）；
+ * 校验按前缀缩候选再恒时比对；限流是每分钟固定窗口。列表接口只下发前缀，完整明文
+ * 走需显式调用的 `revealApiKey`。
  */
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 import { setApiKeyGuard, type ApiKeyDecision, type ApiKeyRecord } from "./api-key.js";
+import { openSecret, sealSecret } from "./api-key-crypto.js";
 import { poolStore } from "./pool-store.js";
 
 /** 文档内的 key 文档形状（整读整写）。 */
@@ -22,6 +24,12 @@ const DOC_VERSION = 1;
 const PREFIX_LEN = 12;
 const PREFIX_DISPLAY = 8;
 
+/**
+ * 规整存储文档，并把**旧版的明文 `secret` 就地迁成密文**。
+ *
+ * 中间版本曾把明文直接写进记录（`secret`），必须清掉：备份 / 日志会带走数据文件，
+ * 留一个字段等于凭据泄露。迁移在读取时完成 —— 不需要单独的升级步骤，下次写入即落地。
+ */
 function normalizeDoc(raw: unknown): ApiKeyDoc {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { version: DOC_VERSION, keys: [] };
   const rec = raw as { keys?: unknown };
@@ -32,6 +40,13 @@ function normalizeDoc(raw: unknown): ApiKeyDoc {
         return typeof r.id === "string" && typeof r.keyHash === "string" && typeof r.prefix === "string";
       })
     : [];
+  for (const key of keys) {
+    const legacy = (key as ApiKeyRecord & { secret?: string | null }).secret;
+    if (typeof legacy === "string" && legacy !== "") {
+      if (!key.secretSealed) key.secretSealed = sealSecret(legacy);
+      delete (key as ApiKeyRecord & { secret?: string | null }).secret;
+    }
+  }
   return { version: DOC_VERSION, keys };
 }
 
@@ -100,6 +115,14 @@ function verifyRecord(plain: string, stored: string): boolean {
  * 明文同时落库（`secret` 字段）：列表的行内复制与一键接入都需要完整值，只存哈希
  * 时这两处只能给前缀 / 写占位。存储是 0600 的本地文件，与哈希同一信任域。
  */
+/** 按 id 取完整明文（列表不下发；只有显式 reveal 与一键接入用）。 */
+export function revealApiKeyPlain(id: string): string | null {
+  const rec = listApiKeys().find((k) => k.id === id);
+  if (rec === undefined) return null;
+  const sealed = rec.secretSealed ?? null;
+  return sealed === null ? null : openSecret(sealed);
+}
+
 export function createApiKey(input: {
   name: string;
   allowedModels: string[];
@@ -110,7 +133,7 @@ export function createApiKey(input: {
     id: randomBytes(8).toString("hex"),
     name: input.name.trim(),
     prefix: plain.slice(0, PREFIX_LEN),
-    secret: plain,
+    secretSealed: sealSecret(plain),
     keyHash: hashKey(plain),
     allowedModels: [...new Set(input.allowedModels.map((m) => m.trim()).filter((m) => m !== ""))],
     rpmLimit: Math.max(0, Math.trunc(input.rpmLimit)),
@@ -136,7 +159,7 @@ export function regenerateApiKey(id: string): { record: ApiKeyRecord; plain: str
   const next: ApiKeyRecord = {
     ...prev,
     prefix: plain.slice(0, PREFIX_LEN),
-    secret: plain,
+    secretSealed: sealSecret(plain),
     keyHash: hashKey(plain),
   };
   keys[idx] = next;
@@ -187,7 +210,10 @@ export const API_KEY_NAME_MAX = 24;
  */
 export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string | null } {
   const existing = listApiKeys().find((k) => k.name === INTEGRATION_KEY_NAME);
-  if (existing) return { record: existing, plain: existing.secret ?? null };
+  if (existing) {
+    const sealed = existing.secretSealed ?? null;
+    return { record: existing, plain: sealed === null ? null : openSecret(sealed) };
+  }
   const { record, plain } = createApiKey({
     name: INTEGRATION_KEY_NAME,
     // 接入的客户端要能用全部对外模型；限流不限（本机单客户端）

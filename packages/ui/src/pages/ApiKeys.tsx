@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Trash2, X } from "lucide-react";
 
 import { api } from "../lib/api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -46,8 +46,6 @@ interface ApiKeyRow {
   id: string;
   name: string;
   prefix: string;
-  /** 完整明文：行内复制与一键接入都要它（管理面仅本机直连，故可外发）。 */
-  secret?: string | null;
   allowedModels: string[];
   rpmLimit: number;
   createdAt: string;
@@ -56,6 +54,54 @@ interface ApiKeyRow {
 
 /** 弹窗模式：新建（无初值）/ 编辑（带 row）。 */
 type EditorState = { mode: "create" } | { mode: "edit"; row: ApiKeyRow };
+
+/**
+ * 行内复制：点击时向 `revealApiKey` 取完整明文再写剪贴板。
+ *
+ * 列表接口不携带明文（备份 / 快照 / 日志采集会带走数据文件），因此复制必须走
+ * 一次显式请求；失败（旧记录明文不可用、剪贴板不可用）用图标失败态 + toast 说明。
+ */
+function RevealCopyButton({ id, name }: { id: string; name: string }): ReactElement {
+  const toast = useToast();
+  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+
+  const copy = async (): Promise<void> => {
+    try {
+      const res = await api.commands.revealApiKey(id);
+      const plain = typeof res["plain"] === "string" ? res["plain"] : "";
+      if (!res.ok || plain === "") {
+        toast.error(String(res.error ?? "该 key 的明文不可用，请重建后再试"));
+        setState("fail");
+        setTimeout(() => setState("idle"), 1200);
+        return;
+      }
+      await navigator.clipboard.writeText(plain);
+      setState("ok");
+      setTimeout(() => setState("idle"), 1200);
+    } catch (err) {
+      toast.error(errorText(err));
+      setState("fail");
+      setTimeout(() => setState("idle"), 1200);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      aria-label={`复制 ${name} 的完整密钥`}
+      onClick={() => void copy()}
+      className="tap-square grid h-7 w-7 place-items-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+    >
+      {state === "ok" ? (
+        <Check className="h-3.5 w-3.5 text-free" />
+      ) : state === "fail" ? (
+        <X className="h-3.5 w-3.5 text-danger" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
 
 /** 白名单选项：对外模型全集（去重裸名）+ 「全部模型」。 */
 function modelOptions(allModels: ReadonlyArray<string>): Array<{ value: string; label: string }> {
@@ -224,7 +270,7 @@ function KeyFormDialog({
               用户要完整值就必须换一把。放在左下角与右侧保存区分开，避免误点。
             */}
             <div className="flex items-center justify-between gap-2">
-              {editing && !state.row.secret ? (
+              {editing ? (
                 <button
                   type="button"
                   className={`${BTN} text-danger hover:border-danger/50`}
@@ -479,18 +525,11 @@ export function ApiKeys(): ReactElement {
                       <span className="inline-flex items-center justify-center gap-1 font-mono text-xs text-ink-soft">
                         {row.prefix}…
                         {/*
-                          复制给**完整明文**（`secret`）：列表里显示前缀只是为了不把长串
-                          铺满一列，用户拿到的必须能直接粘进客户端配置。早期只有哈希的
-                          记录没有 secret，此时退回复制前缀（并靠「重建」换一把新的）。
+                          列表不下发明文（备份/日志会带走数据文件）：点击时才向
+                          `revealApiKey` 取一次，拿到就写剪贴板。旧记录明文不可用时
+                          如实报错，引导去编辑弹窗重建。
                         */}
-                        <CopyButton
-                          value={row.secret ?? row.prefix}
-                          label={
-                            row.secret
-                              ? `复制 ${row.name} 的完整密钥`
-                              : `复制 ${row.name} 的密钥前缀（该 key 需重建才能取完整值）`
-                          }
-                        />
+                        <RevealCopyButton id={row.id} name={row.name} />
                       </span>
                     </TableCell>
                   )}

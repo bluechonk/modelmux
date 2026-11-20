@@ -22,6 +22,7 @@ import {
   deleteApiKey,
   listApiKeys,
   regenerateApiKey,
+  revealApiKeyPlain,
   updateApiKey,
 } from "../../runtime/api-key-store.js";
 import { signinTodaySnapshot, type ClaimToday } from "../../auth/signin-ledger.js";
@@ -261,17 +262,25 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       }
       // —— API key 管理（新建/删除/改白名单与限流/重建明文）——
       case "apiKeys": {
-        // 哈希不外发；`secret` 外发（列表复制与一键接入都要完整值，管理面仅本机直连）
+        // 哈希与密文都不外发：列表只给 id / 名称 / 前缀 / 白名单 / 限流 / 时间。
+        // 完整明文走需显式调用的 `revealApiKey`（行内复制按钮），不做批量下发。
         return ok({
-          keys: listApiKeys().map(({ keyHash: _hash, ...rest }) => rest),
+          keys: listApiKeys().map(({ keyHash: _hash, secretSealed: _sealed, ...rest }) => rest),
         });
+      }
+      case "revealApiKey": {
+        const id = typeof args["id"] === "string" ? args["id"] : "";
+        if (id === "") return err("参数 id 必填");
+        const plain = revealApiKeyPlain(id);
+        if (plain === null) return err("该 key 的明文不可用，请重建后再试");
+        return ok({ id, plain });
       }
       case "regenerateApiKey": {
         const id = typeof args["id"] === "string" ? args["id"] : "";
         if (id === "") return err("参数 id 必填");
         const rebuilt = regenerateApiKey(id);
         if (rebuilt === null) return err("key 不存在");
-        const { keyHash: _hash, ...shown } = rebuilt.record;
+        const { keyHash: _hash, secretSealed: _sealed, ...shown } = rebuilt.record;
         return ok({ key: shown, plain: rebuilt.plain });
       }
       case "createApiKey": {
@@ -283,7 +292,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
           : [];
         const rpm = typeof args["rpmLimit"] === "number" ? args["rpmLimit"] : 0;
         const { record, plain } = createApiKey({ name, allowedModels: allowed, rpmLimit: rpm });
-        const { keyHash: _hash, ...shown } = record;
+        const { keyHash: _hash, secretSealed: _sealed, ...shown } = record;
         // plain 只在这里出现一次，前端必须当场展示并提示保存
         return ok({ key: shown, plain });
       }
@@ -301,7 +310,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         if (typeof args["rpmLimit"] === "number") patch.rpmLimit = args["rpmLimit"];
         const rec = updateApiKey(id, patch);
         if (rec === null) return err("key 不存在");
-        const { keyHash: _hash, ...shown } = rec;
+        const { keyHash: _hash, secretSealed: _sealed, ...shown } = rec;
         return ok({ key: shown });
       }
       case "deleteApiKey": {

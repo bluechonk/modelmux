@@ -19,6 +19,7 @@ import {
   integrationKeySecret,
   listApiKeys,
   regenerateApiKey,
+  revealApiKeyPlain,
   updateApiKey,
   verifyApiKeyPlain,
 } from "../dist/runtime/api-key-store.js";
@@ -46,24 +47,26 @@ beforeEach(() => {
 });
 
 describe("API key 存储", () => {
-  it("新建：明文与哈希同存，前缀是明文前 12 位", () => {
+  it("新建：哈希落盘、明文只以密文落盘，前缀是明文前 12 位", () => {
     const { record, plain } = createApiKey({ name: "ci", allowedModels: [], rpmLimit: 0 });
     assert.ok(plain.startsWith("mmx_"));
     assert.equal(record.prefix, plain.slice(0, 12));
-    // 明文可回读：列表复制与一键接入都要完整值（0600 文件，与哈希同一信任域）
-    assert.equal(record.secret, plain);
     const raw = readFileSync(join(root, "api-keys.json"), "utf8");
     assert.ok(raw.includes(record.keyHash), "哈希必须落盘（校验走它）");
-    assert.ok(raw.includes(plain), "明文也要落盘（否则复制与接入拿不到完整值）");
+    // 明文绝不落盘（备份 / 日志会带走数据文件）；只存 AES-GCM 密文
+    assert.ok(!raw.includes(plain), "明文不能出现在数据文件里");
+    assert.ok(raw.includes("secretSealed"), "密文要落盘（复制与接入要回读）");
+    // 但能回读出来
+    assert.equal(revealApiKeyPlain(record.id), plain);
   });
 
   it("重建：换新明文与前缀，哈希随之更新，旧明文失效", () => {
     const { record } = createApiKey({ name: "rekey", allowedModels: [], rpmLimit: 0 });
-    const oldPlain = record.secret!;
+    const oldPlain = revealApiKeyPlain(record.id)!;
     const rebuilt = regenerateApiKey(record.id);
     assert.ok(rebuilt !== null);
     assert.notEqual(rebuilt!.plain, oldPlain);
-    assert.equal(rebuilt!.record.secret, rebuilt!.plain);
+    assert.equal(revealApiKeyPlain(rebuilt!.record.id), rebuilt!.plain);
     assert.equal(rebuilt!.record.prefix, rebuilt!.plain.slice(0, 12));
     assert.ok(verifyApiKeyPlain(rebuilt!.plain), "新明文必须能通过校验");
     assert.ok(!verifyApiKeyPlain(oldPlain), "旧明文必须失效");
@@ -71,10 +74,10 @@ describe("API key 存储", () => {
 
   it("一键接入取明文：旧记录（只有哈希）会被重建出可用的明文", () => {
     const { record } = createApiKey({ name: INTEGRATION_KEY_NAME, allowedModels: [], rpmLimit: 0 });
-    // 模拟早期记录：抹掉 secret，只剩哈希（直接改落盘文件，走真实读取路径）
+    // 模拟早期记录：抹掉密文，只剩哈希（直接改落盘文件，走真实读取路径）
     const file = join(root, "api-keys.json");
     const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
-    for (const k of doc.keys) if (k["id"] === record.id) delete k["secret"];
+    for (const k of doc.keys) if (k["id"] === record.id) delete k["secretSealed"];
     writeFileSync(file, JSON.stringify(doc));
     const secret = integrationKeySecret();
     assert.ok(secret !== null && secret.startsWith("mmx_"));
