@@ -365,12 +365,16 @@ export function ApiKeys(): ReactElement {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id} className="border-b border-line last:border-b-0 hover:bg-overlay/30">
-                  {/* 名称单行截断（超长在编辑弹窗里看全），块级占满列宽以便截断生效 */}
+                  {/*
+                    名称单行截断，但**必须 inline 收缩**：`block truncate` 会占满列宽，
+                    块内文字左对齐 —— 表头居中、内容靠左，看起来就是没对齐。
+                    inline-flex 收缩到内容后由 td 的 text-center 居中，超长才占满截断。
+                  */}
                   <TableCell className="px-1 py-2 align-top">
-                    <span className="block truncate text-sm font-medium text-ink">
-                      {row.name}
+                    <span className="inline-flex max-w-full items-center justify-center gap-1.5">
+                      <span className="truncate text-sm font-medium text-ink">{row.name}</span>
                       {row.name === "modelmux" && (
-                        <span className="ml-1.5 rounded-md bg-overlay px-1.5 py-0.5 align-middle text-[11px] font-normal text-ink-soft">
+                        <span className="flex-none rounded-md bg-overlay px-1.5 py-0.5 text-[11px] font-normal text-ink-soft">
                           一键接入
                         </span>
                       )}
@@ -387,7 +391,7 @@ export function ApiKeys(): ReactElement {
                     </span>
                   </TableCell>
                   <TableCell className="px-1 py-2 align-top">
-                    <span className="block truncate font-mono text-xs text-ink-soft">
+                    <span className="inline-block max-w-full truncate font-mono text-xs text-ink-soft">
                       {row.allowedModels.length === 0 ? "全部模型" : row.allowedModels.join(", ")}
                     </span>
                   </TableCell>
