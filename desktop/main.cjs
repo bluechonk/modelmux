@@ -597,7 +597,7 @@ function downPage() {
 </style>
 <div class="box">
   <h1>modelmux 网关已断开</h1>
-  <p>控制台与网关同进程，网关不在时读不到任何数据（此前显示的是加载骨架）。</p>
+  <p>控制台与网关同进程，网关不在时读不到任何数据。</p>
   <p>网关恢复后本页会自动载回控制台；也可以从托盘菜单「打开控制台」手动重试。</p>
   <p>启动网关：在终端执行 <code>mx start</code>；日志在 <code>~/.modelmux/logs/system/</code>。</p>
 </div>`;

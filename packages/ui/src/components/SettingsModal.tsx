@@ -17,7 +17,6 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Boxes, ExternalLink, Info, KeyRound, Loader2, Palette, Power, RefreshCw, RotateCw, ScrollText, Server, Settings, Tag, X } from "lucide-react";
-import { Link } from "react-router";
 import { useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 
 import { Segmented } from "./Segmented";
@@ -308,19 +307,9 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
             >
               {section === "general" && (
                 <div>
-                  <div className="mb-3 text-xs font-medium text-ink-faint">状态与去处</div>
+                  <div className="mb-3 text-xs font-medium text-ink-faint">状态</div>
                   <div className="divide-y divide-line">
                     <GatewayRow />
-                    <ModalRow icon={Boxes} title="账号池" description="渠道凭据、额度与模型清单">
-                      <Link
-                        to="/accounts"
-                        onClick={() => onOpenChange(false)}
-                        className="tap inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:bg-overlay"
-                      >
-                        <Boxes className="h-3.5 w-3.5" aria-hidden="true" />
-                        打开账号池
-                      </Link>
-                    </ModalRow>
                   </div>
                   <div className="mb-3 mt-6 text-xs font-medium text-ink-faint">偏好设置</div>
                   <div className="divide-y divide-line">
@@ -346,16 +335,6 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                         onChange={() => void toggleApiKeyRequired(state.data?.api_key_mode !== true)}
                         label={`要求 API key，${state.data?.api_key_mode === true ? "已开启" : "已关闭"}`}
                       />
-                    </ModalRow>
-                    <ModalRow icon={KeyRound} title="API Keys" description="新建、白名单与限流管理">
-                      <Link
-                        to="/api-keys"
-                        onClick={() => onOpenChange(false)}
-                        className="tap inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:bg-overlay"
-                      >
-                        <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                        管理 API Keys
-                      </Link>
                     </ModalRow>
                   </div>
                 </div>
