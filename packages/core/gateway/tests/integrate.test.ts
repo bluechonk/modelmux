@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 
 import { integrateClient, restoreClient } from "../dist/app/integrate.js";
 import { poolModelMetas } from "../dist/pool/pool-targets.js";
@@ -24,6 +24,15 @@ let home = "";
 let savedHome: string | undefined;
 let savedRoot: string | undefined;
 
+/**
+ * 结构断言不关心写入的 key 值：正常路径是专用 key 明文（`mmx_`），取不到明文时
+ * 退回占位。把值统一成 `<KEY>`，断言只验缩进 / 位置 / 换行。
+ */
+function normCred(text: string): string {
+  // 值到空白或 flow 收尾 `}` 为止 —— `\S+` 会把 `mmx_xxx}` 的括号一起吃掉
+  return text.replace(/MODELMUX_API_KEY: [^\s}]+/, "MODELMUX_API_KEY: <KEY>");
+}
+
 before(() => {
   home = mkdtempSync(join(tmpdir(), "modelmux-integrate-"));
   savedHome = process.env["USERPROFILE"];
@@ -32,6 +41,16 @@ before(() => {
   process.env["USERPROFILE"] = home;
   process.env["HOME"] = home;
   process.env["MODELMUX_HOME"] = join(home, ".modelmux");
+  // 存储根：接入要确保专用 key 存在，写 `<root>/api-keys.json` 需要目录已在
+  // （真实环境由网关启动时建，测试沙盒得自己建）
+  mkdirSync(join(home, ".modelmux"), { recursive: true });
+});
+
+// 每个用例都从「还没有专用 key」开始：明文只在创建时返回，若沿用前一个用例建的
+// key，后面所有断言都会拿到占位值而不是明文。
+beforeEach(() => {
+  const store = join(home, ".modelmux", "api-keys.json");
+  if (existsSync(store)) rmSync(store);
 });
 
 after(() => {
@@ -199,7 +218,10 @@ describe("一键接入 zcode", () => {
     const bm = bx.find((r) => r.providerId === "new-provider")!;
     const am = ax.find((r) => r.providerId === "new-provider")!;
     assert.equal(am.config["group"], bm.config["group"], "group 被改动了");
-    assert.deepEqual(am.config["access"], bm.config["access"], "access 被改动了");
+    // access 的值改成一键接入专用 key（见下方「保留仍有效的 access.apiKey」）
+    const access = am.config["access"] as { type: string; apiKey: string };
+    assert.equal(access.type, "api-key");
+    assert.ok(access.apiKey.startsWith("mmx_"), `access 没写成专用 key：${access.apiKey}`);
     assert.deepEqual(am.config["api"], { type: "openai-chat-completions", baseUrl: GATEWAY_BASE });
     assert.deepEqual(am.config["personalModelIds"], MODELS);
     assert.deepEqual(am.config["modelOrder"], MODELS);
@@ -220,15 +242,30 @@ describe("一键接入 zcode", () => {
     const after = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
     const rule = after.config.providerConfigRules.providerRules.find((r) => r.providerId === "new-provider")!;
     assert.equal(rule.config["group"], "standard-personal");
-    assert.deepEqual(rule.config["access"], { type: "api-key", apiKey: "modelmux-local" });
+    const access = rule.config["access"] as { type: string; apiKey: string };
+    assert.equal(access.type, "api-key");
+    assert.ok(access.apiKey.startsWith("mmx_"), `补齐的应是专用 key：${access.apiKey}`);
   });
 
-  it("保留用户已配的 access.apiKey", () => {
+  it("保留仍有效的 access.apiKey", () => {
+    // 先接入一次拿到写进去的专用 key 明文，再把它当成「用户已配的 key」写回去：
+    // 值仍有效时原样保留（不覆盖成新生成的另一把）
     const file = seedZcode();
+    integrateClient("zcode", MODELS);
+    const first = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
+    const written = (first.config.providerConfigRules.providerRules.find((r) => r.providerId === "new-provider")!
+      .config["access"] as { apiKey: string }).apiKey;
+
+    seedZcode(); // 重置回用户自配的形态，再把 access 换成刚拿到的有效 key
+    const cfg = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
+    const rule0 = cfg.config.providerConfigRules.providerRules.find((r) => r.providerId === "new-provider")!;
+    rule0.config["access"] = { type: "api-key", apiKey: written };
+    writeFileSync(file, JSON.stringify(cfg, null, 2), "utf8");
+
     integrateClient("zcode", MODELS);
     const after = JSON.parse(readFileSync(file, "utf8")) as typeof ZCODE_CONFIG;
     const rule = after.config.providerConfigRules.providerRules.find((r) => r.providerId === "new-provider")!;
-    assert.deepEqual(rule.config["access"], { type: "api-key", apiKey: "u" });
+    assert.deepEqual(rule.config["access"], { type: "api-key", apiKey: written }, "有效 key 被换掉了");
   });
 
   it("幂等：二次运行无改动", () => {
@@ -381,7 +418,7 @@ describe("一键接入 dsh", () => {
     const cred = seedDshCredentials(text);
     integrateClient("dsh", MODELS);
     const after = readFileSync(cred, "utf8");
-    assert.match(after, /^    MODELMUX_API_KEY: modelmux-local$/m, "缩进没跟随已有子条目");
+    assert.match(normCred(after), /^    MODELMUX_API_KEY: <KEY>$/m, "缩进没跟随已有子条目");
     assert.match(after, /^    LONGCAT_API_KEY: ak_test$/m, "已有子条目被改动");
   });
 
@@ -390,14 +427,14 @@ describe("一键接入 dsh", () => {
     const text = "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test\n}\n";
     const cred = seedDshCredentials(text);
     integrateClient("dsh", MODELS);
-    assert.equal(readFileSync(cred, "utf8"), "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: modelmux-local\n}\n");
+    assert.equal(normCred(readFileSync(cred, "utf8")), "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: <KEY>\n}\n");
   });
 
   it("空的多行 flow refs：新建一行", () => {
     seedDsh();
     const cred = seedDshCredentials("version: 1\nrefs: {\n}\n");
     integrateClient("dsh", MODELS);
-    assert.equal(readFileSync(cred, "utf8"), "version: 1\nrefs: {\n  MODELMUX_API_KEY: modelmux-local\n}\n");
+    assert.equal(normCred(readFileSync(cred, "utf8")), "version: 1\nrefs: {\n  MODELMUX_API_KEY: <KEY>\n}\n");
   });
 
   it("凭据文件缺失时新建", () => {
@@ -413,7 +450,7 @@ describe("一键接入 dsh", () => {
     seedDsh();
     const cred = seedDshCredentials("version: 1\nrecords: {}\n");
     integrateClient("dsh", MODELS);
-    assert.equal(readFileSync(cred, "utf8"), "version: 1\nrecords: {}\nrefs: { MODELMUX_API_KEY: modelmux-local }\n");
+    assert.equal(normCred(readFileSync(cred, "utf8")), "version: 1\nrecords: {}\nrefs: { MODELMUX_API_KEY: <KEY> }\n");
   });
 
   it("flow 里注释含花括号：不污染深度计数，条目也不落进注释", () => {
@@ -423,8 +460,8 @@ describe("一键接入 dsh", () => {
     const after = readFileSync(cred, "utf8");
     // 收尾判定必须到第 4 行（深度归零），条目接在真条目行（尾逗号归一）、注释保持在末尾
     assert.equal(
-      after,
-      "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: modelmux-local # use { template\n}\n",
+      normCred(after),
+      "version: 1\nrefs: {\n  LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: <KEY> # use { template\n}\n",
     );
   });
 
@@ -433,8 +470,8 @@ describe("一键接入 dsh", () => {
     const cred = seedDshCredentials("version: 1\nrefs: {\n  A: { x: 1 },\n}\n");
     integrateClient("dsh", MODELS);
     const after = readFileSync(cred, "utf8");
-    assert.match(after, /A: \{ x: 1 \}, MODELMUX_API_KEY: modelmux-local/, "条目必须接在外层 flow 的真条目行");
-    assert.match(after, /modelmux-local\n\}\n$/, "外层收尾括号必须原样保留在末行");
+    assert.match(after, /A: \{ x: 1 \}, MODELMUX_API_KEY: (mmx_[0-9a-f]+|modelmux-pending)/, "条目必须接在外层 flow 的真条目行");
+    assert.match(after, /(mmx_[0-9a-f]+|modelmux-pending)\n\}\n$/, "外层收尾括号必须原样保留在末行");
   });
 
   it("一个可改的 profile 都没有：如实失败，不再冒充已接入", () => {
@@ -453,15 +490,22 @@ describe("一键接入 dsh", () => {
     seedDsh();
     const cred = seedDshCredentials("version: 1\r\nrefs: { LONGCAT_API_KEY: ak_test }\r\n");
     integrateClient("dsh", MODELS);
-    assert.equal(readFileSync(cred, "utf8"), "version: 1\r\nrefs: { LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: modelmux-local}\r\n");
+    assert.equal(normCred(readFileSync(cred, "utf8")), "version: 1\r\nrefs: { LONGCAT_API_KEY: ak_test, MODELMUX_API_KEY: <KEY>}\r\n");
   });
 
-  it("凭据引用已存在时不重复写（block / flow / 带引号都算）", () => {
+  it("凭据引用已存在且仍有效时不重复写（block / flow / 带引号都算）", () => {
     seedDsh();
+    // 先接入一次拿到写进去的专用 key 明文，再把它当成「已配置的值」：
+    // 值仍有效时原样保留；值无效（如旧的 modelmux-local）才会被换掉
+    integrateClient("dsh", MODELS);
+    const seeded = readFileSync(join(home, ".dsh", ".credentials.yaml"), "utf8");
+    const key = /MODELMUX_API_KEY: ([^\s}]+)/.exec(seeded)?.[1];
+    assert.ok(key, "没拿到写入的 key");
+
     const cases = [
-      "version: 1\nrefs: { MODELMUX_API_KEY: custom }\n",
-      "version: 1\nrefs:\n  MODELMUX_API_KEY: custom\n",
-      'version: 1\nrefs: { "MODELMUX_API_KEY": custom }\n',
+      `version: 1\nrefs: { MODELMUX_API_KEY: ${key} }\n`,
+      `version: 1\nrefs:\n  MODELMUX_API_KEY: ${key}\n`,
+      `version: 1\nrefs: { "MODELMUX_API_KEY": ${key} }\n`,
     ];
     for (const text of cases) {
       const cred = seedDshCredentials(text);
