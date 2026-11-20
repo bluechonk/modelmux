@@ -32,6 +32,7 @@ import { Input } from "../components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { useToast } from "../components/Toast";
 import { errorText, formatDateTime } from "../lib/log-format";
+import { useNarrow } from "../lib/use-narrow";
 
 /** 名称长度上限：与后端 `API_KEY_NAME_MAX` 同值，创建时就拦住。 */
 const NAME_MAX = 24;
@@ -315,15 +316,44 @@ export function ApiKeys(): ReactElement {
   });
 
   const rows = keys.data ?? [];
-  /** 固定列宽：与请求日志同口径（table-fixed + 显式列宽，长内容截断不撑列）。 */
-  const cols = [
-    { key: "name", label: "名称", width: "20%" },
-    { key: "prefix", label: "密钥", width: "22%" },
-    { key: "models", label: "模型", width: "20%" },
-    { key: "rpm", label: "限速", width: "9%" },
-    { key: "createdAt", label: "创建时间", width: "16%" },
-    { key: "ops", label: "操作", width: "13%" },
+  /**
+   * 列定义：`wide` 标记的列在窄屏**整列不渲染**（同请求日志口径）。
+   *
+   * 为什么必须少渲染而不是 `hidden md:table-cell`：`display: none` 的 `<td>` 与
+   * `<col>` 在 `table-layout: fixed` 下仍占列槽位，390 视口下六列被压到
+   * 87/62/62/29/42/42px，密钥列内容 126px 直接右溢 72px、表头互相重叠（实测）。
+   * 少渲染后列数与内容恒等，才谈得上对齐。
+   */
+  const ALL_COLS = [
+    { key: "name", label: "名称" },
+    { key: "prefix", label: "密钥" },
+    { key: "models", label: "模型" },
+    { key: "rpm", label: "限速", wide: true },
+    { key: "createdAt", label: "创建时间", wide: true },
+    { key: "ops", label: "操作" },
   ] as const;
+
+  /** 宽屏列宽：按内容实宽 + 对称内边距的比例（见上方说明）。 */
+  const WIDE_WIDTHS: Record<string, string> = {
+    name: "27%",
+    prefix: "19%",
+    models: "19%",
+    rpm: "9%",
+    createdAt: "13%",
+    ops: "13%",
+  };
+
+  /** 窄屏列宽：只留四列，同样按比例（`table-fixed` 下 nowrap 内容超宽会右溢）。 */
+  const NARROW_WIDTHS: Record<string, string> = {
+    name: "26%",
+    prefix: "27%",
+    models: "27%",
+    ops: "20%",
+  };
+
+  const narrow = useNarrow(735);
+  const cols = narrow ? ALL_COLS.filter((c) => !("wide" in c && c.wide)) : ALL_COLS;
+  const widths = narrow ? NARROW_WIDTHS : WIDE_WIDTHS;
 
   return (
     <div className="space-y-5 pb-10">
@@ -347,16 +377,22 @@ export function ApiKeys(): ReactElement {
             还没有 key，点右上角「新增」。
           </p>
         ) : (
-          <Table className="w-full table-fixed border-collapse text-center text-sm">
+          // 窄屏给容器 `min-w-[560px]` + `overflow-x-auto`：四列内容下限合计约 560px，
+          // 低于它就横向滚动，而不是把密钥列压到 87px 让内容右溢 46px、与相邻列重叠
+          // （与请求日志页 `md:min-w-[720px]` 同一口径）。
+          <Table
+            className={`w-full table-fixed border-collapse text-center text-sm ${narrow ? "min-w-[560px]" : ""}`}
+            containerClassName={narrow ? "overflow-x-auto" : undefined}
+          >
             <colgroup>
               {cols.map((col) => (
-                <col key={col.key} style={{ width: col.width }} />
+                <col key={col.key} style={{ width: widths[col.key] }} />
               ))}
             </colgroup>
             <TableHeader>
               <TableRow className="border-b border-line text-xs text-ink-faint">
                 {cols.map((col) => (
-                  <TableHead key={col.key} className="whitespace-nowrap px-1 py-2 text-center align-top font-normal">
+                  <TableHead key={col.key} className="whitespace-nowrap px-2 py-2 text-center align-middle font-normal">
                     {col.label}
                   </TableHead>
                 ))}
@@ -366,60 +402,75 @@ export function ApiKeys(): ReactElement {
               {rows.map((row) => (
                 <TableRow key={row.id} className="border-b border-line last:border-b-0 hover:bg-overlay/30">
                   {/*
-                    名称单行截断，但**必须 inline 收缩**：`block truncate` 会占满列宽，
-                    块内文字左对齐 —— 表头居中、内容靠左，看起来就是没对齐。
-                    inline-flex 收缩到内容后由 td 的 text-center 居中，超长才占满截断。
+                    按 `cols` 逐列渲染：窄屏少渲染的列这里也**少一个 `<td>`**，
+                    单元格数与列数恒等（`display:none` 的占位 td 会让表头表体错位）。
+                    名称单行截断但**必须 inline 收缩**：`block truncate` 占满列宽、
+                    块内文字靠左，表头居中、内容靠左，看着就是没对齐。
                   */}
-                  <TableCell className="px-1 py-2 align-top">
-                    <span className="inline-flex max-w-full items-center justify-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-ink">{row.name}</span>
-                      {row.name === "modelmux" && (
-                        <span className="flex-none rounded-md bg-overlay px-1.5 py-0.5 text-[11px] font-normal text-ink-soft">
-                          一键接入
+                  {cols.some((c) => c.key === "name") && (
+                    <TableCell className="px-2 py-2 align-middle">
+                      <span className="inline-flex max-w-full items-center justify-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-ink">{row.name}</span>
+                        {row.name === "modelmux" && (
+                          <span className="flex-none rounded-md bg-overlay px-1.5 py-0.5 text-[11px] font-normal text-ink-soft">
+                            一键接入
+                          </span>
+                        )}
+                      </span>
+                    </TableCell>
+                  )}
+                  {cols.some((c) => c.key === "prefix") && (
+                    <TableCell className="px-2 py-2 align-middle">
+                      <span className="inline-flex items-center justify-center gap-1 font-mono text-xs text-ink-soft">
+                        {row.prefix}…
+                        {/*
+                          行内复制的是**前缀**：明文不可回读，前缀足够在客户端配置里
+                          认出是哪一把；完整明文只能新建时取一次。
+                        */}
+                        <CopyButton value={row.prefix} label={`复制 ${row.name} 的密钥前缀`} />
+                      </span>
+                    </TableCell>
+                  )}
+                  {cols.some((c) => c.key === "models") && (
+                    <TableCell className="px-2 py-2 align-middle">
+                      <span className="inline-flex max-w-full items-center justify-center">
+                        <span className="truncate font-mono text-xs text-ink-soft">
+                          {row.allowedModels.length === 0 ? "全部模型" : row.allowedModels.join(", ")}
                         </span>
-                      )}
-                    </span>
-                  </TableCell>
-                  <TableCell className="px-1 py-2 align-top">
-                    <span className="inline-flex items-center justify-center gap-1 font-mono text-xs text-ink-soft">
-                      {row.prefix}…
-                      {/*
-                        行内复制的是**前缀**：明文不可回读，前缀足够在客户端配置里
-                        认出是哪一把；完整明文只能新建时取一次。
-                      */}
-                      <CopyButton value={row.prefix} label={`复制 ${row.name} 的密钥前缀`} />
-                    </span>
-                  </TableCell>
-                  <TableCell className="px-1 py-2 align-top">
-                    <span className="inline-block max-w-full truncate font-mono text-xs text-ink-soft">
-                      {row.allowedModels.length === 0 ? "全部模型" : row.allowedModels.join(", ")}
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-soft">
-                    {row.rpmLimit === 0 ? "不限" : `${row.rpmLimit} 次/分`}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-faint">
-                    {formatDateTime(row.createdAt)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap px-1 py-2 align-top">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <button type="button" className={BTN} onClick={() => setEditor({ mode: "edit", row })}>
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        className={`${BTN} inline-flex items-center gap-1 text-danger hover:border-danger/50`}
-                        onPointerDown={(e) => {
-                          // 记下本行删除键：取消确认时焦点要还到这里（同账号卡口径）。
-                          deleteTriggerRef.current = e.currentTarget;
-                        }}
-                        onClick={() => setPendingDelete(row)}
-                      >
-                        <Trash2 className="h-3 w-3" aria-hidden="true" />
-                        删除
-                      </button>
-                    </div>
-                  </TableCell>
+                      </span>
+                    </TableCell>
+                  )}
+                  {cols.some((c) => c.key === "rpm") && (
+                    <TableCell className="whitespace-nowrap px-2 py-2 align-middle font-mono text-xs text-ink-soft">
+                      {row.rpmLimit === 0 ? "不限" : `${row.rpmLimit} 次/分`}
+                    </TableCell>
+                  )}
+                  {cols.some((c) => c.key === "createdAt") && (
+                    <TableCell className="whitespace-nowrap px-2 py-2 align-middle font-mono text-xs text-ink-faint">
+                      {formatDateTime(row.createdAt)}
+                    </TableCell>
+                  )}
+                  {cols.some((c) => c.key === "ops") && (
+                    <TableCell className="whitespace-nowrap px-2 py-2 align-middle">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button type="button" className={BTN} onClick={() => setEditor({ mode: "edit", row })}>
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          className={`${BTN} inline-flex items-center gap-1 text-danger hover:border-danger/50`}
+                          onPointerDown={(e) => {
+                            // 记下本行删除键：取消确认时焦点要还到这里（同账号卡口径）。
+                            deleteTriggerRef.current = e.currentTarget;
+                          }}
+                          onClick={() => setPendingDelete(row)}
+                        >
+                          <Trash2 className="h-3 w-3" aria-hidden="true" />
+                          删除
+                        </button>
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
