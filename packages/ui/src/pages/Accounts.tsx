@@ -400,10 +400,11 @@ export function Accounts(): ReactElement {
             的轮询结果），刚起进程 / 上游抖动时也不会整段消失，用户始终有处设置。
           */}
           {/* 渠道偏好（左）+ 对外模型清单（右）一排两卡：偏好管「走哪家」，清单管「对外有什么」。
-              宽度按内容：偏好卡自适应（下限 264px），清单卡吃剩余；高度不拉平 ——
-              偏好只有一两行时，把它撑到清单等高只剩空白（2026-11-18 设计裁决）。 */}
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-          <section className="panel p-3 lg:w-auto lg:min-w-[264px] lg:shrink-0">
+              `lg` 起两卡**等宽 + 等高**（grid 默认 stretch）：清单只有两行内容，
+              吃掉剩余宽度时行内右侧空一大片；偏好卡被压到 264px 时模型名与下拉挤在一起。
+              等宽后两卡都不空旷，上下边缘也对齐。 */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <section className="panel p-3 min-w-0">
             <h2 className="mb-2 text-xs font-medium text-ink-soft">渠道偏好</h2>
             <div className="flex flex-col gap-2">
               {modelPrefs.map((pref) => (
@@ -436,7 +437,7 @@ export function Accounts(): ReactElement {
               </p>
             )}
           </section>
-            <section className="panel p-3 lg:min-w-0 lg:flex-1">
+            <section className="panel p-3 min-w-0">
               <h2 className="mb-2 text-xs font-medium text-ink-soft">模型清单</h2>
               <ModelRows rows={modelRows} />
             </section>
