@@ -2,24 +2,23 @@
  * API Keys 页：列表 + 弹窗化新建 / 编辑 / 删除确认。
  *
  * 三条硬约束：
- *  - **明文只出现一次**：新建成功当场在弹窗里展示 + 复制，离开后无法再取（库里只有哈希）；
- *  - **列表不含哈希**：只展示名称 / 前缀 / 白名单 / 限流 / 时间；
- *  - **危险动作走确认弹窗**：删除不可逆，行内直接删会误点。
+ *  - **明文只出现一次**：新建成功当场在弹窗里展示 + 复制；库里只有哈希，列表与
+ *    行内复制按钮用的都是**前缀**（够认人、不够还原）；
+ *  - **危险动作走确认弹窗**：删除不可逆，行内直接删会误点；
+ *  - **表格与请求日志同口径**：全表居中、表头与数据同中心线（见 Logs.tsx 的对齐说明）。
  *
- * 新建与编辑共用同一个 Dialog（编辑只是多一行名称、提交走 update）；校验开关在设置弹窗
- * （`api_key_required`），改完需重启网关生效 —— 运行期热切换会让已发出去的 key 突然失效。
+ * 新建与编辑共用同一个 Dialog；校验开关在设置弹窗（`api_key_required`），改完需重启
+ * 网关生效 —— 运行期热切换会让已发出去的 key 突然失效。
  */
 
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { api } from "../lib/api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CopyButton } from "../components/CopyButton";
 import { PageHeader } from "../components/PageHeader";
-import { Badge } from "../components/ui/badge";
 import {
   Dialog,
   DialogClose,
@@ -42,9 +41,7 @@ const BTN_PRIMARY =
   "tap rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-on-brand transition-colors hover:bg-brand-deep disabled:opacity-50";
 /** 危险操作钮：红底白字（AlertDialogAction 口径）。 */
 const BTN_DANGER =
-  "tap inline-flex items-center justify-center rounded-lg bg-danger px-4 py-1.5 text-[13px] font-medium text-on-danger transition-colors hover:brightness-95 disabled:opacity-50";
-
-const CELL = "px-3 py-2.5 align-middle";
+  "tap inline-flex items-center justify-center rounded-lg bg-danger-strong px-4 py-1.5 text-[13px] font-medium text-on-danger transition-colors hover:brightness-95 disabled:opacity-50";
 
 interface ApiKeyRow {
   id: string;
@@ -59,55 +56,55 @@ interface ApiKeyRow {
 /** 弹窗模式：新建（无初值）/ 编辑（带 row）。 */
 type EditorState = { mode: "create" } | { mode: "edit"; row: ApiKeyRow };
 
-/** 表单初值：新建空名称，编辑沿用当前记录。 */
-function initialForm(state: EditorState): { name: string; models: string; rpm: string } {
-  if (state.mode === "create") return { name: "", models: "", rpm: "0" };
-  return {
-    name: state.row.name,
-    models: state.row.allowedModels.join(", "),
-    rpm: String(state.row.rpmLimit),
-  };
-}
-
-/** 把逗号串切成干净数组（空串 = 全部模型，由后端按空数组处理）。 */
-function splitModels(raw: string): string[] {
-  return raw.split(",").map((m) => m.trim()).filter((m) => m !== "");
-}
-
 /**
- * 新建 / 编辑共用的表单弹窗。
+ * 白名单选项：对外模型全集（去重裸名）+ 「全部模型」。
  *
- * 关掉即放弃：不做「未保存提醒」—— 字段只有三个、且都可在列表里再改，
- * 弹窗的价值是隔离「正在改」的状态，不是拦住误关。
+ * 用当前池内模型而不是自由文本 —— 手打模型名拼错后网关只会回 400，用户看不出
+ * 是白名单写错了还是模型下线了。
  */
+function modelOptions(allModels: ReadonlyArray<string>): Array<{ value: string; label: string }> {
+  return [
+    { value: "", label: "全部模型" },
+    ...allModels.map((m) => ({ value: m, label: m })),
+  ];
+}
+
+/** 新建 / 编辑共用的表单弹窗。 */
 function KeyFormDialog({
   state,
+  allModels,
   onClose,
   onCreated,
 }: {
   state: EditorState;
+  allModels: ReadonlyArray<string>;
   onClose: () => void;
   /** 新建成功后进入明文展示（由父组件接管）。 */
   onCreated: (plain: string) => void;
 }): ReactElement {
   const toast = useToast();
-  const [form, setForm] = useState(() => initialForm(state));
   const editing = state.mode === "edit";
+  const [name, setName] = useState(editing ? state.row.name : "");
+  /** 选中的模型（空数组 = 全部模型）。 */
+  const [picked, setPicked] = useState<string[]>(editing ? [...state.row.allowedModels] : []);
+  const [rpm, setRpm] = useState(editing ? String(state.row.rpmLimit) : "0");
+  const options = modelOptions(allModels);
   const nameId = editing ? `key-name-${state.row.id}` : "key-name-create";
+
+  const toggleModel = (model: string): void => {
+    setPicked((cur) => (cur.includes(model) ? cur.filter((m) => m !== model) : [...cur, model]));
+  };
 
   const submit = useMutation({
     mutationFn: (): Promise<void> => {
-      const allowedModels = splitModels(form.models);
-      const rpmLimit = Number(form.rpm) || 0;
-      const name = form.name.trim();
-      if (name === "") {
-        // 名称必填由后端把守，这里先给个不落地的提示，避免空请求往返
+      const nameTrim = name.trim();
+      if (nameTrim === "") {
         toast.error("名称必填");
         return Promise.resolve();
       }
       const res = editing
-        ? api.commands.updateApiKey(state.row.id, name, allowedModels, rpmLimit)
-        : api.commands.createApiKey(name, allowedModels, rpmLimit);
+        ? api.commands.updateApiKey(state.row.id, nameTrim, picked, Number(rpm) || 0)
+        : api.commands.createApiKey(nameTrim, picked, Number(rpm) || 0);
       return res.then((r) => {
         if (!r.ok) {
           toast.error(r.error ?? "保存失败");
@@ -136,7 +133,7 @@ function KeyFormDialog({
         <DialogOverlay className="fixed inset-0 z-50 bg-black/70" />
         <DialogContent
           showCloseButton={false}
-          className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,26rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-raised p-5 shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
+          className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-raised p-5 shadow-[0_24px_64px_-28px_rgba(0,0,0,0.9)]"
           aria-describedby={undefined}
         >
           <div className="flex items-start gap-3">
@@ -148,7 +145,7 @@ function KeyFormDialog({
                 {editing ? "编辑 API key" : "新建 API key"}
               </DialogTitle>
               <DialogDescription className="mt-1 text-[12.5px] leading-relaxed text-ink-soft">
-                {editing ? "明文与哈希不可改；白名单与 rpm 保存后立即生效。" : "创建后明文只展示一次，请当场复制保存。"}
+                {editing ? "明文不可改；白名单与限速保存后立即生效。" : "创建后明文只展示一次。"}
               </DialogDescription>
             </div>
             <DialogClose asChild>
@@ -162,38 +159,59 @@ function KeyFormDialog({
             </DialogClose>
           </div>
 
-          <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3.5">
+          <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
               <span className="text-xs text-ink-faint">名称</span>
               <Input
                 id={nameId}
-                value={form.name}
+                value={name}
                 autoFocus
                 placeholder="如 ci / 笔记本"
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                onChange={(e) => setName(e.target.value)}
               />
             </label>
+
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="text-xs text-ink-faint">能用哪些模型</legend>
+              {/*
+                多选 chips：不选 = 全部模型。选项来自当前模型池 —— 池里没有的模型
+                写进白名单也没有任何效果（选路根本不会命中），不如不给选。
+              */}
+              <div className="flex flex-wrap gap-1.5">
+                {options.map((opt) => {
+                  const active = opt.value === "" ? picked.length === 0 : picked.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value || "all"}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        if (opt.value === "") setPicked([]);
+                        else toggleModel(opt.value);
+                      }}
+                      className={`tap rounded-lg border px-2.5 py-1 font-mono text-xs transition-colors ${
+                        active
+                          ? "border-brand bg-brand text-on-brand"
+                          : "border-line bg-surface text-ink-soft hover:border-line-strong hover:text-ink"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-faint">模型白名单（逗号分隔，留空 = 全部模型）</span>
-              <Input
-                value={form.models}
-                placeholder="deepseek-v4.1-flash, kimi-k3.1-pro"
-                onChange={(e) => setForm((f) => ({ ...f, models: e.target.value }))}
-              />
+              <span className="text-xs text-ink-faint">每分钟最多请求几次（0 = 不限）</span>
+              <Input value={rpm} inputMode="numeric" onChange={(e) => setRpm(e.target.value)} />
             </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-faint">rpm（0 = 不限）</span>
-              <Input
-                value={form.rpm}
-                inputMode="numeric"
-                onChange={(e) => setForm((f) => ({ ...f, rpm: e.target.value }))}
-              />
-            </label>
-            <div className="mt-1 flex justify-end gap-2">
+
+            <div className="flex justify-end gap-2">
               <button type="button" className={BTN} onClick={onClose}>
                 取消
               </button>
-              <button type="submit" className={BTN_PRIMARY} disabled={submit.isPending || form.name.trim() === ""}>
+              <button type="submit" className={BTN_PRIMARY} disabled={submit.isPending || name.trim() === ""}>
                 {submit.isPending ? "提交中…" : editing ? "保存" : "创建"}
               </button>
             </div>
@@ -279,6 +297,9 @@ export function ApiKeys(): ReactElement {
       return (res["keys"] as ApiKeyRow[] | undefined) ?? [];
     },
   });
+  // 对外模型全集：与账号池模型清单、日志模型筛选同源（快照 5 秒一轮）
+  const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
+  const allModels = [...new Set((state.data?.models ?? []).map((row) => row.model))];
   const refresh = (): void => {
     void keys.refetch();
     void qc.invalidateQueries({ queryKey: ["api-keys"] });
@@ -286,9 +307,8 @@ export function ApiKeys(): ReactElement {
 
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [plain, setPlain] = useState<string | null>(null);
-  /** 待删除的行与「该行的删除键」：ConfirmDialog 关闭后要把焦点还给它。 */
+  /** 待删除的行：ConfirmDialog 关闭后要把焦点还给该行的删除键。 */
   const [pendingDelete, setPendingDelete] = useState<ApiKeyRow | null>(null);
-  /** 被点的那个删除键 —— 取消确认后焦点要还给它（见 `ConfirmDialog.returnFocusTo`）。 */
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   // ConfirmDialog 卸载时 Radix FocusScope 把焦点还给 BODY，且归还在 commit 后的异步帧
   // （rAF 压不住，effect 同步 focus 同样被覆盖）；150ms 是所有 portal 归还链落定后的窗口。
@@ -323,59 +343,84 @@ export function ApiKeys(): ReactElement {
 
   return (
     <div className="space-y-5 pb-10">
-      <PageHeader
-        title="API Keys"
-        description="对话请求的准入密钥：白名单限定可用模型，rpm 限制每分钟请求数"
-        actions={
+      <PageHeader title="API Keys" description="对话请求的准入密钥" />
+
+      <section className="panel p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="text-xs text-ink-faint">共 {rows.length} 个</span>
           <button type="button" className={BTN_PRIMARY} onClick={() => setEditor({ mode: "create" })}>
             <Plus className="h-3 w-3" aria-hidden="true" />
             新建 API key
           </button>
-        }
-      />
+        </div>
 
-      <p className="text-xs text-ink-faint">共 {rows.length} 个密钥 · 明文只在创建时展示一次，列表不含哈希</p>
-
-      <section className="panel p-4">
         {keys.isError ? (
           <p className="text-sm text-danger">加载失败：{errorText(keys.error)}</p>
         ) : keys.isPending ? (
           <p className="text-sm text-ink-faint">加载中…</p>
         ) : rows.length === 0 ? (
-          <p className="flex items-center gap-2 text-sm text-ink-faint">
-            <KeyRound className="h-4 w-4" aria-hidden="true" />
-            （还没有 key；新建后需在设置里开启「要求 API key」才会校验）
-          </p>
+          <p className="py-6 text-center text-sm text-ink-faint">还没有 key，点右上角新建。</p>
         ) : (
-          <Table containerClassName="overflow-x-auto">
+          <Table className="w-full table-fixed border-collapse text-center text-sm">
             <TableHeader>
-              <TableRow>
-                <TableHead>名称</TableHead>
-                <TableHead>前缀</TableHead>
-                <TableHead>模型白名单</TableHead>
-                <TableHead>rpm</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+              <TableRow className="border-b border-line text-xs text-ink-faint">
+                {(
+                  [
+                    ["name", "名称"],
+                    ["prefix", "前缀"],
+                    ["models", "模型白名单"],
+                    ["rpm", "限速"],
+                    ["createdAt", "创建时间"],
+                    ["ops", "操作"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <TableHead
+                    key={key}
+                    className={`whitespace-nowrap px-1 py-2 text-center align-top font-normal ${
+                      key === "ops" ? "px-3" : ""
+                    }`}
+                  >
+                    {label}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className={`${CELL} text-sm font-medium text-ink`}>{row.name}</TableCell>
-                  <TableCell className={`${CELL} font-mono text-xs text-ink-soft`}>{row.prefix}…</TableCell>
-                  <TableCell className={CELL}>
-                    {row.allowedModels.length === 0 ? (
-                      <Badge variant="outline" className="font-normal text-ink-soft">全部模型</Badge>
-                    ) : (
-                      <span className="font-mono text-xs text-ink-soft">{row.allowedModels.join(", ")}</span>
+                <TableRow key={row.id} className="border-b border-line last:border-b-0 hover:bg-overlay/30">
+                  <TableCell className="break-words px-1 py-2 align-top text-sm font-medium text-ink">
+                    {row.name}
+                    {/*
+                      一键接入专用 key：它服务的是客户端配置（zcode / dsh），
+                      删掉会让已接入的客户端下次请求 401 —— 标注出来避免误删。
+                    */}
+                    {row.name === "modelmux" && (
+                      <span className="ml-1.5 rounded-md bg-overlay px-1.5 py-0.5 align-middle text-[11px] font-normal text-ink-soft">
+                        一键接入
+                      </span>
                     )}
                   </TableCell>
-                  <TableCell className={`${CELL} font-mono text-xs text-ink`}>
-                    {row.rpmLimit === 0 ? "不限" : row.rpmLimit}
+                  <TableCell className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-soft">
+                    {row.prefix}…
+                    {/*
+                      行内复制的是**前缀**：明文不可回读，前缀足够在客户端配置里
+                      认出是哪一把；完整明文只能新建时取一次。
+                    */}
+                    <span className="ml-1 inline-flex align-middle">
+                      <CopyButton value={row.prefix} label={`复制 ${row.name} 的前缀`} />
+                    </span>
                   </TableCell>
-                  <TableCell className={`${CELL} font-mono text-xs text-ink-faint`}>{formatDateTime(row.createdAt)}</TableCell>
-                  <TableCell className={`${CELL} text-right`}>
-                    <div className="flex items-center justify-end gap-2">
+                  <TableCell className="break-words px-1 py-2 align-top font-mono text-xs text-ink-soft">
+                    {row.allowedModels.length === 0 ? "全部模型" : row.allowedModels.join(", ")}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-soft">
+                    {row.rpmLimit === 0 ? "不限" : `${row.rpmLimit} 次/分`}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap px-1 py-2 align-top font-mono text-xs text-ink-faint">
+                    {formatDateTime(row.createdAt)}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap px-3 py-2 align-top">
+                    <div className="flex items-center justify-center gap-2">
                       <button type="button" className={BTN} onClick={() => setEditor({ mode: "edit", row })}>
                         编辑
                       </button>
@@ -383,8 +428,7 @@ export function ApiKeys(): ReactElement {
                         type="button"
                         className={`${BTN} inline-flex items-center gap-1.5 text-danger hover:border-danger/50`}
                         onPointerDown={(e) => {
-                          // 记下本行删除键：取消确认时焦点要还到这里。用 pointerdown 而非
-                          // click，与账号卡同口径（点击后立刻卸载会让归还目标消失）。
+                          // 记下本行删除键：取消确认时焦点要还到这里（同账号卡口径）。
                           deleteTriggerRef.current = e.currentTarget;
                         }}
                         onClick={() => setPendingDelete(row)}
@@ -404,6 +448,7 @@ export function ApiKeys(): ReactElement {
       {editor !== null && (
         <KeyFormDialog
           state={editor}
+          allModels={allModels}
           onClose={() => setEditor(null)}
           onCreated={(value) => {
             setEditor(null);
@@ -423,7 +468,7 @@ export function ApiKeys(): ReactElement {
               <AlertTriangle className="mt-0.5 h-4 w-4 flex-none text-danger" aria-hidden="true" />
               <span>
                 <span className="font-medium text-danger">立即生效：</span>
-                依赖该 key 的客户端下次请求会收到 401，需要换用其他 key 或关闭「要求 API key」。
+                依赖该 key 的客户端下次请求会收到 401。
               </span>
             </p>
           }

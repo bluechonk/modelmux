@@ -90,6 +90,10 @@
 （只换 `providers.modelmux.models` 块）与 `~/.zcode/v2/provider_config.json`
 （modelmux 供应商规则的 api / 模型清单），细节见 `app/integrate.ts` 与其测试。
 
+两处写的密钥都是**一键接入专用 key**（API Keys 页名称 `modelmux` 的那条）：不存在时
+自动创建，值仍有效的客户端原样保留。专用 key 的明文只写进客户端、网关侧不回读，
+因此两处分两次接入时，后接的那处沿用先接那处已写入的明文。
+
 ## 4. 验证矩阵
 
 2026-11-07 真机实测（网关 127.0.0.1:4412）：
