@@ -27,17 +27,27 @@ import { apiKeyGuard, setApiKeyGuard } from "../dist/runtime/api-key.js";
 
 let root = "";
 let savedHome: string | undefined;
+let savedKeyring: string | undefined;
+let keyring = "";
 
 before(() => {
   savedHome = process.env["MODELMUX_HOME"];
+  savedKeyring = process.env["MODELMUX_KEYRING"];
   root = mkdtempSync(join(tmpdir(), "modelmux-apikeys-"));
+  // 加密密钥目录与存储根分离（生产默认在 OS 配置目录）：测试同样分开，
+  // 既验证「不同目录」这条设计，也不污染真实的 OS keyring
+  keyring = mkdtempSync(join(tmpdir(), "modelmux-keyring-"));
   process.env["MODELMUX_HOME"] = root;
+  process.env["MODELMUX_KEYRING"] = keyring;
 });
 
 after(() => {
   if (savedHome === undefined) delete process.env["MODELMUX_HOME"];
   else process.env["MODELMUX_HOME"] = savedHome;
+  if (savedKeyring === undefined) delete process.env["MODELMUX_KEYRING"];
+  else process.env["MODELMUX_KEYRING"] = savedKeyring;
   rmSync(root, { recursive: true, force: true });
+  rmSync(keyring, { recursive: true, force: true });
 });
 
 beforeEach(() => {
@@ -82,6 +92,41 @@ describe("API key 存储", () => {
     const secret = integrationKeySecret();
     assert.ok(secret !== null && secret.startsWith("mmx_"));
     assert.ok(verifyApiKeyPlain(secret!), "重建出的明文必须能通过校验");
+  });
+
+  it("旧版明文 secret 读到就迁成密文并**立即落盘**（不等下次写操作）", () => {
+    const { record, plain } = createApiKey({ name: "legacy", allowedModels: [], rpmLimit: 0 });
+    const file = join(root, "api-keys.json");
+    // 造一条中间版本的记录：明文 secret，无密文
+    const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
+    for (const k of doc.keys) {
+      if (k["id"] === record.id) {
+        k["secret"] = plain;
+        delete k["secretSealed"];
+      }
+    }
+    writeFileSync(file, JSON.stringify(doc));
+    assert.ok(readFileSync(file, "utf8").includes(plain), "前置：磁盘上确实有明文");
+
+    // 只读一次（不做任何创建 / 更新）：必须把明文洗掉
+    const keys = listApiKeys();
+    const raw = readFileSync(file, "utf8");
+    assert.ok(!raw.includes(plain), "读到旧明文后必须立即从磁盘移除");
+    assert.ok(raw.includes("secretSealed"), "应改写为密文");
+    // 迁移后仍可回读
+    assert.equal(revealApiKeyPlain(record.id), plain);
+    assert.equal(keys.length, 1);
+  });
+
+  it("密钥文件损坏：sealSecret/openSecret 返回 null，不抛错", () => {
+    const { record } = createApiKey({ name: "corrupt", allowedModels: [], rpmLimit: 0 });
+    const keyFile = join(keyring, "api-key.key");
+    // 截断密钥文件（模拟写入中断）
+    writeFileSync(keyFile, Buffer.from("short"));
+    // 读路径不抛错，只是取不到明文
+    assert.equal(revealApiKeyPlain(record.id), null);
+    assert.equal(integrationKeySecret() === null || typeof integrationKeySecret() === "string", true);
+    assert.doesNotThrow(() => listApiKeys());
   });
 
   it("每条 key 独立随机 salt（同明文两次新建哈希不同）", () => {

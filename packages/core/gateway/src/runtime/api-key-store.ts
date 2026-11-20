@@ -25,13 +25,20 @@ const PREFIX_LEN = 12;
 const PREFIX_DISPLAY = 8;
 
 /**
- * 规整存储文档，并把**旧版的明文 `secret` 就地迁成密文**。
+ * 规整存储文档，并把**旧版的明文 `secret` 迁成密文**。
  *
  * 中间版本曾把明文直接写进记录（`secret`），必须清掉：备份 / 日志会带走数据文件，
- * 留一个字段等于凭据泄露。迁移在读取时完成 —— 不需要单独的升级步骤，下次写入即落地。
+ * 留一个字段等于凭据泄露。
+ *
+ * 第二个返回值 = 是否有记录被改写：**调用方必须据此立即落盘**，否则「升级后一直没
+ * 写过任何 key」的实例里明文会长期留在磁盘上 —— 那正是本次要修的场景。
+ * 密钥不可用（`sealSecret` 返回 null）时**保留明文并跳过迁移**：宁可下次再试，
+ * 也不能把唯一一份可用明文丢掉。
  */
-function normalizeDoc(raw: unknown): ApiKeyDoc {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { version: DOC_VERSION, keys: [] };
+function normalizeDoc(raw: unknown): { doc: ApiKeyDoc; migrated: boolean } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { doc: { version: DOC_VERSION, keys: [] }, migrated: false };
+  }
   const rec = raw as { keys?: unknown };
   const keys = Array.isArray(rec.keys)
     ? rec.keys.filter((k): k is ApiKeyRecord => {
@@ -40,19 +47,33 @@ function normalizeDoc(raw: unknown): ApiKeyDoc {
         return typeof r.id === "string" && typeof r.keyHash === "string" && typeof r.prefix === "string";
       })
     : [];
+  let migrated = false;
   for (const key of keys) {
     const legacy = (key as ApiKeyRecord & { secret?: string | null }).secret;
-    if (typeof legacy === "string" && legacy !== "") {
-      if (!key.secretSealed) key.secretSealed = sealSecret(legacy);
-      delete (key as ApiKeyRecord & { secret?: string | null }).secret;
+    if (typeof legacy !== "string" || legacy === "") continue;
+    if (!key.secretSealed) {
+      const sealed = sealSecret(legacy);
+      if (sealed === null) continue; // 密钥不可用：保留明文，下次启动再试
+      key.secretSealed = sealed;
     }
+    delete (key as ApiKeyRecord & { secret?: string | null }).secret;
+    migrated = true;
   }
-  return { version: DOC_VERSION, keys };
+  return { doc: { version: DOC_VERSION, keys }, migrated };
 }
 
 /** 读出全部 key 记录（调用方不应改返回值，写走 saveApiKeys）。 */
 export function listApiKeys(): ApiKeyRecord[] {
-  return normalizeDoc(poolStore().readApiKeys()).keys;
+  const { doc, migrated } = normalizeDoc(poolStore().readApiKeys());
+  if (migrated) {
+    // 读到旧明文就当场洗掉磁盘上的明文，不等下一次写操作
+    try {
+      poolStore().writeApiKeys(doc);
+    } catch {
+      // 写失败（只读存储等）：本次内存里已无明文，下次读取会重试迁移
+    }
+  }
+  return doc.keys;
 }
 
 function saveApiKeys(keys: ApiKeyRecord[]): void {
@@ -129,6 +150,8 @@ export function createApiKey(input: {
   rpmLimit: number;
 }): { record: ApiKeyRecord; plain: string } {
   const plain = `mmx_${randomBytes(24).toString("hex")}`;
+  // 密钥不可用时仍要建出可校验的 key（哈希 + 前缀足够鉴权），只是复制/接入回读不到 ——
+  // 那条路径本来就会引导用户重建，不该让创建整个失败
   const record: ApiKeyRecord = {
     id: randomBytes(8).toString("hex"),
     name: input.name.trim(),

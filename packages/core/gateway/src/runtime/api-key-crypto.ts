@@ -1,55 +1,82 @@
 /**
- * API key 明文的本地加密（AES-256-GCM）。
+ * API key 明文的本地加密（AES-256-GCM，密文格式 `v1:<iv>:<tag>:<cipher>`）。
  *
- * 为什么要加密：明文落盘后，备份 / 快照 / 支持包 / 日志采集都会带走可用凭据
- * （CWE-256 明文存储认证凭据）。加密密钥单独存在 `<root>/.api-key-secret`（0600），
- * 与 `api-keys.json` 分开 —— 只拿到数据文件的人解不开；同一用户读得到密钥，
- * 那本来就等于读得到进程内存，不构成额外损失。
- *
- * 密文格式：`v1:<ivHex>:<tagHex>:<cipherHex>`。GCM 带认证，篡改会解密失败而不是
- * 悄悄返回垃圾；解不开时调用方按「明文不可用」处理（走重建），不猜。
+ * 密钥**在存储根之外**（OS 配置目录，`MODELMUX_KEYRING` 可覆盖）：数据目录会被
+ * 整体备份 / 打包成支持包，密钥与密文同处一个目录等于没加密。
+ * 密钥文件损坏时两个函数都返回 null，上层按「明文不可用 → 重建」处理，读路径不抛错。
  */
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { rootDir } from "./paths.js";
-
-const KEY_FILE = ".api-key-secret";
+const KEY_FILE = "api-key.key";
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
 const PREFIX = "v1";
 
-/** 读（或首次生成）本地加密密钥；文件权限 0600。 */
-function localKey(): Buffer {
-  const dir = rootDir();
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, KEY_FILE);
-  if (existsSync(file)) {
-    const raw = readFileSync(file);
-    if (raw.length === KEY_BYTES) return raw;
-    // 长度不对（被截断 / 手工改过）：不猜，直接报错让调用方降级到「重建」
-    throw new Error(`api key secret file is corrupt (${raw.length} bytes)`);
+/** 密钥目录覆盖（容器 / 测试用；指向存储根之外的位置）。 */
+const KEYRING_ENV = "MODELMUX_KEYRING";
+
+/**
+ * 密钥目录：与存储根**分离**。
+ *
+ * 用 OS 配置目录而不是 `~/.modelmux`：数据目录会被整体备份、打成支持包、随快照
+ * 分发 —— 密钥在里面等于密文与密钥一起走，加密就白做了。
+ */
+function keyringDir(): string {
+  const override = process.env[KEYRING_ENV];
+  if (override) return override;
+  if (process.platform === "win32") {
+    const appData = process.env["APPDATA"] ?? join(homedir(), "AppData", "Roaming");
+    return join(appData, "modelmux", "keyring");
   }
-  const key = randomBytes(KEY_BYTES);
-  writeFileSync(file, key, { mode: 0o600 });
-  try {
-    chmodSync(file, 0o600);
-  } catch {
-    // Windows 上 chmod 不生效（ACL 由目录继承决定），失败不影响加密本身
-  }
-  return key;
+  const xdg = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
+  return join(xdg, "modelmux", "keyring");
 }
 
-/** 加密明文；返回 `v1:<iv>:<tag>:<cipher>`。 */
-export function sealSecret(plain: string): string {
+/** 读（或首次生成）本地加密密钥；失败（损坏 / 不可写）返回 null。 */
+function localKey(): Buffer | null {
+  const dir = keyringDir();
+  const file = join(dir, KEY_FILE);
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (existsSync(file)) {
+      const raw = readFileSync(file);
+      // 长度不对（被截断 / 手工改过）：不猜、不覆盖（覆盖会静默作废所有已加密记录）
+      return raw.length === KEY_BYTES ? raw : null;
+    }
+    const key = randomBytes(KEY_BYTES);
+    // 原子写：先写临时文件再 rename —— 直接写主文件时进程中断会留下截断的密钥，
+    // 从此所有密文都解不开（且下次启动会误判为「损坏」而无法自愈）
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, key, { mode: 0o600 });
+    renameSync(tmp, file);
+    try {
+      chmodSync(file, 0o600);
+    } catch {
+      // Windows 上 chmod 不生效（ACL 由目录继承决定），失败不影响加密本身
+    }
+    return key;
+  } catch {
+    return null;
+  }
+}
+
+/** 加密明文；密钥不可用时返回 null（调用方按「明文不可用」降级）。 */
+export function sealSecret(plain: string): string | null {
   const key = localKey();
-  const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const body = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `${PREFIX}:${iv.toString("hex")}:${tag.toString("hex")}:${body.toString("hex")}`;
+  if (key === null) return null;
+  try {
+    const iv = randomBytes(IV_BYTES);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const body = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `${PREFIX}:${iv.toString("hex")}:${tag.toString("hex")}:${body.toString("hex")}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -60,8 +87,9 @@ export function sealSecret(plain: string): string {
 export function openSecret(sealed: string): string | null {
   const parts = sealed.split(":");
   if (parts.length !== 4 || parts[0] !== PREFIX) return null;
+  const key = localKey();
+  if (key === null) return null;
   try {
-    const key = localKey();
     const iv = Buffer.from(parts[1]!, "hex");
     const tag = Buffer.from(parts[2]!, "hex");
     const body = Buffer.from(parts[3]!, "hex");
