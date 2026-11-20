@@ -19,6 +19,16 @@ function dedupe(pids: number[]): number[] {
   return [...new Set(pids)];
 }
 
+/**
+ * 子进程输出上限（字节）。
+ *
+ * Node 的 `execFileSync` 默认 `maxBuffer` 只有 1MB，超出直接抛 ENOBUFS —— 本机装了
+ * 代理后 `netstat -ano` 有 1300+ 条连接、输出远超 1MB，端口识别从此恒失败
+ * （表现为「could not identify the owning process」，2026-11-20 实测）。
+ * 64MB 对 netstat / lsof / tasklist 都绰绰有余。
+ */
+const EXEC_MAX_BUFFER = 64 * 1024 * 1024;
+
 /** 返回正在监听指定端口的所有进程 PID。 */
 export function findPortPids(port: number): number[] {
   try {
@@ -28,6 +38,7 @@ export function findPortPids(port: number): number[] {
       const out = execFileSync("netstat", ["-ano", "-p", "tcp"], {
         encoding: "utf8",
         windowsHide: true,
+        maxBuffer: EXEC_MAX_BUFFER,
       });
       const suffix = `:${port}`;
       const pids: number[] = [];
@@ -47,6 +58,7 @@ export function findPortPids(port: number): number[] {
     }
     const out = execFileSync("lsof", ["-ti", `tcp:${port}`, "-sTCP:LISTEN"], {
       encoding: "utf8",
+      maxBuffer: EXEC_MAX_BUFFER,
     });
     return dedupe(
       out
@@ -72,6 +84,7 @@ export function procName(pid: number): string {
       const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
         encoding: "utf8",
         windowsHide: true,
+        maxBuffer: EXEC_MAX_BUFFER,
       });
       const line = out.trim();
       const comma = line.indexOf(",");
@@ -80,7 +93,10 @@ export function procName(pid: number): string {
       if (name.toLowerCase().endsWith(".exe")) name = name.slice(0, -4);
       return name.toLowerCase();
     }
-    const out = execFileSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" });
+    const out = execFileSync("ps", ["-p", String(pid), "-o", "comm="], {
+      encoding: "utf8",
+      maxBuffer: EXEC_MAX_BUFFER,
+    });
     return basename(out.trim());
   } catch {
     return "";
