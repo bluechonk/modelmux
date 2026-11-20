@@ -1358,11 +1358,16 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
    *
    * 渠道同理：统计条是「当前筛选下的这一批请求」的画像 —— 选了某个渠道，成功率 /
    * 慢 / 平均 TPS 就该是那个渠道的，否则换渠道时这几个数纹丝不动，读者会以为统计没生效。
+   * 模型筛选同理（否则「全部 16137」与列表 8 条同屏，更像统计坏了）。
+   * `outcome` / `stream` / `slow` / `q` 有意不进这里：它们各自的命中数就在列表里，
+   * 再收口会让「成功率」随结果分段变化（选「失败」显示 100% 失败），自相矛盾。
    */
-  const inScope = (path: string | undefined, cid: string | undefined): boolean =>
+  const modelNeedle = query.model?.toLowerCase();
+  const inScope = (path: string | undefined, cid: string | undefined, model: string | undefined): boolean =>
     (query.path === undefined || path === query.path) &&
     (query.paths === undefined || query.paths.includes(path ?? "")) &&
-    (query.cid === undefined || cid === query.cid);
+    (query.cid === undefined || cid === query.cid) &&
+    (modelNeedle === undefined || (model ?? "").toLowerCase().includes(modelNeedle));
   /**
    * 下拉用的渠道集合：只受**路径**范围约束，不受 `cid` 约束 ——
    * 否则选中某个渠道后，下拉里只剩它自己，用户没法再切回别的渠道。
@@ -1394,7 +1399,7 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
         if (!entry) continue;
         // 渠道下拉先收（路径范围内全部渠道），再按 cid 收口统计
         if (pathInScope(entry.path) && entry.cid !== undefined) seenCids.add(entry.cid);
-        if (!inScope(entry.path, entry.cid)) continue;
+        if (!inScope(entry.path, entry.cid, entry.model)) continue;
         scanned.push(entry);
         stats.requests += 1;
         stats[outcome] += 1;
@@ -1445,9 +1450,6 @@ export function queryAccessLogs(query: AccessQuery = {}): AccessPage {
     if (query.cid !== undefined && e.cid !== query.cid) return false;
     if (query.stream !== undefined && e.stream !== query.stream) return false;
     if (query.slow === true && !e.slow) return false;
-    if (query.model !== undefined && !(e.model ?? "").toLowerCase().includes(query.model.toLowerCase())) {
-      return false;
-    }
     if (needle !== undefined && needle !== "") {
       const hay = `${e.id} ${e.model ?? ""} ${e.error ?? ""} ${e.message ?? ""}`.toLowerCase();
       if (!hay.includes(needle)) return false;

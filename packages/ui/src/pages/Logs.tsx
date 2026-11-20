@@ -590,11 +590,14 @@ function Filters({
   onOutcome,
   cid,
   onCid,
+  model,
+  onModel,
   pageSize,
   onPageSizeChange,
   dirty,
   onReset,
   allChannels,
+  allModels,
   dateBasis,
 }: {
   /** 窄屏（<735，与表格收敛同口径）：下拉组换行后占满整行靠左排。 */
@@ -606,12 +609,16 @@ function Filters({
   onOutcome: (value: "" | AccessOutcome) => void;
   cid: string;
   onCid: (value: string) => void;
+  model: string;
+  onModel: (value: string) => void;
   pageSize: number;
   onPageSizeChange: (size: number) => void;
   dirty: boolean;
   onReset: () => void;
   /** 全部在册渠道：下拉**恒列全部**（不按当前日志的渠道子集收缩），也是定宽基准。 */
   allChannels: ReadonlyArray<string>;
+  /** 对外模型（去重后的裸名）：与账号池模型清单同源，恒列全部。 */
+  allModels: ReadonlyArray<string>;
   /** 日期下拉的定宽基准（含完整 YYYY-MM-DD）。 */
   dateBasis: ReadonlyArray<string>;
 }): ReactElement {
@@ -645,6 +652,12 @@ function Filters({
   const cidOptions: SelectOption[] = [
     { value: "", label: "全部渠道" },
     ...allChannels.map((value) => ({ value, label: value })),
+  ];
+  // 模型下拉同渠道：恒列对外模型全集（不按当前日志出现的模型收缩），
+  // 选中某个当天没记录的模型时列表为空，也比选项消失更好判断。
+  const modelOptions: SelectOption[] = [
+    { value: "", label: "全部模型" },
+    ...allModels.map((value) => ({ value, label: value })),
   ];
   const toggleClass = (active: boolean): string =>
     `tap rounded-lg border px-2 py-1 text-xs transition-colors ${
@@ -695,6 +708,14 @@ function Filters({
           fixedWidth
           widthBasis={["全部渠道", ...allChannels]}
         />
+        <Select
+          label="模型"
+          value={model}
+          onChange={onModel}
+          options={modelOptions}
+          fixedWidth
+          widthBasis={["全部模型", ...allModels]}
+        />
         <Select label="日期" value={date} onChange={onDate} options={dateOptions} fixedWidth widthBasis={dateBasis} />
         <span className="flex items-center gap-1.5">
           每页
@@ -732,6 +753,7 @@ export function Logs(): ReactElement {
   const [date, setDate] = useState("all");
   const [outcome, setOutcome] = useState<"" | AccessOutcome>("");
   const [cid, setCid] = useState("");
+  const [model, setModel] = useState("");
   const [pageSize, setPageSizeState] = useState(storedPageSize);
   const [pageNum, setPageNum] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -745,6 +767,8 @@ export function Logs(): ReactElement {
    */
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
   const allChannels = Object.keys(state.data?.channel_caps ?? {});
+  /** 对外模型（快照 `models` 的 `model` 去重）：与账号池模型清单同源。 */
+  const allModels = [...new Set((state.data?.models ?? []).map((row) => row.model))];
   /** 日期基准：完整 `YYYY-MM-DD` 恒为最长（「全部时间」更短），不随日期列表增减变化。 */
   const dateBasis = ["全部时间", localToday()];
 
@@ -752,7 +776,7 @@ export function Logs(): ReactElement {
     // `pageSize` 必须进 key：`limit`/`offset`/`totalPages` 都由它推导，漏掉会出现
     // 「第 1 页切每页 50 → 不重取 → 仍是 20 行，而分页器按 50 算」——
     // 更糟的是下一页 offset 按 50 跳，第 21–50 条永远看不到（实测出现过）。
-    queryKey: ["logs", date, outcome, cid, pageNum, pageSize],
+    queryKey: ["logs", date, outcome, cid, model, pageNum, pageSize],
     // 再进页面 / 切筛选时先出上一次的数据（列表页最怕被清空成骨架）
     placeholderData: (prev) => prev,
     queryFn: () =>
@@ -760,6 +784,7 @@ export function Logs(): ReactElement {
         date: date === "" ? undefined : date,
         outcome: outcome === "" ? undefined : outcome,
         cid: cid === "" ? undefined : cid,
+        model: model === "" ? undefined : model,
         limit: pageSize,
         offset: (pageNum - 1) * pageSize,
       }),
@@ -775,7 +800,7 @@ export function Logs(): ReactElement {
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
-  const dirty = date !== "" || outcome !== "" || cid !== "";
+  const dirty = date !== "" || outcome !== "" || cid !== "" || model !== "";
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
   const resetToFirstPage = (): void => setPageNum(1);
   /** 每页条数变化：持久记忆 + 回第 1 页（偏移量跟着 pageSize 走）。 */
@@ -825,6 +850,12 @@ export function Logs(): ReactElement {
             setExpanded(null);
             resetToFirstPage();
           }}
+          model={model}
+          onModel={(value) => {
+            setModel(value);
+            setExpanded(null);
+            resetToFirstPage();
+          }}
           pageSize={pageSize}
           onPageSizeChange={(size) => {
             setPageSize(size);
@@ -832,12 +863,14 @@ export function Logs(): ReactElement {
             setExpanded(null);
           }}
           allChannels={allChannels}
+          allModels={allModels}
           dateBasis={dateBasis}
           dirty={dirty}
           onReset={() => {
             setDate("all");
             setOutcome("");
             setCid("");
+            setModel("");
             setPageNum(1);
             setExpanded(null);
           }}
