@@ -14,21 +14,26 @@
         "workbuddy": "deepseek-v4.1-flash",
         "raccoon": "sn-deepseek-v4-1-flash-1017",
         "codebuddycn": "deepseek-v4.1-flash",
+        "qwenworkcn": "deepseek-flash",
         "catpaw": {
           "slug": "deepseek-v4.1-flash",
           "contextWindow": 600000
         }
       }
     },
-    "qwen3.8-flash": {
-      "contextWindow": 1000000,
-      "maxOutput": 32000,
+    "kimi-k3.1-pro": {
+      "contextWindow": 200000,
+      "maxOutput": 65536,
       "inputModalities": [
-        "text",
-        "image"
+        "text"
       ],
       "channels": {
-        "qwenworkcn": "flash"
+        "codebuddycn": "kimi-k3.1-pro",
+        "workbuddy": "kimi-k3.1-pro",
+        "qwenworkcn": "kimi-k3.1-pro",
+        "raccoon": "sn-kimi-k3-1-pro",
+        "traecn": "kimi-k3.1-pro",
+        "catpaw": "kimi-k3.1-pro"
       }
     }
   }

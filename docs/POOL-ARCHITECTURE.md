@@ -51,7 +51,7 @@
 | 对外模型 id | 渠道侧等价写法（只用于内部归一） | `owned_by` | 候选渠道（**以渠道目录实时声明为准**，下列为实测示例） |
 |---|---|---|---|
 | `deepseek-v4.1-flash` | `deepseek-flash`（workbuddy 的上游 id） | `deepseek` | traecn、loomy、workbuddy、raccoon、codebuddycn、catpaw（渠道级窗口 600k）—— 上游写法逐渠道不同（如 raccoon 的 `sn-deepseek-v4-1-flash-1017`），catpaw 的渠道级窗口见注册表 `channels.catpaw.contextWindow` |
-| `qwen3.8-flash` | — | `alibaba` | qwenworkcn（`flash`）…（千问办公只卖「标准」档，底层型号由上游池化；候选经单渠道收窄表只出 qwenworkcn） |
+| `kimi-k3.1-pro` | `sn-kimi-k3-1-pro`（raccoon 的上游 id） | `moonshot` | codebuddycn、workbuddy、qwenworkcn、raccoon、traecn、catpaw —— 上游写法逐渠道见注册表 `channels` 段 |
 
 **客户端只认这两个名字**：入站解析放行的只有对外公布的裸名（大小写不敏感，可带
 `modelmux/` 前缀与 `[1m]` 后缀）。渠道侧等价写法（`deepseek-flash`、

@@ -85,14 +85,11 @@ export function modelSpec(
  *
  * 这是 **key → id 的映射**，不是曝光白名单：上游目录里的模型都会进目录，
  * 对外暴露哪些由注册表的 `channels` 段决定。
+ *
+ * 历史注记：`flash`（「标准」档）曾映射到 `qwen3.8-flash` 对外档位名；该档位名已移出
+ * 对外家族，映射随之删除 —— `flash` 的对外 id 回落为展示名归一（非家族名，池层不放行）。
  */
-const POOL_KEY_MAP: Record<string, string> = {
-  // 千问办公只卖「标准」档，对外名如实标成档位（`qwen3.8-flash`），不假装是具体型号：
-  // 上游把底层模型池化（响应头 `X-Model-Name: qwork-openai-chat-mode-pool`），
-  // 具体型号名一律 403（实测 2026-11-10）。`pro` / `qwen3.8-max-preview` 不映射，
-  // 于是它们的对外 id 不是家族名，池层不会放行。
-  flash: "qwen3.8-flash",
-};
+const POOL_KEY_MAP: Record<string, string> = {};
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;

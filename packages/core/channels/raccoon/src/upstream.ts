@@ -7,7 +7,9 @@
  *   - `max_tokens` 只放行安全正整数（0/负数/NaN 会让整轮对话起不来）；`tools` 必须真的下发到请求体顶层。
  */
 
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { release } from "node:os";
 
 import { ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
 
@@ -88,8 +90,10 @@ const SETTING_INFO_PATH = `${OFFICE_PREFIX}/setting_info`;
 export const AUTHORIZATION_CODE_NOT_FOUND = 200035;
 
 /** 客户端身份（`X-Client-Platform` 猜错会被拒）。 */
-const CLIENT_PLATFORM = "desktop-windows";
-export const USER_AGENT = "Raccoon Work/1.0.35 (Windows)";
+const CLIENT_PLATFORM = "desktop-windows-x64";
+/** 1.1.x 客户端版本（官方桌面 1.1.5，xhx2api 抓包形态；Agent2Providers 同值）。 */
+const CLIENT_VERSION = "v1.1.5";
+export const USER_AGENT = "Raccoon Work/1.1.5 (Windows)";
 
 /** 上游线型：标准 OpenAI 兼容 SSE，网关只需规范化透传。 */
 export const WIRE: "openai" | "custom" = "openai";
@@ -276,6 +280,75 @@ export function buildHeaders(credential: AuthLike, opts: HeaderOptions = {}): Re
   }
   if (platform) headers["X-Client-Platform"] = CLIENT_PLATFORM;
   return headers;
+}
+
+/**
+ * 对话请求头族（网关 `buildChatHeaders` 钩子）：基础头 + 1.1.x 客户端身份六件套 +
+ * 链路与会话关联头。
+ *
+ * 生态实测（JustCnc / Agent2Providers / xhx2api 交叉）：六件套里 `x-client-version`
+ * 必须匹配 `v?<x.y.z>`，不合法时**整组头被上游丢弃**；会话关联头里 Session-ID 要在
+ * 会话内稳定（按首条 user 消息派生），每请求随机会话 id = 上游看到「新会话 + 完整
+ * 历史」的矛盾形态。Turn-ID 官方形态是 `<session>-turn-<n>`，我们没有跨轮状态，
+ * 用消息集哈希代替序号（同一次重试自然稳定）。
+ */
+export function buildChatHeaders(credential: AuthLike, _cfg?: unknown, body?: Buffer): Record<string, string> {
+  const headers = buildHeaders(credential);
+  const sessionId = sessionIdOf(body, credential.accessToken);
+  headers["x-client-name"] = "@raccoon/office-desktop";
+  headers["x-client-platform"] = CLIENT_PLATFORM;
+  headers["x-client-version"] = CLIENT_VERSION;
+  headers["x-client-os-version"] = release();
+  headers["x-client-channel"] = "official";
+  headers["x-client-device-id"] = deviceHash(credential.accessToken);
+  headers["X-Request-Id"] = `relay_js_${Date.now()}_${randomBytes(4).toString("hex")}`;
+  headers["X-RACCOON-Session-ID"] = sessionId;
+  headers["X-RACCOON-Turn-ID"] = `${sessionId}-turn-${turnHash(body)}`;
+  return headers;
+}
+
+/** 会话指纹：首条 user 消息派生（会话内稳定）；无消息体时随机。 */
+function sessionIdOf(body?: Buffer, fallbackSeed = ""): string {
+  const firstUser = firstUserText(body);
+  if (firstUser === "" && fallbackSeed === "") return `ses-${randomUUID()}`;
+  const digest = createHash("sha256")
+    .update(firstUser === "" ? fallbackSeed : firstUser, "utf8")
+    .digest("hex");
+  return `ses-${digest.slice(0, 32)}`;
+}
+
+/** 轮次指纹：整段消息集的哈希（同一次重试稳定，不同轮次不同）。 */
+function turnHash(body?: Buffer): string {
+  return createHash("sha256").update(body ?? Buffer.from("empty", "utf8")).digest("hex").slice(0, 8);
+}
+
+/** 设备指纹：账号令牌派生（同账号稳定；随机值反而像「每次换设备」的风控信号）。 */
+function deviceHash(seed: string): string {
+  return createHash("sha256").update(`device:${seed}`, "utf8").digest("hex").slice(0, 32);
+}
+
+/** 请求体里首条 user 消息的文本（string 或 content 数组的 text 段）。 */
+function firstUserText(body?: Buffer): string {
+  if (!body) return "";
+  try {
+    const parsed = JSON.parse(body.toString("utf8")) as { messages?: Array<Record<string, unknown>> };
+    for (const m of Array.isArray(parsed.messages) ? parsed.messages : []) {
+      if ((m?.["role"] ?? "") !== "user") continue;
+      const content = m["content"];
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) {
+        return content
+          .map((p) => (p && typeof p === "object" && (p as Record<string, unknown>)["type"] === "text"
+            ? String((p as Record<string, unknown>)["text"] ?? "")
+            : ""))
+          .join("");
+      }
+      return "";
+    }
+  } catch {
+    /* 解析失败 → 空 */
+  }
+  return "";
 }
 
 /** 探活/管理端点用的头（JSON Accept，无 platform）。 */

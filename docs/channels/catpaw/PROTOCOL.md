@@ -517,6 +517,20 @@ mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
 
 ## 参考实现
 
+### 7.x 2026-11-20 生态对齐（loomy2api 同轮调研落地）
+
+- **余额闸门**：额度为 0 时上游回 HTTP 200 + 助手正文，判据是帧内无 `model`/`modelDisplayName`
+  字段 + 余额措辞（magpie #933 多源实测）。翻译器转成 402 错误帧，`quotaSignal(200, 正文)`
+  认同一措辞——账号冷却、请求换下一家候选。
+- **429 渠道级频控**：建会话约 6 次/窗口、冷却 ~41s（magpie-catpaw 真机）；
+  `quotaSignal(429)` 报 rate_limit，走渠道级短冷却、不烧账号连败。
+- **原生工具通道**：上游支持 `toolConfigs[]` + `fromClient` + 结构化 tool_use 往返
+  （Agent2Providers tools.rs）——此前「上游无原生用户工具通道」的表述**作废**；迁移待真机。
+- **目录过滤**：`extendedInfo.isAuto`（自动选择入口）与 `provider=USER_CUSTOM`（依赖客户端
+  本地 apiKey）不是真实上游模型，解析层直接丢弃；响应兼容 `data.modelTypes` 双形态。
+- **风险登记**（待真机复核，未改实现）：`permissionMode` 取值分歧（抓包 unsafeBypassPermissions
+  vs 本仓 default）；图片路径分歧（内联 base64 vs S3 转存）。
+
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**

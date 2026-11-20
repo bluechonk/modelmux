@@ -710,6 +710,22 @@ mx model raccoon --refresh
 
 ## 参考实现
 
+### 7.x 2026-11-20 生态对齐
+
+- **客户端身份头族六件套**（`x-client-name/@raccoon/office-desktop`、`x-client-platform/
+  desktop-windows-x64`、`x-client-version/v1.1.5`、`x-client-os-version`、`x-client-channel/
+  official`、`x-client-device-id` 按账号派生）+ `X-Request-Id`（relay_js_ 形态）+ 会话关联头
+  （`X-RACCOON-Session-ID` 首条 user 消息派生会话内稳定；`X-RACCOON-Turn-ID` 消息集哈希）。
+  版本不合法时整组头被上游丢弃（JustCnc），取抓包值。
+- **IAM 令牌体系**（官方桌面端已签发）：`iss=<host>/iam`、`sub=pu-*`、30 天、无 refresh_token；
+  `/api/web/auth/v1/iam/confirm` 必需。本仓 JWT/uid 口径需兼容分支——**待真机拿到 IAM 票后
+  实现，本轮未改**。
+- **授权页校验器变更风险**（待真机复核，未改实现）：现行解析器要求 64-hex state + `/auth/callback`
+  路径 + `desktop_callback=loopback`；本仓 32-hex + `/callback` 形态不在 2026-11-05 解析器
+  白名单内。失效即改（三份实现已走通新形态）。
+- 账单 `type=income` 与 `total_chargeable_points`（可扣总量应作主字段）、目录 `display_name`
+  （`description` 已是内部代号）——本轮未改，登记待办。
+
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 下表与 `packages/core/channels/raccoon/reference/` 下实际 clone 的目录逐条对应。
 

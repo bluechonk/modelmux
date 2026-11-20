@@ -446,10 +446,12 @@ describe("model-family / model-prefs", () => {
   it("isClientModelId：只认对外公布的两个裸名", () => {
     assert.equal(isClientModelId("deepseek-v4.1-flash"), true);
     assert.equal(isClientModelId("DeepSeek-V4.1-Flash"), true);
-    assert.equal(isClientModelId("qwen3.8-flash"), true);
-    // 历史别名与渠道目录写法：内部能归一，但客户端不许用
+    assert.equal(isClientModelId("kimi-k3.1-pro"), true);
+    assert.equal(isClientModelId("Kimi-K3.1-Pro"), true);
+    // 历史别名与渠道目录写法：内部能归一，但客户端不许用；qwen3.8-flash 已移出家族
     assert.equal(isClientModelId("deepseek-flash"), false);
     assert.equal(isClientModelId("sn-deepseek-v4-1-flash-1017"), false);
+    assert.equal(isClientModelId("qwen3.8-flash"), false);
     assert.equal(isClientModelId("LongCat-2.5"), false);
   });
 

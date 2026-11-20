@@ -97,8 +97,9 @@ describe("仓库级模型池", () => {
     );
     const ownerOf = (id: string): string => payload.data.find((m) => m.id === id)!.owned_by;
     assert.equal(ownerOf("deepseek-v4.1-flash"), "deepseek");
-    assert.ok(ids.includes("qwen3.8-flash"), `应包含 qwen3.8-flash（实际 ${ids.join(", ")}）`);
-    assert.equal(ownerOf("qwen3.8-flash"), "alibaba");
+    assert.ok(ids.includes("kimi-k3.1-pro"), `应包含 kimi-k3.1-pro（实际 ${ids.join(", ")}）`);
+    assert.equal(ownerOf("kimi-k3.1-pro"), "moonshot");
+    assert.ok(!ids.includes("qwen3.8-flash"), "qwen3.8-flash 已移出对外家族");
   });
 
   it("同一个模型的候选是**多家**渠道（按剩余额度降序，渠道由网关挑）", () => {
@@ -111,13 +112,14 @@ describe("仓库级模型池", () => {
     assert.deepEqual(candsOf("glm-5.3-flash"), [], "glm 已移出对外家族");
   });
 
-  it("家族模型的候选来自渠道目录：qwen3.8-flash 收窄后只含 qwenworkcn", () => {
-    // 候选 = 渠道目录现算 ∪ 注册表兜底，再经 SINGLE_CHANNEL_SUPPLY 收窄：
-    // qwen3.8-flash 只从 qwenworkcn 出（其余渠道的 qwen 条目一律不进候选）。
+  it("家族模型的候选来自渠道目录：kimi-k3.1-pro 为多渠道供给，qwen3.8-flash 已移出家族", () => {
+    // 候选 = 渠道目录现算 ∪ 注册表兜底。kimi-k3.1-pro 2026-11-20 放开，六家在册渠道都应能供；
+    // qwen3.8-flash 移出家族后池层候选恒为空（canonicalOf 不再命中）。
     const mustHave: Array<[model: string, cid: string]> = [
       ["deepseek-v4.1-flash", "traecn"],
       ["deepseek-v4.1-flash", "catpaw"],
-      ["qwen3.8-flash", "qwenworkcn"],
+      ["kimi-k3.1-pro", "qwenworkcn"],
+      ["kimi-k3.1-pro", "traecn"],
     ];
     for (const [model, cid] of mustHave) {
       assert.ok(
@@ -125,13 +127,8 @@ describe("仓库级模型池", () => {
         `${cid} 的目录声明供 ${model}，应出现在候选里`,
       );
     }
-    // 收窄后的 qwen3.8-flash 不再从其它渠道出（目录里仍声明供给也不进候选）
-    for (const cid of ["qoder"]) {
-      assert.ok(
-        !gw.poolCandidates("qwen3.8-flash").some((c) => c.cid === cid),
-        `qwen3.8-flash 收窄后 ${cid} 不应进候选`,
-      );
-    }
+    // 移出家族：任何渠道都不再供给（注册表条目已删）
+    assert.deepEqual(gw.poolCandidates("qwen3.8-flash"), [], "qwen3.8-flash 已移出对外家族");
   });
 
   it("候选来自渠道目录 ∪ 注册表兜底（不再以注册表为唯一口径）", () => {

@@ -860,6 +860,13 @@ const TERMINAL_OK = new Set([
 ]);
 const TERMINAL_ERROR = new Set(["error", "failed", "failure", "terminated"]);
 
+/**
+ * 余额闸门措辞（magpie #933 多源实测）：额度为 0 时上游回 HTTP 200 + 助手正文而不是
+ * 错误码，判据是帧内**没有 model/modelDisplayName** + 措辞命中；不拦会把报错原文当
+ * 模型回答流给客户端。措辞收紧到「当前余额不足」与购买链接锚点，避免误杀正常帧。
+ */
+const BALANCE_GATE_RE = /当前余额不足以完成本次操作|余额不足|credit\.catpaw\.meituan\.com/;
+
 function statusText(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -1047,6 +1054,17 @@ function decodeFrame(
     }
   } else if (typeof msg["text"] === "string") {
     accumulated = msg["text"];
+  }
+
+  // 余额闸门（帧内无 model 字段 + 措辞命中 → 按额度耗尽上报，不再外发正文）。
+  // 判据必须在正文外发**之前**；只在累积文本非空时判 —— 生命周期帧同样没有
+  // model 字段，不能拿空串误杀。
+  const hasModelId = (typeof msg["model"] === "string" && msg["model"] !== "")
+    || (typeof msg["modelDisplayName"] === "string" && msg["modelDisplayName"] !== "");
+  if (!hasModelId && accumulated !== "" && BALANCE_GATE_RE.test(accumulated)) {
+    events.push({ type: "error", message: accumulated, code: 402 });
+    onTerminal();
+    return events;
   }
   if (accumulated) {
     const delta = diff.textDelta(accumulated);
@@ -1571,6 +1589,18 @@ function traceStream(message: string): void {
   if (TRACE_STREAM) console.error(`[catpaw] ${message}`);
 }
 
+/**
+ * 额度信号（网关钩子）：流内余额闸门走 HTTP 200 正文，判据与流识别同一套措辞；
+ * 显式 402 也认。429 是渠道级频控（建会话 ~6 次/窗口，冷却 ~41s，magpie-catpaw
+ * 真机），按 rate_limit 走渠道级短冷却，不烧账号连败。
+ */
+export function quotaSignal(status: number, body: string): "balance" | "rate_limit" | null {
+  if (status === 402) return "balance";
+  if (status === 429) return "rate_limit";
+  if (status === 200 && BALANCE_GATE_RE.test(body)) return "balance";
+  return null;
+}
+
 /** 拉模型目录，回填 catalog。 */
 export async function fetchModels(credential: CredentialShape): Promise<Record<string, unknown>> {
   // 模型目录是普通 JSON 端点（实测 Accept: application/json）
@@ -1590,10 +1620,13 @@ export async function fetchModels(credential: CredentialShape): Promise<Record<s
   if (!resp.ok) throw new Error(`model-types HTTP ${resp.status}`);
   const parsed = (await resp.json()) as Record<string, unknown>;
   const data = "data" in parsed ? parsed["data"] : parsed;
+  // 响应双形态：`data` 直接是数组 / `data.models[]` / `data.modelTypes[]`（dsh-catpaw 抓包）
   const rows = Array.isArray(data)
     ? data
     : data && typeof data === "object"
-      ? ((data as Record<string, unknown>)["models"] as unknown[])
+      ? ((data as Record<string, unknown>)["models"] as unknown[] | undefined)
+        ?? ((data as Record<string, unknown>)["modelTypes"] as unknown[] | undefined)
+        ?? []
       : [];
   const entries = [];
   for (const row of rows) {

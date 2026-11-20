@@ -643,6 +643,23 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ## 已知边界
 
+### 7.x 2026-11-20 生态对齐
+
+- **版本三元组升级**：5.11.3 / CLI 2.176.0（misakano headers.go 2026-11 抓包），并补齐
+  5.11.3 追加的 `X-Client-Version/Platform/Product` + `X-Agent-Runtime: local-agent`——
+  只升 UA 不升头集 = 混合指纹（misakano issue #257）。
+- **`X-Private-Data` 按账号形态取值**：CN 个人 false / 企业 true（testdata official_chat_head.txt）；
+  对话恒 true 的旧口径**作废**。
+- **取账号档案切 `/v2/plugin/account`**（dingminhua #267/#268：`login/account` 恒回 12151），
+  旧端点降为兜底。
+- **错误码表扩充**：11129/11133/11152/11155/11158（请求体协议类，换号无用）、11134（供应商
+  过载，soft_rate）、10105（60s 重置，渠道级短冷却）；**11140 双语义**按 displayMsg 细分
+  （含「异常行为/限制使用」才是账号级）。
+- **指纹改写扩充**：`DeepSeekRuntime`（两种写法）与 `workspace root` 句（misakano sanitize.go /
+  Android-AI-gateway #16）。
+- **风险登记**：上游开始禁反代（原主仓停维护、Sliverkiss 删库）；消息条数上限 512
+  （Agent2API #48）——超限在建连前报错（codebuddycn 同款）。
+
 ### 7.1 明确不做（不实现）
 
 手机号 OneID/Keycloak 路线、桌面端 `.info` 路线（§2.1）、多账号挑号、限流护栏全套、

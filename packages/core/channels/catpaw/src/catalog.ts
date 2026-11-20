@@ -282,6 +282,13 @@ export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
   };
   const id = pick("id", "modelId", "modelTypeName");
   if (!id) return null;
+  // 「自动选择」入口与用户自建模型不是真实上游模型（Agent2Providers catalog.rs 同口径）：
+  // isAuto 条目没有 rateMultiplier/parameterDefinitions，USER_CUSTOM 依赖客户端本地 apiKey。
+  const ext = row["extendedInfo"];
+  const isAuto = ext && typeof ext === "object" && !Array.isArray(ext)
+    ? (ext as Record<string, unknown>)["isAuto"] === true || (ext as Record<string, unknown>)["isAuto"] === "true"
+    : false;
+  if (isAuto || row["provider"] === "USER_CUSTOM") return null;
   const num = (...keys: string[]): number => {
     for (const key of keys) {
       const v = row[key];

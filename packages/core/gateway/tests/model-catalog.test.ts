@@ -73,7 +73,7 @@ function makeChannel(cid: string, exposed: string[]): Channel {
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
     },
     catalog: {
-      // 对外模型池只收家族表里的名字；纯非家族名（如 qwen / kimi）不进快照。
+      // 对外模型池只收家族表里的名字；纯非家族名（如 qwen 档位 / longcat）不进快照。
       exposedIds: () => exposed,
       resolveModel: (name: string) => name,
     },
@@ -94,9 +94,9 @@ describe("统一模型目录快照", () => {
     clearChannels();
     // 一个渠道供一个对外型号；另一个只供家族外的名字（不进池）
     setChannel(makeChannel(CID, ["deepseek-v4.1-flash"]));
-    // qwen3.8-flash 收窄到 qwenworkcn 单渠道（SINGLE_CHANNEL_SUPPLY）：mock 渠道名
-    // 必须与收窄表指定渠道一致，否则 qwen 候选被挡、快照缺 qwen（实测 2 !== 3）。
-    setChannel(makeChannel("qwenworkcn", ["deepseek-v4-flash", "qwen3.8-flash"]));
+    // kimi-k3.1-pro 2026-11-20 放开为多渠道家族模型：qwenworkcn 桩供它（目录里
+    // 另一条 deepseek-v4-flash 非家族名，验证它不进快照）。
+    setChannel(makeChannel("qwenworkcn", ["deepseek-v4-flash", "kimi-k3.1-pro"]));
   });
 
   after(() => {

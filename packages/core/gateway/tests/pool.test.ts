@@ -261,7 +261,7 @@ describe("1. /v1/models 只暴露对外家族；请求用裸模型名", () => {
     assert.equal(alphaUp.captured.length, 0);
   });
 
-  it("不在家族里的模型 → 400 unknown_model", async () => {
+  it("已移出家族的档位名 → 400 unknown_model（qwen3.8-flash）", async () => {
     const { status, text } = await chat(gw, "qwen3.8-flash");
     assert.equal(status, 400);
     assert.equal((JSON.parse(text) as { error: { code: string } }).error.code, "unknown_model");
@@ -448,7 +448,7 @@ describe("4. 单渠道模式也走同一个池", () => {
   });
 
   it("家族内但本渠道没有 → 400 unknown_model", async () => {
-    const { status } = await chat(gw, "qwen3.8-flash");
+    const { status } = await chat(gw, "kimi-k3.1-pro");
     assert.equal(status, 400);
   });
 

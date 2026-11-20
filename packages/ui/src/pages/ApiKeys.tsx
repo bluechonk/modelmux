@@ -69,7 +69,7 @@ function CreateCard({ onCreated }: { onCreated: () => void }): ReactElement {
           <Input
             value={models}
             onChange={(e) => setModels(e.target.value)}
-            placeholder="deepseek-v4.1-flash, qwen3.8-flash"
+            placeholder="deepseek-v4.1-flash, kimi-k3.1-pro"
             className="w-72"
           />
         </label>

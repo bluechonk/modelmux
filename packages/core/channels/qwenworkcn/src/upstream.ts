@@ -212,7 +212,9 @@ class CosySession {
       "cosy-machineid": this.machineId,
       "cosy-machinetoken": this.machineToken,
       "cosy-machinetype": this.machineType,
-      "cosy-clienttype": "5", // CLI 身份（与 `/sash` 的桌面身份 10 是两回事）
+      // 千问办公的 CLI 身份是 6（5 是 Qoder CLI 的值；六处生态实现一致）。
+      // 上游校验 body 的 session_type 必须与 clienttype 匹配，改这里时两处要一起动。
+      "cosy-clienttype": "6",
       "cosy-data-policy": "AGREE",
       "cosy-clientip": "169.254.198.161",
       "login-version": "v2",
@@ -220,11 +222,21 @@ class CosySession {
       accept: sse ? "text/event-stream" : "application/json",
       "accept-encoding": "identity",
       "user-agent": "Go-http-client/2.0",
+      // 官方客户端身份头族（Agent2Providers cosy.rs / Buddy2api chat.py 同款）：
+      // 推理链路此前只有 billing 侧带这组头，属于指纹缺口。版本取 billing 同款现行值。
+      "X-QwenWork-Version": "1.3.1",
+      "X-QwenWork-Release-Version": "1.3.1-26101419",
+      "X-QwenWork-Build": "26101419",
+      "X-QwenWork-Platform": "win32",
+      "X-QwenWork-Arch": "x64",
+      "X-QwenWork-Channel": "stable",
+      "X-QwenWork-App-Mode": "standard",
     };
     if (sse) headers["cache-control"] = "no-cache";
     if (modelKey) {
       headers["x-model-key"] = modelKey;
       headers["x-model-source"] = "system";
+      headers["x-internal-model-key"] = modelKey;
     }
     return headers;
   }
@@ -466,6 +478,10 @@ function buildRequestBody(
   const limits: Record<string, unknown> = { ...req };
   openaiNormalize.translateMaxCompletionTokens(limits);
   const parameters: Record<string, unknown> = {};
+  // context_length 显式声明上下文窗口（Agent2Providers protocol.rs：长对话不给这个字段
+  // 会在中途被上游拒）；值取 model_config 的 max_input_tokens，与官方客户端同源。
+  parameters["context_length"] =
+    typeof modelConfig["max_input_tokens"] === "number" ? modelConfig["max_input_tokens"] : 1_000_000;
   if (typeof limits["max_tokens"] === "number") parameters["max_tokens"] = limits["max_tokens"];
   if (typeof req["temperature"] === "number") parameters["temperature"] = req["temperature"];
   const effort = normalizeReasoningEffort(typeof req["reasoning_effort"] === "string" ? req["reasoning_effort"] : "");
@@ -511,7 +527,8 @@ function buildRequestBody(
       stage: "start",
     },
   };
-  if (tools.length > 0) body["tools"] = tools;
+  // tools 恒发数组（xiao-hans 1.2.0 规格 §3.12：无工具时空数组，省略键会让模型用正文臆造工具调用）
+  body["tools"] = tools;
   if (Object.keys(parameters).length > 0) body["parameters"] = parameters;
   return body;
 }
@@ -622,15 +639,18 @@ export function isQueueError(frame: Record<string, unknown>): boolean {
 /**
  * 额度信号：QwenWorkCN 的额度 / 权益类业务错误。
  *
- * 判据：内层 `code` 为 `110` / `112`，或 `message` 含 `pricingUrl`（引导用户去充值，
- * 语义即额度/权益不足）。共享层的通用措辞认不出它，必须由渠道上报，否则账号不会被冷却。
+ * 码表（Agent2Providers errors.rs + xrp-cosy 协议深潜，2026-11 交叉）：
+ * 额度族 `110/112/113/114/115/116/117/118/119/122`（引导充值的 `pricingUrl` 常伴生）；
+ * `105` = 登录态失效；`103` = 同签名材料重发（反重放，每次请求新签名不受影响）。
+ * 共享层的通用措辞认不出这些码，必须由渠道上报，否则账号不会被冷却、反复撞同一账号。
  *
- * TODO(小鲸鲸): 这两枚码是从 qoder 侧协议抄来的，本渠道至今没实测到（PROTOCOL 的实测记录
- * 里没有 110 / 112 / pricingUrl 任何一条）。清理条件：真机抓到本渠道的业务错误帧，
- * 按真实码重写判据。
+ * TODO(小鲸鲸): 码表仍以生态实现为源，本渠道至今没实测到逐枚业务码（PROTOCOL 的实测记录
+ * 里没有这些码）。清理条件：真机抓到本渠道的业务错误帧，按真实码校准判据。
  */
 export function quotaSignal(_status: number, body: string): "balance" | null {
-  return /pricingUrl|"code"\s*:\s*"?(?:110|112)\b/.test(body) ? "balance" : null;
+  return /pricingUrl|"code"\s*:\s*"?(?:110|112|113|114|115|116|117|118|119|122)\b/.test(body)
+    ? "balance"
+    : null;
 }
 
 /**

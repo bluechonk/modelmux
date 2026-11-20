@@ -229,7 +229,7 @@ describe("model spec：聚合 + 全局规格 + 逐渠道", () => {
 
   it("没有渠道供给该模型 → 明说未登录 / 目录未就绪", async () => {
     setChannel(makeChannel("alpha"));
-    const r = await run(["model", "spec", "qwen3.8-flash"]);
+    const r = await run(["model", "spec", "kimi-k3.1-pro"]);
     assert.equal(r.code, 0, r.err);
     assert.ok(r.out.includes("当前没有渠道供给这个模型"), r.out);
   });

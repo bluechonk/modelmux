@@ -270,6 +270,23 @@ node .tmp/probe-qwenworkcn-e2e.mjs             # 走网关，验池路由与 1M 
 
 ## 参考实现
 
+### 7.x 2026-11-20 生态对齐
+
+- **`cosy-clienttype` 5 → 6**：千问办公的 CLI 身份是 6（5 是 Qoder CLI 的值；六处生态实现一致）。
+  `session_type: qoder_work` 与之配对。
+- **`X-QwenWork-*` 身份头族补进推理链路**（此前只有 billing 侧带）：Version/Release-Version/
+  Build/Platform/Arch/Channel/App-Mode，取值与 billing 同款；另补 `x-internal-model-key`。
+- **`parameters.context_length` 恒发**（Agent2Providers protocol.rs：长对话缺该字段中途被拒）；
+  `tools` 恒发空数组（无工具时省略键会让模型臆造工具调用）。
+- **额度码表扩到 110-119 族 + 122**（Agent2Providers errors.rs + xrp-cosy 深潜交叉）。
+- **目录实拉（2026-11-20）**：`qwork` 桶 13 档全 enable，含 qwen4-max(1.6×)、deepseek-flash
+  (DeepSeek-V4.1-Flash, 0.1×)、kimi-k3.1-pro(2.4×) 等第三方档；运行时按展示名自动归一。
+  `POOL_KEY_MAP` 的 `flash` 映射随 `qwen3.8-flash` 移出对外家族一并删除。
+- **备查**：MaaS 直连通道（`POST /api/desktop-sessions` → sk-mm-v1 token + 独立 base_url，
+  免 COSY 签名）在生态已有实现；工程代价在取 JWT，本轮不接。
+- **风险登记**：版本门（COSY 1.1.52-1.1.71 / 客户端 2.1.0 均有实测可用报告，本仓 1.1.32
+  暂可用）——被拒时优先升级这组常量。
+
 clone 到 `packages/core/channels/qwenworkcn/reference/` 下的学习材料（**不入库**，
 由渠道 `.gitignore` 忽略）。许可证见 [REFERENCES](../../REFERENCES.md)。
 

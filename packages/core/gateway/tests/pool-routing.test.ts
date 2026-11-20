@@ -116,8 +116,8 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     clearChannels();
     setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
-    // qwen3.8-flash 收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
-    setChannel(stubChannel("qwenworkcn", ["qwen3.8-flash"]));
+    // kimi-k3.1-pro 现为多渠道供给（qwenworkcn 也在册）：桩验证非 deepseek 家族同样收得进候选。
+    setChannel(stubChannel("qwenworkcn", ["kimi-k3.1-pro"]));
 
     // 上游 id 由**注册表**逐渠道声明（不再从目录原始写法推）：候选里带的是规范名，
     // 真正的上游 slug 由 `resolvePoolModel()` 查表得到（大小写敏感的上游写法在那里保留）
@@ -212,12 +212,12 @@ describe("3. poolCandidates：跨渠道收集（按账号池剩余额度降序�
     clearChannels();
     setChannel(stubChannel("alpha", ["DeepSeek-V4.1-Flash"]));
     setChannel(stubChannel("beta", ["sn-deepseek-v4-1-flash", "deepseek-v4.1-flash"]));
-    // qwen3.8-flash现收窄到 qwenworkcn（SINGLE_CHANNEL_SUPPLY）：mock 渠道名对齐收窄表。
-    setChannel(stubChannel("qwenworkcn", ["qwen3.8-flash"]));
+    // kimi-k3.1-pro 2026-11-20 放开为多渠道家族模型：qwenworkcn 桩供它，池视图应出现。
+    setChannel(stubChannel("qwenworkcn", ["kimi-k3.1-pro"]));
     const pool = [...POOL_MODELS];
     assert.deepEqual(
       pool,
-      ["deepseek-v4.1-flash", "qwen3.8-flash"],
+      ["deepseek-v4.1-flash", "kimi-k3.1-pro"],
       "只列有货的 canonical 模型（别名 deepseek-flash 不单独出现）",
     );
   });

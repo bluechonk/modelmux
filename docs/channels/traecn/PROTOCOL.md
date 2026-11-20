@@ -870,6 +870,18 @@ ZCode 会话（session `d2b4c141`，30 次请求）调 `traecn/deepseek-v4.1-fla
 
 ## 参考实现
 
+### 7.x 2026-11-20 生态对齐
+
+- **10101 客户端归属重试**：refresh token 与 client_id 归属由 OAuth client 强制（旧端点同样
+  生效）；`10101 not matched to the client` 时自动换 SOLO 线 `en1oxy7wnw8j9n` 重试一次
+  （dingminhua 四版本矩阵；401/403/2xx-无 token 三种形态都先读 body 再定）。
+- **风险登记（未改实现）**：续期契约已迁 `/trae/api/v3/oauth/ExchangeToken` + DeviceInfo +
+  DeviceProof（P-256 设备签名）；旧端点签出的 JWT 不带设备绑定、签到恒回 9074（magpie 引
+  yetone/magpie#808 并排实测）。本仓仍走旧端点，靠自造 15 位设备号过签到——上游一旦对
+  消费网关强制设备绑定，续期与签到同时失效，需按新契约重做真机验证。
+- PKCE 新登录（22 参数 + code_challenge）双轨并存，短期不影响；登记为风险。
+- UG 签到设备号口径：16 位被拒、15 位收（magpie #709 三账号实测）——维持本仓 15 位派生。
+
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 仓库 | 用途 |

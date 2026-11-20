@@ -17,7 +17,7 @@ import { after, before, describe, it } from "node:test";
 import { integrateClient, restoreClient } from "../dist/app/integrate.js";
 import { poolModelMetas } from "../dist/pool/pool-targets.js";
 
-const MODELS = ["deepseek-v4.1-flash", "qwen3.8-flash"];
+const MODELS = ["deepseek-v4.1-flash", "kimi-k3.1-pro"];
 const GATEWAY_BASE = "http://127.0.0.1:4412/v1";
 
 let home = "";

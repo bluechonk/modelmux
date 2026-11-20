@@ -128,24 +128,40 @@ POST /v2/billing/meter/daily-checkin   → {code, msg}
 领取幂等：今天已签返回 HTTP 400 `code=10001`（`msg`「今天已签到，请明天再来」），
 按「已签」处理，不算失败 `[实测]`。
 
-### 7.3 已知限制：Agent 长任务被渠道校验拦截
-
-带工具的 Agent 长任务（如 dsh 端到端）实测被上游拒：
+### 7.3 渠道校验（11128）：提示词指纹拦截
 
 ```
 HTTP 400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel",
   "displayMsg":{"zh":"请求被拦截，请重新发送"}}
 ```
 
-- 触发面：**带 tools 的大请求**（本机实测 dsh 长任务请求体 ~1 MB、`toolCount` 24）被拦；
-  同账号同模型的无工具小请求（`toolCount` 0，几 KB）HTTP 200 正常返回 `[实测 2026-11-13]`。
-- 网关行为：按「上游非 200 → 换下一条候选」顺延到下一家渠道（实测顺延到 loomy），
-  不重试同一渠道；该渠道的界面额度与账号状态照常显示可用 `[实测] `。
-- 结论：本渠道的**额度与简单对话可用**，但**不适合承载 Agent 工具长任务**；
-  这类流量走别的候选渠道。判成上游渠道校验（而非本仓协议 bug）的判据是
-  `code:11128` + `unapproved channel` 文案 `[实测]`。
+- **真实触发因是提示词指纹，不是「带 tools 的大请求」**（2026-11 官方回复 + 多源实测：
+  Buddy2api #115 官方明确「针对反代滥用，对 DeepSeek Harness 做提示词检测，不是账号问题」；
+  magpie REFUSED.md 七组探针：改一个词即过、不扣额度、不封号、换号无用；检测读 system
+  与 assistant 消息，不读 user 与工具结果）。早先把归因写成「tools 大请求」是**共线误判**
+  —— 两者都在 DSH 长任务里出现。
+- 已知触发表（会随上游更新）：`DeepSeek Harness` / `DeepSeekRuntime`（两种写法都要覆盖）、
+  `workspace root` 路径说明的连续两句、字面量 `11-128`；同一请求在不同端点主机上判定不同
+  （Android-AI-gateway #16 增量探针）。**触发表过期时按上面出处重新取样。**
+- 网关行为：出站前对 system/assistant 文本做最小同义改写（`upstream.ts` 的
+  `REFUSAL_REWRITES`），不用零宽字符；改写不了的形态（如 `11-128` 字面量）按 400 如实透传。
+- 消息条数硬上限：**512 条**（Agent2API #48 实测 511 过 / 512 断连，与体积无关）；
+  `buildChatBody` 在建连前就拒绝，报错文案带实际条数。
+- 判成渠道校验（而非协议 bug）的判据：`code:11128` + `unapproved channel` 文案。
 
 ## 8. 证据等级
+
+### 7.4 2026-11-20 生态对齐
+
+- **会话/链路头族**：`buildChatHeaders` 钩子补齐 `X-Conversation-ID`（首条 user 消息派生，
+  会话内稳定）、`X-Conversation-Request-ID`/`X-Conversation-Message-ID`/`X-Request-ID`/
+`X-Root-Request-ID`/`X-Trace-ID`/traceparent/b3（Agent2Providers、ccLoad、Buddy2api 收敛的最小集）。
+- **请求体归一**：首条缺 system 注入缺省 system；`tool_choice` 对象转字符串、`none` 删工具；
+  `image_url` 字符串转对象；`max_completion_tokens` 转 `max_tokens`；补 `stream_options.include_usage`。
+- **额度码表**：`quotaSignal` 认 14001/14012/14013/14014/14018/14019（余额）与 6004
+  （usage_limit，带重置时刻）、10105（rate_limit）。
+- **目录主源切 `/v3/config`**：可见性由 `data.agents[name=cli].models` 交集决定；
+  personal/models 降为兜底。maxOutput 取 `maxOutputTokens` 字段。
 
 | 结论 | 来源 | 性质 |
 | --- | --- | --- |

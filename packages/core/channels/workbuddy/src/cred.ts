@@ -372,13 +372,13 @@ interface LoginOptions {
 }
 
 /**
- * 取账号档案：`GET {base}/v2/plugin/login/account?state=<state>`（带 Bearer）。
+ * 取账号档案：`GET {base}/v2/plugin/account`（**首选**，dingminhua #267/#268：5 个账号
+ * 实测 `/v2/plugin/login/account` 恒回 `code=12151 "not choose login account"`，正确
+ * 端点是 `/v2/plugin/account`）；旧端点保留为兜底（上游行为若有回摆仍可用）。
  *
  * 这是**登录链路内的最后一步**，不是第二条登录路径：拿的是同一次授权对应的
  * 账号身份（uid / enterpriseId / nickname），拿不到也不影响登录成功 ——
  * uid 仍可从 JWT `sub` 提取。
- *
- * 参考 go `cmd/login/main.go:266-278`、panel `cmd/login/main.go:273`。
  */
 async function fetchAccountProfile(
   baseUrl: string,
@@ -386,7 +386,19 @@ async function fetchAccountProfile(
   accessToken: string,
 ): Promise<AccountProfile> {
   if (!accessToken) return EMPTY_PROFILE;
-  const url = `${baseUrl}/v2/plugin/login/account?state=${encodeURIComponent(state)}`;
+  const profile = await fetchAccountProfileAt(baseUrl, "/v2/plugin/account", state, accessToken);
+  if (profile !== EMPTY_PROFILE) return profile;
+  return fetchAccountProfileAt(baseUrl, "/v2/plugin/login/account", state, accessToken);
+}
+
+/** 按端点取账号档案；任何失败都回 `EMPTY_PROFILE`（uid 走 JWT 兜底）。 */
+async function fetchAccountProfileAt(
+  baseUrl: string,
+  path: string,
+  state: string,
+  accessToken: string,
+): Promise<AccountProfile> {
+  const url = `${baseUrl}${path}?state=${encodeURIComponent(state)}`;
   try {
     const resp = await fetchWithTimeout(url, {
       headers: { ...commonHeaders(), Authorization: `Bearer ${accessToken}` },
@@ -395,11 +407,14 @@ async function fetchAccountProfile(
     const env = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
     if (!env || env["code"] !== 0 || !env["data"]) return EMPTY_PROFILE;
     const data = env["data"] as Record<string, unknown>;
-    return {
+    const profile: AccountProfile = {
       uid: str(data["uid"]),
       enterpriseId: str(data["enterpriseId"]),
       nickname: str(data["nickname"]),
     };
+    return profile.uid !== "" || profile.enterpriseId !== "" || profile.nickname !== ""
+      ? profile
+      : EMPTY_PROFILE;
   } catch {
     // 档案拿不到不是登录失败：uid 回落 JWT sub，其余字段留空。
     return EMPTY_PROFILE;

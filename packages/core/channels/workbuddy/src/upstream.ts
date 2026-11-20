@@ -18,9 +18,10 @@ import * as catalog from "./catalog.js";
 // www.codebuddy.cn 只做计费域与前台 Origin。
 export const DEFAULT_BASE_URL = "https://copilot.tencent.com";
 
-/** 国内版桌面端身分取值（5.5.6；无对应抓包，维持参考实现原值）。 */
-const DESKTOP_UA_CN = "WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1";
-const DESKTOP_IDE_VERSION_CN = "5.5.6";
+/** 国内版桌面端身分取值（5.11.3 / CLI 2.176.0，misakano headers.go 2026-11 抓包对齐；
+ *  过旧的版本三元组与缺失 X-Client-* 一起构成「可判别指纹」，必须成套升级）。 */
+const DESKTOP_UA_CN = "WorkBuddy/5.11.3 WorkBuddy/5.11.3 CLI/2.176.0";
+const DESKTOP_IDE_VERSION_CN = "5.11.3";
 /** 国内版前台域（对话请求的 Origin/Referer；chat 上游仍是 copilot.tencent.com）。 */
 const FRONT_DOMAIN_CN = "https://www.codebuddy.cn";
 
@@ -148,9 +149,22 @@ const BUSINESS_CODE_KINDS: Record<number, UpstreamErrorKind> = {
   14017: "account_fault",
   14018: "hard_credit",
   14019: "hard_credit",
+  // 短窗口重置（60s 级）：渠道级短冷却的语义，不烧账号
+  10105: "soft_rate",
   // 模型 / 账号 / 会话
   11102: "model_block",
+  // 11115 有双语义（dingminhua #213）：上下文超限是终态；「历史缺思考字段」是
+  // 请求体协议问题——换号无用，按终态透传（11155 同源码族）。misakano #250/#266
+  // 实测 tools schema 触发 11129 也属请求体问题。
   11115: "context_too_long",
+  11129: "model_block",
+  11133: "model_block",
+  11134: "soft_rate",
+  11152: "model_block",
+  11155: "model_block",
+  11158: "model_block",
+  // 11140 有双语义：账号异常行为（账号级）vs 内容未过安全审核（请求级）——
+  // 按 displayMsg 细分：含「异常行为/限制使用」才算账号故障，内容类换号无用。
   11140: "account_fault",
   11141: "model_behavior",
   11142: "account_fault",
@@ -332,6 +346,11 @@ export function classifyUpstreamError(
     kind = "server";
   } else {
     kind = "client";
+  }
+  // 11140 双语义细分（dingminhua #233）：上游文案不含账号处罚措辞时是**请求级内容
+  // 问题**（换号无用），降级为换模型即可解的 model_block，别把好账号拉进冷却。
+  if (code === 11140 && kind === "account_fault" && !/异常行为|限制使用|账号/.test(message)) {
+    kind = "model_block";
   }
 
   const disposition = KIND_DISPOSITIONS[kind];
@@ -518,6 +537,11 @@ const FINGERPRINT_RULES: Array<[RegExp, string]> = [
   // 上游按它判「非官方渠道」→ 400 code=11128。裸词 `harness` 不触发
   // （ZCode 的 system 里有 `harness` 泛用词，实测 200），故只换产品名、保留句式。
   [/DeepSeek Harness/gi, "the agent harness"],
+  // DeepSeekRuntime（带/不带分隔两种写法都拦，Android-AI-gateway #16 2026-11 实测）
+  [/DeepSeek\s*[-_ ]?\s*Runtime/gi, "the agent runtime"],
+  // DSH 的 `@ 路径说明` 句里 `workspace root` 与触发句强相关（misakano sanitize.go
+  // 同义改写取 "project root"；aigw 实测改一个词即过）
+  [/workspace root/gi, "project root"],
   // 各家 CLI 的身份首句：上游按框架署名判定「非官方渠道」
   [
     /You are Claude Code, Anthropic's official CLI for Claude/gi,
@@ -553,6 +577,8 @@ const FINGERPRINT_RULES: Array<[RegExp, string]> = [
 const FINGERPRINT_MARKERS = [
   "from ohmyopencode",
   "deepseek harness",
+  "deepseekruntime",
+  "workspace root",
   "you are claude code",
   "you are a coding agent running in the codex cli",
   "github.com/anthropics/",
@@ -723,6 +749,8 @@ export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string,
   // 按官方约定发 X-No-Enterprise-Id。
   if (credential.enterpriseId && credential.uid) {
     headers["X-Enterprise-Id"] = credential.enterpriseId;
+    // 企业号的 X-Private-Data 语义是 true（misakano headers.go：CN 个人 false / 企业 true）
+    headers["X-Private-Data"] = "true";
   } else {
     headers["X-No-Enterprise-Id"] = "1";
   }
@@ -749,7 +777,7 @@ export function buildHeaders(credential: AuthLike, cfg?: Config): Record<string,
 export function buildChatHeaders(credential: AuthLike, cfg?: Config): Record<string, string> {
   const convReqId = newMessageId();
   const messageId = newMessageId();
-  return {
+  const headers: Record<string, string> = {
     ...buildHeaders(credential, cfg),
     // 浏览器语义头：渠道校验要求请求「像从官方前端发出」—— Origin/Referer/
     // X-CodeBuddy-Request 缺任一都会 11128（参考 hub 的 account.headers("chat")）
@@ -765,7 +793,11 @@ export function buildChatHeaders(credential: AuthLike, cfg?: Config): Record<str
     "X-IDE-Name": "WorkBuddy",
     "X-IDE-Type": "WorkBuddy",
     "X-IDE-Version": DESKTOP_IDE_VERSION_CN,
-    "X-Private-Data": "true",
+    // 5.11.3 起追加的客户端声明头（misakano issue #257：只升 UA 不升头集 = 混合指纹）。
+    "X-Client-Version": "5.11.3",
+    "X-Client-Platform": "windows",
+    "X-Client-Product": "WorkBuddy",
+    "X-Agent-Runtime": "local-agent",
     "X-Product": "SaaS",
     "X-Conversation-ID": newConversationId(),
     "X-Conversation-Request-ID": convReqId,
@@ -774,6 +806,11 @@ export function buildChatHeaders(credential: AuthLike, cfg?: Config): Record<str
     "X-Request-ID": messageId,
     ...traceHeaders(),
   };
+  // X-Private-Data 按**账号形态**取值：CN 个人 false / 企业 true（misakano headers.go
+  // 反编译逻辑 + testdata official_chat_head.txt）。这里显式赋值而不是进字面量，
+  // 避免把 buildHeaders 企业分支的 true 覆盖掉。
+  headers["X-Private-Data"] = credential.enterpriseId ? "true" : "false";
+  return headers;
 }
 
 type Rec = Record<string, unknown>;

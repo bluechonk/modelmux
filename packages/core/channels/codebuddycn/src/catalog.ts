@@ -2,8 +2,8 @@
  * CodeBuddy 国内版模型目录：远端解析（个人模型表）+ 兜底表 + 规格查询。
  *
  * 关键约束（端点/字段/实测见 docs/channels/codebuddycn/PROTOCOL.md）：
- *   - 远端目录在 `POST /v2/enterprises/personal/models`，仅**个人账号**可取；
- *     企业账号无此表 → 回落兜底表（不编造模型）。
+ *   - 远端目录主源是 `GET /v3/config`（个人/企业都可用，可见性由 agents[name=cli].models
+ *     决定）；`/v2/enterprises/personal/models` 降为兜底（仅个人账号）。
  *   - 远端条目形如 `{id, name, aliases, disabled}`；`availableModels` 是额外过滤，
  *     空数组表示不加过滤。
  *   - 规格**是数据**，落在渠道包 `models.json`；本模块只做归一化与查询。
@@ -111,6 +111,61 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
   return out;
 }
 
+/**
+ * 解析 `/v3/config`：`data.models` ∩ `data.agents[name="cli"].models` ∩ 非 disabled。
+ *
+ * 可见性由 CLI 的 agent 声明决定（misakano client.go 同口径）——全量目录里有 30 余条
+ * 客户端根本不显示的条目（hy3-b/c、default-*、codewise-* 等），交集才贴近官方客户端。
+ * `availableModels` 仍作为额外过滤（有就遵循）。
+ */
+function parseConfigModels(data: unknown): ModelEntry[] {
+  const out: ModelEntry[] = [];
+  const seen = new Set<string>();
+  if (!isRecord(data)) return out;
+  const models = data["models"];
+  if (!Array.isArray(models)) return out;
+
+  const agents = Array.isArray(data["agents"]) ? data["agents"] : [];
+  let cliModels: Set<string> | null = null;
+  for (const agent of agents) {
+    if (!isRecord(agent) || agent["name"] !== "cli") continue;
+    const list = agent["models"];
+    if (Array.isArray(list)) {
+      cliModels = new Set(list.map((m) => (typeof m === "string" ? m : isRecord(m) ? str(m["id"]) : "")));
+      cliModels.delete("");
+    }
+    break;
+  }
+
+  const available = data["availableModels"];
+  const availableSet = Array.isArray(available) ? new Set(available.map(String)) : null;
+
+  for (const item of models) {
+    if (!isRecord(item)) continue;
+    if (item["disabled"] === true) continue;
+    const id = str(item["id"]);
+    if (!id || seen.has(id)) continue;
+    if (cliModels && !cliModels.has(id)) continue;
+    if (availableSet && !availableSet.has(id)) continue;
+    seen.add(id);
+    const fallbackRow = fallbackEntries().find((m) => m.id === id);
+    out.push({
+      id,
+      name: str(item["name"]) || fallbackRow?.name || id,
+      contextWindow: typeof item["contextWindow"] === "number" ? item["contextWindow"] : fallbackRow?.contextWindow,
+      maxOutput:
+        typeof item["maxOutputTokens"] === "number"
+          ? item["maxOutputTokens"]
+          : typeof item["maxOutput"] === "number"
+            ? item["maxOutput"]
+            : fallbackRow?.maxOutput,
+      supportsImage: item["supportsImage"] === true ? true : fallbackRow?.supportsImage,
+      source: "remote",
+    });
+  }
+  return out;
+}
+
 let snapshot: ModelEntry[] | null = null;
 let refreshAttempted = false;
 let remoteCache: { entries: ModelEntry[]; at: number } | null = null;
@@ -130,7 +185,7 @@ async function refreshCatalog(): Promise<void> {
     const c = cred.load();
     const payload = await upstream.fetchModels(c);
     const data = isRecord(payload["data"]) ? payload["data"] : {};
-    entries = parseRemoteModels(data);
+    entries = Array.isArray(data["agents"]) ? parseConfigModels(data) : parseRemoteModels(data);
   } catch {
     entries = []; // 远端不可用 → 整表保底，绝不抛到调用方
   }
@@ -155,7 +210,7 @@ export async function refresh(): Promise<void> {
   const c = cred.load();
   const payload = await upstream.fetchModels(c);
   const data = isRecord(payload["data"]) ? payload["data"] : {};
-  const entries = parseRemoteModels(data);
+  const entries = Array.isArray(data["agents"]) ? parseConfigModels(data) : parseRemoteModels(data);
   if (entries.length === 0) throw new Error("Upstream returned an empty model catalog");
   remoteCache = { entries, at: Date.now() };
   writeCatalogCache(entries);

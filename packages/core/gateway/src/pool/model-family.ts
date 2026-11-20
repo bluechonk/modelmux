@@ -4,18 +4,19 @@
  * 渠道归属由网关按「账号池剩余额度」自动选择（见 `pool-targets.ts` / `http/chat/route.ts`）。
  * 本表是共享层唯一允许出现模型名的地方（`scripts/verify-contract.mjs` 强制）。
  *
- * 命名约定：`qwen3.8-flash` 是千问办公的**档位**而非具体型号（底层由上游池化，具体型号名 403）。
  * **对外只有下面这两个名字**：渠道目录里的上游写法（如 workbuddy 的 `deepseek-flash`）只在
- * 内部归一用，客户端写了照样 400（2026-11-15 产品口径）。
+ * 内部归一用，客户端写了照样 400（2026-11-15 产品口径）。`qwen3.8-flash`（千问办公档位名）
+ * 已移出对外家族 —— 上游目录 2026-11 起扩到具体型号档，档位名失去存在意义；
+ * `kimi-k3.1-pro` 为多渠道供给的具体型号（六家渠道在册）。
  */
 
 /** 对外暴露的模型 id（顺序即 `/v1/models` 与控制台的展示顺序）。 */
-export const POOL_MODEL_IDS = ["deepseek-v4.1-flash", "qwen3.8-flash"] as const;
+export const POOL_MODEL_IDS = ["deepseek-v4.1-flash", "kimi-k3.1-pro"] as const;
 
 /** 对外 id → 规范名。 */
 const CANONICAL: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek-v4.1-flash",
-  "qwen3.8-flash": "qwen3.8-flash",
+  "kimi-k3.1-pro": "kimi-k3.1-pro",
 };
 
 /**
@@ -24,6 +25,8 @@ const CANONICAL: Readonly<Record<string, string>> = {
  * 为什么与 `CANONICAL` 分开：`canonicalOf` 两条路共用（客户端请求 + 渠道目录条目），
  * 而收口只针对前者（见 `isClientModelId`）。目录里的上游名（workbuddy 写
  * `deepseek-flash`）必须照旧能归到家族，否则它会从候选里消失。
+ * `kimi-k3-1`（codebuddycn / workbuddy 目录里的**另一个**条目）不在这里：它与
+ * `kimi-k3.1-pro` 是上游目录里并存的两个条目，归并会让候选出现重复映射。
  */
 const UPSTREAM_ALIASES: Readonly<Record<string, string>> = {
   "deepseek-flash": "deepseek-v4.1-flash",
@@ -32,7 +35,7 @@ const UPSTREAM_ALIASES: Readonly<Record<string, string>> = {
 /** canonical → `/v1/models` 里的 `owned_by`（厂商标识，展示用）。 */
 const MODEL_OWNER: Readonly<Record<string, string>> = {
   "deepseek-v4.1-flash": "deepseek",
-  "qwen3.8-flash": "alibaba",
+  "kimi-k3.1-pro": "moonshot",
 };
 
 /**
@@ -42,13 +45,13 @@ const MODEL_OWNER: Readonly<Record<string, string>> = {
  * 斜杠与点号，且整组拒收），`labelOverride` 只改菜单显示名、**不进请求体** ——
  * 没有这层映射时三个槽只能落到「第一个池模型」（2026-11-08 实测）。固定表而非按槽位
  * 下标取 `models[n]`：后者让实际模型随 `/v1/models` 展示顺序漂移。
- * opus 与 sonnet 同落 deepseek：池里唯一的多渠道强档模型（glm-5.3-flash 已移出家族）。
- * 契约见 docs/CONTRACT-TS.md §4.1.1。
+ * 三槽全落 deepseek：最低倍率的多渠道强档模型；kimi-k3.1-pro 是高价档（×2.4 级），
+ * 不适合 haiku 槽。契约见 docs/CONTRACT-TS.md §4.1.1。
  */
 export const DESKTOP_ROLE_MODELS: ReadonlyArray<readonly [roleId: string, model: string]> = [
   ["claude-sonnet-4-5", "deepseek-v4.1-flash"],
   ["claude-opus-4-5", "deepseek-v4.1-flash"],
-  ["claude-haiku-4-5", "qwen3.8-flash"],
+  ["claude-haiku-4-5", "deepseek-v4.1-flash"],
 ];
 
 /** 角色名 → 池模型的 canonical；不是角色名返回 `null`。 */
@@ -71,12 +74,12 @@ function lookup<T>(table: Readonly<Record<string, T>>, key: string): T | undefin
 }
 
 /**
- * 偏好功能覆盖的模型族（canonical 集合）：deepseek 为多渠道供给，偏好有意义；
- * 单渠道收窄的模型（qwen3.8-flash → qwenworkcn）无偏好语义。模型名的唯一
+ * 偏好功能覆盖的模型族（canonical 集合）：两家都多渠道供给，偏好有意义。模型名的唯一
  * 落点在家族表（verify-contract 校验共享层不得另行硬编码）。
  */
 export const PREFS_CANONICALS: readonly string[] = [
   "deepseek-v4.1-flash",
+  "kimi-k3.1-pro",
 ];
 
 /**
@@ -84,11 +87,10 @@ export const PREFS_CANONICALS: readonly string[] = [
  * 其余渠道的目录条目一律不进候选。为什么在候选出口统一过滤而不是逐渠道标
  * `hidden`：目录条目散在多渠道且形态各异（裸名 / 短别名 / person-* 变体），逐渠道
  * 标 hidden 漏一家就还进候选；出口一处过滤，目录现算与注册表兜底两个来源一起挡。
- * 曾收窄的模型恢复全渠道开放供给后不再出现在表中。
+ * 曾收窄的模型恢复全渠道开放供给后不再出现在表中 —— `qwen3.8-flash` 移出家族后
+ * 本表为空，机制保留给下一个单渠道模型。
  */
-export const SINGLE_CHANNEL_SUPPLY: Readonly<Record<string, string>> = {
-  "qwen3.8-flash": "qwenworkcn",
-};
+export const SINGLE_CHANNEL_SUPPLY: Readonly<Record<string, string>> = {};
 
 /**
  * 对外**列出**的模型 id：只列 canonical。

@@ -64,6 +64,12 @@ const CONSOLE_HOST = "https://www.trae.cn";
  */
 const CLIENT_ID = "ono9krqynydwx5";
 /**
+ * SOLO 产品线的 client_id（dingminhua 四版本矩阵）：refresh token 与 client_id 的归属
+ * 由 OAuth client 强制，**旧端点同样生效** —— 拿 SOLO 线 token 在桌面 ID 下换票回
+ * `10101 not matched to the client`（与假令牌的 `20101 invalid` 形态不同），换对 ID 可解。
+ */
+const CLIENT_ID_SOLO = "en1oxy7wnw8j9n";
+/**
  * SOLO/IDE 应用的 AppID（对话与 Solo 目录的 `X-App-Id`）。
  *
  * **上游按 AppID 查「app config」记录**：AppID 不对就直接
@@ -731,16 +737,35 @@ interface TokenPair {
   expiresAt: string;
 }
 
+/** refresh token 与 client_id 不属于同一产品线（10101）；换另一条线的 client_id 可解。 */
+class ClientMismatchError extends Error {
+  override name = "ClientMismatchError";
+}
+
 /**
  * 调 `ExchangeToken` 用 refresh token 换新 token（**不落盘**）。
  *
  * **access 与 refresh 都轮换**，调用方必须把两个都写回。
  * 终态（需重新登录）三条任一：HTTP 401/403、响应非 JSON（HTML 错误页）、
- * **2xx 且响应是 JSON 却没有 accessToken**。
+ * **2xx 且响应是 JSON 却没有 accessToken**。`10101`（token 与 client_id 不属同一条
+ * 产品线）不算终态 —— 换另一条线的 client_id 重试一次。
  */
 async function exchangeToken(refreshToken: string, host?: string): Promise<TokenPair> {
   if (!refreshToken) throw new ReloginRequiredError("No refresh token, please log in again");
   const base = (host || oauthHost()).replace(/\/+$/, "");
+  try {
+    return await exchangeWithClient(refreshToken, base, CLIENT_ID);
+  } catch (err) {
+    if (!(err instanceof ClientMismatchError)) throw err;
+    return await exchangeWithClient(refreshToken, base, CLIENT_ID_SOLO);
+  }
+}
+
+async function exchangeWithClient(
+  refreshToken: string,
+  base: string,
+  clientId: string,
+): Promise<TokenPair> {
   const url = `${base}${OAUTH_EXCHANGE_PATH}`;
 
   let resp: Response;
@@ -748,7 +773,7 @@ async function exchangeToken(refreshToken: string, host?: string): Promise<Token
     resp = await fetch(url, {
       method: "POST",
       body: JSON.stringify({
-        ClientID: CLIENT_ID,
+        ClientID: clientId,
         RefreshToken: refreshToken,
         ClientSecret: "-",
         UserID: "",
@@ -764,9 +789,14 @@ async function exchangeToken(refreshToken: string, host?: string): Promise<Token
     throw new Error(`ExchangeToken request failed: ${String(err)}`);
   }
   if (isAuthStatus(resp.status)) {
+    // 401/403 也可能是 10101（归属错误走鉴权状态码返回）：读 body 再定，能换线就换线
+    const text = await resp.text().catch(() => "");
+    if (/10101|not matched to the client/i.test(text)) throw new ClientMismatchError("client mismatch");
     throw new ReloginRequiredError(`ExchangeToken returned HTTP ${resp.status}, credential is invalid, please log in again`);
   }
   if (resp.status !== 200) {
+    const text = await resp.text().catch(() => "");
+    if (/10101|not matched to the client/i.test(text)) throw new ClientMismatchError("client mismatch");
     throw new Error(`ExchangeToken returned HTTP ${resp.status}`);
   }
 
@@ -791,7 +821,9 @@ async function exchangeToken(refreshToken: string, host?: string): Promise<Token
     pick(payload["Token"]) || pick(payload["token"]) || pick(payload["AccessToken"]) ||
     pick(payload["accessToken"]);
   if (!accessToken) {
-    // 2xx 且响应是 JSON 却没有 accessToken ⇒ 终态（需重新登录）
+    // 2xx 无 accessToken：先看是不是 10101（可换线解），不是才判终态
+    const flat = JSON.stringify(env);
+    if (/10101|not matched to the client/i.test(flat)) throw new ClientMismatchError("client mismatch");
     throw new ReloginRequiredError("ExchangeToken response has no accessToken, credential is invalid, please log in again");
   }
   return {

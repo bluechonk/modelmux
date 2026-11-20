@@ -26,7 +26,7 @@ const CID = "stub";
 function makeChannel(cid: string, base: string): Channel {
   // 候选渠道由统一注册表声明（与线上同口径）：三个池型号都供，
   // 否则「角色名 → 池模型」的映射没有可用渠道，请求会 400
-  registerChannelSupply(cid, ["deepseek-v4.1-flash", "qwen3.8-flash"]);
+  registerChannelSupply(cid, ["deepseek-v4.1-flash", "kimi-k3.1-pro"]);
 
   const config: ChannelConfig = {
     cid,
@@ -70,7 +70,7 @@ function makeChannel(cid: string, base: string): Channel {
     },
     catalog: {
       // 三个池模型都供给：角色名映射要真正走通选路，只有一个模型时另两个槽会因「无渠道供给」400
-      exposedIds: () => ["deepseek-v4.1-flash", "qwen3.8-flash"],
+      exposedIds: () => ["deepseek-v4.1-flash", "kimi-k3.1-pro"],
       resolveModel: (n: string) => n,
     },
     billing: {

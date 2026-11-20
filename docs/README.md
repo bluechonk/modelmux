@@ -108,7 +108,7 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 
 网关是一个**普通 HTTP 端点**，不依赖 ZCode：任何能配 OpenAI 兼容 base url 的客户端直接指向
 `http://127.0.0.1:4412/v1` 就能用。模型 id 是**对外模型家族的裸模型名**（当前为 `deepseek-v4.1-flash` 与
-`qwen3.8-flash`，`/v1/models` 只列有渠道供给的那几个）—— 渠道对客户端透明，由网关按账号池剩余额度自动挑；
+`kimi-k3.1-pro`，`/v1/models` 只列有渠道供给的那几个）—— 渠道对客户端透明，由网关按账号池剩余额度自动挑；
 家族外的模型名一律 400（见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2）。
 
 **不需要**为任何客户端做适配层：网关就是标准 OpenAI 兼容端点，任何客户端把 base url
