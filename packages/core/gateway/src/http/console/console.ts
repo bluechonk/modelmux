@@ -347,6 +347,23 @@ function isLocalDirect(req: import("node:http").IncomingMessage): boolean {
   return LOOPBACK_HOSTS.has(remote) || LOOPBACK_HOSTS.has(remote.replace(/^::ffff:/, ""));
 }
 
+/**
+ * 请求的 Host / Origin 是否指向**本机**。
+ *
+ * 为什么不能只信 socket 回环：DNS rebinding 下浏览器把攻击者域名解析到 127.0.0.1，
+ * 对端地址必然是回环、`isLocalDirect` 恒真；而请求的 `Host` 与 `Origin` 仍是攻击者
+ * 域名 —— 它们只能由客户端提供，无法被 rebinding 抹掉。用它们做判据，rebinding 页面
+ * 会以 `Host: evil.com` 被拒（它没法把 Host 改成 127.0.0.1，改了就不是那个源了）。
+ *
+ * `Host` 缺失时按非本机处理（Node 对 HTTP/1.1 会补默认值，正常浏览器必带）。
+ */
+function isLoopbackHostHeader(req: import("node:http").IncomingMessage): boolean {
+  const raw = req.headers["host"];
+  if (typeof raw !== "string" || raw === "") return false;
+  const hostname = raw.split(":")[0]?.toLowerCase() ?? "";
+  return LOOPBACK_HOSTS.has(hostname) || LOOPBACK_HOSTS.has(`[${hostname}]`);
+}
+
 /** 写操作同源校验（比对 host:port，避免只比 hostname 时跨端口请求被放行）。 */
 function isSameOrigin(req: import("node:http").IncomingMessage, host: string): boolean {
   const origin = req.headers["origin"];
@@ -474,6 +491,19 @@ export function createConsoleHandler(
       return;
     }
     const p = (suffix: string): string => `${prefix}${suffix}`;
+
+    // —— API 前置：Host 必须是本机 ——
+    //
+    // 挡的是 DNS rebinding：浏览器把攻击者域名解析到 127.0.0.1 后，socket 对端必然是
+    // 回环（`isLocalDirect` 恒真），只有 Host / Origin 还保留着攻击者域名。所有 API
+    // （含只读的 state）都走这条；静态资源与 SPA 页面不校验，它们不含敏感数据。
+    if (path.startsWith(p("/api/"))) {
+      if (!isLoopbackHostHeader(req)) {
+        appendGateway(`console api rejected non-loopback Host: ${String(req.headers["host"] ?? "(none)")}`);
+        json(res, { ok: false, error: "请求来源主机被拒绝" }, 403);
+        return;
+      }
+    }
 
     // —— 静态（GET） ——
     if (path === p("/") && (req.method === "GET" || req.method === "HEAD")) {

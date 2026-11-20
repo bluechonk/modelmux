@@ -11,9 +11,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
 import { POOL_EXPOSED_IDS } from "../pool/model-family.js";
 import { poolModelMetas, poolModels } from "../pool/pool-targets.js";
@@ -1041,10 +1041,48 @@ function stampOf(dir: string): number {
  * 等于让一条被改过的清单把任意文件读出来、写到任意位置（2026-11-08 实测：
  * `backup: "../../../../outside-secret.txt"` 会读到 MODELMUX_HOME 之外的内容）。
  */
-function isValidEntry(entry: unknown): entry is BackupEntry {
+/**
+ * `original` 是否落在该 target 的**允许落点**内。
+ *
+ * 清单是磁盘数据，只校验 `isAbsolute` 时，一条被改过的清单可以把备份内容写到
+ * 任意绝对路径（`~/.ssh/authorized_keys` 之类），`existed:false` 的条目更是直接
+ * `rmSync` 任意路径 —— 还原是不可逆动作，必须按 target 白名单卡死。
+ *
+ * 符号链接也要挡：文件若已存在且指向白名单之外，`realpath` 会露出来。
+ */
+function isAllowedOriginalPath(target: IntegrationTarget, original: string): boolean {
+  const home = homedir();
+  const fixed =
+    target === "zcode"
+      ? [join(home, ".zcode", "v2", "provider_config.json")]
+      : [join(home, ".dsh", ".credentials.yaml"), join(home, ".dsh", "config.yaml")];
+  if (fixed.includes(original)) return true;
+  if (target === "dsh") {
+    // dsh 的逐 profile 补丁：`<home>/.dsh/profiles/<profile>/cordis.patch.yml`
+    const prefix = join(home, ".dsh", "profiles") + sep;
+    if (original.startsWith(prefix) && original.endsWith(sep + "cordis.patch.yml")) {
+      const profile = original.slice(prefix.length, -"/cordis.patch.yml".length);
+      // profile 名不允许空、不允许再带分隔符（防 `../../`）
+      if (profile !== "" && !profile.includes("/") && !profile.includes("\\")) return true;
+    }
+  }
+  // 已存在的符号链接：跟随后的真实路径必须在同一白名单里
+  try {
+    if (existsSync(original)) {
+      const real = realpathSync(original);
+      return isAllowedOriginalPath(target, real);
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function isValidEntry(entry: unknown, target: IntegrationTarget): entry is BackupEntry {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
   const rec = entry as Record<string, unknown>;
   if (typeof rec["original"] !== "string" || !isAbsolute(rec["original"])) return false;
+  if (!isAllowedOriginalPath(target, rec["original"])) return false;
   if (typeof rec["existed"] !== "boolean") return false;
   if (rec["existed"]) {
     const backup = rec["backup"];
@@ -1074,9 +1112,11 @@ function entriesOfBackup(
       notes.push(`跳过备份目录 ${basename(dir)}：清单 target 是 ${String(manifest.target)}，与请求的 ${target} 不符`);
       return null;
     }
-    const valid = manifest.files.filter(isValidEntry);
+    const valid = manifest.files.filter((e) => isValidEntry(e, target));
     for (const entry of manifest.files) {
-      if (!isValidEntry(entry)) notes.push(`跳过清单里字段不全的条目：${JSON.stringify(entry)}`);
+      if (!isValidEntry(entry, target)) {
+        notes.push(`跳过清单里字段不全或落点不在本客户端允许范围内的条目：${JSON.stringify(entry)}`);
+      }
     }
     return valid.length > 0 ? valid : null;
   }

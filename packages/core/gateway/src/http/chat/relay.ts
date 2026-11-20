@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { channelCapabilities, type Channel } from "../../runtime/channel.js";
-import { getRequestLog, noteClientPayload, noteRequestError } from "../../runtime/log-store.js";
+import { getRequestLog, noteRequestError } from "../../runtime/log-store.js";
 import { apiKeyGuard } from "../../runtime/api-key.js";
 import { ROTATABLE_CODES, rotateExhaustedAccount } from "../../pool/account-rotate.js";
 import { resolveInboundModel } from "../../pool/inbound-model.js";
@@ -24,7 +24,7 @@ import { attachProtocol, setSink, sinkOf, type InboundProtocol } from "../protoc
 import { inChannel } from "./channel.js";
 import { attemptCandidate, type ChatError } from "./attempt.js";
 import { writeJsonError, writeProtocolError } from "./errors.js";
-import { noteChatRequestStats, parseChatRequest, readBody } from "./request.js";
+import { noteAfterAuth, parseChatRequest, readBody } from "./request.js";
 import { resolvePoolRoute } from "./route.js";
 
 /**
@@ -60,6 +60,15 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
  * 模型解析不出来（未知模型）时不拦 —— 让下游照常回 400 unknown_model，
  * 避免鉴权层把一个明确的路由错误伪装成权限错误。
  */
+let guardMissingWarned = false;
+
+/** 门禁未装配：每个进程只留一条告警，避免「静默关闭鉴权」无人知晓。 */
+function noteGuardMissing(): void {
+  if (guardMissingWarned) return;
+  guardMissingWarned = true;
+  console.error("[modelmux] api key guard 未装配：对话端点当前不校验 API key（仅测试 / 漏装配时出现）");
+}
+
 async function withApiKeyGuard(
   req: IncomingMessage,
   res: ServerResponse,
@@ -68,6 +77,13 @@ async function withApiKeyGuard(
 ): Promise<void> {
   const guard = apiKeyGuard();
   if (guard === null) {
+    // 门禁未装配：放行，但**不静默** —— 每个进程只告警一次，并在启动自检里点명。
+    //
+    // 为什么不直接拒绝：本机形态的装配点是 `store-bootstrap.bootstrapStore()`，
+    // 而大量单元 / 集成用例直接 `makeApp()` 起服务（不跑 bootstrap），一刀切 503
+    // 会让这些用例整体失效。真正要防的是「生产路径漏装配还无人知晓」，所以这里
+    // 留痕；同时 `assertApiKeyGuardInstalled()` 供启动流程断言。
+    noteGuardMissing();
     await next();
     return;
   }
@@ -102,7 +118,11 @@ export async function handleChat(
   // A 段：请求解析与校验（已应答则直接返回）
   const parsed = await parseChatRequest(req, res);
   if (!parsed) return;
-  await withApiKeyGuard(req, res, parsed.model, () => dispatchChat(parsed, res, opts, null));
+  // 统计与正文快照在门禁通过后补记（此前在解析阶段落盘，被拒请求的明文会长期留盘）
+  await withApiKeyGuard(req, res, parsed.model, () => {
+    noteAfterAuth(res, parsed.payload, parsed.model, parsed.messages, parsed.raw);
+    return dispatchChat(parsed, res, opts, null);
+  });
 }
 
 // ── 入站协议：Anthropic Messages 与 OpenAI Responses ─────────────────────────
@@ -173,8 +193,6 @@ export async function handleMessages(
     return;
   }
   const text = translated.value;
-  // 正文快照要留在 400 之前：客户端「报 400 但不知道发了什么」时只能靠它排查
-  noteClientPayload(res, parsedBody.raw);
   const resolved = resolveOrError(text.model);
   if ("error" in resolved) {
     writeProtocolError(res, 400, "unknown_model", resolved.error);
@@ -182,9 +200,10 @@ export async function handleMessages(
   }
   const model = resolved.target;
   attachProtocol(res, anthropicProtocol, model);
-  noteChatRequestStats(res, text.payload, model, text.messages, parsedBody.raw);
-  await withApiKeyGuard(req, res, model, () =>
-    dispatchChat(
+  // 补记放在门禁通过之后（未认证 / 模型非法的请求不留正文）
+  await withApiKeyGuard(req, res, model, () => {
+    noteAfterAuth(res, text.payload, model, text.messages, parsedBody.raw);
+    return dispatchChat(
       {
         payload: { ...text.payload, model },
         model,
@@ -194,8 +213,8 @@ export async function handleMessages(
       res,
       opts,
       anthropicProtocol,
-    ),
-  );
+    );
+  });
 }
 
 /** POST /v1/responses（OpenAI Responses，Codex 的原生协议，`wire_api="responses"`）。 */
@@ -213,7 +232,6 @@ export async function handleResponses(
     return;
   }
   const text = translated.value;
-  noteClientPayload(res, parsedBody.raw);
   const resolved = resolveOrError(text.model);
   if ("error" in resolved) {
     writeProtocolError(res, 400, "unknown_model", resolved.error);
@@ -221,9 +239,10 @@ export async function handleResponses(
   }
   const model = resolved.target;
   attachProtocol(res, responsesProtocol, model);
-  noteChatRequestStats(res, text.payload, model, text.messages, parsedBody.raw);
-  await withApiKeyGuard(req, res, model, () =>
-    dispatchChat(
+  // 补记放在门禁通过之后（未认证 / 模型非法的请求不留正文）
+  await withApiKeyGuard(req, res, model, () => {
+    noteAfterAuth(res, text.payload, model, text.messages, parsedBody.raw);
+    return dispatchChat(
       {
         payload: { ...text.payload, model },
         model,
@@ -233,11 +252,18 @@ export async function handleResponses(
       res,
       opts,
       responsesProtocol,
-    ),
-  );
+    );
+  });
 }
 
-/** POST /v1/messages/count_tokens：本地启发式估算，不打上游（Claude Code 必需端点）。 */
+/**
+ * POST /v1/messages/count_tokens：本地启发式估算，不打上游（Claude Code 必需端点）。
+ *
+ * **有意不过 API key 门禁**：它只做纯本地字符串估算、不选路、不发上游，请求体受
+ * `parseProtocolBody` 的 32 MiB 上限约束，未认证的消耗面有界。纳入门禁会让 Claude
+ * Code 在 key 配错的瞬间连「数 token」都失败（客户端本就先吃 401），收益不抵可用性
+ * 损失 —— 明确取舍，不是遗漏。
+ */
 export async function handleCountTokens(req: IncomingMessage, res: ServerResponse): Promise<void> {
   attachProtocol(res, anthropicProtocol, "");
   const parsedBody = await parseProtocolBody(req, res);

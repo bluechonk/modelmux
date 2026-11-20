@@ -56,7 +56,17 @@ export function setApiKeyGuard(next: ApiKeyGuard | null): void {
   guard = next;
 }
 
-/** 当前门禁实现。 */
+/**
+ * 当前门禁实现；未装配时返回 `null`（测试用）。
+ *
+ * 调用方**必须**把 null 当「拒绝服务」处理，不能放行：装配顺序错了就静默关闭鉴权，
+ * 比明确失败危险得多（见 relay.ts 的 `withApiKeyGuard`）。
+ */
 export function apiKeyGuard(): ApiKeyGuard | null {
   return guard;
+}
+
+/** 仅供测试清空门禁（生产路径不许调用）。 */
+export function resetApiKeyGuard(): void {
+  guard = null;
 }

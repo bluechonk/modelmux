@@ -36,29 +36,43 @@ function keyringDir(): string {
   return join(xdg, "modelmux", "keyring");
 }
 
-/** 读（或首次生成）本地加密密钥；失败（损坏 / 不可写）返回 null。 */
+/**
+ * 读（或首次生成）本地加密密钥；失败（损坏 / 不可写）返回 null。
+ *
+ * 首次创建走 **`wx` 独占写**：网关与 CLI 是两个进程，若都看到「文件不存在」就各自
+ * 生成随机 key 再 rename，后写者覆盖前者 —— 先写进程此后加密的记录在另一进程 /
+ * 重启后永久解不开（`EEXIST` 时重读磁盘内容，不覆盖）。
+ */
 function localKey(): Buffer | null {
   const dir = keyringDir();
   const file = join(dir, KEY_FILE);
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    if (existsSync(file)) {
-      const raw = readFileSync(file);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let raw: Buffer;
+      try {
+        raw = readFileSync(file);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        // 文件不存在：独占创建（`wx`）—— 抢不到说明别的进程刚建好，回上面重读
+        const key = randomBytes(KEY_BYTES);
+        try {
+          writeFileSync(file, key, { mode: 0o600, flag: "wx" });
+          try {
+            chmodSync(file, 0o600);
+          } catch {
+            // Windows 上 chmod 不生效（ACL 由目录继承决定），失败不影响加密本身
+          }
+          return key;
+        } catch (writeErr) {
+          if ((writeErr as NodeJS.ErrnoException).code !== "EEXIST") throw writeErr;
+          continue;
+        }
+      }
       // 长度不对（被截断 / 手工改过）：不猜、不覆盖（覆盖会静默作废所有已加密记录）
       return raw.length === KEY_BYTES ? raw : null;
     }
-    const key = randomBytes(KEY_BYTES);
-    // 原子写：先写临时文件再 rename —— 直接写主文件时进程中断会留下截断的密钥，
-    // 从此所有密文都解不开（且下次启动会误判为「损坏」而无法自愈）
-    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    writeFileSync(tmp, key, { mode: 0o600 });
-    renameSync(tmp, file);
-    try {
-      chmodSync(file, 0o600);
-    } catch {
-      // Windows 上 chmod 不生效（ACL 由目录继承决定），失败不影响加密本身
-    }
-    return key;
+    return null;
   } catch {
     return null;
   }

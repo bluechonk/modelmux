@@ -118,9 +118,26 @@ export async function parseChatRequest(
     writeJsonError(res, 400, "invalid_request", "model and messages are required");
     return null;
   }
-  noteChatRequestStats(res, payload, model, messages, raw);
-  // 正文抓取在解析成功后就落盘，不等响应：上游失败/超时/断连时，
-  // 「客户端到底发了什么」才留得住（而那几类最需要它）。
-  noteClientPayload(res, raw);
+  // 统计与正文快照**不在这里记**：此处还在鉴权之前，未认证 / 模型非法的请求会把
+  // 明文 prompt 落进 `<root>/logs/payload/`。两者改由 relay 在门禁通过后补记
+  // （`noteAfterAuth`）——上游失败 / 超时 / 断连时仍然留得住正文。
   return { payload, model, messages, raw };
+}
+
+/**
+ * 鉴权通过后补记请求统计与正文快照。
+ *
+ * 为什么放在门禁之后：`parseChatRequest` 早于 `withApiKeyGuard`，在那里落盘等于
+ * 把被拒绝的请求正文长期留在磁盘上（无效 key 也能写满日志目录）。统计字段是纯
+ * 计数（字节数 / 消息数 / system 字符数），晚一点记不影响准确性。
+ */
+export function noteAfterAuth(
+  res: ServerResponse,
+  payload: Record<string, unknown>,
+  model: string,
+  messages: unknown[],
+  raw: Buffer,
+): void {
+  noteChatRequestStats(res, payload, model, messages, raw);
+  noteClientPayload(res, raw);
 }

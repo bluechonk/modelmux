@@ -10,7 +10,7 @@ import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, it } from "node:test";
 
-import { noteChatRequestStats, parseChatRequest, readBody } from "../dist/http/chat/request.js";
+import { noteAfterAuth, noteChatRequestStats, parseChatRequest, readBody } from "../dist/http/chat/request.js";
 import { attachRequestLog, getRequestLog } from "../dist/runtime/log-store.js";
 
 const MAX_BODY = 32 << 20;
@@ -120,7 +120,7 @@ describe("parseChatRequest 校验", () => {
     }
   });
 
-  it("合法请求：返回解析结果并写入访问日志统计", async () => {
+  it("合法请求：解析阶段不写统计（未认证不留痕），补记后才落", async () => {
     const out = fakeRes();
     attachRequestLog("POST", "/v1/chat/completions", out.res);
     const body = JSON.stringify({
@@ -136,6 +136,10 @@ describe("parseChatRequest 校验", () => {
     assert.equal(parsed.model, "deepseek-v4.1-flash");
     assert.equal(parsed.messages.length, 2);
     assert.equal(parsed.raw.length, Buffer.byteLength(body));
+    // 统计与正文快照移到鉴权之后：此刻请求还没过门禁，日志里不该有内容
+    const before = getRequestLog(out.res);
+    assert.equal(before?.model, undefined, "解析阶段不得写统计（未认证请求不留痕）");
+    noteAfterAuth(out.res, parsed.payload, parsed.model, parsed.messages, parsed.raw);
     const log = getRequestLog(out.res);
     assert.equal(log?.model, "deepseek-v4.1-flash");
     assert.equal(log?.messageCount, 2);

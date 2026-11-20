@@ -334,12 +334,24 @@ describe("/api/ping", () => {
     assert.ok(payload.ms >= 0);
   });
 
-  it("Host 指向非回环地址时拒绝（SSRF 守卫，不出网）", async () => {
+  it("Host 指向非回环地址时整个 API 面拒绝（DNS rebinding 守卫）", async () => {
+    // 这是 rebinding 防护：socket 对端必然是回环，只有 Host 还带着攻击者域名。
+    // 挡在路由之前，ping 自己的回环检查因此不会被触达（纵深防御仍在）。
     const { status, body } = await rawRequest("/api/ping", "POST", { ...JSON_HEADERS, host: "evil.example.com" }, JSON.stringify({ model: "m" }));
-    assert.equal(status, 200);
+    assert.equal(status, 403);
     const payload = JSON.parse(body) as { ok: boolean; error: string };
     assert.equal(payload.ok, false);
-    assert.match(payload.error, /回环/);
+    assert.match(payload.error, /来源主机/);
+  });
+
+  it("只读端点（/api/state）同样受 Host 校验保护", async () => {
+    const { status } = await rawRequest("/api/state", "GET", { ...JSON_HEADERS, host: "evil.example.com" }, "");
+    assert.equal(status, 403);
+  });
+
+  it("Host 合法（localhost 别名）时不误伤", async () => {
+    const { status } = await rawRequest("/api/state", "GET", { ...JSON_HEADERS, host: "localhost:4412" }, "");
+    assert.notEqual(status, 403);
   });
 });
 

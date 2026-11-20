@@ -733,13 +733,19 @@ export async function prepareChat(body: Record<string, unknown>): Promise<void> 
   );
 }
 
-/** 静默加载凭据（失败时返回空凭据，让 preflight 走 401 路径）。 */
+/**
+ * 加载凭据。
+ *
+ * 只有 `NotLoggedInError` 才回落成空凭据（那是正常未登录态）；其余异常（文件损坏、
+ * EACCES / EISDIR、编程错误）必须上抛 —— 早先这里一律折叠成空 token，本地读盘故障
+ * 会被当成上游 401，账号随后被标成凭据终态 `unauthorized`，用户去重新登录也修不好。
+ */
 function loadCredential(): CredentialShape {
   try {
-    const c = cred.load() as unknown as CredentialShape;
-    return c;
-  } catch {
-    return { accessToken: "", uid: "" };
+    return cred.load() as unknown as CredentialShape;
+  } catch (err) {
+    if (err instanceof cred.NotLoggedInError) return { accessToken: "", uid: "" };
+    throw err;
   }
 }
 

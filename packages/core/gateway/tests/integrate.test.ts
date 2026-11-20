@@ -822,4 +822,47 @@ describe("一键还原", () => {
     assert.match(restored.error ?? "", /候选目录不可用/);
     assert.match(restored.error ?? "", /target 是 dsh/);
   });
+
+  it("清单里的 original 指向白名单外时跳过该条目（防任意路径写/删）", () => {
+    clearBackups("zcode");
+    seedZcode();
+    assert.equal(integrateClient("zcode", MODELS).ok, true);
+
+    // 把原路径改成任意绝对路径：只校验 isAbsolute 时会被当真，还原即写到那里
+    const dir = findBackupDir("zcode");
+    const manifestPath = join(dir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      files: Array<{ original: string; backup: string; existed: boolean }>;
+    };
+    const victim = join(home, "victim-outside.txt");
+    writeFileSync(victim, "user data", "utf8");
+    manifest.files = [{ original: victim, backup: manifest.files[0]!.backup, existed: true }];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    restoreClient("zcode");
+    assert.equal(readFileSync(victim, "utf8"), "user data", "白名单外的路径不得被写入");
+    assert.ok(
+      !existsSync(join(dir, "restored-")) ,
+      "不应进入已还原状态",
+    );
+  });
+
+  it("existed:false 且落点在白名单外时不得删除任意文件", () => {
+    clearBackups("zcode");
+    seedZcode();
+    assert.equal(integrateClient("zcode", MODELS).ok, true);
+
+    const dir = findBackupDir("zcode");
+    const manifestPath = join(dir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      files: Array<{ original: string; backup?: string; existed: boolean }>;
+    };
+    const victim = join(home, "must-not-delete.txt");
+    writeFileSync(victim, "keep", "utf8");
+    manifest.files = [{ original: victim, existed: false }];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    restoreClient("zcode");
+    assert.ok(existsSync(victim), "白名单外的文件不得被删除");
+  });
 });

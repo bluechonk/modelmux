@@ -409,28 +409,53 @@ describe("还原补充分支", () => {
     assert.equal(readFileSync(provider, "utf8"), "NEWER", "应选最新那份备份");
   });
 
-  it("保护性备份失败与单条还原失败都如实记 notes", () => {
+  it("落点在白名单外的条目被跳过并留痕，好条目照常还原", () => {
+    // 清单是磁盘数据：一条被改过的清单不能把备份写到任意路径。白名单外的条目
+    // 既不该被写、也不该让整次还原失败（其余条目仍要还原）。
     const provider = join(home, ".zcode", "v2", "provider_config.json");
     mkdirSync(join(home, ".zcode", "v2"), { recursive: true });
     writeFileSync(provider, "CURRENT", "utf8");
-    const blocked = join(home, "blocked-dir");
-    mkdirSync(blocked, { recursive: true });
+    const outside = join(home, "blocked-dir");
+    mkdirSync(outside, { recursive: true });
 
     makeBackup(
       "zcode",
       "20990101000000",
       [
         { original: provider, backup: "provider_config.json.aaa11111", existed: true },
-        { original: blocked, backup: "blocked-dir.bbb22222", existed: true },
+        { original: outside, backup: "blocked-dir.bbb22222", existed: true },
       ],
       { "provider_config.json.aaa11111": "OLD", "blocked-dir.bbb22222": "X" },
     );
 
     const result = restoreClient("zcode");
-    assert.equal(result.ok, false, "有失败条目必须报失败");
-    assert.ok(result.notes.some((n) => n.includes("保护性备份失败")), "目录被当文件备份要留痕");
-    assert.ok(result.notes.some((n) => n.includes("还原") && n.includes("失败")), "单条还原失败要留痕");
+    assert.equal(result.ok, true, result.error);
+    assert.ok(
+      result.notes.some((n) => n.includes("不在本客户端允许范围内")),
+      "白名单外条目必须留痕；notes=" + result.notes.join(" | "),
+    );
     assert.equal(readFileSync(provider, "utf8"), "OLD", "好条目仍应还原");
+  });
+
+  it("目录被当文件备份时留痕（不静默成功）", () => {
+    // 备份名指向的是目录：读不出来 → 如实记 notes，不假装还原成功
+    const provider = join(home, ".zcode", "v2", "provider_config.json");
+    mkdirSync(join(home, ".zcode", "v2"), { recursive: true });
+    writeFileSync(provider, "CURRENT", "utf8");
+    makeBackup(
+      "zcode",
+      "20990101000000",
+      [{ original: provider, backup: "adir", existed: true }],
+      {},
+    );
+    const dir = join(backupRoot(), "zcode-20990101000000", "adir");
+    mkdirSync(dir, { recursive: true });
+
+    const result = restoreClient("zcode");
+    assert.ok(
+      result.notes.some((n) => n.includes("备份") || n.includes("还原")),
+      "备份不可用必须留痕；notes=" + result.notes.join(" | "),
+    );
   });
 });
 
