@@ -2,8 +2,8 @@
  * Switch（shadcn/ui 源码复制版，皮肤走本仓令牌桥）。
  *
  * 与官方版的差异：
- *   - 本仓口径：开 = 状态绿轨、关 = 状态红轨，钮恒白 —— 开关直接用红绿表达状态，
- *     不借主色（主色是中性高反差，用作开关会让「开/关」失去颜色语义）；
+ *   - 本仓口径：开 = 品牌蓝轨、关 = 中性 overlay 轨，钮恒白（对齐 iOS / Element 的
+ *     通用做法）—— 红绿留给状态语义（在线 / 异常），不挪作「开 / 关」；
  *   - 触控垫：Root 即 button，窄屏撑 36×36（触控下限），桌面收窄回轨道尺寸
  *     保持行高密度；轨道色与滑块位移由 group-data-[state] 从 Root 映射到内层
  *     （Radix 的 data-state 只挂在 Root 上）；
@@ -28,7 +28,7 @@ function Switch({ className, ...props }: ComponentProps<typeof SwitchPrimitive.R
     >
       <span
         aria-hidden="true"
-        className="relative block h-[22px] w-9 rounded-full border border-line-strong transition-colors group-data-[state=unchecked]/switch:bg-switch-off group-data-[state=checked]/switch:bg-switch-on md:w-10"
+        className="relative block h-[22px] w-9 rounded-full border border-line-strong transition-colors group-data-[state=unchecked]/switch:bg-overlay group-data-[state=checked]/switch:bg-switch-on md:w-10"
       >
         <SwitchPrimitive.Thumb
           data-slot="switch-thumb"

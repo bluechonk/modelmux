@@ -7,8 +7,8 @@
 
 视觉语言：**ZCode 主题（`theme-zai-dark` / `theme-zai-light`）的表面与描边**，交互色取
 市面通用档（Element Plus / shadcn / Ant 的 primary 口径）。中性黑灰白表面、**半透明描边**
-（前景色 10%/16% alpha，明暗自动适配）；主操作 = 品牌蓝 `brand`（`#2f6fed` 白字），
-选中态 = 极端反色 `sel`（深白底黑字 / 浅黑底白字），开关 = 红绿 `switch-on` / `switch-off`。
+（前景色 10%/16% alpha，明暗自动适配）；主操作与选中态 = 品牌蓝 `brand` / `sel`
+（`#2f6fed` 白字），开关 = 开蓝轨 / 关 `overlay` 轨（`switch-on`）。
 源值的卡片同色不可用（与背景只差 1.05~1.44:1，选中项会看不见）；图表序列另用一套蓝，
 与主操作的蓝同族但只在数据可视化里出现。语义色取 ZCode 档（绿 / 橙 / 红），浅底加深保证对比。
 
@@ -24,8 +24,8 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 | 文字 | `text-ink` / `text-ink-soft` / `text-ink-faint` | `#f5f5f5` / `#d4d4d4` / `#a3a3a3` | `#171717` / `#404040` / `#737373` | 主 / 次 / 弱（均按可读对比取实色，不用低透明度正文） |
 | 主操作 | `brand` / `on-brand` / `brand-deep` | `#2f6fed` / `#ffffff` / `#2563d6` | 同左 | 主按钮、登录主钮、当前步骤点（品牌蓝） |
 | 状态 | `free` / `warn` / `danger` | `#46bf72` / `#ff8a30` / `#ff5c5c` | `#166b32` / `#b45309` / `#c92a2a` | 状态点、pill、文字与图标色 |
-| 选中与触发器 | `bg-sel` + `text-sel-ink` / `bg-trigger` + `text-trigger-ink` | `#f5f5f5` 底 `#0a0a0a` 字 / 白底黑字 | `#0a0a0a` 底白字 / 白底黑字加描边 | 导航与分段选中、下拉触发器 |
-| 开关 | `bg-switch-on` / `bg-switch-off`（钮恒白） | `#2f9e5f` / `#d92b2b` | `#16a34a` / `#d92b2b` | 开 = 绿、关 = 红 |
+| 选中与触发器 | `bg-sel` + `text-sel-ink` / `bg-trigger` + `text-trigger-ink` | 蓝底白字 / 白底黑字 | 蓝底白字 / 白底黑字加描边 | 导航与分段选中、chips 选中、下拉触发器 |
+| 开关 | `bg-switch-on`（关用 `bg-overlay`，钮恒白） | `#2f6fed` / `#363636` | `#2f6fed` / `#e6e6e6` | 开 = 蓝、关 = 中性 |
 | 图表序列 | `series-1..7` | `#4099ff` `#46bf72` `#7b5ce5` `#ff5c5c` `#ff8a30` `#42c8c8` | `#0b7fff` `#1e8a3e` `#8250df` `#cf222e` `#d97706` `#0aa7a7` | 趋势 / 环图 / 热力图（蓝首色） |
 
 三个组件类与一处动效：
@@ -42,12 +42,13 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 
 - 圆角两档：容器 `rounded-xl`（12px + `shadow-xs`）、行内元素与按钮 `rounded-lg`（8px）；
   不再使用 `rounded-full` 按钮（胶囊档已废）。
-- **主操作 = 品牌蓝**（`bg-brand text-on-brand hover:bg-brand-deep`，`#2f6fed` 底白字）：
-  与 Element Plus / shadcn / Ant 的 primary 同一档位；除状态语义色、开关红绿与下一条
-  「还原」例外，界面不出现第二种彩色。
-- **开关直接用红绿**（`bg-switch-on` / `bg-switch-off`，钮恒白）：开 = 绿、关 = 红，
-  颜色即状态，不借主色 —— 主色是品牌蓝，用作开关会让「开 / 关」失去颜色语义。
-  绿取比 `free` 更深一档（`#2f9e5f` / `#16a34a`），否则白钮压在 `#46bf72` 上只有 2.3:1。
+- **主操作与选中态同为品牌蓝**（`bg-brand text-on-brand hover:bg-brand-deep` /
+  `bg-sel text-sel-ink`，`#2f6fed` 底白字）：按钮、导航选中、分段选中、chips 选中
+  一套蓝，对齐 Element Plus / shadcn / Ant 的 primary 口径。不用纯黑纯白 —— 与主按钮
+  撞语义且视觉重量过大；也不用卡片同色（`#2b2b2b` / `#ffffff`，与画布只差 1.05~1.44:1，
+  选中项等于看不见，2026-11-20 实测）。
+- **开关：开 = 品牌蓝轨、关 = 中性 `overlay` 轨**，钮恒白（iOS 同款做法）；
+  红绿留给状态语义（在线 / 异常），不挪作「开 / 关」。
 - **动作色例外**：一键接入里的「还原」用 `warn` 淡黄（`border-warn/45 bg-warn/10 text-warn`）。
   语义是「非破坏性撤销」（写回接入前备份、可反悔），用中性描边会被读成禁用态；
   这是 `warn` 唯一一处非状态用法，新增前先想清楚要不要再借这个色。
@@ -67,11 +68,10 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   正文在居中容器里，各给一套内边距时宽屏下品牌（贴左）与页面内容（容器内）左缘
   差几百像素 —— 观测基准是 `header` 里第一个图标与 `main` 里 `h1` 的左缘必须同 x。
 - 键盘可达：`:focus-visible` 有统一聚焦环（鼠标点击不显示）。
-- **选中态取极端反色**（`bg-sel` + `text-sel-ink`）：深色 `#f5f5f5` 底 `#0a0a0a` 字、
-  浅色 `#0a0a0a` 底白字，带 `border-line-strong`；不与主操作的蓝撞语义。
-  不能用**卡片同色**（`#2b2b2b` / `#ffffff`）—— 与画布只差 1.05~1.44:1，选中项
-  在页面上等于看不见（WCAG 1.4.11 要求 UI 组件与状态指示 ≥3:1，2026-11-20 实测）。
-  分段控件的容器是 `overlay`，与 `sel` 差两档，选中项恒可辨。
+- **选中态与主操作同档品牌蓝**（`bg-sel` + `text-sel-ink` = `#2f6fed` 底白字，
+  带 `border-line-strong`）。不能用**卡片同色**（`#2b2b2b` / `#ffffff`）—— 与画布
+  只差 1.05~1.44:1，选中项在页面上等于看不见（WCAG 1.4.11 要求 UI 组件与状态指示
+  ≥3:1，2026-11-20 实测）。分段控件的容器是 `overlay`，与蓝底差 3.8:1，选中项恒可辨。
 - **危险色分两档**：`text-danger` 是文字 / 图标色（深色 `#ff5c5c`、浅色 `#c92a2a`），
   `bg-danger-strong` 是实底（按钮与 `AlertDialogAction`，两套主题同值 `#d92b2b`）。
   同一档红既要白字 4.5 又要深底文字 4.5 在数学上无解，必须拆开。

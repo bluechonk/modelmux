@@ -43,15 +43,14 @@
   --color-warn: #ff8a30;
   --color-danger: #ff5c5c;
 
-  /* 开关状态色：开 = 绿、关 = 红（语义即状态，不借主色）。
-     绿色不复用 `free`（#46bf72 上白钮只有 2.3:1），取更暗一档保白钮 ≥3:1。 */
-  --color-switch-on: #2f9e5f;
-  --color-switch-off: #d92b2b;
+  /* 开关：开 = 品牌蓝（与主按钮同档，白钮 4.7:1）；关 = 中性 overlay 轨 + 白钮，
+     靠 `border-line-strong` 描边与底色分界（iOS 同款做法，红绿留给状态语义）。 */
+  --color-switch-on: #2f6fed;
 
-  /* 选中态 = 极端反色（深 #f5f5f5 深字 / 浅 #0a0a0a 白字）：与背景拉开最大反差，
-     且不与主操作的蓝撞语义。分段控件容器是 overlay，与 sel 差两档，选中项恒可辨。 */
-  --color-sel: #f5f5f5;
-  --color-sel-ink: #0a0a0a;
+  /* 选中态 = 品牌蓝（导航 / 分段 / chips 选中）：与主操作同档同色，整站一套蓝。
+     不用极端反色（纯黑白）—— 与主按钮撞车且视觉重量过大；也不用卡片同色（看不见）。 */
+  --color-sel: #2f6fed;
+  --color-sel-ink: #ffffff;
 
   /* 滚动条 */
   --color-scrollbar: #3f3f3f;
@@ -128,10 +127,9 @@ html[data-theme="light"] {
   --color-free: #166b32;
   --color-warn: #b45309;
   --color-danger: #c92a2a;
-  --color-switch-on: #16a34a;
-  --color-switch-off: #d92b2b;
-  /* 选中态 = 极端反色（#0a0a0a 白字），与容器 overlay(#e6e6e6) 差两档。 */
-  --color-sel: #0a0a0a;
+  --color-switch-on: #2f6fed;
+  /* 选中态 = 品牌蓝，与主按钮同档；容器 overlay(#e6e6e6) 与蓝底对比 3.8:1。 */
+  --color-sel: #2f6fed;
   --color-sel-ink: #ffffff;
   --color-scrollbar: #d4d4d4;
   --color-scrollbar-hover: #a1a1a1;

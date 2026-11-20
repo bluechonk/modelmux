@@ -150,8 +150,14 @@ function KeyFormDialog({
             </DialogClose>
           </div>
 
-          <form onSubmit={onSubmit} className="mt-3 flex flex-col gap-3">
-            <label className="flex flex-col gap-1">
+          {/*
+            间距口径：标题↔表单 16px、字段之间 16px、label↔控件 6px（`gap-1.5`）。
+            `gap-1`（4px）在 12px 小标签与 42px 输入框之间读不出层级；而 `<legend>`
+            在 flex 容器里**不吃 gap**（实测 legend 底与 chips 顶重合 0px），故改用
+            `role="group"` 的普通块，语义由 `aria-label` 保留。
+          */}
+          <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5">
               <span className="text-xs text-ink-faint">名称（{NAME_MAX} 字以内）</span>
               <Input
                 id={nameId}
@@ -163,8 +169,8 @@ function KeyFormDialog({
               />
             </label>
 
-            <fieldset className="flex flex-col gap-1">
-              <legend className="text-xs text-ink-faint">能用哪些模型</legend>
+            <div role="group" aria-label="能用哪些模型" className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-faint">能用哪些模型</span>
               {/*
                 多选 chips：不选 = 全部模型。选项来自当前模型池 —— 池里没有的模型
                 写进白名单也没有任何效果（选路根本不会命中），不如不给选。
@@ -192,14 +198,14 @@ function KeyFormDialog({
                   );
                 })}
               </div>
-            </fieldset>
+            </div>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1.5">
               <span className="text-xs text-ink-faint">每分钟最多请求几次（0 = 不限）</span>
               <Input value={rpm} inputMode="numeric" className="w-28" onChange={(e) => setRpm(e.target.value)} />
             </label>
 
-            <div className="mt-1 flex justify-end gap-2">
+            <div className="flex justify-end gap-2">
               <button type="button" className={BTN} onClick={onClose}>
                 取消
               </button>
