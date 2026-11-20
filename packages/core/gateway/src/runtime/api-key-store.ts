@@ -143,6 +143,38 @@ export function updateApiKey(
   return next;
 }
 
+/**
+ * 一键接入专用 key 的名称。
+ *
+ * 客户端配置（zcode `access.apiKey` / dsh `refs.MODELMUX_API_KEY`）写的是这个 key
+ * —— 网关开启「要求 API key」后客户端才连得通；写死占位串会让校验开启后全体 401。
+ * 列表里按名字认它，UI 标注「一键接入」。
+ */
+export const INTEGRATION_KEY_NAME = "modelmux";
+
+/**
+ * 确保一键接入专用 key 存在；**明文只在新建那次返回**。
+ *
+ * 明文不可回读是存储纪律（库里只有哈希）：重跑接入时若客户端已写着一把仍有效的
+ * key，就不需要明文；取不到明文又要写时才报错（见 integrate.ts 的调用处）。
+ */
+export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string | null } {
+  const existing = listApiKeys().find((k) => k.name === INTEGRATION_KEY_NAME);
+  if (existing) return { record: existing, plain: null };
+  const { record, plain } = createApiKey({
+    name: INTEGRATION_KEY_NAME,
+    // 接入的客户端要能用全部对外模型；限流不限（本机单客户端）
+    allowedModels: [],
+    rpmLimit: 0,
+  });
+  return { record, plain };
+}
+
+/** 校验一把明文 key 是否仍有效（接入重跑时判断客户端里那把要不要换）。 */
+export function verifyApiKeyPlain(plain: string): boolean {
+  return findKey(plain) !== null;
+}
+
 /** 删除 key；返回是否确实删掉。 */
 export function deleteApiKey(id: string): boolean {
   const keys = listApiKeys();
