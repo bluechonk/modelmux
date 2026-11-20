@@ -56,8 +56,8 @@ describe("统一模型注册表", () => {
       version: 1,
       models: {
         "kimi-k3.1-pro": {
-          contextWindow: 200000,
-          maxOutput: 65536,
+          contextWindow: 1000000,
+          maxOutput: 100000,
           inputModalities: ["text"],
           channels: { qwenworkcn: "kimi-k3.1-pro" },
         },
@@ -65,8 +65,8 @@ describe("统一模型注册表", () => {
     });
     const { registry, source } = loadModelRegistry();
     assert.equal(source, "file");
-    assert.equal(registry.models["kimi-k3.1-pro"]?.contextWindow, 200_000);
-    assert.equal(registry.models["kimi-k3.1-pro"]?.maxOutput, 65_536);
+    assert.equal(registry.models["kimi-k3.1-pro"]?.contextWindow, 1_000_000);
+    assert.equal(registry.models["kimi-k3.1-pro"]?.maxOutput, 100_000);
     // 只登记了一个型号时，池里就只有它
     assert.deepEqual(registryModelIds(), ["kimi-k3.1-pro"]);
   });
@@ -99,8 +99,8 @@ describe("统一模型注册表", () => {
       version: 1,
       models: {
         "kimi-k3.1-pro": {
-          contextWindow: 200000,
-          maxOutput: 65536,
+          contextWindow: 1000000,
+          maxOutput: 100000,
           inputModalities: ["text"],
           channels: { qwenworkcn: "kimi-k3.1-pro" },
         },

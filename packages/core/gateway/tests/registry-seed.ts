@@ -70,7 +70,7 @@ interface RegistryDoc {
 /** 默认规格（测试只关心路由，不关心窗口数值）。glm / qwen3.8-flash 已移出对外家族，不再作种子。 */
 const SPEC: Record<string, { contextWindow: number; maxOutput: number }> = {
   "deepseek-v4.1-flash": { contextWindow: 1_000_000, maxOutput: 128_000 },
-  "kimi-k3.1-pro": { contextWindow: 200_000, maxOutput: 65_536 },
+  "kimi-k3.1-pro": { contextWindow: 1_000_000, maxOutput: 100_000 },
 };
 
 /**
