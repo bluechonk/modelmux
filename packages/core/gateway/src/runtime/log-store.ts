@@ -1037,8 +1037,17 @@ function readTail(file: string, maxBytes: number): { text: string; truncated: bo
     if (length <= 0) return { text: "", truncated: false };
     fd = openSync(file, "r");
     const buf = Buffer.alloc(length);
-    const read = readSync(fd, buf, 0, length, start);
-    let text = buf.subarray(0, read).toString("utf8");
+    // `readSync` 允许短读（statSync 与 read 之间文件被轮转/截断、信号中断）：必须按
+    // **实际**读到的字节数截断缓冲区，否则尾部补零会被当成日志内容解析
+    // （与 supervisor.ts 的 readLastLogLine 同一口径）
+    let filled = 0;
+    while (filled < length) {
+      const n = readSync(fd, buf, filled, length - filled, start + filled);
+      if (n <= 0) break;
+      filled += n;
+    }
+    if (filled <= 0) return { text: "", truncated: true };
+    let text = buf.subarray(0, filled).toString("utf8");
     if (start > 0) {
       const nl = text.indexOf("\n");
       if (nl < 0) return { text: "", truncated: true };

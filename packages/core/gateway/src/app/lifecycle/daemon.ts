@@ -915,17 +915,27 @@ export function readAppended(path: string, offset: number): { text: string; offs
   if (size === offset) return { text: "", offset };
   const len = size - offset;
   const buf = Buffer.alloc(len);
+  let filled = 0;
   try {
     const fd = openSync(path, "r");
     try {
-      readSync(fd, buf, 0, len, offset);
+      // `readSync` 允许短读（statSync 与 read 之间文件被轮转/截断、信号中断）：必须按
+      // **实际**读到的字节数截断缓冲区，否则尾部补零会被当成日志内容输出
+      // （与 supervisor.ts 的 readLastLogLine 同一口径）
+      while (filled < len) {
+        const n = readSync(fd, buf, filled, len - filled, offset + filled);
+        if (n <= 0) break;
+        filled += n;
+      }
     } finally {
       closeSync(fd);
     }
   } catch {
     return { text: "", offset };
   }
-  const nl = buf.lastIndexOf(0x0a);
+  if (filled <= 0) return { text: "", offset };
+  // 只在**真正读到**的字节里找末行边界：缓冲区尾部可能仍是零填充
+  const nl = buf.subarray(0, filled).lastIndexOf(0x0a);
   if (nl === -1) return { text: "", offset };
   return { text: buf.subarray(0, nl + 1).toString("utf8"), offset: offset + nl + 1 };
 }
