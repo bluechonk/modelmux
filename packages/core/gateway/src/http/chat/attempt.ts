@@ -14,6 +14,7 @@ import type { ServerResponse } from "node:http";
 import { getChannel, hasChannel, channelCapabilities, type Channel, type StreamTranslator } from "../../runtime/channel.js";
 import {
   hasUsableAccount,
+  isNotLoggedIn,
   markActiveHealth,
   noteAccountFailure,
   noteAccountQuotaExhausted,
@@ -177,7 +178,13 @@ async function tryRefreshCredential(
     await inChannel(channel, () => channel.cred.refresh(credential));
     return { kind: "ok" };
   } catch (err) {
-    if (isUpstreamUnauthorized(channel, err)) return { kind: "unauthorized", error: String(err) };
+    // 两种终态都算「凭据真失效」：
+    //   - `UpstreamUnauthorized`：渠道在建连前置里认出了上游的鉴权拒绝；
+    //   - `NotLoggedInError`：刷新途中发现凭据本身已不可用（codebuddycn / qwenworkcn
+    //     抛的是它）。只认前者会让这类渠道的坏令牌被无限重试、永不标 `unauthorized`。
+    if (isUpstreamUnauthorized(channel, err) || isNotLoggedIn(channel, err)) {
+      return { kind: "unauthorized", error: String(err) };
+    }
     logger(`token refresh failed: ${String(err)}`);
     return { kind: "failed", error: String(err) };
   }
