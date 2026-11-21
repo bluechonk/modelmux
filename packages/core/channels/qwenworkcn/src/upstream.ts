@@ -742,7 +742,10 @@ export function newTranslator(): StreamTranslator {
     const trimmed = line.trim();
     if (!trimmed || !trimmed.startsWith("data:")) return [];
     const data = trimmed.slice(5).trim();
-    if (!data || data === "[DONE]") return [`data: ${data || "[DONE]"}\n\n`];
+    // 空 `data:` 行是上游心跳，不是终止信号：合成 `[DONE]` 会让客户端认为生成结束、
+    // 丢弃后续正文（catpaw 对空 data 直接跳过）。终止只由真正的 `[DONE]` 或 finish() 给。
+    if (!data) return [];
+    if (data === "[DONE]") return ["data: [DONE]\n\n"];
 
     let parsed: unknown;
     try {
@@ -841,7 +844,12 @@ export function newTranslator(): StreamTranslator {
       buffer += decoder.decode();
       const rest = buffer;
       buffer = "";
-      return rest ? processLine(rest) : [];
+      const out = rest ? processLine(rest) : [];
+      // 必须补终止帧（catpaw / traecn 同口径）：严格 SSE 客户端靠 `[DONE]` 收尾，
+      // 缺了它就只剩连接关闭可依赖；而上游若保持连接不关，网关要读到 idle 上限
+      // （本渠道 900s）才结束 —— 一次正常对话挂十几分钟。
+      out.push("data: [DONE]\n\n");
+      return out;
     },
   };
 }

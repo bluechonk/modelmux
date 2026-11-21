@@ -611,7 +611,15 @@ export function loadConfig(): [Config, boolean] {
   } catch {
     return [defaultConfig(), false];
   }
-  const parsed = JSON.parse(raw) as Partial<Config>;
+  // 文件损坏 / 半截 JSON 回落默认配置（与其余渠道同口径）：裸 `JSON.parse` 抛错会
+  // 一路穿到 `openStream`，让所有对话请求 500 —— 一个手改坏的文件不该打挂整条链路。
+  let parsed: Partial<Config>;
+  try {
+    parsed = JSON.parse(raw) as Partial<Config>;
+  } catch {
+    return [defaultConfig(), false];
+  }
+  if (!parsed || typeof parsed !== "object") return [defaultConfig(), false];
   const cfg: Config = {
     baseUrl:
       typeof parsed.baseUrl === "string" && parsed.baseUrl ? parsed.baseUrl : DEFAULT_BASE_URL,

@@ -119,7 +119,10 @@ export async function fetchCredits(
   try {
     result = await getJson(upstream.balanceUrl(), c);
   } catch (err) {
-    if (!refreshOn401) throw err;
+    // 只有「凭据失效」才值得续期：网络超时 / 5xx 也走这条会让 refresh_token 被上游
+    // 轮换一次（一次抖动就换票），且刷新失败会盖掉原始的额度错误。
+    // 与 qwenworkcn / traecn / workbuddy / codebuddycn 同一口径。
+    if (!refreshOn401 || !(err instanceof cred.NotLoggedInError)) throw err;
     c = await cred.refresh(c); // 失败会抛，交由调用方提示重新登录
     result = await getJson(upstream.balanceUrl(), c);
   }

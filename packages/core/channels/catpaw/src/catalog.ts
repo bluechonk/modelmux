@@ -345,7 +345,10 @@ export function exposedIds(): string[] {
 /**
  * 短名 → 上游模型 id（字符串，本渠道 id 即上游标识）。
  *
- * 大小写不敏感匹配；未知名称抛错（让网关明确报错，不用错模型发请求）。
+ * 大小写不敏感匹配；目录里没有就**原样返回**（与其余渠道一致）。
+ * 本函数是纯映射，不承担「这个模型是否存在」的判定：抛错会穿透到 `attempt.ts`
+ * （那里裸调无 catch）变成整条请求 500，而正确行为是交给注册表兜底，
+ * 最终由调用方判「该渠道不提供这个模型」并换下一条候选。
  * `buildChatBody` 再做 id → modelType 数值转换。
  */
 export function resolveModel(name: string): string {
@@ -358,7 +361,7 @@ export function resolveModel(name: string): string {
       return entry.id;
     }
   }
-  throw new Error(`unknown model: ${name}`);
+  return name;
 }
 
 /**
