@@ -399,49 +399,47 @@ export function Accounts(): ReactElement {
             段落**恒渲染**：模型清单由服务端从家族表派生（不再依赖 `/v1/models`
             的轮询结果），刚起进程 / 上游抖动时也不会整段消失，用户始终有处设置。
           */}
-          {/* 渠道偏好（左）+ 对外模型清单（右）一排两卡：偏好管「走哪家」，清单管「对外有什么」。
-              `lg` 起两卡**等宽 + 等高**（grid 默认 stretch）：清单只有两行内容，
-              吃掉剩余宽度时行内右侧空一大片；偏好卡被压到 264px 时模型名与下拉挤在一起。
-              等宽后两卡都不空旷，上下边缘也对齐。 */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {/* 渠道偏好 + 对外模型清单**合并一卡**：偏好管「走哪家」，清单管「对外有什么」。
+              内部 lg 起左右两列（等宽），窄屏上下堆叠 —— 外壳一张卡，视觉上是一个整体。 */}
           <section className="panel p-3 min-w-0">
-            <h2 className="mb-2 text-xs font-medium text-ink-soft">渠道偏好</h2>
-            <div className="flex flex-col gap-2">
-              {modelPrefs.map((pref) => (
-                // 一个模型一行：「模型 → 偏好渠道」横着读，flex 两端对齐。
-                // 为什么不再分桌面/窄屏两套排布：此前桌面 176px 定列居中、窄屏两列网格
-                // 左对齐，模型名与下拉的对齐靠分支逻辑撑着，每加一档断点就错位一次
-                // （2026-11-14 实拍）；单行两端全档位同构，多模型按行自动扩展。
-                <div key={pref.model} className="flex items-center gap-3">
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{pref.model}</span>
-                  {/* 下拉定宽靠右（fixedWidth 按最长渠道名量宽）：切换选项时按钮不位移，
-                      名称截断让位；nowrap 防文字折行把高度顶高 */}
-                  <div className="flex-none [&_button]:whitespace-nowrap">
-                    <Select
-                      value={pref.preferred ?? ""}
-                      onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
-                      label={`模型 ${pref.model} 优先渠道`}
-                      fixedWidth
-                      options={[
-                        { value: "", label: "自动" },
-                        ...pref.channels.map((cid) => ({ value: cid, label: cid })),
-                      ]}
-                    />
-                  </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="min-w-0">
+                <h2 className="mb-2 text-xs font-medium text-ink-soft">渠道偏好</h2>
+                <div className="flex flex-col gap-2">
+                  {modelPrefs.map((pref) => (
+                    // 一个模型一行：「模型 → 偏好渠道」横着读，flex 两端对齐。
+                    // 单行两端全档位同构，多模型按行自动扩展。
+                    <div key={pref.model} className="flex items-center gap-3">
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{pref.model}</span>
+                      {/* 下拉定宽靠右（fixedWidth 按最长渠道名量宽）：切换选项时按钮不位移，
+                          名称截断让位；nowrap 防文字折行把高度顶高 */}
+                      <div className="flex-none [&_button]:whitespace-nowrap">
+                        <Select
+                          value={pref.preferred ?? ""}
+                          onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
+                          label={`模型 ${pref.model} 优先渠道`}
+                          fixedWidth
+                          options={[
+                            { value: "", label: "自动" },
+                            ...pref.channels.map((cid) => ({ value: cid, label: cid })),
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+                {modelPrefs.every((pref) => pref.channels.length === 0) && (
+                  <p className="mt-2 text-xs text-ink-faint">
+                    池里暂无可路由的模型：先添加账号，或检查渠道是否已登录。
+                  </p>
+                )}
+              </div>
+              <div className="min-w-0 lg:border-l lg:border-line lg:pl-4">
+                <h2 className="mb-2 text-xs font-medium text-ink-soft">模型清单</h2>
+                <ModelRows rows={modelRows} />
+              </div>
             </div>
-            {modelPrefs.every((pref) => pref.channels.length === 0) && (
-              <p className="mt-2 text-xs text-ink-faint">
-                池里暂无可路由的模型：先添加账号，或检查渠道是否已登录。
-              </p>
-            )}
           </section>
-            <section className="panel p-3 min-w-0">
-              <h2 className="mb-2 text-xs font-medium text-ink-soft">模型清单</h2>
-              <ModelRows rows={modelRows} />
-            </section>
-          </div>
 
           {/*
           {/*
