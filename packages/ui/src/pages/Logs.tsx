@@ -821,7 +821,7 @@ export function Logs(): ReactElement {
   // （`overflow-hidden`）并给内层确定高度，纵向滚动只属于下方表格区（见 LogTable）。
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <PageHeader title="请求日志" description="每次模型请求的明细" />
+      <PageHeader title="请求日志" />
 
       {/* 统计条 + 筛选栏：页面已不滚动，天然常驻可见，不再需要 sticky */}
       <div className="panel space-y-3 p-3">

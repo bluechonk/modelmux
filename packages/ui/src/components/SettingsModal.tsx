@@ -95,16 +95,14 @@ function IntervalRow({
   icon,
   page,
   title,
-  description,
 }: {
   icon: IconType;
   page: RefreshPage;
   title: string;
-  description: string;
 }): ReactElement {
   const { interval, options, select } = useRefreshInterval(page);
   return (
-    <ModalRow icon={icon} title={title} description={description}>
+    <ModalRow icon={icon} title={title}>
       <Segmented
         items={options.map((ms) => ({ key: String(ms), label: `${ms / 1000}s` }))}
         value={String(interval)}
@@ -302,7 +300,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                   <div className="mb-3 mt-6 text-xs font-medium text-ink-faint">偏好设置</div>
                   <div className="divide-y divide-line">
                     {CAN_AUTOSTART && (
-                      <ModalRow icon={Power} title="开机自启动" description="登录 Windows 后自动启动并收进托盘">
+                      <ModalRow icon={Power} title="开机自启动">
                         <Switch
                           checked={autostart === true}
                           disabled={autostart === null}
@@ -311,8 +309,8 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                         />
                       </ModalRow>
                     )}
-                    <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" description="渠道卡与额度的刷新节奏" />
-                    <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" description="日志列表与统计的刷新节奏" />
+                    <IntervalRow icon={RefreshCw} page="accounts" title="账号池刷新间隔" />
+                    <IntervalRow icon={ScrollText} page="logs" title="请求日志刷新间隔" />
                   </div>
                 </div>
               )}
@@ -321,7 +319,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                 <div>
                   <div className="mb-3 text-xs font-medium text-ink-faint">渠道开关</div>
                   <p className="mb-3 text-xs text-ink-faint">
-                    关闭的渠道从账号池隐藏、不参与选路；凭据与登录态保留，勾回来即恢复。
+                    关闭的渠道不参与选路，凭据保留。
                   </p>
                   <div className="divide-y divide-line">
                     {(state.data?.channel_toggles ?? []).map((t) => (
@@ -344,7 +342,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                 <div>
                   <div className="mb-3 text-xs font-medium text-ink-faint">显示</div>
                   <div className="divide-y divide-line">
-                    <ModalRow icon={Palette} title="主题" description="跟随系统或固定深浅">
+                    <ModalRow icon={Palette} title="主题">
                       <Segmented items={THEME_ITEMS} value={mode} onChange={select} label="主题模式" />
                     </ModalRow>
                   </div>
@@ -356,14 +354,14 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                   <div className="mb-3 text-xs font-medium text-ink-faint">信息</div>
                   <div className="divide-y divide-line">
                     {base_url && (
-                      <ModalRow icon={Server} title="网关地址" description="客户端接入地址">
+                      <ModalRow icon={Server} title="网关地址">
                         <span className="inline-flex max-w-full items-center gap-1 overflow-hidden rounded-lg border border-line bg-canvas py-0.5 pl-2.5 pr-0.5 font-mono text-xs text-ink-soft">
                           <span className="truncate">{base_url}</span>
                           <CopyButton value={base_url} label="复制 base_url" />
                         </span>
                       </ModalRow>
                     )}
-                    <ModalRow icon={GithubMark} title="GitHub" description="源码仓库与版本发布">
+                    <ModalRow icon={GithubMark} title="GitHub">
                       <a
                         href={REPO_URL}
                         target="_blank"
@@ -375,7 +373,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                       </a>
                     </ModalRow>
                     {IS_DESKTOP && webUrl && (
-                      <ModalRow icon={ExternalLink} title="Web 控制台" description="在默认浏览器打开本页">
+                      <ModalRow icon={ExternalLink} title="Web 控制台">
                         <a
                           href={webUrl}
                           target="_blank"

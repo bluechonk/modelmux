@@ -397,7 +397,6 @@ export function Dashboard(): ReactElement {
     <div className="space-y-5 pb-10">
       <PageHeader
         title="仪表盘"
-        description="Token 活动恒看一年"
         actions={
           <div className="flex items-center gap-2">
             {/* 区间切换的过渡只靠数字自身淡入（placeholderData 保住旧数字不闪），不放「更新中」文案 */}

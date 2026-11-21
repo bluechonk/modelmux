@@ -341,7 +341,7 @@ export function Accounts(): ReactElement {
 
   return (
     <div className="space-y-5 pb-10">
-      <PageHeader title="账号池" description="各渠道的凭据与额度" />
+      <PageHeader title="账号池" />
 
       {/*
         三态分开渲染：加载中 / **查询失败** / 确实没有账号池。

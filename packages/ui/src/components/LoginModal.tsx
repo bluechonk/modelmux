@@ -242,17 +242,9 @@ export function LoginModal({
       state: done ? "done" : failed ? "failed" : "active",
     },
     { title: "在官方页面完成登录 / 授权", body: null, state: done ? "done" : "todo" },
-    {
-      title: "自动回调（无需手动）",
-      body: (
-        <span className="text-xs leading-relaxed text-ink-faint">
-          授权成功后页面会<strong className="text-ink-soft">自动跳回本地回调</strong>
-          并完成登录。控制台与网关在同一台机器上，回调必然到得了本机端口 ——
-          不需要手动粘贴任何链接。
-        </span>
-      ),
-      state: done ? "done" : "todo",
-    },
+    // 「自动回调」步骤只留标题：回调机制（跳回本地端口、无需手动粘贴）是实现细节，
+    // 用户动作只有「等它完成」，正文解释是介绍性内容
+    { title: "自动回调（无需手动）", body: null, state: done ? "done" : "todo" },
   ];
 
   return (

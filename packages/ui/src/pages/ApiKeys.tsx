@@ -196,19 +196,16 @@ function KeyFormDialog({
 
           {/*
             间距口径：标题↔表单 16px、字段之间 16px、label↔控件 6px（`gap-1.5`）。
-            `gap-1`（4px）在 12px 小标签与 42px 输入框之间读不出层级；而 `<legend>`
-            在 flex 容器里**不吃 gap**（实测 legend 底与 chips 顶重合 0px），故改用
-            `role="group"` 的普通块，语义由 `aria-label` 保留。
+            名称上限由 `maxLength` 硬拦（超出根本输不进去），label 不再预告字数。
           */}
           <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-faint">名称（{NAME_MAX} 字以内）</span>
+              <span className="text-xs text-ink-faint">名称</span>
               <Input
                 id={nameId}
                 value={name}
                 maxLength={NAME_MAX}
                 autoFocus
-                placeholder="如 ci / 笔记本"
                 onChange={(e) => setName(e.target.value)}
               />
             </label>
@@ -285,16 +282,17 @@ function PlainDialog({
             </DialogClose>
           </div>
 
-          <div className="mt-4 flex flex-col gap-4">
+            <div className="mt-4 flex flex-col gap-4">
             <div className="flex items-center gap-2 rounded-[10px] border border-dashed border-line-strong bg-surface p-3">
               <code className="min-w-0 flex-1 break-all font-mono text-[13px] text-ink">{plain}</code>
               <CopyButton value={plain} label="复制 API key" />
             </div>
-            <p className="rounded-[10px] bg-overlay/60 px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-soft">
-              {rebuilt
-                ? "旧 key 已作废，请把客户端配置里的密钥换成这一把。"
-                : "列表里随时可以再复制；一键接入会自动使用这把 key。"}
-            </p>
+            {/* 说明段只在重建时出现（旧 key 作废是必须交代的后果）；新建的「随时可复制 / 接入会用」是介绍，不放 */}
+            {rebuilt && (
+              <p className="rounded-[10px] bg-overlay/60 px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-soft">
+                旧 key 已作废，请把客户端配置换成这一把。
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <button type="button" className={BTN} onClick={() => void navigator.clipboard?.writeText(plain).catch(() => {})}>
                 复制
@@ -399,7 +397,7 @@ export function ApiKeys(): ReactElement {
 
   return (
     <div className="space-y-5 pb-10">
-      <PageHeader title="API Keys" description="对话请求的准入密钥" />
+      <PageHeader title="API Keys" />
 
       <section className="panel p-4">
         {/*
