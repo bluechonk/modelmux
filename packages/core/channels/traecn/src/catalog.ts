@@ -440,7 +440,9 @@ function parseWebCatalog(payload: Record<string, unknown>): ModelEntry[] {
         id: name,
         model: name,
         name,
-        function: nonEmpty(group["function"]) ?? nonEmpty(group["agent_type"]) ?? "solo_agent_remote",
+        // `nonEmpty` 返回 `""` 而不是 null，用 `??` 会永远停在空串上（死回退）——
+        // 必须 `||` 才能走到下一个候选。落空时用 Remote 的默认 function。
+        function: nonEmpty(group["function"]) || nonEmpty(group["agent_type"]) || "solo_agent_remote",
         contextWindow: declared,
         maxOutput: 0, // Remote 目录不下发输出上限 → 未声明
         multiplier: rateFromFeatures(raw["features"]),

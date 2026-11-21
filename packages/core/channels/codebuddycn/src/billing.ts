@@ -201,7 +201,14 @@ function summarize(accounts: Array<Record<string, unknown>>): CreditsResult {
       unit: rowUnit,
     });
   }
-  if (packages.length === 0) throw new CreditsError("resource response has no positive credit entries");
+  if (packages.length === 0) {
+    // 上游结构在、但**没有任何包还有余额** = 额度正常用尽，不是查询失败。
+    // 抛错会让 `mx bill` 显示「查询失败」，更糟的是 `account-rotate.refreshOne` 会
+    // 得到「额度重查失败，无法判定」→ 该账号不会被自动换走，继续被反复打。
+    // 只有「连 Accounts 结构都没有」才是结构缺失（由 `fetchAccounts` 抛）。
+    if (accounts.length === 0) throw new CreditsError("resource response has no credit entries");
+    return { ok: true, total: { remain: 0, size: 0, used: 0, unit, remain_percent: 0 }, packages: [], claimable: [] };
+  }
   return {
     ok: true,
     total: {

@@ -43,11 +43,15 @@ const TASK_AMOUNT = new Map(ONBOARDING_TASKS.map((t) => [t.key, t.amount]));
 /**
  * 共享层按账号调度时传进来的是**归一化后的普通对象**（snake_case → camelCase 的只读副本），
  * 形状与 `cred.load()` 一致；这里只做一次「是对象就用」的宽进，不做字段解释。
+ *
+ * 判据用 `accessToken`：`session` 只出现在**登录响应**里（上游字段），落盘凭据存的是
+ * 它换成的 `accessToken`。按 `session` 判会恒返回 null —— 目前靠调用方包了
+ * `runForAccountCredential` 才恰好读对凭据，判据本身是失效的。
  */
 function toCredentials(value: Record<string, unknown> | undefined): cred.Credentials | null {
   if (!value || typeof value !== "object") return null;
-  const session = (value as { session?: unknown }).session;
-  if (typeof session !== "string" || session === "") return null;
+  const token = (value as { accessToken?: unknown }).accessToken;
+  if (typeof token !== "string" || token === "") return null;
   return value as unknown as cred.Credentials;
 }
 
