@@ -187,7 +187,7 @@ if (!gotLock) {
     else startGateway();
     refreshTrayMenu();
 
-    await createWindow();
+    await ensureWindow();
 
     app.on("activate", () => {
       showWindow();
@@ -372,10 +372,20 @@ function refreshTrayMenu() {
   );
 }
 
+/**
+ * 建窗单飞锁。
+ *
+ * `showWindow` 在 `win === null` 时重建窗口，而 `whenReady` 的主流程也会
+ * `await createWindow()`。启动空窗期（健康探测最长 3s）里用户再点一次快捷方式，
+ * 两条路径会各建一个 BrowserWindow —— 后者覆盖模块级 `win`，前者成为孤儿窗口
+ * （可见，但关闭按钮关的是另一个，且永不被销毁）。
+ */
+let creatingWindow = null;
+
 /** 显示并聚焦主窗口（窗口被关掉过就重建）。 */
 function showWindow() {
   if (!win) {
-    void createWindow();
+    void ensureWindow();
     return;
   }
   if (win.isMinimized()) win.restore();
@@ -436,6 +446,23 @@ function registerWindowIpc() {
   });
   // 系统深浅变化 → 窗口背景跟随（resize 边缘与首帧不再露出深色残边）
   nativeTheme.on("updated", () => win?.setBackgroundColor(windowBackground()));
+}
+
+/**
+ * 保证窗口存在（单飞）：并发调用共享同一次建窗，不会建出两个 BrowserWindow。
+ *
+ * 见 `creatingWindow` 的说明 —— 启动空窗期里 `showWindow` 与主流程会同时要求建窗。
+ */
+async function ensureWindow() {
+  if (win) return;
+  if (creatingWindow) {
+    await creatingWindow;
+    return;
+  }
+  creatingWindow = createWindow().finally(() => {
+    creatingWindow = null;
+  });
+  await creatingWindow;
 }
 
 async function createWindow() {
