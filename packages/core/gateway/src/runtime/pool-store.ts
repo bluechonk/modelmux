@@ -1,8 +1,8 @@
 /**
- * 账号池存储端口（S0，docs/SAAS-REDESIGN.md §2/§13）。
+ * 账号池存储端口（本机文件实现）。
  *
  * 把 account-pool / pool-usage 的「存储落点」抽成接口：fs 适配器保持现有
- * 文件语义（原子写 + 0600 + mtime 失效依据），S1 的 pg 适配器把同一组方法
+ * 文件语义（原子写 + 0600 + 内容哈希失效依据）：
  * 落到表上。领域逻辑（索引规范化、账本合并、熔断退避计算）留在调用方，
  * 端口只搬运数据 —— 两套适配器共享语义，行为不因迁移漂移。
  *
@@ -55,16 +55,6 @@ export interface PoolStore {
   readPrefs(): unknown | null;
   writePrefs(prefs: unknown): void;
   /**
-   * 半开试探租约（S3，docs/SAAS-REDESIGN.md §8.1）：熔断到期时多实例只放行一次
-   * 试探 —— 抢到租约返回 true（放行），未抢到 false（继续短路）。
-   * fs 形态单进程恒 true（读-改-写天然串行，无竞态可言）。
-   */
-  claimProbeLease(cid: string, key: string, ttlMs: number): boolean;
-  /**
-   * API key 记录（`<root>/api-keys.json`）：列表整读整写。
-   *
-   * 明文 key 不在这里 —— 存储只放哈希与前缀，创建时的明文由调用方一次性回显。
-   * fs 形态读写原文件（0600），pg 形态落 `pool_kv`（kind='apikey'）。
    */
   readApiKeys(): unknown | null;
   writeApiKeys(keys: unknown): void;
@@ -159,7 +149,7 @@ function copySecret(from: string, to: string): void {
   }
 }
 
-/** 本机文件适配器：保持 S0 之前的全部落点与写盘语义。 */
+/** 本机文件适配器：全部落点与写盘语义都在这里。 */
 export class FsPoolStore implements PoolStore {
   private indexFile(cid?: string): string {
     return join(channelDir(cid), INDEX_NAME);
@@ -251,15 +241,6 @@ export class FsPoolStore implements PoolStore {
     writeJsonWithBackup(rootFile("model-prefs.json"), prefs, writeJsonFile);
   }
 
-
-  claimProbeLease(cid: string, key: string, ttlMs: number): boolean {
-    // 单进程形态无竞态：恒放行（与 S0 之前的行为一致）
-    void cid;
-    void key;
-    void ttlMs;
-    return true;
-  }
-
   readApiKeys(): unknown | null {
     return readJsonWithBackup(rootFile(API_KEYS_NAME));
   }
@@ -269,7 +250,7 @@ export class FsPoolStore implements PoolStore {
   }
 }
 
-// 组合根注入点：默认 fs；服务化形态（S1+）在装配时替换为 pg 适配器。
+// 组合根注入点：默认 fs（唯一实现）。
 let currentStore: PoolStore = new FsPoolStore();
 
 export function setPoolStore(store: PoolStore): void {

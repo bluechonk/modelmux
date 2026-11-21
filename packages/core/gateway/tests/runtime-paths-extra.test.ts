@@ -16,7 +16,6 @@ import { after, before, describe, it } from "node:test";
 
 import * as paths from "../dist/runtime/paths.js";
 import { enforcePermissions } from "../dist/runtime/permissions.js";
-import { migrateLegacyChannelDirs } from "../dist/runtime/storage-migrate.js";
 import { clearChannels, setChannel, type Channel, type ChannelConfig } from "../dist/runtime/channel.js";
 
 const CID = "pathx";
@@ -109,31 +108,3 @@ describe("权限基线对不存在目录的容错", () => {
   });
 });
 
-describe("旧布局迁移的早退与保留现场分支", () => {
-  let root = "";
-
-  before(() => {
-    root = mkdtempSync(join(tmpdir(), "modelmux-migrate-extra-"));
-  });
-  after(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it("根目录不存在：无事可做（readdir 失败早退）", () => {
-    const result = migrateLegacyChannelDirs(join(root, "missing"));
-    assert.deepEqual(result, { moved: [], skipped: [], notes: [] });
-  });
-
-  it("新旧布局并存：跳过并保留现场，绝不覆盖", () => {
-    mkdirSync(join(root, "channels", "dupcid"), { recursive: true });
-    mkdirSync(join(root, "dupcid"), { recursive: true });
-    writeFileSync(join(root, "dupcid", "keep.txt"), "keep", "utf8");
-
-    const result = migrateLegacyChannelDirs(root);
-
-    assert.deepEqual(result.moved, [], "两边都有时不搬");
-    assert.ok(result.skipped.includes("dupcid"), "并存的渠道进 skipped");
-    // 旧位置原样保留（没被改名也没被删）
-    assert.equal(readFileSync(join(root, "dupcid", "keep.txt"), "utf8"), "keep");
-  });
-});
