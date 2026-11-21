@@ -1,5 +1,5 @@
 /**
- * API key 管理：新建/校验/白名单/限流/删除闭环。
+ * API key 管理：新建/校验/删除闭环。
  *
  * 全程临时 MODELMUX_HOME（fs 形态），不碰真实存储；不 mock 任何 IO —— 落盘语义
  * （哈希与明文同存）本身就是要验的部分。
@@ -51,14 +51,14 @@ after(() => {
 });
 
 beforeEach(() => {
-  // 每个用例从空表开始（文件与进程内计数都清）
+  // 每个用例从空表开始
   for (const k of listApiKeys()) deleteApiKey(k.id);
   setApiKeyGuard(null);
 });
 
 describe("API key 存储", () => {
   it("新建：哈希落盘、明文只以密文落盘，前缀是明文前 12 位", () => {
-    const { record, plain } = createApiKey({ name: "ci", allowedModels: [], rpmLimit: 0 });
+    const { record, plain } = createApiKey({ name: "ci" });
     assert.ok(plain.startsWith("mmx_"));
     assert.equal(record.prefix, plain.slice(0, 12));
     const raw = readFileSync(join(root, "api-keys.json"), "utf8");
@@ -71,7 +71,7 @@ describe("API key 存储", () => {
   });
 
   it("重建：换新明文与前缀，哈希随之更新，旧明文失效", () => {
-    const { record } = createApiKey({ name: "rekey", allowedModels: [], rpmLimit: 0 });
+    const { record } = createApiKey({ name: "rekey" });
     const oldPlain = revealApiKeyPlain(record.id)!;
     const rebuilt = regenerateApiKey(record.id);
     assert.ok(rebuilt !== null);
@@ -83,7 +83,7 @@ describe("API key 存储", () => {
   });
 
   it("一键接入取明文：旧记录（只有哈希）会被重建出可用的明文", () => {
-    const { record } = createApiKey({ name: INTEGRATION_KEY_NAME, allowedModels: [], rpmLimit: 0 });
+    const { record } = createApiKey({ name: INTEGRATION_KEY_NAME });
     // 模拟早期记录：抹掉密文，只剩哈希（直接改落盘文件，走真实读取路径）
     const file = join(root, "api-keys.json");
     const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
@@ -95,7 +95,7 @@ describe("API key 存储", () => {
   });
 
   it("旧版明文 secret 读到就迁成密文并**立即落盘**（不等下次写操作）", () => {
-    const { record, plain } = createApiKey({ name: "legacy", allowedModels: [], rpmLimit: 0 });
+    const { record, plain } = createApiKey({ name: "legacy" });
     const file = join(root, "api-keys.json");
     // 造一条中间版本的记录：明文 secret，无密文
     const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
@@ -119,7 +119,7 @@ describe("API key 存储", () => {
   });
 
   it("密钥文件损坏：sealSecret/openSecret 返回 null，不抛错", () => {
-    const { record } = createApiKey({ name: "corrupt", allowedModels: [], rpmLimit: 0 });
+    const { record } = createApiKey({ name: "corrupt" });
     const keyFile = join(keyring, "api-key.key");
     // 截断密钥文件（模拟写入中断）
     writeFileSync(keyFile, Buffer.from("short"));
@@ -130,8 +130,8 @@ describe("API key 存储", () => {
   });
 
   it("每条 key 独立随机 salt（同明文两次新建哈希不同）", () => {
-    const a = createApiKey({ name: "s1", allowedModels: [], rpmLimit: 0 });
-    const b = createApiKey({ name: "s2", allowedModels: [], rpmLimit: 0 });
+    const a = createApiKey({ name: "s1" });
+    const b = createApiKey({ name: "s2" });
     const saltOf = (h: string) => h.slice(0, h.indexOf(":"));
     assert.notEqual(saltOf(a.record.keyHash), saltOf(b.record.keyHash));
     // 格式 <saltHex>:<hashHex>，两段都是偶数长度 hex
@@ -142,22 +142,10 @@ describe("API key 存储", () => {
     }
   });
 
-  it("白名单去重与去空；rpm 负数归零", () => {
-    const { record } = createApiKey({
-      name: "multi",
-      allowedModels: ["a", "a", " ", "b"],
-      rpmLimit: -5,
-    });
-    assert.deepEqual(record.allowedModels, ["a", "b"]);
-    assert.equal(record.rpmLimit, 0);
-  });
-
-  it("更新与删除", () => {
-    const { record } = createApiKey({ name: "tmp", allowedModels: [], rpmLimit: 0 });
-    const next = updateApiKey(record.id, { name: "renamed", allowedModels: ["m"], rpmLimit: 7 });
+  it("更新备注名与删除", () => {
+    const { record } = createApiKey({ name: "tmp" });
+    const next = updateApiKey(record.id, { name: "renamed" });
     assert.equal(next?.name, "renamed");
-    assert.deepEqual(next?.allowedModels, ["m"]);
-    assert.equal(next?.rpmLimit, 7);
     assert.equal(deleteApiKey(record.id), true);
     assert.equal(deleteApiKey(record.id), false, "重复删除如实返回 false");
     assert.equal(listApiKeys().length, 0);
@@ -173,31 +161,15 @@ describe("API key 校验", () => {
   it("缺 key / 错 key → invalid", async () => {
     installApiKeyGuard();
     const guard = apiKeyGuard()!;
-    assert.equal((await guard.check(null, "m")).ok, false);
-    assert.equal((await guard.check("mmx_nope", "m")).ok, false);
+    assert.equal((await guard.check(null)).ok, false);
+    assert.equal((await guard.check("mmx_nope")).ok, false);
   });
 
-  it("白名单：空数组放行全部，非空只放行列出的", async () => {
-    const all = createApiKey({ name: "all", allowedModels: [], rpmLimit: 0 });
-    const one = createApiKey({ name: "one", allowedModels: ["m1"], rpmLimit: 0 });
+  it("有效 key → 放行（key 只承担准入，无白名单与限流）", async () => {
+    const { plain } = createApiKey({ name: "ok" });
     installApiKeyGuard();
     const guard = apiKeyGuard()!;
-    assert.equal((await guard.check(all.plain, "anything")).ok, true);
-    assert.equal((await guard.check(one.plain, "m1")).ok, true);
-    const denied = await guard.check(one.plain, "m2");
-    assert.equal(denied.ok, false);
-    assert.equal(denied.ok === false ? denied.reason : "", "forbidden");
-  });
-
-  it("rpm 上限：第 N+1 次 rate_limited", async () => {
-    const { plain } = createApiKey({ name: "rl", allowedModels: [], rpmLimit: 2 });
-    installApiKeyGuard();
-    const guard = apiKeyGuard()!;
-    assert.equal((await guard.check(plain, "m")).ok, true);
-    assert.equal((await guard.check(plain, "m")).ok, true);
-    const third = await guard.check(plain, "m");
-    assert.equal(third.ok, false);
-    assert.equal(third.ok === false ? third.reason : "", "rate_limited");
+    assert.equal((await guard.check(plain)).ok, true);
   });
 
   it("旧格式（无 salt 裸摘要）仍可校验 —— 升级不作废已发出的 key", async () => {
@@ -217,16 +189,14 @@ describe("API key 校验", () => {
           name: "old",
           prefix: plain.slice(0, 12),
           keyHash: legacy,
-          allowedModels: [],
-          rpmLimit: 0,
           createdAt: "2026-01-01T00:00:00.000Z",
         },
       ],
     });
     assert.equal((readApiKeys() !== null), true);
     installApiKeyGuard();
-    assert.equal((await apiKeyGuard()!.check(plain, "m")).ok, true, "旧格式必须继续通过");
-    assert.equal((await apiKeyGuard()!.check("mmx_wrongkey0123456789abcdef", "m")).ok, false);
+    assert.equal((await apiKeyGuard()!.check(plain)).ok, true, "旧格式必须继续通过");
+    assert.equal((await apiKeyGuard()!.check("mmx_wrongkey0123456789abcdef")).ok, false);
   });
 
   it("畸形记录一律拒绝（不把垃圾喂给 scrypt）", async () => {
@@ -236,17 +206,11 @@ describe("API key 校验", () => {
     for (const hash of bad) {
       poolStore().writeApiKeys({
         version: 1,
-        keys: [{ id: "bad", name: "bad", prefix: plain.slice(0, 12), keyHash: hash, allowedModels: [], rpmLimit: 0, createdAt: "2026-01-01T00:00:00.000Z" }],
+        keys: [{ id: "bad", name: "bad", prefix: plain.slice(0, 12), keyHash: hash, createdAt: "2026-01-01T00:00:00.000Z" }],
       });
       installApiKeyGuard();
-      const res = await apiKeyGuard()!.check(plain, "m");
+      const res = await apiKeyGuard()!.check(plain);
       assert.equal(res.ok, false, `畸形哈希 ${JSON.stringify(hash)} 必须拒绝`);
     }
-  });
-
-  it("模型未解析（null）时不因白名单拒绝", async () => {
-    const { plain } = createApiKey({ name: "n", allowedModels: ["only"], rpmLimit: 0 });
-    installApiKeyGuard();
-    assert.equal((await apiKeyGuard()!.check(plain, null)).ok, true);
   });
 });

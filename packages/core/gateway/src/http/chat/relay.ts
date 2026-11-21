@@ -55,10 +55,9 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
 /**
  * API key 预检：guard 未注入（默认本机形态）直通，请求路径零变化。
  *
- * 启用后依次判：key 是否有效 → 模型是否在白名单 → 每分钟请求上限。
- * 白名单与限流都对**归一后的对外模型名**判定（角色名/别名先过家族表）。
- * 模型解析不出来（未知模型）时不拦 —— 让下游照常回 400 unknown_model，
- * 避免鉴权层把一个明确的路由错误伪装成权限错误。
+ * 只判「key 是否有效」：无效回 401。模型白名单与每分钟限流是多租户时代的产物，
+ * 本机单人形态没有第二个租户可限，已从契约面移除 —— 路由错误（未知模型）由
+ * 下游照常回 400，鉴权层不再掺和模型解析。
  */
 let guardMissingWarned = false;
 
@@ -72,7 +71,6 @@ function noteGuardMissing(): void {
 async function withApiKeyGuard(
   req: IncomingMessage,
   res: ServerResponse,
-  model: string,
   next: () => Promise<void>,
 ): Promise<void> {
   const guard = apiKeyGuard();
@@ -86,16 +84,11 @@ async function withApiKeyGuard(
     await next();
     return;
   }
-  const resolved = resolveInboundModel(model);
-  const canonical = resolved.target ?? null;
   const auth = String(req.headers.authorization ?? "");
   const apiKey = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-  const decision = await guard.check(apiKey, canonical);
+  const decision = await guard.check(apiKey);
   if (!decision.ok) {
-    const code = decision.reason === "invalid" ? 401 : decision.reason === "forbidden" ? 403 : 429;
-    const type =
-      decision.reason === "invalid" ? "authentication_error" : decision.reason === "forbidden" ? "permission_error" : "rate_limit_error";
-    writeJsonError(res, code, type, decision.message);
+    writeJsonError(res, 401, "authentication_error", decision.message);
     return;
   }
   await next();
@@ -118,7 +111,7 @@ export async function handleChat(
   const parsed = await parseChatRequest(req, res);
   if (!parsed) return;
   // 统计与正文快照在门禁通过后补记（此前在解析阶段落盘，被拒请求的明文会长期留盘）
-  await withApiKeyGuard(req, res, parsed.model, () => {
+  await withApiKeyGuard(req, res, () => {
     noteAfterAuth(res, parsed.payload, parsed.model, parsed.messages, parsed.raw);
     return dispatchChat(parsed, res, opts, null);
   });
@@ -200,7 +193,7 @@ export async function handleMessages(
   const model = resolved.target;
   attachProtocol(res, anthropicProtocol, model);
   // 补记放在门禁通过之后（未认证 / 模型非法的请求不留正文）
-  await withApiKeyGuard(req, res, model, () => {
+  await withApiKeyGuard(req, res, () => {
     noteAfterAuth(res, text.payload, model, text.messages, parsedBody.raw);
     return dispatchChat(
       {
@@ -239,7 +232,7 @@ export async function handleResponses(
   const model = resolved.target;
   attachProtocol(res, responsesProtocol, model);
   // 补记放在门禁通过之后（未认证 / 模型非法的请求不留正文）
-  await withApiKeyGuard(req, res, model, () => {
+  await withApiKeyGuard(req, res, () => {
     noteAfterAuth(res, text.payload, model, text.messages, parsedBody.raw);
     return dispatchChat(
       {

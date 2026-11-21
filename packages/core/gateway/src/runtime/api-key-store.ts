@@ -48,6 +48,14 @@ function normalizeDoc(raw: unknown): { doc: ApiKeyDoc; migrated: boolean } {
     : [];
   let migrated = false;
   for (const key of keys) {
+    // 白名单 / 限流字段的残留清洗：契约面已移除，读到了就当场删掉并落盘，
+    // 不让已删除的字段长期留在数据文件里（与旧明文 secret 迁移同一模式）
+    const legacyFields = key as ApiKeyRecord & { allowedModels?: unknown; rpmLimit?: unknown };
+    if ("allowedModels" in legacyFields || "rpmLimit" in legacyFields) {
+      delete legacyFields.allowedModels;
+      delete legacyFields.rpmLimit;
+      migrated = true;
+    }
     const legacy = (key as ApiKeyRecord & { secret?: string | null }).secret;
     if (typeof legacy !== "string" || legacy === "") continue;
     if (!key.secretSealed) {
@@ -143,11 +151,7 @@ export function revealApiKeyPlain(id: string): string | null {
   return sealed === null ? null : openSecret(sealed);
 }
 
-export function createApiKey(input: {
-  name: string;
-  allowedModels: string[];
-  rpmLimit: number;
-}): { record: ApiKeyRecord; plain: string } {
+export function createApiKey(input: { name: string }): { record: ApiKeyRecord; plain: string } {
   const plain = `mmx_${randomBytes(24).toString("hex")}`;
   // 密钥不可用时仍要建出可校验的 key（哈希 + 前缀足够鉴权），只是复制/接入回读不到 ——
   // 那条路径本来就会引导用户重建，不该让创建整个失败
@@ -157,8 +161,6 @@ export function createApiKey(input: {
     prefix: plain.slice(0, PREFIX_LEN),
     secretSealed: sealSecret(plain),
     keyHash: hashKey(plain),
-    allowedModels: [...new Set(input.allowedModels.map((m) => m.trim()).filter((m) => m !== ""))],
-    rpmLimit: Math.max(0, Math.trunc(input.rpmLimit)),
     createdAt: new Date().toISOString(),
   };
   const keys = listApiKeys();
@@ -189,11 +191,8 @@ export function regenerateApiKey(id: string): { record: ApiKeyRecord; plain: str
   return { record: next, plain };
 }
 
-/** 更新一个 key 的备注名 / 白名单 / 限流（明文与哈希不可改）。 */
-export function updateApiKey(
-  id: string,
-  patch: { name?: string; allowedModels?: string[]; rpmLimit?: number },
-): ApiKeyRecord | null {
+/** 更新一个 key 的备注名（明文与哈希不可改）。 */
+export function updateApiKey(id: string, patch: { name?: string }): ApiKeyRecord | null {
   const keys = listApiKeys();
   const idx = keys.findIndex((k) => k.id === id);
   if (idx === -1) return null;
@@ -201,10 +200,6 @@ export function updateApiKey(
   const next: ApiKeyRecord = {
     ...prev,
     ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
-    ...(patch.allowedModels !== undefined
-      ? { allowedModels: [...new Set(patch.allowedModels.map((m) => m.trim()).filter((m) => m !== ""))] }
-      : {}),
-    ...(patch.rpmLimit !== undefined ? { rpmLimit: Math.max(0, Math.trunc(patch.rpmLimit)) } : {}),
   };
   keys[idx] = next;
   saveApiKeys(keys);
@@ -236,12 +231,7 @@ export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string
     const sealed = existing.secretSealed ?? null;
     return { record: existing, plain: sealed === null ? null : openSecret(sealed) };
   }
-  const { record, plain } = createApiKey({
-    name: INTEGRATION_KEY_NAME,
-    // 接入的客户端要能用全部对外模型；限流不限（本机单客户端）
-    allowedModels: [],
-    rpmLimit: 0,
-  });
+  const { record, plain } = createApiKey({ name: INTEGRATION_KEY_NAME });
   return { record, plain };
 }
 
@@ -287,43 +277,20 @@ function findKey(plain: string): ApiKeyRecord | null {
   return null;
 }
 
-/** 每分钟固定窗口计数（进程内 Map）：单实例本机形态够用；多实例走 Redis（服务形态）。 */
-const minuteHits = new Map<string, { bucket: number; count: number }>();
-
-function hitLocalCounters(keyId: string, limit: number): boolean {
-  // 0 = 明确不限（UI 文案「0 = 不限」），与「未配置」区分开
-  if (limit <= 0) return true;
-  const bucket = Math.floor(Date.now() / 60_000);
-  const entry = minuteHits.get(keyId);
-  if (entry === undefined || entry.bucket !== bucket) {
-    minuteHits.set(keyId, { bucket, count: 1 });
-    if (minuteHits.size > 4096) {
-      // 简单清理：只留当前分钟的桶，避免无界增长
-      for (const [k, v] of minuteHits) if (v.bucket !== bucket) minuteHits.delete(k);
-    }
-    return true;
-  }
-  if (entry.count >= limit) return false;
-  entry.count += 1;
-  return true;
-}
-
-/** 装配门禁：对话请求一律校验（模型列表 / 状态类端点不经过这里）。 */
+/**
+ * 装配门禁：对话请求一律校验（模型列表 / 状态类端点不经过这里）。
+ *
+ * 校验只有一件事：这把 key 是否有效。模型白名单与每分钟限流是多租户时代的产物，
+ * 本机单人形态下没有第二个租户可限，已从契约面移除。
+ */
 export function installApiKeyGuard(): void {
   setApiKeyGuard({
-    async check(apiKey, model): Promise<ApiKeyDecision> {
+    async check(apiKey): Promise<ApiKeyDecision> {
       if (apiKey === null || apiKey === "") {
         return { ok: false, reason: "invalid", message: "missing api key" };
       }
       const rec = findKey(apiKey);
       if (rec === null) return { ok: false, reason: "invalid", message: "invalid api key" };
-      // 白名单只在非空时生效（空 = 全部模型）
-      if (model !== null && rec.allowedModels.length > 0 && !rec.allowedModels.includes(model)) {
-        return { ok: false, reason: "forbidden", message: `model ${model} not allowed for this key` };
-      }
-      if (!hitLocalCounters(rec.id, rec.rpmLimit)) {
-        return { ok: false, reason: "rate_limited", message: `rpm limit exceeded for ${model ?? "request"}` };
-      }
       return { ok: true, record: rec };
     },
   });

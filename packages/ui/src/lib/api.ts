@@ -141,8 +141,8 @@ export interface WebApi {
     /** API key 列表（不含哈希；明文永不回读）。 */
     apiKeys(): Promise<CommandData>;
     /** 新建 key：返回 `plain`（明文，仅此一次）与记录。 */
-    createApiKey(name: string, allowedModels: string[], rpmLimit: number): Promise<CommandData>;
-    updateApiKey(id: string, name: string, allowedModels: string[], rpmLimit: number): Promise<CommandData>;
+    createApiKey(name: string): Promise<CommandData>;
+    updateApiKey(id: string, name: string): Promise<CommandData>;
     deleteApiKey(id: string): Promise<CommandData>;
     regenerateApiKey(id: string): Promise<CommandData>;
     revealApiKey(id: string): Promise<CommandData>;
@@ -250,8 +250,8 @@ export const api: WebApi = {
     restore: (target) => command("restore", undefined, { target }),
     setChannelEnabled: (cid, enabled) => command("setChannelEnabled", cid, { enabled }),
     apiKeys: () => command("apiKeys", undefined),
-    createApiKey: (name, allowedModels, rpmLimit) => command("createApiKey", undefined, { name, allowedModels, rpmLimit }),
-    updateApiKey: (id, name, allowedModels, rpmLimit) => command("updateApiKey", undefined, { id, name, allowedModels, rpmLimit }),
+    createApiKey: (name) => command("createApiKey", undefined, { name }),
+    updateApiKey: (id, name) => command("updateApiKey", undefined, { id, name }),
     deleteApiKey: (id) => command("deleteApiKey", undefined, { id }),
     regenerateApiKey: (id) => command("regenerateApiKey", undefined, { id }),
     revealApiKey: (id) => command("revealApiKey", undefined, { id }),

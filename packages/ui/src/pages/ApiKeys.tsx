@@ -46,8 +46,6 @@ interface ApiKeyRow {
   id: string;
   name: string;
   prefix: string;
-  allowedModels: string[];
-  rpmLimit: number;
   createdAt: string;
   lastUsedAt?: string;
 }
@@ -103,23 +101,13 @@ function RevealCopyButton({ id, name }: { id: string; name: string }): ReactElem
   );
 }
 
-/** 白名单选项：对外模型全集（去重裸名）+ 「全部模型」。 */
-function modelOptions(allModels: ReadonlyArray<string>): Array<{ value: string; label: string }> {
-  return [
-    { value: "", label: "全部模型" },
-    ...allModels.map((m) => ({ value: m, label: m })),
-  ];
-}
-
 /** 新建 / 编辑共用的表单弹窗。 */
 function KeyFormDialog({
   state,
-  allModels,
   onClose,
   onCreated,
 }: {
   state: EditorState;
-  allModels: ReadonlyArray<string>;
   onClose: () => void;
   /** 新建 / 重建成功后进入明文展示（由父组件接管）；`rebuilt` 区分两者。 */
   onCreated: (plain: string, rebuilt: boolean) => void;
@@ -127,10 +115,6 @@ function KeyFormDialog({
   const toast = useToast();
   const editing = state.mode === "edit";
   const [name, setName] = useState(editing ? state.row.name : "");
-  /** 选中的模型（空数组 = 全部模型）。 */
-  const [picked, setPicked] = useState<string[]>(editing ? [...state.row.allowedModels] : []);
-  const [rpm, setRpm] = useState(editing ? String(state.row.rpmLimit) : "0");
-  const options = modelOptions(allModels);
   const nameId = editing ? `key-name-${state.row.id}` : "key-name-create";
 
   const submit = useMutation({
@@ -145,8 +129,8 @@ function KeyFormDialog({
         return Promise.resolve();
       }
       const res = editing
-        ? api.commands.updateApiKey(state.row.id, nameTrim, picked, Number(rpm) || 0)
-        : api.commands.createApiKey(nameTrim, picked, Number(rpm) || 0);
+        ? api.commands.updateApiKey(state.row.id, nameTrim)
+        : api.commands.createApiKey(nameTrim);
       return res.then((r) => {
         if (!r.ok) {
           toast.error(r.error ?? "保存失败");
@@ -227,42 +211,6 @@ function KeyFormDialog({
                 placeholder="如 ci / 笔记本"
                 onChange={(e) => setName(e.target.value)}
               />
-            </label>
-
-            <div role="group" aria-label="能用哪些模型" className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-faint">能用哪些模型</span>
-              {/*
-                多选 chips：不选 = 全部模型。选项来自当前模型池 —— 池里没有的模型
-                写进白名单也没有任何效果（选路根本不会命中），不如不给选。
-              */}
-              <div className="flex flex-wrap gap-1.5">
-                {options.map((opt) => {
-                  const active = opt.value === "" ? picked.length === 0 : picked.includes(opt.value);
-                  return (
-                    <button
-                      key={opt.value || "all"}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => {
-                        if (opt.value === "") setPicked([]);
-                        else setPicked((cur) => (cur.includes(opt.value) ? cur.filter((m) => m !== opt.value) : [...cur, opt.value]));
-                      }}
-                      className={`tap rounded-lg border px-2.5 py-1 font-mono text-xs transition-colors ${
-                        active
-                          ? "border-line-strong bg-sel text-sel-ink"
-                          : "border-line bg-surface text-ink-soft hover:border-line-strong hover:text-ink"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-faint">每分钟最多请求几次（0 = 不限）</span>
-              <Input value={rpm} inputMode="numeric" className="w-28" onChange={(e) => setRpm(e.target.value)} />
             </label>
 
             {/*
@@ -373,9 +321,7 @@ export function ApiKeys(): ReactElement {
       return (res["keys"] as ApiKeyRow[] | undefined) ?? [];
     },
   });
-  // 对外模型全集：与账号池模型清单、日志模型筛选同源（快照 5 秒一轮）
-  const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
-  const allModels = [...new Set((state.data?.models ?? []).map((row) => row.model))];
+  // 对外模型全集已不再需要：模型白名单随初心裁剪移除，key 只承担准入
   const refresh = (): void => {
     void keys.refetch();
     void qc.invalidateQueries({ queryKey: ["api-keys"] });
@@ -428,28 +374,23 @@ export function ApiKeys(): ReactElement {
   const ALL_COLS = [
     { key: "name", label: "名称" },
     { key: "prefix", label: "密钥" },
-    { key: "models", label: "模型" },
-    { key: "rpm", label: "限速", wide: true },
     { key: "createdAt", label: "创建时间", wide: true },
     { key: "ops", label: "操作" },
   ] as const;
 
   /** 宽屏列宽：按内容实宽 + 对称内边距的比例（见上方说明）。 */
   const WIDE_WIDTHS: Record<string, string> = {
-    name: "27%",
-    prefix: "19%",
-    models: "19%",
-    rpm: "9%",
-    createdAt: "13%",
-    ops: "13%",
+    name: "30%",
+    prefix: "26%",
+    createdAt: "20%",
+    ops: "24%",
   };
 
-  /** 窄屏列宽：只留四列，同样按比例（`table-fixed` 下 nowrap 内容超宽会右溢）。 */
+  /** 窄屏列宽：三列同比例（`table-fixed` 下 nowrap 内容超宽会右溢）。 */
   const NARROW_WIDTHS: Record<string, string> = {
-    name: "26%",
-    prefix: "27%",
-    models: "27%",
-    ops: "20%",
+    name: "34%",
+    prefix: "36%",
+    ops: "30%",
   };
 
   const narrow = useNarrow(735);
@@ -458,24 +399,25 @@ export function ApiKeys(): ReactElement {
 
   return (
     <div className="space-y-5 pb-10">
-      <PageHeader
-        title="API Keys"
-        description="对话请求的准入密钥"
-        actions={
+      <PageHeader title="API Keys" description="对话请求的准入密钥" />
+
+      <section className="panel p-4">
+        {/*
+          新增按钮放**列表工具栏**（面板右上、贴着表格），不放大标题行：
+          操作对象就是这张列表，按钮离内容越近越不用扫视页面两角。
+        */}
+        <div className="mb-3 flex items-center justify-end">
           <button type="button" className={BTN_PRIMARY} onClick={() => setEditor({ mode: "create" })}>
             新增
           </button>
-        }
-      />
-
-      <section className="panel p-4">
+        </div>
         {keys.isError ? (
           <p className="text-sm text-danger">加载失败：{errorText(keys.error)}</p>
         ) : keys.isPending ? (
           <p className="text-sm text-ink-faint">加载中…</p>
         ) : rows.length === 0 ? (
           <p className="py-4 text-center text-sm text-ink-faint">
-            还没有 key，点右上角「新增」。
+            还没有 key，点上方「新增」。
           </p>
         ) : (
           // 窄屏给容器 `min-w-[560px]` + `overflow-x-auto`：四列内容下限合计约 560px，
@@ -533,20 +475,6 @@ export function ApiKeys(): ReactElement {
                       </span>
                     </TableCell>
                   )}
-                  {cols.some((c) => c.key === "models") && (
-                    <TableCell className="px-2 py-2 align-middle">
-                      <span className="inline-flex max-w-full items-center justify-center">
-                        <span className="truncate font-mono text-xs text-ink-soft">
-                          {row.allowedModels.length === 0 ? "全部模型" : row.allowedModels.join(", ")}
-                        </span>
-                      </span>
-                    </TableCell>
-                  )}
-                  {cols.some((c) => c.key === "rpm") && (
-                    <TableCell className="whitespace-nowrap px-2 py-2 align-middle font-mono text-xs text-ink-soft">
-                      {row.rpmLimit === 0 ? "不限" : `${row.rpmLimit} 次/分`}
-                    </TableCell>
-                  )}
                   {cols.some((c) => c.key === "createdAt") && (
                     <TableCell className="whitespace-nowrap px-2 py-2 align-middle font-mono text-xs text-ink-faint">
                       {formatDateTime(row.createdAt)}
@@ -583,7 +511,6 @@ export function ApiKeys(): ReactElement {
       {editor !== null && (
         <KeyFormDialog
           state={editor}
-          allModels={allModels}
           onClose={() => setEditor(null)}
           onCreated={(value, rebuilt) => {
             setEditor(null);

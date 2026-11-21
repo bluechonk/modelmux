@@ -287,11 +287,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         const name = typeof args["name"] === "string" ? args["name"] : "";
         if (name.trim() === "") return err("参数 name 必填");
         if (name.trim().length > API_KEY_NAME_MAX) return err(`参数 name 最长 ${API_KEY_NAME_MAX} 字`);
-        const allowed = Array.isArray(args["allowedModels"])
-          ? (args["allowedModels"] as unknown[]).filter((m): m is string => typeof m === "string")
-          : [];
-        const rpm = typeof args["rpmLimit"] === "number" ? args["rpmLimit"] : 0;
-        const { record, plain } = createApiKey({ name, allowedModels: allowed, rpmLimit: rpm });
+        const { record, plain } = createApiKey({ name });
         const { keyHash: _hash, secretSealed: _sealed, ...shown } = record;
         // plain 只在这里出现一次，前端必须当场展示并提示保存
         return ok({ key: shown, plain });
@@ -299,15 +295,11 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       case "updateApiKey": {
         const id = typeof args["id"] === "string" ? args["id"] : "";
         if (id === "") return err("参数 id 必填");
-        const patch: { name?: string; allowedModels?: string[]; rpmLimit?: number } = {};
+        const patch: { name?: string } = {};
         if (typeof args["name"] === "string") {
           if (args["name"].trim().length > API_KEY_NAME_MAX) return err(`参数 name 最长 ${API_KEY_NAME_MAX} 字`);
           patch.name = args["name"];
         }
-        if (Array.isArray(args["allowedModels"])) {
-          patch.allowedModels = (args["allowedModels"] as unknown[]).filter((m): m is string => typeof m === "string");
-        }
-        if (typeof args["rpmLimit"] === "number") patch.rpmLimit = args["rpmLimit"];
         const rec = updateApiKey(id, patch);
         if (rec === null) return err("key 不存在");
         const { keyHash: _hash, secretSealed: _sealed, ...shown } = rec;
