@@ -433,12 +433,20 @@ export function createConsoleHandler(
     }
     const p = (suffix: string): string => `${prefix}${suffix}`;
 
-    // —— API 前置：Host 必须是本机 ——
+    // —— API 前置：必须是本机（对端回环 + Host 回环）——
     //
-    // 挡的是 DNS rebinding：浏览器把攻击者域名解析到 127.0.0.1 后，socket 对端必然是
-    // 回环（`isLocalDirect` 恒真），只有 Host / Origin 还保留着攻击者域名。所有 API
-    // （含只读的 state）都走这条；静态资源与 SPA 页面不校验，它们不含敏感数据。
+    // 两道判据缺一不可：
+    //   ① `isLocalDirect`（socket 对端）挡「网关绑到非回环地址」的远程访问 ——
+    //      远程客户端可以自带 `Host: 127.0.0.1` 把 Host 校验骗过去，只有对端地址不能伪造。
+    //   ② `isLoopbackHostHeader` 挡 DNS rebinding —— 那种情形对端必然是回环，
+    //      只有 Host / Origin 还留着攻击者域名。
+    // 所有 API（含只读的 state）都走这条；静态资源与 SPA 页面不校验，它们不含敏感数据。
     if (path.startsWith(p("/api/"))) {
+      if (!isLocalDirect(req)) {
+        appendGateway(`console api rejected non-loopback peer: ${req.socket.remoteAddress ?? "(none)"}`);
+        json(res, { ok: false, error: "请求来源主机被拒绝" }, 403);
+        return;
+      }
       if (!isLoopbackHostHeader(req)) {
         appendGateway(`console api rejected non-loopback Host: ${String(req.headers["host"] ?? "(none)")}`);
         json(res, { ok: false, error: "请求来源主机被拒绝" }, 403);
