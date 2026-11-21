@@ -66,6 +66,15 @@ function isoOf(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
+/** 本地时区的 `YYYY-MM-DD`：与数据键（后端按本地日期切分）同一时区，「今天」判定专用。 */
+function localIsoOf(ts: number): string {
+  const d = new Date(ts);
+  return (
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-` +
+    `${String(d.getDate()).padStart(2, "0")}`
+  );
+}
+
 /** 周一为一周之首（对齐 `WEEKDAY_LABELS`）。 */
 function weekdayIndex(ts: number): number {
   return (new Date(ts).getUTCDay() + 6) % 7;
@@ -103,7 +112,10 @@ export function Heatmap({
     const firstWeekStart = jan1 - weekdayIndex(jan1) * MS_PER_DAY;
     const lastWeekStart = dec31 - weekdayIndex(dec31) * MS_PER_DAY;
     const colCount = (lastWeekStart - firstWeekStart) / (7 * MS_PER_DAY) + 1;
-    const today = dayKey(isoOf(Date.now()));
+    // 「今天」必须按**本地**日期算：数据键（`byDate` 的键）来自后端的本地日期切分。
+    // 用 UTC 判的话，UTC+8 凌晨 0–8 点（本地已是今天、UTC 还是昨天）会把今天的
+    // 格子判成「未来日期」画成虚线空格 —— 刚产生的今日用量在年历上不可见。
+    const today = dayKey(localIsoOf(Date.now()));
 
     const perDay: number[] = [];
     for (let ts = firstWeekStart; ts <= lastWeekStart + 6 * MS_PER_DAY; ts += MS_PER_DAY) {
