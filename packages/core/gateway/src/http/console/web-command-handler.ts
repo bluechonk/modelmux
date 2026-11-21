@@ -111,9 +111,9 @@ const PUBLIC_ACTIONS = new Set([
   "pasteCallback",
   "submitInput",
   "cancelInput",
-  // 一键接入与还原（写本机客户端配置，动作由用户在控制台显式触发）
-  "integrate",
-  "restore",
+  // 一键接入 / 还原不在此列：它们改写本机客户端配置（~/.zcode、~/.dsh），
+  // 必须走 admin 判定（socket 回环）。控制台本就来自本机浏览器，admin 恒真，
+  // 移出零成本；而一旦网关被绑到非回环地址，免鉴权远程写就是真缺口。
 ]);
 
 /** /api/commands 的统一入口。 */

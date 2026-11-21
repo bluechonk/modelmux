@@ -27,11 +27,8 @@ const INTEGRATE_CLIENTS: Array<{ target: IntegrationTarget; icon: string; name: 
   { target: "dsh", icon: "ds", name: "dsh" },
 ];
 
-/** 开关操作中态：哪个目标在跑哪种动作（并行点两张卡互不误标）。 */
-interface PendingAction {
-  target: IntegrationTarget;
-  action: "integrate" | "restore";
-}
+/** 开关操作中态：按 target 分键，两张卡可并行操作且互不误标。 */
+type PendingActions = Partial<Record<IntegrationTarget, "integrate" | "restore">>;
 
 /** 更新差异的可读措辞（进 aria-label；直显按钮方案保持卡面极简，正文不放差异）。 */
 function updateDiffLabel(update: IntegrationUpdate): string {
@@ -58,7 +55,7 @@ function IntegrateSwitchCard({
   name: string;
   integrated: boolean;
   /** 该卡片的操作中态（null = 空闲）。 */
-  pending: PendingAction | null;
+  pending: "integrate" | "restore" | null;
   /** 最近一次操作的失败原因（null = 无）。 */
   error: string | null;
   /** 模型有更新明细（null = 无；仅在已接入且空闲时展示更新按钮）。 */
@@ -70,13 +67,13 @@ function IntegrateSwitchCard({
   const busy = pending !== null;
   const failed = error !== null;
   /** 操作中开关**先走到目标位置**（接入中停在开、还原中停在关），完成后再由快照定稿。 */
-  const shown = pending ? pending.action === "integrate" : integrated;
+  const shown = pending !== null ? pending === "integrate" : integrated;
   /**
    * 无障碍文案（不直显）：卡面只留开关与更新按钮，状态由开关位置本身表达；
    * 失败态靠卡描边转红 + toast。
    */
-  const stateText = pending
-    ? pending.action === "integrate"
+  const stateText = pending !== null
+    ? pending === "integrate"
       ? "接入中"
       : "还原中"
     : failed
@@ -130,9 +127,9 @@ export function IntegratePanel(): ReactElement {
   const toast = useToast();
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
   // 开关式接入：操作中态与每卡失败原因（键 = target）。结果同时走 toast
-  // （命令信封 ok:false 是 200 响应，onSuccess 不代表成功）+ 卡上红字（最新一次）。
+  // （命令信封 ok:false 是 200 响应，onSuccess 不代表成功）+ 卡描边转红（只记最新一次失败，文案走 toast）。
   const queryClient = useQueryClient();
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [pendingActions, setPendingActions] = useState<PendingActions>({});
   const [integrateErrors, setIntegrateErrors] = useState<Partial<Record<IntegrationTarget, string>>>({});
   const clearError = (target: IntegrationTarget): void =>
     setIntegrateErrors((prev) => {
@@ -144,8 +141,8 @@ export function IntegratePanel(): ReactElement {
   // 接入（开）：把该客户端的模型清单改成网关的对外模型名。
   const integrateMutation = useMutation({
     mutationFn: (target: IntegrationTarget) => api.commands.integrate(target),
-    onMutate: (target) => setPendingAction({ target, action: "integrate" }),
-    onSuccess: (data, target) => {
+    onMutate: (target) => setPendingActions((prev) => ({ ...prev, [target]: "integrate" })),
+    onSuccess: async (data, target) => {
       if (data.ok === false) {
         setIntegrateErrors((prev) => ({ ...prev, [target]: String(data.error ?? "未完成任何改动") }));
         toast.error(`接入失败：${String(data.error ?? "未完成任何改动")}`);
@@ -158,13 +155,18 @@ export function IntegratePanel(): ReactElement {
       for (const note of Array.isArray(data.warnings) ? data.warnings : []) {
         toast.info(typeof note === "string" ? note : String(note));
       }
-      void queryClient.invalidateQueries({ queryKey: ["state"] });
+      await queryClient.invalidateQueries({ queryKey: ["state"] });
     },
     onError: (err, target) => {
       setIntegrateErrors((prev) => ({ ...prev, [target]: errorText(err) }));
       toast.error(`接入失败：${errorText(err)}`);
     },
-    onSettled: () => setPendingAction(null),
+    onSettled: (_data, _err, target) =>
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[target];
+        return next;
+      }),
   });
 
   /**
@@ -173,8 +175,8 @@ export function IntegratePanel(): ReactElement {
    */
   const restoreMutation = useMutation({
     mutationFn: (target: IntegrationTarget) => api.commands.restore(target),
-    onMutate: (target) => setPendingAction({ target, action: "restore" }),
-    onSuccess: (data, target) => {
+    onMutate: (target) => setPendingActions((prev) => ({ ...prev, [target]: "restore" })),
+    onSuccess: async (data, target) => {
       if (data.ok === false) {
         setIntegrateErrors((prev) => ({ ...prev, [target]: String(data.error ?? "没有可用的接入备份") }));
         toast.error(`还原失败：${String(data.error ?? "没有可用的接入备份")}`);
@@ -186,13 +188,18 @@ export function IntegratePanel(): ReactElement {
       for (const note of Array.isArray(data.notes) ? data.notes : []) {
         toast.info(typeof note === "string" ? note : String(note));
       }
-      void queryClient.invalidateQueries({ queryKey: ["state"] });
+      await queryClient.invalidateQueries({ queryKey: ["state"] });
     },
     onError: (err, target) => {
       setIntegrateErrors((prev) => ({ ...prev, [target]: errorText(err) }));
       toast.error(`还原失败：${errorText(err)}`);
     },
-    onSettled: () => setPendingAction(null),
+    onSettled: (_data, _err, target) =>
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[target];
+        return next;
+      }),
   });
 
   return (
@@ -201,6 +208,9 @@ export function IntegratePanel(): ReactElement {
         <PlugZap className="h-4 w-4 text-ink-faint" />
         一键接入
       </div>
+      {state.isError && (
+        <p className="mb-2 text-xs text-danger">接入状态未知（快照查询失败）：{String(state.error)}</p>
+      )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {INTEGRATE_CLIENTS.map(({ target, icon, name }) => (
           <IntegrateSwitchCard
@@ -209,7 +219,7 @@ export function IntegratePanel(): ReactElement {
             icon={icon}
             name={name}
             integrated={state.data?.integrations?.[target] === true}
-            pending={pendingAction?.target === target ? pendingAction : null}
+            pending={pendingActions[target] ?? null}
             error={integrateErrors[target] ?? null}
             update={
               state.data?.integrations?.[target] ? state.data?.integration_updates?.[target] ?? null : null

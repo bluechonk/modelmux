@@ -122,7 +122,7 @@ export interface UiSnapshot {
   /**
    * 对外模型池的**「模型 × 渠道」矩阵**：一个模型可能由多个渠道供给。
    *
-   * 模型 id 是 deepseek 裸名（不再有 `<cid>/` 前缀）；渠道凭 `cid` 列展示，
+   * 模型 id 是家族表裸名；渠道凭 `cid` 列展示，
    * 元数据取**该渠道**的值（同一模型在不同渠道倍率/规格可能不同）。
    */
   models: Array<{
@@ -360,7 +360,9 @@ function isLocalDirect(req: import("node:http").IncomingMessage): boolean {
 function isLoopbackHostHeader(req: import("node:http").IncomingMessage): boolean {
   const raw = req.headers["host"];
   if (typeof raw !== "string" || raw === "") return false;
-  const hostname = raw.split(":")[0]?.toLowerCase() ?? "";
+  // IPv6 字面量形如 `[::1]:4412`：先取方括号段，按 `:` 切会把 `[::1]` 切成 `[`
+  const bracketed = raw.startsWith("[") ? raw.slice(0, raw.indexOf("]") + 1) : null;
+  const hostname = (bracketed ?? raw.split(":")[0] ?? "").toLowerCase();
   return LOOPBACK_HOSTS.has(hostname) || LOOPBACK_HOSTS.has(`[${hostname}]`);
 }
 
@@ -384,23 +386,6 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 /** 总览里已留痕过「账号读取失败」的渠道（进程生命周期内一次）：防止 5s 轮询刷屏。 */
 const overviewAccountFailures = new Set<string>();
-
-/** 读一次 JSON 请求体（供 /api/providers 的 POST 用；超限按截断处理）。 */
-function readBody(req: import("node:http").IncomingMessage, onBody: (body: Record<string, unknown>) => void): void {
-  let body = "";
-  req.on("data", (chunk) => {
-    body += String(chunk);
-  });
-  req.on("end", () => {
-    let parsed: Record<string, unknown> = {};
-    try {
-      parsed = JSON.parse(body || "{}") as Record<string, unknown>;
-    } catch {
-      appendGateway("console body parse failed");
-    }
-    onBody(parsed);
-  });
-}
 
 /**
  * 把 console 路由体抽成**可挂载的 handler**，供两种形态复用：
@@ -552,11 +537,26 @@ export function createConsoleHandler(
         json(res, { ok: false, error: "use POST" }, 405);
         return;
       }
+      // 同源校验：本路由无鉴权，缺它恶意网页可用 simple request 跨源打进来
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "cross-origin rejected" }, 403);
+        return;
+      }
       let body = "";
+      let tooLarge = false;
       req.on("data", (chunk) => {
+        // 体积上限：theme 只需几字节，不设限时无鉴权端点可被无限上传吃爆内存
+        if (body.length > 1024) {
+          tooLarge = true;
+          return;
+        }
         body += String(chunk);
       });
       req.on("end", () => {
+        if (tooLarge) {
+          json(res, { ok: false, error: "body too large" }, 413);
+          return;
+        }
         let mode: unknown;
         try {
           mode = (JSON.parse(body || "{}") as Record<string, unknown>)["mode"];
@@ -581,6 +581,10 @@ export function createConsoleHandler(
     if (path === p("/api/retry-login")) {
       if (req.method !== "POST") {
         json(res, { ok: false, error: "use POST" }, 405);
+        return;
+      }
+      if (!isSameOrigin(req, host)) {
+        json(res, { ok: false, error: "cross-origin rejected" }, 403);
         return;
       }
       if (!bridge.retryLogin) {
