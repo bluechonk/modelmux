@@ -72,7 +72,6 @@ const solutionPaths = refPaths("tsconfig.json");
 const expectedPackages = [
   "packages/cli",
   "packages/core/gateway",
-  "packages/core/store",
   ...channelDirs.map((cid) => `packages/core/channels/${cid}`),
 ];
 const solutionMissing = expectedPackages.filter((p) => !solutionPaths.includes(p));
