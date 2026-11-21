@@ -68,6 +68,26 @@ function noteGuardMissing(): void {
   console.error("[modelmux] api key guard 未装配：对话端点当前不校验 API key（仅测试 / 漏装配时出现）");
 }
 
+/**
+ * 从请求头取 API key。
+ *
+ * 两种形态都要认：OpenAI 系客户端发 `Authorization: Bearer <key>`，
+ * 而 Anthropic 官方 SDK（含 Claude Code 配 `ANTHROPIC_API_KEY`）默认发
+ * `x-api-key: <key>`、完全不带 Authorization —— 只认前者会让「key 正确也回 401」，
+ * 且表现为「能数 token（该端点免鉴权）、不能对话」的怪象。
+ */
+function apiKeyOf(req: IncomingMessage): string | null {
+  const auth = String(req.headers.authorization ?? "");
+  if (auth.startsWith("Bearer ")) {
+    const bearer = auth.slice(7).trim();
+    if (bearer !== "") return bearer;
+  }
+  const raw = req.headers["x-api-key"];
+  const single = Array.isArray(raw) ? raw[0] : raw;
+  const key = typeof single === "string" ? single.trim() : "";
+  return key === "" ? null : key;
+}
+
 async function withApiKeyGuard(
   req: IncomingMessage,
   res: ServerResponse,
@@ -84,9 +104,7 @@ async function withApiKeyGuard(
     await next();
     return;
   }
-  const auth = String(req.headers.authorization ?? "");
-  const apiKey = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-  const decision = await guard.check(apiKey);
+  const decision = await guard.check(apiKeyOf(req));
   if (!decision.ok) {
     writeJsonError(res, 401, "authentication_error", decision.message);
     return;
