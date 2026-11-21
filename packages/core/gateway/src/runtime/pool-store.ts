@@ -9,10 +9,10 @@
  * `{}`）；`*Stamp` 是缓存失效依据（mtimeMs）。
  */
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { accountCredentialsPath, channelDir, credentialsPath, ensureDir, poolUsagePath, rootFile } from "./paths.js";
-import { writeJsonFile, writeJsonSecret } from "./secret-file.js";
+import { writeAtomicFile, writeJsonFile, writeJsonSecret } from "./secret-file.js";
 
 /** 索引与账号文件名（落点规则见 docs/STORAGE-CONVENTION.md）。 */
 export const INDEX_NAME = "accounts.json";
@@ -139,14 +139,15 @@ function writeJsonWithBackup(path: string, value: unknown, writer: (p: string, v
   }
 }
 
-/** 复制后收紧权限：与 account-pool 原 copyFileSync+chmod 语义一致（失败忽略）。 */
+/**
+ * 复制凭据文件：**读内容后走原子写**，不用裸 `copyFileSync`。
+ *
+ * `copyFileSync` 直接覆盖目标：切号 / 收号途中崩溃会留下截断的 live 凭据，
+ * 而 `readActiveCredential` 解析失败按 null 处理 —— 症状是「切了个号就掉登录」。
+ * 凭据是小文件（几 KB），读进内存再原子替换没有成本问题。
+ */
 function copySecret(from: string, to: string): void {
-  copyFileSync(from, to);
-  try {
-    chmodSync(to, 0o600);
-  } catch {
-    /* 忽略：与现状一致，权限收紧失败不阻塞 */
-  }
+  writeAtomicFile(to, readFileSync(from, "utf8"), 0o600);
 }
 
 /** 本机文件适配器：全部落点与写盘语义都在这里。 */

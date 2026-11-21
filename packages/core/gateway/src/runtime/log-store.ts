@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
+  chmodSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -1754,6 +1755,7 @@ function appendPayload(record: AppendPayloadInput): void {
     }
     pruneOnce();
     const file = join(dir, "payload.log");
+    const firstWrite = !existsSync(file);
     rotateIfNeeded(file);
     payloadSeq += 1;
     const { data, bytes, truncated, invalidBytes, ...rest } = record;
@@ -1766,6 +1768,16 @@ function appendPayload(record: AppendPayloadInput): void {
       ...packBody(data, invalidBytes),
     });
     appendFileSync(file, `${line}\n`, "utf8");
+    // 首次 append 才创建文件，上面那轮 `enforcePermissions` 管不到它 —— 补一次 chmod，
+    // 否则含用户 prompt 的正文落成 umask 默认权限（通常 0644），被备份/同步工具
+    // 复制出去时权限即泄漏（父目录 0700 只掩护了本机访问）
+    if (firstWrite) {
+      try {
+        chmodSync(file, 0o600);
+      } catch {
+        /* Windows 上 chmod 不生效，忽略 */
+      }
+    }
   } catch {
     /* 抓包是旁路，写失败绝不影响请求 */
   }
