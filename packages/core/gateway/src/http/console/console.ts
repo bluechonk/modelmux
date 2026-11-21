@@ -394,6 +394,15 @@ function isSameOrigin(req: import("node:http").IncomingMessage, host: string): b
 /** 回环地址名单：本机直连判定与 Host / Origin 校验共用。 */
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
+/**
+ * `/api/commands` 请求体上限（字节）。
+ *
+ * 实际负载最大的是粘贴回调链接（一整条 URL）与短信验证码，16 KiB 有三个数量级余量。
+ * 这个端点没有鉴权（admin 判定在 body 解析之后才做），不设限就是一个可无限上传的
+ * 内存放大器 —— 与 `/api/theme` 的 1 KiB 上限同一道防线。
+ */
+const COMMAND_BODY_MAX = 16 * 1024;
+
 /** 总览里已留痕过「账号读取失败」的渠道（进程生命周期内一次）：防止 5s 轮询刷屏。 */
 const overviewAccountFailures = new Set<string>();
 
@@ -618,10 +627,23 @@ export function createConsoleHandler(
         return;
       }
       let body = "";
+      let tooLarge = false;
       req.on("data", (chunk) => {
+        // 体积上限：命令体最大的是粘贴回调链接 / 短信验证码，几 KiB 足够。
+        // 不设限时无鉴权端点（admin 判定在解析之后）可被无限上传吃爆内存 ——
+        // 与 /api/theme 同一道防线。
+        if (tooLarge) return;
+        if (body.length + chunk.length > COMMAND_BODY_MAX) {
+          tooLarge = true;
+          return;
+        }
         body += String(chunk);
       });
       req.on("end", () => {
+        if (tooLarge) {
+          json(res, { ok: false, error: "body too large" }, 413);
+          return;
+        }
         void (async () => {
           let parsed: { action?: unknown; cid?: unknown; args?: unknown };
           try {

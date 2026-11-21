@@ -386,6 +386,16 @@ describe("/api/theme 与 /api/retry-login", () => {
 });
 
 describe("/api/commands 分发", () => {
+  it("请求体超上限 → 413（无鉴权端点不能当内存放大器）", async () => {
+    const huge = "x".repeat(64 * 1024);
+    const res = await fetch(`${server.url}api/commands`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ action: "status", pad: huge }),
+    });
+    assert.equal(res.status, 413);
+  });
+
   it("坏 JSON 400；缺 action 400；未知 action 400", async () => {
     const bad = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: "{oops" });
     assert.equal(bad.status, 400);
