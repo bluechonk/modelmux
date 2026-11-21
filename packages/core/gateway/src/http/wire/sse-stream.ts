@@ -10,6 +10,7 @@
  *     token 切成独立「思考」块；删掉（无信息量）即修复。
  */
 
+import { once } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { ServerResponse } from "node:http";
@@ -401,13 +402,51 @@ export async function relay(
    */
   let produced = 0;
 
+  /**
+   * 客户端是否已断开（本函数内累计判定，读循环每轮检查）。
+   *
+   * 向已销毁的 `res` 写数据不抛错、只返回 false（Node 直接丢弃），所以中继循环
+   * 不会自己停下来 —— 上游会照常生成完整段（照常计费），非流式路径还会等到聚合完成。
+   * 客户端在 Claude Code / Codex 里点停止是最常见的触发。
+   */
+  let clientGone = out.destroyed || out.writableEnded;
+  const onClose = (): void => {
+    clientGone = true;
+  };
+  // 测试用替身对象可能没有 EventEmitter 接口：有监听能力才挂（不影响生产路径）
+  const canListen = typeof out.once === "function" && typeof out.off === "function";
+  if (!clientGone && canListen) out.once("close", onClose);
+
+  /**
+   * 是否该等写缓冲排空（背压）。
+   *
+   * `res.write()` 的返回值此前被全部丢弃：客户端读得慢（弱网 / 被限速 / 暂停读取）时
+   * 数据在 Node 的响应缓冲里无界堆积，内存随生成长度线性上涨，最终可能 OOM 把整个
+   * 进程（含其它在途请求）带走。上游持续吐大段正文或工具参数时最容易撞上。
+   *
+   * 判据用 `write()` 自己的返回值（`false` = 缓冲已超 highWaterMark），而不是
+   * `writableLength`：后者在有编码器（sink）时由编码器写、本函数看不到，且测试替身
+   * 没有这个属性。返回 false 后等 `drain` —— 但**必须**同时受断连/结束保护，否则
+   * 客户端中途消失时 `drain` 永不到来，读循环会挂死。
+   */
+  let needDrain = false;
+  const drainIfNeeded = async (): Promise<void> => {
+    if (!needDrain) return;
+    needDrain = false;
+    if (clientGone || out.writableEnded || !canListen) return;
+    await once(out, "drain").catch(() => {
+      /* 等 drain 期间断开：下一轮的 clientGone 判定会接管 */
+    });
+  };
+
   /** 有编码器时不直写 out：帧交编码器转译（收尾与 end 也归调用方）。 */
   const writeOut = (frame: Buffer | string): void => {
     // 首次写出才落响应头：在此之前都还算「这条渠道没接住这个请求」，上层可换候选
     opts.ensureHead?.();
     produced += 1;
     if (sink) sink.writeOpenAiFrame(frame);
-    else out.write(frame);
+    // write 返回 false = 缓冲已满，下一轮读之前先等 drain（见 drainIfNeeded）
+    else if (out.write(frame) === false) needDrain = true;
   };
 
   try {
@@ -437,6 +476,9 @@ export async function relay(
         return { produced, disconnected };
       }
       for (;;) {
+        // 客户端已断开就别再读上游了（照常计费，且没有收件人）；有积压时等排空
+        if (clientGone) break;
+        await drainIfNeeded();
         const { done, value } = await reader.read();
         if (done) break;
         if (capture) capture.push(Buffer.from(value));
@@ -474,6 +516,9 @@ export async function relay(
 
     let buffer = "";
     for (;;) {
+      // 同上：断连即停读上游，有积压先等排空（背压）
+      if (clientGone) break;
+      await drainIfNeeded();
       const { done, value } = await reader.read();
       if (done) break;
       if (capture) capture.push(Buffer.from(value));
@@ -523,13 +568,15 @@ export async function relay(
       throw err;
     }
   } finally {
+    if (!clientGone && canListen) out.off("close", onClose);
     await reader.cancel().catch(() => {});
     if (capture) debugDump("resp", "sse", Buffer.concat(capture), cid);
     // 零帧**不在这里**写错误帧、也不 end：头还没写时上层要改试下一条候选
     // （写了就成了两个响应，end 掉了更没法重试）—— 判定与收尾都在 `forward.ts`。
     if (!sink && !propagateFailure && (produced > 0 || out.headersSent || disconnected)) out.end();
   }
-  return { produced, disconnected };
+  // 客户端中途断开同样要报给上层：它据此不再换候选（没有收件人）
+  return { produced, disconnected: disconnected || clientGone };
 }
 
 /**

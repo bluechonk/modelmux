@@ -47,7 +47,13 @@ const FIRST_BYTE_HEARTBEAT_MS = 5_000;
  * 两条线型（openai / custom）必须同口径 —— 否则同一个上游故障，换条线型客户端
  * 就从「收到结构化错误」变成「连接被静默掐断」。入站协议编码器在场时错误帧也走协议形态。
  */
-function relayError(res: ServerResponse, logger: (m: string) => void, err: unknown, cid?: string): void {
+function relayError(
+  res: ServerResponse,
+  logger: (m: string) => void,
+  err: unknown,
+  cid?: string,
+  ensureHead?: () => void,
+): void {
   const code = (err as { code?: string } | null)?.code;
   const name = (err as { name?: string } | null)?.name;
   if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE") {
@@ -59,6 +65,10 @@ function relayError(res: ServerResponse, logger: (m: string) => void, err: unkno
   const sink = sinkOf(res);
   const writeError = (errorCode: string, message: string): void => {
     if (res.writableEnded) return;
+    // 必须先落响应头：直接 res.write() 会隐式提交一个 200 —— 既没有
+    // `Content-Type: text/event-stream`，也让 `forward.ts` 的「零产出且未写头 →
+    // 换下一条候选」判据失效，本该重试的请求变成一条头不合法的 200 错误流。
+    ensureHead?.();
     if (sink) sink.writeError(errorCode, message);
     else res.write(`data: ${JSON.stringify({ error: { code: errorCode, message } })}\n\n`);
   };
@@ -292,7 +302,7 @@ export async function relayStream(
       produced = Math.max(produced, relayed.produced);
       disconnected = relayed.disconnected;
     } catch (err) {
-      relayError(res, logger, err, cid);
+      relayError(res, logger, err, cid, ensureHead);
     } finally {
       // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补。
       //
@@ -401,7 +411,7 @@ export async function relayStream(
       deliver(buf);
     }
   } catch (err) {
-    relayError(res, logger, err, cid);
+    relayError(res, logger, err, cid, ensureHead);
     errored = true;
   } finally {
     // 客户端断开或上游异常时也要触发翻译器收尾（渠道可在 finish 里回报会话完成）
