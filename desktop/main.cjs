@@ -27,13 +27,19 @@ const PORT = 4412;
 const BASE = `http://${HOST}:${PORT}`;
 
 /**
- * 存储根：`~/.modelmux`（共享层在 `MODELMUX_HOME` 未设时的默认值）。
+ * 存储根：`MODELMUX_HOME` > `~/.modelmux`（与共享层 `paths.resolveRoot` 同口径）。
  *
- * 安装版固定用它 —— 换机迁移靠整目录拷贝 `~/.modelmux`，不另设便携分支：
- * electron-builder 的 NSIS 安装器不设 `PORTABLE_EXECUTABLE_DIR`，便携打包壳又已废弃
- * （每次启动全量解压，见 docs/DESKTOP-APP.md），留着分支只会制造「配置了不生效」的坑。
+ * 必须认 `MODELMUX_HOME`：壳 fork 网关时把整个 `process.env` 传下去，所以网关会落在
+ * 变量指向的目录；壳自己若硬算 `~/.modelmux`，写的 `watchdog.pause` / 读的
+ * `setting.json` 就落到了网关与守护都不会看的地方 —— 托盘「退出 modelmux」会被外层
+ * 守护在下一轮重新拉起（用户明确要停，结果停不掉），启动主题也会读错文件。
+ *
+ * 不设便携分支：electron-builder 的 NSIS 安装器不设 `PORTABLE_EXECUTABLE_DIR`，
+ * 便携打包壳又已废弃（每次启动全量解压，见 docs/DESKTOP-APP.md）。
  */
 function homeDir() {
+  const override = process.env.MODELMUX_HOME;
+  if (typeof override === "string" && override.trim() !== "") return override;
   return path.join(os.homedir(), ".modelmux");
 }
 

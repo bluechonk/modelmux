@@ -26,8 +26,12 @@ $startupLnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Star
 if (-not (Test-Path -LiteralPath $node)) { throw "node 不存在：$node" }
 if (-not (Test-Path -LiteralPath $script)) { throw "守护脚本不存在：$script" }
 
+# 存储根与守护脚本同口径：MODELMUX_HOME > ~/.modelmux。硬算 USERPROFILE 时，
+# 设了该变量的用户会在这里读不到（也清不掉）守护的 pid 文件。
+$modelmuxHome = if ($env:MODELMUX_HOME) { $env:MODELMUX_HOME } else { Join-Path $env:USERPROFILE ".modelmux" }
+
 # 先停掉可能在跑的常驻守护，否则新任务的进程会被脚本内单实例锁挡在门外。
-$pidFile = Join-Path $env:USERPROFILE ".modelmux\watchdog.pid"
+$pidFile = Join-Path $modelmuxHome "watchdog.pid"
 if (Test-Path -LiteralPath $pidFile) {
   $oldPid = 0
   [void][int]::TryParse((Get-Content -LiteralPath $pidFile -Raw).Trim(), [ref]$oldPid)
@@ -70,7 +74,7 @@ if (Test-Path -LiteralPath $startupLnk) {
   Remove-Item -LiteralPath $startupLnk -Force
   Write-Output "已删除启动文件夹快捷方式：$startupLnk"
 }
-$loginVbs = Join-Path $env:USERPROFILE ".modelmux\bin\watchdog-login.vbs"
+$loginVbs = Join-Path $modelmuxHome "bin\watchdog-login.vbs"
 if (Test-Path -LiteralPath $loginVbs) {
   Remove-Item -LiteralPath $loginVbs -Force
   Write-Output "已删除旧登录启动器：$loginVbs"
