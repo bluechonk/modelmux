@@ -5,6 +5,7 @@
  */
 
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
@@ -212,6 +213,39 @@ describe("relay 边界", () => {
     const { res, body } = stubRes();
     await relay(res, streamOf(['data: {"usage": oops}\n\n']), SSE, CID);
     assert.ok(body().includes("usage"), "坏 usage 帧仍按原样转发");
+  });
+
+  it("缓冲满 + 客户端断开：等 drain 必须与断连竞速，不能挂死", async () => {
+    // 只触发 close（不触发 drain / error）正是优雅断开的形态：单等 `once(out,"drain")`
+    // 会永不 settle，读循环挂死、finally 不执行、上游连接泄漏。
+    const res = new EventEmitter() as unknown as ServerResponse & EventEmitter;
+    let ended = false;
+    let writes = 0;
+    Object.assign(res, {
+      // 永远返回 false = 缓冲已满（真实 ServerResponse 在超 highWaterMark 时如此）
+      write: () => {
+        writes += 1;
+        return false;
+      },
+      end: () => {
+        ended = true;
+      },
+      writableEnded: false,
+      destroyed: false,
+    });
+    const sse = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "a" } }] })}\n\n`;
+    // 两块：第一块写出后 needDrain 置位，第二块前会进入 drainIfNeeded
+    const pending = relay(res, streamOf([sse, sse]), SSE, CID);
+    // 等第一次写出真正发生（drainIfNeeded 已在等待），再触发 close
+    while (writes === 0) await new Promise((r) => setImmediate(r));
+    res.emit("close");
+    const result = await Promise.race([
+      pending,
+      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 2000)),
+    ]);
+    assert.notEqual(result, "timeout", "客户端断开后 relay 必须返回，不能挂在等 drain 上");
+    assert.equal((result as { disconnected: boolean }).disconnected, true, "断开要如实上报给上层");
+    assert.equal(ended, true, "收尾必须执行（res.end 被调用）");
   });
 });
 

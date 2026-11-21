@@ -10,7 +10,6 @@
  *     token 切成独立「思考」块；删掉（无信息量）即修复。
  */
 
-import { once } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { ServerResponse } from "node:http";
@@ -434,8 +433,23 @@ export async function relay(
     if (!needDrain) return;
     needDrain = false;
     if (clientGone || out.writableEnded || !canListen) return;
-    await once(out, "drain").catch(() => {
-      /* 等 drain 期间断开：下一轮的 clientGone 判定会接管 */
+    // 必须与断连竞速：客户端在缓冲满期间优雅断开时只触发 `close`，既没有 `drain`
+    // 也不保证有 `error` —— 单等 `once(out, "drain")` 会永不 settle，读循环挂死、
+    // finally 不执行、`reader.cancel()` 不调用，请求与上游连接一起泄漏
+    // （慢客户端被限速后点停止即可稳定触发）。
+    //
+    // 用显式监听 + 统一清理而不是三个 `once` 竞速：未胜出的 `once` 会残留监听器，
+    // 长流每遇一次背压就多挂两个，直到 `MaxListenersExceededWarning`。
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        out.off("drain", done);
+        out.off("close", done);
+        out.off("error", done);
+        resolve();
+      };
+      out.once("drain", done);
+      out.once("close", done);
+      out.once("error", done);
     });
   };
 
