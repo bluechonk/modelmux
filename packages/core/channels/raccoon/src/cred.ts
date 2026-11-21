@@ -762,6 +762,8 @@ async function fetchUserInfo(
  * 读凭据。
  *
  * - 文件缺失 / JSON 损坏 / 缺 `access_token` → `NotLoggedInError`
+ * - 读盘故障（EACCES / EBUSY 等）保持原始错误上抛 —— 折叠成「未登录」会误导用户白跑
+ *   重新登录，而重新登录修不了权限问题
  * - `expires_at` 缺失 → 由 JWT `exp` 推算（静默失效的根源，见文件头注释 3）
  * - 旧凭据里的 `device_id` **读到了就忽略**（该字段已随短信路径移除，不再落盘也不再上行）
  */
@@ -769,8 +771,9 @@ export function load(): Credentials {
   let raw: string;
   try {
     raw = readFileSync(credentialsPath(), "utf8");
-  } catch {
-    throw new NotLoggedInError();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new NotLoggedInError();
+    throw err;
   }
   let data: unknown;
   try {

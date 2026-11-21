@@ -285,8 +285,14 @@ async function backfillReward(cid: string, channel: Channel, accountKey?: string
     } else {
       try {
         channel.cred.load();
-      } catch {
-        return; // 未登录：留到下一轮
+      } catch (err) {
+        // 只有「未登录」是正常空态（静默留到下一轮）；读盘故障必须留痕 —— 否则凭据
+        // 文件被占用的那天签到静默丢失，事后无从排查
+        if (err instanceof channel.cred.NotLoggedInError || (err instanceof Error && err.constructor?.name === "NotLoggedInError")) {
+          return; // 未登录：留到下一轮
+        }
+        console.error(`[auto-signin] credential load failed (channel ${cid}): ${String(err)}`);
+        return;
       }
     }
     const resolved = await resolveReward(channel, record, cid, accountKey, credential);

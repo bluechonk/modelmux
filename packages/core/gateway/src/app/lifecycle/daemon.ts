@@ -620,13 +620,19 @@ export async function models(
   return 0;
 }
 
+/** 凭据读盘故障（EACCES / EPERM / EBUSY / EIO）：与「未登录」区分，引导修权限而非重新登录。 */
+function credentialReadFailure(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException)?.code;
+  return code === "EACCES" || code === "EPERM" || code === "EBUSY" || code === "EIO";
+}
+
 /**
  * 查询账号剩余额度（直接走上游 billing，不经本地网关）。
  *
  * 仓库级（多渠道）时逐渠道查询：某个渠道没有额度端点或未登录只影响它自己。
  *
  * `--accounts`（或单渠道池内 ≥2 个账号）时**逐账号**再查一遍，一个人读的额度
- * 必须能分辨「哪个账号还剩多少」—— 额度是账号级的（见 docs/ACCOUNT-ROTATION.md §1）。
+ * 忁须能分辨「哪个账号还剩多少」—— 额度是账号级的（见 docs/ACCOUNT-ROTATION.md §1）。
  */
 export async function credits(options: { json?: boolean; cid?: string; accounts?: boolean } = {}): Promise<number> {
   const scope = scopeOf(options.cid);
@@ -656,7 +662,13 @@ export async function credits(options: { json?: boolean; cid?: string; accounts?
       }
     } catch (err) {
       failures += 1;
-      const hint = err instanceof cred.NotLoggedInError ? `，运行 ${label} login` : "";
+      // 三类错误三种引导：未登录 → 去登录；读盘故障 → 修权限 / 占用（重新登录修不了）；
+      // 其余（上游异常等）如实显示，不加误导性提示
+      const hint = err instanceof cred.NotLoggedInError
+        ? `，运行 ${label} login`
+        : credentialReadFailure(err)
+          ? `，凭据文件不可读（权限 / 占用），恢复后重试`
+          : "";
       const error = `${String(err)}${hint}`;
       results.push({ cid: channel.config.cid, ok: false, error });
       if (list.length === 1) {

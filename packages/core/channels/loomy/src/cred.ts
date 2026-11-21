@@ -280,13 +280,18 @@ async function accountPost(
 
 // ── 凭据落盘 ──────────────────────────────────────────────────────────────────
 
-/** 从磁盘读凭据；缺 `expires_at` 时按 `obtained_at + 14 天` 补算（不拒绝整条凭据）。 */
+/**
+ * 从磁盘读凭据；缺 `expires_at` 时按 `obtained_at + 14 天` 补算（不拒绝整条凭据）。
+ * 读盘故障（EACCES / EBUSY 等）保持原始错误上抛 —— 折叠成「未登录」会误导用户白跑
+ * 重新登录，而重新登录修不了权限问题。
+ */
 export function load(): Credentials {
   let raw: string;
   try {
     raw = readFileSync(credentialsPath(), "utf8");
-  } catch {
-    throw new NotLoggedInError();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new NotLoggedInError();
+    throw err;
   }
   let data: unknown;
   try {

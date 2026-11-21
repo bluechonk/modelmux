@@ -44,8 +44,8 @@ import { writeAtomicFile } from "./secret-file.js";
  */
 export type AccessOutcome = "success" | "failure";
 
-/** 候选被剔除的原因（选路快照用）。 */
-export type RouteSkipReason = "auth" | "window" | "unauthorized" | "cooling";
+/** 候选被剔除的原因（选路快照用）；`cred_error` = 凭据读盘故障（与「未登录」区分）。 */
+export type RouteSkipReason = "auth" | "cred_error" | "window" | "unauthorized" | "cooling";
 
 /**
  * 一次请求的**选路快照**（落进访问日志，控制台展开详情可见）。
@@ -923,7 +923,7 @@ function strArray(value: unknown): string[] | undefined {
   return value.every((v) => typeof v === "string") ? (value as string[]) : undefined;
 }
 
-const ROUTE_SKIP_REASONS: readonly RouteSkipReason[] = ["auth", "window", "unauthorized", "cooling"];
+const ROUTE_SKIP_REASONS: readonly RouteSkipReason[] = ["auth", "cred_error", "window", "unauthorized", "cooling"];
 
 function isSkipReason(value: string | undefined): value is RouteSkipReason {
   return value !== undefined && (ROUTE_SKIP_REASONS as readonly string[]).includes(value);

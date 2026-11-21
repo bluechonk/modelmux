@@ -231,13 +231,20 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-/** 读凭据；未登录 / 文件损坏都抛 `NotLoggedInError`（共享层靠它判断"没东西"）。 */
+/**
+ * 读凭据；未登录 / 文件损坏都抛 `NotLoggedInError`（共享层靠它判断"没东西"）。
+ * 读盘故障（EACCES / EBUSY 等）保持原始错误上抛 —— 折叠成「未登录」会误导用户白跑
+ * 重新登录，而重新登录修不了权限问题。
+ */
 export function load(): Credentials {
   let raw: string;
   try {
     raw = readFileSync(credentialsPath(), "utf8");
-  } catch {
-    throw new NotLoggedInError("Not logged in: run `qwenworkcn login` to authorize in the browser");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new NotLoggedInError("Not logged in: run `qwenworkcn login` to authorize in the browser");
+    }
+    throw err;
   }
   let parsed: Record<string, unknown>;
   try {

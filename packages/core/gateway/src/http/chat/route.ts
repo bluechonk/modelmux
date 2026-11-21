@@ -87,7 +87,9 @@ export function resolvePoolRoute(
       return true;
     } catch (err) {
       logger(`pool: credential load failed (channel ${c.cid}): ${String(err)}`);
-      skipped.push({ cid: c.cid, why: "auth" });
+      // 读盘故障不是「未登录」：日志筛选与展示要能区分（Logs 页「凭据读取失败」），
+      // 否则用户照「未登录」提示去重新登录，修不了权限 / 占用类问题
+      skipped.push({ cid: c.cid, why: "cred_error" });
       return false;
     }
   });
