@@ -127,18 +127,15 @@ function parseRegistry(doc: unknown): ModelRegistry | null {
 }
 
 /**
- * 随包默认表的路径：`packages/core/gateway/models.json`（bundle 后为 `<bundleDir>/models.json`）。
+ * 随包默认表的候选路径（两种布局）：
+ *   - 非 bundle：本模块在 `<gateway>/dist/pool/`，表在包根 → 上溯两级
+ *   - 单文件 bundle：`import.meta.url` 指向 `packages/cli/dist/cli.bundle.js`，
+ *     表由 bundle 步骤复制到同目录 → 同级
  *
  * 默认表是**数据文件**而不是代码字面量：共享层禁止硬编码厂商模型名
  * （`scripts/verify-contract.mjs` 强制，唯一落点是 `pool/model-family.ts`），
  * 上游 id 映射（`sn-deepseek-v4-1-flash-1017`、`gfmodel` 等）属于渠道知识，
  * 更该跟着数据走 —— 换渠道实现时改文件即可，不必动代码。
- */
-/**
- * 随包默认表的候选路径（两种布局）：
- *   - 非 bundle：本模块在 `<gateway>/dist/pool/`，表在包根 → 上溯两级
- *   - 单文件 bundle：`import.meta.url` 指向 `packages/cli/dist/cli.bundle.js`，
- *     表由 bundle 步骤复制到同目录 → 同级
  */
 function bundledDefaultCandidates(): string[] {
   const here = dirname(fileURLToPath(import.meta.url));

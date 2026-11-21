@@ -1176,7 +1176,6 @@ export function syncPool(cid?: string): void {
   }
 }
 
-/** 池内某账号的凭证原始 JSON（供诊断；不解释渠道语义）。 */
 /**
  * 逐账号凭据的安全读取：未登录（缺失）返回 `{}`；读盘故障**上抛**。
  *
@@ -1190,6 +1189,12 @@ export function readAccountCredentialSafe(key: string, cid?: string): Record<str
     : {};
 }
 
+/**
+ * 逐账号凭据的宽松读取：读盘故障也折叠成 `{}`。
+ *
+ * 与 `readAccountCredentialSafe` 的区别是**不区分**「没登录」与「读不出来」——
+ * 只在调用方本来就无法处置这类故障时用（如换号前的可用性预判：读不到就不选它）。
+ */
 export function readAccountCredential(key: string, cid?: string): Record<string, unknown> {
   const parsed = poolStore().readAccountCredential(key, cid);
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)

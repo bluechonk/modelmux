@@ -613,7 +613,8 @@ function markCooldownIfExhausted(channel: Channel, cid: string, credits: unknown
 }
 
 /** 标记某账号额度查询失败（保留上一次的数字）。 */
-function noteAccountBillingAttempt(cid: string, key: string, ok: boolean): void {  const entry = accountEntry(entryOf(load(), cid), key);
+function noteAccountBillingAttempt(cid: string, key: string, ok: boolean): void {
+  const entry = accountEntry(entryOf(load(), cid), key);
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = ok;
   scheduleSave();
