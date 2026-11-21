@@ -109,6 +109,60 @@ function readJsonOrNull(path: string): unknown | null {
   }
 }
 
+/**
+ * 读 JSON；**主文件损坏时从 `.bak` 自愈**。
+ *
+ * 「文件不存在」是合法空态（不碰 bak）；「存在但解析失败」才是损坏 —— 此时
+ * `.bak`（上次成功写入的版本）是唯一可回退的副本，恢复成功要留痕（排障时
+ * 「数据怎么少了一段」的答案就在这条日志里），恢复失败保持 null 不抛。
+ */
+function readJsonWithBackup(path: string): unknown | null {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    text = ""; // 读失败（权限等）：按损坏处理，试 bak
+  }
+  // 「文件存在但内容不是合法 JSON 对象」= 损坏（与缺失区分开），才走 bak 自愈
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+  if (parsed !== null && typeof parsed === "object") return parsed;
+  const bak = `${path}.bak`;
+  try {
+    text = readFileSync(bak, "utf8");
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+  if (parsed !== null && typeof parsed === "object") {
+    console.error(`[modelmux] ${path} 损坏，已从 ${bak} 恢复（${text.length} 字节）`);
+    return parsed;
+  }
+  console.error(`[modelmux] ${path} 损坏且 ${bak} 不可用（相关能力按空数据处理）`);
+  return null;
+}
+
+/**
+ * 写 JSON 并留一份 `.bak`（= 本次成功写入的内容）。
+ *
+ * rename 的原子性保证主文件不会写一半；真正的损坏来自外部（手改 / 磁盘错误 /
+ * 其他进程写坏），此时 bak =「最后一次已知正确的数据」—— 恢复目标不是退回旧
+ * 版本，而是回到最后一次成功状态。bak 写失败不影响主文件。
+ */
+function writeJsonWithBackup(path: string, value: unknown, writer: (p: string, v: unknown) => void): void {
+  writer(path, value);
+  try {
+    writeJsonFile(`${path}.bak`, value);
+  } catch {
+    // bak 写失败不回滚主文件：主数据优先
+  }
+}
+
 /** 复制后收紧权限：与 account-pool 原 copyFileSync+chmod 语义一致（失败忽略）。 */
 function copySecret(from: string, to: string): void {
   copyFileSync(from, to);
@@ -129,12 +183,12 @@ export class FsPoolStore implements PoolStore {
   }
 
   readIndex(cid?: string): unknown | null {
-    return readJsonOrNull(this.indexFile(cid));
+    return readJsonWithBackup(this.indexFile(cid));
   }
   writeIndex(index: unknown, cid?: string): void {
     ensureDir(cid);
     mkdirSync(this.accountDir(cid), { recursive: true });
-    writeJsonSecret(this.indexFile(cid), index);
+    writeJsonWithBackup(this.indexFile(cid), index, writeJsonSecret);
   }
   indexStamp(cid?: string): number {
     return mtimeOrZero(this.indexFile(cid));
@@ -194,10 +248,10 @@ export class FsPoolStore implements PoolStore {
   }
 
   readLedger(): unknown | null {
-    return readJsonOrNull(poolUsagePath());
+    return readJsonWithBackup(poolUsagePath());
   }
   writeLedger(ledger: unknown): void {
-    writeJsonSecret(poolUsagePath(), ledger);
+    writeJsonWithBackup(poolUsagePath(), ledger, writeJsonSecret);
   }
   ledgerStamp(): number {
     return mtimeOrZero(poolUsagePath());
@@ -205,10 +259,10 @@ export class FsPoolStore implements PoolStore {
 
   readPrefs(): unknown | null {
     // 与 model-prefs.ts 原读路径同语义：缺失/损坏 = null（调用方回落空表）
-    return readJsonOrNull(rootFile("model-prefs.json"));
+    return readJsonWithBackup(rootFile("model-prefs.json"));
   }
   writePrefs(prefs: unknown): void {
-    writeFileSync(rootFile("model-prefs.json"), `${JSON.stringify(prefs, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeJsonWithBackup(rootFile("model-prefs.json"), prefs, writeJsonFile);
   }
 
   writeAccess(entry: {
@@ -234,11 +288,11 @@ export class FsPoolStore implements PoolStore {
   }
 
   readApiKeys(): unknown | null {
-    return readJsonOrNull(rootFile(API_KEYS_NAME));
+    return readJsonWithBackup(rootFile(API_KEYS_NAME));
   }
 
   writeApiKeys(keys: unknown): void {
-    writeJsonFile(rootFile(API_KEYS_NAME), keys);
+    writeJsonWithBackup(rootFile(API_KEYS_NAME), keys, writeJsonFile);
   }
 }
 

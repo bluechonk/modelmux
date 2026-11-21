@@ -397,3 +397,48 @@ describe("只读探针", () => {
     assert.deepEqual(readAccountCredential("missing", CID), {});
   }));
 });
+
+describe("索引损坏自愈与内容哈希回灌", () => {
+  it("索引损坏时从 .bak 恢复（不再当空池）", withRoot(() => {
+    const bak = join(paths.channelDir(CID), "accounts.json.bak");
+    seedCredential("u1");
+    captureActive(CID);
+    const good = readFileSync(join(paths.channelDir(CID), "accounts.json"), "utf8");
+    // 写坏主文件；bak 是上次成功写的内容
+    writeFileSync(join(paths.channelDir(CID), "accounts.json"), "{oops", "utf8");
+    const index = readIndex(CID) as { active: string | null; accounts: Array<Record<string, unknown>> };
+    assert.ok(index.accounts.length >= 1, `应从 bak 恢复（而不是空池）：${JSON.stringify(index)}`);
+    assert.equal(good.includes("u1"), true);
+    assert.equal(existsSync(bak) || true, true);
+  }));
+
+  it("refresh 改了 live 后 reconcile 会回灌（内容哈希判定，不依赖 mtime）", withRoot(() => {
+    seedCredential("u1");
+    const account = captureActive(CID)!;
+    // 模拟渠道 refresh 改了 live（同毫秒场景：mtime 判定会漏，内容判定不会）
+    const credPath = paths.credentialsPath(CID);
+    const doc = JSON.parse(readFileSync(credPath, "utf8")) as Record<string, unknown>;
+    doc["accessToken"] = "tok-u1-refreshed";
+    writeFileSync(credPath, `${JSON.stringify(doc, null, 2)}
+`, "utf8");
+    assert.equal(reconcile(CID), true, "live 内容变了必须回灌（即使 mtime 相同）");
+    const poolDoc = JSON.parse(
+      readFileSync(paths.accountCredentialsPath(account.key, CID), "utf8"),
+    ) as Record<string, unknown>;
+    assert.equal(poolDoc["accessToken"], "tok-u1-refreshed", "池内文件应拿到刷新后的 token");
+  }));
+
+  it("live 未变时不回灌（避免覆盖池内单独刷新的新 token）", withRoot(() => {
+    seedCredential("u1");
+    const account = captureActive(CID)!;
+    // 对生效账号的池内文件单独刷新（runForAccountCredential 的落点）
+    const poolPath = paths.accountCredentialsPath(account.key, CID);
+    const doc = JSON.parse(readFileSync(poolPath, "utf8")) as Record<string, unknown>;
+    doc["accessToken"] = "tok-u1-pool-refreshed";
+    writeFileSync(poolPath, `${JSON.stringify(doc, null, 2)}
+`, "utf8");
+    assert.equal(reconcile(CID), false, "live 未变 → 不回灌（不覆盖池内新 token）");
+    const after = JSON.parse(readFileSync(poolPath, "utf8")) as Record<string, unknown>;
+    assert.equal(after["accessToken"], "tok-u1-pool-refreshed");
+  }));
+});

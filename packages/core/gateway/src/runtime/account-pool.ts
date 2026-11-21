@@ -72,6 +72,14 @@ export interface PoolAccount {
   trip_until?: string | null;
   /** 当前熔断退避长度（ms，翻倍用；缺省 0 = 首次熔断）。 */
   trip_backoff_ms?: number;
+  /**
+   * 上次同步时 live / 池内凭据的内容哈希（`reconcileActive` 的回灌判据）。
+   *
+   * 为什么不用 mtime：Windows 同刻写入会把「refresh 改了 live」判成未变，
+   * 池内从此留旧 token。capture / activate / reconcile 三个同步点都会刷新这两笔。
+   */
+  synced_live_hash?: string;
+  synced_pool_hash?: string;
 }
 
 export interface PoolIndex {
@@ -352,6 +360,8 @@ function normalizeIndex(parsed: unknown): PoolIndex {
         cooldown_until: typeof a["cooldown_until"] === "string" ? a["cooldown_until"] : null,
         cooldown_reason: typeof a["cooldown_reason"] === "string" ? a["cooldown_reason"] : undefined,
         trip_until: typeof a["trip_until"] === "string" ? a["trip_until"] : null,
+        synced_live_hash: typeof a["synced_live_hash"] === "string" ? a["synced_live_hash"] : undefined,
+        synced_pool_hash: typeof a["synced_pool_hash"] === "string" ? a["synced_pool_hash"] : undefined,
         trip_backoff_ms:
           typeof a["trip_backoff_ms"] === "number" && Number.isFinite(a["trip_backoff_ms"])
             ? Math.trunc(a["trip_backoff_ms"])
@@ -480,7 +490,11 @@ export function captureActive(
     fail_streak: 0,
   };
 
-  poolStore().copyActiveToAccountCredential(key, cid);
+  const store = poolStore();
+  store.copyActiveToAccountCredential(key, cid);
+  // 收号即初次同步：记下两边内容哈希，reconcile 才能判「此后谁变过」
+  account.synced_live_hash = credentialHash(store.readActiveCredential(cid));
+  account.synced_pool_hash = credentialHash(store.readAccountCredential(key, cid));
 
   const accounts = [...index.accounts.filter((a) => a.key !== key), account];
   writeIndex({ version: 1, active: key, accounts }, cid);
@@ -532,6 +546,9 @@ export function activateAccount(key: string, cid?: string): PoolAccount {
     throw new Error(`account file missing: ${accountCredentialsPath(key, cid)}`);
   }
   poolStore().copyAccountCredentialToActive(key, cid);
+  // 切号也是一次同步（live := 池内那份），记下两边哈希避免 reconcile 误判回灌
+  account.synced_live_hash = credentialHash(poolStore().readActiveCredential(cid));
+  account.synced_pool_hash = credentialHash(poolStore().readAccountCredential(key, cid));
   account.last_used_at = nowIso();
   // 手动切号 = 给这份凭据第二次机会：清零连败，并把 error / cooldown 标记一并恢复
   clearTrippedState(account);
@@ -938,21 +955,35 @@ export function reconcile(cid?: string): boolean {
   return reconcileActive(cid, index);
 }
 
-/** 同一账号的 token 刷新：把 credentials.json 回灌池内那份（调用方已确认身份一致）。 */
+/**
+ * 同一账号的 token 刷新：把 credentials.json 回灌池内那份（调用方已确认身份一致）。
+ *
+ * 判「live 是否变过」用**内容哈希**（上次同步时记在 `synced_live_hash`），不用
+ * mtime：Windows 的 mtime 精度在「refresh 写 live 与上次回灌同刻」时会把变化判没，
+ * 池内从此留着旧 token —— 内容比较没有这个问题。池内文件被
+ * `runForAccountCredential` 单独刷新（签到 / 账单）时 live 未变，同样不回灌，
+ * 不会把池内的新 token 覆盖回旧值。
+ */
 function reconcileActive(cid: string | undefined, index: PoolIndex): boolean {
   if (!index.active) return false;
   const store = poolStore();
   if (!store.hasAccountCredential(index.active, cid) || !store.hasActiveCredential(cid)) return false;
-  // 「谁新用谁」：live 比池内新才回灌（stamp 语义 = fs mtime / pg 版本）
-  if (store.activeCredentialStamp(cid) <= store.accountCredentialStamp(index.active, cid)) return false;
-  store.copyActiveToAccountCredential(index.active, cid);
   const hit = index.accounts.find((a) => a.key === index.active);
-  if (hit) {
-    hit.last_used_at = nowIso();
-    hit.expires_at = parseExpiry(readRawCredential(cid));
-    writeIndex(index, cid);
-  }
+  if (!hit) return false;
+  const liveHash = credentialHash(store.readActiveCredential(cid));
+  if (liveHash === hit.synced_live_hash) return false; // live 相对上次同步没有变化
+  store.copyActiveToAccountCredential(index.active, cid);
+  hit.synced_live_hash = liveHash;
+  hit.synced_pool_hash = credentialHash(store.readAccountCredential(index.active, cid));
+  hit.last_used_at = nowIso();
+  hit.expires_at = parseExpiry(readRawCredential(cid));
+  writeIndex(index, cid);
   return true;
+}
+
+/** 凭据内容的稳定哈希（`synced_*_hash` 的载体；JSON 键序由写方保证一致）。 */
+function credentialHash(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value ?? null)).digest("hex").slice(0, 16);
 }
 
 /** 读 credentials.json 的原始 JSON（**仅用于展示字段**，不解释渠道语义）。 */
