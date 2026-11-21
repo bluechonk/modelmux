@@ -605,7 +605,7 @@ export function AccountCard({
                         {!active && (
                           <DropdownMenuItem onSelect={() => onActivate(pool.cid, account.key)}>
                             <ArrowLeftRight />
-                            切换为生效账号
+                            设为生效
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem
@@ -613,7 +613,7 @@ export function AccountCard({
                           onSelect={() => setPendingRemove({ key: account.key, name: displayName(account), active })}
                         >
                           <Trash2 />
-                          {active ? "删除生效账号（同时登出）" : "从池中删除"}
+                          {active ? "删除并登出" : "删除"}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -645,7 +645,7 @@ export function AccountCard({
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((open) => !open)}
-          className="tap flex items-center gap-1 border-t border-line px-4 py-1.5 text-xs text-ink-faint transition-colors hover:text-brand"
+          className="tap flex items-center gap-1 border-t border-line px-4 py-1.5 text-xs text-ink-faint transition-colors hover:bg-overlay"
         >
           {collapsedBack ? (
             <ChevronUp className="h-3.5 w-3.5" />
