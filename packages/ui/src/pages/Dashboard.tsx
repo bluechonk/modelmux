@@ -251,6 +251,14 @@ export function Dashboard(): ReactElement {
     placeholderData: (prev) => prev,
   });
   const rangeStats = usageQuery.data;
+  /**
+   * 正在取新区间数据：数字还是旧的。
+   *
+   * 切区间的视觉口径：Segmented 药丸 150ms 过渡到新选中项的同时，区间数据区
+   * **同步**淡到半透明（同一拍）；新数据到达后恢复实色（新数字）。
+   * 两拍之间有连续的透明度信号，不再是「框先变、数字若干 ms 后跳变」的割裂感。
+   */
+  const rangePending = usageQuery.isFetching && usageQuery.isPlaceholderData;
 
   // 开关式接入：操作中态与每卡失败原因（键 = target）。结果同时走右下角 toast
   // （命令信封 ok:false 是 200 响应，onSuccess 不代表成功）+ 卡上红字（最新一次）。
@@ -398,11 +406,16 @@ export function Dashboard(): ReactElement {
         }
       />
 
-      {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 3 列 / 2xl 一行六格） */}
+      {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 3 列 / 2xl 一行六格）；切区间时同步淡到
+          半透明、新数据到达恢复实色（与 Segmented 药丸过渡同一拍，见 rangePending）。 */}
       {/* KPI：窄屏 2 列 / lg 3 列 / 2xl 一行六格（移除「当前连续」后正好六张）——
           1366 笔记本（xl 档）六列时每列 ~210px，tokens 副行折行把卡高撑乱；
           2xl（≥1536）起才一行六格，1366 落 3 列 × 2 行，副行单行不折。 */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
+      <div
+        className={`grid grid-cols-2 gap-3 transition-opacity duration-200 lg:grid-cols-3 2xl:grid-cols-6 ${
+          rangePending ? "opacity-55" : "opacity-100"
+        }`}
+      >
         <KpiCard
           icon={Wifi}
           label={`${rangeWord}请求 · 成功率`}
@@ -462,7 +475,9 @@ export function Dashboard(): ReactElement {
       {/* ③ Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
           它驱动 KPI / 趋势 / 模型用量三块，紧贴 KPI 与用量明细，
           让「区间 → 数字 → 趋势」连成一条自上而下的读序。 */}
-      <section className="panel p-4">
+      <section
+        className={`panel p-4 transition-opacity duration-200 ${rangePending ? "opacity-55" : "opacity-100"}`}
+      >
         <div className="panel-title mb-3">
           <Activity className="h-4 w-4 text-ink-faint" />
           Token 趋势
@@ -482,7 +497,11 @@ export function Dashboard(): ReactElement {
           两卡都内容顶对齐：行高由较高一侧决定时，多余留白沉在矮卡底部，
           而不是堆成一条空带。 */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-12">
-        <section className="panel flex flex-col p-4 md:col-span-8">
+        <section
+          className={`panel flex flex-col p-4 transition-opacity duration-200 md:col-span-8 ${
+            rangePending ? "opacity-55" : "opacity-100"
+          }`}
+        >
           <div className="panel-title mb-3">
             <Layers className="h-4 w-4 text-ink-faint" />
             模型用量
