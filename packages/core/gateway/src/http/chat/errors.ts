@@ -18,7 +18,7 @@ import { protocolOf } from "../protocol/types.js";
  * 统一 JSON 应答（`/health`、`/v1/models` 等）。
  *
  * **响应头已发出时不再写**：写错误时必须先看 `res.headersSent` —— 排队探测那条
- * 路径已经用 `writeQueueHeaders` 写过 200 + SSE 头，此时再 `writeHead` 会抛
+ * 路径可能已写出 200 + SSE 头（转发层首字节），此时再 `writeHead` 会抛
  * `ERR_HTTP_HEADERS_SENT`，把真实错误降级成 internal_error，客户端则拿到一条
  * 静默截断的 200 流（2026-11-08 评审复现）。守卫放在这里而不是每个调用点，
  * 因为漏一个就复发。

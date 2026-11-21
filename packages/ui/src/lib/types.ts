@@ -230,64 +230,6 @@ export interface PoolAccount {
   signin?: AccountSignin | null;
 }
 
-export interface ChannelPool {
-  cid: string;
-  display: string;
-  /** 渠道级签到状态（`supported=false` 时「今日签到」行整行不渲染）。 */
-  signin?: ChannelSignin | null;
-  index: {
-    version: 1;
-    active: string | null;
-    accounts: PoolAccount[];
-  };
-}
-
-export interface PoolRow {
-  model: string;
-  candidates: Array<{
-    cid: string;
-    display: string;
-    exposed_id: string;
-    score: number;
-    used: number;
-    unit: string;
-    cooling: boolean;
-    unsupported?: boolean;
-    ok: number;
-    fail: number;
-    billing_at: string | null;
-  }>;
-}
-
-export interface ChannelInfo {
-  cid: string;
-  display: string;
-  /** 凭证是否存在（后端 `status` action 的字段名是 `present`）。 */
-  present: boolean;
-  uid?: string;
-}
-
-export interface StatusRow {
-  cid: string;
-  display: string;
-  present: boolean;
-}
-
-export interface CreditRow {
-  cid: string;
-  ok: boolean;
-  error?: string;
-  used?: number;
-  unit?: string;
-}
-
-export interface CommandResult {
-  ok: boolean;
-  message?: string;
-  error?: string;
-  data?: unknown;
-}
-
 /**
  * 一次请求的结果分桶 —— 只有成功与失败。
  *
@@ -347,7 +289,7 @@ export interface AccessLogEntry {
     est: number;
     candidates: string[];
     attempts: string[];
-    skipped: Array<{ cid: string; why: "auth" | "window" | "unauthorized" | "cooling" }>;
+    skipped: Array<{ cid: string; why: "auth" | "cred_error" | "window" | "unauthorized" | "cooling" }>;
   };
 }
 

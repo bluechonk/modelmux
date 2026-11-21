@@ -801,7 +801,7 @@ export function Logs(): ReactElement {
   useEffect(() => {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
-  const dirty = date !== "" || outcome !== "" || cid !== "" || model !== "";
+  const dirty = date !== "all" || outcome !== "" || cid !== "" || model !== "";
   /** 筛选变化必须回第 1 页：偏移量是跟着筛选走的。 */
   const resetToFirstPage = (): void => setPageNum(1);
   /** 每页条数变化：持久记忆 + 回第 1 页（偏移量跟着 pageSize 走）。 */

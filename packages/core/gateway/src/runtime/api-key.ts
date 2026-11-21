@@ -30,8 +30,6 @@ export interface ApiKeyRecord {
   /** scrypt 摘要（16 字节 hex）；校验时按前缀索引候选再恒时比对。 */
   keyHash: string;
   createdAt: string;
-  /** 最近一次使用时间（鉴权通过时更新，仅本机文件形态持久化）。 */
-  lastUsedAt?: string;
 }
 
 /** 校验结果：通过时给出命中的记录。 */

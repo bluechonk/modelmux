@@ -2,9 +2,8 @@
  * API key 管理：存储走 `poolStore()` 的 `readApiKeys/writeApiKeys` 端口 ——
  * fs 落 `<root>/api-keys.json`（0600）。
  *
- * 三条纪律：明文**加密**后与哈希同库保存（密钥单独落 0600 文件，见 api-key-crypto）；
- * 校验按前缀缩候选再恒时比对；限流是每分钟固定窗口。列表接口只下发前缀，完整明文
- * 走需显式调用的 `revealApiKey`。
+ * 两条纪律：明文**加密**后与哈希同库保存（密钥单独落 OS 配置目录，见 api-key-crypto）；
+ * 校验按前缀缩候选再恒时比对。列表接口只下发前缀，完整明文走需显式调用的 `revealApiKey`。
  */
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
@@ -137,12 +136,6 @@ function verifyRecord(plain: string, stored: string): boolean {
   return want.length === got.length && timingSafeEqual(want, got);
 }
 
-/**
- * 新建 key：返回记录与明文。
- *
- * 明文同时落库（`secret` 字段）：列表的行内复制与一键接入都需要完整值，只存哈希
- * 时这两处只能给前缀 / 写占位。存储是 0600 的本地文件，与哈希同一信任域。
- */
 /** 按 id 取完整明文（列表不下发；只有显式 reveal 与一键接入用）。 */
 export function revealApiKeyPlain(id: string): string | null {
   const rec = listApiKeys().find((k) => k.id === id);
@@ -151,6 +144,13 @@ export function revealApiKeyPlain(id: string): string | null {
   return sealed === null ? null : openSecret(sealed);
 }
 
+/**
+ * 新建 key：返回记录与明文。
+ *
+ * 明文同时以**密文**落库（`secretSealed`）：列表的行内复制与一键接入都需要完整值，
+ * 只存哈希时这两处只能给前缀 / 写占位。加密密钥在存储根之外（见 api-key-crypto），
+ * 拿到数据文件也解不开。
+ */
 export function createApiKey(input: { name: string }): { record: ApiKeyRecord; plain: string } {
   const plain = `mmx_${randomBytes(24).toString("hex")}`;
   // 密钥不可用时仍要建出可校验的 key（哈希 + 前缀足够鉴权），只是复制/接入回读不到 ——
@@ -170,7 +170,7 @@ export function createApiKey(input: { name: string }): { record: ApiKeyRecord; p
 }
 
 /**
- * 重新生成某个 key 的明文（哈希与前缀一起换），保留名称 / 白名单 / 限流。
+ * 重新生成某个 key 的明文（哈希与前缀一起换），保留名称与创建时间。
  *
  * 早期记录只有哈希（`secret` 为空），无法回读；重建是唯一能拿到完整值的路径。
  */

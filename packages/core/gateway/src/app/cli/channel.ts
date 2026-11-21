@@ -1,8 +1,7 @@
 /**
- * 渠道动词：`mx <动词> [<cid>]` 的分发与实现（login / status / model / billing / accounts / …）。
+ * 渠道动词：`mx <动词> [<cid>]` 的分发与实现（login / status / model / bill / acct / …）。
  *
- * 从 `command-groups.ts` 拆出。共享的 `CommandContext`、目录工具与登录列表
- * 从 `./model-group.js` 取（单向依赖）。
+ * 共享的 `CommandContext`、目录工具与登录列表从 `./model.js` 取（单向依赖）。
  */
 
 import { channels, getChannel, hasChannel } from "../../runtime/channel.js";
@@ -56,7 +55,6 @@ export const CHANNEL_VERBS: readonly ChannelVerb[] = [
   { name: "log", usage: "log [<cid>]", summary: "日志尾部（-f 持续输出）", group: "渠道" },
 ];
 
-/** 目录的来源，决定 CLI 怎么向用户交代这次列的是哪份数据。 */
 
 export function isChannelVerb(verb: string): boolean {
   return CHANNEL_VERBS.some((v) => v.name === verb);
@@ -66,8 +64,8 @@ export function isChannelVerb(verb: string): boolean {
  * `mx <动词> [<cid>] [参数]`。
  *
  * cid 是动词后**第一个位置参数**（且必须是已注册渠道名）：给了就是「对某渠道」，
- * 不给则各动词回落到仓库级语义（status→聚合、billing→全部、paths→全部、
- * logs→网关日志）。`login` / `relogin` 不给 cid 只对
+ * 不给则各动词回落到仓库级语义（status→聚合、bill→全部渠道、path→全部渠道、
+ * log→网关日志）。`login` / `relogin` 不给 cid 只对
  * 单渠道入口有意义（多渠道路由下报错指路）。
  */
 

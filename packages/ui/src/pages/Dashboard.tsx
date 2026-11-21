@@ -5,7 +5,7 @@
  * 用量（Token 活动 / 每日趋势 / 模型用量）走 `/api/usage`，只在切区间或手动刷新时重取。
  * 口径：控制台里「请求」恒指模型请求（`/v1/chat/completions`）——请求日志、用量区块、
  *   今日 KPI 三处同源，见 docs/USAGE-STATS.md。
- * 无 hover 信息：详情一律点击后落固定区域；lg 双列 / md 单列，不新增依赖。
+ * 无 hover 信息：详情一律点击后落固定区域。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from "react";
@@ -84,8 +84,7 @@ const MAX_SERIES = 6;
 export function Dashboard(): ReactElement {
   const toast = useToast();
 
-  // 状态快照：模型清单 / 网关错误 / 加载判定都读它（base_url / 版本等配置类信息已收进设置页）——
-  // 读 `["state"]` 的共享缓存，轮询归 `Layout` 所有
+  // 状态快照：网关错误 / 加载判定都读它 —— 读 `["state"]` 的共享缓存，轮询归布局层所有
   const stateQuery = useQuery({
     queryKey: ["state"],
     queryFn: api.getState,
@@ -215,11 +214,10 @@ export function Dashboard(): ReactElement {
         }
       />
 
-      {/* ① KPI：全部随区间变化（窄屏 2 列 / lg 3 列 / 2xl 一行六格）；切区间时同步淡到
-          半透明、新数据到达恢复实色（与 Segmented 药丸过渡同一拍，见 rangePending）。 */}
-      {/* KPI：窄屏 2 列 / lg 3 列 / 2xl 一行六格（移除「当前连续」后正好六张）——
-          1366 笔记本（xl 档）六列时每列 ~210px，tokens 副行折行把卡高撑乱；
-          2xl（≥1536）起才一行六格，1366 落 3 列 × 2 行，副行单行不折。 */}
+      {/* KPI：全部随区间变化（窄屏 2 列 / lg 3 列 / 2xl 一行六格）；切区间时同步淡到
+          半透明、新数据到达恢复实色（与 Segmented 药丸过渡同一拍，见 rangePending）。
+          2xl（≥1536）起才一行六格：1366 笔记本（xl 档）若六列，每列 ~210px，tokens 副行
+          折行把卡高撑乱；1366 落 3 列 × 2 行，副行单行不折。 */}
       <div
         className={`grid grid-cols-2 gap-3 transition-opacity duration-200 lg:grid-cols-3 2xl:grid-cols-6 ${
           rangePending ? "opacity-55" : "opacity-100"
@@ -281,7 +279,7 @@ export function Dashboard(): ReactElement {
         />
       </div>
 
-      {/* ③ Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
+      {/* Token 趋势：按模型分色。区间选择器在**页头**（整页一个控制点）——
           它驱动 KPI / 趋势 / 模型用量三块，紧贴 KPI 与用量明细，
           让「区间 → 数字 → 趋势」连成一条自上而下的读序。 */}
       <section
@@ -293,13 +291,11 @@ export function Dashboard(): ReactElement {
         </div>
         {/*
           图表按**容器实测宽度**渲染（组件内 ResizeObserver）；横轴标签按像素步长
-          抽稀，窄屏不再需要 600px 最小宽硬扛 —— 早期那层 `min-w-[600px]` 已随
-          抽稀上线移除（2026-11-15）。极端视口（<300px）由组件内部横向滚动兜底。
+          抽稀，极端视口（<300px）由组件内部横向滚动兜底。
         */}
         <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
 
-      {/* ① 模型用量（区间聚合）：一键接入已移至账号池页（接入对象是渠道配置，与账号池同动线） */}
       <section
         className={`panel flex flex-col p-4 transition-opacity duration-200 ${
           rangePending ? "opacity-55" : "opacity-100"
@@ -314,7 +310,7 @@ export function Dashboard(): ReactElement {
         <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
       </section>
 
-      {/* ② Token 活动：日历热力图（每日 / 每周 / 累计）；点击格子 → 详情落下方固定区（不用 hover） */}
+      {/* Token 活动：日历热力图（每日 / 每周 / 累计）；点击格子 → 详情落下方固定区（不用 hover） */}
       <section className="panel p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="panel-title">
@@ -339,26 +335,18 @@ export function Dashboard(): ReactElement {
 
 function DashboardSkeleton(): ReactElement {
   return (
+    // 通用加载占位：只保节奏（页头 + 卡片块），不逐块对应页面分区
+    //（Accounts 页空态复用本骨架，逐块对应会让两页互相牵制）。
     <div className="space-y-5" aria-hidden="true">
-      {/* 接入盒骨架 */}
-      <div className="h-28 animate-pulse rounded-2xl border border-line bg-raised" />
-      {/* KPI 骨架：四格 */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="h-16 animate-pulse rounded-2xl border border-line bg-raised" />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="h-20 animate-pulse rounded-xl border border-line bg-raised" />
         ))}
       </div>
-      {/* 双列骨架 */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <div className="space-y-5 lg:col-span-8">
-          <div className="h-48 animate-pulse rounded-2xl border border-line bg-raised" />
-          <div className="h-36 animate-pulse rounded-2xl border border-line bg-raised" />
-        </div>
-        <div className="space-y-5 lg:col-span-4">
-          <div className="h-44 animate-pulse rounded-2xl border border-line bg-raised" />
-          <div className="h-36 animate-pulse rounded-2xl border border-line bg-raised" />
-        </div>
-      </div>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-56 animate-pulse rounded-2xl border border-line bg-raised" />
+      ))}
     </div>
   );
 }

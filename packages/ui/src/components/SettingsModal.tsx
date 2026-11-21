@@ -1,9 +1,9 @@
 /**
- * 设置弹窗：顶栏齿轮打开，左锚点（通用 / 外观 / 关于）+ 右内容。
+ * 设置弹窗：顶栏齿轮打开，左锚点分区 + 右内容。
  *
  * 与「添加账号」登录弹窗同一套 Radix Dialog 骨架，但关闭策略相反：
  * 设置不是流程态，ESC 与点遮罩都应当关闭（登录弹窗刻意不关）。
- * 右列用小字分组标签分节（偏好设置 / 显示 / 信息），行首带图标；
+ * 右列用小字分组标签分节，行首带图标；
  * 窄屏（<sm）锚点折成顶部一行横滑，不挤压内容列。
  */
 
@@ -115,9 +115,9 @@ function IntervalRow({
 
 
 /**
- * 网关状态行：原顶栏「运行中」信号迁入设置弹窗。
+ * 网关状态行：只读展示网关存活状态。
  *
- * 只读（与旧 GatewayStatus 同口径）：控制台本身就是网关进程的一部分，从页面启停
+ * 只读的原因：控制台本身就是网关进程的一部分，从页面启停
  * 网关会让页面当场不可达 —— 启停一律走本机终端 `mx`。
  */
 const STATE_LABEL: Record<string, string> = {
@@ -145,7 +145,7 @@ function GatewayRow(): ReactElement {
 }
 
 export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }): ReactElement {
-  // `["state"]` 轮询归布局层所有，这里只订阅同一份缓存（同 GatewayStatus）
+  // `["state"]` 轮询归布局层所有，这里只订阅同一份缓存
   const state = useQuery({ queryKey: ["state"], queryFn: api.getState });
   const qc = useQueryClient();
   const toast = useToast();

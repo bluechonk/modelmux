@@ -7,12 +7,8 @@
 
 import type {
   AccessLogPage,
-  ChannelInfo,
-  ChannelPool,
-  CommandResult,
   LogQuery,
   OverviewResponse,
-  PoolRow,
   UiSnapshot,
   UsageRange,
   UsageStats,
@@ -47,17 +43,6 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await errorMessage(res));
-  return (await res.json()) as T;
-}
-
-/** `PUT` 请求（路由注册表整体写用；错误处理与 post 同口径）。 */
-async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });

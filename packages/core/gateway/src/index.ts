@@ -184,7 +184,7 @@ export {
 
 // 存储端口：fs 是唯一实现（服务形态已移除），测试可注入替代实现
 export type { PoolStore } from "./runtime/pool-store.js";
-export { FsPoolStore, setPoolStore, poolStore } from "./runtime/pool-store.js";
+export { poolStore } from "./runtime/pool-store.js";
 
 // API key 校验端口：组合根注入，未装配 = 放行（每进程告警一次，见 api-key.ts）
 export type { ApiKeyGuard, ApiKeyRecord } from "./runtime/api-key.js";

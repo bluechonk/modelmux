@@ -53,7 +53,7 @@ function chatHostRotator(channel: Channel): (() => boolean) | undefined {
 // ── 路由 ──────────────────────────────────────────────────────────────────────
 
 /**
- * API key 预检：guard 未注入（默认本机形态）直通，请求路径零变化。
+ * API key 预检：guard 未注入（仅测试 / 漏装配，装配点 store-bootstrap）直通。
  *
  * 只判「key 是否有效」：无效回 401。模型白名单与每分钟限流是多租户时代的产物，
  * 本机单人形态没有第二个租户可限，已从契约面移除 —— 路由错误（未知模型）由
@@ -94,14 +94,6 @@ async function withApiKeyGuard(
   await next();
 }
 
-/**
- * 失败后**允许**先查账单再换号的错误码。
- *
- * 集合本体在 `pool/account-rotate.ts` —— 产出点（`attempt.ts` 的额度短路与上游额度
- * 错误体）、判据（那里的快照例外）、这里三处必须共用同一份定义。
- * 2026-11-02 的教训：改名只改了产出点，这里留旧码，自动换号静默失效。
- */
-
 export async function handleChat(
   req: IncomingMessage,
   res: ServerResponse,
@@ -110,7 +102,7 @@ export async function handleChat(
   // A 段：请求解析与校验（已应答则直接返回）
   const parsed = await parseChatRequest(req, res);
   if (!parsed) return;
-  // 统计与正文快照在门禁通过后补记（此前在解析阶段落盘，被拒请求的明文会长期留盘）
+  // 统计与正文快照在门禁通过后补记：未通过门禁的请求（401）明文不落盘
   await withApiKeyGuard(req, res, () => {
     noteAfterAuth(res, parsed.payload, parsed.model, parsed.messages, parsed.raw);
     return dispatchChat(parsed, res, opts, null);

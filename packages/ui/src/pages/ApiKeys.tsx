@@ -47,7 +47,6 @@ interface ApiKeyRow {
   name: string;
   prefix: string;
   createdAt: string;
-  lastUsedAt?: string;
 }
 
 /** 弹窗模式：新建（无初值）/ 编辑（带 row）。 */
@@ -320,8 +319,8 @@ export function ApiKeys(): ReactElement {
     },
   });
   // 对外模型全集已不再需要：模型白名单随初心裁剪移除，key 只承担准入
+  // 只走 invalidate：refetch 与 invalidate 对同一 active query 各发一次请求（双倍流量）
   const refresh = (): void => {
-    void keys.refetch();
     void qc.invalidateQueries({ queryKey: ["api-keys"] });
   };
 
@@ -418,9 +417,8 @@ export function ApiKeys(): ReactElement {
             还没有 key，点上方「新增」。
           </p>
         ) : (
-          // 窄屏给容器 `min-w-[560px]` + `overflow-x-auto`：四列内容下限合计约 560px，
-          // 低于它就横向滚动，而不是把密钥列压到 87px 让内容右溢 46px、与相邻列重叠
-          // （与请求日志页 `md:min-w-[720px]` 同一口径）。
+          // 窄屏给容器 `min-w-[560px]` + `overflow-x-auto`：低于下限就横向滚动，
+          // 而不是把密钥列压到放不下、与相邻列重叠（与请求日志页同口径）。
           <Table
             className={`w-full table-fixed border-collapse text-center text-sm ${narrow ? "min-w-[560px]" : ""}`}
             containerClassName={narrow ? "overflow-x-auto" : undefined}

@@ -71,7 +71,7 @@ export interface RequestLog {
   method: string;
   path: string;
   startAt: number;
-  /** 客户端请求的模型 —— **规范 deepseek 名**（如 `deepseek-v4.1-flash`；别名已归并）。 */
+  /** 客户端请求的模型 —— **规范家族表裸名**（如 `deepseek-v4.1-flash`；别名已归并）。 */
   model?: string;
   /** 入站协议名（anthropic / responses；chat 透传路径不落字段）。 */
   protocol?: string;
@@ -461,9 +461,9 @@ export function finishRequestLog(log: RequestLog, status: number): void {
     log.outcome = status >= 200 && status < 400 ? "success" : "failure";
     if (status < 200) log.error ??= "no_status";
   }
-  // 成功的健康检查 / 模型轮询 / 指标抓取不记访问日志：Web 控制台每 5 秒拉一次 /v1/models、
-  // Prometheus 定时刮 /metrics，记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
-  const routine = log.path === "/health" || log.path === "/v1/models" || log.path === "/metrics";
+  // 成功的健康检查 / 模型轮询不记访问日志：Web 控制台每几秒拉一次 /v1/models，
+  // 记下来只会把真正的 chat 请求淹没。失败与慢请求仍然记录。
+  const routine = log.path === "/health" || log.path === "/v1/models";
   if (routine && log.outcome === "success" && !slowVerdictOfLog(log).slow) return;
   appendAccessFile(log.outcome, log);
 }
@@ -815,7 +815,6 @@ export interface AccessEntry {
  */
 export const MODEL_REQUEST_PATHS = ["/v1/chat/completions", "/v1/messages", "/v1/responses"] as const;
 
-/** 旧常量（OpenAI 路径）；统计口径已换成 `isModelRequestPath`。 */
 
 /** 是否为模型请求路径（统计只看是不是模型调用，不分协议）。 */
 export function isModelRequestPath(path: string | undefined): boolean {

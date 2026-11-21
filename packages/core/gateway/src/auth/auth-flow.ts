@@ -119,8 +119,6 @@ export async function ensureLogin(
       // 活跃账号（正是 POOL-ARCHITECTURE §3.4 记录的 2026-10-24 三连掉线形态）。
       // 正确做法是把**生效账号从池里摘掉**（`removeActiveAccountAfterAuthLoss`）：
       // 它会连带删凭据、清 `accounts.json.active`，让路由读到的池与磁盘一致。
-      // 只 unlink 凭据文件会留下「未登录 + 账号生效中」，路由继续把请求发给一个
-      // 没有凭据的活跃账号（正是 POOL-ARCHITECTURE §3.4 记录的 2026-10-24 三连掉线形态）。
       try {
         unlinkSync(credentialsPath(cid));
       } catch {

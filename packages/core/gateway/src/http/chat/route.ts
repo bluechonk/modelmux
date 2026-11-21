@@ -1,5 +1,5 @@
 /**
- * 池路由解析：把请求里的 deepseek 模型名解析成候选渠道序列。
+ * 池路由解析：把请求里的家族表裸模型名解析成候选渠道序列。
  *
  * 关键约束：
  *   - 对外模型是 deepseek **裸名**：不在家族里一律 400（**请求问题**）
@@ -24,7 +24,7 @@ import { writeJsonError } from "./errors.js";
 
 /** 一次请求的路由结果。 */
 export interface PoolRoute {
-  /** 规范模型名（deepseek 裸名）。 */
+  /** 规范模型名（家族表裸名）。 */
   target: string;
   /** 本次要试的候选（已排除未登录、无健康账号、冷却与窗口不足），按剩余额度降序。 */
   attempts: PoolCandidate[];
@@ -111,8 +111,6 @@ export function resolvePoolRoute(
   // 不过滤 —— 没有数据不能当没有能力。**强于冷却回退**：输入超窗是硬事实，回退把
   // 超窗渠道放回来也一定失败，所以过滤基于 authed、兜底范围也是 authed 减去超窗
   // （unauthorized 渠道保持原有回退语义 —— 服务可用性优先于终态判定）。
-  // 剔除原因逐条留痕：只写进访问日志（`RouteTrace`），不复用上面那条 logger ——
-  // 逐请求输出会在冷却窗口里刷屏，而「为什么走了这家」恰恰只有事后才需要
   const contextOk = authed.filter((c) => {
     const window = channelContextWindowOf(target, c.cid);
     if (window === undefined || estimateInput <= 0) return true;

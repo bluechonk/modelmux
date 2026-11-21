@@ -75,7 +75,7 @@ const SUMMARY_ORDER: Array<{ key: AccountStatus; label: string; dot: string }> =
  * 账号池页（渠道管理中枢）。
  *
  * 添加账号走**模态弹窗**（步骤化引导，仅关闭键可关）；账本按「渠道 × 账号」展示；
- * 授权链接 / 登录状态只出现在弹窗里，不再泄漏到其他页面。
+ * 授权链接 / 登录状态只出现在弹窗里。
  */
 export function Accounts(): ReactElement {
   const qc = useQueryClient();
@@ -247,7 +247,7 @@ export function Accounts(): ReactElement {
     const snapshot = state.data;
     if (!snapshot) return;
     // 登录结果读 `login_result`（`ui_state` 只表示网关状态，已不承载 done/error）。
-    // 回落分支兼容还没升级的后端。
+    // 回落分支仅防御异常载荷（当前后端的 ui_state 不承载登录结果）。
     const result =
       snapshot.login_result ?? (snapshot.ui_state === "done" ? "done" : snapshot.ui_state === "error" ? "error" : "idle");
     // 先见到中间态（不是 done/error）才算「本轮真的在跑」—— 否则那是上一次登录留下的结果
@@ -311,9 +311,9 @@ export function Accounts(): ReactElement {
 
   const loginChannels = logins.data ?? [];
   const snapshot = state.data;
-  /** 模型级渠道偏好（下拉的选项与选中项都来自快照，后端 5 秒一轮）。 */
+  /** 模型级渠道偏好（下拉的选项与选中项都来自快照，轮询归布局层所有）。 */
   const modelPrefs = snapshot?.model_prefs ?? [];
-  // 对外模型清单：与仪表盘原「模型列表」卡同口径（state 快照的 meta + 7 日 usage 的 TPS）
+  // 对外模型清单：state 快照的 meta + 7 日 usage 的 TPS（buildModelRows 组装）
   const modelRows = useMemo(
     () => buildModelRows(snapshot?.models, usageQuery.data?.models),
     [snapshot, usageQuery.data],
@@ -346,9 +346,8 @@ export function Accounts(): ReactElement {
 
       {/*
         三态分开渲染：加载中 / **查询失败** / 确实没有账号池。
-        此前只有「loading 或 空串」，于是命令失败（HTTP 400，`post()` 抛错）与
-        「真的没有池」渲染成同一句「先添加账号」—— 良性空态把排查入口整个盖掉了
-        （同文件的 `billing` 查询专门为这个理由加了 `isError` 守卫，这里漏了）。
+        命令失败（HTTP 400，`post()` 抛错）若与「真的没有池」渲染成同一句
+        「先添加账号」，良性空态会把排查入口整个盖掉（同文件的 `billing` 查询同此口径）。
       */}
       {pools.isError && list.length === 0 ? (
         <div className="rounded-xl border border-line p-5 text-sm">
@@ -371,7 +370,7 @@ export function Accounts(): ReactElement {
               每个统计都是一个 chip（中性底 + 圆角 + `whitespace-nowrap`）——
               纯文字加竖线分隔在窄屏折行后像是「错位的两行」，chip 换行时逐行对齐，
               且标签与数字永远在同一个视觉单元里。 */}
-          {/* 吸顶：账号多时向下滚动仍能看到计数与筛选结果（背景铺满容器宽，内容不透出） */}
+          {/* 吸顶：账号多时向下滚动仍能看到计数（背景铺满容器宽，内容不透出） */}
           <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center gap-1.5 bg-canvas px-4 py-2 sm:-mx-6 sm:px-6">
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-overlay/50 px-2.5 py-1 text-xs text-ink-soft">
               共 <span className="font-mono font-medium text-ink">{list.length}</span> 渠道 ·{" "}
@@ -445,11 +444,11 @@ export function Accounts(): ReactElement {
           <IntegratePanel />
 
           {/*
-            渠道卡按**列**分发（瀑布流），不用 CSS Grid 的自动多列。
+            渠道卡按**列**分发（瀑布流，逐列轮流塞卡），不用 CSS Grid 的自动多列。
 
             为什么换：网格的行轨道高度 = 行内最高那张卡，一张卡展开就在同行另两张下方
             顶出一大片空白（实测展开 loomy 后该行 275px、另两张 140px，留 135px 白带）。
-            `items-start` 只阻止卡片被拉伸，治不了行高。改成「算列数 → 轮询分发」后，
+            `items-start` 只阻止卡片被拉伸，治不了行高。改成「算列数 → 轮流分发」后，
             每列是独立纵向流，任何一张卡长高只把**同一列**下面的卡往下推，没有白带。
 
             列数按容器实测宽算（`columnCount`，单卡最小 340px）：不写死断点，

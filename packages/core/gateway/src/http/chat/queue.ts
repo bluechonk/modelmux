@@ -36,7 +36,7 @@ export const PROBE_RETRY_MAX = ((): number => {
 })();
 
 /**
- * `cred.load()` 的安全包装：**未登录**返回 null（排队重开上游时用）。
+ * `cred.load()` 的安全包装：**未登录**返回 null（路由过滤与候选尝试共用）。
  *
  * 口径必须与 `account-pool.loadCredentialOf` 一致：只有渠道约定的
  * `NotLoggedInError` 才算「未登录」；文件损坏 / EACCES / JSON 解析失败等真实
@@ -67,8 +67,7 @@ export interface QueueProbe {
   frames: ProbeFrames;
   /** 是否已见到内容帧（见到 = 响应是真实的，排队重试必须停）。 */
   hasContent: boolean;
-  /** 排队帧里解析到的 retryAfterSeconds 原文（日志用）。 */
-  /**
+    /**
    * 探测用的翻译器实例。**必须与转发层用的是同一个实例**：
    * 它的行缓冲里可能还剩**半行**（跨 TCP 块的帧前缀），
    * 转发阶段必须接着用同一实例，换新实例会把半行前缀丢掉、残行整帧解析失败。
@@ -82,8 +81,8 @@ export interface QueueProbe {
  * 翻译器逐帧处理：
  * - 内容帧（`data:` 且非 error）→ 记入 `frames` 并停止探测（有内容就不能重试），
  *   **但同一块里紧随其后的帧也要一并收走**（TCP 合并发送时一块可能有多帧）
- * - 错误帧 → 问渠道 `isQueueError`：是排队就记下延迟并继续等下一帧；
- *   否则记入 `frames` 后停止探测（交回调用方，不能吞）
+ * - 错误帧 → 问渠道 `isQueueError`：是排队就停止探测（排队帧即这条流的最后一帧，
+ *   交调用方的「等待 → 重开」循环接管）；否则记入 `frames` 后停止探测（交回调用方）
  * - 流结束仍无内容也无排队 → `queued: false`（正常完成或普通错误）
  *
  * 只在 `relayUpstream` **之前**调用：一旦开始向客户端写字节，本函数就没意义了。
@@ -129,8 +128,6 @@ export async function consumeQueueProbe(
     }
     if (channel.upstream.isQueueError?.(payload)) {
       probe.queued = true;
-      const errObj = payload["error"] as { code?: unknown; message?: unknown } | undefined;
-      void errObj; // 排队帧的错误体不再解析：retryAfterSeconds 只在日志原文里可见
       // 排队帧**就是这条流的最后一帧**（实测：发出排队帧后连接保持但彻底静默，
       // 上游期望客户端按 retryAfterSeconds 等待后重开新请求）。继续读 = 死锁到空闲
       // abort（undici 报 terminated）；立即返回，交调用方的「等待 → 重开」重试循环接管。
