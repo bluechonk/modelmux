@@ -444,6 +444,14 @@ async function startCallbackServer(port = CALLBACK_PORT): Promise<CallbackServer
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    // 只认回调路径：登录期间任何命中该端口的请求（浏览器预取、重复登录、探测）都会
+    // 走到这里，而 `flat` 里没有 token —— 不校验就等于「任意请求即可终结本次登录」，
+    // 本次登录会立刻失败在 `parseCallback` 的「no token」上（raccoon 校验 pathname）。
+    if (url.pathname !== CALLBACK_PATH) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return;
+    }
     const flat: Record<string, string> = {};
     for (const [key, value] of url.searchParams) {
       if (!(key in flat)) flat[key] = value; // 同名参数取第一个
