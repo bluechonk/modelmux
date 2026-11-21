@@ -422,20 +422,6 @@ export interface UsageDaily {
   byModel: Record<string, number>;
 }
 
-/**
- * `POST /web/api/ping` 的返回：一次最小 chat 请求的实测结果。
- *
- * `ms` 量到**响应体读完**；`status` 为 0 表示请求压根没发出去（超时 / 连接失败），
- * 此时 `error` 是原因。`ok` 只看 HTTP 是否 2xx，不看内容。
- */
-export interface PingResult {
-  ok: boolean;
-  model: string;
-  ms: number;
-  status: number;
-  error: string;
-}
-
 /** 一个（渠道 × 模型）在区间内的用量与健康度。 */
 export interface UsageModelRow {
   /** 聚合键 `<cid>/<模型>`（趋势图按它分序列）。 */

@@ -12,7 +12,6 @@ import type {
   CommandResult,
   LogQuery,
   OverviewResponse,
-  PingResult,
   PoolRow,
   UiSnapshot,
   UsageRange,
@@ -84,12 +83,6 @@ export interface WebApi {
   usage(range: UsageRange): Promise<UsageStats>;
   /** 仪表盘聚合视图（`GET /web/api/overview`）：一次拿到 KPI + 渠道 + 模型池 + 最近请求。 */
   overview(): Promise<OverviewResponse>;
-  /**
-   * ping 一个模型（`POST /web/api/ping`）：向网关自身发一次最小 chat 请求并回耗时。
-   *
-   * 服务端只允许回环地址，会真的花掉一次上游请求（约 1 个输出 token），并落一条访问日志。
-   */
-  ping(model: string): Promise<PingResult>;
   readonly commands: {
     /** 各方法返回**已解包 data 的扁平对象**（含 ok / message / error）。 */
     login(cid: string, force: boolean): Promise<CommandData>;
@@ -236,7 +229,6 @@ export const api: WebApi = {
       })}`,
     ),
   usage: (range) => get(`/api/usage${queryString({ range })}`),
-  ping: (model) => post("/api/ping", { model }),
   overview: () => get("/api/overview"),
   commands: {
     login: (cid, force) => command("login", cid, { force }),

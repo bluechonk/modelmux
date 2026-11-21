@@ -55,20 +55,6 @@ export interface PoolStore {
   readPrefs(): unknown | null;
   writePrefs(prefs: unknown): void;
   /**
-   * 访问日志条目（§10：服务形态落 `access_log_entries` 表，跨实例可查；
-   * fs 形态 no-op —— JSONL 就是它的家）。
-   */
-  writeAccess(entry: {
-    requestId: string;
-    tsIso: string;
-    tenantId: string | null;
-    status: number | null;
-    outcome: string | null;
-    model: string | null;
-    cid: string | null;
-    raw: unknown;
-  }): void;
-  /**
    * 半开试探租约（S3，docs/SAAS-REDESIGN.md §8.1）：熔断到期时多实例只放行一次
    * 试探 —— 抢到租约返回 true（放行），未抢到 false（继续短路）。
    * fs 形态单进程恒 true（读-改-写天然串行，无竞态可言）。
@@ -265,19 +251,6 @@ export class FsPoolStore implements PoolStore {
     writeJsonWithBackup(rootFile("model-prefs.json"), prefs, writeJsonFile);
   }
 
-  writeAccess(entry: {
-    requestId: string;
-    tsIso: string;
-    tenantId: string | null;
-    status: number | null;
-    outcome: string | null;
-    model: string | null;
-    cid: string | null;
-    raw: unknown;
-  }): void {
-    // fs 形态：访问日志的家是 JSONL（appendAccessFile），表落点 no-op
-    void entry;
-  }
 
   claimProbeLease(cid: string, key: string, ttlMs: number): boolean {
     // 单进程形态无竞态：恒放行（与 S0 之前的行为一致）

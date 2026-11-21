@@ -58,14 +58,13 @@ describe("api 客户端：请求形态", () => {
     assert.equal(calls[0]?.url, "/web/api/usage?range=7d");
   });
 
-  it("setTheme / retryLogin / ping 走 POST 且带 JSON 体", async () => {
+  it("setTheme / retryLogin 走 POST 且带 JSON 体", async () => {
     stubFetch([{ body: { ok: true } }]);
     await api.setTheme("dark");
     assert.equal(calls[0]?.init?.method, "POST");
     assert.equal(calls[0]?.init?.body, JSON.stringify({ mode: "dark" }));
     await api.retryLogin();
-    await api.ping("deepseek-v4.1-flash");
-    assert.equal(calls[2]?.init?.body, JSON.stringify({ model: "deepseek-v4.1-flash" }));
+    assert.equal(calls[1]?.init?.body, JSON.stringify({}));
   });
 });
 

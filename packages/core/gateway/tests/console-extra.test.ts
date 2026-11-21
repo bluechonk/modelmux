@@ -1,5 +1,5 @@
 /**
- * 控制台路由补充覆盖：静态服务的绝对路径边界、畸形 Origin、ping 的成功 / 失败 /
+ * 控制台路由补充覆盖：静态服务的绝对路径边界、畸形 Origin、
  * 跨源分支、commands 跨源、总览的失败日志与账号健康统计、start() 的不可用地址拒绝。
  *
  * 与 console-routes.test.ts 互补：那里已覆盖 405 / 跨源 / 静态穿越 / 命令分发主链路，
@@ -201,56 +201,6 @@ describe("静态服务与同源边界", () => {
   it("commands 跨源 → 403", async () => {
     const { status } = await rawRequest("/api/commands", "POST", { ...JSON_HEADERS, origin: "http://evil.example" }, "{}");
     assert.equal(status, 403);
-  });
-});
-
-describe("/api/ping 分支", () => {
-  it("跨源 → 403（会真花一次上游请求，按写操作对待）", async () => {
-    const { status } = await rawRequest(
-      "/api/ping",
-      "POST",
-      { ...JSON_HEADERS, origin: "http://evil.example" },
-      JSON.stringify({ model: "m" }),
-    );
-    assert.equal(status, 403);
-  });
-
-  it("自请求成功：Host 指向本地测试服务 → ok:true", async () => {
-    const upstream: Server = createServer((req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("{}");
-    });
-    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
-    const port = (upstream.address() as { port: number }).port;
-    try {
-      const { status, body } = await rawRequest(
-        "/api/ping",
-        "POST",
-        { ...JSON_HEADERS, host: `127.0.0.1:${port}` },
-        JSON.stringify({ model: "m" }),
-      );
-      assert.equal(status, 200);
-      const payload = JSON.parse(body) as { ok: boolean; status: number; ms: number };
-      assert.equal(payload.ok, true);
-      assert.equal(payload.status, 200);
-      assert.ok(payload.ms >= 0);
-    } finally {
-      await new Promise<void>((resolve) => upstream.close(() => resolve()));
-    }
-  });
-
-  it("自请求连接失败：Host 指向关闭端口 → ok:false 且带错误串", async () => {
-    const { status, body } = await rawRequest(
-      "/api/ping",
-      "POST",
-      { ...JSON_HEADERS, host: "127.0.0.1:1" },
-      JSON.stringify({ model: "m" }),
-    );
-    assert.equal(status, 200);
-    const payload = JSON.parse(body) as { ok: boolean; status: number; error: string };
-    assert.equal(payload.ok, false);
-    assert.equal(payload.status, 0);
-    assert.ok(payload.error.length > 0, "失败原因要透出");
   });
 });
 
