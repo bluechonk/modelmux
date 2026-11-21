@@ -54,21 +54,6 @@
 分层名 = `cid`（全小写、仅 `[a-z0-9-]`），**不带点、不带任何前缀后缀** —— 它已经在
 渠道层下的一层，冗余前缀与隐藏前缀都没有意义。
 
-### 兼容层（0.1.0 / 0.1.1）
-
-`<root>/channels/<cid>/` 是 0.1.2 起的布局；0.1.0/0.1.1 把渠道放在 `<root>/<cid>/`。
-为兼容**旧版本可执行文件**，迁移不删除旧位置，而是留**相对软链**：
-
-```
-~/.modelmux/<cid>  →  channels/<cid>
-```
-
-- **新代码**：`paths.channelDir` 解析时 `channels/<cid>` 存在就用它，不存在才回落旧位置；
-  **写跟随解析结果** —— 数据只有一份，不会分裂。
-- **旧版本可执行文件**：经软链继续读写同一份数据。
-- 软链由迁移逻辑生成（`runtime/storage-migrate.ts`，幂等）：`mx start` / `mx restart` /
-  `mx serve` 启动时自动触发，也可手动执行 `node scripts/migrate-storage.mjs`。
-
 ## 2. 渠道约定
 
 - 渠道清单以 `mx model list` 为准（本文件不维护逐渠道表，避免两处漂移）。
@@ -84,9 +69,8 @@
 ## 3. 规范（条文）
 
 1. **单一存储根**：`~/.modelmux/`，由共享层唯一解析，渠道不得自行拼绝对路径。
-2. **按 cid 分层**：`<root>/channels/<cid>/`（0.1.2 起）。`cid` 全小写、仅 `[a-z0-9-]`、
-   等于 `ChannelConfig.cid`。0.1.0/0.1.1 的 `<root>/<cid>/` 旧布局由 `paths.channelDir`
-   回落兼容，迁移后以软链指向新位置 —— **两处指向同一份数据，不存在分裂**。
+2. **按 cid 分层**：`<root>/channels/<cid>/`。`cid` 全小写、仅 `[a-z0-9-]`、
+   等于 `ChannelConfig.cid`。
 3. **根目录覆盖变量**：`MODELMUX_HOME`（唯一覆盖变量）。
 4. **目录内固定文件名**（定义处：`packages/core/gateway/src/runtime/paths.ts` 的 `FILES`；`accounts.json` / `accounts/<key>.json` 另见 `runtime/account-pool.ts`）：
 

@@ -34,7 +34,6 @@
 | [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：仪表盘用量区块的数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
 | [DESKTOP-APP.md](./DESKTOP-APP.md) | **桌面壳（Windows 安装版 exe）**：形态与行为、构建步骤、路径敏感性实测、MotW 与签名真相、存储根与凭据红线 |
 | [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) | **桌面壳主体化迁移方案（设计方案）**：厚壳 + 进程外网关的目标架构、shell token 鉴权、生命周期重划、PR 拆分与决策点；现行壳契约仍在 DESKTOP-APP.md |
-| [SAAS-REDESIGN.md](./SAAS-REDESIGN.md) | **服务化重构方案（设计方案）**：多租户 / 多实例目标架构 —— PostgreSQL + Redis 选型、RLS 数据模型、租约半开、计费闭环、S0-S4 路线与决策点；现行单实例契约仍在 CONTRACT-TS.md / POOL-ARCHITECTURE.md |
 | [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议（OpenAI chat / Anthropic Messages / OpenAI Responses）、模型名解析（家族裸名 + Claude Desktop 角色映射 + 家族外 400）、客户端一键接入与手工配置、真机验证矩阵 |
 | [backup/translation/TRANSLATION.md](./backup/translation/TRANSLATION.md) | **请求上下文翻译（已下线，方案留档）**：英译中的判定算法、分块与缓存策略、网关代发的取舍、入参上限 —— 功能随上下文弹窗移除，代码已删，方案留给后续项目复用 |
 | [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案**：/web/ 首页运行视图的模块划分、布局与数据通道；现行规则见 WEB-CONSOLE.md |
