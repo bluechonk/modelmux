@@ -11,6 +11,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
+import { connect } from "node:net";
 import { after, before, describe, it } from "node:test";
 import type { ControlBridge } from "../dist/http/console/console.js";
 import type { Channel, ChannelConfig } from "../dist/runtime/channel.js";
@@ -140,6 +141,29 @@ function rawRequest(path: string, method: string, headers: Record<string, string
   });
 }
 
+
+/**
+ * 原始请求（可指定任意 Host 行）：`http.request` 的 headers.host 会被 host/port 覆盖，
+ * Host 门禁用例只能走 net 直连手写请求行。
+ */
+function rawHostRequest(path: string, hostHeader: string): Promise<number> {
+  return new Promise((resolveReq, rejectReq) => {
+    const url = new URL(server.url);
+    const socket = connect(Number(url.port), url.hostname);
+    let data = "";
+    socket.on("connect", () => {
+      socket.write(`GET ${path} HTTP/1.1
+Host: ${hostHeader}
+Connection: close
+
+`);
+    });
+    socket.on("data", (chunk) => (data += String(chunk)));
+    socket.on("end", () => resolveReq(Number(data.split(" ")[1] ?? 0)));
+    socket.on("error", rejectReq);
+  });
+}
+
 async function json(res: Response): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
@@ -217,6 +241,17 @@ describe("静态服务边界", () => {
   it("畸形百分号编码回 400 而不是崩进程", async () => {
     const { status } = await rawRequest("/assets/%E0%A4%A", "GET", {});
     assert.equal(status, 400);
+  });
+
+  it("Host 门禁：回环放行，非回环与畸形 Host 一律拒绝", async () => {
+    // 正常回环 Host（端口任意）放行
+    assert.notEqual(await rawHostRequest("/api/logs?stream=false", "127.0.0.1:4412"), 403);
+    // 攻击者域名（DNS rebinding 的 Host）拒绝；Node 解析器可能先回 400，两者都是拒绝
+    assert.ok((await rawHostRequest("/api/logs?stream=false", "evil.example")) >= 400);
+    // 畸形 IPv6 头：方括号段后跟非端口内容，不得被当成回环放行成 2xx
+    assert.ok((await rawHostRequest("/api/logs?stream=false", "[::1]evil.example")) >= 400);
+    // 合法 IPv6 回环（带端口）放行
+    assert.notEqual(await rawHostRequest("/api/logs?stream=false", "[::1]:4412"), 403);
   });
 
   it("无扩展路径回 index.html；带扩展名的缺失路径仍 404", async () => {

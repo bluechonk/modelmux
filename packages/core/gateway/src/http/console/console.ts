@@ -360,10 +360,20 @@ function isLocalDirect(req: import("node:http").IncomingMessage): boolean {
 function isLoopbackHostHeader(req: import("node:http").IncomingMessage): boolean {
   const raw = req.headers["host"];
   if (typeof raw !== "string" || raw === "") return false;
-  // IPv6 字面量形如 `[::1]:4412`：先取方括号段，按 `:` 切会把 `[::1]` 切成 `[`
-  const bracketed = raw.startsWith("[") ? raw.slice(0, raw.indexOf("]") + 1) : null;
-  const hostname = (bracketed ?? raw.split(":")[0] ?? "").toLowerCase();
-  return LOOPBACK_HOSTS.has(hostname) || LOOPBACK_HOSTS.has(`[${hostname}]`);
+  // IPv6 字面量形如 `[::1]:4412`：先取方括号段，按 `:` 切会把 `[::1]` 切成 `[`。
+  // 括号之后只允许空或 `:port` —— 否则 `[::1]evil.example` 这类畸形头会命中回环，
+  // 把「Host 必须是本机」的门禁让开。
+  const close = raw.startsWith("[") ? raw.indexOf("]") : -1;
+  let hostname: string;
+  if (close > 0) {
+    const rest = raw.slice(close + 1);
+    if (rest !== "" && !rest.startsWith(":")) return false;
+    hostname = raw.slice(0, close + 1);
+  } else {
+    hostname = raw.split(":")[0] ?? "";
+  }
+  const lowered = hostname.toLowerCase();
+  return LOOPBACK_HOSTS.has(lowered) || LOOPBACK_HOSTS.has(`[${lowered}]`);
 }
 
 /** 写操作同源校验（比对 host:port，避免只比 hostname 时跨端口请求被放行）。 */
