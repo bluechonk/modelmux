@@ -28,12 +28,20 @@ if (git("status", "--porcelain") !== "") die("工作树有未提交改动——�
 const head = git("rev-parse", "HEAD");
 let remote = "";
 try {
-  // 预期内可能失败（分支未推过）：吞掉 git 的 stderr，避免与下面的结论性提示混流
-  remote = execFileSync("git", ["rev-parse", "--verify", `origin/${branch}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  // 直接问远端，不读 `origin/<branch>`：那是**本地** remote-tracking ref，未 fetch 时
+  // 可能停在旧值 —— 别人推过 / force-push 过 / 本地在另一台机器推过，它仍等于 HEAD，
+  // 「一致」检查就通过了，PR 建在远端实际内容上而不是本地被测的那棵树。
+  // 输出形如 `<sha>\trefs/heads/<branch>`；空 = 远端没有这个分支。
+  // 预期内可能失败（分支未推过 / 网络）：吞掉 git 的 stderr，避免与结论性提示混流。
+  const out = execFileSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+  remote = out.split(/\s+/)[0] ?? "";
 } catch {
-  // 分支还没推：下面统一按不一致拦下
+  // 取不到远端：下面统一按不一致拦下
 }
-if (remote !== head) die(`本地 HEAD 与 origin/${branch} 不一致——先推送（pre-push 会自动跑门禁并留下回执）`);
+if (remote !== head) die(`本地 HEAD 与远端 ${branch} 不一致——先推送（pre-push 会自动跑门禁并留下回执）`);
 
 // 回执校验：sha 必须是刚测绿的 HEAD；不匹配 / 过期 / 缺失 → 现场重跑门禁
 let fresh = false;

@@ -283,6 +283,20 @@ function startGateway() {
     if (/port \d+ is held/i.test(text)) gatewayFailureHint = text;
   });
 
+  // spawn 本身失败（exe 不可执行 / EACCES / 打包后脚本缺失）只触发 `error`，
+  // **不会**触发 `exit` —— 没有监听时它是主进程的未捕获异常，壳直接崩，用户连
+  // 错误页都看不到。这里记下原因并清掉状态；页面由 `waitForGateway` 走错误页。
+  child.on("error", (err) => {
+    console.error("[gateway] spawn failed:", err);
+    gatewayFailureHint = `无法启动网关进程：${String(err)}`;
+    if (gateway === child) {
+      gateway = null;
+      ownsGateway = false;
+    }
+    gatewayHealthy = false;
+    refreshTrayMenu();
+  });
+
   child.on("exit", (code, signal) => {
     if (gateway === child) {
       gateway = null;
