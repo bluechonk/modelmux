@@ -37,12 +37,6 @@ function exposedIdsOf(cid: string, channel: Channel): string[] {
   return ids;
 }
 
-/** 清掉某渠道（或全部）的目录缓存 —— 目录刷新后调用，避免最长 TTL 的滞后。 */
-export function invalidateExposedCache(cid?: string): void {
-  if (cid === undefined) exposedCache.clear();
-  else exposedCache.delete(cid);
-}
-
 /** 渠道目录是否暴露某规范模型（大小写 / 上游包装归一到家族名后精确相等）。 */
 function channelExposes(canonical: string, cid: string, channel: Channel): boolean {
   return exposedIdsOf(cid, channel).some((id) => canonicalOf(id) === canonical);

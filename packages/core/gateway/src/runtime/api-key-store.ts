@@ -22,7 +22,6 @@ interface ApiKeyDoc {
 const DOC_VERSION = 1;
 /** 前缀长度：`mmx_` + 8 位（与租户时代同形，习惯一致）。 */
 const PREFIX_LEN = 12;
-const PREFIX_DISPLAY = 8;
 
 /**
  * 规整存储文档，并把**旧版的明文 `secret` 迁成密文**。

@@ -182,17 +182,13 @@ export {
   upstreamPath,
 } from "./runtime/paths.js";
 
-// 存储端口（S0，docs/SAAS-REDESIGN.md）：服务化适配器（@modelmux/store）实现 PoolStore 后 setPoolStore 注入
+// 存储端口：fs 是唯一实现（服务形态已移除），测试可注入替代实现
 export type { PoolStore } from "./runtime/pool-store.js";
 export { FsPoolStore, setPoolStore, poolStore } from "./runtime/pool-store.js";
 
-// API key 校验端口：组合根注入（本机文件 / 服务化存储两种实现），未装配 = 不校验
+// API key 校验端口：组合根注入，未装配 = 放行（每进程告警一次，见 api-key.ts）
 export type { ApiKeyGuard, ApiKeyRecord } from "./runtime/api-key.js";
 export { setApiKeyGuard, apiKeyGuard } from "./runtime/api-key.js";
-
-// 指标端口（S4）：provider 由组合根注入，/metrics 有 provider 才暴露
-export type { MetricsProvider } from "./runtime/metrics-port.js";
-export { setMetricsProvider, metricsProvider } from "./runtime/metrics-port.js";
 
 // CLI 入口
 export { main, usage } from "./app/cli/index.js";

@@ -884,10 +884,6 @@ mx <组名> <子命令> [参数]        # 命令组
 - 仓库级动词（`start` / `stop` / `restart` / `serve` / `web`）不带 cid；
   `status` / `model` / `bill` / `acct` / `path` / `login` / `relogin` 都可以带 cid ——
   `mx status <cid>` 才是「某渠道的状态」。
-- `mx migrate pg` 是服务化迁移入口（fs 账号池 → PostgreSQL）：迁前自动备份到
-  `<root>/backups/migrate-pg-<stamp>/`，原 JSON 不动；`--dsn`（或 `MODELMUX_PG_DSN`）、
-  `--cid`（单渠道）、`--dry-run`（只报告）。设 `MODELMUX_MASTER_KEYS` 时凭据信封加密落库。
-  目标名写在动词后（`migrate <目标>`），与 `model <子命令>` 同属命令组形态。
 - 命令组是「组名在前、子命令在后」：`mx model list` / `mx model usage`。
   这与「渠道动词在前」不冲突，是两类不同形态。
 - `log` 也可以带 cid，但只有配 `--kind channel` 才有区别：

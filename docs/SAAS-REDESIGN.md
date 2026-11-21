@@ -1,6 +1,6 @@
 # 服务化重构设计方案（SaaS-Redesign）
 
-> 设计方案。进度：S0-S4 落地（存储开端口 → PgPoolStore → 租约半开/限流/广播 →
+> 设计方案（历史）。服务化形态（PgPoolStore / Redis 广播 / 信封加密轮换 / /metrics / migrate pg）**已于 2026-11-21 移除**——初心是只监听 127.0.0.1 的本机单实例工具，多实例从未成为部署形态，那套代码却在支付持续的维护税（门禁 flaky 主源）。保留的是 S0 的 `PoolStore` 端口（fs 唯一实现）与控制台重设计。原进度行：S0-S4 落地（存储开端口 → PgPoolStore → 租约半开/限流/广播 →
 > 指标/信封加密/访问日志落表），抓取栈已验证（Prometheus + Grafana，provisioning 在
 > `scripts/monitoring/`）。
 > **多租户体系（§6/§7）已整体移除**，改为面向单部署的 API key 管理（见 §17 变更说明）；

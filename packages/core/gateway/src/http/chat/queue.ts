@@ -15,14 +15,6 @@ import { inChannel } from "./channel.js";
 import { asBuffer } from "./stream.js";
 
 /**
- * 排队重试：单帧退避上限（上游给的 `retryAfterSeconds` 超过它就按这个等）。
- *
- * 取 12s 是「不让客户端等太久」与「不把上游打得更狠」的折中：更短会密集重试，
- * 更长则单次等待就吃掉整个排队预算。
- */
-export const QUEUE_RETRY_MAX_DELAY_MS = 12_000;
-
-/**
  * 探测层瞬时失败（上游 200 后零字节 / 流被上游掐断）的**同渠道重试**次数与退避基数。
  *
  * 默认 **0 次**：一次失败立即把控制权交回编排层，由它换账号（同渠道另一账号）
@@ -68,8 +60,6 @@ export type ProbeFrames = Buffer[];
 export interface QueueProbe {
   /** 流内是否出现排队帧（渠道 isQueueError 判定）。 */
   queued: boolean;
-  /** 上游建议的等待秒数（从排队帧解析；没有就不给）。 */
-  delayMs?: number;
   /**
    * 探测消费掉、必须交回调用方**按原序**转发的帧（内容帧 + 非排队错误帧）。
    * 一个都不能丢 —— 吞掉就是流中缺段、非流式空响应（见本文件「排队探测」注释）。
@@ -78,7 +68,6 @@ export interface QueueProbe {
   /** 是否已见到内容帧（见到 = 响应是真实的，排队重试必须停）。 */
   hasContent: boolean;
   /** 排队帧里解析到的 retryAfterSeconds 原文（日志用）。 */
-  rawDelaySec?: number;
   /**
    * 探测用的翻译器实例。**必须与转发层用的是同一个实例**：
    * 它的行缓冲里可能还剩**半行**（跨 TCP 块的帧前缀），
@@ -141,12 +130,7 @@ export async function consumeQueueProbe(
     if (channel.upstream.isQueueError?.(payload)) {
       probe.queued = true;
       const errObj = payload["error"] as { code?: unknown; message?: unknown } | undefined;
-      const m = /retryAfterSeconds\D+(\d+)/i.exec(String(errObj?.message ?? ""));
-      if (m) {
-        const sec = Number.parseInt(m[1]!, 10);
-        probe.rawDelaySec = sec;
-        probe.delayMs = Math.max(1_000, sec * 1000);
-      }
+      void errObj; // 排队帧的错误体不再解析：retryAfterSeconds 只在日志原文里可见
       // 排队帧**就是这条流的最后一帧**（实测：发出排队帧后连接保持但彻底静默，
       // 上游期望客户端按 retryAfterSeconds 等待后重开新请求）。继续读 = 死锁到空闲
       // abort（undici 报 terminated）；立即返回，交调用方的「等待 → 重开」重试循环接管。

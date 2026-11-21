@@ -27,9 +27,6 @@
     },
     {
       "path": "packages/core/gateway"
-    },
-    {
-      "path": "packages/core/store"
     }
   ]
 }

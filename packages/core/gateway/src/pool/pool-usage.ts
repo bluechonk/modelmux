@@ -872,7 +872,7 @@ interface SpeedSnapshot {
 
 let speedCache: SpeedSnapshot | null = null;
 
-undefined/**
+/**
  * 扫当天日志建立速度快照（进程内 TTL 缓存）。
  *
  * 为什么读日志而不是在请求结束时记账：TPS 要等响应结束（`generateMs` + usage）才拿得到，

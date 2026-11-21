@@ -432,7 +432,6 @@ export async function relay(
           chunks.push(Buffer.from(value));
         }
         opts.ensureHead?.(); // 非 SSE 正文也是「往客户端写东西」：先落头
-        opts.ensureHead?.(); // 非 SSE 正文也是「往客户端写东西」：先落头
       emitNonSseBody(Buffer.concat(chunks).toString("utf8"), sink, out);
         produced += 1; // 非 SSE 正文同样是一次交付（不算空流）
         return { produced, disconnected };

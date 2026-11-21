@@ -7,7 +7,6 @@
   "workspaces": [
     "packages/*",
     "packages/core/gateway",
-    "packages/core/store",
     "packages/core/channels/*"
   ],
   "scripts": {

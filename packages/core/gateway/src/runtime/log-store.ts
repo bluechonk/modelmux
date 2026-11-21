@@ -444,18 +444,6 @@ function appendAccessFile(outcome: AccessOutcome, record: RequestLog): void {
   }
 }
 
-/**
- * 请求收尾钩子（S2 租户结算的挂点）：组合根在服务形态注册；
- * 本机形态无人注册，`finishRequestLog` 行为零变化。钩子异常只记日志，
- * 不得反压请求路径。
- */
-type FinishHook = (log: RequestLog) => void;
-const finishHooks: FinishHook[] = [];
-
-export function onRequestFinished(hook: FinishHook): void {
-  finishHooks.push(hook);
-}
-
 /** 写一条访问日志；响应 finish/close 时调用，幂等。 */
 export function finishRequestLog(log: RequestLog, status: number): void {
   if (log.written) return;
@@ -478,13 +466,6 @@ export function finishRequestLog(log: RequestLog, status: number): void {
   const routine = log.path === "/health" || log.path === "/v1/models" || log.path === "/metrics";
   if (routine && log.outcome === "success" && !slowVerdictOfLog(log).slow) return;
   appendAccessFile(log.outcome, log);
-  for (const hook of finishHooks) {
-    try {
-      hook(log);
-    } catch (err) {
-      console.error(`request finish hook failed (${log.id}): ${String(err)}`);
-    }
-  }
 }
 
 /** 给响应挂上访问日志上下文；返回该上下文供调用方补充 model/cid 等字段。 */
@@ -835,7 +816,6 @@ export interface AccessEntry {
 export const MODEL_REQUEST_PATHS = ["/v1/chat/completions", "/v1/messages", "/v1/responses"] as const;
 
 /** 旧常量（OpenAI 路径）；统计口径已换成 `isModelRequestPath`。 */
-export const MODEL_REQUEST_PATH = MODEL_REQUEST_PATHS[0];
 
 /** 是否为模型请求路径（统计只看是不是模型调用，不分协议）。 */
 export function isModelRequestPath(path: string | undefined): boolean {
