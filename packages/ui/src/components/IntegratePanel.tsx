@@ -209,7 +209,9 @@ export function IntegratePanel(): ReactElement {
         一键接入
       </div>
       {state.isError && (
-        <p className="mb-2 text-xs text-danger">接入状态未知（快照查询失败）：{String(state.error)}</p>
+        <p className="mb-2 text-xs text-danger">
+          接入状态未知（快照查询失败）：{errorText(state.error)}
+        </p>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {INTEGRATE_CLIENTS.map(({ target, icon, name }) => (
