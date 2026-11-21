@@ -304,6 +304,12 @@ export function makeApp(opts: GatewayOptions = {}): Server {
 export async function start(addr: string, opts: GatewayOptions = {}): Promise<RunningGateway> {
   const [host, portText] = splitAddr(addr);
   const port = Number.parseInt(portText, 10);
+  // 端口非法时 `server.listen` 抛的是 `ERR_SOCKET_BAD_PORT`，错误信息与用户输入的
+  // `--addr` 完全对不上（`--addr "[::1]"` 这类漏写端口就会撞上）。提前给出明确错误。
+  // 0 合法 —— 那是「让系统分配空闲端口」（测试与临时实例用）。
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`invalid listen address "${addr}": port must be 0-65535 (e.g. 127.0.0.1:4412 or [::1]:4412)`);
+  }
   const logger =
     opts.logger ?? ((m: string) => console.error(`[${serviceName()}] ${m}`));
   const server = await bindFreeServer(host, port, logger);
@@ -333,14 +339,22 @@ export async function start(addr: string, opts: GatewayOptions = {}): Promise<Ru
   };
 }
 
-/** 解析 `host:port`（支持 `[v6]:port`）。 */
-
+/**
+ * 解析 `host:port`（支持 `[v6]:port`）。
+ *
+ * 只做拆分，**不校验端口**：调用方（`start`）负责把非法端口变成一条说得清的错误。
+ * 拆分保持宽松是有意的 —— `splitAddr` 也被 `describe` / `baseUrlOf` 这类纯展示路径
+ * 使用，那里不该因为端口写错就抛。
+ */
 export function splitAddr(addr: string): [string, string] {
   if (addr.startsWith("[")) {
     const close = addr.indexOf("]");
+    if (close < 0) return ["127.0.0.1", addr];
     const host = addr.slice(1, close);
-    const port = addr.slice(close + 2);
-    return [host, port];
+    const rest = addr.slice(close + 1);
+    // 方括号之后只允许空或 `:port`：`[::1]evil` 不是合法监听地址，按无端口处理
+    if (rest !== "" && !rest.startsWith(":")) return ["127.0.0.1", addr];
+    return [host, rest.startsWith(":") ? rest.slice(1) : ""];
   }
   const idx = addr.lastIndexOf(":");
   if (idx < 0) return ["127.0.0.1", addr];
