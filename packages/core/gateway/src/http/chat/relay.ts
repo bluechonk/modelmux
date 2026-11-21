@@ -77,12 +77,11 @@ async function withApiKeyGuard(
 ): Promise<void> {
   const guard = apiKeyGuard();
   if (guard === null) {
-    // 门禁未装配：放行，但**不静默** —— 每个进程只告警一次，并在启动自检里点명。
+    // 门禁未装配：放行，但**不静默** —— 每个进程只告警一次。
     //
     // 为什么不直接拒绝：本机形态的装配点是 `store-bootstrap.bootstrapStore()`，
     // 而大量单元 / 集成用例直接 `makeApp()` 起服务（不跑 bootstrap），一刀切 503
-    // 会让这些用例整体失效。真正要防的是「生产路径漏装配还无人知晓」，所以这里
-    // 留痕；同时 `assertApiKeyGuardInstalled()` 供启动流程断言。
+    // 会让这些用例整体失效。真正要防的是「生产路径漏装配还无人知晓」，所以这里留痕。
     noteGuardMissing();
     await next();
     return;

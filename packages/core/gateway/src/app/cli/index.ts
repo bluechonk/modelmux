@@ -185,7 +185,7 @@ function numOpt(values: RawValues, key: string): number | undefined {
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
-  // 存储装配：fs 是唯一形态（服务化分支已移除），CLI 与 worker 都经此入口。
+  // 存储装配：fs 是唯一形态，CLI 与 worker 都经此入口。
   await bootstrapStore();
   let parsed: ParsedArgs;
   try {

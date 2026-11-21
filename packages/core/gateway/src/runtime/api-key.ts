@@ -1,11 +1,11 @@
 /**
- * API key 端口（取代原多租户门禁）：对话端点鉴权、模型白名单、每分钟请求上限。
+ * API key 端口：对话端点鉴权、模型白名单、每分钟请求上限。
  *
  * 三个关键取舍：
  *  - **对话请求必须带 key**：装配即注入，`apiKeyGuard()` 恒非 null；模型列表、状态类
  *    端点不经过这里（它们不承载模型调用）。
- *  - **明文可回读**：落盘既有 scrypt 哈希也有明文（同一 0600 文件、同一信任域），
- *    列表复制与一键接入都要完整值；校验恒走哈希比对。
+ *  - **密文可解密回读**：落盘 scrypt 哈希 + AES-GCM 密文（0600 文件、同一信任域），
+ *    列表复制与一键接入经 `revealApiKey` 按需解密；校验恒走哈希比对。
  *  - **校验结果带白名单与限流**：白名单判定用归一后的对外模型名（角色名先过家族表），
  *    限流是每分钟固定窗口。
  */
@@ -43,7 +43,7 @@ export type ApiKeyDecision =
   | { ok: true; record: ApiKeyRecord }
   | { ok: false; reason: "invalid" | "forbidden" | "rate_limited"; message: string };
 
-/** 门禁端口：组合根注入实现（本机文件 / 服务化存储）。 */
+/** 门禁端口：组合根注入实现（本机文件形态）。 */
 export interface ApiKeyGuard {
   /** 鉴权 + 白名单 + 限流一次判完（模型为归一后的对外名；null = 未解析出模型）。 */
   check(apiKey: string | null, model: string | null): Promise<ApiKeyDecision>;

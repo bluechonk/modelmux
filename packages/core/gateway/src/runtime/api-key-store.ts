@@ -1,6 +1,6 @@
 /**
- * API key 管理（取代原多租户体系）：存储走 `poolStore()` 的 `readApiKeys/writeApiKeys`
- * 端口 —— fs 落 `<root>/api-keys.json`（0600），服务形态由 PgPoolStore 写 `pool_kv`。
+ * API key 管理：存储走 `poolStore()` 的 `readApiKeys/writeApiKeys` 端口 ——
+ * fs 落 `<root>/api-keys.json`（0600）。
  *
  * 三条纪律：明文**加密**后与哈希同库保存（密钥单独落 0600 文件，见 api-key-crypto）；
  * 校验按前缀缩候选再恒时比对；限流是每分钟固定窗口。列表接口只下发前缀，完整明文
@@ -226,9 +226,9 @@ export const API_KEY_NAME_MAX = 24;
 /**
  * 确保一键接入专用 key 存在，并给出**可写进客户端配置的明文**。
  *
- * 明文可回读（`secret`）时直接返回；早期记录只有哈希时返回 null，调用方据此
- * 走 `regenerateApiKey` 重建 —— 不能写占位：对话请求恒定校验，占位串会让客户端
- * 全体 401（一键接入写了等于没写）。
+ * 密文可解密（`secretSealed`）时直接返回；只有哈希的记录（明文不可用）返回 null，
+ * 调用方据此走 `regenerateApiKey` 重建 —— 不能写占位：对话请求恒定校验，占位串
+ * 会让客户端全体 401（一键接入写了等于没写）。
  */
 export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string | null } {
   const existing = listApiKeys().find((k) => k.name === INTEGRATION_KEY_NAME);
