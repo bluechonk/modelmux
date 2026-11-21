@@ -295,9 +295,16 @@ export async function relayStream(
       relayError(res, logger, err, cid);
     } finally {
       // 无编码器时 sse-stream.relay 自己 end；有编码器时收尾事件在这里补。
-      // 零产出**且还没写头**时不能 end：上层要拿这条候选去换下一条（见 ensureHead）。
-      sink?.finish();
-      if (sink && !res.writableEnded && (produced > 0 || res.headersSent)) res.end();
+      //
+      // 零产出 + 未写头 = 这条候选没接住请求（上游 200 空流）。此时
+      // **不能**调 sink.finish()：协议编码器在「还没开始」时会补首事件
+      // （anthropic 的 message_start / responses 的 response.created），一写就落了
+      // 响应头，`forward.ts` 的「零产出且未写头 → 换下一条候选」窗口随之失效，
+      // 客户端拿到一条空的成功响应。判定与收尾统一交给 forward.ts 的 empty-stream 分支。
+      // 客户端已断开（没有任何字节写出）同理跳过：没有收件人，写了也只是噪声。
+      const wrapUp = produced > 0 || res.headersSent;
+      if (wrapUp) sink?.finish();
+      if (sink && !res.writableEnded && wrapUp) res.end();
     }
     return { produced, disconnected };
   }

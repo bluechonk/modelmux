@@ -93,6 +93,8 @@ function chunk(delta: Record<string, unknown>, finish: string | null = null, usa
 describe("协议入站端点（假上游全链路）", () => {
   let upstream: Server;
   let upstreamModel = "";
+  /** 置位时假上游回 200 + 零字节（空流用例用）。 */
+  let emptyUpstream = false;
   let gw: RunningGateway;
 
   before(async () => {
@@ -107,6 +109,10 @@ describe("协议入站端点（假上游全链路）", () => {
           upstreamModel = "";
         }
         res.writeHead(200, { "Content-Type": "text/event-stream" });
+        if (emptyUpstream) {
+          res.end();
+          return;
+        }
         res.write(chunk({ role: "assistant", content: "" }));
         res.write(chunk({ content: "pong" }));
         res.write(chunk({}, "stop", { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 }));
@@ -246,5 +252,30 @@ describe("协议入站端点（假上游全链路）", () => {
 
     const get = await fetch(`http://${gw.addr}/v1/messages`);
     assert.equal(get.status, 405);
+  });
+
+  it("协议入站 + 上游空流：零产出时不写协议首事件，换候选的窗口不能被吃掉", async () => {
+    // 协议编码器在「还没开始」时 finish() 会补首事件（message_start / response.created），
+    // 一写就落了响应头 —— 于是 forward.ts 的「零产出且未写头 → 换下一条候选」失效，
+    // 客户端拿到一条空的成功响应。这里锁住：空流必须走到 empty-stream 分支。
+    emptyUpstream = true;
+    try {
+      const resp = await fetch(`http://${gw.addr}/v1/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "deepseek-v4.1-flash",
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "ping" }],
+        }),
+      });
+      // 单候选 + 空流 = 终局失败（不是 200 空事件流）
+      assert.equal(resp.status, 502, `空流不得回 200（实际 ${resp.status}）`);
+      const text = await resp.text();
+      assert.ok(!text.includes("event: message_start"), `零产出时不得写出协议首事件：${text.slice(0, 200)}`);
+    } finally {
+      emptyUpstream = false;
+    }
   });
 });
