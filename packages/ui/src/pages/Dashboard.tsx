@@ -144,10 +144,14 @@ function IntegrateSwitchCard({
   const failed = error !== null;
   /** 操作中开关**先走到目标位置**（接入中停在开、还原中停在关），完成后再由快照定稿。 */
   const shown = pending ? pending.action === "integrate" : integrated;
+  /**
+   * 无障碍文案（不直显）：卡面只留开关与更新按钮，状态由开关位置本身表达；
+   * 失败态靠卡描边转红 + toast，不再用一行常驻状态字占位。
+   */
   const stateText = pending
     ? pending.action === "integrate"
-      ? "接入中…"
-      : "还原中…"
+      ? "接入中"
+      : "还原中"
     : failed
       ? integrated
         ? "还原失败"
@@ -155,13 +159,6 @@ function IntegrateSwitchCard({
       : integrated
         ? "已接入"
         : "未接入";
-  const stateClass = pending
-    ? "text-warn"
-    : failed
-      ? "text-danger"
-      : integrated
-        ? "text-free"
-        : "text-ink-faint";
   return (
     <div
       className={`relative rounded-xl border bg-raised p-3 transition-colors ${
@@ -175,7 +172,6 @@ function IntegrateSwitchCard({
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium text-ink">{name}</div>
         </div>
-        <span className={`flex-none text-xs ${stateClass}`}>{stateText}</span>
         {/*
           「有更新」直显按钮：接入后对外模型清单变了才出现（判据在服务端 diff 好下发）。
           中性描边 + 一颗 warn 语义点（不再铺 warn 淡底 —— 浅色下_warn/10 发灰、
@@ -247,8 +243,7 @@ export function Dashboard(): ReactElement {
    *
    * `placeholderData: prev` 是**切区间不闪**的关键：`queryKey` 带 `range`，换区间就是
    * 一个新 key —— 不加 placeholder 时 react-query 会先清成 `undefined`，一整屏卡片
-   * 瞬间塌成骨架再弹回来，观感像故障。保留上一份数据后，新数据到达前界面数字不动，
-   * 只在右上角用「切换中」小点提示（见下方 `rangePending`）。
+   * 瞬间塌成骨架再弹回来，观感像故障。保留上一份数据后，新数据到达前界面数字不动。
    */
   const usageQuery = useQuery({
     queryKey: ["usage", range],
@@ -256,8 +251,6 @@ export function Dashboard(): ReactElement {
     placeholderData: (prev) => prev,
   });
   const rangeStats = usageQuery.data;
-  /** 正在取新区间数据：数字还是旧的，用来决定是否显示过渡指示。 */
-  const rangePending = usageQuery.isFetching && usageQuery.isPlaceholderData;
 
   // 开关式接入：操作中态与每卡失败原因（键 = target）。结果同时走右下角 toast
   // （命令信封 ok:false 是 200 响应，onSuccess 不代表成功）+ 卡上红字（最新一次）。
@@ -399,25 +392,7 @@ export function Dashboard(): ReactElement {
         description="Token 活动恒看一年"
         actions={
           <div className="flex items-center gap-2">
-            {/*
-              切换过渡指示：数据还是上一区间的（`placeholderData` 保住的），这里只
-              用一个淡入淡出的小圆点说明「新数字在路上」。不用骨架、不用遮罩 ——
-              数字不动才不会闪，提示只补一句「正在更新」。
-            */}
-            <span
-              className={`h-1.5 w-1.5 rounded-full bg-ink transition-opacity duration-300 ${
-                rangePending ? "animate-pulse opacity-100" : "opacity-0"
-              }`}
-              aria-hidden="true"
-            />
-            <span
-              className={`text-xs text-ink-faint transition-opacity duration-300 ${
-                rangePending ? "opacity-100" : "opacity-0"
-              }`}
-              aria-live="polite"
-            >
-              更新中
-            </span>
+            {/* 区间切换的过渡只靠数字自身淡入（placeholderData 保住旧数字不闪），不放「更新中」文案 */}
             <Segmented items={RANGES} value={range} onChange={setRange} label="用量区间" />
           </div>
         }
@@ -500,12 +475,14 @@ export function Dashboard(): ReactElement {
         <TrendChart daily={rangeStats?.daily ?? []} series={series} />
       </section>
 
-      {/* ① 模型用量（左，区间聚合）+ 对外模型清单（右，同一行等高）
-          用量卡占 8 列放环形 + 图例；清单卡占 4 列只列模型名与规格。
+      {/* ① 模型用量（左，区间聚合）+ 一键接入（右，同一行等高）
+          用量卡占 8 列放环形 + 图例；接入卡占 4 列放两张开关卡。
+          断点用 md 而不是 lg：desktop 壳最小窗口 1000px 够不到 lg（1024px），
+          最小化时这两块会永远上下堆叠 —— md（768px）保证最小窗口也左右排布。
           两卡都内容顶对齐：行高由较高一侧决定时，多余留白沉在矮卡底部，
           而不是堆成一条空带。 */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <section className="panel flex flex-col p-4 lg:col-span-8">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-12">
+        <section className="panel flex flex-col p-4 md:col-span-8">
           <div className="panel-title mb-3">
             <Layers className="h-4 w-4 text-ink-faint" />
             模型用量
@@ -515,7 +492,7 @@ export function Dashboard(): ReactElement {
           <ModelDonut models={(rangeStats?.models ?? []).filter((m) => m.tokens > 0)} />
         </section>
         {/* ② 一键接入（4 列窄卡）：开关式卡片 —— 开 = 已接入（写客户端配置），关 = 还原到接入前 */}
-        <section className="panel flex flex-col p-4 lg:col-span-4">
+        <section className="panel flex flex-col p-4 md:col-span-4">
           <div className="panel-title mb-3">
             <PlugZap className="h-4 w-4 text-ink-faint" />
             一键接入
