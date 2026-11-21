@@ -1,9 +1,8 @@
 /**
- * `model` 命令组：池视图（list / usage）、本地目录、可登录渠道列表。
+ * `model` 命令组：池视图（list / usage / spec / refresh）、本地目录、可登录渠道列表。
  *
- * 从 `command-groups.ts` 拆出。本文件同时承载**命令层共享的上下文与目录工具**
- * （`CommandContext` / `ensureCatalog` / `originNote`）—— 渠道动词组也依赖它们，
- * 依赖方向为单向：`channel-verbs.ts` → 本文件。
+ * 本文件同时承载**命令层共享的上下文与目录工具**（`CommandContext` / `ensureCatalog` /
+ * `originNote`）—— 渠道动词组（`channel.ts`）也依赖它们，依赖方向为单向。
  */
 
 import { channelCapabilities, channels, type Channel } from "../../runtime/channel.js";
@@ -124,7 +123,7 @@ function originNote(origin: CatalogOrigin): string {
 /**
  * `model <cid>`：该渠道能供给哪些**对外模型**（家族表里的裸模型名）。
  *
- * 渠道目录里不属于家族、或不能对外暴露的条目只报数量（可能几十条，全列是噪音）。
+ * 渠道目录里的家族外条目不计入对外清单（可能几十条，全列是噪音）。
  */
 
 export async function listLocalModels(
@@ -291,13 +290,18 @@ export async function listLogins(json: boolean): Promise<number> {
     const cid = channel.config.cid;
     let loggedIn = false;
     let uid = "";
+    let readError: string | null = null;
     try {
       uid = identityOf(runInChannel(cid, () => channel.cred.load()));
       loggedIn = true;
-    } catch {
-      loggedIn = false;
+    } catch (err) {
+      // 读盘故障不是「未登录」：如实标注并留痕（否则用户白跑一遍 login）
+      if (!(err instanceof channel.cred.NotLoggedInError)) {
+        readError = String(err);
+        console.error(`[model list] credential unreadable (${cid}): ${String(err)}`);
+      }
     }
-    return { cid, display: channel.upstream.DISPLAY_NAME, logged_in: loggedIn, uid };
+    return { cid, display: channel.upstream.DISPLAY_NAME, logged_in: loggedIn, uid, read_error: readError };
   });
 
   if (json) {
@@ -355,9 +359,9 @@ async function refreshModelCatalog(json: boolean): Promise<number> {
 }
 
 /**
- * `model spec <model>`：查看某 deepseek 模型的规格（窗口/输出/档位/倍率/输入模态）。
+ * `model spec <model>`：查看池内模型的规格（窗口/输出/档位/倍率/输入模态）。
  *
- * `<model>` 是裸模型名（如 `deepseek-v4-flash`）。同时给出**聚合值**（跨渠道合并，
+ * `<model>` 是裸模型名（可用清单见 `mx model list`）。同时给出**聚合值**（跨渠道合并，
  * 供客户端声明能力）与**逐渠道值**（各渠道上游目录的真值，倍率可能不同）。
  */
 
@@ -451,11 +455,11 @@ async function showModelSpec(model: string, json: boolean): Promise<number> {
  * `model usage [--refresh]`：看**池账本**；`--refresh` 立刻重查一遍各渠道账单。
  *
  * 与 `model list` 的分工：
- * - `model list` = **哪些模型可用**（逐个模型列出，196 行）；
- * - `model usage` = **各渠道用得怎么样**（逐个渠道一行，十几行）。
+ * - `model list` = **哪些模型可用**（逐模型）；
+ * - `model usage` = **各渠道用得怎么样**（逐渠道一行）。
  *
- * 账本不再决定路由（渠道由池 id 前缀指定），所以这里只回答「哪个渠道在被用、
- * 哪个在冷却」——不再重复列出 196 个模型。
+ * 账本不决定路由（渠道由网关按账号池剩余额度挑），所以这里只回答「哪个渠道在被用、
+ * 哪个在冷却」。
  */
 
 export async function showPoolUsage(json: boolean, force = false): Promise<number> {
@@ -519,4 +523,3 @@ export async function showPoolUsage(json: boolean, force = false): Promise<numbe
   return 0;
 }
 
-/** 渠道动词名集合（`mx <动词> [<cid>]` 的第一参数）。 */

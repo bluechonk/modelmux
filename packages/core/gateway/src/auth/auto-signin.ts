@@ -26,8 +26,9 @@ import {
 } from "./signin-ledger.js";
 import { writeJsonSecret } from "../runtime/secret-file.js";
 import {
+  isNotLoggedIn,
   listAccounts,
-  readAccountCredential,
+  readAccountCredentialSafe,
   runForAccountCredential,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
@@ -280,18 +281,22 @@ async function backfillReward(cid: string, channel: Channel, accountKey?: string
   await runInChannel(cid, async () => {
     let credential: Record<string, unknown> | undefined;
     if (accountKey !== undefined) {
-      credential = normalizeCredentialShape(readAccountCredential(accountKey, cid));
+      try {
+        credential = normalizeCredentialShape(readAccountCredentialSafe(accountKey, cid));
+      } catch (err) {
+        // 读盘故障：留痕后跳过本轮（静默 continue 会让额度补写永久停摆且无日志）
+        signinLog(`auto signin credential unreadable (${cid}/${accountKey}): ${String(err)}`);
+        return;
+      }
       if (Object.keys(credential).length === 0) return; // 未登录：留到下一轮
     } else {
       try {
         channel.cred.load();
       } catch (err) {
-        // 只有「未登录」是正常空态（静默留到下一轮）；读盘故障必须留痕 —— 否则凭据
-        // 文件被占用的那天签到静默丢失，事后无从排查
-        if (err instanceof channel.cred.NotLoggedInError || (err instanceof Error && err.constructor?.name === "NotLoggedInError")) {
-          return; // 未登录：留到下一轮
+        // 只有「未登录」是正常空态（静默留到下一轮）；读盘故障必须留痕
+        if (!isNotLoggedIn(channel, err)) {
+          signinLog(`auto signin credential load failed (${cid}): ${String(err)}`);
         }
-        console.error(`[auto-signin] credential load failed (channel ${cid}): ${String(err)}`);
         return;
       }
     }
@@ -368,8 +373,8 @@ async function windowEnded(
 ): Promise<boolean> {
   const local = windowEndedOf(record);
   if (local !== null) return local;
-  if (record === undefined) return false;
-  return determineWindow(cid, channel, record, accountKey);
+  // windowEndedOf 对 undefined 恒返回 false（非 null），到这里 record 必有值
+  return determineWindow(cid, channel, record!, accountKey);
 }
 
 /**
@@ -413,10 +418,15 @@ async function attemptChannel(channel: Channel): Promise<boolean> {
   }
 
   return runInChannel(cid, async () => {
-    // ③ 未登录：不发任何请求（登录必须用户主动触发，不做网络探测以避免无谓的上游痕迹）
+    // ③ 未登录：不发任何请求（登录必须用户主动触发，不做网络探测以避免无谓的上游痕迹）。
+    // 读盘故障（EACCES / EBUSY / 损坏）不是未登录：必须留痕 —— 否则凭据被占用的那天
+    // 该渠道整天不发领取、不记失败、无任何日志，面板只显示「未签到」且无从排查。
     try {
       channel.cred.load();
-    } catch {
+    } catch (err) {
+      if (!isNotLoggedIn(channel, err)) {
+        signinLog(`auto signin credential load failed (${cid}): ${String(err)}`);
+      }
       return false;
     }
 
@@ -545,7 +555,14 @@ async function attemptChannelAccounts(channel: Channel): Promise<number> {
       }
     }
 
-    const credential = normalizeCredentialShape(readAccountCredential(account.key, cid));
+    let credential: Record<string, unknown>;
+    try {
+      credential = normalizeCredentialShape(readAccountCredentialSafe(account.key, cid));
+    } catch (err) {
+      // 读盘故障不是「没登录」：留痕后跳过该账号（否则当天签到静默丢失且无日志）
+      signinLog(`auto signin credential unreadable (${cid}/${account.key}): ${String(err)}`);
+      continue;
+    }
     if (Object.keys(credential).length === 0) continue;
     // 走到这里说明这个账号确实要领取 —— 现在才值得问一次渠道状态
     await askStatus();
@@ -603,8 +620,9 @@ export async function runOnce(): Promise<{ claimed: number }> {
         continue;
       }
       if (await attemptChannel(channel)) claimed += 1;
-    } catch {
-      /* 单渠道异常不拖垮整轮 */
+    } catch (err) {
+      // 不拖垮整轮，但必须留痕：否则某渠道可能每 30 分钟无声失败一次、永久
+      signinLog(`auto signin round failed (${channel.config.cid}): ${String(err)}`);
     }
   }
   return { claimed };
@@ -625,8 +643,9 @@ export function startAutoSignin(logger: (msg: string) => void = () => {}): void 
     try {
       const { claimed } = await runOnce();
       if (claimed > 0) logger(`auto signin: ${claimed} channel(s) claimed`);
-    } catch {
-      /* 轮询轮失败等下一轮 */
+    } catch (err) {
+      // 轮询轮失败等下一轮，但要留痕（永久静默失败无从排查）
+      signinLog(`auto signin tick failed: ${String(err)}`);
     }
   };
   void tick();

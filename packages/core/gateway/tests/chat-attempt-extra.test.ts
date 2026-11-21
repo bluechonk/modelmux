@@ -483,7 +483,8 @@ describe("鉴权与账号状态结局", () => {
     assert.equal(result.kind, "retry");
     if (result.kind === "retry") {
       assert.equal(result.error.status, 503);
-      assert.equal(result.error.code, "not_authenticated");
+      // 熔断是「账号被反复失败标记」而非未登录：错误码与节流键都与真·未登录分开
+      assert.equal(result.error.code, "account_tripped");
       assert.match(result.error.message, /tripped/);
     }
     assert.equal(fetchCalls.length, 0, "熔断期内不该打上游");

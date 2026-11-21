@@ -486,14 +486,21 @@ export async function status(
   // 凭证：渠道级只报该渠道；仓库级逐渠道（顶层 present = 任一有凭证）
   const list = scopeChannels(scope);
   const perChannel = list.map((channel) => {
+    // 三态：有 / 未登录 / 读取失败。读盘故障不能折叠成「未登录」—— 诊断命令是用户
+    // 自查的第一入口，显示「无」会引导他白跑一遍 login（修不了权限问题）。
     let present = false;
+    let readError: string | null = null;
     try {
       runInChannel(channel.config.cid, () => channel.cred.load());
       present = true;
-    } catch {
-      present = false;
+    } catch (err) {
+      const isNotLoggedIn = err instanceof channel.cred.NotLoggedInError;
+      if (!isNotLoggedIn) {
+        readError = String(err);
+        console.error(`[status] credential unreadable (${channel.config.cid}): ${String(err)}`);
+      }
     }
-    return { cid: channel.config.cid, display: channel.upstream.DISPLAY_NAME, present };
+    return { cid: channel.config.cid, display: channel.upstream.DISPLAY_NAME, present, read_error: readError };
   });
   const credentialsPresent = perChannel.some((c) => c.present);
 

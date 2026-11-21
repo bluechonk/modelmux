@@ -14,6 +14,7 @@ import { type Channel, type Credential } from "../../runtime/channel.js";
 import { activeAccountCooldown, activeAccountIsError, activeAccountTrip, markActiveHealth } from "../../runtime/account-pool.js";
 import { logThrottled } from "../../runtime/logger.js";
 import { inChannel } from "./channel.js";
+import { loadCredentialSafe } from "./queue.js";
 import { openStream, type UpstreamCall } from "./upstream.js";
 
 /** 取上游流式响应的结果；把"调不动上游"的几种情形分开，好给出准确的错误语义。 */
@@ -25,7 +26,13 @@ export type UpstreamOutcome =
   /** 账号仍在额度冷却窗口内：本地短路，未打上游。**不是**鉴权失败，不记账连败。 */
   | { kind: "cooling"; until: string; reason: string }
   /** 账号已被标 `error`（终态，再记连败只会虚增数字）：调用方**不记账**。 */
-  | { kind: "account_error"; error: string };
+  | { kind: "account_error"; error: string }
+  /**
+   * 凭据**读盘故障**（EACCES / EBUSY / JSON 损坏等）：不是未登录，也不是鉴权失败。
+   * 调用方只记连败并回 5xx 重试，**不得**标 `unauthorized` —— 那是终态，
+   * 重新登录修不了权限问题（与 route.ts 的 `cred_error` 剔除同一口径）。
+   */
+  | { kind: "cred_error"; error: string };
 
 /**
  * 向上游发起请求，鉴权失败时**不自动切换池内账号**。
@@ -79,11 +86,17 @@ export async function callUpstream(
     }
   }
 
+  // 凭据读取分三类：读到 → 继续；NotLoggedInError → 未登录；其余（权限 / 占用 /
+  // 损坏）→ cred_error。这里**不能**用 catch-all 折叠成「未登录」：上层对
+  // not_authenticated 会把账号标成终态 unauthorized，一次文件锁就让渠道长期停摆。
   let credential: Credential;
   try {
-    credential = inChannel(channel, () => cred.load());
+    const loaded = loadCredentialSafe(channel);
+    if (loaded === null) return { kind: "not_authenticated", error: `channel ${cid} is not logged in` };
+    credential = loaded;
   } catch (err) {
-    return { kind: "not_authenticated", error: String(err) };
+    logger(`credential load failed (channel ${cid}): ${String(err)}`);
+    return { kind: "cred_error", error: String(err) };
   }
 
   let call = await inChannel(channel, () => openStream(channel, credential, sendBody));

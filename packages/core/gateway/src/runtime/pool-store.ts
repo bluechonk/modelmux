@@ -1,13 +1,12 @@
 /**
- * 账号池存储端口（本机文件实现）。
+ * 账号池存储端口（唯一实现：本机文件）。
  *
- * 把 account-pool / pool-usage 的「存储落点」抽成接口：fs 适配器保持现有
- * 文件语义（原子写 + 0600 + 内容哈希失效依据）：
- * 落到表上。领域逻辑（索引规范化、账本合并、熔断退避计算）留在调用方，
- * 端口只搬运数据 —— 两套适配器共享语义，行为不因迁移漂移。
+ * 把 account-pool / pool-usage 的「存储落点」抽成接口：文件语义固定为
+ * 原子写 + 0600。领域逻辑（索引规范化、账本合并、熔断退避
+ * 计算）留在调用方，端口只搬运数据。
  *
- * 约定：`read*` 对「缺失 / 损坏」统一返回 null（与现状一致：调用方各自回落
- * 空索引 / 空账本 / `{}`）；`*Stamp` 是缓存失效依据（fs = mtimeMs，pg = 版本号）。
+ * 约定：`read*` 对「缺失 / 损坏」统一返回 null（调用方各自回落空索引 / 空账本 /
+ * `{}`）；`*Stamp` 是缓存失效依据（mtimeMs）。
  */
 
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -28,6 +27,11 @@ export interface PoolStore {
   indexStamp(cid?: string): number;
   // —— 池内账号凭据（<channel>/accounts/<key>.json）——
   readAccountCredential(key: string, cid?: string): unknown | null;
+  /**
+   * 同 readAccountCredential，但**只把缺失（ENOENT）当空态**：读盘故障（EACCES /
+   * EBUSY / 损坏）上抛。签到与账单的逐账号路径用它区分「没登录」与「读不出来」。
+   */
+  readAccountCredentialStrict(key: string, cid?: string): unknown | null;
   writeAccountCredential(key: string, cred: unknown, cid?: string): void;
   deleteAccountCredential(key: string, cid?: string): void;
   hasAccountCredential(key: string, cid?: string): boolean;
@@ -48,14 +52,10 @@ export interface PoolStore {
   readLedger(): unknown | null;
   writeLedger(ledger: unknown): void;
   ledgerStamp(): number;
-  /**
-   * 渠道偏好（§10：`model-prefs.json` → 服务形态 `routing_prefs` 表）。
-   * 平台级键值对（model → cid|null）；fs 形态读写原文件，pg 形态读写表。
-   */
+  /** 渠道偏好（`model-prefs.json`）：平台级键值对（model → cid|null）。 */
   readPrefs(): unknown | null;
   writePrefs(prefs: unknown): void;
-  /**
-   */
+  /** API key 记录（`api-keys.json`）：哈希 + 密文，明文经 api-key-crypto 解密。 */
   readApiKeys(): unknown | null;
   writeApiKeys(keys: unknown): void;
 }
@@ -88,7 +88,7 @@ function readJsonOrNull(path: string): unknown | null {
 /**
  * 读 JSON；**主文件损坏时从 `.bak` 自愈**。
  *
- * 「文件不存在」是合法空态（不碰 bak）；「存在但解析失败」才是损坏 —— 此时
+ * 「文件不存在」是合法空态（不碰 bak）；读不到内容（权限 / 占用）或解析失败都按损坏处理 —— 此时
  * `.bak`（上次成功写入的版本）是唯一可回退的副本，恢复成功要留痕（排障时
  * 「数据怎么少了一段」的答案就在这条日志里），恢复失败保持 null 不抛。
  */
@@ -173,6 +173,23 @@ export class FsPoolStore implements PoolStore {
   readAccountCredential(key: string, cid?: string): unknown | null {
     return readJsonOrNull(accountCredentialsPath(key, cid));
   }
+
+  readAccountCredentialStrict(key: string, cid?: string): unknown | null {
+    const path = accountCredentialsPath(key, cid);
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+    try {
+      return parseJson(raw);
+    } catch {
+      // 内容损坏：同样上抛（不是「没登录」，重新登录才能修）
+      throw new Error(`credential file corrupted: ${path}`);
+    }
+  }
   writeAccountCredential(key: string, cred: unknown, cid?: string): void {
     mkdirSync(this.accountDir(cid), { recursive: true });
     writeJsonSecret(accountCredentialsPath(key, cid), cred);
@@ -250,13 +267,8 @@ export class FsPoolStore implements PoolStore {
   }
 }
 
-// 组合根注入点：默认 fs（唯一实现）。
-let currentStore: PoolStore = new FsPoolStore();
-
-export function setPoolStore(store: PoolStore): void {
-  currentStore = store;
-}
+const store: PoolStore = new FsPoolStore();
 
 export function poolStore(): PoolStore {
-  return currentStore;
+  return store;
 }

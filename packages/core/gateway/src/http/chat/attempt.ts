@@ -42,7 +42,6 @@ import { relayUpstream } from "./forward.js";
 import type { PoolCandidate } from "../../pool/pool-targets.js";
 import { getChannelModelMeta } from "../../pool/pool-targets.js";
 
-/** 一次失败的错误三元组：状态码 + 错误码 + 文案（回给客户端的信封内容）。 */
 /**
  * 客户端可见的 503 文案。
  *
@@ -55,6 +54,7 @@ function unavailableMessage(detail: string): string {
   return text === "" ? "no available account for this request" : `no available account for this request（${text}）`;
 }
 
+/** 一次失败的错误三元组：状态码 + 错误码 + 文案（回给客户端的信封内容）。 */
 export interface ChatError {
   status: number;
   code: string;
@@ -347,8 +347,7 @@ async function reopenForProbe(
  *
  * 探测消费掉的帧记进 `state.frames`，翻译器记进 `state.translator`：
  *   转发层必须**原序**交出这些帧，并**接着用同一个**翻译器实例（半行缓冲在里面）。
- * 排队期间**不发任何可见文案**（只发一次 SSE 响应头 + 空 role 帧建立流，见
- *   `writeQueueHeaders`）—— 排队进度文案不展示。
+ * 排队期间**不发任何可见文案**：响应头由转发层首字节统一写出，排队进度文案不展示。
  * 每轮开头检查客户端断连：排队可能长达数分钟，客户端（60s 超时）走人后
  *   继续轮询上游纯属浪费（实测断连后空转 4 分钟、白打 22 次上游请求）。
  *
@@ -585,6 +584,16 @@ export async function attemptCandidate(
     markActiveHealth("unauthorized", cid);
     return { kind: "retry", error: { status: 502, code: "upstream_unauthenticated", message: outcome.error } };
   }
+  // 凭据读盘故障：记连败（瞬时故障可自愈）但**不标 unauthorized** —— 那是终态，
+  // 重新登录修不了权限 / 占用问题；让路由在熔断前继续尝试，账号状态由真实鉴权决定。
+  if (outcome.kind === "cred_error") {
+    logThrottled(logger, `chat:cred-error:${cid}`, `channel ${cid} credential unreadable: ${outcome.error}`);
+    noteFailure(cid, activeKeyOf(cid));
+    return {
+      kind: "retry",
+      error: { status: 503, code: "credential_unreadable", message: unavailableMessage(outcome.error) },
+    };
+  }
   // 冷却中：本地短路，**未打上游**。额度耗尽不是故障（`account-pool.ts` 的
   // `noteAccountQuotaExhausted` 刻意不动 `fail_streak`），故这里也**不记任何连败** ——
   // 记了就会在冷却窗口内被 3 连败熔断打成 `error`，连免费模型一起锁死且无自动恢复
@@ -613,10 +622,12 @@ export async function attemptCandidate(
   }
   // error 终态短路：已标 error，再记连败只会虚增 fail_streak（2026-10-24 实测被刷到 11）。
   if (outcome.kind === "account_error") {
-    logThrottled(logger, `chat:not-logged-in:${cid}`, `channel ${cid} not logged in: ${outcome.error}`);
+    // 独立节流键：与真·未登录共用 `chat:not-logged-in:${cid}` 会让先到者占住槽位，
+    // 另一种故障在节流窗口内静默丢日志（两种故障互相吞）
+    logThrottled(logger, `chat:account-error:${cid}`, `account tripped (channel ${cid}): ${outcome.error}`);
     return {
       kind: "retry",
-      error: { status: 503, code: "not_authenticated", message: unavailableMessage(outcome.error) },
+      error: { status: 503, code: "account_tripped", message: unavailableMessage(outcome.error) },
     };
   }
   let call = outcome.call;

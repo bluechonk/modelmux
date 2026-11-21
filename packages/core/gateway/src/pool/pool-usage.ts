@@ -16,7 +16,7 @@ import {
   isAccountCooling,
   listAccounts,
   noteAccountQuotaExhausted,
-  readAccountCredential,
+  readAccountCredentialSafe,
   readIndex,
   reviveAfterBilling,
   runForAccountCredential,
@@ -319,6 +319,8 @@ function entryOf(ledger: PoolLedger, cid: string): ChannelLedger {
 
 /** 落盘节流：高频请求下不每次写盘。 */
 const SAVE_DEBOUNCE_MS = 1000;
+/** 上次落盘失败的错误文本：只在错误变化时打印，避免每秒刷屏。 */
+let lastLedgerError = "";
 let saveTimer: NodeJS.Timeout | null = null;
 
 /** 立即落盘（CLI / 测试用；每次写盘都同步、原子）。 */
@@ -330,8 +332,13 @@ export function flushLedger(): void {
   try {
     // 写前合并存储内容：别的进程（CLI）可能刚写过本进程没有的渠道条目
     poolStore().writeLedger(pruneUnregistered(loadForWrite()));
-  } catch {
-    /* 写不进去不该让请求失败：账本丢了只影响排序精度 */
+  } catch (err) {
+    // 写不进去不让请求失败，但要留痕：账本也是仪表盘用量与账单的持久层，
+    // 持续写失败会让数字在重启后莫名归零，无日志则无从排查
+    if (lastLedgerError !== String(err)) {
+      lastLedgerError = String(err);
+      console.error(`[pool-usage] ledger write failed: ${String(err)}`);
+    }
   }
 }
 
@@ -634,7 +641,15 @@ async function refreshAccountCredits(
       );
       continue;
     }
-    const raw = runInChannel(cid, () => readAccountCredential(account.key, cid));
+    let raw: Record<string, unknown>;
+    try {
+      raw = runInChannel(cid, () => readAccountCredentialSafe(account.key, cid));
+    } catch (err) {
+      // 读盘故障不是「没登录」：记一次失败让 billing_ok 反映出来，并留痕
+      noteAccountBillingAttempt(cid, account.key, false);
+      noteBillingFailure(`${cid}/${account.key}`, String(err), logger);
+      continue;
+    }
     const credential = normalizeCredentialShape(raw);
     if (Object.keys(credential).length === 0) continue;
     try {
@@ -694,7 +709,13 @@ export async function queryAccountCredits(cid: string): Promise<AccountCreditsRo
       health: account.health,
     };
     const empty = { remain: null, size: null, used: null, unit: "", remain_percent: null };
-    const raw = runInChannel(cid, () => readAccountCredential(account.key, cid));
+    let raw: Record<string, unknown>;
+    try {
+      raw = runInChannel(cid, () => readAccountCredentialSafe(account.key, cid));
+    } catch (err) {
+      rows.push({ ...base, ok: false, ...empty, error: `凭据读取失败：${String(err)}` });
+      continue;
+    }
     const credential = normalizeCredentialShape(raw);
     if (Object.keys(credential).length === 0) {
       rows.push({ ...base, ok: false, ...empty, error: "账号凭据文件读不出内容" });

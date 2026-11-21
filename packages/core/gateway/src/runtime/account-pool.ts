@@ -5,7 +5,7 @@
  *  - **收进池子**：把 `credentials.json` 原样复制成 `accounts/<key>.json`；
  *    元信息取自渠道 `cred.load()` 的契约字段 `uid` / `domain`
  *  - **切换账号**：把 `accounts/<key>.json` 复制回 `credentials.json` 并更新索引
- *  - **对账**：按 mtime 做「谁新用谁」的回灌，让渠道零改动即可与生效凭证保持一致
+ *  - **对账**：按凭据内容哈希（`synced_*_hash`）判「谁变过」做回灌，让渠道零改动即可与生效凭证保持一致
  *
  * `key` = `sha256(domain \u0000 uid)` 的前 16 hex（稳定、文件名安全）；
  * uid 为空的渠道退化为按 accessToken 派生（重登会换 key，属已知限制）。
@@ -186,7 +186,7 @@ export function accountKey(credential: { uid?: unknown; domain?: unknown; access
  *
  * 生效凭据（credentials.json）与账号文件必须用**同一个派生**：两处 uid 不一致时
  * `syncPool` 会从凭据派生出一个池里不存在的「幽灵账号」（实测踩过），
- * 所以 writeActiveKeyProvider 也调用本函数。
+ * 所以 syncKeyAccounts 也调用本函数。
  */
 export function keyUid(key: string): string {
   return createHash("sha256").update(`key\u0000${key}`, "utf8").digest("hex").slice(0, 12);
@@ -280,7 +280,7 @@ export function syncKeyAccounts(
   poolStore().writeActiveCredential(target.credential, cid);
 }
 
-/** 读索引；文件缺失/损坏时返回空池（不抛错）。 */
+
 /**
  * 索引的进程内缓存（按文件路径 + mtime）。
  *
@@ -308,7 +308,8 @@ function invalidateIndexCache(cid?: string): void {
   indexCache.delete(poolKey(cid));
 }
 
-export function readIndex(cid?: string): PoolIndex {
+export /** 读索引；文件缺失/损坏时返回空池（不抛错）。 */
+function readIndex(cid?: string): PoolIndex {
   let stamp: number;
   let raw: unknown | null;
   try {
@@ -427,7 +428,7 @@ function refreshLabels(index: PoolIndex, cid?: string): void {
 }
 
 /** 渠道约定的「未登录」异常（渠道各自定义，共享层只按契约识别）。 */
-function isNotLoggedIn(channel: Channel, err: unknown): boolean {
+export function isNotLoggedIn(channel: Channel, err: unknown): boolean {
   if (err instanceof channel.cred.NotLoggedInError) return true;
   // 兜底：按类名识别（有的渠道/替身抛的是另一个同名类）
   return err instanceof Error && err.constructor?.name === "NotLoggedInError";
@@ -824,8 +825,6 @@ export function reviveAfterBilling(cid?: string): boolean {
   return true;
 }
 
-/** 一天毫秒数（回落「次日 0 点」用）。 */
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * 下一次**本地零点**（epoch ms）—— 渠道没给「下次刷新时间」时的兜底。
@@ -1178,6 +1177,19 @@ export function syncPool(cid?: string): void {
 }
 
 /** 池内某账号的凭证原始 JSON（供诊断；不解释渠道语义）。 */
+/**
+ * 逐账号凭据的安全读取：未登录（缺失）返回 `{}`；读盘故障**上抛**。
+ *
+ * 签到 / 账单的逐账号路径用它 —— 静默返回 `{}` 会让「凭据被占用」伪装成
+ * 「这个账号没登录」，当天签到静默丢失、额度停在旧值，事后无从排查。
+ */
+export function readAccountCredentialSafe(key: string, cid?: string): Record<string, unknown> {
+  const parsed = poolStore().readAccountCredentialStrict(key, cid);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
 export function readAccountCredential(key: string, cid?: string): Record<string, unknown> {
   const parsed = poolStore().readAccountCredential(key, cid);
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
