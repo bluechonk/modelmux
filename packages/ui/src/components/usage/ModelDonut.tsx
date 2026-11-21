@@ -71,8 +71,10 @@ export function ModelDonut({ models }: { models: UsageModelRow[] }): ReactElemen
   });
   const hovered = hoverId === null ? null : (slices.find((s) => s.id === hoverId) ?? null);
 
+  // 环形图（左）+ 明细列表（右）：断点用 md 而不是 lg —— desktop 壳最小窗口
+  // 1000px 够不到 lg（1024px），最小化时图与明细会永远上下堆叠。
   return (
-    <div className="flex flex-col items-center gap-5 lg:flex-row lg:items-center lg:gap-8">
+    <div className="flex flex-col items-center gap-5 md:flex-row md:items-center md:gap-8">
       <div className="relative shrink-0">
         <svg
           viewBox="-80 -80 160 160"
@@ -114,7 +116,7 @@ export function ModelDonut({ models }: { models: UsageModelRow[] }): ReactElemen
         </div>
       </div>
 
-      <ul className="w-full space-y-2">
+      <ul className="w-full min-w-0 flex-1 space-y-2 md:w-auto">
         {slices.map((s, i) => (
           <li key={s.id}>
             <div
