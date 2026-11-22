@@ -137,7 +137,13 @@ class StdinPasteReader {
     this.waiter?.(null);
     this.waiter = undefined;
     this.rl?.close();
-    if (!this.rl) process.stdin.off("data", this.onData);
+    if (!this.rl) {
+      // 摘监听不够：构造时 resume() 已把 stdin 激活成 flowing 态，摘掉监听后 pipe
+      // handle 仍攥着事件循环（--test 的 worker 与 CLI 都会跑完不退）——
+      // destroy 才真正关掉底层 handle。
+      process.stdin.off("data", this.onData);
+      process.stdin.destroy();
+    }
   }
 }
 
@@ -599,6 +605,9 @@ export async function runLogin(options: {
       /* 未登录：走正常登录流程 */
     }
     if (existing) {
+      // stdin 粘贴监听在函数入口就开了（enableStdinPaste），提前 return 也要关——
+      // 漏关会让 readline 攥着 stdin 不放，进程（含 --test 的 worker）跑完不退。
+      ui.closePasteReader();
       const uid = (existing as { uid?: string }).uid ?? "";
       if (json) {
         emit({ event: "done", ok: true, already_logged_in: true, note: "use `relogin` to re-authorize" });

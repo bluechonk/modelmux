@@ -132,31 +132,6 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .tmp/link-claude-skills.ps1 -Remov
    `kill` 只允许针对**自己起的那个实例的 pid**；「挂掉能否拉回」这类验证同理，改在临时端口上做，
    不要拿用户正在使用的 4412 当实验对象。
 
-## 测试已知隐患
-
-### `--test-force-exit` 会静默丢结果（待修，别把「绿」当全跑）
-
-`packages/core/gateway` 的测试命令带 `--test-force-exit`，为的是绕过「用例都过了、进程却退不出去」。
-代价是**子进程被杀之前的结果会丢**：同一命令连跑，用例数会波动，比真实值少。
-
-实测事实（2026-11-07，Node v24.21.0）：
-
-- 带该标志（`npm test` 与推送门禁实际执行的那条）稳定报 `tests 724 / pass 724 / fail 0`、
-  退出码 0 —— 数字稳定，但这正是**中止未被上报**的形态。
-- `accounts.test.ts` / `chat-route.test.ts` / `cli.test.ts` **跑完不退进程**：单独跑各挂到
-  超时（`--test-timeout=20000` 下 exit 124），文件级用例被超时中止，
-  `tests N / pass N-1 / fail 1`，那 1 个 fail 就是文件级中止本身（用例本身全部通过）。
-- **去掉该标志整条命令不会自行结束**：实测全量跑输出停在 `accounts.test.ts` 后
-  持续 5 分钟零字节增长，进程不退出（不是「慢」，是**挂着**）。`--test-timeout`
-  只中止该文件的用例，不解决它留下的 handle，故整套跑不完。
-
-**修法**：查清这 3 个文件为何跑完不退。已排除的方向：import 侧效应（单独 import
-`dist/app/lifecycle/headless.js` 后进程正常退出）、测试内的 `child_process`/`cluster`、
-以及未 `unref` 的定时器（`catalogTimer` / `refresherTimer` / `saveTimer` 均已 `unref`）。
-修掉后去掉 `--test-force-exit`。**在此之前**：怀疑「测试没跑到」时逐个文件跑并**自己加超时**
-（`timeout 60 node --test tests/<file>.test.ts`）—— 整条命令去掉该标志会永久挂住，不能直接复跑；
-单文件跑则能如实报出被中止的那个。
-
 ## 构建模型
 
 1. 根 `tsconfig.json` 是 *solution* 文件（`files: []` + `references` 列出全部包），
