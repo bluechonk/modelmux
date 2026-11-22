@@ -36,9 +36,9 @@
 {
   "version": 1,
   "models": {
-    "glm-5.3-flash": {
+    "kimi-k3.1-pro": {
       "contextWindow": 1000000,
-      "maxOutputTokens": 393216,
+      "maxOutputTokens": 100000,
       "inputModalities": ["text"],
       "effort": {
         "supportedLevels": ["high", "max"],
@@ -61,9 +61,9 @@
 ### CLI：`mx model spec <模型名>`
 
 ```bash
-mx model spec glm-5.3-flash          # 查全局规格
+mx model spec kimi-k3.1-pro          # 查全局规格
 mx model spec deepseek-v4.1-flash   # 另一个家族成员
-mx model spec glm-5.3-flash --json  # JSON 输出
+mx model spec kimi-k3.1-pro --json  # JSON 输出
 ```
 
 ### 手动写入

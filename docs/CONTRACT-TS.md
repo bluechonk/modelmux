@@ -2,6 +2,20 @@
 
 本文件描述当前共享包架构。所有渠道的实现都必须遵守本契约。
 
+## 目录
+
+- [0. 一句话架构](#0-一句话架构)
+- [1. 工作区布局](#1-工作区布局)
+- [2. 零运行依赖](#2-零运行依赖)
+- [3. 渠道注册表（共享层与渠道层的唯一接缝）](#3-渠道注册表共享层与渠道层的唯一接缝)
+- [4. 模型池策略](#4-模型池策略)
+- [5. 渠道特有模块的接口契约](#5-渠道特有模块的接口契约)
+- [6. 登录：真实 URL 链路（禁止读本地文件）](#6-登录真实-url-链路禁止读本地文件)
+- [7. 渠道不做测试](#7-渠道不做测试)
+- [8. 陈旧构建：改了代码别忘了重启网关](#8-陈旧构建改了代码别忘了重启网关)
+- [9. CLI 命令形态（动词优先）](#9-cli-命令形态动词优先)
+- [10. 交付检查清单](#10-交付检查清单)
+
 ## 0. 一句话架构
 
 **共享层在 `packages/core/gateway`（工作区名 `@modelmux/gateway`），渠道差异通过
@@ -12,58 +26,44 @@
 ## 1. 工作区布局
 
 ```
-modelmux/                     ← 仓库根 = 工作区根
-├── packages/core/gateway/             ← **共享包** `@modelmux/gateway`
+modelmux/                      ← 仓库根 = 工作区根
+├── packages/core/gateway/     ← 共享包 @modelmux/gateway
 │   └── src/
-│       ├── runtime/   渠道 SDK（13 个源文件）：channel（注册表）/ channel-context（runInChannel）/
-│       │              paths（落点）/ permissions（权限基线）/ account-pool（账号池）/
-│       │              secret-file（原子写盘）/ catalog-cache（目录缓存）/ cli-consts（默认值）/
-│       │              credential-shape（凭据形状归一）/ snapshot（随包快照落点）/
-│       │              logger（日志节流）/ log-store（分层落盘）/ model-specs（模型规格）
-│       ├── pool/      模型池与账本：pool-targets（id 与匹配）/ pool-usage（账本）/
-│       │              model-pool（渠道内解析）/ account-rotate（额度耗尽换号决策）
-│       ├── auth/      登录链路：login / login-flow / auth-flow / auto-signin / signin-ledger /
-│       │              paste-detect（粘贴文本启发式）
-│       ├── http/      网关与转发（19 个源文件）：server（网关入口）/ portfree（端口自愈）/
-│       │              chat/（转发管线）：relay（编排）/ request（请求解析）/ route（池路由）/
-│       │              attempt（单候选尝试）/ forward（转发层）/ stream（帧与中继）/
-│       │              queue（排队探测）/ auth（鉴权链路）/ upstream（建连与空闲守卫）/
-│       │              candidates / errors / channel
-│       │              wire/（协议线）：sse-stream（SSE 规范化）/ openai-normalize（通用 OpenAI 归一化）
-│       │              protocol/（入站协议）：anthropic / responses / count-tokens / types（翻译与回程编码，
-│       │              复用 chat/ 转发管线，见 CLIENT-INTEGRATION.md）
-│       │              console/（控制台）：console / web-command-handler / web-types（控制台类型）
-│       ├── app/       顶层门面与进程编排，两个子目录分工明确：
-│       │              cli/（CLI 门面：index 命令入口 / model 模型组 / channel 渠道动词 /
-│       │              accounts 账号池 / report 落点巡检）
-│       │              lifecycle/（进程生命周期：daemon / headless / supervisor / process /
-│       │              stale-build / web）
-│       └── index.ts   对外的统一出口（55 个源文件合计）
-├── packages/core/channels/                     ← 渠道（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
-│   └── <cid>/                    ← 结构见下
-├── packages/cli/                 ← **CLI 入口**（bin `modelmux` / `mx`）
-│   └── src/
-│       ├── channels.ts           ← import 全部渠道包（副作用 = setChannel）
-│       └── cli.ts                ← bin 入口：注册全部渠道后调共享 `main()`
-├── docs/                         ← **全部文档**：契约与规范 + 渠道文档（docs/channels/<cid>/）
-└── scripts/                        ← 仓库级脚本与校验器（verify-contract / verify-storage / verify-docs /
-                                    verify-commits / verify-comments / verify-layering / verify-topology /
-                                    verify-references / verify-wiring / copy-ui / mx-watchdog）
+│       ├── runtime/           ← 渠道 SDK：注册表 / 落点 / 权限 / 账号池 / 原子写盘 / 日志 / 设置
+│       ├── pool/              ← 模型池与账本：id 匹配 / 用量账本 / 渠道内解析 / 换号决策
+│       ├── auth/              ← 登录链路：登录流程 / 自动签到 / 台账
+│       ├── http/              ← 网关与转发
+│       │   ├── chat/          ← 转发管线：编排 / 解析 / 路由 / 尝试 / 转发 / 帧中继
+│       │   ├── wire/          ← 协议线：SSE 规范化
+│       │   ├── protocol/      ← 入站协议：anthropic / responses
+│       │   └── console/       ← 控制台 API 与命令面
+│       ├── app/               ← 顶层门面
+│       │   ├── cli/           ← CLI 命令入口
+│       │   └── lifecycle/     ← 进程生命周期：守护 / 前台 / 监督 / 陈旧构建检测
+│       └── index.ts           ← 对外统一出口
+├── packages/core/channels/    ← 渠道包（每个 = 一个模型池 + 账号池；清单以 mx model list 为准）
+│   └── <cid>/                 ← 只实现 7 个文件，见下
+├── packages/cli/              ← CLI 入口（bin modelmux / mx）
+├── packages/ui/               ← Web 控制台（Vite，不进 tsc solution）
+├── desktop/                   ← Windows 安装版壳（Electron，不进 workspaces）
+├── docs/                      ← 全部文档
+└── scripts/                   ← 仓库级脚本与校验器
 ```
 
-`packages/core/channels/<cid>/` 内部（= 一个**池子**）：
+各层文件数以源码为准，本文件不抄清单。
 
-```
-packages/core/channels/<cid>/
-└── src/
-   ├── channel.ts                ← **本渠道装配**：ChannelConfig + 4 个模块 → setChannel()
-   ├── cli.ts                    ← bin 入口：注册本渠道后调共享 `main()`（单渠道调试用）
-   ├── index.ts                  ← 重导出共享层 + 渠道模块
-   ├── cred.ts                   ← **渠道特有**
-   ├── upstream.ts               ← **渠道特有**
-   ├── catalog.ts                ← **渠道特有**
-   └── billing.ts                ← **渠道特有**
-```
+`packages/core/channels/<cid>/src/` 只有 7 个文件：
+
+| 文件 | 职责 |
+| --- | --- |
+| `channel.ts` | 装配：静态配置 + 四个渠道模块，注册进共享层 |
+| `cred.ts` | 凭据：登录 / 刷新 / 落盘形状 |
+| `upstream.ts` | 上游协议：建连 / 请求体 / 流翻译 |
+| `catalog.ts` | 模型目录：拉取 / 解析 / 规格 |
+| `billing.ts` | 账单与签到：额度查询 / 领取 |
+| `cli.ts` | bin 入口：注册本渠道后交共享 CLI |
+| `index.ts` | 包出口 |
+
 
 > **渠道包只放实现**（`src/` 的 7 个文件 + 包配置）；渠道文档统一在
 > [`docs/channels/<cid>/`](./channels/README.md)（`PROTOCOL.md` 协议规格 + 使用与实测 +
@@ -73,8 +73,7 @@ packages/core/channels/<cid>/
 > **对外模型家族**以**裸模型名**对外暴露（见 §4 与 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md)）。
 > 账号池见同文档 §3。
 
-**每个 `packages/core/channels/<cid>/` 的 `src/` 只有 7 个文件。** 任何不在上表里的 `src/*.ts`
-（`server.ts` / `daemon.ts` / `paths.ts` / `sse-stream.ts` …）都是旧副本残留，应删除。
+表外任何 `src/*.ts`（`server.ts` / `daemon.ts` / `paths.ts` / `sse-stream.ts` …）都是旧副本残留，应删除。
 
 ### 1.1 各渠道的共享依赖声明
 
@@ -653,15 +652,17 @@ upstream.setModelMetaLookup((key) => catalog.metaOfKey(key));
 直接调用时使用。各渠道叫法不同（`check-in` / `signin` / 活动 `claim` / 上游自动发），统一收敛成
 `status()` + `claim()` 两个动作；`claim()` 必须是幂等的或至少可安全重复调用。
 
-**额度数字（「今天签到领到多少」）**：`claim()` / `status()` 可回 `reward: {amount, unit}`
-（渠道自报的发放额）；`status().dailyReward`（可选）是**每日发放额度**的公布值，
-适用于「签到动作本身就是当日额度发放」的渠道（loomy 每天 5000，上游不回报入账额）。
-`status()` **不接受 credential**（拿的是当前生效账号）：`perAccount` 渠道只能用它取
-与账号无关的字段（如 `dailyReward`），不要把账号相关的数字写进别的账号的台账。
-两者都没有时共享层用**领取前后各查一次额度的差值**补；仍拿不到才用**跨额度窗口对比**
-（最弱口径，界面标「估算」）。`status().resetAt` / `windowStartsAt`（可选）声明当前签到窗口的
-结束与开始时刻（epoch ms）—— 日界不是本地 0 点的渠道（qoder 系上游是 10:00 UTC+8）必须给，
-否则当天活动永远领不到。
+**额度数字（「今天签到领到多少」）**取值的四档来源：
+
+| 档 | 来源 | 说明 |
+| --- | --- | --- |
+| 1 | `claim()` / `status()` 的 `reward: {amount, unit}` | 渠道自报的发放额 |
+| 2 | `status().dailyReward` | 每日发放额度的公布值，适用于「签到即当日额度发放」的渠道（loomy 每天 5000） |
+| 3 | 领取前后各查一次额度的差值 | 前两档都没有时由共享层补 |
+| 4 | 跨额度窗口对比 | 最弱口径，界面标「估算」 |
+
+- `status()` **不接受 credential**（拿的是当前生效账号）：`perAccount` 渠道只能用它取与账号无关的字段（如 `dailyReward`），不要把账号相关的数字写进别的账号的台账。
+- `status().resetAt` / `windowStartsAt`（可选）声明当前签到窗口的结束与开始时刻（epoch ms）。日界不是本地 0 点的渠道（qoder 系上游是 10:00 UTC+8）必须给，否则当天活动永远领不到。
 口径与有界重试规则见 [`POOL-ARCHITECTURE.md`](./POOL-ARCHITECTURE.md) §3.6。
 
 **「查不到」不能显示成 0**：有额度能力但查询失败时抛 `CreditsError`，而不是返回 `remain: 0`。

@@ -3,6 +3,15 @@
 `mx web` 把 React 管理看板挂在网关的**唯一端口**上（`http://127.0.0.1:4412/web/`，
 控制台 API 在 `/web/api/*`），没有独立进程与独立端口。
 
+## 目录
+
+- [设计系统（`packages/ui/src/index.css`）](#设计系统packagesuisrcindexcss)
+- [页面结构](#页面结构)
+- [账号展示与额度](#账号展示与额度)
+- [技术栈与构建](#技术栈与构建)
+- [数据通道](#数据通道)
+- [账本维度](#账本维度)
+
 ## 设计系统（`packages/ui/src/index.css`）
 
 视觉语言：**ZCode 主题（`theme-zai-dark` / `theme-zai-light`）的表面与描边**，交互色取
@@ -81,8 +90,6 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 - **品牌 mark 是内联组件**（`components/BrandMark.tsx`，极简鲸鱼剪影 +
   分叉尾鳍 = 多条渠道，单色、16px 清晰），与 `assets/favicon.svg` 同形（白色）；
   颜色跟随 `className` 的 `text-*` 令牌（顶部导航用 `text-ink`）。
-
-## 页面结构
 
 ## 页面结构
 
@@ -319,16 +326,19 @@ web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端�
 - **幂等**：内容与目标一致时不落盘（结果只经右下角 toast 提示，卡片内不重复贴一条 —— 会和 toast 撞内容，还会让区块高度跳动）。
 - **有更新时自动同步，无需手动**：接入成功时把当时的对外模型清单与**专用 key 指纹**
   （`<id>:<密文哈希前 16 位>`，只记哈希不记明文）记进标记文件
-  （`backups/integrate/<target>.state.json`）。快照侧 `integrationUpdates`
-  （`app/integrate.ts`）比两项：模型清单集合 diff，或 key 指纹与当前不一致
-  （key 被重置 / 重建 → 客户端那把已失效）。网关后台定时器每 60 秒跳一次、按设置页
-  「检查间隔」（`setting.json` 的 `integration_sync_interval_s`，默认 60s，0 = 关闭）
-  决定是否调 `syncIntegrations()` 重跑接入 —— **用户接入一次后不需要再管**，key 轮换与
-  模型上下线都由程序写进客户端。间隔的读走公共命令面（`integrationSync`），
-  写走 admin 命令（`setIntegrationSync`，仅本机直连）—— 能改这条等于能关掉自动同步
-  或触发高频重写客户端配置，与 `setChannelEnabled` 同口径。卡上的「更新」胶囊退化为同一件事的手动触发
-  （橙点 + warn 淡底），差异明细只进 `aria-label`；老标记缺 `models` / `keyFingerprint`
-  按「判不了」处理不误报；未接入不亮。
+  （`backups/integrate/<target>.state.json`）。快照侧 `integrationUpdates`（`app/integrate.ts`）比两项：
+
+  - 模型清单集合 diff；
+  - key 指纹与当前不一致（key 被重置 / 重建 → 客户端那把已失效）。
+
+  自动同步：网关后台定时器每 60 秒跳一次，按设置页「检查间隔」（`setting.json` 的 `integration_sync_interval_s`，默认 60s，0 = 关闭）决定是否调 `syncIntegrations()` 重跑接入。**用户接入一次后不需要再管**，key 轮换与模型上下线都由程序写进客户端。
+
+  | 命令 | 权限 |
+  | --- | --- |
+  | `integrationSync`（读间隔） | 公共面 |
+  | `setIntegrationSync`（写间隔） | admin，仅本机直连 |
+
+  能改这条等于能关掉自动同步或触发高频重写客户端配置，与 `setChannelEnabled` 同口径。卡上的「更新」胶囊是同一件事的手动触发（橙点 + warn 淡底），差异明细只进 `aria-label`；老标记缺 `models` / `keyFingerprint` 按「判不了」处理不误报；未接入不亮。
 - **警告单独弹**：接入返回的 `warnings`（备份清单读不出、备份未登记 等）与还原返回的
   `notes`（跳过条目、备份缺失）都逐条弹 info toast。接入的 `warnings` 与 `notes`
   （「做了什么」的变更说明）分开传：混在一起会被当噪音忽略，「已接入」就成了假象。
@@ -466,20 +476,19 @@ web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端�
   不回退上游 `remain_percent`（它是窗口占比，常年 100，会给出误导性的满格）。
   也不用上游 `size` 当分母（各渠道口径不一）。
 - 查询失败显示「额度查询失败」，不把未知显示成 0。
-- **今日签到**（额度详情面板的最后一行）：读本地台账，不查上游。渠道 `capabilities.signin = false`
-  时整行不渲染；按账号签到的渠道（`signin.perAccount`）用该账号的记录，其余渠道用渠道级记录。
-  **三种情况分开说**：领到了 → `已签到 09:12 +1,200 积分`（额度按**四口径阶梯**：
-  渠道自报的 `reward` → 渠道公布的每日发放额 `dailyReward` → 领取前后实测差值 `delta` →
-  跨额度窗口对比 `carry`；前三者都拿不到才用 `carry`，此时追加「（估算）」标注，
-  不把弱口径伪装成准确数字。没涨 / 查不到就不显示，不编 0）；
-  有当天探测结论且上游明确没有可领活动 → `今日无可领`（不附上游原话 —— 面板只回答「签没签 / 领了多少」）；
-  其余 → `未签到`。`supported` / `per_account` / `claimed_today` / `at` / `reward` /
-  `reward_source` / `probe` 由 `accounts` 命令透出，探测结论由自动签到调度器落盘
-  （`signin-ledger.recordProbe`，当天有效）。
-  额度对**旧版本写的记录**（没有 `reward` 字段）与**异步入账**由调度器**有界重试**补回
-  （只对当天的记录，最多 `REWARD_MAX_TRIES = 4` 次；每次重试累加 `rewardTries`，
-  补完写 `null` 表示「问过但报不出」，不会每轮都打扰上游）。
-  口径与实现见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6。
+- **今日签到**（额度详情面板最后一行）：读本地台账，不查上游。
+  - 渠道 `capabilities.signin = false` 时整行不渲染；按账号签到的渠道（`signin.perAccount`）用该账号记录，其余用渠道级记录。
+  - 三种情况分开说：
+
+    | 情况 | 显示 |
+    | --- | --- |
+    | 领到了 | `已签到 09:12 +1,200 积分` |
+    | 上游明确无可领活动 | `今日无可领`（不附上游原话） |
+    | 其余 | `未签到` |
+
+  - 额度按四口径阶梯取：渠道自报 `reward` → 渠道公布每日发放额 `dailyReward` → 领取前后实测差值 `delta` → 跨额度窗口对比 `carry`。前三者都拿不到才用 `carry`，此时追加「（估算）」；没涨或查不到就不显示，不编 0。
+  - 字段 `supported` / `per_account` / `claimed_today` / `at` / `reward` / `reward_source` / `probe` 由 `accounts` 命令透出；探测结论由自动签到调度器落盘（`signin-ledger.recordProbe`，当天有效）。
+  - 旧版本写的记录（无 `reward` 字段）与异步入账由调度器有界重试补回（只对当天记录，最多 `REWARD_MAX_TRIES = 4` 次；补完写 `null` 表示「问过但报不出」）。口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6。
 - **冷却 / 熔断到点时刻**：只给**具体恢复时刻**（`冷却中 · 今天 20:46 恢复`，跨天自动补日期
   `11-07 10:10`）—— 用户要的是「什么时候能用」，相对时长与上游错误原文属多余信息，不再展示
   （错误原文仍留在 `cooldown_reason` 里供排障）。

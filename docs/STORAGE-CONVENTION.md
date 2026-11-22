@@ -92,33 +92,35 @@
 
   运行日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 
-5. **渠道特有文件必须落在自己的 cid 层内**：
-  - `cache/` 可安全删除、可重建（缓存，丢了只是变慢/回落兜底表）
-    - `cache/models.json` —— **远端模型目录缓存**：各渠道 `upstream.fetchModels()`
-      拉到的真实目录，由共享层 `catalog-cache.ts` 原子写入（信封
-      `{version, fetched_at, models}`，权限 `0600`）。
-      - **谁写**：渠道的 `catalog.ts` 在成功拉到远端目录的那一刻写一次（每次成功拉取覆盖）。
-      - **谁读**：同一渠道的 `catalog.ts` 在**首次被问**时读一次做种子 —— 于是
-        `model list` 这类**新进程**能看到真实目录，而不是回落到随包发布的兜底快照。
-      - **常态是读、不是写**：`model list` 命中缓存时**不打网络**；只有本地没有缓存
-        （首次使用）才会拉一次并记录。要更新用 `model <cid> --refresh`
-        （三级来源的优先级口径见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
-      - **可安全删除**：删掉只影响下一个新进程的显示（回到兜底表），不影响登录态与额度。
-      - 没有远端目录层的渠道不会产生这个文件（它只是「不存在」，不是错误）。
-     - 渠道**自有的**缓存文件（同样在 `cache/` 下，同样可安全删除）：
+5. **渠道特有文件必须落在自己的 cid 层内**。渠道目录下有三类子目录：
 
-       | 文件 | 渠道 | 内容 |
-       |---|---|---|
-       | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
-  - `state/` 跨重启保持的**状态**：`state/signin.json`（签到台账：
-    `{version, timezone, last_claim, history, accounts?, probe?, probes?}`，由共享层在**领取成功**
-    或自动签到回填时写入；`last_claim`/`accounts[key]` 的字段与口径见
-    [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6）、
-    `state/auto-signin.json`（自动签到的当日失败计数，连败 3 次熔断）。
-  - `debug/` 抓包落盘默认位置（`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径）。
-    它抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，恒开启，
-    见 [LOGGING.md](./LOGGING.md) §9）—— 两者互补，不要混用。
-  - **禁止**写 `~/` 下任何其它目录（含 `~/.cache/`、`~/.config/`）
+### 5.1 `cache/` —— 可安全删除、可重建
+
+- `cache/models.json`：远端模型目录缓存，由渠道 `catalog.ts` 在成功拉取时原子写入（0600，信封 `{version, fetched_at, models}`）。
+  - 写入时机：每次成功拉到远端目录覆盖一次。
+  - 读取时机：同渠道首次被问时读一次做种子，于是 `mx model list` 这类新进程能看到真实目录而非兜底快照。
+  - 常态是读不是写：命中缓存时不打网络；只有本地无缓存（首次使用）才拉一次。要更新用 `mx model <cid> --refresh`（三级来源优先级见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
+  - 删掉只影响下一个新进程的显示（回落到兜底表），不影响登录态与额度。
+  - 没有远端目录层的渠道不产生这个文件（不存在，不是错误）。
+- 渠道自有缓存（同在 `cache/` 下，同样可安全删除）：
+
+  | 文件 | 渠道 | 内容 |
+  | --- | --- | --- |
+  | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
+
+### 5.2 `state/` —— 跨重启保持的状态
+
+- `state/signin.json`：签到台账 `{version, timezone, last_claim, history, accounts?, probe?, probes?}`，由共享层在领取成功或自动签到回填时写入（字段口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6）。
+- `state/auto-signin.json`：自动签到的当日失败计数，连败 3 次熔断。
+
+### 5.3 `debug/` —— 抓包落盘
+
+- 默认位置；`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径。
+- 抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，恒开启，见 [LOGGING.md](./LOGGING.md) §9）。两者互补，不要混用。
+
+### 5.4 禁止项
+
+禁止写 `~/` 下任何其它目录（含 `~/.cache/`、`~/.config/`）。
 6. **权限**：根 `0700`，各 cid 层 `0700`，`credentials.json` 等含密文件 `0600`。
   `logs/payload/` 同样按 `0700` / `0600` 落盘（含用户 prompt）。渠道只能写自己的层。
 7. **命名细则**：全小写；单词用 `-` 连接；扩展名固定 `.json` / `.log` / `.pid`；

@@ -33,12 +33,13 @@
 
 全部 7 个渠道均在册（`RETIRED_CIDS` 为空）。
 
-**每个渠道当前供哪些对外模型、剩余额度多少、成功/失败计数**一律以 `mx model list` 与
-`mx status` 的实时输出为准 —— 文档不手抄这份清单，它随账号状态每次变化。
-机械校验：`scripts/verify-contract.mjs` 保证「渠道目录 == 注册清单 ∪ `RETIRED_CIDS`」，
-`packages/cli/tests/pool.test.ts` 另有一份同口径断言。**候选渠道**由渠道目录
-`exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底；对外规格由**统一模型注册表**
-（`~/.modelmux/models.json`）声明，校验见 `scripts/verify-contract.mjs` 的「统一模型注册表」段。
+每个渠道当前供哪些对外模型、剩余额度多少、成功 / 失败计数，一律以 `mx model list` 与 `mx status` 的实时输出为准（文档不手抄，随账号状态每次变化）。
+
+| 项 | 来源与校验 |
+| --- | --- |
+| 渠道目录 | `scripts/verify-contract.mjs` 保证「渠道目录 == 注册清单 ∪ `RETIRED_CIDS`」；`packages/cli/tests/pool.test.ts` 另有同口径断言 |
+| 候选渠道 | 渠道目录 `exposedIds()` 现算 ∪ 注册表 `channels` 声明兜底 |
+| 对外规格 | 统一模型注册表 `~/.modelmux/models.json`（校验见 `verify-contract.mjs` 的「统一模型注册表」段） |
 
 ## 架构落点
 

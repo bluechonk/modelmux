@@ -23,31 +23,63 @@
 
 ## 1. 规范与契约
 
+### 1.1 契约与架构
+
 | 文档 | 一句话 |
 | --- | --- |
 | [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
-| [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：DeepSeek 统一模型池（裸模型名 + **按账号池剩余额度跨渠道选路**、目录三级来源与兜底，§2）+ 池元数据取值与**跨渠道同 id 兜底**（§2.6 / §2.7）+ 账号池（多账号 / 连败标记 / 手动切号 / **额度耗尽自动换号** / 渠道侧的按账号状态，§3） |
-| [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避/代次作废/父死自退） |
-| [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型/日期/结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
-| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：mx web 三页深色看板（仪表盘 / 账号池 / 请求日志；模型清单与一键接入在仪表盘）的架构、构建与 API 面貌 |
-| [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：仪表盘用量区块的数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的内容设计对照与交互差异 |
-| [DESKTOP-APP.md](./DESKTOP-APP.md) | **桌面壳（Windows 安装版 exe）**：形态与行为、构建步骤、路径敏感性实测、MotW 与签名真相、存储根与凭据红线 |
-| [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) | **桌面壳主体化迁移方案（设计方案）**：厚壳 + 进程外网关的目标架构、shell token 鉴权、生命周期重划、PR 拆分与决策点；现行壳契约仍在 DESKTOP-APP.md |
-| [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议（OpenAI chat / Anthropic Messages / OpenAI Responses）、模型名解析（家族裸名 + Claude Desktop 角色映射 + 家族外 400）、客户端一键接入与手工配置、真机验证矩阵 |
-| [backup/translation/TRANSLATION.md](./backup/translation/TRANSLATION.md) | **请求上下文翻译（已下线，方案留档）**：英译中的判定算法、分块与缓存策略、网关代发的取舍、入参上限 —— 功能随上下文弹窗移除，代码已删，方案留给后续项目复用 |
-| [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘设计方案**：/web/ 首页运行视图的模块划分、布局与数据通道；现行规则见 WEB-CONSOLE.md |
-| [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本/端口、渠道能力表、架构分层、排队重试、开发与验证方式、已知边界（状态快照） |
-| [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
-| [WORKFLOW.md](./WORKFLOW.md) | **工作流细则**：worktree 约束、浏览器视觉校验、临时探测脚本、测试红线与已知隐患、构建模型、推送门禁、版本与发版、提交信息规范（根 `AGENTS.md` 只留摘要，细则在此） |
-| [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录与署名不进注释（git 是唯一事实源）的判据与正反例 |
-| [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：诊断用取值链、文件格式、`mx model spec` CLI 命令、写入与联网搜索流程（对外规格已改由 [MODEL-CATALOG.md](./MODEL-CATALOG.md) 的注册表决定） |
-| [MODEL-CATALOG.md](./MODEL-CATALOG.md) | **统一模型注册表（`models.json`）**：`/v1/models` 的数据源、字段模型、校验与回落、与渠道目录的关系 |
-| [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复的设计依据**：`error` 终态 → 熔断器三态 + 指数退避 + 惰性半开试探；现行规则见 POOL-ARCHITECTURE.md §2.4 / §3.3 |
-| [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据（快照 → 实时重查）、换号守的边界（不换鉴权失败、不重复应答、一次请求最多换一次） |
+| [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：统一模型池（裸模型名 + 按账号池剩余额度跨渠道选路、目录三级来源与兜底）+ 池元数据取值 + 账号池（多账号 / 连败标记 / 额度耗尽自动换号） |
+| [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避 / 代次作废 / 父死自退） |
+| [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议、模型名解析、一键接入与手工配置、真机验证矩阵 |
+
+### 1.2 运维与日志
+
+| 文档 | 一句话 |
+| --- | --- |
+| [LOGGING.md](./LOGGING.md) | **运行日志规范**：类型 / 日期 / 结果分文件、访问日志字段与慢请求定位、轮转与保留、`mx log` |
 | [LOG-PAYLOAD-DESIGN.md](./LOG-PAYLOAD-DESIGN.md) | **日志正文抓取的设计依据**：单条上限 10MB、超限双端兜底；现行规则见 LOGGING.md §9 |
-| [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) | **缓存命中率口径**：DeepSeek 官方字段与加和关系、命中率公式（官方无明文，业界推导）、12 天实测的各渠道字段形态表、三类形态的分派归一化规则、展示精度规则 |
-| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：各参考仓库的许可证、只借鉴不复制代码的边界、npm 生态依赖许可证、新增参考的登记流程 |
+| [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md) | **按账号账单与额度耗尽自动换号**：`mx bill --accounts` 的口径、两段式账单判据、换号边界 |
+| [ACCOUNT-CIRCUIT.md](./ACCOUNT-CIRCUIT.md) | **账号熔断自动恢复的设计依据**：三态 + 指数退避 + 惰性半开试探；现行规则见 POOL-ARCHITECTURE.md §2.4 / §3.3 |
+
+### 1.3 Web 控制台
+
+| 文档 | 一句话 |
+| --- | --- |
+| [WEB-CONSOLE.md](./WEB-CONSOLE.md) | **Web 控制台**：四页看板（仪表盘 / 账号池 / 请求日志 / API Keys）的架构、构建、API 面貌与交互铁律 |
+| [DASHBOARD-DESIGN.md](./DASHBOARD-DESIGN.md) | **仪表盘布局规则**：栅格与断点、数据通道；现行页面结构见 WEB-CONSOLE.md |
+| [USAGE-STATS.md](./USAGE-STATS.md) | **用量口径**：数据源、指标公式（只计模型请求 / 缓存分母 / 连续天数）、与 ZCode「使用统计」的对照 |
+| [CACHE-HIT-RATE.md](./CACHE-HIT-RATE.md) | **缓存命中率口径**：官方字段与加和关系、命中率公式、各渠道字段形态表、归一化规则 |
+
+### 1.4 模型
+
+| 文档 | 一句话 |
+| --- | --- |
+| [MODEL-CATALOG.md](./MODEL-CATALOG.md) | **统一模型注册表（`models.json`）**：`/v1/models` 的数据源、字段模型、校验与回落 |
+| [MODEL-SPECS.md](./MODEL-SPECS.md) | **模型规格清单（`model-specs.json`）**：取值链、文件格式、`mx model spec`、联网补全流程 |
+
+### 1.5 桌面壳
+
+| 文档 | 一句话 |
+| --- | --- |
+| [DESKTOP-APP.md](./DESKTOP-APP.md) | **桌面壳（Windows 安装版 exe）**：形态与行为、构建步骤、路径敏感性、MotW 与签名、存储根与凭据红线 |
+| [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) | **桌面壳主体化迁移方案**：厚壳 + 进程外网关的目标架构、shell token 鉴权、生命周期重划 |
+
+### 1.6 流程与规范
+
+| 文档 | 一句话 |
+| --- | --- |
+| [WORKFLOW.md](./WORKFLOW.md) | **工作流细则**：worktree 约束、浏览器视觉校验、临时探测脚本、测试红线、构建模型、推送门禁、发版、提交信息规范 |
+| [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
+| [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录不进注释的判据与正反例 |
+| [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：许可证、借鉴边界、npm 依赖许可证、登记流程 |
+
+### 1.7 状态快照与留档
+
+| 文档 | 一句话 |
+| --- | --- |
+| [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本 / 端口、渠道能力表、架构分层、开发与验证方式、已知边界 |
+| [backup/translation/TRANSLATION.md](./backup/translation/TRANSLATION.md) | **请求上下文翻译（已下线，方案留档）**：判定算法、分块与缓存、网关代发取舍 |
 
 ## 2. 项目官网 `docs/index.html`
 

@@ -5,6 +5,17 @@
 实现落点：共享层归一化在 `packages/core/gateway/src/runtime/log-store.ts`（`tokensOf`），
 展示在 `packages/ui/src/lib/log-format.ts` 与各页面。
 
+## 目录
+
+- [1. 官方字段（DeepSeek 明文）](#1-官方字段deepseek-明文)
+- [2. 命中率公式](#2-命中率公式)
+- [3. 计费口径下的指标价值](#3-计费口径下的指标价值)
+- [4. 机制与边界](#4-机制与边界)
+- [5. 各渠道 usage 形态](#5-各渠道-usage-形态)
+- [6. 归一化规则（本仓库口径）](#6-归一化规则本仓库口径)
+- [7. 展示方案（**上游不给比率，展示层按计数折算**）](#7-展示方案上游不给比率展示层按计数折算)
+- [8. 参考来源与性质标注](#8-参考来源与性质标注)
+
 ## 1. 官方字段（DeepSeek 明文）
 
 来源：<https://api-docs.deepseek.com/api/create-chat-completion>、<https://api-docs.deepseek.com/guides/kv_cache>
