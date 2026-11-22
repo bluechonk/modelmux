@@ -2,14 +2,15 @@
 /**
  * 提交拓扑校验：**禁止冗余 merge**。
  *
- * 判据：一个 merge commit 若其 tree 与**第二副父**的 tree 逐字节相同，
- * 则该 merge 不承载任何内容差异 —— 它只是「单提交 PR」的 fast-forward 包装，
- * 会让同一条改动在 `git log --oneline` 里出现两次（标题也往往重复）。
+ * 判据：merge commit 的 tree 等于第二副父的 tree **且**第一父没有这棵树 ——
+ * 即当前分支树原样跳到 head 侧的树，head 的改动不经第一父就进线（「单提交 PR」的
+ * fast-forward 包装），同一条改动会在 `git log --oneline` 里出现两次（标题也往往重复）。
  *
- * 「tree 与第一父相同」是另一形态，**放行**：本仓 main 只进 squash，dev 的原始
- * 提交历史与 main 永久分叉，同步分叉只能 merge main 进 dev——此时 main 的内容
- * 是 dev 历史的子集快照，merge 的 tree 恒等于第一父 tree（内容零变化），承载的
- * 是第二父的历史并入本身。把它当冗余拦掉，dev 与 main 的假冲突会越积越多。
+ * 两类**放行**的历史同步 merge（本仓 main 只进 squash，dev 的原始提交历史与 main
+ * 永久分叉，同步只能 merge main 进 dev）：
+ * 1. tree 等于第一父、不等于第二父——main 快照是 dev 历史的子集，合并对 dev 零内容变化；
+ * 2. tree 与两父都相同——squash 提交树本就等于 dev 末态（合并 PR 后立刻同步的常态）。
+ * 把它们当冗余拦掉，dev 与 main 的假冲突会越积越多。
  *
  * 为什么需要它：这类冗余 merge 靠人工发现太晚（历史上已清理过 6 个，之后又出现了
  * 一次）。规则化的检测比一次性清理可靠 —— 会直接在 `npm test` 里失败。
@@ -57,12 +58,14 @@ for (const hash of hashes) {
 
   const tree = execFileSync("git", ["rev-parse", `${hash}^{tree}`], { encoding: "utf8" }).trim();
   checked++;
+  const firstTree = execFileSync("git", ["rev-parse", `${parents[0]}^{tree}`], { encoding: "utf8" }).trim();
 
-  // 只对第二副父起判（跳过第一父）：tree == 第二父 = head 侧树被原样带入的
-  // fast-forward 包装；tree == 第一父 = squash-only 工作流的历史同步（见文件头）。
+  // 只拦「tree == 第二父 且 第一父没有这棵树」：head 侧树被原样带入的 fast-forward 包装。
+  // tree 与两父都相同（squash 快照原样同步）与 tree == 第一父（dev 增量同步）都放行，
+  // 见文件头——它们承载的是第二父的历史并入，不是包装。
   for (const p of parents.slice(1)) {
     const ptree = execFileSync("git", ["rev-parse", `${p}^{tree}`], { encoding: "utf8" }).trim();
-    if (tree === ptree) {
+    if (tree === ptree && firstTree !== ptree) {
       problems.push(
         `${short}  冗余 merge（tree 与父 ${p.slice(0, 7)} 完全相同）：${subject}\n` +
           `          修法：合并时避免单提交 PR 的 fast-forward 包装，或本地 git rebase 后快进`,
@@ -79,6 +82,6 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `提交拓扑校验通过：${checked} 个合并提交均为真实合并（tree 不等于第二副父）` +
+  `提交拓扑校验通过：${checked} 个合并提交均为真实合并或历史同步（无 fast-forward 包装）` +
     `${range ? `（范围 ${range}）` : ""}`,
 );
