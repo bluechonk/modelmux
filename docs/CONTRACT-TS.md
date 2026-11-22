@@ -256,8 +256,8 @@ Claude Desktop 直连网关时只会发 `claude-sonnet-4-5` / `claude-opus-4-5` 
 - 角色名**不是**家族名的通配：`claude-opus-9-9`、`claude-sonnet-4-5-20260101` 仍返回 400，
   不引入「任何 `claude-*` 都放行」的口子。
 - 协议入站（`/v1/messages`、`/v1/responses`）**不得**把家族外名字静默改写成「有货的
-  第一个池模型」—— 那会让跑错模型的请求看起来成功（事故记录见 `relay.ts` 的
-  `poolModelOrNull` 注释）。
+  第一个池模型」—— 那会让跑错模型的请求看起来成功（依据见 `relay.ts` 的
+  `resolveInboundModel` 注释）。
 
 ---
 

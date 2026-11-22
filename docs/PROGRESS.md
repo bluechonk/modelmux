@@ -79,14 +79,13 @@ Windows 安装版 exe（Electron，NSIS 一键安装）：双击 → 自启网�
 换机迁移整目录拷贝 `~/.modelmux`。构建 `npm run desktop`，规范与路径约束见
 [DESKTOP-APP.md](./DESKTOP-APP.md)。
 
-## 排队重试（上游 200 + 流内排队帧）
+## 排队处理（上游 200 + 流内排队帧）
 
-渠道声明 `upstream.isQueueError(frame)` 后，网关在**响应头发出前**探测并按
-`retryAfterSeconds` 退避重开上游：
+渠道声明 `upstream.isQueueError(frame)` 后，网关在**响应头发出前**探测：
 
-- 单帧退避上限 12 秒，总预算 **120 秒**（`MODELMUX_QUEUE_BUDGET_MS` 可覆盖）。
-- 提醒走 `reasoning_content`（进思考块），每条以空行收尾；超预算时回正文劝换渠道。
-- 排队解除后补一条正文「排队成功，开始生成…」作为分界。
+- 探测到排队帧即**放弃本候选、换下一条**，不按 `retryAfterSeconds` 等待。
+- 探测消费掉的帧按原序交回转发层，且与转发复用同一个翻译器实例。
+- 响应头一旦写出就无法换候选，故探测只在写头前进行。
 
 详见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4 与 [CONTRACT-TS.md](./CONTRACT-TS.md) §5。
 

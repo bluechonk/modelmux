@@ -339,10 +339,8 @@
 - 探测阶段已消费的帧**按原序补写**给客户端再续传剩余流，不丢前缀；探测用的**翻译器实例
   也一并与转发层共享**（它的行缓冲里可能还有半行）。
 
-早先那套「按 `retryAfterSeconds` 退避重试 + 排队进度文案 + 超预算劝换渠道 + 排队成功分界」
-已全部移除（2026-11-08）：qoder 实测首轮就要等 15s+、整轮可拖到两分钟，等待换来的结果是
-客户端早已超时走人。相应的预算常量（`MODELMUX_QUEUE_BUDGET_MS`）、放弃文案与
-`queuedOut` / `giveUpText` 两个状态字段一并删除。
+排队请求一律不接受：探测到上游排队即换下一条候选，不按 `retryAfterSeconds` 退避等待。
+qoder 实测首轮就要等 15s+、整轮可拖到两分钟，等待的结果是客户端早已超时走人。
 
 注意：账号切换一律**手动**：鉴权失败只刷新 token 重试本账号，失败就标记不可用，
 由用户 `mx acct <cid> use <key>` 决定下一步（见 §3.3）。
@@ -516,8 +514,8 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 - **兜底表必须能真的兜住**：用**真实上游 id**，不用占位名（占位名如 `catpaw-flash`，
   上游根本不存在，选中必然失败）。
 - **兜底表的形态随上游协议而定**：目录条目表（多数渠道）、上游目录快照
-  （qoder 系的目录快照）、上游元数据快照（同族实现的 `STATIC_META`，
-  供请求体的 `model_config` 用）、以及**上游协议要求的数值表**（catpaw 的
+  （qoder 系的目录快照）、上游元数据快照（供请求体的 `model_config` 用）、
+  以及**上游协议要求的数值表**（catpaw 的
   `modelType` 数值表 —— turn / round 的请求体要的是**数字** modelType 而不是模型名，
   目录拉不到时没有这张表就等于全部模型不可用）。
 - **共享层不持有任何兜底模型**：目录读不出来时 `poolModels()` 返回空
@@ -560,7 +558,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   都依赖它；`accounts/` 承载多账号。
 - `accounts.json` 每条的元信息：`key` / `uid` / `nickname` / `domain`（realm）/ `expires_at` /
   `last_used` / `health`（`ok` / `unauthorized` / `error` / `cooldown` / `unknown`）。
-- `account-key` 用渠道已有的稳定标识派生（JWT sub / `sha256(token)[:16]` / `accountId` 等），
+- `account-key` 用渠道已有的稳定标识派生（JWT sub / `sha256(token)[:16]` / 渠道账号 id 等），
  **不要用递增序号**（重登会串号）。
 
 ### 3.2 接口

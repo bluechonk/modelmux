@@ -47,8 +47,7 @@
    或在该树里重新 `npm link`。
 5. 工作树产物不入库：`.zcode/` 与 `.agents/worktrees/` 在 `.gitignore` 里
    （`verify-storage` 也因此不会扫到树内产物）。
-6. 并行任务用 `PLAN_ID` 绑定 `.planning/`，不要把计划文件写到别的树。
-7. `.githooks/pre-push` 用 `git rev-parse --show-toplevel` 解析当前工作树；不要在 hook 里
+6. `.githooks/pre-push` 用 `git rev-parse --show-toplevel` 解析当前工作树；不要在 hook 里
    用 hook 文件所在目录推导仓库根（linked worktree 会指到主工作树）。
 
 ## 浏览器视觉校验
