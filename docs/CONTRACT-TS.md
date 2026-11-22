@@ -265,7 +265,7 @@ Claude Desktop 直连网关时只会发 `claude-sonnet-4-5` / `claude-opus-4-5` 
 共享层的 `gateway.ts` / `headless.ts` / `daemon.ts` / `auth-flow.ts` 按这套接口调用渠道模块。
 **导出签名以 `packages/core/gateway/src/runtime/channel.ts` 的类型定义与各渠道实现为准** ——
 `tsc -b` 就是签名的校验器，本文不抄写签名（抄写必漂移）。本节只记录**编译器管不到的语义约定**：
-行为契约、禁止事项、与「为什么」。
+行为契约、禁止事项与判据依据。
 
 > 类型定义在 `packages/core/gateway/src/runtime/channel.ts`（`CredModule` / `UpstreamModule` /
 > `CatalogModule` / `BillingModule`）。凭据/配置的具体形态各渠道不同，故这些位置用
