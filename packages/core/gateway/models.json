@@ -25,7 +25,8 @@
       "contextWindow": 1000000,
       "maxOutput": 100000,
       "inputModalities": [
-        "text"
+        "text",
+        "image"
       ],
       "channels": {
         "codebuddycn": "kimi-k3.1-pro",
