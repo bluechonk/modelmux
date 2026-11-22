@@ -20,6 +20,9 @@ export const config: ChannelConfig = {
   defaultAddr: "127.0.0.1:8790",
   uiPort: 8791,
   debugDumpEnv: "CATPAW_DEBUG_DUMP",
+  // 上游没有每日签到端点（billing.signin 只承载注册奖励申领）；不关能力位，
+  // 自动签到会每天对 credit/register 发无效请求，UI 还会显示假「已签到」。
+  capabilities: { signin: false },
 };
 
 export const channel: Channel = { config, cred, upstream, catalog, billing };

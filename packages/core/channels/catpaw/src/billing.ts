@@ -175,9 +175,11 @@ async function claimRegister(): Promise<{ result: RegisterResult; raw: Record<st
  */
 export const signin: SigninModule = {
   async status() {
+    // claimable=false 是契约对「上游没有每日签到」的指定表达：报 true 会让自动签到
+    // 每天对 credit/register 发无效请求，并把台账记成假「已签到」透给 UI。
     return {
-      claimable: true,
-      summary: "存在注册奖励申领端点（credit/register，幂等；上游没有每日签到）",
+      claimable: false,
+      summary: "上游没有每日签到；signin 只承载注册奖励申领（credit/register，幂等）",
     };
   },
   async claim() {
