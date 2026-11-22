@@ -88,7 +88,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   关闭不单独铺红 —— 三种 hover 色会让三个按钮看起来像三种控件。
 - 图标统一用 `lucide-react`，尺寸三档：12（小徽标）/ 14（行内）/ 16（面板标题）。
 - **品牌 mark 是内联组件**（`components/BrandMark.tsx`，极简鲸鱼剪影 +
-  分叉尾鳍 = 多条渠道，单色、16px 清晰），与 `assets/favicon.svg` 同形（白色）；
+  分叉尾鳍 = 多条渠道，单色、16px 清晰），与 `assets/favicon-32.png` 同形（白色）；
   颜色跟随 `className` 的 `text-*` 令牌（顶部导航用 `text-ink`）。
 
 ## 页面结构
@@ -572,15 +572,15 @@ web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端�
 
 ### 静态资源落点：必须走 `src/assets/`，不要放 `public/`
 
-页面图标在 `packages/ui/src/assets/favicon.svg`，由 `index.html` 以 `/src/assets/favicon.svg`
-引用。Vite 会把它打进 `assets/` 并加内容哈希（产物形如 `/web/assets/favicon-<hash>.svg`）。
+页面图标在 `packages/ui/src/assets/favicon-32.png`，由 `index.html` 以 `/src/assets/favicon-32.png`
+引用。Vite 会把它打进 `assets/` 并加内容哈希（产物形如 `/web/assets/favicon-32-<hash>.png`）。
 
 **不能放 `public/`**：console handler 只托管两个静态位置 —— 前缀根 `/web/`（返回
 `index.html`）与 `/web/assets/*`；其余 GET 一律走 SPA 回退（`console.ts` 的
-`serveStatic(res, WEB_UI_INDEX)`）。放 `public/` 的 `/web/favicon.svg` 会被回退成 HTML
-而拿不到 SVG。同理，图标不要声明成 `/web/favicon.svg` 这类前缀根路径。
+`serveStatic(res, WEB_UI_INDEX)`）。放 `public/` 的 `/web/favicon-32.png` 会被回退成 HTML
+而拿不到 SVG。同理，图标不要声明成 `/web/favicon-32.png` 这类前缀根路径。
 
-在 `index.html` 里显式声明 `<link rel="icon" type="image/svg+xml" href="/src/assets/favicon.svg">`
+在 `index.html` 里显式声明 `<link rel="icon" type="image/png" sizes="32x32" href="/src/assets/favicon-32.png">`
 还有第二个作用：浏览器不再去要默认的 `/favicon.ico` —— 那个路径在网关根下不存在，
 会以 `not_found` 写进 `access/<date>/failure.log`，属纯噪音。
 

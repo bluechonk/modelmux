@@ -85,12 +85,12 @@
 | 渠道 | 有缓存字段 / 总条数 | 出现过的字段签名 | 加权命中率 |
 |---|---|---|---|
 | loomy | 13224 / 13674 | `prompt_tokens_details.cached_tokens` | 98.4% |
-| workbuddy | 4123 / 4227 | 两套风格全给（`prompt_cache_hit_tokens` + `miss` + `prompt_tokens_details.cached_tokens` + 顶层 `cached_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens` + `prompt_cache_write_tokens`） | 96.9% |
+| workbuddy | 4123 / 4227 | 两套风格全给（7 个字段，见下） | 96.9% |
 | raccoon | 707 / 814 | `prompt_tokens_details.cached_tokens` | 86.0% |
-| lobsterai | 297 / 319 | `prompt_tokens_details.cached_tokens`；1 条另带 `prompt_cache_hit_tokens` + `miss` | 96.4% |
-| qodercn | 155 / 187 | `prompt_tokens_details.cached_tokens` | 86.1% |
 | catpaw | 0（历史）→ 已映射 | `prompt_tokens_details.cached_tokens` | 见 §5.2 |
 | traecn | **0** | 只有 `prompt_tokens` / `completion_tokens` / `total_tokens` | — |
+
+workbuddy 的 7 个缓存字段：`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` / `prompt_tokens_details.cached_tokens` / 顶层 `cached_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` / `prompt_cache_write_tokens`。
 
 要点：
 
@@ -98,7 +98,7 @@
   其中多数是第三方聚合上游（loomy / raccoon 等），它们把模型侧的 KV cache 计数透传上来。
 - **字段是自洽的上游统计，不是被中途改写**：全渠道 **0 条 `hit > prompt`、0 条负值**；
   workbuddy 的 4123 条 DeepSeek 形态**全部**满足官方等式 `hit + miss == prompt`。
-- 同一渠道**混合形态**很常见（lobsterai 个别请求多给双字段、loomy 少数请求完全不给）——
+- 同一渠道**混合形态**很常见（loomy 少数请求完全不给缓存字段）——
   归一化必须**逐条按字段判断**，不能按渠道写死。
 - 同一渠道**不同模型**形态也可能不同：实测（2026-10-29）`loomy/spark-x2.6` 的 usage
   只有 `prompt_tokens` / `completion_tokens` / `total_tokens` + `points_consumed`，

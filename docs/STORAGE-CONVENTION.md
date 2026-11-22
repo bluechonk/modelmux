@@ -92,9 +92,11 @@
 
   运行日志统一在 `<root>/logs/`（见 [`LOGGING.md`](./LOGGING.md)）。
 
-5. **渠道特有文件必须落在自己的 cid 层内**。渠道目录下有三类子目录：
+### 3.1 渠道目录的子目录
 
-### 5.1 `cache/` —— 可安全删除、可重建
+渠道特有文件必须落在自己的 cid 层内。渠道目录下有三类子目录。
+
+#### `cache/` —— 可安全删除、可重建
 
 - `cache/models.json`：远端模型目录缓存，由渠道 `catalog.ts` 在成功拉取时原子写入（0600，信封 `{version, fetched_at, models}`）。
   - 写入时机：每次成功拉到远端目录覆盖一次。
@@ -108,17 +110,17 @@
   | --- | --- | --- |
   | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
 
-### 5.2 `state/` —— 跨重启保持的状态
+#### `state/` —— 跨重启保持的状态
 
 - `state/signin.json`：签到台账 `{version, timezone, last_claim, history, accounts?, probe?, probes?}`，由共享层在领取成功或自动签到回填时写入（字段口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6）。
 - `state/auto-signin.json`：自动签到的当日失败计数，连败 3 次熔断。
 
-### 5.3 `debug/` —— 抓包落盘
+#### `debug/` —— 抓包落盘
 
 - 默认位置；`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径。
 - 抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，恒开启，见 [LOGGING.md](./LOGGING.md) §9）。两者互补，不要混用。
 
-### 5.4 禁止项
+#### 禁止项
 
 禁止写 `~/` 下任何其它目录（含 `~/.cache/`、`~/.config/`）。
 6. **权限**：根 `0700`，各 cid 层 `0700`，`credentials.json` 等含密文件 `0600`。
@@ -139,3 +141,33 @@
    `update.json`（版本更新检测状态：上次检查时间 / 最近结果，
    见 `docs/WEB-CONSOLE.md` 的设置弹窗版本行）。走 `paths.rootFile()`
    或 `paths.logsDir()`，文件名同样受本节第 7 条的校验。
+
+## 4. 环境变量
+
+存储与运行时行为的环境变量总表。取值非数字、`<= 0` 或未设置时回落到默认值。
+
+| 变量 | 作用 | 默认 |
+| --- | --- | --- |
+| `MODELMUX_HOME` | 存储根 | `~/.modelmux` |
+| `MODELMUX_KEYRING` | API key 主密钥文件 | OS 配置目录下 `keyring/api-key.key` |
+| `MODELMUX_REGISTRY_FILE` | 统一模型注册表 | `<root>/models.json` |
+| `MODELMUX_WEB_UI_ROOT` | 控制台静态资源根 | 随包 `dist/ui` |
+| `MODELMUX_ADDR` | 外部守护探测地址 | `127.0.0.1:4412` |
+| `MODELMUX_START_WAIT_MS` | 启动健康等待 | 30000 |
+| `MODELMUX_CATALOG_REFRESH_MS` | 模型目录刷新间隔 | 3 天 |
+| `MODELMUX_BILLING_REFRESH_MS` | 账单刷新间隔 | 5 分钟 |
+| `MODELMUX_READ_TIMEOUT_MS` | 上游读超时 | 120000 |
+| `MODELMUX_ERROR_BODY_TIMEOUT_MS` | 错误体读取超时 | 10000 |
+| `MODELMUX_HEARTBEAT_MS` | SSE 首字节心跳间隔 | 5000 |
+| `MODELMUX_POOL_MAX_TRIES` | 池内换号尝试上限 | 不限（遍历全部候选） |
+| `MODELMUX_PROBE_RETRY_MAX` | 探测重试上限 | 0 |
+| `MODELMUX_LOG_MAX_BYTES` | 单文件日志轮转大小 | 10MB |
+| `MODELMUX_LOG_RETENTION_DAYS` | 日志保留天数 | 14 |
+| `MODELMUX_LOG_PAYLOAD_MAX_BYTES` | 单条正文上限 | 10MB |
+| `MODELMUX_LOG_PAYLOAD_DAYS` | 正文保留天数 | 3 |
+| `MODELMUX_LOG_PAYLOAD_CIDS` | 正文抓取渠道白名单 | 全部 |
+| `MODELMUX_SLOW_TTFB_MS` | 首字慢阈值 | 10000 |
+| `MODELMUX_SLOW_TPS` | 速率慢阈值 | 30 |
+| `MODELMUX_UPDATE_REPO` | 检查更新的 GitHub 仓库 | `bluechonk/modelmux` |
+
+日志类变量的生效点见 [LOGGING.md](./LOGGING.md) §6。渠道层另有各渠道自己的变量（`<CID>_DEBUG_DUMP` 等），见 [PROGRESS.md](./PROGRESS.md)。

@@ -79,20 +79,17 @@ docs/channels/<cid>/
 
 ## 端到端测试现状
 
-下表为 2026-10-26 用 opencode 侧逐渠道实测（该技能已退役，现行端到端用 `dsh-mx-test` 技能）：
-「冒烟 + Agent 工具往返 + 日志判据 + 账单核对」，只用**免费或倍率最低**的模型。
-判据：access 日志 `status 200` / `stream true` / 客户端侧工具调用可见（`toolCount` 只是请求
-工具数，不是调用判据）/ `messageCount` 随工具轮次递增，错误日志无该渠道新增条目。
+下表为当前 7 个在册渠道的端到端冒烟基线（判据：access 日志 `status 200` / `stream true` / 客户端侧工具调用可见 / `messageCount` 随工具轮次递增，错误日志无该渠道新增条目）。现行端到端用 `dsh-mx-test` 技能，只发免费或最低倍率模型。
 
-| 渠道 | 测的模型 | 结果 | 备注 |
+| 渠道 | 是否在册 | 端到端 | 备注 |
 | --- | --- | --- | --- |
-| `catpaw` | `longcat-2.0`（倍率 0） | 通过 | |
-| `lobsterai` | `deepseek-flash`（倍率 0.05） | 通过 | 扣费与倍率相符（账号被上游封停） |
-| `loomy` | `spark-x`（倍率 0） | 通过 | 工具往返通过、零扣费；冷启动首字较慢 |
-| `qodercn` | `qwen3.8-flash`（倍率 0） | **受限** | 同 qoder（上游排队） |
-| `raccoon` | `glm-5.3-flash`（倍率 0.2） | 通过 | 扣费与倍率相符 |
-| `traecn` | `doubao-seed-code`（倍率 0.06） | 通过 | 扣费与倍率相符 |
-| `workbuddy` | `hy3`（倍率 0） | 通过 | |
+| `catpaw` | 是 | 通过 | 上游无每日签到（只有注册奖励申领） |
+| `codebuddycn` | 是 | 通过 | |
+| `loomy` | 是 | 通过 | 冷启动首字较慢 |
+| `qwenworkcn` | 是 | 受限 | qoder 系上游排队饱和 |
+| `raccoon` | 是 | 通过 | token 失效后需手动 `mx acct <cid> use <key>` 切号 |
+| `traecn` | 是 | 通过 | 额度窗口按上游 10:00 UTC+8 切分 |
+| `workbuddy` | 是 | 通过 | |
 
 **已知问题**（下一轮跟进）：
 

@@ -79,7 +79,9 @@
 | `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
 | `queued` | boolean | **进过上游排队**（收到排队帧并等待重试）。只在为真时写，缺省 = 没收到排队帧 | 排队帧到达时（`noteQueued`） |
 | `ua` | string | 客户端 User-Agent（截断 160 字符）。**只在未知路径 404 上写**：`/api/hello` 这类幽灵探针只能靠它认领来源 | 未知路径应答时（`noteRequestUa`） |
-| `route` | object | **选路快照**：`{ est, candidates[], attempts[], skipped[{cid,why}] }`。`est` 是输入估算 token，`candidates` 是全部候选顺序，`attempts` 是本次实际会试的，`skipped.why` 取 `auth` / `window` / `unauthorized` / `cooling`。落它的原因：路由只在内存里发生，事后「这次为什么走了这家」原本无从查证（2026-11-16 排查 qodercn 单次限流失败时确认） | 候选解析完成时（`noteRequestRoute`） |
+| `route` | object | **选路快照**：`{ est, candidates[], attempts[], skipped[{cid,why}] }` | 候选解析完成时（`noteRequestRoute`） |
+
+`route` 各字段：`est` 是输入估算 token，`candidates` 是全部候选顺序，`attempts` 是本次实际会试的，`skipped.why` 取 `auth` / `window` / `unauthorized` / `cooling`。路由只在内存里发生，落它是为了事后能查「这次走了哪家、为什么」。
 
 > `ttfbMs` 的语义是「**我们**什么时候开始回字节」，不是「上游什么时候开始吐字」：
 > 流式下两者几乎相同（收到首帧即转发），但**非流式下我们收完才写** —— 该值于是 ≈ `durationMs`，
@@ -224,7 +226,7 @@ worker 与网关的每一行输出按下列规则落盘（`headless.ts` 的 `log
 | 单文件大小上限 | 10MB | `MODELMUX_LOG_MAX_BYTES` | 每次追加前检查（`rotateIfNeeded`） |
 | 保留天数 | 14 | `MODELMUX_LOG_RETENTION_DAYS` | 每个进程每天首次写入时清理（`pruneOnce`） |
 | 首字慢阈值 | 10000ms（仅流式） | `MODELMUX_SLOW_TTFB_MS` | 写 `slow.log` 与读路径重算（§3.5） |
-| 速率慢阈值 | 30 t/s（生成量 ≥ 20 tokens） | `MODELMUX_SLOW_TPS` | 同上（`MODELMUX_SLOW_MS` 总时长口径已退役） |
+| 速率慢阈值 | 30 t/s（生成量 ≥ 20 tokens） | `MODELMUX_SLOW_TPS` | 同上 |
 | 上游空闲超时 | 120000ms | `MODELMUX_READ_TIMEOUT_MS` | 转发层读上游时 |
 | 抓取单条正文上限 | 10MB | `MODELMUX_LOG_PAYLOAD_MAX_BYTES` | 抓取落盘时（§9）；超限双端保留（头尾各半） |
 | 抓取保留天数 | 3 | `MODELMUX_LOG_PAYLOAD_DAYS` | `pruneOnce` **先**按它清 `payload/`，再走保留期（§9） |

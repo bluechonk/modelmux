@@ -151,8 +151,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .tmp/link-claude-skills.ps1 -Remov
 
 ## 推送门禁
 
-**由钩子自动执行，不需要手动跑**。`.githooks/pre-push` 在**推送发出之前**跑完与 CI 等价的
-命令，不通过就拦下推送。手动跑只剩「提前发现」这一个意义（commit 之后、push 之前就知道红没红）：
+由钩子自动执行，不需要手动跑。`.githooks/pre-push` 在推送发出之前跑完与 CI 等价的命令，不通过就拦下推送。手动跑只剩「提前发现」这一个意义：
 
 ```bash
 npm run gate          # 提前跑：干净 clone → npm ci → npm test
@@ -160,7 +159,9 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 
 实现见 `scripts/gate.sh`（`pre-push` 只是它的薄包装，两者共用同一份逻辑）。
 
-**门禁测的就是「要推的那个提交」**。pre-push 从 git 喂入的 `<local-ref> <local-sha> <remote-ref> <remote-sha>` 里取值：
+### 测的是哪个提交
+
+pre-push 从 git 喂入的 `<local-ref> <local-sha> <remote-ref> <remote-sha>` 里取值：
 
 | 取什么 | 用途 |
 | --- | --- |
@@ -169,46 +170,44 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 
 源仓库已开 `uploadpack.allowAnySHA1InWant`（由 `scripts/setup-git-hooks.mjs` 接线）。分支删除（local-sha 全零）与不含分支引用的推送跳过门禁。
 
-**建 PR 入口焊死在 `npm run pr`**（`scripts/pr-create.mjs`），把「证绿」与「建 PR」做成一个原子动作：
-工作树必须干净、本地 HEAD 必须等于 `origin/<分支>`、门禁回执必须对应当前 HEAD —— 任一不满足即
-禁提 PR（「本地测试不对劲」不存在带病提交的口子）。回执是 `gate.sh` 成功时写进
-`<git-common-dir>/modelmux-gate-stamp` 的 `<sha> <epoch>`；缺失或过期时入口会现场重跑全量门禁，
-而不是放行。绕过入口直接 `gh pr create` 属违规。
+### 建 PR 的唯一入口
 
-**worktree 里的推送与手动跑不是同一条路径**：`git push` 会向 `pre-push` 注入
-`GIT_DIR`（指向当前 worktree 的 git 目录）等仓库定位变量，它们会污染 `gate.sh`
-内部的 `git clone` 视图 —— 若不清掉，clone 出的仓库缺少待推分支，门禁在 worktree 里
-对**本地新建、尚未推送**的分支恒失败（手动 `npm run gate` 却通过）。
-`gate.sh` 已在开头 `unset` 这类变量；往它里面加 `git` 调用时不要依赖外部仓库定位变量。
+建 PR 入口焊死在 `npm run pr`（`scripts/pr-create.mjs`），把「证绿」与「建 PR」做成一个原子动作：
 
-**真正不可绕过的是 CI**：钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意），
-CI 不能 —— `main` 有分支保护，合并前 `test (node 22)` / `test (node 24)` 必须双绿。
+1. 工作树必须干净；
+2. 本地 HEAD 必须等于远端分支（直接问 `git ls-remote`，不读本地 remote-tracking ref）；
+3. 门禁回执必须对应当前 HEAD。
 
-> 不挂 `pre-commit` 的原因：门禁要干净 clone + `npm ci` + 全链测试（约 3 分钟），挂在每次提交上
-> 会让所有人开始 `--no-verify` —— **自动挡挂错位置比手动更糟**。`pre-push` 是成本与拦截力的平衡点。
+任一不满足即禁提 PR。回执是 `gate.sh` 成功时写进 `<git-common-dir>/modelmux-gate-stamp` 的 `<sha> <epoch>`；缺失或过期时入口会现场重跑全量门禁，而不是放行。绕过入口直接 `gh pr create` 属违规。
 
-**钩子怎么接上的**：git 默认只读 `.git/hooks/`，不认 `.githooks/`，所以根 `package.json` 的
-`prepare` 在 `npm install` 之后自动执行 `scripts/setup-git-hooks.mjs`，把 `core.hooksPath`
-指过来（幂等；非 git 环境只打印提示，不让安装失败）。**新克隆装完依赖即生效，不需要手动配置**。
-确认没接上时手动补一条：
+### worktree 里的特殊处理
+
+`git push` 会向 `pre-push` 注入 `GIT_DIR`（指向当前 worktree 的 git 目录）等仓库定位变量，它们会污染 `gate.sh` 内部的 `git clone` 视图 —— 若不清掉，clone 出的仓库缺少待推分支，门禁在 worktree 里对本地新建、尚未推送的分支恒失败（手动 `npm run gate` 却通过）。`gate.sh` 已在开头 `unset` 这类变量；往它里面加 `git` 调用时不要依赖外部仓库定位变量。
+
+### 绕过与兜底
+
+- 钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意）。
+- 真正不可绕过的是 CI：`main` 有分支保护，合并前 `test (node 22)` / `test (node 24)` 必须双绿。
+- 不挂 `pre-commit`：门禁要干净 clone + `npm ci` + 全链测试（约 3 分钟），挂在每次提交上会让所有人开始 `--no-verify` —— 自动挡挂错位置比手动更糟。`pre-push` 是成本与拦截力的平衡点。
+
+### 钩子如何接上
+
+git 默认只读 `.git/hooks/`，不认 `.githooks/`，所以根 `package.json` 的 `prepare` 在 `npm install` 之后自动执行 `scripts/setup-git-hooks.mjs`，把 `core.hooksPath` 指过来（幂等；非 git 环境只打印提示，不让安装失败）。新克隆装完依赖即生效，不需要手动配置。确认没接上时手动补：
 
 ```bash
 git config core.hooksPath .githooks     # 幂等，与 prepare 等效
 git config --get core.hooksPath         # 应为 .githooks
 ```
 
-一旦接上，**每次 `git push` 都会先跑一遍完整门禁**（干净 clone → `npm ci` → `npm test`，
-约数分钟）。这是本仓的刻意设计：门禁要拦住推送，而不是等 CI 事后发现。
-
 ### 必须 clone 到干净目录的原因
 
 | 差异 | 后果 |
 | --- | --- |
 | `verify:commits` 需要完整 git 历史（CI 用 `fetch-depth: 0`） | 浅克隆会漏 |
-| `npm ci` 装**平台原生依赖**（esbuild 等） | 开发机上的残留依赖不代表 CI 能装 |
+| `npm ci` 装平台原生依赖（esbuild 等） | 开发机上的残留依赖不代表 CI 能装 |
 | 开发工作树自带未提交改动与陈旧产物（`dist/`） | 在工作树上跑，测的不是待推的那个提交 |
 
-门禁因此总是 **clone 一份到干净目录**（缺省每次运行各用独立临时目录，`GATE_DIR` 可指定固定落点）再跑。
+门禁因此总是 clone 一份到干净目录（缺省每次运行各用独立临时目录，`GATE_DIR` 可指定固定落点）再跑。
 
 ### 各阶段的强制范围
 
