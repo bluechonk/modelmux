@@ -63,7 +63,6 @@
 | 文档 | 一句话 |
 | --- | --- |
 | [DESKTOP-APP.md](./DESKTOP-APP.md) | **桌面壳（Windows 安装版 exe）**：形态与行为、构建步骤、路径敏感性、MotW 与签名、存储根与凭据红线 |
-| [DESKTOP-FIRST.md](./DESKTOP-FIRST.md) | **桌面壳主体化迁移方案**：厚壳 + 进程外网关的目标架构、shell token 鉴权、生命周期重划 |
 
 ### 1.6 流程与规范
 
@@ -79,7 +78,6 @@
 | 文档 | 一句话 |
 | --- | --- |
 | [PROGRESS.md](./PROGRESS.md) | **开发进度**：版本 / 端口、渠道能力表、架构分层、开发与验证方式、已知边界 |
-| [backup/translation/TRANSLATION.md](./backup/translation/TRANSLATION.md) | **请求上下文翻译（已下线，方案留档）**：判定算法、分块与缓存、网关代发取舍 |
 
 ## 2. 项目官网 `docs/index.html`
 
