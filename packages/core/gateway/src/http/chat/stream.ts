@@ -115,7 +115,10 @@ export function coolAccountOnQuotaSignal(
   message: string,
   freeModel = false,
 ): void {
-  const signal = inChannel(channel, () => channel.upstream.quotaSignal?.(200, message) ?? null);
+  // 业务码本身也要喂给判据：渠道按报文认码（traecn 靠报文含 `1005`/`4008`），
+  // 只给 message 时码在 `error.code` 里、报文是兜底文案 —— 归类必然落空。
+  const haystack = code === "" || message.includes(code) ? message : `${code} ${message}`;
+  const signal = inChannel(channel, () => channel.upstream.quotaSignal?.(200, haystack) ?? null);
   if (signal === null) return;
   // 免费（×0）模型不吃额度：既不受账号冷却限制，也不该**触发**冷却
   // （与 `attempt.ts::isFreePoolModel` 的既有铁律同口径 —— 实测 loomy 烧光后

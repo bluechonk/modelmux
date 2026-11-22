@@ -75,7 +75,14 @@ export type ForwardResult =
    * `reason` 是给人看的说明（进日志与最终错误文案）：流式与聚合两条路径的
    * 「空」判据不同，文案也就不同 —— 统一在尝试层落地，不在这里重复记账。
    */
-  | { kind: "empty-stream"; reason: string };
+  | { kind: "empty-stream"; reason: string }
+  /**
+   * 非流式聚合出**流内业务错误**（额度耗尽 / Plan 权益不足 / 限流），响应头还没写。
+   *
+   * 与 `empty-stream` 分开：这里上游确实说了话（有码有文案），只是这句话的含义是
+   * 「这家打不动」。记账（冷却账号 + 补失败）已在聚合处就地完成，尝试层只负责换候选。
+   */
+  | { kind: "retry"; error: { status: number; code: string; message: string } };
 
 /** 聚合结果是否「什么都没有」：无 content、无 reasoning、无 token 用量。 */
 
@@ -175,8 +182,17 @@ export async function relayUpstream(
           // 回 502 会被客户端当成「服务端临时故障」无限重试同一条改不了的请求
           //（2026-11-08 实测 Claude Code 连撞 36 次）。与 `attempt.ts` 的
           // 「上游 4xx 业务错原样透传状态码」同一条铁律 —— 流内错误帧路径此前漏了。
-          writeProtocolError(res, isContextLengthExceeded(message) ? 400 : 502, code, message);
-          return { kind: "done" };
+          if (isContextLengthExceeded(message)) {
+            writeProtocolError(res, 400, code, message);
+            return { kind: "done" };
+          }
+          // 其余业务错误（额度耗尽 / Plan 权益不足 / 限流）：此刻**响应头还没写**
+          // （聚合完才 writeJson），交回尝试层换下一条候选 —— 只报错就等于放弃了
+          // 「换一家可能有货」的机会。实测 traecn `1005` 连撞 8 次全是单跳终态。
+          return {
+            kind: "retry",
+            error: { status: 502, code: String(code), message: `[${cid}] ${message}` },
+          };
         }
         // 交回尝试层换下一条候选：非流式也是「聚合完才 writeJson」，此刻还没写头，
         // 直接 502 就放弃了「换一家可能有货」的机会。记账与文案由尝试层统一落地。

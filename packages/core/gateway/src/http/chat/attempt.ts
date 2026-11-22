@@ -850,6 +850,13 @@ export async function attemptCandidate(
       },
     };
   }
+  // 聚合路径的流内业务错误（额度 / Plan 权益 / 限流）：响应头还没写，同样换候选。
+  // 记账（冷却账号、补失败）已在 `forward.ts` 就地完成，这里只交出错误给编排层。
+  if (forwarded.kind === "retry") {
+    logger(`upstream business error (channel ${cid}) — switching to next candidate: ${forwarded.error.code}`);
+    noteRequestError(res, forwarded.error.code, forwarded.error.message);
+    return forwarded;
+  }
   return { kind: "done" };
 }
 
