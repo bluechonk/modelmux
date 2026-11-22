@@ -30,8 +30,12 @@
 ├── pool-usage.json              ← 公共模型池的渠道账本（账单已用量 + 失败冷却）
 ├── models.json                  ← **统一模型注册表**（对外模型 + 规格 + 上游 id 兜底映射）
 │                                   缺失/损坏时回落随包默认表；`MODELMUX_REGISTRY_FILE` 可整体改指向
-├── model-prefs.json             ← **模型级渠道偏好**（**多渠道供给**的对外模型「优先走哪家」，`null` = 自动选路）│                                   由控制台「渠道偏好」下拉写入，见 POOL-ARCHITECTURE.md §2.4
-├── setting.json                 ← **用户级设置**（主题 system/dark/light、禁用渠道表；读写见 runtime/user-settings.ts）
+├── model-prefs.json             ← **模型级渠道偏好**（多渠道供给的对外模型「优先走哪家」，`null` = 自动选路）
+│                                   由控制台「渠道偏好」下拉写入，见 POOL-ARCHITECTURE.md §2.4
+├── model-catalog.json           ← **模型目录快照**（`/v1/models` 的数据源，含来源标记；见 MODEL-CATALOG.md）
+├── codex-model-catalog.json     ← Codex 客户端的模型目录缓存（`mx model` 拉取后落盘）
+├── api-keys.json                ← **对话请求准入密钥**（scrypt 哈希 + 前缀 + AES-GCM 密文；0600，写时留 `.bak`）
+├── setting.json                 ← **用户级设置**（主题、禁用渠道、一键接入自动同步间隔；读写见 runtime/user-settings.ts）
 ├── update.json                  ← **版本更新检测状态**（上次检查时间 / 最近一次结果；
 │                                   读写见 runtime/update-check.ts）
 └── channels/                    ← 唯一渠道层（0.1.2 起）
@@ -39,10 +43,11 @@
     │   ├── credentials.json         当前生效账号（兼容镜像）
     │   ├── accounts.json            账号池索引（active + 元信息）
     │   ├── accounts/<key>.json      单账号凭证
-    │   ├── upstream.json
-    │   ├── prefs.json
-    │   ├── gateway.pid
-    │   ├── gateway-worker.pid
+    │   ├── upstream.json            上游主机记忆（换 host 后持久化）
+    │   ├── models.json              渠道模型目录缓存（`catalog.refresh` 落盘）
+    │   ├── prefs.json               渠道级偏好
+    │   ├── gateway.pid              单渠道独立运行形态的进程 PID（仓库级形态不用）
+    │   ├── gateway-worker.pid       同上，worker PID
     │   ├── cache/                   ← 可安全删除（含 cache/models.json）
     │   ├── state/                   ← 跨重启保持（签到台账等）
     │   └── debug/                   ← 抓包落盘（opt-in）

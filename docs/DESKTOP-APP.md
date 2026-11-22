@@ -68,17 +68,17 @@ npm run desktop        # 拷 payload → desktop/app/ → electron-builder nsis
 
 **安装器会自动结束正在运行的 modelmux，不需要手动退出**：`build/installer.nsh` 的
 `customCheckAppRunning`（electron-builder 认可的替换钩子）直接强杀 `modelmux.exe`
-（打两轮防竞态），装完 `runAfterFinish` 拉起新实例。为什么必须强杀：electron-builder
+（打两轮防竞态），装完 `runAfterFinish` 拉起新实例。必须强杀：electron-builder
 默认走「礼貌关闭」（向窗口发 WM_CLOSE 并等待），而壳的关窗语义是**收进托盘**，
-礼貌关闭永远等不到退出，只会弹「modelmux 无法关闭，请手动关闭」—— 重试永远过不去
-（实测 2026-11-12，交互与静默 `/S` 都被挡死）。安装本来就要替换二进制，强杀是唯一
-自洽的行为；托盘「退出」仍是日常的正常退出方式，强杀只发生在安装场景。
+礼貌关闭永远等不到退出，只会弹「modelmux 无法关闭，请手动关闭」—— 重试过不去
+（实测 2026-11-12，交互与静默 `/S` 都被挡死）。托盘「退出」仍是日常的正常退出方式，
+强杀只发生在安装场景。
 
 这个钩子**整体替换**内置检查，内置的「杀不掉就中止」也随之消失，所以在宏里自己
 复查一次（`nsProcess::FindProcess`）：仍存活则提示后中止，不硬装 —— 否则会留下
 「旧文件已删、新文件写不进去」的半装状态。
 
-**为什么是安装器而不是便携单文件**：electron-builder 的 `portable` 目标（NSIS 模板）
+**采用安装器而非便携单文件**：electron-builder 的 `portable` 目标（NSIS 模板）
 每次启动都 `RMDir /r` 删掉 `%TEMP%` 下的解压目录再全量解压 —— 应用运行时再点一次要等
 约 20 秒（冷启动约 6 秒），且删的正是正在运行的程序的文件。装到固定目录后没有解压，
 第二次启动 0.3s 内触发单实例事件、窗口立即前置。
@@ -95,10 +95,10 @@ npm run desktop        # 拷 payload → desktop/app/ → electron-builder nsis
 - 同时写 `version-string`（ProductName / FileDescription / FileVersion），
   让任务栏、标题栏、托盘、属性页都用同一品牌标识。
 
-**为什么不交给 electron-builder 的资源改写**：它依赖 winCodeSign 工具包，本机解压该包时
+**资源改写走 `rcedit`**：electron-builder 的资源改写依赖 winCodeSign 工具包，本机解压该包时
 `app-builder` 建目录被拒（`mkdir ...\Cache\winCodeSign\<n>: Access is denied`，
-手动建同名目录却正常）—— 与其跟工具链的缓存路径较劲，不如用 `rcedit` 直接写。
-因此 `win.signAndEditExecutable` 保持 `false`（只跳过它的资源改写，不影响打包）。
+手动建同名目录却正常）。因此 `win.signAndEditExecutable` 保持 `false`（只跳过资源改写，不影响打包），
+图标与版本信息由 `rcedit` 的 afterPack 钩子写入。
 
 ## 3. 路径敏感性（实测，2026-11-10）
 
@@ -119,7 +119,7 @@ Electron 运行时对本机路径敏感，**同一份二进制、同一个脚本
 - **构建不受影响**：electron-builder 只打包不执行 Electron，仓库内构建正常；
   安装包双击安装即可，安装目录由安装器决定（短路径）。
 
-## 4. MotW 与签名（为什么 bluechonk.exe 不弹、有的会弹）
+## 4. MotW 与签名（哪些 exe 会弹安全提示）
 
 「打开文件 - 安全警告」（无法验证发布者）只在文件带 **Mark of the Web**
 （`Zone.Identifier` ADS，浏览器 / 压缩包 / 邮件客户端下载时打的「来自互联网」标签）时弹出。

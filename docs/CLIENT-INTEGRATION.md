@@ -49,7 +49,7 @@
 判据是**通用措辞**（`context length exceeded` 等），厂商私有业务码由渠道钩子上报
 （`packages/core/gateway/src/http/chat/errors.ts` 的 `isContextLengthExceeded`）。
 
-为什么必须区分：回 `5xx` 会被客户端归类成「服务端临时故障」并重试，而上下文体量
+必须区分的原因：回 `5xx` 会被客户端归类成「服务端临时故障」并重试，而上下文体量
 不会自己变小，重试必然全败。客户端收到 `4xx` 才会去压缩历史或裁剪上下文。
 
 ### 流式 usage 的估算值

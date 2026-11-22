@@ -98,7 +98,7 @@ function clipPayload(body: Buffer | string) {
 3. 回归：256KB 内旧数据读取与弹窗无变化；
 4. `npm test` 全绿 + `npm run gate`。
 
-## 6. 为什么不用别的方式
+## 6. 未采用的方式
 
 - **「消息级折叠 + 保最近 10 条」原方案**（LOG-PAYLOAD-DESIGN 上一稿）：复杂度高
   （解析 JSON、按 role 分类、折叠占位、`clipped` 元信息、UI 联动），而 10MB 上限就

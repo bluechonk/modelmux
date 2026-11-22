@@ -3,7 +3,7 @@
 本文件收纳仓库根 [AGENTS.md](../AGENTS.md) 里**低频但必须可查**的内容：worktree 约束、测试细则、
 构建模型、推送门禁、版本与发版、提交信息规范。根 `AGENTS.md` 只留摘要与红线并指向本文件的对应小节。
 
-> **为什么拆出来**：根 `AGENTS.md` 是所有 coding agent 每个会话都会注入的常驻上下文，
+> **拆出来的理由**：根 `AGENTS.md` 是所有 coding agent 每个会话都会注入的常驻上下文，
 > 且 Codex 默认只读其前 32768 字节（`project_doc_max_bytes`），**超出部分会被静默丢弃**。
 > 常驻文件只放每次都要用的规则，低频细则放这里按需查阅。
 
@@ -14,7 +14,6 @@
 - [临时探测脚本](#临时探测脚本)
 - [项目级技能入口软链](#项目级技能入口软链本机)
 - [测试红线](#测试红线)
-- [测试已知隐患](#测试已知隐患)
 - [构建模型](#构建模型)
 - [推送门禁](#推送门禁)
 - [版本与发版](#版本与发版)
@@ -99,7 +98,7 @@ Claude Code 只扫 `.claude/skills/`，而本仓技能实体在 `.agents/skills/
 为了「一份技能、多工具共用、不复制」，在本机把前者建成指向后者的**符号链接**。
 参照 deepseek-harness 的做法（其 git 内 `.claude/skills -> ../.agents/skills`，mode `120000`）。
 
-**软链不入库**（`.gitignore` 已忽略 `.claude/`）。为什么不做成入库软链：
+**软链不入库**（`.gitignore` 已忽略 `.claude/`）。不做成入库软链的原因：
 
 - Windows 的 git 默认 `core.symlinks=false`，`120000` 会被检出成「**内容为目标路径的文本文件**」，
   于是 `.claude/skills` 不是目录、扫描器得到 0 个技能（实测 2026-11-01：17 字节，内容 `../.agents/skills`）；
@@ -185,7 +184,7 @@ npm run gate          # 提前跑：干净 clone → npm ci → npm test
 **真正不可绕过的是 CI**：钩子能被 `--no-verify` 绕过（按规矩要先说明理由并获同意），
 CI 不能 —— `main` 有分支保护，合并前 `test (node 22)` / `test (node 24)` 必须双绿。
 
-> 为什么不挂 `pre-commit`：门禁要干净 clone + `npm ci` + 全链测试（约 3 分钟），挂在每次提交上
+> 不挂 `pre-commit` 的原因：门禁要干净 clone + `npm ci` + 全链测试（约 3 分钟），挂在每次提交上
 > 会让所有人开始 `--no-verify` —— **自动挡挂错位置比手动更糟**。`pre-push` 是成本与拦截力的平衡点。
 
 **钩子怎么接上的**：git 默认只读 `.git/hooks/`，不认 `.githooks/`，所以根 `package.json` 的
@@ -201,7 +200,7 @@ git config --get core.hooksPath         # 应为 .githooks
 一旦接上，**每次 `git push` 都会先跑一遍完整门禁**（干净 clone → `npm ci` → `npm test`，
 约数分钟）。这是本仓的刻意设计：门禁要拦住推送，而不是等 CI 事后发现。
 
-### 为什么必须 clone 到干净目录
+### 必须 clone 到干净目录的原因
 
 | 差异 | 后果 |
 | --- | --- |

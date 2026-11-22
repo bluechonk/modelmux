@@ -23,7 +23,7 @@
 
 | cid | 产品 | 计费 | 签到 | 状态 |
 | --- | --- | --- | --- | --- |
-| catpaw | CatPaw（美团妙手） | 是 | 是 | 在册 |
+| catpaw | CatPaw（美团妙手） | 是 | 否 | 在册（上游无签到接口，只有注册奖励申领） |
 | loomy | Loomy（讯飞） | 是 | 是 | 在册 |
 | qwenworkcn | 千问办公（QwenWorkCN） | 是 | 否 | 在册（上游无签到接口，日额度自动发放） |
 | raccoon | Raccoon（商汤） | 是 | 是 | 在册 |

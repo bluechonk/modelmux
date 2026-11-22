@@ -39,7 +39,7 @@
 窗口命中率 ≠ mean(每条请求的命中率)      ← 错误：长请求的权重被抹平
 ```
 
-## 3. 计费（这个指标为什么值得看）
+## 3. 计费口径下的指标价值
 
 命中输入价显著低于未命中（DeepSeek 官方定价页：`deepseek-flash` 命中 $0.003–0.006/M vs
 未命中 $0.15–0.3/M，差约 50x；`deepseek-v4-pro` 命中 $0.022–0.044/M vs 未命中 $0.66–1.32/M，
@@ -143,7 +143,7 @@
 命中率 = hit / (hit + miss)     ← miss 由形态推出，两种写法只有这一种是安全的
 ```
 
-**为什么不能用 `hit / prompt_tokens` 统一算**：③ 的 `input_tokens` 不含缓存读，
+**不能用 `hit / prompt_tokens` 统一算**：③ 的 `input_tokens` 不含缓存读，
 若沿用 `prompt_tokens`（= `input_tokens`）当分母，而 `cache_read` 又接近输入量，
 命中率会被算成接近 100% —— 这正是「满屏 100%」的成因。
 仅当上游只给 `prompt_tokens`、没有 `input_tokens` 时，才退回 `miss = prompt_tokens - hit`

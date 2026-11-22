@@ -106,7 +106,7 @@ packages/core/channels/<cid>/
 `esbuild`（仅用于发布构建，见 §2.1）。
 
 **例外**：若渠道协议**必须**某个第三方库，才可加入 `dependencies`，并在 README 与
-代码注释里说明「为什么不能零依赖」。共享包本身**必须零第三方依赖**。
+代码注释里说明这条约束的依据。共享包本身**必须零第三方依赖**。
 
 ### 2.1 发布构建：单文件 bundle（`packages/cli/scripts/bundle.mjs`）
 
@@ -128,13 +128,15 @@ packages/core/channels/<cid>/
 
 #### 发布约定
 
-| 约定 | 原因 |
-| --- | --- |
-| **版本线统一走 `0.1.x`** | 本项目是**自用工具**，不对外承诺版本语义 —— 不搞 1.0 里程碑、不做 semver 承诺。全仓（cli + ui + gateway + **全部渠道**）共用**根 `package.json` 的 `version`**，`scripts/verify-contract.mjs` 强制：漂一个就是红 |
-| **版本号只记一遍** | 唯一真相是**根 `package.json` 的 `version`**。私有 workspace 包（ui / gateway / 各渠道）一律**不带 `version` 字段**；渠道 `src/channel.ts` 不再写版本字面量，改为引用 gateway 导出的 `VERSION` 常量（`packages/core/gateway/src/version.ts`，显示在 `mx --version` 与 `mx path`）。`VERSION` 常量、**可发布**的 cli 清单（npm 要求有 `version`）、desktop 清单与根 lock、`docs/PROGRESS.md` 由 `npm run version:sync`（`scripts/version.mjs`）从根派生 —— **发版只改根一处再跑同步**，`verify-contract` 守漂移 |
-| **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`） | npm 11 的发布归一化（`@npmcli/package-json` 的 `secureAndUnixifyPath`）会把 `./x.js` 判为无效并**整条删除** —— 发布出去的包就没有 `mx` / `modelmux` 命令，而 npm 只打一句含糊的 `was invalid and removed`。实测：带 `./` → 条目被删；不带 → 保留。`scripts/verify-contract.mjs` 已把这条钉住（可发布包的 bin 一律不得以 `./` 开头） |
-| **`prepack` 复制仓库根的 LICENSE 到包根** | npm 只自动收录**包根目录**的 LICENSE，不往父目录找；不复制则 tarball 里没有许可证文本。仓库根是许可证的唯一副本（渠道包不再各带一份），复制件是构建产物（已 gitignore） |
-| **`prepublishOnly` 先跑 `npm run build`** | 发布出去的 `dist/` 必须与当前源码一致；没有它，`npm publish` 会把上一次的构建产物（甚至空目录）发出去 |
+发布约定：
+
+1. **版本线统一走 `0.1.x`**：全仓（cli + ui + gateway + 全部渠道）共用同一个版本号，连续递增不跳号。
+2. **版本号只记一遍**：唯一真相是根 `package.json` 的 `version`。
+   - 私有 workspace 包（ui / gateway / 各渠道）不带 `version` 字段；渠道 `src/channel.ts` 引用 gateway 导出的 `VERSION` 常量（`packages/core/gateway/src/version.ts`，显示在 `mx --version` 与 `mx path`）。
+   - `VERSION` 常量、可发布的 cli 清单、desktop 清单与根 lock、`docs/PROGRESS.md` 由 `npm run version:sync`（`scripts/version.mjs`）从根派生。发版只改根一处再跑同步，`verify-contract` 守漂移。
+3. **`bin` 路径不带 `./` 前缀**（`"mx": "dist/cli.bundle.js"`）：npm 11 发布时做归一化，带前缀会被改写。
+4. **`prepack` 复制仓库根的 LICENSE 到包根**：npm 只收录包根目录的 LICENSE，仓库根是许可证的唯一副本。
+5. **`prepublishOnly` 先跑 `npm run build`**：发布的 `dist/` 与当前源码一致。
 
 发布前的自检：`cd packages/cli && npm publish --dry-run` —— 输出里除「需要登录」外**不应有任何
 `npm warn publish`**；有任何一条都先修掉再发。
@@ -388,7 +390,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
   `packages/core/gateway/src/runtime/channel.ts:340`。
 - `refreshIfExpired?(credential)`：建头**之前**的异步凭据保鲜，网关在 `buildHeaders` 前
   `await` 它（`packages/core/gateway/src/http/chat/upstream.ts:139`）。
-  为什么需要：`buildHeaders` 是同步的，无法「先续期再发」；而渠道的预续期若是惰性的
+  前提：`buildHeaders` 是同步的，无法「先续期再发」；而渠道的预续期若是惰性的
   （由请求触发、非阻塞），token 过期后当前请求就会拿着**死 token** 发出去，上游回
   HTTP 200 + 鉴权失效帧，客户端报请求失败 —— 而后台续期其实已经把下一个请求修好了。
   约定：**只在已过期时阻塞**续期；仍在续期窗口内则保持非阻塞，否则每个请求都要多等
@@ -923,7 +925,7 @@ mx <组名> <子命令> [参数]        # 命令组
 
 本文件只保留**别处没有的内容**：
 
-- `§0 语法铁律`（动词优先、为什么 `mx <cid> <动词>` 不可用）
+- `§0 语法铁律`（动词优先、`mx <cid> <动词>` 不可用的依据）
 - `§2 常用工作流`（具体步骤、参数、坑）
 - `credentials.json` 不见了但账号池里还有货的处置（见下）
 
@@ -1012,7 +1014,7 @@ mx log --kind lifecycle --lines 30
 mx web                     # 确保网关在跑 -> 打印 http://127.0.0.1:4412/web/
 ```
 
-排查「为什么慢 / 为什么失败 / 网关挂了」时看 [LOGGING.md](./LOGGING.md) §10「故障分诊」，
+排查慢请求 / 失败 / 网关挂掉时看 [LOGGING.md](./LOGGING.md) §10「故障分诊」，
 不要在本文件里重复展开日志字段与错误码。
 
 
