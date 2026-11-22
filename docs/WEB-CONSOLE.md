@@ -638,9 +638,8 @@ web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端�
   恒开启：正文抓取不可关闭（见 [LOGGING.md](./LOGGING.md) §9）。
 - 这几个只读端点**带同源校验**（与 `POST /api/commands` 同款）：日志与用量含模型名与渠道，
   比 `/api/state` 更不该被跨源页面读到；无 `Origin` 头时放行，curl / 脚本不受影响。
-- `POST /web/api/theme`：切主题；`POST /web/api/retry-login`：重试登录。
-  两者在 `console.ts` 里已实现，但当前 UI **没有入口**（深色是唯一主题，也没有重试登录按钮）——
-  前端 `lib/api.ts` 里的 `setTheme` / `retryLogin` 只是保留的调用面。
+- `POST /web/api/theme`：切主题（顶栏主题切换钮 `ThemeToggle` 写入）。
+- `POST /web/api/retry-login`：重试登录。端点与前端 `lib/api.ts` 的 `retryLogin` 都在，但当前 UI 没有按钮调用它。
 - `GET /web/api/overview`：仪表盘聚合视图（一次拉全）。返回当日 KPI
   （`usage`：请求/成功/失败/慢/平均耗时/tokens）、每渠道状态（`channels`：模型数 +
   账号健康分布 + 今日成败）、模型池概览（`model_pool`：总数/免费/多模态/思考）、

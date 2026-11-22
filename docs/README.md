@@ -95,7 +95,7 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 > `docs/index.html` 与 `docs/README.md` 并存不冲突：GitHub 仓库页优先渲染 README，
 > Pages 优先 serve index.html。
 
-## 2. 渠道文档 `docs/channels/<cid>/`
+## 3. 渠道文档 `docs/channels/<cid>/`
 
 每个渠道的**协议规格**都在 `docs/channels/<cid>/` 下（**与实现分离**：渠道包只带代码，
 文档集中一处，便于一处读全、也便于按渠道检索）。协议规格是从上游客户端/实现里实测提取的，
@@ -121,7 +121,7 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 - [PROTOCOL.md](./channels/catpaw/PROTOCOL.md) —— 全部结论速览 + 方法论 + 证据等级约定 + 端到端数据流
 - [FINDINGS.md](./channels/catpaw/FINDINGS.md) —— 结论汇总（凭据落点 / 加密方案 / 密钥材料 / 解密验证 / scope 机制 / 敏感面）
 
-## 3. 规则文件与项目技能
+## 4. 规则文件与项目技能
 
 | 位置 | 是什么 |
 | --- | --- |
@@ -133,7 +133,7 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 
 > `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
 
-## 4. 其它客户端怎么接（任意 OpenAI 客户端）
+## 5. 其它客户端怎么接（任意 OpenAI 客户端）
 
 网关是一个**普通 HTTP 端点**，不依赖 ZCode：任何能配 OpenAI 兼容 base url 的客户端直接指向
 `http://127.0.0.1:4412/v1` 就能用。模型 id 是**对外模型家族的裸模型名**（当前为 `deepseek-v4.1-flash` 与
@@ -143,7 +143,7 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 **不需要**为任何客户端做适配层：网关就是标准 OpenAI 兼容端点，任何客户端把 base url
 指到 `http://127.0.0.1:4412/v1` 即可（凭据与账号池都由网关统一管理）。
 
-## 5. 新增一个渠道要动哪些地方
+## 6. 新增一个渠道要动哪些地方
 
 1. 建 `packages/core/channels/<cid>/`：7 个 `src/*.ts`（`channel`/`cli`/`index` + `cred`/`upstream`/`catalog`/`billing`）
    + `package.json` + `tsconfig.json`（**渠道不做测试**，无需 `tests/`；见 `AGENTS.md` 的「测试规则」第 1 条）
