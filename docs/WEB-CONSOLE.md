@@ -251,12 +251,18 @@ web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端�
   （`border-warn/45 bg-warn/10 text-warn`，hover 提到 `/16`）——`line` 与卡片描边同色，
   静止态会被读成禁用的说明文字。
 - **幂等**：内容与目标一致时不落盘（结果只经右下角 toast 提示，卡片内不重复贴一条 —— 会和 toast 撞内容，还会让区块高度跳动）。
-- **模型有更新（直显按钮）**：接入成功时把**当时的对外模型清单**记进标记文件
-  （`backups/integrate/<target>.state.json` 的 `models`）；快照侧与当前对外清单做集合 diff
-  （`app/integrate.ts` 的 `integrationUpdates`），已接入且有差异的卡在卡头亮一枚「更新」胶囊
-  （橙点 + warn 淡底，与设置弹窗版本行的更新提示同一套语言），点击 = 重跑同一条接入路径（含备份），
-  成功后随快照消失。差异明细只进 `aria-label` 不进正文（直显按钮方案，卡面保持极简）；
-  老标记没有 `models` 字段按「判不了」处理不亮，避免误报；未接入不亮。
+- **有更新时自动同步，无需手动**：接入成功时把当时的对外模型清单与**专用 key 指纹**
+  （`<id>:<密文哈希前 16 位>`，只记哈希不记明文）记进标记文件
+  （`backups/integrate/<target>.state.json`）。快照侧 `integrationUpdates`
+  （`app/integrate.ts`）比两项：模型清单集合 diff，或 key 指纹与当前不一致
+  （key 被重置 / 重建 → 客户端那把已失效）。网关后台定时器每 60 秒跳一次、按设置页
+  「检查间隔」（`setting.json` 的 `integration_sync_interval_s`，默认 60s，0 = 关闭）
+  决定是否调 `syncIntegrations()` 重跑接入 —— **用户接入一次后不需要再管**，key 轮换与
+  模型上下线都由程序写进客户端。间隔的读走公共命令面（`integrationSync`），
+  写走 admin 命令（`setIntegrationSync`，仅本机直连）—— 能改这条等于能关掉自动同步
+  或触发高频重写客户端配置，与 `setChannelEnabled` 同口径。卡上的「更新」胶囊退化为同一件事的手动触发
+  （橙点 + warn 淡底），差异明细只进 `aria-label`；老标记缺 `models` / `keyFingerprint`
+  按「判不了」处理不误报；未接入不亮。
 - **警告单独弹**：接入返回的 `warnings`（备份清单读不出、备份未登记 等）与还原返回的
   `notes`（跳过条目、备份缺失）都逐条弹 info toast。接入的 `warnings` 与 `notes`
   （「做了什么」的变更说明）分开传：混在一起会被当噪音忽略，「已接入」就成了假象。

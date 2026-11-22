@@ -41,40 +41,40 @@ describe("用户设置读容错与合并写", () => {
   });
 
   it("文件缺失 → 默认主题 system", () => {
-    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [], integration_sync_interval_s: 60 });
   });
 
   it("文件损坏 → 回落默认值", () => {
     writeFileSync(file, "{broken", "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [], integration_sync_interval_s: 60 });
   });
 
   it("顶层是数组 → 回落默认值", () => {
     writeFileSync(file, JSON.stringify(["dark"]), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [], integration_sync_interval_s: 60 });
   });
 
   it("theme 非法 → 该项回落默认值", () => {
     writeFileSync(file, JSON.stringify({ theme: "neon" }), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [], integration_sync_interval_s: 60 });
     writeFileSync(file, JSON.stringify({ theme: 42 }), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "system", disabled_channels: [], integration_sync_interval_s: 60 });
   });
 
   it("theme 合法 → 原样读回", () => {
     writeFileSync(file, JSON.stringify({ theme: "dark" }), "utf8");
-    assert.deepEqual(loadUserSettings(), { theme: "dark", disabled_channels: [] });
+    assert.deepEqual(loadUserSettings(), { theme: "dark", disabled_channels: [], integration_sync_interval_s: 60 });
   });
 
   it("saveUserSettings 合并写入并返回完整设置", () => {
     writeFileSync(file, JSON.stringify({ theme: "dark" }), "utf8");
     const merged = saveUserSettings({ theme: "light" });
-    assert.deepEqual(merged, { theme: "light", disabled_channels: [] });
-    assert.deepEqual(loadUserSettings(), { theme: "light", disabled_channels: [] });
+    assert.deepEqual(merged, { theme: "light", disabled_channels: [], integration_sync_interval_s: 60 });
+    assert.deepEqual(loadUserSettings(), { theme: "light", disabled_channels: [], integration_sync_interval_s: 60 });
     assert.equal(JSON.parse(readFileSync(file, "utf8"))["theme"], "light");
 
     // 空 patch 不改变已存值
-    assert.deepEqual(saveUserSettings({}), { theme: "light", disabled_channels: [] });
+    assert.deepEqual(saveUserSettings({}), { theme: "light", disabled_channels: [], integration_sync_interval_s: 60 });
   });
 });
 

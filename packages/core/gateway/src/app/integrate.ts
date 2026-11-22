@@ -1518,6 +1518,14 @@ interface IntegrationMarker {
   integrated: boolean;
   /** 接入时写入的对外模型清单（「有更新」的 diff 基准；还原标记与老标记没有该字段）。 */
   models?: string[];
+  /**
+   * 接入时专用 key 的指纹（`id` + 密文哈希前缀）。
+   *
+   * 为什么要记：专用 key 被重置后客户端里那把立刻失效（对话请求恒校验），
+   * 但模型清单可能一个字没变 —— 只 diff 清单就发现不了「客户端已经连不上」。
+   * 老标记没有该字段时按「判不了」处理（不误报更新）。
+   */
+  keyFingerprint?: string;
   /** 标记时刻（ISO）。 */
   at: string;
 }
@@ -1525,6 +1533,19 @@ interface IntegrationMarker {
 function markerPathFor(target: IntegrationTarget): string {
   backupRoot ??= join(rootDir(), "backups", "integrate");
   return join(backupRoot, `${target}.state.json`);
+}
+
+/**
+ * 专用 key 的指纹（`<id>:<密文哈希前缀>`）。
+ *
+ * 只记哈希不记明文：标记文件是落盘的，明文 key 绝不入库（与「列表不下发明文」同口径）。
+ * 重置会换 id 与新密文 → 指纹变；用户重建同名 key 也一样变。
+ */
+function integrationKeyFingerprint(): string {
+  const { record } = ensureIntegrationApiKey();
+  const sealed = record.secretSealed ?? "";
+  const digest = createHash("sha256").update(sealed).digest("hex").slice(0, 16);
+  return `${record.id}:${digest}`;
 }
 
 /** 容错读：文件缺失 / 损坏 / 字段非法一律返回 null（调用方回落清单推断）。 */
@@ -1551,6 +1572,8 @@ function writeIntegrationMarker(target: IntegrationTarget, integrated: boolean, 
       integrated,
       // 只在接入时记清单（还原后没有「写入了什么」可言）；老标记缺该字段时按「判不了」处理
       ...(models === undefined ? {} : { models: [...models] }),
+      // 指纹同理只在接入时记：还原态没有「写入了哪把 key」可言
+      ...(models === undefined ? {} : { keyFingerprint: integrationKeyFingerprint() }),
       at: new Date().toISOString(),
     } satisfies IntegrationMarker);
   } catch (err) {
@@ -1596,20 +1619,67 @@ export interface IntegrationUpdate {
   added: string[];
   /** 接入时有、当前对外已经没有的模型。 */
   removed: string[];
+  /** 专用 key 在接入后被重置（客户端里那把已失效）—— 重跑接入才能换成新 key。 */
+  keyRotated: boolean;
   /** 上次接入时刻（标记文件的 `at`）。 */
   at: string;
 }
 
 /**
- * 各接入目标的「模型有更新」（快照随 `integrations` 一起下发）。
+ * 自动同步：把处于接入态、且「有更新」（模型清单变化 / key 被重置）的目标重跑一遍接入。
  *
- * 判据 = 标记文件里接入时写入的 `models` 与**当前**对外模型清单的集合差；
- * 没接入、老标记没记清单、或集合一致 → null（前端不亮更新按钮）。
+ * 用户接入一次后不该再关心 key 轮换与模型上下线 —— 后台定时器按设置的间隔调这里，
+ * 控制台的「更新」按钮退化成同一件事的手动触发（两者走同一条 `integrateClient`）。
+ *
+ * @returns 实际重跑了哪些目标（调用方据此打日志；无事发生返回空数组）。
+ */
+export function syncIntegrations(log?: (msg: string) => void): IntegrationTarget[] {
+  const updates = integrationUpdates();
+  const synced: IntegrationTarget[] = [];
+  for (const [target, update] of Object.entries(updates) as Array<[IntegrationTarget, IntegrationUpdate | null]>) {
+    if (update === null) continue;
+    // 客户端被用户手动删掉 / 配置已还原（标记还在但文件没了）时重跑会重建文件 ——
+    // 那正是「接入态」应有的样子，不额外判断。
+    try {
+      const result = integrateClient(target);
+      if (result.ok) {
+        synced.push(target);
+        const reasons = [
+          update.keyRotated ? "key rotated" : "",
+          update.added.length > 0 ? `+${update.added.length} models` : "",
+          update.removed.length > 0 ? `-${update.removed.length} models` : "",
+        ].filter(Boolean).join(", ");
+        log?.(`[integrate] auto-synced ${target} (${reasons})`);
+      } else {
+        // 失败不抛：下个周期重试，单次失败不该让整个后台循环停摆
+        log?.(`[integrate] auto-sync failed for ${target}: ${result.error ?? "unknown error"}`);
+      }
+    } catch (err) {
+      log?.(`[integrate] auto-sync threw for ${target}: ${String(err)}`);
+    }
+  }
+  return synced;
+}
+
+
+/**
+ * 各接入目标的「有更新」（快照随 `integrations` 一起下发）。
+ *
+ * 判据 = 标记文件里接入时写入的 `models` 与**当前**对外模型清单的集合差，
+ * 或专用 key 指纹与当前不一致（key 被重置过 → 客户端那把已失效）。
+ * 没接入、老标记没记清单、或两项都一致 → null（前端不亮更新按钮）。
  * 集合比较而不是逐位比较：清单顺序无语义，接入时是什么顺序不重要。
  */
 export function integrationUpdates(): Record<string, IntegrationUpdate | null> {
   const targets: IntegrationTarget[] = ["zcode", "dsh"];
   const current = new Set(exposedModels());
+  // 指纹一次算全目标共用：重置后客户端里那把立即失效，与模型清单变没变无关
+  let liveFingerprint = "";
+  try {
+    liveFingerprint = integrationKeyFingerprint();
+  } catch {
+    // 读不到指纹（存储损坏）：不据此报更新，避免每轮都提示一个修不了的状态
+  }
   const out: Record<string, IntegrationUpdate | null> = {};
   for (const target of targets) {
     const marker = readIntegrationMarker(target);
@@ -1620,10 +1690,16 @@ export function integrationUpdates(): Record<string, IntegrationUpdate | null> {
     const recorded = new Set(marker.models.filter((m) => typeof m === "string"));
     const added = [...current].filter((m) => !recorded.has(m));
     const removed = [...recorded].filter((m) => !current.has(m));
+    // 老标记没有指纹 → 判不了，不误报；有指纹且与当前不一致 = key 被重置过
+    const keyRotated =
+      liveFingerprint !== "" &&
+      typeof marker.keyFingerprint === "string" &&
+      marker.keyFingerprint !== "" &&
+      marker.keyFingerprint !== liveFingerprint;
     out[target] =
-      added.length === 0 && removed.length === 0
+      added.length === 0 && removed.length === 0 && !keyRotated
         ? null
-        : { added, removed, at: typeof marker.at === "string" ? marker.at : "" };
+        : { added, removed, keyRotated, at: typeof marker.at === "string" ? marker.at : "" };
   }
   return out;
 }

@@ -6,6 +6,9 @@
  * state query 与宿主页同 key（react-query 共享缓存，零额外请求）。
  * 操作中开关禁用并停在目标位置，失败弹回原位 + 卡描边转红 + toast：只弹 toast 会
  * 让人以为状态变了。
+ *
+ * 已接入的目标由后台按设置间隔**自动同步**（key 轮换 / 模型上下线自动重写客户端），
+ * 卡上的「更新」按钮只是同一件事的手动触发，正常使用中不需要点。
  */
 
 import { useState, type ReactElement } from "react";
@@ -33,9 +36,10 @@ type PendingActions = Partial<Record<IntegrationTarget, "integrate" | "restore">
 /** 更新差异的可读措辞（进 aria-label；直显按钮方案保持卡面极简，正文不放差异）。 */
 function updateDiffLabel(update: IntegrationUpdate): string {
   const parts: string[] = [];
+  if (update.keyRotated) parts.push("密钥已更换");
   if (update.added.length > 0) parts.push(`新增 ${update.added.join("、")}`);
   if (update.removed.length > 0) parts.push(`移除 ${update.removed.join("、")}`);
-  return parts.join("；") || "模型清单有变化";
+  return parts.join("；") || "接入配置有变化";
 }
 
 /** 单张接入开关卡。 */

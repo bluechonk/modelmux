@@ -12,7 +12,7 @@ import { createInterface, type Interface } from "node:readline";
 
 import * as authFlow from "../../auth/auth-flow.js";
 import { startAutoSignin } from "../../auth/auto-signin.js";
-import { integrateClient, integrationStatus, integrationUpdates, restoreClient } from "../integrate.js";
+import { integrateClient, integrationStatus, integrationUpdates, restoreClient, syncIntegrations } from "../integrate.js";
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
@@ -900,6 +900,25 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // 额度保鲜：每 5 分钟并行查一遍全部有账单能力的渠道（控制台的额度展示靠它，
     // 不再依赖 8 小时的 TTL 或用户手动 `mx bill`）。间隔见 BILLING_REFRESH_INTERVAL_MS。
     poolUsage.startBillingRefresher(logLine);
+
+    // 一键接入自动同步：key 轮换 / 模型上下线后自动重写客户端配置，用户无需干预。
+    // 间隔读用户设置（setting.json 的 `integration_sync_interval_s`，0 = 关闭）。
+    // 定时器固定 60s 一跳（够细），真正跑不跑按「距上次同步是否够间隔」判定 ——
+    // 每跳都重读设置，设置页改完不必重启网关。
+    let lastIntegrationSyncAt = 0;
+    const integrationTimer = setInterval(() => {
+      if (state.quitting) return;
+      const intervalS = loadUserSettings().integration_sync_interval_s;
+      if (intervalS <= 0) return;
+      if (Date.now() - lastIntegrationSyncAt < intervalS * 1000) return;
+      lastIntegrationSyncAt = Date.now();
+      try {
+        syncIntegrations(logLine);
+      } catch (err) {
+        logLine(`[integrate] auto-sync cycle failed: ${String(err)}`);
+      }
+    }, 60_000);
+    integrationTimer.unref?.(); // 不阻止进程退出
 
     // 目录对账：定期对每个渠道重拉真实模型目录（实现了 catalog.refresh 的渠道才拉）。
     // 上游模型会下线/改名，旧缓存会让用户点到已失效的 id —— 对账是发现这件事的唯一途径。

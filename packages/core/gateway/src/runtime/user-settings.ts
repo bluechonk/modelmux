@@ -26,9 +26,27 @@ export interface UserSettings {
    * 开关是本机全局设置（setting.json），与 fs/pg 存储形态无关。
    */
   disabled_channels: string[];
+  /**
+   * 一键接入自动同步的检查间隔（秒）。0 = 关闭自动同步（只保留手动「更新」按钮）。
+   *
+   * 默认 60 秒：客户端配置是本地文件，改一次几乎无成本；用户接入后就不该再关心
+   * key 轮换 / 模型清单变化（见 `docs/WEB-CONSOLE.md`「一键接入」）。
+   */
+  integration_sync_interval_s: number;
 }
 
-const DEFAULTS: UserSettings = { theme: "system", disabled_channels: [] };
+const DEFAULTS: UserSettings = {
+  theme: "system",
+  disabled_channels: [],
+  integration_sync_interval_s: 60,
+};
+
+/** 自动同步间隔的取值范围：0（关闭）或 15 秒 ~ 24 小时。 */
+export function normalizeSyncInterval(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULTS.integration_sync_interval_s;
+  if (value <= 0) return 0;
+  return Math.min(Math.max(Math.floor(value), 15), 86_400);
+}
 
 function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === "string" && (THEME_MODES as readonly string[]).includes(value);
@@ -61,6 +79,7 @@ export function loadUserSettings(): UserSettings {
   return {
     theme: isThemeMode(theme) ? theme : DEFAULTS.theme,
     disabled_channels: normalizeDisabled(record["disabled_channels"]),
+    integration_sync_interval_s: normalizeSyncInterval(record["integration_sync_interval_s"]),
   };
 }
 

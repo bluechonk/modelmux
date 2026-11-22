@@ -29,10 +29,12 @@ export interface UpdateNotice {
   checkedAt: string;
 }
 
-/** 单个接入目标的「模型有更新」明细（与服务端 `integration_updates` 同构）。 */
+/** 单个接入目标的「有更新」明细（与服务端 `integration_updates` 同构）。 */
 export interface IntegrationUpdate {
   added: string[];
   removed: string[];
+  /** 专用 key 在接入后被重置：客户端里那把已失效，重跑接入才能换成新 key。 */
+  keyRotated: boolean;
   at: string;
 }
 

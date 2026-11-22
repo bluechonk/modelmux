@@ -121,6 +121,10 @@ export interface WebApi {
      * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
      */
     restore(target: "zcode" | "dsh"): Promise<CommandData>;
+    /** 只读当前自动同步间隔（公共面；写入走 `setIntegrationSync`）。 */
+    integrationSync(): Promise<CommandData>;
+    /** 写自动同步间隔（秒；0 = 关闭）—— 改全局配置，仅本机直连。 */
+    setIntegrationSync(intervalS: number): Promise<CommandData>;
     /** 设置弹窗的渠道开关：关闭 = 账号池隐藏 + 选路跳过（凭据与登录态保留）。 */
     setChannelEnabled(cid: string, enabled: boolean): Promise<CommandData>;
     /** API key 列表（不含哈希；明文永不回读）。 */
@@ -233,6 +237,9 @@ export const api: WebApi = {
     cancelInput: () => command("cancelInput", undefined),
     integrate: (target) => command("integrate", undefined, { target }),
     restore: (target) => command("restore", undefined, { target }),
+    /** 一键接入自动同步间隔：读走公共面，写走 admin（仅本机直连）。 */
+    integrationSync: () => command("integrationSync", undefined),
+    setIntegrationSync: (intervalS) => command("setIntegrationSync", undefined, { interval_s: intervalS }),
     setChannelEnabled: (cid, enabled) => command("setChannelEnabled", cid, { enabled }),
     apiKeys: () => command("apiKeys", undefined),
     createApiKey: (name) => command("createApiKey", undefined, { name }),
