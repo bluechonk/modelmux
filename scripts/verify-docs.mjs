@@ -128,10 +128,11 @@ if (existsSync(CHANNELS_DIR)) {
       continue;
     }
     // 两个必备节（docs/channels/README.md「写作分工」：每渠道必须成节存在，便于横向对照）。
-    // 判据是「节存在」，故容忍标题里的可选编号前缀（`### 7.9 怎么测这个渠道` 同样算数）——
-    // 按字面比会把「加编号」误判成「删节」，逼作者为过门禁放弃排版。
+    // 判据是「节存在」，只约束行首与可选编号前缀：`### 7.9 怎么测这个渠道`、
+    // `### 怎么测这个渠道（附示例）` 都算数。原实现按 includes 字面比，加编号会被误判成
+    // 删节；反过来行尾锚定又会让带后缀的合法标题失配 —— 两头都不该管。
     for (const section of ["怎么测这个渠道", "端到端测试覆盖"]) {
-      const pattern = new RegExp(`^### (?:[\\d.]+ )?${section}\\s*$`, "m");
+      const pattern = new RegExp(`^#{3,4}\\s+(?:[\\d.]+\\s+)?${section}`, "m");
       if (!pattern.test(readText(doc))) {
         problems.push(`docs/channels/${entry.name}/PROTOCOL.md —— 缺必备节「### ${section}」`);
       }
@@ -254,6 +255,9 @@ for (const rel of candidates) {
 //   ③ h4 无三级编号 —— 并列小标题无法被引用，也无从在目录里定位；
 //   ④ 有编号的 h2 标题超长 —— 编号存在的意义是「能被一句话指代」，塞进 file:line 就废了。
 // 只查有编号的文档（整篇用陈述式标题的文档不受约束），避免逼所有人改标题风格。
+// 围栏判定同时认 ``` 与 ~~~，且「有没有编号」的预判与标题收集共用同一批非围栏行 ——
+// 预判若直接扫原始行，文档里一段示例代码含 `## 1.` 就会让整篇被当成编号文档，
+// 随后所有未编号 h4 全部误报。
 function checkHeadingLevels(rel) {
   const abs = join(workspaceRoot, rel);
   let text;
@@ -262,32 +266,35 @@ function checkHeadingLevels(rel) {
   } catch {
     return [];
   }
-  const lines = text.split("\n");
-  const numbered = lines.some((l) => /^## \d+\./.test(l));
-  if (!numbered) return [];
-
-  const found = [];
+  const prose = [];
   let inFence = false;
-  lines.forEach((line, i) => {
-    if (line.trim().startsWith("```")) {
+  text.split("\n").forEach((line, i) => {
+    const t = line.trim();
+    if (t.startsWith("```") || t.startsWith("~~~")) {
       inFence = !inFence;
       return;
     }
-    if (inFence) return;
+    if (!inFence) prose.push({ line, no: i + 1 });
+  });
+
+  if (!prose.some((p) => /^## \d+\./.test(p.line))) return [];
+
+  const found = [];
+  for (const { line, no } of prose) {
     const m = /^(#{2,4})\s+(.+)$/.exec(line);
-    if (!m) return;
+    if (!m) continue;
     const level = m[1].length;
     const title = m[2].trim();
     if (level === 2 && /^\d+\.\d/.test(title)) {
-      found.push(`L${i + 1} 二级标题带小节编号（应为 h3）：${title}`);
+      found.push(`L${no} 二级标题带小节编号（应为 h3）：${title}`);
     } else if (level === 3 && /^\d+\.\d+\.\d/.test(title)) {
-      found.push(`L${i + 1} 三级标题带三级编号（应为 h4）：${title}`);
+      found.push(`L${no} 三级标题带三级编号（应为 h4）：${title}`);
     } else if (level === 4 && !/^\d+\.\d+\.\d/.test(title)) {
-      found.push(`L${i + 1} 四级标题缺三级编号：${title}`);
+      found.push(`L${no} 四级标题缺三级编号：${title}`);
     } else if (level === 2 && /^\d+\./.test(title) && title.length > 42) {
-      found.push(`L${i + 1} 编号标题超过 42 字（${title.length}）：${title}`);
+      found.push(`L${no} 编号标题超过 42 字（${title.length}）：${title}`);
     }
-  });
+  }
   return found;
 }
 
