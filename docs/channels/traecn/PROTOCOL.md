@@ -83,8 +83,8 @@
 | 签到状态 | — | POST | `/trae/api/v2/ug/checkin_credits/status` | 无（body `{}`） | `packages/core/channels/traecn/src/billing.ts:34` `CHECKIN_STATUS_PATH` |
 | 签到领取 | — | POST | `/trae/api/v2/ug/checkin_credits/claim` | 无（body `{}`） | `packages/core/channels/traecn/src/billing.ts:36` `CHECKIN_CLAIM_PATH` |
 | 积分余额 | — | POST | `/trae/api/v2/pay/ide_user_ent_usage` | 无（body `{require_usage, req_source}`） | `packages/core/channels/traecn/src/billing.ts:38` `USAGE_PATH` |
-| 授权页（浏览器） | — | GET | `/authorization` | `auth_callback_url`（**必须叫这个名**）、`machine_id`、`device_id`、`x_device_id`、`x_machine_id`、`login_trace_id`、`client_id`、`hide_saas_login=true` 等 | `packages/core/channels/traecn/src/cred.ts:299-329` `buildAuthorizeUrl` |
-| 登录回调 | — | — | `http://127.0.0.1:18080/authorize` | — | `packages/core/channels/traecn/src/cred.ts:103-106` `CALLBACK_PORT` / `CALLBACK_PATH` |
+| 授权页（浏览器） | — | GET | `/authorization` | `auth_callback_url`（**必须叫这个名**）、`machine_id`、`device_id`、`x_device_id`、`x_machine_id`、`login_trace_id`、`client_id`、`hide_saas_login=true` 等 | `packages/core/channels/traecn/src/cred.ts:319-349` `buildAuthorizeUrl` |
+| 登录回调 | — | — | `http://127.0.0.1:18080/authorize/<nonce>` | — | `packages/core/channels/traecn/src/cred.ts:103-106` `CALLBACK_PORT` / `CALLBACK_PATH` |
 
 超时：控制面 `30000ms`；登录总超时 `600000ms`（`packages/core/channels/traecn/src/cred.ts:107-108`）。
 
@@ -98,7 +98,7 @@
 
 ### 2.1 唯一登录路径：浏览器授权 + 本地回调
 
-本渠道**只有一条**取凭据路径（`packages/core/channels/traecn/src/cred.ts:617-709` 的 `login()`），
+本渠道**只有一条**取凭据路径（`packages/core/channels/traecn/src/cred.ts:655-747` 的 `login()`），
 不提供第二种登录方式。
 
 #### 2.1.1 判据
@@ -128,7 +128,7 @@
 
 **回调直接回传 token**，不是 OAuth `?code=`。
 
-登录 URL：`{consoleHost}/authorization?` + **20 个参数**（`packages/core/channels/traecn/src/cred.ts:305-327`），逐字为：
+登录 URL：`{consoleHost}/authorization?` + **20 个参数**（`packages/core/channels/traecn/src/cred.ts:325-347`），逐字为：
 
 ```
 login_version=1
@@ -156,7 +156,7 @@ hide_saas_login=true（**不带会 404**）
 **参数名必须是 `auth_callback_url`**（没有 `callback_url`/`redirect_uri`），
 写错登录页**永远停在授权中**。
 
-**回调解析**（`packages/core/channels/traecn/src/cred.ts:371-417`）：
+**回调解析**（`packages/core/channels/traecn/src/cred.ts:391-437`）：
 - `refreshToken`（query，缺则回退 `userJwt.RefreshToken`）
 - `userInfo.UserID`、`userInfo.ScreenName`、**`userInfo.TenantID`**（不是 EnterpriseID）
 - `userJwt.Token`
@@ -164,7 +164,7 @@ hide_saas_login=true（**不带会 404**）
 - 昵称有 latin-1 双重编码乱码（实测 `Óû§8847309959`），用 `raw.encode('latin1').decode('utf8')` 修复；
  修不好且无 CJK 时回退 `用户+uid末4位`
 
-**ExchangeToken**（`packages/core/channels/traecn/src/cred.ts:854-863`）：
+**ExchangeToken**（`packages/core/channels/traecn/src/cred.ts:900-909`）：
 ```
 POST {oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken
 Headers: Content-Type: application/json, Accept: application/json, User-Agent
@@ -186,14 +186,16 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 > 另外：回调**只带 refreshToken**（老流程）时，登录会先调 `ExchangeToken` 换出 access token
 > —— 否则落盘的 `access_token` 为空，`load()` 会直接判定「未登录」。`[代码]`
 
-**回调端口 18080**，被占用（EADDRINUSE/EACCES）时回退随机端口，登录 URL 用**实际**端口重算（`packages/core/channels/traecn/src/cred.ts:450-527`）。
+**回调端口 18080**，被占用（EADDRINUSE/EACCES）时回退随机端口，登录 URL 用**实际**端口重算（`packages/core/channels/traecn/src/cred.ts:472-549`）。
+
+**回调路径带每次登录的随机 nonce**（`/authorize/<32 位 hex>`）：绑非回环时同网段任何人都能打到该端口，不校验路径就等于登录 CSRF —— 攻击者在自己登录期间抢先 GET 一条带他凭据的回调，本机就用他的账号入池。nonce 每次 `login()` 重新生成，猜不到；不匹配的请求直接 404。粘贴通道同样校验 host 与 nonce（`packages/core/channels/traecn/src/cred.ts:621-655`）。
 
 **身份生成**：`machine_id` = 16 随机字节的 32 位 hex；`device_id` 同样 **32 位 hex**
-（协议要求 hex 形态，`packages/core/channels/traecn/src/cred.ts:238-244`）。
+（协议要求 hex 形态，`packages/core/channels/traecn/src/cred.ts:258-264`）。
 
 ### 2.2 凭据字段
 
-实现见 `packages/core/channels/traecn/src/cred.ts:130-160`。
+实现见 `packages/core/channels/traecn/src/cred.ts:150-171`。
 
 `access_token`、`refresh_token`、`expires_at`（**毫秒字符串**，兼容秒/ISO/JWT exp 兜底）、
 `uid`、`nickname`、`phone`（脱敏手机号）、`email`（脱敏邮箱）、
@@ -319,7 +321,7 @@ event:done   | data:{"finish_reason":"stop"}
 | `X-Request-Id` | `<uuidV4>` |
 | `Sec-Fetch-Dest/Mode/Site` | `empty/no-cors/none` |
 
-> **同名不同值**：签到头的 `X-Device-Id` 是**签到专用派生值**（`packages/core/channels/traecn/src/cred.ts:238-249` 的
+> **同名不同值**：签到头的 `X-Device-Id` 是**签到专用派生值**（`packages/core/channels/traecn/src/cred.ts:258-269` 的
 > `deriveCheckinDeviceId`），对话头的 `X-Device-Id` 是**账号级 32 hex**。
 > 参考实现同样把这两个场景分开（`trae_client.py` 的签到头与对话头是两处）。别「统一」。`[代码]`
 >
@@ -438,7 +440,7 @@ event:done   | data:{"finish_reason":"stop"}
 - 4027：本仓**没有** `4027` 专门分支：同样落点是 4xx 兜底的 `client`（`packages/core/channels/traecn/src/upstream.ts:283`）
 - 4023：`packages/core/channels/traecn/src/catalog.ts:43-59`
 - 3003：`packages/core/channels/traecn/src/catalog.ts:43-59`
-- 9074：`packages/core/channels/traecn/src/billing.ts:184-205`（`handleDeviceRateLimit`）、`packages/core/channels/traecn/src/cred.ts:790-795`（`rotateCheckinGeneration`）
+- 9074：`packages/core/channels/traecn/src/billing.ts:184-205`（`handleDeviceRateLimit`）、`packages/core/channels/traecn/src/cred.ts:836-840`（`rotateCheckinGeneration`）
 
 
 流内 `event:error` **只被转成一个 error 帧**（`code` 转字符串保真转发），
@@ -681,7 +683,7 @@ X-Request-Id: <uuidV4>
 Sec-Fetch-Dest/Mode/Site: empty/no-cors/none
 ```
 
-**设备身份确定性派生**（对齐 trae-mate 的 `device_map.rs`，实现见 `packages/core/channels/traecn/src/cred.ts:238-264`）：
+**设备身份确定性派生**（对齐 trae-mate 的 `device_map.rs`，实现见 `packages/core/channels/traecn/src/cred.ts:258-284`）：
 `SHA256(utf8("<salt>:<user_id>") ++ counterBE32)` 串联流
 - `deviceId15` salt=`devid`（15 位数字）
 - `marketUserId` salt=`market`（version 4 / variant RFC4122 的 UUID）
@@ -788,9 +790,9 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 ### 7.2 设备指纹
 
 - **machine_id 登录后从不轮换**：本仓 `machine_id` 登录时**一次生成**并落盘
-  （`packages/core/channels/traecn/src/cred.ts:223` 的 `generateMachineId()`），
+  （`packages/core/channels/traecn/src/cred.ts:243` 的 `generateMachineId()`），
   之后只读不改 —— 缺失时补齐的分支也保持「同一账号恒定」
-  （`packages/core/channels/traecn/src/cred.ts:763-767`），请求头恒发该值
+  （`packages/core/channels/traecn/src/cred.ts:808-815`），请求头恒发该值
   （`packages/core/channels/traecn/src/upstream.ts:248`）。`[代码]`
   `DSH_TRAE_ROTATE_MACHINE_ID=1`「每 4 次请求派生一代」是**参考实现**的开关与行为，
   **本仓没有这个环境变量、也不轮换 machine_id**。`[参考]`
@@ -873,11 +875,17 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 1. 容器跑 `--addr 0.0.0.0:4412`，并发布回调端口（`-p 18080:18080`）；
 2. 设 `TRAECN_LOGIN_HOST=0.0.0.0`，`TRAECN_PUBLIC_HOST=<宿主机可达 IP 或域名>`；
-3. `TRAECN_PUBLIC_HOST` 必须单独给：`0.0.0.0` 不能出现在 URL 里，上游会把回调地址原样回填进浏览器跳转。
+3. 两个必须同时给：`0.0.0.0` 不能写进授权 URL（浏览器跳不过去），缺 `TRAECN_PUBLIC_HOST` 时 `login()` 直接报错而不是等到超时。
 
-上游**不校验**回调地址（实测传 `not-a-url` 也 200 并原样回显），故非回环可用。绑非回环后回调 query 里的 token 对同网段可见，窗口仅限等待授权的那几分钟（登录结束立即 `close()`），只应在可信网络启用。
+上游**不校验**回调地址（实测传 `not-a-url` 也 200 并原样回显），故非回环可用。绑非回环后回调地址对本网段可见，防护有三层：
 
-浏览器打不到回调端口时还有第二条路：把地址栏里整条回调 URL 粘回控制台 / 终端，`pasteCode` 通道会解析出同样的 token。
+- 路径带每次登录的随机 nonce，路径不符一律 404；
+- 登录结束立即 `close()`，端口只在等待授权的那几分钟开放；
+- 状态提示会显式标注「回调地址对本网段可见」。
+
+仍应只在可信网络启用 —— token 走明文 HTTP，同网段可嗅探。
+
+浏览器打不到回调端口时还有第二条路：把地址栏里整条回调 URL 粘回控制台 / 终端，`pasteCode` 通道会解析出同样的 token（同样校验 host 与 nonce）。
 
 ### 8.5 怎么测这个渠道
 
@@ -1036,7 +1044,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
     `autumnsentiment_Trae2api-cn/src/trae_client.py`。
 13. **签到 `device_id` 形态分歧**（低）—— 参考用 **16 位**（`trae_client.py`、
     `JeffHu0912_trae2api/internal/auth/deviceid.go`），当前实现用 **15 位**
-    （`packages/core/channels/traecn/src/cred.ts:238-249` 的 `deriveCheckinDeviceId`）；对话头另用 32 hex 账号级 device_id。
+    （`packages/core/channels/traecn/src/cred.ts:258-269` 的 `deriveCheckinDeviceId`）；对话头另用 32 hex 账号级 device_id。
 14. **老 IDE 端点族**（低）—— 参考：`autumnsentiment_Trae2api-cn/src/trae_client.py`、
     `JeffHu0912_trae2api/internal/upstream/work_client.go`。
 

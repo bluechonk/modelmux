@@ -104,6 +104,26 @@ const CALLBACK_PORT = Number(process.env["TRAECN_LOGIN_PORT"] ?? "18080");
 const LISTEN_HOST = process.env["TRAECN_LOGIN_HOST"] ?? "127.0.0.1";
 const PUBLIC_HOST = process.env["TRAECN_PUBLIC_HOST"] ?? LISTEN_HOST;
 const CALLBACK_PATH = "/authorize";
+
+/**
+ * 绑非回环却没给对外地址时直接拒绝启动登录。
+ *
+ * 两者缺一都跑不通：只改 LISTEN_HOST 会让授权 URL 里出现 `0.0.0.0`（浏览器
+ * 跳不过去），而只给 PUBLIC_HOST 又绑在回环上（外部请求打不进来）。配置错误
+ * 在登录开始时报出来，比让用户等到十分钟超时好。
+ */
+function assertCallbackConfig(): void {
+  const loopback = LISTEN_HOST === "127.0.0.1" || LISTEN_HOST === "localhost";
+  if (loopback) return;
+  const publicIsLoopback =
+    PUBLIC_HOST === "127.0.0.1" || PUBLIC_HOST === "localhost" || PUBLIC_HOST === "0.0.0.0";
+  if (publicIsLoopback) {
+    throw new Error(
+      `TRAECN_LOGIN_HOST=${LISTEN_HOST} 绑非回环地址时必须同时设 TRAECN_PUBLIC_HOST 为外部可达的主机名或 IP` +
+        `（0.0.0.0 不能写进授权 URL，浏览器会跳不过去）`,
+    );
+  }
+}
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 const HTTP_TIMEOUT_MS = 30_000;
 
@@ -444,10 +464,15 @@ function listenOn(server: Server, port: number): Promise<number> {
  * 端口被占用（EADDRINUSE/EACCES）时回退随机端口 —— 调用方必须用返回的
  * 实际端口重算登录 URL。
  *
- * 绑非回环地址时，回调 query 里的 token 对同网段可见：登录完成后 `login()`
- * 的 `finally` 会立刻 `close()`，窗口只有等待授权的那几分钟。
+ * **只认本次登录的 nonce 路径**：绑非回环时同网段任何人都能打到这个端口，
+ * 若不校验就变成登录 CSRF —— 攻击者在自己登录期间抢先 GET
+ * `/authorize?access_token=<他的 token>`，本机就用他的凭据入池，之后所有
+ * 请求与数据都落到他账号上。路径里的 nonce 每次登录重新生成，猜不到。
  */
-async function startCallbackServer(port = CALLBACK_PORT): Promise<CallbackServer> {
+async function startCallbackServer(
+  nonce: string,
+  port = CALLBACK_PORT,
+): Promise<CallbackServer> {
   let resolveParams: (value: Record<string, string>) => void = () => {};
   let rejectParams: (err: Error) => void = () => {};
   const params = new Promise<Record<string, string>>((resolve, reject) => {
@@ -457,13 +482,14 @@ async function startCallbackServer(port = CALLBACK_PORT): Promise<CallbackServer
   // close() 可能早于 wait()：先挂一个吞掉的 catch，避免 unhandled rejection 噪音
   void params.catch(() => {});
   let settled = false;
+  const expectedPath = `${CALLBACK_PATH}/${nonce}`;
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    // 只认回调路径：登录期间任何命中该端口的请求（浏览器预取、重复登录、探测）都会
-    // 走到这里，而 `flat` 里没有 token —— 不校验就等于「任意请求即可终结本次登录」，
-    // 本次登录会立刻失败在 `parseCallback` 的「no token」上（raccoon 校验 pathname）。
-    if (url.pathname !== CALLBACK_PATH) {
+    // 路径必须带本次登录的 nonce：浏览器预取、重复登录、探测、以及同网段的
+    // 注入尝试都因路径不符被挡在 404。`flat` 里没有 token 的请求即使路径对，
+    // 也会在 parseCallback 的「no token」上失败。
+    if (url.pathname !== expectedPath) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("not found");
       return;
@@ -538,6 +564,7 @@ const PASTE_POLL_MS = 400;
 async function waitForCallback(
   callback: CallbackServer,
   pasteCode: (() => string | undefined) | undefined,
+  nonce: string,
   timeoutMs: number,
 ): Promise<Record<string, string>> {
   if (typeof pasteCode !== "function") return callback.wait(timeoutMs);
@@ -553,7 +580,7 @@ async function waitForCallback(
     for (;;) {
       if (Date.now() >= deadline) throw new Error("waiting for pasted callback timed out");
       const pasted = pasteCode();
-      const parsed = typeof pasted === "string" ? parsePastedCallback(pasted) : null;
+      const parsed = typeof pasted === "string" ? parsePastedCallback(pasted, nonce, PUBLIC_HOST) : null;
       if (parsed !== null) return parsed;
       await sleepUnref(PASTE_POLL_MS);
     }
@@ -585,10 +612,17 @@ interface LoginOptions {
 /**
  * 从粘贴文本里捞回调参数。
  *
- * 只接受能解析成 URL 且 path 是回调路径的内容 —— 用户可能粘错（整页文字、
- * 别的站点链接），那些不该被当成回调吞掉。
+ * 三关全过才认，少一关就是登录 CSRF（攻击者诱导用户粘一条他自己的回调，
+ * 本机就以他的身份入池）：
+ *   1. 能解析成 URL；
+ *   2. host 必须是本次登录的对外地址（或回环）；
+ *   3. path 必须是 `CALLBACK_PATH/<本次 nonce>`。
  */
-function parsePastedCallback(text: string): Record<string, string> | null {
+function parsePastedCallback(
+  text: string,
+  nonce: string,
+  expectedHost: string,
+): Record<string, string> | null {
   const trimmed = text.trim();
   if (trimmed === "") return null;
   let url: URL;
@@ -597,7 +631,11 @@ function parsePastedCallback(text: string): Record<string, string> | null {
   } catch {
     return null;
   }
-  if (url.pathname !== CALLBACK_PATH) return null;
+  if (url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  const allowed = new Set([expectedHost.toLowerCase(), "127.0.0.1", "localhost", "[::1]", "::1"]);
+  if (!allowed.has(host)) return null;
+  if (url.pathname !== `${CALLBACK_PATH}/${nonce}`) return null;
   const flat: Record<string, string> = {};
   for (const [key, value] of url.searchParams) {
     if (!(key in flat)) flat[key] = value;
@@ -616,17 +654,25 @@ function parsePastedCallback(text: string): Record<string, string> | null {
  */
 export async function login(baseUrl?: string, options: LoginOptions = {}): Promise<Credentials> {
   const { onUrl, onStatus } = options;
+  assertCallbackConfig();
   const machineId = generateMachineId();
   const deviceId = generateDeviceId();
-  const callback = await startCallbackServer();
+  // 每次登录一条独立 nonce：回调路径猜不到，挡同网段的登录注入
+  const nonce = randomBytes(16).toString("hex");
+  const callback = await startCallbackServer(nonce);
   try {
-    const callbackUrl = `http://${PUBLIC_HOST}:${callback.port}${CALLBACK_PATH}`;
+    const callbackUrl = `http://${PUBLIC_HOST}:${callback.port}${CALLBACK_PATH}/${nonce}`;
     // 授权页固定在 consoleHost（www.trae.cn）；共享层传入的 baseUrl 是 agentHost，误传会导致登录域名错误
     const authorizeUrl = buildAuthorizeUrl(callbackUrl, machineId, deviceId);
     onUrl?.(authorizeUrl); // 拿到 URL 立刻回调（命令行展示，用户自行打开）
-    onStatus?.(`等待授权回调（本地端口 ${callback.port}）…`);
+    // 绑非回环时把风险说清楚：回调带 token，同网段可嗅探
+    onStatus?.(
+      LISTEN_HOST === "127.0.0.1" || LISTEN_HOST === "localhost"
+        ? `等待授权回调（本地端口 ${callback.port}）…`
+        : `等待授权回调（${LISTEN_HOST}:${callback.port}）… 回调地址对本网段可见，只在可信网络使用`,
+    );
 
-    const flat = await waitForCallback(callback, options.pasteCode, LOGIN_TIMEOUT_MS);
+    const flat = await waitForCallback(callback, options.pasteCode, nonce, LOGIN_TIMEOUT_MS);
     const fields = parseCallback(flat);
 
     // 老流程：回调只带 refreshToken（不带 userJwt.Token）→ 先兑换出 access token。
