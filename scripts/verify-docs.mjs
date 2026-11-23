@@ -128,11 +128,12 @@ if (existsSync(CHANNELS_DIR)) {
       continue;
     }
     // 两个必备节（docs/channels/README.md「写作分工」：每渠道必须成节存在，便于横向对照）。
-    // 判据是「节存在」，只约束行首与可选编号前缀：`### 7.9 怎么测这个渠道`、
-    // `### 怎么测这个渠道（附示例）` 都算数。原实现按 includes 字面比，加编号会被误判成
-    // 删节；反过来行尾锚定又会让带后缀的合法标题失配 —— 两头都不该管。
+    // 判据是「节存在」，只约束行首与可选编号前缀；节名之后允许空白、括号、冒号这类
+    // 补充说明（`### 怎么测这个渠道（附示例）` 算数），但必须是词边界 ——
+    // 否则 `### 怎么测这个渠道的常见误区`、`### 端到端测试覆盖率统计` 这类并非目标节的
+    // 标题也会被判定为「节存在」，真正缺失或改名的节就此漏过。
     for (const section of ["怎么测这个渠道", "端到端测试覆盖"]) {
-      const pattern = new RegExp(`^#{3,4}\\s+(?:[\\d.]+\\s+)?${section}`, "m");
+      const pattern = new RegExp(`^#{3,4}\\s+(?:[\\d.]+\\s+)?${section}(?=[\\s（(：:]|$)`, "m");
       if (!pattern.test(readText(doc))) {
         problems.push(`docs/channels/${entry.name}/PROTOCOL.md —— 缺必备节「### ${section}」`);
       }
@@ -255,9 +256,11 @@ for (const rel of candidates) {
 //   ③ h4 无三级编号 —— 并列小标题无法被引用，也无从在目录里定位；
 //   ④ 有编号的 h2 标题超长 —— 编号存在的意义是「能被一句话指代」，塞进 file:line 就废了。
 // 只查有编号的文档（整篇用陈述式标题的文档不受约束），避免逼所有人改标题风格。
-// 围栏判定同时认 ``` 与 ~~~，且「有没有编号」的预判与标题收集共用同一批非围栏行 ——
-// 预判若直接扫原始行，文档里一段示例代码含 `## 1.` 就会让整篇被当成编号文档，
-// 随后所有未编号 h4 全部误报。
+// 围栏判定按 CommonMark：``` 开的围栏只能被 ``` 关，~~~ 开的只能被 ~~~ 关，
+// 且关闭标记不短于开启标记。只按「行首是 ``` 或 ~~~」翻转的话，``` 围栏里出现一行
+// `~~~` 就会提前关闭，其后的代码被当正文（漏检）或正文被当代码（误报）。
+// 「有没有编号」的预判与标题收集共用同一批非围栏行 —— 预判若直接扫原始行，
+// 文档里一段示例代码含 `## 1.` 就会让整篇被当成编号文档，随后所有未编号 h4 全部误报。
 function checkHeadingLevels(rel) {
   const abs = join(workspaceRoot, rel);
   let text;
@@ -267,14 +270,21 @@ function checkHeadingLevels(rel) {
     return [];
   }
   const prose = [];
-  let inFence = false;
+  let fenceChar = "";
+  let fenceLen = 0;
   text.split("\n").forEach((line, i) => {
-    const t = line.trim();
-    if (t.startsWith("```") || t.startsWith("~~~")) {
-      inFence = !inFence;
+    const m = /^(`{3,}|~{3,})/.exec(line.trim());
+    if (m) {
+      if (fenceChar === "") {
+        fenceChar = m[1][0];
+        fenceLen = m[1].length;
+      } else if (m[1][0] === fenceChar && m[1].length >= fenceLen) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
       return;
     }
-    if (!inFence) prose.push({ line, no: i + 1 });
+    if (fenceChar === "") prose.push({ line, no: i + 1 });
   });
 
   if (!prose.some((p) => /^## \d+\./.test(p.line))) return [];
