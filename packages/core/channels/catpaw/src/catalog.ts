@@ -271,8 +271,13 @@ function parseExtendedInfo(row: Record<string, unknown>): {
 /**
  * 归一化上游模型行（字段名有多种历史写法，见 docs/channels/catpaw/PROTOCOL.md）。
  * 供 upstream.fetchModels 调用。
+ *
+ * 入参声明是 `Record<string, unknown>`，但调用方遍历的是上游 JSON 数组 —— 里面
+ * 混进 `null` / 字符串是可能的（上游改字段时见过）。这里先收口，不让畸形行把
+ * 整个目录解析打断：返回 null 由调用方跳过。
  */
 export function toModelInfo(row: Record<string, unknown>): CatalogEntry | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
   const pick = (...keys: string[]): string => {
     for (const key of keys) {
       const v = row[key];
