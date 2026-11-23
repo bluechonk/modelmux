@@ -77,6 +77,7 @@
 | [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | MIT | 同上 |
 | [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | MIT | 同上 |
 | [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | MIT | 同上 |
+| [XCool-603/trae2api](https://github.com/XCool-603/trae2api) | NOASSERTION | 同上（只作协议事实来源，不复用代码） |
 
 ### workbuddy
 

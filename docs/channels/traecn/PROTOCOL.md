@@ -964,16 +964,27 @@ ZCode 会话（session `d2b4c141`，30 次请求）调 `traecn/deepseek-v4.1-fla
   DeviceProof（P-256 设备签名）；旧端点签出的 JWT 不带设备绑定、签到恒回 9074（magpie 引
   yetone/magpie#808 并排实测）。本仓仍走旧端点，靠自造 15 位设备号过签到——上游一旦对
   消费网关强制设备绑定，续期与签到同时失效，需按新契约重做真机验证。
-- PKCE 新登录（22 参数 + code_challenge）双轨并存，短期不影响；登记为风险。
+- **PKCE 新登录（22 参数 + code_challenge）双轨并存，两条端点都活着**（2026-11-23 实测）：
+  - 新协议：`POST https://api.trae.cn/trae/api/v3/oauth/ExchangeToken`，body 为
+    `{ClientID, AuthCode, CodeVerifier, DeviceInfo, IDEVersion}`；假参数返回 400
+    `10101 无效参数`（缺 DeviceInfo）。
+  - 旧协议：`POST https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken`，
+    body 为 `{ClientID, RefreshToken, ClientSecret, UserID}`；假参数返回 401
+    `20101 refresh token is invalid`。
+  - 授权页对 `code_challenge` / `code_challenge_method=S256` **原样接受**（实测 200 并回显），
+    与「PKCE 不可用」的旧说法不冲突——那说的是设备码流 `oauth/Authorize`（404），不是 web 授权页。
+  - 新协议要求**登录时生成 EC P-256 设备密钥对并整份保存**，续期用同一把私钥签
+    DeviceProof；只存 token 不存私钥，token 一过期凭据即废。本仓目前没有这条链路。
 - UG 签到设备号口径：16 位被拒、15 位收（magpie #709 三账号实测）——维持本仓 15 位派生。
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 仓库 | 用途 |
 | --- | --- |
-| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（该仓库内的 `docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`）；**AppID 常量来源**：`internal/upstream/constants.go`、`internal/upstream/work_client.go` |
-| [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | 国内版实现参照；**AppID 常量来源**：`src/trae_client.py`、`src/raw_client.py`；Remote（chat_sessions）传输与公共预设口径：`src/trae_remote_client.py`、`src/main.py` |
-| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（该仓库内的 `docs/RESEARCH.md`）；**AppID 常量来源**：`internal/upstream/constants.go` |
+| [JeffHu0912/trae2api](https://github.com/JeffHu0912/trae2api) | 协议规格参照（该仓库内的 `docs/work-wire-protocol-spec.md`、`docs/work-crypto-algorithm.md`）；**AppID 常量来源**：`internal/upstream/constants.go`、`internal/upstream/work_client.go`；**容器部署登录**：`internal/server/login.go` 起第二个 `http.Server` 绑 `":"+port`（全接口）收 `/authorize`，配 `ports: 18080:18080`；`login.sh` 另提供「不监听、粘贴地址栏」的脚本路径 |
+| [autumnsentiment/Trae2api-cn](https://github.com/autumnsentiment/Trae2api-cn) | 国内版实现参照；**AppID 常量来源**：`src/trae_client.py`、`src/raw_client.py`；Remote（chat_sessions）传输与公共预设口径：`src/trae_remote_client.py`、`src/main.py`；**宿主机授权助手**：`web_login.py` 在宿主机监听 8765，解析后 `POST /api/web-auth` 把凭据交给容器 |
+| [connectedGraph/trae2api-web](https://github.com/connectedGraph/trae2api-web) | Web 端协议参照（该仓库内的 `docs/RESEARCH.md`）；**AppID 常量来源**：`internal/upstream/constants.go`；与 JeffHu0912 同构 |
+| [XCool-603/trae2api](https://github.com/XCool-603/trae2api) | **新 PKCE 登录契约的唯一完整实现**：`internal/traectl/oauth.go` 的 PKCE 配对（`base64.RawURLEncoding`，标准 base64 会被拒）、EC P-256 设备密钥对、`/trae/api/v3/oauth/ExchangeToken` + DeviceProof 续期 |
 | [A-23187/trae-api](https://github.com/A-23187/trae-api) | 最小实现样本；**AppID 常量来源**：`auth.js` |
 
 > 四份参考实现**逐字一致**地使用 `X-App-Id: 6eefa01c-1036-4c7e-9ca5-d891f63bfcd8`
