@@ -191,9 +191,10 @@ CI 在 `pull_request` 事件里经 `PR_TITLE` / `PR_BODY` 校验描述、经 `PR
 - [ ] 文档是否与代码在同一个 commit？
 
 机械门禁（`scripts/verify-docs.mjs` 与 `verify-comments.mjs`，在 `npm test` 中强制）：md 落点、
-根文件白名单、渠道 `PROTOCOL.md` 存在性、相对链接可达、`file:line` 有效、索引登记、技能登记、
-本文件 ≤ 30,000 字节（Codex 默认 32,768 会静默截断）、文件头 ≤ 12 行、无署名留痕、TODO 条件齐备、
-空 catch 有说明、无裸 `any`。
+根文件白名单、渠道 `PROTOCOL.md` 存在性、相对链接可达、`file:line` 有效、章节编号层级
+（h2 不带 `x.y`、h3 不带 `x.y.z`、h4 必须有 `x.y.z`、编号 h2 标题 ≤ 42 字）、
+索引登记、技能登记、本文件 ≤ 30,000 字节（Codex 默认 32,768 会静默截断）、文件头 ≤ 12 行、
+无署名留痕、TODO 条件齐备、空 catch 有说明、无裸 `any`。
 
 「中文」「无 emoji」「一个事实一个家」「文档与代码同 commit」属评审约束，脚本不检查。
 
