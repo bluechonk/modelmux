@@ -247,6 +247,55 @@ for (const rel of candidates) {
   for (const d of checkSourceRefs(rel)) problems.push(`${rel}  ->  ${d}`);
 }
 
+// ── 章节层级：编号必须落在对应标题级别 ──────────────────────────────────────
+// 失效形态（2026-11 渠道文档整治实测，七篇里五篇命中）：
+//   ① h2 带 `1.1` 形态的二级编号 —— 小节被提升成与父节同级，目录里层级是反的；
+//   ② h3 带 `1.1.1` 形态 —— 同上，差一级；
+//   ③ h4 无三级编号 —— 并列小标题无法被引用，也无从在目录里定位；
+//   ④ 有编号的 h2 标题超长 —— 编号存在的意义是「能被一句话指代」，塞进 file:line 就废了。
+// 只查有编号的文档（整篇用陈述式标题的文档不受约束），避免逼所有人改标题风格。
+function checkHeadingLevels(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const lines = text.split("\n");
+  const numbered = lines.some((l) => /^## \d+\./.test(l));
+  if (!numbered) return [];
+
+  const found = [];
+  let inFence = false;
+  lines.forEach((line, i) => {
+    if (line.trim().startsWith("```")) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return;
+    const m = /^(#{2,4})\s+(.+)$/.exec(line);
+    if (!m) return;
+    const level = m[1].length;
+    const title = m[2].trim();
+    if (level === 2 && /^\d+\.\d/.test(title)) {
+      found.push(`L${i + 1} 二级标题带小节编号（应为 h3）：${title}`);
+    } else if (level === 3 && /^\d+\.\d+\.\d/.test(title)) {
+      found.push(`L${i + 1} 三级标题带三级编号（应为 h4）：${title}`);
+    } else if (level === 4 && !/^\d+\.\d+\.\d/.test(title)) {
+      found.push(`L${i + 1} 四级标题缺三级编号：${title}`);
+    } else if (level === 2 && /^\d+\./.test(title) && title.length > 42) {
+      found.push(`L${i + 1} 编号标题超过 42 字（${title.length}）：${title}`);
+    }
+  });
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkHeadingLevels(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {
