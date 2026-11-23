@@ -180,6 +180,16 @@ describe("API key 存储", () => {
     assert.equal(deleteApiKey(record.id), false, "重复删除如实返回 false");
     assert.equal(listApiKeys().length, 0);
   });
+
+  it("校验缓存不延长吊销窗口：删除后立即失效", () => {
+    const { record, plain } = createApiKey({ name: "cached" });
+    // 先校验一次把结果放进缓存
+    assert.equal(verifyApiKeyPlain(plain), true);
+    assert.equal(verifyApiKeyPlain(plain), true, "第二次走缓存仍应通过");
+    // 删除后必须立刻失效 —— 缓存 TTL 30s，但写操作会 bump epoch
+    assert.equal(deleteApiKey(record.id), true);
+    assert.equal(verifyApiKeyPlain(plain), false, "删除后不得因缓存仍通过");
+  });
 });
 
 describe("API key 校验", () => {

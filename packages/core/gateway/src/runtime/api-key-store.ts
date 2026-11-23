@@ -6,7 +6,7 @@
  * 校验按前缀缩候选再恒时比对。列表接口只下发前缀，完整明文走需显式调用的 `revealApiKey`。
  */
 
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 import { setApiKeyGuard, type ApiKeyDecision, type ApiKeyRecord } from "./api-key.js";
 import { openSecret, sealSecret } from "./api-key-crypto.js";
@@ -92,6 +92,9 @@ export function listApiKeys(): ApiKeyRecord[] {
 function saveApiKeys(keys: ApiKeyRecord[]): void {
   const doc: ApiKeyDoc = { version: DOC_VERSION, keys };
   poolStore().writeApiKeys(doc);
+  // 所有写操作都经这里：新建 / 重建 / 删除 / 改名后让校验缓存立即失效，
+  // 否则吊销的 key 还能在 TTL 内继续通过（虽然只有 30s，但没有理由留这个窗口）。
+  bumpKeyEpoch();
 }
 
 /**
@@ -257,7 +260,7 @@ export function integrationKeySecret(): string | null {
 
 /** 校验一把明文 key 是否仍有效（接入重跑时判断客户端里那把要不要换）。 */
 export function verifyApiKeyPlain(plain: string): boolean {
-  return findKey(plain) !== null;
+  return findKeyCached(plain) !== null;
 }
 
 /** 删除 key；返回是否确实删掉。 */
@@ -285,6 +288,45 @@ function findKey(plain: string): ApiKeyRecord | null {
 }
 
 /**
+ * 校验结果缓存（30s TTL）：scrypt 单次约 28ms 且同步执行，会阻塞事件循环 ——
+ * 流式响应期间这一下停顿直接体现在 TTFB 上，并发多客户端时线性叠加。
+ *
+ * 安全性：缓存键是明文 key 的 sha256（不存明文本身），值只缓存「校验通过」这一个
+ * 事实；key 删除 / 重建会因 `bumpKeyEpoch()` 立刻失效。TTL 只影响「已吊销的 key
+ * 还能用多久」—— 30s 内吊销的窗口对本机单人形态可接受，且重建会即时失效。
+ */
+const VERIFY_CACHE_TTL_MS = 30_000;
+let verifyEpoch = 0;
+const verifyCache = new Map<string, { id: string; epoch: number; at: number }>();
+
+/** 任何写操作后调用：让缓存里所有条目失效（含 TTL 内的）。 */
+function bumpKeyEpoch(): void {
+  verifyEpoch += 1;
+  verifyCache.clear();
+}
+
+function cacheKeyOf(plain: string): string {
+  return createHash("sha256").update(plain).digest("hex");
+}
+
+function findKeyCached(plain: string): ApiKeyRecord | null {
+  const ck = cacheKeyOf(plain);
+  const now = Date.now();
+  const hit = verifyCache.get(ck);
+  if (hit && hit.epoch === verifyEpoch && now - hit.at < VERIFY_CACHE_TTL_MS) {
+    // 命中：确认这条记录还在（可能已被删除）—— 用 id 反查，不重算 scrypt
+    const rec = listApiKeys().find((k) => k.id === hit.id);
+    if (rec) return rec;
+    verifyCache.delete(ck);
+    return null;
+  }
+  const rec = findKey(plain);
+  if (rec) verifyCache.set(ck, { id: rec.id, epoch: verifyEpoch, at: now });
+  else verifyCache.delete(ck);
+  return rec;
+}
+
+/**
  * 装配门禁：对话请求一律校验（模型列表 / 状态类端点不经过这里）。
  *
  * 校验只有一件事：这把 key 是否有效。模型白名单与每分钟限流是多租户时代的产物，
@@ -296,7 +338,7 @@ export function installApiKeyGuard(): void {
       if (apiKey === null || apiKey === "") {
         return { ok: false, reason: "invalid", message: "missing api key" };
       }
-      const rec = findKey(apiKey);
+      const rec = findKeyCached(apiKey);
       if (rec === null) return { ok: false, reason: "invalid", message: "invalid api key" };
       return { ok: true, record: rec };
     },
