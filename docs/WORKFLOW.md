@@ -91,6 +91,11 @@
 脚本的**结论**要落文档（渠道 `PROTOCOL.md` / 技能 `references/`）——脚本本身是工具，
 结论才是资产；两者都留，下次既能复用脚本，也知道结论是什么。
 
+**`.tmp/` 里存了真实凭据时收紧权限**：备份、抓包、会话快照可能带明文 token（实测
+`modelmux-backup-*` 里 19 个 JWT，其中 15 个仍在有效期）。这些目录一律不入库，但磁盘上
+仍是明文 —— 用 `icacls <目录> /inheritance:r /grant:r "$(whoami):(OI)(CI)F"` 去掉继承、
+只留当前用户。凭据真过期前不做 relogin 轮换的话，任何能读到工作目录的进程都能拿走。
+
 ## 项目级技能入口软链（本机）
 
 Claude Code 只扫 `.claude/skills/`，而本仓技能实体在 `.agents/skills/`（5 个，随仓库分发）。
