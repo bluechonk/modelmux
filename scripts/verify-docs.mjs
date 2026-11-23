@@ -313,6 +313,71 @@ for (const rel of candidates) {
   for (const d of checkHeadingLevels(rel)) problems.push(`${rel}  ->  ${d}`);
 }
 
+// ── 表格：单元格里不许装段落 ────────────────────────────────────────────────
+// 表格是并列数据的载体，不是段落容器。一格塞 3 句以上时，读者的眼睛要在
+// 一根竖线里来回找断句 —— 实测最重的一格 276 字，整张表退化成「带竖线的散文」。
+// 只查这一条：≥3 句。列数与行数不设限 —— 模型规格表、字段字典、缺口清单
+// 天然是 6 列 25 行，那正是表格该有的样子，机械限宽会逼作者把数据拆散。
+// 判据可绕过：把论证移到表下，或拆成编号条目。
+const TABLE_SENTENCE_MAX = 2;
+
+function checkTableCells(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const found = [];
+  let fenceChar = "";
+  let fenceLen = 0;
+  let inTable = false;
+  text.split("\n").forEach((line, i) => {
+    const fm = /^(`{3,}|~{3,})/.exec(line.trim());
+    if (fm) {
+      if (fenceChar === "") {
+        fenceChar = fm[1][0];
+        fenceLen = fm[1].length;
+      } else if (fm[1][0] === fenceChar && fm[1].length >= fenceLen) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
+      inTable = false;
+      return;
+    }
+    if (fenceChar !== "") return;
+
+    const t = line.trim();
+    if (!(t.startsWith("|") && t.endsWith("|"))) {
+      inTable = false;
+      return;
+    }
+    const cells = t.slice(1, -1).split("|");
+    if (cells.every((c) => /^:?-{2,}:?$/.test(c.trim()))) {
+      inTable = true;
+      return;
+    }
+    if (!inTable) return; // 表头行
+    for (const cell of cells) {
+      const sentences = (cell.match(/。/g) || []).length;
+      if (sentences > TABLE_SENTENCE_MAX) {
+        found.push(
+          `L${i + 1} 表格单元格含 ${sentences} 句（上限 ${TABLE_SENTENCE_MAX}）——` +
+            `把论证移到表下，或拆成编号条目：${cell.trim().slice(0, 40)}…`,
+        );
+        break;
+      }
+    }
+  });
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkTableCells(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {
