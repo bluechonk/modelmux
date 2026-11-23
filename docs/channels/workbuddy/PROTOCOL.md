@@ -72,13 +72,8 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 #### 1.1.1 目录响应结构
 
 - **`data.models[]` 是完整规格表，不只是名单**（实测 2026-11-14：61 条）。
-  `agents[].models` 只是裸 id 字符串数组（cli agent 17 个），规格全在顶层 `data.models[]`，
-  单条字段：`id` / `name` / `descriptionZh` / `descriptionEn` / `credits` /
-  `maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` /
-  `contextWindow{defaultLength, supportedLengths}` / `reasoning{canDisableThinking,
-  defaultEffort, supportedEfforts}` / `relatedModels` / `supportsImages` /
-  `supportsReasoning` / `supportsToolCall` / `temperature` / `vendor` / `aliases` /
-  `isDefault` / `onlyReasoning` / `iconUrl`。
+  `agents[].models` 只是裸 id 字符串数组（cli agent 17 个），规格全在顶层
+  `data.models[]`。字段清单见 §1.1.1 的并集表。
 - **上下文窗口是分档结构**：`contextWindow.supportedLengths` 实测三档
   `300000 / 600000 / 1000000`，`defaultLength` 是 `300000`——上游默认按 30 万走，
   1M 是最大档（`maxAllowedSize`）；对外口径按 1M 报没有错，但请求超 30 万时上游
@@ -131,16 +126,25 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
   builtInMarketPlugins[0] / builtInMarketPluginsMerge[0] / builtInMarketplaces / builtInSkillMarketplaces（插件市场 URL 配置）
   ```
 
-  `models[]` 字段**并集**（按条目可选；`auto` 等路由条目无 `credits` 与
-  `contextWindow`，真模型才有）：`id` / `name` / `descriptionEn` / `descriptionZh` /
-  `credits` / `maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` /
-  `contextWindow{defaultLength, supportedLengths[]}` / `reasoning{canDisableThinking?,
-  defaultEffort, summary, supportedEfforts[]}` / `relatedModels{builtin-lite?, lite,
-  reasoning}` / `supportsImages` / `supportsReasoning` / `supportsToolCall` /
-  `temperature` / `vendor` / `aliases[]` / `isDefault` / `onlyReasoning` / `iconUrl` /
-  `disabledMultimodal` / `tags[]`。
-  `tokenUsageThresholds.compact.modelOverrides.deepseek` 是 DeepSeek 专属的 compact
-  阈值覆盖（上游按模型族给不同 emergency 阈值）。
+`models[]` 字段**并集**（按条目可选；`auto` 等路由条目无 `credits` 与
+`contextWindow`，真模型才有）：
+
+| 字段 | 形态 | 说明 |
+| --- | --- | --- |
+| `id` / `name` | string | 模型标识与展示名 |
+| `descriptionZh` / `descriptionEn` | string | 中英描述 |
+| `credits` | string | 倍率，形如 `"x0.34 credits"` |
+| `maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` | number | 输入 / 输出 / 最大档 |
+| `contextWindow` | `{defaultLength, supportedLengths[]}` | 上下文窗口与可选档位 |
+| `reasoning` | `{canDisableThinking?, defaultEffort, summary, supportedEfforts[]}` | 思考档位 |
+| `relatedModels` | `{builtin-lite?, lite, reasoning}` | 关联模型 |
+| `supportsImages` / `supportsReasoning` / `supportsToolCall` | boolean | 能力位 |
+| `temperature` / `vendor` / `iconUrl` | — | 采样温度、厂商、图标 |
+| `aliases[]` / `tags[]` | string[] | 别名与标签 |
+| `isDefault` / `onlyReasoning` / `disabledMultimodal` | boolean | 标志位 |
+
+`tokenUsageThresholds.compact.modelOverrides.deepseek` 是 DeepSeek 专属的 compact
+阈值覆盖（上游按模型族给不同 emergency 阈值）。
 
 ### 1.2 图片能力判据（哪个字段说了算）
 

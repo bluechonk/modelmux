@@ -63,13 +63,18 @@ CLI 命令形态：`mx <动词> [<cid>]`（动词优先，对齐 git/docker/kube
 - 对外 API 或模型 id 形态变更
 - 预计改动 >20 个文件
 
-小改动先本地 commit 攒着，攒够一批再走 PR。**推送门禁由 `.githooks/pre-push` 自动执行**
-（`npm install` 经 `prepare` 接线），跑不过就拦下推送，不需要手动跑；禁止 `--no-verify`。
-真正不可绕过的是 CI —— `main` 有分支保护，合并前双检查必须绿。
-PR 用 squash 合并（PR 标题即 main 上那条 commit 的标题，必须 `type(scope): 中文`）；禁止 merge commit。
-**建 PR 入口焊死在 `npm run pr`**（`scripts/pr-create.mjs`）：工作树脏、HEAD 与远端分支不一致、
-门禁未过都直接禁提 PR；禁止裸 `gh pr create`。
-**禁止自动 merge**：agent 只到「提出/更新 PR」为止，合并需用户对当次明确允许（全局规则「版本控制」第 6 条）。
+小改动先本地 commit 攒着，攒够一批再走 PR。五条硬规则：
+
+1. **推送门禁自动执行**（`.githooks/pre-push`，`npm install` 经 `prepare` 接线）——
+   跑不过就拦下推送，不需要手动跑；禁止 `--no-verify`。
+2. **真正不可绕过的是 CI**：`main` 有分支保护，合并前双检查必须绿。
+3. **PR 用 squash 合并**（PR 标题即 main 上那条 commit 的标题，必须 `type(scope): 中文`）；
+   禁止 merge commit。
+4. **建 PR 入口焊死在 `npm run pr`**（`scripts/pr-create.mjs`）：工作树脏、HEAD 与远端分支
+   不一致、门禁未过都直接禁提 PR；禁止裸 `gh pr create`。
+5. **禁止自动 merge**：agent 只到「提出/更新 PR」为止，合并需用户对当次明确允许
+   （全局规则「版本控制」第 6 条）。
+
 完整分支流程见 [docs/WORKFLOW.md](docs/WORKFLOW.md) 和 `git-workflow` 技能。
 
 ### PR body 与 commit body 同规

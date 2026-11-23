@@ -89,13 +89,17 @@
 然后做**精确相等**匹配 —— 用包含匹配的话，`deepseek-v4-flash` 会把
 `deepseek-v4.1-flash` 一起捞进来，精确相等是唯一的隔离保证。
 
-客户端请求名走 `pool/inbound-model.ts`：先剥 `[1m]` 后缀与 `modelmux/` 前缀，再对
-**对外名单**做精确匹配（`isClientModelId`），命中即取 canonical；没命中再看 Claude Desktop
-的三个角色名（固定表）。两者都不中一律 `400 unknown_model`，文案列出对外公布的两个名字。
-渠道目录条目走另一条路（`canonicalOf` + 同一套宽松归一化）：目录里的上游写法
-（`DeepSeek-Flash`、`sn-deepseek-v4-1-flash-1017`）照旧归到同一 canonical，于是「目录里写
-`deepseek-flash` 的渠道，请求 `deepseek-v4.1-flash` 也能打过去」。家族内但**没有任何渠道
-供给**的同样是 `400`（没货），「候选渠道当前都不可用」才是 `503`。
+两条解析路径，口径不同：
+
+1. **客户端请求名**（`pool/inbound-model.ts`）：先剥 `[1m]` 后缀与 `modelmux/` 前缀，
+   再对**对外名单**做精确匹配（`isClientModelId`），命中即取 canonical；没命中再看
+   Claude Desktop 的三个角色名（固定表）。两者都不中一律 `400 unknown_model`，
+   文案列出对外公布的两个名字。
+2. **渠道目录条目**（`canonicalOf` + 同一套宽松归一化）：目录里的上游写法
+   （`DeepSeek-Flash`、`sn-deepseek-v4-1-flash-1017`）照旧归到同一 canonical ——
+   于是「目录里写 `deepseek-flash` 的渠道，请求 `deepseek-v4.1-flash` 也能打过去」。
+
+**家族内但没有任何渠道供给**同样是 `400`（没货）；「候选渠道当前都不可用」才是 `503`。
 
 ### 2.2 账本：路由主键（剩余额度 × 速度 × 可靠性）＋ 健康度观察
 

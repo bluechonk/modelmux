@@ -299,15 +299,25 @@ event:done   | data:{"finish_reason":"stop"}
 
 #### 3.1.3 签到 / 额度（`api.trae.cn`，21 个）
 
-`Content-Type`、`Accept: */*`、`Accept-Encoding`、`Accept-Language: zh-CN`、
-`User-Agent: VSCode 1.107.1 (TRAE SOLO CN)`、
-`Authorization: Cloud-IDE-JWT <access_token>`、
-`X-Market-Client-Id: VSCode 1.107.1`、`X-Market-User-Id: <派生 UUIDv4>`、
-`X-User-Region: CN`、**`X-Device-Id: <派生 15 位数字>`**、
-`X-Lgw-Req-Sdk-Type: 3`、`Package-Type: stable_cn`、`X-Lscbd-Aid: 787976`、
-`X-Lscbd-Platform: windows`、`App-Version: 0.1.52`、
-`X-Tt-Trace-Id: 00-<randomHex16>-01`、`Vscode-Sessionid: <派生 64 hex>`、
-`X-Request-Id: <uuidV4>`、`Sec-Fetch-Dest/Mode/Site: empty/no-cors/none`。
+| 头 | 值 |
+|---|---|
+| `Content-Type` | `application/json` |
+| `Accept` / `Accept-Encoding` | `*/*` / gzip, deflate |
+| `Accept-Language` | `zh-CN` |
+| `User-Agent` | `VSCode 1.107.1 (TRAE SOLO CN)` |
+| `Authorization` | `Cloud-IDE-JWT <access_token>` |
+| `X-Market-Client-Id` | `VSCode 1.107.1` |
+| `X-Market-User-Id` | `<派生 UUIDv4>` |
+| `X-User-Region` | `CN` |
+| `X-Device-Id` | `<派生 15 位数字>`（**签到专用**，与对话头的 32 hex 不同值） |
+| `X-Lgw-Req-Sdk-Type` | `3` |
+| `Package-Type` | `stable_cn` |
+| `X-Lscbd-Aid` / `X-Lscbd-Platform` | `787976` / `windows` |
+| `App-Version` | `0.1.52` |
+| `X-Tt-Trace-Id` | `00-<randomHex16>-01` |
+| `Vscode-Sessionid` | `<派生 64 hex>` |
+| `X-Request-Id` | `<uuidV4>` |
+| `Sec-Fetch-Dest/Mode/Site` | `empty/no-cors/none` |
 
 > **同名不同值**：签到头的 `X-Device-Id` 是**签到专用派生值**（`packages/core/channels/traecn/src/cred.ts:272-283` 的
 > `deriveCheckinDeviceId`），对话头的 `X-Device-Id` 是**账号级 32 hex**。
@@ -513,11 +523,17 @@ Body:
 
 响应 `{function_configs:[{function, config_info_list:[...]}]}`，每个 function 各自一套目录。
 
-条目字段：`config_name`（id）、`display_config{display_name, is_custom_model, max_mode, multimodal,
-tool_response_multimodal}`、`context_window_tokens{dev,max}`、
-`model_detail_list[{model_name, max_tokens}]`（`__dev`/`__max` 后缀区分）、
-`reasoning_effort_config{default_level, options[], support_thinking}`、`usage`、`config_switch`、
-`is_invisible_to_user`、`display_contact_config`（**JSON 字符串**，内含 `consumption_rate` 与 `activity_discount`）
+条目字段：
+
+| 字段 | 形态 | 说明 |
+| --- | --- | --- |
+| `config_name` | string | 模型 id |
+| `display_config` | `{display_name, is_custom_model, max_mode, multimodal, tool_response_multimodal}` | 展示名与能力位 |
+| `context_window_tokens` | `{dev, max}` | 两档上下文窗口 |
+| `model_detail_list` | `[{model_name, max_tokens}]` | `__dev` / `__max` 后缀区分 |
+| `reasoning_effort_config` | `{default_level, options[], support_thinking}` | 思考档位 |
+| `display_contact_config` | **JSON 字符串** | 内含 `consumption_rate` 与 `activity_discount` |
+| `usage` / `config_switch` / `is_invisible_to_user` | — | 用量、开关、官方隐藏标志 |
 
 缓存 TTL 30 秒、含空结果。
 
