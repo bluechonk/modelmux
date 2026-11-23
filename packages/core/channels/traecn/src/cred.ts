@@ -16,6 +16,7 @@ import {
   ensureDir,
   login as sharedLogin,
   loginFlow,
+  paths,
   prefsPath,
   writeSecretFile,
 } from "@modelmux/gateway";
@@ -890,6 +891,39 @@ class ClientMismatchError extends Error {
 }
 
 /**
+ * 旧兑换端点可能已下线的信号。
+ *
+ * 上游已迁 `/trae/api/v3/oauth/ExchangeToken`（新契约带 PKCE + 设备密钥对），
+ * 本仓仍走 `/cloudide/api/v3/...`。旧端点被关掉时，症状与「凭据失效」不同：
+ *
+ * - **404 / 405**：路径没了 —— 凭据可能完全正常，是端点消失；
+ * - **非 JSON 响应**（HTML 错误页 / 网关 502 页）：同理，不是鉴权失败；
+ * - **10101「无效参数」**：新端点用这个码表示缺 DeviceInfo。旧端点用它表示
+ *   client 归属不符（本仓已换线重试）。两者共用码值，故只在换线重试也失败后
+ *   才把「无效参数」形态归到端点变更 —— 归属不符的 10101 已被前一步消化。
+ *
+ * 判据宁可漏报不可误报：这里只做提示，不改变错误类型与重试行为。
+ */
+function looksLikeEndpointGone(status: number, text: string): boolean {
+  if (status === 404 || status === 405) return true;
+  // 非 JSON（HTML 错误页）且状态非 2xx：网关层拒绝，不是业务鉴权
+  const trimmed = text.trim();
+  if (status !== 200 && !trimmed.startsWith("{") && !trimmed.startsWith("[")) return true;
+  return false;
+}
+
+/** 端点疑似下线时打一次提示（同进程只打一次，避免每次续期都刷屏）。 */
+function noteEndpointMaybeGone(status: number): void {
+  paths.noteOnce(
+    "traecn-exchange-endpoint",
+    `traecn ExchangeToken returned HTTP ${status} on the legacy endpoint ` +
+      `(${OAUTH_EXCHANGE_PATH}). The upstream has migrated to /trae/api/v3/oauth/ExchangeToken ` +
+      `with PKCE + device key pair; the old endpoint may be retired. ` +
+      `See docs/channels/traecn/PROTOCOL.md §9.1 before assuming the credential is invalid.`,
+  );
+}
+
+/**
  * 调 `ExchangeToken` 用 refresh token 换新 token（**不落盘**）。
  *
  * **access 与 refresh 都轮换**，调用方必须把两个都写回。
@@ -944,6 +978,8 @@ async function exchangeWithClient(
   if (resp.status !== 200) {
     const text = await resp.text().catch(() => "");
     if (/10101|not matched to the client/i.test(text)) throw new ClientMismatchError("client mismatch");
+    // 端点消失（404/405）或网关返回 HTML 错误页：先提示，别让人误判成凭据失效
+    if (looksLikeEndpointGone(resp.status, text)) noteEndpointMaybeGone(resp.status);
     throw new Error(`ExchangeToken returned HTTP ${resp.status}`);
   }
 
@@ -959,6 +995,8 @@ async function exchangeWithClient(
     env = null;
   }
   if (!env) {
+    // 200 却给了 HTML：多半是网关/边缘层拦下的错误页，不是凭据问题
+    noteEndpointMaybeGone(resp.status);
     throw new ReloginRequiredError("ExchangeToken returned non-JSON (possibly an HTML error page), credential is invalid, please log in again");
   }
 

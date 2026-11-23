@@ -975,6 +975,10 @@ ZCode 会话（session `d2b4c141`，30 次请求）调 `traecn/deepseek-v4.1-fla
     与「PKCE 不可用」的旧说法不冲突——那说的是设备码流 `oauth/Authorize`（404），不是 web 授权页。
   - 新协议要求**登录时生成 EC P-256 设备密钥对并整份保存**，续期用同一把私钥签
     DeviceProof；只存 token 不存私钥，token 一过期凭据即废。本仓目前没有这条链路。
+  - **旧端点下线有自动提示**：续期拿到 404/405 或非 JSON 响应（网关 HTML 页）时，
+    日志打一条 `traecn ExchangeToken returned HTTP <code> on the legacy endpoint`，
+    并指向本节。判据只在「换线重试也失败」之后生效，凭据失效（401/403 + `20101`）
+    不触发，避免误报。同进程只打一次。
 - UG 签到设备号口径：16 位被拒、15 位收（magpie #709 三账号实测）——维持本仓 15 位派生。
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
