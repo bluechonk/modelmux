@@ -140,7 +140,7 @@
 - 手动刷新：`mx model usage --refresh`。
 - 账单查询失败只更新尝试时刻、**保留上一次的用量数字**（不把账清零，也不用 0 冒充）。
 
-#### 额度基线（Web 百分比的分母）
+#### 2.3.1 额度基线（Web 百分比的分母）
 
 账本为每个账号额外保存 `baseline { window, date, remain, at }`（`pool-usage.ts` 的 `pickBaseline`）：
 
@@ -235,7 +235,7 @@
 鉴权类失败（`not_authenticated` / `upstream_unauthenticated`）**不在**换号之列 ——
 换账号会把「凭据被撤销」掩盖成随机成功，仍然只能手动处理。
 
-#### 额度耗尽 → 账号**冷却**（不是故障）
+#### 2.4.1 额度耗尽 → 账号冷却（不是故障）
 
 额度耗尽与真故障是**两种不同的事**，混在一起会把会自己好的账号永久跳过：
 
@@ -310,7 +310,7 @@
 > | **渠道级**（早就有） | 账本 `pool-usage.json` 的 `cooldown_until` | 观测/排序标记，**不剔除请求** |
 > | **账号级** | 账号池 `accounts.json` 的 `health: "cooldown"` | **请求入口短路**，到期自动放行 |
 
-#### 额度耗尽 → 自动换号
+#### 2.4.2 额度耗尽 → 自动换号
 
 冷却只挡住**生效账号**，池里别的账号还有额度时用户看到的仍是 503 —— 所以失败后还有一步
 「按账单证据换号」。完整判据、边界与理由见 [ACCOUNT-ROTATION.md](./ACCOUNT-ROTATION.md)，
@@ -330,7 +330,7 @@
   池内没有可用替代账号就如实报错（不假装能救）。
 - 实现：`pool/account-rotate.ts`（决策）+ `http/chat/relay.ts`（编排与重试）。
 
-#### 非标准状态码的鉴权失败（`isAuthFailure`）
+#### 2.4.3 非标准状态码的鉴权失败
 
 有些上游不用 401/403 表达凭据失效 —— 如华为云 APIG 网关对过期 token 回
 `HTTP 400 + {"error_code":"APIG.0602"}`。渠道声明 `upstream.isAuthFailure(status, body)`
@@ -338,7 +338,7 @@
 走既有的「刷新 token → **重试当前账号**」链路；仍失败则标该账号 `unauthorized`、
 **保留凭据**、回 502 `upstream_unauthenticated`，**不自动切号**（见 §3.3）。未声明的渠道行为不变。
 
-#### 排队即换渠道（`isQueueError`）
+#### 2.4.4 排队即换渠道
 
 有些上游过载/排队时**不拒绝连接**，而是回 HTTP 200 + SSE 里投递一个业务错误帧
 （qoder 系上游的 `code:"10605"`）。渠道声明 `upstream.isQueueError(frame)` 后，
@@ -433,7 +433,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   模型都会显示 low/high）。空数组同样算未声明（traecn 全部模型都写 `[]`）。`effort` 为
   `null` 时控制台显示「不支持」。
 
-#### 取值来源标注（`sources`）
+#### 2.6.5 取值来源标注（`sources`）
 
 `PoolModelMeta.sources` 逐字段记下这个值是**从哪来的**，`/v1/models` 以 `meta_sources` 输出
 （我们的扩展字段，官方没有）：

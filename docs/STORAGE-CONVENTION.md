@@ -96,7 +96,7 @@
 
 渠道特有文件必须落在自己的 cid 层内。渠道目录下有三类子目录。
 
-#### `cache/` —— 可安全删除、可重建
+#### 3.1.1 `cache/`：可安全删除、可重建
 
 - `cache/models.json`：远端模型目录缓存，由渠道 `catalog.ts` 在成功拉取时原子写入（0600，信封 `{version, fetched_at, models}`）。
   - 写入时机：每次成功拉到远端目录覆盖一次。
@@ -110,17 +110,17 @@
   | --- | --- | --- |
   | `usage.json` | traecn | 对话流观测到的通道余额快照（`notify_usage`） |
 
-#### `state/` —— 跨重启保持的状态
+#### 3.1.2 `state/`：跨重启保持的状态
 
 - `state/signin.json`：签到台账 `{version, timezone, last_claim, history, accounts?, probe?, probes?}`，由共享层在领取成功或自动签到回填时写入（字段口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §3.6）。
 - `state/auto-signin.json`：自动签到的当日失败计数，连败 3 次熔断。
 
-#### `debug/` —— 抓包落盘
+#### 3.1.3 `debug/`：抓包落盘
 
 - 默认位置；`<CID>_DEBUG_DUMP` 仅作覆盖，值须为绝对路径。
 - 抓的是**上游响应**；请求侧正文是另一套（根级 `logs/payload/`，恒开启，见 [LOGGING.md](./LOGGING.md) §9）。两者互补，不要混用。
 
-#### 禁止项
+#### 3.1.4 禁止项
 
 禁止写 `~/` 下任何其它目录（含 `~/.cache/`、`~/.config/`）。
 6. **权限**：根 `0700`，各 cid 层 `0700`，`credentials.json` 等含密文件 `0600`。

@@ -107,7 +107,9 @@ modelmux/                      ← 仓库根 = 工作区根
 **例外**：若渠道协议**必须**某个第三方库，才可加入 `dependencies`，并在 README 与
 代码注释里说明这条约束的依据。共享包本身**必须零第三方依赖**。
 
-### 2.1 发布构建：单文件 bundle（`packages/cli/scripts/bundle.mjs`）
+### 2.1 发布构建：单文件 bundle
+
+打包脚本见 `packages/cli/scripts/bundle.mjs`。
 
 `packages/cli` 是**唯一可全局安装/发布的单元**。它的运行时依赖是 workspace 软链
 （`@modelmux/catpaw` → `packages/core/channels/catpaw`），直接 `npm i -g` 会因软链断裂而失败。
@@ -125,9 +127,7 @@ modelmux/                      ← 仓库根 = 工作区根
   回退分支（`node -e` 等异常启动方式）在 bundle 下同样失效，属已知限制
   （见 `packages/core/gateway/src/app/lifecycle/process.ts` 的 `cliEntry()`）。
 
-#### 发布约定
-
-发布约定：
+#### 2.1.1 发布约定
 
 1. **版本线统一走 `0.1.x`**：全仓（cli + ui + gateway + 全部渠道）共用同一个版本号，连续递增不跳号。
 2. **版本号只记一遍**：唯一真相是根 `package.json` 的 `version`。
@@ -217,7 +217,9 @@ interface Channel {
 
 ## 4. 模型池策略
 
-### 4.1 对外 id：模型家族裸模型名（`model-family.ts` + `model-registry.ts`）
+### 4.1 对外 id：模型家族裸模型名
+
+两份数据源是 `model-family.ts` 与 `model-registry.ts`。
 
 网关对外只做**家族表里声明的模型**，id 形态是**裸模型名**（表见
 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2）。客户端只认对外名单里的名字：
@@ -242,7 +244,9 @@ interface Channel {
 
 > 渠道不再由请求方指定 —— 「哪家出」是网关的调度决策（档位 → 剩余额度 → 冷却 → 顺延）。
 
-#### 4.1.1 Claude Desktop 角色名（`DESKTOP_ROLE_MODELS`）
+#### 4.1.1 Claude Desktop 角色名
+
+映射表是 `DESKTOP_ROLE_MODELS`。
 
 Claude Desktop 直连网关时只会发 `claude-sonnet-4-5` / `claude-opus-4-5` / `claude-haiku-4-5`
 这类**真实 Anthropic 模型名**：它的 `inferenceModels[].name` 必须过校验器，自造名、
@@ -510,7 +514,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 但**不要列出实测用不了的模型** —— 用户选中后拿到空回答，而错误指向「模型」
 而非真实原因，比不列更糟。
 
-#### 目录来源优先级（**所有渠道一致，按此顺序**）
+#### 5.3.1 目录来源优先级（所有渠道一致）
 
 1. **磁盘缓存** `<root>/channels/<cid>/cache/models.json` —— **常态来源**。上次真实拉到的目录，
    由共享层 `readCatalogCache()` / `writeCatalogCache()` 读写（信封
@@ -528,7 +532,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 一句话：**第一次 `model list` 把真实目录记到本地，之后一直用那个文件**；
 要更新就 `model <cid> --refresh`。
 
-#### 模型数据必须外置（硬规则）
+#### 5.3.2 模型数据必须外置
 
 `catalog.ts` **不得出现任何模型数据**：模型名、上下文窗口、输出上限、输入/输出模态、
 思考档位、倍率、隐藏标记一律写在渠道包的 `models.json`。`catalog.ts` 只保留三类逻辑：
@@ -553,7 +557,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
  `refresh()` —— 共享层据此回报「模型表是内置的」；先补该渠道的 fetch/parse，
  缓存才有意义。
 
-#### `refresh()`：显式刷新的契约
+#### 5.3.3 `refresh()`：显式刷新的契约
 
 有远端目录层的渠道**必须**实现 `refresh()`（CLI 的 `model <cid> --refresh` 与网关每日目录保鲜调它）：
 
@@ -568,7 +572,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 共享层负责的（渠道不用管）：缓存命中判断、失败时回落内置表、退出码、
 以及告诉用户这次看的是哪份数据。
 
-#### 目录对账与失败回退（共享层）
+#### 5.3.4 目录对账与失败回退（共享层）
 
 上游会下线或改名模型，而本地缓存不会自己变 —— 定期对账是发现失效 id 的唯一途径。
 
@@ -584,7 +588,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 写路径：`writeChannelModels()` 内部先快照再原子写；回退用 `rollbackChannelModels()`。
 渠道不需要自己实现快照或回退。
 
-#### `modelSpec()`：已知模型规格（**可选钩子**）
+#### 5.3.5 `modelSpec()`：已知模型规格（可选钩子）
 
 上游目录**普遍只下发部分字段**（哪些字段各渠道不同，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6）—— 对上游没声明的字段，网关 `/v1/models` 只能给兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5），
 而兜底值不是任何模型的真实上限。这类渠道**可以**实现：
@@ -622,7 +626,7 @@ modelSpec?(modelId: string): {
   （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
 - 池层怎么用它见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6。
 
-#### 渠道内部：`catalog` 与 `upstream` 的依赖方向
+#### 5.3.6 渠道内部依赖方向（`catalog` 与 `upstream`）
 
 渠道包内 **`catalog` → `upstream` 是既有方向**（`catalog` 要调 `upstream.fetchModels()`
 拉目录）。因此 **`upstream` 不得反向 import `catalog`** —— ESM 环依赖下模块初始化

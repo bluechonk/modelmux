@@ -71,7 +71,9 @@ worker 的 IPC 断开走既有 `shutdown()` 优雅停机（资源关闭 + `{"eve
 | `packages/core/gateway/src/runtime/paths.ts` | `workerPidPath` / `FILES.workerPid` |
 | `packages/core/gateway/src/app/cli/index.ts` | 隐藏内部命令 `supervise`（同 `serve` 待遇） |
 
-## 7. 外层守护：supervisor 自己被杀（`scripts/mx-watchdog.mjs`）
+## 7. 外层守护：supervisor 自己被杀
+
+实现见 `scripts/mx-watchdog.mjs`。
 
 §1–§4 那一层只能保证「worker 崩了有人拉回」，**管不了 supervisor 自己消失**（被
 `taskkill /F`、任务管理器、清理工具、误操作杀掉时，`stop` 事件都不会有，实测
