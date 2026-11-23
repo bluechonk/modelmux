@@ -5,6 +5,19 @@
 
 ---
 
+## 目录
+
+1. [身份与站点](#1-身份与站点)
+2. [登录（OAuth 授权页 + 轮询）](#2-登录oauth-授权页--轮询)
+3. [续期](#3-续期)
+4. [对话](#4-对话)
+5. [请求头族（伪装官方 CLI）](#5-请求头族伪装官方-cli)
+6. [模型目录](#6-模型目录)
+7. [额度与签到](#7-额度与签到) —— 资源表、签到、11128 渠道校验
+8. [证据等级](#8-证据等级) —— 逐条结论的来源与验证状态
+9. [2026-11-20 生态对齐](#9-2026-11-20-生态对齐) —— 头族、请求体归一、额度码表、目录主源
+10. [使用与实测](#10-使用与实测) —— 怎么测、端到端覆盖
+
 ## 1. 身份与站点
 
 | 项 | 值 |
@@ -152,17 +165,7 @@ HTTP 400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"
 
 ## 8. 证据等级
 
-### 7.4 2026-11-20 生态对齐
-
-- **会话/链路头族**：`buildChatHeaders` 钩子补齐 `X-Conversation-ID`（首条 user 消息派生，
-  会话内稳定）、`X-Conversation-Request-ID`/`X-Conversation-Message-ID`/`X-Request-ID`/
-`X-Root-Request-ID`/`X-Trace-ID`/traceparent/b3（Agent2Providers、ccLoad、Buddy2api 收敛的最小集）。
-- **请求体归一**：首条缺 system 注入缺省 system；`tool_choice` 对象转字符串、`none` 删工具；
-  `image_url` 字符串转对象；`max_completion_tokens` 转 `max_tokens`；补 `stream_options.include_usage`。
-- **额度码表**：`quotaSignal` 认 14001/14012/14013/14014/14018/14019（余额）与 6004
-  （usage_limit，带重置时刻）、10105（rate_limit）。
-- **目录主源切 `/v3/config`**：可见性由 `data.agents[name=cli].models` 交集决定；
-  personal/models 降为兜底。maxOutput 取 `maxOutputTokens` 字段。
+各条结论的来源与验证状态：
 
 | 结论 | 来源 | 性质 |
 | --- | --- | --- |
@@ -175,7 +178,21 @@ HTTP 400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"
 | 签到（状态 + 领取 + 幂等码 10001） | 真机：连续 25 天、每天 100 credits（2026-11-11） | 已验证 |
 | 续期（refresh） | 未单独验证 | 未验证 |
 
-### 怎么测这个渠道
+## 9. 2026-11-20 生态对齐
+
+- **会话/链路头族**：`buildChatHeaders` 钩子补齐 `X-Conversation-ID`（首条 user 消息派生，
+  会话内稳定）、`X-Conversation-Request-ID`/`X-Conversation-Message-ID`/`X-Request-ID`/
+`X-Root-Request-ID`/`X-Trace-ID`/traceparent/b3（Agent2Providers、ccLoad、Buddy2api 收敛的最小集）。
+- **请求体归一**：首条缺 system 注入缺省 system；`tool_choice` 对象转字符串、`none` 删工具；
+  `image_url` 字符串转对象；`max_completion_tokens` 转 `max_tokens`；补 `stream_options.include_usage`。
+- **额度码表**：`quotaSignal` 认 14001/14012/14013/14014/14018/14019（余额）与 6004
+  （usage_limit，带重置时刻）、10105（rate_limit）。
+- **目录主源切 `/v3/config`**：可见性由 `data.agents[name=cli].models` 交集决定；
+  personal/models 降为兜底。maxOutput 取 `maxOutputTokens` 字段。
+
+## 10. 使用与实测
+
+### 10.1 怎么测这个渠道
 
 端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
@@ -185,7 +202,7 @@ mx status codebuddycn
 mx model codebuddycn --refresh
 ```
 
-### 端到端测试覆盖
+### 10.2 端到端测试覆盖
 
 登录入池（授权页 + 轮询）/ `mx model codebuddycn --refresh` / 最小对话 / 流式 SSE；
 真机验证后在此更新覆盖结论。

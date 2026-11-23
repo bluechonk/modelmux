@@ -13,7 +13,17 @@ ProductName `QwenWorkCN`，CompanyName `Qoder`）的反代协议。
 
 ---
 
-## 1. 唯一登录路径：设备码授权（PKCE S256）
+## 目录
+
+1. [登录：设备码授权（PKCE S256）](#1-登录设备码授权pkce-s256) —— 流程、machine_id、续期
+2. [推理：COSY 签名与 body 编码](#2-推理cosy-签名与-body-编码) —— 端点与头、两个必需块、响应
+3. [模型目录](#3-模型目录qwork-命名空间3-个档位) —— 分桶、档位、对外名映射
+4. [额度与账号](#4-额度与账号openapi-侧) —— 钱包、账号现状、签到
+5. [已知边界](#5-已知边界)
+6. [使用与实测](#6-使用与实测) —— 怎么测、端到端覆盖
+7. [参考实现](#7-参考实现) —— 生态对齐、四份参考
+
+## 1. 登录：设备码授权（PKCE S256）
 
 ### 1.1 流程
 
@@ -34,7 +44,9 @@ redirect_uri                = qwenwork-cn://
 domain（账号池 key）         = qwenwork.cn
 ```
 
-### 1.2 `machine_id` 是**必需**参数 [实测 2026-11-10]
+### 1.2 `machine_id` 是必需参数
+
+实测 2026-11-10。
 
 不带 `machine_id` 时上游直接拒绝整个 query：
 
@@ -64,7 +76,7 @@ domain（账号池 key）         = qwenwork.cn
 
 ---
 
-## 2. 推理：COSY 签名 + 自定义 body 编码
+## 2. 推理：COSY 签名与 body 编码
 
 ### 2.1 端点与头
 
@@ -81,7 +93,9 @@ POST https://gateway.qwenwork.cn/algo/api/v2/service/pro/sse/agent_chat_generati
 - 请求体是自定义 base64 变体（字母表打乱 + 三段轮转 + `$` 补位），`Encode=1` 时收发都要编解码。
 - 签名覆盖的 path 是**去掉 `/algo` 前缀**的形态（`signPathOf`）。
 
-### 2.2 请求体的两个「不给就 503」的块 [实测 2026-11-10]
+### 2.2 请求体的两个必需块
+
+两处缺任一即回 503（实测 2026-11-10）。
 
 `business` 与 `model_config` 缺字段时，上游回：
 
@@ -124,7 +138,7 @@ X-Provider-Name: maas-openai
 
 ---
 
-## 3. 模型目录：`qwork` 命名空间，只有 3 个档位
+## 3. 模型目录（`qwork` 命名空间，3 个档位）
 
 ### 3.1 端点与分桶
 
@@ -152,7 +166,7 @@ GET https://gateway.qwenwork.cn/algo/api/v2/model/list?Encode=1
 
 三条都是 `is_vl: true` + `is_reasoning: true`，`thinking_config: null`（无思考档位可选）。
 
-### 3.3 档位不是具体型号 [实测]
+### 3.3 档位不是具体型号
 
 - 三个档位请求回来的响应头**都是** `X-Model-Name: qwork-openai-chat-mode-pool` ——
   底层模型由服务端池化，接口不下发真实型号。
@@ -214,7 +228,9 @@ X-QwenWork-App-Mode: standard
   "quota":{"total":null,"used":null,"remaining":2097.9383,"exceeded":false}}}
 ```
 
-### 4.3 签到：**本渠道没有这个功能** [实测 2026-11-10]
+### 4.3 签到（本渠道无此功能）
+
+实测 2026-11-10 上游不提供签到接口。
 
 | 端点 | 结果 |
 | --- | --- |
@@ -243,7 +259,9 @@ X-QwenWork-App-Mode: standard
 5. **登录身份**：阿里云 BUC SSO（桌面端「使用阿里云登录」→ 手机号验证码 / 账密 / 支付宝 /
    淘宝都在**阿里云**那侧，不在千问办公的 API 里）。渠道只做设备码，不自动化 SSO 页面。
 
-### 怎么测这个渠道
+## 6. 使用与实测
+
+### 6.1 怎么测这个渠道
 
 端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
@@ -262,15 +280,15 @@ node .tmp/probe-qwenworkcn-billing.mjs         # 额度 / 账号 / 签到
 node .tmp/probe-qwenworkcn-e2e.mjs             # 走网关，验池路由与 1M 上下文
 ```
 
-### 端到端测试覆盖
+### 6.2 端到端测试覆盖
 
 登录入池 / `mx model qwenworkcn --refresh` / 最小对话 / 流式 SSE / 1M 长上下文
 （实测 546501 prompt tokens 通过）。**无签到链路** —— 上游不提供签到接口，
 `signin.claim()` 返回业务失败，自动签到调度器会跳过本渠道。
 
-## 参考实现
+## 7. 参考实现
 
-### 7.x 2026-11-20 生态对齐
+### 7.1 2026-11-20 生态对齐
 
 - **`cosy-clienttype` 5 → 6**：千问办公的 CLI 身份是 6（5 是 Qoder CLI 的值；六处生态实现一致）。
   `session_type: qoder_work` 与之配对。
