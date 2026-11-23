@@ -10,6 +10,18 @@
 > 国内版桌面端**无独立抓包**：版本号与 UA 维持参考实现原值（5.5.6 / CLI 2.137.1），不凭猜测改。
 > 逐条证据等级见各条标注（`[实测]` / `[代码]` / `[推断]` / `[参考]`）。
 
+## 目录
+
+1. [realm 与端点](#1-realm-与端点) —— 基址与版本三元组、模型目录端点、图片能力判据
+2. [认证](#2-认证) —— 网页设备授权（唯一路径）、粘贴兜底、令牌续期
+3. [每日签到](#3-每日签到)
+4. [错误码与处置分类](#4-错误码与处置分类) —— 业务码四档、指纹触发面与 11128 缓解
+5. [chat / 模型请求的确切 URL](#5-chat--模型请求的确切-url)
+6. [必需请求头清单](#6-必需请求头清单) —— 基础 / 浏览器语义 / 身分 / 会话 / 链路 / 登录三组
+7. [使用与实测](#7-使用与实测) —— 登录、存储、模型规格、限额实测、限制、推荐模型、怎么测
+8. [参考实现](#8-参考实现)
+9. [已知边界](#9-已知边界) —— 生态对齐、明确不做、21 条缺口、12 条待验
+
 ## 1. realm 与端点
 
 | 项 | 值 |
@@ -19,14 +31,14 @@
 | User-Agent | `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1` |
 | X-IDE-Version | `5.5.6` |
 | chat 的 Origin / Referer | `https://www.codebuddy.cn`（+`/`）—— **前台域名**，chat 上游仍是上表的 `copilot.tencent.com` |
-| **登录**的 Origin / Referer | `https://codebuddy.cn`（+`/`）—— 与 chat 侧**不同**（少 `www`），见 §2.1 与 §7.3 V3 |
+| **登录**的 Origin / Referer | `https://codebuddy.cn`（+`/`）—— 与 chat 侧**不同**（少 `www`），见 §2.1 与 §9.4 V3 |
 | Accept-Language | `zh-CN` |
 
 身分头族、会话头族、链路族与设备指纹口径见 workbuddyai 协议存档（git 历史，渠道已移除），
 仅端点 / 域 / 版本三元组按上表替换。请求体归一化管线也完全一致（其 §5），
 本包 `src/upstream.ts::buildChatBody` 是同一份实现的两个副本（两渠道共用一套协议）。
 
-## 1.1 模型目录端点
+### 1.1 模型目录端点
 
 **对外暴露范围**：随包 `models.json` 给 `glm-5.3-flash` 标了 `hidden` —— 网关里
 glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合由共享层
@@ -57,6 +69,8 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 - **非对话条目不入目录**：`nes-` / `completion-` / `codewise-` 前缀的条目列出来也
   选不中（选中后上游回 `code=11102`），故一律挡掉（go
   `internal/upstream/client.go:1470-1473`）。`[参考]`
+#### 1.1.1 目录响应结构
+
 - **`data.models[]` 是完整规格表，不只是名单**（实测 2026-11-14：61 条）。
   `agents[].models` 只是裸 id 字符串数组（cli agent 17 个），规格全在顶层 `data.models[]`，
   单条字段：`id` / `name` / `descriptionZh` / `descriptionEn` / `credits` /
@@ -69,7 +83,9 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
   `300000 / 600000 / 1000000`，`defaultLength` 是 `300000`——上游默认按 30 万走，
   1M 是最大档（`maxAllowedSize`）；对外口径按 1M 报没有错，但请求超 30 万时上游
   行为取决于档位协商，未实测。
-- **DeepSeek 条目全表**（实测 2026-11-14，`credits` 为积分倍率）：
+#### 1.1.2 DeepSeek 条目与倍率
+
+**DeepSeek 条目全表**（实测 2026-11-14，`credits` 为积分倍率）：
 
   | id | credits | maxInput | maxOutput | supportedLengths | efforts |
   | --- | --- | --- | --- | --- | --- |
@@ -149,63 +165,9 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
   （`SupportsImages bool \`json:"supportsImages"\``）、`internal/upstream/global_models.go:646`
   （`mi.SupportsImages, _ = obj["supportsImages"].(bool)`）。
 
-## 2. 参考实现补充的两个行为细节（go）
+## 2. 认证
 
-- **用量归属头**（`internal/upstream/headers.go` injectAttribution）：默认伪造官方桌面端指纹
-  `X-Agent-Purpose=conversation` + `X-IDE-Name/Type/Product="WorkBuddy"` + `X-IDE-Version`，
-  与抓包结论一致；`X-Conversation-ID` **恒发**（上游渠道校验要求，缺头判非官方拒收）。
-- **11128 的内容侧缓解**（`internal/prompt/prompt.go`）：上游内容审核按逐字精确匹配误杀
-  system 里的指纹样板文本 → 改写为最小中性表述后重试一次；与头族修复互补，不可互替。
-  本渠道**只实现了头族修复 + 文本改写**，没有「网关自有系统提示词」那一层 ——
-  见 §7.2 缺口 17。
-
-### 2.0.1 指纹触发面的实测边界（B 级，2026-11-02）
-
-上游按**「像不像官方客户端」**判，命中即 400 `code=11128`（`displayTips` 明写
-「没通过渠道校验，可能不是官方客户端发出的」）。已收录并改写的族见
-`packages/core/channels/workbuddy/src/upstream.ts` 的 `FINGERPRINT_RULES` / `FINGERPRINT_MARKERS`。
-
-**先排除的因素**（逐条实测）：头族（头是常量 + 每轮新生会话 id；同账号 2 秒前的短请求 200）、
-工具数与体积（147 工具 / 235KB 的会话 200）、泛用词 `harness`（该会话含此词且 200）、
-工具名 `subagent_claude_code` / `subagent_codex`（11-01 那次失败不含它们照样被拒）、
-长度（309 字符的中性文本 200）。
-
-**触发串不止一条**。用真实失败请求的 system 逐段二分（`.tmp/probe-subset.mjs` 按段落、
-`.tmp/probe-text.mjs` 按任意文本），得到两个**互相独立**的最小复现
-（仅 system 单独发，user 固定为一句最短请求）：
-
-| # | 最小复现 | 结果 |
-| --- | --- | --- |
-| 1 | `You are an AI agent powered by DeepSeek Harness.` | 400 `11128` |
-| 2 | `Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root.` | 400 `11128` |
-
-两条的判据细节：
-
-- **#1 用反证法确认**：把品牌写成 `DeepSeek  Harness`（双空格，本渠道的
-  `/DeepSeek Harness/gi` 匹配不到）**仍被拒**；写成 `DeepSeek\nHarness`（换行）**通过**
-  → 上游是**行内空白归一后**匹配该品牌串，换行改变了匹配。
-- **#2 与任何品牌无关，且对措辞与语序敏感**：两句**换序通过**、同义改写**通过**、
-  去掉 `root` **通过**；但两句**各自单独发都通过**。即它是一条**跨句的固定串**，
-  不是「两个短语同时出现」的与关系。
-
-**必须记住的结论**：触发面**远大于 `FINGERPRINT_RULES` 这种字面表**，靠逐条补串收敛不了
-（本渠道目前只覆盖 #1 这一族）。DSH 的真实 system 在补完 #1 之后**仍被拒**（见下表），
-正说明 #2 以及可能更多条还没有覆盖。
-
-**复测记录**（2026-11-02）：
-
-| 环节 | 结果 |
-| --- | --- |
-| 最小文本含 `DeepSeek Harness`（未改写） | 400 `11128` |
-| 同一文本经渠道改写（上行体 3 处 → 0 处） | 200 |
-| **真实 DSH system（8860 字符，已覆盖 #1）** | 仍 400 `11128`（#2 未覆盖） |
-
-→ 要让 DSH 这类会话真正可用，走的是 §7.2 **缺口 17**（网关自有系统提示词层：
-Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续往字面表里补串。
-
-本渠道的清洗**只走正文 / 思考链 / 工具实参**，**不覆盖工具名与工具描述**。
-
-## 2.1 唯一登录路径（网页设备授权）
+### 2.1 唯一登录路径（网页设备授权）
 
 > **只有这一条**。手机号 OneID/Keycloak 路线与桌面端 `.info` 凭证路线**都不采纳**。
 
@@ -224,7 +186,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - 轮询期必须带四个抑制头 `X-No-Authorization` / `X-No-User-Id` / `X-No-Enterprise-Id` /
   `X-No-Department-Info`（值均为字符串 `"true"`），否则会被判成「未授权访问受保护接口」
   （hub `docs/protocol-reference.md:2165-2167`）。`[参考]`
-- 令牌续期见 §4.2。
+- 令牌续期见 §2.2。
 
 **为何不采纳另外两条路线**：
 
@@ -237,15 +199,15 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 - 登录期 **UA 用的是桌面三段式**（`WorkBuddy/5.5.6 …`），而 go / dsh / sliver 三个
   「自己实现登录」的参考实现**全部用 CLI 形态** `CLI/<v> CodeBuddy/<v>`。口径不一致、
-  未验证 → **本渠道不改**，见 §7.3 V2。
+  未验证 → **本渠道不改**，见 §9.4 V2。
 - 登录期 **Origin 少 `www`**（`https://codebuddy.cn`），参考实现都是
-  `https://www.codebuddy.cn` → 见 §7.3 V3。
-- `platform` 取值 `workbuddy`（hub + 本仓）vs `CLI`（go / panel / sliver）→ 见 §7.3 V1。
+  `https://www.codebuddy.cn` → 见 §9.4 V3。
+- `platform` 取值 `workbuddy`（hub + 本仓）vs `CLI`（go / panel / sliver）→ 见 §9.4 V1。
 - `authUrl` 缺失时**本地兜底**拼 `{base}/login?platform=workbuddy&state=…`；
   go 是「缺 `authUrl` 直接失败」（`cmd/login/main.go:221-223`）。兜底无害，但拼出的
   域与 go 不同。
 
-### 2.1.1 粘贴兜底（设备授权没有本机回环）
+#### 2.1.1 粘贴兜底（设备授权没有本机回环）
 
 设备授权的令牌**只由服务端按 `state` 下发**（`auth/token`），没有「拿 code 换 token」的
 接口，也没有本机回调服务器。故 `pasteCode` 粘回的内容**只作「浏览器那一步已完成」的信号**，
@@ -260,6 +222,24 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 与**本地回调服务器**型渠道的形态差别：那类渠道靠回环收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
 结论一致：**不是第二条登录路径**。
+
+### 2.2 令牌续期
+
+`POST https://copilot.tencent.com/v2/plugin/auth/token/refresh`（body `{}`）。
+
+| 头 | 值 |
+| --- | --- |
+| `X-Refresh-Token` | 刷新令牌（**只允许出现在这个端点**，绝不进 chat 请求） |
+| `X-Auth-Refresh-Source` | `workbuddy`（go / hub 用 `plugin`，dsh 用 `workbuddy` → §9.4 V6） |
+| `X-User-Id` / `X-Domain` / `X-CodeBuddy-Request` | 账号与闸门头 |
+
+- 上游在刷新时**同时轮换** access 与 refresh（go `internal/upstream/client.go:1010-1025`）`[参考]`。
+- access 有效期 `expiresIn` 实测恒为 5184000（60 天），且 JWT `exp - iat` 与之自洽
+  （go `internal/upstream/client.go:1030-1031`）`[参考]`。
+- 官方客户端**按固定 24h 节奏刷新**（不看是否临近过期），token 快过期时改 5min 间隔，
+  最小间隔 15s，失败退避 5/10/20/40/60s，401/403 不重试
+  （hub `docs/protocol-reference.md:2151-2157`）`[参考]`。本仓当前只在**额度查询**
+  401/403 时刷新一次（`src/billing.ts`），对话路径靠共享层的 401/403 链路 → §9.4 V9。
 
 ## 3. 每日签到
 
@@ -277,7 +257,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
   该路径回 `404 page not found`（上游已下架或改路径）；它是上游
   「今天还能不能领 / 活动到哪天结束」的权威依据，缺它意味着只能靠 `daily-checkin`
   的幂等拒绝来猜（签到由网关启动时的自动签到链路执行，CLI **没有** `signin` 动词，
-  结果见 `mx status workbuddy` 的签到摘要）。列入 §7.2 缺口 8，**不写进规格**。
+  结果见 `mx status workbuddy` 的签到摘要）。列入 §9.3 缺口 8，**不写进规格**。
 
 ## 4. 错误码与处置分类
 
@@ -310,26 +290,61 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
   （如 `{"code":-32603,"message":"Internal error","data":{"category":"internal"}}`），
   只看状态码的实现会把它当成功（hub `docs/protocol-reference.md:2011-2038`）。`[参考]`
   对话路径**尚无拦截点**：共享层没有「发完再判响应体」的渠道钩子（`isAuthFailure`
-  只对 4xx 调用、`isQueueError` 只对 `WIRE === "custom"` 生效）→ 列入 §7.2 缺口 5。
+  只对 4xx 调用、`isQueueError` 只对 `WIRE === "custom"` 生效）→ 列入 §9.3 缺口 5。
 
-### 4.2 令牌续期
+### 4.2 指纹触发面与 11128 缓解（B 级，2026-11-02）
 
-`POST https://copilot.tencent.com/v2/plugin/auth/token/refresh`（body `{}`）。
+上游按**「像不像官方客户端」**判，命中即 400 `code=11128`（`displayTips` 明写
+「没通过渠道校验，可能不是官方客户端发出的」）。已收录并改写的族见
+`packages/core/channels/workbuddy/src/upstream.ts` 的 `FINGERPRINT_RULES` / `FINGERPRINT_MARKERS`。
 
-| 头 | 值 |
+#### 已排除的候选因素
+
+逐条实测：头族（头是常量 + 每轮新生会话 id；同账号 2 秒前的短请求 200）、
+工具数与体积（147 工具 / 235KB 的会话 200）、泛用词 `harness`（该会话含此词且 200）、
+工具名 `subagent_claude_code` / `subagent_codex`（11-01 那次失败不含它们照样被拒）、
+长度（309 字符的中性文本 200）。
+
+#### 两条独立的最小复现
+
+用真实失败请求的 system 逐段二分（`.tmp/probe-subset.mjs` 按段落、
+`.tmp/probe-text.mjs` 按任意文本），得到两个**互相独立**的最小复现
+（仅 system 单独发，user 固定为一句最短请求）：
+
+| # | 最小复现 | 结果 |
+| --- | --- | --- |
+| 1 | `You are an AI agent powered by DeepSeek Harness.` | 400 `11128` |
+| 2 | `Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root.` | 400 `11128` |
+
+两条的判据细节：
+
+- **#1 用反证法确认**：把品牌写成 `DeepSeek  Harness`（双空格，本渠道的
+  `/DeepSeek Harness/gi` 匹配不到）**仍被拒**；写成 `DeepSeek\nHarness`（换行）**通过**
+  → 上游是**行内空白归一后**匹配该品牌串，换行改变了匹配。
+- **#2 与任何品牌无关，且对措辞与语序敏感**：两句**换序通过**、同义改写**通过**、
+  去掉 `root` **通过**；但两句**各自单独发都通过**。即它是一条**跨句的固定串**，
+  不是「两个短语同时出现」的与关系。
+
+**结论**：触发面**远大于 `FINGERPRINT_RULES` 这种字面表**，靠逐条补串收敛不了
+（本渠道目前只覆盖 #1 这一族）。DSH 的真实 system 在补完 #1 之后**仍被拒**（见下表），
+正说明 #2 以及可能更多条还没有覆盖。
+
+#### 复测记录（2026-11-02）
+
+| 环节 | 结果 |
 | --- | --- |
-| `X-Refresh-Token` | 刷新令牌（**只允许出现在这个端点**，绝不进 chat 请求） |
-| `X-Auth-Refresh-Source` | `workbuddy`（go / hub 用 `plugin`，dsh 用 `workbuddy` → §7.3 V6） |
-| `X-User-Id` / `X-Domain` / `X-CodeBuddy-Request` | 账号与闸门头 |
+| 最小文本含 `DeepSeek Harness`（未改写） | 400 `11128` |
+| 同一文本经渠道改写（上行体 3 处 → 0 处） | 200 |
+| **真实 DSH system（8860 字符，已覆盖 #1）** | 仍 400 `11128`（#2 未覆盖） |
 
-- 上游在刷新时**同时轮换** access 与 refresh（go `internal/upstream/client.go:1010-1025`）`[参考]`。
-- access 有效期 `expiresIn` 实测恒为 5184000（60 天），且 JWT `exp - iat` 与之自洽
-  （go `internal/upstream/client.go:1030-1031`）`[参考]`。
-- 官方客户端**按固定 24h 节奏刷新**（不看是否临近过期），token 快过期时改 5min 间隔，
-  最小间隔 15s，失败退避 5/10/20/40/60s，401/403 不重试
-  （hub `docs/protocol-reference.md:2151-2157`）`[参考]`。本仓当前只在**额度查询**
-  401/403 时刷新一次（`src/billing.ts`），对话路径靠共享层的 401/403 链路 → §7.3 V9。
+→ 要让 DSH 这类会话真正可用，走的是 §9.3 **缺口 17**（网关自有系统提示词层：
+Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续往字面表里补串。
 
+本渠道的清洗**只走正文 / 思考链 / 工具实参**，**不覆盖工具名与工具描述**。
+
+#### 内容侧缓解
+
+上游内容审核按逐字精确匹配误杀 system 里的指纹样板文本 → 改写为最小中性表述后重试一次；与头族修复互补，不可互替。本渠道只实现头族修复 + 文本改写，没有网关自有系统提示词层（§9.3 缺口 17）。
 ## 5. chat / 模型请求的确切 URL
 
 方法 + 完整 URL + 端点路径 + query/body 来源（本节是这些协议事实的唯一事实源，
@@ -353,7 +368,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
   （CN = `https://www.codebuddy.cn`，go `internal/upstream/client.go:875`、
   panel `internal/upstream/client.go:841-846`、dsh `packages/core/channels/workbuddy/src/upstream.ts:424-426`），
   本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本渠道不改**，
-  列入 §7.3 V8。
+  列入 §9.4 V8。
 - 国际版把同样的路径挂在 `https://www.workbuddy.ai` 上（两渠道共用协议，
   见 workbuddyai 协议存档（git 历史，渠道已移除））。
 
@@ -384,7 +399,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 | 头名 | 值 | 备注 |
 | --- | --- | --- |
-| `Accept` | `application/json, text/plain, */*` | 官方 chat 路径另有 `text/event-stream` 形态（go `headers.go:224`）→ §7.3 V7 |
+| `Accept` | `application/json, text/plain, */*` | 官方 chat 路径另有 `text/event-stream` 形态（go `headers.go:224`）→ §9.4 V7 |
 | `X-Requested-With` | `XMLHttpRequest` | |
 | `Origin` | `https://www.codebuddy.cn` | **前台域**，chat 上游仍是 `copilot.tencent.com` |
 | `Referer` | `https://www.codebuddy.cn/` | |
@@ -402,7 +417,11 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `X-IDE-Type` | `WorkBuddy` | 同上 |
 | `X-IDE-Version` | `5.5.6` | 必须与 UA 第一段同版本（错位是明显特征） |
 | `X-Product` | `SaaS` | 语义是**部署形态**（deploymentType），不是产品名 |
-| `X-Private-Data` | `true` | hub 逆向结论是 `false` → §7.3 V4 |
+| `X-Private-Data` | `true` | hub 逆向结论是 `false` → §9.4 V4 |
+
+**用量归属头**（go `internal/upstream/headers.go` 的 injectAttribution）：默认伪造官方桌面端指纹
+`X-Agent-Purpose=conversation` + `X-IDE-Name/Type/Product="WorkBuddy"` + `X-IDE-Version`，
+与抓包结论一致；`X-Conversation-ID` 恒发（上游渠道校验要求，缺头判非官方拒收）。
 
 ### 6.4 会话与请求 ID 5
 
@@ -415,7 +434,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `X-Request-ID` | **与 `X-Conversation-Message-ID` 同值** | |
 
 当前实现**每轮都新生成**（一次 user send 内的多个 tool call 轮次各拿一个新 ID）；
-参考实现是「一次 user send 内所有尝试复用同一个」→ §7.2 缺口 18。
+参考实现是「一次 user send 内所有尝试复用同一个」→ §9.3 缺口 18。
 
 ### 6.5 链路族 6
 
@@ -429,7 +448,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `X-B3-Sampled` | `1` | `X-B3-ParentSpanId` **刻意不发**（官方只在有父 span 时带） |
 
 `X-Trace-ID` 与 `X-B3-TraceId` 当前**不同值**（hub 口径要求同一份，「发得不一致
-比不发更糟」）→ §7.3 V5。
+比不发更糟」）→ §9.4 V5。
 
 ### 6.6 登录 / 刷新 / 计费三组头
 
@@ -447,9 +466,9 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 ---
 
-## 使用与实测
+## 7. 使用与实测
 
-### 登录方式
+### 7.1 登录方式
 
 `mx login workbuddy` 走**网页设备授权**：申请 `state`（`POST /v2/plugin/auth/state?platform=workbuddy`）
 → 浏览器打开 `authUrl` 人工授权一次 → 轮询 `GET /v2/plugin/auth/token?state=`
@@ -458,7 +477,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 设备授权**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用同一个轮询处理器
 取令牌（粘贴兜底见 §2.1.1）。**唯一登录路径与「为什么不采纳另外两条路线」的判据见 §2.1。**
 
-### 与国际版（`workbuddyai`）的关系
+### 7.2 与国际版（`workbuddyai`）的关系
 
 `workbuddy`（国内版 CodeBuddy，域见本文件 §1 / §2.1）与 `workbuddyai`
 （国际版 WorkBuddy，`www.workbuddy.ai`）是**两条独立渠道**：
@@ -472,7 +491,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 两个产品的端点、模型目录、账单口径都可能各自演进，抽象成共享模块会把「一个改了两边都变」
 变成默认行为。
 
-### 存储
+### 7.3 存储
 
 统一存储根 `~/.modelmux/` 下按 cid 分层，本渠道全部落在 `~/.modelmux/workbuddy/`：
 `credentials.json`（0600）、`accounts.json` + `accounts/<key>.json`、`upstream.json`、
@@ -483,7 +502,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 `upstream.json` 里的 `deviceToken` 字段用于启用 `X-Device-Token`（§6.1）。
 
-### 模型 id 与目录
+### 7.4 模型 id 与目录
 
 对外名 = 上游模型名（`/v3/config` 的 `agents[].models`，如 `deepseek-v4.1-flash`），不做短名映射。
 多渠道路由下客户端用 `<渠道>/<模型>` 池 id（如 `workbuddy/deepseek-v4.1-flash`）显式指定渠道，
@@ -495,7 +514,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 图片能力（`/v1/models` 的 `input_modalities`）的字段判据见 §1.2。
 
-### 模型窗口规格（`modelSpec()` 钩子）
+### 7.5 模型窗口规格（`modelSpec()` 钩子）
 
 `catalog.modelSpec()` 钩子给池层提供**已知规格**（契约见
 [`CONTRACT-TS.md`](../../CONTRACT-TS.md) §5.3），落到 `GET /v1/models` 的
@@ -555,7 +574,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `hunyuan-2.0-thinking` | 不在渠道规格表内 |
 | `hunyuan-image-alpha` | 图片条目，不在渠道规格表内 |
 
-### 2026-10-24 用量限额（429 / 6004）与冷却记账实测
+### 7.6 用量限额（429 / 6004）与冷却记账实测
 
 长会话（1183–1248 条消息、单请求 2.5–2.8MB、单次 `prompt_tokens` 约 62 万）连续跑通后，
 上游开始回 **HTTP 429 + 业务码 `6004`**：
@@ -581,7 +600,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - 恢复路径：等窗口刷新（`cooldown_until` 到期惰性恢复），或 `mx acct workbuddy use <key>`
   手动切号（会同时清掉 `cooldown` 与 `fail_streak`）。
 
-### 已知限制（实测）
+### 7.7 已知限制（实测）
 
 - SSE 里空的 `tool_calls: []` 必须剔除，否则思考块会被逐 token 切碎
   （原因与结论见 workbuddyai 协议存档（git 历史，渠道已移除） 的「使用与实测」）。
@@ -597,11 +616,11 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 - **上游按「业务码优先于状态码」归一**：限流 / 额度码不总是配 429，只看状态码的实现
   会把可换号的失败当成不可重试的客户端错误（§4.1）。
 - **HTTP 200 也可能是错误信封**（上游把内部故障塞进 200 的响应体），但**对话路径尚无拦截点**
-  —— 共享层没有「发完再判响应体」的渠道钩子（见「已知边界」§7.2 缺口 5）。
+  —— 共享层没有「发完再判响应体」的渠道钩子（见「已知边界」§9.3 缺口 5）。
 - **账号档案步拿不到不影响登录**（uid 回落 JWT `sub`），但企业账号的 `X-Enterprise-Id` /
   `X-Tenant-Id` 头就发不出（§6）。
 
-### 推荐模型
+### 7.8 推荐模型
 
 | 模型（池 id） | 结论 | 等级 |
 | --- | --- | --- |
@@ -609,7 +628,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `workbuddy/deepseek-v4.1-flash` | 目录里的免费档之一（国际版同款） | `[实测]` |
 | 目录里倍率最高的几档 | 最高到 6.67 —— **禁用于自动化测试** | `[实测]` |
 
-### 怎么测这个渠道
+### 7.9 怎么测这个渠道
 
 端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
@@ -623,13 +642,13 @@ mx bill workbuddy            # 额度与倍率（测试后核对是否扣费）
 登录走设备授权，**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用
 同一个轮询处理器取令牌（粘贴兜底见 §2.1.1）。
 
-### 端到端测试覆盖
+### 7.10 端到端测试覆盖
 
 登录入池 / `mx model workbuddy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
 ---
 
-## 参考实现
+## 8. 参考实现
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
@@ -641,9 +660,9 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | [Sliverkiss/CodeBuddy2api](https://github.com/Sliverkiss/CodeBuddy2api) | CodeBuddy 双区参照（83★）：国内端点 `copilot.tencent.com` 与本渠道对应（`internal/ioa`），**CLI 形态身分**（`X-IDE-Type: CLI`）；其国际端点用旧域名 `www.codebuddy.ai`（实测已 DNS 沉洞，桌面端已迁 `workbuddy.ai`，故不归 `workbuddyai` 渠道） |
 | [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) | 端点与凭据流程参照（clone 目录 `reference/dsh-workbuddy-connect`）：chat / billing / 前台三套 base 的分离、`/v3/config` 的 UA 与企业账号分流、`X-Conversation-*` 三件套的 11128 结论 |
 
-## 已知边界
+## 9. 已知边界
 
-### 7.x 2026-11-20 生态对齐
+### 9.1 2026-11-20 生态对齐
 
 - **版本三元组升级**：5.11.3 / CLI 2.176.0（misakano headers.go 2026-11 抓包），并补齐
   5.11.3 追加的 `X-Client-Version/Platform/Product` + `X-Agent-Runtime: local-agent`——
@@ -660,7 +679,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 - **风险登记**：上游开始禁反代（原主仓停维护、Sliverkiss 删库）；消息条数上限 512
   （Agent2API #48）——超限在建连前报错（codebuddycn 同款）。
 
-### 7.1 明确不做（不实现）
+### 9.2 明确不做（不实现）
 
 手机号 OneID/Keycloak 路线、桌面端 `.info` 路线（§2.1）、多账号挑号、限流护栏全套、
 6004 cap 持久化、每日限额三件套、账号级权重与人工禁用、每账号出口代理、连接池
@@ -668,7 +687,7 @@ keep-alive、目录精度其它项、提示词模式（网关自有系统提示�
 Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一键配置、16MB 请求体
 上限、后台模型重定向、活动历史落盘、账号昵称同步。
 
-### 7.2 参考实现有、当前实现没有的功能（21 条）
+### 9.3 参考实现有、当前实现没有的功能（21 条）
 
 | # | 缺口 | 参考实现证据 | 状态 |
 | --- | --- | --- | --- |
@@ -694,7 +713,7 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | 20 | **`prompt_cache_key` 前缀缓存**（实测费用降 ~17×）+ `reasoning_effort` 档位降级 | panel `internal/upstream/client.go:788-798`、`internal/upstream/cache_key.go` | 未做 |
 | 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh 的 `src/client-identity.ts`（本实现对应：`packages/core/channels/workbuddy/src/upstream.ts:729`） | 未做 |
 
-### 7.3 待真机验证（12 条）
+### 9.4 待真机验证（12 条）
 
 | # | 待验证 | 静态判不了的原因 | 怎么验（只发正确形态的请求） |
 | --- | --- | --- | --- |

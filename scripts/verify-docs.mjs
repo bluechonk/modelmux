@@ -127,10 +127,13 @@ if (existsSync(CHANNELS_DIR)) {
       );
       continue;
     }
-    // 两个必备节（docs/channels/README.md「写作分工」：每渠道必须成节存在，便于横向对照）
-    for (const section of ["### 怎么测这个渠道", "### 端到端测试覆盖"]) {
-      if (!readText(doc).includes(section)) {
-        problems.push(`docs/channels/${entry.name}/PROTOCOL.md —— 缺必备节「${section}」`);
+    // 两个必备节（docs/channels/README.md「写作分工」：每渠道必须成节存在，便于横向对照）。
+    // 判据是「节存在」，故容忍标题里的可选编号前缀（`### 7.9 怎么测这个渠道` 同样算数）——
+    // 按字面比会把「加编号」误判成「删节」，逼作者为过门禁放弃排版。
+    for (const section of ["怎么测这个渠道", "端到端测试覆盖"]) {
+      const pattern = new RegExp(`^### (?:[\\d.]+ )?${section}\\s*$`, "m");
+      if (!pattern.test(readText(doc))) {
+        problems.push(`docs/channels/${entry.name}/PROTOCOL.md —— 缺必备节「### ${section}」`);
       }
     }
   }
