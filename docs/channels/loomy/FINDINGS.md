@@ -9,9 +9,8 @@
 > 下文引用的 `WechatWaitOptions` / `wechatObtainCode` / `parseWechatCallback` 等符号
 > **在 `cred.ts` 里已不存在**（行号也不再对应）。
 
-本文是 [PROTOCOL.md](./PROTOCOL.md) §2 的逆向结论层：微信扫码链路的实测发现与踩坑记录
-（原 PROTOCOL.md §2.6.1）。**协议规格**（端点、请求头、签名、额度、模型目录）仍以
-PROTOCOL.md 为准，本文不重复。
+本文是 [PROTOCOL.md](./PROTOCOL.md) §2 的逆向结论层：微信扫码链路的实测发现与踩坑记录。
+**协议规格**（端点、请求头、签名、额度、模型目录）仍以 PROTOCOL.md 为准，本文不重复。
 
 证据等级：`[实测]`（真机跑通）/ `[参考]`（第三方参考实现所载）/ `[代码]`（本仓实现事实）/
 `[推断]`（静态推理，未真机验证）。

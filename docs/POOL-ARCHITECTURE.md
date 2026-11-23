@@ -474,7 +474,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   （`{"1M":{token_count:1000000}, …}`），取**最大档**而非默认档 —— 客户端永远走最大上下文，
   报能力上限才对（否则 1M 模型会被按默认 200k 误判）。控制台该列因此叫「最大上下文」。
 - **0 = 上游未声明**：目录里窗口为 0 时不当作有效值透出（客户端会按 0 猜上下文），
-  回落兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）。
+  回落兜底值（取值见 [MODEL-CATALOG.md](./MODEL-CATALOG.md) §4）。
 
 - **思考档位归一**：`effortOf()`（`packages/core/gateway/src/pool/pool-targets.ts`）先试 `effort` 对象
   （`{supportedLevels[],defaultLevel}`），再试 `efforts` 数组 +
@@ -482,7 +482,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
   空数组 = 未声明 → `effort: null`（不编造）。
   - **没有目录端点的渠道走规格通道**：渠道用内置快照、官方文档逐模型给了档位 →
     经 `catalog.modelSpec().effort` 交给池层，来源标 `spec`（不是 `upstream`）。
-    表见 [MODEL-SPECS.md](./MODEL-SPECS.md) §3.2。
+    逐渠道的档位表见各渠道 PROTOCOL 的「模型窗口规格」节。
   - **上游形态与池层形态不一致时，由渠道在落盘前归一**：qoder 系上游（现 `qwenworkcn`）下发的是
     `thinking_config.enabled.efforts{}`（对象 map，默认档由 `is_default` 标出），
     渠道 catalog 的 `wireEffort()` 把它归一成 `effort:{supportedLevels[],defaultLevel}`
@@ -539,11 +539,11 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
    「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
 2. **唯一事实源**：规格的核实结果与来源在 [MODEL-SPECS.md](./MODEL-SPECS.md)。
 3. **表必须放在渠道包**：共享层不许出现模型名（根 `AGENTS.md`「仓库结构与约束」第 2 条）。
-4. **兜底值是「未知」**，不是任何模型的真实上限（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）——
+4. **兜底值是「未知」**，不是任何模型的真实上限（取值见 [MODEL-CATALOG.md](./MODEL-CATALOG.md) §4）——
    客户端按兜底值猜会与真实上限有出入，故能查到公开规格的型号应由渠道表给出真值。
 
 - **上游声明优先**：渠道声明的值比公开规格更贴近「这条渠道实际能吃多少」，
-  两者冲突时以上游为准（分歧记在 [MODEL-SPECS.md](./MODEL-SPECS.md) §6）。
+  两者冲突时以上游为准（分歧记在各渠道 PROTOCOL 的「模型窗口规格」节）。
 
 ### 2.7 跨渠道同 model id 兜底
 

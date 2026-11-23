@@ -650,7 +650,7 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 #### 5.3.5 `modelSpec()`：已知模型规格（可选钩子）
 
-上游目录**普遍只下发部分字段**（哪些字段各渠道不同，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6）—— 对上游没声明的字段，网关 `/v1/models` 只能给兜底值（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5），
+上游目录**普遍只下发部分字段**（哪些字段各渠道不同，见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6）—— 对上游没声明的字段，网关 `/v1/models` 只能给兜底值（取值见 [MODEL-CATALOG.md](./MODEL-CATALOG.md) §4），
 而兜底值不是任何模型的真实上限。这类渠道**可以**实现：
 
 ```ts
@@ -673,7 +673,7 @@ modelSpec?(modelId: string): {
   走这条通道的档位来源标 `spec`，与上游运行时声明的 `upstream` 区分开。
 - **`multiplier` 只填实测值**：云端/上游没给的就是未知 ——
   省略该字段，不要让池层填占位数字（客户端会按它算钱）。
-  实测案例见 [MODEL-SPECS.md](./MODEL-SPECS.md) §4.2（AStudio：7 个模型里只有 2 个有实测倍率）。
+  实测案例见 [MODEL-SPECS.md](./MODEL-SPECS.md) §3（AStudio：7 个模型里只有 2 个有实测倍率）。
   **倍率不走「跨渠道兜底」那一层**：倍率是渠道自己的计费口径，
   拿兄弟渠道的值去填等于编造（窗口/输出/档位可以，倍率不行）。
 - **取值优先级：本渠道上游目录 > 本渠道声明（本钩子）> 跨渠道兜底 > 占位值**：
@@ -681,7 +681,7 @@ modelSpec?(modelId: string): {
   （数值取 min / 档位取交集，只填缺值，且标 `sources: "cross"`）——
   口径见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.7。所以这条钩子**依然值得实现**：
   它比跨渠道推断更准（那是别的渠道被上游裁剪过的值）。
-  三层来源与兜底值口径见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5。
+  三层来源与兜底值口径见 [MODEL-CATALOG.md](./MODEL-CATALOG.md) §4。
 - 共享层**不许出现模型名** → 这张表必须放在**渠道包**里
   （`packages/core/channels/<cid>/src/catalog.ts`），不能上提到 gateway。
 - 池层怎么用它见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.6。
