@@ -23,3 +23,23 @@ export function asString(value: unknown): string {
 export function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
+
+/**
+ * 日志与错误文案里的凭据遮蔽。
+ *
+ * 为什么必须有：上游会把请求的 Authorization / token 回显进错误体，而错误体既回给
+ * 客户端、也落 `error.log`。只在回客户端的路径上脱敏等于漏了日志这一半 ——
+ * 所以这个函数放在日志汇聚点（`logLine`）与错误摘录（`snippetOf`）共用的位置。
+ *
+ * 只按**形态**打码，不改语义：报错信息本身仍完整可读。
+ */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]{8,}/gi, "$1 ***")
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "***jwt***")
+    .replace(
+      /(api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|secret|password)(["']?\s*[:=]\s*["']?)[A-Za-z0-9._~+/-]{8,}/gi,
+      "$1$2***",
+    )
+    .replace(/(?<!\d)1[3-9]\d{9}(?!\d)/g, (m) => `${m.slice(0, 3)}****${m.slice(7)}`);
+}

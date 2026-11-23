@@ -606,8 +606,17 @@ function bootPage() {
 
 /** 启动失败页：按失败原因分别说明。 */
 function errorPage(hint) {
+  // 四字符全转义（与 gateway 的 login-flow.escapeHtml 同口径）：只转 `<` 时，
+  // `&` 与引号仍能构造出实体或属性注入，虽然 hint 来源很窄，转义就该是完整的。
+  const escaped = hint
+    ? String(hint)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+    : "";
   const specific = hint
-    ? `<p>上游输出：<code>${hint.replace(/</g, "&lt;")}</code></p>
+    ? `<p>上游输出：<code>${escaped}</code></p>
        <p>端口 4412 被别的进程占着（多半是之前没关干净的网关）。在任务管理器里结束那个
        <code>node</code> / <code>electron</code> 进程，或重启电脑后再开。</p>`
     : `<p>网关在 ${Math.round(BOOT_TIMEOUT_MS / 1000)} 秒内没有就绪。</p>`;

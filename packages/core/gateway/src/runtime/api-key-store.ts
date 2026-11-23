@@ -79,7 +79,14 @@ export function listApiKeys(): ApiKeyRecord[] {
       // 写失败（只读存储等）：本次内存里已无明文，下次读取会重试迁移
     }
   }
-  return doc.keys;
+  // 返回值**剔除旧版明文**：密钥不可用时 normalizeDoc 会把 `secret` 留在记录上
+  // （磁盘保留以便下次启动重试迁移），但内存里不该带着它出这个函数 ——
+  // 任何调用方把它序列化下发就等于交出可用凭据。
+  return doc.keys.map((k) => {
+    const copy = { ...k };
+    delete (copy as ApiKeyRecord & { secret?: string | null }).secret;
+    return copy;
+  });
 }
 
 function saveApiKeys(keys: ApiKeyRecord[]): void {

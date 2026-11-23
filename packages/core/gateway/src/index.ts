@@ -128,7 +128,7 @@ export type { PoolLedger, ChannelLedger, RefreshResult } from "./pool/pool-usage
 // 渠道上下文（调用渠道模块前包一层，让渠道内部的 paths.* 解析到自己的落点）
 export { runInChannel, activeCid } from "./runtime/channel-context.js";
 // 上游 JSON 的形状守卫与取值助手：7 个渠道包共用，只做类型收窄不解释语义
-export { isRecord, asString, asNumber } from "./runtime/json-shape.js";
+export { isRecord, asString, asNumber, redactSecrets } from "./runtime/json-shape.js";
 
 // 版本更新检测（只读、每天一次；结果进控制台顶栏的版本胶囊）
 export {

@@ -22,16 +22,24 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const ALLOWLIST = join(HERE, "verify-sensitive.allowlist.txt");
 
-/** 跳过：构建产物 / 依赖 / lockfile / 本检查自己的 allowlist。 */
-const SKIP = /(^|[\\/])(node_modules|dist|\.git|coverage|\.tmp)([\\/]|$)/;
+/**
+ * 跳过：构建产物 / 依赖 / git 内部 / 覆盖率报告。
+ *
+ * `.tmp/` **不在此列**：扫描集来自 `git ls-files`，未跟踪文件本来就进不来；
+ * 把它写进 SKIP 反而是个漏洞 —— 有人 `git add -f .tmp/...` 强推凭据时，
+ * 门禁会因为这行跳过扫描。
+ */
+const SKIP = /(^|[\\/])(node_modules|dist|\.git|coverage)([\\/]|$)/;
 const SKIP_FILE = /(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb)$/;
 
 const PATTERNS = [
   { tag: "手机号", re: /(?<!\d)1[3-9]\d{9}(?!\d)/g },
-  // 只认**引号字面量**：`token: credential.accessToken` 是变量引用，不是泄漏
+  // 只认**引号字面量**：`token: credential.accessToken` 是变量引用，不是泄漏。
+  // 键名两侧的引号必须可选 —— JSON 形态（`"apiKey": "sk-..."`）里引号挡在键名与冒号
+  // 之间，漏掉它会让所有 opaque 令牌（非 JWT 的 accessToken / session）静默通过。
   {
     tag: "密钥字面量",
-    re: /(api[_-]?key|secret|password|access[_-]?key|refresh[_-]?token|session[_-]?token)\s*[:=]\s*["'`][A-Za-z0-9._~+/-]{12,}["']/gi,
+    re: /["']?(api[_-]?key|secret|password|access[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|sessionState)["']?\s*[:=]\s*["'`][A-Za-z0-9._~+/-]{12,}["'`]/gi,
   },
   // JWT：三段式 base64url，前两段必是 `eyJ` 开头（`{"` 的 base64）。
   // 7 个渠道全用 JWT 凭据，这是最该拦的一类 —— 原门禁只认 `Bearer` 前缀，

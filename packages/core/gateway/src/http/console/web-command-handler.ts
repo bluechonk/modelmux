@@ -268,10 +268,17 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
       }
       // —— API key 管理（新建/删除/改白名单与限流/重建明文）——
       case "apiKeys": {
-        // 哈希与密文都不外发：列表只给 id / 名称 / 前缀 / 白名单 / 限流 / 时间。
-        // 完整明文走需显式调用的 `revealApiKey`（行内复制按钮），不做批量下发。
+        // 白名单**显式**取字段，不用 `...rest` 剔除：黑名单对新增字段默认放行 ——
+        // 旧版明文 `secret` 正是这样漏出去的（keyring 不可用时迁移被跳过，明文留在
+        // 记录上，剔除名单里没有它，于是随列表一起下发）。
+        // 完整明文走需显式调用的 `revealApiKey`，不做批量下发。
         return ok({
-          keys: listApiKeys().map(({ keyHash: _hash, secretSealed: _sealed, ...rest }) => rest),
+          keys: listApiKeys().map((k) => ({
+            id: k.id,
+            name: k.name,
+            prefix: k.prefix,
+            createdAt: k.createdAt,
+          })),
         });
       }
       case "revealApiKey": {

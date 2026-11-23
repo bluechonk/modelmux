@@ -281,8 +281,21 @@ export interface ConsoleServer {
   close: () => Promise<void>;
 }
 
+/**
+ * JSON 响应的公共安全头。
+ *
+ * `nosniff`：跨源 `<script src="http://127.0.0.1:4412/web/api/logs">` 不带 Origin，
+ * `isSameOrigin` 会放行；没有 nosniff 时浏览器会按 JS 解析响应体。当前响应都是对象
+ * 字面量（作为语句是语法错误、读不到数据），但那是靠响应形状偶然成立的，不是保证。
+ * `frame-ancestors 'none'`：控制台不接受被任何页面嵌入（防点击劫持）。
+ */
+const JSON_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+} as const;
+
 function json(res: import("node:http").ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...JSON_SECURITY_HEADERS });
   res.end(JSON.stringify(data));
 }
 

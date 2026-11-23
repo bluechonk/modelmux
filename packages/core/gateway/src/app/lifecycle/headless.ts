@@ -16,6 +16,7 @@ import { integrateClient, integrationStatus, integrationUpdates, restoreClient, 
 import { refreshCatalog } from "../../pool/catalog-snapshot.js";
 import { captureActive, syncPool } from "../../runtime/account-pool.js";
 import { runInChannel } from "../../runtime/channel-context.js";
+import { redactSecrets } from "../../runtime/json-shape.js";
 import { channels, getChannel, hasChannel, channelCapabilities, type Channel } from "../../runtime/channel.js";
 import * as console_ from "../../http/console/console.js";
 import * as gateway from "../../http/server.js";
@@ -709,9 +710,15 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const prefix = `[${gateway.serviceName(cid)}]`;
   const logCid = cid ?? (targets.length === 1 ? targets[0]!.config.cid : undefined);
 
-  /** 运行日志同时落「按日 gateway.log / 渠道日志 / 错误日志」；控制台保留。 */
+  /**
+   * 运行日志同时落「按日 gateway.log / 渠道日志 / 错误日志」；控制台保留。
+   *
+   * 消息**先过凭据遮蔽**：上游会把 Authorization / token 回显进错误体，而错误体一路
+   * 传到这里的调用点（如「upstream returned non-200: <原文>」）。日志是唯一汇聚点，
+   * 在这里统一打码比要求每个调用点记得处理可靠。
+   */
   const logLine = (message: string): void => {
-    const line = `${prefix} ${message}`;
+    const line = `${prefix} ${redactSecrets(message)}`;
     appendGateway(line);
     if (logCid) {
       appendChannel(logCid, line);

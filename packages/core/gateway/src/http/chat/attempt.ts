@@ -24,6 +24,7 @@ import { QUOTA_EXHAUSTED_CODE } from "../../pool/account-rotate.js";
 import { resolvePoolModel } from "../../pool/model-pool.js";
 import { FAIL_COOLDOWN_MS, noteFailure, noteSuccess } from "../../pool/pool-usage.js";
 import { logThrottled } from "../../runtime/logger.js";
+import { redactSecrets } from "../../runtime/json-shape.js";
 import { sinkOf } from "../protocol/types.js";
 import { getRequestLog, noteQueued, noteRequestError, noteUpstreamPayload, noteUpstreamReady } from "../../runtime/log-store.js";
 import { inChannel, isCustomWire } from "./channel.js";
@@ -130,23 +131,13 @@ interface ProbeEnv {
 const PASSTHROUGH_SNIPPET_MAX = 300;
 
 /**
- * 上游错误体摘录：压空白、**遮蔽凭据形态**、截断。
+ * 上游错误体摘录：压空白、遮蔽凭据形态、截断。
  *
- * 为什么要遮蔽：这段文本既回给客户端，也落 `access/failure.log` 与 `error/error.log`。
- * 部分上游会把请求的 Authorization 或 token 回显进错误体（如「invalid token xxx」），
- * 不过滤就等于把凭据写进日志。只按形态打码，报错语义不变。
+ * 遮蔽逻辑在 `redactSecrets`（共享层）：日志汇聚点 `logLine` 用的是同一个函数，
+ * 两条路径口径一致 —— 只在回客户端的路径上脱敏等于漏了日志那一半。
  */
 function snippetOf(text: string): string {
-  const trimmed = text
-    .replace(/\s+/g, " ")
-    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]{8,}/gi, "$1 ***")
-    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "***jwt***")
-    .replace(
-      /(api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password)(["']?\s*[:=]\s*["']?)[A-Za-z0-9._~+/-]{8,}/gi,
-      "$1$2***",
-    )
-    .replace(/(?<!\d)1[3-9]\d{9}(?!\d)/g, (m) => `${m.slice(0, 3)}****${m.slice(7)}`)
-    .trim();
+  const trimmed = redactSecrets(text.replace(/\s+/g, " ")).trim();
   return trimmed.length > PASSTHROUGH_SNIPPET_MAX ? `${trimmed.slice(0, PASSTHROUGH_SNIPPET_MAX)}…` : trimmed;
 }
 

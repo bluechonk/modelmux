@@ -140,7 +140,9 @@ function handleHealth(res: ServerResponse): void {
       // 未登录**不算网关不健康** —— 网关可用性与凭据状态是两件事。
       // 把未登录报成 unhealthy 会让守护进程的 start 逻辑反复重启网关。
       entry["logged_in"] = false;
-      entry["detail"] = String(err);
+      // 只给错误**类别**，不给原文：`NotLoggedInError` 的消息里带 credentials.json
+      // 的绝对路径，而 `/health` 无鉴权 —— 原文等于把本机目录结构告诉任何调用方。
+      entry["detail"] = err instanceof Error ? err.name : "error";
     }
     per.push(entry);
   }

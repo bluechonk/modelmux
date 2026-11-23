@@ -705,10 +705,15 @@ export function resolveLogPath(options: {
   const root = logsRoot();
   const kind = options.kind ?? "system";
 
+  // `--date` 直接参与路径拼接，必须限死 `YYYY-MM-DD` 形态 ——
+  // 否则 `--date ../../..` 会读到日志根之外（当前入口只有本机 CLI，但一旦这个
+  // 参数被接到 HTTP 或脚本里就是任意文件读取）。
+  const date = options.date && /^\d{4}-\d{2}-\d{2}$/.test(options.date) ? options.date : undefined;
+
   const pick = (category: string, file: string): string | null => {
     const categoryDir = join(root, category);
-    if (options.date) {
-      const candidate = join(categoryDir, options.date, file);
+    if (date) {
+      const candidate = join(categoryDir, date, file);
       return existsSync(candidate) ? candidate : null;
     }
     const today = join(categoryDir, localDate(), file);

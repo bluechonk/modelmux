@@ -129,6 +129,36 @@ describe("API key 存储", () => {
     assert.doesNotThrow(() => listApiKeys());
   });
 
+  it("密钥不可用时旧明文留在磁盘，但**不从 listApiKeys 返回**（曾随列表下发的漏洞）", () => {
+    const { record, plain } = createApiKey({ name: "legacy-leak" });
+    const file = join(root, "api-keys.json");
+    // 造一条旧版记录：明文 secret、无密文
+    const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
+    for (const k of doc.keys) {
+      if (k["id"] === record.id) {
+        k["secret"] = plain;
+        delete k["secretSealed"];
+      }
+    }
+    writeFileSync(file, JSON.stringify(doc));
+    // 截断密钥：迁移必然失败，明文只能留在磁盘上（下次启动再试）
+    writeFileSync(join(keyring, "api-key.key"), Buffer.from("short"));
+
+    const keys = listApiKeys();
+    // 磁盘上仍保留明文（迁移待重试）
+    assert.ok(readFileSync(file, "utf8").includes(plain), "磁盘应保留明文等待下次迁移");
+    // 但返回值里不许有 —— 任何调用方把它序列化下发就等于交出可用凭据
+    for (const k of keys) {
+      assert.equal(
+        (k as unknown as Record<string, unknown>)["secret"],
+        undefined,
+        "listApiKeys 不得返回旧版明文",
+      );
+    }
+    // 序列化后也不许出现
+    assert.ok(!JSON.stringify(keys).includes(plain), "序列化结果不得含明文");
+  });
+
   it("每条 key 独立随机 salt（同明文两次新建哈希不同）", () => {
     const a = createApiKey({ name: "s1" });
     const b = createApiKey({ name: "s2" });
