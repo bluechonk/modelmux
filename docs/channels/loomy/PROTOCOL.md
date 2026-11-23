@@ -25,23 +25,23 @@
 
 ### 1.1 业务域（模型网关）
 
-| 用途 | 方法 | 完整 URL | 端点路径 | query / body | 认证 |
-|---|---|---|---|---|---|
-| 对话 | POST | `https://loomyad.xunfei.cn/api/v1/chat/completions` | `/api/v1/chat/completions` | **无 query**；`model` / `messages` / `stream` 全在 body（`stream` 恒 `true`） | `Authorization: Bearer <session>` + `token: <session>` |
-| 模型列表 | GET | `https://loomyad.xunfei.cn/api/v1/models` | `/api/v1/models` | **无 query** | `token: <session>` |
-| 积分明细（只读） | GET | `https://loomyad.xunfei.cn/api/v1/points/records?pageNo=1&pageSize=1&recordType=all` | `/api/v1/points/records` | `pageNo` / `pageSize` **必须 camelCase**（上游只认 camelCase，snake_case 被静默忽略，`[参考]`）；`recordType` 与参考实现的 `record_type` 命名分歧 → **待真机确认** | `token` |
-| 每日额度初始化（写） | POST | `https://loomyad.xunfei.cn/api/v1/points/first-login` | `/api/v1/points/first-login` | body 固定 `{}` —— **无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现），本渠道未启用 | `token` |
-| 新手任务列表 | GET | `https://loomyad.xunfei.cn/api/v1/onboarding/tasks` | `/api/v1/onboarding/tasks` | **无 query** | `token` |
-| 完成单个任务 | POST | `https://loomyad.xunfei.cn/api/v1/onboarding/tasks/complete` | `/api/v1/onboarding/tasks/complete` | body `{key}`（**只有 key**） | `token` |
+| 用途 | 方法 | 端点路径 | query / body | 认证 |
+|---|---|---|---|---|
+| 对话 | POST | `/api/v1/chat/completions` | **无 query**；`model` / `messages` / `stream` 全在 body（`stream` 恒 `true`） | `Authorization: Bearer <session>` + `token: <session>` |
+| 模型列表 | GET | `/api/v1/models` | **无 query** | `token: <session>` |
+| 积分明细（只读） | GET | `/api/v1/points/records` | `pageNo` / `pageSize` **必须 camelCase**（上游只认 camelCase，snake_case 被静默忽略，`[参考]`）；`recordType` 与参考实现的 `record_type` 命名分歧 → **待真机确认** | `token` |
+| 每日额度初始化（写） | POST | `/api/v1/points/first-login` | body 固定 `{}` —— **无 body 参数**；参考实现可带 `inviteCode` + `deviceId`（成对出现），本渠道未启用 | `token` |
+| 新手任务列表 | GET | `/api/v1/onboarding/tasks` | **无 query** | `token` |
+| 完成单个任务 | POST | `/api/v1/onboarding/tasks/complete` | body `{key}`（**只有 key**） | `token` |
 
 ### 1.2 账号域（登录，全部 HMAC-SHA1 签名）
 
 **本渠道只使用下面两条**（其余端点属于本仓不实现的登录路，见 [FINDINGS.md](./FINDINGS.md)）：
 
-| 用途 | 方法 | 完整 URL | 端点路径 | param | 认证 |
-|---|---|---|---|---|---|
-| **手机验证码发码** | POST | `https://account.xfinfr.com/login/phone/sendMsgCode` | `/login/phone/sendMsgCode` | `{ "ccode": "86", "phone", "expire": 300 }` | HMAC-SHA1 |
-| **手机验证码换 session** | POST | `https://account.xfinfr.com/login/phone/checkCode` | `/login/phone/checkCode` | `{ "ccode": "86", "phone", "mcode", "msgid", "expire": 1209600 }` | HMAC-SHA1 |
+| 用途 | 方法 | 端点路径 | param | 认证 |
+|---|---|---|---|---|
+| **手机验证码发码** | POST | `/login/phone/sendMsgCode` | `{ "ccode": "86", "phone", "expire": 300 }` | HMAC-SHA1 |
+| **手机验证码换 session** | POST | `/login/phone/checkCode` | `{ "ccode": "86", "phone", "mcode", "msgid", "expire": 1209600 }` | HMAC-SHA1 |
 
 **没有 refresh 端点**（`packages/core/channels/loomy/src/cred.ts`）：`session` 是登录时声明 14 天得来的，
 过期只能**重新走登录流程**（再收一次短信）。

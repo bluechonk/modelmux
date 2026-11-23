@@ -87,17 +87,17 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 
 **DeepSeek 条目全表**（实测 2026-11-14，`credits` 为积分倍率）：
 
-  | id | credits | maxInput | maxOutput | supportedLengths | efforts |
-  | --- | --- | --- | --- | --- | --- |
-  | `deepseek-v4.1-flash` | x0.11 | 1,000,000 | 128,000 | 300k / 600k / 1M | low/high/max |
-  | `deepseek-v4-pro` | x0.51 | 1,000,000 | 128,000 | 300k / 600k / 1M | high/xhigh |
-  | `deepseek-v4-flash` | x0.17 | 1,000,000 | 50,000 | 300k / 1M | high/xhigh |
-  | `deepseek-v3-2-volc` | x0.29 | 96,000 | 32,000 | - | - |
-  | `deepseek-v3-1-volc` / `-lkeap` / 裸 | x0.52 | 96,000 | 32,000（lkeap 128,000） | - | - |
-  | `deepseek-v3-0324-lkeap` | x0.52 | 112,000 | 16,000 | - | - |
-  | `deepseek-r1-0528(-lkeap)` | - | 96,000 | 16,000 / 8,192 | - | - |
-  | `deepseek-v3-0324` | x0.52 | 96,000 | 8,192 | - | - |
-  | `deepseek-v3-0324-taco-completion` | - | - | 256 | - | - |
+| id | credits | maxInput | maxOutput | supportedLengths | efforts |
+| --- | --- | --- | --- | --- | --- |
+| `deepseek-v4.1-flash` | x0.11 | 1,000,000 | 128,000 | 300k / 600k / 1M | low/high/max |
+| `deepseek-v4-pro` | x0.51 | 1,000,000 | 128,000 | 300k / 600k / 1M | high/xhigh |
+| `deepseek-v4-flash` | x0.17 | 1,000,000 | 50,000 | 300k / 1M | high/xhigh |
+| `deepseek-v3-2-volc` | x0.29 | 96,000 | 32,000 | - | - |
+| `deepseek-v3-1-volc` / `-lkeap` / 裸 | x0.52 | 96,000 | 32,000（lkeap 128,000） | - | - |
+| `deepseek-v3-0324-lkeap` | x0.52 | 112,000 | 16,000 | - | - |
+| `deepseek-r1-0528(-lkeap)` | - | 96,000 | 16,000 / 8,192 | - | - |
+| `deepseek-v3-0324` | x0.52 | 96,000 | 8,192 | - | - |
+| `deepseek-v3-0324-taco-completion` | - | - | 256 | - | - |
 
 - **促销字段**：`data.modelPromotions[]` 携带 DeepSeek 时段折扣（`ds-discount-202608`
   覆盖 v4 系含未在 cli 名单的 `-ioa` 变体，非高峰 5 折）；`data.modelTiers[]` 的

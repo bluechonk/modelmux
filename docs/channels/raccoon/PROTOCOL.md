@@ -32,18 +32,18 @@ RACCOON_DESKTOP_PREFIX = '/api/web/desktop/v1'
 RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在这里
 ```
 
-| 用途 | 方法 | 完整 URL | 认证 |
-|---|---|---|---|
-| 授权页（网页登录第一步；**desktop 兼容模式**，本渠道主用本地回调模式见 §2.4） | GET | `/code/authorize?login_source=desktop&appname=办公小浣熊客户端&state=<32位hex>` | 无 |
-| 授权码换凭证（网页登录第二步） | POST | `/api/web/auth/v1/login_with_authorization_code` | 无 |
-| 续期 | POST | `/api/web/auth/v1/refresh` | 无（body 带 refresh_token） |
-| 用户信息 | GET | `/api/web/auth/v1/user_info` | Bearer |
-| 对话 | POST | `/api/web/llm/v2/chat/completions` | Bearer |
-| 模型目录 | GET | `/api/web/llm/v2/model_catalog` | Bearer |
-| 积分余额 | GET | `/api/web/points/v1/balance` | Bearer |
-| 账单（查奖励是否已领 / 今日入账） | GET | `/api/web/points/v1/bills?paging.limit=50&paging.offset=0` | Bearer |
-| 登录奖励（一次性） | POST | `/api/web/desktop/v1/login/points/grant` | Bearer + `X-Client-Platform` |
-| 每日积分触发器（签到） | GET | `/api/web/office/v3/setting_info` | Bearer + `X-Client-Platform` |
+| 用途 | 方法 | 认证 |
+|---|---|---|
+| 授权页（网页登录第一步；**desktop 兼容模式**，本渠道主用本地回调模式见 §2.4） | GET | 无 |
+| 授权码换凭证（网页登录第二步） | POST | 无 |
+| 续期 | POST | 无（body 带 refresh_token） |
+| 用户信息 | GET | Bearer |
+| 对话 | POST | Bearer |
+| 模型目录 | GET | Bearer |
+| 积分余额 | GET | Bearer |
+| 账单（查奖励是否已领 / 今日入账） | GET | Bearer |
+| 登录奖励（一次性） | POST | Bearer + `X-Client-Platform` |
+| 每日积分触发器（签到） | GET | Bearer + `X-Client-Platform` |
 
 **续期的桌面端备份前缀**：`/api/electron/auth/v1/refresh` `[参考]`
 （`reference/raccoon2api/README.md:86-91` 记录 web 面与 electron 面等价）
@@ -51,10 +51,10 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 
 ### 1.2 chat / 模型请求的确切 URL
 
-| 用途 | 方法 | 完整 URL | 端点路径 | 必需 query | 来源 |
-|---|---|---|---|---|---|
-| 对话 | POST | `https://xiaohuanxiong.com/api/web/llm/v2/chat/completions` | `/api/web/llm/v2/chat/completions` | **无** | `src/upstream.ts` 的 `CHAT_PATH` + `chatUrl()` |
-| 模型目录 | GET | `https://xiaohuanxiong.com/api/web/llm/v2/model_catalog` | `/api/web/llm/v2/model_catalog` | **无** | `src/upstream.ts` 的 `MODEL_CATALOG_PATH` + `modelsUrl()` |
+| 用途 | 方法 | 端点路径 | 必需 query | 来源 |
+|---|---|---|---|---|
+| 对话 | POST | `/api/web/llm/v2/chat/completions` | **无** | `src/upstream.ts` 的 `CHAT_PATH` + `chatUrl()` |
+| 模型目录 | GET | `/api/web/llm/v2/model_catalog` | **无** | `src/upstream.ts` 的 `MODEL_CATALOG_PATH` + `modelsUrl()` |
 
 两条端点在四份来源里**完全一致**（无 query、无路径变体）`[参考]`：
 `reference/agent2api/.../providers/raccoon/mod.rs:78`（`DEFAULT_LLM_BASE_URL`）与 `:129`、
@@ -494,14 +494,14 @@ def raccoon_supports_image(model_id, tags):
 
 来源：2026-09-26 实测 `GET /api/web/llm/v2/model_catalog`。
 
-| id | name | contextWindow | maxTokens | supportsImage | 原价→生效价 |
-|---|---|---|---|---|---|
-| `sn-sensenova-6-8-flash` | SenseNova-6.8-Flash · 免费 | 256_000 | 63_999 | true | 0.5→0 |
-| `sn-sensenova-6-8-flash-lite` | SenseNova-6.8-Flash-Lite · 免费 | 256_000 | 63_999 | true | 0.5→0 |
-| `sn-glm-5-3` | GLM-5-3 · x0.75 | 1_000_000 | 100_000 | true | 0.75→0.75 |
-| `sn-kimi-k3` | Kimi-K3 · x1 | 1_000_000 | 100_000 | true | 1→1 |
-| `sn-glm-5-3-flash` | GLM-5-3-Flash · x0.2→x0.1 | 1_000_000 | 100_000 | true | 0.2→0.1 |
-| `sn-deepseek-v4-1-flash` | DeepSeek-V4.1-Flash · x0.25 | 1_000_000 | 100_000 | true | 0.25→0.25 |
+| id | name | contextWindow | maxTokens | supportsImage |
+|---|---|---|---|---|
+| `sn-sensenova-6-8-flash` | SenseNova-6.8-Flash · 免费 | 256_000 | 63_999 | true |
+| `sn-sensenova-6-8-flash-lite` | SenseNova-6.8-Flash-Lite · 免费 | 256_000 | 63_999 | true |
+| `sn-glm-5-3` | GLM-5-3 · x0.75 | 1_000_000 | 100_000 | true |
+| `sn-kimi-k3` | Kimi-K3 · x1 | 1_000_000 | 100_000 | true |
+| `sn-glm-5-3-flash` | GLM-5-3-Flash · x0.2→x0.1 | 1_000_000 | 100_000 | true |
+| `sn-deepseek-v4-1-flash` | DeepSeek-V4.1-Flash · x0.25 | 1_000_000 | 100_000 | true |
 
 **不含** `Raccoon-Auto`：它是客户端 i18n 条目渲染的「自动选模」入口，
 不是远端模型 —— 直接发给 `chat/completions` 会 404。

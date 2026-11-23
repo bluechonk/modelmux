@@ -127,11 +127,17 @@ workbuddy 的 7 个缓存字段：`prompt_cache_hit_tokens` / `prompt_cache_miss
 （用渠道包 `upstream.js` 的 `buildChatBody` / `buildChatHeaders` / `chatUrl` 自己发请求），
 直接看模型返回的**原始帧**：
 
-| 渠道 | 线协议 | 原始返回里的事实 |
+| 渠道 | 线协议 | 观察结果 |
 | --- | --- | --- |
-| workbuddy | openai | 末帧带完整 usage：`prompt_cache_hit_tokens: 0` / `prompt_cache_miss_tokens: 22`（**DeepSeek 形**），同时也有 `prompt_tokens_details.cached_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`；另每帧附带 `quota:{model,percent,reset_at,shared_models}` |
-| loomy | openai | 响应体是 **JSON 信封** `{code, desc, trace_id, data}`，SSE 流在 `data` 里 —— 不是裸 SSE |
-| traecn | custom | 直连回 **401**（`{code, message}`）—— 探针未带刷新后的凭据 |
+| workbuddy | openai | 末帧带完整 usage（DeepSeek 形 + 三种缓存字段），每帧附 `quota` 对象 |
+| loomy | openai | JSON 信封 `{code,desc,trace_id,data}`，SSE 在 `data` 里 |
+| traecn | custom | 直连回 401（探针未带刷新后凭据） |
+
+逐渠道的原始字段细节：
+
+- **workbuddy**：末帧带完整 usage：`prompt_cache_hit_tokens: 0` / `prompt_cache_miss_tokens: 22`（**DeepSeek 形**），同时也有 `prompt_tokens_details.cached_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`；另每帧附带 `quota:{model,percent,reset_at,shared_models}`
+- **loomy**：响应体是 **JSON 信封** `{code, desc, trace_id, data}`，SSE 流在 `data` 里 —— 不是裸 SSE
+- **traecn**：直连回 **401**（`{code, message}`）—— 探针未带刷新后的凭据
 
 结论：§6 的三种缓存形态判定与**真实上游帧**一致；`quota` 对象是上游在对话帧里就给的额度信息，
 与 §5.2 的账单端点是两条独立取数路径。
@@ -163,12 +169,12 @@ workbuddy 的 7 个缓存字段：`prompt_cache_hit_tokens` / `prompt_cache_miss
 - **写缓存不计入命中**：`cache_creation_input_tokens` / `prompt_cache_write_tokens` /
   `cache_write_*_tokens` 语义是**为后续命中做写入**；在形态 ③ 里它是**分母**的一部分。
 - **三种「没有」要分开**，不可混为一谈：
-  | 情况 | 展示 |
-  |---|---|
-  | 无 usage（失败/未采集） | `—`（且不计入分母） |
-  | 有 usage 但无缓存字段（如 traecn） | `—` |
-  | 有缓存字段且 `hit = 0` | `0%`（这是**真实**的零命中） |
-  | 有 `hit` 但推不出分母 | `—`（只给绝对值，不给比率） |
+| 情况 | 展示 |
+|---|---|
+| 无 usage（失败/未采集） | `—`（且不计入分母） |
+| 有 usage 但无缓存字段（如 traecn） | `—` |
+| 有缓存字段且 `hit = 0` | `0%`（这是**真实**的零命中） |
+| 有 `hit` 但推不出分母 | `—`（只给绝对值，不给比率） |
 - **缺失不补 0** —— 把「没采集到」显示成「完全没命中」是错误信息
 - 窗口聚合只收**分母可推**的记录（`Σhit / Σ(hit+miss)`）；无缓存字段的渠道不进分母
 

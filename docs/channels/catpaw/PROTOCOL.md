@@ -51,7 +51,7 @@
    内核密钥（DPAPI/Keychain）、进程内存、还是可离线复现的机器指纹。
 6. **端到端验证 + 交叉比对。** 解出来的东西必须能用**另一条独立来源**验证
    （本项目：CLI 侧明文 `auth.json` 的指纹比对），并且加解密往返自洽。
-7. **协议阶段只在有凭据的前提下描述，不用于批量访问。**
+7. 协议阶段只在有凭据的前提下描述，不用于批量访问。
 
 ### 0.3 证据等级
 
@@ -380,12 +380,12 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - **上游逐型号声明档位**：`/model-types` 的 `parameterDefinitions[id=context].values`
   给出该型号的可选档位，渠道对外报**最大档**、请求也发最大档。实测各型号最大档：
 
-  | 型号 | 上游最大档 |
-  |---|---|
-  | `glm-5.3` | **800000** |
-  | `deepseek-v4-pro` | **700000** |
-  | `deepseek-v4.1-flash` | **600000** |
-  | `longcat-2.0` / `glm-5.3-flashx` / `glm-5.3-flash` / `minimax-m3` / `minimax-m3.1-flash` / `kimi-k3` | 1024000 |
+| 型号 | 上游最大档 |
+|---|---|
+| `glm-5.3` | **800000** |
+| `deepseek-v4-pro` | **700000** |
+| `deepseek-v4.1-flash` | **600000** |
+| `longcat-2.0` / `glm-5.3-flashx` / `glm-5.3-flash` / `minimax-m3` / `minimax-m3.1-flash` / `kimi-k3` | 1024000 |
 
   发不在该型号档位里的值，上游**可能不接受**（未实测）—— 所以不能像早先那样一律发 1M。
 - 上游没声明档位的型号（如 `auto`）才回落渠道默认档 `1024000`（`DEFAULT_CONTEXT_WINDOW`）。
@@ -428,18 +428,48 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 > `supportImage` 决定：`deepseek-v4.1-flash` / `LongCat-2.5` / `glm-5.3-flash` 放行，
 > `deepseek-v4-pro` / `glm-5.3` / `auto` 拒收（抛 `UnsupportedInputError` 换渠道）。
 
-| 事实 | 等级 | 来源 |
-|---|---|---|
-| 上游模型目录**逐模型声明** `supportImage`（布尔） | `[参考]` | `reference/HITZY2002_catpaw2api/internal/upstream/client.go:386`（`SupportImage bool` / `json:"supportImage"`）、`docs/reverse-engineering.md:129-142` 的真实模型表；`reference/icebears111_catpaw2api/internal/upstream/client.go:346` 同构 |
-| 本机实测：上游 `/api/agent/maas/model-types` 确实带该标志（本仓目录缓存里 `LongCat-2.0` / `glm-5.3-flash` / `glm-5.3-flashx` 为 true，`glm-5.3` 为 false） | `[实测]` | 2026-10-20 `~/.modelmux/catpaw/cache/models.json` |
-| 本机实测（上游**原文**，绕开渠道归一化）：`deepseek-v4.1-flash` = **true**；`deepseek-v4-pro` / `glm-5.3` / `auto` = false；其余（`LongCat-2.5` / `glm-5.3-flash` / `glm-5.3-flashx` / `MiniMax-M3` / `kimi-k3` / `kimi-k3.1-pro`）为 true | `[实测]` | 2026-11-16 直打 `/api/agent/maas/model-types` 取原文（`.tmp/probe-catpaw-raw-catalog.mjs`）—— 渠道 API 读不到原值，`catalog.toModelInfo()` 已把它钉成 false |
-| 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事 | `[推断]` | 见下两条 |
-| conversation 流程的图片分片：`{"type":"image_url","imageUrl":{"url":"<公网 URL>","detail":"low"}}` —— 分片键是 OpenAI 式 `image_url`，值对象却是 camelCase `imageUrl` | `[实测]` | 2026-11-16 带图对话通过（`.tmp/probe-catpaw-images7.mjs`）；桌面端持久化的 tool 消息同形 |
-| 转存链三步：`GET /api/s3/presign/generate?objectName&contentType&isUpload=true`（三参全必填）→ `PUT` 返回的签名地址 → 引用 `https://s3plus.meituan.net/catpaw-pub-external/<objectName>` | `[实测]` | 同上；presign 必填参数逐层试出 |
-| `requestContext` **不需要**任何图片声明位：只带现行的 `modelParams.declarativeParams.context` 就能通过 | `[实测]` | 同上 |
-| 端到端：`deepseek-v4.1-flash` 收到截图后准确描述出「妙手桌面应用工作界面 / 左侧列表 / Git 变更清单 / 测试报告 38/38 / 两张 diff 卡片 / 底部输入框」；`prompt_tokens=20400` 而文本估算只有 31 —— 差额即图片计入的输入 | `[实测]` | 2026-11-16 访问日志 `cid=catpaw status=200`（`.tmp/req-catpaw-image2.json`） |
-| 文本渲染路径不变：`textOfContent` 仍只取 `text` 与 tool 分片，图片另走 `collectImageUrls` 采集后注入 `content` | `[代码]` | `packages/core/channels/catpaw/src/upstream.ts`（`collectImageUrls` / `uploadImage` / `prepareChat`） |
-| 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片 | `[参考]` | `reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76` |
+逐条结论与证据：
+
+1. 上游模型目录**逐模型声明** `supportImage`（布尔）
+   - 等级：`[参考]`
+   - 证据：`reference/HITZY2002_catpaw2api/internal/upstream/client.go:386`（`SupportImage bool` / `json:"supportImage"`）、`docs/reverse-engineering.md:129-142` 的真实模型表；`reference/icebears111_catpaw2api/internal/upstream/client.go:346` 同构
+
+2. 本机实测：上游 `/api/agent/maas/model-types` 确实带该标志（本仓目录缓存里 `LongCat-2.0` / `glm-5.3-flash` / `glm-5.3-flashx` 为 true，`glm-5.3` 为 false）
+   - 等级：`[实测]`
+   - 证据：2026-10-20 `~/.modelmux/catpaw/cache/models.json`
+
+3. 本机实测（上游**原文**，绕开渠道归一化）：`deepseek-v4.1-flash` = **true**；`deepseek-v4-pro` / `glm-5.3` / `auto` = false；其余（`LongCat-2.5` / `glm-5.3-flash` / `glm-5.3-flashx` / `MiniMax-M3` / `kimi-k3` / `kimi-k3.1-pro`）为 true
+   - 等级：`[实测]`
+   - 证据：2026-11-16 直打 `/api/agent/maas/model-types` 取原文（`.tmp/probe-catpaw-raw-catalog.mjs`）—— 渠道 API 读不到原值，`catalog.toModelInfo()` 已把它钉成 false
+
+4. 但那是**模型自身**的能力声明，与「本渠道能不能把图送过去」是两件事
+   - 等级：`[推断]`
+   - 证据：见下两条
+
+5. conversation 流程的图片分片：`{"type":"image_url","imageUrl":{"url":"<公网 URL>","detail":"low"}}` —— 分片键是 OpenAI 式 `image_url`，值对象却是 camelCase `imageUrl`
+   - 等级：`[实测]`
+   - 证据：2026-11-16 带图对话通过（`.tmp/probe-catpaw-images7.mjs`）；桌面端持久化的 tool 消息同形
+
+6. 转存链三步：`GET /api/s3/presign/generate?objectName&contentType&isUpload=true`（三参全必填）→ `PUT` 返回的签名地址 → 引用 `https://s3plus.meituan.net/catpaw-pub-external/<objectName>`
+   - 等级：`[实测]`
+   - 证据：同上；presign 必填参数逐层试出
+
+7. `requestContext` **不需要**任何图片声明位：只带现行的 `modelParams.declarativeParams.context` 就能通过
+   - 等级：`[实测]`
+   - 证据：同上
+
+8. 端到端：`deepseek-v4.1-flash` 收到截图后准确描述出「妙手桌面应用工作界面 / 左侧列表 / Git 变更清单 / 测试报告 38/38 / 两张 diff 卡片 / 底部输入框」；`prompt_tokens=20400` 而文本估算只有 31 —— 差额即图片计入的输入
+   - 等级：`[实测]`
+   - 证据：2026-11-16 访问日志 `cid=catpaw status=200`（`.tmp/req-catpaw-image2.json`）
+
+9. 文本渲染路径不变：`textOfContent` 仍只取 `text` 与 tool 分片，图片另走 `collectImageUrls` 采集后注入 `content`
+   - 等级：`[代码]`
+   - 证据：`packages/core/channels/catpaw/src/upstream.ts`（`collectImageUrls` / `uploadImage` / `prepareChat`）
+
+10. 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片
+   - 等级：`[参考]`
+   - 证据：`reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76`
+
 
 ### 9.1 实现要点
 

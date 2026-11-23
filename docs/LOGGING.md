@@ -53,33 +53,33 @@
 
 `access/*` 每行一个 JSON 对象，字段取自 `RequestLog`（`runtime/log-store.ts`）：
 
-| 字段 | 类型 | 含义 | 写入时机 |
-| --- | --- | --- | --- |
-| `ts` | string | 请求**开始**时刻的 ISO 8601（UTC） | 落盘时按 `startAt` 生成 |
-| `id` | string | 请求标识 `req_` + 16 位十六进制；同时写入 `X-Request-Id` 响应头 | 请求进入时 |
-| `method` / `path` | string | HTTP 方法与路径 | 请求进入时 |
-| `startAt` | number | 请求开始的 epoch 毫秒 | 请求进入时 |
-| `model` | string | 请求的模型（**规范 deepseek 名**，如 `deepseek-v4.1-flash`；别名已归并） | 解析出模型后 |
-| `cid` | string | **承接**本次请求的渠道（跨渠道选路后逐次尝试写入，最后一条即服务方） | 候选尝试时（`attemptCandidate`） |
-| `key` | string | 承接请求的**账号 key**（池内账号标识，账号池按它归集「今日 tokens」） | 候选尝试时（`attemptCandidate`） |
-| `stream` | boolean | 是否流式 | 解析出模型后 |
-| `requestBytes` | number | 请求体字节数 | 读入请求体后 |
-| `messageCount` | number | 请求消息条数 | 读入请求体后 |
-| `systemChars` | number | 消息中 system 角色的字符总数 | 读入请求体后 |
-| `toolCount` | number | 请求携带的工具数量 | 读入请求体后 |
-| `upstreamMs` | number | 请求开始到**上游响应头到达**的毫秒数 | 上游响应头到达时 |
-| `ttfbMs` | number | 请求开始到**我们写出首个响应字节**的毫秒数 | 首帧写出时（仅记一次） |
-| `generateMs` | number | **纯生成窗口**：上游首帧到达 → 末帧到达的毫秒数。两个内部时刻（`firstFrameAt` / `lastFrameAt`）不落盘，只留这个差值 | 末帧到达时；只有一个内容帧则不写该字段（= 测不到，不是 0） |
-| `durationMs` | number | 请求总耗时（响应 finish/close 时计） | 响应结束时 |
-| `status` | number | 最终 HTTP 状态码 | 响应结束时 |
-| `outcome` | string | 结果分类，见 §3.2 | 响应结束时 |
-| `error` | string | 错误码（如 `upstream_error`、`upstream_timeout`） | 出错时 |
-| `detail` | string | **网关自身异常详情**（如 500 的真实异常）。只进 `error/*/error.log` 的镜像行，情况见 §5 第 3 条 | `internal_error` 兜底时（`noteRequestDetail`） |
-| `message` | string | 错误说明（**截断到 800 字符**） | 出错时 |
-| `usage` | object | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同） | 收到 usage 帧（非流式为聚合后） |
-| `queued` | boolean | **进过上游排队**（收到排队帧并等待重试）。只在为真时写，缺省 = 没收到排队帧 | 排队帧到达时（`noteQueued`） |
-| `ua` | string | 客户端 User-Agent（截断 160 字符）。**只在未知路径 404 上写**：`/api/hello` 这类幽灵探针只能靠它认领来源 | 未知路径应答时（`noteRequestUa`） |
-| `route` | object | **选路快照**：`{ est, candidates[], attempts[], skipped[{cid,why}] }` | 候选解析完成时（`noteRequestRoute`） |
+| 字段 | 含义 |
+| --- | --- |
+| `ts` | 请求**开始**时刻的 ISO 8601（UTC）；写入：落盘时按 `startAt` 生成 |
+| `id` | 请求标识 `req_` + 16 位十六进制；同时写入 `X-Request-Id` 响应头 |
+| `method / path` | HTTP 方法与路径 |
+| `startAt` | 请求开始的 epoch 毫秒 |
+| `model` | 请求的模型（**规范 deepseek 名**，如 `deepseek-v4.1-flash`；别名已归并）；写入：解析出模型后 |
+| `cid` | **承接**本次请求的渠道（跨渠道选路后逐次尝试写入，最后一条即服务方）；写入：候选尝试时（`attemptCandidate`） |
+| `key` | 承接请求的**账号 key**（池内账号标识，账号池按它归集「今日 tokens」）；写入：候选尝试时（`attemptCandidate`） |
+| `stream` | 是否流式；写入：解析出模型后 |
+| `requestBytes` | 请求体字节数 |
+| `messageCount` | 请求消息条数 |
+| `systemChars` | 消息中 system 角色的字符总数 |
+| `toolCount` | 请求携带的工具数量 |
+| `upstreamMs` | 请求开始到**上游响应头到达**的毫秒数；写入：上游响应头到达时 |
+| `ttfbMs` | 请求开始到**我们写出首个响应字节**的毫秒数；写入：首帧写出时（仅记一次） |
+| `generateMs` | **纯生成窗口**：上游首帧到达 → 末帧到达的毫秒数。两个内部时刻（`firstFrameAt` / `lastFrameAt`）不落盘，只留这个差值；写入：末帧到达时；只有一个内容帧则不写该字段（= 测不到，不是 0） |
+| `durationMs` | 请求总耗时（响应 finish/close 时计） |
+| `status` | 最终 HTTP 状态码 |
+| `outcome` | 结果分类，见 §3.2 |
+| `error` | 错误码（如 `upstream_error`、`upstream_timeout`） |
+| `detail` | **网关自身异常详情**（如 500 的真实异常）。只进 `error/*/error.log` 的镜像行，情况见 §5 第 3 条；写入：`internal_error` 兜底时（`noteRequestDetail`） |
+| `message` | 错误说明（**截断到 800 字符**） |
+| `usage` | 上游返回的 token 用量（含各家的缓存命中字段，逐渠道形态不同）；写入：收到 usage 帧（非流式为聚合后） |
+| `queued` | **进过上游排队**（收到排队帧并等待重试）。只在为真时写，缺省 = 没收到排队帧；写入：排队帧到达时（`noteQueued`） |
+| `ua` | 客户端 User-Agent（截断 160 字符）。**只在未知路径 404 上写**：`/api/hello` 这类幽灵探针只能靠它认领来源；写入：未知路径应答时（`noteRequestUa`） |
+| `route` | **选路快照**：`{ est, candidates[], attempts[], skipped[{cid,why}] }`；写入：候选解析完成时（`noteRequestRoute`） |
 
 `route` 各字段：`est` 是输入估算 token，`candidates` 是全部候选顺序，`attempts` 是本次实际会试的，`skipped.why` 取 `auth` / `window` / `unauthorized` / `cooling`。路由只在内存里发生，落它是为了事后能查「这次走了哪家、为什么」。
 
