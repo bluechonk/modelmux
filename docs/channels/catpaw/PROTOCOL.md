@@ -5,13 +5,32 @@
 
 > **现行实现是 TypeScript**（`channels/catpaw/src/`，7 文件契约）。
 
-## 阅读顺序
+## 目录
+
+0. [读前须知](#0-读前须知) —— 阅读顺序、逆向方法论、证据等级、关键结论速览
+1. [端到端数据流](#1-端到端数据流) —— 桌面端凭据来源、三段式上游调用
+2. [唯一登录路径](#2-唯一登录路径) —— 流程、未采纳路径、令牌生命周期
+3. [chat / 模型请求的确切 URL](#3-chat--模型请求的确切-url) —— 直连域、网关域、auth_url 参数
+4. [必需请求头清单](#4-必需请求头清单) —— 直连域、网关域
+5. [积分中心](#5-积分中心额度查询与申领) —— 额度查询与申领
+6. [消息折叠与工具调用](#6-消息折叠与工具调用)
+7. [流结束语义](#7-流结束语义生命周期帧) —— 生命周期帧
+8. [上下文档位](#8-上下文档位) —— 思考强度、最大输出 token
+9. [图片能力](#9-图片能力按型号声明放行图片走对象存储转存) —— 实现要点、仍未验证
+10. [边界与伦理](#10-边界与伦理)
+11. [使用与实测](#11-使用与实测) —— 登录、限制、推荐模型、环境变量、怎么测
+12. [参考实现](#12-参考实现) —— 生态对齐、两个上游家族对照
+13. [已知边界](#13-已知边界) —— 家族划分、不实现的、待真机验证
+
+## 0. 读前须知
+
+### 0.1 阅读顺序
 
 | 顺序 | 文档 | 一句话 |
 | --- | --- | --- |
 | 0 | [FINDINGS.md](FINDINGS.md) | **先看这个**：全部结论汇总 + 证据等级（凭据落点 / 加密方案 / 密钥材料 / 解密验证 / scope 机制 / 敏感面） |
 
-## 方法论
+### 0.2 逆向方法论
 
 逆向一条"凭据存储"链路，按下面的顺序推进可以保证每一步都可证伪、可回退：
 
@@ -34,7 +53,7 @@
    （本项目：CLI 侧明文 `auth.json` 的指纹比对），并且加解密往返自洽。
 7. **协议阶段只在有凭据的前提下描述，不用于批量访问。**
 
-## 证据等级约定
+### 0.3 证据等级
 
 所有结论都标注来源，避免把推断当成实测：
 
@@ -45,14 +64,14 @@
 | `[推断]` | 由 `[实测]` + `[代码]` 推导，但未直接验证（例如非 Windows 平台分支） |
 | `[参考]` | 来自第三方参考实现（`reference/` 目录），**本机未验证** |
 
-## 关键结论速览
+### 0.4 关键结论速览
 
 - 凭据落在 `%APPDATA%\catpaw-moon\catx-credential.json` 的 `ssoTokenEnc`，**不是** Electron safeStorage，**不是** DPAPI。
 - 密钥 = `SHA-256("${machineId}:catpaw-desk-token-v2")`，机器码取自注册表 `MachineGuid`（Windows）——**可离线复现**。
 - 同一 token 另有一份**明文**副本在 `~/.meituan-catpaw/auth.json`（CLI 侧落盘），用于交叉验证。
 - 上游对话是**三段式**：`POST /api/agent/conversation/round`（提交全部消息）→ `/event`（回报状态）
   → `/turn`（SSE 直出）；只调 turn 会 500。SSE 帧是**累积式**的；turn 结束由上游
-  生命周期帧标记（见「流结束语义」），**不能等 TCP 关闭** —— 连接可能一直挂着。
+  生命周期帧标记（见 §7），**不能等 TCP 关闭** —— 连接可能一直挂着。
 - `systemPromptContext.systemPromptOverride` 有 **65508 字符**硬上限（JSON 转义后长度口径），
   超限回 `HTTP 200` + `success:false`；round 还拒收连续 `assistant` 消息。
   **本仓库实现不使用该字段**：system / 历史 / 工具说明全部折叠进一条 user prompt（见下）。
@@ -61,9 +80,11 @@
   代码里分别是 `cred.ts` 的 `GATEWAY_HOST` 与 `upstream.ts` 的 `DIRECT_HOST`。
 - 登录**只有一条路径**：真实 URL 授权 + `poll-token` 轮询（见下「唯一登录路径」）。
 
-## 端到端数据流
+## 1. 端到端数据流
 
-### 桌面端凭据从哪来（逆向结论，证据等级见 FINDINGS.md）
+### 1.1 桌面端凭据从哪来
+
+逆向结论与证据等级见 [FINDINGS.md](FINDINGS.md)。
 
 ```text
                      ┌──────────────────────── 妙手桌面端（Electron, catpaw-moon） ────────────────────────┐
@@ -91,7 +112,7 @@
 **现役渠道实现不读桌面端任何文件**：凭据只来自 `mx login catpaw` 的真实 URL 登录，
 落盘在 `~/.modelmux/catpaw/credentials.json`（见 `src/cred.ts`）。
 
-### 上游调用路径（三段式）
+### 1.2 上游调用路径（三段式）
 
 ```text
 { access_token, uid? }
@@ -131,12 +152,12 @@
 > ` ```tool_call ` 块输出，网关解析后转回 OpenAI `tool_calls`（`finish_reason=tool_calls`）。
 > 折叠 prompt 按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
 
-## 唯一登录路径
+## 2. 唯一登录路径
 
 > 结论：`mx login catpaw` 走「login-config → 拼 auth_url → 浏览器点一下 → poll-token 轮询
 > → current-user 取 uid → 落盘」，**全程只有一次人工点击**。实现见 `src/cred.ts` 的 `login()`。
 
-### 流程
+### 2.1 流程
 
 | 步 | 动作 | 端点 / 参数 |
 | --- | --- | --- |
@@ -153,7 +174,7 @@
 - `uid` 不是可有可无的展示字段：账号池靠它认同一个账号（uid 为空会退化成按 token 建键，
   同一账号重登一次就被记成两条）。
 
-### 未采纳的登录路径
+### 2.2 未采纳的登录路径
 
 | 路径 | 出处 | 不采纳的理由 |
 | --- | --- | --- |
@@ -162,7 +183,7 @@
 | 短信验证码 / 密码登录、人机挑战 | `reference/KanoNoUta_thief-neko/src/catpawAuthClient.js:15-49`、`controller/CatapiController/YodaChallengeWindow.xaml.cs` | 属**另一个上游家族**（见下「已知边界」），token 与本渠道不通用 |
 | HTTP token 刷新（`POST /api/login/refreshToken`） | `reference/KanoNoUta_thief-neko/src/catpawAuthClient.js:51-61` | 同上；且本渠道的 passport **没有** refresh_token（`[参考]` 参考实现 `internal/scheduler/scheduler.go:7`：「token 无 refresh_token，有效期 72h，到期只能重新走 OAuth 登录」） |
 
-### 令牌生命周期
+### 2.3 令牌生命周期
 
 - 有效期 **72 小时**（`[参考]`：`reference/HITZY2002_catpaw2api/internal/auth/auth.go:16`
   `TokenLifetime = 72 * time.Hour`，注释「逆向自 ACCESS_TOKEN_LIFETIME_MS」；
@@ -172,13 +193,13 @@
 - 现行实现的 `refresh()` 做的是**有效性探测**（`GET {AUTH_PING_URL}`）：401/403 判失效、
   其余（含 5xx / 网络错误）按临时故障处理，不惊动用户重登（判据 `[参考]` 参考实现的 `Ping()`）。
 
-## chat / 模型请求的确切 URL
+## 3. chat / 模型请求的确切 URL
 
 > 两个域：网关域 `https://catx.nocode.cn`（登录 / 额度，鉴权 `X-Auth-Token`）与
 > 直连域 `https://ai.catpaw.meituan.com`（对话 / 模型目录，鉴权 `X-Passport-Token` + Cookie）。
 > 两侧共用同一个 access_token，但**头语义不同**。
 
-### 直连域（对话 / 模型目录）
+### 3.1 直连域（对话 / 模型目录）
 
 | 用途 | 方法 | 完整 URL | 端点路径 | query / body 来源 |
 | --- | --- | --- | --- | --- |
@@ -196,7 +217,7 @@
   `src/catalog.ts` 的 `MODEL_TYPE_FALLBACK` 数值表兜底（`[参考]` 参考实现
   `internal/upstream/const.go:83-90`），否则模型不可用。
 
-### 网关域（登录 / 额度）
+### 3.2 网关域（登录 / 额度）
 
 | 用途 | 方法 | 完整 URL | 端点路径 | query / body 来源 |
 | --- | --- | --- | --- | --- |
@@ -212,19 +233,21 @@
 用只认字符串的转换会把它静默丢成空串，账号池随即退化成按 token 建键（同一账号登录两次
 记成两条）。
 
-### 登录 auth_url 的三个 query 参数
+### 3.3 登录 auth_url 的三个 query 参数
 
 `${loginEntryUrl}?sid=<16 hex>&state=<16 hex>&redirect=<urlencoded>` —— **三参数缺一不可**
 （`[参考]` 参考实现 `cmd/login/main.go:77-81` 同样 set 三个；`[实测]` 缺 `redirect` 网关直接 400）。
 `sid` 供第 4 步轮询用，`state` 是防 CSRF 的随机串，`redirect` 只是形式参数。
 
-## 必需请求头清单
+## 4. 必需请求头清单
 
-### 直连域（`src/upstream.ts` 的 `buildHeaders`）
+### 4.1 直连域
+
+实现见 `src/upstream.ts` 的 `buildHeaders`。
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 | --- | --- | --- | --- | --- |
-| `M-TRACEID` | 运行时生成：`randomUUID()` 去横线 → 32 位无横线 hex | 否（链路追踪） | **每请求重生成** | 格式与参考实现不一致，见「已知边界」 |
+| `M-TRACEID` | 运行时生成：`randomUUID()` 去横线 → 32 位无横线 hex | 否（链路追踪） | **每请求重生成** | 格式与参考实现不一致，见 §13 |
 | `M-APPKEY` | 常量 `fe_com.sankuai.catpaw.external.front` | 否（应用标识） | 不变 | 与参考实现逐字一致（`[参考]` `internal/upstream/const.go:43`） |
 | `gray-set` | 常量 `new-agent-sdk` | 否（灰度分组） | 不变 | 同上（`const.go:45`） |
 | `X-Agent-Version` | 常量 `1.0.1` | 否（客户端版本） | 不变 | 同上（`const.go:44`） |
@@ -233,15 +256,15 @@
 | `enableHeartBeat` | 常量 `true` | 否 | 不变 | 长连接保活（`[参考]` `internal/upstream/conversation.go:53`） |
 | `Content-Type` | 常量 `application/json` | 否 | 不变 | — |
 | `Accept` | **按端点区分**：turn → `text/event-stream`；round / event / model-types → `application/json` | 否 | 不变 | **不能一刀切**：turn 缺 SSE 会 406，round 发 SSE 会 500 |
-| `user-uid` | 凭据 `uid`，**非空才带** | 半（用户标识） | 随凭据 | 见「已知边界」的 `user-mis-id` 说明 |
+| `user-uid` | 凭据 `uid`，**非空才带** | 半（用户标识） | 随凭据 | 见 §13的 `user-mis-id` 说明 |
 
-### 网关域
+### 4.2 网关域
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 | --- | --- | --- | --- | --- |
 | `X-Auth-Token` | 凭据 `accessToken` | **是** | 随凭据 | 用于 `current-user` / `auth/ping` / `credit/*`；与直连域的 `X-Passport-Token` **不是同一套头语义**，但 token 同源（都出自 poll-token） |
 
-## 积分中心：额度查询与申领（`[参考]`+本机验证）
+## 5. 积分中心：额度查询与申领
 
 > 来源：`reference/HITZY2002_catpaw2api` 的 `internal/upstream/const.go` / `client.go`；
 > 本机已实测两条端点（2026-10-18）。
@@ -257,7 +280,7 @@
   网关 passport（见 `src/cred.ts` 的 poll-token）。
 - 上游没有「每日签到」端点；`mx bill catpaw` 的额度查询对应积分余额端点。
 
-## 消息折叠与工具调用
+## 6. 消息折叠与工具调用
 
 > 参考：`reference/HITZY2002_catpaw2api/internal/server/tools.go`、
 > `reference/icebears111_catpaw2api/internal/server/prompt.go` / `handler.go`。
@@ -282,7 +305,7 @@
   glm 起初会优先调用平台内置工具，提示词明确「只能用下列工具」后按 fence 返回。
 - **实测（2026-10-18）**：`catpaw/deepseek-v4.1-flash` 亦全绿 —— 普通/流式、单工具、
   并行工具、tool 结果回灌、非流式聚合、system 数组、developer 角色均通过
-  （结论见「使用与实测」的「推荐模型」）。
+  （结论见 §11的「推荐模型」）。
 - **请求体体积**：折叠后的 prompt 预算 **900KB**（参考实现实测 >1MB 触发 413）；
   超预算先丢最早历史（保留最后 8 条），仍超则头尾保留、中间省略。
 - 以上都是**请求级**行为，不参与账号连败计数（凭据是健康的）。
@@ -296,7 +319,7 @@
   `contextInfo.usageDistribution` 按 system_prompt / tools_and_subagents / mcp / skills /
   conversation / model_output 分类给占比，未消费。
 
-## 流结束语义（生命周期帧，2026-10-18）
+## 7. 流结束语义（生命周期帧）
 
 > 来源：`reference/icebears111_catpaw2api/internal/upstream/sse.go`；
 > `reference/HITZY2002_catpaw2api/internal/upstream/client.go`（PollAssistant 只认 `finished=true`）。
@@ -350,7 +373,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - 60 工具 + 9KB system + 10 轮历史的重请求：longcat 7.7s、deepseek 4.0s；
 - 工具调用场景 3.3s，`finish_reason="tool_calls"` 与 `[DONE]` 同时到达。
 
-## 上下文档位（`[实测]` 2026-10-23）
+## 8. 上下文档位
 
 - 上下文档位不是 URL query，而是 **body 字段**
   `requestContext.modelParams.declarativeParams.context`（字符串档位）。
@@ -370,7 +393,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - 请求侧 `buildChatBody` 按**该型号**的档位发 `context`（与落盘值同源）；折叠 prompt
   按 **900KB** 字节预算裁剪（保留系统指令、最新对话与工具说明）。
 
-### 思考强度
+### 8.1 思考强度
 
 上游 `parameterDefinitions` 还声明了思考相关参数，渠道透出到 `/v1/models` 的 `effort`：
 
@@ -381,7 +404,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 - `id:"thinking"`（BOOLEAN）→ 只说明该型号用「思考开关」而非档位（`longcat-2.0` / `minimax-m3`），
   此时不报上游档位，`effort` 回落池层默认 `low/high`。
 
-### 最大输出 token
+### 8.2 最大输出 token
 
 上游目录同样**不下发输出上限**（[实测]），网关 `/v1/models` 只能给兜底值 65536 ——
 客户端按兜底值猜会与真实上限有出入。本渠道按**公开规格**补齐：
@@ -398,7 +421,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 `models.json` 的 `maxOutput`。公开规格是**模型上限**，上游可能更严
 （超限回 400）—— 客户端应能降档重试。
 
-## 图片能力：按上游逐型号声明放行，图片走对象存储转存
+## 9. 图片能力：按型号声明放行，图片走对象存储转存
 
 > 结论先行：本渠道**能**传图。图片先转存到自家对象存储换公网 URL，再作为
 > `round.messages[].content[]` 的 `image_url` 分片送上去。是否放行由上游逐型号声明的
@@ -418,7 +441,9 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
 | 文本渲染路径不变：`textOfContent` 仍只取 `text` 与 tool 分片，图片另走 `collectImageUrls` 采集后注入 `content` | `[代码]` | `packages/core/channels/catpaw/src/upstream.ts`（`collectImageUrls` / `uploadImage` / `prepareChat`） |
 | 两家参考实现同构：恒发 `"images":[]`（属**另一条** nocode 建聊流程的字段，不是 conversation 流程），且 `flattenContent` 同样只保留 `text` 分片 | `[参考]` | `reference/icebears111_catpaw2api/internal/upstream/client.go:391`、`internal/server/request.go:168-188`（及其 `request_test.go:116`：含 `image_url` 分片的 content 拍平后只剩 `"a"`）；`reference/HITZY2002_catpaw2api/docs/reverse-engineering.md:76` |
 
-### 实现要点（`src/upstream.ts` / `src/catalog.ts`）
+### 9.1 实现要点
+
+实现见 `src/upstream.ts` 与 `src/catalog.ts`。
 
 - `collectImageUrls()` 从 OpenAI `image_url.url` 与 Anthropic `image.source`（URL /
   base64 两种）收图；base64 一律封成 `data:` 统一走转存，不留第二条路径。
@@ -434,7 +459,7 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
   请求是好的，冷却会误伤后续正常请求。
 - 单张上限 10MB、上传超时 20s；超限直接拒（宁可换渠道，不要把 20MB 塞给上游）。
 
-### 仍未验证
+### 9.2 仍未验证
 
 - 外部 URL 能否**跳过转存**直接引用：桌面端恒先传 S3，本渠道也一律转存，透传未测。
 - `detail` 是否必填：桌面端带 `low`，本渠道照带，未试缺省。
@@ -442,16 +467,16 @@ translator 用 `idleCutoffAfterContentMs()` 声明阈值（默认 10 秒，可�
   此时 `supportsImageOf()` 一律 false、带图请求会顺延到别的渠道 ——
   `mx model catpaw --refresh` 后恢复。
 
-## 边界与伦理
+## 10. 边界与伦理
 
 - 分析对象是**本机、本人账号**的登录态文件；仓库不包含、也不生成任何可用凭据。
 - 结论中的协议知识仅用于理解客户端行为；请不要用它做绕开授权或对外提供服务的事。
 - 文档只保留协议结论与脱敏形态（指纹 / 长度），不含真实凭据；
   密钥派生知识仅用于解析本机登录态。
 
-## 使用与实测
+## 11. 使用与实测
 
-### 登录方式
+### 11.1 登录方式
 
 `mx login catpaw` 走**真实 URL 链路**：login-config → 拼 `auth_url` → 浏览器点一下 →
 poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条登录链路，落盘在
@@ -460,32 +485,32 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 
 完整流程与「为什么不采纳其它路径」见上文「唯一登录路径」。
 
-### 已知限制
+### 11.2 已知限制
 
 - **工具通道不是上游原生能力**：上游没有承接客户端 function schema 的字段，渠道靠
-  「工具清单注入 prompt + 模型用 ```tool_call 围栏表达调用」模拟（见「消息折叠与工具调用」）。
+  「工具清单注入 prompt + 模型用 ```tool_call 围栏表达调用」模拟（见 §6）。
   模型不按围栏输出时调用会丢失，工具往返的稳定性取决于模型本身。
 - **每轮结束必须回报 `event(completed)`**：漏报会让会话永久停在「执行中」，后续 round 被拒、
   turn 的 SSE 一直挂到上游超时（实测 200s+）。
-- **轮次打断未实现**：客户端中断时上游轮次不会被取消（见「已知边界」）。
+- **轮次打断未实现**：客户端中断时上游轮次不会被取消（见 §13）。
 - **上下文是请求参数不是模型能力**：上游目录不下发窗口，按 body 字段
   `requestContext.modelParams.declarativeParams.context` 下发；折叠后的 prompt 预算 **900KB**，
   超预算先丢最早历史。
 - **token 72h 到期只能重登**：上游**没有刷新端点**，`refresh()` 只是有效性探测。
 - **图片输入按上游逐型号声明放行**：`deepseek-v4-pro` / `glm-5.3` / `auto` 声明
   `supportImage:false`，带图请求会抛 `UnsupportedInputError` 换渠道；其余型号放行，
-  图片经对象存储转存后作为 `content` 的 `image_url` 分片送出。见「图片能力」。
-- **家族 B 协议不实现**（IDE 侧 `/api/gpt/*`）：token 与家族 A 不通用，见「已知边界」。
+  图片经对象存储转存后作为 `content` 的 `image_url` 分片送出。见 §9。
+- **家族 B 协议不实现**（IDE 侧 `/api/gpt/*`）：token 与家族 A 不通用，见 §13。
 - **deepseek-v4.1-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 600000`
   （供此模型各渠道中最低）、倍率 x0.06、effort 档位 `low/high/max`（默认 high）、
   最大输出上游不给。缓存由渠道映射 `contextInfo.usage.cache_read_tokens` →
   `prompt_tokens_details.cached_tokens` 透出（Anthropic 形态；口径见
-  [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5.2）；全量命中率无记录。
+  [CACHE-HIT-RATE.md](../../CACHE-HIT-RATE.md) §5）；全量命中率无记录。
 
 **glm-5.3-flash 供给实测（2026-11-14）**：目录条目 `contextWindow: 800000` /
 倍率 x0.06；同目录的 `glm-5.3-flashx`（800K / x0.16）是同族另一型号，不进 glm-5.3-flash 池。
 
-### 推荐模型
+### 11.3 推荐模型
 
 | 模型 | 结论 | 等级 |
 | --- | --- | --- |
@@ -493,14 +518,14 @@ poll-token 轮询，**全程只有一次人工点击**。凭据只来自这条�
 | `catpaw/deepseek-v4-flash`、`catpaw/deepseek-v4-pro` | 目录中可用，未做完整工具矩阵 | — |
 | `catpaw/longcat-2.0`、`catpaw/glm-5.3-flash` | API 层可跑通；端到端测试**全过**（见下），真实客户端兼容问题未复现，疑与客户端实现有关。`glm-5.3-flash` 在随包 `models.json` 已标 `hidden`（glm 已移出对外家族；隐藏集合见共享层 `hiddenModelIds`），不再作为本渠道的对外候选 | `[实测]` |
 
-### 环境变量
+### 11.4 环境变量
 
 | 变量 | 作用 |
 | --- | --- |
 | `CATPAW_BASE_URL` | 覆盖**直连域**基址（测试注入 / 镜像），未设用 `https://ai.catpaw.meituan.com`；网关域不受它影响（`cred.ts` 的 `GATEWAY_HOST` 固定为 `https://catx.nocode.cn`） |
 | `CATPAW_AUTH_PING_URL` | 覆盖令牌有效性探测端点（测试 / 便携）—— 否则「离线自检」会因一次探测变成出网测试 |
 
-### 怎么测这个渠道
+### 11.5 怎么测这个渠道
 
 端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
@@ -511,13 +536,13 @@ mx model catpaw --refresh # 目录刷新
 mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
 ```
 
-### 端到端测试覆盖
+### 11.6 端到端测试覆盖
 
 登录入池 / `mx model catpaw --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
 
-## 参考实现
+## 12. 参考实现
 
-### 7.x 2026-11-20 生态对齐（loomy2api 同轮调研落地）
+### 12.1 2026-11-20 生态对齐
 
 - **余额闸门**：额度为 0 时上游回 HTTP 200 + 助手正文，判据是帧内无 `model`/`modelDisplayName`
   字段 + 余额措辞（magpie #933 多源实测）。翻译器转成 402 错误帧，`quotaSignal(200, 正文)`
@@ -533,7 +558,7 @@ mx bill catpaw            # 额度与倍率（测试后核对是否扣费）
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
-这些实现分**两个互不兼容的上游家族**（详见「已知边界」）。只有**家族 A**
+这些实现分**两个互不兼容的上游家族**（详见 §13）。只有**家族 A**
 （`ai.catpaw.meituan.com` 的 conversation 协议）与本渠道协议同源，家族 B
 （`catpaw.meituan.com/api/gpt/*` 的 IDE 侧协议）**只作对照，不照抄**。
 
@@ -546,11 +571,11 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | B | IDE 侧的短信无头登录、Yoda 挑战、凭据管道参照（**不照抄**） |
 | [fifasheng-tech/catpaw-bridge](https://github.com/fifasheng-tech/catpaw-bridge) | B | IDE 侧的请求体加密与工具翻译参照（**不照抄**） |
 
-## 已知边界
+## 13. 已知边界
 
 本节记录**本渠道不做**的事，以及**待真机验证**的疑点。
 
-### 参考实现分两个家族，只有本家族可用
+### 13.1 参考实现分两个家族，只有本家族可用
 
 `reference/` 下的 6 个参考实现实际是**两个互不兼容的上游家族**：
 
@@ -566,7 +591,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 `internal/server/panel.html` 等 8 对以上文件字节数一致），实为「4 份独立思路 + 1 组分叉」，
 「多实现一致」的交叉验证强度要打对折。
 
-### 本渠道不实现（记录在案）
+### 13.2 本渠道不实现
 
 | 项 | 为什么不实现 |
 | --- | --- |
@@ -580,7 +605,7 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | token 72h 到期**自动**续期 | 现行 `refresh()` 只做有效性探测（上游 401/403 才知道失效）。自动续期需要「后台发起 OAuth + 等浏览器打开 auth_url」的流程，与本渠道「一次人工点击」的定位不符 —— 待定 |
 | 轮次打断（`POST /api/agent/conversation/turn/stop`） | 参考实现有（`reference/icebears111_catpaw2api/internal/upstream/const.go:40`），本渠道暂未实现 —— 客户端中断时上游轮次不会被取消 |
 
-### 待真机验证的疑点
+### 13.3 待真机验证的疑点
 
 | 疑点 | 现状 | 怎么验 |
 | --- | --- | --- |
