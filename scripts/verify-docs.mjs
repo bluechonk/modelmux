@@ -487,6 +487,102 @@ for (const rel of candidates) {
   for (const d of checkProseBlocks(rel)) problems.push(`${rel}  ->  ${d}`);
 }
 
+// ── 章节引用：`文档.md §x.y` 的跨篇引用必须指向真实存在的章节 ────────────────
+// 文档重写会删章节，引用却留在别处 —— 实测 MODEL-SPECS 重写后只留 §0~§4，
+// 5 篇文档仍引用它的 §5 / §6，读者按引用找过去扑空。
+// 只查「链接 + §编号」的跨篇形态；同篇 §x.y 与裸 §x 不查（前者噪声大，后者太泛）。
+const SECTION_REF_RE = /\[([\w.-]+\.md)\]\([^)]*\)\s*(?:的)?\s*§(\d+(?:\.\d+)*)/g;
+
+function collectSections(abs) {
+  const nums = new Set();
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return nums;
+  }
+  let fenceChar = "";
+  let fenceLen = 0;
+  for (const line of text.split("\n")) {
+    const fm = /^(`{3,}|~{3,})/.exec(line.trim());
+    if (fm) {
+      if (fenceChar === "") {
+        fenceChar = fm[1][0];
+        fenceLen = fm[1].length;
+      } else if (fm[1][0] === fenceChar && fm[1].length >= fenceLen) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
+      continue;
+    }
+    if (fenceChar !== "") continue;
+    const m = /^#{2,4}\s+(\d+(?:\.\d+)*)[.．\s]/.exec(line);
+    if (m) nums.add(m[1]);
+  }
+  return nums;
+}
+
+const sectionCache = new Map();
+function sectionsOf(abs) {
+  if (!sectionCache.has(abs)) sectionCache.set(abs, collectSections(abs));
+  return sectionCache.get(abs);
+}
+
+// 文件名 → 绝对路径。同名文档（每个渠道都有自己的 PROTOCOL.md）必须优先取同目录的那份，
+// 否则渠道 FINDINGS 里的 `PROTOCOL.md §2.4` 会被解析到别的渠道的 PROTOCOL 上去。
+function resolveDocByName(fromAbs, docName) {
+  const sameDir = join(dirname(fromAbs), docName);
+  if (existsSync(sameDir)) return sameDir;
+  for (const abs of candidates) {
+    if (abs.split(/[\\/]/).pop() === docName) return abs;
+  }
+  return null;
+}
+
+function checkSectionRefs(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const found = [];
+  let fenceChar = "";
+  let fenceLen = 0;
+  text.split("\n").forEach((line, i) => {
+    const fm = /^(`{3,}|~{3,})/.exec(line.trim());
+    if (fm) {
+      if (fenceChar === "") {
+        fenceChar = fm[1][0];
+        fenceLen = fm[1].length;
+      } else if (fm[1][0] === fenceChar && fm[1].length >= fenceLen) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
+      return;
+    }
+    if (fenceChar !== "") return;
+    for (const m of line.matchAll(SECTION_REF_RE)) {
+      const [, docName, num] = m;
+      const target = resolveDocByName(abs, docName);
+      if (!target) continue; // 链接可达性由 checkLinks 负责
+      const nums = sectionsOf(target);
+      if (nums.size === 0) continue; // 无编号章节的文档不适用
+      const hit = [...nums].some((s) => s === num || s.startsWith(num + "."));
+      if (!hit) {
+        found.push(`L${i + 1} 引用 ${docName} §${num}，该文档无此章节`);
+      }
+    }
+  });
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkSectionRefs(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {
