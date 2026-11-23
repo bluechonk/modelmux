@@ -369,7 +369,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                 <div>
                   <div className="mb-3 text-xs font-medium text-ink-faint">一键接入自动同步</div>
                   <p className="mb-3 text-xs text-ink-faint">
-                    已接入的 zcode / dsh 由网关按间隔自动同步（密钥重置、模型上下线都会自动写入），无需手动更新。
+                    密钥重置、模型上下线都会自动写入客户端，无需手动更新。
                   </p>
                   <div className="divide-y divide-line">
                     <ModalRow icon={RefreshCw} title="检查间隔">
@@ -382,9 +382,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
                     </ModalRow>
                   </div>
                   <div className="mb-3 mt-4 text-xs font-medium text-ink-faint">渠道开关</div>
-                  <p className="mb-3 text-xs text-ink-faint">
-                    关闭的渠道不参与选路，凭据保留。
-                  </p>
+                  <p className="mb-3 text-xs text-ink-faint">关闭后不参与选路，凭据保留。</p>
                   <div className="divide-y divide-line">
                     {(state.data?.channel_toggles ?? []).map((t) => (
                       <ModalRow key={t.cid} icon={Boxes} title={t.cid}>
@@ -518,8 +516,7 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
               </span>
             </DialogTitle>
             <p className="mt-2 text-xs leading-6 text-ink-faint">
-              当前 v{version} → 最新 {updateDialog?.version}。前往 GitHub Release 页下载安装包
-              （安装器会自动替换，凭据保留在 ~/.modelmux 不丢）。
+              v{version} → {updateDialog?.version}。前往 GitHub 下载安装包，安装后凭据保留。
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
