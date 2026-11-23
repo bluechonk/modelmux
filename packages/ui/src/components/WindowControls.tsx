@@ -15,7 +15,9 @@ export function WindowControls(): ReactElement | null {
 
   useEffect(() => {
     if (!bridge) return;
-    void bridge.isMaximized().then(setMaximized);
+    // 初值读失败只影响图标起点（先显示「最大化」还是「还原」），不影响窗口控制；
+    // 但不接 catch 会让主进程 IPC 异常变成 unhandled rejection —— 渲染层没有全局处理器。
+    void bridge.isMaximized().then(setMaximized).catch(() => {});
     return bridge.onMaximizeChange(setMaximized);
   }, [bridge]);
 
