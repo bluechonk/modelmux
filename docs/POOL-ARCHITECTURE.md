@@ -345,9 +345,10 @@
   冷却期反复查它的额度既拿不到新数字、又白打一次上游。实现见
   `runRefresh` / `refreshAccountCredits` —— 只跳**这个账号**（生效账号冷却时渠道级查询跳过，
   池里其余健康账号照查），跳过的渠道记在 `RefreshResult.skipped` 里可观测。
-- 反向补充：**账单查到 0 也会进冷却**（`markCooldownIfExhausted`）—— 有的渠道额度用完不会
-  立刻回 4xx（如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
-  账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。- **账单派生的冷却有 30 分钟上限**（`BILLING_COOLDOWN_PROBE_MS`）：账单快照在额度窗口
+- **账单查到 0 也会进冷却**（`markCooldownIfExhausted`）：有的渠道额度用完不会立刻回 4xx
+  （如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
+  账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。
+- **账单派生的冷却有 30 分钟上限**（`BILLING_COOLDOWN_PROBE_MS`）：账单快照在额度窗口
   边界上可能是旧值（实测 2026-10-24 本地 00:00:37 读到 0，随后日奖励到账变 100/100），
   而冷却期又不再查账单 —— 不设上限会把账号错误冻满一整天、Web 卡片停在 0。到期必然重查一次，
   查到有额度即随 `expireCooldown` 恢复。真正的上游 4xx 额度错误不受此限（仍按渠道窗口冷却）。
@@ -517,25 +518,30 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 `max_output_tokens` / `max_tokens`）由**渠道**解析后写进缓存的 `max_output`；
 汇聚层只认缓存里那两种写法（`pool-targets.ts` 的 `CONTEXT_KEYS` / `OUTPUT_KEYS`）。
 
-- **上游不发 → 问渠道要「已知规格」**：上游目录**普遍只下发部分字段**，缺的那部分由渠道表补。
-  实测（见各渠道 PROTOCOL 的「模型窗口规格」节）：
-  - **上下文也发**：catpaw（`parameterDefinitions[id=context]` 逐型号档位）、loomy（`context_length`）、
-    qwenworkcn（`max_input_tokens` + `context_config` 档位表）、
-    raccoon（`params.context_window`）、traecn（Remote `context_window_tokens`）、
-    workbuddy（`maxInputTokens`）。
-  - **输出上限也发**：loomy（`max_output_tokens`）、raccoon（`params.max_tokens`）、
-    traecn（Solo `model_detail_list[].max_tokens`）、workbuddy（`maxOutputTokens`）。
-  - **只发上下文、不发输出**：catpaw / qwenworkcn（输出按公开规格补）。
-  缺字段的渠道用**渠道包根的 `models.json`**（按公开规格维护的数据文件）回答 —— 入口是
-  **可选钩子** `catalog.modelSpec?(modelId)`（契约见 [CONTRACT-TS.md](./CONTRACT-TS.md) §5.3）。
-  当前**全部渠道**都实现了该钩子（规格数据落 `channels/<cid>/models.json`，
-  代码侧只留「怎么取 / 怎么归一化」，见该契约的「模型数据必须外置」）。
-  取值优先级：**上游目录声明 > 渠道公开规格 > 兜底**（见下面「上游声明优先」那条路）——
-  钩子只在「上游没声明」或「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
-  规格的核实结果与来源是 [MODEL-SPECS.md](./MODEL-SPECS.md) 的唯一事实源。
-  - 共享层**不许出现模型名**（根 `AGENTS.md`「仓库结构与约束」第 2 条）→ 表必须放在**渠道包**里。
-  - 兜底值是「未知」，不是任何模型的真实上限（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）：
-    客户端按兜底值猜会与真实上限有出入，故能查到公开规格的型号应由渠道表给出真值。
+#### 2.6.1 上游不发时问渠道要已知规格
+
+上游目录**普遍只下发部分字段**，缺的那部分由渠道表补。实测（见各渠道 PROTOCOL 的
+「模型窗口规格」节）：
+
+| 渠道发什么 | 渠道 |
+| --- | --- |
+| 上下文与输出上限都发 | loomy、raccoon、traecn、workbuddy |
+| 只发上下文，输出按公开规格补 | catpaw、qwenworkcn |
+
+**缺字段时的回答者**是渠道包根的 `models.json`（按公开规格维护的数据文件），
+入口是可选钩子 `catalog.modelSpec?(modelId)`（契约见
+[CONTRACT-TS.md](./CONTRACT-TS.md) §5.3.5）。当前全部渠道都实现了该钩子 ——
+规格数据落 `channels/<cid>/models.json`，代码侧只留「怎么取 / 怎么归一化」。
+
+四条约束：
+
+1. **取值优先级**：上游目录声明 > 渠道公开规格 > 兜底。钩子只在「上游没声明」或
+   「目录缓存缺失」时兜底，所以它**不改变**已有目录声明的渠道的对外数字。
+2. **唯一事实源**：规格的核实结果与来源在 [MODEL-SPECS.md](./MODEL-SPECS.md)。
+3. **表必须放在渠道包**：共享层不许出现模型名（根 `AGENTS.md`「仓库结构与约束」第 2 条）。
+4. **兜底值是「未知」**，不是任何模型的真实上限（取值见 [MODEL-SPECS.md](./MODEL-SPECS.md) §5）——
+   客户端按兜底值猜会与真实上限有出入，故能查到公开规格的型号应由渠道表给出真值。
+
 - **上游声明优先**：渠道声明的值比公开规格更贴近「这条渠道实际能吃多少」，
   两者冲突时以上游为准（分歧记在 [MODEL-SPECS.md](./MODEL-SPECS.md) §6）。
 
