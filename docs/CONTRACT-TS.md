@@ -370,70 +370,130 @@ Web 控制台的用户提交经 `submitPastedCallback` → `takePastedCallback`
 
 ### 5.2 `upstream.ts`
 
-**可选钩子的语义**（路由相关的两项见 `POOL-ARCHITECTURE.md` §2.4）：
+#### 5.2.1 钩子契约
 
-- `buildChatHeaders?(credential, cfg, body?)`：对话请求的**专用头族**（上游按整组头判定
-  「是否官方客户端」时需要）。缺省时网关回退 `buildHeaders`
-  （`packages/core/gateway/src/http/chat/upstream.ts:137-140`）；普通 OpenAI 兼容渠道无需声明。
-  第三参 `body` 是**网关已序列化的请求体**：**签名类渠道**要用它把 payload 哈希计进签名
+每个钩子只在渠道声明时生效；未声明走默认路径。调用位置由共享层固定，渠道只管实现。
+
+**`buildChatHeaders(credential, cfg, body?)`**
+
+- **时机**：建上游请求头时。
+- **契约**：返回对话请求的专用头族。上游按整组头判定「是否官方客户端」时需要。
+- **缺省**：回退 `buildHeaders`（`packages/core/gateway/src/http/chat/upstream.ts:137-140`）。
+- **第三参 `body`**：网关已序列化的请求体。签名类渠道用它把 payload 哈希计进签名
   （如华为云 `SDK-HMAC-SHA256` 的 `Authorization`）—— 签名覆盖 body 时必须在建头阶段
-  算好，而网关的 `fetch` 只认这组网。不签名的渠道忽略该参数即可（向后兼容）。
-- `prepareChat?(body)`：发上游请求**之前**要完成的异步前置动作，网关会 `await` 它
-  （`packages/core/gateway/src/http/chat/attempt.ts:301-319`）。参数是**网关已经建好的
-  body**（不是 `req`）：渠道必须基于同一个 body 做前置，否则再调一次 `buildChatBody`
-  会生成新的会话 id，前置与对话指向两个会话。返回字符串形态请求体的渠道不走这个钩子
-  （`packages/core/gateway/src/runtime/channel.ts:223`）。
-- `openChatStream?(body)`：**内容不在主 POST 响应体上**的上游（侧信道 SSE / WS）用。声明后
-  网关在建连 `chatUrl` **之前**调它（`packages/core/gateway/src/http/chat/upstream.ts:255-260`），
-  把返回的流当作上游响应体交给翻译器 —— `buildHeaders` / `chatUrlForModel` 不再被调用。
-  返回 `null` 回落默认 POST 路径；入参与 `prepareChat` 同源（网关已经建好的 body），真正的
-  请求现场可放在渠道自己的请求槽里由两个钩子共用。返回流之前抛 `UpstreamUnauthorized`
-  归一成 401 + `authRejected`（走刷新重试链）；其余错误**不**自动重开 —— 这个钩子有上游
-  副作用（真发了一轮对话），重开会让同一提问跑两遍。声明处见
-  `packages/core/gateway/src/runtime/channel.ts:340`。
-- `refreshIfExpired?(credential)`：建头**之前**的异步凭据保鲜，网关在 `buildHeaders` 前
-  `await` 它（`packages/core/gateway/src/http/chat/upstream.ts:139`）。
-  前提：`buildHeaders` 是同步的，无法「先续期再发」；而渠道的预续期若是惰性的
+  算好，而网关的 `fetch` 只认这组头。不签名的渠道忽略即可。
+
+**`prepareChat(body)`**
+
+- **时机**：发上游请求之前，网关 `await` 它（`packages/core/gateway/src/http/chat/attempt.ts:301-319`）。
+- **契约**：完成异步前置动作（建会话、上传附件等），可就地改写传入的 body。
+- **约束**：参数是**网关已经建好的 body**，不是 `req`。必须基于同一个 body 做前置 ——
+  再调一次 `buildChatBody` 会生成新的会话 id，前置与对话指向两个会话。
+- **不适用**：返回字符串形态请求体的渠道（`packages/core/gateway/src/runtime/channel.ts:223`）。
+
+**`openChatStream(body)`**
+
+- **时机**：建连 `chatUrl` 之前（`packages/core/gateway/src/http/chat/upstream.ts:255-260`）。
+- **契约**：返回一个流，网关当作上游响应体交给翻译器。用于内容不在主 POST 响应体上的
+  上游（侧信道 SSE / WS）。声明后 `buildHeaders` / `chatUrlForModel` 不再被调用。
+- **返回 `null`**：回落默认 POST 路径。
+- **入参**：与 `prepareChat` 同源（网关已建好的 body），请求现场可放渠道自己的请求槽里
+  由两个钩子共用。
+- **错误**：抛 `UpstreamUnauthorized` 归一成 401 + `authRejected`（走刷新重试链）；
+  其余错误**不**自动重开 —— 这个钩子有上游副作用（真发了一轮对话），重开会让同一提问跑两遍。
+- **声明处**：`packages/core/gateway/src/runtime/channel.ts:340`。
+
+**`refreshIfExpired(credential)`**
+
+- **时机**：`buildHeaders` 之前，网关 `await` 它（`packages/core/gateway/src/http/chat/upstream.ts:139`）。
+- **为什么需要**：`buildHeaders` 是同步的，无法「先续期再发」；渠道的预续期若是惰性的
   （由请求触发、非阻塞），token 过期后当前请求就会拿着**死 token** 发出去，上游回
   HTTP 200 + 鉴权失效帧，客户端报请求失败 —— 而后台续期其实已经把下一个请求修好了。
-  约定：**只在已过期时阻塞**续期；仍在续期窗口内则保持非阻塞，否则每个请求都要多等
-  一次网络往返。钩子可就地改写传入的 credential（换上新 accessToken），使随后的
-  `buildHeaders` 用上新 token。未声明时网关保持同步行为，不受影响。
-- `chatUrlForModel?(upstreamModel, cfg)`：按**上游模型名**决定对话端点。
-  适用场景：有些上游**每个模型走不同的网关主机**（AStudio 实测：云端模型配置里每行
-  各带一个 `base_url`，主体是 `maas-api.cn-huabei-1.xf-yun.com/v2`，但 `spark-x` 走
-  `spark-api-open.xf-yun.com/agent/v1`）—— 硬编码一个 host 会对部分模型 404
-  （`API endpoint not found`）。声明后网关用它的结果，否则退回 `chatUrl()`。
-  入参是**已经过 `catalog.resolveModel()` 的上游模型名**。
-- `isAuthFailure(status, body)`：对**任何非 200** 的响应都会调用；返回 true 时网关把它归一成
-  401，走「刷新 token → 重试**本账号**」（不切号）。用于上游不用标准状态码表达凭据失效的渠道。
-  完整链路见 [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
-- `quotaResetAt(bodySnippet)`（**可选**）：从上游**错误体**里认出「额度耗尽 + 下次刷新时刻」
-  （epoch ms；认不出返回 `null`）。共享层命中额度信号后用它定冷却截止，`null` 回落次日本地 0 点。
-  **不要编造时间**：编错会让账号冷却到错误的时刻。语义与判定见 POOL-ARCHITECTURE.md §2.4。
-- `isCapacityError(status, body)`（**可选**）：判定一个**非 200** 响应是否是**上游容量型过载**
-  （推理集群无空闲实例一类）。命中时网关仍记渠道级冷却（候选让给别家），但**不计账号连败** ——
+- **约定**：**只在已过期时阻塞**续期；仍在续期窗口内则保持非阻塞，否则每个请求都要多等
+  一次网络往返。
+- **副作用**：可就地改写传入的 credential（换上新 accessToken），使随后的 `buildHeaders`
+  用上新 token。未声明时网关保持同步行为。
+
+**`chatUrlForModel(upstreamModel, cfg)`**
+
+- **时机**：建连前决定对话端点。
+- **契约**：按**上游模型名**返回端点。适用于「每个模型走不同网关主机」的上游
+  （AStudio 实测：云端模型配置里每行各带一个 `base_url`，主体是
+  `maas-api.cn-huabei-1.xf-yun.com/v2`，但 `spark-x` 走 `spark-api-open.xf-yun.com/agent/v1`）——
+  硬编码一个 host 会对部分模型 404（`API endpoint not found`）。
+- **入参**：已经过 `catalog.resolveModel()` 的上游模型名。
+- **缺省**：退回 `chatUrl()`。
+
+**`isAuthFailure(status, body)`**
+
+- **时机**：对**任何非 200** 的响应都会调用。
+- **契约**：返回 true 时网关把它归一成 401，走「刷新 token → 重试**本账号**」（不切号）。
+- **用途**：上游不用标准状态码表达凭据失效的渠道。
+- **完整链路**：[POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
+
+**`quotaResetAt(bodySnippet)`**
+
+- **时机**：共享层命中额度信号后。
+- **契约**：从上游错误体里认出「额度耗尽 + 下次刷新时刻」（epoch ms），认不出返回 `null`。
+- **用途**：命中时用它定冷却截止；`null` 回落次日本地 0 点。
+- **约束**：**不要编造时间** —— 编错会让账号冷却到错误的时刻。
+- **判定语义**：[POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
+
+**`isCapacityError(status, body)`**
+
+- **时机**：非 200 响应。
+- **契约**：判定是否是**上游容量型过载**（推理集群无空闲实例一类）。
+- **处置**：命中时仍记渠道级冷却（候选让给别家），但**不计账号连败** ——
   这类错误换账号没用，计入连败会把健康账号误熔断（上游排队高峰整批 5xx 的场景）。
-  渠道业务码由渠道声明，共享层不硬编码渠道知识（守卫与 `quotaSignal` 同思路）。
-- `quotaSignal(status, body)`（**可选**）：声明本渠道的**额度信号** —— 共享层只认通用措辞，
-  渠道业务码与专有措辞**必须**经本钩子上报（共享层不许硬编码渠道知识）。
-  - 返回 `usage_limit` = 账户级用量限额（对所有模型生效，含倍率 0 的）→ 一律冷却；
-  - 返回 `balance` = 余额不足（只影响计费用量）→ 只冷却付费模型，免费模型继续打上游；
-  - 认不出返回 `null`。
-  - 守卫：`tests/quota-signal.test.ts` 会扫共享层**可执行代码**里有没有渠道业务码，有就红。
-  - 两类信号的判定与作用范围见 POOL-ARCHITECTURE.md §2.4。
-- `isQueueError(frame)`：只在**响应头发出前**对翻译器产出的错误帧调用；返回 true 表示
-  「这条上游在排队」。网关的策略是**一出现排队就放弃本候选、换下一条**（`switchChannel`）：
-  不等待、不重开同一条流、不向客户端写任何排队相关字节。已吐过内容帧时不换（避免重复内容）。
-  未声明的渠道照旧把错误帧透传给客户端。
-  换候选后若无下一条可用，整条请求以 503 `upstream_queued` 收尾 —— 排队请求永不被接受
-  （2026-11-08 行为，早先那套「按 `retryAfterSeconds` 退避重试 + 进度文案 + 超预算劝换渠道」
-  已全部删除，相关预算常量与文案一并移除）。
-  客户端断开（res `close` 事件，比 `res.destroyed` 可靠）后探测立即止损，
+- **分工**：业务码由渠道声明，共享层不硬编码渠道知识（与 `quotaSignal` 同思路）。
+
+**`quotaSignal(status, body)`**
+
+- **时机**：响应到达后。
+- **契约**：声明本渠道的**额度信号**。共享层只认通用措辞，渠道业务码与专有措辞**必须**
+  经本钩子上报（共享层不许硬编码渠道知识）。
+- **返回值**：
+  1. `usage_limit` = 账户级用量限额（对所有模型生效，含倍率 0 的）→ 一律冷却。
+  2. `balance` = 余额不足（只影响计费用量）→ 只冷却付费模型，免费模型继续打上游。
+  3. `null` = 认不出。
+- **守卫**：`tests/quota-signal.test.ts` 会扫共享层**可执行代码**里有没有渠道业务码，有就红。
+- **判定与作用范围**：[POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2.4。
+
+**`isQueueError(frame)`**
+
+- **时机**：**响应头发出前**，对翻译器产出的错误帧调用。
+- **契约**：返回 true 表示「这条上游在排队」。
+- **处置**：一出现排队就放弃本候选、换下一条（`switchChannel`）—— 不等待、不重开同一条流、
+  不向客户端写任何排队相关字节。已吐过内容帧时不换（避免重复内容）。
+- **无下一条可用**：整条请求以 503 `upstream_queued` 收尾，排队请求永不被接受。
+- **已删除的旧机制**：「按 `retryAfterSeconds` 退避重试 + 进度文案 + 超预算劝换渠道」，
+  相关预算常量与文案一并移除。
+- **断连止损**：客户端断开（`res` 的 `close` 事件，比 `res.destroyed` 可靠）后探测立即停止，
   不再打上游 —— 只查 `res.destroyed` 不够：客户端 60s 超时走人后仍会多打一次上游
-  并滞留一个等待轮次（2026-10-24 实测），故探测以 `close` 事件为准。
-- `idleTimeoutMs()`：上游响应头到达后允许的**连续静默上限**（毫秒）；默认值与心跳口径见
-  [LOGGING.md](./LOGGING.md) §6。声明后首帧等待、空闲守卫与排队探测统一放宽。
+  并滞留一个等待轮次（2026-10-24 实测），故以 `close` 事件为准。
+
+**`idleTimeoutMs()`**
+
+- **时机**：上游响应头到达后。
+- **契约**：返回允许的**连续静默上限**（毫秒）。声明后首帧等待、空闲守卫与排队探测统一放宽。
+- **默认值与心跳口径**：[LOGGING.md](./LOGGING.md) §6。
+
+#### 5.2.2 主机轮换钩子
+
+`UpstreamModule` 的可选成员，不实现即跳过。仅 custom 线型且签名不覆盖 host 的渠道适用；
+标准 OpenAI 兼容渠道没有这个概念。
+
+| 钩子 | 作用 |
+| --- | --- |
+| `chatHostCandidates()` | 返回候选主机列表 |
+| `setChatHostOverride(host)` | 本次请求指定主机 |
+| `currentChatHost()` | 读当前主机 |
+| `rememberChatHost()` | 成功后回写记忆 |
+
+多主机上游里个别主机对「200 后零字节 / 断流」是坏的，网关在探测层重试前换下一候选，
+成功后回写记忆。`rememberChatHost` 的**实现是零参**（渠道自己取当前主机）；声明写成
+`rememberChatHost?(host?: string)` 是为了兼容「零参实现」与「共享层带 host 传参」两种形态。
+
 
 **可选主机轮换钩子**（`UpstreamModule` 的**可选成员**，不实现即跳过）：
 
