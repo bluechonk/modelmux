@@ -378,6 +378,47 @@ for (const rel of candidates) {
   for (const d of checkTableCells(rel)) problems.push(`${rel}  ->  ${d}`);
 }
 
+// ── 代码围栏：必须三个反引号以上，且成对 ────────────────────────────────────
+// 两个反引号当围栏不是合法 Markdown —— 渲染器把整块当行内代码，几十行挤成一段。
+// 实测 traecn 一篇里 20 处，其中 19 处写成了 ``。这类错误在源码里看不出来
+// （`` 与 ``` 只差一个字符），只有渲染后才暴露，故机械查。
+function checkFences(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const found = [];
+  let open = false;
+  let openChar = "";
+  let openLen = 0;
+  text.split("\n").forEach((line, i) => {
+    const t = line.trim();
+    if (/^``[^`]/.test(t)) {
+      found.push(`L${i + 1} 围栏只有两个反引号（Markdown 要求 ≥3）：${t.slice(0, 30)}`);
+      return;
+    }
+    const m = /^(`{3,}|~{3,})/.exec(t);
+    if (!m) return;
+    if (!open) {
+      open = true;
+      openChar = m[1][0];
+      openLen = m[1].length;
+    } else if (m[1][0] === openChar && m[1].length >= openLen) {
+      open = false;
+    }
+  });
+  if (open) found.push(`围栏未闭合（${openChar.repeat(openLen)} 开头后再无同种标记）`);
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkFences(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {

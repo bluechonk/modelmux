@@ -130,7 +130,7 @@
 
 登录 URL：`{consoleHost}/authorization?` + **20 个参数**（`packages/core/channels/traecn/src/cred.ts:339-361`），逐字为：
 
-``
+```
 login_version=1
 auth_from=solo
 login_channel=native_ide
@@ -151,7 +151,7 @@ x_env=
 x_app_version=0.1.52
 x_app_type=stable
 hide_saas_login=true（**不带会 404**）
-``
+```
 
 **参数名必须是 `auth_callback_url`**（没有 `callback_url`/`redirect_uri`），
 写错登录页**永远停在授权中**。
@@ -165,12 +165,12 @@ hide_saas_login=true（**不带会 404**）
  修不好且无 CJK 时回退 `用户+uid末4位`
 
 **ExchangeToken**（`packages/core/channels/traecn/src/cred.ts:796-860`）：
-``
+```
 POST {oauthHost}/cloudide/api/v3/trae/oauth/ExchangeToken
 Headers: Content-Type: application/json, Accept: application/json, User-Agent
 Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret":"-","UserID":""}
 → {Result:{Token, RefreshToken, TokenExpireAt, TokenExpireDuration, RefreshExpireAt}}
-``
+```
 （大小写两种键都接受。**access 与 refresh 都轮换**，续期后必须回写）
 
 **GetUserInfo**（`packages/core/channels/traecn/src/cred.ts` 的 `fetchUserInfo()`）：同 host，头加 `X-Cloudide-Token: <accessToken>`；
@@ -253,11 +253,11 @@ Body: {"ClientID":"ono9krqynydwx5","RefreshToken":"<refreshToken>","ClientSecret
 
 上游在鉴权后会**按 `X-App-Id` 查一条 app config 记录**；查不到就直接把对话打死：
 
-``
+```
 HTTP 200
 event:error | data:{"code":2001,"message":"failed to do chat: failed to get app config: record not found"}
 event:done   | data:{"finish_reason":"stop"}
-``
+```
 
 - **报错形态是「HTTP 200 + 流内 error 帧」**，不是 4xx → 网关按流内错误处理（502
   `failed to do chat: …`），**不会**触发换号/刷 token。`[实测]`
@@ -451,11 +451,11 @@ event:done   | data:{"finish_reason":"stop"}
 目录主源仍是 Remote（信息更全、模型更新），Solo 目录现可作补充源（上下文窗口 /
 思考档位 / 倍率更细）。`[实测]`
 
-``
+```
 GET {agentHost}/api/remote/v1/models?functions=solo_agent_remote%2Csolo_work_remote%2Csolo_design_remote&show_custom_model=true
 Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
 → HTTP 200 { data: { list: [ { function, models: [ { name, ... } ] } ] } }
-``
+```
 
 - 三个组：`solo_agent_remote`（最全）、`solo_work_remote`、`solo_design_remote`
 - 实测上游目录模型（2026-10-12，新登录账号）：`glm-5.3-flash`、`glm-5.3`、
@@ -493,7 +493,7 @@ Headers: 同对话头（buildHeaders）+ Origin/Referer: https://www.trae.cn/
 
 实现见 `packages/core/channels/traecn/src/upstream.ts:503-553`；AppID 修正后实测可用。
 
-``
+```
 POST {agentHost}/api/ide/v1/batch_get_detail_param
 Body:
  functions: [22 个通道，逐字]
@@ -509,7 +509,7 @@ Body:
  ab_force_vids: ""
  ab_autotest_advanced_mode: 0
  show_custom_model: true
-``
+```
 
 响应 `{function_configs:[{function, config_info_list:[...]}]}`，每个 function 各自一套目录。
 
@@ -525,11 +525,11 @@ tool_response_multimodal}`、`context_window_tokens{dev,max}`、
 
 白名单（顺序即优先级，共 15 个，可用 `TRAE_CHANNELS` 覆盖整张表）：
 
-``
+```
 solo_agent, solo_work_lite, solo_agent_remote, solo_work_remote, solo_agent_lite,
 chat_v3, builder_v3, solo_coder, solo_design_lite, solo_design_remote,
 git_ai, code_reviewer, code_review_summary, multimodal, system_diagnosis
-``
+```
 
 它**同时是白名单与排序表**：不在表内的通道**整组丢弃**（连同其独有模型）；
 同一模型被多个白名单通道列出时，按「空档位不得覆盖有档位」→「两侧都有档位时取更靠前者」→
@@ -545,7 +545,7 @@ git_ai, code_reviewer, code_review_summary, multimodal, system_diagnosis
 
 实现见 `packages/core/channels/traecn/src/catalog.ts:177-210`。
 
-``
+```
 DeepSeek-V4-Flash-Official, Doubao-Seed-2.1-Pro, seed-code-pro-0430,
 Doubao-Seed-2.1-Turbo, Doubao-Seed-2.0-Code, browser_use_subagent(hidden),
 glm-5.2, glm-5-turbo, glm-5, DeepSeek-V4-Pro, DeepSeek-V4-Flash,
@@ -555,7 +555,7 @@ custom_model_1M_text, custom_model_1M, custom_model_kimi, custom_model_claude,
 custom_model_gpt-5, custom_model_no-fc, custom_model_deepseek_chat,
 custom_model_deepseek_reasoner, custom_model_deepseek_v4,
 explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
-``
+```
 
 内置表只给**模型 id**：窗口 / 输出上限**不写估值**（上游没声明就是未声明）——
 数值一律由 `modelSpec` 按公开规格给（见 §5.5）。
@@ -643,7 +643,7 @@ explore_sub_agent_v13(hidden), explore_sub_agent_v2(hidden), summary(hidden)
 
 实现见 `packages/core/channels/traecn/src/billing.ts:111-136`。
 
-``
+```
 Content-Type: application/json
 Accept: */*
 Accept-Encoding: gzip, deflate
@@ -663,7 +663,7 @@ X-Tt-Trace-Id: 00-<randomHex(16)>-01
 Vscode-Sessionid: <派生 64 hex>
 X-Request-Id: <uuidV4>
 Sec-Fetch-Dest/Mode/Site: empty/no-cors/none
-``
+```
 
 **设备身份确定性派生**（对齐 trae-mate 的 `device_map.rs`，实现见 `packages/core/channels/traecn/src/cred.ts:272-298`）：
 `SHA256(utf8("<salt>:<user_id>") ++ counterBE32)` 串联流
@@ -675,7 +675,7 @@ Sec-Fetch-Dest/Mode/Site: empty/no-cors/none
 
 ### 6.2 三个端点
 
-``
+```
 POST /trae/api/v2/ug/checkin_credits/status   body {} 
  → {code:0, checked_in, credits, enable, streak_days, total_credits}
 
@@ -687,7 +687,7 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
    entitlement_base_info.quota.credits_limit、usage.credits_amount、
    条目级 expire_time（**秒**级 Unix，×1000 才是毫秒）
    remaining = credits_limit - used
-``
+```
 
 **每日签到发放额 = 100 积分**（实测 2026-11-07）：领一次后 `signin.claim()` 回报
 `reward {amount:100, unit:"积分"}`，同刻账单 `remain` 2442.85 → 2542.85（+100），
@@ -854,12 +854,12 @@ POST /trae/api/v2/pay/ide_user_ent_usage      body {"require_usage": true, "req_
 
 端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
 
-``bash
+```bash
 mx login traecn           # 登录入池（浏览器授权 + 本地回调，规格见 §2.1 / §2.1.2）
 mx status traecn          # 状态与凭据
 mx model traecn --refresh # 目录刷新
 mx bill traecn            # 额度与倍率（测试后核对是否扣费）
-``
+```
 
 ### 8.6 端到端测试覆盖
 

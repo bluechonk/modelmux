@@ -14,7 +14,7 @@ ok <──成功──────── noteAccountSuccess       // 只清 fail
                     markActiveHealth("ok")  // 无条件覆盖 health —— 但永远触发不到
 ```
 
-``auth.ts`` 的 `activeAccountIsError(cid)` 在**请求进来时**就短路：
+`auth.ts` 的 `activeAccountIsError(cid)` 在**请求进来时**就短路：
 `error` 账号的所有请求直接回 `account_error`，**不打上游、不记账**。
 因此成功路径（`markActiveHealth("ok")`）永远没有机会执行 —— `error` 是终态。
 
