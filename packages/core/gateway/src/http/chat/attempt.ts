@@ -129,8 +129,24 @@ interface ProbeEnv {
  */
 const PASSTHROUGH_SNIPPET_MAX = 300;
 
+/**
+ * 上游错误体摘录：压空白、**遮蔽凭据形态**、截断。
+ *
+ * 为什么要遮蔽：这段文本既回给客户端，也落 `access/failure.log` 与 `error/error.log`。
+ * 部分上游会把请求的 Authorization 或 token 回显进错误体（如「invalid token xxx」），
+ * 不过滤就等于把凭据写进日志。只按形态打码，报错语义不变。
+ */
 function snippetOf(text: string): string {
-  const trimmed = text.replace(/\s+/g, " ").trim();
+  const trimmed = text
+    .replace(/\s+/g, " ")
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]{8,}/gi, "$1 ***")
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "***jwt***")
+    .replace(
+      /(api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password)(["']?\s*[:=]\s*["']?)[A-Za-z0-9._~+/-]{8,}/gi,
+      "$1$2***",
+    )
+    .replace(/(?<!\d)1[3-9]\d{9}(?!\d)/g, (m) => `${m.slice(0, 3)}****${m.slice(7)}`)
+    .trim();
   return trimmed.length > PASSTHROUGH_SNIPPET_MAX ? `${trimmed.slice(0, PASSTHROUGH_SNIPPET_MAX)}…` : trimmed;
 }
 
@@ -345,6 +361,7 @@ async function reopenForProbe(
   const currentHost = inChannel(channel, () => channel.upstream.currentChatHost?.());
   if (currentHost !== undefined) state.host = currentHost;
   // 旧流已死：释放它再换新流（探测用的 reader 已在 consumeQueueProbe 里 releaseLock）
+  // 释放失败无补救动作：流已不可用，下次建连会覆盖
   await call.body?.cancel().catch(() => {});
   return next;
 }
@@ -375,7 +392,8 @@ async function runQueueProbe(
   for (;;) {
     // 客户端已断开：探测再久也没有收件人，立即止损（释放上游流、结束应答）。
     if (clientGone || res.destroyed || res.writableEnded) {
-      await call.body?.cancel().catch(() => {});
+  // 释放失败无补救动作：流已不可用，下次建连会覆盖
+  await call.body?.cancel().catch(() => {});
       if (res.headersSent) res.end();
       state.failed = true;
       state.error = {
@@ -443,7 +461,8 @@ async function runQueueProbe(
     // 为什么放在预算判断**之前**：预算是「等多久」，而这里根本不该等 ——
     // 先判排队就能连第一轮 delay 也省掉（qoder 实测首轮就要等 15s+）。
     if (probe.queued && !probe.hasContent) {
-      await call.body?.cancel().catch(() => {});
+  // 释放失败无补救动作：流已不可用，下次建连会覆盖
+  await call.body?.cancel().catch(() => {});
       state.switchChannel = true;
       logger(`upstream queued (channel ${cid}) — switching to next candidate without waiting`);
       break;
@@ -672,7 +691,8 @@ export async function attemptCandidate(
     }
     if (state.failed) {
       // 探测层异常：这条流已死，跳过转发层（call.ok 仍是 true，不能让它进转发层）
-      await probedCall.body?.cancel().catch(() => {});
+  // 释放失败无补救动作：流已不可用，下次建连会覆盖
+  await probedCall.body?.cancel().catch(() => {});
       // 客户端已断开：没有应答对象了，直接终局（编排层不再换候选、不再写错误）
       if (state.error.code === "client_disconnected") return { kind: "done" };
       return { kind: "retry", error: state.error };

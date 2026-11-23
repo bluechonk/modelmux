@@ -429,6 +429,7 @@ export async function relayStream(
     // 断连也算 errored（relayError 吞掉它但已无收件人），收尾照常
     const wrapUp = errored || produced > 0 || res.headersSent;
     if (wrapUp) sink?.finish();
+    // 取消失败无补救动作：连接已断，reader 随 GC 释放
     await reader.cancel().catch(() => {});
     if (wrapUp && !res.writableEnded) res.end();
   }

@@ -91,4 +91,3 @@ export function invalidateCatalogFileCache(): void {
   _cacheMtime = 0;
 }
 
-export const CATALOG_VERSION = VERSION;

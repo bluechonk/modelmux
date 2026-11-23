@@ -42,20 +42,6 @@ export function seedRegistry(models: Record<string, SeedModel>, home = process.e
   writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
 }
 
-/** 一份最小表：只有 `deepseek-v4.1-flash`，挂在给定渠道上。 */
-export function seedDeepseek(cids: Record<string, string>, home?: string): void {
-  seedRegistry(
-    {
-      "deepseek-v4.1-flash": {
-        contextWindow: 1_000_000,
-        maxOutput: 128_000,
-        channels: cids,
-      },
-    },
-    home,
-  );
-}
-
 /** 注册表文档（与共享层 `ModelRegistry` 同形）。 */
 interface RegistryDoc {
   version: number;

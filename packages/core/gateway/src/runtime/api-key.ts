@@ -59,8 +59,3 @@ export function setApiKeyGuard(next: ApiKeyGuard | null): void {
 export function apiKeyGuard(): ApiKeyGuard | null {
   return guard;
 }
-
-/** 仅供测试清空门禁（生产路径不许调用）。 */
-export function resetApiKeyGuard(): void {
-  guard = null;
-}

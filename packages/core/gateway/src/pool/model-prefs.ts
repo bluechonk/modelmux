@@ -11,9 +11,6 @@
 import { canonicalOf, PREFS_CANONICALS } from "./model-family.js";
 import { poolStore } from "../runtime/pool-store.js";
 
-/** 偏好文件名（根级，与 `pool-usage.json` / `models.json` 并列；服务形态落到 `routing_prefs` 表）。 */
-export const MODEL_PREFS_FILE = "model-prefs.json";
-
 /** 空值语义：`null` = 不指定（回到自动选路）。 */
 export type ModelPrefs = Record<string, string | null>;
 

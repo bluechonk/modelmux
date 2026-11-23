@@ -31,13 +31,29 @@ const PATTERNS = [
   // 只认**引号字面量**：`token: credential.accessToken` 是变量引用，不是泄漏
   {
     tag: "密钥字面量",
-    re: /(api[_-]?key|secret|password|access[_-]?key)\s*[:=]\s*["'`][A-Za-z0-9._~+/-]{12,}["']/gi,
+    re: /(api[_-]?key|secret|password|access[_-]?key|refresh[_-]?token|session[_-]?token)\s*[:=]\s*["'`][A-Za-z0-9._~+/-]{12,}["']/gi,
   },
+  // JWT：三段式 base64url，前两段必是 `eyJ` 开头（`{"` 的 base64）。
+  // 7 个渠道全用 JWT 凭据，这是最该拦的一类 —— 原门禁只认 `Bearer` 前缀，
+  // 裸 JWT 粘进文档/测试/源码会全部放行。
+  { tag: "JWT", re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   {
     tag: "cookie 键值",
     re: /(sessionid|sid_guard|sid_tt|uid_tt|passport_auth_status|s_v_web_id)=[A-Za-z0-9._%-]{6,}/g,
   },
   { tag: "Bearer 令牌", re: /Bearer\s+[A-Za-z0-9._~+/-]{16,}/g },
+  // 设备指纹：32 位 hex 且**带键名**才算（裸 32 hex 会误伤 hash / 字节串）。
+  // 键名允许被引号包裹（JSON 形态 `"machine_id": "..."`）—— 漏掉引号会漏掉整类。
+  {
+    tag: "设备指纹",
+    re: /["']?(machine[_-]?id|device[_-]?id|machineId|deviceId)["']?\s*[:=]\s*["'`][0-9a-f]{32}["'`]/gi,
+  },
+  // 15 位纯数字（traecn 签到设备号形态），排除全同数字的占位值
+  {
+    tag: "15 位设备号",
+    re: /(?<!\d)[0-9]{15}(?!\d)/g,
+    filter: (s) => !/^(\d)\1+$/.test(s),
+  },
   // 长数字 id（uid 等）：排除全同数字的占位值
   {
     tag: "长数字 id",
