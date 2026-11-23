@@ -246,6 +246,19 @@ GET https://xiaohuanxiong.com/api/web/auth/v1/user_info
 非交互场景可用环境变量 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或
 `office-raccoon://` 均可）。
 
+**容器部署不需要本地回调。** 授权页在 `login_source=desktop` 且不带 `redirect`
+参数时，把结果拼成深链 `office-raccoon://auth/callback?code=…&state=…`
+（判据见授权页 JS：`e.desktop && !e.desktopCallback ? "office-raccoon://auth/callback" : e.redirect`）。
+这条路径不碰 `127.0.0.1`，浏览器打不开该协议也无妨 —— 用户把地址栏那一整条粘回来即可：
+
+1. 面板 / CLI 发起登录，打开打出的授权页；
+2. 官方页登录完成，地址栏变成 `office-raccoon://auth/callback?code=…&state=…`；
+3. 把整条 URL 粘回控制台的输入框，`pasteCode` 通道解析后调
+   `POST {authBase}/login_with_authorization_code` 换凭证。
+
+state 逐字校验、一次性消费，回调解析要求 `scheme=office-raccoon` / `host=auth` /
+`path=/callback` 全等，不做前缀匹配。
+
 **短信登录链路本仓不实现**（`send_sms` + `login_with_sms` 与手机号本地校验一并删除）——
 理由与协议备查见 [FINDINGS.md](./FINDINGS.md)；本渠道**只有授权码网页登录一条**。
 

@@ -457,7 +457,9 @@ async function resolveCallback(options: LoginOptions, timeoutMs: number): Promis
   const injected = options.callback;
   if (typeof injected === "string" && injected.trim()) return injected.trim();
   if (typeof injected === "function") {
-    return withTimeout(injected(), timeoutMs, "waiting for login callback");
+    // 注入方可以同步返回字符串，而 withTimeout 只收 Promise ——
+    // 直接传返回值会在 `p.then(...)` 上炸「p.then is not a function」。
+    return withTimeout(Promise.resolve(injected()), timeoutMs, "waiting for login callback");
   }
   const env = (process.env["RACCOON_LOGIN_CALLBACK"] ?? "").trim();
   if (env) return env;
