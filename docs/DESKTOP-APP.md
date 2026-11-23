@@ -40,7 +40,7 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 - 由断变通：自动载回 `/web/`。
 - 复用模式下壳不管理对方生命周期（`mx restart`、任务管理器都能把它停掉），没有这层巡检页面既不报错也不恢复（2026-11-15 实测；2026-11-17 复验：`mx stop` 后约 14s 换说明页，`mx start` 后约 16s 载回）。
 
-### 前置条件（新机器零依赖）
+### 1.3 前置条件（新机器零依赖）
 
 | 项 | 要求 |
 | --- | --- |
@@ -50,7 +50,7 @@ modelmux 的可选 Windows 分发形态：**NSIS 一键安装器**（Electron）
 | 凭据 | **不随 exe 附带** —— 首次使用需在 Web 控制台逐渠道登录；换机即换凭据 |
 | 网络 | 需要（上游推理与模型目录） |
 
-### 自定义标题栏与拖拽
+### 1.4 自定义标题栏与拖拽
 
 - 标题栏隐藏（`titleBarStyle: "hidden"`）：web 顶栏（LayoutSingle 的 `<header>`）即
   **拖拽区**（`.drag-region`）；顶栏上所有可点子元素（导航 / 主题钮 / 窗口控制钮）
@@ -101,7 +101,7 @@ npm run desktop        # 拷 payload → desktop/app/ → electron-builder nsis
 依赖安装走 `desktop/.npmrc` 的镜像；根 `npm install` **不会**装 Electron
 （`desktop/` 不在 workspaces），首次打包时由 pack 脚本自动补装。
 
-### 图标与版本信息（rcedit afterPack 钩子）
+### 2.1 图标与版本信息（rcedit afterPack 钩子）
 
 内层 exe 的图标与版本信息由 `desktop/after-pack.cjs` 用 `rcedit`（npm 包，自带
 预编译二进制）在打包流程中写入：

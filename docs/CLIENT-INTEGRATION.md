@@ -37,7 +37,7 @@
   `mx log` 与 access 日志文件里可见。
 - 转发管线对三种协议共用：候选挑选、账号轮换、排队探测、额度冷却行为完全一致。
 
-### 上下文超限的错误语义
+### 1.1 上下文超限的错误语义
 
 上游报文表示**上下文窗口超限**时，网关按客户端问题报错，不按上游故障处理：
 
@@ -52,7 +52,7 @@
 必须区分的原因：回 `5xx` 会被客户端归类成「服务端临时故障」并重试，而上下文体量
 不会自己变小，重试必然全败。客户端收到 `4xx` 才会去压缩历史或裁剪上下文。
 
-### 流式 usage 的估算值
+### 1.2 流式 usage 的估算值
 
 `message_start` 早于上游 usage 帧到达，此刻只能用请求体估算顶替；上游末帧给了真值就覆盖。
 估算实现见 `packages/core/gateway/src/http/protocol/count-tokens.ts`。
@@ -86,7 +86,7 @@
 > Claude Code 走 `/v1/messages`，但**不提供一键接入**：它的配置是 `~/.claude/settings.json`
 > 的 `env` 块，改动会碰用户自己的 hooks / 权限键，不适合代劳。
 
-### dsh / zcode（OpenAI Chat Completions）
+### 3.1 dsh / zcode（OpenAI Chat Completions）
 
 仪表盘「接入 dsh / 接入 zcode」分别写 `~/.dsh/profiles/<profile>/cordis.patch.yml`
 （只换 `providers.modelmux.models` 块）与 `~/.zcode/v2/provider_config.json`

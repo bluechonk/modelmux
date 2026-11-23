@@ -289,22 +289,41 @@ function checkHeadingLevels(rel) {
 
   if (!prose.some((p) => /^## \d+\./.test(p.line))) return [];
 
+  // 有编号 h2 的文档，h3 也必须编号 —— 同一篇里「有的小节编号、有的不编号」最难查：
+  // 读者按编号找得到 §5.1，却找不到紧挨着的「窗口聚合必须加权」是第几节。
+  // 例外：h3 是清单项（渠道名、文件名等并列实体）时不该编号，这类标题短且无动词短语，
+  // 无法机械区分 —— 故只在同节已有编号 h3 时才要求兄弟 h3 也编号。
+  const numberedH3Parents = new Set();
+  for (const { line } of prose) {
+    const m = /^###\s+(\d+)\.(\d+)/.exec(line);
+    if (m) numberedH3Parents.add(m[1]);
+  }
+  const h2Of = [];
+  let cur = "";
+  for (const { line } of prose) {
+    const h2 = /^##\s+(\d+)\./.exec(line);
+    if (h2) cur = h2[1];
+    h2Of.push(cur);
+  }
+
   const found = [];
-  for (const { line, no } of prose) {
+  prose.forEach(({ line, no }, idx) => {
     const m = /^(#{2,4})\s+(.+)$/.exec(line);
-    if (!m) continue;
+    if (!m) return;
     const level = m[1].length;
     const title = m[2].trim();
     if (level === 2 && /^\d+\.\d/.test(title)) {
       found.push(`L${no} 二级标题带小节编号（应为 h3）：${title}`);
     } else if (level === 3 && /^\d+\.\d+\.\d/.test(title)) {
       found.push(`L${no} 三级标题带三级编号（应为 h4）：${title}`);
-    } else if (level === 4 && !/^\d+\.\d+\.\d/.test(title)) {
+    } else if (level === 3 && !/^\d+\.\d+/.test(title) && numberedH3Parents.has(h2Of[idx])) {
+      found.push(`L${no} 同节其他 h3 已编号，此条缺二级编号：${title}`);
+    } else if (level === 4 && !/^\d+\.\d+\.\d+/.test(title)) {
       found.push(`L${no} 四级标题缺三级编号：${title}`);
     } else if (level === 2 && /^\d+\./.test(title) && title.length > 42) {
       found.push(`L${no} 编号标题超过 42 字（${title.length}）：${title}`);
     }
-  }
+  });
   return found;
 }
 

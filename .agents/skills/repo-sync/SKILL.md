@@ -52,7 +52,7 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 | 新增/改名/删除任何 `docs/*.md` | `docs/README.md` 索引（同步更新） |
 | 新增/改名/删除渠道目录 | `docs/README.md` 与 `docs/channels/README.md` 两张表都要登记 |
 
-### 代码注释整改（强制）
+### 1.1 代码注释整改（强制）
 
 **只要动了代码注释，收尾前逐条对照 [`docs/MODULE-COMMENTS.md`](../../../docs/MODULE-COMMENTS.md)
 的三层分工** —— 注释与文档出现双份事实源是最常见的腐化路径：
@@ -71,7 +71,7 @@ git rev-list --left-right --count main...origin/main   # 本地与远端差多�
 R4 TODO/@deprecated 条件）；它只拦零误报的硬违规，语义层（协议事实副本、指向已删文件的过时指针）
 仍需按上面三条人工过一遍。
 
-### md 文档整改（强制，每轮收尾）
+### 1.2 md 文档整改（强制，每轮收尾）
 
 `.md` 只描述**当前状态**：自指变更史、实施状态注解、变更箭头与 TODO 标记都属于历史，归 git。
 每轮收尾先扫一遍、再逐条判断：
@@ -237,7 +237,7 @@ CI 状态、真机验证结论、分支/工作树/临时文件状态、以及**�
 **边界：本节清单只属于对话回复** —— 配合事项、提醒、待办一律不进 PR body、
 commit message 与任何档案（见 §2 第 5 条；squash 会把 PR body 写进 main 的 commit）。
 
-### Agent 交付说明（每轮变更的固定格式）
+### 6.1 Agent 交付说明（每轮变更的固定格式）
 
 除清单外，每轮代码变更附一段结构化说明 —— 便于复盘、CR 与跨会话对齐：
 
