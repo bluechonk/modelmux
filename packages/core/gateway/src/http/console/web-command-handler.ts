@@ -266,12 +266,15 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
         // 展示顺序：用得多在前，同频按 cid（UI 只渲染这个顺序，不自己排）
         return ok({ channels: sortChannelsByUsage(pools as Array<{ cid: string }>) });
       }
-      // —— API key 管理（新建/删除/改白名单与限流/重建明文）——
+      // —— API key 管理（新建 / 删除 / 改名 / 重建明文）——
       case "apiKeys": {
-        // 白名单**显式**取字段，不用 `...rest` 剔除：黑名单对新增字段默认放行 ——
+        // **白名单**显式取字段，不用 `...rest` 剔除：黑名单对新增字段默认放行 ——
         // 旧版明文 `secret` 正是这样漏出去的（keyring 不可用时迁移被跳过，明文留在
         // 记录上，剔除名单里没有它，于是随列表一起下发）。
-        // 完整明文走需显式调用的 `revealApiKey`，不做批量下发。
+        //
+        // 四个字段即 `ApiKeyRecord` 的全部可下发面，与 UI 的 `ApiKeyRow` 一一对应：
+        // id / name / prefix / createdAt。`keyHash` / `secretSealed` / 旧版 `secret`
+        // 都不出这个函数。完整明文走需显式调用的 `revealApiKey`，不做批量下发。
         return ok({
           keys: listApiKeys().map((k) => ({
             id: k.id,
