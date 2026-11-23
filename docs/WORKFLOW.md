@@ -96,6 +96,10 @@
 仍是明文 —— 用 `icacls <目录> /inheritance:r /grant:r "$(whoami):(OI)(CI)F"` 去掉继承、
 只留当前用户。凭据真过期前不做 relogin 轮换的话，任何能读到工作目录的进程都能拿走。
 
+已收紧的单文件（非本项目渠道的历史探测残留，保留但不再扩权）：
+`codearts-live-backup.json`（含 DPoP 私钥与 refreshToken）、`codex-config.toml.bak`、
+`codex-config-before.toml`。它们不属于任何在册渠道，无需轮换；**不要**把它们打进支持包。
+
 ## 项目级技能入口软链（本机）
 
 Claude Code 只扫 `.claude/skills/`，而本仓技能实体在 `.agents/skills/`（5 个，随仓库分发）。
