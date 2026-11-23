@@ -10,13 +10,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  canonicalModelId,
-  ensureChannelModels,
-  hiddenModelIds,
-  readCatalogCache,
-  writeCatalogCache,
-} from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache, isRecord } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 缺省通道（`function` 字段）。 */
@@ -157,10 +151,6 @@ function seedEntries(): ModelEntry[] {
 }
 
 // ── 远端目录解析 ─────────────────────────────────────────────────────────────
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function nonEmpty(value: unknown): string {
   return typeof value === "string" && value ? value : "";

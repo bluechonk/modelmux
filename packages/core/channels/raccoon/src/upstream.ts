@@ -11,7 +11,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { release } from "node:os";
 
-import { ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
+import { ensureDir, upstreamPath, writeJsonFile, isRecord } from "@modelmux/gateway";
 
 /** 展示名（状态页与错误文案用）。 */
 export const DISPLAY_NAME = "Raccoon";
@@ -366,10 +366,6 @@ function jsonHeaders(credential: AuthLike): Record<string, string> {
 
 const THINKING_TYPES = new Set(["adaptive", "enabled", "disabled"]);
 const OFF_VALUES = new Set(["off", "none", "disabled", "false", "no", "0"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function isSystemMessage(msg: unknown): boolean {
   return isRecord(msg) && msg["role"] === "system";

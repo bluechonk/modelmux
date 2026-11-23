@@ -8,7 +8,7 @@
  *   - 目录按 动态 → 磁盘缓存 → 随包种子 三源优先级解析；缓存保证未登录/上游不可达时仍能列出模型。
  */
 
-import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache, asString } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 import * as cred from "./cred.js";
@@ -95,10 +95,6 @@ function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 /** 非数组对象取出来（否则 null）；用于安全地下钻上游嵌套字段。 */
 function objOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -171,9 +167,9 @@ function toPublicId(displayName: string, key: string): string {
  * 对外 id，无展示名时退回 key 本身）—— 是不是对外暴露由注册表决定。
  */
 function toEntry(raw: Record<string, unknown>): ModelEntry | null {
-  const key = str(raw["key"]) || str(raw["id"]);
+  const key = asString(raw["key"]) || asString(raw["id"]);
   if (!key) return null;
-  const displayName = str(raw["display_name"]) || str(raw["name"]) || key;
+  const displayName = asString(raw["display_name"]) || asString(raw["name"]) || key;
   // `POOL_KEY_MAP` 是普通对象，`??` 会走原型链：上游 key 写成 `constructor` /
   // `__proto__` 时 `id` 变成函数或对象，随后 `exposedIds()` 里的 `entry.id.toLowerCase()`
   // 抛 TypeError，被池层 catch 接住 → **整条渠道目录**当作空列表。这里只认自有键。
@@ -296,8 +292,8 @@ export async function refresh(): Promise<void> {
   const entries = bucket
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
     .map((item) => {
-      const key = str(item["key"]);
-      const displayName = str(item["display_name"]) || str(item["name"]) || key;
+      const key = asString(item["key"]);
+      const displayName = asString(item["display_name"]) || asString(item["name"]) || key;
       const id = Object.hasOwn(POOL_KEY_MAP, key) ? POOL_KEY_MAP[key]! : toPublicId(displayName, key);
       const spec = specOf(id)?.maxOutputTokens;
       const effort = wireEffort(item);
@@ -308,7 +304,7 @@ export async function refresh(): Promise<void> {
         ...(effort === undefined ? {} : { effort }),
       };
     })
-    .filter((item) => str(item["id"]) !== "");
+    .filter((item) => asString(item["id"]) !== "");
   if (entries.length === 0) throw new Error("upstream model list is empty");
   writeCatalogCache(entries);
 }

@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache } from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache, isRecord, asString } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 档位词表（展示名必须与官方 IDE 一致 —— Loomy 基于 opencode 构建）。 */
@@ -105,14 +105,6 @@ let refreshAttempted = false;
 let remoteCache: { entries: CatalogEntry[]; version: string; at: number } | null = null;
 let refreshing = false;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 function num(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : 0;
   if (typeof value === "string" && value.trim()) {
@@ -192,7 +184,7 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
     if (!isRecord(item)) continue;
     // 过滤判据是 type === 'chat'，不能看 input_modalities
     if (item["type"] !== "chat") continue;
-    const id = str(item["id"]);
+    const id = asString(item["id"]);
     if (!id) continue;
     const capabilities = isRecord(item["capabilities"]) ? item["capabilities"] : {};
     const modalities = capabilities["input_modalities"];
@@ -205,7 +197,7 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
     // 最大输出：上游 `max_output_tokens` 优先（实测 2026-10-23：spark-x2.6 131072、
     // MiniMax-M3 512000、DeepSeek-V4.1-Flash 384000），上游没给才回落公开规格表
     const remoteMaxOutput = num(item["max_output_tokens"]);
-    const rawName = str(item["name"]) || id;
+    const rawName = asString(item["name"]) || id;
     const [, rate] = splitRate(rawName);
     const multiplier = rate ? Number.parseFloat(rate.replace(/^x/i, "")) : undefined;
     entries.push({
@@ -221,7 +213,7 @@ function parseRemoteModels(models: unknown[]): CatalogEntry[] {
       vision,
       efforts,
       defaultEffort: pickDefaultEffort(efforts),
-      remoteDefaultEffort: str(item["default_reasoning_effort"]),
+      remoteDefaultEffort: asString(item["default_reasoning_effort"]),
       source: "remote",
     });
   }
@@ -423,11 +415,11 @@ function loadAliases(): Array<[string, string]> {
       if (Array.isArray(models)) {
         for (const model of models) {
           if (!isRecord(model)) continue;
-          const slug = str(model["slug"]);
+          const slug = asString(model["slug"]);
           if (!slug) continue;
           let short = "";
           for (const field of ALIAS_FIELDS) {
-            const value = str(model[field]).trim();
+            const value = asString(model[field]).trim();
             if (value) {
               short = value;
               break;

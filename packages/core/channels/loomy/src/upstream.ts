@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { ensureDir, upstreamPath, writeJsonFile } from "@modelmux/gateway";
+import { ensureDir, upstreamPath, writeJsonFile, isRecord, asString } from "@modelmux/gateway";
 
 /** 业务基址（推理与积分端点）。 */
 export const DEFAULT_BASE_URL = "https://loomyad.xunfei.cn";
@@ -173,14 +173,6 @@ function taskCompleteUrl(cfg?: Config): string {
   return `${base(cfg)}${ONBOARDING_COMPLETE_PATH}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 // ── 认证头（两套）─────────────────────────────────────────────────────────────
 
 /**
@@ -278,7 +270,7 @@ export function parseEnvelope(payload: unknown): {
   const code = payload["code"] === undefined || payload["code"] === null ? "" : String(payload["code"]);
   return {
     code,
-    desc: str(payload["desc"]) || str(payload["message"]),
+    desc: asString(payload["desc"]) || asString(payload["message"]),
     data: isRecord(payload["data"]) ? payload["data"] : {},
   };
 }
@@ -353,7 +345,7 @@ export function parseModelsResponse(payload: unknown): {
   if (Array.isArray(payload["data"]) && payload["code"] === undefined) {
     return {
       items: payload["data"] as Record<string, unknown>[],
-      version: str(payload["reasoning_catalog_version"]),
+      version: asString(payload["reasoning_catalog_version"]),
     };
   }
 
@@ -362,7 +354,7 @@ export function parseModelsResponse(payload: unknown): {
     const data = payload["data"] as Record<string, unknown>;
     return {
       items: data["models"] as Record<string, unknown>[],
-      version: str(data["reasoning_catalog_version"]),
+      version: asString(data["reasoning_catalog_version"]),
     };
   }
 

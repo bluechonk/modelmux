@@ -10,6 +10,7 @@
 import type { SigninModule, SigninOutcome, SigninStatus } from "@modelmux/gateway";
 
 import * as cred from "./cred.js";
+import { asString } from "@modelmux/gateway";
 
 export class CreditsError extends Error {
   override name = "CreditsError";
@@ -71,10 +72,6 @@ function num(value: unknown): number {
   return 0;
 }
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 /** 上游把业务字段放顶层或 `data` 里两种都见过；统一剥一层，后续只读顶层。 */
 function unwrap(payload: Record<string, unknown>): Record<string, unknown> {
   const data = payload["data"];
@@ -125,7 +122,7 @@ function summarize(payload: Record<string, unknown>): {
     const balance = num(row.balance);
     if (balance <= 0) continue;
     remain += balance;
-    const until = str(row.valid_to).slice(0, 10);
+    const until = asString(row.valid_to).slice(0, 10);
     packages.push({
       name: until ? `余额（到期 ${until}）` : "余额",
       remain: balance,
@@ -217,11 +214,11 @@ export async function fetchAccountContext(
   const quota = (payload["quota"] ?? {}) as Record<string, unknown>;
   const remaining = quota["remaining"];
   return {
-    uid: str(user["id"]),
-    name: str(user["name"]),
-    email: str(user["email"]),
-    ...(str(plan["name"]) !== "" ? { planName: str(plan["name"]) } : {}),
-    ...(str(plan["pid"]) !== "" ? { planPid: str(plan["pid"]) } : {}),
+    uid: asString(user["id"]),
+    name: asString(user["name"]),
+    email: asString(user["email"]),
+    ...(asString(plan["name"]) !== "" ? { planName: asString(plan["name"]) } : {}),
+    ...(asString(plan["pid"]) !== "" ? { planPid: asString(plan["pid"]) } : {}),
     ...(remaining === null || remaining === undefined ? {} : { quotaRemaining: num(remaining) }),
     ...(typeof quota["exceeded"] === "boolean" ? { quotaExceeded: quota["exceeded"] } : {}),
   };

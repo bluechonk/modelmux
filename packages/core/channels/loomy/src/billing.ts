@@ -96,10 +96,6 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
 /** 未完成的任务（按表顺序）；任务列表拉取失败时返回空表（不影响余额）。 */
 async function claimableTasks(c: cred.Credentials): Promise<Array<Record<string, unknown>>> {
   let completed: Record<string, unknown> = {};
@@ -269,6 +265,7 @@ async function claimAll(cOverride?: cred.Credentials): Promise<ClaimAllResult> {
 // ── 签到 / 领取能力（共享层自动签到调度器用；见 SigninModule 契约）────────────
 
 import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
+import { isRecord } from "@modelmux/gateway";
 
 /** 每日额度重置的结果。 */
 interface DailyResetResult {

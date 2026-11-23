@@ -11,13 +11,7 @@ import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
 
-import {
-  credentialsPath,
-  ensureDir,
-  login as sharedLogin,
-  loginFlow,
-  writeJsonSecret,
-} from "@modelmux/gateway";
+import { credentialsPath, ensureDir, login as sharedLogin, loginFlow, writeJsonSecret, isRecord } from "@modelmux/gateway";
 
 import {
   AUTHORIZATION_CODE_NOT_FOUND,
@@ -177,10 +171,6 @@ export function envelopeMessage(payload: unknown): string {
   const message = str(rec["message"]);
   const details = typeof rec["details"] === "string" ? rec["details"] : "";
   return [message, details].filter(Boolean).join(": ");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /**

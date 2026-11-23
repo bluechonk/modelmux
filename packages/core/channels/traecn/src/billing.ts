@@ -80,10 +80,6 @@ interface CheckinState {
   message: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
 function num(rec: Record<string, unknown>, ...keys: string[]): number | null {
   for (const key of keys) {
     const value = rec[key];
@@ -419,6 +415,7 @@ export async function fetchCredits(
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────
 
 import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
+import { isRecord } from "@modelmux/gateway";
 
 /**
  * 每日签到发放额（积分）—— **实测常量**（2026-11-07）。

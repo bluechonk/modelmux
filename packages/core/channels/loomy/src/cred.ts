@@ -12,12 +12,7 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import {
-  credentialsPath,
-  ensureDir,
-  login as sharedLogin,
-  writeJsonSecret,
-} from "@modelmux/gateway";
+import { credentialsPath, ensureDir, login as sharedLogin, writeJsonSecret, isRecord } from "@modelmux/gateway";
 import * as upstream from "./upstream.js";
 
 /** 账号端点基址（登录的发码/校验走这里）。 */
@@ -224,10 +219,6 @@ function accountBody(param: Record<string, unknown>): Record<string, unknown> {
 
 function accountBase(override?: string): string {
   return override || process.env["LOOMY_ACCOUNT_BASE_URL"] || DEFAULT_BASE_URL;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /** 业务响应信封（`desc` 优先于 `message`；code 归一成字符串）。 */

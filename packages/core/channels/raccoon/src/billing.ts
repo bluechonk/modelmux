@@ -55,10 +55,6 @@ interface CreditsResult {
   claimable: Array<Record<string, unknown>>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
 function num(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string" && value.trim()) {
@@ -290,6 +286,7 @@ async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<string, u
 // ── 签到 / 领取能力（共享层 CLI 的 `<cid> checkin` 用；见 SigninModule 契约）─────────
 
 import type { QuotaPeriod, SigninModule } from "@modelmux/gateway";
+import { isRecord } from "@modelmux/gateway";
 
 /**
  * 每日签到（`<cid> checkin`）。

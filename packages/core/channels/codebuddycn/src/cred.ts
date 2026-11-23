@@ -12,15 +12,7 @@
 
 import { readFileSync } from "node:fs";
 
-import {
-  credentialsPath,
-  ensureDir,
-  login as shared,
-  loginFlow,
-  pasteDetect,
-  writeJsonSecret,
-  type Credential,
-} from "@modelmux/gateway";
+import { credentialsPath, ensureDir, login as shared, loginFlow, pasteDetect, writeJsonSecret, type Credential, asString } from "@modelmux/gateway";
 
 /** 国内版 CLI 端点（与 WorkBuddy 国际站分开，凭据不通用）。 */
 export const DEFAULT_BASE_URL = "https://copilot.tencent.com";
@@ -71,10 +63,6 @@ interface TokenPayload {
   expireAt: number | null;
 }
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 /**
  * 读凭据；未登录 / 文件损坏都抛 `NotLoggedInError`（共享层靠它判断「没东西」）。
  * 读盘故障（EACCES / EBUSY 等）保持原始错误上抛 —— 折叠成「未登录」会误导用户白跑
@@ -96,15 +84,15 @@ export function load(): Credentials {
   } catch {
     throw new NotLoggedInError("Credential file is corrupted, please log in again");
   }
-  const accessToken = str(parsed["accessToken"]);
+  const accessToken = asString(parsed["accessToken"]);
   if (!accessToken) throw new NotLoggedInError("Credential has no accessToken, please log in again");
   return {
     accessToken,
-    refreshToken: str(parsed["refreshToken"]),
-    uid: str(parsed["uid"]),
-    nickname: str(parsed["nickname"]),
-    domain: str(parsed["domain"]) || DOMAIN,
-    enterpriseId: str(parsed["enterpriseId"]),
+    refreshToken: asString(parsed["refreshToken"]),
+    uid: asString(parsed["uid"]),
+    nickname: asString(parsed["nickname"]),
+    domain: asString(parsed["domain"]) || DOMAIN,
+    enterpriseId: asString(parsed["enterpriseId"]),
     expireAt: shared.parseExpireTime(parsed["expireAt"]),
   };
 }
@@ -137,9 +125,9 @@ export async function login(_baseUrl?: string, options: LoginOptions = {}): Prom
   );
   if (!stateResp.ok) throw new Error(`auth/state failed: HTTP ${stateResp.status}`);
   const stateData = (await stateResp.json()) as Record<string, unknown>;
-  const state = str((stateData["data"] as Record<string, unknown> | undefined)?.["state"]);
+  const state = asString((stateData["data"] as Record<string, unknown> | undefined)?.["state"]);
   if (!state) throw new Error("auth/state response has no state");
-  const authUrl = str((stateData["data"] as Record<string, unknown> | undefined)?.["authUrl"]);
+  const authUrl = asString((stateData["data"] as Record<string, unknown> | undefined)?.["authUrl"]);
   if (!authUrl) throw new Error("auth/state response has no authUrl");
 
   options.onUrl?.(authUrl);
@@ -171,13 +159,13 @@ export async function login(_baseUrl?: string, options: LoginOptions = {}): Prom
       );
       const payload = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
       const data = (payload["data"] ?? {}) as Record<string, unknown>;
-      const accessToken = str(data["accessToken"]);
+      const accessToken = asString(data["accessToken"]);
       if (!accessToken) return { kind: "pending" };
       return {
         kind: "done",
         value: {
           accessToken,
-          refreshToken: str(data["refreshToken"]),
+          refreshToken: asString(data["refreshToken"]),
           expireAt: shared.parseExpireTime(data["expireAt"] ?? data["expires_at"]),
         },
       };
@@ -216,10 +204,10 @@ async function fetchAccount(
     const payload = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
     const data = (payload["data"] ?? {}) as Record<string, unknown>;
     return {
-      uid: str(data["uid"]),
-      nickname: str(data["nickname"] ?? data["name"]),
-      domain: str(data["domain"]),
-      enterpriseId: str(data["enterpriseId"] ?? data["tenantId"]),
+      uid: asString(data["uid"]),
+      nickname: asString(data["nickname"] ?? data["name"]),
+      domain: asString(data["domain"]),
+      enterpriseId: asString(data["enterpriseId"] ?? data["tenantId"]),
     };
   } catch {
     return { uid: "", nickname: "", domain: "", enterpriseId: "" };
@@ -269,13 +257,13 @@ export async function refresh(credential: Credentials): Promise<Credentials> {
 
   const payload = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
   const data = (payload["data"] ?? {}) as Record<string, unknown>;
-  const accessToken = str(data["accessToken"]);
+  const accessToken = asString(data["accessToken"]);
   if (!accessToken) throw new NotLoggedInError("Refresh response has no accessToken, please log in again");
 
   const next: Credentials = {
     ...credential,
     accessToken,
-    refreshToken: str(data["refreshToken"]) || credential.refreshToken,
+    refreshToken: asString(data["refreshToken"]) || credential.refreshToken,
     expireAt: shared.parseExpireTime(data["expireAt"] ?? data["expires_at"]) ?? credential.expireAt,
   };
   await save(next);

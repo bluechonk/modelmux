@@ -9,13 +9,7 @@
 
 import * as cred from "./cred.js";
 import * as upstream from "./upstream.js";
-import {
-  canonicalModelId,
-  ensureChannelModels,
-  hiddenModelIds,
-  readCatalogCache,
-  writeCatalogCache,
-} from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache, isRecord, asString } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /** 远端 tags 的图片特征词（上游字段词表，属解析规则不是模型数据）。 */
@@ -109,14 +103,6 @@ let refreshAttempted = false;
 let remoteCache: { entries: ModelEntry[]; at: number } | null = null;
 let refreshing = false;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 function num(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string" && value.trim()) {
@@ -132,7 +118,7 @@ function num(value: unknown): number | null {
 
 /** `billing_status` 三态映射：`discount` / `limited_free` / 其它 → `normal`。 */
 function mapBillingStatus(value: unknown): string {
-  const text = str(value);
+  const text = asString(value);
   return text === "discount" || text === "limited_free" ? text : "normal";
 }
 
@@ -155,7 +141,7 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
     for (const item of models) {
       if (!isRecord(item)) continue;
       if (item["visible"] === false) continue; // 缺省视为可见
-      const id = str(item["name"]); // 模型 id 在 name 字段里，不是 id
+      const id = asString(item["name"]); // 模型 id 在 name 字段里，不是 id
       if (!id || seen.has(id) || EXCLUDED_IDS.has(id)) continue;
       seen.add(id);
       const params = isRecord(item["params"]) ? item["params"] : {};
@@ -164,7 +150,7 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
       const fallback = fallbackEntries().find((m) => m.id === id);
       out.push({
         id,
-        name: str(item["description"]) || fallback?.name || id,
+        name: asString(item["description"]) || fallback?.name || id,
         contextWindow: num(params["context_window"]) ?? num(item["context_window"]) ?? fallback?.contextWindow ?? 0,
         maxOutput: num(params["max_tokens"]) ?? fallback?.maxOutput ?? 0,
         // tags 不是能力契约：表里声明的 supportsImage 优先，其次看 tags 特征词
@@ -172,7 +158,7 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
         effectiveMultiplier,
         multiplier,
         billingStatus: mapBillingStatus(item["billing_status"]),
-        billingStatusNote: str(item["billing_status_note"]),
+        billingStatusNote: asString(item["billing_status_note"]),
         source: "remote",
       });
     }

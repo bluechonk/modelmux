@@ -12,13 +12,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  canonicalModelId,
-  ensureChannelModels,
-  hiddenModelIds,
-  readCatalogCache,
-  writeCatalogCache,
-} from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache, asString } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 /**
@@ -120,10 +114,6 @@ function candidatePaths(): string[] {
   return paths;
 }
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -202,7 +192,7 @@ function supportsImageOf(rec: Record<string, unknown>): boolean | undefined {
 function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null {
   if (!row || typeof row !== "object") return null;
   const rec = row as Record<string, unknown>;
-  const id = str(rec["slug"]) || str(rec["id"]);
+  const id = asString(rec["slug"]) || asString(rec["id"]);
   if (!id) return null;
   if (!isChatModelId(id)) return null;
 
@@ -219,7 +209,7 @@ function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null
   const entry: ModelEntry = {
     id,
     exposed,
-    name: str(rec["display_name"]) || str(rec["name"]) || id,
+    name: asString(rec["display_name"]) || asString(rec["name"]) || id,
     source,
   };
   const context =
@@ -233,7 +223,7 @@ function parseRow(row: unknown, source: ModelEntry["source"]): ModelEntry | null
   if (output !== undefined) entry.max_output = output;
   const image = supportsImageOf(rec);
   if (image !== undefined) entry.supports_image = image;
-  const rate = parseCreditsRate(str(rec["credits"]));
+  const rate = parseCreditsRate(asString(rec["credits"]));
   if (rate) {
     entry.rate = rate.rate;
     entry.multiplier = rate.multiplier;

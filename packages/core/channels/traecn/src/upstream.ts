@@ -19,14 +19,7 @@ import {
   IDE_VERSION_CODE,
   USER_AGENT,
 } from "./cred.js";
-import {
-  ensureCacheDir,
-  ensureDir,
-  login as sharedLogin,
-  openaiNormalize,
-  upstreamPath,
-  writeJsonFile,
-} from "@modelmux/gateway";
+import { ensureCacheDir, ensureDir, login as sharedLogin, openaiNormalize, upstreamPath, writeJsonFile, isRecord } from "@modelmux/gateway";
 
 /**
  * agentHost：对话 + 模型列表。
@@ -304,10 +297,6 @@ export function quotaResetAt(bodySnippet: string): number | null {
 }
 
 // ── 请求体改写：OpenAI → SOLO ───────────────────────────────────────────────
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 /**
  * `messages[].content` 一律转块数组（字符串 → `[{type:"text",text}]`）。

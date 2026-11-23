@@ -11,7 +11,7 @@
  *   - 国内版有每日签到（实测 2026-11-11：连续 25 天、每天 100 credits）。
  */
 
-import { login as shared } from "@modelmux/gateway";
+import { login as shared, asString } from "@modelmux/gateway";
 
 import * as cred from "./cred.js";
 import { buildHeaders, BILLING_BASE_URL } from "./upstream.js";
@@ -65,10 +65,6 @@ function num(value: unknown): number | null {
   return null;
 }
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 function firstNum(row: Record<string, unknown>, fields: string[]): number | null {
   for (const field of fields) {
     const value = num(row[field]);
@@ -79,7 +75,7 @@ function firstNum(row: Record<string, unknown>, fields: string[]): number | null
 
 function firstStr(row: Record<string, unknown>, fields: string[]): string {
   for (const field of fields) {
-    const value = str(row[field]).trim();
+    const value = asString(row[field]).trim();
     if (value !== "") return value;
   }
   return "";
@@ -321,7 +317,7 @@ export const signin = {
     const credential = pooledCredential(options?.credential) ?? cred.load();
     const payload = await checkinRequest(CHECKIN_PATH, credential);
     const code = num(payload["code"]);
-    const msg = str(payload["msg"]) || str(payload["message"]);
+    const msg = asString(payload["msg"]) || asString(payload["message"]);
     // 1001 / 10001+已签到 = 今天已签；1003 = 活动未开放；1002 = 无资格
     const already = code === 1001 || (code === 10001 && /已签到|已领取|重复/.test(msg));
     const inactive =

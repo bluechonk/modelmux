@@ -9,13 +9,7 @@
  *   - 规格**是数据**，落在渠道包 `models.json`；本模块只做归一化与查询。
  */
 
-import {
-  canonicalModelId,
-  ensureChannelModels,
-  hiddenModelIds,
-  readCatalogCache,
-  writeCatalogCache,
-} from "@modelmux/gateway";
+import { canonicalModelId, ensureChannelModels, hiddenModelIds, readCatalogCache, writeCatalogCache, isRecord, asString } from "@modelmux/gateway";
 import { bundledSnapshotPath, packageSnapshotPath } from "@modelmux/gateway/snapshot";
 
 import * as cred from "./cred.js";
@@ -36,14 +30,6 @@ interface ModelEntry {
 const REMOTE_TTL_MS = 5 * 60 * 1000;
 /** 远端失败/空结果的冷却时长。 */
 const REMOTE_FAIL_COOLDOWN_MS = 30 * 1000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
 
 let fallback: ModelEntry[] | null = null;
 function fallbackEntries(): ModelEntry[] {
@@ -94,14 +80,14 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
   for (const item of models) {
     if (!isRecord(item)) continue;
     if (item["disabled"] === true) continue;
-    const id = str(item["id"]);
+    const id = asString(item["id"]);
     if (!id || seen.has(id)) continue;
     if (availableSet && !availableSet.has(id)) continue;
     seen.add(id);
     const fallbackRow = fallbackEntries().find((m) => m.id === id);
     out.push({
       id,
-      name: str(item["name"]) || fallbackRow?.name || id,
+      name: asString(item["name"]) || fallbackRow?.name || id,
       contextWindow: typeof item["contextWindow"] === "number" ? item["contextWindow"] : fallbackRow?.contextWindow,
       maxOutput: typeof item["maxOutput"] === "number" ? item["maxOutput"] : fallbackRow?.maxOutput,
       supportsImage: item["supportsImage"] === true ? true : fallbackRow?.supportsImage,
@@ -131,7 +117,7 @@ function parseConfigModels(data: unknown): ModelEntry[] {
     if (!isRecord(agent) || agent["name"] !== "cli") continue;
     const list = agent["models"];
     if (Array.isArray(list)) {
-      cliModels = new Set(list.map((m) => (typeof m === "string" ? m : isRecord(m) ? str(m["id"]) : "")));
+      cliModels = new Set(list.map((m) => (typeof m === "string" ? m : isRecord(m) ? asString(m["id"]) : "")));
       cliModels.delete("");
     }
     break;
@@ -143,7 +129,7 @@ function parseConfigModels(data: unknown): ModelEntry[] {
   for (const item of models) {
     if (!isRecord(item)) continue;
     if (item["disabled"] === true) continue;
-    const id = str(item["id"]);
+    const id = asString(item["id"]);
     if (!id || seen.has(id)) continue;
     if (cliModels && !cliModels.has(id)) continue;
     if (availableSet && !availableSet.has(id)) continue;
@@ -151,7 +137,7 @@ function parseConfigModels(data: unknown): ModelEntry[] {
     const fallbackRow = fallbackEntries().find((m) => m.id === id);
     out.push({
       id,
-      name: str(item["name"]) || fallbackRow?.name || id,
+      name: asString(item["name"]) || fallbackRow?.name || id,
       contextWindow: typeof item["contextWindow"] === "number" ? item["contextWindow"] : fallbackRow?.contextWindow,
       maxOutput:
         typeof item["maxOutputTokens"] === "number"

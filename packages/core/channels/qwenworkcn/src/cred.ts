@@ -10,15 +10,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import {
-  credentialsPath,
-  ensureDir,
-  login as shared,
-  loginFlow,
-  pasteDetect,
-  writeJsonSecret,
-  type Credential,
-} from "@modelmux/gateway";
+import { credentialsPath, ensureDir, login as shared, loginFlow, pasteDetect, writeJsonSecret, type Credential, asString } from "@modelmux/gateway";
 
 /** 本渠道固定绑定的产品区（QwenWorkCN 只有国内站）。 */
 const PRODUCT = {
@@ -227,10 +219,6 @@ function rememberIdentity(userType: string, gatewayHost = ""): void {
 
 // ── 凭据读写 ──────────────────────────────────────────────────────────────────
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 /**
  * 读凭据；未登录 / 文件损坏都抛 `NotLoggedInError`（共享层靠它判断"没东西"）。
  * 读盘故障（EACCES / EBUSY 等）保持原始错误上抛 —— 折叠成「未登录」会误导用户白跑
@@ -252,19 +240,19 @@ export function load(): Credentials {
   } catch {
     throw new NotLoggedInError("Credential file is corrupted, please log in again");
   }
-  const accessToken = str(parsed["accessToken"]);
+  const accessToken = asString(parsed["accessToken"]);
   if (!accessToken) throw new NotLoggedInError("Credential has no access_token, please log in again");
-  const uid = str(parsed["uid"]);
-  const userType = str(parsed["userType"]) || DEFAULT_USER_TYPE;
-  const gatewayHost = str(parsed["gatewayHost"]);
+  const uid = asString(parsed["uid"]);
+  const userType = asString(parsed["userType"]) || DEFAULT_USER_TYPE;
+  const gatewayHost = asString(parsed["gatewayHost"]);
   rememberIdentity(userType, gatewayHost);
   const fingerprint = ensureMachineFingerprint(parsed);
   return {
     accessToken,
     uid,
-    domain: str(parsed["domain"]) || PRODUCT.domain,
-    refreshToken: str(parsed["refreshToken"]),
-    nickname: str(parsed["nickname"]),
+    domain: asString(parsed["domain"]) || PRODUCT.domain,
+    refreshToken: asString(parsed["refreshToken"]),
+    nickname: asString(parsed["nickname"]),
     ...fingerprint,
     userType,
     gatewayHost,
@@ -338,9 +326,9 @@ async function fetchUserProfile(accessToken: string): Promise<UserProfile> {
     if (!resp.ok) return EMPTY_PROFILE;
     const data = (await resp.json()) as Record<string, unknown>;
     return {
-      uid: str(data["id"]) || str(data["user_id"]) || str(data["userId"]),
-      nickname: str(data["name"]) || str(data["nickname"]),
-      userType: str(data["user_type"]) || str(data["userType"]),
+      uid: asString(data["id"]) || asString(data["user_id"]) || asString(data["userId"]),
+      nickname: asString(data["name"]) || asString(data["nickname"]),
+      userType: asString(data["user_type"]) || asString(data["userType"]),
     };
   } catch {
     return EMPTY_PROFILE;
@@ -409,14 +397,14 @@ export async function login(_baseUrl?: string, options: LoginOptions = {}): Prom
       const data = (await resp.json()) as Record<string, unknown>;
       // 字段名登录与续期不一致，三种都认
       const accessToken =
-        str(data["token"]) || str(data["device_token"]) || str(data["access_token"]);
+        asString(data["token"]) || asString(data["device_token"]) || asString(data["access_token"]);
       if (!accessToken) return { kind: "pending" }; // 还没好，继续等
       return {
         kind: "done",
         value: {
           accessToken,
-          refreshToken: str(data["refresh_token"]) || str(data["refreshToken"]),
-          uid: str(data["user_id"]) || str(data["userId"]),
+          refreshToken: asString(data["refresh_token"]) || asString(data["refreshToken"]),
+          uid: asString(data["user_id"]) || asString(data["userId"]),
           expireAt: expireAtOf(data),
           refreshExpireAt: shared.parseExpireTime(
             data["refresh_token_expires_at"] ?? data["refreshTokenExpiresAt"],
@@ -493,14 +481,14 @@ export async function refresh(credential: Credentials): Promise<Credentials> {
   if (!resp.ok) throw new Error(`Refresh failed: HTTP ${resp.status} (retryable)`);
 
   const data = (await resp.json()) as Record<string, unknown>;
-  const accessToken = str(data["token"]) || str(data["device_token"]) || str(data["access_token"]);
+  const accessToken = asString(data["token"]) || asString(data["device_token"]) || asString(data["access_token"]);
   if (!accessToken) throw new NotLoggedInError("Refresh response has no token, please log in again");
 
   const next: Credentials = {
     ...credential,
     accessToken,
     refreshToken:
-      str(data["refresh_token"]) || str(data["refreshToken"]) || credential.refreshToken,
+      asString(data["refresh_token"]) || asString(data["refreshToken"]) || credential.refreshToken,
     expireAt: expireAtOf(data) ?? credential.expireAt,
     refreshExpireAt:
       shared.parseExpireTime(data["refresh_token_expires_at"] ?? data["refreshTokenExpiresAt"]) ??
