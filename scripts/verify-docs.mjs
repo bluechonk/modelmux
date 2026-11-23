@@ -419,6 +419,74 @@ for (const rel of candidates) {
   for (const d of checkFences(rel)) problems.push(`${rel}  ->  ${d}`);
 }
 
+// ── 长散文段：连续 5 行以上且 400 字以上 ────────────────────────────────────
+// 这类段落里通常并列着 3~5 条独立规则（实测最长 657 字），读者要在段落里找断句。
+// 判据不是「不许长」，而是「并列的规则要分点」：把段落拆成 1/2/3 或小标题即可通过。
+// 代码块、表格、列表、引用块、标题都不计入连续散文。
+const PROSE_MAX_LINES = 4;
+const PROSE_MAX_CHARS = 399;
+
+function checkProseBlocks(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const found = [];
+  let fenceChar = "";
+  let fenceLen = 0;
+  let block = { lines: 0, chars: 0, start: 0 };
+
+  const flush = () => {
+    if (block.lines > PROSE_MAX_LINES && block.chars > PROSE_MAX_CHARS) {
+      found.push(
+        `L${block.start} 连续散文 ${block.lines} 行 / ${block.chars} 字 —— ` +
+          `并列规则改 1/2/3 分点或拆小标题`,
+      );
+    }
+    block = { lines: 0, chars: 0, start: 0 };
+  };
+
+  text.split("\n").forEach((line, i) => {
+    const t = line.trim();
+    const fm = /^(`{3,}|~{3,})/.exec(t);
+    if (fm) {
+      if (fenceChar === "") {
+        fenceChar = fm[1][0];
+        fenceLen = fm[1].length;
+      } else if (fm[1][0] === fenceChar && fm[1].length >= fenceLen) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
+      flush();
+      return;
+    }
+    if (fenceChar !== "") return;
+
+    // 空行 / 标题 / 表格 / 列表 / 引用 / 图片 都打断散文段
+    if (t === "" || /^#{1,6}\s/.test(t) || t.startsWith("|") || t.startsWith(">") || t.startsWith("![")) {
+      flush();
+      return;
+    }
+    if (/^([-*+]|\d+\.)\s/.test(t)) {
+      flush();
+      return;
+    }
+    if (block.lines === 0) block.start = i + 1;
+    block.lines += 1;
+    block.chars += [...t].length;
+  });
+  flush();
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkProseBlocks(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {
