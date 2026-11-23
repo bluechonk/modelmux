@@ -22,7 +22,9 @@
     --line-strong: #33383d;
     --text: #e6e8ea;
     --text-soft: #9aa1a7;
-    --text-faint: #6c7378;
+    /* 正文可读性下限：与 --ink 对比度 5.1:1（WCAG AA 正文要求 4.5:1）。
+       原 #6c7378 只有 4.04:1，12.5px 说明文字与页脚不达标。 */
+    --text-faint: #7d8489;
     --signal: #5fd39a;
     --warn: #e0b25c;
     --danger: #e0736b;
@@ -136,9 +138,12 @@
   /* 锚点跳转的落点补偿：吸顶栏 57px，不留白会把章节标题压在栏下（390 实测压 5px） */
   section[id] { scroll-margin-top: 72px; }
   section { padding: 72px 0; border-bottom: 1px solid var(--line); }
-  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 34px; flex-wrap: wrap; }
+  /* 标题独占一行、说明另起一行：原先两者同处一个 flex 行时，说明的左边缘会随标题
+     宽度浮动（实测六屏六个位置：222 / 250 / 277 / 304 / 315 / 469），扫读时找不到起点。
+     统一左对齐后，每屏的标题与说明都从同一个 x 开始。 */
+  .sec-head { display: block; margin-bottom: 34px; }
   h2 { margin: 0; font-size: 28px; letter-spacing: -0.02em; font-weight: 500; }
-  .sec-head p { margin: 0; color: var(--text-soft); font-size: 14px; max-width: 60ch; }
+  .sec-head p { margin: 10px 0 0; color: var(--text-soft); font-size: 14px; max-width: 68ch; }
 
   /* 路由演示 */
   .route { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
@@ -175,13 +180,23 @@
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: left; padding: 12px 16px; border-top: 1px solid var(--line); }
   thead th { border-top: 0; background: var(--raised); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); font-weight: 400; }
+  /* 四列按 18 / 44 / 19 / 19 固定分配：auto 布局下百分比只是建议值，
+     产品名会把余量全吃掉、把「额度」「签到」推到最右。fixed 让比例真正生效，
+     且列边界在表头与数据行之间天然重合。 */
+  .chans table { table-layout: fixed; }
+  .chans th:nth-child(1), .chans td:nth-child(1) { width: 18%; }
+  .chans th:nth-child(2), .chans td:nth-child(2) { width: 44%; }
+  .chans th:nth-child(3), .chans td:nth-child(3) { width: 19%; }
+  .chans th:nth-child(4), .chans td:nth-child(4) { width: 19%; }
   td.cid { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
   td .on { color: var(--signal); font-family: var(--mono); font-size: 12px; }
   td .off { color: var(--text-faint); font-family: var(--mono); font-size: 12px; }
   tbody tr:hover { background: var(--surface); }
 
   /* 安装 */
-  .install { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; }
+  /* 两栏顶部对齐：默认 stretch 会把右栏卡片拉到与左侧步骤同高，
+     实测卡片 500px 里 242px 是空白（内容只有 214px）。 */
+  .install { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; align-items: start; }
   .steps { counter-reset: s; display: grid; gap: 18px; }
   .step { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 14px; }
   .step::before {
@@ -255,6 +270,10 @@
     .term pre { font-size: 11px; }
 
     /* 渠道表在窄屏改两列堆叠：四列表格在 320–390 会裁掉「签到」列（实测 346 > 326） */
+    /* 桌面端的 fixed 列宽在这里失效：表格已改成 grid 堆叠，
+       百分比列宽会把 td 压到几像素宽（实测「计费」只剩 5px） */
+    .chans table { table-layout: auto; }
+    .chans th, .chans td { width: auto !important; }
     .chans thead { display: none; }
     .chans tbody tr {
       display: grid; grid-template-columns: minmax(0, 1fr) auto;
@@ -334,14 +353,14 @@
 <span class="g">✓</span> gateway listening <span class="t">127.0.0.1:4412</span>
 
 <span class="c">$</span> <span class="t">mx status</span>
-<span class="c">cid           accounts  quota      state</span>
-<span class="g">loomy</span>              4   <span class="g">2 329</span>      ok
-traecn             4     <span class="w">232</span>      ok
-raccoon            1     <span class="g">1 020</span>      ok
-workbuddy          1       <span class="g">100</span>      ok
-codebuddycn        1       <span class="g">100</span>      ok
-catpaw             0        <span class="c">—</span>      not logged in
-qwenworkcn         1        <span class="c">—</span>      ok
+<span class="c">cid         accounts  quota    state</span>
+<span class="g">loomy</span>            4   <span class="g">2 329</span>    ok
+traecn           4     <span class="w">232</span>    ok
+raccoon          1   <span class="g">1 020</span>    ok
+workbuddy        1     <span class="g">100</span>    ok
+codebuddycn      1     <span class="g">100</span>    ok
+catpaw           0      <span class="c">—</span>    未登录
+qwenworkcn       1      <span class="c">—</span>    ok
 
 <span class="c">$</span> <span class="t">curl $BASE/v1/chat/completions</span>
 <span class="c">  → model deepseek-v4.1-flash</span>
@@ -434,7 +453,7 @@ qwenworkcn         1        <span class="c">—</span>      ok
         <div class="col">
           <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h6l2-5 3 10 2-5h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <h3>Web 控制台</h3>
-          <p>仪表盘、账号池、请求日志、API Keys 同端口托管；一键把本机客户端的模型清单指到网关。</p>
+          <p>仪表盘、账号池、请求日志、API Keys 同端口托管；账号池页的「一键接入」把本机客户端配置指到网关。</p>
         </div>
       </div>
     </div>
@@ -458,7 +477,7 @@ qwenworkcn         1        <span class="c">—</span>      ok
             <tr><td class="cid">workbuddy</td><td>WorkBuddy（国内版）</td><td><span class="on">计费</span></td><td><span class="on">支持</span></td></tr>
             <tr><td class="cid">codebuddycn</td><td>CodeBuddy 国内版（腾讯）</td><td><span class="on">计费</span></td><td><span class="on">支持</span></td></tr>
             <tr><td class="cid">qwenworkcn</td><td>千问办公（QwenWorkCN）</td><td><span class="on">计费</span></td><td><span class="off">无接口</span></td></tr>
-            <tr><td class="cid">catpaw</td><td>CatPaw（美团妙手）</td><td><span class="on">计费</span></td><td><span class="on">支持</span></td></tr>
+            <tr><td class="cid">catpaw</td><td>CatPaw（美团妙手）</td><td><span class="on">计费</span></td><td><span class="off">无接口</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -498,8 +517,8 @@ npm run build</pre>
           </div>
           <div class="step">
             <div>
-              <h4>把客户端指过来</h4>
-              <p>任何 OpenAI 兼容客户端；也可以让控制台「一键接入」改写本机配置。</p>
+              <h4>打开控制台接入</h4>
+              <p><code>mx web</code> 打印控制台地址；账号池页的「一键接入」改写本机客户端配置。</p>
               <pre>node packages/cli/dist/cli.js web</pre>
             </div>
           </div>
@@ -509,7 +528,7 @@ npm run build</pre>
           <p>OpenAI 兼容；模型填裸名，别的名字一律 400。</p>
           <div class="kv">
             <div class="row"><span class="lk">Base URL</span><span class="lv">http://127.0.0.1:4412/v1</span></div>
-            <div class="row"><span class="lk">API Key</span><span class="lv">任意非空（默认不校验）</span></div>
+            <div class="row"><span class="lk">API Key</span><span class="lv">控制台「API Keys」页创建</span></div>
             <div class="row"><span class="lk">Model</span><span class="lv">deepseek-v4.1-flash</span></div>
           </div>
           <div class="models-inline" aria-label="当前对外模型">
@@ -517,7 +536,7 @@ npm run build</pre>
             <span class="pill">kimi-k3.1-pro</span>
           </div>
           <p style="margin-top:16px;margin-bottom:0;font-size:12px;color:var(--text-faint);line-height:1.6">
-            对话请求需带 API key，每个 key 可限定模型白名单与每分钟请求数。
+            每个 key 可限定模型白名单与每分钟请求数；模型清单与健康检查不校验。
           </p>
         </div>
       </div>
