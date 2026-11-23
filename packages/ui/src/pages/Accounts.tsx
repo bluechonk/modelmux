@@ -407,13 +407,19 @@ export function Accounts(): ReactElement {
                 <h2 className="mb-2 text-xs font-medium text-ink-soft">渠道偏好</h2>
                 <div className="flex flex-col gap-2">
                   {modelPrefs.map((pref) => (
-                    // 一个模型一行：「模型 → 偏好渠道」横着读，flex 两端对齐。
-                    // 单行两端全档位同构，多模型按行自动扩展。
-                    <div key={pref.model} className="flex items-center gap-3">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{pref.model}</span>
+                    // 一行一个模型，行高与右栏「模型清单」对齐（右栏每行是「模型名 + 规格」两行，
+                    // 实测 42px）。不补齐高度时左栏每行只有 26px，第二个模型的模型名会比右侧
+                    // 高出 17px —— 并排读时两栏的模型名对不上。
+                    // 模型名包一层 h-6 居中容器：右栏的「模型名 + TPS」行同样是 24px 高、
+                    // 16px 字居中，基线因此下移 4px。用同一结构对齐，而不是给 span 加 padding
+                    // 硬凑 —— 字号或行高变了 padding 就失效。
+                    <div key={pref.model} className="flex min-h-[42px] items-start gap-3">
+                      <span className="flex h-6 min-w-0 flex-1 items-center truncate font-mono text-xs text-ink">{pref.model}</span>
                       {/* 下拉定宽靠右（fixedWidth 按最长渠道名量宽）：切换选项时按钮不位移，
-                          名称截断让位；nowrap 防文字折行把高度顶高 */}
-                      <div className="flex-none [&_button]:whitespace-nowrap">
+                          名称截断让位；nowrap 防文字折行把高度顶高。
+                          self-center 让它留在行内垂直居中 —— 模型名贴顶是为了与右栏对齐，
+                          下拉跟上去会顶到行首、与名称基线错开。 */}
+                      <div className="flex-none self-center [&_button]:whitespace-nowrap">
                         <Select
                           value={pref.preferred ?? ""}
                           onChange={(cid) => setPref.mutate({ model: pref.model, cid })}
