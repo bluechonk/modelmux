@@ -583,6 +583,77 @@ for (const rel of candidates) {
   for (const d of checkSectionRefs(rel)) problems.push(`${rel}  ->  ${d}`);
 }
 
+// ── 目录锚点：`## 目录` 里列出的链接必须指到真实的二级标题 ──────────────────
+// 加编号、改标题、拆章节都会让锚点失效，而失效的目录点下去只是「不跳转」，
+// 没有任何报错 —— 读者以为文档短，其实是锚点死了。
+// 锚点算法按 GitHub：小写 → 去标点（`/` 直接删、两侧空格各转连字符）→ 空格转 `-`。
+function githubAnchor(title) {
+  return title
+    .toLowerCase()
+    .replace(/[`*_~]/g, "")
+    .replace(/[^\w\u4e00-\u9fa5\s-]/g, "")
+    .replace(/\s/g, "-");
+}
+
+function checkTocAnchors(rel) {
+  const abs = join(workspaceRoot, rel);
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return [];
+  }
+  const found = [];
+  let fenceChar = "";
+  let fenceLen = 0;
+  let inToc = false;
+  const anchors = new Set();
+  const entries = [];
+
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    const fm = /^(`{3,}|~{3,})/.exec(t);
+    if (fm) {
+      if (fenceChar === "") {
+        fenceChar = fm[1][0];
+        fenceLen = fm[1].length;
+      } else if (fm[1][0] === fenceChar && fm[1].length >= fenceLen) {
+        fenceChar = "";
+        fenceLen = 0;
+      }
+      continue;
+    }
+    if (fenceChar !== "") continue;
+
+    if (/^##\s*目录/.test(t)) {
+      inToc = true;
+      continue;
+    }
+    if (/^##\s/.test(t)) {
+      inToc = false;
+      anchors.add(githubAnchor(t.replace(/^##\s+/, "")));
+      continue;
+    }
+    if (inToc) {
+      const m = /\[([^\]]+)\]\(#([^)]+)\)/.exec(t);
+      if (m) entries.push({ text: m[1], anchor: m[2] });
+      else if (t !== "" && !/^[-*\d]/.test(t)) inToc = false;
+    }
+  }
+
+  for (const e of entries) {
+    if (!anchors.has(e.anchor)) {
+      found.push(`目录锚点 #${e.anchor}（${e.text}）无对应二级标题`);
+    }
+  }
+  return found;
+}
+
+for (const rel of candidates) {
+  if (ignored.has(rel)) continue;
+  for (const d of checkTocAnchors(rel)) problems.push(`${rel}  ->  ${d}`);
+}
+
 // ── 索引登记：新增文档必须登记，登记的必须存在 ─────────────────────────────
 // 「新增 docs/*.md 必须同时登记到 docs/README.md」原本只是口头约定 —— 现在它会失败。
 function readText(path) {
