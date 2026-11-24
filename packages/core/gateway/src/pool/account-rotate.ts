@@ -14,6 +14,7 @@ import { channelCapabilities, channels, type Channel } from "../runtime/channel.
 import { runInChannel } from "../runtime/channel-context.js";
 import {
   activateAccount,
+  activeAccountCooldown,
   isAccountCooling,
   nextLocalMidnight,
   noteAccountQuotaExhausted,
@@ -344,4 +345,23 @@ export function switchOffCoolingAccount(
     remain: null,
     reason: `生效账号冷却中，已切到 ${short(target.key)}`,
   };
+}
+
+/**
+ * 对账：遍历全部渠道，把「生效账号在冷却」的切到池内可用账号。
+ *
+ * 为什么不只靠请求：提前切号挂在请求入口（§3.5）。网关空闲时没有任何请求，
+ * 生效账号会一直指着一个已知冷却的账号 —— 选路仍把它当候选（模型偏好还会置顶），
+ * 控制台与 `mx acct` 显示「当前生效: <冷却中>」，从使用者看就是「账号都冷却了
+ * 却不切换」。后台账单刷新每轮已遍历全部渠道，在那里对账可让状态在一个刷新周期
+ * 内自愈；池内没有可用替代时保持原状，仍由请求路径短路并回 429。
+ */
+export function reconcileCoolingActives(logger: (m: string) => void = () => {}): void {
+  for (const channel of channels()) {
+    const cid = channel.config.cid;
+    if (!channelCapabilities(channel.config).billing) continue;
+    // 先看生效账号是否在冷却：不在就跳过，省掉逐账号的凭据可用性探测
+    if (activeAccountCooldown(cid) === null) continue;
+    switchOffCoolingAccount(cid, logger);
+  }
 }

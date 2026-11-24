@@ -29,6 +29,7 @@ import { readChannelModels, rollbackChannelModels } from "../../runtime/channel-
 import { getChannelModelMeta, invalidateCrossModelIndex, poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { isPrefsModel, preferredChannelOf } from "../../pool/model-prefs.js";
 import * as poolUsage from "../../pool/pool-usage.js";
+import { reconcileCoolingActives } from "../../pool/account-rotate.js";
 
 /** 输出一行 JSON 事件。解析方应跳过无法解析的行（第三方库也可能打印 stdout）。 */
 function emit(event: Record<string, unknown>): void {
@@ -906,7 +907,9 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
     // 额度保鲜：每 5 分钟并行查一遍全部有账单能力的渠道（控制台的额度展示靠它，
     // 不再依赖 8 小时的 TTL 或用户手动 `mx bill`）。间隔见 BILLING_REFRESH_INTERVAL_MS。
-    poolUsage.startBillingRefresher(logLine);
+    // 每轮结束后对账一次：生效账号在冷却且池内有可用替代时提前切走，不让状态停到
+    // 下一次请求 —— 否则空闲期间控制台会一直显示「当前生效: <冷却中>」。
+    poolUsage.startBillingRefresher(logLine, () => reconcileCoolingActives(logLine));
 
     // 一键接入自动同步：key 轮换 / 模型上下线后自动重写客户端配置，用户无需干预。
     // 间隔读用户设置（setting.json 的 `integration_sync_interval_s`，0 = 关闭）。

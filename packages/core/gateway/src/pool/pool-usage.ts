@@ -1171,8 +1171,14 @@ let refresherTimer: ReturnType<typeof setInterval> | null = null;
  *
  * 跑一轮的语义与 `mx bill` 一致：**并行**查全部有账单能力的渠道（见 `runRefresh`），
  * 并发去重交给 `inFlight`，所以与聊天路径的 `maybeRefreshBilling` 不会互相叠加。
+ *
+ * `afterRound` 在每轮结束后调用（无论成功失败）：给「顺手对账」类动作一个挂点，
+ * 让生效账号状态不必等下一次请求才纠正（见 account-rotate 的 `reconcileCoolingActives`）。
  */
-export function startBillingRefresher(logger: (m: string) => void = () => {}): void {
+export function startBillingRefresher(
+  logger: (m: string) => void = () => {},
+  afterRound?: () => void,
+): void {
   if (refresherTimer) return;
   const interval = refreshIntervalMs();
   if (interval <= 0) {
@@ -1193,7 +1199,15 @@ export function startBillingRefresher(logger: (m: string) => void = () => {}): v
           );
         }
       })
-      .catch((err: unknown) => logger(`billing refresh error: ${String(err)}`));
+      .catch((err: unknown) => logger(`billing refresh error: ${String(err)}`))
+      .finally(() => {
+        // 对账失败不该影响下一轮刷新：这里只兜住异常并留痕
+        try {
+          afterRound?.();
+        } catch (err) {
+          logger(`post-refresh hook failed: ${String(err)}`);
+        }
+      });
   }, interval);
   // 定时器不该阻止进程退出（与 auto-signin 的调度器同类）
   refresherTimer.unref?.();
