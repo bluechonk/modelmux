@@ -21,6 +21,21 @@
 
 ## 快速开始
 
+### 从 npm 安装（推荐）
+
+```bash
+npm i -g modelmux        # 装完得到 mx 与 modelmux 两个等价命令
+
+mx start                 # 启动网关（守护式，端口 4412）
+mx login <cid>           # 登录某个渠道（按渠道的登录方式）
+mx model list            # 池视图：有哪些模型（按渠道分组）
+mx web                   # 打印 Web 控制台地址（http://127.0.0.1:4412/web/）
+```
+
+需要 Node ≥ 22.6。`mx` 与 `modelmux` 指向同一个入口，本文统一用 `mx`。
+
+### 从源码运行
+
 ```bash
 npm install          # 装工作区依赖
 npm run build        # 全仓编译（tsc -b + cli 单文件 bundle + copy-ui）
@@ -56,7 +71,7 @@ node scripts/docker-console.mjs   # 在宿主机运行；打开打印的地址�
 ## Web 控制台
 
 `mx web` 起本地控制台（`http://127.0.0.1:4412/web/`）：仪表盘 `/`、账号池 `/accounts`、
-请求日志 `/logs`；对外模型清单与「一键接入」（zcode / dsh）在仪表盘上。
+请求日志 `/logs`；对外模型清单在仪表盘上。
 
 页面结构与交互铁律见 [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md)，用量口径见
 [docs/USAGE-STATS.md](docs/USAGE-STATS.md)。
@@ -72,10 +87,10 @@ node scripts/docker-console.mjs   # 在宿主机运行；打开打印的地址�
 | 模型池与账号池 | [docs/POOL-ARCHITECTURE.md](docs/POOL-ARCHITECTURE.md) |
 | 存储落点 / 日志 / Web 控制台 | [docs/STORAGE-CONVENTION.md](docs/STORAGE-CONVENTION.md) · [docs/LOGGING.md](docs/LOGGING.md) · [docs/WEB-CONSOLE.md](docs/WEB-CONSOLE.md) |
 | Windows 桌面安装版 | [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) |
-| `mx` 命令用法 | [docs/CONTRACT-TS.md §9](docs/CONTRACT-TS.md) |
-| 渠道端到端测试 | 技能 `.agents/skills/dsh-mx-test/SKILL.md` |
+| `mx` 命令用法 | [docs/CONTRACT-TS.md §6](docs/CONTRACT-TS.md) |
+| 渠道端到端测试 | [docs/LOGGING.md §10.9](docs/LOGGING.md)（验收判据） |
 | 日志排查 | [docs/LOGGING.md §10](docs/LOGGING.md) |
-| 收尾流程 | 技能 `.agents/skills/repo-sync/SKILL.md` |
+| 收尾流程 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「收尾」节 · `npm run repo:check` |
 | 渠道用法与上游协议 | [docs/channels/README.md](docs/channels/README.md) · `docs/channels/<cid>/PROTOCOL.md` |
 
 > 技能清单以 [docs/README.md](docs/README.md) §3 的表为准；`verify-docs` 会校验不漏登记。

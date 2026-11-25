@@ -58,7 +58,6 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   选中项等于看不见，2026-11-20 实测）。
 - **开关：开 = 品牌蓝轨、关 = 中性 `overlay` 轨**，钮恒白（iOS 同款做法）；
   红绿留给状态语义（在线 / 异常），不挪作「开 / 关」。
-- **动作色例外**：一键接入里的「还原」用 `warn` 淡黄（`border-warn/45 bg-warn/10 text-warn`）。
   语义是「非破坏性撤销」（写回接入前备份、可反悔），用中性描边会被读成禁用态；
   这是 `warn` 唯一一处非状态用法，新增前先想清楚要不要再借这个色。
 - 标题是**无衬线中黑字重 + 微收字距**（shadcn 口径），不用衬线字体。
@@ -129,7 +128,6 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
   - 不选 = 自动；池里没有可路由模型时整区给空态说明。
 - 右卡「模型清单」：对外模型名 + 平均 TPS + 输入模态 + 上下文 / 最大输出（不显示渠道、不挂状态标签）。
 
-**一键接入**（偏好卡下方独立区块）：开关式卡片，见本文「一键接入（账号池页）」一节。
 
 ### 请求日志 `/web/logs`
 
@@ -161,7 +159,6 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 - **表格**：名称 / 密钥 / 模型 / 限速 / 创建时间 / 操作，固定列宽 + 单元格居中；窄屏只留四列并横向滚动。名称限 24 字。
 - **白名单**：当前模型池的多选 chips，不选 = 全部模型；限速填每分钟请求数，0 = 不限。
 - **复制**：行内复制钮调 `revealApiKey` 取完整明文再写剪贴板（列表接口只下发前缀）。
-- **一键接入专用 key**：名称 `modelmux`，带「一键接入」标注，一键接入恒写这把 key。
 - **校验**：对话请求必须带 `Authorization: Bearer <key>`，装配即校验、无开关。判定顺序 401 无效 key → 403 模型不在白名单 → 429 每分钟超限；模型列表与健康检查不校验。
 - **管理类命令**（createApiKey / updateApiKey / deleteApiKey / regenerateApiKey / revealApiKey）仅限本机直连（按 socket 远端地址判定）。
 - **存储**：`<root>/api-keys.json`（0600，写时留 `.bak`，损坏自愈）。
@@ -218,7 +215,7 @@ UI 的配色、层级与圆角**只在 `index.css` 的 `@theme` 里定义一次*
 ### 配置信息收进设置弹窗
 
 顶栏只回答「现在是什么状态」：导航 + 存活信号 + 主题快捷钮。base_url、版本、
-web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端接入地址在账号池页的一键接入卡片与
+web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端接入地址见
 [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) 都有出处，不需要在顶栏占常驻位；
 设置也不需要一个导航标签：它是「从任何页面顺手查一下、改一下」的动作，弹窗形态
 与「添加账号」同语言，改完即关、不离开当前页面。窄屏收敛梯度也不再为配置信息保留档位。
@@ -296,62 +293,6 @@ web 页入口这类**低频查阅项**统一收进齿轮弹窗 —— 客户端�
 - **不显示渠道**：清单回答的是「这个模型能不能用、快不快」；「是哪家渠道在出」属于网关的调度细节，
   要看去请求日志（`GET /web/api/logs` 的 `cid` 列）。
 - 内联后不再有搜索 / 筛选 / ping / 复制等工具条 —— 模型数只有个位数，这些控件是给几十上百个模型准备的。
-
-### 一键接入（账号池页）
-
-把本机 harness 的模型配置改成网关的对外模型名（deepseek 裸名），省掉手工翻配置文件。
-
-| 目标 | 写入点 | 改写内容 |
-| --- | --- | --- |
-| zcode | `~/.zcode/v2/provider_config.json`（JSON） | modelmux 供应商规则的 `api.baseUrl` 与 `personalModelIds` / `modelOrder`，并补齐 `group` / `access`；`modelConfigRules.providerModelRules` 给这几个模型补 `enabled: true`，并清掉该供应商下已下线的旧模型规则 |
-| dsh | `~/.dsh/profiles/{acp,desktop,headless,web}/cordis.patch.yml`（YAML）+ `~/.dsh/.credentials.yaml` | patch 里 `providers.modelmux.models` 列表整段替换；`acp` profile 再补 `acp` 路由条目（`provider` / `model`）；凭据文件的 `refs` 补 `MODELMUX_API_KEY`（`apiKeyEnv` 指向的名字） |
-
-- **只改模型清单**，不动 baseURL / apiKeyEnv / retryPolicy —— 现有接线通常已正确，越少改动越安全。
-- **两处「不改不行」的例外**：zcode 的个人供应商规则必须带齐 `group` / `access` / `api`，
-  缺任一项就整个供应商不进注册表（`setModel` 报「Provider Registry 中不存在 Model」）；
-  dsh 的 `apiKeyEnv` 只是引用名，必须在 `~/.dsh/.credentials.yaml` 的 `refs` 里有对应条目，
-  否则 Models 页判定该 provider 不可用。两处都只补缺失项，用户已配的密钥原样保留。
-- **`access.apiKey` / `refs.MODELMUX_API_KEY` 的值 = 一键接入专用 key**（API Keys 页里
-  名称 `modelmux` 的那条，带「一键接入」标注）。接入时若它不存在会自动创建（不限模型、
-  不限速）；两处客户端分两次点时，后点的那处**沿用先点那处已写入的明文** ——
-  专用 key 的明文只在创建时落进客户端，网关侧不可回读，否则先点的那处也会拿不到值。
-  密钥值仍有效的客户端原样保留；值已失效又取不到明文时如实报 warning，不写占位串。
-- **写前备份**到 `~/.modelmux/backups/integrate/<target>-<时间戳>/`，同目录一份 `manifest.json`
-  记下每个被改文件的**原路径**与「接入前是否存在」—— 这是「一键还原」的依据（只存文件名
-  无法还原：dsh 各 profile 的补丁同名、且接入新建的文件还原时要删掉）。
-- **一键还原**（与接入并列的按钮）：取该目标**最新一次**备份写回；`existed:false`
-  的文件删除；还原前先把**当前状态**再备份到 `safety-<target>-<时间戳>/`（可反悔）；
-  **不消费备份** —— 同一份「接入前」状态可反复还原，只往清单记 `restoredAt` 留痕
-  （旧版本留下的 `restored-<target>-*` 目录因此仍是有效还原源）。没有备份时如实报错；
-  备份文件缺失或还原失败时整体报失败，不假装成功。
-  配色**必须与接入按钮可辨**：接入是 `border-line-strong` 中性主按钮，还原是 `warn` 淡黄描边 + 淡黄底
-  （`border-warn/45 bg-warn/10 text-warn`，hover 提到 `/16`）——`line` 与卡片描边同色，
-  静止态会被读成禁用的说明文字。
-- **幂等**：内容与目标一致时不落盘（结果只经右下角 toast 提示，卡片内不重复贴一条 —— 会和 toast 撞内容，还会让区块高度跳动）。
-- **有更新时自动同步，无需手动**：接入成功时把当时的对外模型清单与**专用 key 指纹**
-  （`<id>:<密文哈希前 16 位>`，只记哈希不记明文）记进标记文件
-  （`backups/integrate/<target>.state.json`）。快照侧 `integrationUpdates`（`app/integrate.ts`）比两项：
-
-  - 模型清单集合 diff；
-  - key 指纹与当前不一致（key 被重置 / 重建 → 客户端那把已失效）。
-
-  自动同步：网关后台定时器每 60 秒跳一次，按设置页「检查间隔」（`setting.json` 的 `integration_sync_interval_s`，默认 60s，0 = 关闭）决定是否调 `syncIntegrations()` 重跑接入。**用户接入一次后不需要再管**，key 轮换与模型上下线都由程序写进客户端。
-
-  | 命令 | 权限 |
-  | --- | --- |
-  | `integrationSync`（读间隔） | 公共面 |
-  | `setIntegrationSync`（写间隔） | admin，仅本机直连 |
-
-  能改这条等于能关掉自动同步或触发高频重写客户端配置，与 `setChannelEnabled` 同口径。卡上的「更新」胶囊是同一件事的手动触发（橙点 + warn 淡底），差异明细只进 `aria-label`；老标记缺 `models` / `keyFingerprint` 按「判不了」处理不误报；未接入不亮。
-- **警告单独弹**：接入返回的 `warnings`（备份清单读不出、备份未登记 等）与还原返回的
-  `notes`（跳过条目、备份缺失）都逐条弹 info toast。接入的 `warnings` 与 `notes`
-  （「做了什么」的变更说明）分开传：混在一起会被当噪音忽略，「已接入」就成了假象。
-  失败时 `warnings` 拼进 `error`（命令信封的 err 分支只带 error）。
-- 实现放 app 层（`app/integrate.ts`），控制台（http 层）经 `ControlBridge.integrate` / `.restore` 注入调用 ——
-  写的是客户端配置（`~/.zcode` / `~/.dsh`），不是网关运行时，故不能放在 http 层（见 `scripts/verify-layering.mjs`）。
-- dsh 是**文本级**改写（共享层零依赖，不能引 YAML 解析器）：只定位 `providers.modelmux` 块下的
-  `models:` 列表并整段替换，其余行原样保留（`desktop` 的 patch 里还有**其它 provider**，
-  整条替换会误删）。
 
 ### 响应式适配（「被挤压时做好适配」）
 

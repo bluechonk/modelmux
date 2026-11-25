@@ -1,7 +1,7 @@
 # Loomy 协议规格（讯飞）
 
-实现见 `packages/core/channels/loomy/src/`；微信扫码与账号密码两条**本仓不实现**登录路的逆向结论见
-[FINDINGS.md](./FINDINGS.md)（仅作参考，别照着重写）。
+实现见 `packages/core/channels/loomy/src/`。微信扫码与账号密码两条登录路**本仓不实现**，
+理由见 §2.1 与文末「不实现的能力」。
 
 ---
 
@@ -36,7 +36,7 @@
 
 ### 1.2 账号域（登录，全部 HMAC-SHA1 签名）
 
-**本渠道只使用下面两条**（其余端点属于本仓不实现的登录路，见 [FINDINGS.md](./FINDINGS.md)）：
+**本渠道只使用下面两条**（其余端点属于本仓不实现的登录路，见文末「不实现的能力」）：
 
 | 用途 | 方法 | 端点路径 | param | 认证 |
 |---|---|---|---|---|
@@ -44,19 +44,19 @@
 | **手机验证码换 session** | POST | `/login/phone/checkCode` | `{ "ccode": "86", "phone", "mcode", "msgid", "expire": 1209600 }` | HMAC-SHA1 |
 
 **没有 refresh 端点**（`packages/core/channels/loomy/src/cred.ts`）：`session` 是登录时声明 14 天得来的，
-过期只能**重新走登录流程**（再收一次短信）。
-故 `isLoomyRefreshable` **恒返回 false** —— 诚实标记，不是遗漏。
+过期只能**重新走登录流程**（再收一次短信）。渠道因此不声明任何续期钩子。
 
-超时：业务请求 60s，模型目录 30s（对应 `LOOMY_REQUEST_TIMEOUT_MS = 60_000`）。
+超时：业务请求 60s（`HTTP_TIMEOUT_MS`），模型目录 30s（`MODELS_TIMEOUT_MS`）。
 
 ### 1.3 业务成功与错误码
 
-常量定义见 `packages/core/channels/loomy/src/upstream.ts:39-41`。
+常量定义见 `packages/core/channels/loomy/src/upstream.ts` 的 `OK_CODE` / `AUTH_ERROR_CODE` /
+`BAD_REQUEST_CODE`。
 
 ```
-LOOMY_OK_CODE         = '000000'   业务成功
-LOOMY_AUTH_ERROR_CODE = '100002'   登录失效 —— 收到它不得重试
-LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
+OK_CODE          = '000000'   业务成功
+AUTH_ERROR_CODE  = '100002'   登录失效 —— 收到它不得重试
+BAD_REQUEST_CODE = '100001'   参数错误（如未知 task key）
 ```
 
 **Loomy 的业务失败恒返回 HTTP 200**，成败只能读 body 的 `code`。
@@ -88,8 +88,7 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 发码失败的常见原因：手机号格式不对（要 11 位大陆号）、发码过于频繁（上游限流）。
 `msgid` 有效期与验证码同步（300 秒），超时需重新发码。
 
-> **本仓不实现的两条路**（微信扫码 / 账号密码）的端点、签名与踩坑记录见
-> [FINDINGS.md](./FINDINGS.md) —— 那里是**参考记录**，代码里已经没有对应实现，
+> **本仓不实现的两条路**（微信扫码 / 账号密码）在代码里没有对应实现，
 > 不要照着重写（尤其别再引入 `LOOMY_PASSWORD` / `LOOMY_LOGIN_ID`）。
 
 ### 2.2 必需请求头清单
@@ -106,7 +105,7 @@ LOOMY_BAD_REQUEST_CODE= '100001'   参数错误（如未知 task key）
 | `Content-Type` | 常量 `application/json` | 否 | — | — |
 | `traceparent` | `00-<32 hex>-<16 hex>-01`，**每请求新生成** | 否（链路追踪） | 每请求 | `[参考]` 标注为**必需**（缺失会挂死到超时）；本仓 2026-10-19 端到端**未发也跑通** → **待真机 A/B 复核** |
 | `loomy-version` | 常量 `0.9.39`（官方客户端版本号） | 否（网关只检查它存在） | — | `[参考]` 0.9.39 为官方 CDN 实测最新版（2026-11-14）；已对齐 |
-| `X-Loomy-Request-Purpose` | 常量 `chat.message` | 否（服务端积分归属记账） | 每请求 | attribution 五头之一，经 `buildChatHeaders` 钩子下发（见 §2.2.2） |
+| `X-Loomy-Request-Purpose` | 无图 `chat.message`；**请求体带图片分片时 `kb.vision`** | 否（服务端按用途**路由链路**并记账） | 每请求 | attribution 五头之一，经 `buildChatHeaders` 钩子按请求体取值（见 §3.3 ③、§2.2.2） |
 | `ChatId` / `MsgId` / `TurnId` | `chat-<uuid>` / `msg-<uuid>`，**每请求新生**（`TurnId`=`MsgId`） | 否（会话关联） | 每请求 | attribution 五头；会话级稳定 + 每请求新 msgid 会被判同对话并发/重放（偶发 409，生态实测） |
 | `InvokeOrigin` | 常量 `user` | 否 | 每请求 | attribution 五头之一 |
 
@@ -145,7 +144,7 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 
 ### 2.3 凭据字段
 
-实现见 `packages/core/channels/loomy/src/cred.ts:74-89`。
+实现见 `packages/core/channels/loomy/src/cred.ts:56-71`。
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
@@ -159,7 +158,7 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 
 ### 2.4 账户请求信封
 
-实现见 `packages/core/channels/loomy/src/cred.ts:224-236`。
+实现见 `packages/core/channels/loomy/src/cred.ts:206-218`。
 
 ```json
 {
@@ -202,13 +201,14 @@ chat 端点两个都发是因为官方客户端在 session 模式下也是两个
 ### 2.6 本仓不实现的登录路（参考）
 
 微信扫码与账号密码两条路**本仓不实现**（判据见 §2.1）。
-它们的完整逆向结论（授权页 uuid 提取、长轮询状态机、粘贴兜底、`bind` 四步、
-`getPuKey` + `byPwd` 的 RSA 加密形态）见 [FINDINGS.md](./FINDINGS.md)，
-**仅作参考** —— 不要据此重写实现。
+
+> 以下为**参考实现的观察，本仓未核**（无实现、`reference/` 未 clone），不作为实现依据：
+> 其实现者记录「授权页每次加载生成新 uuid，长轮询认 uuid 而非 state」「回调页线上 404，
+> 只能让用户粘回地址栏链接」。恢复这两条路之前需自行真机验证。
 
 ### 2.7 签名算法（逐字节复刻客户端）
 
-实现见 `packages/core/channels/loomy/src/cred.ts:168-216`。
+实现见 `packages/core/channels/loomy/src/cred.ts:150-204`。
 
 **Python 标准库完全可以实现**（`hashlib` / `hmac` / `base64` / `uuid` / `email.utils`，无需第三方）。
 
@@ -276,7 +276,7 @@ body_str = json.dumps(body, separators=(',',':'))
 
 #### 2.7.4 密钥来源
 
-取值见 `packages/core/channels/loomy/src/cred.ts:39-42`。
+取值见 `packages/core/channels/loomy/src/cred.ts:22-24`。
 
 ```
 accessKeyId     = <讯飞 AccessKey id>
@@ -342,10 +342,17 @@ token: <session>
 -  **默认档位用本插件自己的 `high`，不采信远端的 `default_reasoning_effort`（它声明的是 `low`）**
 -  默认档必须落在该模型的 `efforts` 内
 
-**③ 图片输入**
+**③ 图片输入：缺的不是能力，是用途头**
 
-- 能力来自远端 `capabilities.input_modalities` 含 `image`
--  **过滤判据是 `type === 'chat'`，不能看 `input_modalities`**
+- 能力标记来自远端 `capabilities.input_modalities` 含 `image`；**过滤判据是 `type === 'chat'`，
+  不能看 `input_modalities`**
+- **但只有能力标记不够**：服务端按 `X-Loomy-Request-Purpose` 决定请求走哪条链路。
+  本机真机 A/B（2026-11-25，64×64 纯红 PNG，`deepseek-v4.1-flash`，仅改这一个头）：
+  - 发 `chat.message` → `prompt_tokens` **63**（图片没进上下文），答「无法确定」
+  - 发 `kb.vision` → `prompt_tokens` **137**，答「红色」
+- 故 `buildChatHeaders` 读网关传入的已序列化请求体，命中 `image_url` 分片时发 `kb.vision`
+  （判定函数 `hasImagePart`）；`kb.vision` 也是官方客户端为带图请求选取的路由，
+  计费归属与之一致
 - 兜底表不声明图片能力（宁可少报）
 
 ---
@@ -403,7 +410,7 @@ Qwen 3.8 Max (x12.0)      ← 半角括号
 GLM 5.3 Flash(x0.8)       ← 括号紧贴
 ```
 
-`splitLoomyRate` 认**两种**形态：
+`splitRate`（`src/catalog.ts`）认**两种**形态：
 1. 末尾括号：`^(.*?)\s*[（(]\s*(x\s*[\d.]+)\s*[)）]\s*$`（忽略大小写）
 2. 已规范化：`^(.*?)\s*·\s*(x\s*[\d.]+)\s*$`（忽略大小写）
 
@@ -412,11 +419,13 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 最终展示名：`{name} · {rate}`（无倍率时不追加分隔符）。
 倍率必须拼进 `name`（**不是** `description`）。
 
-### 5.4 兜底静态模型表（9 条）
+### 5.4 兜底模型表（9 条，数据不是代码）
 
-实现见 `packages/core/channels/loomy/src/catalog.ts:53-63`。
+读取实现见 `packages/core/channels/loomy/src/catalog.ts:67-76` 的 `seedTable()`：
+清单落在**随包快照**（构建产物 `packages/cli/dist/models/loomy.json`，首启浇种到
+`<root>/channels/loomy/models.json`），代码只读与归一化，没有内联表。
 
-来源：2026-10-19 实测 `GET /api/v1/models`，取 `type === 'chat'` 的 9 条
+内容来源：2026-10-19 实测 `GET /api/v1/models`，取 `type === 'chat'` 的 9 条
 （含 `DeepSeek-V4.1-Flash`）。
 
 | id | name | contextWindow |
@@ -441,7 +450,7 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 
 ### 5.5 缓存策略
 
-实现见 `packages/core/channels/loomy/src/catalog.ts:311-345`。
+实现见 `packages/core/channels/loomy/src/catalog.ts:266-296`（刷新）与 `:322-333`（触发）。
 
 原实现是 `this.remoteModels = fallback; return fallback` —— 把兜底表当成「已加载」记下，
 于是一次瞬时失败会让该 provider **整个进程生命周期**都只剩兜底模型。
@@ -453,7 +462,7 @@ GLM 5.3 Flash(x0.8)       ← 括号紧贴
 
 ### 6.1 两个积分池
 
-定义见 `packages/core/channels/loomy/src/billing.ts:6-12`。
+定义见 `packages/core/channels/loomy/src/billing.ts:15-28`。
 
 - **永久积分**：注册奖励 5000 + 新手任务 10000（`balance`）
 - **每日赠送池**：每天 5000，**消耗后不回补**（`dailyBalance`）
@@ -525,7 +534,7 @@ body: {}
 
 ### 6.4 新手任务
 
-实现见 `packages/core/channels/loomy/src/billing.ts:35-46`。
+实现见 `packages/core/channels/loomy/src/billing.ts:30-39`。
 
 ```
 GET  /api/v1/onboarding/tasks            → { tasks: {8个key: bool}, earned, total }
@@ -673,7 +682,10 @@ spark-x 适合不在乎延迟的批量任务。
 每日池 **5000 分/天**（`dailyQuota=5000`，见 §6.3），**按模型的倍率扣**。
 额度周期由 `billing.quotaPeriod()` 声明（Web 账号池卡片直接显示「每天签到送 5000 积分」，
 刷新时刻不进文案、只走 `resets_at` 供冷却判定）；
-用完 → 账号进**冷却**（`health: "cooldown"`，次日 0 点自动恢复），不再显示「不可用」。
+用完 → 账号进**冷却**（`health: "cooldown"`），不再显示「不可用」。
+
+**重置时刻按本机时区的次日 0 点**（`billing.ts` 的 `nextLocalMidnight`）：本机为
+UTC+8 时即北京 0 点。改本机时区会改变这个时刻，而上游窗口固定按北京 0 点切分。
 
 | 模型 | 倍率 | 5000 分能跑多久 |
 |---|---|---|
@@ -695,7 +707,7 @@ spark-x 适合不在乎延迟的批量任务。
 
 ### 9.7 怎么测这个渠道
 
-端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 直连 `http://127.0.0.1:4412/v1` 跑真实会话（验收判据见 [LOGGING.md §10.9](../../LOGGING.md)）：
 
 ```bash
 mx login loomy           # 登录入池（手机验证码两步，见上）
@@ -707,6 +719,19 @@ mx bill loomy            # 额度与倍率（测试后核对是否扣费）
 ### 9.8 端到端测试覆盖
 
 登录入池 / `mx model loomy --refresh` / 最小对话 / 工具调用往返 / 流式 SSE。
+
+### 9.9 2026-11-25 端到端实测（用途头与图片路由）
+
+同一账号、同一张 64×64 纯红 PNG、`deepseek-v4.1-flash`，**只改 `X-Loomy-Request-Purpose`**
+（直连上游，脚本 `.tmp/loomy-vision-ab.mjs`）：
+
+| purpose | HTTP | prompt_tokens | completion | 回答 |
+| --- | --- | --- | --- | --- |
+| `chat.message` | 200 | **63** | 1479（其中 reasoning 1475） | 「无法确定」 |
+| `kb.vision` | 200 | **137** | 56（reasoning 51） | 「红色」 |
+
+结论：图片分片**必须**配 `kb.vision` 才会被编码进上下文；发 `chat.message` 时模型根本看不到图
+（两次各消耗 1 积分）。这条同时解释了「目录声明了 vision 却仍读不到图」的现象。
 
 ## 10. 参考实现
 
@@ -726,8 +751,8 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 | 能力 | 原因 |
 |---|---|
-| 账号密码登录（`/login/account/getPuKey` + `byPwd`） | **本渠道不实现**：要长期保存明文密码，且需先在讯飞账号中心设密码（参考实现注明**没有设 / 改密端点**）；换来的只是「不用收短信」，不值得。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
-| 微信扫码登录（授权页 + 长轮询 + `bind/*` 四步） | **本渠道不实现**：无浏览器环境下注定别扭（授权页每次加载新 uuid、回调页线上 404 只能粘回）。逆向结论存 [FINDINGS.md](./FINDINGS.md) |
+| 账号密码登录（`/login/account/getPuKey` + `byPwd`） | **本渠道不实现**：要长期保存明文密码，且需先在讯飞账号中心设密码（参考实现注明**没有设 / 改密端点**）；换来的只是「不用收短信」，不值得 |
+| 微信扫码登录（授权页 + 长轮询 + `bind/*` 四步） | **本渠道不实现**：无浏览器环境下注定别扭（授权页每次加载新 uuid、回调页线上 404 只能粘回） |
 | 导入桌面客户端已登录 session（`auth-session.json`） | 依赖本机客户端安装目录与本地文件，越出「本渠道自持凭据」的边界 |
 | 浏览器自动化扫码（驱动 Chromium 拿 code） | 需要本机浏览器；短信路已实测跑通，无此必要 |
 | `/embeddings`、`/images/generations`、`/search/tencent` | 上游有，但本渠道定位是 **OpenAI 兼容对话网关**；我们是否可用、返回形状均未验证 |

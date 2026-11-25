@@ -1,7 +1,7 @@
 # Raccoon 协议规格（商汤小浣熊）
 
-实现见 `packages/core/channels/raccoon/src/`；本仓不实现路径的协议备查见
-[FINDINGS.md](./FINDINGS.md)。
+实现见 `packages/core/channels/raccoon/src/`。本仓不实现的登录路径（短信 / 阿里云验证码）
+其协议形态与判据见 §2.3。
 
 ---
 
@@ -70,55 +70,66 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 「登录在镜像、对话在官方」，镜像签发的 token 被官方拒 401）。
 
 **关键常量**：
-- `RACCOON_REQUEST_TIMEOUT_MS = 60_000`
-- `RACCOON_LOGIN_TIMEOUT_MS = 5 * 60 * 1000`（等待用户完成网页登录）
-- `RACCOON_TOKEN_REFRESH_WINDOW_SECONDS = 300`（access_token 寿命约 3 小时，实测 `exp - nbf = 10805s`）
+- 业务请求超时 `HTTP_TIMEOUT_MS = 60_000`
+- 登录轮询窗口 `LOGIN_TIMEOUT_MS = 5 * 60 * 1000`（等待用户完成网页登录）
+- access_token 寿命约 3 小时（JWT `exp - nbf = 10805s`），到期靠 401/403 触发续期
 - 授权页参数：本地回调模式 `appname='办公小浣熊客户端' + redirect=http://127.0.0.1:<port>/callback`
   （不带 `login_source`）；兼容 desktop 模式 `login_source='desktop'`
 - 回调：本地 `http://127.0.0.1:<port>/callback?authorization_code=…&state=…`（主路径）；
   `office-raccoon://auth/callback?code=…&state=…`（桌面客户端兼容）；换码失败业务码 `200035`
-- `clientPlatform = 'desktop-windows'`、`clientVersion = 'v1.0.35'`、
- `userAgent = 'Raccoon Work/1.0.35 (Windows)'`
+- 客户端身份常量（`src/upstream.ts`）：`CLIENT_PLATFORM = 'desktop-windows-x64'`、
+  `CLIENT_VERSION = 'v1.1.5'`、`USER_AGENT = 'Raccoon Work/1.1.5 (Windows)'`
+  （官方桌面端 1.1.5；旧文档写的 `desktop-windows` / `v1.0.35` 已过期）
 
 ---
 
 ## 2. 认证
 
 **本渠道只有一条登录路径**：授权码网页登录（§2.4）。短信验证码链路与阿里云验证码
-本仓不实现，仅保留协议事实备查（见 [FINDINGS.md](./FINDINGS.md)）。
+本仓不实现，仅保留协议事实备查（见 §2.3）。
 
 ### 2.1 必需请求头清单
 
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 |---|---|---|---|---|
-| `Authorization` | `Bearer <access_token>`；token 来自授权码换凭证或续期 | **是** | HTTP 401/403 或 `code === 200003` → 续期一次并同账号重试 | 上游**只认这个头**：`token` / `X-Access-Token` / `Cookie` 均 401 `[参考]`（`reference/raccoon2api/README.md:37`） |
+| `Authorization` | `Bearer <access_token>`；token 来自授权码换凭证或续期 | **是** | 见下方「401/200003 的处置」 | 上游**只认这个头**：`token` / `X-Access-Token` / `Cookie` 均 401 `[参考]`（`reference/raccoon2api/README.md:37`） |
 | `Content-Type` | 固定 `application/json` | 否 | — | 有 body 时必带 |
 | `Accept` | 对话 `text/event-stream`；JSON 端点 `application/json` | 否 | — | 参考实现对话用 `*/*` `[参考]`，本仓用更严格的子集 `[实测]` |
 | `X-Org-Code` | `office_identity`（个人账号为空串） | 否 | 随凭据 | 参考实现**完全不发**该头 `[参考]` |
 | `X-Raccoon-Language` | 固定 `zh` | 否 | — | 参考实现只在签到链路发 `[参考]` |
-| `X-Client-Platform` | 固定 `desktop-windows` | 否 | — | 对 `desktop/v1/login/points/grant` **必需**（依据主进程 `desktopDeviceIdentity.js` 的 `resolveDesktopClientPlatform`，`win32` → `desktop-windows`），猜错会被拒 |
-| `X-Client-Version` | ~~固定 `v1.0.35`~~ | 否 | — | **本仓不发**：只随短信登录发出（全仓无其它发送方）；参考实现在签到/grant 链路上带 `v1.0.0` `[参考]`，是否该补待真机验证（见 §10.2） |
-| `X-Client-Device-ID` | ~~32 位 hex 设备指纹~~ | 否 | — | **本仓不发**：同上，只随短信登录发出；`device_id` 字段随之不再落盘（老凭据里的该字段读到即忽略） |
-| `User-Agent` | 固定 `Raccoon Work/1.0.35 (Windows)` | 否 | — | **对话请求实际不带**（只有鉴权端点与模型目录/user_info 带）；参考实现把 UA 做成可配 `[参考]` |
+| `X-Client-Platform` | 固定 `desktop-windows-x64` | 否 | — | 客户端身份六件套之一，由 `buildChatHeaders` 下发（旧文档写 `desktop-windows`） |
+| `x-client-version` | 固定 `v1.1.5`（小写头名） | 否 | — | 必须匹配 `v?<x.y.z>`，不合法时整组身份头被上游丢弃 |
+| `x-client-device-id` | access_token 派生的 32 hex | 否 | — | 按令牌派生而非落盘的 `device_id`；凭据里不存设备指纹 |
+| `User-Agent` | 固定 `Raccoon Work/1.1.5 (Windows)` | 否 | — | 基础对话族**不带**，只有 JSON 端点族（`jsonHeaders`）带；参考实现把 UA 做成可配 `[参考]` |
 
-**三种请求形态**（`src/upstream.ts` 的 `buildHeaders` / `jsonHeaders`）：
+**两种请求形态**（`src/upstream.ts`）：
 
-- **对话**：`Authorization` + `X-Org-Code` + `X-Raccoon-Language` + `Content-Type` +
-  `Accept: text/event-stream` + `X-Client-Platform` = **6 个头**（**不含** UA）
-- **模型目录 / user_info**：`Accept: application/json` + `Authorization` + `X-Org-Code` +
-  `X-Raccoon-Language` + `User-Agent` = **5 个头**（**不含** platform）
-- **鉴权端点（换码 / 续期）**：`Accept` + `Authorization`（空值）+ `X-Org-Code` +
-  `X-Raccoon-Language` + `User-Agent`（+ `Content-Type`）
+- **基础族**（`buildHeaders`，也用于业务端点）：`Authorization` + `X-Org-Code` +
+  `X-Raccoon-Language`，对话再加 `Content-Type` + `Accept: text/event-stream` +
+  `X-Client-Platform` = **6 个头**
+- **对话专用族**（`buildChatHeaders`，网关 `buildChatHeaders` 钩子）：在基础族上再追加
+  客户端身份五件（`x-client-name` / `x-client-platform` / `x-client-version` /
+  `x-client-os-version` / `x-client-channel` / `x-client-device-id`）与链路关联三件
+  （`X-Request-Id` / `X-RACCOON-Session-ID` / `X-RACCOON-Turn-ID`）
+- **JSON 端点族**（`jsonHeaders`：模型目录 / user_info / 账单）：基础族的 `Accept` 换成
+  `application/json` 并加 `User-Agent`
 
-本仓的对话形态比两份参考实现**多发 3 个头**（`X-Org-Code` / `X-Raccoon-Language` /
-`X-Client-Platform`）：参考实现各只发 3 个（`Content-Type` / `Accept` / `Authorization`）`[参考]`
-（`reference/agent2api/.../providers/raccoon/mod.rs:122-127`、
+本仓的对话形态比两份参考实现**多发多项**（`X-Org-Code` / `X-Raccoon-Language` /
+客户端身份六件套 / 会话关联头）：参考实现各只发 3 个（`Content-Type` / `Accept` /
+`Authorization`）`[参考]`（`reference/agent2api/.../providers/raccoon/mod.rs:122-127`、
 `reference/xiaohuanxiong2api/src/internal/upstream/client.go:103-108`）。
 多发通常无害，但是否被上游用于风控判定**未验证**（见 §10.2）。
 
+**两处 401 / `200003` 语义不同**，不要混谈：
+
+- **业务端点**（对话 / 目录 / 额度）回 HTTP 401/403 或 `code === 200003` → access_token
+  失效，**续期一次并同账号重试**（`billing.fetchCredits` 的 `refreshOn401`；对话链路同理）
+- **续期请求本身**回 HTTP 401 或 `code === 200003` → refresh_token 也被吊销，
+  抛 `RefreshTokenExpiredError` **终态**，只能重新走网页登录（见 §2.6）
+
 ### 2.2 凭据字段
 
-实现见 `packages/core/channels/raccoon/src/cred.ts:99-115`。
+实现见 `packages/core/channels/raccoon/src/cred.ts:63-78`。
 
 | 字段 | 必需 | 说明 |
 |---|---|---|
@@ -143,16 +154,63 @@ RACCOON_OFFICE_PREFIX  = '/api/web/office/v3'      # 每日积分触发器挂在
 本仓**只取原值**、不做 hex→十进制换算（换错了比空值更难排查）`[推断]`；
 真机确认哪个字段才是用户 id 之前不下定论（见 §10.2）。
 
-**过期时间取值优先级**（`packages/core/channels/raccoon/src/cred.ts:177-190`）：
-`expires_at`（显式字段）→ **JWT 的 `exp`**（本地 base64url 解码 payload，**只解码不验签**）
+**过期时间取值优先级**（`src/cred.ts` 的 `expiresAtMs`）：`expires_at`（显式字段）
+→ **JWT 的 `exp`**（本地 base64url 解码 payload，**只解码不验签**）
 
 **回退到 JWT 是必需的，不是锦上添花**：`expires_at` 是可选字段，
 老凭据或手工导入的凭据可能没有它。只读 `expires_at` 会让过期判定**恒为 false**，
-于是 `refreshAll` 永远跳过这些账号 —— 表现为「凭据悄悄过期、续期从不触发」（静默失效，无任何报错）。
+于是这些账号的凭据一直被判为有效 —— 表现为「凭据悄悄过期、直到上游回 401 才暴露」。
 
 ### 2.3 本仓不实现的三条路径（协议事实备查）
 
-手机号 AES-128-CFB 加密、短信验证码登录、阿里云验证码三条路径本仓均无实现，协议形态与「为什么删」的判据见 [FINDINGS.md](./FINDINGS.md)。
+三条路径**本仓均无实现**（`encryptPhone` / `sendSms` / `loginWithSms` 与本地登录页都已删除），
+也不构成第二条登录路径。保留端点形态只为将来若要恢复时有据可依 ——
+**恢复前必须先解决 `captcha_param`（阿里云滑块产物）的来源问题**。
+
+**为什么删**：授权码路径有端到端实测，短信路径一条都没有；`send_sms` 的 `captcha_param`
+必需而本仓没有任何代码能产出该产物；三份参考实现全树检索 `send_sms` /
+`login_with_sms` / `aes-128-cfb` 零命中，两家都只实现授权码一条。
+
+**手机号加密形态**（`send_sms` 的 `phone` 字段要求）：
+
+```text
+key   = 16 字节公开常量（客户端硬编码在前端 bundle 里，不是安全边界）
+iv    = 随机 16 字节
+mode  = CFB, padding = NoPadding（CFB 是流密码，setAutoPadding 输出一致）
+输出  = Base64(iv ‖ ciphertext)
+```
+
+必须显式写 `aes-128-cfb`：密钥是 16 字节，写成 `aes-256-cfb` 会因长度不足抛错。
+不加密直接提交时上游回 `100003 params_encryted_error`。
+
+**第 1 步 发短信**：
+
+```text
+POST https://xiaohuanxiong.com/api/web/auth/v1/send_sms
+body: { "captcha_param": "<阿里云滑块产物>", "nation_code": "86", "phone": "<加密后 base64>" }
+```
+
+`captcha_param` 必需，缺失回 `100006 captcha_verify_error`。
+
+**第 2 步 登录**：
+
+```text
+POST /api/web/auth/v1/login_with_sms
+body: { "nation_code": "86", "phone": "<加密后>", "sms_code": "<6位>" }
+→ { code: 0, data: { access_token, refresh_token, office_identity } }
+```
+
+**阿里云验证码**（产出 `captcha_param`，本仓不加载该脚本）：
+
+```text
+script src = https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js
+sceneId    = 1pkmy0x3
+prefix     = hk1r5l
+mode       = popup
+language   = cn
+```
+
+脚本未加载（离线 / 被拦截）时退化为提交空 `captchaParam`，让服务端报明确原因。
 
 ### 2.4 唯一登录路径：授权码网页登录（本地回调）
 
@@ -192,8 +250,7 @@ body: { "authorization_code": "<回调里的 authorization_code>" }
 ### 2.5 未采纳的登录路径
 
 短信验证码链路（`send_sms` / `login_with_sms` / 阿里云滑块）**结构上跑不通、零实测、
-参考实现零背书**，故只保留授权码网页登录一条；「为什么删」的四条判据与协议备查见
-[FINDINGS.md](./FINDINGS.md)。
+参考实现零背书**，故只保留授权码网页登录一条；判据与协议形态见 §2.3。
 
 另两条**协议事实级**的落选项同样不采纳：
 
@@ -260,7 +317,7 @@ state 逐字校验、一次性消费，回调解析要求 `scheme=office-raccoon
 `path=/callback` 全等，不做前缀匹配。
 
 **短信登录链路本仓不实现**（`send_sms` + `login_with_sms` 与手机号本地校验一并删除）——
-理由与协议备查见 [FINDINGS.md](./FINDINGS.md)；本渠道**只有授权码网页登录一条**。
+判据与协议形态见 §2.3；本渠道**只有授权码网页登录一条**。
 
 ---
 
@@ -343,40 +400,32 @@ thinking.type: expected one of `adaptive`, `enabled`, `disabled`
 客户端注释说 `extra_body` 双层嵌套是 **LiteLLM SDK 的调用约定**
 —— 但实测**单层才生效**，故以实测为准。
 
-**故本插件只暴露两态**：
-```
-RACCOON_EFFORT_ON  = 'on'    → extra_body.thinking = { type: 'enabled' }
-RACCOON_EFFORT_OFF = 'off'   → extra_body.thinking = { type: 'disabled' }
-展示名：on → '开启'，off → '关闭'
-默认档位 = 'on'
-```
+**实现口径**（`src/upstream.ts` 的 `resolveThinkingType`）：取值优先级为
+合法 `extra_body.thinking` > 合法顶层 `thinking` > `reasoning_effort`；三处都没有则
+**不发该字段**。顶层的 `reasoning_effort` 与 `thinking` 会被删掉，绝不通透。
 
--  id 用 `on` 而不是 `high`：服务端虽接受 `high` 字样，
- 但它走的是 `reasoning_effort` 通道、**实测无效果**
--  展示名用「开启 / 关闭」而非「深度思考 / 关闭思考」—— 理由是**如实**：
- 我们能表达的只有「思考开 / 关」这一个布尔维度
--  **所有 6 个可见模型都返回这两档** —— 实测 `extra_body.thinking` 是 **provider 级方言**，
- 与模型无关。故不做 per-model 分派（那会是凭空猜测）
-- 默认档位 = `on` 的依据：实测「不发参数」与「显式 `{type:'enabled'}`」的思考量**等价**
--  **不传档位时返回 `undefined`**（不发该字段）
--  只有明确的「关闭」才关；未知档位一律按开启处理
+- 服务端接受的枚举是 `adaptive` / `enabled` / `disabled`（`THINKING_TYPES`），
+  没有 `on` / `off`
+-  `reasoning_effort` 中 `off`/`none`/`disabled`/`false`/`no`/`0` → `disabled`，
+  其余任何值 → `enabled`：只有明确的「关闭」才关，未知档位按开启处理
+-  默认（不发字段）与显式 `{type:'enabled'}` 的思考量**等价**（实测）
+-  实测 `extra_body.thinking` 是 **provider 级方言**，与具体模型无关
+  ⇒ 不做 per-model 分派（那会是凭空猜测）
 
 ### 3.4 特殊约束
 
 **① `max_tokens` 只放行安全正整数**
-远端是外部输入：`0` / 负数 / `NaN` 会让 DSH 在 `defaultMaxTokens` 的硬校验上抛
-`INVALID_MODEL_MAX_TOKENS`，**整轮对话起不来**（不是降级，是崩）。
+远端是外部输入：`0` / 负数 / `NaN` 会让下游 harness 在最大输出校验上直接报错，
+**整轮对话起不来**（不是降级，是崩）。实现见 `src/upstream.ts` 的 `sanitizeMaxTokens()`。
 
-**② 图片约束按请求体字节卡（不是 token 预算）**
+**② 图片约束是上游的请求体字节上限，本仓不做预裁剪**
 
 实测 `HTTP_413: request body exceeds 10MB` —— 一张 2560×1600 的截图
-（原图 2.87 MiB → base64 后 ≈3.9 MB）过、四张必爆。
+（原图 2.87 MiB → base64 后 ≈3.9 MB）过、四张必爆。实现侧只负责如实透传 413，
+不预先按像素或字节裁图。
 
-- `imageMaxBytes = 512 * 1024`（base64 膨胀 4/3 → 每张约占 683 KB，10 MB 的配额可放约 **14 张**）
-- `imagePixelBudget = 640_000`
--  这是「每张固定预算」路线的固有上限
-
-**③ 401 / 403 时续期一次并重试**
+**③ 401 / 403 先续期一次并重试**；只有续期请求本身被拒才是终态
+（两层语义见 §2.1「两处 401 / `200003` 语义不同」）。
 
 ---
 
@@ -478,33 +527,23 @@ X-Raccoon-Language: zh
 `tags` 的真实用途是**客户端「Raccoon-Auto 选模」的偏好标签** —— 它回答的是
 「该模型适不适合处理这类任务」，**不是**「能不能吃图」。
 
-**判定函数**：
-```python
-def raccoon_supports_image(model_id, tags):
-   if model_id in RACCOON_IMAGE_CAPABILITY_OVERRIDES:   # {'sn-deepseek-v4-1-flash', 'sn-glm-5-3-flash'}
-       return True
-   return any(t in tags for t in ('vision', 'image', 'image-understanding'))
-```
-
-用显式白名单而不是「恒 true」：只覆盖**实测确认**的个案。
-兜底表路径**不走本函数**：它的真相源是 `RACCOON_FALLBACK_MODELS[].supportsImage`。
+**判定顺序**（`src/catalog.ts` 的 `supportsImage`）：条目自带 `supportsImage` 声明
+（随包快照的 `models.json`）为 `true` → 直接可用；否则看远端 `tags` 是否含
+`vision` / `image` / `image-understanding`。没有「按模型 id 的硬编码白名单」——
+已确认的个案是**数据**（快照里的 `supportsImage` 字段），不是代码分支。
+兜底表条目同样以该字段为准。
 
 **顺带发现：`sn-glm-5-3` 节点不一致（provider 侧缺陷）**
 它 3 次里只对 1 次。错误体暴露网关有 3 个 fallback 组
 （`raccoon-4eb26a` / `raccoon-0c119c` / `raccoon-ecc5fd`），**部分节点是纯文本的**。
 
-### 5.4 展示名规则
+### 5.4 倍率字段解析（不做展示名拼接）
 
-实现见 `packages/core/channels/raccoon/src/catalog.ts:224-254`。
-
-**1 倍也要显示**：省略 1 倍会让该模型在列表里**看起来没有计费信息**。
-
-三条规则：
-- 生效价为 **0** → 显示「免费」（**不是** `x0`）
-- 生效价**严格小于**原价 → 显示 `x原价→x折后价`
-- 其余（**含 1 倍**）→ 显示 `x生效价`
--  非有限数 / 负数：不追加后缀
-- 倍率格式化：最多 4 位小数并去掉尾随 0
+远端的 `billing_effective_multiplier`（当前生效）、`billing_multiplier`（原价）、
+`billing_status`、`billing_status_note` 被解析进目录条目（`src/catalog.ts` 的
+`ModelEntry`），供池层取倍率用。**展示名里的倍率后缀由谁拼接、按什么规则，本仓
+没有实现**；`models.json` 里的 `name` 是纯文本（如 `GLM-5-3-Flash · x0.2→x0.1`），
+直接取自数据，不经二次格式化。
 
 ### 5.5 兜底静态模型表（6 个 `visible:true` 模型）
 
@@ -525,8 +564,8 @@ def raccoon_supports_image(model_id, tags):
 
 ### 5.6 缓存策略
 
-与 Loomy 同构：只缓存**真实远端目录**，兜底表每次现算；
-`RemoteCatalogGate` 做并发去重 + 失败/空结果冷却。
+只缓存**真实远端目录**（成功结果 5 分钟、失败/空结果 30 秒冷却），兜底表每次现算。
+同一时刻的并发刷新**没有去重**：多个请求会各拉一次，靠 TTL 降低概率而非互斥。
 
 ### 5.7 已知规格表（`modelSpec` 钩子）
 
@@ -610,13 +649,15 @@ GET https://xiaohuanxiong.com/api/web/office/v3/setting_info
 
 ```
 GET https://xiaohuanxiong.com/api/web/points/v1/balance
-→ { code: 0, message, data: { available_points, reward_points, daily_points,
-                             topup_points, monthly_points } }
+→ { code: 0, message, data: { total_chargeable_points, available_points, reward_points,
+                             daily_points, topup_points, monthly_points } }
 ```
 
-- `available_points` 是**核心字段**：没有它就说明响应形状不对，不编造数字，返回 `null`
+- **可用额度取 `total_chargeable_points`，回退 `available_points`**：前者含企业加油包等
+  全部可计费额度，选路按账号池剩余额度排序，只读后者会漏掉这部分而提前判账号耗尽。
+  两个字段都没有才说明响应形状不对 —— 抛 `CreditsError`，**不显示成 0**
 - 各池**分开作 package**：`奖励积分`（`reward_points`）/ `每日积分`（`daily_points`）/
- `会员积分`（`monthly_points`，**仅 > 0 时才加**）/ `充值积分`（`topup_points`）
+  `会员积分`（`monthly_points`，**仅 > 0 时才加**）/ 充值积分（`topup_points`）
 -  在「打开面板」这类高频路径上**绝不**触碰写端点
 
 ### 6.4 登录奖励（一次性，幂等）
@@ -668,7 +709,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
  本插件起本地回调服务器自动收码，不再依赖 `office-raccoon://` 自定义协议。
  桌面端的自定义协议回调仍作为兼容 URL 被 `parseLoginCallback` 接受（手工/脚本注入）。
  浏览器登录页本身用官方同款 `/code/authorize`（见 §2.4）
-- **只有一条登录路径**：短信验证码链路本仓不实现（见 [FINDINGS.md](./FINDINGS.md) 的四条判据），
+- **只有一条登录路径**：短信验证码链路本仓不实现（判据见 §2.3），
   `X-Client-Version` / `X-Client-Device-ID` / `device_id` 随之退场
 - **端点表与基址解析唯一真源在 `src/upstream.ts`**：所有前缀、端点路径与完整 URL
   都在那里，`src/cred.ts` 单向导入它；**鉴权域与推理域共用同一个基址**
@@ -693,7 +734,7 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 网页**授权码链路**（**本渠道唯一登录路径**），两步：打开打印出的 `/code/authorize` 授权页用微信 / 验证码 / 密码登录 →
 页面自动跳回 `http://127.0.0.1:<port>/callback`，CLI 收到授权码并落盘，**无需粘贴**
-（协议细节见 §2.4 / §2.8；短信链路本仓不实现，理由见 [FINDINGS.md](./FINDINGS.md)）。
+（协议细节见 §2.4 / §2.8；短信链路本仓不实现，见 §2.3）。
 
 - 浏览器无法访问 localhost（远程环境）时，重新执行 `mx login raccoon`；
 - 也可用 `RACCOON_LOGIN_CALLBACK` 注入回调 URL（本地 HTTP 或 `office-raccoon://` 均可）。
@@ -708,19 +749,21 @@ code = record.code if isinstance(record.code, int) else (status if status >= 400
 
 ### 8.3 已知限制与账号坑
 
-1. **没有倍率 0 的模型**：测试只能选本渠道**倍率最低**的 `glm-5.3-flash`（0.2）。
+1. **免费档只有 sensenova 系**：`sn-sensenova-6-8-flash` / `-lite` 生效倍率 0；
+   其余型号最低是 `glm-5.3-flash`（原价 0.2 → 生效 0.1）。自动化测试优先用前者。
 2. **工具往返在上游侧不稳定**（工具轮次长时间不返回），2026-10-19 实测只做了单轮最小对话。
 3. **账号池薄**：池内账号少，被判 `error` 后没有备选可切，网关直接回 503 `not_authenticated`；
    用 `mx relogin raccoon` 重新授权即可恢复（见下「实测」）。
 4. **只有一条登录路径**：短信验证码链路本仓不实现（零实测、`captcha_param` 拿不到、
-   参考实现零背书 —— 见 [FINDINGS.md](./FINDINGS.md)）。要恢复必须先解决阿里云滑块产物的来源问题。
-5. **没有临期主动刷新**：只在 HTTP 401/403 时续期（access_token 寿命约 3 小时）；
-   `TOKEN_REFRESH_WINDOW_SECONDS` 只是寿命记录，不是行为开关。
+   参考实现零背书 —— 见 §2.3）。要恢复必须先解决阿里云滑块产物的来源问题。
+5. **续期是被动的**：只在业务端点回 401/403 时触发一次。本渠道没有声明
+   `refreshIfExpired`，也没有基于 `expires_at` 的定期刷新扫描 —— access_token
+   寿命约 3 小时，未命中 401 的请求就一直用旧 token。
 
 
 ### 8.4 怎么测这个渠道
 
-端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 直连 `http://127.0.0.1:4412/v1` 跑真实会话（验收判据见 [LOGGING.md §10.9](../../LOGGING.md)）：
 
 ```bash
 mx login raccoon
@@ -749,8 +792,9 @@ mx model raccoon --refresh
 - **授权页校验器变更风险**（待真机复核，未改实现）：现行解析器要求 64-hex state + `/auth/callback`
   路径 + `desktop_callback=loopback`；本仓 32-hex + `/callback` 形态不在 2026-11-05 解析器
   白名单内。失效即改（三份实现已走通新形态）。
-- 账单 `type=income` 与 `total_chargeable_points`（可扣总量应作主字段）、目录 `display_name`
-  （`description` 已是内部代号）——本轮未改，登记待办。
+- 余额主字段改用 `total_chargeable_points`（含企业加油包的全部可计费额度），
+  回退 `available_points`（§6.3）。目录 `display_name` 与账单 `type=income`
+  本轮未采用，继续登记。
 
 clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 下表与 `packages/core/channels/raccoon/reference/` 下实际 clone 的目录逐条对应。
@@ -779,13 +823,14 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | 6 | **订阅 / 会员权益查询** `GET /api/web/auth/v1/entitlement_info` | `reference/agent2api/.../providers/raccoon/balance.rs:10-12`、`:117-121`、`:227-267`；`reference/xiaohuanxiong2api/src/internal/upstream/balance.go:64-91` `[参考]` | — |
 | 7 | **`visible:false` 的内部模型仍可调用** | `reference/raccoon2api/README.md:64`、`:67-70` `[参考]` | 本仓把 `visible === false` 全部过滤，这三个模型不可选 |
 | 8 | **默认模型别名** `raccoon-chat-ml-5-5` → `raccoon-8c4485` | `reference/raccoon2api/README.md:30`；`reference/agent2api/.../providers/raccoon/models.rs:60-66` `[参考]` | 本仓只排除了 `Raccoon-Auto`（该 id 在参考实现的模型表里并不存在） |
-| 9 | **渠道级错误分类**（401→TokenExpired、429→QuotaLimited、内容策略→ContentBlocked） | `reference/agent2api/.../providers/raccoon/mod.rs:143-172` `[参考]` | 本仓 429 只做通用非 2xx 透传 |
+| 9 | **渠道级错误分类**（401→TokenExpired、429→QuotaLimited、内容策略→ContentBlocked） | `reference/agent2api/.../providers/raccoon/mod.rs:143-172` `[参考]` | 本仓不做业务码分类：429 原样透传后换候选，不冷却账号 |
+| 19 | **每账号并发闸门**（上游对每账号同时只放行 10 个在飞请求，第 11 个起回 `429 + code=200103 limiter_request_error`；参考实现在本地排队压在 10 以内 + 短重试） | `reference/JustCnc-raccoon2api/README.md:26`、`:28`、`executor.go:975` `[参考]` | 本仓无并发闸，多账号并发时会持续撞 200103；见 §10.2 V11 |
 | 10 | **余额字段 `topup_frozen`** | `reference/raccoon2api/README.md:99` `[参考]` | 本仓只读 5 个钱包字段 |
 | 11 | **Anthropic 兼容端点** `POST {llm_base}/messages` | `reference/raccoon2api/README.md:28` `[参考]` | 上游支持、本渠道不暴露（优先级低） |
 | 12 | **图像生成** `POST {llm_base}/images/gen` | `reference/raccoon2api/README.md:29` `[参考]` | 同上 |
 | 13 | **登录 state 的一次性消费 + 独立 TTL 状态机** | `reference/xiaohuanxiong2api/src/internal/server/login.go:35-108`、`:287-304` `[参考]` | 本仓靠本地回调服务器的一次性生命周期 |
 | 14 | **`office_org_name` / `office_org_role` 落盘** | `reference/agent2api/.../providers/raccoon/oauth.rs:266-275`；`reference/xiaohuanxiong2api/src/internal/upstream/oauth.go:109-115` `[参考]` | 换码响应里有这两个字段，本仓只取 `office_identity` |
-| 15 | **多模态图片输入的实测口径**（传远程 URL 是**上游去下载**会等到超时；优先用 `data:` URL） | `reference/xiaohuanxiong2api/README.md:282-302` `[参考]` | 本仓有图片字节/像素预算，但缺「远程 URL 由上游下载」这条提示 |
+| 15 | **多模态图片输入的实测口径**（传远程 URL 是**上游去下载**会等到超时；优先用 `data:` URL） | `reference/xiaohuanxiong2api/README.md:282-302` `[参考]` | 本仓不做图片预算与形态改写，按上游 413 如实报错 |
 | 16 | **四段基址独立可配**（主站 origin / 鉴权基址 / LLM 基址 / 积分基址） | `reference/xiaohuanxiong2api/config.example.json:4-19`；`reference/agent2api/.../providers/raccoon/mod.rs:407-415`、`:balance.rs:14-20` `[参考]` | 本仓已把基址**统一**到一处（§1.1），但仍只有「一个基址 + 一个环境变量」 |
 | 17 | **模型目录的 `default_model` 分类字段** | `reference/agent2api/.../providers/raccoon/models.rs:355-356` `[参考]` | 本仓只按 `type === 'chat'` 过滤 |
 | 18 | **账单分页条数**（参考实现用 20，本仓用 50） | `reference/agent2api/.../providers/raccoon/balance.rs:301-303` `[参考]` | 该接口慢（实测约 9 秒），条数越大越慢 |
@@ -797,8 +842,8 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | V1 | JWT 里 `sub` / `iss` / `sid` / `user_id` 到底哪个是真实 user id（agent2api 的实测记录指向 `iss`） | `uid` / `user_id` 口径与多账号消歧（§2.2） |
 | V2 | 授权页在**非 desktop 模式**（带 `redirect`、不带 `login_source`）下是否官方支持 | 本地回调路径的稳定性 |
 | V3 | 对话请求多发的 3 个头是否被上游用于风控或身份判定 | 能否收敛到参考实现的 3 头形态 |
-| V4 | `X-Client-Platform` 对 `desktop/v1/login/points/grant` 是否真的必需、值是否必须是 `desktop-windows` | 登录奖励失败的归因 |
-| V5 | 把 `X-Client-Version` / `X-Client-Device-ID` 补到对话请求是否更稳，或反而触发风控 | 两个头是彻底废弃还是补齐（§2.1） |
+| V4 | `X-Client-Platform` 的取值（`desktop-windows-x64` vs 参考实现的 `desktop-windows`）与必需性 | 签到 / 登录奖励失败的归因（§2.1） |
+| V5 | 客户端身份六件套在**对话**请求上是否必需，或反而抬高风险（参考实现完全不发） | 能否收敛到参考实现的最小头族（§2.1） |
 | V6 | access_token 真实寿命是 2h（参考口径）还是 3h（本仓实测） | 是否需要引入临期主动刷新（当前**没有**） |
 | V7 | refresh_token 是否真的轮换、并发刷新是否互相顶掉 | 单飞 + 比较写回（§2.6）的实际收益 |
 | V8 | `POST /api/electron/auth/v1/refresh` 是否与 web 面等价 | 是否显式化备用前缀（§1） |
@@ -809,4 +854,5 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 | V13 | `entitlement_info` 的真实响应形状 | 缺口 6 的实现成本 |
 | V14 | `bills` 的分页条数取 20 还是 50 | 缺口 18 |
 | V15 | `desktop/v1/login/points/grant` 的 `popup.points` 与账单 `event_name` 判据 | 本仓用「账单明细」判据，参考实现用「本地结算台账」，口径不同可能误判 |
-| V16 | 短信路径在**有**阿里云滑块产物时到底能不能走通 | 若能走通，[FINDINGS.md](./FINDINGS.md) 里 §2.5 的「删除」结论要改成「保留但需手工 captcha」 |
+| V16 | 短信路径在**有**阿里云滑块产物时到底能不能走通 | 若能走通，§2.3 的「不实现」结论要改成「保留但需手工 captcha」 |
+| V17 | `200103` 并发限流的真实阈值是否恒为 10、是否按账号而非设备计数；本地排队能否完全规避 | 缺口 19：是否值得在本仓加每账号并发闸 |

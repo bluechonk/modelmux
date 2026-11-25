@@ -91,7 +91,7 @@ check(
   `packages/cli: dependencies 含意外包 ${cliDeps.filter((d) => !DEP_ALLOW.includes(d) && !CHANNEL_PKG_RE.test(d)).join(", ")}`,
 );
 // 随包快照必须进发布包：bundle 步骤把各渠道的 models.json 复制到 dist/models/<cid>.json，
-// 渠道侧靠它兜底（见 docs/CONTRACT-TS.md §8.4）—— files 漏了它，npm 包里的快照就白复制了。
+// 渠道侧靠它兜底（见 docs/CONTRACT-TS.md §5.4）—— files 漏了它，npm 包里的快照就白复制了。
 check(
   (cliPkg.files ?? []).includes("dist/models"),
   "packages/cli: files 必须包含 dist/models（bundle 复制的随包快照，否则发布包里兜底失效）",
@@ -399,7 +399,7 @@ if (existsSync(join(repo, REGISTRY_FILE))) {
 // 放行：讲契约与模式的结构性表述（「4 个渠道特有模块」「只注册 1 个渠道」）——
 // 那些数字不随渠道增减变化，写死是对的。
 const COUNT_PATTERNS = [
-  /\d+\s*个渠道(?:全部|都|包|里|中有|里有)/,
+  /\d+\s*个渠道(?:全部|都|包|里|中有|里有|均在册|均注册|均在)/,
   /\d+\s*家\s*(?:AI\s*)?客户端/,
   /\d+\s+channels\b/i,
 ];
@@ -417,7 +417,6 @@ const DOC_FILES = [
   "docs/LOGGING.md",
   "docs/channels/README.md",
   "docs/MODULE-COMMENTS.md",
-  ".agents/skills/dsh-mx-test/SKILL.md",
 ];
 const countHits = [];
 let docsRead = 0;

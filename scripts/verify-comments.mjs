@@ -18,13 +18,13 @@
  *       「条件/当…后/待…」），@deprecated 必须写替代方案或移除条件。
  *       裸 `// TODO 优化这里` 会在半年后变成无人能判断的谜题。
  *   R5  空 catch 块既无语句也无说明注释
- *       —— AGENTS.md「代码约定」：空 catch 必须注释说明原因（有意忽略要写 why）。
+ *       —— AGENTS.md「约定」：空 catch 必须注释说明原因（有意忽略要写 why）。
  *       块里有语句不算「空」（吞不吞异常是语义问题，归评审）；有注释即合法。
  *   R6  @ts-ignore / @ts-expect-error 缺同行理由
- *       —— AGENTS.md「代码约定」：压制类型检查的理由必须与指令同一行，
+ *       —— AGENTS.md「约定」：压制类型检查的理由必须与指令同一行，
  *       隔行的理由会随代码漂移而对不上号。
  *   R7  显式 `any`（注解位 / `as any` / 泛型位 / `any[]`）
- *       —— AGENTS.md「代码约定」：禁止 any 图省事；刻意宽松（如渠道契约面）
+ *       —— AGENTS.md「约定」：禁止 any 图省事；刻意宽松（如渠道契约面）
  *       走 ALLOWLIST 并写明设计理由。
  *
  * 豁免：`ALLOWLIST`（文件路径前缀 + 理由）——沿用 verify-layering 的惯例：
@@ -167,7 +167,7 @@ for (const root of roots) {
       const closeIdx = rest.indexOf("}");
       if (closeIdx >= 0) {
         if (emptyCatchViolation(rest.slice(0, closeIdx))) {
-          problems.push(`${rel}:${i + 1} R5 空 catch 缺说明注释「${lines[i].trim().slice(0, 60)}」—— 有意忽略要写明原因（AGENTS.md 代码约定）`);
+          problems.push(`${rel}:${i + 1} R5 空 catch 缺说明注释「${lines[i].trim().slice(0, 60)}」—— 有意忽略要写明原因（AGENTS.md 约定）`);
         }
         continue;
       }
@@ -187,7 +187,7 @@ for (const root of roots) {
         inner.push(out);
       }
       if (emptyCatchViolation(inner.join("\n"))) {
-        problems.push(`${rel}:${i + 1} R5 空 catch 缺说明注释「${lines[i].trim().slice(0, 60)}」—— 有意忽略要写明原因（AGENTS.md 代码约定）`);
+        problems.push(`${rel}:${i + 1} R5 空 catch 缺说明注释「${lines[i].trim().slice(0, 60)}」—— 有意忽略要写明原因（AGENTS.md 约定）`);
       }
     }
 
@@ -197,7 +197,7 @@ for (const root of roots) {
         const trimmed = line.trim();
         if (trimmed.startsWith("*") || trimmed.startsWith("//") || trimmed.startsWith("/*")) continue;
         if (EXPLICIT_ANY_RE.test(line)) {
-          problems.push(`${rel}:${i + 1} R7 显式 any「${line.trim().slice(0, 60)}」—— 用具体类型/unknown，刻意宽松走 ALLOWLIST 并写明设计理由（AGENTS.md 代码约定）`);
+          problems.push(`${rel}:${i + 1} R7 显式 any「${line.trim().slice(0, 60)}」—— 用具体类型/unknown，刻意宽松走 ALLOWLIST 并写明设计理由（AGENTS.md 约定）`);
         }
       }
     }

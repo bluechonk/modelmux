@@ -1,9 +1,7 @@
 # 客户端接入指南
 
-网关对客户端暴露**三种入站协议**，Claude Code / Codex / dsh / zcode 都能直连
-`http://127.0.0.1:4412` 使用池内模型，无需任何中间层（CCR 等代理可以退役）。
-仪表盘「一键接入」按钮只覆盖 zcode / dsh：自动写入这两个客户端的本机
-配置（写前备份到 `<root>/backups/integrate/`），其余客户端按下文形态手工配置。
+网关对客户端暴露**三种入站协议**，任何 OpenAI / Anthropic / Responses 兼容客户端都能直连
+`http://127.0.0.1:4412` 使用池内模型，无需任何中间层。各客户端按下文形态手工配置。
 
 > **Claude Desktop 的配置在自己的 3P profile**，落在
 > `<LOCALAPPDATA>/Claude-3p/configLibrary/`（macOS：`~/Library/Application Support/Claude-3p/configLibrary/`），
@@ -22,7 +20,7 @@
 
 | 端点 | 协议 | 典型客户端 |
 | --- | --- | --- |
-| `POST /v1/chat/completions` | OpenAI Chat Completions | dsh / zcode / 任意 OpenAI 兼容客户端 |
+| `POST /v1/chat/completions` | OpenAI Chat Completions | zcode / 任意 OpenAI 兼容客户端 |
 | `POST /v1/messages` | Anthropic Messages | Claude Code |
 | `POST /v1/messages/count_tokens` | Anthropic（本地启发式估算，不打上游） | Claude Code |
 | `POST /v1/responses` | OpenAI Responses | Codex（`wire_api="responses"`） |
@@ -83,18 +81,13 @@
 
 ## 3. 客户端配置
 
-> Claude Code 走 `/v1/messages`，但**不提供一键接入**：它的配置是 `~/.claude/settings.json`
-> 的 `env` 块，改动会碰用户自己的 hooks / 权限键，不适合代劳。
+> Claude Code 的配置在 `~/.claude/settings.json` 的 `env` 块，改动会碰用户自己的 hooks /
+> 权限键 —— 手工改，别用脚本批量替换。
 
-### 3.1 dsh / zcode（OpenAI Chat Completions）
+### 3.1 zcode（OpenAI Chat Completions）
 
-仪表盘「接入 dsh / 接入 zcode」分别写 `~/.dsh/profiles/<profile>/cordis.patch.yml`
-（只换 `providers.modelmux.models` 块）与 `~/.zcode/v2/provider_config.json`
-（modelmux 供应商规则的 api / 模型清单），细节见 `app/integrate.ts` 与其测试。
-
-两处写的密钥都是**一键接入专用 key**（API Keys 页名称 `modelmux` 的那条）：不存在时
-自动创建，值仍有效的客户端原样保留。专用 key 的明文只写进客户端、网关侧不回读，
-因此两处分两次接入时，后接的那处沿用先接那处已写入的明文。
+手工编辑 `~/.zcode/v2/provider_config.json`，给 modelmux 供应商规则补 `api.baseUrl`
+与模型清单；密钥用 API Keys 页自建的一条（明文写进客户端即可）。
 
 ## 4. 验证矩阵
 
@@ -104,7 +97,6 @@
 | --- | --- | --- | --- |
 | Claude Code 2.1.318（`claude -p`） | anthropic，流式 | 「pong」 | `protocol:"anthropic"`、cid=loomy、200 success |
 | Codex CLI 0.163.0（`codex exec`） | responses，流式 | 「pong」 | `protocol:"responses"`、cid=loomy、200 success |
-| dsh ACP（dsh-mx-test 技能） | chat | glm / deepseek 两模型全过 | `cid=loomy` |
 | zcode | chat | 池内模型可用 | — |
 
 工具调用往返由 `protocol-adapters.test.ts` 的编码器用例钉住（tool_use / function_call

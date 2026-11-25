@@ -12,11 +12,11 @@
 - [Worktree 约束](#worktree-约束)
 - [浏览器视觉校验](#浏览器视觉校验)
 - [临时探测脚本](#临时探测脚本)
-- [项目级技能入口软链](#项目级技能入口软链本机)
 - [测试红线](#测试红线)
 - [构建模型](#构建模型)
 - [推送门禁](#推送门禁)
 - [版本与发版](#版本与发版)
+- [收尾](#收尾)
 - [提交信息规范](#提交信息规范)
 
 ---
@@ -26,7 +26,7 @@
 **按需使用**。仓库只有一个网关端口 4412 和共享的 `~/.modelmux` 存储根，worktree 不能用来
 并行跑两个真实网关。
 
-落点由所用工具决定（zcode / DSH 自带工作树实现），本仓不约束路径；新建走
+落点由所用工具决定（zcode 自带工作树实现），本仓不约束路径；新建走
 `git worktree add <落点> -b <branch>`，收尾 `git worktree remove` + `git branch -d`
 （不手删目录）。本节只写本仓库特有的事项。
 
@@ -99,30 +99,6 @@
 已收紧的单文件（非本项目渠道的历史探测残留，保留但不再扩权）：
 `codearts-live-backup.json`（含 DPoP 私钥与 refreshToken）、`codex-config.toml.bak`、
 `codex-config-before.toml`。它们不属于任何在册渠道，无需轮换；**不要**把它们打进支持包。
-
-## 项目级技能入口软链（本机）
-
-Claude Code 只扫 `.claude/skills/`，而本仓技能实体在 `.agents/skills/`（5 个，随仓库分发）。
-为了「一份技能、多工具共用、不复制」，在本机把前者建成指向后者的**符号链接**。
-参照 deepseek-harness 的做法（其 git 内 `.claude/skills -> ../.agents/skills`，mode `120000`）。
-
-**软链不入库**（`.gitignore` 已忽略 `.claude/`）。不做成入库软链的原因：
-
-- Windows 的 git 默认 `core.symlinks=false`，`120000` 会被检出成「**内容为目标路径的文本文件**」，
-  于是 `.claude/skills` 不是目录、扫描器得到 0 个技能（实测 2026-11-01：17 字节，内容 `../.agents/skills`）；
-- 入库软链要求每个 Windows 开发者先改 `core.symlinks=true` 才能正常检出，属跨平台负担；
-- 各机自建则仓库状态不受影响，`npm test` 全链也不参与（`verify-docs` 的 `walk` 跳过隐藏目录，
-  且 `.claude/` 被 git 忽略；实测加链后校验仍通过）。
-
-**用法**（脚本在 `.tmp/`，按上一节的原则保留复用）：
-
-```bash
-pwsh -NoProfile -ExecutionPolicy Bypass -File .tmp/link-claude-skills.ps1          # 建立（幂等）
-pwsh -NoProfile -ExecutionPolicy Bypass -File .tmp/link-claude-skills.ps1 -Remove  # 撤除（只删软链）
-```
-
-前置条件是 Windows 开发者模式或管理员权限。脚本行为已实测（2026-11-01）：幂等命中直接退出、
-已存在实体目录时**拒绝覆盖**（不误删他人内容）、撤除只删软链并清掉空目录 `.claude/`。
 
 ## 测试红线
 
@@ -242,7 +218,7 @@ git config --get core.hooksPath         # 应为 .githooks
    按**实际**版本推下一个号 —— 本仓按 `0.1.x` 连续走（含新功能也只升修订位，
    不做 `0.1 → 0.2` 的次位跳变，与全局升位规则不同，以本条为准）。
 3. **版本号只有一个家，cli / web / desktop 三位一体**：唯一真相是根 `package.json` 的
-   `version`，改版本**只改根这一处**，再跑 `npm run version:sync`（`scripts/version.mjs`）
+   `version`，改版本**只改根这一处**，再跑 `npm run version:sync`（`scripts/sync-version.mjs`）
    派生全部落点：
    - `packages/core/gateway/src/version.ts` 的 `VERSION` 常量 —— 渠道 `channel.ts`、
      `mx --version`、控制台快照（`/web/api/state`）与更新检测都引用它（不再各写版本字面量）；
@@ -270,6 +246,74 @@ git config --get core.hooksPath         # 应为 .githooks
    - 本轮 `feat` 类提交 ≥ 5 个，或改动跨 ≥ 2 个包；
    - 距上一个 tag 已积累 ≥ 20 个提交。
    提醒时一并给出：候选版本号（按第 2 条推）、自上个 tag 以来的提交数与 `feat` / `fix` 分布。
+
+## 收尾
+
+一轮工作结束时按本节过一遍。机械可判定的部分已脚本化：`npm run repo:check`
+（事实基线 + md 变更史扫描 + tag/Release 配对 + `.tmp` 保留状态），退出码非零即有需处理项。
+
+### 分支模型：dev 是草稿纸
+
+探索期在 `dev` 上随意提交（`wip:` 开头也行），**收尾时才整理成主题分支**（`dev-flow` 技能）。
+
+1. **分类**：逐条看 `git log main..dev`，分成「独立主题」「同主题返工」「没成型的实验」。
+2. **cherry-pick 拆分支**（不是 rebase —— rebase 搬整串，不是拆分工具）：每个主题分支都从
+   最新 `main` 开，不互相基于，否则 GitHub 会把前序分支的提交算进后序 PR。
+3. **每个主题分支单独过门禁**：拆出来必须能独立编译测试；两个提交纠缠同一函数时归入同一分支。
+4. 没成型的实验留在 `dev`；收口后把 `main` 同步回 `dev`。
+
+### 文档同步矩阵
+
+文档分层与写作规则以根 [AGENTS.md](../AGENTS.md) 的「文档」为准，本表只列代码改动对应的落点。
+
+| 改动落点 | 必须同步的文档 |
+| --- | --- |
+| 契约 / CLI 形态 / 模块边界 / 分层 | [CONTRACT-TS.md](./CONTRACT-TS.md)、根 `AGENTS.md` 的「约定」 |
+| 对外模型家族 / 别名归一 / 选路 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) §2、[MODEL-CATALOG.md](./MODEL-CATALOG.md) |
+| 代码注释（渠道 `src/` 与共享层文件头 / docstring） | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md)（见下方「注释整改」） |
+| 账号池 / 账本 / 路由 / 冷却 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) |
+| 存储落点 / 文件命名 / 权限 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) |
+| 进程模型 / 监督者 / 守护 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) |
+| 日志落点 / 字段 / 轮转 | [LOGGING.md](./LOGGING.md) |
+| Web 控制台（页面 / API / 主题） | [WEB-CONSOLE.md](./WEB-CONSOLE.md) |
+| 桌面壳 / 构建与路径约束 / MotW | [DESKTOP-APP.md](./DESKTOP-APP.md) |
+| 引流入口 / 安装 / 接入方式 | 根 [README.md](../README.md) |
+| 某渠道的协议 / 端点 / 头部 / 限制 / 实测 | `docs/channels/<cid>/PROTOCOL.md` |
+| 新增/改名/删除 `docs/*.md` | [docs/README.md](./README.md) 索引 |
+| 新增/改名/删除渠道目录 | [docs/README.md](./README.md) 与 [channels/README.md](./channels/README.md) 两张表 |
+| 新增/改名/删除技能 | [docs/README.md](./README.md) 与根 [README.md](../README.md) 两处登记 |
+
+### 注释整改
+
+动了代码注释就逐条对照 [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) 的三层分工 ——
+注释与文档出现双份事实源是最常见的腐化路径：
+
+1. **what 去文档**：协议事实（端点、字段、状态码、实测数字）只活在
+   `docs/channels/<cid>/PROTOCOL.md`；注释里出现同一事实的副本就删掉，留一行指针。
+2. **why 跟函数**：设计取舍写在被治理函数的 docstring 上，不写日期、不写实验记录、
+   不写「推翻了某结论」的时间线 —— 那些属于 PROTOCOL.md 的证据等级体系。
+3. **文件头只做导航（≤ 12 行）**：一句话职责 + 关键约束 ≤ 3 条 + 指针。
+
+机械下限由 `npm run verify:comments` 守（文件头行数、署名留痕、修订记录、TODO 条件、
+空 catch 说明、压制指令理由、裸 `any`）；语义层仍需人工过一遍。
+
+### 收尾检查清单
+
+```bash
+npm run build                  # 全仓编译（含 ui + bundle + copy-ui）
+npm test                       # build + typecheck + 10 道 verify:* + scripts 测试 + 各包测试
+npm run after-change           # build → restart → 断言 stale_build === false
+npm run repo:check             # 事实基线 + md 变更史 + tag/Release 配对 + .tmp
+git status                     # 工作树干净
+```
+
+真机验证分工：`mx` 命令用法见 [CONTRACT-TS.md](./CONTRACT-TS.md) §6；日志与失败码见
+[LOGGING.md](./LOGGING.md) §10；端到端验收判据见 [LOGGING.md](./LOGGING.md) §10.9。
+
+- 涉及登录 / 凭据 / 上游的改动：`mx login <cid>` → `mx status <cid>` → 真实对话。
+- 在 linked worktree 里收尾：先读本文「Worktree 约束」；删分支前先
+  `git worktree remove` + `git worktree prune`。
+- `.tmp/` 一律保留，收尾不把它当清理待办项。
 
 ## 提交信息规范
 

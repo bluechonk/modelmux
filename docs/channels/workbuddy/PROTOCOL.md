@@ -7,7 +7,8 @@
 > `reference/dsh-workbuddy-connect`（TypeScript，下称 **dsh**）；
 > 以及 `ardeyouxipianyi_workbuddy2api-hub`（与已移除的国际版渠道共用一套抓包结论，
 > 见其协议存档 git 历史；参考实现 clone 目录随渠道移除一并清理）。
-> 国内版桌面端**无独立抓包**：版本号与 UA 维持参考实现原值（5.5.6 / CLI 2.137.1），不凭猜测改。
+> 版本三元组已按 2026-11 的生态抓包对齐到 CN `5.11.3 / CLI/2.176.0`（见 §6.1）；
+> 国内版桌面端仍无本机抓包，登录链路的取值差异见 §9.4 V1。
 > 逐条证据等级见各条标注（`[实测]` / `[代码]` / `[推断]` / `[参考]`）。
 
 ## 目录
@@ -28,8 +29,8 @@
 | --- | --- |
 | chat 上游 | `https://copilot.tencent.com` |
 | X-Domain | 账号域（登录落盘；**没有域时不发该头**，改发 `X-No-Department-Info: 1`，见 §6） |
-| User-Agent | `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1` |
-| X-IDE-Version | `5.5.6` |
+| User-Agent（chat，SDK `buildUserAgent` 三段式） | `WorkBuddy/5.11.3 WorkBuddy/5.11.3 CLI/2.176.0` |
+| X-IDE-Version | `5.11.3`（必须与 UA 的第一段同版本） |
 | chat 的 Origin / Referer | `https://www.codebuddy.cn`（+`/`）—— **前台域名**，chat 上游仍是上表的 `copilot.tencent.com` |
 | **登录**的 Origin / Referer | `https://codebuddy.cn`（+`/`）—— 与 chat 侧**不同**（少 `www`），见 §2.1 与 §9.4 V3 |
 | Accept-Language | `zh-CN` |
@@ -180,7 +181,7 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 | 1 | `POST https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy`（body `{}`） | 匿名头 → `{state, authUrl}` |
 | 2 | 浏览器打开 `authUrl` | 人工授权（**唯一人工步骤**） |
 | 3 | `GET https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | **每 1s 轮询、最长 300s**（官方客户端口径，hub `docs/protocol-reference.md:2164-2167`）`[参考]`；pending 时业务码非 0，完成时 `code=0` + token bundle；**粘贴兜底**见 §2.1.1 |
-| 4 | `GET https://copilot.tencent.com/v2/plugin/login/account?state=<state>`（带 `Authorization`） | 取账号档案 `uid` / `enterpriseId` / `nickname`（go `cmd/login/main.go:266-278`）`[参考]`；**拿不到不影响登录**（uid 回落 JWT `sub`） |
+| 4 | `GET https://copilot.tencent.com/v2/plugin/account?state=<state>`（带 `Authorization`），失败兜底旧端点 `/v2/plugin/login/account` | 取账号档案 `uid` / `enterpriseId` / `nickname`（`src/cred.ts` 的 `fetchAccountProfile`）；**拿不到不影响登录**（uid 回落 JWT `sub`） |
 | 5 | 落盘 `credentials.json` | 字段见下 |
 
 落盘字段（`src/cred.ts` 的 `Credentials`）：`accessToken` / `refreshToken` / `tokenType` /
@@ -219,9 +220,9 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 
 | 位置 | 职责 |
 |---|---|
-| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:62` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
-| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:338`） | **声明**该回调（每轮轮询前取一次） |
-| `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:300`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
+| 共享层 `packages/core/gateway/src/auth/auth-flow.ts:74` | 把 `ui.takePastedCallback` 包成 `pasteCode()` 传给渠道 |
+| 渠道 `LoginOptions.pasteCode`（`packages/core/channels/workbuddy/src/cred.ts:374`） | **声明**该回调（每轮轮询前取一次） |
+| `pollToken`（`packages/core/channels/workbuddy/src/cred.ts:327`） | 认出「授权被拒」措辞 → 立刻收尾报错；否则立即再轮询一次 |
 
 与**本地回调服务器**型渠道的形态差别：那类渠道靠回环收 code，粘贴内容被
 **转交同一个回调处理器**；本渠道**没有回调服务器**，粘贴内容只能驱动**同一个轮询处理器**。
@@ -249,8 +250,14 @@ glm 已移出对外家族，本渠道只供 `deepseek-v4.1-flash`。隐藏集合
 
 `POST https://copilot.tencent.com/v2/billing/meter/daily-checkin`（body `{}`）。
 
-- 已签到时上游业务码非 0（幂等，按成功回报）：实测 2026-11-07 回
-  `HTTP 400 + {"code":10001,"msg":"今天已签到，请明天再来"}`。
+- 判据是**先解响应体、再看 HTTP 状态码**（顺序不能反）：
+  - `code === 0` → 签到成功
+  - `code === 10001` **或** `msg` 命中 `/already|已签|repeat|duplicate/i` → 今天已签，
+    按成功回报（`already: true`）
+  - 实测 2026-11-07 的形态是 `HTTP 400 + {"code":10001,"msg":"今天已签到，请明天再来"}`
+    —— 按状态码先判会把它当失败：当日连败 3 次触发熔断、台账也记不上「已签」，
+    面板一直显示未签到（2026-11-15 实测）
+  - `msg` 正则是防上游改措辞的兜底；只剩 `code !== 0` 时才按失败处理
 - **每日发放额 = 100 credits**：账单里「CodeBuddy个人版国内运营裂变包」每个
   `CapacitySize` 都是 100（本机实测 21 个包、合计 2100），即每日发放单位。
   上游**没有**「今日发放额」字段，故 `billing.quotaPeriod()` 用这个常量。`[实测旁证]`
@@ -362,15 +369,28 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | 令牌刷新 | POST | `https://copilot.tencent.com/v2/plugin/auth/token/refresh` | `/v2/plugin/auth/token/refresh` | 无 query；body `{}`；令牌走 `X-Refresh-Token` 头 |
 | 登录 state | POST | `https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy` | `/v2/plugin/auth/state` | `platform`（§2.1） |
 | 登录轮询 | GET | `https://copilot.tencent.com/v2/plugin/auth/token?state=<state>` | `/v2/plugin/auth/token` | `state` |
-| 账号档案 | GET | `https://copilot.tencent.com/v2/plugin/login/account?state=<state>` | `/v2/plugin/login/account` | `state`；带 `Authorization` |
+| 账号档案 | GET | `https://copilot.tencent.com/v2/plugin/account?state=<state>`（兜底 `/v2/plugin/login/account`） | `/v2/plugin/account` | `state`；带 `Authorization` |
 | 额度 | POST | `https://copilot.tencent.com/v2/billing/meter/get-user-resource` | `/v2/billing/meter/get-user-resource` | 无 query；body 带 `PageNumber` / `PageSize` / `ProductCode` / `Status` / `PackageEndTimeRange*` |
 | 每日签到 | POST | `https://copilot.tencent.com/v2/billing/meter/daily-checkin` | `/v2/billing/meter/daily-checkin` | 无 query；body `{}` |
+
+**额度响应字段与口径**（`src/billing.ts`，Accounts[] 逐条聚合）：
+
+| 字段 | 取值优先级 | 说明 |
+| --- | --- | --- |
+| 剩余 | `CapacityRemainPrecise` → `CapacityRemain` | 精确值优先，回退粗略值 |
+| 总量 | `CapacitySizePrecise` → `CapacitySize` | 同上 |
+| 已用 | `CapacityUsedPrecise` → `CapacityUsed` | 同上 |
+| 到期 | `CycleEndTime` | 换算成 `days_left`；不可解析时为 `null`（不编造） |
+| 单位 | `CapacityUnit`（缺省 `credits`） | 总额度行的 `unit` 取**第一个包**的 |
+
+只计 `remain > 0` 的包进总额（耗尽的包仍逐个列出）；包按「有余额优先，再按 remain
+降序」排序。`remain_percent = totalRemain / totalSize × 100`。
 
 - `/plugin` 前缀**只用于 auth 族**（来自官方 `product.json` 的 `prefixPath`）：
   chat 路径加它实测 **404**（`POST /v2/chat/completions` 才是 200）。`[实测]`
 - **计费域没有与 chat base 分离**：三家参考实现都把计费放在**另一个 host**
   （CN = `https://www.codebuddy.cn`，go `internal/upstream/client.go:875`、
-  panel `internal/upstream/client.go:841-846`、dsh `packages/core/channels/workbuddy/src/upstream.ts:424-426`），
+  panel `internal/upstream/client.go:841-846`、dsh-workbuddy-connect `src/upstream.ts:424-426`），
   本仓实测复用 chat base（`copilot.tencent.com`）可取到额度 → **本渠道不改**，
   列入 §9.4 V8。
 - 国际版把同样的路径挂在 `https://www.workbuddy.ai` 上（两渠道共用协议，
@@ -385,7 +405,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | 头名 | 值来源 | 是否鉴权 | 刷新时机 | 备注 |
 | --- | --- | --- | --- | --- |
 | `Content-Type` | 常量 `application/json` | 否 | 恒定 | |
-| `User-Agent` | `WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1` | 否（**归因**） | 桌面端版本升级时 | 上游按 UA 归因「使用端」（账单品牌）并参与渠道校验；缺品牌字样账单显示 `-` |
+| `User-Agent` | `WorkBuddy/5.11.3 WorkBuddy/5.11.3 CLI/2.176.0`（三段，CN） | 否（**归因**） | 桌面端版本升级时 | 上游按 UA 归因「使用端」（账单品牌）并参与渠道校验；缺品牌字样账单显示 `-` |
 | `Authorization` | `Bearer {accessToken}` | **是（唯一）** | 401/403 或到期时刷新 | 头名可配（`upstream.json` 的 `tokenHeader`） |
 | `X-User-Id` | 账号 uid | 否（**身份**） | 登录时 | 没有 uid 时改发 `X-No-User-Id: 1`（两者互斥） |
 | `X-Domain` | 账号域 | 否 | 登录 / 刷新响应回写 | 没有域时改发 `X-No-Department-Info: 1`（两者互斥） |
@@ -393,11 +413,24 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 - **`X-Enterprise-Id` 与 `X-User-Id` 必须成对**：只带 `X-User-Id` 选不中任何东西，
   只带 `X-Enterprise-Id` 被直接拒；企业账号不带这对头会被**静默回个人目录**
-  （18 vs 19 个模型，dsh `packages/core/channels/workbuddy/src/upstream.ts:663-672`）`[参考]`。
+  （18 vs 19 个模型，dsh-workbuddy-connect `src/upstream.ts:663-672`）`[参考]`。
 - 另有**可选**的 `X-Device-Token`（腾讯 T-Sec TuringShield 原生 SDK 产出的不透明串）。
   纯 HTTP 侧**无法复刻**（hub `docs/protocol-reference.md:2328-2351`）`[参考]`；
   官方自身「拿不到就降级不带」，故缺失不算异常。填进
   `<MODELMUX_HOME>/workbuddy/upstream.json` 的 `deviceToken` 即可启用。
+
+**UA 形态按链路不同**（2026-11 生态抓包，`.tmp/research/misakano7545_workbuddy2api-panel`
+的 `internal/upstream/headers.go`）：
+
+| 链路 | 真机形态 | 本仓取值 |
+| --- | --- | --- |
+| chat（SDK `buildUserAgent`） | 三段：`WorkBuddy/<ver> <brand>/<ver> CLI/<cli>` | 同左（CN 的 brand 就是 WorkBuddy） |
+| `/v3/config` 目录探测 | 两段单品牌：`WorkBuddy/<ver> CLI/<cli>` | 沿用同一组三段头 |
+| RPC / REST 层 | `<brand>/<ver> <brand>/<ver> CLI/<cli>` | 不涉及 |
+
+同账号同 token 用三段 / 两段分别打 `/v3/config`，实测返回**逐字节相同**（该端点对 UA 家族
+不敏感）；但「三段重复品牌」在 5.8.3 之后已被官方淘汰，新抓包一律两段单品牌。
+本仓对话链路与最新真机一致；是否为目录单独发两段见 §9.4 V1。
 
 ### 6.2 浏览器语义 6
 
@@ -419,7 +452,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 | `X-Agent-Type` | `main` | |
 | `X-IDE-Name` | `WorkBuddy` | sliver 用 `CLI` → 少数派 |
 | `X-IDE-Type` | `WorkBuddy` | 同上 |
-| `X-IDE-Version` | `5.5.6` | 必须与 UA 第一段同版本（错位是明显特征） |
+| `X-IDE-Version` | `5.11.3` | 必须与 UA 第一段同版本（错位是明显特征） |
 | `X-Product` | `SaaS` | 语义是**部署形态**（deploymentType），不是产品名 |
 | `X-Private-Data` | `true` | hub 逆向结论是 `false` → §9.4 V4 |
 
@@ -476,7 +509,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 `mx login workbuddy` 走**网页设备授权**：申请 `state`（`POST /v2/plugin/auth/state?platform=workbuddy`）
 → 浏览器打开 `authUrl` 人工授权一次 → 轮询 `GET /v2/plugin/auth/token?state=`
-→ 取账号档案 `GET /v2/plugin/login/account?state=` → 落盘 `credentials.json`。
+→ 取账号档案 `GET /v2/plugin/account?state=` → 落盘 `credentials.json`。
 
 设备授权**没有本机回环**：浏览器授权后把地址栏粘回终端，流程会**立刻**用同一个轮询处理器
 取令牌（粘贴兜底见 §2.1.1）。**唯一登录路径与「为什么不采纳另外两条路线」的判据见 §2.1。**
@@ -634,7 +667,7 @@ Rewrite / 命中 11128 时降级为中性提示词重试），**不是**继续�
 
 ### 7.9 怎么测这个渠道
 
-端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 直连 `http://127.0.0.1:4412/v1` 跑真实会话（验收判据见 [LOGGING.md §10.9](../../LOGGING.md)）：
 
 ```bash
 mx login workbuddy           # 登录入池（网页设备授权，规格见 §2.1）
@@ -668,9 +701,11 @@ clone 到 `reference/` 的学习材料（不入库）；结论进本文件。
 
 ### 9.1 2026-11-20 生态对齐
 
-- **版本三元组升级**：5.11.3 / CLI 2.176.0（misakano headers.go 2026-11 抓包），并补齐
-  5.11.3 追加的 `X-Client-Version/Platform/Product` + `X-Agent-Runtime: local-agent`——
-  只升 UA 不升头集 = 混合指纹（misakano issue #257）。
+- **对话链路的版本三元组已对齐 5.11.3 / CLI 2.176.0**（misakano headers.go 2026-11 抓包），
+  并齐备 5.11.3 追加的 `X-Client-Version/Platform/Product` + `X-Agent-Runtime: local-agent`
+  ——只升 UA 不升头集就是混合指纹（misakano issue #257）。形态按链路分，见 §6.1 末表。
+  计费 / 签到与登录链路的 UA 仍是旧值（`WorkBuddy/5.5.6` 单段 / 三段），未随对话升级；
+  是否要对齐见 §9.4 V2。
 - **`X-Private-Data` 按账号形态取值**：CN 个人 false / 企业 true（testdata official_chat_head.txt）；
   对话恒 true 的旧口径**作废**。
 - **取账号档案切 `/v2/plugin/account`**（dingminhua #267/#268：`login/account` 恒回 12151），
@@ -696,16 +731,16 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | # | 缺口 | 参考实现证据 | 状态 |
 | --- | --- | --- | --- |
 | 1 | **登录后取账号档案**（`uid` / `enterpriseId` / `nickname`） | go `cmd/login/main.go:266-278` | **已做**（§2.1 步 4） |
-| 2 | **企业身份头族**（`X-Enterprise-Id` / `X-Tenant-Id`） | go `internal/upstream/headers.go:242-255`；dsh `packages/core/channels/workbuddy/src/upstream.ts:485-489` | **已做**（§6） |
+| 2 | **企业身份头族**（`X-Enterprise-Id` / `X-Tenant-Id`） | go `internal/upstream/headers.go:242-255`；dsh-workbuddy-connect `src/upstream.ts:485-489` | **已做**（§6） |
 | 3 | 目录**并发双探 + 并集合并** | go `internal/upstream/client.go:1281-1330`、`:1336-1357` | **已做**（§1.1） |
 | 4 | 非对话模型过滤（`nes-` / `completion-` / `codewise-`） | go `internal/upstream/client.go:1470-1473` | **已做**（§1.1） |
 | 5 | 上游错误码全表与分类、200 带错误信封、限流重置读头 | hub `docs/protocol-reference.md:1904-1952`、`:1869-1889`、`:2011-2038`、`:1891-1902` | **分类表已做**（§4.1）；**对话路径的 200 错误信封仍无拦截点**（共享层无该钩子） |
-| 6 | 目录**企业账号分流**（`X-User-Id` + `X-Enterprise-Id` 成对） | dsh `packages/core/channels/workbuddy/src/upstream.ts:663-672` | 头已发，但**没有企业账号可验**（`enterpriseId` 要真实企业账号才有） |
-| 7 | 目录**促销 badge**（`badge:<label>:<color>`） | dsh `packages/core/channels/workbuddy/src/upstream.ts:319-355`、`packages/core/gateway/src/http/wire/openai-normalize.ts:294-320`（只在 console 文档里） | 未做 |
+| 6 | 目录**企业账号分流**（`X-User-Id` + `X-Enterprise-Id` 成对） | dsh-workbuddy-connect `src/upstream.ts:663-672` | 头已发，但**没有企业账号可验**（`enterpriseId` 要真实企业账号才有） |
+| 7 | 目录**促销 badge**（`badge:<label>:<color>`） | dsh-workbuddy-connect `src/upstream.ts:319-355`（只在 console 文档里） | 未做 |
 | 8 | **签到活动状态**（`/v2/billing/meter/checkin-activity-status`） | go `internal/upstream/checkin_activity.go:30-33`；hub `docs/protocol-reference.md:284-287` | 未做 |
-| 9 | 目录 **reasoning / effort 元数据** | dsh `packages/core/channels/workbuddy/src/upstream.ts:250-293`；go `internal/upstream/client.go:1312-1329` | 未做 |
+| 9 | 目录 **reasoning / effort 元数据** | dsh-workbuddy-connect `src/upstream.ts:250-293`；go `internal/upstream/client.go:1312-1329` | 未做 |
 | 10 | **模型繁忙程度**（`/v2/chat/busy`） | hub `admin/backend.py:267`；`docs/protocol-reference.md:1867` | 未做 |
-| 11 | **企业额度**（`/v2/billing/meter/get-enterprise-user-usage`） | dsh `packages/core/gateway/src/http/wire/openai-normalize.ts:470`；panel `internal/upstream/client.go:1987-2050` | 未做 |
+| 11 | **企业额度**（`/v2/billing/meter/get-enterprise-user-usage`） | panel `internal/upstream/client.go:1987-2050` | 未做 |
 | 12 | **对话活跃上报**（`/v2/report`） | go `internal/upstream/report.go:21-35`；panel `internal/upstream/report.go:22` | 未做 |
 | 13 | **成长计划任务族**（`/v2/activity/growth/tasks` + accept + claim） | panel `internal/upstream/tasks.go:29-30`、`:211-227` | 未做 |
 | 14 | **连签 / 抽奖**（`/activity/growth/streak`、`/activity/growth/lottery/*`） | panel `internal/upstream/streak.go:21-23` | 未做 |
@@ -715,7 +750,7 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | 18 | **会话头族轮级聚合**（一次 user send 复用同一 `X-Conversation-Request-ID`） | go `internal/upstream/headers.go:270-318`；hub `docs/protocol-reference.md:2311` | 未做 |
 | 19 | **截断流补终止帧**（`finish_reason`） | hub `docs/protocol-reference.md:2186-2201` | 未做 |
 | 20 | **`prompt_cache_key` 前缀缓存**（实测费用降 ~17×）+ `reasoning_effort` 档位降级 | panel `internal/upstream/client.go:788-798`、`internal/upstream/cache_key.go` | 未做 |
-| 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh 的 `src/client-identity.ts`（本实现对应：`packages/core/channels/workbuddy/src/upstream.ts:729`） | 未做 |
+| 21 | **客户端版本 / 参数档案可配置**（UA、`X-IDE-Version` 可热改） | hub `admin/client_profile.py:517-637`；dsh-workbuddy-connect 的 `src/client-identity.ts` | 未做 |
 
 ### 9.4 待真机验证（12 条）
 
@@ -724,7 +759,7 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | V1 | `platform=workbuddy` vs `platform=CLI` | 四个参考实现分两派，且都是能跑通的形态 | 各跑一次正常设备授权，比对 `authUrl` 与 token 端点是否正常 |
 | V2 | 登录期 UA：桌面三段式 vs CLI 形态 | 三家参考实现都用 CLI 形态，本仓用桌面形态也能登录 | 抓包官方桌面端**登录期**的 UA；或 A/B 各登一次 |
 | V3 | 登录期 Origin 该不该带 `www` | 本仓内部就不一致（login 用 `codebuddy.cn`，chat 用 `www.codebuddy.cn`） | 抓包官方登录页 XHR 头；或 A/B 各登一次 |
-| V4 | `X-Private-Data` 该 `true` 还是 `false` | hub 逆向写 `false`，本仓写 `true` 且实测能通 | 抓包官方 5.5.6 模型请求的该头 |
+| V4 | `X-Private-Data` 是恒 `true`，还是按账号形态分（个人 `false` / 企业 `true`） | 本仓按后者（misakano 反编译 + testdata 抓包）；hub 逆向写恒 `false` 也能通 | 同一模型分别用个人 / 企业账号各打一次，比对官方客户端该头取值 |
 | V5 | `X-Trace-ID` 与 `X-B3-TraceId` 是否必须同值 | hub 明写「不一致比不发更糟」，本仓两者**不同值**且实测能通 | 抓包官方一次模型请求比对两个头 |
 | V6 | `X-Auth-Refresh-Source` 该 `plugin` 还是 `workbuddy` | 两派各一家 | 各刷新一次（只改这一个头的值），比较上游是否接受、token 是否有效 |
 | V7 | chat 的 `Accept` 该带不带 `text/event-stream` | go 带、hub / dsh / 本仓不带 | 抓包官方 chat 请求的 `Accept` |
@@ -733,3 +768,4 @@ Responses/Anthropic 适配、图片生成、OpenRouter 价估算、智能体一�
 | V10 | `/v3/config` 对企业账号的分流 | 缺 `enterpriseId`（要真实企业账号才有） | 企业账号登录后对比带 / 不带那对头的模型条数 |
 | V11 | 非对话模型前缀过滤是否必需 | 本仓目录实测未见这些前缀 | `mx model workbuddy --refresh` 后看 `cache/models.json` 有无这些前缀 |
 | V12 | 国际版 UA 次段大小写（`WorkBuddy AI` vs `workbuddy-ai`） | go / dsh 与 hub 抓包不一致 | 只影响 `workbuddyai` 渠道；抓包国际版桌面端即可定论 |
+| V13 | `/v3/config` 是否该单独发两段单品牌 UA（`WorkBuddy/<ver> CLI/<cli>`） | chat 真机是三段、目录探测真机是两段；本仓对两者都发三段，实测目录条数无差异 | 同账号同 token 各发一次三段 / 两段，比对返回体是否逐字节相同 |

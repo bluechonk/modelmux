@@ -6,15 +6,14 @@
 | --- | --- | --- |
 | 规范与契约 | `docs/`（本目录） | 仓库级规则，改代码前必读 |
 | 渠道文档 | `docs/channels/<cid>/` | 每个渠道自己的协议规格与实测（[索引](./channels/README.md)） |
-| 门面与规则 | 仓库根 `README.md` / `AGENTS.md`、`.agents/skills/<name>/` | 门面与工具 / agent 的行为约束（按固定路径读，不能搬） |
+| 门面与规则 | 仓库根 `README.md` / `AGENTS.md` | 门面与工具 / agent 的行为约束（按固定路径读，不能搬） |
 
 > 落点与登记红线、分层与写作规则见根 [`AGENTS.md`](../AGENTS.md) 的「文档」；
 > 该文件同时给出**设计文档索引表**（改哪块代码先读哪篇）。
 > `scripts/verify-docs.mjs` 在 `npm test` 里强制检查。
 
 > 渠道包目录（`packages/core/channels/<cid>/`）只放**实现**（`src/` 的 7 个文件）与包配置，
-> **不再带 `docs/`**；唯一例外是目录级工具指令 `packages/core/channels/catpaw/AGENTS.md`
-> （给工具按目录读，不能搬）。
+> **不再带 `docs/`**。
 
 > 文档只描述**当前设计**：旧设计与变更记录不写进文档，需要时从 git 历史取；
 > 已完成任务的过程记录（RUN-LOG、task_plan/progress）不入库。
@@ -27,11 +26,12 @@
 
 | 文档 | 一句话 |
 | --- | --- |
-| [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：共享层 / 渠道层 7 文件 / 零运行依赖 / 发布构建 / 测试要求 / **CLI 命令形态（§9 动词优先）** / 交付清单 |
+| [CONTRACT-TS.md](./CONTRACT-TS.md) | **工作区实现契约**：分层与 7 文件 / 零运行依赖 / 发布构建 / 注册表 / 模型池策略 / 陈旧构建防线 / **CLI 命令形态（§6 动词优先）** / 交付清单 |
+| [CHANNEL-INTERFACE.md](./CHANNEL-INTERFACE.md) | **渠道接口契约**：cred / upstream / catalog / billing 四模块的语义约定、登录链路契约、渠道测试边界 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：统一模型池（裸模型名 + 按账号池剩余额度跨渠道选路、目录三级来源与兜底）+ 池元数据取值 + 账号池（多账号 / 连败标记 / 额度耗尽自动换号） |
 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避 / 代次作废 / 父死自退） |
-| [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议、模型名解析、一键接入与手工配置、真机验证矩阵 |
+| [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议、模型名解析、手工配置形态、真机验证矩阵 |
 
 ### 1.2 运维与日志
 
@@ -73,6 +73,7 @@
 | [MODULE-COMMENTS.md](./MODULE-COMMENTS.md) | **模块注释约定**：文件头 / 函数 docstring / 文档三层分工与模板 |
 | [CODE-COMMENTS.md](./CODE-COMMENTS.md) | **代码注释内容规范**：写 why 不写 what、时效地雷例外、修订记录不进注释的判据与正反例 |
 | [REFERENCES.md](./REFERENCES.md) | **第三方参考与许可证登记**（唯一事实源）：许可证、借鉴边界、npm 依赖许可证、登记流程 |
+| [GLOSSARY.md](./GLOSSARY.md) | **术语表**：核心概念的唯一叫法与 `_Avoid_` 错误叫法，正文用词以它为准 |
 
 ### 1.7 状态快照与留档
 
@@ -106,11 +107,11 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 
 | cid | 产品 | 文档 |
 | --- | --- | --- |
-| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) + [FINDINGS](./channels/catpaw/FINDINGS.md)（凭据加密 / 密钥材料 / 解密验证 / scope / 敏感面） |
-| `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) + [FINDINGS](./channels/loomy/FINDINGS.md) |
+| `catpaw` | CatPaw（美团妙手） | [PROTOCOL](./channels/catpaw/PROTOCOL.md) |
+| `loomy` | Loomy（讯飞） | [PROTOCOL](./channels/loomy/PROTOCOL.md) |
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | [PROTOCOL](./channels/qwenworkcn/PROTOCOL.md)；**COSY 协议的一个部署**（同族实现存档见 git 历史）：域名 / client_id / 深链 / 模型命名空间（`qwork`）/ 额度端点全不同 |
 | `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | [PROTOCOL](./channels/codebuddycn/PROTOCOL.md)（OAuth 授权页 + 轮询；对话体 gzip；官方 CLI 头族） |
-| `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) + [FINDINGS](./channels/raccoon/FINDINGS.md) |
+| `raccoon` | Raccoon（商汤） | [PROTOCOL](./channels/raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | [PROTOCOL](./channels/traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | [PROTOCOL](./channels/workbuddy/PROTOCOL.md) |
 
@@ -120,19 +121,17 @@ Source = Deploy from a branch，`main` / `/docs`；**不需要 workflow**）。�
 `catpaw` 的规格不是单文件，而是一条完整的凭据逆向链路（`PROTOCOL.md` 是它的索引）：
 
 - [PROTOCOL.md](./channels/catpaw/PROTOCOL.md) —— 全部结论速览 + 方法论 + 证据等级约定 + 端到端数据流
-- [FINDINGS.md](./channels/catpaw/FINDINGS.md) —— 结论汇总（凭据落点 / 加密方案 / 密钥材料 / 解密验证 / scope 机制 / 敏感面）
 
-## 4. 规则文件与项目技能
+## 4. 规则文件
 
 | 位置 | 是什么 |
 | --- | --- |
 | `README.md`（**仓库根**） | 仓库门面（GitHub 只渲染根 README），全中文 |
 | `AGENTS.md`（**仓库根**） | 仓库级规则（工具从根读，不能搬） |
-| `packages/core/channels/catpaw/AGENTS.md` | 该目录的 agent 级指令（工具从目录读取，不能搬） |
-| `.agents/skills/repo-sync/SKILL.md` | 收尾流程：`docs/` 同步、commit / PR / CI / merge |
-| `.agents/skills/dsh-mx-test/SKILL.md` | 端到端测试：dsh（DeepSeek Harness）ACP 协议直连网关跑真实 Agent 会话（覆盖每个渠道的模型）与 dsh 会话编程驱动参考；只许用免费（倍率 0）或当前渠道倍率最低的模型 |
 
-> `.agents/skills/` 下每个技能都要登记在上表；新增技能时同步加一行（`verify-docs` 会校验不漏登记）。
+收尾流程与端到端验收判据都在 `docs/` 内（[WORKFLOW.md](./WORKFLOW.md)「收尾」、
+[LOGGING.md](./LOGGING.md) §10.9），机械自检跑 `npm run repo:check`。
+仓库不再维护项目内技能 —— 单步操作交给 `scripts/`，多步判断写进 docs。
 
 ## 5. 其它客户端怎么接（任意 OpenAI 客户端）
 

@@ -6,8 +6,8 @@
  *   1. `docs/`                       —— 契约与规范（仓库级唯一文档层）
  *   2. 仓库根 `README.md` / `AGENTS.md` —— 门面与规则文件（工具按固定路径读）
  *   3. `docs/channels/<cid>/`         —— 渠道自己的文档（说明 + 协议规格 + 逆向结论层）
- *   4. `packages/core/channels/<cid>/AGENTS.md` —— 目录级工具指令
- *   5. `.agents/skills/<name>/` / `.zcode/skills/<name>/` —— 项目级技能整包
+ *   4. `.agents/skills/<name>/` / `.zcode/skills/<name>/` —— 技能整包（当前仓库无项目内技能，
+ *      保留落点规则：`.zcode/skills/` 是工具级覆盖位，将来加技能时不必再改这里）
  *
  * 这个检查把「文档各归其位」从口头约定变成会失败的测试 —— 有 md 落在别处时
  * `npm test` 直接红，而不是等人发现。
@@ -26,7 +26,6 @@ const ALLOWED = [
   /^docs\//, // 契约与规范 + 渠道文档（docs/channels/<cid>/）
   /^AGENTS\.md$/, // 仓库级规则：工具从仓库根读，不能搬
   /^README\.md$/, // 仓库门面：GitHub 只渲染根 README，必须留在原处
-  /^packages\/core\/channels\/[a-z0-9-]+\/AGENTS\.md$/, // 目录级工具指令：工具从目录读，不能搬
   /^\.agents\/skills\/[a-z0-9-]+\//, // 项目级技能整包（SKILL.md + 引用 / 模板 / 脚本）
   /^\.zcode\/skills\/[a-z0-9-]+\//, // 项目级技能整包（高优先级覆盖位）
 ];
@@ -78,10 +77,10 @@ function walk(dir, out = []) {
     return out;
   }
   for (const entry of entries) {
-    // 只按 SKIP_DIRS 剪枝，**不按 `.` 开头剪**：`.agents/skills/` 下有十几份 md
-    // （命令手册、协议参考），它们同样要过落点 / 死链 / 源码引用可达三关。
+    // 只按 SKIP_DIRS 剪枝，**不按 `.` 开头剪**：技能目录下的 md（命令手册、协议参考）
+    // 同样要过落点 / 死链 / 源码引用可达三关。
     // 早先这里把任何 `.` 开头的目录整体 continue，等于让整棵技能文档树对文档规则
-    // 假绿灯 —— `ALLOWED` 里为 `.agents/skills/**` 写的规则也成了永远匹配不到的死代码。
+    // 假绿灯 —— `ALLOWED` 里为技能目录写的规则也成了永远匹配不到的死代码。
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
@@ -239,6 +238,34 @@ function checkSourceRefs(rel) {
     const lines = readFileSync(hit, "utf8").split("\n").length;
     if (from > lines || to > lines) {
       found.push(`\`${file}:${m[2]}${m[3] ? "-" + m[3] : ""}\`（行号超出该文件 ${lines} 行）`);
+      continue;
+    }
+    // 内容可达：行号必须在**当前代码**里真的指到被描述的东西。
+    //
+    // 为什么查：行号是最容易腐烂的坐标 —— 改一次函数位置就全漂，而「文件存在、行号没越界」
+    // 两条都过，读者按它去找却扑空（实测 traecn 的 `Origin` 写 :583、实际在 :605）。
+    //
+    // 判据刻意收窄，只查**代码标识符形态**的同行引用（表格单元格常见
+    // 「`REMOTE_MODELS_PATH` / … | `upstream.ts:94-100`」，正文常见「…（`upstream.ts:283` 的 `fn`）」）：
+    //   - 必须含大写字母（排除 `await` 这类关键字与 `model_config` 这类 JSON 字段名）；
+    //   - 至少 4 字符（排除 `id` / `url` 这类太短易误命中的名字）。
+    // 其余不做语义推断 —— 那必然误报。
+    const before = text.slice(0, m.index);
+    const lineStart = Math.max(before.lastIndexOf("\n"), before.lastIndexOf("|"));
+    const context = text.slice(lineStart, m.index);
+    const idents = [...context.matchAll(/`([A-Za-z_][A-Za-z0-9_]{3,})`/g)]
+      .map((x) => x[1])
+      .filter((name) => /[A-Z]/.test(name));
+    if (idents.length === 0) continue;
+    const codeLines = readFileSync(hit, "utf8").split("\n");
+    // ±6 行窗口：允许引用指向块注释或常量声明附近，但不接受跨函数命中
+    const window = codeLines.slice(Math.max(0, from - 7), Math.min(lines, to + 6)).join("\n");
+    for (const name of idents) {
+      if (!new RegExp(`\\b${name}\\b`).test(window)) {
+        found.push(
+          `\`${file}:${m[2]}\` 同行的 \`${name}\` 在该行 ±6 行内不存在（行号已漂移？）`,
+        );
+      }
     }
   }
   return found;
@@ -548,7 +575,7 @@ function sectionsOf(abs) {
 }
 
 // 文件名 → 绝对路径。同名文档（每个渠道都有自己的 PROTOCOL.md）必须优先取同目录的那份，
-// 否则渠道 FINDINGS 里的 `PROTOCOL.md §2.4` 会被解析到别的渠道的 PROTOCOL 上去。
+// 否则渠道 PROTOCOL 里写的 `PROTOCOL.md §2.4` 会被解析到别的渠道的 PROTOCOL 上去。
 function resolveDocByName(fromAbs, docName) {
   const sameDir = join(dirname(fromAbs), docName);
   if (existsSync(sameDir)) return sameDir;
@@ -708,7 +735,7 @@ for (const cid of channelIds) {
   }
 }
 
-// 3) `.agents/skills/<name>/` 每个技能都要在 docs/README.md 的「规则文件与项目技能」表里登记
+// 3) `.agents/skills/<name>/` 每个技能都要在 docs/README.md 的「规则文件」表里登记
 //
 // 为什么查：技能是**工具按目录发现**的（`.agents/skills/<name>/SKILL.md`），
 // 但「这个仓库有哪些技能、各自干什么」只有文档能回答 —— 漏登记的技能等于不存在：
@@ -716,28 +743,32 @@ for (const cid of channelIds) {
 //
 // 只扫 `.agents/skills/`（本仓库的技能落点）；`.zcode/skills/` 是**覆盖位**，
 // 不是新技能的落点（见根 AGENTS.md 的「文档」第 3 条），故不要求登记。
+// 目录不存在时跳过：仓库可以一个项目内技能都没有（单步操作交给 scripts/），
+// 那不是违规 —— 硬要求目录存在会逼人留一个空壳技能。
 const skillsDir = join(workspaceRoot, ".agents", "skills");
 const readmeIndex = readText(join(workspaceRoot, "README.md"));
-for (const name of readdirSync(skillsDir)) {
-  if (!existsSync(join(skillsDir, name, "SKILL.md"))) continue; // 只有 SKILL.md 的目录才算技能
-  const needle = `.agents/skills/${name}/SKILL.md`;
-  if (!docsIndex.includes(needle)) {
-    problems.push(
-      `${needle} —— 未登记到 docs/README.md 的「规则文件与项目技能」表（漏登记的技能等于不存在）`,
-    );
-  }
-  if (!readmeIndex.includes(needle)) {
-    problems.push(
-      `${needle} —— 未登记到仓库根 README.md 的「文档」表（GitHub 只渲染根 README，技能入口要在此可达）`,
-    );
+if (existsSync(skillsDir)) {
+  for (const name of readdirSync(skillsDir)) {
+    if (!existsSync(join(skillsDir, name, "SKILL.md"))) continue; // 只有 SKILL.md 的目录才算技能
+    const needle = `.agents/skills/${name}/SKILL.md`;
+    if (!docsIndex.includes(needle)) {
+      problems.push(
+        `${needle} —— 未登记到 docs/README.md 的「规则文件」表（漏登记的技能等于不存在）`,
+      );
+    }
+    if (!readmeIndex.includes(needle)) {
+      problems.push(
+        `${needle} —— 未登记到仓库根 README.md 的「文档」表（GitHub 只渲染根 README，技能入口要在此可达）`,
+      );
+    }
   }
 }
 
-// 4) 命令清单的唯一事实源是 CONTRACT-TS.md §9 —— 已知重复点不得再内联
+// 4) 命令清单的唯一事实源是 CONTRACT-TS.md §6 —— 已知重复点不得再内联
 //
 // 为什么查：同一组命令写两遍必然漂移（改一处忘另一处）。已修的那处是
 // `docs/LOGGING.md` 的「CLI 检索」：原先内联 12 条 `mx log` 命令，与
-// CONTRACT-TS.md §9 的「命令速查」表近乎逐字重复。事实源就是 §9，
+// CONTRACT-TS.md §6 的「命令速查」表近乎逐字重复。事实源就是 §9，
 // LOGGING.md 只保留日志独有的解析规则与判读流程。
 //
 // 判据刻意**收窄**：只查 `docs/LOGGING.md` 里的 `mx log` 行内命令。
@@ -750,9 +781,9 @@ const inlineLogCmd = loggingText
   .filter((line) => /^\s*(mx log\b|`mx log\b)/.test(line));
 if (inlineLogCmd.length > 0) {
   problems.push(
-    `${LOGGING_MD}: 不得内联 \`mx log\` 命令清单（与 CONTRACT-TS.md §9 重复，会漂移）。\n` +
+    `${LOGGING_MD}: 不得内联 \`mx log\` 命令清单（与 CONTRACT-TS.md §6 重复，会漂移）。\n` +
       `     命中 ${inlineLogCmd.length} 行，例：${inlineLogCmd[0]?.trim().slice(0, 80) ?? ""}\n` +
-      `     改法：换成一行指向 CONTRACT-TS.md §9，只保留该文档独有的解析规则。`,
+      `     改法：换成一行指向 CONTRACT-TS.md §6，只保留该文档独有的解析规则。`,
   );
 }
 
@@ -771,7 +802,7 @@ if (agentsMdBytes > AGENTS_MD_MAX_BYTES) {
   problems.push(
     `${AGENTS_MD}: ${agentsMdBytes} 字节 > ${AGENTS_MD_MAX_BYTES} 字节上限。\n` +
       `     超出部分会被 Codex 静默丢弃（其 project_doc_max_bytes 默认 32768，不报错、无提示）。\n` +
-      `     改法：把低频细则下沉到 docs/ 或 .agents/skills/，根文件只留摘要与指针 —— ` +
+      `     改法：把低频细则下沉到 docs/，根文件只留摘要与指针 —— ` +
       `拆分先例见 docs/WORKFLOW.md。`,
   );
 }

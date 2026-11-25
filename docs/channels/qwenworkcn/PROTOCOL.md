@@ -17,7 +17,7 @@ ProductName `QwenWorkCN`，CompanyName `Qoder`）的反代协议。
 
 1. [登录：设备码授权（PKCE S256）](#1-登录设备码授权pkce-s256) —— 流程、machine_id、续期
 2. [推理：COSY 签名与 body 编码](#2-推理cosy-签名与-body-编码) —— 端点与头、两个必需块、响应
-3. [模型目录](#3-模型目录qwork-命名空间3-个档位) —— 分桶、档位、对外名映射
+3. [模型目录](#3-模型目录qwork-命名空间条目随上游增减) —— 分桶、条目解析、档位与型号
 4. [额度与账号](#4-额度与账号openapi-侧) —— 钱包、账号现状、签到
 5. [已知边界](#5-已知边界)
 6. [使用与实测](#6-使用与实测) —— 怎么测、端到端覆盖
@@ -69,8 +69,12 @@ domain（账号池 key）         = qwenwork.cn
 
 ### 1.3 续期
 
-`POST https://gateway.qwenwork.cn/api/v1/deviceToken/refresh`，body 至少带 `refresh_token`。
-官方 1.3.1 客户端还会带 `target: "c"` 与（专属打包时）`client_id` / `redirect_uri`。
+`POST https://gateway.qwenwork.cn/api/v1/deviceToken/refresh`。
+
+**本实现只发 `{ refresh_token}`**（`src/cred.ts` 的刷新函数），头只有 `Content-Type` /
+`Accept` / `User-Agent: qoderwork/1.0.4`，不带身份头、不带 `target: "c"`。
+参考实现同样只发 `refresh_token`；`target: "c"` 与 `client_id` / `redirect_uri`
+是官方 1.3.1 客户端的形态，**是否必需未验证**（见 §5）。
 401/403 = 终态（重新登录），其余 = 可重试。续期响应不含 `machine_id` / `uid` / `nickname`，
 必须从旧凭据保留。[代码]
 
@@ -138,7 +142,7 @@ X-Provider-Name: maas-openai
 
 ---
 
-## 3. 模型目录（`qwork` 命名空间，3 个档位）
+## 3. 模型目录（`qwork` 命名空间，条目随上游增减）
 
 ### 3.1 端点与分桶
 
@@ -146,40 +150,35 @@ X-Provider-Name: maas-openai
 GET https://gateway.qwenwork.cn/algo/api/v2/model/list?Encode=1
 ```
 
-响应按命名空间分桶 `[实测]`：
+响应按命名空间分桶：`chat` / `qwork` / `experts` / `inline` / …。
+**千问办公的模型在 `qwork`**（`chat` 通常是空的）；Qoder 账号的目录才填 `chat` ——
+读错桶会让目录整个空掉。`refresh()` 优先读 `qwork`，缺失时回落 `chat`。
 
-```json
-{"chat":[], "developer":[], "assistant":[], "inline":[], "quest":[], "nap":[],
- "qwork":[ … 3 条 … ], "experts":[], "qwake":[], "byok_teams":null, "byok_enterprise":null}
-```
+### 3.2 条目解析（不做白名单裁剪）
 
-**千问办公的模型在 `qwork`**（`chat` 是空的）。Qoder 账号的目录填的是 `chat` ——
-读错桶会让目录整个空掉。`catalog.refresh()` 优先读 `qwork`，回落 `chat`。
+`qwork` 桶里的**每一条**都进目录：对外 id 取 `POOL_KEY_MAP` 的显式映射，未登记时用
+展示名归一（小写、空格/下划线转连字符；展示名含非 ASCII 则整个丢弃，回退上游 `key`）。
+`POOL_KEY_MAP` 当前为**空对象**（历史上的 `flash → qwen3.8-flash` 已随该档位从家族表
+移除而删除）—— 也就是说**哪些档位能对外请求完全由注册表的家族表决定**，目录层不再做
+二次收窄。
 
-### 3.2 三个档位（本账号实测）
+- 条目自带 `price_factor`（倍率）、`max_input_tokens`（缺省 180_000）、`is_vl`、
+  `is_reasoning`
+- 思考档位从 `thinking_config.enabled.efforts` 归一成 `{supportedLevels, defaultLevel}`，
+  落盘前完成（池层直接读缓存，只认这一种形态）
 
-| 上游 key | 展示名 | 描述 | 倍率 | 上下文档位 | 默认 |
-| --- | --- | --- | --- | --- | --- |
-| `flash` | 标准 | 极速全能，秒杀日常任务 | 0.1 | 200K / 400K / **1M** | ✅ |
-| `pro` | 高级 | 性能均衡，擅长复杂任务 | 1 | 200K / 400K / **1M** | |
-| `qwen3.8-max-preview` | Qwen3.8-Max | 千问最强模型 | 1.8 | 200K / 400K / **1M** | |
+**档位数随上游变，本文不写死**：2026-11-10 实测 3 档（`flash` / `pro` /
+`qwen3.8-max-preview`），2026-11-20 实拉已是 13 档（新增 qwen4-max、deepseek-flash、
+kimi-k3.1-pro 等第三方档，均 enable）。要看当前实拉结果用
+`mx model qwenworkcn --refresh`，别照抄本文的任何清单。
 
-三条都是 `is_vl: true` + `is_reasoning: true`，`thinking_config: null`（无思考档位可选）。
+### 3.3 档位不等于具体型号
 
-### 3.3 档位不是具体型号
-
-- 三个档位请求回来的响应头**都是** `X-Model-Name: qwork-openai-chat-mode-pool` ——
-  底层模型由服务端池化，接口不下发真实型号。
-- 直接点具体型号名一律 403：`qwen3.8-flash` / `qwen3.8-max` / `glm-5.3-flash` /
-  `deepseek-flash` 全部回 `{"code":"403","message":"Model is not available for this user"}`。
-
-因此**能对外放出的只有档位本身**。本仓只卖最便宜的「标准」档，对外名
-`qwen3.8-flash`（如实标成档位，不假装是某个具体型号）。
-
-### 3.4 对外名映射
-
-`catalog.ts` 的 `POOL_KEY_MAP` 只登记 `flash → qwen3.8-flash`。`pro` 与
-`qwen3.8-max-preview` 不映射，其对外 id 不是家族名，池层不放行。
+请求响应头恒为 `X-Model-Name: qwork-openai-chat-mode-pool` —— 底层模型由服务端池化，
+接口不下发真实型号。**用具体型号名请求会被拒**（早期实测 `qwen3.8-flash` /
+`qwen3.8-max` / `glm-5.3-flash` / `deepseek-flash` 回
+`{"code":"403","message":"Model is not available for this user"}`）；这是早期目录只有
+档位 key 时的表现，**上游扩档后具体档名已可作为 key 下发**（见 §3.2 的 13 档观测）。
 
 ---
 
@@ -250,20 +249,28 @@ X-QwenWork-App-Mode: standard
 
 1. **COSY 版本存疑**：两份参考分别写 `1.1.32` 与 `1.1.59`。当前用 `1.1.32` 真机通过；
    若日后被拒，先试 `1.1.59`。
-2. **只放「标准」一档**：`pro`（1×）与 `qwen3.8-max-preview`（1.8×）未进家族表。
-   要放出来需要同时改 `model-family.ts` 与 `models.json`。
+2. **对外放什么由家族表决定**：目录层不再做档位收窄（`POOL_KEY_MAP` 为空），
+   新增档位要对外暴露时改 `model-family.ts` 与注册表，不是改渠道代码。
 3. **扣费读数不实时**：实测中钱包读数在多次调用后并不总是变化（个人免费版可能先走
    免费额度，或结算有延迟）。判断「是否扣费」需间隔一段时间再读 `wallets`。
-4. **上下文档位**：上游给 200K / 400K / 1M 三档，默认 1M；本渠道固定按 1M 声明，
-   不实现「按档位切换」。
+4. **上下文档位**：取目录条目自带的 `max_input_tokens`（缺省 180_000）；上游给的是
+   200K / 400K / 1M 这类分档值，本渠道**不实现「按档位切换」**，按声明的值发。
 5. **登录身份**：阿里云 BUC SSO（桌面端「使用阿里云登录」→ 手机号验证码 / 账密 / 支付宝 /
    淘宝都在**阿里云**那侧，不在千问办公的 API 里）。渠道只做设备码，不自动化 SSO 页面。
+6. **429 不归类限流**：`quotaSignal` 忽略状态码，只匹配 `pricingUrl` 与业务码族
+   （110-119、122），裸 429 返回 `null`；共享层的通用措辞也不含本渠道文案 ⇒ 429 走
+   「原样透传 + 换候选」。是不是该有独立的限流分类，待真机取样（见下）。
+7. **`max_tokens` 不夹上限**：按请求原样透传。上游对超过 32000 的值是否拒绝未实测；
+   若确认有限制，再在渠道侧夹取并在本文写死依据。
+
+**待真机取样**：并发/频率限制的真实形态（错误码、阈值、是否有 `Retry-After`）、
+`target: "c"` 是否为续期必需、超大 `max_tokens` 的接受范围。这三条定论前不改代码。
 
 ## 6. 使用与实测
 
 ### 6.1 怎么测这个渠道
 
-端到端由 Agent 跑 `dsh-mx-test` skill（dsh ACP 直连 `http://127.0.0.1:4412/v1`）：
+端到端由 Agent 直连 `http://127.0.0.1:4412/v1` 跑真实会话（验收判据见 [LOGGING.md §10.9](../../LOGGING.md)）：
 
 ```bash
 mx login qwenworkcn
@@ -297,9 +304,9 @@ node .tmp/probe-qwenworkcn-e2e.mjs             # 走网关，验池路由与 1M 
 - **`parameters.context_length` 恒发**（Agent2Providers protocol.rs：长对话缺该字段中途被拒）；
   `tools` 恒发空数组（无工具时省略键会让模型臆造工具调用）。
 - **额度码表扩到 110-119 族 + 122**（Agent2Providers errors.rs + xrp-cosy 深潜交叉）。
-- **目录实拉（2026-11-20）**：`qwork` 桶 13 档全 enable，含 qwen4-max(1.6×)、deepseek-flash
-  (DeepSeek-V4.1-Flash, 0.1×)、kimi-k3.1-pro(2.4×) 等第三方档；运行时按展示名自动归一。
-  `POOL_KEY_MAP` 的 `flash` 映射随 `qwen3.8-flash` 移出对外家族一并删除。
+- **目录扩档（2026-11-20 实测）**：`qwork` 桶从 3 档扩到 13 档，新增第三方档
+  （qwen4-max、deepseek-flash、kimi-k3.1-pro 等，均 enable）；解析侧本就按桶内全部条目
+  动态处理，无需改代码。观测数据见 §3.2。`POOL_KEY_MAP` 保持为空。
 - **备查**：MaaS 直连通道（`POST /api/desktop-sessions` → sk-mm-v1 token + 独立 base_url，
   免 COSY 签名）在生态已有实现；工程代价在取 JWT，本轮不接。
 - **风险登记**：版本门（COSY 1.1.52-1.1.71 / 客户端 2.1.0 均有实测可用报告，本仓 1.1.32

@@ -530,7 +530,7 @@ DeepSeek 官方 `GET /models`，见 `pool-targets.ts` 的 `PoolModelMeta`）。�
 
 **缺字段时的回答者**是渠道包根的 `models.json`（按公开规格维护的数据文件），
 入口是可选钩子 `catalog.modelSpec?(modelId)`（契约见
-[CONTRACT-TS.md](./CONTRACT-TS.md) §5.3.5）。当前全部渠道都实现了该钩子 ——
+[CHANNEL-INTERFACE.md](./CHANNEL-INTERFACE.md) §1.3.5）。当前全部渠道都实现了该钩子 ——
 规格数据落 `channels/<cid>/models.json`，代码侧只留「怎么取 / 怎么归一化」。
 
 四条约束：
@@ -876,7 +876,7 @@ hasChannel(cid?: string): boolean;
  「本进程认得的全部身份」，所以单渠道的 `status` 也认得多渠道路由的网关。
 - **`model` 命令组的三个视图**：`model list` = 池视图（有哪些模型，按渠道分组，
   渠道级账本状态只出现一次）、`model usage` = 池账本（各渠道用得怎么样，每渠道一行）、
-  `model <cid>` = 渠道视角（该渠道的目录）。见 §2.5 与 [CONTRACT-TS.md](./CONTRACT-TS.md) §9.1。
+  `model <cid>` = 渠道视角（该渠道的目录）。见 §2.5 与 [CONTRACT-TS.md](./CONTRACT-TS.md) §6.1。
 - **仓库级 CLI**：`packages/cli`（bin `modelmux` / `mx`）。
 
 ### 4.4 三层进程模型

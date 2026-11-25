@@ -1,0 +1,40 @@
+{
+  "note": "常驻文档的字节天花板。天花板 = 当前值，含义是「不许再涨」。红了按 Relocate → Condense → Raise 处置：先把细节下沉到 owning doc，再压缩重复表述，抬顶必须在 PR 里论证并说明为什么不拆。清单里列了但文件不存在同样报错（改名或删除时同步改这里）。",
+  "budgets": [
+    {
+      "path": "AGENTS.md",
+      "maxBytes": 18000,
+      "note": "每个会话都进上下文的常驻规则；超 30000 字节会被 Codex 的 project_doc_max_bytes 静默截断"
+    },
+    {
+      "path": "docs/CONTRACT-TS.md",
+      "maxBytes": 35000,
+      "note": "跨包契约：分层 / 依赖 / 注册表 / 模型池 / 陈旧构建 / CLI。渠道模块接口契约已拆到 CHANNEL-INTERFACE.md"
+    },
+    {
+      "path": "docs/CHANNEL-INTERFACE.md",
+      "maxBytes": 39000,
+      "note": "渠道实现者读的接口契约（cred / upstream / catalog / billing）+ 登录链路与测试边界"
+    },
+    {
+      "path": "docs/POOL-ARCHITECTURE.md",
+      "maxBytes": 63000,
+      "note": "池架构与选路；897 行。选路算法与账号池生命周期已可各自独立成篇"
+    },
+    {
+      "path": "docs/WEB-CONSOLE.md",
+      "maxBytes": 60500,
+      "note": "控制台页面与交互；664 行。页面逐个说明可按页拆"
+    },
+    {
+      "path": "docs/LOGGING.md",
+      "maxBytes": 39500,
+      "note": "日志规范 + 故障分诊 + 端到端验收判据；540 行"
+    },
+    {
+      "path": "docs/WORKFLOW.md",
+      "maxBytes": 24500,
+      "note": "低频细则总汇；收尾节与发版节可再下沉"
+    }
+  ]
+}

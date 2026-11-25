@@ -15,6 +15,8 @@
     "verify:contract": "node scripts/verify-contract.mjs",
     "verify:storage": "node scripts/verify-storage.mjs",
     "verify:docs": "node scripts/verify-docs.mjs",
+    "verify:budgets": "node scripts/verify-budgets.mjs",
+    "verify:stale": "node scripts/verify-stale.mjs",
     "verify:commits": "node scripts/verify-commits.mjs",
     "verify:topology": "node scripts/verify-topology.mjs",
     "verify:references": "node scripts/verify-references.mjs",
@@ -27,9 +29,10 @@
     "desktop": "node scripts/pack-desktop.mjs",
     "version:sync": "node scripts/sync-version.mjs",
     "after-change": "node scripts/after-change.mjs",
+    "repo:check": "node scripts/repo-check.mjs",
     "prepare": "node scripts/setup-git-hooks.mjs",
     "test:scripts": "node --test scripts/tests/*.test.mjs",
-    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:comments && npm run verify:sensitive && npm run verify:commits && npm run verify:topology && npm run verify:references && npm run verify:layering && npm run verify:wiring && npm run test:scripts && npm run test --workspaces --if-present"
+    "test": "npm run build && npm run typecheck && npm run verify:contract && npm run verify:storage && npm run verify:docs && npm run verify:budgets && npm run verify:stale && npm run verify:comments && npm run verify:sensitive && npm run verify:commits && npm run verify:topology && npm run verify:references && npm run verify:layering && npm run verify:wiring && npm run test:scripts && npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.6"

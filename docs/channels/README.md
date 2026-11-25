@@ -5,10 +5,10 @@
 ```
 docs/channels/<cid>/
   PROTOCOL.md     协议规格（实现依据）+ 使用与实测（推荐模型 / 已知限制 / 端到端实测）+ 参考实现
-  FINDINGS.md     逆向结论汇总（按需）：逐条标注证据等级 + 来源；含方法论 / 实跑记录 / 缺口清单
 ```
 
-> **每个渠道至多两份 md**：`PROTOCOL.md` 必有；`FINDINGS.md` 只在有逆向结论时写。
+> **每个渠道只有一份 md**：`PROTOCOL.md`。逆向过程、证据等级标注与「已移除路径」的
+> 推理史不入库 —— 协议事实写进 PROTOCOL，历史从 git 取。
 
 > 落点与登记红线、分层与写作规则见根 [`AGENTS.md`](../../AGENTS.md) 的「文档」。
 > 渠道包（`packages/core/channels/<cid>/`）只放实现与包配置，
@@ -23,7 +23,7 @@ docs/channels/<cid>/
 | 接入客户端 | base url 指到 `http://127.0.0.1:4412/v1`，模型填 `<cid>/<模型>` 池 id（清单见 `GET /v1/models`） |
 | 单渠道调试 | `node packages/core/channels/<cid>/dist/cli.js --help` |
 | 额度 / 签到 | 额度查 `mx bill <cid>`；**签到由网关启动时自动执行**（`packages/core/gateway/src/auth/auto-signin.ts`，每 30 分钟补一次，跨天常驻也能补签），今天是否已签看 `mx status <cid>`；渠道不支持时 CLI / UI 显示 `-` |
-| 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「测试规则」第 1 条），用 `dsh-mx-test` skill 走真实客户端 |
+| 端到端测试 | 渠道**不写单元测试**（根 `AGENTS.md`「约定」），用真实客户端直连网关（判据见 [LOGGING.md](../LOGGING.md) §10.9） |
 
 > 渠道之间的**差异**（登录方式、推荐模型、已知限制、上游硬约束）都写在该渠道的
 > `PROTOCOL.md` 里 —— 本页只放**对所有渠道都成立**的部分；下方「渠道一览」的一句话说明
@@ -33,15 +33,14 @@ docs/channels/<cid>/
 
 | 文件 | 回答的问题 | 写什么 | 不写什么 |
 | --- | --- | --- | --- |
-| `PROTOCOL.md` | 「上游长什么样 + 这条渠道怎么用」 | 端点、请求头约束、请求体、环境变量（`src/` 读的运维面变量，`verify-docs` 强制）、实测结论、推荐模型、已知限制、端到端实测、参考实现清单 | why（why 跟代码走） |
-| `FINDINGS.md` | 「逆向出了什么 + 有多可信」 | 逐条结论 + 证据等级（`[实测]` / `[代码]` / `[推断]` / `[参考]`）+ 来源文件；逆向方法论、完整实跑记录、渠道缺口清单 | 推断写成实测（禁止）；推理过程 / 变更史 |
+| `PROTOCOL.md` | 「上游长什么样 + 这条渠道怎么用」 | 端点、请求头约束、请求体、环境变量（`src/` 读的运维面变量，`verify-docs` 强制）、实测结论、推荐模型、已知限制、端到端实测、参考实现清单、已移除路径的协议形态 | 逆向过程与证据等级标注；why（why 跟代码走）；推理史 / 变更史 |
 
 > **许可证与出处**：各渠道 `PROTOCOL.md` 的 `## 参考实现` 只写「从哪个仓库学到了什么」；
 > **仓库、许可证、使用边界统一登记在 [REFERENCES.md](../REFERENCES.md)**（唯一事实源）。
 > 借鉴前先看那里的使用原则：只借鉴协议事实与思路，不复制代码。
 
-当前落地：**每个渠道一份 `PROTOCOL.md`**；另有 `FINDINGS.md` 的渠道是**按需**的逆向结论层
-（实际清单以 `docs/channels/` 目录为准，不在此处手抄数量）。
+当前落地：**每个渠道一份 `PROTOCOL.md`**（实际清单以 `docs/channels/` 目录为准，
+不在此处手抄数量）。
 
 **唯一事实源**：协议事实只在 `PROTOCOL.md`；代码注释里出现同一事实的副本，协议一改就要改两处。
 注释的三层分工见 [`MODULE-COMMENTS.md`](../MODULE-COMMENTS.md)。
@@ -61,16 +60,16 @@ docs/channels/<cid>/
 - 尚无端到端实测记录的渠道**不写**这一节（渠道清单见下方「渠道一览」表，逐渠道对照）。
 
 **逆向研究代码不入库**：探针 / 解密脚本这类一次性研究代码（渠道目录下的 `research/`）
-用完即删，价值在结论，不在代码。结论必须落到本目录的 `PROTOCOL.md` / `FINDINGS.md`。
+用完即删，价值在结论，不在代码。协议事实必须落到该渠道的 `PROTOCOL.md`。
 
 ## 渠道一览
 
 | cid | 产品 | 一句话说明 | 文档 |
 | --- | --- | --- | --- |
-| `catpaw` | CatPaw（美团妙手） | 凭据加密落盘（AES-256-GCM，密钥由机器码派生）；上游对话三段式 | [PROTOCOL](./catpaw/PROTOCOL.md) + [FINDINGS](./catpaw/FINDINGS.md) |
-| `loomy` | Loomy（讯飞） | 微信扫码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) + [FINDINGS](./loomy/FINDINGS.md) |
+| `catpaw` | CatPaw（美团妙手） | 真实 URL 登录（poll-token 轮询）；上游对话三段式 round → event → turn | [PROTOCOL](./catpaw/PROTOCOL.md) |
+| `loomy` | Loomy（讯飞） | 手机验证码登录；账户积分与签到积分是**两个池** | [PROTOCOL](./loomy/PROTOCOL.md) |
 | `qwenworkcn` | 千问办公（QwenWorkCN，`gateway.qwenwork.cn`） | **COSY 协议的一个部署**（同族实现的存档见 git 历史）：域名 / client_id（`e883ade2…`）/ 深链（`qwenwork-cn://`）/ 模型命名空间（`qwork`）/ 额度端点（`/api/v1/adapter/user/*`）全不同；上游 2026-11 起目录扩到 13 档（含 qwen4-max、deepseek-flash 等第三方档，1M 上下文）；**上游无签到接口** | [PROTOCOL](./qwenworkcn/PROTOCOL.md) |
-| `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | OAuth 授权页 + 轮询取令牌（无本机回环）；对话体 **gzip 压缩**；伪装官方 CLI 头族；模型目录仅个人账号可取；**国内版无签到入口** | [PROTOCOL](./codebuddycn/PROTOCOL.md) |
+| `codebuddycn` | CodeBuddy 国内版（`copilot.tencent.com`） | OAuth 授权页 + 轮询取令牌（无本机回环）；对话体是**明文** JSON（声明 gzip 会被拒）；伪装官方 CLI 头族；模型目录主源 `/v3/config`；**有每日签到** | [PROTOCOL](./codebuddycn/PROTOCOL.md) |
 | `raccoon` | Raccoon（商汤） | 模型 id 藏在远端 `name` 字段里，不在 `id` | [PROTOCOL](./raccoon/PROTOCOL.md) |
 | `traecn` | TRAE（字节，中国版） | 「对话可用余额」与签到是**两套口径**，不能混用 | [PROTOCOL](./traecn/PROTOCOL.md) |
 | `workbuddy` | WorkBuddy（国内版 CodeBuddy） | 与国际版同一套端点协议；realm 换域名 | [PROTOCOL](./workbuddy/PROTOCOL.md) |
@@ -79,7 +78,7 @@ docs/channels/<cid>/
 
 ## 端到端测试现状
 
-下表为当前 7 个在册渠道的端到端冒烟基线（判据：access 日志 `status 200` / `stream true` / 客户端侧工具调用可见 / `messageCount` 随工具轮次递增，错误日志无该渠道新增条目）。现行端到端用 `dsh-mx-test` 技能，只发免费或最低倍率模型。
+下表为当前 7 个在册渠道的端到端冒烟基线（判据：access 日志 `status 200` / `stream true` / 客户端侧工具调用可见 / `messageCount` 随工具轮次递增，错误日志无该渠道新增条目）。现行端到端用真实客户端直连网关，只发最低倍率模型。
 
 | 渠道 | 是否在册 | 端到端 | 备注 |
 | --- | --- | --- | --- |
@@ -103,3 +102,16 @@ docs/channels/<cid>/
 1. `docs/channels/<cid>/PROTOCOL.md` —— 协议规格（实测结论）+ 使用与实测 + 参考实现
 2. 在本页的「渠道一览」与 [`docs/README.md`](../README.md) 的渠道表各登记一行
 3. `npm test` —— `verify-docs` 会检查落点与渠道规格文档是否齐备
+
+## 改哪个模块读哪篇
+
+| 改动面 | 先读 |
+| --- | --- |
+| 凭据获取 / 登录链路 / token 存储 | 该渠道 `PROTOCOL.md`；接口契约看 [CHANNEL-INTERFACE.md §1.1](../CHANNEL-INTERFACE.md) |
+| 请求构造 / 上游端点与头部 / 错误分类 | 该渠道 `PROTOCOL.md`；契约看 [CHANNEL-INTERFACE.md §1.2](../CHANNEL-INTERFACE.md) |
+| 模型目录解析 / 归一化 / 候选收窄 | [POOL-ARCHITECTURE.md §2](../POOL-ARCHITECTURE.md)、[MODEL-CATALOG.md](../MODEL-CATALOG.md) |
+| 额度查询 / 账单 / 冷却上报 | [CHANNEL-INTERFACE.md §1.4](../CHANNEL-INTERFACE.md)、[ACCOUNT-ROTATION.md](../ACCOUNT-ROTATION.md) |
+| 渠道 CLI 命令 | [CONTRACT-TS.md §6](../CONTRACT-TS.md) |
+| 分层红线 / 7 文件约束 | [CONTRACT-TS.md §1](../CONTRACT-TS.md)、根 `AGENTS.md` 的「仓库结构」 |
+| 日志与实测判据 | [LOGGING.md](../LOGGING.md)，端到端验收见 §10.9 |
+| 术语与叫法 | [GLOSSARY.md](../GLOSSARY.md) |

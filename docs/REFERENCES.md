@@ -32,6 +32,8 @@
 | [Juwan-Hwang/catpaw2api](https://github.com/Juwan-Hwang/catpaw2api) | MIT（仓库已归档） | 同上 |
 | [KanoNoUta/thief-neko](https://github.com/KanoNoUta/thief-neko) | MIT | 同上 |
 | [zhou-gy/catpawai-proxy](https://github.com/zhou-gy/catpawai-proxy) | NOASSERTION | 同上 |
+| [gu-gavin/magpie-catpaw-tools](https://github.com/gu-gavin/magpie-catpaw-tools) | MIT | 同上（原生 `toolConfigs` 通道、图片挂 `turn` 的实测口径、信封两套形态） |
+| [ProvidersPlugin/Agent2Providers](https://github.com/ProvidersPlugin/Agent2Providers) | AGPL-3.0 | 同上（`wasm/catpaw` 的 `tools.rs` / `turn_request.rs` / `messages.rs` 请求构造交叉验证；只取协议事实，不复制代码） |
 
 ### loomy
 

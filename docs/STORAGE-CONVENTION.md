@@ -35,7 +35,7 @@
 ├── model-catalog.json           ← **模型目录快照**（`/v1/models` 的数据源，含来源标记；见 MODEL-CATALOG.md）
 ├── codex-model-catalog.json     ← Codex 客户端的模型目录缓存（`mx model` 拉取后落盘）
 ├── api-keys.json                ← **对话请求准入密钥**（scrypt 哈希 + 前缀 + AES-GCM 密文；0600，写时留 `.bak`）
-├── setting.json                 ← **用户级设置**（主题、禁用渠道、一键接入自动同步间隔；读写见 runtime/user-settings.ts）
+├── setting.json                 ← **用户级设置**（主题、禁用渠道；读写见 runtime/user-settings.ts）
 ├── update.json                  ← **版本更新检测状态**（上次检查时间 / 最近一次结果；
 │                                   读写见 runtime/update-check.ts）
 └── channels/                    ← 唯一渠道层（0.1.2 起）
@@ -152,7 +152,6 @@
 | `MODELMUX_KEYRING` | API key 主密钥文件 | OS 配置目录下 `keyring/api-key.key` |
 | `MODELMUX_REGISTRY_FILE` | 统一模型注册表 | `<root>/models.json` |
 | `MODELMUX_WEB_UI_ROOT` | 控制台静态资源根 | 随包 `dist/ui` |
-| `MODELMUX_ADDR` | 外部守护探测地址 | `127.0.0.1:4412` |
 | `MODELMUX_START_WAIT_MS` | 启动健康等待 | 30000 |
 | `MODELMUX_CATALOG_REFRESH_MS` | 模型目录刷新间隔 | 3 天 |
 | `MODELMUX_BILLING_REFRESH_MS` | 账单刷新间隔 | 5 分钟 |
