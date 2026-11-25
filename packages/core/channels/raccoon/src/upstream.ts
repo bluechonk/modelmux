@@ -259,9 +259,9 @@ export function idleTimeoutMs(): number {
 /**
  * 构造上游请求头。
  *
- * 对话形态**不含** `X-Client-Version` / `X-Client-Device-ID`（协议 §2.1 内联实测）；
- * 这两个头只在短信登录路径用过，该路径已不存在（全仓无构造方）⇒ 不构造。
- * 对话形态也**不含** `User-Agent`（只有 `jsonHeaders` 那一族带）。
+ * 基础族只给鉴权与语言；客户端身份六件套与链路/会话关联头由 `buildChatHeaders`
+ * 追加（那才是对话请求的实际形态）。`User-Agent` 两个族都不带，只有 JSON 端点
+ * 用的 `jsonHeaders` 带。
  */
 export function buildHeaders(credential: AuthLike, opts: HeaderOptions = {}): Record<string, string> {
   const chat = opts.jsonBody ?? true;

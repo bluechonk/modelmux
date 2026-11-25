@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { contextWindowOf, resolveModel, toModelInfo } from "../dist/catalog.js";
-import { quotaSignal } from "../dist/upstream.js";
+import { isCredentialInvalid } from "../dist/billing.js";
+import { buildToolConfigs, envelopeFailure, quotaSignal } from "../dist/upstream.js";
 
 describe("quotaSignal：额度信号上报", () => {
   it("402 判额度耗尽，429 判渠道级频控（不烧账号连败）", () => {
@@ -73,5 +74,88 @@ describe("contextWindowOf：上下文窗口查询", () => {
     const n = contextWindowOf("definitely-not-a-model-xyz");
     assert.equal(typeof n, "number");
     assert.ok(n > 0);
+  });
+});
+
+describe("buildToolConfigs：客户端工具 → 上游原生声明", () => {
+  const twoTools = [
+    { type: "function", function: { name: "read_file", description: "读文件", parameters: { type: "object" } } },
+    { type: "function", function: { name: "run_bash", parameters: { type: "object" } } },
+  ];
+
+  it("每条带 enable/fromClient，inputSchema 取 parameters", () => {
+    const { configs, available } = buildToolConfigs({ tools: twoTools });
+    assert.deepEqual(available, ["read_file", "run_bash"]);
+    assert.equal(configs.length, 2);
+    assert.deepEqual(
+      configs.map((c) => [c.name, c.enable, c.fromClient]),
+      [
+        ["read_file", true, true],
+        ["run_bash", true, true],
+      ],
+    );
+    assert.deepEqual(configs[0]!.inputSchema, { type: "object" });
+    assert.equal(configs[0]!.description, "读文件");
+    assert.equal(configs[1]!.description, undefined, "无描述时不写该键");
+  });
+
+  it("tools 缺失/为空 → 两个键都是空数组（键仍在，上游按无客户端工具处理）", () => {
+    for (const payload of [{}, { tools: [] }, { tools: "nope" }]) {
+      assert.deepEqual(buildToolConfigs(payload), { configs: [], available: [] });
+    }
+  });
+
+  it("tool_choice=none 一个都不发；=function:x 只发 x", () => {
+    assert.deepEqual(buildToolConfigs({ tools: twoTools, tool_choice: "none" }), {
+      configs: [],
+      available: [],
+    });
+    const picked = buildToolConfigs({
+      tools: twoTools,
+      tool_choice: { type: "function", function: { name: "run_bash" } },
+    });
+    assert.deepEqual(picked.available, ["run_bash"]);
+  });
+
+  it("名称非法或重复的条目跳过（客户端输入坏一条不该让整轮起不来）", () => {
+    const { configs, available } = buildToolConfigs({
+      tools: [
+        { type: "function", function: { name: "ok_tool", parameters: {} } },
+        { type: "function", function: { name: "has space", parameters: {} } },
+        { type: "function", function: { name: "ok_tool", parameters: {} } },
+        { type: "function", function: { name: "", parameters: {} } },
+      ],
+    });
+    assert.deepEqual(available, ["ok_tool"]);
+    assert.equal(configs.length, 1);
+  });
+});
+
+describe("envelopeFailure：两套信封的失败判定", () => {
+  it("success:false 判失败（即使 code 为 0）", () => {
+    assert.match(envelopeFailure({ success: false, message: "boom" }) ?? "", /boom/);
+    assert.match(envelopeFailure({ success: false, unifyCode: 40001 }) ?? "", /40001/);
+  });
+
+  it("code 非 0/200 判失败（原逻辑保留）", () => {
+    assert.equal(envelopeFailure({ code: 4008, msg: "quota" }), "quota");
+    assert.equal(envelopeFailure({ code: 0 }), null);
+    assert.equal(envelopeFailure({ code: 200 }), null);
+    assert.equal(envelopeFailure({ code: "000000" }), null, "字符串业务码 000000 是成功");
+  });
+});
+
+describe("isCredentialInvalid：HTTP 200 里的凭据失效码", () => {
+  it("4010/4011 判失效（数字与数字字符串都认）", () => {
+    assert.equal(isCredentialInvalid({ code: 4010 }), true);
+    assert.equal(isCredentialInvalid({ code: 4011 }), true);
+    assert.equal(isCredentialInvalid({ code: "4011" }), true);
+  });
+
+  it("其余形态不误判（否则额度查询会被当成登录失效）", () => {
+    assert.equal(isCredentialInvalid({ code: 0 }), false);
+    assert.equal(isCredentialInvalid({ code: 4012 }), false);
+    assert.equal(isCredentialInvalid(null), false);
+    assert.equal(isCredentialInvalid("x"), false);
   });
 });

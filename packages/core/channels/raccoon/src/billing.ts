@@ -129,10 +129,16 @@ export async function fetchCredits(
     throw new CreditsError(`Balance query failed: code=${result.code} ${result.message}`);
   }
 
-  const available = num(result.data["available_points"]);
+  // `total_chargeable_points` 优先：它含企业加油包等全部可计费额度，选路按账号池剩余
+  // 额度排序，取 `available_points` 会漏掉这部分而提前判账号耗尽。回退字段是给
+  // 老响应形态留的（两个参考实现同为这个优先级）。
+  const available =
+    num(result.data["total_chargeable_points"]) ?? num(result.data["available_points"]);
   if (available === null) {
     // 形状不对 → 抛错，绝不显示成 0
-    throw new CreditsError("Balance response has no available_points field (bad shape; not shown as 0)");
+    throw new CreditsError(
+      "Balance response has neither total_chargeable_points nor available_points (bad shape; not shown as 0)",
+    );
   }
 
   const pools: Array<[string, number | null]> = [

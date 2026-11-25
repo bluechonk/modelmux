@@ -3,7 +3,8 @@
  *
  * 关键约束（端点/字段/实测见 docs/channels/catpaw/PROTOCOL.md）：
  *   - 上游是 round → event → turn 三段式；round + event 由 prepareChat 顺序 await，必须用网关建好的同一 body。
- *   - 消息折叠成一条 user 文本、工具走「提示词注入 + 输出解析」（renderFullPrompt）；SSE 是累积帧，需 suffix-diff。
+ *   - 消息折叠成一条 user 文本（renderFullPrompt）；客户端工具走原生 toolConfigs
+ *     （buildToolConfigs），不再作为 prompt 注入。SSE 是累积帧，需 suffix-diff。
  *   - 工具调用按流末尾一次性下发；turn 必须回报 completed 才会归档。
  *
  * 铁律：token 原文不进日志/输出，只给指纹与脱敏形态。
@@ -453,10 +454,12 @@ function formatMessage(msg: OpenAiMessage): string {
 /**
  * 全量折叠 prompt（对齐参考实现 `renderFullPrompt`）。
  *
- * 结构：`[系统指令]` → `[对话历史]` → `[当前消息]` → 工具说明块。
+ * 结构：`[系统指令]` → `[对话历史]` → `[当前消息]`。
  * 超预算时先丢最早的历史（保留最后 8 条），仍超限则头尾保留、中间省略。
+ *
+ * 工具**不**再注入这里：客户端工具走原生 `toolConfigs`（见 `buildToolConfigs`）。
  */
-function renderFullPrompt(messages: OpenAiMessage[], toolsBlock: string): string {
+function renderFullPrompt(messages: OpenAiMessage[]): string {
   const system: string[] = [];
   const dialogue: string[] = [];
   for (const msg of messages) {
@@ -481,7 +484,6 @@ function renderFullPrompt(messages: OpenAiMessage[], toolsBlock: string): string
     } else if (dialogue.length === 1) {
       parts.push(dialogue[0]!);
     }
-    parts.push(toolsBlock);
     return parts.filter((p) => p).join("\n\n");
   };
 
@@ -512,28 +514,6 @@ function truncateMiddleBytes(text: string, maxBytes: number): string {
   return buf.subarray(0, headEnd).toString("utf8") + marker + buf.subarray(tailStart).toString("utf8");
 }
 
-/** 取客户端工具声明（OpenAI 形状 → 归一化 function）。 */
-function extractTools(payload: Record<string, unknown>): ToolSpec[] {
-  const tools = payload["tools"];
-  if (!Array.isArray(tools)) return [];
-  const out: ToolSpec[] = [];
-  for (const tool of tools) {
-    if (!tool || typeof tool !== "object") continue;
-    const t = tool as Record<string, unknown>;
-    const fn = t["function"] && typeof t["function"] === "object"
-      ? (t["function"] as Record<string, unknown>)
-      : t;
-    const name = typeof fn["name"] === "string" ? fn["name"] : "";
-    if (!name) continue;
-    out.push({
-      name,
-      description: typeof fn["description"] === "string" ? fn["description"] : "",
-      parameters: fn["parameters"] ?? { type: "object", properties: {} },
-    });
-  }
-  return out;
-}
-
 /** tool_choice 归一化（字符串或 {"type":"function","function":{"name"}}）。 */
 function parseToolChoice(payload: Record<string, unknown>): ToolChoice {
   const raw = payload["tool_choice"];
@@ -554,29 +534,73 @@ function parseToolChoice(payload: Record<string, unknown>): ToolChoice {
   return { mode: "auto" };
 }
 
-function toolsActive(tools: ToolSpec[], choice: ToolChoice): boolean {
-  return tools.length > 0 && choice.mode !== "none";
+/** 上游工具声明（`toolConfigs` 一条）。 */
+export interface ToolConfig {
+  name: string;
+  enable: true;
+  fromClient: true;
+  inputSchema: unknown;
+  description?: string;
 }
 
-/** 工具说明块（对齐参考实现 `buildToolsPrompt`）。 */
-function buildToolsPrompt(tools: ToolSpec[], choice: ToolChoice): string {
-  const lines: string[] = [];
-  lines.push("# 工具调用（重要）");
-  lines.push("本轮**只能**使用下面列出的工具。平台内置工具（CallMcpTool、bash、read_file、write、string_replace、web_fetch 等）一律不要调用，即使它们出现在你的可用函数里。");
-  lines.push("需要调用时，在回复中输出一个 ```tool_call 代码块，格式严格如下：");
-  lines.push("```tool_call");
-  lines.push('{"name":"<工具名>","arguments":{<参数JSON>}}');
-  lines.push("```");
-  lines.push("可输出多个 tool_call 块调用多个工具；代码块之外不要复述工具调用内容。");
-  lines.push("不需要调用工具时正常回复文本，绝对不要输出 tool_call 代码块。");
-  if (choice.mode === "required") lines.push("本轮【必须】至少调用一个工具，禁止直接文本回答。");
-  if (choice.mode === "function" && choice.name) lines.push(`本轮【必须】调用工具 "${choice.name}"。`);
-  lines.push("工具列表：");
-  tools.forEach((spec, i) => {
-    lines.push(`${i + 1}. ${spec.name}${spec.description ? ` — ${spec.description}` : ""}`);
-    lines.push(`   parameters: ${JSON.stringify(spec.parameters)}`);
-  });
-  return lines.join("\n");
+/** 随请求下发的工具面：声明 + 本次可用的名字（两者都发，缺一上游不认）。 */
+export interface PreparedTools {
+  configs: ToolConfig[];
+  available: string[];
+}
+
+/**
+ * 把 OpenAI `tools` / `tool_choice` 改写成上游原生的 `toolConfigs` + `availableTools`。
+ *
+ * 字段与取值按参考实现（agent2providers `wasm/catpaw/src/tools.rs`）：
+ * `{name, enable:true, fromClient:true, inputSchema, description?}`，缺 `enable` 会被上游
+ * 判成非客户端工具而丢弃——社区曾有实现因漏这个字段误得出「协议不支持工具」的结论。
+ *
+ * 选择规则跟 `tool_choice`：`none` 一个都不发；`function:<name>` 只发该工具；其余全发。
+ * 名称非法（空、含空格/连字符以外的符号、超 128 字节）或重复的条目**跳过**而不是报错
+ * —— 工具声明是客户端输入，坏一条不该让整轮对话起不来。
+ */
+export function buildToolConfigs(payload: Record<string, unknown>): PreparedTools {
+  const raw = payload["tools"];
+  if (!Array.isArray(raw)) return { configs: [], available: [] };
+
+  const specs: ToolSpec[] = [];
+  const seen = new Set<string>();
+  for (const tool of raw) {
+    if (!tool || typeof tool !== "object") continue;
+    const t = tool as Record<string, unknown>;
+    const fn = t["function"] && typeof t["function"] === "object"
+      ? (t["function"] as Record<string, unknown>)
+      : t;
+    const name = typeof fn["name"] === "string" ? fn["name"] : "";
+    if (!name || seen.has(name)) continue;
+    // 与上游命名约束同形：字母数字 + `_` `.` `-`，长度按字节算（ASCII 名字等价）
+    if (name.length > 128 || !/^[A-Za-z0-9_.-]+$/.test(name)) continue;
+    seen.add(name);
+    specs.push({
+      name,
+      description: typeof fn["description"] === "string" ? fn["description"] : "",
+      parameters: fn["parameters"] ?? { type: "object", properties: {} },
+    });
+  }
+
+  const choice = parseToolChoice(payload);
+  if (specs.length === 0 || choice.mode === "none") return { configs: [], available: [] };
+
+  const picked = choice.mode === "function" && choice.name
+    ? specs.filter((s) => s.name === choice.name)
+    : specs;
+
+  return {
+    configs: picked.map((s) => ({
+      name: s.name,
+      enable: true as const,
+      fromClient: true as const,
+      inputSchema: s.parameters,
+      ...(s.description ? { description: s.description } : {}),
+    })),
+    available: picked.map((s) => s.name),
+  };
 }
 
 /** 取 reasoning effort。 */
@@ -592,8 +616,8 @@ function extractEffort(payload: Record<string, unknown>): string {
 /**
  * 把 OpenAI ChatCompletion 请求改写成 catpaw conversation turn body。
  *
- * 消息按参考实现折叠成**一条 user 文本**（见文件头「消息折叠」）；工具说明
- * 作为 prompt 尾块注入，上游不认识 OpenAI 的 `tools` / `toolConfigs`。
+ * 消息按参考实现折叠成**一条 user 文本**（见文件头「消息折叠」）。客户端工具走原生
+ * 通道：`toolConfigs` + `availableTools` 随 round/turn 一起下发（见 `buildToolConfigs`）。
  *
  * 上游是**三段式协议**（round → event → turn），而共享 gateway 层只 POST 一次
  * 到 `chatUrl()`（turn URL）。round + event 由 `prepareChat` 钩子按序 await。
@@ -622,10 +646,10 @@ export function buildChatBody(
   }
 
   const modelType = catalog.modelTypeOf(upstreamModel);
-  const tools = extractTools(req);
-  const choice = parseToolChoice(req);
-  const toolsBlock = toolsActive(tools, choice) ? buildToolsPrompt(tools, choice) : "";
-  const prompt = renderFullPrompt(parseMessages(messages), toolsBlock);
+  // 工具声明走**原生通道**：toolConfigs + availableTools 随请求下发（无工具时为空数组，
+  // 键仍保留 —— 上游按这两个键决定本轮的客户端工具面）。工具说明不再注入 prompt。
+  const prepared = buildToolConfigs(req);
+  const prompt = renderFullPrompt(parseMessages(messages));
 
   const message: UpstreamMessage = {
     type: "user",
@@ -646,6 +670,12 @@ export function buildChatBody(
     modelParams: { declarativeParams: { context: String(context), ...(effort ? { effort } : {}) } },
   };
 
+  // 两个 body 都带工具面：round 建会话、turn 跑本轮，缺一个都让上游按「无客户端工具」处理。
+  const toolFace = {
+    toolConfigs: prepared.configs,
+    availableTools: prepared.available,
+  };
+
   const roundBody: Record<string, unknown> = {
     conversationId,
     source: CATPAW_SOURCE,
@@ -653,6 +683,7 @@ export function buildChatBody(
     modelType,
     mode: CATPAW_MODE,
     toolVersion: TOOL_VERSION,
+    ...toolFace,
     requestContext,
   };
 
@@ -666,6 +697,7 @@ export function buildChatBody(
     mode: CATPAW_MODE,
     permissionMode: PERMISSION_MODE,
     toolVersion: TOOL_VERSION,
+    ...toolFace,
     requestContext,
   };
 
@@ -1529,6 +1561,27 @@ export function newTranslator(request?: Record<string, unknown>): StreamTranslat
 
 // ── 上游 HTTP 交互 ───────────────────────────────────────────────────────────
 
+/**
+ * 信封失败判定：上游有 `{code}` 与 `{success, unifyCode}` 两套信封。
+ *
+ * 只判 `code` 会漏掉 `success: false` —— 那是 **HTTP 200**，会被当成成功，
+ * round/event 静默失败、turn 随后报「会话未在执行中」。故 `success` 优先判。
+ * 返回错误消息；`null` 表示成功。
+ */
+export function envelopeFailure(payload: Record<string, unknown>): string | null {
+  if (payload["success"] === false) {
+    const msg = typeof payload["message"] === "string" ? payload["message"] : "";
+    const unify = payload["unifyCode"];
+    return msg || `upstream reported failure (unifyCode=${String(unify ?? "")})`;
+  }
+  const code = payload["code"];
+  if (typeof code === "number" && code !== 0 && code !== 200) {
+    const msg = typeof payload["msg"] === "string" ? payload["msg"] : `upstream code=${code}`;
+    return msg;
+  }
+  return null;
+}
+
 /** 发一次 JSON POST（round / event 用）。 */
 async function postJson(
   url: string,
@@ -1549,11 +1602,8 @@ async function postJson(
   if (!text) return;
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
-    const code = parsed["code"];
-    if (typeof code === "number" && code !== 0 && code !== 200) {
-      const msg = typeof parsed["msg"] === "string" ? parsed["msg"] : `upstream code=${code}`;
-      throw new CatPawProtocolError(msg, code);
-    }
+    const failure = envelopeFailure(parsed);
+    if (failure !== null) throw new CatPawProtocolError(failure, 0);
   } catch (err) {
     if (err instanceof CatPawProtocolError) throw err;
     /* 非 JSON 响应不视为失败 */

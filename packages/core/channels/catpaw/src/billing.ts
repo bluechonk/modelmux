@@ -39,6 +39,22 @@ function gatewayHeaders(token: string): Record<string, string> {
   return { "X-Auth-Token": token, Accept: "application/json" };
 }
 
+/**
+ * 凭据失效业务码：`4010` = 没带 token，`4011` = token 无效。
+ *
+ * 上游把它们装在 **HTTP 200** 的 body 里（与 HTTP 401 同义），只看状态码会把「登录已失效」
+ * 误报成「额度响应缺 availableCredits」，既不触发刷新也提示不到重登。
+ */
+const CREDENTIAL_INVALID_CODES = new Set([4010, 4011]);
+
+/** body 顶层的 `code` 是否表示凭据失效（容忍数字与数字字符串两种形态）。 */
+export function isCredentialInvalid(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  const code = (payload as Record<string, unknown>)["code"];
+  const n = typeof code === "number" ? code : typeof code === "string" ? Number(code) : Number.NaN;
+  return Number.isFinite(n) && CREDENTIAL_INVALID_CODES.has(n);
+}
+
 /** 剥信封：网关响应形如 `{code, data}`；无 code 字段时视 body 本身即 data。 */
 function unwrap(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== "object") {
@@ -103,6 +119,9 @@ export async function fetchCredits(
     if (err instanceof CreditsError || err instanceof cred.NotLoggedInError) throw err;
     throw new CreditsError(`credit balance request failed: ${String(err)}`);
   }
+  if (isCredentialInvalid(payload)) {
+    throw new cred.NotLoggedInError("CatPaw gateway rejected the token; please log in again");
+  }
 
   const data = unwrap(payload);
   const remain = numOf(data["availableCredits"]);
@@ -151,6 +170,9 @@ async function claimRegister(): Promise<{ result: RegisterResult; raw: Record<st
   } catch (err) {
     if (err instanceof CreditsError || err instanceof cred.NotLoggedInError) throw err;
     throw new CreditsError(`credit register request failed: ${String(err)}`);
+  }
+  if (isCredentialInvalid(payload)) {
+    throw new cred.NotLoggedInError("CatPaw gateway rejected the token; please log in again");
   }
   const data = unwrap(payload);
   return {

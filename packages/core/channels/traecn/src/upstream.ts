@@ -239,8 +239,8 @@ type TraeErrorKind =
 /**
  * 按报文 + 状态码分类错误。
  *
- * 判定顺序有讲究：**`4008` 必须先于 `4011`**（报文里两个码都有时按配额耗尽
- * 处理 → 换号，而不是按频率超限等 60s）。
+ * 判定顺序有讲究：**`4008` 必须先于 `4011`** —— 报文里两个码都有时按配额耗尽算，
+ * 账号进额度冷却（次日重置），而不是当成频率超限（那个不冷却，见 `quotaSignal`）。
  */
 export function classifyError(status: number, body: string): TraeErrorKind {
   const text = (body ?? "").toLowerCase();

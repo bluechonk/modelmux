@@ -2,11 +2,12 @@
  * CodeBuddy 国内版上游：端点表 + 头族 + 请求体改写 + 模型目录拉取。
  *
  * 关键约束（端点/字段/实测见 docs/channels/codebuddycn/PROTOCOL.md）：
- *   - 对话端点是 `/v2/chat/completions`，请求体是 **gzip 压缩**的 OpenAI 形态
- *     （`Content-Encoding: gzip` + `Accept-Encoding: identity`）——不压缩会被上游拒。
+ *   - 对话端点是 `/v2/chat/completions`，请求体是**明文** OpenAI 形态：只设
+ *     `Accept-Encoding: identity`、不声明 `Content-Encoding`（声明 gzip 却发明文会被拒）。
  *   - 头族按账号带 `X-User-Id` / `X-Domain` / `X-Enterprise-Id`，并伪装官方 CLI
  *     身份（User-Agent / X-IDE-* / x-stainless-*）—— 上游按整组头判定是否官方客户端。
- *   - 模型目录在 `/v2/enterprises/personal/models`（仅个人账号；企业账号无此表）。
+ *   - 模型目录主源 `GET /v3/config`（可见性由 agents[name=cli].models 决定）；
+ *     `/v2/enterprises/personal/models` 仅在个人账号且主源不可用时兜底。
  */
 
 import { createHash, randomUUID } from "node:crypto";

@@ -67,15 +67,24 @@ export function modelSpec(
   };
 }
 
-/** 解析远端个人模型表：`data.models` + `data.availableModels` 过滤。 */
-function parseRemoteModels(data: unknown): ModelEntry[] {
+/**
+ * 解析远端个人模型表：`data.models` + `data.availableModels` 过滤。
+ *
+ * 导出供纯函数测试直接喂响应体 —— 解析与过滤是这一族最容易静默失效的逻辑
+ * （空数组语义错一次就是整个渠道目录变空），值得钉住。
+ */
+export function parseRemoteModels(data: unknown): ModelEntry[] {
   const out: ModelEntry[] = [];
   const seen = new Set<string>();
   if (!isRecord(data)) return out;
   const models = data["models"];
   if (!Array.isArray(models)) return out;
   const available = data["availableModels"];
-  const availableSet = Array.isArray(available) ? new Set(available.map(String)) : null;
+  // 空数组 = 不过滤：字段存在但为空时把它当「未声明」而不是「一个都不许用」，
+  // 否则整个目录会被过滤成空、强制刷新直接抛 empty catalog。
+  const availableSet = Array.isArray(available) && available.length > 0
+    ? new Set(available.map(String))
+    : null;
 
   for (const item of models) {
     if (!isRecord(item)) continue;
@@ -104,7 +113,7 @@ function parseRemoteModels(data: unknown): ModelEntry[] {
  * 客户端根本不显示的条目（hy3-b/c、default-*、codewise-* 等），交集才贴近官方客户端。
  * `availableModels` 仍作为额外过滤（有就遵循）。
  */
-function parseConfigModels(data: unknown): ModelEntry[] {
+export function parseConfigModels(data: unknown): ModelEntry[] {
   const out: ModelEntry[] = [];
   const seen = new Set<string>();
   if (!isRecord(data)) return out;
@@ -124,7 +133,10 @@ function parseConfigModels(data: unknown): ModelEntry[] {
   }
 
   const available = data["availableModels"];
-  const availableSet = Array.isArray(available) ? new Set(available.map(String)) : null;
+  // 同 parseRemoteModels：空数组按「未声明」处理，不过滤。
+  const availableSet = Array.isArray(available) && available.length > 0
+    ? new Set(available.map(String))
+    : null;
 
   for (const item of models) {
     if (!isRecord(item)) continue;
