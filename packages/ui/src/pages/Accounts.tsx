@@ -15,7 +15,6 @@ import {
 import type { QuotaPeriod } from "../lib/account-status";
 import { LoginModal } from "../components/LoginModal";
 import { buildModelRows, ModelRows } from "../components/ModelListCard";
-import { IntegratePanel } from "../components/IntegratePanel";
 import { PageHeader } from "../components/PageHeader";
 import { useRefreshInterval } from "../lib/refresh-interval";
 import { Select } from "../components/Select";
@@ -447,7 +446,6 @@ export function Accounts(): ReactElement {
             </div>
           </section>
 
-          <IntegratePanel />
 
           {/*
             渠道卡按**列**分发（瀑布流，逐列轮流塞卡），不用 CSS Grid 的自动多列。

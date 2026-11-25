@@ -50,6 +50,17 @@ export function knownServiceNames(): string[] {
 
 export const IMPLEMENTATION = "typescript";
 
+/**
+ * 请求处理器异常的日志形态：**带堆栈**。
+ *
+ * 只记 `String(err)` 会丢掉定位信息——一句话 `Cannot read properties of undefined
+ * (reading 'length')` 无法告诉我们是哪一处 `.length`（实测 2026-11-25：只能全仓静态
+ * 排查候选点）。堆栈进日志后同类问题按调用链直接定位。
+ */
+function formatHandlerError(err: unknown): string {
+  return err instanceof Error && err.stack ? err.stack : String(err);
+}
+
 
 export interface GatewayOptions {
   verbose?: boolean;
@@ -264,7 +275,7 @@ export function createHandler(opts: GatewayOptions = {}) {
     } catch (err) {
       // 异常详情走 detail 字段（`message` 随后会被 writeJsonError 写成给客户端的通用文案）
       noteRequestDetail(res, String(err));
-      options.logger(`request handler error: ${String(err)}`);
+      options.logger(`request handler error: ${formatHandlerError(err)}`);
       if (!res.headersSent) {
         writeJsonError(res, 500, "internal_error", "gateway internal error; see logs");
       } else if (!res.writableEnded) {
@@ -296,7 +307,7 @@ export function makeApp(opts: GatewayOptions = {}): Server {
       } else if (!res.writableEnded) {
         res.end();
       }
-      opts.logger?.(`request handler threw outside try: ${String(err)}`);
+      opts.logger?.(`request handler threw outside try: ${formatHandlerError(err)}`);
     });
   });
 }
@@ -325,7 +336,7 @@ export async function start(addr: string, opts: GatewayOptions = {}): Promise<Ru
       } else if (!res.writableEnded) {
         res.end();
       }
-      logger(`request handler threw outside try: ${String(err)}`);
+      logger(`request handler threw outside try: ${formatHandlerError(err)}`);
     });
   });
 

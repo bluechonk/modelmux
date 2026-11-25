@@ -219,7 +219,7 @@ export function updateApiKey(id: string, patch: { name?: string }): ApiKeyRecord
 /**
  * 一键接入专用 key 的名称。
  *
- * 客户端配置（zcode `access.apiKey` / dsh `refs.MODELMUX_API_KEY`）写的是这个 key
+ * 客户端配置（zcode `access.apiKey`）写的是这个 key
  * —— 对话请求恒定校验，写死占位串会让客户端全体 401。
  * 列表里按名字认它，UI 标注「一键接入」。
  */
@@ -227,36 +227,6 @@ export const INTEGRATION_KEY_NAME = "modelmux";
 
 /** 名称长度上限：列表列宽有限，过长只能折叠，创建时就拦住比事后截断诚实。 */
 export const API_KEY_NAME_MAX = 24;
-
-/**
- * 确保一键接入专用 key 存在，并给出**可写进客户端配置的明文**。
- *
- * 密文可解密（`secretSealed`）时直接返回；只有哈希的记录（明文不可用）返回 null，
- * 调用方据此走 `regenerateApiKey` 重建 —— 不能写占位：对话请求恒定校验，占位串
- * 会让客户端全体 401（一键接入写了等于没写）。
- */
-export function ensureIntegrationApiKey(): { record: ApiKeyRecord; plain: string | null } {
-  const existing = listApiKeys().find((k) => k.name === INTEGRATION_KEY_NAME);
-  if (existing) {
-    const sealed = existing.secretSealed ?? null;
-    return { record: existing, plain: sealed === null ? null : openSecret(sealed) };
-  }
-  const { record, plain } = createApiKey({ name: INTEGRATION_KEY_NAME });
-  return { record, plain };
-}
-
-/**
- * 一键接入取明文：能回读就用，回读不了（早期记录）就重建一把并返回新明文。
- *
- * 重建会作废客户端里旧的专用 key —— 但旧 key 本来就取不到、写不进配置，
- * 保留它只会让接入永远写占位。
- */
-export function integrationKeySecret(): string | null {
-  const { record, plain } = ensureIntegrationApiKey();
-  if (plain !== null) return plain;
-  const rebuilt = regenerateApiKey(record.id);
-  return rebuilt?.plain ?? null;
-}
 
 /** 校验一把明文 key 是否仍有效（接入重跑时判断客户端里那把要不要换）。 */
 export function verifyApiKeyPlain(plain: string): boolean {

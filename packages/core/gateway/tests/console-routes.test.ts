@@ -96,7 +96,6 @@ const spies = {
   submitCallback: spy(),
   submitInput: spy(),
   cancelInput: spy(),
-  integrate: spy(),
   triggerLogin: spy(),
 };
 let providerBroken = false;
@@ -113,10 +112,6 @@ const bridge: ControlBridge = {
   submitCallback: (raw) => spies.submitCallback.calls.push([raw]),
   submitInput: (value) => spies.submitInput.calls.push([value]),
   cancelInput: () => spies.cancelInput.calls.push([]),
-  integrate: (target) => {
-    spies.integrate.calls.push([target]);
-    return { ok: true, notes: [`已写入 ${target} 的模型清单`], warnings: ["备份清单读不出，本次备份未登记"] };
-  },
   triggerLogin: (cid, force) => spies.triggerLogin.calls.push([cid, force]),
 };
 
@@ -438,20 +433,6 @@ describe("/api/commands 分发", () => {
     assert.equal(((await cancel.json()) as { ok: boolean }).ok, true);
   });
 
-  it("integrate：非法 target 400；全部合法 target 都转交", async () => {
-    const bad = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "integrate", args: { target: "vscode" } }) });
-    assert.equal(bad.status, 400);
-    // zcode / dsh 会被 bridge 真实改写本机配置 —— 测试 HOME 隔离下没有配置目录，
-    // 走到 integrateClient 后报「找不到」也算转交成功（错误在 data.error 而非 400 参数错）
-    for (const target of ["zcode", "dsh"]) {
-      const res = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "integrate", args: { target } }) });
-      const payload = (await res.json()) as { ok: boolean; data?: { target?: string; error?: string; warnings?: string[] } };
-      assert.equal(res.status, 200, `${target} 不该被参数校验拦下`);
-      assert.equal(payload.data?.target, target, `${target} 应被转交`);
-      // 警告必须透出：塞进 notes / 丢掉都会让「备份没登记上」在界面上消失
-      assert.deepEqual(payload.data?.warnings, ["备份清单读不出，本次备份未登记"]);
-    }
-  });
 
   it("账号动作：activateAccount 缺 key 400；syncPool ok；accounts 返回渠道", async () => {
     const noKey = await fetch(`${server.url}api/commands`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "activateAccount", cid: "routes", args: {} }) });

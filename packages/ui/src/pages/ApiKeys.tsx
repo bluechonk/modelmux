@@ -450,11 +450,6 @@ export function ApiKeys(): ReactElement {
                     <TableCell className="px-2 py-2 align-middle">
                       <span className="inline-flex max-w-full items-center justify-center gap-1.5">
                         <span className="truncate text-sm font-medium text-ink">{row.name}</span>
-                        {row.name === "modelmux" && (
-                          <span className="flex-none rounded-md bg-overlay px-1.5 py-0.5 text-[11px] font-normal text-ink-soft">
-                            一键接入
-                          </span>
-                        )}
                       </span>
                     </TableCell>
                   )}

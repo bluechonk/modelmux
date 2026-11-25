@@ -16,7 +16,6 @@ import {
   deleteApiKey,
   installApiKeyGuard,
   INTEGRATION_KEY_NAME,
-  integrationKeySecret,
   listApiKeys,
   regenerateApiKey,
   revealApiKeyPlain,
@@ -57,78 +56,6 @@ beforeEach(() => {
 });
 
 describe("API key 存储", () => {
-  it("新建：哈希落盘、明文只以密文落盘，前缀是明文前 12 位", () => {
-    const { record, plain } = createApiKey({ name: "ci" });
-    assert.ok(plain.startsWith("mmx_"));
-    assert.equal(record.prefix, plain.slice(0, 12));
-    const raw = readFileSync(join(root, "api-keys.json"), "utf8");
-    assert.ok(raw.includes(record.keyHash), "哈希必须落盘（校验走它）");
-    // 明文绝不落盘（备份 / 日志会带走数据文件）；只存 AES-GCM 密文
-    assert.ok(!raw.includes(plain), "明文不能出现在数据文件里");
-    assert.ok(raw.includes("secretSealed"), "密文要落盘（复制与接入要回读）");
-    // 但能回读出来
-    assert.equal(revealApiKeyPlain(record.id), plain);
-  });
-
-  it("重建：换新明文与前缀，哈希随之更新，旧明文失效", () => {
-    const { record } = createApiKey({ name: "rekey" });
-    const oldPlain = revealApiKeyPlain(record.id)!;
-    const rebuilt = regenerateApiKey(record.id);
-    assert.ok(rebuilt !== null);
-    assert.notEqual(rebuilt!.plain, oldPlain);
-    assert.equal(revealApiKeyPlain(rebuilt!.record.id), rebuilt!.plain);
-    assert.equal(rebuilt!.record.prefix, rebuilt!.plain.slice(0, 12));
-    assert.ok(verifyApiKeyPlain(rebuilt!.plain), "新明文必须能通过校验");
-    assert.ok(!verifyApiKeyPlain(oldPlain), "旧明文必须失效");
-  });
-
-  it("一键接入取明文：旧记录（只有哈希）会被重建出可用的明文", () => {
-    const { record } = createApiKey({ name: INTEGRATION_KEY_NAME });
-    // 模拟早期记录：抹掉密文，只剩哈希（直接改落盘文件，走真实读取路径）
-    const file = join(root, "api-keys.json");
-    const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
-    for (const k of doc.keys) if (k["id"] === record.id) delete k["secretSealed"];
-    writeFileSync(file, JSON.stringify(doc));
-    const secret = integrationKeySecret();
-    assert.ok(secret !== null && secret.startsWith("mmx_"));
-    assert.ok(verifyApiKeyPlain(secret!), "重建出的明文必须能通过校验");
-  });
-
-  it("旧版明文 secret 读到就迁成密文并**立即落盘**（不等下次写操作）", () => {
-    const { record, plain } = createApiKey({ name: "legacy" });
-    const file = join(root, "api-keys.json");
-    // 造一条中间版本的记录：明文 secret，无密文
-    const doc = JSON.parse(readFileSync(file, "utf8")) as { keys: Array<Record<string, unknown>> };
-    for (const k of doc.keys) {
-      if (k["id"] === record.id) {
-        k["secret"] = plain;
-        delete k["secretSealed"];
-      }
-    }
-    writeFileSync(file, JSON.stringify(doc));
-    assert.ok(readFileSync(file, "utf8").includes(plain), "前置：磁盘上确实有明文");
-
-    // 只读一次（不做任何创建 / 更新）：必须把明文洗掉
-    const keys = listApiKeys();
-    const raw = readFileSync(file, "utf8");
-    assert.ok(!raw.includes(plain), "读到旧明文后必须立即从磁盘移除");
-    assert.ok(raw.includes("secretSealed"), "应改写为密文");
-    // 迁移后仍可回读
-    assert.equal(revealApiKeyPlain(record.id), plain);
-    assert.equal(keys.length, 1);
-  });
-
-  it("密钥文件损坏：sealSecret/openSecret 返回 null，不抛错", () => {
-    const { record } = createApiKey({ name: "corrupt" });
-    const keyFile = join(keyring, "api-key.key");
-    // 截断密钥文件（模拟写入中断）
-    writeFileSync(keyFile, Buffer.from("short"));
-    // 读路径不抛错，只是取不到明文
-    assert.equal(revealApiKeyPlain(record.id), null);
-    assert.equal(integrationKeySecret() === null || typeof integrationKeySecret() === "string", true);
-    assert.doesNotThrow(() => listApiKeys());
-  });
-
   it("密钥不可用时旧明文留在磁盘，但**不从 listApiKeys 返回**（曾随列表下发的漏洞）", () => {
     const { record, plain } = createApiKey({ name: "legacy-leak" });
     const file = join(root, "api-keys.json");

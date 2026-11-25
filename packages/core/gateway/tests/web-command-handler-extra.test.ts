@@ -3,7 +3,7 @@
  *
  * 重点在现有 console-routes 未触及的分支：账单的池内候选行与刷新失败回调、
  * 账号的 activate/reset/remove 成功路径、setModelChannel 的清除与异常、
- * integrate / restore 的失败与成功、login 未注入与触发抛错、外层 catch。
+ * login 未注入与触发抛错、外层 catch、管理命令的来源判定。
  *
  * 全程离线：合成渠道 + 临时存储根 + 注册表种子，不发任何上游请求。
  */
@@ -299,74 +299,6 @@ describe("modelChannels / setModelChannel", () => {
     const unknown = await handle({ action: "setModelChannel", admin: true, args: { model: "totally-unknown-model", cid: "wch" } });
     assert.equal(unknown.ok, false);
     assert.match(unknown.error ?? "", /unknown model/);
-  });
-});
-
-describe("integrate / restore", () => {
-  it("未注入时两个动作都如实拒绝", async () => {
-    const handle = createWebCommandHandler();
-    const integrate = await handle({ action: "integrate", admin: true, args: { target: "zcode" } });
-    assert.equal(integrate.ok, false);
-    assert.match(integrate.error ?? "", /未注入 integrate/);
-    const restore = await handle({ action: "restore", admin: true, args: { target: "zcode" } });
-    assert.equal(restore.ok, false);
-    assert.match(restore.error ?? "", /未注入 restore/);
-  });
-
-  it("integrate 失败：error 与 warnings 拼接后透出", async () => {
-    const deps: WebCommandDeps = {
-      integrate: () => ({ ok: false, error: "目标目录不存在", warnings: ["备份清单读不出"] }),
-    };
-    const handle = createWebCommandHandler(deps);
-    const result = await handle({ action: "integrate", admin: true, args: { target: "dsh" } });
-    assert.equal(result.ok, false);
-    assert.equal(result.error, "目标目录不存在；备份清单读不出");
-  });
-
-  it("integrate 成功：notes / warnings / message 都带出", async () => {
-    const deps: WebCommandDeps = {
-      integrate: () => ({ ok: true, notes: ["已写入 3 个文件"], warnings: [] }),
-    };
-    const handle = createWebCommandHandler(deps);
-    const result = await handle({ action: "integrate", admin: true, args: { target: "dsh" } });
-    assert.equal(result.ok, true);
-    assert.deepEqual(result.data, {
-      target: "dsh",
-      notes: ["已写入 3 个文件"],
-      warnings: [],
-      message: "已写入 3 个文件",
-    });
-  });
-
-  it("restore：失败 / 有变更 / 无改动三条路径", async () => {
-    const failed = createWebCommandHandler({
-      restore: () => ({ ok: false, error: "没有可用备份", restored: [], removed: [], notes: [] }),
-    });
-    const failedResult = await failed({ action: "restore", admin: true, args: { target: "zcode" } });
-    assert.equal(failedResult.ok, false);
-    assert.match(failedResult.error ?? "", /没有可用备份/);
-
-    const changed = createWebCommandHandler({
-      restore: () => ({ ok: true, restored: ["a.json", "b.json"], removed: ["c.json"], notes: ["跳过 1 项"] }),
-    });
-    const changedResult = await changed({ action: "restore", admin: true, args: { target: "dsh" } });
-    assert.equal(changedResult.ok, true);
-    assert.equal(changedResult.data?.["message"], "还原 2 个文件、删除 1 个接入新建的文件");
-    assert.deepEqual(changedResult.data?.["notes"], ["跳过 1 项"]);
-
-    const noop = createWebCommandHandler({
-      restore: () => ({ ok: true, restored: [], removed: [], notes: [] }),
-    });
-    const noopResult = await noop({ action: "restore", admin: true, args: { target: "zcode" } });
-    assert.equal(noopResult.ok, true);
-    assert.equal(noopResult.data?.["message"], "已还原（无需改动）");
-
-    const badTarget = createWebCommandHandler({
-      restore: () => ({ ok: true, restored: [], removed: [], notes: [] }),
-    });
-    const badResult = await badTarget({ action: "restore", admin: true, args: { target: "vscode" } });
-    assert.equal(badResult.ok, false);
-    assert.match(badResult.error ?? "", /target/);
   });
 });
 

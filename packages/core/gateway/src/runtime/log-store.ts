@@ -1650,7 +1650,7 @@ const PAYLOAD_COMPRESS_MIN_BYTES = 4096;
  *
  * 为什么是 1 MiB：块越小存储开销越大 —— 实测（3.77 MB 真实正文）256K 块比整条压缩
  * 多 15.5%、512K 多 10.5%、1M 只多 5.4%；而读取路径按块解压，1 MiB 的块解一次
- * 仍是毫秒级。dsh 的会话日志按「每个 append batch 一帧」，本仓的 batch 就是整条正文，
+ * 仍是毫秒级。会话日志按「每个 append batch 一帧」，本仓的 batch 就是整条正文，
  * 单帧会把「取一片 64 KiB」逼成「解压全量」，所以这里把一条正文切成多帧。
  */
 const PAYLOAD_CHUNK_BYTES = 1024 * 1024;
@@ -1678,12 +1678,12 @@ interface PackedBody {
  * `invalidBytes` 省略时自动检测（compact 重编码路径复用）；appendPayload 路径
  * clipPayload 已经算过，显式传入免第二次扫描。
  *
- * 为什么不学 dsh 做「内容寻址 blob + 去重」：实测本仓库 payload 的重复率是 **0**
+ * 为什么不做「内容寻址 blob + 去重」：实测本仓库 payload 的重复率是 **0**
  * （2 天 114 条正文，唯一 114 条；client 与 upstream 正文也无一字节相同），
  * 去重只多出一层目录与必须配套的 GC，收益为零。压缩才是这里的真实杠杆
  * （实测 agent 上下文正文 2.9x，见 docs/LOGGING.md §9）。
  *
- * 大正文按 `PAYLOAD_CHUNK_BYTES` 切成多帧（dsh 式）：读取按块局部解码，
+ * 大正文按 `PAYLOAD_CHUNK_BYTES` 切成多帧：读取按块局部解码，
  * 取一片不必解全量 —— 这是「上下文弹窗分片读取」的后端前提。
  */
 function packBody(data: Buffer, invalidBytes?: number): PackedBody {
@@ -1836,7 +1836,7 @@ export function noteUpstreamPayload(
  * 这里的价值全在**改造前落盘的存量**（实测 82MB 里约 76MB 在封存段）。
  *
  * 重编码是**全形态**的：明文压成块、单帧旧行重切成分块 —— 让存量也吃到
- * 「读取按块局部解码」的红利（dsh 的帧结构天生如此，存量该重写到同一形态）。
+ * 「读取按块局部解码」的红利（分帧结构天然如此，存量该重写到同一形态）。
  *
  * 写临时文件再 `rename`（同目录内原子替换）；任何一步失败都保留原文件。
  */
@@ -2103,7 +2103,7 @@ function locatePayloadChunks(
  * 为什么需要它：单条正文解压后可达 MB 级，首屏塞整段会把弹窗拖到秒级。
  * 调用方先取元数据（`withBody: false`），再按 `offset`/`limit` 逐片取正文。
  *
- * 落盘是**分块的**（dsh 式多帧，`PAYLOAD_CHUNK_BYTES` 一块）。新写入的多块行带
+ * 落盘是**分块的**（多帧，`PAYLOAD_CHUNK_BYTES` 一块）。新写入的多块行带
  * `bodyChunkLens`（各块明文长度），于是 `total` 直接由它累加、块号由 `offset` 定位，
  * **只解压命中窗口覆盖的那几块**；旧行没有这个数组，退回「解全部块」的慢路径
  *（实测 4.2 MB / 5 块：只解命中块 2.3 ms，解全部 10.5 ms）。

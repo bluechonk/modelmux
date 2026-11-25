@@ -108,23 +108,6 @@ export interface WebApi {
     submitInput(value: string): Promise<CommandData>;
     /** 用户关掉了登录弹窗：让等待输入的渠道收尾（见 `ControlBridge.cancelInput`）。 */
     cancelInput(): Promise<CommandData>;
-    /**
-     * 一键接入：把本机客户端的模型配置改写成网关的对外模型名。
-     *
-     * 后端写的是各客户端自己的配置文件（写前备份），返回变更说明。
-     */
-    integrate(target: "zcode" | "dsh"): Promise<CommandData>;
-    /**
-     * 一键还原：把目标恢复成**接入前**的配置。
-     *
-     * 取该目标最近一次接入备份；还原前会先把当前状态再备份一份（可反悔）。
-     * `restored` 是写回原内容的文件，`removed` 是接入时新建、还原时删掉的文件。
-     */
-    restore(target: "zcode" | "dsh"): Promise<CommandData>;
-    /** 只读当前自动同步间隔（公共面；写入走 `setIntegrationSync`）。 */
-    integrationSync(): Promise<CommandData>;
-    /** 写自动同步间隔（秒；0 = 关闭）—— 改全局配置，仅本机直连。 */
-    setIntegrationSync(intervalS: number): Promise<CommandData>;
     /** 设置弹窗的渠道开关：关闭 = 账号池隐藏 + 选路跳过（凭据与登录态保留）。 */
     setChannelEnabled(cid: string, enabled: boolean): Promise<CommandData>;
     /** API key 列表（不含哈希；明文永不回读）。 */
@@ -235,11 +218,6 @@ export const api: WebApi = {
     submitInput: (value) => command("submitInput", undefined, { value }),
     /** 关闭登录弹窗：让等待输入的渠道立刻收尾，而不是挂到超时。 */
     cancelInput: () => command("cancelInput", undefined),
-    integrate: (target) => command("integrate", undefined, { target }),
-    restore: (target) => command("restore", undefined, { target }),
-    /** 一键接入自动同步间隔：读走公共面，写走 admin（仅本机直连）。 */
-    integrationSync: () => command("integrationSync", undefined),
-    setIntegrationSync: (intervalS) => command("setIntegrationSync", undefined, { interval_s: intervalS }),
     setChannelEnabled: (cid, enabled) => command("setChannelEnabled", cid, { enabled }),
     apiKeys: () => command("apiKeys", undefined),
     createApiKey: (name) => command("createApiKey", undefined, { name }),

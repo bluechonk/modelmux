@@ -157,20 +157,13 @@ export interface UiSnapshot {
    */
   channel_caps: Record<string, ChannelCaps>;
   /**
-   * 各接入目标（zcode / dsh）当前的接入态（键 = target）。
+   * 接入目标（当前只有 zcode）的接入态（键 = target）。
    *
    * 开关式 UI 的状态源：true = 已接入（客户端配置已指向网关），false = 未接入。
-   * 由接入备份清单 + 标记文件推导（见 `app/integrate.ts` 的 `integrationStatus`）。
-   */
-  integrations: Record<string, boolean>;
   /**
    * 各接入目标的「模型有更新」（键 = target；null = 无更新）。
    *
    * 服务端算好差集再下发：前端没有「接入那一刻写入了哪些模型」这个基准，
-   * 自己 diff 不出来（见 `app/integrate.ts` 的 `integrationUpdates`）。
-   * 类型就地同构声明 —— http 层不许向上依赖 app 层。
-   */
-  integration_updates: Record<string, { added: string[]; removed: string[]; at: string } | null>;
   /**
    * 用户选的主题模式：`system`（跟随系统）/ `dark` / `light`。
    *
@@ -205,8 +198,6 @@ export function emptySnapshot(): UiSnapshot {
     model_prefs: [],
     login_input: null,
     channel_caps: {},
-    integrations: {},
-    integration_updates: {},
     theme_mode: "system",
     channel_toggles: [],
     gateway_error: "",
@@ -250,10 +241,10 @@ export interface ControlBridge {
   /**
    * 一键接入：把本机 harness 的模型配置改写成网关的对外模型名。
    *
-   * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode` / `~/.dsh`），
+   * 同 `triggerLogin`：写的是**客户端**配置（`~/.zcode`），
    * 实现放 app 层（`app/integrate.ts`），控制台只转交用户点的那一下。
    */
-  integrate?: (target: "zcode" | "dsh") => {
+  integrate?: (target: "zcode") => {
     ok: boolean;
     error?: string;
     /** 变更说明（人读，控制台作展示）。 */
@@ -265,7 +256,7 @@ export interface ControlBridge {
    * 一键还原：把目标恢复成接入前状态（取该目标最新一次备份）。
    * 实现同为 `app/integrate.ts` 的 `restoreClient`。
    */
-  restore?: (target: "zcode" | "dsh") => {
+  restore?: (target: "zcode") => {
     ok: boolean;
     error?: string;
     restored: string[];
@@ -687,7 +678,6 @@ export function createConsoleHandler(
             ...(bridge.submitCallback ? { submitCallback: bridge.submitCallback } : {}),
             ...(bridge.submitInput ? { submitInput: bridge.submitInput } : {}),
             ...(bridge.cancelInput ? { cancelInput: bridge.cancelInput } : {}),
-            ...(bridge.integrate ? { integrate: bridge.integrate } : {}),
             ...(bridge.restore ? { restore: bridge.restore } : {}),
           });
           const result = await handle({

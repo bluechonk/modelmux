@@ -8,7 +8,7 @@
  * 随包模型注册表：`<root>/models.json`（规格 + 供给范围 + 上游 id 映射）是**数据**，
  * 运行时 `readFileSync` 读盘 —— esbuild 的 `onResolve` 只拦静态 import 的 `.json`，
  * 对运行时读盘没有命中点（实测内联计数为 0）。所以由本步骤复制到 `dist/models.json`，
- * 共享层按 `import.meta.url` 推导找到它。详见 docs/CONTRACT-TS.md §8.4。
+ * 共享层按 `import.meta.url` 推导找到它。详见 docs/CONTRACT-TS.md §5.4。
  */
 
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";

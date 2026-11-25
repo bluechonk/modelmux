@@ -27,7 +27,7 @@ export async function runWeb(options: WebOptions = {}): Promise<number> {
   //   而页面本身会显示控制台自己的骨架与状态，比让命令直接失败有用得多（2026-10-29 起）。
   await daemon.start({ addr, quiet: options.quiet ?? false, auto: false });
 
-  // 不自动打开浏览器（CONTRACT-TS §6 全仓约定）：地址交给用户复制 / Ctrl+点击。
+  // 不自动打开浏览器（AGENTS.md「网关」节约定）：地址交给用户复制 / Ctrl+点击。
   console.log(`[web] ${url}`);
   return 0;
 }

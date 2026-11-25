@@ -66,7 +66,7 @@ async function runRebuild(options: { quiet?: boolean; addr: string; uiPort?: num
   }
 
   // 产物已刷新，但正在跑的 worker 还是旧代码 —— 必须重启才生效（stale_build 判据见
-  // docs/CONTRACT-TS.md §8）。
+  // docs/CONTRACT-TS.md §5）。
   if (!options.quiet) console.log("[rebuild] 重启网关 …");
   return daemon.restart({
     addr: options.addr,

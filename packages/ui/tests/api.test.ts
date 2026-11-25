@@ -119,14 +119,4 @@ describe("commands：信封解包与载荷形态", () => {
     assert.deepEqual(body.args, { refresh: true });
   });
 
-  it("integrate / activateAccount / removeAccount 的载荷形态", async () => {
-    stubFetch([{ body: { ok: true, data: {} } }]);
-    await api.commands.integrate("zcode");
-    await api.commands.activateAccount("c", "key-1");
-    await api.commands.removeAccount("c", "key-2");
-    const bodies = calls.map((c) => JSON.parse(String(c.init?.body ?? "{}")) as Record<string, unknown>);
-    assert.deepEqual(bodies[0], { action: "integrate", args: { target: "zcode" } });
-    assert.deepEqual(bodies[1], { action: "activateAccount", args: { key: "key-1" }, cid: "c" });
-    assert.deepEqual(bodies[2], { action: "removeAccount", args: { key: "key-2" }, cid: "c" });
-  });
 });

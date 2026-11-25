@@ -2,7 +2,7 @@
  * 「跑着的网关是不是旧代码」检测。
  *
  * `npm run build` 只更新 `dist/`、**不会**重启守护进程 —— 静默陈旧会让人把
- * 「改了没生效」误诊成登录/凭证问题（事故记录见 docs/CONTRACT-TS.md §8），
+ * 「改了没生效」误诊成登录/凭证问题（事故记录见 docs/CONTRACT-TS.md §5），
  * 必须由工具主动报出。判据：
  *
  *   max(dist/**\/*.js 的 mtime) > pid 文件 mtime  →  进程比代码旧 → 需要 restart

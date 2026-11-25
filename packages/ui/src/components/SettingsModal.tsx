@@ -48,19 +48,6 @@ const THEME_ITEMS: ReadonlyArray<{ key: ThemeMode; label: string }> = [
 
 type SectionKey = "general" | "channels" | "look" | "about";
 
-/**
- * 一键接入自动同步的可选间隔（秒）。0 = 关闭（只留手动「更新」按钮）。
- *
- * 默认 60 秒够用：客户端配置是本地文件，检查本身几乎零成本；用户接入后不该再关心
- * key 轮换与模型上下线。
- */
-const SYNC_INTERVALS: ReadonlyArray<{ key: string; label: string }> = [
-  { key: "0", label: "关闭" },
-  { key: "60", label: "1 分钟" },
-  { key: "300", label: "5 分钟" },
-  { key: "1800", label: "30 分钟" },
-];
-
 /** 行首 / 锚点图标：lucide 组件与 GithubMark 都只吃 className，共用同一形态。 */
 type IconType = ComponentType<{ className?: string }>;
 
@@ -167,26 +154,8 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
 
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
-  /** 一键接入自动同步间隔（秒，0 = 关闭）；初值 60 与服务端默认一致，读取失败不误报。 */
-  const [syncInterval, setSyncIntervalState] = useState(60);
   /** 手动检查发现的新版本（模态卡数据）；null = 未打开。 */
   const [updateDialog, setUpdateDialog] = useState<{ version: string; url: string } | null>(null);
-
-  useEffect(() => {
-    // 读当前自动同步间隔（只读，不写）；失败保持默认值静默 —— 这一项不影响任何既有行为
-    let alive = true;
-    void api.commands
-      .integrationSync()
-      .then((res) => {
-        if (alive && res.ok && typeof res["interval_s"] === "number") setSyncIntervalState(res["interval_s"]);
-      })
-      .catch(() => {
-        /* 读取失败：保持默认 60s 显示 */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!CAN_AUTOSTART) return;
@@ -212,25 +181,6 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
     } catch (err) {
       setAutostart(!next);
       toast.error(`开机自启动设置失败：${errorText(err)}`);
-    }
-  };
-
-  /** 保存自动同步间隔（乐观更新，失败回滚并提示）。 */
-  const setSyncInterval = async (intervalS: number): Promise<void> => {
-    const prev = syncInterval;
-    setSyncIntervalState(intervalS);
-    try {
-      const res = await api.commands.setIntegrationSync(intervalS);
-      if (!res.ok) {
-        setSyncIntervalState(prev);
-        toast.error(res.error ?? "自动同步间隔保存失败");
-        return;
-      }
-      const saved = typeof res["interval_s"] === "number" ? res["interval_s"] : intervalS;
-      setSyncIntervalState(saved);
-    } catch (err) {
-      setSyncIntervalState(prev);
-      toast.error(`自动同步间隔保存失败：${errorText(err)}`);
     }
   };
 
@@ -367,20 +317,6 @@ export function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenCha
 
               {section === "channels" && (
                 <div>
-                  <div className="mb-3 text-xs font-medium text-ink-faint">一键接入自动同步</div>
-                  <p className="mb-3 text-xs text-ink-faint">
-                    密钥重置、模型上下线都会自动写入客户端，无需手动更新。
-                  </p>
-                  <div className="divide-y divide-line">
-                    <ModalRow icon={RefreshCw} title="检查间隔">
-                      <Segmented
-                        items={SYNC_INTERVALS}
-                        value={String(syncInterval)}
-                        onChange={(v) => void setSyncInterval(Number(v))}
-                        label="自动同步检查间隔"
-                      />
-                    </ModalRow>
-                  </div>
                   <div className="mb-3 mt-4 text-xs font-medium text-ink-faint">渠道开关</div>
                   <p className="mb-3 text-xs text-ink-faint">关闭后不参与选路，凭据保留。</p>
                   <div className="divide-y divide-line">
