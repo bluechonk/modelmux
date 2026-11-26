@@ -525,6 +525,9 @@ export async function attemptCandidate(
     }
     // 渠道层抛的是**用户输入问题**（上下文超限、system 超长、缺必填字段…）——
     // 换一家渠道同样会失败，直接 400，不浪费尝试次数。
+    // 渠道**能力上限**（消息条数、模态等）不该落到这里：那种失败换一家本来能跑，
+    // 渠道必须抛 `UnsupportedInputError`（上面那条分支）并在 `maxMessages()` /
+    // 选路层提前声明，否则长会话会被判成终局 400。
     logger(`request build failed: ${String(err)}`);
     writeJsonError(res, 400, "invalid_request", String(err));
     return { kind: "done" }; // 已应答

@@ -21,6 +21,20 @@ export const DISPLAY_NAME = "Loomy";
 /** 上游线型：标准 OpenAI 兼容 SSE，网关只需规范化透传。 */
 export const WIRE: "openai" | "custom" = "openai";
 
+/**
+ * 从 usage 帧读取**本次消耗的积分**（上游字段 `points_consumed`）。
+ *
+ * 实测（2026-11-26）：`usage: {prompt_tokens, completion_tokens, total_tokens,
+ * completion_tokens_details: {reasoning_tokens}, points_consumed: 1}`。
+ * 单位与 `billing.fetchCredits()` 的 `total.unit`（"积分"）一致，可直接扣减。
+ */
+export function consumedCredits(usage: Record<string, unknown>): { amount: number; unit: string } | null {
+  const raw = usage["points_consumed"];
+  const amount = typeof raw === "number" ? raw : Number.parseFloat(String(raw ?? ""));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return { amount, unit: "积分" };
+}
+
 const API_PREFIX = "/api/v1";
 export const OK_CODE = "000000";
 const AUTH_ERROR_CODE = "100002";

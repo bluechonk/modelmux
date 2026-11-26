@@ -32,6 +32,187 @@ export const BILLING_TTL_MS = 8 * 60 * 60 * 1000;
 /** 失败后的冷却时长（冷却期内得分当 0）。 */
 export const FAIL_COOLDOWN_MS = 60 * 1000;
 
+// ── 额度刷新节奏（分级 + 错峰 + 限流退避）────────────────────────────────────
+
+/** 活跃档：最近这段时间内成功转发过 → 按 `ACTIVE_REFRESH_MS` 刷。 */
+export const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+
+/** 活跃档刷新间隔：**1 分钟**。只给「正在被使用」的账号，不是全池。 */
+export const ACTIVE_REFRESH_MS = 60 * 1000;
+
+/** 空闲档刷新间隔：维持历史默认 3 分钟。 */
+export const IDLE_REFRESH_MS = 3 * 60 * 1000;
+
+/** 调度器 tick：决定「谁到期了」的判定粒度。 */
+export const SCHEDULER_TICK_MS = 15 * 1000;
+
+/** 单渠道内多账号的错峰总窗口：所有账号在 1 秒内依次发出。 */
+export const STAGGER_WINDOW_MS = 1000;
+
+/** 连续 429 达到这个次数 → 整个渠道退避。 */
+export const RATE_LIMIT_STREAK_LIMIT = 2;
+
+/** 429 退避时长：比任何单轮间隔都长，足以让上游的限流窗口过去。 */
+export const RATE_LIMIT_BACKOFF_MS = 10 * 60 * 1000;
+
+/**
+ * 额度刷新档位。
+ *
+ * - `active`：最近 `ACTIVE_WINDOW_MS` 内有成功转发 → 1 分钟一刷
+ * - `idle`：其余可用账号 → 3 分钟一刷
+ * - `paused`：凭据失效 / 熔断 / 额度冷却中 → **不查**（查了也拿不到新数字，
+ *   还会给上游留下无谓的鉴权痕迹）
+ */
+export type BillingTier = "active" | "idle" | "paused";
+
+/**
+ * 算某账号的刷新档位（**纯函数**，不发请求、不读磁盘）。
+ *
+ * 判据只看两件事：账号健康态 + 最近成功转发时刻。签名特意用宽松入参，
+ * 便于单测直接构造；真实调用方传 `PoolAccount` 与账本条目。
+ */
+export function billingTierOf(
+  input: {
+    /** `ok` / `cooldown` / `error` / `unauthorized` / `unknown`；缺省按 `ok`。 */
+    health?: string | null;
+    /** 冷却截止（ISO 或 epoch ms）；只在 `health === "cooldown"` 时有意义。 */
+    coolingUntil?: string | number | null;
+    /** 最近一次成功转发（ISO）；没有就一直是空闲档。 */
+    lastOkAt?: string | null;
+  },
+  now = Date.now(),
+): BillingTier {
+  const health = input.health ?? "ok";
+  // 凭据失效 / 连败熔断：重试永远不会成功，彻底不查
+  if (health === "unauthorized" || health === "error") return "paused";
+  if (health === "cooldown") {
+    const until =
+      typeof input.coolingUntil === "number"
+        ? input.coolingUntil
+        : input.coolingUntil
+          ? Date.parse(input.coolingUntil)
+          : Number.NaN;
+    // 到期（或压根没写截止）仍按可用处理：`expireCooldown` 会在下次读盘时修正状态
+    if (Number.isFinite(until) && until > now) return "paused";
+  }
+  const last = input.lastOkAt ? Date.parse(input.lastOkAt) : Number.NaN;
+  if (Number.isFinite(last) && now - last <= ACTIVE_WINDOW_MS) return "active";
+  return "idle";
+}
+
+/** 档位 → 刷新间隔（毫秒）；`paused` 返回 `Infinity` = 永不主动查。 */
+export function refreshIntervalOf(tier: BillingTier): number {
+  if (tier === "paused") return Number.POSITIVE_INFINITY;
+  return tier === "active" ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS;
+}
+
+/**
+ * 到期判定：距离上次账单查询已超过该档位的间隔。
+ *
+ * `billingAt` 缺失（从没查过）视为**到期** —— 新账号要尽快拿到第一份额度。
+ * 负数 / 非法时刻同理（宁可多查一次，也不要把账号永久冻在「未查过」）。
+ */
+export function isBillingDue(
+  billingAt: string | null | undefined,
+  tier: BillingTier,
+  now = Date.now(),
+): boolean {
+  const interval = refreshIntervalOf(tier);
+  if (!Number.isFinite(interval)) return false;
+  if (!billingAt) return true;
+  const at = Date.parse(billingAt);
+  if (!Number.isFinite(at)) return true;
+  return now - at >= interval;
+}
+
+/**
+ * 单渠道内多账号的**错峰延迟**（毫秒）。
+ *
+ * 设计取舍（为什么不是「每次随机打散」）：
+ * - 纯随机每轮都不一样，上游看到的是「同一秒内 N 个账号各自登录式查询」；
+ * - 用**稳定相位 + 本轮抖动**：同一账号每轮落点基本固定（像独立客户端），
+ *   抖动只用来避免两个账号撞在同一毫秒。
+ *
+ * @param index 账号在本轮发送序列中的序号（0 起）
+ * @param count 本轮要查的账号数
+ * @param jitter 抖动系数 ∈ [0, 1)，由调用方给随机值；0 = 无抖动（测试用）
+ * @returns 落在 `[0, STAGGER_WINDOW_MS)` 内的延迟
+ */
+export function staggerDelayMs(index: number, count: number, jitter = 0): number {
+  if (count <= 0) return 0;
+  const slot = STAGGER_WINDOW_MS / count;
+  const base = index * slot;
+  const jittered = base + Math.max(0, Math.min(0.999, jitter)) * slot;
+  return Math.min(STAGGER_WINDOW_MS - 1, Math.round(jittered));
+}
+
+/**
+ * 429 退避是否仍然有效（纯函数）。
+ *
+ * 退避期内整个渠道不查额度：上游已经在限流，再按 1 分钟刷只会延长封锁。
+ */
+export function inRateLimitBackoff(until: number | null | undefined, now = Date.now()): boolean {
+  return typeof until === "number" && Number.isFinite(until) && until > now;
+}
+
+/**
+ * 记一次额度查询的 429 结果，返回新的「连击与退避」。
+ *
+ * - 命中 429 → 连击 +1；达到阈值后把退避推到 `now + RATE_LIMIT_BACKOFF_MS`
+ * - 成功（`rateLimited === false`）→ 连击与退避一起清零
+ *
+ * 只在**成功**时清零：一次正常查询说明限流窗口已经过去。
+ */
+export function nextRateLimitState(
+  prev: { streak?: number; until?: number } | null | undefined,
+  rateLimited: boolean,
+  now = Date.now(),
+): { streak: number; until: number } {
+  const streak = Math.max(0, Math.trunc(prev?.streak ?? 0));
+  if (!rateLimited) return { streak: 0, until: 0 };
+  const nextStreak = streak + 1;
+  const until =
+    nextStreak >= RATE_LIMIT_STREAK_LIMIT ? now + RATE_LIMIT_BACKOFF_MS : Math.max(0, prev?.until ?? 0);
+  return { streak: nextStreak, until };
+}
+
+// ── 额度消耗增量的累加 / 估算余额（供展示与对账）────────────────────────────
+
+/**
+ * 把一次对话的消耗增量累加进账号条目（纯函数，返回**新**的 `spent`）。
+ *
+ * 单位不一致时**不累加**：不同渠道的 `credits` / `积分` 不是同一量纲，
+ * 混加会算出负余额这类假象。返回 `null` 表示「不可用于扣减」。
+ */
+export function accumulateSpent(
+  prev: { amount: number; unit: string; at: string } | null | undefined,
+  delta: { amount: number; unit: string } | null | undefined,
+  at = new Date().toISOString(),
+): { amount: number; unit: string; at: string } | null {
+  if (!delta || !Number.isFinite(delta.amount) || delta.amount <= 0) return prev ?? null;
+  const unit = delta.unit ?? "";
+  if (prev && prev.unit !== unit) return prev; // 量纲不同：保留旧值，不混加
+  const amount = Math.round(((prev?.amount ?? 0) + delta.amount) * 100) / 100;
+  return { amount, unit, at };
+}
+
+/**
+ * 估算余额 = 上次账单值 − 累计消耗增量。
+ *
+ * 只在两者**单位一致**且确有增量时扣减；否则返回 `null`
+ * （调用方回落到真实账单值，绝不拿它冒充准确数字）。
+ */
+export function estimatedRemainOf(
+  credits: { remain: number; unit?: string } | null | undefined,
+  spent: { amount: number; unit: string } | null | undefined,
+): number | null {
+  if (!credits || !spent) return null;
+  if (!Number.isFinite(credits.remain) || !Number.isFinite(spent.amount)) return null;
+  if (spent.amount <= 0) return null;
+  if ((credits.unit ?? "") !== spent.unit) return null;
+  return Math.max(0, Math.round((credits.remain - spent.amount) * 100) / 100);
+}
+
 /** 上一额度窗口结束时的余额快照（跨窗口对比的兜底口径，见 `prevRemainOf`）。 */
 export interface PrevQuota {
   /** 那一窗口的键（渠道声明的 `resets_at` 或本地日期）。 */
@@ -67,6 +248,15 @@ export interface ChannelLedger {
   billing_skipped_at?: string | null;
   /** 最近一次账单查询是否成功。 */
   billing_ok: boolean;
+  /**
+   * 连续 429 次数（额度查询被上游限流）。
+   *
+   * 达到 `RATE_LIMIT_STREAK_LIMIT` 后整个渠道进入 `billing_backoff_until` 退避 ——
+   * 免得「1 分钟一刷」把自己打进更长时间的黑名单。成功一次即清零。
+   */
+  billing_429_streak?: number;
+  /** 429 退避截止（epoch ms）；未退避为 0 / 缺省。 */
+  billing_backoff_until?: number;
   /** 本地成功转发次数（诊断用，**不**参与排序）。 */
   ok: number;
   /** 本地失败次数（诊断用）。 */
@@ -116,6 +306,30 @@ export interface AccountCount {
   baseline?: { window: string; date: string; remain: number; at: string } | null;
   /** 上一额度窗口的最后余额（跨窗口对比兜底用；见 `PrevQuota`）。 */
   prev?: PrevQuota | null;
+  /**
+   * 最近一次**成功转发**的时刻（ISO）。活跃度分级的唯一判据。
+   *
+   * 只记成功：失败请求不代表这个账号在被正常使用（可能正在烧坏额度），
+   * 拿它升到「1 分钟一刷」只会更频繁地打上游。
+   */
+  last_ok_at?: string | null;
+  /**
+   * 上次账单查询之后、按对话流 `usage` 累加出来的**消耗增量**（估算用）。
+   *
+   * 为什么需要：很多渠道（loomy 的 `points_consumed`、workbuddy / codebuddycn 的
+   * `credit`）在每轮对话里直接给出「本次消耗多少额度」。把这个增量累加起来，
+   * 卡片就能显示「上次查询值 − 累计增量」的**估算余额**，不必等下一轮账单。
+   *
+   * 单位必须与 `credits.unit` 一致才参与扣减（不同渠道 / 不同包的量纲可能不同）；
+   * 下次账单查询成功时清零（真实值已经覆盖它）。
+   */
+  spent?: {
+    amount: number;
+    unit: string;
+    at: string;
+  } | null;
+  /** 最近一次算出的刷新档位（展示 / 排障用；不影响判定）。 */
+  billing_tier?: BillingTier | null;
 }
 
 export interface PoolLedger {
@@ -190,6 +404,7 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
           })()
         : null;
     const prev = readPrev(rec.prev);
+    const spent = readSpent(rec.spent);
     out[key] = {
       ok: num(rec.ok),
       fail: num(rec.fail),
@@ -199,9 +414,31 @@ function readAccounts(raw: unknown): Record<string, AccountCount> {
       ...(typeof rec.billing_skipped_at === "string" ? { billing_skipped_at: rec.billing_skipped_at } : {}),
       ...(baseline ? { baseline } : {}),
       ...(prev ? { prev } : {}),
+      ...(typeof rec.last_ok_at === "string" ? { last_ok_at: rec.last_ok_at } : {}),
+      ...(spent ? { spent } : {}),
+      ...(isBillingTier(rec.billing_tier) ? { billing_tier: rec.billing_tier } : {}),
     };
   }
   return out;
+}
+
+/** 宽松读「累计消耗增量」；形状不对或非正数视为无记录。 */
+function readSpent(raw: unknown): { amount: number; unit: string; at: string } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const amount = num(rec.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return {
+    amount,
+    unit: str(rec.unit),
+    at: typeof rec.at === "string" ? rec.at : "",
+  };
+}
+
+const BILLING_TIERS: readonly BillingTier[] = ["active", "idle", "paused"];
+
+function isBillingTier(value: unknown): value is BillingTier {
+  return typeof value === "string" && (BILLING_TIERS as readonly string[]).includes(value);
 }
 
 /** 宽松读上一窗口余额快照（缺窗口键 / 缺余额数字都视为无记录，不阻塞账本加载）。 */
@@ -285,6 +522,12 @@ function normalizeLedger(parsed: unknown): PoolLedger | null {
         billing_at: typeof rec.billing_at === "string" ? rec.billing_at : null,
         billing_ok: rec.billing_ok === true,
         ...(typeof rec.billing_skipped_at === "string" ? { billing_skipped_at: rec.billing_skipped_at } : {}),
+        ...(typeof rec.billing_429_streak === "number" && rec.billing_429_streak > 0
+          ? { billing_429_streak: Math.trunc(rec.billing_429_streak) }
+          : {}),
+        ...(typeof rec.billing_backoff_until === "number" && rec.billing_backoff_until > 0
+          ? { billing_backoff_until: Math.trunc(rec.billing_backoff_until) }
+          : {}),
         ok: num(rec.ok),
         fail: num(rec.fail),
         cooldown_until: num(rec.cooldown_until),
@@ -383,7 +626,12 @@ export function noteSuccess(cid: string, accountKey?: string): void {
   const entry = entryOf(load(), cid);
   entry.ok += 1;
   entry.cooldown_until = 0;
-  if (accountKey) accountEntry(entry, accountKey).ok += 1;
+  if (accountKey) {
+    const account = accountEntry(entry, accountKey);
+    account.ok += 1;
+    // 活跃度分级的唯一判据：只有成功转发才算「这个账号正在被使用」
+    account.last_ok_at = new Date().toISOString();
+  }
   scheduleSave();
 }
 
@@ -539,7 +787,35 @@ export function writeAccountBilling(cid: string, key: string, credits: unknown):
   entry.baseline = pickBaseline(entry.baseline, remain, window);
   entry.billing_at = new Date().toISOString();
   entry.billing_ok = true;
+  // 真实余额已经覆盖了按 usage 估算的增量：随后从 0 重新累计
+  entry.spent = null;
   scheduleSave();
+}
+
+/**
+ * 记一次对话的额度消耗增量（由 `http/wire/sse-stream.ts` 在 usage 帧上调用）。
+ *
+ * 用途：卡片显示「上次账单值 − 累计增量」的估算余额。**不参与选路** ——
+ * 路由仍用真实账单值，估算只影响展示。
+ */
+export function noteConsumed(cid: string, accountKey: string, delta: { amount: number; unit: string }): void {
+  if (!accountKey) return;
+  if (!Number.isFinite(delta.amount) || delta.amount <= 0) return;
+  const entry = accountEntry(entryOf(load(), cid), accountKey);
+  const next = accumulateSpent(entry.spent, delta);
+  if (next) entry.spent = next;
+  scheduleSave();
+}
+
+/**
+ * 某账号的估算余额（真实账单值 − 累计消耗增量）；不可扣减时返回 `null`。
+ *
+ * 与 `lastKnownRemain` 的分工：那个是**真实账单值**（选路用），这个是**展示用估算**。
+ */
+export function estimatedRemainFor(cid: string, key: string): number | null {
+  const entry = load().channels[cid]?.accounts[key];
+  if (!entry) return null;
+  return estimatedRemainOf(entry.credits, entry.spent);
 }
 
 /**
@@ -620,21 +896,76 @@ function noteAccountBillingAttempt(cid: string, key: string, ok: boolean): void 
   scheduleSave();
 }
 
+/** 定时轮选项。 */
+interface AccountRefreshOptions {
+  /**
+   * 只刷这些账号（`undefined` = 全部）。定时调度按档位/到期筛出待刷清单；
+   * 手动 `mx bill --refresh` 不传 = 全量。
+   */
+  onlyKeys?: ReadonlySet<string>;
+  /**
+   * 账号之间错峰发送（毫秒基数）。`0` / 缺省 = 不等待（手动 / 测试）。
+   * 定时轮传 `STAGGER_WINDOW_MS`，把同渠道的多个账号摊在 1 秒内。
+   */
+  staggerWindowMs?: number;
+  /** 本次是否由定时调度触发（决定是否按档位跳过）。 */
+  scheduled?: boolean;
+}
+
+/**
+ * 单账号额度查询的结果分类 —— 429 要驱动**渠道级退避**，其余失败只影响该账号。
+ *
+ * 为什么单独认 429：额度查询是最容易被限流的端点（codebuddycn / workbuddy 实测回过
+ * `HTTP 429`）。把 429 当成普通失败，按 1 分钟节奏重试只会把封锁拖长。
+ */
+function isRateLimitedError(err: unknown): boolean {
+  const text = String(err ?? "");
+  return /\b429\b/.test(text) || /too many requests/i.test(text);
+}
+
+/** 写一次 429 状态到渠道条目。 */
+function noteRateLimit(cid: string, rateLimited: boolean): void {
+  const entry = entryOf(load(), cid);
+  const next = nextRateLimitState(
+    { streak: entry.billing_429_streak, until: entry.billing_backoff_until },
+    rateLimited,
+  );
+  entry.billing_429_streak = next.streak || undefined;
+  entry.billing_backoff_until = next.until || undefined;
+  scheduleSave();
+}
+
 /**
  * 查一个渠道**所有账号**的额度。
  *
  * 账号池里的每个账号都有自己的凭据；用「原始凭证 → 形状归一化」传给
  * `billing.fetchCredits({ credential })`，不切换生效账号、不写回凭证文件。
  * 查询失败只标记该账号的 `billing_ok=false`，不影响渠道整体刷新。
+ *
+ * 定时调度（`options.scheduled`）下额外做三件事：
+ * 1. 只查 `onlyKeys` 里的账号（已按档位与到期筛过）；
+ * 2. 账号间按 `staggerDelayMs` 错峰发送（同渠道内摊在 1 秒内）；
+ * 3. 429 记进渠道级的连击 / 退避状态。
  */
 async function refreshAccountCredits(
   channel: Channel,
   cid: string,
   logger: (m: string) => void,
-): Promise<void> {
-  if (!channelCapabilities(channel.config).billing) return;
+  options: AccountRefreshOptions = {},
+): Promise<Map<string, unknown>> {
+  const fresh = new Map<string, unknown>();
+  if (!channelCapabilities(channel.config).billing) return fresh;
+  const { onlyKeys, staggerWindowMs = 0, scheduled = false } = options;
   const index = runInChannel(cid, () => listAccounts(cid));
-  for (const account of index.accounts) {
+  const targets = onlyKeys ? index.accounts.filter((a) => onlyKeys.has(a.key)) : index.accounts;
+  let slot = 0;
+  for (const account of targets) {
+    // 错峰：定时调度把同渠道的多个账号摊到 1 秒窗口内（首个不等待）
+    if (scheduled && staggerWindowMs > 0 && targets.length > 1) {
+      const delay = staggerDelayMs(slot, targets.length, Math.random());
+      if (delay > 0) await sleep(delay);
+    }
+    slot += 1;
     // 冷却中的账号不查：额度要等窗口刷新才会变
     if (isAccountCooling(account)) {
       logger(
@@ -659,12 +990,25 @@ async function refreshAccountCredits(
         channel.billing.fetchCredits({ refreshOn401: true, credential }),
       );
       writeAccountBilling(cid, account.key, credits);
+      fresh.set(account.key, credits);
       clearBillingFailure(`${cid}/${account.key}`);
+      noteRateLimit(cid, false);
     } catch (err) {
       noteAccountBillingAttempt(cid, account.key, false);
       noteBillingFailure(`${cid}/${account.key}`, String(err), logger);
+      // 命中的若是 429，让整个渠道退避（账号级重试没意义）
+      if (isRateLimitedError(err)) noteRateLimit(cid, true);
     }
   }
+  return fresh;
+}
+
+/** 等待若干毫秒（错峰用）。 */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
 }
 
 /** 逐账号的额度行（`mx bill --accounts` 的展示口径）。 */
@@ -996,7 +1340,12 @@ function weightOf(cid: string): number {
   return typeof w === "number" && Number.isFinite(w) && w > 0 ? w : 1;
 }
 
-/** 是否需要刷新账单（任一渠道从没查过，或已过 TTL）。 */
+/**
+ * 需不需要刷新账单（任一批次从没查过，或已过 TTL）。
+ *
+ * 注意：这条判据服务的是**聊天请求路径**的「顺手补一次」（TTL 8h），
+ * 与后台分级调度（`runScheduledRefresh`）不是一回事 —— 后者按账号档位到期判定。
+ */
 export function needsBillingRefresh(now = Date.now()): boolean {
   const ledger = load();
   for (const channel of channels()) {
@@ -1117,6 +1466,162 @@ async function runRefresh(logger: (m: string) => void): Promise<RefreshResult> {
   return result;
 }
 
+/** 定时轮的结果（与手动轮分开：这里按**账号**计，不再是「整渠道查没查」）。 */
+export interface ScheduledRefreshResult extends RefreshResult {
+  /** 本轮真正发出查询的账号数。 */
+  queriedAccounts: number;
+  /** 因档位（冷却 / 失效 / 熔断）被跳过的账号数。 */
+  pausedAccounts: number;
+  /** 因未到刷新间隔被跳过的账号数。 */
+  notDueAccounts: number;
+}
+
+/**
+ * 后台**分级调度**的一轮：按账号档位与到期时间决定查谁。
+ *
+ * 与 `runRefresh`（手动 / CLI 全量）的分工：
+ * - 这里**只查到期账号**，且 429 退避中的渠道整体跳过；
+ * - 账号之间错峰发送（同渠道摊在 1 秒内），避免被上游认成批量探测；
+ * - 渠道级条目取**生效账号**这次的实测值回写（不额外发一次渠道级查询）。
+ *
+ * 「活跃档 1 分钟 / 空闲档 3 分钟 / 冷却与失效不查」的判据都在
+ * `billingTierOf` + `isBillingDue`（纯函数，单测覆盖）。
+ */
+export async function runScheduledRefresh(
+  logger: (m: string) => void = () => {},
+  now = Date.now(),
+): Promise<ScheduledRefreshResult> {
+  // 单轮可能因错峰 + 慢端点超过 tick 间隔；重叠执行会对同一批账号重复查询。
+  // 手动全量刷新（`inFlight`）在跑时也让路，避免同一账号被两路同时查。
+  if (inFlight || scheduledInFlight) {
+    logger("billing skipped: another refresh round is still running");
+    return emptyScheduledResult();
+  }
+  scheduledInFlight = true;
+  try {
+    return await runScheduledRefreshInner(logger, now);
+  } finally {
+    scheduledInFlight = false;
+  }
+}
+
+/** 标记调度轮是否在跑（防止 tick 重叠）。 */
+let scheduledInFlight = false;
+
+function emptyScheduledResult(): ScheduledRefreshResult {
+  return {
+    refreshed: [],
+    failed: [],
+    skipped: [],
+    queriedAccounts: 0,
+    pausedAccounts: 0,
+    notDueAccounts: 0,
+  };
+}
+
+async function runScheduledRefreshInner(
+  logger: (m: string) => void,
+  now: number,
+): Promise<ScheduledRefreshResult> {
+  const result: ScheduledRefreshResult = emptyScheduledResult();
+  const ledger = load();
+  const list = channels().filter((channel) => channelCapabilities(channel.config).billing);
+  const settled = await Promise.allSettled(
+    list.map(async (channel: Channel) => {
+      const cid = channel.config.cid;
+      const entry = ledger.channels[cid];
+      // 429 退避中：整个渠道不查（再打只会延长封锁）
+      if (inRateLimitBackoff(entry?.billing_backoff_until, now)) {
+        logger(`billing skipped (${cid}): rate-limited, backing off until ${new Date(entry!.billing_backoff_until!).toISOString()}`);
+        return { cid, kind: "skipped" as const, keys: new Set<string>() };
+      }
+      // 未登录：不发任何请求（与手动轮同口径）
+      const loggedIn = runInChannel(cid, () => {
+        if (typeof channel.cred.load !== "function") return true;
+        try {
+          channel.cred.load();
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (!loggedIn) return { cid, kind: "skipped" as const, keys: new Set<string>() };
+
+      const index = runInChannel(cid, () => listAccounts(cid));
+      const due = new Set<string>();
+      let paused = 0;
+      let notDue = 0;
+      for (const account of index.accounts) {
+        const count = entry?.accounts[account.key];
+        const tier = billingTierOf(
+          {
+            health: account.health,
+            coolingUntil: account.cooldown_until ?? null,
+            lastOkAt: count?.last_ok_at ?? null,
+          },
+          now,
+        );
+        // 档位落账（纯展示 / 排障；判定已经算完）
+        try {
+          const slot = accountEntry(entryOf(load(), cid), account.key);
+          slot.billing_tier = tier;
+        } catch {
+          /* 写不进去只影响展示 */
+        }
+        if (tier === "paused") {
+          paused += 1;
+          continue;
+        }
+        if (!isBillingDue(count?.billing_at, tier, now)) {
+          notDue += 1;
+          continue;
+        }
+        due.add(account.key);
+      }
+      result.pausedAccounts += paused;
+      result.notDueAccounts += notDue;
+      if (due.size === 0) return { cid, kind: "not-due" as const, keys: due };
+      const fresh = await refreshAccountCredits(channel, cid, logger, {
+        onlyKeys: due,
+        staggerWindowMs: STAGGER_WINDOW_MS,
+        scheduled: true,
+      });
+      // 渠道级条目用**生效账号**这次的实测值回写（省掉一次渠道级查询）
+      const active = runInChannel(cid, () => readIndex(cid).active);
+      const activeCredits = active ? fresh.get(active) : undefined;
+      if (activeCredits !== undefined) {
+        writeBilling(cid, activeCredits);
+        markCooldownIfExhausted(channel, cid, activeCredits);
+        clearBillingFailure(cid);
+      }
+      return { cid, kind: "refreshed" as const, keys: new Set(fresh.keys()) };
+    }),
+  );
+  settled.forEach((item, index) => {
+    const cid = list[index]!.config.cid;
+    if (item.status === "rejected") {
+      const error = String(item.reason);
+      noteBillingAttempt(cid, false);
+      result.failed.push({ cid, error });
+      noteBillingFailure(cid, error, logger);
+      return;
+    }
+    const value = item.value;
+    if (value.kind === "skipped" || value.kind === "not-due") {
+      result.skipped.push(cid);
+      return;
+    }
+    if (value.keys.size === 0) {
+      result.failed.push({ cid, error: "account queries all failed" });
+      return;
+    }
+    result.refreshed.push(cid);
+    result.queriedAccounts += value.keys.size;
+  });
+  flushLedger();
+  return result;
+}
+
 /**
  * 立刻刷新一轮账单（CLI `model usage --refresh` 用；等待完成）。
  *
@@ -1144,17 +1649,16 @@ export function maybeRefreshBilling(logger: (m: string) => void = () => {}): voi
 // ── 后台定时刷新（控制台/面板的「额度新鲜度」靠它）──────────────────────────
 
 /**
- * 后台刷新间隔：**3 分钟**（可用 `MODELMUX_BILLING_REFRESH_MS` 覆盖，0 = 关闭）。
+ * 后台刷新 tick 间隔：**15 秒**（可用 `MODELMUX_BILLING_REFRESH_MS` 覆盖，0 = 关闭）。
  *
- * 为什么不等 TTL（`BILLING_TTL_MS = 8h`）：TTL 是「聊天请求路径上顺手补一次」的判据，
- * 目的是不给每条请求加网络开销；而控制台的额度展示需要**分钟级**的新鲜度 ——
- * 用户改了额度/充了值，不该等 8 小时或手动 `mx bill` 才看到。
+ * 为什么是 tick 而不是「每 N 分钟整轮」：刷新节奏现在**按账号分级**
+ * （活跃 1 分钟 / 空闲 3 分钟，见 `billingTierOf`），需要一个比最小间隔更细的
+ * 判断粒度。tick 本身不联网，只比较账本里的时刻，开销可以忽略。
  *
- * 3 分钟的节奏平衡新鲜度与查询量（原为 5 分钟）。
- * 代价是**每个渠道每 3 分钟一次上游查询**（约 10 渠道 × 20 次/小时）。
- * 都是只读的积分查询端点（官方客户端也在轮），但若上游出现限流就调大这个值或设 0 关掉。
+ * `MODELMUX_BILLING_REFRESH_MS` 保留为「tick 间隔」的覆盖项：旧部署设成 0 关掉
+ * 后台刷新时行为不变。
  */
-export const BILLING_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
+export const BILLING_REFRESH_INTERVAL_MS = SCHEDULER_TICK_MS;
 
 /** 解析间隔（环境变量覆盖；非法值回落默认）。 */
 function refreshIntervalMs(): number {
@@ -1165,12 +1669,17 @@ function refreshIntervalMs(): number {
 }
 
 let refresherTimer: ReturnType<typeof setInterval> | null = null;
+/** 启动抖动定时器（首个 tick 前随机等待，避免重启瞬间全池同时开火）。 */
+let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * 启动后台账单刷新器（网关 running 后调用一次；幂等，重复调用不会起第二个定时器）。
  *
- * 跑一轮的语义与 `mx bill` 一致：**并行**查全部有账单能力的渠道（见 `runRefresh`），
- * 并发去重交给 `inFlight`，所以与聊天路径的 `maybeRefreshBilling` 不会互相叠加。
+ * 每 `SCHEDULER_TICK_MS` 跑一轮 `runScheduledRefresh`：只有**到期**的账号才查，
+ * 冷却 / 失效 / 熔断的账号直接跳过，429 退避中的渠道整体跳过。
+ *
+ * **启动抖动**：首个 tick 延迟 `0..tick` 的随机时长。否则网关重启时所有账号的
+ * `billing_at` 同时过期，会在同一轮全部开火 —— 与「错峰」的目的正好相反。
  *
  * `afterRound` 在每轮结束后调用（无论成功失败）：给「顺手对账」类动作一个挂点，
  * 让生效账号状态不必等下一次请求才纠正（见 account-rotate 的 `reconcileCoolingActives`）。
@@ -1179,23 +1688,21 @@ export function startBillingRefresher(
   logger: (m: string) => void = () => {},
   afterRound?: () => void,
 ): void {
-  if (refresherTimer) return;
+  if (refresherTimer || startupTimer) return;
   const interval = refreshIntervalMs();
   if (interval <= 0) {
     logger("billing refresher disabled (MODELMUX_BILLING_REFRESH_MS=0)");
     return;
   }
-  refresherTimer = setInterval(() => {
-    void refreshBilling(logger)
+  const runRound = (): void => {
+    void runScheduledRefresh(logger)
       .then((result) => {
-        if (result.refreshed.length > 0 || result.failed.length > 0) {
-          // `info:` 前缀 = 这行是心跳、不是故障：具体失败原因已由同因去重逐条给出，
-          // 汇总行每轮都写，若进错误日志就又把日志淹了
+        if (result.queriedAccounts > 0 || result.failed.length > 0) {
+          // `info:` 前缀 = 这行是心跳、不是故障：具体失败原因已由同因去重逐条给出
           logger(
-            `info: billing refreshed (${result.refreshed.length} ok, ${result.failed.length} failed)` +
-              (result.failed.length > 0
-                ? `: ${result.failed.map((f) => f.cid).join(", ")}`
-                : ""),
+            `info: billing refreshed (${result.queriedAccounts} account(s), ${result.failed.length} failed, ` +
+              `${result.pausedAccounts} paused, ${result.notDueAccounts} not due)` +
+              (result.failed.length > 0 ? `: ${result.failed.map((f) => f.cid).join(", ")}` : ""),
           );
         }
       })
@@ -1208,14 +1715,28 @@ export function startBillingRefresher(
           logger(`post-refresh hook failed: ${String(err)}`);
         }
       });
-  }, interval);
-  // 定时器不该阻止进程退出（与 auto-signin 的调度器同类）
-  refresherTimer.unref?.();
-  logger(`billing refresher started (every ${Math.round(interval / 1000)}s)`);
+  };
+  const jitter = Math.floor(Math.random() * interval);
+  startupTimer = setTimeout(() => {
+    startupTimer = null;
+    runRound();
+    refresherTimer = setInterval(runRound, interval);
+    // 定时器不该阻止进程退出（与 auto-signin 的调度器同类）
+    refresherTimer.unref?.();
+  }, jitter);
+  startupTimer.unref?.();
+  logger(
+    `billing refresher started (tick ${Math.round(interval / 1000)}s, first round in ${Math.round(jitter / 1000)}s; ` +
+      `active ${Math.round(ACTIVE_REFRESH_MS / 1000)}s / idle ${Math.round(IDLE_REFRESH_MS / 1000)}s)`,
+  );
 }
 
 /** **仅供测试**：停掉后台刷新器。 */
 export function stopBillingRefresherForTest(): void {
+  if (startupTimer) {
+    clearTimeout(startupTimer);
+    startupTimer = null;
+  }
   if (refresherTimer) {
     clearInterval(refresherTimer);
     refresherTimer = null;
@@ -1229,5 +1750,17 @@ export function resetPoolLedgerForTest(): void {
     saveTimer = null;
   }
   inFlight = null;
+  scheduledInFlight = false;
   cache = null;
+}
+
+/**
+ * **仅供测试**：用给定账本替换内存副本并同步落盘。
+ *
+ * 存在的理由：调度判据依赖 `billing_at` / `last_ok_at` 这类**时刻**，
+ * 用例若只能通过 `writeAccountBilling` 间接写，就永远造不出「1 分钟前」这种现场。
+ */
+export function seedLedgerForTest(ledger: PoolLedger): void {
+  cache = { stamp: poolStore().ledgerStamp(), ledger: pruneUnregistered(ledger) };
+  flushLedger();
 }

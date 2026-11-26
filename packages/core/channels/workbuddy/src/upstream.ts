@@ -71,6 +71,19 @@ export const DISPLAY_NAME = "WorkBuddy";
  */
 export const WIRE: "openai" | "custom" = "openai";
 
+/**
+ * 从 usage 帧读取**本次消耗的 credits**（上游字段 `credit`）。
+ *
+ * 实测（2026-11-26）：`usage: {…, credit: 0, quota: {model, percent, reset_at}}`。
+ * `credit` 是本次消耗，`quota.percent` 是**剩余百分比**（不是绝对值，不参与扣减）。
+ */
+export function consumedCredits(usage: Record<string, unknown>): { amount: number; unit: string } | null {
+  const raw = usage["credit"];
+  const amount = typeof raw === "number" ? raw : Number.parseFloat(String(raw ?? ""));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return { amount, unit: "credits" };
+}
+
 /** 已验证的 chat-completions 路由（见文件头注释）。 */
 const DEFAULT_CHAT_PATH = "/v2/chat/completions";
 

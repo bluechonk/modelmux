@@ -45,10 +45,11 @@ import { Select, type SelectOption } from "../components/Select";
 import { Skeleton } from "./Dashboard";
 
 /** 选路剔除原因的展示文案（与后端 `RouteSkipReason` 一一对应）。 */
-const ROUTE_SKIP_LABEL: Record<"auth" | "cred_error" | "window" | "unauthorized" | "cooling", string> = {
+const ROUTE_SKIP_LABEL: Record<"auth" | "cred_error" | "window" | "messages" | "unauthorized" | "cooling", string> = {
   auth: "未登录",
   cred_error: "凭据读取失败",
   window: "超窗",
+  messages: "超消息条数上限",
   unauthorized: "凭据失效",
   cooling: "冷却中",
 };

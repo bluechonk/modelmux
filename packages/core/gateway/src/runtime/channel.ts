@@ -294,6 +294,30 @@ export interface UpstreamModule {
    */
   isCapacityError?(status: number, body: string): boolean;
   /**
+   * 可选：本渠道单次请求能承载的**消息条数上限**（含首条 system）。
+   *
+   * 为什么需要它：有的上游对消息条数有**硬上限**且超限直接断连 / 400
+   * （CodeBuddy 实测 511 条过、512 条断）。这是渠道能力，不是用户输入非法 ——
+   * 声明后网关在**选路阶段**就跳过超限的候选（换一家本来能跑），
+   * 而不是先白撞一次上游、再把整条请求判成 400。
+   *
+   * 不声明的渠道不做过滤（没有数据不能当没有能力）。
+   * 渠道自己的 `buildChatBody` 仍应保留同样的守卫 —— 它是最后一道防线（例如
+   * 规范化后条数变多的情况），只是那时的失败要按能力上限而非输入非法处理。
+   */
+  maxMessages?(): number | null;
+  /**
+   * 可选：从一次对话的 `usage` 字段里读出**本次消耗的额度数量**。
+   *
+   * 用途：控制台显示「上次账单值 − 累计消耗」的估算余额，不必等下一轮账单。
+   * 只有上游真的下发消耗量的渠道才实现 —— 实测 loomy 是 `points_consumed`，
+   * workbuddy / codebuddycn 是 `credit`。返回 `null` = 这帧没有消耗信息。
+   *
+   * 约束：`unit` 必须与 `billing.fetchCredits()` 的 `total.unit` 同量纲，
+   * 否则共享层不会拿它扣减（不同单位相加会算出负余额这类假象）。
+   */
+  consumedCredits?(usage: Record<string, unknown>): { amount: number; unit: string } | null;
+  /**
    * 可选：上游响应头到达后允许的**连续静默上限**（毫秒），默认 `MODELMUX_READ_TIMEOUT_MS`（120s）。
    *
    * 有些上游排队/长思考时**收下请求（HTTP 200）后长时间零字节**，且不像其他渠道那样

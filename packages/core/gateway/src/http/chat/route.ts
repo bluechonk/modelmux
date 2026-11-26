@@ -26,8 +26,16 @@ import { writeJsonError } from "./errors.js";
 export interface PoolRoute {
   /** 规范模型名（家族表裸名）。 */
   target: string;
-  /** 本次要试的候选（已排除未登录、无健康账号、冷却与窗口不足），按剩余额度降序。 */
+  /** 本次要试的候选（已排除未登录、无健康账号、冷却、窗口不足与条数超限），按剩余额度降序。 */
   attempts: PoolCandidate[];
+}
+
+/** `resolvePoolRoute` 的可选输入（省略时不做对应过滤，保持既有行为）。 */
+export interface RouteInput {
+  /** 请求的消息条数：超过渠道声明的 `maxMessages()` 时跳过该候选。 */
+  messageCount?: number;
+  /** 输入 token 估算。 */
+  estimateInput: number;
 }
 
 /**
@@ -40,13 +48,16 @@ export interface PoolRoute {
  * - 候选渠道全都登录不了 → 503（**可用性问题**：没登录）
  * - 输入估算超过候选渠道窗口的渠道跳过；全部超窗 → 400 `input_exceeds_context`
  *   （硬事实，不参与冷却回退 —— 回退把超窗渠道放回来也一定失败）
+ * - 消息条数超过渠道声明的 `maxMessages()` 的渠道跳过（同上：换一家本来能跑）
  */
 export function resolvePoolRoute(
   model: string,
-  estimateInput: number,
+  input: number | RouteInput,
   res: ServerResponse,
   logger: (m: string) => void,
 ): PoolRoute | null {
+  const estimateInput = typeof input === "number" ? input : input.estimateInput;
+  const messageCount = typeof input === "number" ? undefined : input.messageCount;
   maybeRefreshBilling(logger); // 账单额度到期就在后台刷，不阻塞本次请求
 
   const resolved = resolveInboundModel(model);
@@ -130,8 +141,30 @@ export function resolvePoolRoute(
     );
     return null;
   }
+  // 消息条数上限：渠道声明的硬上限（如 CodeBuddy 511 条）。与窗口同理是**渠道能力**，
+  // 不是用户输入非法 —— 换一家本来能跑，故在选路阶段剔除，不让长会话先白撞一次上游。
+  const fit = contextOk.filter((c) => {
+    if (messageCount === undefined || messageCount <= 0) return true;
+    const limit = c.channel.upstream.maxMessages?.();
+    if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) return true;
+    if (messageCount > limit) {
+      logger(`pool: skip ${c.cid} for ${target}: ${messageCount} messages > upstream limit ${limit}`);
+      skipped.push({ cid: c.cid, why: "messages" });
+      return false;
+    }
+    return true;
+  });
+  if (fit.length === 0 && contextOk.length > 0) {
+    writeJsonError(
+      res,
+      400,
+      "input_exceeds_context",
+      `${messageCount ?? 0} messages exceeds every candidate channel's per-request message limit for ${target}`,
+    );
+    return null;
+  }
 
-  const available = contextOk.filter((c) => {
+  const available = fit.filter((c) => {
     if (activeAccountHealth(c.cid) === "unauthorized") {
       skipped.push({ cid: c.cid, why: "unauthorized" });
       return false;
@@ -142,7 +175,7 @@ export function resolvePoolRoute(
     }
     return true;
   });
-  const attempts = (available.length > 0 ? available : contextOk).slice(0, maxPoolAttempts());
+  const attempts = (available.length > 0 ? available : fit).slice(0, maxPoolAttempts());
   if (available.length === 0) {
     // 只记录异常路径：候选被过滤属设计内行为，逐请求输出会在冷却窗口内产生大量重复日志
     logger(

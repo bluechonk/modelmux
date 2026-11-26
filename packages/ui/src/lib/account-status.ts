@@ -31,6 +31,17 @@ export interface AccountBilling {
   billing_ok?: boolean;
   /** 额度基线（当前窗口内第一次账单的 remain），用作 100% 分母。 */
   baseline?: { window?: string; date: string; remain: number; at?: string } | null;
+  /**
+   * 估算余额 = 上次账单值 − 按对话流 usage 累加的消耗增量。
+   *
+   * `null` = 不可扣减（单位不一致 / 还没产生增量）→ 展示回落到真实账单值。
+   * 只影响展示，不参与选路。
+   */
+  estimated_remain?: number | null;
+  /** 后台调度给该账号算的刷新档位（active 1 分钟 / idle 3 分钟 / paused 不查）。 */
+  tier?: "active" | "idle" | "paused" | null;
+  /** 最近一次成功转发时刻（ISO）；活跃度分级判据。 */
+  last_ok_at?: string | null;
 }
 
 /** 渠道级账本条（billing action 聚合后的形状）。 */

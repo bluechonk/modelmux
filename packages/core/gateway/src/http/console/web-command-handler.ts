@@ -13,7 +13,13 @@ import { channelCapabilities, channels, getChannel, hasChannel, type Channel } f
 import { runInChannel } from "../../runtime/channel-context.js";
 import { poolCandidates, poolModels } from "../../pool/pool-targets.js";
 import { isPrefsModel, loadModelPrefs, setPreferredChannel } from "../../pool/model-prefs.js";
-import { ledgerSnapshot, refreshBilling, sortChannelsByUsage } from "../../pool/pool-usage.js";
+import * as poolUsage from "../../pool/pool-usage.js";
+import {
+  estimatedRemainOf,
+  ledgerSnapshot,
+  refreshBilling,
+  sortChannelsByUsage,
+} from "../../pool/pool-usage.js";
 import { listAccounts, activateAccount, clearAccountState, removeAccount, syncPool } from "../../runtime/account-pool.js";
 import {
   API_KEY_NAME_MAX,
@@ -159,16 +165,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
                   ok: entry?.ok ?? 0,
                   fail: entry?.fail ?? 0,
                   // 渠道 × 账号拆分：每个账号的 ok / fail 计数与额度快照
-                  accounts: Object.entries(entry?.accounts ?? {}).map(([key, count]) => ({
-                    key,
-                    ok: count.ok,
-                    fail: count.fail,
-                    credits: count.credits ?? null,
-                    billing_at: count.billing_at ?? null,
-                    billing_ok: count.billing_ok ?? false,
-                    // 当日基线（当天首个 bill 的 remain）：前端拿它当 100% 分母
-                    baseline: count.baseline ?? null,
-                  })),
+                  accounts: accountRowsOf(entry?.accounts),
                 };
               }),
           }))
@@ -198,15 +195,7 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
                 quota: channel.billing.quotaPeriod?.() ?? null,
                 ok: entry.ok,
                 fail: entry.fail,
-                accounts: Object.entries(entry.accounts ?? {}).map(([key, count]) => ({
-                  key,
-                  ok: count.ok,
-                  fail: count.fail,
-                  credits: count.credits ?? null,
-                  billing_at: count.billing_at ?? null,
-                  billing_ok: count.billing_ok ?? false,
-                  baseline: count.baseline ?? null,
-                })),
+                accounts: accountRowsOf(entry.accounts),
               },
             ],
           });
@@ -414,6 +403,34 @@ export function createWebCommandHandler(deps: WebCommandDeps = {}): WebCommandHa
     return { ok: false, error: message };
   }
   };
+}
+
+/**
+ * 账本里的账号条目 → 控制台的账号额度行。
+ *
+ * `estimated_remain` 是「上次账单值 − 按 usage 累加的消耗」：**展示用估算**，
+ * 不可扣减（单位不一致 / 无增量）时为 `null`，前端回落到真实账单值。
+ * `tier` 是后台调度算出的刷新档位（active / idle / paused），排障时能看出
+ * 「为什么这个账号额度一分钟一更、另一个三分钟一更」。
+ */
+function accountRowsOf(
+  accounts: Record<string, poolUsage.AccountCount> | undefined,
+): Array<Record<string, unknown>> {
+  return Object.entries(accounts ?? {}).map(([key, count]) => ({
+    key,
+    ok: count.ok,
+    fail: count.fail,
+    credits: count.credits ?? null,
+    billing_at: count.billing_at ?? null,
+    billing_ok: count.billing_ok ?? false,
+    // 当日基线（当天首个 bill 的 remain）：前端拿它当 100% 分母
+    baseline: count.baseline ?? null,
+    // 估算余额（真实值 − 累计消耗增量）；null = 不可扣减
+    estimated_remain: estimatedRemainOf(count.credits, count.spent),
+    // 消费档位（active / idle / paused）与上次成功转发时刻
+    tier: count.billing_tier ?? null,
+    last_ok_at: count.last_ok_at ?? null,
+  }));
 }
 
 /**

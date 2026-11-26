@@ -12,7 +12,7 @@ import { channelCapabilities, channels, type Channel, type SigninReward, type Si
 import { runInChannel } from "../runtime/channel-context.js";
 import { readFileSync } from "node:fs";
 import { ensureStateDir, stateDir } from "../runtime/paths.js";
-import { prevRemainOf } from "../pool/pool-usage.js";
+import { prevRemainOf, writeAccountBilling, writeBilling } from "../pool/pool-usage.js";
 import {
   claimedTodayForAccount,
   claimedTodayPerLedger,
@@ -27,8 +27,10 @@ import {
 import { writeJsonSecret } from "../runtime/secret-file.js";
 import {
   isNotLoggedIn,
+  clearAccountState,
   listAccounts,
   readAccountCredentialSafe,
+  readIndex,
   runForAccountCredential,
 } from "../runtime/account-pool.js";
 import { normalizeCredentialShape } from "../runtime/credential-shape.js";
@@ -166,9 +168,47 @@ async function quotaRemainOf(
     const total = (result as { total?: { remain?: unknown; unit?: unknown } } | null)?.total;
     const remain = Number(total?.remain);
     if (!Number.isFinite(remain)) return null;
+    // 顺带把这次实测结果写进账本/账号快照 —— 这是签到链路唯一的额度回写点：
+    // 不写的话，账号页显示的仍是**上一轮账单**的数字（签到时账号常处于「额度耗尽冷却」，
+    // 账单轮询按规则跳过冷却账号，于是卡片长期停在 0，而签到台账已经写着「+100」）。
+    writeMeasuredCredits(cid, result, accountKey);
     return { remain, unit: typeof total?.unit === "string" ? total.unit : "" };
   } catch {
     return null;
+  }
+}
+
+/**
+ * 把实测额度写进账本（渠道级或账号级），并**解除因额度耗尽而进的冷却**。
+ *
+ * 为什么冷却要在这里解：账单轮询跳过冷却中的账号（额度等窗口刷新才会变），
+ * 而签到 / 领取恰恰是让额度**当下就变**的动作 —— 不解除的话这个账号要等窗口刷新，
+ * 期间路由一直把它当没钱。
+ *
+ * 只解「额度冷却」（`health === "cooldown"`）：`unauthorized` / `error` 是真的故障，
+ * 拿一次额度查询成功去清它们会把坏账号伪装成健康（与 `reviveAfterBilling` 的分工一致，
+ * 那边也只清已到期的冷却）。
+ */
+function writeMeasuredCredits(cid: string, credits: unknown, accountKey?: string): void {
+  try {
+    if (accountKey === undefined) {
+      writeBilling(cid, credits);
+    } else {
+      writeAccountBilling(cid, accountKey, credits);
+    }
+    const total = (credits as { total?: { remain?: unknown } } | null)?.total;
+    const remain = Number(total?.remain);
+    if (!Number.isFinite(remain) || remain <= 0) return;
+    // 实测仍有额度 → 额度耗尽冷却不再成立。`clearAccountState` 只看冷却/熔断标记，
+    // 且对非生效账号也生效（写的正是池内那份 `accounts/<key>.json`）。
+    if (accountKey !== undefined) {
+      clearAccountState(accountKey, cid);
+    } else {
+      const active = readIndex(cid).active;
+      if (active) clearAccountState(active, cid);
+    }
+  } catch {
+    /* 回写失败只影响展示新鲜度，不影响签到结论 */
   }
 }
 

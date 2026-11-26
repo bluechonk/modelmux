@@ -281,18 +281,23 @@ describe("pool-usage：后台刷新器", () => {
 
       process.env["MODELMUX_BILLING_REFRESH_MS"] = "not-a-number";
       startBillingRefresher((m) => logs.push(m));
-      assert.ok(logs.some((m) => m.includes("every")), "非法值回落默认间隔");
+      // 非法值回落默认 tick（日志里同时给出 tick 与分级间隔）
+      assert.ok(logs.some((m) => m.includes("tick")), "非法值回落默认间隔");
+      assert.ok(
+        logs.some((m) => m.includes("active") && m.includes("idle")),
+        "启动日志要交代分级间隔（1 分钟 / 3 分钟）",
+      );
 
       stopBillingRefresherForTest();
       process.env["MODELMUX_BILLING_REFRESH_MS"] = "100000";
       startBillingRefresher((m) => logs.push(m));
-      assert.ok(logs.filter((m) => m.includes("every")).length >= 2);
+      assert.ok(logs.filter((m) => m.includes("tick")).length >= 2);
       stopBillingRefresherForTest();
 
       // 短间隔触发一次定时回调（回调体也要被执行到）
       process.env["MODELMUX_BILLING_REFRESH_MS"] = "20";
       startBillingRefresher((m) => logs.push(m));
-      await new Promise((resolve) => setTimeout(resolve, 90));
+      await new Promise((resolve) => setTimeout(resolve, 120));
       stopBillingRefresherForTest();
     } finally {
       if (saved === undefined) delete process.env["MODELMUX_BILLING_REFRESH_MS"];

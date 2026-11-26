@@ -156,6 +156,9 @@ export async function relayUpstream(
         : upstreamBuf;
       const aggregated = sseStream.aggregateChatSse(buf);
       noteUsage(res, aggregated.usage);
+      // 非流式没有走 `noteFrameUsage`，消耗估算必须在这里补一次（否则只有流式请求
+      // 会扣估算余额，与端到端实测不符）。
+      sseStream.noteConsumedUsage(res, aggregated.usage);
       // 空聚合一律报错，绝不以 200 回一个空 completion。两种成因分开给码：
       // ① 流内有 error 帧 —— 上游 HTTP 200 却投递业务错误（排队/限流等）→ 用它的码与文案；
       // ② 一个可解析帧都没有 —— 上游抽风，连内容/用量帧都没发（aggregateChatSse 的

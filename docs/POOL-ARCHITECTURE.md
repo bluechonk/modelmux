@@ -139,9 +139,8 @@
                      "billing_ok": true, "billing_at": "2026-10-18T…" } } } } }
 ```
 
-- 账单**每 3 分钟后台并行一轮**（`BILLING_REFRESH_INTERVAL_MS`；`MODELMUX_BILLING_REFRESH_MS` 可覆盖，设 0 关闭）：网关 ready 后起第一轮，之后每轮并行查全部有账单能力的渠道；
- 绝不阻塞正在处理的请求。TTL 兜底（`BILLING_TTL_MS = 8h`）另有一条：聊天路径发现账本太旧会在后台补一轮（`maybeRefreshBilling`）。
-- 手动刷新：`mx model usage --refresh`。
+- 后台刷新按**账号档位**调度（§2.3.2）：tick 15 秒、不联网、只比较账本里的时刻；聊天路径另有 8 小时 TTL 兜底（`maybeRefreshBilling`）。
+- 手动刷新：`mx model usage --refresh`（全量）。
 - 账单查询失败只更新尝试时刻、**保留上一次的用量数字**（不把账清零，也不用 0 冒充）。
 
 #### 2.3.1 额度基线（Web 百分比的分母）
@@ -158,11 +157,16 @@
 
 基线取当日首次观测到的 `remain`。两条排除：
 
-- **不按自然日切分**：多个渠道的日额度在本地 0 点**之后**才到账，按自然日抓基线会让 `remain > 基线`，比例被 clamp 成恒 100%（2026-10-24 实测 traecn / qodercn / raccoon）。
-- **不用上游 `size` 作分母**：各渠道口径不一（loomy 的 `dailyQuota` 只在首登响应里、月包型渠道的 `size` 是月包），同样恒 100%。
+- **不按自然日切分**：日额度常在本地 0 点后才到账，按自然日抓基线会让 `remain > 基线`，比例恒 100%（2026-10-24 实测）。
+- **不用上游 `size` 作分母**：口径不一（loomy `dailyQuota` 只在首登、月包渠道 `size` 是月包），同样恒 100%。
 
-前端只认基线：没有基线或 `remain` 不是有限数字时不画进度条、不显示百分比
-（不回退 `remain_percent`）。
+前端只认基线：没有基线或 `remain` 非有限数字时不画进度条与百分比（不回退 `remain_percent`）。
+
+#### 2.3.2 分级刷新与估算余额
+
+按账号档位查询额度（活跃 1 分钟 / 空闲 3 分钟 / 冷却与失效不查），同渠道错峰在 1 秒内，
+连续 2 次 429 退避 10 分钟；渠道可用 `consumedCredits(usage)` 上报每轮消耗，展示估算余额
+（不参与选路，账单成功即清零）。判据、字段与验收见 [BILLING-REFRESH.md](./BILLING-REFRESH.md)。
 
 ### 2.4 路由与失败转移（跨渠道）
 
@@ -341,10 +345,8 @@
 - **熔断短路期间也不记账**（`auth.ts` 的独立 `account_error` 类别）：熔断期内再记连败只会把
   `fail_streak` 刷成无意义的大数（2026-10-24 实测被 11 次 not_authenticated 刷到 11），
   不影响行为但污染账面与排障判断。
-- **冷却中的账号不参与账单刷新**：额度要等窗口刷新才会变，
-  冷却期反复查它的额度既拿不到新数字、又白打一次上游。实现见
-  `runRefresh` / `refreshAccountCredits` —— 只跳**这个账号**（生效账号冷却时渠道级查询跳过，
-  池里其余健康账号照查），跳过的渠道记在 `RefreshResult.skipped` 里可观测。
+- **冷却中的账号不参与账单刷新**：额度要等窗口刷新才会变，反复查既拿不到新数字、又白打上游。
+  `refreshAccountCredits` 只跳这个账号（生效账号冷却时渠道级查询跳过，其余健康账号照查）。
 - **账单查到 0 也会进冷却**（`markCooldownIfExhausted`）：有的渠道额度用完不会立刻回 4xx
   （如 loomy 的每日 5000 积分烧光后 `points/records` 直接给 `dailyBalance = 0`），
   账单是更早的信号。只认**真正的数字 0**，`remain` 缺失不算耗尽。
@@ -827,6 +829,11 @@ interface CredModule {
   下一轮重问 —— 把失败当成「渠道不声明窗口」会让非 0 点日界的渠道在本次进程内永久停摆。
 - 台账新增审计字段 `balance` / `rewardSource` / `rewardTries` / `rewardAt` / `windowEndsAt`；
   旧记录缺字段时读成「还没测 / 还没判定」，不读成 0。
+- **实测额度回写账本**：`quotaRemainOf` 查到的 `total` 会走 `writeBilling` /
+  `writeAccountBilling` 写进账本，并在有额度时**解除该账号的额度冷却**（`clearAccountState`，
+  只清 `cooldown`，不碰 `unauthorized` / `error`）。缺了这一步，“签到 +100、剩余额度仍显示 0”
+  会长期并存：签到时账号通常正处于「额度耗尽」冷却，而账单轮询按规则**跳过冷却账号**，
+  于是卡片停在旧快照上。
 
 ## 4. 公共层设计
 

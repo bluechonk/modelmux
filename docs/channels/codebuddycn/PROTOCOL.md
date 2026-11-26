@@ -166,8 +166,12 @@ HTTP 400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"
   （Android-AI-gateway #16 增量探针）。**触发表过期时按上面出处重新取样。**
 - 网关行为：出站前对 system/assistant 文本做最小同义改写（`upstream.ts` 的
   `REFUSAL_REWRITES`），不用零宽字符；改写不了的形态（如 `11-128` 字面量）按 400 如实透传。
-- 消息条数硬上限：**512 条**（Agent2API #48 实测 511 过 / 512 断连，与体积无关）；
-  `buildChatBody` 在建连前就拒绝，报错文案带实际条数。
+- 消息条数硬上限：**511 条**（Agent2API #48 实测 511 过 / 512 断连，与体积无关）。
+  两条防线：`buildChatBody` 在建连前拒绝（抛 `UnsupportedInputError`，报错带实际条数），
+  `upstream.maxMessages()` 把上限声明给共享层做**选路预判** —— 超限的候选在路由阶段
+  就被跳过，长会话顺延到其它渠道而不是整条请求判成 400。
+  这是**渠道能力上限**，不是用户输入非法：`UnsupportedInputError` 让网关换候选重试
+  （与 catpaw 的图片守卫同一信号），不会被当成终局错误。
 - 判成渠道校验（而非协议 bug）的判据：`code:11128` + `unapproved channel` 文案。
 
 ## 8. 证据等级

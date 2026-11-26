@@ -14,8 +14,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { ServerResponse } from "node:http";
 
-import { getChannel } from "../../runtime/channel.js";
-import { noteUsage } from "../../runtime/log-store.js";
+import { getChannel, hasChannel } from "../../runtime/channel.js";
+import { runInChannel } from "../../runtime/channel-context.js";
+import { getRequestLog, noteUsage } from "../../runtime/log-store.js";
+import { noteConsumed as notePoolConsumed } from "../../pool/pool-usage.js";
 import { debugDir, noteOnce } from "../../runtime/paths.js";
 import type { DsmlByteFilter } from "./dsml-tools.js";
 
@@ -644,11 +646,49 @@ export function noteFrameUsage(out: ServerResponse, frame: Buffer | string): voi
     if (!payload || payload === "[DONE]") continue;
     try {
       const parsed = JSON.parse(payload) as Record<string, unknown>;
-      if (parsed["usage"]) noteUsage(out, parsed["usage"]);
+      if (!parsed["usage"]) continue;
+      noteUsage(out, parsed["usage"]);
+      noteConsumedUsage(out, parsed["usage"]);
     } catch {
       /* 非 JSON 帧不处理 */
     }
   }
+}
+
+/**
+ * 把这一帧的**额度消耗增量**记进账本（仅展示用，不参与选路）。
+ *
+ * 渠道通过 `upstream.consumedCredits(usage)` 声明自己的消耗字段（loomy 的
+ * `points_consumed`、workbuddy / codebuddycn 的 `credit`）；共享层不做字段猜测。
+ * 请求上下文里没有 `cid` / `key`（测试桩、非池路径）时直接跳过。
+ *
+ * **两条转发路径都要调**：流式在 `noteFrameUsage` 里逐帧调；非流式在
+ * `http/chat/forward.ts` 聚合完成后调一次（那里只调 `noteUsage` 不会经过本函数，
+ * 漏了就会出现「非流式请求不扣估算余额」——2026-11-26 端到端实测）。
+ */
+export function noteConsumedUsage(out: ServerResponse, usage: unknown): void {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return;
+  const log = getRequestLog(out);
+  if (!log?.cid || !log.key) return;
+  if (!hasChannel(log.cid)) return;
+  const channel = getChannel(log.cid);
+  const read = channel.upstream.consumedCredits;
+  if (typeof read !== "function") return;
+  const total = runInChannel(log.cid, () =>
+    read.call(channel.upstream, usage as Record<string, unknown>),
+  );
+  if (!total) return;
+  // 请求内去重：把上游报的值当**累计量**，只记增量。
+  // 多帧重复上报同一笔、或上游按「本次请求累计」逐帧增长时，都能算对。
+  const seen = log.consumed;
+  const delta =
+    seen && seen.unit === total.unit
+      ? Math.round((total.amount - seen.amount) * 100) / 100
+      : total.amount;
+  if (seen && seen.unit === total.unit && total.amount <= seen.amount) return;
+  log.consumed = { amount: total.amount, unit: total.unit };
+  if (!(delta > 0)) return;
+  notePoolConsumed(log.cid, log.key, { amount: delta, unit: total.unit });
 }
 
 /** 读完整个上游响应体（非流式路径），读取中断抛 StreamError。 */

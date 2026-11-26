@@ -293,7 +293,10 @@ async function dispatchChat(
   // 估算器同时认 Anthropic 原生与 OpenAI chat 两形态（见 protocol/count-tokens.ts）。
   const route = resolvePoolRoute(
     parsed.model,
-    estimateInputTokens(parsed.payload as Record<string, unknown>),
+    {
+      estimateInput: estimateInputTokens(parsed.payload as Record<string, unknown>),
+      messageCount: Array.isArray(parsed.messages) ? parsed.messages.length : undefined,
+    },
     res,
     opts.logger,
   );

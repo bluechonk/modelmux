@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 
 import {
   classifyUpstreamError,
+  consumedCredits,
   isAuthFailure,
   quotaResetAt,
   quotaSignal,
@@ -77,5 +78,22 @@ describe("quotaResetAt：重置时刻解析", () => {
   it("认不出返回 null，绝不编造时间", () => {
     assert.equal(quotaResetAt("quota exceeded"), null);
     assert.equal(quotaResetAt(""), null);
+  });
+});
+
+describe("consumedCredits：本次消耗额度", () => {
+  it("credit 转成「credits」增量", () => {
+    assert.deepEqual(consumedCredits({ credit: 2 }), { amount: 2, unit: "credits" });
+  });
+
+  it("缺失 / 非正 / 非数 → null", () => {
+    assert.equal(consumedCredits({}), null);
+    assert.equal(consumedCredits({ credit: 0 }), null);
+    assert.equal(consumedCredits({ credit: -1 }), null);
+    assert.equal(consumedCredits({ credit: "n/a" }), null);
+  });
+
+  it("quota.percent 是剩余百分比，不参与扣减", () => {
+    assert.equal(consumedCredits({ quota: { percent: 12, reset_at: "1" } }), null);
   });
 });

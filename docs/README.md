@@ -30,6 +30,7 @@
 | [CHANNEL-INTERFACE.md](./CHANNEL-INTERFACE.md) | **渠道接口契约**：cred / upstream / catalog / billing 四模块的语义约定、登录链路契约、渠道测试边界 |
 | [STORAGE-CONVENTION.md](./STORAGE-CONVENTION.md) | **存储落点与文件命名规范**：统一根 `~/.modelmux/` + 按 cid 分层、命名与权限条文 |
 | [POOL-ARCHITECTURE.md](./POOL-ARCHITECTURE.md) | **池化架构**：统一模型池（裸模型名 + 按账号池剩余额度跨渠道选路、目录三级来源与兜底）+ 池元数据取值 + 账号池（多账号 / 连败标记 / 额度耗尽自动换号） |
+| [BILLING-REFRESH.md](./BILLING-REFRESH.md) | **额度刷新与估算余额**：按账号分级的刷新节奏、同渠道 1 秒错峰、429 退避、按 usage 增量估算余额；现行摘要见 POOL-ARCHITECTURE.md §2.3 |
 | [DAEMON-SUPERVISOR.md](./DAEMON-SUPERVISOR.md) | **网关进程生命周期**：监督者 + worker 自动重生（指数退避 / 代次作废 / 父死自退） |
 | [CLIENT-INTEGRATION.md](./CLIENT-INTEGRATION.md) | **客户端接入指南**：三种入站协议、模型名解析、手工配置形态、真机验证矩阵 |
 

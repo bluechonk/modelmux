@@ -666,3 +666,59 @@ test("auto signin: 跨窗口对比在余额没涨时不写额度（不编 0）",
     assert.equal(readLedger(cid).last_claim?.reward, null);
   });
 });
+
+// ── 签到链路的额度回写（2026-11-26 traecn「签到 +100 但剩余 0」回归）──────────
+
+test("auto signin: 领取后实测到的额度写回账本，不再停在旧快照", async () => {
+  await withIsolatedRoot(async () => {
+    const cid = "autosign-writeback";
+    const behavior: Behavior = {
+      claimOk: true,
+      // 领取前一查 0（账号本已耗尽），领取后一查 100（签到入账）
+      quotaSequence: [
+        { remain: 0, unit: "积分" },
+        { remain: 100, unit: "积分" },
+      ],
+    };
+    setChannel(makeChannel(cid, behavior));
+    // 账本里是**旧的** 0：账号页此前显示的正是这个数
+    poolUsage.writeBilling(cid, {
+      total: { remain: 0, size: 0, used: 0, unit: "积分", remain_percent: 0 },
+      packages: [],
+    });
+
+    await autoSignin.runOnce();
+
+    // 领到 100 → 账本必须同步成 100（否则页面仍是「剩余 0 / 签到 +100」的自相矛盾）
+    assert.equal(
+      poolUsage.ledgerSnapshot().channels[cid]?.remain,
+      100,
+      "领取链路测到的额度必须回写账本",
+    );
+  });
+});
+
+test("auto signin: 领取后额度恢复 → 解除该账号的额度耗尽冷却", async () => {
+  await withIsolatedRoot(async () => {
+    const cid = "autosign-uncool";
+    const behavior: Behavior = { claimOk: true, quotaSequence: [{ remain: 100, unit: "积分" }] };
+    setChannel(makeChannel(cid, behavior));
+    const { keyA } = seedTwoAccounts(cid, "acct-uncool-b");
+    // 生效账号处于「额度耗尽」冷却（这正是自动签到管理跳过账单刷新时的状态）
+    accounts.noteAccountQuotaExhausted(cid, {
+      until: Date.now() + 6 * 3600_000,
+      reason: "额度耗尽，等窗口刷新",
+    });
+    assert.equal(
+      accounts.readIndex(cid).accounts.find((a) => a.key === keyA)?.health,
+      "cooldown",
+      "前置：生效账号应在冷却中",
+    );
+
+    await autoSignin.runOnce();
+
+    const after = accounts.readIndex(cid).accounts.find((a) => a.key === keyA);
+    assert.equal(after?.health, "ok", "实测有额度 → 额度冷却必须解除（否则路由一直当它没钱）");
+    assert.equal(after?.cooldown_until ?? null, null, "冷却截止一并清掉");
+  });
+});

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { parseConfigModels, parseRemoteModels, resolveModel } from "../dist/catalog.js";
-import { chatUrl, modelsUrl } from "../dist/upstream.js";
+import { chatUrl, consumedCredits, modelsUrl } from "../dist/upstream.js";
 
 const TWO_MODELS = [
   { id: "model-a", name: "A" },
@@ -63,5 +63,18 @@ describe("availableModels 过滤语义", () => {
   it("disabled 条目无论是否被列出都剔除", () => {
     const data = { models: [...TWO_MODELS, { id: "model-c", name: "C", disabled: true }] };
     assert.deepEqual(ids(parseRemoteModels(data)), ["model-a", "model-b"]);
+  });
+});
+
+describe("consumedCredits：本次消耗额度", () => {
+  it("credit 转成「credits」增量", () => {
+    assert.deepEqual(consumedCredits({ credit: 3 }), { amount: 3, unit: "credits" });
+  });
+
+  it("缺失 / 非正 / 非数 → null", () => {
+    assert.equal(consumedCredits({}), null);
+    assert.equal(consumedCredits({ credit: 0 }), null);
+    assert.equal(consumedCredits({ credit: -1 }), null);
+    assert.equal(consumedCredits({ credit: "x" }), null);
   });
 });

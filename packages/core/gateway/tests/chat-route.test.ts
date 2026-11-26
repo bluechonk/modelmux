@@ -65,6 +65,8 @@ interface SynthOptions {
   resolveThrows?: boolean;
   /** 登录成功后写进 credentials.json 的凭据。 */
   cred?: Record<string, unknown>;
+  /** 渠道声明的单请求消息条数上限（`upstream.maxMessages()`）。 */
+  maxMessages?: number;
 }
 
 /**
@@ -120,6 +122,7 @@ function makeChannel(cid: string, opts: SynthOptions = {}): Channel {
       fetchModels: async () => ({}),
       resolveConfig: () => ({ baseUrl: "http://127.0.0.1:1" }),
       newTranslator: () => ({ feed: (c: Buffer) => [c], finish: () => [] }),
+      ...(opts.maxMessages === undefined ? {} : { maxMessages: () => opts.maxMessages! }),
     },
     catalog: {
       exposedIds: () => models.map(([exposed]) => exposed),
@@ -300,6 +303,67 @@ describe("1. A3 池路由：解析失败要写应答（不挂死）", () => {
     assert.equal(
       (JSON.parse(body()) as { error: { code: string } }).error.code,
       "input_exceeds_context",
+    );
+  });
+
+  it("消息条数超过渠道声明上限 → 跳过该候选（换一家本来能跑）", () => {
+    setChannel(makeChannel("shortcap", { maxMessages: 511 }));
+    seedCredential("shortcap", { accessToken: "tok-short", uid: "u-short", domain: "" });
+    setChannel(makeChannel("longcap"));
+    seedCredential("longcap", { accessToken: "tok-long", uid: "u-long", domain: "" });
+    poolUsage.writeBilling("shortcap", { total: { used: 0 } });
+    poolUsage.writeBilling("longcap", { total: { used: 0 } });
+
+    const { res } = fakeRes();
+    const route = resolvePoolRoute(
+      "deepseek-v4.1-flash",
+      { estimateInput: 1000, messageCount: 900 },
+      res,
+      () => {},
+    );
+    assert.notEqual(route, null, "仍有可承载的候选，不该整条失败");
+    assert.deepEqual(
+      route!.attempts.map((c) => c.cid),
+      ["longcap"],
+      "声明 511 条上限的渠道必须被跳过，且不计连败",
+    );
+    assert.equal(
+      route!.attempts.some((c) => c.cid === "shortcap"),
+      false,
+      "超条数的候选不得进本次尝试",
+    );
+  });
+
+  it("全部候选都超条数上限 → 400（不留空候选去撞上游）", () => {
+    setChannel(makeChannel("onlyshort", { maxMessages: 511 }));
+    seedCredential("onlyshort", { accessToken: "tok-short", uid: "u-short", domain: "" });
+    poolUsage.writeBilling("onlyshort", { total: { used: 0 } });
+
+    const { res, status, body } = fakeRes();
+    const route = resolvePoolRoute(
+      "deepseek-v4.1-flash",
+      { estimateInput: 1000, messageCount: 900 },
+      res,
+      () => {},
+    );
+    assert.equal(route, null);
+    assert.equal(status(), 400);
+    assert.equal(
+      (JSON.parse(body()) as { error: { code: string } }).error.code,
+      "input_exceeds_context",
+    );
+  });
+
+  it("候选渠道都没登录 → 503 not_authenticated（不是 400）", () => {
+    setChannel(makeChannel("noauth"));
+    // 不写凭据文件：loadCredentialSafe 回 null → 该候选被标 auth 跳过
+    const { res, status, body } = fakeRes();
+    const route = resolvePoolRoute("deepseek-v4.1-flash", 1000, res, () => {});
+    assert.equal(route, null);
+    assert.equal(status(), 503);
+    assert.equal(
+      (JSON.parse(body()) as { error: { code: string } }).error.code,
+      "not_authenticated",
     );
   });
 

@@ -46,7 +46,7 @@ import { writeAtomicFile } from "./secret-file.js";
 export type AccessOutcome = "success" | "failure";
 
 /** 候选被剔除的原因（选路快照用）；`cred_error` = 凭据读盘故障（与「未登录」区分）。 */
-export type RouteSkipReason = "auth" | "cred_error" | "window" | "unauthorized" | "cooling";
+export type RouteSkipReason = "auth" | "cred_error" | "window" | "messages" | "unauthorized" | "cooling";
 
 /**
  * 一次请求的**选路快照**（落进访问日志，控制台展开详情可见）。
@@ -85,6 +85,13 @@ export interface RequestLog {
    * 逐请求的 token 只在访问日志里 —— 不落这个字段就只能按渠道汇总。
    */
   key?: string;
+  /**
+   * 本请求已上报的额度消耗累计值（内部去重用，**不落访问日志**）。
+   *
+   * 有的上游在多个 usage 帧里重复/累计上报同一请求的消耗；按「本次值 − 已记值」
+   * 累加可以避免同一笔消耗被记两遍。口径见 `http/wire/sse-stream.ts::noteConsumed`。
+   */
+  consumed?: { amount: number; unit: string };
   stream?: boolean;
   status?: number;
   outcome?: AccessOutcome;
@@ -928,7 +935,7 @@ function strArray(value: unknown): string[] | undefined {
   return value.every((v) => typeof v === "string") ? (value as string[]) : undefined;
 }
 
-const ROUTE_SKIP_REASONS: readonly RouteSkipReason[] = ["auth", "cred_error", "window", "unauthorized", "cooling"];
+const ROUTE_SKIP_REASONS: readonly RouteSkipReason[] = ["auth", "cred_error", "window", "messages", "unauthorized", "cooling"];
 
 function isSkipReason(value: string | undefined): value is RouteSkipReason {
   return value !== undefined && (ROUTE_SKIP_REASONS as readonly string[]).includes(value);

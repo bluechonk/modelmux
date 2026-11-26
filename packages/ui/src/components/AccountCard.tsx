@@ -573,7 +573,11 @@ export function AccountCard({
                       ) : billingError && !bill?.billing_at ? (
                         <span className="shrink-0 text-xs text-warn">账单失败</span>
                       ) : (
-                        <QuotaBar credits={bill?.credits} baseline={bill?.baseline} />
+                        <QuotaBar
+                          credits={bill?.credits}
+                          baseline={bill?.baseline}
+                          estimated={bill?.estimated_remain}
+                        />
                       )}
                     </button>
                   )}
@@ -694,6 +698,8 @@ export function AccountCard({
                 detailBill?.baseline,
                 billing?.unsupported === true,
                 tokensOf?.(detailAccount.key),
+                detailBill?.estimated_remain,
+                detailBill?.tier,
               ),
               // 今日签到：渠道没有签到能力时这里是空数组（整行不渲染）
               ...signinRows(pool.signin, detailAccount),
@@ -734,27 +740,44 @@ export function AccountCard({
 /**
  * 额度详情（悬停面板的内容）：全部取上游账单字段 —— 剩余额度、今日消耗、今日 tokens、
  * 今日首次账单（即进度条的 100% 基准）。推不出的显示 `-`，不猜。
+ *
+ * 「剩余额度」优先用**估算值**（上次账单 − usage 累计消耗），并标注「估算」：
+ * 它比账单更新（分钟级 vs 分钟级轮询之间），但不是上游权威数字，不能冒充准确值。
  */
 function quotaDetailRows(
   credits: AccountCredits | null | undefined,
   baseline: { window?: string; date: string; remain: number; at?: string } | null | undefined,
   unsupported: boolean,
   tokens: number | undefined,
+  estimated?: number | null,
+  tier?: "active" | "idle" | "paused" | null,
 ): Array<{ label: string; value: string }> {
   let used: number | null = null;
-  if (credits && baseline) {
+  const remainForUsed =
+    typeof estimated === "number" && Number.isFinite(estimated) ? estimated : credits ? Number(credits.remain) : null;
+  if (baseline && remainForUsed !== null) {
     const base = Number(baseline.remain);
-    const remain = Number(credits.remain);
-    if (Number.isFinite(base) && Number.isFinite(remain)) used = Math.max(0, base - remain);
+    if (Number.isFinite(base) && Number.isFinite(remainForUsed)) used = Math.max(0, base - remainForUsed);
   }
   const fmt = (value: number): string => value.toLocaleString("en-US", { maximumFractionDigits: 2 });
   const firstBill = baseline ? fmt(Number(baseline.remain)) : "-";
-  return [
-    { label: "剩余额度", value: quotaAmount(credits, unsupported) },
+  const estimatedUsable = typeof estimated === "number" && Number.isFinite(estimated) ? estimated : null;
+  const remainText =
+    estimatedUsable !== null
+      ? `${quotaAmount({ remain: estimatedUsable } as AccountCredits, unsupported)}（估算）`
+      : quotaAmount(credits, unsupported);
+  const rows = [
+    { label: "剩余额度", value: remainText },
     { label: "今日消耗", value: used === null ? "-" : fmt(used) },
     { label: "今日 tokens", value: tokens === undefined ? "-" : formatTokens(tokens) },
     { label: "今日首次账单", value: firstBill },
   ];
+  // 刷新档位只在详情里露出：它是排障信息（为什么这个号一分钟一更、另一个三分钟）
+  if (tier) {
+    const label = tier === "active" ? "活跃 · 1 分钟" : tier === "idle" ? "空闲 · 3 分钟" : "暂停（冷却/失效）";
+    rows.push({ label: "额度刷新", value: label });
+  }
+  return rows;
 }
 
 /**
@@ -766,12 +789,20 @@ function quotaDetailRows(
 function QuotaBar({
   credits,
   baseline,
+  estimated,
 }: {
   credits: AccountCredits | null | undefined;
   baseline?: { window?: string; date: string; remain: number; at?: string } | null;
+  /** 估算余额（上次账单 − usage 累计消耗）；`null` = 不可扣减，回落到真实值。 */
+  estimated?: number | null;
 }): ReactElement {
-  const tone = quotaTone(credits, baseline);
-  const pct = quotaPercent(credits, baseline);
+  // 展示时优先用估算值：轮询间隙内的消耗也能反映出来
+  const view =
+    typeof estimated === "number" && Number.isFinite(estimated)
+      ? { ...(credits ?? { size: 0, used: 0, unit: "", remain_percent: 0 }), remain: estimated }
+      : credits;
+  const tone = quotaTone(view, baseline);
+  const pct = quotaPercent(view, baseline);
   const fill =
     tone === "danger" ? "bg-danger" : tone === "warn" ? "bg-warn" : tone === "free" ? "bg-free" : "bg-line-strong";
   return (
