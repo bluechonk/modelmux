@@ -245,7 +245,8 @@ PR body 与 commit message 同守「持久记录禁止对话式内容」：只�
 
 `npm run build` + `npm run desktop` 与运行安装包**禁止在沙盒 / 受限令牌里执行**，必须绕过沙盒：
 
-1. 沙盒构建产物带 Mark of the Web——装时弹「无法验证发布者」，静默 `/S` 也停在等确认
+1. **未签名必弹**「无法验证发布者」——与 MotW 无关；沙盒构建还会再叠加 Mark of the Web，
+   静默 `/S` 同样停在等确认（因果见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) §4）
 2. 沙盒完整性级别写不进 `%LOCALAPPDATA%\Programs`——先清空旧文件再中止，留下半装状态
 
 动手前扫 `desktop/dist/**` 的 `Zone.Identifier` 并 `Unblock-File`；装完核对安装目录的 FileVersion 与时间戳。
