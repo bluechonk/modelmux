@@ -5,6 +5,8 @@
  *   - 签到 = 触发 + 账单核对两步：只信触发器会把「服务端没发」误报成签到成功。
  *   - 「今天」按北京时间（UTC+8 零点）判定，跟机器时区走会让账单整体错位。
  *   - 登录奖励是幂等一次性端点，不与每日签到混跑；「查不到」不得显示成 0（缺字段即抛 `CreditsError`）。
+ *   - 401/403 或业务码 200003 必须先续期一次再判「未登录」：`getJson` 把它们当普通返回，
+ *     续期判定只能由 `getJsonAuthed` 按状态码做。
  *
  * 铁律：高频路径（如打开面板）绝不触碰写端点。
  */
@@ -100,6 +102,38 @@ async function getJson(
   return { status: resp.status, code, data, message: cred.envelopeMessage(payload) };
 }
 
+/** 上游拒绝了访问令牌：HTTP 401/403 或业务码 200003（`authorization_verify_error`）。 */
+function isAuthRejected(status: number, code: number): boolean {
+  return status === 401 || status === 403 || code === 200003;
+}
+
+/**
+ * 带续期的读取：401/403/200003 时**续期一次并重试**，仍被拒才抛 `NotLoggedInError`。
+ *
+ * 为什么必须按状态码判而不是靠 `getJson` 抛错：`getJson` 把非 JSON 与错误码都收成
+ * 普通返回值（它要给调用方判定业务码的自由），永远不会抛 `NotLoggedInError` ——
+ * 在它外面包 `catch (err instanceof NotLoggedInError)` 是**死分支**，token 过期后
+ * 既不续期也不报未登录，只能等用户手工重登（实测 2026-11-25）。
+ */
+async function getJsonAuthed(
+  url: string,
+  c: cred.Credentials,
+  options: { platform?: boolean; timeoutMs?: number; refreshOn401?: boolean } = {},
+): Promise<{ result: Awaited<ReturnType<typeof getJson>>; credential: cred.Credentials }> {
+  const { platform = false, timeoutMs = 20_000, refreshOn401 = true } = options;
+  const result = await getJson(url, c, platform, timeoutMs);
+  if (!isAuthRejected(result.status, result.code)) return { result, credential: c };
+  // 只对「凭据失效」续期：网络超时 / 5xx 也走这条会让 refresh_token 被上游轮换一次
+  // （一次抖动就换票），且续期失败会盖掉原始的额度错误。
+  if (!refreshOn401) throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
+  const refreshed = await cred.refresh(c); // 续期失败会抛（终态），交由调用方提示重新登录
+  const retry = await getJson(url, refreshed, platform, timeoutMs);
+  if (isAuthRejected(retry.status, retry.code)) {
+    throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
+  }
+  return { result: retry, credential: refreshed };
+}
+
 /**
  * 查余额（**只读**）。
  *
@@ -109,22 +143,8 @@ export async function fetchCredits(
   options: { refreshOn401?: boolean; credential?: cred.Credentials } = {},
 ): Promise<CreditsResult> {
   const { refreshOn401 = true } = options;
-  let c = options.credential ?? cred.load(); // 未登录 → NotLoggedInError
-
-  let result: Awaited<ReturnType<typeof getJson>>;
-  try {
-    result = await getJson(upstream.balanceUrl(), c);
-  } catch (err) {
-    // 只有「凭据失效」才值得续期：网络超时 / 5xx 也走这条会让 refresh_token 被上游
-    // 轮换一次（一次抖动就换票），且刷新失败会盖掉原始的额度错误。
-    // 与 qwenworkcn / traecn / workbuddy / codebuddycn 同一口径。
-    if (!refreshOn401 || !(err instanceof cred.NotLoggedInError)) throw err;
-    c = await cred.refresh(c); // 失败会抛，交由调用方提示重新登录
-    result = await getJson(upstream.balanceUrl(), c);
-  }
-  if (result.status === 401 || result.status === 403 || result.code === 200003) {
-    throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
-  }
+  const initial = options.credential ?? cred.load(); // 未登录 → NotLoggedInError
+  const { result, credential: c } = await getJsonAuthed(upstream.balanceUrl(), initial, { refreshOn401 });
   if (result.code !== 0) {
     throw new CreditsError(`Balance query failed: code=${result.code} ${result.message}`);
   }
@@ -206,7 +226,9 @@ async function loginRewardClaimed(c?: cred.Credentials): Promise<boolean> {
     return false;
   }
   try {
-    const result = await getJson(upstream.billsUrl(), credential);
+    // 只读旁路：`fetchCredits` 传进来的是**已续期过**的凭据，这里再续一次只会多轮换
+    // 一次 refresh_token，故 refreshOn401=false（被拒即抛，由下面的 catch 保守判「未领」）。
+    const { result } = await getJsonAuthed(upstream.billsUrl(), credential, { refreshOn401: false });
     if (result.code !== 0) return false;
     const items = result.data["items"];
     if (!Array.isArray(items)) return false;
@@ -241,10 +263,7 @@ interface DailyGrant {
  * （由调用方决定怎么显示 —— 「查不到」不能显示成「没领」）。
  */
 async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
-  const result = await getJson(upstream.billsUrl(), c, false, 25_000);
-  if (result.status === 401 || result.status === 403 || result.code === 200003) {
-    throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
-  }
+  const { result } = await getJsonAuthed(upstream.billsUrl(), c, { timeoutMs: 25_000 });
   // HTTP 状态也是判据：网关错误页可能带 `code: 0`（不能只看业务码）
   if (result.status >= 400 || result.code !== 0) {
     throw new CreditsError(`Bills query failed: HTTP ${result.status} code=${result.code} ${result.message}`);
@@ -276,10 +295,10 @@ async function todayGrants(c: cred.Credentials): Promise<DailyGrant[]> {
  */
 async function triggerDailyGrant(c?: cred.Credentials): Promise<Record<string, unknown>> {
   const credential = c ?? cred.load();
-  const result = await getJson(upstream.settingInfoUrl(), credential, true, 25_000);
-  if (result.status === 401 || result.status === 403 || result.code === 200003) {
-    throw new cred.NotLoggedInError("Raccoon rejected the access token (401/403 or code 200003)");
-  }
+  const { result } = await getJsonAuthed(upstream.settingInfoUrl(), credential, {
+    platform: true,
+    timeoutMs: 25_000,
+  });
   if (result.status >= 400 || result.code !== 0) {
     throw new CreditsError(`setting_info failed: HTTP ${result.status} code=${result.code} ${result.message}`);
   }

@@ -283,6 +283,16 @@ body: { "refresh_token": "<refresh_token>" }
   另一轮刷新先落地）时**不覆盖**，改用盘上的最新值返回
   `[参考]`（`reference/agent2api/.../providers/raccoon/credentials.rs:689-742`）。
 
+**续期由业务端点的状态码触发，不由抛错触发**（`src/billing.ts` 的 `getJsonAuthed`）：
+`getJson` 把非 2xx 与业务码都收成**普通返回值**（它要让调用方判定业务码），因此
+「在 `getJson` 外面 `catch (NotLoggedInError)` 再续期」是**死分支** —— 那个异常永远不会抛。
+额度 / 账单 / `setting_info` 三个端点统一走 `getJsonAuthed`：返回 401 / 403 / `200003`
+时续期一次并重试，仍被拒才抛 `NotLoggedInError`。
+
+> IAM 令牌（`iss=<host>/iam`、`sub=pu-*`、30 天）**没有独立 refresh_token**：
+> 凭据里 `refresh_token === access_token`，续期必然被上游拒。这类账号过期后只能重新
+> 走网页登录 —— 上面的续期路径对它只能如实报「未登录」，不会白等。
+
 
 ### 2.7 用户信息
 
