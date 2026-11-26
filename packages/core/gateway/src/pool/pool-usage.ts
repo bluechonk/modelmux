@@ -1003,11 +1003,18 @@ async function refreshAccountCredits(
   return fresh;
 }
 
-/** 等待若干毫秒（错峰用）。 */
+/**
+ * 等待若干毫秒（错峰用）。
+ *
+ * **不能 `unref`**：unref 的定时器不计入事件循环的活跃句柄，一旦此刻没有别的句柄，
+ * `await` 它的 Promise 就永远不会 resolve —— 那一轮调度挂死在错峰上，且
+ * `scheduledInFlight` 一直为真，后续 tick 全部让路（实测 CI Node 22：
+ * 「Promise resolution is still pending but the event loop has already resolved」）。
+ * 错峰最多等 1 秒，为此把进程退出推迟 1 秒是划算的。
+ */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
+    setTimeout(resolve, ms);
   });
 }
 
