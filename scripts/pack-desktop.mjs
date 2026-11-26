@@ -60,6 +60,22 @@ if (!payloadReady()) {
   process.exit(1);
 }
 
+// NSIS 自定义脚本必须是 UTF-8 with BOM：NSIS 3 对「非 ASCII 无 BOM」的文件判 Bad text encoding，
+// 而 electron-builder 会**静默跳过**这个 include —— 构建照样成功、exe 照样产出，宏却从未生效，
+// 安装时退回内置的「礼貌关闭」检查，用户必弹「无法关闭」且重试永远过不去。
+// 这里显式拦下，把静默失效变成构建期报错。
+const nsh = path.join(desktop, "build", "installer.nsh");
+if (existsSync(nsh)) {
+  const head = readFileSync(nsh).subarray(0, 3);
+  if (!(head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf)) {
+    console.error(
+      "[desktop] desktop/build/installer.nsh 缺少 UTF-8 BOM —— NSIS 会静默跳过它，" +
+        "安装器将退回内置检查并卡住用户。请用 UTF-8 with BOM 保存该文件。",
+    );
+    process.exit(1);
+  }
+}
+
 // 2) Electron 工具链：desktop/ 独立安装（不进 workspaces）
 if (!existsSync(path.join(desktop, "node_modules", "electron", "dist", "electron.exe"))) {
   console.log("[desktop] 安装 Electron 工具链（首次较慢，走 .npmrc 镜像）…");
